@@ -2,156 +2,125 @@
   <img src="docs/assets/banner.png" width="800" alt="Nightjar: low-latency game streaming from your PC">
 </p>
 
-<h1 align="center">Nightjar 4.0</h1>
-
-<h3 align="center">Turn your PC into a console. Play it on every screen you own.</h3>
-
-<p align="center">Nightjar streams your PC games to Android phones, handhelds, tablets and TVs, and to Windows and Linux PCs, all on one Rust streaming engine. Your games from Steam, Epic Games, GOG, EA app, Ubisoft Connect, Battle.net and Xbox come together in one console library, and on a Retroid Pocket 6 over Wi-Fi a frame reaches the screen about 7 ms after your PC draws it. Nightjar works with Rubylight, Sunshine, Apollo, Vibepollo, NVIDIA GameStream and every other Moonlight-compatible host.</p>
-
-<p align="center"><b>Free and open source. No ads, no accounts, no analytics.</b></p>
-
-<p align="center">
-  <a id="download" href="https://github.com/RamazanKara/nightjar/releases/latest"><img src="docs/assets/download.svg" width="260" height="52" alt="Download Nightjar"></a>
-</p>
-
-<p align="center">
-  <a href="https://github.com/RamazanKara/nightjar/releases/latest/download/nightjar.apk"><b>Android</b></a> ·
-  <a href="#android-tv-and-fire-tv"><b>Android TV and Fire TV</b></a> ·
-  <a href="https://github.com/RamazanKara/nightjar/releases/latest"><b>Windows</b></a> ·
-  <a href="https://github.com/RamazanKara/nightjar/releases/latest"><b>Linux</b></a>
-</p>
-
 <p align="center">
   <a href="https://github.com/RamazanKara/nightjar/releases/latest"><img src="https://img.shields.io/github/v/release/RamazanKara/nightjar?label=release&color=e8a33d" alt="Latest release"></a>
   <a href="https://github.com/RamazanKara/nightjar/releases"><img src="https://img.shields.io/github/downloads/RamazanKara/nightjar/total?color=e8a33d" alt="Total downloads"></a>
   <a href="LICENSE.txt"><img src="https://img.shields.io/github/license/RamazanKara/nightjar?color=e8a33d" alt="License: GPL-3.0"></a>
 </p>
 
-<!-- showcase -->
+# Nightjar
+
+Nightjar is an open-source game-streaming client for Android, Android TV, Fire TV, Windows and Linux. It speaks the Moonlight protocol, so it works with Sunshine, Apollo, Vibepollo, Rubylight, NVIDIA GameStream and other compatible hosts. Nightjar reads what each PC's host reports and enables exactly the features that host supports. It never guesses from the host's name.
+
+Phones, handhelds, tablets, TVs and the desktop client share one streaming engine, written in Rust, and one set of PCs, settings and controls. Nightjar has no accounts, ads or analytics, and sends nothing to its developers.
 
 <p align="center">
-  <img src="docs/assets/shots/tv-home.png" width="820" alt="Nightjar's Home on a TV: Open World from Steam on the Living-room PC in the hero, and a Recently played row of posters with Steam, Epic Games and GOG badges, the focused one ringed in amber">
+  <a id="download" href="https://github.com/RamazanKara/nightjar/releases/latest"><img src="docs/assets/download.svg" width="260" height="52" alt="Download Nightjar"></a>
 </p>
 
 <p align="center">
-  <img src="docs/assets/shots/handheld-home.png" width="405" alt="Nightjar's Home on a Retroid Pocket 6 handheld: Continue playing with Space Sim and Open World on the Living-room PC, and the Library shelf below">
-  <img src="docs/assets/shots/stream-stats.png" width="405" alt="A Nightjar stream with the Statistics overlay: 1920 by 1080 AV1 HDR at 119.9 rendered FPS, 38.6 Mbps, 8 ms network round trip, decode time, and the PC's CPU and Radeon GPU load, temperature and power (demo sample data)">
+  <img src="docs/assets/shots/tv-home.png" width="820" alt="Nightjar's Home on a TV with a Rubylight 3.0 PC: a game in the hero and a Recently played row of posters with store badges (demo library)">
 </p>
-
-## New in 4.0
-
-<table>
-<tr>
-<td width="50%" valign="top"><b>Dolby Vision, HDR10+ and HLG.</b><br>Beside HDR10, each where your screen shows it; HDR10+ and HLG also through Vulkan, and HLG on PyroWave.</td>
-<td width="50%" valign="top"><b>Your PC's clipboard, files and folders.</b><br>Copied text both ways, images, file transfer, the folders your PC shares and USB devices handed to the PC.</td>
-</tr>
-<tr>
-<td valign="top"><b>Couch co-op.</b><br>Join a free player slot in a PC's split-screen co-op game from your phone, TV or laptop.</td>
-<td valign="top"><b>A keyboard that knows when to show.</b><br>It opens for a text field in the stream, fits it and closes after.</td>
-</tr>
-<tr>
-<td valign="top"><b>A new on-screen controller.</b><br>The Modern style: two face buttons at once, sticks that follow your thumb, and an editor right in the stream.</td>
-<td valign="top"><b>A microphone for voice chat.</b><br>Echo cancellation, noise suppression, gain, and a one-tap mute button.</td>
-</tr>
-<tr>
-<td valign="top"><b>Sound for your receiver.</b><br>Audio passthrough sends Dolby Digital, Dolby Digital Plus or PCM to a soundbar, receiver or TV.</td>
-<td valign="top"><b>Windows and Linux, all the way.</b><br>The desktop client has Home, the overlay modes, quick resume, co-op and the sharing features too.</td>
-</tr>
-</table>
-
-Plus QR pairing, a choice of error correction, Recover interrupted streams on by default, simpler settings and steadier TVs. See the [release notes](https://github.com/RamazanKara/nightjar/releases).
-
-## Your whole library, from every store
-
-With [Rubylight 3.0](https://github.com/RamazanKara/Rubylight) on your PC, Nightjar opens on Home, and Home is your entire collection. Rubylight finds the games you installed from Steam, Epic Games, GOG, EA app, Ubisoft Connect, Battle.net and the Xbox app, and Nightjar lays them out like a console.
-
-- **One library across all your PCs.** Favourites first, then Continue playing, then everything else. A game on two PCs is one card, and covers stay on your device, so your library is there even while a PC sleeps.
-- **A shelf for every store.** On the big screen, Home becomes rows of posters under a large hero of the focused game: Recently played, one row per store with its badge on every poster, and Other apps.
-- **Games you haven't added yet.** A row shows the games your PC found in its stores but never added. Pick one and your PC adds it.
-- **A page for every game.** Its store, whether it is running, installed or in HDR, the PC it runs on and the exact stream settings it will use, then Play or Resume.
-- **Wake PC and play.** A sleeping PC's games stay on Home, marked "PC asleep". Pick one and Nightjar wakes the PC, waits for it and starts the game.
-
-<!-- showcase -->
 
 <p align="center">
-  <img src="docs/assets/shots/tv-home-stores.png" width="405" alt="Nightjar's Epic Games shelf on Home: Ocean Explorer in the hero, five posters with the Epic Games badge, one marked Not installed, and the GOG shelf below">
-  <img src="docs/assets/shots/tv-all-games.png" width="405" alt="Nightjar's All games screen filtered to Epic Games, with filter chips for All, Installed, Steam, Epic Games, GOG, Xbox and Other apps, each with its game count">
+  <img src="docs/assets/shots/handheld-home.png" width="405" alt="Nightjar's Home on a Retroid Pocket 6 handheld: Continue playing and the Library shelf (demo library)">
+  <img src="docs/assets/shots/stream-stats.png" width="405" alt="A stream with the Statistics overlay: resolution, codec, frame rate, bitrate, round trip, decode time and the PC's CPU and GPU readings (demo data)">
 </p>
 
-## Everything it does
+## Features
 
-The full list, with links to every guide, is in [docs/features.md](docs/features.md).
+- **Video:** H.264, HEVC and AV1 through the device's hardware decoder, with low-latency settings tuned per decoder family ([decoder flags](docs/decoder-flags.md)). HDR10 on any host with HDR, plus HDR10+, HLG and Dolby Vision where the PC and the screen support them. Also 10-bit SDR, full-chroma YUV 4:4:4, and PyroWave decoded on the GPU. Upscaling with FSR 1 or Snapdragon GSR, and optional rendering through Vulkan.
+- **Timing:** follows the display's refresh rate, including Android's adaptive refresh and VRR on the desktop. Supported hosts get phase-lock reports, so frames arrive just before the display needs them. The desktop client can also beam race ([beam racing](docs/beam-racing.md)).
+- **Network:** **Device controls bitrate** adapts to loss, round-trip variation and decode headroom. Bitrate and frame rate can change during a stream, and error correction can be left to the PC, follow measured loss or use a fixed share. **Recover interrupted streams** resumes the running game after a transient drop. Optional tolerance keeps a stream alive through up to 60 seconds of network silence.
+- **Audio:** stereo, 5.1, 7.1 and 7.1.4, with low-latency AAudio for stereo. Passthrough sends PCM, Dolby Digital or Dolby Digital Plus to a receiver, soundbar or TV. The microphone gets echo cancellation, noise suppression, gain and an in-stream mute.
+- **Input:** up to 16 controllers with per-model mapping. Direct USB drivers for Xbox, DualSense (adaptive triggers and haptics) and Switch Pro controllers. Trackpad, direct-touch, multi-touch and local-cursor modes, with the PC's own cursor shapes. Native pen, a full PC keyboard, and a soft keyboard that opens when a text field on the PC takes focus. On-screen controls are Android-only.
+- **Library:** Home merges the games of all your PCs, with a shelf per store on a TV and a page per game. A sleeping PC can be woken from Home. Nightjar also launches games from Android TV's home screen, Beacon, ES-DE, Daijisho and Pegasus.
+- **Sharing:** clipboard sync, clipboard images, file transfer, the PC's shared folders, and USB devices forwarded to the PC.
+- **Diagnostics:** an overlay in Compact, Statistics and Debug modes, and a stream health report that explains stutter. An input latency test, a decoder benchmark that runs without a PC, frame timings as CSV, a connection test, and redacted problem reports that leave the device only when you share them.
 
-- **Library:** Home with favourites and Continue playing, a shelf per store on a TV, All games, a page per game, Wake PC and play, a confirm before a running game closes, Join co-op, and launching from the Android TV home screen, Beacon, ES-DE, Daijisho, Pegasus or a frontend's command line.
-- **Pairing and PCs:** discovery, manual addresses and Wake-on-LAN; PIN, one-time PIN and QR pairing; per-device permissions; settings per PC and per game, profiles by network and a mobile data cap; Remote Monitor and Input-only; a PIN lock.
-- **Picture:** H.264, HEVC and AV1 with decoder tuning per chip; HDR10, HDR10+, HLG and Dolby Vision; 10-bit SDR and full-colour 4:4:4 on Android and the desktop, wherever the decoder handles them; PyroWave on the GPU; FSR and Snapdragon GSR upscaling; Render through Vulkan; a virtual display at your device's resolution; adaptive refresh, VRR and phase-lock timing; beam racing on the desktop; rotation, picture-in-picture and external displays.
-- **Quality and network:** Device controls bitrate up to 2000 Mbps, automatic resolution and frame rate, mid-stream bitrate and frame rate changes, a choice of error correction, Recover interrupted streams, riding out network drops of up to 60 seconds, Wi-Fi and link speed hints for the PC, and a guide to play away from home over Tailscale.
-- **Sound:** stereo, 5.1 and 7.1 with low-latency AAudio, audio passthrough, and a microphone with echo cancellation, noise suppression, gain and a mute button.
-- **Controls:** up to 16 controllers with per-model mapping and extra buttons for the touchpad click, Share and paddles; DualSense over USB with adaptive triggers and haptics; Xbox and Switch Pro USB drivers; Classic and Modern on-screen controllers; per-game touch controls; trackpad, direct and multi-touch modes and a local cursor with the PC's cursor shapes; a full PC keyboard; a keyboard that follows text fields; mouse, pen and keyboard shortcuts.
-- **Sharing:** clipboard sync, clipboard images, files, shared folders and USB devices.
-- **Diagnostics:** an overlay in Compact, Statistics and Debug with your PC's CPU and GPU readings, Why did my stream stutter?, an input latency test, a decoder benchmark without a PC, frame timings as CSV, a connection test and problem reports that stay on your device.
-- **Look and feel:** controller and remote first, status in words and shapes as well as colour, settings that open on what most people change with search and presets, interface size, high contrast, reduced motion, three themes, 15 languages and offline help.
-
-## Your PC's controls, in the stream menu
-
-Press Back while you play. **Session and graphics** has Resume, Disconnect, End session and Close game, the facts of your connection (Wi-Fi generation, band, speed and round trip), and a **Radeon panel** for your PC's AMD driver features such as Anti-Lag and Radeon Chill. Every change goes back exactly as it was when the session ends. [Home and the session menu](docs/console.md).
-
-<!-- showcase -->
+Features beyond the base protocol depend on the host; see [Hosts](#hosts). The complete list, with a link to each guide, is in [features](docs/features.md).
 
 <p align="center">
-  <img src="docs/assets/shots/stream-menu-radeon.png" width="620" alt="Nightjar's Session and graphics page over a stream: the bitrate and Wi-Fi link, then Radeon graphics for an AMD Radeon RX 7900 XT with Anti-Lag on, Radeon Chill, its maximum FPS slider, the frame rate target and vertical sync">
+  <img src="docs/assets/shots/desktop-home.png" width="600" alt="Nightjar for Windows: Home with a library of games as cover art and the PC below (demo library)">
 </p>
 
-## Fast where you feel it
+## Measured performance
 
-- **About 7 ms from PC to screen** on a Retroid Pocket 6 over Wi-Fi: the median picture age of HEVC 1080p60 at 40 Mbps, measured on 2026-10-23 ([runs](https://github.com/RamazanKara/Rubylight/blob/main/rust/PERFORMANCE.md#october-23-rust-engine-against-the-c-engine-on-android-b8)).
-- **Decoders tuned per chip.** Low-latency settings for Snapdragon, MediaTek, Tegra, Exynos, Google Tensor and Amlogic decoders ([decoder flags](docs/decoder-flags.md)), and decode times from real devices in the [device results](docs/devices.md#devices).
-- **Frames timed to your display.** Pacing follows Android's adaptive refresh and the game's own frame rate, and Nightjar tells your PC how long frames wait for your screen so they arrive just in time.
-- **A stream made for your link.** Nightjar tells your PC your wired link speed, or that you are on Wi-Fi, and how much video it lost each second, so the PC paces the stream and its error correction for your connection.
+All results are our own measurements against a Rubylight PC with a Radeon RX 7900 XT:
 
-## One engine, every screen
+| Device and link | Stream | Result |
+| --- | --- | --- |
+| Retroid Pocket 6, Wi-Fi | HEVC 1080p60, 40 Mbps | Median picture age 6.92 ms on the new streaming engine (7.04 ms on the classic engine), measured from the PC's capture timestamp to the frame rendered on the device ([runs](https://github.com/RamazanKara/Rubylight/blob/main/rust/PERFORMANCE.md#october-23-rust-engine-against-the-c-engine-on-android-b8)) |
+| Retroid Pocket 6, Wi-Fi | HEVC 1080p120, 28 Mbps | About 120 fps ([4.0.0 notes](https://github.com/RamazanKara/nightjar/releases/tag/v4.0.0)) |
+| Retroid Pocket 6, Wi-Fi | PyroWave 1080p120, default bitrate | 119.6 to 120 fps, about 1.7 ms per frame for the decode steps ([4.0.0 notes](https://github.com/RamazanKara/nightjar/releases/tag/v4.0.0)) |
 
-Phones, foldables, handhelds, tablets, Android TV and Fire TV run the same Rust streaming engine as the Windows and Linux client. Home, your PCs, your settings, the session menu and the Radeon panel come with you to every one of them. The desktop client brings hardware decoding, HDR10, 10-bit SDR, full-chroma 4:4:4 on the hardware decoder, VRR pacing, controller-first navigation, GPU PyroWave decoding and beam racing, and brings its own FFmpeg, so the Linux build runs across distributions, from Ubuntu to Arch. [Android and desktop](docs/CLIENT-PARITY.md) · [Desktop client](protocol/desktop/README.md).
+Decode times for more devices are in the [device results](docs/devices.md#devices); the built-in benchmark adds yours.
 
-<!-- showcase -->
+## Hosts
 
-<p align="center">
-  <img src="docs/assets/shots/desktop-home.png" width="600" alt="Nightjar's desktop client on Windows: the Home screen with a library of ten games as cover art, and the Living-room PC below">
-</p>
+Every Moonlight-compatible host gets the full stream. That includes discovery, PIN pairing, Wake-on-LAN, the app library, H.264, HEVC and AV1, HDR10, surround sound, controllers, touch, mouse and keyboard, recovery and the diagnostics. Nightjar enables everything else per PC, from the capabilities the host reports:
 
-## Works with your host
+| Host capability | Examples | What Nightjar adds |
+| --- | --- | --- |
+| Sunshine protocol extensions | Sunshine and hosts built on it | DualSense adaptive triggers and lightbar, controller motion and touchpads, native touch and pen |
+| Device permissions and virtual displays | Apollo, Vibepollo, Rubylight | One-time PIN pairing, per-device permissions, a virtual display at the device's resolution, fractional refresh rates, clipboard and server commands |
+| Rubylight extensions | Rubylight 3.0 | Home with games from every store, the Session and graphics menu with Radeon settings, QR pairing, sharing, joining co-op games, HDR10+, HLG and Dolby Vision, 7.1.4 and audio passthrough, bitrate and frame rate changes during a stream, host hardware readings |
 
-Nightjar reads what each PC's host can do and shows exactly the features it offers, so every PC's settings fit it. [Rubylight 3.0](https://github.com/RamazanKara/Rubylight), the host built for Radeon, brings out everything on this page: the store library, the Radeon panel, live GPU statistics, every HDR format, full-colour 4:4:4, PyroWave, sharing, co-op and Wi-Fi pacing from the first frame. Every other Moonlight-compatible host gets the full stream, controls and diagnostics, plus the extras it offers, such as virtual displays and one-time PIN pairing on Apollo and Vibepollo, and host statistics on Vibepollo. The [host feature matrix](docs/PARITY-MATRIX.md) lists every feature for every host.
+Error correction choices and the PC's own automatic bitrate also work with Sunshine-based PCs that accept them, and PyroWave works with any host that offers it. A PC whose host lacks a feature hides it, or names the host setting or permission it needs. [Host feature support](docs/PARITY-MATRIX.md) lists every capability and the hosts known to provide it.
 
-## Get started
+## Install
 
-1. Run a streaming host on your PC, such as [Rubylight](https://github.com/RamazanKara/Rubylight), [Apollo](https://github.com/ClassicOldSong/Apollo), [Sunshine](https://github.com/LizardByte/Sunshine) or [Vibepollo](https://github.com/Nonary/Vibepollo), and add your games.
-2. Install Nightjar from the [latest release](https://github.com/RamazanKara/nightjar/releases/latest):
-   - **Android** (5.0 and newer): [download the APK](https://github.com/RamazanKara/nightjar/releases/latest/download/nightjar.apk), open it and allow the install. Nightjar tells you when an update is out. To have [Obtainium](https://github.com/ImranR98/Obtainium) keep it current, add `https://github.com/RamazanKara/nightjar` there. PyroWave runs on 64-bit Android 10 and newer with a Vulkan 1.3 GPU ([video requirements](docs/video-and-latency.md#codecs)).
-   - **Windows** (10 and 11): download `nightjar-desktop-<version>-windows-x86_64-setup.exe` and run it. It installs for your user without asking for administrator rights and adds Nightjar to the Start menu; a newer setup updates it in place and keeps your settings and paired PCs. The `.zip` holds the same files and runs without installing: unzip it and run `nightjar.exe`.
-   - **Linux**: on Debian and Ubuntu install the `.deb` (`sudo apt install ./nightjar-desktop-<version>-linux-x86_64.deb`), on Fedora the `.rpm` (`sudo dnf install ./nightjar-desktop-<version>-linux-x86_64.rpm`). Elsewhere run the `.AppImage` after `chmod +x`, or unpack the `.tar.gz` and run `./nightjar`. All of them need glibc 2.39 or newer (Ubuntu 24.04, Debian 13, Fedora 40 and later). [Install and uninstall](protocol/desktop/README.md#installing).
-3. Pick your PC on the network and enter the PIN Nightjar shows in your host's web UI. With Rubylight, you can instead tap **Scan QR code** in Add PC and scan the code on its Devices page.
-4. If your host has per-device permissions, allow your device to list, view and launch apps and the input types you use. Then pick a game. With a Rubylight 3.0 host, Nightjar opens on [Home](docs/console.md); turn on Host control for your device to close games and change Radeon settings. [Pairing and permissions](docs/pairing.md).
+Download from the [latest release](https://github.com/RamazanKara/nightjar/releases/latest). Each release lists SHA-256 checksums of all its files in `SHA256SUMS-<version>.txt`.
 
-### Android TV and Fire TV
+- **Android:** install [`nightjar.apk`](https://github.com/RamazanKara/nightjar/releases/latest/download/nightjar.apk) and allow installing from the app that opened it. Release APKs are signed with the Nightjar release key, so later releases install over it. Nightjar checks GitHub for new releases and asks before installing one. To manage updates with [Obtainium](https://github.com/ImranR98/Obtainium), add `https://github.com/RamazanKara/nightjar`.
+- **Android TV and Fire TV:** install AFTVnews' [Downloader](https://www.aftvnews.com/downloader/) from the TV's app store, enter the code **`3815143`** and install the APK it downloads. The code always points to the latest release.
+- **Windows:** run `nightjar-desktop-<version>-windows-x86_64-setup.exe`. It installs for the current user, needs no administrator rights, and updates in place, keeping settings and paired PCs. The `.zip` contains the same files and runs without installation.
+- **Linux:** install the `.deb` (`sudo apt install ./nightjar-desktop-<version>-linux-x86_64.deb`) or the `.rpm` (`sudo dnf install ./nightjar-desktop-<version>-linux-x86_64.rpm`). On other distributions, run the `.AppImage` or unpack the `.tar.gz`.
 
-Install AFTVnews' [Downloader](https://www.aftvnews.com/downloader/) from your TV's app store, enter the code **`3815143`** in its URL field and install the APK it downloads, or type the link `https://github.com/RamazanKara/nightjar/releases/latest/download/nightjar.apk`. Both always fetch the latest release. Allow Downloader to install apps when your TV asks.
+Nightjar installs beside Moonlight and other clients and has its own app ID, so you can try it without giving anything up. [Installing the desktop client](protocol/desktop/README.md#installing) covers removal and the portable files.
 
-### Coming from Moonlight?
+## Requirements
 
-Nightjar installs beside it, so you can try it without giving anything up: pair it once with your host and your games are there. Bring your on-screen keyboard layouts and Custom Keys files with you ([import](docs/controls.md#per-game-controls)), and point your launcher at Nightjar with **PC settings → Add games to a launcher**.
+| Platform | Requirement |
+| --- | --- |
+| Android phones, tablets, handhelds, Android TV, Fire TV | Android 5.0 or newer. PyroWave needs 64-bit Android 10 or newer with Vulkan 1.3. Audio passthrough needs Android 10 or newer, and 7.1.4 needs Android 12L or newer. |
+| Windows | Windows 10 or 11, x86-64. HDR10 needs an HDR display. |
+| Linux | x86-64 with glibc 2.39 or newer: Ubuntu 24.04, Debian 13, Fedora 40 or later. Hardware decoding uses VA-API, V4L2 M2M or NVDEC. |
+| PC | A Moonlight-compatible host. The host's own requirements apply. |
 
-Coming from Rubylight Android? Nightjar is the same app under its new name. It installs over Rubylight Android 0.5.0 and keeps your PCs, pairings and settings.
+## Quick start
 
-## Built with its players
+1. Install a streaming host on your PC, for example [Sunshine](https://github.com/LizardByte/Sunshine), [Apollo](https://github.com/ClassicOldSong/Apollo), [Vibepollo](https://github.com/Nonary/Vibepollo) or [Rubylight](https://github.com/RamazanKara/Rubylight).
+2. Open Nightjar on the same network. It finds the PC; if not, add its address under **Add PC**.
+3. Select the PC and enter the PIN Nightjar shows in the host's web UI. On a Rubylight PC, **Scan QR code** pairs from the code on its **Devices** page instead.
+4. If the host sets per-device permissions, allow this device to list, view and launch apps, and the input it uses.
+5. Pick a game.
 
-Nightjar moves at the speed of its players. PIN lock ([#35](https://github.com/RamazanKara/nightjar/issues/35)), the overlay in any corner ([#34](https://github.com/RamazanKara/nightjar/issues/34)) and waking a PC from Home ([#31](https://github.com/RamazanKara/nightjar/issues/31)) were asked for and released on the same day. 10-bit SDR ([#28](https://github.com/RamazanKara/nightjar/issues/28)), automatic bitrate limits ([#20](https://github.com/RamazanKara/nightjar/issues/20)), Vulkan rendering for frame generation ([#17](https://github.com/RamazanKara/nightjar/issues/17)), full chroma on AMD ([#16](https://github.com/RamazanKara/nightjar/issues/16)) and Beacon support ([#8](https://github.com/RamazanKara/nightjar/issues/8)) followed within days.
+[Quick start](docs/quick-start.md) and [pairing and permissions](docs/pairing.md) cover each step in detail.
 
-**[Ask for a feature](https://github.com/RamazanKara/nightjar/issues/new/choose)**, and add your device to the [device results](https://ramazankara.github.io/nightjar/devices.html) with the built-in benchmark.
+## Documentation
 
-## Docs
+The [documentation index](docs/index.md) lists every guide. The most used pages:
 
-[Start here](docs/index.md) · [Everything Nightjar does](docs/features.md) · [Quick start](docs/quick-start.md) · [Pairing](docs/pairing.md) · [Settings](docs/settings.md) · [Controls](docs/controls.md)<br>
-[Home and session menu](docs/console.md) · [Clipboard, files and USB](docs/sharing.md) · [Android and desktop](docs/CLIENT-PARITY.md) · [Desktop client](protocol/desktop/README.md) · [Beam racing](docs/beam-racing.md) · [Video & latency](docs/video-and-latency.md) · [Troubleshooting](docs/TROUBLESHOOTING.md) · [Building](docs/building.md) · [Frontends](docs/FRONTENDS.md) · [Translations](docs/TRANSLATIONS.md) · [FAQ](docs/faq.md) · [Privacy](docs/PRIVACY.md)
+- [Quick start](docs/quick-start.md), [pairing and permissions](docs/pairing.md) and [remote play](docs/remote-setup.md)
+- [Settings reference](docs/settings.md) for Android and the desktop client
+- [Controls](docs/controls.md), [video and latency](docs/video-and-latency.md) and [clipboard, files and USB devices](docs/sharing.md)
+- [Home and the session menu](docs/console.md) for Rubylight PCs
+- [Troubleshooting](docs/TROUBLESHOOTING.md), [stream health](docs/stream-health.md) and the [FAQ](docs/faq.md)
+- [Android and desktop compared](docs/CLIENT-PARITY.md) and the [desktop client](protocol/desktop/README.md)
 
-[GPL-3.0](LICENSE.txt) · [Credits and third-party notices](docs/index.md#license-and-credits)
+## Building
+
+The Android app builds with Gradle and JDK 21; its native code needs the Android NDK and Rust. The desktop client is a Cargo workspace under [`protocol/`](protocol). [Building](docs/building.md) covers the toolchains, signing, the release workflow and the documentation checks. The [desktop client's README](protocol/desktop/README.md#building) covers Windows and Linux builds and packaging.
+
+## Contributing
+
+Report bugs and request features in the [issue tracker](https://github.com/RamazanKara/nightjar/issues/new/choose). [Device results](docs/devices.md) explains how to submit your device's benchmark, and [translations](docs/TRANSLATIONS.md#help-translate) explains how to add or fix a language.
+
+## Privacy
+
+Streams, input, clipboard contents and files travel only between your device and your PC. Nightjar contacts GitHub for update checks, and Moonlight's public STUN and connection-test servers for network diagnostics. Problem reports stay on the device until you share them. Details are in the [privacy policy](docs/PRIVACY.md).
+
+## License and credits
+
+Nightjar is licensed under [GPL-3.0](LICENSE.txt). It is based on Moonlight Android by Cameron Gutman, Diego Waxemberg, Aaron Neyer, Andrew Hennessy and contributors. It also includes work from other GPL-3.0 Moonlight forks and bundled third-party components. [License and credits](docs/index.md#license-and-credits) names each of them and the notices to keep when redistributing.

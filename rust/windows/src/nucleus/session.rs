@@ -39,6 +39,11 @@ const RECLICK: Duration = Duration::from_secs(5);
 /// Passes in a row that may fail (the desktop switching for a UAC prompt)
 /// before the session ends with the error.
 const FAILED_PASSES: u32 = 8;
+/// How long an instance of Rubylight's own handler's game that exited
+/// before the session runs waits for Nucleus' box saying the game refused
+/// its hooks: one Nucleus fails to inject into as it starts it is ended
+/// before the box shows (#59).
+const REFUSAL_GRACE: Duration = Duration::from_secs(2);
 /// How long Nucleus and the instances get to close before they are ended.
 const STOP_TIMEOUT: Duration = Duration::from_secs(10);
 /// Process loopback capture of one process tree came with this build.
@@ -532,6 +537,9 @@ struct Runner {
     /// Until when Nucleus may still show that box: it injects once, as it
     /// starts the game or right after. Set at the first window.
     inject_by: Option<Instant>,
+    /// An instance that exited while that box may still come, and when
+    /// ([`REFUSAL_GRACE`]).
+    exited_at: Option<(usize, Instant)>,
     /// The user's Nucleus settings the session changed (None from the
     /// user's own copy, whose stay), then the game's compatibility settings
     /// from before Nucleus started; last, so they drop after Nucleus. None
@@ -573,30 +581,40 @@ impl Runner {
             Ok(pass) => pass,
             Err(error) => return self.failed_pass(error),
         };
+        let windows = pass.windows.iter().flatten().count();
+        if windows > 0 && self.inject_by.is_none() {
+            self.inject_by = Some(now + START_TIMEOUT);
+        }
+        let injecting = self.inject_by.is_none_or(|by| now < by);
+        // From the click: a game Nucleus injects into as it starts it is
+        // refused before its process runs, and ended before the box shows.
+        if self.clicked
+            && injecting
+            && let Some(end) = self.refused_hooks(&job)
+        {
+            return Some(end);
+        }
         if let Some(&slot) = pass.gone.first() {
-            let why = format!("Player {}'s instance of {} exited", slot + 1, self.title);
-            return Some(self.failure(why));
+            let running = self.shared.session.lock().unwrap().phase == Phase::Running;
+            if self.own_game.is_some() && injecting && !running {
+                self.exited_at.get_or_insert((slot, now));
+            } else {
+                return Some(self.exited(slot));
+            }
+        }
+        if let Some((slot, at)) = self.exited_at
+            && now >= at + REFUSAL_GRACE
+        {
+            return Some(self.exited(slot));
         }
         *self.shared.roots.lock().unwrap() = pass.roots.clone();
         let roots = pass.roots.iter().flatten().count();
-        let windows = pass.windows.iter().flatten().count();
         let progress = (self.clicked, roots, windows);
         if progress != self.progress {
             self.progress = progress;
             self.deadline = now + START_TIMEOUT;
         }
         self.windows = pass.windows.clone();
-        if windows > 0 && self.inject_by.is_none() {
-            self.inject_by = Some(now + START_TIMEOUT);
-        }
-        // From the click: a game Nucleus injects into as it starts it is
-        // refused before its process runs.
-        if self.clicked
-            && self.inject_by.is_none_or(|by| now < by)
-            && let Some(end) = self.refused_hooks(&job)
-        {
-            return Some(end);
-        }
         let running = {
             let mut session = self.shared.session.lock().unwrap();
             let running = session.phase == Phase::Running;
@@ -734,6 +752,12 @@ impl Runner {
             ),
         };
         Some(self.failure(why))
+    }
+
+    /// Player `slot`'s instance exited.
+    fn exited(&mut self, slot: usize) -> End {
+        let why = format!("Player {}'s instance of {} exited", slot + 1, self.title);
+        self.failure(why)
     }
 
     /// A pass that could not look at the desktop: the session ends after
@@ -1276,6 +1300,7 @@ fn begin(
             .own
             .then(|| (start.folder.to_path_buf(), start.exe_path.to_string())),
         inject_by: None,
+        exited_at: None,
         settings,
         layers: Some(layers),
     };
@@ -1707,6 +1732,7 @@ mod tests {
             game_folder: None,
             own_game: None,
             inject_by: None,
+            exited_at: None,
             settings: None,
             layers: None,
         }
@@ -1912,6 +1938,74 @@ mod tests {
             files::inject_for(host.path(), exe).unwrap(),
             Inject::Runtime
         );
+    }
+
+    /// #59: a game Nucleus fails to inject into as it starts it runs
+    /// suspended for a moment, is ended, and only then does Nucleus show its
+    /// box: the instance that exited waits for the box, and the game gets
+    /// the next way. Without a box, it exited. A hub handler's instance is
+    /// not held.
+    #[test]
+    fn an_instance_ended_before_the_startup_box_shows_is_a_refusal() {
+        let [_, startup] = generic::INJECT_FAILED;
+        let exe = r"D:\Games\Black Flag\ACBlackFlag.exe";
+        let suspended = |screen: &Screen| {
+            screen
+                .0
+                .lock()
+                .unwrap()
+                .processes
+                .push(process(20, NUCLEUS, SINCE + 1, "Game.exe"));
+        };
+        let ended = |screen: &Screen| screen.0.lock().unwrap().processes.retain(|p| p.pid != 20);
+        for (own, box_shows) in [(true, true), (true, false), (false, false)] {
+            let t0 = Instant::now();
+            let host = tempfile::tempdir().unwrap();
+            files::refuse_inject(host.path(), exe).unwrap();
+            let (screen, probe) = (screen(), Probe::default());
+            let mut runner = runner(1, &screen, &probe, t0);
+            runner.own_game = own.then(|| (host.path().to_path_buf(), exe.to_string()));
+            label(&screen);
+            assert_eq!(runner.step(t0), None);
+            suspended(&screen);
+            assert_eq!(runner.step(t0 + PERIOD), None);
+            assert_eq!(
+                runner.shared.roots.lock().unwrap().iter().flatten().count(),
+                1
+            );
+            ended(&screen);
+            let exited = Some(End::Failed("Player 1's instance of Game exited".into()));
+            let end = runner.step(t0 + 2 * PERIOD);
+            if !own {
+                assert_eq!(end, exited);
+                continue;
+            }
+            assert_eq!(end, None);
+            if !box_shows {
+                assert_eq!(runner.step(t0 + 2 * PERIOD + REFUSAL_GRACE / 2), None);
+                assert_eq!(runner.step(t0 + 2 * PERIOD + REFUSAL_GRACE), exited);
+                assert_eq!(
+                    files::inject_for(host.path(), exe).unwrap(),
+                    Inject::Startup
+                );
+                continue;
+            }
+            screen
+                .0
+                .lock()
+                .unwrap()
+                .boxes
+                .push((NUCLEUS, refused(startup)));
+            let end = runner.step(t0 + 3 * PERIOD);
+            assert!(
+                matches!(&end, Some(End::Failed(why)) if why.contains("hook it another way")),
+                "{end:?}"
+            );
+            assert_eq!(
+                files::inject_for(host.path(), exe).unwrap(),
+                Inject::Stealth
+            );
+        }
     }
 
     /// #59: a box that was up before Nucleus started is an earlier

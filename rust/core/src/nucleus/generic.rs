@@ -845,21 +845,38 @@ mod tests {
         let hooked = steam_game();
         assert_eq!(hooked.inject, Inject::Runtime);
         let runtime = hooked.handler_of(owner);
-        // The handlers written before the ladder are left as they are.
-        let proto: Vec<&str> = runtime
-            .lines()
-            .skip_while(|l| *l != "Game.FakeFocus = true;")
-            .take(4)
-            .collect();
-        assert_eq!(
-            proto,
-            [
-                "Game.FakeFocus = true;",
-                "Game.ProtoInput.InjectStartup = false;",
-                "Game.ProtoInput.InjectRuntime_EasyHookMethod = true;",
-                "Game.ProtoInput.FocusHooks = true;",
-            ]
-        );
+        // The handlers 3.0.1 wrote are left as they are: the first way's
+        // text is theirs.
+        let written_by_3_0_1 = [
+            "// Rubylight one-player handler v1: Rubylight writes this file for background streams and rewrites it when it changes. A hub handler for this game takes its place.",
+            "// Written for S-1-5-21-1-2-3-1001",
+            format!("Game.GUID = \"{}\";", hooked.guid()).as_str(),
+            "Game.GameName = \"Assassin's Creed \\\"IV\\\"\";",
+            "Game.ExecutableName = \"AC4BFSP.exe\";",
+            "Game.MaxPlayers = 1;",
+            "Game.MaxPlayersOneMonitor = 1;",
+            "// The slot's pad only: keyboard and mouse stay with the person at the PC, and so does the taskbar.",
+            "Game.SupportsKeyboard = false;",
+            "Game.HideTaskbar = false;",
+            "// The game runs from its own folder and nothing is written there: no links, copies, DLLs or tools that need administrator rights.",
+            "Game.Hook.CustomDllEnabled = false;",
+            "// The game keeps running and reading its pad without focus, and never sees the PC's keyboard or moves its cursor.",
+            "Game.FakeFocus = true;",
+            "Game.ProtoInput.InjectStartup = false;",
+            "Game.ProtoInput.InjectRuntime_EasyHookMethod = true;",
+            "Game.ProtoInput.FocusHooks = true;",
+            "Game.ProtoInput.XinputHook = true;",
+            "Game.ProtoInput.UseOpenXinput = true;",
+            "Game.ProtoInput.GetKeyStateHook = true;",
+            "Game.ProtoInput.GetAsyncKeyStateHook = true;",
+            "Game.ProtoInput.GetKeyboardStateHook = true;",
+            "Game.ProtoInput.GetCursorPosHook = true;",
+            "Game.ProtoInput.SetCursorPosHook = true;",
+            "Game.ProtoInput.ClipCursorHook = true;",
+        ]
+        .join("\r\n")
+            + "\r\n";
+        assert_eq!(runtime, written_by_3_0_1);
         let hook_lines = |text: &str| {
             text.lines()
                 .filter(|l| l.starts_with("Game.ProtoInput.") && l.contains("Hook"))

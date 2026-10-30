@@ -241,22 +241,30 @@ fn injection(folder: &Path) -> PathBuf {
 }
 
 fn injections(folder: &Path) -> Result<BTreeMap<String, Inject>> {
+    // A test build before the ladder listed the games that refused the
+    // first way here (`{"Games": [<.exe>]}`): they start at the second.
+    let mut games: BTreeMap<String, Inject> =
+        read_existing(&folder.join("Rubylight-unhooked.json"))?
+            .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
+            .and_then(|json| json.get("Games").and_then(|g| g.as_array()).cloned())
+            .into_iter()
+            .flatten()
+            .filter_map(|game| Some((game.as_str()?.to_string(), Inject::Startup)))
+            .collect();
     let path = injection(folder);
     let Some(text) = read_existing(&path)? else {
-        return Ok(BTreeMap::new());
+        return Ok(games);
     };
     let unreadable = || format!("{} can't be read: delete it", path.display());
     let json: serde_json::Value = serde_json::from_str(&text).with_context(unreadable)?;
-    let Some(games) = json.get("Games").and_then(serde_json::Value::as_object) else {
+    let Some(kept) = json.get("Games").and_then(serde_json::Value::as_object) else {
         bail!(unreadable());
     };
-    games
-        .iter()
-        .map(|(game, way)| {
-            let way = way.as_str().and_then(Inject::from_name);
-            Ok((game.clone(), way.with_context(unreadable)?))
-        })
-        .collect()
+    for (game, way) in kept {
+        let way = way.as_str().and_then(Inject::from_name);
+        games.insert(game.clone(), way.with_context(unreadable)?);
+    }
+    Ok(games)
 }
 
 fn game_key(exe: &str) -> String {
@@ -1061,6 +1069,30 @@ Game.MaxPlayers = 4;
         let other_text =
             std::fs::read_to_string(nucleus.path().join("handlers").join(other.file())).unwrap();
         assert!(other_text.contains("Game.ProtoInput.InjectRuntime_EasyHookMethod = true;"));
+        // A game the test build before the ladder kept as refusing the
+        // hooks starts at the second way; one kept since, at its own.
+        let legacy = tempfile::tempdir().unwrap();
+        std::fs::write(
+            legacy.path().join("Rubylight-unhooked.json"),
+            r#"{"Games": ["d:\\games\\black flag\\acblackflag.exe", "d:\\games\\other\\game.exe"]}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            inject_for(legacy.path(), &setup.exe_path).unwrap(),
+            Inject::Startup
+        );
+        assert_eq!(
+            refuse_inject(legacy.path(), &other.exe_path).unwrap(),
+            Inject::Stealth
+        );
+        assert_eq!(
+            inject_for(legacy.path(), &other.exe_path).unwrap(),
+            Inject::Stealth
+        );
+        assert_eq!(
+            inject_for(legacy.path(), &setup.exe_path).unwrap(),
+            Inject::Startup
+        );
         // A file Rubylight can't read is loud, never taken for the first way.
         for broken in [
             "{",

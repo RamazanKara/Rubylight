@@ -18,6 +18,7 @@ pub mod foundation;
 mod hardware_metrics;
 mod identity;
 mod launch;
+mod luminance;
 mod native;
 mod network_path;
 mod pairing;
@@ -61,6 +62,7 @@ pub use launch::{
     asks_to_confirm_replace, parse_launch_reply, HostDisplay, LaunchRequest, Launched,
     CONFIRM_REPLACE, CORE_LAUNCH_PARAMETERS,
 };
+pub use luminance::DisplayLuminance;
 pub use native::{FilePermissions, NativeCapabilities};
 pub use network_path::{NetworkPath, MAX_NETWORK_PATH_BYTES};
 pub use pairing::{PairFailure, PairResult, PairStep};

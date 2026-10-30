@@ -115,6 +115,8 @@ pub struct LaunchPlan {
     pub recovery: Option<recovery::Backoff>,
     /// The user confirmed closing the running app for this launch (`rlConfirmReplace`).
     pub confirm_replace: bool,
+    /// The display's luminance for hosts other than Rubylight (`sdl::launch_luminance`).
+    pub display_luminance: Option<nightjar_core::http::DisplayLuminance>,
 }
 
 /// The stream's negotiated shape.
@@ -1101,6 +1103,7 @@ fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) ->
         // The host lists 0x553C in DESCRIBE only when asked.
         rate_change: rate_change::asked_at_launch(role),
         clipboard_sync: settings.clipboard_sync && role != AppRole::RemoteMonitor,
+        display_luminance: plan.display_luminance,
         ..Default::default()
     };
     let port = if plan.record.http_port == 0 {
@@ -4571,6 +4574,7 @@ mod replace_tests {
             host_link_mbps: 0,
             recovery: None,
             confirm_replace: false,
+            display_luminance: None,
         }
     }
 

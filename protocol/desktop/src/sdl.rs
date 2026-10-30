@@ -254,6 +254,22 @@ pub fn display_caps(renderer: *mut SDL_Renderer) -> rubylight_protocol::control:
     caps
 }
 
+/// The display's luminance for the launch query of hosts other than Rubylight, from the same
+/// output description as [`display_caps`] (Moonlight V+ PC sends the DXGI values too). The
+/// desktop has no HDR/SDR ratio to estimate a missing peak from, so such a display sends none.
+pub fn launch_luminance(renderer: *mut SDL_Renderer) -> Option<nightjar_core::http::DisplayLuminance> {
+    luminance_of(&display_caps(renderer))
+}
+
+fn luminance_of(caps: &rubylight_protocol::control::DisplayCaps) -> Option<nightjar_core::http::DisplayLuminance> {
+    nightjar_core::http::DisplayLuminance::from_display(
+        caps.max_centinits as f32 / 100.0,
+        caps.min_decimillinits as f32 / 10_000.0,
+        caps.max_average_centinits as f32 / 100.0,
+        f32::NAN,
+    )
+}
+
 pub fn create_renderer(window: *mut SDL_Window, gpu: bool) -> *mut SDL_Renderer {
     // SAFETY: The window is live, and all property strings are static.
     unsafe {
@@ -349,5 +365,20 @@ pub fn screenshot(renderer: *mut SDL_Renderer, path: &Path) -> Result<(), String
             let _ = std::fs::create_dir_all(dir);
         }
         image::save_buffer(path, &pixels, w as u32, h as u32, image::ColorType::Rgba8).map_err(|e| e.to_string())
+    }
+}
+
+#[cfg(test)]
+mod luminance_tests {
+    use super::*;
+    use rubylight_protocol::control::DisplayCaps;
+
+    #[test]
+    fn the_launch_gets_the_values_the_control_message_carries() {
+        let caps = DisplayCaps { hdr: true, max_centinits: 100_000, max_average_centinits: 40_000, min_decimillinits: 50 };
+        let luminance = luminance_of(&caps).unwrap();
+        assert_eq!(luminance.query_parameters(), "&minBrightness=0.005&maxBrightness=1000.0&maxAverageBrightness=400.0");
+        // No output description: nothing is sent and the host picks its own.
+        assert_eq!(luminance_of(&DisplayCaps::default()), None);
     }
 }

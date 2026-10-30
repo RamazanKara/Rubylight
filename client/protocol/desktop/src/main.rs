@@ -538,9 +538,8 @@ impl App {
         }
         self.network_test = None;
         if let Some(command) = self.launcher.screen.save_command() { self.command(command); }
-        if let Some((streaming, _)) = self.streaming.take() {
-            streaming.finish(self.window, &mut self.pads);
-        }
+        // The PC's automatic bitrate goes off after the window has gone, not with the process.
+        let abr_stop = self.streaming.take().and_then(|(streaming, _)| streaming.finish(self.window, &mut self.pads));
         if let Some(c) = &self.connecting {
             c.cancel();
         }
@@ -556,6 +555,7 @@ impl App {
             SDL_DestroyWindow(self.window);
             SDL_Quit();
         }
+        if let Some(stop) = abr_stop { stop.wait(); }
     }
 
     /// Drops the saved library of a PC that is unpaired or removed.
@@ -1157,13 +1157,13 @@ impl App {
                 if self.launcher.screen == Screen::HostSettings(id) { self.command(Command::SaveHostSettings(id)); }
                 let Some(host) = self.hosts.get(id) else { return; };
                 let Some(identity) = self.hosts.identity() else { return; };
-                let client = match hosts::client_for(identity, &host.record, &host.record.address) {
+                let client = match hosts::client_for(identity, &host.record, host.connect_address()) {
                     Ok(client) => client,
                     Err(error) => { self.launcher.message(tr("Network test unavailable"), error); return; }
                 };
                 let settings = host.record.settings(&self.launcher.profiles.settings(&self.launcher.settings, self.launcher.network.kind(&self.launcher.profiles.home_wifi)));
                 let (_, _, fps, bitrate) = stream::stream_mode(&settings, display_of(self.window));
-                self.network_test = Some(network_test::Test::start(id, client, self.launcher.network.clone(), host.record.address.clone(), (bitrate, fps), calibrate, self.waker.clone()));
+                self.network_test = Some(network_test::Test::start(id, client, self.launcher.network.clone(), host.connect_address().to_owned(), (bitrate, fps), calibrate, self.waker.clone()));
                 self.launcher.dialog = Dialog::NetworkTest { stage: if calibrate { tr("Preparing frame-shaped UDP probes") } else { tr("Receiving 32 MiB from the PC") }.into() };
             }
             Command::CancelNetworkTest => { self.network_test = None; self.launcher.dialog = Dialog::None; }
@@ -1604,7 +1604,7 @@ impl App {
         let (pacing, vrr) = pacing(&settings, self.launcher.tearing_supported);
         let plan = LaunchPlan {
             host_id,
-            record: host.record.clone(),
+            record: host.connect_record(),
             host_name: host.display_name().to_owned(),
             info,
             native: host.native.capabilities.clone(),

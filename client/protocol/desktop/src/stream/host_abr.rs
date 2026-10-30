@@ -39,6 +39,23 @@ impl AbrStart {
     }
 }
 
+/// The request that turns the PC's controller off, on its own thread: with the network gone its
+/// timeouts would hold the window for about two seconds at stream end. A start that follows
+/// waits for it ([`AbrStop::wait`]), so the PC never ends up off after the user turned it on again.
+pub struct AbrStop(std::thread::JoinHandle<()>);
+
+impl AbrStop {
+    pub fn spawn(off: impl FnOnce() + Send + 'static) -> Self {
+        Self(std::thread::spawn(off))
+    }
+
+    pub fn wait(self) {
+        if self.0.join().is_err() {
+            eprintln!("nightjar: the request that stops the PC's automatic bitrate panicked");
+        }
+    }
+}
+
 pub struct HostAbr {
     /// The bitrate in Kbps the PC last set.
     pub current_kbps: u32,
@@ -136,5 +153,30 @@ mod tests {
         assert!(!start.end(), "once");
         // The PC had none, or refused: the start never turned it on, nothing to stop.
         assert!(!AbrStart::default().end());
+    }
+
+    #[test]
+    fn the_stop_does_not_hold_the_caller_and_a_later_start_waits_for_it() {
+        use std::sync::mpsc;
+        let order = Arc::new(Mutex::new(Vec::new()));
+        let (release, held) = mpsc::channel::<()>();
+        let stop_order = order.clone();
+        // The PC does not answer: the request hangs until released.
+        let stop = AbrStop::spawn(move || {
+            held.recv().unwrap();
+            stop_order.lock().unwrap().push("off");
+        });
+        // The caller (the window thread) is back at once, before the request ended.
+        order.lock().unwrap().push("caller");
+        let start_order = order.clone();
+        let start = std::thread::spawn(move || {
+            stop.wait();
+            start_order.lock().unwrap().push("on");
+        });
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        assert_eq!(*order.lock().unwrap(), ["caller"], "the start waits for the stop");
+        release.send(()).unwrap();
+        start.join().unwrap();
+        assert_eq!(*order.lock().unwrap(), ["caller", "off", "on"]);
     }
 }

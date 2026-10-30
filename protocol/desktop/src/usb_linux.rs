@@ -1,25 +1,29 @@
 //! USB forwarding through Linux's own USB/IP server, for the devices libusb can't serve
 //! (webcams and audio devices, whose isochronous endpoints it doesn't forward): the kernel's
-//! usbip-host takes the device while it is attached, usbipd serves it, and the tunnel is
-//! relayed to usbipd ([`nightjar_core::usb::UsbDevice::relay`]).
+//! usbip-host takes the device while it is attached and serves it on a TCP connection Nightjar
+//! makes on loopback and hands it, as usbipd would after an import; the tunnel is relayed to
+//! that connection ([`nightjar_core::usb::UsbDevice::relay`]). No usbipd runs: nothing listens
+//! for USB/IP, and the loopback listener that makes the connection takes exactly one and closes.
 //!
 //! Binding needs root: Nightjar's helper script (packaging/linux/usb) runs through pkexec under
 //! its own polkit action. The .deb and .rpm install it with its policy and udev rule; anywhere
 //! else (AppImage, archive) the first attach installs them, as one more password prompt. The
-//! helper holds the device while Nightjar's end of its stdin stays open, so the device goes
-//! back to its driver when the attachment ends or Nightjar quits or crashes, and the udev rule
-//! clears the port when a forwarded device is unplugged.
+//! helper gets the connection's other end as its stdin and holds the device until the export
+//! on it ends, so the device goes back to its driver when the attachment ends or Nightjar quits
+//! or crashes (which closes Nightjar's end), and the udev rule clears the port when a forwarded
+//! device is unplugged.
 //!
 //! Ported from Moonlight V+ (qiin2333/moonlight-qt): its Linux usbip-host backend, helper,
 //! polkit policy and udev rule.
 
 use std::ffi::OsString;
-use std::io::{BufRead, BufReader, Read, Write};
+use std::io::{BufRead, BufReader, Read};
+use std::net::{Ipv4Addr, TcpListener, TcpStream};
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
-use std::process::{Child, ChildStdin, Command, Stdio};
+use std::process::{Child, Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
-use std::time::Duration;
 
 use nightjar_core::usb::{wire, Completion, TcpTunnel, Transfer, Tunnel, UsbDevice};
 
@@ -32,16 +36,13 @@ const VERSION_MARKER: &str = "# nightjar-usb-helper-version: 1";
 const HELPER: &str = "/usr/lib/nightjar/nightjar-usb-helper";
 const POLICY: &str = "/usr/share/polkit-1/actions/io.github.ramazankara.nightjar.usb.policy";
 const RULE: &str = "/usr/lib/udev/rules.d/90-nightjar-usb.rules";
-/// Where usbipd listens.
-const USBIPD: &str = "127.0.0.1:3240";
-const USBIPD_TIMEOUT: Duration = Duration::from_secs(5);
-/// Where the helper looks for usbip and usbipd (its own PATH).
+/// Where the helper looks for usbip (its own PATH).
 const SYSTEM_PATH: [&str; 4] = ["/usr/sbin", "/usr/bin", "/sbin", "/bin"];
 
 /// What this computer lacks to forward through usbip-host.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Missing {
-    /// The usbip and usbipd programs.
+    /// The usbip program.
     Usbip,
     /// pkexec, which asks for the password.
     Pkexec,
@@ -67,7 +68,6 @@ pub struct System {
     helper: Vec<OsString>,
     /// The installed helper, policy and rule, which say whether it needs installing.
     installed: [PathBuf; 3],
-    usbipd: String,
 }
 
 impl System {
@@ -76,7 +76,6 @@ impl System {
             sysfs: PathBuf::from("/sys/bus/usb/devices"),
             helper: vec!["pkexec".into(), HELPER.into()],
             installed: [HELPER.into(), POLICY.into(), RULE.into()],
-            usbipd: USBIPD.to_owned(),
         }
     }
 
@@ -84,7 +83,7 @@ impl System {
     pub fn missing(&self) -> Option<Missing> {
         if Path::new("/.flatpak-info").exists() { return Some(Missing::Flatpak); }
         let in_system = |program: &str| SYSTEM_PATH.iter().any(|dir| Path::new(dir).join(program).is_file());
-        if !in_system("usbip") || !in_system("usbipd") { return Some(Missing::Usbip); }
+        if !in_system("usbip") { return Some(Missing::Usbip); }
         let in_path = std::env::var_os("PATH").is_some_and(|path| std::env::split_paths(&path).any(|dir| dir.join("pkexec").is_file()));
         if !in_path && !in_system("pkexec") { return Some(Missing::Pkexec); }
         None
@@ -184,10 +183,14 @@ impl System {
         let identity = self.identity(busid).ok_or_else(unplugged)?;
         if self.bound(busid) { eprintln!("nightjar: USB {busid}: usbip-host has it already (left bound by another program or a helper that was killed); holding it as it is"); }
         if !self.is_installed() { self.install()?; }
+        let failed = |e: std::io::Error| trf("The device could not be opened: {}", &[&e]);
+        let (theirs, ours) = loopback_pair().map_err(failed)?;
+        let connection = Arc::new(TcpTunnel::new(ours).map_err(failed)?);
         let (program, args) = self.helper.split_first().expect("the helper command names a program");
         let mut command = Command::new(program);
         command.args(args).arg("hold").arg(busid).arg(&identity);
-        command.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
+        // The helper hands its end to usbip-host; Command closes this process's copy.
+        command.stdin(Stdio::from(std::os::fd::OwnedFd::from(theirs))).stdout(Stdio::piped()).stderr(Stdio::piped());
         // Its own process group: a Ctrl-C in Nightjar's terminal doesn't reach it, and its
         // watchdog kills only it.
         command.process_group(0);
@@ -197,7 +200,7 @@ impl System {
         let mut line = String::new();
         let bound = BufReader::new(stdout).read_line(&mut line).is_ok() && line.trim() == "bound";
         if !bound {
-            drop(child.stdin.take());
+            connection.close();
             let mut text = String::new();
             let _ = stderr.read_to_string(&mut text);
             let code = child.wait().ok().and_then(|status| status.code());
@@ -213,8 +216,7 @@ impl System {
         });
         eprintln!("nightjar: USB {busid}: usbip-host has it");
         let class = self.class(&described);
-        let stdin = child.stdin.take();
-        Ok(Arc::new(Kernel { described, class, usbipd: self.usbipd.clone(), held: Mutex::new(Some(Held { child, stdin })) }))
+        Ok(Arc::new(Kernel { described, class, connection, relayed: AtomicBool::new(false), held: Mutex::new(Some(child)) }))
     }
 }
 
@@ -253,29 +255,39 @@ fn run(mut command: Command) -> Result<Output, String> {
     Ok(Output { code: output.status.code(), stderr: String::from_utf8_lossy(&output.stderr).into_owned() })
 }
 
-struct Held {
-    child: Child,
-    stdin: Option<ChildStdin>,
+/// A connected TCP pair on loopback: the end usbip-host gets, and Nightjar's. The listener
+/// takes exactly one connection, the one made here (checked by address, so another local
+/// program racing to it is refused), and closes before this returns.
+fn loopback_pair() -> std::io::Result<(TcpStream, TcpStream)> {
+    let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0))?;
+    let ours = TcpStream::connect(listener.local_addr()?)?;
+    let (theirs, from) = listener.accept()?;
+    drop(listener);
+    if from != ours.local_addr()? {
+        return Err(std::io::Error::other(format!("another program ({from}) connected to the USB connection's loopback port")));
+    }
+    Ok((theirs, ours))
 }
 
-/// A device usbip-host has, which usbipd serves to the host through the tunnel.
+/// A device usbip-host has, which it serves to the host on the connection relayed to the tunnel.
 pub struct Kernel {
     described: wire::Device,
     class: u8,
-    usbipd: String,
-    held: Mutex<Option<Held>>,
+    /// Nightjar's end of the connection usbip-host serves the device on.
+    connection: Arc<TcpTunnel>,
+    relayed: AtomicBool,
+    /// The helper, until it gave the device back.
+    held: Mutex<Option<Child>>,
 }
 
 impl Kernel {
-    /// Gives the device back: closing the helper's stdin makes it unbind. `wait` waits for it
-    /// (tests); else a thread does and logs how it went.
+    /// Gives the device back: closing Nightjar's end ends usbip-host's export, and the helper
+    /// unbinds. `wait` waits for it (tests); else a thread does and logs how it went.
     fn release(&self, wait: bool) -> Option<std::process::ExitStatus> {
-        let mut held = self.held.lock().unwrap_or_else(PoisonError::into_inner).take()?;
-        if let Some(mut stdin) = held.stdin.take() {
-            let _ = stdin.flush();
-        }
+        self.connection.close();
+        let mut child = self.held.lock().unwrap_or_else(PoisonError::into_inner).take()?;
         let busid = self.described.busid.clone();
-        let mut reap = move || match held.child.wait() {
+        let mut reap = move || match child.wait() {
             Ok(status) if status.success() => {
                 eprintln!("nightjar: USB {busid}: back with its own driver");
                 Some(status)
@@ -307,7 +319,7 @@ impl UsbDevice for Kernel {
     }
 
     fn submit(&self, _: Transfer, done: Completion) {
-        // Never called: the server relays the tunnel to usbipd instead.
+        // Never called: the server relays the tunnel to usbip-host instead.
         done.complete(nightjar_core::usb::Reply::failed(wire::EPROTO));
     }
 
@@ -318,12 +330,10 @@ impl UsbDevice for Kernel {
     }
 
     fn relay(&self) -> Option<std::io::Result<Arc<dyn Tunnel>>> {
-        let connect = || -> std::io::Result<Arc<dyn Tunnel>> {
-            let address = self.usbipd.parse().map_err(std::io::Error::other)?;
-            let stream = std::net::TcpStream::connect_timeout(&address, USBIPD_TIMEOUT)?;
-            Ok(Arc::new(TcpTunnel::new(stream)?))
-        };
-        Some(connect())
+        if self.relayed.swap(true, Ordering::SeqCst) {
+            return Some(Err(std::io::Error::other("the device was served once already")));
+        }
+        Some(Ok(self.connection.clone()))
     }
 }
 
@@ -337,6 +347,7 @@ impl Drop for Kernel {
 mod tests {
     use super::*;
     use std::os::unix::fs::{symlink, PermissionsExt};
+    use std::time::Duration;
 
     /// A fake /sys/bus/usb/devices with a webcam at 1-2 that uvcvideo has.
     struct Fake {
@@ -379,7 +390,6 @@ mod tests {
                 sysfs: self.sysfs(),
                 helper: vec!["/bin/sh".into(), helper.into()],
                 installed: [installed.clone(), installed.clone(), installed],
-                usbipd: USBIPD.to_owned(),
             }
         }
     }
@@ -489,19 +499,35 @@ echo "unbind complete" >&2
         assert_eq!(failure(None, "operation_timeout\n"), tr("Linux's USB/IP tools didn't answer in time. Unplug the device, plug it in again and retry."));
     }
 
-    /// The real helper against the fake sysfs, with fake usbip, usbipd, pgrep and modprobe.
     #[test]
-    fn the_helper_script_binds_holds_and_unbinds() {
+    fn the_connection_is_made_on_loopback_and_its_listener_is_gone_after() {
+        let (theirs, ours) = loopback_pair().unwrap();
+        assert_eq!(theirs.peer_addr().unwrap(), ours.local_addr().unwrap(), "connected to each other");
+        for address in [theirs.local_addr().unwrap(), ours.local_addr().unwrap()] {
+            assert!(address.ip().is_loopback(), "{address}");
+        }
+        // Sockets in state 0A (LISTEN) on the pair's port: none.
+        let port = format!(":{:04X} ", theirs.local_addr().unwrap().port());
+        let tcp = std::fs::read_to_string("/proc/net/tcp").unwrap();
+        let listening: Vec<&str> = tcp.lines().filter(|l| l.split_whitespace().nth(1).is_some_and(|local| format!("{local} ").ends_with(&port)) && l.split_whitespace().nth(3) == Some("0A")).collect();
+        assert!(listening.is_empty(), "nothing listens any more: {listening:?}");
+    }
+
+    /// The real helper against the fake sysfs, with fake usbip, usbipd and modprobe.
+    #[test]
+    fn the_helper_script_binds_hands_usbip_host_the_connection_and_unbinds() {
         let fake = Fake::new("script");
         let bin = fake.root.join("bin");
         std::fs::create_dir_all(&bin).unwrap();
         let sys = fake.sysfs();
         let log = fake.root.join("usbip.log");
+        // usbip-host's sysfs files are plain ones here: binding makes the device "in use" (2)
+        // at once, as writing usbip_sockfd does in the kernel.
         fake.script("bin/usbip", &format!(
-            "echo \"$*\" >> {log}\ncase \"$1\" in bind) ln -sfn {root}/drivers/usbip-host {sys}/$3/driver;; unbind) ln -sfn {root}/drivers/usb {sys}/$3/driver;; esac\n",
+            "echo \"$*\" >> {log}\ncase \"$1\" in bind) ln -sfn {root}/drivers/usbip-host {sys}/$3/driver; echo 2 > {sys}/$3/usbip_status;; unbind) ln -sfn {root}/drivers/usb {sys}/$3/driver;; esac\n",
             log = log.display(), root = fake.root.display(), sys = sys.display()));
-        fake.script("bin/usbipd", "exit 0\n");
-        fake.script("bin/pgrep", "exit 0\n");
+        let listener_started = fake.root.join("usbipd.ran");
+        fake.script("bin/usbipd", &format!("touch {}\n", listener_started.display()));
         fake.script("bin/modprobe", "exit 0\n");
         std::fs::create_dir_all(fake.root.join("module/usbip_host")).unwrap();
         let script = SCRIPT
@@ -514,13 +540,34 @@ echo "unbind complete" >&2
         let system = fake.system(&fake.script("helper", &script));
         let device = system.open("1-2", 0x046d, 0x0825).unwrap();
         assert!(system.bound("1-2"));
+        assert_eq!(std::fs::read_to_string(sys.join("1-2/usbip_sockfd")).unwrap(), "0\n", "usbip-host got the helper's stdin, the connection");
         let record = std::fs::read_to_string(fake.root.join("state/usb-bindings")).unwrap();
         assert_eq!(record, "1-2\t046d:0825\tAB12\n", "the port's device is recorded for the udev rule");
+        std::thread::sleep(Duration::from_millis(700));
+        assert!(system.bound("1-2"), "held while the export runs");
+        // Nightjar's end closes; the kernel ends the export.
+        std::fs::write(sys.join("1-2/usbip_status"), "1\n").unwrap();
         assert!(device.release(true).unwrap().success());
         assert!(!system.bound("1-2"));
         assert_eq!(std::fs::read_to_string(&log).unwrap(), "bind -b 1-2\nunbind -b 1-2\n");
         assert_eq!(std::fs::read_to_string(fake.root.join("drivers_probe")).unwrap(), "1-2\n", "its own driver probes it again");
         assert_eq!(std::fs::read_to_string(fake.root.join("state/usb-bindings")).unwrap(), "", "forgotten");
+        assert!(!listener_started.exists(), "no usbipd: nothing listens for USB/IP");
+    }
+
+    #[test]
+    fn the_helper_never_starts_a_listener() {
+        let code = SCRIPT.lines().map(|l| l.split('#').next().unwrap_or("")).collect::<Vec<_>>().join("\n");
+        for listener in ["usbipd", "nc ", "socat", "listen"] {
+            assert!(!code.contains(listener), "{listener}");
+        }
+    }
+
+    #[test]
+    fn the_helper_holds_only_with_a_connection_on_stdin() {
+        let output = Command::new("/bin/sh").arg("-c").arg(SCRIPT).arg("nightjar-usb-helper").args(["hold", "1-2", "x"]).stdin(Stdio::null()).output().unwrap();
+        assert_eq!(output.status.code(), Some(2));
+        assert!(String::from_utf8_lossy(&output.stderr).contains("stdin is not a socket"));
     }
 
     #[test]

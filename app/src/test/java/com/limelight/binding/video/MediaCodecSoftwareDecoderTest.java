@@ -11,6 +11,7 @@ import android.os.Build;
 import com.limelight.nvstream.jni.MoonBridge;
 import com.limelight.preferences.PreferenceConfiguration;
 
+import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -41,7 +42,13 @@ public class MediaCodecSoftwareDecoderTest {
     @Before
     public void setUp() {
         ReflectionHelpers.setStaticField(MediaCodecHelper.class, "initialized", true);
+        MediaCodecHelper.forgetCodecList();
         ShadowMediaCodecList.addCodec(decoder("c2.test.avc.decoder", AVC, true, CodecProfileLevel.AVCProfileHigh));
+    }
+
+    @After
+    public void tearDown() {
+        MediaCodecHelper.forgetCodecList();
     }
 
     private static MediaCodecInfo decoder(String name, String mime, boolean hardware, int... profiles) {

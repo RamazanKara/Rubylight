@@ -4,6 +4,7 @@ import com.limelight.nvstream.http.FecChoice;
 import com.limelight.nvstream.http.NvApp;
 import com.limelight.nvstream.jni.MoonBridge;
 import com.limelight.preferences.HostDisplayChoice;
+import com.limelight.utils.HdrBrightness;
 
 public class StreamConfiguration {
     public static final int INVALID_APP_ID = 0;
@@ -34,6 +35,7 @@ public class StreamConfiguration {
     // The video FEC to ask a PC that lets the client choose; null sends nothing.
     private FecChoice fecChoice;
     private boolean rateChange;
+    private HdrBrightness displayLuminance;
     private int bitrate;
     // The bitrate is the automatic one: a new stream may time the link and start lower.
     private boolean probeFirstBitrate;
@@ -121,6 +123,12 @@ public class StreamConfiguration {
         /** Asks for mid-stream rate changes (0x553C), which only the Rust engine sends. */
         public StreamConfiguration.Builder setRateChange(boolean rateChange) {
             config.rateChange = rateChange;
+            return this;
+        }
+
+        /** The output's luminance for hosts that read it at launch; null leaves it to the host. */
+        public StreamConfiguration.Builder setDisplayLuminance(HdrBrightness luminance) {
+            config.displayLuminance = luminance;
             return this;
         }
 
@@ -282,6 +290,10 @@ public class StreamConfiguration {
 
     public boolean getRateChange() {
         return rateChange;
+    }
+
+    public HdrBrightness getDisplayLuminance() {
+        return displayLuminance;
     }
 
     public int getMaxPacketSize() {

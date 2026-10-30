@@ -4823,6 +4823,12 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             this.text = generateText(renderer, e);
         }
 
+        // Logs and crash reporters read getMessage() and the cause, not toString() (from V+ fefc9db).
+        @Override
+        public String getMessage() {
+            return text;
+        }
+
         public String toString() {
             return text;
         }

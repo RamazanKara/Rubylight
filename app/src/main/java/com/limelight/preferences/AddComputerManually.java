@@ -8,7 +8,6 @@ import java.net.NetworkInterface;
 import java.net.SocketException;
 import java.net.URI;
 import java.net.URISyntaxException;
-import java.net.UnknownHostException;
 import java.util.Collections;
 import java.util.concurrent.LinkedBlockingQueue;
 
@@ -21,6 +20,7 @@ import com.limelight.nvstream.http.NvHTTP;
 import com.limelight.nvstream.http.PairingLink;
 import com.limelight.nvstream.jni.MoonBridge;
 import com.limelight.utils.Dialog;
+import com.limelight.utils.LiteralAddress;
 import com.limelight.utils.ServerHelper;
 import com.limelight.utils.SpinnerDialog;
 import com.limelight.utils.UiHelper;
@@ -108,7 +108,8 @@ public class AddComputerManually extends NightjarActivity {
 
     private boolean isWrongSubnetSiteLocalAddress(String address) {
         try {
-            InetAddress targetAddress = InetAddress.getByName(address);
+            // Only a literal address is classified: a name is not looked up for this.
+            InetAddress targetAddress = LiteralAddress.parse(address);
             if (!(targetAddress instanceof Inet4Address) || !targetAddress.isSiteLocalAddress()) {
                 return false;
             }

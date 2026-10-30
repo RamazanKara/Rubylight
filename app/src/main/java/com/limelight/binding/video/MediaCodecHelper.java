@@ -26,6 +26,8 @@ import android.media.MediaCodecInfo.CodecProfileLevel;
 import android.media.MediaFormat;
 import android.os.Build;
 
+import androidx.annotation.VisibleForTesting;
+
 import com.limelight.LimeLog;
 import com.limelight.preferences.PreferenceConfiguration;
 
@@ -58,7 +60,8 @@ public class MediaCodecHelper {
     private static boolean isAdreno620 = false;
     // Amazon Fire TV (the amazon.hardware.fire_tv feature), set by initialize().
     private static boolean isFireTv = false;
-    private static boolean initialized = false;
+    // Read by the settings screen's decoder probe thread and the renderer threads.
+    private static volatile boolean initialized = false;
 
     static {
         directSubmitPrefixes = new LinkedList<>();
@@ -1214,15 +1217,35 @@ public class MediaCodecHelper {
                 decoderSupportsKnownVendorLowLatencyOption(decoderInfo.getName());
     }
 
+    // Building a MediaCodecList is a blocking call to the media service that can stall for
+    // seconds on some devices, and the list never changes within a process: read it once
+    // (from V+ c519d37). A failed read throws and is not cached, so the next call tries again.
+    private static final Object codecListLock = new Object();
+    private static volatile MediaCodecInfo[] codecInfos;
+
     @SuppressWarnings("deprecation")
     @SuppressLint("NewApi")
     private static LinkedList<MediaCodecInfo> getMediaCodecList() {
+        MediaCodecInfo[] infos = codecInfos;
+        if (infos == null) {
+            synchronized (codecListLock) {
+                infos = codecInfos;
+                if (infos == null) {
+                    infos = new MediaCodecList(MediaCodecList.REGULAR_CODECS).getCodecInfos();
+                    codecInfos = infos;
+                }
+            }
+        }
+
         LinkedList<MediaCodecInfo> infoList = new LinkedList<>();
-
-        MediaCodecList mcl = new MediaCodecList(MediaCodecList.REGULAR_CODECS);
-        Collections.addAll(infoList, mcl.getCodecInfos());
-
+        Collections.addAll(infoList, infos);
         return infoList;
+    }
+
+    // Tests swap the platform's codec list between cases.
+    @VisibleForTesting
+    public static void forgetCodecList() {
+        codecInfos = null;
     }
     
     @SuppressWarnings("RedundantThrows")

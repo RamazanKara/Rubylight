@@ -129,6 +129,13 @@ public class DecoderFailureTest {
         // Reported once, so the next stream runs without reference frame invalidation.
         assertEquals(1, crashes.size());
         assertTrue(crashes.get(0) instanceof MediaCodecDecoderRenderer.RendererException);
+        // Logs and crash reports read the message and cause: the diagnostics are in the message,
+        // and the codec's own exception stays the cause.
+        Exception crash = crashes.get(0);
+        assertEquals(crash.toString(), crash.getMessage());
+        assertTrue(crash.getMessage(), crash.getMessage().contains("Format: "));
+        assertTrue(crash.getMessage(), crash.getMessage().contains("Consecutive crashes: "));
+        assertTrue(String.valueOf(crash.getCause()), crash.getCause() instanceof IllegalStateException);
     }
 
     @Test

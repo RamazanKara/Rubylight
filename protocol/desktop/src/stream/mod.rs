@@ -16,7 +16,7 @@ mod microphone;
 mod voice_capture;
 mod cursor;
 mod bitrate;
-mod host_abr;
+pub mod host_abr;
 pub mod doctor;
 pub mod overlay;
 mod recovery;
@@ -1667,6 +1667,8 @@ pub struct Streaming {
     host_abr: Option<host_abr::HostAbr>,
     /// The request that turns it on, while the stream may end before the PC answers.
     host_abr_start: Option<host_abr::AbrStart>,
+    /// The request that turns it off, while it may still be in flight.
+    host_abr_stop: Option<host_abr::AbrStop>,
     /// The stream doctor: its report in the stream menu and after the stream, and the bitrate trial.
     doctor: doctor::Doctor,
     /// Rate changes over 0x553C, on a stream that takes them.
@@ -1878,6 +1880,7 @@ impl Streaming {
             bitrate_policy: None,
             host_abr: None,
             host_abr_start: None,
+            host_abr_stop: None,
             doctor,
             rate_change,
             quality_mode,
@@ -2777,7 +2780,10 @@ impl Streaming {
         let start = host_abr::AbrStart::default();
         self.host_abr_start = Some(start.clone());
         self.bitrate_busy = true;
+        let stopping = self.host_abr_stop.take();
         std::thread::spawn(move || {
+            // An off sent just before must not land after this on.
+            if let Some(stop) = stopping { stop.wait(); }
             let result = match client.abr_capabilities() {
                 Ok(caps) if caps.supported => client
                     .configure_abr(&AbrRequest::balanced_up_to(max_kbps))
@@ -2797,16 +2803,19 @@ impl Streaming {
         });
     }
 
-    /// Turns a Foundation PC's controller off again (V+ PC's `stopSunshineAbr`, 1 s at most).
+    /// Turns a Foundation PC's controller off again (V+ PC's `stopSunshineAbr`), on its own
+    /// thread and client: `finish` cancels the stream's requests right after, and a dead network
+    /// would hold the window for the request's timeouts.
     fn stop_host_abr(&mut self) {
         if self.host_abr.take().is_some() { self.adaptive_bitrate = false; }
         // On, though its answer may not have come yet; a start still in flight turns it off itself.
         if !self.host_abr_start.take().is_some_and(|start| start.end()) { return; }
-        if let Some(client) = lock(&self.shared.host_client).clone() {
+        let Some(client) = lock(&self.shared.host_client).as_ref().map(|c| c.detached()) else { return };
+        self.host_abr_stop = Some(host_abr::AbrStop::spawn(move || {
             if let Err(e) = client.configure_abr(&AbrRequest::off()) {
                 eprintln!("nightjar: the PC's automatic bitrate did not stop: {e}");
             }
-        }
+        }));
     }
 
     /// The trial the doctor offers with this report: none while automatic bitrate or quality owns
@@ -4102,8 +4111,9 @@ impl Streaming {
         });
     }
 
-    /// Ends the stream: releases input, stops the session.
-    pub fn finish(mut self, window: *mut SDL_Window, pads: &mut Gamepads) {
+    /// Ends the stream: releases input, stops the session. Returns the request that turns the
+    /// PC's automatic bitrate off while it runs on; one closing Nightjar waits for it.
+    pub fn finish(mut self, window: *mut SDL_Window, pads: &mut Gamepads) -> Option<host_abr::AbrStop> {
         self.microphone = None;
         self.stop_host_abr();
         if let Some(client) = &*lock(&self.shared.host_client) {
@@ -4160,6 +4170,7 @@ impl Streaming {
         }
         lock(&self.shared.roam_watch).take();
         self.session.stop();
+        self.host_abr_stop.take()
     }
 }
 

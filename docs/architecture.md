@@ -18,6 +18,7 @@ The Windows host, Moonlight protocol implementation, native helpers, service and
 | [Setup](../rust/setup) | Installation, upgrades and package recovery. |
 | [Web console](../rust/web) | Devices, games, settings, stream statistics, logs and maintenance. |
 | [Vulkan layer](../rust/vulkan-layer) | Native HDR integration for Vulkan games. |
+| [Probes](../rust/probes) | The diagnostic probes the package ships: encoder throughput, error correction and video packetization. |
 
 The earlier C++ host was removed after 2.0.0-rc.23; [that tag](https://github.com/RamazanKara/Rubylight/tree/2.0.0-rc.23) keeps its sources. The [Rust build](building.md) uses the workspace at the repository root.
 

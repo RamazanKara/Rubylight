@@ -1,5 +1,5 @@
 [workspace]
-members = ["rust/core", "rust/core/native-api", "rust/windows", "rust/host", "rust/vulkan-layer", "rust/setup", "rust/drivers/rubylight-vdisplay-proto"]
+members = ["rust/core", "rust/core/native-api", "rust/windows", "rust/host", "rust/vulkan-layer", "rust/setup", "rust/drivers/rubylight-vdisplay-proto", "rust/probes"]
 # The virtual display driver builds alone under the WDK toolchain: see rust/drivers/rubylight-vdisplay.
 # Nightjar keeps its own workspace in client/protocol; the host uses its protocol crate by path.
 # rust/vendor holds patched third-party crates, used through [patch.crates-io] below.

@@ -1,5 +1,6 @@
 //! Repeat-frame encoder throughput excludes capture, network, and decoding.
 #[cfg(windows)]
+#[path = "../../windows/examples/support/mod.rs"]
 mod support;
 #[cfg(not(windows))]
 fn main() {

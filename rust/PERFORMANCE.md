@@ -1816,7 +1816,7 @@ six cases. Tests separately compare every encrypted shard against independent
 per-packet sealing through FEC, partial tails and sequence/frame/nonce
 boundaries.
 
-The package includes `butterpollo-video-packet-performance.exe`. Run it without arguments to print the workloads, timing samples and packet fingerprints. The source is `core/examples/video_packet_performance.rs`; use that same harness in the previous checkout when reproducing the comparison.
+The package includes `butterpollo-video-packet-performance.exe`. Run it without arguments to print the workloads, timing samples and packet fingerprints. The source is `probes/src/video_packet_performance.rs` (`core/examples/` through 3.0.0); use that same harness in the previous checkout when reproducing the comparison.
 
 ## October 2 latency work
 
@@ -2053,8 +2053,8 @@ The Rust changes precompute finite-field inverses and reuse AVX2 input loads acr
 ```powershell
 # Initialize third-party/nanors in a source checkout first.
 pwsh -NoProfile -ExecutionPolicy Bypass -File .\rust\tests\build-fec-reference.ps1 -ArtifactDirectory C:\path\to\artifacts
-cargo build -p butterpollo-core --example protocol_performance --release --locked
-.\target\release\examples\protocol_performance.exe C:\path\to\artifacts\cpp-nanors-reference\nanors-reference.dll > fec.json
+cargo build -p butterpollo-probes --bin butterpollo-protocol-performance --release --locked
+.\target\release\butterpollo-protocol-performance.exe C:\path\to\artifacts\cpp-nanors-reference\nanors-reference.dll > fec.json
 ```
 
 The release package includes the same probe as `butterpollo-protocol-performance.exe`. The reference DLL is a test fixture built separately; it is not shipped or linked into the Rust host. Building or running this comparison does not start either host or change display settings.
@@ -2366,7 +2366,7 @@ The release ZIP includes `butterpollo-performance.exe`, which captures one frame
 .\butterpollo-performance.exe --encoder amf --codec hevc --hdr --width 3840 --height 2160 --fps 120 --bitrate 80000 --seconds 8 --cpu
 ```
 
-Unpaced mode measures capacity with a bounded queue; paced mode measures completed-output latency at the requested cadence. `--cpu` reads back the captured frame once and measures the CPU compatibility encoding path. JSON reports source dimensions, adapter, returned-frame count, call time and submission-to-observed-output time. The source probe is `windows/examples/performance.rs`; `cargo build -p butterpollo-windows --example performance --release --locked` builds it with the SDK environment from the main build.
+Unpaced mode measures capacity with a bounded queue; paced mode measures completed-output latency at the requested cadence. `--cpu` reads back the captured frame once and measures the CPU compatibility encoding path. JSON reports source dimensions, adapter, returned-frame count, call time and submission-to-observed-output time. The source probe is `probes/src/performance.rs`; `cargo build -p butterpollo-probes --bin butterpollo-performance --release --locked` builds it with the SDK environment from the main build.
 
 For full streams, use an isolated host configured with base port 48123, the fixture credentials `test` / `rust-smoke-only` and a Desktop app. These are test-only credentials for a loopback fixture. `tests/build-moonlight-client.ps1` builds the independent C client against the initialized Moonlight-common-c submodule. The MSYS2 UCRT64 environment additionally needs FFmpeg decoding development libraries and OpenSSL (`mingw-w64-ucrt-x86_64-ffmpeg` and `mingw-w64-ucrt-x86_64-openssl`), alongside Opus, CMake, Ninja and GCC. Python needs `requests` and `cryptography`. The probe creates a client certificate, performs real PIN pairing, grants only its fixture launch permissions and cancels/unpairs that fixture afterward.
 
@@ -5029,12 +5029,12 @@ changed. The local JSON results, settings logs and run manifests are in
 From the worktree root, after sourcing the supplied `rust-env.ps1`:
 
 ```powershell
-cargo build --release -p butterpollo-windows --example performance --target-dir target\qa
+cargo build --release -p butterpollo-probes --bin butterpollo-performance --target-dir target\qa
 Copy-Item "$env:BUTTERPOLLO_PYROWAVE_ROOT\bin\libpyrowave-shared-0.dll" target\qa\release\examples\
 New-Item -ItemType Directory -Force target\qa\ratecontrol | Out-Null
 Set-Content target\qa\ratecontrol\cap2.conf 'amd_max_frame_size=2'
 $env:RUST_LOG = 'info'
-target\qa\release\examples\performance.exe --encoder amf --synthetic 16 --paced --seconds 8 --width 3840 --height 2160 --fps 60 --bitrate 40000 --codec hevc --idr-interval 60 --config target\qa\ratecontrol\cap2.conf
+target\qa\release\butterpollo-performance.exe --encoder amf --synthetic 16 --paced --seconds 8 --width 3840 --height 2160 --fps 60 --bitrate 40000 --codec hevc --idr-interval 60 --config target\qa\ratecontrol\cap2.conf
 ```
 
 The defaults are ultra-low-latency usage, speed, latency-constrained VBR,

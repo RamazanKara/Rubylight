@@ -150,13 +150,6 @@ try {
     if (!$DebugBuild) { $buildArgs += '--release'; $profile = 'release' }
     & cargo $toolchain @buildArgs
     Assert-NativeExit 'Rust host build'
-    # The packaged performance probes, separately: examples bring the
-    # members' dev-dependencies into feature resolution (the host's turns on
-    # butterpollo-windows' test-folder), which the shipped binaries must not
-    # get. --workspace rebuilds only butterpollo-windows for them; -p also
-    # rebuilt core.
-    & cargo $toolchain @buildArgs --example performance --example protocol_performance --example video_packet_performance
-    Assert-NativeExit 'Rust performance probe build'
     $output = Join-Path $TargetDirectory $profile
     $runtimeDlls = @('libopus-0.dll','libpyrowave-shared-1.dll') + $ffmpegDlls
     Copy-Item -LiteralPath (Join-Path "$MsysRoot\ucrt64\bin" 'libopus-0.dll') -Destination $output
@@ -170,12 +163,10 @@ try {
             Remove-Item -LiteralPath $resolvedDistribution -Recurse -Force
         }
         New-Item -ItemType Directory -Path "$distribution\assets\web", "$distribution\licenses" -Force | Out-Null
-        foreach ($exe in @('butterpollo.exe', 'butterpollo-service.exe', 'butterpollo-setup.exe')) { Copy-Item -LiteralPath (Join-Path $output $exe) -Destination $distribution }
+        # With the diagnostic probes from rust/probes.
+        foreach ($exe in @('butterpollo.exe', 'butterpollo-service.exe', 'butterpollo-setup.exe', 'butterpollo-performance.exe', 'butterpollo-protocol-performance.exe', 'butterpollo-video-packet-performance.exe')) { Copy-Item -LiteralPath (Join-Path $output $exe) -Destination $distribution }
         Copy-Item -LiteralPath (Join-Path $output 'butterpollo-start.exe') -Destination (Join-Path $distribution 'Start Rubylight.exe')
         Copy-Item -LiteralPath (Join-Path $PyrowaveRoot 'share\pyrowave-shared\build-info.txt') -Destination "$distribution\licenses\pyrowave-build-info.txt"
-        Copy-Item -LiteralPath (Join-Path $output 'examples\performance.exe') -Destination (Join-Path $distribution 'butterpollo-performance.exe')
-        Copy-Item -LiteralPath (Join-Path $output 'examples\protocol_performance.exe') -Destination (Join-Path $distribution 'butterpollo-protocol-performance.exe')
-        Copy-Item -LiteralPath (Join-Path $output 'examples\video_packet_performance.exe') -Destination (Join-Path $distribution 'butterpollo-video-packet-performance.exe')
         foreach ($dll in $runtimeDlls) { Copy-Item -LiteralPath (Join-Path $output $dll) -Destination $distribution }
         New-Item -ItemType Directory -Path "$distribution\vulkan-layer" -Force | Out-Null
         Copy-Item -LiteralPath (Join-Path $output 'butterpollo_vulkan_layer.dll') -Destination "$distribution\vulkan-layer"

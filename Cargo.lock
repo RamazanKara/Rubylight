@@ -408,7 +408,6 @@ dependencies = [
  "anyhow",
  "cbc",
  "crc32fast",
- "embed-resource",
  "hex",
  "pem 3.0.6",
  "png",
@@ -434,6 +433,19 @@ dependencies = [
  "x509-parser",
  "zeroize",
  "zip",
+]
+
+[[package]]
+name = "butterpollo-probes"
+version = "3.0.0"
+dependencies = [
+ "anyhow",
+ "butterpollo-core",
+ "butterpollo-windows",
+ "embed-resource",
+ "hex",
+ "serde_json",
+ "tracing-subscriber",
 ]
 
 [[package]]

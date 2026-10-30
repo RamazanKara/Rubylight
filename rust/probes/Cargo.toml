@@ -1,0 +1,40 @@
+[package]
+name = "butterpollo-probes"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+# The diagnostic probes the package ships. They are bins, not examples of
+# core and windows: building examples brings every member's
+# dev-dependencies into feature resolution, which rebuilt
+# butterpollo-windows with test-only features for the package.
+[[bin]]
+name = "butterpollo-performance"
+path = "src/performance.rs"
+test = false
+
+[[bin]]
+name = "butterpollo-protocol-performance"
+path = "src/protocol_performance.rs"
+test = false
+
+[[bin]]
+name = "butterpollo-video-packet-performance"
+path = "src/video_packet_performance.rs"
+test = false
+
+[dependencies]
+anyhow.workspace = true
+butterpollo-core = { path = "../core" }
+butterpollo-windows = { path = "../windows" }
+hex = "0.4"
+serde_json.workspace = true
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+
+[build-dependencies]
+embed-resource = "3.0.12"
+
+[lints]
+workspace = true

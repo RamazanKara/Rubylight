@@ -6,7 +6,7 @@ fn main() {
     if env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("windows") {
         return;
     }
-    // The performance probe example ships as butterpollo-performance.exe.
+    // The diagnostic examples name the release in their version information.
     println!("cargo:rerun-if-changed=../assets/version_info.rs");
     let rc = write_resource("examples", "", "Rubylight diagnostic tool", false);
     embed_resource::compile_for_examples(&rc, embed_resource::NONE)

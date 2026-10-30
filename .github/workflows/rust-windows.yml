@@ -95,6 +95,9 @@ jobs:
     env:
       # No debug info: linking it dominated the test build.
       CARGO_PROFILE_DEV_DEBUG: 0
+      # The host's stream tests mostly wait on sockets and timers: on four
+      # cores, 8 threads ran them in 90 s instead of 155 s.
+      RUST_TEST_THREADS: 8
     defaults:
       run:
         shell: pwsh
@@ -317,9 +320,16 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           $jobs = "repos/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID/attempts/$env:GITHUB_RUN_ATTEMPT/jobs"
+          $errors = 0
           while ($true) {
             $states = gh api $jobs --paginate --jq '.jobs[] | select(.name == "test" or .name == "lint") | "\(.name) \(.status) \(.conclusion)"'
-            if ($LASTEXITCODE) { throw 'Reading the run''s jobs failed' }
+            if ($LASTEXITCODE) {
+              # A passing API error must not cost the uncached build before it.
+              if (++$errors -ge 10) { throw 'Reading the run''s jobs failed' }
+              Start-Sleep -Seconds 30
+              continue
+            }
+            $errors = 0
             $states = @($states | Where-Object { $_ })
             if ($states.Count -ne 2) { throw "Expected the test and lint jobs, found: $states" }
             $failed = @($states | Where-Object { $_ -match ' completed ' -and $_ -notmatch ' completed success$' })

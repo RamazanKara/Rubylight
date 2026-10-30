@@ -145,15 +145,18 @@ try {
         Assert-NativeExit 'Rust lint'
     }
     if (!$runBuild) { return }
-    # The host and the packaged performance probes in one build: separate -p
-    # builds of the probes unified features differently and rebuilt the
-    # workspace crates.
-    $buildArgs = @('build', '--workspace', '--locked', '--lib', '--bins',
-        '--example', 'performance', '--example', 'protocol_performance', '--example', 'video_packet_performance')
+    $buildArgs = @('build', '--workspace', '--locked')
     $profile = 'debug'
     if (!$DebugBuild) { $buildArgs += '--release'; $profile = 'release' }
     & cargo $toolchain @buildArgs
     Assert-NativeExit 'Rust host build'
+    # The packaged performance probes, separately: examples bring the
+    # members' dev-dependencies into feature resolution (the host's turns on
+    # butterpollo-windows' test-folder), which the shipped binaries must not
+    # get. --workspace rebuilds only butterpollo-windows for them; -p also
+    # rebuilt core.
+    & cargo $toolchain @buildArgs --example performance --example protocol_performance --example video_packet_performance
+    Assert-NativeExit 'Rust performance probe build'
     $output = Join-Path $TargetDirectory $profile
     $runtimeDlls = @('libopus-0.dll','libpyrowave-shared-1.dll') + $ffmpegDlls
     Copy-Item -LiteralPath (Join-Path "$MsysRoot\ucrt64\bin" 'libopus-0.dll') -Destination $output

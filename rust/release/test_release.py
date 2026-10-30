@@ -207,7 +207,7 @@ class ReleaseVersions(unittest.TestCase):
     @unittest.skipUnless(BASH and pathlib.Path(BASH).is_file(), 'Bash is not installed')
     def test_reuse_requires_a_push_build_with_an_available_artifact(self):
         workflow = (ROOT / '.github/workflows/rust-windows.yml').read_text(encoding='utf-8')
-        script = textwrap.dedent(re.search(r'(?ms)^      - id: built\n.*?^        run: \|\n(.*?)(?=^  windows:)', workflow)[1])
+        script = textwrap.dedent(re.search(r'(?ms)^      - id: built\n.*?^        run: \|\n(.*?)(?=^  \S)', workflow)[1])
         stub = '''gh() {
           if [ "$1" = run ]; then
             [[ " $* " == *" --event push "* ]] || return 1

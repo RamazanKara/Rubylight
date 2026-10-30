@@ -5,6 +5,7 @@ import java.io.OutputStream;
 import java.io.StringReader;
 import java.net.Inet4Address;
 import java.net.InetAddress;
+import java.net.UnknownHostException;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedList;
@@ -37,7 +38,6 @@ import com.limelight.preferences.HostStreamProfile;
 import com.limelight.utils.CacheHelper;
 import com.limelight.utils.FrontendExportStore;
 import com.limelight.utils.FrontendSync;
-import com.limelight.utils.LiteralAddress;
 import com.limelight.utils.NetHelper;
 import com.limelight.utils.RedactedLog;
 import com.limelight.utils.ServerHelper;
@@ -157,13 +157,10 @@ public class ComputerManagerService extends Service {
                 if (existingComputer == null) {
                     // If the active address is a site-local address (RFC 1918),
                     // then use STUN to populate the external address field if
-                    // it's not set already. Only a literal address is classified: a
-                    // name is not looked up for this.
-                    if (details.remoteAddress == null) {
-                        InetAddress addr = LiteralAddress.parse(details.activeAddress.address);
-                        if (addr != null && addr.isSiteLocalAddress()) {
-                            populateExternalAddress(details);
-                        }
+                    // it's not set already.
+                    if (details.remoteAddress == null &&
+                            isSiteLocalHost(details.activeAddress.address, InetAddress::getByName)) {
+                        populateExternalAddress(details);
                     }
                 }
             }
@@ -400,6 +397,22 @@ public class ComputerManagerService extends Service {
         listener = null;
 
         return false;
+    }
+
+    interface HostResolver {
+        InetAddress resolve(String host) throws UnknownHostException;
+    }
+
+    /**
+     * Whether {@code host} is on the local network. A PC added by name ("gamepc.lan") is resolved:
+     * this runs on the poll thread, and a name left unclassified never gets a STUN remote address.
+     */
+    static boolean isSiteLocalHost(String host, HostResolver resolver) {
+        try {
+            return resolver.resolve(host).isSiteLocalAddress();
+        } catch (UnknownHostException e) {
+            return false;
+        }
     }
 
     private void populateExternalAddress(ComputerDetails details) {

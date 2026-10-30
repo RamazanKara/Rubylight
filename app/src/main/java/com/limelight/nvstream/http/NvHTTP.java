@@ -1540,7 +1540,8 @@ public class NvHTTP {
             "&rikeyid="+context.riKeyId +
             (inputOnly ? "" : !enableHdr ? (tenBitSdr ? "&hdrMode=0" : "") : "&hdrMode=1&clientHdrCapVersion=0&clientHdrCapSupportedFlagsInUint32=0&clientHdrCapMetaDataId=NV_STATIC_METADATA_TYPE_1&clientHdrCapDisplayData=0x0x0x0x0x0x0x0x0x0x0") +
             "&localAudioPlayMode=" + (context.streamConfig.getPlayLocalAudio() ? 1 : 0) +
-            "&surroundAudioInfo=" + context.streamConfig.getAudioConfiguration().getSurroundAudioInfo() +
+            // Unsigned: 7.1.4's mask 0xF63F would make the int negative.
+            "&surroundAudioInfo=" + Integer.toUnsignedString(context.streamConfig.getAudioConfiguration().getSurroundAudioInfo()) +
             (context.preparedControllers.isEmpty() ? "" : "&rlControllers=" + context.preparedControllers) +
             "&remoteControllersBitmap=" + gamepads +
             "&gcmap=" + gamepads +

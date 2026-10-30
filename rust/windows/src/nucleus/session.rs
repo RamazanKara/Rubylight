@@ -693,20 +693,33 @@ impl Runner {
     /// background stream (#59). The game is kept so its next handler
     /// injects none, and the session ends saying so.
     fn refused_hooks(&mut self, job: &BTreeSet<u32>) -> Option<End> {
-        let (folder, exe) = self.own_game.as_ref()?;
-        // A look that fails is told by the passes that need one.
-        let boxes = self.desktop.message_boxes(job).ok()?;
-        let shown = boxes
-            .iter()
-            .find(|shown| shown.text.contains(generic::INJECT_FAILED))?;
+        self.own_game.as_ref()?;
+        let boxes = match self.desktop.message_boxes(job) {
+            Ok(boxes) => boxes,
+            Err(error) => {
+                let why = format!("{error:#}");
+                if self.unseen.as_ref() != Some(&why) {
+                    tracing::warn!(
+                        why,
+                        "the PC's message boxes not listed, so a game refusing Nucleus Co-op's input hooks is not seen"
+                    );
+                }
+                self.unseen = Some(why);
+                return None;
+            }
+        };
+        let shown = boxes.iter().find(|shown| {
+            !self.before.contains(&shown.window) && shown.text.contains(generic::INJECT_FAILED)
+        })?;
         let said = shown.summary();
+        let (folder, exe) = self.own_game.as_ref()?;
         let why = match files::refuse_hooks(folder, exe) {
             Ok(()) => format!(
-                "{} refused Nucleus Co-op's input hooks (it showed \"{said}\"), so Nucleus Co-op ended it: start the stream again, and Rubylight starts it without them",
+                "{} refused Nucleus Co-op's input hooks (it showed \"{said}\"), and Nucleus Co-op ends a game it can't hook: start the stream again, and Rubylight starts it without them",
                 self.title
             ),
             Err(error) => format!(
-                "{} refused Nucleus Co-op's input hooks (it showed \"{said}\"), so Nucleus Co-op ended it, and Rubylight could not keep that for its next start: {error:#}",
+                "{} refused Nucleus Co-op's input hooks (it showed \"{said}\"), and Nucleus Co-op ends a game it can't hook; Rubylight could not keep that for its next start: {error:#}",
                 self.title
             ),
         };
@@ -1027,6 +1040,22 @@ pub struct Running {
     crashlog: PathBuf,
 }
 
+/// The stream's warning for a game Rubylight's handler starts without
+/// ProtoInput's hooks ([`unhooked`]).
+pub const UNHOOKED: &str = "nucleus_unhooked";
+
+/// What the player should know when Rubylight's own handler starts the game
+/// without ProtoInput's hooks, because it refused them once (#59).
+fn unhooked(start: &Start) -> Result<Option<String>> {
+    if !start.handler.own || !files::hooks_refused(start.folder, start.exe_path)? {
+        return Ok(None);
+    }
+    Ok(Some(format!(
+        "{} refused Nucleus Co-op's input hooks, so it runs without them: a keyboard, mouse or pad on the PC reaches it too",
+        start.title
+    )))
+}
+
 /// Start a session on the PC: virtual Xbox pads, XInput, the user's desktop
 /// and compatibility settings, and Nucleus Co-op, elevated or from the
 /// user's own copy.
@@ -1039,6 +1068,9 @@ pub fn start_on_pc(
         Some(_) => Box::new(Unelevated::signed_in()?),
         None => Box::new(Elevated),
     };
+    if let Some(why) = unhooked(start)? {
+        warnings.set(UNHOOKED, why);
+    }
     let pads = pads::virtual_pads(policy, warnings)?;
     let mut xinput = pads::System::open()?;
     self::start(
@@ -1807,7 +1839,7 @@ mod tests {
             assert_eq!(
                 end,
                 Some(End::Crashed(format!(
-                    "Game refused Nucleus Co-op's input hooks (it showed \"Error: {}\"), so Nucleus Co-op ended it: start the stream again, and Rubylight starts it without them",
+                    "Game refused Nucleus Co-op's input hooks (it showed \"Error: {}\"), and Nucleus Co-op ends a game it can't hook: start the stream again, and Rubylight starts it without them",
                     generic::INJECT_FAILED
                 )))
             );
@@ -1831,6 +1863,69 @@ mod tests {
         screen.0.lock().unwrap().boxes.push((NUCLEUS, refused));
         assert_eq!(runner.step(t0 + START_TIMEOUT), None);
         assert!(!files::hooks_refused(host.path(), exe).unwrap());
+    }
+
+    /// #59: a box that was up before Nucleus started is an earlier
+    /// session's, not this game's.
+    #[test]
+    fn a_refused_hooks_box_from_before_the_start_is_not_this_games() {
+        let refused = MessageBox {
+            window: 500,
+            caption: "Error".into(),
+            text: generic::INJECT_FAILED.into(),
+        };
+        let exe = r"D:\Games\Black Flag\ACBlackFlag.exe";
+        let t0 = Instant::now();
+        let host = tempfile::tempdir().unwrap();
+        let (screen, probe) = (screen(), Probe::default());
+        let mut runner = runner(1, &screen, &probe, t0);
+        runner.own_game = Some((host.path().to_path_buf(), exe.to_string()));
+        runner.before = BTreeSet::from([refused.window]);
+        label(&screen);
+        assert_eq!(runner.step(t0), None);
+        instance(&screen, 0);
+        assert_eq!(runner.step(t0), None);
+        screen.0.lock().unwrap().boxes.push((NUCLEUS, refused));
+        assert_eq!(runner.step(t0 + PERIOD), None);
+        assert!(!files::hooks_refused(host.path(), exe).unwrap());
+    }
+
+    /// #59: the stream of a game started without the hooks it refused tells
+    /// its player that the PC's keyboard, mouse and pads reach it too. A
+    /// hub handler's game, whose handler Rubylight doesn't write, is not
+    /// told.
+    #[test]
+    fn a_game_started_without_the_hooks_it_refused_is_told() {
+        let host = tempfile::tempdir().unwrap();
+        let exe = r"D:\Games\Black Flag\ACBlackFlag.exe";
+        let hub = handler();
+        let own = Handler {
+            own: true,
+            ..handler()
+        };
+        let start = |handler| Start {
+            id: 1,
+            kind: kind(1),
+            folder: host.path(),
+            user_copy: None,
+            known_list: true,
+            handler,
+            exe_path: exe,
+            steam_app: None,
+            title: "Black Flag",
+            players: 1,
+            owner: ("phone", "Phone"),
+            size: (1280, 720),
+        };
+        assert_eq!(unhooked(&start(&own)).unwrap(), None);
+        files::refuse_hooks(host.path(), exe).unwrap();
+        assert_eq!(
+            unhooked(&start(&own)).unwrap().as_deref(),
+            Some(
+                "Black Flag refused Nucleus Co-op's input hooks, so it runs without them: a keyboard, mouse or pad on the PC reaches it too"
+            )
+        );
+        assert_eq!(unhooked(&start(&hub)).unwrap(), None);
     }
 
     /// A box Nucleus shows after the click (its End-key reminder) holds the

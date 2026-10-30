@@ -1,6 +1,6 @@
 # Couch menu design
 
-Status: design, 2026-10-26. Nothing is implemented. The feature ships as **Experimental**: we cannot test iOS, tvOS, Steam Deck, Android TV or webOS clients on our own devices.
+Status: design, 2026-10-26. Nothing is implemented. Some clients stay untested: we cannot test iOS, tvOS, Steam Deck, Android TV or webOS clients on our own devices.
 
 The couch menu is a host menu that Rubylight draws into the video stream. Any Moonlight client can open it with a controller, a keyboard or touch, with no client UI and no protocol change: stock Moonlight on every platform, Artemis and Nightjar. The menu reuses the host's existing logic for Radeon settings with restore, the stream preset, session actions and live GPU readings. It also has a slot for each sibling feature's toggle.
 
@@ -363,7 +363,7 @@ A full-plane pass while open is the price of keeping the packed layouts in one c
 | `couch_menu_corner_hold_ms` | `1500` | The corner hold, 500..=3000 ms. Per device and app. |
 | `couch_menu_keyboard_chord` | `ctrl+alt+backspace` | One of `chord::KEY_CHORDS` (section 3.1). Per device and app. |
 
-All six keys are listed in `console/settings.rs` under the label "Couch menu (Experimental)". The console fields (Brief 3): the controller chord is a text field that shows `Config::update`'s refusal message as written, and the `PadButtons::warning` text for a chord with Guide; the two holds are number fields with the ranges above; the keyboard chord is a select over `KEY_CHORDS`. The device editor offers the four chord and hold keys as overrides. `docs/configuration.md` gets a "Couch menu (Experimental)" section, the release notes say Experimental, and the README gets no caveats.
+All six keys are listed in `console/settings.rs` under the label "Couch menu". The console fields (Brief 3): the controller chord is a text field that shows `Config::update`'s refusal message as written, and the `PadButtons::warning` text for a chord with Guide; the two holds are number fields with the ranges above; the keyboard chord is a select over `KEY_CHORDS`. The device editor offers the four chord and hold keys as overrides. `docs/configuration.md` gets a "Couch menu" section, the release notes name the clients we could not test, and the README gets no caveats.
 
 ## 9. Measurement
 
@@ -401,7 +401,7 @@ Report the numbers measured at 1080p and 2160p, SDR and HDR, AMF and PyroWave. T
 ## 11. Open risks
 
 1. **The L3+R3 hold reaches the game.** Some games bind it, for example a special ability. The 1 s hold makes accidental triggers rare, but the game sees the press. Mitigations: `couch_menu_open_with`, and a future per-app off switch.
-2. **The touch path on stock clients.** Moonlight Android in absolute mode may turn a long press into a quick right click instead of a held button, and in trackpad mode the result depends on the host cursor. Test on the Retroid with stock Moonlight Android and Nightjar. If a path does not hold, drop it from the default and document it. iOS cannot be tested and stays Experimental.
+2. **The touch path on stock clients.** Moonlight Android in absolute mode may turn a long press into a quick right click instead of a held button, and in trackpad mode the result depends on the host cursor. Test on the Retroid with stock Moonlight Android and Nightjar. If a path does not hold, drop it from the default and document it. iOS cannot be tested by us.
 3. **Desktop side effects.** The press in the top-left corner reaches the desktop before the menu opens, for example starting a drag of the Recycle Bin. `release_all` ends the drag in place. Acceptable, but it should be checked.
 4. **Shader refactor and the closed path.** If fxc emits different code for the existing entries, the closed path changes. The bit-identity hashes and the A/B are the gate. If either fails, generate the menu entries from macros instead of a shared body.
 5. **The D3D11 fallback costs a full-plane pass while open.** This is acceptable only because it is a fallback; measure it.
@@ -530,12 +530,12 @@ This brief may exceed 500 lines. If it does, run it as two sequential halves on 
 - `rust/assets/locale/en.json` and `de.json` (`couch_menu` section, Latin-1)
 - `rust/release/timing_report.py` and `rust/release/test_timing_report.py` (`--split overlay`)
 - Docs:
-  - `docs/configuration.md` (section "Couch menu (Experimental)")
+  - `docs/configuration.md` (section "Couch menu")
   - `docs/native-api.md` (endpoint, feature, errors)
   - `docs/timing-record.md` (column)
   - `docs/architecture.md` (one paragraph in the frame path)
   - `docs/rubylight-3.0-plan.md` (status table row)
-  - `rust/RELEASE_NOTES.md` (`## Unreleased`, Experimental)
+  - `rust/RELEASE_NOTES.md` (`## Unreleased`)
 
 **Steps.** Implement sections 3.3 (wiring), 4.2, 4.3, 5, 6.6 and 7.1. Every action calls the extracted shared functions; nothing is reimplemented.
 
@@ -606,7 +606,7 @@ Open the menu with each path, at 720p, 1080p and 2160p, in each of these modes:
 - AMF HEVC and AV1;
 - PyroWave;
 - packed 4:4:4 on;
-- the WebRTC path (Experimental).
+- the WebRTC path.
 
 Check:
 - the menu is readable;

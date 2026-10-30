@@ -1,6 +1,6 @@
 # Racing the beam with PyroWave: how Rubylight and Nightjar draw a frame before it has arrived
 
-*Ramazan Kara, 2026-10-26. Experimental feature; every number here is our own measurement on one PC.*
+*Ramazan Kara, 2026-10-26. An opt-in feature, off by default; every number here is our own measurement on one PC.*
 
 PyroWave streams are big. At 400 Mbps a 1080p60 frame is about 830 KB, and on a 1 GbE link the
 last byte of it lands several milliseconds after the first. A conventional client waits for that last
@@ -296,7 +296,7 @@ runs. The numbers are in [PERFORMANCE.md](../rust/PERFORMANCE.md#october-26-beam
 
 The case the idea was built for, a separate PC on wired 1 GbE or 2.5 GbE, has not been measured yet, and
 neither has a margin sweep or a raced run on any client but this PC. Until they are, beam racing is
-Experimental and off by default.
+Opt-in and off by default.
 
 - **Host:** Rubylight 3.0 sends the row order when a client asks for it. Nothing to configure.
 - **Client:** Nightjar desktop on Windows, the `beam_race` setting (or `NIGHTJAR_BEAM_RACE=1`). It needs

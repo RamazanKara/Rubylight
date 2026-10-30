@@ -60,11 +60,11 @@ Removed, because none of it is needed to stream:
 - Playnite, Steam library and Lutris integration, and Lossless Scaling automation. Apps you added yourself keep working, including `steam://` commands. Apps synced from Playnite without a command are skipped at startup.
 - The stats and session history pages and the SQLite database behind them. The Devices page still shows who is connected, and the Overview page has a Stop stream button.
 - The legacy display helper, SudoVDA fallback, and ViGEm gamepad backend. The current display helper, virtual-display driver and VHF gamepad backend remain.
-- FFmpeg AMF and Media Foundation encoding. AMD always uses native AMF; saved experimental/legacy AMD encoder names migrate to it. NVIDIA NVENC, Intel QuickSync, software encoding, and PyroWave remain available.
+- FFmpeg AMF and Media Foundation encoding. AMD always uses native AMF; saved legacy AMD encoder names migrate to it. NVIDIA NVENC, Intel QuickSync, software encoding, and PyroWave remain available.
 - The classic interface. The consolidated interface is served at `/`, with redirects from old `/v2` links.
 - Docker files, upstream issue bots, docs-site tooling and dead code.
 
-## PyroWave (experimental)
+## PyroWave
 
 [PyroWave](https://github.com/Themaister/pyrowave) is an intra-only wavelet codec that runs as Vulkan compute. Every frame stands alone, and encoding is very fast: in a self-test on an RX 7900 XT, colour conversion, encode and packetizing took 0.5-0.7 ms per frame at 1080p and about 0.7 ms at 4K. The cost is bandwidth. It needs a few hundred Mbit/s, so it is only for fast wired networks.
 

@@ -4,7 +4,7 @@ A USB device plugged into the client, such as a flash drive, a USB gamepad or a 
 
 ## Setup
 
-1. **On the host:** install usbip-win2 (the installer's optional **Steam Deck and DualSense USB audio and haptics** component, or its own release). Turn on **Settings → General → USB devices → USB forwarding** (`usb_forwarding`, off by default). **USB devices at once** (`usb_max_devices`, 1 to 16, default 4) limits how many devices this PC takes from all clients at the same time.
+1. **On the host:** install usbip-win2 (the installer's optional **Steam Deck and DualSense USB audio and haptics** component, or its own release). Turn on **All settings → General → USB devices → USB forwarding** (`usb_forwarding`, off by default). **USB devices at once** (`usb_max_devices`, 1 to 16, default 4) limits how many devices this PC takes from all clients at the same time.
 2. **For each client:** open the device under **Devices** in the console and tick **USB devices** under its permissions. Taking the permission away disconnects a streaming device, which detaches its USB devices.
 3. **On Nightjar for Windows or Linux:** turn on **USB forwarding** in the settings. During a stream, the stream controls list the USB devices plugged in here (hubs left out), each with Attach or the reason it can't be forwarded.
 

@@ -1,8 +1,8 @@
 # Native API v1
 
-[Docs](README.md) · [HTTP API](api.md) · [Hardware metrics](hardware-metrics.md) · [3.0 plan](rubylight-3.0-plan.md)
+[Documentation](README.md) · [HTTP API](api.md) · [Hardware metrics](hardware-metrics.md) · [3.0 plan](rubylight-3.0-plan.md)
 
-Status: **shipped since 3.0.0-alpha.2** (capabilities, library, session actions and the Radeon endpoints). Fake-backend host tests and the compatibility matrix in `rust/host/src/nvhttp/native_tests/compat.rs` cover the contract, and the Radeon round trip and crash restore are recorded in the [hardware matrix](hardware-matrix.md). Nightjar 0.8.0 is the reference client. The short user and developer reference is in [HTTP API](api.md#native-api-v1-paired-clients); where it differs from this design text, the code wins. It is the contract between the host and `nightjar-core`: library (A6), session state and actions (A4, A7) and the Radeon panel (A5, A7).
+Status: **shipped in 3.0.0** (capabilities, library, session actions and the Radeon endpoints). Fake-backend host tests and the compatibility matrix in `rust/host/src/nvhttp/native_tests/compat.rs` cover the contract, and the Radeon round trip and crash restore are recorded in the [hardware matrix](hardware-matrix.md). Nightjar 0.8.0 is the reference client. The short user and developer reference is in [HTTP API](api.md#native-api-v1-paired-clients); where it differs from this design text, the code wins. It is the contract between the host and `nightjar-core`: library (A6), session state and actions (A4, A7) and the Radeon panel (A5, A7).
 
 ## Ground rules
 
@@ -34,7 +34,7 @@ GET /api/native/v1/capabilities
 ```json
 {
   "api_version": 1,
-  "host": { "name": "GAMING-PC", "version": "3.0.0-alpha.2", "unique_id": "5E0F4B1C-..." },
+  "host": { "name": "GAMING-PC", "version": "3.0.0", "unique_id": "5E0F4B1C-..." },
   "features": ["library", "session", "session.close_game", "session.launcher", "radeon.read", "radeon.write", "radeon.profile"],
   "permissions": { "list": true, "view": true, "launch": true, "host_control": false }
 }
@@ -282,7 +282,7 @@ POST /api/native/v1/radeon/settings
 
 ## Wake targets (`wake`)
 
-Status: served (after 3.0.0-rc.3, [design](wake-and-audio-design.md) A.2, A.3 and A.6). Types in `rubylight_native_api::wake`, fixture `rust/core/native-api/tests/fixtures/wake.json`.
+Status: served since 3.0.0 ([design](wake-and-audio-design.md) A.2, A.3 and A.6). Types in `rubylight_native_api::wake`, fixture `rust/core/native-api/tests/fixtures/wake.json`.
 
 ```http
 GET /api/native/v1/wake
@@ -531,11 +531,11 @@ Which actions are allowed (`GET /session`, and the same rules apply to the POSTs
 - The path carries the major version (`/v1`). Within v1, changes are additive only: new fields, features, setting ids, actions, error codes and enum values. Clients ignore unknown fields. They treat an unknown state as `unsupported`, an unknown session state as `idle` with no actions, and hide unknown actions.
 - Removing or renaming a field, changing a type, or changing an action's meaning needs `/v2`. Then `NativeApiVersion` reports 2, and the host keeps serving v1 for at least the whole 3.x line.
 - `api_version` in the capabilities response is the version of the path that answered.
-- Compatibility matrix for the alpha.2 gate: stock Moonlight and Nightjar 0.7.x against the 3.0 host (they ignore the field, and `/applist`, `/cancel` and the tiles are unchanged), and Nightjar 3.0 against 2.6.x, Sunshine and Apollo (field missing, so the classic grid).
+- Compatibility: stock Moonlight and Nightjar 0.7.x ignore the field on a 3.0 host, and `/applist`, `/cancel` and the tiles are unchanged for them; Nightjar 0.8.0 and newer against 2.6.x, Sunshine or Apollo finds the field missing and shows the classic grid.
 
 ## Where the types live
 
-The API types go into a new dependency-light crate inside `rust/core`, re-exported by butterpollo-core:
+The API types live in a dependency-light crate inside `rust/core`, re-exported by butterpollo-core:
 
 - `rust/core/native-api/Cargo.toml`: package `rubylight-native-api`, a workspace member. Its only dependency is `serde` with `derive` (`serde_json` for tests). Its manifest is self-contained: it sets `version`, `edition = "2021"`, `rust-version = "1.80"`, `license` and `repository` itself and copies the workspace lints, because a `*.workspace = true` key makes cargo read the root manifest, whose `resolver = "3"` a 1.80 cargo can't parse. The crate has its own version, `1.0.0`, which follows the API and not the host, so `rust/release/bump.py` (which only bumps `rust/*/Cargo.toml`) leaves it alone. That a 1.80 cargo builds it from a git dependency is still to be checked in Nightjar's pin bump.
 - `butterpollo-core` depends on it by path and exposes it as `butterpollo_core::native_api` (`pub use rubylight_native_api as native_api;` in `rust/core/src/lib.rs`).

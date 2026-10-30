@@ -7,12 +7,12 @@ Encoder focus gives the AMF encoder's bits to the parts of the picture where the
 ## 1. Decision
 
 - **Mode to build: `static`.** Blocks that have not changed for a few frames get a higher importance than blocks that are moving. It works like PA's temporal AQ, without PA's lookahead and latency, and it works for 10-bit HDR, where PA is not available. A fully moving frame and a fully still frame both produce a uniform map, and a uniform map is never attached, so focus only acts on mixed pictures: a HUD or text over motion, a video window on a still desktop, or a settled page after a scroll.
-- **`centre` is opt-in and experimental:** static plus a fixed weight on the screen centre and around the cursor. A whole-frame metric cannot show its benefit, so it is measured with centre-crop scores, and it is dropped if it does not earn its place (section 9).
+- **`centre` is opt-in:** static plus a fixed weight on the screen centre and around the cursor. A whole-frame metric cannot show its benefit, so it is measured with centre-crop scores, and it is dropped if it does not earn its place (section 9).
 - **The map is built on the GPU in the existing D3D12 conversion submission**, from a per-16x16-block signature and a still-age counter. The CPU copies the last completed map, at most about 130 KB at 4K with H.264 and 8 KB with HEVC or AV1, from a READBACK buffer whose fence has already signalled. It never waits on a fence. The map is therefore one frame old, which suits a measure of how long a block has been still.
 - **Support is proven, never assumed.** AMF exposes caps for H.264 and HEVC but none for AV1, and a surface property is accepted whether or not the driver uses it. The startup encoder check therefore runs a functional probe: half the map at importance 10, half at 0, then the encoder's block QP feedback must show the difference. A codec that fails the probe reports `unsupported` with a reason in the native API document, the host log and the session warning when it is requested. There is no silent fallback.
 - **The setting is `encoder_focus = off | static | centre`, default `off`**, with per-app and per-device overrides, in the web console and through native API v1 (`stream.settings`, `stream.encoder_focus`). Nightjar toggles it live, without an encoder restart or an IDR. It is opt-in: there is no `auto` value. One is added, resolving per codec to the measured winner, only once a codec measures better (section 9).
 - **PyroWave is excluded**, explicitly: it codes every frame on its own, so a still block gains nothing from extra bits in one frame. A PyroWave session reports `unsupported` with the reason `pyrowave`.
-- **Default-on only if it measures better** (section 9). Otherwise it ships opt-in and labelled Experimental, or it is dropped.
+- **Default-on only if it measures better** (section 9). Otherwise it ships opt-in, or it is dropped.
 
 ## 2. What AMF 1.5.2 offers (verified in the vendored headers)
 
@@ -29,7 +29,7 @@ Encoder focus gives the AMF encoder's bits to the parts of the picture where the
 - **AMD's encode API docs say the map can only use system memory** ("Currently, the ROI map can only use system memory"). That rules out handing AMF a GPU buffer, and it is why the design uses a READBACK ring rather than GPU-to-AMF zero-copy. If a later AMF accepts `AMF_MEMORY_DX12` maps, the probe can test that and drop the one-frame lag.
 - **How the map is applied is documented only vaguely:** "Encoder will further adjust the bits allocation among code blocks based on the importance, on top of the base rate control decisions." The working hypothesis was that only relative importance matters under rate control. Measured on the RX 7900 XT (HEVC 1080p60, 20 Mbps, `vbr_latency`, 2026-10-27), importance is closer to absolute: an all-`k` map moved block QP against no map by +1.1 at 0, -0.7 at 1, -1.6 at 2, -2.8 at 5 and -5.0 at 10, about -0.5 QP per step. Uniform maps are never attached, so only the spread reaches the encoder.
 - **Any map lifts the latency-constrained rate control's limit on big frames, on the frame that carries it**, whatever its values (an all-zero map too). Under `vbr_latency` that frame codes like CBR. MaxAUSize does not bind either, with or without a map. A map in the frames after a keyframe, while the rate control settles, made frames of 75 to 145 KB against an 83 KB cap, so no map goes on the 30 frames after a keyframe, recovery picture or first frame (`SETTLE_FRAMES`). From then on a map costs nothing at steady state: an all-zero map was bit-identical to no map. The rest is a scene cut on a frame with a map, which comes out about twice the size of the same cut without one (184 to 291 KB against 92 to 137 KB). The map is the previous frame's (the one-frame lag), and seeing the cut in time would mean a CPU wait for the current frame's map, which is ruled out.
-- **AMD documents no per-generation support** for ROI. RDNA 1 (VCN 2), RDNA 2 (VCN 3), RDNA 3 (VCN 4) and RDNA 4 (VCN 5) are all possible, and so is a driver that accepts the property and ignores it. The functional probe decides per GPU, codec and bit depth. Our hardware is RDNA 3 only: the RX 7900 XT here and the Radeon 780M on the laptop. RDNA 1, 2 and 4 rely on the probe and ship labelled Experimental. No GPU is dropped: a GPU that fails the probe keeps streaming exactly as today, with focus reported unsupported.
+- **AMD documents no per-generation support** for ROI. RDNA 1 (VCN 2), RDNA 2 (VCN 3), RDNA 3 (VCN 4) and RDNA 4 (VCN 5) are all possible, and so is a driver that accepts the property and ignores it. The functional probe decides per GPU, codec and bit depth. Our hardware is RDNA 3 only: the RX 7900 XT here and the Radeon 780M on the laptop. RDNA 1, 2 and 4 rely on the probe and ship untested. No GPU is dropped: a GPU that fails the probe keeps streaming exactly as today, with focus reported unsupported.
 - **The SimpleROI sample** allocates the map with `AllocSurfaceEx(AMF_MEMORY_HOST, AMF_SURFACE_GRAY32, ceil(w/16 or 64), ceil(h/16 or 64))`, fills plane 0 through `GetNative()` using `GetHPitch()` in bytes, and attaches it with `SetProperty(ROI_DATA, surface)`. It checks no cap.
 
 ## 3. Focus sources evaluated
@@ -38,7 +38,7 @@ Encoder focus gives the AMF encoder's bits to the parts of the picture where the
 |---|---|---|
 | OS dirty rects (Desktop Duplication `GetFrameDirtyRects`, WGC dirty regions) | Rejected | Games redraw the whole frame, so dirty rects are always full-screen. WGC dirty regions need Windows 11 24H2, and Windows 10 must keep working. Our driver's swap-chain path (`ReleaseAndAcquireBuffer2`) passes no dirty rects. It would only cover the desktop case, through three different capture paths. |
 | GPU block diff in the existing conversion pass | **Chosen** | Capture-agnostic: the driver, WGC and Desktop Duplication all feed the same converter. It works for games, because a HUD is still even when the scene moves, and for desktops, Windows 10 and HDR. It is computed where the pixels already are, with no extra submission or wait. |
-| Screen centre and cursor neighbourhood | Opt-in experimental (`centre`) | A heuristic with no full-frame objective gain: it moves bits away from the edges by design. Kept only if centre-crop quality improves (section 9). |
+| Screen centre and cursor neighbourhood | Opt-in (`centre`) | A heuristic with no full-frame objective gain: it moves bits away from the edges by design. Kept only if centre-crop quality improves (section 9). |
 | PA temporal AQ / perceptual AQ (`PATemporalAQMode`, `PAPerceptualAQMode`, `PAActivityMap`) | Rejected as a source | PA is off by default because it cost 25 ms per 4K60 frame. It is forced only for QVBR/HQVBR/HQCBR, and only for 8-bit NV12. The host never sets TAQ or PAQ (driver default NONE). Static focus is the lookahead-free stand-in for TAQ, so it does not duplicate PA. With PA on, a chosen mode runs and the `encoder focus` line logs `preanalysis=true`. |
 | VBAQ / AV1 CAQ | Kept as is | On for HEVC (`HevcEnableVBAQ`) and AV1 (`Av1AQMode=1`), off for H.264, where it measured worse (`docs/configuration.md`, `amd_vbaq`). It works within a frame on texture variance, while focus works across frames on stillness. Both stay on in both arms of the A/B, which is the shipping configuration. |
 | AV1 screen-content tools, high-motion boost, frame QP limits | Unrelated | Frame-wide, and settings of their own already exist. |
@@ -132,7 +132,7 @@ Buffers and both pipelines are created with the converter whenever the encoder c
 
 - `encoder_focus` joins the "Encoder tuning" entries of `override_allowed` (`rust/core/src/config.rs`). The app and device editors offer it automatically.
 - Console: a select in group "AMD AMF" (`rust/web/src/lib/schema/video.ts`, next to `amd_vbaq`), labelled **Encoder focus**:
-  - options: Off (default), Still areas, Still areas and centre; the description says Experimental;
+  - options: Off (default), Still areas, Still areas and centre; the description says it is opt-in;
   - details: "Gives more bits to parts of the picture that stay still, such as text and HUDs, and fewer to motion. The stream stays a normal video stream.";
   - a Choice line in `rust/host/src/console/settings.rs`.
 - `docs/configuration.md` gets a paragraph that links the measurement once it exists.
@@ -258,7 +258,7 @@ M2 bitrates at 1080p60:
 | `slice_delivery_overflows` | No increase |
 | `stale` | Under 1% of frames |
 
-**Opt-in**, labelled Experimental:
+**Opt-in**:
 
 - **Quality:** text and `mixed` gain, but games lose up to 0.5, or the gain shows only at 10 Mbps or below.
 - **Timing:** the timing limits still hold.
@@ -280,7 +280,7 @@ The result goes into `rust/PERFORMANCE.md` as a new dated section. The release n
 ## 10. Risks
 
 1. **The driver accepts the property and ignores it.** The functional probe catches this. A driver might honour ROI at 640x480 but not with split-frame, or at stream resolutions; M0 tests that, and `encoder_focus_verify` can confirm it in a stream.
-2. **The importance semantics are undocumented.** Measured on the RX 7900 XT: importance acts close to absolute, and any map lifts `vbr_latency`'s limit on big frames for the frame it is on, with VBAQ on or off (section 2). The settle period removes the overshoot after keyframes. Scene cuts on a frame with a map stay about twice their size without focus, which is why focus stays opt-in and Experimental until M3 shows the stream cost.
+2. **The importance semantics are undocumented.** Measured on the RX 7900 XT: importance acts close to absolute, and any map lifts `vbr_latency`'s limit on big frames for the frame it is on, with VBAQ on or off (section 2). The settle period removes the overshoot after keyframes. Scene cuts on a frame with a map stay about twice their size without focus, which is why focus stays opt-in until M3 shows the stream cost.
 3. **The gain may be small.** Under low-latency CBR the rate controller rebalances, and HEVC/AV1's 64x64 grid is coarse for small HUD elements; the `ctb_still` sweep covers this. H.264's 16x16 grid may gain the most. The drop rule handles a feature that does not pay.
 4. **Bits move away from motion.** Fast games could look worse in the moving area; M2's moving-region score and its game-clip limit guard against it.
 5. **The one-frame-old map** gives a block that just started moving one frame of still importance. That costs bits on new content, which is arguably useful, and it resolves the next frame.
@@ -288,7 +288,7 @@ The result goes into `rust/PERFORMANCE.md` as a new dated section. The release n
 7. **Slices become uneven**, which raises overflows and turns slice delivery off. M3 measures it, and it blocks default-on.
 8. **Hash collisions** mark a changed block as still: about 2^-32 per block per frame, harmless.
 9. **The shader edit touches the hot path.** The off path keeps the old pipeline object; a test enforces bit-identical luma and chroma output, and M3 measures convert time.
-10. **Coverage of untested generations:** RDNA 1, 2 and 4 depend on the probe alone and are labelled Experimental. Any GPU that fails keeps today's behaviour, loudly reported.
+10. **Coverage of untested generations:** RDNA 1, 2 and 4 depend on the probe alone and are untested. Any GPU that fails keeps today's behaviour, loudly reported.
 11. **Cross-repo coupling:** Nightjar pins `rubylight-native-api` by git rev, so brief C waits for brief B to be pushed.
 
 ## 11. Implementer briefs
@@ -466,7 +466,7 @@ Steps:
    - States and reasons come from `state.focus_support` and `session.encoder_focus_state`.
    - Errors: `not_paired`, `permission_required`, `invalid_value`, `not_writable`.
    - Register `GET` and `POST` on `/stream/settings` in `router()`, and add both features to the capabilities list.
-4. **Web:** add a select entry next to `amd_vbaq`, with the label and details from section 8 (the Experimental tag on `centre`), and a Choice line in `console/settings.rs`.
+4. **Web:** add a select entry next to `amd_vbaq`, with the label and details from section 8 (the opt-in note on `centre`), and a Choice line in `console/settings.rs`.
 5. **Docs:**
    - a `configuration.md` paragraph (what it does, PyroWave excluded, opt-in and off by default, the link to the measurement);
    - the `native-api.md` endpoint, features, states and reasons;

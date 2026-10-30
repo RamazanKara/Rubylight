@@ -24,7 +24,7 @@ All three repos are weeks old. Before each brief starts, and again before the re
    `packet` module and `PROTOCOL_VERSION` stay as they are.
 2. **Off by default.** The `webrtc_server` setting (default `false`) gates everything. While it is off,
    no socket is opened, no thread starts and no GameStream branch changes behaviour. The console gets a
-   toggle labelled "WebRTC server (Experimental)", plus port fields. Paired TVs and browsers appear on
+   toggle labelled "WebRTC server", plus port fields. Paired TVs and browsers appear on
    the Devices page with a "WebRTC" badge.
 3. **Library: str0m 0.24.1.** Pin it as `str0m = { version = "=0.24.1", default-features = false,
    features = ["rust-crypto"] }`, in `rust/host` only. The reasons are in the next section.
@@ -331,7 +331,7 @@ audio() ── Opus packet ──▶ webrtc sink (instead of the GameStream audi
 
 ## Scope
 
-**MVP (3.0.0), labelled Experimental:**
+**MVP (3.0.0), off by default:**
 
 - The protocol's video modes: H.264 at 720p, 1080p and 1440p; HEVC and AV1 at 720p, 1080p, 1440p and
   4K, all in SDR.
@@ -343,7 +343,7 @@ audio() ── Opus packet ──▶ webrtc sink (instead of the GameStream audi
   codec whose cap is unknown (none reported, or not probed because of `hevc_mode`/`av1_mode`) gets 60
   fps and below, with one warning in the log. AMF has no separate 10-bit cap, so HDR is gated by the
   same one. B5 measured 1080p at 90 and 120 with all three codecs, 1440p120 with HEVC and 4K120 with
-  HEVC and AV1 clean. Experimental: 720p above 60, H.264 at 1440p above 60, AV1 at 1440p90 and
+  HEVC and AV1 clean. Not measured: 720p above 60, H.264 at 1440p above 60, AV1 at 1440p90 and
   1440p120, 90 fps at 1440p and 4K, HDR above 60 fps, lower-throughput GPUs, and drivers that report
   no cap (which get 60 fps and below). H.264 stays out of 4K: 4K120 would need level 6.0, which
   browsers refuse.
@@ -359,8 +359,8 @@ audio() ── Opus packet ──▶ webrtc sink (instead of the GameStream audi
 modes are listed with `hdrExperimental:true`. A request for anything else gets `unsupported-settings`,
 and the host never falls back: no SDR for HDR, no H.264 for AV1, no stereo for surround.
 
-Everything ships as Experimental. Where B5 cannot test a part on our own devices (the Samsung TV
-itself, HDR decode inside a browser), it is hardened and fake-tested, and stays labelled Experimental.
+Everything ships off by default. Where B5 cannot test a part on our own devices (the Samsung TV
+itself, HDR decode inside a browser), it is hardened and fake-tested.
 
 **Later in 3.x:**
 
@@ -438,7 +438,7 @@ itself, HDR decode inside a browser), it is hardened and fake-tested, and stays 
        - HDR: HEVC Main10 and AV1 10-bit at 4K60 with the test host's virtual display in HDR. The
          host checks the bitstream (10-bit, BT.2020, PQ, metadata present). The client checks that
          frames decode, and `getStats` reports the codec it should. A real HDR picture in a browser
-         is not something we can verify, so HDR stays Experimental.
+         is not something we can verify, so HDR stays untested.
        - 5.1 and 7.1: the test host plays one tone per channel, and the client checks each channel
          with a Web Audio `ChannelSplitterNode` and an `AnalyserNode`, so a wrong mapping fails.
        - Keyboard and mouse: an echo window on the test host's virtual display logs what arrives. The
@@ -466,7 +466,7 @@ itself, HDR decode inside a browser), it is hardened and fake-tested, and stays 
   - the media thread's CPU.
 
   It adds a GameStream loopback smoke with the setting off and on, which must not regress. The TV
-  itself stays Experimental until a user reports on it.
+  itself stays untested until a user reports on it.
 
 ## Briefs
 
@@ -575,8 +575,8 @@ and a reviewer checks the diff before it merges.
 | Risk | Mitigation |
 |---|---|
 | The protocol moves (repos are weeks old) | Pins above; compare `protocol.md` before each brief and before the release |
-| No HEVC decoder in headless Edge, and the Chrome flag may not work | Try Chrome with the flag. If it fails, HEVC is "established, frames received", and the TV ships as Experimental |
-| Samsung Game Mode needs `imageattr` and may reject other offer details | Copy the fork's offer shape line for line, check our own offer in tests, and ship as Experimental |
+| No HEVC decoder in headless Edge, and the Chrome flag may not work | Try Chrome with the flag. If it fails, HEVC is "established, frames received", and the TV ships untested |
+| Samsung Game Mode needs `imageattr` and may reject other offer details | Copy the fork's offer shape line for line, check our own offer in tests, and ship untested |
 | str0m 0.24 is pre-1.0 | Exact pin; the loopback and SDP tests catch changes on an upgrade |
 | `rust-crypto` SRTP cost at 4K 100 Mbps | B2 bench; switch to `wincrypto` if it measures better |
 | Port 8000 is taken | Loud bind error, configurable signalling port; discovery keeps 8000 |
@@ -585,6 +585,6 @@ and a reviewer checks the diff before it merges.
 | Unencrypted signalling | Documented. Auth guards control, not confidentiality. LAN-only filter |
 | str0m's H.265 and AV1 support is hidden API | Exact pin; loopback tests for both; B2 reports anything it had to work around |
 | Only Chromium decodes `multiopus`; the TV may not | Surround is an extension a client asks for. An answer without it is an error, never a silent downmix |
-| A browser can't show whether HDR looks right | Host-side bitstream checks plus decoded frames; HDR ships Experimental |
+| A browser can't show whether HDR looks right | Host-side bitstream checks plus decoded frames; HDR ships untested |
 | Injected keyboard and mouse reach the real desktop | `perm` bits, auth and the LAN filter; release of held input on every close; the test leg runs only on the laptop or an idle PC |
 | The extensions clash with a later protocol version | Advertised under `extensions`, opt-in per session, `version` stays 2; offered upstream later |

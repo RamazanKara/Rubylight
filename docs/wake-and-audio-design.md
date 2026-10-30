@@ -57,7 +57,7 @@ A pure function in `butterpollo_core::wake` decides:
 
 1. **Physical or virtual:** an adapter is physical when it has `HardwareInterface` and a 6-byte MAC that is neither zero nor multicast. vEthernet, TAP, Wintun, loopback and tunnel adapters count as virtual.
 2. **Wired route:** when the route adapter is physical and wired, report its MAC.
-3. **Wi-Fi route:** when the route adapter is physical Wi-Fi, report a connected wired physical adapter on the same IPv4 subnet if there is one. Wired wake is far more reliable, and the broadcast reaches it. Otherwise report the Wi-Fi MAC, labelled Experimental.
+3. **Wi-Fi route:** when the route adapter is physical Wi-Fi, report a connected wired physical adapter on the same IPv4 subnet if there is one. Wired wake is far more reliable, and the broadcast reaches it. Otherwise report the Wi-Fi MAC, marked as less reliable.
 4. **Virtual route:** when the route adapter is virtual and its MAC equals a physical adapter's permanent MAC (a Hyper-V external switch sharing the NIC's address), report that MAC. Otherwise report the best connected physical adapter, in this order: wired before Wi-Fi, wake-armed (from cached readiness, when there is any) before not, lower interface metric, lower index.
 5. **Nothing connected:** zeros.
 
@@ -528,7 +528,7 @@ Everything is gated by native features, never by host brand.
    - Driver updates can reset NIC settings; the console check shows it.
    - Firmware settings can't be read.
    - Wake from shutdown and Fast Startup are labelled in the console.
-   - Wi-Fi wake and Modern Standby wake are Experimental.
+   - Wi-Fi wake and Modern Standby wake are untested.
    - A VPN client can't wake a sleeping PC without a relay on its LAN; the `route` flag in `/wake` lets Nightjar say so.
 5. **Wake grace may not be needed.** It may not reproduce here, and is then dropped. Nothing unmeasured ships.
 6. **Headphone surround changes the sink.** It switches the sink to 7.1 for a stereo client.

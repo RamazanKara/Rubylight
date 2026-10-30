@@ -1,6 +1,8 @@
-# HDR10 on an HDR phone
+# HDR on Android displays
 
-**Status: not yet seen on an HDR phone.** Nightjar's own devices are a Retroid Pocket 6 (SDR panel), an emulator and a Linux NUC, so no HDR10 panel has been in front of this code. The decisions below are covered by unit tests with made-up display capabilities; the picture itself has not been looked at on an HDR screen.
+[Documentation](index.md) · [Video and latency](video-and-latency.md#hdr-formats)
+
+How Nightjar for Android decides when to ask the PC for HDR, how it configures the decoder, and how it reports a refusal. The decisions are covered by unit tests with synthetic display capabilities. On hardware, HDR streams have run on a TCL C6K TV (MediaTek, Android 14); the checks below for HDR phones have not run on our devices.
 
 ## What the app does
 
@@ -31,12 +33,12 @@ The overlay's colour word (HDR, 10-bit, SDR) was already there.
 - Android 7 defined HDR playback for tunneled decoders; HDR on a `SurfaceView` with opaque buffers is optional and not standardised, and "only tunneled decoders are guaranteed to play back HDR content". There is no standard API to check non-tunneled HDR playback, which is why a decoder check by profile (Main10 HDR10) and a check of the output format are used. [HDR video playback](https://source.android.com/docs/core/display/hdr)
 - `Display.getHdrCapabilities()` reflects the EDID static metadata block (CTA-861.3); HDR10 maps to the ST 2084 EOTF. From Android 9, `MediaCodec` reports HDR10 static metadata in the output format as `KEY_HDR_STATIC_INFO` (HDR10+ dynamic metadata is `KEY_HDR10_PLUS_INFO`). Same page.
 - Non-tunneled content shown on a panel that cannot display it may be "flattened into an SDR color volume". Nightjar therefore never asks for HDR on a screen without HDR10. Same page.
-- A video `SurfaceView` does not need `Window.setColorMode(COLOR_MODE_HDR)`; that is for HDR UI content drawn by the app. Nightjar does not call it. (From the platform documentation as remembered; not re-checked in this pass.)
-- Per-mode HDR types, `Display.Mode.getSupportedHdrTypes()`, exist from Android 14 (API 34). The keys `KEY_HDR_STATIC_INFO`, `KEY_COLOR_STANDARD` and `KEY_COLOR_TRANSFER` exist from Android 7 (API 24). (From the API reference as remembered: the reference pages could not be fetched as text in this pass.)
+- A video `SurfaceView` does not need `Window.setColorMode(COLOR_MODE_HDR)`; that is for HDR UI content drawn by the app. Nightjar does not call it.
+- Per-mode HDR types, `Display.Mode.getSupportedHdrTypes()`, exist from Android 14 (API 34). The keys `KEY_HDR_STATIC_INFO`, `KEY_COLOR_STANDARD` and `KEY_COLOR_TRANSFER` exist from Android 7 (API 24).
 - Samsung HDR10+ phones: if the host sends only static metadata, a decoder that exposes the `HDR10Plus` profile may be picked. Nightjar's decoder choice already prefers a Main10 HDR10 profile and falls back to `HDR10Plus`; whether the phone then applies its own dynamic tone mapping is unverified.
 - Sources on the host side: Sunshine's HDR metadata message is 26 bytes (12 for the primaries, 4 for the white point, then maximum and minimum luminance, MaxCLL, MaxFALL and the full-frame luminance). This is from reading the existing Nightjar code and protocol notes, not from the Sunshine source in this pass.
 
-## What a tester should look for
+## Checking it on an HDR phone
 
 On a phone whose settings show an HDR10 panel, with HDR on in Nightjar and Windows HDR on for the streamed display:
 
@@ -46,9 +48,3 @@ On a phone whose settings show an HDR10 panel, with HDR on in Nightjar and Windo
 4. On a phone with several refresh rates, change the refresh setting and check HDR is still on or, if it is refused, that the overlay says the mode is the problem.
 
 Report the phone, Android version, the codec in use and the `HDR requested but` log line if any.
-
-## Rubylight wording
-
-- Plan, B3: "HDR10 end to end on an HDR phone: Nightjar asks for HDR only when the screen reports HDR10 in its current mode and names the reason on the overlay when HDR is asked for and not delivered."
-- Hardware matrix: "Nightjar Android, HDR on an HDR phone | Unit-tested | None | Decisions and reasons are unit-tested with fake capabilities; no HDR panel has been used."
-- Release notes: "HDR10 is requested only when the current display mode has it, and the Statistics overlay says why HDR is off or not working."

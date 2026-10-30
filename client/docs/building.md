@@ -163,9 +163,13 @@ Use Python 3.10+ and Node.js 18+; these scripts use only standard libraries and 
 
 ```sh
 python scripts/generate-settings.py
-node --test scripts/check-doc-links.test.mjs scripts/build-release.test.mjs
+git diff --exit-code -- docs/settings.md
+node --test scripts/check-doc-links.test.mjs scripts/build-release.test.mjs scripts/add-device-results.test.mjs scripts/device-docs.test.mjs scripts/device-results-issue.test.mjs
 node scripts/check-doc-links.mjs
+node scripts/device-docs.mjs --check
 ```
+
+`build-release.test.mjs` runs `bash` and `sha256sum`; on Windows, run it under WSL or Git Bash with coreutils. `device-docs.mjs --check` fails when the device table in [devices.md](devices.md) differs from `site/data/device-results.json`.
 
 Use `python3` instead of `python` where that is your Python 3 command. The generator reads the real XML and Java presets; it fails if a preference lacks usage guidance or a preset expression needs review. The CI documentation job regenerates the page and uses `git diff --exit-code -- docs/settings.md` to reject stale committed output.
 

@@ -1,11 +1,17 @@
 # Nightjar privacy
 
-Describes the Nightjar for Android source prepared for 4.0.0.
+[Documentation](index.md)
+
+This policy covers Nightjar 4.0 for Android, Android TV and Fire TV, and
+Nightjar for Windows and Linux. The sections up to
+[Backups and deletion](#backups-and-deletion) describe the Android app;
+[Nightjar for Windows and Linux](#nightjar-for-windows-and-linux) covers the
+desktop client.
 
 Nightjar streams your PC's desktop, apps, video and audio directly to your
-Android device. Your controls and any clipboard text you choose to send go to
-your PC. Nightjar does not operate a streaming relay, advertising service,
-analytics service or automatic crash-report upload service.
+device. Your controls and any clipboard text you choose to send go to your PC.
+Nightjar does not operate a streaming relay, advertising service, analytics
+service or automatic crash-report upload service, and has no user accounts.
 
 ## What stays on your device
 
@@ -65,7 +71,7 @@ to tell you that your PC's host has an update. GitHub receives your public IP
 address. Nothing is installed without your choice.
 
 If you enable **Send hardware metrics to client** on a host that supports it
-(currently Rubylight), Nightjar can request host CPU usage and available AMD GPU readings, including
+(Rubylight), Nightjar can request host CPU usage and available AMD GPU readings, including
 GPU names, utilization, clocks, temperatures, power, fans and VRAM use. This
 uses the paired streaming HTTPS connection during this device's active video
 stream while its foreground performance overlay is visible. Polling stops
@@ -78,7 +84,7 @@ The locally generated client identifier is sent with every host HTTP request,
 including polling an unpaired host over unencrypted HTTP. Hosts can use this
 identifier to recognize this installation across requests.
 
-The current app also makes public network checks. It can contact
+The app also makes public network checks. It can contact
 `stun.moonlight-stream.org` to find an external network address and
 `android.conntest.moonlight-stream.org` to diagnose connection failures. Those
 servers receive your public IP address and network protocol traffic. They do
@@ -129,3 +135,32 @@ shared reports or Android backups using the app or service holding them.
 
 Nightjar has no developer-hosted user account to delete. For questions about
 this policy, use the contact details on the Nightjar store listing.
+
+## Nightjar for Windows and Linux
+
+The desktop client stores its settings, paired PCs (names, addresses,
+identifiers and host certificates), its client certificate and private key,
+controller layouts, cached app lists and cover art, and its logs in
+`%APPDATA%\Nightjar\config` on Windows or `~/.config/nightjar` on Linux.
+Screenshots you take with F12 and statistics you export are saved there too.
+The log keeps the last two runs and stays on the computer until you attach it
+to a report yourself. If you list a home Wi-Fi for named profiles, its name is
+stored in the settings and compared on this computer when a stream starts; it
+is never sent.
+
+Stream content, input, clipboard text, files, shared-folder transfers, USB
+traffic and the microphone go only between this computer and the PC you
+stream from, as on Android. Apart from your PCs, the desktop client contacts:
+
+- `api.github.com` on Windows, once per launch, to check for a newer Nightjar
+  release when **Check for updates** is on. Nothing is downloaded or
+  installed.
+- `stun.moonlight-stream.org` to learn this network's public IPv4 address, so
+  a PC on your home network can be reached from outside it.
+
+Both receive your public IP address. To remove the desktop client's data on
+Windows, choose "Remove them too" in the uninstaller: it deletes everything in
+`%APPDATA%\Nightjar\config` except the `screenshots` and `statistics`
+folders, which hold your own files; delete those yourself. On Linux, delete
+`~/.config/nightjar`. Revoke pairing on the PC to remove this computer's access
+there.

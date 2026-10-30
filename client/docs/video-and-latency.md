@@ -12,13 +12,13 @@ Use 720p/60 as a troubleshooting baseline, watch the overlay, then change one se
 | H.264 | Useful for compatibility and as a baseline when another decoder stalls. |
 | HEVC | Useful for high-quality streams at a lower bandwidth budget and compatible Main10 HDR decoding. |
 | AV1 | Uses compatible hardware and host encoding. Compare actual decode time on your device. |
-| PyroWave | Vulkan codec for the lowest decode time at high bitrates, on hosts that support it (currently Rubylight). Choose it explicitly on a 64-bit Android/Vulkan device. |
+| PyroWave | Vulkan codec for the lowest decode time at high bitrates, on hosts that offer it, such as Rubylight. Choose it explicitly on a 64-bit Android/Vulkan device. |
 
 PyroWave requires Android 10+, Vulkan 1.3 and the GPU features, limits and presentation formats checked by the renderer. Start with about 280 Mbps for 720p/60 or 400 Mbps for 1080p/60 on a fast LAN. Tune from there with the overlay. Nightjar requests up to 2000 Mbps at startup and during a stream; the host applies its own ceiling. Nightjar switches to a conventional codec automatically when a device needs it.
 
 A PyroWave host sends each frame as one burst at its link speed. Some receive paths, such as USB Ethernet docks, lose the end of such bursts below the link's rated speed. On a host with frame-shaped UDP tests (Vibeshine), **PC settings → Calibrate frame pacing** finds the fastest burst speed this device takes without losing frame tails. It saves that speed for the PC and sends it with each PyroWave stream as the host's frame pace. Stop any stream on the PC first; the test takes one to three minutes. The pace belongs to the connection it was measured on, so it is only sent while this device's wired link speed toward the host is the same as during the test.
 
-Long-press a PC and use **PC settings… → Connection test** before increasing bandwidth. On hosts that support it (currently Rubylight), its optional, cancellable 32 MiB HTTPS download starts only when requested and reports throughput and the host link speed.
+Long-press a PC and use **PC settings… → Connection test** before increasing bandwidth. On hosts that support it (Rubylight, or Vibepollo with PyroWave available), its optional, cancellable 32 MiB HTTPS download starts only when requested and reports throughput and the host link speed.
 
 ## HDR and color
 
@@ -75,7 +75,7 @@ The Debug overlay's **ARR** or **max Hz** label identifies the refresh policy se
 
 **Match the screen to the game's frame rate** (off by default) makes the frame rate vote follow the game. From the host's frame timestamps Nightjar measures the rate the game presents at (the median interval over one second). After it has held within 3% for two seconds, the rate is voted to Android with `Surface.setFrameRate`, seamless changes only, so the screen can move to a mode that divides it evenly (60 Hz for a 60 fps game in a 120 fps stream) without going blank. A new rate must also hold for two seconds, differ by more than 3% from the last vote and arrive at least two seconds after it. It needs a host that announces clock sync (Rubylight) and Android 11 or newer, and is skipped with VRR, a TextureView and PyroWave. With **Allow lower refresh rate** off the vote never goes below the rate that setting keeps, so the game's rate can then only raise it; turn that option on (or choose Balanced with FPS limit or Smoothest video) for the vote to lower the screen. A screen with no matching seamless mode stays where it is, and `Display refresh` entries in Report a problem show each vote.
 
-Per-PC profiles accept rates to 0.01 Hz, such as 59.94 or 119.88. Hosts that support fractional rates (currently Rubylight) receive them as set; other hosts receive a whole-number rate. The overlay reports received, rendered and on-screen FPS separately from panel refresh.
+Per-PC profiles accept rates to 0.01 Hz, such as 59.94 or 119.88. Hosts that support fractional rates (Apollo, Vibepollo and Rubylight) receive them as set; other hosts receive a whole-number rate. The overlay reports received, rendered and on-screen FPS separately from panel refresh.
 
 ## Video scaling
 
@@ -186,7 +186,7 @@ Debug groups diagnostics into Video, Network and Decode and scrolls on smaller s
 
 ## Host hardware metrics
 
-This needs a host that supports it (currently Rubylight). On the host, enable **Send hardware metrics to client** (on Rubylight: **Settings → General → Hardware metrics**). It is off by default. Start or reconnect a video stream and show the **Statistics** or **Debug** overlay. The client checks the host's advertised protocol support; the host version number alone does not establish compatibility. Normal streams and Remote Monitor qualify, but input-only sessions do not. Pairing and **View streams** or **Launch applications** permission are required, and the active video stream must belong to this device.
+This needs a host that supports it (Rubylight). On the host, enable **Send hardware metrics to client** (on Rubylight: **Settings → General → Hardware metrics**). It is off by default. Start or reconnect a video stream and show the **Statistics** or **Debug** overlay. The client checks the host's advertised protocol support; the host version number alone does not establish compatibility. Normal streams and Remote Monitor qualify, but input-only sessions do not. Pairing and **View streams** or **Launch applications** permission are required, and the active video stream must belong to this device.
 
 Statistics adds host CPU usage and each reported GPU's usage, temperature and GPU power. Debug adds a **Host hardware** section with GPU names/IDs, available clocks, hotspot/memory temperatures, voltage, fans, GPU/board power, VRAM readings and sample details. GPU readings need an AMD driver with ADLX support; Windows CPU usage can be available without an AMD GPU. CPU temperature and CPU clocks are not provided. These are host-wide readings, not per-game measurements; a listed GPU is not necessarily the capture or encoding GPU.
 
@@ -210,7 +210,7 @@ The setting covers the network path staying the same, which is the case for roam
 
 For bounded reconnects and opt-in resolution/FPS adaptation, see [stream recovery and automatic quality](recovery-and-quality.md).
 
-Turn on **Device controls bitrate** under Settings → Video, directly below Video bitrate, or in the stream menu's **Quality** section, on a host that supports it (currently Rubylight). It is off by default. The Settings switch is the default for every PC and the bitrate setting is the most it uses; the stream menu saves a choice for one PC, separately for conventional codecs and PyroWave. Changing the Settings switch makes every PC follow it again. Loss, RTT variation and completed decode headroom inform adaptation; PyroWave also considers queue delay. After trouble, the bitrate steps back toward the last rate that ran without poor samples in big steps once the link is healthy, and probes above it slowly. Jitter or queueing that does not drop after two cuts is not cut further (loss still is). See [stream recovery and automatic quality](recovery-and-quality.md#device-controls-bitrate). Manual session bitrate changes turn it off.
+Turn on **Device controls bitrate** under Settings → Video, directly below Video bitrate, or in the stream menu's **Quality** section, on a host that reports its stream bitrate (Rubylight). On a Sunshine-based PC with its own automatic bitrate, turning it on starts the PC's controller instead, which follows the network reports Nightjar sends every three seconds. It is off by default. The Settings switch is the default for every PC and the bitrate setting is the most it uses; the stream menu saves a choice for one PC, separately for conventional codecs and PyroWave. Changing the Settings switch makes every PC follow it again. Loss, RTT variation and completed decode headroom inform adaptation; PyroWave also considers queue delay. After trouble, the bitrate steps back toward the last rate that ran without poor samples in big steps once the link is healthy, and probes above it slowly. Jitter or queueing that does not drop after two cuts is not cut further (loss still is). See [stream recovery and automatic quality](recovery-and-quality.md#device-controls-bitrate). Manual session bitrate changes turn it off.
 
 ### Bitrate, frame rate and error correction with a Rubylight PC
 

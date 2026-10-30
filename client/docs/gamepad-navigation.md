@@ -2,7 +2,7 @@
 
 [Documentation](index.md) · [Controls](controls.md)
 
-**Status: not yet tried with a physical pad.** Nightjar's own test devices are a Retroid Pocket 6 (built-in controls) and a TV remote. Nobody has plugged a USB pad or paired a Bluetooth pad against this code. What follows is researched from Android's documentation and source, written to match it, and covered by unit tests that feed synthesized key and motion events with gamepad sources. It is not "Tested". If a pad misbehaves, please [open an issue](https://github.com/RamazanKara/nightjar/issues) with the pad's name and what happened.
+How Nightjar's menus and PC keyboard read external USB and Bluetooth controllers on Android. The behavior follows Android's documentation and source, and unit tests feed it synthesized key and motion events from gamepad sources. On hardware it has been checked with a Retroid Pocket 6's built-in controls and a TV remote. If a pad misbehaves, [open an issue](https://github.com/RamazanKara/nightjar/issues) with the pad's name and what happened.
 
 ## What Android delivers
 

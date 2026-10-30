@@ -1,5 +1,7 @@
 # Decoder flags
 
+[Documentation](index.md)
+
 Nightjar and its two streaming engines (Rust and the classic C engine) share one MediaCodec setup: `MediaCodecHelper.setDecoderLowLatencyOptions` builds the format, `MediaCodecDecoderRenderer.initializeDecoder` walks the fallback ladder. This page lists the low-latency keys Nightjar sends to each decoder, what was measured and what is deliberately not sent. "Both engines" cannot differ here.
 
 ## Rules

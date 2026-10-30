@@ -263,7 +263,8 @@ def generate():
         elif key == "list_fps":
             default = f"Screen maximum (rounded, {bounds[1]}–{bounds[2]} FPS)"
         elif key == "seekbar_bitrate_kbps":
-            default = "Calculated for the native resolution and screen maximum FPS; follows changes until bitrate is chosen explicitly"
+            default = ("Calculated for the native resolution and screen maximum FPS; with PyroWave, PyroWave's own "
+                       "(about 400 Mbps at 1080p60, never below its minimum); follows changes until bitrate is chosen explicitly")
         elif key == "checkbox_small_icon_mode":
             threshold = re.search(r"smallestScreenWidthDp < (\d+)", config)[1]
             default = f"On below {threshold} dp smallest screen width; Off on TVs and larger screens"
@@ -336,7 +337,7 @@ def generate():
               "| --- | --- | --- |",
               "| Video resolution | This screen's resolution | This screen's resolution |",
               f"| Video frame rate | Screen maximum (rounded, {bounds[1]}–{bounds[2]} FPS) | 30 FPS |",
-              "| Video bitrate | Default for that resolution and frame rate | Default for that resolution and frame rate |",
+              "| Video bitrate | Default for that resolution, frame rate and codec | Default for that resolution, frame rate and codec |",
               "| Adaptive refresh (ARR / VRR) | Off | Off |",
               "| Client-side upscaling | Off | Off |",
               "| Frame pacing | Lowest latency | Balanced with FPS limit |",

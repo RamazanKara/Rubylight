@@ -5,7 +5,8 @@
 //!   ([`PresentClock`]), so the display refreshes at the game's cadence instead of the
 //!   network's. Presents are immediate (tearing allowed) at the scheduled time.
 //! - immediate: shown as soon as decoded (lowest latency; tears without VRR).
-//! - vsync: the newest picture at each refresh.
+//! - vsync: the newest picture at each refresh, or with the FPS limit and smoothest frame pacings
+//!   (`config::FramePacing`) each picture in turn.
 //! - beam race: immediate, and a picture still being received is shown slice by slice just ahead
 //!   of the display's beam (`stream::race`); chosen once the display is known to allow it.
 //!
@@ -20,6 +21,7 @@ use rubylight_protocol::present_clock::{PresentClock, Settings as ClockSettings}
 use sdl3_sys::everything::*;
 
 use super::pipeline::Decoded;
+use crate::config::FramePacing;
 use crate::media::{self, FrameInfo};
 
 /// How long the presenter waits for a GPU-decoded picture's fence before the stream ends. The
@@ -62,9 +64,16 @@ pub fn pacing(settings: &crate::config::Settings, tearing_supported: bool) -> (P
     (mode, vrr)
 }
 
-/// The pacing without VRR: V-Sync, or immediate when the settings turn V-Sync off.
+/// The pacing without VRR: V-Sync, or immediate when the settings turn V-Sync off and the frame
+/// pacing is the lowest latency (every other frame pacing waits for the refresh).
 pub fn without_vrr(settings: &crate::config::Settings) -> PacingMode {
-    if settings.vsync { PacingMode::Vsync } else { PacingMode::Immediate }
+    if settings.vsync || settings.frame_pacing.forces_vsync() { PacingMode::Vsync } else { PacingMode::Immediate }
+}
+
+/// The longest a picture waits in the in-order frame pacings before a newer due one replaces it:
+/// one frame of the stream, at most 250 ms (Android's `FramePacingPolicy.shouldDrainOutput`).
+pub fn frame_us(fps: u32) -> u64 {
+    (1_000_000 / u64::from(fps.max(1))).min(250_000)
 }
 
 /// The pacing once the display check (`race_probe`) has a verdict: a VRR stream on a display that
@@ -182,6 +191,12 @@ pub struct Pacer {
     /// held by a picture waiting here, the decoder drops the oldest of them instead of the
     /// newest frame.
     pending: std::sync::Arc<std::sync::Mutex<VecDeque<Pending>>>,
+    /// The frame pacing setting, which applies while the mode is V-Sync.
+    frame_pacing: FramePacing,
+    /// One frame of the stream (`frame_us`).
+    frame_us: u64,
+    /// The FPS limit's last present slot.
+    last_slot_us: Option<u64>,
 }
 
 impl Pacer {
@@ -199,7 +214,31 @@ impl Pacer {
                 ..Default::default()
             }),
             pending,
+            frame_pacing: FramePacing::Latency,
+            frame_us: frame_us(60),
+            last_slot_us: None,
         }
+    }
+
+    /// The frame pacing setting and the stream's frame rate, for V-Sync.
+    pub fn with_frame_pacing(mut self, frame_pacing: FramePacing, fps: u32) -> Self {
+        self.frame_pacing = frame_pacing;
+        self.frame_us = frame_us(fps);
+        self
+    }
+
+    /// Whether the frame pacing setting shapes this stream's presents now.
+    fn paced(&self, pacing: FramePacing) -> bool {
+        self.mode == PacingMode::Vsync && self.frame_pacing == pacing
+    }
+
+    /// The FPS limit's slot for a picture ready at `ready_us`: a frame after the last slot, but
+    /// never before the picture is ready nor more than a frame after (a late picture starts the
+    /// slots again), so it holds a picture at most one frame.
+    fn cap_slot(&mut self, ready_us: u64) -> u64 {
+        let slot = self.last_slot_us.map_or(ready_us, |last| (last + self.frame_us).clamp(ready_us, ready_us + self.frame_us));
+        self.last_slot_us = Some(slot);
+        slot
     }
 
     /// Takes newly decoded pictures, scheduling each once, in order.
@@ -208,6 +247,10 @@ impl Pacer {
             PacingMode::HostTimes => {
                 let s = self.clock.schedule(decoded.rtp, decoded.ready_us);
                 (s.present_us, s.hold_us, s.late)
+            }
+            _ if self.paced(FramePacing::CapFps) => {
+                let slot = self.cap_slot(decoded.ready_us);
+                (slot, (slot - decoded.ready_us) as i64, false)
             }
             _ => (decoded.ready_us, 0, false),
         };
@@ -231,11 +274,25 @@ impl Pacer {
     }
 
     /// The newest picture due at `now_us`; older due ones are dropped (counted in the
-    /// return's second value).
+    /// return's second value). With the FPS limit or the smoothest frame pacing it is the oldest
+    /// due picture instead, one a refresh: an older one is dropped only once it is more than a
+    /// frame old and a newer one is due.
     pub fn take_due(&mut self, now_us: u64) -> (Option<Pending>, u32) {
         let mut chosen = None;
         let mut dropped = 0;
         let mut pending = super::pipeline::lock(&self.pending);
+        if self.paced(FramePacing::CapFps) || self.paced(FramePacing::Smoothness) {
+            while pending.get(1).is_some_and(|next| next.present_us <= now_us)
+                && pending.front().is_some_and(|p| now_us.saturating_sub(p.decoded.ready_us) > self.frame_us)
+            {
+                pending.pop_front();
+                dropped += 1;
+            }
+            if pending.front().is_some_and(|p| p.present_us <= now_us) {
+                chosen = pending.pop_front();
+            }
+            return (chosen, dropped);
+        }
         while pending.front().is_some_and(|p| p.present_us <= now_us) {
             if chosen.is_some() {
                 dropped += 1;
@@ -1761,5 +1818,73 @@ pub(crate) mod tests {
         assert!(sdl_needs_rgb(SDL_PIXELFORMAT_P010, false));
         assert!(!sdl_needs_rgb(SDL_PIXELFORMAT_P010, true));
         assert!(!sdl_needs_rgb(SDL_PIXELFORMAT_NV12, false));
+    }
+
+    #[test]
+    fn frame_pacing_other_than_lowest_latency_waits_for_the_refresh_without_vrr_only() {
+        let mut settings = crate::config::Settings { vrr: false, vsync: false, ..Default::default() };
+        assert_eq!(settings.frame_pacing, FramePacing::Latency, "the default keeps today's pacing");
+        assert_eq!(pacing(&settings, true).0, PacingMode::Immediate, "lowest latency follows the V-Sync setting");
+        for mode in [FramePacing::Balanced, FramePacing::CapFps, FramePacing::Smoothness] {
+            settings.frame_pacing = mode;
+            assert_eq!(pacing(&settings, true).0, PacingMode::Vsync, "{mode:?}");
+        }
+        let vrr = crate::config::Settings { frame_pacing: FramePacing::Smoothness, ..Default::default() };
+        assert_eq!(pacing(&vrr, true), (PacingMode::Immediate, true), "VRR ignores frame pacing, as on Android");
+        assert_eq!(frame_us(60), 16_666);
+        assert_eq!(frame_us(0), 250_000, "an unknown rate holds at most 250 ms");
+    }
+
+    #[test]
+    fn lowest_and_balanced_pacing_show_the_newest_due_picture() {
+        for mode in [FramePacing::Latency, FramePacing::Balanced] {
+            let mut pacer = Pacer::new(PacingMode::Vsync, 8_333).with_frame_pacing(mode, 60);
+            for ready in [1_000, 9_000, 17_000] {
+                pacer.accept(decoded(ready));
+            }
+            let (picture, dropped) = pacer.take_due(17_000);
+            assert_eq!((picture.unwrap().decoded.ready_us, dropped), (17_000, 2), "{mode:?}");
+        }
+    }
+
+    #[test]
+    fn smoothest_pacing_shows_each_picture_in_turn_and_skips_only_stale_ones() {
+        let mut pacer = Pacer::new(PacingMode::Vsync, 8_333).with_frame_pacing(FramePacing::Smoothness, 60);
+        for ready in [1_000, 9_000, 17_000] {
+            pacer.accept(decoded(ready));
+        }
+        let (picture, dropped) = pacer.take_due(17_000);
+        assert_eq!((picture.unwrap().decoded.ready_us, dropped), (1_000, 0), "16 ms old: still within a frame");
+        let (picture, dropped) = pacer.take_due(26_000);
+        assert_eq!((picture.unwrap().decoded.ready_us, dropped), (17_000, 1), "17 ms old with a newer one due: skipped");
+        assert!(pacer.next_due().is_none());
+        pacer.accept(decoded(30_000));
+        let (picture, dropped) = pacer.take_due(60_000);
+        assert_eq!((picture.unwrap().decoded.ready_us, dropped), (30_000, 0), "a lone late picture still shows");
+        let mut vrr = Pacer::new(PacingMode::Immediate, 8_333).with_frame_pacing(FramePacing::Smoothness, 60);
+        vrr.accept(decoded(1_000));
+        vrr.accept(decoded(2_000));
+        assert_eq!(vrr.take_due(2_000).1, 1, "without V-Sync the setting does not apply");
+    }
+
+    #[test]
+    fn the_fps_limit_gives_each_picture_its_own_slot_holding_it_at_most_a_frame() {
+        let mut pacer = Pacer::new(PacingMode::Vsync, 8_333).with_frame_pacing(FramePacing::CapFps, 60);
+        // Two pictures that came 2 ms apart, then one late.
+        for ready in [10_000, 12_000, 60_000] {
+            pacer.accept(decoded(ready));
+        }
+        let (picture, dropped) = pacer.take_due(12_000);
+        let picture = picture.unwrap();
+        assert_eq!((picture.decoded.ready_us, picture.present_us, picture.hold_us, dropped), (10_000, 10_000, 0, 0));
+        assert_eq!(pacer.next_due(), Some(26_666), "the early one waits for the next slot");
+        assert!(pacer.take_due(20_000).0.is_none());
+        let (picture, dropped) = pacer.take_due(26_666);
+        let picture = picture.unwrap();
+        assert_eq!((picture.decoded.ready_us, picture.hold_us, dropped), (12_000, 14_666, 0));
+        assert_eq!(pacer.next_due(), Some(60_000), "a late picture starts the slots again");
+        pacer.accept(decoded(60_500));
+        pacer.accept(decoded(61_000));
+        assert_eq!(pacer.take_due(100_000).1, 2, "pictures more than a frame old give way to the newest due one");
     }
 }

@@ -12,6 +12,8 @@ pub mod pipeline;
 mod playout;
 pub mod present;
 mod microphone;
+#[cfg(windows)]
+mod voice_capture;
 mod cursor;
 mod bitrate;
 mod host_abr;
@@ -1768,7 +1770,7 @@ impl Streaming {
         let settings = connecting.settings.clone();
         let microphone = if settings.microphone && !connecting.plan.microphone_muted && facts.role != AppRole::RemoteMonitor {
             if session.microphone_available() {
-                match microphone::Microphone::open(connecting.shared.clone()) {
+                match microphone::Microphone::open(connecting.shared.clone(), settings.mic_echo_cancel) {
                     Ok(microphone) => Some(microphone),
                     Err(error) => {
                         connecting.shared.notify(Notice::MicrophoneFailed(error));
@@ -1806,6 +1808,10 @@ impl Streaming {
             .map(|host| crate::usb::Panel::new(session.usb_forwarder(host, || {})));
         let hdr_stream = present::hdr_negotiated(settings.hdr, facts.format);
         let vrr_fallback = present::without_vrr(&settings);
+        let stream_fps = u32::try_from(facts.fps).unwrap_or(0);
+        if settings.frame_pacing != config::FramePacing::Latency {
+            eprintln!("nightjar: frame pacing {:?} without VRR at {stream_fps} fps", settings.frame_pacing);
+        }
         let vrr_check = checks_display_for_vrr(connecting.plan.vrr, connecting.pacing, vrr_fallback, env_flag("NIGHTJAR_VRR_CHECK"));
         let vrr_sync = if connecting.plan.vrr { present::VrrSync::parse(std::env::var("NIGHTJAR_VRR_SYNC").ok().as_deref()) } else { present::VrrSync::Off };
         if vrr_sync != present::VrrSync::Off { eprintln!("nightjar: VRR sync {} (NIGHTJAR_VRR_SYNC)", vrr_sync.label()); }
@@ -1820,7 +1826,7 @@ impl Streaming {
             session,
             shared: connecting.shared,
             facts,
-            pacer: Pacer::with_backlog(connecting.pacing, min_interval, backlog),
+            pacer: Pacer::with_backlog(connecting.pacing, min_interval, backlog).with_frame_pacing(settings.frame_pacing, stream_fps),
             texture: VideoTexture::new(connecting.settings.upscaling == config::Upscaling::Bilinear, hdr_stream),
             upscaler: None,
             #[cfg(windows)]
@@ -2199,7 +2205,7 @@ impl Streaming {
         if !permitted || self.microphone_muted || controller_route {
             self.microphone = None;
         } else if self.microphone.is_none() && self.session.microphone_available() {
-            match microphone::Microphone::open(self.shared.clone()) {
+            match microphone::Microphone::open(self.shared.clone(), self.settings.mic_echo_cancel) {
                 Ok(microphone) => self.microphone = Some(microphone),
                 Err(error) => { self.microphone_muted = true; self.show_toast(error); }
             }

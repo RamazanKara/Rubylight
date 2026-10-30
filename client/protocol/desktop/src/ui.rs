@@ -2437,6 +2437,17 @@ impl Launcher {
                 );
             });
             ui.add_enabled_ui(!s.vrr, |ui| {
+                setting_row(ui, s, &mut rows, &["frame_pacing"], "Frame pacing",
+                    "Without VRR: Lowest latency shows the newest frame at once. Balanced waits for the display's refresh. With an FPS limit, frames that come early wait for their turn. Smoothest video shows every frame in turn and adds up to a frame of delay.",
+                    |ui, s| {
+                        egui::ComboBox::from_id_salt("frame-pacing").selected_text(tr(s.frame_pacing.label())).show_ui(ui, |ui| {
+                            for mode in crate::config::FramePacing::ALL {
+                                ui.selectable_value(&mut s.frame_pacing, mode, tr(mode.label()));
+                            }
+                        }).response
+                    });
+            });
+            ui.add_enabled_ui(!s.vrr && !s.frame_pacing.forces_vsync(), |ui| {
                 setting_row(ui, s, &mut rows, &["vsync"], "V-Sync", "Without VRR: wait for the display's refresh, no tearing.", |ui, s| {
                     toggle(ui, &mut s.vsync)
                 });
@@ -2549,6 +2560,17 @@ impl Launcher {
             });
             setting_row(ui, s, &mut rows, &["microphone"], "Microphone", "Send this device's default microphone to a compatible host while streaming.", |ui, s| {
                 toggle(ui, &mut s.microphone)
+            });
+            ui.add_enabled_ui(s.microphone, |ui| {
+                setting_row(ui, s, &mut rows, &["mic_echo_cancel"], "Echo cancellation",
+                    "Keeps the stream's sound from the speakers out of the microphone. On Windows, Automatic turns it off when the sound plays through headphones or a headset.",
+                    |ui, s| {
+                        egui::ComboBox::from_id_salt("mic-echo-cancel").selected_text(tr(s.mic_echo_cancel.label())).show_ui(ui, |ui| {
+                            for mode in crate::config::MicEcho::ALL {
+                                ui.selectable_value(&mut s.mic_echo_cancel, mode, tr(mode.label()));
+                            }
+                        }).response
+                    });
             });
 
             rows.section(ui, "Streaming", &mut jump);
@@ -3908,7 +3930,7 @@ const MAIN_KEYS: [(&str, &[&str]); 7] = [
 ];
 
 /// Desktop rows and the Android preference each one matches. A row is main when its match is.
-const ANDROID_KEYS: [(&str, &str); 32] = [
+const ANDROID_KEYS: [(&str, &str); 34] = [
     ("width", "list_resolution"), ("fps", "list_fps"), ("bitrate_kbps", "seekbar_bitrate_kbps"),
     ("adaptive_bitrate", "checkbox_auto_bitrate"), ("codec", "video_format"), ("hdr", "checkbox_enable_hdr"),
     ("video_scaling", "checkbox_stretch_video"), ("controllers", "checkbox_multi_controller"),
@@ -3924,6 +3946,7 @@ const ANDROID_KEYS: [(&str, &str); 32] = [
     ("unbatched_input", "checkbox_unbatched_input"), ("network_priority", "checkbox_network_priority"),
     ("input_only_any_host", "checkbox_input_only_any_host"),
     ("gamepad_quit_combo", "list_gamepad_quit_combo"), ("check_updates", "checkbox_check_updates"),
+    ("frame_pacing", "frame_pacing"), ("mic_echo_cancel", "list_mic_echo_cancel"),
 ];
 
 /// Main rows Android has no match for.

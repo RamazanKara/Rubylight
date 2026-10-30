@@ -292,6 +292,10 @@ pub struct RtspOutcome {
     pub host_packed444_modes: u8,
     /// The HDR format the ANNOUNCE asked for (one `rubylight_protocol::hdr` bit), 0 for stock.
     pub hdr_format: u8,
+    /// Foundation Sunshine's client FEC control is on (V+'s `VideoFecControlSupported`): the
+    /// ANNOUNCE carried `x-ml-video.fecPercentage`, and the control stream sends 0x5510
+    /// summaries. Never with PyroWave, nor for a host that takes Rubylight's 0x5539 reports.
+    pub fec_summaries: bool,
 }
 
 impl RtspOutcome {
@@ -511,6 +515,7 @@ impl Handshake {
                 sdp: String::new(),
                 host_packed444_modes: 0,
                 hdr_format: 0,
+                fec_summaries: false,
             },
         })
     }
@@ -694,6 +699,10 @@ impl Handshake {
             hdr_formats_offered: describe.hdr_formats,
             audio_codec,
             audio_codecs_offered: describe.audio_codecs,
+            video_fec_percentage: self
+                .out
+                .fec_summaries
+                .then(|| self.out.config.video_fec.summary_percentage()),
         });
         self.out.audio_codec = audio_codec;
         self.out.encryption_enabled = sdp.encryption_enabled;
@@ -917,6 +926,14 @@ impl Handshake {
         self.out.host_control_messages = info.control_messages.clone();
         self.out.host_roaming = info.roaming;
         self.out.host_pen_barrel_roll = info.pen_barrel_roll;
+        // V+'s VideoFecControlSupported: a Sunshine host that offers fecControlVersion 1, off
+        // PyroWave (which keeps its own FEC). A host that takes Rubylight's FEC reports keeps them.
+        self.out.fec_summaries = self.quad()[3] < 0
+            && !pyrowave
+            && info.fec_control
+            && !info
+                .control_messages
+                .contains(&rubylight_protocol::fec_report::FEC_REPORT_MESSAGE_TYPE);
         // A host takes a microphone only encrypted.
         if config.microphone {
             match info.microphone {

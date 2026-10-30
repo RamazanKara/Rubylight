@@ -252,7 +252,11 @@ fn cut(open: &[u8]) -> usize {
 
 /// Keeps a PC's names and addresses out of the log file from now on.
 pub fn add_secrets(record: &crate::config::HostRecord) {
-    let names = [&record.name, &record.unique_id, &record.address].into_iter().chain(&record.alias).chain(&record.mac);
+    let names = [&record.name, &record.unique_id, &record.address]
+        .into_iter()
+        .chain(&record.alias)
+        .chain(&record.mac)
+        .chain(&record.remote_address);
     for secret in names.chain(&record.other_addresses) {
         nightjar_core::report::redact::add_secret(secret);
     }

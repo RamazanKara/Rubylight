@@ -94,6 +94,19 @@ public final class PyroWaveBandwidthTest {
                             }
                         }));
                         speed = speedText(activity, mbps, current.pyroWaveHostLinkMbps);
+                    } else if (current.caps.family() == HostCapabilities.Family.SUNSHINE) {
+                        // Foundation Sunshine's own test, as Moonlight V+ runs it; other Sunshine PCs have none.
+                        try {
+                            double mbps = http.probeFoundationBandwidth(percent -> activity.runOnUiThread(() -> {
+                                if (!cancelled && !activity.isFinishing() && !activity.isDestroyed()) {
+                                    progress.setIndeterminate(false);
+                                    progress.setProgressCompat(percent, true);
+                                }
+                            }));
+                            speed = speedText(activity, mbps, 0);
+                        } catch (java.io.FileNotFoundException e) {
+                            speed = activity.getString(R.string.connection_test_speed_unsupported);
+                        }
                     } else {
                         speed = activity.getString(R.string.connection_test_speed_unsupported);
                     }
@@ -124,7 +137,8 @@ public final class PyroWaveBandwidthTest {
 
     /** Only hosts with the download test measure speed; the others are tested for delay alone. */
     private boolean measuresSpeed() {
-        return computer.caps.mayHave(HostCapabilities.Feature.PYROWAVE_BANDWIDTH_PROBE);
+        return computer.caps.mayHave(HostCapabilities.Feature.PYROWAVE_BANDWIDTH_PROBE) ||
+                computer.caps.family() == HostCapabilities.Family.SUNSHINE;
     }
 
     /** "Ping 63 ms · Jitter 41 ms · Loss 0.0%", then the speed line when there is one. */

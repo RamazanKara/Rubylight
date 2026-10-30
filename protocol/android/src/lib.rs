@@ -121,6 +121,7 @@ pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_startConnectio
     roaming_metered: jboolean,
     audio_passthrough: jint,
     hdr_format: jint,
+    video_fec_percentage: jint,
 ) -> jint {
     let Some(bridge) = bridge::get() else {
         platform::error("RustBridge.startConnection before init");
@@ -162,6 +163,7 @@ pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_startConnectio
     stream.client_wireless = client_wireless == JNI_TRUE;
     stream.audio_passthrough = extras::audio_passthrough(audio_passthrough);
     stream.hdr_format = hdr_format as u8 & rubylight_protocol::hdr::ALL;
+    stream.video_fec = extras::video_fec(video_fec_percentage);
     let config = SessionConfig {
         stream,
         location: extras::location(streaming_remotely),

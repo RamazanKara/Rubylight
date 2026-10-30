@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_fec_choice">エラー訂正</string>
-    <string name="summary_fec_choice">Rubylight PC が映像に加える復元用データの量です。自動ではこのデバイスの損失に合わせます。ほかの PC は独自の設定を使います。</string>
+    <string name="summary_fec_choice">PC が映像に加える復元用データの量です。自動ではこのデバイスの損失に合わせます。この選択に対応していない PC は独自の設定を使います。</string>
     <string name="fec_choice_host">PC の設定</string>
     <string name="fec_choice_auto">自動</string>
     <string name="title_link_probe">最初のビットレートの前に回線をテスト</string>

@@ -2300,14 +2300,26 @@ impl Launcher {
                     })
                     .response
             });
-            setting_row(ui, s, &mut rows, &["upscaling"], "Upscaling", "Enhance smaller SDR streams. HDR uses bilinear. Restart after enabling on Linux.", |ui, s| {
-                egui::ComboBox::from_id_salt("upscaling").selected_text(s.upscaling.label()).show_ui(ui, |ui| {
-                    for mode in [crate::config::Upscaling::Bilinear, crate::config::Upscaling::Fsr1, crate::config::Upscaling::Sgsr1] {
-                        ui.selectable_value(&mut s.upscaling, mode, mode.label());
+            let upscaling_help = if s.upscaling == crate::config::Upscaling::Ai {
+                en("Uses the GPU's AI video upscaling, for SDR and HDR. On NVIDIA with an HDR display it also turns SDR streams into HDR. Costs GPU power.")
+            } else {
+                en("Enhance smaller SDR streams. HDR uses bilinear. Restart after enabling on Linux.")
+            };
+            setting_row(ui, s, &mut rows, &["upscaling"], "Upscaling", upscaling_help, |ui, s| {
+                egui::ComboBox::from_id_salt("upscaling").selected_text(tr(s.upscaling.label())).show_ui(ui, |ui| {
+                    // AI enhancement is offered only where the GPU's probe finds the vendor's super
+                    // resolution or RTX Video HDR. It loads the AMF runtime, so it runs once per
+                    // renderer device, in the background, when the menu is first opened.
+                    let probe = crate::stream::enhance::settings_probe(probe_device);
+                    if probe.is_none() { ui.ctx().request_repaint_after(std::time::Duration::from_millis(200)); }
+                    let ai_offered = probe.flatten().is_some();
+                    for mode in [crate::config::Upscaling::Bilinear, crate::config::Upscaling::Fsr1, crate::config::Upscaling::Sgsr1, crate::config::Upscaling::Ai] {
+                        if mode == crate::config::Upscaling::Ai && !ai_offered && s.upscaling != mode { continue; }
+                        ui.selectable_value(&mut s.upscaling, mode, tr(mode.label()));
                     }
                 }).response
             });
-            if s.upscaling != crate::config::Upscaling::Bilinear {
+            if s.upscaling.is_shader() {
                 setting_row(ui, s, &mut rows, &["upscale_sharpness"], "Sharpness", "Extra sharpening applied by the upscaler.", |ui, s| {
                     ui.add(egui::Slider::new(&mut s.upscale_sharpness, 0..=100).suffix("%"))
                 });

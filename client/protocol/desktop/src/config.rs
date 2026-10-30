@@ -142,11 +142,19 @@ pub enum Upscaling {
     Bilinear,
     Fsr1,
     Sgsr1,
+    /// The GPU vendor's video super resolution and, on NVIDIA, RTX Video HDR (`stream::enhance`);
+    /// offered only where the probe finds them (Direct3D 11).
+    Ai,
 }
 
 impl Upscaling {
     pub fn label(self) -> &'static str {
-        match self { Self::Bilinear => "Bilinear", Self::Fsr1 => "FSR 1", Self::Sgsr1 => "SGSR 1" }
+        match self { Self::Bilinear => "Bilinear", Self::Fsr1 => "FSR 1", Self::Sgsr1 => "SGSR 1", Self::Ai => en("AI enhancement") }
+    }
+
+    /// The shader upscalers (`stream::upscale`), which take the sharpness setting.
+    pub fn is_shader(self) -> bool {
+        matches!(self, Self::Fsr1 | Self::Sgsr1)
     }
 }
 

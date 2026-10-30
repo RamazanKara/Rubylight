@@ -11,7 +11,9 @@ pub enum Style {
     Nintendo,
 }
 
-/// A face button by its position, as SDL names them.
+/// A face button by its position, as SDL names them. Only the West button's hints use it yet;
+/// the stream's "A/B click" toast is next.
+#[allow(dead_code)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Face {
     South,
@@ -76,22 +78,6 @@ impl Style {
             Style::Xbox => "Select",
         }
     }
-
-    pub fn left_shoulder(self) -> &'static str {
-        match self {
-            Style::PlayStation => "L1",
-            Style::Nintendo => "L",
-            Style::Xbox => "LB",
-        }
-    }
-
-    pub fn right_shoulder(self) -> &'static str {
-        match self {
-            Style::PlayStation => "R1",
-            Style::Nintendo => "R",
-            Style::Xbox => "RB",
-        }
-    }
 }
 
 #[cfg(test)]
@@ -117,7 +103,6 @@ mod tests {
         assert_eq!(Style::PlayStation.face(Face::East), "○");
         assert_eq!(Style::PlayStation.face(Face::North), "△");
         assert_eq!((Style::Nintendo.start(), Style::Nintendo.select()), ("+", "−"));
-        assert_eq!((Style::PlayStation.left_shoulder(), Style::PlayStation.right_shoulder()), ("L1", "R1"));
     }
 
     #[test]
@@ -128,7 +113,7 @@ mod tests {
         ctx.run_ui(egui::RawInput::default(), |_| {}).textures_delta.clear();
         for style in [Style::Xbox, Style::PlayStation, Style::Nintendo] {
             let labels = [Face::South, Face::East, Face::West, Face::North].map(|f| style.face(f)).join(" ")
-                + &[style.start(), style.select(), style.left_shoulder(), style.right_shoulder()].join(" ");
+                + &[style.start(), style.select()].join(" ");
             for font in [crate::theme::regular(12.0), crate::theme::semibold(12.0)] {
                 let missing: String = labels.chars().filter(|c| !ctx.fonts_mut(|f| f.has_glyph(&font, *c))).collect();
                 assert!(missing.is_empty(), "{missing:?} of {labels:?} missing in {font:?}");

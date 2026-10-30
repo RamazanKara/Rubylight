@@ -1169,6 +1169,12 @@ fn start_live(
     };
     let (ids, answered) =
         sdp::accept_answer(&mut rtc, offer, answer, &prepared.spec).map_err(Rejected::Answer)?;
+    tracing::info!(
+        codec = ?prepared.spec.video.codec,
+        level = ?answered.video_level,
+        tier = ?answered.video_tier,
+        "WebRTC answer accepted"
+    );
     let audio_layout = audio_layout(settings.audio_channels as u8, answered.audio_layout)
         .map_err(Rejected::Answer)?;
     let link = butterpollo_windows::net::routed_link(peer);

@@ -141,7 +141,7 @@ Rubylight 3.0 needs an AMD Radeon GPU with a working AMF encoder, on Windows 10 
 
 ### Browsers and TVs
 
-- **WebRTC server** (`webrtc_server`, off by default). Samsung Tizen TVs and browsers that speak the Moonlight WebRTC TV protocol can pair with a PIN and stream H.264, HEVC or AV1, with HDR, up to 7.1 audio, gamepads, keyboard and mouse, on the local network. On the same PC over loopback, H.264 1080p60 took 21 ms glass to glass (median). [Setup](../docs/webrtc.md).
+- **WebRTC server** (`webrtc_server`, off by default). Samsung Tizen TVs and browsers that speak the Moonlight WebRTC TV protocol can pair with a PIN and stream H.264, HEVC or AV1, with HDR, up to 7.1 audio, gamepads, keyboard and mouse, on the local network. On the same PC over loopback, H.264 1080p60 took 21 ms glass to glass (median). A TV that answers a 4K120 stream above 60 Mbps with the codec's Main tier instead of High now gets its stream; rc builds refused the start ([#64](https://github.com/RamazanKara/Rubylight/issues/64)). [Setup](../docs/webrtc.md).
 - **Stream in the console.** With the WebRTC server on, the console's Stream page plays a game in the browser tab at H.264 1080p60, signed in with the console session.
 
 ### For client authors

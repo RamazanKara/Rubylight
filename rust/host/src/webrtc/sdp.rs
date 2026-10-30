@@ -128,6 +128,10 @@ pub struct Offer {
 pub struct AnswerInfo {
     pub playout_delay: bool,
     pub video_level: Option<u32>,
+    /// The HEVC `tier-flag` or AV1 `tier` the client answered (absent means 0, Main). Like the
+    /// level it describes the receiver and may differ from the offer: a Tizen TV answers Main to
+    /// the High tier a 4K120 stream at a high bitrate gets.
+    pub video_tier: Option<u8>,
     /// The `multiopus` layout the client answered with, for 6 and 8 channels. The client picks its
     /// own parameters (libwebrtc's canonical table for Chromium), and the Opus encoder must be
     /// built with exactly these: input channel `i` is the decoder's output channel `i`. `None` for
@@ -430,20 +434,14 @@ pub fn check_answer(sdp: &str, spec: &OfferSpec) -> Result<(String, AnswerInfo)>
             if param("profile-id").unwrap_or("1") != want {
                 bail!("the answer changed the HEVC profile-id (wanted {want})");
             }
-            let (_, tier) = hevc_params(&spec.video)?;
-            if param("tier-flag").unwrap_or("0") != tier.to_string() {
-                bail!("the answer changed the HEVC tier");
-            }
+            info.video_tier = Some(answered_tier(param("tier-flag"))?);
             info.video_level = param("level-id").and_then(|v| v.parse().ok());
         }
         VideoCodec::Av1 => {
             if param("profile").unwrap_or("0") != "0" {
                 bail!("the answer changed the AV1 profile");
             }
-            let (_, tier) = av1_params(&spec.video)?;
-            if param("tier").unwrap_or("0") != tier.to_string() {
-                bail!("the answer changed the AV1 tier");
-            }
+            info.video_tier = Some(answered_tier(param("tier"))?);
             info.video_level = param("level-idx").and_then(|v| v.parse().ok());
         }
     }
@@ -494,6 +492,17 @@ pub fn check_answer(sdp: &str, spec: &OfferSpec) -> Result<(String, AnswerInfo)>
         bail!("the answer rejected the DataChannels");
     }
     Ok((join(&lines), info))
+}
+
+/// The answered tier, 0 (Main) when absent. The tier, like the level, is the receiver's to state
+/// (RFC 7798 and the AV1 RTP payload format): the stream is the one offered either way, so a
+/// different tier is logged, never a refusal.
+fn answered_tier(value: Option<&str>) -> Result<u8> {
+    match value.unwrap_or("0") {
+        "0" => Ok(0),
+        "1" => Ok(1),
+        other => bail!("the answer's video tier is {other}, not 0 or 1"),
+    }
 }
 
 /// The layout in a `multiopus` answer's fmtp. The answerer chooses its own parameters; they only
@@ -1069,6 +1078,42 @@ mod tests {
                     .unwrap_or_else(|e| panic!("{codec:?} {hdr}: {e}\n{answer}"));
                 assert!(info.playout_delay, "{answer}");
             }
+        }
+    }
+
+    /// Issue 64: 4K120 at a high bitrate is offered at High tier, and a Tizen TV answers Main (or
+    /// leaves the tier out). The tier is the receiver's to state, so the session starts.
+    #[test]
+    fn a_main_tier_answer_to_a_high_tier_offer_starts_the_session() {
+        for (codec, key) in [(VideoCodec::Hevc, "tier-flag"), (VideoCodec::Av1, "tier")] {
+            let mut s = spec(codec, false);
+            s.video.width = 3840;
+            s.video.height = 2160;
+            s.video.fps = 120;
+            // The most WebRTC accepts; HEVC and AV1 5.2 Main stop at 60 Mbps.
+            s.video.bitrate_kbps = 100_000;
+            let high = format!("{key}=1");
+            let main = |a: &str| a.replace(&high, &format!("{key}=0"));
+            let omitted = |a: &str| {
+                a.replace(&format!(";{high}"), "")
+                    .replace(&format!("{high};"), "")
+            };
+            let same = |a: &str| a.to_owned();
+            type Edit<'a> = &'a dyn Fn(&str) -> String;
+            let edits: [(Edit, u8); 3] = [(&main, 0), (&omitted, 0), (&same, 1)];
+            for (edit, tier) in edits {
+                let (mut rtc, offer) = host_offer(&s, HOST.parse().unwrap());
+                assert!(offer.sdp.contains(&high), "{codec:?}: {}", offer.sdp);
+                let answer = edit(&answer_to(&s, &offer.sdp));
+                assert_eq!(answer.contains(&high), tier == 1, "{codec:?}: {answer}");
+                let (_, info) = accept_answer(&mut rtc, offer, &answer, &s)
+                    .unwrap_or_else(|e| panic!("{codec:?} tier {tier}: {e}\n{answer}"));
+                assert_eq!(info.video_tier, Some(tier), "{codec:?}\n{answer}");
+            }
+            let answer = answer_to(&s, &offer_for(&s));
+            let bad = answer.replace(&high, &format!("{key}=2"));
+            let err = check_answer(&bad, &s).unwrap_err().to_string();
+            assert!(err.contains("not 0 or 1"), "{err}");
         }
     }
 

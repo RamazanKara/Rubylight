@@ -39,6 +39,8 @@ const GRACE_REASON: &str = "A device is connecting to Rubylight after a wake";
 /// What the host asks Windows.
 pub trait PowerSystem: Send + Sync {
     fn adapters(&self) -> Result<Vec<Adapter>>;
+    /// The PC's own address on its default route; `None` without one.
+    fn default_route(&self) -> Result<Option<IpAddr>>;
     /// `wake_nics.ps1 read`.
     fn read_nics(&self) -> Result<NicReport>;
     fn system_facts(&self) -> Result<SystemFacts>;
@@ -77,6 +79,9 @@ struct Windows;
 impl PowerSystem for Windows {
     fn adapters(&self) -> Result<Vec<Adapter>> {
         butterpollo_windows::wake::adapters()
+    }
+    fn default_route(&self) -> Result<Option<IpAddr>> {
+        butterpollo_windows::wake::default_route_source()
     }
     fn read_nics(&self) -> Result<NicReport> {
         butterpollo_windows::wake::read_nics()
@@ -793,11 +798,25 @@ fn unix(at: SystemTime) -> u64 {
         .map_or(0, |since| since.as_secs())
 }
 
+/// Where the console judges readiness from. /serverinfo and `/wake` give
+/// loopback zeros, but a console opened on this PC asks about the adapter a
+/// device on the network would reach: the one under the default route.
+fn console_local(h: &Host, local: Option<IpAddr>) -> Option<IpAddr> {
+    let local = local?.to_canonical();
+    if !local.is_loopback() {
+        return Some(local);
+    }
+    h.wake.power().default_route().unwrap_or_else(|error| {
+        tracing::warn!("Wake-on-LAN: the default route could not be read: {error:#}");
+        None
+    })
+}
+
 /// `GET /api/power`: readiness as `/wake` has it, the changes a fix would
 /// make, sleep after idle with its countdown, and the last sleep and fix.
 pub fn console_status(h: &Host, refresh: bool, local: Option<IpAddr>) -> Result<Value> {
     let reading = read(h, refresh)?;
-    let wake = wake_of(h, &reading, local);
+    let wake = wake_of(h, &reading, console_local(h, local));
     let plan = match (&reading.nics, &reading.facts) {
         (Ok(nics), Ok(facts)) => Ok(FixPlan::new(&reading.adapters, nics, facts, false)),
         (Err(error), _) | (_, Err(error)) => Err(error.clone()),
@@ -887,6 +906,8 @@ pub(crate) mod fake {
     /// A PC as the tests need it; the defaults are the `/wake` fixture's PC.
     pub struct Fake {
         pub adapters: Mutex<Result<Vec<Adapter>, String>>,
+        /// The default route's source address: the Ethernet adapter's.
+        pub route: Mutex<Result<Option<IpAddr>, String>>,
         pub nics: Mutex<Result<NicReport, String>>,
         pub facts: Mutex<Result<SystemFacts, String>>,
         pub execution: Mutex<u32>,
@@ -959,6 +980,7 @@ pub(crate) mod fake {
             .unwrap();
             Arc::new(Self {
                 adapters: Mutex::new(Ok(adapters)),
+                route: Mutex::new(Ok(Some([192, 168, 4, 20].into()))),
                 nics: Mutex::new(Ok(nics)),
                 facts: Mutex::new(Ok(SystemFacts {
                     s3: true,
@@ -1002,6 +1024,9 @@ pub(crate) mod fake {
     impl PowerSystem for Fake {
         fn adapters(&self) -> Result<Vec<Adapter>> {
             locked(&self.adapters).clone().map_err(anyhow::Error::msg)
+        }
+        fn default_route(&self) -> Result<Option<IpAddr>> {
+            locked(&self.route).clone().map_err(anyhow::Error::msg)
         }
         fn read_nics(&self) -> Result<NicReport> {
             self.call("read_nics");
@@ -1610,6 +1635,8 @@ mod tests {
     fn loopback_and_unreadable_nics_are_reported_not_hidden() {
         let f = Fixture::new();
         let fake = Fake::new().on(&f.host);
+        // `/wake` over loopback matches /serverinfo's zeros, whatever the
+        // default route.
         let wake = readiness(&f.host, false, Some("127.0.0.1".parse().unwrap())).unwrap();
         assert_eq!(wake.primary, None);
         assert!(wake.targets.iter().all(|target| !target.route));
@@ -1619,5 +1646,41 @@ mod tests {
         assert_eq!(wake.targets[0].state, api::TargetState::Unknown);
         *locked(&fake.adapters) = Err("IP Helper failed".into());
         assert!(readiness(&f.host, false, None).is_err());
+    }
+
+    #[test]
+    fn a_console_on_this_pc_judges_the_default_route_adapter() {
+        let f = Fixture::new();
+        let fake = Fake::new().on(&f.host);
+        let console = |local: &str| -> api::Wake {
+            let status = console_status(&f.host, false, Some(local.parse().unwrap())).unwrap();
+            serde_json::from_value(status["wake"].clone()).unwrap()
+        };
+        let routed = |wake: &api::Wake| -> Vec<String> {
+            let targets = wake.targets.iter().filter(|target| target.route);
+            targets.map(|target| target.mac.clone()).collect()
+        };
+        const WIRED_MAC: &str = "02:7C:16:B4:13:4F";
+        // https://localhost: the Ethernet adapter carries the default route.
+        for local in ["127.0.0.1", "::1", "::ffff:127.0.0.1"] {
+            let wake = console(local);
+            assert_eq!(wake.primary.as_deref(), Some(WIRED_MAC), "{local}");
+            assert_eq!(routed(&wake), [WIRED_MAC], "{local}");
+        }
+        // A request from the network is judged by its own address, not the route.
+        *locked(&fake.route) = Ok(None);
+        assert_eq!(routed(&console("192.168.4.20")), [WIRED_MAC]);
+        // A virtual adapter (a VPN) carries it: the physical one under it.
+        *locked(&fake.route) = Ok(Some([172, 30, 112, 1].into()));
+        let wake = console("127.0.0.1");
+        assert_eq!(wake.primary.as_deref(), Some(WIRED_MAC));
+        assert!(routed(&wake).is_empty());
+        // No default route, or an unreadable one: no primary, as before.
+        for route in [Ok(None), Err("IP Helper failed".to_string())] {
+            *locked(&fake.route) = route;
+            let wake = console("127.0.0.1");
+            assert_eq!(wake.primary, None);
+            assert!(routed(&wake).is_empty());
+        }
     }
 }

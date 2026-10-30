@@ -34,7 +34,12 @@ test('readiness follows the adapter devices are sent, and says what to do', () =
   const onlyWifi = readiness(status({ wake: { primary: wifi.mac, targets: [{ ...wifi, connected: true }] } }));
   assert.equal(onlyWifi.label, 'Depends on Wi-Fi');
   assert.doesNotMatch(onlyWifi.text, /Experimental/);
-  assert.equal(readiness(status({ wake: { primary: null } })).label, 'Not connected');
+  assert.equal(readiness(status({ wake: { primary: null, targets: [{ ...wired, connected: false, route: false }, wifi] } })).label, 'Not connected');
+  // Opened on this PC without a default route: connected adapters are not called disconnected.
+  const local = readiness(status({ wake: { primary: null, targets: [{ ...wired, route: false }, wifi] } }));
+  assert.equal(local.label, 'Check from another device');
+  assert.doesNotMatch(local.text, /connected/);
+  assert.match(local.text, /from another device/);
   assert.equal(readiness(status({ wake: { targets: [], primary: null } })).tone, 'danger');
   // A state from a newer host is not shown as ready.
   assert.equal(readiness(status({ wake: { targets: [{ ...wired, state: 'sleepy' }] } })).label, 'Unknown');

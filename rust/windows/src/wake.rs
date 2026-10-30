@@ -146,6 +146,42 @@ unsafe fn socket_address(
     }
 }
 
+/// The PC's own address on its IPv4 default route: the source Windows picks
+/// toward a public address. Nothing is sent. `None` without a default route.
+pub fn default_route_source() -> Result<Option<IpAddr>> {
+    use windows::Win32::{
+        Foundation::{ERROR_NETWORK_UNREACHABLE, ERROR_NOT_FOUND, ERROR_SUCCESS},
+        NetworkManagement::IpHelper::{GetBestRoute2, MIB_IPFORWARD_ROW2},
+        Networking::WinSock::{AF_INET, SOCKADDR_INET},
+    };
+    // Any public address; the route lookup only reads the routing table.
+    const PUBLIC: Ipv4Addr = Ipv4Addr::new(8, 8, 8, 8);
+    let mut destination = SOCKADDR_INET::default();
+    destination.si_family = AF_INET;
+    // The IPv4 view of a zeroed union whose family says IPv4.
+    destination.Ipv4.sin_addr.S_un.S_addr = u32::from_ne_bytes(PUBLIC.octets());
+    let mut route = MIB_IPFORWARD_ROW2::default();
+    let mut source = SOCKADDR_INET::default();
+    // SAFETY: Every pointer is to a local that outlives the call.
+    let status = unsafe { GetBestRoute2(None, 0, None, &destination, 0, &mut route, &mut source) };
+    if status == ERROR_NETWORK_UNREACHABLE || status == ERROR_NOT_FOUND {
+        return Ok(None);
+    }
+    if status != ERROR_SUCCESS {
+        return Err(std::io::Error::from_raw_os_error(status.0 as i32))
+            .context("GetBestRoute2 toward the default route");
+    }
+    // SAFETY: The family field is shared by every view; the IPv4 view is read
+    // only when it says IPv4.
+    let address = unsafe {
+        (source.si_family == AF_INET)
+            .then(|| Ipv4Addr::from(source.Ipv4.sin_addr.S_un.S_addr.to_ne_bytes()))
+    };
+    Ok(address
+        .filter(|address| !address.is_unspecified())
+        .map(IpAddr::V4))
+}
+
 /// Whether each adapter, by GUID, was last read with wake on magic packet
 /// armed; the MAC policy prefers an armed NIC.
 static ARMED: RwLock<Option<HashMap<String, bool>>> = RwLock::new(None);
@@ -517,6 +553,22 @@ mod tests {
                 assert_eq!(adapter.guid.len(), 38, "{}", adapter.guid);
             }
         }
+        Ok(())
+    }
+
+    #[test]
+    fn the_default_route_leaves_from_an_adapters_own_address() -> Result<()> {
+        // Without a default route (an offline runner) there is nothing to check.
+        let Some(source) = default_route_source()? else {
+            return Ok(());
+        };
+        assert!(!source.is_loopback(), "{source}");
+        assert!(
+            adapters()?
+                .iter()
+                .any(|adapter| adapter.addresses.contains(&source)),
+            "{source} belongs to no adapter"
+        );
         Ok(())
     }
 

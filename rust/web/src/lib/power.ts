@@ -51,7 +51,7 @@ export interface Readiness {
   text: string;
 }
 
-/** Whether devices can wake this PC, judged by the adapter `/serverinfo` reports. */
+/** Whether devices can wake this PC, judged by the adapter `/serverinfo` reports (on this PC: the default route's). */
 export function readiness(power: PowerStatus): Readiness {
   const { targets, primary } = power.wake;
   if (!targets.length) {
@@ -59,6 +59,10 @@ export function readiness(power: PowerStatus): Readiness {
   }
   const target = targets.find((target) => target.mac === primary);
   if (!target) {
+    // Opened on this PC without a default route: the host can't tell which adapter devices reach.
+    if (targets.some((target) => target.connected)) {
+      return { status: 'idle', label: 'Check from another device', tone: 'neutral', text: 'This PC has no default route, so it cannot tell which adapter devices reach. Open this page from another device to see which adapter it uses.' };
+    }
     return { status: 'warning', label: 'Not connected', tone: 'warn', text: 'No physical adapter is connected, so devices get no address to wake this PC.' };
   }
   const name = `the ${adapterKind(target).toLowerCase()} adapter ${target.mac}`;

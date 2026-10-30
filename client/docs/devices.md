@@ -80,7 +80,7 @@ Measured values are median decode times in milliseconds from the decoder benchma
 | Samsung Galaxy S24+ (Exynos) | Samsung s5e9945 | 17 | 12.79 | 12.72 | 10.53 | `rtc-ext-dec-low-latency` (H.264 only) | Nightjar 3.2.3, 120 Hz. [#43](https://github.com/RamazanKara/nightjar/issues/43) |
 <!-- device-results:end -->
 
-Still to measure ("Upstream" refers to reports in Moonlight's issue tracker):
+Still to measure:
 
 | Device | SoC | Android | H.264 | HEVC | AV1 | Vendor keys declared | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -111,7 +111,7 @@ Two third-party reports describe the same problem. The [Moonlight HEVC fix](http
 
 ## Candidate per-chip changes
 
-Nightjar sets Android's standard low-latency flag and every vendor low-latency key a decoder declares (Qualcomm, Exynos and Tensor, Kirin, Amlogic, MediaTek Codec2 and NVIDIA keys), plus the MediaTek and Amazon `vdec-lowlatency` option on their older OMX decoders, subject to the [HEVC setting](#hevc-low-latency-compatibility) and the other decoder settings. With decoder performance hints on, Snapdragon, NVIDIA Tegra and MediaTek decoders get the maximum operating rate and other decoders the realtime priority hint. The decoder benchmark applies the same settings.
+Nightjar sets Android's standard low-latency flag and every vendor low-latency key a decoder declares (Qualcomm, Exynos and Tensor, Kirin, Amlogic, MediaTek Codec2 and NVIDIA keys), plus the MediaTek and Amazon `vdec-lowlatency` option on their older OMX decoders, subject to the [HEVC setting](#hevc-low-latency-compatibility) and the other decoder settings. With **Decoder performance hints** on (the default), Snapdragon decoders (except on Adreno 620 devices), NVIDIA Tegra and MediaTek decoders get the maximum operating rate, and other decoders the realtime priority hint. The decoder benchmark applies the same settings.
 
 **Settings → Advanced → More options → Chipset tuning**, off by default, adds two options on the first configure attempt only: `vdec-lowlatency` on MediaTek `c2.mtk` decoders, and on Exynos decoders the operating rate the decoder declares for the stream size, together with the realtime priority hint. The ideas below need measurements before any further tuning ships:
 

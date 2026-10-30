@@ -129,12 +129,26 @@ pub(crate) fn ffmpeg_directory() -> Result<PathBuf> {
     })
 }
 
+/// A launch's `surroundAudioInfo` (mask << 16 | count). Java clients build it as an `int`, so
+/// 7.1.4's mask 0xF63F can arrive negative (`-163643380`): the signed form is read as the same
+/// 32 bits. `None` for anything that isn't a 32-bit number.
+pub(crate) fn surround_audio_info(value: &str) -> Option<u32> {
+    let value = value.parse::<i64>().ok()?;
+    (i64::from(i32::MIN)..=i64::from(u32::MAX))
+        .contains(&value)
+        .then_some(value as u32)
+}
+
 /// The channel count a launch's `surroundAudioInfo` asks for, read as `/launch` reads it: 2, 6,
 /// 8 or 12 (7.1.4), and stereo for anything else.
 pub(crate) fn launch_channels(options: &BTreeMap<String, String>) -> u8 {
-    let channels = options
-        .get("surroundAudioInfo")
-        .and_then(|info| info.parse::<u32>().ok())
+    surround_channels(options.get("surroundAudioInfo").map(String::as_str))
+}
+
+/// [`launch_channels`] from the `surroundAudioInfo` value itself.
+pub(crate) fn surround_channels(info: Option<&str>) -> u8 {
+    let channels = info
+        .and_then(surround_audio_info)
         .map_or(2, |info| info & 0xffff);
     match channels {
         2 | 6 | 8 | 12 => channels as u8,
@@ -444,7 +458,12 @@ mod tests {
             (Some((63 << 16 | 6).to_string()), 6),
             (Some((1599 << 16 | 8).to_string()), 8),
             (Some("12".to_owned()), 12),
+            // 7.1.4 from a Java int, signed and unsigned.
+            (Some("-163643380".to_owned()), 12),
+            (Some((0xF63F_u32 << 16 | 12).to_string()), 12),
             (Some("4".to_owned()), 2),
+            (Some("4294967308".to_owned()), 2),
+            (Some("-2147483649".to_owned()), 2),
             (Some("stereo".to_owned()), 2),
         ] {
             assert_eq!(launch(info.clone()), channels, "{info:?}");

@@ -401,7 +401,8 @@ fn parse_opus_params(params: &str, channels: u8) -> Result<OpusConfig, RtspError
     Ok(config)
 }
 
-/// The Opus layouts for `channels` from the DESCRIBE answer's `surround-params`.
+/// The Opus layouts for `channels` from the DESCRIBE answer's `surround-params` (for 7.1.4
+/// without them, [`layouts_714`]).
 pub fn parse_opus_configs(sdp: &str, channels: u8) -> Result<OpusConfigs, RtspError> {
     if channels as usize > MAX_CHANNELS {
         return Err(RtspError::InvalidConfig(format!(
@@ -436,20 +437,8 @@ pub fn parse_opus_configs(sdp: &str, channels: u8) -> Result<OpusConfigs, RtspEr
                 high_quality: None,
             });
         }
-        // Moonlight V+'s fallback for a host that sends no 7.1.4 parameters: Foundation
-        // Sunshine's layout (`audio_ext::LAYOUT_714`).
         if channels == audio_ext::CHANNELS_714 {
-            let layout = audio_ext::LAYOUT_714;
-            return Ok(OpusConfigs {
-                normal: OpusConfig {
-                    sample_rate: 48000,
-                    channel_count: layout.channels,
-                    streams: layout.streams,
-                    coupled_streams: layout.coupled,
-                    mapping: layout.mapping,
-                },
-                high_quality: None,
-            });
+            return layouts_714(sdp);
         }
         return Err(RtspError::Malformed(format!(
             "no surround parameters for {channels} channels"
@@ -471,6 +460,37 @@ pub fn parse_opus_configs(sdp: &str, channels: u8) -> Result<OpusConfigs, RtspEr
     Ok(OpusConfigs {
         normal,
         high_quality,
+    })
+}
+
+/// 7.1.4 from a host that sends no `surround-params` for it: a Rubylight 3.0 rc names its
+/// layouts only in `a=x-rl-audio.layout714` and `layout714Hq` (7 streams, 5 coupled). With
+/// neither, Moonlight V+'s fallback: Foundation Sunshine's layout (`audio_ext::LAYOUT_714`).
+fn layouts_714(sdp: &str) -> Result<OpusConfigs, RtspError> {
+    let layout = |name: &str| {
+        attribute(sdp, name)
+            .map(|value| {
+                Layout::parse(value)
+                    .ok_or_else(|| RtspError::Malformed(format!("invalid {name}: {value:.16}")))
+            })
+            .transpose()
+    };
+    let config = |layout: Layout| OpusConfig {
+        sample_rate: 48000,
+        channel_count: layout.channels,
+        streams: layout.streams,
+        coupled_streams: layout.coupled,
+        mapping: layout.mapping,
+    };
+    Ok(match layout(audio_ext::LAYOUT_714_DESCRIBE_ATTRIBUTE)? {
+        Some(normal) => OpusConfigs {
+            normal: config(normal),
+            high_quality: layout(audio_ext::LAYOUT_714_HQ_DESCRIBE_ATTRIBUTE)?.map(config),
+        },
+        None => OpusConfigs {
+            normal: config(audio_ext::LAYOUT_714),
+            high_quality: None,
+        },
     })
 }
 
@@ -699,8 +719,8 @@ mod tests {
         assert!(parse_opus_configs(RUBYLIGHT, 13).is_err());
     }
 
-    /// 7.1.4 as Foundation Sunshine and Rubylight's DESCRIBE send it, in the comma form, and
-    /// V+'s fallback when a host sends none.
+    /// 7.1.4 as Foundation Sunshine and Rubylight's DESCRIBE send it, in the comma form, a 3.0
+    /// rc host's x-rl lines, and V+'s fallback when a host sends none.
     #[test]
     fn seven_one_four_layouts() {
         use rubylight_protocol::audio_ext::{layout_714_lines, LAYOUT_714, LAYOUT_714_HQ};
@@ -744,6 +764,44 @@ mod tests {
         let seven =
             parse_opus_configs("a=fmtp:97 surround-params=8,5,3,0,1,4,5,6,7,2,3\r\n", 8).unwrap();
         assert_eq!(seven.normal.mapping[..8], [0, 1, 4, 3, 5, 6, 7, 2]);
+        // A 3.0 rc host (rc.4, rc.5) sends no surround-params for 7.1.4, only its x-rl lines,
+        // exactly as written here; those win over V+'s fallback.
+        let rc = format!(
+            "{RUBYLIGHT}a=x-rl-audio.codecs:15\r\n\
+             a=x-rl-audio.layout714:12,7,5,0,1,10,11,2,3,4,5,6,7,8,9\r\n\
+             a=x-rl-audio.layout714Hq:12,12,0,0,1,10,11,2,3,4,5,6,7,8,9\r\n"
+        );
+        let rc_mapping = [0, 1, 10, 11, 2, 3, 4, 5, 6, 7, 8, 9];
+        let configs = parse_opus_configs(&rc, 12).unwrap();
+        assert_eq!(
+            (
+                configs.normal.channel_count,
+                configs.normal.streams,
+                configs.normal.coupled_streams,
+                configs.normal.mapping
+            ),
+            (12, 7, 5, rc_mapping)
+        );
+        let hq = configs.high_quality.unwrap();
+        assert_eq!(
+            (hq.streams, hq.coupled_streams, hq.mapping),
+            (12, 0, rc_mapping)
+        );
+        // Without the HQ line there is no HQ layout; surround-params still come first.
+        let configs = parse_opus_configs(&rc.replace("layout714Hq", "other"), 12).unwrap();
+        assert_eq!((configs.normal.streams, configs.high_quality), (7, None));
+        let both = parse_opus_configs(&format!("{rc}{}", layout_714_lines().concat()), 12).unwrap();
+        assert_eq!(
+            (both.normal, both.high_quality),
+            (config(LAYOUT_714), Some(config(LAYOUT_714_HQ)))
+        );
+        // A malformed x-rl line is an error, not V+'s layout.
+        for bad in [
+            "a=x-rl-audio.layout714:12,7,5,0,1,10,11,2,3,4,5,6,7,8\r\n",
+            "a=x-rl-audio.layout714:12,7,5,0,1,10,11,2,3,4,5,6,7,8,9\r\na=x-rl-audio.layout714Hq:12,7\r\n",
+        ] {
+            assert!(parse_opus_configs(bad, 12).is_err(), "{bad}");
+        }
         for bad in [
             "a=fmtp:97 surround-params=12,8,4,0,1,2,3,4,5,6,7,8,9,10\r\n",
             "a=fmtp:97 surround-params=12,8,4,0,1,2,3,4,5,6,7,8,9,10,x\r\n",

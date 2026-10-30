@@ -1077,10 +1077,13 @@ fn launch_with_environment(
         .map(|v| v.parse::<u32>())
         .transpose()?
         .unwrap_or(0);
-    for key in ["surroundParams", "surroundAudioInfo"] {
-        if let Some(value) = args.get(key) {
-            value.parse::<u64>()?;
-        }
+    if let Some(value) = args.get("surroundParams") {
+        value.parse::<u64>()?;
+    }
+    if let Some(value) = args.get("surroundAudioInfo") {
+        // Java clients send 7.1.4's mask << 16 | count as a negative int.
+        crate::stream::audio_encoder::surround_audio_info(value)
+            .with_context(|| format!("surroundAudioInfo {value:?} is not a number"))?;
     }
     let mut environment = match environment {
         Ok(environment) => environment,

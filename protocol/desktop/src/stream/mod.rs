@@ -1648,6 +1648,8 @@ pub struct Streaming {
     last_command: Option<Instant>,
     audio_status: ([u8; 16], Instant),
     controller_mouse_active: bool,
+    /// The PC's night mode and headphone surround switches in the stream controls.
+    pub host_audio: menu_extras::HostAudio,
     pub pending_command: Option<usize>,
     pub bitrate_busy: bool,
     pub bitrate_kbps: u32,
@@ -1857,6 +1859,7 @@ impl Streaming {
             last_command: None,
             audio_status: ([0; 16], Instant::now() - Duration::from_secs(1)),
             controller_mouse_active: false,
+            host_audio: Default::default(),
             pending_command: None,
             bitrate_busy: false,
             bitrate_kbps,
@@ -2314,6 +2317,12 @@ impl Streaming {
                     if let Err(error) = result {
                         self.show_toast(error);
                     }
+                }
+                Notice::HostAudio(answer) => {
+                    if let Err(error) = self.host_audio.answered(answer) {
+                        self.show_toast(error);
+                    }
+                    self.needs_redraw = true;
                 }
                 Notice::NetworkChanged(hint, after_loss) => {
                     // A session without roaming (off, or a host that does not roam) never roams,
@@ -2858,7 +2867,9 @@ impl Streaming {
             return;
         }
         self.menu_visible = !self.menu_visible;
-        if !self.menu_visible {
+        if self.menu_visible {
+            self.refresh_host_audio();
+        } else {
             self.session_page = None;
             // The menu's own text field takes no more text once it closes.
             // SAFETY: a live window on the main thread.

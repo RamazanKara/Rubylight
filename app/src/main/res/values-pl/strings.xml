@@ -242,6 +242,7 @@
     <string name="audioconf_stereo">Stereo</string>
     <string name="audioconf_51surround">Dźwięk przestrzenny 5.1</string>
     <string name="audioconf_71surround">Dźwięk przestrzenny 7.1</string>
+    <string name="audioconf_714surround">Dźwięk przestrzenny 7.1.4</string>
     <string name="videoformat_auto">Automatycznie (zalecane)</string>
     <string name="videoformat_av1always">Preferuj AV1</string>
     <string name="videoformat_hevcalways">Preferuj HEVC</string>

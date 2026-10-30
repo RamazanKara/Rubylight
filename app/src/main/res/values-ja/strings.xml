@@ -242,6 +242,7 @@
     <string name="audioconf_stereo">ステレオ</string>
     <string name="audioconf_51surround">5.1 サラウンド</string>
     <string name="audioconf_71surround">7.1 サラウンド</string>
+    <string name="audioconf_714surround">7.1.4 サラウンド</string>
     <string name="videoformat_auto">自動（推奨）</string>
     <string name="videoformat_av1always">AV1 を優先</string>
     <string name="videoformat_hevcalways">HEVC を優先</string>

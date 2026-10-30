@@ -51,6 +51,7 @@ import java.util.List;
 import java.util.Locale;
 
 import com.limelight.BuildConfig;
+import com.limelight.binding.audio.Surround714;
 import com.limelight.binding.input.touch.TouchMode;
 import com.limelight.LimeLog;
 import com.limelight.PcView;
@@ -2352,6 +2353,15 @@ public class StreamSettings extends NightjarActivity {
                 // Never remove 30 FPS or 60 FPS
             }
             addNativeFrameRateEntry(maxSupportedFps);
+
+            // 7.1.4 only where this device plays it. A 7.1.4 choice made on another route (spatial
+            // headphones) stays picked; the stream asks for 7.1 while it isn't playable.
+            ListPreference audioConfig = (ListPreference) findPreference(PreferenceConfiguration.AUDIO_CONFIG_PREF_STRING);
+            if (audioConfig != null && !PreferenceConfiguration.AUDIO_CONFIG_714.equals(audioConfig.getValue())
+                    && !Surround714.playable(getActivity())) {
+                LimeLog.info("Excluding 7.1.4 audio: no output plays 12 channels");
+                removeValue(PreferenceConfiguration.AUDIO_CONFIG_PREF_STRING, PreferenceConfiguration.AUDIO_CONFIG_714, () -> { });
+            }
 
             // Remove HDR preference for devices below Nougat
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) {

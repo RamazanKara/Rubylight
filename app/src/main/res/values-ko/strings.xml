@@ -242,6 +242,7 @@
     <string name="audioconf_stereo">스테레오</string>
     <string name="audioconf_51surround">5.1 서라운드 사운드</string>
     <string name="audioconf_71surround">7.1 서라운드 사운드</string>
+    <string name="audioconf_714surround">7.1.4 서라운드 사운드</string>
     <string name="videoformat_auto">자동(권장)</string>
     <string name="videoformat_av1always">AV1 우선</string>
     <string name="videoformat_hevcalways">HEVC 우선</string>

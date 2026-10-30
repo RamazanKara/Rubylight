@@ -186,9 +186,9 @@ public class ComputerDetails {
 
     public ComputerDetails(ComputerDetails details) {
         // Copy details from the other computer
+        this.pinnedAddress = details.pinnedAddress;
         update(details);
         this.alias = details.alias;
-        this.pinnedAddress = details.pinnedAddress;
     }
 
     /** The PC's known addresses without repeats, in the automatic pick's order: local, manual, remote, IPv6. */
@@ -244,6 +244,10 @@ public class ComputerDetails {
         this.uuid = details.uuid;
         if (details.activeAddress != null) {
             this.activeAddress = details.activeAddress;
+        }
+        // A pinned PC keeps its address whatever answered (an mDNS rediscovery, another poll).
+        if (pinnedAddress != null) {
+            this.activeAddress = pinnedAddress;
         }
         // We can get IPv4 loopback addresses with GS IPv6 Forwarder
         if (details.localAddress != null && !details.localAddress.address.startsWith("127.")) {

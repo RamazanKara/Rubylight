@@ -199,6 +199,7 @@ public class ComputerManagerService extends Service {
                         // A rediscovered PC keeps the user's name and pinned address from the first update on.
                         details.alias = HostNames.get(this, details.uuid);
                         details.pinnedAddress = PinnedAddresses.get(this, details.uuid);
+                        if (details.pinnedAddress != null) details.activeAddress = details.pinnedAddress;
                     }
                     currentListener.notifyComputerUpdated(details);
                 }
@@ -504,6 +505,7 @@ public class ComputerManagerService extends Service {
         // The user's name and pinned address for the PC are stored beside the database, not in it.
         details.alias = HostNames.get(this, details.uuid);
         details.pinnedAddress = PinnedAddresses.get(this, details.uuid);
+        if (details.pinnedAddress != null) details.activeAddress = details.pinnedAddress;
         synchronized (pollingTuples) {
             for (PollingTuple tuple : pollingTuples) {
                 // Check if this is the same computer

@@ -116,6 +116,14 @@ fn fourcc_name(code: u32) -> String {
     }
 }
 
+/// The SDL renderers whose NV12 textures take imported planes: only the OpenGL one, which picks
+/// the red-green chroma shader (`SDL_RENDER_OPENGL_NV12_RG_SHADER`) once, when it makes the
+/// texture. OpenGL ES reads that hint at every draw, so its imported chroma would be sampled as
+/// luminance-alpha (alpha of GR88 is 1: a colour cast with no error).
+pub fn imports_into(renderer_name: &str) -> bool {
+    renderer_name == "opengl"
+}
+
 /// Zero-copy is on unless `NIGHTJAR_DMABUF=0` asks for the CPU mapping (A/B measurements).
 pub fn enabled_by_environment(value: Option<&std::ffi::OsStr>) -> bool {
     value.is_none_or(|value| value != "0")
@@ -221,12 +229,11 @@ mod linux {
         Ok(Export { descriptor, decline: decline.clone() })
     }
 
-    /// Whether pictures can be imported into `renderer`'s textures: SDL's OpenGL or OpenGL ES
-    /// renderer on an EGL context (Wayland, or X11 with `SDL_HINT_VIDEO_FORCE_EGL`).
+    /// Whether pictures can be imported into `renderer`'s textures: SDL's OpenGL renderer on an
+    /// EGL context (Wayland, or X11 with `SDL_HINT_VIDEO_FORCE_EGL`).
     pub fn renderer_imports(renderer: *mut SDL_Renderer) -> bool {
         // SAFETY: SDL's EGL query on the renderer's thread.
-        matches!(crate::sdl::renderer_name(renderer).as_str(), "opengl" | "opengles2")
-            && !unsafe { SDL_EGL_GetCurrentDisplay() }.is_null()
+        imports_into(&crate::sdl::renderer_name(renderer)) && !unsafe { SDL_EGL_GetCurrentDisplay() }.is_null()
     }
 
     type CreateImage = unsafe extern "C" fn(*mut c_void, *mut c_void, c_uint, *mut c_void, *const i32) -> *mut c_void;
@@ -289,8 +296,8 @@ mod linux {
             }
         }
 
-        /// Binds the exported picture's planes to `texture`, an NV12 texture of SDL's OpenGL (ES)
-        /// renderer made for imports (`SDL_RENDER_OPENGL_NV12_RG_SHADER`).
+        /// Binds the exported picture's planes to `texture`, an NV12 texture of SDL's OpenGL
+        /// renderer (`imports_into`) made for imports (`SDL_RENDER_OPENGL_NV12_RG_SHADER`).
         ///
         /// # Safety
         /// On the renderer's thread, with its context current; `texture` is live.
@@ -415,6 +422,15 @@ mod tests {
         // Without the modifiers extension, or with no modifier named, the driver's layout is implied.
         assert_eq!(layer_attributes(&tiled, 0, 1920, 1080, false).len(), 15);
         assert_eq!(layer_attributes(&nv12(DRM_FORMAT_MOD_INVALID), 0, 1920, 1080, true).len(), 15);
+    }
+
+    #[test]
+    fn only_the_opengl_renderer_takes_imports() {
+        assert!(imports_into("opengl"));
+        // GLES2 reads the RG-shader hint per draw: imported chroma would be read from alpha.
+        for other in ["opengles2", "gpu", "vulkan", "software", "direct3d11"] {
+            assert!(!imports_into(other), "{other}");
+        }
     }
 
     #[test]

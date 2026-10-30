@@ -535,9 +535,8 @@ impl App {
         if let Some(pin) = self.launcher.pin.as_mut() { pin.left(); }
         self.network_test = None;
         if let Some(command) = self.launcher.screen.save_command() { self.command(command); }
-        if let Some((streaming, _)) = self.streaming.take() {
-            streaming.finish(self.window, &mut self.pads);
-        }
+        // The PC's automatic bitrate goes off after the window has gone, not with the process.
+        let abr_stop = self.streaming.take().and_then(|(streaming, _)| streaming.finish(self.window, &mut self.pads));
         if let Some(c) = &self.connecting {
             c.cancel();
         }
@@ -553,6 +552,7 @@ impl App {
             SDL_DestroyWindow(self.window);
             SDL_Quit();
         }
+        if let Some(stop) = abr_stop { stop.wait(); }
     }
 
     /// Drops the saved library of a PC that is unpaired or removed.

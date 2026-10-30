@@ -1,0 +1,2 @@
+# Wake card on this PC
+- **The console's Wake-on-LAN card works when opened on the PC itself.** At `https://localhost:47990` it said "No physical adapter is connected" while the adapters were connected, because a request from the PC itself reaches no adapter. The card now judges the adapter under the PC's default route, the one devices on the network reach (the adapter under a VPN when one carries the route). Without a default route it asks to open the page from another device instead of calling the adapters disconnected. What `/serverinfo` reports is unchanged.

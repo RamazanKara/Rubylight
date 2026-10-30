@@ -8,6 +8,7 @@
     <string name="stream_auto_bitrate_unavailable">Ce PC n’indique pas le débit de son stream. « L\'appareil contrôle le débit » est désactivé pour ce stream.</string>
     <string name="stream_auto_bitrate_status">L\'appareil contrôle le débit : %1$.1f Mbit/s</string>
     <string name="stream_bitrate_busy">Hôte occupé. Réessayez dans un instant.</string>
+    <string name="stream_host_abr_failed">Le PC n’a pas lancé son débit automatique : %1$s</string>
     <string name="title_auto_bitrate">L\'appareil contrôle le débit</string>
     <string name="dialog_auto_bitrate">Baisse le débit quand la connexion ou l’appareil ne suit plus, puis le remonte quand la situation s’améliore. Il ne dépasse jamais le débit du flux. C’est le réglage par défaut de tous les PC ; le menu du flux peut le changer pour un seul PC.</string>
 </resources>

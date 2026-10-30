@@ -8,6 +8,7 @@
     <string name="stream_auto_bitrate_unavailable">Questo PC non comunica il bitrate dello stream. «Il dispositivo controlla il bitrate» è disattivato per questo stream.</string>
     <string name="stream_auto_bitrate_status">Il dispositivo controlla il bitrate: %1$.1f Mbps</string>
     <string name="stream_bitrate_busy">Host occupato. Riprova tra poco.</string>
+    <string name="stream_host_abr_failed">Il PC non ha avviato il suo bitrate automatico: %1$s</string>
     <string name="title_auto_bitrate">Il dispositivo controlla il bitrate</string>
     <string name="dialog_auto_bitrate">Abbassa il bitrate quando la connessione o il dispositivo non reggono e lo rialza quando la situazione migliora. Non supera mai il bitrate dello streaming. È il valore predefinito per tutti i PC; il menu dello streaming può cambiarlo per un solo PC.</string>
 </resources>

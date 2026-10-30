@@ -8,6 +8,7 @@
     <string name="stream_auto_bitrate_unavailable">Цей ПК не повідомляє бітрейт трансляції. «Пристрій керує бітрейтом» для цієї трансляції вимкнено.</string>
     <string name="stream_auto_bitrate_status">Пристрій керує бітрейтом: %1$.1f Мбіт/с</string>
     <string name="stream_bitrate_busy">Хост зайнятий. Спробуйте ще раз за мить.</string>
+    <string name="stream_host_abr_failed">ПК не ввімкнув автоматичний бітрейт: %1$s</string>
     <string name="title_auto_bitrate">Пристрій керує бітрейтом</string>
     <string name="dialog_auto_bitrate">Знижує бітрейт, коли з’єднання або пристрій не встигає, і піднімає його знову, коли все налагоджується. Вище за бітрейт трансляції він не підіймається. Це значення за замовчуванням для всіх ПК; у меню трансляції його можна змінити для одного ПК.</string>
 </resources>

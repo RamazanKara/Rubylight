@@ -5224,6 +5224,12 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 });
             } catch (IOException e) {
                 LimeLog.warning("The PC did not start its automatic bitrate: " + e.getMessage());
+                // Loud, as on desktop: the stream keeps its bitrate and the user should know why.
+                runOnUiThread(() -> {
+                    if (connected && !isFinishing() && conn == connection) {
+                        messages.alert(getString(R.string.stream_host_abr_failed, e.getMessage()), Toast.LENGTH_LONG);
+                    }
+                });
             }
         }, "FoundationAbr").start();
     }

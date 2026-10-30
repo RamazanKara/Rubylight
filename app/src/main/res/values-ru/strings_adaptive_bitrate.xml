@@ -8,6 +8,7 @@
     <string name="stream_auto_bitrate_unavailable">Этот ПК не сообщает битрейт трансляции. «Устройство управляет битрейтом» для этой трансляции выключено.</string>
     <string name="stream_auto_bitrate_status">Устройство управляет битрейтом: %1$.1f Мбит/с</string>
     <string name="stream_bitrate_busy">Хост занят. Повторите попытку чуть позже.</string>
+    <string name="stream_host_abr_failed">ПК не включил автоматический битрейт: %1$s</string>
     <string name="title_auto_bitrate">Устройство управляет битрейтом</string>
     <string name="dialog_auto_bitrate">Снижает битрейт, когда соединение или устройство не справляется, и возвращает его, когда всё налаживается. Выше битрейта трансляции он не поднимается. Это значение по умолчанию для всех ПК; в меню трансляции его можно изменить для одного ПК.</string>
 </resources>

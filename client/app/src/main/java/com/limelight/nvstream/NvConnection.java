@@ -1503,6 +1503,23 @@ public class NvConnection {
         }
     }
 
+    /**
+     * Turns on Foundation Sunshine's own bitrate controller up to {@code maxKbps} (FoundationAbr).
+     * Returns its initial bitrate, or -1 when the PC has none.
+     */
+    public int startFoundationAbr(int maxKbps) throws IOException {
+        if (!http.supportsFoundationAbr()) return -1;
+        return http.configureFoundationAbr(com.limelight.nvstream.http.FoundationAbr.enableRequest(maxKbps));
+    }
+
+    public void stopFoundationAbr() throws IOException {
+        http.configureFoundationAbr(com.limelight.nvstream.http.FoundationAbr.disableRequest());
+    }
+
+    public org.json.JSONObject sendFoundationAbrFeedback(org.json.JSONObject feedback) throws IOException {
+        return http.sendFoundationAbrFeedback(feedback);
+    }
+
     public String getClipboard() throws IOException, XmlPullParserException {
         if (!refreshHostDetails().canReadClipboard()) {
             throw new IOException("Host clipboard read permission denied");

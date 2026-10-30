@@ -1,17 +1,47 @@
-# Nucleus Co-op: background streaming and co-op
+# Co-op and background streaming
 
 [Documentation](README.md) · [Background streaming](configuration.md#background-streaming) · [Features](features.md)
 
 Rubylight can run a game through [Nucleus Co-op](https://github.com/SplitScreen-Me/splitscreenme-nucleus),
-the split-screen launcher. Nucleus starts its own instance of the game for
-each player, and Rubylight streams each instance's window to its own device.
-That gives two things:
+the split-screen launcher. Nucleus Co-op starts a separate instance of the
+game for each player, and Rubylight streams each instance's window, sound and
+controller to its own device. This enables two modes:
 
+- **Co-op.** Up to four devices play the same game together, each in its own
+  instance.
 - **Background streaming.** A device plays its own instance of a game while
-  someone keeps using the PC. The PC's displays, focus, keyboard and mouse
-  stay with the PC user.
-- **Co-op.** Several devices play the same game together, each in its own
-  instance of it, with up to 4 players per session.
+  someone else keeps using the PC. The PC's displays, focus, keyboard and
+  mouse stay with the local user.
+
+## Quick start
+
+1. In the console, open **Games**, select the game and, under **Play
+   together**, select **Set up co-op**. The host downloads Nucleus Co-op once
+   and shows the progress.
+2. If the game has no Nucleus Co-op handler yet, the panel offers **Open
+   Nucleus Co-op on this PC**. Search the handler hub for the game there,
+   download the handler and add the game; the panel moves on by itself once
+   the handler is present.
+3. When the panel shows how many players the game seats, start the game's
+   **(Co-op)** entry from Nightjar or Moonlight on each device. Each device
+   that starts it joins as the next player.
+4. **Home** shows the running session: who plays in which slot, a player who
+   stepped away and keeps the slot for two minutes, and a **Let … join**
+   button for each paired device that may not join yet.
+
+![A game's page in the console: the Play together panel with Set up co-op, naming the Nucleus Co-op 2.4.2 download (97 MB) from its GitHub release.](media/showcase/coop-setup.png)
+
+![The Play together panel once co-op is ready: up to 2 players, start the game's Co-op entry from Nightjar or Moonlight, and a switch that shows the entry in the library.](media/showcase/coop-ready.png)
+
+![A running co-op game on Home: Player 1 on Living room PC playing, Player 2 on Retroid Pocket 5 away and keeping the slot for 1:24, two free slots, and Let Bedroom TV join.](media/showcase/coop-home.png)
+
+Co-op and background streams need the host to run as the Windows service
+(the installer's default) and accept controllers only. Co-op, hub handlers
+and games that need administrator rights also need a Windows administrator
+account that Windows elevates; [Without administrator
+rights](#without-administrator-rights) lists what runs on other accounts. The
+sections below describe each step in detail, and the [hardware
+matrix](hardware-matrix.md) records the tested configurations.
 
 ## Background streams
 
@@ -204,7 +234,7 @@ Nucleus Co-op itself is closed: what it started (a browser, a game) is left
 alone. A Nucleus
 Co-op you started yourself is never closed: Open and launches are refused
 while it runs. Co-op in a game without a handler is refused
-with "No Nucleus Co-op handler for <exe>: add one in Nucleus Co-op's handler
+with "No Nucleus Co-op handler for \<exe>: add one in Nucleus Co-op's handler
 hub"; a background stream of it uses Rubylight's own handler
 ([Games without a handler](#games-without-a-handler)).
 
@@ -247,9 +277,9 @@ administrator rights runs there anyway
 
 ## Playing co-op
 
-Each app whose game has a handler gets a second library entry, **<app>
+Each app whose game has a handler gets a second library entry, **\<app>
 (Co-op)**, which sorts next to the game. The game's Play together panel says
-how many players it seats and can hide the entry (**Show "<app> (Co-op)" in
+how many players it seats and can hide the entry (**Show "\<app> (Co-op)" in
 the library**, the app setting `coop-entry`). The first device that launches it starts a session with
 one slot per player: the handler's maximum, capped at 4 and at
 `nucleus_coop_players` (1 to 4, 4 by default). Every other device that
@@ -272,7 +302,7 @@ Sessions list who plays only to devices that may join.
 Home in the console shows each running co-op game as a card: its players, an
 away device's remaining 120 s, **Remove** (asks first) and **End co-op** (asks
 first). While a slot is free, the card lists the paired devices with **Let
-<device> join** for one that may not yet; a removed device is not offered
+\<device> join** for one that may not yet; a removed device is not offered
 again. A background stream gets a card too, with **End stream** only.
 
 Nightjar lists the running co-op sessions on a PC with their free slots and
@@ -311,12 +341,3 @@ the Nucleus Co-op panel under **Help**.
   starts the host again, or before the next session. Until then they wait in
   `Rubylight-layers-<SID>.json` in Nucleus Co-op's folder. If that file
   can't be read, the launch says so and names it: delete it to stream again.
-
-## Status
-
-Covered by unit tests with fakes: install and hash checks, handlers and
-profiles, the co-op session (slots, join, leave, the held slot, kick, crash,
-end), controller routing, and Nightjar's list and join. The hardware runs (the
-install, a background stream while the PC is in use, and a two-client co-op
-session) are part of the release pass; the [hardware matrix](hardware-matrix.md)
-shows their results.

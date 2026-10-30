@@ -2,17 +2,17 @@
 
 [Documentation](README.md) · [Configuration](configuration.md) · [Features](features.md) · [Hardware matrix](hardware-matrix.md)
 
-Rubylight can stream over WebRTC to a Samsung Tizen TV or to a browser, next to the usual Moonlight stream. It is off by default. It speaks the Moonlight WebRTC TV protocol, version 2, which [mlopezsegura](https://github.com/mlopezsegura) designed for the [Tizen TV app](https://github.com/mlopezsegura/Monlight-Tizen-WebRtc-Client) and the [browser client](https://github.com/mlopezsegura/moonlight-webrtc-web). The Moonlight path does not change when this is off, and no WebRTC socket is open.
+Rubylight can stream over WebRTC to a Samsung Tizen TV or a browser, alongside the Moonlight protocol. The server is off by default. It speaks the Moonlight WebRTC TV protocol, version 2, which [mlopezsegura](https://github.com/mlopezsegura) designed for the [Tizen TV app](https://github.com/mlopezsegura/Monlight-Tizen-WebRtc-Client) and the [browser client](https://github.com/mlopezsegura/moonlight-webrtc-web). While it is off, no WebRTC socket is open and the Moonlight path is unchanged.
 
-The first part is for people who stream. The second part is for people who write a client.
+[For users](#for-users) covers setup and use; [For client authors](#for-client-authors) covers Rubylight's behaviour and extensions to the protocol.
 
 ## For users
 
 ### Turn it on
 
-1. Open the console, then **Settings**, and find the **WebRTC** group under Network.
+1. In the console, open **All settings → Network & access** and find the **WebRTC** group.
 2. Switch on **WebRTC server**.
-3. Save, and restart Rubylight. The setting needs a restart.
+3. Save and restart Rubylight when the console asks; the setting takes effect after a restart.
 
 If another program already holds a port, the console shows a `webrtc_server` warning, the log names the error and the server does not run. Rubylight never moves to another port on its own. Pick a free **WebRTC signalling port** instead.
 
@@ -32,10 +32,10 @@ Broadcasts do not cross routers. A TV on another subnet needs the PC's address e
 
 1. Open the app on the TV or the browser client. It finds the PC, or you enter its address.
 2. The app shows a four-digit PIN.
-3. In the console, open the **PIN** page. The request appears next to Moonlight's, with the device name.
+3. In the console, open **Devices**. The request appears with the device name and a **WebRTC** badge, next to any Moonlight requests.
 4. Enter the PIN there and confirm.
 
-The app then holds a client ID and a secret, and signs in on its own from then on. The secret is stored in `sunshine_state.json` and is never shown in the console. A request lasts 5 minutes and allows one attempt.
+The app then holds a client ID and a secret and signs in with them from then on. The secret is stored in `sunshine_state.json` and is never shown in the console. A request lasts 5 minutes and allows one attempt.
 
 ### Stream in the console
 
@@ -59,7 +59,7 @@ Paired TVs and browsers are listed on **Devices** with a **WebRTC** badge. Disab
 | --- | --- |
 | Video | H.264, HEVC and AV1 at 720p, 1080p and 1440p; HEVC and AV1 also at 4K. AV1 appears only when the GPU's AMD encoder supports it. 30, 60, 90 and 120 fps at every resolution, as far as the GPU's encoder can keep up (see below). |
 | HDR | HEVC Main10 and AV1 10-bit at 1080p, 1440p and 4K. The host display must already be in HDR. If it is not, or it leaves HDR during the stream, the stream ends with an error. The host never tone-maps to SDR. |
-| Audio | Stereo, 5.1 and 7.1. Surround needs a client that asks for it and decodes it, which today means a Chromium-based browser. |
+| Audio | Stereo, 5.1 and 7.1. Surround needs a client that asks for it and decodes it; in practice, a Chromium-based browser. |
 | Gamepad | Gamepads with rumble. |
 | Gamepad as a mouse | Hold Start for 750 ms and release it. The stick moves the pointer, the D-pad scrolls, and A, B, X, LB and RB click. Do it again to turn it off. |
 | Keyboard and mouse | From a client that opens the `input` channel (see below), such as the console's Stream page. The browser client does not. |
@@ -78,7 +78,7 @@ Rubylight serves only peers on the local network: loopback, private (RFC 1918), 
 
 ## For client authors
 
-Rubylight implements protocol version 2 as the upstream [protocol document](https://github.com/mlopezsegura/Monlight-Tizen-WebRtc-Client/blob/main/docs/protocol.md) describes it: discovery, pairing, authentication, apps, `start-session`, `switch-session`, the stop messages and the host's offer. Read that for the messages. This part covers what Rubylight does that you need to know, and its extensions. The reference host is [Sunshine-Web-RTC](https://github.com/mlopezsegura/Sunshine-Web-RTC). A stock client sees exactly protocol v2.
+Rubylight implements protocol version 2 as the upstream [protocol document](https://github.com/mlopezsegura/Monlight-Tizen-WebRtc-Client/blob/main/docs/protocol.md) describes it: discovery, pairing, authentication, apps, `start-session`, `switch-session`, the stop messages and the host's offer. Read that for the messages. This part covers the host behaviour a client must handle and Rubylight's extensions. A stock client sees exactly protocol v2.
 
 ### The host's offer
 
@@ -120,7 +120,7 @@ A client may ask for a keyframe on the `control` channel, besides an RTCP PLI or
 
 ### The extensions object
 
-`capabilities` carries an `extensions` object. Stock clients ignore it. Today it reads:
+`capabilities` carries an `extensions` object. Stock clients ignore it. In 3.0 it reads:
 
 ```json
 "extensions": {
@@ -159,11 +159,11 @@ a=rtpmap:111 multiopus/48000/6
 a=fmtp:111 channel_mapping=0,4,1,2,3,5;num_streams=4;coupled_streams=2;minptime=10;useinbandfec=1
 ```
 
-4. Set that as the local description. The payload type is the one in the offer (111 today). The `minptime` and `useinbandfec` values are yours to choose.
+4. Set that as the local description. The payload type is the one in the offer (currently 111). The `minptime` and `useinbandfec` values are yours to choose.
 
 The host takes the stream count, coupled count and mapping from your answer when they are valid for the channel count, and encodes with exactly that layout. A changed channel count or an invalid layout is an error.
 
-A stereo answer to a surround request is refused with an error, never downgraded to a stereo stream. Only receivers that decode `multiopus` can use surround. Chromium-based browsers do. We have not tested the Tizen TV.
+A stereo answer to a surround request is refused with an error, never downgraded to a stereo stream. Only receivers that decode `multiopus` can use surround. Chromium-based browsers do; surround on the Tizen TV app has not been tested.
 
 ### Stereo in Chromium
 
@@ -171,7 +171,7 @@ Chromium decodes Opus as mono unless its own answer's fmtp has `stereo=1`. Add `
 
 ### Browser support for video
 
-In our tests, Chrome 155 receives H.265 (our harness starts it with `--enable-features=WebRtcAllowH265Receive`) and Edge 155 has no H.265 receiver. A client that asks for HEVC on a browser without a receiver gets no picture. Check `RTCRtpReceiver.getCapabilities('video')` before you ask.
+In the project's tests, Chrome 155 receives H.265 (the harness starts it with `--enable-features=WebRtcAllowH265Receive`) and Edge 155 has no H.265 receiver. A client that asks for HEVC on a browser without a receiver gets no picture. Check `RTCRtpReceiver.getCapabilities('video')` before you ask.
 
 ### The `input` channel
 

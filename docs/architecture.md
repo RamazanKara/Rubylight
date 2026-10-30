@@ -2,13 +2,15 @@
 
 [Documentation](README.md) · [Configuration](configuration.md) · [Performance](performance.md) · [Developer guide](../rust/README.md)
 
-Rubylight turns a Windows display into a Moonlight stream. Its Radeon path keeps captured pixels on the GPU, prepares them on D3D12 compute queues and passes them to AMD's native encoder. The host limits outstanding work so a busy encoder or network does not become a growing queue of old pictures. Rubylight 3.0 encodes on AMD GPUs only: AMF for H.264, HEVC and AV1, and PyroWave's own encoder. The NVENC, Quick Sync and software encoders were removed; NVIDIA and Intel graphics stay on [Rubylight 2.6.x](https://github.com/RamazanKara/Rubylight/releases/tag/v2.6.0). Physical displays, WGC, Desktop Duplication and the D3D11 fallback are all still supported.
+Rubylight turns a Windows display into a Moonlight stream. On Radeon, captured pixels stay on the GPU, are prepared on D3D12 compute queues and go straight to AMD's native encoder. The host bounds outstanding work, so a busy encoder or network cannot turn into a growing queue of old pictures.
 
-This guide follows a frame from capture to delivery, then covers the process boundaries, colour paths and recovery that keep the stream running. [Performance](performance.md) separates measured host processing from the complete render-to-client journey.
+Rubylight 3.0 encodes on AMD GPUs only: AMF for H.264, HEVC and AV1, and PyroWave's own encoder. The NVENC, Quick Sync and software encoders were removed in 3.0; PCs with NVIDIA or Intel graphics use [Rubylight 2.6.x](https://github.com/RamazanKara/Rubylight/releases/tag/v2.6.0). Physical displays, WGC, Desktop Duplication and the D3D11 fallback remain supported.
 
-## Written in Rust
+This document follows a frame from capture to delivery, then covers the process boundaries, colour paths and recovery that keep a stream running. [Performance](performance.md) separates measured host processing from the complete render-to-client path.
 
-The Windows host, Moonlight protocol implementation, native helpers, service and installer are written in Rust. The released executables do not link the old C++ host. The browser console uses Svelte; codec libraries, GPU SDKs and Windows drivers are external components.
+## Components
+
+The Windows host, the Moonlight protocol implementation, native helpers, the service and the installer are written in Rust; the released executables do not link the earlier C++ host. The browser console is a Svelte application. Codec libraries, GPU SDKs and third-party Windows drivers are external components.
 
 | Component | Responsibility |
 | --- | --- |
@@ -50,7 +52,7 @@ The `idd_push_fence_ring` transport is the default for direct driver push. It ke
 
 ![Scheduling schematic comparing the reviewed Sunshine-derived D3D11 path with Rubylight's D3D12 compute path](media/compute-comparison.svg)
 
-The reviewed Sunshine-derived D3D11 path and Rubylight both use GPU textures and native AMF. Rubylight changes where frame preparation runs: compute work can overlap graphics work instead of joining the same graphics queue. The diagram illustrates scheduling; [measured timings](performance.md) come from separate fixtures. The reviewed baseline is Vibepollo 2.0.
+Both paths use GPU textures and native AMF; they differ in where frame preparation runs. On D3D12 compute, preparation can overlap the game's graphics work instead of joining the same graphics queue. The diagram illustrates scheduling only; [measured timings](performance.md) come from separate fixtures. The D3D11 baseline reviewed for it is Vibepollo 2.0's.
 
 Compute and graphics still share GPU resources. Copy/conversion efficiency helps the host's part of the frame journey; game rendering and desktop composition also determine when a fresh picture exists. [The saturation investigation](../rust/PERFORMANCE.md#saturation-diagnosis-and-queue-drain-rejection) records that distinction.
 
@@ -116,4 +118,4 @@ A GPU device loss triggers a broader rebuild: capture consumers first release th
 
 Display recovery journals host-owned changes. Disconnecting restores displays after three seconds by default, and exclusive layouts always release after the configured restore delay. An arrangement that disabled an original display restores the original layout even after a competing Win+P change; other arrangements preserve later user changes. Failed arrangement restores remain journaled, and a new stream adopts that original baseline. Virtual-display startup uses a short guard for unexpectedly reactivated displays, ending after startup or an observed competing layout change.
 
-Updates notify first. The installed service verifies the official installer, waits for an idle host (or, on **Install now**, ends the stream) and upgrades with package recovery for copying or startup failures. See [configuration](configuration.md) for the update controls and [getting started](getting-started.md) for installation and migration.
+Updates are offered before they install. The installed service verifies the official installer, waits for an idle host (or, on **Install now**, ends the stream) and upgrades with package recovery for copying or startup failures. See [configuration](configuration.md) for the update controls and [getting started](getting-started.md) for installation and migration.

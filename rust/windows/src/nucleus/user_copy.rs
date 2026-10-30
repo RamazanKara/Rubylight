@@ -152,29 +152,36 @@ fn ensure_with(
     let key = pinned::copy_key(&listing.text);
     let copy = folder.join(&key);
     let mut held = made(&copy, &user_sddl(sid), &[sid], steps)?;
-    match as_user(token, || differs(&copy, &listing.text))? {
-        None => {
-            // One file the user can't change any more would refuse every
-            // launch (#56): the copy goes aside and a new one is made.
-            if let Some(why) = as_user(token, || stuck(&copy))? {
-                tracing::warn!(copy = %copy.display(), why, "Nucleus Co-op: the signed-in user can't change a file in their copy any more; it is set aside and copied again");
-                // A rename writes the folder it is in: both are let go for
-                // it, and checked again. The user can't add to `<SID>`.
-                drop((held, held_folder));
-                set_aside(&folder, &key)?;
-                held_folder = made(&folder, &sid_sddl(sid), &[], steps)?;
-                held = made(&copy, &user_sddl(sid), &[sid], steps)?;
-                make(source, &listing, &copy, token)?;
-            }
-        }
+    // One file the user can't change any more would refuse every launch
+    // (#56): a copy that holds one, or can't be emptied to be made again,
+    // goes aside, and a new one is made.
+    let differs = as_user(token, || differs(&copy, &listing.text))?;
+    match &differs {
+        None => {}
         Some(Differs::Missing) => {
             tracing::info!(copy = %copy.display(), source = %source.display(), "Nucleus Co-op: copying it for the signed-in user");
-            make(source, &listing, &copy, token)?;
         }
         Some(Differs::Changed(why)) => {
             tracing::warn!(copy = %copy.display(), source = %source.display(), why, "Nucleus Co-op: the signed-in user's copy is not the host's; copying it again");
-            make(source, &listing, &copy, token)?;
         }
+    }
+    let stuck = match &differs {
+        None => as_user(token, || stuck(&copy))?,
+        Some(_) => as_user(token, || empty(&copy))?
+            .err()
+            .map(|why| format!("{why:#}")),
+    };
+    if let Some(why) = &stuck {
+        tracing::warn!(copy = %copy.display(), why, "Nucleus Co-op: the signed-in user can't change a file in their copy any more; it is set aside and copied again");
+        // A rename writes the folder it is in: both are let go for it, and
+        // checked again. The user can't add to `<SID>`.
+        drop((held, held_folder));
+        set_aside(&folder, &key)?;
+        held_folder = made(&folder, &sid_sddl(sid), &[], steps)?;
+        held = made(&copy, &user_sddl(sid), &[sid], steps)?;
+    }
+    if stuck.is_some() || differs.is_some() {
+        make(source, &listing, &copy, token)?;
     }
     as_user(token, || seed_settings(&copy))??;
     remove_others(&folder, &key, token)?;
@@ -182,16 +189,30 @@ fn ensure_with(
     Ok(copy)
 }
 
-/// Why the user can't change a file in their copy at `copy` that Rubylight
-/// changes or removes as them before Nucleus Co-op starts: the handlers,
-/// the profiles of its own handlers' games and the game list. Read as the
-/// user, never through a link. None when they can change them all.
+/// Why the user can't change what in their copy at `copy` Rubylight
+/// changes or removes as them before Nucleus Co-op starts: the copy and its
+/// `handlers`, `game profiles` and `content` folders, which it lists and
+/// adds to, and the handlers, the profiles of its own handlers' games, the
+/// game list and the settings, each with the file it is written through.
+/// A read-only, hidden or system attribute on one of those files, which
+/// Rubylight's writes and removals refuse, is cleared: the user may. Done
+/// as the user, never through a link. None when they can change them all.
 fn stuck(copy: &Path) -> Option<String> {
     let list = files::list(copy);
-    // The folders Rubylight adds files to, then the files it changes.
-    let mut folders = vec![copy.join("handlers"), copy.join("game profiles")];
+    // The folders Rubylight adds to, then the files it changes.
+    let mut folders = vec![
+        copy.to_path_buf(),
+        copy.join("handlers"),
+        copy.join("game profiles"),
+    ];
     folders.extend(list.parent().map(Path::to_path_buf));
-    let mut files = vec![list.with_extension("json.rubylight"), list];
+    let settings = copy.join("Settings.ini");
+    let mut files = vec![
+        list.with_extension("json.rubylight"),
+        list,
+        settings.with_extension("rubylight.tmp"),
+        settings,
+    ];
     let listed = |folder: &Path| -> Vec<(PathBuf, std::fs::FileType)> {
         std::fs::read_dir(folder)
             .into_iter()
@@ -232,61 +253,100 @@ fn stuck(copy: &Path) -> Option<String> {
         .find_map(|(path, folder)| unchangeable(path, folder))
 }
 
-/// Why the user can't add files to the `folder` at `path`, or write or
-/// delete the file there, if it is there: Windows refuses them, or the file
-/// is read-only, hidden or a system file, which Rubylight's writes and
-/// removals refuse too.
+/// The read-only, hidden and system attributes: Windows refuses to write a
+/// read-only file or delete it, and to replace a hidden or system one
+/// (`CREATE_ALWAYS`).
+const KEPT: u32 = 0x1 | 0x2 | 0x4;
+
+/// Why the user can't list and add to the `folder` at `path`, or write and
+/// delete the file there, if it is there. A file's [`KEPT`] attributes are
+/// cleared first, through a handle that never follows a link.
 fn unchangeable(path: &Path, folder: bool) -> Option<String> {
     use std::os::windows::fs::OpenOptionsExt;
     use windows::Win32::Storage::FileSystem::{
-        DELETE, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT, FILE_READ_ATTRIBUTES,
-        FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE, FILE_WRITE_DATA,
+        DELETE, FILE_APPEND_DATA, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT,
+        FILE_LIST_DIRECTORY, FILE_READ_ATTRIBUTES, FILE_SHARE_DELETE, FILE_SHARE_READ,
+        FILE_SHARE_WRITE, FILE_WRITE_ATTRIBUTES, FILE_WRITE_DATA,
     };
-    const KEPT: u32 = 0x1 | 0x2 | 0x4;
-    // A folder's FILE_ADD_FILE is a file's FILE_WRITE_DATA.
-    let (access, flags) = if folder {
-        (
-            FILE_WRITE_DATA | FILE_READ_ATTRIBUTES,
-            FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_BACKUP_SEMANTICS,
-        )
-    } else {
-        (
-            FILE_WRITE_DATA | DELETE | FILE_READ_ATTRIBUTES,
-            FILE_FLAG_OPEN_REPARSE_POINT,
-        )
+    let open = |access: u32, flags: u32| {
+        std::fs::OpenOptions::new()
+            .access_mode(access)
+            .share_mode((FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE).0)
+            .custom_flags(flags | FILE_FLAG_OPEN_REPARSE_POINT.0)
+            .open(path)
     };
-    let opened = std::fs::OpenOptions::new()
-        .access_mode(access.0)
-        .share_mode((FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE).0)
-        .custom_flags(flags.0)
-        .open(path);
-    match opened {
-        Ok(file) => {
-            let attributes = file.metadata().ok()?.file_attributes();
-            (!folder && attributes & KEPT != 0).then(|| {
-                format!(
-                    "{} is read-only, hidden or a system file (attributes 0x{attributes:x})",
-                    path.display()
-                )
-            })
-        }
-        Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {
-            // Windows refuses to write a read-only file as it would the user.
-            let attributes = std::fs::symlink_metadata(path)
-                .map(|metadata| metadata.file_attributes())
-                .unwrap_or(0);
-            Some(if !folder && attributes & KEPT != 0 {
-                format!(
-                    "{} is read-only, hidden or a system file (attributes 0x{attributes:x}): {error}",
-                    path.display()
-                )
-            } else {
-                format!("{}: {error}", path.display())
-            })
-        }
+    let refused = |error: std::io::Error| match error.kind() {
+        std::io::ErrorKind::PermissionDenied => Some(format!("{}: {error}", path.display())),
         // Gone, or in use for now: neither stays.
-        Err(_) => None,
+        _ => None,
+    };
+    if folder {
+        // A folder's FILE_ADD_FILE and FILE_ADD_SUBDIRECTORY are a file's
+        // FILE_WRITE_DATA and FILE_APPEND_DATA.
+        let access = FILE_LIST_DIRECTORY.0 | FILE_WRITE_DATA.0 | FILE_APPEND_DATA.0;
+        return open(access, FILE_FLAG_BACKUP_SEMANTICS.0)
+            .err()
+            .and_then(refused);
     }
+    let attributes = match open(FILE_READ_ATTRIBUTES.0 | FILE_WRITE_ATTRIBUTES.0, 0) {
+        Ok(file) => file.metadata().map(|metadata| metadata.file_attributes()),
+        Err(error) => return refused(error),
+    };
+    match attributes {
+        Ok(attributes) if attributes & KEPT != 0 => {
+            if let Err(error) = clear_kept(path, attributes) {
+                return Some(format!(
+                    "{} is read-only, hidden or a system file (attributes 0x{attributes:x}), which the user could not change: {error}",
+                    path.display()
+                ));
+            }
+            tracing::info!(file = %path.display(), attributes = format!("0x{attributes:x}"), "Nucleus Co-op: a read-only, hidden or system file in the signed-in user's copy made plain");
+        }
+        Ok(_) => {}
+        Err(error) => return refused(error),
+    }
+    open(FILE_WRITE_DATA.0 | DELETE.0, 0)
+        .err()
+        .and_then(refused)
+}
+
+/// Clear the [`KEPT`] attributes of the file at `path`, which has
+/// `attributes`, by a handle that never follows a link.
+fn clear_kept(path: &Path, attributes: u32) -> std::io::Result<()> {
+    use std::os::windows::fs::OpenOptionsExt;
+    use std::os::windows::io::AsRawHandle;
+    use windows::Win32::Foundation::HANDLE;
+    use windows::Win32::Storage::FileSystem::{
+        FILE_ATTRIBUTE_NORMAL, FILE_BASIC_INFO, FILE_FLAG_OPEN_REPARSE_POINT, FILE_READ_ATTRIBUTES,
+        FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE, FILE_WRITE_ATTRIBUTES, FileBasicInfo,
+        SetFileInformationByHandle,
+    };
+    let file = std::fs::OpenOptions::new()
+        .access_mode(FILE_READ_ATTRIBUTES.0 | FILE_WRITE_ATTRIBUTES.0)
+        .share_mode((FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE).0)
+        .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT.0)
+        .open(path)?;
+    let left = attributes & !KEPT;
+    // Zero times leave them as they are; no attributes at all is NORMAL.
+    let info = FILE_BASIC_INFO {
+        FileAttributes: if left == 0 {
+            FILE_ATTRIBUTE_NORMAL.0
+        } else {
+            left
+        },
+        ..Default::default()
+    };
+    // SAFETY: the handle is open for as long as `file` is, and `info` is a
+    // FILE_BASIC_INFO of its size.
+    unsafe {
+        SetFileInformationByHandle(
+            HANDLE(file.as_raw_handle()),
+            FileBasicInfo,
+            std::ptr::from_ref(&info).cast(),
+            std::mem::size_of::<FILE_BASIC_INFO>() as u32,
+        )
+    }
+    .map_err(crate::user_folder::os_error)
 }
 
 /// Move the copy `key` in the user's folder `folder` aside, as the host:
@@ -844,7 +904,7 @@ fn remove_others(folder: &Path, key: &str, token: Option<&OwnedHandle>) -> Resul
                 tracing::info!(path = %path.display(), "Nucleus Co-op: another copy of the signed-in user's removed")
             }
             Err(error) => {
-                tracing::warn!(path = %path.display(), error = format!("{error:#}"), "Nucleus Co-op: another copy of the signed-in user's was not removed; it is tried again next time")
+                tracing::warn!(path = %path.display(), error = format!("{error:#}"), "Nucleus Co-op: another copy of the signed-in user's was not fully removed; it is tried again next time, and an administrator of this PC can delete it")
             }
         }
     }
@@ -852,15 +912,19 @@ fn remove_others(folder: &Path, key: &str, token: Option<&OwnedHandle>) -> Resul
 }
 
 /// Remove everything in `folder`, never following a link: a link itself
-/// goes.
+/// goes. What can't be removed stays, and the first such is the error:
+/// the rest goes all the same (a copy set aside for one stuck file, #56).
 fn empty(folder: &Path) -> Result<()> {
+    let mut first = None;
     for entry in
         std::fs::read_dir(folder).with_context(|| format!("listing {}", folder.display()))?
     {
         let entry = entry.with_context(|| format!("listing {}", folder.display()))?;
-        remove_entry(&entry.path())?;
+        if let Err(error) = remove_entry(&entry.path()) {
+            first.get_or_insert(error);
+        }
     }
-    Ok(())
+    first.map_or(Ok(()), Err)
 }
 
 /// Remove the file, folder or link at `path`, if there: a link itself, never
@@ -1263,10 +1327,11 @@ mod tests {
         assert!(status.success(), "icacls {args:?} failed");
     }
 
-    /// #56: one file in the user's copy that they can't change any more (a
-    /// handler made read-only, a profile Windows refuses them) refused every
-    /// launch. The copy is set aside and made again, so the next write
-    /// works; one whose files they can change is kept as it is.
+    /// #56: one file in the user's copy that they can't change any more
+    /// refused every launch. A read-only one is made plain again; for one
+    /// Windows refuses them, the copy is set aside and made again, also when
+    /// it differs from the host's anyway, and all of the old one but that
+    /// file goes. A copy whose files they can change is kept as it is.
     #[test]
     fn a_copy_with_a_file_the_user_cant_change_is_set_aside_and_made_again() {
         let data = tempfile::tempdir().unwrap();
@@ -1301,49 +1366,68 @@ mod tests {
             std::fs::set_permissions(&theirs, permissions).unwrap();
         }
 
-        // Read-only, as the reporter's handler may be.
+        // Read-only, as the reporter's handler may be: the user makes it
+        // plain again, and the copy stays.
         let mut permissions = std::fs::metadata(&handler).unwrap().permissions();
         permissions.set_readonly(true);
         std::fs::set_permissions(&handler, permissions).unwrap();
-        let why = stuck(&copy).unwrap();
-        assert!(why.contains("read-only"), "{why}");
+        assert_eq!(stuck(&copy), None);
+        assert!(
+            !std::fs::metadata(&handler)
+                .unwrap()
+                .permissions()
+                .readonly()
+        );
+        assert_eq!(
+            std::fs::read(&handler).unwrap(),
+            b"// Rubylight one-player handler"
+        );
         assert_eq!(
             ensure_with(data.path(), host.path(), SID, None, &TEST).unwrap(),
             copy
         );
-        assert!(!handler.exists());
-        assert!(names(&copy.join("handlers")).is_empty());
+        assert!(handler.is_file());
+        assert_eq!(names(&folder), [key.as_str()]);
+
+        // Windows refuses the user the profile, and to remove it from its
+        // folder: the copy goes aside, and all of it but that file goes.
+        icacls(&profile, &["/deny", "*S-1-1-0:(W,D)"]);
+        icacls(&profiles, &["/deny", "*S-1-1-0:(DC)"]);
+        let why = stuck(&copy).unwrap();
+        assert!(why.contains("Profile[1].json"), "{why}");
+        let made = ensure_with(data.path(), host.path(), SID, None, &TEST);
+        let aside = folder.join(format!("{key}.aside-1"));
+        let left = names(&aside);
+        icacls(data.path(), &["/reset", "/T", "/C", "/Q"]);
+        assert_eq!(made.unwrap(), copy);
+        assert_eq!(left, ["game profiles"]);
+        assert!(!profile.exists() && !handler.exists());
         assert_eq!(stuck(&copy), None);
         assert_eq!(
             differs(&copy, &Listing::of(host.path()).unwrap().text).map(|_| ()),
             None
         );
-        // What could not be removed of the copy set aside waits for the next
-        // time; nothing else is in the user's folder.
-        for name in names(&folder) {
-            assert!(
-                name == key || name.starts_with(&format!("{key}.aside-")),
-                "{name}"
-            );
-        }
+        // Removed at the next start, once it can be.
+        ensure_with(data.path(), host.path(), SID, None, &TEST).unwrap();
+        assert_eq!(names(&folder), [key.as_str()]);
 
-        // Windows refuses the user the profile.
-        std::fs::create_dir_all(&profiles).unwrap();
-        std::fs::write(&profile, b"{}").unwrap();
-        icacls(&profile, &["/deny", "*S-1-1-0:(W,D)"]);
-        let why = stuck(&copy).unwrap();
-        assert!(why.contains("Profile[1].json"), "{why}");
+        // A copy that is no longer the host's and can't be emptied to be
+        // made again goes aside too.
+        let stuck_file = copy.join(r"content\stuck.txt");
+        std::fs::write(&stuck_file, b"x").unwrap();
+        std::fs::write(copy.join(r"gui\theme\default\theme.ini"), b"changed").unwrap();
+        icacls(&stuck_file, &["/deny", "*S-1-1-0:(D)"]);
+        icacls(&copy.join("content"), &["/deny", "*S-1-1-0:(DC)"]);
         let made = ensure_with(data.path(), host.path(), SID, None, &TEST);
-        // Whatever is left of it can be removed again.
-        for aside in names(&folder).into_iter().filter(|name| name != &key) {
-            let left = folder.join(aside);
-            icacls(&left, &["/reset", "/T", "/C", "/Q"]);
-            let _ = std::fs::remove_dir_all(&left);
-        }
+        let left = names(&folder.join(format!("{key}.aside-1")));
+        icacls(data.path(), &["/reset", "/T", "/C", "/Q"]);
         assert_eq!(made.unwrap(), copy);
-        assert!(!profile.exists());
-        assert!(names(&copy.join("handlers")).is_empty());
-        assert_eq!(stuck(&copy), None);
+        assert_eq!(left, ["content"]);
+        assert!(!stuck_file.exists());
+        assert_eq!(
+            std::fs::read(copy.join(r"gui\theme\default\theme.ini")).unwrap(),
+            b"theme"
+        );
     }
 
     #[test]

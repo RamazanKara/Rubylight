@@ -85,7 +85,8 @@ impl Switch {
         })
     }
 
-    /// The adapter had no reader to send the last tree to.
+    /// The adapter had no reader to send the last tree to (Windows; AT-SPI does not say).
+    #[cfg(any(windows, test))]
     fn no_reader(&mut self) {
         self.reader = false;
     }

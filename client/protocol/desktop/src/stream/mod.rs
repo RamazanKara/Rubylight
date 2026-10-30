@@ -25,6 +25,8 @@ mod quality;
 mod rate_change;
 pub mod menu_extras;
 mod touch;
+/// Precision touchpad passthrough is Windows only; its frame logic is tested everywhere.
+#[cfg(any(windows, test))]
 mod touchpad;
 mod upscale;
 pub mod enhance;
@@ -1803,6 +1805,7 @@ pub struct Streaming {
     keys_down: HashSet<u16>,
     mouse_down: HashSet<u8>,
     touch: touch::Touch,
+    #[cfg(windows)]
     touchpad: touchpad::Touchpad,
     captured: bool,
     absolute: bool,
@@ -2011,6 +2014,7 @@ impl Streaming {
             keys_down: HashSet::new(),
             mouse_down: HashSet::new(),
             touch: touch::Touch::default(),
+            #[cfg(windows)]
             touchpad: touchpad::Touchpad::default(),
             captured: false,
             relative_remainder: (0.0, 0.0),
@@ -3932,6 +3936,7 @@ impl Streaming {
         // SAFETY: union members read by event type.
         unsafe {
             let kind = SDL_EventType(event.r#type);
+            #[cfg(windows)]
             if self.touchpad_swallows(event) {
                 return;
             }

@@ -937,6 +937,18 @@ fn location_override() -> Location {
     }
 }
 
+/// The location and video packet size for a route to the PC: `Auto` over a VPN
+/// ([`crate::network::route`]) streams as remote with 1024 byte packets, whatever the PC's
+/// address, as Android does for a VPN network and Moonlight V+ PC for its `RI_VPN`: a tunnel's
+/// smaller MTU (WireGuard's 1420) would fragment every 1392 byte packet. Otherwise 1392, and the
+/// engine decides `Auto` from the address.
+fn location_for_route(location: Location, vpn: bool) -> (Location, i32) {
+    match location {
+        Location::Auto if vpn => (Location::Remote, 1024),
+        location => (location, 1392),
+    }
+}
+
 /// The engine's session flags for this role and these settings. A Remote Monitor session is
 /// view-only: the engine starts no input stream and does not wiggle the host's mouse.
 /// `watching` says the network watcher runs and feeds `Session::network_changed`.
@@ -1187,7 +1199,8 @@ fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) ->
     }
     // The interface the system sends this host's traffic over decides, not the internet
     // connection; the connection is the fallback when that lookup tells nothing.
-    let toward = crate::network::toward(&plan.record.address);
+    let route = crate::network::route(&plan.record.address);
+    let toward = route.toward;
     let network = plan.network.toward(toward);
     let family = plan.info.capabilities.family();
     let client_wireless = tells_host_wireless(settings.tell_host_wireless, family, network.wireless());
@@ -1223,6 +1236,10 @@ fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) ->
         BeamRace::Off => {}
     }
     let race_ask = race_request(beam, early_decode(settings.early_decode), height);
+    let (location, packet_size) = location_for_route(location_override(), route.vpn);
+    if route.vpn && location == Location::Remote {
+        eprintln!("nightjar: the route to the PC is a VPN: streaming as remote with {packet_size} byte packets");
+    }
     let mut iv = [0u8; 16];
     iv[..4].copy_from_slice(&ri_key_id.to_be_bytes());
     let stream = StreamConfig {
@@ -1230,7 +1247,7 @@ fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) ->
         height: height as i32,
         fps: fps as i32,
         bitrate_kbps: bitrate as i32,
-        packet_size: 1392,
+        packet_size,
         audio,
         supported_video_formats: offer.formats,
         experimental_packed_444: settings.experimental_packed_444,
@@ -1272,7 +1289,7 @@ fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) ->
     let passthrough = stream.audio_passthrough;
     let session = Session::start(
         &host,
-        session_config(settings, role, stream, location_override(), watch.is_some() && settings.client_roaming),
+        session_config(settings, role, stream, location, watch.is_some() && settings.client_roaming),
         Box::new(pipeline::Decoder::new(shared.clone(), plan.hardware).with_early_decode(early).with_beam_race(slices).with_gpu_decoder(plan.gpu_decoder).with_dmabuf(plan.dmabuf)),
         Box::new(pipeline::Audio::new(shared.clone(), passthrough)),
         Arc::new(pipeline::Events::new(shared)),
@@ -1367,9 +1384,15 @@ pub enum Exit {
 }
 
 impl Exit {
-    pub fn retryable(&self) -> bool {
-        matches!(self, Self::NetworkReturned) ||
-            matches!(self, Self::Terminated(code) if recovery::transient_termination(*code))
+    /// Whether the stream reconnects on its own after this exit. Only once its video started
+    /// (`video_started`, [`recovery::recovers_termination`]): a stream that never showed a picture
+    /// failed to start, and its error shows at once instead of after a minute of retries.
+    pub fn retryable(&self, video_started: bool) -> bool {
+        match self {
+            Self::NetworkReturned => video_started,
+            Self::Terminated(code) => recovery::recovers_termination(*code, video_started),
+            _ => false,
+        }
     }
 }
 
@@ -1622,6 +1645,7 @@ pub struct Streaming {
     window: Window,
     last_counters: (u64, u64, u64, u64, u64, u64, u64),
     last_video_bytes: u64,
+    last_wire_bytes: u64,
     host_average: HostAverage,
     /// Early frames and fallbacks at the last overlay update.
     last_early: (u64, u64),
@@ -1726,6 +1750,8 @@ impl Streaming {
         if vrr_sync == present::VrrSync::Scan && !vrr_check {
             eprintln!("nightjar: VRR sync scan reads the scan line; the display check's verdict changes no pacing on this stream");
         }
+        let mut doctor = doctor::Doctor::default();
+        doctor.receive_buffer = session.video_receive_buffer();
         let mut streaming = Self {
             usb,
             usb_refused,
@@ -1780,7 +1806,7 @@ impl Streaming {
             bitrate_kbps,
             adaptive_bitrate: false,
             bitrate_policy: None,
-            doctor: doctor::Doctor::default(),
+            doctor,
             rate_change,
             quality_mode,
             quality_policy,
@@ -1814,6 +1840,7 @@ impl Streaming {
             window: Window::default(),
             last_counters: (0, 0, 0, 0, 0, 0, 0),
             last_video_bytes: 0,
+            last_wire_bytes: 0,
             host_average: HostAverage::default(),
             last_early: (0, 0),
             last_video: (0, 0),
@@ -1926,10 +1953,10 @@ impl Streaming {
         self.exit = Some(Exit::NetworkReturned);
     }
 
-    /// Whether a dropped stream would reconnect on its own now: [`automatic_rejoin`] has a plan
-    /// with an attempt left in its budget. Spends nothing.
+    /// Whether a dropped stream would reconnect on its own now: its video started ([`Exit::retryable`])
+    /// and [`automatic_rejoin`] has a plan with an attempt left in its budget. Spends nothing.
     fn reconnects_on_its_own(&self, away: bool) -> bool {
-        automatic_rejoin(&self.plan, self.facts.role, self.settings.auto_reconnect, away, self.connected_ms(), false)
+        self.first_frame && automatic_rejoin(&self.plan, self.facts.role, self.settings.auto_reconnect, away, self.connected_ms(), false)
             .and_then(|plan| plan.recovery)
             .is_some_and(|budget| budget.allows_attempt(recovery::now_ms()))
     }
@@ -2639,6 +2666,10 @@ impl Streaming {
         let report = self.doctor.report(self.started.elapsed().as_millis() as u64);
         let offer = self.trial_offer(&report);
         let mut text = doctor::report_text(&report);
+        if let Some(hint) = self.doctor.receive_buffer_hint() {
+            text.push_str("\n\n");
+            text.push_str(&hint);
+        }
         if offer != TrialOffer::None {
             text.push_str("\n\n");
             text.push_str(doctor::trial_help());
@@ -2683,7 +2714,10 @@ impl Streaming {
         if self.facts.role == AppRole::InputOnly { return None; }
         let report = self.doctor.report(self.started.elapsed().as_millis() as u64);
         eprintln!("nightjar: stream health: {}", doctor::log_line(&report));
-        doctor::summary(&report)
+        doctor::summary(&report).map(|summary| match self.doctor.receive_buffer_hint() {
+            Some(hint) => format!("{summary}\n\n{hint}"),
+            None => summary,
+        })
     }
 
     pub fn toggle_menu(&mut self, window: *mut SDL_Window, pads: &mut Gamepads) {
@@ -3367,10 +3401,14 @@ impl Streaming {
             lines.push(("Notice".into(), link_notice_line(notice)));
         }
         let video_bytes = c.video_bytes.load(Ordering::Relaxed);
+        let wire_bytes = self.session.wire_bytes();
         let measures = overlay::Measures {
             rendered_fps: (w.shown > 0 || received > 0).then(|| (f64::from(w.shown) / secs) as f32),
             received_fps: (received > 0).then(|| (received as f64 / secs) as f32),
             video_mbps: (received > 0).then(|| overlay::video_mbps(video_bytes.saturating_sub(self.last_video_bytes), secs)).flatten(),
+            wire_mbps: (wire_bytes > self.last_wire_bytes)
+                .then(|| overlay::video_mbps(wire_bytes - self.last_wire_bytes, secs))
+                .flatten(),
             loss_percent: (completed + drops > 0).then_some(loss as f32),
             network_ms: stats.rtt.map(|(rtt, _)| (rtt.as_secs_f64() * 1000.0) as f32),
             variance_ms: stats.rtt.map(|(_, var)| (var.as_secs_f64() * 1000.0) as f32),
@@ -3380,6 +3418,8 @@ impl Streaming {
             render_ms: (w.shown > 0).then(|| (avg(w.render_us as f64, w.shown) / 1000.0) as f32),
         };
         self.last_video_bytes = video_bytes;
+        self.last_wire_bytes = wire_bytes;
+        lines.extend(overlay::wire(&measures));
         let mut statistics = overlay::statistics(&lines[0].1, &measures);
         let now_ms = self.started.elapsed().as_millis() as u64;
         let wanted = self.overlay_visible && self.overlay_mode != OverlayMode::Compact && self.facts.role != AppRole::InputOnly;
@@ -4022,7 +4062,7 @@ mod tests {
     fn a_lost_or_reset_render_device_ends_the_stream_saying_why() {
         for kind in [SDL_EVENT_RENDER_DEVICE_RESET, SDL_EVENT_RENDER_DEVICE_LOST] {
             let reason = render_device_ended(kind).expect("ends the stream");
-            assert!(!Exit::Ended(Some(reason.into())).retryable(), "{reason}");
+            assert!(!Exit::Ended(Some(reason.into())).retryable(true), "{reason}");
         }
         assert_eq!(render_device_ended(SDL_EVENT_RENDER_TARGETS_RESET), None);
     }
@@ -4607,8 +4647,31 @@ mod replace_tests {
         assert!(!reconnects_on_return(NetworkChange::CannotContinue, false, &tolerant, true));
         let manual = Settings { auto_reconnect: false, ..Settings::default() };
         assert!(!reconnects_on_return(NetworkChange::CannotContinue, false, &manual, true));
-        // The exit it takes reconnects.
-        assert!(Exit::NetworkReturned.retryable());
+        // The exit it takes reconnects, once the stream had video.
+        assert!(Exit::NetworkReturned.retryable(true));
+        assert!(!Exit::NetworkReturned.retryable(false));
+    }
+
+    #[test]
+    fn a_vpn_route_streams_as_remote_with_small_packets() {
+        assert_eq!(location_for_route(Location::Auto, true), (Location::Remote, 1024));
+        assert_eq!(location_for_route(Location::Auto, false), (Location::Auto, 1392));
+        // NIGHTJAR_STREAM_LOCATION decides over the route.
+        assert_eq!(location_for_route(Location::Local, true), (Location::Local, 1392));
+        assert_eq!(location_for_route(Location::Remote, false), (Location::Remote, 1392));
+    }
+
+    // A blocked media port: the stream never shows a picture and its error shows at once, not after
+    // five reconnects and a minute (Moonlight V+ PC 6792aeed).
+    #[test]
+    fn a_stream_that_never_showed_video_does_not_reconnect() {
+        use nightjar_core::session::error;
+        for code in [error::NO_VIDEO_TRAFFIC, error::NO_VIDEO_FRAME, -1, 10054] {
+            assert!(!Exit::Terminated(code).retryable(false), "{code}");
+            assert!(Exit::Terminated(code).retryable(true), "{code}");
+        }
+        assert!(!Exit::Terminated(error::GRACEFUL).retryable(true));
+        assert!(!Exit::Reconnect.retryable(true), "the user's own reconnect is not an automatic one");
     }
 
     #[test]

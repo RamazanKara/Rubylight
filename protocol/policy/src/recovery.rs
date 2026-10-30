@@ -74,6 +74,15 @@ pub fn transient_termination(code: i32) -> bool {
     matches!(code, -102..=-100) || transport_termination(code)
 }
 
+/// Whether a stream that ended with `code` reconnects on its own: a [`transient_termination`]
+/// of a connection whose video started (its first frame arrived). One that never had video
+/// failed to start, most often at a firewall blocking the media ports: reconnecting would only
+/// hide why behind up to [`MAX_ATTEMPTS`] attempts, a minute in all. Ported from Moonlight V+
+/// PC (qiin2333/moonlight-qt 6792aeed, "avoid reconnect loop before first video").
+pub fn recovers_termination(code: i32, video_started: bool) -> bool {
+    video_started && transient_termination(code)
+}
+
 /// Only ambiguous transport failures can stand in for a lost host-exit packet. Media timeouts
 /// and an early host exit keep their meaning. -1 is an ENet failure without an errno.
 pub fn transport_termination(code: i32) -> bool {
@@ -221,6 +230,8 @@ fn classify(method: &str, args: &Value) -> Option<Result<Value, String>> {
         "transient_termination" => Args::new(args, 1)
             .and_then(|a| a.int(0))
             .map(|code| transient_termination(code).into()),
+        "recovers_termination" => Args::new(args, 2)
+            .and_then(|a| Ok(recovers_termination(a.int(0)?, a.flag(1)?).into())),
         "transport_termination" => Args::new(args, 1)
             .and_then(|a| a.int(0))
             .map(|code| transport_termination(code).into()),

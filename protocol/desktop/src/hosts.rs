@@ -702,6 +702,30 @@ impl Hosts {
         true
     }
 
+    /// Pins the PC to one of its known addresses (`Some`), which then is the only one polled and
+    /// streamed to, or brings back the automatic pick (`None`), as Moonlight V+ PC's
+    /// `pinAddress` and `resetToAutomaticAddress`. False for an unknown PC or address.
+    pub fn pin_address(&mut self, id: u64, address: Option<&str>) -> bool {
+        let Some(host) = self.get_mut(id) else {
+            return false;
+        };
+        let record = &mut host.record;
+        match address {
+            None => record.pinned_address = None,
+            Some(address) => {
+                if record.address != address {
+                    let Some(at) = record.other_addresses.iter().position(|a| a == address) else {
+                        return false;
+                    };
+                    let old = std::mem::replace(&mut record.address, record.other_addresses.remove(at));
+                    record.other_addresses.push(old);
+                }
+                record.pinned_address = Some(address.to_owned());
+            }
+        }
+        true
+    }
+
     pub fn remove(&mut self, id: u64) {
         self.list.retain(|h| h.id != id);
     }
@@ -743,8 +767,7 @@ impl Hosts {
         let record = host.record.clone();
         let likely_online = host.reach == Reach::Online;
         self.spawn("serverinfo", move || {
-            let mut addresses = vec![record.address.clone()];
-            addresses.extend(record.other_addresses.iter().cloned());
+            let addresses = poll_addresses(&record);
             let mut last_error = String::from(en("No address"));
             for address in addresses {
                 let result = client_for(&identity, &record, &address)
@@ -1362,7 +1385,9 @@ impl Hosts {
             Ok(info) => {
                 host.reach = Reach::Online;
                 host.error = None;
-                if host.record.address != address {
+                // A pinned PC keeps its address: an answer from another one was still in flight
+                // when the user pinned it.
+                if host.record.address != address && host.record.pinned_address.is_none() {
                     let old = std::mem::replace(&mut host.record.address, address.clone());
                     host.record.other_addresses.retain(|a| *a != address);
                     if !host.record.other_addresses.contains(&old) {
@@ -1436,6 +1461,15 @@ impl Hosts {
             ..Default::default()
         });
         self.poll_one(id);
+    }
+}
+
+/// The addresses a poll tries, in order: only the pinned one when the user pinned the PC
+/// ([`Hosts::pin_address`]), otherwise the last that answered, then the others it was known by.
+fn poll_addresses(record: &HostRecord) -> Vec<String> {
+    match &record.pinned_address {
+        Some(pinned) => vec![pinned.clone()],
+        None => std::iter::once(&record.address).chain(&record.other_addresses).cloned().collect(),
     }
 }
 
@@ -1578,6 +1612,7 @@ pub(crate) mod tests {
             http_port: 0,
             https_port: 0,
             other_addresses: Vec::new(),
+            pinned_address: None,
             server_certificate: Some("pem".into()),
             mac: None,
             wake_macs: Vec::new(),
@@ -1625,6 +1660,27 @@ pub(crate) mod tests {
     fn send(hosts: &mut Hosts, event: Event) {
         hosts.sender.send(event).unwrap();
         hosts.drain(&egui::Context::default());
+    }
+
+    #[test]
+    fn a_pinned_address_wins_until_the_pin_is_removed() {
+        let record = HostRecord { other_addresses: vec!["10.0.0.5".into(), "fd00::5".into()], ..paired_record("uid") };
+        let mut hosts = Hosts::without_discovery(vec![record], Arc::new(|| {}));
+        let id = hosts.list[0].id;
+        assert_eq!(poll_addresses(&hosts.list[0].record), ["192.0.2.1", "10.0.0.5", "fd00::5"], "automatic: last that answered first");
+        assert!(!hosts.pin_address(id, Some("198.51.100.9")), "only a known address is pinned");
+        assert!(hosts.pin_address(id, Some("fd00::5")));
+        let pinned = &hosts.list[0].record;
+        assert_eq!((pinned.address.as_str(), pinned.pinned_address.as_deref()), ("fd00::5", Some("fd00::5")), "streams go to it");
+        assert_eq!(poll_addresses(pinned), ["fd00::5"], "the only address polled");
+        // An answer from the old address, still in flight when the user pinned, keeps the pin.
+        let seq = hosts.get(id).unwrap().info_seq + 1;
+        send(&mut hosts, Event::Info { id, seq, address: "192.0.2.1".into(), result: Ok(Box::new(native_info())) });
+        assert_eq!(hosts.list[0].record.address, "fd00::5");
+        assert!(hosts.pin_address(id, None));
+        let automatic = &hosts.list[0].record;
+        assert_eq!(automatic.pinned_address, None);
+        assert_eq!(poll_addresses(automatic), ["fd00::5", "10.0.0.5", "192.0.2.1"], "back to the automatic pick");
     }
 
     #[test]

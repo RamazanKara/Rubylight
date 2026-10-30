@@ -1086,7 +1086,7 @@ mod tests {
         let [Notice::DecoderFailed(text)] = notices.as_slice() else { panic!("expected exactly the DecoderFailed notice") };
         assert_eq!(text, "PyroWave GPU decode failed: device removed");
         // The stream shows it as the reason it ended and does not reconnect on its own.
-        assert!(!crate::stream::Exit::Ended(Some(text.clone())).retryable());
+        assert!(!crate::stream::Exit::Ended(Some(text.clone())).retryable(true));
     }
 
     #[test]

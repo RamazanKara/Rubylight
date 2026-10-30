@@ -3,6 +3,7 @@
 //! second with the host and display p95 times collected here; the stream menu shows its report
 //! and offers the trial, and the launcher shows the report after a stream that had findings.
 
+use nightjar_core::session::ReceiveBuffer;
 use nightjar_policy::health::{BitrateTrial, Finding, Report, StreamHealth, TrialOffer, TrialRefused};
 use nightjar_policy::stats::{LateFrames, RecentP95, Stats};
 
@@ -20,6 +21,8 @@ pub struct Doctor {
     display: RecentP95,
     /// Frames that arrived late against the host's clock, this tick.
     late: LateFrames,
+    /// The video socket's receive buffer, as asked and as the OS granted it.
+    pub receive_buffer: Option<ReceiveBuffer>,
 }
 
 impl Doctor {
@@ -62,6 +65,20 @@ impl Doctor {
 
     pub fn report(&mut self, now_ms: u64) -> Report {
         self.health.report(now_ms)
+    }
+
+    /// The note under the report when the OS granted the video socket a smaller receive buffer
+    /// than asked: a burst beyond it is lost before it is read, and shows as frame loss. Linux
+    /// caps it at `net.core.rmem_max` without an error; the note gives the command that raises it.
+    pub fn receive_buffer_hint(&self) -> Option<String> {
+        let buffer = self.receive_buffer.filter(ReceiveBuffer::short)?;
+        let (granted, asked) = (buffer.granted.div_ceil(1024), buffer.asked.div_ceil(1024));
+        Some(if cfg!(target_os = "linux") {
+            trf("Receive buffer: the system granted {} KiB of the {} KiB asked for, so a burst of video can be lost before it is read. Raise the limit with:
+sudo sysctl -w net.core.rmem_max={}", &[&granted, &asked, &buffer.asked])
+        } else {
+            trf("Receive buffer: the system granted {} KiB of the {} KiB asked for, so a burst of video can be lost before it is read.", &[&granted, &asked])
+        })
     }
 }
 
@@ -293,6 +310,21 @@ mod tests {
         assert!(text.contains("Frame loss: 6.0 %\nDecode: 2.0 ms\nHost processing p95: no data yet ms"), "{text}");
         assert_eq!(summary(&report).as_deref(), Some(text.as_str()));
         assert!(log_line(&report).starts_with("NETWORK over 5 samples, worst loss 6.0 %"));
+    }
+
+    #[test]
+    fn a_short_receive_buffer_gets_a_note_with_the_way_to_raise_it() {
+        set(Lang::En);
+        let mut doctor = Doctor::default();
+        assert_eq!(doctor.receive_buffer_hint(), None, "nothing known");
+        doctor.receive_buffer = Some(ReceiveBuffer { asked: 4 << 20, granted: 4 << 20 });
+        assert_eq!(doctor.receive_buffer_hint(), None, "granted as asked");
+        doctor.receive_buffer = Some(ReceiveBuffer { asked: 4 << 20, granted: 212_992 });
+        let hint = doctor.receive_buffer_hint().expect("a capped buffer");
+        assert!(hint.starts_with("Receive buffer: the system granted 208 KiB of the 4096 KiB asked for"), "{hint}");
+        assert_eq!(hint.contains("sudo sysctl -w net.core.rmem_max=4194304"), cfg!(target_os = "linux"), "{hint}");
+        set(Lang::De);
+        assert_ne!(doctor.receive_buffer_hint().unwrap(), hint, "the note has a German text");
     }
 
     #[test]

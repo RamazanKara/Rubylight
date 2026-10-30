@@ -3,7 +3,7 @@
 
 use nightjar_core::session::{self, Stage};
 pub use nightjar_policy::recovery::{
-    reconnects_at_once, transient_termination, Backoff, RouteWait, PEER_TIMEOUT_MS,
+    reconnects_at_once, recovers_termination, transient_termination, Backoff, RouteWait, PEER_TIMEOUT_MS,
     ROUTE_PROBE_TIMEOUT_MS, ROUTE_RETRY_MS,
 };
 

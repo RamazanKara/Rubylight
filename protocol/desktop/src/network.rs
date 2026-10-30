@@ -76,9 +76,35 @@ impl Toward {
 /// connection: a PC on the same Ethernet segment is wired even when Wi-Fi is the default route.
 /// Blocks on name lookup. Errs with why the caller must fall back to the internet connection.
 pub fn toward(host: &str) -> Result<Toward, Fallback> {
-    let ip = (host, 0).to_socket_addrs().ok().and_then(|mut found| found.next()).ok_or(Fallback::Resolve)?.ip();
-    let (medium, link_mbps) = interface_toward(ip).ok_or(Fallback::Route)?;
-    Toward::of(medium, link_mbps).ok_or(Fallback::NotTelling)
+    route(host).toward
+}
+
+/// The route to one host, from one lookup: [`toward`]'s answer, and whether its interface is a
+/// VPN ([`vpn_of_if_row`], [`vpn_of_sysfs`]). False when the route could not be read.
+pub struct Route {
+    pub toward: Result<Toward, Fallback>,
+    pub vpn: bool,
+}
+
+/// Blocks on name lookup, as [`toward`] does.
+pub fn route(host: &str) -> Route {
+    let Some(ip) = (host, 0).to_socket_addrs().ok().and_then(|mut found| found.next()).map(|a| a.ip()) else {
+        return Route { toward: Err(Fallback::Resolve), vpn: false };
+    };
+    match interface_toward(ip) {
+        Some(interface) => Route {
+            toward: Toward::of(interface.medium, interface.link_mbps).ok_or(Fallback::NotTelling),
+            vpn: interface.vpn,
+        },
+        None => Route { toward: Err(Fallback::Route), vpn: false },
+    }
+}
+
+/// What one lookup of the interface toward a host found.
+struct Interface {
+    medium: Medium,
+    link_mbps: u32,
+    vpn: bool,
 }
 
 /// Why `toward` has no answer.
@@ -157,6 +183,37 @@ fn medium_of_sysfs(has_device: bool, has_wireless_dir: bool, devtype: Option<&st
     }
 }
 
+/// Moonlight's VPN heuristics for the interface toward the PC (moonlight-qt's
+/// `NvComputer::getActiveAddressReachability`, as Moonlight V+ PC keeps them): a virtual, tunnel
+/// or PPP interface, an MTU under 1500, an OpenVPN TAP address (00:FF:...), a ZeroTier adapter or
+/// "VPN" in the name. A route over one streams as remote with 1024 byte packets, as Android does
+/// for a VPN network: a WireGuard or Tailscale tunnel (MTU 1420 or 1280) would fragment every
+/// 1392 byte packet.
+///
+/// Windows: `if_type` is the IANA ifType, 53 (IF_TYPE_PROP_VIRTUAL: WireGuardNT, Wintun-based
+/// VPNs such as Tailscale, OpenVPN's tap-windows6), 131 (IF_TYPE_TUNNEL) or 23 (IF_TYPE_PPP);
+/// `alias` is the name the user sees.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn vpn_of_if_row(if_type: u32, mtu: u32, mac: &[u8], alias: &str) -> bool {
+    matches!(if_type, 23 | 53 | 131)
+        || (mtu != 0 && mtu < 1500)
+        || mac.starts_with(&[0x00, 0xFF])
+        || alias.starts_with("ZeroTier")
+        || alias.contains("VPN")
+}
+
+/// Linux, the same heuristics from sysfs: `arphrd` 65534 (ARPHRD_NONE: tun, WireGuard), 512
+/// (PPP) or a tunnel type (768 IPIP, 769 IP6 tunnel, 776 SIT, 778 GRE); IFF_POINTOPOINT (0x10)
+/// in `flags`, which catches OpenVPN; `mac` as sysfs writes it (`00:ff:...`).
+#[cfg_attr(windows, allow(dead_code))]
+fn vpn_of_sysfs(arphrd: Option<u32>, mtu: Option<u32>, flags: Option<u32>, mac: Option<&str>, name: &str) -> bool {
+    matches!(arphrd, Some(512 | 768 | 769 | 776 | 778 | 65534))
+        || mtu.is_some_and(|mtu| mtu != 0 && mtu < 1500)
+        || flags.is_some_and(|flags| flags & 0x10 != 0)
+        || mac.is_some_and(|mac| mac.to_ascii_lowercase().starts_with("00:ff"))
+        || name.contains("VPN")
+}
+
 /// The interface name from one line of `ip -o route get`: `... dev eth0 src ...`.
 #[cfg_attr(windows, allow(dead_code))]
 fn parse_route_dev(output: &str) -> Option<&str> {
@@ -168,7 +225,7 @@ fn parse_route_dev(output: &str) -> Option<&str> {
 }
 
 #[cfg(windows)]
-fn interface_toward(ip: IpAddr) -> Option<(Medium, u32)> {
+fn interface_toward(ip: IpAddr) -> Option<Interface> {
     use windows::Win32::NetworkManagement::IpHelper::{GetBestInterfaceEx, GetIfEntry2, MIB_IF_ROW2};
     use windows::Win32::Networking::WinSock::{AF_INET, AF_INET6, SOCKADDR, SOCKADDR_IN, SOCKADDR_IN6};
     let mut index = 0u32;
@@ -196,11 +253,18 @@ fn interface_toward(ip: IpAddr) -> Option<(Medium, u32)> {
     let mbps = if row.ReceiveLinkSpeed == u64::MAX { 0 } else { (row.ReceiveLinkSpeed / 1_000_000).min(u32::MAX as u64) as u32 };
     // Bit 0 of InterfaceAndOperStatusFlags is HardwareInterface.
     let hardware = row.InterfaceAndOperStatusFlags._bitfield & 1 != 0;
-    Some((medium_of_if_type(row.Type, hardware), mbps))
+    let mac = &row.PhysicalAddress[..(row.PhysicalAddressLength as usize).min(row.PhysicalAddress.len())];
+    let alias_len = row.Alias.iter().position(|c| *c == 0).unwrap_or(row.Alias.len());
+    let alias = String::from_utf16_lossy(&row.Alias[..alias_len]);
+    Some(Interface {
+        medium: medium_of_if_type(row.Type, hardware),
+        link_mbps: mbps,
+        vpn: vpn_of_if_row(row.Type, row.Mtu, mac, &alias),
+    })
 }
 
 #[cfg(not(windows))]
-fn interface_toward(ip: IpAddr) -> Option<(Medium, u32)> {
+fn interface_toward(ip: IpAddr) -> Option<Interface> {
     let output = std::process::Command::new("ip").args(["-o", "route", "get", &ip.to_string()]).output().ok()?;
     if !output.status.success() { return None; }
     let text = String::from_utf8_lossy(&output.stdout);
@@ -215,7 +279,11 @@ fn interface_toward(ip: IpAddr) -> Option<(Medium, u32)> {
     let medium = medium_of_sysfs(exists("device"), exists("wireless"), devtype.as_deref(), arphrd);
     // "-1" is what a port without a speed reports.
     let mbps = read("speed").and_then(|t| t.trim().parse::<i64>().ok()).filter(|n| *n > 0).map_or(0, |n| n.min(u32::MAX as i64) as u32);
-    Some((medium, mbps))
+    let mtu = read("mtu").and_then(|t| t.trim().parse::<u32>().ok());
+    let flags = read("flags").and_then(|t| u32::from_str_radix(t.trim().trim_start_matches("0x"), 16).ok());
+    let mac = read("address");
+    let vpn = vpn_of_sysfs(arphrd, mtu, flags, mac.as_deref().map(str::trim), name);
+    Some(Interface { medium, link_mbps: mbps, vpn })
 }
 
 /// Client roaming: one look at the network the stream runs on. The route toward the host (the
@@ -529,6 +597,44 @@ mod tests {
         let unreadable = Network { error: Some("no profile".into()), ..Default::default() };
         assert!(unreadable.toward(Ok(Toward { wireless: false, link_mbps: 1000 })).error.is_none());
         assert!(unreadable.toward(Err(Fallback::Route)).error.is_some());
+    }
+
+    #[test]
+    fn windows_vpn_interfaces_are_told_apart() {
+        let nic = [0x2c, 0xf0, 0x5d, 1, 2, 3];
+        // WireGuardNT and Wintun (Tailscale) are IF_TYPE_PROP_VIRTUAL; tunnels and PPP count too.
+        assert!(vpn_of_if_row(53, 1420, &[], "WireGuard Tunnel"));
+        assert!(vpn_of_if_row(53, 1500, &[], "Tailscale"));
+        assert!(vpn_of_if_row(131, 1500, &[], "Teredo"));
+        assert!(vpn_of_if_row(23, 1500, &[], "Dial-up"));
+        // A smaller MTU, OpenVPN's TAP address, ZeroTier and a VPN by name.
+        assert!(vpn_of_if_row(6, 1400, &nic, "Ethernet 3"));
+        assert!(vpn_of_if_row(6, 1500, &[0x00, 0xFF, 1, 2, 3, 4], "Ethernet 4"));
+        assert!(vpn_of_if_row(6, 1500, &nic, "ZeroTier One [abcdef]"));
+        assert!(vpn_of_if_row(6, 1500, &nic, "Contoso VPN"));
+        // Ethernet, Wi-Fi and Hyper-V's virtual switch are not; nor is loopback's all-ones MTU.
+        assert!(!vpn_of_if_row(6, 1500, &nic, "Ethernet"));
+        assert!(!vpn_of_if_row(71, 1500, &nic, "Wi-Fi"));
+        assert!(!vpn_of_if_row(6, 1500, &[0x00, 0x15, 0x5d, 1, 2, 3], "vEthernet (Default Switch)"));
+        assert!(!vpn_of_if_row(24, u32::MAX, &[], "Loopback Pseudo-Interface 1"));
+        assert!(!vpn_of_if_row(6, 9000, &nic, "Ethernet"), "jumbo frames");
+        assert!(!vpn_of_if_row(6, 0, &nic, "Ethernet"), "an unknown MTU");
+    }
+
+    #[test]
+    fn linux_vpn_interfaces_are_told_apart() {
+        // wg0 and tailscale0 are ARPHRD_NONE with a small MTU; tun0 of OpenVPN is point to point.
+        assert!(vpn_of_sysfs(Some(65534), Some(1420), Some(0x1091), None, "wg0"));
+        assert!(vpn_of_sysfs(Some(65534), Some(1500), Some(0x1091), None, "tun0"));
+        assert!(vpn_of_sysfs(Some(512), Some(1500), None, None, "ppp0"));
+        assert!(vpn_of_sysfs(Some(1), Some(1400), Some(0x1003), Some("2c:f0:5d:01:02:03"), "eth1"));
+        assert!(vpn_of_sysfs(Some(1), Some(1500), Some(0x1013), Some("2c:f0:5d:01:02:03"), "eth1"), "IFF_POINTOPOINT");
+        assert!(vpn_of_sysfs(Some(1), Some(1500), Some(0x1003), Some("00:FF:12:34:56:78"), "tap0"));
+        // Ethernet, Wi-Fi and loopback are not.
+        assert!(!vpn_of_sysfs(Some(1), Some(1500), Some(0x1003), Some("2c:f0:5d:01:02:03"), "enp3s0"));
+        assert!(!vpn_of_sysfs(Some(1), Some(1500), Some(0x1003), Some("2c:f0:5d:01:02:04"), "wlp2s0"));
+        assert!(!vpn_of_sysfs(Some(772), Some(65536), Some(0x9), Some("00:00:00:00:00:00"), "lo"));
+        assert!(!vpn_of_sysfs(None, None, None, None, "eth0"), "nothing readable");
     }
 
     #[test]

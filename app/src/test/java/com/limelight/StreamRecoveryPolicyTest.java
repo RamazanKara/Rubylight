@@ -78,6 +78,17 @@ public class StreamRecoveryPolicyTest {
         }
     }
 
+    @Test public void noReconnectBeforeTheFirstVideo() {
+        // A stream that never had video failed to start: its error shows at once.
+        for (int code : new int[] {-100, -101, -102, -1, 10054}) {
+            assertFalse("code " + code, StreamRecoveryPolicy.recoversTermination(code, false));
+            assertTrue("code " + code, StreamRecoveryPolicy.recoversTermination(code, true));
+        }
+        for (int code : new int[] {0, -103, 403}) {
+            assertFalse("code " + code, StreamRecoveryPolicy.recoversTermination(code, true));
+        }
+    }
+
     @Test public void startupRejectsDecoderAndHostErrorsEvenWithPortFlags() {
         assertTrue(StreamRecoveryPolicy.transientStartup("Control stream", 4, -1));
         assertTrue(StreamRecoveryPolicy.transientStartup("Game", 3, 0));

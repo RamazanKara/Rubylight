@@ -625,6 +625,9 @@ pub struct HostRecord {
     pub http_port: u16,
     pub https_port: u16,
     pub other_addresses: Vec<String>,
+    /// The known address the user chose to always connect through, or None for the automatic
+    /// pick (`address` first, then `other_addresses`), as Moonlight V+ PC's `pinnedAddress`.
+    pub pinned_address: Option<String>,
     /// The certificate pinned at pairing (PEM); None while unpaired.
     pub server_certificate: Option<String>,
     pub mac: Option<String>,

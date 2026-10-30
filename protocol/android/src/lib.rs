@@ -499,6 +499,15 @@ pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_getPendingVide
     engine::with_session(0, |s| s.stats().decode_queue_len as i32)
 }
 
+/// Bytes of video and audio datagrams received, FEC parity included; 0 without a session.
+#[no_mangle]
+pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_getWireBytesReceived(
+    _: JNIEnv,
+    _: JClass,
+) -> jlong {
+    engine::with_session(0, |s| s.wire_bytes() as jlong)
+}
+
 #[no_mangle]
 pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_getEstimatedRttInfo(
     _: JNIEnv,

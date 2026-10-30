@@ -195,8 +195,9 @@ public class ComputerManagerService extends Service {
                 ComputerManagerListener currentListener = listener;
                 if ((!newPc || details.state == ComputerDetails.State.ONLINE) && currentListener != null) {
                     if (newPc) {
-                        // A rediscovered PC keeps the user's name from the first update on.
+                        // A rediscovered PC keeps the user's name and pinned address from the first update on.
                         details.alias = HostNames.get(this, details.uuid);
+                        details.pinnedAddress = PinnedAddresses.get(this, details.uuid);
                     }
                     currentListener.notifyComputerUpdated(details);
                 }
@@ -330,6 +331,10 @@ public class ComputerManagerService extends Service {
         /** Gives the PC a name on this device only; null shows the PC's own name again. */
         public void renameComputer(String uuid, String alias) {
             ComputerManagerService.this.renameComputer(uuid, alias);
+        }
+
+        public void pinAddress(String uuid, ComputerDetails.AddressTuple address) {
+            ComputerManagerService.this.pinAddress(uuid, address);
         }
 
         public void stopPolling() {
@@ -495,8 +500,9 @@ public class ComputerManagerService extends Service {
     }
 
     private void addTuple(ComputerDetails details) {
-        // The user's name for the PC is stored beside the database, not in it.
+        // The user's name and pinned address for the PC are stored beside the database, not in it.
         details.alias = HostNames.get(this, details.uuid);
+        details.pinnedAddress = PinnedAddresses.get(this, details.uuid);
         synchronized (pollingTuples) {
             for (PollingTuple tuple : pollingTuples) {
                 // Check if this is the same computer
@@ -564,6 +570,24 @@ public class ComputerManagerService extends Service {
         }
     }
 
+    /**
+     * Pins the PC to one of its known addresses, which then is the only one polled and streamed to, or
+     * brings back the automatic pick ({@code address} null), as Moonlight V+ PC's address pinning.
+     */
+    public void pinAddress(String uuid, ComputerDetails.AddressTuple address) {
+        PinnedAddresses.set(this, uuid, address);
+        synchronized (pollingTuples) {
+            for (PollingTuple tuple : pollingTuples) {
+                if (uuid.equals(tuple.computer.uuid)) {
+                    tuple.computer.pinnedAddress = address;
+                    if (address != null) {
+                        tuple.computer.activeAddress = address;
+                    }
+                }
+            }
+        }
+    }
+
     public void renameComputer(String uuid, String alias) {
         HostNames.set(this, uuid, alias);
         synchronized (pollingTuples) {
@@ -609,6 +633,7 @@ public class ComputerManagerService extends Service {
                 com.limelight.nativeapi.ConsoleRepository.forgetHost(this, computer.uuid);
                 HostNotices.forget(this, computer.uuid);
                 HostNames.forget(this, computer.uuid);
+                PinnedAddresses.set(this, computer.uuid, null);
             }
             com.limelight.preferences.AppQuitOnLeave.forget(this, computer.uuid);
             com.limelight.preferences.AppStreamSettings.forget(this, computer.uuid);
@@ -730,6 +755,14 @@ public class ComputerManagerService extends Service {
     }
 
     private ComputerDetails parallelPollPc(ComputerDetails details) throws InterruptedException {
+        // A pinned PC is polled, and so streamed to, only at the address the user chose.
+        if (details.pinnedAddress != null) {
+            ComputerDetails polled = tryPollIp(details, details.pinnedAddress);
+            if (polled != null) {
+                polled.activeAddress = details.pinnedAddress;
+            }
+            return polled;
+        }
         ParallelPollTuple localInfo = new ParallelPollTuple(details.localAddress, details);
         ParallelPollTuple manualInfo = new ParallelPollTuple(details.manualAddress, details);
         ParallelPollTuple remoteInfo = new ParallelPollTuple(details.remoteAddress, details);

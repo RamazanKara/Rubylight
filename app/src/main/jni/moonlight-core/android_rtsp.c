@@ -5,6 +5,7 @@
 #include "hdr_format.h"
 #include "android_microphone.h"
 #include "android_rtsp_receive.h"
+#include "android_surround_params.h"
 
 int PyroWaveRecordsSupported;
 int PyroWaveRecordsEnabled;
@@ -34,9 +35,6 @@ static uint32_t encryptionSequenceNumber;
 static SOCKET sock = INVALID_SOCKET;
 static ENetHost* client;
 static ENetPeer* peer;
-
-#define CHAR_TO_INT(x) ((x) - '0')
-#define CHAR_IS_DIGIT(x) ((x) >= '0' && (x) <= '9')
 
 // Create RTSP Option
 static POPTION_ITEM createOptionItem(char* option, char* content)
@@ -633,45 +631,6 @@ static bool sendVideoAnnounce(PRTSP_MESSAGE response, int* error) {
     return ret;
 }
 
-static int parseOpusConfigFromParamString(char* paramStr, int channelCount, POPUS_MULTISTREAM_CONFIGURATION opusConfig) {
-    int i;
-
-    if (channelCount > AUDIO_CONFIGURATION_MAX_CHANNEL_COUNT) {
-        Limelog("Invalid channel count: %d\n", channelCount);
-        return -1;
-    }
-
-    // Set channel count (included in the prefix, so not parsed below)
-    opusConfig->channelCount = channelCount;
-
-    // Parse the remaining data from the surround-params value
-    if (!CHAR_IS_DIGIT(*paramStr)) {
-        Limelog("Invalid stream count: %c\n", *paramStr);
-        return -1;
-    }
-    opusConfig->streams = CHAR_TO_INT(*paramStr);
-    paramStr++;
-
-    if (!CHAR_IS_DIGIT(*paramStr)) {
-        Limelog("Invalid coupled stream count: %c\n", *paramStr);
-        return -2;
-    }
-    opusConfig->coupledStreams = CHAR_TO_INT(*paramStr);
-    paramStr++;
-
-    for (i = 0; i < opusConfig->channelCount; i++) {
-        if (!CHAR_IS_DIGIT(*paramStr)) {
-            Limelog("Invalid mapping value at %d: %c\n", i, *paramStr);
-            return -3;
-        }
-
-        opusConfig->mapping[i] = CHAR_TO_INT(*paramStr);
-        paramStr++;
-    }
-
-    return 0;
-}
-
 // Parse the server port from the Transport header
 // Example: unicast;server_port=48000-48001;source=192.168.35.177
 static bool parseServerPortFromTransport(PRTSP_MESSAGE response, uint16_t* port) {
@@ -794,6 +753,10 @@ static int parseOpusConfigurations(PRTSP_MESSAGE response) {
                 NormalQualityOpusConfig.mapping[3] = 5;
                 NormalQualityOpusConfig.mapping[4] = 2;
                 NormalQualityOpusConfig.mapping[5] = 3;
+            }
+            else if (channelCount == 12) {
+                // Moonlight V+'s 7.1.4 fallback: Foundation Sunshine's layout.
+                setSurround714Fallback(&NormalQualityOpusConfig);
             }
             else {
                 // We don't have a hardcoded fallback mapping, so we have no choice but to fail.

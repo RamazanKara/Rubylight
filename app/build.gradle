@@ -242,7 +242,7 @@ def nativePatchNames = ['bughunt-stream.patch', 'bughunt-input.patch', 'controll
                         'disconnect-intercept.patch', 'control-payload.patch', 'control-teardown.patch', 'host-timing.patch',
                         'network-grace.patch', 'cursor-shape.patch', 'network-grace-input.patch',
                         'pyrowave-link-hints.patch', 'video-recv-buffer.patch', 'clock-sync.patch', 'prefix-sei.patch',
-                        'fec-report.patch']
+                        'fec-report.patch', 'surround-714.patch']
 
 // A typed task so the configuration cache can store it: the patches and their order are its
 // inputs, the stamp its output, and it reaches git through ExecOperations, not the Project.

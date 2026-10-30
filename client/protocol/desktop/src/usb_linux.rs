@@ -32,7 +32,7 @@ use crate::strings::{tr, trf};
 /// The helper script, as the packages install it and as the first attach installs it elsewhere.
 const SCRIPT: &str = include_str!("../packaging/linux/usb/nightjar-usb-helper");
 /// The line an installed helper of this version carries.
-const VERSION_MARKER: &str = "# nightjar-usb-helper-version: 1";
+const VERSION_MARKER: &str = "# nightjar-usb-helper-version: 2";
 const HELPER: &str = "/usr/lib/nightjar/nightjar-usb-helper";
 const POLICY: &str = "/usr/share/polkit-1/actions/io.github.ramazankara.nightjar.usb.policy";
 const RULE: &str = "/usr/lib/udev/rules.d/90-nightjar-usb.rules";
@@ -105,6 +105,11 @@ impl System {
     /// Whether usbip-host has the device.
     pub fn bound(&self, busid: &str) -> bool {
         std::fs::read_link(self.sysfs.join(busid).join("driver")).is_ok_and(|target| target.file_name().is_some_and(|name| name == "usbip-host"))
+    }
+
+    /// Whether usbip-host serves the device on a connection now (usbip_status 2, in use).
+    fn exported(&self, busid: &str) -> bool {
+        self.read(busid, "usbip_status").as_deref() == Some("2")
     }
 
     /// The device as the attach request and the picker describe it.
@@ -181,7 +186,10 @@ impl System {
         let described = self.describe(busid).ok_or_else(unplugged)?;
         if (described.vendor, described.product) != (vid, pid) { return Err(unplugged()); }
         let identity = self.identity(busid).ok_or_else(unplugged)?;
-        if self.bound(busid) { eprintln!("nightjar: USB {busid}: usbip-host has it already (left bound by another program or a helper that was killed); holding it as it is"); }
+        // Exported already: binding it again would end that export. The helper checks this as
+        // well; checking here spares the password prompt.
+        if self.exported(busid) { return Err(busy()); }
+        if self.bound(busid) { eprintln!("nightjar: USB {busid}: usbip-host has it already but doesn't export it (left bound by another program or a helper that was killed); exporting it and giving it back to its driver afterwards"); }
         if !self.is_installed() { self.install()?; }
         let failed = |e: std::io::Error| trf("The device could not be opened: {}", &[&e]);
         let (theirs, ours) = loopback_pair().map_err(failed)?;
@@ -230,11 +238,16 @@ fn failure(code: Option<i32>, stderr: &str) -> String {
         Some(4) => tr("Linux's USB/IP module (usbip-host) could not be loaded. Install your distribution's extra kernel modules (on Ubuntu: linux-modules-extra), then retry.").to_owned(),
         Some(5) => tr("Another device was plugged in there meanwhile. Press Refresh and attach again.").to_owned(),
         Some(8) => tr("The device's last connection didn't let go. Unplug it, plug it in again and retry.").to_owned(),
+        Some(10) => busy(),
         code => {
             let detail = stderr.lines().map(str::trim).rfind(|l| !l.is_empty()).map_or_else(|| format!("exit {code:?}"), str::to_owned);
             trf("Linux's USB/IP tools failed: {}", &[&detail])
         }
     }
+}
+
+fn busy() -> String {
+    tr("Another program forwards this device already. Stop it there, then retry.").to_owned()
 }
 
 fn spawn_error(e: std::io::Error) -> String {
@@ -513,46 +526,268 @@ echo "unbind complete" >&2
         assert!(listening.is_empty(), "nothing listens any more: {listening:?}");
     }
 
-    /// The real helper against the fake sysfs, with fake usbip, usbipd and modprobe.
+    /// The real helper, every root path pointed into the fake, with fake usbip, usbipd,
+    /// modprobe and udevadm on its PATH. usbip-host's sysfs files are plain ones here: binding
+    /// makes the device "in use" (2) at once, as writing usbip_sockfd does in the kernel.
+    struct Real {
+        script: PathBuf,
+        /// What usbip ran.
+        log: PathBuf,
+        /// What modprobe ran.
+        modprobe: PathBuf,
+    }
+
+    impl Real {
+        fn new(fake: &Fake) -> Self {
+            let bin = fake.root.join("bin");
+            std::fs::create_dir_all(&bin).unwrap();
+            let (root, sys) = (fake.root.display(), fake.sysfs());
+            let log = fake.root.join("usbip.log");
+            let modprobe = fake.root.join("modprobe.log");
+            fake.script("bin/usbip", &format!(
+                "echo \"$*\" >> {log}\ncase \"$1\" in\n\
+                 bind) [ \"$(readlink {sys}/$3/driver)\" = {root}/drivers/usbip-host ] && {{ echo \"usbip: error: device on busid $3 is already bound to usbip-host\"; exit 1; }}\n\
+                 ln -sfn {root}/drivers/usbip-host {sys}/$3/driver; echo 2 > {sys}/$3/usbip_status;;\n\
+                 unbind) ln -sfn {root}/drivers/usb {sys}/$3/driver;;\nesac\n",
+                log = log.display(), sys = sys.display()));
+            fake.script("bin/usbipd", &format!("touch {root}/usbipd.ran\n"));
+            fake.script("bin/modprobe", &format!("echo \"$*\" >> {}\n", modprobe.display()));
+            fake.script("bin/udevadm", "exit 0\n");
+            std::fs::create_dir_all(fake.root.join("module/usbip_host")).unwrap();
+            let script = SCRIPT
+                .replace("PATH=/usr/sbin:/usr/bin:/sbin:/bin", &format!("PATH={}:/usr/bin:/bin", bin.display()))
+                .replace("STATE_DIR=/var/lib/nightjar", &format!("STATE_DIR={root}/state"))
+                .replace("SYSFS_USB_DEVICES=/sys/bus/usb/devices", &format!("SYSFS_USB_DEVICES={}", sys.display()))
+                .replace("SYSFS_USBIP_HOST=/sys/module/usbip_host", &format!("SYSFS_USBIP_HOST={root}/module/usbip_host"))
+                .replace("USBIP_HOST_DRIVER=/sys/bus/usb/drivers/usbip-host", &format!("USBIP_HOST_DRIVER={root}/drivers/usbip-host"))
+                .replace("DRIVERS_PROBE=/sys/bus/usb/drivers_probe", &format!("DRIVERS_PROBE={root}/drivers_probe"))
+                .replace("HELPER_FILE=/usr", &format!("HELPER_FILE={root}/usr"))
+                .replace("POLICY_FILE=/usr", &format!("POLICY_FILE={root}/usr"))
+                .replace("UDEV_RULE_FILE=/usr", &format!("UDEV_RULE_FILE={root}/usr"));
+            assert!(!script.contains("=/sys/") && !script.contains("=/var/") && !script.contains("=/usr/"), "every root path is the fake's");
+            Self { script: fake.script("helper", &script), log, modprobe }
+        }
+
+        /// Runs it directly, as `hold` with a loopback connection made here on stdin.
+        fn hold(&self, busid: &str, identity: &str) -> (Child, TcpStream) {
+            let (theirs, ours) = loopback_pair().unwrap();
+            let child = Command::new("/bin/sh").arg(&self.script).args(["hold", busid, identity])
+                .stdin(Stdio::from(std::os::fd::OwnedFd::from(theirs))).stdout(Stdio::piped()).stderr(Stdio::piped())
+                .spawn().unwrap();
+            (child, ours)
+        }
+
+        fn run(&self, args: &[&str]) -> std::process::Output {
+            Command::new("/bin/sh").arg(&self.script).args(args).stdin(Stdio::null()).output().unwrap()
+        }
+
+        fn ran(&self) -> String {
+            std::fs::read_to_string(&self.log).unwrap_or_default()
+        }
+
+        fn reloads(&self) -> String {
+            std::fs::read_to_string(&self.modprobe).unwrap_or_default()
+        }
+    }
+
+    fn wait_for(child: &mut Child) -> std::process::ExitStatus {
+        let deadline = std::time::Instant::now() + Duration::from_secs(15);
+        loop {
+            if let Some(status) = child.try_wait().unwrap() { return status; }
+            if std::time::Instant::now() > deadline {
+                let _ = child.kill();
+                panic!("the helper did not exit");
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    }
+
+    fn read(path: impl AsRef<Path>) -> String {
+        std::fs::read_to_string(path).unwrap_or_default()
+    }
+
     #[test]
     fn the_helper_script_binds_hands_usbip_host_the_connection_and_unbinds() {
         let fake = Fake::new("script");
-        let bin = fake.root.join("bin");
-        std::fs::create_dir_all(&bin).unwrap();
+        let real = Real::new(&fake);
         let sys = fake.sysfs();
-        let log = fake.root.join("usbip.log");
-        // usbip-host's sysfs files are plain ones here: binding makes the device "in use" (2)
-        // at once, as writing usbip_sockfd does in the kernel.
-        fake.script("bin/usbip", &format!(
-            "echo \"$*\" >> {log}\ncase \"$1\" in bind) ln -sfn {root}/drivers/usbip-host {sys}/$3/driver; echo 2 > {sys}/$3/usbip_status;; unbind) ln -sfn {root}/drivers/usb {sys}/$3/driver;; esac\n",
-            log = log.display(), root = fake.root.display(), sys = sys.display()));
-        let listener_started = fake.root.join("usbipd.ran");
-        fake.script("bin/usbipd", &format!("touch {}\n", listener_started.display()));
-        fake.script("bin/modprobe", "exit 0\n");
-        std::fs::create_dir_all(fake.root.join("module/usbip_host")).unwrap();
-        let script = SCRIPT
-            .replace("PATH=/usr/sbin:/usr/bin:/sbin:/bin", &format!("PATH={}:/usr/bin:/bin", bin.display()))
-            .replace("STATE_DIR=/var/lib/nightjar", &format!("STATE_DIR={}/state", fake.root.display()))
-            .replace("SYSFS_USB_DEVICES=/sys/bus/usb/devices", &format!("SYSFS_USB_DEVICES={}", sys.display()))
-            .replace("SYSFS_USBIP_HOST=/sys/module/usbip_host", &format!("SYSFS_USBIP_HOST={}/module/usbip_host", fake.root.display()))
-            .replace("DRIVERS_PROBE=/sys/bus/usb/drivers_probe", &format!("DRIVERS_PROBE={}/drivers_probe", fake.root.display()));
-        assert!(!script.contains("=/sys/") && !script.contains("=/var/"), "every root path is the fake's");
-        let system = fake.system(&fake.script("helper", &script));
+        let system = fake.system(&real.script);
         let device = system.open("1-2", 0x046d, 0x0825).unwrap();
         assert!(system.bound("1-2"));
-        assert_eq!(std::fs::read_to_string(sys.join("1-2/usbip_sockfd")).unwrap(), "0\n", "usbip-host got the helper's stdin, the connection");
-        let record = std::fs::read_to_string(fake.root.join("state/usb-bindings")).unwrap();
-        assert_eq!(record, "1-2\t046d:0825\tAB12\n", "the port's device is recorded for the udev rule");
+        assert_eq!(read(sys.join("1-2/usbip_sockfd")), "0\n", "usbip-host got the helper's stdin, the connection");
+        assert_eq!(read(fake.root.join("state/usb-bindings")), "1-2\t046d:0825\tAB12\n", "the port's device is recorded for the udev rule");
         std::thread::sleep(Duration::from_millis(700));
         assert!(system.bound("1-2"), "held while the export runs");
+        // A port unplugged while forwarded waits for usbip-host to have no other device.
+        std::fs::write(fake.root.join("state/usb-reload-pending"), "3-1\n").unwrap();
         // Nightjar's end closes; the kernel ends the export.
         std::fs::write(sys.join("1-2/usbip_status"), "1\n").unwrap();
         assert!(device.release(true).unwrap().success());
         assert!(!system.bound("1-2"));
-        assert_eq!(std::fs::read_to_string(&log).unwrap(), "bind -b 1-2\nunbind -b 1-2\n");
-        assert_eq!(std::fs::read_to_string(fake.root.join("drivers_probe")).unwrap(), "1-2\n", "its own driver probes it again");
-        assert_eq!(std::fs::read_to_string(fake.root.join("state/usb-bindings")).unwrap(), "", "forgotten");
-        assert!(!listener_started.exists(), "no usbipd: nothing listens for USB/IP");
+        assert_eq!(real.ran(), "bind -b 1-2\nunbind -b 1-2\n");
+        assert_eq!(read(fake.root.join("drivers_probe")), "1-2\n", "its own driver probes it again");
+        assert_eq!(read(fake.root.join("state/usb-bindings")), "", "forgotten");
+        assert_eq!(real.reloads(), "-r usbip_host\nusbip_host\n", "the waiting reload runs once this device is given back");
+        assert_eq!(read(fake.root.join("state/usb-reload-pending")), "");
+        assert!(!fake.root.join("usbipd.ran").exists(), "no usbipd: nothing listens for USB/IP");
+    }
+
+    #[test]
+    fn the_helper_gives_the_device_back_after_nightjar_closed_its_pipes() {
+        let fake = Fake::new("sigpipe");
+        let real = Real::new(&fake);
+        let (mut child, ours) = real.hold("1-2", "046d:0825:AB12");
+        let mut line = String::new();
+        BufReader::new(child.stdout.take().unwrap()).read_line(&mut line).unwrap();
+        assert_eq!(line, "bound\n");
+        // Nightjar crashed: its ends of stdout and stderr are gone, and so is its connection.
+        drop(child.stderr.take());
+        drop(ours);
+        std::fs::write(fake.sysfs().join("1-2/usbip_status"), "1\n").unwrap();
+        assert!(wait_for(&mut child).success(), "a write to the closed stderr does not kill it");
+        assert_eq!(real.ran(), "bind -b 1-2\nunbind -b 1-2\n");
+        assert_eq!(read(fake.root.join("drivers_probe")), "1-2\n", "its own driver probes it again");
+        assert_eq!(read(fake.root.join("state/usb-bindings")), "", "forgotten");
+    }
+
+    #[test]
+    fn the_helper_told_to_stop_ends_the_export_and_gives_the_device_back() {
+        let fake = Fake::new("term");
+        let real = Real::new(&fake);
+        let sys = fake.sysfs();
+        let system = fake.system(&real.script);
+        let device = system.open("1-2", 0x046d, 0x0825).unwrap();
+        let pid = device.held.lock().unwrap().as_ref().unwrap().id();
+        assert!(Command::new("kill").args(["-TERM", &pid.to_string()]).status().unwrap().success());
+        // The kernel's part: -1 on usbip_sockfd ends the export.
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        while read(sys.join("1-2/usbip_sockfd")) != "-1\n" {
+            assert!(std::time::Instant::now() < deadline, "the helper did not end the export");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        std::fs::write(sys.join("1-2/usbip_status"), "1\n").unwrap();
+        assert!(device.release(true).unwrap().success());
+        assert!(!system.bound("1-2"), "back with its own driver");
+    }
+
+    #[test]
+    fn a_device_exported_already_is_left_alone() {
+        let fake = Fake::new("busy");
+        let real = Real::new(&fake);
+        let sys = fake.sysfs();
+        symlink(fake.root.join("drivers/usbip-host"), sys.join("1-2/driver.new")).unwrap();
+        std::fs::rename(sys.join("1-2/driver.new"), sys.join("1-2/driver")).unwrap();
+        std::fs::write(sys.join("1-2/usbip_status"), "2\n").unwrap();
+        let system = fake.system(&real.script);
+        assert_eq!(system.open("1-2", 0x046d, 0x0825).err(), Some(busy()), "refused before the password prompt");
+        let (mut child, _ours) = real.hold("1-2", "046d:0825:AB12");
+        assert_eq!(wait_for(&mut child).code(), Some(10), "the helper refuses it too");
+        assert_eq!(failure(Some(10), "busy\n"), busy());
+        assert_eq!(real.ran(), "", "neither bound nor unbound");
+        assert_eq!(read(sys.join("1-2/usbip_status")), "2\n", "its export goes on");
+        assert!(system.bound("1-2"));
+    }
+
+    #[test]
+    fn a_failed_export_unbinds_only_what_this_run_bound() {
+        let fake = Fake::new("exportfail");
+        let real = Real::new(&fake);
+        let sys = fake.sysfs();
+        // usbip-host refuses the connection.
+        std::fs::create_dir(sys.join("1-2/usbip_sockfd")).unwrap();
+        let (mut child, _ours) = real.hold("1-2", "046d:0825:AB12");
+        assert_eq!(wait_for(&mut child).code(), Some(9));
+        assert_eq!(real.ran(), "bind -b 1-2\nunbind -b 1-2\n", "bound here: given back");
+        // Bound by another program, not exported: theirs to keep.
+        std::fs::remove_file(&real.log).unwrap();
+        std::fs::remove_file(sys.join("1-2/driver")).unwrap();
+        symlink(fake.root.join("drivers/usbip-host"), sys.join("1-2/driver")).unwrap();
+        std::fs::write(sys.join("1-2/usbip_status"), "1\n").unwrap();
+        let (mut child, _ours) = real.hold("1-2", "046d:0825:AB12");
+        assert_eq!(wait_for(&mut child).code(), Some(9));
+        assert_eq!(real.ran(), "bind -b 1-2\n", "not unbound");
+        assert!(fake.system(&real.script).bound("1-2"));
+    }
+
+    #[test]
+    fn a_serial_beyond_ascii_binds() {
+        let fake = Fake::new("utf8");
+        let real = Real::new(&fake);
+        std::fs::write(fake.sysfs().join("1-2/serial"), "Kamera-Ü1\n").unwrap();
+        let system = fake.system(&real.script);
+        assert_eq!(system.identity("1-2").as_deref(), Some("046d:0825:Kamera-Ü1"));
+        let device = system.open("1-2", 0x046d, 0x0825).unwrap();
+        assert!(system.bound("1-2"));
+        std::fs::write(fake.sysfs().join("1-2/usbip_status"), "1\n").unwrap();
+        assert!(device.release(true).unwrap().success());
+        let (mut child, _ours) = real.hold("1-2", "046d:0825:Kamera\u{1b}1");
+        assert_eq!(wait_for(&mut child).code(), Some(2), "control characters are refused");
+    }
+
+    #[test]
+    fn an_unplug_reloads_usbip_host_only_once_it_has_no_other_device() {
+        let fake = Fake::new("unplug");
+        let real = Real::new(&fake);
+        let sys = fake.sysfs();
+        let state = fake.root.join("state");
+        std::fs::create_dir_all(&state).unwrap();
+        std::fs::write(state.join("usb-bindings"), "1-2\t046d:0825\tAB12\n").unwrap();
+        // 1-2 forwarded and unplugged, while another program has 1-5 on usbip-host.
+        std::fs::remove_dir_all(sys.join("1-2")).unwrap();
+        std::fs::create_dir_all(sys.join("1-5")).unwrap();
+        std::fs::write(sys.join("1-5/usbip_status"), "1\n").unwrap();
+        symlink(sys.join("1-5"), fake.root.join("drivers/usbip-host/1-5")).unwrap();
+        assert!(real.run(&["auto-release", "1-2"]).status.success());
+        assert_eq!(real.reloads(), "", "1-5 stays bound");
+        assert_eq!(read(state.join("usb-reload-pending")), "1-2\n", "1-2 waits");
+        assert_eq!(read(state.join("usb-bindings")), "1-2\t046d:0825\tAB12\n", "and its record stays");
+        // 1-5 is let go; a new device at 1-2 is exported: still waiting.
+        std::fs::remove_file(fake.root.join("drivers/usbip-host/1-5")).unwrap();
+        std::fs::create_dir_all(sys.join("1-2")).unwrap();
+        std::fs::write(sys.join("1-2/usbip_status"), "2\n").unwrap();
+        symlink(sys.join("1-2"), fake.root.join("drivers/usbip-host/1-2")).unwrap();
+        assert!(real.run(&["auto-release", "3-4"]).status.success());
+        assert_eq!(real.reloads(), "", "1-2's new device is exported");
+        // Only the waiting port's own unexported device is left: any unplug reloads now.
+        std::fs::write(sys.join("1-2/usbip_status"), "1\n").unwrap();
+        assert!(real.run(&["auto-release", "3-4"]).status.success());
+        assert_eq!(real.reloads(), "-r usbip_host\nusbip_host\n");
+        assert_eq!(read(state.join("usb-reload-pending")), "");
+        assert_eq!(read(state.join("usb-bindings")), "", "forgotten");
+        // An unplug of a port nobody forwarded touches nothing.
+        assert!(real.run(&["auto-release", "3-4"]).status.success());
+        assert_eq!(real.reloads(), "-r usbip_host\nusbip_host\n");
+    }
+
+    #[test]
+    fn the_helper_holds_only_a_loopback_connection_of_the_caller() {
+        let fake = Fake::new("peer");
+        let real = Real::new(&fake);
+        let (theirs, _ours) = std::os::unix::net::UnixStream::pair().unwrap();
+        let output = Command::new("/bin/sh").arg(&real.script).args(["hold", "1-2", "046d:0825:AB12"])
+            .stdin(Stdio::from(std::os::fd::OwnedFd::from(theirs))).output().unwrap();
+        assert_eq!(output.status.code(), Some(2), "a local socket that is not TCP");
+        assert!(String::from_utf8_lossy(&output.stderr).contains("not the caller's loopback connection"));
+        let (theirs, _ours) = loopback_pair().unwrap();
+        let output = Command::new("/bin/sh").arg(&real.script).args(["hold", "1-2", "046d:0825:AB12"]).env("PKEXEC_UID", "4242424")
+            .stdin(Stdio::from(std::os::fd::OwnedFd::from(theirs))).output().unwrap();
+        assert_eq!(output.status.code(), Some(2), "a connection another user made");
+        assert_eq!(real.ran(), "", "nothing bound");
+    }
+
+    #[test]
+    fn what_the_install_creates_is_not_writable_by_others() {
+        let fake = Fake::new("install");
+        let real = Real::new(&fake);
+        let output = Command::new("/bin/sh").arg("-c").arg("umask 000; exec /bin/sh \"$0\" install").arg(&real.script).output().unwrap();
+        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+        let mode = |path: &Path| std::fs::metadata(path).unwrap().permissions().mode() & 0o777;
+        for dir in ["usr/lib/nightjar", "usr/share/polkit-1/actions", "usr/lib/udev/rules.d"] {
+            assert_eq!(mode(&fake.root.join(dir)), 0o755, "{dir}");
+        }
+        assert_eq!(mode(&fake.root.join(&POLICY[1..])), 0o644);
+        assert_eq!(mode(&fake.root.join(&RULE[1..])), 0o644);
+        assert_eq!(mode(&fake.root.join(&HELPER[1..])), 0o755);
     }
 
     #[test]

@@ -1,5 +1,6 @@
 # Nightjar USB forwarding: when a forwarded device is unplugged, clear what usbip-host keeps
 # of its port (match_busid), which would otherwise take whatever is plugged in there next.
 # The kernel drops that entry only while the device is present, so after an unplug only a
-# module reload clears it; modprobe -r refuses while another device is still forwarded.
+# module reload clears it, which would drop every other device usbip-host has: the helper
+# reloads only once usbip-host holds no other device, and tries again on the next unbind.
 ACTION=="remove", SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", RUN+="/usr/lib/nightjar/nightjar-usb-helper auto-release $kernel"

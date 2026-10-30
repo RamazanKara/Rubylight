@@ -1005,6 +1005,17 @@ public class NvHTTPParityTest {
     }
 
     @Test
+    public void sevenOneFourSurroundAudioInfoIsSentUnsigned() throws Exception {
+        // 0xF63F << 16 | 12 is negative as a Java int; hosts read the query as an unsigned number.
+        ConnectionContext context = context("rubylight-30-serverinfo.xml");
+        context.streamConfig = new StreamConfiguration.Builder().setLaunchRefreshRate(60)
+                .setAudioConfiguration(new com.limelight.nvstream.jni.MoonBridge.AudioConfiguration(12, 0xF63F))
+                .build();
+        HttpUrl query = query(context, false);
+        assertEquals("4131323916", query.queryParameter("surroundAudioInfo"));
+    }
+
+    @Test
     public void appListAcceptsInheritedExtensionFields() throws Exception {
         LinkedList<NvApp> apps = NvHTTP.getAppListByReader(new StringReader(fixture("butterpollo-applist.xml")));
         assertEquals(2, apps.size());

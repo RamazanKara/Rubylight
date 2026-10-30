@@ -1165,13 +1165,15 @@ fn a_folder_above_the_cache_lets_nobody_but_administrators_move_what_it_holds() 
             .unwrap();
         assert!(changed.status.success(), "{changed:?}");
     };
-    icacls(&[
-        "/inheritance:r",
-        "/grant:r",
-        "*S-1-5-18:(OI)(CI)F",
-        "*S-1-5-32-544:(OI)(CI)F",
-    ]);
-    icacls(&["/grant", "*S-1-5-32-545:(RX)"]);
+    // The whole DACL is replaced: on CI the temp folder's entry for the
+    // runner's account reaches a new folder without being marked inherited,
+    // so icacls' /inheritance:r left it in place.
+    let sid = butterpollo_windows::process::own_sid().unwrap();
+    butterpollo_windows::process::restrict(
+        &above,
+        &format!("O:{sid}D:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;;0x1200a9;;;BU)"),
+    )
+    .unwrap();
     icacls(&["/grant", "*S-1-5-32-545:(AD,WD)"]);
     let held = |whole| {
         super::folder::hold(&above, whole, |path, rights| {

@@ -90,6 +90,7 @@ public class NvConnection {
     private final Context appContext;
     private volatile ComputerDetails hostDetails = new ComputerDetails();
     private NvHTTP http;
+    private NvHTTP foundationAbrHttp;
     private Thread connectionThread;
     private volatile boolean stopRequested;
     private boolean nativeStarted;
@@ -1508,12 +1509,25 @@ public class NvConnection {
      * Returns its initial bitrate, or -1 when the PC has none.
      */
     public int startFoundationAbr(int maxKbps) throws IOException {
-        if (!http.supportsFoundationAbr()) return -1;
-        return http.configureFoundationAbr(com.limelight.nvstream.http.FoundationAbr.enableRequest(maxKbps));
+        NvHTTP request = foundationAbrHttp();
+        if (!request.supportsFoundationAbr()) return -1;
+        return request.configureFoundationAbr(com.limelight.nvstream.http.FoundationAbr.enableRequest(maxKbps));
     }
 
+    /** Also after {@link #stop}, which cancels {@code http}: the PC must not keep its controller. */
     public void stopFoundationAbr() throws IOException {
-        http.configureFoundationAbr(com.limelight.nvstream.http.FoundationAbr.disableRequest());
+        foundationAbrHttp().configureFoundationAbr(com.limelight.nvstream.http.FoundationAbr.disableRequest());
+    }
+
+    // Turning a Foundation PC's controller on and off goes through its own NvHTTP, which stop()
+    // does not cancel: an enable it aborted could still have reached the PC, and the disable
+    // runs as the stream stops.
+    private synchronized NvHTTP foundationAbrHttp() throws IOException {
+        if (foundationAbrHttp == null) {
+            int httpsPort = hostDetails != null && hostDetails.httpsPort > 0 ? hostDetails.httpsPort : context.httpsPort;
+            foundationAbrHttp = new NvHTTP(context.serverAddress, httpsPort, uniqueId, context.serverCert, cryptoProvider);
+        }
+        return foundationAbrHttp;
     }
 
     public org.json.JSONObject sendFoundationAbrFeedback(org.json.JSONObject feedback) throws IOException {

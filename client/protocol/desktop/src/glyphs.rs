@@ -4,6 +4,8 @@
 
 use sdl3_sys::everything::*;
 
+use crate::config::GamepadQuitCombo;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Style {
     Xbox,
@@ -11,9 +13,7 @@ pub enum Style {
     Nintendo,
 }
 
-/// A face button by its position, as SDL names them. Only the West button's hints use it yet;
-/// the stream's "A/B click" toast is next.
-#[allow(dead_code)]
+/// A face button by its position, as SDL names them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Face {
     South,
@@ -78,6 +78,49 @@ impl Style {
             Style::Xbox => "Select",
         }
     }
+
+    pub fn left_shoulder(self) -> &'static str {
+        match self {
+            Style::PlayStation => "L1",
+            Style::Nintendo => "L",
+            Style::Xbox => "LB",
+        }
+    }
+
+    pub fn right_shoulder(self) -> &'static str {
+        match self {
+            Style::PlayStation => "R1",
+            Style::Nintendo => "R",
+            Style::Xbox => "RB",
+        }
+    }
+
+    /// A quit combo in this controller's names. Its face buttons are positions (A is south, as
+    /// `gamepad::quit_mask` reads them), so a Switch controller's south button shows as B.
+    pub fn quit_combo(self, combo: GamepadQuitCombo) -> String {
+        let (lb, rb) = (self.left_shoulder(), self.right_shoulder());
+        let buttons = match combo {
+            GamepadQuitCombo::StartSelectLbRb => [self.start(), self.select(), lb, rb],
+            GamepadQuitCombo::SelectLbRbY => [self.select(), lb, rb, self.face(Face::North)],
+            GamepadQuitCombo::StartLbRbA => [self.start(), lb, rb, self.face(Face::South)],
+            GamepadQuitCombo::StartLbRbB => [self.start(), lb, rb, self.face(Face::East)],
+            GamepadQuitCombo::LbRbXY => [lb, rb, self.face(Face::West), self.face(Face::North)],
+            GamepadQuitCombo::LbRbAB => [lb, rb, self.face(Face::South), self.face(Face::East)],
+        };
+        self.chord(&buttons)
+    }
+
+    /// Buttons held together: "Start+Select", or "+ + −" where the names are + and −.
+    pub fn chord(self, buttons: &[&str]) -> String {
+        buttons.join(if self == Style::Nintendo { " + " } else { "+" })
+    }
+
+    /// The buttons the controller mouse clicks left and right with: the PC's A and B, which the
+    /// Nintendo layout setting moves from south and east to east and south.
+    pub fn mouse_clicks(self, swapped: bool) -> (&'static str, &'static str) {
+        let (left, right) = if swapped { (Face::East, Face::South) } else { (Face::South, Face::East) };
+        (self.face(left), self.face(right))
+    }
 }
 
 #[cfg(test)]
@@ -106,6 +149,22 @@ mod tests {
     }
 
     #[test]
+    fn quit_combos_and_mouse_clicks_name_the_buttons_where_they_are() {
+        let xbox = GamepadQuitCombo::ALL.map(|combo| Style::Xbox.quit_combo(combo));
+        assert_eq!(xbox, ["Start+Select+LB+RB", "Select+LB+RB+Y", "Start+LB+RB+A", "Start+LB+RB+B", "LB+RB+X+Y", "LB+RB+A+B"]);
+        assert_eq!(Style::PlayStation.quit_combo(GamepadQuitCombo::StartSelectLbRb), "Options+Share+L1+R1");
+        assert_eq!(Style::PlayStation.quit_combo(GamepadQuitCombo::LbRbXY), "L1+R1+□+△");
+        // The south button of a Switch controller is its B.
+        assert_eq!(Style::Nintendo.quit_combo(GamepadQuitCombo::StartLbRbA), "+ + L + R + B");
+        assert_eq!(Style::Nintendo.chord(&[Style::Nintendo.start(), Style::Nintendo.select()]), "+ + −");
+        assert_eq!(Style::Xbox.mouse_clicks(false), ("A", "B"));
+        assert_eq!(Style::Xbox.mouse_clicks(true), ("B", "A"));
+        assert_eq!(Style::PlayStation.mouse_clicks(false), ("×", "○"));
+        // With the Nintendo layout on, a Switch controller clicks with A (east) and B (south).
+        assert_eq!(Style::Nintendo.mouse_clicks(true), ("A", "B"));
+    }
+
+    #[test]
     fn the_fonts_draw_every_label() {
         let ctx = egui::Context::default();
         crate::theme::apply(&ctx);
@@ -113,7 +172,7 @@ mod tests {
         ctx.run_ui(egui::RawInput::default(), |_| {}).textures_delta.clear();
         for style in [Style::Xbox, Style::PlayStation, Style::Nintendo] {
             let labels = [Face::South, Face::East, Face::West, Face::North].map(|f| style.face(f)).join(" ")
-                + &[style.start(), style.select()].join(" ");
+                + &[style.start(), style.select(), style.left_shoulder(), style.right_shoulder()].join(" ");
             for font in [crate::theme::regular(12.0), crate::theme::semibold(12.0)] {
                 let missing: String = labels.chars().filter(|c| !ctx.fonts_mut(|f| f.has_glyph(&font, *c))).collect();
                 assert!(missing.is_empty(), "{missing:?} of {labels:?} missing in {font:?}");

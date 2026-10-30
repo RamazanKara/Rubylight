@@ -306,6 +306,8 @@ public class HostStreamSettings extends NightjarActivity {
     private PreferenceConfiguration baseConfig() {
         PreferenceConfiguration config = PreferenceConfiguration.readPreferences(this);
         applyWithScreen(below.values, config);
+        // A layer's bitrate is chosen, as when the stream starts (readPreferences with layers).
+        config.automaticBitrate &= !below.bitrateLayered;
         return config;
     }
 
@@ -753,6 +755,7 @@ public class HostStreamSettings extends NightjarActivity {
     private PreferenceConfiguration effective() {
         PreferenceConfiguration config = baseConfig();
         applyWithScreen(overrides, config);
+        config.automaticBitrate &= overrides.bitrate == null;
         return config;
     }
 
@@ -1038,8 +1041,11 @@ public class HostStreamSettings extends NightjarActivity {
             findPreference("resolution").setSummary(summary(HostStreamProfile.Field.RESOLUTION, own.nativeResolution != null, resolutionText(config)) +
                     "\n" + getString(R.string.summary_resolution_list));
             findPreference("refresh").setSummary(summary(HostStreamProfile.Field.REFRESH, own.refreshRateX100 != null, refreshText(config)));
-            findPreference("bitrate").setSummary(summary(HostStreamProfile.Field.BITRATE, own.bitrate != null,
-                    HostStreamProfile.formatBitrateMbps(config.bitrate) + " Mbps"));
+            String bitrate = summary(HostStreamProfile.Field.BITRATE, own.bitrate != null,
+                    HostStreamProfile.formatBitrateMbps(config.bitrate) + " Mbps");
+            // The same warning as the main settings, for the codec, size and bitrate this layer streams.
+            String warning = PreferenceConfiguration.pyroWaveBelowMinimumWarning(activity, config);
+            findPreference("bitrate").setSummary(warning == null ? bitrate : bitrate + "\n" + warning);
             String[] codecs = getResources().getStringArray(R.array.host_profile_codecs);
             String codec = summary(HostStreamProfile.Field.CODEC, own.codec != null, codecs[config.videoFormat.ordinal()]);
             if (config.videoFormat == PreferenceConfiguration.FormatOption.FORCE_PYROWAVE &&

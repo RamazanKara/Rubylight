@@ -42,6 +42,7 @@ import com.limelight.R;
 import com.limelight.binding.audio.AudioPassthrough;
 import com.limelight.binding.audio.MicrophoneCapture;
 import com.limelight.binding.audio.MicrophoneStatus;
+import com.limelight.binding.audio.Surround714;
 import com.limelight.binding.input.InputBatcher;
 import com.limelight.binding.video.Sdr10Policy;
 import com.limelight.computers.HostNotices;
@@ -721,6 +722,8 @@ public class NvConnection {
         context.hostCaps = details.caps;
         LimeLog.info("Host: " + details.caps);
         context.streamConfig.getApp().setHostCapabilities(details.caps);
+        context.streamConfig.setHostAudioConfiguration(
+                Surround714.forHost(context.streamConfig.getAudioConfiguration(), details.caps));
         if (canSendControllerInput() && details.caps.has(HostCapabilities.Feature.CONTROLLER_PREPARATION) &&
                 controllerPreparation != null) {
             context.preparedControllers = controllerPreparation.get();

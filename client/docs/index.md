@@ -1,32 +1,66 @@
 # Nightjar documentation
 
-Stream your PC games and desktop to the screen you want to use. Nightjar brings your library, sound and controls together so you can start playing from your phone, handheld, tablet, TV or another PC: it runs on Android, Android TV, Fire TV, Windows and Linux. It works with Apollo, NVIDIA GameStream, Rubylight, Sunshine, Vibepollo and other Moonlight-compatible hosts.
+Nightjar is a game-streaming client for Android, Android TV, Fire TV, Windows and Linux. It works with any Moonlight-compatible host, such as Sunshine, Apollo, Vibepollo, Rubylight and NVIDIA GameStream, and enables each host's extensions from what the host reports. These pages describe Nightjar 4.0.
 
-| I want to… | Guide |
+Throughout the documentation, the **PC** is the computer you stream from and the **host** is the streaming software running on it. **This device** is the one running Nightjar. Settings are named as they appear in the app, with their section: **Settings › Streaming › Recover interrupted streams**.
+
+## Get started
+
+| Page | What it covers |
 | --- | --- |
-| See everything Nightjar does | [Everything Nightjar does](features.md) · [Android and desktop](CLIENT-PARITY.md) |
-| Start my first stream | [Quick start](quick-start.md) |
-| Connect a PC and grant access | [Pairing and permissions](pairing.md) |
-| Understand a setting or choose a preset | [Settings reference](settings.md) |
-| Use Home, a game's page and the in-stream Session and graphics menu (Rubylight 3.0) | [Home and the session menu](console.md) |
-| Try the Windows and Linux client or beam-raced PyroWave | [Desktop client](../protocol/desktop/README.md) · [Beam racing](beam-racing.md) · [Early decode](early-decode.md) · [PyroWave decode](pyrowave-decode.md) |
-| Use a controller, touch, mouse, keyboard or microphone | [Controls](controls.md), [USB and Bluetooth pads in the menus](gamepad-navigation.md) |
-| Share the clipboard, files, folders or a USB device with my PC | [Clipboard, files, folders and USB devices](sharing.md) |
-| Join a split-screen co-op game | [Join co-op](console.md#join-co-op) |
-| Tune picture quality, HDR, sound and response time | [Video and latency](video-and-latency.md) |
-| Recover interruptions or adapt resolution and FPS | [Recovery and automatic quality](recovery-and-quality.md) |
-| Fix a problem or export a report | [Troubleshooting](TROUBLESHOOTING.md) |
-| Understand a stutter and try a reversible change | [Stream health](stream-health.md) |
-| Measure my device and share the results | [Device results](devices.md) |
-| Connect from outside my home | [Remote play setup](remote-setup.md) |
-| Build and sign an APK | [Building](building.md) |
-| Launch games from Beacon, ES-DE, Daijisho or Pegasus | [Frontends](FRONTENDS.md) |
-| Find a short answer | [FAQ](faq.md) |
-| Translate Nightjar or fix a translation | [Translations](TRANSLATIONS.md#help-translate) |
+| [Quick start](quick-start.md) | Installing a host, adding a PC and starting the first stream |
+| [Pairing and permissions](pairing.md) | PIN, one-time PIN and QR pairing, and the per-device permissions a host can set |
+| [Play away from home](remote-setup.md) | Streaming over Tailscale or a forwarded connection, and checking the path |
+| [Features](features.md) | Everything Nightjar does, with a link to each guide |
 
-Development references: [host feature matrix](PARITY-MATRIX.md), [October 2026 audit and remaining gaps](android-audit-2026-10.md), [rename history](RENAME.md), the [refresh rate switching](expected-refresh-switch.md) and [HDR10](expected-hdr10.md) notes, and [documentation checks](building.md#documentation-checks).
+## Use Nightjar
 
-[Download Nightjar](../README.md#download) · [Privacy](PRIVACY.md)
+| Page | What it covers |
+| --- | --- |
+| [Home and the session menu](console.md) | Home, game pages, Join co-op and the Session and graphics menu on Rubylight PCs |
+| [Controls](controls.md) | Controllers, touch, mouse, keyboard, pen, on-screen controls (Android only) and the microphone |
+| [Gamepad navigation](gamepad-navigation.md) | Driving the menus and the PC keyboard with USB and Bluetooth pads |
+| [DualSense USB audio and haptics](dualsense-haptics.md) | Waveform haptics and controller audio over USB |
+| [Video and latency](video-and-latency.md) | Codecs, HDR, PyroWave, frame pacing, bitrate, error correction and audio |
+| [Recovery and automatic quality](recovery-and-quality.md) | Recover interrupted streams, network drop tolerance and automatic resolution and frame rate |
+| [Clipboard, files, folders and USB devices](sharing.md) | Sharing with a Rubylight PC |
+| [Launcher integrations](FRONTENDS.md) | Starting games from Beacon, ES-DE, Daijisho, Pegasus and Android TV's home screen |
+| [Desktop client](../protocol/desktop/README.md) | Installing, running and building Nightjar for Windows and Linux |
+
+## Reference
+
+| Page | What it covers |
+| --- | --- |
+| [Settings reference](settings.md) | Every setting on Android and the desktop client, with its default |
+| [Host feature support](PARITY-MATRIX.md) | Each capability and the hosts known to provide it |
+| [Android and desktop](CLIENT-PARITY.md) | The two clients compared feature by feature |
+| [Decoder flags](decoder-flags.md) | The low-latency decoder settings Nightjar applies per chip family |
+| [Device results](devices.md) | Benchmark results from real devices, and how to add yours |
+| [Privacy](PRIVACY.md) | What Nightjar stores, what it sends and to whom |
+| [Translations](TRANSLATIONS.md) | Supported languages and how to contribute |
+
+## Troubleshooting
+
+| Page | What it covers |
+| --- | --- |
+| [Troubleshooting](TROUBLESHOOTING.md) | Symptoms, causes and fixes, and how to share a problem report |
+| [Stream health](stream-health.md) | Reading "Why did my stream stutter?" and its reversible bitrate trial |
+| [FAQ](faq.md) | Short answers to common questions |
+
+## Development
+
+| Page | What it covers |
+| --- | --- |
+| [Building](building.md) | Toolchains, tests, signing, the release workflow and the [documentation checks](building.md#documentation-checks) |
+| [Beam racing](beam-racing.md), [early decode](early-decode.md) | Desktop presentation timing |
+| [PyroWave GPU decoding](pyrowave-decode.md), [PyroWave decode stages](pyrowave-decode-stages.md) | The desktop PyroWave decoder and its timing |
+| [Refresh rate switching](expected-refresh-switch.md), [HDR10 on HDR phones](expected-hdr10.md) | Design notes for display mode and HDR handling on Android |
+| [Client roaming](protocol/client-roaming.md), [host cursor shapes](protocol/cursor-shape.md) | Protocol extensions proposed for Moonlight-compatible hosts |
+| [Android audit, October 2026](android-audit-2026-10.md) | Audit findings and their resolution |
+| [Rename history](RENAME.md) | What changed when the app was renamed to Nightjar, and what kept its old name |
+| [Demo mode](demo/README.md) | The offline demo fixtures used for screenshots and the promotional video |
+
+[Download Nightjar](../README.md#download)
 
 ## License and credits
 

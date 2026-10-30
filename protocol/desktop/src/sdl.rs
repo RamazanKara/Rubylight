@@ -140,6 +140,12 @@ pub fn set_hint(name: *const c_char, value: &CStr) {
     unsafe { SDL_SetHint(name, value.as_ptr()) };
 }
 
+/// While streaming, Alt+F4 goes to the PC's game instead of closing Nightjar, as in Moonlight
+/// (and V+): the stream's own quit shortcut and the window's close button still end it.
+pub fn alt_f4_to_host(streaming: bool) {
+    set_hint(SDL_HINT_WINDOWS_CLOSE_ON_ALT_F4, if streaming { c"0" } else { c"1" });
+}
+
 /// The system's preferred languages, most preferred first, as lower-case codes ("de", "en").
 pub fn preferred_languages() -> Vec<String> {
     let mut count = 0;
@@ -349,5 +355,28 @@ pub fn screenshot(renderer: *mut SDL_Renderer, path: &Path) -> Result<(), String
             let _ = std::fs::create_dir_all(dir);
         }
         image::save_buffer(path, &pixels, w as u32, h as u32, image::ColorType::Rgba8).map_err(|e| e.to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn hint(name: *const c_char) -> String {
+        // SAFETY: a NUL-terminated name; SDL returns its own string or null.
+        let value = unsafe { SDL_GetHint(name) };
+        if value.is_null() {
+            return String::new();
+        }
+        unsafe { CStr::from_ptr(value) }.to_string_lossy().into_owned()
+    }
+
+    #[test]
+    fn alt_f4_reaches_the_game_only_while_streaming() {
+        let _sdl = TEST_LOCK.lock().unwrap();
+        alt_f4_to_host(true);
+        assert_eq!(hint(SDL_HINT_WINDOWS_CLOSE_ON_ALT_F4), "0");
+        alt_f4_to_host(false);
+        assert_eq!(hint(SDL_HINT_WINDOWS_CLOSE_ON_ALT_F4), "1");
     }
 }

@@ -264,6 +264,8 @@ pub struct VideoDecoder {
     /// The backend this decoder opened with.
     #[cfg_attr(not(unix), allow(dead_code))]
     pub hardware: Hardware,
+    /// HEVC access units go to FFmpeg without the last shard's zero padding (`access_unit`).
+    trims_padding: bool,
     /// VAAPI pictures go to the presenter as DMA-BUFs until the flag says the presenter cannot
     /// import them (`export_dmabuf`).
     #[cfg(unix)]
@@ -275,6 +277,16 @@ pub struct VideoDecoder {
 /// for each one.
 fn packet_buffer_size(needed: usize) -> usize {
     (needed + needed / 4).next_multiple_of(64 * 1024)
+}
+
+/// An Annex B access unit without the zero bytes after its last NAL unit (trailing_zero_8bits,
+/// here the last shard's padding, which no NAL unit ends with). FFmpeg's HEVC decoder reads a
+/// Dolby Vision RPU, the access unit's last NAL unit, up to the packet's end, and fails on every
+/// frame whose RPU the padding follows (FFmpeg 8.1: "Error parsing DOVI NAL unit"). All zeros stay
+/// as they are: an empty packet would start draining the decoder.
+fn access_unit(data: &[u8]) -> &[u8] {
+    let end = data.iter().rposition(|&byte| byte != 0).map_or(data.len(), |last| last + 1);
+    &data[..end]
 }
 
 // An AVCodecContext moves between threads but is only accessed by its decoder thread.
@@ -346,6 +358,7 @@ impl VideoDecoder {
                 }),
                 name: CStr::from_ptr((*found).name).to_string_lossy().into_owned(),
                 hardware,
+                trims_padding: codec == Codec::Hevc,
                 #[cfg(unix)]
                 dmabuf: None,
             };
@@ -467,6 +480,7 @@ impl VideoDecoder {
     }
 
     pub fn send(&mut self, data: &[u8], pts: i64) -> i32 {
+        let data = if self.trims_padding { access_unit(data) } else { data };
         let Ok(length) = i32::try_from(data.len()) else {
             return -1;
         };
@@ -1034,6 +1048,37 @@ mod tests {
             }
             assert!(matches!(decoder.receive(), Received::None));
         }
+    }
+
+    #[test]
+    fn access_units_lose_only_their_trailing_zeros() {
+        assert_eq!(access_unit(&[0, 0, 0, 1, 0x7c, 0x01, 0x80, 0, 0, 0]), &[0, 0, 0, 1, 0x7c, 0x01, 0x80]);
+        assert_eq!(access_unit(&[0, 0, 1, 2]), &[0, 0, 1, 2]);
+        assert_eq!(access_unit(&[0, 0]), &[0, 0]);
+        assert_eq!(access_unit(&[]), &[] as &[u8]);
+    }
+
+    /// A Rubylight host's profile 8.1 RPU (the host's `dovi::tests::GOLDEN`, read back by dovi_tool)
+    /// after an HEVC Main10 picture and the last shard's padding: FFmpeg reads it, L1 peak and all.
+    #[cfg(windows)]
+    #[test]
+    fn a_padded_hevc_frame_keeps_its_dolby_vision_rpu() {
+        const RPU: &str = concat!(
+            "000000017c0119080908406136506f003ff801ffc00fffd0000008000006800000400000340000030200",
+            "000301a2566000035ea2566f9fceb1c256644ca00000100000030080000003008000000301c362243018",
+            "60a5e308e0514000001a63e5affff000000300000300000300060207d80e15103008005dc32000c02b23",
+            "8008008008008004000120c07d00064064001680d76703ed80",
+        );
+        let mut frame = include_bytes!("../../../app/src/main/assets/packed444/hevc-10.bin").to_vec();
+        frame.extend((0..RPU.len()).step_by(2).map(|at| u8::from_str_radix(&RPU[at..at + 2], 16).unwrap()));
+        frame.extend([0; 300]);
+        let mut decoder = VideoDecoder::open(Codec::Hevc, Hardware::None, 1, false).unwrap();
+        assert_eq!(decoder.send(&frame, 1), 0);
+        let Received::Frame(picture) = decoder.receive() else { panic!("no decoded frame") };
+        let rpu = picture.dolby_vision().expect("the RPU's metadata on the picture");
+        // L1 maximum PQ 3000 of 4095.
+        let peak = crate::stream::direct::pq_nits(3000.0 / 4095.0) as f32;
+        assert!((rpu.peak.unwrap() - peak).abs() < 1.0, "{:?} against {peak}", rpu.peak);
     }
 
     #[test]

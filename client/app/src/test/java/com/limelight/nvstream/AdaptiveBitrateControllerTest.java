@@ -208,9 +208,29 @@ public class AdaptiveBitrateControllerTest {
         assertEquals(0, controller.sample(5000, true, false, 0, 2));
         assertEquals(0, controller.sample(6000, true, false, 0, 2));
         assertEquals(16000, controller.sample(15000, true, false, 0, 2));
+        assertEquals("device heat", controller.lastReason());
         controller.applied(10000, 10000, 15000);
         assertEquals(0, controller.sample(31000, true, false, 0, 2));
         assertEquals(0, controller.sample(32000, true, false, 0, 2));
+    }
+
+    @Test
+    public void eachChangeSaysWhy() {
+        // Issue 56: a TV halved its bitrate every stream and nothing said why.
+        AdaptiveBitrateController loss = new AdaptiveBitrateController(20000, 20000, 60, 0);
+        assertEquals(0, loss.sample(4000, true, false, 5, 2));
+        assertEquals(16000, loss.sample(5000, true, false, 5, 2));
+        assertEquals("5.0% frame loss", loss.lastReason());
+
+        AdaptiveBitrateController warning = new AdaptiveBitrateController(20000, 20000, 60, 0);
+        assertEquals(0, warning.sample(4000, true, true, 0, 2));
+        assertEquals(16000, warning.sample(5000, true, true, 0, 2));
+        assertEquals("connection warning", warning.lastReason());
+
+        AdaptiveBitrateController decoder = new AdaptiveBitrateController(20000, 20000, 60, 0);
+        assertEquals(0, decoder.sample(14000, true, false, 0, 20));
+        assertEquals(16000, decoder.sample(15000, true, false, 0, 20));
+        assertEquals("decode 20.0 ms", decoder.lastReason());
     }
 
     @Test

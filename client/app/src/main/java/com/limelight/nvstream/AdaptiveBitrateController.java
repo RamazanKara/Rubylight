@@ -1,5 +1,7 @@
 package com.limelight.nvstream;
 
+import java.util.Locale;
+
 public final class AdaptiveBitrateController {
     /** Lowest rate the controller steps down to unless the person sets a higher minimum. */
     public static final int DEFAULT_FLOOR_KBPS = 2000;
@@ -78,6 +80,8 @@ public final class AdaptiveBitrateController {
     private int stepBackTargetKbps;
     private int stepBackFromKbps = -1;
     private int stepBackFailures;
+    // Why the last non-zero sample() result was chosen, for the log.
+    private String lastReason = "";
 
     public AdaptiveBitrateController(int ceilingKbps, int currentKbps, int fps, long nowMs) {
         this(ceilingKbps, currentKbps, fps, nowMs, 0, 0, null);
@@ -105,6 +109,11 @@ public final class AdaptiveBitrateController {
     private void updateFloor() {
         int nominal = Math.min(builtInFloorKbps(width, height, fps, codec), Math.max(DEFAULT_FLOOR_KBPS, startKbps / 2));
         floorKbps = Math.min(Math.min(nominal, Math.min(startKbps, ceilingKbps)), hostFloorCapKbps);
+    }
+
+    /** Why the last non-zero sample() result was chosen: "device heat", "jitter 14 ms", "healthy" and the like. */
+    public String lastReason() {
+        return lastReason;
     }
 
     // Called once per second, only while no bitrate request is in flight.
@@ -170,7 +179,15 @@ public final class AdaptiveBitrateController {
                     decodeBeforeReductionMs = decodeMs;
                     decodeBeforeReductionKbps = currentKbps;
                 }
-                return target < currentKbps ? target : 0;
+                if (target < currentKbps) {
+                    lastReason = !poor ? (thermalLevel >= 2 ? "device heat" : String.format(Locale.ROOT, "decode %.1f ms", decodeMs))
+                            : poorConnection ? "connection warning"
+                            : recentVideo && lossPercent >= 3 ? String.format(Locale.ROOT, "%.1f%% frame loss", lossPercent)
+                            : queueBuilding ? String.format(Locale.ROOT, "network queue %.0f ms", queueMs)
+                            : String.format(Locale.ROOT, "jitter %.0f ms", jitterMs);
+                    return target;
+                }
+                return 0;
             }
         } else {
             poorSamples = 0;
@@ -206,10 +223,12 @@ public final class AdaptiveBitrateController {
                         int step = Math.max((gap + 1) / 2, Math.min(gap, STEP_BACK_MIN_KBPS));
                         stepBackTargetKbps = currentKbps + step;
                         stepBackFromKbps = currentKbps;
+                        lastReason = "step back toward " + stable + " kbps";
                         return stepBackTargetKbps;
                     }
                 } else if (nowMs - healthySinceMs >= 15000 && nowMs - lastChangeMs >= 15000) {
                     int target = Math.min(ceilingKbps, currentKbps + Math.max(250, currentKbps / 20));
+                    lastReason = "healthy";
                     return target > currentKbps ? target : 0;
                 }
             }

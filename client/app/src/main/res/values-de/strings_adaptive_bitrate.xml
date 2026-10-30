@@ -11,4 +11,6 @@
     <string name="stream_host_abr_failed">Der PC hat seine automatische Bitrate nicht gestartet: %1$s</string>
     <string name="title_auto_bitrate">Gerät steuert die Bitrate</string>
     <string name="dialog_auto_bitrate">Senkt die Bitrate, wenn Verbindung oder Gerät nicht mithalten, und erhöht sie wieder, sobald es besser läuft. Sie geht nie über die Bitrate des Streams. Das ist der Standard für alle PCs; im Stream-Menü lässt er sich für einen PC ändern.</string>
+    <string name="title_thermal_protection">Überhitzungsschutz</string>
+    <string name="dialog_thermal_protection">Senkt Bitrate und Auflösung, solange das Gerät heiß ist. Handys und TV-Sticks werden beim Streamen oft heiß, daher ist dies standardmäßig aus: Die niedrigere Bitrate macht das Bild weicher.</string>
 </resources>

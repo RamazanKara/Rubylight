@@ -334,8 +334,9 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             bitrateWindowStartBytes = bytes;
             wireWindowStartBytes = wireBytes;
             thermalLevel = thermalMonitor.level();
-            // Forced max clocks on a hot phone only bring on harder throttling.
-            if (thermalLevel == ThermalMonitor.HOT && pyroWaveRenderer.hasMaxClocks()) {
+            // Forced max clocks on a hot phone only bring on harder throttling (with Thermal protection on).
+            if (ThermalMonitor.forAdaptation(prefs.thermalProtection, thermalLevel) == ThermalMonitor.HOT &&
+                    pyroWaveRenderer.hasMaxClocks()) {
                 pyroWaveRenderer.restoreClocks();
                 updateDecoderDiagnostics();
             }

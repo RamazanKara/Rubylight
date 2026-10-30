@@ -8,6 +8,15 @@ import static org.junit.Assert.assertEquals;
 
 public class ThermalMonitorTest {
     @Test
+    public void heatChangesTheStreamOnlyWithThermalProtection() {
+        // Issue 56: a hot TV stick halved its bitrate every stream with no setting to stop it.
+        for (int level : new int[] {ThermalMonitor.NORMAL, ThermalMonitor.WARM, ThermalMonitor.HOT}) {
+            assertEquals(ThermalMonitor.NORMAL, ThermalMonitor.forAdaptation(false, level));
+            assertEquals(level, ThermalMonitor.forAdaptation(true, level));
+        }
+    }
+
+    @Test
     public void headroomForecastLeadsThermalStatus() {
         assertEquals(ThermalMonitor.NORMAL, ThermalMonitor.levelFor(0.5f, PowerManager.THERMAL_STATUS_NONE));
         assertEquals(ThermalMonitor.WARM, ThermalMonitor.levelFor(0.8f, PowerManager.THERMAL_STATUS_LIGHT));

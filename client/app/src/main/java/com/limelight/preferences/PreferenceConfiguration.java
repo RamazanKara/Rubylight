@@ -98,6 +98,7 @@ public class PreferenceConfiguration {
     private static final String SHOW_GUIDE_BUTTON_PREF_STRING = "checkbox_show_guide_button";
     private static final String LEGACY_DISABLE_FRAME_DROP_PREF_STRING = "checkbox_disable_frame_drop";
     private static final String ENABLE_HDR_PREF_STRING = "checkbox_enable_hdr";
+    static final String THERMAL_PROTECTION_PREF_STRING = "checkbox_thermal_protection";
     private static final String ENABLE_SDR10_PREF_STRING = "checkbox_enable_sdr_10bit";
     private static final String ENABLE_PIP_PREF_STRING = "checkbox_enable_pip";
     private static final String AUTO_RECONNECT_PREF_STRING = "checkbox_auto_reconnect";
@@ -316,6 +317,12 @@ public class PreferenceConfiguration {
     public com.limelight.nvstream.AdaptiveQualityController.Mode adaptiveQualityMode =
             com.limelight.nvstream.AdaptiveQualityController.Mode.OFF;
     public int qualityMinShortEdge = 720, qualityMinFps = 30;
+    /**
+     * Whether device heat lowers the bitrate and resolution and drops PyroWave's forced clocks.
+     * Off by default: phones and TV sticks run hot in normal use, and halving the bitrate for it
+     * left a visibly worse picture for the whole stream (issue 56).
+     */
+    public boolean thermalProtection;
     /** Automatic bitrate for PCs without a choice of their own; see {@link AutoBitrateChoice}. */
     /**
      * A snapshot of the Settings switch, read for the settings-keys test. Production code must use
@@ -1408,6 +1415,7 @@ public class PreferenceConfiguration {
                 "1080".equals(qualityFloor) ? 1080 : 720;
         String qualityFps = prefs.getString("adaptive_quality_min_fps", "30");
         config.qualityMinFps = "45".equals(qualityFps) ? 45 : "60".equals(qualityFps) ? 60 : 30;
+        config.thermalProtection = prefs.getBoolean(THERMAL_PROTECTION_PREF_STRING, false);
         dropAutoBitrateLimits(prefs);
         config.autoBitrate = prefs.getBoolean(AutoBitrateChoice.SETTINGS_KEY, false);
         config.rateChangeBitrate = prefs.getBoolean(RATE_CHANGE_BITRATE_PREF_STRING, false);

@@ -52,6 +52,14 @@ public final class ThermalMonitor {
         return headroom;
     }
 
+    /**
+     * The level that may change the stream: the measured one with Thermal protection on, NORMAL
+     * otherwise. The overlay and the stream doctor still show the measured level.
+     */
+    public static int forAdaptation(boolean thermalProtection, int level) {
+        return thermalProtection ? level : NORMAL;
+    }
+
     static int levelFor(float headroom, int status) {
         int fromStatus = status >= PowerManager.THERMAL_STATUS_SEVERE ? HOT :
                 status >= PowerManager.THERMAL_STATUS_MODERATE ? WARM : NORMAL;

@@ -11,4 +11,6 @@
     <string name="stream_host_abr_failed">電腦未啟動其自動位元速率：%1$s</string>
     <string name="title_auto_bitrate">由裝置控制位元速率</string>
     <string name="dialog_auto_bitrate">連線或裝置跟不上時降低位元速率，恢復後再提高。不會超過串流位元速率。這是所有電腦的預設值；可在串流選單中為單台電腦變更。</string>
+    <string name="title_thermal_protection">過熱保護</string>
+    <string name="dialog_thermal_protection">裝置發熱時降低位元率和解析度。手機和電視棒在串流時常會發熱，因此預設關閉：位元率降低會讓畫面變糊。</string>
 </resources>

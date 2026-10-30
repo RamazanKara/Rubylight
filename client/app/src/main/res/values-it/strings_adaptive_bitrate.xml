@@ -11,4 +11,6 @@
     <string name="stream_host_abr_failed">Il PC non ha avviato il suo bitrate automatico: %1$s</string>
     <string name="title_auto_bitrate">Il dispositivo controlla il bitrate</string>
     <string name="dialog_auto_bitrate">Abbassa il bitrate quando la connessione o il dispositivo non reggono e lo rialza quando la situazione migliora. Non supera mai il bitrate dello streaming. È il valore predefinito per tutti i PC; il menu dello streaming può cambiarlo per un solo PC.</string>
+    <string name="title_thermal_protection">Protezione termica</string>
+    <string name="dialog_thermal_protection">Riduce bitrate e risoluzione finché il dispositivo è caldo. Telefoni e chiavette TV si scaldano spesso durante lo streaming, quindi è disattivata per impostazione predefinita: un bitrate più basso rende l\'immagine meno nitida.</string>
 </resources>

@@ -11,4 +11,6 @@
     <string name="stream_host_abr_failed">Komputer nie włączył automatycznej szybkości transmisji: %1$s</string>
     <string name="title_auto_bitrate">Urządzenie steruje szybkością transmisji</string>
     <string name="dialog_auto_bitrate">Obniża szybkość transmisji, gdy połączenie lub urządzenie nie nadąża, i podnosi ją z powrotem, gdy sytuacja się poprawi. Nigdy nie przekracza szybkości transmisji strumienia. To ustawienie domyślne dla wszystkich komputerów; menu strumienia może je zmienić dla jednego komputera.</string>
+    <string name="title_thermal_protection">Ochrona termiczna</string>
+    <string name="dialog_thermal_protection">Obniża bitrate i rozdzielczość, gdy urządzenie jest gorące. Telefony i przystawki TV często nagrzewają się podczas streamowania, więc domyślnie jest wyłączona: niższy bitrate daje mniej ostry obraz.</string>
 </resources>

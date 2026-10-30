@@ -11,4 +11,6 @@
     <string name="stream_host_abr_failed">PC가 자동 비트레이트를 시작하지 않았습니다: %1$s</string>
     <string name="title_auto_bitrate">기기가 비트레이트 제어</string>
     <string name="dialog_auto_bitrate">연결이나 기기가 따라가지 못하면 비트레이트를 낮추고, 좋아지면 다시 높입니다. 스트림 비트레이트를 넘지 않습니다. 모든 PC의 기본값이며, 스트림 메뉴에서 PC별로 바꿀 수 있습니다.</string>
+    <string name="title_thermal_protection">발열 보호</string>
+    <string name="dialog_thermal_protection">기기가 뜨거운 동안 비트레이트와 해상도를 낮춥니다. 휴대폰과 TV 스틱은 스트리밍 중에 자주 뜨거워지므로 기본값은 꺼짐입니다. 비트레이트가 낮아지면 화면이 흐려집니다.</string>
 </resources>

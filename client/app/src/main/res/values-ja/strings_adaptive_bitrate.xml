@@ -11,4 +11,6 @@
     <string name="stream_host_abr_failed">PC が自動ビットレートを開始しませんでした: %1$s</string>
     <string name="title_auto_bitrate">デバイスがビットレートを制御</string>
     <string name="dialog_auto_bitrate">回線や端末が追いつかないときはビットレートを下げ、安定したら元に戻します。ストリームのビットレートを超えることはありません。これはすべての PC の既定値で、ストリームメニューから PC ごとに変更できます。</string>
+    <string name="title_thermal_protection">温度保護</string>
+    <string name="dialog_thermal_protection">端末が熱いあいだ、ビットレートと解像度を下げます。スマホやTVスティックはストリーミング中に熱くなりやすいため、初期設定はオフです。ビットレートが下がると画質が甘くなります。</string>
 </resources>

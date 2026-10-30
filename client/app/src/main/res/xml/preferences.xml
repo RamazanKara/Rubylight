@@ -74,6 +74,12 @@
             android:entries="@array/adaptive_quality_fps_names"
             android:entryValues="@array/adaptive_quality_fps_values"
             android:defaultValue="30" />
+        <!-- Off by default: devices run hot in normal use (issue 56). -->
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_thermal_protection"
+            android:title="@string/title_thermal_protection"
+            android:dialogMessage="@string/dialog_thermal_protection"
+            android:defaultValue="false" />
         <com.limelight.preferences.MaterialListPreference
             android:key="list_mobile_bitrate_kbps"
             android:title="@string/title_mobile_bitrate"

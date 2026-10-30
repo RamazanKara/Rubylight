@@ -432,7 +432,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                         decoderRenderer.hasRecentVideoFrames(now), poorConnection,
                         decoderRenderer.getNetworkFrameLossPercent(), decoderRenderer.getDecodeTimeMs(),
                         rtt == -1 ? -1 : (float) (rtt & 0xffffffffL), decoderRenderer.getQueueDelayMs(),
-                        decoderRenderer.getThermalLevel(),
+                        adaptationThermalLevel(),
                         adaptiveBitrate != null && adaptiveBitrate.hasRoomBeforeQualityReduction(),
                         decoderRenderer.takeDecodeTiming(streamFps));
                 if (target != null && !applyAdaptiveQuality(target, now)) return;
@@ -474,6 +474,12 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             bitrateHandler.postDelayed(this, 1000);
         }
     };
+    /** The heat the bitrate and quality controllers react to: none unless Thermal protection is on. */
+    private int adaptationThermalLevel() {
+        return com.limelight.binding.video.ThermalMonitor.forAdaptation(prefConfig.thermalProtection,
+                decoderRenderer.getThermalLevel());
+    }
+
     private final Runnable updateBitrate = new Runnable() {
         @Override
         public void run() {
@@ -487,7 +493,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                     long now = SystemClock.uptimeMillis();
                     long rttInfo = MoonBridge.getEstimatedRttInfo();
                     float jitterMs = rttInfo == -1 ? -1 : (float) (rttInfo & 0xffffffffL);
-                    int thermalLevel = decoderRenderer.getThermalLevel();
+                    int thermalLevel = adaptationThermalLevel();
                     if (adaptiveBitrate != null) adaptiveBitrate.setThermalLevel(thermalLevel);
                     if (pyroWaveBitrate != null) pyroWaveBitrate.setThermalLevel(thermalLevel);
                     int target = pyroWaveBitrate != null ?
@@ -498,6 +504,10 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                                     poorConnection, decoderRenderer.getNetworkFrameLossPercent(), decoderRenderer.getDecodeTimeMs(), jitterMs,
                                     decoderRenderer.getQueueDelayMs());
                     if (target != 0) {
+                        if (pyroWaveBitrate == null) {
+                            LimeLog.info("Device controls bitrate: " + currentBitrate + " -> " + target + " kbps (" +
+                                    adaptiveBitrate.lastReason() + ")");
+                        }
                         applyAdaptiveBitrate(target);
                     }
                 }

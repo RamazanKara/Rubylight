@@ -11,4 +11,6 @@
     <string name="stream_host_abr_failed">PC không bật tốc độ bit tự động: %1$s</string>
     <string name="title_auto_bitrate">Thiết bị điều khiển tốc độ bit</string>
     <string name="dialog_auto_bitrate">Giảm tốc độ bit khi kết nối hoặc thiết bị không theo kịp, rồi tăng lại khi ổn định. Không bao giờ vượt quá tốc độ bit của stream. Đây là mặc định cho mọi PC; menu stream có thể đổi riêng cho một PC.</string>
+    <string name="title_thermal_protection">Bảo vệ nhiệt</string>
+    <string name="dialog_thermal_protection">Giảm bitrate và độ phân giải khi thiết bị nóng. Điện thoại và TV stick thường nóng khi stream, nên mặc định tắt: bitrate thấp hơn làm hình ảnh kém nét.</string>
 </resources>

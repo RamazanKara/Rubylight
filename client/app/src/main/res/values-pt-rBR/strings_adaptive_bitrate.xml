@@ -11,4 +11,6 @@
     <string name="stream_host_abr_failed">O PC não iniciou a taxa de bits automática: %1$s</string>
     <string name="title_auto_bitrate">O dispositivo controla a taxa de bits</string>
     <string name="dialog_auto_bitrate">Reduz a taxa de bits quando a conexão ou o dispositivo não dá conta e a aumenta de novo quando melhora. Nunca passa da taxa de bits da transmissão. É o padrão para todos os PCs; o menu da transmissão pode mudá-lo para um só PC.</string>
+    <string name="title_thermal_protection">Proteção térmica</string>
+    <string name="dialog_thermal_protection">Reduz a taxa de bits e a resolução enquanto o dispositivo está quente. Celulares e sticks de TV costumam esquentar durante o streaming, então vem desativada: uma taxa de bits menor deixa a imagem menos nítida.</string>
 </resources>

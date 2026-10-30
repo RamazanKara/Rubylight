@@ -11,4 +11,6 @@
     <string name="stream_host_abr_failed">Bilgisayar otomatik bit hızını başlatmadı: %1$s</string>
     <string name="title_auto_bitrate">Bit hızını cihaz yönetir</string>
     <string name="dialog_auto_bitrate">Bağlantı veya cihaz yetişemediğinde bit hızını düşürür, durum düzelince tekrar yükseltir. Yayının bit hızını asla aşmaz. Tüm bilgisayarlar için varsayılandır; yayın menüsünden tek bir bilgisayar için değiştirilebilir.</string>
+    <string name="title_thermal_protection">Isı koruması</string>
+    <string name="dialog_thermal_protection">Cihaz sıcakken bit hızını ve çözünürlüğü düşürür. Telefonlar ve TV çubukları yayın sırasında sık sık ısınır, bu yüzden varsayılan olarak kapalıdır: düşük bit hızı görüntüyü yumuşatır.</string>
 </resources>

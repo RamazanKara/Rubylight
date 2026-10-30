@@ -475,6 +475,15 @@ pub(super) fn planar_parameters(info: &FrameInfo, layout: media::PlanarLayout, h
     [layout.width, layout.height, layout.width, layout.height, 0, 3, flags, white_level.to_bits()]
 }
 
+/// Whether a picture SDL would show (NV12 or P010 from memory, or an imported VAAPI surface) goes
+/// to the plane shader instead: SDL reads P010 as PQ and knows no HLG, so an HLG one is drawn as a
+/// 4:2:0 planar picture with the shader's HLG flag. SDR and PQ pictures keep SDL's upload or
+/// import as they are.
+#[cfg(unix)]
+pub(super) fn hlg_through_planes(info: &FrameInfo) -> bool {
+    info.color_trc == TRC_HLG && matches!(info.kind, media::FRAME_NV12 | media::FRAME_P010 | media::FRAME_DMABUF)
+}
+
 /// FFmpeg's colour description as an SDL colorspace.
 fn colorspace(info: &FrameInfo) -> SDL_Colorspace {
     // AVCOL_RANGE_JPEG = 2; AVCOL_SPC_BT709 = 1, BT470BG = 5, SMPTE170M = 6, BT2020_NCL = 9;
@@ -909,11 +918,16 @@ impl VideoTexture {
         if let Some(layout) = media::PlanarLayout::of(&info) {
             return self.upload_planar(renderer, &info, layout, white_level);
         }
+        #[cfg(unix)]
+        if hlg_through_planes(&info) {
+            return self.upload_hlg(renderer, frame, &info, white_level);
+        }
         let space = colorspace(&info);
         let (w, h) = (info.width, info.height);
         // SAFETY: plane pointers and pitches come from the live AVFrame.
         unsafe {
             match info.kind {
+                #[cfg(windows)]
                 media::FRAME_D3D11 => {
                     let format = if info.ten_bit != 0 {
                         SDL_PIXELFORMAT_P010
@@ -1030,6 +1044,28 @@ impl VideoTexture {
             return false;
         };
         self.upload_nv(renderer, &mapped.info(), space, white_level)
+    }
+
+    /// Draws an HLG NV12 or P010 picture with the plane shader (`hlg_through_planes`). A VAAPI
+    /// surface is mapped to memory for it, this picture alone: the decoder keeps exporting, so a
+    /// PQ or SDR picture after it is imported again.
+    #[cfg(unix)]
+    fn upload_hlg(&mut self, renderer: *mut SDL_Renderer, frame: &media::Frame, info: &FrameInfo, white_level: f32) -> bool {
+        let mapped = if info.kind == media::FRAME_DMABUF {
+            let Some(mapped) = frame.map_to_memory() else {
+                self.fail(format!("mapping a {}x{} VAAPI picture to memory failed", info.width, info.height), "the picture could not be read".into());
+                return false;
+            };
+            Some(mapped)
+        } else {
+            None
+        };
+        let info = mapped.as_ref().map_or(*info, media::Frame::info);
+        let Some(layout) = media::PlanarLayout::of_semi_planar(&info) else {
+            self.fail(format!("a {}x{} HLG picture of frame kind {} has no planes to draw", info.width, info.height, info.kind), "the HLG picture cannot be drawn".into());
+            return false;
+        };
+        self.upload_planar(renderer, &info, layout, white_level)
     }
 
     #[cfg(unix)]
@@ -1583,6 +1619,33 @@ pub(crate) mod tests {
             assert!(media::PlanarLayout::of(&info(kind, 64, 32, 1, 1)).is_none());
         }
         assert!(media::PlanarLayout::of(&info(media::FRAME_YUV444P, 0, 32, 1, 1)).is_none());
+    }
+
+    /// Linux hardware decoders (VAAPI, NVDEC, V4L2) hand SDL NV12 and P010 pictures, and SDL read
+    /// an HLG P010 picture as PQ. An HLG one goes to the plane shader with the HLG flag; SDR and
+    /// PQ ones keep SDL's path (no copy, no added latency).
+    #[cfg(unix)]
+    #[test]
+    fn an_hlg_hardware_picture_is_drawn_as_hlg_on_linux_never_as_pq() {
+        let info = |kind, color_trc| FrameInfo { kind, width: 64, height: 32, ten_bit: i32::from(kind == media::FRAME_P010), color_trc, ..frame(1, 9, 1) };
+        for kind in [media::FRAME_NV12, media::FRAME_P010, media::FRAME_DMABUF] {
+            assert!(hlg_through_planes(&info(kind, TRC_HLG)), "kind {kind}");
+            assert!(!hlg_through_planes(&info(kind, TRC_PQ)), "PQ kind {kind} stays SDL's");
+            assert!(!hlg_through_planes(&info(kind, 1)), "SDR kind {kind} stays SDL's");
+        }
+        // Planar pictures already take the plane shader; the others have no NV12 planes.
+        for kind in [media::FRAME_YUV420P, media::FRAME_YUV420P10, media::FRAME_WAVELET] {
+            assert!(!hlg_through_planes(&info(kind, TRC_HLG)), "kind {kind}");
+        }
+        // A P010 picture reads as 10-bit 4:2:0 with its samples moved to the low bits (64), and
+        // shown as HDR it gets the HLG flag (128), never PQ.
+        let p010 = info(media::FRAME_P010, TRC_HLG);
+        let layout = media::PlanarLayout::of_semi_planar(&p010).unwrap();
+        assert_eq!(layout.plane_size(1), (32, 16));
+        assert_eq!(planar_parameters(&p010, layout, true, 2.5)[6], 2 | 8 | 16 | 64 | 128);
+        let nv12 = info(media::FRAME_NV12, TRC_HLG);
+        assert_eq!(planar_parameters(&nv12, media::PlanarLayout::of_semi_planar(&nv12).unwrap(), true, 2.5)[6], 2 | 8 | 128);
+        assert!(media::PlanarLayout::of_semi_planar(&info(media::FRAME_DMABUF, TRC_HLG)).is_none(), "a surface is mapped first");
     }
 
     /// The report: an HDR stream showed "Cannot show d3d11 pictures". Needs a Direct3D 11 display.

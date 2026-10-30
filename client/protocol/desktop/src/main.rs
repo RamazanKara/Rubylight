@@ -1473,6 +1473,7 @@ impl App {
             bitrate_limit_kbps: self.launcher.profiles.bitrate_limit(self.launcher.network.kind(&self.launcher.profiles.home_wifi)),
             microphone_muted: false,
             recovery: None,
+            video_shown: false,
             confirm_replace: false,
         };
         self.cancelled = false;
@@ -1576,7 +1577,7 @@ impl App {
             return;
         };
         let host = streaming.host_id;
-        let reconnect = if matches!(exit, Exit::Reconnect) || exit.retryable(streaming.has_picture()) {
+        let reconnect = if matches!(exit, Exit::Reconnect) || exit.retryable(streaming.video_started()) {
             // SAFETY: the window lives as long as the app.
             let away = unsafe { SDL_GetWindowFlags(self.window) & (SDL_WINDOW_MINIMIZED | SDL_WINDOW_HIDDEN) != 0 };
             streaming.reconnect_plan(!matches!(exit, Exit::Reconnect), away)

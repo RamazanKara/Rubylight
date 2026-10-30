@@ -14,7 +14,7 @@ patches=()
 for name in bughunt-stream.patch bughunt-input.patch controller-haptics.patch host-termination.patch \
     disconnect-intercept.patch control-payload.patch control-teardown.patch host-timing.patch network-grace.patch \
     cursor-shape.patch network-grace-input.patch pyrowave-link-hints.patch video-recv-buffer.patch clock-sync.patch \
-    prefix-sei.patch fec-report.patch wire-bytes.patch surround-714.patch; do
+    prefix-sei.patch fec-report.patch wire-bytes.patch surround-714.patch socket-dscp.patch; do
     patches+=("$(pwd)/$core/patches/$name")
 done
 if [ ! -f "$common/src/Limelight.h" ]; then
@@ -75,7 +75,9 @@ for mode in plain sanitized; do
         "$common/src/Platform.c" "$common/src/PlatformCrypto.c" -lcrypto -lpthread -o "$out/input_contact-$mode"
     cc "${flags[@]}" "${extra[@]}" "$tests/input_only_ping_thread_test.c" "$common/src/Platform.c" \
         "$common/src/PlatformSockets.c" -lpthread -o "$out/input_only_ping_thread-$mode"
-    for test in aaudio_queue aaudio_output control_negotiation controller_haptics dualsense_usb_audio networking rtsp_parser rtsp_receive evdev_ipc stun sdp_feature_flags rtsp_duplicate audio_reorder video_shutdown pyrowave_depacketizer control_termination enet_termination network_grace control_send microphone_packet input_queue input_contact input_only_ping input_only_ping_thread surround_params; do
+    cc "${flags[@]}" "${extra[@]}" "$tests/socket_dscp_test.c" "$common/src/Platform.c" \
+        "$common/src/PlatformSockets.c" -lpthread -o "$out/socket_dscp-$mode"
+    for test in aaudio_queue aaudio_output control_negotiation controller_haptics dualsense_usb_audio networking rtsp_parser rtsp_receive evdev_ipc stun sdp_feature_flags rtsp_duplicate audio_reorder video_shutdown pyrowave_depacketizer control_termination enet_termination network_grace control_send microphone_packet input_queue input_contact input_only_ping input_only_ping_thread surround_params socket_dscp; do
         "$out/$test-$mode"
         echo "$test ($mode): passed"
     done

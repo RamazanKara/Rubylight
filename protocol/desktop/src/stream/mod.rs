@@ -126,6 +126,9 @@ pub struct LaunchPlan {
     pub pace: Option<crate::config::PaceCalibration>,
     pub host_link_mbps: u32,
     pub recovery: Option<recovery::Backoff>,
+    /// An earlier connection of this automatic reconnect chain showed video: a reconnect that has
+    /// no picture yet when it drops again still reconnects ([`Streaming::video_started`]).
+    pub video_shown: bool,
     /// The user confirmed closing the running app for this launch (`rlConfirmReplace`).
     pub confirm_replace: bool,
     /// The display's luminance for hosts other than Rubylight (`sdl::launch_luminance`).
@@ -1055,10 +1058,12 @@ fn reconnects_automatically(auto_reconnect: bool, away: bool, role: AppRole) -> 
 /// The plan that reconnects a dropped stream of `role` that `plan` started, on its own, or None
 /// when it waits for the user ([`reconnects_automatically`]) or there is nothing to rejoin. Its
 /// budget renews after `connected_ms` of a stable stream; `retry_now`: the first attempt starts
-/// without its delay (it still spends one).
-fn automatic_rejoin(plan: &LaunchPlan, role: AppRole, auto_reconnect: bool, away: bool, connected_ms: u64, retry_now: bool) -> Option<LaunchPlan> {
+/// without its delay (it still spends one). `had_video`: the dropped stream or an earlier one of its
+/// chain showed video, which the next connection carries.
+fn automatic_rejoin(plan: &LaunchPlan, role: AppRole, auto_reconnect: bool, away: bool, connected_ms: u64, retry_now: bool, had_video: bool) -> Option<LaunchPlan> {
     if !reconnects_automatically(auto_reconnect, away, role) { return None; }
     let mut plan = rejoin(plan.clone(), role)?;
+    plan.video_shown |= had_video;
     let recovery = plan.recovery.get_or_insert_with(Default::default);
     recovery.reset_after(connected_ms);
     if retry_now { recovery.retry_now(); }
@@ -2018,9 +2023,17 @@ impl Streaming {
     /// Whether a dropped stream would reconnect on its own now: its video started ([`Exit::retryable`])
     /// and [`automatic_rejoin`] has a plan with an attempt left in its budget. Spends nothing.
     fn reconnects_on_its_own(&self, away: bool) -> bool {
-        self.first_frame && automatic_rejoin(&self.plan, self.facts.role, self.settings.auto_reconnect, away, self.connected_ms(), false)
+        self.video_started() && automatic_rejoin(&self.plan, self.facts.role, self.settings.auto_reconnect, away, self.connected_ms(), false, true)
             .and_then(|plan| plan.recovery)
             .is_some_and(|budget| budget.allows_attempt(recovery::now_ms()))
+    }
+
+    /// Whether video started: this connection showed a picture, or an earlier one of its automatic
+    /// reconnect chain did ([`LaunchPlan::video_shown`]). A reconnect after a real drop that has no
+    /// picture yet when it drops again keeps reconnecting until its budget is spent; a stream that
+    /// never showed video does not reconnect (Moonlight V+ PC 6792aeed).
+    pub fn video_started(&self) -> bool {
+        self.first_frame || self.plan.video_shown
     }
 
     fn connected_ms(&self) -> u64 {
@@ -2031,10 +2044,11 @@ impl Streaming {
     /// minimized or hidden.
     pub fn reconnect_plan(&self, automatic: bool, away: bool) -> Option<LaunchPlan> {
         let mut plan = if automatic {
-            automatic_rejoin(&self.plan, self.facts.role, self.settings.auto_reconnect, away, self.connected_ms(), self.retry_now)?
+            automatic_rejoin(&self.plan, self.facts.role, self.settings.auto_reconnect, away, self.connected_ms(), self.retry_now, self.video_started())?
         } else {
             let mut plan = rejoin(self.plan.clone(), self.facts.role)?;
             plan.recovery = None;
+            plan.video_shown = false;
             plan
         };
         plan.microphone_muted = self.microphone_muted;
@@ -4853,9 +4867,29 @@ mod replace_tests {
             pace: None,
             host_link_mbps: 0,
             recovery: None,
+            video_shown: false,
             confirm_replace: false,
             display_luminance: None,
         }
+    }
+
+    // The review's regression: video showed, the network dropped, and the first reconnect had no
+    // picture yet when it dropped too. The chain carries its video, so the next attempt follows
+    // within the budget; a chain that never showed video still stops at once.
+    #[test]
+    fn a_reconnect_without_a_picture_yet_keeps_the_chain_going_after_a_real_drop() {
+        use nightjar_core::session::error;
+        let plan = launch_plan();
+        let first = automatic_rejoin(&plan, AppRole::Stream, true, false, 60_000, false, true).expect("a plan");
+        assert!(first.video_shown, "the drop came after video");
+        // Attempt 1 connects but shows nothing before it drops: no picture of its own.
+        let second = automatic_rejoin(&first, AppRole::Stream, true, false, 5_000, false, false).expect("a plan");
+        assert!(second.video_shown, "still the chain of a stream that had video");
+        assert!(Exit::Terminated(error::NO_VIDEO_TRAFFIC).retryable(first.video_shown));
+        // Never any video: nothing to carry.
+        let never = automatic_rejoin(&plan, AppRole::Stream, true, false, 5_000, false, false).expect("a plan");
+        assert!(!never.video_shown);
+        assert!(!Exit::Terminated(error::NO_VIDEO_TRAFFIC).retryable(never.video_shown));
     }
 
     // The review's regression: roamed is false, but the same address came back (DHCP gave it
@@ -4920,24 +4954,24 @@ mod replace_tests {
         let mut plan = launch_plan();
         plan.app.control = nightjar_core::http::AppControl::None;
         let now = recovery::now_ms();
-        let mut rejoined = automatic_rejoin(&plan, AppRole::Stream, true, false, 0, true).expect("a plan");
+        let mut rejoined = automatic_rejoin(&plan, AppRole::Stream, true, false, 0, true, true).expect("a plan");
         assert!(rejoined.resume);
         let budget = rejoined.recovery.as_mut().expect("a budget");
         assert!(budget.allows_attempt(now));
         assert_eq!(budget.next_delay(now), Some(0), "no delay, but it spends an attempt");
         assert_eq!(budget.attempts(), 1);
         // Without retry_now the usual first delay.
-        let mut usual = automatic_rejoin(&plan, AppRole::Stream, true, false, 0, false).unwrap().recovery.unwrap();
+        let mut usual = automatic_rejoin(&plan, AppRole::Stream, true, false, 0, false, true).unwrap().recovery.unwrap();
         assert_eq!(usual.next_delay(now), Some(1000));
         // Minimized, off, or a stream that is not a game: the user decides.
-        assert!(automatic_rejoin(&plan, AppRole::Stream, true, true, 0, true).is_none());
-        assert!(automatic_rejoin(&plan, AppRole::Stream, false, false, 0, true).is_none());
-        assert!(automatic_rejoin(&plan, AppRole::RemoteMonitor, true, false, 0, true).is_none());
+        assert!(automatic_rejoin(&plan, AppRole::Stream, true, true, 0, true, true).is_none());
+        assert!(automatic_rejoin(&plan, AppRole::Stream, false, false, 0, true, true).is_none());
+        assert!(automatic_rejoin(&plan, AppRole::RemoteMonitor, true, false, 0, true, true).is_none());
         // A used-up budget allows no attempt, so the notice promises none.
         let mut spent = recovery::Backoff::default();
         while spent.next_delay(now).is_some() {}
         plan.recovery = Some(spent);
-        let rejoined = automatic_rejoin(&plan, AppRole::Stream, true, false, 0, true).unwrap();
+        let rejoined = automatic_rejoin(&plan, AppRole::Stream, true, false, 0, true, true).unwrap();
         assert!(!rejoined.recovery.unwrap().allows_attempt(now));
     }
 

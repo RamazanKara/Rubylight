@@ -14,6 +14,7 @@ use butterpollo_core::audio_scope::Identity;
 use butterpollo_core::input::Input;
 use butterpollo_core::nucleus::coop::{self, End, Phase};
 use butterpollo_core::nucleus::elevation::{Account, Refused, Run};
+use butterpollo_core::nucleus::generic;
 use butterpollo_core::nucleus::handler::Handler;
 use butterpollo_core::nucleus::install::EXECUTABLE;
 use butterpollo_core::nucleus::profile::{Player, TITLE};
@@ -524,6 +525,10 @@ struct Runner {
     /// The game's folder: walked again after a failed start
     /// ([`super::elevation::forget`]).
     game_folder: Option<PathBuf>,
+    /// For Rubylight's own handler: the host's Nucleus folder and the
+    /// game's .exe, kept there when the game refuses ProtoInput's hooks
+    /// ([`files::refuse_hooks`]).
+    own_game: Option<(PathBuf, String)>,
     /// The user's Nucleus settings the session changed (None from the
     /// user's own copy, whose stay), then the game's compatibility settings
     /// from before Nucleus started; last, so they drop after Nucleus. None
@@ -578,6 +583,11 @@ impl Runner {
             self.deadline = now + START_TIMEOUT;
         }
         self.windows = pass.windows.clone();
+        if roots > 0
+            && let Some(end) = self.refused_hooks(&job)
+        {
+            return Some(end);
+        }
         let running = {
             let mut session = self.shared.session.lock().unwrap();
             let running = session.phase == Phase::Running;
@@ -668,6 +678,32 @@ impl Runner {
             return Some(End::Failed(self.timeout()));
         }
         None
+    }
+
+    /// Rubylight's own handler's game refused ProtoInput's hooks: Nucleus
+    /// shows [`generic::INJECT_FAILED`] once the game's window is up and
+    /// ends the game when the box is answered, which nobody does during a
+    /// background stream (#59). The game is kept so its next handler
+    /// injects none, and the session ends saying so.
+    fn refused_hooks(&mut self, job: &BTreeSet<u32>) -> Option<End> {
+        let (folder, exe) = self.own_game.as_ref()?;
+        // A look that fails is told by the passes that need one.
+        let boxes = self.desktop.message_boxes(job).ok()?;
+        let shown = boxes
+            .iter()
+            .find(|shown| shown.text.contains(generic::INJECT_FAILED))?;
+        let said = shown.summary();
+        let why = match files::refuse_hooks(folder, exe) {
+            Ok(()) => format!(
+                "{} refused Nucleus Co-op's input hooks (it showed \"{said}\"), so Nucleus Co-op ended it: start the stream again, and Rubylight starts it without them",
+                self.title
+            ),
+            Err(error) => format!(
+                "{} refused Nucleus Co-op's input hooks (it showed \"{said}\"), so Nucleus Co-op ended it, and Rubylight could not keep that for its next start: {error:#}",
+                self.title
+            ),
+        };
+        Some(self.failure(why))
     }
 
     /// A pass that could not look at the desktop: the session ends after
@@ -1186,6 +1222,10 @@ fn begin(
         exited: false,
         failed: 0,
         game_folder: game_folder(start.exe_path),
+        own_game: start
+            .handler
+            .own
+            .then(|| (start.folder.to_path_buf(), start.exe_path.to_string())),
         settings,
         layers: Some(layers),
     };
@@ -1615,6 +1655,7 @@ mod tests {
             exited: false,
             failed: 0,
             game_folder: None,
+            own_game: None,
             settings: None,
             layers: None,
         }
@@ -1716,6 +1757,56 @@ mod tests {
         assert_eq!(runner.shared.session.lock().unwrap().phase, Phase::Running);
         assert_eq!(runner.step(t0 + 8 * RECLICK), None);
         assert_eq!(clicks(&screen), 2);
+    }
+
+    /// #59: once the game's window is up, Nucleus injects ProtoInput's
+    /// hooks; a game that refuses them gets Nucleus' box, and Nucleus ends
+    /// it once the box is answered. Rubylight's own handler's session ends
+    /// saying so, and the game's next handler injects nothing. A hub
+    /// handler's game is not kept.
+    #[test]
+    fn a_game_that_refuses_the_hooks_ends_the_session_and_is_kept() {
+        let refused = MessageBox {
+            window: 500,
+            caption: "Error".into(),
+            text: generic::INJECT_FAILED.into(),
+        };
+        let exe = r"D:\Games\Black Flag\ACBlackFlag.exe";
+        for own in [true, false] {
+            let t0 = Instant::now();
+            let host = tempfile::tempdir().unwrap();
+            let (screen, probe) = (screen(), Probe::default());
+            let mut runner = runner(1, &screen, &probe, t0);
+            runner.own_game = own.then(|| (host.path().to_path_buf(), exe.to_string()));
+            label(&screen);
+            assert_eq!(runner.step(t0), None);
+            instance(&screen, 0);
+            assert_eq!(runner.step(t0), None);
+            assert_eq!(runner.shared.session.lock().unwrap().phase, Phase::Running);
+            screen
+                .0
+                .lock()
+                .unwrap()
+                .boxes
+                .push((NUCLEUS, refused.clone()));
+            let end = runner.step(t0 + PERIOD);
+            if !own {
+                assert_eq!(end, None);
+                assert!(!files::hooks_refused(host.path(), exe).unwrap());
+                continue;
+            }
+            assert_eq!(
+                end,
+                Some(End::Crashed(format!(
+                    "Game refused Nucleus Co-op's input hooks (it showed \"Error: {}\"), so Nucleus Co-op ended it: start the stream again, and Rubylight starts it without them",
+                    generic::INJECT_FAILED
+                )))
+            );
+            assert!(files::hooks_refused(host.path(), exe).unwrap());
+            // By its path, in any case.
+            assert!(files::hooks_refused(host.path(), &exe.to_uppercase()).unwrap());
+            assert!(!files::hooks_refused(host.path(), r"D:\Games\Other\Game.exe").unwrap());
+        }
     }
 
     /// A box Nucleus shows after the click (its End-key reminder) holds the

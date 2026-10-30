@@ -193,6 +193,16 @@ pub fn write_own(folder: &Path, setup: &Setup) -> Result<Handler> {
     // Only its account's sweep may find it unused: the list it is in is theirs.
     let owner = crate::process::user_sid()
         .context("finding the signed-in user, whose game list the handler is for")?;
+    let setup = &Setup {
+        hooks: setup.hooks && !hooks_refused(folder, &setup.exe_path)?,
+        ..setup.clone()
+    };
+    if !setup.hooks {
+        tracing::warn!(
+            exe = setup.exe_path,
+            "Nucleus Co-op: the game refused ProtoInput's input hooks before, so Rubylight's handler injects none: a keyboard, mouse or pad on the PC can reach it too"
+        );
+    }
     let text = setup.handler_of(Some(&owner));
     let handler = handler::parse(&file, &text).map_err(anyhow::Error::msg)?;
     let handlers = folder.join("handlers");
@@ -213,6 +223,58 @@ pub fn write_own(folder: &Path, setup: &Setup) -> Result<Handler> {
     }
     add_game(&list(folder), setup)?;
     Ok(handler)
+}
+
+/// The games whose process refused ProtoInput's input hooks in a session
+/// of the Nucleus Co-op at `folder` (the host's, which only SYSTEM and
+/// Administrators change): `{"Games": [<.exe path in lower case>]}`.
+fn unhooked(folder: &Path) -> PathBuf {
+    folder.join("Rubylight-unhooked.json")
+}
+
+fn unhooked_games(folder: &Path) -> Result<Vec<String>> {
+    let path = unhooked(folder);
+    let Some(text) = read_existing(&path)? else {
+        return Ok(Vec::new());
+    };
+    let json: serde_json::Value = serde_json::from_str(&text)
+        .with_context(|| format!("{} can't be read: delete it", path.display()))?;
+    Ok(json
+        .get("Games")
+        .and_then(serde_json::Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|game| game.as_str().map(str::to_string))
+        .collect())
+}
+
+fn game_key(exe: &str) -> String {
+    exe.trim().replace('/', "\\").to_lowercase()
+}
+
+/// Whether the game at `exe` refused ProtoInput's input hooks in a session
+/// of the Nucleus Co-op at `folder` ([`refuse_hooks`]): Rubylight's handler
+/// for it injects none ([`Setup::hooks`]).
+pub fn hooks_refused(folder: &Path, exe: &str) -> Result<bool> {
+    Ok(unhooked_games(folder)?.contains(&game_key(exe)))
+}
+
+/// Remember that the game at `exe` refused ProtoInput's input hooks in a
+/// session of the Nucleus Co-op at `folder`: Nucleus Co-op ended it (#59).
+pub fn refuse_hooks(folder: &Path, exe: &str) -> Result<()> {
+    let mut games = unhooked_games(folder)?;
+    let key = game_key(exe);
+    if games.contains(&key) {
+        return Ok(());
+    }
+    games.push(key);
+    let text = serde_json::to_string_pretty(&serde_json::json!({ "Games": games }))?;
+    replace(&unhooked(folder), &text)?;
+    tracing::warn!(
+        exe,
+        "Nucleus Co-op: the game refused ProtoInput's input hooks; its next start injects none"
+    );
+    Ok(())
 }
 
 /// Add `setup`'s game to the game list at `path`, replacing the file whole
@@ -927,6 +989,40 @@ Game.MaxPlayers = 4;
             handler::user_games(&std::fs::read_to_string(super::list(fresh.path())).unwrap())
                 .unwrap();
         assert_eq!(games[0].guid, setup.guid());
+    }
+
+    /// #59: a game that refused ProtoInput's hooks once gets a handler that
+    /// injects none from then on, also after the host restarts (the file
+    /// in the host's Nucleus folder keeps it); other games keep theirs.
+    #[test]
+    fn a_game_that_refused_the_hooks_gets_a_handler_without_them() {
+        let nucleus = tempfile::tempdir().unwrap();
+        let setup = Setup::new(r"D:\Games\Black Flag\ACBlackFlag.exe", "Black Flag", None);
+        let other = Setup::new(r"D:\Games\Other\Game.exe", "Other", None);
+        let file = nucleus.path().join("handlers").join(setup.file());
+        write_own(nucleus.path(), &setup).unwrap();
+        assert!(
+            std::fs::read_to_string(&file)
+                .unwrap()
+                .contains("Game.ProtoInput")
+        );
+        refuse_hooks(nucleus.path(), &setup.exe_path).unwrap();
+        // Once.
+        refuse_hooks(nucleus.path(), &setup.exe_path.to_lowercase()).unwrap();
+        let kept = std::fs::read_to_string(nucleus.path().join("Rubylight-unhooked.json")).unwrap();
+        assert_eq!(kept.matches("acblackflag.exe").count(), 1, "{kept}");
+        write_own(nucleus.path(), &setup).unwrap();
+        let text = std::fs::read_to_string(&file).unwrap();
+        assert!(generic::owns(&text));
+        assert!(!text.contains("Game.ProtoInput"), "{text}");
+        write_own(nucleus.path(), &other).unwrap();
+        let other_text =
+            std::fs::read_to_string(nucleus.path().join("handlers").join(other.file())).unwrap();
+        assert!(other_text.contains("Game.ProtoInput"));
+        // A file Rubylight can't read is loud, never taken for none.
+        std::fs::write(nucleus.path().join("Rubylight-unhooked.json"), "{").unwrap();
+        let error = format!("{:#}", write_own(nucleus.path(), &setup).unwrap_err());
+        assert!(error.contains("delete it"), "{error}");
     }
 
     #[test]

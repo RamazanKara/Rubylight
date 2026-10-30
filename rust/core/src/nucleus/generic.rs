@@ -70,7 +70,16 @@ pub struct Setup {
     /// What the game starts with after its .exe: the app's arguments, or
     /// its Steam launch option's (Portal is `hl2.exe -game portal`).
     pub arguments: String,
+    /// Whether Nucleus Co-op injects ProtoInput's input hooks into the game
+    /// once its window shows. Off for a game that refused them: Nucleus
+    /// ends a game it can't inject into ([`INJECT_FAILED`], #59).
+    pub hooks: bool,
 }
+
+/// What Nucleus Co-op 2.4.2 says in a message box when ProtoInput's hooks
+/// can't be injected into a running game (`ProtoInputLauncher.InjectRuntime`),
+/// just before it ends the game.
+pub const INJECT_FAILED: &str = "ProtoInput failed to runtime inject";
 
 impl Setup {
     /// The setup for `exe_path`; `steam` is the Steam app it was found from
@@ -91,6 +100,7 @@ impl Setup {
             steam_app: steam.map(|(app, _)| app),
             anti_cheat: None,
             arguments: String::new(),
+            hooks: true,
         }
     }
 
@@ -155,6 +165,8 @@ impl Setup {
             "Game.HideTaskbar = false;",
             "// The game runs from its own folder and nothing is written there: no links, copies, DLLs or tools that need administrator rights.",
             "Game.Hook.CustomDllEnabled = false;",
+        ];
+        let hooks = [
             "// The game keeps running and reading its pad without focus, and never sees the PC's keyboard or moves its cursor.",
             "Game.FakeFocus = true;",
             "Game.ProtoInput.InjectStartup = false;",
@@ -169,7 +181,20 @@ impl Setup {
             "Game.ProtoInput.SetCursorPosHook = true;",
             "Game.ProtoInput.ClipCursorHook = true;",
         ];
-        let lines: Vec<&str> = head.iter().map(String::as_str).chain(options).collect();
+        let unhooked = [
+            "// The game refused ProtoInput's input hooks, so none are injected: Nucleus Co-op only tells it it has focus, and a keyboard, mouse or pad on the PC can reach it too.",
+            "Game.FakeFocus = true;",
+        ];
+        let options = options.iter().chain(if self.hooks {
+            &hooks[..]
+        } else {
+            &unhooked[..]
+        });
+        let lines: Vec<&str> = head
+            .iter()
+            .map(String::as_str)
+            .chain(options.copied())
+            .collect();
         let mut text = lines.join("\r\n");
         text.push_str("\r\n");
         text
@@ -743,6 +768,41 @@ mod tests {
                 .all(|l| l.starts_with("Game.") || l.starts_with("//"))
         );
         assert!(!text.contains("StartArguments"));
+    }
+
+    /// Nucleus Co-op ends a game ProtoInput can't be injected into (#59):
+    /// one that refused its hooks gets a handler that injects nothing, and
+    /// is otherwise the same.
+    #[test]
+    fn a_game_that_refused_the_hooks_gets_a_handler_without_them() {
+        let hooked = steam_game();
+        let setup = Setup {
+            hooks: false,
+            ..steam_game()
+        };
+        let text = setup.handler_of(Some("S-1-5-21-1-2-3-1001"));
+        assert!(owns(&text));
+        assert!(!text.contains("Game.ProtoInput"), "{text}");
+        assert!(!text.contains("Inject"), "{text}");
+        // Nucleus' own focus messages are no hook.
+        assert!(
+            text.lines().any(|l| l == "Game.FakeFocus = true;"),
+            "{text}"
+        );
+        let h = handler::parse(&setup.file(), &text).unwrap();
+        let hooked_handler = handler::parse(&hooked.file(), &hooked.handler()).unwrap();
+        assert_eq!(h.guid, hooked_handler.guid);
+        assert_eq!(setup.file(), hooked.file());
+        assert_eq!(h.max_players, 1);
+        assert!(!h.supports_keyboard);
+        assert!(!handler::needs_admin(&h));
+        // Another text: the handler written before is rewritten.
+        assert_ne!(text, hooked.handler_of(Some("S-1-5-21-1-2-3-1001")));
+        assert!(
+            text.lines()
+                .skip(1)
+                .all(|l| l.starts_with("Game.") || l.starts_with("//"))
+        );
     }
 
     #[test]

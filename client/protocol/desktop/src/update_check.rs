@@ -12,9 +12,9 @@ use std::sync::mpsc::{channel, Receiver};
 
 use crate::strings::{tr, trf};
 
-#[cfg_attr(not(windows), allow(dead_code))]
+#[cfg(windows)]
 const HOST: &str = "api.github.com";
-#[cfg_attr(not(windows), allow(dead_code))]
+#[cfg(windows)]
 const PATH: &str = "/repos/RamazanKara/nightjar/releases/latest";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -25,6 +25,7 @@ pub struct Release {
 
 /// A version's numbers and its pre-release part ("rc.1" in 4.0.0-rc.1), from a tag or a
 /// versionName; a leading `v` is allowed.
+#[cfg(any(windows, test))]
 fn parse(text: &str) -> Option<([u64; 3], Option<&str>)> {
     let text = text.trim().strip_prefix('v').unwrap_or(text.trim());
     let (core, pre) = match text.split_once('-') { Some((core, pre)) => (core, Some(pre)), None => (text, None) };
@@ -36,6 +37,7 @@ fn parse(text: &str) -> Option<([u64; 3], Option<&str>)> {
 
 /// Whether `tag` is a stable release newer than `current`. A pre-release build is older than its
 /// own final version, as in SemVer.
+#[cfg(any(windows, test))]
 pub fn newer_stable(tag: &str, current: &str) -> bool {
     let (Some((latest, None)), Some((running, pre))) = (parse(tag), parse(current)) else { return false };
     latest > running || (latest == running && pre.is_some())
@@ -43,6 +45,7 @@ pub fn newer_stable(tag: &str, current: &str) -> bool {
 
 /// The release GitHub answered, if it is an update for `current`. Drafts and pre-releases never
 /// are (GitHub's latest release excludes them; the flags are checked as V+ PC does).
+#[cfg(any(windows, test))]
 pub fn offer(json: &str, current: &str) -> Result<Option<Release>, String> {
     let value: serde_json::Value = serde_json::from_str(json).map_err(|e| format!("unreadable release: {e}"))?;
     let tag = value["tag_name"].as_str().ok_or("the release has no tag")?;

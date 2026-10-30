@@ -248,6 +248,7 @@ fn uptime_ms() -> i64 {
 }
 
 #[cfg(not(windows))]
+#[allow(clippy::unnecessary_cast, reason = "time_t and c_long are 32-bit on 32-bit Linux")]
 fn uptime_ms() -> i64 {
     let mut t = libc::timespec { tv_sec: 0, tv_nsec: 0 };
     // SAFETY: a valid timespec. CLOCK_BOOTTIME counts suspend too, like Android's elapsedRealtime.

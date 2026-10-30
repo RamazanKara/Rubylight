@@ -1846,6 +1846,7 @@ impl App {
         let Some((streaming, _)) = self.streaming.as_mut() else {
             return;
         };
+        #[cfg(windows)]
         streaming.pump_touchpad(window);
         streaming.pump();
         if streaming.session_page_requested {

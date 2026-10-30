@@ -29,16 +29,11 @@ controller to its own device. This enables two modes:
    stepped away and keeps the slot for two minutes, and a **Let … join**
    button for each paired device that may not join yet.
 
-<table>
-  <tr>
-    <td><img src="media/showcase/coop-setup.png" alt="A game's page in the console: the Play together panel with Set up co-op, naming the Nucleus Co-op 2.4.2 download (97 MB) from its GitHub release."></td>
-    <td><img src="media/showcase/coop-ready.png" alt="The Play together panel once co-op is ready: up to 2 players, start the game's Co-op entry from Nightjar or Moonlight, and a switch that shows the entry in the library."></td>
-  </tr>
-</table>
+![A game's page in the console: the Play together panel with Set up co-op, naming the Nucleus Co-op 2.4.2 download (97 MB) from its GitHub release.](media/showcase/coop-setup.png)
 
-<p align="center">
-  <img src="media/showcase/coop-home.png" width="800" alt="A running co-op game on Home: Player 1 on Living room PC playing, Player 2 on Retroid Pocket 5 away and keeping the slot for 1:24, two free slots, and Let Bedroom TV join.">
-</p>
+![The Play together panel once co-op is ready: up to 2 players, start the game's Co-op entry from Nightjar or Moonlight, and a switch that shows the entry in the library.](media/showcase/coop-ready.png)
+
+![A running co-op game on Home: Player 1 on Living room PC playing, Player 2 on Retroid Pocket 5 away and keeping the slot for 1:24, two free slots, and Let Bedroom TV join.](media/showcase/coop-home.png)
 
 Co-op and background streams need the host to run as the Windows service
 (the installer's default) and accept controllers only. Co-op, hub handlers

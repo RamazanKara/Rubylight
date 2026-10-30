@@ -2616,8 +2616,7 @@ impl Launcher {
             if let Some(host) = test_host {
                 let online = host.paired() && host.reach == Reach::Online;
                 row(ui, "Bandwidth", "Receive 32 MiB from this PC. Uses network data and requires a supported paired host.", |ui| {
-                    let enabled = online && host.info.as_ref().is_some_and(|i| i.capabilities.has(nightjar_core::http::Feature::PyroWaveBandwidthProbe)
-                        || crate::network_test::has_foundation_probe(i));
+                    let enabled = online && host.bandwidth_test();
                     let button = ui.add_enabled(enabled, egui::Button::new(tr("Test speed")));
                     if button.clicked() { commands.push(Command::NetworkTest { host: host.id, calibrate: false }); }
                     button

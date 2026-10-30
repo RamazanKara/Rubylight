@@ -333,7 +333,10 @@ fn main() -> Result<()> {
     stop.store(true, Ordering::Release);
     renderer.join().unwrap()?;
     let recorded = recorder.join().unwrap()?;
-    let trimmed = playout.lock().unwrap().trimmed;
+    let (trimmed, underruns, underrun) = {
+        let playout = playout.lock().unwrap();
+        (playout.trimmed, playout.underruns, playout.underrun_samples)
+    };
     let heard: Vec<(i64, f64)> = onsets
         .iter()
         .filter_map(|&onset| {
@@ -372,6 +375,8 @@ fn main() -> Result<()> {
         "concealed": concealed,
         "recovered": recovered,
         "trimmed_ms": trimmed * 1000 / 48000,
+        "underruns": underruns,
+        "underrun_ms": underrun * 1000 / 48000,
         "bursts": onsets.len(),
         "heard": delays.len(),
         "received_to_recorded_ms": {

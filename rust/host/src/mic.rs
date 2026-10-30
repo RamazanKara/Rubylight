@@ -228,8 +228,12 @@ impl Receiver {
             return;
         };
         self.output.stop(&speaker.session);
-        let trimmed = std::mem::take(&mut self.playout.lock().unwrap().trimmed);
-        self.playout.lock().unwrap().clear();
+        let (trimmed, underruns, underrun) = {
+            let mut playout = self.playout.lock().unwrap();
+            let counts = (playout.trimmed, playout.underruns, playout.underrun_samples);
+            playout.clear();
+            counts
+        };
         let s = &speaker.stats;
         tracing::info!(
             client = %speaker.session.launch.client.name,
@@ -240,6 +244,8 @@ impl Receiver {
             late = s.late,
             damaged = s.damaged,
             trimmed_ms = trimmed * 1000 / mic::RATE as u64,
+            underruns,
+            underrun_ms = underrun * 1000 / mic::RATE as u64,
             "microphone stopped"
         );
     }

@@ -1,0 +1,3 @@
+# Microphone playout (#56)
+- **Microphone audio from devices that send it in bursts no longer drops in chunks.** Some Android TVs deliver several voice packets at once; the host cut the queue back to 20 ms each time and lost up to 5% of the audio. The host now learns how far apart packets keep arriving and holds up to twice that (at most 150 ms). A steady device keeps the delay it had, and a device clock that runs fast loses small crossfaded slices instead of whole chunks.
+- `microphone stopped` in the log now counts underruns, where the microphone ran dry while audio kept coming, and their length next to `trimmed_ms`.

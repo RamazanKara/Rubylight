@@ -155,33 +155,208 @@ impl Sequencer {
     }
 }
 
+/// Samples in `ms` milliseconds.
+const fn ms(ms: usize) -> usize {
+    RATE * ms / 1000
+}
+/// Played audio counts its time in `WINDOW` slices; the last `WINDOWS` of
+/// them (two seconds) are what the queue learns the client's arrival from.
+const WINDOW: usize = ms(100);
+const WINDOWS: usize = 20;
+/// The most the queue holds for a bursty client.
+const CAP: usize = ms(150);
+/// Audio the device and queue never fell below for the last `SETTLED`
+/// windows, past what the next wake-up needs, is standing delay (from a
+/// client clock that runs fast, an underrun, or a burst client that turned
+/// steady), unless packets came late enough lately to need it (the gap less
+/// a packet) or it is within `STANDING`. `SLICE` of it goes, at most once a
+/// `WINDOW`, crossfaded over `FADE`; a learnt gap that falls also loses
+/// `SLICE` a window, so its excess bleeds off the same way. Half a second
+/// and 5 ms react before a client 1% fast reaches the 60 ms bound.
+const SETTLED: usize = 5;
+const STANDING: usize = ms(5);
+const SLICE: usize = RATE * 25 / 10_000;
+const FADE: usize = RATE * 25 / 10_000;
+/// A dry spell longer than this is the client pausing (it stops sending to
+/// mute), not an underrun.
+const PAUSE: usize = ms(250);
+
+#[derive(Clone, Copy, Default)]
+struct Window {
+    /// The least audio buffered at a render pull beyond the device period it
+    /// needs, `usize::MAX` for none yet.
+    low: usize,
+    /// The longest gap between packets that their audio did not cover, in
+    /// samples played.
+    gap: usize,
+}
 /// Decoded samples waiting for the render device. The client delivers whole
-/// packets and Windows takes a device period at a time; the queue absorbs
-/// that and the network's jitter. When it holds more than three packets'
-/// worth (at least 60 ms), from a burst or a client clock that runs fast,
-/// the oldest samples go, down to one packet (at least 20 ms), so the
-/// microphone never drifts behind the speaker.
+/// packets, sometimes several at once, and Windows takes a device period at
+/// a time; the queue absorbs that and the network's jitter. It learns the
+/// gap between packets over the last two seconds, from gaps that came back
+/// at least twice, and holds up to twice that, at most 150 ms (and at least
+/// 60 ms or three packets, as before), so a client that sends 60 ms at a
+/// time is not cut. A steady client, or one stall or loss burst, keeps the
+/// 60 ms bound: the oldest samples go, down to one packet (at least 20 ms),
+/// or to the gap for a bursty client. Standing delay goes in 2.5 ms slices,
+/// crossfaded. When the queue runs dry it counts the underrun and plays
+/// again once it has enough for a wake-up, adding no wait of its own.
 #[derive(Default)]
 pub struct Playout {
     queue: VecDeque<f32>,
     /// Samples dropped to keep the delay bounded.
     pub trimmed: u64,
+    /// Times the queue ran dry while audio kept coming, and the silence
+    /// that filled them, in samples.
+    pub underruns: u64,
+    pub underrun_samples: u64,
+    /// Whether the device is being fed from the queue: off until the first
+    /// audio and after an underrun until the queue has refilled.
+    playing: bool,
+    /// Silence written since the queue ran dry, while it is refilling.
+    dry: Option<usize>,
+    /// Samples written to the device, the queue's clock.
+    clock: usize,
+    last_push: Option<usize>,
+    packet: usize,
+    /// The learnt gap: it follows a higher one at once and a lower one by
+    /// `SLICE` a window.
+    held: usize,
+    windows: [Window; WINDOWS],
+    window: usize,
+    window_end: usize,
 }
 impl Playout {
     pub fn push(&mut self, samples: &[f32]) {
         self.push_batch(samples, samples.len());
     }
     /// Queue a packet together with any preceding concealment. The queue
-    /// bound follows one packet's duration, not the loss burst's total PCM.
+    /// bound follows one packet's duration, not the loss burst's total PCM,
+    /// and the concealment covers its part of the gap before the packet.
     pub fn push_batch(&mut self, samples: &[f32], packet_frames: usize) {
-        self.queue.extend(samples.iter().map(|s| s.clamp(-1., 1.)));
-        let limit = (3 * packet_frames).max(RATE * 60 / 1000);
-        if self.queue.len() > limit {
-            let keep = packet_frames.max(RATE * 20 / 1000);
-            let drop = self.queue.len() - keep;
-            self.queue.drain(..drop);
-            self.trimmed += drop as u64;
+        if let Some(last) = self.last_push.replace(self.clock) {
+            // A pause (a mute) is not a gap to buffer for.
+            let concealed = samples.len().saturating_sub(packet_frames);
+            let gap = (self.clock - last).saturating_sub(concealed);
+            if gap <= PAUSE {
+                let window = &mut self.windows[self.window];
+                window.gap = window.gap.max(gap);
+                self.held = self.held.max(self.recurring());
+            }
         }
+        self.packet = packet_frames;
+        self.queue.extend(samples.iter().map(|s| s.clamp(-1., 1.)));
+        let limit = (2 * self.gap()).min(CAP).max(3 * packet_frames).max(ms(60));
+        if self.queue.len() > limit {
+            self.cut(self.queue.len().saturating_sub(self.depth()));
+        }
+    }
+    /// The longest gap between packets lately that came back at least twice,
+    /// in windows apart: one stall is not a pattern to buffer for, even when
+    /// the network releases it in two batches in neighbouring windows.
+    fn recurring(&self) -> usize {
+        let top = (0..WINDOWS)
+            .max_by_key(|&i| self.windows[i].gap)
+            .unwrap_or(0);
+        (0..WINDOWS)
+            .filter(|&i| (2..=WINDOWS - 2).contains(&((i + WINDOWS - top) % WINDOWS)))
+            .map(|i| self.windows[i].gap)
+            .max()
+            .unwrap_or(0)
+    }
+    /// The gap the queue buffers for.
+    fn gap(&self) -> usize {
+        self.held
+    }
+    /// What the queue keeps after a cut: enough to last until the next
+    /// packet, and at least one packet (20 ms or more). Never more than the
+    /// limit `push_batch` cuts at.
+    fn depth(&self) -> usize {
+        self.gap().min(CAP).max(self.packet).max(ms(20))
+    }
+    /// Drops the oldest `drop` samples. While playing, the samples kept
+    /// first fade in from the ones dropped, so the seam with what the
+    /// device already has does not click.
+    fn cut(&mut self, drop: usize) {
+        let fade = if self.playing {
+            FADE.min(self.queue.len() - drop)
+        } else {
+            0
+        };
+        let mut old = [0.; FADE];
+        for (slot, &sample) in old.iter_mut().zip(self.queue.iter()).take(fade) {
+            *slot = sample;
+        }
+        for (i, &old) in old.iter().enumerate().take(fade) {
+            let weight = (i + 1) as f32 / (fade + 1) as f32;
+            let new = self.queue[drop + i];
+            self.queue[drop + i] = old + (new - old) * weight;
+        }
+        self.queue.drain(..drop);
+        self.trimmed += drop as u64;
+        for window in &mut self.windows {
+            if window.low != usize::MAX {
+                window.low = window.low.saturating_sub(drop);
+            }
+        }
+    }
+    /// One render pull: the device holds `padding` of its `buffer` frames
+    /// and plays `period` per wake-up. Moves the samples [`render_plan`]
+    /// gives it into `out` and returns the silence to write after them.
+    pub fn pull(
+        &mut self,
+        buffer: usize,
+        padding: usize,
+        period: usize,
+        out: &mut Vec<f32>,
+    ) -> usize {
+        // Refilled: enough that this wake-up needs no silence, so a queue of
+        // small packets does not play a sliver every period.
+        if !self.playing && !self.queue.is_empty() && self.queue.len() + padding >= period {
+            self.playing = true;
+            if let Some(dry) = self.dry.take().filter(|&dry| dry <= PAUSE) {
+                self.underruns += 1;
+                self.underrun_samples += dry as u64;
+            }
+        }
+        let window = &mut self.windows[self.window];
+        window.low = window
+            .low
+            .min((self.queue.len() + padding).saturating_sub(period));
+        let ready = if self.playing { self.queue.len() } else { 0 };
+        let (samples, silence) = render_plan(buffer, padding, period, ready);
+        out.clear();
+        out.extend(self.queue.drain(..samples));
+        if self.playing && silence > 0 {
+            // The device would run dry: an underrun, unless no audio follows.
+            self.playing = false;
+            self.dry = Some(silence);
+        } else if let Some(dry) = &mut self.dry {
+            *dry += silence;
+        }
+        self.clock += samples + silence;
+        while self.clock >= self.window_end {
+            self.window_end += WINDOW;
+            self.window = (self.window + 1) % WINDOWS;
+            self.windows[self.window] = Window {
+                low: usize::MAX,
+                gap: 0,
+            };
+            self.held = self.recurring().max(self.held.saturating_sub(SLICE));
+            let low = (1..=SETTLED)
+                .map(|back| self.windows[(self.window + WINDOWS - back) % WINDOWS].low)
+                .min()
+                .unwrap_or(0);
+            let needed = self.gap().saturating_sub(self.packet).max(STANDING);
+            if self.playing
+                && low != usize::MAX
+                && low >= needed + SLICE
+                && self.queue.len() >= SLICE + FADE
+            {
+                self.cut(SLICE);
+            }
+        }
+        silence
     }
     pub fn len(&self) -> usize {
         self.queue.len()
@@ -189,7 +364,8 @@ impl Playout {
     pub fn is_empty(&self) -> bool {
         self.queue.is_empty()
     }
-    /// Moves up to `out.len()` samples into `out`; returns how many.
+    /// Moves up to `out.len()` samples into `out`; returns how many. Unlike
+    /// [`Self::pull`], this is not a device pull and counts nothing.
     pub fn take(&mut self, out: &mut [f32]) -> usize {
         let n = out.len().min(self.queue.len());
         for (slot, sample) in out.iter_mut().zip(self.queue.drain(..n)) {
@@ -197,8 +373,9 @@ impl Playout {
         }
         n
     }
+    /// Starts over for the next speaker, counters included.
     pub fn clear(&mut self) {
-        self.queue.clear();
+        *self = Self::default();
     }
 }
 /// Frames to write to a render buffer of `buffer` frames that still holds
@@ -366,6 +543,392 @@ mod tests {
             assert_eq!(playout.take(&mut newest), keep);
             assert_eq!(newest, batch[count - keep..]);
         }
+    }
+
+    /// What a render pull drains: the playout, or the bound it replaced, so
+    /// the two can be compared.
+    trait Queue: Default {
+        fn push_batch(&mut self, samples: &[f32], packet_frames: usize);
+        fn pull(
+            &mut self,
+            buffer: usize,
+            padding: usize,
+            period: usize,
+            out: &mut Vec<f32>,
+        ) -> usize;
+        fn len(&self) -> usize;
+    }
+    impl Queue for Playout {
+        fn push_batch(&mut self, samples: &[f32], packet_frames: usize) {
+            Playout::push_batch(self, samples, packet_frames);
+        }
+        fn pull(
+            &mut self,
+            buffer: usize,
+            padding: usize,
+            period: usize,
+            out: &mut Vec<f32>,
+        ) -> usize {
+            Playout::pull(self, buffer, padding, period, out)
+        }
+        fn len(&self) -> usize {
+            Playout::len(self)
+        }
+    }
+    /// The queue before: above three packets or 60 ms, cut to one packet
+    /// (at least 20 ms), and the device fed whatever is there.
+    #[derive(Default)]
+    struct Bounded(VecDeque<f32>);
+    impl Queue for Bounded {
+        fn push_batch(&mut self, samples: &[f32], packet_frames: usize) {
+            self.0.extend(samples);
+            if self.0.len() > (3 * packet_frames).max(ms(60)) {
+                let drop = self.0.len() - packet_frames.max(ms(20));
+                self.0.drain(..drop);
+            }
+        }
+        fn pull(
+            &mut self,
+            buffer: usize,
+            padding: usize,
+            period: usize,
+            out: &mut Vec<f32>,
+        ) -> usize {
+            let (samples, silence) = render_plan(buffer, padding, period, self.0.len());
+            out.clear();
+            out.extend(self.0.drain(..samples));
+            silence
+        }
+        fn len(&self) -> usize {
+            self.0.len()
+        }
+    }
+    struct Run<Q> {
+        queue: Q,
+        /// Everything the device played.
+        played: Vec<f32>,
+        /// The mean of what the device and the queue held at the pulls
+        /// after `from`, in ms: how far playback is behind arrival.
+        delay: f64,
+    }
+    /// A device of `period` samples in a buffer of two, pulled every period
+    /// until `until` (µs), fed a 1 kHz tone: `deliveries` are (µs, samples),
+    /// ascending, in packets of `packet` (more is concealment before one).
+    /// `each` sees the queue after every push and pull, with the time.
+    fn simulate<Q: Queue>(
+        deliveries: &[(u64, usize)],
+        packet: usize,
+        period: usize,
+        until: u64,
+        from: u64,
+        mut each: impl FnMut(u64, &Q),
+    ) -> Run<Q> {
+        let mut queue = Q::default();
+        let (mut played, mut out) = (Vec::new(), Vec::new());
+        let (mut padding, mut sent) = (0, 0);
+        let (mut delay, mut pulls) = (0, 0);
+        let mut deliveries = deliveries.iter().copied().peekable();
+        for now in (0..until).step_by(period * 1_000_000 / RATE) {
+            while let Some((at, frames)) = deliveries.next_if(|&(at, _)| at < now) {
+                let samples: Vec<f32> = (sent..sent + frames)
+                    .map(|n| ((n % 48) as f32 * std::f32::consts::TAU / 48.).sin() * 0.5)
+                    .collect();
+                sent += frames;
+                queue.push_batch(&samples, packet);
+                each(at, &queue);
+            }
+            padding = usize::saturating_sub(padding, period);
+            if now >= from {
+                delay += queue.len() + padding;
+                pulls += 1;
+            }
+            let silence = queue.pull(2 * period, padding, period, &mut out);
+            played.extend(&out);
+            played.extend(std::iter::repeat_n(0., silence));
+            padding += out.len() + silence;
+            each(now, &queue);
+        }
+        let delay = delay as f64 / pulls as f64 * 1000. / RATE as f64;
+        Run {
+            queue,
+            played,
+            delay,
+        }
+    }
+    /// 20 ms packets at `times`.
+    fn packets(times: impl IntoIterator<Item = u64>) -> Vec<(u64, usize)> {
+        times.into_iter().map(|at| (at, 960)).collect()
+    }
+    /// After the first `primed` µs: the most the queue held, and whether
+    /// anything was trimmed or ran dry.
+    fn after_priming(
+        deliveries: &[(u64, usize)],
+        until: u64,
+        primed: u64,
+    ) -> (Run<Playout>, usize, u64, u64) {
+        let mut most = 0;
+        let mut at_priming = None;
+        let run = simulate(deliveries, 960, 480, until, primed, |now, p: &Playout| {
+            if now >= primed {
+                at_priming.get_or_insert((p.trimmed, p.underruns));
+                most = most.max(p.len());
+            }
+        });
+        let (trimmed, underruns) = at_priming.unwrap();
+        let trimmed = run.queue.trimmed - trimmed;
+        let underruns = run.queue.underruns - underruns;
+        (run, most, trimmed, underruns)
+    }
+    /// A small deterministic jitter in 0..=2 * `range` µs.
+    fn jitter(seed: &mut u32, range: u64) -> u64 {
+        *seed ^= *seed << 13;
+        *seed ^= *seed >> 17;
+        *seed ^= *seed << 5;
+        u64::from(*seed) % (2 * range + 1)
+    }
+
+    #[test]
+    fn a_client_that_sends_in_bursts_is_not_cut() {
+        // Three packets every 60 ms, as some Android TVs send them.
+        let regular = packets((0..500u64).flat_map(|k| [5_000 + k * 60_000; 3]));
+        let (run, most, trimmed, underruns) = after_priming(&regular, 30_000_000, 0);
+        assert_eq!((trimmed, underruns, run.queue.underrun_samples), (0, 0, 0));
+        assert!(most <= ms(60), "{most}");
+        // Every sample sent was played.
+        assert!(run.played.iter().filter(|s| **s != 0.).count() > 499 * 2880 * 9 / 10);
+        // Bursts that are irregular, which a 60 ms bound cut a chunk out of
+        // every time: each up to 15 ms early or late, or of two to four
+        // packets. Once the queue has learnt the spread, it neither cuts nor
+        // runs dry.
+        let mut seed = 0x2545_f491;
+        let jittered =
+            packets((0..500u64).flat_map(|k| [2_000 + k * 60_000 + jitter(&mut seed, 15_000); 3]));
+        let sized = packets(
+            (0..500u64).flat_map(|k| vec![5_000 + k * 60_000; [3, 2, 4, 3][k as usize % 4]]),
+        );
+        for deliveries in [jittered, sized] {
+            let (_, most, trimmed, underruns) = after_priming(&deliveries, 30_000_000, 5_000_000);
+            assert_eq!((trimmed, underruns), (0, 0));
+            assert!(most <= CAP, "{most}");
+        }
+    }
+
+    #[test]
+    fn a_steady_client_is_played_no_later_than_before() {
+        let mut seed = 0x1234_5678;
+        let straddling =
+            packets((0..1500u64).map(|k| 8_000 + k * 20_000 + jitter(&mut seed, 2_000)));
+        let short: Vec<_> = (0..3000u64)
+            .map(|k| (3_000 + k * 10_000 + jitter(&mut seed, 1_500), 480))
+            .collect();
+        let late =
+            packets((0..1500u64).map(|k| 5_000 + k * 20_000 + if k == 150 { 8_000 } else { 0 }));
+        let muted = packets(
+            (0..1500u64)
+                .filter(|k| !(150..180).contains(k))
+                .map(|k| 5_000 + k * 20_000),
+        );
+        // 100 ms with nothing, then its packets at once: once, and every 4 s.
+        let stall = |every: u64| {
+            packets((0..1500u64).map(move |k| {
+                let at = 5_000 + k * 20_000;
+                let phase = at % every;
+                if (3_000_000..3_100_000).contains(&phase) {
+                    at - phase + 3_100_000
+                } else {
+                    at
+                }
+            }))
+        };
+        // Three or five packets lost and concealed in front of the next one.
+        let concealed = |lost: u64| -> Vec<(u64, usize)> {
+            (0..1500u64)
+                .filter(|k| !(150..150 + lost).contains(k))
+                .map(|k| {
+                    (
+                        5_000 + k * 20_000,
+                        if k == 150 + lost {
+                            960 * (lost as usize + 1)
+                        } else {
+                            960
+                        },
+                    )
+                })
+                .collect()
+        };
+        for (name, deliveries, packet, period) in [
+            (
+                "20 ms packets around a wake-up",
+                straddling.clone(),
+                960,
+                480,
+            ),
+            ("10 ms packets", short, 480, 480),
+            ("one packet 8 ms late", late, 960, 480),
+            ("600 ms muted", muted.clone(), 960, 480),
+            ("one stall", stall(30_000_000), 960, 480),
+            ("a stall every 4 s", stall(4_000_000), 960, 480),
+            ("3 concealed", concealed(3), 960, 480),
+            ("5 concealed", concealed(5), 960, 480),
+            ("5 ms device", straddling, 960, 240),
+        ] {
+            let new = simulate::<Playout>(
+                &deliveries,
+                packet,
+                period,
+                30_000_000,
+                1_000_000,
+                |_, _| {},
+            );
+            let old = simulate::<Bounded>(
+                &deliveries,
+                packet,
+                period,
+                30_000_000,
+                1_000_000,
+                |_, _| {},
+            );
+            assert!(
+                new.delay <= old.delay + 0.01,
+                "{name}: {:.1} ms, before {:.1} ms",
+                new.delay,
+                old.delay
+            );
+        }
+        // A mute is not an underrun.
+        let run = simulate::<Playout>(&muted, 960, 480, 30_000_000, 0, |_, _| {});
+        assert_eq!(run.queue.underruns, 0);
+    }
+
+    #[test]
+    fn a_stall_released_in_two_batches_is_not_learnt() {
+        // 80 ms with nothing, two packets, 60 ms more, then the rest: two
+        // long gaps, often in neighbouring windows, but one stall. Every
+        // phase of the stall against the windows keeps the old delay.
+        for phase in 0..20u64 {
+            let stall = 3_000_000 + phase * 5_000;
+            let deliveries = packets((0..500u64).map(|k| {
+                let at = 5_000 + k * 20_000;
+                match at {
+                    _ if at > stall && at < stall + 40_000 => stall + 80_000,
+                    _ if at > stall + 40_000 && at < stall + 140_000 => stall + 140_000,
+                    _ => at,
+                }
+            }));
+            let new = simulate::<Playout>(&deliveries, 960, 480, 6_000_000, 2_000_000, |_, _| {});
+            let old = simulate::<Bounded>(&deliveries, 960, 480, 6_000_000, 2_000_000, |_, _| {});
+            assert!(
+                new.delay <= old.delay + 0.01,
+                "phase {phase}: {:.1} ms, before {:.1} ms",
+                new.delay,
+                old.delay
+            );
+        }
+    }
+
+    #[test]
+    fn a_fast_client_clock_loses_small_crossfaded_slices() {
+        // The client's 20 ms take 19.8 ms of the host's time: 1% too much audio.
+        let deliveries = packets((0..3000u64).map(|k| 5_000 + k * 19_800));
+        let mut trimmed = 0;
+        let run = simulate(
+            &deliveries,
+            960,
+            480,
+            59_000_000,
+            1_000_000,
+            |now, p: &Playout| {
+                assert!(p.trimmed - trimmed <= SLICE as u64, "{now}");
+                trimmed = p.trimmed;
+                if now > 1_000_000 {
+                    assert!(p.len() <= ms(60), "{now}: {}", p.len());
+                }
+            },
+        );
+        assert_eq!(run.queue.underruns, 0);
+        assert_eq!(run.queue.trimmed % SLICE as u64, 0);
+        let sent = deliveries
+            .iter()
+            .filter(|&&(at, _)| at < 58_990_000)
+            .count()
+            * 960;
+        let share = run.queue.trimmed as f64 / sent as f64;
+        assert!((0.008..0.0105).contains(&share), "{share}");
+        // The tone moves at most 0.065 a sample; a cut without the fade
+        // would jump by up to 1.
+        let jump = run
+            .played
+            .windows(2)
+            .map(|w| (w[1] - w[0]).abs())
+            .fold(0., f32::max);
+        assert!(jump < 0.08, "{jump}");
+        // No later than the old bound, which let it grow to 60 ms and cut.
+        let old = simulate::<Bounded>(&deliveries, 960, 480, 59_000_000, 1_000_000, |_, _| {});
+        assert!(
+            run.delay <= old.delay,
+            "{:.1} ms, before {:.1} ms",
+            run.delay,
+            old.delay
+        );
+    }
+
+    #[test]
+    fn a_short_cut_fades_from_the_samples_it_drops() {
+        let ramp: Vec<f32> = (0..400).map(|n| n as f32 / 400.).collect();
+        let mut playout = Playout::default();
+        playout.push(&ramp);
+        playout.playing = true;
+        playout.cut(10);
+        let mut kept = vec![0.; 390];
+        assert_eq!(playout.take(&mut kept), 390);
+        for (i, &sample) in kept.iter().enumerate() {
+            let expected = if i < FADE {
+                let weight = (i + 1) as f32 / (FADE + 1) as f32;
+                ramp[i] + (ramp[10 + i] - ramp[i]) * weight
+            } else {
+                ramp[10 + i]
+            };
+            assert!((sample - expected).abs() < 1e-6, "{i}: {sample} {expected}");
+        }
+    }
+
+    #[test]
+    fn underruns_are_counted_and_refilled_but_pauses_are_not() {
+        // Steady for two seconds with a 60 ms stall (its packets then come
+        // at once), 600 ms of mute, a second more, and the end of the stream.
+        let deliveries = packets((0..100u64).chain(130..180).map(|k| {
+            5_000
+                + k * 20_000
+                + if (50..53).contains(&k) {
+                    (53 - k) * 20_000
+                } else {
+                    0
+                }
+        }));
+        let mut dry_pulls = 0;
+        let mut was_dry = false;
+        let run = simulate(&deliveries, 960, 480, 4_000_000, 0, |_, p: &Playout| {
+            // One underrun is one dry spell, not one per device period.
+            if p.dry.is_some() && !was_dry {
+                dry_pulls += 1;
+            }
+            was_dry = p.dry.is_some();
+        });
+        let mut playout = run.queue;
+        assert_eq!(playout.underruns, 1);
+        // 60 ms late, less what the device still held.
+        assert!(
+            (ms(40)..=ms(70)).contains(&(playout.underrun_samples as usize)),
+            "{}",
+            playout.underrun_samples
+        );
+        // The stall, the mute, and the end of the stream.
+        assert_eq!(dry_pulls, 3);
+        playout.clear();
+        assert_eq!(
+            (playout.underruns, playout.trimmed, playout.len()),
+            (0, 0, 0)
+        );
     }
 
     #[test]

@@ -8,7 +8,7 @@
 //! format the endpoint is set to (`AUTOCONVERTPCM`), so the host does not
 //! change the device's format.
 use anyhow::{Result, bail};
-use butterpollo_core::mic::{Playout, RATE, render_plan};
+use butterpollo_core::mic::{Playout, RATE};
 use std::time::Duration;
 use windows::{
     Win32::{
@@ -61,8 +61,8 @@ impl Render {
                 SubFormat: GUID::from_u128(0x00000003_0000_0010_8000_00aa00389b71),
             };
             let event = CreateEventW(None, false, false, PCWSTR::null())?;
-            // Two device periods: the event fires each period, and render_plan
-            // keeps at most two queued.
+            // Two device periods: the event fires each period, and
+            // Playout::pull keeps at most two queued.
             let result = client
                 .Initialize(
                     AUDCLNT_SHAREMODE_SHARED,
@@ -114,19 +114,19 @@ impl Render {
         }
     }
     /// Moves what the device has room for from `playout`, adding silence
-    /// only when it would otherwise run dry. Returns the samples written.
+    /// only when it would otherwise run dry (which `playout` counts as an
+    /// underrun). Returns the samples written.
     pub fn fill(&mut self, playout: &mut Playout) -> Result<usize> {
         // SAFETY: `self.client` and `self.render` are live and initialised, GetBuffer returns
         // room for `total` stereo float frames, and the buffer is released before returning.
         unsafe {
             let padding = self.client.GetCurrentPadding()? as usize;
-            let (samples, silence) = render_plan(self.buffer, padding, self.period, playout.len());
+            let silence = playout.pull(self.buffer, padding, self.period, &mut self.scratch);
+            let samples = self.scratch.len();
             let total = samples + silence;
             if total == 0 {
                 return Ok(0);
             }
-            self.scratch.resize(samples, 0.);
-            let samples = playout.take(&mut self.scratch);
             let data = self.render.GetBuffer(total as u32)?.cast::<[f32; 2]>();
             let frames = std::slice::from_raw_parts_mut(data, total);
             for (frame, &sample) in frames.iter_mut().zip(&self.scratch[..samples]) {

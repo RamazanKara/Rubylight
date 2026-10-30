@@ -15,7 +15,7 @@ A streaming device can send its microphone to the PC. Games and chat application
 - If Windows cannot change the default, forwarding continues and the stream card explains how to select **Microphone (Steam Streaming Microphone)** manually.
 - The host plays the microphone only while a device sends it, and releases the device three seconds after it stops. When two devices send at once, the first is heard until it has been quiet for a second.
 - The microphone uses UDP port 48001 (the base port plus 12), next to the other stream ports. With UPnP on, it is mapped with them.
-- The stream card shows **Microphone unavailable** with the reason when the PC cannot play it, for example when Steam is not installed. The log records `microphone started` and, at the end, `microphone stopped` with the packets received, concealed, recovered from error correction, late and trimmed.
+- The stream card shows **Microphone unavailable** with the reason when the PC cannot play it, for example when Steam is not installed. The log records `microphone started` and, at the end, `microphone stopped` with the packets received, concealed, recovered from error correction, late and trimmed, and the underruns (the queue ran dry while packets kept coming) with the silence they cost.
 
 ## For client developers
 
@@ -57,7 +57,7 @@ The host matches a packet to its session by the client's IP address and the key 
 
 - Mono, 48 kHz Opus. The host decodes any frame length from 2.5 to 120 ms; 10 or 20 ms frames suit voice.
 - Use the VOIP application, turn on in-band FEC (`OPUS_SET_INBAND_FEC(1)`) and give a packet loss estimate (`OPUS_SET_PACKET_LOSS_PERC`, for example 10). A single lost packet is then recovered from the next one; up to five lost packets in a row are concealed. 24 to 64 kb/s is plenty for speech.
-- Send packets as they are captured; do not batch them. The host does not wait to reorder: a packet that arrives after a later one is dropped. It keeps at most 60 ms (or three packets) queued and drops the oldest audio beyond that, so a burst cannot leave the microphone behind the game.
+- Send packets as they are captured; do not batch them. The host does not wait to reorder: a packet that arrives after a later one is dropped. It learns the gap between packets over the last two seconds, from gaps that come back, and keeps up to twice that queued (at least 60 ms or three packets, at most 150 ms), dropping the oldest audio beyond that, so a burst cannot leave the microphone behind the game. Packets that come in bursts are held instead of cut; steady packets, a single stall and concealed loss keep the 60 ms bound and the delay they had before. Standing delay, such as from a clock that runs fast, goes in 2.5 ms slices, crossfaded.
 - To mute, stop sending. Sequence numbers may continue where they left off.
 
 ### Android

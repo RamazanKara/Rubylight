@@ -652,6 +652,48 @@ fn the_payload_buffer_is_reused_across_frames_and_the_length_outlives_it() {
     assert_eq!((buffer.as_ptr(), buffer.capacity()), (pointer, capacity));
 }
 
+#[test]
+fn streamed_blocks_overwrite_every_byte_of_dirty_shards() {
+    // The shards a streamed frame reuses are not cleared as a whole either:
+    // garbage in them must not change a packet, early blocks or the tail.
+    let size = 300_000 + 700;
+    let payload = frame_bytes(size);
+    let parts = [40_000, 61_000, 9, 90_000, 70_000, size - 261_009];
+    for key in [None, Some([42; 16])] {
+        for (fec_percent, min_fec) in [(20, 2), (0, 0)] {
+            let mut fresh = packetizer(fec_percent, min_fec, key);
+            let (expected, result) = run(&mut fresh, &payload, &parts, 3, 6, 2 * size);
+            result.unwrap();
+            assert!(expected.done && expected.blocks.len() == 3 && expected.early > 0);
+            let mut p = packetizer(fec_percent, min_fec, key);
+            let mut frame = p.streamed(9000, 500, 3, 6, 2 * size).unwrap();
+            let mut shards: PacketBlock = (0..300).map(|_| vec![0xA5; 1500]).collect();
+            let mut packets = Vec::new();
+            let mut offset = 0;
+            for (index, part) in parts.iter().enumerate() {
+                let unit = &payload[offset..offset + part];
+                offset += part;
+                let last = index + 1 == parts.len();
+                frame
+                    .push(&mut p, unit, last, &mut shards, |built, _| {
+                        packets.extend(built.iter().cloned());
+                        for shard in built.iter_mut() {
+                            shard.fill(0xA5);
+                        }
+                        Ok(())
+                    })
+                    .unwrap();
+            }
+            assert_eq!(
+                packets,
+                expected.packets,
+                "fec {fec_percent}%, encrypted {}",
+                key.is_some()
+            );
+        }
+    }
+}
+
 /// A frame of a fixture: its kind, payload and packets.
 type FixtureFrame = (u8, Vec<u8>, Vec<Vec<u8>>);
 

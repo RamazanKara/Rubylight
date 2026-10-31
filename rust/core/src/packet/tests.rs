@@ -206,38 +206,57 @@ fn conventional_blocks_reuse_shards_and_match_collected_packets() {
 #[test]
 fn conventional_blocks_overwrite_every_byte_of_dirty_buffers() {
     // Reused shards are not cleared as a whole; stale bytes must never leak
-    // into a header, a payload tail, a parity row or the envelope.
-    for key in [None, Some([42; 16])] {
-        for size in [10, 1375, 1376, 44_024, 264_184] {
-            let make = || VideoPacketizer {
-                sequence: 77,
-                iv_counter: 5,
-                frame: 3,
-                packet_size: 1392,
-                fec_percent: 20,
-                min_fec: 2,
-                key,
-            };
-            let payload: Vec<u8> = (0..size).map(|i| (i * 31 + 7) as u8).collect();
-            let expected = make().encode(&payload, true, 9000, 500).unwrap();
-            let mut buffers: Vec<Vec<u8>> = (0..300).map(|_| vec![0xA5; 1500]).collect();
-            let mut actual = make();
-            let (_, mut next) = actual
-                .conventional_blocks(&payload, true, false, 9000, 500)
-                .unwrap();
-            let mut wire = Vec::new();
-            loop {
-                let count = next(&mut buffers).unwrap();
-                if count == 0 {
-                    break;
-                }
-                wire.extend(buffers[..count].iter().cloned());
-                for buffer in &mut buffers {
-                    buffer.fill(0xA5);
-                }
+    // into a header, a payload tail, a parity row or the envelope. 1,300,000
+    // bytes take four blocks with reduced parity and end on a short shard.
+    for (key, (fec_percent, min_fec), size) in [None, Some([42; 16])]
+        .into_iter()
+        .flat_map(|key| [(20, 2), (0, 0)].map(|fec| (key, fec)))
+        .flat_map(|(key, fec)| {
+            [10, 1375, 1376, 44_024, 264_184, 1_300_000].map(|size| (key, fec, size))
+        })
+    {
+        let make = || VideoPacketizer {
+            sequence: 77,
+            iv_counter: 5,
+            frame: 3,
+            packet_size: 1392,
+            fec_percent,
+            min_fec,
+            key,
+        };
+        if size == 1_300_000 {
+            let layout = make().block_layout(size);
+            assert_eq!(layout.len(), 4);
+            assert!(!(size + 8).is_multiple_of(1376));
+            if fec_percent > 0 {
+                assert!(make().fec_limited(size));
+                assert!(layout.iter().all(|&(_, parity)| parity > 0));
             }
-            assert_eq!(wire, expected, "size {size}, encrypted {}", key.is_some());
         }
+        let payload: Vec<u8> = (0..size).map(|i| (i * 31 + 7) as u8).collect();
+        let expected = make().encode(&payload, true, 9000, 500).unwrap();
+        let mut buffers: Vec<Vec<u8>> = (0..300).map(|_| vec![0xA5; 1500]).collect();
+        let mut actual = make();
+        let (_, mut next) = actual
+            .conventional_blocks(&payload, true, false, 9000, 500)
+            .unwrap();
+        let mut wire = Vec::new();
+        loop {
+            let count = next(&mut buffers).unwrap();
+            if count == 0 {
+                break;
+            }
+            wire.extend(buffers[..count].iter().cloned());
+            for buffer in &mut buffers {
+                buffer.fill(0xA5);
+            }
+        }
+        assert_eq!(
+            wire,
+            expected,
+            "size {size}, fec {fec_percent}%, encrypted {}",
+            key.is_some()
+        );
     }
 }
 

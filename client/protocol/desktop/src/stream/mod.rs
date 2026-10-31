@@ -1789,6 +1789,10 @@ pub struct Streaming {
     pending_mode: Option<(Reconfigure, Instant)>,
     display_change: Option<Instant>,
     last_arrival: Option<(u32, u64)>,
+    /// Emptied buffers `pump` swaps with the decoder's queues, so taking a frame allocates nothing
+    /// and holds the decoder's lock only for the swap.
+    taken_frames: VecDeque<pipeline::Decoded>,
+    taken_slices: VecDeque<pyrowave::SliceReady>,
     jitter_ms: f64,
     focused: bool,
     pub microphone_muted: bool,
@@ -2000,6 +2004,8 @@ impl Streaming {
             pending_mode: None,
             display_change: None,
             last_arrival: None,
+            taken_frames: VecDeque::new(),
+            taken_slices: VecDeque::new(),
             jitter_ms: -1.0,
             focused: false,
             microphone_muted: connecting.plan.microphone_muted,
@@ -3117,10 +3123,12 @@ impl Streaming {
             }
         }
         // Frames first: the slices of every frame taken here were queued before the frame was.
-        let frames: Vec<_> = lock(&self.shared.frames).drain(..).collect();
+        let mut frames = std::mem::take(&mut self.taken_frames);
+        std::mem::swap(&mut *lock(&self.shared.frames), &mut frames);
         // With the race off nothing queues a slice, and nothing here takes the lock.
-        let slices: Vec<_> = if self.facts.beam_race { lock(&self.shared.slices).drain(..).collect() } else { Vec::new() };
-        for decoded in frames {
+        let mut slices = std::mem::take(&mut self.taken_slices);
+        if self.facts.beam_race { std::mem::swap(&mut *lock(&self.shared.slices), &mut slices); }
+        for decoded in frames.drain(..) {
             if decoded.setup.format & VIDEO_FORMAT_MASK_PYROWAVE != 0 { self.race_setup = Some(decoded.setup); }
             if let Some(frame) = decoded.picture.frame().filter(|_| decoded.setup.chroma_packing == 0 && decoded.setup.format & VIDEO_FORMAT_MASK_PYROWAVE == 0) {
                 let info = frame.info();
@@ -3141,7 +3149,9 @@ impl Streaming {
             self.doctor.arrived(decoded.rtp, decoded.host_latency, decoded.receive_us, self.facts.fps.max(0) as u32);
             self.pacer.accept(decoded);
         }
-        self.observe_slices(slices);
+        self.taken_frames = frames;
+        self.observe_slices(&mut slices);
+        self.taken_slices = slices;
         if self.pending_mode.is_some_and(|(_, at)| at.elapsed() >= Duration::from_secs(5)) {
             self.pending_mode = None;
             self.quality_policy = None;
@@ -3243,14 +3253,17 @@ impl Streaming {
     }
 
     /// Takes the slices the decoder finished since the last call into the racer.
-    fn observe_slices(&mut self, slices: Vec<pyrowave::SliceReady>) {
+    fn observe_slices(&mut self, slices: &mut VecDeque<pyrowave::SliceReady>) {
         // Anything the racer does not take is dropped here, which lets go of its plane set.
-        let (Some(scan), PacingMode::BeamRace, Some(_)) = (self.race_scan, self.pacer.mode, self.race_setup) else { return };
+        let (Some(scan), PacingMode::BeamRace, Some(_)) = (self.race_scan, self.pacer.mode, self.race_setup) else {
+            slices.clear();
+            return;
+        };
         let margin = self.latency.margin_us(self.race_margin_ms);
         let now = session::now_us();
         let facts = &self.facts;
         let predictor = self.predictor.get_or_insert_with(|| seeded_predictor(facts));
-        for ready in slices {
+        for ready in slices.drain(..) {
             self.racer.observe(ready.seq, ready.band, ready.pin, now, &scan, predictor, &self.latency, margin);
         }
     }

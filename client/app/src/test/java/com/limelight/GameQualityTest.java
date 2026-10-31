@@ -59,20 +59,20 @@ public class GameQualityTest {
         PreferenceConfiguration config = ReflectionHelpers.getField(game, "prefConfig");
         config.adaptiveQualityMode = AdaptiveQualityController.Mode.DETAIL;
         try {
-            ReflectionHelpers.callInstanceMethod(game, "startAdaptiveQuality");
+            ReflectionHelpers.callInstanceMethod(game.adaptation, "startAdaptiveQuality");
             AdaptiveQualityController quality = ReflectionHelpers.getField(game, "adaptiveQuality");
             assertEquals(119880, QualityBridge.lastRate);
             long now = SystemClock.uptimeMillis() + 15000;
             AdaptiveQualityController.Target lower = pressuredTarget(quality, now);
-            ReflectionHelpers.callInstanceMethod(game, "applyAdaptiveQuality",
+            ReflectionHelpers.callInstanceMethod(game.adaptation, "applyAdaptiveQuality",
                     ReflectionHelpers.ClassParameter.from(AdaptiveQualityController.Target.class, lower),
                     ReflectionHelpers.ClassParameter.from(long.class, now + 3000));
             assertEquals(90000, QualityBridge.lastRate);
-            ReflectionHelpers.callInstanceMethod(game, "applyAdaptiveQuality",
+            ReflectionHelpers.callInstanceMethod(game.adaptation, "applyAdaptiveQuality",
                     ReflectionHelpers.ClassParameter.from(AdaptiveQualityController.Target.class, quality.ceiling()),
                     ReflectionHelpers.ClassParameter.from(long.class, now + 40000));
             assertEquals(119880, QualityBridge.lastRate);
-            assertEquals(119880, (int) ReflectionHelpers.callInstanceMethod(game, "qualityCeilingFrameRateMilliHz"));
+            assertEquals(119880, (int) ReflectionHelpers.callInstanceMethod(game.adaptation, "qualityCeilingFrameRateMilliHz"));
         } finally { clearQualityCallbacks(game); }
     }
 
@@ -87,7 +87,7 @@ public class GameQualityTest {
         assertEquals(120000, requester.fpsMillihz());
         PreferenceConfiguration config = ReflectionHelpers.getField(game, "prefConfig");
         config.adaptiveQualityMode = AdaptiveQualityController.Mode.DETAIL;
-        ReflectionHelpers.callInstanceMethod(game, "startAdaptiveQuality");
+        ReflectionHelpers.callInstanceMethod(game.adaptation, "startAdaptiveQuality");
         try {
             // Finish the display-settling delay, then change between rates with the same rounded FPS.
             ShadowLooper.idleMainLooper(StreamReconfigureRequester.SETTLE_MS,
@@ -99,7 +99,7 @@ public class GameQualityTest {
             assertEquals(before + 1, QualityBridge.requests);
             assertEquals(119880, QualityBridge.lastRate);
             assertEquals(119880, renderer.getStreamFrameRateMilliHz());
-            assertEquals(119880, (int) ReflectionHelpers.callInstanceMethod(game, "qualityCeilingFrameRateMilliHz"));
+            assertEquals(119880, (int) ReflectionHelpers.callInstanceMethod(game.adaptation, "qualityCeilingFrameRateMilliHz"));
         } finally { clearQualityCallbacks(game); }
     }
 
@@ -193,7 +193,7 @@ public class GameQualityTest {
             if (automatic) {
                 PreferenceConfiguration config = ReflectionHelpers.getField(game, "prefConfig");
                 config.adaptiveQualityMode = AdaptiveQualityController.Mode.DETAIL;
-                ReflectionHelpers.callInstanceMethod(game, "startAdaptiveQuality");
+                ReflectionHelpers.callInstanceMethod(game.adaptation, "startAdaptiveQuality");
             }
             try {
                 DisplayManager.DisplayListener listener = ReflectionHelpers.getField(game, "inputDisplayListener");
@@ -258,7 +258,7 @@ public class GameQualityTest {
                 assertEquals(1, QualityBridge.requests);
                 PreferenceConfiguration config = ReflectionHelpers.getField(game, "prefConfig");
                 config.adaptiveQualityMode = AdaptiveQualityController.Mode.DETAIL;
-                ReflectionHelpers.callInstanceMethod(game, "startAdaptiveQuality");
+                ReflectionHelpers.callInstanceMethod(game.adaptation, "startAdaptiveQuality");
                 AdaptiveQualityController quality = ReflectionHelpers.getField(game, "adaptiveQuality");
                 assertEquals(accepted ? 60 : 120, quality.ceiling().fps);
                 assertEquals("Enabling quality must not restore the old display rate", 1, QualityBridge.requests);
@@ -274,13 +274,13 @@ public class GameQualityTest {
         Game game = reconfigurableGame();
         PreferenceConfiguration config = ReflectionHelpers.getField(game, "prefConfig");
         config.adaptiveQualityMode = AdaptiveQualityController.Mode.DETAIL;
-        ReflectionHelpers.callInstanceMethod(game, "startAdaptiveQuality");
+        ReflectionHelpers.callInstanceMethod(game.adaptation, "startAdaptiveQuality");
         AdaptiveQualityController quality = ReflectionHelpers.getField(game, "adaptiveQuality");
         long now = SystemClock.uptimeMillis() + 15000;
         AdaptiveQualityController.Target target = pressuredTarget(quality, now);
         ReflectionHelpers.setField(game, "panelMaxRefreshRate", 60f);
         try {
-            assertTrue(ReflectionHelpers.callInstanceMethod(game, "applyAdaptiveQuality",
+            assertTrue(ReflectionHelpers.callInstanceMethod(game.adaptation, "applyAdaptiveQuality",
                     ReflectionHelpers.ClassParameter.from(AdaptiveQualityController.Target.class, target),
                     ReflectionHelpers.ClassParameter.from(long.class, now + 3000)));
             assertEquals(90, (int) ReflectionHelpers.getField(game, "streamFps"));
@@ -302,13 +302,13 @@ public class GameQualityTest {
         PreferenceConfiguration config = ReflectionHelpers.getField(game, "prefConfig");
         config.adaptiveQualityMode = AdaptiveQualityController.Mode.DETAIL;
         config.qualityMinFps = 60;
-        ReflectionHelpers.callInstanceMethod(game, "startAdaptiveQuality");
+        ReflectionHelpers.callInstanceMethod(game.adaptation, "startAdaptiveQuality");
         AdaptiveQualityController quality = ReflectionHelpers.getField(game, "adaptiveQuality");
         try {
             for (int i = 1; i <= 2; i++) {
                 long now = SystemClock.uptimeMillis() + i * 20000L;
                 AdaptiveQualityController.Target target = pressuredTarget(quality, now);
-                assertTrue(ReflectionHelpers.callInstanceMethod(game, "applyAdaptiveQuality",
+                assertTrue(ReflectionHelpers.callInstanceMethod(game.adaptation, "applyAdaptiveQuality",
                         ReflectionHelpers.ClassParameter.from(AdaptiveQualityController.Target.class, target),
                         ReflectionHelpers.ClassParameter.from(long.class, now + 3000)));
                 clearPendingQualityTarget(game);
@@ -334,7 +334,7 @@ public class GameQualityTest {
         Game game = reconfigurableGame();
         PreferenceConfiguration config = ReflectionHelpers.getField(game, "prefConfig");
         config.adaptiveQualityMode = AdaptiveQualityController.Mode.DETAIL;
-        ReflectionHelpers.callInstanceMethod(game, "startAdaptiveQuality");
+        ReflectionHelpers.callInstanceMethod(game.adaptation, "startAdaptiveQuality");
         ReflectionHelpers.setField(game, "panelMaxRefreshRate", 60f);
         QualityBridge.send = false;
         try {
@@ -360,7 +360,7 @@ public class GameQualityTest {
         PreferenceConfiguration config = ReflectionHelpers.getField(game, "prefConfig");
         config.adaptiveQualityMode = AdaptiveQualityController.Mode.DETAIL;
         try {
-            ReflectionHelpers.callInstanceMethod(game, "startAdaptiveQuality");
+            ReflectionHelpers.callInstanceMethod(game.adaptation, "startAdaptiveQuality");
             assertNotNull("Automatic quality adapts the bitrate during this stream",
                     ReflectionHelpers.getField(game, "adaptiveBitrate"));
             assertFalse("The user's own auto-bitrate choice for this PC must not change",
@@ -387,7 +387,7 @@ public class GameQualityTest {
             try {
                 // At stream start, auto bitrate is on only if the person saved it for this PC.
                 if (c[0]) setAutoBitrate(game, true, false);
-                ReflectionHelpers.callInstanceMethod(game, "startAdaptiveQuality");
+                ReflectionHelpers.callInstanceMethod(game.adaptation, "startAdaptiveQuality");
                 assertNotNull(ReflectionHelpers.getField(game, "adaptiveBitrate"));
                 if (c[1]) {
                     // Disable, then enable again from the stream's bitrate menu: now it is the person's choice.
@@ -396,7 +396,7 @@ public class GameQualityTest {
                 }
                 // The person turns Automatic quality off for this PC from the stream menu.
                 game.getSharedPreferences("AdaptiveQuality", 0).edit().putString("display-quality-pc", "off").commit();
-                ReflectionHelpers.callInstanceMethod(game, "startAdaptiveQuality");
+                ReflectionHelpers.callInstanceMethod(game.adaptation, "startAdaptiveQuality");
                 assertNull(ReflectionHelpers.getField(game, "adaptiveQuality"));
                 assertEquals("before " + c[0] + ", menu " + c[1], c[0] || c[1],
                         ReflectionHelpers.getField(game, "adaptiveBitrate") != null);
@@ -420,7 +420,7 @@ public class GameQualityTest {
         PreferenceConfiguration config = ReflectionHelpers.getField(game, "prefConfig");
         config.adaptiveQualityMode = AdaptiveQualityController.Mode.DETAIL;
         try {
-            ReflectionHelpers.callInstanceMethod(game, "startAdaptiveQuality");
+            ReflectionHelpers.callInstanceMethod(game.adaptation, "startAdaptiveQuality");
             assertNotNull(ReflectionHelpers.getField(game, "adaptiveBitrate"));
             // The host rejects a display change: Automatic quality stops for this stream.
             ReflectionHelpers.setField(game, "panelMaxRefreshRate", 60f);
@@ -434,7 +434,7 @@ public class GameQualityTest {
     }
 
     private static void setAutoBitrate(Game game, boolean enabled, boolean remember) {
-        ReflectionHelpers.callInstanceMethod(game, "setAdaptiveBitrateEnabled",
+        ReflectionHelpers.callInstanceMethod(game.adaptation, "setAdaptiveBitrateEnabled",
                 ReflectionHelpers.ClassParameter.from(boolean.class, enabled),
                 ReflectionHelpers.ClassParameter.from(boolean.class, remember));
     }
@@ -525,7 +525,7 @@ public class GameQualityTest {
         ReflectionHelpers.setField(game, "decoderRenderer", renderer);
         ReflectionHelpers.setField(game, "connected", true);
         ReflectionHelpers.setField(game, "app", new NvApp("Game", 73, false));
-        ReflectionHelpers.callInstanceMethod(game, "startAdaptiveQuality");
+        ReflectionHelpers.callInstanceMethod(game.adaptation, "startAdaptiveQuality");
         assertNull(ReflectionHelpers.getField(game, "adaptiveQuality"));
         assertNull(ReflectionHelpers.getField(game, "adaptiveBitrate"));
         assertNull(ReflectionHelpers.getField(game, "pyroWaveBitrate"));
@@ -539,10 +539,10 @@ public class GameQualityTest {
         config.adaptiveQualityMode = AdaptiveQualityController.Mode.DETAIL;
         ReflectionHelpers.setField(game, "prefConfig", config);
         game.getSharedPreferences("AdaptiveQuality", 0).edit().putString("quality-override", "off").commit();
-        ReflectionHelpers.callInstanceMethod(game, "startAdaptiveQuality");
+        ReflectionHelpers.callInstanceMethod(game.adaptation, "startAdaptiveQuality");
         assertNull(ReflectionHelpers.getField(game, "adaptiveQuality"));
         assertNull(ReflectionHelpers.getField(game, "qualityStatus"));
         game.getSharedPreferences("AdaptiveQuality", 0).edit().remove("quality-override").commit();
-        assertEquals(AdaptiveQualityController.Mode.DETAIL, ReflectionHelpers.callInstanceMethod(game, "qualityMode"));
+        assertEquals(AdaptiveQualityController.Mode.DETAIL, ReflectionHelpers.callInstanceMethod(game.adaptation, "qualityMode"));
     }
 }

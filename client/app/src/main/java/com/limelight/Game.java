@@ -46,11 +46,9 @@ import com.limelight.nvstream.http.LaunchConfirmation;
 import com.limelight.nvstream.http.NvApp;
 import com.limelight.nvstream.http.NvHTTP;
 import com.limelight.nvstream.jni.MoonBridge;
-import com.limelight.preferences.AutoBitrateChoice;
 import com.limelight.preferences.GlPreferences;
 import com.limelight.preferences.HostDisplayChoice;
 import com.limelight.preferences.PreferenceConfiguration;
-import com.limelight.ui.BitrateSlider;
 import com.limelight.ui.GameGestures;
 import com.limelight.ui.HostCursorShapes;
 import com.limelight.ui.KeyboardOverlay;
@@ -108,7 +106,6 @@ import android.os.Looper;
 import android.os.SystemClock;
 import android.os.IBinder;
 import android.preference.PreferenceManager;
-import android.text.InputType;
 import android.util.Rational;
 import android.view.Display;
 import android.view.InputDevice;
@@ -123,13 +120,10 @@ import android.view.View.OnSystemUiVisibilityChangeListener;
 import android.view.View.OnTouchListener;
 import android.view.Window;
 import android.view.WindowManager;
-import android.widget.EditText;
 import android.widget.FrameLayout;
-import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 
-import org.xmlpull.v1.XmlPullParserException;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
@@ -150,6 +144,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     final GameKeyboardInput keyboardInput = new GameKeyboardInput(this);
     final GameTouchInput touchInput = new GameTouchInput(this);
     final GameMenuActions menuActions = new GameMenuActions(this);
+    final GameAdaptation adaptation = new GameAdaptation(this);
 
     TrackpadPointer trackpadPointer;
     // Set while the host sends its cursor shapes for the Local cursor; read on the control thread.
@@ -233,26 +228,21 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         }
     };
     int currentBitrate;
-    private AdaptiveBitrateController adaptiveBitrate;
-    private PyroWaveBitrateController pyroWaveBitrate;
+    AdaptiveBitrateController adaptiveBitrate;
+    PyroWaveBitrateController pyroWaveBitrate;
     private boolean poorConnection;
     // The stream's network is lost: the overlay says so until one returns (or the stream ends).
     private boolean streamNetworkLost;
-    private long adaptiveBitrateRetryAt;
-    private int adaptiveBitrateRetryTarget;
-    // Claims of the host's encoder bitrate that failed in a row. Some hosts report 0 for good.
-    private static final int MAX_BITRATE_CLAIM_FAILURES = 6;
-    private int adaptiveBitrateClaimFailures;
-    // A Foundation Sunshine PC's own bitrate controller, on in place of this device's.
-    private com.limelight.nvstream.http.FoundationAbr foundationAbr;
+    long adaptiveBitrateRetryAt;
+    int adaptiveBitrateRetryTarget;
     // Automatic quality switched auto bitrate on for itself; the person's own choice was off.
-    private boolean qualityAutoBitrate;
+    boolean qualityAutoBitrate;
     AdaptiveQualityController adaptiveQuality;
-    private AdaptiveQualityController.Target pendingQualityTarget;
-    private long qualityRequestSentAt;
+    AdaptiveQualityController.Target pendingQualityTarget;
+    long qualityRequestSentAt;
     String qualityStatus;
-    private int qualityMaxWidth, qualityMaxHeight, qualityMaxFps;
-    private int qualityMaxFrameRateMilliHz;
+    int qualityMaxWidth, qualityMaxHeight, qualityMaxFps;
+    int qualityMaxFrameRateMilliHz;
     final Handler bitrateHandler = new Handler(Looper.getMainLooper());
     final com.limelight.utils.StreamHealth streamHealth = new com.limelight.utils.StreamHealth();
     com.limelight.utils.WifiDiagnostics wifiDiagnostics;
@@ -260,7 +250,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     // 0x553C rate changes, for a Rust stream whose host offered them; null otherwise.
     StreamRateChanges rateChanges;
     // Automatic bitrate on this device: one client-hint sample a second, as a 0x553C request.
-    private final Runnable updateRateChangeBitrate = new Runnable() {
+    final Runnable updateRateChangeBitrate = new Runnable() {
         @Override public void run() {
             if (!connected || rateChanges == null || !rateChanges.automaticOn() || decoderRenderer == null) return;
             long now = SystemClock.uptimeMillis();
@@ -271,12 +261,12 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 messages.alert(R.string.stream_rate_change_auto_not_sent, Toast.LENGTH_LONG);
                 return;
             }
-            scheduleRateChangeExpiry();
+            adaptation.scheduleRateChangeExpiry();
             bitrateHandler.postDelayed(this, 1000);
         }
     };
     // Gives up on 0x553C requests the host left unanswered for StreamRateChanges.ANSWER_MS, loudly.
-    private final Runnable expireRateChanges = new Runnable() {
+    final Runnable expireRateChanges = new Runnable() {
         @Override public void run() {
             if (!connected || rateChanges == null) return;
             java.util.EnumSet<StreamRateChanges.Answer> expired = rateChanges.expire(SystemClock.uptimeMillis());
@@ -288,46 +278,12 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             if (expired.contains(StreamRateChanges.Answer.MANUAL_NO_ANSWER)) {
                 messages.alert(R.string.stream_rate_change_no_answer, Toast.LENGTH_LONG);
             }
-            scheduleRateChangeExpiry();
+            adaptation.scheduleRateChangeExpiry();
         }
     };
-    private final Runnable sampleStreamHealth = new Runnable() {
-        @Override public void run() {
-            if (!connected || decoderRenderer == null || app.getRole() == NvApp.Role.INPUT_ONLY) return;
-            if (foreground && !hostActionInProgress) {
-                // A hanging decoder holds the locks this sample reads for seconds: never on the main thread.
-                MediaCodecDecoderRenderer renderer = decoderRenderer;
-                int fps = streamFps;
-                if (!streamHealthSampler().sample(() -> {
-                    long rtt = MoonBridge.getEstimatedRttInfo();
-                    return renderer.healthSample(SystemClock.uptimeMillis(), fps,
-                            rtt == -1 ? -1 : (float) (rtt & 0xffffffffL));
-                }, streamHealth::add)) {
-                    renderer.skipHealthSample();
-                    LimeLog.info("Stream health: the last sample is still running; this one is skipped");
-                }
-            } else {
-                decoderRenderer.skipHealthSample();
-            }
-            bitrateHandler.postDelayed(this, 1000);
-        }
-    };
-    private java.util.concurrent.ExecutorService streamHealthThread;
-    private com.limelight.utils.StreamHealthSampler streamHealthSampler;
+    java.util.concurrent.ExecutorService streamHealthThread;
 
-    private com.limelight.utils.StreamHealthSampler streamHealthSampler() {
-        if (streamHealthSampler == null) {
-            streamHealthThread = java.util.concurrent.Executors.newSingleThreadExecutor(task -> {
-                Thread thread = new Thread(task, "Stream health");
-                thread.setDaemon(true);
-                return thread;
-            });
-            streamHealthSampler = new com.limelight.utils.StreamHealthSampler(streamHealthThread, bitrateHandler::post);
-        }
-        return streamHealthSampler;
-    }
-
-    private final Runnable updateQuality = new Runnable() {
+    final Runnable updateQuality = new Runnable() {
         @Override public void run() {
             if (!connected || adaptiveQuality == null || isFinishing()) return;
             long now = SystemClock.uptimeMillis();
@@ -341,7 +297,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 if (shown[0] == pendingQualityTarget.width && shown[1] == pendingQualityTarget.height) {
                     pendingQualityTarget = null;
                 } else if (now - qualityRequestSentAt >= 10000) {
-                    stopAdaptiveQualityWithError();
+                    adaptation.stopAdaptiveQualityWithError();
                     return;
                 }
             } else {
@@ -350,68 +306,29 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                         decoderRenderer.hasRecentVideoFrames(now), poorConnection,
                         decoderRenderer.getNetworkFrameLossPercent(), decoderRenderer.getDecodeTimeMs(),
                         rtt == -1 ? -1 : (float) (rtt & 0xffffffffL), decoderRenderer.getQueueDelayMs(),
-                        adaptationThermalLevel(),
+                        adaptation.adaptationThermalLevel(),
                         adaptiveBitrate != null && adaptiveBitrate.hasRoomBeforeQualityReduction(),
                         decoderRenderer.takeDecodeTiming(streamFps));
-                if (target != null && !applyAdaptiveQuality(target, now)) return;
+                if (target != null && !adaptation.applyAdaptiveQuality(target, now)) return;
             }
             bitrateHandler.postDelayed(this, 1000);
         }
     };
-    // Once a second: this second's loss and frame rate for a Foundation PC's controller, and the
-    // report every three seconds (FoundationAbr).
-    private final Runnable foundationAbrTick = new Runnable() {
-        @Override
-        public void run() {
-            com.limelight.nvstream.http.FoundationAbr abr = foundationAbr;
-            if (!connected || abr == null) return;
-            float[] rates = decoderRenderer.getFrameRates();
-            abr.add(decoderRenderer.getNetworkFrameLossPercent(), rates.length > 1 ? Math.max(0, rates[1]) : 0);
-            long rttInfo = MoonBridge.getEstimatedRttInfo();
-            org.json.JSONObject feedback = abr.due(SystemClock.uptimeMillis(), rttInfo == -1 ? 0 : rttInfo >>> 32);
-            if (feedback != null) {
-                NvConnection connection = conn;
-                new Thread(() -> {
-                    org.json.JSONObject action = null;
-                    try {
-                        action = connection.sendFoundationAbrFeedback(feedback);
-                    } catch (IOException e) {
-                        LimeLog.warning("The PC's automatic bitrate report failed: " + e.getMessage());
-                    }
-                    org.json.JSONObject answer = action;
-                    runOnUiThread(() -> {
-                        if (foundationAbr != abr) return;
-                        int kbps = abr.answered(answer);
-                        if (kbps > 0) {
-                            LimeLog.info("The PC set " + kbps + " kbps: " + answer.optString("reason"));
-                            currentBitrate = kbps;
-                        }
-                    });
-                }, "FoundationAbr").start();
-            }
-            bitrateHandler.postDelayed(this, 1000);
-        }
-    };
-    /** The heat the bitrate and quality controllers react to: none unless Thermal protection is on. */
-    private int adaptationThermalLevel() {
-        return com.limelight.binding.video.ThermalMonitor.forAdaptation(prefConfig.thermalProtection,
-                decoderRenderer.getThermalLevel());
-    }
 
-    private final Runnable updateBitrate = new Runnable() {
+    final Runnable updateBitrate = new Runnable() {
         @Override
         public void run() {
-            if (!connected || !isAdaptiveBitrateEnabled()) {
+            if (!connected || !adaptation.isAdaptiveBitrateEnabled()) {
                 return;
             }
             if (!hostActionInProgress && streamMenu == null && SystemClock.uptimeMillis() >= adaptiveBitrateRetryAt) {
                 if (adaptiveBitrateRetryAt != 0) {
-                    applyAdaptiveBitrate(adaptiveBitrateRetryTarget);
+                    adaptation.applyAdaptiveBitrate(adaptiveBitrateRetryTarget);
                 } else {
                     long now = SystemClock.uptimeMillis();
                     long rttInfo = MoonBridge.getEstimatedRttInfo();
                     float jitterMs = rttInfo == -1 ? -1 : (float) (rttInfo & 0xffffffffL);
-                    int thermalLevel = adaptationThermalLevel();
+                    int thermalLevel = adaptation.adaptationThermalLevel();
                     if (adaptiveBitrate != null) adaptiveBitrate.setThermalLevel(thermalLevel);
                     if (pyroWaveBitrate != null) pyroWaveBitrate.setThermalLevel(thermalLevel);
                     int target = pyroWaveBitrate != null ?
@@ -426,7 +343,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                             LimeLog.info("Device controls bitrate: " + currentBitrate + " -> " + target + " kbps (" +
                                     adaptiveBitrate.lastReason() + ")");
                         }
-                        applyAdaptiveBitrate(target);
+                        adaptation.applyAdaptiveBitrate(target);
                     }
                 }
             } else {
@@ -445,7 +362,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     // panel's top refresh rate, follows fold, window and panel changes without reconnecting.
     private boolean nativeResolutionStream;
     private boolean fpsFollowsDisplay;
-    private int streamFps;
+    int streamFps;
     private float streamPanelHz;
     private boolean streamStartedLandscape = true;
     // The Orientation setting, and whether the host draws this stream at the shape asked for (its
@@ -459,7 +376,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     private boolean orientationNoticeShown;
     private String displaySignature = "";
     private int lastPaneWidth, lastPaneHeight;
-    private final StreamReconfigureRequester reconfigureRequester = new StreamReconfigureRequester();
+    final StreamReconfigureRequester reconfigureRequester = new StreamReconfigureRequester();
     private final Runnable checkReconfigure = this::checkStreamReconfigure;
     private final android.hardware.display.DisplayManager.DisplayListener inputDisplayListener =
             new android.hardware.display.DisplayManager.DisplayListener() {
@@ -695,7 +612,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         return tv;
     }
 
-    private boolean streamEnding() {
+    boolean streamEnding() {
         // hostExitRequested is left out: a failed quit keeps it set for 15 s while still streaming.
         return streamTerminated || exiting || connectionStopThread != null;
     }
@@ -2323,7 +2240,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         }
         int[] offered = offeredStream(adaptiveQuality == null ? reconfigureRequester.width() : qualityMaxWidth,
                 adaptiveQuality == null ? reconfigureRequester.height() : qualityMaxHeight,
-                adaptiveQuality == null ? reconfigureRequester.fpsMillihz() : qualityCeilingFrameRateMilliHz());
+                adaptiveQuality == null ? reconfigureRequester.fpsMillihz() : adaptation.qualityCeilingFrameRateMilliHz());
         if (adaptiveQuality != null && offered != null) {
             AdaptiveQualityController.Target target = adaptiveQuality.resizeCeiling(offered[0], offered[1],
                     Math.round(offered[2] / 1000f), now);
@@ -2331,7 +2248,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             // needs to reach the host when the current level uses the ceiling's rate.
             if (target == null && adaptiveQuality.current().fps == Math.round(offered[2] / 1000f) &&
                     reconfigureRequester.fpsMillihz() != offered[2]) target = adaptiveQuality.current();
-            if (target == null || applyAdaptiveQuality(target, now, offered[2])) {
+            if (target == null || adaptation.applyAdaptiveQuality(target, now, offered[2])) {
                 qualityMaxWidth = offered[0]; qualityMaxHeight = offered[1]; qualityMaxFps = Math.round(offered[2] / 1000f);
                 qualityMaxFrameRateMilliHz = offered[2];
                 streamPanelHz = panelMaxRefreshRate;
@@ -2350,7 +2267,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         }
     }
 
-    private boolean requestStreamReconfigure(int[] request) {
+    boolean requestStreamReconfigure(int[] request) {
         LimeLog.info("Reconfigure: asking for " + request[0] + "x" + request[1] + " at " + request[2] / 1000f +
                 " fps (was " + reconfigureRequester.width() + "x" + reconfigureRequester.height() + " at " +
                 reconfigureRequester.fpsMillihz() / 1000f + " fps)");
@@ -2375,7 +2292,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     }
 
     // The stream runs at this rate now: a reconfigure asked for it, or a 0x553C rate change ran.
-    private void setStreamFrameRate(int fpsMillihz) {
+    void setStreamFrameRate(int fpsMillihz) {
         int fps = Math.round(fpsMillihz / 1000f);
         streamFps = fps;
         prefConfig.fps = fps;
@@ -2778,27 +2695,6 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         menuActions.steerStreamMenu(keyCode);
     }
 
-    void toggleAdaptiveBitrateFromMenu() {
-        // Automatic bitrate on this device turns on and off for this stream only; the setting stays.
-        if (isRateChangeBitrateOn() || (!isAdaptiveBitrateEnabled() && rateChanges != null && prefConfig.rateChangeBitrate)) {
-            boolean enable = !isRateChangeBitrateOn();
-            setRateChangeBitrateEnabled(enable);
-            // The setting's own explanation, as the settings screen shows it.
-            if (enable) messages.alert(R.string.summary_rate_change_bitrate, Toast.LENGTH_LONG);
-            return;
-        }
-        boolean enable = !isAdaptiveBitrateEnabled();
-        if (!enable || !hostActionInProgress) {
-            setAdaptiveBitrateEnabled(enable, true);
-            if (enable) {
-                messages.alert(pyroWaveBitrate != null ? R.string.stream_pyrowave_bitrate_help :
-                        R.string.stream_auto_bitrate_help, Toast.LENGTH_LONG);
-            }
-        } else {
-            messages.alert(R.string.stream_bitrate_busy, Toast.LENGTH_SHORT);
-        }
-    }
-
     /** The stream doctor's findings, evidence and connection facts; shared with the debug fixture. */
     static StringBuilder healthText(Context context, com.limelight.utils.StreamHealth.Report report, String connection) {
         StringBuilder text = new StringBuilder(context.getString(R.string.health_intro, report.samples));
@@ -2833,52 +2729,6 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
      */
     static boolean healthTrialAllowed(boolean adaptiveBitrate, boolean rateChangeBitrate, boolean adaptiveQuality) {
         return !adaptiveBitrate && !rateChangeBitrate && !adaptiveQuality;
-    }
-
-    void applyHealthBitrate(boolean undo) {
-        if (!foreground || !connected || hostActionInProgress || !supportsAdaptiveBitrate() ||
-                !healthTrialAllowed(isAdaptiveBitrateEnabled(), isRateChangeBitrateOn(), adaptiveQuality != null)) return;
-        if (undo && (healthOriginalBitrate <= 0 || currentBitrate != healthTrialBitrate)) return;
-        final int original = healthOriginalBitrate;
-        final int expectedTrial = healthTrialBitrate;
-        final int generation = foregroundGeneration;
-        final NvConnection connection = conn;
-        hostActionInProgress = true;
-        new Thread(() -> {
-            try {
-                // The saved preference/current display value may be a transport budget including
-                // FEC/audio, or may predate host adaptation. Only the live encoder rate is a baseline.
-                int previous = connection.refreshHostDetails().encoderBitrateKbps;
-                if (previous <= 0) throw new IOException(getString(R.string.health_bitrate_unavailable));
-                if ((undo && previous != expectedTrial) || (!undo && previous <= 500)) {
-                    runOnUiThread(() -> {
-                        if (!connected || conn != connection || isFinishing() || isAdaptiveBitrateEnabled() || adaptiveQuality != null) return;
-                        currentBitrate = previous;
-                        healthOriginalBitrate = healthTrialBitrate = 0;
-                        if (foreground && generation == foregroundGeneration) {
-                            messages.alert(undo ? R.string.health_trial_replaced : R.string.health_bitrate_minimum, Toast.LENGTH_LONG);
-                        }
-                    });
-                    return;
-                }
-                if (!connected || conn != connection) return;
-                int target = undo ? original : Math.max(500, (int) ((long) previous * 4 / 5));
-                int applied = connection.setBitrate(target);
-                runOnUiThread(() -> {
-                    if (!connected || conn != connection || isFinishing() || isAdaptiveBitrateEnabled() || adaptiveQuality != null) return;
-                    currentBitrate = applied;
-                    healthOriginalBitrate = undo ? 0 : previous;
-                    healthTrialBitrate = undo ? 0 : applied;
-                    if (foreground && generation == foregroundGeneration) {
-                        messages.alert(getString(R.string.stream_bitrate_applied, applied / 1000.0), Toast.LENGTH_LONG);
-                    }
-                });
-            } catch (IOException | XmlPullParserException e) {
-                showHostActionError(e, generation);
-            } finally {
-                runOnUiThread(() -> hostActionInProgress = false);
-            }
-        }, "Stream doctor bitrate trial").start();
     }
 
     // Creates the on-screen controller the settings ask for, or brings the existing one back.
@@ -3356,201 +3206,6 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 .setPositiveButton(R.string.stream_reconnect, (dialog, which) -> reconnectStream()).create());
     }
 
-    void showBitrateDialog() {
-        com.google.android.material.textfield.TextInputLayout field = new com.google.android.material.textfield.TextInputLayout(this);
-        field.setBoxBackgroundMode(com.google.android.material.textfield.TextInputLayout.BOX_BACKGROUND_OUTLINE);
-        field.setHint(getString(R.string.stream_bitrate));
-        int padding = Math.round(24 * getResources().getDisplayMetrics().density);
-        LinearLayout fields = new LinearLayout(this);
-        fields.setOrientation(LinearLayout.VERTICAL);
-        fields.setPadding(padding, 0, padding, 0);
-        EditText input = new com.google.android.material.textfield.TextInputEditText(this);
-        input.setMinHeight(Math.round(48 * getResources().getDisplayMetrics().density));
-        input.setSingleLine(true);
-        field.addView(input);
-        input.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_DECIMAL);
-        int bitrateKbps = currentBitrate == 0 ? prefConfig.bitrate : currentBitrate;
-        input.setText(BigDecimal.valueOf(bitrateKbps, 3).stripTrailingZeros().toPlainString());
-        input.selectAll();
-        AlertDialog bitrateDialog = new NavigationDialogBuilder(this).setTitle(R.string.stream_bitrate)
-                .setMessage(R.string.stream_bitrate_help).setView(fields)
-                .setNegativeButton(android.R.string.cancel, null)
-                .setPositiveButton(android.R.string.ok, null).create();
-        fields.addView(BitrateSlider.create(this, input, bitrateKbps, () -> applyFromSlider(bitrateDialog)));
-        fields.addView(field);
-        menuActions.showStreamDialog(bitrateDialog);
-        bitrateDialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(view -> {
-            final int kbps;
-            try {
-                kbps = new BigDecimal(input.getText().toString().trim().replace(',', '.'))
-                        .movePointRight(3).intValueExact();
-                if (kbps < 500 || kbps > StreamConfiguration.MAX_BITRATE_KBPS) {
-                    throw new NumberFormatException();
-                }
-            } catch (NumberFormatException | ArithmeticException e) {
-                field.setError(getString(R.string.stream_bitrate_invalid));
-                return;
-            }
-            if (hostActionInProgress) {
-                messages.alert(R.string.stream_bitrate_busy, Toast.LENGTH_SHORT);
-                return;
-            }
-            if (!foreground || !connected || hostActionInProgress) {
-                return;
-            }
-            // A manual bitrate stops automatic bitrate for this session only; the saved choice stays.
-            setAdaptiveBitrateEnabled(false, false);
-            qualityAutoBitrate = false;
-            bitrateDialog.dismiss();
-            hostActionInProgress = true;
-            final int generation = foregroundGeneration;
-            new Thread(() -> {
-                try {
-                    int applied = conn.setBitrate(kbps);
-                    runOnUiThread(() -> {
-                        currentBitrate = applied;
-                        healthOriginalBitrate = healthTrialBitrate = 0;
-                        if (foreground && generation == foregroundGeneration && connected && !isFinishing()) {
-                            messages.alert(getString(R.string.stream_bitrate_applied, applied / 1000.0), Toast.LENGTH_LONG);
-                        }
-                    });
-                } catch (IOException | XmlPullParserException e) {
-                    showHostActionError(e, generation);
-                } finally {
-                    runOnUiThread(() -> hostActionInProgress = false);
-                }
-            }, "Stream bitrate").start();
-        });
-    }
-
-    // A settled bitrate slider sends through its dialog's OK, with the same checks as a typed value.
-    private static void applyFromSlider(AlertDialog dialog) {
-        if (dialog != null && dialog.isShowing()) dialog.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
-    }
-
-    // Bitrate and frame rate in one 0x553C request; a field left as it is keeps its value.
-    void showRateChangeDialog() {
-        final StreamRateChanges stream = rateChanges;
-        if (stream == null) return;
-        float density = getResources().getDisplayMetrics().density;
-        int padding = Math.round(24 * density);
-        LinearLayout fields = new LinearLayout(this);
-        fields.setOrientation(LinearLayout.VERTICAL);
-        fields.setPadding(padding, 0, padding, 0);
-        int bitrateKbps = currentBitrate == 0 ? prefConfig.bitrate : currentBitrate;
-        String bitrateText = BigDecimal.valueOf(bitrateKbps, 3).stripTrailingZeros().toPlainString();
-        com.google.android.material.textfield.TextInputLayout bitrateField = rateChangeField(
-                getString(R.string.stream_bitrate), bitrateText, density);
-        final AlertDialog[] opened = new AlertDialog[1];
-        fields.addView(BitrateSlider.create(this, bitrateField.getEditText(), bitrateKbps,
-                () -> applyFromSlider(opened[0])));
-        fields.addView(bitrateField);
-        // Automatic quality owns the frame rate while it runs.
-        int fpsMillihz = reconfigureRequester.fpsMillihz() > 0 ? reconfigureRequester.fpsMillihz() : streamFps * 1000;
-        String fpsText = BigDecimal.valueOf(fpsMillihz, 3).stripTrailingZeros().toPlainString();
-        com.google.android.material.textfield.TextInputLayout fpsField = adaptiveQuality != null ? null :
-                rateChangeField(getString(R.string.stream_rate_change_fps), fpsText, density);
-        if (fpsField != null) fields.addView(fpsField);
-        AlertDialog dialog = new NavigationDialogBuilder(this).setTitle(R.string.stream_rate_change)
-                .setMessage(R.string.stream_rate_change_help).setView(fields)
-                .setNegativeButton(android.R.string.cancel, null)
-                .setPositiveButton(android.R.string.ok, null).create();
-        opened[0] = dialog;
-        menuActions.showStreamDialog(dialog);
-        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(view -> {
-            // connected stays true until stopConnection, which closes this dialog: a termination
-            // that has arrived but not yet stopped the stream counts as ended (streamEnding).
-            if (!connected || streamEnding() || rateChanges != stream) {
-                // The stream this dialog was opened for ended or restarted: nothing goes out.
-                dialog.dismiss();
-                LimeLog.warning("Rate change: the stream ended before the request was sent");
-                messages.alert(R.string.stream_rate_change_stream_ended, Toast.LENGTH_LONG);
-                return;
-            }
-            bitrateField.setError(null);
-            if (fpsField != null) fpsField.setError(null);
-            int kbps = parseRateChange(bitrateField, bitrateText, 500, StreamConfiguration.MAX_BITRATE_KBPS,
-                    R.string.stream_bitrate_invalid);
-            int millihz = fpsField == null ? 0 : parseRateChange(fpsField, fpsText, 10_000, 500_000,
-                    R.string.stream_rate_change_fps_invalid);
-            if (kbps < 0 || millihz < 0) return;
-            if (kbps == 0 && millihz == 0) {
-                bitrateField.setError(getString(R.string.stream_rate_change_nothing));
-                return;
-            }
-            dialog.dismiss();
-            if (!stream.sendManual(kbps, millihz, SystemClock.uptimeMillis())) {
-                LimeLog.warning("Rate change: request not sent");
-                messages.alert(R.string.stream_rate_change_not_sent, Toast.LENGTH_LONG);
-                return;
-            }
-            scheduleRateChangeExpiry();
-            LimeLog.info("Rate change: asking for " + kbps + " kbps, " + millihz + " mHz");
-            if (kbps != 0) {
-                // As with the bitrate dialog, a bitrate set by hand stops the host-side automatic
-                // bitrate for this session; automatic bitrate on this device follows it instead.
-                setAdaptiveBitrateEnabled(false, false);
-                qualityAutoBitrate = false;
-                healthOriginalBitrate = healthTrialBitrate = 0;
-            }
-        });
-    }
-
-    private com.google.android.material.textfield.TextInputLayout rateChangeField(String hint, String text, float density) {
-        com.google.android.material.textfield.TextInputLayout field = new com.google.android.material.textfield.TextInputLayout(this);
-        field.setBoxBackgroundMode(com.google.android.material.textfield.TextInputLayout.BOX_BACKGROUND_OUTLINE);
-        field.setHint(hint);
-        EditText input = new com.google.android.material.textfield.TextInputEditText(this);
-        input.setMinHeight(Math.round(48 * density));
-        input.setSingleLine(true);
-        input.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_DECIMAL);
-        input.setText(text);
-        field.addView(input);
-        return field;
-    }
-
-    // The field's value in thousandths (kbps from Mbps, mHz from fps); 0 when it is empty or as it
-    // was, -1 with the error shown when it is outside min-max.
-    private int parseRateChange(com.google.android.material.textfield.TextInputLayout field, String unchanged,
-                                int min, int max, int error) {
-        String text = field.getEditText().getText().toString().trim().replace(',', '.');
-        if (text.isEmpty() || text.equals(unchanged)) return 0;
-        try {
-            int value = new BigDecimal(text).movePointRight(3).intValueExact();
-            if (value >= min && value <= max) return value;
-        } catch (NumberFormatException | ArithmeticException e) {
-            // Shown below.
-        }
-        field.setError(getString(error));
-        return -1;
-    }
-
-    // The host's answer to a 0x553C request, on the UI thread.
-    private void onRateChange(RateChangeResult result) {
-        if (rateChanges == null || !connected || isFinishing()) return;
-        StreamRateChanges.Outcome outcome = rateChanges.onResult(result, SystemClock.uptimeMillis());
-        StreamRateChanges.Answer answer = outcome.answer;
-        if (answer == StreamRateChanges.Answer.UNKNOWN) {
-            LimeLog.warning("Rate change: a result for no request of this stream, " + result);
-            return;
-        }
-        LimeLog.info("Rate change: " + result + " (" + answer + (outcome.takesBitrate ? ")" : ", older bitrate)"));
-        // An answer that came after a later request's keeps that one's bitrate.
-        if (outcome.takesBitrate) currentBitrate = result.bitrateKbps;
-        if (result.fpsChanged() && result.fpsMillihz > 0 && result.fpsMillihz != reconfigureRequester.fpsMillihz()) {
-            reconfigureRequester.rateChanged(result.fpsMillihz);
-            setStreamFrameRate(result.fpsMillihz);
-        }
-        if (answer == StreamRateChanges.Answer.AUTOMATIC_STOPPED) {
-            bitrateHandler.removeCallbacks(updateRateChangeBitrate);
-            LimeLog.warning("Automatic bitrate: the host refused a rate change; off for this stream");
-            messages.alert(getString(R.string.stream_rate_change_auto_stopped,
-                    rateChangeReason(this, result.bitrateReason)), Toast.LENGTH_LONG);
-        } else if (answer == StreamRateChanges.Answer.MANUAL) {
-            messages.alert(rateChangeText(this, result), Toast.LENGTH_LONG);
-        }
-    }
-
     // What became of each value asked for, in plain words.
     static String rateChangeText(Context context, RateChangeResult result) {
         StringBuilder text = new StringBuilder();
@@ -3593,375 +3248,6 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             case RateChangeResult.REASON_SUPERSEDED: return context.getString(R.string.stream_rate_change_reason_superseded);
             default: return context.getString(R.string.stream_rate_change_reason_other);
         }
-    }
-
-    // At the stream's start: rate changes when the host offered them, and the automatic bitrate
-    // the settings ask for, on this device or else on the host.
-    private void startStreamBitrate() {
-        startStreamBitrate(offersRateChange() ? new StreamRateChanges(MoonBridge::sendRateChange) : null);
-    }
-
-    private void startStreamBitrate(StreamRateChanges changes) {
-        rateChanges = changes;
-        if (rateChanges != null && prefConfig.rateChangeBitrate) {
-            setRateChangeBitrateEnabled(true);
-        } else if (autoBitrateAtStart()) {
-            setAdaptiveBitrateEnabled(true, false);
-        } else if (foundationAbrAtStart()) {
-            startFoundationAbr();
-        }
-    }
-
-    // Automatic bitrate on a PC without Rubylight's runtime bitrate: a Foundation Sunshine PC runs
-    // its own controller (as Moonlight V+ asks it to); other PCs answer 404 and nothing changes.
-    private boolean foundationAbrAtStart() {
-        ComputerDetails details = conn.getHostDetails();
-        return connected && app != null && app.getRole() == NvApp.Role.STREAM &&
-                details.caps.family() != HostCapabilities.Family.RUBYLIGHT &&
-                !details.caps.has(HostCapabilities.Feature.RUNTIME_BITRATE) &&
-                AutoBitrateChoice.isOn(this, adaptiveBitratePreferences(), getIntent().getStringExtra(EXTRA_PC_UUID));
-    }
-
-    private void startFoundationAbr() {
-        NvConnection connection = conn;
-        int maxKbps = currentBitrate == 0 ? prefConfig.bitrate : currentBitrate;
-        new Thread(() -> {
-            try {
-                int initial = connection.startFoundationAbr(maxKbps);
-                runOnUiThread(() -> {
-                    if (initial < 0) {
-                        LimeLog.info("The PC has no automatic bitrate");
-                        return;
-                    }
-                    if (!connected || isFinishing() || conn != connection) {
-                        // The stream ended while the PC turned it on: stopFoundationAbr had nothing to stop.
-                        sendFoundationAbrStop(connection);
-                        return;
-                    }
-                    foundationAbr = new com.limelight.nvstream.http.FoundationAbr(initial, maxKbps, SystemClock.uptimeMillis());
-                    currentBitrate = foundationAbr.currentKbps();
-                    LimeLog.info("The PC's automatic bitrate is on: " + currentBitrate + " kbps, at most " + maxKbps + " kbps");
-                    bitrateHandler.postDelayed(foundationAbrTick, 1000);
-                });
-            } catch (IOException e) {
-                LimeLog.warning("The PC did not start its automatic bitrate: " + e.getMessage());
-                // Loud, as on desktop: the stream keeps its bitrate and the user should know why.
-                runOnUiThread(() -> {
-                    if (connected && !isFinishing() && conn == connection) {
-                        messages.alert(getString(R.string.stream_host_abr_failed, e.getMessage()), Toast.LENGTH_LONG);
-                    }
-                });
-            }
-        }, "FoundationAbr").start();
-    }
-
-    // Turns a Foundation PC's controller off at the stream's end (V+ PC's stopSunshineAbr).
-    private void stopFoundationAbr() {
-        if (foundationAbr == null) return;
-        foundationAbr = null;
-        bitrateHandler.removeCallbacks(foundationAbrTick);
-        sendFoundationAbrStop(conn);
-    }
-
-    private static void sendFoundationAbrStop(NvConnection connection) {
-        new Thread(() -> {
-            try {
-                connection.stopFoundationAbr();
-            } catch (IOException e) {
-                LimeLog.warning("The PC's automatic bitrate did not stop: " + e.getMessage());
-            }
-        }, "FoundationAbr").start();
-    }
-
-    // The host offered this stream 0x553C, which only the Rust engine asks for (rlRateChange).
-    private boolean offersRateChange() {
-        return connected && app != null && app.getRole() == NvApp.Role.STREAM && MoonBridge.isRustStream() &&
-                MoonBridge.hostSupportsControlMessage(MoonBridge.CONTROL_MESSAGE_RATE_CHANGE);
-    }
-
-    // The next check for an unanswered 0x553C request, when one is outstanding.
-    private void scheduleRateChangeExpiry() {
-        bitrateHandler.removeCallbacks(expireRateChanges);
-        long at = rateChanges == null ? 0 : rateChanges.nextExpiryMs();
-        if (at > 0) bitrateHandler.postAtTime(expireRateChanges, at);
-    }
-
-    boolean isRateChangeBitrateOn() {
-        return rateChanges != null && rateChanges.automaticOn();
-    }
-
-    // Automatic bitrate on this device, for this stream; the host-side automatic bitrate stops,
-    // since both would set the same encoder.
-    private void setRateChangeBitrateEnabled(boolean enabled) {
-        bitrateHandler.removeCallbacks(updateRateChangeBitrate);
-        if (rateChanges == null) return;
-        if (!enabled) {
-            rateChanges.stopAutomatic();
-            return;
-        }
-        if (isAdaptiveBitrateEnabled()) setAdaptiveBitrateEnabled(false, false);
-        qualityAutoBitrate = false;
-        healthOriginalBitrate = healthTrialBitrate = 0;
-        rateChanges.startAutomatic(currentBitrate == 0 ? prefConfig.bitrate : currentBitrate,
-                StreamRateChanges.clientLimitKbps(prefConfig.layers == null ? null : prefConfig.layers.network,
-                        prefConfig.mobileBitrateLimit),
-                SystemClock.uptimeMillis());
-        bitrateHandler.postDelayed(updateRateChangeBitrate, 1000);
-    }
-
-    boolean supportsAdaptiveBitrate() {
-        ComputerDetails details = conn.getHostDetails();
-        return app.getRole() != NvApp.Role.INPUT_ONLY && details.caps.has(HostCapabilities.Feature.RUNTIME_BITRATE) &&
-                details.encoderBitrateSupported &&
-                details.hasPermission(ComputerDetails.PERMISSION_VIEW | ComputerDetails.PERMISSION_LAUNCH);
-    }
-
-    AdaptiveQualityController.Mode qualityMode() {
-        return AdaptiveQualityController.Mode.parse(getSharedPreferences("AdaptiveQuality", MODE_PRIVATE)
-                .getString(getIntent().getStringExtra(EXTRA_PC_UUID), prefConfig.adaptiveQualityMode.preference()));
-    }
-
-    boolean supportsAdaptiveQuality() {
-        return connected && decoderRenderer != null && app != null && app.getRole() == NvApp.Role.STREAM &&
-                (decoderRenderer.getActiveVideoFormat() & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) == 0 &&
-                MoonBridge.hostSupportsControlMessage(MoonBridge.CONTROL_MESSAGE_RECONFIGURE) &&
-                decoderRenderer.getReconfigureLimits() != null;
-    }
-
-    private void startAdaptiveQuality() {
-        bitrateHandler.removeCallbacks(updateQuality);
-        adaptiveQuality = null;
-        pendingQualityTarget = null;
-        qualityStatus = null;
-        if (decoderRenderer != null) decoderRenderer.resetDecodeTiming();
-        AdaptiveQualityController.Mode mode = qualityMode();
-        if (mode == AdaptiveQualityController.Mode.OFF) {
-            releaseQualityAutoBitrate();
-            return;
-        }
-        String pcUuid = getIntent().getStringExtra(EXTRA_PC_UUID);
-        if (!supportsAdaptiveQuality()) {
-            releaseQualityAutoBitrate();
-            qualityStatus = getString(R.string.quality_unavailable);
-            // Said once per PC; the performance overlay keeps showing it.
-            if (foreground) messages.notice(pcUuid, HostNotices.Notice.AUTOMATIC_QUALITY_UNAVAILABLE, qualityStatus);
-            return;
-        }
-        HostNotices.reset(this, pcUuid, HostNotices.Notice.AUTOMATIC_QUALITY_UNAVAILABLE);
-        healthOriginalBitrate = healthTrialBitrate = 0;
-        int[] limits = decoderRenderer.getReconfigureLimits();
-        adaptiveQuality = new AdaptiveQualityController(mode, qualityMaxWidth, qualityMaxHeight, qualityMaxFps,
-                prefConfig.qualityMinShortEdge, prefConfig.qualityMinFps, limits[2], limits[3], SystemClock.uptimeMillis());
-        // A user changing the mode returns to the session's ceiling before the new policy starts.
-        int[] shown = decoderRenderer.getStreamSize();
-        if ((!adaptiveQuality.current().matches(shown[0], shown[1], streamFps) ||
-                reconfigureRequester.fpsMillihz() != qualityCeilingFrameRateMilliHz()) &&
-                !applyAdaptiveQuality(adaptiveQuality.current(), SystemClock.uptimeMillis())) return;
-        // Automatic quality needs it for this session only; the saved choice stays the user's own.
-        if (supportsAdaptiveBitrate() && !isAdaptiveBitrateEnabled() && !isRateChangeBitrateOn()) {
-            setAdaptiveBitrateEnabled(true, false);
-            qualityAutoBitrate = true;
-        }
-        bitrateHandler.postDelayed(updateQuality, 1000);
-    }
-
-    private boolean applyAdaptiveQuality(AdaptiveQualityController.Target target, long now) {
-        return applyAdaptiveQuality(target, now, qualityCeilingFrameRateMilliHz());
-    }
-
-    private int qualityCeilingFrameRateMilliHz() {
-        return qualityMaxFrameRateMilliHz > 0 ? qualityMaxFrameRateMilliHz : qualityMaxFps * 1000;
-    }
-
-    private boolean applyAdaptiveQuality(AdaptiveQualityController.Target target, long now, int ceilingMilliHz) {
-        int[] request = target.request();
-        if (target.fps == Math.round(ceilingMilliHz / 1000f)) request[2] = ceilingMilliHz;
-        if (!requestStreamReconfigure(request)) {
-            stopAdaptiveQualityWithError();
-            return false;
-        }
-        healthOriginalBitrate = healthTrialBitrate = 0;
-        adaptiveQuality.applied(target, now);
-        pendingQualityTarget = target;
-        qualityRequestSentAt = now;
-        return true;
-    }
-
-    private void stopAdaptiveQualityWithError() {
-        adaptiveQuality = null;
-        pendingQualityTarget = null;
-        bitrateHandler.removeCallbacks(updateQuality);
-        releaseQualityAutoBitrate();
-        qualityStatus = getString(R.string.quality_request_failed);
-        LimeLog.warning("Automatic quality: requested size was not confirmed; adaptation stopped");
-        if (foreground) messages.alert(qualityStatus, Toast.LENGTH_LONG);
-    }
-
-    void showAdaptiveQualityDialog() {
-        String[] modes = getResources().getStringArray(R.array.adaptive_quality_names);
-        String[] choices = new String[] {getString(R.string.quality_use_settings), modes[0], modes[1], modes[2], modes[3]};
-        SharedPreferences saved = getSharedPreferences("AdaptiveQuality", MODE_PRIVATE);
-        String key = getIntent().getStringExtra(EXTRA_PC_UUID);
-        int selected = saved.contains(key) ? qualityMode().ordinal() + 1 : 0;
-        menuActions.showStreamDialog(new NavigationDialogBuilder(this).setTitle(R.string.title_adaptive_quality)
-                .setSingleChoiceItems(choices, selected, (dialog, which) -> {
-                    if (!foreground || !connected || hostActionInProgress) return;
-                    if (which == 0) saved.edit().remove(key).apply();
-                    else saved.edit().putString(key, AdaptiveQualityController.Mode.values()[which - 1].preference()).apply();
-                    dialog.dismiss();
-                    startAdaptiveQuality();
-                    if (qualityMode() == AdaptiveQualityController.Mode.OFF && supportsAdaptiveQuality()) {
-                        requestStreamReconfigure(new int[] {qualityMaxWidth, qualityMaxHeight, qualityCeilingFrameRateMilliHz()});
-                    }
-                })
-                .setNeutralButton(R.string.quality_about, (dialog, which) ->
-                        menuActions.showStreamDialog(new NavigationDialogBuilder(this).setTitle(R.string.title_adaptive_quality)
-                                .setMessage(getString(R.string.quality_stream_help) + "\n\n" +
-                                        getString(supportsAdaptiveQuality() ? R.string.summary_adaptive_quality : R.string.quality_unavailable))
-                                .setPositiveButton(android.R.string.ok, null).create()))
-                .setNegativeButton(android.R.string.cancel, null).create());
-    }
-
-    // Automatic quality is off now: auto bitrate goes back to the person's choice, which was off.
-    private void releaseQualityAutoBitrate() {
-        if (!qualityAutoBitrate) return;
-        qualityAutoBitrate = false;
-        if (isAdaptiveBitrateEnabled()) setAdaptiveBitrateEnabled(false, false);
-    }
-
-    boolean isAdaptiveBitrateEnabled() {
-        return adaptiveBitrate != null || pyroWaveBitrate != null;
-    }
-
-    private String adaptiveBitratePreferences() {
-        return (decoderRenderer.getActiveVideoFormat() & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) != 0 ?
-                AutoBitrateChoice.PYROWAVE_STORE : AutoBitrateChoice.CODEC_STORE;
-    }
-
-    /** Whether the stream starts with automatic bitrate: this PC's choice, else the Settings switch. */
-    boolean autoBitrateAtStart() {
-        return supportsAdaptiveBitrate() &&
-                AutoBitrateChoice.isOn(this, adaptiveBitratePreferences(), getIntent().getStringExtra(EXTRA_PC_UUID));
-    }
-
-    private void setAdaptiveBitrateEnabled(boolean enabled, boolean remember) {
-        if (remember) {
-            AutoBitrateChoice.setForPc(this, adaptiveBitratePreferences(),
-                    getIntent().getStringExtra(EXTRA_PC_UUID), enabled);
-            // The person chose it themselves; Automatic quality no longer owns it.
-            qualityAutoBitrate = false;
-        }
-        bitrateHandler.removeCallbacks(updateBitrate);
-        adaptiveBitrate = null;
-        pyroWaveBitrate = null;
-        adaptiveBitrateRetryAt = 0;
-        adaptiveBitrateClaimFailures = 0;
-        if (enabled) {
-            healthOriginalBitrate = healthTrialBitrate = 0;
-            if ((decoderRenderer.getActiveVideoFormat() & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) != 0) {
-                pyroWaveBitrate = new PyroWaveBitrateController(0, 0, streamFps,
-                        SystemClock.uptimeMillis());
-            } else {
-                adaptiveBitrate = new AdaptiveBitrateController(0, 0, streamFps, SystemClock.uptimeMillis(),
-                        prefConfig.width, prefConfig.height, adaptiveBitrateCodec());
-            }
-            // The preference includes FEC/audio, while runtime changes use encoder Kbps.
-            // Read the actual encoder budget, then claim ownership at that same bitrate.
-            applyAdaptiveBitrate(0);
-            bitrateHandler.postDelayed(updateBitrate, 1000);
-        }
-    }
-
-    // The codec sets how many bits a picture of this size needs, which the built-in floor follows.
-    private AdaptiveBitrateController.Codec adaptiveBitrateCodec() {
-        if (decoderRenderer == null) return null;
-        int format = decoderRenderer.getActiveVideoFormat();
-        if ((format & MoonBridge.VIDEO_FORMAT_MASK_AV1) != 0) return AdaptiveBitrateController.Codec.AV1;
-        if ((format & MoonBridge.VIDEO_FORMAT_MASK_H265) != 0) return AdaptiveBitrateController.Codec.HEVC;
-        return AdaptiveBitrateController.Codec.H264;
-    }
-
-    private void applyAdaptiveBitrate(int target) {
-        AdaptiveBitrateController controller = adaptiveBitrate;
-        PyroWaveBitrateController pyroController = pyroWaveBitrate;
-        hostActionInProgress = true;
-        new Thread(() -> {
-            try {
-                ComputerDetails details = target == 0 ? conn.refreshHostDetails() : null;
-                if (details != null && (details.encoderBitrateKbps <= 0 || details.initialEncoderBitrateKbps <= 0)) {
-                    // A host without the bitrate fields will not start sending them on a retry.
-                    throw details.encoderBitrateSupported ?
-                            new IOException("Host did not report the stream's encoder bitrate") :
-                            new EncoderBitrateUnsupported();
-                }
-                // Claim bitrate ownership on hosts with their own controller, without probing a new rate.
-                int applied = conn.setBitrate(details == null ? target : details.encoderBitrateKbps);
-                runOnUiThread(() -> {
-                    if (connected && !isFinishing()) {
-                        if (adaptiveBitrate == controller && pyroWaveBitrate == pyroController) {
-                            currentBitrate = applied;
-                            adaptiveBitrateRetryAt = 0;
-                            adaptiveBitrateClaimFailures = 0;
-                            long now = SystemClock.uptimeMillis();
-                            if (details != null) {
-                                // The bitrate the stream started at (the bitrate setting, after profiles) is the
-                                // ceiling; the built-in floor applies.
-                                int ceiling = Math.max(details.initialEncoderBitrateKbps, applied);
-                                if (controller != null) adaptiveBitrate = new AdaptiveBitrateController(ceiling, applied, streamFps, now,
-                                        prefConfig.width, prefConfig.height, adaptiveBitrateCodec());
-                                if (pyroController != null) pyroWaveBitrate = new PyroWaveBitrateController(ceiling, applied, streamFps, now);
-                            } else {
-                                if (controller != null) controller.applied(target, applied, now);
-                                if (pyroController != null) pyroController.applied(target, applied, now);
-                            }
-                        }
-                    }
-                });
-            } catch (IOException | XmlPullParserException e) {
-                LimeLog.warning("Automatic bitrate update failed: " + e);
-                runOnUiThread(() -> {
-                    if (isFinishing() || isDestroyed()) return;
-                    if (adaptiveBitrate == controller && pyroWaveBitrate == pyroController) {
-                        if (target == 0 && (e instanceof EncoderBitrateUnsupported ||
-                                ++adaptiveBitrateClaimFailures >= MAX_BITRATE_CLAIM_FAILURES)) {
-                            // Without the encoder's bitrate there is nothing to adapt from: stop
-                            // retrying for this stream and leave the PC's saved choice alone.
-                            LimeLog.warning("Automatic bitrate: the host reports no encoder bitrate; off for this stream");
-                            qualityAutoBitrate = false;
-                            setAdaptiveBitrateEnabled(false, false);
-                            if (foreground && connected && !isFinishing()) {
-                                messages.alert(R.string.stream_auto_bitrate_unavailable, Toast.LENGTH_LONG);
-                            }
-                            return;
-                        }
-                        boolean firstFailure = adaptiveBitrateRetryAt == 0;
-                        adaptiveBitrateRetryTarget = target;
-                        adaptiveBitrateRetryAt = SystemClock.uptimeMillis() + 5000;
-                        if (controller != null) controller.suspend();
-                        if (pyroController != null) pyroController.suspend();
-                        if (firstFailure && foreground && connected && !isFinishing()) {
-                            messages.alert(R.string.stream_auto_bitrate_failed, Toast.LENGTH_LONG);
-                        }
-                    }
-                });
-            } finally {
-                runOnUiThread(() -> hostActionInProgress = false);
-            }
-        }, "Automatic bitrate").start();
-    }
-
-    private static final class EncoderBitrateUnsupported extends IOException {
-        EncoderBitrateUnsupported() {
-            super("Host does not support runtime bitrate changes");
-        }
-    }
-
-    void showHostActionError(Exception error, int generation) {
-        runOnUiThread(() -> {
-            if (foreground && generation == foregroundGeneration && connected && !isFinishing()) {
-                messages.alert(getString(R.string.stream_host_action_failed, error.getMessage()), Toast.LENGTH_LONG);
-            }
-        });
     }
 
     final Runnable toggleGrab = new Runnable() {
@@ -4040,7 +3326,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     }
 
     private void stopConnection() {
-        stopFoundationAbr();
+        adaptation.stopFoundationAbr();
         touchInput.releaseDesktopInput();
         if (trackpadPointer != null) trackpadPointer.stopMomentum();
         rememberMicrophoneMute();
@@ -4067,7 +3353,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         pendingQualityTarget = null;
         adaptiveBitrate = null;
         qualityAutoBitrate = false;
-        bitrateHandler.removeCallbacks(sampleStreamHealth);
+        bitrateHandler.removeCallbacks(adaptation.sampleStreamHealth);
         bitrateHandler.removeCallbacks(pollContentRateVote);
         stopRefreshSwitchPolling();
         if (wifiDiagnostics != null) wifiDiagnostics.stop();
@@ -4472,8 +3758,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 connected = true;
                 conn.refreshNativeHostControl();
                 getIntent().removeExtra(EXTRA_RECOVERY_MEDIA_FAILURE);
-                bitrateHandler.removeCallbacks(sampleStreamHealth);
-                bitrateHandler.postDelayed(sampleStreamHealth, 1000);
+                bitrateHandler.removeCallbacks(adaptation.sampleStreamHealth);
+                bitrateHandler.postDelayed(adaptation.sampleStreamHealth, 1000);
                 bitrateHandler.removeCallbacks(pollContentRateVote);
                 if (prefConfig.contentRateFrameRate) bitrateHandler.postDelayed(pollContentRateVote, 1000);
                 startRefreshSwitchPolling();
@@ -4520,8 +3806,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 // A link test before the launch may have started the stream lower than the setting.
                 currentBitrate = app.isSmallStreamInputOnly() ? prefConfig.bitrate : conn.getStartBitrateKbps();
                 overlays.notePyroWaveFallback();
-                startStreamBitrate();
-                startAdaptiveQuality();
+                adaptation.startStreamBitrate();
+                adaptation.startAdaptiveQuality();
                 updatePipAutoEnter();
 
                 if (!conn.getHostDetails().hasPermission(ComputerDetails.PERMISSION_INPUT)) {
@@ -4699,7 +3985,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
 
     @Override
     public void rateChange(RateChangeResult result) {
-        runOnUiThread(() -> onRateChange(result));
+        runOnUiThread(() -> adaptation.onRateChange(result));
     }
 
     @Override

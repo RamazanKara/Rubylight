@@ -37,7 +37,7 @@ public class GameLifecycleTest {
         PreferenceConfiguration prefs = new PreferenceConfiguration();
         prefs.bitrate = 10000;
         ReflectionHelpers.setField(activity, "prefConfig", prefs);
-        ReflectionHelpers.callInstanceMethod(activity, "showBitrateDialog");
+        ReflectionHelpers.callInstanceMethod(activity.adaptation, "showBitrateDialog");
         androidx.appcompat.app.AlertDialog dialog = ReflectionHelpers.getField(activity, "streamMenu");
         try {
             java.util.ArrayDeque<View> views = new java.util.ArrayDeque<>();
@@ -110,14 +110,14 @@ public class GameLifecycleTest {
         ReflectionHelpers.setField(activity, "conn", connection);
         ReflectionHelpers.setField(activity, "connected", true);
         activity.getSharedPreferences("AdaptiveBitrate", Context.MODE_PRIVATE).edit().putBoolean("pc", true).commit();
-        ReflectionHelpers.callInstanceMethod(activity, "applyAdaptiveBitrate",
+        ReflectionHelpers.callInstanceMethod(activity.adaptation, "applyAdaptiveBitrate",
                 ReflectionHelpers.ClassParameter.from(int.class, 6400));
         awaitBitrateRequest(activity);
         assertSame(controller, ReflectionHelpers.getField(activity, "adaptiveBitrate"));
         assertTrue(activity.getSharedPreferences("AdaptiveBitrate", Context.MODE_PRIVATE).getBoolean("pc", false));
         assertTrue((long) ReflectionHelpers.getField(activity, "adaptiveBitrateRetryAt") > 0);
         connection.fail = false;
-        ReflectionHelpers.callInstanceMethod(activity, "applyAdaptiveBitrate",
+        ReflectionHelpers.callInstanceMethod(activity.adaptation, "applyAdaptiveBitrate",
                 ReflectionHelpers.ClassParameter.from(int.class, 6400));
         awaitBitrateRequest(activity);
         assertEquals(6400, (int) ReflectionHelpers.getField(activity, "currentBitrate"));
@@ -143,14 +143,14 @@ public class GameLifecycleTest {
         ReflectionHelpers.setField(activity, "app", new com.limelight.nvstream.http.NvApp());
         ReflectionHelpers.setField(activity, "conn", connection);
         activity.getSharedPreferences("AdaptiveBitrate", Context.MODE_PRIVATE).edit().putBoolean("pc", true).commit();
-        assertFalse(ReflectionHelpers.callInstanceMethod(activity, "supportsAdaptiveBitrate"));
+        assertFalse(ReflectionHelpers.callInstanceMethod(activity.adaptation, "supportsAdaptiveBitrate"));
         assertTrue(activity.getSharedPreferences("AdaptiveBitrate", Context.MODE_PRIVATE).getBoolean("pc", false));
         details.encoderBitrateSupported = true;
         assertEquals(0, details.encoderBitrateKbps);
         assertEquals(0, details.initialEncoderBitrateKbps);
-        assertTrue(ReflectionHelpers.callInstanceMethod(activity, "supportsAdaptiveBitrate"));
+        assertTrue(ReflectionHelpers.callInstanceMethod(activity.adaptation, "supportsAdaptiveBitrate"));
         details.permission = 0;
-        assertFalse(ReflectionHelpers.callInstanceMethod(activity, "supportsAdaptiveBitrate"));
+        assertFalse(ReflectionHelpers.callInstanceMethod(activity.adaptation, "supportsAdaptiveBitrate"));
     }
 
     @Test
@@ -179,7 +179,7 @@ public class GameLifecycleTest {
             ReflectionHelpers.setField(activity, "conn", connection);
             ReflectionHelpers.setField(activity, "connected", true);
             try {
-                ReflectionHelpers.callInstanceMethod(activity, "setAdaptiveBitrateEnabled",
+                ReflectionHelpers.callInstanceMethod(activity.adaptation, "setAdaptiveBitrateEnabled",
                         ReflectionHelpers.ClassParameter.from(boolean.class, true),
                         ReflectionHelpers.ClassParameter.from(boolean.class, true));
                 awaitBitrateRequest(activity);
@@ -208,7 +208,7 @@ public class GameLifecycleTest {
                 }
                 assertEquals(38988, current);
             } finally {
-                ReflectionHelpers.callInstanceMethod(activity, "setAdaptiveBitrateEnabled",
+                ReflectionHelpers.callInstanceMethod(activity.adaptation, "setAdaptiveBitrateEnabled",
                         ReflectionHelpers.ClassParameter.from(boolean.class, false),
                         ReflectionHelpers.ClassParameter.from(boolean.class, true));
             }
@@ -228,7 +228,7 @@ public class GameLifecycleTest {
         ReflectionHelpers.setField(activity, "streamFps", 60);
         ReflectionHelpers.setField(activity, "conn", connection);
         ReflectionHelpers.setField(activity, "connected", true);
-        ReflectionHelpers.callInstanceMethod(activity, "applyAdaptiveBitrate",
+        ReflectionHelpers.callInstanceMethod(activity.adaptation, "applyAdaptiveBitrate",
                 ReflectionHelpers.ClassParameter.from(int.class, 0));
         awaitBitrateRequest(activity);
         assertSame(waiting, ReflectionHelpers.getField(activity, "adaptiveBitrate"));
@@ -275,7 +275,7 @@ public class GameLifecycleTest {
         ReflectionHelpers.setField(activity, "streamFps", 60);
         ReflectionHelpers.setField(activity, "conn", connection);
         ReflectionHelpers.setField(activity, "connected", true);
-        ReflectionHelpers.callInstanceMethod(activity, "applyAdaptiveBitrate",
+        ReflectionHelpers.callInstanceMethod(activity.adaptation, "applyAdaptiveBitrate",
                 ReflectionHelpers.ClassParameter.from(int.class, 0));
         awaitBitrateRequest(activity);
         com.limelight.nvstream.AdaptiveBitrateController controller = ReflectionHelpers.getField(activity, "adaptiveBitrate");
@@ -314,18 +314,18 @@ public class GameLifecycleTest {
             // The Settings switch is the default; the menu's toggle then chooses for this PC alone.
             assertTrue(AutoBitrateChoice.isOn(activity, store, "pc"));
             try {
-                ReflectionHelpers.callInstanceMethod(activity, "setAdaptiveBitrateEnabled",
+                ReflectionHelpers.callInstanceMethod(activity.adaptation, "setAdaptiveBitrateEnabled",
                         ReflectionHelpers.ClassParameter.from(boolean.class, false),
                         ReflectionHelpers.ClassParameter.from(boolean.class, true));
                 assertFalse(AutoBitrateChoice.isOn(activity, store, "pc"));
                 assertTrue(AutoBitrateChoice.isOn(activity, store, "other"));
-                ReflectionHelpers.callInstanceMethod(activity, "setAdaptiveBitrateEnabled",
+                ReflectionHelpers.callInstanceMethod(activity.adaptation, "setAdaptiveBitrateEnabled",
                         ReflectionHelpers.ClassParameter.from(boolean.class, true),
                         ReflectionHelpers.ClassParameter.from(boolean.class, true));
                 awaitBitrateRequest(activity);
                 assertTrue(AutoBitrateChoice.isOn(activity, store, "pc"));
             } finally {
-                ReflectionHelpers.callInstanceMethod(activity, "setAdaptiveBitrateEnabled",
+                ReflectionHelpers.callInstanceMethod(activity.adaptation, "setAdaptiveBitrateEnabled",
                         ReflectionHelpers.ClassParameter.from(boolean.class, false),
                         ReflectionHelpers.ClassParameter.from(boolean.class, false));
                 android.preference.PreferenceManager.getDefaultSharedPreferences(activity).edit().clear().commit();
@@ -362,19 +362,19 @@ public class GameLifecycleTest {
             android.content.SharedPreferences settings =
                     android.preference.PreferenceManager.getDefaultSharedPreferences(activity);
             try {
-                assertFalse("off by default", activity.autoBitrateAtStart());
+                assertFalse("off by default", activity.adaptation.autoBitrateAtStart());
                 settings.edit().putBoolean("checkbox_auto_bitrate", true).commit();
-                assertTrue("the switch is the default", activity.autoBitrateAtStart());
+                assertTrue("the switch is the default", activity.adaptation.autoBitrateAtStart());
                 // This PC chose off in the stream menu.
                 activity.getSharedPreferences(store, Context.MODE_PRIVATE).edit().putBoolean("pc", false).commit();
-                assertFalse("the PC's own choice wins", activity.autoBitrateAtStart());
+                assertFalse("the PC's own choice wins", activity.adaptation.autoBitrateAtStart());
                 // Only the store of the stream's codec counts.
                 activity.getSharedPreferences(store, Context.MODE_PRIVATE).edit().clear().commit();
                 activity.getSharedPreferences(other, Context.MODE_PRIVATE).edit().putBoolean("pc", false).commit();
-                assertTrue(activity.autoBitrateAtStart());
+                assertTrue(activity.adaptation.autoBitrateAtStart());
                 // A host without runtime bitrate support never starts it.
                 details.encoderBitrateSupported = false;
-                assertFalse(activity.autoBitrateAtStart());
+                assertFalse(activity.adaptation.autoBitrateAtStart());
             } finally {
                 settings.edit().clear().commit();
                 activity.getSharedPreferences("AdaptiveBitrate", Context.MODE_PRIVATE).edit().clear().commit();
@@ -408,7 +408,7 @@ public class GameLifecycleTest {
         android.content.SharedPreferences settings =
                 android.preference.PreferenceManager.getDefaultSharedPreferences(activity);
         settings.edit().putBoolean("checkbox_auto_bitrate", true).commit();
-        ReflectionHelpers.callInstanceMethod(activity, "showBitrateDialog");
+        ReflectionHelpers.callInstanceMethod(activity.adaptation, "showBitrateDialog");
         androidx.appcompat.app.AlertDialog dialog = ReflectionHelpers.getField(activity, "streamMenu");
         try {
             java.util.ArrayDeque<View> views = new java.util.ArrayDeque<>();
@@ -455,7 +455,7 @@ public class GameLifecycleTest {
             android.os.Handler handler = ReflectionHelpers.getField(activity, "bitrateHandler");
             Runnable update = ReflectionHelpers.getField(activity, "updateBitrate");
             try {
-                ReflectionHelpers.callInstanceMethod(activity, "applyAdaptiveBitrate",
+                ReflectionHelpers.callInstanceMethod(activity.adaptation, "applyAdaptiveBitrate",
                         ReflectionHelpers.ClassParameter.from(int.class, 0));
                 awaitBitrateRequest(activity);
                 handler.postDelayed(update, 1000);

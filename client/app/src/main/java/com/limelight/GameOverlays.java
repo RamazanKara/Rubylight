@@ -294,12 +294,12 @@ final class GameOverlays {
                     return;
                 }
                 String displayLine = displayRefreshOverlayLine();
-                String networkText = !game.isAdaptiveBitrateEnabled() ? network : network + "\n" +
+                String networkText = !game.adaptation.isAdaptiveBitrateEnabled() ? network : network + "\n" +
                         game.getString(R.string.stream_auto_bitrate_status, game.currentBitrate / 1000.0);
                 if (game.adaptiveQuality != null) {
                     AdaptiveQualityController.Target quality = game.adaptiveQuality.current();
                     networkText += "\n" + game.getString(R.string.quality_status,
-                            game.getResources().getStringArray(R.array.adaptive_quality_names)[game.qualityMode().ordinal()],
+                            game.getResources().getStringArray(R.array.adaptive_quality_names)[game.adaptation.qualityMode().ordinal()],
                             quality.width, quality.height, quality.fps);
                 } else if (game.qualityStatus != null) {
                     networkText += "\n" + game.qualityStatus;

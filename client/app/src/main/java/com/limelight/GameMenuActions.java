@@ -254,7 +254,7 @@ final class GameMenuActions {
                     connection.openHostMenu();
                 } catch (IOException e) {
                     LimeLog.warning("Host menu not opened: " + e.getMessage());
-                    game.showHostActionError(e, generation);
+                    game.adaptation.showHostActionError(e, generation);
                 }
             });
         } catch (java.util.concurrent.RejectedExecutionException ignored) {
@@ -293,8 +293,8 @@ final class GameMenuActions {
         options.zoomEnabled = game.desktopGestures != null && game.desktopGestures.enabled();
         options.pictureInPicture = game.canEnterPictureInPicture();
         options.externalDisplays = game.hasPresentationDisplays();
-        options.automaticQuality = game.supportsAdaptiveQuality();
-        options.automaticBitrateOn = game.isAdaptiveBitrateEnabled() || game.isRateChangeBitrateOn();
+        options.automaticQuality = game.adaptation.supportsAdaptiveQuality();
+        options.automaticBitrateOn = game.adaptation.isAdaptiveBitrateEnabled() || game.adaptation.isRateChangeBitrateOn();
         options.rateChange = game.rateChanges != null;
         options.rateChangeBitrate = game.rateChanges != null && game.prefConfig.rateChangeBitrate;
         options.webUiAddress = hostWebUiUrl() != null;
@@ -342,10 +342,10 @@ final class GameMenuActions {
             }; break;
             case PICTURE_IN_PICTURE: action = game::enterPictureInPictureNow; break;
             case VIDEO_OUTPUT: action = game::showVideoOutputDialog; break;
-            case BITRATE: action = game::showBitrateDialog; break;
-            case RATE_CHANGE: action = game::showRateChangeDialog; break;
-            case AUTOMATIC_QUALITY: action = game::showAdaptiveQualityDialog; break;
-            case AUTOMATIC_BITRATE: action = game::toggleAdaptiveBitrateFromMenu; break;
+            case BITRATE: action = game.adaptation::showBitrateDialog; break;
+            case RATE_CHANGE: action = game.adaptation::showRateChangeDialog; break;
+            case AUTOMATIC_QUALITY: action = game.adaptation::showAdaptiveQualityDialog; break;
+            case AUTOMATIC_BITRATE: action = game.adaptation::toggleAdaptiveBitrateFromMenu; break;
             case SERVER_COMMANDS: action = () -> showServerCommands(details); break;
             case CLIPBOARD_SEND: action = () -> transferClipboard(true); break;
             case CLIPBOARD_RECEIVE: action = () -> transferClipboard(false); break;
@@ -490,9 +490,9 @@ final class GameMenuActions {
     private void showStreamHealth() {
         com.limelight.utils.StreamHealth.Report report = game.streamHealth.report(SystemClock.uptimeMillis());
         StringBuilder text = Game.healthText(game, report, wifiText(0));
-        boolean manual = Game.healthTrialAllowed(game.isAdaptiveBitrateEnabled(), game.isRateChangeBitrateOn(), game.adaptiveQuality != null);
+        boolean manual = Game.healthTrialAllowed(game.adaptation.isAdaptiveBitrateEnabled(), game.adaptation.isRateChangeBitrateOn(), game.adaptiveQuality != null);
         boolean undo = game.healthOriginalBitrate > 0 && game.currentBitrate == game.healthTrialBitrate && manual;
-        boolean suggest = report.canSuggestBitrate() && game.supportsAdaptiveBitrate() && manual &&
+        boolean suggest = report.canSuggestBitrate() && game.adaptation.supportsAdaptiveBitrate() && manual &&
                 game.currentBitrate > 500 && !game.hostActionInProgress && !undo;
         if (undo || suggest) text.append("\n\n").append(game.getString(R.string.health_trial_help));
         MaterialAlertDialogBuilder builder = new NavigationDialogBuilder(game).setTitle(R.string.health_title)
@@ -502,7 +502,7 @@ final class GameMenuActions {
                     clipboard.setPrimaryClip(ClipData.newPlainText(game.getString(R.string.health_title), text));
                 });
         if (undo || suggest) builder.setPositiveButton(undo ? R.string.health_undo : R.string.health_try,
-                (dialog, which) -> game.applyHealthBitrate(undo));
+                (dialog, which) -> game.adaptation.applyHealthBitrate(undo));
         else builder.setPositiveButton(android.R.string.ok, null);
         showStreamDialog(builder.create());
     }
@@ -607,7 +607,7 @@ final class GameMenuActions {
                 game.runOnUiThread(game::finish);
             } catch (IOException | XmlPullParserException e) {
                 game.runOnUiThread(this::confirmHostExitFailedLater);
-                game.showHostActionError(e, generation);
+                game.adaptation.showHostActionError(e, generation);
             } finally {
                 game.runOnUiThread(() -> game.hostActionInProgress = false);
             }
@@ -671,7 +671,7 @@ final class GameMenuActions {
                 game.runOnUiThread(game::finish);
             } catch (IOException | XmlPullParserException e) {
                 game.runOnUiThread(this::confirmHostExitFailedLater);
-                game.showHostActionError(e, generation);
+                game.adaptation.showHostActionError(e, generation);
             } finally {
                 game.runOnUiThread(() -> game.hostActionInProgress = false);
             }
@@ -699,7 +699,7 @@ final class GameMenuActions {
                     showHostStatus(details);
                 });
             } catch (IOException | XmlPullParserException e) {
-                game.showHostActionError(e, generation);
+                game.adaptation.showHostActionError(e, generation);
             } finally {
                 game.runOnUiThread(() -> game.hostActionInProgress = false);
             }
@@ -739,7 +739,7 @@ final class GameMenuActions {
             try {
                 clip = clipboard.getPrimaryClip();
             } catch (RuntimeException e) {
-                game.showHostActionError(e, game.foregroundGeneration);
+                game.adaptation.showHostActionError(e, game.foregroundGeneration);
                 return;
             }
             if (clip == null || clip.getItemCount() == 0 || clip.getItemAt(0).getText() == null) {
@@ -775,14 +775,14 @@ final class GameMenuActions {
                         try {
                             clipboard.setPrimaryClip(clip);
                         } catch (RuntimeException e) {
-                            game.showHostActionError(e, generation);
+                            game.adaptation.showHostActionError(e, generation);
                             return;
                         }
                     }
                     game.messages.alert(send ? R.string.stream_clipboard_sent : R.string.stream_clipboard_received, Toast.LENGTH_SHORT);
                 });
             } catch (IOException | XmlPullParserException e) {
-                game.showHostActionError(e, generation);
+                game.adaptation.showHostActionError(e, generation);
             } finally {
                 game.runOnUiThread(() -> game.hostActionInProgress = false);
             }
@@ -803,7 +803,7 @@ final class GameMenuActions {
             try {
                 current = clipboard.getPrimaryClip();
             } catch (RuntimeException e) {
-                game.showHostActionError(e, game.foregroundGeneration);
+                game.adaptation.showHostActionError(e, game.foregroundGeneration);
                 return;
             }
             if (current == null || current.getItemCount() == 0) {
@@ -849,7 +849,7 @@ final class GameMenuActions {
                 showClipboardImageResult(ClipboardImages.message(ClipboardImageException.Reason.TOO_LARGE, send),
                         generation);
             } catch (IOException | XmlPullParserException | RuntimeException e) {
-                game.showHostActionError(e, generation);
+                game.adaptation.showHostActionError(e, generation);
             } finally {
                 if (staged != null) {
                     ClipboardImages.discard(staged);
@@ -880,7 +880,7 @@ final class GameMenuActions {
             clipboard.setPrimaryClip(clip);
         } catch (RuntimeException e) {
             ClipboardImages.discard(image);
-            game.showHostActionError(e, generation);
+            game.adaptation.showHostActionError(e, generation);
             return;
         }
         ClipboardImages.keepOnly(game, image);
@@ -920,7 +920,7 @@ final class GameMenuActions {
                                             }
                                         });
                                     } catch (IOException | XmlPullParserException e) {
-                                        game.showHostActionError(e, generation);
+                                        game.adaptation.showHostActionError(e, generation);
                                     } finally {
                                         game.runOnUiThread(() -> game.hostActionInProgress = false);
                                     }

@@ -116,7 +116,7 @@ public class GameHealthTest {
     }
 
     private static void apply(Game game, boolean undo) throws InterruptedException {
-        ReflectionHelpers.callInstanceMethod(game, "applyHealthBitrate",
+        ReflectionHelpers.callInstanceMethod(game.adaptation, "applyHealthBitrate",
                 ReflectionHelpers.ClassParameter.from(boolean.class, undo));
         long deadline = System.nanoTime() + 2_000_000_000L;
         while ((boolean) ReflectionHelpers.getField(game, "hostActionInProgress") && System.nanoTime() < deadline) {

@@ -83,12 +83,12 @@ public class GameRateChangeTest {
     }
 
     private void startStream(StreamRateChanges changes) {
-        ReflectionHelpers.callInstanceMethod(game, "startStreamBitrate",
+        ReflectionHelpers.callInstanceMethod(game.adaptation, "startStreamBitrate",
                 ReflectionHelpers.ClassParameter.from(StreamRateChanges.class, changes));
     }
 
     private AlertDialog openDialog() {
-        ReflectionHelpers.callInstanceMethod(game, "showRateChangeDialog");
+        ReflectionHelpers.callInstanceMethod(game.adaptation, "showRateChangeDialog");
         AlertDialog dialog = (AlertDialog) ShadowDialog.getLatestDialog();
         assertNotNull(dialog);
         assertTrue(dialog.isShowing());
@@ -291,7 +291,7 @@ public class GameRateChangeTest {
         runUntilAutomaticAsks();
         assertEquals(1, sent.size());
         runFor((int) (StreamRateChanges.ANSWER_MS / 1000));
-        assertFalse((boolean) ReflectionHelpers.callInstanceMethod(game, "isRateChangeBitrateOn"));
+        assertFalse((boolean) ReflectionHelpers.callInstanceMethod(game.adaptation, "isRateChangeBitrateOn"));
         assertEquals(game.getString(R.string.stream_rate_change_auto_no_answer), ShadowToast.getTextOfLatestToast());
         runFor(20);
         assertEquals("nothing more goes out", 1, sent.size());
@@ -312,7 +312,7 @@ public class GameRateChangeTest {
     public void withTheSettingOnAutomaticBitrateRunsOnThisDeviceAndSendsItsRequests() {
         prefs.rateChangeBitrate = true;
         startStream(recording());
-        assertTrue((boolean) ReflectionHelpers.callInstanceMethod(game, "isRateChangeBitrateOn"));
+        assertTrue((boolean) ReflectionHelpers.callInstanceMethod(game.adaptation, "isRateChangeBitrateOn"));
         assertNull("not the host's automatic bitrate as well", ReflectionHelpers.getField(game, "adaptiveBitrate"));
         runUntilAutomaticAsks();
         assertFalse("clean samples ask for more", sent.isEmpty());
@@ -324,7 +324,7 @@ public class GameRateChangeTest {
         game.rateChange(new RateChangeResult(request[0], 50_000, 0, STATUS_REFUSED, REASON_CODEC,
                 STATUS_UNCHANGED, REASON_NONE));
         ShadowLooper.idleMainLooper();
-        assertFalse((boolean) ReflectionHelpers.callInstanceMethod(game, "isRateChangeBitrateOn"));
+        assertFalse((boolean) ReflectionHelpers.callInstanceMethod(game.adaptation, "isRateChangeBitrateOn"));
         assertEquals(game.getString(R.string.stream_rate_change_auto_stopped,
                 game.getString(R.string.stream_rate_change_reason_codec)), ShadowToast.getTextOfLatestToast());
         int before = sent.size();
@@ -335,7 +335,7 @@ public class GameRateChangeTest {
     @Test
     public void withTheSettingOffNothingIsSentOnItsOwn() {
         startStream(recording());
-        assertFalse((boolean) ReflectionHelpers.callInstanceMethod(game, "isRateChangeBitrateOn"));
+        assertFalse((boolean) ReflectionHelpers.callInstanceMethod(game.adaptation, "isRateChangeBitrateOn"));
         runFor(15);
         assertTrue(sent.isEmpty());
     }
@@ -344,10 +344,10 @@ public class GameRateChangeTest {
     public void turningItOnFromTheMenuExplainsItAsTheSettingDoes() {
         prefs.rateChangeBitrate = true;
         startStream(recording());
-        ReflectionHelpers.callInstanceMethod(game, "toggleAdaptiveBitrateFromMenu");
-        assertFalse((boolean) ReflectionHelpers.callInstanceMethod(game, "isRateChangeBitrateOn"));
-        ReflectionHelpers.callInstanceMethod(game, "toggleAdaptiveBitrateFromMenu");
-        assertTrue((boolean) ReflectionHelpers.callInstanceMethod(game, "isRateChangeBitrateOn"));
+        ReflectionHelpers.callInstanceMethod(game.adaptation, "toggleAdaptiveBitrateFromMenu");
+        assertFalse((boolean) ReflectionHelpers.callInstanceMethod(game.adaptation, "isRateChangeBitrateOn"));
+        ReflectionHelpers.callInstanceMethod(game.adaptation, "toggleAdaptiveBitrateFromMenu");
+        assertTrue((boolean) ReflectionHelpers.callInstanceMethod(game.adaptation, "isRateChangeBitrateOn"));
         assertEquals(game.getString(R.string.summary_rate_change_bitrate), ShadowToast.getTextOfLatestToast());
         runUntilAutomaticAsks();
         assertFalse(sent.isEmpty());

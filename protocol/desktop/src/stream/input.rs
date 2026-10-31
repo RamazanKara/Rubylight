@@ -100,16 +100,7 @@ impl Streaming {
                     if self.absolute {
                         self.absolute_position(m.x, m.y, window, renderer);
                     } else {
-                        let (rx, ry) = self.relative_remainder;
-                        let speed = self.settings.mouse_speed.clamp(25, 400) as f32 / 100.0;
-                        let (dx, dy) = (m.xrel * speed + rx, m.yrel * speed + ry);
-                        let (ix, iy) = (dx.trunc(), dy.trunc());
-                        self.relative_remainder = (dx - ix, dy - iy);
-                        if ix != 0.0 || iy != 0.0 {
-                            self.session.input(|q| {
-                                let _ = q.send_mouse_move(ix as i16, iy as i16);
-                            });
-                        }
+                        self.direct_motion.send(m.xrel, m.yrel, self.settings.mouse_speed);
                     }
                 }
                 SDL_EVENT_MOUSE_BUTTON_DOWN | SDL_EVENT_MOUSE_BUTTON_UP => {

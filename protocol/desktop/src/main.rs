@@ -1927,6 +1927,14 @@ impl App {
     }
 
     fn dispatch_stream_event(&mut self, event: &SDL_Event) {
+        self.dispatch_stream_event_inner(event);
+        // A click or wheel turn has gone out (or the menu took it): later motion may pass it.
+        if let Some((s, _)) = self.streaming.as_ref() {
+            s.direct_motion.dispatched(event);
+        }
+    }
+
+    fn dispatch_stream_event_inner(&mut self, event: &SDL_Event) {
         self.track_visibility(event);
         // SAFETY: reading the event type.
         let kind = SDL_EventType(unsafe { event.r#type });

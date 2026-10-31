@@ -16,6 +16,7 @@ mod microphone;
 #[cfg(windows)]
 mod voice_capture;
 mod cursor;
+pub mod direct_motion;
 mod bitrate;
 pub mod host_abr;
 pub mod doctor;
@@ -48,6 +49,8 @@ mod stage_times;
 mod d3d11;
 #[cfg(windows)]
 mod wasapi;
+#[cfg(windows)]
+mod wlan;
 pub mod gpu_planes;
 mod pyrowave_sdk;
 #[cfg(unix)]
@@ -480,7 +483,11 @@ pub struct Streaming {
     touchpad: touchpad::Touchpad,
     captured: bool,
     absolute: bool,
-    relative_remainder: (f32, f32),
+    /// Captured motion sent from the thread that reads the mouse.
+    pub direct_motion: direct_motion::DirectMotion,
+    /// Wi-Fi in media streaming mode for the stream.
+    #[cfg(windows)]
+    _wlan: Option<wlan::StreamingMode>,
     offset: ClockOffset,
     /// The client timing CSV (`NIGHTJAR_TIMING_CSV`), off by default.
     timing_csv: Option<crate::timing_csv::TimingCsv>,
@@ -600,9 +607,13 @@ impl Streaming {
         }
         let mut doctor = doctor::Doctor::default();
         doctor.receive_buffer = session.video_receive_buffer();
+        let direct_motion = direct_motion::DirectMotion::new(session.input_handle(), facts.touch);
         let mut streaming = Self {
             usb,
             usb_refused,
+            direct_motion,
+            #[cfg(windows)]
+            _wlan: wlan::StreamingMode::begin(),
             session,
             shared: connecting.shared,
             facts,
@@ -690,7 +701,6 @@ impl Streaming {
             #[cfg(windows)]
             touchpad: touchpad::Touchpad::default(),
             captured: false,
-            relative_remainder: (0.0, 0.0),
             offset: ClockOffset::default(),
             timing_csv: open_timing_csv(),
             rtp_clock: RtpClock::default(),
@@ -1045,6 +1055,7 @@ impl Streaming {
             let grab = on && self.settings.capture_system_keys;
             SDL_SetWindowKeyboardGrab(window, grab);
         }
+        self.direct_motion.set_active(on && !self.absolute && self.focused, self.settings.mouse_speed);
     }
 
     pub fn raise_all_keys(&mut self) {
@@ -1527,6 +1538,10 @@ impl Streaming {
         self.session.input(|q| pads.release(q));
         self.text_field.stop(window);
         self.set_capture(window, false);
+        let (direct, queued) = self.direct_motion.counts();
+        if direct + queued > 0 {
+            eprintln!("nightjar: mouse moves: {direct} sent as they arrived, {queued} through the main loop");
+        }
         self.cursor.clear();
         crate::sdl::alt_f4_to_host(false);
         for controller in 0..16 {

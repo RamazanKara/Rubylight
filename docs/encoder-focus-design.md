@@ -130,7 +130,7 @@ Buffers and both pipelines are created with the converter whenever the encoder c
 
 ### Host configuration and web console
 
-- `encoder_focus` joins the "Encoder tuning" entries of `override_allowed` (`rust/core/src/config.rs`). The app and device editors offer it automatically.
+- `encoder_focus` joins the "Encoder tuning" entries of `override_allowed` (`rust/core/src/config/overrides.rs`). The app and device editors offer it automatically.
 - Console: a select in group "AMD AMF" (`rust/web/src/lib/schema/video.ts`, next to `amd_vbaq`), labelled **Encoder focus**:
   - options: Off (default), Still areas, Still areas and centre; the description says it is opt-in;
   - details: "Gives more bits to parts of the picture that stay still, such as text and HUDs, and fewer to motion. The stream stays a normal video stream.";

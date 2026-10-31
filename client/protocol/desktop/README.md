@@ -234,7 +234,9 @@ All are off unless set.
 | `src/pin_lock.rs` | The PIN lock, with the Android app's modes, grace time, backoff and hash format |
 | `src/update_check.rs` | The Windows update check |
 | `src/crash_dump.rs` | Windows minidumps for unhandled crashes |
-| `src/stream/mod.rs` | Launch, session start, input, statistics |
+| `src/stream/mod.rs` | The running stream: notices, menu actions, pumping decoded pictures and presenting them |
+| `src/stream/negotiate.rs`, `src/stream/connect.rs` | What a launch asks for (mode, bitrate, codecs, color, HDR); the launch and session start |
+| `src/stream/input.rs`, `src/stream/stats.rs` | Keyboard, mouse, touch and controller events; the overlay's statistics |
 | `src/stream/pipeline.rs` | The session's decoder, audio renderer and listener |
 | `src/stream/present.rs`, `src/stream/direct.rs`, `src/dmabuf.rs` | Video textures and pacing; the Windows draw pass; the Linux DMA-BUF import |
 | `src/logfile.rs`, `src/logpipe.rs` | The persistent log file, and the diversion of stderr into it |

@@ -80,9 +80,13 @@ impl Refusal {
     }
     /// No handler or added game for the app.
     pub fn missing(missing: &Missing) -> Self {
+        Self::not_found(missing.to_string())
+    }
+    /// The app's game is not found: not on this PC, or not in Steam.
+    pub fn not_found(message: impl Into<String>) -> Self {
         Self {
             status: 404,
-            message: missing.to_string(),
+            message: message.into(),
         }
     }
     /// Another session holds Nucleus, or the session refused this device.

@@ -821,7 +821,6 @@ fn made(path: &Path, sddl: &str, user: &[&str], steps: &Steps) -> Result<std::fs
 /// re-permission it, and nobody but them and `user` may change it.
 /// Otherwise someone else made it: the host never writes through it.
 fn secured(path: &Path, user: &[&str]) -> Result<std::fs::File> {
-    use std::os::windows::fs::MetadataExt;
     let file = open_held(path).with_context(|| format!("opening {}", path.display()))?;
     let attributes = file
         .metadata()
@@ -853,7 +852,7 @@ fn verdict(
             path.display()
         )
     };
-    if attributes & 0x400 != 0 {
+    if attributes & REPARSE_POINT != 0 {
         return Err(refused(format!(
             "{} is a link to elsewhere",
             path.display()
@@ -893,7 +892,6 @@ fn verdict(
 /// be no link here; removing a link in it removes the link. One still in
 /// use stays until the next time, with a warning.
 fn remove_others(folder: &Path, key: &str, token: Option<&OwnedHandle>) -> Result<()> {
-    use std::os::windows::fs::MetadataExt;
     let attributes = std::fs::symlink_metadata(folder)
         .with_context(|| format!("reading {}", folder.display()))?
         .file_attributes();

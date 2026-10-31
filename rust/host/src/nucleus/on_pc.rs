@@ -64,13 +64,8 @@ impl Pc for OnPc {
                 .and_then(|app| butterpollo_core::steam::game_of(&app))
         {
             let roots = butterpollo_windows::steam::roots();
-            let launch =
-                butterpollo_core::steam::game_executable(appid, &roots).map_err(|message| {
-                    Refusal {
-                        status: 404,
-                        message,
-                    }
-                })?;
+            let launch = butterpollo_core::steam::game_executable(appid, &roots)
+                .map_err(Refusal::not_found)?;
             return Ok(Setup {
                 anti_cheat: launch.vac.then_some("Valve Anti-Cheat"),
                 arguments: steam_arguments(&launch.arguments, command(app).unwrap_or_default()),
@@ -91,10 +86,7 @@ impl Pc for OnPc {
             })?;
         refuse_path(exe).map_err(|missing| Refusal::missing(&missing))?;
         if !Path::new(exe).is_file() {
-            return Err(Refusal {
-                status: 404,
-                message: not_on_this_pc(exe),
-            });
+            return Err(Refusal::not_found(not_on_this_pc(exe)));
         }
         // An .exe in a Steam library is its Steam app's, as a link would be.
         let steam = butterpollo_core::steam::library_app(
@@ -102,10 +94,7 @@ impl Pc for OnPc {
             &arguments(app),
             &butterpollo_windows::steam::roots(),
         )
-        .map_err(|message| Refusal {
-            status: 404,
-            message,
-        })?;
+        .map_err(Refusal::not_found)?;
         Ok(match steam {
             Some(steam) => Setup {
                 anti_cheat: steam.vac.then_some("Valve Anti-Cheat"),

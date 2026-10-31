@@ -400,17 +400,15 @@ impl Registry {
     /// can't be read counts as open, so the console offers Close, which then
     /// says why.
     pub fn opened(&self) -> bool {
-        match self.opened.try_lock() {
-            Ok(opened) => opened
-                .as_ref()
-                .is_some_and(|window| window.running().unwrap_or(true)),
+        let opened = match self.opened.try_lock() {
+            Ok(opened) => opened,
+            Err(std::sync::TryLockError::Poisoned(opened)) => opened.into_inner(),
             // Being opened or closed right now.
-            Err(std::sync::TryLockError::WouldBlock) => true,
-            Err(std::sync::TryLockError::Poisoned(opened)) => opened
-                .into_inner()
-                .as_ref()
-                .is_some_and(|window| window.running().unwrap_or(true)),
-        }
+            Err(std::sync::TryLockError::WouldBlock) => return true,
+        };
+        opened
+            .as_ref()
+            .is_some_and(|window| window.running().unwrap_or(true))
     }
 
     /// The console's Close Nucleus Co-op: closes the window [`Self::open`]
@@ -744,12 +742,8 @@ impl Registry {
                 // one this session starts with.
                 let current = own.map(Setup::guid);
                 let stale = catalog.stale(current.as_deref());
-                pc.ready(&folder, run, own, &stale).map_err(|error| {
-                    Refusal::unavailable(format!(
-                        "Nucleus Co-op did not start {}: {error:#}",
-                        app.name
-                    ))
-                })?;
+                pc.ready(&folder, run, own, &stale)
+                    .map_err(|error| refused(format!("{error:#}")))?;
                 // Last, so a launch refused for another reason leaves the
                 // user's window open.
                 self.close_for_session(&app.name)?;
@@ -828,12 +822,7 @@ impl Registry {
                 };
                 let instance: Arc<dyn Instance> = pc
                     .start(&start, policy, request.warnings)
-                    .map_err(|error| {
-                        Refusal::unavailable(format!(
-                            "Nucleus Co-op did not start {}: {error:#}",
-                            app.name
-                        ))
-                    })?
+                    .map_err(|error| refused(format!("{error:#}")))?
                     .into();
                 let mut holders = vec![None; players];
                 holders[0] = Some(request.launch.into());

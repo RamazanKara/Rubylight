@@ -21,7 +21,7 @@ Which Nightjar features each client provides: Android (phones, handhelds, tablet
 | PIN and one-time PIN pairing | Yes | Yes | Yes | |
 | QR pairing | Yes | Yes | Yes | Android scans the code; the desktop pastes the host's pairing link. |
 | Home, library, artwork and game pages | Yes | Yes | Yes | Needs a host with the native library (Rubylight 3.0). |
-| Store shelves, All games and the TV layout | Yes | Partial | Partial | The desktop Home merges the library by title, without store shelves or All games filters. |
+| Store shelves, All games and the TV layout | Yes | Partial | Partial | The desktop Home has a row per store with an **All N** tile, and All games filters by All, Installed, each store and Other apps, as on Android. It has no **Not added** chip and no per-PC last-played row, because the desktop API does not provide that data, and no separate TV layout. |
 | Launch, resume, quit, and quit and start another | Yes | Yes | Yes | |
 | Confirmation before a running game closes | Yes | Yes | Yes | |
 | Join co-op (Nucleus Co-op) | Yes | Yes | Yes | |

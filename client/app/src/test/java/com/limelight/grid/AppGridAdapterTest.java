@@ -207,6 +207,35 @@ public class AppGridAdapterTest {
         }
     }
 
+    /** A cover prints its own title along its bottom: the Running chip and the role sit at the top start, as on a phone. */
+    @Test
+    @Config(qualifiers = "w960dp-h540dp-television-xhdpi")
+    public void tvBadgesSitAtTheTopStartClearOfTheCoverTitleAndTheOptionsButton() {
+        try (var controller = Robolectric.buildActivity(com.limelight.ui.UiNavigationTest.Screen.class).setup().visible()) {
+            for (int layoutId : new int[] {R.layout.app_grid_item, R.layout.app_grid_item_small}) {
+                android.view.View root = android.view.LayoutInflater.from(controller.get()).inflate(layoutId, null);
+                android.widget.TextView status = root.findViewById(R.id.grid_status);
+                android.widget.TextView role = root.findViewById(R.id.grid_role);
+                status.setText("Running");
+                status.setVisibility(android.view.View.VISIBLE);
+                role.setText("A very long role label that would otherwise run under the options button");
+                role.setVisibility(android.view.View.VISIBLE);
+                root.measure(android.view.View.MeasureSpec.makeMeasureSpec(432, android.view.View.MeasureSpec.EXACTLY),
+                        android.view.View.MeasureSpec.makeMeasureSpec(0, android.view.View.MeasureSpec.UNSPECIFIED));
+                root.layout(0, 0, root.getMeasuredWidth(), root.getMeasuredHeight());
+                android.view.View badges = root.findViewById(R.id.grid_badges);
+                android.view.View art = root.findViewById(R.id.grid_image);
+                android.view.View more = root.findViewById(R.id.grid_more);
+                int margin = controller.get().getResources().getDimensionPixelSize(R.dimen.space_xs);
+                assertSame(art.getParent(), badges.getParent());
+                assertEquals(art.getLeft() + margin, badges.getLeft());
+                assertEquals(art.getTop() + margin, badges.getTop());
+                assertTrue("both chips stay in the top half, off the cover's title", badges.getBottom() < art.getHeight() / 2);
+                assertTrue("a long role ends before the options button", badges.getRight() <= more.getLeft());
+            }
+        }
+    }
+
     @Test
     @Config(qualifiers = "w960dp-h540dp-television-xhdpi")
     public void theRingIsDrawnAroundThePosterAndNeverOverItsArt() {

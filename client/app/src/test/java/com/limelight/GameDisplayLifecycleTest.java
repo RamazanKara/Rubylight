@@ -189,7 +189,7 @@ public class GameDisplayLifecycleTest {
         ReflectionHelpers.setField(game, "recoveryAppUuid", "actual-game-uuid");
         ReflectionHelpers.setField(game, "outputSwitchPending", true);
 
-        Intent retry = ReflectionHelpers.callInstanceMethod(game, "createReconnectIntent");
+        Intent retry = ReflectionHelpers.callInstanceMethod(game.streamRecovery, "createReconnectIntent");
         assertNotNull(retry);
         assertEquals(73, retry.getIntExtra(Game.EXTRA_APP_ID, 0));
         assertEquals("actual-game-uuid", retry.getStringExtra(Game.EXTRA_APP_UUID));
@@ -200,17 +200,17 @@ public class GameDisplayLifecycleTest {
 
         Game replacement = Robolectric.buildActivity(Game.class).get();
         replacement.setIntent(retry);
-        assertTrue(ReflectionHelpers.callInstanceMethod(replacement, "isResumeOnlyStream"));
-        assertFalse(ReflectionHelpers.callInstanceMethod(replacement, "isRecoveryAttempt"));
+        assertTrue(ReflectionHelpers.callInstanceMethod(replacement.streamRecovery, "isResumeOnlyStream"));
+        assertFalse(ReflectionHelpers.callInstanceMethod(replacement.streamRecovery, "isRecoveryAttempt"));
     }
 
     @Test public void outputReconnectCannotReplayAnUnresolvedResumeOrDestructiveControlTile() {
         Game game = Robolectric.buildActivity(Game.class).get();
         ReflectionHelpers.setField(game, "outputSwitchPending", true);
         ReflectionHelpers.setField(game, "app", new NvApp("Resume", 2147483501, false));
-        assertNull(ReflectionHelpers.callInstanceMethod(game, "createReconnectIntent"));
+        assertNull(ReflectionHelpers.callInstanceMethod(game.streamRecovery, "createReconnectIntent"));
         ReflectionHelpers.setField(game, "app", new NvApp("Terminate", 2147483504, false));
-        assertNull(ReflectionHelpers.callInstanceMethod(game, "createReconnectIntent"));
+        assertNull(ReflectionHelpers.callInstanceMethod(game.streamRecovery, "createReconnectIntent"));
     }
 
     @Test public void manualReconnectKeepsUserSelectionAndStartsANewRetryBudget() {
@@ -219,13 +219,13 @@ public class GameDisplayLifecycleTest {
                 .putExtra("RecoveryAttempts", 3).putExtra("RecoveryStarted", 1000L)
                 .putExtra("rubylight.outputResumeOnly", true));
         ReflectionHelpers.setField(game, "app", new NvApp("Game", 73, false));
-        Intent retry = ReflectionHelpers.callInstanceMethod(game, "createReconnectIntent");
+        Intent retry = ReflectionHelpers.callInstanceMethod(game.streamRecovery, "createReconnectIntent");
         assertEquals(73, retry.getIntExtra(Game.EXTRA_APP_ID, 0));
         assertFalse(retry.hasExtra("RecoveryAttempts"));
         assertFalse(retry.hasExtra("RecoveryStarted"));
         assertFalse(retry.hasExtra("rubylight.outputResumeOnly"));
         game.setIntent(retry);
-        assertFalse(ReflectionHelpers.callInstanceMethod(game, "isResumeOnlyStream"));
+        assertFalse(ReflectionHelpers.callInstanceMethod(game.streamRecovery, "isResumeOnlyStream"));
     }
 
     public static class RecordingGame extends Game {

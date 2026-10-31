@@ -75,7 +75,7 @@ public class GameRecoveryTest {
         ReflectionHelpers.setField(game, "attemptedConnection", true);
         ReflectionHelpers.setField(game, "recoveryAppId", 73);
         ReflectionHelpers.setField(game, "recoveryAppUuid", "captured-game");
-        ReflectionHelpers.setField(game, "connectedAt", SystemClock.elapsedRealtime());
+        ReflectionHelpers.setField(game.streamRecovery, "connectedAt", SystemClock.elapsedRealtime());
         return game;
     }
 
@@ -87,7 +87,7 @@ public class GameRecoveryTest {
             if (controllerMuted) connection.controllerMicrophoneState(new Object(), false, false, true);
             else connection.setMicrophoneMuted(true);
             try {
-                assertTrue(ReflectionHelpers.callInstanceMethod(game, "tryAutomaticRecovery"));
+                assertTrue(ReflectionHelpers.callInstanceMethod(game.streamRecovery, "tryAutomaticRecovery"));
                 Intent retry = awaitRecoveryLaunch(game, 1);
                 assertRestoredMute(retry, true);
             } finally {
@@ -121,9 +121,9 @@ public class GameRecoveryTest {
             ReflectionHelpers.setField(game, "conn", connection);
             ReflectionHelpers.setField(game, "outputSwitchPending", outputSwitch);
             connection.setMicrophoneMuted(true);
-            assertRestoredMute(ReflectionHelpers.callInstanceMethod(game, "createReconnectIntent"), true);
+            assertRestoredMute(ReflectionHelpers.callInstanceMethod(game.streamRecovery, "createReconnectIntent"), true);
             connection.setMicrophoneMuted(false);
-            assertRestoredMute(ReflectionHelpers.callInstanceMethod(game, "createReconnectIntent"), false);
+            assertRestoredMute(ReflectionHelpers.callInstanceMethod(game.streamRecovery, "createReconnectIntent"), false);
         }
         // A separate fresh launch still uses the unmuted default; the choice belongs to this session.
         assertRestoredMute(new Intent(), false);
@@ -139,7 +139,7 @@ public class GameRecoveryTest {
         join(stopping);
         assertFalse(connection.isMicrophoneMutedForReconnect());
         ReflectionHelpers.setField(game, "conn", null);
-        assertRestoredMute(ReflectionHelpers.callInstanceMethod(game, "createReconnectIntent"), true);
+        assertRestoredMute(ReflectionHelpers.callInstanceMethod(game.streamRecovery, "createReconnectIntent"), true);
     }
 
     @Test
@@ -165,8 +165,8 @@ public class GameRecoveryTest {
             ReflectionHelpers.setField(game, "controllerHandler", handler);
             try {
                 assertFalse(connection.isMicrophoneMutedForReconnect());
-                if (automatic) assertTrue(ReflectionHelpers.callInstanceMethod(game, "tryAutomaticRecovery"));
-                else ReflectionHelpers.callInstanceMethod(game, "reconnectStream");
+                if (automatic) assertTrue(ReflectionHelpers.callInstanceMethod(game.streamRecovery, "tryAutomaticRecovery"));
+                else ReflectionHelpers.callInstanceMethod(game.streamRecovery, "reconnectStream");
                 assertRestoredMute(awaitRecoveryLaunch(game, automatic ? 1 : 0), true);
             } finally {
                 cleanupRecovery(game);
@@ -182,7 +182,7 @@ public class GameRecoveryTest {
         replacement.setIntent(retry);
         MuteConnection connection = new MuteConnection();
         ReflectionHelpers.setField(replacement, "conn", connection);
-        ReflectionHelpers.callInstanceMethod(replacement, "restoreMicrophoneMute");
+        ReflectionHelpers.callInstanceMethod(replacement.streamRecovery, "restoreMicrophoneMute");
         assertEquals(muted, connection.isMicrophoneMuted());
         assertEquals(muted, connection.isMicrophoneMutedForReconnect());
     }
@@ -248,7 +248,7 @@ public class GameRecoveryTest {
         Game shown = establishedGame();
         ReflectionHelpers.setField(shown, "conn", new MuteConnection());
         try {
-            assertTrue(ReflectionHelpers.callInstanceMethod(shown, "tryAutomaticRecovery"));
+            assertTrue(ReflectionHelpers.callInstanceMethod(shown.streamRecovery, "tryAutomaticRecovery"));
             assertTrue("the drop came after video", awaitRecoveryLaunch(shown, 1).getBooleanExtra("RecoveryVideoShown", false));
         } finally {
             cleanupRecovery(shown);
@@ -279,7 +279,7 @@ public class GameRecoveryTest {
                 returned.streamNetworkReturned(MoonBridge.NETWORK_CANNOT_CONTINUE, false);
                 org.robolectric.shadows.ShadowLooper.idleMainLooper();
                 assertEquals("a network return reconnects only a stream that had video",
-                        video, ReflectionHelpers.getField(returned, "pendingRecoveryIntent") != null);
+                        video, ReflectionHelpers.getField(returned.streamRecovery, "pendingRecoveryIntent") != null);
             } finally {
                 cleanupRecovery(returned);
             }
@@ -559,7 +559,7 @@ public class GameRecoveryTest {
         });
         long now = SystemClock.elapsedRealtime();
         ReflectionHelpers.setField(game, "recoveryPolicy", new StreamRecoveryPolicy(StreamRecoveryPolicy.MAX_ATTEMPTS, now));
-        ReflectionHelpers.setField(game, "connectedAt", now);
+        ReflectionHelpers.setField(game.streamRecovery, "connectedAt", now);
         try {
             game.connectionTerminated(-1);
             assertFalse(game.isFinishing());
@@ -622,7 +622,7 @@ public class GameRecoveryTest {
         try {
             game.stageFailed("Game", MoonBridge.ML_PORT_FLAG_TCP_47984 | MoonBridge.ML_PORT_FLAG_TCP_47989, 0);
             assertTrue(awaitRecoveryLaunch(game, 1).getBooleanExtra("RecoveryMediaFailure", false));
-            Intent manual = ReflectionHelpers.callInstanceMethod(game, "createReconnectIntent");
+            Intent manual = ReflectionHelpers.callInstanceMethod(game.streamRecovery, "createReconnectIntent");
             assertFalse(manual.hasExtra("RecoveryMediaFailure"));
         } finally {
             cleanupRecovery(game);
@@ -667,7 +667,7 @@ public class GameRecoveryTest {
             long returnedAt = SystemClock.elapsedRealtime();
             game.onResume();
             assertNull(ReflectionHelpers.getField(game, "stoppedStreamResumeIntent"));
-            assertFalse(ReflectionHelpers.callInstanceMethod(game, "resumeStoppedStreamIfNeeded"));
+            assertFalse(ReflectionHelpers.callInstanceMethod(game.streamRecovery, "resumeStoppedStreamIfNeeded"));
             Intent retry = awaitRecoveryLaunch(game, 1);
             assertEquals(73, retry.getIntExtra(Game.EXTRA_APP_ID, 0));
             assertEquals("captured-game", retry.getStringExtra(Game.EXTRA_APP_UUID));
@@ -684,7 +684,7 @@ public class GameRecoveryTest {
             // The failure being recovered keeps its two attempts; its window starts later by the time away.
             long createdAt = SystemClock.elapsedRealtime();
             StreamRecoveryPolicy restored = startStream(replacement, retry);
-            assertTrue(ReflectionHelpers.callInstanceMethod(replacement, "isResumeOnlyStream"));
+            assertTrue(ReflectionHelpers.callInstanceMethod(replacement.streamRecovery, "isResumeOnlyStream"));
             assertEquals(2, restored.attempts());
             assertEquals(started + (createdAt - leftAt), restored.startedAt());
             assertEquals(2, replacement.getIntent().getIntExtra("RecoveryAttempts", 0));
@@ -697,7 +697,7 @@ public class GameRecoveryTest {
     /** The replacement activity starts with {@code intent}: the budget onCreate reads. */
     private static StreamRecoveryPolicy startStream(Game stream, Intent intent) {
         stream.setIntent(intent);
-        stream.readRecoveryBudget(SystemClock.elapsedRealtime());
+        stream.streamRecovery.readRecoveryBudget(SystemClock.elapsedRealtime());
         return ReflectionHelpers.getField(stream, "recoveryPolicy");
     }
 
@@ -712,10 +712,10 @@ public class GameRecoveryTest {
         Game resumed = establishedGame();
         long createdAt = SystemClock.elapsedRealtime();
         StreamRecoveryPolicy budget = startStream(resumed, retry);
-        assertTrue(ReflectionHelpers.callInstanceMethod(resumed, "isResumeOnlyStream"));
+        assertTrue(ReflectionHelpers.callInstanceMethod(resumed.streamRecovery, "isResumeOnlyStream"));
         assertEquals("the trip spent none of the failure budget", before.attempts(), budget.attempts());
         assertEquals(before.attempts() == 0 ? 0 : before.startedAt() + (createdAt - leftAt), budget.startedAt());
-        resumed.onStreamConnected(SystemClock.elapsedRealtime());
+        resumed.streamRecovery.onStreamConnected(SystemClock.elapsedRealtime());
         return resumed;
     }
 
@@ -763,7 +763,7 @@ public class GameRecoveryTest {
         stream.setIntent(new Intent().putExtra("RecoveryAttempts", 1).putExtra("RecoveryStarted", blip));
         ReflectionHelpers.setField(stream, "recoveryPolicy", new StreamRecoveryPolicy(1, blip));
         org.robolectric.shadows.ShadowSystemClock.advanceBy(java.time.Duration.ofSeconds(3));
-        stream.onStreamConnected(SystemClock.elapsedRealtime());
+        stream.streamRecovery.onStreamConnected(SystemClock.elapsedRealtime());
         try {
             org.robolectric.shadows.ShadowSystemClock.advanceBy(java.time.Duration.ofSeconds(20));
             stream = leaveAndReturn(stream, 5000);
@@ -803,7 +803,7 @@ public class GameRecoveryTest {
         stream.setIntent(new Intent().putExtra("RecoveryAttempts", 1).putExtra("RecoveryStarted", blip));
         ReflectionHelpers.setField(stream, "recoveryPolicy", new StreamRecoveryPolicy(1, blip));
         org.robolectric.shadows.ShadowSystemClock.advanceBy(java.time.Duration.ofSeconds(3));
-        stream.onStreamConnected(SystemClock.elapsedRealtime());
+        stream.streamRecovery.onStreamConnected(SystemClock.elapsedRealtime());
         try {
             org.robolectric.shadows.ShadowSystemClock.advanceBy(java.time.Duration.ofSeconds(10));
             long leftAt = SystemClock.elapsedRealtime();
@@ -880,7 +880,7 @@ public class GameRecoveryTest {
                 assertFalse(retry.hasExtra("rubylight.tripResumeStarted"));
                 stream = establishedGame();
                 startStream(stream, retry);
-                stream.onStreamConnected(SystemClock.elapsedRealtime());
+                stream.streamRecovery.onStreamConnected(SystemClock.elapsedRealtime());
             }
             // Failures at 0, 16, 33 and 52 s: the fourth attempt would end past the minute.
             assertEquals(3, recoveries);
@@ -907,7 +907,7 @@ public class GameRecoveryTest {
         // connectionStarted has not come yet.
         ReflectionHelpers.setField(resumed, "connected", false);
         ReflectionHelpers.setField(resumed, "connecting", true);
-        ReflectionHelpers.setField(resumed, "connectedAt", -1L);
+        ReflectionHelpers.setField(resumed.streamRecovery, "connectedAt", -1L);
         ReflectionHelpers.setField(resumed, "conn", new MuteConnection() {
             @Override public boolean hasEndedSession() { return false; }
         });
@@ -1037,7 +1037,7 @@ public class GameRecoveryTest {
                 ReflectionHelpers.setField(game, "connected", false);
                 ReflectionHelpers.setField(game, "connecting", true);
             }
-            ReflectionHelpers.callInstanceMethod(game, "rememberStreamForResume",
+            ReflectionHelpers.callInstanceMethod(game.streamRecovery, "rememberStreamForResume",
                     ReflectionHelpers.ClassParameter.from(boolean.class, true));
             assertNull(condition, ReflectionHelpers.getField(game, "stoppedStreamResumeIntent"));
         }
@@ -1089,7 +1089,7 @@ public class GameRecoveryTest {
             }
         });
         try {
-            ReflectionHelpers.callInstanceMethod(game, "reconnectStream");
+            ReflectionHelpers.callInstanceMethod(game.streamRecovery, "reconnectStream");
             assertTrue(stopEntered.await(HANG_GUARD_MS, java.util.concurrent.TimeUnit.MILLISECONDS));
             // Home while the old connection is still closing: the stream ends, as before recovery.
             game.onPause();
@@ -1136,7 +1136,7 @@ public class GameRecoveryTest {
             checks.incrementAndGet();
             return routed.get() ? null : "ENETUNREACH (no address yet)";
         };
-        ReflectionHelpers.setField(game, "routeProbe", probe);
+        ReflectionHelpers.setField(game.streamRecovery, "routeProbe", probe);
         game.setIntent(new Intent().putExtra(Game.EXTRA_HOST, "pc.test"));
         try {
             game.streamNetworkLost();
@@ -1316,7 +1316,7 @@ public class GameRecoveryTest {
     }
 
     private static void cleanupRecovery(Game game) {
-        ReflectionHelpers.callInstanceMethod(game, "cancelAutomaticRecovery");
+        ReflectionHelpers.callInstanceMethod(game.streamRecovery, "cancelAutomaticRecovery");
         android.app.Dialog dialog = ReflectionHelpers.getField(game, "streamMenu");
         if (dialog != null) dialog.dismiss();
         com.limelight.utils.SpinnerDialog.closeDialogs(game);
@@ -1328,7 +1328,7 @@ public class GameRecoveryTest {
         config.autoReconnect = false;
         config.experimentalPacked444 = true;
         try {
-            assertTrue(ReflectionHelpers.callInstanceMethod(game, "reconnectWithoutPackedChroma",
+            assertTrue(ReflectionHelpers.callInstanceMethod(game.streamRecovery, "reconnectWithoutPackedChroma",
                     ReflectionHelpers.ClassParameter.from(String.class, "the GPU reconstruction could not keep up")));
             Intent retry = awaitRecoveryLaunch(game, 1);
             assertTrue(retry.getBooleanExtra("PackedChromaOff", false));
@@ -1339,7 +1339,7 @@ public class GameRecoveryTest {
             // A session that already runs without packed chroma does not degrade again.
             Game replacement = recoveryGame();
             replacement.setIntent(retry);
-            assertFalse(ReflectionHelpers.callInstanceMethod(replacement, "reconnectWithoutPackedChroma",
+            assertFalse(ReflectionHelpers.callInstanceMethod(replacement.streamRecovery, "reconnectWithoutPackedChroma",
                     ReflectionHelpers.ClassParameter.from(String.class, "again")));
             assertNull(ReflectionHelpers.getField(replacement, "pendingRecovery"));
         } finally {
@@ -1373,7 +1373,7 @@ public class GameRecoveryTest {
         TerminationProbe probe = new TerminationProbe();
         ReflectionHelpers.setStaticField(MoonBridge.class, "connectionListener", probe.listener);
         try {
-            ReflectionHelpers.callInstanceMethod(game, "onPackedChromaFailure",
+            ReflectionHelpers.callInstanceMethod(game.streamRecovery, "onPackedChromaFailure",
                     ReflectionHelpers.ClassParameter.from(String.class, "the GPU path failed"));
             assertTrue(probe.ended.await(HANG_GUARD_MS, java.util.concurrent.TimeUnit.MILLISECONDS));
             // connectionTerminated asks the PC and tests the network: blocking calls, never on the UI thread.
@@ -1391,8 +1391,8 @@ public class GameRecoveryTest {
         TerminationProbe probe = new TerminationProbe();
         ReflectionHelpers.setStaticField(MoonBridge.class, "connectionListener", probe.listener);
         try {
-            assertTrue(ReflectionHelpers.callInstanceMethod(game, "tryAutomaticRecovery"));
-            ReflectionHelpers.callInstanceMethod(game, "onPackedChromaFailure",
+            assertTrue(ReflectionHelpers.callInstanceMethod(game.streamRecovery, "tryAutomaticRecovery"));
+            ReflectionHelpers.callInstanceMethod(game.streamRecovery, "onPackedChromaFailure",
                     ReflectionHelpers.ClassParameter.from(String.class, "the GPU path failed"));
             assertFalse("no second reconnect and no dialog over the recovery", probe.ended.await(300, java.util.concurrent.TimeUnit.MILLISECONDS));
             Intent retry = awaitRecoveryLaunch(game, 1);
@@ -1410,14 +1410,14 @@ public class GameRecoveryTest {
         Game game = recoveryGame();
         ReflectionHelpers.setStaticField(MoonBridge.class, "connectionListener", new TerminationProbe().listener);
         try {
-            assertTrue(ReflectionHelpers.callInstanceMethod(game, "tryAutomaticRecovery"));
-            ReflectionHelpers.callInstanceMethod(game, "onPackedChromaFailure",
+            assertTrue(ReflectionHelpers.callInstanceMethod(game.streamRecovery, "tryAutomaticRecovery"));
+            ReflectionHelpers.callInstanceMethod(game.streamRecovery, "onPackedChromaFailure",
                     ReflectionHelpers.ClassParameter.from(String.class, "the GPU path failed"));
             // The recovery goes stale (cancelled, timed out) and the user taps Reconnect.
-            ReflectionHelpers.callInstanceMethod(game, "cancelAutomaticRecovery");
-            Intent reconnect = ReflectionHelpers.callInstanceMethod(game, "createReconnectIntent");
+            ReflectionHelpers.callInstanceMethod(game.streamRecovery, "cancelAutomaticRecovery");
+            Intent reconnect = ReflectionHelpers.callInstanceMethod(game.streamRecovery, "createReconnectIntent");
             assertTrue(reconnect.getBooleanExtra("PackedChromaOff", false));
-            Intent resume = ReflectionHelpers.callInstanceMethod(game, "createStreamHandoffIntent",
+            Intent resume = ReflectionHelpers.callInstanceMethod(game.streamRecovery, "createStreamHandoffIntent",
                     ReflectionHelpers.ClassParameter.from(String.class, com.limelight.utils.LaunchSource.RETURN));
             assertTrue(resume.getBooleanExtra("PackedChromaOff", false));
         } finally {
@@ -1432,9 +1432,9 @@ public class GameRecoveryTest {
         try {
             game.setIntent(new Intent().putExtra(Game.EXTRA_REPLACED_APP_NAME, "Balatro"));
             // By the reconnect another device's game may be running: its confirmation must not name Balatro.
-            Intent reconnect = ReflectionHelpers.callInstanceMethod(game, "createReconnectIntent");
+            Intent reconnect = ReflectionHelpers.callInstanceMethod(game.streamRecovery, "createReconnectIntent");
             assertFalse(reconnect.hasExtra(Game.EXTRA_REPLACED_APP_NAME));
-            Intent resume = ReflectionHelpers.callInstanceMethod(game, "createStreamHandoffIntent",
+            Intent resume = ReflectionHelpers.callInstanceMethod(game.streamRecovery, "createStreamHandoffIntent",
                     ReflectionHelpers.ClassParameter.from(String.class, com.limelight.utils.LaunchSource.RETURN));
             assertFalse(resume.hasExtra(Game.EXTRA_REPLACED_APP_NAME));
         } finally {
@@ -1452,7 +1452,7 @@ public class GameRecoveryTest {
         TerminationProbe probe = new TerminationProbe();
         ReflectionHelpers.setStaticField(MoonBridge.class, "connectionListener", probe.listener);
         try {
-            ReflectionHelpers.callInstanceMethod(game, "onPackedChromaFailure",
+            ReflectionHelpers.callInstanceMethod(game.streamRecovery, "onPackedChromaFailure",
                     ReflectionHelpers.ClassParameter.from(String.class, "the GPU path failed"));
             assertTrue(resume.getBooleanExtra("PackedChromaOff", false));
             assertFalse(probe.ended.await(300, java.util.concurrent.TimeUnit.MILLISECONDS));
@@ -1464,7 +1464,7 @@ public class GameRecoveryTest {
     @Test public void packedChromaFailureInTheBackgroundDoesNotReconnect() {
         Game game = recoveryGame();
         ReflectionHelpers.setField(game, "foreground", false);
-        assertFalse(ReflectionHelpers.callInstanceMethod(game, "reconnectWithoutPackedChroma",
+        assertFalse(ReflectionHelpers.callInstanceMethod(game.streamRecovery, "reconnectWithoutPackedChroma",
                 ReflectionHelpers.ClassParameter.from(String.class, "gpu")));
         assertNull(ReflectionHelpers.getField(game, "pendingRecovery"));
     }
@@ -1559,9 +1559,9 @@ public class GameRecoveryTest {
     @Test public void recoveryQueuesOneAttemptAndStoppingCancelsIt() {
         Game game = recoveryGame();
         try {
-            assertTrue(ReflectionHelpers.callInstanceMethod(game, "tryAutomaticRecovery"));
+            assertTrue(ReflectionHelpers.callInstanceMethod(game.streamRecovery, "tryAutomaticRecovery"));
             assertNotNull(ReflectionHelpers.getField(game, "pendingRecovery"));
-            assertFalse(ReflectionHelpers.callInstanceMethod(game, "tryAutomaticRecovery"));
+            assertFalse(ReflectionHelpers.callInstanceMethod(game.streamRecovery, "tryAutomaticRecovery"));
             ReflectionHelpers.callInstanceMethod(game, "stopConnection");
             assertNull(ReflectionHelpers.getField(game, "pendingRecovery"));
             org.robolectric.Shadows.shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofSeconds(15));
@@ -1574,14 +1574,14 @@ public class GameRecoveryTest {
     @Test public void noRecoveryInBackgroundAfterQuitOrWhenDisabled() {
         Game game = recoveryGame();
         ReflectionHelpers.setField(game, "foreground", false);
-        assertFalse(ReflectionHelpers.callInstanceMethod(game, "tryAutomaticRecovery"));
+        assertFalse(ReflectionHelpers.callInstanceMethod(game.streamRecovery, "tryAutomaticRecovery"));
         ReflectionHelpers.setField(game, "foreground", true);
         ReflectionHelpers.setField(game, "connected", false);
-        assertFalse(ReflectionHelpers.callInstanceMethod(game, "tryAutomaticRecovery"));
+        assertFalse(ReflectionHelpers.callInstanceMethod(game.streamRecovery, "tryAutomaticRecovery"));
         ReflectionHelpers.setField(game, "connected", true);
         PreferenceConfiguration prefs = ReflectionHelpers.getField(game, "prefConfig");
         prefs.autoReconnect = false;
-        assertFalse(ReflectionHelpers.callInstanceMethod(game, "tryAutomaticRecovery"));
+        assertFalse(ReflectionHelpers.callInstanceMethod(game.streamRecovery, "tryAutomaticRecovery"));
     }
 
     @Test public void lifecycleCancellationRemovesRetryAndDeadlineCallbacks() {
@@ -1591,7 +1591,7 @@ public class GameRecoveryTest {
         Handler handler = ReflectionHelpers.getField(game, "bitrateHandler");
         ReflectionHelpers.setField(game, "pendingRecovery", retry);
         handler.postDelayed(retry, 1000);
-        ReflectionHelpers.callInstanceMethod(game, "cancelAutomaticRecovery");
+        ReflectionHelpers.callInstanceMethod(game.streamRecovery, "cancelAutomaticRecovery");
         org.robolectric.Shadows.shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofSeconds(2));
         assertEquals(0, ran.get());
         assertNull(ReflectionHelpers.getField(game, "pendingRecovery"));
@@ -1611,7 +1611,7 @@ public class GameRecoveryTest {
             }
         });
         try {
-            assertTrue(ReflectionHelpers.callInstanceMethod(game, "tryAutomaticRecovery"));
+            assertTrue(ReflectionHelpers.callInstanceMethod(game.streamRecovery, "tryAutomaticRecovery"));
             assertTrue(stopEntered.await(HANG_GUARD_MS, java.util.concurrent.TimeUnit.MILLISECONDS));
             org.robolectric.Shadows.shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofSeconds(1));
             // The delayed retry is now waiting for teardown on a worker thread.
@@ -1623,7 +1623,7 @@ public class GameRecoveryTest {
             assertNull(org.robolectric.Shadows.shadowOf(game).getNextStartedActivity());
         } finally {
             stopReleased.countDown();
-            ReflectionHelpers.callInstanceMethod(game, "cancelAutomaticRecovery");
+            ReflectionHelpers.callInstanceMethod(game.streamRecovery, "cancelAutomaticRecovery");
             com.limelight.utils.SpinnerDialog.closeDialogs(game);
         }
     }
@@ -1646,10 +1646,10 @@ public class GameRecoveryTest {
             assertFalse(retry.hasExtra("rubylight.outputDisplay"));
             Game replacement = Robolectric.buildActivity(Game.class).get();
             replacement.setIntent(retry);
-            assertTrue(ReflectionHelpers.callInstanceMethod(replacement, "isResumeOnlyStream"));
-            assertFalse(ReflectionHelpers.callInstanceMethod(replacement, "isRecoveryAttempt"));
+            assertTrue(ReflectionHelpers.callInstanceMethod(replacement.streamRecovery, "isResumeOnlyStream"));
+            assertFalse(ReflectionHelpers.callInstanceMethod(replacement.streamRecovery, "isRecoveryAttempt"));
         } finally {
-            ReflectionHelpers.callInstanceMethod(game, "cancelAutomaticRecovery");
+            ReflectionHelpers.callInstanceMethod(game.streamRecovery, "cancelAutomaticRecovery");
             com.limelight.utils.SpinnerDialog.closeDialogs(game);
         }
     }
@@ -1672,12 +1672,12 @@ public class GameRecoveryTest {
             }
         });
         try {
-            if (automatic) assertTrue(ReflectionHelpers.callInstanceMethod(game, "tryAutomaticRecovery"));
-            else ReflectionHelpers.callInstanceMethod(game, "reconnectStream");
+            if (automatic) assertTrue(ReflectionHelpers.callInstanceMethod(game.streamRecovery, "tryAutomaticRecovery"));
+            else ReflectionHelpers.callInstanceMethod(game.streamRecovery, "reconnectStream");
             assertTrue(stopEntered.await(HANG_GUARD_MS, java.util.concurrent.TimeUnit.MILLISECONDS));
             org.robolectric.Shadows.shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofSeconds(1));
             assertNull(ReflectionHelpers.getField(game, "pendingRecovery"));
-            assertFalse(ReflectionHelpers.callInstanceMethod(game, "isRecoveryAttempt"));
+            assertFalse(ReflectionHelpers.callInstanceMethod(game.streamRecovery, "isRecoveryAttempt"));
             assertEquals(Boolean.TRUE, ReflectionHelpers.getField(game, "recoveryHandoffInProgress"));
             game.onPause();
             assertEquals(Boolean.TRUE, ReflectionHelpers.getField(game, "recoveryCancelledOnPause"));
@@ -1691,7 +1691,7 @@ public class GameRecoveryTest {
             assertNull(org.robolectric.Shadows.shadowOf(game).getNextStartedActivity());
         } finally {
             stopReleased.countDown();
-            ReflectionHelpers.callInstanceMethod(game, "cancelAutomaticRecovery");
+            ReflectionHelpers.callInstanceMethod(game.streamRecovery, "cancelAutomaticRecovery");
             android.app.Dialog dialog = ReflectionHelpers.getField(game, "streamMenu");
             if (dialog != null) dialog.dismiss();
             com.limelight.utils.SpinnerDialog.closeDialogs(game);

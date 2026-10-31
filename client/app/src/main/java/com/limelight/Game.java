@@ -145,6 +145,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     final GameTouchInput touchInput = new GameTouchInput(this);
     final GameMenuActions menuActions = new GameMenuActions(this);
     final GameAdaptation adaptation = new GameAdaptation(this);
+    final GameRecovery streamRecovery = new GameRecovery(this);
 
     TrackpadPointer trackpadPointer;
     // Set while the host sends its cursor shapes for the Local cursor; read on the control thread.
@@ -172,37 +173,30 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     private SharedPreferences tombstonePrefs;
 
     NvConnection conn;
-    private SpinnerDialog spinner;
-    private boolean displayedFailureDialog = false;
-    private boolean connecting = false;
+    SpinnerDialog spinner;
+    boolean displayedFailureDialog = false;
+    boolean connecting = false;
     volatile boolean connected = false;
     private boolean autoEnterPip = false;
     private com.limelight.ui.AdaptiveLayout adaptiveLayout;
     private boolean surfaceCreated = false;
     private boolean attemptedConnection = false;
-    private volatile Thread connectionStopThread;
-    private StreamRecoveryPolicy recoveryPolicy = new StreamRecoveryPolicy(0, 0);
-    private long connectedAt = -1;
-    // How long the stream had been connected when the user's trip began, carried by its resume.
-    private long connectedBeforeTrip;
+    volatile Thread connectionStopThread;
+    StreamRecoveryPolicy recoveryPolicy = new StreamRecoveryPolicy(0, 0);
     int recoveryAppId;
     String recoveryAppUuid;
-    private Runnable pendingRecovery;
-    // Volatile: a recovery's route wait on its worker stops when this changes.
-    private volatile int recoveryGeneration;
-    private boolean recoveryHandoffInProgress;
-    // The replacement stream a queued recovery will start; a packed-chroma failure meanwhile marks it.
-    private Intent pendingRecoveryIntent;
+    Runnable pendingRecovery;
+    boolean recoveryHandoffInProgress;
     // Set when the last automatic recovery was refused because its attempts or window ran out.
-    private boolean recoveryBudgetExhausted;
-    private boolean recoveryCancelledOnPause;
-    private Intent stoppedStreamResumeIntent;
-    private final Runnable recoveryTimeout = () -> {
-        if (this.connecting && this.foreground && !isFinishing() && isRecoveryAttempt()) {
+    boolean recoveryBudgetExhausted;
+    boolean recoveryCancelledOnPause;
+    Intent stoppedStreamResumeIntent;
+    final Runnable recoveryTimeout = () -> {
+        if (this.connecting && this.foreground && !isFinishing() && streamRecovery.isRecoveryAttempt()) {
             displayedFailureDialog = true;
             stopConnection();
             if (spinner != null) { spinner.dismiss(); spinner = null; }
-            showReconnectDialog(R.string.conn_terminated_title, getString(R.string.stream_recovery_exhausted));
+            streamRecovery.showReconnectDialog(R.string.conn_terminated_title, getString(R.string.stream_recovery_exhausted));
         }
     };
     int suppressPipRefCount = 0;
@@ -562,9 +556,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     com.limelight.ui.StreamPresentation externalPresentation;
     com.limelight.ui.DesktopGestures desktopGestures;
     com.limelight.ui.GameTouchControls gameTouchControls;
-    private boolean outputSwitchPending;
+    boolean outputSwitchPending;
     private static final String EXTRA_OUTPUT_DISPLAY = "rubylight.outputDisplay";
-    private static final String EXTRA_OUTPUT_RESUME_ONLY = "rubylight.outputResumeOnly";
     private Surface videoSurface;
 
     boolean isHidingOverlays;
@@ -596,7 +589,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     private boolean reportedCrash;
     // The PC (or this device) ended the stream. A decoder failure after that is the stream going
     // away, not a decoder crash.
-    private volatile boolean streamTerminated;
+    volatile boolean streamTerminated;
     // Experimental: a TV that loses its HDMI signal takes the decoder down with it. Whether the
     // video display is off, invalid or gone, as of its last change.
     private volatile boolean videoDisplayOff;
@@ -655,7 +648,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     }
 
     // For a hand-off to a new stream activity (reconnect, new intent): the stream is not ending.
-    private void finishNow() {
+    void finishNow() {
         exitFinished = true;
         super.finish();
     }
@@ -783,21 +776,14 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     public static final String EXTRA_REPLACED_APP_NAME = "ReplacedAppName";
     public static final String EXTRA_APP_HDR = "HDR";
     public static final String EXTRA_SERVER_CERT = "ServerCert";
-    private static final String EXTRA_RECOVERY_ATTEMPTS = "RecoveryAttempts";
     // The network the stream started on (StreamLayers.Network), kept across reconnects and handoffs.
     private static final String EXTRA_STREAM_NETWORK = "StreamNetwork";
-    private static final String EXTRA_RECOVERY_STARTED = "RecoveryStarted";
-    private static final String EXTRA_RECOVERY_MEDIA_FAILURE = "RecoveryMediaFailure";
-    // An earlier connection of this automatic reconnect chain showed video (videoStarted).
-    private static final String EXTRA_RECOVERY_VIDEO = "RecoveryVideoShown";
+    static final String EXTRA_RECOVERY_MEDIA_FAILURE = "RecoveryMediaFailure";
     // Packed full chroma failed in this session and the reconnect runs without it (not the setting).
-    private static final String EXTRA_PACKED_OFF = "PackedChromaOff";
-    private static final String EXTRA_MICROPHONE_MUTED = "rubylight.microphoneMuted";
-    // On a resume after the user's own trip away: the failure budget {attempts, started, left at,
-    // connected for} as the trip began, which the resumed activity starts with.
-    private static final String EXTRA_TRIP_BUDGET = "rubylight.tripBudget";
+    static final String EXTRA_PACKED_OFF = "PackedChromaOff";
+    static final String EXTRA_MICROPHONE_MUTED = "rubylight.microphoneMuted";
     // When the user returned from that trip: marks the resume and starts its own deadline.
-    private static final String EXTRA_TRIP_RESUME_STARTED = "rubylight.tripResumeStarted";
+    static final String EXTRA_TRIP_RESUME_STARTED = "rubylight.tripResumeStarted";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -870,7 +856,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         getIntent().putExtra(EXTRA_STREAM_NETWORK, prefConfig.layers.network.name());
         HdrPolicy.setDebugHlgOnly(BuildConfig.DEBUG, prefConfig.debugHdrHlgOnly);
         overlays.showStreamLayers(prefConfig, startNetwork == null);
-        readRecoveryBudget(SystemClock.elapsedRealtime());
+        streamRecovery.readRecoveryBudget(SystemClock.elapsedRealtime());
         panelMaxRefreshRate = com.limelight.binding.video.DisplayFrameRatePolicy.maxRefreshRate(
                 getVideoDisplay());
         if (prefConfig.vrr) {
@@ -1099,7 +1085,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 willStreamHdr,
                 glPrefs.glRenderer,
                 this, getVideoDisplay());
-        decoderRenderer.setPackedFailureListener(this::onPackedChromaFailure);
+        decoderRenderer.setPackedFailureListener(streamRecovery::onPackedChromaFailure);
         decoderRenderer.setStreamSizeListener(new MediaCodecDecoderRenderer.StreamSizeListener() {
             @Override
             public void onStreamSizeChanged(int width, int height) {
@@ -1226,7 +1212,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 .setLaunchRefreshRateX100(smallStream ? 0 : prefConfig.launchRefreshRateX100)
                 .setRefreshRate(smallStream ? InputOnlyPolicy.SMALL_FPS : chosenFrameRate)
                 .setApp(app)
-                .setResumeOnly(isResumeOnlyStream())
+                .setResumeOnly(streamRecovery.isResumeOnlyStream())
                 .setAllowIdleSessionEnd(!getIntent().getBooleanExtra(EXTRA_RECOVERY_MEDIA_FAILURE, false))
                 .setBitrate(smallStream ? InputOnlyPolicy.SMALL_BITRATE_KBPS : prefConfig.bitrate)
                 .setProbeFirstBitrate(!smallStream && prefConfig.probesFirstBitrate())
@@ -1261,7 +1247,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 new ComputerDetails.AddressTuple(host, port),
                 httpsPort, uniqueId, config,
                 PlatformBinding.getCryptoProvider(this), serverCert);
-        restoreMicrophoneMute();
+        streamRecovery.restoreMicrophoneMute();
         conn.setMicrophoneNoticeListener(() -> runOnUiThread(menuActions::showMicrophoneNotice));
         controllerHandler = new ControllerHandler(this, conn, this, prefConfig);
         conn.setControllerPreparation(controllerHandler::prepareControllersForLaunch);
@@ -1418,9 +1404,9 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         if (outputSwitchPending || isFinishing() || isDestroyed()) return;
         outputSwitchPending = true;
         getIntent().removeExtra(EXTRA_OUTPUT_DISPLAY);
-        if (foreground && conn != null) reconnectStream();
+        if (foreground && conn != null) streamRecovery.reconnectStream();
         else {
-            rememberStreamForResume(true);
+            streamRecovery.rememberStreamForResume(true);
             if (stoppedStreamResumeIntent != null) {
                 stoppedStreamResumeIntent.removeExtra(EXTRA_OUTPUT_DISPLAY);
                 displayedFailureDialog = true;
@@ -1510,7 +1496,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                     streamMenuAction = () -> {
                         outputSwitchPending = true;
                         getIntent().putExtra(EXTRA_OUTPUT_DISPLAY, id);
-                        reconnectStream();
+                        streamRecovery.reconnectStream();
                     };
                 }).setNegativeButton(android.R.string.cancel, null).create());
         if (displays.length == 0) messages.alert(R.string.desktop_display_unavailable, Toast.LENGTH_LONG);
@@ -2517,7 +2503,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     protected void onResume() {
         super.onResume();
         foreground = true;
-        if (resumeStoppedStreamIfNeeded()) {
+        if (streamRecovery.resumeStoppedStreamIfNeeded()) {
             recoveryCancelledOnPause = false;
             restoreInputOnResume = false;
             return;
@@ -2526,7 +2512,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             displayedFailureDialog = true;
             stopConnection();
             if (spinner != null) { spinner.dismiss(); spinner = null; }
-            showReconnectDialog(R.string.conn_terminated_title, getString(R.string.stream_recovery_paused));
+            streamRecovery.showReconnectDialog(R.string.conn_terminated_title, getString(R.string.stream_recovery_paused));
         }
         recoveryCancelledOnPause = false;
         if (restoreInputOnResume && connected) {
@@ -2544,8 +2530,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         // Shown again on the next stream unless it was read.
         overlays.dismissStreamMenuHint(false);
         foreground = false;
-        recoveryCancelledOnPause = recoveryHandoffInProgress || pendingRecovery != null || (isRecoveryAttempt() && connecting);
-        cancelAutomaticRecovery();
+        recoveryCancelledOnPause = recoveryHandoffInProgress || pendingRecovery != null || (streamRecovery.isRecoveryAttempt() && connecting);
+        streamRecovery.cancelAutomaticRecovery();
         overlays.stopHardwareMetricsPolling();
         foregroundGeneration++;
         streamMenuAction = null;
@@ -2576,7 +2562,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     protected void onStop() {
         super.onStop();
         if (adaptiveLayout != null) adaptiveLayout.stop();
-        rememberStreamForResume(true);
+        streamRecovery.rememberStreamForResume(true);
 
         if (streamMenu != null) {
             streamMenu.dismiss();
@@ -2659,7 +2645,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             }
         }
 
-        if (finishesWhenStopped()) finish();
+        if (streamRecovery.finishesWhenStopped()) finish();
     }
 
     @Override
@@ -2761,431 +2747,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         virtualController.show();
     }
 
-    private void rememberMicrophoneMute() {
-        if (conn != null && (connected || connecting)) {
-            getIntent().putExtra(EXTRA_MICROPHONE_MUTED, conn.isMicrophoneMutedForReconnect());
-        }
-    }
-
-    private void restoreMicrophoneMute() {
-        // This is session state, applied before controller binding or native capture can start.
-        conn.setMicrophoneMuted(getIntent().getBooleanExtra(EXTRA_MICROPHONE_MUTED, false));
-    }
-
-    /** The stream started again, {@code why} (a {@link LaunchSource}); the log keeps the start that opened it. */
-    private Intent createStreamHandoffIntent(String why) {
-        rememberMicrophoneMute();
-        Intent again = LaunchSource.put(new Intent(getIntent()), LaunchSource.again(why, getIntent()));
-        // The game this start replaced may be long gone: another device's could be running by now.
-        again.removeExtra(EXTRA_REPLACED_APP_NAME);
-        // Only a resume after the user's trip carries them; any other start spends the budget it has.
-        again.removeExtra(EXTRA_TRIP_BUDGET);
-        again.removeExtra(EXTRA_TRIP_RESUME_STARTED);
-        return again;
-    }
-
-    private Intent createReconnectIntent() {
-        Intent retry = createStreamHandoffIntent(LaunchSource.RECONNECT);
-        retry.removeExtra(EXTRA_RECOVERY_ATTEMPTS);
-        retry.removeExtra(EXTRA_RECOVERY_STARTED);
-        retry.removeExtra(EXTRA_RECOVERY_MEDIA_FAILURE);
-        retry.removeExtra(EXTRA_RECOVERY_VIDEO);
-        retry.removeExtra(EXTRA_OUTPUT_RESUME_ONLY);
-        if (outputSwitchPending) {
-            if (app == null || app.isControlAction()) return null;
-            if (app.getRole() == NvApp.Role.STREAM) {
-                // Output changes only move the existing stream. Resolve Resume/Running
-                // Game tiles to the actual game so a changed host session is rejected
-                // by NvConnection's existing resume-only checks, never launched/quit.
-                int resumeId = recoveryAppId != 0 ? recoveryAppId :
-                        app.getControl() == NvApp.Control.NONE ? app.getAppId() : 0;
-                if (resumeId == 0) return null;
-                retry.putExtra(EXTRA_APP_ID, resumeId)
-                        .putExtra(EXTRA_APP_UUID, recoveryAppId != 0 ? recoveryAppUuid : app.getAppUuid())
-                        .putExtra(EXTRA_OUTPUT_RESUME_ONLY, true);
-            }
-            // Remote Monitor retains its dedicated view-only host operation.
-        }
-        return retry;
-    }
-
-    void reconnectStream() {
-        if (recoveryHandoffInProgress || isFinishing() || isDestroyed()) return;
-        stoppedStreamResumeIntent = null;
-        final Intent retry = createReconnectIntent();
-        if (retry == null) {
-            stopConnection();
-            finish();
-            return;
-        }
-        displayedFailureDialog = true;
-        touchInput.setInputGrabState(false);
-        stopConnection();
-        retry.putExtra(EXTRA_MICROPHONE_MUTED, getIntent().getBooleanExtra(EXTRA_MICROPHONE_MUTED, false));
-        final Thread stopping = connectionStopThread;
-        final int generation = foregroundGeneration;
-        final int recovery = recoveryGeneration;
-        spinner = SpinnerDialog.displayDialog(this, getString(R.string.conn_establishing_title),
-                getString(R.string.stream_reconnecting), true);
-        recoveryHandoffInProgress = true;
-        new Thread(() -> {
-            if (stopping != null) {
-                try {
-                    stopping.join();
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    return;
-                }
-            }
-            runOnUiThread(() -> {
-                if (foreground && generation == foregroundGeneration && recovery == recoveryGeneration &&
-                        !isFinishing() && !isDestroyed()) {
-                    recoveryHandoffInProgress = false;
-                    finishNow();
-                    startActivity(retry);
-                }
-            });
-        }, "Stream reconnect").start();
-    }
-
-    private boolean isRecoveryAttempt() {
-        return getIntent().getIntExtra(EXTRA_RECOVERY_ATTEMPTS, 0) > 0 || isTripResume();
-    }
-
-    private boolean isResumeOnlyStream() {
-        return isRecoveryAttempt() || getIntent().getBooleanExtra(EXTRA_OUTPUT_RESUME_ONLY, false);
-    }
-
-    private void cancelAutomaticRecovery() {
-        recoveryGeneration++;
-        recoveryHandoffInProgress = false;
-        if (pendingRecovery != null) bitrateHandler.removeCallbacks(pendingRecovery);
-        pendingRecovery = null;
-        pendingRecoveryIntent = null;
-        bitrateHandler.removeCallbacks(recoveryTimeout);
-    }
-
-    /** {@code userTrip}: the user left (Home, Files, a lock), so no connection failure caused this stop. */
-    private void rememberStreamForResume(boolean userTrip) {
-        if (stoppedStreamResumeIntent != null || prefConfig == null || !prefConfig.autoReconnect ||
-                !connected || displayedFailureDialog || isFinishing() || isDestroyed() ||
-                recoveryCancelledOnPause || recoveryHandoffInProgress || recoveryAppId == 0 ||
-                app == null || app.getRole() != NvApp.Role.STREAM || app.isControlAction()) return;
-        // Count only time actually connected, never time spent locked or in another app.
-        long now = SystemClock.elapsedRealtime();
-        recoveryPolicy.resetAfterStableConnection(now, connectedAt);
-        long connectedFor = connectedAt >= 0 ? now - connectedAt : 0;
-        connectedAt = -1;
-        stoppedStreamResumeIntent = createStreamHandoffIntent(LaunchSource.RETURN)
-                .putExtra(EXTRA_APP_ID, recoveryAppId).putExtra(EXTRA_APP_UUID, recoveryAppUuid);
-        // A failure already reported as the user left is a failure: its resume spends the budget.
-        if (userTrip && !streamTerminated) {
-            stoppedStreamResumeIntent.putExtra(EXTRA_TRIP_BUDGET,
-                    new long[] {recoveryPolicy.attempts(), recoveryPolicy.startedAt(), now, connectedFor});
-        }
-    }
-
-    private boolean isTripResume() {
-        return getIntent().hasExtra(EXTRA_TRIP_RESUME_STARTED);
-    }
-
-    /**
-     * The failure budget this activity starts with (onCreate). A resume after the user's trip takes
-     * the budget recorded as the trip began, the time since leaving not counted, so a failure while
-     * it starts up continues that budget; any other start takes the one its intent carries. The
-     * time connected before the trip still counts toward the 30 s that earns a new budget.
-     */
-    void readRecoveryBudget(long now) {
-        long[] trip = getIntent().getLongArrayExtra(EXTRA_TRIP_BUDGET);
-        if (trip == null) {
-            recoveryPolicy = new StreamRecoveryPolicy(getIntent().getIntExtra(EXTRA_RECOVERY_ATTEMPTS, 0),
-                    getIntent().getLongExtra(EXTRA_RECOVERY_STARTED, 0));
-            return;
-        }
-        recoveryPolicy = StreamRecoveryPolicy.afterUserTrip((int) trip[0], trip[1], trip[2], now);
-        connectedBeforeTrip = recoveryPolicy.attempts() > 0 ? trip[3] : 0;
-        getIntent().removeExtra(EXTRA_TRIP_BUDGET);
-        getIntent().putExtra(EXTRA_RECOVERY_ATTEMPTS, recoveryPolicy.attempts())
-                .putExtra(EXTRA_RECOVERY_STARTED, recoveryPolicy.startedAt());
-    }
-
-    /**
-     * The stream connected (connectionStarted): stability counts from here, after the time connected
-     * before a trip, and the startup deadline ends.
-     */
-    void onStreamConnected(long now) {
-        connectedAt = now - connectedBeforeTrip;
-        bitrateHandler.removeCallbacks(recoveryTimeout);
-    }
-
-    // Without stream recovery, leaving the stream (Home, closing PiP) ends it, as it always did.
-    // With recovery on, the activity may stay to resume the same game or to offer Reconnect.
-    private boolean finishesWhenStopped() {
-        return prefConfig == null || !prefConfig.autoReconnect ||
-                (stoppedStreamResumeIntent == null && !recoveryCancelledOnPause);
-    }
-
-    private boolean resumeStoppedStreamIfNeeded() {
-        if (stoppedStreamResumeIntent == null || !foreground || isFinishing() || isDestroyed()) return false;
-        Intent retry = stoppedStreamResumeIntent;
-        stoppedStreamResumeIntent = null;
-        // After the user's own trip the resume skips the failure budget; after a failure it spends it.
-        if (!queueAutomaticRecovery(retry, false, retry.hasExtra(EXTRA_TRIP_BUDGET))) {
-            displayedFailureDialog = true;
-            if (spinner != null) { spinner.dismiss(); spinner = null; }
-            showReconnectDialog(R.string.conn_terminated_title, getString(R.string.stream_recovery_exhausted));
-        }
-        return true;
-    }
-
-    private boolean tryAutomaticRecovery() {
-        return tryAutomaticRecovery(false);
-    }
-
-    /**
-     * Packed full chroma stopped working: reconnect once without it for the rest of the session,
-     * whether or not automatic reconnection is on (this is not a lost connection). False when this
-     * session already runs without it or cannot reconnect now; the caller then ends the stream.
-     */
-    private boolean reconnectWithoutPackedChroma(String reason) {
-        return reconnectWithoutPackedChroma("Packed full chroma stopped: " + reason, PackedFallback.toast());
-    }
-
-    private boolean reconnectWithoutPackedChroma(String logLine, String toast) {
-        boolean unpacked = getIntent().getBooleanExtra(EXTRA_PACKED_OFF, false);
-        boolean canReconnect = foreground && !isFinishing() && !isDestroyed();
-        if (PackedFallback.onFailure(unpacked, canReconnect) != PackedFallback.Action.RECONNECT_WITHOUT_PACKED) return false;
-        LimeLog.warning(logLine);
-        if (!tryAutomaticRecovery(true)) return false;
-        Toast.makeText(getApplicationContext(), toast, Toast.LENGTH_LONG).show();
-        return true;
-    }
-
-    // Runs on the render thread: only decides on the UI thread; the stream ends from a worker if it cannot reconnect.
-    private void onPackedChromaFailure(String reason) {
-        runOnUiThread(() -> {
-            if (isFinishing() || isDestroyed() || reconnectWithoutPackedChroma(reason)) return;
-            // Whatever happens next (a queued recovery, a resume, the Reconnect dialog), copies of this
-            // activity's intent keep the mark, so no later reconnect asks for packed chroma again.
-            getIntent().putExtra(EXTRA_PACKED_OFF, true);
-            if ((pendingRecovery != null || recoveryHandoffInProgress) && pendingRecoveryIntent != null) {
-                // A recovery is already on its way (the failure came with a lost connection): its
-                // replacement stream starts without packed chroma instead of a dialog over it.
-                LimeLog.warning("Packed full chroma stopped during a recovery: " + reason);
-                pendingRecoveryIntent.putExtra(EXTRA_PACKED_OFF, true);
-                return;
-            }
-            if (stoppedStreamResumeIntent != null) {
-                // Left in the background and kept for resuming: it resumes without packed chroma.
-                LimeLog.warning("Packed full chroma stopped while the stream waits to resume: " + reason);
-                stoppedStreamResumeIntent.putExtra(EXTRA_PACKED_OFF, true);
-                return;
-            }
-            if (displayedFailureDialog) return;
-            endStreamAfterPackedFailure(reason);
-        });
-    }
-
-    // connectionTerminated tests the network and asks the PC (blocking calls), so never on the UI thread.
-    private void endStreamAfterPackedFailure(String reason) {
-        new Thread(() -> {
-            MoonBridge.bridgeClDisplayMessage("Packed full-chroma presentation stopped: " + reason);
-            MoonBridge.bridgeClConnectionTerminated(-1);
-        }, "Packed chroma end").start();
-    }
-
-    private boolean tryAutomaticRecovery(boolean packedOff) {
-        return tryAutomaticRecovery(packedOff, false);
-    }
-
-    /** {@code immediate}: no delay before the attempt (it still spends one); a network came back. */
-    private boolean tryAutomaticRecovery(boolean packedOff, boolean immediate) {
-        if (prefConfig == null || (!packedOff && !prefConfig.autoReconnect) || displayedFailureDialog ||
-                (!connected && !connecting) || !foreground || isFinishing() || isDestroyed() ||
-                app == null || app.getRole() != NvApp.Role.STREAM || app.isControlAction()) return false;
-        int resumeId = recoveryAppId != 0 ? recoveryAppId :
-                app.getControl() == NvApp.Control.NONE ? app.getAppId() : 0;
-        String resumeUuid = recoveryAppId != 0 ? recoveryAppUuid : app.getAppUuid();
-        if (resumeId == 0 && packedOff) {
-            // Full chroma refused before connectionStarted resolved a Resume or Running Game tile:
-            // resume the game the PC reported running, as connectionStarted would, else repeat the tile.
-            ComputerDetails host = conn != null ? conn.getHostDetails() : null;
-            if (host != null && host.runningGameId != 0) {
-                resumeId = host.runningGameId;
-                resumeUuid = host.runningGameUuid;
-            } else {
-                resumeId = app.getAppId();
-            }
-        }
-        if (resumeId == 0) return false;
-        Intent retry = createStreamHandoffIntent(LaunchSource.RECOVERY)
-                .putExtra(EXTRA_APP_ID, resumeId).putExtra(EXTRA_APP_UUID, resumeUuid);
-        if (packedOff) retry.putExtra(EXTRA_PACKED_OFF, true);
-        // Only a drop after video marks the chain; a restart before it (packed chroma) carries what it had.
-        if (videoStarted()) retry.putExtra(EXTRA_RECOVERY_VIDEO, true);
-        return queueAutomaticRecovery(retry, packedOff, false, immediate);
-    }
-
-    /**
-     * Whether video started: this connection showed a frame, or an earlier one of its automatic
-     * reconnect chain did. A reconnect after a real drop that has no frame yet when it drops again
-     * keeps reconnecting within the budget; a stream that never had video does not reconnect
-     * (Moonlight V+ PC 6792aeed).
-     */
-    boolean videoStarted() {
-        MediaCodecDecoderRenderer videoRenderer = decoderRenderer;
-        return (videoRenderer != null && videoRenderer.hasReceivedVideo()) ||
-                getIntent().getBooleanExtra(EXTRA_RECOVERY_VIDEO, false);
-    }
-
-    /**
-     * Whether a lost connection would reconnect on its own now: what tryAutomaticRecovery
-     * checks, and an attempt left in the budget. Spends nothing.
-     */
-    private boolean recoversAutomatically() {
-        if (prefConfig == null || !prefConfig.autoReconnect || displayedFailureDialog || !connected || !foreground ||
-                !videoStarted() ||
-                isFinishing() || isDestroyed() || recoveryHandoffInProgress || pendingRecovery != null ||
-                app == null || app.getRole() != NvApp.Role.STREAM || app.isControlAction()) return false;
-        int resumeId = recoveryAppId != 0 ? recoveryAppId :
-                app.getControl() == NvApp.Control.NONE ? app.getAppId() : 0;
-        return resumeId != 0 && recoveryPolicy.allowsAttempt(SystemClock.elapsedRealtime(), connectedAt);
-    }
-
-    private boolean queueAutomaticRecovery(final Intent retry, boolean ignoreAutoReconnectSetting) {
-        return queueAutomaticRecovery(retry, ignoreAutoReconnectSetting, false);
-    }
-
-    private boolean queueAutomaticRecovery(final Intent retry, boolean ignoreAutoReconnectSetting, boolean tripResume) {
-        return queueAutomaticRecovery(retry, ignoreAutoReconnectSetting, tripResume, false);
-    }
-
-    /**
-     * {@code tripResume}: the resume after the user's own trip. It is never counted or refused by
-     * the failure budget: a fixed delay and a deadline of its own from the return.
-     * {@code immediate}: no delay. Every recovery waits for a route to the PC before it starts.
-     */
-    private boolean queueAutomaticRecovery(final Intent retry, boolean ignoreAutoReconnectSetting, boolean tripResume,
-                                           boolean immediate) {
-        if (prefConfig == null || (!ignoreAutoReconnectSetting && !prefConfig.autoReconnect) || !foreground || isFinishing() || isDestroyed() ||
-                recoveryHandoffInProgress || pendingRecovery != null) return false;
-        long now = SystemClock.elapsedRealtime();
-        long delay;
-        final long deadlineFrom;
-        if (tripResume) {
-            delay = StreamRecoveryPolicy.TRIP_RESUME_DELAY_MS;
-            deadlineFrom = now;
-            retry.putExtra(EXTRA_TRIP_RESUME_STARTED, now);
-        } else {
-            delay = recoveryPolicy.nextDelay(now, connectedAt);
-            if (delay < 0) {
-                recoveryBudgetExhausted = true;
-                return false;
-            }
-            if (immediate) delay = 0;
-            deadlineFrom = recoveryPolicy.startedAt();
-            retry.putExtra(EXTRA_RECOVERY_ATTEMPTS, recoveryPolicy.attempts())
-                    .putExtra(EXTRA_RECOVERY_STARTED, recoveryPolicy.startedAt());
-        }
-        final String routeHost = getIntent().getStringExtra(EXTRA_HOST);
-        final int routePort = getIntent().getIntExtra(EXTRA_PORT, NvHTTP.DEFAULT_HTTP_PORT);
-
-        displayedFailureDialog = true;
-        touchInput.setInputGrabState(false);
-        stopConnection();
-        if (spinner != null) spinner.dismiss();
-        spinner = SpinnerDialog.displayDialog(this, getString(R.string.conn_establishing_title), tripResume ?
-                getString(R.string.stream_reconnecting) :
-                getString(R.string.stream_recovery_attempt, recoveryPolicy.attempts(), StreamRecoveryPolicy.MAX_ATTEMPTS), true);
-        retry.putExtra(EXTRA_MICROPHONE_MUTED, getIntent().getBooleanExtra(EXTRA_MICROPHONE_MUTED, false));
-        pendingRecoveryIntent = retry;
-        final int generation = foregroundGeneration;
-        final int recovery = recoveryGeneration;
-        // Keep this true after the delayed callback hands off to its teardown worker. A
-        // pause/resume in that interval must still replace the spinner with manual recovery.
-        recoveryHandoffInProgress = true;
-        pendingRecovery = () -> {
-            pendingRecovery = null;
-            if (!foreground || generation != foregroundGeneration || recovery != recoveryGeneration || isFinishing() || isDestroyed()) return;
-            final Thread stopping = connectionStopThread;
-            new Thread(() -> {
-                try {
-                    // Never overlap the native global connection with a previous stop.
-                    if (stopping != null) stopping.join(10000);
-                    waitForRouteToHost(routeHost, routePort, deadlineFrom + StreamRecoveryPolicy.WINDOW_MS, recovery);
-                } catch (InterruptedException interrupted) {
-                    Thread.currentThread().interrupt();
-                    return;
-                }
-                runOnUiThread(() -> {
-                    if (!foreground || generation != foregroundGeneration || recovery != recoveryGeneration || isFinishing() || isDestroyed()) return;
-                    if ((stopping != null && stopping.isAlive()) ||
-                            SystemClock.elapsedRealtime() - deadlineFrom >= StreamRecoveryPolicy.WINDOW_MS) {
-                        recoveryHandoffInProgress = false;
-                        if (spinner != null) { spinner.dismiss(); spinner = null; }
-                        showReconnectDialog(R.string.conn_terminated_title, getString(R.string.stream_recovery_exhausted));
-                        return;
-                    }
-                    recoveryHandoffInProgress = false;
-                    finishNow();
-                    startActivity(retry);
-                });
-            }, "Automatic stream recovery").start();
-        };
-        bitrateHandler.postDelayed(pendingRecovery, delay);
-        return true;
-    }
-
-    /**
-     * On a recovery's worker: returns once the PC is reachable, at {@code deadline}, or when the
-     * recovery is cancelled. A network is often back before its address toward the PC (DHCP),
-     * so the attempt waits for a route instead of failing at once and backing off.
-     */
-    private void waitForRouteToHost(String host, int port, long deadline, int recovery) throws InterruptedException {
-        if (host == null) return;
-        NetworkReturnRecovery wait = new NetworkReturnRecovery(deadline);
-        long waitStarted = SystemClock.elapsedRealtime();
-        while (recovery == recoveryGeneration && !isFinishing() && !isDestroyed()) {
-            long checkedAt = SystemClock.elapsedRealtime();
-            String unreachable = routeProbe.problem(host, port);
-            long next = wait.next(SystemClock.elapsedRealtime(), unreachable == null);
-            if (next == 0) {
-                if (wait.unreachableChecks() > 0) {
-                    LimeLog.info("Recovery: the PC is reachable again after " +
-                            (SystemClock.elapsedRealtime() - waitStarted) + " ms");
-                }
-                return;
-            }
-            if (next < 0) {
-                LimeLog.warning("Recovery: the PC stayed unreachable until the recovery window ended: " + unreachable);
-                return;
-            }
-            if (wait.unreachableChecks() == 1) {
-                LimeLog.info("Recovery: no route to the PC yet (" + unreachable + "), checking every " +
-                        NetworkReturnRecovery.RETRY_MS + " ms");
-            }
-            Thread.sleep(Math.max(0, next - (SystemClock.elapsedRealtime() - checkedAt)));
-        }
-    }
-
     interface RouteProbe { String problem(String host, int port); }
-
-    // A recovery's route check toward the PC (tests replace it).
-    private RouteProbe routeProbe = Game::routeProblem;
-
-    /**
-     * Why there is no route toward the PC's HTTP port yet, or null to go on with the attempt: an
-     * answer, refused included, and also a check that timed out or failed otherwise (a slow link
-     * is not a missing one; the attempt itself decides, loudly).
-     */
-    private static String routeProblem(String host, int port) {
-        try (java.net.Socket socket = new java.net.Socket()) {
-            socket.connect(new java.net.InetSocketAddress(host, port), NetworkReturnRecovery.PROBE_TIMEOUT_MS);
-            return null;
-        } catch (java.io.IOException e) {
-            return routeMissing(e) ? e.toString() : null;
-        }
-    }
 
     /** An immediate no-route error: no address toward the PC (yet), or its name does not resolve. */
     static boolean routeMissing(java.io.IOException e) {
@@ -3197,13 +2759,6 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         int errno = ((android.system.ErrnoException) e.getCause()).errno;
         return errno == android.system.OsConstants.ENETUNREACH || errno == android.system.OsConstants.EHOSTUNREACH ||
                 errno == android.system.OsConstants.EADDRNOTAVAIL;
-    }
-
-    private void showReconnectDialog(int title, String message) {
-        menuActions.showStreamDialog(new NavigationDialogBuilder(this).setTitle(title).setMessage(message)
-                .setCancelable(false)
-                .setNegativeButton(R.string.stream_disconnect, (dialog, which) -> finish())
-                .setPositiveButton(R.string.stream_reconnect, (dialog, which) -> reconnectStream()).create());
     }
 
     // What became of each value asked for, in plain words.
@@ -3325,12 +2880,12 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     public void stageComplete(String stage) {
     }
 
-    private void stopConnection() {
+    void stopConnection() {
         adaptation.stopFoundationAbr();
         touchInput.releaseDesktopInput();
         if (trackpadPointer != null) trackpadPointer.stopMomentum();
-        rememberMicrophoneMute();
-        cancelAutomaticRecovery();
+        streamRecovery.rememberMicrophoneMute();
+        streamRecovery.cancelAutomaticRecovery();
         if (gameTouchControls != null) gameTouchControls.releaseInput();
         overlays.stopHardwareMetricsPolling();
         getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
@@ -3406,7 +2961,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         // This does network I/O, so don't do it on the main thread.
         // Experimental full chroma refused by the PC (or no mode in common): not a network failure.
         final boolean packedRefused = errorCode == MoonBridge.CLIENT_ERROR_PACKED_444_REFUSED;
-        final boolean transientRecoveryFailure = !packedRefused && isRecoveryAttempt() &&
+        final boolean transientRecoveryFailure = !packedRefused && streamRecovery.isRecoveryAttempt() &&
                 StreamRecoveryPolicy.transientStartup(stage, portFlags, errorCode);
         final int portTestResult = portFlags == 0 || transientRecoveryFailure || packedRefused ?
                 MoonBridge.ML_TEST_RESULT_INCONCLUSIVE :
@@ -3420,10 +2975,10 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 }
                 // Once per session: the replacement starts without full chroma. A refusal in a session
                 // already without it (never expected: it does not ask) shows the error as usual.
-                if (packedRefused && reconnectWithoutPackedChroma("Full chroma refused at stream start (" +
+                if (packedRefused && streamRecovery.reconnectWithoutPackedChroma("Full chroma refused at stream start (" +
                         terminationDescription(errorCode) + (connectionErrorMessage != null ?
                         "): " + connectionErrorMessage : ")"), PackedFallback.refusedToast())) return;
-                if (transientRecoveryFailure && tryAutomaticRecovery()) return;
+                if (transientRecoveryFailure && streamRecovery.tryAutomaticRecovery()) return;
                 if (spinner != null) {
                     spinner.dismiss();
                     spinner = null;
@@ -3464,7 +3019,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                     }
 
                     stopConnection();
-                    showReconnectDialog(R.string.conn_error_title, dialogText);
+                    streamRecovery.showReconnectDialog(R.string.conn_error_title, dialogText);
                 }
             }
         });
@@ -3533,7 +3088,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         if (endedSession) LimeLog.info("Connection terminated: the PC ended the previous session");
         final int portFlags = MoonBridge.getPortFlagsFromTerminationErrorCode(errorCode);
         // A stream that never had video does not reconnect: its error (and the port test) shows at once.
-        final boolean transientFailure = StreamRecoveryPolicy.recoversTermination(errorCode, videoStarted());
+        final boolean transientFailure = StreamRecoveryPolicy.recoversTermination(errorCode, streamRecovery.videoStarted());
         // A renderer failure on this device says nothing about the network
         final int portTestResult = errorCode == MoonBridge.ML_ERROR_GRACEFUL_TERMINATION ||
                 errorCode == MoonBridge.CLIENT_ERROR_VULKAN_RENDERER || errorCode == MoonBridge.CLIENT_ERROR_DECODER ||
@@ -3559,9 +3114,9 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                     getIntent().putExtra(EXTRA_RECOVERY_MEDIA_FAILURE, true);
                 }
                 recoveryBudgetExhausted = false;
-                if (transientFailure && tryAutomaticRecovery()) return;
+                if (transientFailure && streamRecovery.tryAutomaticRecovery()) return;
                 final boolean recoveryExhausted = transientFailure && recoveryBudgetExhausted;
-                if (!foreground && transientFailure) rememberStreamForResume(false);
+                if (!foreground && transientFailure) streamRecovery.rememberStreamForResume(false);
                 // Let the display go to sleep now
                 getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
 
@@ -3644,7 +3199,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                         if (foreground && (stoppedStreamResumeIntent != null ||
                                 StreamExitPolicy.terminationNeedsAction(errorCode, portTestBlocked,
                                         graceGaveUp, recoveryExhausted))) {
-                            showReconnectDialog(R.string.conn_terminated_title, message);
+                            streamRecovery.showReconnectDialog(R.string.conn_terminated_title, message);
                         } else if (foreground) {
                             // The host went away or the connection was lost: nothing to act on, so
                             // go back to the list and say why where it outlives this screen. Android
@@ -3709,7 +3264,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             // It promises a reconnect only when one will follow (the connection's timeout, or a
             // return it cannot carry on over, recovers it).
             streamNetworkLost = true;
-            notificationOverlayView.setText(getString(recoversAutomatically() &&
+            notificationOverlayView.setText(getString(streamRecovery.recoversAutomatically() &&
                     prefConfig.networkGraceSeconds * 1000 <= NetworkReturnRecovery.PEER_TIMEOUT_MS ?
                     R.string.stream_network_lost_reconnecting : R.string.stream_network_lost));
             requestedNotificationOverlayVisibility = View.VISIBLE;
@@ -3731,12 +3286,12 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             // and its own timeout decides if it cannot.
             // Like a drop, only a stream whose video started reconnects (desktop: reconnects_on_its_own).
             if (!connected || displayedFailureDialog || isFinishing() || isDestroyed() || prefConfig == null ||
-                    !videoStarted() || !NetworkReturnRecovery.reconnectsAtOnce(change == MoonBridge.NETWORK_CANNOT_CONTINUE, metered,
+                    !streamRecovery.videoStarted() || !NetworkReturnRecovery.reconnectsAtOnce(change == MoonBridge.NETWORK_CANNOT_CONTINUE, metered,
                             prefConfig.roamingMetered, prefConfig.autoReconnect,
                             prefConfig.networkGraceSeconds * 1000)) return;
             // The connection cannot carry on over this network and would only time out first.
             LimeLog.info("The network is back on another address the stream did not roam to: reconnecting now");
-            if (!tryAutomaticRecovery(false, true)) {
+            if (!streamRecovery.tryAutomaticRecovery(false, true)) {
                 LimeLog.warning("The network is back, but no automatic reconnection is possible now");
             }
         });
@@ -3765,7 +3320,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 startRefreshSwitchPolling();
                 if (wifiDiagnostics == null) wifiDiagnostics = new com.limelight.utils.WifiDiagnostics(Game.this);
                 wifiDiagnostics.start();
-                onStreamConnected(SystemClock.elapsedRealtime());
+                streamRecovery.onStreamConnected(SystemClock.elapsedRealtime());
                 recoveryAppId = app.getControl() == NvApp.Control.NONE ? app.getAppId() : conn.getHostDetails().runningGameId;
                 recoveryAppUuid = app.getControl() == NvApp.Control.NONE ? app.getAppUuid() : conn.getHostDetails().runningGameUuid;
                 touchInput.updateGameTouchProfile();
@@ -3773,7 +3328,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 overlays.updateHardwareMetricsPolling();
                 LimeLog.info("Stream connected");
                 connecting = false;
-                if (!isRecoveryAttempt()) {
+                if (!streamRecovery.isRecoveryAttempt()) {
                     com.limelight.update.UpdateFlow.notifyForStream(Game.this, conn.getHostDetails(),
                             () -> foreground && connected, text -> messages.alert(text, Toast.LENGTH_LONG));
                 }
@@ -4038,14 +3593,14 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         }
 
         if (!attemptedConnection) {
-            if (isRecoveryAttempt()) {
-                long deadlineFrom = isTripResume() ?
+            if (streamRecovery.isRecoveryAttempt()) {
+                long deadlineFrom = streamRecovery.isTripResume() ?
                         getIntent().getLongExtra(EXTRA_TRIP_RESUME_STARTED, 0) : recoveryPolicy.startedAt();
                 long remaining = StreamRecoveryPolicy.WINDOW_MS -
                         (SystemClock.elapsedRealtime() - deadlineFrom);
                 if (remaining <= 0) {
                     if (spinner != null) { spinner.dismiss(); spinner = null; }
-                    showReconnectDialog(R.string.conn_terminated_title, getString(R.string.stream_recovery_exhausted));
+                    streamRecovery.showReconnectDialog(R.string.conn_terminated_title, getString(R.string.stream_recovery_exhausted));
                     return;
                 }
                 bitrateHandler.postDelayed(recoveryTimeout, remaining);
@@ -4077,7 +3632,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         videoSurface = surface;
         appSurfaceFrameRateVote = null;
         surfaceCreated = true;
-        if (resumeStoppedStreamIfNeeded()) return;
+        if (streamRecovery.resumeStoppedStreamIfNeeded()) return;
         LimeLog.info("Video surface: " + (prefConfig.useTextureView ? "TextureView" : "SurfaceView") +
                 ", pacing: " + prefConfig.framePacing + ", newest frame: " + prefConfig.dropLateFrames);
 
@@ -4401,12 +3956,12 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             return;
         }
         if (attemptedConnection) {
-            rememberStreamForResume(true);
+            streamRecovery.rememberStreamForResume(true);
             displayedFailureDialog = true;
             stopConnection();
             // The stopped decoder cannot be reused. Resume the captured game in a fresh
             // activity when foreground returns; leaving spends nothing from the recovery budget.
-            if (finishesWhenStopped()) finish();
+            if (streamRecovery.finishesWhenStopped()) finish();
         }
     }
 

@@ -356,7 +356,7 @@ final class GameMenuActions {
             case HOST_WEB_UI: action = this::showHostWebUi; break;
             case HOST_STATUS: action = this::refreshHostStatus; break;
             case HOST_MENU: action = this::openHostMenu; break;
-            case RECONNECT: action = game::reconnectStream; break;
+            case RECONNECT: action = game.streamRecovery::reconnectStream; break;
             case DISCONNECT: action = this::leaveStream; break;
             case QUIT_GAME: action = this::confirmQuitApp; break;
             case END_HOST_SESSION: action = this::confirmEndHostSession; break;

@@ -606,6 +606,60 @@ public class PcViewLifecycleTest {
     }
 
     /**
+     * The footer under the PCs (still looking, How to connect) was placed with a translation, which focus search ignores:
+     * Down from the last PC skipped to Add PC and the link was out of the D-pad's reach. It is laid out by its top margin
+     * now, and while it shows, the list, its link and Add PC follow each other.
+     */
+    @Test
+    @Config(qualifiers = "w411dp-h891dp-xxhdpi")
+    public void theListFooterIsLaidOutUnderTheLastPcAndItsLinkIsOnTheDpadPath() {
+        ActivityController<Library> controller = pairingScreen(new CountDownLatch(0), 47989);
+        try {
+            Library screen = controller.get();
+            GridView grid = screen.findViewById(R.id.fragmentView);
+            android.view.View footer = screen.findViewById(R.id.pc_list_footer);
+            android.view.View help = screen.findViewById(R.id.pc_list_help);
+            android.view.View add = screen.findViewById(R.id.manuallyAddPc);
+            android.view.View root = screen.getWindow().getDecorView();
+            int w = screen.getResources().getDisplayMetrics().widthPixels;
+            int h = screen.getResources().getDisplayMetrics().heightPixels;
+            for (int pass = 0; pass < 2; pass++) {
+                root.measure(android.view.View.MeasureSpec.makeMeasureSpec(w, android.view.View.MeasureSpec.EXACTLY),
+                        android.view.View.MeasureSpec.makeMeasureSpec(h, android.view.View.MeasureSpec.EXACTLY));
+                root.layout(0, 0, w, h);
+                screen.placeListFooter();
+            }
+            assertEquals(android.view.View.VISIBLE, footer.getVisibility());
+            assertEquals("placed by layout, not drawn somewhere else", 0f, footer.getTranslationY(), 0f);
+            android.view.View last = grid.getChildAt(grid.getChildCount() - 1);
+            int[] lastAt = new int[2];
+            int[] footerAt = new int[2];
+            last.getLocationInWindow(lastAt);
+            footer.getLocationInWindow(footerAt);
+            assertEquals(lastAt[1] + last.getHeight() + screen.getResources().getDimensionPixelSize(R.dimen.space_l), footerAt[1]);
+
+            assertEquals(R.id.pc_list_help, grid.getNextFocusDownId());
+            assertEquals(R.id.pc_list_help, add.getNextFocusUpId());
+            assertEquals(R.id.pc_list_help, add.getAccessibilityTraversalAfter());
+            assertTrue(grid.requestFocus());
+            assertSame("Down from the last PC reaches the link", help, grid.focusSearch(android.view.View.FOCUS_DOWN));
+            assertSame("and Down again Add PC", add, help.focusSearch(android.view.View.FOCUS_DOWN));
+            assertTrue(add.requestFocus());
+            assertSame("Up from Add PC comes back through the link", help, add.focusSearch(android.view.View.FOCUS_UP));
+            assertSame(grid, help.focusSearch(android.view.View.FOCUS_UP));
+
+            // Hidden (here: the list is replaced by the empty state), the link drops out of the path again.
+            screen.findViewById(R.id.pcFragmentContainer).setVisibility(android.view.View.GONE);
+            screen.placeListFooter();
+            assertEquals(android.view.View.INVISIBLE, footer.getVisibility());
+            assertEquals(android.view.View.NO_ID, grid.getNextFocusDownId());
+            assertEquals(R.id.fragmentView, add.getNextFocusUpId());
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    /**
      * TV run on a TCL C6K: Right on Settings, the last tab, jumped to the PC tile below it, and the next Select asked
      * the PC to pair. Right there stays on Settings; Down still reaches the tiles.
      */

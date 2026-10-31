@@ -479,6 +479,8 @@ public class PcView extends NightjarActivity implements AdapterFragmentCallbacks
      * Puts the footer just under the last PC, as long as every PC shows and the footer fits above Add PC; otherwise it
      * waits, invisible. It fills the screen a few PCs leave empty with what a new user needs next: the list is still
      * looking, and how to connect a PC that does not appear. A TV has none: its tiles sit centred on the screen.
+     * <p>It is placed by its top margin, not a translation, which focus search ignores; while it shows, Down from the
+     * last row and Up from Add PC go through its link.
      */
     @VisibleForTesting
     void placeListFooter() {
@@ -496,11 +498,29 @@ public class PcView extends NightjarActivity implements AdapterFragmentCallbacks
             int top = container.getTop() + pcList.getTop() + last.getBottom()
                     + getResources().getDimensionPixelSize(R.dimen.space_l);
             int room = add.getVisibility() == View.VISIBLE ? add.getTop() : ((View) footer.getParent()).getHeight();
-            footer.setTranslationY(top);
+            android.view.ViewGroup.MarginLayoutParams params = (android.view.ViewGroup.MarginLayoutParams) footer.getLayoutParams();
+            if (params.topMargin != top) {
+                params.topMargin = top;
+                footer.setLayoutParams(params);
+            }
             show = top + footer.getHeight() <= room;
         }
         int visibility = show ? View.VISIBLE : View.INVISIBLE;
         if (footer.getVisibility() != visibility) footer.setVisibility(visibility);
+        linkListFooter(show);
+    }
+
+    /** With the footer shown its link sits between the PCs and Add PC, for the D-pad and for a screen reader. */
+    private void linkListFooter(boolean shown) {
+        View add = findViewById(R.id.manuallyAddPc);
+        View help = findViewById(R.id.pc_list_help);
+        int before = shown ? R.id.pc_list_help : R.id.fragmentView;
+        pcList.setNextFocusDownId(shown ? R.id.pc_list_help : View.NO_ID);
+        add.setNextFocusUpId(before);
+        add.setAccessibilityTraversalAfter(before);
+        help.setNextFocusUpId(R.id.fragmentView);
+        help.setNextFocusDownId(R.id.manuallyAddPc);
+        help.setAccessibilityTraversalAfter(R.id.fragmentView);
     }
 
     private boolean focusIsLoose() {

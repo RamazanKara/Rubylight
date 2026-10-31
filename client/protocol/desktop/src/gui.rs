@@ -568,7 +568,7 @@ mod tests {
     #[test]
     fn a_pass_asking_for_a_repaint_wakes_the_loop_once_per_refresh_and_a_settled_one_does_not() {
         let mut gui = Gui::new();
-        let mut pass = |gui: &mut Gui, n: u32, repaint: bool| {
+        let pass = |gui: &mut Gui, n: u32, repaint: bool| {
             let input = egui::RawInput {
                 screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(200.0, 200.0))),
                 time: Some(1.0 + f64::from(n) * 0.1),

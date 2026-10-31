@@ -448,12 +448,15 @@ fn settings_sections_follow_androids_order() {
     f.size = vec2(1280.0, 12000.0);
     f.l.go(Screen::Settings);
     f.settle();
-    // The chips come first, then the page's headings in capitals.
-    let chips: Vec<&str> = f.drawn.iter().map(String::as_str).filter(|t| SETTINGS_SECTIONS.contains(t)).collect();
-    assert_eq!(chips, SETTINGS_SECTIONS, "the chips list the sections in order");
-    let upper: Vec<String> = SETTINGS_SECTIONS.iter().map(|s| s.to_uppercase()).collect();
-    let headings: Vec<&String> = f.drawn.iter().filter(|t| upper.contains(t)).collect();
-    assert_eq!(headings, upper.iter().collect::<Vec<_>>(), "and the page has them in the same order");
+    // The list beside the rows names the sections in order, then the open one heads the rows.
+    let titles: Vec<&str> = f.drawn.iter().map(String::as_str).filter(|t| SETTINGS_SECTIONS.contains(t)).collect();
+    assert_eq!(titles[..7], SETTINGS_SECTIONS, "the list names the sections in order");
+    assert_eq!(titles[7..], ["Video"], "and the first is open");
+    // A narrow window lists them as chips above the rows, in the same order.
+    f.size = vec2(800.0, 12000.0);
+    f.settle();
+    let titles: Vec<&str> = f.drawn.iter().map(String::as_str).filter(|t| SETTINGS_SECTIONS.contains(t)).collect();
+    assert_eq!(titles[..7], SETTINGS_SECTIONS, "the chips name the sections in order");
 }
 
 /// The widgets a screen reader can press or change that have no name to say, with their role and place.
@@ -484,12 +487,20 @@ fn screen_readers_hear_a_name_for_everything_on_the_main_screens() {
     let mut missing = Vec::new();
     for (name, screen) in screens {
         f.l.go(screen);
-        for section in SETTINGS_SECTIONS {
-            f.l.unfolded.insert(section);
+        // Every section of the settings pages, and the search with its Clear.
+        let sections: &[&'static str] = if matches!(screen, Screen::Settings | Screen::HostSettings(_)) { &SETTINGS_SECTIONS } else { &[""] };
+        for section in sections {
+            f.l.settings_view.section = section;
+            f.settle();
+            assert!(f.access.as_ref().is_some_and(|t| t.nodes.len() > 5), "{name}: a tree came out");
+            missing.extend(unnamed(&f).into_iter().map(|w| format!("{name} {section}: {w}")));
         }
-        f.settle();
-        assert!(f.access.as_ref().is_some_and(|t| t.nodes.len() > 5), "{name}: a tree came out");
-        missing.extend(unnamed(&f).into_iter().map(|w| format!("{name}: {w}")));
+        if sections.len() > 1 {
+            f.l.settings_view.query = "bitrate".into();
+            f.settle();
+            missing.extend(unnamed(&f).into_iter().map(|w| format!("{name} searching: {w}")));
+            f.l.settings_view.query.clear();
+        }
     }
     f.l.go(Screen::Hosts);
     f.l.dialog = Dialog::HostOptions { host: id };
@@ -538,26 +549,35 @@ fn settings_main_rows_are_androids_tiers() {
 }
 
 #[test]
-fn settings_fold_rows_behind_more_and_show_them_when_opened() {
+fn settings_show_a_sections_every_row_with_the_rarer_ones_in_groups_after() {
     let mut f = Frames::new(record("PC", true, false), Reach::Online);
     f.size = vec2(1280.0, 12000.0);
     f.l.go(Screen::Settings);
     f.settle();
-    assert!(shows(&f, "Device controls bitrate") && shows(&f, "Recover interrupted streams"), "main rows show: {:?}", f.drawn);
-    assert!(!shows(&f, "Tell the PC when on Wi-Fi") && !shows(&f, "Loss-based bitrate (Rust engine)") && !shows(&f, "Diagnostics"), "folded rows wait");
-    let more = f.placed.iter().find(|(t, _, _)| t == "More Advanced settings (5)").map(|p| p.1.center()).expect("Advanced folds five rows");
-    f.click_at(more, egui::PointerButton::Primary);
-    for text in ["Loss-based bitrate (Rust engine)", "Full chroma", "Diagnostics", "Tell the PC when on Wi-Fi", "Link test before the first bitrate", "Fewer Advanced settings"] {
-        assert!(shows(&f, text), "{text} shows once Advanced opens");
+    for text in ["Lower bitrate when the network is busy", "FINE-TUNING", "Automatic quality", "Video decoding"] {
+        assert!(shows(&f, text), "{text}: nothing is folded away: {:?}", f.drawn);
     }
-    assert!(!shows(&f, "Client roaming"), "Streaming stays folded");
-    // A PC's override of a folded row keeps it in view while the section is folded.
-    f.l.unfolded.clear();
+    assert!(!shows(&f, "Recover interrupted streams") && !shows(&f, "More Video settings (6)"), "one section at a time, no fold");
+    // In every section, Android's main rows come before the first group, and no group holds one.
+    for section in SETTINGS_SECTIONS {
+        f.l.settings_view.section = section;
+        f.settle();
+        let drawn = f.l.settings_view.drawn.clone();
+        assert!(!drawn.is_empty(), "{section} draws rows");
+        let first_grouped = drawn.iter().position(|(_, grouped)| *grouped).unwrap_or(drawn.len());
+        for (at, (key, grouped)) in drawn.iter().enumerate() {
+            if main_row(key) {
+                assert!(!grouped && at < first_grouped, "{section}: main row {key} comes first: {drawn:?}");
+            }
+        }
+    }
+    // A PC's own value in a group shows in its section like any other row.
     let id = f.hosts.list[0].id;
     f.l.go(Screen::HostSettings(id));
+    f.l.settings_view.section = "Streaming";
     f.l.edit_overrides.capture(&Settings { client_roaming: false, ..Settings::default() }, &["client_roaming"]);
     f.settle();
-    assert!(shows(&f, "Client roaming") && !shows(&f, "Instant mouse and pen input"), "{:?}", f.drawn);
+    assert!(shows(&f, "Keep streaming when the network changes") && shows(&f, "Instant mouse and pen input"), "{:?}", f.drawn);
 }
 
 #[test]
@@ -617,11 +637,11 @@ fn resolution_and_frame_rate_offer_presets_and_custom_with_its_row() {
 fn the_pc_render_resolution_is_named_and_ranged_as_on_android() {
     let mut f = Frames::new(record("PC", true, false), Reach::Online);
     f.size = vec2(1280.0, 12000.0);
-    f.l.unfolded.insert("Display & image");
+    f.l.settings_view.section = "Display & image";
     f.l.go(Screen::Settings);
     f.settle();
     assert!(shows(&f, "PC render resolution"), "{:?}", f.drawn);
-    assert!(shows(&f, "Percent of the stream resolution that the PC renders at. The size of the transmitted video does not change. To send fewer pixels and upscale on this device, lower Resolution."));
+    assert!(shows(&f, "The size the PC renders at, as a percent of the stream resolution. The video it sends keeps its size. To send fewer pixels and upscale here, lower Resolution instead."));
     // The old name and description went to the Windows scale, a row of its own.
     assert!(!f.drawn.iter().any(|t| t == "Text and interface size on the virtual display."), "{:?}", f.drawn);
     assert!(shows(&f, "PC display scaling") && shows(&f, "Text and interface size on the PC’s virtual display."));
@@ -655,7 +675,7 @@ fn a_pcs_own_display_scaling_is_offered_only_by_hosts_that_read_it() {
     ] {
         let mut f = Frames::with(record("PC", true, false), Reach::Online, Some(info(&extra)), Vec::new());
         f.size = vec2(1280.0, 12000.0);
-        f.l.unfolded.insert("Display & image");
+        f.l.settings_view.section = "Display & image";
         let id = f.hosts.list[0].id;
         f.l.go(Screen::HostSettings(id));
         f.settle();
@@ -886,6 +906,20 @@ fn at_150_percent_in_german_every_settings_page_fits_the_width() {
         f.l.go(screen);
         f.settle();
         assert_fits(&f, &format!("{screen:?}"), false);
+        if matches!(screen, Screen::Settings | Screen::HostSettings(_)) {
+            for section in SETTINGS_SECTIONS {
+                f.l.settings_view.section = section;
+                f.settle();
+                assert_fits(&f, &format!("{screen:?} {section}"), false);
+            }
+            f.l.settings_view.query = "bitrate".into();
+            f.settle();
+            assert_fits(&f, &format!("{screen:?} searching"), false);
+            f.l.settings_view.query = "zzz".into();
+            f.settle();
+            assert_fits(&f, &format!("{screen:?} finding nothing"), false);
+            f.l.settings_view.query.clear();
+        }
     }
     for dialog in [
         Dialog::ProfileName { id: None, name: String::new(), settings: Default::default(), error: None },
@@ -909,7 +943,7 @@ fn at_150_percent_in_german_the_roaming_rows_fit_and_mobile_data_shows_only_with
     // The 1280-pixel width is what is checked; the height lets the network rows be drawn
     // without scrolling to them.
     f.size.y = 8000.0;
-    f.l.unfolded.extend(SETTINGS_SECTIONS);
+    f.l.settings_view.section = "Streaming";
     let shown = |f: &Frames, text: &str| f.placed.iter().any(|(t, _, _)| t.contains(text));
     let id = f.hosts.list[0].id;
     for (screen, global) in [(Screen::Settings, true), (Screen::HostSettings(id), false)] {
@@ -2015,7 +2049,7 @@ fn settings_scroll_beside_their_column_on_a_wide_window() {
     f.size = vec2(1920.0, 1080.0);
     f.l.go(Screen::Settings);
     f.settle();
-    let top = |f: &Frames| f.placed.iter().find(|(t, ..)| t.starts_with("More Video settings")).map(|p| p.1.top()).expect("the fold row");
+    let top = |f: &Frames| f.placed.iter().find(|(t, ..)| t == "Codec").map(|p| p.1.top()).expect("the Codec row");
     let before = top(&f);
     let beside = Pos2::new(1500.0, 600.0);
     f.frame(vec![egui::Event::PointerMoved(beside)]);
@@ -2057,20 +2091,6 @@ fn controller_mappings_scroll_beside_their_column() {
     assert!(top(&f) < before - 50.0, "the wheel beside the rows scrolls them: {before} to {}", top(&f));
 }
 
-/// "More … settings" is a row like the settings it folds, opened from anywhere on it.
-#[test]
-fn the_fold_is_a_row_that_opens_anywhere_on_it() {
-    let mut f = Frames::new(record("Desk", true, true), Reach::Online);
-    f.size = vec2(1280.0, 4000.0);
-    f.l.go(Screen::Settings);
-    f.settle();
-    let label = f.placed.iter().find(|(t, ..)| t.starts_with("More Video settings")).map(|p| p.1).expect("Video folds rows");
-    let resolution = f.placed.iter().find(|(t, ..)| t == "Resolution").map(|p| p.1).expect("the first row");
-    // Its right end, where the chevron is, far from the label's text.
-    let at = Pos2::new(resolution.left() + SETTINGS_W - 40.0, label.center().y);
-    f.click_at(at, egui::PointerButton::Primary);
-    assert!(shows(&f, "Fewer Video settings"), "{:?}", f.drawn);
-}
 
 /// Home's PC card says a PC's state once: an offline PC reads "Offline", never "Offline · Offline".
 #[test]
@@ -2756,10 +2776,10 @@ fn an_inherited_row_opens_from_a_controller_and_only_a_new_value_overrides_it() 
     click_text(&mut f, "60 fps");
     assert!(f.l.edit_overrides.has(&["fps"]), "a new value overrides the row");
     assert_eq!(f.l.edit_overrides.apply(&f.l.inherited_settings).fps, 60);
-    // The Frame rate row's own box, the nearest Override above its menu, gives it back.
+    // The Frame rate row's own box, the nearest "For this game" under its menu, gives it back.
     let menu = at(&f, "60 fps");
-    let boxed = f.placed.iter().filter(|(t, r, _)| t == "Override" && r.bottom() <= menu.top()).map(|p| p.1)
-        .min_by(|a, b| (menu.top() - a.bottom()).total_cmp(&(menu.top() - b.bottom()))).expect("its Override box");
+    let boxed = f.placed.iter().filter(|(t, r, _)| t == "For this game" && r.top() >= menu.bottom()).map(|p| p.1)
+        .min_by(|a, b| (a.top() - menu.bottom()).total_cmp(&(b.top() - menu.bottom()))).expect("its box");
     f.click_at(boxed.center(), egui::PointerButton::Primary);
     assert!(f.l.edit_overrides.is_empty(), "{:?}", f.l.edit_overrides);
     assert_eq!(f.l.edit_settings.fps, 120);
@@ -2865,8 +2885,12 @@ fn a_value_from_a_pc_or_profile_says_so_on_the_game_settings_and_page() {
     f.l.open_app_settings(pc, &f.hosts.list[0], nightjar_core::http::App { name: "Game 00".into(), uuid: "install-0".into(), ..game(1000) });
     f.settle();
     assert!(shows(&f, "Set for this PC") && shows(&f, "From profile Travel"), "{:?}", f.drawn);
-    // Reset all to inherited keeps showing where the inherited rate comes from.
-    click_text(&mut f, "Reset all to inherited");
+    // Clearing the game's own settings keeps showing where the inherited rate comes from.
+    f.l.edit_overrides.capture(&Settings { hdr: true, ..Settings::default() }, &["hdr"]);
+    f.settle();
+    click_text(&mut f, "Clear all for this game");
+    click_text(&mut f, "Clear all");
+    assert!(f.l.edit_overrides.is_empty(), "{:?}", f.l.edit_overrides);
     assert!(shows(&f, "120 fps") && shows(&f, "Set for this PC"), "{:?}", f.drawn);
     // A PC's own page names the profile only.
     f.l.open_host_settings(pc, &f.hosts.list[0]);
@@ -2874,3 +2898,6 @@ fn a_value_from_a_pc_or_profile_says_so_on_the_game_settings_and_page() {
     assert!(!shows(&f, "Set for this PC") && shows(&f, "From profile Travel"), "{:?}", f.drawn);
     assert_eq!(summary_sources(None, None, None), Vec::<String>::new());
 }
+
+#[path = "settings_tests.rs"]
+mod settings_tests;

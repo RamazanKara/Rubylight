@@ -218,9 +218,20 @@ pub struct PhaseLock {
     /// How far frames move when the host takes a later picture of the source, when it cannot
     /// take an earlier one; 0 when frames move by any amount ([`Self::set_step`]).
     step_ns: i64,
-    /// The previous report moved the frames a picture later.
-    moving: bool,
+    /// Frames before [`Self::pending_ns`] applies, so a picture move lands when it is due.
+    hold_frames: i64,
+    /// Frames since the last move of a picture.
+    since_move: i64,
     locked: bool,
+    /// How much earlier frames reach the client each frame at an interval of exactly the
+    /// client's period: the trim that holds them in place. Measured from report to report and
+    /// smoothed; `None` until two narrow windows in a row.
+    drift_ns: Option<i64>,
+    /// The early edge of the last report the drift was measured from, and the frames and the
+    /// interval past the period given since.
+    drift_lead_ns: Option<i64>,
+    drift_frames: i64,
+    drift_shift_ns: i64,
 }
 
 impl Default for PhaseLock {
@@ -232,16 +243,35 @@ impl Default for PhaseLock {
 impl PhaseLock {
     /// Covers decode-time and network jitter that the 10th percentile does not.
     pub const DEFAULT_MARGIN_NS: i64 = 1_500_000;
-    /// Largest change to one frame interval, so motion never visibly stutters.
+    /// Largest change to one frame interval, so motion never visibly stutters. A move of a
+    /// picture ([`Self::set_step`]) applies at once: the frame shows a later picture anyway.
     pub const MAX_STEP_NS: i64 = 250_000;
     /// Share of the measured phase error corrected per report.
     const GAIN_NUM: i64 = 1;
     const GAIN_DEN: i64 = 2;
     /// Share of the error per frame added to the clock-rate trim per report.
     const TRIM_DEN: i64 = 16;
+    /// Share of the gap to the measured drift the trim closes per report.
+    const FOLLOW_DEN: i64 = 4;
+    /// Weight of a new sample in the measured drift.
+    const DRIFT_DEN: i64 = 4;
 
     pub fn new(margin_ns: i64) -> Self {
-        Self { margin_ns, period_ns: 0, trim_ns: 0, pending_ns: 0, error_ns: 0, step_ns: 0, moving: false, locked: false }
+        Self {
+            margin_ns,
+            period_ns: 0,
+            trim_ns: 0,
+            pending_ns: 0,
+            error_ns: 0,
+            step_ns: 0,
+            hold_frames: 0,
+            since_move: i64::MAX,
+            locked: false,
+            drift_ns: None,
+            drift_lead_ns: None,
+            drift_frames: 0,
+            drift_shift_ns: 0,
+        }
     }
 
     /// How far frames move when the host takes the source's next picture instead of the one
@@ -272,63 +302,108 @@ impl PhaseLock {
         let restart = !self.locked || period != self.period_ns;
         if restart {
             // A new client refresh rate: start over.
-            self.trim_ns = 0;
-            self.pending_ns = 0;
+            *self = Self { step_ns: self.step_ns, ..Self::new(self.margin_ns) };
         }
         self.period_ns = period;
         self.locked = true;
+        let lead = i64::from(report.lead_ns);
         // A wide spread needs more room than the fixed margin.
         let target = self.margin_ns.max(i64::from(report.spread_ns) / 4);
-        let mut error = i64::from(report.lead_ns) - target;
+        let mut error = lead - target;
         // Never chase more than half a refresh in either direction.
         error = error.clamp(-period / 2, period / 2);
         // Positive error: frames arrive too early, so capture them later. Earlier corrections
         // still in flight are replaced, not added, because the report already reflects them
         // only partially.
         self.pending_ns = error * Self::GAIN_NUM / Self::GAIN_DEN;
+        self.hold_frames = 0;
         let previous = core::mem::replace(&mut self.error_ns, error);
+        // The frames went round the refresh since the last report, or one window was off.
+        let jumped = !restart && (error - previous).abs() > period / 2;
+        // A window across a move of a picture (below) shows neither place.
+        let window = i64::from(report.frames);
+        let spread = i64::from(report.spread_ns);
+        let across = self.since_move < window + window / 2 && spread > period / 4;
+        if spread > period / 2 {
+            // Frames all over the refresh (a busy host): the drift learned before still holds;
+            // measure it afresh from the next narrow window.
+            self.drift_lead_ns = None;
+        } else if !across && !(jumped && self.step_ns == 0) {
+            self.measure_drift(lead, period);
+        }
         if self.step_ns > 0 {
             // Frames move only later, a picture at a time. Chased from below, the margin asked
             // for earlier frames that never came: the trim ran to its limit while the frames
-            // stayed up to a picture late, most of them missing their latch. So frames stay
-            // from just under the margin to less than a picture past it, counted round the
-            // refresh (more than half a refresh early reads as late), and anywhere else move
-            // later until they are there: a picture past the margin, the next picture makes it
-            // too. The room below keeps two places a picture apart from taking turns. With
-            // whole refreshes per picture there is nothing to move. No trim either way: the
-            // source sets the rate.
+            // stayed up to a picture late, most of them missing their latch. So frames hold the
+            // earliest place with their early edge at the margin or past it, and move a picture
+            // later only when that place is gone: frames drifting later move on to the next
+            // latch when their early edge would drop under the margin, and frames drifting
+            // earlier move once a whole picture of room has opened above it. A quarter of the
+            // margin on top keeps two places a picture apart from taking turns. With whole
+            // refreshes per picture there is nothing to move. No trim either way: the source
+            // sets the rate.
             let step = self.step_ns % period;
-            let room = self.margin_ns / 2;
-            let held = (i64::from(report.lead_ns) - target + room).rem_euclid(period) < step + room;
-            let moving = core::mem::replace(&mut self.moving, false);
             self.trim_ns = 0;
             self.pending_ns = 0;
-            if step < period / 16 || step > period - period / 16 || held {
-                // Where they should be.
-            } else if moving && i64::from(report.spread_ns) > period / 4 {
-                // A window across the move: wait for one that shows where the frames went.
+            if step < period / 16 || step > period - period / 16 || across {
+                return;
+            }
+            // How far the early edge is past the target now, round the refresh (under the
+            // target reads as nearly a refresh past it): a report shows where frames were about
+            // half its window ago, and they drifted since.
+            let drift = self.drift_ns.unwrap_or(0);
+            let above = (lead - target + drift * window / 2).rem_euclid(period);
+            let room = self.margin_ns / 4;
+            let due = if above >= step + room {
+                0
+            } else if drift > 0 {
+                (step + room - above + drift - 1) / drift
+            } else if drift < 0 {
+                above / -drift + 1
             } else {
-                // A picture at once: the host's pacer has banked credit to spend first, so a
-                // smaller move left frames late for seconds.
-                self.moving = true;
-                self.pending_ns = step;
+                return;
+            };
+            // A move due within half a window lands at the frame it is due, not up to a report
+            // late. A later one waits for the next report, which must show a move before it as
+            // across it.
+            if due > window / 2 {
+                return;
             }
+            self.hold_frames = due;
+            self.pending_ns = (above + drift * due).rem_euclid(period) / step * step;
             return;
         }
-        if !restart && (error - previous).abs() > period / 2 {
-            // The frames went around the refresh since the last report: the lock lost them, or
-            // one window was off. Lost, the errors average about the target below zero, so a
-            // long host stall ran the trim to its limit, and it stayed there: at the limit it
-            // moves the phase 30% of a refresh or more per report, more than the correction
-            // above takes back. A trim that far out starts over; a learned one (16 us per frame
-            // for 59.94 against 60 Hz) is left alone, and so is the window.
-            if self.trim_ns.abs() > period / 200 {
-                self.trim_ns = 0;
-            }
+        if jumped {
+            // Leave the trim alone: the window says nothing about the clock rate.
             return;
         }
+        // The trim integrates the error and follows the measured drift. The error alone could
+        // not catch frames that need a large trim: from a trim of 0 at 55 us a frame (a real
+        // pair), the phase correction trailed them by more than half a refresh, where their
+        // early edge reads late round the refresh, so it pushed them the wrong way and the trim
+        // ran off from where they were going; a long busy spell left it there.
         let frames = i64::from(report.frames.max(1));
-        self.trim_ns = (self.trim_ns + error / frames / Self::TRIM_DEN).clamp(-period / 100, period / 100);
+        let mut trim = self.trim_ns + error / frames / Self::TRIM_DEN;
+        if let Some(drift) = self.drift_ns {
+            trim += (drift - trim) / Self::FOLLOW_DEN;
+        }
+        self.trim_ns = trim.clamp(-period / 100, period / 100);
+    }
+
+    /// Takes a drift sample from the early edge's move since the last narrow window, less the
+    /// interval past the period the host gave meanwhile.
+    fn measure_drift(&mut self, lead: i64, period: i64) {
+        if let Some(previous) = self.drift_lead_ns.filter(|_| self.drift_frames > 0) {
+            let mut moved = (lead - previous + self.drift_shift_ns).rem_euclid(period);
+            if moved > period / 2 {
+                moved -= period;
+            }
+            let sample = (moved / self.drift_frames).clamp(-period / 100, period / 100);
+            self.drift_ns = Some(self.drift_ns.map_or(sample, |drift| drift + (sample - drift) / Self::DRIFT_DEN));
+        }
+        self.drift_lead_ns = Some(lead);
+        self.drift_frames = 0;
+        self.drift_shift_ns = 0;
     }
 
     /// Interval from this captured frame to the next, given the host's own nominal interval.
@@ -337,8 +412,13 @@ impl PhaseLock {
         if !self.locked {
             return nominal_ns;
         }
-        let step = self.pending_ns.clamp(-Self::MAX_STEP_NS, Self::MAX_STEP_NS);
+        let max = if self.step_ns > 0 { i64::MAX } else { Self::MAX_STEP_NS };
+        let step = if self.hold_frames > 0 { 0 } else { self.pending_ns.clamp(-max, max) };
+        self.hold_frames = (self.hold_frames - 1).max(0);
         self.pending_ns -= step;
+        self.since_move = if self.step_ns > 0 && step != 0 { 0 } else { self.since_move.saturating_add(1) };
+        self.drift_frames += 1;
+        self.drift_shift_ns += self.trim_ns + step;
         self.period_ns + self.trim_ns + step
     }
 

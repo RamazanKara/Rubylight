@@ -263,11 +263,13 @@ const DESKTOP: i64 = 4_166_667; // A new picture every refresh of a 240 Hz deskt
 const GAME: i64 = 8_333_333; // A game at 120 fps.
 
 /// A frame the host sent in a [`retroid`] run: when it claimed the frame, how old its picture
-/// was by then, and the frame's slack at the client, all in client nanoseconds.
+/// was by then, and the frame's slack at the client, all in client nanoseconds, and the latch
+/// that shows it.
 struct Sent {
     at_ns: i64,
     age_ns: i64,
     slack_ns: i64,
+    latch: i64,
 }
 
 /// A 60 fps stream to a 60.000 Hz screen (Retroid Pocket Flip 2) from a host whose clock runs
@@ -319,7 +321,7 @@ fn retroid(lock: &mut PhaseLock, ppm: i64, content_ns: i64, busy: core::ops::Ran
         let age_ns = claim - claim.div_euclid(content_ns) * content_ns;
         let ready = at_ns + 20_000_000 + (rng.next() % 3_000_001) as i64;
         let slack_ns = (5_000_000 - ready).rem_euclid(SIXTY);
-        sent.push(Sent { at_ns, age_ns, slack_ns });
+        sent.push(Sent { at_ns, age_ns, slack_ns, latch: (ready + slack_ns) / SIXTY });
         window.push(slack_ns, SIXTY);
         let since = *last_report.get_or_insert(ready);
         if ready - since >= 500_000_000 {
@@ -349,6 +351,14 @@ fn settled(sent: &[Sent], seconds: core::ops::Range<i64>) -> (i64, i64, i64) {
     (interval, percentile(&mut wait, 50), percentile(&mut wait, 90))
 }
 
+/// Frames sent in `seconds` of client time that reach the same latch as the frame before: one
+/// of the two is never shown.
+fn dropped(sent: &[Sent], seconds: core::ops::Range<i64>) -> usize {
+    let range = seconds.start * 1_000_000_000..seconds.end * 1_000_000_000;
+    let latches: Vec<i64> = sent.iter().filter(|frame| range.contains(&frame.at_ns)).map(|frame| frame.latch).collect();
+    latches.windows(2).filter(|pair| pair[1] <= pair[0]).count()
+}
+
 #[test]
 fn the_lock_recovers_after_the_host_was_busy() {
     // 20 s of late claims (a build on the host PC) sweep the frames around the client's refresh.
@@ -358,9 +368,12 @@ fn the_lock_recovers_after_the_host_was_busy() {
 }
 
 #[test]
-#[ignore = "with the pacer's grace a host clock 0.4% slow needs a trim past period/200, which a jump starts over"]
 fn the_lock_recovers_after_the_host_was_busy_with_a_slow_clock() {
-    recovers_after_the_host_was_busy(&[-4_000]);
+    // Frames that need a trim of 55 us a frame, like a real pair at 16.72 ms against 16.667
+    // (the pacer's grace adds about 28 us here), and more. From far out the phase correction
+    // trailed such frames by over half a refresh, where they read late, and the trim ran off
+    // the wrong way: 15 s later they had not locked again, at an interval 0.1 to 0.2 ms short.
+    recovers_after_the_host_was_busy(&[-1_650, -3_300, -4_000]);
 }
 
 fn recovers_after_the_host_was_busy(ppms: &[i64]) {
@@ -379,8 +392,7 @@ fn recovers_after_the_host_was_busy(ppms: &[i64]) {
 #[test]
 fn the_lock_recovers_from_a_trim_at_its_limit() {
     // The state the field runs stayed in: the trim at a hundredth of a refresh per frame. Within
-    // seven seconds it is back: the last half of the way it integrates out, as a learned trim
-    // does (a jump starts over only a trim far out).
+    // seven seconds it is back, following the drift measured from report to report.
     for (ppm, trim) in [(100, -SIXTY / 100), (100, SIXTY / 100), (4_000, -SIXTY / 100), (-4_000, SIXTY / 100)] {
         for seed in 1..=3 {
             let mut lock = PhaseLock::default();
@@ -395,7 +407,7 @@ fn the_lock_recovers_from_a_trim_at_its_limit() {
 }
 
 #[test]
-fn only_a_jump_past_half_a_refresh_starts_a_far_out_trim_over() {
+fn a_jump_past_half_a_refresh_leaves_the_trim_alone() {
     let report = |error: i64| Report {
         frames: 30,
         period_ns: SIXTY as u32,
@@ -411,16 +423,18 @@ fn only_a_jump_past_half_a_refresh_starts_a_far_out_trim_over() {
         trim += error / 30 / 16;
         assert_eq!(lock.trim_ns, trim, "error {error}");
     }
-    // Further means the frames went around the refresh, or one window was off: a trim within
-    // half its limit stays, while the phase correction still applies.
+    // Further means the frames went around the refresh, or one window was off: the trim stays,
+    // while the phase correction still applies.
     lock.on_report(&report(4_400_000));
     assert_eq!((lock.trim_ns, lock.pending_ns), (trim, 2_200_000));
-    // A trim further out starts over.
-    lock.trim_ns = -SIXTY / 200 - 1;
+    // However far out: starting it over threw away the trim a slow client clock needs, and the
+    // measured drift brings back one that ran off.
+    let far = -SIXTY / 200 - 1;
+    lock.trim_ns = far;
     lock.on_report(&report(-4_000_000));
-    assert_eq!((lock.trim_ns, lock.pending_ns), (0, -2_000_000));
+    assert_eq!((lock.trim_ns, lock.pending_ns), (far, -2_000_000));
     lock.on_report(&report(-3_000_000));
-    assert_eq!(lock.trim_ns, -3_000_000 / 30 / 16);
+    assert_eq!(lock.trim_ns, far - 3_000_000 / 30 / 16);
 }
 
 #[test]
@@ -428,28 +442,73 @@ fn a_game_at_twice_the_stream_rate_keeps_its_frames_before_the_latch() {
     // At 60 fps the host takes every second picture of a 120 fps game and can only move frames
     // a picture later, never earlier. Chasing the margin from below, the lock ran its trim to
     // the limit in every session while frames waited 13 to 15 ms, most of them a whole refresh
-    // after missing their latch: over 400 s a median of 12.4 ms with the host's clock fast, and
-    // 4 to 5 ms with it slow but 15 ms for one frame in ten. Now frames drift through less than
-    // a picture past the margin. With the host's clock fast they drift later (6.4 and 5.4 ms
-    // at 100 and 1000 ppm over 400 s, one frame in ten past 10 ms); slow, they drift earlier,
-    // reach the top, where moving a picture later first spends the pacer's banked credit (7.5
-    // and 8.8 ms, one in ten past 12.2 ms).
-    for ppm in [100, -100, 1_000, -1_000] {
-        let (most, nearly_all) = if ppm > 0 { (6_500_000, 9_500_000) } else { (10_000_000, 12_500_000) };
+    // after missing their latch. Now frames drift through less than a picture past the margin,
+    // later with the host's clock fast and earlier with it slow, also at 55 us a frame (-1650
+    // here, a real pair) and more: calm, and once a busy host is free again. Over 45 s the wait
+    // depends on where in that picture frames happen to be.
+    for ppm in [100, -100, 1_000, -1_000, -1_650, -3_300] {
         for seed in 1..=3 {
-            // A calm session, and one with a busy host, once it is free again.
             for (busy, after) in [(0..0, 5..45), (10..30, 35..45)] {
                 let mut lock = PhaseLock::default();
                 let sent = retroid(&mut lock, ppm, GAME, busy.clone(), 45, seed);
-                let (interval, median, p90) = settled(&sent, after);
+                let (interval, median, p90) = settled(&sent, after.clone());
                 let case = alloc::format!("ppm {ppm} seed {seed} busy {busy:?}");
                 assert_eq!(lock.trim_ns, 0, "{case}");
                 assert!(interval > SIXTY - 20_000, "{case}: interval {interval}");
-                assert!(median < most, "{case}: median wait {median}");
-                assert!(p90 < nearly_all, "{case}: 90th percentile wait {p90}");
+                assert!(median < 10_000_000, "{case}: median wait {median}");
+                assert!(p90 < 12_500_000, "{case}: 90th percentile wait {p90}");
+                assert_eq!(dropped(&sent, after), 0, "{case}");
             }
         }
     }
+}
+
+#[test]
+fn a_game_at_twice_the_stream_rate_waits_about_half_a_picture_past_the_margin() {
+    // Over 400 s frames go through every place within a picture past the margin, which costs
+    // half a picture on average on top of it, plus the margin's own share of the spread and of
+    // the frames' jitter: about 7.5 ms here, the earliest place a frame can hold. Before, frames
+    // drifting earlier moved a picture later up to a report after it was due, and spread the
+    // move over half a second: 9.9 and 11.3 ms at -1650 and -3300 ppm. Frames drifting later
+    // waited less (6.5 and 5.4 ms at 100 and 1000 ppm) because the lock let them under the
+    // margin, where 10 and 89 of them shared a latch with the frame before.
+    for ppm in [100, -100, 1_000, -1_000, -1_650, -3_300] {
+        let mut lock = PhaseLock::default();
+        let sent = retroid(&mut lock, ppm, GAME, 0..0, 400, 1);
+        let (_, median, p90) = settled(&sent, 50..400);
+        let half = PhaseLock::DEFAULT_MARGIN_NS + GAME / 2;
+        assert!(median < half + 3_000_000, "ppm {ppm}: median wait {median}");
+        assert!(p90 < half + 6_500_000, "ppm {ppm}: 90th percentile wait {p90}");
+        assert_eq!(dropped(&sent, 50..400), 0, "ppm {ppm}");
+    }
+}
+
+#[test]
+fn a_picture_move_lands_at_the_frame_it_is_due() {
+    let report = |lead_ns: i64| Report { frames: 30, period_ns: SIXTY as u32, lead_ns: lead_ns as i32, spread_ns: 0 };
+    // Frames 100 us earlier every frame show their early edge 1.5 ms short of where it is now:
+    // at 8 ms (9.5 ms now) it reaches a picture and a quarter margin past the 1.5 ms margin
+    // (10.21 ms) in 8 frames. Frames 100 us later every frame: from 3.5 ms (2 ms now) they drop
+    // under the margin in 6.
+    for (drift, lead, due) in [(100_000, 8_000_000, 8), (-100_000, 3_500_000, 6)] {
+        let mut lock = PhaseLock::default();
+        lock.set_step(GAME);
+        lock.on_report(&report(5_000_000));
+        lock.drift_ns = Some(drift);
+        lock.on_report(&report(lead));
+        for frame in 0..due {
+            assert_eq!(lock.next_interval_ns(SIXTY), SIXTY, "drift {drift} frame {frame}");
+        }
+        assert_eq!(lock.next_interval_ns(SIXTY), SIXTY + GAME, "drift {drift}");
+        assert_eq!(lock.next_interval_ns(SIXTY), SIXTY, "drift {drift}");
+    }
+    // Due past half a window: the next report decides.
+    let mut lock = PhaseLock::default();
+    lock.set_step(GAME);
+    lock.on_report(&report(5_000_000));
+    lock.drift_ns = Some(100_000);
+    lock.on_report(&report(5_000_000));
+    assert_eq!((lock.pending_ns, lock.hold_frames), (0, 0));
 }
 
 #[test]
@@ -460,25 +519,35 @@ fn frames_that_only_move_later_stay_less_than_a_picture_past_the_margin() {
     lock.set_step(0);
     lock.on_report(&report(0, 0));
     assert_eq!(lock.pending_ns, -750_000);
-    // A 120 fps game: frames from just under the 1.5 ms margin to less than a picture past it
+    // A 120 fps game: frames from the 1.5 ms margin to a picture and a quarter margin past it
     // stay where they are, counted round the refresh: 9 ms early reads as 7.7 ms late.
     lock.set_step(GAME);
-    for lead in [750_000, 5_000_000, 8_333_333, 9_000_000 - SIXTY, 9_830_000 - SIXTY] {
+    for lead in [1_500_000, 5_000_000, 8_333_333, 9_000_000 - SIXTY, 10_200_000 - SIXTY] {
         lock.on_report(&report(lead, 0));
         assert_eq!((lock.pending_ns, lock.trim_ns), (0, 0), "lead {lead}");
     }
-    // Anywhere else they move later: below the margin, a picture past it, and late ones round
-    // to the next latch.
-    for lead in [740_000, -3_000_000, 9_840_000 - SIXTY] {
+    // Anywhere else they move later: under the margin (on to the next latch), further past it,
+    // and late ones round to the next latch.
+    for lead in [1_490_000, -3_000_000, 10_220_000 - SIXTY] {
         lock.on_report(&report(5_000_000, 0));
         lock.on_report(&report(lead, 0));
         assert_eq!((lock.pending_ns, lock.trim_ns), (GAME, 0), "lead {lead}");
     }
-    // A window across the move reads as a wide spread and waits for the next, once.
+    // The move applies at once, and a window across it reads as a wide spread: the lock waits
+    // for one that shows where the frames went.
+    assert_eq!(lock.next_interval_ns(SIXTY), SIXTY + GAME);
     lock.on_report(&report(-3_000_000, 9_000_000));
     assert_eq!(lock.pending_ns, 0);
+    for _ in 0..45 {
+        assert_eq!(lock.next_interval_ns(SIXTY), SIXTY);
+    }
     lock.on_report(&report(-3_000_000, 9_000_000));
     assert_eq!(lock.pending_ns, GAME);
+    // A 180 fps game moves two pictures at once when the frames have room for both.
+    let mut lock = PhaseLock::default();
+    lock.set_step(SIXTY / 3);
+    lock.on_report(&report(-3_000_000, 0));
+    assert_eq!(lock.pending_ns, SIXTY / 3 * 2);
     // 60 fps of a 120 fps game on a 120 Hz screen: every picture lands on the same phase.
     let mut lock = PhaseLock::default();
     lock.set_step(GAME);
@@ -497,14 +566,16 @@ fn one_window_off_leaves_a_learned_trim_alone() {
     lock.on_report(&report(PhaseLock::DEFAULT_MARGIN_NS + 1_000_000));
     let learned = lock.trim_ns;
     assert!((10_000..=SIXTY / 200).contains(&learned.abs()), "trim {learned}");
-    // One window half a refresh off: the trim stays through it and the window after (which
-    // jumps back from it), and the one after that goes on from it.
+    let drift = lock.drift_ns.expect("a measured drift");
+    // One window half a refresh off: the trim and the drift stay through it and the window
+    // after (which jumps back from it), and the one after that goes on from them.
     lock.on_report(&report(1 - SIXTY / 2));
-    assert_eq!(lock.trim_ns, learned);
+    assert_eq!((lock.trim_ns, lock.drift_ns), (learned, Some(drift)));
     lock.on_report(&report(PhaseLock::DEFAULT_MARGIN_NS + 1_000_000));
-    assert_eq!(lock.trim_ns, learned);
+    assert_eq!((lock.trim_ns, lock.drift_ns), (learned, Some(drift)));
     lock.on_report(&report(PhaseLock::DEFAULT_MARGIN_NS + 1_000_000));
-    assert_eq!(lock.trim_ns, learned + 1_000_000 / 30 / 16);
+    let trim = learned + 1_000_000 / 30 / 16;
+    assert_eq!(lock.trim_ns, trim + (drift - trim) / 4);
 }
 
 #[test]

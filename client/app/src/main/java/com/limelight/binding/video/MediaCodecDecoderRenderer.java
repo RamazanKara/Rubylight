@@ -173,7 +173,6 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     private CrashListener crashListener;
     private int consecutiveCrashCount;
     private String glRenderer;
-    private boolean foreground = true;
     private PerfOverlayListener perfListener;
 
     private static final int CR_MAX_TRIES = 10;
@@ -287,7 +286,6 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     // DecoderQueuePolicy.Residency and InFlight). All of it runs on the renderer thread, except
     // the in-flight count, which the frame-rendered listener also writes.
     private final PresentScheduler presentScheduler = new PresentScheduler(hostFrameClock);
-    private final PresentScheduler.Plan presentPlan = new PresentScheduler.Plan();
     private final DecoderQueuePolicy.Residency residency = new DecoderQueuePolicy.Residency();
     private final DecoderQueuePolicy.InFlight inFlight = new DecoderQueuePolicy.InFlight();
     private volatile boolean frameRenderedListenerSet;
@@ -1159,6 +1157,14 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         }
     }
 
+    /**
+     * Whether the frame-rendered callback reports this output's render time: only for frames that go
+     * straight from the decoder to the surface (API 23+), not through the upscaler.
+     */
+    private boolean reportsRenderTimes() {
+        return upscaler == null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M;
+    }
+
     /** Whether releaseOutputFrame() renders the frame; after an upscaler failure it drops it. */
     private boolean rendersOnRelease() {
         return upscaler == null || upscalingPolicy.getReason() == UpscalingPolicy.Reason.NONE;
@@ -1970,12 +1976,11 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         }
     }
 
+    // Game reports foreground changes; the decoder keeps running either way, so nothing uses them.
     public void notifyVideoForeground() {
-        foreground = true;
     }
 
     public void notifyVideoBackground() {
-        foreground = false;
     }
 
     public int getActiveVideoFormat() {
@@ -3069,7 +3074,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                 long releaseNs = System.nanoTime();
                 try {
                     frameLatencyStats.onOutputReleased(nextOutputBuffer, releaseNs, rendersOnRelease(),
-                            upscaler == null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M);
+                            reportsRenderTimes());
                     releaseOutputFrame(nextOutputBuffer, System.nanoTime());
 
                     nextFrameTimeNanos = FramePacingPolicy.nextFrameTimeNsMilliHz(
@@ -3201,7 +3206,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             frameLatencyStats.onDecoderOutput(newer, info.presentationTimeUs, nowNs);
             frameLatencyStats.onDropReason(heldIndex, reason);
             frameLatencyStats.onOutputReleased(heldIndex, nowNs, false,
-                    upscaler == null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M);
+                    reportsRenderTimes());
             videoDecoder.releaseOutputBuffer(heldIndex, false);
             numFramesOut++;
             heldIndex = newer;
@@ -3219,7 +3224,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             long nowNs = System.nanoTime();
             frameLatencyStats.onScheduled(heldIndex, planned ? dueNs : 0, holdNs, late, inFlightCount);
             frameLatencyStats.onOutputReleased(heldIndex, nowNs, rendersOnRelease(),
-                    upscaler == null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M);
+                    reportsRenderTimes());
             releaseOutputFrame(heldIndex, releaseNs);
         }
     }
@@ -3234,7 +3239,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     private long releaseScheduled(int index, long ptsUs, boolean droppedBefore) {
         heldIndex = index;
         heldPtsUs = ptsUs;
-        boolean renderCallbacks = upscaler == null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M;
+        boolean renderCallbacks = reportsRenderTimes();
         return scheduledRelease.run(droppedBefore, contentIntervalNs(), renderCallbacks && frameRenderedListenerSet);
     }
 
@@ -3292,7 +3297,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                                         frameLatencyStats.onDecoderOutput(outIndex, info.presentationTimeUs, System.nanoTime());
                                         frameLatencyStats.onDropReason(lastIndex, catchUpReason);
                                         frameLatencyStats.onOutputReleased(lastIndex, System.nanoTime(), false,
-                                                upscaler == null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M);
+                                                reportsRenderTimes());
                                         videoDecoder.releaseOutputBuffer(lastIndex, false);
                                         if (scheduled && "governor".equals(catchUpReason)) {
                                             residency.onDropped();
@@ -3314,7 +3319,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                                     }
                                     else {
                                         frameLatencyStats.onOutputReleased(lastIndex, System.nanoTime(), rendersOnRelease(),
-                                                upscaler == null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M);
+                                                reportsRenderTimes());
                                         if (prefs.framePacing == PreferenceConfiguration.FRAME_PACING_MAX_SMOOTHNESS ||
                                                 prefs.framePacing == PreferenceConfiguration.FRAME_PACING_CAP_FPS) {
                                             // Retain the ordinary smooth-mode presentation behavior after
@@ -3363,7 +3368,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                                     // callback must still find the ready replacement in the meantime.
                                     if (droppedIndex != null) {
                                         frameLatencyStats.onOutputReleased(droppedIndex, System.nanoTime(), false,
-                                                upscaler == null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M);
+                                                reportsRenderTimes());
                                         videoDecoder.releaseOutputBuffer(droppedIndex, false);
                                     }
                                     // Artemis counts a queued frame unless queuing it dropped an older one.
@@ -4050,122 +4055,14 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
 
         // Flip stats windows roughly every second
         if (SystemClock.uptimeMillis() >= activeWindowVideoStats.measurementStartTimestamp + 1000) {
-            pyroWaveLossPercent = pyroWaveLossSamples == 0 ? -1 : pyroWaveLossTotal / pyroWaveLossSamples;
-            pyroWaveLossTotal = 0;
-            pyroWaveLossSamples = 0;
-            if (pyroWaveQueueSamples != 0) {
-                pyroWaveQueueDelayMs = pyroWaveQueueDelayTotal / pyroWaveQueueSamples;
-                pyroWaveQueueDelayTotal = 0;
-                pyroWaveQueueSamples = 0;
-            }
-            if (pyroWaveSkippedFrames + pyroWaveDecodedFrames != 0) {
-                pyroWaveSkippedPercent = 100f * pyroWaveSkippedFrames / (pyroWaveSkippedFrames + pyroWaveDecodedFrames);
-                pyroWaveSkippedFrames = pyroWaveDecodedFrames = 0;
-            }
-            VulkanRendererBridge vulkan = vulkanRenderer;
-            if (vulkan != null) {
-                int presented = vulkan.takePresentedFrames();
-                activeWindowVideoStats.totalFramesRendered += presented;
-                long windowMs = SystemClock.uptimeMillis() - activeWindowVideoStats.measurementStartTimestamp;
-                if (vulkanPace.window(activeWindowVideoStats.totalFramesReceived, presented, windowMs,
-                        outputDisplay.getRefreshRate())) {
-                    LimeLog.warning("Render through Vulkan presents " + presented + " of " +
-                            activeWindowVideoStats.totalFramesReceived + " frames received in " + windowMs +
-                            " ms at " + Math.round(outputDisplay.getRefreshRate()) + " Hz, under " +
-                            Math.round(VulkanPaceCheck.MIN_SHARE * 100) + "% for " +
-                            VulkanPaceCheck.BEHIND_MS / 1000 + " s");
-                    vulkanBehind = true;
-                }
-                // The display mode can change mid-stream
-                vulkan.setVsyncOffset(outputDisplay.getAppVsyncOffsetNanos());
-            }
-            decodeTimeMs = frameLatencyStats.takeDecodeTimeMs();
-            boolean pyroWave = (videoFormat & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) != 0;
-            if (!pyroWave) {
-                activeWindowVideoStats.decoderTimeMs += frameLatencyStats.takeArtemisDecodeMs();
-            }
-            queueDelayMs = queueDelay.takeWindowMs();
-            VideoStats lastTwo = new VideoStats();
-            lastTwo.add(lastWindowVideoStats);
-            lastTwo.add(activeWindowVideoStats);
-            // PyroWave can measure real zero whole milliseconds while carrying the sub-ms remainder
-            // into the next window. GPU completion is not a prerequisite for that CPU measurement.
-            shownDecodeTimeMs = lastTwo.getWindowDecoderLatencyMs(pyroWave || decodeTimeMs >= 0);
-            shownHostProcessingMs = lastTwo.getHostProcessingMs();
-            networkFrameLossPercent = activeWindowVideoStats.totalFrames == 0 ? 0 :
-                    (float) activeWindowVideoStats.framesLost / activeWindowVideoStats.totalFrames * 100;
-            overlayFps = lastTwo.getFps();
-
-            globalVideoStats.add(activeWindowVideoStats);
-            lastWindowVideoStats.copy(activeWindowVideoStats);
-            activeWindowVideoStats.clear();
-            activeWindowVideoStats.measurementStartTimestamp = SystemClock.uptimeMillis();
+            flipStatsWindow();
         }
 
         receivedVideoBytes.addAndGet(decodeUnitLength);
 
         if ((videoFormat & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) != 0) {
-            // Before any return below: the statistics overlay's Host processing needs every frame.
-            recordHostProcessing(activeWindowVideoStats, frameHostProcessingLatency);
-            long inputNs = System.nanoTime();
-            pyroWaveQueueDelayTotal += Math.max(0, inputNs - enqueueTimeNs) / 1000000.0f;
-            pyroWaveQueueSamples++;
-            long ptsUs = Math.max(inputNs / 1000, lastTimestampUs + 1);
-            lastTimestampUs = ptsUs;
-            frameLatencyStats.onDecoderInput(frameNumber, ptsUs, receiveTimeNs, enqueueTimeNs, inputNs, frameHostProcessingLatency,
-                    presentationTimeUs);
-            frameLatencyStats.onPyroWaveDecoderQueued(ptsUs, inputNs);
-            // Newest frame wins: every PyroWave frame is intra-only, so when a newer one is already
-            // waiting, decoding this one would only delay it. A phone that falls behind catches up
-            // at once instead of working through a backlog.
-            if (MoonBridge.getPendingVideoFrames() > 0) {
-                activeWindowVideoStats.totalFrames++;
-                activeWindowVideoStats.totalFramesReceived++;
-                pyroWaveSkippedFrames++;
-                frameLatencyStats.onFrameReceived(receiveTimeNs);
-                frameLatencyStats.discard(ptsUs, "replaced_before_decode");
-                return MoonBridge.DR_OK;
-            }
-            PyroWaveDisplayClock.Snapshot displayClock =
-                    FramePacingPolicy.usesPyroWaveDisplayClock(prefs.framePacing, prefs.vrr, outputVsyncAvailable) ?
-                            pyroWaveDisplayClock.snapshot() : PyroWaveDisplayClock.Snapshot.UNAVAILABLE;
-            long submissionResult = pyroWaveRenderer.submitFrame(decodeUnitData, decodeUnitLength, ptsUs,
-                    presentationTimeUs, displayClock, frameLatencyStats,
-                    context, prefs.phonePerformanceHints, refreshRate);
-            activeWindowVideoStats.decoderTimeMs += pyroWaveSubmissionTiming.addDurationNs(
-                    pyroWaveRenderer.getLastSubmissionDurationNs());
-            float recordLoss = pyroWaveRenderer.getLastRecordLossPercent();
-            if (recordLoss >= 0) {
-                pyroWaveLossTotal += recordLoss;
-                pyroWaveLossSamples++;
-            }
-            activeWindowVideoStats.totalFrames++;
-            activeWindowVideoStats.totalFramesReceived++;
-            frameLatencyStats.onFrameReceived(receiveTimeNs);
-            if (submissionResult == PyroWaveDecoderRenderer.SUBMIT_ACCEPTED) {
-                pyroWaveDecodedFrames++;
-                pyroWaveFailures = 0;
-            } else if (submissionResult == PyroWaveDecoderRenderer.SUBMIT_BUSY) {
-                // Native validated this frame before declining it for capacity.
-                pyroWaveFailures = 0;
-                pyroWaveSkippedFrames++;
-                frameLatencyStats.discard(ptsUs, "replaced_before_decode");
-            } else {
-                frameLatencyStats.discard(ptsUs, submissionResult < 0 ? "decode_failed" : "invalid_frame");
-                if (submissionResult < 0 || ++pyroWaveFailures == 60) {
-                    int hdrFailure = (videoFormat & MoonBridge.VIDEO_FORMAT_MASK_10BIT) != 0 ?
-                            PyroWaveDecoderRenderer.streamHdrFailure() : 0;
-                    LimeLog.severe("PyroWave decoder stopped producing frames" +
-                            (hdrFailure != 0 ? ": " + context.getString(hdrFailure) : ""));
-                    pyroWaveHlgFramesStopped = true;
-                    // Game's end-of-stream text names HLG when the window took it (isPyroWaveHlgLost).
-                    isPyroWaveHlgLost();
-                    stopping = true;
-                    MoonBridge.bridgeClConnectionTerminated(MoonBridge.ML_ERROR_NO_VIDEO_FRAME);
-                }
-            }
-            // Intra-only: recover on the next complete frame, without IDR request storms.
-            return MoonBridge.DR_OK;
+            return submitPyroWaveFrame(decodeUnitData, decodeUnitLength, frameNumber, frameHostProcessingLatency,
+                    enqueueTimeNs, receiveTimeNs, presentationTimeUs);
         }
 
         boolean csdSubmittedForThisFrame = false;
@@ -4176,144 +4073,15 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             if (decodeUnitType == MoonBridge.BUFFER_TYPE_SPS && videoFormat == MoonBridge.VIDEO_FORMAT_H264) {
                 numSpsIn++;
 
-                ByteBuffer spsBuf = ByteBuffer.wrap(decodeUnitData);
-                int startSeqLen = decodeUnitData[2] == 0x01 ? 3 : 4;
-
-                // Skip to the start of the NALU data
-                spsBuf.position(startSeqLen + 1);
-
-                // The H264Utils.readSPS function safely handles
-                // Annex B NALUs (including NALUs with escape sequences)
-                SeqParameterSet sps = H264Utils.readSPS(spsBuf);
-
-                // Some decoders rely on H264 level to decide how many buffers are needed
-                // Since we only need one frame buffered, we'll set the level as low as we can
-                // for known resolution combinations. Reference frame invalidation may need
-                // these, so leave them be for those decoders.
-                if (!refFrameInvalidationActive && Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
-                    if (initialWidth <= 720 && initialHeight <= 480 && refreshRate <= 60) {
-                        // Max 5 buffered frames at 720x480x60
-                        LimeLog.info("Patching level_idc to 31");
-                        sps.levelIdc = 31;
-                    }
-                    else if (initialWidth <= 1280 && initialHeight <= 720 && refreshRate <= 60) {
-                        // Max 5 buffered frames at 1280x720x60
-                        LimeLog.info("Patching level_idc to 32");
-                        sps.levelIdc = 32;
-                    }
-                    else if (initialWidth <= 1920 && initialHeight <= 1080 && refreshRate <= 60) {
-                        // Max 4 buffered frames at 1920x1080x64
-                        LimeLog.info("Patching level_idc to 42");
-                        sps.levelIdc = 42;
-                    }
-                    else {
-                        // Leave the profile alone (currently 5.0)
-                    }
-                }
-
-                // TI OMAP4 requires a reference frame count of 1 to decode successfully. Exynos 4
-                // also requires this fixup.
-                //
-                // I'm doing this fixup for all devices because I haven't seen any devices that
-                // this causes issues for. At worst, it seems to do nothing and at best it fixes
-                // issues with video lag, hangs, and crashes.
-                //
-                // It does break reference frame invalidation, so we will not do that for decoders
-                // where we've enabled reference frame invalidation.
-                if (!refFrameInvalidationActive) {
-                    LimeLog.info("Patching num_ref_frames in SPS");
-                    sps.numRefFrames = 1;
-                }
-
-                // GFE 2.5.11 changed the SPS to add additional extensions. Some devices don't like these
-                // so we remove them here on old devices unless these devices also support HEVC.
-                // See getPreferredColorSpace() for further information.
-                if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O &&
-                        sps.vuiParams != null &&
-                        hevcDecoder == null &&
-                        av1Decoder == null) {
-                    sps.vuiParams.videoSignalTypePresentFlag = false;
-                    sps.vuiParams.colourDescriptionPresentFlag = false;
-                    sps.vuiParams.chromaLocInfoPresentFlag = false;
-                }
-
-                // Some older devices used to choke on a bitstream restrictions, so we won't provide them
-                // unless explicitly whitelisted. For newer devices, leave the bitstream restrictions present.
-                if (needsSpsBitstreamFixup || isExynos4 || Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    // The SPS that comes in the current H264 bytestream doesn't set bitstream_restriction_flag
-                    // or max_dec_frame_buffering which increases decoding latency on Tegra.
-
-                    // If the encoder didn't include VUI parameters in the SPS, add them now
-                    if (sps.vuiParams == null) {
-                        LimeLog.info("Adding VUI parameters");
-                        sps.vuiParams = new VUIParameters();
-                    }
-
-                    // GFE 2.5.11 started sending bitstream restrictions
-                    if (sps.vuiParams.bitstreamRestriction == null) {
-                        LimeLog.info("Adding bitstream restrictions");
-                        sps.vuiParams.bitstreamRestriction = new VUIParameters.BitstreamRestriction();
-                        sps.vuiParams.bitstreamRestriction.motionVectorsOverPicBoundariesFlag = true;
-                        sps.vuiParams.bitstreamRestriction.maxBytesPerPicDenom = 2;
-                        sps.vuiParams.bitstreamRestriction.maxBitsPerMbDenom = 1;
-                        sps.vuiParams.bitstreamRestriction.log2MaxMvLengthHorizontal = 16;
-                        sps.vuiParams.bitstreamRestriction.log2MaxMvLengthVertical = 16;
-                        sps.vuiParams.bitstreamRestriction.numReorderFrames = 0;
-                    }
-                    else {
-                        LimeLog.info("Patching bitstream restrictions");
-                    }
-
-                    // Some devices throw errors if maxDecFrameBuffering < numRefFrames
-                    sps.vuiParams.bitstreamRestriction.maxDecFrameBuffering = sps.numRefFrames;
-
-                    // These values are the defaults for the fields, but they are more aggressive
-                    // than what GFE sends in 2.5.11, but it doesn't seem to cause picture problems.
-                    // We'll leave these alone for "modern" devices just in case they care.
-                    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
-                        sps.vuiParams.bitstreamRestriction.maxBytesPerPicDenom = 2;
-                        sps.vuiParams.bitstreamRestriction.maxBitsPerMbDenom = 1;
-                    }
-
-                    // log2_max_mv_length_horizontal and log2_max_mv_length_vertical are set to more
-                    // conservative values by GFE 2.5.11. We'll let those values stand.
-                }
-                else if (sps.vuiParams != null) {
-                    // Devices that didn't/couldn't get bitstream restrictions before GFE 2.5.11
-                    // will continue to not receive them now
-                    sps.vuiParams.bitstreamRestriction = null;
-                }
-
-                // If we need to hack this SPS to say we're baseline, do so now
-                if (needsBaselineSpsHack) {
-                    LimeLog.info("Hacking SPS to baseline");
-                    sps.profileIdc = 66;
-                    savedSps = sps;
-                }
-
-                // Patch the SPS constraint flags
-                doProfileSpecificSpsPatching(sps);
-
-                // The H264Utils.writeSPS function safely handles
-                // Annex B NALUs (including NALUs with escape sequences)
-                ByteBuffer escapedNalu = H264Utils.writeSPS(sps, decodeUnitLength);
-
-                // Construct the patched SPS
-                byte[] naluBuffer = new byte[startSeqLen + 1 + escapedNalu.limit()];
-                System.arraycopy(decodeUnitData, 0, naluBuffer, 0, startSeqLen + 1);
-                escapedNalu.get(naluBuffer, startSeqLen + 1, escapedNalu.limit());
-
                 // Batch this to submit together with other CSD per AOSP docs
-                spsBuffers.add(naluBuffer);
+                spsBuffers.add(patchH264Sps(decodeUnitData, decodeUnitLength));
                 return MoonBridge.DR_OK;
             }
             else if (decodeUnitType == MoonBridge.BUFFER_TYPE_VPS) {
                 numVpsIn++;
 
                 // Batch this to submit together with other CSD per AOSP docs
-                byte[] naluBuffer = new byte[decodeUnitLength];
-                System.arraycopy(decodeUnitData, 0, naluBuffer, 0, decodeUnitLength);
-                vpsBuffers.add(naluBuffer);
+                vpsBuffers.add(Arrays.copyOf(decodeUnitData, decodeUnitLength));
                 return MoonBridge.DR_OK;
             }
             // Preserve HEVC and H.264 4:4:4 SPS data without the 4:2:0 fixups above.
@@ -4321,18 +4089,14 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                 numSpsIn++;
 
                 // Batch this to submit together with other CSD per AOSP docs
-                byte[] naluBuffer = new byte[decodeUnitLength];
-                System.arraycopy(decodeUnitData, 0, naluBuffer, 0, decodeUnitLength);
-                spsBuffers.add(naluBuffer);
+                spsBuffers.add(Arrays.copyOf(decodeUnitData, decodeUnitLength));
                 return MoonBridge.DR_OK;
             }
             else if (decodeUnitType == MoonBridge.BUFFER_TYPE_PPS) {
                 numPpsIn++;
 
                 // Batch this to submit together with other CSD per AOSP docs
-                byte[] naluBuffer = new byte[decodeUnitLength];
-                System.arraycopy(decodeUnitData, 0, naluBuffer, 0, decodeUnitLength);
-                ppsBuffers.add(naluBuffer);
+                ppsBuffers.add(Arrays.copyOf(decodeUnitData, decodeUnitLength));
                 return MoonBridge.DR_OK;
             }
             else if ((videoFormat & (MoonBridge.VIDEO_FORMAT_MASK_H264 | MoonBridge.VIDEO_FORMAT_MASK_H265)) != 0) {
@@ -4344,15 +4108,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                     }
 
                     // Submit all CSD when we receive the first non-CSD blob in an IDR frame
-                    for (byte[] vpsBuffer : vpsBuffers) {
-                        nextInputBuffer.put(vpsBuffer);
-                    }
-                    for (byte[] spsBuffer : spsBuffers) {
-                        nextInputBuffer.put(spsBuffer);
-                    }
-                    for (byte[] ppsBuffer : ppsBuffers) {
-                        nextInputBuffer.put(ppsBuffer);
-                    }
+                    putCsd();
 
                     if (!queueNextInputBuffer(0, MediaCodec.BUFFER_FLAG_CODEC_CONFIG, 0, 0, 0, (char) 0, -1)) {
                         return MoonBridge.DR_NEED_IDR;
@@ -4395,15 +4151,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
 
             // If we are using fused IDR frames, submit the CSD with each IDR frame
             if (fusedIdrFrame && !csdSubmittedForThisFrame) {
-                for (byte[] vpsBuffer : vpsBuffers) {
-                    nextInputBuffer.put(vpsBuffer);
-                }
-                for (byte[] spsBuffer : spsBuffers) {
-                    nextInputBuffer.put(spsBuffer);
-                }
-                for (byte[] ppsBuffer : ppsBuffers) {
-                    nextInputBuffer.put(ppsBuffer);
-                }
+                putCsd();
             }
         }
 
@@ -4476,6 +4224,270 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         }
 
         return MoonBridge.DR_OK;
+    }
+
+    /** Closes the second-long statistics window the overlay and health samples read, and opens the next. */
+    private void flipStatsWindow() {
+        pyroWaveLossPercent = pyroWaveLossSamples == 0 ? -1 : pyroWaveLossTotal / pyroWaveLossSamples;
+        pyroWaveLossTotal = 0;
+        pyroWaveLossSamples = 0;
+        if (pyroWaveQueueSamples != 0) {
+            pyroWaveQueueDelayMs = pyroWaveQueueDelayTotal / pyroWaveQueueSamples;
+            pyroWaveQueueDelayTotal = 0;
+            pyroWaveQueueSamples = 0;
+        }
+        if (pyroWaveSkippedFrames + pyroWaveDecodedFrames != 0) {
+            pyroWaveSkippedPercent = 100f * pyroWaveSkippedFrames / (pyroWaveSkippedFrames + pyroWaveDecodedFrames);
+            pyroWaveSkippedFrames = pyroWaveDecodedFrames = 0;
+        }
+        VulkanRendererBridge vulkan = vulkanRenderer;
+        if (vulkan != null) {
+            int presented = vulkan.takePresentedFrames();
+            activeWindowVideoStats.totalFramesRendered += presented;
+            long windowMs = SystemClock.uptimeMillis() - activeWindowVideoStats.measurementStartTimestamp;
+            if (vulkanPace.window(activeWindowVideoStats.totalFramesReceived, presented, windowMs,
+                    outputDisplay.getRefreshRate())) {
+                LimeLog.warning("Render through Vulkan presents " + presented + " of " +
+                        activeWindowVideoStats.totalFramesReceived + " frames received in " + windowMs +
+                        " ms at " + Math.round(outputDisplay.getRefreshRate()) + " Hz, under " +
+                        Math.round(VulkanPaceCheck.MIN_SHARE * 100) + "% for " +
+                        VulkanPaceCheck.BEHIND_MS / 1000 + " s");
+                vulkanBehind = true;
+            }
+            // The display mode can change mid-stream
+            vulkan.setVsyncOffset(outputDisplay.getAppVsyncOffsetNanos());
+        }
+        decodeTimeMs = frameLatencyStats.takeDecodeTimeMs();
+        boolean pyroWave = (videoFormat & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) != 0;
+        if (!pyroWave) {
+            activeWindowVideoStats.decoderTimeMs += frameLatencyStats.takeArtemisDecodeMs();
+        }
+        queueDelayMs = queueDelay.takeWindowMs();
+        VideoStats lastTwo = new VideoStats();
+        lastTwo.add(lastWindowVideoStats);
+        lastTwo.add(activeWindowVideoStats);
+        // PyroWave can measure real zero whole milliseconds while carrying the sub-ms remainder
+        // into the next window. GPU completion is not a prerequisite for that CPU measurement.
+        shownDecodeTimeMs = lastTwo.getWindowDecoderLatencyMs(pyroWave || decodeTimeMs >= 0);
+        shownHostProcessingMs = lastTwo.getHostProcessingMs();
+        networkFrameLossPercent = activeWindowVideoStats.totalFrames == 0 ? 0 :
+                (float) activeWindowVideoStats.framesLost / activeWindowVideoStats.totalFrames * 100;
+        overlayFps = lastTwo.getFps();
+
+        globalVideoStats.add(activeWindowVideoStats);
+        lastWindowVideoStats.copy(activeWindowVideoStats);
+        activeWindowVideoStats.clear();
+        activeWindowVideoStats.measurementStartTimestamp = SystemClock.uptimeMillis();
+    }
+
+    private int submitPyroWaveFrame(byte[] decodeUnitData, int decodeUnitLength, int frameNumber,
+                                    char frameHostProcessingLatency, long enqueueTimeNs, long receiveTimeNs,
+                                    long presentationTimeUs) {
+        // Before any return below: the statistics overlay's Host processing needs every frame.
+        recordHostProcessing(activeWindowVideoStats, frameHostProcessingLatency);
+        long inputNs = System.nanoTime();
+        pyroWaveQueueDelayTotal += Math.max(0, inputNs - enqueueTimeNs) / 1000000.0f;
+        pyroWaveQueueSamples++;
+        long ptsUs = Math.max(inputNs / 1000, lastTimestampUs + 1);
+        lastTimestampUs = ptsUs;
+        frameLatencyStats.onDecoderInput(frameNumber, ptsUs, receiveTimeNs, enqueueTimeNs, inputNs, frameHostProcessingLatency,
+                presentationTimeUs);
+        frameLatencyStats.onPyroWaveDecoderQueued(ptsUs, inputNs);
+        // Newest frame wins: every PyroWave frame is intra-only, so when a newer one is already
+        // waiting, decoding this one would only delay it. A phone that falls behind catches up
+        // at once instead of working through a backlog.
+        if (MoonBridge.getPendingVideoFrames() > 0) {
+            activeWindowVideoStats.totalFrames++;
+            activeWindowVideoStats.totalFramesReceived++;
+            pyroWaveSkippedFrames++;
+            frameLatencyStats.onFrameReceived(receiveTimeNs);
+            frameLatencyStats.discard(ptsUs, "replaced_before_decode");
+            return MoonBridge.DR_OK;
+        }
+        PyroWaveDisplayClock.Snapshot displayClock =
+                FramePacingPolicy.usesPyroWaveDisplayClock(prefs.framePacing, prefs.vrr, outputVsyncAvailable) ?
+                        pyroWaveDisplayClock.snapshot() : PyroWaveDisplayClock.Snapshot.UNAVAILABLE;
+        long submissionResult = pyroWaveRenderer.submitFrame(decodeUnitData, decodeUnitLength, ptsUs,
+                presentationTimeUs, displayClock, frameLatencyStats,
+                context, prefs.phonePerformanceHints, refreshRate);
+        activeWindowVideoStats.decoderTimeMs += pyroWaveSubmissionTiming.addDurationNs(
+                pyroWaveRenderer.getLastSubmissionDurationNs());
+        float recordLoss = pyroWaveRenderer.getLastRecordLossPercent();
+        if (recordLoss >= 0) {
+            pyroWaveLossTotal += recordLoss;
+            pyroWaveLossSamples++;
+        }
+        activeWindowVideoStats.totalFrames++;
+        activeWindowVideoStats.totalFramesReceived++;
+        frameLatencyStats.onFrameReceived(receiveTimeNs);
+        if (submissionResult == PyroWaveDecoderRenderer.SUBMIT_ACCEPTED) {
+            pyroWaveDecodedFrames++;
+            pyroWaveFailures = 0;
+        } else if (submissionResult == PyroWaveDecoderRenderer.SUBMIT_BUSY) {
+            // Native validated this frame before declining it for capacity.
+            pyroWaveFailures = 0;
+            pyroWaveSkippedFrames++;
+            frameLatencyStats.discard(ptsUs, "replaced_before_decode");
+        } else {
+            frameLatencyStats.discard(ptsUs, submissionResult < 0 ? "decode_failed" : "invalid_frame");
+            if (submissionResult < 0 || ++pyroWaveFailures == 60) {
+                int hdrFailure = (videoFormat & MoonBridge.VIDEO_FORMAT_MASK_10BIT) != 0 ?
+                        PyroWaveDecoderRenderer.streamHdrFailure() : 0;
+                LimeLog.severe("PyroWave decoder stopped producing frames" +
+                        (hdrFailure != 0 ? ": " + context.getString(hdrFailure) : ""));
+                pyroWaveHlgFramesStopped = true;
+                // Game's end-of-stream text names HLG when the window took it (isPyroWaveHlgLost).
+                isPyroWaveHlgLost();
+                stopping = true;
+                MoonBridge.bridgeClConnectionTerminated(MoonBridge.ML_ERROR_NO_VIDEO_FRAME);
+            }
+        }
+        // Intra-only: recover on the next complete frame, without IDR request storms.
+        return MoonBridge.DR_OK;
+    }
+
+    /** The stream's H.264 SPS NAL unit (with its start code), rewritten for this decoder's quirks. */
+    private byte[] patchH264Sps(byte[] decodeUnitData, int decodeUnitLength) {
+        ByteBuffer spsBuf = ByteBuffer.wrap(decodeUnitData);
+        int startSeqLen = decodeUnitData[2] == 0x01 ? 3 : 4;
+
+        // Skip to the start of the NALU data
+        spsBuf.position(startSeqLen + 1);
+
+        // The H264Utils.readSPS function safely handles
+        // Annex B NALUs (including NALUs with escape sequences)
+        SeqParameterSet sps = H264Utils.readSPS(spsBuf);
+
+        // Some decoders rely on H264 level to decide how many buffers are needed
+        // Since we only need one frame buffered, we'll set the level as low as we can
+        // for known resolution combinations. Reference frame invalidation may need
+        // these, so leave them be for those decoders.
+        if (!refFrameInvalidationActive && Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+            if (initialWidth <= 720 && initialHeight <= 480 && refreshRate <= 60) {
+                // Max 5 buffered frames at 720x480x60
+                LimeLog.info("Patching level_idc to 31");
+                sps.levelIdc = 31;
+            }
+            else if (initialWidth <= 1280 && initialHeight <= 720 && refreshRate <= 60) {
+                // Max 5 buffered frames at 1280x720x60
+                LimeLog.info("Patching level_idc to 32");
+                sps.levelIdc = 32;
+            }
+            else if (initialWidth <= 1920 && initialHeight <= 1080 && refreshRate <= 60) {
+                // Max 4 buffered frames at 1920x1080x64
+                LimeLog.info("Patching level_idc to 42");
+                sps.levelIdc = 42;
+            }
+            else {
+                // Leave the profile alone (currently 5.0)
+            }
+        }
+
+        // TI OMAP4 requires a reference frame count of 1 to decode successfully. Exynos 4
+        // also requires this fixup.
+        //
+        // I'm doing this fixup for all devices because I haven't seen any devices that
+        // this causes issues for. At worst, it seems to do nothing and at best it fixes
+        // issues with video lag, hangs, and crashes.
+        //
+        // It does break reference frame invalidation, so we will not do that for decoders
+        // where we've enabled reference frame invalidation.
+        if (!refFrameInvalidationActive) {
+            LimeLog.info("Patching num_ref_frames in SPS");
+            sps.numRefFrames = 1;
+        }
+
+        // GFE 2.5.11 changed the SPS to add additional extensions. Some devices don't like these
+        // so we remove them here on old devices unless these devices also support HEVC.
+        // See getPreferredColorSpace() for further information.
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O &&
+                sps.vuiParams != null &&
+                hevcDecoder == null &&
+                av1Decoder == null) {
+            sps.vuiParams.videoSignalTypePresentFlag = false;
+            sps.vuiParams.colourDescriptionPresentFlag = false;
+            sps.vuiParams.chromaLocInfoPresentFlag = false;
+        }
+
+        // Some older devices used to choke on a bitstream restrictions, so we won't provide them
+        // unless explicitly whitelisted. For newer devices, leave the bitstream restrictions present.
+        if (needsSpsBitstreamFixup || isExynos4 || Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            // The SPS that comes in the current H264 bytestream doesn't set bitstream_restriction_flag
+            // or max_dec_frame_buffering which increases decoding latency on Tegra.
+
+            // If the encoder didn't include VUI parameters in the SPS, add them now
+            if (sps.vuiParams == null) {
+                LimeLog.info("Adding VUI parameters");
+                sps.vuiParams = new VUIParameters();
+            }
+
+            // GFE 2.5.11 started sending bitstream restrictions
+            if (sps.vuiParams.bitstreamRestriction == null) {
+                LimeLog.info("Adding bitstream restrictions");
+                sps.vuiParams.bitstreamRestriction = new VUIParameters.BitstreamRestriction();
+                sps.vuiParams.bitstreamRestriction.motionVectorsOverPicBoundariesFlag = true;
+                sps.vuiParams.bitstreamRestriction.maxBytesPerPicDenom = 2;
+                sps.vuiParams.bitstreamRestriction.maxBitsPerMbDenom = 1;
+                sps.vuiParams.bitstreamRestriction.log2MaxMvLengthHorizontal = 16;
+                sps.vuiParams.bitstreamRestriction.log2MaxMvLengthVertical = 16;
+                sps.vuiParams.bitstreamRestriction.numReorderFrames = 0;
+            }
+            else {
+                LimeLog.info("Patching bitstream restrictions");
+            }
+
+            // Some devices throw errors if maxDecFrameBuffering < numRefFrames
+            sps.vuiParams.bitstreamRestriction.maxDecFrameBuffering = sps.numRefFrames;
+
+            // These values are the defaults for the fields, but they are more aggressive
+            // than what GFE sends in 2.5.11, but it doesn't seem to cause picture problems.
+            // We'll leave these alone for "modern" devices just in case they care.
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+                sps.vuiParams.bitstreamRestriction.maxBytesPerPicDenom = 2;
+                sps.vuiParams.bitstreamRestriction.maxBitsPerMbDenom = 1;
+            }
+
+            // log2_max_mv_length_horizontal and log2_max_mv_length_vertical are set to more
+            // conservative values by GFE 2.5.11. We'll let those values stand.
+        }
+        else if (sps.vuiParams != null) {
+            // Devices that didn't/couldn't get bitstream restrictions before GFE 2.5.11
+            // will continue to not receive them now
+            sps.vuiParams.bitstreamRestriction = null;
+        }
+
+        // If we need to hack this SPS to say we're baseline, do so now
+        if (needsBaselineSpsHack) {
+            LimeLog.info("Hacking SPS to baseline");
+            sps.profileIdc = 66;
+            savedSps = sps;
+        }
+
+        // Patch the SPS constraint flags
+        doProfileSpecificSpsPatching(sps);
+
+        // The H264Utils.writeSPS function safely handles
+        // Annex B NALUs (including NALUs with escape sequences)
+        ByteBuffer escapedNalu = H264Utils.writeSPS(sps, decodeUnitLength);
+
+        // Construct the patched SPS
+        byte[] naluBuffer = new byte[startSeqLen + 1 + escapedNalu.limit()];
+        System.arraycopy(decodeUnitData, 0, naluBuffer, 0, startSeqLen + 1);
+        escapedNalu.get(naluBuffer, startSeqLen + 1, escapedNalu.limit());
+        return naluBuffer;
+    }
+
+    /** Puts the IDR frame's parameter sets (VPS, SPS, PPS) into the input buffer, in that order. */
+    private void putCsd() {
+        for (byte[] vpsBuffer : vpsBuffers) {
+            nextInputBuffer.put(vpsBuffer);
+        }
+        for (byte[] spsBuffer : spsBuffers) {
+            nextInputBuffer.put(spsBuffer);
+        }
+        for (byte[] ppsBuffer : ppsBuffers) {
+            nextInputBuffer.put(ppsBuffer);
+        }
     }
 
     // The frame's HDR10+ payload, when it differs from the last one: a frame without one keeps it.

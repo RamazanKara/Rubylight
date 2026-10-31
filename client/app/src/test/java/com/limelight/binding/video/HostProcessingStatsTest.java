@@ -63,7 +63,7 @@ public class HostProcessingStatsTest {
         assertEquals(25f / 4 / 10, lastTwo.getHostProcessingMs(), 0.00001f);
     }
 
-    // The PyroWave branch of submitDecodeUnit returns twice before the MediaCodec path, and the
+    // submitDecodeUnit hands PyroWave frames to submitPyroWaveFrame, which returns twice, and the
     // native renderer cannot run in a JVM test, so this pins the wiring: the count comes first.
     @Test
     public void pyroWaveFramesAreCountedBeforeTheBranchCanReturn() throws Exception {
@@ -73,10 +73,17 @@ public class HostProcessingStatsTest {
         assertTrue(method > 0);
         int branch = source.indexOf("if ((videoFormat & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) != 0) {", method);
         assertTrue(branch > method);
-        int firstReturn = source.indexOf("return MoonBridge.", branch);
-        int count = source.indexOf("recordHostProcessing(activeWindowVideoStats, frameHostProcessingLatency)", branch);
-        assertTrue("PyroWave frames must be counted before the branch returns", count > branch && count < firstReturn);
-        int next = source.indexOf("recordHostProcessing(activeWindowVideoStats, frameHostProcessingLatency)", count + 1);
-        assertTrue("the MediaCodec path counts its own frames", next > firstReturn);
+        int delegated = source.indexOf("return submitPyroWaveFrame(", branch);
+        int branchEnd = source.indexOf("return MoonBridge.", branch);
+        assertTrue("the PyroWave branch hands the frame to submitPyroWaveFrame", delegated > branch && delegated < branchEnd);
+        int mediaCodecCount = source.indexOf("recordHostProcessing(activeWindowVideoStats, frameHostProcessingLatency)", branch);
+        int end = source.indexOf("\n    }\n", method);
+        assertTrue("the MediaCodec path counts its own frames", mediaCodecCount > branchEnd && mediaCodecCount < end);
+
+        int pyroWave = source.indexOf("private int submitPyroWaveFrame(");
+        assertTrue(pyroWave > 0);
+        int firstReturn = source.indexOf("return MoonBridge.", pyroWave);
+        int count = source.indexOf("recordHostProcessing(activeWindowVideoStats, frameHostProcessingLatency)", pyroWave);
+        assertTrue("PyroWave frames must be counted before the first return", count > pyroWave && count < firstReturn);
     }
 }

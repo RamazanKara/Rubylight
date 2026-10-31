@@ -111,6 +111,7 @@ impl Launcher {
                     return;
                 }
                 scroll(ui, "apps", |ui| {
+                    ui.add_space(LIFT);
                     let (columns, width) = grid(ui.available_width());
                     for (row, chunk) in apps.chunks(columns).enumerate() {
                         ui.horizontal(|ui| {
@@ -169,9 +170,7 @@ impl Launcher {
         let playing = console::continue_playing(&sources);
         let recent = console::recently_played(&sources, &self.recents, &playing, 6);
         let starred = console::favourite_games(&sources, &self.favourites);
-        let loading = view.hosts.list.iter().any(|h| {
-            h.reach == Reach::Online && h.paired() && h.native_api() && h.native.library.is_none() && h.native.error.is_none()
-        });
+        let loading = library_loading(view);
         scroll(ui, "home", |ui| {
             // A failed read stays on screen beside the last good data.
             for host in &view.hosts.list {
@@ -253,10 +252,7 @@ impl Launcher {
             if entries.is_empty() {
                 shelf(ui, tr("Library"), None);
                 if loading {
-                    ui.horizontal(|ui| {
-                        spinner(ui, 10.0);
-                        ui.label(RichText::new(tr("Loading the games…")).color(ON_SURFACE_VARIANT));
-                    });
+                    loading_games(ui);
                 } else {
                     ui.label(RichText::new(tr("No games to show yet. They appear here once a PC that shares its game library is online.")).color(ON_SURFACE_VARIANT));
                 }
@@ -320,6 +316,16 @@ impl Launcher {
         if !chips.iter().any(|c| c.filter == self.library_filter) {
             self.library_filter = console::LibraryFilter::All;
         }
+        // A chip exists only for games it shows: with none, the library itself is empty, or not
+        // read yet.
+        if chips.is_empty() {
+            if library_loading(view) {
+                loading_games(ui);
+                return;
+            }
+            ui.label(RichText::new(tr("No games to show yet. They appear here once a PC that shares its game library is online.")).color(ON_SURFACE_VARIANT));
+            return;
+        }
         ui.horizontal_wrapped(|ui| {
             ui.spacing_mut().item_spacing = vec2(space::S, space::S);
             for (n, chip) in chips.iter().enumerate() {
@@ -338,13 +344,17 @@ impl Launcher {
                 }
             }
         });
-        ui.add_space(space::L);
+        // The room a raised cover's ring needs at the top of the scroll comes out of the gap.
+        ui.add_space(space::L - LIFT);
         let shown = console::filtered(&entries, &self.library_filter);
+        // Installed is offered while anything is not, so with nothing installed it holds no game.
         if shown.is_empty() {
-            ui.label(RichText::new(tr("No games to show yet. They appear here once a PC that shares its game library is online.")).color(ON_SURFACE_VARIANT));
+            ui.add_space(LIFT);
+            ui.label(RichText::new(tr("No games match this filter.")).color(ON_SURFACE_VARIANT));
             return;
         }
         scroll(ui, "all-games", |ui| {
+            ui.add_space(LIFT);
             let (columns, width) = grid(ui.available_width());
             let mut first = true;
             for line in shown.chunks(columns) {
@@ -661,6 +671,21 @@ impl Launcher {
 }
 
 /// Quick resume: a paired PC running a game from its known library goes straight back into it.
+/// Whether a paired PC that is up and shares its library has not sent it yet.
+fn library_loading(view: &View<'_>) -> bool {
+    view.hosts.list.iter().any(|h| {
+        h.reach == Reach::Online && h.paired() && h.native_api() && h.native.library.is_none() && h.native.error.is_none()
+    })
+}
+
+/// "Loading the games…" by a spinner, on Home and All games alike.
+fn loading_games(ui: &mut Ui) {
+    ui.horizontal(|ui| {
+        spinner(ui, 10.0);
+        ui.label(RichText::new(tr("Loading the games…")).color(ON_SURFACE_VARIANT));
+    });
+}
+
 pub(super) fn host_clicked(host: &Host, quick_resume: bool, commands: &mut Vec<Command>) {
     let running = running_entry(host).filter(|_| host.paired());
     if let Some(app) = running.filter(|_| nightjar_policy::launch::resumes_on_pc_tap(quick_resume, true)) {

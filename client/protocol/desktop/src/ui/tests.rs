@@ -2664,9 +2664,13 @@ fn polish_screenshots() {
     let Some(dir) = std::env::var_os("NIGHTJAR_SHOTS").map(std::path::PathBuf::from) else { return };
     std::fs::create_dir_all(&dir).expect("the folder for the screenshots");
     let only = std::env::var("NIGHTJAR_SHOTS_ONLY").unwrap_or_default();
+    // Store keys as a host sends them (console.rs names them). Ten Steam games overflow a row at
+    // both sizes, so Steam's ends in its All tile; one Epic game is not installed.
     let titles = [
-        ("Desktop", ""), ("Racing Game", "Steam"), ("Open World", "Xbox"), ("Space Sim", "Epic Games"), ("Puzzle Night", "GOG"),
-        ("Retro Arcade", "Steam"), ("Strategy", "Battle.net"), ("Music Studio", "Steam"), ("Ocean Explorer", "Xbox"), ("Skybound", ""),
+        ("Desktop", ""), ("Racing Game", "steam"), ("Open World", "microsoft"), ("Space Sim", "epic"), ("Puzzle Night", "gog"),
+        ("Retro Arcade", "steam"), ("Strategy", "battlenet"), ("Music Studio", "steam"), ("Ocean Explorer", "microsoft"), ("Skybound", "steam"),
+        ("Night Drive", "steam"), ("Farm Life", "steam"), ("Dungeon Deep", "steam"), ("Tiny Tactics", "steam"), ("Star Courier", "steam"),
+        ("Frost Peak", "epic"), ("Card Duel", "battlenet"), ("Last Light", "steam"), ("Steam Big Picture", ""),
     ];
     for (width, height, ppp) in [(1280.0, 800.0, 1.5), (1920.0, 1080.0, 1.0)] {
         let size = format!("{}x{}", width as u32, height as u32);
@@ -2714,11 +2718,11 @@ fn polish_screenshots() {
                 install_id: format!("install-{n}"),
                 app_id: 1000 + n as u32,
                 title: (*title).into(),
-                game_id: (!store.is_empty()).then(|| format!("steam:{n}")),
-                store: (!store.is_empty()).then(|| Store { source: "steam".into(), id: n.to_string(), name: (*store).into() }),
-                installed: Some(true),
+                game_id: (!store.is_empty()).then(|| format!("{store}:{n}")),
+                store: (!store.is_empty()).then(|| Store { source: (*store).into(), id: n.to_string(), name: String::new() }),
+                installed: Some(*title != "Frost Peak"),
                 running: n == 1,
-                artwork: Artwork { cover: (n < 9).then(|| format!("/cover/{n}")), version: "1".into() },
+                artwork: Artwork { cover: (n < 10).then(|| format!("/cover/{n}")), version: "1".into() },
             })
             .collect();
         let apps: Vec<nightjar_core::http::App> = games
@@ -2731,7 +2735,7 @@ fn polish_screenshots() {
             pc.info = Some(files::tests::native_answer());
             pc.native.library = Some(Library { revision: "r1".into(), games });
             pc.apps = Apps::Loaded(apps.clone());
-            for (n, app) in apps.iter().enumerate().take(9) {
+            for (n, app) in apps.iter().enumerate().take(10) {
                 pc.art.insert(app.id, demo_art(&f.ctx, n));
             }
         }
@@ -2745,6 +2749,65 @@ fn polish_screenshots() {
         shoot(&mut f, "home-focus-moved");
         f.scroll_to_end();
         shoot(&mut f, "home-end");
+        // All games with every game, then with a store's chip clicked.
+        f.l.open(Screen::AllGames);
+        shoot(&mut f, "all-games");
+        f.settle();
+        let steam = f.placed.iter().find(|(t, r, _)| t == "Steam" && r.center().y < 200.0).map(|p| p.1).expect("the Steam chip");
+        f.click_at(steam.center(), egui::PointerButton::Primary);
+        shoot(&mut f, "all-games-store");
+        f.l.library_filter = console::LibraryFilter::All;
+        f.frame(vec![egui::Event::PointerGone]);
+        f.settle();
+        // A cover's menu from its ⋮ (the first cover, at the left edge) and from a right-click on
+        // the last cover of the first line (at the right edge).
+        f.l.focused_key = None;
+        f.l.restore_key = None;
+        f.l.focus_screen = true;
+        f.settle();
+        let cover = f.ctx.memory(|m| m.focused()).expect("the first cover has focus");
+        let first = f.ctx.read_response(cover).expect("the cover").rect;
+        f.frame(vec![egui::Event::PointerMoved(first.center())]);
+        f.settle();
+        let dots = f.ctx.read_response(cover.with("options")).expect("the cover's ⋮").rect;
+        f.click_at(dots.center(), egui::PointerButton::Primary);
+        shoot(&mut f, "game-menu-dots");
+        f.l.close_dialog();
+        // Every cover of the line draws its title inside its own width: the rightmost title is the last cover's.
+        let right = f
+            .placed
+            .iter()
+            .filter(|(_, r, _)| r.center().y > first.top() && r.center().y < first.bottom())
+            .map(|p| p.1.center().x)
+            .max_by(f32::total_cmp)
+            .map(|x| pos2(x, first.center().y))
+            .expect("the first line's titles");
+        f.click_at(right + vec2(first.width() * 0.25, 0.0), egui::PointerButton::Secondary);
+        shoot(&mut f, "game-menu-right-click");
+        f.l.close_dialog();
+        // A cover under the pointer with the focus elsewhere: it rises, no ring.
+        // (Closing the menu gave the focus back to the cover it was opened on.)
+        f.settle();
+        if let Some(held) = f.ctx.memory(|m| m.focused()) {
+            f.ctx.memory_mut(|m| m.surrender_focus(held));
+        }
+        f.frame(vec![egui::Event::PointerMoved(right)]);
+        f.settle();
+        shoot(&mut f, "all-games-cover-hover");
+        // The same in high contrast with the first cover focused: one amber ring.
+        f.l.settings.high_contrast = true;
+        f.frame(vec![egui::Event::PointerGone]);
+        f.ctx.memory_mut(|m| m.request_focus(cover));
+        shoot(&mut f, "all-games-focus-high-contrast");
+        f.l.go(Screen::Hosts);
+        shoot(&mut f, "pcs-focus-high-contrast");
+        f.l.settings.high_contrast = false;
+        // A PC's card under the pointer with no focus on it: one step lighter, no outline.
+        let card = f.ctx.memory(|m| m.focused()).and_then(|id| f.ctx.read_response(id)).expect("the first PC has focus");
+        f.ctx.memory_mut(|m| m.surrender_focus(card.id));
+        hover_card(&mut f, card.rect);
+        shoot(&mut f, "pcs-card-hover");
+        f.frame(vec![egui::Event::PointerGone]);
         f.l.go(Screen::Game { host: pc, app: 1001 });
         shoot(&mut f, "game-running");
         f.l.go(Screen::Game { host: pc, app: 1002 });
@@ -2793,6 +2856,31 @@ fn polish_screenshots() {
         f.waking = Some("Office PC".into());
         shoot(&mut f, "waking");
         f.waking = None;
+        // All games of a PC whose library is empty: no chips, and the page says why. A chip exists
+        // only for games it shows, so no filter is ever empty on its own.
+        let mut f = fresh(vec![HostRecord { address: "192.0.2.10".into(), ..record("Living Room PC", true, true) }], true);
+        f.hosts.list[0].reach = Reach::Online;
+        f.hosts.list[0].info = Some(files::tests::native_answer());
+        f.hosts.list[0].native.library = Some(Library { revision: "r1".into(), games: Vec::new() });
+        f.l.open(Screen::AllGames);
+        shoot(&mut f, "all-games-empty");
+        // Nothing installed: the Installed chip is offered and shows no game.
+        let none = |title: &str, n: u32| Game {
+            install_id: format!("install-{n}"),
+            app_id: 1000 + n,
+            title: title.into(),
+            game_id: Some(format!("steam:{n}")),
+            store: Some(Store { source: "steam".into(), id: n.to_string(), name: String::new() }),
+            installed: Some(false),
+            running: false,
+            artwork: Artwork { cover: None, version: String::new() },
+        };
+        f.hosts.list[0].native.library = Some(Library { revision: "r2".into(), games: vec![none("Night Drive", 0), none("Farm Life", 1)] });
+        f.l.library_filter = console::LibraryFilter::Installed;
+        shoot(&mut f, "all-games-empty-filter");
+        // The library still on its way: the spinner Home shows.
+        f.hosts.list[0].native.library = None;
+        shoot(&mut f, "all-games-loading");
     }
 }
 
@@ -3046,6 +3134,102 @@ fn all_games_filters_by_store_and_by_what_is_installed() {
     let marked = [*MOON_CONTAINER, Tone::Selected.colors(true, false).0];
     assert!(marked.iter().any(|fill| rects_filled(&f, *fill).iter().any(|r| r.contains_rect(installed))), "the chosen chip is marked");
     assert_eq!(f.l.library_filter, console::LibraryFilter::Installed);
+}
+
+/// Screenshot review: the focused first cover rises into the top of the scroll, and its ring was
+/// cut there (in high contrast most). The grid leaves the room, on All games and a PC's library.
+#[test]
+fn a_risen_covers_ring_is_not_cut_at_the_top_of_the_grid() {
+    for high in [false, true] {
+        let mut store = store_mix();
+        store.l.open(Screen::AllGames);
+        let mut classic = Frames::with(record("Desk", true, true), Reach::Online, Some(answer(true, 0)), vec![game(7), game(9)]);
+        let id = classic.hosts.list[0].id;
+        classic.l.open(Screen::Apps(id));
+        for (page, f) in [("All games", &mut store), ("library", &mut classic)] {
+            f.l.settings.high_contrast = high;
+            for _ in 0..5 {
+                f.settle();
+            }
+            let cover = f.ctx.memory(|m| m.focused()).and_then(|id| f.ctx.read_response(id)).expect("the first cover has focus").rect;
+            let mut rings = Vec::new();
+            for clipped in &f.shapes {
+                if let egui::Shape::Rect(r) = &clipped.shape {
+                    if r.stroke.color == *MOON && r.stroke.width > 0.0 {
+                        rings.push((r.rect.expand(r.stroke.width), clipped.clip_rect));
+                    }
+                }
+            }
+            let (ring, clip) = *rings.first().unwrap_or_else(|| panic!("{page}, {high}: a ring"));
+            assert!(ring.top() < cover.top() - FOCUS_GAP - 1.0, "{page}, {high}: the cover rose: {ring:?} for {cover:?}");
+            assert!(clip.contains_rect(ring), "{page}, {high}: the ring {ring:?} is cut by {clip:?}");
+        }
+    }
+}
+
+/// With nothing installed the Installed chip holds no game and says so; an empty library has no
+/// chips at all, only the line saying why.
+#[test]
+fn an_empty_filter_and_an_empty_library_say_so() {
+    let mut f = home_with_stores(&[("Halo Infinite", "microsoft", false), ("Diablo IV", "battlenet", false)]);
+    f.l.open(Screen::AllGames);
+    f.settle();
+    let chip = f.placed.iter().find(|(t, r, _)| t == "Installed" && r.center().y < 200.0).map(|p| p.1).expect("an Installed chip");
+    f.click_at(chip.center(), egui::PointerButton::Primary);
+    assert!(shows(&f, "No games match this filter.") && !shows(&f, "Halo Infinite"), "{:?}", f.drawn);
+    let mut f = home_with_stores(&[]);
+    f.l.open(Screen::AllGames);
+    f.settle();
+    assert!(shows(&f, "No games to show yet. They appear here once a PC that shares its game library is online."), "{:?}", f.drawn);
+    assert!(!shows(&f, "All") && !shows(&f, "No games match this filter."), "no chips: {:?}", f.drawn);
+}
+
+/// All games is reachable from Home's top row even when every row fits and no All tile shows:
+/// with the pointer, with Tab (after the destinations) and with the D-pad (Right from them). It
+/// opens on All, whatever chip was chosen last.
+#[test]
+fn home_opens_all_games_from_its_top_row_when_every_row_fits() {
+    let mut f = home_with_stores(&[("Portal", "steam", true), ("Celeste", "steam", true), ("Fortnite", "epic", true)]);
+    f.l.library_filter = console::LibraryFilter::Store("epic".into());
+    f.settle();
+    assert!(!f.drawn.iter().any(|t| t.strip_prefix("All ").is_some_and(|n| n.parse::<usize>().is_ok())), "every row fits, no All tile: {:?}", f.drawn);
+    let stops = header_stops(&mut f);
+    assert_eq!(stops.len(), 4, "Home, PCs, Settings and All games: {stops:?}");
+    let action = f.placed.iter().find(|(t, r, _)| t == "All games" && r.center().y < 80.0).map(|p| p.1).expect("All games in the top row");
+    assert!(stops[3].contains_rect(action) && 1280.0 - stops[3].right() < 80.0, "last for Tab, at the right edge: {stops:?}");
+    // Right from Settings lands on it.
+    let settings = f.placed.iter().find(|(t, r, _)| t == "Settings" && r.center().y < 80.0).map(|p| p.1).unwrap();
+    let pill = (0..30).find_map(|_| {
+        f.press_with(Key::Tab, egui::Modifiers::SHIFT);
+        let id = f.ctx.memory(|m| m.focused())?;
+        f.ctx.read_response(id).filter(|r| r.rect.contains(settings.center())).map(|r| r.id)
+    });
+    assert!(pill.is_some(), "Shift+Tab reaches Settings");
+    f.press(Key::ArrowRight);
+    let focused = f.ctx.memory(|m| m.focused()).and_then(|id| f.ctx.read_response(id)).map(|r| r.rect).expect("focus");
+    assert!(focused.contains_rect(action), "Right from Settings reaches All games: {focused:?}");
+    f.press(Key::Enter);
+    assert_eq!(f.l.screen, Screen::AllGames);
+    assert_eq!(f.l.library_filter, console::LibraryFilter::All);
+    assert!(shows(&f, "Portal") && shows(&f, "Fortnite"), "{:?}", f.drawn);
+    // An empty library offers no way to an empty page.
+    let mut f = home_with_stores(&[]);
+    f.settle();
+    assert!(!f.placed.iter().any(|(t, r, _)| t == "All games" && r.center().y < 80.0), "{:?}", f.drawn);
+}
+
+/// While a PC's library is on its way, All games says so as Home does instead of calling the
+/// library empty.
+#[test]
+fn all_games_shows_the_library_loading_as_home_does() {
+    let mut f = Frames::with(record("Desk", true, true), Reach::Online, Some(files::tests::native_answer()), Vec::new());
+    f.l.go(Screen::Home);
+    f.settle();
+    assert!(shows(&f, "Loading the games…"), "Home: {:?}", f.drawn);
+    f.l.open(Screen::AllGames);
+    f.settle();
+    assert!(shows(&f, "Loading the games…"), "All games: {:?}", f.drawn);
+    assert!(!shows(&f, "No games to show yet. They appear here once a PC that shares its game library is online."), "{:?}", f.drawn);
 }
 
 /// The chips come before the games for Tab and the arrow keys, and the first game has focus on

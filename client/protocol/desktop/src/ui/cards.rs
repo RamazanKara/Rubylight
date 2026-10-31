@@ -21,8 +21,9 @@ pub(super) const POSTER_MAX_W: f32 = 196.0;
 pub(super) const POSTER_GAP: f32 = 18.0;
 /// Room under a cover for its title.
 pub(super) const POSTER_CAPTION: f32 = 30.0;
-/// How far a pointed-at or focused cover rises (none with reduced motion).
-const LIFT: f32 = 4.0;
+/// How far a pointed-at or focused cover rises (none with reduced motion). A grid at the top of a
+/// scroll leaves this much room above it, so the risen cover's ring is not cut.
+pub(super) const LIFT: f32 = 4.0;
 
 /// How many covers fit a row `width` wide, and how wide each is: as many as fit at
 /// [`POSTER_MAX_W`] or less, filling the row exactly.

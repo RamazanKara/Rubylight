@@ -318,3 +318,28 @@ fn latency_is_reported_with_clock_sync() {
     let s = clock.schedule(rtp(100_000), 100_000 + 500 + 7_000);
     assert_eq!(s.latency_us, Some(7_000 + 500));
 }
+
+#[test]
+fn content_as_fast_as_the_display_does_not_build_up_a_hold() {
+    // A 60 fps stream on a VRR display whose top rate is 59.97 Hz: the floor used to push each
+    // frame past the one before until every frame was held for `max_hold_us`.
+    let interval = 16_675;
+    let mut clock = PresentClock::new(Settings { min_interval_us: interval, ..Settings::default() });
+    let mut noise = Lcg(4);
+    let mut previous = None;
+    let mut holds = Vec::new();
+    for i in 0..6_000i64 {
+        let host = (i + 1) * 16_667 + noise.next(2_000) - 1_000;
+        let s = clock.schedule(rtp(host), (host + 20_000 + noise.next(6_000)) as u64);
+        if let Some(p) = previous {
+            assert!(s.present_us >= p, "presents stay in order");
+        }
+        previous = Some(s.present_us);
+        if i >= 1_200 {
+            holds.push(s.hold_us);
+        }
+    }
+    holds.sort_unstable();
+    let p99 = holds[holds.len() * 99 / 100];
+    assert!(p99 <= interval + 8_000, "99th percentile hold {p99} us");
+}

@@ -136,7 +136,14 @@ pub struct Settings {
     pub decay_us: i64,
     /// The longest a frame is held after it is ready, in microseconds.
     pub max_hold_us: i64,
-    /// The display's shortest refresh interval, in microseconds; presents are never closer.
+    /// The display's shortest refresh interval, in microseconds. While the content is slower
+    /// than the display, presents are never closer. A frame is pushed at most one interval
+    /// past its own present time, though: content as fast as the display (a 60 fps stream on
+    /// a panel that reports 59.97 Hz, or a host clock a little fast) would otherwise push
+    /// every later frame back too, and the hold would climb to `max_hold_us` and stay there.
+    /// Such a frame comes closer, and the display shows it in place of the one before.
+    /// [`schedule_on_grid`](PresentClock::schedule_on_grid) leaves the spacing to its vsync
+    /// rule and does not apply this at all.
     pub min_interval_us: i64,
 }
 
@@ -243,6 +250,9 @@ pub struct PresentClock {
     last_vsync_us: Option<i64>,
     /// That frame was moved to the vsync after its first possible one.
     last_bumped: bool,
+    /// Average host time between frames, in microseconds (an exponential average, 1/16 per
+    /// frame); 0 until the second frame.
+    step_us: i64,
     /// A grid schedule was asked for: the delay covers [`GRID_PERCENTILE`], also for the frames
     /// that are only scheduled (a dropped frame teaches the clock its lateness that way).
     on_grid: bool,
@@ -293,6 +303,7 @@ impl PresentClock {
             frames: 0,
             last_vsync_us: None,
             last_bumped: false,
+            step_us: 0,
             on_grid: false,
             rate: ContentRate::new(),
             rate_unwrap: None,
@@ -311,6 +322,7 @@ impl PresentClock {
         self.last_host_us = None;
         self.last_vsync_us = None;
         self.last_bumped = false;
+        self.step_us = 0;
         self.rate.reset();
         self.rate_unwrap = None;
     }
@@ -348,7 +360,7 @@ impl PresentClock {
 
     /// When to show the frame stamped `rtp` that was ready to present at `ready_us`.
     pub fn schedule(&mut self, rtp: u32, ready_us: u64) -> Schedule {
-        self.schedule_frame(rtp, ready_us).0
+        self.schedule_frame(rtp, ready_us, true).0
     }
 
     /// Notes a frame with RTP timestamp `rtp` for the content rate. Call it for every frame in
@@ -394,7 +406,12 @@ impl PresentClock {
     /// Without an interval this is [`schedule`](Self::schedule) with the extra fields.
     pub fn schedule_on_grid(&mut self, rtp: u32, ready_us: u64, grid: Grid) -> GridSchedule {
         self.on_grid |= grid.interval_us > 0;
-        let (base, late_by_us, host) = self.schedule_frame(rtp, ready_us);
+        // On a grid the vsync rule below spaces the frames, and it moves a frame at most one
+        // vsync past its first possible one. The display interval floor would move it further:
+        // with the stream as fast as the panel it pushed each frame past the one before, and
+        // the hold climbed by a refresh at a time (three vsyncs late, 30 ms on average for a
+        // 60 fps stream on a 59.97 Hz panel).
+        let (base, late_by_us, host) = self.schedule_frame(rtp, ready_us, grid.interval_us <= 0);
         let ready = ready_us as i64;
         let present = base.present_us as i64;
         if grid.interval_us <= 0 {
@@ -418,10 +435,19 @@ impl PresentClock {
             // The previous frame's vsync as an index on this call's grid (the anchor moves).
             let taken = (last - grid.anchor_us + interval / 2).div_euclid(interval);
             if index <= taken {
-                if taken == first && !self.last_bumped {
-                    // One vsync past its first possible one is the most a frame is moved, and
-                    // not two frames in a row: content faster than the panel would then run
-                    // one vsync behind for good.
+                // Content no faster than the panel (within 5%) has a frame for every vsync:
+                // two frames meet when capture jitter puts their times on either side of a
+                // rounding boundary, which a slow drift between the two clocks keeps doing for
+                // seconds at a time. A frame due at most an eighth of a refresh before the taken
+                // vsync belongs on the next one, so it moves even right after a move. Refusing
+                // that dropped one frame in 30 at 60 fps on a panel 0.1% off 60 Hz either way;
+                // a wider tolerance only carries a vsync of delay on while the content is faster.
+                let keeps_pace = self.step_us > 0 && self.step_us * 20 >= interval * 19;
+                let belongs_after = present + interval / 8 >= grid.anchor_us + taken * interval;
+                if taken == first && (!self.last_bumped || (keeps_pace && belongs_after)) {
+                    // One vsync past its first possible one is the most a frame is moved. A
+                    // second move in a row is only for a frame that belongs after (above):
+                    // content faster than the panel would otherwise run one vsync behind for good.
                     index = first + 1;
                     bumped = true;
                 } else {
@@ -448,12 +474,15 @@ impl PresentClock {
 
     /// [`schedule`](Self::schedule), with how far past its present time the frame was ready and
     /// its host time.
-    fn schedule_frame(&mut self, rtp: u32, ready_us: u64) -> (Schedule, i64, i64) {
+    fn schedule_frame(&mut self, rtp: u32, ready_us: u64, spaced: bool) -> (Schedule, i64, i64) {
         let ready = ready_us as i64;
         let host = self.host_us(rtp);
         let lateness = ready - host;
         let start = *self.start_us.get_or_insert(host);
         let step = self.last_host_us.replace(host).map_or(0, |last| host - last);
+        if step > 0 && step <= FALL_STEP_MAX_US {
+            self.step_us = if self.step_us == 0 { step } else { self.step_us + (step - self.step_us) / 16 };
+        }
         let mut present = if host - start < WARMUP_US {
             ready + self.settings.margin_us
         } else {
@@ -488,7 +517,11 @@ impl PresentClock {
             host + delay
         };
         if let Some(last) = self.last_present {
-            present = present.max(last + self.settings.min_interval_us);
+            // Never before the frame before it; when spaced, also no closer than the display's
+            // shortest interval, but never more than one interval past the frame's own time
+            // (see `Settings::min_interval_us`).
+            let min = if spaced { self.settings.min_interval_us.max(0) } else { 0 };
+            present = present.max((last + min).min(present + min)).max(last);
         }
         let late = present < ready;
         let late_by = (ready - present).max(0);

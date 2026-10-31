@@ -419,3 +419,66 @@ fn the_content_rate_survives_rtp_wrap_and_counts_a_repeated_stamp_once() {
     let rate = clock.content_rate_mhz().expect("rate across the wrap");
     assert!(rate.abs_diff(60_000) <= 100, "{rate}");
 }
+
+/// A 60 fps stream with ~1 ms of capture jitter on a panel of `interval_us`, through a clock
+/// set up as Android sets it (the display interval floor from the panel's reported rate).
+/// Returns the settled frames' hold, how many vsyncs past their first possible one they went,
+/// and whether they shared a vsync.
+fn sixty_fps_on(interval_us: i64) -> Vec<(i64, i64, bool)> {
+    let mut clock = PresentClock::new(Settings { min_interval_us: interval_us, ..Settings::default() });
+    let mut noise = Lcg(11);
+    let period = 16_667;
+    (0..6_000i64)
+        .map(|i| {
+            let host = (i + 1) * period + noise.next(2_000) - 1_000;
+            let ready = host + 20_000 + noise.next(6_000) + 5_000_000;
+            let anchor = nearest_anchor(interval_us, 3_333, ready, noise.next(21) - 10);
+            let g = Grid { slack_us: interval_us / 2, ..grid(interval_us, anchor) };
+            let s = clock.schedule_on_grid(rtp(host), ready as u64, g);
+            let first = snap(ready, anchor, interval_us).1;
+            (s.hold_us, s.vsync_index - first, s.shares_vsync)
+        })
+        .skip(1_200)
+        .collect()
+}
+
+#[test]
+fn a_panel_a_little_off_the_stream_rate_neither_builds_up_a_hold_nor_drops_frames() {
+    // Retroid Pocket Flip 2 report: 60 fps on a 60 Hz panel, frames held 23 ms and the screen
+    // 2 to 3 fps below the received rate. Before the fix, a panel a little slower than the
+    // stream made the display interval floor push every frame past the one before (24 ms
+    // average hold at 59.97 Hz, 38 ms at 59.94, frames three vsyncs past the first they could
+    // make), and a panel a little faster lost one frame in 30 to vsyncs shared at a rounding
+    // boundary (161 of 4800 at 60.06 Hz).
+    for interval in [16_600, 16_650, 16_666, 16_675, 16_683, 16_700] {
+        let frames = sixty_fps_on(interval);
+        let worst = frames.iter().map(|f| f.1).max().unwrap();
+        assert!(worst <= 1, "{interval} us: a frame went {worst} vsyncs past its first");
+        let mean = frames.iter().map(|f| f.0).sum::<i64>() / frames.len() as i64;
+        assert!(mean < interval / 2, "{interval} us: average hold {mean} us");
+        // A stream faster than the panel must lose one frame per refresh it gains (one in
+        // 500 at 0.2%); one slower loses none.
+        let shared = frames.iter().filter(|f| f.2).count();
+        assert!(shared * 400 <= frames.len(), "{interval} us: {shared} of {} shared", frames.len());
+    }
+}
+
+#[test]
+fn the_display_floor_does_not_change_a_matching_panel() {
+    // At an exact 60 Hz the vsync rule already spaced the frames; the floor added nothing.
+    let with = sixty_fps_on(16_666);
+    let mut clock = PresentClock::default();
+    let mut noise = Lcg(11);
+    let without: Vec<_> = (0..6_000i64)
+        .map(|i| {
+            let host = (i + 1) * 16_667 + noise.next(2_000) - 1_000;
+            let ready = host + 20_000 + noise.next(6_000) + 5_000_000;
+            let anchor = nearest_anchor(16_666, 3_333, ready, noise.next(21) - 10);
+            let g = Grid { slack_us: 8_333, ..grid(16_666, anchor) };
+            let s = clock.schedule_on_grid(rtp(host), ready as u64, g);
+            (s.hold_us, s.vsync_index - snap(ready, anchor, 16_666).1, s.shares_vsync)
+        })
+        .skip(1_200)
+        .collect();
+    assert_eq!(with, without);
+}

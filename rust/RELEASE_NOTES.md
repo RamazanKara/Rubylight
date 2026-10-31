@@ -1,10 +1,48 @@
-# Rubylight 3.0.1 for Windows
+# Rubylight 3.1.0 for Windows
 
 [Documentation](../docs/README.md) · [Install and migrate](../docs/getting-started.md) · [Configuration](../docs/configuration.md) · [Features](../docs/features.md)
 
-**Release history:** [3.0.1](#new-in-301) · [3.0.0](#new-in-300) · [3.0.0-rc.5](#new-in-300-rc5) · [3.0.0-rc.4](#new-in-300-rc4) · [3.0.0-rc.3](#new-in-300-rc3) · [3.0.0-rc.2](#new-in-300-rc2) · [3.0.0-rc.1](#new-in-300-rc1) · [3.0.0-beta.1](#new-in-300-beta1) · [3.0.0-alpha.3](#new-in-300-alpha3) · [3.0.0-alpha.2](#new-in-300-alpha2) · [3.0.0-alpha.1](#new-in-300-alpha1) · [2.6.0](#new-in-260) · [2.5.13](#new-in-2513) · [2.5.12](#new-in-2512) · [2.5.11](#new-in-2511) · [2.5.10](#new-in-2510) · [2.5.9](#new-in-259) · [2.5.8](#new-in-258) · [2.5.7](#new-in-257) · [2.5.6](#new-in-256) · [2.5.5](#new-in-255) · [2.5.4](#new-in-254) · [2.5.3](#new-in-253) · [2.5.2](#new-in-252) · [2.5.1](#new-in-251) · [2.5.0](#new-in-250) · [2.4.8](#new-in-248) · [2.4.7](#new-in-247) · [2.4.6](#new-in-246) · [2.4.5](#new-in-245) · [2.4.4](#new-in-244) · [2.4.3](#new-in-243) · [2.4.2](#new-in-242) · [2.4.1](#new-in-241) · [2.4.0](#new-in-240) · [2.3.1](#new-in-231) · [2.3.0](#new-in-230) · [2.2.2 – 2.2.21](#new-in-2221) · [2.2.1](#new-in-221) · [2.2.0](#new-in-220) · [2.1.0](#new-in-210) · [2.0.x](#new-in-201) · [release candidates](#new-in-rc30)
+**Release history:** [3.1.0](#new-in-310) · [3.0.1](#new-in-301) · [3.0.0](#new-in-300) · [3.0.0-rc.5](#new-in-300-rc5) · [3.0.0-rc.4](#new-in-300-rc4) · [3.0.0-rc.3](#new-in-300-rc3) · [3.0.0-rc.2](#new-in-300-rc2) · [3.0.0-rc.1](#new-in-300-rc1) · [3.0.0-beta.1](#new-in-300-beta1) · [3.0.0-alpha.3](#new-in-300-alpha3) · [3.0.0-alpha.2](#new-in-300-alpha2) · [3.0.0-alpha.1](#new-in-300-alpha1) · [2.6.0](#new-in-260) · [2.5.13](#new-in-2513) · [2.5.12](#new-in-2512) · [2.5.11](#new-in-2511) · [2.5.10](#new-in-2510) · [2.5.9](#new-in-259) · [2.5.8](#new-in-258) · [2.5.7](#new-in-257) · [2.5.6](#new-in-256) · [2.5.5](#new-in-255) · [2.5.4](#new-in-254) · [2.5.3](#new-in-253) · [2.5.2](#new-in-252) · [2.5.1](#new-in-251) · [2.5.0](#new-in-250) · [2.4.8](#new-in-248) · [2.4.7](#new-in-247) · [2.4.6](#new-in-246) · [2.4.5](#new-in-245) · [2.4.4](#new-in-244) · [2.4.3](#new-in-243) · [2.4.2](#new-in-242) · [2.4.1](#new-in-241) · [2.4.0](#new-in-240) · [2.3.1](#new-in-231) · [2.3.0](#new-in-230) · [2.2.2 – 2.2.21](#new-in-2221) · [2.2.1](#new-in-221) · [2.2.0](#new-in-220) · [2.1.0](#new-in-210) · [2.0.x](#new-in-201) · [release candidates](#new-in-rc30)
 
-Rubylight, called Butterpollo until rc.29, is written in Rust: host, native helpers, service and setup, with a Svelte web console. The 3.0.1 installer is named `rubylight-setup-3.0.1.exe` and upgrades an existing Vibepollo or Butterpollo installation in place, keeping settings, paired devices, the app library and covers. Codec SDKs and Windows drivers remain external components; the setup installs the drivers.
+Rubylight, called Butterpollo until rc.29, is written in Rust: host, native helpers, service and setup, with a Svelte web console. The 3.1.0 installer is named `rubylight-setup-3.1.0.exe` and upgrades an existing Vibepollo or Butterpollo installation in place, keeping settings, paired devices, the app library and covers. Codec SDKs and Windows drivers remain external components; the setup installs the drivers.
+
+## New in 3.1.0
+
+Rubylight 3.1.0 polishes the console from sign-in to the last settings page, lets you remove several games at once and bring them back ([#65](https://github.com/RamazanKara/Rubylight/issues/65)), and fixes background streams through Nucleus Co-op, bursty microphones and setup with a leftover settings folder ([#56](https://github.com/RamazanKara/Rubylight/issues/56), [#59](https://github.com/RamazanKara/Rubylight/issues/59), [#61](https://github.com/RamazanKara/Rubylight/issues/61)).
+
+### Console
+
+- **A calmer, more consistent console.** The sidebar fits any window: its links scroll while the logo, your PC and Sign out stay in view, and it carries the same ruby mark as the tray and setup. Page buttons sit on the title's line on every page, and notices, folding sections, empty pages and buttons look and behave the same everywhere, in light and dark, on a PC or a phone.
+- **Home gets to the point.** One View checks that scrolls to the checks, its own icon for your devices, and no empty gap on phones. Signing in and first-run setup are one welcoming card.
+- **Games look like a library.** A game without cover art gets a poster of its own, tinted by its name and showing its initials ("Hades II" reads H2); Desktop and Steam Big Picture get a picture. Each cover has one round Launch button that shows on hover or keyboard focus, and always on touch screens. The toolbar is tidier, and Playnite shows once in the launcher list, with its options and plugin version. A game's page and Add games read more calmly and fit a phone.
+- **Allow pairing from the Devices page.** When pairing is off, one button turns it on right there. Each device shows one status (Connected, Offline or Disabled), with Settings and a More menu beside it.
+- **Wake-on-LAN puts the fix first.** One status for the panel, then the problem and Apply changes, with the adapter details as quiet text.
+- Help reads as one page with even button groups and offers Return to console only when it can work. API tokens and Stream in the browser say what to do next when there is nothing to show yet.
+- The Games page no longer breaks when a launcher scan answers without a game list.
+
+### Games library
+
+- **Select games in the library and remove them together.** Select on the Games page puts a checkbox on every cover; pick games one by one, all at once, or every game of one launcher, then Remove. Removed games stay out of your library: no sync adds them back.
+- **Changed your mind? Restore removed games.** Under Where your games come from, Restore removed games lists the games you removed. Pick some or all, and the ones still installed are back in your library.
+
+### Co-op and background streams
+
+- **One stuck file no longer blocks every background stream.** After a background stream, a file in your own copy of Nucleus Co-op (a game's profile or Rubylight's handler) could end up one Windows no longer let your account change, and from then on every background stream of any game failed with "Access is denied". Rubylight now checks those files before each start, and when one is stuck it sets that copy aside and makes a fresh one. What it can't remove of the old copy is tried again at the next start.
+- **Games that refuse Nucleus Co-op's input hooks get another way in.** Rubylight's own one-player handler has Nucleus Co-op inject ProtoInput into the running game, which keeps it from the PC's keyboard and mouse. Some games refuse that (Assassin's Creed IV Black Flag Resynced does), and Nucleus Co-op then shows "ProtoInput failed to runtime inject" and ends the game. The stream now ends saying so, and the next start has Nucleus Co-op inject the hooks as it starts the game, before any of its code runs. A game that refuses that too gets them from one of its own threads, and only a game that refuses every way starts without them: Nucleus Co-op still tells it it has focus, but a keyboard, mouse or pad on the PC can reach it too, and the stream says so. Rubylight remembers each game's way.
+- **Reinstalling leaves your own copy of Nucleus Co-op alone.** A reinstall reset the permissions of everything in `C:\ProgramData\Butterpollo`, also each account's copy of Nucleus Co-op, and took away your account's right to change its copy: the next background stream had to copy Nucleus Co-op again. A link you made in your copy stopped every reinstall and update. Setup now leaves those copies as Rubylight made them, and Rubylight keeps checking them itself before each start.
+
+### Microphone
+
+- **Microphone audio from devices that send it in bursts no longer drops in chunks.** Some Android TVs deliver several voice packets at once; the host cut the queue back to 20 ms each time and lost up to 5% of the audio. The host now learns how far apart packets keep arriving and holds up to twice that (at most 150 ms). A steady device keeps the delay it had, and a device clock that runs fast loses small crossfaded slices instead of whole chunks.
+- `microphone stopped` in the log now counts underruns, where the microphone ran dry while audio kept coming, and their length next to `trimmed_ms`.
+
+### Setup
+
+- **A permission repair that stopped halfway is finished by the next setup or update.** Settings folders from early versions belong to the account that installed Rubylight, and setup repairs them. One interrupted after the folder itself was fixed left the rest as it was, and later runs didn't notice. Setup and updates now check everything in the folder, except the Nucleus Co-op copies, and repair until all of it is Rubylight's. A settings folder that disappears while setup checks it now stops setup instead of being made again with the permissions every account has in ProgramData.
+- **Setup no longer stops on a leftover `C:\ProgramData\Butterpollo` that your own account owns.** With no Rubylight installed, setup can't tell who made that folder, so it doesn't use the settings or pairings in it. It moves the folder to `Butterpollo.untrusted-<time>` unchanged, starts with new settings and says where the old folder went.
+- A stream to a virtual display no longer logs a frame limiter warning when the limiter is off on purpose; the warning stays for a cap that was asked for and failed.
+
+**Tested.** TESTED_PLACEHOLDER
 
 ## New in 3.0.1
 

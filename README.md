@@ -21,7 +21,7 @@
 
 <div align="center">
 
-**[Download 3.0.1](https://github.com/RamazanKara/Rubylight/releases/tag/v3.0.1)** · [Getting started](docs/getting-started.md) · [Documentation](docs/README.md) · [Release notes](rust/RELEASE_NOTES.md) · [Website](https://ramazankara.github.io/Rubylight/)
+**[Download 3.1.0](https://github.com/RamazanKara/Rubylight/releases/tag/v3.1.0)** · [Getting started](docs/getting-started.md) · [Documentation](docs/README.md) · [Release notes](rust/RELEASE_NOTES.md) · [Website](https://ramazankara.github.io/Rubylight/)
 
 </div>
 
@@ -153,12 +153,12 @@ The installer finds an existing Apollo or Vibepollo installation and brings its 
 
 ### Install
 
-Download one of the packages from the [release](https://github.com/RamazanKara/Rubylight/releases/tag/v3.0.1):
+Download one of the packages from the [release](https://github.com/RamazanKara/Rubylight/releases/tag/v3.1.0):
 
 | Package | Use |
 | --- | --- |
-| `rubylight-setup-3.0.1.exe` | The installer. Sets up the Windows service, the virtual display driver and controller support, and migrates a detected Apollo or Vibepollo installation. |
-| `rubylight-3.0.1-windows-x64.zip` | Portable. Extract it and run `Start Rubylight.exe`. Streams a physical display unless the drivers are installed separately. |
+| `rubylight-setup-3.1.0.exe` | The installer. Sets up the Windows service, the virtual display driver and controller support, and migrates a detected Apollo or Vibepollo installation. |
+| `rubylight-3.1.0-windows-x64.zip` | Portable. Extract it and run `Start Rubylight.exe`. Streams a physical display unless the drivers are installed separately. |
 
 The console offers updates and, if you allow it, installs them while nothing is streaming; settings and paired devices are kept. [Getting started](docs/getting-started.md#install-or-run-portable) lists the installer's command-line options, and [Upgrading](docs/getting-started.md#upgrading) covers updates, backups and uninstalling.
 

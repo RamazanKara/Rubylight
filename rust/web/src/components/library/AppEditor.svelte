@@ -179,7 +179,7 @@
 <div class="editor">
   <a class="back" href="/library" use:link>
     <span class="back-icon"><Icon name="chevron" size={16} /></span>
-    Library
+    Games
   </a>
 
   <PageHeader
@@ -277,6 +277,7 @@
       <PlayTogether uuid={draft.saved.uuid} {draft} />
     {/if}
 
+    <div class="more">
     <Panel collapsible title="Preparation commands" description="Run before the app starts. Cleanup commands run after it closes.">
       <div class="prep">
         <PrepCommands id="{uid}-prep" bind:rows={draft.prep} />
@@ -377,8 +378,9 @@
     {#if draft.saved.uuid}
       <NeuralRendering uuid={draft.saved.uuid} />
     {/if}
+    </div>
 
-    <footer class="bar">
+    <footer class="bar" class:dirty={draft.changed}>
       <Button type="submit" variant="primary" busy={saving} disabled={!draft.changed || draft.invalid}>Save</Button>
       <Button disabled={!draft.changed || saving} onclick={discard}>Discard</Button>
       <span class="status muted" aria-live="polite">{draft.changed ? 'Unsaved changes' : ''}</span>
@@ -451,9 +453,15 @@
   }
   .top {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(220px, 300px);
+    grid-template-columns: minmax(0, 1fr) minmax(280px, 340px);
     gap: var(--space-5);
     align-items: start;
+  }
+  /* The folded sections read as one list: closer together than the panels above. */
+  .more {
+    display: grid;
+    gap: var(--space-3);
+    min-width: 0;
   }
   .fields {
     display: grid;
@@ -508,7 +516,16 @@
       grid-template-columns: minmax(0, 1fr);
     }
   }
+  /* On a phone the bar takes two rows: it floats only while there is something to save. */
   @media (max-width: 520px) {
+    .bar:not(.dirty) {
+      position: static;
+      box-shadow: var(--shadow);
+    }
+    .bar {
+      bottom: var(--space-2);
+      padding: var(--space-3);
+    }
     .end {
       margin-left: 0;
     }

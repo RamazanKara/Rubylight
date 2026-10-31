@@ -112,6 +112,7 @@
 </script>
 
 <div class="picker">
+  <div class="head">
   <div class="preview">
     <AppCover
       name={draft.app.name}
@@ -121,6 +122,7 @@
       alt={name ? `Cover of ${name}` : 'Cover'}
     />
   </div>
+  <div class="side">
   {#if path !== savedPath}
     <p class="change">
       {path
@@ -139,6 +141,8 @@
       Upload image
     </Button>
     <Button size="sm" variant="ghost" disabled={!path || storing !== ''} onclick={remove}>Remove cover</Button>
+  </div>
+  </div>
   </div>
   <input
     bind:this={fileInput}
@@ -207,12 +211,34 @@
 
 <style>
   .picker {
+    container-type: inline-size;
+    display: grid;
+    gap: var(--space-4);
+    min-width: 0;
+  }
+  /* The cover beside its buttons, so the panel stays about as tall as General. */
+  .head {
+    display: grid;
+    grid-template-columns: minmax(96px, 120px) minmax(0, 1fr);
+    gap: var(--space-4);
+    align-items: end;
+  }
+  .side {
     display: grid;
     gap: var(--space-3);
     min-width: 0;
   }
+  .side .actions {
+    display: grid;
+    justify-items: stretch;
+  }
+  @container (max-width: 260px) {
+    .head {
+      grid-template-columns: minmax(0, 160px);
+    }
+  }
   .preview {
-    width: min(100%, 200px);
+    width: 100%;
   }
   .change {
     font-size: var(--text-xs);

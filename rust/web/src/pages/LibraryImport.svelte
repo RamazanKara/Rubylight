@@ -3,6 +3,8 @@
   import Button from '../components/Button.svelte';
   import PageHeader from '../components/PageHeader.svelte';
   import Panel from '../components/Panel.svelte';
+  import Badge from '../components/Badge.svelte';
+  import Icon from '../components/Icon.svelte';
   import AppCover from '../components/library/AppCover.svelte';
   import { api, type DiscoveredGame, type LibraryDiscovery, type LibraryImportResult } from '../lib/api';
   import { link } from '../lib/router.svelte';
@@ -76,21 +78,21 @@
   onMount(() => { void scan(); });
 </script>
 
-<a class="back" href="/library" use:link>‹ Games &amp; apps</a>
+<a class="back" href="/library" use:link><span class="back-icon"><Icon name="chevron" size={16} /></span>Games</a>
 <PageHeader title="Add games" subtitle="Choose games installed on this PC. Their launchers will open when you play.">
   {#snippet actions()}<Button href="/library/new">Add manually</Button>{/snippet}
 </PageHeader>
 <Panel title="Installed games" description="Steam, Epic Games, Battle.net, EA app, Ubisoft Connect, GOG, Microsoft Store and Xbox PC games, and the game folders you choose.">
   {#snippet actions()}<Button onclick={scan} disabled={scanning || importing} busy={scanning}>Scan again</Button>{/snippet}
   <div class="filters">
-    <label>Search games<input class="input" type="search" placeholder="Find an installed game…" bind:value={search} /></label>
-    <label>Launcher<select class="select" aria-label="Launcher" bind:value={source}>
+    <label><span class="label">Search games</span><span class="search"><span class="search-icon"><Icon name="search" size={16} /></span><input class="input" type="search" placeholder="Find an installed game…" bind:value={search} /></span></label>
+    <label><span class="label">Launcher</span><select class="select" aria-label="Launcher" bind:value={source}>
       <option value="all">All launchers</option>
       {#each scanned as launcher (launcher.source)}<option value={launcher.source}>{launcher.name}</option>{/each}
     </select></label>
   </div>
-  {#if scanning}<p role="status">Looking for games installed on this PC…</p>{/if}
-  {#if error}<p class="error" role="alert">{error} Scan again to refresh the list.</p>{/if}
+  {#if scanning}<p class="scanning muted" role="status"><span class="spinner" aria-hidden="true"></span>Looking for games installed on this PC…</p>{/if}
+  {#if error}<p class="notice danger" role="alert">{error} Scan again to refresh the list.</p>{/if}
   {#if results.length}
     <div class="result" role="status">
       <p>{added} {added === 1 ? 'game' : 'games'} added.{existing ? ' ' + existing + ' already in your library.' : ''}</p>
@@ -103,12 +105,12 @@
       <label class="select-all"><input type="checkbox" checked={allSelected} disabled={!selectable.length || importing} onchange={event => toggleVisible(event.currentTarget.checked)} />Select all available games shown<span class="muted">{visible.length} found</span></label>
       <ul class="games">
         {#each visible as game (key(game))}
-          <li class:unavailable={Boolean(game.unavailable_reason)}>
+          <li class:unavailable={Boolean(game.unavailable_reason)} class:added={game.already_added}>
             <label class="game">
               <input type="checkbox" aria-label={'Add ' + game.name + ' from ' + (catalog.sources.find(item => item.source === game.source)?.name ?? game.source)} checked={selected.includes(key(game))} disabled={!canAdd(game) || importing} onchange={event => toggle(game, event.currentTarget.checked)} />
               <span class="cover"><AppCover name={game.name} uuid={game.uuid} path={game.has_cover ? 'installed' : ''} /></span>
               <span class="game-name"><strong>{game.name}</strong><span class="muted">{catalog.sources.find(item => item.source === game.source)?.name ?? game.source}</span>{#if game.unavailable_reason}<span class="error">{game.unavailable_reason}</span>{/if}</span>
-              <span class="game-state">{game.already_added ? 'Already added' : game.unavailable_reason ? 'Needs attention' : 'Installed'}</span>
+              <span class="game-state">{#if game.already_added}<Badge>Already added</Badge>{:else if game.unavailable_reason}<Badge tone="warn">Needs attention</Badge>{:else}Installed{/if}</span>
             </label>
           </li>
         {/each}
@@ -126,41 +128,58 @@
   {/if}
 </Panel>
 <div class="import-bar" class:has-selection={selected.length > 0}><p>{selected.length ? selected.length + ' selected' : 'Choose the games you want to add.'}<span class="muted">You can change names and covers later.</span></p><Button variant="primary" disabled={scanning || !selected.length || !catalog} busy={importing} onclick={importGames}>{importing ? 'Adding games…' : 'Add selected games'}</Button></div>
-<p class="muted source-help">Automatic Steam and Playnite synchronization is available in <a href="/library" use:link>Manage sources</a>. Choose launchers and game folders in <a href="/settings/library" use:link>Library settings</a>.</p>
+<p class="muted source-help">Launchers can add every installed game by themselves: turn them on under <a href="/library" use:link>Where your games come from</a>. Game folders are chosen in <a href="/settings/library" use:link>All settings › Games</a>.</p>
 
 <style>
-  .back { width: fit-content; min-height: var(--control-height); display: inline-flex; align-items: center; color: var(--muted); text-decoration: none; }
-  .filters { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(180px, 240px); gap: 20px; margin-bottom: 20px; }
-  .filters label { display: grid; gap: var(--space-2); }
+  .back { justify-self: start; width: fit-content; min-height: var(--control-height); display: inline-flex; align-items: center; gap: var(--space-1); font-size: var(--text-sm); color: var(--ink-2); text-decoration: none; }
+  .back:hover { color: var(--ink); text-decoration: underline; }
+  .back-icon { display: inline-flex; transform: rotate(180deg); }
+  .filters { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(180px, 260px); gap: var(--space-4) var(--space-5); margin-bottom: var(--space-3); }
+  .filters label { display: grid; gap: 6px; align-content: start; }
+  .label { font-size: var(--text-sm); font-weight: var(--weight-medium); }
+  .search { position: relative; }
+  .search-icon { position: absolute; left: var(--space-3); top: 50%; transform: translateY(-50%); color: var(--muted); pointer-events: none; }
+  .search .input { padding-left: 38px; }
+  .scanning { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-5) 0; font-size: var(--text-sm); }
+  .spinner { width: 18px; height: 18px; border: 2px solid var(--line-strong); border-top-color: var(--accent); border-radius: var(--radius-pill); animation: spin 0.8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .spinner { animation: none; } }
   .games { list-style: none; margin: 0; padding: 0; }
   .games li { border-top: 1px solid var(--line); }
-  .game { display: flex; gap: 18px; align-items: center; padding: var(--space-4) 0; cursor: pointer; }
-  input[type='checkbox'] { flex: 0 0 20px; width: 20px; height: 20px; accent-color: var(--accent); }
-  .cover { width: 52px; flex: 0 0 52px; }
-  .cover :global(.initials) { font-size: 20px; }
-  .game-name { display: grid; gap: var(--space-1); flex: 1; min-width: 0; overflow-wrap: anywhere; }
+  .game { display: flex; gap: var(--space-4); align-items: center; min-height: 72px; padding: var(--space-3) var(--space-2); margin: 0 calc(-1 * var(--space-2)); border-radius: var(--radius); cursor: pointer; transition: background-color var(--duration-fast) var(--ease-standard); }
+  .game:hover { background: var(--sunken); }
+  .added .game { cursor: default; }
+  .added .game:hover { background: none; }
+  .added .cover { opacity: 0.6; }
+  input[type='checkbox'] { flex: 0 0 20px; width: 20px; height: 20px; margin: 0; accent-color: var(--accent); }
+  .cover { width: 40px; flex: 0 0 40px; }
+  .game-name { display: grid; gap: 2px; flex: 1; min-width: 0; overflow-wrap: anywhere; }
+  .game-name strong { font-weight: var(--weight-semibold); }
   .game-name .muted, .game-state { font-size: var(--text-sm); }
-  .game-state { color: var(--muted); }
-  .select-all { display: flex; align-items: center; gap: 18px; min-height: 56px; }
-  .select-all span { margin-left: auto; font-size: var(--text-sm); }
-  .empty { display: grid; justify-items: start; gap: var(--space-4); padding: var(--space-6) 0; }
-  .sources { margin-top: var(--space-5); color: var(--muted); }
-  .source { display: flex; justify-content: space-between; gap: var(--space-4); padding: var(--space-2) 0; }
-  .sources .error { overflow-wrap: anywhere; }
-  .import-bar.has-selection { position: sticky; bottom: 16px; }
-  .import-bar { display: flex; justify-content: space-between; align-items: center; gap: var(--space-5); padding: 20px var(--space-5); border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--panel); box-shadow: var(--shadow); }
-  .import-bar p { display: grid; gap: var(--space-1); }
-  .import-bar .muted, .source-help { font-size: var(--text-sm); }
-  .result { display: grid; gap: var(--space-2); padding: var(--space-4) 0; }
+  .game-name .error { color: var(--danger); font-size: var(--text-sm); }
+  .game-state { color: var(--muted); white-space: nowrap; }
+  .select-all { display: flex; align-items: center; gap: var(--space-4); min-height: var(--control-height); font-size: var(--text-sm); font-weight: var(--weight-medium); cursor: pointer; }
+  .select-all span { margin-left: auto; font-weight: var(--weight-regular); }
+  .empty { display: grid; justify-items: start; gap: var(--space-3); padding: var(--space-6) 0; }
+  .empty h3 { font-size: var(--text-md); }
+  .sources { margin-top: var(--space-5); padding-top: var(--space-4); border-top: 1px solid var(--line); color: var(--muted); font-size: var(--text-sm); }
+  .sources summary { padding: var(--space-2) 0; cursor: pointer; color: var(--ink-2); font-weight: var(--weight-medium); }
+  .source { display: flex; justify-content: space-between; gap: var(--space-4); padding: var(--space-2) 0; border-bottom: 1px solid var(--line); }
+  .source strong { color: var(--ink-2); font-weight: var(--weight-medium); }
+  .sources .error { color: var(--danger); overflow-wrap: anywhere; }
+  .import-bar.has-selection { position: sticky; bottom: var(--space-4); z-index: var(--z-sticky); box-shadow: var(--shadow-pop); border-color: var(--line-strong); }
+  .import-bar { display: flex; justify-content: space-between; align-items: center; gap: var(--space-5); padding: var(--space-4) var(--space-5); border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--panel); box-shadow: var(--shadow); }
+  .import-bar p { display: grid; gap: 2px; font-weight: var(--weight-medium); }
+  .import-bar .muted, .source-help { font-size: var(--text-sm); font-weight: var(--weight-regular); }
+  .result { display: grid; gap: var(--space-2); justify-items: start; margin: var(--space-2) 0 var(--space-4); padding: var(--space-3) var(--space-4); border: 1px solid var(--line); border-radius: var(--radius); background: var(--sunken); color: var(--ink); }
+  .result .error { color: var(--danger); }
   @media (max-width: 600px) {
     .filters { grid-template-columns: 1fr; }
-    .game { display: grid; grid-template-columns: 20px 52px minmax(0, 1fr); gap: var(--space-1) var(--space-3); }
+    .game { display: grid; grid-template-columns: 20px 40px minmax(0, 1fr); gap: var(--space-1) var(--space-3); }
     .game > input, .game > .cover { grid-row: span 2; }
     .game-state { grid-column: 3; }
-    .select-all { flex-wrap: wrap; gap: var(--space-2); }
-    .select-all span { margin-left: 0; }
-    .import-bar { padding: var(--space-4); gap: var(--space-3); }
-    .import-bar.has-selection { bottom: 8px; }
+    .import-bar { padding: var(--space-3) var(--space-3) var(--space-3) var(--space-4); gap: var(--space-3); }
+    .import-bar.has-selection { bottom: var(--space-2); }
     .import-bar .muted { display: none; }
   }
 </style>

@@ -2,6 +2,7 @@
 <resources>
     <string name="overlay_compact">간단히</string>
     <string name="overlay_compact_fps">%1$s FPS</string>
+    <string name="overlay_compact_screen_hz">%1$s Hz 화면</string>
     <string name="overlay_compact_rtt">RTT %1$s ms</string>
     <string name="overlay_compact_loss">손실 %1$s%%</string>
     <string name="overlay_compact_waiting">영상 대기 중</string>

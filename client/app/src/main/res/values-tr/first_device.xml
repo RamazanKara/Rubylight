@@ -24,11 +24,13 @@
     <string name="overlay_network">Ağ</string>
     <string name="overlay_decode">Kod çözme</string>
     <string name="overlay_host">Ana bilgisayar</string>
-    <string name="perf_overlay_onscreenfps">Ekranda: %1$s</string>
+    <string name="perf_overlay_onscreenfps">Sunulan: %1$s</string>
     <string name="perf_overlay_shownfps">Render edilen: %1$s</string>
-    <string name="perf_overlay_presentdrops">Tahmini ekran kare atlamaları: %1$d</string>
+    <string name="perf_overlay_presentdrops">Ekran kare atlamaları: %1$s%% (son 2 sn)</string>
     <string name="perf_overlay_frame_pacing">Kare temposu: %1$s ms · titreşim %2$s ms · takılma %3$s%%</string>
     <string name="perf_overlay_frame_pacing_release">Kare temposu (bırakma zamanı): %1$s ms · titreşim %2$s ms · takılma %3$s%%</string>
+    <string name="perf_overlay_frame_pacing_fast">Kare temposu: %1$s ms · titreşim %2$s ms · takılma ölçülmedi: akış ekrandan hızlı</string>
+    <string name="perf_overlay_frame_pacing_release_fast">Kare temposu (bırakma zamanı): %1$s ms · titreşim %2$s ms · takılma ölçülmedi: akış ekrandan hızlı</string>
     <string name="perf_overlay_vsyncs_per_frame">Kare başına VSync: %1$s</string>
     <string name="perf_overlay_low_latency">Düşük gecikme modu: %1$s</string>
     <string name="perf_overlay_low_latency_android_vendor">Android + yonga üreticisi</string>

@@ -2,6 +2,7 @@
 <resources>
     <string name="overlay_compact">Thu gọn</string>
     <string name="overlay_compact_fps">%1$s FPS</string>
+    <string name="overlay_compact_screen_hz">màn hình %1$s Hz</string>
     <string name="overlay_compact_rtt">RTT %1$s ms</string>
     <string name="overlay_compact_loss">Mất %1$s%%</string>
     <string name="overlay_compact_waiting">Đang chờ video</string>

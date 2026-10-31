@@ -58,15 +58,53 @@ public final class PerformanceOverlay {
     }
 
     /**
+     * "Display drops: 1.5% (last 2 s)": the share of the overlay window's frames the screen never
+     * reported, from FrameLatencyStats.getDisplayDropPercent, "—" when not measured. The session's
+     * total stays in the CSV.
+     */
+    @SuppressWarnings("deprecation")
+    static String displayDropsText(Context context, float dropPercent) {
+        Locale locale = context.getResources().getConfiguration().locale;
+        return context.getString(R.string.perf_overlay_presentdrops, measurement(locale, dropPercent, "%.1f"));
+    }
+
+    /** The panel refresh rate for a vsync interval, -1 when it is not known. */
+    public static float refreshHz(long vsyncNs) {
+        return vsyncNs > 0 ? 1e9f / vsyncNs : -1;
+    }
+
+    /**
+     * Whether the stream brings clearly more frames than the panel refreshes (over 5 % more, so a
+     * 60 fps stream on a 59.94 Hz panel is not). The frames beyond the refresh rate cannot all be
+     * shown, which is not a fault, so the overlay says the screen's rate instead of flagging it.
+     */
+    public static boolean fasterThanScreen(float receivedFps, float refreshHz) {
+        return available(receivedFps) && available(refreshHz) && refreshHz > 0 && receivedFps > refreshHz * 1.05f;
+    }
+
+    static String presentJitterText(Context context, PresentJitter.Snapshot window) {
+        return presentJitterText(context, window, -1);
+    }
+
+    /**
      * The debug overlay's frame pacing lines, as Moonlight V+'s jitter monitor shows them
      * (qiin2333/moonlight-vplus, GPL-3.0): average present interval, jitter and judder, the share
      * of frames per vsync count, and the window as a timeline. Null without a window. Labelled as
-     * release-time pacing when the path has no render callbacks.
+     * release-time pacing when the path has no render callbacks. A stream faster than the screen
+     * (streamFps, -1 when unknown) puts every interval near half a vsync, where rounding to whole
+     * vsyncs splits them by noise: judder then says it is not measured, and the vsync counts and
+     * timeline are left out.
      */
     @SuppressWarnings("deprecation")
-    static String presentJitterText(Context context, PresentJitter.Snapshot window) {
+    static String presentJitterText(Context context, PresentJitter.Snapshot window, float streamFps) {
         if (window == null || window.count == 0) return null;
         Locale locale = context.getResources().getConfiguration().locale;
+        if (fasterThanScreen(streamFps, refreshHz(window.vsyncNs))) {
+            return context.getString(window.releaseTime ? R.string.perf_overlay_frame_pacing_release_fast
+                            : R.string.perf_overlay_frame_pacing_fast,
+                    measurement(locale, window.averageMs, "%.1f"),
+                    measurement(locale, window.jitterMs, "%.2f"));
+        }
         StringBuilder histogram = new StringBuilder();
         for (int units = 0; units <= PresentJitter.MAX_UNITS; units++) {
             if (window.histogram[units] == 0) continue;
@@ -102,7 +140,8 @@ public final class PerformanceOverlay {
     /**
      * The statistics lines with the stream's bandwidth on the wire (wireMbps: every video and audio
      * datagram, FEC parity included, -1 before it was measured) on its own line after the video
-     * payload, as Moonlight V+ shows its bandwidth.
+     * payload, as Moonlight V+ shows its bandwidth. The stream line ends with the received frame
+     * rate once measured, as Moonlight and Artemis lead with it.
      */
     @SuppressWarnings("deprecation")
     public static CharSequence statisticsText(Context context, String stream, float shownFps, float receivedFps,
@@ -110,6 +149,9 @@ public final class PerformanceOverlay {
                                                float varianceMs, float hostMs, float hostToNetworkMs, float decodeMs,
                                                float displayMs, boolean submissionOnly) {
         Locale locale = context.getResources().getConfiguration().locale;
+        if (available(receivedFps) && receivedFps > 0) {
+            stream += " · " + context.getString(R.string.overlay_compact_fps, measurement(locale, receivedFps, "%.2f"));
+        }
         String frames = context.getString(R.string.stats_frame_rates,
                 measurement(locale, shownFps, "%.1f"), measurement(locale, receivedFps, "%.1f"));
         String throughput = context.getString(R.string.stats_throughput,
@@ -129,21 +171,30 @@ public final class PerformanceOverlay {
         return text;
     }
 
-    /**
-     * The dot is red for loss of 5% or more, a round trip of 80 ms or more, or a quarter of the received
-     * frames not shown; amber from 1% loss, 40 ms, a tenth of the frames not shown, or decoding slower than
-     * a frame; green otherwise. Grey until there is a measurement.
-     */
     public static Health health(float shownFps, float receivedFps, float networkMs, float frameLossPercent,
                                 float decodeMs) {
-        boolean frames = available(shownFps) && available(receivedFps) && receivedFps > 0;
+        return health(shownFps, receivedFps, -1, networkMs, frameLossPercent, decodeMs);
+    }
+
+    /**
+     * The dot is red for loss of 5% or more, a round trip of 80 ms or more, or a quarter of the frames the
+     * screen can show not shown; amber from 1% loss, 40 ms, a tenth of those frames not shown, or decoding
+     * slower than a received frame; green otherwise. Grey until there is a measurement. The frames the screen
+     * can show are the received ones, but at most the panel's refresh rate (refreshHz, -1 when unknown): a
+     * stream faster than the screen is not a fault. As nightjar_policy::overlay::health.
+     */
+    public static Health health(float shownFps, float receivedFps, float refreshHz, float networkMs,
+                                float frameLossPercent, float decodeMs) {
+        float showable = available(receivedFps) && available(refreshHz) && refreshHz > 0 ?
+                Math.min(receivedFps, refreshHz) : receivedFps;
+        boolean frames = available(shownFps) && available(showable) && showable > 0;
         if (!available(shownFps) && !available(networkMs) && !available(frameLossPercent)) return Health.UNKNOWN;
         if ((available(frameLossPercent) && frameLossPercent >= 5) || (available(networkMs) && networkMs >= 80) ||
-                (frames && shownFps < receivedFps * 0.75f)) {
+                (frames && shownFps < showable * 0.75f)) {
             return Health.POOR;
         }
         if ((available(frameLossPercent) && frameLossPercent >= 1) || (available(networkMs) && networkMs >= 40) ||
-                (frames && shownFps < receivedFps * 0.9f) ||
+                (frames && shownFps < showable * 0.9f) ||
                 (available(decodeMs) && available(receivedFps) && receivedFps > 0 && decodeMs > 1000f / receivedFps)) {
             return Health.FAIR;
         }
@@ -205,13 +256,26 @@ public final class PerformanceOverlay {
     }
 
     /** As above, with the FPS the dot judges given apart from the one shown. */
-    @SuppressWarnings("deprecation")
     public static CharSequence compactText(Context context, float shownFps, float healthFps, float receivedFps,
                                            float networkMs, float frameLossPercent, float decodeMs) {
+        return compactText(context, shownFps, healthFps, receivedFps, -1, networkMs, frameLossPercent, decodeMs);
+    }
+
+    /**
+     * As above, judged against the panel's refresh rate (refreshHz, -1 when unknown). A stream clearly
+     * faster than the screen gets "60 Hz screen" after the FPS, so the rate below the stream's reads as
+     * the screen's limit, not a fault.
+     */
+    @SuppressWarnings("deprecation")
+    public static CharSequence compactText(Context context, float shownFps, float healthFps, float receivedFps,
+                                           float refreshHz, float networkMs, float frameLossPercent, float decodeMs) {
         Locale locale = context.getResources().getConfiguration().locale;
         ArrayList<String> values = new ArrayList<>();
         if (available(shownFps)) {
             values.add(context.getString(R.string.overlay_compact_fps, measurement(locale, shownFps, "%.1f")));
+            if (fasterThanScreen(receivedFps, refreshHz)) {
+                values.add(context.getString(R.string.overlay_compact_screen_hz, measurement(locale, refreshHz, "%.0f")));
+            }
         }
         if (available(networkMs)) {
             values.add(context.getString(R.string.overlay_compact_rtt, measurement(locale, networkMs, "%.0f")));
@@ -220,7 +284,7 @@ public final class PerformanceOverlay {
             values.add(context.getString(R.string.overlay_compact_loss, measurement(locale, frameLossPercent, "%.1f")));
         }
         if (values.isEmpty()) return "";
-        Health health = health(healthFps, receivedFps, networkMs, frameLossPercent, decodeMs);
+        Health health = health(healthFps, receivedFps, refreshHz, networkMs, frameLossPercent, decodeMs);
         SpannableString text = new SpannableString(healthGlyph(health) + " " + android.text.TextUtils.join(" · ", values));
         text.setSpan(new HealthSpan(health), 0, 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         return text;

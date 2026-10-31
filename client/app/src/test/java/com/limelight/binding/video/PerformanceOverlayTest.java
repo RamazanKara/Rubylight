@@ -31,7 +31,7 @@ public class PerformanceOverlayTest {
     public void statisticsSeparatesMeasuredStagesInReadableLines() {
         String text = PerformanceOverlay.statisticsText(context(Locale.US), "1920×1080 · AV1 · HDR",
                 59.94f, 60, 20.4f, 0.14f, 8, 1, 2.1f, -1, 4.6f, 1.2f, false).toString();
-        assertEquals("1920×1080 · AV1 · HDR\n" +
+        assertEquals("1920×1080 · AV1 · HDR · 60.00 FPS\n" +
                 "Rendered: 59.9 FPS · Received: 60.0 FPS\n" +
                 "Video payload: 20.4 Mbps · Loss: 0.14%\n" +
                 "Network RTT: 8 ms (±1 ms)\n" +
@@ -86,7 +86,9 @@ public class PerformanceOverlayTest {
             assertTrue(text.contains("Network RTT: — ms (±— ms)"));
             assertTrue(text.contains("Host processing: — ms"));
             assertTrue(text.contains("Decode: — ms · Display wait: — ms"));
-            assertFalse(text.contains("0.00"));
+            // The received 60 leads the stream line; nothing missing reads as a zero.
+            assertTrue(text, text.startsWith("1280×720 · PyroWave · SDR · 60.00 FPS\n"));
+            assertFalse(text.replace("60.00 FPS", "").contains("0.00"));
         }
         assertEquals("0.00", PerformanceOverlay.measurement(Locale.US, 0, "%.2f"));
     }
@@ -193,15 +195,15 @@ public class PerformanceOverlayTest {
                 120, 120, 450, 0, 8, 1, header, PerformanceOverlay.average(summary, FrameLatencyStats.HOST_SENT_STAGE),
                 1, 1, false).toString();
         assertTrue(with, with.contains("Host processing: 0.5 ms\n"));
-        assertTrue(with, with.contains("Host to network: 4.9 ms\n"));
-        assertFalse(with, with.contains("send"));
+        assertTrue(with, with.contains("Host incl. send: 4.9 ms\n"));
+        assertFalse(with, with.contains("Host processing + send"));
         // Same Host processing line with and without a report; only the extra line differs.
         assertTrue(without, without.contains("Host processing: 0.5 ms\n"));
-        assertFalse(without, without.contains("Host to network"));
-        assertEquals(without.replace("Host processing: 0.5 ms\n", "Host processing: 0.5 ms\nHost to network: 4.9 ms\n"), with);
+        assertFalse(without, without.contains("Host incl. send"));
+        assertEquals(without.replace("Host processing: 0.5 ms\n", "Host processing: 0.5 ms\nHost incl. send: 4.9 ms\n"), with);
         String german = PerformanceOverlay.statisticsText(context(Locale.GERMANY), "1280×720 · PyroWave · SDR",
                 120, 120, 450, 0, 8, 1, 0.5f, 4.9f, 1, 1, false).toString();
-        assertTrue(german, german.contains("Host-Verarbeitung: 0,5 ms\nHost bis Netzwerk: 4,9 ms"));
+        assertTrue(german, german.contains("Host-Verarbeitung: 0,5 ms\nHost inkl. Senden: 4,9 ms"));
     }
 
     @Test
@@ -335,6 +337,58 @@ public class PerformanceOverlayTest {
         assertTrue(PerformanceOverlay.describeCompact(context(Locale.US), fair).startsWith("Stream struggling: "));
     }
 
+    // Regression: a Retroid Pocket 5 (60 Hz panel) streaming 120 fps showed "▲ 103.0 FPS" in amber
+    // while Moonlight and Artemis showed a healthy 120 FPS stream: the screen cannot show more than 60.
+    @Test
+    public void aStreamFasterThanTheScreenIsJudgedAgainstTheRefreshRateAndSaysSo() {
+        assertEquals(PerformanceOverlay.Health.GOOD, PerformanceOverlay.health(60, 120, 60, 8, 0, 4));
+        assertEquals(PerformanceOverlay.Health.GOOD, PerformanceOverlay.health(101.5f, 120, 60, 8, 0, 4));
+        CharSequence text = PerformanceOverlay.compactText(context(Locale.US), 103, 101.5f, 120, 60, 8, 0, 4);
+        assertEquals("● 103.0 FPS · 60 Hz screen · 8 ms RTT · 0.0% loss", text.toString());
+        assertEquals(PerformanceOverlay.Health.GOOD, healthOf(text));
+        assertEquals("● 103,0 FPS · 60-Hz-Bildschirm · 8 ms RTT · 0,0% Verlust",
+                PerformanceOverlay.compactText(context(Locale.GERMANY), 103, 101.5f, 120, 60, 8, 0, 4).toString());
+        // Without a known refresh rate the dot judges the received rate as before.
+        assertEquals(PerformanceOverlay.Health.POOR, PerformanceOverlay.health(60, 120, -1, 8, 0, 4));
+        assertEquals("✕ 103.0 FPS · 8 ms RTT · 0.0% loss",
+                PerformanceOverlay.compactText(context(Locale.US), 103, 60, 120, -1, 8, 0, 4).toString());
+    }
+
+    @Test
+    public void framesMissingBelowTheRefreshRateStillTurnTheDotRedWithoutAScreenHint() {
+        assertEquals(PerformanceOverlay.Health.POOR, PerformanceOverlay.health(40, 60, 60, 8, 0, 4));
+        assertEquals(PerformanceOverlay.Health.FAIR, PerformanceOverlay.health(50, 60, 60, 8, 0, 4));
+        // Below the panel rate the frames still judge against the received rate.
+        assertEquals(PerformanceOverlay.Health.POOR, PerformanceOverlay.health(40, 60, 120, 8, 0, 4));
+        CharSequence text = PerformanceOverlay.compactText(context(Locale.US), 40, 40, 60, 60, 8, 0, 4);
+        assertEquals("✕ 40.0 FPS · 8 ms RTT · 0.0% loss", text.toString());
+        // A 60 fps stream on a 59.94 Hz panel is not faster than the screen.
+        assertFalse(PerformanceOverlay.fasterThanScreen(60, 59.94f));
+        assertTrue(PerformanceOverlay.fasterThanScreen(120, 60));
+        assertFalse(PerformanceOverlay.fasterThanScreen(120, -1));
+        assertEquals("● 59.9 FPS · 8 ms RTT · 0.0% loss",
+                PerformanceOverlay.compactText(context(Locale.US), 59.94f, 59.94f, 60, 59.94f, 8, 0, 4).toString());
+        assertEquals(60, PerformanceOverlay.refreshHz(16_666_667L), 0.01f);
+        assertEquals(-1, PerformanceOverlay.refreshHz(0), 0);
+    }
+
+    @Test
+    public void theStatisticsStreamLineLeadsWithTheReceivedFrameRate() {
+        String text = PerformanceOverlay.statisticsText(context(Locale.US), "1920×1080 · HEVC · SDR",
+                103, 120, 20.4f, 0.14f, 8, 1, 2.1f, -1, 4.6f, 1.2f, false).toString();
+        assertTrue(text, text.startsWith("1920×1080 · HEVC · SDR · 120.00 FPS\nRendered: 103.0 FPS · Received: 120.0 FPS\n"));
+        String before = PerformanceOverlay.statisticsText(context(Locale.US), "1920×1080 · HEVC · SDR",
+                -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, false).toString();
+        assertTrue(before, before.startsWith("1920×1080 · HEVC · SDR\n"));
+    }
+
+    @Test
+    public void displayDropsAreAPercentageOfTheWindow() {
+        assertEquals("Display drops: 2.5% (last 2 s)", PerformanceOverlay.displayDropsText(context(Locale.US), 2.5f));
+        assertEquals("Display drops: —% (last 2 s)", PerformanceOverlay.displayDropsText(context(Locale.US), -1));
+        assertEquals("Anzeigeverluste: 2,5% (letzte 2 s)", PerformanceOverlay.displayDropsText(context(Locale.GERMANY), 2.5f));
+    }
+
     @Test
     public void overlayColoursAreTheNightStatusTokens() {
         // Over video the overlay uses the media (night) tones whatever the app theme is.
@@ -455,6 +509,29 @@ public class PerformanceOverlayTest {
         assertTrue(text, text.endsWith("Vsyncs per frame: 0: 2.5% · 1: 95.0% · 3: 2.5%\n▁▁▃▁▁▁▁▁▁▁"));
         text = PerformanceOverlay.presentJitterText(context(Locale.GERMANY), window);
         assertTrue(text, text.startsWith("Bildtakt (Freigabezeit): "));
+    }
+
+    // Regression: 120 fps on a 60 Hz panel put every interval on the half-vsync rounding edge, so noise
+    // split them between 0 and 1 vsyncs and read as 14.2% judder.
+    @Test
+    public void judderIsNotMeasuredWhenTheStreamIsFasterThanTheScreen() {
+        PresentJitter.Snapshot window = pacingWindow();
+        String text = PerformanceOverlay.presentJitterText(context(Locale.US), window, 120);
+        assertEquals(String.format(Locale.US,
+                "Frame pacing: %.1f ms · jitter %.2f ms · judder not measured: stream faster than screen",
+                window.averageMs, window.jitterMs), text);
+        window.releaseTime = true;
+        assertTrue(PerformanceOverlay.presentJitterText(context(Locale.US), window, 120)
+                .startsWith("Frame pacing (release time): "));
+        assertTrue(PerformanceOverlay.presentJitterText(context(Locale.GERMANY), window, 120)
+                .endsWith("Ruckler nicht gemessen: Stream schneller als Bildschirm"));
+        // At or below the refresh rate, or with the stream rate unknown, judder is counted as before.
+        window.releaseTime = false;
+        for (float fps : new float[] {60, 59, -1}) {
+            assertEquals(PerformanceOverlay.presentJitterText(context(Locale.US), window),
+                    PerformanceOverlay.presentJitterText(context(Locale.US), window, fps));
+        }
+        assertTrue(PerformanceOverlay.presentJitterText(context(Locale.US), window, 60).contains("judder 5.0%"));
     }
 
     @Test

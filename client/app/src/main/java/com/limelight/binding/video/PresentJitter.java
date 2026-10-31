@@ -86,6 +86,7 @@ final class PresentJitter {
         if (!enabled || vsyncNs <= 0 || size == 0) return null;
         Snapshot out = new Snapshot();
         out.releaseTime = releaseTime;
+        out.vsyncNs = vsyncNs;
         long maxNs = vsyncNs * MAX_GAP_UNITS;
         int index = (head - size + CAPACITY) % CAPACITY;
         long sumNs = 0;
@@ -120,6 +121,8 @@ final class PresentJitter {
         final long[] intervalsNs = new long[CAPACITY];
         final byte[] units = new byte[CAPACITY];
         final int[] histogram = new int[MAX_UNITS + 1];
+        // The vsync the window was counted against.
+        long vsyncNs;
         int count;
         int modeUnits;
         float averageMs;

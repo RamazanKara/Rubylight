@@ -2,6 +2,7 @@
 <resources>
     <string name="overlay_compact">Kompakt</string>
     <string name="overlay_compact_fps">%1$s FPS</string>
+    <string name="overlay_compact_screen_hz">%1$s Hz ekran</string>
     <string name="overlay_compact_rtt">%1$s ms RTT</string>
     <string name="overlay_compact_loss">%%%1$s kayıp</string>
     <string name="overlay_compact_waiting">Video bekleniyor</string>

@@ -2,6 +2,7 @@
 <resources>
     <string name="overlay_compact">Compacta</string>
     <string name="overlay_compact_fps">%1$s FPS</string>
+    <string name="overlay_compact_screen_hz">tela de %1$s Hz</string>
     <string name="overlay_compact_rtt">RTT de %1$s ms</string>
     <string name="overlay_compact_loss">%1$s%% de perda</string>
     <string name="overlay_compact_waiting">Aguardando vídeo</string>

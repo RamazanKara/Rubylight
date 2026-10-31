@@ -9,7 +9,7 @@
     <string name="stats_wire">Trên đường truyền: %1$s Mbps gồm FEC và âm thanh</string>
     <string name="stats_network">RTT mạng: %1$s ms (±%2$s ms)</string>
     <string name="stats_host">Xử lý trên máy chủ: %1$s ms</string>
-    <string name="stats_host_network">Máy chủ đến mạng: %1$s ms</string>
+    <string name="stats_host_network">Máy chủ kèm gửi: %1$s ms</string>
     <string name="stats_client">Giải mã: %1$s ms · Chờ hiển thị: %2$s ms</string>
     <string name="hardware_title">Phần cứng máy chủ (tất cả GPU)</string>
     <string name="hardware_cpu">CPU máy chủ: %1$s%%</string>

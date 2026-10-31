@@ -8,7 +8,7 @@
     <string name="stats_wire">Auf der Leitung: %1$s Mbit/s mit FEC und Audio</string>
     <string name="stats_network">Netzwerk-RTT: %1$s ms (±%2$s ms)</string>
     <string name="stats_host">Host-Verarbeitung: %1$s ms</string>
-    <string name="stats_host_network">Host bis Netzwerk: %1$s ms</string>
+    <string name="stats_host_network">Host inkl. Senden: %1$s ms</string>
     <string name="stats_client">Dekodierung: %1$s ms · Anzeigewartezeit: %2$s ms</string>
     <string name="hardware_title">Host-Hardware (alle GPUs)</string>
     <string name="hardware_cpu">Host-CPU: %1$s%%</string>

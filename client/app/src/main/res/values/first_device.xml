@@ -24,11 +24,13 @@
     <string name="overlay_network">Network</string>
     <string name="overlay_decode">Decode</string>
     <string name="overlay_host">Host</string>
-    <string name="perf_overlay_onscreenfps">On screen: %1$s</string>
+    <string name="perf_overlay_onscreenfps">Presented: %1$s</string>
     <string name="perf_overlay_shownfps">Rendered: %1$s</string>
-    <string name="perf_overlay_presentdrops">Estimated display drops: %1$d</string>
+    <string name="perf_overlay_presentdrops">Display drops: %1$s%% (last 2 s)</string>
     <string name="perf_overlay_frame_pacing">Frame pacing: %1$s ms · jitter %2$s ms · judder %3$s%%</string>
     <string name="perf_overlay_frame_pacing_release">Frame pacing (release time): %1$s ms · jitter %2$s ms · judder %3$s%%</string>
+    <string name="perf_overlay_frame_pacing_fast">Frame pacing: %1$s ms · jitter %2$s ms · judder not measured: stream faster than screen</string>
+    <string name="perf_overlay_frame_pacing_release_fast">Frame pacing (release time): %1$s ms · jitter %2$s ms · judder not measured: stream faster than screen</string>
     <string name="perf_overlay_vsyncs_per_frame">Vsyncs per frame: %1$s</string>
     <string name="perf_overlay_low_latency">Low latency mode: %1$s</string>
     <string name="perf_overlay_low_latency_android_vendor">Android + chip vendor</string>

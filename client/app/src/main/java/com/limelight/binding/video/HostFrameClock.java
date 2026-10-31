@@ -267,7 +267,7 @@ final class HostFrameClock {
                 "Host frame times: held %.1f ms | ready after plan %.1f%%", lastHoldUs / 1000.0,
                 100.0 * stats[1] / stats[0]));
         if (lastLatencyUs >= 0) {
-            line.append(String.format(Locale.US, " | host to present %.1f ms", lastLatencyUs / 1000.0));
+            line.append(String.format(Locale.US, " | host to present (end to end) %.1f ms", lastLatencyUs / 1000.0));
         }
         return line.toString();
     }

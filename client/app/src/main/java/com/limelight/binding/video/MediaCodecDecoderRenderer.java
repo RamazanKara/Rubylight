@@ -4036,7 +4036,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             // Rendered FPS counts frames submitted for display, like other Moonlight clients;
             // compositor confirmations (stage 2) only feed the latency diagnostics.
             String shownFps = metric(PerformanceOverlay.renderedFps(frameRates), " FPS");
-            long presentDrops = frameLatencyStats.getPresentDrops();
+            float displayDropPercent = frameLatencyStats.getDisplayDropPercent(System.nanoTime());
             boolean mediaCodec = (videoFormat & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) == 0;
             long rttInfo = MoonBridge.getEstimatedRttInfo();
             float networkMs = rttInfo == -1 ? -1 : (int) (rttInfo >> 32);
@@ -4070,12 +4070,13 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                 video.append(context.getString(R.string.perf_overlay_onscreenfps,
                         metric(frameRates[2], " FPS"))).append('\n');
             }
-            video.append(context.getString(R.string.perf_overlay_presentdrops, presentDrops)).append('\n');
+            video.append(PerformanceOverlay.displayDropsText(context, displayDropPercent)).append('\n');
             long vsyncNs;
             synchronized (vsyncMonitor) {
                 vsyncNs = vsyncIntervalNs;
             }
-            String pacing = PerformanceOverlay.presentJitterText(context, frameLatencyStats.presentJitter(vsyncNs));
+            String pacing = PerformanceOverlay.presentJitterText(context, frameLatencyStats.presentJitter(vsyncNs),
+                    frameRates[0]);
             if (pacing != null) video.append(pacing).append('\n');
             video.append((videoFormat & MoonBridge.VIDEO_FORMAT_MASK_YUV444) != 0 ? "YUV 4:4:4" : "YUV 4:2:0");
             if ((videoFormat & MoonBridge.VIDEO_FORMAT_MASK_10BIT) != 0) {
@@ -4127,7 +4128,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                             PerformanceOverlay.average(timings, FrameLatencyStats.HOST_SENT_STAGE), shownDecodeTimeMs,
                             PerformanceOverlay.average(timings, 2), !mediaCodec),
                     PerformanceOverlay.compactText(context, PerformanceOverlay.renderedFps(frameRates),
-                            PerformanceOverlay.healthFps(frameRates), frameRates[0], networkMs,
+                            PerformanceOverlay.healthFps(frameRates), frameRates[0],
+                            PerformanceOverlay.refreshHz(vsyncNs), networkMs,
                             fps.lossPercent, decodeTimeMs));
         }
     }

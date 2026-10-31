@@ -140,7 +140,7 @@ public class LatencyOverlaySmokeActivity extends Activity {
                 getString(R.string.perf_overlay_incomingfps, 120f) + '\n' +
                 getString(R.string.perf_overlay_onscreenfps, "119.94 FPS") + '\n' +
                 getString(R.string.perf_overlay_shownfps, "119.94 FPS") + '\n' +
-                getString(R.string.perf_overlay_presentdrops, 0) + "\nYUV 4:2:0 10-bit\n" +
+                getString(R.string.perf_overlay_presentdrops, "0.0") + "\nYUV 4:2:0 10-bit\n" +
                 "Panel: 120.00 Hz · render: 120.00 Hz · VRR: max Hz";
         String network = getString(R.string.perf_overlay_netdrops, 0.14f) + '\n' +
                 getString(R.string.perf_overlay_netlatency, 8, 1) + '\n' +

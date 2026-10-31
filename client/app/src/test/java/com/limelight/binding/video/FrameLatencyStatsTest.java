@@ -437,6 +437,44 @@ public class FrameLatencyStatsTest {
         assertEquals(1, stats.getPresentDrops());
     }
 
+    // Regression: the overlay's display drops were a running total for the whole stream, so one bad
+    // moment read as an ongoing fault for the rest of it.
+    @Test
+    public void displayDropsArePerOverlayWindowAndLeaveItWhileTheTotalStays() {
+        FrameLatencyStats stats = new FrameLatencyStats();
+        long startNs = 1_000_000_000L;
+        stats.onFrameReceived(startNs);
+        for (int i = 1; i <= 240; i++) {
+            long t = startNs + i * 16_666_667L;
+            stats.onFrameReceived(t);
+            stats.onDecoderInput(i, i, t, t, t, (char) 0);
+            stats.onDecoderOutput(0, i, t + 1_000_000L);
+            stats.onOutputReleased(0, t + 2_000_000L, true, true);
+            // Three of the first two seconds' 120 frames never reach the screen.
+            if (i <= 120 && i % 40 == 0) stats.onFrameReplaced(i);
+            else stats.onFrameRendered(i, t + 5_000_000L);
+        }
+        assertEquals(2.5f, stats.getDisplayDropPercent(startNs + 2_010_000_000L), 0.001f);
+        // The next two seconds were clean: the window shows none, the total for the CSV keeps them.
+        assertEquals(0, stats.getDisplayDropPercent(startNs + 4_010_000_000L), 0);
+        assertEquals(3, stats.getPresentDrops());
+        // No frame submitted in the window: not measured.
+        assertEquals(-1, stats.getDisplayDropPercent(startNs + 9_000_000_000L), 0);
+        stats.discardPending("codec_reset");
+        assertEquals(-1, stats.getDisplayDropPercent(startNs + 2_010_000_000L), 0);
+        assertEquals(3, stats.getPresentDrops());
+    }
+
+    @Test
+    public void displayDropsAreNotMeasuredWithoutRenderCallbacks() {
+        FrameLatencyStats stats = new FrameLatencyStats();
+        stats.onFrameReceived(1_000_000_000L);
+        stats.onDecoderInput(1, 1, 1_000_000_000L, 1_000_000_000L, 1_000_000_000L, (char) 0);
+        stats.onDecoderOutput(0, 1, 1_004_000_000L);
+        stats.onOutputReleased(0, 1_005_000_000L, true, false);
+        assertEquals(-1, stats.getDisplayDropPercent(1_500_000_000L), 0);
+    }
+
     @Test
     public void aReportedFrameIsNotADropWhenItsTimeoutPasses() {
         FrameLatencyStats stats = new FrameLatencyStats();

@@ -24,11 +24,13 @@
     <string name="overlay_network">ネットワーク</string>
     <string name="overlay_decode">デコード</string>
     <string name="overlay_host">ホスト</string>
-    <string name="perf_overlay_onscreenfps">画面表示: %1$s</string>
+    <string name="perf_overlay_onscreenfps">表示に送出: %1$s</string>
     <string name="perf_overlay_shownfps">描画: %1$s</string>
-    <string name="perf_overlay_presentdrops">推定表示ドロップ数: %1$d</string>
+    <string name="perf_overlay_presentdrops">表示ドロップ: %1$s%%（直近 2 秒）</string>
     <string name="perf_overlay_frame_pacing">フレーム間隔: %1$s ms · ジッター %2$s ms · カクつき %3$s%%</string>
     <string name="perf_overlay_frame_pacing_release">フレーム間隔（リリース時刻）: %1$s ms · ジッター %2$s ms · カクつき %3$s%%</string>
+    <string name="perf_overlay_frame_pacing_fast">フレーム間隔: %1$s ms · ジッター %2$s ms · カクつき 未測定: ストリームが画面より高速</string>
+    <string name="perf_overlay_frame_pacing_release_fast">フレーム間隔（リリース時刻）: %1$s ms · ジッター %2$s ms · カクつき 未測定: ストリームが画面より高速</string>
     <string name="perf_overlay_vsyncs_per_frame">フレームあたりのVSync: %1$s</string>
     <string name="perf_overlay_low_latency">低遅延モード: %1$s</string>
     <string name="perf_overlay_low_latency_android_vendor">Android + チップベンダー</string>

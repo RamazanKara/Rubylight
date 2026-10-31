@@ -2,6 +2,7 @@
 <resources>
     <string name="overlay_compact">Компактний</string>
     <string name="overlay_compact_fps">%1$s FPS</string>
+    <string name="overlay_compact_screen_hz">екран %1$s Гц</string>
     <string name="overlay_compact_rtt">RTT %1$s мс</string>
     <string name="overlay_compact_loss">Втрати %1$s%%</string>
     <string name="overlay_compact_waiting">Очікування відео</string>

@@ -2,6 +2,7 @@
 <resources>
     <string name="overlay_compact">コンパクト</string>
     <string name="overlay_compact_fps">%1$s FPS</string>
+    <string name="overlay_compact_screen_hz">%1$s Hz 画面</string>
     <string name="overlay_compact_rtt">RTT %1$s ms</string>
     <string name="overlay_compact_loss">損失 %1$s%%</string>
     <string name="overlay_compact_waiting">映像を待機中</string>

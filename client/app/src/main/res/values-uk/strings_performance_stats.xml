@@ -9,7 +9,7 @@
     <string name="stats_wire">У мережі: %1$s Мбіт/с з FEC і звуком</string>
     <string name="stats_network">RTT мережі: %1$s мс (±%2$s мс)</string>
     <string name="stats_host">Обробка на хості: %1$s мс</string>
-    <string name="stats_host_network">Хост до мережі: %1$s мс</string>
+    <string name="stats_host_network">Хост із надсиланням: %1$s мс</string>
     <string name="stats_client">Декодування: %1$s мс · Очікування показу: %2$s мс</string>
     <string name="hardware_title">Обладнання хоста (усі GPU)</string>
     <string name="hardware_cpu">CPU хоста: %1$s%%</string>

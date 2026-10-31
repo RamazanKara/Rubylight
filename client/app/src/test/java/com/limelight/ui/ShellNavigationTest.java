@@ -564,4 +564,26 @@ public class ShellNavigationTest {
             controller.pause().stop().destroy();
         }
     }
+
+    @Test
+    public void settingsFromTheBarIsATopLevelPageWithoutABackArrowUntilSearchOpens() {
+        ActivityController<StreamSettings> controller = settingsFromTheBar();
+        try {
+            StreamSettings screen = controller.get();
+            com.google.android.material.appbar.MaterialToolbar toolbar = screen.findViewById(R.id.settings_toolbar);
+            assertNull("PCs and Home have no back arrow; Settings from the bar is their sibling", toolbar.getNavigationIcon());
+            screen.openSearch();
+            assertNotNull("the open search field closes with the arrow", toolbar.getNavigationIcon());
+        } finally {
+            controller.pause().stop().destroy();
+        }
+        ActivityController<StreamSettings> elsewhere = Robolectric.buildActivity(StreamSettings.class,
+                new Intent(context, StreamSettings.class)).setup().visible();
+        try {
+            com.google.android.material.appbar.MaterialToolbar toolbar = elsewhere.get().findViewById(R.id.settings_toolbar);
+            assertNotNull("opened from a menu or a shortcut, Settings returns where it came from", toolbar.getNavigationIcon());
+        } finally {
+            elsewhere.pause().stop().destroy();
+        }
+    }
 }

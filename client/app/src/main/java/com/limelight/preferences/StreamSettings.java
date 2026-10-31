@@ -411,6 +411,19 @@ public class StreamSettings extends NightjarActivity {
         findViewById(R.id.shell_bar).setVisibility(overview && searchQuery.isEmpty() ? View.VISIBLE : View.GONE);
         toolbar.setNavigationContentDescription(returnSearchQuery != null ? R.string.settings_back_to_search :
                 overview ? R.string.settings_navigate_up : R.string.settings_back_to_overview);
+        updateNavigation();
+    }
+
+    /**
+     * Opened from the shell bar, the list of sections is a top-level page like PCs and Home, so it has no back arrow;
+     * a section, the search field or its results bring the arrow back. Opened any other way, the arrow always shows.
+     */
+    private void updateNavigation() {
+        boolean topLevel = fromShell && searchQuery.isEmpty() && returnSearchQuery == null
+                && searchView.getVisibility() != View.VISIBLE && (section == null || twoPane);
+        if (topLevel == (toolbar.getNavigationIcon() == null)) return;
+        toolbar.setNavigationIcon(topLevel ? null
+                : androidx.appcompat.content.res.AppCompatResources.getDrawable(this, R.drawable.ic_arrow_back));
     }
 
     private void renderSearch() {
@@ -444,6 +457,7 @@ public class StreamSettings extends NightjarActivity {
     /** Shows the search field under the top app bar and focuses it; search stays out of the way until asked for. */
     public void openSearch() {
         searchView.setVisibility(View.VISIBLE);
+        updateNavigation();
         linkListsToSearch();
         searchView.setIconified(false);
         searchView.requestFocus();
@@ -526,6 +540,7 @@ public class StreamSettings extends NightjarActivity {
         if (searchQuery.isEmpty() && searchView.getVisibility() == View.VISIBLE) {
             searchView.clearFocus();
             searchView.setVisibility(View.GONE);
+            updateNavigation();
             linkListsToSearch();
             ListView list = sectionList();
             if (list != null && RootFragment.showsSearchRow(this, twoPane)) list.requestFocus();

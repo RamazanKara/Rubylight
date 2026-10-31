@@ -55,7 +55,6 @@ public class StreamConfiguration {
     // Packed 4:4:4 as this session uses it (off for a session reconnected after the GPU path failed).
     private boolean packed444;
     private int attachedGamepadMask;
-    private int encryptionFlags;
     private int colorRange;
     private int colorSpace;
     private boolean persistGamepadsAfterDisconnect;

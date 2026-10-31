@@ -6,7 +6,7 @@ use butterpollo_core::{
 };
 use serde_json::{Value, json};
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     path::{Path, PathBuf},
     sync::{LazyLock, Mutex, MutexGuard, PoisonError},
     time::{Duration, Instant},
@@ -184,12 +184,17 @@ pub fn restore(h: &Shared, keys: Option<&[String]>) -> Result<Value> {
     if keys.is_some_and(<[String]>::is_empty) {
         anyhow::bail!("Select at least one game.");
     }
+    let chosen: Option<HashSet<&str>> = keys.map(|keys| keys.iter().map(String::as_str).collect());
     let mut restored = 0;
     crate::steam::update_library(h, |_, document| {
         let before = dismissed(document);
         let kept: Vec<&String> = before
             .iter()
-            .filter(|key| keys.is_some_and(|keys| !keys.contains(key)))
+            .filter(|key| {
+                chosen
+                    .as_ref()
+                    .is_some_and(|chosen| !chosen.contains(key.as_str()))
+            })
             .collect();
         restored = before.len() - kept.len();
         if restored > 0 {

@@ -67,6 +67,78 @@ export function toggled(selected: ReadonlySet<string>, key: string): Set<string>
 /** "1 app" or "3 apps". */
 export const counted = (count: number, word: string) => `${count} ${word}${count === 1 ? '' : 's'}`;
 
+/** What to tell the user after a restore, by whether the sync after it ran. */
+export function restoreMessage(restored: number, synced: boolean, automatic: boolean): { text: string; tone: 'ok' | 'warn' } {
+  const games = counted(restored, 'game');
+  if (!automatic) return { text: `Restored ${games}: pick them again in Add games.`, tone: 'ok' };
+  if (!synced) return { text: `Restored ${games}: they join your library with the next sync.`, tone: 'warn' };
+  return { text: `Restored ${games}: the installed ones are back in your library.`, tone: 'ok' };
+}
+
+/** The host's answer to a bulk remove: apps kept because Neural Rendering stayed in their folder. */
+export interface Removal {
+  deleted: number;
+  kept?: { name: string; error: string }[];
+}
+
+/** What to tell the user after removing `total` apps. */
+export function removalMessage(total: number, what: string, removal: Removal): { text: string; tone: 'ok' | 'warn' } {
+  const kept = removal.kept ?? [];
+  if (kept.length > 0) {
+    const names = kept.map((app) => app.name).join(', ');
+    return {
+      text: `Removed ${removal.deleted} of ${counted(total, 'app')}. Kept ${names}: ${kept[0]?.error ?? ''}`,
+      tone: 'warn',
+    };
+  }
+  if (removal.deleted < total) {
+    return { text: `Removed ${removal.deleted} of ${counted(total, 'app')}; the others were already gone.`, tone: 'ok' };
+  }
+  return { text: `Removed ${what}.`, tone: 'ok' };
+}
+
+/** The library grid's select mode: which apps are picked, and their removal. */
+export class AppSelection {
+  selecting = $state(false);
+  selected = $state.raw<Set<string>>(new Set());
+
+  /** The picked apps still in the list: one gone (a sync, another tab) drops out. */
+  chosen(apps: App[]): App[] {
+    return apps.filter((app) => app.uuid && this.selected.has(app.uuid));
+  }
+  start() {
+    this.selecting = true;
+  }
+  stop() {
+    this.selecting = false;
+    this.selected = new Set();
+  }
+  toggle(uuid: string) {
+    this.selected = toggled(this.selected, uuid);
+  }
+  add(apps: App[]) {
+    this.selected = selectApps(this.selected, apps);
+  }
+  addLauncher(apps: App[], launcher: Launcher) {
+    this.add(apps.filter((app) => launcherOf(app) === launcher));
+  }
+  clear() {
+    this.selected = new Set();
+  }
+
+  /**
+   * Removes the picked apps in one request and leaves select mode. A failed request throws
+   * and keeps the selection for another try.
+   */
+  async remove(apps: App[], removeMany: (uuids: string[]) => Promise<Removal>) {
+    const list = this.chosen(apps);
+    const what = list.length === 1 ? list[0]?.name || 'this app' : counted(list.length, 'app');
+    const removal = await removeMany(list.flatMap((app) => (app.uuid ? [app.uuid] : [])));
+    this.stop();
+    return removalMessage(list.length, what, removal);
+  }
+}
+
 export interface RemovedGame {
   /** The `launcher-dismissed` key the host takes back. */
   key: string;

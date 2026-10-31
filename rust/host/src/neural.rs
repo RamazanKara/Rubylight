@@ -1538,33 +1538,23 @@ fn remove_at(name: &str, exe: &Path) -> Result<Removed> {
     }
 }
 
-/// Before an app with the switch on is deleted: take the mod out of its
-/// folder, or keep the app so nothing is left behind unnoticed. A folder on
-/// a drive that is not connected becomes a pending removal instead, so a
-/// game on a drive that is gone for good can still be deleted. Blocks.
-/// The switch's slot is held from the removal until the caller drops the
-/// [`Removing`], once the app is gone.
-pub fn before_delete(h: &Shared, app: &App) -> Result<Removing> {
+/// Before an app is deleted: the switch's slot for it, held until the caller
+/// drops the [`Removing`], once the app is gone. A delete of several apps
+/// takes every slot before any mod is removed, so one busy app refuses the
+/// delete with nothing changed. Then [`Removing::remove_mod`].
+pub fn reserve(h: &Shared, app: &App) -> Result<Removing> {
     let uuid = app.extra.get("uuid").and_then(Value::as_str);
     // An install not finished has no key to remove by yet, and a launch's
     // update would race the removal.
-    let slot = Removing::take(h, uuid).map_err(|_| Busy(app.name.clone()))?;
-    if !app.extra.contains_key(KEY) {
-        return Ok(slot);
-    }
-    let kept = "Neural Rendering could not be removed from the game's folder, so the app was kept";
-    let removed = (|| {
-        if let Removed::Unreachable(folder) = remove(app).context(kept)? {
-            let pending = Pending::of(app).context(kept)?;
-            record_pending(h, std::slice::from_ref(&pending)).context(kept)?;
-            tracing::warn!(app = %app.name, %folder, "Neural Rendering: the game's folder can't be reached; its removal is pending");
-        }
-        anyhow::Ok(())
-    })();
-    if let (Err(error), Some(uuid)) = (&removed, uuid) {
-        fail_job(h, uuid, format!("{error:#}"), false);
-    }
-    removed.map(|()| slot)
+    Ok(Removing::take(h, uuid).map_err(|_| Busy(app.name.clone()))?)
+}
+
+/// One app's [`reserve`] and [`Removing::remove_mod`].
+#[cfg(test)]
+pub fn before_delete(h: &Shared, app: &App) -> Result<Removing> {
+    let slot = reserve(h, app)?;
+    slot.remove_mod(app)?;
+    Ok(slot)
 }
 
 /// The switch's slot taken for an app's removal, so no install or launch
@@ -1594,6 +1584,30 @@ impl Removing {
             uuid: uuid.map(str::to_owned),
             failed,
         })
+    }
+
+    /// For an app with the switch on: take the mod out of its folder, or
+    /// keep the app (an error) so nothing is left behind unnoticed. A folder
+    /// on a drive that is not connected becomes a pending removal instead, so
+    /// a game on a drive that is gone for good can still be deleted. Blocks.
+    pub fn remove_mod(&self, app: &App) -> Result<()> {
+        if !app.extra.contains_key(KEY) {
+            return Ok(());
+        }
+        let kept =
+            "Neural Rendering could not be removed from the game's folder, so the app was kept";
+        let removed = (|| {
+            if let Removed::Unreachable(folder) = remove(app).context(kept)? {
+                let pending = Pending::of(app).context(kept)?;
+                record_pending(&self.h, std::slice::from_ref(&pending)).context(kept)?;
+                tracing::warn!(app = %app.name, %folder, "Neural Rendering: the game's folder can't be reached; its removal is pending");
+            }
+            anyhow::Ok(())
+        })();
+        if let (Err(error), Some(uuid)) = (&removed, &self.uuid) {
+            fail_job(&self.h, uuid, format!("{error:#}"), false);
+        }
+        removed
     }
 }
 impl Drop for Removing {

@@ -26,7 +26,7 @@
   import { commandFor, coverKey } from '../../lib/paths';
   import { closeApp, confirmClose, coverPath, launchApp, runningName } from './app';
   import { AppDraft, type FlagKey } from './draft.svelte';
-  import { deleteMessage } from './selection';
+  import { deleteMessage } from './selection.svelte';
 
   let {
     app,

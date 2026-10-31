@@ -783,6 +783,54 @@ async fn browse_and_app_icon_routes_return_the_local_library_assets() {
 }
 
 #[tokio::test]
+async fn library_restore_takes_chosen_or_all_removed_games_and_refuses_a_bad_list() {
+    let f = Fixture::new();
+    crate::steam::update_library(&f.host, |_, document| {
+        document["launcher-dismissed"] = json!(["steam:1", "epic:2", "gog:3"]);
+        true
+    })
+    .unwrap();
+    let too_many: Vec<String> = (0..10_001).map(|i| format!("steam:{i}")).collect();
+    for body in [
+        Value::Null,
+        json!({}),
+        json!({"games": "steam:1"}),
+        json!({"games": [1]}),
+        json!({"games": []}),
+        json!({"all": "yes"}),
+        json!({"games": too_many}),
+    ] {
+        value(
+            request(&f, "POST", "/api/library/restore", body.clone()).await,
+            StatusCode::BAD_REQUEST,
+        )
+        .await;
+    }
+    let dismissed = || f.host.app_document.read().unwrap()["launcher-dismissed"].clone();
+    assert_eq!(dismissed(), json!(["steam:1", "epic:2", "gog:3"]));
+    let one = value(
+        request(
+            &f,
+            "POST",
+            "/api/library/restore",
+            json!({"games": ["epic:2"]}),
+        )
+        .await,
+        StatusCode::OK,
+    )
+    .await;
+    assert_eq!(one["restored"], 1);
+    assert_eq!(dismissed(), json!(["steam:1", "gog:3"]));
+    let all = value(
+        request(&f, "POST", "/api/library/restore", json!({"all": true})).await,
+        StatusCode::OK,
+    )
+    .await;
+    assert_eq!(all["restored"], 2);
+    assert_eq!(dismissed(), json!([]));
+}
+
+#[tokio::test]
 async fn library_discovery_and_import_require_authentication_and_validate_identities() {
     let f = Fixture::new();
     f.host
@@ -793,6 +841,8 @@ async fn library_discovery_and_import_require_authentication_and_validate_identi
     for (method, path) in [
         ("GET", "/api/library/discovery"),
         ("POST", "/api/library/import"),
+        ("POST", "/api/library/restore"),
+        ("POST", "/api/apps/delete"),
     ] {
         let response = router(f.host.clone())
             .layer(Extension(f.connection(true)))

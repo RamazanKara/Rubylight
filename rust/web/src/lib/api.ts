@@ -984,8 +984,16 @@ export const api = {
     /** Replaces the whole record; start from the object returned by list(). */
     save: (app: App) => post<{ status: true; uuid: string }>('/api/apps', app),
     remove: (uuid: string) => json<Ok>('DELETE', `/api/apps/${encodeURIComponent(uuid)}`),
-    /** Several apps in one save; uuids already gone are skipped. */
-    removeMany: (uuids: string[]) => post<{ status: true; deleted: number }>('/api/apps/delete', { uuids }, ACTION_TIMEOUT_MS),
+    /**
+     * Several apps in one save; uuids already gone are skipped. Taking Neural Rendering out of
+     * a game's folder can take minutes; an app whose mod stays is kept and named in `kept`.
+     */
+    removeMany: (uuids: string[]) =>
+      post<{ status: true; deleted: number; kept: { name: string; error: string }[] }>(
+        '/api/apps/delete',
+        { uuids },
+        SLOW_TIMEOUT_MS,
+      ),
     reorder: (order: string[]) => post<Ok>('/api/apps/reorder', { order }),
     launch: (uuid: string) => post<Ok>('/api/apps/launch', { uuid }, SLOW_TIMEOUT_MS),
     close: () => post<Ok>('/api/apps/close', {}, SLOW_TIMEOUT_MS),

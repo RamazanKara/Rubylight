@@ -51,7 +51,7 @@
   import { api, type Config, type PlayniteStatus } from '../../lib/api';
   import { failed, notify } from '../../lib/feedback.svelte';
   import { link } from '../../lib/router.svelte';
-  import { counted, removedGames, toggled } from './selection';
+  import { counted, removedGames, restoreMessage, toggled } from './selection.svelte';
 
   let {
     removed = [],
@@ -134,13 +134,11 @@
     try {
       const { restored } = await api.library.restore(restoreKeys);
       restoreOpen = false;
-      await syncAll(false);
-      notify(
-        automatic
-          ? `Restored ${counted(restored, 'game')}: the installed ones are back in your library.`
-          : `Restored ${counted(restored, 'game')}: pick them again in Add games.`,
-        'ok',
-      );
+      const synced = await syncAll(false);
+      // The removed list is shorter now, whatever the sync did.
+      if (!synced) onsynced?.();
+      const message = restoreMessage(restored, synced, automatic);
+      notify(message.text, message.tone);
     } catch (reason) {
       failed('Restoring the games failed', reason);
     } finally {
@@ -148,7 +146,8 @@
     }
   }
 
-  async function syncAll(announce = true) {
+  /** Whether the launchers synced; a failure is shown here. */
+  async function syncAll(announce = true): Promise<boolean> {
     syncing = true;
     try {
       const [steam, launchers] = await Promise.all([
@@ -162,8 +161,10 @@
         notify(changed ? 'Your library is up to date with your launchers.' : 'Nothing new: your library already has every game.', 'ok');
       }
       await load();
+      return true;
     } catch (reason) {
       failed('Syncing the launchers failed', reason);
+      return false;
     } finally {
       syncing = false;
     }

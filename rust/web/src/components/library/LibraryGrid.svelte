@@ -7,7 +7,7 @@
   import { confirm, failed, notify } from '../../lib/feedback.svelte';
   import { link } from '../../lib/router.svelte';
   import { closeApp, confirmClose, coverPath, launchApp, runningName } from './app';
-  import { counted, launcherCounts, launcherOf, selectApps, toggled, type Launcher } from './selection';
+  import { AppSelection, counted, launcherCounts, type Launcher } from './selection.svelte';
 
   let {
     apps,
@@ -34,8 +34,8 @@
   /** `launch:uuid`, `remove:uuid`, `remove-selected` or `close` while a request is out. */
   let busy = $state('');
   /** Select mode: a card picks its app for Remove instead of opening it. */
-  let selecting = $state(false);
-  let selected = $state.raw<Set<string>>(new Set());
+  const selection = new AppSelection();
+  const selecting = $derived(selection.selecting);
 
   // While a card is dragged the grid shows this order; dropping saves it.
   let dragging = $state<string | null>(null);
@@ -45,8 +45,7 @@
   const needle = $derived(query.trim().toLowerCase());
   const missingIds = $derived(apps.some((app) => !app.uuid));
   const canReorder = $derived(!selecting && !reordering && sort === 'order' && !needle && !missingIds && apps.length > 1);
-  // An app gone from the list (a sync, another tab) leaves the selection with it.
-  const chosen = $derived(apps.filter((app) => app.uuid && selected.has(app.uuid)));
+  const chosen = $derived(selection.chosen(apps));
   const launchers = $derived(launcherCounts(apps));
 
   const shown = $derived.by(() => {
@@ -99,18 +98,6 @@
     }
   }
 
-  function stopSelecting() {
-    selecting = false;
-    selected = new Set();
-  }
-
-  function selectLauncher(launcher: Launcher) {
-    selected = selectApps(
-      selected,
-      apps.filter((app) => launcherOf(app) === launcher),
-    );
-  }
-
   async function removeSelected() {
     const list = chosen;
     if (list.length === 0) return;
@@ -124,17 +111,14 @@
     if (!ok) return;
     busy = 'remove-selected';
     try {
-      const { deleted } = await api.apps.removeMany(list.flatMap((app) => (app.uuid ? [app.uuid] : [])));
-      notify(
-        deleted === list.length ? `Removed ${what}.` : `Removed ${deleted} of ${list.length} apps; the others were already gone.`,
-        'ok',
-      );
-      stopSelecting();
-      onremoved?.();
+      const message = await selection.remove(apps, api.apps.removeMany);
+      notify(message.text, message.tone);
     } catch (error) {
       failed('Removing the apps failed', error);
     } finally {
       busy = '';
+      // Also after a failure: the host may have removed some before it gave up.
+      onremoved?.();
     }
   }
 
@@ -226,14 +210,14 @@
       </select>
     </div>
     {#if !selecting}
-      <Button size="sm" icon="check" disabled={busy !== '' || !apps.some((app) => app.uuid)} onclick={() => (selecting = true)}>Select</Button>
+      <Button size="sm" icon="check" disabled={busy !== '' || !apps.some((app) => app.uuid)} onclick={() => selection.start()}>Select</Button>
     {/if}
   </div>
   {#if selecting}
     <div class="selectbar" role="group" aria-label="Selected apps">
       <span class="picked-count" role="status">{chosen.length} selected</span>
-      <Button size="sm" variant="ghost" onclick={() => (selected = selectApps(selected, shown))}>Select all</Button>
-      <Button size="sm" variant="ghost" disabled={chosen.length === 0} onclick={() => (selected = new Set())}>Select none</Button>
+      <Button size="sm" variant="ghost" onclick={() => selection.add(shown)}>Select all</Button>
+      <Button size="sm" variant="ghost" disabled={chosen.length === 0} onclick={() => selection.clear()}>Select none</Button>
       {#if launchers.length > 0}
         <label class="visually-hidden" for="{uid}-launcher">Select every app of a launcher</label>
         <select
@@ -241,7 +225,7 @@
           class="select"
           value=""
           onchange={(event) => {
-            selectLauncher(event.currentTarget.value as Launcher);
+            selection.addLauncher(apps, event.currentTarget.value as Launcher);
             event.currentTarget.value = '';
           }}
         >
@@ -260,7 +244,7 @@
           disabled={chosen.length === 0 || busy !== ''}
           onclick={removeSelected}
         >Remove{chosen.length > 0 ? ` ${counted(chosen.length, 'app')}` : ''}</Button>
-        <Button size="sm" disabled={busy === 'remove-selected'} onclick={stopSelecting}>Done</Button>
+        <Button size="sm" disabled={busy === 'remove-selected'} onclick={() => selection.stop()}>Done</Button>
       </span>
     </div>
   {/if}
@@ -283,10 +267,10 @@
         >
           {#if selecting && app.uuid}
             {@const uuid = app.uuid}
-            <label class="open pick" class:picked={selected.has(uuid)}>
+            <label class="open pick" class:picked={selection.selected.has(uuid)}>
               <span class="art">
                 <AppCover name={app.name} {uuid} path={coverPath(app)} />
-                <input class="tick" type="checkbox" checked={selected.has(uuid)} onchange={() => (selected = toggled(selected, uuid))} />
+                <input class="tick" type="checkbox" checked={selection.selected.has(uuid)} onchange={() => selection.toggle(uuid)} />
               </span>
               <span class="name">{app.name || 'Unnamed app'}</span>
             </label>

@@ -10,6 +10,7 @@ use axum::{
 use base64::Engine;
 use butterpollo_core::{state, state::App};
 use serde_json::{Value, json};
+use std::collections::HashSet;
 
 pub(super) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyhow::Result<Value> {
     let text = |k: &str| data.get(k).and_then(Value::as_str).unwrap_or("");
@@ -87,7 +88,7 @@ pub(super) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyh
                 None => vec![text("uuid")],
             };
             let deleted = delete_apps(h, &ids)?;
-            json!({"status":true,"deleted":deleted})
+            json!({"status":true,"deleted":deleted.count,"kept":deleted.kept})
         }
         ("POST", "/api/apps/reorder") => {
             let order = data["order"]
@@ -439,18 +440,49 @@ pub(super) async fn cover(h: &Shared, path: &str) -> Response {
     StatusCode::NOT_FOUND.into_response()
 }
 
-/// Deletes the apps with these uuids or ids in one save and returns how many went. An id
-/// that matches nothing is skipped (a sync may have dropped its uninstalled game meanwhile);
-/// none matching is an error.
-fn delete_apps(h: &Shared, ids: &[&str]) -> anyhow::Result<usize> {
+/// The most apps one delete takes.
+const MOST_DELETED: usize = 10_000;
+
+/// What a delete did: how many apps went, and the ones kept because Neural Rendering could
+/// not be taken out of their folder (`{"name", "error"}`).
+#[derive(Debug)]
+struct Deleted {
+    count: usize,
+    kept: Vec<Value>,
+}
+
+/// Deletes the apps with these uuids or ids in one save. An id that matches nothing is
+/// skipped (a sync may have dropped its uninstalled game meanwhile); none matching is an
+/// error.
+fn delete_apps(h: &Shared, ids: &[&str]) -> anyhow::Result<Deleted> {
+    delete_apps_with(h, ids, crate::neural::Removing::remove_mod)
+}
+
+/// [`delete_apps`] with the Neural Rendering removal given, so a test can fail one.
+fn delete_apps_with(
+    h: &Shared,
+    ids: &[&str],
+    remove_mod: impl Fn(&crate::neural::Removing, &App) -> anyhow::Result<()>,
+) -> anyhow::Result<Deleted> {
     if ids.is_empty() {
         anyhow::bail!("Select at least one app.");
     }
+    if ids.len() > MOST_DELETED {
+        anyhow::bail!("at most {MOST_DELETED} apps can be deleted at once");
+    }
+    let wanted: HashSet<&str> = ids.iter().copied().collect();
+    let key = |a: &App| {
+        a.extra
+            .get("uuid")
+            .and_then(Value::as_str)
+            .map_or_else(|| a.id().to_string(), str::to_owned)
+    };
     let matches = |a: &App| {
-        let uuid = a.extra.get("uuid").and_then(Value::as_str);
-        let id = a.id().to_string();
-        ids.iter()
-            .any(|wanted| uuid == Some(*wanted) || id == *wanted)
+        a.extra
+            .get("uuid")
+            .and_then(Value::as_str)
+            .is_some_and(|uuid| wanted.contains(uuid))
+            || wanted.contains(a.id().to_string().as_str())
     };
     // Before the apps are locked: the removal runs a helper process.
     let doomed: Vec<App> = h
@@ -461,17 +493,37 @@ fn delete_apps(h: &Shared, ids: &[&str]) -> anyhow::Result<usize> {
         .filter(|a| matches(a))
         .cloned()
         .collect();
-    // Each holds the app's Neural Rendering slot until it is gone.
-    let mut removing = Vec::new();
-    for app in &doomed {
-        removing.push(crate::neural::before_delete(h, app)?);
+    if doomed.is_empty() {
+        anyhow::bail!("application not found");
+    }
+    // Every app's Neural Rendering slot first, each held until the app is gone: one that is
+    // busy refuses the delete before any mod is taken out.
+    let removing = doomed
+        .iter()
+        .map(|app| crate::neural::reserve(h, app))
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    // An app whose mod stays in its folder stays in the library, the others still go.
+    let mut failed = HashSet::new();
+    let mut kept = vec![];
+    let mut first_error = None;
+    for (app, slot) in doomed.iter().zip(&removing) {
+        if let Err(error) = remove_mod(slot, app) {
+            failed.insert(key(app));
+            kept.push(json!({"name": app.name, "error": format!("{error:#}")}));
+            first_error.get_or_insert(error);
+        }
+    }
+    if failed.len() == doomed.len()
+        && let Some(error) = first_error
+    {
+        return Err(error);
     }
     let mut apps = h.apps.write().unwrap();
     let mut next = apps.clone();
     let before = next.len();
     let mut deleted = vec![];
     next.retain(|a| {
-        let keep = !matches(a);
+        let keep = !matches(a) || failed.contains(&key(a));
         if !keep {
             deleted.push(serde_json::to_value(a));
         }
@@ -494,7 +546,7 @@ fn delete_apps(h: &Shared, ids: &[&str]) -> anyhow::Result<usize> {
     *h.app_document.write().unwrap() = doc;
     h.config_version
         .fetch_add(1, std::sync::atomic::Ordering::Release);
-    Ok(count)
+    Ok(Deleted { count, kept })
 }
 
 pub(super) async fn library(h: &Shared, method: &Method, action: &str, data: &Value) -> Response {
@@ -522,7 +574,13 @@ pub(super) async fn library(h: &Shared, method: &Method, action: &str, data: &Va
             let keys: Option<Vec<String>> = if data["all"] == true {
                 None
             } else {
-                match serde_json::from_value(data["games"].clone()) {
+                match serde_json::from_value::<Vec<String>>(data["games"].clone()) {
+                    Ok(keys) if keys.len() > MOST_DELETED => {
+                        return error(
+                            StatusCode::BAD_REQUEST,
+                            &format!("at most {MOST_DELETED} games can be restored at once"),
+                        );
+                    }
                     Ok(keys) => Some(keys),
                     Err(_) => {
                         return error(
@@ -923,6 +981,63 @@ mod tests {
             );
         }
         assert!(stored(&f, "kept").is_some());
+    }
+
+    #[test]
+    fn a_busy_or_failed_neural_rendering_removal_keeps_its_app_and_touches_nothing_early() {
+        use std::cell::Cell;
+        let f = Fixture::new();
+        for app in [
+            json!({"name": "Portal 2", "uuid": "portal", "steam-id": "620"}),
+            json!({"name": "Mirage", "uuid": "mirage", "launcher-source": "ubisoft",
+                "launcher-id": "13504"}),
+            json!({"name": "Fortnite", "uuid": "fortnite", "launcher-source": "epic",
+                "launcher-id": "f"}),
+            json!({"name": "Installing", "uuid": "busy", "launcher-source": "gog",
+                "launcher-id": "b"}),
+        ] {
+            handle(&f.host, "POST", "/api/apps", &app).unwrap();
+        }
+        let removals = Cell::new(0);
+        let count = |_: &crate::neural::Removing, _: &butterpollo_core::state::App| {
+            removals.set(removals.get() + 1);
+            Ok(())
+        };
+        // An install still running: refused before any app's mod is taken out.
+        crate::neural::start_job(&f.host, "busy", "install", "download").unwrap();
+        let busy = super::delete_apps_with(&f.host, &["portal", "busy"], count).unwrap_err();
+        assert!(
+            format!("{busy:#}").contains("busy with Installing"),
+            "{busy:#}"
+        );
+        assert_eq!(removals.get(), 0);
+        assert!(stored(&f, "portal").is_some() && stored(&f, "busy").is_some());
+        // Mirage's mod stays in its folder partway through: Mirage stays, the others go.
+        let deleted =
+            super::delete_apps_with(&f.host, &["portal", "mirage", "fortnite"], |_, app| {
+                if app.name == "Mirage" {
+                    anyhow::bail!("a file is in use");
+                }
+                Ok(())
+            })
+            .unwrap();
+        assert_eq!(deleted.count, 2);
+        assert_eq!(
+            deleted.kept,
+            [json!({"name": "Mirage", "error": "a file is in use"})]
+        );
+        assert!(stored(&f, "mirage").is_some());
+        assert!(stored(&f, "portal").is_none() && stored(&f, "fortnite").is_none());
+        assert_eq!(
+            f.host.app_document.read().unwrap()["launcher-dismissed"],
+            json!(["steam:620", "epic:f"])
+        );
+        // Every removal failing is the error itself, and the app stays.
+        let failed =
+            super::delete_apps_with(&f.host, &["mirage"], |_, _| anyhow::bail!("still in use"))
+                .unwrap_err();
+        assert_eq!(failed.to_string(), "still in use");
+        assert!(stored(&f, "mirage").is_some());
     }
 
     /// Purging synced apps waits on a worker, so the web server answers

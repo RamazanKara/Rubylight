@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import { createTestServer } from './test-server.mjs';
 
 const server = await createTestServer();
-const selection = await server.ssrLoadModule('/src/components/library/selection.ts');
+const selection = await server.ssrLoadModule('/src/components/library/selection.svelte.ts');
 const { api } = await server.ssrLoadModule('/src/lib/api.ts');
 const grid = readFileSync(new URL('./src/components/library/LibraryGrid.svelte', import.meta.url), 'utf8');
 const sources = readFileSync(new URL('./src/components/library/LauncherSources.svelte', import.meta.url), 'utf8');
@@ -66,10 +66,11 @@ test('a bulk remove and a restore are one request each, not one per game', async
   globalThis.fetch = async (path, init) => {
     if (path === '/api/csrf-token') return new Response('{"csrf_token":"t"}', { status: 200 });
     seen.push({ path, method: init.method, body: JSON.parse(init.body) });
-    return new Response('{"status":true,"deleted":2,"restored":1}', { status: 200 });
+    return new Response('{"status":true,"deleted":2,"kept":[],"restored":1}', { status: 200 });
   };
   try {
-    await api.apps.removeMany(['a', 'b']);
+    const removal = await api.apps.removeMany(['a', 'b']);
+    assert.equal(removal.deleted, 2);
     await api.library.restore(['steam:620']);
   } finally {
     delete globalThis.fetch;
@@ -80,15 +81,72 @@ test('a bulk remove and a restore are one request each, not one per game', async
   ]);
 });
 
-test('select mode picks apps instead of opening, launching or dragging them', () => {
-  assert.match(grid, /!selecting && !reordering/, 'no drag while selecting');
-  assert.match(grid, /\{#if selecting && app\.uuid\}[\s\S]*?type="checkbox"/);
-  assert.match(grid, /\{#if selecting\}\s*<!--/, 'the card actions step aside');
-  assert.match(grid, /api\.apps\.removeMany\(/);
+const library = [
+  { name: 'Portal 2', uuid: 'portal', 'steam-id': '620' },
+  { name: 'Mirage', uuid: 'mirage', 'launcher-source': 'ubisoft', 'launcher-id': '13504' },
+  { name: 'Half-Life: Alyx', uuid: 'alyx', 'steam-id': '546560' },
+  { name: 'Notepad', uuid: 'notepad', cmd: 'notepad.exe' },
+];
+
+test('a selection drops apps that left the list, and a removal sends only those still there', async () => {
+  const picks = new selection.AppSelection();
+  picks.start();
+  picks.addLauncher(library, 'steam');
+  picks.toggle('notepad');
+  assert.deepEqual(picks.chosen(library).map((app) => app.uuid), ['portal', 'alyx', 'notepad']);
+  // A sync dropped Alyx meanwhile: it is neither counted nor sent.
+  const now = library.filter((app) => app.uuid !== 'alyx');
+  assert.deepEqual(picks.chosen(now).map((app) => app.uuid), ['portal', 'notepad']);
+  let sent;
+  const message = await picks.remove(now, async (uuids) => {
+    sent = uuids;
+    return { deleted: 2, kept: [] };
+  });
+  assert.deepEqual(sent, ['portal', 'notepad']);
+  assert.deepEqual(message, { text: 'Removed 2 apps.', tone: 'ok' });
+  assert.equal(picks.selecting, false, 'select mode ends after a removal');
+  assert.equal(picks.selected.size, 0);
 });
 
-test('the restore offer shows only with removed games and syncs after the restore', () => {
+test('a failed removal keeps select mode and the selection for another try', async () => {
+  const picks = new selection.AppSelection();
+  picks.start();
+  picks.add(library);
+  picks.clear();
+  assert.equal(picks.selected.size, 0, 'Select none');
+  picks.toggle('mirage');
+  await assert.rejects(picks.remove(library, async () => {
+    throw new Error('timed out');
+  }));
+  assert.equal(picks.selecting, true);
+  assert.deepEqual([...picks.selected], ['mirage']);
+});
+
+test('a partial removal names the apps kept and counts what went', () => {
+  const { removalMessage } = selection;
+  assert.deepEqual(removalMessage(1, 'Mirage', { deleted: 1 }), { text: 'Removed Mirage.', tone: 'ok' });
+  assert.deepEqual(removalMessage(3, '3 apps', { deleted: 2, kept: [] }), {
+    text: 'Removed 2 of 3 apps; the others were already gone.',
+    tone: 'ok',
+  });
+  assert.deepEqual(
+    removalMessage(3, '3 apps', { deleted: 2, kept: [{ name: 'Mirage', error: 'Neural Rendering could not be removed' }] }),
+    { text: 'Removed 2 of 3 apps. Kept Mirage: Neural Rendering could not be removed', tone: 'warn' },
+  );
+});
+
+test('a restore says what happened, also when the sync after it failed', () => {
+  const { restoreMessage } = selection;
+  assert.deepEqual(restoreMessage(2, true, true), { text: 'Restored 2 games: the installed ones are back in your library.', tone: 'ok' });
+  assert.deepEqual(restoreMessage(1, false, true), { text: 'Restored 1 game: they join your library with the next sync.', tone: 'warn' });
+  assert.deepEqual(restoreMessage(2, true, false), { text: 'Restored 2 games: pick them again in Add games.', tone: 'ok' });
+});
+
+test('the grid and the launcher panel use the selection and restore logic', () => {
+  assert.match(grid, /!selecting && !reordering/, 'no drag while selecting');
+  assert.match(grid, /selection\.remove\(apps, api\.apps\.removeMany\)/);
+  assert.match(grid, /finally \{[\s\S]*?onremoved\?\.\(\);/, 'the list reloads after a failed removal too');
   assert.match(sources, /\{#if removed\.length > 0\}[\s\S]*?Restore removed games/);
-  assert.match(sources, /api\.library\.restore\(restoreKeys\);[\s\S]*?await syncAll\(false\)/);
+  assert.match(sources, /const synced = await syncAll\(false\);\s*[\s\S]*?if \(!synced\) onsynced\?\.\(\);/);
   assert.doesNotMatch(sources + grid, /Experimental/);
 });

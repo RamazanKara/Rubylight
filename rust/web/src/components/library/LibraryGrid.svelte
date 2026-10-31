@@ -566,17 +566,21 @@
   .fab.busy:disabled {
     color: var(--media-ink);
   }
-  /* With a mouse, Launch shows when the card is pointed at or focused; on touch it always shows. */
-  @media (hover: hover) and (pointer: fine) {
+  /* With a mouse, Launch shows when the card is pointed at or focused; on touch it
+     always shows. Hidden, it takes no taps; a touch laptop (any coarse pointer)
+     keeps it visible. */
+  @media (hover: hover) and (pointer: fine) and (not (any-pointer: coarse)) {
     .reveal {
       opacity: 0;
       transform: translateY(4px);
+      pointer-events: none;
     }
     .card:hover .reveal,
     .card:focus-within .reveal,
     .reveal.busy {
       opacity: 1;
       transform: none;
+      pointer-events: auto;
     }
     .card:hover .reveal:disabled:not(.busy) {
       opacity: 0.7;

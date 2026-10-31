@@ -23,7 +23,7 @@ before(async () => {
 after(async () => { await browser?.close(); await server?.close(); });
 
 async function fixture(t, options = {}) {
-  const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, ...options.page });
   page.setDefaultTimeout(10000);
   const errors = [], writes = [];
   let pending = options.pending || [];
@@ -478,6 +478,27 @@ test('canceling a confirm a device menu opened keeps the menu and gives focus ba
   await page.waitForFunction(() => document.activeElement?.tagName === 'SUMMARY');
   assert.equal(await manage.evaluate(node => node.open), false);
   assert.equal(await manage.locator('summary').evaluate(node => node === document.activeElement), true);
+});
+
+test('a hidden Launch button takes no clicks, and a touch screen always shows it', async t => {
+  const apps = [{ uuid: 'mirage', name: 'Assassin’s Creed Mirage' }];
+  const { page } = await fixture(t, { apps });
+  await page.goto(base + '/library');
+  const launch = page.getByRole('button', { name: 'Launch Assassin’s Creed Mirage on PC' });
+  await launch.waitFor({ state: 'attached' });
+  await page.mouse.move(0, 0);
+  const look = () => launch.evaluate(node => [getComputedStyle(node).opacity, getComputedStyle(node).pointerEvents]);
+  assert.deepEqual(await look(), ['0', 'none']);
+  await page.locator('.card', { hasText: 'Assassin’s Creed Mirage' }).first().hover();
+  await page.waitForTimeout(250);
+  assert.deepEqual((await look())[1], 'auto');
+  // A touch laptop has a mouse too, but Launch stays visible and tappable.
+  const { page: touch } = await fixture(t, { apps, page: { hasTouch: true } });
+  await touch.goto(base + '/library');
+  const tap = touch.getByRole('button', { name: 'Launch Assassin’s Creed Mirage on PC' });
+  await tap.waitFor();
+  assert.equal(await touch.evaluate(() => matchMedia('(any-pointer: coarse)').matches), true);
+  assert.deepEqual(await tap.evaluate(node => [getComputedStyle(node).opacity, getComputedStyle(node).pointerEvents]), ['1', 'auto']);
 });
 
 test('on a phone a long game title in the editor keeps whole words above its actions', async t => {

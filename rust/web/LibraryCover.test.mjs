@@ -31,8 +31,8 @@ test('each card names its one action for screen readers and keeps it reachable o
   assert.match(grid, /Launch \{app\.name\} on PC/);
   assert.match(grid, /Close \{app\.name\}/);
   assert.match(grid, /Remove \{app\.name\}/);
-  // Hidden until hover only where there is a mouse; touch screens always show it.
-  assert.match(grid, /@media \(hover: hover\) and \(pointer: fine\)\s*\{\s*\.reveal \{\s*opacity: 0;/);
+  // Hidden until hover only where there is a mouse and no touch screen; hidden, it takes no taps.
+  assert.match(grid, /@media \(hover: hover\) and \(pointer: fine\) and \(not \(any-pointer: coarse\)\)\s*\{\s*\.reveal \{\s*opacity: 0;[^}]*pointer-events: none;/);
   assert.match(grid, /\.card:focus-within \.reveal/);
 });
 

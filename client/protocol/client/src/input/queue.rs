@@ -19,6 +19,9 @@ use crate::control::wire::Delivery;
 pub const MAX_QUEUED: usize = 150;
 /// Mouse and pen motion closer together than this waits to be batched with the next.
 pub const MOTION_BATCHING_INTERVAL: Duration = Duration::from_millis(1);
+/// A relative motion floor that a 1 kHz mouse's reports, jitter included, stay clear of, while
+/// a 4 or 8 kHz mouse is merged ([`InputQueue::set_relative_motion_floor`]).
+pub const FAST_MOUSE_FLOOR: Duration = Duration::from_micros(500);
 /// Text waits this long after earlier input so Windows has processed key events first.
 pub const TEXT_SETTLE: Duration = Duration::from_millis(50);
 const WHEEL_DELTA: i32 = 120;
@@ -135,6 +138,7 @@ pub struct InputQueue {
     batched_scroll: bool,
     stopped: bool,
     unbatched: bool,
+    relative_floor: Duration,
     entries: VecDeque<Entry>,
     next_id: u64,
     controller_batch: [Option<u64>; MAX_CONTROLLERS as usize],
@@ -164,6 +168,7 @@ impl InputQueue {
             batched_scroll: caps.version_at_least(7, 1, 409) && !caps.is_sunshine(),
             stopped: false,
             unbatched: false,
+            relative_floor: Duration::ZERO,
             entries: VecDeque::new(),
             next_id: 0,
             controller_batch: [None; MAX_CONTROLLERS as usize],
@@ -211,6 +216,15 @@ impl InputQueue {
     /// the queue behind other packets.
     pub fn set_unbatched(&mut self, unbatched: bool) {
         self.unbatched = unbatched;
+    }
+
+    /// Relative mouse motion leaves at most once per `floor` after the last packet, unbatched
+    /// too, so a fast mouse (4 or 8 kHz) is merged instead of sending a packet per report. The
+    /// floor counts from the send, which comes after the report and jitters, and Windows rounds
+    /// the control thread's wait up to a whole millisecond: keep it well under the slower
+    /// mice's report interval ([`FAST_MOUSE_FLOOR`]).
+    pub fn set_relative_motion_floor(&mut self, floor: Duration) {
+        self.relative_floor = floor;
     }
 
     /// Sends a pen's known barrel roll as 0x5500000B (`rubylight_protocol::pen`). Only for a
@@ -788,9 +802,10 @@ impl InputQueue {
         let motion_interval = self.motion_interval();
         while let Some(entry) = self.entries.front() {
             let wait_until = match entry {
-                Entry::RelativeMouse | Entry::AbsoluteMouse => {
-                    self.last_mouse.map(|t| t + motion_interval)
+                Entry::RelativeMouse => {
+                    self.last_mouse.map(|t| t + motion_interval.max(self.relative_floor))
                 }
+                Entry::AbsoluteMouse => self.last_mouse.map(|t| t + motion_interval),
                 Entry::Event(Pending {
                     event: InputEvent::Pen { event, .. },
                     ..
@@ -1201,6 +1216,37 @@ mod tests {
         let mut out = Vec::new();
         assert_eq!(q.poll(t0, false, &mut out), None);
         assert_eq!(out.len(), 1);
+    }
+
+    /// With the fast-mouse floor, unbatched relative motion from an 8 kHz mouse is merged up to
+    /// the floor, and a 1 kHz report that comes early by jitter still leaves at once.
+    #[test]
+    fn a_relative_motion_floor_merges_a_fast_mouse_but_never_delays_a_slow_one() {
+        let mut q = queue(&sunshine());
+        q.set_unbatched(true);
+        q.set_relative_motion_floor(FAST_MOUSE_FLOOR);
+        let t0 = Instant::now();
+        q.send_mouse_move(2, 0).unwrap();
+        assert_eq!(take(&mut q, t0), [Input::Relative { x: 2, y: 0 }]);
+        // 8 kHz: reports every 125 us wait for the floor and leave as one packet.
+        let step = Duration::from_micros(125);
+        for i in 1..4 {
+            q.send_mouse_move(1, 0).unwrap();
+            let mut out = Vec::new();
+            assert_eq!(q.poll(t0 + step * i, false, &mut out), Some(t0 + FAST_MOUSE_FLOOR));
+            assert!(out.is_empty());
+        }
+        let sent = t0 + FAST_MOUSE_FLOOR;
+        assert_eq!(take(&mut q, sent), [Input::Relative { x: 3, y: 0 }]);
+        // 1 kHz with jitter: a report 0.6 ms after the last packet, then one 0.95 ms after that.
+        q.send_mouse_move(1, 0).unwrap();
+        let early = sent + Duration::from_micros(600);
+        assert_eq!(take(&mut q, early), [Input::Relative { x: 1, y: 0 }]);
+        q.send_mouse_move(1, 0).unwrap();
+        assert_eq!(take(&mut q, early + Duration::from_micros(950)), [Input::Relative { x: 1, y: 0 }]);
+        // Absolute positions keep the unbatched pace.
+        q.send_mouse_position(10, 10, 100, 100).unwrap();
+        assert_eq!(take(&mut q, early + Duration::from_micros(950)).len(), 1);
     }
 
     #[test]

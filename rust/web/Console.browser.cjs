@@ -479,12 +479,12 @@ test('Home keeps loading, readiness, host errors and the library order distinct'
   metadata.capture_status = { virtual_display_configured: false, displays: [{ active: true, display_name: 'Monitor', width: 1920, height: 1080 }] };
   await page.clock.runFor(30_100);
   await page.getByRole('heading', { name: 'Let’s connect your device', exact: true }).waitFor();
-  await page.getByRole('list', { name: 'Getting started' }).waitFor();
+  await page.getByRole('heading', { name: 'Get started', exact: true }).waitFor();
   assert.deepEqual(await page.locator('.game-shelf strong').allTextContents(), ['Fourth', 'First', 'Second', 'Third']);
   metadata.paired_devices = 1;
   await page.clock.runFor(30_100);
   await page.getByRole('heading', { name: 'Ready to play', exact: true }).waitFor();
-  assert.equal(await page.getByRole('list', { name: 'Getting started' }).count(), 0);
+  assert.equal(await page.getByRole('heading', { name: 'Get started', exact: true }).count(), 0);
   options.metadataError = true;
   await page.clock.runFor(30_100);
   await page.getByRole('heading', { name: 'Cannot check the host', exact: true }).waitFor();
@@ -493,6 +493,18 @@ test('Home keeps loading, readiness, host errors and the library order distinct'
   metadata.encoder_status = { state: 'failed', h264: false };
   await page.getByRole('button', { name: 'Retry', exact: true }).click();
   await page.getByRole('heading', { name: 'This PC needs attention', exact: true }).waitFor();
+  // The checks are already on the page: the hero's one View checks scrolls to them, and
+  // the footer toggle offers the PC's details instead of a second View checks.
+  const hero = page.getByRole('region', { name: 'Host status' });
+  assert.equal(await hero.getByRole('button', { name: 'View checks', exact: true }).count(), 1);
+  const details = hero.getByRole('button', { name: 'PC details', exact: true });
+  assert.equal(await details.getAttribute('aria-expanded'), 'false');
+  await hero.getByRole('button', { name: 'View checks', exact: true }).click();
+  await page.getByRole('heading', { name: 'Needs attention', exact: true }).waitFor();
+  assert.equal(await details.getAttribute('aria-expanded'), 'false', 'View checks must not toggle the details');
+  await details.click();
+  await page.getByRole('heading', { name: 'This PC', exact: true }).waitFor();
+  await hero.getByRole('button', { name: 'Hide PC details', exact: true }).waitFor();
 });
 
 test('PIN submission waits for actual paired-device confirmation and keeps view-only permissions', async t => {

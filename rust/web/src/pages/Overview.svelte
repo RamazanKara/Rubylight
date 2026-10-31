@@ -85,6 +85,14 @@
     metadata ? (metadata.pc_addresses ?? []).filter((address) => address !== metadata.pc_address) : [],
   );
 
+  /** The footer toggle shows the checks; while they need attention they are already shown, so it shows the PC's details. */
+  const detailsLabel = $derived(attention ? (checksOpen ? 'Hide PC details' : 'PC details') : checksOpen ? 'Hide checks' : 'View checks');
+  /** Scrolls a section on this page into view, without a smooth scroll under reduced motion. */
+  function reveal(id: string) {
+    const behavior = matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth';
+    document.getElementById(id)?.scrollIntoView({ behavior, block: 'start' });
+  }
+
   const devices = (count: number) => `${count} ${count === 1 ? 'device' : 'devices'}`;
   const reason = (failure: unknown) => (failure instanceof Error ? failure.message : String(failure));
 
@@ -177,16 +185,16 @@
     </p>
     <div class="hero-actions">
       {#if unavailable}<Button variant="primary" busy={rechecking} onclick={() => { void recheck(); void refreshSessions(); }}>Retry</Button>
-      {:else if attention}<Button variant="primary" onclick={() => checksOpen = !checksOpen}>View checks</Button>
-      {:else if !live && !paired}<Button variant="primary" onclick={() => document.getElementById('get-started')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>Pair a device</Button>
+      {:else if attention}<Button variant="primary" onclick={() => reveal('checks')}>View checks</Button>
+      {:else if !live && !paired}<Button variant="primary" onclick={() => reveal('get-started')}>Pair a device</Button>
       {:else if !live}<Button variant="primary" href="/library">See your games</Button>{/if}
       <button class="text-action" onclick={() => helpOpen = !helpOpen} aria-expanded={helpOpen}>Connection help</button>
     </div>
   </div>
   <div class="hero-foot">
-    <span><Icon name="monitor" />{metadata?.host_name ?? 'This PC'}</span>
-    <a href="/devices" use:link><Icon name="devices" />{metadata ? `${devices(metadata.paired_devices)} paired` : 'Checking devices…'}</a>
-    <button class="text-action checks-link" onclick={() => checksOpen = !checksOpen} aria-expanded={checksOpen}>{checksOpen ? 'Hide checks' : 'View checks'}<Icon name="chevron" /></button>
+    <span class="fact"><Icon name="monitor" />{metadata?.host_name ?? 'This PC'}</span>
+    <a class="fact" href="/devices" use:link><Icon name="devices" />{metadata ? `${devices(metadata.paired_devices)} paired` : 'Checking devices…'}</a>
+    <button class="text-action checks-link" class:open={checksOpen} onclick={() => checksOpen = !checksOpen} aria-expanded={checksOpen}>{detailsLabel}<Icon name="chevron" size={16} /></button>
   </div>
 </section>
 
@@ -224,7 +232,7 @@
 {/if}
 {#if helpOpen}<Panel title="Connect from your device"><ConnectHelp {metadata} /></Panel>{/if}
 {#if checksOpen || attention}
-  <HostReadiness {metadata} error={metadataError} checking={rechecking} onrecheck={recheck} />
+  <div id="checks" class="anchor"><HostReadiness {metadata} error={metadataError} checking={rechecking} onrecheck={recheck} /></div>
 {/if}
 {#if coopError && coopGames.length}<p class="notice danger" role="alert">Showing the last known co-op state. {coopError}</p>{/if}
 {#if coopEnded?.end && coopEnded.id !== coopDismissed}
@@ -245,7 +253,7 @@
 
 <section class="games" aria-label="Your games">
   <header><h2>Your games</h2><a href="/library" use:link>All games <Icon name="chevron" /></a></header>
-  {#if appsError}<p class="notice danger" role="alert">Could not load games: {appsError}<Button onclick={loadGames}>Retry</Button></p>
+  {#if appsError}<div class="notice danger games-error" role="alert"><span>Could not load games: {appsError}</span><Button size="sm" onclick={loadGames}>Retry</Button></div>
   {:else if !apps}<p class="muted">Loading games…</p>
   {:else if !apps.length}<p class="empty">No games yet. Games from Steam and your other launchers appear here by themselves; <a href="/library" use:link>check your launchers</a>.</p>
   {:else}<div class="game-shelf">
@@ -273,20 +281,28 @@
   .journey .step-body { flex: 1; min-width: 0; display: grid; gap: var(--space-3); padding-top: 3px; }
   .journey h3 { font-size: var(--text-md); font-weight: var(--weight-semibold); }
   .journey p { font-size: var(--text-sm); }
-  .hero { overflow: hidden; border: 1px solid var(--media-line); border-radius: var(--radius-lg); background-color: var(--media-bg); background-size: cover; background-position: center; color: var(--media-ink); }
-  .hero-body { padding: 36px; min-height: 260px; background: linear-gradient(90deg, color-mix(in srgb, var(--media-bg) 93%, transparent) 0%, color-mix(in srgb, var(--media-bg) 65%, transparent) 45%, transparent 78%); }
-  .hero h2 { display: flex; align-items: center; gap: 14px; font-size: clamp(26px, 3vw, 38px); max-width: 680px; }
-  .status-dot { width: 14px; height: 14px; flex: none; border-radius: 50%; background: var(--media-idle); }
-  .status-dot.ready { background: var(--media-ok); }
-  .status-dot.warn { background: var(--media-warn); }
-  .hero-copy { max-width: 480px; font-size: 19px; color: var(--media-ink-2); margin-top: var(--space-4); }
-  .hero-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-5); margin-top: var(--space-5); }
-  .hero-actions :global(.primary) { min-width: 200px; min-height: 48px; background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
-  .text-action { display: inline-flex; gap: var(--space-2); align-items: center; padding: 10px 0; min-height: var(--control-height); border: 0; background: none; color: inherit; text-decoration: underline; text-underline-offset: 4px; cursor: pointer; }
-  .hero-foot { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-3) 28px; padding: 10px var(--space-6); background: color-mix(in srgb, var(--media-bg) 80%, transparent); border-top: 1px solid var(--media-line); font-size: var(--text-sm); }
-  .hero-foot > span, .hero-foot > a { display: inline-flex; align-items: center; gap: 10px; }
-  .hero-foot > a { text-decoration: none; }
-  .checks-link { margin-left: auto; }
+  .anchor { display: grid; scroll-margin-top: var(--space-4); }
+  .hero { overflow: hidden; border: 1px solid var(--media-line); border-radius: var(--radius-lg); background-color: var(--media-bg); background-size: cover; background-position: center; color: var(--media-ink); box-shadow: var(--shadow); }
+  .hero :focus-visible { outline-color: var(--media-ink); }
+  .hero-body { display: grid; align-content: center; justify-items: start; gap: var(--space-3); padding: var(--space-6); min-height: 240px; background: linear-gradient(90deg, color-mix(in srgb, var(--media-bg) 93%, transparent) 0%, color-mix(in srgb, var(--media-bg) 65%, transparent) 45%, transparent 78%); }
+  .hero h2 { display: flex; align-items: center; gap: var(--space-3); font-size: clamp(26px, 3vw, 36px); letter-spacing: -0.01em; max-width: 680px; }
+  .status-dot { width: 12px; height: 12px; flex: none; border-radius: 50%; --dot: var(--media-idle); background: var(--dot); box-shadow: 0 0 0 4px color-mix(in srgb, var(--dot) 22%, transparent); }
+  .status-dot.ready { --dot: var(--media-ok); }
+  .status-dot.warn { --dot: var(--media-warn); }
+  .hero-copy { max-width: 480px; font-size: var(--text-md); color: var(--media-ink-2); }
+  .hero-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-5); margin-top: var(--space-2); }
+  .hero-actions :global(.primary) { min-width: 168px; min-height: 48px; padding-inline: var(--space-5); font-size: var(--text); }
+  .text-action { display: inline-flex; gap: var(--space-1); align-items: center; padding: 10px 2px; min-height: var(--control-height); border: 0; border-radius: var(--radius-sm); background: none; color: inherit; font-weight: var(--weight-medium); text-decoration: underline; text-decoration-color: color-mix(in srgb, currentColor 45%, transparent); text-underline-offset: 4px; cursor: pointer; transition: text-decoration-color var(--duration-fast); }
+  .text-action:hover { text-decoration-color: currentColor; }
+  .hero-foot { display: flex; align-items: center; flex-wrap: wrap; gap: 0 var(--space-5); padding: 0 var(--space-6); background: color-mix(in srgb, var(--media-bg) 82%, transparent); border-top: 1px solid var(--media-line); font-size: var(--text-sm); color: var(--media-ink-2); }
+  .fact { display: inline-flex; align-items: center; gap: var(--space-2); min-height: var(--control-height); }
+  .fact :global(svg) { color: var(--media-idle); }
+  a.fact { text-decoration: none; border-radius: var(--radius-sm); }
+  a.fact:hover { color: var(--media-ink); text-decoration: underline; text-underline-offset: 4px; }
+  .checks-link { margin-left: auto; color: var(--media-ink); }
+  .checks-link :global(svg) { transition: transform var(--duration-fast) var(--ease-standard); }
+  .checks-link.open :global(svg) { transform: rotate(90deg); }
+  .games-error { align-items: center; justify-content: space-between; flex-wrap: wrap; }
   .games { display: grid; gap: var(--space-4); }
   .games header { display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); flex-wrap: wrap; }
   .games h2 { font-size: var(--text-xl); }
@@ -297,5 +313,5 @@
   .game :global(.cover) { aspect-ratio: 4 / 5; }
   .shelf-hint { padding-top: var(--space-4); border-top: 1px solid var(--line); font-size: var(--text-sm); }
   .empty { padding: var(--space-5); border: 1px dashed var(--line-strong); border-radius: var(--radius-lg); }
-  @media (max-width: 700px) { .journey > li { padding: var(--space-4); gap: var(--space-3); } .hero-body { padding: var(--space-5); } .hero-foot { padding: var(--space-3) var(--space-5); gap: 6px var(--space-4); } .game-shelf { grid-template-columns: repeat(2, minmax(0, 1fr)); } .checks-link { margin-left: 0; } }
+  @media (max-width: 700px) { .journey > li { padding: var(--space-4); gap: var(--space-3); } .hero-body { padding: var(--space-5); min-height: 0; } .hero-actions { flex-direction: column; align-items: stretch; justify-self: stretch; gap: var(--space-1); } .hero-actions .text-action { align-self: flex-start; } .hero-foot { padding: var(--space-1) var(--space-5); gap: 0 var(--space-4); } .game-shelf { grid-template-columns: repeat(2, minmax(0, 1fr)); } .checks-link { margin-left: 0; } }
 </style>

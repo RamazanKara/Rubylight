@@ -84,6 +84,7 @@ async function fixture(t, options = {}) {
     });
     if (url.pathname === '/api/auth/sessions') return reply({ sessions: [] });
     if (url.pathname === '/api/tokens') return reply({ tokens: [] });
+    if (url.pathname === '/api/usb') return reply({ status: true, devices: [] });
     if (url.pathname === '/api/token/routes') return reply({ routes: [] });
     return reply({ status: true, available: false, enabled: false });
   });
@@ -371,6 +372,34 @@ test('the sidebar groups tools, names each theme choice and copies the host addr
   const colours = await page.evaluate(() => [getComputedStyle(document.documentElement).backgroundColor, getComputedStyle(document.body).backgroundColor]);
   assert.notEqual(colours[0], 'rgba(0, 0, 0, 0)');
   assert.equal(colours[0], colours[1]);
+});
+
+test('notice links stay in the sentence, disclosures share one chevron, header actions sit on the title line', async t => {
+  const { page } = await fixture(t, { pairing: false });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(base + '/devices');
+  const notice = page.locator('.notice', { hasText: 'Pairing is off' });
+  const settings = notice.getByRole('link', { name: 'Settings', exact: true });
+  await settings.waitFor();
+  assert.equal(await notice.evaluate(element => getComputedStyle(element).display), 'block');
+  // One line of text, not a column of syllables ("Set/tin/gs").
+  const line = await notice.evaluate(element => parseFloat(getComputedStyle(element).lineHeight));
+  assert((await settings.boundingBox()).height < line * 1.5);
+  const summary = page.locator('summary', { hasText: 'Manage devices' });
+  assert.deepEqual(await summary.evaluate(element => [getComputedStyle(element).listStyleType, getComputedStyle(element, '::after').content]), ['none', '""']);
+  // Actions are centred on the h1 with the subtitle below, also without a subtitle.
+  for (const [width, route] of [[1440, '/settings'], [1440, '/'], [390, '/']]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto(base + route);
+    const header = page.locator('.page-header');
+    const [title, actions] = await Promise.all([header.locator('h1').boundingBox(), header.locator('.actions').boundingBox()]);
+    assert(Math.abs(title.y + title.height / 2 - (actions.y + actions.height / 2)) <= 2, `${route} at ${width}px`);
+  }
+  // A phone puts them under the subtitle.
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(base + '/settings');
+  const [subtitle, actions] = await Promise.all([page.locator('.page-header .subtitle').boundingBox(), page.locator('.page-header .actions').boundingBox()]);
+  assert(actions.y >= subtitle.y + subtitle.height);
 });
 
 test('normal PIN pairing stays primary while Artemis alternatives expand', async t => {

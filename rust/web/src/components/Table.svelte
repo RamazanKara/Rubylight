@@ -49,5 +49,7 @@
   .table :global(.numeric) {
     text-align: right;
     font-variant-numeric: tabular-nums;
+    /* A number and its unit stay together ("48.2 Mbps"). */
+    white-space: nowrap;
   }
 </style>

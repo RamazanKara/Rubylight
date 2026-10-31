@@ -105,5 +105,9 @@
     .body {
       padding: var(--space-4);
     }
+    /* Actions that wrap under the title stay close to it. */
+    header {
+      gap: var(--space-2) var(--space-4);
+    }
   }
 </style>

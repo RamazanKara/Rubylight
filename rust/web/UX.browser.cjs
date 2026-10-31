@@ -1,6 +1,7 @@
 // Optional Playwright runtime, with every API request isolated from a real host.
 const assert = require('node:assert/strict');
 const { before, after, test } = require('node:test');
+const { warmUp } = require('./browser-warmup.cjs');
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const path = require('node:path');
 
@@ -14,6 +15,7 @@ before(async () => {
   base = `http://127.0.0.1:${server.httpServer.address().port}`;
   browser = await chromium.launch({ headless: true,
     ...(process.env.CHROMIUM_EXECUTABLE ? { executablePath: process.env.CHROMIUM_EXECUTABLE } : {}) });
+  await warmUp(browser, base, ['/', '/library', '/maintenance']);
 });
 after(async () => { await browser?.close(); await server?.close(); });
 
@@ -422,7 +424,7 @@ test('library reordering cannot overlap writes and restores the server order aft
   await page.getByText('Saving the library order…', { exact: true }).waitFor();
   assert.equal(await page.getByRole('button', { name: 'Move earlier', exact: true }).isDisabled(), true);
   assert.equal(await page.getByRole('button', { name: 'Move later', exact: true }).isDisabled(), true);
-  await page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: 'Games & apps', exact: true }).click();
+  await page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: 'Games', exact: true }).click();
   await page.getByText('Saving the library order…', { exact: true }).waitFor();
   held.resolve();
   await page.getByText('Saving the order failed: Order not saved', { exact: true }).waitFor();

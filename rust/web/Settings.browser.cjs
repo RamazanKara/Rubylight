@@ -1,6 +1,7 @@
 // Uses the optional Playwright runtime from PathPicker.browser.cjs, without a host process.
 const assert = require('node:assert/strict');
 const { before, after, test } = require('node:test');
+const { warmUp } = require('./browser-warmup.cjs');
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const path = require('node:path');
 
@@ -17,6 +18,7 @@ before(async () => {
   browser = await chromium.launch({ headless: true,
     ...(process.env.CHROMIUM_EXECUTABLE ? { executablePath: process.env.CHROMIUM_EXECUTABLE } : {}),
   });
+  await warmUp(browser, base, ['/settings/video']);
 });
 after(async () => { await browser?.close(); await server?.close(); });
 
@@ -57,6 +59,10 @@ async function fixture(t, initial = {}, metadata = {}) {
       }
       return reply({ status: true, restart_required: false });
     }
+    // Status panels the Video and Advanced categories read.
+    if (url.pathname === '/api/health/vulkan-hdr-layer') return reply({ status: true, installed: false, enabled: false, available: true, active: false });
+    if (url.pathname === '/api/frame-limiter/status') return reply({ status: true, enabled: false, configured_provider: 'none', active_provider: 'none',
+      rtss_available: false, resolved_path: '', path_exists: false, process_running: false, message: '' });
     assert.fail(`unexpected API request: ${url.pathname}`);
   });
   return { page, writes };

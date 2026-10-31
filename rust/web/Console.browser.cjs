@@ -1,6 +1,7 @@
 // Uses the optional Playwright runtime from PathPicker.browser.cjs, without a host process.
 const assert = require('node:assert/strict');
 const { before, after, test } = require('node:test');
+const { warmUp } = require('./browser-warmup.cjs');
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const path = require('node:path');
 
@@ -17,6 +18,7 @@ before(async () => {
   browser = await chromium.launch({ headless: true,
     ...(process.env.CHROMIUM_EXECUTABLE ? { executablePath: process.env.CHROMIUM_EXECUTABLE } : {}),
   });
+  await warmUp(browser, base, ['/', '/devices', '/maintenance']);
 });
 after(async () => { await browser?.close(); await server?.close(); });
 
@@ -86,7 +88,12 @@ async function fixture(t, options = {}) {
     if (url.pathname === '/api/tokens') return reply({ tokens: [] });
     if (url.pathname === '/api/usb') return reply({ status: true, devices: [] });
     if (url.pathname === '/api/token/routes') return reply({ routes: [] });
-    if (url.pathname === '/api/usb') return reply({ status: true, devices: [] });
+    // Help's panels, so every page renders without a page error.
+    if (url.pathname === '/api/coop') return reply({ mode: { setting: 'nucleus', mode: 'nucleus', label: 'Nucleus Co-op', reason: '' },
+      install: { state: 'missing', path: null, version: null, error: null }, available: true, reason: null, sessions: [] });
+    if (url.pathname === '/api/logs/analysis') return reply({ status: true, findings: [], since: null, until: null, read_bytes: 0 });
+    if (url.pathname === '/api/session/console') return reply({ status: true, recovery: { session_id: 1, console_session_id: 1, can_reattach: false, reason: '' } });
+    if (url.pathname === '/api/webhooks') return reply({ status: true, events: ['app.started', 'app.stopped'], max: 8, hooks: [], error: null });
     return reply({ status: true, available: false, enabled: false });
   });
   return { page, writes, metadata };
@@ -105,7 +112,7 @@ test('settings drafts survive category changes and canceled navigation', async t
   await page.locator('main').getByRole('link', { name: 'All settings', exact: true }).click();
   await page.getByLabel('Host name', { exact: true }).fill('Unsaved name');
   await page.getByRole('link', { name: /^Network/ }).click();
-  await nav(page, 'Games & apps');
+  await nav(page, 'Games');
   await cancel(page);
   assert.equal(new URL(page.url()).pathname, '/settings/network');
   await unloadProtected(page);
@@ -163,7 +170,7 @@ test('hardware metrics stay off until enabled and save the interval and selectio
 test('pairing a device leaves the app draft open and explains PIN verification', async t => {
   const { page, writes } = await fixture(t, { pending: [{ uniqueid: 'new-device', name: 'New device', age_seconds: 0 }] });
   await page.goto(base + '/logs');
-  await nav(page, 'Games & apps');
+  await nav(page, 'Games');
   await page.getByRole('link', { name: 'Add manually', exact: true }).first().click();
   await page.getByLabel('Name', { exact: true }).fill('Unsaved app');
   await page.getByLabel('PIN for New device').fill('1234');
@@ -188,7 +195,7 @@ test('device drafts block links, tab closure and browser Back', async t => {
   await nav(page, 'Devices');
   await page.getByRole('button', { name: 'Settings Test device', exact: true }).click();
   await page.getByLabel('Name', { exact: true }).fill('Unsaved device');
-  await nav(page, 'Games & apps');
+  await nav(page, 'Games');
   await cancel(page);
   await unloadProtected(page);
   await page.goBack();
@@ -375,18 +382,27 @@ test('the sidebar groups tools, names each theme choice and copies the host addr
 });
 
 test('notice links stay in the sentence, disclosures share one chevron, header actions sit on the title line', async t => {
-  const { page } = await fixture(t, { pairing: false });
+  const { page } = await fixture(t);
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(base + '/devices');
-  const notice = page.locator('.notice', { hasText: 'Pairing is off' });
-  const settings = notice.getByRole('link', { name: 'Settings', exact: true });
-  await settings.waitFor();
-  assert.equal(await notice.evaluate(element => getComputedStyle(element).display), 'block');
-  // One line of text, not a column of syllables ("Set/tin/gs").
-  const line = await notice.evaluate(element => parseFloat(getComputedStyle(element).lineHeight));
-  assert((await settings.boundingBox()).height < line * 1.5);
-  const summary = page.locator('summary', { hasText: 'Manage devices' });
+  const summary = page.locator('summary', { hasText: 'Other ways to pair' });
+  await summary.waitFor();
   assert.deepEqual(await summary.evaluate(element => [getComputedStyle(element).listStyleType, getComputedStyle(element, '::after').content]), ['none', '""']);
+  // The shared .notice is a paragraph: a link inside its text stays one line of the
+  // sentence, not a column of syllables ("Set/tin/gs" at 390 px).
+  const height = await page.evaluate(() => {
+    const notice = document.createElement('p');
+    notice.className = 'notice';
+    notice.innerHTML = 'Pairing is off. Turn on Allow pairing in <a href="/settings">Settings</a> to pair a new device. Devices already paired keep working.';
+    document.querySelector('main').append(notice);
+    const link = notice.querySelector('a').getBoundingClientRect().height;
+    const line = parseFloat(getComputedStyle(notice).lineHeight);
+    const display = getComputedStyle(notice).display;
+    notice.remove();
+    return { link, line, display };
+  });
+  assert.equal(height.display, 'block');
+  assert(height.link < height.line * 1.5, `link ${height.link}px on ${height.line}px lines`);
   // Actions are centred on the h1 with the subtitle below, also without a subtitle.
   for (const [width, route] of [[1440, '/settings'], [1440, '/'], [390, '/']]) {
     await page.setViewportSize({ width, height: 900 });

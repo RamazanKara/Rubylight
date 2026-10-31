@@ -2,6 +2,7 @@
 // Uses the optional Playwright runtime like Console.browser.cjs; no host involved.
 const assert = require('node:assert/strict');
 const { before, after, test } = require('node:test');
+const { warmUp } = require('./browser-warmup.cjs');
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
 
 let server, browser, base;
@@ -14,6 +15,7 @@ before(async () => {
   base = `http://127.0.0.1:${server.httpServer.address().port}`;
   browser = await chromium.launch({ headless: true,
     ...(process.env.CHROMIUM_EXECUTABLE ? { executablePath: process.env.CHROMIUM_EXECUTABLE } : {}) });
+  await warmUp(browser, base, ['/design.html']);
 });
 after(async () => { await browser?.close(); await server?.close(); });
 
@@ -62,4 +64,36 @@ test('reduced motion stops pulsing dots and skeletons', async t => {
     nodes.map(node => getComputedStyle(node).animationIterationCount));
   assert.ok(iterations.length > 0);
   assert.deepEqual([...new Set(iterations)], ['1']);
+});
+
+for (const colorScheme of ['light', 'dark']) {
+  test(`a disabled button is a flat muted well, not a faded variant (${colorScheme})`, async t => {
+    const page = await gallery(t, { colorScheme });
+    const look = name => page.getByRole('button', { name, exact: true }).evaluate(node => {
+      const style = getComputedStyle(node);
+      const muted = getComputedStyle(document.documentElement).getPropertyValue('--muted').trim();
+      const probe = document.createElement('span');
+      probe.style.color = muted;
+      document.body.append(probe);
+      const mutedRgb = getComputedStyle(probe).color;
+      probe.remove();
+      return { opacity: style.opacity, background: style.backgroundColor, color: style.color, mutedRgb, cursor: style.cursor };
+    });
+    const primary = await look('Start stream');
+    const disabled = await look('Disabled primary');
+    const secondary = await look('Disabled');
+    assert.equal(disabled.opacity, '1', 'no washed-out fade');
+    assert.notEqual(disabled.background, primary.background, 'the brand fill goes away');
+    assert.equal(disabled.color, disabled.mutedRgb);
+    assert.equal(disabled.cursor, 'not-allowed');
+    assert.equal(disabled.background, secondary.background, 'every variant disables the same way');
+  });
+}
+
+test('the empty state icon sits in a well sized to the block', async t => {
+  const page = await gallery(t);
+  const box = await page.locator('.empty .icon').first().boundingBox();
+  assert.ok(box && box.width >= 48 && Math.abs(box.width - box.height) < 1, `icon well ${box?.width}x${box?.height}`);
+  const svg = await page.locator('.empty .icon svg').first().boundingBox();
+  assert.ok(svg && svg.width >= 28, `icon ${svg?.width}`);
 });

@@ -1,6 +1,7 @@
 // Uses the same optional Playwright runtime as tests/console_browser.cjs, with no host process.
 const assert = require('node:assert/strict');
 const { before, after, test } = require('node:test');
+const { warmUp } = require('./browser-warmup.cjs');
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
 
 let server, browser, base;
@@ -40,6 +41,7 @@ before(async () => {
     headless: true, args: ['--disable-gpu', '--disable-background-networking'],
     ...(process.env.CHROMIUM_EXECUTABLE ? { executablePath: process.env.CHROMIUM_EXECUTABLE } : {}),
   });
+  await warmUp(browser, base, ['/library/new', '/settings/library']);
 });
 after(async () => { await browser?.close(); await server?.close(); });
 
@@ -76,6 +78,9 @@ async function fixture(t) {
       if (url.pathname === '/api/config') config = { ...config, ...body };
       return reply({ status: true, uuid: 'saved-app', restart_required: false });
     }
+    // The app editor's Radeon and per-device sections.
+    if (url.pathname === '/api/radeon') return reply({ status: true, state: 'unsupported', reason: 'No AMD driver in the test', gpus: [] });
+    if (url.pathname === '/api/clients/list') return reply({ clients: [] });
     assert.fail(`unexpected API request: ${url.pathname}`);
   });
   return { page, errors, writes, browsing };

@@ -239,49 +239,85 @@ public class ControllerPreparationTest {
 
     @Test public void aPinnedTypeReachesTheLaunchListAndBeatsTheMotionOverrideWithoutAToast() {
         // #53: a Razer Kishi is unknown to SDL and gets motion from the tablet, so Automatic
-        // makes the host create a PlayStation pad; the user pins it.
+        // makes the host create a PlayStation pad; the user pins it. Each case loads its pin from storage.
+        short motion = MoonBridge.LI_CCAP_ACCEL | MoonBridge.LI_CCAP_GYRO;
+
+        PinnedArrival automatic = arriveWithDeviceMotion(null);
+        assertEquals(MoonBridge.LI_CTYPE_UNKNOWN, automatic.type);
+        assertTrue(automatic.launch, automatic.launch.startsWith("0:1:")); // the launch list names unknown as Xbox
+        assertEquals(motion, automatic.caps & motion);
+        assertTrue(automatic.toast);
+        assertTrue(automatic.clickpad);
+        assertTrue(automatic.deviceSensors);
+
+        // Pinned as Xbox: no motion or touchpad, so hosts that make such pads a DualSense keep it Xbox.
+        PinnedArrival xbox = arriveWithDeviceMotion(ControllerButtonMap.CONNECT_AS_XBOX);
+        assertEquals(MoonBridge.LI_CTYPE_XBOX, xbox.type);
+        assertTrue(xbox.launch, xbox.launch.startsWith("0:1:0:"));
+        assertEquals(0, xbox.caps & (motion | MoonBridge.LI_CCAP_TOUCHPAD));
+        assertFalse(xbox.toast);
+        assertFalse(xbox.clickpad);
+        assertFalse(xbox.deviceSensors);
+
+        // Pinned as PlayStation: motion stays, and Select+LB stands in for the missing touchpad click.
+        PinnedArrival playStation = arriveWithDeviceMotion(ControllerButtonMap.CONNECT_AS_PLAYSTATION);
+        assertEquals(MoonBridge.LI_CTYPE_PS, playStation.type);
+        assertTrue(playStation.launch, playStation.launch.startsWith("0:2:"));
+        assertEquals(motion, playStation.caps & motion);
+        assertFalse(playStation.toast);
+        assertTrue(playStation.clickpad);
+        assertTrue(playStation.deviceSensors);
+    }
+
+    private static final class PinnedArrival {
+        String launch;
+        byte type;
+        short caps;
+        boolean toast, clickpad, deviceSensors;
+    }
+
+    /** Player 1 without its own sensors, with the device's motion as fallback, and `connectAs` stored for it. */
+    private static PinnedArrival arriveWithDeviceMotion(Byte connectAs) {
         try (ActivityController<Activity> activity = Robolectric.buildActivity(Activity.class).create()) {
+            android.hardware.SensorManager sensors = (android.hardware.SensorManager)
+                    activity.get().getSystemService(Context.SENSOR_SERVICE);
+            for (int type : new int[] {android.hardware.Sensor.TYPE_ACCELEROMETER, android.hardware.Sensor.TYPE_GYROSCOPE}) {
+                org.robolectric.Shadows.shadowOf(sensors).addSensor(org.robolectric.shadows.ShadowSensor.newInstance(type));
+            }
             addInputDevice(activity.get(), 2, true, InputDevice.SOURCE_JOYSTICK | InputDevice.SOURCE_GAMEPAD);
-            ControllerButtonMap stored = new ControllerButtonMap();
-            stored.setConnectAs(ControllerButtonMap.CONNECT_AS_PLAYSTATION);
-            stored.save(activity.get(), ControllerButtonMap.deviceKey(0, 0, "Controller 2"));
+            if (connectAs != null) {
+                ControllerButtonMap stored = new ControllerButtonMap();
+                stored.setConnectAs(connectAs);
+                stored.save(activity.get(), ControllerButtonMap.deviceKey(0, 0, "Controller 2"));
+            }
             Connection connection = new Connection(73);
             PreferenceConfiguration prefs = new PreferenceConfiguration();
             prefs.multiController = true;
+            prefs.gamepadMotionSensors = true;
+            prefs.gamepadMotionSensorsFallbackToDevice = true;
             ControllerHandler handler = new ControllerHandler(activity.get(), connection, null, prefs);
+            // Idling the main looper would also run the Shield service binding; run only what the arrival posts.
+            MainThreadPosts posts = new MainThreadPosts();
+            ReflectionHelpers.setField(handler, "mainThreadHandler", posts);
+            org.robolectric.shadows.ShadowToast.reset();
             try {
+                PinnedArrival result = new PinnedArrival();
                 String[] prepared = handler.prepareControllersForLaunch().split(",");
+                assertEquals(1, prepared.length);
+                posts.runAll();
                 java.util.Map<Integer, ControllerHandler.InputDeviceContext> contexts =
                         ReflectionHelpers.getField(handler, "inputDeviceContexts");
                 ControllerHandler.InputDeviceContext context = contexts.get(2);
-                // A pinned type with no button mappings is stored and loaded.
-                assertEquals(ControllerButtonMap.CONNECT_AS_PLAYSTATION, context.buttonMap.connectAs());
-                assertEquals(MoonBridge.LI_CTYPE_PS, connection.arrivalType);
-                assertEquals(1, prepared.length);
-                assertTrue(prepared[0], prepared[0].startsWith("0:2:"));
-                // Pinned as PlayStation without a touchpad click: Select+LB stands in for it.
-                assertTrue(context.needsClickpadEmulation);
-                context.needsClickpadEmulation = false;
-                context.sensorManager = (android.hardware.SensorManager)
-                        activity.get().getSystemService(Context.SENSOR_SERVICE);
-                context.buttonMap.setConnectAs(ControllerButtonMap.CONNECT_AS_XBOX);
-                // Idling the main looper would also run the Shield service binding; run only what the arrival posts.
-                MainThreadPosts posts = new MainThreadPosts();
-                ReflectionHelpers.setField(handler, "mainThreadHandler", posts);
-                org.robolectric.shadows.ShadowToast.reset();
-                context.sendControllerArrival();
-                posts.runAll();
-                assertEquals(MoonBridge.LI_CTYPE_XBOX, connection.arrivalType);
-                assertNull(org.robolectric.shadows.ShadowToast.getLatestToast());
-                assertFalse(context.needsClickpadEmulation);
-
-                // Automatic keeps the motion override and its toast.
-                context.buttonMap = new ControllerButtonMap();
-                context.sendControllerArrival();
-                posts.runAll();
-                assertEquals(MoonBridge.LI_CTYPE_UNKNOWN, connection.arrivalType);
-                assertNotNull(org.robolectric.shadows.ShadowToast.getLatestToast());
-                assertTrue(context.needsClickpadEmulation);
+                assertEquals(connectAs == null ? ControllerButtonMap.CONNECT_AS_AUTOMATIC : connectAs.byteValue(),
+                        context.buttonMap.connectAs());
+                result.launch = prepared[0];
+                result.type = connection.arrivalType;
+                result.caps = connection.arrivalCaps;
+                result.toast = org.robolectric.shadows.ShadowToast.getLatestToast() != null;
+                result.clickpad = context.needsClickpadEmulation;
+                result.deviceSensors = context.sensorManager == sensors;
+                assertEquals(Short.parseShort(prepared[0].split(":")[2]), result.caps);
+                return result;
             } finally {
                 handler.destroy();
                 activity.get().getSharedPreferences("ControllerButtonMaps", Context.MODE_PRIVATE).edit().clear().commit();
@@ -617,12 +653,13 @@ public class ControllerPreparationTest {
         int arrivals, inputs;
         short activeMask;
         byte arrivalType;
+        short arrivalCaps;
         Connection(int appId) {
             super(null, new ComputerDetails.AddressTuple("127.0.0.1", 47989), 47984, "test",
                     new StreamConfiguration.Builder().setApp(new NvApp("Test", appId, false)).build(), null, null);
         }
         @Override public int sendControllerArrivalEvent(byte slot, short mask, byte type, int buttons, short caps) {
-            arrivals++; arrivalType = type; return 0;
+            arrivals++; arrivalType = type; arrivalCaps = caps; return 0;
         }
         @Override public void sendControllerInput(short slot, short mask, int buttons, byte leftTrigger,
                                                  byte rightTrigger, short leftX, short leftY, short rightX, short rightY) {

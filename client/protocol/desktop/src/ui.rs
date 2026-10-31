@@ -1650,7 +1650,7 @@ impl Launcher {
                 ui.separator();
             }
             let selected = CONNECT_AS.iter().find(|(kind, _)| *kind == mapping.connect_as).map_or(CONNECT_AS[0].1, |(_, label)| label);
-            row(ui, "Connect as", "The controller type games see. Automatic uses the type the controller reports; pick another if games show the wrong buttons.", |ui| {
+            row(ui, "Connect as", "The controller type games see. Automatic uses the type the controller reports; pick another if games show the wrong buttons. Xbox sends no motion or touchpad.", |ui| {
                 egui::ComboBox::from_id_salt("connect-as").selected_text(tr(selected)).show_ui(ui, |ui| {
                     for (kind, label) in CONNECT_AS {
                         ui.selectable_value(&mut mapping.connect_as, kind, tr(label));

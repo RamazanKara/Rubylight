@@ -34,8 +34,9 @@ import static org.junit.Assert.*;
 public class ExtraButtonMappingTest {
     private static class Connection extends NvConnection {
         final List<Integer> buttons = new ArrayList<>();
-        int arrivals, arrivalButtons;
+        int arrivals, arrivalButtons, motions, touches;
         byte arrivalType;
+        short arrivalCaps;
 
         Connection() {
             super(null, new ComputerDetails.AddressTuple("127.0.0.1", 47989), 47984, "test",
@@ -49,6 +50,18 @@ public class ExtraButtonMappingTest {
             arrivals++;
             arrivalType = type;
             arrivalButtons = buttons;
+            arrivalCaps = capabilities;
+            return 0;
+        }
+
+        @Override public int sendControllerMotionEvent(byte number, byte motionType, float x, float y, float z) {
+            motions++;
+            return 0;
+        }
+
+        @Override public int sendControllerTouchEvent(byte number, byte eventType, int pointerId,
+                                                      float x, float y, float pressure) {
+            touches++;
             return 0;
         }
 
@@ -69,6 +82,12 @@ public class ExtraButtonMappingTest {
             type = MoonBridge.LI_CTYPE_XBOX;
             supportedButtonFlags = ControllerPacket.A_FLAG | ControllerPacket.B_FLAG | extraButtons;
         }
+        XboxPad(short caps) {
+            this(0);
+            capabilities = caps;
+        }
+        final List<Short> motionRates = new ArrayList<>();
+        @Override public void setMotionEventState(byte motionType, short reportRateHz) { motionRates.add(reportRateHz); }
         @Override public boolean start() { return true; }
         @Override public void stop() { }
         @Override public void rumble(short low, short high) { }
@@ -305,6 +324,92 @@ public class ExtraButtonMappingTest {
                 assertEquals(ControllerPacket.A_FLAG | ControllerPacket.B_FLAG | ControllerPacket.TOUCHPAD_FLAG,
                         connection.arrivalButtons);
                 assertEquals(ControllerPacket.TOUCHPAD_FLAG, connection.last());
+            } finally {
+                handler.destroy();
+                activity.get().getSharedPreferences("ControllerButtonMaps", Context.MODE_PRIVATE).edit().clear().commit();
+            }
+        }
+    }
+
+    private static final short MOTION_AND_TOUCHPAD = MoonBridge.LI_CCAP_ACCEL | MoonBridge.LI_CCAP_GYRO |
+            MoonBridge.LI_CCAP_TOUCHPAD | MoonBridge.LI_CCAP_DUAL_TOUCHPAD;
+
+    @Test
+    public void anXboxPinLeavesOutMotionAndTouchpadSoHostsKeepItXbox() {
+        short all = (short) (MOTION_AND_TOUCHPAD | MoonBridge.LI_CCAP_RUMBLE | MoonBridge.LI_CCAP_BATTERY_STATE);
+        ControllerButtonMap automatic = new ControllerButtonMap();
+        assertEquals(all, ControllerHandler.arrivalCapabilities(all, automatic));
+        for (byte kept : new byte[] {ControllerButtonMap.CONNECT_AS_PLAYSTATION, ControllerButtonMap.CONNECT_AS_NINTENDO}) {
+            ControllerButtonMap map = new ControllerButtonMap();
+            map.setConnectAs(kept);
+            assertEquals(all, ControllerHandler.arrivalCapabilities(all, map));
+        }
+        ControllerButtonMap xbox = new ControllerButtonMap();
+        xbox.setConnectAs(ControllerButtonMap.CONNECT_AS_XBOX);
+        assertEquals(MoonBridge.LI_CCAP_RUMBLE | MoonBridge.LI_CCAP_BATTERY_STATE,
+                ControllerHandler.arrivalCapabilities(all, xbox));
+    }
+
+    @Test
+    public void usbPadPinnedAsXboxArrivesAndStaysWithoutMotionAndTouchpad() {
+        try (ActivityController<Activity> activity = Robolectric.buildActivity(Activity.class).create()) {
+            ControllerButtonMap stored = new ControllerButtonMap();
+            stored.setConnectAs(ControllerButtonMap.CONNECT_AS_XBOX);
+            stored.save(activity.get(), ControllerButtonMap.deviceKey(0x045e, 0x028e, null));
+
+            Connection connection = new Connection();
+            PreferenceConfiguration preferences = new PreferenceConfiguration();
+            preferences.multiController = true;
+            preferences.gamepadMotionSensors = true;
+            ControllerHandler handler = new ControllerHandler(activity.get(), connection, null, preferences);
+            XboxPad pad = new XboxPad((short) (MOTION_AND_TOUCHPAD | MoonBridge.LI_CCAP_RUMBLE));
+            try {
+                handler.deviceAdded(pad);
+                handler.reportControllerState(42, ControllerPacket.A_FLAG, 0, 0, 0, 0, 0, 0);
+                assertEquals(MoonBridge.LI_CTYPE_XBOX, connection.arrivalType);
+                assertEquals(MoonBridge.LI_CCAP_RUMBLE, connection.arrivalCaps);
+                // The pad's sensors stay off and its motion and touches never reach the host.
+                handler.handleSetMotionEventState((short) 0, MoonBridge.LI_MOTION_TYPE_GYRO, (short) 100);
+                assertEquals(java.util.Collections.singletonList((short) 0), pad.motionRates);
+                handler.reportControllerMotion(42, MoonBridge.LI_MOTION_TYPE_GYRO, 1, 2, 3);
+                handler.reportControllerTouch(42, MoonBridge.LI_TOUCH_EVENT_DOWN, 0, 0.5f, 0.5f, 1);
+                assertEquals(0, connection.motions);
+                assertEquals(0, connection.touches);
+            } finally {
+                handler.destroy();
+                activity.get().getSharedPreferences("ControllerButtonMaps", Context.MODE_PRIVATE).edit().clear().commit();
+            }
+        }
+    }
+
+    @Test
+    public void usbPadPinnedAsPlayStationClicksTheTouchpadWithSelectAndLb() {
+        try (ActivityController<Activity> activity = Robolectric.buildActivity(Activity.class).create()) {
+            ControllerButtonMap stored = new ControllerButtonMap();
+            stored.setConnectAs(ControllerButtonMap.CONNECT_AS_PLAYSTATION);
+            stored.save(activity.get(), ControllerButtonMap.deviceKey(0x045e, 0x028e, null));
+
+            Connection connection = new Connection();
+            PreferenceConfiguration preferences = new PreferenceConfiguration();
+            preferences.multiController = true;
+            ControllerHandler handler = new ControllerHandler(activity.get(), connection, null, preferences);
+            try {
+                handler.deviceAdded(new XboxPad());
+                int back = ControllerPacket.BACK_FLAG, lb = ControllerPacket.LB_FLAG;
+                handler.reportControllerState(42, back, 0, 0, 0, 0, 0, 0);
+                assertEquals(MoonBridge.LI_CTYPE_PS, connection.arrivalType);
+                assertEquals(back, connection.last());
+                handler.reportControllerState(42, back | lb, 0, 0, 0, 0, 0, 0);
+                assertEquals(ControllerPacket.TOUCHPAD_FLAG, connection.last());
+                handler.reportControllerState(42, back | lb | ControllerPacket.A_FLAG, 0, 0, 0, 0, 0, 0);
+                assertEquals(ControllerPacket.TOUCHPAD_FLAG | ControllerPacket.A_FLAG, connection.last());
+                // Letting go of LB lifts the click; Back stays silent until it is let go too.
+                handler.reportControllerState(42, back, 0, 0, 0, 0, 0, 0);
+                assertEquals(0, connection.last());
+                handler.reportControllerState(42, 0, 0, 0, 0, 0, 0, 0);
+                assertEquals(0, connection.last());
+                handler.reportControllerState(42, back, 0, 0, 0, 0, 0, 0);
+                assertEquals(back, connection.last());
             } finally {
                 handler.destroy();
                 activity.get().getSharedPreferences("ControllerButtonMaps", Context.MODE_PRIVATE).edit().clear().commit();

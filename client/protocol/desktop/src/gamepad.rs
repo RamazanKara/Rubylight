@@ -97,7 +97,19 @@ pub struct Mapping {
     pub axes: [i8; 6],
     pub deadzone: u8,
     /// One of [`CONNECT_AS`]; mappings saved before it existed load as Automatic.
+    #[serde(deserialize_with = "lenient_connect_as")]
     pub connect_as: u8,
+}
+
+/// Anything but a known choice reads as Automatic, so one bad value (256, -1, "x", or a type a
+/// newer Nightjar adds) never fails the whole file and with it every controller's mapping.
+fn lenient_connect_as<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<u8, D::Error> {
+    let value = serde_json::Value::deserialize(deserializer)?;
+    Ok(value
+        .as_u64()
+        .and_then(|v| u8::try_from(v).ok())
+        .filter(|v| CONNECT_AS.iter().any(|(kind, _)| kind == v))
+        .unwrap_or(CTYPE_UNKNOWN))
 }
 
 impl Default for Mapping {
@@ -134,6 +146,24 @@ impl Mapping {
         }
     }
 
+    /// Whether the pad is pinned as Xbox, which leaves out motion and the touchpad: an Xbox pad has
+    /// neither, and hosts such as Rubylight turn any pad that reports them into a DualSense.
+    pub fn drops_motion_and_touchpad(&self) -> bool {
+        self.connect_as == CTYPE_XBOX
+    }
+
+    /// The capabilities the pad arrives with.
+    pub fn arrival_capabilities(&self, caps: u16) -> u16 {
+        if !self.drops_motion_and_touchpad() { return caps; }
+        caps & !(capability::ACCEL | capability::GYRO | capability::TOUCHPAD | capability::DUAL_TOUCHPAD)
+    }
+
+    /// Whether Select+LB clicks the touchpad: pinned as PlayStation on a pad without a touchpad
+    /// click, unless a button is already mapped to it.
+    pub fn emulates_clickpad(&self, has_touchpad_click: bool) -> bool {
+        self.connect_as == CTYPE_PS && !has_touchpad_click && !self.buttons.contains(&Some(button::TOUCHPAD))
+    }
+
     pub fn map_buttons(&self, raw: u32, swap: bool) -> u32 {
         self.buttons.iter().enumerate().filter(|(i, _)| raw & (1 << i) != 0).fold(0, |buttons, (i, target)| {
             buttons | target.unwrap_or(BUTTON_MAP[if swap && i < 4 { i ^ 1 } else { i }])
@@ -156,6 +186,16 @@ impl Mapping {
             rs: deadzone((mapped[2], invert(mapped[3])), self.deadzone),
         }
     }
+}
+
+/// Select+LB pressed together, and nothing else, sends the touchpad click instead while both stay
+/// held; `swallowed` holds those of the two not yet let go, which stay silent until released.
+/// The Android client does the same for a pad pinned as PlayStation.
+fn clickpad(buttons: u32, swallowed: &mut u32) -> u32 {
+    let combo = button::BACK | button::LB;
+    if *swallowed == 0 && buttons == combo { *swallowed = combo; }
+    *swallowed &= buttons;
+    (buttons & !*swallowed) | if *swallowed == combo { button::TOUCHPAD } else { 0 }
 }
 
 fn deadzone(value: (i16, i16), percent: u8) -> (i16, i16) {
@@ -187,6 +227,9 @@ pub struct Pad {
     ls: (i16, i16),
     rs: (i16, i16),
     announced: bool,
+    /// SDL reports a PlayStation pad or a touchpad click button: no Select+LB stand-in.
+    has_touchpad_click: bool,
+    clickpad_swallowed: u32,
 }
 
 impl Pad {
@@ -202,7 +245,11 @@ impl Pad {
 
     fn update(&mut self, swap: bool) {
         let state = self.mapping.apply(self.raw_buttons, self.raw_axes, swap);
-        self.buttons = state.buttons;
+        self.buttons = if self.mapping.emulates_clickpad(self.has_touchpad_click) {
+            clickpad(state.buttons, &mut self.clickpad_swallowed)
+        } else {
+            state.buttons
+        };
         self.lt = state.lt;
         self.rt = state.rt;
         self.ls = state.ls;
@@ -300,6 +347,11 @@ impl Gamepads {
         let (vendor, product) = unsafe { (SDL_GetGamepadVendor(handle), SDL_GetGamepadProduct(handle)) };
         let key = if vendor != 0 || product != 0 { format!("usb:{vendor:04x}:{product:04x}") } else { format!("name:{name}") };
         let mapping = self.mappings.get(&key).cloned().unwrap_or_default();
+        // SAFETY: the gamepad opened above; read-only queries.
+        let has_touchpad_click = unsafe {
+            matches!(SDL_GetGamepadType(handle), SDL_GAMEPAD_TYPE_PS3 | SDL_GAMEPAD_TYPE_PS4 | SDL_GAMEPAD_TYPE_PS5)
+                || SDL_GamepadHasButton(handle, SDL_GAMEPAD_BUTTON_TOUCHPAD)
+        };
         self.pads.push(Pad {
             audio: None,
             id,
@@ -318,6 +370,8 @@ impl Gamepads {
             ls: (0, 0),
             rs: (0, 0),
             announced: false,
+            has_touchpad_click,
+            clickpad_swallowed: 0,
         });
         Ok(())
     }
@@ -384,6 +438,7 @@ impl Gamepads {
             pad.touchpad.release(queue);
             pad.raw_buttons = 0;
             pad.raw_axes = [0; 6];
+            pad.clickpad_swallowed = 0;
             pad.buttons = 0;
             pad.lt = 0;
             pad.rt = 0;
@@ -457,6 +512,8 @@ impl Gamepads {
                     let t = event.gtouchpad;
                     let pad = self.find(t.which)?;
                     if touchpad_as_mouse { pad.touchpad.touch(&t, queue); return None; }
+                    // A pad pinned as Xbox told the host it has no touchpad.
+                    if pad.mapping.drops_motion_and_touchpad() { return None; }
                     let phase = match kind {
                         SDL_EVENT_GAMEPAD_TOUCHPAD_DOWN => touch_event::DOWN,
                         SDL_EVENT_GAMEPAD_TOUCHPAD_UP => touch_event::UP,
@@ -475,6 +532,7 @@ impl Gamepads {
                 SDL_EVENT_GAMEPAD_SENSOR_UPDATE if motion => {
                     let s = event.gsensor;
                     let pad = self.find(s.which)?;
+                    if pad.mapping.drops_motion_and_touchpad() { return None; }
                     let [x, y, z] = s.data;
                     match SDL_SensorType(s.sensor) {
                         SDL_SENSOR_ACCEL => {
@@ -554,8 +612,10 @@ impl Gamepads {
             motion_type::GYRO => SDL_SENSOR_GYRO,
             _ => return,
         };
+        // A pad pinned as Xbox told the host it has no motion sensors.
+        let on = rate_hz != 0 && !pad.mapping.drops_motion_and_touchpad();
         // SAFETY: an open gamepad.
-        unsafe { SDL_SetGamepadSensorEnabled(pad.handle, sensor, rate_hz != 0) };
+        unsafe { SDL_SetGamepadSensorEnabled(pad.handle, sensor, on) };
     }
 
     /// Stops every motor and sensor (stream end).
@@ -782,7 +842,7 @@ fn describe(pad: &Pad) -> (u8, u32, u16) {
         if state != SDL_POWERSTATE_UNKNOWN && state != SDL_POWERSTATE_NO_BATTERY && state != SDL_POWERSTATE_ERROR {
             caps |= capability::BATTERY_STATE;
         }
-        (kind, supported, caps)
+        (kind, supported, pad.mapping.arrival_capabilities(caps))
     }
 }
 
@@ -1147,6 +1207,49 @@ mod tests {
         assert_eq!(mapping.arrival_type(CTYPE_PS), CTYPE_PS);
         assert!(mapping.valid());
         assert_eq!(CONNECT_AS.map(|(kind, _)| kind), [0, 1, 2, 3]);
+    }
+
+    #[test]
+    fn an_xbox_pin_arrives_without_motion_or_touchpad() {
+        let all = capability::ANALOG_TRIGGERS | capability::RUMBLE | capability::TOUCHPAD
+            | capability::DUAL_TOUCHPAD | capability::ACCEL | capability::GYRO | capability::BATTERY_STATE;
+        let mut mapping = Mapping::default();
+        // Automatic and the other types keep what the pad has.
+        assert_eq!(mapping.arrival_capabilities(all), all);
+        for kind in [CTYPE_PS, CTYPE_NINTENDO] {
+            mapping.connect_as = kind;
+            assert_eq!(mapping.arrival_capabilities(all), all);
+            assert!(!mapping.drops_motion_and_touchpad());
+        }
+        // Rubylight turns an Xbox pad with motion or a touchpad into a DualSense.
+        mapping.connect_as = CTYPE_XBOX;
+        assert!(mapping.drops_motion_and_touchpad());
+        assert_eq!(mapping.arrival_capabilities(all),
+            capability::ANALOG_TRIGGERS | capability::RUMBLE | capability::BATTERY_STATE);
+    }
+
+    #[test]
+    fn select_lb_clicks_the_touchpad_of_a_pad_pinned_as_playstation() {
+        let mut mapping = Mapping { connect_as: CTYPE_PS, ..Default::default() };
+        assert!(mapping.emulates_clickpad(false));
+        assert!(!mapping.emulates_clickpad(true), "a pad with a touchpad click keeps it");
+        mapping.buttons[0] = Some(button::TOUCHPAD);
+        assert!(!mapping.emulates_clickpad(false), "a button mapped to the touchpad replaces the combo");
+        assert!(!Mapping::default().emulates_clickpad(false));
+        assert!(!Mapping { connect_as: CTYPE_XBOX, ..Default::default() }.emulates_clickpad(false));
+
+        let (back, lb) = (button::BACK, button::LB);
+        let mut swallowed = 0;
+        assert_eq!(clickpad(back, &mut swallowed), back);
+        assert_eq!(clickpad(back | lb, &mut swallowed), button::TOUCHPAD);
+        assert_eq!(clickpad(back | lb | button::A, &mut swallowed), button::TOUCHPAD | button::A);
+        // Letting go of LB lifts the click; Back stays silent until it is let go too.
+        assert_eq!(clickpad(back, &mut swallowed), 0);
+        assert_eq!(clickpad(back | lb, &mut swallowed), lb);
+        assert_eq!(clickpad(0, &mut swallowed), 0);
+        assert_eq!(swallowed, 0);
+        // Select+LB as part of a larger chord is left alone.
+        assert_eq!(clickpad(back | lb | button::PLAY, &mut swallowed), back | lb | button::PLAY);
     }
 
     #[test]

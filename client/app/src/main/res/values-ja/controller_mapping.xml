@@ -22,5 +22,6 @@
     <string name="controller_button_paddle">背面ボタン %1$d</string>
     <string name="controller_connect_as">接続時の種類</string>
     <string name="controller_connect_as_automatic">自動</string>
+    <string name="controller_connect_as_xbox_summary">Xbox（モーションセンサーとタッチパッドなし）</string>
     <string name="pc_tap_to_pair">%1$s\nタップしてペアリング</string>
 </resources>

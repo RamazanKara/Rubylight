@@ -217,7 +217,8 @@ public class ControllerMappingActivity extends NightjarActivity {
 
     private String connectAsName(byte type) {
         switch (type) {
-            case ControllerButtonMap.CONNECT_AS_XBOX: return getString(R.string.controller_connect_as_xbox);
+            // An Xbox pad has no motion or touchpad, so a pad pinned as Xbox leaves them out
+            case ControllerButtonMap.CONNECT_AS_XBOX: return getString(R.string.controller_connect_as_xbox_summary);
             case ControllerButtonMap.CONNECT_AS_PLAYSTATION: return getString(R.string.controller_connect_as_playstation);
             case ControllerButtonMap.CONNECT_AS_NINTENDO: return getString(R.string.controller_connect_as_nintendo);
             default: return getString(R.string.controller_connect_as_automatic);

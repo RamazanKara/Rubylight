@@ -247,7 +247,7 @@ pub const TABLE: &[(&str, &str)] = &[
     ("Saved profiles", "Gespeicherte Profile"),
     ("Stream settings", "Stream-Einstellungen"),
     ("Connect as", "Verbinden als"),
-    ("The controller type games see. Automatic uses the type the controller reports; pick another if games show the wrong buttons.", "Der Controllertyp, den Spiele sehen. Automatisch nutzt den Typ, den der Controller meldet; wähle einen anderen, wenn Spiele die falschen Tasten zeigen."),
+    ("The controller type games see. Automatic uses the type the controller reports; pick another if games show the wrong buttons. Xbox sends no motion or touchpad.", "Der Controllertyp, den Spiele sehen. Automatisch nutzt den Typ, den der Controller meldet; wähle einen anderen, wenn Spiele die falschen Tasten zeigen. Xbox sendet keine Bewegungsdaten und kein Touchpad."),
     ("Xbox", "Xbox"),
     ("PlayStation", "PlayStation"),
     ("Nintendo", "Nintendo"),

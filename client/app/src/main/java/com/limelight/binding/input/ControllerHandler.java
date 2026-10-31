@@ -414,11 +414,11 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         if (!context.assignedControllerNumber || context.arrivalPending) {
             return;
         }
-        if ((context.device.getCapabilities() & MoonBridge.LI_CCAP_TOUCHPAD) != 0) {
+        if ((context.capabilities() & MoonBridge.LI_CCAP_TOUCHPAD) != 0) {
             conn.sendControllerTouchEvent((byte) context.controllerNumber, MoonBridge.LI_TOUCH_EVENT_CANCEL_ALL,
                     0, 0, 0, 0);
         }
-        if (prefConfig.gamepadMotionSensors && (context.device.getCapabilities() & MoonBridge.LI_CCAP_GYRO) != 0) {
+        if (prefConfig.gamepadMotionSensors && (context.capabilities() & MoonBridge.LI_CCAP_GYRO) != 0) {
             conn.sendControllerMotionEvent((byte) context.controllerNumber, MoonBridge.LI_MOTION_TYPE_GYRO, 0, 0, 0);
         }
     }
@@ -463,7 +463,7 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
             deviceContext.disableSensors();
         }
         for (UsbDeviceContext context : usbDeviceContexts.values()) {
-            if (context.assignedControllerNumber && (context.device.getCapabilities() & MoonBridge.LI_CCAP_GYRO) != 0) {
+            if (context.assignedControllerNumber && (context.capabilities() & MoonBridge.LI_CCAP_GYRO) != 0) {
                 conn.sendControllerMotionEvent((byte)context.controllerNumber, MoonBridge.LI_MOTION_TYPE_GYRO, 0, 0, 0);
             }
         }
@@ -745,7 +745,8 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
             }
 
             // If the gamepad doesn't have motion sensors, use the on-device sensors as a fallback for player 1
-            if (prefConfig.gamepadMotionSensorsFallbackToDevice && context.controllerNumber == 0 && devContext.sensorManager == null) {
+            if (prefConfig.gamepadMotionSensorsFallbackToDevice && context.controllerNumber == 0 && devContext.sensorManager == null &&
+                    !dropsMotionAndTouchpad(devContext.buttonMap)) {
                 devContext.sensorManager = deviceSensorManager;
             }
         }
@@ -1091,7 +1092,7 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         // https://cs.android.com/android/_/android/platform/frameworks/base/+/8970010a5e9f3dc5c069f56b4147552accfcbbeb
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             if ((Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU || context.vendorId == 0x054c || context.vendorId == 0x057e) && // Sony or Nintendo
-                    prefConfig.gamepadMotionSensors) {
+                    prefConfig.gamepadMotionSensors && !dropsMotionAndTouchpad(context.buttonMap)) {
                 if (dev.getSensorManager().getDefaultSensor(Sensor.TYPE_ACCELEROMETER) != null || dev.getSensorManager().getDefaultSensor(Sensor.TYPE_GYROSCOPE) != null) {
                     context.sensorManager = dev.getSensorManager();
                 }
@@ -1459,6 +1460,21 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
      */
     static byte inputDeviceArrivalType(byte detected, boolean hasMotion, ControllerButtonMap map) {
         return arrivalType(motionOverridesType(detected, hasMotion, map) ? MoonBridge.LI_CTYPE_UNKNOWN : detected, map);
+    }
+
+    /**
+     * Whether a pad pinned as Xbox leaves out motion and the touchpad. An Xbox pad has neither, and
+     * hosts such as Rubylight turn any pad that reports them into a DualSense, which would undo the pin.
+     */
+    static boolean dropsMotionAndTouchpad(ControllerButtonMap map) {
+        return map.connectAs() == MoonBridge.LI_CTYPE_XBOX;
+    }
+
+    /** The capabilities a pad arrives with: without motion and touchpad when pinned as Xbox. */
+    static short arrivalCapabilities(short capabilities, ControllerButtonMap map) {
+        if (!dropsMotionAndTouchpad(map)) return capabilities;
+        return (short) (capabilities & ~(MoonBridge.LI_CCAP_ACCEL | MoonBridge.LI_CCAP_GYRO |
+                MoonBridge.LI_CCAP_TOUCHPAD | MoonBridge.LI_CCAP_DUAL_TOUCHPAD));
     }
 
     /** Whether motion changes the type the pad arrives as, which the user is told about. */
@@ -2252,6 +2268,11 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
             return false;
         }
 
+        // A pad pinned as Xbox told the host it has no touchpad
+        if (dropsMotionAndTouchpad(context.buttonMap)) {
+            return true;
+        }
+
         // If we don't have X and Y ranges, we can't process this event
         if (context.touchpadXRange == null || context.touchpadYRange == null) {
             return false;
@@ -2656,7 +2677,7 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
             for (UsbDeviceContext context : usbDeviceContexts.values()) {
                 assignControllerNumberIfNeeded(context);
                 if (!context.assignedControllerNumber) continue;
-                short caps = context.device.getCapabilities();
+                short caps = context.capabilities();
                 if (!prefConfig.gamepadMotionSensors) caps &= ~(MoonBridge.LI_CCAP_ACCEL | MoonBridge.LI_CCAP_GYRO);
                 controllers[context.controllerNumber] = launchController(context.controllerNumber,
                         arrivalType(context.device.getType(), context.buttonMap), caps,
@@ -2928,7 +2949,8 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
 
         for (UsbDeviceContext context : usbDeviceContexts.values()) {
             if (context.assignedControllerNumber && context.controllerNumber == controllerNumber) {
-                context.device.setMotionEventState(motionType, prefConfig.gamepadMotionSensors ? reportRateHz : 0);
+                context.device.setMotionEventState(motionType,
+                        prefConfig.gamepadMotionSensors && !dropsMotionAndTouchpad(context.buttonMap) ? reportRateHz : 0);
             }
         }
 
@@ -3637,7 +3659,7 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         context.leftTrigger = (byte)(leftTrigger * 0xFF);
         context.rightTrigger = (byte)(rightTrigger * 0xFF);
 
-        context.inputMap = buttons;
+        context.inputMap = context.clickpadButtons(buttons);
 
         // The same menu combination as on an Android-mapped pad, opened once all four are let go so
         // it cannot activate a menu item.
@@ -3825,7 +3847,8 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
     @Override
     public void reportControllerTouch(int controllerId, byte eventType, int pointerId, float x, float y, float pressure) {
         UsbDeviceContext context = usbDeviceContexts.get(controllerId);
-        if (!stopped && inputEnabled && context != null && context.assignedControllerNumber) {
+        if (!stopped && inputEnabled && context != null && context.assignedControllerNumber &&
+                (context.capabilities() & MoonBridge.LI_CCAP_TOUCHPAD) != 0) {
             conn.sendControllerTouchEvent((byte)context.controllerNumber, eventType, pointerId, x, y, pressure);
         }
     }
@@ -3834,7 +3857,7 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
     public void reportControllerMotion(int controllerId, byte motionType, float x, float y, float z) {
         UsbDeviceContext context = usbDeviceContexts.get(controllerId);
         if (!stopped && inputEnabled && sensorsEnabled && prefConfig.gamepadMotionSensors && context != null &&
-                context.assignedControllerNumber) {
+                context.assignedControllerNumber && !dropsMotionAndTouchpad(context.buttonMap)) {
             conn.sendControllerMotionEvent((byte)context.controllerNumber, motionType, x, y, z);
         }
     }
@@ -3867,7 +3890,7 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
                     capture.stick(context.id, 0f, 0f);
                 }
             }
-            if (context.assignedControllerNumber && (controller.getCapabilities() & MoonBridge.LI_CCAP_TOUCHPAD) != 0) {
+            if (context.assignedControllerNumber && (context.capabilities() & MoonBridge.LI_CCAP_TOUCHPAD) != 0) {
                 conn.sendControllerTouchEvent((byte)context.controllerNumber, MoonBridge.LI_TOUCH_EVENT_CANCEL_ALL,
                         0, 0, 0, 0);
             }
@@ -4290,6 +4313,7 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
                 }
             }
 
+            capabilities = arrivalCapabilities(capabilities, buttonMap);
             reportedCapabilities = capabilities;
             // A built-in device sharing player 1 with an external pad stays quiet, so the host
             // keeps the external pad's type, touchpad and motion.
@@ -4419,6 +4443,30 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         int captureGeneration;
         int menuButtons, heldFromMenu, lastButtons;
 
+        // Select+LB held as the touchpad click: those of the two not let go yet, which stay silent until released
+        int clickpadSwallowed;
+
+        /**
+         * The buttons sent for a report. On a pad pinned as PlayStation without being one, Select+LB
+         * pressed together and alone clicks the touchpad it lacks while both stay held, as on an
+         * Android-mapped pad.
+         */
+        int clickpadButtons(int buttons) {
+            if (buttonMap.connectAs() != MoonBridge.LI_CTYPE_PS || device.getType() == MoonBridge.LI_CTYPE_PS ||
+                    !needsClickpadEmulation(buttonMap)) {
+                return buttons;
+            }
+            final int combo = ControllerPacket.BACK_FLAG | ControllerPacket.LB_FLAG;
+            if (clickpadSwallowed == 0 && buttons == combo) clickpadSwallowed = combo;
+            clickpadSwallowed &= buttons;
+            return (buttons & ~clickpadSwallowed) | (clickpadSwallowed == combo ? ControllerPacket.TOUCHPAD_FLAG : 0);
+        }
+
+        /** The driver's capabilities as the host is told them: without motion and touchpad when pinned as Xbox. */
+        short capabilities() {
+            return arrivalCapabilities(device.getCapabilities(), buttonMap);
+        }
+
         boolean ensureControllerArrival() {
             if (arrivalPending && android.os.SystemClock.uptimeMillis() >= arrivalRetryAt) {
                 sendControllerArrival();
@@ -4442,7 +4490,7 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
                 arrivalRetryAt = android.os.SystemClock.uptimeMillis() + 1000;
                 return;
             }
-            short capabilities = device.getCapabilities();
+            short capabilities = capabilities();
             if ((capabilities & MoonBridge.LI_CCAP_HAPTICS_PCM) != 0) {
                 waveformControllers.put((short)controllerNumber, device);
             }

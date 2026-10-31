@@ -22,5 +22,6 @@
     <string name="controller_button_paddle">Botão traseiro %1$d</string>
     <string name="controller_connect_as">Conectar como</string>
     <string name="controller_connect_as_automatic">Automático</string>
+    <string name="controller_connect_as_xbox_summary">Xbox (sem sensores de movimento nem touchpad)</string>
     <string name="pc_tap_to_pair">%1$s\nToque para parear</string>
 </resources>

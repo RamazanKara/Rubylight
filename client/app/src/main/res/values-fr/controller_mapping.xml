@@ -22,5 +22,6 @@
     <string name="controller_button_paddle">Palette %1$d</string>
     <string name="controller_connect_as">Connecter en tant que</string>
     <string name="controller_connect_as_automatic">Automatique</string>
+    <string name="controller_connect_as_xbox_summary">Xbox (sans capteurs de mouvement ni pavé tactile)</string>
     <string name="pc_tap_to_pair">%1$s\nAppuyez pour associer</string>
 </resources>

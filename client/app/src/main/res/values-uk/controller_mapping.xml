@@ -22,5 +22,6 @@
     <string name="controller_button_paddle">Задня кнопка %1$d</string>
     <string name="controller_connect_as">Підключати як</string>
     <string name="controller_connect_as_automatic">Автоматично</string>
+    <string name="controller_connect_as_xbox_summary">Xbox (без датчиків руху й тачпада)</string>
     <string name="pc_tap_to_pair">%1$s\nТоркніться, щоб сполучити</string>
 </resources>

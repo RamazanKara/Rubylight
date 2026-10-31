@@ -1310,13 +1310,18 @@ mod tests {
         let mappings = BTreeMap::from([("usb:1532:0717".to_string(), mapping)]);
         store.save_controller_mappings(&mappings).unwrap();
         assert_eq!(Store::at(dir.clone()).unwrap().controller_mappings(), mappings);
-        // A type a newer Nightjar adds keeps the mapping and counts as Automatic.
-        let mut newer = mappings.clone();
-        newer.get_mut("usb:1532:0717").unwrap().connect_as = 4;
-        store.save_controller_mappings(&newer).unwrap();
-        let loaded = store.controller_mappings();
-        assert_eq!(loaded["usb:1532:0717"].deadzone, 7);
-        assert_eq!(loaded["usb:1532:0717"].arrival_type(2), 2);
+        // A type a newer Nightjar adds, or a value no build writes, reads as Automatic and keeps
+        // this and every other mapping.
+        for bad in ["4", "256", "-1", "\"x\"", "null", "1.5"] {
+            std::fs::write(dir.join("controllers.json"), format!(
+                r#"{{"usb:1532:0717":{{"name":"Razer Kishi","deadzone":7,"connect_as":{bad}}},"usb:045e:028e":{{"name":"Xbox 360","connect_as":2}}}}"#)).unwrap();
+            let loaded = store.controller_mappings();
+            assert_eq!(loaded.len(), 2, "{bad}");
+            assert_eq!(loaded["usb:1532:0717"].deadzone, 7, "{bad}");
+            assert_eq!(loaded["usb:1532:0717"].connect_as, 0, "{bad}");
+            assert_eq!(loaded["usb:1532:0717"].arrival_type(2), 2, "{bad}");
+            assert_eq!(loaded["usb:045e:028e"].connect_as, 2, "{bad}");
+        }
         std::fs::remove_dir_all(dir).ok();
     }
 

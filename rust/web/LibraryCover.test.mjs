@@ -6,6 +6,7 @@ import { createTestServer } from './test-server.mjs';
 const server = await createTestServer();
 const { placeholder } = await server.ssrLoadModule('/src/components/library/app.ts');
 const grid = readFileSync(new URL('./src/components/library/LibraryGrid.svelte', import.meta.url), 'utf8');
+const sources = readFileSync(new URL('./src/components/library/LauncherSources.svelte', import.meta.url), 'utf8');
 
 test('a cover without art keeps its tint per game and draws the Desktop and Big Picture as pictures', () => {
   const portal = placeholder('Portal 2');
@@ -26,4 +27,8 @@ test('each card names its one action for screen readers and keeps it reachable o
   // Hidden until hover only where there is a mouse; touch screens always show it.
   assert.match(grid, /@media \(hover: hover\) and \(pointer: fine\)\s*\{\s*\.reveal \{\s*opacity: 0;/);
   assert.match(grid, /\.card:focus-within \.reveal/);
+});
+
+test('a discovery reply without lists shows no launchers instead of breaking the Games page', () => {
+  assert.match(sources, /sources: found\.sources \?\? \[\], games: found\.games \?\? \[\]/);
 });

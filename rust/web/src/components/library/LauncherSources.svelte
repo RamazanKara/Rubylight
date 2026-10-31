@@ -88,7 +88,8 @@
         api.config.get(),
         api.playnite.status().catch(() => null),
       ]);
-      catalog = found;
+      // A host that has not read its launchers yet answers without lists.
+      catalog = { ...found, sources: found.sources ?? [], games: found.games ?? [] };
       config = stored;
       playnite = plugin;
       error = '';

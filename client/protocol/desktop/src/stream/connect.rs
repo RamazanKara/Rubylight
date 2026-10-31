@@ -925,3 +925,256 @@ pub(super) fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &In
     session.input(|q| q.set_pen_barrel_roll(pen_barrel_roll));
     Ok((session, facts))
 }
+
+#[cfg(test)]
+mod replace_tests {
+    use super::*;
+
+    fn launch_plan() -> LaunchPlan {
+        let xml = r#"<?xml version="1.0" encoding="utf-8"?><root status_code="200"><hostname>PC</hostname><uniqueid>uid</uniqueid><HttpsPort>47984</HttpsPort><ExternalPort>47989</ExternalPort><PairStatus>1</PairStatus><currentgame>7</currentgame><state>SUNSHINE_SERVER_BUSY</state><RustHostVersion>3.0.0</RustHostVersion></root>"#;
+        LaunchPlan {
+            host_id: 1,
+            record: Default::default(),
+            host_name: "PC".into(),
+            info: ServerInfo::parse(xml, 47989).expect("the answer parses"),
+            native: None,
+            app: nightjar_core::http::App {
+                name: "Zelda".into(),
+                id: 9,
+                hdr_supported: false,
+                uuid: String::new(),
+                host_index: None,
+                art_version: String::new(),
+                control: nightjar_core::http::AppControl::None,
+                monitor_resume: false,
+            },
+            resume: false,
+            small_stream_input_only: false,
+            settings: Settings::default(),
+            identity: Arc::new(ClientIdentity::generate().expect("an identity")),
+            display: Display { width: 1920, height: 1080, refresh_hz: 60.0 },
+            hardware: Hardware::None,
+            dmabuf: false,
+            gpu_decoder: None,
+            packed_modes: 0,
+            color_decodable: (0, String::new()),
+            pacing: PacingMode::Immediate,
+            vrr: false,
+            gamepad_mask: 0,
+            prepared_controllers: String::new(),
+            microphone_muted: false,
+            bitrate_limit_kbps: 0,
+            network: Default::default(),
+            pace: None,
+            host_link_mbps: 0,
+            recovery: None,
+            video_shown: false,
+            confirm_replace: false,
+            display_luminance: None,
+        }
+    }
+
+    // The review's regression: video showed, the network dropped, and the first reconnect had no
+    // picture yet when it dropped too. The chain carries its video, so the next attempt follows
+    // within the budget; a chain that never showed video still stops at once.
+    #[test]
+    fn a_reconnect_without_a_picture_yet_keeps_the_chain_going_after_a_real_drop() {
+        use nightjar_core::session::error;
+        let plan = launch_plan();
+        let first = automatic_rejoin(&plan, AppRole::Stream, true, false, 60_000, false, true).expect("a plan");
+        assert!(first.video_shown, "the drop came after video");
+        // Attempt 1 connects but shows nothing before it drops: no picture of its own.
+        let second = automatic_rejoin(&first, AppRole::Stream, true, false, 5_000, false, false).expect("a plan");
+        assert!(second.video_shown, "still the chain of a stream that had video");
+        assert!(Exit::Terminated(error::NO_VIDEO_TRAFFIC).retryable(first.video_shown));
+        // Never any video: nothing to carry.
+        let never = automatic_rejoin(&plan, AppRole::Stream, true, false, 5_000, false, false).expect("a plan");
+        assert!(!never.video_shown);
+        assert!(!Exit::Terminated(error::NO_VIDEO_TRAFFIC).retryable(never.video_shown));
+    }
+
+    // The review's regression: roamed is false, but the same address came back (DHCP gave it
+    // again) or there is no route yet. The connection resumes in place, so the stream goes on;
+    // only a return it cannot carry on over reconnects, with the desktop's default settings too.
+    #[test]
+    fn only_a_network_back_the_connection_cannot_carry_on_over_reconnects_at_once() {
+        let defaults = Settings::default();
+        assert_eq!(defaults.network_grace_ms, 3000, "below the connection's own timeout: no tolerance");
+        assert!(!reconnects_on_return(NetworkChange::CarriesOn, false, &defaults, true));
+        assert!(!reconnects_on_return(NetworkChange::Roamed, false, &defaults, true));
+        assert!(reconnects_on_return(NetworkChange::CannotContinue, false, &defaults, true));
+        // Not when it would not reconnect on its own (minimized, not a game stream, budget used).
+        assert!(!reconnects_on_return(NetworkChange::CannotContinue, false, &defaults, false));
+        // Mobile data only with "Continue on mobile data".
+        assert!(!reconnects_on_return(NetworkChange::CannotContinue, true, &defaults, true));
+        let mobile = Settings { roaming_metered: true, ..Settings::default() };
+        assert!(reconnects_on_return(NetworkChange::CannotContinue, true, &mobile, true));
+        // A tolerance above the timeout holds the connection and decides; so does the user.
+        let tolerant = Settings { network_grace_ms: 20_000, ..Settings::default() };
+        assert!(!reconnects_on_return(NetworkChange::CannotContinue, false, &tolerant, true));
+        let manual = Settings { auto_reconnect: false, ..Settings::default() };
+        assert!(!reconnects_on_return(NetworkChange::CannotContinue, false, &manual, true));
+        // The exit it takes reconnects, once the stream had video.
+        assert!(Exit::NetworkReturned.retryable(true));
+        assert!(!Exit::NetworkReturned.retryable(false));
+    }
+
+    #[test]
+    fn a_vpn_route_streams_as_remote_with_small_packets() {
+        assert_eq!(location_for_route(Location::Auto, true), (Location::Remote, 1024));
+        assert_eq!(location_for_route(Location::Auto, false), (Location::Auto, 1392));
+        // NIGHTJAR_STREAM_LOCATION decides over the route.
+        assert_eq!(location_for_route(Location::Local, true), (Location::Local, 1392));
+        assert_eq!(location_for_route(Location::Remote, false), (Location::Remote, 1392));
+    }
+
+    // A blocked media port: the stream never shows a picture and its error shows at once, not after
+    // five reconnects and a minute (Moonlight V+ PC 6792aeed).
+    #[test]
+    fn a_stream_that_never_showed_video_does_not_reconnect() {
+        use nightjar_core::session::error;
+        for code in [error::NO_VIDEO_TRAFFIC, error::NO_VIDEO_FRAME, -1, 10054] {
+            assert!(!Exit::Terminated(code).retryable(false), "{code}");
+            assert!(Exit::Terminated(code).retryable(true), "{code}");
+        }
+        assert!(!Exit::Terminated(error::GRACEFUL).retryable(true));
+        assert!(!Exit::Reconnect.retryable(true), "the user's own reconnect is not an automatic one");
+    }
+
+    #[test]
+    fn the_lost_network_notice_promises_a_reconnect_only_when_one_follows() {
+        let defaults = Settings::default();
+        assert_eq!(lost_notice(&defaults, true), NETWORK_LOST_RECONNECTING);
+        assert_eq!(lost_notice(&defaults, false), NETWORK_LOST);
+        let tolerant = Settings { network_grace_ms: 20_000, ..Settings::default() };
+        assert_eq!(lost_notice(&tolerant, true), NETWORK_LOST);
+    }
+
+    #[test]
+    fn a_network_return_rejoins_without_the_first_delay_and_only_on_its_own() {
+        let mut plan = launch_plan();
+        plan.app.control = nightjar_core::http::AppControl::None;
+        let now = recovery::now_ms();
+        let mut rejoined = automatic_rejoin(&plan, AppRole::Stream, true, false, 0, true, true).expect("a plan");
+        assert!(rejoined.resume);
+        let budget = rejoined.recovery.as_mut().expect("a budget");
+        assert!(budget.allows_attempt(now));
+        assert_eq!(budget.next_delay(now), Some(0), "no delay, but it spends an attempt");
+        assert_eq!(budget.attempts(), 1);
+        // Without retry_now the usual first delay.
+        let mut usual = automatic_rejoin(&plan, AppRole::Stream, true, false, 0, false, true).unwrap().recovery.unwrap();
+        assert_eq!(usual.next_delay(now), Some(1000));
+        // Minimized, off, or a stream that is not a game: the user decides.
+        assert!(automatic_rejoin(&plan, AppRole::Stream, true, true, 0, true, true).is_none());
+        assert!(automatic_rejoin(&plan, AppRole::Stream, false, false, 0, true, true).is_none());
+        assert!(automatic_rejoin(&plan, AppRole::RemoteMonitor, true, false, 0, true, true).is_none());
+        // A used-up budget allows no attempt, so the notice promises none.
+        let mut spent = recovery::Backoff::default();
+        while spent.next_delay(now).is_some() {}
+        plan.recovery = Some(spent);
+        let rejoined = automatic_rejoin(&plan, AppRole::Stream, true, false, 0, true, true).unwrap();
+        assert!(!rejoined.recovery.unwrap().allows_attempt(now));
+    }
+
+    #[test]
+    fn only_the_launch_the_user_answered_confirms_the_replace() {
+        use nightjar_core::http::Error;
+        let prompt = Error::Status {
+            code: 410,
+            message: "An app is already running. Launch this app again within 60 seconds to confirm that you want to close it.".into(),
+        };
+        let mut plan = launch_plan();
+        assert!(asks_replace(&plan, AppRole::Stream, &prompt));
+        // Another 410, a role that replaces nothing, or a resume is no prompt to answer.
+        assert!(!asks_replace(&plan, AppRole::Stream, &Error::Status { code: 410, message: "Gone".into() }));
+        assert!(!asks_replace(&plan, AppRole::InputOnly, &prompt));
+        // A launch that already confirmed is not asked again: the refusal is shown.
+        plan.confirm_replace = true;
+        assert!(!asks_replace(&plan, AppRole::Stream, &prompt));
+        // A reconnect resumes and never carries the answer.
+        let rejoined = rejoin(plan.clone(), AppRole::Stream).expect("a plan");
+        assert!(rejoined.resume && !rejoined.confirm_replace);
+        assert!(!asks_replace(&rejoined, AppRole::Stream, &prompt));
+        let monitor = rejoin(plan, AppRole::RemoteMonitor).expect("a plan");
+        assert!(!monitor.resume && !monitor.confirm_replace);
+    }
+
+    #[test]
+    fn a_dropped_stream_reconnects_without_focus_but_not_minimized() {
+        // L4 on the laptop: a system dialog held the focus, so the drop never reconnected.
+        assert!(reconnects_automatically(true, false, AppRole::Stream));
+        assert!(!reconnects_automatically(true, true, AppRole::Stream), "minimized or hidden waits for the user");
+        assert!(!reconnects_automatically(false, false, AppRole::Stream), "the setting is off");
+        assert!(!reconnects_automatically(true, false, AppRole::InputOnly));
+        assert!(!reconnects_automatically(true, false, AppRole::RemoteMonitor));
+    }
+
+    #[test]
+    fn a_replace_prompt_hands_back_the_plan_to_launch_again() {
+        for asks_replace in [true, false] {
+            let plan = launch_plan();
+            let (sender, result) = channel();
+            let mut connecting = Connecting {
+                shared: Shared::new(Arc::new(|| {}), 2),
+                interrupt: Interrupt::default(),
+                stage: String::new(),
+                app_name: plan.app.name.clone(),
+                host_name: plan.host_name.clone(),
+                host_id: plan.host_id,
+                pacing: plan.pacing,
+                settings: plan.settings.clone(),
+                plan,
+                result,
+            };
+            sender.send(Err(ConnectError { message: "refused".into(), retryable: false, asks_replace })).unwrap();
+            match connecting.poll() {
+                Err(ConnectFailed::ConfirmReplace(plan)) => {
+                    assert!(asks_replace);
+                    assert!(plan.app.id == 9 && !plan.resume && !plan.confirm_replace);
+                }
+                Err(ConnectFailed::Message(message)) => {
+                    assert!(!asks_replace);
+                    assert_eq!(message, "refused");
+                }
+                Ok(_) => panic!("the launch failed"),
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod audio_tests {
+    use super::*;
+
+    fn reports_714(xml: &str) -> bool {
+        ServerInfo::parse(xml, 47989).expect("the answer parses").capabilities.has(Feature::Surround714)
+    }
+
+    #[test]
+    fn only_a_pc_that_reports_7_1_4_is_asked_for_it() {
+        let rubylight = include_str!("../../../../app/src/test/resources/protocol/rubylight-30-serverinfo.xml");
+        let rubylight_without = include_str!("../../../../app/src/test/resources/protocol/rubylight-30-refused-serverinfo.xml");
+        // Foundation Sunshine's serverinfo reads as stock Sunshine's.
+        let sunshine = include_str!("../../../../app/src/test/resources/protocol/sunshine-serverinfo.xml");
+        assert!(reports_714(rubylight));
+        assert!(!reports_714(rubylight_without), "Rubylight with 7.1.4 off");
+        assert!(!reports_714(sunshine));
+
+        let asked = |host: &str, output: bool| audio_configuration(AudioChannels::Surround714, reports_714(host), output);
+        assert_eq!(asked(rubylight, true), AudioConfiguration::SURROUND_714);
+        assert_eq!(asked(sunshine, true), AudioConfiguration::SURROUND_71);
+        assert_eq!(asked(rubylight_without, true), AudioConfiguration::SURROUND_71);
+        // An output that plays fewer than 12 channels gets 7.1 from every PC.
+        assert_eq!(asked(rubylight, false), AudioConfiguration::SURROUND_71);
+        // The other choices are asked of every PC as picked.
+        assert_eq!(audio_configuration(AudioChannels::Surround71, false, false), AudioConfiguration::SURROUND_71);
+        assert_eq!(audio_configuration(AudioChannels::Surround51, false, false), AudioConfiguration::SURROUND_51);
+        assert_eq!(audio_configuration(AudioChannels::Stereo, true, true), AudioConfiguration::STEREO);
+    }
+
+    #[test]
+    fn the_7_1_4_choice_round_trips_through_the_settings_file() {
+        let saved = serde_json::to_string(&AudioChannels::Surround714).unwrap();
+        assert_eq!(serde_json::from_str::<AudioChannels>(&saved).unwrap(), AudioChannels::Surround714);
+    }
+}

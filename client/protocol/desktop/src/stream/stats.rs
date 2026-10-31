@@ -458,3 +458,59 @@ impl Streaming {
         true
     }
 }
+
+#[cfg(test)]
+mod host_line_tests {
+    use super::*;
+
+    #[test]
+    fn host_processing_averages_received_frames_over_two_windows_like_artemis() {
+        let mut average = HostAverage::default();
+        // First second: 60 frames of 0.5 ms (5 units). Nothing earlier to add.
+        assert_eq!(average.update(300, 60), (300, 60));
+        // Second second: 60 frames of 1.0 ms. The overlay sums both seconds.
+        assert_eq!(average.update(900, 120), (900, 120));
+        // Third second: only the last two seconds count, the first has dropped out.
+        assert_eq!(average.update(1200, 180), (900, 120));
+        // A window without frames carrying a header value leaves the previous one standing.
+        assert_eq!(average.update(1200, 180), (300, 60));
+        assert_eq!(average.update(1200, 180), (0, 0));
+        let w = Window { host_latency: 900, host_latency_n: 120, ..Default::default() };
+        assert_eq!(host_lines(&w), vec![("Host processing".to_owned(), "0.8 ms".to_owned())]);
+    }
+
+    #[test]
+    fn host_processing_is_the_header_average_and_a_host_report_never_changes_it() {
+        // Header values are in 100 us units: 3 frames of 5, 5 and 5 are 0.5 ms.
+        let header = Window { host_latency: 15, host_latency_n: 3, ..Default::default() };
+        let lines = host_lines(&header);
+        assert_eq!(lines, vec![("Host processing".to_owned(), "0.5 ms".to_owned())]);
+        // Reports say 5.0 ms present to send: a separate line, the processing line is unchanged.
+        let both = Window { timing_host_us: 15_000, timing_encode_us: 1_200, timing_n: 3, ..header };
+        let lines = host_lines(&both);
+        assert_eq!(lines[0], ("Host processing".to_owned(), "0.5 ms".to_owned()));
+        assert_eq!(lines[1].0, "Host to network");
+        assert_eq!(lines[1].1, "5.0 ms present to send, 0.4 ms encode");
+        // Reports alone never produce a "Host processing" line.
+        let reports = Window { timing_host_us: 15_000, timing_encode_us: 1_200, timing_n: 3, ..Default::default() };
+        assert!(host_lines(&reports).iter().all(|(label, _)| label != "Host processing"));
+    }
+}
+
+#[cfg(test)]
+mod early_tests {
+    use super::*;
+
+    #[test]
+    fn the_overlay_line_and_the_session_summary_carry_the_counters() {
+        assert_eq!(early_line((130, 3), (70, 2), 2.0), "30 early/s, 1 whole in the last second, 3 fallbacks in all");
+        let summary = early_summary(1200, 4, 8_500, 7);
+        for part in ["1200 frames decoded ahead", "4 fell back", "7 chunks dropped", "8.5 ms"] {
+            assert!(summary.contains(part), "{summary}");
+        }
+        let video = video_summary(3600, 12, 5);
+        for part in ["3600 frames to the decoder", "12 dropped over the decoder queue", "5 replaced"] {
+            assert!(video.contains(part), "{video}");
+        }
+    }
+}

@@ -1,6 +1,7 @@
 //! Drawing of the in-stream "Session and graphics" page (see `session_page` for what it does).
-//! The buttons are plain egui widgets, so Tab, the arrow keys and a controller (mapped to the
-//! arrow keys while the menu is open) reach every one of them.
+//! It is drawn with the stream menu's rows (`menu_style`), so Tab, the arrow keys and a controller
+//! (mapped to the arrow keys while the menu is open) reach every one of them, and the ways to end
+//! the session sit apart in the error colour.
 
 use crate::strings::{en, tr, trf};
 use egui::RichText;
@@ -9,6 +10,8 @@ use nightjar_core::http::native_api::session::State as SessionState;
 
 use crate::radeon::{Mode, Row};
 use crate::session_page::{exit_failure_text, ExitState, HostExit, Hints, Page, State};
+use crate::glyphs::Icon;
+use crate::menu_style;
 use crate::theme;
 
 /// What the page asks the stream to do.
@@ -62,90 +65,97 @@ pub fn show(ui: &mut egui::Ui, page: &mut Page, title: &str, lines: &[(&'static 
         return Outcome::Leave;
     }
 
-    ui.label(RichText::new(title).font(theme::semibold(theme::text::BODY)).color(theme::MOON));
-    ui.label(RichText::new(session_text(&state)).color(theme::ON_SURFACE_VARIANT));
+    ui.label(RichText::new(title).font(theme::regular(theme::text::LABEL)).color(theme::ON_SURFACE_VARIANT));
+    ui.label(RichText::new(session_text(&state)).font(theme::regular(theme::text::LABEL)).color(theme::ON_SURFACE_VARIANT));
     if let Some(error) = &state.setup_error {
-        ui.colored_label(theme::ERROR, error);
+        ui.label(RichText::new(error).font(theme::regular(theme::text::LABEL)).color(theme::ERROR));
     }
-    ui.separator();
+    ui.add_space(theme::space::L);
 
     if let Some(exit) = page.confirming {
-        ui.label(tr(exit.confirm()));
+        menu_style::text_block(ui, tr(exit.confirm()));
+        ui.add_space(theme::space::S);
         ui.horizontal(|ui| {
-            let cancel = ui.add_enabled(!working, egui::Button::new(tr("Cancel")));
+            let cancel = ui.add_enabled_ui(!working, |ui| menu_style::button(ui, tr("Cancel"))).inner;
             if ctx.memory(|m| m.focused().is_none()) {
                 cancel.request_focus();
             }
             if cancel.clicked() {
                 page.confirming = None;
             }
-            if ui.add_enabled(!working, egui::Button::new(tr(exit.label()))).clicked() {
+            if ui.add_enabled_ui(!working, |ui| menu_style::button(ui, tr(exit.label()))).inner.clicked() {
                 page.confirming = None;
                 page.exit(exit);
             }
         });
     } else {
-        let resume = ui.add_enabled(!working, egui::Button::new(tr("Resume")));
+        let resume = ui.add_enabled_ui(!working, |ui| menu_style::primary(ui, tr("Resume"), Some(crate::shortcuts::Key::Escape.cap()))).inner;
         if ctx.memory(|m| m.focused().is_none()) {
             resume.request_focus();
         }
         if resume.clicked() {
             outcome = Outcome::Resume;
         }
-        ui.label(RichText::new(tr("Return to the stream.")).color(theme::OUTLINE));
-        if state.host_menu() {
-            if ui.add_enabled(!working, egui::Button::new(tr("Open host menu"))).clicked() {
-                outcome = Outcome::HostMenu;
+        ui.add_space(theme::space::XS);
+        ui.add_enabled_ui(!working, |ui| {
+            if state.host_menu() {
+                if menu_style::action(ui, Icon::Screen, tr("Open host menu"), None).clicked() {
+                    outcome = Outcome::HostMenu;
+                }
+                menu_style::note(ui, tr("Return to the stream and show the PC's own menu in it."));
             }
-            ui.label(RichText::new(tr("Return to the stream and show the PC's own menu in it.")).color(theme::OUTLINE));
+            if menu_style::action(ui, Icon::Power, tr("Disconnect"), None).clicked() {
+                outcome = Outcome::Disconnect;
+            }
+            menu_style::note(ui, tr("Leave the stream. The game keeps running and the session stays suspended on the PC."));
+        });
+        let actions = state.actions(hints);
+        if !actions.is_empty() {
+            menu_style::divider(ui);
         }
-        if ui.add_enabled(!working, egui::Button::new(tr("Disconnect"))).clicked() {
-            outcome = Outcome::Disconnect;
-        }
-        ui.label(RichText::new(tr("Leave the stream. The game keeps running and the session stays suspended on the PC.")).color(theme::OUTLINE));
-        for entry in state.actions(hints) {
+        for entry in actions {
             let enabled = !working && entry.blocked.is_none();
-            if ui.add_enabled(enabled, egui::Button::new(tr(entry.exit.label()))).clicked() {
+            if ui.add_enabled_ui(enabled, |ui| menu_style::danger(ui, Icon::Power, tr(entry.exit.label()), None)).inner.clicked() {
                 page.confirming = Some(entry.exit);
             }
             let note = entry.blocked.unwrap_or_else(|| describe(entry.exit));
-            ui.label(RichText::new(tr(note)).color(theme::OUTLINE));
+            menu_style::note(ui, tr(note));
         }
     }
     match &state.exit {
         ExitState::Running(exit) => {
-            ui.label(RichText::new(format!("{}…", tr(exit.label()))).color(theme::ON_SURFACE_VARIANT));
+            menu_style::note(ui, &format!("{}…", tr(exit.label())));
         }
         ExitState::Failed(_, failure) => {
-            ui.colored_label(theme::ERROR, exit_failure_text(failure));
+            ui.label(RichText::new(exit_failure_text(failure)).font(theme::regular(theme::text::LABEL)).color(theme::ERROR));
         }
         ExitState::Idle | ExitState::Done(_) => {}
     }
 
-    ui.separator();
-    ui.label(RichText::new(tr("Connection")).font(theme::semibold(theme::text::BODY)));
-    egui::Grid::new("session-facts").num_columns(2).spacing([14.0, 3.0]).show(ui, |ui| {
-        for (key, value) in lines {
-            ui.label(RichText::new(tr(key)).color(theme::OUTLINE));
-            ui.label(value);
-            ui.end_row();
-        }
+    menu_style::caption(ui, tr("Connection"));
+    egui::Frame::new().inner_margin(egui::Margin::symmetric(menu_style::PAD as i8, 0)).show(ui, |ui| {
+        egui::Grid::new("session-facts").num_columns(2).spacing([14.0, 4.0]).show(ui, |ui| {
+            for (key, value) in lines {
+                ui.label(RichText::new(tr(key)).font(theme::regular(theme::text::LABEL)).color(theme::ON_SURFACE_VARIANT));
+                ui.label(RichText::new(value).font(theme::regular(theme::text::LABEL)).color(theme::ON_SURFACE));
+                ui.end_row();
+            }
+        });
     });
 
     if !state.radeon.hidden {
-        ui.separator();
         radeon_panel(ui, page, &state);
     }
 
-    ui.separator();
-    if ui.add_enabled(!working, egui::Button::new(tr("Back to stream controls"))).clicked() && outcome == Outcome::Stay {
+    menu_style::divider(ui);
+    if ui.add_enabled_ui(!working, |ui| menu_style::action(ui, Icon::Sliders, tr("Back to stream controls"), None)).inner.clicked() && outcome == Outcome::Stay {
         outcome = Outcome::Back;
     }
     outcome
 }
 
 fn radeon_panel(ui: &mut egui::Ui, page: &Page, state: &State) {
-    ui.label(RichText::new(tr("Radeon graphics")).font(theme::semibold(theme::text::BODY)));
+    menu_style::caption(ui, tr("Radeon graphics"));
     let Some(panel) = &state.radeon.panel else {
         let text = match &state.radeon.load_failure {
             Some(failure) => failure.text(),

@@ -79,6 +79,8 @@ pub(super) struct SettingsView {
     pub(super) confirm_reset: bool,
     /// The search field had focus last frame, so Escape leaves it before it leaves the page.
     search_focused: bool,
+    /// Left was pressed last frame on this control in the rows.
+    left_from: Option<Id>,
     /// The setting rows the last frame drew, by first key, each with whether a group heading
     /// came before it in its section.
     pub(super) drawn: Vec<(&'static str, bool)>,
@@ -164,12 +166,13 @@ impl Launcher {
         }
         let wide = ui.available_width() >= SIDE_LIST_FROM;
         let page = ui.available_rect_before_wrap();
+        let mut entries: Vec<(&'static str, Id)> = Vec::new();
         let rows_rect = if wide {
             let list = Rect::from_min_size(page.min, vec2(SIDE_LIST_W, page.height()));
             let mut side = ui.new_child(UiBuilder::new().id_salt("settings-sections").max_rect(list).layout(Layout::top_down(Align::Min)));
             self.search_field(&mut side);
             side.add_space(space::M);
-            self.section_list(&mut side, &sections, layered);
+            entries = self.section_list(&mut side, &sections, layered);
             Rect::from_min_max(Pos2::new(page.left() + SIDE_LIST_W + space::XL, page.top()), page.max)
         } else {
             self.search_field(ui);
@@ -177,7 +180,9 @@ impl Launcher {
             ui.horizontal_wrapped(|ui| {
                 for name in &sections {
                     let current = !self.settings_view.searching() && self.settings_view.section == *name;
-                    if section_chip(ui, name, current).clicked() {
+                    let chip = section_chip(ui, name, current);
+                    entries.push((*name, chip.id));
+                    if chip.clicked() {
                         self.settings_view.open(name);
                     }
                 }
@@ -187,7 +192,35 @@ impl Launcher {
             Rect::from_min_max(rest.min, page.max)
         };
         let mut column = ui.new_child(UiBuilder::new().id_salt("settings-rows").max_rect(rows_rect).layout(Layout::top_down(Align::Min)));
+        let screen = self.screen;
         self.settings_rows(&mut column, view, commands);
+        if self.screen == screen {
+            self.left_to_sections(ui, rows_rect, &entries);
+        }
+    }
+
+    /// Left from a control in the rows goes to the open section's entry in the list (its chip
+    /// on a narrow window), never to whatever egui's nearest-widget search finds above, such as
+    /// the header or another chip. egui moves the focus at the end of the frame, so a move out of
+    /// the rows to anything else is corrected on the next one: a control with another left of it in
+    /// its row still goes there, and a slider or a number field keeps the key for itself.
+    fn left_to_sections(&mut self, ui: &Ui, rows: Rect, entries: &[(&'static str, Id)]) {
+        let focused = ui.memory(|m| m.focused());
+        let in_rows = |id: Id| ui.ctx().read_response(id).is_some_and(|r| rows.contains(r.rect.center()));
+        if let Some(from) = self.settings_view.left_from.take() {
+            let open = entries.iter().find(|&&(name, _)| name == self.settings_view.section);
+            let strayed = focused.is_some_and(|id| id != from && !in_rows(id) && open.is_none_or(|&(_, entry)| entry != id));
+            if let (true, Some(&(_, entry))) = (strayed, open) {
+                ui.memory_mut(|m| m.request_focus(entry));
+                ui.ctx().request_repaint();
+            }
+        }
+        let left = ui.input(|i| i.events.iter().any(|e| matches!(e, egui::Event::Key { key: Key::ArrowLeft, pressed: true, modifiers, .. } if !modifiers.any())));
+        if left && focused.is_some_and(in_rows) {
+            self.settings_view.left_from = focused;
+            // The frame that corrects the move, even when nothing else asks for one.
+            ui.ctx().request_repaint();
+        }
     }
 
     /// Above a PC's, game's or profile's settings: what its rows mean, how many it sets, and the
@@ -308,9 +341,10 @@ impl Launcher {
 
     /// The sections, the current one marked. While searching each that found rows says how many,
     /// and a click on any ends the search; on a PC's, game's or profile's settings each says how
-    /// many it sets.
-    fn section_list(&mut self, ui: &mut Ui, sections: &[&'static str], layered: bool) {
+    /// many it sets. Returns each entry's id.
+    fn section_list(&mut self, ui: &mut Ui, sections: &[&'static str], layered: bool) -> Vec<(&'static str, Id)> {
         let searching = self.settings_view.searching();
+        let mut entries = Vec::new();
         for name in sections {
             let at = SETTINGS_SECTIONS.iter().position(|s| s == name).unwrap_or(0);
             let badge = if searching {
@@ -323,10 +357,12 @@ impl Launcher {
             let current = !searching && self.settings_view.section == *name;
             let item = section_item(ui, name, current, badge);
             self.focus_item(&item, &format!("section-{name}"), false);
+            entries.push((*name, item.id));
             if item.clicked() {
                 self.settings_view.open(name);
             }
         }
+        entries
     }
 
     /// The open section's rows, or every row the search finds, in a scrolling column.

@@ -13,6 +13,27 @@
             <FrameLayout android:id="@+id/pcFragmentContainer"
                 android:layout_width="match_parent" android:layout_height="match_parent"
                 android:layout_marginStart="@dimen/pcs_grid_bleed" android:layout_marginEnd="@dimen/pcs_grid_bleed" />
+            <!-- Under the last PC while it fits above Add PC (PcView.placeListFooter): discovery is still looking, and
+                 the way to a PC that does not show up. Not on a TV, whose tiles sit centred on the screen. -->
+            <LinearLayout android:id="@+id/pc_list_footer" android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:layout_gravity="top" android:orientation="vertical" android:visibility="invisible"
+                android:paddingStart="@dimen/screen_gutter" android:paddingEnd="@dimen/screen_gutter">
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="horizontal" android:gravity="center_vertical"
+                    android:paddingStart="@dimen/space_l" android:paddingEnd="@dimen/space_l">
+                    <com.google.android.material.progressindicator.CircularProgressIndicator
+                        android:layout_width="wrap_content" android:layout_height="wrap_content" android:indeterminate="true"
+                        app:indicatorSize="16dp" app:trackThickness="2dp" app:indicatorColor="?attr/colorOnSurfaceVariant"
+                        android:importantForAccessibility="no" />
+                    <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
+                        android:layout_marginStart="@dimen/space_m" android:text="@string/pc_list_searching"
+                        android:textAppearance="@style/TextAppearance.Nightjar.Supporting" android:textColor="?attr/colorOnSurfaceVariant" />
+                </LinearLayout>
+                <com.google.android.material.button.MaterialButton android:id="@+id/pc_list_help"
+                    style="@style/Widget.Nightjar.Button.Text" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:layout_marginStart="@dimen/space_xxl" android:minHeight="@dimen/touch_target"
+                    android:text="@string/discovery_connect_help" />
+            </LinearLayout>
             <ScrollView android:id="@+id/no_pc_found_layout" android:layout_width="match_parent"
                 android:layout_height="match_parent" android:fillViewport="true" android:clipToPadding="false"
                 android:paddingStart="@dimen/screen_gutter" android:paddingEnd="@dimen/screen_gutter"

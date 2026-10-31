@@ -5,6 +5,7 @@
     <string name="pc_status_playing_unknown">Ein Spiel läuft</string>
     <string name="pc_status_waking">Wird aufgeweckt…</string>
     <string name="discovery_connect_help">So verbindest du dich</string>
+    <string name="pc_list_searching">Sucht weitere PCs in diesem Netzwerk</string>
 
     <string name="pc_menu_settings">PC-Einstellungen…</string>
     <string name="pc_menu_resume_game">%1$s fortsetzen</string>

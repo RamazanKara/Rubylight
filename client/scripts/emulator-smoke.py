@@ -194,11 +194,15 @@ def tap(label, scroll=False):
 
 
 def navigate_up():
-    """Settings names its back action for the destination; other screens use Navigate up."""
-    if any(n.get("resource-id") == f"{PACKAGE}:id/settings_back" for n in tree().iter("node")):
+    """Settings names its back action for the destination; other screens use Navigate up. Settings opened from the
+    shell bar has no arrow on its list of sections (a top-level page, like PCs): Back leaves it there."""
+    nodes = list(tree().iter("node"))
+    if any(n.get("resource-id") == f"{PACKAGE}:id/settings_back" for n in nodes):
         tap(f"{PACKAGE}:id/settings_back")
-    else:
+    elif any(n.get("content-desc") == "Navigate up" for n in nodes):
         tap("Navigate up")
+    else:
+        adb("shell", "input", "keyevent", "KEYCODE_BACK")
 
 
 def open_help():
@@ -533,7 +537,7 @@ def capture_ui_set(width, font, rotation=0):
     navigate_up()
     # After a few minutes in settings the home screen times out the cached host state and polls again;
     # an unknown host opens its menu instead of pairing, so wait for the fixture to report back.
-    find("Not paired")
+    find("Ready to pair")
     tap(HOST_NAME)
     find("Pair with PC")
     screenshot(prefix + "-pairing-pin")
@@ -657,7 +661,7 @@ def home_states():
     names = [n.get("text") for n in root.iter("node") if n.get("resource-id") == f"{PACKAGE}:id/grid_text"]
     assert names == ["Living-room PC", "Studio PC", "Laptop"], f"Rows are not running, unpaired, offline: {names}"
     statuses = [n.get("text") for n in root.iter("node") if n.get("resource-id") == f"{PACKAGE}:id/grid_status"]
-    assert statuses == ["Playing Racing Game", "Not paired", "Offline"], f"Unexpected row status lines: {statuses}"
+    assert statuses == ["Playing Racing Game", "Ready to pair", "Offline"], f"Unexpected row status lines: {statuses}"
     screenshot("home-states")
     for name, action, shot in (("Living-room PC", "Resume Racing Game", "pc-sheet-running"),
                                ("Studio PC", "Pairing help", "pc-sheet-unpaired"),

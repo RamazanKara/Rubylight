@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="library_computers">PC</string>
-    <string name="pc_needs_pairing">Chưa ghép đôi</string>
+    <string name="pc_needs_pairing">Sẵn sàng ghép đôi</string>
     <string name="pc_offline">Ngoại tuyến</string>
     <string name="pc_checking">Đang kiểm tra kết nối…</string>
     <string name="app_running">Đang chạy</string>

@@ -5,6 +5,7 @@
     <string name="pc_status_playing_unknown">Đang chơi một trò chơi</string>
     <string name="pc_status_waking">Đang đánh thức…</string>
     <string name="discovery_connect_help">Cách kết nối</string>
+    <string name="pc_list_searching">Đang tìm các PC khác trong mạng này</string>
     <string name="pc_menu_settings">Cài đặt PC…</string>
     <string name="pc_menu_resume_game">Tiếp tục %1$s</string>
     <string name="pc_menu_quit_game">Thoát %1$s</string>

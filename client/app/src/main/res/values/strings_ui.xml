@@ -1,6 +1,6 @@
 <resources>
     <string name="library_computers">PCs</string>
-    <string name="pc_needs_pairing">Not paired</string>
+    <string name="pc_needs_pairing">Ready to pair</string>
     <string name="pc_offline">Offline</string>
     <string name="pc_checking">Checking connection…</string>
     <string name="app_running">Running</string>

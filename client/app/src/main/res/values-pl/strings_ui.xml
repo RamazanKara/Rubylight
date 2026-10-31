@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="library_computers">Komputery</string>
-    <string name="pc_needs_pairing">Niesparowany</string>
+    <string name="pc_needs_pairing">Gotowy do sparowania</string>
     <string name="pc_offline">Offline</string>
     <string name="pc_checking">Sprawdzanie połączenia…</string>
     <string name="app_running">Uruchomiona</string>

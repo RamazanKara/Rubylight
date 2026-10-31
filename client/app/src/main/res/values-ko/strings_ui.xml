@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="library_computers">PC</string>
-    <string name="pc_needs_pairing">페어링되지 않음</string>
+    <string name="pc_needs_pairing">페어링 준비됨</string>
     <string name="pc_offline">오프라인</string>
     <string name="pc_checking">연결 확인 중…</string>
     <string name="app_running">실행 중</string>

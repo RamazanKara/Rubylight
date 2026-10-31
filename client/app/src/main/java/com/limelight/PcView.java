@@ -56,6 +56,8 @@ import com.limelight.ui.ActionSheet;
 import android.view.View;
 import android.widget.AbsListView;
 
+import androidx.annotation.VisibleForTesting;
+
 import org.xmlpull.v1.XmlPullParserException;
 
 import javax.microedition.khronos.egl.EGLConfig;
@@ -196,6 +198,7 @@ public class PcView extends NightjarActivity implements AdapterFragmentCallbacks
         noPcFoundLayout = findViewById(R.id.no_pc_found_layout);
         findViewById(R.id.discovery_add).setOnClickListener(v -> startActivity(new Intent(this, AddComputerManually.class)));
         findViewById(R.id.discovery_help).setOnClickListener(v -> showPairingGuide());
+        findViewById(R.id.pc_list_help).setOnClickListener(v -> showPairingGuide());
         updateEmptyState();
         pcGridAdapter.notifyDataSetChanged();
     }
@@ -463,12 +466,41 @@ public class PcView extends NightjarActivity implements AdapterFragmentCallbacks
         noPcFoundLayout.setVisibility(empty ? View.VISIBLE : View.GONE);
         findViewById(R.id.pcFragmentContainer).setVisibility(empty ? View.GONE : View.VISIBLE);
         findViewById(R.id.manuallyAddPc).setVisibility(empty ? View.GONE : View.VISIBLE);
+        placeListFooter();
         boolean filled = listWasEmpty && !empty;
         listWasEmpty = empty;
         if (filled && pcList != null && !pcList.isInTouchMode()) {
             // The first PC replaced the empty state, which held focus; give it to the list, not the shell bar.
             claimListFocus();
         }
+    }
+
+    /**
+     * Puts the footer just under the last PC, as long as every PC shows and the footer fits above Add PC; otherwise it
+     * waits, invisible. It fills the screen a few PCs leave empty with what a new user needs next: the list is still
+     * looking, and how to connect a PC that does not appear. A TV has none: its tiles sit centred on the screen.
+     */
+    @VisibleForTesting
+    void placeListFooter() {
+        View footer = findViewById(R.id.pc_list_footer);
+        View container = findViewById(R.id.pcFragmentContainer);
+        View add = findViewById(R.id.manuallyAddPc);
+        if (footer == null || pcList == null || pcGridAdapter == null) return;
+        boolean television = (getResources().getConfiguration().uiMode & Configuration.UI_MODE_TYPE_MASK)
+                == Configuration.UI_MODE_TYPE_TELEVISION;
+        int count = pcGridAdapter.getCount();
+        boolean show = false;
+        if (!television && count > 0 && container.getVisibility() == View.VISIBLE && pcList.getFirstVisiblePosition() == 0
+                && pcList.getChildCount() == count) {
+            View last = pcList.getChildAt(count - 1);
+            int top = container.getTop() + pcList.getTop() + last.getBottom()
+                    + getResources().getDimensionPixelSize(R.dimen.space_l);
+            int room = add.getVisibility() == View.VISIBLE ? add.getTop() : ((View) footer.getParent()).getHeight();
+            footer.setTranslationY(top);
+            show = top + footer.getHeight() <= room;
+        }
+        int visibility = show ? View.VISIBLE : View.INVISIBLE;
+        if (footer.getVisibility() != visibility) footer.setVisibility(visibility);
     }
 
     private boolean focusIsLoose() {
@@ -797,6 +829,11 @@ public class PcView extends NightjarActivity implements AdapterFragmentCallbacks
         if (listView instanceof com.limelight.ui.AdaptiveGridView) {
             ((com.limelight.ui.AdaptiveGridView) listView).setEndFocusTarget(findViewById(R.id.manuallyAddPc));
         }
+        listView.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> placeListFooter());
+        listView.setOnScrollListener(new AbsListView.OnScrollListener() {
+            @Override public void onScrollStateChanged(AbsListView view, int state) { }
+            @Override public void onScroll(AbsListView view, int first, int visible, int total) { placeListFooter(); }
+        });
         if (pcGridAdapter.getCount() == 0) findViewById(R.id.discovery_add).requestFocus();
         else if (!listView.isInTouchMode()) listView.requestFocus(); // content first, not the shell bar
     }

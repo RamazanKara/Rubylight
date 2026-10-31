@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="library_computers">PCs</string>
-    <string name="pc_needs_pairing">Nicht gekoppelt</string>
+    <string name="pc_needs_pairing">Bereit zum Koppeln</string>
     <string name="pc_offline">Offline</string>
     <string name="pc_checking">Verbindung wird geprüft…</string>
     <string name="app_running">Läuft</string>

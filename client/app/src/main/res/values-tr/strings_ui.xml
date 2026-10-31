@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="library_computers">Bilgisayarlar</string>
-    <string name="pc_needs_pairing">Eşleştirilmedi</string>
+    <string name="pc_needs_pairing">Eşleştirmeye hazır</string>
     <string name="pc_offline">Çevrimdışı</string>
     <string name="pc_checking">Bağlantı kontrol ediliyor…</string>
     <string name="app_running">Çalışıyor</string>

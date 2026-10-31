@@ -5,6 +5,7 @@
     <string name="pc_status_playing_unknown">正在玩遊戲</string>
     <string name="pc_status_waking">正在喚醒…</string>
     <string name="discovery_connect_help">如何連線</string>
+    <string name="pc_list_searching">正在尋找此網路中的其他電腦</string>
     <string name="pc_menu_settings">電腦設定…</string>
     <string name="pc_menu_resume_game">繼續 %1$s</string>
     <string name="pc_menu_quit_game">結束 %1$s</string>

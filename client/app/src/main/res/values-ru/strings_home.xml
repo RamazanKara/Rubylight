@@ -5,6 +5,7 @@
     <string name="pc_status_playing_unknown">Идёт игра</string>
     <string name="pc_status_waking">Пробуждение…</string>
     <string name="discovery_connect_help">Как подключиться</string>
+    <string name="pc_list_searching">Поиск других ПК в этой сети</string>
     <string name="pc_menu_settings">Настройки ПК…</string>
     <string name="pc_menu_resume_game">Продолжить %1$s</string>
     <string name="pc_menu_quit_game">Закрыть %1$s</string>

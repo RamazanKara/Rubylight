@@ -5,6 +5,7 @@
     <string name="pc_status_playing_unknown">Запущено гру</string>
     <string name="pc_status_waking">Пробудження…</string>
     <string name="discovery_connect_help">Як підключитися</string>
+    <string name="pc_list_searching">Пошук інших ПК у цій мережі</string>
     <string name="pc_menu_settings">Налаштування ПК…</string>
     <string name="pc_menu_resume_game">Продовжити %1$s</string>
     <string name="pc_menu_quit_game">Закрити %1$s</string>

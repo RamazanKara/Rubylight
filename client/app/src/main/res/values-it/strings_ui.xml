@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="library_computers">PC</string>
-    <string name="pc_needs_pairing">Non accoppiato</string>
+    <string name="pc_needs_pairing">Pronto per l’accoppiamento</string>
     <string name="pc_offline">Offline</string>
     <string name="pc_checking">Verifica della connessione…</string>
     <string name="app_running">In esecuzione</string>

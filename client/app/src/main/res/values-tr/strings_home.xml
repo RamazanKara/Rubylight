@@ -5,6 +5,7 @@
     <string name="pc_status_playing_unknown">Oyun oynanıyor</string>
     <string name="pc_status_waking">Uyandırılıyor…</string>
     <string name="discovery_connect_help">Nasıl bağlanılır</string>
+    <string name="pc_list_searching">Bu ağdaki diğer bilgisayarlar aranıyor</string>
     <string name="pc_menu_settings">Bilgisayar ayarları…</string>
     <string name="pc_menu_resume_game">%1$s oyununu sürdür</string>
     <string name="pc_menu_quit_game">%1$s oyunundan çık</string>

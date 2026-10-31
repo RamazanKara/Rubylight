@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="library_computers">PC</string>
-    <string name="pc_needs_pairing">未ペアリング</string>
+    <string name="pc_needs_pairing">ペアリングできます</string>
     <string name="pc_offline">オフライン</string>
     <string name="pc_checking">接続を確認しています…</string>
     <string name="app_running">実行中</string>

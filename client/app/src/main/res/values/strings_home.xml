@@ -6,6 +6,7 @@
     <string name="pc_status_playing_unknown">Playing a game</string>
     <string name="pc_status_waking">Waking…</string>
     <string name="discovery_connect_help">How to connect</string>
+    <string name="pc_list_searching">Looking for other PCs on this network</string>
 
     <!-- The PC's menu. -->
     <string name="pc_menu_settings">PC settings…</string>

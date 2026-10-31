@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="library_computers">电脑</string>
-    <string name="pc_needs_pairing">未配对</string>
+    <string name="pc_needs_pairing">可以配对</string>
     <string name="pc_offline">离线</string>
     <string name="pc_checking">正在检查连接…</string>
     <string name="app_running">运行中</string>

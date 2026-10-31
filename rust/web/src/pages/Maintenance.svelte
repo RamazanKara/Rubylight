@@ -19,7 +19,7 @@
     {#snippet actions()}<Button href="/logs" icon="logs">View logs</Button>{/snippet}
   </PageHeader>
   <ChildSessionBanner />
-  <Section title="Host" quiet>
+  <Section title="Host" anchor="host" quiet>
     <HostPanel />
   </Section>
   <Section title="Displays and Windows session" quiet>

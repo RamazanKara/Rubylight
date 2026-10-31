@@ -21,8 +21,9 @@ test('Help imports no Updates, Power, Password or Sessions panel, nor the integr
 test('Help is titled for someone with a problem and keeps the order of the page map', async () => {
   const help = await source('pages/Maintenance.svelte');
   assert.match(help, /<PageHeader title="Help" subtitle="Something is wrong\? Start here\.">/);
-  // The host anchor other pages link to stays.
-  assert.match(help, /<div id="host"><\/div>/);
+  // The host anchor links may point at stays, on the section so it adds no extra gap.
+  assert.match(help, /<Section title="Host" anchor="host" quiet>/);
+  assert.doesNotMatch(help, /<div id="host"><\/div>/);
   const order = ['<ChildSessionBanner', '<HostPanel', '<DisplaysPanel', '<WindowsSessionPanel', '<CoopHelpPanel', '<LogAnalysisPanel', '<CrashPanel'];
   const at = order.map((tag) => help.indexOf(tag));
   assert.ok(at.every((index) => index > 0), `${at}`);

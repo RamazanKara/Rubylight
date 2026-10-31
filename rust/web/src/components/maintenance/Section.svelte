@@ -5,9 +5,12 @@
     title,
     columns = 1,
     quiet = false,
+    anchor,
     children,
   }: {
     title: string;
+    /** An id for links into the page (/maintenance#host), on the section itself so it adds no gap. */
+    anchor?: string;
     /** The panels' own titles say it: the heading stays for screen readers only. */
     quiet?: boolean;
     /** Two panels side by side on wide screens; they stretch to the same height. */
@@ -18,7 +21,7 @@
   const id = $props.id();
 </script>
 
-<section class="group" aria-labelledby={id}>
+<section class="group" id={anchor} aria-labelledby={id}>
   <h2 {id} class:visually-hidden={quiet}>{title}</h2>
   <div class="panels" class:two={columns === 2}>
     {@render children()}

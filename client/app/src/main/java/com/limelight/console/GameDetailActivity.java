@@ -91,6 +91,7 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
     private com.google.android.material.materialswitch.MaterialSwitch quitOnLeaveSwitch;
     private TextView quitOnLeaveNote;
     private GameDetailModel quitOnLeaveGame;
+    private ComputerDetails quitOnLeaveComputer;
     /** TV only (null on a phone): the backdrop, and the chip line with the installed and HDR chips. */
     private BackdropView backdrop;
     private View chips;
@@ -430,7 +431,7 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
                 m.source != null ? m.source.appUuid : null, m.appId);
         profileValues.setText(profile.values);
         profileLayers.setText(profile.layersOrMain(this));
-        renderQuitOnLeave(m);
+        renderQuitOnLeave(m, computer);
 
         if (focusPending && play.isEnabled() && !play.isInTouchMode()) {
             focusPending = false;
@@ -438,19 +439,26 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
         }
     }
 
-    /** The game's own quit-on-leave switch, for a game the page can start (one the host has added). */
-    private void renderQuitOnLeave(GameDetailModel m) {
-        boolean offered = m.appId > 0 && (m.source == null || m.source.added);
+    /** The game's own quit-on-leave switch, under the conditions of the library's long-press menu. */
+    private void renderQuitOnLeave(GameDetailModel m, ComputerDetails computer) {
+        boolean offered = offersQuitOnLeave(m, computer);
         quitOnLeave.setVisibility(offered ? View.VISIBLE : View.GONE);
         quitOnLeaveGame = offered ? m : null;
+        quitOnLeaveComputer = offered ? computer : null;
         if (!offered) return;
-        boolean enabled = com.limelight.preferences.AppQuitOnLeave.isEnabled(this, hostUuid, quitOnLeaveUuid(m), m.appId);
+        boolean enabled = com.limelight.preferences.AppQuitOnLeave.isEnabled(this, hostUuid, m.source.appUuid, m.appId);
         quitOnLeaveSwitch.setChecked(enabled);
         quitOnLeaveNote.setText(enabled ? R.string.library_quit_on_leave_on : R.string.library_quit_on_leave_off);
     }
 
-    private static String quitOnLeaveUuid(GameDetailModel m) {
-        return m.source != null ? m.source.appUuid : null;
+    /**
+     * Only for a game the host has added and this device may start: without the launch permission every Disconnect would
+     * ask the PC to quit and fail. It also needs the game's entry in the library, whose UUID is the key the library,
+     * AppQuitOnLeave and the stream check on a host that reports one; a page without it would write the id-only key.
+     */
+    static boolean offersQuitOnLeave(GameDetailModel m, ComputerDetails computer) {
+        return computer != null && computer.hasPermission(ComputerDetails.PERMISSION_LAUNCH)
+                && m.appId > 0 && m.source != null && m.source.added;
     }
 
     /** Flips it in place, as the library's menu does; the note and a spoken line say what leaving now does. */
@@ -458,8 +466,8 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
         GameDetailModel m = quitOnLeaveGame;
         if (m == null) return;
         boolean enabled = !quitOnLeaveSwitch.isChecked();
-        com.limelight.preferences.AppQuitOnLeave.setEnabled(this, hostUuid, quitOnLeaveUuid(m), m.appId, enabled);
-        renderQuitOnLeave(m);
+        com.limelight.preferences.AppQuitOnLeave.setEnabled(this, hostUuid, m.source.appUuid, m.appId, enabled);
+        renderQuitOnLeave(m, quitOnLeaveComputer);
         quitOnLeave.announceForAccessibility(quitOnLeaveNote.getText());
     }
 

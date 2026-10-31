@@ -378,4 +378,41 @@ public class GameDetailShellTest {
             controller.pause().stop().destroy();
         }
     }
+
+    /**
+     * The row follows the library's long-press menu: without the launch permission every Disconnect would ask the PC to
+     * quit and fail, and a page without the game's library entry has no UUID, so it would write a key the stream never reads.
+     */
+    @Test
+    public void quitOnLeaveNeedsTheLaunchPermissionAndTheGamesLibraryEntry() throws Exception {
+        context.getSharedPreferences("AppQuitOnLeave", Context.MODE_PRIVATE).edit().clear().commit();
+        GameDetailModel model = portal(",\"installed\":true");
+        GameDetailModel unlisted = GameDetailModel.of(ConsoleSnapshot.empty(), "tower", 11, "Portal", "Tower", true, true, true);
+        assertNull(unlisted.source);
+        ComputerDetails viewOnly = tower();
+        viewOnly.permission = ComputerDetails.PERMISSION_LIST;
+        ComputerDetails launches = tower();
+        launches.permission = ComputerDetails.PERMISSION_LIST | ComputerDetails.PERMISSION_LAUNCH;
+        assertFalse(GameDetailActivity.offersQuitOnLeave(model, viewOnly));
+        assertFalse(GameDetailActivity.offersQuitOnLeave(unlisted, launches));
+        assertFalse(GameDetailActivity.offersQuitOnLeave(model, null));
+        assertTrue(GameDetailActivity.offersQuitOnLeave(model, launches));
+
+        ActivityController<Detail> controller = detail();
+        try {
+            Detail page = loaded(controller);
+            View row = page.findViewById(R.id.detail_quit_on_leave);
+            page.render(model, viewOnly);
+            assertEquals(View.GONE, row.getVisibility());
+            page.render(unlisted, tower());
+            assertEquals(View.GONE, row.getVisibility());
+            row.performClick();
+            assertFalse("a hidden row writes nothing",
+                    com.limelight.preferences.AppQuitOnLeave.isEnabled(page, "tower", null, 11));
+            page.render(model, launches);
+            assertEquals(View.VISIBLE, row.getVisibility());
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
 }

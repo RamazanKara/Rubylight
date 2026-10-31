@@ -177,6 +177,9 @@
     gap: var(--space-1);
     width: fit-content;
     padding: 2px 0;
+    /* A 44 px target that takes no more room than its line of text. */
+    min-height: var(--control-height);
+    margin-block: calc((20px - var(--control-height)) / 2);
     border: 0;
     color: var(--ink-2);
     font-size: var(--text-xs);
@@ -204,11 +207,6 @@
     color: var(--ink);
     text-decoration: underline;
     text-underline-offset: 2px;
-  }
-  @media (max-width: 520px) {
-    .more > summary {
-      min-height: var(--control-height);
-    }
   }
   .links details {
     border: 1px solid var(--line);

@@ -138,8 +138,13 @@
     background: var(--accent);
     color: var(--accent-ink);
   }
+  /* Centred in the empty viewer, so it reads as a state and not as a log line. */
   .placeholder {
+    display: grid;
+    place-items: center;
+    min-height: 100%;
     padding: var(--space-5);
+    text-align: center;
     color: var(--muted);
     font-family: var(--font);
     font-size: var(--text-sm);

@@ -199,7 +199,7 @@
     </div>
     <div class="controls">
       <Button size="sm" icon={paused ? 'play' : 'pause'} onclick={() => (paused = !paused)}>{paused ? 'Resume' : 'Pause'}</Button>
-      <Button size="sm" icon="copy" disabled={!visible.length} onclick={copy}>Copy <span class="extra">visible lines</span></Button>
+      <Button size="sm" icon="copy" disabled={!visible.length} onclick={copy}><span>Copy<span class="extra">{" "}visible lines</span></span></Button>
     </div>
   </div>
 

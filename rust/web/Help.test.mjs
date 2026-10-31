@@ -61,3 +61,15 @@ test('a failed readiness check makes Home show Needs attention with a link to He
   assert.doesNotMatch(ready, /Needs attention|href="\/maintenance"/);
   assert.match(ready, /Host readiness/);
 });
+
+test('the log Copy label is one flex item, so no gap doubles the space before "visible lines"', async () => {
+  const logs = await source('pages/Logs.svelte');
+  assert.match(logs, /onclick=\{copy\}><span>Copy<span class="extra">\{" "\}visible lines<\/span><\/span><\/Button>/);
+  const view = await source('components/logs/LogView.svelte');
+  assert.match(view, /\.placeholder \{[^}]*place-items: center;[^}]*min-height: 100%;/);
+});
+
+test('the Releases More keeps a 44 px target without pushing its neighbours apart', async () => {
+  const updates = await source('components/maintenance/UpdatesPanel.svelte');
+  assert.match(updates, /\.more > summary \{[^}]*min-height: var\(--control-height\);\s*margin-block: calc\(\(20px - var\(--control-height\)\) \/ 2\);/);
+});

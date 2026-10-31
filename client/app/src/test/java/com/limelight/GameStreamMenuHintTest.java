@@ -55,7 +55,7 @@ public class GameStreamMenuHintTest {
     }
 
     private static void show(Game game) {
-        ReflectionHelpers.callInstanceMethod(game, "showStreamMenuHint");
+        ReflectionHelpers.callInstanceMethod(game.overlays, "showStreamMenuHint");
     }
 
     @Test
@@ -98,7 +98,7 @@ public class GameStreamMenuHintTest {
     public void leavingBeforeItWasReadShowsItAgainNextTime() {
         Game game = streamingGame();
         show(game);
-        ReflectionHelpers.callInstanceMethod(game, "dismissStreamMenuHint",
+        ReflectionHelpers.callInstanceMethod(game.overlays, "dismissStreamMenuHint",
                 ReflectionHelpers.ClassParameter.from(boolean.class, false));
         assertEquals(View.GONE, hint(game).getVisibility());
         assertFalse(StreamMenuHint.seen(game));

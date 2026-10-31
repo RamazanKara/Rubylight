@@ -4,7 +4,6 @@ package com.limelight;
 import com.limelight.binding.PlatformBinding;
 import com.limelight.binding.audio.AndroidAudioRenderer;
 import com.limelight.binding.audio.SilentAudioRenderer;
-import com.limelight.binding.audio.MicrophoneStatus;
 import com.limelight.binding.input.ControllerButtonMap;
 import com.limelight.binding.input.ControllerHandler;
 import com.limelight.binding.input.KeyboardLayoutTag;
@@ -57,7 +56,6 @@ import com.limelight.nvstream.StreamConfiguration;
 import com.limelight.nvstream.http.ClipboardImageException;
 import com.limelight.nvstream.http.ComputerDetails;
 import com.limelight.nvstream.http.HostCapabilities;
-import com.limelight.nvstream.http.HardwareMetrics;
 import com.limelight.nvstream.http.LaunchConfirmation;
 import com.limelight.nvstream.http.NvApp;
 import com.limelight.nvstream.http.NvHTTP;
@@ -183,6 +181,9 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         OnSystemUiVisibilityChangeListener, GameGestures, StreamView.InputCallbacks,
         PerfOverlayListener, UsbDriverService.UsbDriverStateListener, View.OnKeyListener,
         com.limelight.ui.StreamWindow {
+    // Each concern of the stream lives in a helper that holds this activity.
+    final GameOverlays overlays = new GameOverlays(this);
+
     private int lastButtonState = 0;
     private final MouseDeltaAccumulator mouseDeltaX = new MouseDeltaAccumulator();
     private final MouseDeltaAccumulator mouseDeltaY = new MouseDeltaAccumulator();
@@ -220,10 +221,10 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     // Travel allowed for a three- or four-finger tap, in dp.
     private static final int FINGER_TAP_SLOP_DP = 40;
 
-    private ControllerHandler controllerHandler;
+    ControllerHandler controllerHandler;
     private KeyboardTranslator keyboardTranslator;
-    private KeyboardOverlay keyboardOverlay;
-    private PcKeyboardOverlay pcKeyboard;
+    KeyboardOverlay keyboardOverlay;
+    PcKeyboardOverlay pcKeyboard;
     // Controller keys the on-screen PC keyboard took on their way down, so their release goes to it too.
     private final android.util.SparseBooleanArray pcKeyboardKeys = new android.util.SparseBooleanArray();
     // The pad whose stick or hat is steering the on-screen keyboard, or -1.
@@ -241,19 +242,19 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     private MouseDeltaAccumulator desktopDeltaY = new MouseDeltaAccumulator();
     private MouseDeltaAccumulator desktopScrollV = new MouseDeltaAccumulator();
     private MouseDeltaAccumulator desktopScrollH = new MouseDeltaAccumulator();
-    private VirtualController virtualController;
+    VirtualController virtualController;
     // The modern on-screen controller, used instead of the classic one when the settings ask for it.
-    private com.limelight.binding.input.pad.ModernController modernController;
-    private com.limelight.ui.MicButton micButton;
+    com.limelight.binding.input.pad.ModernController modernController;
+    com.limelight.ui.MicButton micButton;
 
-    private PreferenceConfiguration prefConfig;
+    PreferenceConfiguration prefConfig;
     private SharedPreferences tombstonePrefs;
 
-    private NvConnection conn;
+    NvConnection conn;
     private SpinnerDialog spinner;
     private boolean displayedFailureDialog = false;
     private boolean connecting = false;
-    private volatile boolean connected = false;
+    volatile boolean connected = false;
     private boolean autoEnterPip = false;
     private com.limelight.ui.AdaptiveLayout adaptiveLayout;
     private boolean surfaceCreated = false;
@@ -284,7 +285,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         }
     };
     private int suppressPipRefCount = 0;
-    private android.app.Dialog streamMenu;
+    android.app.Dialog streamMenu;
     // The sectioned stream menu while it is open; streamMenu is its sheet or a dialog it opened.
     private com.limelight.ui.StreamMenu streamMenuSheet;
     private Runnable streamMenuAction;
@@ -302,7 +303,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     private final Runnable hostExitFailed = () -> {
         if (connected && !hostActionInProgress) hostExitRequested = false;
     };
-    private boolean foreground;
+    boolean foreground;
     private int foregroundGeneration;
     private boolean restoreInputAfterMenu;
     private boolean restoreInputOnResume;
@@ -314,7 +315,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             windowFocusActions.runPending(hasWindowFocus(), SystemClock.uptimeMillis());
         }
     };
-    private int currentBitrate;
+    int currentBitrate;
     private AdaptiveBitrateController adaptiveBitrate;
     private PyroWaveBitrateController pyroWaveBitrate;
     private boolean poorConnection;
@@ -329,14 +330,14 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     private com.limelight.nvstream.http.FoundationAbr foundationAbr;
     // Automatic quality switched auto bitrate on for itself; the person's own choice was off.
     private boolean qualityAutoBitrate;
-    private AdaptiveQualityController adaptiveQuality;
+    AdaptiveQualityController adaptiveQuality;
     private AdaptiveQualityController.Target pendingQualityTarget;
     private long qualityRequestSentAt;
-    private String qualityStatus;
+    String qualityStatus;
     private int qualityMaxWidth, qualityMaxHeight, qualityMaxFps;
     private int qualityMaxFrameRateMilliHz;
-    private final Handler bitrateHandler = new Handler(Looper.getMainLooper());
-    private final com.limelight.utils.StreamHealth streamHealth = new com.limelight.utils.StreamHealth();
+    final Handler bitrateHandler = new Handler(Looper.getMainLooper());
+    final com.limelight.utils.StreamHealth streamHealth = new com.limelight.utils.StreamHealth();
     private com.limelight.utils.WifiDiagnostics wifiDiagnostics;
     private int healthOriginalBitrate, healthTrialBitrate;
     // 0x553C rate changes, for a Rust stream whose host offered them; null otherwise.
@@ -520,7 +521,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     };
     private String pcName;
     private String appName;
-    private NvApp app;
+    NvApp app;
     private float desiredRefreshRate;
     private float panelMaxRefreshRate;
     // Mid-stream reconfigure (0x5532): a stream at the phone's native resolution, or at the
@@ -843,7 +844,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         conn.setInputPollingRate(Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ?
                 display.getMode().getRefreshRate() : display.getRefreshRate());
     }
-    private boolean useArr;
+    boolean useArr;
     private final DisplayRefreshDiagnostics displayRefreshDiagnostics = new DisplayRefreshDiagnostics();
     // The last successful vote made by this activity, not a measurement of the display's rate.
     private Float appSurfaceFrameRateVote;
@@ -894,7 +895,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     private StreamView renderView;
     private com.limelight.ui.StreamPresentation externalPresentation;
     private com.limelight.ui.DesktopGestures desktopGestures;
-    private com.limelight.ui.GameTouchControls gameTouchControls;
+    com.limelight.ui.GameTouchControls gameTouchControls;
     private boolean outputSwitchPending;
     private static final String EXTRA_OUTPUT_DISPLAY = "rubylight.outputDisplay";
     private static final String EXTRA_OUTPUT_RESUME_ONLY = "rubylight.outputResumeOnly";
@@ -905,17 +906,14 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     private float lastAbsTouchUpX, lastAbsTouchUpY;
     private float lastAbsTouchDownX, lastAbsTouchDownY;
 
-    private boolean isHidingOverlays;
+    boolean isHidingOverlays;
     private boolean wasInPictureInPicture;
-    private TextView notificationOverlayView;
+    TextView notificationOverlayView;
     private int requestedNotificationOverlayVisibility = View.GONE;
-    private TextView performanceOverlayView;
-    private View performanceOverlayScroll;
-    private CharSequence debugPerformanceText = "";
-    private CharSequence statisticsPerformanceText = "";
-    private CharSequence compactPerformanceText = "";
+    TextView performanceOverlayView;
+    View performanceOverlayScroll;
     // What the host last said about holding the bitrate down for the network; null when it has not.
-    private LinkNoticeStatus linkNotice;
+    LinkNoticeStatus linkNotice;
     // Whether a host text field may open the soft keyboard, whose it is, and how far the stream
     // moves up for it.
     private final HostKeyboard hostKeyboard = new HostKeyboard();
@@ -928,29 +926,19 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     // The layout last reported to the host this connection, or null.
     private String reportedKeyboardLayout;
     // PerformanceOverlay.MODE_COMPACT, MODE_STATISTICS or MODE_DEBUG
-    private String overlayMode = PerformanceOverlay.MODE_COMPACT;
+    String overlayMode = PerformanceOverlay.MODE_COMPACT;
     // The corner the overlay prefers; OverlayPlacement moves it when controls cover that corner.
-    private com.limelight.ui.OverlayPlacement.Corner overlayCorner = com.limelight.ui.OverlayPlacement.Corner.TOP_LEFT;
-    private TextView streamMenuHint;
+    com.limelight.ui.OverlayPlacement.Corner overlayCorner = com.limelight.ui.OverlayPlacement.Corner.TOP_LEFT;
+    TextView streamMenuHint;
     // Every message of the stream goes through here: one at a time, lasting facts once per PC.
-    private final com.limelight.ui.StreamMessages messages = new com.limelight.ui.StreamMessages(this);
+    final com.limelight.ui.StreamMessages messages = new com.limelight.ui.StreamMessages(this);
     // From the first time the user opens USB devices until the stream stops.
     private com.limelight.binding.usb.UsbForwarding usbForwarding;
     // Clipboard sync (0x5508) while this stream's PC runs it.
     private com.limelight.utils.ClipboardSync clipboardSync;
-    private final Runnable showStreamMenuHint = this::showStreamMenuHint;
-    private final Runnable expireStreamMenuHint = () -> dismissStreamMenuHint(true);
-    private HardwareMetrics hardwareMetrics;
-    private boolean hardwareMetricsPolling;
-    private int hardwareMetricsGeneration;
-    private long hardwareMetricsSampleTimestamp = Long.MIN_VALUE;
-    private long hardwareMetricsFreshUntil;
-    private final Runnable expireHardwareMetrics = () -> {
-        hardwareMetrics = null;
-        updatePerformanceOverlay();
-    };
+    final Runnable showStreamMenuHint = overlays::showStreamMenuHint;
 
-    private MediaCodecDecoderRenderer decoderRenderer;
+    MediaCodecDecoderRenderer decoderRenderer;
     private boolean reportedCrash;
     // The PC (or this device) ended the stream. A decoder failure after that is the stream going
     // away, not a decoder crash.
@@ -1227,7 +1215,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 getIntent().getBooleanExtra(EXTRA_PACKED_OFF, false));
         getIntent().putExtra(EXTRA_STREAM_NETWORK, prefConfig.layers.network.name());
         HdrPolicy.setDebugHlgOnly(BuildConfig.DEBUG, prefConfig.debugHdrHlgOnly);
-        showStreamLayers(prefConfig, startNetwork == null);
+        overlays.showStreamLayers(prefConfig, startNetwork == null);
         readRecoveryBudget(SystemClock.elapsedRealtime());
         panelMaxRefreshRate = com.limelight.binding.video.DisplayFrameRatePolicy.maxRefreshRate(
                 getVideoDisplay());
@@ -1321,12 +1309,12 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
 
         performanceOverlayView = findViewById(R.id.performanceOverlay);
         performanceOverlayScroll = findViewById(R.id.performanceOverlayScroll);
-        performanceOverlayScroll.setOnTouchListener((view, event) -> !isDebugOverlay() && onOverlayTouch(view, event));
+        performanceOverlayScroll.setOnTouchListener((view, event) -> !overlays.isDebugOverlay() && onOverlayTouch(view, event));
         overlayMode = PerformanceOverlay.normalizeMode(PreferenceManager.getDefaultSharedPreferences(this)
                 .getString("performance_overlay_mode", PerformanceOverlay.MODE_COMPACT));
         overlayCorner = com.limelight.ui.OverlayPlacement.Corner.parse(prefConfig.overlayPosition);
-        attachOverlayPlacement((android.view.ViewGroup) streamView.getParent());
-        updatePerformanceOverlay();
+        overlays.attachOverlayPlacement((android.view.ViewGroup) streamView.getParent());
+        overlays.updatePerformanceOverlay();
 
         inputCaptureProvider = InputCaptureManager.getInputCaptureProvider(this, this);
 
@@ -1414,7 +1402,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                     cachedCaps == null ? 0 : cachedCaps.hdrFormats(),
                     MediaCodecDecoderRenderer.vulkanSurface(prefConfig));
             willStreamHdr = refusal == HdrPolicy.Refusal.NONE;
-            if (!willStreamHdr) refuseHdr(refusal);
+            if (!willStreamHdr) overlays.refuseHdr(refusal);
         }
 
         // Check if the user has enabled performance stats overlay
@@ -1480,7 +1468,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                     decoderRenderer.isAv1Main10Supported(), decoderRenderer.isPyroWaveSupported());
             if (refusal != HdrPolicy.Refusal.NONE) {
                 willStreamHdr = false;
-                refuseHdr(refusal);
+                overlays.refuseHdr(refusal);
             }
         }
         streamHdr = willStreamHdr;
@@ -1496,12 +1484,12 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
 
         // Display a message to the user if HEVC was forced on but we still didn't find a decoder
         if (mediaStream && prefConfig.videoFormat == PreferenceConfiguration.FormatOption.FORCE_HEVC && !decoderRenderer.isHevcSupported()) {
-            hostNotice(HostNotices.Notice.CODEC_UNAVAILABLE, R.string.stream_hevc_decoder_missing);
+            overlays.hostNotice(HostNotices.Notice.CODEC_UNAVAILABLE, R.string.stream_hevc_decoder_missing);
         }
 
         // Display a message to the user if AV1 was forced on but we still didn't find a decoder
         if (mediaStream && prefConfig.videoFormat == PreferenceConfiguration.FormatOption.FORCE_AV1 && !decoderRenderer.isAv1Supported()) {
-            hostNotice(HostNotices.Notice.CODEC_UNAVAILABLE, R.string.stream_av1_decoder_missing);
+            overlays.hostNotice(HostNotices.Notice.CODEC_UNAVAILABLE, R.string.stream_av1_decoder_missing);
         }
 
         // 10-bit SDR: the 10-bit formats without HDR. HDR, when granted, wins.
@@ -1702,7 +1690,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         }
     }
 
-    private Display getVideoDisplay() {
+    Display getVideoDisplay() {
         // The intent describes the next output while a reconnect is in progress. Keep
         // reporting capabilities for the surface that this activity actually renders.
         if (renderView != null) {
@@ -1965,7 +1953,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
 
                 performanceOverlayScroll.setVisibility(View.GONE);
                 notificationOverlayView.setVisibility(View.GONE);
-                dismissStreamMenuHint(false);
+                overlays.dismissStreamMenuHint(false);
 
                 // Disable sensors while in PiP mode
                 controllerHandler.disableSensors();
@@ -2010,7 +1998,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 UiHelper.notifyStreamExitingPiP(this);
             }
         }
-        updateHardwareMetricsPolling();
+        overlays.updateHardwareMetricsPolling();
     }
 
     @TargetApi(Build.VERSION_CODES.O)
@@ -2923,7 +2911,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             setInputGrabState(true);
         }
         restoreInputOnResume = false;
-        updateHardwareMetricsPolling();
+        overlays.updateHardwareMetricsPolling();
     }
 
     @Override
@@ -2932,11 +2920,11 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         if (trackpadPointer != null) trackpadPointer.stopMomentum();
         if (gameTouchControls != null) gameTouchControls.releaseInput();
         // Shown again on the next stream unless it was read.
-        dismissStreamMenuHint(false);
+        overlays.dismissStreamMenuHint(false);
         foreground = false;
         recoveryCancelledOnPause = recoveryHandoffInProgress || pendingRecovery != null || (isRecoveryAttempt() && connecting);
         cancelAutomaticRecovery();
-        stopHardwareMetricsPolling();
+        overlays.stopHardwareMetricsPolling();
         foregroundGeneration++;
         streamMenuAction = null;
         windowFocusActions.clear();
@@ -3121,7 +3109,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         }
         restoreInputAfterMenu = grabbedInput;
         // Whoever opens the menu knows how; the first-stream hint has done its job.
-        dismissStreamMenuHint(true);
+        overlays.dismissStreamMenuHint(true);
         // The audio switches show the host's state as it is now, so they appear once it answers.
         hostAudio = null;
         hostAudioUnread = false;
@@ -3332,7 +3320,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     private void onStreamMenuItem(com.limelight.ui.StreamMenu.Item item) {
         switch (item) {
             // The quick toggles change in place and leave the menu open.
-            case OVERLAY: togglePerformanceOverlay(); return;
+            case OVERLAY: overlays.togglePerformanceOverlay(); return;
             case MICROPHONE: toggleMicrophoneMute(); return;
             case NIGHT_MODE: toggleHostAudio(com.limelight.nativeapi.NativeCapabilities.NIGHT_MODE); return;
             case HEADPHONE_SURROUND: toggleHostAudio(com.limelight.nativeapi.NativeCapabilities.HEADPHONE_SURROUND); return;
@@ -3379,15 +3367,15 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             case END_HOST_SESSION: action = this::confirmEndHostSession; break;
             case CLOSE_GAME: action = this::confirmCloseGame; break;
             case END_SESSION: action = this::endRemoteSession; break;
-            case OVERLAY_OFF: action = this::hidePerformanceOverlay; break;
-            case OVERLAY_TOP_LEFT: action = () -> setPerformanceOverlayPosition(com.limelight.ui.OverlayPlacement.Corner.TOP_LEFT); break;
-            case OVERLAY_TOP_RIGHT: action = () -> setPerformanceOverlayPosition(com.limelight.ui.OverlayPlacement.Corner.TOP_RIGHT); break;
-            case OVERLAY_BOTTOM_LEFT: action = () -> setPerformanceOverlayPosition(com.limelight.ui.OverlayPlacement.Corner.BOTTOM_LEFT); break;
-            case OVERLAY_BOTTOM_RIGHT: action = () -> setPerformanceOverlayPosition(com.limelight.ui.OverlayPlacement.Corner.BOTTOM_RIGHT); break;
-            case OVERLAY_COMPACT: action = () -> showPerformanceOverlay(PerformanceOverlay.MODE_COMPACT); break;
-            case OVERLAY_STATISTICS: action = () -> showPerformanceOverlay(PerformanceOverlay.MODE_STATISTICS); break;
-            case OVERLAY_DEBUG: action = () -> showPerformanceOverlay(PerformanceOverlay.MODE_DEBUG); break;
-            case OVERLAY_COPY: action = this::copyPerformanceStats; break;
+            case OVERLAY_OFF: action = overlays::hidePerformanceOverlay; break;
+            case OVERLAY_TOP_LEFT: action = () -> overlays.setPerformanceOverlayPosition(com.limelight.ui.OverlayPlacement.Corner.TOP_LEFT); break;
+            case OVERLAY_TOP_RIGHT: action = () -> overlays.setPerformanceOverlayPosition(com.limelight.ui.OverlayPlacement.Corner.TOP_RIGHT); break;
+            case OVERLAY_BOTTOM_LEFT: action = () -> overlays.setPerformanceOverlayPosition(com.limelight.ui.OverlayPlacement.Corner.BOTTOM_LEFT); break;
+            case OVERLAY_BOTTOM_RIGHT: action = () -> overlays.setPerformanceOverlayPosition(com.limelight.ui.OverlayPlacement.Corner.BOTTOM_RIGHT); break;
+            case OVERLAY_COMPACT: action = () -> overlays.showPerformanceOverlay(PerformanceOverlay.MODE_COMPACT); break;
+            case OVERLAY_STATISTICS: action = () -> overlays.showPerformanceOverlay(PerformanceOverlay.MODE_STATISTICS); break;
+            case OVERLAY_DEBUG: action = () -> overlays.showPerformanceOverlay(PerformanceOverlay.MODE_DEBUG); break;
+            case OVERLAY_COPY: action = overlays::copyPerformanceStats; break;
             case STREAM_HEALTH: action = this::showStreamHealth; break;
             case LATENCY_TEST: action = this::runLatencyTest; break;
             default: break;
@@ -3435,16 +3423,6 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             default: break;
         }
         if (next != null) next.requestFocus();
-    }
-
-    private void showPerformanceOverlay(String mode) {
-        setPerformanceOverlayMode(mode);
-        if (!prefConfig.enablePerfOverlay) togglePerformanceOverlay();
-    }
-
-    // Off from the menu: the same switch the settings' Off writes, the mode kept for the next time.
-    private void hidePerformanceOverlay() {
-        if (prefConfig.enablePerfOverlay) togglePerformanceOverlay();
     }
 
     private void toggleAdaptiveBitrateFromMenu() {
@@ -3538,31 +3516,6 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 .create());
     }
 
-    // Once, on the first stream: how to open the stream menu with this device's own inputs.
-    private void showStreamMenuHint() {
-        if (!foreground || !connected || isFinishing() || streamMenu != null || streamMenuHint == null ||
-                isHidingOverlays || com.limelight.ui.StreamMenuHint.seen(this)) {
-            return;
-        }
-        boolean controller = com.limelight.ui.StreamMenuHint.hasGamepad() ||
-                (controllerHandler != null && controllerHandler.hasUsbControllers());
-        String text = com.limelight.ui.StreamMenuHint.text(this, controller);
-        streamMenuHint.setText(text);
-        streamMenuHint.setContentDescription(text + " " + getString(R.string.stream_menu_hint_close));
-        streamMenuHint.setOnClickListener(view -> dismissStreamMenuHint(true));
-        streamMenuHint.setVisibility(View.VISIBLE);
-        com.limelight.ui.StreamMenuHint.place(streamMenuHint, performanceOverlayScroll);
-        bitrateHandler.removeCallbacks(expireStreamMenuHint);
-        bitrateHandler.postDelayed(expireStreamMenuHint, com.limelight.ui.StreamMenuHint.SHOW_MS);
-    }
-
-    private void dismissStreamMenuHint(boolean read) {
-        bitrateHandler.removeCallbacks(showStreamMenuHint);
-        bitrateHandler.removeCallbacks(expireStreamMenuHint);
-        if (streamMenuHint != null) streamMenuHint.setVisibility(View.GONE);
-        if (read) com.limelight.ui.StreamMenuHint.markSeen(this);
-    }
-
     private final com.limelight.binding.audio.MicNotice.Once microphoneNotice = new com.limelight.binding.audio.MicNotice.Once();
 
     // The microphone settings ask for processing this device lacks: say so in the stream, once per difference.
@@ -3605,7 +3558,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         showStreamDialog(builder.create());
     }
 
-    private String wifiText(long stallPeriodMs) {
+    String wifiText(long stallPeriodMs) {
         com.limelight.utils.WifiDiagnostics.Lock lock = Build.VERSION.SDK_INT < Build.VERSION_CODES.Q ?
                 com.limelight.utils.WifiDiagnostics.Lock.UNSUPPORTED :
                 lowLatencyWifiLock != null && lowLatencyWifiLock.isHeld() ?
@@ -3795,25 +3748,6 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     }
 
     /**
-     * Says which profile and own values this stream started with, and loudly what could not be
-     * used. A profile picked for the network is announced; the overlay always lists the layers.
-     */
-    private void showStreamLayers(PreferenceConfiguration config, boolean firstStart) {
-        com.limelight.preferences.StreamLayers.Result layers = config.layers;
-        if (layers == null) return;
-        for (String problem : com.limelight.preferences.StreamLayersText.problems(this, layers)) {
-            messages.alert(problem, Toast.LENGTH_LONG);
-        }
-        config.layersText = com.limelight.preferences.StreamLayersText.applied(this, layers);
-        if (config.layersText == null) return;
-        if (firstStart && layers.reason == com.limelight.preferences.StreamLayers.Reason.NETWORK) {
-            messages.countedNotice(config.layersText);
-        } else {
-            messages.note(config.layersText);
-        }
-    }
-
-    /**
      * Leaves the stream as the player asked. A game set to quit on leave is quit first, while the
      * stream still holds the host connection; a failure is reported because the game stays running.
      */
@@ -3903,144 +3837,6 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 runOnUiThread(() -> hostActionInProgress = false);
             }
         }, "Host status").start();
-    }
-
-    private void togglePerformanceOverlay() {
-        if (app.getRole() == NvApp.Role.INPUT_ONLY) {
-            return;
-        }
-        prefConfig.enablePerfOverlay = !prefConfig.enablePerfOverlay;
-        performanceOverlayScroll.setVisibility(prefConfig.enablePerfOverlay && !isHidingOverlays ? View.VISIBLE : View.GONE);
-        PreferenceManager.getDefaultSharedPreferences(this).edit()
-                .putBoolean("checkbox_enable_perf_overlay", prefConfig.enablePerfOverlay).apply();
-        updateHardwareMetricsPolling();
-    }
-
-    private boolean isDebugOverlay() {
-        return PerformanceOverlay.MODE_DEBUG.equals(overlayMode);
-    }
-
-    private void setPerformanceOverlayMode(String mode) {
-        overlayMode = PerformanceOverlay.normalizeMode(mode);
-        PreferenceManager.getDefaultSharedPreferences(this).edit()
-                .putString("performance_overlay_mode", overlayMode).apply();
-        performanceOverlayScroll.scrollTo(0, 0);
-        updatePerformanceOverlay();
-        // The compact line leaves the host's hardware readings out; the other modes poll them.
-        updateHardwareMetricsPolling();
-    }
-
-    private void setPerformanceOverlayPosition(com.limelight.ui.OverlayPlacement.Corner corner) {
-        overlayCorner = corner;
-        prefConfig.overlayPosition = corner.key;
-        PreferenceManager.getDefaultSharedPreferences(this).edit()
-                .putString("performance_overlay_position", corner.key).apply();
-        // Move it now; a hidden overlay is placed by the next layout once it shows.
-        android.view.ViewGroup parent = (android.view.ViewGroup) performanceOverlayScroll.getParent();
-        int margin = Math.round(8 * getResources().getDisplayMetrics().density);
-        com.limelight.ui.OverlayPlacement.Spot spot = com.limelight.ui.OverlayPlacement.place(
-                performanceOverlayScroll, parent, this::collectOverlayObstacles, margin, corner);
-        if (spot != null) alignOverlayText(spot);
-    }
-
-    private void attachOverlayPlacement(android.view.ViewGroup parent) {
-        com.limelight.ui.OverlayPlacement.attach(performanceOverlayScroll, parent,
-                this::collectOverlayObstacles, () -> overlayCorner, this::alignOverlayText);
-    }
-
-    // Lines of different widths hug the side the overlay sits on. Set only when the side changes.
-    private void alignOverlayText(com.limelight.ui.OverlayPlacement.Spot spot) {
-        int side = spot == com.limelight.ui.OverlayPlacement.Spot.TOP_END ||
-                spot == com.limelight.ui.OverlayPlacement.Spot.BOTTOM_END ? android.view.Gravity.END : android.view.Gravity.START;
-        if ((performanceOverlayView.getGravity() & android.view.Gravity.RELATIVE_HORIZONTAL_GRAVITY_MASK) != side) {
-            performanceOverlayView.setGravity(android.view.Gravity.TOP | side);
-        }
-    }
-
-    private void updatePerformanceOverlay() {
-        boolean compact = PerformanceOverlay.MODE_COMPACT.equals(overlayMode);
-        performanceOverlayView.setTextSize(compact ? 13 : isDebugOverlay() ? 11 : 12);
-        CharSequence text = compact ? compactPerformanceText : hardwarePerformanceText(isDebugOverlay());
-        if (PerformanceOverlay.MODE_STATISTICS.equals(overlayMode) && text.length() != 0) {
-            text = PerformanceOverlay.withStatusLine(text, messages.notes());
-        }
-        if (text.length() == 0) {
-            text = compact ? "● " + getString(R.string.overlay_compact_waiting) : getString(R.string.stats_waiting);
-        }
-        text = PerformanceOverlay.withLinkNotice(this, text, linkNotice);
-        performanceOverlayView.setText(text);
-        performanceOverlayView.setContentDescription(compact ?
-                PerformanceOverlay.describeCompact(this, compactPerformanceText, linkNotice) : null);
-    }
-
-    // The on-screen gamepad, its layout button, per-game buttons and the key toolbar stay uncovered.
-    private void collectOverlayObstacles(java.util.List<Rect> out) {
-        View parent = (View) performanceOverlayScroll.getParent();
-        if (virtualController != null && prefConfig.onscreenController) virtualController.collectVisibleBounds(out);
-        if (modernController != null && prefConfig.onscreenController) modernController.collectVisibleBounds(out);
-        if (micButton != null) com.limelight.ui.OverlayPlacement.addVisible(micButton, parent, out);
-        if (gameTouchControls != null) gameTouchControls.collectVisibleBounds(parent, out);
-        if (isKeyboardOverlayVisible()) com.limelight.ui.OverlayPlacement.addVisible(keyboardOverlay, parent, out);
-        if (isPcKeyboardVisible()) com.limelight.ui.OverlayPlacement.addVisible(pcKeyboard, parent, out);
-        // The poor-connection warning sits top right: the overlay keeps out of its way.
-        com.limelight.ui.OverlayPlacement.addVisible(notificationOverlayView, parent, out);
-    }
-
-    private CharSequence hardwarePerformanceText(boolean debug) {
-        HardwareMetrics fresh = SystemClock.uptimeMillis() < hardwareMetricsFreshUntil ? hardwareMetrics : null;
-        return PerformanceOverlay.withHardwareMetrics(this, debug ? debugPerformanceText : statisticsPerformanceText, fresh, debug);
-    }
-
-    private void updateHardwareMetricsPolling() {
-        if (!foreground || !connected || conn == null || isFinishing() || isDestroyed() || isHidingOverlays ||
-                performanceOverlayScroll == null || performanceOverlayScroll.getVisibility() != View.VISIBLE ||
-                PerformanceOverlay.MODE_COMPACT.equals(overlayMode)) {
-            stopHardwareMetricsPolling();
-            return;
-        }
-        if (hardwareMetricsPolling) return;
-        int generation = ++hardwareMetricsGeneration;
-        hardwareMetricsPolling = conn.startHardwareMetricsPolling(metrics -> bitrateHandler.post(() ->
-                receiveHardwareMetrics(generation, metrics)));
-    }
-
-    private void receiveHardwareMetrics(int generation, HardwareMetrics metrics) {
-        if (!hardwareMetricsPolling || generation != hardwareMetricsGeneration) return;
-        long now = SystemClock.uptimeMillis();
-        if (metrics != null) {
-            if (metrics.sampledAtUnixMs != hardwareMetricsSampleTimestamp) {
-                hardwareMetricsSampleTimestamp = metrics.sampledAtUnixMs;
-                hardwareMetricsFreshUntil = now + Math.max(5000, metrics.intervalMs * 2L);
-            }
-            if (now >= hardwareMetricsFreshUntil) metrics = null;
-        }
-        hardwareMetrics = metrics;
-        bitrateHandler.removeCallbacks(expireHardwareMetrics);
-        if (metrics != null) bitrateHandler.postAtTime(expireHardwareMetrics, hardwareMetricsFreshUntil);
-        updatePerformanceOverlay();
-    }
-
-    private void stopHardwareMetricsPolling() {
-        hardwareMetricsGeneration++;
-        if (hardwareMetricsPolling && conn != null) conn.stopHardwareMetricsPolling();
-        hardwareMetricsPolling = false;
-        bitrateHandler.removeCallbacks(expireHardwareMetrics);
-        if (hardwareMetrics != null) {
-            hardwareMetrics = null;
-            updatePerformanceOverlay();
-        }
-    }
-
-    private void copyPerformanceStats() {
-        CharSequence text = hardwarePerformanceText(true);
-        if (text.length() == 0) {
-            messages.alert(R.string.overlay_empty, Toast.LENGTH_LONG);
-            return;
-        }
-        ClipboardManager clipboard = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
-        clipboard.setPrimaryClip(ClipData.newPlainText(getString(R.string.overlay_copy),
-                text));
-        messages.alert(R.string.overlay_copied, Toast.LENGTH_SHORT);
     }
 
     private void initializeTouchContexts() {
@@ -5393,7 +5189,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 details.hasPermission(ComputerDetails.PERMISSION_VIEW | ComputerDetails.PERMISSION_LAUNCH);
     }
 
-    private AdaptiveQualityController.Mode qualityMode() {
+    AdaptiveQualityController.Mode qualityMode() {
         return AdaptiveQualityController.Mode.parse(getSharedPreferences("AdaptiveQuality", MODE_PRIVATE)
                 .getString(getIntent().getStringExtra(EXTRA_PC_UUID), prefConfig.adaptiveQualityMode.preference()));
     }
@@ -5506,7 +5302,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         if (isAdaptiveBitrateEnabled()) setAdaptiveBitrateEnabled(false, false);
     }
 
-    private boolean isAdaptiveBitrateEnabled() {
+    boolean isAdaptiveBitrateEnabled() {
         return adaptiveBitrate != null || pyroWaveBitrate != null;
     }
 
@@ -5755,7 +5551,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                         break;
 
                     case KeyEvent.KEYCODE_S:
-                        togglePerformanceOverlay();
+                        overlays.togglePerformanceOverlay();
                         break;
 
                     // Toggle cursor visibility
@@ -6183,7 +5979,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         streamView.requestFocus();
     }
 
-    private boolean isPcKeyboardVisible() {
+    boolean isPcKeyboardVisible() {
         return pcKeyboard != null && pcKeyboard.getVisibility() == View.VISIBLE;
     }
 
@@ -6392,7 +6188,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         streamView.requestFocus();
     }
 
-    private boolean isKeyboardOverlayVisible() {
+    boolean isKeyboardOverlayVisible() {
         return keyboardOverlay != null && keyboardOverlay.getVisibility() == View.VISIBLE;
     }
 
@@ -7042,7 +6838,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                     }
                     nativeTouchGestureActive = false;
                     nativeTouchUnsupported = true;
-                    hostNotice(HostNotices.Notice.NATIVE_TOUCH_UNAVAILABLE, R.string.stream_native_touch_fallback);
+                    overlays.hostNotice(HostNotices.Notice.NATIVE_TOUCH_UNAVAILABLE, R.string.stream_native_touch_fallback);
                 }
 
                 boolean rightTap = prefConfig.touchscreenTrackpad &&
@@ -7201,7 +6997,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
 
     // Fingers beside the per-game touch controls reach the stream as one gesture of their own.
     private boolean onTouchControlsPassthrough(View view, MotionEvent event) {
-        if (event.getActionMasked() == MotionEvent.ACTION_DOWN && isDebugOverlay() &&
+        if (event.getActionMasked() == MotionEvent.ACTION_DOWN && overlays.isDebugOverlay() &&
                 performanceOverlayScroll.getVisibility() == View.VISIBLE) {
             float x = event.getX() + gameTouchControls.getX(), y = event.getY() + gameTouchControls.getY();
             if (x >= performanceOverlayScroll.getX() && x < performanceOverlayScroll.getX() + performanceOverlayScroll.getWidth() &&
@@ -7275,7 +7071,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         rememberMicrophoneMute();
         cancelAutomaticRecovery();
         if (gameTouchControls != null) gameTouchControls.releaseInput();
-        stopHardwareMetricsPolling();
+        overlays.stopHardwareMetricsPolling();
         getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         if (lowLatencyWifiLock != null && lowLatencyWifiLock.isHeld()) {
             lowLatencyWifiLock.release();
@@ -7720,7 +7516,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 recoveryAppUuid = app.getControl() == NvApp.Control.NONE ? app.getAppUuid() : conn.getHostDetails().runningGameUuid;
                 updateGameTouchProfile();
                 controllerHandler.resendControllerArrivals();
-                updateHardwareMetricsPolling();
+                overlays.updateHardwareMetricsPolling();
                 LimeLog.info("Stream connected");
                 connecting = false;
                 if (!isRecoveryAttempt()) {
@@ -7755,7 +7551,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                         app.getRole() == NvApp.Role.INPUT_ONLY || externalPresentation != null ? View.VISIBLE : View.GONE);
                 // A link test before the launch may have started the stream lower than the setting.
                 currentBitrate = app.isSmallStreamInputOnly() ? prefConfig.bitrate : conn.getStartBitrateKbps();
-                notePyroWaveFallback();
+                overlays.notePyroWaveFallback();
                 startStreamBitrate();
                 startAdaptiveQuality();
                 updatePipAutoEnter();
@@ -7894,56 +7690,6 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         });
     }
 
-    // The reason HDR was left off although the setting is on: the status line each stream
-    // and a message once per PC (notice does both).
-    private void refuseHdr(HdrPolicy.Refusal refusal) {
-        int text;
-        switch (refusal) {
-            case ANDROID_TOO_OLD: text = R.string.stream_hdr_android_unsupported; break;
-            case MODE_WITHOUT_HDR10: text = R.string.stream_hdr_mode_unsupported; break;
-            case DECODER_WITHOUT_HDR10: text = R.string.stream_hdr_decoder_unsupported; break;
-            case DISPLAY_WITHOUT_HDR10: text = R.string.stream_hdr_display_unsupported; break;
-            case HLG_NEEDS_DIRECT_OUTPUT: text = R.string.stream_hdr_hlg_needs_direct_output; break;
-            default: return;
-        }
-        LimeLog.warning("HDR requested but not used: " + refusal);
-        hostNotice(HostNotices.Notice.HDR_UNAVAILABLE, text);
-    }
-
-    private void hostNotice(HostNotices.Notice notice, int text) {
-        messages.notice(getIntent().getStringExtra(EXTRA_PC_UUID), notice, getString(text));
-    }
-
-    // PyroWave was chosen and the stream runs another codec: say once for the PC why, and which.
-    private void notePyroWaveFallback() {
-        if (decoderRenderer == null) return;
-        boolean chosen = prefConfig.videoFormat == PreferenceConfiguration.FormatOption.FORCE_PYROWAVE;
-        int format = decoderRenderer.getActiveVideoFormat();
-        String pc = getIntent().getStringExtra(EXTRA_PC_UUID);
-        if (!PyroWaveFallback.fellBack(chosen, format)) {
-            if (chosen && format != 0) HostNotices.reset(this, pc, HostNotices.Notice.PYROWAVE_FALLBACK);
-            return;
-        }
-        String codec = PyroWaveFallback.codecName(format);
-        int reason = decoderRenderer.getPyroWaveDropReason();
-        boolean hdrLossSaid = (format & MoonBridge.VIDEO_FORMAT_MASK_10BIT) != 0 &&
-                decoderRenderer.pyroWaveHdrFailureReason() != 0;
-        PyroWaveFallback.Notice notice = PyroWaveFallback.notice(reason, hdrLossSaid);
-        String text;
-        switch (notice) {
-            case PC: text = getString(R.string.host_pyrowave_unavailable, codec); break;
-            case PC_WITHOUT_HDR: text = getString(R.string.stream_pyrowave_no_hdr_on_pc, codec); break;
-            case FULL_CHROMA:
-                text = getString(R.string.stream_pyrowave_full_chroma, codec, getString(R.string.title_packed_444));
-                break;
-            case DEVICE: text = getString(R.string.stream_pyrowave_device_unavailable, codec, getString(reason)); break;
-            default: text = null;
-        }
-        LimeLog.warning("PyroWave was chosen, but the stream uses " + codec + ": " + (text != null ? text :
-                hdrLossSaid ? "PyroWave HDR failed on this device (announced)" : "no known reason"));
-        if (text != null) messages.notice(pc, HostNotices.Notice.PYROWAVE_FALLBACK, text);
-    }
-
     @Override
     public void rumble(short controllerNumber, short lowFreqMotor, short highFreqMotor) {
         LimeLog.info(String.format((Locale)null, "Rumble on gamepad %d: %04x %04x", controllerNumber, lowFreqMotor, highFreqMotor));
@@ -7979,7 +7725,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         LinkNoticeStatus status = LinkNoticeStatus.parse(state, ceilingKbps, currentKbps);
         runOnUiThread(() -> {
             linkNotice = status;
-            if (performanceOverlayView != null) updatePerformanceOverlay();
+            if (performanceOverlayView != null) overlays.updatePerformanceOverlay();
         });
     }
 
@@ -8188,7 +7934,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         if (refreshSwitchMonitor == null) return;
         String text = refreshSwitchMonitor.poll(SystemClock.uptimeMillis(), getVideoDisplay(),
                 surfaceCreated && !useArr ? appSurfaceFrameRateVote : null, appSurfaceSeamlessOnly);
-        if (messages.status("refresh", text)) updatePerformanceOverlay();
+        if (messages.status("refresh", text)) overlays.updatePerformanceOverlay();
     }
 
     // Under ARR the refresh switch check above cannot tell what the screen runs at, so watch what it
@@ -8214,14 +7960,14 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             LimeLog.info("VRR: ARR shows the rendered frames again (" + presented + " of " + rendered + " fps)");
         }
         String text = flagged ? getString(R.string.stream_vrr_arr_half_rate, Math.round(presented), Math.round(rendered)) : null;
-        if (messages.status("arr", text)) updatePerformanceOverlay();
+        if (messages.status("arr", text)) overlays.updatePerformanceOverlay();
     }
 
     // Render through Vulkan can't keep up on this display: say so once per PC and on the status line.
     // The renderer stays on and the setting stays; turning it off is the user's choice.
     private void checkVulkanPace() {
         if (decoderRenderer != null && decoderRenderer.takeVulkanBehind()) {
-            hostNotice(HostNotices.Notice.VULKAN_BEHIND, R.string.stream_vulkan_behind);
+            overlays.hostNotice(HostNotices.Notice.VULKAN_BEHIND, R.string.stream_vulkan_behind);
         }
     }
 
@@ -8248,12 +7994,12 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             if (decoderRenderer.isPyroWaveHlgLost()) text = getString(R.string.stream_hdr_pyrowave_hlg_lost);
             // Plain words, once per PC, for what the Vulkan renderer cannot show of this screen's HDR.
             int limit = vulkanHdrLimitText(decoderRenderer.takeVulkanHdrLimit());
-            if (limit != 0) hostNotice(HostNotices.Notice.VULKAN_HDR_LIMIT, limit);
+            if (limit != 0) overlays.hostNotice(HostNotices.Notice.VULKAN_HDR_LIMIT, limit);
             // Once per stream on the status line (and once per PC as a message): the output window
             // refused HDR10+, so the picture keeps HDR10's static metadata alone.
             if (decoderRenderer.takeVulkanHdr10PlusRefused()) {
                 LimeLog.warning("HDR10+ refused by the Vulkan renderer's window");
-                hostNotice(HostNotices.Notice.VULKAN_HDR10_PLUS_REFUSED, R.string.stream_hdr_vulkan_no_hdr10_plus);
+                overlays.hostNotice(HostNotices.Notice.VULKAN_HDR10_PLUS_REFUSED, R.string.stream_hdr_vulkan_no_hdr10_plus);
             }
             // And for what PyroWave cannot carry; Dolby Vision names what the stream is instead.
             int pyroWaveLimit = pyroWaveHdrLimitText(decoderRenderer.takePyroWaveHdrLimit());
@@ -8276,14 +8022,14 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             Sdr10Policy.HostHdrStep step = Sdr10Policy.hostHdrStep(tenBit, report, sdr10LastHostHdr);
             if (step == Sdr10Policy.HostHdrStep.SAY) {
                 LimeLog.warning("10-bit SDR requested but the PC sends HDR");
-                hostNotice(HostNotices.Notice.SDR10_HOST_HDR, R.string.stream_sdr10_host_hdr);
+                overlays.hostNotice(HostNotices.Notice.SDR10_HOST_HDR, R.string.stream_sdr10_host_hdr);
             } else if (step == Sdr10Policy.HostHdrStep.REARM) {
                 // The PC's display is in SDR now; if it goes to HDR again, say so again.
                 HostNotices.reset(this, getIntent().getStringExtra(EXTRA_PC_UUID), HostNotices.Notice.SDR10_HOST_HDR);
             }
             if (tenBit && report != null) sdr10LastHostHdr = report;
         }
-        if (messages.status("hdr", text)) updatePerformanceOverlay();
+        if (messages.status("hdr", text)) overlays.updatePerformanceOverlay();
     }
 
     static int hdrStatusText(HdrPolicy.Status status) {
@@ -8599,46 +8345,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     @Override
     public void onPerfUpdate(final String video, final String network, final String decode, final CharSequence statisticsText,
                              final CharSequence compactText) {
-        runOnUiThread(new Runnable() {
-            @Override
-            public void run() {
-                if (!connected || isFinishing() || isDestroyed()) {
-                    return;
-                }
-                String displayLine = displayRefreshOverlayLine();
-                String networkText = !isAdaptiveBitrateEnabled() ? network : network + "\n" +
-                        getString(R.string.stream_auto_bitrate_status, currentBitrate / 1000.0);
-                if (adaptiveQuality != null) {
-                    AdaptiveQualityController.Target quality = adaptiveQuality.current();
-                    networkText += "\n" + getString(R.string.quality_status,
-                            getResources().getStringArray(R.array.adaptive_quality_names)[qualityMode().ordinal()],
-                            quality.width, quality.height, quality.fps);
-                } else if (qualityStatus != null) {
-                    networkText += "\n" + qualityStatus;
-                }
-                MicrophoneStatus micStatus = conn.getMicrophoneStatus();
-                if (micStatus.label != 0) {
-                    networkText += "\n" + getString(micStatus.label);
-                }
-                for (String note : messages.notes()) {
-                    if (!note.equals(qualityStatus)) networkText += "\n" + note;
-                }
-                networkText += "\n" + wifiText(streamHealth.stallPeriodMs());
-                debugPerformanceText = PerformanceOverlay.debugText(Game.this, video + displayLine, networkText, decode);
-                statisticsPerformanceText = statisticsText;
-                compactPerformanceText = compactText;
-                updatePerformanceOverlay();
-            }
-        });
-    }
-
-    private String displayRefreshOverlayLine() {
-        if (!prefConfig.vrr) return "";
-        Display display = getVideoDisplay();
-        float modeRefreshRate = Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ?
-                display.getMode().getRefreshRate() : display.getRefreshRate();
-        return "\n" + getString(R.string.perf_overlay_vrr, modeRefreshRate, display.getRefreshRate(),
-                useArr ? "ARR" : getString(R.string.perf_overlay_vrr_max_hz));
+        overlays.onPerfUpdate(video, network, decode, statisticsText, compactText);
     }
 
     @Override

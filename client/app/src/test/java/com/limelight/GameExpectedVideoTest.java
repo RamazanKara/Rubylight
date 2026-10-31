@@ -48,7 +48,7 @@ public class GameExpectedVideoTest {
         StreamMessages messages = ReflectionHelpers.getField(game, "messages");
         ReflectionHelpers.setField(game, "streamHdr", false);
 
-        ReflectionHelpers.callInstanceMethod(game, "refuseHdr",
+        ReflectionHelpers.callInstanceMethod(game.overlays, "refuseHdr",
                 ReflectionHelpers.ClassParameter.from(HdrPolicy.Refusal.class, HdrPolicy.Refusal.DISPLAY_WITHOUT_HDR10));
         // The poll runs every second for the rest of the stream; it must not add the refusal again.
         for (int i = 0; i < 3; i++) ReflectionHelpers.callInstanceMethod(game, "checkHdrStatus");
@@ -64,7 +64,7 @@ public class GameExpectedVideoTest {
                 HdrPolicy.Refusal.DISPLAY_WITHOUT_HDR10, HdrPolicy.Refusal.HLG_NEEDS_DIRECT_OUTPUT}) {
             Game game = game();
             StreamMessages messages = ReflectionHelpers.getField(game, "messages");
-            ReflectionHelpers.callInstanceMethod(game, "refuseHdr",
+            ReflectionHelpers.callInstanceMethod(game.overlays, "refuseHdr",
                     ReflectionHelpers.ClassParameter.from(HdrPolicy.Refusal.class, refusal));
             ReflectionHelpers.callInstanceMethod(game, "checkHdrStatus");
             assertEquals(refusal.toString(), 1, messages.notes().size());
@@ -74,7 +74,7 @@ public class GameExpectedVideoTest {
     @Test public void anHlgOnlyScreenNamesItsOwnRefusalAndAPqStream() {
         Game game = game();
         StreamMessages messages = ReflectionHelpers.getField(game, "messages");
-        ReflectionHelpers.callInstanceMethod(game, "refuseHdr", ReflectionHelpers.ClassParameter.from(
+        ReflectionHelpers.callInstanceMethod(game.overlays, "refuseHdr", ReflectionHelpers.ClassParameter.from(
                 HdrPolicy.Refusal.class, HdrPolicy.Refusal.HLG_NEEDS_DIRECT_OUTPUT));
         assertEquals(1, count(messages.notes(), game.getString(R.string.stream_hdr_hlg_needs_direct_output)));
         assertEquals(R.string.stream_hdr_pq_on_hlg_screen, Game.hdrStatusText(HdrPolicy.Status.PQ_ON_HLG_SCREEN));

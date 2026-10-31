@@ -30,13 +30,13 @@ public class GamePerformanceOverlayTest {
         game.setContentView(R.layout.activity_game);
         ReflectionHelpers.setField(game, "performanceOverlayView", game.findViewById(R.id.performanceOverlay));
         ReflectionHelpers.setField(game, "performanceOverlayScroll", game.findViewById(R.id.performanceOverlayScroll));
-        ReflectionHelpers.setField(game, "statisticsPerformanceText", "1920×1080 · AV1 · HDR\nDisplayed: 60.0 FPS\nVideo payload: 10.0 Mbps\nNetwork RTT: 8 ms\nHost processing: — ms\nDecode: 4.0 ms");
-        ReflectionHelpers.setField(game, "debugPerformanceText", "Video\nAV1\n\nDecode\nDriver fallback\np95/p99: 5/6 ms");
+        ReflectionHelpers.setField(game.overlays, "statisticsPerformanceText", "1920×1080 · AV1 · HDR\nDisplayed: 60.0 FPS\nVideo payload: 10.0 Mbps\nNetwork RTT: 8 ms\nHost processing: — ms\nDecode: 4.0 ms");
+        ReflectionHelpers.setField(game.overlays, "debugPerformanceText", "Video\nAV1\n\nDecode\nDriver fallback\np95/p99: 5/6 ms");
         return game;
     }
 
     private static void setMode(Game game, String mode) {
-        ReflectionHelpers.callInstanceMethod(game, "setPerformanceOverlayMode",
+        ReflectionHelpers.callInstanceMethod(game.overlays, "setPerformanceOverlayMode",
                 ReflectionHelpers.ClassParameter.from(String.class, mode));
     }
 
@@ -44,11 +44,11 @@ public class GamePerformanceOverlayTest {
     public void compactIsTheDefaultOneLineWithItsDotInWords() {
         Game game = game();
         TextView overlay = game.findViewById(R.id.performanceOverlay);
-        ReflectionHelpers.callInstanceMethod(game, "updatePerformanceOverlay");
+        ReflectionHelpers.callInstanceMethod(game.overlays, "updatePerformanceOverlay");
         assertEquals("● Waiting for video", overlay.getText().toString());
-        ReflectionHelpers.setField(game, "compactPerformanceText", com.limelight.binding.video.PerformanceOverlay
+        ReflectionHelpers.setField(game.overlays, "compactPerformanceText", com.limelight.binding.video.PerformanceOverlay
                 .compactText(game, 119.94f, 120, 8, 0.14f, 4.6f));
-        ReflectionHelpers.callInstanceMethod(game, "updatePerformanceOverlay");
+        ReflectionHelpers.callInstanceMethod(game.overlays, "updatePerformanceOverlay");
         assertEquals("● 119.9 FPS · 8 ms RTT · 0.1% loss", overlay.getText().toString());
         assertEquals("Stream good: 119.9 FPS · 8 ms RTT · 0.1% loss", overlay.getContentDescription().toString());
     }
@@ -76,7 +76,7 @@ public class GamePerformanceOverlayTest {
         Game game = game();
         TextView overlay = game.findViewById(R.id.performanceOverlay);
         String notice = "Host lowered the bitrate to 38 Mbps: network";
-        ReflectionHelpers.setField(game, "compactPerformanceText", com.limelight.binding.video.PerformanceOverlay
+        ReflectionHelpers.setField(game.overlays, "compactPerformanceText", com.limelight.binding.video.PerformanceOverlay
                 .compactText(game, 119.94f, 120, 8, 0.14f, 4.6f));
         game.linkNotice(1, 150_000, 37_500);
         org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle();
@@ -88,7 +88,7 @@ public class GamePerformanceOverlayTest {
         setMode(game, "debug");
         assertTrue(overlay.getText().toString().endsWith("p95/p99: 5/6 ms\n" + notice));
         // The copied report is the measurements, not the notice.
-        ReflectionHelpers.callInstanceMethod(game, "copyPerformanceStats");
+        ReflectionHelpers.callInstanceMethod(game.overlays, "copyPerformanceStats");
         ClipboardManager clipboard = (ClipboardManager) game.getSystemService(Context.CLIPBOARD_SERVICE);
         assertEquals("Video\nAV1\n\nDecode\nDriver fallback\np95/p99: 5/6 ms",
                 clipboard.getPrimaryClip().getItemAt(0).getText().toString());
@@ -103,7 +103,7 @@ public class GamePerformanceOverlayTest {
     @Test
     public void copyingFromStatisticsKeepsTheFullMultilineDebugReport() {
         Game game = game();
-        ReflectionHelpers.callInstanceMethod(game, "copyPerformanceStats");
+        ReflectionHelpers.callInstanceMethod(game.overlays, "copyPerformanceStats");
         ClipboardManager clipboard = (ClipboardManager) game.getSystemService(Context.CLIPBOARD_SERVICE);
         assertEquals("Video\nAV1\n\nDecode\nDriver fallback\np95/p99: 5/6 ms", clipboard.getPrimaryClip().getItemAt(0).getText().toString());
     }
@@ -129,7 +129,7 @@ public class GamePerformanceOverlayTest {
         ReflectionHelpers.setField(game, "app", new NvApp("Game", 73, false));
         android.view.View scroll = game.findViewById(R.id.performanceOverlayScroll);
         scroll.setVisibility(android.view.View.VISIBLE);
-        ReflectionHelpers.callInstanceMethod(game, "updatePerformanceOverlay");
+        ReflectionHelpers.callInstanceMethod(game.overlays, "updatePerformanceOverlay");
         android.view.ViewGroup parent = (android.view.ViewGroup) scroll.getParent();
         parent.measure(android.view.View.MeasureSpec.makeMeasureSpec(2400, android.view.View.MeasureSpec.EXACTLY),
                 android.view.View.MeasureSpec.makeMeasureSpec(1080, android.view.View.MeasureSpec.EXACTLY));
@@ -138,7 +138,7 @@ public class GamePerformanceOverlayTest {
     }
 
     private static void setPosition(Game game, OverlayPlacement.Corner corner) {
-        ReflectionHelpers.callInstanceMethod(game, "setPerformanceOverlayPosition",
+        ReflectionHelpers.callInstanceMethod(game.overlays, "setPerformanceOverlayPosition",
                 ReflectionHelpers.ClassParameter.from(OverlayPlacement.Corner.class, corner));
     }
 
@@ -174,7 +174,7 @@ public class GamePerformanceOverlayTest {
         Game game = laidOut();
         android.view.View scroll = game.findViewById(R.id.performanceOverlayScroll);
         android.view.ViewGroup parent = (android.view.ViewGroup) scroll.getParent();
-        ReflectionHelpers.callInstanceMethod(game, "attachOverlayPlacement",
+        ReflectionHelpers.callInstanceMethod(game.overlays, "attachOverlayPlacement",
                 ReflectionHelpers.ClassParameter.from(android.view.ViewGroup.class, parent));
         TextView overlay = game.findViewById(R.id.performanceOverlay);
         ReflectionHelpers.setField(game, "overlayCorner", OverlayPlacement.Corner.TOP_RIGHT);
@@ -192,7 +192,7 @@ public class GamePerformanceOverlayTest {
         PreferenceConfiguration prefs = ReflectionHelpers.getField(game, "prefConfig");
         prefs.enablePerfOverlay = true;
         setPosition(game, OverlayPlacement.Corner.BOTTOM_LEFT);
-        ReflectionHelpers.callInstanceMethod(game, "hidePerformanceOverlay");
+        ReflectionHelpers.callInstanceMethod(game.overlays, "hidePerformanceOverlay");
         assertFalse(prefs.enablePerfOverlay);
         assertEquals(android.view.View.GONE, game.findViewById(R.id.performanceOverlayScroll).getVisibility());
         android.content.SharedPreferences stored = PreferenceManager.getDefaultSharedPreferences(game);
@@ -200,7 +200,7 @@ public class GamePerformanceOverlayTest {
         assertEquals("debug", stored.getString("performance_overlay_mode", ""));
         assertEquals("bottom_left", stored.getString("performance_overlay_position", ""));
         // Off again changes nothing.
-        ReflectionHelpers.callInstanceMethod(game, "hidePerformanceOverlay");
+        ReflectionHelpers.callInstanceMethod(game.overlays, "hidePerformanceOverlay");
         assertFalse(prefs.enablePerfOverlay);
     }
 }

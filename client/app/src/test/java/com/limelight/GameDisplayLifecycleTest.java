@@ -84,11 +84,11 @@ public class GameDisplayLifecycleTest {
 
         String expected = "\n" + game.getString(R.string.perf_overlay_vrr, external.getMode().getRefreshRate(),
                 external.getRefreshRate(), game.getString(R.string.perf_overlay_vrr_max_hz));
-        assertEquals(expected, ReflectionHelpers.callInstanceMethod(game, "displayRefreshOverlayLine"));
+        assertEquals(expected, ReflectionHelpers.callInstanceMethod(game.overlays, "displayRefreshOverlayLine"));
         assertEquals(90f, external.getMode().getRefreshRate(), 0);
         assertNotEquals(90f, game.getWindowManager().getDefaultDisplay().getMode().getRefreshRate(), 0);
         prefs.vrr = false;
-        assertEquals("", ReflectionHelpers.callInstanceMethod(game, "displayRefreshOverlayLine"));
+        assertEquals("", ReflectionHelpers.callInstanceMethod(game.overlays, "displayRefreshOverlayLine"));
     }
 
     @Test public void missingOutputRestoresLocalSurfaceAndVrrLaunchValues() {

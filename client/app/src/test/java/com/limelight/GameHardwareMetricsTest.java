@@ -85,10 +85,10 @@ public class GameHardwareMetricsTest {
         assertEquals("Client statistics", text(game));
         deliver(connection.listener, sample);
         assertEquals("Client statistics", text(game));
-        ReflectionHelpers.callInstanceMethod(game, "copyPerformanceStats");
+        ReflectionHelpers.callInstanceMethod(game.overlays, "copyPerformanceStats");
         ClipboardManager clipboard = (ClipboardManager) game.getSystemService(Context.CLIPBOARD_SERVICE);
         assertEquals("Client debug", clipboard.getPrimaryClip().getItemAt(0).getText().toString());
-        ReflectionHelpers.callInstanceMethod(game, "stopHardwareMetricsPolling");
+        ReflectionHelpers.callInstanceMethod(game.overlays, "stopHardwareMetricsPolling");
     }
 
     @Test
@@ -105,7 +105,7 @@ public class GameHardwareMetricsTest {
         assertTrue(text(game).contains("CPU"));
         deliver(connection.listener, null);
         assertEquals("Client statistics", text(game));
-        ReflectionHelpers.callInstanceMethod(game, "stopHardwareMetricsPolling");
+        ReflectionHelpers.callInstanceMethod(game.overlays, "stopHardwareMetricsPolling");
     }
 
     @Test
@@ -115,10 +115,10 @@ public class GameHardwareMetricsTest {
         ReflectionHelpers.setField(game, "overlayMode", "compact");
         update(game);
         assertEquals(0, connection.starts);
-        ReflectionHelpers.callInstanceMethod(game, "setPerformanceOverlayMode",
+        ReflectionHelpers.callInstanceMethod(game.overlays, "setPerformanceOverlayMode",
                 ReflectionHelpers.ClassParameter.from(String.class, "statistics"));
         assertEquals(1, connection.starts);
-        ReflectionHelpers.callInstanceMethod(game, "setPerformanceOverlayMode",
+        ReflectionHelpers.callInstanceMethod(game.overlays, "setPerformanceOverlayMode",
                 ReflectionHelpers.ClassParameter.from(String.class, "compact"));
         assertEquals(1, connection.stops);
     }
@@ -134,7 +134,7 @@ public class GameHardwareMetricsTest {
     }
 
     private static void update(Game game) {
-        ReflectionHelpers.callInstanceMethod(game, "updateHardwareMetricsPolling");
+        ReflectionHelpers.callInstanceMethod(game.overlays, "updateHardwareMetricsPolling");
     }
 
     private static String text(Game game) {
@@ -148,14 +148,14 @@ public class GameHardwareMetricsTest {
         overlay.setVisibility(View.VISIBLE);
         ReflectionHelpers.setField(game, "performanceOverlayView", game.findViewById(R.id.performanceOverlay));
         ReflectionHelpers.setField(game, "performanceOverlayScroll", overlay);
-        ReflectionHelpers.setField(game, "statisticsPerformanceText", "Client statistics");
-        ReflectionHelpers.setField(game, "debugPerformanceText", "Client debug");
+        ReflectionHelpers.setField(game.overlays, "statisticsPerformanceText", "Client statistics");
+        ReflectionHelpers.setField(game.overlays, "debugPerformanceText", "Client debug");
         // Host hardware readings belong to the Statistics and Debug overlays.
         ReflectionHelpers.setField(game, "overlayMode", "statistics");
         ReflectionHelpers.setField(game, "foreground", true);
         ReflectionHelpers.setField(game, "connected", true);
         ReflectionHelpers.setField(game, "conn", connection);
-        ReflectionHelpers.callInstanceMethod(game, "updatePerformanceOverlay");
+        ReflectionHelpers.callInstanceMethod(game.overlays, "updatePerformanceOverlay");
         return game;
     }
 

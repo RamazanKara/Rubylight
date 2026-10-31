@@ -295,8 +295,8 @@ public class ShellIntentCompatibilityTest {
     }
 
     private static String titleOf(StreamSettings screen) {
-        return ((com.google.android.material.appbar.MaterialToolbar) screen.findViewById(R.id.settings_toolbar))
-                .getTitle().toString();
+        // The window carries the page's name: on the overview the selected tab is the visible one.
+        return screen.getTitle().toString();
     }
 
     private ActivityController<StreamSettings> settings(String section) {

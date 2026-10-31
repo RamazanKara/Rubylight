@@ -396,7 +396,7 @@ public class StreamSettings extends NightjarActivity {
 
     private void updateHeader() {
         boolean overview = section == null || twoPane;
-        toolbar.setTitle(!searchQuery.isEmpty() ? R.string.settings_search_results :
+        CharSequence title = getString(!searchQuery.isEmpty() ? R.string.settings_search_results :
                 overview ? R.string.settings : sectionTitle(section));
         if (searchQuery.isEmpty()) {
             contextLabel.setText(overview ? R.string.settings_global_context : R.string.settings_changes_saved);
@@ -407,8 +407,9 @@ public class StreamSettings extends NightjarActivity {
                 contextLabel.setText(getResources().getQuantityString(R.plurals.settings_search_count, count, count));
             }
         }
-        // The shell bar belongs to the list of sections; a section or the search results keep the back arrow and title.
-        findViewById(R.id.shell_bar).setVisibility(overview && searchQuery.isEmpty() ? View.VISIBLE : View.GONE);
+        // The shell bar belongs to the list of sections, and its Settings tab is the title there; a section or the search
+        // results keep the back arrow and their title.
+        com.limelight.ui.TopAppBar.showShellBar(this, toolbar, overview && searchQuery.isEmpty(), title);
         toolbar.setNavigationContentDescription(returnSearchQuery != null ? R.string.settings_back_to_search :
                 overview ? R.string.settings_navigate_up : R.string.settings_back_to_overview);
         updateNavigation();
@@ -640,6 +641,8 @@ public class StreamSettings extends NightjarActivity {
         toolbar = TopAppBar.configure(this, R.id.settings_toolbar, getString(R.string.settings), R.menu.settings);
         TopAppBar.setUpNavigation(toolbar, R.id.settings_back, v -> navigateBack());
         ShellBar.install(this, ShellBar.Destination.SETTINGS);
+        // Search sits at the end of the tab row: Right from the last tab reaches it, also where the bar ends in a wall (TV).
+        findViewById(R.id.shell_settings).setNextFocusRightId(R.id.settings_search_button);
         toolbar.setOnMenuItemClickListener(item -> {
             openSearch();
             return true;

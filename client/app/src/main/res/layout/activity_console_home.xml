@@ -5,7 +5,8 @@
     android:layout_width="match_parent" android:layout_height="match_parent" android:orientation="vertical"
     android:paddingStart="@dimen/shell_overscan_horizontal" android:paddingEnd="@dimen/shell_overscan_horizontal"
     android:paddingTop="@dimen/shell_overscan_vertical" android:paddingBottom="@dimen/shell_overscan_vertical">
-    <include android:id="@+id/console_toolbar" layout="@layout/view_top_app_bar" />
+    <!-- The screen's title is the shell bar's selected tab, as on a TV; the toolbar stays for the code that configures it. -->
+    <include android:id="@+id/console_toolbar" layout="@layout/view_top_app_bar" android:visibility="gone" />
     <include layout="@layout/view_shell_bar" />
     <ProgressBar android:id="@+id/console_loading" style="?android:attr/progressBarStyleHorizontal"
         android:layout_width="match_parent" android:layout_height="4dp" android:indeterminate="true" />

@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The top app bar of a shell screen that has actions (Settings): it carries the shell bar, whose selected tab names the
+     page, so while the tabs show the bar has no title and its actions sit at the end of the tab row. Where the tabs
+     make way (a section, the search results) the title and back arrow return. Include it with a screen-specific
+     android:id; com.limelight.ui.TopAppBar.showShellBar switches between the two. -->
+<!-- maxButtonHeight: the actions are no taller than a tab (the default 56dp made the tab row 4dp taller than on PCs);
+     buttonGravity: they centre on the tabs rather than sitting 2dp above them. -->
+<com.google.android.material.appbar.MaterialToolbar xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/top_app_bar"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:minHeight="@dimen/top_app_bar_height"
+    app:buttonGravity="center_vertical"
+    app:maxButtonHeight="@dimen/touch_target">
+    <include layout="@layout/view_shell_bar" />
+</com.google.android.material.appbar.MaterialToolbar>

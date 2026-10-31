@@ -123,9 +123,10 @@ public class ShellNavigationTest {
             assertNotNull(bar);
             assertEquals(java.util.Arrays.asList(R.id.shell_pcs, R.id.shell_settings), visibleButtons(controller.get(), bar));
             assertEquals(java.util.Collections.singletonList(R.id.shell_pcs), selectedButtons(bar));
-            assertEquals(controller.get().getString(R.string.library_computers),
-                    ((com.google.android.material.appbar.MaterialToolbar) controller.get().findViewById(R.id.home_toolbar))
-                            .getTitle().toString());
+            assertEquals("the selected tab names the page, no heading over it", View.GONE,
+                    controller.get().findViewById(R.id.home_toolbar).getVisibility());
+            assertEquals("a screen reader still hears the page's name", controller.get().getString(R.string.library_computers),
+                    controller.get().getTitle().toString());
         } finally {
             controller.pause().stop().destroy();
         }
@@ -609,6 +610,20 @@ public class ShellNavigationTest {
         return rect.left + view.getPaddingStart();
     }
 
+    /** The left edge of the innermost shape of the rail's focus drawable, as laid out in its current bounds. */
+    private static int ringLeft(android.graphics.drawable.Drawable drawable) {
+        android.graphics.drawable.Drawable inner = drawable;
+        while (true) {
+            if (inner instanceof android.graphics.drawable.InsetDrawable) {
+                inner = ((android.graphics.drawable.InsetDrawable) inner).getDrawable();
+            } else if (inner instanceof android.graphics.drawable.LayerDrawable) {
+                inner = ((android.graphics.drawable.LayerDrawable) inner).getDrawable(0);
+            } else {
+                return inner.getBounds().left;
+            }
+        }
+    }
+
     private static void layOut(View root) {
         android.util.DisplayMetrics metrics = root.getResources().getDisplayMetrics();
         root.measure(View.MeasureSpec.makeMeasureSpec(metrics.widthPixels, View.MeasureSpec.EXACTLY),
@@ -618,27 +633,44 @@ public class ShellNavigationTest {
 
     @Test
     @Config(qualifiers = "w960dp-h540dp-land-television-xhdpi")
-    public void onATelevisionTheBarTheTitleAndThePageContentShareOneEdge() {
+    public void onATelevisionTheBarThePageAndTheRailShareOneEdge() {
         ActivityController<StreamSettings> controller = settingsFromTheBar();
         try {
             StreamSettings screen = controller.get();
             ViewGroup root = screen.findViewById(android.R.id.content);
             layOut(root);
             com.google.android.material.appbar.MaterialToolbar toolbar = screen.findViewById(R.id.settings_toolbar);
-            View title = null;
-            for (int i = 0; i < toolbar.getChildCount(); i++) {
-                View child = toolbar.getChildAt(i);
-                if (child instanceof android.widget.TextView
-                        && screen.getString(R.string.settings).contentEquals(((android.widget.TextView) child).getText())) {
-                    title = child;
-                }
-            }
-            assertNotNull(title);
+            assertNull("the selected tab names the page, no heading over it", toolbar.getTitle());
+            assertEquals(screen.getString(R.string.settings), screen.getTitle().toString());
             int tab = contentLeft(root, screen.findViewById(R.id.shell_bar));
             float dp = screen.getResources().getDisplayMetrics().density;
             assertEquals("80dp from the screen: 24dp TV margin, 48dp overscan, 8dp inset", Math.round(80 * dp), tab);
-            assertEquals("the title starts where the first tab does", tab, contentLeft(root, title));
-            assertEquals("and so does the line under them", tab, contentLeft(root, screen.findViewById(R.id.settings_context)));
+            assertEquals("the line under the tabs starts there too", tab,
+                    contentLeft(root, screen.findViewById(R.id.settings_context)));
+            // The rail's focus ring is drawn on the row's pill, which starts on the same edge.
+            android.widget.ListView rail = screen.getFragmentManager().findFragmentById(R.id.settings_sections).getView()
+                    .findViewById(android.R.id.list);
+            android.graphics.Rect padding = new android.graphics.Rect();
+            rail.getSelector().getPadding(padding);
+            assertEquals("the rail pads its rows by the ring's inset", Math.round(4 * dp), padding.left);
+            View row = rail.getChildAt(0);
+            android.graphics.Rect ring = new android.graphics.Rect(0, 0, row.getWidth(), row.getHeight());
+            root.offsetDescendantRectToMyCoords(row, ring);
+            // AbsListView widens the selector by its padding around the row; the drawable insets the shape back.
+            android.graphics.drawable.Drawable selector = rail.getSelector().getCurrent();
+            selector.setBounds(ring.left - padding.left, ring.top - padding.top, ring.right + padding.right,
+                    ring.bottom + padding.bottom);
+            assertEquals("the ring sits on the edge, not 4dp left of it", tab, ringLeft(selector));
+            // Search sits at the end of the tab row, and Right from the last tab reaches it.
+            View search = screen.findViewById(R.id.settings_search_button);
+            assertNotNull(search);
+            assertEquals(R.id.settings_search_button, screen.findViewById(R.id.shell_settings).getNextFocusRightId());
+            android.graphics.Rect tabs = new android.graphics.Rect(0, 0, 1, screen.findViewById(R.id.shell_settings).getHeight());
+            root.offsetDescendantRectToMyCoords(screen.findViewById(R.id.shell_settings), tabs);
+            android.graphics.Rect action = new android.graphics.Rect(0, 0, search.getWidth(), search.getHeight());
+            root.offsetDescendantRectToMyCoords(search, action);
+            assertEquals("the action centres on the tabs", tabs.centerY(), action.centerY(), 1);
+            assertTrue("at the end of the row", action.left > tabs.right);
         } finally {
             controller.pause().stop().destroy();
         }

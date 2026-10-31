@@ -112,9 +112,9 @@ public class SettingsPanesTest {
             assertTrue(screen.getFragmentManager().findFragmentById(R.id.settings_sections)
                     instanceof StreamSettings.RootFragment);
             assertEquals("video", shownSection(screen));
-            assertEquals(screen.getString(R.string.settings),
-                    ((com.google.android.material.appbar.MaterialToolbar) screen.findViewById(R.id.settings_toolbar))
-                            .getTitle().toString());
+            assertEquals(screen.getString(R.string.settings), screen.getTitle().toString());
+            assertNull("the selected tab names the page", ((com.google.android.material.appbar.MaterialToolbar)
+                    screen.findViewById(R.id.settings_toolbar)).getTitle());
             assertEquals(View.VISIBLE, screen.findViewById(R.id.shell_bar).getVisibility());
             ListView list = sections(screen);
             assertTrue("the section on the right is marked on the left", list.isItemChecked(row(list, "video")));
@@ -444,8 +444,7 @@ public class SettingsPanesTest {
             assertNull("the pane of the wide layout is gone", screen.getFragmentManager().findFragmentById(R.id.settings_sections));
             assertTrue("the list, not the default section", screen.getFragmentManager().findFragmentById(R.id.stream_settings)
                     instanceof StreamSettings.RootFragment);
-            assertEquals(screen.getString(R.string.settings), ((com.google.android.material.appbar.MaterialToolbar)
-                    screen.findViewById(R.id.settings_toolbar)).getTitle().toString());
+            assertEquals(screen.getString(R.string.settings), screen.getTitle().toString());
         } finally { phone.pause().stop().destroy(); }
     }
 

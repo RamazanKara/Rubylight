@@ -274,6 +274,9 @@ public class HomeShellTest {
             assertEquals(Collections.singletonList(R.id.shell_home), selected);
             MaterialToolbar toolbar = controller.get().findViewById(R.id.console_toolbar);
             assertEquals("Hosts and Settings left the toolbar for the bar", 0, toolbar.getMenu().size());
+            assertEquals("the selected tab names the page, no heading over it", View.GONE, toolbar.getVisibility());
+            assertEquals("a screen reader still hears the page's name", controller.get().getString(R.string.console_title),
+                    String.valueOf(controller.get().getTitle()));
         } finally {
             controller.pause().stop().destroy();
         }

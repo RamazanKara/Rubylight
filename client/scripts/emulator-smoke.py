@@ -224,13 +224,19 @@ def section_up():
         navigate_up()
 
 
+def on_pcs(root=None):
+    """Whether the PCs screen is up: its shell tab is the selected one (the screen has no title of its own)."""
+    root = root if root is not None else tree()
+    return any(n.get("resource-id") == f"{PACKAGE}:id/shell_pcs" and n.get("selected") == "true" for n in root.iter("node"))
+
+
 def close_help():
     """Back out of Help, the App section and the Settings list to the PCs."""
     for _ in range(3):
         navigate_up()
-        if any(n.get("resource-id") == f"{PACKAGE}:id/home_toolbar" for n in tree().iter("node")):
+        if on_pcs():
             return
-    find(f"{PACKAGE}:id/home_toolbar")
+    assert on_pcs(), "Back from Help did not return to the PCs"
 
 
 def enter_text(label, text):
@@ -303,10 +309,9 @@ def assert_cold_start_insets(runs=5):
     for run in range(runs):
         adb("shell", "am", "force-stop", PACKAGE)
         adb("shell", "am", "start", "-W", "-n", f"{PACKAGE}/com.limelight.PcView")
-        find(f"{PACKAGE}:id/home_toolbar")
-        root = assert_top_bar_clear("home_toolbar")
-        shell = find(f"{PACKAGE}:id/shell_settings")
-        assert bounds(shell)[1] >= bounds(find(f"{PACKAGE}:id/home_toolbar"))[3] - 1, "The shell bar overlaps the top app bar"
+        find(f"{PACKAGE}:id/shell_bar")
+        # The selected tab names the screen, so the shell bar is the top bar here.
+        root = assert_top_bar_clear("shell_bar")
         content = next((n for n in root.iter("node") if n.get("resource-id") in
                         (f"{PACKAGE}:id/no_pc_found_layout", f"{PACKAGE}:id/fragmentView")), None)
         nav_top = min((f[1] for f in system_bar_frames()["navigationBars"] if f[1] > 0), default=None)

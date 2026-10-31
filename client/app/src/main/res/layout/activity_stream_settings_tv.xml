@@ -6,8 +6,7 @@
         android:layout_width="match_parent" android:layout_height="match_parent" android:orientation="vertical"
         android:paddingStart="@dimen/shell_overscan_horizontal" android:paddingEnd="@dimen/shell_overscan_horizontal"
         android:paddingTop="@dimen/shell_overscan_vertical" android:paddingBottom="@dimen/shell_overscan_vertical">
-        <include android:id="@+id/settings_toolbar" layout="@layout/view_top_app_bar" />
-        <include layout="@layout/view_shell_bar" />
+        <include android:id="@+id/settings_toolbar" layout="@layout/view_shell_app_bar" />
         <androidx.appcompat.widget.SearchView android:id="@+id/settings_search"
             android:nextFocusDown="@android:id/list" android:visibility="gone"
             android:layout_width="match_parent" android:layout_height="wrap_content"

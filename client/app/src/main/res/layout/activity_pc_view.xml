@@ -6,7 +6,9 @@
         android:clipToPadding="@bool/pcs_clip" android:clipChildren="@bool/pcs_clip"
         android:paddingStart="@dimen/shell_overscan_horizontal" android:paddingEnd="@dimen/shell_overscan_horizontal"
         android:paddingTop="@dimen/shell_overscan_vertical" android:paddingBottom="@dimen/shell_overscan_vertical">
-        <include android:id="@+id/home_toolbar" layout="@layout/view_top_app_bar" />
+        <!-- The screen's title is the shell bar's selected tab, so the toolbar stays hidden; PcView still configures it
+             and the window title names the page for screen readers. -->
+        <include android:id="@+id/home_toolbar" layout="@layout/view_top_app_bar" android:visibility="gone" />
         <include layout="@layout/view_shell_bar" />
         <FrameLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1"
             android:clipChildren="@bool/pcs_clip">

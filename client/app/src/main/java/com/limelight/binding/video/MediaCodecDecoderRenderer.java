@@ -3007,12 +3007,15 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         return true;
     }
 
+    /**
+     * Phase lock: reports the slack of a frame ready at readyNs, also with host frame times. The
+     * scheduler's hold is the frame's lateness against its host time, which a capture the lock
+     * moves keeps; only the vsync the hold lands on follows the new phase, and nothing it decides
+     * changes readyNs. Without the report the capture phase drifted across the whole refresh.
+     */
     private void reportPhaseSlack(long readyNs) {
         // Adaptive refresh has no fixed latch; an upscaled frame is not display-ready yet.
         if (stopping || !outputVsyncAvailable || upscaler != null) return;
-        // The scheduler places frames by the host's frame times; a host that also retimed its
-        // captures from this report would be a second controller on the same signal.
-        if (FramePacingPolicy.schedulesFrames(hostFrameTimes, prefs.framePacing)) return;
         long slackNs, intervalNs;
         synchronized (vsyncMonitor) {
             if (outputHasArrSupport) return;
@@ -3484,6 +3487,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         // Artemis counts the frame it presents. Its decode time ended when the
         // decoder returned it; release and pacing waits are not decode time.
         frameLatencyStats.onArtemisDecodeCounted(lastPtsUs);
+        // A scheduled frame is only stamped with its due time, never waited for (ScheduledRelease):
+        // now is when it was ready in either mode, not when it is shown.
         reportPhaseSlack(System.nanoTime());
 
         activeWindowVideoStats.totalFramesRendered++;

@@ -406,18 +406,44 @@ test('notice links stay in the sentence, disclosures share one chevron, header a
   assert.equal(height.display, 'block');
   assert(height.link < height.line * 1.5, `link ${height.link}px on ${height.line}px lines`);
   // Actions are centred on the h1 with the subtitle below, also without a subtitle.
-  for (const [width, route] of [[1440, '/settings'], [1440, '/'], [390, '/']]) {
+  for (const [width, route] of [[1440, '/settings'], [1440, '/']]) {
     await page.setViewportSize({ width, height: 900 });
     await page.goto(base + route);
     const header = page.locator('.page-header');
     const [title, actions] = await Promise.all([header.locator('h1').boundingBox(), header.locator('.actions').boundingBox()]);
     assert(Math.abs(title.y + title.height / 2 - (actions.y + actions.height / 2)) <= 2, `${route} at ${width}px`);
   }
-  // A phone puts them under the subtitle.
+  // A phone puts them under the subtitle, or under the title when there is none.
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(base + '/settings');
   const [subtitle, actions] = await Promise.all([page.locator('.page-header .subtitle').boundingBox(), page.locator('.page-header .actions').boundingBox()]);
   assert(actions.y >= subtitle.y + subtitle.height);
+  await page.goto(base + '/');
+  const [title, homeActions] = await Promise.all([page.locator('.page-header h1').boundingBox(), page.locator('.page-header .actions').boundingBox()]);
+  assert(homeActions.y >= title.y + title.height, 'Home actions under the title on a phone');
+});
+
+test('on a phone a long game title in the editor keeps whole words above its actions', async t => {
+  const apps = [{ uuid: 'mirage', name: 'Assassin’s Creed Mirage' }, { uuid: 'witcher', name: 'The Witcher 3: Wild Hunt' }, { uuid: 'desktop', name: 'Desktop' }];
+  const { page } = await fixture(t, { apps });
+  await page.setViewportSize({ width: 390, height: 844 });
+  for (const app of apps.slice(0, 2)) {
+    await page.goto(base + '/library/' + app.uuid);
+    const title = page.getByRole('heading', { name: app.name, level: 1 });
+    await title.waitFor();
+    await page.getByRole('button', { name: 'Move later' }).waitFor();
+    const fit = await title.evaluate(node => {
+      const range = document.createRange();
+      range.selectNodeContents(node);
+      const lines = new Set([...range.getClientRects()].map(rect => Math.round(rect.top))).size;
+      const words = node.textContent.split(' ').length;
+      return { width: node.getBoundingClientRect().width, lines, words };
+    });
+    assert.ok(fit.width > 300, `${app.name}: title ${fit.width}px wide`);
+    assert.ok(fit.lines < fit.words, `${app.name}: ${fit.lines} lines for ${fit.words} words`);
+    const [box, actions] = await Promise.all([title.boundingBox(), page.locator('.page-header .actions').boundingBox()]);
+    assert.ok(actions.y >= box.y + box.height, `${app.name}: actions under the title`);
+  }
 });
 
 test('the first panel sits the same distance below the page header on every page', async t => {

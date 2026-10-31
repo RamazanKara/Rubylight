@@ -5,8 +5,8 @@
 </script>
 
 <!-- One rule on every page: actions sit on the title's line, centred on it, and
-     the subtitle runs underneath. On a phone they move under the subtitle. -->
-<header class="page-header" class:has-subtitle={subtitle}>
+     the subtitle runs underneath. On a phone they move under the title and subtitle. -->
+<header class="page-header" class:has-subtitle={subtitle} class:has-actions={actions}>
   <h1>{title}</h1>
   {#if subtitle}<p class="subtitle muted">{subtitle}</p>{/if}
   {#if actions}<div class="actions">{@render actions()}</div>{/if}
@@ -38,16 +38,25 @@
     gap: var(--space-2);
     flex-wrap: wrap;
   }
+  /* On a phone the actions always go under the title (and subtitle): beside it
+     they would squeeze a long title into a column of syllables. */
   @media (max-width: 600px) {
-    .page-header.has-subtitle {
+    .page-header.has-actions {
       grid-template-columns: minmax(0, 1fr);
+      grid-template-areas:
+        'title'
+        'actions';
+    }
+    .page-header.has-actions.has-subtitle {
       grid-template-areas:
         'title'
         'subtitle'
         'actions';
     }
-    .has-subtitle .actions {
+    .has-actions .actions {
       justify-content: flex-start;
+    }
+    .has-actions.has-subtitle .actions {
       margin-top: var(--space-2);
     }
   }

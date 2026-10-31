@@ -380,6 +380,7 @@ private:
     // vsync, so it's done well before the compositor needs it, and a shorter present delay holds.
     bool presentAhead_ = false;
     std::map<uint64_t, PendingPresent> pendingPresents_;  // Ordered: reports come in present order
+    std::vector<VkPastPresentationTimingGOOGLE> pastTimings_;  // collectPresentTimings()' reused buffer
 
     // The last frame presented ahead, so a frame replacing it at the same vsync is known
     uint64_t lastAheadPresentId_ = 0;
@@ -478,6 +479,7 @@ private:
     bool renderStopped_ = false;  // Under renderMutex_: the swapchain and window are gone
     int64_t lastVsyncNs_ = 0;
     std::deque<int64_t> vsyncDeltas_;
+    std::vector<int64_t> sortScratch_;  // Reused for medians and percentiles, render thread only
 
     // Render thread, aligned front buffer: the timer for the next draw, the scan it's for, and
     // how long recent draws took from starting to being submitted to the GPU
@@ -501,6 +503,7 @@ private:
     void drawDueAligned();
     void setAlignedTimer();
     std::deque<int64_t> drawSubmitNs_;
+    mutable std::vector<int64_t> leadScratch_;  // alignedLeadNs()' reused copy of drawSubmitNs_
     // How long before the scan to start drawing, if fixed with
     // adb shell setprop debug.moonlight.front_buffer_lead_us <us>; otherwise learned
     int64_t fixedAlignedLeadNs_ = -1;

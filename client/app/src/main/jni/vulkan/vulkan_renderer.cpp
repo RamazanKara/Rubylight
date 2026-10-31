@@ -1341,7 +1341,9 @@ int64_t VulkanRenderer::alignedLeadNs() const {
     if (drawSubmitNs_.size() < 8) {
         return kAlignedDefaultLeadNs + offsetNs;
     }
-    std::vector<int64_t> sorted(drawSubmitNs_.begin(), drawSubmitNs_.end());
+    // Called each vsync and draw: a reused buffer, so the render thread doesn't allocate for it
+    std::vector<int64_t>& sorted = leadScratch_;
+    sorted.assign(drawSubmitNs_.begin(), drawSubmitNs_.end());
     const auto p90 = sorted.begin() + (sorted.size() - 1) * 9 / 10;
     std::nth_element(sorted.begin(), p90, sorted.end());
     return *p90 + kAlignedGpuStartNs + offsetNs;
@@ -1410,7 +1412,8 @@ void VulkanRenderer::trackVsyncPeriod(int64_t frameTimeNanos) {
             // Without the refresh rate callback, the refresh rate changed if most recent
             // intervals are far off. A single short one isn't enough: callbacks bunch up after
             // a late one, and taking that for a new refresh rate threw the pacer off.
-            std::vector<int64_t> sorted(vsyncDeltas_.begin(), vsyncDeltas_.end());
+            std::vector<int64_t>& sorted = sortScratch_;
+            sorted.assign(vsyncDeltas_.begin(), vsyncDeltas_.end());
             std::nth_element(sorted.begin(), sorted.begin() + sorted.size() / 2, sorted.end());
             const int64_t median = sorted[sorted.size() / 2];
             if (median < period * 3 / 4 || median > period * 5 / 4) {
@@ -2017,7 +2020,9 @@ void VulkanRenderer::collectPresentTimings() {
     if (vk_.vkGetPastPresentationTimingGOOGLE(device_, swapchain_, &count, nullptr) != VK_SUCCESS || count == 0) {
         return;
     }
-    std::vector<VkPastPresentationTimingGOOGLE> timings(count);
+    // Polled each vsync: the buffer is kept between calls
+    std::vector<VkPastPresentationTimingGOOGLE>& timings = pastTimings_;
+    timings.resize(count);
     if (vk_.vkGetPastPresentationTimingGOOGLE(device_, swapchain_, &count, timings.data()) < 0) {
         return;
     }

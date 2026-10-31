@@ -2359,12 +2359,16 @@ namespace {
         std::vector<jlong> renderedBatch;
         std::vector<jlong> releasedBatch;
 
+        // Present thread only, like pollRenderedFrames(): reused so polling doesn't allocate.
+        std::vector<VkPastPresentationTimingGOOGLE> pastTimings;
+
         // Present thread only: it owns the swapchain.
         void pollRenderedFrames() {
             if (!displayTimingSupported || swapchain == VK_NULL_HANDLE || pendingPresents.empty()) return;
             uint32_t count = 0;
             if (vk.GetPastPresentationTimingGOOGLE(device, swapchain, &count, nullptr) == VK_SUCCESS && count != 0) {
-                std::vector<VkPastPresentationTimingGOOGLE> timings(count);
+                auto &timings = pastTimings;
+                timings.resize(count);
                 auto result = vk.GetPastPresentationTimingGOOGLE(device, swapchain, &count, timings.data());
                 if (result == VK_SUCCESS || result == VK_INCOMPLETE) {
                     for (uint32_t i = 0; i < count; ++i) {

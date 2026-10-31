@@ -215,8 +215,8 @@ pub struct Launcher {
     pub editing_app: Option<nightjar_core::http::App>,
     pub edit_name: String,
     pub settings_dirty: bool,
-    /// The settings sections showing their folded rows; none when the app starts.
-    unfolded: std::collections::BTreeSet<&'static str>,
+    /// The settings page's open section, search and pending Reset all.
+    settings_view: settings::SettingsView,
     /// The settings page where Custom… was chosen for the resolution and for the frame rate: its
     /// row shows there even at a preset, until a preset is chosen.
     custom_size: Option<Screen>,
@@ -300,7 +300,7 @@ impl Launcher {
             editing_app: None,
             edit_name: String::new(),
             settings_dirty: false,
-            unfolded: Default::default(),
+            settings_view: Default::default(),
             custom_size: None,
             custom_fps: None,
             controller_key: String::new(),
@@ -664,7 +664,8 @@ impl Launcher {
         // With a menu open, Escape (B) only closes it: the menu closes itself as it is drawn.
         let menu_open = egui::Popup::is_any_open(&ctx);
         let escape = ctx.input(|i| i.key_pressed(Key::Escape)) && !menu_open;
-        if escape && view.connecting.is_none() && view.waking.is_none() {
+        // On a settings page, Escape leaves the search before the page.
+        if escape && view.connecting.is_none() && view.waking.is_none() && !(matches!(self.dialog, Dialog::None) && self.escape_search()) {
             self.back(&mut commands);
         }
         if self.screen == Screen::Hosts

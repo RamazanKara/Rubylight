@@ -567,7 +567,7 @@ pub(crate) mod tests {
         assert!(german.is_empty(), "German text says Experimentell:\n{}", german.join("\n"));
         let shown = |file: &str, text: &str| marked().iter().any(|m| m.file == file && m.text == text);
         for (file, text) in [("main.rs", "Send image to PC"), ("main.rs", "Copy PC image here"), ("ui/pages.rs", "Shared folders"),
-            ("ui/settings.rs", "Full chroma"), ("ui/pages.rs", "Co-op"), ("ui/settings.rs", "Client roaming"), ("ui/settings.rs", "USB forwarding")]
+            ("ui/settings.rs", "Full chroma"), ("ui/pages.rs", "Co-op"), ("ui/settings.rs", "Keep streaming when the network changes"), ("ui/settings.rs", "USB forwarding")]
         {
             assert!(shown(file, text), "{file} shows {text:?}");
         }

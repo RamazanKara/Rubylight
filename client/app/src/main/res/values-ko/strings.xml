@@ -279,7 +279,7 @@
     <string name="title_virtual_display_scale">PC 렌더링 해상도</string>
     <string name="summary_virtual_display_scale">PC가 렌더링하는 해상도를 스트림 해상도의 백분율로 정합니다. 전송되는 영상 크기는 바뀌지 않습니다. 더 적은 픽셀을 보내고 이 기기에서 업스케일하려면 스트림 해상도를 낮추세요.</string>
     <string name="title_virtual_display_dpi">PC 디스플레이 배율</string>
-    <string name="summary_virtual_display_dpi">가상 디스플레이의 텍스트와 인터페이스 크기입니다. Rubylight PC에서 적용됩니다.</string>
+    <string name="summary_virtual_display_dpi">PC 가상 디스플레이의 텍스트와 인터페이스 크기입니다.</string>
     <string name="virtual_display_dpi_pc_own">PC 설정 그대로</string>
     <string name="latency_values">%1$.2f / %2$.2f / %3$.2f (n=%4$d)</string>
     <string name="latency_unavailable">아직 데이터 없음</string>

@@ -279,7 +279,7 @@
     <string name="title_virtual_display_scale">Độ phân giải kết xuất trên PC</string>
     <string name="summary_virtual_display_scale">Phần trăm độ phân giải stream mà PC kết xuất. Kích thước video truyền đi không đổi. Để gửi ít điểm ảnh hơn và phóng to trên thiết bị này, hãy giảm độ phân giải stream.</string>
     <string name="title_virtual_display_dpi">Tỷ lệ hiển thị trên PC</string>
-    <string name="summary_virtual_display_dpi">Kích thước chữ và giao diện trên màn hình ảo, trên PC chạy Rubylight.</string>
+    <string name="summary_virtual_display_dpi">Kích thước chữ và giao diện trên màn hình ảo của PC.</string>
     <string name="virtual_display_dpi_pc_own">Theo PC</string>
     <string name="latency_values">%1$.2f / %2$.2f / %3$.2f (n=%4$d)</string>
     <string name="latency_unavailable">chưa có dữ liệu</string>

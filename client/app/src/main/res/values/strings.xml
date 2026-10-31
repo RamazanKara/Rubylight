@@ -321,7 +321,7 @@
     <string name="title_virtual_display_scale">PC render resolution</string>
     <string name="summary_virtual_display_scale">Percent of the stream resolution that the PC renders at. The size of the transmitted video does not change. To send fewer pixels and upscale on this device, lower Stream resolution.</string>
     <string name="title_virtual_display_dpi">PC display scaling</string>
-    <string name="summary_virtual_display_dpi">Text and interface size on the virtual display, on Rubylight PCs.</string>
+    <string name="summary_virtual_display_dpi">Text and interface size on the PC’s virtual display.</string>
     <string name="virtual_display_dpi_pc_own">PC’s own</string>
     <string-array name="virtual_display_dpi_names" translatable="false">
         <item>@string/virtual_display_dpi_pc_own</item>

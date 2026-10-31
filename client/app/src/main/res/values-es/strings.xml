@@ -279,7 +279,7 @@
     <string name="title_virtual_display_scale">Resolución de renderizado del PC</string>
     <string name="summary_virtual_display_scale">Porcentaje de la resolución de transmisión con el que renderiza el PC. El tamaño del vídeo transmitido no cambia. Para enviar menos píxeles y escalarlos en este dispositivo, reduce la resolución de transmisión.</string>
     <string name="title_virtual_display_dpi">Escalado de pantalla del PC</string>
-    <string name="summary_virtual_display_dpi">Tamaño del texto y de la interfaz en la pantalla virtual, en PC con Rubylight.</string>
+    <string name="summary_virtual_display_dpi">Tamaño del texto y de la interfaz en la pantalla virtual del PC.</string>
     <string name="virtual_display_dpi_pc_own">El del PC</string>
     <string name="latency_values">%1$.2f / %2$.2f / %3$.2f (n=%4$d)</string>
     <string name="latency_unavailable">aún no hay datos</string>

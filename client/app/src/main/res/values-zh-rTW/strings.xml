@@ -279,7 +279,7 @@
     <string name="title_virtual_display_scale">電腦轉譯解析度</string>
     <string name="summary_virtual_display_scale">電腦轉譯所用解析度占串流解析度的百分比。傳輸的影片大小不變。若要傳送較少像素並在此裝置上放大，請降低串流解析度。</string>
     <string name="title_virtual_display_dpi">電腦顯示縮放</string>
-    <string name="summary_virtual_display_dpi">虛擬顯示器上的文字和介面大小，適用於 Rubylight 電腦。</string>
+    <string name="summary_virtual_display_dpi">電腦虛擬顯示器上的文字和介面大小。</string>
     <string name="virtual_display_dpi_pc_own">依照電腦</string>
     <string name="latency_values">%1$.2f / %2$.2f / %3$.2f (n=%4$d)</string>
     <string name="latency_unavailable">尚無資料</string>

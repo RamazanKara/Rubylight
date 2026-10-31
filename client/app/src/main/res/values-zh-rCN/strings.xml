@@ -279,7 +279,7 @@
     <string name="title_virtual_display_scale">电脑渲染分辨率</string>
     <string name="summary_virtual_display_scale">电脑渲染所用分辨率占串流分辨率的百分比。传输的视频大小不变。若要发送更少像素并在此设备上放大，请降低串流分辨率。</string>
     <string name="title_virtual_display_dpi">电脑显示缩放</string>
-    <string name="summary_virtual_display_dpi">虚拟显示器上的文字和界面大小，适用于 Rubylight 电脑。</string>
+    <string name="summary_virtual_display_dpi">电脑虚拟显示器上的文字和界面大小。</string>
     <string name="virtual_display_dpi_pc_own">跟随电脑</string>
     <string name="latency_values">%1$.2f / %2$.2f / %3$.2f (n=%4$d)</string>
     <string name="latency_unavailable">暂无数据</string>

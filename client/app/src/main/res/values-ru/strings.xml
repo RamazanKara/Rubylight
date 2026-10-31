@@ -279,7 +279,7 @@
     <string name="title_virtual_display_scale">Разрешение рендеринга на ПК</string>
     <string name="summary_virtual_display_scale">Доля разрешения трансляции в процентах, с которой ПК выполняет рендеринг. Размер передаваемого видео не меняется. Чтобы отправлять меньше пикселей и масштабировать изображение на этом устройстве, снизьте разрешение трансляции.</string>
     <string name="title_virtual_display_dpi">Масштаб экрана ПК</string>
-    <string name="summary_virtual_display_dpi">Размер текста и интерфейса на виртуальном дисплее, на ПК с Rubylight.</string>
+    <string name="summary_virtual_display_dpi">Размер текста и интерфейса на виртуальном дисплее ПК.</string>
     <string name="virtual_display_dpi_pc_own">Как на ПК</string>
     <string name="latency_values">%1$.2f / %2$.2f / %3$.2f (n=%4$d)</string>
     <string name="latency_unavailable">данных пока нет</string>

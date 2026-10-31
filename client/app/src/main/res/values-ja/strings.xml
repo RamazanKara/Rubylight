@@ -279,7 +279,7 @@
     <string name="title_virtual_display_scale">PC のレンダリング解像度</string>
     <string name="summary_virtual_display_scale">PC がレンダリングする解像度を、ストリーム解像度に対する割合で指定します。送信される映像のサイズは変わりません。送るピクセル数を減らしてこの端末でアップスケールするには、ストリーム解像度を下げてください。</string>
     <string name="title_virtual_display_dpi">PC のディスプレイ拡大率</string>
-    <string name="summary_virtual_display_dpi">仮想ディスプレイ上の文字とインターフェースの大きさです。Rubylight の PC で使われます。</string>
+    <string name="summary_virtual_display_dpi">PC の仮想ディスプレイ上の文字とインターフェースの大きさです。</string>
     <string name="virtual_display_dpi_pc_own">PC の設定のまま</string>
     <string name="latency_values">%1$.2f / %2$.2f / %3$.2f（n=%4$d）</string>
     <string name="latency_unavailable">データなし</string>

@@ -279,7 +279,7 @@
     <string name="title_virtual_display_scale">Rozdzielczość renderowania komputera</string>
     <string name="summary_virtual_display_scale">Procent rozdzielczości strumienia, w jakim komputer renderuje obraz. Rozmiar przesyłanego obrazu się nie zmienia. Aby wysyłać mniej pikseli i skalować obraz na tym urządzeniu, obniż rozdzielczość strumienia.</string>
     <string name="title_virtual_display_dpi">Skalowanie ekranu komputera</string>
-    <string name="summary_virtual_display_dpi">Rozmiar tekstu i interfejsu na wirtualnym ekranie, na komputerach z Rubylight.</string>
+    <string name="summary_virtual_display_dpi">Rozmiar tekstu i interfejsu na wirtualnym ekranie komputera.</string>
     <string name="virtual_display_dpi_pc_own">Jak na komputerze</string>
     <string name="latency_values">%1$.2f / %2$.2f / %3$.2f (n=%4$d)</string>
     <string name="latency_unavailable">brak danych</string>

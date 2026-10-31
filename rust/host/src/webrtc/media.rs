@@ -361,8 +361,14 @@ impl Engine {
         (self.rejected, self.failed)
     }
 
+    /// The datagrams str0m wrote since the last call, leaving the queue's allocation for the next.
+    pub fn drain_outgoing(&mut self) -> std::collections::vec_deque::Drain<'_, Outgoing> {
+        self.outgoing.drain(..)
+    }
+
+    #[cfg(test)]
     pub fn take_outgoing(&mut self) -> Vec<Outgoing> {
-        self.outgoing.drain(..).collect()
+        self.drain_outgoing().collect()
     }
 
     pub fn take_events(&mut self) -> Vec<TransportEvent> {
@@ -857,13 +863,19 @@ impl SendQueue {
         dropped
     }
 
-    /// Everything unpaced, plus (when due) up to one millisecond of media at the pacing rate and
-    /// always at least one datagram.
+    #[cfg(test)]
     pub fn next_batch(&mut self, now: Instant) -> Batch {
-        let mut batch = Batch {
-            packets: self.immediate.drain(..).collect(),
-            ..Batch::default()
-        };
+        let mut batch = Batch::default();
+        self.fill_batch(now, &mut batch);
+        batch
+    }
+
+    /// Everything unpaced, plus (when due) up to one millisecond of media at the pacing rate and
+    /// always at least one datagram. `batch` is emptied first; its allocation is reused.
+    pub fn fill_batch(&mut self, now: Instant, batch: &mut Batch) {
+        batch.packets.clear();
+        batch.packets.extend(self.immediate.drain(..));
+        (batch.paced_bytes, batch.paced_packets, batch.rate_bps) = (0, 0, 0);
         if now >= self.due && !self.paced.is_empty() {
             batch.rate_bps = self.rate();
             let datagram = self.paced.front().map_or(0, |p| p.data.len());
@@ -890,7 +902,6 @@ impl SendQueue {
                 self.paced_wire_bytes = 0;
             }
         }
-        batch
     }
 
     /// Called right after the batch's datagrams were written to the socket. The next group is
@@ -1478,6 +1489,8 @@ fn media_loop(
         // The high-resolution waitable timer the host's other senders pace with; it belongs to
         // this thread.
         let timer = Timer::new().context("creating the pacing timer")?;
+        // The datagrams being sent, kept between batches.
+        let mut batch = Batch::default();
         loop {
             if shared.stop.load(Ordering::Acquire) {
                 return Ok(());
@@ -1498,7 +1511,7 @@ fn media_loop(
             if frame > 0 {
                 queue.note_frame(frame);
             }
-            for out in engine.take_outgoing() {
+            for out in engine.drain_outgoing() {
                 queue.push(out);
             }
             enforce_backlog(&mut queue, &shared);
@@ -1506,7 +1519,7 @@ fn media_loop(
             if engine.is_closed() {
                 return Ok(());
             }
-            send_due(&socket, &mut queue, &shared);
+            send_due(&socket, &mut queue, &mut batch, &shared);
             let (rejected, failed) = engine.dropped_datagrams();
             shared
                 .counters
@@ -1648,11 +1661,11 @@ fn dispatch(engine: &mut Engine, shared: &Shared) {
     }
 }
 
-fn send_due(socket: &UdpSocket, queue: &mut SendQueue, shared: &Shared) {
+fn send_due(socket: &UdpSocket, queue: &mut SendQueue, batch: &mut Batch, shared: &Shared) {
     let mut now = Instant::now();
     // The pacing timer wakes up to its learned lead early; that is on schedule.
     while queue.due(now).is_some_and(|due| due <= now + EARLY_SEND) {
-        let batch = queue.next_batch(now + EARLY_SEND);
+        queue.fill_batch(now + EARLY_SEND, batch);
         if batch.packets.is_empty() {
             break;
         }
@@ -1695,8 +1708,10 @@ fn send_due(socket: &UdpSocket, queue: &mut SendQueue, shared: &Shared) {
             }
         }
         now = Instant::now();
-        queue.sent(now, &batch);
+        queue.sent(now, batch);
     }
+    // The sent datagrams' buffers go now, not with the next batch.
+    batch.packets.clear();
 }
 
 #[cfg(test)]
@@ -2665,7 +2680,7 @@ pub(crate) mod tests {
                 ..control_packet()
             });
         }
-        send_due(&socket, &mut queue, &handle.shared);
+        send_due(&socket, &mut queue, &mut Batch::default(), &handle.shared);
         let stats = handle.stats();
         assert!(queue.is_empty());
         assert!(

@@ -5,5 +5,5 @@
 
 <PageHeader title="Page not found" subtitle="This address is not part of the console." />
 <div>
-  <Button href="/">Go to the overview</Button>
+  <Button href="/" icon="overview">Go to Home</Button>
 </div>

@@ -66,7 +66,15 @@
        button break its label mid-word ("Brow se"). */
     overflow-wrap: break-word;
     text-align: center;
-    transition: background var(--duration-fast), border-color var(--duration-fast);
+    transition:
+      background var(--duration-fast) var(--ease-standard),
+      border-color var(--duration-fast) var(--ease-standard),
+      color var(--duration-fast) var(--ease-standard),
+      transform var(--duration-fast) var(--ease-standard);
+  }
+  /* A press nudges the button down a pixel: feedback without a layout shift. */
+  .button:active:not(:disabled) {
+    transform: translateY(1px);
   }
   .sm {
     padding: 9px 13px;

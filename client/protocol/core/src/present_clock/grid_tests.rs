@@ -482,3 +482,50 @@ fn the_display_floor_does_not_change_a_matching_panel() {
         .collect();
     assert_eq!(with, without);
 }
+
+#[test]
+fn a_capture_phase_shift_moves_the_vsync_not_the_delay() {
+    // The host's phase lock moves its captures against the panel (Android reports the slack with
+    // host frame times too). The delay is lateness against the host time, which moves with the
+    // capture, so the lock never changes what the clock learns: only the intervals it retimes
+    // reach the clock (at most 250 us a frame), through the delay's fall. Host times are whole
+    // 100 us so the RTP clock rounds both the same.
+    let mut fixed = PresentClock::default();
+    let mut shifted = PresentClock::default();
+    let mut noise = Lcg(23);
+    for i in 0..1500i64 {
+        // From frame 600, captures move 200 us a frame until they are 5 ms later.
+        let shift = ((i - 600).max(0) * 200).min(5_000);
+        let host = i * 11_100;
+        let ready = host + 20_000 + noise.next(4_000) + 7_000_000;
+        let g = grid(11_111, 1_000);
+        let a = fixed.schedule_on_grid(rtp(host), ready as u64, g);
+        let b = shifted.schedule_on_grid(rtp(host + shift), (ready + shift) as u64, g);
+        let da = fixed.delay_us().unwrap_or(0);
+        let db = shifted.delay_us().unwrap_or(0);
+        assert!((da - db).abs() <= 10, "frame {i}: delay {da} against {db}");
+        assert_eq!(a.late, b.late, "frame {i}");
+    }
+}
+
+#[test]
+fn phase_locked_frames_take_the_vsync_releasing_them_at_once_would() {
+    // Locked, the host captures at the panel's period and frames are ready a little before a
+    // latch: here 1.5 to 6 ms before the vsync on the ready-for-the-grid basis. The delay then
+    // puts every frame on the first vsync it can make, where the lowest latency pacing shows it.
+    for interval in [16_667i64, 11_111, 8_333] {
+        let mut clock = PresentClock::default();
+        let mut noise = Lcg(interval as u64);
+        let anchor = 7_001_234;
+        for i in 0..1200i64 {
+            let host = 1_000_000 + i * interval;
+            let vsync = anchor + (i + 100) * interval;
+            let ready = vsync - 1_500 - noise.next(4_500.min(interval / 2));
+            let s = clock.schedule_on_grid(rtp(host), ready as u64, grid(interval, anchor));
+            let lead_before = ready.max(vsync - interval / 4);
+            assert_eq!(s.vsync_us as i64, vsync, "{interval} us, frame {i}");
+            assert_eq!(s.release_us as i64, lead_before, "{interval} us, frame {i}");
+            assert!(!s.shares_vsync, "{interval} us, frame {i}");
+        }
+    }
+}

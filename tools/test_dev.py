@@ -21,7 +21,7 @@ class Plan(unittest.TestCase):
 
     def test_host_crate_change_skips_the_crates_below_it(self):
         planned, _ = checks('rust/windows/src/lib.rs')
-        self.assertEqual(planned['host'].items, ['butterpollo', 'butterpollo-windows'])
+        self.assertEqual(planned['host'].items, ['butterpollo', 'butterpollo-probes', 'butterpollo-windows'])
         planned, _ = checks('rust/host/src/main.rs')
         self.assertEqual(planned['host'].items, ['butterpollo'])
 

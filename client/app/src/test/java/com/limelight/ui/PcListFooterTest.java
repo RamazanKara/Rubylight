@@ -33,6 +33,9 @@ public class PcListFooterTest {
             assertNotEquals("the track is drawn", Color.TRANSPARENT, spinner.getTrackColor());
             assertTrue("the track is visible", Color.alpha(spinner.getTrackColor()) > 0);
             assertEquals("no gap cuts the ring", 0, spinner.getIndicatorTrackGapSize());
+            Object spec = org.robolectric.util.ReflectionHelpers.getField(spinner, "spec");
+            assertTrue("the track shows while the spinner runs",
+                    (boolean) org.robolectric.util.ReflectionHelpers.getField(spec, "indeterminateTrackVisible"));
         }
     }
 }

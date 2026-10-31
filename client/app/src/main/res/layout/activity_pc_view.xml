@@ -25,7 +25,7 @@
                     <com.google.android.material.progressindicator.CircularProgressIndicator android:id="@+id/pc_list_spinner"
                         android:layout_width="wrap_content" android:layout_height="wrap_content" android:indeterminate="true"
                         app:indicatorSize="16dp" app:trackThickness="2dp" app:indicatorColor="?attr/colorOnSurfaceVariant"
-                        app:trackColor="?attr/colorOutlineVariant" app:indicatorTrackGapSize="0dp"
+                        app:trackColor="?attr/colorOutlineVariant" app:indicatorTrackGapSize="0dp" app:indeterminateTrackVisible="true"
                         android:importantForAccessibility="no" />
                     <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
                         android:layout_marginStart="@dimen/space_m" android:text="@string/pc_list_searching"

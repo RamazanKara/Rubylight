@@ -22,8 +22,20 @@ export function launcherOf(app: App): Launcher | null {
   if (isLauncher(app['launcher-source'])) return app['launcher-source'];
   if (typeof app['playnite-id'] === 'string' && app['playnite-id']) return 'playnite';
   if (app['steam-id'] !== undefined && app['steam-id'] !== '') return 'steam';
+  // The host's Steam uuids: steam-<appid>, or its canonical STEAM uuid.
+  if (typeof app.uuid === 'string' && /^(steam-\d|53544541-4d00-5000-8000-[0-9a-f]{12}$)/i.test(app.uuid)) return 'steam';
   if (typeof app.cmd === 'string' && /steam:\/\/(rungameid|run)\/\d/i.test(app.cmd)) return 'steam';
   return null;
+}
+
+/**
+ * The editor's Delete wording: a launcher's game goes onto the host's removed list
+ * (`library::dismissal_keys`), so Restore removed games brings it back; anything else is gone.
+ */
+export function deleteMessage(app: App): string {
+  return launcherOf(app)
+    ? 'It is removed from the library and devices can no longer start it. No sync adds it back; Restore removed games under Where your games come from brings it back.'
+    : 'It is removed from the library and devices can no longer start it. This can’t be undone.';
 }
 
 /** The launchers among the apps with how many apps each has, in name order. */

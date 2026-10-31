@@ -26,6 +26,22 @@ test('each app is put under the launcher its game comes from, and the user’s o
   ]);
 });
 
+test('the editor’s Delete offers Restore for a launcher’s game and stays final for the user’s own app', () => {
+  const { deleteMessage } = selection;
+  for (const app of [
+    { name: 'Mirage', uuid: 'm', 'launcher-source': 'ubisoft', 'launcher-id': '13504' },
+    { name: 'Portal 2', uuid: 'steam-620' },
+    { name: 'Dota 2', uuid: '53544541-4D00-5000-8000-00000000023A' },
+    { name: 'Kart', uuid: 'k', 'playnite-id': 'aa' },
+  ]) {
+    assert.match(deleteMessage(app), /Restore removed games/, app.name);
+    assert.doesNotMatch(deleteMessage(app), /can’t be undone/, app.name);
+  }
+  assert.match(deleteMessage({ name: 'Notepad', uuid: 'n', cmd: 'C:/Windows/notepad.exe' }), /can’t be undone/);
+  const editor = readFileSync(new URL('./src/components/library/AppEditor.svelte', import.meta.url), 'utf8');
+  assert.match(editor, /message: deleteMessage\(draft\.saved\)/);
+});
+
 test('select all adds the shown apps to the selection, and a click switches one', () => {
   const { selectApps, toggled } = selection;
   let picked = selectApps(new Set(['a']), [{ uuid: 'b' }, { name: 'No uuid yet' }, { uuid: 'a' }]);

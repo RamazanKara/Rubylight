@@ -26,6 +26,7 @@
   import { commandFor, coverKey } from '../../lib/paths';
   import { closeApp, confirmClose, coverPath, launchApp, runningName } from './app';
   import { AppDraft, type FlagKey } from './draft.svelte';
+  import { deleteMessage } from './selection';
 
   let {
     app,
@@ -144,7 +145,7 @@
     const name = savedName || 'this app';
     const ok = await confirm({
       title: `Delete ${name}?`,
-      message: 'It is removed from the library and devices can no longer start it. This can’t be undone.',
+      message: deleteMessage(draft.saved),
       confirm: 'Delete',
       danger: true,
     });

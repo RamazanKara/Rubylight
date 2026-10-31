@@ -275,6 +275,18 @@ impl Shared {
         (self.waker)();
     }
 
+    /// Queues a picture for the presenter, which loses the oldest past the queue's limit, and wakes it.
+    fn queue(&self, decoded: Decoded) {
+        let mut frames = lock(&self.frames);
+        frames.push_back(decoded);
+        while frames.len() > self.queue_limit {
+            frames.pop_front();
+            self.counters.replaced.fetch_add(1, Ordering::Relaxed);
+        }
+        drop(frames);
+        self.wake();
+    }
+
     /// Hands slices that finished decoding to the presenter and wakes it. The queue is bounded: a
     /// presenter that does not keep up loses the oldest, which it would have dropped as stale.
     fn push_slices(&self, slices: Vec<super::pyrowave::SliceReady>) {
@@ -650,7 +662,7 @@ impl Decoder {
             let setup = self.setup.expect("decoder setup precedes frames");
             if self.dump.is_some() { self.dump_envelope(&setup, frame.data()); }
             let Some(decoder) = self.pyrowave.as_mut() else { return DecodeStatus::Ok };
-            let shared = self.shared.clone();
+            let shared = &self.shared;
             // The presenter's queue and the pacer hold plane sets: when none is free the oldest picture goes.
             let mut evict = || shared.evict_oldest();
             let result = decoder.frame(frame.data(), &mut evict);
@@ -676,11 +688,7 @@ impl Decoder {
             let decoded = Decoded { picture: output.picture, setup, rtp: frame.rtp_timestamp, number: frame.number, receive_us: frame.receive_time_us,
                 enqueue_us: frame.enqueue_time_us, input_us: start, ready_us, host_latency: frame.host_processing_latency,
                 early, first_block_us: output.first_block_us, race: output.race, bands: output.bands, race_seq: output.race_seq };
-            let mut frames = lock(&self.shared.frames);
-            frames.push_back(decoded);
-            while frames.len() > self.shared.queue_limit { frames.pop_front(); counters.replaced.fetch_add(1, Ordering::Relaxed); }
-            drop(frames);
-            self.shared.wake();
+            self.shared.queue(decoded);
             return DecodeStatus::Ok;
         }
         let Some(decoder) = self.decoder.as_mut() else {
@@ -727,14 +735,7 @@ impl Decoder {
                         bands: Vec::new(),
                         race_seq: 0,
                     };
-                    let mut frames = lock(&self.shared.frames);
-                    frames.push_back(decoded);
-                    while frames.len() > self.shared.queue_limit {
-                        frames.pop_front();
-                        counters.replaced.fetch_add(1, Ordering::Relaxed);
-                    }
-                    drop(frames);
-                    (self.shared.waker)();
+                    self.shared.queue(decoded);
                 }
                 Received::None => break,
                 Received::Error => {

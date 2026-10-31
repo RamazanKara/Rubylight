@@ -26,7 +26,7 @@ pub(super) fn read_response_with_headers<R: Read + ?Sized>(stream: &mut R, body_
 /// A response's status line and header fields.
 pub(super) struct Head {
     pub(super) status: u16,
-    pub(super) reason: String,
+    reason: String,
     pub(super) headers: Vec<(String, String)>,
 }
 
@@ -138,7 +138,7 @@ pub(super) fn read_body<R: Read + ?Sized>(reader: &mut Reader<'_, R>, head: &Hea
     Ok(body)
 }
 
-pub(super) fn find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+fn find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
     haystack.windows(needle.len()).position(|w| w == needle)
 }
 
@@ -175,7 +175,7 @@ impl<R: Read + ?Sized> Reader<'_, R> {
         }
     }
 
-    pub(super) fn take(&mut self, n: usize) -> Result<Vec<u8>, Error> {
+    fn take(&mut self, n: usize) -> Result<Vec<u8>, Error> {
         while self.buffer.len() < n {
             if !self.fill()? {
                 return Err(Error::Malformed(
@@ -186,7 +186,7 @@ impl<R: Read + ?Sized> Reader<'_, R> {
         Ok(self.buffer.drain(..n).collect())
     }
 
-    pub(super) fn line(&mut self) -> Result<String, Error> {
+    fn line(&mut self) -> Result<String, Error> {
         loop {
             if let Some(at) = find(&self.buffer, b"\r\n") {
                 let line = String::from_utf8_lossy(&self.buffer[..at]).into_owned();

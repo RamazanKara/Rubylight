@@ -207,12 +207,14 @@ public final class ActionSheet extends BottomSheetDialog {
     }
 
     /**
-     * Equal toggles side by side while every word of their labels fits its share of the width. With a
-     * large font or a narrow sheet they stack instead, one full-width row each with the icon at the
-     * start, so no label breaks mid-word.
+     * Equal toggles side by side while every word of their labels fits its share of the width. When they
+     * do not, as four toggles on a phone held upright, they form two columns of tiles; with a large font
+     * or a very narrow sheet they stack, one full-width row each with the icon at the start, so no label
+     * breaks mid-word.
      */
     static final class ToggleRow extends LinearLayout {
         private final int gap;
+        private int columns;
 
         ToggleRow(Context context, int gap) {
             super(context);
@@ -221,12 +223,20 @@ public final class ActionSheet extends BottomSheetDialog {
             setBaselineAligned(false);
         }
 
+        /** How many toggles share a line: all of them, two, or one. */
+        int columns() {
+            return columns;
+        }
+
         @Override
         protected void onMeasure(int widthSpec, int heightSpec) {
             int count = getChildCount();
             int width = MeasureSpec.getSize(widthSpec) - getPaddingLeft() - getPaddingRight();
-            boolean stacked = count > 0 && MeasureSpec.getMode(widthSpec) != MeasureSpec.UNSPECIFIED &&
-                    !wordsFit((width - gap * (count - 1)) / count);
+            boolean bounded = MeasureSpec.getMode(widthSpec) != MeasureSpec.UNSPECIFIED;
+            if (count == 0 || !bounded || wordsFit((width - gap * (count - 1)) / count)) columns = Math.max(count, 1);
+            else if (count > 2 && wordsFit((width - gap) / 2)) columns = 2;
+            else columns = 1;
+            boolean stacked = columns == 1 && count > 1;
             setOrientation(stacked ? VERTICAL : HORIZONTAL);
             for (int i = 0; i < count; i++) {
                 MaterialButton button = (MaterialButton) getChildAt(i);
@@ -234,16 +244,61 @@ public final class ActionSheet extends BottomSheetDialog {
                 params.width = stacked ? LayoutParams.MATCH_PARENT : 0;
                 params.height = stacked ? LayoutParams.WRAP_CONTENT : LayoutParams.MATCH_PARENT;
                 params.weight = stacked ? 0 : 1;
-                params.setMarginStart(stacked || i == 0 ? 0 : gap);
+                params.setMarginStart(stacked || i % columns == 0 ? 0 : gap);
                 params.resolveLayoutDirection(getLayoutDirection());
-                params.topMargin = stacked && i > 0 ? gap : 0;
+                params.topMargin = i >= columns ? gap : 0;
                 int iconGravity = stacked ? MaterialButton.ICON_GRAVITY_TEXT_START : MaterialButton.ICON_GRAVITY_TOP;
                 if (button.getIconGravity() != iconGravity) button.setIconGravity(iconGravity);
                 // A stacked toggle has its icon beside the label, so it needs only a list row's height.
                 int minHeight = gap * (stacked ? 6 : 9);
                 if (button.getMinHeight() != minHeight) button.setMinHeight(minHeight);
             }
-            super.onMeasure(widthSpec, heightSpec);
+            if (columns == count || stacked) {
+                super.onMeasure(widthSpec, heightSpec);
+                return;
+            }
+            // Tiles: equal columns, and each line as tall as its tallest tile so the grid stays even.
+            int cell = (width - gap * (columns - 1)) / columns;
+            int height = getPaddingTop() + getPaddingBottom();
+            for (int line = 0; line * columns < count; line++) {
+                int tallest = 0;
+                for (int i = line * columns; i < Math.min(count, (line + 1) * columns); i++) {
+                    android.view.View child = getChildAt(i);
+                    child.measure(MeasureSpec.makeMeasureSpec(cell, MeasureSpec.EXACTLY),
+                            MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED));
+                    tallest = Math.max(tallest, child.getMeasuredHeight());
+                }
+                for (int i = line * columns; i < Math.min(count, (line + 1) * columns); i++) {
+                    getChildAt(i).measure(MeasureSpec.makeMeasureSpec(cell, MeasureSpec.EXACTLY),
+                            MeasureSpec.makeMeasureSpec(tallest, MeasureSpec.EXACTLY));
+                }
+                height += tallest + (line > 0 ? gap : 0);
+            }
+            setMeasuredDimension(MeasureSpec.getSize(widthSpec), resolveSize(height, heightSpec));
+        }
+
+        @Override
+        protected void onLayout(boolean changed, int left, int top, int right, int bottom) {
+            int count = getChildCount();
+            if (columns == count || columns == 1) {
+                super.onLayout(changed, left, top, right, bottom);
+                return;
+            }
+            boolean rtl = getLayoutDirection() == LAYOUT_DIRECTION_RTL;
+            int y = getPaddingTop();
+            for (int line = 0; line * columns < count; line++) {
+                int tallest = 0;
+                for (int i = line * columns; i < Math.min(count, (line + 1) * columns); i++) {
+                    android.view.View child = getChildAt(i);
+                    int column = i % columns;
+                    int x = column * (child.getMeasuredWidth() + gap);
+                    int childLeft = rtl ? right - left - getPaddingRight() - x - child.getMeasuredWidth()
+                            : getPaddingLeft() + x;
+                    child.layout(childLeft, y, childLeft + child.getMeasuredWidth(), y + child.getMeasuredHeight());
+                    tallest = Math.max(tallest, child.getMeasuredHeight());
+                }
+                y += tallest + gap;
+            }
         }
 
         private boolean wordsFit(int buttonWidth) {

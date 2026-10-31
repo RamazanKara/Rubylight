@@ -164,10 +164,9 @@ public final class AdaptiveLayout {
         Insets insets = windowInsets.getInsets(types);
         if (!handleSystemInsets) {
             // Material accounts for system bars, but a landscape camera cutout may extend farther.
-            Insets cutout = windowInsets.getInsets(WindowInsetsCompat.Type.displayCutout());
-            Insets bars = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars());
-            insets = Insets.of(Math.max(0, cutout.left - bars.left), Math.max(0, cutout.top - bars.top),
-                    Math.max(0, cutout.right - bars.right), Math.max(0, cutout.bottom - bars.bottom));
+            @SuppressWarnings("deprecation") int materialTop = windowInsets.getSystemWindowInsetTop();
+            insets = sheetSafeArea(windowInsets.getInsets(WindowInsetsCompat.Type.displayCutout()),
+                    windowInsets.getInsets(WindowInsetsCompat.Type.systemBars()), materialTop);
         }
         int margin = television && !streaming ? Math.round(24 * density) : 0;
         // A focused card scales up and draws its outline past its frame: let it use the margin, not be cut by it.
@@ -190,6 +189,17 @@ public final class AdaptiveLayout {
         Rect pane = usablePane(available, hinge, fold.getOrientation() == FoldingFeature.Orientation.VERTICAL,
                 ViewCompat.getLayoutDirection(root) == ViewCompat.LAYOUT_DIRECTION_RTL);
         root.setPadding(pane.left, pane.top, width - pane.right, height - pane.bottom);
+    }
+
+    /**
+     * The part of a camera cutout a bottom sheet must still keep clear of. Material passes the system bars through,
+     * and pads an expanded sheet's top by the legacy system-window inset, which already holds a top cutout. Over an
+     * immersive stream the status bar is hidden, so subtracting only the bars counted the cutout twice: a phone's
+     * portrait stream menu began a second cutout's height (128 px on a Pixel-size screen) below the camera.
+     */
+    static Insets sheetSafeArea(Insets cutout, Insets bars, int materialTop) {
+        return Insets.of(Math.max(0, cutout.left - bars.left), Math.max(0, cutout.top - Math.max(bars.top, materialTop)),
+                Math.max(0, cutout.right - bars.right), Math.max(0, cutout.bottom - bars.bottom));
     }
 
     static Rect usablePane(Rect available, Rect hinge, boolean vertical, boolean rtl) {

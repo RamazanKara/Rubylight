@@ -163,6 +163,21 @@ public class AdaptiveLayoutTest {
         }
     }
 
+    /**
+     * Emulator run, portrait stream menu over an immersive stream: the status bar was hidden, so the sheet added the
+     * 128 px cutout on top of Material's system-window inset, which already held it, and its title sat 256 px down.
+     */
+    @Test
+    public void bottomSheetCountsATopCutoutOnceWhenTheStatusBarIsHidden() {
+        Insets cutout = Insets.of(0, 128, 0, 0);
+        assertEquals(0, AdaptiveLayout.sheetSafeArea(cutout, Insets.NONE, 128).top);
+        assertEquals(0, AdaptiveLayout.sheetSafeArea(cutout, Insets.of(0, 128, 0, 0), 128).top);
+        // A cutout deeper than what Material pads still keeps its remainder clear.
+        assertEquals(40, AdaptiveLayout.sheetSafeArea(Insets.of(0, 168, 0, 0), Insets.NONE, 128).top);
+        // Sideways, Material leaves the edges alone, so a landscape cutout beyond the bars stays the sheet's.
+        assertEquals(40, AdaptiveLayout.sheetSafeArea(Insets.of(52, 0, 0, 0), Insets.of(12, 0, 0, 0), 0).left);
+    }
+
     @Test
     @Config(sdk = 30)
     public void bottomSheetPassesBarsThroughAndAddsOnlyTheRemainingCutoutSafeArea() {

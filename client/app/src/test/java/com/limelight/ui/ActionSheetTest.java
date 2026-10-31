@@ -30,6 +30,46 @@ public class ActionSheetTest {
         }
     }
 
+    /**
+     * Emulator run, phone held upright: the stream menu's four toggles stacked into four full-width bars that took
+     * half the screen. Too wide for one line, they form two columns of equal tiles; narrower still, they stack.
+     */
+    @Test @org.robolectric.annotation.GraphicsMode(org.robolectric.annotation.GraphicsMode.Mode.NATIVE)
+    public void fourTogglesTooWideForOneLineFormTwoColumns() {
+        try (var controller = Robolectric.buildActivity(ToolbarIconTintTest.Screen.class).setup().visible()) {
+            ActionSheet sheet = new ActionSheet(controller.get(), "Stream");
+            var row = (ActionSheet.ToggleRow) sheet.addToggleRow();
+            var buttons = new com.google.android.material.button.MaterialButton[] {
+                    sheet.addToggle(row, R.drawable.ic_play, "System keyboard", false),
+                    sheet.addToggle(row, R.drawable.ic_settings, "PC keyboard", false),
+                    sheet.addToggle(row, R.drawable.ic_play, "Overlay", true),
+                    sheet.addToggle(row, R.drawable.ic_settings, "Microphone", true)};
+            sheet.show();
+            float density = row.getResources().getDisplayMetrics().density;
+            int width = Math.round(380 * density);
+            row.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
+                    View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
+            row.layout(0, 0, width, row.getMeasuredHeight());
+            assertEquals(2, row.columns());
+            assertEquals(buttons[0].getTop(), buttons[1].getTop());
+            assertEquals(buttons[0].getWidth(), buttons[1].getWidth());
+            assertTrue(buttons[1].getLeft() > buttons[0].getRight());
+            assertTrue(buttons[2].getTop() > buttons[0].getBottom());
+            assertEquals(buttons[0].getLeft(), buttons[2].getLeft());
+            assertEquals(buttons[3].getRight(), buttons[1].getRight());
+            assertTrue(row.getMeasuredHeight() >= buttons[3].getBottom());
+            int wide = Math.round(900 * density);
+            row.measure(View.MeasureSpec.makeMeasureSpec(wide, View.MeasureSpec.EXACTLY),
+                    View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
+            assertEquals(4, row.columns());
+            int narrow = Math.round(120 * density);
+            row.measure(View.MeasureSpec.makeMeasureSpec(narrow, View.MeasureSpec.EXACTLY),
+                    View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
+            assertEquals(1, row.columns());
+            sheet.dismiss();
+        }
+    }
+
     @Test @Config(qualifiers = "television")
     public void tvMenuFocusFollowsTheRemoteAndClearsThePreviousRow() {
         try (var controller = Robolectric.buildActivity(ToolbarIconTintTest.Screen.class).setup().visible()) {

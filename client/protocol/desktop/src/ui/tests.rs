@@ -2732,6 +2732,7 @@ fn polish_screenshots() {
         // All games with every game, then with a store's chip clicked.
         f.l.open(Screen::AllGames);
         shoot(&mut f, "all-games");
+        f.settle();
         let steam = f.placed.iter().find(|(t, r, _)| t == "Steam" && r.center().y < 200.0).map(|p| p.1).expect("the Steam chip");
         f.click_at(steam.center(), egui::PointerButton::Primary);
         shoot(&mut f, "all-games-store");
@@ -2857,6 +2858,9 @@ fn polish_screenshots() {
         f.hosts.list[0].native.library = Some(Library { revision: "r2".into(), games: vec![none("Night Drive", 0), none("Farm Life", 1)] });
         f.l.library_filter = console::LibraryFilter::Installed;
         shoot(&mut f, "all-games-empty-filter");
+        // The library still on its way: the spinner Home shows.
+        f.hosts.list[0].native.library = None;
+        shoot(&mut f, "all-games-loading");
     }
 }
 

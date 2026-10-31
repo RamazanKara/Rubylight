@@ -232,6 +232,49 @@ fn every_bound_shortcut_is_listed() {
     assert!(page.names().contains(&format!("{}: {combo}", tr(Action::Disconnect.label()))), "the chosen quit combo is listed: {combo}");
 }
 
+/// Without a choice on the page, the controller labels follow the pads connected now: Xbox with
+/// none, PlayStation once a DualSense arrives with the page open. A choice made there stays.
+#[test]
+fn the_controller_labels_follow_a_pad_connected_later() {
+    use sdl3_sys::everything::*;
+    let _sdl = crate::sdl::TEST_LOCK.lock().unwrap();
+    let mut page = Page::new(Vec::new());
+    page.ctx.enable_accesskit();
+    page.size = vec2(1600.0, 9000.0);
+    page.press(egui::Key::F1);
+    page.settle();
+    let quit = page.l.settings.gamepad_quit_combo;
+    let row = |style: Style| format!("{}: {}", tr(Action::Disconnect.label()), style.press_text(Press::QuitCombo, quit));
+    assert_ne!(row(Style::Xbox), row(Style::PlayStation));
+    assert!(page.names().contains(&row(Style::Xbox)), "no pad: Xbox labels");
+    // SAFETY: SDL calls on this test's thread; the descriptor outlives the attach.
+    unsafe {
+        assert!(SDL_Init(SDL_INIT_GAMEPAD), "{}", crate::sdl::error());
+        let mut desc: SDL_VirtualJoystickDesc = std::mem::zeroed();
+        desc.version = std::mem::size_of::<SDL_VirtualJoystickDesc>() as u32;
+        desc.r#type = SDL_JOYSTICK_TYPE_GAMEPAD.0 as u16;
+        desc.vendor_id = 0x054c;
+        desc.product_id = 0x0ce6;
+        desc.naxes = SDL_GAMEPAD_AXIS_COUNT.0 as u16;
+        desc.nbuttons = SDL_GAMEPAD_BUTTON_COUNT.0 as u16;
+        desc.button_mask = (1u32 << SDL_GAMEPAD_BUTTON_COUNT.0) - 1;
+        desc.axis_mask = (1u32 << SDL_GAMEPAD_AXIS_COUNT.0) - 1;
+        desc.name = c"DualSense Wireless Controller".as_ptr();
+        let id = SDL_AttachVirtualJoystick(&desc);
+        assert!(id.0 != 0, "{}", crate::sdl::error());
+        page.pads.added(id).unwrap();
+        assert_eq!(Style::of(&page.pads), Style::PlayStation, "SDL reads the pad as a PlayStation one");
+        page.settle();
+        assert!(page.names().contains(&row(Style::PlayStation)), "a DualSense: PlayStation labels");
+        page.ctx.data_mut(|d| d.insert_temp(Id::unique("help-pad-style"), Style::Nintendo));
+        page.settle();
+        assert!(page.names().contains(&row(Style::Nintendo)), "a choice on the page wins");
+        page.pads.close_all();
+        SDL_DetachVirtualJoystick(id);
+        SDL_QuitSubSystem(SDL_INIT_GAMEPAD);
+    }
+}
+
 /// The launcher keys the list names, which egui's pages handle themselves, do what it says.
 #[test]
 fn the_launcher_keys_do_what_the_list_says() {

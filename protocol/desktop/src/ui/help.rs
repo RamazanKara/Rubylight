@@ -212,6 +212,8 @@ impl Launcher {
 
     fn help_controller(&mut self, ui: &mut Ui, width: f32, view: &View<'_>) {
         let ctx = ui.ctx().clone();
+        // Only a choice made here is kept; without one the labels follow the controllers connected
+        // now, so a pad plugged in while the page is open changes them.
         let style_id = Id::unique("help-pad-style");
         let mut style = ctx.data(|d| d.get_temp::<Style>(style_id)).unwrap_or_else(|| Style::of(view.pads));
         ui.horizontal(|ui| {
@@ -222,10 +224,10 @@ impl Launcher {
                 self.focus_item(&response, &format!("help-style-{n}"), false);
                 if response.clicked() {
                     style = choice;
+                    ctx.data_mut(|d| d.insert_temp(style_id, choice));
                 }
             }
         });
-        ctx.data_mut(|d| d.insert_temp(style_id, style));
         ui.add_space(space::S);
         let s = &self.settings;
         let (swap, quit, back_opens, mouse) = (s.swap_face_buttons, s.gamepad_quit_combo, s.back_opens_menu, s.controller_mouse);

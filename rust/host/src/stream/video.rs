@@ -2,6 +2,7 @@
 //! encoder recovery and the inline video send.
 mod run;
 mod setup;
+mod teardown;
 use super::*;
 
 /// How soon the stream looks again when another thread held the running app.
@@ -368,7 +369,11 @@ impl Media {
             .spawn(move || {
                 let h = worker_h;
                 let s = worker_s;
-                let session = SessionThread { m: &m, h: &h, s: &s };
+                let session = SessionThread {
+                    m: &m,
+                    h: &h,
+                    s: &s,
+                };
                 tracing::info!(client=%s.launch.client.name,"CLIENT CONNECTED");
                 session.record_last_seen();
                 let mut leases = Leases::default();
@@ -386,7 +391,8 @@ impl Media {
                     let Some(config) = session.configure(&mut workers)? else {
                         return Ok(());
                     };
-                    let display = session.prepare_display(&config.c, &mut leases.stream_preparation)?;
+                    let display =
+                        session.prepare_display(&config.c, &mut leases.stream_preparation)?;
                     let Some(capture) = session.start_capture(
                         &config.c,
                         &config.timer,
@@ -398,60 +404,16 @@ impl Media {
                         return Ok(());
                     };
                     let media = session.start_media(&config.c, &display.prepared, &mut workers)?;
-                    session.run(&mut leases.encoder, &workers, config, display, capture, media)
+                    session.run(
+                        &mut leases.encoder,
+                        &workers,
+                        config,
+                        display,
+                        capture,
+                        media,
+                    )
                 })();
-                let Leases { com, stream_preparation, latest, encoder } = leases;
-                let Workers {
-                    client_commands,
-                    audio,
-                    pyrowave_sender,
-                    webrtc_sender,
-                    keyframe_loss_memory,
-                    timing_record,
-                    #[cfg(test)]
-                    fixture_preparation,
-                    coop_watch: _coop_watch,
-                } = workers;
-                if let Err(e) = result {
-                    s.launch.warnings.set("stream_failure", format!("Stream ended: {e:#}"));
-                    s.fail();
-                    tracing::error!(error=%format!("{e:#}"),client=%s.launch.client.name,"session failed; check the reported encoder, capture or socket error before reconnecting");
-                }
-                s.stop();
-                // A failed stream must not count as a healthy fast-rate probe.
-                drop(keyframe_loss_memory);
-                h.sessions.lock().unwrap().begin_teardown(&s);
-                h.session_webhook("session.ended", &s);
-                for (audio, peer) in m.peers.lock().unwrap().remove(&s.launch.id) {
-                    if audio { &m.audio } else { &m.video }.forget(peer);
-                }
-                // Keep capture and display leases owned until the encoder has
-                // terminated, even if a driver blocks its drop indefinitely.
-                if let Some(audio) = audio {
-                    finish_worker(audio, "audio");
-                }
-                drop(pyrowave_sender);
-                // Frees the WebRTC media port; a link the worker never took goes with it.
-                drop(webrtc_sender);
-                h.webrtc_links.discard(&s.launch.id);
-                drop(timing_record);
-                drop(client_commands);
-                drop(encoder);
-                drop(latest);
-                drop(stream_preparation);
-                #[cfg(test)]
-                drop(fixture_preparation);
-                drop(com);
-                if s.launch.role == Role::RemoteMonitor
-                    && h.config
-                        .read()
-                        .unwrap()
-                        .boolean("remote_monitor_disconnect_on_stream_end", false)
-                {
-                    crate::remote_display::disconnect(&h, Some(&s.launch.client.uuid));
-                }
-                h.sessions.lock().unwrap().teardown.remove(&s.launch.id);
-                tracing::info!(client=%s.launch.client.name,"CLIENT DISCONNECTED");
+                session.teardown(result, workers, leases);
             })
     }
 }

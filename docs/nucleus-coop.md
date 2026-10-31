@@ -53,6 +53,14 @@ Nucleus Co-op session of its own with one player, and the host log says once
 that background streams run through Nucleus Co-op. Only the device that
 started it can return to it; nobody else can join a background stream.
 
+Quitting the game on the device ends the background stream, also after its
+stream already ended: Moonlight's Quit (`/cancel`) and Nightjar's Quit (Close
+game where the device has host control) stop Nucleus Co-op and the game
+instead of keeping its slot for 120 s. A device that returns to a background
+stream whose game window doesn't come back within 90 s (the game minimised or
+lost it) gets the reason, and the session ends, so the next background launch
+isn't refused while the game runs on unseen.
+
 A background launch that Nucleus Co-op cannot run is refused with the reason,
 for example "Store Game can't stream in the background: Nucleus Co-op starts
 games by their .exe, and Store Game does not name one". It never falls back to
@@ -271,14 +279,22 @@ no profile Rubylight (open Nucleus Co-op and load the profile Rubylight once,
 then launch again), that it still shows its setup screen with the profile
 Rubylight (Nucleus Co-op plays a profile once every player has a controller),
 or no window at all, with the last error from its `crashlog.txt` if it wrote
-one (in the user's own copy, read as the user). A click that comes while Nucleus
-Co-op still builds its setup screen fails with "The profile can't be loaded",
-a box that blocks its window until someone closes it. So after the click,
-until a game instance runs, the host closes a box like that (logging what it
-says) and clicks the profile again every 5 seconds while Nucleus Co-op still
-lists it and shows no message box. Once Nucleus Co-op hides the list to play
-the profile, it is never clicked again. When the last click ends in such a box,
-the start fails saying so.
+one (in the user's own copy, read as the user). The host clicks the profile
+without moving the mouse or taking the focus. Nucleus Co-op only takes a click
+on the window it shows at that point, so when another window covers its list
+(your game, or a game you stream), the host raises Nucleus Co-op above every
+window for the click, never activating it, and puts it back below that window
+right after; a window that stays on top even then fails the click, and the
+start says so. Nucleus Co-op 2.4.2 finds the PC's screens for its setup screen
+on a 3 s timer, and a click before that fails with "The profile can't be
+loaded", so the first click waits until it has listed the profile for 3.5 s.
+That message comes in Nucleus Co-op's own untitled box, which draws its text
+(so the log can only name it, not quote it) and blocks its window until
+someone closes it. So after the click, until a game instance runs, the host
+closes a box like that (logging what it says) and clicks the profile again
+every 5 seconds while Nucleus Co-op still lists it and shows no message box.
+Once Nucleus Co-op hides the list to play the profile, it is never clicked
+again. When the last click ends in such a box, the start fails saying so.
 
 The host must run as the Windows service (the installer's default), because
 Nucleus Co-op runs as the signed-in user, elevated or from their own copy. A

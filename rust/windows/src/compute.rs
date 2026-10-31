@@ -1560,6 +1560,38 @@ impl Converter {
         }
     }
     /// A free output texture's index.
+    /// Copy `values` into `slot`'s 256-byte part of the constant buffer.
+    ///
+    /// # Safety
+    /// The slot's last conversion has finished, so the GPU no longer reads it.
+    unsafe fn write_values(&self, slot: usize) {
+        // SAFETY: `mapped` stays mapped for the converter's life and holds `SLOTS` 256-byte
+        // slots; the 80 bytes of `values` fit one, and the caller keeps the GPU off it.
+        unsafe {
+            std::ptr::copy_nonoverlapping(
+                self.values.as_ptr().cast::<u8>(),
+                self.mapped.add(slot * 256),
+                std::mem::size_of_val(&self.values),
+            );
+        }
+    }
+    /// Order this queue after the capture's copy behind `ready`: on the GPU
+    /// when its fence is on this queue's device, else on the CPU.
+    fn wait_capture(&self, ready: Option<&Ready>) -> Result<()> {
+        match ready {
+            // SAFETY: The guard checked that `ready.fence` belongs to this queue's device, and
+            // `ready` holds it for the call.
+            Some(ready) if ready.device == self.compute.device.as_raw() as usize => unsafe {
+                self.compute
+                    .queue
+                    .Wait(&ready.fence, ready.value)
+                    .inspect_err(|_| self.compute.retire())?;
+            },
+            Some(ready) => ready.wait()?,
+            None => {}
+        }
+        Ok(())
+    }
     fn target(&mut self) -> Result<usize> {
         for (index, target) in self.targets.iter().enumerate() {
             if target.free()? {
@@ -1657,56 +1689,22 @@ impl Converter {
             (true, _) => (&b"chroma_pack_menu_cs\0"[..], [2, 1]),
         };
         let menu = self.menu_pass(slot, entry, 0, 2, block)?;
-        // SAFETY: The slot's last conversion has finished (waited above), the 80 bytes of `values`
-        // fit its 256-byte slot, and every view and barrier names a live resource on this device.
+        // SAFETY: The slot's last conversion has finished (waited above), so its constants and
+        // views may be rewritten, and every view and barrier names a live resource on this device.
         unsafe {
-            std::ptr::copy_nonoverlapping(
-                self.values.as_ptr().cast::<u8>(),
-                self.mapped.add(slot * 256),
-                std::mem::size_of_val(&self.values),
-            );
+            self.write_values(slot);
             let device = &self.compute.device;
             let cpu = self.heap.GetCPUDescriptorHandleForHeapStart();
             let gpu = self.heap.GetGPUDescriptorHandleForHeapStart();
             let at = |index: usize| D3D12_CPU_DESCRIPTOR_HANDLE {
                 ptr: cpu.ptr + (slot * VIEWS + index) * self.increment as usize,
             };
-            let srv = |format| D3D12_SHADER_RESOURCE_VIEW_DESC {
-                Format: format,
-                ViewDimension: D3D12_SRV_DIMENSION_TEXTURE2D,
-                Shader4ComponentMapping: D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING,
-                Anonymous: D3D12_SHADER_RESOURCE_VIEW_DESC_0 {
-                    Texture2D: D3D12_TEX2D_SRV {
-                        MostDetailedMip: 0,
-                        MipLevels: 1,
-                        PlaneSlice: 0,
-                        ResourceMinLODClamp: 0.,
-                    },
-                },
-            };
-            device.CreateShaderResourceView(source, Some(&srv(format)), at(0));
-            match pointer {
-                Some(pointer) => device.CreateShaderResourceView(
-                    pointer,
-                    Some(&srv(DXGI_FORMAT_R8G8B8A8_UNORM)),
-                    at(1),
-                ),
-                None => device.CreateShaderResourceView(
-                    None::<&ID3D12Resource>,
-                    Some(&srv(DXGI_FORMAT_R8G8B8A8_UNORM)),
-                    at(1),
-                ),
-            }
-            let uav = |format, plane| D3D12_UNORDERED_ACCESS_VIEW_DESC {
-                Format: format,
-                ViewDimension: D3D12_UAV_DIMENSION_TEXTURE2D,
-                Anonymous: D3D12_UNORDERED_ACCESS_VIEW_DESC_0 {
-                    Texture2D: D3D12_TEX2D_UAV {
-                        MipSlice: 0,
-                        PlaneSlice: plane,
-                    },
-                },
-            };
+            device.CreateShaderResourceView(source, Some(&texture_srv(format)), at(0));
+            device.CreateShaderResourceView(
+                pointer,
+                Some(&texture_srv(DXGI_FORMAT_R8G8B8A8_UNORM)),
+                at(1),
+            );
             let (luma_format, chroma_format) = if self.ten_bit {
                 (DXGI_FORMAT_R16_UNORM, DXGI_FORMAT_R16G16_UNORM)
             } else {
@@ -1715,13 +1713,13 @@ impl Converter {
             device.CreateUnorderedAccessView(
                 target.as_ref(),
                 None,
-                Some(&uav(luma_format, 0)),
+                Some(&texture_uav(luma_format, 0)),
                 at(2),
             );
             device.CreateUnorderedAccessView(
                 target.as_ref(),
                 None,
-                Some(&uav(chroma_format, 1)),
+                Some(&texture_uav(chroma_format, 1)),
                 at(3),
             );
             let Slot {
@@ -1793,18 +1791,7 @@ impl Converter {
         self.slots[slot].fence = u64::MAX;
         // The capture's copy into `source` may still be waiting for DWM.
         self.compute.ensure_active()?;
-        match ready {
-            // SAFETY: The guard checked that `ready.fence` belongs to this queue's device, and
-            // `ready` holds it for the call.
-            Some(ready) if ready.device == self.compute.device.as_raw() as usize => unsafe {
-                self.compute
-                    .queue
-                    .Wait(&ready.fence, ready.value)
-                    .inspect_err(|_| self.compute.retire())?;
-            },
-            Some(ready) => ready.wait()?,
-            None => {}
-        }
+        self.wait_capture(ready)?;
         let fence = self
             .compute
             .execute(&self.slots[slot].list)
@@ -1890,49 +1877,26 @@ impl Converter {
         if let Some(focus) = self.focus.as_deref_mut() {
             focus.written[slot] = false;
         }
-        // SAFETY: As in `convert`, the slot is idle and `values` fits its slot; `target`'s planes
-        // and fence are on `compute.device`, and `ready` is waited on the GPU only if it is too.
+        // SAFETY: As in `convert`, the slot is idle; `target`'s planes are on `compute.device`.
         unsafe {
-            std::ptr::copy_nonoverlapping(
-                self.values.as_ptr().cast::<u8>(),
-                self.mapped.add(slot * 256),
-                std::mem::size_of_val(&self.values),
-            );
+            self.write_values(slot);
             let device = &self.compute.device;
             let cpu = self.heap.GetCPUDescriptorHandleForHeapStart();
             let gpu = self.heap.GetGPUDescriptorHandleForHeapStart();
             let at = |index: usize| D3D12_CPU_DESCRIPTOR_HANDLE {
                 ptr: cpu.ptr + (slot * VIEWS + index) * self.increment as usize,
             };
-            let srv = |format| D3D12_SHADER_RESOURCE_VIEW_DESC {
-                Format: format,
-                ViewDimension: D3D12_SRV_DIMENSION_TEXTURE2D,
-                Shader4ComponentMapping: D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING,
-                Anonymous: D3D12_SHADER_RESOURCE_VIEW_DESC_0 {
-                    Texture2D: D3D12_TEX2D_SRV {
-                        MostDetailedMip: 0,
-                        MipLevels: 1,
-                        PlaneSlice: 0,
-                        ResourceMinLODClamp: 0.,
-                    },
-                },
-            };
-            device.CreateShaderResourceView(source, Some(&srv(format)), at(0));
-            device.CreateShaderResourceView(pointer, Some(&srv(DXGI_FORMAT_R8G8B8A8_UNORM)), at(1));
+            device.CreateShaderResourceView(source, Some(&texture_srv(format)), at(0));
+            device.CreateShaderResourceView(
+                pointer,
+                Some(&texture_srv(DXGI_FORMAT_R8G8B8A8_UNORM)),
+                at(1),
+            );
             for (index, plane) in target.planes.iter().enumerate() {
                 device.CreateUnorderedAccessView(
                     plane,
                     None,
-                    Some(&D3D12_UNORDERED_ACCESS_VIEW_DESC {
-                        Format: target.format,
-                        ViewDimension: D3D12_UAV_DIMENSION_TEXTURE2D,
-                        Anonymous: D3D12_UNORDERED_ACCESS_VIEW_DESC_0 {
-                            Texture2D: D3D12_TEX2D_UAV {
-                                MipSlice: 0,
-                                PlaneSlice: 0,
-                            },
-                        },
-                    }),
+                    Some(&texture_uav(target.format, 0)),
                     at(2 + index),
                 );
             }
@@ -1982,22 +1946,12 @@ impl Converter {
             list.ResourceBarrier(&barriers);
             drop_barriers(&mut barriers);
             list.Close()?;
-            self.compute.ensure_active()?;
-            match ready {
-                Some(ready) if ready.device == self.compute.device.as_raw() as usize => {
-                    self.compute
-                        .queue
-                        .Wait(&ready.fence, ready.value)
-                        .inspect_err(|_| self.compute.retire())?;
-                }
-                Some(ready) => ready.wait()?,
-                None => {}
-            }
-            self.compute
-                .queue
-                .Wait(&target.fence, target.after)
-                .inspect_err(|_| self.compute.retire())?;
         }
+        self.compute.ensure_active()?;
+        self.wait_capture(ready)?;
+        // SAFETY: `target.fence` is opened on this queue's device and outlives the call.
+        unsafe { self.compute.queue.Wait(&target.fence, target.after) }
+            .inspect_err(|_| self.compute.retire())?;
         self.slots[slot].fence = self
             .compute
             .execute(&self.slots[slot].list)
@@ -2474,6 +2428,35 @@ fn buffer_desc(size: u64) -> D3D12_RESOURCE_DESC {
         Layout: D3D12_TEXTURE_LAYOUT_ROW_MAJOR,
         Flags: D3D12_RESOURCE_FLAG_NONE,
         Alignment: 0,
+    }
+}
+/// A shader-resource view of a whole one-mip 2D texture.
+fn texture_srv(format: DXGI_FORMAT) -> D3D12_SHADER_RESOURCE_VIEW_DESC {
+    D3D12_SHADER_RESOURCE_VIEW_DESC {
+        Format: format,
+        ViewDimension: D3D12_SRV_DIMENSION_TEXTURE2D,
+        Shader4ComponentMapping: D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING,
+        Anonymous: D3D12_SHADER_RESOURCE_VIEW_DESC_0 {
+            Texture2D: D3D12_TEX2D_SRV {
+                MostDetailedMip: 0,
+                MipLevels: 1,
+                PlaneSlice: 0,
+                ResourceMinLODClamp: 0.,
+            },
+        },
+    }
+}
+/// An unordered-access view of `plane` of a 2D texture's first mip.
+fn texture_uav(format: DXGI_FORMAT, plane: u32) -> D3D12_UNORDERED_ACCESS_VIEW_DESC {
+    D3D12_UNORDERED_ACCESS_VIEW_DESC {
+        Format: format,
+        ViewDimension: D3D12_UAV_DIMENSION_TEXTURE2D,
+        Anonymous: D3D12_UNORDERED_ACCESS_VIEW_DESC_0 {
+            Texture2D: D3D12_TEX2D_UAV {
+                MipSlice: 0,
+                PlaneSlice: plane,
+            },
+        },
     }
 }
 

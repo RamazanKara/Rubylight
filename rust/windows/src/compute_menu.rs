@@ -210,19 +210,7 @@ impl Converter {
         unsafe {
             device.CreateShaderResourceView(
                 &texture,
-                Some(&D3D12_SHADER_RESOURCE_VIEW_DESC {
-                    Format: DXGI_FORMAT_R8G8B8A8_UNORM,
-                    ViewDimension: D3D12_SRV_DIMENSION_TEXTURE2D,
-                    Shader4ComponentMapping: D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING,
-                    Anonymous: D3D12_SHADER_RESOURCE_VIEW_DESC_0 {
-                        Texture2D: D3D12_TEX2D_SRV {
-                            MostDetailedMip: 0,
-                            MipLevels: 1,
-                            PlaneSlice: 0,
-                            ResourceMinLODClamp: 0.,
-                        },
-                    },
-                }),
+                Some(&super::texture_srv(DXGI_FORMAT_R8G8B8A8_UNORM)),
                 D3D12_CPU_DESCRIPTOR_HANDLE {
                     ptr: self.heap.GetCPUDescriptorHandleForHeapStart().ptr
                         + (slot * VIEWS + VIEW) * self.increment as usize,

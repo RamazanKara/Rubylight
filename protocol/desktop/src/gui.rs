@@ -98,12 +98,15 @@ fn key_of(code: SDL_Keycode) -> Option<Key> {
         SDLK_PAGEDOWN => Key::PageDown,
         SDLK_SPACE => Key::Space,
         SDLK_INSERT => Key::Insert,
+        SDLK_F1 => Key::F1,
         SDLK_F2 => Key::F2,
         SDLK_F10 => Key::F10,
         SDLK_F11 => Key::F11,
         SDLK_EQUALS => Key::Equals,
         SDLK_PLUS | SDLK_KP_PLUS => Key::Plus,
         SDLK_MINUS | SDLK_KP_MINUS => Key::Minus,
+        // Shift and the key with ? on it (SDL's key codes follow the layout and Shift).
+        SDLK_QUESTION => Key::Questionmark,
         _ => {
             let c = char::from_u32(code.0)?;
             if c.is_ascii_alphabetic() {
@@ -534,6 +537,8 @@ mod tests {
         assert_eq!(key_of(SDLK_F10), Some(Key::F10), "Shift+F10 opens a PC's options");
         assert_eq!(key_of(SDLK_F11), Some(Key::F11));
         assert_eq!(key_of(SDLK_N), Some(Key::N), "Ctrl+N adds a PC");
+        assert_eq!(key_of(SDLK_F1), Some(Key::F1), "F1 opens Help");
+        assert_eq!(key_of(SDLK_QUESTION), Some(Key::Questionmark), "? opens Help outside a text field");
     }
 
     fn zoom_after_ctrl(ctx: &egui::Context, key: Key) -> f32 {

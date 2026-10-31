@@ -1,10 +1,15 @@
+//! Keyboard shortcuts: Nightjar's own keys and controller buttons ([`KEYS`], [`PAD`]), the one
+//! list the key handling and the help lists share, and the user's saved key chords that the stream
+//! controls send to the PC ([`Shortcuts`], in the Android app's file format).
+
 use std::collections::HashSet;
-use crate::strings::{tr, trf};
+use crate::strings::{en, tr, trf};
 use std::io::Read;
 use std::path::Path;
 
 use nightjar_core::input::{InputError, InputQueue};
 use nightjar_core::input::packets::modifier;
+use sdl3_sys::everything::*;
 use serde::{Deserialize, Serialize};
 
 const MAX_BYTES: usize = 64 * 1024;
@@ -193,6 +198,457 @@ pub fn send(keys: &[String], held: &HashSet<u16>, queue: &mut InputQueue) -> Res
     Ok(())
 }
 
+// Nightjar's own keys and controller buttons.
+//
+// The one list of what Nightjar's keys and buttons do. The handlers look their keys up here
+// (main.rs: the launcher's F11 and F12 and its controller navigation; stream/input.rs: the
+// Ctrl+Alt+Shift chords; gamepad.rs: the stream controls combo), and the Help page and the
+// stream's shortcut sheet draw these same entries, so no list names a key that does something
+// else. The keys egui handles on the launcher's own pages (F2 on a card, Ctrl+N, the zoom,
+// Delete) are listed here too; a test presses each of them and checks it does what this says.
+
+/// What one of Nightjar's keys or buttons does.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Action {
+    Help,
+    Move,
+    Select,
+    Back,
+    Options,
+    AddPc,
+    Unstar,
+    ZoomIn,
+    ZoomOut,
+    ZoomReset,
+    Fullscreen,
+    OpenSettings,
+    Screenshot,
+    StreamControls,
+    StreamShortcuts,
+    Disconnect,
+    Capture,
+    MouseMode,
+    Overlay,
+    SendClipboard,
+    FetchClipboard,
+    Minimize,
+    ControllerMouse,
+}
+
+impl Action {
+    /// What the lists call it, in English (drawn through `tr`).
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Help => en("Help"),
+            Self::Move => en("Move between items"),
+            Self::Select => en("Open or select"),
+            Self::Back => en("Go back"),
+            Self::Options => en("Options for a PC or game"),
+            Self::AddPc => en("Add a PC"),
+            Self::Unstar => en("Remove a favourite"),
+            Self::ZoomIn => en("Zoom in"),
+            Self::ZoomOut => en("Zoom out"),
+            Self::ZoomReset => en("Reset zoom"),
+            Self::Fullscreen => en("Full screen"),
+            Self::OpenSettings => en("Settings"),
+            Self::Screenshot => en("Save a screenshot"),
+            Self::StreamControls => en("Stream controls"),
+            Self::StreamShortcuts => en("Shortcuts & help"),
+            Self::Disconnect => en("Disconnect"),
+            Self::Capture => en("Release or capture input"),
+            Self::MouseMode => en("Switch mouse mode"),
+            Self::Overlay => en("Performance overlay"),
+            Self::SendClipboard => en("Send clipboard to PC"),
+            Self::FetchClipboard => en("Copy PC clipboard here"),
+            Self::Minimize => en("Minimize the window"),
+            Self::ControllerMouse => en("Controller mouse"),
+        }
+    }
+}
+
+/// Where a key or button works.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Scope {
+    Launcher,
+    Stream,
+    /// The launcher and a stream alike.
+    Anywhere,
+}
+
+impl Scope {
+    fn covers(self, scope: Scope) -> bool {
+        self == scope || self == Scope::Anywhere
+    }
+}
+
+/// The key a chord ends in.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Key {
+    Tab,
+    C,
+    D,
+    H,
+    M,
+    N,
+    Q,
+    S,
+    V,
+    X,
+    Z,
+    F1,
+    F2,
+    F10,
+    F11,
+    F12,
+    Question,
+    Plus,
+    Minus,
+    Zero,
+    Escape,
+    Enter,
+    Delete,
+    Arrows,
+}
+
+impl Key {
+    /// The name on the key, in English (drawn through `tr`).
+    pub fn cap(self) -> &'static str {
+        match self {
+            Key::Tab => "Tab",
+            Key::C => "C",
+            Key::D => "D",
+            Key::H => "H",
+            Key::M => "M",
+            Key::N => "N",
+            Key::Q => "Q",
+            Key::S => "S",
+            Key::V => "V",
+            Key::X => "X",
+            Key::Z => "Z",
+            Key::F1 => "F1",
+            Key::F2 => "F2",
+            Key::F10 => "F10",
+            Key::F11 => "F11",
+            Key::F12 => "F12",
+            Key::Question => "?",
+            Key::Plus => "+",
+            Key::Minus => "−",
+            Key::Zero => "0",
+            Key::Escape => "Esc",
+            Key::Enter => en("Enter"),
+            Key::Delete => en("Del"),
+            Key::Arrows => en("Arrow keys"),
+        }
+    }
+
+    /// The physical key SDL reports (stream chords are positional, as the PC's keys are).
+    pub fn scancode(self) -> Option<SDL_Scancode> {
+        Some(match self {
+            Key::Tab => SDL_SCANCODE_TAB,
+            Key::C => SDL_SCANCODE_C,
+            Key::D => SDL_SCANCODE_D,
+            Key::H => SDL_SCANCODE_H,
+            Key::M => SDL_SCANCODE_M,
+            Key::N => SDL_SCANCODE_N,
+            Key::Q => SDL_SCANCODE_Q,
+            Key::S => SDL_SCANCODE_S,
+            Key::V => SDL_SCANCODE_V,
+            Key::X => SDL_SCANCODE_X,
+            Key::Z => SDL_SCANCODE_Z,
+            Key::F1 => SDL_SCANCODE_F1,
+            Key::F2 => SDL_SCANCODE_F2,
+            Key::F10 => SDL_SCANCODE_F10,
+            Key::F11 => SDL_SCANCODE_F11,
+            Key::F12 => SDL_SCANCODE_F12,
+            Key::Zero => SDL_SCANCODE_0,
+            Key::Escape => SDL_SCANCODE_ESCAPE,
+            Key::Enter => SDL_SCANCODE_RETURN,
+            Key::Delete => SDL_SCANCODE_DELETE,
+            // Where these sit depends on the layout; the launcher reads them from egui.
+            Key::Question | Key::Plus | Key::Minus | Key::Arrows => return None,
+        })
+    }
+
+    /// The keys egui reports for it in the launcher.
+    pub fn egui(self) -> &'static [egui::Key] {
+        use egui::Key as E;
+        match self {
+            Key::Tab => &[E::Tab],
+            Key::C => &[E::C],
+            Key::D => &[E::D],
+            Key::H => &[E::H],
+            Key::M => &[E::M],
+            Key::N => &[E::N],
+            Key::Q => &[E::Q],
+            Key::S => &[E::S],
+            Key::V => &[E::V],
+            Key::X => &[E::X],
+            Key::Z => &[E::Z],
+            Key::F1 => &[E::F1],
+            Key::F2 => &[E::F2],
+            Key::F10 => &[E::F10],
+            Key::F11 => &[E::F11],
+            Key::F12 => &[E::F12],
+            Key::Question => &[E::Questionmark],
+            Key::Plus => &[E::Plus, E::Equals],
+            Key::Minus => &[E::Minus],
+            Key::Zero => &[E::Num0],
+            Key::Escape => &[E::Escape],
+            Key::Enter => &[E::Enter],
+            Key::Delete => &[E::Delete],
+            Key::Arrows => &[E::ArrowUp, E::ArrowDown, E::ArrowLeft, E::ArrowRight],
+        }
+    }
+}
+
+/// Modifiers held with a key, then the key.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Chord {
+    pub ctrl: bool,
+    pub alt: bool,
+    pub shift: bool,
+    pub key: Key,
+}
+
+impl Chord {
+    pub const fn key(key: Key) -> Self {
+        Self { ctrl: false, alt: false, shift: false, key }
+    }
+
+    pub const fn ctrl(key: Key) -> Self {
+        Self { ctrl: true, ..Self::key(key) }
+    }
+
+    pub const fn shift(key: Key) -> Self {
+        Self { shift: true, ..Self::key(key) }
+    }
+
+    /// Ctrl+Alt+Shift and the key: Nightjar's own chords in a stream, which never reach the PC.
+    pub const fn nightjar(key: Key) -> Self {
+        Self { ctrl: true, alt: true, shift: true, key }
+    }
+
+    pub fn is_nightjar(self) -> bool {
+        self.ctrl && self.alt && self.shift
+    }
+
+    /// Whether the chord types a character into a text field: a printable key without Ctrl or Alt.
+    pub fn types(self) -> bool {
+        !self.ctrl && !self.alt && matches!(self.key, Key::C | Key::D | Key::H | Key::M | Key::N | Key::Q | Key::S | Key::V | Key::X | Key::Z
+            | Key::Question | Key::Plus | Key::Minus | Key::Zero)
+    }
+
+    /// The names on the keys, left to right, in English (drawn through `tr`).
+    pub fn caps(self) -> Vec<&'static str> {
+        let mut caps = Vec::with_capacity(4);
+        if self.ctrl { caps.push(en("Ctrl")); }
+        if self.alt { caps.push("Alt"); }
+        if self.shift { caps.push(en("Shift")); }
+        caps.push(self.key.cap());
+        caps
+    }
+
+    /// The chord as text in the language in use: "Ctrl+Alt+Shift+Q" ("Strg+Alt+Umschalt+Q").
+    pub fn text(self) -> String {
+        self.caps().into_iter().map(tr).collect::<Vec<_>>().join("+")
+    }
+
+    /// Whether SDL's modifier state holds this chord's modifiers (more may be held).
+    pub fn held(self, mods: SDL_Keymod) -> bool {
+        let has = |flag: SDL_Keymod| mods.0 & flag.0 != 0;
+        (!self.ctrl || has(SDL_KMOD_CTRL)) && (!self.alt || has(SDL_KMOD_ALT)) && (!self.shift || has(SDL_KMOD_SHIFT))
+    }
+
+    /// Whether egui saw the chord this frame (more modifiers may be held).
+    pub fn pressed(self, input: &egui::InputState) -> bool {
+        let m = input.modifiers;
+        (!self.ctrl || m.ctrl || m.command) && (!self.alt || m.alt) && (!self.shift || m.shift)
+            && self.key.egui().iter().any(|key| input.key_pressed(*key))
+    }
+}
+
+/// One action's keys in one place: any of `chords` does it.
+#[derive(Clone, Copy, Debug)]
+pub struct KeyBinding {
+    pub action: Action,
+    pub scope: Scope,
+    pub chords: &'static [Chord],
+}
+
+const fn keys(action: Action, scope: Scope, chords: &'static [Chord]) -> KeyBinding {
+    KeyBinding { action, scope, chords }
+}
+
+/// Every key Nightjar answers to itself, in the order the lists show them.
+pub const KEYS: &[KeyBinding] = &[
+    keys(Action::Help, Scope::Launcher, &[Chord::key(Key::F1), Chord::key(Key::Question)]),
+    keys(Action::Move, Scope::Launcher, &[Chord::key(Key::Arrows), Chord::key(Key::Tab)]),
+    keys(Action::Select, Scope::Launcher, &[Chord::key(Key::Enter)]),
+    keys(Action::Back, Scope::Launcher, &[Chord::key(Key::Escape)]),
+    keys(Action::Options, Scope::Launcher, &[Chord::key(Key::F2), Chord::shift(Key::F10)]),
+    keys(Action::AddPc, Scope::Launcher, &[Chord::ctrl(Key::N)]),
+    keys(Action::Unstar, Scope::Launcher, &[Chord::key(Key::Delete)]),
+    keys(Action::ZoomIn, Scope::Launcher, &[Chord::ctrl(Key::Plus)]),
+    keys(Action::ZoomOut, Scope::Launcher, &[Chord::ctrl(Key::Minus)]),
+    keys(Action::ZoomReset, Scope::Launcher, &[Chord::ctrl(Key::Zero)]),
+    keys(Action::Fullscreen, Scope::Launcher, &[Chord::key(Key::F11)]),
+    keys(Action::Screenshot, Scope::Anywhere, &[Chord::key(Key::F12)]),
+    keys(Action::StreamControls, Scope::Stream, &[Chord::nightjar(Key::Tab)]),
+    keys(Action::StreamShortcuts, Scope::Stream, &[Chord::nightjar(Key::H)]),
+    keys(Action::Disconnect, Scope::Stream, &[Chord::nightjar(Key::Q)]),
+    keys(Action::Capture, Scope::Stream, &[Chord::nightjar(Key::Z)]),
+    keys(Action::MouseMode, Scope::Stream, &[Chord::nightjar(Key::M)]),
+    keys(Action::Overlay, Scope::Stream, &[Chord::nightjar(Key::S)]),
+    keys(Action::SendClipboard, Scope::Stream, &[Chord::nightjar(Key::V)]),
+    keys(Action::FetchClipboard, Scope::Stream, &[Chord::nightjar(Key::C)]),
+    keys(Action::Fullscreen, Scope::Stream, &[Chord::nightjar(Key::X)]),
+    keys(Action::Minimize, Scope::Stream, &[Chord::nightjar(Key::D)]),
+];
+
+/// The bindings that work in `scope`, in list order.
+pub fn keys_in(scope: Scope) -> impl Iterator<Item = &'static KeyBinding> {
+    KEYS.iter().filter(move |b| b.scope.covers(scope))
+}
+
+/// What a key press does in `scope`, by its physical key and the modifiers held.
+pub fn key_action(scope: Scope, scancode: SDL_Scancode, mods: SDL_Keymod) -> Option<Action> {
+    keys_in(scope).find(|b| b.chords.iter().any(|c| c.key.scancode() == Some(scancode) && c.held(mods))).map(|b| b.action)
+}
+
+/// The first chord for `action` in `scope`, for a hint beside a menu entry.
+pub fn chord_for(scope: Scope, action: Action) -> Option<Chord> {
+    keys_in(scope).find(|b| b.action == action).and_then(|b| b.chords.first().copied())
+}
+
+/// Whether egui saw any of `action`'s chords for the launcher this frame. While a text field has
+/// focus (`typing`), a chord that types a character (? alone) belongs to the field.
+pub fn pressed(input: &egui::InputState, action: Action, typing: bool) -> bool {
+    keys_in(Scope::Launcher)
+        .filter(|b| b.action == action)
+        .any(|b| b.chords.iter().any(|c| !(typing && c.types()) && c.pressed(input)))
+}
+
+/// A controller button by its place, as SDL names them; the names on it follow the controller
+/// (`glyphs::Style`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Button {
+    South,
+    East,
+    West,
+    North,
+    Start,
+    Back,
+    LeftShoulder,
+    RightShoulder,
+    DPad,
+    LeftStick,
+}
+
+impl Button {
+    pub fn from_sdl(button: SDL_GamepadButton) -> Option<Self> {
+        Some(match button {
+            SDL_GAMEPAD_BUTTON_SOUTH => Button::South,
+            SDL_GAMEPAD_BUTTON_EAST => Button::East,
+            SDL_GAMEPAD_BUTTON_WEST => Button::West,
+            SDL_GAMEPAD_BUTTON_NORTH => Button::North,
+            SDL_GAMEPAD_BUTTON_START => Button::Start,
+            SDL_GAMEPAD_BUTTON_BACK => Button::Back,
+            SDL_GAMEPAD_BUTTON_LEFT_SHOULDER => Button::LeftShoulder,
+            SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER => Button::RightShoulder,
+            SDL_GAMEPAD_BUTTON_DPAD_UP | SDL_GAMEPAD_BUTTON_DPAD_DOWN | SDL_GAMEPAD_BUTTON_DPAD_LEFT | SDL_GAMEPAD_BUTTON_DPAD_RIGHT => Button::DPad,
+            _ => return None,
+        })
+    }
+
+    /// The button's bit in `1 << SDL_GamepadButton` masks; none for the D-pad and the stick.
+    pub fn bit(self) -> u32 {
+        let button = match self {
+            Button::South => SDL_GAMEPAD_BUTTON_SOUTH,
+            Button::East => SDL_GAMEPAD_BUTTON_EAST,
+            Button::West => SDL_GAMEPAD_BUTTON_WEST,
+            Button::North => SDL_GAMEPAD_BUTTON_NORTH,
+            Button::Start => SDL_GAMEPAD_BUTTON_START,
+            Button::Back => SDL_GAMEPAD_BUTTON_BACK,
+            Button::LeftShoulder => SDL_GAMEPAD_BUTTON_LEFT_SHOULDER,
+            Button::RightShoulder => SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER,
+            Button::DPad | Button::LeftStick => return 0,
+        };
+        1 << button.0
+    }
+}
+
+/// How the buttons are pressed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Press {
+    /// Any one of them.
+    Any(&'static [Button]),
+    /// All of them together.
+    Together(&'static [Button]),
+    /// The button held down for a moment.
+    Hold(Button),
+    /// The quit combo chosen in the settings (`gamepad::quit_mask`).
+    QuitCombo,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct PadBinding {
+    pub action: Action,
+    pub scope: Scope,
+    pub press: Press,
+}
+
+const fn pad(action: Action, scope: Scope, press: Press) -> PadBinding {
+    PadBinding { action, scope, press }
+}
+
+/// Every controller button and combo Nightjar answers to itself, in the order the lists show them.
+/// A and B trade places with the Nintendo layout setting ([`pad_action`]).
+pub const PAD: &[PadBinding] = &[
+    pad(Action::Move, Scope::Launcher, Press::Any(&[Button::DPad, Button::LeftStick])),
+    pad(Action::Select, Scope::Launcher, Press::Any(&[Button::South])),
+    pad(Action::Back, Scope::Launcher, Press::Any(&[Button::East, Button::Back])),
+    pad(Action::Options, Scope::Launcher, Press::Any(&[Button::West])),
+    pad(Action::Unstar, Scope::Launcher, Press::Any(&[Button::North])),
+    pad(Action::OpenSettings, Scope::Launcher, Press::Any(&[Button::Start])),
+    pad(Action::StreamControls, Scope::Stream, Press::Together(&[Button::Start, Button::Back])),
+    pad(Action::Disconnect, Scope::Stream, Press::QuitCombo),
+    pad(Action::ControllerMouse, Scope::Stream, Press::Hold(Button::Start)),
+];
+
+pub fn pad_in(scope: Scope) -> impl Iterator<Item = &'static PadBinding> {
+    PAD.iter().filter(move |b| b.scope.covers(scope))
+}
+
+/// What a button does in the launcher; `swap` is the Nintendo layout setting, with which the
+/// south button goes back and the east one selects.
+pub fn pad_action(button: Button, swap: bool) -> Option<Action> {
+    let button = match (swap, button) {
+        (true, Button::South) => Button::East,
+        (true, Button::East) => Button::South,
+        _ => button,
+    };
+    pad_in(Scope::Launcher).find(|b| matches!(b.press, Press::Any(buttons) if buttons.contains(&button))).map(|b| b.action)
+}
+
+/// The buttons that open the stream controls together, as a `1 << SDL_GamepadButton` mask.
+pub fn stream_controls_mask() -> u32 {
+    pad_in(Scope::Stream)
+        .find_map(|b| match (b.action, b.press) {
+            (Action::StreamControls, Press::Together(buttons)) => Some(buttons.iter().map(|b| b.bit()).fold(0, |a, b| a | b)),
+            _ => None,
+        })
+        .unwrap_or(0)
+}
+
+/// The buttons of a quit combo, in the order the lists name them.
+pub fn quit_buttons(combo: crate::config::GamepadQuitCombo) -> Vec<Button> {
+    let mask = crate::gamepad::quit_mask(combo);
+    [Button::Start, Button::Back, Button::LeftShoulder, Button::RightShoulder, Button::South, Button::East, Button::West, Button::North]
+        .into_iter()
+        .filter(|b| mask & b.bit() != 0)
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -249,5 +705,109 @@ mod tests {
         let before = queue.len();
         assert_eq!(send(&["ALT".into(), "TAB".into()], &HashSet::new(), &mut queue), Err(InputError::QueueFull));
         assert_eq!(queue.len(), before);
+    }
+
+    /// The source of a handler, without its comments, for the checks below.
+    fn code(source: &str) -> String {
+        source.lines().map(|line| line.split("//").next().unwrap_or("")).collect::<Vec<_>>().join("
+")
+    }
+
+    /// Every key in the list has a handler that matches on its action, so the help never lists a
+    /// key that does nothing: the stream's chords in stream/input.rs, F12 in the stream and the
+    /// launcher's F11 and F12 in main.rs, F1 and ? on the Help page. The launcher keys egui's pages
+    /// handle themselves are pressed in `ui/help/tests.rs`.
+    #[test]
+    fn every_bound_key_has_a_handler() {
+        let input = code(include_str!("stream/input.rs"));
+        let main = code(include_str!("main.rs"));
+        let help = code(include_str!("ui/help.rs"));
+        for binding in KEYS {
+            let name = format!("Action::{:?}", binding.action);
+            let handled = match binding.scope {
+                Scope::Stream => input.contains(&name) || main.contains(&name),
+                Scope::Anywhere => main.contains("Scope::Stream") && main.matches(&name).count() >= 2,
+                Scope::Launcher => match binding.action {
+                    Action::Fullscreen => main.contains(&name),
+                    Action::Help => help.contains(&name),
+                    // Pressed in ui/help/tests.rs.
+                    Action::Move | Action::Select | Action::Back | Action::Options | Action::AddPc | Action::Unstar
+                    | Action::ZoomIn | Action::ZoomOut | Action::ZoomReset => true,
+                    _ => false,
+                },
+            };
+            assert!(handled, "{:?} in {:?} has no handler", binding.action, binding.scope);
+        }
+        for binding in PAD {
+            let name = format!("Action::{:?}", binding.action);
+            let handled = match (binding.scope, binding.press) {
+                (Scope::Launcher, Press::Any(_)) => binding.action == Action::Move || main.contains(&name),
+                (Scope::Stream, Press::Together(_)) => include_str!("gamepad.rs").contains("stream_controls_mask()"),
+                (Scope::Stream, Press::QuitCombo) => include_str!("gamepad.rs").contains("quit_mask(self.quit_combo)"),
+                (Scope::Stream, Press::Hold(Button::Start)) => include_str!("controller_mouse.rs").contains("750"),
+                _ => false,
+            };
+            assert!(handled, "{:?} {:?} has no handler", binding.action, binding.press);
+        }
+    }
+
+    /// Each chord comes back as its action from SDL's key and modifiers, and only with all of its
+    /// modifiers: a host's own Ctrl+Alt chords still go to the PC.
+    #[test]
+    fn chords_resolve_to_their_action_and_only_with_their_modifiers() {
+        let ctrl_alt_shift = SDL_Keymod(SDL_KMOD_LCTRL.0 | SDL_KMOD_LALT.0 | SDL_KMOD_LSHIFT.0);
+        let ctrl_alt = SDL_Keymod(SDL_KMOD_LCTRL.0 | SDL_KMOD_LALT.0);
+        for binding in keys_in(Scope::Stream).filter(|b| b.scope == Scope::Stream) {
+            for chord in binding.chords {
+                let code = chord.key.scancode().expect("a stream chord is a physical key");
+                assert_eq!(key_action(Scope::Stream, code, ctrl_alt_shift), Some(binding.action), "{chord:?}");
+                assert_eq!(key_action(Scope::Stream, code, ctrl_alt), None, "{chord:?} without Shift reaches the PC");
+                assert_eq!(key_action(Scope::Launcher, code, ctrl_alt_shift).filter(|a| *a == binding.action), None, "{chord:?} is the stream's");
+            }
+        }
+        assert_eq!(key_action(Scope::Stream, SDL_SCANCODE_F12, SDL_KMOD_NONE), Some(Action::Screenshot));
+        assert_eq!(key_action(Scope::Launcher, SDL_SCANCODE_F12, SDL_KMOD_NONE), Some(Action::Screenshot));
+        assert_eq!(key_action(Scope::Launcher, SDL_SCANCODE_F11, SDL_KMOD_NONE), Some(Action::Fullscreen));
+        assert_eq!(key_action(Scope::Stream, SDL_SCANCODE_F11, SDL_KMOD_NONE), None, "F11 goes to the game");
+        assert_eq!(key_action(Scope::Stream, SDL_SCANCODE_F1, SDL_KMOD_NONE), None, "F1 goes to the game");
+        // No two bindings in one place share a chord.
+        for scope in [Scope::Launcher, Scope::Stream] {
+            let chords: Vec<Chord> = keys_in(scope).flat_map(|b| b.chords.iter().copied()).collect();
+            for (n, a) in chords.iter().enumerate() {
+                assert!(!chords[n + 1..].contains(a), "{a:?} is bound twice in {scope:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn controller_buttons_follow_the_list_and_the_nintendo_layout() {
+        assert_eq!(pad_action(Button::South, false), Some(Action::Select));
+        assert_eq!(pad_action(Button::East, false), Some(Action::Back));
+        assert_eq!(pad_action(Button::South, true), Some(Action::Back));
+        assert_eq!(pad_action(Button::East, true), Some(Action::Select));
+        assert_eq!(pad_action(Button::Back, true), Some(Action::Back));
+        assert_eq!(pad_action(Button::West, false), Some(Action::Options));
+        assert_eq!(pad_action(Button::North, false), Some(Action::Unstar));
+        assert_eq!(pad_action(Button::Start, false), Some(Action::OpenSettings));
+        assert_eq!(pad_action(Button::LeftShoulder, false), None);
+        assert_eq!(stream_controls_mask(), 1 << SDL_GAMEPAD_BUTTON_START.0 | 1 << SDL_GAMEPAD_BUTTON_BACK.0);
+        use crate::config::GamepadQuitCombo;
+        assert_eq!(quit_buttons(GamepadQuitCombo::StartSelectLbRb), [Button::Start, Button::Back, Button::LeftShoulder, Button::RightShoulder]);
+        for combo in GamepadQuitCombo::ALL {
+            let mask = quit_buttons(combo).iter().fold(0, |m, b| m | b.bit());
+            assert_eq!(mask, crate::gamepad::quit_mask(combo), "{combo:?}");
+        }
+    }
+
+    #[test]
+    fn chords_read_in_the_language_in_use_and_typing_keys_stay_in_text_fields() {
+        assert_eq!(Chord::nightjar(Key::Q).text(), "Ctrl+Alt+Shift+Q");
+        crate::strings::set(crate::strings::Lang::De);
+        assert_eq!(Chord::nightjar(Key::Q).text(), "Strg+Alt+Umschalt+Q");
+        assert_eq!(Chord::key(Key::Delete).text(), "Entf");
+        crate::strings::set(crate::strings::Lang::En);
+        assert!(Chord::key(Key::Question).types());
+        assert!(!Chord::key(Key::F1).types());
+        assert!(!Chord::ctrl(Key::N).types());
     }
 }

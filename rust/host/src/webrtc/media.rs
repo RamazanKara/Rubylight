@@ -13,7 +13,6 @@ use anyhow::{Context, Result, anyhow, bail};
 use butterpollo_core::{audio::OpusLayout, network_pacing};
 use butterpollo_windows::timing::{Signal, Timer};
 use socket2::{Domain, Protocol as SockProtocol, Socket, Type};
-use std::borrow::Cow;
 use std::collections::VecDeque;
 use std::net::{SocketAddr, UdpSocket};
 use std::sync::Arc;
@@ -230,11 +229,11 @@ fn read_leb128(data: &[u8]) -> Option<(usize, usize)> {
 }
 
 /// Drop the temporal-delimiter OBUs: RFC 9628 says not to send them, and the receiver adds its
-/// own. Other OBUs pass byte for byte.
-pub fn strip_av1_temporal_delimiters(data: &[u8]) -> Result<Cow<'_, [u8]>> {
+/// own. Other OBUs pass byte for byte, moved down in the frame's own buffer.
+pub fn strip_av1_temporal_delimiters(mut data: Vec<u8>) -> Result<Vec<u8>> {
     const OBU_TEMPORAL_DELIMITER: u8 = 2;
-    let mut keep: Vec<(usize, usize)> = Vec::new();
-    let mut found = false;
+    // Where the next kept OBU goes.
+    let mut kept = 0;
     let mut at = 0;
     while at < data.len() {
         let header = data[at];
@@ -256,21 +255,16 @@ pub fn strip_av1_temporal_delimiters(data: &[u8]) -> Result<Cow<'_, [u8]>> {
                 end - data.len()
             );
         }
-        if obu_type == OBU_TEMPORAL_DELIMITER {
-            found = true;
-        } else {
-            keep.push((at, end));
+        if obu_type != OBU_TEMPORAL_DELIMITER {
+            if kept != at {
+                data.copy_within(at..end, kept);
+            }
+            kept += end - at;
         }
         at = end;
     }
-    if !found {
-        return Ok(Cow::Borrowed(data));
-    }
-    Ok(Cow::Owned(
-        keep.iter()
-            .flat_map(|&(a, b)| data[a..b].iter().copied())
-            .collect(),
-    ))
+    data.truncate(kept);
+    Ok(data)
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -611,13 +605,15 @@ impl Engine {
 
     /// Packetize one access unit. `Ok(false)` means the peer isn't connected yet, so nothing was
     /// sent (str0m would drop it); the caller already asked for a keyframe on `Connected`.
-    pub fn write_video(&mut self, now: Instant, frame: &VideoFrame) -> Result<bool> {
+    /// The frame's buffer goes to str0m as it is, not copied.
+    pub fn write_video(&mut self, now: Instant, frame: VideoFrame) -> Result<bool> {
         if !self.is_connected() {
             return Ok(false);
         }
+        let packets = frame.data.len().div_ceil(RTP_PAYLOAD_TARGET).max(1);
         let data = match self.codec {
-            VideoCodec::Av1 => strip_av1_temporal_delimiters(&frame.data)?,
-            _ => Cow::Borrowed(frame.data.as_slice()),
+            VideoCodec::Av1 => strip_av1_temporal_delimiters(frame.data)?,
+            _ => frame.data,
         };
         let time = MediaTime::new(
             ticks(frame.capture.saturating_duration_since(self.start), 90_000),
@@ -632,17 +628,16 @@ impl Engine {
                 Pt::new_with_value(VIDEO_PT),
                 frame.capture.min(now),
                 time,
-                data.into_owned(),
+                data,
             )
             .map_err(|e| anyhow!("video write failed: {e}"))?;
-        let packets = frame.data.len().div_ceil(RTP_PAYLOAD_TARGET).max(1);
         let wire = packets * (DATAGRAM_TARGET + network_pacing::overhead(self.local.is_ipv6()));
         self.frame_wire_bytes = self.frame_wire_bytes.max(wire);
         Ok(true)
     }
 
     /// One Opus packet. Stereo and multistream payloads are not looked at.
-    pub fn write_audio(&mut self, now: Instant, packet: &AudioPacket) -> Result<bool> {
+    pub fn write_audio(&mut self, now: Instant, packet: AudioPacket) -> Result<bool> {
         if !self.is_connected() {
             return Ok(false);
         }
@@ -665,7 +660,7 @@ impl Engine {
                 Pt::new_with_value(AUDIO_PT),
                 packet.capture.min(now),
                 time,
-                packet.data.clone(),
+                packet.data,
             )
             .map_err(|e| anyhow!("audio write failed: {e}"))?;
         Ok(true)
@@ -1573,13 +1568,12 @@ fn handle_command(engine: &mut Engine, shared: &Shared, command: Command) {
                 counters.video_dropped.fetch_add(1, Ordering::Relaxed);
                 return;
             }
-            match engine.write_video(now, &frame) {
+            let (bytes, keyframe) = (frame.data.len() as u64, frame.keyframe);
+            match engine.write_video(now, frame) {
                 Ok(true) => {
                     counters.video_frames.fetch_add(1, Ordering::Relaxed);
-                    counters
-                        .video_bytes
-                        .fetch_add(frame.data.len() as u64, Ordering::Relaxed);
-                    if frame.keyframe {
+                    counters.video_bytes.fetch_add(bytes, Ordering::Relaxed);
+                    if keyframe {
                         shared.need_keyframe.store(false, Ordering::Release);
                     }
                 }
@@ -1599,7 +1593,7 @@ fn handle_command(engine: &mut Engine, shared: &Shared, command: Command) {
         }
         Command::Audio(packet) => {
             shared.pending_audio.fetch_sub(1, Ordering::AcqRel);
-            match engine.write_audio(now, &packet) {
+            match engine.write_audio(now, packet) {
                 Ok(true) => {
                     counters.audio_packets.fetch_add(1, Ordering::Relaxed);
                 }
@@ -1953,7 +1947,7 @@ pub(crate) mod tests {
                 keyframe,
             };
             assert!(
-                self.host.write_video(self.now, &frame).unwrap(),
+                self.host.write_video(self.now, frame).unwrap(),
                 "not connected"
             );
         }
@@ -1965,7 +1959,7 @@ pub(crate) mod tests {
                 position,
             };
             assert!(
-                self.host.write_audio(self.now, &packet).unwrap(),
+                self.host.write_audio(self.now, packet).unwrap(),
                 "not connected"
             );
         }
@@ -2223,13 +2217,13 @@ pub(crate) mod tests {
             capture: link.at(0),
             keyframe: true,
         };
-        assert!(!link.host.write_video(link.now, &frame).unwrap());
+        assert!(!link.host.write_video(link.now, frame).unwrap());
         let packet = AudioPacket {
             data: vec![1, 2, 3],
             capture: link.at(0),
             position: 0,
         };
-        assert!(!link.host.write_audio(link.now, &packet).unwrap());
+        assert!(!link.host.write_audio(link.now, packet).unwrap());
     }
 
     #[test]
@@ -2570,31 +2564,30 @@ pub(crate) mod tests {
 
     #[test]
     fn av1_temporal_delimiters_are_removed_and_the_rest_kept() {
+        let strip = |frame: &[u8]| strip_av1_temporal_delimiters(frame.to_vec()).unwrap();
         let keyframe = av1_frame(true, 300);
-        assert_eq!(
-            strip_av1_temporal_delimiters(&keyframe).unwrap().as_ref(),
-            &keyframe[2..]
-        );
+        assert_eq!(strip(&keyframe), &keyframe[2..]);
         let plain = obu(6, &filler(200, 1));
-        assert!(matches!(
-            strip_av1_temporal_delimiters(&plain).unwrap(),
-            Cow::Borrowed(_)
-        ));
+        assert_eq!(strip(&plain), plain);
         // A TD in the middle (two temporal units in one buffer) goes too.
         let two = [plain.clone(), TD.to_vec(), plain.clone()].concat();
-        assert_eq!(
-            strip_av1_temporal_delimiters(&two).unwrap().as_ref(),
-            [plain.clone(), plain].concat()
-        );
+        assert_eq!(strip(&two), [plain.clone(), plain].concat());
         // An OBU without a size field takes the rest.
         let tail = [obu(1, &[1, 2, 3]), vec![(6 << 3), 9, 9, 9]].concat();
-        assert!(matches!(
-            strip_av1_temporal_delimiters(&tail).unwrap(),
-            Cow::Borrowed(_)
-        ));
+        assert_eq!(strip(&tail), tail);
         // Malformed input is an error, not a guess.
-        assert!(strip_av1_temporal_delimiters(&[0x32, 0x40, 1, 2]).is_err());
-        assert!(strip_av1_temporal_delimiters(&[0x80, 0]).is_err());
+        assert!(strip_av1_temporal_delimiters(vec![0x32, 0x40, 1, 2]).is_err());
+        assert!(strip_av1_temporal_delimiters(vec![0x80, 0]).is_err());
+    }
+
+    #[test]
+    fn av1_frames_keep_their_buffer_when_delimiters_go() {
+        // The frame moves on to str0m in the buffer the encoder filled: no copy.
+        for frame in [av1_frame(true, 4_000), obu(6, &filler(4_000, 1))] {
+            let at = frame.as_ptr();
+            let stripped = strip_av1_temporal_delimiters(frame).unwrap();
+            assert_eq!(stripped.as_ptr(), at);
+        }
     }
 
     fn rtp_packet(len: usize) -> Outgoing {
@@ -3171,7 +3164,7 @@ pub(crate) mod tests {
             capture: link.at(0),
             keyframe: true,
         };
-        assert!(!link.host.write_video(link.now, &frame).unwrap());
+        assert!(!link.host.write_video(link.now, frame).unwrap());
 
         while !link.host.is_closed() {
             link.step(Duration::from_millis(50));

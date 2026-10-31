@@ -623,6 +623,12 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     private long vsyncIntervalNs;
     private long vsyncPresentationDeadlineNs;
     private long appVsyncOffsetNs;
+    /** The display's fixed presentation deadline, kept for the frame timeline log line. */
+    private long reportedPresentationDeadlineNs;
+    /** The Android 13 frame timeline callback ({@link FrameTimelineCallback}), created on first use. */
+    private Object frameTimelineCallback;
+    /** The frame timeline deadline last written to the log; -1 before the first. */
+    private long loggedDeadlineLeadNs = -1;
     private DisplayManager displayManager;
     private Display streamDisplay;
     private final DisplayManager.DisplayListener displayListener = new DisplayManager.DisplayListener() {
@@ -3020,6 +3026,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             outputHasArrSupport = arrSupported;
             vsyncIntervalNs = (long) (1000000000.0 / physicalRefreshRate);
             vsyncPresentationDeadlineNs = streamDisplay.getPresentationDeadlineNanos();
+            reportedPresentationDeadlineNs = vsyncPresentationDeadlineNs;
             appVsyncOffsetNs = streamDisplay.getAppVsyncOffsetNanos();
             // Wait for a sample from the new mode before reporting its phase.
             vsyncTimeNs = 0;
@@ -3029,14 +3036,48 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
 
     @Override
     public void doFrame(long frameTimeNanos) {
+        onVsync(frameTimeNanos, 0, -1);
+    }
+
+    /**
+     * Android 13 and newer: the vsync with SurfaceFlinger's own timeline for it. The grid anchor
+     * and the latch deadline come from the preferred frame timeline instead of the display's
+     * fixed offsets (see {@link VsyncTimeline}); values that cannot be right keep those.
+     */
+    void onFrameTimeline(long frameTimeNanos, long expectedPresentNs, long deadlineNs) {
+        long intervalNs;
+        synchronized (vsyncMonitor) {
+            intervalNs = vsyncIntervalNs;
+        }
+        long anchorNs = VsyncTimeline.anchorNs(expectedPresentNs, frameTimeNanos, intervalNs);
+        // A presentation time that cannot be right says nothing about the deadline either.
+        long leadNs = anchorNs > 0 ? VsyncTimeline.deadlineLeadNs(expectedPresentNs, deadlineNs, intervalNs) : -1;
+        onVsync(frameTimeNanos, anchorNs, leadNs);
+    }
+
+    /**
+     * One vsync. anchorNs is a vsync time from the frame timeline (0: derive it from the frame
+     * time and the app vsync offset); deadlineLeadNs how long before its vsync a buffer must be
+     * queued, from the frame timeline (negative: keep the display's fixed value).
+     */
+    private void onVsync(long frameTimeNanos, long anchorNs, long deadlineLeadNs) {
         // Do nothing if we're stopping
         if (stopping || !outputVsyncAvailable) {
             return;
         }
 
+        long reportedNs;
         synchronized (vsyncMonitor) {
-            frameTimeNanos -= appVsyncOffsetNs;
+            frameTimeNanos = anchorNs > 0 ? anchorNs : frameTimeNanos - appVsyncOffsetNs;
             vsyncTimeNs = frameTimeNanos;
+            if (deadlineLeadNs >= 0) vsyncPresentationDeadlineNs = deadlineLeadNs;
+            reportedNs = reportedPresentationDeadlineNs;
+        }
+        if (deadlineLeadNs >= 0 && VsyncTimeline.worthLogging(loggedDeadlineLeadNs, deadlineLeadNs)) {
+            loggedDeadlineLeadNs = deadlineLeadNs;
+            LimeLog.info(String.format(Locale.US,
+                    "Vsync timeline: buffers due %.2f ms before their vsync (the display reports %.2f ms)",
+                    deadlineLeadNs / 1e6, reportedNs / 1e6));
         }
         if ((videoFormat & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) != 0 &&
                 FramePacingPolicy.usesPyroWaveDisplayClock(prefs.framePacing, prefs.vrr, outputVsyncAvailable)) {
@@ -3047,7 +3088,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         if (prefs.framePacing != PreferenceConfiguration.FRAME_PACING_BALANCED ||
                 (videoFormat & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) != 0) {
             // Other modes render from the decoder thread; this callback only tracks vsync.
-            Choreographer.getInstance().postFrameCallback(this);
+            postVsyncCallback();
             return;
         }
 
@@ -3100,7 +3141,54 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         doCodecRecoveryIfRequired(CR_FLAG_CHOREOGRAPHER);
 
         // Request another callback for next frame
-        Choreographer.getInstance().postFrameCallback(this);
+        postVsyncCallback();
+    }
+
+    /** Asks for the next vsync, with its frame timeline on Android 13 and newer. Choreographer thread only. */
+    private void postVsyncCallback() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (frameTimelineCallback == null) frameTimelineCallback = FrameTimelineCallback.create(this);
+            FrameTimelineCallback.post(frameTimelineCallback);
+        } else {
+            Choreographer.getInstance().postFrameCallback(this);
+        }
+    }
+
+    /** Cancels the vsync request. Choreographer thread only. */
+    private void removeVsyncCallback() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && frameTimelineCallback != null) {
+            FrameTimelineCallback.remove(frameTimelineCallback);
+        }
+        Choreographer.getInstance().removeFrameCallback(this);
+    }
+
+    /** Android 13's vsync callback, kept apart so older versions never load its types. */
+    @TargetApi(Build.VERSION_CODES.TIRAMISU)
+    private static final class FrameTimelineCallback implements Choreographer.VsyncCallback {
+        private final MediaCodecDecoderRenderer renderer;
+
+        private FrameTimelineCallback(MediaCodecDecoderRenderer renderer) {
+            this.renderer = renderer;
+        }
+
+        static Object create(MediaCodecDecoderRenderer renderer) {
+            return new FrameTimelineCallback(renderer);
+        }
+
+        static void post(Object callback) {
+            Choreographer.getInstance().postVsyncCallback((FrameTimelineCallback) callback);
+        }
+
+        static void remove(Object callback) {
+            Choreographer.getInstance().removeVsyncCallback((FrameTimelineCallback) callback);
+        }
+
+        @Override
+        public void onVsync(Choreographer.FrameData data) {
+            Choreographer.FrameTimeline timeline = data.getPreferredFrameTimeline();
+            renderer.onFrameTimeline(data.getFrameTimeNanos(), timeline.getExpectedPresentationTimeNanos(),
+                    timeline.getDeadlineNanos());
+        }
     }
 
     private void startChoreographerThread() {
@@ -3122,7 +3210,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                 displayManager.registerDisplayListener(displayListener, choreographerHandler);
                 updateDisplayTiming();
                 if (outputVsyncAvailable) {
-                    Choreographer.getInstance().postFrameCallback(MediaCodecDecoderRenderer.this);
+                    postVsyncCallback();
                 }
             }
         });
@@ -3571,7 +3659,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
 
                     // Deregister the frame callback (if registered)
                     if (outputVsyncAvailable) {
-                        Choreographer.getInstance().removeFrameCallback(MediaCodecDecoderRenderer.this);
+                        removeVsyncCallback();
                     }
                 }
             });

@@ -155,6 +155,32 @@ public class MediaCodecArrTimingTest {
         }
     }
 
+    @Test public void theFrameTimelineSetsTheVsyncAndTheLatchDeadline() {
+        try (ActivityController<Activity> controller = Robolectric.buildActivity(Activity.class).create()) {
+            Display display = controller.get().getWindowManager().getDefaultDisplay();
+            MediaCodecDecoderRenderer renderer = renderer(controller.get(), display, false);
+            long interval = 16_666_667L;
+            ReflectionHelpers.setField(renderer, "vsyncIntervalNs", interval);
+            ReflectionHelpers.setField(renderer, "vsyncPresentationDeadlineNs", 20_000_000L);
+            ReflectionHelpers.setField(renderer, "appVsyncOffsetNs", 1_000_000L);
+            long frame = 1_000_000_000L;
+            long present = frame + 2 * interval + 3_000_000L;
+            renderer.onFrameTimeline(frame, present, present - 10_600_000L);
+            long vsync = ReflectionHelpers.getField(renderer, "vsyncTimeNs");
+            assertEquals(VsyncTimeline.anchorNs(present, frame, interval), vsync);
+            assertEquals(10_600_000L, (long) ReflectionHelpers.getField(renderer, "vsyncPresentationDeadlineNs"));
+
+            // A deadline after its presentation time keeps the last good deadline.
+            renderer.onFrameTimeline(frame, present, present + 1);
+            assertEquals(vsync, (long) ReflectionHelpers.getField(renderer, "vsyncTimeNs"));
+            assertEquals(10_600_000L, (long) ReflectionHelpers.getField(renderer, "vsyncPresentationDeadlineNs"));
+            // A presentation before the frame time: the fixed app vsync offset, and no deadline.
+            renderer.onFrameTimeline(frame, frame - 5_000_000L, frame - 15_000_000L);
+            assertEquals(frame - 1_000_000L, (long) ReflectionHelpers.getField(renderer, "vsyncTimeNs"));
+            assertEquals(10_600_000L, (long) ReflectionHelpers.getField(renderer, "vsyncPresentationDeadlineNs"));
+        }
+    }
+
     private static MediaCodecDecoderRenderer renderer(Activity activity, Display display, boolean vrr) {
         ReflectionHelpers.setStaticField(MediaCodecHelper.class, "initialized", true);
         PreferenceConfiguration prefs = new PreferenceConfiguration();

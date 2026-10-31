@@ -1286,7 +1286,7 @@ def nightjar(t):
             ImageDraw.Draw(im).ellipse((cx-28, y0+h/2-90, cx+28, y0+h/2-34), outline=OUTLINE, width=3)
         label_under(im, x0+w/2, y0+h+36, 'Video settings on a handheld', q*(1-swap), 26, MUTED)
         label_under(im, x0+w/2, y0+h+36, 'Files sent from a handheld to the PC', q*swap, 26, MUTED)
-    reveal(im, 100, 1014, 'Real screenshots · Nightjar 4.0 on a TCL TV and a Retroid Pocket 6', 26, t, at=1.4,
+    reveal(im, 100, 1014, 'Real screenshots · Nightjar on a TCL TV and a Retroid Pocket 6', 26, t, at=1.4,
            color=MUTED, weight='regular', rise=8)
     return im
 

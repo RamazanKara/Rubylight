@@ -1,4 +1,5 @@
-use super::*;
+use super::{warnings::warning_bit, *};
+use crate::state::Client;
 #[test]
 fn events_expire_and_clearing_absent_codes_skips_the_lock() {
     let warnings = Warnings::default();

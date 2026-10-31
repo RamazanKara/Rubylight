@@ -122,7 +122,7 @@ pub const TABLE: &[(&str, &str)] = &[
     ("Override", "Überschreiben"),
     ("Offline", "Offline"),
     ("Checking…", "Wird geprüft…"),
-    ("Not paired · select to pair", "Nicht gekoppelt · zum Koppeln auswählen"),
+    ("Not paired · Select to pair", "Nicht gekoppelt · Zum Koppeln auswählen"),
     ("Paired · an app is running", "Gekoppelt · eine App läuft"),
     ("Paired · ready", "Gekoppelt · bereit"),
     ("Running", "Läuft"),

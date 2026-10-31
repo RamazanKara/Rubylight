@@ -1339,7 +1339,8 @@ impl Launcher {
             ui.horizontal_wrapped(|ui| {
                 ui.spacing_mut().item_spacing = vec2(16.0, 16.0);
                 for (host, source) in view.hosts.list.iter().zip(&sources) {
-                    let line = console::host_line(source).text();
+                    // A PC to pair has no games to speak of yet: its state alone fits the card.
+                    let line = if host.paired() { console::host_line(source).text() } else { String::new() };
                     let response = host_card(ui, host, Some(&line));
                     self.focus_item(&response, &format!("host:{}", host.id), std::mem::take(&mut first));
                     if response.clicked() {
@@ -4237,7 +4238,7 @@ fn host_status(host: &Host) -> (String, Role, Role) {
     match (host.reach, host.paired()) {
         (Reach::Offline, _) => (tr("Offline").to_owned(), OUTLINE, OUTLINE),
         (Reach::Unknown, _) => (tr("Checking…").to_owned(), ON_SURFACE_VARIANT, ON_SURFACE_VARIANT),
-        (Reach::Online, false) => (tr("Not paired · select to pair").to_owned(), TERTIARY, ON_SURFACE_VARIANT),
+        (Reach::Online, false) => (tr("Not paired · Select to pair").to_owned(), TERTIARY, ON_SURFACE_VARIANT),
         (Reach::Online, true) => match host.running_app() {
             Some(_) => (tr("Paired · an app is running").to_owned(), OK, OK),
             None => (tr("Paired · ready").to_owned(), OK, OK),
@@ -6383,6 +6384,38 @@ https://192.0.2.7:47990"));
         let lines: Vec<&String> = f.drawn.iter().filter(|t| t.contains("Offline")).collect();
         assert!(!lines.is_empty() && lines.iter().all(|t| t.matches("Offline").count() == 1), "{lines:?} in {:?}", f.drawn);
         assert!(shows(&f, "PCS"), "the section is Android's \"PCs\": {:?}", f.drawn);
+    }
+
+    /// Home's card for a PC to pair says only that, whole: no "Games not loaded yet" cut short after it.
+    #[test]
+    fn the_home_card_of_a_pc_to_pair_fits_its_state() {
+        use nightjar_core::http::native_api::library::{Artwork, Game, Library};
+        crate::theme::own_palette();
+        let ctx = egui::Context::default();
+        crate::theme::apply(&ctx);
+        let mut l = launcher(true, false);
+        l.identity_ready = true;
+        let hosts = Hosts::without_discovery(vec![record("Desk", true, true), HostRecord { address: "192.0.2.12".into(), ..record("Studio", false, false) }], Arc::new(|| {}));
+        let mut f = Frames::over(ctx, l, hosts);
+        f.hosts.list[0].reach = Reach::Online;
+        f.hosts.list[0].info = Some(answer(true, 0));
+        let game = Game {
+            install_id: "install-0".into(),
+            app_id: 1000,
+            title: "Game 00".into(),
+            game_id: None,
+            store: None,
+            installed: Some(true),
+            running: false,
+            artwork: Artwork { cover: None, version: String::new() },
+        };
+        f.hosts.list[0].native.library = Some(Library { revision: "r1".into(), games: vec![game] });
+        f.hosts.list[1].reach = Reach::Online;
+        f.hosts.list[1].info = Some(answer(false, 0));
+        f.l.go(Screen::Home);
+        f.settle();
+        assert!(shows(&f, "Not paired · Select to pair"), "{:?}", f.drawn);
+        assert!(!f.drawn.iter().any(|t| t.contains("Games not") || t.ends_with('…')), "{:?}", f.drawn);
     }
 
     /// Home before any PC speaks of PCs, as Android's Home does, and never of hosts.

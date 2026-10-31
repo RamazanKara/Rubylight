@@ -10,7 +10,7 @@ import static org.junit.Assert.*;
 public class GameInputTest {
     @Test
     public void releasingOneSideOfAModifierKeepsTheOtherSideHeld() throws Exception {
-        Method mask = Game.class.getDeclaredMethod("getModifierMask", int.class);
+        Method mask = GameKeyboardInput.class.getDeclaredMethod("getModifierMask", int.class);
         mask.setAccessible(true);
         int[][] pairs = {{KeyEvent.KEYCODE_CTRL_LEFT, KeyEvent.KEYCODE_CTRL_RIGHT},
                 {KeyEvent.KEYCODE_SHIFT_LEFT, KeyEvent.KEYCODE_SHIFT_RIGHT},

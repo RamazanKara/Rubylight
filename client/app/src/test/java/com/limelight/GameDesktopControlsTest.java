@@ -295,7 +295,7 @@ public class GameDesktopControlsTest {
         fixture.hide();
         fixture.sink.move(10, 10);
         fixture.sink.scroll(10, 10);
-        ReflectionHelpers.callInstanceMethod(fixture.game, "toggleKeyboardOverlay");
+        ReflectionHelpers.callInstanceMethod(fixture.game.keyboardInput, "toggleKeyboardOverlay");
         fixture.sink.move(.02f, .02f);
         fixture.sink.scroll(.02f, .02f);
 
@@ -335,12 +335,12 @@ public class GameDesktopControlsTest {
             FrameLayout parent = new FrameLayout(game);
             parent.addView(stream);
             ReflectionHelpers.setField(game, "streamView", stream);
-            ReflectionHelpers.callInstanceMethod(game, "toggleKeyboardOverlay");
+            ReflectionHelpers.callInstanceMethod(game.keyboardInput, "toggleKeyboardOverlay");
             panel = ReflectionHelpers.getField(game, "keyboardOverlay");
             sink = ReflectionHelpers.getField(panel, "sink");
         }
 
-        void hide() { ReflectionHelpers.callInstanceMethod(game, "hideKeyboardOverlay"); }
+        void hide() { ReflectionHelpers.callInstanceMethod(game.keyboardInput, "hideKeyboardOverlay"); }
 
         TrackpadPointer pointer(boolean local, boolean absolute) {
             StreamView stream = ReflectionHelpers.getField(game, "streamView");

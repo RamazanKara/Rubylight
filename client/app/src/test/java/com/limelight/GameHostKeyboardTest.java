@@ -116,7 +116,7 @@ public class GameHostKeyboardTest {
         StreamView stream = stream(game);
         tap(game, stream, 1800);
         raise(game, HostTextField.KIND_RAISE);
-        HostKeyboard keyboard = ReflectionHelpers.getField(game, "hostKeyboard");
+        HostKeyboard keyboard = ReflectionHelpers.getField(game.keyboardInput, "hostKeyboard");
         assertTrue(keyboard.hostOpened());
 
         insets(game, true, 1000);
@@ -145,7 +145,7 @@ public class GameHostKeyboardTest {
         insets(game, true, 1000);
         assertTrue(stream.getTranslationY() < 0);
         ReflectionHelpers.setField(game, "conn", null);
-        ReflectionHelpers.callInstanceMethod(game, "requestTextInput");
+        ReflectionHelpers.callInstanceMethod(game.keyboardInput, "requestTextInput");
         assertEquals(0, stream.getTranslationY(), 0);
     }
 
@@ -159,10 +159,10 @@ public class GameHostKeyboardTest {
         Game game = game();
         StreamView stream = stream(game);
         LegacyKeyboardInsets legacy = new LegacyKeyboardInsets(game, (View) stream.getParent(),
-                (visible, bottom) -> ReflectionHelpers.callInstanceMethod(game, "onKeyboardInsets",
+                (visible, bottom) -> ReflectionHelpers.callInstanceMethod(game.keyboardInput, "onKeyboardInsets",
                         ClassParameter.from(boolean.class, visible), ClassParameter.from(int.class, bottom)));
         ReflectionHelpers.setField(game, "legacyKeyboard", legacy);
-        HostKeyboard keyboard = ReflectionHelpers.getField(game, "hostKeyboard");
+        HostKeyboard keyboard = ReflectionHelpers.getField(game.keyboardInput, "hostKeyboard");
         tap(game, stream, 1800);
         raise(game, HostTextField.KIND_RAISE, 7);
         assertTrue(keyboard.hostOpened());
@@ -198,7 +198,7 @@ public class GameHostKeyboardTest {
     public void aKeyboardClosedOnAnElementStaysClosedWhenTheHostRaisesItAgain() {
         Game game = game();
         StreamView stream = stream(game);
-        HostKeyboard keyboard = ReflectionHelpers.getField(game, "hostKeyboard");
+        HostKeyboard keyboard = ReflectionHelpers.getField(game.keyboardInput, "hostKeyboard");
         List<String> log = new ArrayList<>();
         Handler handler = new Handler() {
             @Override public void publish(LogRecord record) { log.add(record.getMessage()); }
@@ -256,7 +256,7 @@ public class GameHostKeyboardTest {
         long now = SystemClock.uptimeMillis();
         MotionEvent down = MotionEvent.obtain(now, now, MotionEvent.ACTION_DOWN, 500, y, 0);
         down.setSource(InputDevice.SOURCE_TOUCHSCREEN);
-        ReflectionHelpers.callInstanceMethod(game, "noteStreamPress",
+        ReflectionHelpers.callInstanceMethod(game.keyboardInput, "noteStreamPress",
                 ClassParameter.from(View.class, stream), ClassParameter.from(MotionEvent.class, down));
         down.recycle();
         shadowOf(Looper.getMainLooper()).idle();
@@ -267,7 +267,7 @@ public class GameHostKeyboardTest {
     }
 
     private static void raise(Game game, int kind, int element) {
-        ReflectionHelpers.callInstanceMethod(game, "onHostTextField",
+        ReflectionHelpers.callInstanceMethod(game.keyboardInput, "onHostTextField",
                 ClassParameter.from(int.class, kind), ClassParameter.from(int.class, HostTextField.TYPE_TEXT),
                 ClassParameter.from(int.class, 0), ClassParameter.from(int.class, element));
     }
@@ -283,7 +283,7 @@ public class GameHostKeyboardTest {
         WindowInsetsCompat insets = new WindowInsetsCompat.Builder()
                 .setInsets(WindowInsetsCompat.Type.ime(), Insets.of(0, 0, 0, bottom))
                 .setVisible(WindowInsetsCompat.Type.ime(), visible).build();
-        ReflectionHelpers.callInstanceMethod(game, "onWindowInsets",
+        ReflectionHelpers.callInstanceMethod(game.keyboardInput, "onWindowInsets",
                 ClassParameter.from(WindowInsetsCompat.class, insets));
         shadowOf(Looper.getMainLooper()).idle();
     }

@@ -172,8 +172,8 @@ final class GameOverlays {
         if (game.modernController != null && game.prefConfig.onscreenController) game.modernController.collectVisibleBounds(out);
         if (game.micButton != null) com.limelight.ui.OverlayPlacement.addVisible(game.micButton, parent, out);
         if (game.gameTouchControls != null) game.gameTouchControls.collectVisibleBounds(parent, out);
-        if (game.isKeyboardOverlayVisible()) com.limelight.ui.OverlayPlacement.addVisible(game.keyboardOverlay, parent, out);
-        if (game.isPcKeyboardVisible()) com.limelight.ui.OverlayPlacement.addVisible(game.pcKeyboard, parent, out);
+        if (game.keyboardInput.isKeyboardOverlayVisible()) com.limelight.ui.OverlayPlacement.addVisible(game.keyboardOverlay, parent, out);
+        if (game.keyboardInput.isPcKeyboardVisible()) com.limelight.ui.OverlayPlacement.addVisible(game.pcKeyboard, parent, out);
         // The poor-connection warning sits top right: the overlay keeps out of its way.
         com.limelight.ui.OverlayPlacement.addVisible(game.notificationOverlayView, parent, out);
     }

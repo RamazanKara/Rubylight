@@ -77,7 +77,7 @@ public class GameKeyboardOverlayTest {
         parent.addView(stream);
         game.setContentView(parent);
         ReflectionHelpers.setField(game, "streamView", stream);
-        ReflectionHelpers.callInstanceMethod(game, "toggleKeyboardOverlay");
+        ReflectionHelpers.callInstanceMethod(game.keyboardInput, "toggleKeyboardOverlay");
         View panel = ReflectionHelpers.getField(game, "keyboardOverlay");
         assertEquals(View.VISIBLE, panel.getVisibility());
         InputMethodManager input = (InputMethodManager) game.getSystemService(Context.INPUT_METHOD_SERVICE);
@@ -114,7 +114,7 @@ public class GameKeyboardOverlayTest {
         parent.addView(stream);
         game.setContentView(parent);
         ReflectionHelpers.setField(game, "streamView", stream);
-        ReflectionHelpers.callInstanceMethod(game, "toggleKeyboardOverlay");
+        ReflectionHelpers.callInstanceMethod(game.keyboardInput, "toggleKeyboardOverlay");
         View panel = ReflectionHelpers.getField(game, "keyboardOverlay");
         InputMethodManager input = (InputMethodManager) game.getSystemService(Context.INPUT_METHOD_SERVICE);
         input.showSoftInput(stream, 0);
@@ -143,7 +143,7 @@ public class GameKeyboardOverlayTest {
         assertArrayEquals(new int[] {escape, KeyboardPacket.KEY_UP, modifiers}, connection.keys.get(3));
         assertArrayEquals(new int[] {shift, KeyboardPacket.KEY_UP, KeyboardPacket.MODIFIER_CTRL}, connection.keys.get(4));
         assertArrayEquals(new int[] {ctrl, KeyboardPacket.KEY_UP, 0}, connection.keys.get(5));
-        Map<Short, Byte> pressed = ReflectionHelpers.getField(game, "pressedKeys");
+        Map<Short, Byte> pressed = ReflectionHelpers.getField(game.keyboardInput, "pressedKeys");
         assertTrue(pressed.isEmpty());
     }
 
@@ -183,7 +183,7 @@ public class GameKeyboardOverlayTest {
         RecordingConnection connection = new RecordingConnection();
         Game game = game(connection);
         short ctrl = new KeyboardTranslator().translate(KeyEvent.KEYCODE_CTRL_LEFT, -1);
-        Map<Short, Byte> pressed = ReflectionHelpers.getField(game, "pressedKeys");
+        Map<Short, Byte> pressed = ReflectionHelpers.getField(game.keyboardInput, "pressedKeys");
         pressed.put(ctrl, (byte) 0);
         ReflectionHelpers.setField(game, "modifierFlags", (int) KeyboardPacket.MODIFIER_CTRL);
         sendShortcut(game, KeyEvent.KEYCODE_CTRL_LEFT, KeyEvent.KEYCODE_SHIFT_LEFT, KeyEvent.KEYCODE_ESCAPE);
@@ -216,13 +216,13 @@ public class GameKeyboardOverlayTest {
             Capture capture = new Capture();
             ReflectionHelpers.setField(game, "inputCaptureProvider", capture);
             ReflectionHelpers.setField(game, "cursorVisible", visible);
-            ReflectionHelpers.callInstanceMethod(game, "toggleKeyboardOverlay");
+            ReflectionHelpers.callInstanceMethod(game.keyboardInput, "toggleKeyboardOverlay");
             assertTrue(capture.visible());
             assertTrue((boolean) ReflectionHelpers.getField(game, "grabbedInput"));
             ReflectionHelpers.callInstanceMethod(game, "setInputGrabState",
                     ReflectionHelpers.ClassParameter.from(boolean.class, true));
             assertTrue(capture.visible());
-            ReflectionHelpers.callInstanceMethod(game, "hideKeyboardOverlay");
+            ReflectionHelpers.callInstanceMethod(game.keyboardInput, "hideKeyboardOverlay");
             assertEquals(visible, capture.visible());
             assertTrue((boolean) ReflectionHelpers.getField(game, "grabbedInput"));
         }
@@ -247,7 +247,7 @@ public class GameKeyboardOverlayTest {
     }
 
     static boolean pcKeyboardVisible(Game game) {
-        return (boolean) ReflectionHelpers.callInstanceMethod(game, "isPcKeyboardVisible");
+        return (boolean) ReflectionHelpers.callInstanceMethod(game.keyboardInput, "isPcKeyboardVisible");
     }
 
     static PcKeyboardController pcKeyboardController(Game game) {
@@ -278,12 +278,12 @@ public class GameKeyboardOverlayTest {
     }
 
     static boolean takenByPcKeyboard(Game game, KeyEvent event) {
-        return (boolean) ReflectionHelpers.callInstanceMethod(game, "handlePcKeyboardKey",
+        return (boolean) ReflectionHelpers.callInstanceMethod(game.keyboardInput, "handlePcKeyboardKey",
                 ReflectionHelpers.ClassParameter.from(KeyEvent.class, event));
     }
 
     static android.util.SparseBooleanArray heldPadKeys(Game game) {
-        return ReflectionHelpers.getField(game, "pcKeyboardKeys");
+        return ReflectionHelpers.getField(game.keyboardInput, "pcKeyboardKeys");
     }
 
     static int[] lastKey(RecordingConnection connection) {
@@ -293,17 +293,17 @@ public class GameKeyboardOverlayTest {
     @Test
     public void pcKeyboardOpensAndClosesAndExcludesTheOtherKeyboards() {
         Game game = pcKeyboardGame(new RecordingConnection());
-        ReflectionHelpers.callInstanceMethod(game, "togglePcKeyboard");
+        ReflectionHelpers.callInstanceMethod(game.keyboardInput, "togglePcKeyboard");
         assertTrue(pcKeyboardVisible(game));
         // The extra-keys panel takes over: only one keyboard at a time.
-        ReflectionHelpers.callInstanceMethod(game, "toggleKeyboardOverlay");
+        ReflectionHelpers.callInstanceMethod(game.keyboardInput, "toggleKeyboardOverlay");
         assertFalse(pcKeyboardVisible(game));
         View panel = ReflectionHelpers.getField(game, "keyboardOverlay");
         assertEquals(View.VISIBLE, panel.getVisibility());
-        ReflectionHelpers.callInstanceMethod(game, "togglePcKeyboard");
+        ReflectionHelpers.callInstanceMethod(game.keyboardInput, "togglePcKeyboard");
         assertTrue(pcKeyboardVisible(game));
         assertEquals(View.GONE, panel.getVisibility());
-        ReflectionHelpers.callInstanceMethod(game, "togglePcKeyboard");
+        ReflectionHelpers.callInstanceMethod(game.keyboardInput, "togglePcKeyboard");
         assertFalse(pcKeyboardVisible(game));
     }
 
@@ -311,7 +311,7 @@ public class GameKeyboardOverlayTest {
     public void closingThePcKeyboardLetsGoOfEveryHeldAndStickyKey() {
         RecordingConnection connection = new RecordingConnection();
         Game game = pcKeyboardGame(connection);
-        ReflectionHelpers.callInstanceMethod(game, "togglePcKeyboard");
+        ReflectionHelpers.callInstanceMethod(game.keyboardInput, "togglePcKeyboard");
         PcKeyboardController keyboard = pcKeyboardController(game);
         PcKeyboardLayout layout = keyboard.layout();
         long now = 1000;
@@ -320,10 +320,10 @@ public class GameKeyboardOverlayTest {
         keyboard.engine().tapModifier(PcModifier.CTRL);
         keyboard.engine().tapModifier(PcModifier.SHIFT);
         keyboard.touchDown(layout.key("A"), 1, now);
-        Map<Short, Byte> pressed = ReflectionHelpers.getField(game, "pressedKeys");
+        Map<Short, Byte> pressed = ReflectionHelpers.getField(game.keyboardInput, "pressedKeys");
         assertFalse(pressed.isEmpty());
 
-        ReflectionHelpers.callInstanceMethod(game, "togglePcKeyboard");
+        ReflectionHelpers.callInstanceMethod(game.keyboardInput, "togglePcKeyboard");
 
         assertFalse(pcKeyboardVisible(game));
         assertTrue("Nothing stays pressed on the host", pressed.isEmpty());
@@ -343,7 +343,7 @@ public class GameKeyboardOverlayTest {
         padKey(game, KeyEvent.ACTION_UP, KeyEvent.KEYCODE_BUTTON_X);
         assertTrue("A closed keyboard sends no keys", connection.keys.isEmpty());
 
-        ReflectionHelpers.callInstanceMethod(game, "togglePcKeyboard");
+        ReflectionHelpers.callInstanceMethod(game.keyboardInput, "togglePcKeyboard");
         connection.keys.clear();
         // X is Backspace, Y is Space: pressed and released on the host, and consumed.
         assertTrue(padKey(game, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_BUTTON_X));
@@ -370,9 +370,9 @@ public class GameKeyboardOverlayTest {
     @Test
     public void closeWithAButtonHeldStillSwallowsItsRelease() {
         Game game = pcKeyboardGame(new RecordingConnection());
-        ReflectionHelpers.callInstanceMethod(game, "togglePcKeyboard");
+        ReflectionHelpers.callInstanceMethod(game.keyboardInput, "togglePcKeyboard");
         assertTrue(padKey(game, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_BUTTON_Y));
-        ReflectionHelpers.callInstanceMethod(game, "togglePcKeyboard");
+        ReflectionHelpers.callInstanceMethod(game.keyboardInput, "togglePcKeyboard");
         assertFalse(pcKeyboardVisible(game));
         assertTrue("The game never saw the press, so it must not see the release",
                 padKey(game, KeyEvent.ACTION_UP, KeyEvent.KEYCODE_BUTTON_Y));
@@ -383,7 +383,7 @@ public class GameKeyboardOverlayTest {
     public void noDeviceAndTheSyntheticDeviceAreNotControllers() {
         RecordingConnection connection = new RecordingConnection();
         Game game = pcKeyboardGame(connection);
-        ReflectionHelpers.callInstanceMethod(game, "togglePcKeyboard");
+        ReflectionHelpers.callInstanceMethod(game.keyboardInput, "togglePcKeyboard");
         connection.keys.clear();
         PcKey focused = pcKeyboardController(game).focus().focused();
         assertFalse(takenByPcKeyboard(game, padEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_BUTTON_Y, null, PAD_ID)));
@@ -402,11 +402,11 @@ public class GameKeyboardOverlayTest {
     @Test
     public void aPressWhileClosedDropsAStaleEntryForTheSameKey() {
         Game game = pcKeyboardGame(new RecordingConnection());
-        ReflectionHelpers.callInstanceMethod(game, "togglePcKeyboard");
+        ReflectionHelpers.callInstanceMethod(game.keyboardInput, "togglePcKeyboard");
         assertTrue(padKey(game, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_BUTTON_Y));
         assertTrue(heldPadKeys(game).get(KeyEvent.KEYCODE_BUTTON_Y));
         // The keyboard closes and the pad never reports the release, then Y is pressed for the game.
-        ReflectionHelpers.callInstanceMethod(game, "togglePcKeyboard");
+        ReflectionHelpers.callInstanceMethod(game.keyboardInput, "togglePcKeyboard");
         assertFalse(takenByPcKeyboard(game, padEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_BUTTON_Y, gamepad(), PAD_ID)));
         assertEquals(0, heldPadKeys(game).size());
         assertFalse("The release of the game's own press belongs to the game",
@@ -417,10 +417,10 @@ public class GameKeyboardOverlayTest {
     public void releasingKeyboardInputAndUnpluggingThePadForgetHeldButtons() {
         RecordingConnection connection = new RecordingConnection();
         Game game = pcKeyboardGame(connection);
-        ReflectionHelpers.callInstanceMethod(game, "togglePcKeyboard");
+        ReflectionHelpers.callInstanceMethod(game.keyboardInput, "togglePcKeyboard");
         assertTrue(padKey(game, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_BUTTON_Y));
         assertEquals(1, heldPadKeys(game).size());
-        ReflectionHelpers.callInstanceMethod(game, "releaseKeyboardInput");
+        ReflectionHelpers.callInstanceMethod(game.keyboardInput, "releaseKeyboardInput");
         assertEquals(0, heldPadKeys(game).size());
 
         // Space is held by the pad when it is unplugged: the key goes up and the entry goes away.
@@ -445,7 +445,7 @@ public class GameKeyboardOverlayTest {
         map.put(KeyEvent.KEYCODE_BUTTON_X, KeyEvent.KEYCODE_BUTTON_Y);
         ReflectionHelpers.setField(context, "buttonMap", map);
         contexts.put(PAD_ID, context);
-        ReflectionHelpers.callInstanceMethod(game, "togglePcKeyboard");
+        ReflectionHelpers.callInstanceMethod(game.keyboardInput, "togglePcKeyboard");
         connection.keys.clear();
         // X was remapped to Y, which is Space.
         assertTrue(padKey(game, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_BUTTON_X));
@@ -463,7 +463,7 @@ public class GameKeyboardOverlayTest {
     public void menuIsStartAndEnterOnTheKeyboard() {
         RecordingConnection connection = new RecordingConnection();
         Game game = pcKeyboardGame(connection);
-        ReflectionHelpers.callInstanceMethod(game, "togglePcKeyboard");
+        ReflectionHelpers.callInstanceMethod(game.keyboardInput, "togglePcKeyboard");
         connection.keys.clear();
         assertTrue(takenByPcKeyboard(game, padEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_MENU, gamepad(), PAD_ID)));
         assertTrue(takenByPcKeyboard(game, padEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_MENU, gamepad(), PAD_ID)));
@@ -474,7 +474,7 @@ public class GameKeyboardOverlayTest {
     @Test
     public void switchingLayoutResyncsTheUsbPadSide() {
         Game game = pcKeyboardGame(new RecordingConnection());
-        ReflectionHelpers.callInstanceMethod(game, "togglePcKeyboard");
+        ReflectionHelpers.callInstanceMethod(game.keyboardInput, "togglePcKeyboard");
         ControllerHandler handler = ReflectionHelpers.getField(game, "controllerHandler");
         java.util.concurrent.atomic.AtomicInteger generation = ReflectionHelpers.getField(handler, "captureGeneration");
         int before = generation.get();
@@ -488,14 +488,14 @@ public class GameKeyboardOverlayTest {
         RecordingConnection connection = new RecordingConnection();
         Game game = pcKeyboardGame(connection);
         ReflectionHelpers.setField(game, "inputCaptureProvider", new Capture());
-        ReflectionHelpers.callInstanceMethod(game, "togglePcKeyboard");
+        ReflectionHelpers.callInstanceMethod(game.keyboardInput, "togglePcKeyboard");
         PcKeyboardController keyboard = pcKeyboardController(game);
         keyboard.touchDown(keyboard.layout().key("A"), 1, 1000);
         assertEquals(KeyboardPacket.KEY_DOWN, lastKey(connection)[1]);
         ReflectionHelpers.callInstanceMethod(game, "setInputGrabState",
                 ReflectionHelpers.ClassParameter.from(boolean.class, false));
         assertEquals(KeyboardPacket.KEY_UP, lastKey(connection)[1]);
-        Map<Short, Byte> pressed = ReflectionHelpers.getField(game, "pressedKeys");
+        Map<Short, Byte> pressed = ReflectionHelpers.getField(game.keyboardInput, "pressedKeys");
         assertTrue(pressed.isEmpty());
     }
 
@@ -504,7 +504,7 @@ public class GameKeyboardOverlayTest {
         RecordingConnection connection = new RecordingConnection();
         Game game = pcKeyboardGame(connection);
         ReflectionHelpers.setField(game, "inputCaptureProvider", new Capture());
-        ReflectionHelpers.callInstanceMethod(game, "togglePcKeyboard");
+        ReflectionHelpers.callInstanceMethod(game.keyboardInput, "togglePcKeyboard");
         PcKeyboardController keyboard = pcKeyboardController(game);
         keyboard.engine().tapModifier(PcModifier.CTRL);
         keyboard.engine().tapModifier(PcModifier.CTRL);
@@ -512,7 +512,7 @@ public class GameKeyboardOverlayTest {
         keyboard.touchUp(1);
         connection.keys.clear();
         // Ctrl is still down on the host.
-        Map<Short, Byte> pressed = ReflectionHelpers.getField(game, "pressedKeys");
+        Map<Short, Byte> pressed = ReflectionHelpers.getField(game.keyboardInput, "pressedKeys");
         assertFalse(pressed.isEmpty());
         ReflectionHelpers.callInstanceMethod(game, "setInputGrabState",
                 ReflectionHelpers.ClassParameter.from(boolean.class, false));
@@ -525,7 +525,7 @@ public class GameKeyboardOverlayTest {
     public void dpadMovesFocusAndAPressesTheFocusedKey() {
         RecordingConnection connection = new RecordingConnection();
         Game game = pcKeyboardGame(connection);
-        ReflectionHelpers.callInstanceMethod(game, "togglePcKeyboard");
+        ReflectionHelpers.callInstanceMethod(game.keyboardInput, "togglePcKeyboard");
         PcKeyboardController keyboard = pcKeyboardController(game);
         PcKey start = keyboard.focus().focused();
         connection.keys.clear();
@@ -568,7 +568,7 @@ public class GameKeyboardOverlayTest {
     }
 
     private static void sendShortcut(Game game, int... keys) {
-        ReflectionHelpers.callInstanceMethod(game, "sendKeyboardShortcut",
+        ReflectionHelpers.callInstanceMethod(game.keyboardInput, "sendKeyboardShortcut",
                 ReflectionHelpers.ClassParameter.from(int[].class, keys));
     }
 

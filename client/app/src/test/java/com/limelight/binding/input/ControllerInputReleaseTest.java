@@ -697,12 +697,12 @@ public class ControllerInputReleaseTest {
             int[] keys = {KeyEvent.KEYCODE_CTRL_LEFT, KeyEvent.KEYCODE_ALT_LEFT, KeyEvent.KEYCODE_SHIFT_LEFT,
                     KeyEvent.KEYCODE_C};
             for (int key : keys) {
-                ReflectionHelpers.callInstanceMethod(activity, "handleSpecialKeys",
+                ReflectionHelpers.callInstanceMethod(ReflectionHelpers.getField(activity, "keyboardInput"), "handleSpecialKeys",
                         ReflectionHelpers.ClassParameter.from(int.class, key),
                         ReflectionHelpers.ClassParameter.from(boolean.class, true));
             }
             for (int i = keys.length - 1; i >= 0; i--) {
-                ReflectionHelpers.callInstanceMethod(activity, "handleSpecialKeys",
+                ReflectionHelpers.callInstanceMethod(ReflectionHelpers.getField(activity, "keyboardInput"), "handleSpecialKeys",
                         ReflectionHelpers.ClassParameter.from(int.class, keys[i]),
                         ReflectionHelpers.ClassParameter.from(boolean.class, false));
             }

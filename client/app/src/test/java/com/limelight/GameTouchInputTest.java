@@ -517,7 +517,7 @@ public class GameTouchInputTest {
             config.threeFingerTap = fingers == 3 ? "keyboard" : "none";
             config.fourFingerTap = fingers == 4 ? "keyboard" : "none";
             FrameLayout container = gestureContainer(game);
-            ReflectionHelpers.callInstanceMethod(game, "toggleKeyboardOverlay");
+            ReflectionHelpers.callInstanceMethod(game.keyboardInput, "toggleKeyboardOverlay");
             View panel = ReflectionHelpers.getField(game, "keyboardOverlay");
             beginTap(container, fingers);
             finishTap(container, fingers);

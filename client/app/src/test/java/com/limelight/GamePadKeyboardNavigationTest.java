@@ -59,7 +59,7 @@ public class GamePadKeyboardNavigationTest {
 
     private static Game openKeyboard(RecordingConnection connection) {
         Game game = pcKeyboardGame(connection);
-        ReflectionHelpers.callInstanceMethod(game, "togglePcKeyboard");
+        ReflectionHelpers.callInstanceMethod(game.keyboardInput, "togglePcKeyboard");
         // Touch hides the selection until a pad shows it; start from a pad that already did.
         PcKeyboardController keyboard = pcKeyboardController(game);
         assertTrue(keyboard.isFocusVisible());
@@ -293,7 +293,7 @@ public class GamePadKeyboardNavigationTest {
                         ? KeyEvent.KEYCODE_BACK : ControllerButtonMap.UNMAPPED;
             }
         });
-        ReflectionHelpers.callInstanceMethod(game, "togglePcKeyboard");
+        ReflectionHelpers.callInstanceMethod(game.keyboardInput, "togglePcKeyboard");
         assertTrue(pcKeyboardVisible(game));
         connection.keys.clear();
         assertTrue(padKey(game, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_BUTTON_X));
@@ -307,10 +307,10 @@ public class GamePadKeyboardNavigationTest {
         Game game = openKeyboard(new RecordingConnection());
         PcKeyboardController keyboard = pcKeyboardController(game);
         hat(game, PAD_ID, -1, 0);
-        ReflectionHelpers.callInstanceMethod(game, "togglePcKeyboard");
+        ReflectionHelpers.callInstanceMethod(game.keyboardInput, "togglePcKeyboard");
         assertFalse(pcKeyboardVisible(game));
         assertFalse(keyboard.needsTick());
-        assertEquals("No axis owner is kept", -1, (int) ReflectionHelpers.getField(game, "pcKeyboardAxisDevice"));
+        assertEquals("No axis owner is kept", -1, (int) ReflectionHelpers.getField(game.keyboardInput, "pcKeyboardAxisDevice"));
     }
 
     @Test

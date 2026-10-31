@@ -2990,6 +2990,9 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         return vsyncNs + intervals * intervalNs;
     }
 
+    /** Extra slack before the latch the phase lock keeps when the scheduler places frames. */
+    static final long SCHEDULED_LATCH_ROOM_NS = 1_000_000L;
+
     // Phase lock: how long a frame ready at readyNs waits for the next latch deadline.
     static long latchSlackNs(long readyNs, long vsyncNs, long intervalNs, long presentationDeadlineNs) {
         if (vsyncNs == 0 || intervalNs <= 0) return -1;
@@ -3016,11 +3019,16 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     private void reportPhaseSlack(long readyNs) {
         // Adaptive refresh has no fixed latch; an upscaled frame is not display-ready yet.
         if (stopping || !outputVsyncAvailable || upscaler != null) return;
+        // The scheduler gives each frame the first vsync its plan allows. With the cluster right at
+        // the latch, ordinary jitter flips frames between two refreshes, so the host keeps it a
+        // little earlier there.
+        long roomNs = FramePacingPolicy.schedulesFrames(hostFrameTimes, prefs.framePacing) ?
+                SCHEDULED_LATCH_ROOM_NS : 0;
         long slackNs, intervalNs;
         synchronized (vsyncMonitor) {
             if (outputHasArrSupport) return;
             intervalNs = vsyncIntervalNs;
-            slackNs = latchSlackNs(readyNs, vsyncTimeNs, intervalNs, vsyncPresentationDeadlineNs);
+            slackNs = latchSlackNs(readyNs, vsyncTimeNs, intervalNs, vsyncPresentationDeadlineNs + roomNs);
         }
         if (slackNs >= 0 && MoonBridge.reportFrameSlack(slackNs, intervalNs)) {
             Handler handler = latencyHandler;

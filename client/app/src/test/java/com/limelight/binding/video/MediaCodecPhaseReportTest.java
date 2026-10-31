@@ -44,7 +44,7 @@ public class MediaCodecPhaseReportTest {
         SlackBridge.intervals.clear();
     }
 
-    @Test public void pcFrameTimesReportsThePhaseLowestLatencyReports() {
+    @Test public void pcFrameTimesReportsThePhaseWithRoomBeforeTheLatch() {
         for (boolean hostFrameTimes : new boolean[] {false, true}) {
             try (ActivityController<Activity> controller = Robolectric.buildActivity(Activity.class).create()) {
                 MediaCodecDecoderRenderer renderer = renderer(controller.get(), hostFrameTimes);
@@ -53,9 +53,11 @@ public class MediaCodecPhaseReportTest {
                 SlackBridge.slacks.clear();
                 SlackBridge.intervals.clear();
                 samplePhase(renderer);
-                // Ready 5 ms after a vsync: 3 ms before the next latch deadline.
+                // Ready 5 ms after a vsync: 3 ms before the next latch deadline, and the scheduler
+                // asks for 1 ms more room before it.
                 report(renderer, VSYNC_NS + 5_000_000L);
-                assertEquals(Collections.singletonList(3_000_000L), SlackBridge.slacks);
+                long expected = hostFrameTimes ? 3_000_000L - MediaCodecDecoderRenderer.SCHEDULED_LATCH_ROOM_NS : 3_000_000L;
+                assertEquals(Collections.singletonList(expected), SlackBridge.slacks);
                 assertEquals(Collections.singletonList(INTERVAL_NS), SlackBridge.intervals);
             }
         }
@@ -87,7 +89,8 @@ public class MediaCodecPhaseReportTest {
 
             samplePhase(renderer);
             report(renderer, VSYNC_NS + 5_000_000L);
-            assertEquals("reported once nothing stops it", Collections.singletonList(3_000_000L), SlackBridge.slacks);
+            assertEquals("reported once nothing stops it",
+                    Collections.singletonList(3_000_000L - MediaCodecDecoderRenderer.SCHEDULED_LATCH_ROOM_NS), SlackBridge.slacks);
         }
     }
 
@@ -123,10 +126,11 @@ public class MediaCodecPhaseReportTest {
                 assertEquals(1, SlackBridge.slacks.size());
                 long slackNs = SlackBridge.slacks.get(0);
                 // Ready after the release call returned and before the renderer thread ended.
+                long latchNs = deadlineNs + MediaCodecDecoderRenderer.SCHEDULED_LATCH_ROOM_NS;
                 assertTrue("slack " + slackNs, slackNs <= MediaCodecDecoderRenderer.latchSlackNs(
-                        OneFrameCodec.releasedAtNs, vsyncNs, intervalNs, deadlineNs));
+                        OneFrameCodec.releasedAtNs, vsyncNs, intervalNs, latchNs));
                 assertTrue("slack " + slackNs, slackNs >= MediaCodecDecoderRenderer.latchSlackNs(
-                        doneNs, vsyncNs, intervalNs, deadlineNs));
+                        doneNs, vsyncNs, intervalNs, latchNs));
             } finally {
                 renderer.stop();
                 codec.release();

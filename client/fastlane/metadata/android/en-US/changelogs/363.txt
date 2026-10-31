@@ -1,0 +1,6 @@
+• Show frames at the PC's frame times is about 5 ms faster, close to Lowest latency.
+• Echo cancellation works: Nightjar removes the game's sound from your microphone itself.
+• Fewer judders on 60 Hz screens.
+• The overlay shows only Nightjar's own delay and no longer warns when the stream is faster than your screen.
+• Less CPU when receiving video.
+• Desktop: inherited settings open with a controller and say where they come from.

@@ -50,7 +50,7 @@ public class GameMouseInputTest {
             Game game = game(connection);
             assertTrue(game.handleKeyDown(mouseBack(source, KeyEvent.ACTION_DOWN)));
 
-            ReflectionHelpers.callInstanceMethod(game, "setInputGrabState",
+            ReflectionHelpers.callInstanceMethod(game.touchInput, "setInputGrabState",
                     ReflectionHelpers.ClassParameter.from(boolean.class, false));
             assertEquals(Arrays.asList(true, false), connection.rightButton);
             click(game, source);

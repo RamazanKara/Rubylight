@@ -72,7 +72,7 @@ public class StreamWindowLayoutTest {
     private static float[] touch(Game game, View view, float x, float y) {
         android.view.MotionEvent event = android.view.MotionEvent.obtain(0, 0, android.view.MotionEvent.ACTION_DOWN, x, y, 0);
         try {
-            return ReflectionHelpers.callInstanceMethod(game, "getStreamViewRelativeNormalizedXY",
+            return ReflectionHelpers.callInstanceMethod(ReflectionHelpers.getField(game, "touchInput"), "getStreamViewRelativeNormalizedXY",
                     ReflectionHelpers.ClassParameter.from(View.class, view),
                     ReflectionHelpers.ClassParameter.from(android.view.MotionEvent.class, event),
                     ReflectionHelpers.ClassParameter.from(int.class, 0));

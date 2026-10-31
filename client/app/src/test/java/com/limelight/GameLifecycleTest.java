@@ -77,7 +77,7 @@ public class GameLifecycleTest {
         android.view.MotionEvent event = android.view.MotionEvent.obtain(0, 0,
                 android.view.MotionEvent.ACTION_DOWN, 200, 100, 0);
         try {
-            assertTrue(ReflectionHelpers.callInstanceMethod(activity, "onOverlayTouch",
+            assertTrue(ReflectionHelpers.callInstanceMethod(activity.touchInput, "onOverlayTouch",
                     ReflectionHelpers.ClassParameter.from(View.class, overlay),
                     ReflectionHelpers.ClassParameter.from(android.view.MotionEvent.class, event)));
             assertSame(stream, activity.touchView);

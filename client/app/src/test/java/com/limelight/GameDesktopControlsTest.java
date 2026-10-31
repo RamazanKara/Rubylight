@@ -234,7 +234,7 @@ public class GameDesktopControlsTest {
 
         assertEquals(Arrays.asList("1:down", "3:down", "1:up", "3:up"), fixture.connection.buttons);
         assertEquals(View.GONE, fixture.panel.getVisibility());
-        assertEquals(0, (int) ReflectionHelpers.getField(fixture.game, "desktopHeldButtons"));
+        assertEquals(0, (int) ReflectionHelpers.getField(fixture.game.touchInput, "desktopHeldButtons"));
     }
 
     @Test
@@ -278,7 +278,7 @@ public class GameDesktopControlsTest {
         Fixture fixture = new Fixture();
         fixture.sink.mouseButton(1, true);
 
-        ReflectionHelpers.callInstanceMethod(fixture.game, "setInputGrabState",
+        ReflectionHelpers.callInstanceMethod(fixture.game.touchInput, "setInputGrabState",
                 ReflectionHelpers.ClassParameter.from(boolean.class, false));
         fixture.sink.mouseButton(1, true);
 

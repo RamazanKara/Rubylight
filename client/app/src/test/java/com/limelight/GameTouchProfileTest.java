@@ -96,7 +96,7 @@ public class GameTouchProfileTest {
     private static void established(Game game, int id, String uuid) {
         ReflectionHelpers.setField(game, "recoveryAppId", id);
         ReflectionHelpers.setField(game, "recoveryAppUuid", uuid);
-        ReflectionHelpers.callInstanceMethod(game, "updateGameTouchProfile");
+        ReflectionHelpers.callInstanceMethod(game.touchInput, "updateGameTouchProfile");
     }
 
     private static String label(GameTouchControls controls) {

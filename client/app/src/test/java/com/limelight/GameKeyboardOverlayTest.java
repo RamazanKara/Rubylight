@@ -219,7 +219,7 @@ public class GameKeyboardOverlayTest {
             ReflectionHelpers.callInstanceMethod(game.keyboardInput, "toggleKeyboardOverlay");
             assertTrue(capture.visible());
             assertTrue((boolean) ReflectionHelpers.getField(game, "grabbedInput"));
-            ReflectionHelpers.callInstanceMethod(game, "setInputGrabState",
+            ReflectionHelpers.callInstanceMethod(game.touchInput, "setInputGrabState",
                     ReflectionHelpers.ClassParameter.from(boolean.class, true));
             assertTrue(capture.visible());
             ReflectionHelpers.callInstanceMethod(game.keyboardInput, "hideKeyboardOverlay");
@@ -492,7 +492,7 @@ public class GameKeyboardOverlayTest {
         PcKeyboardController keyboard = pcKeyboardController(game);
         keyboard.touchDown(keyboard.layout().key("A"), 1, 1000);
         assertEquals(KeyboardPacket.KEY_DOWN, lastKey(connection)[1]);
-        ReflectionHelpers.callInstanceMethod(game, "setInputGrabState",
+        ReflectionHelpers.callInstanceMethod(game.touchInput, "setInputGrabState",
                 ReflectionHelpers.ClassParameter.from(boolean.class, false));
         assertEquals(KeyboardPacket.KEY_UP, lastKey(connection)[1]);
         Map<Short, Byte> pressed = ReflectionHelpers.getField(game.keyboardInput, "pressedKeys");
@@ -514,7 +514,7 @@ public class GameKeyboardOverlayTest {
         // Ctrl is still down on the host.
         Map<Short, Byte> pressed = ReflectionHelpers.getField(game.keyboardInput, "pressedKeys");
         assertFalse(pressed.isEmpty());
-        ReflectionHelpers.callInstanceMethod(game, "setInputGrabState",
+        ReflectionHelpers.callInstanceMethod(game.touchInput, "setInputGrabState",
                 ReflectionHelpers.ClassParameter.from(boolean.class, false));
         assertTrue(pressed.isEmpty());
         assertFalse(connection.keys.isEmpty());

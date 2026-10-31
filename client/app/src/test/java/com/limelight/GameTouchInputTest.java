@@ -108,7 +108,7 @@ public class GameTouchInputTest {
                 } else if (reason.equals("cancel")) {
                     dispatch(container, MotionEvent.ACTION_CANCEL, 0, new int[] {0, 1}, point(0), point(1));
                 } else if (reason.equals("lifecycle")) {
-                    ReflectionHelpers.callInstanceMethod(game, "cancelTouchInput");
+                    ReflectionHelpers.callInstanceMethod(game.touchInput, "cancelTouchInput");
                 }
                 dispatchAt(container, MotionEvent.ACTION_POINTER_UP, 0, new int[] {0, 1}, 1050, 0,
                         reason.equals("lift_moves") ? new float[] {400, 150} : point(0), point(1));
@@ -235,7 +235,7 @@ public class GameTouchInputTest {
                 beginTap(container, 2);
                 finishTap(container, 2);
             }
-            ReflectionHelpers.callInstanceMethod(game, "cancelTouchInput");
+            ReflectionHelpers.callInstanceMethod(game.touchInput, "cancelTouchInput");
             Shadows.shadowOf(Looper.getMainLooper()).idleFor(1, TimeUnit.SECONDS);
             assertEquals(java.util.Arrays.asList("down 3", "up 3", "down 3", "up 3"), connection.buttons);
         }
@@ -244,8 +244,8 @@ public class GameTouchInputTest {
     private static com.limelight.ui.DesktopGestures enableZoom(Game game) {
         StreamView stream = ReflectionHelpers.getField(game, "streamView");
         com.limelight.ui.DesktopGestures desktop = new com.limelight.ui.DesktopGestures(game, stream,
-                () -> ReflectionHelpers.callInstanceMethod(game, "cancelHostTouchInput"),
-                () -> ReflectionHelpers.callInstanceMethod(game, "clickRightMouseButton"));
+                () -> ReflectionHelpers.callInstanceMethod(game.touchInput, "cancelHostTouchInput"),
+                () -> ReflectionHelpers.callInstanceMethod(game.touchInput, "clickRightMouseButton"));
         ReflectionHelpers.setField(game, "desktopGestures", desktop);
         desktop.setEnabled(true);
         desktop.viewport().resize(800, 400);
@@ -259,7 +259,7 @@ public class GameTouchInputTest {
             RecordingConnection connection = new RecordingConnection();
             Game game = game(connection);
             View background = layout(game, origin[0], origin[1]);
-            ReflectionHelpers.callInstanceMethod(game, "initializeTouchContexts");
+            ReflectionHelpers.callInstanceMethod(game.touchInput, "initializeTouchContexts");
             touch(game, background, MotionEvent.ACTION_DOWN, 500, 250);
             touch(game, background, MotionEvent.ACTION_UP, 500, 250);
             assertEquals(1, connection.positions.size());
@@ -273,7 +273,7 @@ public class GameTouchInputTest {
         RecordingConnection connection = new RecordingConnection();
         Game game = game(connection);
         View background = layout(game, 1050, 40);
-        ReflectionHelpers.callInstanceMethod(game, "initializeTouchContexts");
+        ReflectionHelpers.callInstanceMethod(game.touchInput, "initializeTouchContexts");
         touch(game, background, MotionEvent.ACTION_DOWN, 500, 250);
         touch(game, background, MotionEvent.ACTION_MOVE, 950, 490);
         touch(game, background, MotionEvent.ACTION_MOVE, 10, 10);
@@ -309,7 +309,7 @@ public class GameTouchInputTest {
             desktop.viewport().zoom(2, 400, 200); desktop.viewport().pan(100, 0);
             ReflectionHelpers.setField(game, "desktopGestures", desktop);
             ReflectionHelpers.setField(game, "nativeTouchEnabled", nativeTouch);
-            ReflectionHelpers.callInstanceMethod(game, "initializeTouchContexts");
+            ReflectionHelpers.callInstanceMethod(game.touchInput, "initializeTouchContexts");
             touch(game, background, MotionEvent.ACTION_DOWN, 500, 250);
             touch(game, background, MotionEvent.ACTION_UP, 500, 250);
             if (nativeTouch) assertArrayEquals(new float[] {.4375f, .5f}, connection.touches.get(0), .00001f);
@@ -366,7 +366,7 @@ public class GameTouchInputTest {
         PreferenceConfiguration config = touchConfig(game, TouchMode.LOCAL_CURSOR);
         config.localCursorSpeed = 50;
         View background = layout(game, 0, 0);
-        ReflectionHelpers.callInstanceMethod(game, "initializeTouchContexts");
+        ReflectionHelpers.callInstanceMethod(game.touchInput, "initializeTouchContexts");
         touchAt(game, background, MotionEvent.ACTION_DOWN, 500, 250, 1000);
         touchAt(game, background, MotionEvent.ACTION_MOVE, 700, 250, 1100);
         touchAt(game, background, MotionEvent.ACTION_MOVE, 700, -2000, 1200);
@@ -384,7 +384,7 @@ public class GameTouchInputTest {
         Game game = game(connection);
         touchConfig(game, TouchMode.OFF);
         View background = layout(game, 0, 0);
-        ReflectionHelpers.callInstanceMethod(game, "initializeTouchContexts");
+        ReflectionHelpers.callInstanceMethod(game.touchInput, "initializeTouchContexts");
         touchAt(game, background, MotionEvent.ACTION_DOWN, 500, 250, 1000);
         touchAt(game, background, MotionEvent.ACTION_MOVE, 700, 250, 1100);
         touchAt(game, background, MotionEvent.ACTION_UP, 700, 250, 1150);
@@ -400,7 +400,7 @@ public class GameTouchInputTest {
         Game game = game(connection);
         touchConfig(game, TouchMode.TRACKPAD).trackpadArea = "right_half";
         FrameLayout container = streamContainer(game, null);
-        ReflectionHelpers.callInstanceMethod(game, "initializeTouchContexts");
+        ReflectionHelpers.callInstanceMethod(game.touchInput, "initializeTouchContexts");
         int[] first = {0};
         dispatch(container, MotionEvent.ACTION_DOWN, 0, first, new float[] {100, 200});
         dispatch(container, MotionEvent.ACTION_UP, 0, first, new float[] {100, 200});
@@ -418,7 +418,7 @@ public class GameTouchInputTest {
         Game game = game(connection);
         touchConfig(game, TouchMode.TRACKPAD).threeFingerTap = "middle_click";
         FrameLayout container = streamContainer(game, null);
-        ReflectionHelpers.callInstanceMethod(game, "initializeTouchContexts");
+        ReflectionHelpers.callInstanceMethod(game.touchInput, "initializeTouchContexts");
         float[] a = {300, 200}, b = {400, 200}, c = {500, 200};
         dispatch(container, MotionEvent.ACTION_DOWN, 0, new int[] {0}, a);
         dispatch(container, MotionEvent.ACTION_POINTER_DOWN, 1, new int[] {0, 1}, a, b);
@@ -436,7 +436,7 @@ public class GameTouchInputTest {
         Game game = game(connection);
         touchConfig(game, TouchMode.TRACKPAD).threeFingerTap = "middle_click";
         FrameLayout container = streamContainer(game, null);
-        ReflectionHelpers.callInstanceMethod(game, "initializeTouchContexts");
+        ReflectionHelpers.callInstanceMethod(game.touchInput, "initializeTouchContexts");
         float[] a = {300, 200}, b = {400, 200}, c = {500, 200};
         dispatch(container, MotionEvent.ACTION_DOWN, 0, new int[] {0}, a);
         dispatch(container, MotionEvent.ACTION_POINTER_DOWN, 1, new int[] {0, 1}, a, b);
@@ -505,7 +505,7 @@ public class GameTouchInputTest {
         assertNull(ReflectionHelpers.getField(game, "keyboardOverlay"));
         config.threeFingerTap = "none";
         beginTap(container, 3);
-        FingerTapGesture tap = ReflectionHelpers.getField(game, "fingerTap");
+        FingerTapGesture tap = ReflectionHelpers.getField(game.touchInput, "fingerTap");
         assertFalse(tap.isStarted());
         dispatch(container, MotionEvent.ACTION_CANCEL, 0, new int[] {0}, point(0));
     }
@@ -557,7 +557,7 @@ public class GameTouchInputTest {
                 dispatch(container, MotionEvent.ACTION_CANCEL, 0, new int[] {0, 1, 2, 3},
                         point(0), point(1), point(2), point(3));
             } else if ("lifecycle".equals(invalid)) {
-                ReflectionHelpers.callInstanceMethod(game, "cancelTouchInput");
+                ReflectionHelpers.callInstanceMethod(game.touchInput, "cancelTouchInput");
             }
             if (!"cancel".equals(invalid) && !"lifecycle".equals(invalid)) {
                 finishTap(container, fingers, "slow".equals(invalid) ? 1400 : 1030,
@@ -611,7 +611,7 @@ public class GameTouchInputTest {
         game.setContentView(container);
         StreamView stream = ReflectionHelpers.getField(game, "streamView");
         stream.setFocusableInTouchMode(true);
-        ReflectionHelpers.callInstanceMethod(game, "initializeTouchContexts");
+        ReflectionHelpers.callInstanceMethod(game.touchInput, "initializeTouchContexts");
         return container;
     }
 
@@ -647,7 +647,7 @@ public class GameTouchInputTest {
         Game game = game(connection);
         touchConfig(game, TouchMode.TRACKPAD).trackpadMomentum = true;
         View background = layout(game, 0, 0);
-        ReflectionHelpers.callInstanceMethod(game, "initializeTouchContexts");
+        ReflectionHelpers.callInstanceMethod(game.touchInput, "initializeTouchContexts");
         flick(game, background);
         int afterFlick = connection.moves.size();
         TrackpadPointer pointer = ReflectionHelpers.getField(game, "trackpadPointer");
@@ -666,7 +666,7 @@ public class GameTouchInputTest {
         // Focus loss, mode changes, releasing input and PiP all cancel touch input first.
         flick(game, background);
         assertTrue(pointer.isGliding());
-        ReflectionHelpers.callInstanceMethod(game, "cancelTouchInput");
+        ReflectionHelpers.callInstanceMethod(game.touchInput, "cancelTouchInput");
         assertFalse(pointer.isGliding());
         int afterCancel = connection.moves.size();
         Shadows.shadowOf(Looper.getMainLooper()).idleFor(1, TimeUnit.SECONDS);
@@ -679,7 +679,7 @@ public class GameTouchInputTest {
         Game game = game(connection);
         touchConfig(game, TouchMode.TRACKPAD);
         View background = layout(game, 0, 0);
-        ReflectionHelpers.callInstanceMethod(game, "initializeTouchContexts");
+        ReflectionHelpers.callInstanceMethod(game.touchInput, "initializeTouchContexts");
         flick(game, background);
         int afterFlick = connection.moves.size();
         assertTrue(afterFlick > 0);
@@ -728,10 +728,10 @@ public class GameTouchInputTest {
             @Override public void mouse(int button, boolean down) { }
         }, () -> true, dialog -> { });
         // Wired the way Game.onCreate wires its controls.
-        controls.setStreamTouchListener((view, event) -> ReflectionHelpers.callInstanceMethod(game,
+        controls.setStreamTouchListener((view, event) -> ReflectionHelpers.callInstanceMethod(game.touchInput,
                 "onTouchControlsPassthrough", ReflectionHelpers.ClassParameter.from(View.class, view),
                 ReflectionHelpers.ClassParameter.from(MotionEvent.class, event)));
-        controls.setGestureCancelListener(() -> ReflectionHelpers.callInstanceMethod(game, "cancelTouchInput"));
+        controls.setGestureCancelListener(() -> ReflectionHelpers.callInstanceMethod(game.touchInput, "cancelTouchInput"));
         ReflectionHelpers.setField(game, "gameTouchControls", controls);
         return controls;
     }

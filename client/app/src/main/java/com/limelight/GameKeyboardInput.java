@@ -151,7 +151,7 @@ final class GameKeyboardInput {
             return;
         }
         hideKeyboardOverlay();
-        game.setInputGrabState(true);
+        game.touchInput.setInputGrabState(true);
         game.streamView.requestFocus();
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             game.getWindow().getInsetsController().show(WindowInsets.Type.ime());
@@ -174,11 +174,11 @@ final class GameKeyboardInput {
         }
         boolean finger = event.isFromSource(InputDevice.SOURCE_TOUCHSCREEN) ||
                 event.isFromSource(InputDevice.SOURCE_STYLUS);
-        boolean points = finger ? !TouchMode.isRelative(game.touchMode()) :
+        boolean points = finger ? !TouchMode.isRelative(game.touchInput.touchMode()) :
                 event.isFromSource(InputDevice.SOURCE_MOUSE) && !event.isFromSource(InputDevice.SOURCE_MOUSE_RELATIVE);
         float y = Float.NaN;
         if (points && game.streamView.getHeight() > 0) {
-            y = (event.getY(event.getActionIndex()) + game.getStreamViewOffsetY(view)) / game.streamView.getHeight();
+            y = (event.getY(event.getActionIndex()) + game.touchInput.getStreamViewOffsetY(view)) / game.streamView.getHeight();
         }
         hostKeyboard.onPress(y, SystemClock.uptimeMillis());
     }
@@ -344,7 +344,7 @@ final class GameKeyboardInput {
 
                     // Toggle cursor visibility
                     case KeyEvent.KEYCODE_C:
-                        game.toggleCursorVisibility();
+                        game.touchInput.toggleCursorVisibility();
                         break;
 
                     default:
@@ -670,7 +670,7 @@ final class GameKeyboardInput {
         if (!visible) {
             hideKeyboardOverlay();
             hidePcKeyboard();
-            game.setInputGrabState(true);
+            game.touchInput.setInputGrabState(true);
         }
         game.streamView.requestFocus();
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
@@ -734,7 +734,7 @@ final class GameKeyboardInput {
         });
         // A release that leaves the keyboard open (a layout switch) must not leave a held USB stick stale.
         game.pcKeyboard.controller().setOnReleased(game.controllerHandler::resyncPadCapture);
-        game.setInputGrabState(true);
+        game.touchInput.setInputGrabState(true);
         game.streamView.requestFocus();
     }
 
@@ -917,11 +917,11 @@ final class GameKeyboardInput {
         if (game.keyboardOverlay == null) {
             game.keyboardOverlay = new KeyboardOverlay(game, new DesktopControlsPanel.Sink() {
                 @Override public void sendKeys(int[] keys) {
-                    if (game.canSendDesktopInput()) sendKeyboardShortcut(keys);
+                    if (game.touchInput.canSendDesktopInput()) sendKeyboardShortcut(keys);
                 }
-                @Override public void move(float dx, float dy) { game.sendDesktopMotion(dx, dy); }
-                @Override public void scroll(float vertical, float horizontal) { game.sendDesktopScroll(vertical, horizontal); }
-                @Override public void mouseButton(int button, boolean down) { game.sendDesktopButton(button, down); }
+                @Override public void move(float dx, float dy) { game.touchInput.sendDesktopMotion(dx, dy); }
+                @Override public void scroll(float vertical, float horizontal) { game.touchInput.sendDesktopScroll(vertical, horizontal); }
+                @Override public void mouseButton(int button, boolean down) { game.touchInput.sendDesktopButton(button, down); }
             }, () -> {
                 hideKeyboardOverlay();
                 game.toggleKeyboard();
@@ -943,7 +943,7 @@ final class GameKeyboardInput {
             game.keyboardOverlay.setVisibility(View.VISIBLE);
             game.keyboardOverlay.bringToFront();
         }
-        game.setInputGrabState(true);
+        game.touchInput.setInputGrabState(true);
         game.streamView.requestFocus();
     }
 
@@ -953,7 +953,7 @@ final class GameKeyboardInput {
 
     void hideKeyboardOverlay() {
         if (game.keyboardOverlay == null) return;
-        game.releaseDesktopInput();
+        game.touchInput.releaseDesktopInput();
         game.keyboardOverlay.setVisibility(View.GONE);
         if (game.grabbedInput && !game.cursorVisible && game.inputCaptureProvider != null) {
             game.inputCaptureProvider.hideCursor();
@@ -1054,7 +1054,7 @@ final class GameKeyboardInput {
             }
             pressedKeys.clear();
         }
-        game.releaseDesktopInput();
+        game.touchInput.releaseDesktopInput();
         game.modifierFlags = 0;
         specialKeyCode = KeyEvent.KEYCODE_UNKNOWN;
         waitingForAllModifiersUp = false;

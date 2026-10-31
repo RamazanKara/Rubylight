@@ -89,6 +89,11 @@ button {
   color: inherit;
 }
 
+input[type='checkbox'],
+input[type='radio'] {
+  accent-color: var(--accent);
+}
+
 button {
   min-width: var(--control-height);
   min-height: var(--control-height);

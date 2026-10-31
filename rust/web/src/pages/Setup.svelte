@@ -1,5 +1,6 @@
 <script lang="ts">
   import Button from '../components/Button.svelte';
+  import AuthLayout from '../components/AuthLayout.svelte';
   import Field from '../components/Field.svelte';
   import { api } from '../lib/api';
   import { navigate } from '../lib/router.svelte';
@@ -31,13 +32,12 @@
   }
 </script>
 
-<div class="auth">
-  <div class="brand"><span class="mark" aria-hidden="true">R</span>Rubylight</div>
-  <form class="card" onsubmit={submit}>
+<AuthLayout>
+  <form onsubmit={submit}>
     <h1>Set up this host</h1>
     <p class="muted">
-      Create the account for this console. Set it up on this PC. Once the account is created, you can manage
-      the host from other devices on your network.
+      Choose a username and password for this console, here on this PC. Afterwards you can sign in from any
+      device on your network to manage Rubylight.
     </p>
     <Field label="Username" id="new-username">
       <input id="new-username" class="input" autocomplete="username" required bind:value={username} />
@@ -51,50 +51,4 @@
     {#if error}<p class="notice danger" role="alert">{error}</p>{/if}
     <Button type="submit" variant="primary" {busy} disabled={password.length < 8 || mismatch || !username}>Create account</Button>
   </form>
-</div>
-
-<style>
-  .auth {
-    min-height: 100vh;
-    display: grid;
-    place-content: center;
-    gap: var(--space-5);
-    padding: var(--space-5);
-  }
-  .brand {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    font-family: var(--font-display);
-    font-weight: var(--weight-bold);
-    font-size: 19px;
-  }
-  .mark {
-    display: grid;
-    place-items: center;
-    width: 30px;
-    height: 30px;
-    border-radius: 7px;
-    background: var(--accent);
-    color: var(--accent-ink);
-    font-weight: 800;
-  }
-  .card {
-    width: min(440px, calc(100vw - 48px));
-    display: grid;
-    gap: var(--space-4);
-    padding: var(--space-6);
-    background: var(--panel);
-    border: 1px solid var(--line);
-    border-radius: var(--radius-lg);
-    box-shadow: var(--shadow);
-  }
-  @media (max-width: 520px) {
-    .card {
-      padding: var(--space-5);
-    }
-  }
-  h1 {
-    font-size: var(--text-xl);
-  }
-</style>
+</AuthLayout>

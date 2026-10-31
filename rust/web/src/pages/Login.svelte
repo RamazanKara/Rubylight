@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import Button from '../components/Button.svelte';
+  import AuthLayout from '../components/AuthLayout.svelte';
   import Field from '../components/Field.svelte';
   import { api } from '../lib/api';
   import { navigate, query } from '../lib/router.svelte';
@@ -40,9 +41,8 @@
   }
 </script>
 
-<div class="auth">
-  <div class="brand"><span class="mark" aria-hidden="true">R</span>Rubylight</div>
-  <form class="card" onsubmit={submit}>
+<AuthLayout>
+  <form onsubmit={submit}>
     <h1>Sign in</h1>
     <p class="muted">
       Use this host's username and password. A profile imported from Apollo, Vibepollo or Sunshine keeps that host's sign-in.
@@ -67,70 +67,40 @@
       </details>
     {/if}
   </form>
-</div>
+</AuthLayout>
 
 <style>
-  .auth {
-    min-height: 100vh;
-    display: grid;
-    place-content: center;
-    gap: var(--space-5);
-    padding: var(--space-5);
-  }
-  .brand {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    font-family: var(--font-display);
-    font-weight: var(--weight-bold);
-    font-size: 19px;
-  }
-  .mark {
-    display: grid;
-    place-items: center;
-    width: 30px;
-    height: 30px;
-    border-radius: 7px;
-    background: var(--accent);
-    color: var(--accent-ink);
-    font-weight: 800;
-  }
-  .card {
-    width: min(440px, calc(100vw - 48px));
-    display: grid;
-    gap: var(--space-4);
-    padding: var(--space-6);
-    background: var(--panel);
-    border: 1px solid var(--line);
-    border-radius: var(--radius-lg);
-    box-shadow: var(--shadow);
-  }
-  @media (max-width: 520px) {
-    .card {
-      padding: var(--space-5);
-    }
-  }
-  h1 {
-    font-size: var(--text-xl);
-  }
   .remember {
     display: flex;
     min-height: var(--control-height);
-    gap: var(--space-2);
+    gap: var(--space-3);
     align-items: center;
     font-size: var(--text-sm);
+    cursor: pointer;
+  }
+  .remember input {
+    width: 18px;
+    height: 18px;
+    margin: 0;
   }
   .forgot {
-    display: grid;
-    gap: var(--space-2);
     font-size: var(--text-sm);
+    color: var(--ink-2);
   }
   .forgot summary {
-    cursor: pointer;
+    width: fit-content;
     color: var(--muted);
+  }
+  .forgot p {
+    margin-bottom: var(--space-2);
   }
   .forgot code {
     display: block;
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+    background: var(--sunken);
+    color: var(--ink);
     overflow-wrap: anywhere;
     user-select: all;
   }

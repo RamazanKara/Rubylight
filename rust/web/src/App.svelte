@@ -2,6 +2,7 @@
   import { onMount, tick } from 'svelte';
   import Icon, { type IconName } from './components/Icon.svelte';
   import Button from './components/Button.svelte';
+  import AuthLayout from './components/AuthLayout.svelte';
   import BrandMark from './components/BrandMark.svelte';
   import CopyButton from './components/CopyButton.svelte';
   import ConfirmHost from './components/ConfirmHost.svelte';
@@ -134,12 +135,12 @@
 {#if session.state === 'checking'}
   <div class="loading" aria-busy="true"></div>
 {:else if session.state === 'unavailable'}
-  <div class="connection-error">
+  <AuthLayout>
     <h1>Cannot connect to Rubylight</h1>
-    <p role="alert">{session.error}</p>
     <p>The console retries automatically. Check that Rubylight is running on the host.</p>
-    <Button onclick={checkSession}>Retry now</Button>
-  </div>
+    <p class="notice danger" role="alert">{session.error}</p>
+    <Button variant="primary" onclick={checkSession}>Retry now</Button>
+  </AuthLayout>
 {:else if bare}
   <Page />
 {:else}
@@ -234,13 +235,6 @@
   }
   .loading {
     min-height: 100vh;
-  }
-  .connection-error {
-    display: grid;
-    gap: var(--space-4);
-    max-width: 600px;
-    margin: 15vh auto;
-    padding: var(--space-5);
   }
   .shell {
     display: grid;

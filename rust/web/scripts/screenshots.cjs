@@ -4,13 +4,17 @@
 // SHOT_PAGES=/,/devices picks pages (/design.html is the component gallery);
 // SHOT_FULL=1 captures the full page on desktop too (phones always are).
 // SHOT_CLICK=Select,"Select all" clicks those buttons, in order, before each shot.
+// SHOT_AUTH=signed-out shows the sign-in page, SHOT_AUTH=setup first-run setup
+// (the fixture is signed in otherwise); either one shoots that page by default.
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const path = require('node:path');
 const fs = require('node:fs');
 
 const out = path.resolve(process.argv[2] || 'shots');
 const label = process.argv[3] || 'shot';
-const pages = (process.env.SHOT_PAGES || '/,/devices,/settings,/maintenance').split(',');
+const auth = process.env.SHOT_AUTH || '';
+if (auth && !['signed-out', 'setup'].includes(auth)) throw new Error(`SHOT_AUTH is signed-out or setup, not ${auth}`);
+const pages = (process.env.SHOT_PAGES || { 'signed-out': '/login', setup: '/setup' }[auth] || '/,/devices,/settings,/maintenance').split(',');
 const themes = ['light', 'dark'];
 const forms = { desktop: { width: 1440, height: 900 }, phone: { width: 390, height: 844 } };
 
@@ -23,7 +27,10 @@ const metadata = {
   virtual_display: { capable: true, ready: true }, audio_enabled: true, features: {},
 };
 const replies = {
-  '/api/auth/status': { status: true, credentials_configured: true, authenticated: true },
+  '/api/auth/status': {
+    status: true, credentials_configured: auth !== 'setup', authenticated: !auth,
+    ...(auth === 'signed-out' ? { creds_program: 'C:\\Program Files\\Rubylight\\butterpollo.exe' } : {}),
+  },
   '/api/csrf-token': { csrf_token: 'fixture-token' },
   '/api/config': { sunshine_name: 'Gaming PC' },
   '/api/metadata': metadata,

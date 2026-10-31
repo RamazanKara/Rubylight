@@ -227,7 +227,9 @@ All are off unless set.
 | `src/cli.rs` | `--host`, `--app` and `--quit-on-exit` for game frontends |
 | `src/gui.rs`, `src/a11y.rs` | egui input from SDL events and painting with `SDL_RenderGeometryRaw`; screen reader access |
 | `src/theme.rs` | Palette, Figtree type, the brand mark rasterized from its vector path |
-| `src/ui.rs` | The launcher: PCs, pairing, library, settings, dialogs |
+| `src/ui.rs` | The launcher: screens, navigation and focus, the header |
+| `src/ui/library.rs`, `src/ui/pages.rs`, `src/ui/settings.rs`, `src/ui/dialogs.rs` | PCs, Home, libraries and a game's page; a PC's pages, profiles, shortcuts and controllers; settings; dialogs, pairing and the connecting card |
+| `src/ui/widgets.rs`, `src/ui/cards.rs`, `src/ui/files.rs` | Buttons, switches, rows and scroll areas; PC cards and covers; the shared folder browser |
 | `src/console.rs` | What Home and the game page show, derived from what the PCs reported (no egui; unit-tested) |
 | `src/hosts.rs`, `src/wol.rs` | Host list, mDNS discovery, serverinfo polling, pairing, app lists, cover art, the native library and session; Wake-on-LAN |
 | `src/config.rs` | Settings, identity, paired hosts and saved libraries on disk |

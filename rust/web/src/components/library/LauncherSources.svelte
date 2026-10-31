@@ -147,6 +147,33 @@
     }
   }
 
+  /** Playnite's line, with the plugin version: the details its own bar used to show. */
+  const playniteState = $derived.by(() => {
+    if (!playnite?.enabled) return 'Off';
+    if (!playnite.installed) return 'Needs the Rubylight plugin in Playnite';
+    const plugin = playnite.installed_version ? ` · plugin ${playnite.installed_version}` : '';
+    if (!playnite.active) return `Syncs while Playnite runs${plugin}`;
+    return `${counted(playnite.game_count, 'game')}, kept in step while Playnite runs${plugin}`;
+  });
+
+  // The Rubylight plugin is how Playnite hands over its games; its row installs and updates it.
+  let installing = $state(false);
+  async function installPlugin() {
+    installing = true;
+    try {
+      const result = await api.playnite.install();
+      notify(
+        result.restart_required ? 'Plugin installed. Restart Playnite to load it.' : 'Plugin installed. It loads when Playnite starts.',
+        'ok',
+      );
+      await load();
+    } catch (reason) {
+      failed('Installing the Playnite plugin failed', reason);
+    } finally {
+      installing = false;
+    }
+  }
+
   /** Whether the launchers synced; a failure is shown here. */
   async function syncAll(announce = true): Promise<boolean> {
     syncing = true;
@@ -213,10 +240,20 @@
         <li class="source" class:off={!playnite.enabled}>
           <span class="tile" aria-hidden="true">Pn</span>
           <span class="text">
-            <strong id="launcher-playnite">Playnite</strong>
-            <span class="state {playnite.enabled ? (playnite.installed ? 'ok' : 'warn') : 'muted'}">
-              {!playnite.enabled ? 'Off' : !playnite.installed ? 'Install the Rubylight plugin below' : playnite.active ? `${playnite.game_count} ${playnite.game_count === 1 ? 'game' : 'games'}, kept in step while Playnite runs` : 'Syncs while Playnite runs'}
+            <span class="name">
+              <strong id="launcher-playnite">Playnite</strong>
+              <a class="choose" href="/settings/library" use:link>Playnite options</a>
             </span>
+            <span class="state {playnite.enabled ? (playnite.installed ? 'ok' : 'warn') : 'muted'}">
+              {playniteState}
+            </span>
+            {#if playnite.enabled && (!playnite.installed || playnite.update_available)}
+              <span class="plugin">
+                <Button size="sm" icon="download" busy={installing} disabled={syncing} onclick={installPlugin}>
+                  {playnite.installed ? 'Update plugin' : 'Install plugin'}
+                </Button>
+              </span>
+            {/if}
           </span>
           <label class="switch-label">
             <span class="visually-hidden">Add games from Playnite</span>
@@ -330,6 +367,10 @@
   }
   .state.warn {
     color: var(--warn);
+  }
+  .plugin {
+    display: flex;
+    margin-top: var(--space-1);
   }
   .switch-label {
     display: inline-flex;

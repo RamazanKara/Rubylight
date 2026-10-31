@@ -8,7 +8,6 @@
   import AppEditor from '../components/library/AppEditor.svelte';
   import LibraryGrid from '../components/library/LibraryGrid.svelte';
   import LauncherSources from '../components/library/LauncherSources.svelte';
-  import PlayniteSource from '../components/library/PlayniteSource.svelte';
   import { api, type App, type SessionStatus } from '../lib/api';
   import { failed } from '../lib/feedback.svelte';
   import { poll } from '../lib/format';
@@ -138,7 +137,6 @@
     <LibraryGrid {apps} {status} {reordering} onreorder={reorder} onstatus={refreshStatus} onremoved={load} />
   {/if}
   <LauncherSources {removed} onsynced={load} />
-  <PlayniteSource onsynced={load} />
 {:else}
   {#key editing}
     {#if editing === 'new'}

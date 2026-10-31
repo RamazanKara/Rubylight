@@ -14,6 +14,8 @@ import android.os.Build;
 import android.os.Bundle;
 import android.util.Log;
 
+import androidx.annotation.RequiresApi;
+
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
@@ -247,34 +249,40 @@ public class EchoProbeActivity extends Activity {
                 close.invoke(null, handle);
                 return;
             }
-            default: {
-                boolean voice = play.equals("voice");
-                AudioAttributes.Builder attributes = new AudioAttributes.Builder()
-                        .setUsage(voice ? AudioAttributes.USAGE_VOICE_COMMUNICATION : AudioAttributes.USAGE_GAME);
-                if (voice) attributes.setContentType(AudioAttributes.CONTENT_TYPE_SPEECH);
-                AudioTrack.Builder builder = new AudioTrack.Builder()
-                        .setAudioAttributes(attributes.build())
-                        .setAudioFormat(new AudioFormat.Builder().setSampleRate(RATE)
-                                .setChannelMask(AudioFormat.CHANNEL_OUT_STEREO)
-                                .setEncoding(AudioFormat.ENCODING_PCM_16BIT).build())
-                        .setBufferSizeInBytes(Math.max(AudioTrack.getMinBufferSize(RATE,
-                                AudioFormat.CHANNEL_OUT_STEREO, AudioFormat.ENCODING_PCM_16BIT), chunk * 2 * 4))
-                        .setTransferMode(AudioTrack.MODE_STREAM);
-                if (Build.VERSION.SDK_INT >= 26) builder.setPerformanceMode(AudioTrack.PERFORMANCE_MODE_LOW_LATENCY);
-                AudioTrack track = builder.build();
-                track.play();
-                for (int offset = 0; offset < stereo.length; offset += chunk) {
-                    int n = Math.min(chunk, stereo.length - offset);
-                    track.write(stereo, offset, n);
-                    short[] part = java.util.Arrays.copyOfRange(stereo, offset, offset + n);
-                    EchoCanceller.reference(part, n, 2, 0);
-                }
-                Thread.sleep(300);
-                Log.i(TAG, "track routed to " + (track.getRoutedDevice() == null ? "none" : track.getRoutedDevice().getType()));
-                track.stop();
-                track.release();
-            }
+            default:
+                // The AudioTrack arms use AudioTrack.Builder; minSdk is 21.
+                if (Build.VERSION.SDK_INT < 23) throw new IllegalStateException("the " + play + " arm needs Android 6 or newer");
+                playTrack(play.equals("voice"), stereo, chunk);
         }
+    }
+
+    @RequiresApi(23)
+    private static void playTrack(boolean voice, short[] stereo, int chunk) throws InterruptedException {
+        AudioAttributes.Builder attributes = new AudioAttributes.Builder()
+                .setUsage(voice ? AudioAttributes.USAGE_VOICE_COMMUNICATION : AudioAttributes.USAGE_GAME);
+        if (voice) attributes.setContentType(AudioAttributes.CONTENT_TYPE_SPEECH);
+        AudioTrack.Builder builder = new AudioTrack.Builder()
+                .setAudioAttributes(attributes.build())
+                .setAudioFormat(new AudioFormat.Builder().setSampleRate(RATE)
+                        .setChannelMask(AudioFormat.CHANNEL_OUT_STEREO)
+                        .setEncoding(AudioFormat.ENCODING_PCM_16BIT).build())
+                .setBufferSizeInBytes(Math.max(AudioTrack.getMinBufferSize(RATE,
+                        AudioFormat.CHANNEL_OUT_STEREO, AudioFormat.ENCODING_PCM_16BIT), chunk * 2 * 4))
+                .setTransferMode(AudioTrack.MODE_STREAM);
+        if (Build.VERSION.SDK_INT >= 26) builder.setPerformanceMode(AudioTrack.PERFORMANCE_MODE_LOW_LATENCY);
+        AudioTrack track = builder.build();
+        track.play();
+        for (int offset = 0; offset < stereo.length; offset += chunk) {
+            int n = Math.min(chunk, stereo.length - offset);
+            track.write(stereo, offset, n);
+            short[] part = java.util.Arrays.copyOfRange(stereo, offset, offset + n);
+            EchoCanceller.reference(part, n, 2, 0);
+        }
+        Thread.sleep(300);
+        AudioDeviceInfo routed = track.getRoutedDevice();
+        Log.i(TAG, "track routed to " + (routed == null ? "none" : routed.getType()));
+        track.stop();
+        track.release();
     }
 
     private static double rms(short[] pcm, int from, int to) {

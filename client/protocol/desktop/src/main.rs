@@ -30,6 +30,7 @@ mod keymap;
 mod logfile;
 mod logpipe;
 mod media;
+mod menu_style;
 mod nav_repeat;
 mod network;
 mod network_test;
@@ -1984,6 +1985,9 @@ impl App {
     }
 }
 
+/// The width of a list in the stream menu's rows.
+const MENU_LIST: f32 = 190.0;
+
 /// The overlay and toasts, drawn with egui over the picture.
 fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Renderer, s: &mut Streaming, pads: &mut Gamepads, shortcuts: &shortcuts::Shortcuts) {
     let toast = s.toast.as_ref().map(|(t, _)| t.clone());
@@ -2020,14 +2024,13 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
             let hints = s.session_hints();
             let mut outcome = session_ui::Outcome::Stay;
             if let Some(page) = s.session_page.as_mut() {
-                egui::Window::new(tr("Session and graphics"))
-                    .id(egui::Id::unique("session-and-graphics"))
-                    .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
-                    .collapsible(false).resizable(false).vscroll(true).default_width(440.0)
-                    .show(&ctx, |ui| {
+                menu_style::window(tr("Session and graphics"), "session-and-graphics")
+                    .show(&ctx, |ui| menu_style::body(ui, |ui| {
                         gui::follow_focus(ui, &mut s.menu_focus);
+                        ui.label(egui::RichText::new(tr("Session and graphics")).font(theme::semibold(theme::text::SECTION)).color(theme::ON_SURFACE));
+                        ui.add_space(theme::space::S);
                         outcome = session_ui::show(ui, page, &title, &lines, hints);
-                    });
+                    }));
             }
             match outcome {
                 session_ui::Outcome::Stay => {}
@@ -2038,20 +2041,17 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
             }
         }
         if s.menu_visible && s.session_page.is_none() {
-            egui::Window::new(tr("Stream controls"))
-                .id(egui::Id::unique("stream-controls"))
-                .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
-                .collapsible(false).resizable(false).vscroll(true)
-                .show(&ctx, |ui| {
+            menu_style::window(tr("Stream controls"), "stream-controls")
+                .show(&ctx, |ui| menu_style::body(ui, |ui| {
                     gui::follow_focus(ui, &mut s.menu_focus);
-                    ui.label(&title);
-                    let back = ui.button(tr("Return to stream"));
+                    menu_style::header(ui, tr("Stream controls"), &title);
+                    let back = menu_style::primary(ui, tr("Return to stream"));
                     if ctx.memory(|m| m.focused().is_none()) { back.request_focus(); }
                     if back.clicked() { s.toggle_menu(window, pads); }
-                    ui.horizontal(|ui| {
-                        ui.label(tr("Performance overlay"));
+                    menu_style::divider(ui);
+                    menu_style::row(ui, tr("Performance overlay"), |ui| {
                         let shown = if s.overlay_visible { tr(s.overlay_mode.label()) } else { tr("Off") };
-                        egui::ComboBox::from_id_salt("stream-overlay").selected_text(shown).show_ui(ui, |ui| {
+                        egui::ComboBox::from_id_salt("stream-overlay").width(MENU_LIST).selected_text(shown).show_ui(ui, |ui| {
                             if ui.selectable_label(!s.overlay_visible, tr("Off")).clicked() { s.overlay_visible = false; }
                             for mode in config::OverlayMode::ALL {
                                 if ui.selectable_label(s.overlay_visible && s.overlay_mode == mode, tr(mode.label())).clicked() {
@@ -2061,9 +2061,8 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
                         });
                     });
                     if s.overlay_visible {
-                        ui.horizontal(|ui| {
-                            ui.label(tr("Overlay position"));
-                            egui::ComboBox::from_id_salt("stream-overlay-corner").selected_text(tr(s.overlay_corner.label())).show_ui(ui, |ui| {
+                        menu_style::row(ui, tr("Overlay position"), |ui| {
+                            egui::ComboBox::from_id_salt("stream-overlay-corner").width(MENU_LIST).selected_text(tr(s.overlay_corner.label())).show_ui(ui, |ui| {
                                 for corner in config::OverlayCorner::ALL {
                                     ui.selectable_value(&mut s.overlay_corner, corner, tr(corner.label()));
                                 }
@@ -2072,38 +2071,41 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
                     }
                     let current = s.video_scaling();
                     let (mut scaling, mut top) = current;
-                    egui::ComboBox::from_id_salt("stream-scaling").selected_text(tr(scaling.label())).show_ui(ui, |ui| {
-                        use config::VideoScaling;
-                        for mode in [VideoScaling::Fit, VideoScaling::Fill, VideoScaling::Stretch, VideoScaling::Native] {
-                            ui.selectable_value(&mut scaling, mode, tr(mode.label()));
-                        }
+                    menu_style::row(ui, tr("Video size"), |ui| {
+                        egui::ComboBox::from_id_salt("stream-scaling").width(MENU_LIST).selected_text(tr(scaling.label())).show_ui(ui, |ui| {
+                            use config::VideoScaling;
+                            for mode in [VideoScaling::Fit, VideoScaling::Fill, VideoScaling::Stretch, VideoScaling::Native] {
+                                ui.selectable_value(&mut scaling, mode, tr(mode.label()));
+                            }
+                        });
                     });
-                    ui.checkbox(&mut top, tr("Align video to top"));
+                    menu_style::switch(ui, tr("Align video to top"), &mut top);
                     if (scaling, top) != current { s.set_video_scaling(scaling, top); }
-                    if ui.button(tr("Export statistics (last hour)")).clicked() { s.export_statistics = true; }
                     if s.microphone_available() {
                         let mut muted = s.microphone_muted;
-                        if ui.checkbox(&mut muted, tr("Mute microphone")).changed() { s.mute_microphone(muted, pads); }
+                        if menu_style::switch(ui, tr("Mute microphone"), &mut muted).changed() { s.mute_microphone(muted, pads); }
                     }
                     if s.controller_mouse_offered(pads) {
                         let mut mouse = pads.mouse_active();
-                        if ui.checkbox(&mut mouse, tr("Controller mouse")).changed() { s.toggle_controller_mouse(pads); }
+                        if menu_style::switch(ui, tr("Controller mouse"), &mut mouse).changed() { s.toggle_controller_mouse(pads); }
                     }
                     // The PC's night mode and headphone surround, as it answered when the menu opened.
                     for switch in s.host_audio.switches() {
                         let mut on = switch.on;
                         let label = stream::menu_extras::audio_label(switch.id);
-                        if ui.add_enabled(switch.enabled, egui::Checkbox::new(&mut on, label)).changed() { s.set_host_audio(switch.id, on); }
-                        if let Some(note) = &switch.note { ui.weak(note); }
+                        if ui.add_enabled_ui(switch.enabled, |ui| menu_style::switch(ui, label, &mut on)).inner.changed() { s.set_host_audio(switch.id, on); }
+                        if let Some(note) = &switch.note { menu_style::note(ui, note); }
                     }
-                    if let Some(problem) = s.host_audio.problem() { ui.weak(problem); }
+                    if let Some(problem) = s.host_audio.problem() { menu_style::note(ui, problem); }
+                    menu_style::divider(ui);
+                    if menu_style::button(ui, tr("Export statistics (last hour)")).clicked() { s.export_statistics = true; }
                     ui.add_enabled_ui(s.facts.clipboard, |ui| {
-                        if ui.button(tr("Send clipboard to PC")).clicked() { s.clipboard(true); }
-                        if ui.button(tr("Copy PC clipboard here")).clicked() { s.clipboard(false); }
+                        if menu_style::button(ui, tr("Send clipboard to PC")).clicked() { s.clipboard(true); }
+                        if menu_style::button(ui, tr("Copy PC clipboard here")).clicked() { s.clipboard(false); }
                     });
                     if s.facts.image_clipboard {
-                        if ui.button(tr("Send image to PC")).clicked() { s.clipboard_image(true); }
-                        if ui.button(tr("Copy PC image here")).clicked() { s.clipboard_image(false); }
+                        if menu_style::button(ui, tr("Send image to PC")).clicked() { s.clipboard_image(true); }
+                        if menu_style::button(ui, tr("Copy PC image here")).clicked() { s.clipboard_image(false); }
                     }
                     if s.facts.role != nightjar_core::http::AppRole::RemoteMonitor && !shortcuts.data.is_empty() {
                         egui::CollapsingHeader::new(tr("Keyboard shortcuts")).id_salt("keyboard-shortcuts").show(ui, |ui| {
@@ -2119,7 +2121,7 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
                     if s.facts.runtime_bitrate {
                         if s.facts.role == nightjar_core::http::AppRole::Stream && !s.client_hint_active() {
                             let mut enabled = s.adaptive_bitrate;
-                            if ui.add_enabled(!s.bitrate_busy, egui::Checkbox::new(&mut enabled, tr("Device controls bitrate"))).changed() {
+                            if ui.add_enabled_ui(!s.bitrate_busy, |ui| menu_style::switch(ui, tr("Device controls bitrate"), &mut enabled)).inner.changed() {
                                 s.enable_adaptive_bitrate(enabled);
                             }
                         }
@@ -2256,15 +2258,16 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
                             });
                         }
                     }
-                    ui.separator();
-                    if s.session_page_available() && ui.button(tr("Session and graphics")).clicked() {
+                    menu_style::divider(ui);
+                    if s.session_page_available() && menu_style::button(ui, tr("Session and graphics")).clicked() {
                         s.session_page_requested = true;
                     }
-                    if ui.button(tr("Reconnect")).clicked() { s.exit = Some(Exit::Reconnect); }
-                    if ui.button(tr("Disconnect")).clicked() { s.exit = Some(Exit::User); }
+                    if menu_style::button(ui, tr("Reconnect")).clicked() { s.exit = Some(Exit::Reconnect); }
+                    if menu_style::button(ui, tr("Disconnect")).clicked() { s.exit = Some(Exit::User); }
                     let style = glyphs::Style::of(pads);
-                    ui.label(trf("Ctrl+Alt+Shift+Tab or {} opens this menu.", &[&style.chord(&[style.start(), style.select()])]));
-                });
+                    ui.add_space(theme::space::XS);
+                    menu_style::note(ui, &trf("Ctrl+Alt+Shift+Tab or {} opens this menu.", &[&style.chord(&[style.start(), style.select()])]));
+                }));
         } else {
             s.settle_bitrate_slider(&ctx);
         }

@@ -400,7 +400,7 @@ pub(crate) fn focus_ring(ui: &Ui, rect: Rect, response: &Response, radius: u8) {
 }
 
 /// A switch in the brand colours; returns whether it changed.
-fn toggle(ui: &mut Ui, on: &mut bool) -> Response {
+pub(crate) fn toggle(ui: &mut Ui, on: &mut bool) -> Response {
     let size = vec2(44.0, 24.0);
     let (rect, mut response) = ui.allocate_exact_size(size, Sense::click());
     if response.clicked() {
@@ -4209,7 +4209,7 @@ fn row(ui: &mut Ui, label: &str, description: &str, control: impl FnOnce(&mut Ui
 
 /// A row's switch, list or slider has no text of its own: a screen reader says the row's label for
 /// it, and its description, as Android's preferences read their title and summary.
-fn name_for_readers(ui: &Ui, response: &Response, label: &str, description: &str) {
+pub(crate) fn name_for_readers(ui: &Ui, response: &Response, label: &str, description: &str) {
     ui.ctx().accesskit_node_builder(response.id, |node| {
         if node.role() != egui::Role::Label && node.label().is_none_or(|l| l.trim().is_empty()) && node.labelled_by().is_empty() {
             node.set_label(tr(label));
@@ -7020,6 +7020,14 @@ https://192.0.2.7:47990"));
             shoot(&mut f, "dialog-pairing");
             f.l.pair_failed(studio, crate::hosts::PAIR_PIN_WRONG, false);
             shoot(&mut f, "dialog-pair-failed");
+            f.l.close_dialog();
+            f.l.dialog = Dialog::ConfirmRemove { host: studio, name: "Studio".into() };
+            f.l.focus_dialog = true;
+            shoot(&mut f, "dialog-remove");
+            f.l.close_dialog();
+            f.l.dialog = Dialog::Rename { host: studio, text: String::new() };
+            f.l.focus_dialog = true;
+            shoot(&mut f, "dialog-rename");
             f.l.close_dialog();
             f.waking = Some("Office PC".into());
             shoot(&mut f, "waking");

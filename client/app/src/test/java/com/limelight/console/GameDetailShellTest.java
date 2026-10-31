@@ -344,4 +344,38 @@ public class GameDetailShellTest {
             controller.pause().stop().destroy();
         }
     }
+
+    /**
+     * Android 7.1 and older take a next-focus target even when it is gone, and focus then stays put: Down from Favourite
+     * must reach the quit-on-leave row while Close game is hidden, and Close game when it shows.
+     */
+    @Test
+    @Config(sdk = 25)
+    public void downFromFavouriteReachesTheQuitOnLeaveRowWhileTheEndButtonIsGone() throws Exception {
+        GameDetailModel model = portal(",\"installed\":true");
+        ActivityController<Detail> controller = detail();
+        try {
+            Detail page = loaded(controller);
+            page.render(model, tower());
+            View favourite = page.findViewById(R.id.detail_favourite);
+            View end = page.findViewById(R.id.detail_end);
+            View row = page.findViewById(R.id.detail_quit_on_leave);
+            assertEquals(View.GONE, end.getVisibility());
+            assertEquals(View.VISIBLE, row.getVisibility());
+            assertEquals(View.NO_ID, favourite.getNextFocusDownId());
+            page.getWindow().getDecorView().measure(View.MeasureSpec.makeMeasureSpec(1080, View.MeasureSpec.EXACTLY),
+                    View.MeasureSpec.makeMeasureSpec(4000, View.MeasureSpec.EXACTLY));
+            page.getWindow().getDecorView().layout(0, 0, 1080, 4000);
+            View next = favourite.focusSearch(View.FOCUS_DOWN);
+            assertSame(row, next);
+
+            end.setVisibility(View.VISIBLE);
+            page.getWindow().getDecorView().measure(View.MeasureSpec.makeMeasureSpec(1080, View.MeasureSpec.EXACTLY),
+                    View.MeasureSpec.makeMeasureSpec(4000, View.MeasureSpec.EXACTLY));
+            page.getWindow().getDecorView().layout(0, 0, 1080, 4000);
+            assertSame(end, favourite.focusSearch(View.FOCUS_DOWN));
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
 }

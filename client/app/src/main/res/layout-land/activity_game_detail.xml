@@ -64,11 +64,12 @@
                                 android:minWidth="160dp" android:minHeight="@dimen/touch_target"
                                 android:text="@string/library_play" app:icon="@drawable/ic_play"
                                 android:nextFocusRight="@+id/detail_favourite" />
+                            <!-- No nextFocusRight to detail_end: it is gone unless the game runs, and Android 7.1 and older stop on a gone target. -->
                             <com.google.android.material.button.MaterialButton android:id="@+id/detail_favourite"
                                 style="@style/Widget.Nightjar.Button.Tonal" android:layout_width="wrap_content" android:layout_height="wrap_content"
                                 android:layout_marginStart="@dimen/space_s" android:minHeight="@dimen/touch_target"
                                 android:text="@string/console_favourite_add" app:icon="@drawable/ic_star"
-                                android:nextFocusLeft="@id/detail_play" android:nextFocusRight="@+id/detail_end" />
+                                android:nextFocusLeft="@id/detail_play" />
                             <com.google.android.material.button.MaterialButton android:id="@+id/detail_end"
                                 style="@style/Widget.Nightjar.Button.Tonal" android:layout_width="wrap_content" android:layout_height="wrap_content"
                                 android:layout_marginStart="@dimen/space_s" android:minHeight="@dimen/touch_target"

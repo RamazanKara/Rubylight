@@ -3,6 +3,7 @@
 
 mod cards;
 mod dialogs;
+mod icons;
 pub mod files;
 mod library;
 mod pages;
@@ -29,6 +30,7 @@ pub use library::{policy_role, running_name};
 use library::*;
 pub(crate) use widgets::{focus_ring, name_for_readers, primary_button, quiet_button, toggle};
 use widgets::*;
+use icons::Icon;
 
 /// Where Nightjar's guides live, the pages Android's help opens.
 pub const GUIDES: &str = "https://github.com/RamazanKara/nightjar/blob/main/docs/";
@@ -124,6 +126,8 @@ pub enum Command {
 pub enum Screen {
     /// Games to continue, the merged library and the PCs.
     Home,
+    /// Every game of every PC, filtered by store or by what is installed.
+    AllGames,
     /// One game on one PC (`app` is the native library's app id).
     Game { host: u64, app: u32 },
     Hosts,
@@ -142,6 +146,15 @@ pub enum Screen {
 }
 
 impl Screen {
+    /// The top-level destination this page belongs to, marked in the top bar.
+    pub fn destination(self) -> Screen {
+        match self {
+            Self::Home | Self::AllGames | Self::Game { .. } => Self::Home,
+            Self::Hosts | Self::Apps(_) | Self::HostDetails(_) | Self::Files(_) | Self::HostSettings(_) | Self::AppSettings(_) => Self::Hosts,
+            Self::Settings | Self::Profiles | Self::ProfileSettings(_) | Self::Controllers | Self::Shortcuts => Self::Settings,
+        }
+    }
+
     pub fn save_command(self) -> Option<Command> {
         match self {
             Self::Settings => Some(Command::SaveSettings),
@@ -176,6 +189,8 @@ pub enum Dialog {
     ImportShortcuts(crate::shortcuts::Shortcuts),
     /// A PC's actions in one list, in the order of `host_options`.
     HostOptions { host: u64 },
+    /// A game's actions: its page, favourites, its settings, starting it.
+    GameMenu { host: u64, game: GameTarget },
     Rename { host: u64, text: String },
     ConfirmRemove { host: u64, name: String },
     ConfirmUnpair { host: u64, name: String },
@@ -241,6 +256,10 @@ pub struct Launcher {
     trail: Vec<(Screen, Option<String>)>,
     /// The item with focus on the current screen, by its key.
     focused_key: Option<String>,
+    /// Where the open menu (PC options, a game's menu) is anchored.
+    menu_anchor: Anchor,
+    /// The All games page's filter.
+    library_filter: console::LibraryFilter,
     /// The item to focus when the screen is drawn again after Back.
     restore_key: Option<String>,
     /// Some PC has a library to show, so Home has something on it.
@@ -280,7 +299,7 @@ pub struct View<'a> {
     pub waking: Option<String>,
 }
 
-const CONTENT_MAX: f32 = 1180.0;
+const CONTENT_MAX: f32 = 1760.0;
 /// The column of settings rows: settings, a PC's details, the profile and shortcut lists.
 const SETTINGS_W: f32 = 760.0;
 
@@ -317,6 +336,8 @@ impl Launcher {
             settings_return: Screen::Hosts,
             trail: Vec::new(),
             focused_key: None,
+            menu_anchor: Anchor::Center,
+            library_filter: console::LibraryFilter::All,
             restore_key: None,
             home_ready: false,
             header_width: 0.0,
@@ -402,7 +423,7 @@ impl Launcher {
             Screen::HostSettings(_) | Screen::AppSettings(_) | Screen::ProfileSettings(_) => self.go(Screen::Settings),
             // A library or game page is not a destination: Settings opens over it, and Back
             // returns to the page with its item focused.
-            Screen::Apps(_) | Screen::Game { .. } | Screen::HostDetails(_) | Screen::Files(_) => self.open(Screen::Settings),
+            Screen::Apps(_) | Screen::Game { .. } | Screen::AllGames | Screen::HostDetails(_) | Screen::Files(_) => self.open(Screen::Settings),
             _ => self.switch(Screen::Settings),
         }
     }
@@ -598,7 +619,7 @@ impl Launcher {
                         self.pop(root);
                     }
                 }
-                Screen::Apps(_) | Screen::Game { .. } | Screen::HostDetails(_) | Screen::Files(_) => {
+                Screen::Apps(_) | Screen::Game { .. } | Screen::AllGames | Screen::HostDetails(_) | Screen::Files(_) => {
                     let root = self.root();
                     self.pop(root);
                 }
@@ -684,14 +705,18 @@ impl Launcher {
             ui.painter().circle_stroke(center, r, Stroke::new(1.5, ORBIT));
         }
 
-        let margin = ((full.width() - CONTENT_MAX) / 2.0).max(32.0);
+        // The page breathes with the window: a margin that grows with it, the content capped only
+        // on very wide screens.
+        let margin = ((full.width() - CONTENT_MAX) / 2.0).max((full.width() * 0.035).clamp(24.0, 56.0));
         let content = Rect::from_min_max(
             Pos2::new(full.left() + margin, full.top() + 24.0),
             Pos2::new(full.right() - margin, full.bottom() - 16.0),
         );
         let mut child = ui.new_child(egui::UiBuilder::new().max_rect(content).layout(Layout::top_down(Align::Min)));
         let ui = &mut child;
-        let blocked = !matches!(self.dialog, Dialog::None) || view.connecting.is_some() || view.waking.is_some();
+        // A menu by its card leaves the page as it is (it holds the input itself); a dialog dims it.
+        let menu = matches!(self.dialog, Dialog::HostOptions { .. } | Dialog::GameMenu { .. }) && self.menu_anchor != Anchor::Center;
+        let blocked = (!matches!(self.dialog, Dialog::None) && !menu) || view.connecting.is_some() || view.waking.is_some();
         // Screens take focus only when nothing covers them.
         let held_focus = self.focus_screen;
         if blocked {
@@ -699,9 +724,10 @@ impl Launcher {
         }
         ui.add_enabled_ui(!blocked, |ui| {
             self.header(ui, logo, &view, &mut commands);
-            ui.add_space(22.0);
+            ui.add_space(space::XL);
             match self.screen {
                 Screen::Home => self.home(ui, &view, &mut commands, logo),
+                Screen::AllGames => self.all_games(ui, &view, &mut commands),
                 Screen::Game { host, app } => self.game(ui, &view, host, app, &mut commands),
                 Screen::Hosts => self.hosts(ui, &view, &mut commands, logo),
                 Screen::Apps(id) => self.apps(ui, &view, id, &mut commands),
@@ -736,132 +762,134 @@ impl Launcher {
         commands
     }
 
+    /// The top bar: the brand, the destinations (the one this page belongs to marked) and the
+    /// page's actions at the right edge. Below the top level, a second row leads back and names the
+    /// page, with that page's actions at its right.
     fn header(&mut self, ui: &mut Ui, logo: egui::TextureId, view: &View<'_>, commands: &mut Vec<Command>) {
         ui.horizontal(|ui| {
+            ui.set_min_height(44.0);
+            egui::Image::from_texture((logo, vec2(28.0, 28.0))).ui(ui);
+            ui.label(RichText::new("Nightjar").font(semibold(text::CARD_TITLE)).color(PAPER));
+            ui.add_space(space::XL);
+            self.nav(ui, commands);
+            if self.screen.destination() == self.screen {
+                self.actions(ui, view, commands);
+            }
+        });
+        let title = match self.screen {
+            Screen::Home | Screen::Hosts | Screen::Settings => return,
+            // The page itself is headed by the game's title, beside its cover.
+            Screen::Game { .. } => String::new(),
+            Screen::AllGames => tr("All games").to_owned(),
+            Screen::Apps(id) | Screen::HostDetails(id) | Screen::Files(id) => view.hosts.get(id).map_or("", |h| h.display_name()).to_owned(),
+            Screen::HostSettings(_) | Screen::AppSettings(_) | Screen::ProfileSettings(_) => self.edit_name.clone(),
+            Screen::Profiles => tr("Profiles").to_owned(),
+            Screen::Controllers => tr("Controller mappings").to_owned(),
+            Screen::Shortcuts => tr("Keyboard shortcuts").to_owned(),
+        };
+        ui.add_space(space::L);
+        ui.horizontal(|ui| {
             ui.set_min_height(40.0);
-            match self.screen {
-                Screen::Home => {
-                    egui::Image::from_texture((logo, vec2(30.0, 30.0))).ui(ui);
-                    ui.add_space(4.0);
-                    ui.label(RichText::new("Nightjar").font(semibold(text::SECTION)).color(PAPER));
-                }
-                // The page itself is headed by the game's title, beside its cover.
-                Screen::Game { .. } => {
-                    if text_button(ui, "‹  Back").clicked() {
-                        self.back(commands);
-                    }
-                }
-                Screen::Hosts => {
-                    egui::Image::from_texture((logo, vec2(30.0, 30.0))).ui(ui);
-                    ui.add_space(4.0);
-                    ui.label(RichText::new("Nightjar").font(semibold(text::SECTION)).color(PAPER));
-                }
-                Screen::Apps(id) => {
-                    if text_button(ui, "‹  PCs").clicked() {
-                        self.back(commands);
-                    }
-                    let name = view.hosts.get(id).map_or("", |h| h.display_name()).to_owned();
-                    ui.label(RichText::new(name).font(semibold(text::SECTION)).color(PAPER));
-                }
-                Screen::HostDetails(id) | Screen::Files(id) => {
-                    if text_button(ui, "‹  Back").clicked() {
-                        self.back(commands);
-                    }
-                    let name = view.hosts.get(id).map_or("", |h| h.display_name()).to_owned();
-                    ui.label(RichText::new(name).font(semibold(text::SECTION)).color(PAPER));
-                }
-                // A top-level page, as Home and PCs: the top bar leads away, Escape or B still goes back.
-                Screen::Settings => {
-                    ui.label(RichText::new(tr("Settings")).font(semibold(text::SECTION)).color(PAPER));
-                }
-                Screen::HostSettings(_) | Screen::AppSettings(_) | Screen::ProfileSettings(_) => {
-                    if text_button(ui, "‹  Back").clicked() {
-                        self.back(commands);
-                    }
-                    ui.label(RichText::new(&self.edit_name).font(semibold(text::SECTION)).color(PAPER));
-                }
-                Screen::Profiles => {
-                    if text_button(ui, "‹  Settings").clicked() {
-                        self.back(commands);
-                    }
-                    ui.label(RichText::new(tr("Profiles")).font(semibold(text::SECTION)).color(PAPER));
-                }
-                Screen::Controllers => {
-                    if text_button(ui, "‹  Settings").clicked() { self.back(commands); }
-                    ui.label(RichText::new(tr("Controller mappings")).font(semibold(text::SECTION)).color(PAPER));
-                }
-                Screen::Shortcuts => {
-                    if text_button(ui, "‹  Settings").clicked() { self.back(commands); }
-                    ui.label(RichText::new(tr("Keyboard shortcuts")).font(semibold(text::SECTION)).color(PAPER));
-                }
+            // Back names where it leads when that is a destination's page.
+            let to = match self.screen {
+                Screen::Apps(_) if self.trail.last().is_none_or(|(s, _)| *s == Screen::Hosts) => en("PCs"),
+                Screen::Profiles | Screen::Controllers | Screen::Shortcuts => en("Settings"),
+                _ => en("Back"),
+            };
+            if button(ui, Some(Icon::Back), tr(to), Tone::Plain, Size { pad: 12.0, ..Size::HEADER }).clicked() {
+                self.back(commands);
             }
-            // The actions sit at the right edge but are registered left to right, so Tab walks
-            // Home, PCs, Settings, Add PC. Their width is last frame's; a change repaints.
-            let slot = ui.available_rect_before_wrap();
-            let width = self.header_width.min(slot.width());
-            let rect = Rect::from_min_max(pos2(slot.right() - width, slot.top()), slot.right_bottom());
-            let used = ui
-                .scope_builder(UiBuilder::new().max_rect(rect).layout(Layout::left_to_right(Align::Center)), |ui| {
-                    ui.spacing_mut().item_spacing.x = 22.0;
-                    match self.screen {
-                        Screen::Home | Screen::Hosts | Screen::Settings => {
-                            for (name, screen) in DESTINATIONS {
-                                if screen != Screen::Home || self.home_ready || self.screen == Screen::Home {
-                                    self.destination(ui, name, screen, commands);
-                                }
-                            }
-                            if self.screen == Screen::Hosts && header_button(ui, "Add PC").clicked() {
-                                self.add_host_dialog();
-                            }
-                        }
-                        Screen::Game { .. } => {}
-                        Screen::Apps(id) => {
-                            if let Some(host) = view.hosts.get(id) {
-                                if header_button(ui, "Refresh").clicked() {
-                                    commands.push(Command::Refresh(id));
-                                }
-                                if host.running_app().is_some() && header_button(ui, "Quit running app").clicked() {
-                                    self.dialog = Dialog::ConfirmQuit {
-                                        host: id,
-                                        start: None,
-                                        running: running_name(host),
-                                        resume: None,
-                                        named: host.running_app(),
-                                    };
-                                    self.focus_dialog = true;
-                                }
-                            }
-                            if header_button(ui, "PC settings").clicked() {
-                                commands.push(Command::HostSettings(id));
-                            }
-                        }
-                        Screen::HostDetails(_) | Screen::Files(_) | Screen::HostSettings(_) | Screen::AppSettings(_) | Screen::Profiles | Screen::ProfileSettings(_) | Screen::Controllers | Screen::Shortcuts => {}
-                    }
-                    ui.min_rect().width()
-                })
-                .inner;
-            if (used - self.header_width).abs() > 0.5 {
-                self.header_width = used;
-                ui.ctx().request_repaint();
+            if !title.is_empty() {
+                ui.add_space(space::S);
+                ui.label(RichText::new(title).font(semibold(text::SECTION)).color(PAPER));
             }
+            self.actions(ui, view, commands);
         });
     }
 
-    /// One of the header's top-level destinations; the current one is marked.
-    fn destination(&mut self, ui: &mut Ui, name: &str, screen: Screen, commands: &mut Vec<Command>) {
-        let current = self.screen == screen;
-        // The same size as the header's other actions (`text_button`).
-        let label = RichText::new(tr(name))
-            .font(semibold(text::LABEL))
-            .color(if current { PAPER } else { ON_SURFACE_VARIANT });
-        let response = ui.add(egui::Button::new(if current { label.underline() } else { label }).frame(false).min_size(vec2(0.0, 36.0)));
-        focus_ring(ui, response.rect, &response, radius::CONTROL);
-        if response.clicked() && !current {
+    /// The destinations as one segmented control: the current page's destination filled, the
+    /// others plain until pointed at.
+    fn nav(&mut self, ui: &mut Ui, commands: &mut Vec<Command>) {
+        let marked = self.screen.destination();
+        Frame::new().fill(*SURFACE_LOW).corner_radius(CornerRadius::same(14)).inner_margin(Margin::same(4)).stroke(control_stroke()).show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 4.0;
+                for (name, screen) in DESTINATIONS {
+                    // Home waits for a library to show.
+                    if screen != Screen::Home || self.home_ready || marked == Screen::Home {
+                        self.destination(ui, name, screen, marked == screen, commands);
+                    }
+                }
+            });
+        });
+    }
+
+    /// One destination of the top bar. From a page below it, it leads back to its top.
+    fn destination(&mut self, ui: &mut Ui, name: &str, screen: Screen, marked: bool, commands: &mut Vec<Command>) {
+        let tone = if marked { Tone::Current } else { Tone::Plain };
+        let response = button(ui, Some(destination_icon(screen)), tr(name), tone, Size { height: 36.0, pad: 14.0, ..Size::HEADER });
+        if response.clicked() && self.screen != screen {
             if let Some(save) = self.screen.save_command() {
                 commands.push(save);
             }
             self.switch(screen);
         }
+    }
+
+    /// The page's actions at the right edge of its row, registered left to right so Tab reaches
+    /// them in reading order. Their width is last frame's; a change repaints.
+    fn actions(&mut self, ui: &mut Ui, view: &View<'_>, commands: &mut Vec<Command>) {
+        let slot = ui.available_rect_before_wrap();
+        let width = self.header_width.min(slot.width());
+        let rect = Rect::from_min_max(pos2(slot.right() - width, slot.top()), slot.right_bottom());
+        let used = ui
+            .scope_builder(UiBuilder::new().max_rect(rect).layout(Layout::left_to_right(Align::Center)), |ui| {
+                ui.spacing_mut().item_spacing.x = space::S;
+                match self.screen {
+                    Screen::Hosts => {
+                        if header_button(ui, "Add PC", Icon::Plus).clicked() {
+                            self.add_host_dialog();
+                        }
+                    }
+                    Screen::Apps(id) => {
+                        if let Some(host) = view.hosts.get(id) {
+                            if header_button(ui, "Refresh", Icon::Refresh).clicked() {
+                                commands.push(Command::Refresh(id));
+                            }
+                            if host.running_app().is_some() && header_button(ui, "Quit running app", Icon::Stop).clicked() {
+                                self.dialog = Dialog::ConfirmQuit {
+                                    host: id,
+                                    start: None,
+                                    running: running_name(host),
+                                    resume: None,
+                                    named: host.running_app(),
+                                };
+                                self.focus_dialog = true;
+                            }
+                        }
+                        if header_button(ui, "PC settings", Icon::Sliders).clicked() {
+                            commands.push(Command::HostSettings(id));
+                        }
+                    }
+                    _ => {}
+                }
+                ui.min_rect().width()
+            })
+            .inner;
+        if (used - self.header_width).abs() > 0.5 {
+            self.header_width = used;
+            ui.ctx().request_repaint();
+        }
+    }
+}
+
+/// A destination's icon in the top bar.
+fn destination_icon(screen: Screen) -> Icon {
+    match screen {
+        Screen::Home => Icon::Home,
+        Screen::Hosts => Icon::Monitor,
+        Screen::Settings => Icon::Gear,
+        _ => Icon::Help,
     }
 }
 

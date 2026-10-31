@@ -31,6 +31,31 @@ pub enum HostOption {
 }
 
 impl HostOption {
+    pub fn icon(self) -> Icon {
+        match self {
+            Self::OpenLibrary => Icon::Grid,
+            Self::Resume => Icon::Play,
+            Self::QuitApp => Icon::Stop,
+            Self::Pair => Icon::Link,
+            Self::PairOtp => Icon::Key,
+            Self::Wake => Icon::Power,
+            Self::Sleep => Icon::Moon,
+            Self::Files => Icon::Folder,
+            Self::Settings => Icon::Sliders,
+            Self::Details => Icon::Info,
+            Self::Rename => Icon::Pencil,
+            Self::Unpair => Icon::Unlink,
+            Self::PairingHelp => Icon::Help,
+            Self::CheckAgain => Icon::Refresh,
+            Self::Remove => Icon::Trash,
+        }
+    }
+
+    /// Unpair and Remove undo the pairing or the PC itself: they sit last, apart, in red.
+    pub fn destructive(self) -> bool {
+        matches!(self, Self::Unpair | Self::Remove)
+    }
+
     pub fn label(self) -> &'static str {
         match self {
             Self::OpenLibrary => en("Open library"),
@@ -83,16 +108,75 @@ pub fn host_options(host: &Host) -> Vec<HostOption> {
     options.push(HostOption::Settings);
     options.push(HostOption::Rename);
     options.push(HostOption::Details);
-    // Unpairing asks the PC to forget this device, so it needs the PC to be reachable.
-    if host.paired() && host.reach == Reach::Online {
-        options.push(HostOption::Unpair);
-    }
     if !host.paired() {
         options.push(HostOption::PairingHelp);
     }
     options.push(HostOption::CheckAgain);
+    // Unpairing asks the PC to forget this device, so it needs the PC to be reachable.
+    if host.paired() && host.reach == Reach::Online {
+        options.push(HostOption::Unpair);
+    }
     options.push(HostOption::Remove);
     options
+}
+
+/// The option that selecting the PC's card does ([`host_clicked`]): its row shows Enter.
+pub fn enter_option(host: &Host, quick_resume: bool) -> HostOption {
+    if running_entry(host).is_some() && host.paired() && nightjar_policy::launch::resumes_on_pc_tap(quick_resume, true) {
+        HostOption::Resume
+    } else if host.paired() {
+        HostOption::OpenLibrary
+    } else if host.reach == Reach::Offline {
+        HostOption::CheckAgain
+    } else {
+        HostOption::Pair
+    }
+}
+
+/// Which game a game menu is for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GameTarget {
+    /// A game of a PC's native library (Home, All games): `app` is its library id.
+    /// `favourite` when opened on the Favourites row, where Delete takes the star off.
+    Library { app: u32, favourite: bool },
+    /// An entry of a PC's classic app list (its library page): `app` is the app id.
+    Classic { app: i32 },
+}
+
+/// What a game menu offers.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GameAction {
+    /// The game's page (what selecting a library cover does).
+    Open,
+    Play,
+    Resume,
+    Star,
+    Unstar,
+    Settings,
+    /// The PC's own library page.
+    Library,
+}
+
+impl GameAction {
+    pub fn row(self, enter: bool, delete: bool) -> MenuRow {
+        let (icon, label) = match self {
+            Self::Open => (Icon::Info, en("Game details")),
+            Self::Play => (Icon::Play, en("Play")),
+            Self::Resume => (Icon::Play, en("Resume")),
+            Self::Star => (Icon::Star, en("Add to favourites")),
+            Self::Unstar => (Icon::StarOff, en("Remove from favourites")),
+            Self::Settings => (Icon::Sliders, en("Game settings")),
+            Self::Library => (Icon::Grid, en("Open library")),
+        };
+        let hint = if enter {
+            Some(en("Enter"))
+        } else if delete {
+            Some(en("Del"))
+        } else {
+            None
+        };
+        MenuRow { icon, label, hint, destructive: false, blocked: None }
+    }
 }
 
 impl Launcher {
@@ -116,75 +200,61 @@ impl Launcher {
             }
             Dialog::HostOptions { host: id } => {
                 let id = *id;
-                let mut chosen = None;
                 if let Some(host) = view.hosts.get(id) {
                     let options = host_options(host);
-                    egui::Modal::new(Id::unique("host-options"))
-                        .frame(frame)
-                        .backdrop_color(Color32::from_black_alpha(150))
-                        .show(ctx, |ui| {
-                            ui.set_width(340.0);
-                            dialog_takes_the_window(ui);
-                            ui.label(RichText::new(host.display_name()).font(semibold(text::SECTION)));
-                            ui.add_space(6.0);
-                            // The list gets what the name and the Wake note leave; it scrolls only
-                            // in a window too short for it (1280x720 at 150 %).
-                            let note = (host.reach == Reach::Offline && host.record.mac.is_none()).then(|| {
-                                let text = RichText::new(tr("Pair once while the PC is on to enable Wake.")).font(regular(text::CAPTION)).color(OUTLINE);
-                                egui::WidgetText::from(text).into_galley(ui, Some(egui::TextWrapMode::Wrap), ui.available_width(), egui::TextStyle::Body)
-                            });
-                            let below = note.as_ref().map_or(0.0, |n| 6.0 + n.size().y + ui.spacing().item_spacing.y);
-                            let room = (ui.available_height() - below).max(CONTROL_HEIGHT);
-                            // A thin bar that always shows when the list scrolls: its handle in the text
-                            // colour, since the widget fill is the dialog's own.
-                            ui.spacing_mut().scroll = egui::style::ScrollStyle { foreground_color: true, ..egui::style::ScrollStyle::thin() };
-                            let list = egui::ScrollArea::vertical().id_salt("host-options").max_height(room).content_margin(Margin::same(6)).show(ui, |ui| {
-                                let follow = Id::unique("host-options-focus");
-                                let mut last = ui.ctx().data(|d| d.get_temp::<Option<Id>>(follow)).flatten();
-                                crate::gui::follow_focus(ui, &mut last);
-                                ui.ctx().data_mut(|d| d.insert_temp(follow, last));
-                                for (n, option) in options.iter().enumerate() {
-                                    if *option == HostOption::Remove {
-                                        ui.separator();
-                                    }
-                                    let label = RichText::new(tr(option.label())).font(semibold(text::BODY));
-                                    let label = if *option == HostOption::Remove { label.color(ERROR) } else { label };
-                                    let blocked = match option {
-                                        HostOption::Sleep => host.sleep_option().and_then(Result::err),
-                                        _ => None,
-                                    };
-                                    let button = ui.add_enabled_ui(blocked.is_none(), |ui| {
-                                        ui.add_sized(
-                                            [ui.available_width(), 38.0],
-                                            egui::Button::new(label).frame(false).fill(Color32::TRANSPARENT),
-                                        )
-                                    })
-                                    .inner;
-                                    if let Some(why) = blocked {
-                                        ui.label(RichText::new(tr(why)).font(regular(text::CAPTION)).color(OUTLINE));
-                                    }
-                                    focus_ring(ui, button.rect, &button, 8);
-                                    if n == 0 && focus_first {
-                                        button.request_focus();
-                                        focused = true;
-                                    }
-                                    if button.clicked() {
-                                        chosen = Some(*option);
-                                    }
-                                }
-                            });
-                            scroll_fades(ui, &list, *SURFACE_HIGH);
-                            if let Some(note) = note {
-                                ui.add_space(6.0);
-                                ui.label(note);
-                            }
-                        });
-                    if let Some(option) = chosen {
-                        next = self.choose_host_option(host, option, commands);
-                        close = next.is_none();
+                    let enter = enter_option(host, self.settings.quick_resume);
+                    let rows: Vec<MenuRow> = options
+                        .iter()
+                        .map(|o| MenuRow {
+                            icon: o.icon(),
+                            label: o.label(),
+                            hint: (*o == enter).then_some(en("Enter")),
+                            destructive: o.destructive(),
+                            blocked: match o {
+                                HostOption::Sleep => host.sleep_option().and_then(Result::err),
+                                _ => None,
+                            },
+                        })
+                        .collect();
+                    let (status, color, _) = host_status(host);
+                    // Wake needs the PC's address, learnt while pairing with it on.
+                    let note = (host.reach == Reach::Offline && host.record.mac.is_none()).then_some(en("Pair once while the PC is on to enable Wake."));
+                    let (outcome, took) = popover(ctx, "host-options", self.menu_anchor, host.display_name(), Some((status, *color)), &rows, note, focus_first);
+                    focused = took;
+                    match outcome {
+                        MenuOutcome::Chosen(n) => {
+                            next = self.choose_host_option(host, options[n], commands);
+                            close = next.is_none();
+                        }
+                        MenuOutcome::Dismissed => close = true,
+                        MenuOutcome::Open => {}
                     }
                 } else {
                     close = true;
+                }
+            }
+            Dialog::GameMenu { host, game } => {
+                let (id, game) = (*host, *game);
+                match view.hosts.get(id).and_then(|host| game_menu(host, view, game, &self.favourites).map(|menu| (host, menu))) {
+                    Some((host, (title, actions))) => {
+                        let rows: Vec<MenuRow> = actions
+                            .iter()
+                            .enumerate()
+                            .map(|(n, a)| a.row(n == 0 && *a != GameAction::Library, *a == GameAction::Unstar && matches!(game, GameTarget::Library { favourite: true, .. })))
+                            .collect();
+                        let on = trf("On {}", &[&host.display_name()]);
+                        let (outcome, took) = popover(ctx, "game-menu", self.menu_anchor, &title, Some((on, *ON_SURFACE_VARIANT)), &rows, None, focus_first);
+                        focused = took;
+                        match outcome {
+                            MenuOutcome::Chosen(n) => {
+                                next = self.choose_game_action(host, game, actions[n], commands);
+                                close = next.is_none();
+                            }
+                            MenuOutcome::Dismissed => close = true,
+                            MenuOutcome::Open => {}
+                        }
+                    }
+                    None => close = true,
                 }
             }
             Dialog::Rename { host, text } => {
@@ -816,6 +886,7 @@ impl Launcher {
         let from_card = matches!(
             self.dialog,
             Dialog::HostOptions { .. }
+                | Dialog::GameMenu { .. }
                 | Dialog::Rename { .. }
                 | Dialog::ConfirmRemove { .. }
                 | Dialog::ConfirmUnpair { .. }
@@ -867,6 +938,42 @@ impl Launcher {
             HostOption::Remove => return Some(Dialog::ConfirmRemove { host: id, name }),
         }
         None
+    }
+
+    /// Acts on an entry of a game's menu; a dialog to ask first is returned.
+    pub(super) fn choose_game_action(&mut self, host: &Host, game: GameTarget, action: GameAction, commands: &mut Vec<Command>) -> Option<Dialog> {
+        let id = host.id;
+        match (action, game) {
+            (GameAction::Open, GameTarget::Library { app, .. }) => self.open(Screen::Game { host: id, app }),
+            (GameAction::Star | GameAction::Unstar, GameTarget::Library { app, .. }) => {
+                let sources: Vec<Source> = std::iter::once(Source::of(host)).collect();
+                if let Some(star) = console::favourite_for(&sources, id, app) {
+                    commands.push(Command::ToggleFavourite(star));
+                }
+            }
+            (GameAction::Library, _) => commands.push(Command::OpenApps(id)),
+            (GameAction::Settings, _) => {
+                if let Some(app) = classic_of(host, game) {
+                    commands.push(Command::AppSettings { host: id, app: app.clone() });
+                }
+            }
+            (GameAction::Play | GameAction::Resume, _) => {
+                if let Some(app) = classic_of(host, game) {
+                    return self.start_app(host, app, commands);
+                }
+            }
+            (GameAction::Open | GameAction::Star | GameAction::Unstar, GameTarget::Classic { .. }) => {}
+        }
+        None
+    }
+
+    /// Opens `dialog`, a menu, at `anchor`, with `key` (the card it belongs to) remembered so focus
+    /// goes back to that card when it closes.
+    pub(super) fn open_menu(&mut self, dialog: Dialog, anchor: Anchor, key: String) {
+        self.focused_key = Some(key);
+        self.menu_anchor = anchor;
+        self.dialog = dialog;
+        self.focus_dialog = true;
     }
 
     /// The PC answered a pairing request. Returns true when this device is now paired and the
@@ -961,6 +1068,52 @@ impl Launcher {
     }
 }
 
+/// A game's menu: its title and what it offers, the action selecting it does first. None when the
+/// game is gone from the PC.
+pub(super) fn game_menu(host: &Host, view: &View<'_>, game: GameTarget, favourites: &[crate::config::Favourite]) -> Option<(String, Vec<GameAction>)> {
+    let _ = view;
+    match game {
+        GameTarget::Library { app, .. } => {
+            let entry = host.native.library.as_ref()?.games.iter().find(|g| g.app_id == app)?;
+            let mut actions = vec![GameAction::Open];
+            let sources: Vec<Source> = std::iter::once(Source::of(host)).collect();
+            if let Some(star) = console::favourite_for(&sources, host.id, app) {
+                actions.push(if favourites.iter().any(|f| f.same_game(&star)) { GameAction::Unstar } else { GameAction::Star });
+            }
+            if classic_of(host, game).is_some() {
+                actions.push(GameAction::Settings);
+            }
+            if host.paired() {
+                actions.push(GameAction::Library);
+            }
+            Some((entry.title.clone(), actions))
+        }
+        GameTarget::Classic { app } => {
+            let Apps::Loaded(apps) = &host.apps else { return None };
+            let entry = apps.iter().find(|a| a.id == app)?;
+            let running = host.running_app().is_some_and(|r| entry.matches_running_app(r, None));
+            let mut actions = vec![if running { GameAction::Resume } else { GameAction::Play }];
+            if !entry.is_control_action() {
+                actions.push(GameAction::Settings);
+            }
+            Some((entry.name.clone(), actions))
+        }
+    }
+}
+
+/// The classic app entry a game menu's game starts through, once the PC's app list is loaded.
+pub(super) fn classic_of(host: &Host, game: GameTarget) -> Option<&nightjar_core::http::App> {
+    let Apps::Loaded(apps) = &host.apps else { return None };
+    match game {
+        GameTarget::Classic { app } => apps.iter().find(|a| a.id == app),
+        GameTarget::Library { app, .. } => {
+            let entry = host.native.library.as_ref()?.games.iter().find(|g| g.app_id == app)?;
+            let pairs: Vec<(i32, &str)> = apps.iter().map(|a| (a.id, a.uuid.as_str())).collect();
+            console::classic_app(&pairs, &entry.install_id, app).and_then(|id| apps.iter().find(|a| a.id == id))
+        }
+    }
+}
+
 /// "Waking <PC>…" while the wake packets go out, with a way to stop.
 pub(super) fn waking(ctx: &egui::Context, host: &str, commands: &mut Vec<Command>) {
     let frame = Frame::new()
@@ -1005,10 +1158,226 @@ pub(super) fn dialog_field(ui: &mut Ui, edit: egui::TextEdit<'_>) -> Response {
     ui.add(edit.desired_width(f32::INFINITY).margin(Margin::symmetric(12, 10)))
 }
 
-/// Lets a dialog grow to the window's height less a margin and its frame, and no further. egui
-/// lays a new area out in at most 600x400 points and from then on in the size it took, so a list
-/// in a dialog never got more than that and its last row was cut in any window.
-pub(super) fn dialog_takes_the_window(ui: &mut Ui) {
-    const FRAME: f32 = 28.0;
-    ui.set_max_height(ui.ctx().content_rect().height() - 2.0 * (space::L + FRAME));
+/// Where a popover menu opens.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Anchor {
+    /// Under the ⋮ that opened it, right edges lined up (above it when there is no room below).
+    Below(Rect),
+    /// Beside the focused card it belongs to (F2, Shift+F10, X), at its top.
+    Beside(Rect),
+    /// At the pointer of a right-click.
+    Point(Pos2),
+    /// Nothing to point at: in the middle of the window, over a dimmed page.
+    Center,
+}
+
+/// Where a menu of `size` goes for `anchor`, kept inside `screen` with a margin: flipped above or
+/// to the other side where it would not fit, then pushed in.
+pub fn place(anchor: Anchor, size: Vec2, screen: Rect) -> Pos2 {
+    const GAP: f32 = 6.0;
+    const EDGE: f32 = 8.0;
+    let fits_below = |y: f32| y + size.y <= screen.bottom() - EDGE;
+    let fits_right = |x: f32| x + size.x <= screen.right() - EDGE;
+    let (x, y) = match anchor {
+        Anchor::Below(r) => (r.right() - size.x, if fits_below(r.bottom() + GAP) { r.bottom() + GAP } else { r.top() - GAP - size.y }),
+        Anchor::Beside(r) => (if fits_right(r.right() + GAP) { r.right() + GAP } else { r.left() - GAP - size.x }, r.top()),
+        Anchor::Point(p) => (if fits_right(p.x) { p.x } else { p.x - size.x }, if fits_below(p.y) { p.y } else { p.y - size.y }),
+        Anchor::Center => (screen.center().x - size.x / 2.0, screen.center().y - size.y / 2.0),
+    };
+    let x = x.min(screen.right() - EDGE - size.x).max(screen.left() + EDGE);
+    let y = y.min(screen.bottom() - EDGE - size.y).max(screen.top() + EDGE);
+    Pos2::new(x, y)
+}
+
+/// One row of a popover menu.
+pub struct MenuRow {
+    pub icon: Icon,
+    /// The English label (translated when drawn).
+    pub label: &'static str,
+    /// The key that does the same from the card, shown at the right.
+    pub hint: Option<&'static str>,
+    /// Destructive rows sit last, under a divider, in the error colour.
+    pub destructive: bool,
+    /// Why the row cannot be chosen now; shown under its label.
+    pub blocked: Option<&'static str>,
+}
+
+/// What a menu did this frame.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MenuOutcome {
+    Open,
+    Chosen(usize),
+    /// A press outside it: it closes, as any menu does.
+    Dismissed,
+}
+
+/// A popover menu: a raised panel by its anchor with a heading (what it is for) and rows of icon,
+/// label and shortcut. It takes the keyboard and the pointer while open but leaves the page as it
+/// is (no dimming), and scrolls with faded edges in a window too short for it.
+#[allow(clippy::too_many_arguments)]
+pub fn popover(
+    ctx: &egui::Context,
+    name: &str,
+    anchor: Anchor,
+    title: &str,
+    subtitle: Option<(String, Color32)>,
+    rows: &[MenuRow],
+    note: Option<&str>,
+    focus_first: bool,
+) -> (MenuOutcome, bool) {
+    let id = Id::unique(("menu", name));
+    let screen = ctx.content_rect();
+    let last = ctx.memory(|m| m.area_rect(id));
+    let size = last.map_or(vec2(280.0, 320.0), |r| r.size());
+    // A clear layer between the page and the menu takes the pointer, so the page under the menu
+    // neither lights up nor takes the click that closes it. With nothing to point at, it dims
+    // the page as a dialog does.
+    let catch = egui::Area::new(id.with("backdrop"))
+        .order(egui::Order::Middle)
+        .fixed_pos(screen.min)
+        .show(ctx, |ui| {
+            if anchor == Anchor::Center {
+                ui.painter().rect_filled(screen, 0.0, Color32::from_black_alpha(150));
+            }
+            let catch = ui.allocate_rect(screen, Sense::click());
+            catch.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, tr("Close menu")));
+            catch
+        })
+        .inner;
+    let mut outcome = MenuOutcome::Open;
+    let mut focused = false;
+    let high = high_contrast();
+    let frame = Frame::new()
+        .fill(*SURFACE_HIGH)
+        .corner_radius(CornerRadius::same(radius::PANEL))
+        .inner_margin(Margin::same(4))
+        .stroke(Stroke::new(if high { 1.5 } else { 1.0 }, OUTLINE_VARIANT))
+        .shadow(ctx.global_style().visuals.popup_shadow);
+    let area = egui::Area::new(id).order(egui::Order::Foreground).fixed_pos(place(anchor, size, screen)).constrain(false).show(ctx, |ui| {
+        frame.show(ui, |ui| {
+            // The rows' widths: the longest label and hint, at least a comfortable width.
+            let measure = |text: &str, font: egui::FontId| ui.painter().layout_no_wrap(text.to_owned(), font, Color32::WHITE).size().x;
+            let widest = rows
+                .iter()
+                .map(|r| 12.0 + 18.0 + 12.0 + measure(tr(r.label), semibold(text::LABEL)) + r.hint.map_or(0.0, |h| 24.0 + measure(tr(h), regular(text::CAPTION))) + 14.0)
+                .fold(260.0_f32, f32::max);
+            let title_w = measure(title, semibold(text::BODY)) + 24.0;
+            let width = widest.max(title_w.min(380.0)).min(screen.width() - 32.0);
+            ui.set_width(width);
+            // egui lays a new area out in at most 600x400 points: let the menu take the window's
+            // height less its margin instead, so it scrolls only when the window is too short.
+            ui.set_max_height(screen.height() - 16.0 - 10.0);
+            ui.spacing_mut().item_spacing.y = 4.0;
+            let top = ui.cursor().top();
+            // The heading: what the menu is for.
+            ui.add_space(4.0);
+            ui.horizontal(|ui| {
+                ui.add_space(8.0);
+                ui.vertical(|ui| {
+                    ui.spacing_mut().item_spacing.y = 0.0;
+                    let mut job = egui::text::LayoutJob::simple_singleline(title.to_owned(), semibold(text::BODY), *ON_SURFACE);
+                    job.wrap = egui::text::TextWrapping::truncate_at_width(width - 20.0);
+                    ui.label(job);
+                    if let Some((line, color)) = &subtitle {
+                        ui.label(RichText::new(line).font(regular(text::CAPTION)).color(*color));
+                    }
+                });
+            });
+            ui.add_space(4.0);
+            divider(ui);
+            let note = note.map(|n| {
+                let text = RichText::new(tr(n)).font(regular(text::CAPTION)).color(OUTLINE);
+                egui::WidgetText::from(text).into_galley(ui, Some(egui::TextWrapMode::Wrap), width - 20.0, egui::TextStyle::Body)
+            });
+            let below = note.as_ref().map_or(0.0, |n| 10.0 + n.size().y);
+            // The window's height less its margins, the frame, the heading, the list's own margin and
+            // the note: wherever the menu is placed, it then fits inside the window.
+            let heading = ui.cursor().top() - top;
+            let room = (screen.height() - 16.0 - 10.0 - heading - 8.0 - 4.0 - below).max(CONTROL_HEIGHT);
+            // A thin bar that always shows when the list scrolls.
+            ui.spacing_mut().scroll = egui::style::ScrollStyle { foreground_color: true, ..egui::style::ScrollStyle::thin() };
+            let list = egui::ScrollArea::vertical().id_salt(id.with("rows")).max_height(room).content_margin(Margin::same(4)).show(ui, |ui| {
+                let follow = id.with("focus");
+                let mut last = ui.ctx().data(|d| d.get_temp::<Option<Id>>(follow)).flatten();
+                crate::gui::follow_focus(ui, &mut last);
+                ui.ctx().data_mut(|d| d.insert_temp(follow, last));
+                let mut divided = false;
+                for (n, row) in rows.iter().enumerate() {
+                    if row.destructive && !divided && n > 0 {
+                        divider(ui);
+                    }
+                    divided |= row.destructive;
+                    let response = ui.add_enabled_ui(row.blocked.is_none(), |ui| menu_row(ui, row)).inner;
+                    if focus_first && !focused && row.blocked.is_none() {
+                        response.request_focus();
+                        focused = true;
+                    }
+                    if response.clicked() {
+                        outcome = MenuOutcome::Chosen(n);
+                    }
+                }
+            });
+            scroll_fades(ui, &list, *SURFACE_HIGH);
+            if let Some(note) = note {
+                ui.add_space(2.0);
+                ui.horizontal(|ui| {
+                    ui.add_space(10.0);
+                    ui.label(note);
+                });
+                ui.add_space(4.0);
+            }
+        });
+    });
+    // The menu holds the keyboard while open; a click outside closes it (on the release, so
+    // nothing under it takes that click).
+    ctx.memory_mut(|m| m.set_modal_layer(area.response.layer_id));
+    if (catch.clicked() || catch.secondary_clicked()) && outcome == MenuOutcome::Open {
+        outcome = MenuOutcome::Dismissed;
+    }
+    (outcome, focused)
+}
+
+/// A thin line between a menu's parts.
+fn divider(ui: &mut Ui) {
+    let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), 9.0), Sense::hover());
+    ui.painter().hline(rect.x_range().shrink(6.0), rect.center().y, Stroke::new(1.0, OUTLINE_VARIANT));
+}
+
+/// A menu row: icon, label, and the shortcut at the right; why it is off under the label.
+fn menu_row(ui: &mut Ui, row: &MenuRow) -> Response {
+    let width = ui.available_width();
+    let (hovered, pressed) = last_state(ui);
+    let enabled = ui.is_enabled();
+    // Why it is off wraps under the label.
+    let why = row.blocked.map(|why| ui.painter().layout(tr(why).to_owned(), regular(text::CAPTION), *OUTLINE, width - 42.0 - 14.0));
+    let height = why.as_ref().map_or(40.0, |w| 20.0 + 11.0 + w.size().y + 9.0);
+    let (rect, response) = ui.allocate_exact_size(vec2(width, height), Sense::click());
+    let label = tr(row.label);
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, enabled, label));
+    if !ui.is_rect_visible(rect) {
+        return response;
+    }
+    let painter = ui.painter();
+    let fill = if pressed && enabled {
+        *SURFACE_BRIGHT
+    } else if hovered && enabled {
+        *SURFACE_HIGHEST
+    } else {
+        Color32::TRANSPARENT
+    };
+    painter.rect_filled(rect, CornerRadius::same(8), fill);
+    let (ink, icon_ink) = if row.destructive { (*ERROR, *ERROR) } else if hovered { (*ON_SURFACE, *ON_SURFACE) } else { (*ON_SURFACE, *ON_SURFACE_VARIANT) };
+    let top = if row.blocked.is_some() { rect.top() + 20.0 } else { rect.center().y };
+    icons::paint(painter, row.icon, Rect::from_center_size(Pos2::new(rect.left() + 21.0, top), Vec2::splat(18.0)), icon_ink);
+    let words = painter.layout_no_wrap(label.to_owned(), semibold(text::LABEL), ink);
+    painter.galley(Pos2::new(rect.left() + 42.0, top - words.size().y / 2.0), words, ink);
+    if let Some(hint) = row.hint {
+        let keys = painter.layout_no_wrap(tr(hint).to_owned(), regular(text::CAPTION), *OUTLINE);
+        painter.galley(Pos2::new(rect.right() - 14.0 - keys.size().x, top - keys.size().y / 2.0), keys, *OUTLINE);
+    }
+    if let Some(why) = why {
+        painter.galley(Pos2::new(rect.left() + 42.0, top + 11.0), why, *OUTLINE);
+    }
+    focus_ring(ui, rect, &response, 8);
+    response
 }

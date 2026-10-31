@@ -151,7 +151,13 @@ final class ShelfAdapter extends RecyclerView.Adapter<ShelfAdapter.CardHolder> {
         View view = inflater.inflate(layout, parent, false);
         int width = type != HOST && env.cardWidthPx > 0 ? env.cardWidthPx
                 : view.getResources().getDimensionPixelSize(type == HOST ? R.dimen.shelf_host_width : R.dimen.shelf_card_width);
-        RecyclerView.LayoutParams params = new RecyclerView.LayoutParams(width, ViewGroup.LayoutParams.WRAP_CONTENT);
+        // A card's width includes its inset: a phone card's margin (the TV poster draws its inset as padding) stays
+        // inside the width, so cards keep their gap instead of touching (All games on a phone had none).
+        RecyclerView.LayoutParams params = view.getLayoutParams() instanceof ViewGroup.MarginLayoutParams
+                ? new RecyclerView.LayoutParams((ViewGroup.MarginLayoutParams) view.getLayoutParams())
+                : new RecyclerView.LayoutParams(width, ViewGroup.LayoutParams.WRAP_CONTENT);
+        params.width = innerWidth(width, params);
+        params.height = ViewGroup.LayoutParams.WRAP_CONTENT;
         view.setLayoutParams(params);
         return new CardHolder(env, view, cover, type == ALL_TILE);
     }
@@ -187,6 +193,13 @@ final class ShelfAdapter extends RecyclerView.Adapter<ShelfAdapter.CardHolder> {
         int inset = context.getResources().getDimensionPixelSize(R.dimen.cover_inset);
         int width = cardWidthPx - 2 * inset;
         return Math.max(1, television ? width * 3 / 2 : width * 4 / 3);
+    }
+
+    /** A card's width without its side margins, so the margins stay inside the slot it was given. */
+    static int innerWidth(int slotPx, ViewGroup.LayoutParams params) {
+        if (!(params instanceof ViewGroup.MarginLayoutParams)) return slotPx;
+        ViewGroup.MarginLayoutParams margins = (ViewGroup.MarginLayoutParams) params;
+        return Math.max(0, slotPx - margins.leftMargin - margins.rightMargin);
     }
 
     static final class CardHolder extends RecyclerView.ViewHolder {
@@ -281,8 +294,8 @@ final class ShelfAdapter extends RecyclerView.Adapter<ShelfAdapter.CardHolder> {
 
         private void setFrameHeight() {
             ViewGroup.LayoutParams card = itemView.getLayoutParams();
-            if (env.cardWidthPx > 0 && card != null && card.width != env.cardWidthPx) {
-                card.width = env.cardWidthPx;
+            if (env.cardWidthPx > 0 && card != null && card.width != innerWidth(env.cardWidthPx, card)) {
+                card.width = innerWidth(env.cardWidthPx, card);
                 itemView.setLayoutParams(card);
             }
             if (env.coverHeightPx > 0 && frame != null) {

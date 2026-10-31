@@ -328,6 +328,16 @@ public class LibraryCardsTest {
         assertEquals(200, holder.itemView.getLayoutParams().width);
     }
 
+    /** Emulator run: All games on a phone had its cards touching, as each card's margin spilled past its column. */
+    @Test
+    public void aPhoneCardKeepsItsMarginsInsideItsSlot() {
+        android.view.ViewGroup.MarginLayoutParams margins = new android.view.ViewGroup.MarginLayoutParams(0, 0);
+        margins.leftMargin = 6;
+        margins.rightMargin = 6;
+        assertEquals(238, ShelfAdapter.innerWidth(250, margins));
+        assertEquals(250, ShelfAdapter.innerWidth(250, new android.view.ViewGroup.LayoutParams(0, 0)));
+    }
+
     @Test
     public void theStoresMarkSitsInTheTopEndCornerAndNotInstalledAtTheFoot() throws Exception {
         tower(Collections.emptyList(), game(1, "Portal", "steam", false, null));

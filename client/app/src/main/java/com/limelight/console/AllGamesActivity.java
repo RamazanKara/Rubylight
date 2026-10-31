@@ -133,6 +133,7 @@ public class AllGamesActivity extends NightjarActivity implements HostFeed.Liste
         focusMeta = findViewById(R.id.all_games_focus_meta);
         focusTitle = findViewById(R.id.all_games_focus_title);
         list = findViewById(R.id.all_games_grid);
+        if (!isTelevision()) alignToGutter();
 
         feed = new HostFeed(this, this);
         env = new ShelfAdapter.Env(this, null, feed::host, new ConsoleHomeAdapter.Listener() {
@@ -155,6 +156,24 @@ public class AllGamesActivity extends NightjarActivity implements HostFeed.Liste
         list.setAdapter(adapter);
         list.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> fitColumns(r - l));
         feed.bind();
+    }
+
+    /**
+     * The layout's insets are the TV's, inside its overscan margin. Elsewhere the title, the filters and the poster grid
+     * line up with the shell bar on the screen gutter, and the focus line goes: a phone's posters carry their own titles.
+     */
+    private void alignToGutter() {
+        int gutter = getResources().getDimensionPixelSize(R.dimen.screen_gutter);
+        for (int id : new int[] {R.id.all_games_title, R.id.all_games_filters_scroll}) {
+            View view = findViewById(id);
+            view.setPaddingRelative(gutter, view.getPaddingTop(), gutter, view.getPaddingBottom());
+        }
+        findViewById(R.id.all_games_focus).setVisibility(View.GONE);
+        // The grid's frame reaches 24 dp past the content on both sides; each phone card keeps its cover inset as margin.
+        int bleed = Math.round(24 * getResources().getDisplayMetrics().density);
+        int inset = getResources().getDimensionPixelSize(R.dimen.cover_inset);
+        int side = bleed + gutter - inset;
+        list.setPaddingRelative(side, list.getPaddingTop(), side, list.getPaddingBottom());
     }
 
     private boolean isTelevision() {

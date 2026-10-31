@@ -214,6 +214,34 @@ fn a_pcs_row_box_lines_up_with_where_the_value_comes_from() {
     }
 }
 
+/// Left from a row's control lands on the open section's entry (or chip), not on the widget
+/// egui finds nearest to the left: on a wide window that is the search or the top of the list,
+/// on a narrow one the chip nearest the rows.
+#[test]
+fn left_from_the_rows_goes_to_the_open_sections_entry() {
+    for (width, section) in [(1280.0, "Advanced"), (1280.0, "Audio"), (900.0, "Video"), (900.0, "Audio")] {
+        let mut f = settings_with(Settings::default());
+        f.size = vec2(width, 4000.0);
+        f.l.go(Screen::Settings);
+        f.l.settings_view.section = section;
+        f.settle();
+        let focused = |f: &Frames| f.ctx.memory(|m| m.focused()).and_then(|id| f.ctx.read_response(id)).map(|r| r.rect);
+        let first = focused(&f).expect("the first row's control has focus");
+        f.press(Key::ArrowLeft);
+        // The entry or chip, in smaller type than the section's heading over the rows.
+        let entry = f.placed.iter().filter(|(t, ..)| t == section).map(|p| p.1)
+            .min_by(|a, b| a.height().total_cmp(&b.height())).expect("the entry");
+        assert!(entry.right() < first.left() || entry.bottom() < first.top(), "{width}: {entry:?} is the entry");
+        assert!(focused(&f).is_some_and(|r| r.contains(entry.center())), "{width} {section}: Left lands on {:?}, not the entry {entry:?}", focused(&f));
+        if width < 940.0 {
+            continue;
+        }
+        // Right from the list goes back into the rows.
+        f.press(Key::ArrowRight);
+        assert!(focused(&f).is_some_and(|r| r.left() > entry.right()), "{width} {section}: Right leaves the entry: {:?}", focused(&f));
+    }
+}
+
 /// The profile notice's line sits beside its button's middle, not at the button's top.
 #[test]
 fn the_profile_notice_lines_up_with_its_button() {

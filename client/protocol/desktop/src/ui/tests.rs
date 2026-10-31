@@ -3156,6 +3156,54 @@ fn an_empty_filter_and_an_empty_library_say_so() {
     assert!(!shows(&f, "All") && !shows(&f, "No games match this filter."), "no chips: {:?}", f.drawn);
 }
 
+/// All games is reachable from Home's top row even when every row fits and no All tile shows:
+/// with the pointer, with Tab (after the destinations) and with the D-pad (Right from them). It
+/// opens on All, whatever chip was chosen last.
+#[test]
+fn home_opens_all_games_from_its_top_row_when_every_row_fits() {
+    let mut f = home_with_stores(&[("Portal", "steam", true), ("Celeste", "steam", true), ("Fortnite", "epic", true)]);
+    f.l.library_filter = console::LibraryFilter::Store("epic".into());
+    f.settle();
+    assert!(!f.drawn.iter().any(|t| t.strip_prefix("All ").is_some_and(|n| n.parse::<usize>().is_ok())), "every row fits, no All tile: {:?}", f.drawn);
+    let stops = header_stops(&mut f);
+    assert_eq!(stops.len(), 4, "Home, PCs, Settings and All games: {stops:?}");
+    let action = f.placed.iter().find(|(t, r, _)| t == "All games" && r.center().y < 80.0).map(|p| p.1).expect("All games in the top row");
+    assert!(stops[3].contains_rect(action) && 1280.0 - stops[3].right() < 80.0, "last for Tab, at the right edge: {stops:?}");
+    // Right from Settings lands on it.
+    let settings = f.placed.iter().find(|(t, r, _)| t == "Settings" && r.center().y < 80.0).map(|p| p.1).unwrap();
+    let pill = (0..30).find_map(|_| {
+        f.press_with(Key::Tab, egui::Modifiers::SHIFT);
+        let id = f.ctx.memory(|m| m.focused())?;
+        f.ctx.read_response(id).filter(|r| r.rect.contains(settings.center())).map(|r| r.id)
+    });
+    assert!(pill.is_some(), "Shift+Tab reaches Settings");
+    f.press(Key::ArrowRight);
+    let focused = f.ctx.memory(|m| m.focused()).and_then(|id| f.ctx.read_response(id)).map(|r| r.rect).expect("focus");
+    assert!(focused.contains_rect(action), "Right from Settings reaches All games: {focused:?}");
+    f.press(Key::Enter);
+    assert_eq!(f.l.screen, Screen::AllGames);
+    assert_eq!(f.l.library_filter, console::LibraryFilter::All);
+    assert!(shows(&f, "Portal") && shows(&f, "Fortnite"), "{:?}", f.drawn);
+    // An empty library offers no way to an empty page.
+    let mut f = home_with_stores(&[]);
+    f.settle();
+    assert!(!f.placed.iter().any(|(t, r, _)| t == "All games" && r.center().y < 80.0), "{:?}", f.drawn);
+}
+
+/// While a PC's library is on its way, All games says so as Home does instead of calling the
+/// library empty.
+#[test]
+fn all_games_shows_the_library_loading_as_home_does() {
+    let mut f = Frames::with(record("Desk", true, true), Reach::Online, Some(files::tests::native_answer()), Vec::new());
+    f.l.go(Screen::Home);
+    f.settle();
+    assert!(shows(&f, "Loading the games…"), "Home: {:?}", f.drawn);
+    f.l.open(Screen::AllGames);
+    f.settle();
+    assert!(shows(&f, "Loading the games…"), "All games: {:?}", f.drawn);
+    assert!(!shows(&f, "No games to show yet. They appear here once a PC that shares its game library is online."), "{:?}", f.drawn);
+}
+
 /// The chips come before the games for Tab and the arrow keys, and the first game has focus on
 /// arrival, so A starts browsing straight away.
 #[test]

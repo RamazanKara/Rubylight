@@ -1,32 +1,23 @@
 package com.limelight;
 
 
-import com.limelight.binding.PlatformBinding;
 import com.limelight.binding.input.ControllerHandler;
 import com.limelight.binding.input.KeyboardTranslator;
-import com.limelight.binding.input.capture.InputCaptureManager;
 import com.limelight.binding.input.capture.InputCaptureProvider;
 import com.limelight.binding.input.touch.TrackpadPointer;
 import com.limelight.binding.input.driver.UsbDriverService;
 import com.limelight.binding.input.evdev.EvdevListener;
 import com.limelight.binding.input.virtual_controller.VirtualController;
-import com.limelight.binding.video.CrashAccounting;
-import com.limelight.binding.video.CrashListener;
 import com.limelight.binding.video.DecoderSetupFailure;
-import com.limelight.binding.video.PackedFallback;
 import com.limelight.binding.video.DisplayCapsReporter;
 import com.limelight.binding.video.HdrFormatPolicy;
 import com.limelight.binding.video.HdrPolicy;
 import com.limelight.binding.video.LinkNoticeStatus;
 import com.limelight.binding.video.MediaCodecDecoderRenderer;
-import com.limelight.binding.video.MediaCodecHelper;
 import com.limelight.binding.video.PerfOverlayListener;
 import com.limelight.binding.video.PerformanceOverlay;
-import com.limelight.binding.video.Sdr10Policy;
 import com.limelight.binding.video.StagedStreamExit;
 import com.limelight.binding.video.UpscalingPolicy;
-import com.limelight.computers.HostCapabilityCache;
-import com.limelight.computers.HostNotices;
 import com.limelight.nvstream.NvConnection;
 import com.limelight.nvstream.AdaptiveBitrateController;
 import com.limelight.nvstream.AdaptiveQualityController;
@@ -34,13 +25,9 @@ import com.limelight.nvstream.PyroWaveBitrateController;
 import com.limelight.nvstream.RateChangeResult;
 import com.limelight.nvstream.NvConnectionListener;
 import com.limelight.nvstream.StreamConfiguration;
-import com.limelight.nvstream.http.ComputerDetails;
-import com.limelight.nvstream.http.HostCapabilities;
 import com.limelight.nvstream.http.LaunchConfirmation;
 import com.limelight.nvstream.http.NvApp;
-import com.limelight.nvstream.http.NvHTTP;
 import com.limelight.nvstream.jni.MoonBridge;
-import com.limelight.preferences.GlPreferences;
 import com.limelight.preferences.PreferenceConfiguration;
 import com.limelight.ui.GameGestures;
 import com.limelight.ui.HostCursorShapes;
@@ -50,7 +37,6 @@ import com.limelight.ui.PcKeyboardOverlay;
 import com.limelight.ui.StreamOrientation;
 import com.limelight.ui.StreamView;
 import com.limelight.utils.Dialog;
-import com.limelight.utils.LaunchSource;
 import com.limelight.utils.SpinnerDialog;
 import com.limelight.utils.UiHelper;
 
@@ -63,7 +49,6 @@ import androidx.core.view.WindowInsetsControllerCompat;
 import android.app.PendingIntent;
 import android.content.BroadcastReceiver;
 import com.limelight.ui.PictureInPicturePolicy;
-import android.app.Service;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
@@ -72,8 +57,6 @@ import android.content.SharedPreferences;
 import android.content.res.Configuration;
 import android.graphics.SurfaceTexture;
 import android.hardware.input.InputManager;
-import android.media.AudioManager;
-import android.net.ConnectivityManager;
 import android.net.wifi.WifiManager;
 import android.os.Build;
 import android.os.Bundle;
@@ -81,7 +64,6 @@ import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
 import android.os.IBinder;
-import android.preference.PreferenceManager;
 import android.view.Display;
 import android.view.InputDevice;
 import android.view.KeyEvent;
@@ -99,12 +81,7 @@ import android.widget.FrameLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 
-
-import java.io.ByteArrayInputStream;
 import java.io.IOException;
-import java.security.cert.CertificateException;
-import java.security.cert.CertificateFactory;
-import java.security.cert.X509Certificate;
 import java.math.BigDecimal;
 import java.util.Locale;
 
@@ -133,7 +110,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     KeyboardTranslator keyboardTranslator;
     KeyboardOverlay keyboardOverlay;
     PcKeyboardOverlay pcKeyboard;
-    private final InputManager.InputDeviceListener pcKeyboardDeviceListener = new InputManager.InputDeviceListener() {
+    final InputManager.InputDeviceListener pcKeyboardDeviceListener = new InputManager.InputDeviceListener() {
         // A keyboard plugged in or switched to another layout changes what the host should type.
         @Override public void onInputDeviceAdded(int deviceId) { keyboardInput.reportKeyboardLayout(); }
         @Override public void onInputDeviceChanged(int deviceId) { keyboardInput.reportKeyboardLayout(); }
@@ -147,7 +124,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     com.limelight.ui.MicButton micButton;
 
     PreferenceConfiguration prefConfig;
-    private SharedPreferences tombstonePrefs;
+    SharedPreferences tombstonePrefs;
 
     NvConnection conn;
     SpinnerDialog spinner;
@@ -155,7 +132,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     boolean connecting = false;
     volatile boolean connected = false;
     boolean autoEnterPip = false;
-    private com.limelight.ui.AdaptiveLayout adaptiveLayout;
+    com.limelight.ui.AdaptiveLayout adaptiveLayout;
     boolean surfaceCreated = false;
     boolean attemptedConnection = false;
     volatile Thread connectionStopThread;
@@ -336,10 +313,10 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     // virtual display), so a turned window can ask for a turned stream.
     int streamOrientation = StreamOrientation.AUTO;
     boolean hostShapesStream;
-    private int lastWindowOrientation = Configuration.ORIENTATION_UNDEFINED;
+    int lastWindowOrientation = Configuration.ORIENTATION_UNDEFINED;
     final StreamReconfigureRequester reconfigureRequester = new StreamReconfigureRequester();
     final Runnable checkReconfigure = videoOutput::checkStreamReconfigure;
-    private final android.hardware.display.DisplayManager.DisplayListener inputDisplayListener =
+    final android.hardware.display.DisplayManager.DisplayListener inputDisplayListener =
             new android.hardware.display.DisplayManager.DisplayListener() {
                 @Override public void onDisplayAdded(int displayId) {}
                 @Override public void onDisplayRemoved(int displayId) {
@@ -416,7 +393,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     final Runnable showStreamMenuHint = overlays::showStreamMenuHint;
 
     MediaCodecDecoderRenderer decoderRenderer;
-    private boolean reportedCrash;
+    boolean reportedCrash;
     // The PC (or this device) ended the stream. A decoder failure after that is the stream going
     // away, not a decoder crash.
     volatile boolean streamTerminated;
@@ -549,9 +526,9 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     WifiManager.WifiLock highPerfWifiLock;
     WifiManager.WifiLock lowLatencyWifiLock;
 
-    private boolean usbDriverServiceBound;
+    boolean usbDriverServiceBound;
     UsbDriverService.UsbDriverBinder usbDriverBinder;
-    private ServiceConnection usbDriverServiceConnection = new ServiceConnection() {
+    ServiceConnection usbDriverServiceConnection = new ServiceConnection() {
         @Override
         public void onServiceConnected(ComponentName componentName, IBinder iBinder) {
             if (isFinishing() || isDestroyed() || connectionStopThread != null) {
@@ -586,7 +563,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     public static final String EXTRA_APP_HDR = "HDR";
     public static final String EXTRA_SERVER_CERT = "ServerCert";
     // The network the stream started on (StreamLayers.Network), kept across reconnects and handoffs.
-    private static final String EXTRA_STREAM_NETWORK = "StreamNetwork";
+    static final String EXTRA_STREAM_NETWORK = "StreamNetwork";
     static final String EXTRA_RECOVERY_MEDIA_FAILURE = "RecoveryMediaFailure";
     // Packed full chroma failed in this session and the reconnect runs without it (not the setting).
     static final String EXTRA_PACKED_OFF = "PackedChromaOff";
@@ -598,545 +575,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     protected void onCreate(Bundle savedInstanceState) {
         com.limelight.ui.AppTheme.apply(this);
         super.onCreate(savedInstanceState);
-
-        if (savedInstanceState != null) {
-            LimeLog.info("Stream restored after process death");
-            messages.alert(R.string.stream_restore_help, Toast.LENGTH_LONG);
-            finish();
-            return;
-        }
-        if (!isValidLaunch(getIntent().getStringExtra(EXTRA_HOST),
-                getIntent().getIntExtra(EXTRA_PORT, NvHTTP.DEFAULT_HTTP_PORT),
-                getIntent().getStringExtra(EXTRA_UNIQUEID),
-                getIntent().getIntExtra(EXTRA_APP_ID, StreamConfiguration.INVALID_APP_ID),
-                getIntent().getStringExtra(EXTRA_APP_UUID))) {
-            finish();
-            return;
-        }
-
-        UiHelper.setLocale(this);
-
-        // We don't want a title bar
-        requestWindowFeature(Window.FEATURE_NO_TITLE);
-
-        // Full-screen
-        getWindow().addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
-
-        // If we're going to use immersive mode, we want to have
-        // the entire screen
-        getWindow().getDecorView().setSystemUiVisibility(
-                View.SYSTEM_UI_FLAG_LAYOUT_STABLE |
-                        View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION |
-                        View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN);
-
-        getWindow().addFlags(WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN);
-
-        // Listen for UI visibility events
-        getWindow().getDecorView().setOnSystemUiVisibilityChangeListener(this);
-
-        // Change volume button behavior
-        setVolumeControlStream(AudioManager.STREAM_MUSIC);
-
-        // Inflate the content
-        setContentView(R.layout.activity_game);
-
-        // Start the spinner
-        spinner = SpinnerDialog.displayDialog(this, getResources().getString(R.string.conn_establishing_title),
-                getResources().getString(R.string.conn_establishing_msg), true);
-
-        // Read the stream preferences
-        // Profiles, PC and game values are read once here and never change during the stream. A
-        // reconnect or handoff keeps the network the stream started on, and so the same profile.
-        com.limelight.preferences.StreamLayers.Network startNetwork = null;
-        String seenNetwork = getIntent().getStringExtra(EXTRA_STREAM_NETWORK);
-        if (seenNetwork != null) {
-            try {
-                startNetwork = com.limelight.preferences.StreamLayers.Network.valueOf(seenNetwork);
-            } catch (IllegalArgumentException ignored) {
-                // Read the network again.
-            }
-        }
-        prefConfig = PreferenceConfiguration.readPreferences(this, getIntent().getStringExtra(EXTRA_PC_UUID),
-                HostCapabilityCache.load(this, getIntent().getStringExtra(EXTRA_PC_UUID)),
-                getIntent().getStringExtra(EXTRA_APP_UUID),
-                getIntent().getIntExtra(EXTRA_APP_ID, StreamConfiguration.INVALID_APP_ID), startNetwork);
-        prefConfig.experimentalPacked444 = PackedFallback.effective(prefConfig.experimentalPacked444,
-                getIntent().getBooleanExtra(EXTRA_PACKED_OFF, false));
-        getIntent().putExtra(EXTRA_STREAM_NETWORK, prefConfig.layers.network.name());
-        HdrPolicy.setDebugHlgOnly(BuildConfig.DEBUG, prefConfig.debugHdrHlgOnly);
-        overlays.showStreamLayers(prefConfig, startNetwork == null);
-        streamRecovery.readRecoveryBudget(SystemClock.elapsedRealtime());
-        panelMaxRefreshRate = com.limelight.binding.video.DisplayFrameRatePolicy.maxRefreshRate(
-                videoOutput.getVideoDisplay());
-        if (prefConfig.vrr) {
-            prefConfig.fps = com.limelight.binding.video.DisplayFrameRatePolicy.streamFrameRate(panelMaxRefreshRate);
-            prefConfig.launchRefreshRateX100 = Math.max(100, Math.min(100000, Math.round(panelMaxRefreshRate * 100)));
-        }
-        com.limelight.utils.RedactedLog.addSecret(getIntent().getStringExtra(EXTRA_PC_NAME));
-        com.limelight.utils.RedactedLog.addSecret(getIntent().getStringExtra(EXTRA_HOST));
-        LimeLog.info(LaunchSource.describe(getIntent()));
-        LimeLog.info("Stream request: " + prefConfig.width + "x" + prefConfig.height + " at " + prefConfig.fps +
-                " fps (resolution " + prefConfig.resolutionSource() +
-                (prefConfig.vrr ? ", VRR at the panel's " + panelMaxRefreshRate + " Hz" : "") + ")");
-        LimeLog.info("PC's own stream values: " + (prefConfig.pcSettings == null ? "none" : prefConfig.pcSettings));
-        if (prefConfig.layers != null) {
-            LimeLog.info("Stream settings layers: " + com.limelight.preferences.StreamLayers.describe(prefConfig.layers));
-        }
-        // Fixed presets keep their size; anything else is the phone's own resolution and follows it.
-        nativeResolutionStream = prefConfig.resolutionFollowsScreen ||
-                PreferenceConfiguration.isNativeResolution(prefConfig.width, prefConfig.height);
-        fpsFollowsDisplay = prefConfig.vrr ||
-                prefConfig.fps == com.limelight.binding.video.DisplayFrameRatePolicy.streamFrameRate(panelMaxRefreshRate);
-        nativeTouchEnabled = !prefConfig.touchscreenTrackpad &&
-                PreferenceManager.getDefaultSharedPreferences(this).getBoolean("checkbox_native_touch", false);
-        tombstonePrefs = Game.this.getSharedPreferences("DecoderTombstone", 0);
-        streamOrientation = prefConfig.streamOrientation;
-        lastWindowOrientation = getResources().getConfiguration().orientation;
-
-        // Landscape on phones unless the Orientation setting says otherwise
-        videoOutput.setPreferredOrientationForCurrentDisplay();
-
-        videoOutput.configureStreamWindow();
-
-        // Listen for non-touch events on the game surface
-        streamView = findViewById(R.id.surfaceView);
-        videoOutput.initializeVideoOutput();
-        streamView.setOnGenericMotionListener(this);
-        // Keeps the Local cursor pointer over the same stream pixel when the stream moves or resizes.
-        streamView.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> {
-            if (trackpadPointer != null) trackpadPointer.syncCursor();
-        });
-        streamView.setOnKeyListener(this);
-        streamView.setInputCallbacks(this);
-        adaptiveLayout = com.limelight.ui.AdaptiveLayout.attach(this, findViewById(android.R.id.content));
-        adaptiveLayout.setInsetsObserver(keyboardInput::onWindowInsets);
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
-            legacyKeyboard = new LegacyKeyboardInsets(this, findViewById(android.R.id.content), keyboardInput::onKeyboardInsets);
-            legacyKeyboard.start();
-        }
-        streamView.addOnLayoutChangeListener((view, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> {
-            if (connected) videoOutput.updatePipAutoEnter();
-        });
-        findViewById(android.R.id.content).addOnLayoutChangeListener(
-                (view, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> videoOutput.onPaneLaidOut(view));
-
-        // Listen for touch events on the background touch view to enable trackpad mode
-        // to work on areas outside of the StreamView itself. We use a separate View
-        // for this rather than just handling it at the Activity level, because that
-        // allows proper touch splitting, which the OSC relies upon.
-        View backgroundTouchView = findViewById(R.id.backgroundTouchView);
-        backgroundTouchView.setOnTouchListener(this);
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            // Request unbuffered input event dispatching for all input classes we handle here.
-            // Without this, input events are buffered to be delivered in lock-step with VBlank,
-            // artificially increasing input latency while streaming.
-            streamView.requestUnbufferedDispatch(
-                    InputDevice.SOURCE_CLASS_BUTTON | // Keyboards
-                    InputDevice.SOURCE_CLASS_JOYSTICK | // Gamepads
-                    InputDevice.SOURCE_CLASS_POINTER | // Touchscreens and mice (w/o pointer capture)
-                    InputDevice.SOURCE_CLASS_POSITION | // Touchpads
-                    InputDevice.SOURCE_CLASS_TRACKBALL // Mice (pointer capture)
-            );
-            backgroundTouchView.requestUnbufferedDispatch(
-                    InputDevice.SOURCE_CLASS_BUTTON | // Keyboards
-                    InputDevice.SOURCE_CLASS_JOYSTICK | // Gamepads
-                    InputDevice.SOURCE_CLASS_POINTER | // Touchscreens and mice (w/o pointer capture)
-                    InputDevice.SOURCE_CLASS_POSITION | // Touchpads
-                    InputDevice.SOURCE_CLASS_TRACKBALL // Mice (pointer capture)
-            );
-        }
-
-        notificationOverlayView = findViewById(R.id.notificationOverlay);
-        streamMenuHint = findViewById(R.id.streamMenuHint);
-        // Rotation, a fold or the overlay moving to the top centre move the hint too.
-        streamMenuHint.getViewTreeObserver().addOnGlobalLayoutListener(() -> {
-            if (streamMenuHint.getVisibility() == View.VISIBLE) {
-                com.limelight.ui.StreamMenuHint.place(streamMenuHint, performanceOverlayScroll);
-            }
-        });
-
-        performanceOverlayView = findViewById(R.id.performanceOverlay);
-        performanceOverlayScroll = findViewById(R.id.performanceOverlayScroll);
-        performanceOverlayScroll.setOnTouchListener((view, event) -> !overlays.isDebugOverlay() && touchInput.onOverlayTouch(view, event));
-        overlayMode = PerformanceOverlay.normalizeMode(PreferenceManager.getDefaultSharedPreferences(this)
-                .getString("performance_overlay_mode", PerformanceOverlay.MODE_COMPACT));
-        overlayCorner = com.limelight.ui.OverlayPlacement.Corner.parse(prefConfig.overlayPosition);
-        overlays.attachOverlayPlacement((android.view.ViewGroup) streamView.getParent());
-        overlays.updatePerformanceOverlay();
-
-        inputCaptureProvider = InputCaptureManager.getInputCaptureProvider(this, this);
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            streamView.setOnCapturedPointerListener(new View.OnCapturedPointerListener() {
-                @Override
-                public boolean onCapturedPointer(View view, MotionEvent motionEvent) {
-                    return touchInput.handleMotionEvent(view, motionEvent);
-                }
-            });
-        }
-
-        // Warn the user if they're on a metered connection
-        ConnectivityManager connMgr = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
-        if (connMgr.isActiveNetworkMetered() && !prefConfig.disableWarnings) {
-            // Streaming can use a lot of mobile data: worth acting on before it does.
-            messages.alert(R.string.conn_metered, Toast.LENGTH_LONG);
-        }
-
-        // Make sure Wi-Fi is fully powered up
-        WifiManager wifiMgr = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
-        try {
-            if (wifiMgr != null) {
-                highPerfWifiLock = wifiMgr.createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, BuildConfig.BRAND_NAME + " High Perf Lock");
-                highPerfWifiLock.setReferenceCounted(false);
-                highPerfWifiLock.acquire();
-
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    lowLatencyWifiLock = wifiMgr.createWifiLock(WifiManager.WIFI_MODE_FULL_LOW_LATENCY, BuildConfig.BRAND_NAME + " Low Latency Lock");
-                    lowLatencyWifiLock.setReferenceCounted(false);
-                    lowLatencyWifiLock.acquire();
-                }
-            }
-        } catch (SecurityException e) {
-            // Some Samsung Galaxy S10+/S10e devices throw a SecurityException from
-            // WifiLock.acquire() even though we have android.permission.WAKE_LOCK in our manifest.
-            e.printStackTrace();
-        }
-
-        appName = Game.this.getIntent().getStringExtra(EXTRA_APP_NAME);
-        pcName = Game.this.getIntent().getStringExtra(EXTRA_PC_NAME);
-
-        String host = Game.this.getIntent().getStringExtra(EXTRA_HOST);
-        int port = Game.this.getIntent().getIntExtra(EXTRA_PORT, NvHTTP.DEFAULT_HTTP_PORT);
-        int httpsPort = Game.this.getIntent().getIntExtra(EXTRA_HTTPS_PORT, 0); // 0 is treated as unknown
-        int appId = Game.this.getIntent().getIntExtra(EXTRA_APP_ID, StreamConfiguration.INVALID_APP_ID);
-        String uniqueId = Game.this.getIntent().getStringExtra(EXTRA_UNIQUEID);
-        boolean appSupportsHdr = Game.this.getIntent().getBooleanExtra(EXTRA_APP_HDR, false);
-        byte[] derCertData = Game.this.getIntent().getByteArrayExtra(EXTRA_SERVER_CERT);
-
-        app = new NvApp(appName != null ? appName : "app", appId, appSupportsHdr);
-        app.setAppUuid(getIntent().getStringExtra(EXTRA_APP_UUID));
-        app.setMonitorResume(getIntent().getBooleanExtra(EXTRA_MONITOR_RESUME, false));
-        app.setSmallStreamInputOnly(getIntent().getBooleanExtra(EXTRA_SMALL_STREAM_INPUT_ONLY, false));
-        // Until the host answers, its last known capabilities decide whether this is a control tile.
-        HostCapabilities cachedCaps = HostCapabilityCache.load(this, getIntent().getStringExtra(EXTRA_PC_UUID));
-        app.setHostCapabilities(cachedCaps);
-        boolean mediaStream = app.getRole() != NvApp.Role.INPUT_ONLY && !app.isControlAction();
-        videoOutput.startInWindowShape(cachedCaps, mediaStream);
-
-        X509Certificate serverCert = null;
-        try {
-            if (derCertData != null) {
-                serverCert = (X509Certificate) CertificateFactory.getInstance("X.509")
-                        .generateCertificate(new ByteArrayInputStream(derCertData));
-            }
-        } catch (CertificateException e) {
-            e.printStackTrace();
-        }
-
-        if (appId == StreamConfiguration.INVALID_APP_ID && app.getAppUuid().isEmpty()) {
-            finish();
-            return;
-        }
-
-        // Initialize the MediaCodec helper before creating the decoder
-        GlPreferences glPrefs = GlPreferences.readPreferences(this);
-        MediaCodecHelper.initialize(this, glPrefs.glRenderer);
-
-        // Check if the user has enabled HDR
-        boolean willStreamHdr = false;
-        if (mediaStream && prefConfig.enableHdr) {
-            // HLG stands in for HDR10 unless the Vulkan renderer draws the picture on a PQ-only surface.
-            HdrPolicy.Refusal refusal = HdrPolicy.displayRefusal(videoOutput.getVideoDisplay(), true,
-                    cachedCaps == null ? 0 : cachedCaps.hdrFormats(),
-                    MediaCodecDecoderRenderer.vulkanSurface(prefConfig));
-            willStreamHdr = refusal == HdrPolicy.Refusal.NONE;
-            if (!willStreamHdr) overlays.refuseHdr(refusal);
-        }
-
-        // Check if the user has enabled performance stats overlay
-        if (mediaStream && prefConfig.enablePerfOverlay) {
-            performanceOverlayScroll.setVisibility(View.VISIBLE);
-        }
-
-        decoderRenderer = new MediaCodecDecoderRenderer(
-                this,
-                prefConfig,
-                new CrashListener() {
-                    @Override
-                    public void notifyCrash(Exception e) {
-                        // A stream that is ending, or a TV that just lost its display, is not a decoder
-                        // crash: counting it would turn reference frame invalidation off next time.
-                        CrashAccounting.Verdict verdict = CrashAccounting.classify(streamConnection.streamEnding(),
-                                streamConnection.isAndroidTv(), videoDisplayOff);
-                        if (verdict != CrashAccounting.Verdict.COUNT) {
-                            LimeLog.warning("Decoder failure not counted as a crash (" +
-                                    (verdict == CrashAccounting.Verdict.DISPLAY_LOST ? "display lost" : "stream ending") +
-                                    "): " + e);
-                            return;
-                        }
-                        // The decoder, format and frame counts this crash is counted against.
-                        LimeLog.severe("Decoder crash counted: " + e);
-
-                        // The renderer reports a decoder it gave up on; the stream ends with its
-                        // dialog, and the next one runs without reference frame invalidation.
-                        synchronized (tombstonePrefs) {
-                            if (reportedCrash) {
-                                return;
-                            }
-                            reportedCrash = true;
-                            CrashAccounting.recordGiveUp(tombstonePrefs, getIntent().getStringExtra(EXTRA_PC_UUID));
-                        }
-                    }
-                },
-                tombstonePrefs.getInt("CrashCount", 0),
-                connMgr.isActiveNetworkMetered(),
-                willStreamHdr,
-                glPrefs.glRenderer,
-                this, videoOutput.getVideoDisplay());
-        decoderRenderer.setPackedFailureListener(streamRecovery::onPackedChromaFailure);
-        decoderRenderer.setStreamSizeListener(new MediaCodecDecoderRenderer.StreamSizeListener() {
-            @Override
-            public void onStreamSizeChanged(int width, int height) {
-                runOnUiThread(() -> videoOutput.applyStreamSize(width, height));
-            }
-
-            @Override
-            public void onDecodedSize(int decodedWidth, int decodedHeight, int shownWidth, int shownHeight) {
-                runOnUiThread(() -> {
-                    if (!isFinishing() && !isDestroyed()) {
-                        streamView.setDecodedPadding(decodedWidth, decodedHeight, shownWidth, shownHeight);
-                    }
-                });
-            }
-        });
-
-        // Don't stream HDR if the decoder can't support it
-        if (willStreamHdr) {
-            HdrPolicy.Refusal refusal = HdrPolicy.decoderRefusal(decoderRenderer.isHevcMain10Hdr10Supported(),
-                    decoderRenderer.isAv1Main10Supported(), decoderRenderer.isPyroWaveSupported());
-            if (refusal != HdrPolicy.Refusal.NONE) {
-                willStreamHdr = false;
-                overlays.refuseHdr(refusal);
-            }
-        }
-        streamHdr = willStreamHdr;
-
-        // PyroWave was chosen but this PC showed it has none; say once for the PC what is used instead.
-        if (mediaStream && prefConfig.pyroWaveUnavailable) {
-            messages.notice(getIntent().getStringExtra(EXTRA_PC_UUID), HostNotices.Notice.PYROWAVE_UNAVAILABLE,
-                    getString(R.string.host_pyrowave_unavailable,
-                            getResources().getStringArray(R.array.host_profile_codecs)[prefConfig.videoFormat.ordinal()]));
-        } else if (prefConfig.videoFormat == PreferenceConfiguration.FormatOption.FORCE_PYROWAVE) {
-            HostNotices.reset(this, getIntent().getStringExtra(EXTRA_PC_UUID), HostNotices.Notice.PYROWAVE_UNAVAILABLE);
-        }
-
-        // Display a message to the user if HEVC was forced on but we still didn't find a decoder
-        if (mediaStream && prefConfig.videoFormat == PreferenceConfiguration.FormatOption.FORCE_HEVC && !decoderRenderer.isHevcSupported()) {
-            overlays.hostNotice(HostNotices.Notice.CODEC_UNAVAILABLE, R.string.stream_hevc_decoder_missing);
-        }
-
-        // Display a message to the user if AV1 was forced on but we still didn't find a decoder
-        if (mediaStream && prefConfig.videoFormat == PreferenceConfiguration.FormatOption.FORCE_AV1 && !decoderRenderer.isAv1Supported()) {
-            overlays.hostNotice(HostNotices.Notice.CODEC_UNAVAILABLE, R.string.stream_av1_decoder_missing);
-        }
-
-        // 10-bit SDR: the 10-bit formats without HDR. HDR, when granted, wins.
-        boolean sdr10Hevc = mediaStream && decoderRenderer.isHevcMain10Supported();
-        boolean sdr10Av1 = mediaStream && decoderRenderer.isAv1Main10SdrSupported();
-        Sdr10Policy.Refusal sdr10Refusal = Sdr10Policy.refusal(mediaStream, prefConfig.enableSdr10Bit, willStreamHdr,
-                sdr10Hevc, sdr10Av1, prefConfig.videoFormat == PreferenceConfiguration.FormatOption.FORCE_PYROWAVE,
-                prefConfig.experimentalPacked444);
-        streamSdr10 = Sdr10Policy.formats(sdr10Refusal, sdr10Hevc, sdr10Av1) != 0;
-        decoderRenderer.setSdr10Requested(streamSdr10);
-        if (Sdr10Policy.worthSaying(sdr10Refusal)) {
-            LimeLog.warning("10-bit SDR enabled but not used: " + sdr10Refusal);
-            int reason = sdr10Refusal == Sdr10Policy.Refusal.PYROWAVE ? R.string.stream_sdr10_reason_pyrowave :
-                    sdr10Refusal == Sdr10Policy.Refusal.PACKED_444 ? R.string.stream_sdr10_reason_packed :
-                            R.string.stream_sdr10_reason_decoder;
-            messages.notice(getIntent().getStringExtra(EXTRA_PC_UUID), HostNotices.Notice.SDR10_UNAVAILABLE,
-                    getString(R.string.stream_sdr10_unavailable, getString(reason)));
-        }
-        // Native 4:4:4 over 10-bit SDR depends on the PC, so the connection decides it (and re-arms the notice).
-
-        int supportedVideoFormats = mediaStream ? decoderRenderer.getSupportedVideoFormats(willStreamHdr, streamSdr10) : MoonBridge.VIDEO_FORMAT_H264;
-
-        int gamepadMask = ControllerHandler.getAttachedControllerMask(this);
-        if (!prefConfig.multiController) {
-            // Always set gamepad 1 present for when multi-controller is
-            // disabled for games that don't properly support detection
-            // of gamepads removed and replugged at runtime.
-            gamepadMask = 1;
-        }
-        if (prefConfig.onscreenController) {
-            // If we're using OSC, always set at least gamepad 1.
-            gamepadMask |= 1;
-        }
-
-        // Set to the optimal mode for streaming
-        float displayRefreshRate = mediaStream ? videoOutput.prepareDisplayForRendering() :
-                (desiredRefreshRate = getWindowManager().getDefaultDisplay().getRefreshRate());
-        LimeLog.info("Display refresh rate: "+displayRefreshRate);
-
-        // If the user requested frame pacing using a capped FPS, we will need to change our
-        // desired FPS setting here in accordance with the active display refresh rate.
-        int roundedRefreshRate = Math.round(displayRefreshRate);
-        int chosenFrameRate = prefConfig.fps;
-        if (prefConfig.framePacing == PreferenceConfiguration.FRAME_PACING_CAP_FPS) {
-            if (prefConfig.fps >= roundedRefreshRate) {
-                if (prefConfig.fps > roundedRefreshRate + 3) {
-                    // Use frame drops when rendering above the screen frame rate
-                    prefConfig.framePacing = PreferenceConfiguration.FRAME_PACING_BALANCED;
-                    LimeLog.info("Using drop mode for FPS > Hz");
-                } else if (roundedRefreshRate <= 49) {
-                    // Let's avoid clearly bogus refresh rates and fall back to legacy rendering
-                    prefConfig.framePacing = PreferenceConfiguration.FRAME_PACING_BALANCED;
-                    LimeLog.info("Bogus refresh rate: " + roundedRefreshRate);
-                }
-                else {
-                    chosenFrameRate = roundedRefreshRate - 1;
-                    LimeLog.info("Adjusting FPS target for screen to " + chosenFrameRate);
-                }
-            }
-        }
-
-        // The capped-FPS policy above can choose Balanced too. Apply the external
-        // output fallback after that decision so it cannot reintroduce phone-vsync pacing.
-        if (mediaStream && decoderRenderer.applyOutputPacingFallback() &&
-                prefConfig.videoFormat != PreferenceConfiguration.FormatOption.FORCE_PYROWAVE) {
-            // The session's own setup, not a choice to make: the overlay's status line says it.
-            messages.note(getString(R.string.desktop_pacing_fallback));
-        }
-
-        streamFps = chosenFrameRate;
-        streamPanelHz = panelMaxRefreshRate;
-
-        // Input-only without the host's own mode: the smallest ordinary stream, which leaves the
-        // PC's display mode and its speakers alone.
-        boolean smallStream = app.isSmallStreamInputOnly();
-        StreamConfiguration config = new StreamConfiguration.Builder()
-                .setResolution(smallStream ? InputOnlyPolicy.SMALL_WIDTH : prefConfig.width,
-                        smallStream ? InputOnlyPolicy.SMALL_HEIGHT : prefConfig.height)
-                .setLaunchRefreshRate(smallStream ? InputOnlyPolicy.SMALL_FPS : prefConfig.fps)
-                .setLaunchRefreshRateX100(smallStream ? 0 : prefConfig.launchRefreshRateX100)
-                .setRefreshRate(smallStream ? InputOnlyPolicy.SMALL_FPS : chosenFrameRate)
-                .setApp(app)
-                .setResumeOnly(streamRecovery.isResumeOnlyStream())
-                .setAllowIdleSessionEnd(!getIntent().getBooleanExtra(EXTRA_RECOVERY_MEDIA_FAILURE, false))
-                .setBitrate(smallStream ? InputOnlyPolicy.SMALL_BITRATE_KBPS : prefConfig.bitrate)
-                .setProbeFirstBitrate(!smallStream && prefConfig.probesFirstBitrate())
-                .setAutomaticBitrate(!smallStream && prefConfig.automaticBitrate)
-                .setBitrateLimit(StreamRateChanges.clientLimitKbps(prefConfig.layers == null ? null : prefConfig.layers.network,
-                        prefConfig.mobileBitrateLimit))
-                .setFecChoice(prefConfig.fecChoice)
-                .setRateChange(!smallStream && prefConfig.rustEngine)
-                .setEnableSops(!smallStream && prefConfig.enableSops)
-                .enableLocalAudioPlayback(smallStream || prefConfig.playHostAudio)
-                .setMaxPacketSize(1392)
-                .setRemoteConfiguration(StreamConfiguration.STREAM_CFG_AUTO) // NvConnection will perform LAN and VPN detection
-                .setSupportedVideoFormats(supportedVideoFormats)
-                .setSdr10Bit(streamSdr10)
-                .setPacked444(prefConfig.experimentalPacked444)
-                .setAttachedGamepadMask(gamepadMask)
-                .setClientRefreshRateX100(Math.round(desiredRefreshRate * 100))
-                .setVirtualDisplay(!smallStream && prefConfig.virtualDisplay, prefConfig.virtualDisplayScale)
-                .setVirtualDisplayDpi(prefConfig.virtualDisplayDpi)
-                .setVrr(!smallStream && prefConfig.vrr)
-                .setClipboardSync(prefConfig.clipboardSync && prefConfig.rustEngine)
-                .setHostDisplay(prefConfig.hostDisplay)
-                .setAudioConfiguration(smallStream ? MoonBridge.AUDIO_CONFIGURATION_STEREO : prefConfig.audioConfiguration)
-                .setColorSpace(decoderRenderer.getPreferredColorSpace())
-                .setColorRange(decoderRenderer.getPreferredColorRange())
-                .setPersistGamepadsAfterDisconnect(!prefConfig.multiController)
-                .setDisplayLuminance(smallStream ? null : GameVideoOutput.launchLuminance(videoOutput.getVideoDisplay()))
-                .build();
-
-        // Initialize the connection
-        conn = new NvConnection(getApplicationContext().createConfigurationContext(getResources().getConfiguration()),
-                new ComputerDetails.AddressTuple(host, port),
-                httpsPort, uniqueId, config,
-                PlatformBinding.getCryptoProvider(this), serverCert);
-        streamRecovery.restoreMicrophoneMute();
-        conn.setMicrophoneNoticeListener(() -> runOnUiThread(menuActions::showMicrophoneNotice));
-        controllerHandler = new ControllerHandler(this, conn, this, prefConfig);
-        conn.setControllerPreparation(controllerHandler::prepareControllersForLaunch);
-        videoOutput.updateInputPollingRate();
-        ((android.hardware.display.DisplayManager) getSystemService(DISPLAY_SERVICE))
-                .registerDisplayListener(inputDisplayListener, bitrateHandler);
-        keyboardTranslator = new KeyboardTranslator();
-
-        InputManager inputManager = (InputManager) getSystemService(Context.INPUT_SERVICE);
-        inputManager.registerInputDeviceListener(keyboardTranslator, null);
-        inputManager.registerInputDeviceListener(pcKeyboardDeviceListener, null);
-
-        touchInput.initializeTouchContexts();
-
-        desktopGestures = new com.limelight.ui.DesktopGestures(this, streamView,
-                touchInput::cancelHostTouchInput, touchInput::clickRightMouseButton);
-        trackpadPointer.setViewport(desktopGestures.viewport());
-        if (app.getRole() != NvApp.Role.REMOTE_MONITOR) {
-            String profile = com.limelight.binding.input.TouchLayout.profileKey(getIntent().getStringExtra(EXTRA_PC_UUID),
-                    app.getAppUuid(), app.getAppId());
-            gameTouchControls = new com.limelight.ui.GameTouchControls(this, profile,
-                    new com.limelight.binding.input.HeldInputState.Sink() {
-                        @Override public void key(int key, boolean down) { keyboardInput.sendCustomKey(key, down); }
-                        @Override public void mouse(int button, boolean down) { touchInput.sendCustomMouse(button, down); }
-                        @Override public void gamepad(int buttons, short leftX, short leftY, short rightX, short rightY,
-                                                      byte leftTrigger, byte rightTrigger) {
-                            if (controllerHandler != null) controllerHandler.reportLayoutGamepadState(buttons,
-                                    leftX, leftY, rightX, rightY, leftTrigger, rightTrigger);
-                        }
-                    }, () -> foreground && connected && grabbedInput && streamMenu == null && conn.canSendInput(),
-                    menuActions::showStreamDialog);
-            gameTouchControls.setStreamTouchListener(touchInput::onTouchControlsPassthrough);
-            gameTouchControls.setGestureCancelListener(touchInput::cancelTouchInput);
-            ((FrameLayout)streamView.getParent()).addView(gameTouchControls,
-                    new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
-        }
-
-        if (prefConfig.onscreenController && app.getRole() != NvApp.Role.REMOTE_MONITOR) {
-            showOnscreenController();
-        }
-        if (prefConfig.enableMic && app.getRole() != NvApp.Role.REMOTE_MONITOR) {
-            micButton = new com.limelight.ui.MicButton(this, new com.limelight.ui.MicButton.Host() {
-                @Override public boolean offered() { return conn != null && conn.getMicrophoneStatus().canMute(); }
-                @Override public boolean muted() { return conn != null && conn.isMicrophoneMuted(); }
-                @Override public void setMuted(boolean muted) { if (conn != null) conn.setMicrophoneMuted(muted); }
-                @Override public float topRowBottom() {
-                    return modernController != null && prefConfig.onscreenController ? modernController.topRowBottom() : Float.NaN;
-                }
-            });
-            ((FrameLayout) streamView.getParent()).addView(micButton, micButton.layoutParams());
-            touchInput.updateMicButton();
-        }
-
-        if ((prefConfig.usbDriver || prefConfig.usbDualSense || prefConfig.usbSwitchPro) && app.getRole() != NvApp.Role.REMOTE_MONITOR) {
-            // Start the USB driver
-            usbDriverServiceBound = bindService(new Intent(this, UsbDriverService.class),
-                    usbDriverServiceConnection, Service.BIND_AUTO_CREATE);
-        }
-
-        if (mediaStream && !decoderRenderer.isAvcSupported()) {
-            if (spinner != null) {
-                spinner.dismiss();
-                spinner = null;
-            }
-
-            // If we can't find an AVC decoder, we can't proceed
-            Dialog.displayDialog(this, getResources().getString(R.string.conn_error_title),
-                    getString(R.string.stream_h264_decoder_missing), true);
-            return;
-        }
-
-        // The connection will be started when the surface gets created
-        if (prefConfig.useTextureView) {
-            renderView.getTextureView().setSurfaceTextureListener(this);
-            if (renderView.getTextureView().isAvailable()) {
-                onSurfaceTextureAvailable(renderView.getTextureView().getSurfaceTexture(), renderView.getWidth(), renderView.getHeight());
-            }
-        } else {
-            renderView.getHolder().addCallback(this);
-        }
+        streamConnection.onCreate(savedInstanceState);
     }
 
     static boolean isValidLaunch(String host, int port, String uniqueId, int appId, String appUuid) {

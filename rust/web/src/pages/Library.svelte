@@ -3,6 +3,7 @@
   import Button from '../components/Button.svelte';
   import EmptyState from '../components/EmptyState.svelte';
   import PageHeader from '../components/PageHeader.svelte';
+  import Skeleton from '../components/Skeleton.svelte';
   import Panel from '../components/Panel.svelte';
   import AppEditor from '../components/library/AppEditor.svelte';
   import LibraryGrid from '../components/library/LibraryGrid.svelte';
@@ -115,13 +116,22 @@
 
 
   {#if apps === null}
-    {#if !loadError}<p class="muted placeholder">Loading apps…</p>{/if}
+    {#if !loadError}
+      <div class="loading">
+        <Skeleton shape="block" width="min(380px, 100%)" height="var(--control-height)" label="Loading your games" />
+        <ul class="covers" aria-hidden="true">
+          {#each [0, 1, 2, 3, 4, 5] as index (index)}
+            <li><Skeleton shape="block" height="100%" /><Skeleton width="70%" /></li>
+          {/each}
+        </ul>
+      </div>
+    {/if}
   {:else if apps.length === 0}
     <Panel>
       <EmptyState icon="library" title="No games yet">
         <p>Games from the launchers below appear here by themselves. You can also pick games, or add any program.</p>
         <Button variant="primary" icon="plus" href="/library/import">Add games</Button>
-  <Button href="/library/new">Add manually</Button>
+        <Button href="/library/new">Add manually</Button>
       </EmptyState>
     </Panel>
   {:else}
@@ -165,7 +175,7 @@
       <Panel>
         <EmptyState icon="library" title="App not found">
           <p>It may have been deleted.</p>
-          <Button href="/library">Back to the library</Button>
+          <Button href="/library">Back to Games</Button>
         </EmptyState>
       </Panel>
     {/if}
@@ -175,6 +185,33 @@
 <style>
   .placeholder {
     font-size: var(--text-sm);
+  }
+  .loading {
+    display: grid;
+    gap: var(--space-4);
+  }
+  /* The same columns and 2:3 covers as the grid, so nothing jumps when it arrives. */
+  .covers {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(144px, 1fr));
+    gap: var(--space-5) var(--space-4);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .covers li {
+    display: grid;
+    gap: var(--space-2);
+    grid-template-rows: auto auto;
+  }
+  .covers li > :global(:first-child) {
+    aspect-ratio: 2 / 3;
+  }
+  @media (max-width: 520px) {
+    .covers {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: var(--space-4) var(--space-3);
+    }
   }
   .load-error {
     align-items: center;

@@ -62,7 +62,7 @@
     if (reordering) return 'Saving the library order…';
     if (apps.length < 2) return '';
     if (missingIds) return 'Restart the host to enable reordering for all apps.';
-    if (canReorder) return 'Drag a cover to reorder, or open an app and choose Move earlier or Move later.';
+    if (canReorder) return 'Drag a cover to reorder, or open a game to move it.';
     return 'Clear the search and sort by library order to drag apps into place.';
   });
 
@@ -210,7 +210,9 @@
       </select>
     </div>
     {#if !selecting}
+      <span class="push">
       <Button size="sm" icon="check" disabled={busy !== '' || !apps.some((app) => app.uuid)} onclick={() => selection.start()}>Select</Button>
+      </span>
     {/if}
   </div>
   {#if selecting}
@@ -249,7 +251,7 @@
     </div>
   {/if}
   <p class="muted summary" role="status">
-    <span>{needle ? `${shown.length} of ${apps.length}` : apps.length} {apps.length === 1 ? 'app' : 'apps'}</span>
+    <span class="count">{needle ? `${shown.length} of ${apps.length}` : apps.length} {apps.length === 1 ? 'app' : 'apps'}</span>
     {#if hint}<span class="dot" aria-hidden="true">·</span> <span>{hint}</span>{/if}
   </p>
 
@@ -299,23 +301,35 @@
             {#if selecting}
               <!-- Select mode only picks apps; Launch and Close come back with Done. -->
             {:else if isRunning}
-              <Button size="sm" icon="stop" busy={busy === 'close'} onclick={close}>
-                Close<span class="visually-hidden"> {app.name}</span>
-              </Button>
+              <button type="button" class="fab stop" title="Close" aria-busy={busy === 'close'} disabled={busy === 'close'} onclick={close}>
+                {#if busy === 'close'}<span class="spinner" aria-hidden="true"></span>{:else}<Icon name="stop" size={18} />{/if}
+                <span class="visually-hidden">Close {app.name}</span>
+              </button>
             {:else if notInstalled(app)}
-              <Button size="sm" icon="trash" busy={busy === `remove:${app.uuid}`} disabled={busy !== ''} onclick={() => remove(app)}>
-                Remove<span class="visually-hidden"> {app.name}</span>
-              </Button>
-            {:else}
-              <Button
-                size="sm"
-                icon="play"
-                disabled={!app.uuid || running !== '' || busy !== ''}
-                busy={busy === `launch:${app.uuid}`}
-                title={running ? `Close ${running} first` : undefined}
+              <button
+                type="button"
+                class="fab"
+                title="Remove"
+                aria-busy={busy === `remove:${app.uuid}`}
+                disabled={busy !== ''}
+                onclick={() => remove(app)}
+              >
+                {#if busy === `remove:${app.uuid}`}<span class="spinner" aria-hidden="true"></span>{:else}<Icon name="trash" size={18} />{/if}
+                <span class="visually-hidden">Remove {app.name}</span>
+              </button>
+            {:else if app.uuid}
+              <button
+                type="button"
+                class="fab launch reveal"
+                class:busy={busy === `launch:${app.uuid}`}
+                title={running ? `Close ${running} first` : 'Launch on PC'}
+                aria-busy={busy === `launch:${app.uuid}`}
+                disabled={running !== '' || busy !== ''}
                 onclick={() => launch(app)}
-              >Launch on PC<span class="visually-hidden"> {app.name}</span>
-              </Button>
+              >
+                {#if busy === `launch:${app.uuid}`}<span class="spinner" aria-hidden="true"></span>{:else}<Icon name="play" size={18} />{/if}
+                <span class="visually-hidden">Launch {app.name} on PC</span>
+              </button>
             {/if}
           </div>
         </li>
@@ -325,27 +339,31 @@
 </div>
 
 <style>
+  .library {
+    display: grid;
+    gap: var(--space-3);
+  }
   .toolbar {
     display: flex;
-    gap: var(--space-2) var(--space-3);
+    gap: var(--space-2) var(--space-4);
     flex-wrap: wrap;
     align-items: center;
   }
   .search {
     position: relative;
-    flex: 1 1 220px;
-    max-width: 360px;
+    flex: 1 1 240px;
+    max-width: 380px;
   }
   .search-icon {
     position: absolute;
-    left: 10px;
+    left: var(--space-3);
     top: 50%;
     transform: translateY(-50%);
     color: var(--muted);
     pointer-events: none;
   }
   .search .input {
-    padding-left: var(--space-6);
+    padding-left: 38px;
   }
   .sort {
     display: flex;
@@ -359,26 +377,28 @@
   .sort .select {
     width: auto;
   }
-  .library {
-    display: grid;
-    gap: var(--space-3);
-  }
   .selectbar {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
     gap: var(--space-2);
+    padding: var(--space-2) var(--space-2) var(--space-2) var(--space-4);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-lg);
+    background: var(--panel);
+    box-shadow: var(--shadow);
   }
   .selectbar .select {
     width: auto;
   }
   .picked-count {
     font-size: var(--text-sm);
-    font-weight: var(--weight-medium);
+    font-weight: var(--weight-semibold);
     margin-right: var(--space-2);
   }
   .push {
     display: flex;
+    flex-wrap: wrap;
     gap: var(--space-2);
     margin-left: auto;
   }
@@ -387,6 +407,10 @@
     flex-wrap: wrap;
     gap: 0 6px;
     font-size: var(--text-xs);
+  }
+  .count {
+    color: var(--ink-2);
+    font-weight: var(--weight-medium);
   }
   /* On a phone the hint gets its own line rather than a separator left hanging. */
   @media (max-width: 520px) {
@@ -402,13 +426,21 @@
   }
   .grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(136px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(144px, 1fr));
     gap: var(--space-5) var(--space-4);
-    margin: var(--space-2) 0 0;
+    margin: var(--space-1) 0 0;
     padding: 0;
     list-style: none;
   }
+  /* Three across on a phone: covers stay recognisable and the list stays short. */
+  @media (max-width: 520px) {
+    .grid {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: var(--space-4) var(--space-3);
+    }
+  }
   .card {
+    position: relative;
     display: grid;
     gap: var(--space-2);
     align-content: start;
@@ -417,12 +449,14 @@
   .card[draggable='true'] {
     cursor: grab;
   }
-  .dragging {
-    opacity: 0.4;
+  .dragging .art {
+    opacity: 0.45;
+    outline: 2px dashed var(--line-strong);
+    outline-offset: 2px;
   }
   .open {
     display: grid;
-    gap: 6px;
+    gap: var(--space-2);
     min-width: 0;
     color: inherit;
     text-decoration: none;
@@ -430,58 +464,142 @@
   }
   .art {
     position: relative;
+    display: block;
     border-radius: var(--radius);
+    transition:
+      transform var(--duration-fast) var(--ease-standard),
+      box-shadow var(--duration-fast) var(--ease-standard);
   }
-  a.open:hover .art {
-    box-shadow: 0 0 0 1px var(--muted);
+  a.open:hover .art,
+  .pick:hover .art {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-raised);
+  }
+  a.open:hover .name {
+    color: var(--accent-text);
   }
   .pick {
     cursor: pointer;
   }
-  .pick .art {
-    display: block;
-  }
-  .pick:hover .art {
-    box-shadow: 0 0 0 1px var(--muted);
-  }
   .picked .art,
   .picked:hover .art {
-    box-shadow: 0 0 0 2px var(--accent);
+    outline: 3px solid var(--accent);
+    outline-offset: 2px;
   }
   .tick {
     position: absolute;
-    top: 6px;
-    right: 6px;
-    width: 20px;
-    height: 20px;
+    top: var(--space-2);
+    right: var(--space-2);
+    width: 22px;
+    height: 22px;
     margin: 0;
     accent-color: var(--accent);
     cursor: pointer;
   }
-  a.open:hover .name {
-    text-decoration: underline;
-    text-underline-offset: 2px;
-  }
   .state {
     position: absolute;
-    top: 6px;
-    left: 6px;
+    top: var(--space-2);
+    left: var(--space-2);
   }
   .name {
     font-weight: var(--weight-medium);
     font-size: var(--text-sm);
-    line-height: 1.35;
+    line-height: var(--leading-snug);
     overflow-wrap: anywhere;
     display: -webkit-box;
     -webkit-box-orient: vertical;
     -webkit-line-clamp: 2;
     line-clamp: 2;
     overflow: hidden;
+    transition: color var(--duration-fast) var(--ease-standard);
   }
   .note {
     font-size: var(--text-xs);
   }
+  /* The card's one action sits on its cover's lower corner. A percentage margin
+     counts from the card's width, so 150% is the 2:3 cover's height. */
   .actions {
+    position: absolute;
+    top: 0;
+    right: var(--space-2);
+    margin-top: calc(150% - var(--control-height) - var(--space-2));
     display: flex;
+  }
+  .actions:empty {
+    display: none;
+  }
+  .fab {
+    display: grid;
+    place-items: center;
+    width: var(--control-height);
+    height: var(--control-height);
+    padding: 0;
+    border: 1px solid var(--media-line);
+    border-radius: var(--radius-pill);
+    background: var(--media-bg);
+    color: var(--media-ink);
+    box-shadow: var(--shadow-raised);
+    cursor: pointer;
+    transition:
+      opacity var(--duration-fast) var(--ease-standard),
+      transform var(--duration-fast) var(--ease-standard),
+      background-color var(--duration-fast) var(--ease-standard);
+  }
+  .fab:hover:not(:disabled) {
+    transform: scale(1.06);
+  }
+  /* Solid play and stop shapes read better than outlines at this size. */
+  .launch :global(path),
+  .stop :global(path) {
+    fill: currentColor;
+  }
+  .fab.launch:hover:not(:disabled),
+  .fab.launch:focus-visible {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--accent-ink);
+  }
+  .fab:disabled {
+    cursor: not-allowed;
+    color: var(--media-idle);
+  }
+  .fab.busy:disabled {
+    color: var(--media-ink);
+  }
+  /* With a mouse, Launch shows when the card is pointed at or focused; on touch it always shows. */
+  @media (hover: hover) and (pointer: fine) {
+    .reveal {
+      opacity: 0;
+      transform: translateY(4px);
+    }
+    .card:hover .reveal,
+    .card:focus-within .reveal,
+    .reveal.busy {
+      opacity: 1;
+      transform: none;
+    }
+    .card:hover .reveal:disabled:not(.busy) {
+      opacity: 0.7;
+    }
+  }
+  .spinner {
+    width: 16px;
+    height: 16px;
+    border: 2px solid currentColor;
+    border-right-color: transparent;
+    border-radius: var(--radius-pill);
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .spinner {
+      animation: none;
+      border-right-color: currentColor;
+      opacity: 0.6;
+    }
   }
 </style>

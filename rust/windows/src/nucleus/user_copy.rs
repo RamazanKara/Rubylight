@@ -717,8 +717,15 @@ fn fill(
         .map(|(name, stamp)| (name, Some(*stamp)));
     let seeded = listing.seeded.iter().map(|name| (name, None));
     let mut files = 0;
+    let mut buffer = vec![0; COPY_CHUNK];
     for (name, stamp) in program.chain(seeded) {
-        copy_file(&source.join(name), &staging.join(name), stamp, token)?;
+        copy_file(
+            &source.join(name),
+            &staging.join(name),
+            stamp,
+            token,
+            &mut buffer,
+        )?;
         files += 1;
     }
     as_user(token, || {
@@ -728,14 +735,21 @@ fn fill(
     Ok(files)
 }
 
+/// How much of a file [`copy_file`] reads and writes at a time:
+/// `std::io::copy` moves 8 KiB per call, which took about twice as long for
+/// a folder of 127 MB in 464 files.
+const COPY_CHUNK: usize = 1 << 20;
+
 /// Copy the file `from`, opened as the host without following a link, to
-/// the new file `to`, written as the user of `token`, with `from`'s last
-/// write time. A program file must still have its listed `stamp`.
+/// the new file `to`, written as the user of `token` through `buffer`, with
+/// `from`'s last write time. A program file must still have its listed
+/// `stamp`.
 fn copy_file(
     from: &Path,
     to: &Path,
     stamp: Option<(u64, u64)>,
     token: Option<&OwnedHandle>,
+    buffer: &mut [u8],
 ) -> Result<()> {
     // Shares no writing while it is open.
     let mut source = crate::process::open_unfollowed(from, false)
@@ -764,12 +778,28 @@ fn copy_file(
             .create_new(true)
             .open(to)
             .with_context(|| format!("creating {}", to.display()))?;
-        std::io::copy(&mut source, &mut file)
+        copy_through(&mut source, &mut file, buffer)
             .with_context(|| format!("copying {}", from.display()))?;
         // Last: a write after it would move it again.
         file.set_modified(modified)
             .with_context(|| format!("writing {}", to.display()))
     })?
+}
+
+/// Copy what is left of `from` to `to`, `buffer` at a time.
+fn copy_through(
+    from: &mut impl std::io::Read,
+    to: &mut impl std::io::Write,
+    buffer: &mut [u8],
+) -> std::io::Result<()> {
+    loop {
+        match from.read(buffer) {
+            Ok(0) => return Ok(()),
+            Ok(read) => to.write_all(&buffer[..read])?,
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(error) => return Err(error),
+        }
+    }
 }
 
 /// The folder `path` with `sddl`'s permissions, made now or checked

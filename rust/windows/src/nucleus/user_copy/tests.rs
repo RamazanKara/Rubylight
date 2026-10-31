@@ -1077,3 +1077,48 @@ fn a_linked_handler_is_not_read() {
         0
     );
 }
+
+#[test]
+fn a_file_larger_than_the_copy_chunk_is_copied_whole_with_its_time() {
+    let data = tempfile::tempdir().unwrap();
+    let host = host_folder();
+    // Not a multiple of the chunk: the last read is short.
+    let big: Vec<u8> = (0..COPY_CHUNK * 2 + 12_345)
+        .map(|i| (i % 251) as u8)
+        .collect();
+    std::fs::write(host.path().join("NucleusCoop.exe"), &big).unwrap();
+    let copy = ensure_with(data.path(), host.path(), SID, None, &TEST).unwrap();
+    let copied = copy.join("NucleusCoop.exe");
+    assert_eq!(std::fs::read(&copied).unwrap(), big);
+    assert_eq!(
+        std::fs::metadata(&copied).unwrap().modified().unwrap(),
+        std::fs::metadata(host.path().join("NucleusCoop.exe"))
+            .unwrap()
+            .modified()
+            .unwrap()
+    );
+    assert!(differs(&copy, &Listing::of(host.path()).unwrap().text).is_none());
+}
+
+/// A reader that hands out at most 3 bytes a call and is interrupted
+/// before each.
+struct Choppy<'a>(&'a [u8], bool);
+impl std::io::Read for Choppy<'_> {
+    fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+        self.1 = !self.1;
+        if self.1 {
+            return Err(std::io::ErrorKind::Interrupted.into());
+        }
+        let n = buffer.len().min(3).min(self.0.len());
+        buffer[..n].copy_from_slice(&self.0[..n]);
+        self.0 = &self.0[n..];
+        Ok(n)
+    }
+}
+
+#[test]
+fn a_copy_goes_on_after_short_and_interrupted_reads() {
+    let mut to = Vec::new();
+    copy_through(&mut Choppy(b"0123456789", false), &mut to, &mut [0; 4]).unwrap();
+    assert_eq!(to, b"0123456789");
+}

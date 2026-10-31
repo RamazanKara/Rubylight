@@ -944,7 +944,7 @@ def build(cut, ctx, clips):
         # Home: Down to Recently played, Right three times, OK on Tidebreaker; its page (the placeholder while it
         # loads is cut) up to Play. The emulator streams at about 20 fps, so the stream itself is left to the handheld.
         return Sequence([(C("tv-home.mp4", 0.2 + skip, 5.22 - skip, os.path.join(SHOTS, "tv-home.png")), 5.22 - skip),
-                         (C("tv-home.mp4", 5.88, 2.0, os.path.join(SHOTS, "tv-game-page.png")), 2.0)])
+                         (C("tv-home.mp4", 6.1, 2.0, os.path.join(SHOTS, "tv-game-page.png")), 2.0)])
 
     hh = C("hh-flow.mp4", 1.5, 9.0, os.path.join(DEMO, "landscape-compact.png"))
     beats = [

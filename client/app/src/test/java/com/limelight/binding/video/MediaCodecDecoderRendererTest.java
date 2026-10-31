@@ -105,27 +105,27 @@ public class MediaCodecDecoderRendererTest {
 
     @Test
     public void main10AloneIsNotAnHdrDisplayPipeline() {
-        assertEquals(VIDEO_FORMAT_H265, MediaCodecDecoderRenderer.videoFormatsForProfiles("video/hevc",
+        assertEquals(VIDEO_FORMAT_H265, DecoderSelection.videoFormatsForProfiles("video/hevc",
                 new int[] {CodecProfileLevel.HEVCProfileMain10}, true, true));
-        assertEquals(VIDEO_FORMAT_AV1_MAIN8, MediaCodecDecoderRenderer.videoFormatsForProfiles("video/av01",
+        assertEquals(VIDEO_FORMAT_AV1_MAIN8, DecoderSelection.videoFormatsForProfiles("video/av01",
                 new int[] {CodecProfileLevel.AV1ProfileMain10}, true, true));
     }
 
     @Test
     public void plainMain10GivesTenBitFormatsOnlyForTenBitSdr() {
-        assertEquals(VIDEO_FORMAT_H265 | VIDEO_FORMAT_H265_MAIN10, MediaCodecDecoderRenderer.videoFormatsForProfiles(
+        assertEquals(VIDEO_FORMAT_H265 | VIDEO_FORMAT_H265_MAIN10, DecoderSelection.videoFormatsForProfiles(
                 "video/hevc", new int[] {CodecProfileLevel.HEVCProfileMain10}, false, true, false));
-        assertEquals(VIDEO_FORMAT_AV1_MAIN8 | VIDEO_FORMAT_AV1_MAIN10, MediaCodecDecoderRenderer.videoFormatsForProfiles(
+        assertEquals(VIDEO_FORMAT_AV1_MAIN8 | VIDEO_FORMAT_AV1_MAIN10, DecoderSelection.videoFormatsForProfiles(
                 "video/av01", new int[] {CodecProfileLevel.AV1ProfileMain10}, false, true, false));
         // The HDR10 profiles are Main10 decoders too.
-        assertEquals(VIDEO_FORMAT_H265 | VIDEO_FORMAT_H265_MAIN10, MediaCodecDecoderRenderer.videoFormatsForProfiles(
+        assertEquals(VIDEO_FORMAT_H265 | VIDEO_FORMAT_H265_MAIN10, DecoderSelection.videoFormatsForProfiles(
                 "video/hevc", new int[] {CodecProfileLevel.HEVCProfileMain10HDR10}, false, true, false));
         // Without the 10-bit SDR request the old rules hold.
-        assertEquals(VIDEO_FORMAT_H265, MediaCodecDecoderRenderer.videoFormatsForProfiles(
+        assertEquals(VIDEO_FORMAT_H265, DecoderSelection.videoFormatsForProfiles(
                 "video/hevc", new int[] {CodecProfileLevel.HEVCProfileMain10}, false, false, false));
-        assertEquals(VIDEO_FORMAT_AV1_MAIN8, MediaCodecDecoderRenderer.videoFormatsForProfiles(
+        assertEquals(VIDEO_FORMAT_AV1_MAIN8, DecoderSelection.videoFormatsForProfiles(
                 "video/av01", new int[] {CodecProfileLevel.AV1ProfileMain10}, false, false, false));
-        assertEquals(VIDEO_FORMAT_H265, MediaCodecDecoderRenderer.videoFormatsForProfiles(
+        assertEquals(VIDEO_FORMAT_H265, DecoderSelection.videoFormatsForProfiles(
                 "video/hevc", new int[] {CodecProfileLevel.HEVCProfileMain}, false, true, false));
     }
 
@@ -133,39 +133,39 @@ public class MediaCodecDecoderRendererTest {
     public void hdr10AndHdr10PlusDecodersCanReceiveStaticHdr10() {
         for (int profile : new int[] {CodecProfileLevel.HEVCProfileMain10HDR10, CodecProfileLevel.HEVCProfileMain10HDR10Plus}) {
             assertEquals(VIDEO_FORMAT_H265 | VIDEO_FORMAT_H265_MAIN10,
-                    MediaCodecDecoderRenderer.videoFormatsForProfiles("video/hevc", new int[] {profile}, true, false));
+                    DecoderSelection.videoFormatsForProfiles("video/hevc", new int[] {profile}, true, false));
         }
         for (int profile : new int[] {CodecProfileLevel.AV1ProfileMain10HDR10, CodecProfileLevel.AV1ProfileMain10HDR10Plus}) {
             assertEquals(VIDEO_FORMAT_AV1_MAIN8 | VIDEO_FORMAT_AV1_MAIN10,
-                    MediaCodecDecoderRenderer.videoFormatsForProfiles("video/av01", new int[] {profile}, true, false));
+                    DecoderSelection.videoFormatsForProfiles("video/av01", new int[] {profile}, true, false));
         }
     }
 
     @Test
     public void sdrDisplayNeverAdvertisesHdr() {
-        assertEquals(VIDEO_FORMAT_H265, MediaCodecDecoderRenderer.videoFormatsForProfiles("video/hevc",
+        assertEquals(VIDEO_FORMAT_H265, DecoderSelection.videoFormatsForProfiles("video/hevc",
                 new int[] {CodecProfileLevel.HEVCProfileMain10HDR10}, false, false));
     }
 
     @Test
     public void onlyExplicit444ProfilesAdvertise444() {
-        assertEquals(VIDEO_FORMAT_H264, MediaCodecDecoderRenderer.videoFormatsForProfiles("video/avc",
+        assertEquals(VIDEO_FORMAT_H264, DecoderSelection.videoFormatsForProfiles("video/avc",
                 new int[] {CodecProfileLevel.AVCProfileHigh}, false, true));
         assertEquals(VIDEO_FORMAT_H264 | VIDEO_FORMAT_H264_HIGH8_444,
-                MediaCodecDecoderRenderer.videoFormatsForProfiles("video/avc",
+                DecoderSelection.videoFormatsForProfiles("video/avc",
                         new int[] {CodecProfileLevel.AVCProfileHigh444}, false, true));
         assertEquals(VIDEO_FORMAT_H265 | VIDEO_FORMAT_H265_REXT8_444,
-                MediaCodecDecoderRenderer.videoFormatsForProfiles("video/hevc",
+                DecoderSelection.videoFormatsForProfiles("video/hevc",
                         new int[] {CodecProfileLevel.HEVCProfileMain444}, false, true));
-        assertEquals(VIDEO_FORMAT_H265, MediaCodecDecoderRenderer.videoFormatsForProfiles("video/hevc",
+        assertEquals(VIDEO_FORMAT_H265, DecoderSelection.videoFormatsForProfiles("video/hevc",
                 new int[] {CodecProfileLevel.HEVCProfileMain444}, false, false));
     }
 
     @Test
     public void av1MainAndHevcMain10CannotClaimHdr444() {
-        int formats = MediaCodecDecoderRenderer.videoFormatsForProfiles("video/av01",
+        int formats = DecoderSelection.videoFormatsForProfiles("video/av01",
                 new int[] {CodecProfileLevel.AV1ProfileMain10HDR10}, true, true) |
-                MediaCodecDecoderRenderer.videoFormatsForProfiles("video/hevc",
+                DecoderSelection.videoFormatsForProfiles("video/hevc",
                         new int[] {CodecProfileLevel.HEVCProfileMain10HDR10}, true, true);
         assertEquals(0, formats & VIDEO_FORMAT_MASK_YUV444);
     }

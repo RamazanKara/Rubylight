@@ -635,8 +635,9 @@
     gap: var(--space-3);
     min-width: 0;
   }
+  /* As wide as the search on the Settings home, so the two pages line up. */
   .search {
-    max-width: 440px;
+    max-width: 640px;
     position: relative;
     color: var(--muted);
   }

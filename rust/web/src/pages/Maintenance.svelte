@@ -19,7 +19,6 @@
     {#snippet actions()}<Button href="/logs" icon="logs">View logs</Button>{/snippet}
   </PageHeader>
   <ChildSessionBanner />
-  <div id="host"></div>
   <Section title="Host" quiet>
     <HostPanel />
   </Section>

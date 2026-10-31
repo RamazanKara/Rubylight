@@ -93,7 +93,7 @@ async function fixture(t, options = {}) {
       install: { state: 'missing', path: null, version: null, error: null }, available: true, reason: null, sessions: [] });
     if (url.pathname === '/api/logs/analysis') return reply({ status: true, findings: [], since: null, until: null, read_bytes: 0 });
     if (url.pathname === '/api/session/console') return reply({ status: true, recovery: { session_id: 1, console_session_id: 1, can_reattach: false, reason: '' } });
-    if (url.pathname === '/api/webhooks') return reply({ status: true, events: ['app.started', 'app.stopped'], max: 8, hooks: [], error: null });
+    if (url.pathname === '/api/webhooks') return reply({ status: true, events: ['app.started', 'app.stopped'], max: 8, hooks: options.hooks || [], error: null });
     return reply({ status: true, available: false, enabled: false });
   });
   return { page, writes, metadata };
@@ -340,6 +340,8 @@ test('the sidebar groups tools, names each theme choice and copies the host addr
   await page.goto(base + '/');
   const sidebar = page.locator('aside');
   const main = page.getByRole('navigation', { name: 'Main' });
+  // allInnerTexts does not wait: let the shell render its links first.
+  await main.getByRole('link', { name: 'Help', exact: true }).waitFor();
   assert.deepEqual((await main.locator(':scope > .nav-group').getByRole('link').allInnerTexts()).map(text => text.trim()),
     ['Home', 'Games', 'Devices', 'Settings', 'Help']);
   // A desktop window keeps the whole sidebar in view with Advanced open: the links are
@@ -416,6 +418,37 @@ test('notice links stay in the sentence, disclosures share one chevron, header a
   await page.goto(base + '/settings');
   const [subtitle, actions] = await Promise.all([page.locator('.page-header .subtitle').boundingBox(), page.locator('.page-header .actions').boundingBox()]);
   assert(actions.y >= subtitle.y + subtitle.height);
+});
+
+test('the first panel sits the same distance below the page header on every page', async t => {
+  const { page } = await fixture(t);
+  const gap = async (path, ready) => {
+    await page.goto(base + path);
+    await page.getByRole('heading', { name: ready, level: 1 }).waitFor();
+    await page.waitForLoadState('networkidle');
+    return page.locator('.page-header').first().evaluate(header => {
+      let next = header.nextElementSibling;
+      while (next && next.getBoundingClientRect().height === 0) next = next.nextElementSibling;
+      return Math.round(next.getBoundingClientRect().top - header.getBoundingClientRect().bottom);
+    });
+  };
+  const devices = await gap('/devices', 'Devices');
+  // Help had an empty anchor that added a second grid gap above its first panel.
+  assert.equal(await gap('/maintenance', 'Help'), devices);
+});
+
+test('on a phone, webhook rows line up with their panel title and the header name stays whole', async t => {
+  const { page } = await fixture(t, { hooks: [{ url: 'https://home.example/hooks/rubylight', events: ['app.started'], last: null }] });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(base + '/webhooks');
+  const row = page.locator('li', { hasText: 'home.example' });
+  await row.waitFor();
+  const title = await page.getByRole('heading', { name: 'Webhooks', level: 2 }).evaluate(node => node.getBoundingClientRect().left);
+  const content = await row.evaluate(node => node.getBoundingClientRect().left + parseFloat(getComputedStyle(node).paddingLeft));
+  assert.ok(Math.abs(content - title) < 1, `row content at ${content}, title at ${title}`);
+  const name = await page.locator('code', { hasText: 'X-Rubylight-Signature' }).evaluate(node =>
+    [node.getClientRects().length, getComputedStyle(node).whiteSpace]);
+  assert.deepEqual(name, [1, 'nowrap']);
 });
 
 test('normal PIN pairing stays primary while Artemis alternatives expand', async t => {

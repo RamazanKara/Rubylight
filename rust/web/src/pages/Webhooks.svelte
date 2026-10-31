@@ -147,7 +147,7 @@
   />
   <div class="stack">
     <p class="notice usage">
-      <span>Each event is a signed JSON POST. Check the <code>X-Rubylight-Signature</code> header, an HMAC-SHA256 of the body with the hook's secret, and refuse deliveries older than 5 minutes.</span>
+      <span>Each event is a signed JSON POST. Check the <code class="name">X-Rubylight-Signature</code> header, an HMAC-SHA256 of the body with the hook's secret, and refuse deliveries older than 5 minutes.</span>
     </p>
 
     {#if secret}
@@ -244,6 +244,10 @@
     white-space: normal;
     overflow-wrap: anywhere;
   }
+  /* A header name stays whole instead of breaking at its hyphen. */
+  code.name {
+    white-space: nowrap;
+  }
   .secret {
     display: grid;
     gap: var(--space-3);
@@ -273,6 +277,15 @@
   }
   li:last-child {
     border-bottom: 0;
+  }
+  /* Rows line up with the panel title, which moves in on phones. */
+  @media (max-width: 520px) {
+    li {
+      padding-inline: var(--space-4);
+    }
+    .pad {
+      margin-inline: var(--space-4);
+    }
   }
   .info {
     display: grid;

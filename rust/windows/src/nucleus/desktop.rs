@@ -170,6 +170,77 @@ fn children(parent: HWND) -> Vec<HWND> {
     found
 }
 
+/// How long a raised Nucleus Co-op may take to come above the window over it.
+const RAISE_WAIT: std::time::Duration = std::time::Duration::from_secs(1);
+
+/// A top-level window raised above every other for a click, never
+/// activated; dropped, it goes back below the window that was over it.
+struct Raised {
+    window: HWND,
+    /// The window just above it before; None at the top.
+    below: Option<HWND>,
+    /// Whether it stayed above the windows that do not before.
+    topmost: bool,
+}
+/// Whether `window` stays above the windows that do not (`WS_EX_TOPMOST`).
+///
+/// # Safety
+/// `window` is any handle; a closed one answers false.
+unsafe fn topmost(window: HWND) -> bool {
+    // SAFETY: a plain query of a window handle.
+    unsafe { GetWindowLongPtrW(window, GWL_EXSTYLE) as u32 & WS_EX_TOPMOST.0 != 0 }
+}
+impl Raised {
+    fn new(window: HWND) -> Result<Self> {
+        // SAFETY: plain queries and an asynchronous move of a window handle, which never waits for
+        // its owner's message loop; a closed window fails them.
+        unsafe {
+            let below = GetWindow(window, GW_HWNDPREV)
+                .ok()
+                .filter(|above| !above.is_invalid());
+            let topmost = topmost(window);
+            SetWindowPos(
+                window,
+                Some(HWND_TOPMOST),
+                0,
+                0,
+                0,
+                0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_ASYNCWINDOWPOS,
+            )?;
+            Ok(Self {
+                window,
+                below,
+                topmost,
+            })
+        }
+    }
+}
+impl Drop for Raised {
+    fn drop(&mut self) {
+        let flags = SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_ASYNCWINDOWPOS;
+        // SAFETY: as in Raised::new.
+        unsafe {
+            // Put below a window of its own kind, it takes that window's
+            // place in the order. Otherwise a window that was not topmost
+            // goes to the top of the windows that are not, where it was when
+            // only topmost windows were over it.
+            let back = self.below.is_some_and(|above| {
+                IsWindow(Some(above)).as_bool()
+                    && topmost(above) == self.topmost
+                    && SetWindowPos(self.window, Some(above), 0, 0, 0, 0, flags).is_ok()
+            });
+            if !back
+                && !self.topmost
+                && let Err(error) =
+                    SetWindowPos(self.window, Some(HWND_NOTOPMOST), 0, 0, 0, 0, flags)
+            {
+                tracing::warn!(%error, "Nucleus Co-op stays above the PC's other windows after the click on its profile entry");
+            }
+        }
+    }
+}
+
 /// Where a click on a label lands, in its client coordinates: near its left
 /// edge, where the text starts, and halfway down.
 pub(crate) fn click_point(width: i32, height: i32) -> (i32, i32) {
@@ -293,25 +364,66 @@ impl Desktop for Win32 {
     fn click(&mut self, label: u64) -> Result<()> {
         let label = hwnd(label);
         let mut client = RECT::default();
-        // SAFETY: plain out-pointers to live locals; a closed window fails the calls, and posting
-        // never waits for Nucleus' message loop.
-        unsafe {
-            GetClientRect(label, &mut client)?;
-            let (x, y) = click_point(client.right - client.left, client.bottom - client.top);
-            let mut point = POINT { x, y };
-            ensure!(
-                ClientToScreen(label, &mut point).as_bool(),
-                "Nucleus Co-op's profile entry closed"
-            );
-            // WinForms reports a click only when the press was its own and
-            // the point is still its window when the button is released.
-            ensure!(
-                WindowFromPoint(point) == label,
-                "another window covers Nucleus Co-op's profile list on the PC"
-            );
-            let position = LPARAM(((y as u16 as u32) << 16 | x as u16 as u32) as isize);
-            PostMessageW(Some(label), WM_LBUTTONDOWN, WPARAM(LEFT_BUTTON), position)?;
-            PostMessageW(Some(label), WM_LBUTTONUP, WPARAM(0), position)?;
+        // SAFETY: plain out-pointers to live locals; a closed window fails the calls.
+        unsafe { GetClientRect(label, &mut client)? };
+        let (x, y) = click_point(client.right - client.left, client.bottom - client.top);
+        let mut point = POINT { x, y };
+        ensure!(
+            // SAFETY: as above.
+            unsafe { ClientToScreen(label, &mut point) }.as_bool(),
+            "Nucleus Co-op's profile entry closed"
+        );
+        // WinForms reports a click only when the point is still the label's
+        // window as it handles the release (WindowFromPoint). A window over
+        // Nucleus Co-op, the PC's game or a stream's, is passed by raising
+        // Nucleus Co-op above it for the click, never activated, and putting
+        // it back after (#56).
+        // SAFETY: a plain query of a window handle.
+        let _raised = if unsafe { WindowFromPoint(point) } == label {
+            None
+        } else {
+            // SAFETY: as above; a closed label has no root.
+            let root = unsafe { GetAncestor(label, GA_ROOT) };
+            ensure!(!root.is_invalid(), "Nucleus Co-op's profile entry closed");
+            let raised = Raised::new(root)?;
+            let deadline = std::time::Instant::now() + RAISE_WAIT;
+            // SAFETY: as above.
+            while unsafe { WindowFromPoint(point) } != label {
+                ensure!(
+                    std::time::Instant::now() < deadline,
+                    "another window stays over Nucleus Co-op's profile list on the PC, even with Nucleus Co-op raised above the others"
+                );
+                std::thread::sleep(std::time::Duration::from_millis(15));
+            }
+            Some(raised)
+        };
+        let position = LPARAM(((y as u16 as u32) << 16 | x as u16 as u32) as isize);
+        let send = |message: u32, buttons: usize, wait: u32| {
+            // SAFETY: no pointer is passed; the timeout never waits long on a hung Nucleus Co-op.
+            unsafe {
+                SendMessageTimeoutW(
+                    label,
+                    message,
+                    WPARAM(buttons),
+                    position,
+                    SMTO_ABORTIFHUNG | SMTO_NORMAL,
+                    wait,
+                    None,
+                )
+            }
+            .0 != 0
+        };
+        // Sent, not posted: Nucleus Co-op handles both while it is raised.
+        ensure!(
+            send(WM_LBUTTONDOWN, LEFT_BUTTON, 1000),
+            "Nucleus Co-op did not answer the click on its profile entry"
+        );
+        // The release runs the click, and Nucleus Co-op loads the profile in
+        // it, a message box of its own included: one that takes longer than
+        // the wait is under way. One that never ran shows as the profile
+        // still listed, and the session clicks it again.
+        if !send(WM_LBUTTONUP, 0, 1000) {
+            tracing::info!("Nucleus Co-op is still handling the click on its profile entry");
         }
         Ok(())
     }
@@ -413,6 +525,73 @@ mod tests {
         // A label narrower than eight pixels is clicked in its middle.
         assert_eq!(click_point(6, 10), (3, 5));
         assert_eq!(click_point(0, 0), (0, 0));
+    }
+
+    /// Nucleus Co-op is raised above the window over its profile list for the
+    /// click, a topmost one too, and goes back below it after (#56).
+    #[test]
+    fn a_covered_window_is_raised_for_the_click_and_put_back() {
+        struct Made(Vec<HWND>);
+        impl Drop for Made {
+            fn drop(&mut self) {
+                for &window in &self.0 {
+                    // SAFETY: a window this thread made.
+                    let _ = unsafe { DestroyWindow(window) };
+                }
+            }
+        }
+        let make = |ex: WINDOW_EX_STYLE| {
+            // SAFETY: the class and text are NUL-terminated strings that outlive the call.
+            unsafe {
+                CreateWindowExW(
+                    WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | ex,
+                    &windows::core::HSTRING::from("Static"),
+                    &windows::core::HSTRING::from("Rubylight raise test"),
+                    WS_POPUP | WS_VISIBLE,
+                    -32000,
+                    -32000,
+                    300,
+                    200,
+                    None,
+                    None,
+                    None,
+                    None,
+                )
+            }
+            .unwrap()
+        };
+        // Whether `upper` is anywhere above `lower`.
+        let above = |upper: HWND, lower: HWND| {
+            let mut window = lower;
+            // SAFETY: plain queries of window handles.
+            while let Ok(prev) = unsafe { GetWindow(window, GW_HWNDPREV) } {
+                if prev.is_invalid() {
+                    break;
+                }
+                if prev == upper {
+                    return true;
+                }
+                window = prev;
+            }
+            false
+        };
+        for over in [WINDOW_EX_STYLE::default(), WS_EX_TOPMOST] {
+            let nucleus = make(Default::default());
+            let game = make(over);
+            let _made = Made(vec![game, nucleus]);
+            // SAFETY: windows this thread made.
+            unsafe {
+                assert!(above(game, nucleus));
+                assert!(!topmost(nucleus));
+                let raised = Raised::new(nucleus).unwrap();
+                assert!(topmost(nucleus));
+                assert!(above(nucleus, game));
+                drop(raised);
+                assert!(!topmost(nucleus), "{over:?}");
+                assert!(above(game, nucleus), "{over:?}");
+                assert_eq!(topmost(game), over == WS_EX_TOPMOST);
+            }
+        }
     }
 
     #[test]

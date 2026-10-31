@@ -286,6 +286,9 @@ fn runner(players: usize, screen: &Screen, probe: &Probe, t0: Instant) -> Runner
         keeper: Keeper::new(players, &["Game.exe".into()], r"C:\Nucleus\content", SINCE),
         title: "Game".into(),
         players,
+        // Tests of the later steps click the profile at once.
+        settle: Duration::ZERO,
+        listed_at: None,
         clicked: false,
         clicked_at: None,
         hid: false,
@@ -411,6 +414,26 @@ fn the_profile_is_clicked_again_while_nucleus_still_lists_it() {
     assert_eq!(runner.shared.session.lock().unwrap().phase, Phase::Running);
     assert_eq!(runner.step(t0 + 8 * RECLICK), None);
     assert_eq!(clicks(&screen), 2);
+}
+
+/// #56: Nucleus 2.4.2 can't load a profile clicked before its setup screen
+/// found the PC's screens, a 3 s timer. The profile is clicked once Nucleus
+/// listed it for [`SETTLE`], counted from when it is first seen.
+#[test]
+fn the_profile_is_clicked_once_nucleus_listed_it_for_a_while() {
+    let t0 = Instant::now();
+    let clicks = |screen: &Screen| screen.0.lock().unwrap().clicks.len();
+    let (screen, probe) = (screen(), Probe::default());
+    let mut runner = runner(1, &screen, &probe, t0);
+    runner.settle = SETTLE;
+    assert_eq!(runner.step(t0), None);
+    let listed = t0 + 10 * PERIOD;
+    label(&screen);
+    assert_eq!(runner.step(listed), None);
+    assert_eq!(runner.step(listed + SETTLE - PERIOD), None);
+    assert_eq!(clicks(&screen), 0);
+    assert_eq!(runner.step(listed + SETTLE), None);
+    assert_eq!(clicks(&screen), 1);
 }
 
 /// What Nucleus 2.4.2 shows when it can't inject ProtoInput's hooks,
@@ -756,7 +779,7 @@ fn a_box_nucleus_shows_after_the_click_is_closed_and_the_profile_clicked_again()
     assert_eq!(
         runner.step(at),
         Some(End::Failed(format!(
-            "Nucleus Co-op did not start Game: after the last click on the profile Rubylight it showed \"The profile can't be loaded.\" over its window ({closed} closed since the launch)"
+            "Nucleus Co-op did not start Game: after the last click on the profile Rubylight it showed its own untitled message box, whose text can't be read (in Nucleus Co-op 2.4.2 it says the profile can't be loaded, or that the game's folder is missing) over its window ({closed} closed since the launch)"
         )))
     );
 
@@ -782,12 +805,14 @@ fn a_box_nucleus_shows_after_the_click_is_closed_and_the_profile_clicked_again()
         );
 }
 
-/// What Nucleus 2.4.2 shows for a click before its setup screen is made.
+/// What Nucleus 2.4.2 shows for a click before its setup screen found the
+/// PC's screens: "The profile can't be loaded" in its own untitled box,
+/// which draws the text, so nothing of it reads (#56).
 fn unloaded(window: u64) -> MessageBox {
     MessageBox {
         window,
         caption: String::new(),
-        text: "The profile can't be loaded.".into(),
+        text: String::new(),
     }
 }
 

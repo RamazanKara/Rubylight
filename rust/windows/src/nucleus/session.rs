@@ -45,6 +45,11 @@ const PERIOD: Duration = Duration::from_millis(250);
 /// once and hides the list within about a second, and a click before its
 /// setup screen is made fails.
 const RECLICK: Duration = Duration::from_secs(5);
+/// How long Nucleus lists the profile before it is clicked the first time.
+/// Nucleus Co-op 2.4.2 finds the PC's screens for its setup screen on a 3 s
+/// timer (`BoundsFunctions.ScreensWatcher_Tick`); a profile clicked before
+/// that fails to load, and its untitled box says so (#56).
+const SETTLE: Duration = Duration::from_millis(3500);
 /// Passes in a row that may fail (the desktop switching for a UAC prompt)
 /// before the session ends with the error.
 const FAILED_PASSES: u32 = 8;
@@ -198,6 +203,10 @@ struct Runner {
     keeper: Keeper,
     title: String,
     players: usize,
+    /// How long Nucleus lists the profile before it is clicked
+    /// ([`SETTLE`]), and since when it does.
+    settle: Duration,
+    listed_at: Option<Instant>,
     clicked: bool,
     /// When the profile was last clicked.
     clicked_at: Option<Instant>,
@@ -368,8 +377,8 @@ impl Runner {
                         // One that takes a few passes to close is told once.
                         if self.closed.insert(form.window) {
                             tracing::warn!(
-                                "Nucleus Co-op showed \"{}\" over its window after the profile {TITLE} was clicked; closed it to click the profile again",
-                                form.summary()
+                                "Nucleus Co-op showed {} over its window after the profile {TITLE} was clicked; closed it to click the profile again",
+                                said(&form)
                             );
                         }
                         self.last_form = Some(form);
@@ -491,6 +500,10 @@ impl Runner {
             }
             Err(error) => return Some(End::Failed(format!("{error:#}"))),
         };
+        let listed = *self.listed_at.get_or_insert(now);
+        if now < listed + self.settle {
+            return None;
+        }
         self.press(job, label, now);
         None
     }
@@ -596,13 +609,10 @@ impl Runner {
     fn unstarted(&self) -> String {
         let boxed = self.last_form.as_ref().filter(|_| self.boxed);
         let why = if let Some(form) = boxed {
-            let said = match form.summary() {
-                summary if summary.is_empty() => "a window".to_string(),
-                summary => format!("\"{summary}\""),
-            };
             format!(
-                "Nucleus Co-op did not start {}: after the last click on the profile {TITLE} it showed {said} over its window ({} closed since the launch)",
+                "Nucleus Co-op did not start {}: after the last click on the profile {TITLE} it showed {} over its window ({} closed since the launch)",
                 self.title,
+                said(form),
                 self.closed.len()
             )
         } else if !self.hid {
@@ -724,6 +734,18 @@ fn run(mut runner: Runner, stop: mpsc::Receiver<()>) {
         }
     };
     runner.finish(end);
+}
+
+/// What a form Nucleus showed after a click said. Nucleus Co-op 2.4.2's
+/// own box (`NucleusMessageBox`) draws its text and is untitled when it
+/// says the profile can't be loaded (a click before its setup screen found
+/// the PC's screens, [`SETTLE`]) or that the game's folder is missing: it
+/// reads as nothing, and is named for what it is.
+fn said(form: &MessageBox) -> String {
+    match form.summary() {
+        summary if summary.is_empty() => "its own untitled message box, whose text can't be read (in Nucleus Co-op 2.4.2 it says the profile can't be loaded, or that the game's folder is missing)".to_string(),
+        summary => format!("\"{summary}\""),
+    }
 }
 
 /// Why per-player audio cannot be captured on this Windows build. An
@@ -987,6 +1009,8 @@ fn begin(
         keeper,
         title: start.title.to_string(),
         players: start.players,
+        settle: SETTLE,
+        listed_at: None,
         clicked: false,
         clicked_at: None,
         hid: false,

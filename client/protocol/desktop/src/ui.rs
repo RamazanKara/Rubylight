@@ -369,11 +369,17 @@ pub struct View<'a> {
 
 const CARD_W: f32 = 300.0;
 const CARD_H: f32 = 112.0;
+/// Home's cards: a game to continue, or a PC with one line of state.
+const COMPACT_CARD_H: f32 = 84.0;
 /// The card's inner margin left and right of its status and detail lines.
 const CARD_PAD: f32 = 20.0;
 const POSTER_W: f32 = 168.0;
 const POSTER_H: f32 = 224.0;
+/// Room under a cover for its title, which shows while it has focus.
+const POSTER_CAPTION: f32 = 28.0;
 const CONTENT_MAX: f32 = 1180.0;
+/// The column of settings rows: settings, a PC's details, the profile and shortcut lists.
+const SETTINGS_W: f32 = 760.0;
 
 pub(crate) fn focus_ring(ui: &Ui, rect: Rect, response: &Response, radius: u8) {
     if response.has_focus() {
@@ -438,6 +444,18 @@ pub(crate) fn quiet_button(ui: &mut Ui, text: &str) -> Response {
 fn text_button(ui: &mut Ui, text: &str) -> Response {
     let button = egui::Button::new(RichText::new(tr(text)).color(ON_SURFACE_VARIANT).font(semibold(text::LABEL)))
         .frame(false)
+        .min_size(vec2(0.0, 36.0));
+    let response = ui.add(button);
+    focus_ring(ui, response.rect, &response, radius::CONTROL);
+    response
+}
+
+/// An action in the header (Add PC, Refresh): a filled button, so it never reads as one of the
+/// destinations beside it, at the header's height.
+fn header_button(ui: &mut Ui, text: &str) -> Response {
+    let button = egui::Button::new(RichText::new(tr(text)).color(ON_SURFACE).font(semibold(text::LABEL)))
+        .fill(*SURFACE_HIGH)
+        .corner_radius(CornerRadius::same(radius::CONTROL))
         .min_size(vec2(0.0, 36.0));
     let response = ui.add(button);
     focus_ring(ui, response.rect, &response, radius::CONTROL);
@@ -901,17 +919,11 @@ impl Launcher {
                     ui.add_space(4.0);
                     ui.label(RichText::new("Nightjar").font(semibold(text::SECTION)).color(PAPER));
                 }
-                Screen::Game { host, app } => {
+                // The page itself is headed by the game's title, beside its cover.
+                Screen::Game { .. } => {
                     if text_button(ui, "‹  Back").clicked() {
                         self.back(commands);
                     }
-                    let name = view
-                        .hosts
-                        .get(host)
-                        .and_then(|h| h.native.library.as_ref())
-                        .and_then(|l| l.games.iter().find(|g| g.app_id == app))
-                        .map_or("", |g| g.title.as_str());
-                    ui.label(RichText::new(name).font(semibold(text::SECTION)).color(PAPER));
                 }
                 Screen::Hosts => {
                     egui::Image::from_texture((logo, vec2(30.0, 30.0))).ui(ui);
@@ -974,17 +986,17 @@ impl Launcher {
                                     self.destination(ui, name, screen, commands);
                                 }
                             }
-                            if self.screen == Screen::Hosts && text_button(ui, "Add PC").clicked() {
+                            if self.screen == Screen::Hosts && header_button(ui, "Add PC").clicked() {
                                 self.add_host_dialog();
                             }
                         }
                         Screen::Game { .. } => {}
                         Screen::Apps(id) => {
                             if let Some(host) = view.hosts.get(id) {
-                                if text_button(ui, "Refresh").clicked() {
+                                if header_button(ui, "Refresh").clicked() {
                                     commands.push(Command::Refresh(id));
                                 }
-                                if host.running_app().is_some() && text_button(ui, "Quit running app").clicked() {
+                                if host.running_app().is_some() && header_button(ui, "Quit running app").clicked() {
                                     self.dialog = Dialog::ConfirmQuit {
                                         host: id,
                                         start: None,
@@ -995,7 +1007,7 @@ impl Launcher {
                                     self.focus_dialog = true;
                                 }
                             }
-                            if text_button(ui, "PC settings").clicked() {
+                            if header_button(ui, "PC settings").clicked() {
                                 commands.push(Command::HostSettings(id));
                             }
                         }
@@ -1054,7 +1066,7 @@ impl Launcher {
                     ui.label(RichText::new(tr("Creating this device's pairing key…")).font(semibold(text::CARD_TITLE)));
                 }
                 ui.label(
-                    RichText::new(tr("Start Sunshine, Apollo, Vibepollo, Rubylight or GeForce Experience on your PC."))
+                    RichText::new(tr("Start a Moonlight-compatible host on your PC and keep both on the same network."))
                         .color(ON_SURFACE_VARIANT),
                 );
                 ui.add_space(12.0);
@@ -1185,7 +1197,7 @@ impl Launcher {
                                 }
                             }
                         });
-                        ui.add_space(gap);
+                        ui.add_space(space::XS);
                     }
                     // A focused-but-unloaded first poster still gets focus next frame.
                     if self.focus_screen && running.is_some() {
@@ -1202,10 +1214,10 @@ impl Launcher {
             ui.vertical_centered(|ui| {
                 egui::Image::from_texture((logo, vec2(72.0, 72.0))).ui(ui);
                 ui.add_space(14.0);
-                ui.label(RichText::new(tr("No hosts yet")).font(semibold(text::CARD_TITLE)));
+                ui.label(RichText::new(tr("No PCs yet")).font(semibold(text::CARD_TITLE)));
                 ui.label(RichText::new(tr("Pair Nightjar with a PC to see its games here.")).color(ON_SURFACE_VARIANT));
                 ui.add_space(12.0);
-                let r = primary_button(ui, "Open hosts");
+                let r = primary_button(ui, "Open PCs");
                 self.focus_item(&r, "open-hosts", true);
                 if r.clicked() {
                     self.open(Screen::Hosts);
@@ -1302,11 +1314,11 @@ impl Launcher {
                         ui.label(RichText::new(tr("Loading the games…")).color(ON_SURFACE_VARIANT));
                     });
                 } else {
-                    ui.label(RichText::new(tr("No games to show. Games appear here once a Rubylight PC is online.")).color(ON_SURFACE_VARIANT));
+                    ui.label(RichText::new(tr("No games to show yet. They appear here once a PC that shares its game library is online.")).color(ON_SURFACE_VARIANT));
                 }
             }
             ui.horizontal_wrapped(|ui| {
-                ui.spacing_mut().item_spacing = vec2(20.0, 20.0);
+                ui.spacing_mut().item_spacing = vec2(20.0, space::XS);
                 for entry in &entries {
                     let cover = entry.cover();
                     let art = cover
@@ -1323,7 +1335,7 @@ impl Launcher {
                     favourite_menu(&response, &sources, &self.favourites, entry.best().host, entry.best().app_id, commands);
                 }
             });
-            section(ui, "Hosts");
+            section(ui, "PCs");
             ui.horizontal_wrapped(|ui| {
                 ui.spacing_mut().item_spacing = vec2(16.0, 16.0);
                 for (host, source) in view.hosts.list.iter().zip(&sources) {
@@ -1544,13 +1556,15 @@ impl Launcher {
         use nightjar_policy::launch::{self, InputOnlyBlocker};
         if launch::offers_quit_on_leave(host.paired(), policy_control(app.control), policy_role(app.role(false))) {
             let mut on = host.record.quits_on_leave(&app.uuid, app.id);
-            let r = ui.checkbox(&mut on, tr("Quit the game when I leave the stream"));
+            // A switch in a row like every other setting, its effect said under it.
+            let note = if on { en("On: Disconnect also quits it on the PC") } else { en("Off: Disconnect leaves it running on the PC") };
+            // As far below the buttons as the stream settings card sits below it.
+            ui.add_space(space::S);
+            let r = row(ui, "Quit the game when I leave the stream", note, |ui| toggle(ui, &mut on));
             self.focus_item(&r, "quit-on-leave", false);
             if r.changed() {
                 commands.push(Command::SetQuitOnLeave { host: host.id, uuid: app.uuid.clone(), id: app.id, enabled: on });
             }
-            let note = if on { tr("On: Disconnect also quits it on the PC") } else { tr("Off: Disconnect leaves it running on the PC") };
-            ui.label(RichText::new(note).color(ON_SURFACE_VARIANT));
         }
         let Some(blocker) = small_stream_offer(host, app, running, self.settings.input_only_any_host) else { return };
         ui.add_space(6.0);
@@ -1719,20 +1733,21 @@ impl Launcher {
         let state = self.remote.state_for(id).cloned();
         let running = state == Some(CheckState::Running);
         scroll(ui, "host-details", |ui| {
+            ui.set_max_width(SETTINGS_W);
             section(ui, "Host");
             detail(ui, tr("Host software"), &software);
             ui.add_space(8.0);
             match &web_ui {
                 None => {}
                 Some(Ok(url)) => {
-                    let button = row(ui, "Host web UI", "Manage the host's applications, paired devices and settings in its web UI. Sign in with the web UI's own account; pairing does not sign you in. Remote access requires a reachable web UI port.", |ui| {
-                        quiet_button(ui, "Open in browser")
-                    });
+                    // The address goes inside the card it belongs to, not loose under it.
+                    let about = format!("{}
+{url}", tr("Manage the host's applications, paired devices and settings in its web UI. Sign in with the web UI's own account; pairing does not sign you in. Remote access requires a reachable web UI port."));
+                    let button = row(ui, "Host web UI", &about, |ui| quiet_button(ui, "Open in browser"));
                     self.focus_item(&button, "web-ui", true);
                     if button.clicked() {
                         commands.push(Command::OpenWebUi(url.clone()));
                     }
-                    ui.label(RichText::new(url).font(regular(text::CAPTION)).color(OUTLINE));
                 }
                 // The PC has a web UI, but its saved address makes no link to it.
                 Some(Err(why)) => {
@@ -2121,7 +2136,11 @@ impl Launcher {
         } else {
             let active = self.profiles.entries.iter().find(|p| Some(p.id) == self.profiles.active)
                 .map_or(tr("Main settings"), |p| p.name.as_str());
-            let manage = row(ui, "Profiles", &trf("Active: {}. PCs and games can override individual settings.", &[&active]), |ui| quiet_button(ui, "Manage profiles"));
+            let about = trf("Active: {}. PCs and games can override individual settings.", &[&active]);
+            let manage = ui.scope(|ui| {
+                ui.set_max_width(SETTINGS_W);
+                row(ui, "Profiles", &about, |ui| quiet_button(ui, "Manage profiles"))
+            }).inner;
             self.focus_item(&manage, "profiles-link", false);
             if manage.clicked() {
                 commands.push(Command::SaveSettings);
@@ -2131,6 +2150,7 @@ impl Launcher {
         }
         let mut jump: Option<&'static str> = None;
         ui.horizontal_wrapped(|ui| {
+            ui.set_max_width(SETTINGS_W);
             for name in SETTINGS_SECTIONS {
                 // A profile or PC override has no app-wide section.
                 if layered && name == "App" {
@@ -2157,7 +2177,7 @@ impl Launcher {
             self.focus_screen = false;
         }
         scroll(ui, "settings", |ui| {
-            ui.set_max_width(760.0);
+            ui.set_max_width(SETTINGS_W);
             rows.section(ui, "Video", &mut jump);
             let native = trf("Native ({}x{})", &[&display.width, &display.height]);
             let custom_size = s.width != 0 && (*custom_size_on == Some(screen) || !RESOLUTIONS.contains(&(s.width, s.height)));
@@ -2426,8 +2446,8 @@ impl Launcher {
                 .map_or(nightjar_core::http::Availability::Unknown, |i| i.capabilities.availability(nightjar_core::http::Feature::DisplayScale)));
             if let Some(note) = dpi_gate {
                 let description = match note {
-                    Some(note) => format!("{} {}", tr("Text and interface size on the virtual display, on Rubylight PCs."), tr(note)),
-                    None => tr("Text and interface size on the virtual display, on Rubylight PCs.").to_owned(),
+                    Some(note) => format!("{} {}", tr("Text and interface size on the PC’s virtual display."), tr(note)),
+                    None => tr("Text and interface size on the PC’s virtual display.").to_owned(),
                 };
                 ui.add_enabled_ui(note.is_none(), |ui| {
                     setting_row(ui, s, &mut rows, &["virtual_display_dpi"], "PC display scaling", &description, |ui, s| {
@@ -3365,13 +3385,16 @@ impl Launcher {
                         ui.label(RichText::new(trf("Pair with {}", &[&name])).font(semibold(text::SECTION)));
                         if !pin.is_empty() {
                             ui.label(
-                                RichText::new(tr("Enter this PIN on the PC: in the host's web page (Sunshine, Apollo, Vibepollo and Rubylight have a PIN page), or in the prompt GeForce Experience shows."))
+                                RichText::new(tr("Enter this PIN in your host’s settings or web UI, usually on its PIN or pairing page."))
                                     .color(ON_SURFACE_VARIANT),
                             );
                         }
                         ui.add_space(18.0);
                         ui.horizontal(|ui| {
                             ui.spacing_mut().item_spacing.x = 12.0;
+                            // The PIN is what the dialog is for: centred, so the eye lands on it.
+                            let digits = pin.chars().count() as f32;
+                            ui.add_space(((ui.available_width() - digits * 64.0 - (digits - 1.0).max(0.0) * 12.0) / 2.0 - 12.0).max(0.0));
                             for digit in pin.chars() {
                                 let (rect, _) = ui.allocate_exact_size(vec2(64.0, 80.0), Sense::hover());
                                 ui.painter().rect_filled(rect, CornerRadius::same(12), SURFACE_HIGHEST);
@@ -4095,14 +4118,17 @@ fn setting_row(
 }
 
 /// A settings row: label and description on the left, the control on the right.
+/// Every row takes the settings column's width at most, so rows line up on every page.
 fn row(ui: &mut Ui, label: &str, description: &str, control: impl FnOnce(&mut Ui) -> Response) -> Response {
     let mut out = None;
+    // The frame's margin comes on top of the width set inside it.
+    let width = ui.available_width().min(SETTINGS_W) - 2.0 * 18.0;
     Frame::new()
         .fill(*SURFACE)
-        .corner_radius(CornerRadius::same(10))
+        .corner_radius(CornerRadius::same(radius::CONTROL))
         .inner_margin(Margin::symmetric(18, 12))
         .show(ui, |ui| {
-            ui.set_width(ui.available_width());
+            ui.set_width(width);
             ui.horizontal(|ui| {
                 let control_width = 240.0;
                 ui.vertical(|ui| {
@@ -4117,7 +4143,7 @@ fn row(ui: &mut Ui, label: &str, description: &str, control: impl FnOnce(&mut Ui
                 });
             });
         });
-    ui.add_space(6.0);
+    ui.add_space(2.0);
     out.expect("control drawn")
 }
 
@@ -4134,9 +4160,11 @@ fn name_for_readers(ui: &Ui, response: &Response, label: &str, description: &str
     });
 }
 
-/// A PC's card. `line` replaces the address and GPU line (Home shows what it knows of the games).
+/// A PC's card. With `line` (Home: what it knows of the games) the card is as compact as Home's
+/// game cards, and the line follows the state on one row instead of the address and GPU.
 fn host_card(ui: &mut Ui, host: &Host, line: Option<&str>) -> Response {
-    let (rect, response) = ui.allocate_exact_size(vec2(CARD_W, CARD_H), Sense::click());
+    let height = if line.is_some() { COMPACT_CARD_H } else { CARD_H };
+    let (rect, response) = ui.allocate_exact_size(vec2(CARD_W, height), Sense::click());
     let painter = ui.painter_at(rect.expand(6.0));
     let fill = if response.hovered() || response.has_focus() {
         SURFACE_HIGH
@@ -4148,7 +4176,8 @@ fn host_card(ui: &mut Ui, host: &Host, line: Option<&str>) -> Response {
     response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, format!("{}, {status}", host.display_name())));
     // The status dot: full and green when the PC is up and paired, a ring otherwise. Amber stays the
     // action's colour, so it never stands for a state.
-    let dot = Pos2::new(rect.left() + 26.0, rect.top() + 30.0);
+    let top = if line.is_some() { 28.0 } else { 30.0 };
+    let dot = Pos2::new(rect.left() + 26.0, rect.top() + top);
     if host.reach == Reach::Online && host.paired() {
         painter.circle_filled(dot, 7.0, OK);
     } else {
@@ -4158,10 +4187,22 @@ fn host_card(ui: &mut Ui, host: &Host, line: Option<&str>) -> Response {
     let mut name = egui::text::LayoutJob::simple_singleline(host.display_name().to_owned(), semibold(text::CARD_TITLE), *ON_SURFACE);
     name.wrap = egui::text::TextWrapping::truncate_at_width(rect.width() - 44.0 - 46.0);
     let name = painter.layout_job(name);
-    painter.galley(Pos2::new(rect.left() + 44.0, rect.top() + 30.0 - name.size().y / 2.0), name, *ON_SURFACE);
-    let detail = match (line, host.info.as_ref().and_then(|i| i.gpu_type.clone())) {
-        (Some(line), _) => line.to_owned(),
-        (None, Some(gpu)) if !gpu.is_empty() => format!("{}  ·  {gpu}", host.record.address),
+    painter.galley(Pos2::new(rect.left() + 44.0, rect.top() + top - name.size().y / 2.0), name, *ON_SURFACE);
+    if let Some(line) = line {
+        // "Offline" twice said nothing more.
+        let both = if line.is_empty() {
+            status.clone()
+        } else if line.starts_with(&status[..]) {
+            line.to_owned()
+        } else {
+            format!("{status}  ·  {line}")
+        };
+        let cut = card_line(&painter, rect, 58.0, &both, regular(text::LABEL), *color);
+        focus_ring(ui, rect, &response, radius::PANEL);
+        return if cut { response.on_hover_text(both) } else { response };
+    }
+    let detail = match host.info.as_ref().and_then(|i| i.gpu_type.clone()) {
+        Some(gpu) if !gpu.is_empty() => format!("{}  ·  {gpu}", host.record.address),
         _ => host.record.address.clone(),
     };
     // The state and the address with the GPU end in "…" inside the card's padding; whatever was cut
@@ -4219,13 +4260,15 @@ fn paint_cover(ui: &Ui, image: Rect, name: &str, art: Option<&Art>, running: boo
             for r in [70.0, 105.0, 140.0] {
                 orbits.circle_stroke(image.right_bottom(), r, Stroke::new(1.5, ORBIT));
             }
-            let initials: String = name
-                .split_whitespace()
-                .filter_map(|w| w.chars().next())
-                .take(2)
-                .collect::<String>()
-                .to_uppercase();
-            painter.text(image.center(), Align2::CENTER_CENTER, initials, semibold(40.0), *OUTLINE);
+            // No art: the whole title, as Android's cover text, instead of initials ("C2" said nothing).
+            let mut job = egui::text::LayoutJob::single_section(
+                name.to_owned(),
+                egui::TextFormat { font_id: semibold(text::CARD_TITLE), color: *ON_SURFACE_VARIANT, ..Default::default() },
+            );
+            job.halign = Align::Center;
+            job.wrap = egui::text::TextWrapping { max_width: image.width() - 2.0 * space::L, max_rows: 4, break_anywhere: false, overflow_character: Some('…') };
+            let galley = painter.layout_job(job);
+            painter.galley(Pos2::new(image.center().x, image.center().y - galley.size().y / 2.0), galley, *ON_SURFACE_VARIANT);
         }
     }
     if running {
@@ -4276,22 +4319,37 @@ fn favourite_menu(
     });
 }
 
+/// A game's cover. Its title shows on one line under it only while it has focus or the pointer:
+/// cover art carries the title already, and a cover without art shows it inside. The focused cover
+/// lifts a little (not with reduced motion).
 fn poster(ui: &mut Ui, name: &str, art: Option<&Art>, running: bool) -> Response {
-    let (rect, response) = ui.allocate_exact_size(vec2(POSTER_W, POSTER_H + 34.0), Sense::click());
+    let (rect, response) = ui.allocate_exact_size(vec2(POSTER_W, POSTER_H + POSTER_CAPTION), Sense::click());
     response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, if running { trf("{}, running", &[&name]) } else { name.to_owned() }));
-    let image = Rect::from_min_size(rect.min, vec2(POSTER_W, POSTER_H));
+    let lifted = response.has_focus() || response.hovered();
+    let lift = ui.ctx().animate_bool_responsive(response.id.with("lift"), lifted);
+    let image = Rect::from_min_size(rect.min, vec2(POSTER_W, POSTER_H)).expand(lift * 3.0);
     paint_cover(ui, image, name, art, running);
-    let painter = ui.painter_at(rect.expand(6.0));
-    let label_color = if response.has_focus() { MOON } else { ON_SURFACE };
-    let galley = painter.layout(name.to_owned(), semibold(text::LABEL), *label_color, POSTER_W);
-    painter.galley(Pos2::new(rect.left() + 2.0, image.bottom() + 8.0), galley, *label_color);
+    if lifted && poster_caption(art) {
+        let painter = ui.painter_at(rect.expand(6.0));
+        let color = if response.has_focus() { MOON } else { ON_SURFACE };
+        let mut job = egui::text::LayoutJob::simple_singleline(name.to_owned(), semibold(text::LABEL), *color);
+        job.wrap = egui::text::TextWrapping::truncate_at_width(POSTER_W);
+        let galley = painter.layout_job(job);
+        painter.galley(Pos2::new(rect.left() + 2.0, image.bottom() + space::S), galley, *color);
+    }
     focus_ring(ui, image, &response, 10);
     response
 }
 
+/// Whether a lifted cover names its game underneath: only over art, as a cover without art shows
+/// the full title inside already.
+fn poster_caption(art: Option<&Art>) -> bool {
+    matches!(art, Some(Art::Ready(_)))
+}
+
 /// A game to carry on with: title, and where it runs.
 fn continue_card(ui: &mut Ui, title: &str, line: &str, running: bool) -> Response {
-    let (rect, response) = ui.allocate_exact_size(vec2(CARD_W, 84.0), Sense::click());
+    let (rect, response) = ui.allocate_exact_size(vec2(CARD_W, COMPACT_CARD_H), Sense::click());
     response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, format!("{title}, {line}")));
     let painter = ui.painter_at(rect.expand(6.0));
     let fill = if response.hovered() || response.has_focus() { SURFACE_HIGH } else { SURFACE };
@@ -4304,9 +4362,11 @@ fn continue_card(ui: &mut Ui, title: &str, line: &str, running: bool) -> Respons
         painter.circle_stroke(dot, 6.0, Stroke::new(2.0, color));
     }
     let inside = ui.painter_at(rect);
-    let galley = inside.layout_no_wrap(title.to_owned(), semibold(text::CARD_TITLE), *ON_SURFACE);
+    let mut job = egui::text::LayoutJob::simple_singleline(title.to_owned(), semibold(text::CARD_TITLE), *ON_SURFACE);
+    job.wrap = egui::text::TextWrapping::truncate_at_width(rect.width() - 44.0 - CARD_PAD);
+    let galley = inside.layout_job(job);
     inside.galley(Pos2::new(rect.left() + 44.0, rect.top() + 28.0 - galley.size().y / 2.0), galley, *ON_SURFACE);
-    inside.text(Pos2::new(rect.left() + 20.0, rect.top() + 60.0), Align2::LEFT_CENTER, line, regular(text::LABEL), *color);
+    card_line(&inside, rect, 58.0, line, regular(text::LABEL), *color);
     focus_ring(ui, rect, &response, radius::PANEL);
     response
 }
@@ -4496,6 +4556,8 @@ mod tests {
         native_ppp: f32,
         /// The last frame's AccessKit tree, once a test turned AccessKit on.
         access: Option<egui::accesskit::TreeUpdate>,
+        /// Keeps every texture for `shoot` (screenshots at any scale, 100 % too).
+        shots: bool,
     }
 
     impl Drop for Frames {
@@ -4543,7 +4605,7 @@ mod tests {
             });
             self.access = output.platform_output.accesskit_update.clone();
             // Only screenshots read the textures; everyone else lets them go.
-            if self.native_ppp == 1.0 {
+            if self.native_ppp == 1.0 && !self.shots {
                 let mut delta = output.textures_delta;
                 delta.clear();
             } else {
@@ -4574,6 +4636,7 @@ mod tests {
                 shapes: Vec::new(),
                 native_ppp: 1.0,
                 access: None,
+                shots: false,
             }
         }
 
@@ -4963,7 +5026,7 @@ mod tests {
         assert!(shows(&f, "Percent of the stream resolution that the PC renders at. The size of the transmitted video does not change. To send fewer pixels and upscale on this device, lower Resolution."));
         // The old name and description went to the Windows scale, a row of its own.
         assert!(!f.drawn.iter().any(|t| t == "Text and interface size on the virtual display."), "{:?}", f.drawn);
-        assert!(shows(&f, "PC display scaling") && shows(&f, "Text and interface size on the virtual display, on Rubylight PCs."));
+        assert!(shows(&f, "PC display scaling") && shows(&f, "Text and interface size on the PC’s virtual display."));
         // The slider holds Android's 50-200 %.
         for (set, kept) in [(300, 200), (25, 50), (135, 135)] {
             f.l.settings.virtual_display_scale = set;
@@ -4986,7 +5049,7 @@ mod tests {
             nightjar_core::http::ServerInfo::parse(&xml, 47989).expect("the answer parses")
         };
         let rubylight = "<RustHostVersion>3.0.0</RustHostVersion><VirtualDisplayCapable>true</VirtualDisplayCapable><VirtualDisplayDriverReady>true</VirtualDisplayDriverReady>";
-        let description = "Text and interface size on the virtual display, on Rubylight PCs.";
+        let description = "Text and interface size on the PC’s virtual display.";
         for (host, extra, drawn) in [
             ("Rubylight that reads it", format!("{rubylight}<DisplayScaleVersion>1</DisplayScaleVersion>"), Some(description.to_owned())),
             ("older Rubylight", rubylight.to_owned(), Some(format!("{description} Update the host software to use this."))),
@@ -5588,7 +5651,10 @@ mod tests {
     #[test]
     fn the_details_page_shows_what_the_pc_offers_not_its_brand() {
         let f = details(Reach::Online, "SUNSHINE_SERVER_FREE", RUBYLIGHT);
-        assert!(shows(&f, "Rubylight 3.0.0") && shows(&f, "Open in browser") && shows(&f, "https://192.0.2.7:47990"), "{:?}", f.drawn);
+        // The address sits inside the web UI card, under its description.
+        let in_card = f.drawn.iter().any(|t| t.starts_with("Manage the host's applications") && t.ends_with("
+https://192.0.2.7:47990"));
+        assert!(shows(&f, "Rubylight 3.0.0") && shows(&f, "Open in browser") && in_card, "{:?}", f.drawn);
         assert!(shows(&f, "Test this PC"));
         let f = details(Reach::Online, "SUNSHINE_SERVER_FREE", "<Permission>1</Permission>");
         assert!(shows(&f, "Apollo-compatible host") && shows(&f, "Open in browser"), "a known host has a web UI: {:?}", f.drawn);
@@ -6238,6 +6304,85 @@ mod tests {
         assert_eq!(focused(&f).0, start, "back at the first game");
     }
 
+    /// A cover with art names its game under it only while it has the focus (the art carries the
+    /// title already); a cover without art shows the whole title inside it, once.
+    #[test]
+    fn covers_name_the_game_inside_without_art_and_under_art_only_when_focused() {
+        let mut f = home_with_games(3);
+        let count = |f: &Frames, title: &str| f.drawn.iter().filter(|t| *t == title).count();
+        assert_eq!((count(&f, "Game 00"), count(&f, "Game 01")), (1, 1), "without art each title shows once: {:?}", f.drawn);
+        let texture = f.ctx.load_texture("art", egui::ColorImage::new([3, 4], vec![Color32::GRAY; 12]), egui::TextureOptions::LINEAR);
+        let pc = &mut f.hosts.list[0];
+        for g in &mut pc.native.library.as_mut().expect("a library").games {
+            g.artwork = nightjar_core::http::native_api::library::Artwork { cover: Some(format!("/cover/{}", g.app_id)), version: "1".into() };
+            pc.art.insert(g.app_id as i32, Art::Ready(texture.clone()));
+        }
+        f.settle();
+        assert_eq!((count(&f, "Game 00"), count(&f, "Game 01")), (1, 0), "only the focused cover is named: {:?}", f.drawn);
+        f.press(Key::ArrowRight);
+        f.settle();
+        assert_eq!((count(&f, "Game 00"), count(&f, "Game 01")), (0, 1), "the name follows the focus: {:?}", f.drawn);
+    }
+
+    /// Home's PC card says a PC's state once: an offline PC reads "Offline", never "Offline · Offline".
+    #[test]
+    fn the_home_pc_card_says_the_state_once() {
+        let mut f = home_with_games(1);
+        f.hosts.list[0].reach = Reach::Offline;
+        f.settle();
+        let lines: Vec<&String> = f.drawn.iter().filter(|t| t.contains("Offline")).collect();
+        assert!(!lines.is_empty() && lines.iter().all(|t| t.matches("Offline").count() == 1), "{lines:?} in {:?}", f.drawn);
+        assert!(shows(&f, "PCS"), "the section is Android's \"PCs\": {:?}", f.drawn);
+    }
+
+    /// Home before any PC speaks of PCs, as Android's Home does, and never of hosts.
+    #[test]
+    fn home_without_pcs_speaks_of_pcs() {
+        crate::theme::own_palette();
+        let ctx = egui::Context::default();
+        crate::theme::apply(&ctx);
+        let mut l = launcher(true, false);
+        l.identity_ready = true;
+        let mut f = Frames::over(ctx, l, Hosts::without_discovery(Vec::new(), Arc::new(|| {})));
+        f.l.go(Screen::Home);
+        f.settle();
+        assert!(shows(&f, "No PCs yet") && shows(&f, "Open PCs"), "{:?}", f.drawn);
+        assert!(!f.drawn.iter().any(|t| t.to_lowercase().contains("host")), "{:?}", f.drawn);
+    }
+
+    /// A settings row stays a readable width on a wide window instead of stretching across it.
+    #[test]
+    fn rows_keep_a_readable_width_on_a_wide_window() {
+        let ctx = egui::Context::default();
+        let input = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(1920.0, 1080.0))), ..Default::default() };
+        let (label, description) = ("Label", "Description");
+        let mut span = 0.0;
+        let mut output = ctx.run_ui(input, |ui| {
+            let left = ui.max_rect().left();
+            span = row(ui, label, description, |ui| ui.button("x")).rect.right() - left;
+        });
+        output.textures_delta.clear();
+        assert!(span <= SETTINGS_W && span > SETTINGS_W - 60.0, "the row's control ends at {span}");
+    }
+
+    /// The game page's quit on leave switch, now a row like every setting, still sends the choice.
+    #[test]
+    fn the_quit_on_leave_switch_sends_the_choice() {
+        let mut f = home_with_games(1);
+        f.ctx.enable_accesskit();
+        let pc = f.hosts.list[0].id;
+        f.hosts.list[0].apps = Apps::Loaded(vec![nightjar_core::http::App { name: "Game 00".into(), uuid: "install-0".into(), ..game(1000) }]);
+        f.l.go(Screen::Game { host: pc, app: 1000 });
+        f.settle();
+        let bounds = f.access.as_ref().expect("AccessKit is on").nodes.iter()
+            .find(|(_, n)| n.label().is_some_and(|l| l.starts_with("Quit the game when I leave")))
+            .and_then(|(_, n)| n.bounds())
+            .expect("the switch has the row's name");
+        let at = Pos2::new(((bounds.x0 + bounds.x1) / 2.0) as f32, ((bounds.y0 + bounds.y1) / 2.0) as f32);
+        let commands = f.click_at(at, egui::PointerButton::Primary);
+        assert!(commands.iter().any(|c| matches!(c, Command::SetQuitOnLeave { enabled: true, .. })), "a click turns it on");
+    }
+
     #[test]
     fn a_pairing_that_was_cancelled_never_shows_an_error() {
         let mut f = Frames::new(record("PC", false, false), Reach::Online);
@@ -6540,5 +6685,136 @@ mod tests {
         let card = f.ctx.read_response(f.ctx.memory(|m| m.focused()).expect("the card has focus")).expect("the card").rect;
         hover_card(&mut f, card);
         f.shoot(&dir, &format!("{prefix}hosts-long-detail-desktop"));
+    }
+
+    /// Made-up cover art without any words on it: a night gradient in one hue with the brand's orbits.
+    /// The demo library's cover art (the same genre covers the Android demo and README use).
+    fn demo_art(ctx: &egui::Context, n: usize) -> Art {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(format!("../../app/src/debug/assets/demo/art/{}.png", n + 1));
+        let image = image::load_from_memory(&std::fs::read(&path).expect("the demo cover")).expect("a PNG").to_rgba8();
+        let size = [image.width() as usize, image.height() as usize];
+        Art::Ready(ctx.load_texture(format!("demo-art-{n}"), egui::ColorImage::from_rgba_unmultiplied(size, &image), egui::TextureOptions::LINEAR))
+    }
+
+    /// Every main page and state as a first-time and a returning user meet them, at 1280x800 (150 %)
+    /// and 1920x1080: `NIGHTJAR_SHOTS=<dir> cargo test -p nightjar-desktop polish_screenshots -- --ignored`.
+    #[test]
+    #[ignore = "writes PNGs; set NIGHTJAR_SHOTS"]
+    fn polish_screenshots() {
+        use nightjar_core::http::native_api::library::{Artwork, Game, Library, Store};
+        let Some(dir) = std::env::var_os("NIGHTJAR_SHOTS").map(std::path::PathBuf::from) else { return };
+        std::fs::create_dir_all(&dir).expect("the folder for the screenshots");
+        let only = std::env::var("NIGHTJAR_SHOTS_ONLY").unwrap_or_default();
+        let titles = [
+            ("Desktop", ""), ("Racing Game", "Steam"), ("Open World", "Xbox"), ("Space Sim", "Epic Games"), ("Puzzle Night", "GOG"),
+            ("Retro Arcade", "Steam"), ("Strategy", "Battle.net"), ("Music Studio", "Steam"), ("Ocean Explorer", "Xbox"), ("Skybound", ""),
+        ];
+        for (width, height, ppp) in [(1280.0, 800.0, 1.5), (1920.0, 1080.0, 1.0)] {
+            let size = format!("{}x{}", width as u32, height as u32);
+            let fresh = |records: Vec<HostRecord>, home: bool| {
+                crate::theme::own_palette();
+                let ctx = egui::Context::default();
+                crate::theme::apply(&ctx);
+                let mut l = launcher(home, false);
+                l.identity_ready = true;
+                let hosts = Hosts::without_discovery(records, Arc::new(|| {}));
+                let mut f = Frames::over(ctx, l, hosts);
+                f.size = vec2(width, height);
+                f.native_ppp = ppp;
+                f.shots = true;
+                f
+            };
+            let shoot = |f: &mut Frames, page: &str| {
+                if !only.is_empty() && !only.split(',').any(|o| page.starts_with(o)) {
+                    return;
+                }
+                f.settle();
+                f.settle();
+                f.shoot(&dir, &format!("{page}-{size}"));
+            };
+            // First run: nothing found yet.
+            let mut f = fresh(Vec::new(), true);
+            f.l.go(Screen::Home);
+            shoot(&mut f, "first-run-home");
+            f.l.go(Screen::Hosts);
+            shoot(&mut f, "first-run-pcs");
+            f.l.add_host_dialog();
+            shoot(&mut f, "dialog-add-pc");
+
+            // A returning user: a PC with a library, one offline, one to pair.
+            let records = vec![
+                HostRecord { address: "192.0.2.10".into(), ..record("Living Room PC", true, true) },
+                HostRecord { address: "192.0.2.11".into(), ..record("Office PC", true, true) },
+                HostRecord { address: "192.0.2.12".into(), ..record("Studio", false, false) },
+            ];
+            let mut f = fresh(records, true);
+            let games: Vec<Game> = titles
+                .iter()
+                .enumerate()
+                .map(|(n, (title, store))| Game {
+                    install_id: format!("install-{n}"),
+                    app_id: 1000 + n as u32,
+                    title: (*title).into(),
+                    game_id: (!store.is_empty()).then(|| format!("steam:{n}")),
+                    store: (!store.is_empty()).then(|| Store { source: "steam".into(), id: n.to_string(), name: (*store).into() }),
+                    installed: Some(true),
+                    running: n == 1,
+                    artwork: Artwork { cover: (n < 9).then(|| format!("/cover/{n}")), version: "1".into() },
+                })
+                .collect();
+            let apps: Vec<nightjar_core::http::App> = games
+                .iter()
+                .map(|g| nightjar_core::http::App { name: g.title.clone(), uuid: g.install_id.clone(), ..game(g.app_id as i32) })
+                .collect();
+            {
+                let pc = &mut f.hosts.list[0];
+                pc.reach = Reach::Online;
+                pc.info = Some(files::tests::native_answer());
+                pc.native.library = Some(Library { revision: "r1".into(), games });
+                pc.apps = Apps::Loaded(apps.clone());
+                for (n, app) in apps.iter().enumerate().take(9) {
+                    pc.art.insert(app.id, demo_art(&f.ctx, n));
+                }
+            }
+            f.hosts.list[1].reach = Reach::Offline;
+            f.hosts.list[2].reach = Reach::Online;
+            f.hosts.list[2].info = Some(answer(false, 0));
+            let pc = f.hosts.list[0].id;
+            f.l.go(Screen::Home);
+            shoot(&mut f, "home");
+            f.press(Key::ArrowRight);
+            shoot(&mut f, "home-focus-moved");
+            f.scroll_to_end();
+            shoot(&mut f, "home-end");
+            f.l.go(Screen::Game { host: pc, app: 1001 });
+            shoot(&mut f, "game-running");
+            f.l.go(Screen::Game { host: pc, app: 1002 });
+            shoot(&mut f, "game");
+            f.l.go(Screen::Hosts);
+            shoot(&mut f, "pcs");
+            f.l.go(Screen::Apps(pc));
+            shoot(&mut f, "library");
+            f.l.go(Screen::HostDetails(pc));
+            shoot(&mut f, "pc-details");
+            f.l.go(Screen::Settings);
+            shoot(&mut f, "settings");
+            f.scroll_to_end();
+            shoot(&mut f, "settings-end");
+            f.l.go(Screen::Hosts);
+            f.settle();
+            f.press(Key::F2);
+            shoot(&mut f, "dialog-pc-options");
+            f.l.close_dialog();
+            let studio = f.hosts.list[2].id;
+            f.l.dialog = Dialog::Pairing { host: studio, pin: "4071".into() };
+            f.l.focus_dialog = true;
+            shoot(&mut f, "dialog-pairing");
+            f.l.pair_failed(studio, crate::hosts::PAIR_PIN_WRONG, false);
+            shoot(&mut f, "dialog-pair-failed");
+            f.l.close_dialog();
+            f.waking = Some("Office PC".into());
+            shoot(&mut f, "waking");
+            f.waking = None;
+        }
     }
 }

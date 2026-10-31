@@ -279,7 +279,14 @@ impl PhaseLock {
     /// 60 fps moves a whole picture later or not at all. 0 when frames move by any amount, the
     /// default. The host's `PhaseSync` decides; call once per frame.
     pub fn set_step(&mut self, step_ns: i64) {
-        self.step_ns = step_ns.max(0);
+        let step_ns = step_ns.max(0);
+        // A correction left from the other mode is dropped: a plain lock's microseconds would
+        // apply at once in step mode, and a picture move would trickle out 250 us a frame.
+        if (step_ns > 0) != (self.step_ns > 0) {
+            self.pending_ns = 0;
+            self.hold_frames = 0;
+        }
+        self.step_ns = step_ns;
     }
 
     /// True once a plausible report has arrived.

@@ -145,7 +145,7 @@
     <string name="summary_seekbar_deadzone">일부 게임은 더 큰 데드존을 사용합니다. 음수 값은 컨트롤러나 게임에 내장된 데드존을 넘도록 작은 입력을 바깥쪽으로 밀어 줍니다. 음수 값은 스틱을 놓았을 때의 드리프트도 증폭합니다.</string>
     <string name="suffix_seekbar_deadzone">%</string>
     <string name="title_seekbar_trigger_deadzone">트리거 데드존</string>
-    <string name="summary_seekbar_trigger_deadzone">이 값보다 약한 트리거 입력은 무시됩니다. 손대지 않은 트리거가 저절로 눌리면 올리세요. 0%는 모든 입력을 보냅니다.</string>
+    <string name="summary_seekbar_trigger_deadzone" formatted="false">이 값보다 약한 트리거 입력은 무시됩니다. 손대지 않은 트리거가 저절로 눌리면 올리세요. 0%는 모든 입력을 보냅니다.</string>
     <string name="title_checkbox_xb1_driver">USB 컨트롤러 드라이버</string>
     <string name="summary_checkbox_xb1_driver">USB로 연결된 Xbox 컨트롤러용 내장 드라이버입니다. root가 필요하지 않습니다.</string>
     <string name="title_usb_dualsense_haptics">USB DualSense 오디오 및 햅틱</string>

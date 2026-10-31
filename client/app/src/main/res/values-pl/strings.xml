@@ -145,7 +145,7 @@
     <string name="summary_seekbar_deadzone">Niektóre gry używają większej martwej strefy. Wartości ujemne wzmacniają małe ruchy, aby pokonać wbudowaną martwą strefę kontrolera lub gry. Wartości ujemne wzmacniają też dryf nieruchomej gałki.</string>
     <string name="suffix_seekbar_deadzone">%</string>
     <string name="title_seekbar_trigger_deadzone">Martwa strefa spustów</string>
-    <string name="summary_seekbar_trigger_deadzone">Lekkie wciśnięcia spustów poniżej tej wartości są ignorowane. Zwiększ ją, jeśli spust w spoczynku sam się wciska; 0% wysyła każde wciśnięcie.</string>
+    <string name="summary_seekbar_trigger_deadzone" formatted="false">Lekkie wciśnięcia spustów poniżej tej wartości są ignorowane. Zwiększ ją, jeśli spust w spoczynku sam się wciska; 0% wysyła każde wciśnięcie.</string>
     <string name="title_checkbox_xb1_driver">Sterownik kontrolera USB</string>
     <string name="summary_checkbox_xb1_driver">Wbudowany sterownik kontrolerów Xbox przez USB. Root nie jest wymagany.</string>
     <string name="title_usb_dualsense_haptics">Dźwięk i haptyka DualSense przez USB</string>

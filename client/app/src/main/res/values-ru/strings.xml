@@ -145,7 +145,7 @@
     <string name="summary_seekbar_deadzone">В некоторых играх используется более широкая мёртвая зона. Отрицательные значения усиливают малые отклонения, чтобы преодолеть встроенную мёртвую зону геймпада или игры. Отрицательные значения также усиливают дрейф неподвижного стика.</string>
     <string name="suffix_seekbar_deadzone">%</string>
     <string name="title_seekbar_trigger_deadzone">Мёртвая зона триггеров</string>
-    <string name="summary_seekbar_trigger_deadzone">Лёгкие нажатия триггеров ниже этого значения игнорируются. Увеличьте, если отпущенный триггер нажимается сам; 0% передаёт каждое нажатие.</string>
+    <string name="summary_seekbar_trigger_deadzone" formatted="false">Лёгкие нажатия триггеров ниже этого значения игнорируются. Увеличьте, если отпущенный триггер нажимается сам; 0% передаёт каждое нажатие.</string>
     <string name="title_checkbox_xb1_driver">Драйвер USB-контроллеров</string>
     <string name="summary_checkbox_xb1_driver">Встроенный драйвер для контроллеров Xbox по USB. Root не нужен.</string>
     <string name="title_usb_dualsense_haptics">Звук и тактильная отдача USB DualSense</string>

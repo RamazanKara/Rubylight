@@ -145,7 +145,7 @@
     <string name="summary_seekbar_deadzone">Một số trò chơi dùng vùng chết lớn hơn. Giá trị âm khuếch đại các chuyển động nhỏ để vượt qua vùng chết có sẵn của tay cầm hoặc trò chơi. Giá trị âm cũng khuếch đại hiện tượng trôi của cần analog khi đứng yên.</string>
     <string name="suffix_seekbar_deadzone">%</string>
     <string name="title_seekbar_trigger_deadzone">Vùng chết của cò</string>
-    <string name="summary_seekbar_trigger_deadzone">Các lần bóp cò nhẹ dưới mức này sẽ bị bỏ qua. Tăng lên nếu cò đang thả tự bấm; 0% gửi mọi lần bấm.</string>
+    <string name="summary_seekbar_trigger_deadzone" formatted="false">Các lần bóp cò nhẹ dưới mức này sẽ bị bỏ qua. Tăng lên nếu cò đang thả tự bấm; 0% gửi mọi lần bấm.</string>
     <string name="title_checkbox_xb1_driver">Driver tay cầm điều khiển USB</string>
     <string name="summary_checkbox_xb1_driver">Driver tích hợp cho tay cầm Xbox qua USB. Không cần root.</string>
     <string name="title_usb_dualsense_haptics">Âm thanh và phản hồi xúc giác DualSense qua USB</string>

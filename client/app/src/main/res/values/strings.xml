@@ -170,7 +170,7 @@
     <string name="summary_seekbar_deadzone">Some games use a larger deadzone. Negative values push small movements outwards to overcome the built-in deadzone of a controller or game. Negative values also amplify resting-stick drift.</string>
     <string name="suffix_seekbar_deadzone">%</string>
     <string name="title_seekbar_trigger_deadzone">Trigger deadzone</string>
-    <string name="summary_seekbar_trigger_deadzone">Light trigger presses below this are ignored. Raise it if a resting trigger presses by itself; 0% sends every press.</string>
+    <string name="summary_seekbar_trigger_deadzone" formatted="false">Light trigger presses below this are ignored. Raise it if a resting trigger presses by itself; 0% sends every press.</string>
     <string name="title_checkbox_xb1_driver">USB controller driver</string>
     <string name="summary_checkbox_xb1_driver">Built-in driver for Xbox controllers over USB. No root needed.</string>
     <string name="title_usb_dualsense_haptics">USB DualSense audio and haptics</string>

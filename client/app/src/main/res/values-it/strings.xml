@@ -145,7 +145,7 @@
     <string name="summary_seekbar_deadzone">Alcuni giochi usano una zona morta più ampia. I valori negativi amplificano i piccoli movimenti per superare la zona morta integrata del controller o del gioco. I valori negativi amplificano anche la deriva di una levetta a riposo.</string>
     <string name="suffix_seekbar_deadzone">%</string>
     <string name="title_seekbar_trigger_deadzone">Zona morta dei grilletti</string>
-    <string name="summary_seekbar_trigger_deadzone">Le pressioni leggere dei grilletti sotto questo valore vengono ignorate. Aumentalo se un grilletto a riposo si preme da solo; 0% invia ogni pressione.</string>
+    <string name="summary_seekbar_trigger_deadzone" formatted="false">Le pressioni leggere dei grilletti sotto questo valore vengono ignorate. Aumentalo se un grilletto a riposo si preme da solo; 0% invia ogni pressione.</string>
     <string name="title_checkbox_xb1_driver">Driver controller USB</string>
     <string name="summary_checkbox_xb1_driver">Driver integrato per controller Xbox via USB. Root non necessario.</string>
     <string name="title_usb_dualsense_haptics">Audio e feedback aptico DualSense USB</string>

@@ -1,0 +1,8 @@
+# Console polish
+- **A calmer, more consistent console.** The sidebar fits any window: its links scroll while the logo, your PC and Sign out stay in view, and it carries the same ruby mark as the tray and setup. Page buttons sit on the title's line on every page, and notices, folding sections, empty pages and buttons look and behave the same everywhere, in light and dark, on a PC or a phone.
+- **Home gets to the point.** One View checks that scrolls to the checks, its own icon for your devices, and no empty gap on phones. Signing in and first-run setup are one welcoming card.
+- **Games look like a library.** A game without cover art gets a poster of its own, tinted by its name and showing its initials ("Hades II" reads H2); Desktop and Steam Big Picture get a picture. Each cover has one round Launch button that shows on hover or keyboard focus, and always on touch screens. The toolbar is tidier, and Playnite shows once in the launcher list, with its options and plugin version. A game's page and Add games read more calmly and fit a phone.
+- **Allow pairing from the Devices page.** When pairing is off, one button turns it on right there. Each device shows one status (Connected, Offline or Disabled), with Settings and a More menu beside it.
+- **Wake-on-LAN puts the fix first.** One status for the panel, then the problem and Apply changes, with the adapter details as quiet text.
+- Help reads as one page with even button groups and offers Return to console only when it can work. API tokens and Stream in the browser say what to do next when there is nothing to show yet.
+- The Games page no longer breaks when a launcher scan answers without a game list.

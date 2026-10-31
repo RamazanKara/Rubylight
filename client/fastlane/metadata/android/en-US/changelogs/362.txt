@@ -1,0 +1,3 @@
+• A polished look: tidier game pages that also fit sideways, a stream menu that fits an upright phone, covers that fill their frame, and clearer PC, pairing and TV screens.
+• Connect as, in a controller's button settings, picks the type the PC sees: Xbox, PlayStation or Nintendo.
+• Back button as Guide works on every controller, including handhelds such as the Retroid Pocket Flip 2.

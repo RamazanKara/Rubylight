@@ -212,6 +212,43 @@ fn rubylights_handler_is_written_and_its_game_added_beside_the_users() {
     assert_eq!(games[0].guid, setup.guid());
 }
 
+/// #56: an Unreal or Unity game's handler starts it in a window, so it
+/// stays where it is parked instead of covering the PC's monitor.
+#[test]
+fn an_unreal_or_unity_games_handler_starts_it_in_a_window() {
+    let nucleus = tempfile::tempdir().unwrap();
+    let games = tempfile::tempdir().unwrap();
+    let unreal = games.path().join(r"Game\Binaries\Win64");
+    let unity = games.path().join("Cuphead");
+    for folder in [&unreal, &unity] {
+        std::fs::create_dir_all(folder).unwrap();
+    }
+    std::fs::write(unity.join("UnityPlayer.dll"), b"").unwrap();
+    let arguments = |exe: &Path| {
+        let setup = Setup {
+            arguments: "-x".into(),
+            ..Setup::new(&exe.to_string_lossy(), "Game", None)
+        };
+        write_own(nucleus.path(), &setup).unwrap();
+        let text =
+            std::fs::read_to_string(nucleus.path().join("handlers").join(setup.file())).unwrap();
+        text.lines()
+            .find_map(|l| l.strip_prefix("Game.StartArguments = "))
+            .unwrap_or_default()
+            .to_string()
+    };
+    assert_eq!(
+        arguments(&unreal.join("Game-Win64-Shipping.exe")),
+        r#""-x -windowed";"#
+    );
+    assert_eq!(
+        arguments(&unity.join("Cuphead.exe")),
+        r#""-x -screen-fullscreen 0";"#
+    );
+    // Without UnityPlayer.dll the game is left as it starts.
+    assert_eq!(arguments(&games.path().join("Other.exe")), r#""-x";"#);
+}
+
 /// #59: a game that refused the way ProtoInput's hooks were injected
 /// gets a handler with the next way at its next start, down to none,
 /// also after the host restarts (the file in the host's Nucleus folder

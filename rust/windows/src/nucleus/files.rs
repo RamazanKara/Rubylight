@@ -196,6 +196,7 @@ pub fn write_own(folder: &Path, setup: &Setup) -> Result<Handler> {
         .context("finding the signed-in user, whose game list the handler is for")?;
     let setup = &Setup {
         inject: inject_for(folder, &setup.exe_path)?,
+        arguments: setup.windowed_arguments(unity(&setup.exe_path)),
         ..setup.clone()
     };
     match setup.inject {
@@ -230,6 +231,13 @@ pub fn write_own(folder: &Path, setup: &Setup) -> Result<Handler> {
     }
     add_game(&list(folder), setup)?;
     Ok(handler)
+}
+
+/// Whether the game at `exe` is a Unity game: `UnityPlayer.dll` beside it.
+fn unity(exe: &str) -> bool {
+    Path::new(exe)
+        .parent()
+        .is_some_and(|folder| folder.join("UnityPlayer.dll").is_file())
 }
 
 /// How Rubylight's handler injects ProtoInput's input hooks into the games

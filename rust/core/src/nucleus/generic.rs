@@ -23,7 +23,7 @@ pub const MARKER: &str = "// Rubylight one-player handler";
 pub const OWNER: &str = "// Written for ";
 /// Bumped when the template changes; a handler with another version is
 /// rewritten.
-const VERSION: u32 = 1;
+const VERSION: u32 = 2;
 
 /// Whether a handler's text is one Rubylight wrote.
 pub fn owns(text: &str) -> bool {
@@ -170,6 +170,36 @@ impl Setup {
         format!("{PREFIX}{stem}-{}", hex::encode(&hash[..4]))
     }
 
+    /// The game's arguments with its engine's switch for a window added: an
+    /// Unreal game's (`-windowed`, its .exe in `<Project>\Binaries\Win64`)
+    /// or a Unity game's (`-screen-fullscreen 0`; `unity` when
+    /// `UnityPlayer.dll` sits beside the .exe). A fullscreen game covers the
+    /// monitor nearest its window, the PC's, however often it is parked
+    /// beside the desktop; in a window it stays parked (#56). Arguments that
+    /// already choose a mode stay as they are.
+    pub fn windowed_arguments(&self, unity: bool) -> String {
+        let arguments = self.arguments.trim();
+        let chosen = |flags: &[&str]| {
+            arguments.split_whitespace().any(|word| {
+                let word = word.to_ascii_lowercase();
+                flags.iter().any(|flag| word.starts_with(flag))
+            })
+        };
+        let switch = if unreal_root(parent(&self.exe_path)).is_some() {
+            (!chosen(&["-windowed", "-fullscreen", "-borderless"])).then_some("-windowed")
+        } else if unity {
+            (!chosen(&["-screen-fullscreen", "-window-mode", "-popupwindow"]))
+                .then_some("-screen-fullscreen 0")
+        } else {
+            None
+        };
+        match switch {
+            Some(switch) if arguments.is_empty() => switch.to_string(),
+            Some(switch) => format!("{arguments} {switch}"),
+            None => arguments.to_string(),
+        }
+    }
+
     /// The handler's file name in Nucleus' `handlers` folder.
     pub fn file(&self) -> String {
         format!("{}.js", self.guid())
@@ -241,6 +271,12 @@ impl Setup {
             "Game.ProtoInput.GetCursorPosHook = true;",
             "Game.ProtoInput.SetCursorPosHook = true;",
             "Game.ProtoInput.ClipCursorHook = true;",
+            "// Even in front, the game takes no key, click, wheel or cursor position the PC's keyboard and mouse send it (#56).",
+            "Game.ProtoInput.MessageFilterHook = true;",
+            "Game.ProtoInput.KeyboardButtonFilter = true;",
+            "Game.ProtoInput.MouseButtonFilter = true;",
+            "Game.ProtoInput.MouseWheelFilter = true;",
+            "Game.ProtoInput.MouseMoveFilter = true;",
         ];
         let unhooked = [
             "// The game refused ProtoInput's input hooks every way Nucleus Co-op injects them, so none are injected: Nucleus Co-op only tells it it has focus, and a keyboard, mouse or pad on the PC can reach it too.",
@@ -845,10 +881,10 @@ mod tests {
         let hooked = steam_game();
         assert_eq!(hooked.inject, Inject::Runtime);
         let runtime = hooked.handler_of(owner);
-        // The handlers 3.0.1 wrote are left as they are: the first way's
-        // text is theirs.
-        let written_by_3_0_1 = [
-            "// Rubylight one-player handler v1: Rubylight writes this file for background streams and rewrites it when it changes. A hub handler for this game takes its place.",
+        // The first way's text, whole: v2 filters the PC's keyboard and
+        // mouse messages too (#56), so the handlers v1 wrote are rewritten.
+        let runtime_v2 = [
+            "// Rubylight one-player handler v2: Rubylight writes this file for background streams and rewrites it when it changes. A hub handler for this game takes its place.",
             "// Written for S-1-5-21-1-2-3-1001",
             format!("Game.GUID = \"{}\";", hooked.guid()).as_str(),
             "Game.GameName = \"Assassin's Creed \\\"IV\\\"\";",
@@ -873,10 +909,16 @@ mod tests {
             "Game.ProtoInput.GetCursorPosHook = true;",
             "Game.ProtoInput.SetCursorPosHook = true;",
             "Game.ProtoInput.ClipCursorHook = true;",
+            "// Even in front, the game takes no key, click, wheel or cursor position the PC's keyboard and mouse send it (#56).",
+            "Game.ProtoInput.MessageFilterHook = true;",
+            "Game.ProtoInput.KeyboardButtonFilter = true;",
+            "Game.ProtoInput.MouseButtonFilter = true;",
+            "Game.ProtoInput.MouseWheelFilter = true;",
+            "Game.ProtoInput.MouseMoveFilter = true;",
         ]
         .join("\r\n")
             + "\r\n";
-        assert_eq!(runtime, written_by_3_0_1);
+        assert_eq!(runtime, runtime_v2);
         let hook_lines = |text: &str| {
             text.lines()
                 .filter(|l| l.starts_with("Game.ProtoInput.") && l.contains("Hook"))
@@ -1010,6 +1052,57 @@ mod tests {
             "{text}"
         );
         assert!(handler::parse(&setup.file(), &text).is_ok());
+    }
+
+    #[test]
+    fn unreal_and_unity_games_start_in_a_window_unless_their_arguments_choose() {
+        // #56: Clair Obscur and Silent Hill f went borderless fullscreen on
+        // the PC's monitor, wherever their window was parked.
+        let unreal = |arguments: &str| Setup {
+            arguments: arguments.into(),
+            ..Setup::new(
+                r"D:\Steam\steamapps\common\Expedition 33\Sandfall\Binaries\Win64\SandFall-Win64-Shipping.exe",
+                "Clair Obscur",
+                None,
+            )
+        };
+        assert_eq!(unreal("").windowed_arguments(false), "-windowed");
+        assert_eq!(
+            unreal(" -dx12 ").windowed_arguments(false),
+            "-dx12 -windowed"
+        );
+        assert_eq!(
+            unreal("-FullScreen").windowed_arguments(false),
+            "-FullScreen"
+        );
+        assert_eq!(
+            unreal("-windowed -ResX=1280").windowed_arguments(false),
+            "-windowed -ResX=1280"
+        );
+
+        let unity = |arguments: &str| Setup {
+            arguments: arguments.into(),
+            ..Setup::new(r"D:\Games\Cuphead\Cuphead.exe", "Cuphead", None)
+        };
+        assert_eq!(unity("").windowed_arguments(true), "-screen-fullscreen 0");
+        assert_eq!(
+            unity("-force-d3d11").windowed_arguments(true),
+            "-force-d3d11 -screen-fullscreen 0"
+        );
+        assert_eq!(
+            unity("-screen-fullscreen 1").windowed_arguments(true),
+            "-screen-fullscreen 1"
+        );
+        assert_eq!(
+            unity("-popupwindow").windowed_arguments(true),
+            "-popupwindow"
+        );
+
+        // Any other game keeps its own arguments: no switch is known for it.
+        assert_eq!(
+            unity(" -game portal ").windowed_arguments(false),
+            "-game portal"
+        );
     }
 
     #[test]

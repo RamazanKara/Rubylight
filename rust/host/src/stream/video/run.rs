@@ -194,7 +194,7 @@ impl SessionThread<'_> {
         // they are sent in FEC blocks as they arrive, here or on the
         // sender thread. Off for the rest of the session after a
         // frame passes its byte cap.
-        let delivery = slices::Delivery::new(usize::from(butterpollo_core::encoder_policy::slice_delivery(&c, s.config.codec)));
+        let delivery = slices::Delivery::new(usize::from(butterpollo_core::encoder_policy::slice_delivery(&c, &s.config)));
         let slice_blocks = delivery.blocks();
         let mut slice_route = slices::Route::default();
         let mut streaming: Option<slices::Streaming> = None;

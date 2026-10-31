@@ -568,22 +568,102 @@ fn av1_that_asked_for_intra_refresh_is_configured_as_a_stream_that_never_asked()
 }
 
 #[test]
-fn slice_delivery_is_off_unless_two_or_four_blocks_are_asked_for_on_avc_or_hevc() {
+fn slice_delivery_follows_the_setting_on_avc_or_hevc() {
     let set = |value: &str| Config::parse(&format!("video_slice_delivery={value}\n")).unwrap();
-    assert_eq!(slice_delivery(&Config::default(), 0), 0);
-    for (value, blocks) in [
-        ("off", 0),
-        ("0", 0),
-        ("2", 2),
-        ("4", 4),
-        ("3", 0),
-        ("on", 0),
+    let stream = |codec, width, height| Negotiated {
+        codec,
+        width,
+        height,
+        ..Default::default()
+    };
+    for (value, small, large) in [
+        ("off", 0, 0),
+        ("0", 0, 0),
+        ("2", 2, 2),
+        ("4", 4, 4),
+        ("auto", 0, 4),
+        // Unknown values take the default.
+        ("3", 0, 4),
+        ("on", 0, 4),
     ] {
         for codec in [0, 1] {
-            assert_eq!(slice_delivery(&set(value), codec), blocks, "{value}");
+            assert_eq!(
+                slice_delivery(&set(value), &stream(codec, 1920, 1080)),
+                small,
+                "{value}"
+            );
+            assert_eq!(
+                slice_delivery(&set(value), &stream(codec, 3840, 2160)),
+                large,
+                "{value}"
+            );
         }
-        assert_eq!(slice_delivery(&set(value), 2), 0, "AV1 is never sliced");
+        assert_eq!(
+            slice_delivery(&set(value), &stream(2, 3840, 2160)),
+            0,
+            "AV1 is never sliced"
+        );
     }
+}
+
+#[test]
+fn auto_slice_delivery_is_on_for_4k_class_pictures_only() {
+    let blocks = |width, height| {
+        let stream = Negotiated {
+            codec: 1,
+            width,
+            height,
+            ..Default::default()
+        };
+        slice_delivery(&Config::default(), &stream)
+    };
+    // The 1080p and 1440p encodes leave too little slice lead to gain from.
+    for (width, height) in [
+        (1920, 1080),
+        (2560, 1440),
+        (2880, 1800),
+        (3440, 1440),
+        (0, 0),
+    ] {
+        assert_eq!(blocks(width, height), 0, "{width}x{height}");
+    }
+    for (width, height) in [
+        (3840, 2160),
+        (4096, 2160),
+        (3840, 2400),
+        (5120, 1440),
+        (7680, 4320),
+    ] {
+        assert_eq!(blocks(width, height), 4, "{width}x{height}");
+    }
+}
+
+#[test]
+fn auto_slice_delivery_keeps_the_intra_refresh_the_stream_would_use() {
+    let stream = |codec, references| Negotiated {
+        codec,
+        width: 3840,
+        height: 2160,
+        intra_refresh: true,
+        references,
+        ..Default::default()
+    };
+    let auto = Config::default();
+    assert_eq!(
+        slice_delivery(&auto, &stream(1, 2)),
+        0,
+        "HEVC refresh stays"
+    );
+    assert_eq!(
+        slice_delivery(&auto, &stream(0, 2)),
+        0,
+        "H.264 refresh stays"
+    );
+    // H.264 with one reference recovers with keyframes anyway.
+    assert_eq!(slice_delivery(&auto, &stream(0, 1)), 4);
+    // An explicit setting still wins over refresh.
+    let four = Config::parse("video_slice_delivery=4\n").unwrap();
+    assert_eq!(slice_delivery(&four, &stream(1, 2)), 4);
 }
 
 #[test]

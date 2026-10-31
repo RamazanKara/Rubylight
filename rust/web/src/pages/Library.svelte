@@ -14,6 +14,8 @@
   import { match, navigate } from '../lib/router.svelte';
 
   let apps = $state<App[] | null>(null);
+  /** The synced games removed from the library, which a restore can bring back. */
+  let removed = $state<string[]>([]);
   let loadError = $state('');
   let status = $state<SessionStatus | null>(null);
   let reordering = $state(false);
@@ -28,9 +30,10 @@
     // A slow reload must not put an older list back.
     const id = ++latestLoad;
     try {
-      const list = (await api.apps.list()).apps ?? [];
+      const library = await api.apps.list();
       if (id !== latestLoad) return;
-      apps = list;
+      apps = library.apps ?? [];
+      removed = library['launcher-dismissed'] ?? [];
       loadError = '';
     } catch (error) {
       if (id === latestLoad) loadError = reason(error);
@@ -124,7 +127,7 @@
   {:else}
     <LibraryGrid {apps} {status} {reordering} onreorder={reorder} onstatus={refreshStatus} onremoved={load} />
   {/if}
-  <LauncherSources onsynced={load} />
+  <LauncherSources {removed} onsynced={load} />
   <PlayniteSource onsynced={load} />
 {:else}
   {#key editing}

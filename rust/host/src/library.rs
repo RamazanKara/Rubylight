@@ -178,6 +178,28 @@ pub fn dismiss(document: &mut Value, app: &Value) {
     }
 }
 
+/// `POST /api/library/restore`: takes deleted games off the list, the ones named by their
+/// `launcher-dismissed` key or, for `None`, all of them, so the next sync adds them again.
+pub fn restore(h: &Shared, keys: Option<&[String]>) -> Result<Value> {
+    if keys.is_some_and(<[String]>::is_empty) {
+        anyhow::bail!("Select at least one game.");
+    }
+    let mut restored = 0;
+    crate::steam::update_library(h, |_, document| {
+        let before = dismissed(document);
+        let kept: Vec<&String> = before
+            .iter()
+            .filter(|key| keys.is_some_and(|keys| !keys.contains(key)))
+            .collect();
+        restored = before.len() - kept.len();
+        if restored > 0 {
+            document[library::DISMISSED] = json!(kept);
+        }
+        restored > 0
+    })?;
+    Ok(json!({ "status": true, "restored": restored }))
+}
+
 /// The one-time ownership stamp at host start, before any sync runs (see
 /// `library::stamp_synced`). Steam's apps are the sync's only when `sunshine.conf` itself turns
 /// `steam_enabled` on: that user chose the opt-in sync of earlier versions. A library that can't
@@ -506,6 +528,63 @@ mod tests {
             !sync_games(&f.host, &off, vec![other], &all)
                 .unwrap()
                 .changed()
+        );
+    }
+
+    #[test]
+    fn a_restore_brings_back_the_chosen_removed_games_or_all_of_them_on_the_next_sync() {
+        let f = Fixture::new();
+        let settings = library::Settings::default();
+        let all = library::Source::ALL;
+        let games = vec![
+            library::ubisoft("13504", Path::new("F:/Games/Mirage"), "Mirage").unwrap(),
+            library::ubisoft("1", Path::new("F:/Games/Other"), "Other").unwrap(),
+        ];
+        sync_games(&f.host, &settings, games.clone(), &all).unwrap();
+        let synced = |h: &Shared| {
+            let apps: Vec<Value> = h
+                .apps
+                .read()
+                .unwrap()
+                .iter()
+                .map(|app| serde_json::to_value(app).unwrap())
+                .collect();
+            games
+                .iter()
+                .map(|game| apps.iter().any(|app| game.matches(app)))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(synced(&f.host), [true, true]);
+        crate::steam::update_library(&f.host, |apps, document| {
+            for app in std::mem::take(apps) {
+                dismiss(document, &app);
+            }
+            true
+        })
+        .unwrap();
+        assert_eq!(
+            f.host.app_document.read().unwrap()["launcher-dismissed"],
+            json!(["ubisoft:13504", "ubisoft:1"])
+        );
+        // Nothing chosen is refused; a key not on the list restores nothing.
+        assert!(restore(&f.host, Some(&[])).is_err());
+        let none = restore(&f.host, Some(&["steam:570".to_owned()])).unwrap();
+        assert_eq!(none["restored"], 0);
+        // One chosen game: off the list, and the sync adds it again; the other stays out.
+        let one = restore(&f.host, Some(&["ubisoft:13504".to_owned()])).unwrap();
+        assert_eq!(one["restored"], 1);
+        sync_games(&f.host, &settings, games.clone(), &all).unwrap();
+        assert_eq!(synced(&f.host), [true, false]);
+        let saved: Value =
+            serde_json::from_slice(&std::fs::read(&f.host.apps_path).unwrap()).unwrap();
+        assert_eq!(saved["launcher-dismissed"], json!(["ubisoft:1"]));
+        // All of them.
+        assert_eq!(restore(&f.host, None).unwrap()["restored"], 1);
+        sync_games(&f.host, &settings, games.clone(), &all).unwrap();
+        assert_eq!(synced(&f.host), [true, true]);
+        assert_eq!(
+            f.host.app_document.read().unwrap()["launcher-dismissed"],
+            json!([])
         );
     }
 

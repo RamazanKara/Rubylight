@@ -7,6 +7,7 @@
   import { confirm, failed, notify } from '../../lib/feedback.svelte';
   import { link } from '../../lib/router.svelte';
   import { closeApp, confirmClose, coverPath, launchApp, runningName } from './app';
+  import { counted, launcherCounts, launcherOf, selectApps, toggled, type Launcher } from './selection';
 
   let {
     apps,
@@ -23,15 +24,18 @@
     onreorder: (next: App[]) => void;
     /** An app was started or closed. */
     onstatus: () => void;
-    /** An app whose game is not installed was removed. */
+    /** Apps were removed: one whose game is not installed, or the selected ones. */
     onremoved?: () => void;
   } = $props();
 
   const uid = $props.id();
   let query = $state('');
   let sort = $state<'order' | 'name'>('order');
-  /** `launch:uuid` or `close` while a request is out. */
+  /** `launch:uuid`, `remove:uuid`, `remove-selected` or `close` while a request is out. */
   let busy = $state('');
+  /** Select mode: a card picks its app for Remove instead of opening it. */
+  let selecting = $state(false);
+  let selected = $state.raw<Set<string>>(new Set());
 
   // While a card is dragged the grid shows this order; dropping saves it.
   let dragging = $state<string | null>(null);
@@ -40,7 +44,10 @@
   const running = $derived(runningName(status));
   const needle = $derived(query.trim().toLowerCase());
   const missingIds = $derived(apps.some((app) => !app.uuid));
-  const canReorder = $derived(!reordering && sort === 'order' && !needle && !missingIds && apps.length > 1);
+  const canReorder = $derived(!selecting && !reordering && sort === 'order' && !needle && !missingIds && apps.length > 1);
+  // An app gone from the list (a sync, another tab) leaves the selection with it.
+  const chosen = $derived(apps.filter((app) => app.uuid && selected.has(app.uuid)));
+  const launchers = $derived(launcherCounts(apps));
 
   const shown = $derived.by(() => {
     let list = preview ?? apps;
@@ -52,6 +59,7 @@
   });
 
   const hint = $derived.by(() => {
+    if (selecting) return 'Select the apps to remove, one by one or by launcher.';
     if (reordering) return 'Saving the library order…';
     if (apps.length < 2) return '';
     if (missingIds) return 'Restart the host to enable reordering for all apps.';
@@ -86,6 +94,45 @@
       onremoved?.();
     } catch (error) {
       failed('Removing the app failed', error);
+    } finally {
+      busy = '';
+    }
+  }
+
+  function stopSelecting() {
+    selecting = false;
+    selected = new Set();
+  }
+
+  function selectLauncher(launcher: Launcher) {
+    selected = selectApps(
+      selected,
+      apps.filter((app) => launcherOf(app) === launcher),
+    );
+  }
+
+  async function removeSelected() {
+    const list = chosen;
+    if (list.length === 0) return;
+    const what = list.length === 1 ? list[0]?.name || 'this app' : counted(list.length, 'app');
+    const ok = await confirm({
+      title: `Remove ${what}?`,
+      message: `${list.length === 1 ? 'It leaves the library, and no sync adds it back' : 'They leave the library, and no sync adds them back'}. A removed game can be restored under Where your games come from.`,
+      confirm: 'Remove',
+      danger: true,
+    });
+    if (!ok) return;
+    busy = 'remove-selected';
+    try {
+      const { deleted } = await api.apps.removeMany(list.flatMap((app) => (app.uuid ? [app.uuid] : [])));
+      notify(
+        deleted === list.length ? `Removed ${what}.` : `Removed ${deleted} of ${list.length} apps; the others were already gone.`,
+        'ok',
+      );
+      stopSelecting();
+      onremoved?.();
+    } catch (error) {
+      failed('Removing the apps failed', error);
     } finally {
       busy = '';
     }
@@ -178,7 +225,45 @@
         <option value="name">Name</option>
       </select>
     </div>
+    {#if !selecting}
+      <Button size="sm" icon="check" disabled={busy !== '' || !apps.some((app) => app.uuid)} onclick={() => (selecting = true)}>Select</Button>
+    {/if}
   </div>
+  {#if selecting}
+    <div class="selectbar" role="group" aria-label="Selected apps">
+      <span class="picked-count" role="status">{chosen.length} selected</span>
+      <Button size="sm" variant="ghost" onclick={() => (selected = selectApps(selected, shown))}>Select all</Button>
+      <Button size="sm" variant="ghost" disabled={chosen.length === 0} onclick={() => (selected = new Set())}>Select none</Button>
+      {#if launchers.length > 0}
+        <label class="visually-hidden" for="{uid}-launcher">Select every app of a launcher</label>
+        <select
+          id="{uid}-launcher"
+          class="select"
+          value=""
+          onchange={(event) => {
+            selectLauncher(event.currentTarget.value as Launcher);
+            event.currentTarget.value = '';
+          }}
+        >
+          <option value="">Select by launcher</option>
+          {#each launchers as entry (entry.launcher)}
+            <option value={entry.launcher}>{entry.name} ({entry.count})</option>
+          {/each}
+        </select>
+      {/if}
+      <span class="push">
+        <Button
+          size="sm"
+          variant="danger"
+          icon="trash"
+          busy={busy === 'remove-selected'}
+          disabled={chosen.length === 0 || busy !== ''}
+          onclick={removeSelected}
+        >Remove{chosen.length > 0 ? ` ${counted(chosen.length, 'app')}` : ''}</Button>
+        <Button size="sm" disabled={busy === 'remove-selected'} onclick={stopSelecting}>Done</Button>
+      </span>
+    </div>
+  {/if}
   <p class="muted summary" role="status">
     <span>{needle ? `${shown.length} of ${apps.length}` : apps.length} {apps.length === 1 ? 'app' : 'apps'}</span>
     {#if hint}<span class="dot" aria-hidden="true">·</span> <span>{hint}</span>{/if}
@@ -196,7 +281,16 @@
           data-uuid={app.uuid}
           draggable={canReorder && !!app.uuid}
         >
-          {#if app.uuid}
+          {#if selecting && app.uuid}
+            {@const uuid = app.uuid}
+            <label class="open pick" class:picked={selected.has(uuid)}>
+              <span class="art">
+                <AppCover name={app.name} {uuid} path={coverPath(app)} />
+                <input class="tick" type="checkbox" checked={selected.has(uuid)} onchange={() => (selected = toggled(selected, uuid))} />
+              </span>
+              <span class="name">{app.name || 'Unnamed app'}</span>
+            </label>
+          {:else if app.uuid}
             <a class="open" href="/library/{encodeURIComponent(app.uuid)}" use:link draggable="false">
               <div class="art">
                 <AppCover name={app.name} uuid={app.uuid} path={coverPath(app)} />
@@ -218,7 +312,9 @@
             </div>
           {/if}
           <div class="actions">
-            {#if isRunning}
+            {#if selecting}
+              <!-- Select mode only picks apps; Launch and Close come back with Done. -->
+            {:else if isRunning}
               <Button size="sm" icon="stop" busy={busy === 'close'} onclick={close}>
                 Close<span class="visually-hidden"> {app.name}</span>
               </Button>
@@ -283,6 +379,25 @@
     display: grid;
     gap: var(--space-3);
   }
+  .selectbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2);
+  }
+  .selectbar .select {
+    width: auto;
+  }
+  .picked-count {
+    font-size: var(--text-sm);
+    font-weight: var(--weight-medium);
+    margin-right: var(--space-2);
+  }
+  .push {
+    display: flex;
+    gap: var(--space-2);
+    margin-left: auto;
+  }
   .summary {
     display: flex;
     flex-wrap: wrap;
@@ -335,6 +450,29 @@
   }
   a.open:hover .art {
     box-shadow: 0 0 0 1px var(--muted);
+  }
+  .pick {
+    cursor: pointer;
+  }
+  .pick .art {
+    display: block;
+  }
+  .pick:hover .art {
+    box-shadow: 0 0 0 1px var(--muted);
+  }
+  .picked .art,
+  .picked:hover .art {
+    box-shadow: 0 0 0 2px var(--accent);
+  }
+  .tick {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    width: 20px;
+    height: 20px;
+    margin: 0;
+    accent-color: var(--accent);
+    cursor: pointer;
   }
   a.open:hover .name {
     text-decoration: underline;

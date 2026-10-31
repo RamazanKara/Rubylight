@@ -265,6 +265,7 @@ fn token_catalog() -> Vec<auth::Scope> {
         ("/api/library/discovery", &["GET"][..]),
         ("/api/library/import", &["POST"][..]),
         ("/api/library/sync", &["POST"][..]),
+        ("/api/library/restore", &["POST"][..]),
         ("/api/steam/status", &["GET"][..]),
         ("/api/steam/games", &["GET"][..]),
         ("/api/steam/force_sync", &["POST"][..]),

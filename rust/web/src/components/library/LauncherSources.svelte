@@ -44,14 +44,23 @@
   // the same status words and one Sync now, Steam no different from the others.
   import { onMount } from 'svelte';
   import Button from '../Button.svelte';
+  import Dialog from '../Dialog.svelte';
   import Icon from '../Icon.svelte';
   import Panel from '../Panel.svelte';
   import Switch from '../settings/Switch.svelte';
   import { api, type Config, type PlayniteStatus } from '../../lib/api';
   import { failed, notify } from '../../lib/feedback.svelte';
   import { link } from '../../lib/router.svelte';
+  import { counted, removedGames, toggled } from './selection';
 
-  let { onsynced }: { onsynced?: () => void } = $props();
+  let {
+    removed = [],
+    onsynced,
+  }: {
+    /** The removed games' `launcher-dismissed` keys, from the app list. */
+    removed?: string[];
+    onsynced?: () => void;
+  } = $props();
 
   let catalog = $state<LibraryDiscovery | null>(null);
   let config = $state<Config>({});
@@ -104,6 +113,38 @@
       failed('Saving the launcher setting failed', reason);
     } finally {
       saving = null;
+    }
+  }
+
+  // Restore removed games: all ticked to start with, the usual wish after a change of mind.
+  let restoreOpen = $state(false);
+  let restoring = $state(false);
+  let restorePicked = $state.raw<Set<string>>(new Set());
+  const removedList = $derived(removedGames(removed, catalog?.games ?? []));
+  const restoreKeys = $derived(removed.filter((key) => restorePicked.has(key)));
+
+  function openRestore() {
+    restorePicked = new Set(removed);
+    restoreOpen = true;
+  }
+
+  async function restore() {
+    if (restoreKeys.length === 0) return;
+    restoring = true;
+    try {
+      const { restored } = await api.library.restore(restoreKeys);
+      restoreOpen = false;
+      await syncAll(false);
+      notify(
+        automatic
+          ? `Restored ${counted(restored, 'game')}: the installed ones are back in your library.`
+          : `Restored ${counted(restored, 'game')}: pick them again in Add games.`,
+        'ok',
+      );
+    } catch (reason) {
+      failed('Restoring the games failed', reason);
+    } finally {
+      restoring = false;
     }
   }
 
@@ -187,8 +228,44 @@
       {#if playnite?.active}While Playnite runs, it adds the games of every launcher.{/if}
       Pick single games with <a href="/library/import" use:link>Add games</a>; more choices are in <a href="/settings/library" use:link>All settings › Games</a>.
     </p>
+    {#if removed.length > 0}
+      <p class="foot muted removed">
+        <span>{counted(removed.length, 'game')} you removed {removed.length === 1 ? 'stays' : 'stay'} out of your library.</span>
+        <Button size="sm" icon="refresh" disabled={syncing} onclick={openRestore}>Restore removed games</Button>
+      </p>
+    {/if}
   {/if}
 </Panel>
+
+<Dialog
+  bind:open={restoreOpen}
+  title="Restore removed games"
+  description={automatic
+    ? 'The games you pick join your library again if they are still installed.'
+    : 'Automatic sync is off: the games you pick can be added again with Add games.'}
+  dismissible={!restoring}
+>
+  <div class="pick-all">
+    <Button size="sm" variant="ghost" onclick={() => (restorePicked = new Set(removed))}>Select all</Button>
+    <Button size="sm" variant="ghost" disabled={restoreKeys.length === 0} onclick={() => (restorePicked = new Set())}>Select none</Button>
+  </div>
+  <ul class="removed-list" aria-label="Removed games">
+    {#each removedList as game (game.key)}
+      <li>
+        <label class="check">
+          <input type="checkbox" checked={restorePicked.has(game.key)} onchange={() => (restorePicked = toggled(restorePicked, game.key))} />
+          <span>{game.name} <span class="muted">· {game.launcher}</span></span>
+        </label>
+      </li>
+    {/each}
+  </ul>
+  {#snippet actions()}
+    <Button disabled={restoring} onclick={() => (restoreOpen = false)}>Cancel</Button>
+    <Button variant="primary" busy={restoring} disabled={restoreKeys.length === 0} onclick={restore}>
+      Restore {counted(restoreKeys.length, 'game')}
+    </Button>
+  {/snippet}
+</Dialog>
 
 <style>
   .sources {
@@ -281,5 +358,36 @@
     align-items: center;
     gap: var(--space-3);
     flex-wrap: wrap;
+  }
+  .removed {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+    margin-top: var(--space-2);
+  }
+  .pick-all {
+    display: flex;
+    gap: var(--space-2);
+  }
+  .removed-list {
+    display: grid;
+    gap: var(--space-2);
+    max-height: 50vh;
+    overflow-y: auto;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .check {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    font-size: var(--text-sm);
+    cursor: pointer;
+  }
+  .check input {
+    margin: 0;
+    accent-color: var(--ink-2);
   }
 </style>

@@ -73,8 +73,21 @@ pub(super) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyh
             json!({"status":true,"uuid":uuid})
         }
         ("POST", "/api/apps/delete") => {
-            delete_app(h, text("uuid"))?;
-            json!({"status":true})
+            // One app by `uuid`, or the console's selection by `uuids`, in one save.
+            let ids: Vec<&str> = match data.get("uuids") {
+                Some(list) => list
+                    .as_array()
+                    .ok_or_else(|| anyhow::anyhow!("uuids must be an array"))?
+                    .iter()
+                    .map(|id| {
+                        id.as_str()
+                            .ok_or_else(|| anyhow::anyhow!("uuids must be strings"))
+                    })
+                    .collect::<anyhow::Result<_>>()?,
+                None => vec![text("uuid")],
+            };
+            let deleted = delete_apps(h, &ids)?;
+            json!({"status":true,"deleted":deleted})
         }
         ("POST", "/api/apps/reorder") => {
             let order = data["order"]
@@ -133,7 +146,7 @@ pub(super) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyh
             json!({"status":true})
         }
         ("DELETE", p) if p.starts_with("/api/apps/") => {
-            delete_app(h, &p[10..])?;
+            delete_apps(h, &[&p[10..]])?;
             json!({"status":true})
         }
         _ => return Err(anyhow::anyhow!("unknown API endpoint")),
@@ -426,9 +439,18 @@ pub(super) async fn cover(h: &Shared, path: &str) -> Response {
     StatusCode::NOT_FOUND.into_response()
 }
 
-fn delete_app(h: &Shared, id: &str) -> anyhow::Result<()> {
+/// Deletes the apps with these uuids or ids in one save and returns how many went. An id
+/// that matches nothing is skipped (a sync may have dropped its uninstalled game meanwhile);
+/// none matching is an error.
+fn delete_apps(h: &Shared, ids: &[&str]) -> anyhow::Result<usize> {
+    if ids.is_empty() {
+        anyhow::bail!("Select at least one app.");
+    }
     let matches = |a: &App| {
-        a.extra.get("uuid").and_then(Value::as_str) == Some(id) || a.id().to_string() == id
+        let uuid = a.extra.get("uuid").and_then(Value::as_str);
+        let id = a.id().to_string();
+        ids.iter()
+            .any(|wanted| uuid == Some(*wanted) || id == *wanted)
     };
     // Before the apps are locked: the removal runs a helper process.
     let doomed: Vec<App> = h
@@ -460,7 +482,9 @@ fn delete_app(h: &Shared, id: &str) -> anyhow::Result<()> {
     }
     h.assign_apps(&mut next)?;
     let mut doc = h.app_document.read().unwrap().clone();
-    // A deleted game stays deleted: no sync adds it again until an import brings it back.
+    // A deleted game stays deleted: no sync adds it again until an import or a restore
+    // brings it back.
+    let count = deleted.len();
     for app in deleted {
         crate::library::dismiss(&mut doc, &app?);
     }
@@ -470,7 +494,7 @@ fn delete_app(h: &Shared, id: &str) -> anyhow::Result<()> {
     *h.app_document.write().unwrap() = doc;
     h.config_version
         .fetch_add(1, std::sync::atomic::Ordering::Release);
-    Ok(())
+    Ok(count)
 }
 
 pub(super) async fn library(h: &Shared, method: &Method, action: &str, data: &Value) -> Response {
@@ -492,6 +516,23 @@ pub(super) async fn library(h: &Shared, method: &Method, action: &str, data: &Va
                     }
                 };
             tokio::task::spawn_blocking(move || crate::library::import(&h, &selected)).await
+        }
+        ("POST", "restore") => {
+            // `{"all": true}`, or `{"games": ["steam:570", ...]}` from `launcher-dismissed`.
+            let keys: Option<Vec<String>> = if data["all"] == true {
+                None
+            } else {
+                match serde_json::from_value(data["games"].clone()) {
+                    Ok(keys) => Some(keys),
+                    Err(_) => {
+                        return error(
+                            StatusCode::BAD_REQUEST,
+                            "games must list the removed games to restore",
+                        );
+                    }
+                }
+            };
+            tokio::task::spawn_blocking(move || crate::library::restore(&h, keys.as_deref())).await
         }
         _ => return error(StatusCode::BAD_REQUEST, "unknown API endpoint"),
     };
@@ -831,6 +872,57 @@ mod tests {
             f.host.app_document.read().unwrap()["launcher-dismissed"],
             json!(["steam:620"])
         );
+    }
+
+    #[test]
+    fn removing_several_apps_at_once_keeps_every_synced_game_out_in_one_save() {
+        let f = Fixture::new();
+        for app in [
+            json!({"name": "Portal 2", "uuid": "portal", "steam-id": "620"}),
+            json!({"name": "Mirage", "uuid": "mirage", "launcher-source": "ubisoft",
+                "launcher-id": "13504"}),
+            json!({"name": "Kept", "uuid": "kept", "launcher-source": "epic", "launcher-id": "k"}),
+        ] {
+            handle(&f.host, "POST", "/api/apps", &app).unwrap();
+        }
+        // A uuid already gone (a sync dropped its game meanwhile) is skipped, not an error.
+        let removed = handle(
+            &f.host,
+            "POST",
+            "/api/apps/delete",
+            &json!({"uuids": ["portal", "mirage", "gone"]}),
+        )
+        .unwrap();
+        assert_eq!(removed["deleted"], 2);
+        assert!(stored(&f, "portal").is_none() && stored(&f, "mirage").is_none());
+        assert!(stored(&f, "kept").is_some());
+        let saved: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&f.host.apps_path).unwrap()).unwrap();
+        assert_eq!(
+            saved["launcher-dismissed"],
+            json!(["steam:620", "ubisoft:13504"])
+        );
+        let uuids: Vec<&str> = saved["apps"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|app| app["uuid"].as_str())
+            .collect();
+        assert!(uuids.contains(&"kept"));
+        assert!(!uuids.contains(&"portal") && !uuids.contains(&"mirage"));
+        // Nothing to remove, nothing found, or a malformed list is refused and changes nothing.
+        for bad in [
+            json!({"uuids": []}),
+            json!({"uuids": ["gone"]}),
+            json!({"uuids": "kept"}),
+            json!({"uuids": ["kept", 7]}),
+        ] {
+            assert!(
+                handle(&f.host, "POST", "/api/apps/delete", &bad).is_err(),
+                "{bad}"
+            );
+        }
+        assert!(stored(&f, "kept").is_some());
     }
 
     /// Purging synced apps waits on a worker, so the web server answers

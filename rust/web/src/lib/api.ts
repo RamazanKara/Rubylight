@@ -300,6 +300,8 @@ export interface AppsDocument {
   status: true;
   apps: App[];
   env?: Record<string, string>;
+  /** Synced games removed from the library (`source:id`), which no sync adds back. */
+  'launcher-dismissed'?: string[];
 }
 
 export const PERM = {
@@ -982,6 +984,8 @@ export const api = {
     /** Replaces the whole record; start from the object returned by list(). */
     save: (app: App) => post<{ status: true; uuid: string }>('/api/apps', app),
     remove: (uuid: string) => json<Ok>('DELETE', `/api/apps/${encodeURIComponent(uuid)}`),
+    /** Several apps in one save; uuids already gone are skipped. */
+    removeMany: (uuids: string[]) => post<{ status: true; deleted: number }>('/api/apps/delete', { uuids }, ACTION_TIMEOUT_MS),
     reorder: (order: string[]) => post<Ok>('/api/apps/reorder', { order }),
     launch: (uuid: string) => post<Ok>('/api/apps/launch', { uuid }, SLOW_TIMEOUT_MS),
     close: () => post<Ok>('/api/apps/close', {}, SLOW_TIMEOUT_MS),
@@ -999,6 +1003,8 @@ export const api = {
     /** The launcher sync now: every installed game of the launchers that are on. */
     sync: () =>
       post<{ status: true; added: number; removed: number; playnite: boolean }>('/api/library/sync', {}, SLOW_TIMEOUT_MS),
+    /** Removed games (`launcher-dismissed` keys) the syncs may add again; sync next. */
+    restore: (games: string[]) => post<{ status: true; restored: number }>('/api/library/restore', { games }),
   },
   steam: {
     status: () => get<SteamStatus>('/api/steam/status'),

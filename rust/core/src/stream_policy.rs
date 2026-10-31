@@ -859,6 +859,90 @@ impl AdapterStall {
         Some(end)
     }
 }
+/// Test-only Wi-Fi stalls on the host's video socket, from
+/// `BUTTERPOLLO_TEST_SEND_JITTER=every_ms:max_ms[:seed]`: a stall starts
+/// `every` times U(0.5, 1.5) after the one before (the first that far into
+/// the stream) and lasts U(max/4, max), drawn from a generator seeded with
+/// `seed` (1 unless given), so two runs stall alike. While one lasts, video
+/// sends wait: frames queue in order and go out as a burst when it ends, as
+/// from an access point that held them. A wired link, or an access point that
+/// isolates flows, never does that, so this is how a host A/B gives a client
+/// a jittery link.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SendJitter {
+    every: Duration,
+    max: Duration,
+    state: u64,
+    /// The current or next stall, from the stream's start.
+    from: Duration,
+    until: Duration,
+}
+impl SendJitter {
+    pub fn parse(value: &str) -> Option<Self> {
+        let mut fields = value.trim().split(':').map(str::trim);
+        let every = Duration::from_millis(fields.next()?.parse().ok()?);
+        let max = Duration::from_millis(fields.next()?.parse().ok()?);
+        let state = match fields.next() {
+            None => 1,
+            Some(seed) => seed.parse().ok()?,
+        };
+        if fields.next().is_some() || every.is_zero() || max.is_zero() {
+            return None;
+        }
+        let mut jitter = Self {
+            every,
+            max,
+            state,
+            from: Duration::ZERO,
+            until: Duration::ZERO,
+        };
+        jitter.advance();
+        Some(jitter)
+    }
+    pub fn from_env() -> Option<Self> {
+        let jitter = Self::parse(&std::env::var("BUTTERPOLLO_TEST_SEND_JITTER").ok()?);
+        if let Some(jitter) = &jitter {
+            tracing::warn!(
+                every_ms = jitter.every.as_millis(),
+                max_ms = jitter.max.as_millis(),
+                "BUTTERPOLLO_TEST_SEND_JITTER holds video sends on a schedule; unset it outside tests"
+            );
+        }
+        jitter
+    }
+    /// Whether `BUTTERPOLLO_TEST_SEND_JITTER` holds a schedule, without the
+    /// warning: the stream then sends on its own thread, so a stall queues
+    /// frames instead of holding capture.
+    pub fn configured() -> bool {
+        std::env::var("BUTTERPOLLO_TEST_SEND_JITTER")
+            .is_ok_and(|value| Self::parse(&value).is_some())
+    }
+    /// The end of the stall `elapsed` into the stream, or `None` outside one.
+    /// Times must not go backwards.
+    pub fn stalled_until(&mut self, elapsed: Duration) -> Option<Duration> {
+        while elapsed >= self.until {
+            self.advance();
+        }
+        (elapsed >= self.from).then_some(self.until)
+    }
+    fn advance(&mut self) {
+        let every = self.every.as_nanos() as u64;
+        let gap = every / 2 + split_mix(&mut self.state) % (every + 1);
+        let max = self.max.as_nanos() as u64;
+        let length = max / 4 + split_mix(&mut self.state) % (max - max / 4 + 1);
+        // Back to back when a stall outlasts the gap to the next.
+        self.from = (self.from + Duration::from_nanos(gap)).max(self.until);
+        self.until = self.from + Duration::from_nanos(length);
+    }
+}
+/// SplitMix64, the test knobs' seeded generator.
+fn split_mix(state: &mut u64) -> u64 {
+    *state = state.wrapping_add(0x9E37_79B9_7F4A_7C15);
+    let mut z = *state;
+    z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+    z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+    z ^ (z >> 31)
+}
 /// Test-only random loss on the host's video socket, from
 /// `BUTTERPOLLO_TEST_SEND_LOSS=percent:seed[:air]`: each video datagram is
 /// lost with that probability (in percent, fractions allowed), decided by a
@@ -905,13 +989,7 @@ impl SendDrop {
     }
     /// Whether the next datagram is lost.
     pub fn drops(&mut self) -> bool {
-        // SplitMix64.
-        self.state = self.state.wrapping_add(0x9E37_79B9_7F4A_7C15);
-        let mut z = self.state;
-        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
-        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
-        z ^= z >> 31;
-        z % 1_000_000 < self.millionths
+        split_mix(&mut self.state) % 1_000_000 < self.millionths
     }
 }
 /// `prefer_sdr_10bit` streams an HDR request as ten-bit SDR, without the HDR

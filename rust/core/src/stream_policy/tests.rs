@@ -2199,6 +2199,70 @@ fn test_send_outage_follows_its_schedule_and_rejects_bad_values() {
 }
 
 #[test]
+fn send_jitter_stalls_on_a_seeded_schedule() {
+    let stalls = |mut jitter: SendJitter| {
+        // Every 0.1 ms for a minute: (first held instant, end) of each stall.
+        let mut stalls: Vec<(Duration, Duration)> = Vec::new();
+        for step in 0..600_000 {
+            let at = Duration::from_micros(step * 100);
+            if let Some(end) = jitter.stalled_until(at) {
+                assert!(at < end);
+                if stalls.last().is_none_or(|&(_, last)| last != end) {
+                    stalls.push((at, end));
+                }
+            }
+        }
+        stalls
+    };
+    let ms = Duration::from_millis;
+    let schedule = stalls(SendJitter::parse(" 700 : 30 ").unwrap());
+    assert_eq!(
+        schedule,
+        stalls(SendJitter::parse("700:30:1").unwrap()),
+        "seed 1 by default"
+    );
+    assert_ne!(schedule, stalls(SendJitter::parse("700:30:2").unwrap()));
+    assert!(
+        (60..=120).contains(&schedule.len()),
+        "{} stalls",
+        schedule.len()
+    );
+    // Starts 0.5 to 1.5 periods apart, the first one into the stream; each
+    // lasts a quarter of the longest to the longest.
+    let (step, mut last) = (Duration::from_micros(100), Duration::ZERO);
+    for &(from, until) in &schedule {
+        let gap = from - last;
+        assert!(
+            gap + step >= ms(350) && gap <= ms(1050) + step,
+            "gap {gap:?}"
+        );
+        let length = until - from;
+        assert!(
+            length + step > ms(7) + ms(1) / 2 && length <= ms(30),
+            "length {length:?}"
+        );
+        last = from;
+    }
+    // Stalls (7.5 ms or more) that outlast the gap to the next (2 to 6 ms) run into it:
+    // held throughout once the first one starts.
+    let mut tight = SendJitter::parse("4:30:5").unwrap();
+    assert!((150u32..600_000).all(|i| tight.stalled_until(i * step).is_some()));
+    for bad in [
+        "",
+        "700",
+        "0:30",
+        "700:0",
+        "x:30",
+        "700:-1",
+        "700:30:x",
+        "700:30:-1",
+        "700:30:1:2",
+    ] {
+        assert_eq!(SendJitter::parse(bad), None, "{bad}");
+    }
+}
+
+#[test]
 fn an_adapter_stall_starts_at_a_large_frame_and_fills_the_socket_buffer() {
     let outage = SendOutage::parse("3000:20:stall").unwrap();
     let start = Instant::now();

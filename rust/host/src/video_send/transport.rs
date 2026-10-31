@@ -3,7 +3,7 @@ use super::*;
 use butterpollo_core::{
     network_pacing,
     performance::Timing,
-    stream_policy::{AdapterStall, SendDrop, SendLoss, SendLossRecovery, SendOutage},
+    stream_policy::{AdapterStall, SendDrop, SendJitter, SendLoss, SendLossRecovery, SendOutage},
 };
 use butterpollo_windows::{
     net::{Batch, Link, WRITABLE_WAIT, WritableWaits},
@@ -102,6 +102,8 @@ struct Transport<'a> {
     /// `BUTTERPOLLO_TEST_SEND_OUTAGE=..:stall`: a large frame meets a stalled
     /// adapter.
     stall: Option<AdapterStall>,
+    /// `BUTTERPOLLO_TEST_SEND_JITTER`: Wi-Fi stalls that hold the sends.
+    jitter: Option<SendJitter>,
     send_drop: Option<SendDrop>,
     send_loss: SendLossRecovery,
     batch_kb: usize,
@@ -253,6 +255,16 @@ impl Transport<'_> {
                     return Ok(true);
                 }
                 let now = Instant::now();
+                // A test Wi-Fi stall holds this frame, and the frames queue
+                // behind it, until it ends.
+                if let Some(end) = self.jitter.as_mut().and_then(|jitter| {
+                    jitter.stalled_until(now.saturating_duration_since(self.start))
+                }) {
+                    self.timer
+                        .until((self.start + end).min(now + WRITABLE_WAIT));
+                    cur.pacing_wait += now.elapsed();
+                    continue;
+                }
                 if self.pacer.due() > now {
                     self.timer.until_paced(self.pacer.due());
                     cur.pacing_wait += now.elapsed();
@@ -570,6 +582,7 @@ pub(super) fn run_with(
         slow_reported: None,
         outage,
         stall: outage.and_then(|outage| outage.stall()),
+        jitter: SendJitter::from_env(),
         send_drop,
         send_loss,
         batch_kb,

@@ -2737,26 +2737,21 @@ fn an_inherited_row_opens_from_a_controller_and_only_a_new_value_overrides_it() 
     f.l.go(Screen::Apps(id));
     f.l.open_app_settings(id, &f.hosts.list[0], game(7));
     f.settle();
-    let at = |f: &Frames, text: &str| f.placed.iter().find(|(t, ..)| t == text).map(|p| p.1).unwrap_or_else(|| panic!("{text} in {:?}", f.drawn));
-    let mut reached = false;
-    for _ in 0..12 {
-        f.press(Key::ArrowDown);
-        let focused = f.ctx.memory(|m| m.focused()).and_then(|id| f.ctx.read_response(id)).map(|r| r.rect);
-        if focused.is_some_and(|r| r.contains(at(&f, "120 fps").center())) {
-            reached = true;
-            break;
-        }
-    }
-    assert!(reached, "Down reaches the inherited Frame rate menu");
+    assert!(focus_down_to(&mut f, "120 fps"), "Down reaches the inherited Frame rate menu");
     f.press(Key::Enter);
     assert!(shows(&f, "60 fps") && shows(&f, "240 fps"), "A opens it: {:?}", f.drawn);
+    // B closes the menu only; the next B leaves the page.
     let commands = f.press(Key::Escape);
+    assert!(!shows(&f, "240 fps"), "B closes the menu: {:?}", f.drawn);
+    assert!(!commands.iter().any(|c| matches!(c, Command::SaveAppSettings(_))), "and stays on the page");
     assert!(f.l.edit_overrides.is_empty(), "backing out pins nothing: {:?}", f.l.edit_overrides);
-    assert!(commands.iter().any(|c| matches!(c, Command::SaveAppSettings(_))), "B still leaves the page");
+    let commands = f.press(Key::Escape);
+    assert!(commands.iter().any(|c| matches!(c, Command::SaveAppSettings(_))), "B with no menu open leaves the page");
 
     f.l.open_app_settings(id, &f.hosts.list[0], game(7));
     f.settle();
     assert!(f.l.edit_overrides.is_empty());
+    let at = |f: &Frames, text: &str| f.placed.iter().find(|(t, ..)| t == text).map(|p| p.1).unwrap_or_else(|| panic!("{text} in {:?}", f.drawn));
     click_text(&mut f, "120 fps");
     click_text(&mut f, "60 fps");
     assert!(f.l.edit_overrides.has(&["fps"]), "a new value overrides the row");
@@ -2769,6 +2764,84 @@ fn an_inherited_row_opens_from_a_controller_and_only_a_new_value_overrides_it() 
     assert!(f.l.edit_overrides.is_empty(), "{:?}", f.l.edit_overrides);
     assert_eq!(f.l.edit_settings.fps, 120);
     assert!(shows(&f, "120 fps"), "{:?}", f.drawn);
+}
+
+/// Presses Down until focus lands on the widget drawn with `text` (a menu's value or item, a
+/// field's number). False when it never does.
+fn focus_down_to(f: &mut Frames, text: &str) -> bool {
+    for _ in 0..16 {
+        f.press(Key::ArrowDown);
+        let focused = f.ctx.memory(|m| m.focused()).and_then(|id| f.ctx.read_response(id)).map(|r| r.rect);
+        let at = f.placed.iter().find(|(t, ..)| t == text).map(|p| p.1.center());
+        if focused.zip(at).is_some_and(|(r, at)| r.contains(at)) {
+            return true;
+        }
+    }
+    false
+}
+
+/// An inherited game setting opened and chosen with the controller alone, its menu item picked
+/// by A (keyboard Enter) or by a screen reader's action.
+fn pick_inherited_frame_rate(by_reader: bool) {
+    let mut f = Frames::new(record("PC", true, false), Reach::Online);
+    f.size = vec2(1280.0, 4000.0);
+    f.l.settings.fps = 120;
+    let id = f.hosts.list[0].id;
+    f.l.go(Screen::Apps(id));
+    f.l.open_app_settings(id, &f.hosts.list[0], game(7));
+    f.settle();
+    assert!(focus_down_to(&mut f, "120 fps"), "Down reaches the inherited Frame rate menu");
+    f.press(Key::Enter);
+    assert!(focus_down_to(&mut f, "60 fps"), "Down walks into the open menu: {:?}", f.drawn);
+    assert!(f.l.edit_overrides.is_empty(), "walking the menu chooses nothing");
+    if by_reader {
+        let item = f.ctx.memory(|m| m.focused()).unwrap();
+        let click = egui::accesskit::ActionRequest {
+            action: egui::accesskit::Action::Click,
+            target_tree: egui::accesskit::TreeId::ROOT,
+            target_node: item.accesskit_id(),
+            data: None,
+        };
+        f.frame(vec![egui::Event::AccessKitActionRequest(click)]);
+        f.settle();
+    } else {
+        f.press(Key::Enter);
+    }
+    assert!(f.l.edit_overrides.has(&["fps"]), "the chosen item overrides the row");
+    assert_eq!(f.l.edit_overrides.apply(&f.l.inherited_settings).fps, 60);
+    assert!(!shows(&f, "240 fps"), "choosing closes the menu: {:?}", f.drawn);
+    let commands = f.press(Key::Escape);
+    assert!(commands.iter().any(|c| matches!(c, Command::SaveAppSettings(_))), "B leaves and saves");
+}
+
+#[test]
+fn an_inherited_menu_item_chosen_with_a_controller_overrides_the_row() {
+    pick_inherited_frame_rate(false);
+}
+
+#[test]
+fn an_inherited_menu_item_chosen_by_a_screen_reader_overrides_the_row() {
+    pick_inherited_frame_rate(true);
+}
+
+/// Review of issue 55's fix: a number field steps on Left and Right and consumes them, so an
+/// inherited Custom frame rate (a Deck's 40 or 45) stepped with the D-pad was drawn and dropped.
+#[test]
+fn stepping_an_inherited_number_field_with_a_controller_overrides_it() {
+    let mut f = Frames::new(record("PC", true, false), Reach::Online);
+    f.size = vec2(1280.0, 4000.0);
+    f.l.settings.fps = 45;
+    let id = f.hosts.list[0].id;
+    f.l.go(Screen::Apps(id));
+    f.l.open_app_settings(id, &f.hosts.list[0], game(7));
+    f.settle();
+    assert!(focus_down_to(&mut f, "45"), "Down reaches the inherited Custom frame rate field: {:?}", f.drawn);
+    f.press(Key::ArrowRight);
+    assert!(f.l.edit_overrides.has(&["fps"]), "the step overrides the row: {:?}", f.l.edit_overrides);
+    assert_eq!(f.l.edit_overrides.apply(&f.l.inherited_settings).fps, 46);
+    let commands = f.press(Key::Escape);
+    assert!(commands.iter().any(|c| matches!(c, Command::SaveAppSettings(_))), "B leaves and saves");
+    assert_eq!(f.l.edit_overrides.apply(&f.l.inherited_settings).fps, 46, "what the save writes");
 }
 
 /// Issue 55: a frame rate a PC or profile overrides looked like the main settings' from a game,

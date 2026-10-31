@@ -923,10 +923,11 @@ pub(super) fn setting_row(
             // An unchecked row's control is reachable too (a controller's focus skips disabled
             // ones, which left only the box): choosing another value checks it, opening a menu
             // and leaving it changes nothing.
-            let before = settings.clone();
+            // Read before the control: a number field consumes the arrow keys that step it.
+            let (before, chose) = (settings.clone(), chosen(ui));
             let value = control(ui, settings);
             name_for_readers(ui, &value, label, description);
-            if !own && *settings != before && chosen(ui) {
+            if !own && *settings != before && chose {
                 own = true;
             }
             if own {
@@ -939,11 +940,11 @@ pub(super) fn setting_row(
     }))
 }
 
-/// Whether this frame's input could have chosen a value: a click, a drag, a key or typing. A
-/// range row clamping a value it was handed as it is drawn chooses nothing.
+/// Whether this frame's input could have chosen a value: a click, a drag, a key, typing or a
+/// screen reader's action. A range row clamping a value it was handed as it is drawn chooses nothing.
 fn chosen(ui: &Ui) -> bool {
     ui.input(|i| {
         i.pointer.any_released() || i.pointer.any_down()
-            || i.events.iter().any(|e| matches!(e, egui::Event::Key { pressed: true, .. } | egui::Event::Text(_)))
+            || i.events.iter().any(|e| matches!(e, egui::Event::Key { pressed: true, .. } | egui::Event::Text(_) | egui::Event::AccessKitActionRequest(_)))
     })
 }

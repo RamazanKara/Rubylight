@@ -661,7 +661,9 @@ impl Launcher {
         }
         let sources: Vec<Source> = view.hosts.list.iter().map(Source::of).collect();
         self.home_ready = console::has_library(&sources);
-        let escape = ctx.input(|i| i.key_pressed(Key::Escape));
+        // With a menu open, Escape (B) only closes it: the menu closes itself as it is drawn.
+        let menu_open = egui::Popup::is_any_open(&ctx);
+        let escape = ctx.input(|i| i.key_pressed(Key::Escape)) && !menu_open;
         if escape && view.connecting.is_none() && view.waking.is_none() {
             self.back(&mut commands);
         }
@@ -716,6 +718,13 @@ impl Launcher {
         } else if self.restore_key.take().is_some() {
             // The remembered item is gone (or not loaded yet): the first one takes focus.
             ctx.request_repaint();
+        }
+        // A or a screen reader's click in an open menu closes it as a mouse click does (egui only
+        // closes on the pointer), so the next B leaves the page rather than closing a used menu.
+        let activated = ctx.input(|i| i.key_pressed(Key::Enter)
+            || i.events.iter().any(|e| matches!(e, egui::Event::AccessKitActionRequest(r) if r.action == egui::accesskit::Action::Click)));
+        if menu_open && activated && egui::Popup::is_any_open(&ctx) {
+            egui::Popup::close_all(&ctx);
         }
         self.dialogs(&ctx, &view, &mut commands);
         if let Some(c) = &view.connecting {

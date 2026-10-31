@@ -756,16 +756,6 @@ impl HostRecord {
         self.settings.as_ref().map_or_else(|| global.clone(), |own| own.apply(global))
     }
 
-    /// Before layered settings, a PC's own settings were a full copy of the main settings, which
-    /// now loads as an override of every field and pins them all. Keeps only the fields that
-    /// differ from `main`, as Android's `migratePcProfilesToOverrides`. True when it changed.
-    pub fn migrate_legacy_settings(&mut self, main: &Settings) -> bool {
-        let Some(own) = self.settings.as_mut().filter(|own| own.has_all(LEGACY_PC_KEYS)) else { return false };
-        own.keep_differences(main);
-        if own.is_empty() { self.settings = None; }
-        true
-    }
-
     /// True the first time `notice` is shown for this PC, and remembered (Android's `HostNotices.claim`).
     pub fn claim_notice(&mut self, notice: &str) -> bool {
         self.notices.insert(notice.to_owned())
@@ -805,17 +795,6 @@ impl HostRecord {
         }
     }
 }
-
-/// The fields every PC settings copy had before layered settings (2ed653ca2): a PC's overrides
-/// with all of them are such a copy, not boxes ticked one by one.
-const LEGACY_PC_KEYS: &[&str] = &[
-    "width", "height", "fps", "bitrate_kbps", "adaptive_bitrate", "adaptive_quality", "quality_min_short_edge",
-    "quality_min_fps", "codec", "hdr", "experimental_packed_444", "audio", "play_audio_on_host", "window_mode", "vrr",
-    "present_at_host_times", "vsync", "overlay", "mouse_mode", "capture_system_keys", "controllers", "swap_face_buttons",
-    "controller_motion", "controller_audio", "background_controllers", "decoder", "microphone", "cursor_shapes",
-    "network_grace_ms", "auto_reconnect", "virtual_display", "virtual_display_scale", "host_display", "full_range",
-    "upscaling", "upscale_sharpness",
-];
 
 /// The layer a stream setting's value comes from, from the top: the game, the PC, the profile in
 /// use, else the main settings.
@@ -857,14 +836,6 @@ impl Overrides {
     pub fn is_empty(&self) -> bool { self.0.is_empty() }
 
     pub fn has(&self, keys: &[&str]) -> bool { keys.iter().any(|key| self.0.contains_key(*key)) }
-
-    fn has_all(&self, keys: &[&str]) -> bool { keys.iter().all(|key| self.0.contains_key(*key)) }
-
-    /// Drops the fields `base` already has.
-    fn keep_differences(&mut self, base: &Settings) {
-        let values = serde_json::to_value(base).expect("settings serialize");
-        self.0.retain(|key, value| values.get(key) != Some(value));
-    }
 
     pub fn capture(&mut self, settings: &Settings, keys: &[&str]) {
         let values = serde_json::to_value(settings).expect("settings serialize");
@@ -1670,36 +1641,6 @@ mod tests {
         assert!(saved.settings(&global).microphone);
         host.settings = None;
         assert_eq!(host.settings(&global).fps, 144);
-    }
-
-    #[test]
-    fn a_full_pc_copy_from_before_layered_settings_keeps_only_what_differs() {
-        // hosts.json as the version before layered settings wrote it: "own settings for this
-        // PC" copied every main setting, and this PC turned the microphone on.
-        let main = Settings { fps: 120, width: 1920, height: 1080, ..Default::default() };
-        let mut copy = serde_json::to_value(Settings { microphone: !main.microphone, ..main.clone() }).unwrap();
-        copy.as_object_mut().unwrap().retain(|key, _| LEGACY_PC_KEYS.contains(&key.as_str()));
-        let dir = std::env::temp_dir().join(format!("nightjar-legacy-pc-{}", std::process::id()));
-        let store = Store::at(dir.clone()).unwrap();
-        std::fs::write(dir.join("hosts.json"), serde_json::json!([{ "address": "pc.local", "settings": copy }]).to_string()).unwrap();
-        let mut host = store.hosts().remove(0);
-        std::fs::remove_dir_all(dir).unwrap();
-
-        assert!(host.migrate_legacy_settings(&main));
-        assert_eq!(host.settings, Some(serde_json::from_value(serde_json::json!({ "microphone": !main.microphone })).unwrap()));
-        // The main frame rate reaches the PC again; the PC's own choice stays.
-        let later = Settings { fps: 60, ..main.clone() };
-        assert_eq!(host.settings(&later).fps, 60);
-        assert_eq!(host.settings(&later).microphone, !main.microphone);
-        assert!(!host.migrate_legacy_settings(&later), "once");
-
-        // Boxes ticked one by one are left alone, and a copy equal to main goes away.
-        let mut ticked = HostRecord { settings: Some(serde_json::from_str(r#"{"fps":120}"#).unwrap()), ..Default::default() };
-        assert!(!ticked.migrate_legacy_settings(&later));
-        assert_eq!(ticked.settings(&later).fps, 120);
-        let mut same: HostRecord = serde_json::from_value(serde_json::json!({ "address": "pc.local", "settings": copy })).unwrap();
-        assert!(same.migrate_legacy_settings(&Settings { microphone: !main.microphone, ..main.clone() }));
-        assert_eq!(same.settings, None);
     }
 
     #[test]

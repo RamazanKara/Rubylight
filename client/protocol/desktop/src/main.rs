@@ -349,14 +349,7 @@ fn run(launch: Option<cli::Launch>) -> Result<(), String> {
     let settings = store.settings();
     let profiles = store.profiles();
     let mappings = store.controller_mappings();
-    let mut records = store.hosts();
-    if records.iter_mut().fold(false, |changed, record| record.migrate_legacy_settings(&settings) | changed) {
-        eprintln!("nightjar: PC settings copied from before layered settings now keep only their own values");
-        if let Err(e) = store.save_hosts(&records) {
-            eprintln!("nightjar: saving PCs failed: {e}");
-        }
-    }
-    let gpu = settings.needs_gpu() || records.iter()
+    let gpu = settings.needs_gpu() || store.hosts().iter()
         .any(|host| host.settings.as_ref().is_some_and(config::Overrides::needs_gpu) || host.app_settings.values().any(config::Overrides::needs_gpu))
         || profiles.entries.iter().any(|profile| profile.settings.needs_gpu());
 
@@ -428,7 +421,7 @@ fn run(launch: Option<cli::Launch>) -> Result<(), String> {
         launcher.tearing_supported
     );
 
-    let mut hosts = Hosts::new(records, waker.clone());
+    let mut hosts = Hosts::new(store.hosts(), waker.clone());
     let cli = match launch {
         Some(_) if std::env::var_os("NIGHTJAR_AUTOSTREAM").is_some() => {
             return Err("--host and NIGHTJAR_AUTOSTREAM both ask for a stream; give one".into());

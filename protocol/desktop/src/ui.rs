@@ -4,6 +4,7 @@
 mod cards;
 mod dialogs;
 pub mod files;
+mod help;
 mod library;
 mod pages;
 mod settings;
@@ -139,6 +140,8 @@ pub enum Screen {
     ProfileSettings(u64),
     Controllers,
     Shortcuts,
+    /// Getting started, the keyboard and controller shortcuts, sharing and common problems.
+    Help,
 }
 
 impl Screen {
@@ -189,7 +192,8 @@ pub enum Dialog {
 }
 
 /// The header's top-level destinations, left to right.
-pub const DESTINATIONS: [(&str, Screen); 3] = [(en("Home"), Screen::Home), (en("PCs"), Screen::Hosts), (en("Settings"), Screen::Settings)];
+pub const DESTINATIONS: [(&str, Screen); 4] =
+    [(en("Home"), Screen::Home), (en("PCs"), Screen::Hosts), (en("Settings"), Screen::Settings), (en("Help"), Screen::Help)];
 
 /// The connecting card's content.
 pub struct ConnectingView {
@@ -598,7 +602,7 @@ impl Launcher {
                         self.pop(root);
                     }
                 }
-                Screen::Apps(_) | Screen::Game { .. } | Screen::HostDetails(_) | Screen::Files(_) => {
+                Screen::Apps(_) | Screen::Game { .. } | Screen::HostDetails(_) | Screen::Files(_) | Screen::Help => {
                     let root = self.root();
                     self.pop(root);
                 }
@@ -666,6 +670,8 @@ impl Launcher {
         let escape = ctx.input(|i| i.key_pressed(Key::Escape)) && !menu_open;
         if escape && view.connecting.is_none() && view.waking.is_none() {
             self.back(&mut commands);
+        } else if view.connecting.is_none() && view.waking.is_none() {
+            self.help_keys(&ctx, &mut commands);
         }
         if self.screen == Screen::Hosts
             && matches!(self.dialog, Dialog::None)
@@ -711,6 +717,7 @@ impl Launcher {
                 Screen::Profiles => self.profiles_page(ui, &mut commands),
                 Screen::Controllers => self.controllers_page(ui, view.pads, &mut commands),
                 Screen::Shortcuts => self.shortcuts_page(ui, &mut commands),
+                Screen::Help => self.help_page(ui, &view, &mut commands),
             }
         });
         if blocked {
@@ -774,6 +781,9 @@ impl Launcher {
                 Screen::Settings => {
                     ui.label(RichText::new(tr("Settings")).font(semibold(text::SECTION)).color(PAPER));
                 }
+                Screen::Help => {
+                    ui.label(RichText::new(tr("Help")).font(semibold(text::SECTION)).color(PAPER));
+                }
                 Screen::HostSettings(_) | Screen::AppSettings(_) | Screen::ProfileSettings(_) => {
                     if text_button(ui, "‹  Back").clicked() {
                         self.back(commands);
@@ -804,7 +814,7 @@ impl Launcher {
                 .scope_builder(UiBuilder::new().max_rect(rect).layout(Layout::left_to_right(Align::Center)), |ui| {
                     ui.spacing_mut().item_spacing.x = 22.0;
                     match self.screen {
-                        Screen::Home | Screen::Hosts | Screen::Settings => {
+                        Screen::Home | Screen::Hosts | Screen::Settings | Screen::Help => {
                             for (name, screen) in DESTINATIONS {
                                 if screen != Screen::Home || self.home_ready || self.screen == Screen::Home {
                                     self.destination(ui, name, screen, commands);

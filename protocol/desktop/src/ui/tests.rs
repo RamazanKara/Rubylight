@@ -400,11 +400,11 @@ fn removes(commands: &[Command]) -> bool {
 }
 
 #[test]
-fn the_destinations_read_home_pcs_settings() {
+fn the_destinations_read_home_pcs_settings_help() {
     let names: Vec<&str> = DESTINATIONS.iter().map(|(name, _)| *name).collect();
-    assert_eq!(names, ["Home", "PCs", "Settings"]);
+    assert_eq!(names, ["Home", "PCs", "Settings", "Help"]);
     let screens: Vec<Screen> = DESTINATIONS.iter().map(|(_, screen)| *screen).collect();
-    assert_eq!(screens, [Screen::Home, Screen::Hosts, Screen::Settings]);
+    assert_eq!(screens, [Screen::Home, Screen::Hosts, Screen::Settings, Screen::Help]);
 }
 
 #[test]
@@ -1854,18 +1854,18 @@ fn tab_walks_the_header_left_to_right_and_the_actions_sit_at_the_right_edge() {
     // PCs: Home hides while there is no library, Add PC follows Settings.
     let mut f = Frames::new(record("Paired", true, false), Reach::Online);
     let stops = header_stops(&mut f);
-    assert_eq!(stops.len(), 3, "PCs, Settings and Add PC: {stops:?}");
+    assert_eq!(stops.len(), 4, "PCs, Settings, Help and Add PC: {stops:?}");
     assert!(stops.windows(2).all(|w| w[0].right() < w[1].left()), "in reading order: {stops:?}");
-    assert!(1280.0 - stops[2].right() < 80.0, "Add PC is at the right edge: {:?}", stops[2]);
+    assert!(1280.0 - stops[3].right() < 80.0, "Add PC is at the right edge: {:?}", stops[3]);
 
-    // Home shows all three destinations in order.
+    // Home shows all four destinations in order.
     let mut f = Frames::new(record("Paired", true, false), Reach::Online);
     f.l.go(Screen::Home);
     f.settle();
     let stops = header_stops(&mut f);
-    assert_eq!(stops.len(), 3, "Home, PCs and Settings: {stops:?}");
+    assert_eq!(stops.len(), 4, "Home, PCs, Settings and Help: {stops:?}");
     assert!(stops.windows(2).all(|w| w[0].right() < w[1].left()), "in reading order: {stops:?}");
-    assert!(1280.0 - stops[2].right() < 80.0, "Settings is at the right edge");
+    assert!(1280.0 - stops[3].right() < 80.0, "Help is at the right edge");
 }
 
 /// A paired PC whose library holds `count` installed games with distinct titles and ids.

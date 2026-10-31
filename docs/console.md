@@ -89,7 +89,7 @@ You can change a setting when the host marks it configurable, the device has **H
 - The first screen is Home when **Open on Home** is on and a library exists, otherwise PCs. Back from either of the other two returns to the first screen; Back there leaves the app.
 - Switching does not stack screens. A game's page belongs to Home and stays underneath when you open PCs or Settings from it; Back from PCs then returns to Home, not to the game page, and **Home** in the bar closes the game page.
 - Settings opened from a menu or with **Ctrl+,** closes on Back.
-- Help is under **Settings → App → Help**, on **F1**, and in the pairing guide.
+- Help is under **Settings → App → Help**, on **F1**, and in the pairing guide. On Windows and Linux, **Help** is the fourth place in the bar, after Settings, and opens on **F1** or **?** from any page.
 
 ### PC options on Android
 

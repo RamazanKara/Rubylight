@@ -338,6 +338,43 @@ public class LibraryCardsTest {
         assertEquals(250, ShelfAdapter.innerWidth(250, new android.view.ViewGroup.LayoutParams(0, 0)));
     }
 
+    /** On a phone a shelf's PC card and a grid's cover keep their layout margins, and the margins stay inside the slot. */
+    @Test
+    @Config(qualifiers = "w411dp-h891dp-xxhdpi")
+    public void onAPhoneShelfCardsKeepTheirMarginsInsideTheirSlot() {
+        assertCardsKeepTheirMarginsInsideTheirSlot();
+    }
+
+    /**
+     * A TV's PC cards keep the same 8dp margin: the first starts on the 80dp edge the posters start on, with the
+     * posters' 16dp gap between cards (TV screenshot), so the card is 16dp narrower than its slot.
+     */
+    @Test
+    public void onATvThePcCardsStartOnTheEdgeAndKeepThePostersGap() {
+        assertCardsKeepTheirMarginsInsideTheirSlot();
+    }
+
+    private void assertCardsKeepTheirMarginsInsideTheirSlot() {
+        ShelfAdapter.Env env = new ShelfAdapter.Env(context, null, uuid -> null, null);
+        ShelfAdapter adapter = new ShelfAdapter(env);
+        FrameLayout parent = new FrameLayout(context);
+        int margin = context.getResources().getDimensionPixelSize(R.dimen.space_s);
+        int hostSlot = context.getResources().getDimensionPixelSize(R.dimen.shelf_host_width);
+        android.view.ViewGroup.MarginLayoutParams host = (android.view.ViewGroup.MarginLayoutParams)
+                adapter.onCreateViewHolder(parent, ShelfAdapter.HOST).itemView.getLayoutParams();
+        assertEquals(margin, host.getMarginStart());
+        assertEquals(margin, host.getMarginEnd());
+        assertEquals(hostSlot - 2 * margin, host.width);
+
+        env.cardWidthPx = 250;
+        android.view.ViewGroup.LayoutParams cover = adapter.onCreateViewHolder(parent, ShelfAdapter.COVER_GAME)
+                .itemView.getLayoutParams();
+        int sides = cover instanceof android.view.ViewGroup.MarginLayoutParams
+                ? ((android.view.ViewGroup.MarginLayoutParams) cover).leftMargin
+                        + ((android.view.ViewGroup.MarginLayoutParams) cover).rightMargin : 0;
+        assertEquals("a cover's margins and width fill its slot", 250, cover.width + sides);
+    }
+
     @Test
     public void theStoresMarkSitsInTheTopEndCornerAndNotInstalledAtTheFoot() throws Exception {
         tower(Collections.emptyList(), game(1, "Portal", "steam", false, null));

@@ -41,6 +41,8 @@ final class HostFeed {
     private final ServiceConnection connection = new ServiceConnection() {
         @Override
         public void onServiceConnected(ComponentName name, IBinder service) {
+            // No binder (as under Robolectric) leaves nothing to wait for.
+            if (!(service instanceof ComputerManagerService.ComputerManagerBinder)) return;
             ComputerManagerService.ComputerManagerBinder candidate = (ComputerManagerService.ComputerManagerBinder) service;
             // Waiting for the service to be ready can take a while; keep it off the UI thread.
             waiter = new Thread(() -> {

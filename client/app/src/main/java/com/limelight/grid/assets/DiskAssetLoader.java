@@ -162,7 +162,8 @@ public class DiskAssetLoader {
                     }
                 });
                 return scaledBitmap;
-            } catch (IOException e) {
+            } catch (IOException | RuntimeException e) {
+                // A file the decoder rejects shows no cover, like a corrupt one (Robolectric's decoder rejects them all).
                 e.printStackTrace();
                 return null;
             }

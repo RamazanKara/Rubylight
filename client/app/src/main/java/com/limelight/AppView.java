@@ -108,6 +108,8 @@ public class AppView extends NightjarActivity implements AdapterFragmentCallback
     private Thread serviceWaitThread;
     private final ServiceConnection serviceConnection = new ServiceConnection() {
         public void onServiceConnected(ComponentName className, IBinder binder) {
+            // No binder (as under Robolectric) leaves nothing to wait for.
+            if (!(binder instanceof ComputerManagerService.ComputerManagerBinder)) return;
             final ComputerManagerService.ComputerManagerBinder localBinder =
                     ((ComputerManagerService.ComputerManagerBinder)binder);
 

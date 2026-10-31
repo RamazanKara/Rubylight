@@ -6,6 +6,9 @@ import com.limelight.nvstream.http.NvApp;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
+import org.junit.runner.RunWith;
+import org.robolectric.RobolectricTestRunner;
+import org.robolectric.annotation.Config;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
@@ -14,6 +17,8 @@ import java.nio.file.Files;
 
 import static org.junit.Assert.*;
 
+@RunWith(RobolectricTestRunner.class)
+@Config(sdk = 28)
 public class DiskAssetLoaderTest {
     @Rule public TemporaryFolder temporary = new TemporaryFolder();
 
@@ -47,6 +52,15 @@ public class DiskAssetLoaderTest {
         });
         assertArrayEquals(original, Files.readAllBytes(loader.getFile(tuple.computer.uuid, tuple.cacheKey).toPath()));
         assertEquals(1, loader.getFile(tuple.computer.uuid, tuple.cacheKey).getParentFile().list().length);
+    }
+
+    /** A loader thread that threw ended the whole app; a file the decoder rejects just has no cover. */
+    @Test
+    public void aCoverTheDecoderRejectsLoadsAsNoCover() {
+        DiskAssetLoader loader = new DiskAssetLoader(temporary.getRoot(), false);
+        CachedAppAssetLoader.LoaderTuple tuple = tuple();
+        loader.populateCacheWithStream(tuple, new ByteArrayInputStream(new byte[] {1, 2, 3}));
+        assertNull(loader.loadBitmapFromCache(tuple, 1));
     }
 
     @Test

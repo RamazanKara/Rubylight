@@ -68,6 +68,8 @@ public class ShortcutTrampoline extends Activity {
 
     private final ServiceConnection serviceConnection = new ServiceConnection() {
         public void onServiceConnected(ComponentName className, IBinder binder) {
+            // No binder (as under Robolectric) leaves nothing to wait for.
+            if (!(binder instanceof ComputerManagerService.ComputerManagerBinder)) return;
             final ComputerManagerService.ComputerManagerBinder localBinder =
                     ((ComputerManagerService.ComputerManagerBinder)binder);
 

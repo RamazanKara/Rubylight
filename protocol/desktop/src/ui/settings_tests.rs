@@ -135,6 +135,97 @@ fn a_pcs_row_says_whether_it_follows_the_main_settings_or_its_own() {
     assert!(!shows(&f, "App"), "{:?}", f.drawn);
 }
 
+/// A search set from code (or typed) after scrolling a long section shows its heading, not the
+/// section's old scroll position.
+#[test]
+fn a_new_search_shows_its_results_from_the_top() {
+    let mut f = settings_with(Settings::default());
+    f.size = vec2(1280.0, 720.0);
+    f.l.settings_view.section = "Controls";
+    f.settle();
+    f.scroll_to_end();
+    let seen = |f: &Frames, text: &str| f.placed.iter().find(|(t, ..)| t == text).is_some_and(|(_, r, clip)| r.top() >= clip.top());
+    assert!(!seen(&f, "Mouse, keyboard and controllers."), "the section scrolled: {:?}", f.drawn);
+    f.l.settings_view.query = "bitrate".into();
+    f.settle();
+    assert!(seen(&f, "Results for “bitrate”"), "the results start at the top: {:?}", f.placed.iter().find(|(t, ..)| t.starts_with("Results")));
+}
+
+/// While searching, a section without matches shows no count, and its entry still opens it.
+#[test]
+fn a_section_without_matches_shows_no_count_and_opens_from_its_entry() {
+    let mut f = settings_with(Settings::default());
+    f.l.settings_view.query = "bitrate".into();
+    f.settle();
+    let found = f.l.settings_view.found;
+    assert!(found.contains(&0) && found.iter().any(|&n| n > 0), "{found:?}");
+    let rows_left = f.placed.iter().find(|(t, ..)| t == "Results for “bitrate”").expect("the results").1.left();
+    let counts: Vec<&str> = f.placed.iter().filter(|(t, r, _)| r.right() < rows_left && t.parse::<usize>().is_ok()).map(|(t, ..)| t.as_str()).collect();
+    let expected: Vec<String> = found.iter().filter(|&&n| n > 0).map(usize::to_string).collect();
+    assert_eq!(counts, expected, "only the sections with matches show a count");
+    click_text(&mut f, "Display & image");
+    assert!(f.l.settings_view.query.is_empty() && f.l.settings_view.section == "Display & image", "{:?}", f.l.settings_view.query);
+    assert!(shows(&f, "Video size") && !shows(&f, "Automatic bitrate"), "{:?}", f.drawn);
+}
+
+/// A PC's row box: unticked and ticked as a checkbox for readers, named for its row, and a click
+/// keeps the row's value for the PC.
+#[test]
+fn a_pcs_row_box_is_a_named_checkbox_that_toggles() {
+    use egui::accesskit::{Role, Toggled};
+    let mut f = Frames::new(record("PC", true, false), Reach::Online);
+    f.size = vec2(1280.0, 4000.0);
+    f.ctx.enable_accesskit();
+    let id = f.hosts.list[0].id;
+    f.l.open_host_settings(id, &f.hosts.list[0]);
+    f.settle();
+    let frame_rate_box = |f: &Frames| {
+        f.access.as_ref().expect("AccessKit is on").nodes.iter()
+            .find(|(_, n)| n.role() == Role::CheckBox && n.label() == Some("For this PC") && n.description() == Some("Frame rate"))
+            .map(|(_, n)| (n.toggled(), n.bounds().expect("laid out")))
+            .expect("the Frame rate row's box")
+    };
+    let (toggled, bounds) = frame_rate_box(&f);
+    assert_eq!(toggled, Some(Toggled::False));
+    assert!(bounds.y1 - bounds.y0 >= 24.0, "a box easy to hit: {bounds:?}");
+    let at = Pos2::new(((bounds.x0 + bounds.x1) / 2.0) as f32, ((bounds.y0 + bounds.y1) / 2.0) as f32);
+    f.click_at(at, egui::PointerButton::Primary);
+    assert!(f.l.edit_overrides.has(&["fps"]), "the click keeps Frame rate for this PC");
+    assert_eq!(frame_rate_box(&f).0, Some(Toggled::True));
+    f.click_at(at, egui::PointerButton::Primary);
+    assert!(f.l.edit_overrides.is_empty() && frame_rate_box(&f).0 == Some(Toggled::False), "a second click gives it back");
+}
+
+/// A PC's row box sits on the row's last line, beside where the value comes from, under a short
+/// switch as under a menu.
+#[test]
+fn a_pcs_row_box_lines_up_with_where_the_value_comes_from() {
+    let mut f = Frames::new(record("PC", true, false), Reach::Online);
+    f.size = vec2(1280.0, 4000.0);
+    let id = f.hosts.list[0].id;
+    f.l.open_host_settings(id, &f.hosts.list[0]);
+    f.settle();
+    for row in ["Resolution", "Automatic bitrate", "Lower bitrate when the network is busy"] {
+        let top = f.placed.iter().find(|(t, ..)| t == row).expect("the row").1.top();
+        let below = |text: &str| f.placed.iter().filter(|(t, r, _)| t == text && r.top() > top).map(|p| p.1)
+            .min_by(|a, b| a.top().total_cmp(&b.top())).unwrap_or_else(|| panic!("{text} under {row}"));
+        let (state, boxed) = (below("From main settings"), below("For this PC"));
+        assert!((state.center().y - boxed.center().y).abs() < 3.0, "{row}: {state:?} beside {boxed:?}");
+    }
+}
+
+/// The profile notice's line sits beside its button's middle, not at the button's top.
+#[test]
+fn the_profile_notice_lines_up_with_its_button() {
+    let mut f = settings_with(Settings::default());
+    let travel = f.l.profiles.create("Travel", serde_json::from_str(r#"{"bitrate_kbps":20000}"#).unwrap()).unwrap();
+    f.l.profiles.active = Some(travel);
+    f.settle();
+    let at = |text: &str| f.placed.iter().find(|(t, ..)| t.starts_with(text)).unwrap_or_else(|| panic!("{text}: {:?}", f.drawn)).1.center().y;
+    let (line, button) = (at("Streams on this network use the profile Travel."), at("Manage profiles"));
+    assert!((line - button).abs() < 2.0, "the notice at {line}, its button at {button}");
+}
+
 /// SECTION_KEYS lists every setting row in the order drawn, so a PC's count and Reset all miss none.
 #[test]
 fn the_section_key_table_is_what_the_page_draws() {

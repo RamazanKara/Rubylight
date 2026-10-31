@@ -257,7 +257,7 @@
     <string name="analogscroll_none">兩個搖桿都移動滑鼠</string>
     <string name="analogscroll_right">右類比搖桿</string>
     <string name="analogscroll_left">左類比搖桿</string>
-    <string name="latency_header">延遲 (ms)：平均/p95/p99 (%1$d 個影格)</string>
+    <string name="latency_header">延遲 (ms)：平均/中位數/p95 (%1$d 個影格)</string>
     <string name="latency_queue_wait">佇列等待</string>
     <string name="latency_input_output">解碼時間</string>
     <string name="latency_output_render">顯示等待</string>

@@ -257,7 +257,7 @@
     <string name="analogscroll_none">Cả hai cần đều di chuyển chuột</string>
     <string name="analogscroll_right">Cần analog phải</string>
     <string name="analogscroll_left">Cần analog trái</string>
-    <string name="latency_header">Độ trễ tính bằng ms: tb/p95/p99 (%1$d khung hình)</string>
+    <string name="latency_header">Độ trễ tính bằng ms: tb/trung vị/p95 (%1$d khung hình)</string>
     <string name="latency_queue_wait">Chờ hàng đợi</string>
     <string name="latency_input_output">Thời gian giải mã</string>
     <string name="latency_output_render">Chờ hiển thị</string>

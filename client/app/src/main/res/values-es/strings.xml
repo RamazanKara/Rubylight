@@ -257,7 +257,7 @@
     <string name="analogscroll_none">Ambos joysticks mueven el ratón</string>
     <string name="analogscroll_right">Joystick derecho</string>
     <string name="analogscroll_left">Joystick izquierdo</string>
-    <string name="latency_header">Retraso en ms: media/p95/p99 (%1$d fotogramas)</string>
+    <string name="latency_header">Retraso en ms: media/mediana/p95 (%1$d fotogramas)</string>
     <string name="latency_queue_wait">Espera en cola</string>
     <string name="latency_input_output">Tiempo de decodificación</string>
     <string name="latency_output_render">Espera de pantalla</string>

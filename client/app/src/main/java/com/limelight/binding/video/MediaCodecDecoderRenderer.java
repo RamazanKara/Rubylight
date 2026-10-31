@@ -310,7 +310,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     };
     private BufferedWriter latencyCsv;
     private volatile String latencyOverlay = "";
-    private volatile double[][] latencySummary = new double[9][4];
+    private volatile double[][] latencySummary = new double[10][5];
     private volatile String decoderDiagnostics = "";
     // Tuning keys of the configure attempt in progress, and those an earlier attempt asked for that it no longer has.
     private volatile List<String> lowLatencyKeysApplied = new ArrayList<>();
@@ -342,12 +342,13 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             }
             pyroWaveRenderer.pollRenderedFrames(frameLatencyStats);
             pollVulkan();
+            logScanoutLatency(System.nanoTime());
             frameLatencyStats.expire(System.nanoTime());
             flushLatencyCsv();
             // The overlay can be toggled mid-stream; present intervals are recorded only while it shows.
             frameLatencyStats.setPresentJitterEnabled(prefs.enablePerfOverlay);
             if (prefs.enablePerfOverlay) {
-                latencySummary = frameLatencyStats.summarize();
+                latencySummary = frameLatencyStats.summarizeWithMedian();
                 StringBuilder text = new StringBuilder(formatLatencyOverlay(context, latencySummary, shownDecodeTimeMs,
                         (videoFormat & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) != 0));
                 if (latencyCsv == null) {
@@ -372,8 +373,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         if (!vulkanPresentReports) return;
         // How each frame ended up takes the place of MediaCodec's frame rendered callback, which
         // on this path only says a frame was handed to the renderer. Display wait counts to the
-        // time the present was queued, as the codec's render time does on the direct path; the
-        // screen time is only logged. Screen time 0: it was never shown.
+        // time the present was queued, as it counts to the hand-off on the direct path; the screen
+        // time only goes to decoded to on screen. Screen time 0: it was never shown.
         long nowNs = System.nanoTime();
         int n;
         while ((n = vulkan.takePresentReports(vulkanReports)) > 0) {
@@ -389,11 +390,14 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             }
             if (n < vulkanReports.length / 3) break;
         }
-        if (nowNs - lastScanoutLogNs >= 5_000_000_000L) {
-            lastScanoutLogNs = nowNs;
-            String line = frameLatencyStats.takeScanoutLatency();
-            if (line != null) LimeLog.info(line);
-        }
+    }
+
+    // Every 5 s: decoded to on screen, the compositor and panel included, which the overlays leave out.
+    private void logScanoutLatency(long nowNs) {
+        if (nowNs - lastScanoutLogNs < 5_000_000_000L) return;
+        lastScanoutLogNs = nowNs;
+        String line = frameLatencyStats.takeScanoutLatency();
+        if (line != null) LimeLog.info(line);
     }
 
     /** Why the Vulkan renderer gave up, or null while it has not. */
@@ -499,8 +503,9 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                 // Submission time has a different endpoint and denominator. Never combine it
                 // with completed-decode percentiles in the same row.
                 double average = stage == 1 && !pyroWave && decodeAverageMs >= 0 ? decodeAverageMs : summary[stage][1];
+                // Average, median and p95, as the header says.
                 text.append(context.getString(R.string.latency_values, average,
-                        summary[stage][2], summary[stage][3], (int) summary[stage][0]));
+                        summary[stage][4], summary[stage][2], (int) summary[stage][0]));
             }
         }
         // Only a host that sends timing reports has the queue, encode and send split.
@@ -550,7 +555,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                 (videoFormat & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) != 0 ? getPyroWaveLossPercent() : getNetworkFrameLossPercent(),
                 jitterMs, getDecodeTimeMs(), hostP95Ms,
                 timing[2][0] > 0 ? (float) timing[2][2] : -1, rates[0], rates[1], rates[2], getThermalLevel(),
-                hostReports, lateFrames.tick());
+                hostReports, lateFrames.tick(),
+                timing[FrameLatencyStats.SCREEN_STAGE][0] > 0 ? (float) timing[FrameLatencyStats.SCREEN_STAGE][2] : -1);
     }
 
     /**
@@ -1176,6 +1182,19 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     /** Whether releaseOutputFrame() renders the frame; after an upscaler failure it drops it. */
     private boolean rendersOnRelease() {
         return upscaler == null || upscalingPolicy.getReason() == UpscalingPolicy.Reason.NONE;
+    }
+
+    /**
+     * Counts the output at index as released at releaseNs to be shown at displayAtNs (0: as soon as
+     * the compositor can). Straight to the surface, that is Nightjar's hand-off to the display, where
+     * display wait and client latency end; through the upscaler they are not counted.
+     */
+    private void countRenderRelease(int index, long releaseNs, long displayAtNs) {
+        if (upscaler == null) {
+            frameLatencyStats.onOutputHandedOff(index, releaseNs, displayAtNs, reportsRenderTimes());
+        } else {
+            frameLatencyStats.onOutputReleased(index, releaseNs, rendersOnRelease(), reportsRenderTimes());
+        }
     }
 
     private void releaseOutputFrame(int index, long presentationTimeNs) {
@@ -3116,8 +3135,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             if (nextOutputBuffer != null) {
                 long releaseNs = System.nanoTime();
                 try {
-                    frameLatencyStats.onOutputReleased(nextOutputBuffer, releaseNs, rendersOnRelease(),
-                            reportsRenderTimes());
+                    countRenderRelease(nextOutputBuffer, releaseNs, releaseNs);
                     releaseOutputFrame(nextOutputBuffer, System.nanoTime());
 
                     nextFrameTimeNanos = FramePacingPolicy.nextFrameTimeNsMilliHz(
@@ -3313,8 +3331,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                                       int inFlightCount) {
             long nowNs = System.nanoTime();
             frameLatencyStats.onScheduled(heldIndex, planned ? dueNs : 0, holdNs, late, inFlightCount);
-            frameLatencyStats.onOutputReleased(heldIndex, nowNs, rendersOnRelease(),
-                    reportsRenderTimes());
+            countRenderRelease(heldIndex, nowNs, releaseNs);
             releaseOutputFrame(heldIndex, releaseNs);
         }
     }
@@ -3447,27 +3464,29 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             lastPtsUs = releaseScheduled(lastIndex, lastPtsUs, drained > 0);
         }
         else {
-            frameLatencyStats.onOutputReleased(lastIndex, System.nanoTime(), rendersOnRelease(),
-                    reportsRenderTimes());
+            long releaseNs = System.nanoTime();
+            long displayAtNs;
             if (prefs.framePacing == PreferenceConfiguration.FRAME_PACING_MAX_SMOOTHNESS ||
                     prefs.framePacing == PreferenceConfiguration.FRAME_PACING_CAP_FPS) {
                 // Retain the ordinary smooth-mode presentation behavior after
                 // replacing any stale decoded outputs above.
-                releaseOutputFrame(lastIndex, 0);
+                displayAtNs = 0;
             }
             else if (hostFrameTimes) {
                 // Held until the host's frame time plus the jitter delay; the
                 // compositor shows it at that time, or replaces it if a later
                 // frame is due first.
-                releaseOutputFrame(lastIndex, hostFrameClock.presentNs(lastPtsUs, System.nanoTime()));
+                displayAtNs = hostFrameClock.presentNs(lastPtsUs, releaseNs);
             }
             else {
                 // Use a PTS that will cause this frame to be dropped if another comes in within
                 // the same V-sync period. "Now" lets the compositor take it at its very next
                 // latch; a computed vsync target that errs late (a conservative deadline, a
                 // drifting phase estimate) holds frames back a whole refresh.
-                releaseOutputFrame(lastIndex, System.nanoTime());
+                displayAtNs = releaseNs;
             }
+            countRenderRelease(lastIndex, releaseNs, displayAtNs);
+            releaseOutputFrame(lastIndex, displayAtNs);
         }
         // Artemis counts the frame it presents. Its decode time ended when the
         // decoder returned it; release and pacing waits are not decode time.
@@ -4100,7 +4119,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                             frameRates[0], receivedVideoMbps, wireMbps, fps.lossPercent,
                             networkMs, varianceMs, shownHostProcessingMs,
                             PerformanceOverlay.average(timings, FrameLatencyStats.HOST_SENT_STAGE), shownDecodeTimeMs,
-                            frameRates[2] < 0 ? -1 : PerformanceOverlay.average(timings, 2), !mediaCodec),
+                            PerformanceOverlay.average(timings, 2), !mediaCodec),
                     PerformanceOverlay.compactText(context, PerformanceOverlay.renderedFps(frameRates),
                             PerformanceOverlay.healthFps(frameRates), frameRates[0], networkMs,
                             fps.lossPercent, decodeTimeMs));

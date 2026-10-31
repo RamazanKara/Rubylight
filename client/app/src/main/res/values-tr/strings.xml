@@ -257,7 +257,7 @@
     <string name="analogscroll_none">İki çubuk da fareyi hareket ettirir</string>
     <string name="analogscroll_right">Sağ analog çubuk</string>
     <string name="analogscroll_left">Sol analog çubuk</string>
-    <string name="latency_header">Gecikme (ms): ort/p95/p99 (%1$d kare)</string>
+    <string name="latency_header">Gecikme (ms): ort/medyan/p95 (%1$d kare)</string>
     <string name="latency_queue_wait">Kuyruk bekleme</string>
     <string name="latency_input_output">Kod çözme süresi</string>
     <string name="latency_output_render">Görüntüleme bekleme</string>

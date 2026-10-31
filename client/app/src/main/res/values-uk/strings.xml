@@ -257,7 +257,7 @@
     <string name="analogscroll_none">Обидва стіки рухають мишу</string>
     <string name="analogscroll_right">Правий аналоговий стік</string>
     <string name="analogscroll_left">Лівий аналоговий стік</string>
-    <string name="latency_header">Затримка в мс: сер./p95/p99 (кадрів: %1$d)</string>
+    <string name="latency_header">Затримка в мс: сер./медіана/p95 (кадрів: %1$d)</string>
     <string name="latency_queue_wait">Очікування в черзі</string>
     <string name="latency_input_output">Час декодування</string>
     <string name="latency_output_render">Очікування показу</string>

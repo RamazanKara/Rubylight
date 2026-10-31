@@ -34,6 +34,20 @@ public class StreamHealthTest {
         assertTrue(report.canSuggestBitrate());
         assertEquals(25f, report.worstHostP95Ms, 0f);
     }
+    @Test public void presentationIsJudgedDecodedToOnScreenWhileTheReportShowsTheHandOffWait() {
+        StreamHealth health = new StreamHealth();
+        // Display wait ends at the hand-off (2 ms); decoded to on screen takes 50 ms with frames lost on screen.
+        for (int n = 1; n <= 5; n++) health.add(new StreamHealth.Sample(n * 1000, true, 60, 0, 1, 4, 3, 2,
+                60, 60, 40, 0, false, -1, 50));
+        StreamHealth.Report report = health.report(5000);
+        assertTrue(report.findings.contains(StreamHealth.Finding.PRESENTATION));
+        assertEquals(2f, report.worstDisplayP95Ms, 0f);
+        // Without a screen time the hand-off wait is all there is to judge.
+        StreamHealth handOffOnly = new StreamHealth();
+        for (int n = 1; n <= 5; n++) handOffOnly.add(new StreamHealth.Sample(n * 1000, true, 60, 0, 1, 4, 3, 2,
+                60, 60, 40, 0, false, -1, -1));
+        assertFalse(handOffOnly.report(5000).findings.contains(StreamHealth.Finding.PRESENTATION));
+    }
     @Test public void staticVideoUnavailableCountersAndOneSpikeAreNotDiagnoses() {
         StreamHealth health = new StreamHealth();
         health.add(sample(1000, true, 3, 30, 40, 60, 60, 20, 2));

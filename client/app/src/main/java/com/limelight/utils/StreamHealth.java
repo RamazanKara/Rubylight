@@ -40,6 +40,11 @@ public final class StreamHealth {
         public final boolean hostIncludesSend;
         /** Frames of this tick that arrived late against the host's clock (LateFrames), -1 when unknown. */
         public final int lateFrames;
+        /**
+         * Decoded to on screen p95, the compositor and panel included, -1 when unknown. The presentation
+         * finding judges it when known; display wait (displayP95Ms) ends at Nightjar's hand-off.
+         */
+        public final float screenP95Ms;
         public Sample(long atMs, boolean fresh, int fps, float lossPercent, float jitterMs,
                       float decodeMs, float hostP95Ms, float displayP95Ms,
                       float receivedFps, float releasedFps, float shownFps, int thermal,
@@ -51,7 +56,15 @@ public final class StreamHealth {
                       float decodeMs, float hostP95Ms, float displayP95Ms,
                       float receivedFps, float releasedFps, float shownFps, int thermal,
                       boolean hostIncludesSend, int lateFrames) {
+            this(atMs, fresh, fps, lossPercent, jitterMs, decodeMs, hostP95Ms, displayP95Ms, receivedFps,
+                    releasedFps, shownFps, thermal, hostIncludesSend, lateFrames, -1);
+        }
+        public Sample(long atMs, boolean fresh, int fps, float lossPercent, float jitterMs,
+                      float decodeMs, float hostP95Ms, float displayP95Ms,
+                      float receivedFps, float releasedFps, float shownFps, int thermal,
+                      boolean hostIncludesSend, int lateFrames, float screenP95Ms) {
             this.lateFrames = lateFrames;
+            this.screenP95Ms = screenP95Ms;
             this.atMs = atMs;
             this.fresh = fresh;
             this.budgetMs = fps > 0 ? 1000f / fps : Float.NaN;
@@ -162,8 +175,9 @@ public final class StreamHealth {
             if (valid(s.decodeMs) && s.decodeMs >= s.budgetMs) votes[Finding.DECODER.ordinal()]++;
             if (valid(s.hostP95Ms) && s.hostP95Ms >= s.budgetMs * 1.25f) votes[Finding.HOST.ordinal()]++;
             // Compare observed stages, not requested FPS: a static/VRR desktop is not a dropped-frame fault.
-            if (valid(s.shownFps) && valid(s.releasedFps) && valid(s.displayP95Ms) && s.releasedFps >= 10 &&
-                    s.shownFps < s.releasedFps * .85f && s.displayP95Ms > s.budgetMs * 2) {
+            float waitP95Ms = valid(s.screenP95Ms) ? s.screenP95Ms : s.displayP95Ms;
+            if (valid(s.shownFps) && valid(s.releasedFps) && valid(waitP95Ms) && s.releasedFps >= 10 &&
+                    s.shownFps < s.releasedFps * .85f && waitP95Ms > s.budgetMs * 2) {
                 votes[Finding.PRESENTATION.ordinal()]++;
             }
             if (s.thermal >= 2) votes[Finding.HEAT.ordinal()]++;

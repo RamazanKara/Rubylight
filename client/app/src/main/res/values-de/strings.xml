@@ -257,7 +257,7 @@
     <string name="analogscroll_none">Beide Sticks bewegen die Maus</string>
     <string name="analogscroll_right">Rechter Stick</string>
     <string name="analogscroll_left">Linker Stick</string>
-    <string name="latency_header">Latenz in ms: Ø/p95/p99 (%1$d Frames)</string>
+    <string name="latency_header">Latenz in ms: Ø/Median/p95 (%1$d Frames)</string>
     <string name="latency_queue_wait">Wartezeit vor Dekodierung</string>
     <string name="latency_input_output">Dekodierzeit</string>
     <string name="latency_output_render">Wartezeit vor Anzeige</string>

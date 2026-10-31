@@ -257,7 +257,7 @@
     <string name="analogscroll_none">두 스틱 모두 마우스 이동</string>
     <string name="analogscroll_right">오른쪽 아날로그 스틱</string>
     <string name="analogscroll_left">왼쪽 아날로그 스틱</string>
-    <string name="latency_header">지연(ms): 평균/p95/p99(%1$d 프레임)</string>
+    <string name="latency_header">지연(ms): 평균/중앙값/p95(%1$d 프레임)</string>
     <string name="latency_queue_wait">대기열 대기</string>
     <string name="latency_input_output">디코딩 시간</string>
     <string name="latency_output_render">표시 대기</string>

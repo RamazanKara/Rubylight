@@ -25,12 +25,21 @@ class FrameLatencyStats {
     static final int PRESENTED_STAGE = 2;
     // Sample stages: 0 queue wait, 1 decode, 2 display wait, 3 client latency, 4 host processing
     // (the video frame header's value, the one Artemis and Moonlight show), 5 to 7 the host's queue,
-    // encode and send split and 8 its present to last packet sent (only from host timing reports).
-    private static final int STAGES = 9;
+    // encode and send split, 8 its present to last packet sent (only from host timing reports), and
+    // 9 decoded to on screen.
+    // Display wait and client latency end where Nightjar hands the frame to the display: at the time
+    // it asked the compositor to show it (direct path, onOutputHandedOff), or at the queued present
+    // (Vulkan and PyroWave). Android's compositor and the panel come after that; that part only goes
+    // to stage 9, which the stream doctor judges and the overlays do not show, and to the CSV.
+    private static final int STAGES = 10;
     private static final int HOST_STAGE = 4;
     static final int HOST_QUEUE_STAGE = 5;
     static final int HOST_SEND_STAGE = 7;
     static final int HOST_SENT_STAGE = 8;
+    static final int SCREEN_STAGE = 9;
+    // A display time further ahead than this is not a plan the compositor keeps (MediaCodec ignores
+    // timestamps a second or more away), so the hand-off is the release itself.
+    private static final long MAX_DISPLAY_AHEAD_NS = 1_000_000_000L;
     // Reports that arrive before their frame, and frames finished before their report, are matched
     // within these bounds; a report older than that is dropped.
     private static final int MAX_EARLY_REPORTS = 256;
@@ -108,7 +117,7 @@ class FrameLatencyStats {
     // Frame because the render callback can finish a frame before the renderer thread counts it.
     private final PtsTimes artemisOutputNs = new PtsTimes(MAX_ARTEMIS_QUEUED);
     private long artemisDecodeMs;
-    // Decoded to scanout, from the Vulkan renderer's display timing; logged, not shown
+    // Decoded to on screen, from the codec's render callback or the Vulkan renderer's display timing; logged, not shown
     private long scanoutTotalNs;
     private long scanoutMaxNs;
     private int scanoutFrames;
@@ -134,6 +143,8 @@ class FrameLatencyStats {
         long renderNs;
         long callbackReceivedNs;
         long releaseNs;
+        // When Nightjar handed the frame to the display (onOutputHandedOff), 0 on other paths.
+        long handoffNs;
         long hostProcessingNs;
         // The frame's presentationTimeUs, the host's RTP timestamp in microseconds; -1 when unknown.
         long hostRtpUs = -1;
@@ -156,7 +167,7 @@ class FrameLatencyStats {
             number = 0;
             outputIndex = -1;
             ptsUs = receiveNs = enqueueNs = inputNs = outputNs = renderNs = 0;
-            callbackReceivedNs = releaseNs = hostProcessingNs = 0;
+            callbackReceivedNs = releaseNs = handoffNs = hostProcessingNs = 0;
             hostRtpUs = -1;
             hostTiming = null;
             previousOutputNs = previousReleaseNs = 0;
@@ -538,9 +549,33 @@ class FrameLatencyStats {
     }
 
     synchronized void onOutputReleased(int index, long releaseNs, boolean render, boolean hasRenderCallback) {
+        onOutputReleased(index, releaseNs, 0, render, hasRenderCallback, false);
+    }
+
+    /**
+     * A frame released straight to the display surface for rendering: display wait and client latency
+     * end at the hand-off, the time Nightjar asked the compositor to show it (displayAtNs, when that is
+     * later than the release and within a second), else the release. Its render callback, if any,
+     * then only adds decoded to on screen.
+     */
+    synchronized void onOutputHandedOff(int index, long releaseNs, long displayAtNs, boolean hasRenderCallback) {
+        onOutputReleased(index, releaseNs, displayAtNs, true, hasRenderCallback, true);
+    }
+
+    static long handoffNs(long releaseNs, long displayAtNs) {
+        return displayAtNs > releaseNs && displayAtNs - releaseNs < MAX_DISPLAY_AHEAD_NS ? displayAtNs : releaseNs;
+    }
+
+    private void onOutputReleased(int index, long releaseNs, long displayAtNs, boolean render, boolean hasRenderCallback,
+                                  boolean handsOff) {
         Frame frame = removeOutput(index);
         if (frame != null) {
             frame.releaseNs = releaseNs;
+            if (render && handsOff && frame.inputNs > 0 && frame.outputNs >= frame.inputNs && releaseNs >= frame.outputNs) {
+                frame.handoffNs = handoffNs(releaseNs, displayAtNs);
+                addSample(2, frame.outputNs, frame.handoffNs);
+                addSample(3, frame.receiveNs, frame.handoffNs);
+            }
             frame.awaitingRender = render && hasRenderCallback;
             if (render) {
                 renderCallbacksAvailable = hasRenderCallback;
@@ -628,53 +663,61 @@ class FrameLatencyStats {
         onFrameRendered(ptsUs, renderNs, 0);
     }
 
+    /**
+     * The codec's render callback (on screen on the direct path) or PyroWave's display report (its
+     * queued present). Display wait and client latency count to it unless the frame was handed off.
+     */
     synchronized void onFrameRendered(long ptsUs, long renderNs, long callbackReceivedNs) {
-        Frame frame = pending.get(ptsUs);
-        if (frame != null) {
-            frame.renderNs = renderNs;
-            // Delivery is diagnostic only. Render latency and FPS use the platform timestamp.
-            frame.callbackReceivedNs = callbackReceivedNs;
-            boolean valid = frame.inputNs > 0 && frame.outputNs >= frame.inputNs && renderNs >= frame.outputNs;
-            if (valid) {
-                recordFrameTime(2, renderNs);
-                addSample(2, frame.outputNs, renderNs);
-                addSample(3, frame.receiveNs, renderNs);
-                latencyProbe.onFrameRendered(frame.receiveNs, renderNs);
-                presentJitter.record(renderNs);
-            }
-            finish(frame, valid ? "rendered" : "invalid_render_time");
-        }
+        rendered(ptsUs, renderNs, callbackReceivedNs, renderNs);
     }
 
     /**
      * The Vulkan renderer's report of a shown frame: the time its present was queued, which is the
-     * moment "display wait" counts to, as the codec's render time is on the direct path, and the
-     * time it reached the screen (0 or less when the screen could not tell), which only goes to
-     * {@link #takeScanoutLatency()}.
+     * moment display wait counts to, as the hand-off is on the direct path, and the time it reached
+     * the screen (0 or less when the screen could not tell), which only goes to decoded to on screen.
      */
     synchronized void onFrameShown(long ptsUs, long queuedNs, long scanoutNs, long callbackReceivedNs) {
+        rendered(ptsUs, queuedNs > 0 ? queuedNs : scanoutNs, callbackReceivedNs, Math.max(0, scanoutNs));
+    }
+
+    // screenNs: when the frame reached the screen, 0 when unknown.
+    private void rendered(long ptsUs, long renderNs, long callbackReceivedNs, long screenNs) {
         Frame frame = pending.get(ptsUs);
         if (frame == null) {
             return;
         }
-        if (scanoutNs > 0 && frame.outputNs > 0 && scanoutNs >= frame.outputNs) {
-            long ns = scanoutNs - frame.outputNs;
+        frame.renderNs = renderNs;
+        // Delivery is diagnostic only. Render latency and FPS use the platform timestamp.
+        frame.callbackReceivedNs = callbackReceivedNs;
+        boolean valid = frame.inputNs > 0 && frame.outputNs >= frame.inputNs && renderNs >= frame.outputNs;
+        if (valid) {
+            recordFrameTime(2, renderNs);
+            if (frame.handoffNs == 0) {
+                addSample(2, frame.outputNs, renderNs);
+                addSample(3, frame.receiveNs, renderNs);
+            }
+            latencyProbe.onFrameRendered(frame.receiveNs, renderNs);
+            presentJitter.record(renderNs);
+        }
+        if (screenNs > 0 && frame.outputNs > 0 && screenNs >= frame.outputNs) {
+            long ns = screenNs - frame.outputNs;
+            addDuration(SCREEN_STAGE, ns, screenNs);
             scanoutTotalNs += ns;
             scanoutMaxNs = Math.max(scanoutMaxNs, ns);
             scanoutFrames++;
         }
-        onFrameRendered(ptsUs, queuedNs > 0 ? queuedNs : scanoutNs, callbackReceivedNs);
+        finish(frame, valid ? "rendered" : "invalid_render_time");
     }
 
     /**
-     * Decoded to scanout since the last call, as a line for the log, or null without frames. It is
-     * not display wait: it adds the compositor's queueing to what display wait counts.
+     * Decoded to on screen since the last call, as a line for the log, or null without frames. It is
+     * not display wait: it adds the compositor's queueing and the panel to what display wait counts.
      */
     synchronized String takeScanoutLatency() {
         if (scanoutFrames == 0) {
             return null;
         }
-        String line = String.format(Locale.US, "Vulkan scanout latency (decoded to on screen): avg %.1f ms, max %.1f ms, %d frames",
+        String line = String.format(Locale.US, "Scanout latency (decoded to on screen): avg %.1f ms, max %.1f ms, %d frames",
                 scanoutTotalNs / 1e6 / scanoutFrames, scanoutMaxNs / 1e6, scanoutFrames);
         scanoutTotalNs = 0;
         scanoutMaxNs = 0;
@@ -866,16 +909,21 @@ class FrameLatencyStats {
     }
 
     double[][] summarize() {
-        return summarize(0, 0, false);
+        return summarize(0, 0, false, false);
+    }
+
+    /** As summarize(), with each stage's median added as a fifth value: what the debug overlay shows. */
+    double[][] summarizeWithMedian() {
+        return summarize(0, 0, false, true);
     }
 
     // Unlike the overlay's last-N-frame summary, a diagnostic tick must not revive a stage
     // value from minutes ago simply because new frames arrived at a different stage.
     double[][] summarizeRecent(long nowNs, long windowNs) {
-        return summarize(nowNs, Math.max(0, windowNs), true);
+        return summarize(nowNs, Math.max(0, windowNs), true, false);
     }
 
-    private double[][] summarize(long nowNs, long windowNs, boolean recentOnly) {
+    private double[][] summarize(long nowNs, long windowNs, boolean recentOnly, boolean median) {
         long[][] snapshot = new long[samples.length][];
         synchronized (this) {
             for (int stage = 0; stage < snapshot.length; stage++) {
@@ -890,7 +938,8 @@ class FrameLatencyStats {
                 snapshot[stage] = count == values.length ? values : Arrays.copyOf(values, count);
             }
         }
-        double[][] summary = new double[samples.length][4];
+        // Per stage: samples, average, p95, p99 and, when asked for, median, in milliseconds.
+        double[][] summary = new double[samples.length][median ? 5 : 4];
         for (int stage = 0; stage < snapshot.length; stage++) {
             long[] values = snapshot[stage];
             summary[stage][0] = values.length;
@@ -905,6 +954,7 @@ class FrameLatencyStats {
             summary[stage][1] = sum / values.length / 1000000;
             summary[stage][2] = values[(int) Math.ceil(values.length * 0.95) - 1] / 1000000.0;
             summary[stage][3] = values[(int) Math.ceil(values.length * 0.99) - 1] / 1000000.0;
+            if (median) summary[stage][4] = values[(int) Math.ceil(values.length * 0.5) - 1] / 1000000.0;
         }
         return summary;
     }

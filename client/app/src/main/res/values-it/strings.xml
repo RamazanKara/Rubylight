@@ -257,7 +257,7 @@
     <string name="analogscroll_none">Entrambe le levette muovono il mouse</string>
     <string name="analogscroll_right">Levetta analogica destra</string>
     <string name="analogscroll_left">Levetta analogica sinistra</string>
-    <string name="latency_header">Ritardo in ms: media/p95/p99 (%1$d frame)</string>
+    <string name="latency_header">Ritardo in ms: media/mediana/p95 (%1$d frame)</string>
     <string name="latency_queue_wait">Attesa in coda</string>
     <string name="latency_input_output">Tempo di decodifica</string>
     <string name="latency_output_render">Attesa display</string>

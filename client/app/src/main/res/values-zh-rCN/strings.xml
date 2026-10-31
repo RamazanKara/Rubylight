@@ -257,7 +257,7 @@
     <string name="analogscroll_none">两个摇杆都移动鼠标</string>
     <string name="analogscroll_right">右摇杆</string>
     <string name="analogscroll_left">左摇杆</string>
-    <string name="latency_header">延迟（ms）：平均/p95/p99（%1$d 帧）</string>
+    <string name="latency_header">延迟（ms）：平均/中位数/p95（%1$d 帧）</string>
     <string name="latency_queue_wait">队列等待</string>
     <string name="latency_input_output">解码时间</string>
     <string name="latency_output_render">显示等待</string>

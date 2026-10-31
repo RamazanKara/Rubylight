@@ -257,7 +257,7 @@
     <string name="analogscroll_none">Obie gałki poruszają myszą</string>
     <string name="analogscroll_right">Prawa gałka analogowa</string>
     <string name="analogscroll_left">Lewa gałka analogowa</string>
-    <string name="latency_header">Opóźnienie w ms: śr./p95/p99 (klatki: %1$d)</string>
+    <string name="latency_header">Opóźnienie w ms: śr./mediana/p95 (klatki: %1$d)</string>
     <string name="latency_queue_wait">Oczekiwanie w kolejce</string>
     <string name="latency_input_output">Czas dekodowania</string>
     <string name="latency_output_render">Oczekiwanie na wyświetlenie</string>

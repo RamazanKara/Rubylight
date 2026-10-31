@@ -257,7 +257,7 @@
     <string name="analogscroll_none">Les deux sticks déplacent la souris</string>
     <string name="analogscroll_right">Stick analogique droit</string>
     <string name="analogscroll_left">Stick analogique gauche</string>
-    <string name="latency_header">Délai en ms : moy./p95/p99 (%1$d images)</string>
+    <string name="latency_header">Délai en ms : moy./méd./p95 (%1$d images)</string>
     <string name="latency_queue_wait">Attente en file</string>
     <string name="latency_input_output">Temps de décodage</string>
     <string name="latency_output_render">Attente d’affichage</string>

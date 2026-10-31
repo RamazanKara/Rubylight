@@ -257,7 +257,7 @@
     <string name="analogscroll_none">Оба стика двигают мышь</string>
     <string name="analogscroll_right">Правый аналоговый стик</string>
     <string name="analogscroll_left">Левый аналоговый стик</string>
-    <string name="latency_header">Задержка, мс: сред./p95/p99 (кадров: %1$d)</string>
+    <string name="latency_header">Задержка, мс: сред./медиана/p95 (кадров: %1$d)</string>
     <string name="latency_queue_wait">Ожидание в очереди</string>
     <string name="latency_input_output">Время декодирования</string>
     <string name="latency_output_render">Ожидание вывода</string>

@@ -37,6 +37,76 @@ public class FrameLatencyStatsTest {
         if (displayNs >= 0) stats.onFrameRendered(number, outputNs + displayNs);
     }
 
+    // A frame received at 1 ms, queued at 2 and decoded at 5 ms.
+    private static void decodedAndReleased(FrameLatencyStats stats, long ptsUs) {
+        stats.onFrameReceived(1_000_000);
+        stats.onDecoderInput((int) ptsUs, ptsUs, 1_000_000, 1_000_000, 2_000_000, (char) 0);
+        stats.onDecoderQueued(ptsUs, 2_000_000);
+        stats.onDecoderOutput(0, ptsUs, 5_000_000);
+    }
+
+    @Test public void displayWaitAndClientLatencyEndAtTheHandOffAndTheScreenTimeGoesToItsOwnStage() {
+        FrameLatencyStats stats = new FrameLatencyStats();
+        decodedAndReleased(stats, 1);
+        stats.onOutputHandedOff(0, 6_000_000, 6_000_000, true);
+        // The compositor and the panel take 20 ms more: not display wait, not client latency.
+        stats.onFrameRendered(1, 26_000_000);
+        double[][] summary = stats.summarize();
+        assertArrayEquals(new double[] {1, 1, 1, 1}, summary[2], 0);
+        assertArrayEquals(new double[] {1, 5, 5, 5}, summary[3], 0);
+        assertArrayEquals(new double[] {1, 21, 21, 21}, summary[FrameLatencyStats.SCREEN_STAGE], 0);
+        // The render callback still counts the frame as shown.
+        assertTrue(stats.getFrameRates(26_000_001)[FrameLatencyStats.PRESENTED_STAGE] > 0);
+        assertNotNull(stats.takeScanoutLatency());
+    }
+
+    @Test public void aHandOffCountsTheTimeNightjarAskedTheFrameToBeShownWithinASecond() {
+        assertEquals(10, FrameLatencyStats.handoffNs(10, 0));
+        assertEquals(10, FrameLatencyStats.handoffNs(10, 5));
+        assertEquals(8_000_010, FrameLatencyStats.handoffNs(10, 8_000_010));
+        assertEquals(10, FrameLatencyStats.handoffNs(10, 1_000_000_010L));
+
+        FrameLatencyStats stats = new FrameLatencyStats();
+        decodedAndReleased(stats, 1);
+        // Held for the PC's frame time: shown 8 ms after the release.
+        stats.onOutputHandedOff(0, 6_000_000, 14_000_000, true);
+        assertArrayEquals(new double[] {1, 9, 9, 9}, stats.summarize()[2], 0);
+    }
+
+    @Test public void framesWithoutRenderCallbacksStillHaveADisplayWaitAtTheHandOff() {
+        FrameLatencyStats stats = new FrameLatencyStats();
+        decodedAndReleased(stats, 1);
+        stats.onOutputHandedOff(0, 7_000_000, 0, false);
+        double[][] summary = stats.summarize();
+        assertArrayEquals(new double[] {1, 2, 2, 2}, summary[2], 0);
+        assertEquals(0, summary[FrameLatencyStats.SCREEN_STAGE][0], 0);
+    }
+
+    @Test public void vulkanCountsDisplayWaitToItsQueuedPresentAndTheScanoutToTheScreenStage() {
+        FrameLatencyStats stats = new FrameLatencyStats();
+        decodedAndReleased(stats, 1);
+        stats.onOutputReleased(0, 5_000_000, true, true);
+        stats.onFrameShown(1, 7_000_000, 30_000_000, 30_100_000);
+        double[][] summary = stats.summarize();
+        assertArrayEquals(new double[] {1, 2, 2, 2}, summary[2], 0);
+        assertArrayEquals(new double[] {1, 25, 25, 25}, summary[FrameLatencyStats.SCREEN_STAGE], 0);
+    }
+
+    @Test public void theOverlaySummaryAddsTheMedian() {
+        FrameLatencyStats stats = new FrameLatencyStats();
+        long[] waits = {1, 2, 3, 4, 20};
+        for (int i = 0; i < waits.length; i++) {
+            decodedAndReleased(stats, i + 1);
+            stats.onOutputHandedOff(0, 5_000_000 + waits[i] * 1_000_000, 0, false);
+        }
+        double[] display = stats.summarizeWithMedian()[2];
+        assertEquals(5, display.length);
+        assertEquals(6, display[1], 0.00001);
+        assertEquals(3, display[4], 0.00001);
+        assertEquals(20, display[2], 0.00001);
+        assertEquals(4, stats.summarize()[2].length);
+    }
+
     @Test public void decodeTailCountsRecurringSpikesEvenWhenTheMeanIsLowAndFramesAreDropped() {
         FrameLatencyStats stats = new FrameLatencyStats();
         for (int i = 1; i <= 60; i++) {
@@ -355,7 +425,7 @@ public class FrameLatencyStatsTest {
         double[][] summary = stats.summarize();
         assertArrayEquals(new double[] {1, 0.75, 0.75, 0.75}, summary[2], 0);
         String line = stats.takeScanoutLatency();
-        assertTrue(line, line.contains("scanout latency") && line.contains("avg 20.5 ms") && line.contains("1 frames"));
+        assertTrue(line, line.contains("Scanout latency (decoded to on screen)") && line.contains("avg 20.5 ms") && line.contains("1 frames"));
         assertNull(stats.takeScanoutLatency());
     }
 

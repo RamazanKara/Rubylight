@@ -257,7 +257,7 @@
     <string name="analogscroll_none">Os dois analógicos movem o mouse</string>
     <string name="analogscroll_right">Analógico direito</string>
     <string name="analogscroll_left">Analógico esquerdo</string>
-    <string name="latency_header">Atraso em ms: média/p95/p99 (%1$d quadros)</string>
+    <string name="latency_header">Atraso em ms: média/mediana/p95 (%1$d quadros)</string>
     <string name="latency_queue_wait">Espera na fila</string>
     <string name="latency_input_output">Tempo de decodificação</string>
     <string name="latency_output_render">Espera de exibição</string>

@@ -257,7 +257,7 @@
     <string name="analogscroll_none">両方のスティックでマウスを操作</string>
     <string name="analogscroll_right">右アナログスティック</string>
     <string name="analogscroll_left">左アナログスティック</string>
-    <string name="latency_header">遅延（ms）: 平均/p95/p99（%1$d フレーム）</string>
+    <string name="latency_header">遅延（ms）: 平均/中央値/p95（%1$d フレーム）</string>
     <string name="latency_queue_wait">キュー待ち</string>
     <string name="latency_input_output">デコード時間</string>
     <string name="latency_output_render">表示待ち</string>

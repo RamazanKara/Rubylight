@@ -59,19 +59,20 @@ public class PerformanceOverlayTest {
                 120, 120, 900, 0, 4, 1, 1.5f, -1, 0.76f, 9.4f, true).toString();
         assertTrue(statistics.contains("CPU submission: 0.76 ms · Display wait: 9.40 ms"));
 
-        double[][] completed = new double[5][4];
-        completed[1] = new double[] {600, 6.77, 8.83, 10.65};
+        double[][] completed = new double[5][5];
+        completed[1] = new double[] {600, 6.77, 8.83, 10.65, 6.5};
         String debug = MediaCodecDecoderRenderer.formatLatencyOverlay(context, completed, 0.76f, true);
-        assertTrue(debug.contains("Completed decode: 6.77 / 8.83 / 10.65 (n=600)"));
-        assertFalse(debug.contains("0.76 / 8.83"));
+        assertTrue(debug.contains("Completed decode: 6.77 / 6.50 / 8.83 (n=600)"));
+        assertFalse(debug.contains("0.76 / "));
     }
 
     @Test
     public void conventionalTimingRowKeepsItsExistingAverage() {
-        double[][] completed = new double[5][4];
-        completed[1] = new double[] {600, 4.6, 7, 8};
+        double[][] completed = new double[5][5];
+        completed[1] = new double[] {600, 4.6, 7, 8, 4.2};
         String debug = MediaCodecDecoderRenderer.formatLatencyOverlay(context(Locale.US), completed, 3.5f);
-        assertTrue(debug.contains("Decode time: 3.50 / 7.00 / 8.00 (n=600)"));
+        assertTrue(debug, debug.startsWith("Delay in ms: avg/median/p95 (600 frames)"));
+        assertTrue(debug.contains("Decode time: 3.50 / 4.20 / 7.00 (n=600)"));
         assertFalse(debug.contains("Completed decode"));
     }
 
@@ -222,15 +223,15 @@ public class PerformanceOverlayTest {
 
     @Test
     public void theDebugRowsKeepHostProcessingAndPutThePresentToSentUnderItsOwnLabel() {
-        double[][] summary = new double[9][4];
-        summary[4] = new double[] {600, 0.5, 1, 1.5};
+        double[][] summary = new double[10][5];
+        summary[4] = new double[] {600, 0.5, 1, 1.5, 0.4};
         String header = MediaCodecDecoderRenderer.formatLatencyOverlay(context(Locale.US), summary, -1);
-        assertTrue(header, header.contains("Host processing: 0.50 / 1.00 / 1.50 (n=600)"));
+        assertTrue(header, header.contains("Host processing: 0.50 / 0.40 / 1.00 (n=600)"));
         assertFalse(header, header.contains("+ send"));
-        summary[FrameLatencyStats.HOST_SENT_STAGE] = new double[] {600, 5, 6, 7};
+        summary[FrameLatencyStats.HOST_SENT_STAGE] = new double[] {600, 5, 6, 7, 4.5};
         String reports = MediaCodecDecoderRenderer.formatLatencyOverlay(context(Locale.US), summary, -1);
-        assertTrue(reports, reports.contains("Host processing: 0.50 / 1.00 / 1.50 (n=600)"));
-        assertTrue(reports, reports.contains("Host to network: 5.00 / 6.00 / 7.00 (n=600)"));
+        assertTrue(reports, reports.contains("Host processing: 0.50 / 0.40 / 1.00 (n=600)"));
+        assertTrue(reports, reports.contains("Host to network: 5.00 / 4.50 / 6.00 (n=600)"));
     }
 
     @Test

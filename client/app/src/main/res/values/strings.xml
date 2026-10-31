@@ -299,7 +299,7 @@
     <string name="analogscroll_none">Both sticks move the mouse</string>
     <string name="analogscroll_right">Right analog stick</string>
     <string name="analogscroll_left">Left analog stick</string>
-    <string name="latency_header">Delay in ms: avg/p95/p99 (%1$d frames)</string>
+    <string name="latency_header">Delay in ms: avg/median/p95 (%1$d frames)</string>
     <string name="latency_queue_wait">Queue wait</string>
     <string name="latency_input_output">Decode time</string>
     <string name="latency_output_render">Display wait</string>

@@ -215,6 +215,11 @@ pub struct PhaseLock {
     pending_ns: i64,
     /// Phase error of the previous report.
     error_ns: i64,
+    /// How far frames move when the host takes a later picture of the source, when it cannot
+    /// take an earlier one; 0 when frames move by any amount ([`Self::set_source`]).
+    step_ns: i64,
+    /// The previous report moved the frames a picture later.
+    moving: bool,
     locked: bool,
 }
 
@@ -236,7 +241,17 @@ impl PhaseLock {
     const TRIM_DEN: i64 = 16;
 
     pub fn new(margin_ns: i64) -> Self {
-        Self { margin_ns, period_ns: 0, trim_ns: 0, pending_ns: 0, error_ns: 0, locked: false }
+        Self { margin_ns, period_ns: 0, trim_ns: 0, pending_ns: 0, error_ns: 0, step_ns: 0, moving: false, locked: false }
+    }
+
+    /// The source's interval between pictures when the host takes each frame as the source
+    /// presents it, at least 3/4 of a stream interval (`interval_ns`) after the last (the
+    /// host's arrival pacer); 0 when it captures frames on its own schedule. Call once per frame.
+    pub fn set_source(&mut self, picture_ns: i64, interval_ns: i64) {
+        // The picture before the one the host takes came a picture interval earlier, so the
+        // pacer allows it only within a quarter interval (with room for a measured interval that
+        // reads high): a 120 fps game streamed at 60 fps moves a whole picture later, or not at all.
+        self.step_ns = if picture_ns.saturating_mul(32) > interval_ns.saturating_mul(9) { picture_ns } else { 0 };
     }
 
     /// True once a plausible report has arrived.
@@ -270,6 +285,31 @@ impl PhaseLock {
         // only partially.
         self.pending_ns = error * Self::GAIN_NUM / Self::GAIN_DEN;
         let previous = core::mem::replace(&mut self.error_ns, error);
+        if self.step_ns > 0 {
+            // Frames move only later, a picture at a time. Chased from below, the margin asked
+            // for earlier frames that never came: the trim ran to its limit while the frames
+            // stayed up to a picture late, most of them missing their latch. So frames stay
+            // anywhere from just under the margin to a picture past it, counted round the
+            // refresh (more than half a refresh early reads as late), and anywhere else move
+            // later until they are there. The room at both ends keeps two places a picture
+            // apart from taking turns. With whole refreshes per picture there is nothing to
+            // move. No trim either way: the source sets the rate.
+            let step = self.step_ns % period;
+            let room = self.margin_ns / 2;
+            let held = (i64::from(report.lead_ns) - target + room).rem_euclid(period) < step + 2 * room;
+            let moving = core::mem::replace(&mut self.moving, false);
+            self.trim_ns = 0;
+            self.pending_ns = 0;
+            if step < period / 16 || step > period - period / 16 || held {
+                // Where they should be.
+            } else if moving && i64::from(report.spread_ns) > period / 4 {
+                // A window across the move: wait for one that shows where the frames went.
+            } else {
+                self.moving = true;
+                self.pending_ns = period / 2 * Self::GAIN_NUM / Self::GAIN_DEN;
+            }
+            return;
+        }
         if !restart && (error - previous).abs() > period / 2 {
             // The frames went around the refresh since the last report: the lock lost them.
             // Lost, the errors average about the target below zero, so a long host stall ran

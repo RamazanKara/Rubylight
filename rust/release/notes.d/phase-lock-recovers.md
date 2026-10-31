@@ -1,3 +1,5 @@
 # Phase lock recovers
 - **Streams no longer stay a few milliseconds behind after the PC was busy.** When the PC was busy for a while (a build, a game loading), the phase lock that times frames to arrive just before the client's screen refreshes could lose that refresh and never find it again: until the stream restarted, frames arrived anywhere in the refresh, about 7 ms later on average and with some judder, and the PC sent slightly more frames than the screen shows. The host now notices when it has lost the refresh and finds it again within a few seconds.
   Tested: TBD
+- **Games running faster than the stream reach the screen in time.** A game at 120 fps streamed at 60 fps gives the host a new picture only every 8.3 ms, so the phase lock could never move frames earlier, only a whole picture later. It ended up with most frames just missing the screen's refresh in every such session, each waiting a whole extra refresh (about 14 ms) with some judder. The host now keeps those frames just before the refresh, at most a picture early.
+  Tested: TBD

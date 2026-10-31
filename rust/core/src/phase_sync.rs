@@ -38,6 +38,14 @@ impl PhaseSync {
         self.lock.locked()
     }
 
+    /// The source's interval between pictures while the host claims frames as the source
+    /// presents them (arrival pacing), `None` while it captures on its own schedule
+    /// ([`PhaseLock::set_source`]). Call once per frame, before [`Self::interval`].
+    pub fn set_source(&mut self, picture: Option<Duration>, nominal: Duration) {
+        let ns = |duration: Duration| i64::try_from(duration.as_nanos()).unwrap_or(i64::MAX);
+        self.lock.set_source(picture.map_or(0, ns), ns(nominal));
+    }
+
     /// Interval from the frame captured now to the next one while locked: a whole number
     /// of client refreshes with the phase correction. `None` without a lock, so a client
     /// that never reports (stock Moonlight, older Rubylight) keeps the host's pacing
@@ -185,6 +193,23 @@ mod tests {
                     assert!(interval.as_nanos() as u64 <= stream * 2);
                 }
             }
+        }
+    }
+
+    #[test]
+    fn a_game_at_twice_the_stream_rate_never_asks_for_earlier_frames() {
+        // The host takes every second picture of a 120 fps game at 60 fps and cannot take
+        // the one before, so frames below the margin go a picture later instead of asking
+        // for shorter intervals that never bring them earlier.
+        let now = Instant::now();
+        let nominal = Duration::from_nanos(16_666_667);
+        let game = Some(Duration::from_nanos(8_333_333));
+        for (picture, longer) in [(None, false), (game, true)] {
+            let mut sync = PhaseSync::default();
+            sync.set_source(picture, nominal);
+            sync.on_payload(now, &report(16_666_667, 0));
+            let interval = sync.interval(now, nominal).unwrap();
+            assert_eq!(interval > nominal, longer, "{picture:?}: {interval:?}");
         }
     }
 

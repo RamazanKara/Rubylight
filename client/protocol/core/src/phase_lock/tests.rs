@@ -259,6 +259,8 @@ fn the_extra_room_needs_a_frame_for_nearly_every_refresh() {
 }
 
 const SIXTY: i64 = 16_666_667; // 60.00 Hz on the client.
+const DESKTOP: i64 = 4_166_667; // A new picture every refresh of a 240 Hz desktop.
+const GAME: i64 = 8_333_333; // A game at 120 fps.
 
 /// A frame the host sent in a [`retroid`] run: when it claimed the frame and the frame's
 /// slack at the client, both in client nanoseconds.
@@ -268,14 +270,14 @@ struct Sent {
 }
 
 /// A 60 fps stream to a 60.000 Hz screen (Retroid Pocket Flip 2) from a host whose clock runs
-/// `ppm` fast, for `seconds`. The host claims frames like its arrival pacer: the first frame of
-/// its 240 Hz desktop once 7/8 of a frame of credit has built up at the locked interval, at
-/// least 3/4 of an interval after the last claim, with at most 1.5 frames banked. In the
-/// seconds of `busy` each claim comes a further 5 to 15 ms late, like a host busy with a build.
+/// `ppm` fast, for `seconds`. The host claims frames like its arrival pacer: the first new
+/// frame of the content, which has one every `content_ns`, once 7/8 of a frame of credit has
+/// built up at the locked interval, at least 3/4 of an interval after the last claim, with at
+/// most 1.5 frames banked. In the seconds of `busy` each claim comes a further 5 to 15 ms late,
+/// like a host busy with a build.
 /// Frames are ready 20 ms plus up to 3 ms after the claim; the client reports every half
 /// second with its elapsed time, and a report reaches the host 3 frames later.
-fn retroid(lock: &mut PhaseLock, ppm: i64, busy: core::ops::Range<i64>, seconds: i64, seed: u64) -> Vec<Sent> {
-    const DESKTOP: i64 = 4_166_667;
+fn retroid(lock: &mut PhaseLock, ppm: i64, content_ns: i64, busy: core::ops::Range<i64>, seconds: i64, seed: u64) -> Vec<Sent> {
     let mut rng = Rng(seed);
     let mut window = SlackWindow::default();
     let mut in_flight: Vec<(usize, Report)> = Vec::new();
@@ -283,10 +285,12 @@ fn retroid(lock: &mut PhaseLock, ppm: i64, busy: core::ops::Range<i64>, seconds:
     let mut last_report: Option<i64> = None;
     let mut sent = Vec::new();
     loop {
+        // What the host's PhaseSync passes on for arrival pacing.
+        lock.set_source(content_ns, SIXTY);
         let interval = lock.next_interval_ns(SIXTY);
         let funded = credit_at + ((0.875 - credit).max(0.0) * interval as f64) as i64;
         let allowed = funded.max(last_claim + interval * 3 / 4);
-        let mut claim = (allowed + DESKTOP - 1) / DESKTOP * DESKTOP;
+        let mut claim = (allowed + content_ns - 1) / content_ns * content_ns;
         if claim >= seconds * 1_000_000_000 {
             return sent;
         }
@@ -335,7 +339,7 @@ fn the_lock_recovers_after_the_host_was_busy() {
     for ppm in [100, 4_000, -4_000] {
         for seed in 1..=3 {
             let mut lock = PhaseLock::default();
-            let sent = retroid(&mut lock, ppm, 10..30, 45, seed);
+            let sent = retroid(&mut lock, ppm, DESKTOP, 10..30, 45, seed);
             // Five seconds after the host is free again: the screen's rate, frames just in time.
             let (interval, median) = settled(&sent, 35..45);
             assert!((interval - SIXTY).abs() < 20_000, "ppm {ppm} seed {seed}: interval {interval}");
@@ -352,7 +356,7 @@ fn the_lock_recovers_from_a_trim_at_its_limit() {
             let mut lock = PhaseLock::default();
             lock.on_report(&Report { frames: 30, period_ns: SIXTY as u32, lead_ns: 0, spread_ns: 0 });
             (lock.pending_ns, lock.trim_ns) = (0, trim);
-            let sent = retroid(&mut lock, ppm, 0..0, 20, seed);
+            let sent = retroid(&mut lock, ppm, DESKTOP, 0..0, 20, seed);
             let (interval, median) = settled(&sent, 3..20);
             assert!((interval - SIXTY).abs() < 20_000, "ppm {ppm} trim {trim} seed {seed}: interval {interval}");
             assert!(median < 6_500_000, "ppm {ppm} trim {trim} seed {seed}: median slack {median}");
@@ -383,6 +387,62 @@ fn only_a_jump_past_half_a_refresh_starts_the_trim_over() {
     assert_eq!((lock.trim_ns, lock.pending_ns), (0, 2_200_000));
     lock.on_report(&report(1_000_000));
     assert_eq!(lock.trim_ns, 1_000_000 / 30 / 16);
+}
+
+#[test]
+fn a_game_at_twice_the_stream_rate_keeps_its_frames_before_the_latch() {
+    // At 60 fps the host takes every second picture of a 120 fps game and can only move frames
+    // a picture later, never earlier. Chasing the margin from below, the lock ran its trim to
+    // the limit in every session while frames waited 13 to 15 ms, most of them a whole refresh
+    // after missing their latch.
+    for ppm in [100, -100, 1_000, -1_000] {
+        for seed in 1..=3 {
+            // A calm session, and one with a busy host, once it is free again.
+            for (busy, after) in [(0..0, 5..45), (10..30, 35..45)] {
+                let mut lock = PhaseLock::default();
+                let sent = retroid(&mut lock, ppm, GAME, busy.clone(), 45, seed);
+                let (interval, median) = settled(&sent, after);
+                assert_eq!(lock.trim_ns, 0, "ppm {ppm} seed {seed} busy {busy:?}");
+                assert!(interval > SIXTY - 20_000, "ppm {ppm} seed {seed} busy {busy:?}: interval {interval}");
+                assert!(median < 11_000_000, "ppm {ppm} seed {seed} busy {busy:?}: median slack {median}");
+            }
+        }
+    }
+}
+
+#[test]
+fn frames_that_only_move_later_stay_within_a_picture_past_the_margin() {
+    let report = |lead_ns: i64, spread_ns: u32| Report { frames: 30, period_ns: SIXTY as u32, lead_ns: lead_ns as i32, spread_ns };
+    let mut lock = PhaseLock::default();
+    // A 240 Hz desktop at 60 fps: the host takes an earlier picture as readily as a later one.
+    lock.set_source(DESKTOP, SIXTY);
+    lock.on_report(&report(0, 0));
+    assert_eq!(lock.pending_ns, -750_000);
+    // A 120 fps game: frames from just under the 1.5 ms margin to a picture past it stay where
+    // they are, counted round the refresh: 9 ms early reads as 7.7 ms late.
+    lock.set_source(GAME, SIXTY);
+    for lead in [750_000, 5_000_000, 8_333_333, 9_000_000 - SIXTY, 10_580_000 - SIXTY] {
+        lock.on_report(&report(lead, 0));
+        assert_eq!((lock.pending_ns, lock.trim_ns), (0, 0), "lead {lead}");
+    }
+    // Anywhere else they move later: below the margin, and late ones round to the next latch.
+    for lead in [740_000, -3_000_000, 10_600_000 - SIXTY] {
+        lock.on_report(&report(5_000_000, 0));
+        lock.on_report(&report(lead, 0));
+        assert_eq!((lock.pending_ns, lock.trim_ns), (SIXTY / 4, 0), "lead {lead}");
+    }
+    // A window across the move reads as a wide spread and waits for the next, once.
+    lock.on_report(&report(-3_000_000, 9_000_000));
+    assert_eq!(lock.pending_ns, 0);
+    lock.on_report(&report(-3_000_000, 9_000_000));
+    assert_eq!(lock.pending_ns, SIXTY / 4);
+    // 60 fps of a 120 fps game on a 120 Hz screen: every picture lands on the same phase.
+    let mut lock = PhaseLock::default();
+    lock.set_source(GAME, 2 * GAME);
+    for lead in [-3_000_000, 0, 3_000_000] {
+        lock.on_report(&Report { frames: 30, period_ns: GAME as u32, lead_ns: lead, spread_ns: 0 });
+        assert_eq!((lock.pending_ns, lock.trim_ns), (0, 0), "lead {lead}");
+    }
 }
 
 #[test]

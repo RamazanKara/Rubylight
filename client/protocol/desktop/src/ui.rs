@@ -466,6 +466,15 @@ fn link_button(ui: &mut Ui, text: &str) -> Response {
     response
 }
 
+/// How to connect: the pairing guide Android's help opens, wherever PCs are still to find.
+fn how_to_connect(ui: &mut Ui, commands: &mut Vec<Command>) -> Response {
+    let help = link_button(ui, "How to connect");
+    if help.clicked() {
+        commands.push(Command::OpenGuide("pairing.md"));
+    }
+    help
+}
+
 /// An action in the header (Add PC, Refresh): a filled button, so it never reads as one of the
 /// destinations beside it, at the header's height.
 fn header_button(ui: &mut Ui, text: &str) -> Response {
@@ -1096,6 +1105,7 @@ impl Launcher {
                     };
                     self.focus_dialog = true;
                 }
+                how_to_connect(ui, commands);
             });
             return;
         }
@@ -1125,11 +1135,8 @@ impl Launcher {
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = space::S;
                     ui.label(RichText::new(tr("Looking for other PCs on this network")).color(ON_SURFACE_VARIANT));
-                    let help = link_button(ui, "How to connect");
+                    let help = how_to_connect(ui, commands);
                     self.focus_item(&help, "how-to-connect", false);
-                    if help.clicked() {
-                        commands.push(Command::OpenGuide("pairing.md"));
-                    }
                 });
             }
             ui.add_space(8.0);
@@ -1248,6 +1255,7 @@ impl Launcher {
                 if r.clicked() {
                     self.open(Screen::Hosts);
                 }
+                how_to_connect(ui, commands);
             });
             return;
         }
@@ -3058,19 +3066,24 @@ impl Launcher {
                             RichText::new(tr("The PC sleeps only while no app or stream runs on it. Wake it with Wake up."))
                                 .color(ON_SURFACE_VARIANT),
                         );
-                        if offer.is_none() {
-                            ui.add_space(space::M);
-                            ui.horizontal(|ui| {
+                        // The asking line keeps its room once the offer is in, and Sleep PC is there
+                        // from the start, only off: nothing moves under the pointer or the focus,
+                        // so a press meant for Cancel never lands on Sleep PC.
+                        let waiting = offer.is_none();
+                        ui.add_space(space::M);
+                        ui.horizontal(|ui| {
+                            if waiting {
                                 spinner(ui, 9.0);
-                                ui.label(RichText::new(tr("Asking the PC…")).color(ON_SURFACE_VARIANT));
-                            });
-                        }
+                            } else {
+                                ui.allocate_exact_size(Vec2::splat(18.0), Sense::hover());
+                            }
+                            ui.add_visible(waiting, egui::Label::new(RichText::new(tr("Asking the PC…")).color(ON_SURFACE_VARIANT)));
+                        });
                         dialog_buttons(ui, |ui| {
-                            if let Some((token, at)) = offer {
-                                if primary_button(ui, "Sleep PC").clicked() {
-                                    commands.push(Command::Sleep { host: id, ask, token: token.clone(), at: *at });
-                                    close = true;
-                                }
+                            let sleep = ui.add_enabled_ui(!waiting, |ui| primary_button(ui, "Sleep PC")).inner;
+                            if let (true, Some((token, at))) = (sleep.clicked(), offer) {
+                                commands.push(Command::Sleep { host: id, ask, token: token.clone(), at: *at });
+                                close = true;
                             }
                             // Cancel has the focus: putting the PC to sleep is never one stray press away.
                             let cancel = quiet_button(ui, "Cancel");
@@ -3423,7 +3436,7 @@ impl Launcher {
                             ui.spacing_mut().item_spacing.x = 12.0;
                             // The PIN is what the dialog is for: centred, so the eye lands on it.
                             let digits = pin.chars().count() as f32;
-                            ui.add_space(((ui.available_width() - digits * 64.0 - (digits - 1.0).max(0.0) * 12.0) / 2.0 - 12.0).max(0.0));
+                            ui.add_space(((ui.available_width() - digits * 64.0 - (digits - 1.0).max(0.0) * 12.0) / 2.0).max(0.0));
                             for digit in pin.chars() {
                                 let (rect, _) = ui.allocate_exact_size(vec2(64.0, 80.0), Sense::hover());
                                 ui.painter().rect_filled(rect, CornerRadius::same(12), SURFACE_HIGHEST);
@@ -6103,6 +6116,31 @@ https://192.0.2.7:47990"));
         }
     }
 
+    /// When the PC's sleep offer arrives, nothing moves: Cancel keeps its place and the focus, so
+    /// a click or Enter meant for Cancel never puts the PC to sleep.
+    #[test]
+    fn the_sleep_offer_arriving_moves_nothing_under_cancel() {
+        let mut f = every_state().into_iter().find(|s| s.name == "can sleep").unwrap().frames();
+        let id = f.hosts.list[0].id;
+        f.l.dialog = Dialog::ConfirmSleep { host: id, ask: 1, name: "PC".into(), offer: None };
+        f.l.focus_dialog = true;
+        f.settle();
+        let state = |f: &Frames| {
+            let cancel = f.placed.iter().find(|(t, ..)| t == "Cancel").map(|p| p.1).expect("Cancel");
+            let sleep = f.placed.iter().find(|(t, ..)| t == "Sleep PC").map(|p| p.1).expect("Sleep PC is there from the start");
+            let focus = f.ctx.memory(|m| m.focused()).and_then(|id| f.ctx.read_response(id)).map(|r| r.rect).expect("a focus");
+            (cancel, sleep, focus)
+        };
+        let (cancel, sleep, focus) = state(&f);
+        assert!(focus.contains(cancel.center()), "Cancel has the focus: {focus:?} {cancel:?}");
+        f.l.sleep_answered(id, 1, "PC", false, Ok(SleepStep::Offer { token: "tok".into(), at: Handed::now() }));
+        f.settle();
+        assert_eq!(state(&f), (cancel, sleep, focus), "Cancel, Sleep PC and the focus stay put");
+        f.frame(vec![egui::Event::PointerMoved(cancel.center())]);
+        let commands = f.click_at(cancel.center(), egui::PointerButton::Primary);
+        assert!(!commands.iter().any(|c| matches!(c, Command::Sleep { .. })) && f.no_dialog(), "the click cancels");
+    }
+
     #[test]
     fn sleep_pc_waits_for_the_offer_and_spends_it_only_when_confirmed() {
         let mut f = every_state().into_iter().find(|s| s.name == "can sleep").unwrap().frames();
@@ -6673,6 +6711,11 @@ https://192.0.2.7:47990"));
         f.shapes.iter().for_each(|c| digits(&c.shape, &mut texts));
         let pin: Vec<_> = texts.iter().filter(|(t, ..)| t.len() == 1 && "4071".contains(t.as_str())).collect();
         assert_eq!(pin.len(), 4, "{texts:?}");
+        // Centred in the dialog's 440-point column, which starts where its title does.
+        let left = f.placed.iter().find(|(t, ..)| t == "Pair with Studio").map(|p| p.1.left()).expect("the title");
+        let digit = |d: &str| f.placed.iter().find(|(t, ..)| t == d).map(|p| p.1.center().x).expect("the digit");
+        let middle = (digit("4") + digit("1")) / 2.0;
+        assert!((middle - (left + 220.0)).abs() < 2.0, "the PIN is centred: {middle} in {left}..{}", left + 440.0);
         assert!(pin.iter().all(|(_, font, color)| font.size >= 40.0 && *font == semibold(font.size) && *color == Color32::from(MOON)), "{pin:?}");
     }
 
@@ -6706,6 +6749,29 @@ https://192.0.2.7:47990"));
         f.settle();
         assert!(shows(&f, "Ready to pair"), "{:?}", f.drawn);
         assert!(!f.drawn.iter().any(|t| t.contains("Games not") || t.ends_with('…')), "{:?}", f.drawn);
+    }
+
+    /// Before any PC, Home and PCs both link How to connect under their main action, as Android's
+    /// empty discovery card does, and it opens the pairing guide.
+    #[test]
+    fn no_pcs_yet_links_how_to_connect_on_home_and_pcs() {
+        for screen in [Screen::Home, Screen::Hosts] {
+            crate::theme::own_palette();
+            let ctx = egui::Context::default();
+            crate::theme::apply(&ctx);
+            let mut l = launcher(true, false);
+            l.identity_ready = true;
+            let mut f = Frames::over(ctx, l, Hosts::without_discovery(Vec::new(), Arc::new(|| {})));
+            f.l.go(screen);
+            f.settle();
+            let at = |f: &Frames, text: &str| f.placed.iter().find(|(t, ..)| t == text).map(|p| p.1).unwrap_or_else(|| panic!("{screen:?}: {text} in {:?}", f.drawn));
+            let main = at(&f, if screen == Screen::Home { "Open PCs" } else { "Add a PC by address" });
+            let link = at(&f, "How to connect");
+            assert!(link.top() >= main.bottom(), "{screen:?}: the link under the main action: {link:?} {main:?}");
+            f.frame(vec![egui::Event::PointerMoved(link.center())]);
+            let commands = f.click_at(link.center(), egui::PointerButton::Primary);
+            assert!(commands.iter().any(|c| matches!(c, Command::OpenGuide("pairing.md"))), "{screen:?}: a click opens the guide");
+        }
     }
 
     /// Home before any PC speaks of PCs, as Android's Home does, and never of hosts.
@@ -7197,6 +7263,12 @@ https://192.0.2.7:47990"));
             f.l.dialog = Dialog::Rename { host: studio, text: String::new() };
             f.l.focus_dialog = true;
             shoot(&mut f, "dialog-rename");
+            f.l.close_dialog();
+            f.l.dialog = Dialog::ConfirmSleep { host: pc, ask: 1, name: "Living Room PC".into(), offer: None };
+            f.l.focus_dialog = true;
+            shoot(&mut f, "dialog-sleep-asking");
+            f.l.sleep_answered(pc, 1, "Living Room PC", false, Ok(SleepStep::Offer { token: "t".into(), at: Handed::now() }));
+            shoot(&mut f, "dialog-sleep-offered");
             f.l.close_dialog();
             f.waking = Some("Office PC".into());
             shoot(&mut f, "waking");

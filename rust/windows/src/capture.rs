@@ -1174,6 +1174,8 @@ impl GpuImage {
 pub(crate) struct GpuPool {
     pub(crate) warnings: std::sync::Arc<butterpollo_core::session::Warnings>,
     textures: Vec<std::sync::Arc<ID3D11Texture2D>>,
+    /// Width, height and format of every texture in `textures`.
+    shape: Option<(u32, u32, DXGI_FORMAT)>,
     /// Copies on a compute queue instead of the D3D11 graphics queue,
     /// where they wait behind a game's rendering.
     pub(crate) compute: Option<crate::compute::Handoff>,
@@ -1242,17 +1244,18 @@ impl GpuPool {
                 DXGI_FORMAT_R10G10B10A2_UNORM => Pixel::Rgba10Pq,
                 _ => bail!("unsupported GPU capture format {:?}", desc.Format),
             };
-            self.textures.retain(|texture| {
-                let mut old = D3D11_TEXTURE2D_DESC::default();
-                texture.GetDesc(&mut old);
-                let keep = old.Width == desc.Width
-                    && old.Height == desc.Height
-                    && old.Format == desc.Format;
-                if !keep && let Some(handoff) = &mut self.compute {
-                    handoff.forget(texture);
+            // Every pooled texture has the shape it was made with, so a new
+            // size or format replaces them all, without a GetDesc each frame.
+            let shape = Some((desc.Width, desc.Height, desc.Format));
+            if self.shape != shape {
+                if let Some(handoff) = &mut self.compute {
+                    for texture in &self.textures {
+                        handoff.forget(texture);
+                    }
                 }
-                keep
-            });
+                self.textures.clear();
+                self.shape = shape;
+            }
             let free = self
                 .textures
                 .iter()
@@ -1313,15 +1316,16 @@ impl GpuPool {
                     None
                 }
             };
+            let now = Instant::now();
             Ok(Some(GpuImage {
                 cursor: None,
                 width: desc.Width,
                 height: desc.Height,
                 pixel,
-                captured: Instant::now(),
+                captured: now,
                 wgc_stamp: None,
-                acquired: Instant::now(),
-                published: Instant::now(),
+                acquired: now,
+                published: now,
                 gpu: gpu.clone(),
                 texture,
                 ready,

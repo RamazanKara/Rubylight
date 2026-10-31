@@ -67,39 +67,43 @@ public class ControllerInputReleaseTest {
 
     @Test
     public void theMenuComboAndTheClickpadGoByTheHeldButtonsOnAClickpadPad() {
-        MenuGame activity = Robolectric.buildActivity(MenuGame.class).get();
-        RecordingConnection connection = new RecordingConnection();
-        ControllerHandler handler = new ControllerHandler(activity, connection, null, new PreferenceConfiguration());
-        ControllerHandler.InputDeviceContext context = ReflectionHelpers.getField(handler, "defaultContext");
-        context.assignedControllerNumber = true;
-        context.hasSelect = context.hasMode = true;
-        // A pad connected as PlayStation without a touchpad: Select+LB clicks the touchpad.
-        context.needsClickpadEmulation = true;
-        try {
-            down(handler, KeyEvent.KEYCODE_BUTTON_SELECT);
-            down(handler, KeyEvent.KEYCODE_BUTTON_L1);
-            assertEquals(ControllerPacket.TOUCHPAD_FLAG, lastButtons(connection));
+        // Many Android-mode pads, such as the Kishi, deliver Select as KEYCODE_BACK.
+        for (int select : new int[] {KeyEvent.KEYCODE_BUTTON_SELECT, KeyEvent.KEYCODE_BACK}) {
+            MenuGame activity = Robolectric.buildActivity(MenuGame.class).get();
+            RecordingConnection connection = new RecordingConnection();
+            ControllerHandler handler = new ControllerHandler(activity, connection, null, new PreferenceConfiguration());
+            ControllerHandler.InputDeviceContext context = ReflectionHelpers.getField(handler, "defaultContext");
+            context.assignedControllerNumber = true;
+            context.hasSelect = context.hasMode = true;
+            context.ignoreBack = false;
+            // A pad connected as PlayStation without a touchpad: Select+LB clicks the touchpad.
+            context.needsClickpadEmulation = true;
+            try {
+                down(handler, select);
+                down(handler, KeyEvent.KEYCODE_BUTTON_L1);
+                assertEquals(ControllerPacket.TOUCHPAD_FLAG, lastButtons(connection));
 
-            // Lifting an unrelated button keeps the click held.
-            down(handler, KeyEvent.KEYCODE_BUTTON_A);
-            up(handler, KeyEvent.KEYCODE_BUTTON_A);
-            assertEquals(ControllerPacket.TOUCHPAD_FLAG, lastButtons(connection));
+                // Lifting an unrelated button keeps the click held.
+                down(handler, KeyEvent.KEYCODE_BUTTON_A);
+                up(handler, KeyEvent.KEYCODE_BUTTON_A);
+                assertEquals(ControllerPacket.TOUCHPAD_FLAG, lastButtons(connection));
 
-            // Start+RB on top completes the menu combo, which opens once everything is up.
-            down(handler, KeyEvent.KEYCODE_BUTTON_START);
-            down(handler, KeyEvent.KEYCODE_BUTTON_R1);
-            assertTrue(context.pendingExit);
-            up(handler, KeyEvent.KEYCODE_BUTTON_START);
-            up(handler, KeyEvent.KEYCODE_BUTTON_R1);
-            assertEquals(ControllerPacket.TOUCHPAD_FLAG, lastButtons(connection));
-            up(handler, KeyEvent.KEYCODE_BUTTON_L1);
-            assertEquals("Lifting LB ends the click", 0, lastButtons(connection));
-            assertEquals(0, activity.menuCount);
-            up(handler, KeyEvent.KEYCODE_BUTTON_SELECT);
-            assertEquals(1, activity.menuCount);
-            assertFalse(context.pendingExit);
-        } finally {
-            handler.destroy();
+                // Start+RB on top completes the menu combo, which opens once everything is up.
+                down(handler, KeyEvent.KEYCODE_BUTTON_START);
+                down(handler, KeyEvent.KEYCODE_BUTTON_R1);
+                assertTrue(context.pendingExit);
+                up(handler, KeyEvent.KEYCODE_BUTTON_START);
+                up(handler, KeyEvent.KEYCODE_BUTTON_R1);
+                assertEquals(ControllerPacket.TOUCHPAD_FLAG, lastButtons(connection));
+                up(handler, KeyEvent.KEYCODE_BUTTON_L1);
+                assertEquals("Lifting LB ends the click", 0, lastButtons(connection));
+                assertEquals(0, activity.menuCount);
+                up(handler, select);
+                assertEquals(1, activity.menuCount);
+                assertFalse(context.pendingExit);
+            } finally {
+                handler.destroy();
+            }
         }
     }
 

@@ -393,12 +393,14 @@ test('six groups keep only expert settings collapsed, searchable, and customized
   assert.deepEqual(writes, [{ fec_percentage: 25 }]);
 });
 
-test('the WebRTC server is an Experimental toggle that says its signalling is unencrypted and reveals its ports when on', async t => {
+test('the WebRTC server is a plain toggle that says its signalling is unencrypted and reveals its ports when on', async t => {
   const { page, writes } = await fixture(t);
   await page.goto(base + '/settings/network');
   const row = setting(page, 'webrtc_server');
   await row.waitFor();
-  assert.match(await row.innerText(), /WebRTC server \(Experimental\)/);
+  // No "Experimental" anywhere in the console.
+  assert.match(await row.innerText(), /^WebRTC server\n/);
+  assert.doesNotMatch(await row.innerText(), /Experimental/);
   assert.equal(await setting(page, 'webrtc_port').count(), 0);
   await row.getByRole('switch').click();
   await row.locator('summary').click();

@@ -210,6 +210,9 @@
     gap: var(--space-1);
     width: fit-content;
     padding: 2px 0;
+    /* A 44 px target that takes no more room than its line of text. */
+    min-height: var(--control-height);
+    margin-block: calc((20px - var(--control-height)) / 2);
     color: var(--ink-2);
     font-size: var(--text-xs);
     font-weight: var(--weight-medium);

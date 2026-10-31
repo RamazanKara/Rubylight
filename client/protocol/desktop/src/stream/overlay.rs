@@ -4,7 +4,7 @@
 //! overlay.
 
 use nightjar_core::http::{HardwareMetrics, Readings};
-use nightjar_policy::overlay::{health, Health};
+use nightjar_policy::overlay::{faster_than_screen, health, Health};
 
 /// One overlay window's measurements; `None` where nothing was measured.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -12,6 +12,8 @@ pub struct Measures {
     /// Pictures shown on this screen per second.
     pub rendered_fps: Option<f32>,
     pub received_fps: Option<f32>,
+    /// The display's refresh rate, which caps the frames it can show.
+    pub refresh_hz: Option<f32>,
     /// Video payload received, in Mbit/s.
     pub video_mbps: Option<f32>,
     /// Every video and audio datagram received, FEC parity included, in Mbit/s: the stream's
@@ -43,11 +45,15 @@ impl Default for Compact {
 
 /// "119.9 FPS · 8 ms RTT · 0.1% loss": frames shown on this screen, the network round trip and the
 /// video frames lost on the way, each once it was measured. The mark judges the shown rate, the
-/// only one this device has.
+/// only one this device has, against the received rate but at most the display's refresh rate; a
+/// stream clearly faster than the display gets "60 Hz screen" after the FPS instead of a warning.
 pub fn compact(m: &Measures) -> Compact {
     let mut values = Vec::new();
     if let Some(fps) = m.rendered_fps {
         values.push(format!("{fps:.1} FPS"));
+        if faster_than_screen(m.received_fps, m.refresh_hz) {
+            values.push(format!("{:.0} Hz screen", m.refresh_hz.unwrap_or_default()));
+        }
     }
     if let Some(ms) = m.network_ms {
         values.push(format!("{ms:.0} ms RTT"));
@@ -56,7 +62,7 @@ pub fn compact(m: &Measures) -> Compact {
         values.push(format!("{loss:.1}% loss"));
     }
     Compact {
-        health: health(m.rendered_fps, m.received_fps, m.network_ms, m.loss_percent, m.decode_ms),
+        health: health(m.rendered_fps, m.received_fps, m.refresh_hz, m.network_ms, m.loss_percent, m.decode_ms),
         text: values.join(" · "),
     }
 }
@@ -75,12 +81,17 @@ fn value(value: Option<f32>, decimals: usize) -> String {
     value.filter(|v| v.is_finite() && *v >= 0.0).map_or_else(|| "—".into(), |v| format!("{v:.decimals$}"))
 }
 
-/// Android's six statistics lines: the stream, frame rates, video payload and loss (and the
-/// bandwidth on the wire once measured), the network, the host (and its present to sent once
-/// reported, under its own label) and this device.
+/// Android's six statistics lines: the stream (with the received frame rate once measured, as
+/// Moonlight and Artemis lead with it), frame rates, video payload and loss (and the bandwidth on
+/// the wire once measured), the network, the host (and its present to sent once reported, under
+/// its own label) and this device.
 pub fn statistics(stream: &str, m: &Measures) -> Vec<(String, String)> {
+    let stream = match m.received_fps.filter(|fps| fps.is_finite() && *fps > 0.0) {
+        Some(fps) => format!("{stream} · {fps:.2} FPS"),
+        None => stream.to_owned(),
+    };
     let mut lines = vec![
-        ("Stream".into(), stream.to_owned()),
+        ("Stream".into(), stream),
         ("Frames".into(), format!("{} rendered · {} received FPS", value(m.rendered_fps, 1), value(m.received_fps, 1))),
         ("Video".into(), format!("{} Mbps payload · {}% loss", value(m.video_mbps, 1), value(m.loss_percent, 2))),
     ];
@@ -88,7 +99,7 @@ pub fn statistics(stream: &str, m: &Measures) -> Vec<(String, String)> {
     lines.push(("Network".into(), format!("{} ms RTT (±{} ms)", value(m.network_ms, 0), value(m.variance_ms, 0))));
     lines.push(("Host processing".into(), format!("{} ms", value(m.host_ms, 1))));
     if m.host_to_network_ms.is_some() {
-        lines.push(("Host to network".into(), format!("{} ms", value(m.host_to_network_ms, 1))));
+        lines.push(("Host incl. send".into(), format!("{} ms", value(m.host_to_network_ms, 1))));
     }
     lines.push(("Client".into(), format!("{} ms decode · {} ms render", value(m.decode_ms, 2), value(m.render_ms, 2))));
     lines
@@ -143,6 +154,7 @@ mod tests {
         Measures {
             rendered_fps: Some(119.94),
             received_fps: Some(120.0),
+            refresh_hz: None,
             video_mbps: Some(48.24),
             wire_mbps: None,
             loss_percent: Some(0.12),
@@ -168,12 +180,26 @@ mod tests {
         assert_eq!(health_rgb(Health::Unknown), [0x9a, 0xa0, 0xae]);
     }
 
+    // Regression: a 60 Hz screen streaming 120 fps showed an amber mark for a healthy stream.
+    #[test]
+    fn a_stream_faster_than_the_screen_says_the_screen_rate_instead_of_a_warning() {
+        let fast = compact(&Measures { rendered_fps: Some(60.0), refresh_hz: Some(60.0), ..measured() });
+        assert_eq!(fast, Compact { health: Health::Good, text: "60.0 FPS · 60 Hz screen · 8 ms RTT · 0.1% loss".into() });
+        let unknown = compact(&Measures { rendered_fps: Some(60.0), ..measured() });
+        assert_eq!((unknown.health, unknown.text.as_str()), (Health::Poor, "60.0 FPS · 8 ms RTT · 0.1% loss"));
+        // A real fault on a screen as fast as the stream: no hint, still red.
+        let fault = compact(&Measures { rendered_fps: Some(40.0), received_fps: Some(60.0), refresh_hz: Some(60.0), ..measured() });
+        assert_eq!((fault.health, fault.text.as_str()), (Health::Poor, "40.0 FPS · 8 ms RTT · 0.1% loss"));
+        let matched = compact(&Measures { rendered_fps: Some(59.94), received_fps: Some(60.0), refresh_hz: Some(59.94), ..measured() });
+        assert_eq!((matched.health, matched.text.as_str()), (Health::Good, "59.9 FPS · 8 ms RTT · 0.1% loss"));
+    }
+
     #[test]
     fn statistics_are_androids_six_lines_with_host_to_network_apart() {
         let lines = statistics("1920x1080 120 fps, HEVC", &measured());
         let values: Vec<&str> = lines.iter().map(|(_, v)| v.as_str()).collect();
         assert_eq!(values, [
-            "1920x1080 120 fps, HEVC",
+            "1920x1080 120 fps, HEVC · 120.00 FPS",
             "119.9 rendered · 120.0 received FPS",
             "48.2 Mbps payload · 0.12% loss",
             "8 ms RTT (±1 ms)",
@@ -181,9 +207,10 @@ mod tests {
             "1.23 ms decode · 0.50 ms render",
         ]);
         let reported = statistics("s", &Measures { host_to_network_ms: Some(9.5), ..measured() });
-        assert_eq!(reported[5], ("Host to network".to_owned(), "9.5 ms".to_owned()));
+        assert_eq!(reported[5], ("Host incl. send".to_owned(), "9.5 ms".to_owned()));
         assert_eq!(reported[4].0, "Host processing", "the report never replaces Host processing");
         let empty = statistics("s", &Measures::default());
+        assert_eq!(empty[0].1, "s", "no frame rate before one was received");
         assert_eq!(empty[3].1, "— ms RTT (±— ms)");
         assert_eq!(empty.len(), 6);
     }

@@ -29,13 +29,26 @@ fn known(value: Option<f32>) -> Option<f32> {
     value.filter(|v| v.is_finite() && *v >= 0.0)
 }
 
-/// Poor for loss of 5 % or more, a round trip of 80 ms or more, or a quarter of the received
-/// frames not shown; Fair from 1 % loss, 40 ms, a tenth of the frames not shown, or decoding
-/// slower than a received frame; Good otherwise. Unknown until the frame rate, the round trip or
-/// the loss is measured. `shown_fps` is the rate the screen confirmed, else the rendered one.
+/// Whether the stream brings clearly more frames than the panel refreshes (over 5 % more, so a
+/// 60 fps stream on a 59.94 Hz panel is not). The frames beyond the refresh rate cannot all be
+/// shown, which is not a fault, so the overlay says the screen's rate instead of flagging it.
+/// Android's `PerformanceOverlay.fasterThanScreen`.
+pub fn faster_than_screen(received_fps: Option<f32>, refresh_hz: Option<f32>) -> bool {
+    known(received_fps)
+        .zip(known(refresh_hz).filter(|hz| *hz > 0.0))
+        .is_some_and(|(fps, hz)| fps > hz * 1.05)
+}
+
+/// Poor for loss of 5 % or more, a round trip of 80 ms or more, or a quarter of the frames the
+/// screen can show not shown; Fair from 1 % loss, 40 ms, a tenth of those frames not shown, or
+/// decoding slower than a received frame; Good otherwise. Unknown until the frame rate, the round
+/// trip or the loss is measured. `shown_fps` is the rate the screen confirmed, else the rendered
+/// one. The frames the screen can show are the received ones, but at most `refresh_hz`, the
+/// panel's refresh rate when known: a stream faster than the screen is not a fault.
 pub fn health(
     shown_fps: Option<f32>,
     received_fps: Option<f32>,
+    refresh_hz: Option<f32>,
     network_ms: Option<f32>,
     loss_percent: Option<f32>,
     decode_ms: Option<f32>,
@@ -50,7 +63,11 @@ pub fn health(
     if shown.is_none() && network.is_none() && loss.is_none() {
         return Health::Unknown;
     }
-    let frames = shown.zip(received);
+    let showable = match known(refresh_hz).filter(|hz| *hz > 0.0) {
+        Some(hz) => received.map(|fps| fps.min(hz)),
+        None => received,
+    };
+    let frames = shown.zip(showable);
     if loss.is_some_and(|l| l >= 5.0)
         || network.is_some_and(|n| n >= 80.0)
         || frames.is_some_and(|(s, r)| s < r * 0.75)
@@ -183,49 +200,126 @@ mod tests {
 
     #[test]
     fn the_mark_follows_android_thresholds() {
-        assert_eq!(health(None, None, None, None, None), Health::Unknown);
+        assert_eq!(health(None, None, None, None, None, None), Health::Unknown);
         assert_eq!(
-            health(Some(f32::NAN), Some(60.0), Some(-1.0), None, Some(2.0)),
+            health(
+                Some(f32::NAN),
+                Some(60.0),
+                None,
+                Some(-1.0),
+                None,
+                Some(2.0)
+            ),
             Health::Unknown
         );
         assert_eq!(
-            health(Some(60.0), Some(60.0), Some(8.0), Some(0.1), Some(2.0)),
+            health(
+                Some(60.0),
+                Some(60.0),
+                None,
+                Some(8.0),
+                Some(0.1),
+                Some(2.0)
+            ),
             Health::Good
         );
         // Loss, round trip and frames not shown, each at its Fair and Poor edge.
-        assert_eq!(health(None, None, None, Some(1.0), None), Health::Fair);
-        assert_eq!(health(None, None, None, Some(5.0), None), Health::Poor);
-        assert_eq!(health(None, None, Some(40.0), None, None), Health::Fair);
-        assert_eq!(health(None, None, Some(80.0), None, None), Health::Poor);
         assert_eq!(
-            health(Some(53.0), Some(60.0), None, None, None),
+            health(None, None, None, None, Some(1.0), None),
             Health::Fair
         );
         assert_eq!(
-            health(Some(44.0), Some(60.0), None, None, None),
+            health(None, None, None, None, Some(5.0), None),
             Health::Poor
         );
         assert_eq!(
-            health(Some(55.0), Some(60.0), None, None, None),
+            health(None, None, None, Some(40.0), None, None),
+            Health::Fair
+        );
+        assert_eq!(
+            health(None, None, None, Some(80.0), None, None),
+            Health::Poor
+        );
+        assert_eq!(
+            health(Some(53.0), Some(60.0), None, None, None, None),
+            Health::Fair
+        );
+        assert_eq!(
+            health(Some(44.0), Some(60.0), None, None, None, None),
+            Health::Poor
+        );
+        assert_eq!(
+            health(Some(55.0), Some(60.0), None, None, None, None),
             Health::Good
         );
         // Decoding slower than a received frame is Fair; without a received rate it is not judged.
         assert_eq!(
-            health(Some(60.0), Some(60.0), None, None, Some(17.0)),
+            health(Some(60.0), Some(60.0), None, None, None, Some(17.0)),
             Health::Fair
         );
         assert_eq!(
-            health(Some(60.0), None, None, None, Some(17.0)),
+            health(Some(60.0), None, None, None, None, Some(17.0)),
             Health::Good
         );
         assert_eq!(
-            health(Some(60.0), Some(0.0), None, None, Some(17.0)),
+            health(Some(60.0), Some(0.0), None, None, None, Some(17.0)),
             Health::Good
         );
         assert_eq!(
             [Health::Unknown, Health::Good, Health::Fair, Health::Poor].map(Health::glyph),
             ["●", "●", "▲", "✕"]
         );
+    }
+
+    // Regression: a 60 Hz handheld streaming 120 fps showed an amber mark for a healthy stream.
+    #[test]
+    fn a_stream_faster_than_the_screen_is_judged_against_the_refresh_rate() {
+        assert_eq!(
+            health(
+                Some(60.0),
+                Some(120.0),
+                Some(60.0),
+                Some(8.0),
+                Some(0.0),
+                Some(4.0)
+            ),
+            Health::Good
+        );
+        assert_eq!(
+            health(
+                Some(101.5),
+                Some(120.0),
+                Some(60.0),
+                Some(8.0),
+                Some(0.0),
+                Some(4.0)
+            ),
+            Health::Good
+        );
+        // A real fault still shows: 40 of 60 frames on a 60 Hz panel, and below a faster panel.
+        assert_eq!(
+            health(Some(40.0), Some(60.0), Some(60.0), None, None, None),
+            Health::Poor
+        );
+        assert_eq!(
+            health(Some(50.0), Some(60.0), Some(60.0), None, None, None),
+            Health::Fair
+        );
+        assert_eq!(
+            health(Some(40.0), Some(60.0), Some(120.0), None, None, None),
+            Health::Poor
+        );
+        // An unknown or invalid refresh rate judges the received rate.
+        for refresh in [None, Some(0.0), Some(f32::NAN)] {
+            assert_eq!(
+                health(Some(60.0), Some(120.0), refresh, None, None, None),
+                Health::Poor
+            );
+        }
+        assert!(faster_than_screen(Some(120.0), Some(60.0)));
+        assert!(!faster_than_screen(Some(60.0), Some(59.94)));
+        assert!(!faster_than_screen(Some(120.0), None));
+        assert!(!faster_than_screen(None, Some(60.0)));
     }
 
     #[test]

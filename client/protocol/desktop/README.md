@@ -198,7 +198,7 @@ The launcher and the stream share one SDL3 window and one `SDL_Renderer`. egui i
 ### Statistics
 
 - Clock sync (0x5537) every 250 ms gives the host-to-client clock offset, so the overlay shows the latency from the PC's frame to the display. Host timing (0x5536) gives the host's present-to-send and encode times where the host offers them.
-- The overlay's **Host processing** is the video frame header's per-frame time averaged over the frames received in the last two seconds, as Artemis and Moonlight show it. The host's present-to-send is a separate **Host to network** line; the statistics CSV column `host_to_network_ms` (formerly `host_ms`) is that present-to-send time, not host processing.
+- The overlay's **Host processing** is the video frame header's per-frame time averaged over the frames received in the last two seconds, as Artemis and Moonlight show it. The host's present-to-send is a separate line, **Host incl. send** in Statistics and **Host to network** in Debug; the statistics CSV column `host_to_network_ms` (formerly `host_ms`) is that present-to-send time, not host processing.
 - When the host announces link notices (0x5538), the client subscribes, and the overlay adds a **Notice** line, "Host lowered the bitrate to X Mbps: network", while the host holds the bitrate down for the network.
 - When the host announces pipeline rates (0x553D), the client requests a report every second, and the overlay adds a **Host pipeline** line: the frames per second the host's display produced, captured, encoded, sent and repeated, with "-" for a stage the host cannot count.
 

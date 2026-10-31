@@ -24,7 +24,6 @@
     <string name="console_empty_title">아직 PC가 없습니다</string>
     <string name="console_empty_body">Nightjar를 PC와 페어링하면 여기에 게임이 표시됩니다.</string>
     <string name="console_empty_open_hosts">PC 열기</string>
-    <string name="console_detail_host">호스트</string>
     <string name="console_detail_profile">스트림 설정</string>
     <string name="console_detail_replaces">%1$s이(가) 실행 중입니다. 이 게임을 시작하면 종료됩니다.</string>
     <string name="console_profile_values">%1$d × %2$d, %3$d FPS, %4$s Mbps</string>

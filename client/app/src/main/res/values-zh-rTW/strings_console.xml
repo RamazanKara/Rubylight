@@ -24,7 +24,6 @@
     <string name="console_empty_title">還沒有電腦</string>
     <string name="console_empty_body">將 Nightjar 與 PC 配對後，即可在此查看其遊戲。</string>
     <string name="console_empty_open_hosts">開啟電腦</string>
-    <string name="console_detail_host">主機</string>
     <string name="console_detail_profile">串流設定</string>
     <string name="console_detail_replaces">%1$s 正在執行。開始此遊戲會將其關閉。</string>
     <string name="console_profile_values">%1$d × %2$d, %3$d FPS, %4$s Mbps</string>

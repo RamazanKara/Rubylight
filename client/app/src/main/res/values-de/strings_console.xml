@@ -24,7 +24,6 @@
     <string name="console_empty_title">Noch keine PCs</string>
     <string name="console_empty_body">Koppel Nightjar mit einem PC, um hier seine Spiele zu sehen.</string>
     <string name="console_empty_open_hosts">PCs öffnen</string>
-    <string name="console_detail_host">Host</string>
     <string name="console_detail_profile">Stream-Einstellungen</string>
     <string name="console_detail_replaces">%1$s läuft. Wenn du dieses Spiel startest, wird es beendet.</string>
     <string name="console_profile_values">%1$d × %2$d, %3$d FPS, %4$s Mbps</string>

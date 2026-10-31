@@ -24,7 +24,6 @@
     <string name="console_empty_title">Henüz bilgisayar yok</string>
     <string name="console_empty_body">Oyunlarını burada görmek için Nightjar’ı bir bilgisayarla eşleştir.</string>
     <string name="console_empty_open_hosts">Bilgisayarları aç</string>
-    <string name="console_detail_host">Ana bilgisayar</string>
     <string name="console_detail_profile">Yayın ayarları</string>
     <string name="console_detail_replaces">%1$s çalışıyor. Bu oyunu başlatmak onu kapatır.</string>
     <string name="console_profile_values">%1$d × %2$d, %3$d FPS, %4$s Mbps</string>

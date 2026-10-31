@@ -42,6 +42,12 @@ async function fixture(t, options = {}) {
     assert.equal(url.origin, base, 'the fixture must not contact a real host');
     if (!url.pathname.startsWith('/api/')) return route.continue();
     const reply = body => route.fulfill({ json: body });
+    // A test's own answers come first: { json } or { status, json }.
+    const own = options.api?.(request.method(), url.pathname);
+    if (own) {
+      if (request.method() !== 'GET') writes.push(url.pathname);
+      return route.fulfill({ status: own.status ?? 200, json: own.json });
+    }
     if (request.method() !== 'GET') {
       writes.push(url.pathname);
       if (url.pathname === '/api/clients/update' && options.keepWrites) {
@@ -422,6 +428,32 @@ test('notice links stay in the sentence, disclosures share one chevron, header a
   const [title, homeActions] = await Promise.all([page.locator('.page-header h1').boundingBox(), page.locator('.page-header .actions').boundingBox()]);
   assert(homeActions.y >= title.y + title.height, 'Home actions under the title on a phone');
 });
+
+for (const [playnite, expected] of [
+  [{ status: 503, json: { error: 'Playnite did not answer' } }, /Syncing Playnite failed: .*Playnite did not answer/],
+  [{ json: { status: true, changed: true, game_count: 43 } }, /Your library is up to date with your launchers\./],
+]) {
+  test(`Sync now keeps the Playnite result: ${playnite.status ? 'a failure is shown' : 'a Playnite-only addition counts'}`, async t => {
+    const { page } = await fixture(t, {
+      apps: [{ uuid: 'desktop', name: 'Desktop' }],
+      api: (method, path) => {
+        if (path === '/api/playnite/status') return { json: { status: true, enabled: true, active: true, available: true, installed: true,
+          installed_version: '1.4.0', packaged_version: '1.4.0', update_available: false, auto_sync: true, game_count: 42, synced_seconds_ago: 30 } };
+        if (path === '/api/library/discovery') return { json: { status: true, sources: [{ source: 'steam', name: 'Steam', state: 'available', errors: [] }], games: [] } };
+        if (method !== 'POST') return null;
+        if (path === '/api/playnite/force_sync') return playnite;
+        if (path === '/api/library/sync') return { json: { status: true, added: 0, removed: 0, playnite: true } };
+        if (path === '/api/steam/force_sync') return { json: { status: true, changed: false, game_count: 4, importable_game_count: 0 } };
+        return null;
+      },
+    });
+    await page.goto(base + '/library');
+    await page.getByText('Playnite', { exact: true }).first().waitFor();
+    await page.getByRole('button', { name: 'Sync now' }).click();
+    await page.getByText(expected).waitFor();
+    if (playnite.status) await page.getByText('Nothing new: your library already has every game.').waitFor();
+  });
+}
 
 test('on a phone a long game title in the editor keeps whole words above its actions', async t => {
   const apps = [{ uuid: 'mirage', name: 'Assassin’s Creed Mirage' }, { uuid: 'witcher', name: 'The Witcher 3: Wild Hunt' }, { uuid: 'desktop', name: 'Desktop' }];

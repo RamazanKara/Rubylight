@@ -174,24 +174,32 @@
     }
   }
 
-  /** Whether the launchers synced; a failure is shown here. */
+  /** Whether the launchers synced; a failure is shown here. A Playnite failure is
+   *  shown too, beside the other sources' result, since this is its only sync. */
   async function syncAll(announce = true): Promise<boolean> {
     syncing = true;
+    const playniteRun = playnite?.active ? api.playnite.sync().then(
+      (result) => ({ result, error: null as unknown }),
+      (error: unknown) => ({ result: null, error }),
+    ) : Promise.resolve(null);
+    const reportPlaynite = async () => {
+      const run = await playniteRun;
+      if (run?.error) failed('Syncing Playnite failed', run.error);
+      return run?.result ?? null;
+    };
     try {
-      const [steam, launchers] = await Promise.all([
-        api.steam.sync().catch(() => null),
-        api.library.sync(),
-        playnite?.active ? api.playnite.sync().catch(() => null) : null,
-      ]);
+      const [steam, launchers] = await Promise.all([api.steam.sync().catch(() => null), api.library.sync()]);
+      const played = await reportPlaynite();
       onsynced?.();
       if (announce) {
-        const changed = (steam?.changed ?? false) || launchers.added + launchers.removed > 0;
+        const changed = (steam?.changed ?? false) || launchers.added + launchers.removed > 0 || (played?.changed ?? false);
         notify(changed ? 'Your library is up to date with your launchers.' : 'Nothing new: your library already has every game.', 'ok');
       }
       await load();
       return true;
     } catch (reason) {
       failed('Syncing the launchers failed', reason);
+      await reportPlaynite();
       return false;
     } finally {
       syncing = false;

@@ -35,7 +35,7 @@ const textPairs = [
   ...['--ink', '--ink-2', '--muted'].flatMap((fg) => [...surfaces, ...tints].map((bg) => [fg, bg])),
   ...['--ok', '--warn', '--danger', '--accent-text', '--live'].flatMap((fg) => surfaces.map((bg) => [fg, bg])),
   ['--ok', '--ok-soft'], ['--warn', '--warn-soft'], ['--danger', '--danger-soft'], ['--accent-text', '--accent-soft'],
-  ['--accent-ink', '--accent'], ['--accent-ink', '--accent-strong'],
+  ['--accent-ink', '--accent'], ['--accent-ink', '--accent-strong'], ['--brand-ink', '--brand'],
   ['--media-ink', '--media-bg'], ['--media-ink-2', '--media-bg'], ['--media-idle', '--media-bg'],
 ];
 // Non-text UI: focus rings, the off switch outline and the on switch track need 3:1 (WCAG 1.4.11).

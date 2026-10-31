@@ -75,6 +75,9 @@
   --accent-ink: #ffffff;
   --accent-soft: #fde6ec;
   --accent-text: #c42045;
+  /* The app icon's fixed colours (rust/assets/make-icon.ps1): the same in both themes. */
+  --brand: #c41242;
+  --brand-ink: #ffffff;
   --focus: #1f6fd1;
   --ok: #147238;
   --ok-soft: #e3f4e8;
@@ -115,6 +118,8 @@
   --accent-ink: #ffffff;
   --accent-soft: #321d27;
   --accent-text: #f2738c;
+  --brand: #c41242;
+  --brand-ink: #ffffff;
   --focus: #6aa6f0;
   --ok: #4edba5;
   --ok-soft: #12291b;
@@ -147,6 +152,10 @@
     --accent-ink: #ffffff;
     --accent-soft: #321d27;
     --accent-text: #f2738c;
+    --brand: #c41242;
+    --brand-ink: #ffffff;
+  --brand: #c41242;
+  --brand-ink: #ffffff;
     --focus: #6aa6f0;
     --ok: #4edba5;
     --ok-soft: #12291b;

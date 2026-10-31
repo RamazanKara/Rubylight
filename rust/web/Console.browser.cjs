@@ -51,6 +51,9 @@ async function fixture(t, options = {}) {
         return route.fulfill({ status: 503, json: { error: 'Host temporarily unavailable' } });
       }
       if (url.pathname === '/api/pin') pending = [];
+      if (url.pathname === '/api/pairing/qr') {
+        return reply({ status: true, codes: [{ address: '127.0.0.1', svg: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"/>', uri: 'moonlight://pair?fixture' }], name: 'Fixture host', expires_in_seconds: 300 });
+      }
       return reply({ status: true, uuid: 'saved-app' });
     }
     if (url.pathname === '/api/auth/status') {
@@ -326,10 +329,25 @@ test('keyboard users can skip navigation and malformed URLs keep the console usa
 test('the sidebar groups tools, names each theme choice and copies the host address', async t => {
   const { page } = await fixture(t);
   await page.context().grantPermissions(['clipboard-read', 'clipboard-write'], { origin: base });
-  await page.goto(base + '/maintenance');
+  await page.goto(base + '/');
   const sidebar = page.locator('aside');
-  const tools = page.getByRole('navigation', { name: 'Main' }).getByRole('group', { name: 'Help', exact: true });
-  assert.deepEqual((await tools.getByRole('link').allInnerTexts()).map(text => text.trim()), ['Help & diagnostics']);
+  const main = page.getByRole('navigation', { name: 'Main' });
+  assert.deepEqual((await main.locator(':scope > .nav-group').getByRole('link').allInnerTexts()).map(text => text.trim()),
+    ['Home', 'Games', 'Devices', 'Settings', 'Help']);
+  // A desktop window keeps the whole sidebar in view with Advanced open: the links are
+  // a calm 44-48 px apart and the footer (host, theme, sign out) is never pushed off.
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await main.locator('summary', { hasText: 'Advanced' }).click();
+  await main.getByRole('link', { name: 'Webhooks', exact: true }).waitFor();
+  const pitch = await main.getByRole('link').evaluateAll(links => links.slice(1, 5).map((link, i) =>
+    link.getBoundingClientRect().top - links[i].getBoundingClientRect().top));
+  assert(pitch.every(value => value >= 44 && value <= 48), `nav pitch ${pitch}`);
+  for (const height of [900, 600]) {
+    await page.setViewportSize({ width: 1440, height });
+    const signOut = await sidebar.getByRole('button', { name: 'Sign out', exact: true }).boundingBox();
+    assert(signOut && signOut.y + signOut.height <= height, `Sign out ends at ${signOut?.y + signOut?.height}px in a ${height}px window`);
+  }
+  await page.setViewportSize({ width: 1280, height: 720 });
   await sidebar.getByText('Version 2.2.2', { exact: true }).waitFor();
   const dark = page.getByRole('group', { name: 'Theme', exact: true }).getByRole('button', { name: 'Dark theme', exact: true });
   assert.equal(await dark.getAttribute('title'), 'Theme: Dark');
@@ -347,8 +365,8 @@ test('the sidebar groups tools, names each theme choice and copies the host addr
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByRole('button', { name: 'Menu', exact: true }).click();
   await nav(page, 'Settings');
-  await page.getByRole('combobox', { name: 'Settings group', exact: true }).selectOption('network');
-  await page.getByRole('link', { name: 'API tokens', exact: true }).click();
+  await page.getByRole('heading', { name: 'Settings', exact: true, level: 1 }).waitFor();
+  await page.goto(base + '/tokens');
   await page.getByRole('heading', { name: 'API tokens', exact: true }).waitFor();
   const colours = await page.evaluate(() => [getComputedStyle(document.documentElement).backgroundColor, getComputedStyle(document.body).backgroundColor]);
   assert.notEqual(colours[0], 'rgba(0, 0, 0, 0)');
@@ -540,7 +558,7 @@ test('console journeys reflow across themes and screen sizes with usable buttons
     await page.emulateMedia({ colorScheme, reducedMotion: 'reduce' });
     for (const viewport of [{ width: 1440, height: 900 }, { width: 834, height: 1112 }, { width: 390, height: 844 }, { width: 720, height: 450 }]) {
       await page.setViewportSize(viewport);
-      for (const [route, heading] of [['/', 'Home'], ['/devices', 'Devices'], ['/settings/display', 'All settings'], ['/settings', 'Settings'], ['/library/new', 'New app'], ['/maintenance', 'Help & diagnostics']]) {
+      for (const [route, heading] of [['/', 'Home'], ['/devices', 'Devices'], ['/settings/display', 'All settings'], ['/settings', 'Settings'], ['/library/new', 'New app'], ['/maintenance', 'Help']]) {
         await page.goto(base + route);
         await page.getByRole('heading', { name: heading, exact: true, level: 1 }).waitFor();
         assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), colorScheme + ' ' + viewport.width + ' ' + route);

@@ -2,6 +2,7 @@
   import { onMount, tick } from 'svelte';
   import Icon, { type IconName } from './components/Icon.svelte';
   import Button from './components/Button.svelte';
+  import BrandMark from './components/BrandMark.svelte';
   import CopyButton from './components/CopyButton.svelte';
   import ConfirmHost from './components/ConfirmHost.svelte';
   import Toaster from './components/Toaster.svelte';
@@ -148,7 +149,7 @@
       <div class="side">
         <div class="brand-row">
           <a class="brand" href="/" use:link>
-            <span class="mark" aria-hidden="true">R</span>
+            <BrandMark size={32} />
             <span>Rubylight</span>
           </a>
           <button bind:this={menuButton} class="menu" aria-label="Menu" aria-controls="main-navigation" aria-expanded={menuOpen} onclick={() => (menuOpen = !menuOpen)}>
@@ -174,32 +175,30 @@
           {#if session.metadata}
             <div class="host">
               <span class="name">{session.metadata.host_name}</span>
-              <span class="muted">Version <span class="num">{session.metadata.version}</span></span>
               <span class="address">
                 <span class="num" title={session.metadata.pc_address}>{session.metadata.pc_address}</span>
                 <CopyButton value={session.metadata.pc_address} label="Copy address" what="the address" />
               </span>
+              <span class="version">Version <span class="num">{session.metadata.version}</span></span>
             </div>
           {/if}
-          <div class="foot-actions">
-            <div class="appearance"><span>Appearance</span><div class="theme" role="group" aria-label="Theme">
-              {#each themes as option (option.value)}
-                <button
-                  type="button"
-                  aria-pressed={theme === option.value}
-                  aria-label="{option.label} theme"
-                  title="Theme: {option.label}"
-                  onclick={() => setTheme(option.value)}
-                >
-                  <Icon name={option.icon} size={16} />
-                </button>
-              {/each}
-            </div></div>
-            <button class="foot-button" disabled={signingOut} aria-busy={signingOut} onclick={signOut}>
-              <Icon name="signout" size={16} />
-              {signingOut ? 'Signing out…' : 'Sign out'}
-            </button>
+          <div class="theme" role="group" aria-label="Theme">
+            {#each themes as option (option.value)}
+              <button
+                type="button"
+                aria-pressed={theme === option.value}
+                aria-label="{option.label} theme"
+                title="Theme: {option.label}"
+                onclick={() => setTheme(option.value)}
+              >
+                <Icon name={option.icon} size={16} />
+              </button>
+            {/each}
           </div>
+          <button class="foot-button" disabled={signingOut} aria-busy={signingOut} onclick={signOut}>
+            <Icon name="signout" size={16} />
+            {signingOut ? 'Signing out…' : 'Sign out'}
+          </button>
         </div>
       </div>
     </aside>
@@ -249,7 +248,9 @@
     min-height: 100vh;
     min-height: 100dvh;
   }
-  /* The sidebar's background runs the full page height; its content stays in view. */
+  /* The sidebar's background runs the full page height; its content stays in
+     view. Only the links scroll on a short window: the brand and the footer
+     (host, theme, sign out) stay reachable. */
   aside {
     border-right: 1px solid var(--line);
     background: var(--bg);
@@ -259,139 +260,147 @@
     top: 0;
     height: 100vh;
     height: 100dvh;
-    overflow-y: auto;
     display: flex;
     flex-direction: column;
-    gap: var(--space-5);
-    padding: var(--space-5) var(--space-3) var(--space-4);
+    gap: var(--space-4);
+    padding: var(--space-4) var(--space-3);
   }
   .brand-row {
     display: flex;
     justify-content: space-between;
     align-items: center;
+    min-height: var(--control-height);
     padding: 0 var(--space-2);
   }
   .brand {
-    display: flex;
+    display: inline-flex;
     align-items: center;
     gap: 10px;
+    min-height: var(--control-height);
+    border-radius: var(--radius);
     font-family: var(--font-display);
     font-weight: var(--weight-bold);
-    font-size: 25px;
+    font-size: var(--text-lg);
     text-decoration: none;
     letter-spacing: -0.01em;
   }
-  .mark {
-    display: grid;
-    place-items: center;
-    width: 40px;
-    height: 40px;
-    border-radius: var(--radius-sm);
-    background: var(--accent);
-    color: var(--accent-ink);
-    font-weight: 800;
-    font-size: 26px;
-  }
   .menu {
     display: none;
+    place-items: center;
     border: 0;
+    border-radius: var(--radius);
     background: none;
-    padding: 10px;
-    min-width: var(--control-height);
-    min-height: var(--control-height);
+    padding: 0;
+    color: var(--ink-2);
     cursor: pointer;
+  }
+  .menu:hover {
+    background: var(--sunken);
+    color: var(--ink);
   }
   nav {
     display: flex;
-    flex: 1;
+    flex: 1 1 auto;
+    min-height: 0;
     flex-direction: column;
     gap: var(--space-3);
+    margin: 0 calc(var(--space-1) * -1);
+    padding: 0 var(--space-1);
+    overflow-y: auto;
+    overscroll-behavior: contain;
   }
   .nav-group {
     display: grid;
-    gap: var(--space-2);
+    gap: 2px;
   }
   .advanced {
     margin-top: auto;
-    padding-top: var(--space-3);
+    padding-top: var(--space-2);
     border-top: 1px solid var(--line);
   }
   .advanced summary {
     display: flex;
     align-items: center;
-    gap: 10px;
-    min-height: var(--control-height);
-    padding: 0 14px;
+    gap: var(--space-3);
+    padding: 0 var(--space-3);
     border-radius: var(--radius);
     color: var(--muted);
     font-size: var(--text-sm);
     font-weight: var(--weight-medium);
-    cursor: pointer;
-    list-style: none;
-  }
-  .advanced summary::-webkit-details-marker {
-    display: none;
+    transition: background var(--duration-fast), color var(--duration-fast);
   }
   .advanced summary:hover {
     background: var(--sunken);
     color: var(--ink);
   }
   .advanced summary :global(svg) {
-    transition: transform var(--duration-fast);
+    transition: transform var(--duration-fast) var(--ease-standard);
   }
   .advanced[open] summary :global(svg) {
     transform: rotate(90deg);
   }
+  .advanced .nav-group {
+    padding-top: 2px;
+  }
   .advanced a {
-    min-height: var(--control-height);
-    padding: 10px 14px;
     font-size: var(--text-sm);
   }
   nav a {
     display: flex;
     align-items: center;
-    gap: 10px;
-    padding: 15px 14px;
-    min-height: 52px;
+    gap: var(--space-3);
+    padding: 0 var(--space-3);
+    min-height: var(--control-height);
     border-radius: var(--radius);
     color: var(--ink-2);
     text-decoration: none;
-    font-weight: 520;
+    font-weight: var(--weight-medium);
+    transition: background var(--duration-fast), color var(--duration-fast);
+  }
+  nav a :global(svg) {
+    flex: none;
+    color: var(--muted);
+    transition: color var(--duration-fast);
   }
   nav a:hover {
     background: var(--sunken);
     color: var(--ink);
   }
+  nav a:hover :global(svg) {
+    color: var(--ink-2);
+  }
   nav a[aria-current='page'] {
     background: var(--accent-soft);
     color: var(--ink);
-
+    font-weight: var(--weight-semibold);
+  }
+  nav a[aria-current='page'] :global(svg) {
+    color: var(--accent-text);
   }
   .foot {
-    margin-top: auto;
+    flex: none;
     display: grid;
-    gap: var(--space-3);
-    padding: var(--space-3) var(--space-2) 0;
+    gap: var(--space-2);
+    padding: var(--space-3) 0 0;
     border-top: 1px solid var(--line);
   }
   .host {
     display: grid;
-    gap: 1px;
-    font-size: var(--text-sm);
     min-width: 0;
+    padding: 0 var(--space-3);
+    font-size: var(--text-sm);
   }
   .host .name {
     font-weight: var(--weight-semibold);
     overflow-wrap: anywhere;
   }
-  .host .muted {
-    font-size: var(--text-xs);
-  }
+  /* The copy button keeps its 44 px target but overlaps the lines around it. */
   .address {
     display: flex;
     align-items: center;
     gap: 2px;
     min-width: 0;
+    margin: -10px 0 -10px;
     font-size: var(--text-xs);
     color: var(--ink-2);
   }
@@ -402,61 +411,67 @@
     white-space: nowrap;
     text-overflow: ellipsis;
   }
-  .foot-actions {
-    display: grid;
-    gap: var(--space-3);
-  }
-  .appearance {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--space-2);
-    flex-wrap: wrap;
-    font-size: var(--text-sm);
+  .version {
+    font-size: var(--text-xs);
+    color: var(--muted);
   }
   .theme {
-    display: inline-flex;
-    padding: 2px;
-    gap: 1px;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(var(--control-height), 1fr));
+    overflow: hidden;
     border: 1px solid var(--line);
     border-radius: var(--radius);
   }
   .theme button {
     display: grid;
     place-items: center;
-    width: 44px;
     height: var(--control-height);
     padding: 0;
     border: 0;
-    border-radius: 4px;
+    border-radius: 0;
     background: none;
     color: var(--muted);
     cursor: pointer;
+    transition: background var(--duration-fast), color var(--duration-fast);
   }
   .theme button:hover {
     color: var(--ink);
     background: var(--sunken);
   }
+  .theme button + button {
+    border-left: 1px solid var(--line);
+  }
+  .theme button:focus-visible {
+    outline-offset: -3px;
+  }
   .theme button[aria-pressed='true'] {
-    background: var(--sunken);
-    color: var(--ink);
-    box-shadow: inset 0 0 0 1px var(--line-strong);
+    background: var(--accent-soft);
+    color: var(--accent-text);
   }
   .foot-button {
-    display: inline-flex;
+    display: flex;
     align-items: center;
-    gap: 6px;
-    border: 1px solid var(--line);
+    gap: var(--space-3);
+    border: 0;
     border-radius: var(--radius);
     background: none;
-    padding: 10px var(--space-2);
-    min-height: var(--control-height);
-    font-size: var(--text-xs);
+    padding: 0 var(--space-3);
+    font-size: var(--text-sm);
+    font-weight: var(--weight-medium);
     color: var(--ink-2);
     cursor: pointer;
+    transition: background var(--duration-fast), color var(--duration-fast);
   }
-  .foot-button:hover {
+  .foot-button :global(svg) {
+    color: var(--muted);
+  }
+  .foot-button:hover:not(:disabled) {
     background: var(--sunken);
+    color: var(--ink);
+  }
+  .foot-button:disabled {
+    cursor: default;
+    opacity: 0.6;
   }
   main {
     padding: var(--space-6) var(--space-6) var(--space-7);
@@ -474,7 +489,7 @@
     aside {
       position: sticky;
       top: 0;
-      z-index: 10;
+      z-index: var(--z-sticky);
       border-right: 0;
       border-bottom: 1px solid var(--line);
     }
@@ -483,30 +498,31 @@
       height: auto;
       max-height: 100vh;
       max-height: 100dvh;
-      padding: var(--space-3);
+      overflow-y: auto;
+      padding: var(--space-2) var(--space-3);
       gap: var(--space-3);
     }
+    .brand-row {
+      padding-right: 0;
+    }
     .menu {
-      display: block;
+      display: grid;
     }
     nav,
     .foot {
       display: none;
     }
-    aside.open nav,
+    aside.open nav {
+      display: flex;
+      flex: none;
+      overflow: visible;
+    }
     aside.open .foot {
       display: grid;
+      padding-bottom: var(--space-2);
     }
-    nav a {
-      min-height: var(--control-height);
-    }
-    .theme button {
-      width: 44px;
-      height: var(--control-height);
-    }
-    .foot-button {
-      min-height: var(--control-height);
-      padding: 6px 14px;
+    .advanced {
+      margin-top: 0;
     }
     main {
       padding: var(--space-5) var(--space-4) var(--space-6);

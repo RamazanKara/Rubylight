@@ -3,7 +3,8 @@
   const paths = {
     overview: 'M3 10l9-7 9 7M5 9v12h5v-7h4v7h5V9',
     library: 'M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z',
-    devices: 'M3 4h18v13H3zM8 21h8M12 17v4',
+    // A phone in front of a screen: the devices that stream from this PC (monitor is the PC).
+    devices: 'M8 8V4h13v11h-8M16 19h3M17.5 15v4M3 10h7v10H3zM6.5 17.5h.01',
     settings: 'M4 7h9M17 7h3M4 17h3M11 17h9M15 5v4M9 15v4',
     logs: 'M5 4h14v16H5zM8 8h8M8 12h8M8 16h5',
     maintenance: 'M14.5 6.5a4 4 0 0 0-5.3 5.3L4 17l3 3 5.2-5.2a4 4 0 0 0 5.3-5.3l-2.6 2.6-2.4-.6-.6-2.4z',

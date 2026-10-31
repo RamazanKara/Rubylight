@@ -96,9 +96,16 @@ test('an incomplete power status is an error, not an empty page', () => {
   }
 });
 
-test("an adapter check's badge keeps its width, so it stays inside the card on a phone", () => {
+test("an adapter check's word keeps its width and follows the name, so it stays inside the card on a phone", () => {
   const panel = readFileSync(new URL('./src/components/maintenance/PowerPanel.svelte', import.meta.url), 'utf8');
-  const rule = panel.match(/\.checks \{([^}]*)\}/);
-  assert.ok(rule);
-  assert.match(rule[1], /grid-template-columns: fit-content\(16em\) minmax\(max-content, 1fr\)/);
+  assert.match(panel.match(/\.checks li \{([^}]*)\}/)?.[1] ?? '', /grid-template-columns: 16px minmax\(0, 1fr\)/);
+  assert.match(panel.match(/\.word \{([^}]*)\}/)?.[1] ?? '', /white-space: nowrap/);
+});
+
+test('one status per wake thing: the panel pill, adapter facts as quiet text, no badge soup', () => {
+  const panel = readFileSync(new URL('./src/components/maintenance/PowerPanel.svelte', import.meta.url), 'utf8');
+  assert.equal(panel.match(/<StatusPill /g)?.length, 1);
+  assert.doesNotMatch(panel, /<Badge/);
+  // The adapter devices are sent has its state in the pill already.
+  assert.match(panel, /\.\.\.\(primary \? \[\] : \[targetState\(target\)\.label\]\)/);
 });

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte';
-  import Badge from '../Badge.svelte';
   import Button from '../Button.svelte';
+  import Icon, { type IconName } from '../Icon.svelte';
   import Panel from '../Panel.svelte';
   import LoadState from '../LoadState.svelte';
   import StatusPill from '../StatusPill.svelte';
@@ -11,7 +11,7 @@
   import { ago, marked } from '../../lib/format';
   import { link } from '../../lib/router.svelte';
   import {
-    adapterKind, checkName, checkPowerStatus, checkState, fastStartup, idleSleep, readiness, sleepState, systemNotes, targetState,
+    adapterKind, checkName, checkPowerStatus, checkState, fastStartup, idleSleep, readiness, sleepState, systemNotes, targetState, type Tone,
   } from '../../lib/power';
   import { reason } from './util';
 
@@ -25,6 +25,8 @@
   let timer: ReturnType<typeof setTimeout>;
   let alive = true;
   onDestroy(() => { alive = false; clearTimeout(timer); });
+
+  const CHECK_ICONS: Record<Tone, IconName> = { ok: 'check', warn: 'alert', danger: 'x', neutral: 'info' };
 
   const ready = $derived(power ? readiness(power) : null);
   const idle = $derived(power ? idleSleep(power) : null);
@@ -109,57 +111,15 @@
   {#if power && ready && idle}
     <div class="stack">
       {#if loadError}<LoadState error={loadError} stale what="the wake status" onretry={() => load(true)} />{/if}
-      <p class="notice" class:warn={ready.tone === 'warn'} class:danger={ready.tone === 'danger'} role="status">{ready.text}</p>
-      {#if power.wake.targets.length}
-        <ul class="targets" aria-label="Network adapters">
-          {#each power.wake.targets as target (target.mac)}
-            {@const state = targetState(target)}
-            <li class="target">
-              <div class="head">
-                <span class="name">{adapterKind(target)} <span class="num">{target.mac}</span></span>
-                <StatusPill status={state.status} label={state.label} />
-              </div>
-              <div class="tags">
-                <Badge tone={target.connected ? 'ok' : 'neutral'}>{target.connected ? 'Connected' : 'Not connected'}</Badge>
-                {#if target.mac === power.wake.primary}<Badge tone="accent">Sent to devices</Badge>{/if}
-                {#if target.route}<Badge>This console's connection</Badge>{/if}
-              </div>
-              {#if target.checks.length}
-                <dl class="facts checks">
-                  {#each target.checks as item (item.id)}
-                    {@const result = checkState(item)}
-                    <dt>{checkName(item.id)}</dt><dd><Badge tone={result.tone}>{result.word}</Badge></dd>
-                  {/each}
-                </dl>
-              {/if}
-            </li>
-          {/each}
-        </ul>
-      {/if}
-      <dl class="facts">
-        <dt>Sleep</dt><dd>{sleepState(power)}</dd>
-        <dt>Fast Startup</dt><dd>{fastStartup(power)}</dd>
-        <dt>Sleep after idle</dt>
-        <dd>
-          <Badge tone={idle.tone}>{idle.title}</Badge>
-          {#if idle.text}<span class="muted"> {idle.text}</span>{/if}
-        </dd>
-        <dt>Last sleep</dt>
-        <dd>
-          {#if !power.last_sleep}<span class="muted">Not since Rubylight started</span>
-          {:else if power.last_sleep.error}<span class="error">Failed {ago(power.last_sleep.at)}: {power.last_sleep.error}</span>
-          {:else}{ago(power.last_sleep.at)}{/if}
-        </dd>
-      </dl>
-      {#each notes as note (note)}<p class="notice">{note}</p>{/each}
-
+      <!-- What is wrong, then its fix, then the facts behind it. -->
       <section class="fix" aria-label="Wake-on-LAN changes">
+        <p class="notice" class:warn={ready.tone === 'warn'} class:danger={ready.tone === 'danger'} role="status">{ready.text}</p>
         {#if power.fix.error}
           <p class="notice danger" role="alert">Could not read the adapters' wake settings: {power.fix.error}</p>
         {:else if changes.length}
           <p class="lead">Applying these changes lets devices wake this PC:</p>
           <ul class="changes">{#each changes as change (change)}<li>{change}</li>{/each}</ul>
-        {:else if !pending}
+        {:else if !pending && ready.tone !== 'ok'}
           <p class="muted lead">The wake settings need no changes.</p>
         {/if}
         {#each power.fix.skipped ?? [] as skipped (skipped)}<p class="notice warn">Not changed: {skipped}</p>{/each}
@@ -182,20 +142,70 @@
             </p>
           {/if}
         {/if}
+        <div class="row">
+          {#if changes.length || offered}
+            <Button variant="primary" busy={applying || pending} disabled={checking || pending || (!changes.length && !fastStartupOff)} onclick={apply}>Apply changes</Button>
+          {/if}
+          <Button icon="refresh" busy={checking} disabled={applying || pending} onclick={check}>Check again</Button>
+        </div>
       </section>
 
-      <div class="row">
-        {#if changes.length || offered}
-          <Button variant="primary" busy={applying || pending} disabled={checking || pending || (!changes.length && !fastStartupOff)} onclick={apply}>Apply changes</Button>
-        {/if}
-        <Button icon="refresh" busy={checking} disabled={applying || pending} onclick={check}>Check again</Button>
-        <a class="small" href="/settings/general?setting=sleep_after_idle_minutes" use:link>Change sleep after idle</a>
-      </div>
+      {#if power.wake.targets.length}
+        <ul class="targets" aria-label="Network adapters">
+          {#each power.wake.targets as target (target.mac)}
+            {@const primary = target.mac === power.wake.primary}
+            <!-- The adapter devices are sent already has its state in the panel's pill. -->
+            {@const about = [
+              ...(primary ? [] : [targetState(target).label]),
+              target.connected ? 'Connected' : 'Not connected',
+              ...(primary ? ['Sent to devices'] : []),
+              ...(target.route ? ["This console's connection"] : []),
+            ]}
+            <li class="target">
+              <span class="name">{adapterKind(target)} <span class="num">{target.mac}</span></span>
+              <span class="about">{about.join(' · ')}</span>
+              {#if target.checks.length}
+                <ul class="checks">
+                  {#each target.checks as item (item.id)}
+                    {@const result = checkState(item)}
+                    <li class={result.tone}>
+                      <Icon name={CHECK_ICONS[result.tone]} size={16} />
+                      <span class="check-name">{checkName(item.id)}{#if result.tone !== 'ok'}{' '}<span class="word">{result.word}</span>{/if}</span>
+                    </li>
+                  {/each}
+                </ul>
+              {/if}
+            </li>
+          {/each}
+        </ul>
+      {/if}
+
+      <dl class="facts">
+        <dt>Sleep</dt><dd>{sleepState(power)}</dd>
+        <dt>Fast Startup</dt><dd>{fastStartup(power)}</dd>
+        <dt>Sleep after idle</dt>
+        <dd>
+          <span class="tone-{idle.tone}">{idle.title}</span>
+          {#if idle.text}<span class="sub">{idle.text}</span>{/if}
+          <a class="sub" href="/settings/general?setting=sleep_after_idle_minutes" use:link>Change sleep after idle</a>
+        </dd>
+        <dt>Last sleep</dt>
+        <dd>
+          {#if !power.last_sleep}<span class="muted">Not since Rubylight started</span>
+          {:else if power.last_sleep.error}<span class="tone-danger">Failed {ago(power.last_sleep.at)}: {power.last_sleep.error}</span>
+          {:else}{ago(power.last_sleep.at)}{/if}
+        </dd>
+      </dl>
+      {#if notes.length}<ul class="notes">{#each notes as note (note)}<li>{note}</li>{/each}</ul>{/if}
     </div>
   {:else}<LoadState error={loadError} what="the wake status" slow="The first check reads every network adapter and can take half a minute." onretry={() => load(true)} />{/if}
 </Panel>
 
 <style>
+  .fix {
+    display: grid;
+    gap: var(--space-3);
+  }
   .targets {
     display: grid;
     gap: var(--space-3);
@@ -205,36 +215,58 @@
   }
   .target {
     display: grid;
-    gap: var(--space-2);
-    padding: var(--space-3);
+    gap: var(--space-1);
+    padding: var(--space-3) var(--space-4);
     border: 1px solid var(--line);
     border-radius: var(--radius);
     min-width: 0;
   }
-  .head {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--space-2);
-  }
   .name {
-    font-weight: var(--weight-medium);
+    font-weight: var(--weight-semibold);
     overflow-wrap: anywhere;
   }
-  .tags {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--space-2);
-  }
-  .checks {
-    /* The result badge keeps its width; on a phone the check's name wraps instead. */
-    grid-template-columns: fit-content(16em) minmax(max-content, 1fr);
+  .about {
+    color: var(--muted);
     font-size: var(--text-sm);
   }
-  .fix {
+  .checks {
     display: grid;
+    gap: var(--space-1);
+    margin: var(--space-2) 0 0;
+    padding: 0;
+    list-style: none;
+    font-size: var(--text-sm);
+  }
+  /* The name wraps beside its icon; the word keeps its width and follows the name. */
+  .checks li {
+    display: grid;
+    grid-template-columns: 16px minmax(0, 1fr);
+    align-items: start;
     gap: var(--space-2);
+  }
+  .checks :global(svg) {
+    margin-top: 2px;
+  }
+  .check-name {
+    color: var(--ink-2);
+  }
+  .word {
+    margin-left: var(--space-1);
+    white-space: nowrap;
+    font-weight: var(--weight-semibold);
+  }
+  .ok :global(svg) { color: var(--ok); }
+  .warn :global(svg), .warn .word, .tone-warn { color: var(--warn); }
+  .danger :global(svg), .danger .word, .tone-danger { color: var(--danger); }
+  .neutral :global(svg) { color: var(--muted); }
+  .sub {
+    display: block;
+    width: fit-content;
+    margin-top: 2px;
+    color: var(--muted);
+  }
+  a.sub {
+    color: var(--ink-2);
   }
   .lead {
     margin: 0;
@@ -244,10 +276,12 @@
     margin: 0;
     padding-left: var(--space-5);
   }
-  .error {
-    color: var(--danger);
-  }
-  .small {
+  .notes {
+    display: grid;
+    gap: var(--space-1);
+    margin: 0;
+    padding-left: var(--space-5);
+    color: var(--muted);
     font-size: var(--text-sm);
   }
 </style>

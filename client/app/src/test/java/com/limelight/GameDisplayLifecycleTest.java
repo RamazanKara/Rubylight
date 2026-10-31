@@ -39,7 +39,7 @@ public class GameDisplayLifecycleTest {
         Game game = Robolectric.buildActivity(Game.class).get();
         ReflectionHelpers.setField(game, "prefConfig", new PreferenceConfiguration());
 
-        ReflectionHelpers.callInstanceMethod(game, "logDisplayRefreshPolicy",
+        ReflectionHelpers.callInstanceMethod(game.videoOutput, "logDisplayRefreshPolicy",
                 ReflectionHelpers.ClassParameter.from(Display.class,
                         game.getWindowManager().getDefaultDisplay()));
 
@@ -54,14 +54,14 @@ public class GameDisplayLifecycleTest {
         PreferenceConfiguration prefs = new PreferenceConfiguration();
         prefs.vrr = true;
         ReflectionHelpers.setField(game, "prefConfig", prefs);
-        ReflectionHelpers.setField(game, "displaySignature",
-                ReflectionHelpers.callInstanceMethod(game, "displaySignature"));
+        ReflectionHelpers.setField(game.videoOutput, "displaySignature",
+                ReflectionHelpers.callInstanceMethod(game.videoOutput, "displaySignature"));
 
-        ReflectionHelpers.callInstanceMethod(game, "onDisplayModesChanged");
+        ReflectionHelpers.callInstanceMethod(game.videoOutput, "onDisplayModesChanged");
         String first = LimeLog.getRedactedLog();
         assertTrue(first.contains("Display refresh policy: api=29, display=0"));
         assertTrue(first.contains("arrSupported=unavailable, selected=max Hz"));
-        ReflectionHelpers.callInstanceMethod(game, "onDisplayModesChanged");
+        ReflectionHelpers.callInstanceMethod(game.videoOutput, "onDisplayModesChanged");
         assertEquals(first, LimeLog.getRedactedLog());
     }
 
@@ -103,7 +103,7 @@ public class GameDisplayLifecycleTest {
         ReflectionHelpers.setField(game, "streamView", local);
         ReflectionHelpers.setField(game, "panelMaxRefreshRate", 240f);
 
-        ReflectionHelpers.callInstanceMethod(game, "initializeVideoOutput");
+        ReflectionHelpers.callInstanceMethod(game.videoOutput, "initializeVideoOutput");
 
         float localHz = DisplayFrameRatePolicy.maxRefreshRate(game.getWindowManager().getDefaultDisplay());
         assertFalse(game.getIntent().hasExtra(OUTPUT_DISPLAY));
@@ -124,13 +124,13 @@ public class GameDisplayLifecycleTest {
         ReflectionHelpers.setField(game, "renderView", presentation.videoView());
         // A detach or output selection changes the next activity's intent before teardown ends.
         game.getIntent().removeExtra(OUTPUT_DISPLAY);
-        assertEquals(displayId, ((Display) ReflectionHelpers.callInstanceMethod(game, "getVideoDisplay")).getDisplayId());
+        assertEquals(displayId, ((Display) ReflectionHelpers.callInstanceMethod(game.videoOutput, "getVideoDisplay")).getDisplayId());
 
         ReflectionHelpers.setField(game, "externalPresentation", null);
         ReflectionHelpers.setField(game, "renderView", new StreamView(game));
         game.getIntent().putExtra(OUTPUT_DISPLAY, displayId);
         assertEquals(game.getWindowManager().getDefaultDisplay().getDisplayId(),
-                ((Display) ReflectionHelpers.callInstanceMethod(game, "getVideoDisplay")).getDisplayId());
+                ((Display) ReflectionHelpers.callInstanceMethod(game.videoOutput, "getVideoDisplay")).getDisplayId());
     }
 
     @Test public void externalTextureDestructionStopsDecoderBeforeFallbackAndOnlyOnce() {
@@ -171,7 +171,7 @@ public class GameDisplayLifecycleTest {
         RecordingGame game = Robolectric.buildActivity(RecordingGame.class).get();
         game.setIntent(new Intent().putExtra(OUTPUT_DISPLAY, 5));
         ReflectionHelpers.setField(game, "foreground", true);
-        ReflectionHelpers.callInstanceMethod(game, "returnVideoToDevice");
+        ReflectionHelpers.callInstanceMethod(game.videoOutput, "returnVideoToDevice");
         assertFalse(game.getIntent().hasExtra(OUTPUT_DISPLAY));
         assertEquals(Arrays.asList("finish"), game.events);
         assertNull(org.robolectric.Shadows.shadowOf(game).getNextStartedActivity());

@@ -59,7 +59,7 @@ final class GameMenuActions {
         game.keyboardInput.hidePcKeyboard();
         game.touchInput.setInputGrabState(false);
         game.suppressPipRefCount++;
-        game.updatePipAutoEnter();
+        game.videoOutput.updatePipAutoEnter();
         game.streamMenu = dialog;
         dialog.setOnDismissListener(ignored -> {
             if (game.streamMenu == dialog) {
@@ -69,13 +69,13 @@ final class GameMenuActions {
                 streamMenuSheet = null;
             }
             game.suppressPipRefCount--;
-            game.updatePipAutoEnter();
+            game.videoOutput.updatePipAutoEnter();
             Runnable action = game.streamMenuAction;
             game.streamMenuAction = null;
             if (game.foreground && game.connected && !game.isFinishing()) {
                 game.windowFocusActions.add(() -> {
                     game.touchInput.setInputGrabState(game.restoreInputAfterMenu);
-                    game.hideSystemUi(1000);
+                    game.videoOutput.hideSystemUi(1000);
                     if (action != null) {
                         action.run();
                     }
@@ -289,10 +289,10 @@ final class GameMenuActions {
         options.onscreenControls = game.prefConfig.onscreenController;
         options.gameControls = game.gameTouchControls != null;
         options.keyboardKeysShown = game.keyboardInput.isKeyboardOverlayVisible();
-        options.scalingAvailable = game.canScaleLive();
+        options.scalingAvailable = game.videoOutput.canScaleLive();
         options.zoomEnabled = game.desktopGestures != null && game.desktopGestures.enabled();
-        options.pictureInPicture = game.canEnterPictureInPicture();
-        options.externalDisplays = game.hasPresentationDisplays();
+        options.pictureInPicture = game.videoOutput.canEnterPictureInPicture();
+        options.externalDisplays = game.videoOutput.hasPresentationDisplays();
         options.automaticQuality = game.adaptation.supportsAdaptiveQuality();
         options.automaticBitrateOn = game.adaptation.isAdaptiveBitrateEnabled() || game.adaptation.isRateChangeBitrateOn();
         options.rateChange = game.rateChanges != null;
@@ -334,14 +334,14 @@ final class GameMenuActions {
             case MIC_BUTTON: action = () -> game.touchInput.setMicButtonShown(!game.prefConfig.micButton); break;
             case GAME_CONTROLS: action = game.gameTouchControls == null ? null : game.gameTouchControls::showMenu; break;
             case KEYBOARD_KEYS: action = game.keyboardInput::toggleKeyboardOverlay; break;
-            case VIDEO_SCALING: action = game::showVideoScalingDialog; break;
-            case ZOOM: action = game::toggleDesktopZoom; break;
+            case VIDEO_SCALING: action = game.videoOutput::showVideoScalingDialog; break;
+            case ZOOM: action = game.videoOutput::toggleDesktopZoom; break;
             case ZOOM_RESET: action = () -> {
                 game.desktopGestures.reset();
                 if (game.trackpadPointer != null) game.trackpadPointer.syncCursor();
             }; break;
-            case PICTURE_IN_PICTURE: action = game::enterPictureInPictureNow; break;
-            case VIDEO_OUTPUT: action = game::showVideoOutputDialog; break;
+            case PICTURE_IN_PICTURE: action = game.videoOutput::enterPictureInPictureNow; break;
+            case VIDEO_OUTPUT: action = game.videoOutput::showVideoOutputDialog; break;
             case BITRATE: action = game.adaptation::showBitrateDialog; break;
             case RATE_CHANGE: action = game.adaptation::showRateChangeDialog; break;
             case AUTOMATIC_QUALITY: action = game.adaptation::showAdaptiveQualityDialog; break;

@@ -46,8 +46,8 @@ public class GameRotateReconfigureTest {
         ReflectionHelpers.setField(activity, "decoderRenderer", new Renderer(activity, prefs, launchWidth, launchHeight));
         ReflectionHelpers.setField(activity, "streamOrientation", StreamOrientation.ROTATE);
         ReflectionHelpers.setField(activity, "hostShapesStream", true);
-        ReflectionHelpers.setField(activity, "launchWidth", launchWidth);
-        ReflectionHelpers.setField(activity, "launchHeight", launchHeight);
+        ReflectionHelpers.setField(activity.videoOutput, "launchWidth", launchWidth);
+        ReflectionHelpers.setField(activity.videoOutput, "launchHeight", launchHeight);
         ReflectionHelpers.setField(activity, "streamFps", 60);
         ReflectionHelpers.setField(activity, "connected", true);
         return activity;
@@ -57,20 +57,20 @@ public class GameRotateReconfigureTest {
     public void aTurnBeforeTheConnectionFinishedIsCorrectedOnceConnected() {
         // Launched in a portrait window; the phone turned to landscape while the stream connected.
         Game activity = connectedRotateStream(1080, 1920);
-        ReflectionHelpers.callInstanceMethod(activity, "startReconfigureTracking");
+        ReflectionHelpers.callInstanceMethod(activity.videoOutput, "startReconfigureTracking");
         ShadowLooper.idleMainLooper(2, TimeUnit.SECONDS);
         assertEquals(1, ReconfigureBridge.requests.size());
         assertArrayEquals(new int[] {1920, 1080, 60000}, ReconfigureBridge.requests.get(0));
 
         // Once turned, nothing more is asked.
-        ReflectionHelpers.callInstanceMethod(activity, "checkStreamReconfigure");
+        ReflectionHelpers.callInstanceMethod(activity.videoOutput, "checkStreamReconfigure");
         assertEquals(1, ReconfigureBridge.requests.size());
     }
 
     @Test
     public void aStreamThatStartedInTheWindowsShapeAsksForNothing() {
         Game activity = connectedRotateStream(1920, 1080);
-        ReflectionHelpers.callInstanceMethod(activity, "startReconfigureTracking");
+        ReflectionHelpers.callInstanceMethod(activity.videoOutput, "startReconfigureTracking");
         ShadowLooper.idleMainLooper(2, TimeUnit.SECONDS);
         assertTrue(ReconfigureBridge.requests.isEmpty());
     }

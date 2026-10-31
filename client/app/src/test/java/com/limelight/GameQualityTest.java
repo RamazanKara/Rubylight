@@ -43,7 +43,7 @@ public class GameQualityTest {
         requester.start(1920, 1080, 119880, 1920, 1080, 119880);
         for (boolean accepted : new boolean[] {false, true}) {
             QualityBridge.send = accepted;
-            assertEquals(accepted, (boolean) ReflectionHelpers.callInstanceMethod(game, "requestStreamReconfigure",
+            assertEquals(accepted, (boolean) ReflectionHelpers.callInstanceMethod(game.videoOutput, "requestStreamReconfigure",
                     ReflectionHelpers.ClassParameter.from(int[].class, new int[] {1920, 1080, 59940})));
             assertEquals(accepted ? 59940 : 119880, renderer.getStreamFrameRateMilliHz());
             assertEquals(accepted ? 59940 : 119880, requester.fpsMillihz());
@@ -82,7 +82,7 @@ public class GameQualityTest {
         Game game = reconfigurableGame();
         MediaCodecDecoderRenderer renderer = ReflectionHelpers.getField(game, "decoderRenderer");
         renderer.setStreamFrameRateMilliHz(120000);
-        ReflectionHelpers.callInstanceMethod(game, "startReconfigureTracking");
+        ReflectionHelpers.callInstanceMethod(game.videoOutput, "startReconfigureTracking");
         StreamReconfigureRequester requester = ReflectionHelpers.getField(game, "reconfigureRequester");
         assertEquals(120000, requester.fpsMillihz());
         PreferenceConfiguration config = ReflectionHelpers.getField(game, "prefConfig");
@@ -95,7 +95,7 @@ public class GameQualityTest {
             clearPendingQualityTarget(game);
             int before = QualityBridge.requests;
             ReflectionHelpers.setField(game, "panelMaxRefreshRate", 119.88f);
-            ReflectionHelpers.callInstanceMethod(game, "checkStreamReconfigure");
+            ReflectionHelpers.callInstanceMethod(game.videoOutput, "checkStreamReconfigure");
             assertEquals(before + 1, QualityBridge.requests);
             assertEquals(119880, QualityBridge.lastRate);
             assertEquals(119880, renderer.getStreamFrameRateMilliHz());
@@ -188,8 +188,8 @@ public class GameQualityTest {
             StreamPresentation presentation = new StreamPresentation(game, external, false);
             ReflectionHelpers.setField(game, "externalPresentation", presentation);
             ReflectionHelpers.setField(game, "renderView", presentation.videoView());
-            ReflectionHelpers.setField(game, "displaySignature",
-                    ReflectionHelpers.callInstanceMethod(game, "displaySignature"));
+            ReflectionHelpers.setField(game.videoOutput, "displaySignature",
+                    ReflectionHelpers.callInstanceMethod(game.videoOutput, "displaySignature"));
             if (automatic) {
                 PreferenceConfiguration config = ReflectionHelpers.getField(game, "prefConfig");
                 config.adaptiveQualityMode = AdaptiveQualityController.Mode.DETAIL;
@@ -225,9 +225,9 @@ public class GameQualityTest {
         Display.Mode[] originalModes = local.getSupportedModes();
         try {
             setDisplayMode(local, 1080, 1920, 60);
-            String before = ReflectionHelpers.callInstanceMethod(game, "displaySignature");
+            String before = ReflectionHelpers.callInstanceMethod(game.videoOutput, "displaySignature");
             setDisplayMode(local, 1440, 2560, 60);
-            String after = ReflectionHelpers.callInstanceMethod(game, "displaySignature");
+            String after = ReflectionHelpers.callInstanceMethod(game.videoOutput, "displaySignature");
             assertNotEquals(before, after);
             assertTrue(after.contains("2560x1440"));
         } finally {
@@ -252,7 +252,7 @@ public class GameQualityTest {
             QualityBridge.send = accepted;
             ReflectionHelpers.setField(game, "panelMaxRefreshRate", 60f);
             try {
-                ReflectionHelpers.callInstanceMethod(game, "checkStreamReconfigure");
+                ReflectionHelpers.callInstanceMethod(game.videoOutput, "checkStreamReconfigure");
                 assertEquals(accepted ? 60 : 120, (int) ReflectionHelpers.getField(game, "qualityMaxFps"));
                 assertEquals(accepted ? 60f : 120f, (float) ReflectionHelpers.getField(game, "streamPanelHz"), 0);
                 assertEquals(1, QualityBridge.requests);
@@ -286,7 +286,7 @@ public class GameQualityTest {
             assertEquals(90, (int) ReflectionHelpers.getField(game, "streamFps"));
             assertEquals(120f, (float) ReflectionHelpers.getField(game, "streamPanelHz"), 0);
             clearPendingQualityTarget(game);
-            ReflectionHelpers.callInstanceMethod(game, "checkStreamReconfigure");
+            ReflectionHelpers.callInstanceMethod(game.videoOutput, "checkStreamReconfigure");
             assertEquals(60, quality.ceiling().fps);
             assertEquals(60, (int) ReflectionHelpers.getField(game, "qualityMaxFps"));
             assertEquals(60f, (float) ReflectionHelpers.getField(game, "streamPanelHz"), 0);
@@ -315,12 +315,12 @@ public class GameQualityTest {
             }
             assertEquals(60, (int) ReflectionHelpers.getField(game, "streamFps"));
             ReflectionHelpers.setField(game, "panelMaxRefreshRate", 60f);
-            ReflectionHelpers.callInstanceMethod(game, "checkStreamReconfigure");
+            ReflectionHelpers.callInstanceMethod(game.videoOutput, "checkStreamReconfigure");
             assertEquals(60, (int) ReflectionHelpers.getField(game, "streamFps"));
             assertEquals(60f, (float) ReflectionHelpers.getField(game, "streamPanelHz"), 0);
             clearPendingQualityTarget(game);
             ReflectionHelpers.setField(game, "panelMaxRefreshRate", 120f);
-            ReflectionHelpers.callInstanceMethod(game, "checkStreamReconfigure");
+            ReflectionHelpers.callInstanceMethod(game.videoOutput, "checkStreamReconfigure");
             assertEquals(120, quality.ceiling().fps);
             assertEquals(120, (int) ReflectionHelpers.getField(game, "qualityMaxFps"));
         } finally {
@@ -338,7 +338,7 @@ public class GameQualityTest {
         ReflectionHelpers.setField(game, "panelMaxRefreshRate", 60f);
         QualityBridge.send = false;
         try {
-            ReflectionHelpers.callInstanceMethod(game, "checkStreamReconfigure");
+            ReflectionHelpers.callInstanceMethod(game.videoOutput, "checkStreamReconfigure");
             assertNull(ReflectionHelpers.getField(game, "adaptiveQuality"));
             assertEquals(120, (int) ReflectionHelpers.getField(game, "qualityMaxFps"));
             assertEquals(120f, (float) ReflectionHelpers.getField(game, "streamPanelHz"), 0);
@@ -425,7 +425,7 @@ public class GameQualityTest {
             // The host rejects a display change: Automatic quality stops for this stream.
             ReflectionHelpers.setField(game, "panelMaxRefreshRate", 60f);
             QualityBridge.send = false;
-            ReflectionHelpers.callInstanceMethod(game, "checkStreamReconfigure");
+            ReflectionHelpers.callInstanceMethod(game.videoOutput, "checkStreamReconfigure");
             assertNull(ReflectionHelpers.getField(game, "adaptiveQuality"));
             assertNull(ReflectionHelpers.getField(game, "adaptiveBitrate"));
         } finally {

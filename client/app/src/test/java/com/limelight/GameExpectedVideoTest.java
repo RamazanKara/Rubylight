@@ -51,7 +51,7 @@ public class GameExpectedVideoTest {
         ReflectionHelpers.callInstanceMethod(game.overlays, "refuseHdr",
                 ReflectionHelpers.ClassParameter.from(HdrPolicy.Refusal.class, HdrPolicy.Refusal.DISPLAY_WITHOUT_HDR10));
         // The poll runs every second for the rest of the stream; it must not add the refusal again.
-        for (int i = 0; i < 3; i++) ReflectionHelpers.callInstanceMethod(game, "checkHdrStatus");
+        for (int i = 0; i < 3; i++) ReflectionHelpers.callInstanceMethod(game.videoOutput, "checkHdrStatus");
 
         String text = game.getString(R.string.stream_hdr_display_unsupported);
         assertEquals(1, count(messages.notes(), text));
@@ -66,7 +66,7 @@ public class GameExpectedVideoTest {
             StreamMessages messages = ReflectionHelpers.getField(game, "messages");
             ReflectionHelpers.callInstanceMethod(game.overlays, "refuseHdr",
                     ReflectionHelpers.ClassParameter.from(HdrPolicy.Refusal.class, refusal));
-            ReflectionHelpers.callInstanceMethod(game, "checkHdrStatus");
+            ReflectionHelpers.callInstanceMethod(game.videoOutput, "checkHdrStatus");
             assertEquals(refusal.toString(), 1, messages.notes().size());
         }
     }
@@ -121,13 +121,13 @@ public class GameExpectedVideoTest {
     @Test public void theRefreshSwitchPollIsPostedOnConnectAndRemovedOnTeardown() {
         Game game = game();
         Handler handler = ReflectionHelpers.getField(game, "bitrateHandler");
-        Runnable poll = ReflectionHelpers.getField(game, "pollRefreshSwitch");
+        Runnable poll = ReflectionHelpers.getField(game.videoOutput, "pollRefreshSwitch");
         assertFalse(handler.hasCallbacks(poll));
 
-        ReflectionHelpers.callInstanceMethod(game, "startRefreshSwitchPolling");
+        ReflectionHelpers.callInstanceMethod(game.videoOutput, "startRefreshSwitchPolling");
         assertTrue("Posted when the stream connects", handler.hasCallbacks(poll));
         // A second connect (recovery) must not leave two polls running.
-        ReflectionHelpers.callInstanceMethod(game, "startRefreshSwitchPolling");
+        ReflectionHelpers.callInstanceMethod(game.videoOutput, "startRefreshSwitchPolling");
         assertTrue(handler.hasCallbacks(poll));
 
         ReflectionHelpers.setField(game, "prefConfig", new PreferenceConfiguration());
@@ -146,7 +146,7 @@ public class GameExpectedVideoTest {
         StreamMessages messages = ReflectionHelpers.getField(game, "messages");
         messages.status("refresh", "stays at 60");
         messages.status("hdr", "PC reports SDR");
-        ReflectionHelpers.callInstanceMethod(game, "stopRefreshSwitchPolling");
+        ReflectionHelpers.callInstanceMethod(game.videoOutput, "stopRefreshSwitchPolling");
         assertTrue(messages.notes().isEmpty());
     }
 }

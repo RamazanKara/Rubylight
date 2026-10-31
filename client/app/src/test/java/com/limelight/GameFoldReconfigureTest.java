@@ -56,9 +56,9 @@ public class GameFoldReconfigureTest {
         ReflectionHelpers.setField(activity, "prefConfig", prefs);
         ReflectionHelpers.setField(activity, "decoderRenderer", new Renderer(activity, prefs));
         ReflectionHelpers.setField(activity, "nativeResolutionStream", true);
-        ReflectionHelpers.setField(activity, "launchWidth", COVER_WIDTH);
-        ReflectionHelpers.setField(activity, "launchHeight", COVER_HEIGHT);
-        ReflectionHelpers.setField(activity, "launchPanel", launchPanel);
+        ReflectionHelpers.setField(activity.videoOutput, "launchWidth", COVER_WIDTH);
+        ReflectionHelpers.setField(activity.videoOutput, "launchHeight", COVER_HEIGHT);
+        ReflectionHelpers.setField(activity.videoOutput, "launchPanel", launchPanel);
         ReflectionHelpers.setField(activity, "streamFps", 60);
         ReflectionHelpers.setField(activity, "connected", true);
         return activity;
@@ -67,13 +67,13 @@ public class GameFoldReconfigureTest {
     @Test
     public void anUnfoldWhileConnectingAsksForTheInnerScreensSize() {
         Game activity = connectedNativeStream(COVER_WIDTH + "x" + COVER_HEIGHT);
-        ReflectionHelpers.callInstanceMethod(activity, "startReconfigureTracking");
+        ReflectionHelpers.callInstanceMethod(activity.videoOutput, "startReconfigureTracking");
         ShadowLooper.idleMainLooper(2, TimeUnit.SECONDS);
         assertEquals(1, GameRotateReconfigureTest.ReconfigureBridge.requests.size());
         assertArrayEquals(new int[] {800, 720, 60000}, GameRotateReconfigureTest.ReconfigureBridge.requests.get(0));
 
         // Once resized, nothing more is asked.
-        ReflectionHelpers.callInstanceMethod(activity, "checkStreamReconfigure");
+        ReflectionHelpers.callInstanceMethod(activity.videoOutput, "checkStreamReconfigure");
         assertEquals(1, GameRotateReconfigureTest.ReconfigureBridge.requests.size());
     }
 
@@ -81,7 +81,7 @@ public class GameFoldReconfigureTest {
     public void aStreamStartedOnTheScreenInUseAsksForNothing() {
         // The cutout-safe or a custom size keeps its own size while the screen stays the same.
         Game activity = connectedNativeStream("800x720");
-        ReflectionHelpers.callInstanceMethod(activity, "startReconfigureTracking");
+        ReflectionHelpers.callInstanceMethod(activity.videoOutput, "startReconfigureTracking");
         ShadowLooper.idleMainLooper(2, TimeUnit.SECONDS);
         assertTrue(GameRotateReconfigureTest.ReconfigureBridge.requests.isEmpty());
     }

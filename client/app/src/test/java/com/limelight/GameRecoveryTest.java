@@ -928,7 +928,7 @@ public class GameRecoveryTest {
         Game game = establishedGame();
         try {
             game.onPause();
-            ReflectionHelpers.callInstanceMethod(game, "returnVideoToDevice");
+            ReflectionHelpers.callInstanceMethod(game.videoOutput, "returnVideoToDevice");
             Intent resume = ReflectionHelpers.getField(game, "stoppedStreamResumeIntent");
             assertNotNull(resume);
             assertTrue(resume.hasExtra("rubylight.tripBudget"));
@@ -1639,7 +1639,7 @@ public class GameRecoveryTest {
         ReflectionHelpers.setField(game, "recoveryAppId", 73);
         ReflectionHelpers.setField(game, "recoveryAppUuid", "captured-game");
         try {
-            ReflectionHelpers.callInstanceMethod(game, "returnVideoToDevice");
+            ReflectionHelpers.callInstanceMethod(game.videoOutput, "returnVideoToDevice");
             android.content.Intent retry = awaitStartedActivity(game);
             assertEquals(73, retry.getIntExtra(Game.EXTRA_APP_ID, 0));
             assertEquals("captured-game", retry.getStringExtra(Game.EXTRA_APP_UUID));

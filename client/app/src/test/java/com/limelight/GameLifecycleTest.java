@@ -503,7 +503,7 @@ public class GameLifecycleTest {
     @Config(qualifiers = "sw600dp-w1000dp-h800dp")
     public void largeWindowsDoNotForceTheDisplayIntoLandscape() {
         Game activity = Robolectric.buildActivity(Game.class).get();
-        ReflectionHelpers.callInstanceMethod(activity, "setPreferredOrientationForCurrentDisplay");
+        ReflectionHelpers.callInstanceMethod(activity.videoOutput, "setPreferredOrientationForCurrentDisplay");
         assertEquals(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_FULL_USER, activity.getRequestedOrientation());
     }
 
@@ -531,7 +531,7 @@ public class GameLifecycleTest {
                 ReflectionHelpers.setField(activity, "prefConfig", prefs);
                 ReflectionHelpers.setField(activity, "streamView", view);
                 ReflectionHelpers.setField(activity, "renderView", view);
-                ReflectionHelpers.callInstanceMethod(activity, "prepareDisplayForRendering");
+                ReflectionHelpers.callInstanceMethod(activity.videoOutput, "prepareDisplayForRendering");
                 assertArrayEquals(mode == UpscalingPolicy.Mode.OFF ? new int[] {1280, 720} : new int[2],
                         bufferSize);
                 view.measure(View.MeasureSpec.makeMeasureSpec(2400, View.MeasureSpec.EXACTLY),

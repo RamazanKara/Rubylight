@@ -322,7 +322,7 @@ final class GameOverlays {
 
     private String displayRefreshOverlayLine() {
         if (!game.prefConfig.vrr) return "";
-        Display display = game.getVideoDisplay();
+        Display display = game.videoOutput.getVideoDisplay();
         float modeRefreshRate = Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ?
                 display.getMode().getRefreshRate() : display.getRefreshRate();
         return "\n" + game.getString(R.string.perf_overlay_vrr, modeRefreshRate, display.getRefreshRate(),

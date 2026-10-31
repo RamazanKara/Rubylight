@@ -45,7 +45,7 @@ public class GameFrameRateTest {
         Surface surface = new Surface(texture);
         try {
             FrameRateSurface vote = Shadow.extract(surface);
-            ReflectionHelpers.callInstanceMethod(activity, "voteSurfaceFrameRate",
+            ReflectionHelpers.callInstanceMethod(activity.videoOutput, "voteSurfaceFrameRate",
                     ReflectionHelpers.ClassParameter.from(Surface.class, surface));
             assertEquals(120, vote.frameRate, 0);
             assertEquals(Surface.FRAME_RATE_COMPATIBILITY_FIXED_SOURCE, vote.compatibility);
@@ -53,7 +53,7 @@ public class GameFrameRateTest {
 
             // No stream rate known yet: ARR votes the panel's top rate, seamless only.
             ReflectionHelpers.setField(activity, "useArr", true);
-            ReflectionHelpers.callInstanceMethod(activity, "voteSurfaceFrameRate",
+            ReflectionHelpers.callInstanceMethod(activity.videoOutput, "voteSurfaceFrameRate",
                     ReflectionHelpers.ClassParameter.from(Surface.class, surface));
             assertEquals(120, vote.frameRate, 0);
             assertEquals(Surface.FRAME_RATE_COMPATIBILITY_FIXED_SOURCE, vote.compatibility);
@@ -175,7 +175,7 @@ public class GameFrameRateTest {
             // tracking begins. Tracking must update the real surface, not only its stored FPS.
             renderer.setStreamFrameRateMilliHz(59_940);
             assertEquals(60f, vote.frameRate, 0);
-            ReflectionHelpers.callInstanceMethod(activity, "startReconfigureTracking");
+            ReflectionHelpers.callInstanceMethod(activity.videoOutput, "startReconfigureTracking");
 
             assertEquals(59.94f, vote.frameRate, 0);
             assertEquals(59.94f, (float) ReflectionHelpers.getField(activity, "appSurfaceFrameRateVote"), 0);
@@ -212,21 +212,21 @@ public class GameFrameRateTest {
             assertEquals(120f, vote.frameRate, 0);
 
             // A half-rate verdict on the old vote does not carry over to the new one.
-            DisplayFrameRatePolicy.ArrHalfRateCheck check = ReflectionHelpers.getField(activity, "arrHalfRate");
+            DisplayFrameRatePolicy.ArrHalfRateCheck check = ReflectionHelpers.getField(activity.videoOutput, "arrHalfRate");
             for (long t = 0; t <= DisplayFrameRatePolicy.ArrHalfRateCheck.HOLD_MS; t += 1000) {
                 check.update(t, 120f, 60f, 60f, 120f);
             }
             assertTrue(check.flagged());
 
             // A 0x553C rate change or a reconfigure moves the stream to 90 fps: ARR is told at once.
-            ReflectionHelpers.callInstanceMethod(activity, "setStreamFrameRate",
+            ReflectionHelpers.callInstanceMethod(activity.videoOutput, "setStreamFrameRate",
                     ReflectionHelpers.ClassParameter.from(int.class, 90_000));
             assertEquals(90f, vote.frameRate, 0);
             assertEquals(Surface.FRAME_RATE_COMPATIBILITY_FIXED_SOURCE, vote.compatibility);
             assertEquals(Surface.CHANGE_FRAME_RATE_ONLY_IF_SEAMLESS, vote.strategy);
             assertFalse(check.flagged());
 
-            ReflectionHelpers.callInstanceMethod(activity, "setStreamFrameRate",
+            ReflectionHelpers.callInstanceMethod(activity.videoOutput, "setStreamFrameRate",
                     ReflectionHelpers.ClassParameter.from(int.class, 59_940));
             assertEquals(59.94f, vote.frameRate, 0.001f);
             assertEquals(Surface.CHANGE_FRAME_RATE_ONLY_IF_SEAMLESS, vote.strategy);
@@ -267,15 +267,15 @@ public class GameFrameRateTest {
             // and the start-of-stream vote is not made again seamless-only (the status line keeps
             // its reason).
             renderer.contentMilliHz = 60_000;
-            ReflectionHelpers.callInstanceMethod(activity, "voteContentRate");
+            ReflectionHelpers.callInstanceMethod(activity.videoOutput, "voteContentRate");
             assertEquals(120f, vote.frameRate, 0);
             assertEquals(Surface.CHANGE_FRAME_RATE_ALWAYS, vote.strategy);
-            assertFalse((boolean) ReflectionHelpers.getField(activity, "appSurfaceSeamlessOnly"));
+            assertFalse((boolean) ReflectionHelpers.getField(activity.videoOutput, "appSurfaceSeamlessOnly"));
 
             // A 90 fps game would judder at 120: 90 is a seamless alternative.
             ShadowSystemClock.advanceBy(Duration.ofSeconds(3));
             renderer.contentMilliHz = 90_000;
-            ReflectionHelpers.callInstanceMethod(activity, "voteContentRate");
+            ReflectionHelpers.callInstanceMethod(activity.videoOutput, "voteContentRate");
             assertEquals(90f, vote.frameRate, 0);
             assertEquals(Surface.CHANGE_FRAME_RATE_ONLY_IF_SEAMLESS, vote.strategy);
 
@@ -284,14 +284,14 @@ public class GameFrameRateTest {
                     RefreshSwitchMonitorTest.mode(3, 120f));
             ShadowSystemClock.advanceBy(Duration.ofSeconds(3));
             renderer.contentMilliHz = 45_000;
-            ReflectionHelpers.callInstanceMethod(activity, "voteContentRate");
+            ReflectionHelpers.callInstanceMethod(activity.videoOutput, "voteContentRate");
             assertEquals(120f, vote.frameRate, 0);
 
             // A lower refresh rate allowed: the vote without VRR, the game's own 60.
             prefs.reduceRefreshRate = true;
             ShadowSystemClock.advanceBy(Duration.ofSeconds(3));
             renderer.contentMilliHz = 60_000;
-            ReflectionHelpers.callInstanceMethod(activity, "voteContentRate");
+            ReflectionHelpers.callInstanceMethod(activity.videoOutput, "voteContentRate");
             assertEquals(60f, vote.frameRate, 0);
             assertEquals(Surface.CHANGE_FRAME_RATE_ONLY_IF_SEAMLESS, vote.strategy);
         } finally {
@@ -302,7 +302,7 @@ public class GameFrameRateTest {
     }
 
     private static void vote(Game activity, Surface surface) {
-        ReflectionHelpers.callInstanceMethod(activity, "voteSurfaceFrameRate",
+        ReflectionHelpers.callInstanceMethod(activity.videoOutput, "voteSurfaceFrameRate",
                 ReflectionHelpers.ClassParameter.from(Surface.class, surface));
     }
 
@@ -327,7 +327,7 @@ public class GameFrameRateTest {
         requester.start(1280, 720, 60000, 1280, 720, 60000);
 
         ReconfigureBridge.send = false;
-        ReflectionHelpers.callInstanceMethod(activity, "checkStreamReconfigure");
+        ReflectionHelpers.callInstanceMethod(activity.videoOutput, "checkStreamReconfigure");
         assertEquals(60, (int) ReflectionHelpers.getField(activity, "streamFps"));
         assertEquals(60, prefs.fps);
         assertEquals(60, (int) ReflectionHelpers.getField(renderer, "refreshRate"));
@@ -335,7 +335,7 @@ public class GameFrameRateTest {
         assertEquals(0, bitrate.sample(16000, true, false, 0, 10));
 
         ReconfigureBridge.send = true;
-        ReflectionHelpers.callInstanceMethod(activity, "checkStreamReconfigure");
+        ReflectionHelpers.callInstanceMethod(activity.videoOutput, "checkStreamReconfigure");
         int streamFps = ReflectionHelpers.getField(activity, "streamFps");
         assertEquals(120, streamFps);
         assertEquals(120, prefs.fps);

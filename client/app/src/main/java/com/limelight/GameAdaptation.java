@@ -367,7 +367,7 @@ final class GameAdaptation {
         if (outcome.takesBitrate) game.currentBitrate = result.bitrateKbps;
         if (result.fpsChanged() && result.fpsMillihz > 0 && result.fpsMillihz != game.reconfigureRequester.fpsMillihz()) {
             game.reconfigureRequester.rateChanged(result.fpsMillihz);
-            game.setStreamFrameRate(result.fpsMillihz);
+            game.videoOutput.setStreamFrameRate(result.fpsMillihz);
         }
         if (answer == StreamRateChanges.Answer.AUTOMATIC_STOPPED) {
             game.bitrateHandler.removeCallbacks(game.updateRateChangeBitrate);
@@ -560,7 +560,7 @@ final class GameAdaptation {
     boolean applyAdaptiveQuality(AdaptiveQualityController.Target target, long now, int ceilingMilliHz) {
         int[] request = target.request();
         if (target.fps == Math.round(ceilingMilliHz / 1000f)) request[2] = ceilingMilliHz;
-        if (!game.requestStreamReconfigure(request)) {
+        if (!game.videoOutput.requestStreamReconfigure(request)) {
             stopAdaptiveQualityWithError();
             return false;
         }
@@ -595,7 +595,7 @@ final class GameAdaptation {
                     dialog.dismiss();
                     startAdaptiveQuality();
                     if (qualityMode() == AdaptiveQualityController.Mode.OFF && supportsAdaptiveQuality()) {
-                        game.requestStreamReconfigure(new int[] {game.qualityMaxWidth, game.qualityMaxHeight, qualityCeilingFrameRateMilliHz()});
+                        game.videoOutput.requestStreamReconfigure(new int[] {game.qualityMaxWidth, game.qualityMaxHeight, qualityCeilingFrameRateMilliHz()});
                     }
                 })
                 .setNeutralButton(R.string.quality_about, (dialog, which) ->

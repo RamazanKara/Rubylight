@@ -8,7 +8,6 @@ import com.limelight.binding.input.ControllerHandler;
 import com.limelight.binding.input.KeyboardTranslator;
 import com.limelight.binding.input.capture.InputCaptureManager;
 import com.limelight.binding.input.capture.InputCaptureProvider;
-import com.limelight.binding.input.touch.TouchMode;
 import com.limelight.binding.input.touch.TrackpadPointer;
 import com.limelight.binding.input.driver.UsbDriverService;
 import com.limelight.binding.input.evdev.EvdevListener;
@@ -19,7 +18,6 @@ import com.limelight.binding.video.DecoderSetupFailure;
 import com.limelight.binding.video.PackedFallback;
 import com.limelight.binding.video.DiscardingDecoderRenderer;
 import com.limelight.binding.video.DisplayCapsReporter;
-import com.limelight.binding.video.DisplayRefreshDiagnostics;
 import com.limelight.binding.video.HdrFormatPolicy;
 import com.limelight.binding.video.HdrPolicy;
 import com.limelight.binding.video.LinkNoticeStatus;
@@ -29,7 +27,6 @@ import com.limelight.binding.video.PerfOverlayListener;
 import com.limelight.binding.video.PerformanceOverlay;
 import com.limelight.binding.video.Sdr10Policy;
 import com.limelight.binding.video.StagedStreamExit;
-import com.limelight.binding.video.StreamResizePolicy;
 import com.limelight.binding.video.UpscalingPolicy;
 import com.limelight.computers.HostCapabilityCache;
 import com.limelight.computers.HostNotices;
@@ -47,7 +44,6 @@ import com.limelight.nvstream.http.NvApp;
 import com.limelight.nvstream.http.NvHTTP;
 import com.limelight.nvstream.jni.MoonBridge;
 import com.limelight.preferences.GlPreferences;
-import com.limelight.preferences.HostDisplayChoice;
 import com.limelight.preferences.PreferenceConfiguration;
 import com.limelight.ui.GameGestures;
 import com.limelight.ui.HostCursorShapes;
@@ -56,9 +52,7 @@ import com.limelight.ui.LegacyKeyboardInsets;
 import com.limelight.ui.PcKeyboardOverlay;
 import com.limelight.ui.StreamOrientation;
 import com.limelight.ui.StreamView;
-import com.limelight.ui.VideoScaling;
 import com.limelight.utils.Dialog;
-import com.limelight.utils.HdrBrightness;
 import com.limelight.utils.NetworkGrace;
 import com.limelight.utils.LaunchSource;
 import com.limelight.utils.ServerHelper;
@@ -70,18 +64,12 @@ import android.annotation.SuppressLint;
 import android.annotation.TargetApi;
 import android.app.Activity;
 import androidx.appcompat.app.AlertDialog;
-import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsCompat;
 import androidx.core.view.WindowInsetsControllerCompat;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
-import com.limelight.ui.NavigationDialogBuilder;
-import android.app.PictureInPictureParams;
 import android.app.PendingIntent;
-import android.app.RemoteAction;
 import android.content.BroadcastReceiver;
-import android.content.IntentFilter;
-import android.graphics.drawable.Icon;
 import com.limelight.ui.PictureInPicturePolicy;
 import android.app.Service;
 import android.content.ComponentName;
@@ -91,12 +79,9 @@ import android.content.ServiceConnection;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.content.res.Configuration;
-import android.graphics.Point;
 import android.graphics.SurfaceTexture;
-import android.graphics.Rect;
 import android.hardware.input.InputManager;
 import android.media.AudioManager;
-import android.media.MediaFormat;
 import android.net.ConnectivityManager;
 import android.net.wifi.WifiManager;
 import android.os.Build;
@@ -106,7 +91,6 @@ import android.os.Looper;
 import android.os.SystemClock;
 import android.os.IBinder;
 import android.preference.PreferenceManager;
-import android.util.Rational;
 import android.view.Display;
 import android.view.InputDevice;
 import android.view.KeyEvent;
@@ -146,6 +130,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     final GameMenuActions menuActions = new GameMenuActions(this);
     final GameAdaptation adaptation = new GameAdaptation(this);
     final GameRecovery streamRecovery = new GameRecovery(this);
+    final GameVideoOutput videoOutput = new GameVideoOutput(this);
 
     TrackpadPointer trackpadPointer;
     // Set while the host sends its cursor shapes for the Local cursor; read on the control thread.
@@ -177,9 +162,9 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     boolean displayedFailureDialog = false;
     boolean connecting = false;
     volatile boolean connected = false;
-    private boolean autoEnterPip = false;
+    boolean autoEnterPip = false;
     private com.limelight.ui.AdaptiveLayout adaptiveLayout;
-    private boolean surfaceCreated = false;
+    boolean surfaceCreated = false;
     private boolean attemptedConnection = false;
     volatile Thread connectionStopThread;
     StreamRecoveryPolicy recoveryPolicy = new StreamRecoveryPolicy(0, 0);
@@ -347,59 +332,50 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             bitrateHandler.postDelayed(this, 1000);
         }
     };
-    private String pcName;
+    String pcName;
     String appName;
     NvApp app;
-    private float desiredRefreshRate;
-    private float panelMaxRefreshRate;
+    float desiredRefreshRate;
+    float panelMaxRefreshRate;
     // Mid-stream reconfigure (0x5532): a stream at the phone's native resolution, or at the
     // panel's top refresh rate, follows fold, window and panel changes without reconnecting.
-    private boolean nativeResolutionStream;
-    private boolean fpsFollowsDisplay;
+    boolean nativeResolutionStream;
+    boolean fpsFollowsDisplay;
     int streamFps;
-    private float streamPanelHz;
-    private boolean streamStartedLandscape = true;
+    float streamPanelHz;
     // The Orientation setting, and whether the host draws this stream at the shape asked for (its
     // virtual display), so a turned window can ask for a turned stream.
-    private int streamOrientation = StreamOrientation.AUTO;
-    private boolean hostShapesStream;
-    private int launchWidth, launchHeight;
-    // The screen's own resolution when the stream was asked for; null until then.
-    private String launchPanel;
+    int streamOrientation = StreamOrientation.AUTO;
+    boolean hostShapesStream;
     private int lastWindowOrientation = Configuration.ORIENTATION_UNDEFINED;
-    private boolean orientationNoticeShown;
-    private String displaySignature = "";
-    private int lastPaneWidth, lastPaneHeight;
     final StreamReconfigureRequester reconfigureRequester = new StreamReconfigureRequester();
-    private final Runnable checkReconfigure = this::checkStreamReconfigure;
+    final Runnable checkReconfigure = videoOutput::checkStreamReconfigure;
     private final android.hardware.display.DisplayManager.DisplayListener inputDisplayListener =
             new android.hardware.display.DisplayManager.DisplayListener() {
                 @Override public void onDisplayAdded(int displayId) {}
                 @Override public void onDisplayRemoved(int displayId) {
-                    Display video = getVideoDisplay();
+                    Display video = videoOutput.getVideoDisplay();
                     if (video.getDisplayId() == displayId) noteVideoDisplay(video, true);
                     if (externalPresentation != null && externalPresentation.getDisplay().getDisplayId() == displayId) {
-                        returnVideoToDevice();
+                        videoOutput.returnVideoToDevice();
                     }
                 }
                 @Override public void onDisplayChanged(int displayId) {
-                    Display display = getVideoDisplay();
+                    Display display = videoOutput.getVideoDisplay();
                     if (display.getDisplayId() == displayId) noteVideoDisplay(display, false);
                     if (conn != null && display.getDisplayId() == displayId) {
-                        updateInputPollingRate();
+                        videoOutput.updateInputPollingRate();
                         // Also fires when a foldable moves the stream to its other screen.
-                        reportDisplayCaps();
-                        onDisplayModesChanged();
+                        videoOutput.reportDisplayCaps();
+                        videoOutput.onDisplayModesChanged();
                     }
                 }
             };
     // Whether this stream asked for HDR (setting on, HDR10 display and decoder).
-    private boolean streamHdr;
+    boolean streamHdr;
     // 10-bit formats offered for 10-bit SDR (the setting), without asking the PC for HDR.
-    private boolean streamSdr10;
-    private Boolean sdr10LastHostHdr;
-    private HdrPolicy.Status lastHdrStatus = HdrPolicy.Status.QUIET;
-    private DisplayCapsReporter displayCapsReporter;
+    boolean streamSdr10;
+    DisplayCapsReporter displayCapsReporter;
 
     // Asks a host that sends per-frame timing reports (0x5536) for them, once per connection.
     // Feeds the overlay's host latency line and the latency CSV; the stream description's
@@ -439,107 +415,11 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         clipboardSync.connectionStarted(hasWindowFocus());
     }
 
-    // Reports the output's HDR capabilities to Rubylight 2.2.0+ hosts. Keep luminance fixed on
-    // that output: brightness changes must not reconfigure HDR on older hosts.
-    private void reportDisplayCaps() {
-        if (!connected || displayCapsReporter == null ||
-                !MoonBridge.hostSupportsControlMessage(MoonBridge.CONTROL_MESSAGE_DISPLAY_CAPS)) {
-            return;
-        }
-        Display display = getVideoDisplay();
-        boolean displayHdr = false;
-        float maxNits = 0, maxAverageNits = 0, minNits = 0;
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            // getHdrCapabilities() returns null on some devices (Lenovo Mirage Solo, Android 8.0).
-            Display.HdrCapabilities hdrCaps = display.getHdrCapabilities();
-            if (hdrCaps != null) {
-                // HLG alone makes this an HDR output only while the stream is HLG: never for a PQ stream.
-                displayHdr = HdrPolicy.reportsHdrOutput(hdrCaps.getSupportedHdrTypes(), decoderRenderer != null ?
-                        decoderRenderer.getStreamTransfer() : MediaFormat.COLOR_TRANSFER_ST2084);
-                maxNits = hdrCaps.getDesiredMaxLuminance();
-                maxAverageNits = hdrCaps.getDesiredMaxAverageLuminance();
-                minNits = hdrCaps.getDesiredMinLuminance();
-            }
-        }
-        String output = Integer.toString(display.getDisplayId());
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            Display.Mode mode = display.getMode();
-            // Foldable panels can share a logical display ID. Pixel geometry distinguishes them
-            // without reacting to brightness, rotation, or an automatic refresh-rate change.
-            output += ":" + Math.min(mode.getPhysicalWidth(), mode.getPhysicalHeight()) + "x" +
-                    Math.max(mode.getPhysicalWidth(), mode.getPhysicalHeight());
-        }
-        DisplayCapsReporter.Caps sent = displayCapsReporter.update(output, streamHdr && displayHdr,
-                maxNits, maxAverageNits, minNits, hdrSdrRatio(display));
-        if (sent != null) {
-            LimeLog.info("Display luminance sent to host: " + sent);
-        }
-    }
-
-    // Android's HDR/SDR ratio (API 34+; the larger of the current and highest on Android 16), for
-    // an output that reports no peak. NaN when there is none.
-    private static float hdrSdrRatio(Display display) {
-        if (Build.VERSION.SDK_INT < 34 || !display.isHdrSdrRatioAvailable()) {
-            return Float.NaN;
-        }
-        float current = display.getHdrSdrRatio();
-        float highest = Build.VERSION.SDK_INT >= 36 ? display.getHighestHdrSdrRatio() : current;
-        return HdrBrightness.bestHdrSdrRatio(current, highest);
-    }
-
-    // The output's luminance for the launch query of hosts other than Rubylight (Rubylight takes
-    // the DisplayCaps control message instead), as Moonlight V+ sends it. Null when unknown.
-    static HdrBrightness launchLuminance(Display display) {
-        float maxNits = Float.NaN, maxAverageNits = Float.NaN, minNits = Float.NaN;
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            Display.HdrCapabilities hdrCaps = display.getHdrCapabilities();
-            if (hdrCaps != null) {
-                maxNits = hdrCaps.getDesiredMaxLuminance();
-                maxAverageNits = hdrCaps.getDesiredMaxAverageLuminance();
-                minNits = hdrCaps.getDesiredMinLuminance();
-            }
-        }
-        return HdrBrightness.fromDisplay(maxNits, minNits, maxAverageNits, hdrSdrRatio(display));
-    }
-
-    private void updateInputPollingRate() {
-        Display display = getWindowManager().getDefaultDisplay();
-        conn.setInputPollingRate(Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ?
-                display.getMode().getRefreshRate() : display.getRefreshRate());
-    }
     boolean useArr;
-    private final DisplayRefreshDiagnostics displayRefreshDiagnostics = new DisplayRefreshDiagnostics();
     // The last successful vote made by this activity, not a measurement of the display's rate.
-    private Float appSurfaceFrameRateVote;
-    // Follows the content rate measured from the host's frame times (checkbox_content_rate_frame_rate).
-    private final com.limelight.binding.video.DisplayFrameRatePolicy.ContentRateVote contentRateVote =
-            new com.limelight.binding.video.DisplayFrameRatePolicy.ContentRateVote();
-    // Flags ARR showing about half the rendered frames (see checkArrRate).
-    private final com.limelight.binding.video.DisplayFrameRatePolicy.ArrHalfRateCheck arrHalfRate =
-            new com.limelight.binding.video.DisplayFrameRatePolicy.ArrHalfRateCheck();
-    // Whether the vote above allowed only seamless switches (the content rate vote, and every vote on API 30).
-    private boolean appSurfaceSeamlessOnly;
-    // Tells why the screen did not follow the vote (see RefreshSwitchDiagnosis); created once connected.
-    private com.limelight.binding.video.RefreshSwitchMonitor refreshSwitchMonitor;
-    private final Runnable pollRefreshSwitch = new Runnable() {
-        @Override public void run() {
-            if (!connected || isFinishing()) return;
-            checkRefreshSwitch();
-            checkArrRate();
-            checkHdrStatus();
-            checkVulkanPace();
-            bitrateHandler.postDelayed(this, 1000);
-        }
-    };
-    private final Runnable pollContentRateVote = new Runnable() {
-        @Override public void run() {
-            if (!connected || isFinishing()) return;
-            voteContentRate();
-            bitrateHandler.postDelayed(this, 1000);
-        }
-    };
-    private PendingIntent pipDisconnectIntent;
-    private final BroadcastReceiver pipReceiver = new BroadcastReceiver() {
+    Float appSurfaceFrameRateVote;
+    PendingIntent pipDisconnectIntent;
+    final BroadcastReceiver pipReceiver = new BroadcastReceiver() {
         @Override public void onReceive(Context context, Intent intent) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
                     PictureInPicturePolicy.canDisconnect(connected, isInPictureInPictureMode(), app.getRole())) {
@@ -552,13 +432,12 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     boolean grabbedInput = true;
     boolean cursorVisible = false;
     StreamView streamView;
-    private StreamView renderView;
+    StreamView renderView;
     com.limelight.ui.StreamPresentation externalPresentation;
     com.limelight.ui.DesktopGestures desktopGestures;
     com.limelight.ui.GameTouchControls gameTouchControls;
     boolean outputSwitchPending;
-    private static final String EXTRA_OUTPUT_DISPLAY = "rubylight.outputDisplay";
-    private Surface videoSurface;
+    Surface videoSurface;
 
     boolean isHidingOverlays;
     private boolean wasInPictureInPicture;
@@ -710,9 +589,9 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         // otherwise be dropped together with the HDR output.
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             try {
-                android.view.Window window = getVideoWindow();
+                android.view.Window window = videoOutput.getVideoWindow();
                 WindowManager.LayoutParams attributes = window.getAttributes();
-                attributes.preferredDisplayModeId = getVideoDisplay().getMode().getModeId();
+                attributes.preferredDisplayModeId = videoOutput.getVideoDisplay().getMode().getModeId();
                 window.setAttributes(attributes);
             } catch (RuntimeException e) {
                 LimeLog.warning("Exit: could not pin the display mode: " + e);
@@ -727,7 +606,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     // gone by now, so its frame-rate vote went with it.
     private void restoreDisplayMode() {
         try {
-            android.view.Window window = getVideoWindow();
+            android.view.Window window = videoOutput.getVideoWindow();
             WindowManager.LayoutParams attributes = window.getAttributes();
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) attributes.preferredDisplayModeId = 0;
             attributes.preferredRefreshRate = 0;
@@ -858,7 +737,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         overlays.showStreamLayers(prefConfig, startNetwork == null);
         streamRecovery.readRecoveryBudget(SystemClock.elapsedRealtime());
         panelMaxRefreshRate = com.limelight.binding.video.DisplayFrameRatePolicy.maxRefreshRate(
-                getVideoDisplay());
+                videoOutput.getVideoDisplay());
         if (prefConfig.vrr) {
             prefConfig.fps = com.limelight.binding.video.DisplayFrameRatePolicy.streamFrameRate(panelMaxRefreshRate);
             prefConfig.launchRefreshRateX100 = Math.max(100, Math.min(100000, Math.round(panelMaxRefreshRate * 100)));
@@ -885,13 +764,13 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         lastWindowOrientation = getResources().getConfiguration().orientation;
 
         // Landscape on phones unless the Orientation setting says otherwise
-        setPreferredOrientationForCurrentDisplay();
+        videoOutput.setPreferredOrientationForCurrentDisplay();
 
-        configureStreamWindow();
+        videoOutput.configureStreamWindow();
 
         // Listen for non-touch events on the game surface
         streamView = findViewById(R.id.surfaceView);
-        initializeVideoOutput();
+        videoOutput.initializeVideoOutput();
         streamView.setOnGenericMotionListener(this);
         // Keeps the Local cursor pointer over the same stream pixel when the stream moves or resizes.
         streamView.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> {
@@ -906,10 +785,10 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             legacyKeyboard.start();
         }
         streamView.addOnLayoutChangeListener((view, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> {
-            if (connected) updatePipAutoEnter();
+            if (connected) videoOutput.updatePipAutoEnter();
         });
         findViewById(android.R.id.content).addOnLayoutChangeListener(
-                (view, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> onPaneLaidOut(view));
+                (view, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> videoOutput.onPaneLaidOut(view));
 
         // Listen for touch events on the background touch view to enable trackpad mode
         // to work on areas outside of the StreamView itself. We use a separate View
@@ -1013,7 +892,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         HostCapabilities cachedCaps = HostCapabilityCache.load(this, getIntent().getStringExtra(EXTRA_PC_UUID));
         app.setHostCapabilities(cachedCaps);
         boolean mediaStream = app.getRole() != NvApp.Role.INPUT_ONLY && !app.isControlAction();
-        startInWindowShape(cachedCaps, mediaStream);
+        videoOutput.startInWindowShape(cachedCaps, mediaStream);
 
         X509Certificate serverCert = null;
         try {
@@ -1038,7 +917,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         boolean willStreamHdr = false;
         if (mediaStream && prefConfig.enableHdr) {
             // HLG stands in for HDR10 unless the Vulkan renderer draws the picture on a PQ-only surface.
-            HdrPolicy.Refusal refusal = HdrPolicy.displayRefusal(getVideoDisplay(), true,
+            HdrPolicy.Refusal refusal = HdrPolicy.displayRefusal(videoOutput.getVideoDisplay(), true,
                     cachedCaps == null ? 0 : cachedCaps.hdrFormats(),
                     MediaCodecDecoderRenderer.vulkanSurface(prefConfig));
             willStreamHdr = refusal == HdrPolicy.Refusal.NONE;
@@ -1084,12 +963,12 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 connMgr.isActiveNetworkMetered(),
                 willStreamHdr,
                 glPrefs.glRenderer,
-                this, getVideoDisplay());
+                this, videoOutput.getVideoDisplay());
         decoderRenderer.setPackedFailureListener(streamRecovery::onPackedChromaFailure);
         decoderRenderer.setStreamSizeListener(new MediaCodecDecoderRenderer.StreamSizeListener() {
             @Override
             public void onStreamSizeChanged(int width, int height) {
-                runOnUiThread(() -> applyStreamSize(width, height));
+                runOnUiThread(() -> videoOutput.applyStreamSize(width, height));
             }
 
             @Override
@@ -1165,7 +1044,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         }
 
         // Set to the optimal mode for streaming
-        float displayRefreshRate = mediaStream ? prepareDisplayForRendering() :
+        float displayRefreshRate = mediaStream ? videoOutput.prepareDisplayForRendering() :
                 (desiredRefreshRate = getWindowManager().getDefaultDisplay().getRefreshRate());
         LimeLog.info("Display refresh rate: "+displayRefreshRate);
 
@@ -1239,7 +1118,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 .setColorSpace(decoderRenderer.getPreferredColorSpace())
                 .setColorRange(decoderRenderer.getPreferredColorRange())
                 .setPersistGamepadsAfterDisconnect(!prefConfig.multiController)
-                .setDisplayLuminance(smallStream ? null : launchLuminance(getVideoDisplay()))
+                .setDisplayLuminance(smallStream ? null : GameVideoOutput.launchLuminance(videoOutput.getVideoDisplay()))
                 .build();
 
         // Initialize the connection
@@ -1251,7 +1130,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         conn.setMicrophoneNoticeListener(() -> runOnUiThread(menuActions::showMicrophoneNotice));
         controllerHandler = new ControllerHandler(this, conn, this, prefConfig);
         conn.setControllerPreparation(controllerHandler::prepareControllersForLaunch);
-        updateInputPollingRate();
+        videoOutput.updateInputPollingRate();
         ((android.hardware.display.DisplayManager) getSystemService(DISPLAY_SERVICE))
                 .registerDisplayListener(inputDisplayListener, bitrateHandler);
         keyboardTranslator = new KeyboardTranslator();
@@ -1330,211 +1209,6 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         }
     }
 
-    Display getVideoDisplay() {
-        // The intent describes the next output while a reconnect is in progress. Keep
-        // reporting capabilities for the surface that this activity actually renders.
-        if (renderView != null) {
-            return externalPresentation == null ? getWindowManager().getDefaultDisplay() :
-                    externalPresentation.getDisplay();
-        }
-        int requested = getIntent().getIntExtra(EXTRA_OUTPUT_DISPLAY, Display.DEFAULT_DISPLAY);
-        if (requested != Display.DEFAULT_DISPLAY) {
-            for (Display display : ((android.hardware.display.DisplayManager)getSystemService(DISPLAY_SERVICE))
-                    .getDisplays(android.hardware.display.DisplayManager.DISPLAY_CATEGORY_PRESENTATION)) {
-                if (display.getDisplayId() == requested && display.isValid()) return display;
-            }
-        }
-        return getWindowManager().getDefaultDisplay();
-    }
-
-    private android.view.Window getVideoWindow() {
-        return externalPresentation == null ? getWindow() : externalPresentation.getWindow();
-    }
-
-    private void initializeVideoOutput() {
-        Display display = getVideoDisplay();
-        renderView = streamView;
-        if (display.getDisplayId() != getWindowManager().getDefaultDisplay().getDisplayId()) {
-            com.limelight.ui.StreamPresentation presentation = null;
-            try {
-                presentation = new com.limelight.ui.StreamPresentation(this, display, prefConfig.useTextureView);
-                externalPresentation = presentation;
-                renderView = presentation.videoView();
-                presentation.setOnDismissListener(ignored -> {
-                    if (!isFinishing() && !isDestroyed() && !outputSwitchPending) returnVideoToDevice();
-                });
-                presentation.show();
-                prefConfig.touchscreenTrackpad = true;
-                // The phone is the touchpad; a pointer drawn on it would not match the external screen.
-                if (prefConfig.touchMode != TouchMode.OFF) prefConfig.touchMode = TouchMode.TRACKPAD;
-                nativeTouchEnabled = false;
-                TextView hint = findViewById(R.id.inputOnlyStatus);
-                hint.setText(R.string.desktop_touchpad_help); hint.setVisibility(View.VISIBLE);
-                // Device orientation and window changes must not resize the external video.
-                if (nativeResolutionStream) {
-                    Point size = new Point(); display.getRealSize(size);
-                    if (size.x > 0 && size.y > 0) { prefConfig.width = size.x; prefConfig.height = size.y; }
-                }
-                nativeResolutionStream = false;
-                return;
-            } catch (WindowManager.InvalidDisplayException | SecurityException | IllegalArgumentException e) {
-                if (presentation != null) {
-                    presentation.setOnDismissListener(null);
-                    presentation.dismiss();
-                }
-                externalPresentation = null; renderView = streamView;
-                getIntent().removeExtra(EXTRA_OUTPUT_DISPLAY);
-                messages.alert(R.string.desktop_display_unavailable, Toast.LENGTH_LONG);
-            }
-        }
-        getIntent().removeExtra(EXTRA_OUTPUT_DISPLAY);
-        // A hot-unplug can happen between reading preferences and creating the
-        // presentation. Do not retain the missing monitor's VRR/FPS launch values.
-        panelMaxRefreshRate = com.limelight.binding.video.DisplayFrameRatePolicy.maxRefreshRate(getVideoDisplay());
-        if (prefConfig.vrr) {
-            prefConfig.fps = com.limelight.binding.video.DisplayFrameRatePolicy.streamFrameRate(panelMaxRefreshRate);
-            prefConfig.launchRefreshRateX100 = Math.max(100, Math.min(100000, Math.round(panelMaxRefreshRate * 100)));
-        }
-        fpsFollowsDisplay = prefConfig.vrr || prefConfig.fps ==
-                com.limelight.binding.video.DisplayFrameRatePolicy.streamFrameRate(panelMaxRefreshRate);
-        streamView.initializeSurface(prefConfig.useTextureView);
-    }
-
-    private void returnVideoToDevice() {
-        if (outputSwitchPending || isFinishing() || isDestroyed()) return;
-        outputSwitchPending = true;
-        getIntent().removeExtra(EXTRA_OUTPUT_DISPLAY);
-        if (foreground && conn != null) streamRecovery.reconnectStream();
-        else {
-            streamRecovery.rememberStreamForResume(true);
-            if (stoppedStreamResumeIntent != null) {
-                stoppedStreamResumeIntent.removeExtra(EXTRA_OUTPUT_DISPLAY);
-                displayedFailureDialog = true;
-                stopConnection();
-            } else finish();
-        }
-    }
-
-    void toggleDesktopZoom() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N && !prefConfig.useTextureView) {
-            menuActions.showStreamDialog(new NavigationDialogBuilder(this).setMessage(R.string.desktop_zoom_surface_help)
-                    .setPositiveButton(android.R.string.ok, null).create());
-            return;
-        }
-        desktopGestures.setEnabled(!desktopGestures.enabled());
-        if (desktopGestures.enabled()) messages.alert(R.string.desktop_zoom_help, Toast.LENGTH_LONG);
-    }
-
-    boolean hasPresentationDisplays() {
-        return ((android.hardware.display.DisplayManager) getSystemService(DISPLAY_SERVICE))
-                .getDisplays(android.hardware.display.DisplayManager.DISPLAY_CATEGORY_PRESENTATION).length > 0;
-    }
-
-    // The view changes its scaling at once. An upscaler or PyroWave sets its own output rectangle
-    // when the stream starts, so for those the choice waits for the next stream.
-    boolean canScaleLive() {
-        return externalPresentation == null && decoderRenderer != null &&
-                prefConfig.upscalingMode == UpscalingPolicy.Mode.OFF &&
-                (decoderRenderer.getActiveVideoFormat() & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) == 0;
-    }
-
-    void showVideoScalingDialog() {
-        if (!canScaleLive()) return;
-        menuActions.showStreamDialog(new NavigationDialogBuilder(this).setTitle(R.string.video_scaling_title)
-                .setSingleChoiceItems(R.array.video_scaling_modes, prefConfig.videoScaling, (dialog, which) -> {
-                    dialog.dismiss();
-                    setVideoScaling(which);
-                }).setNegativeButton(android.R.string.cancel, null).create());
-    }
-
-    private void setVideoScaling(int mode) {
-        if (mode == prefConfig.videoScaling || !canScaleLive()) return;
-        prefConfig.setVideoScaling(mode);
-        SharedPreferences.Editor editor = PreferenceManager.getDefaultSharedPreferences(this).edit();
-        VideoScaling.save(editor, mode);
-        editor.apply();
-        applyVideoScaling();
-        // Fill and Stretch span the cutout too; the safe area follows.
-        configureStreamWindow();
-        updatePipAutoEnter();
-    }
-
-    /** Sizes the video view for the scaling mode; picture-in-picture always shows the whole stream. */
-    private void applyVideoScaling() {
-        if (renderView == null || prefConfig == null) return;
-        int mode = prefConfig.videoScaling;
-        if (renderView == streamView && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && isInPictureInPictureMode()) {
-            mode = VideoScaling.forPictureInPicture(mode);
-        }
-        renderView.setVideoScaling(mode, prefConfig.videoAlignment, prefConfig.width, prefConfig.height);
-    }
-
-    boolean canEnterPictureInPicture() {
-        return Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && prefConfig.enablePip && externalPresentation == null &&
-                app.getRole() != NvApp.Role.INPUT_ONLY &&
-                getPackageManager().hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE);
-    }
-
-    void enterPictureInPictureNow() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || !canEnterPictureInPicture() || !connected) return;
-        try {
-            enterPictureInPictureMode(getPictureInPictureParams(false));
-        } catch (IllegalStateException | IllegalArgumentException e) {
-            LimeLog.warning("Picture-in-picture unavailable");
-        }
-    }
-
-    void showVideoOutputDialog() {
-        Display[] displays = ((android.hardware.display.DisplayManager)getSystemService(DISPLAY_SERVICE))
-                .getDisplays(android.hardware.display.DisplayManager.DISPLAY_CATEGORY_PRESENTATION);
-        String[] labels = new String[displays.length + 1]; labels[0] = getString(R.string.desktop_output_device);
-        for (int i = 0; i < displays.length; i++) labels[i + 1] = displays[i].getName();
-        menuActions.showStreamDialog(new NavigationDialogBuilder(this).setTitle(R.string.desktop_output)
-                .setItems(labels, (dialog, which) -> {
-                    int id = which == 0 ? Display.DEFAULT_DISPLAY : displays[which - 1].getDisplayId();
-                    if (id == getIntent().getIntExtra(EXTRA_OUTPUT_DISPLAY, Display.DEFAULT_DISPLAY)) return;
-                    streamMenuAction = () -> {
-                        outputSwitchPending = true;
-                        getIntent().putExtra(EXTRA_OUTPUT_DISPLAY, id);
-                        streamRecovery.reconnectStream();
-                    };
-                }).setNegativeButton(android.R.string.cancel, null).create());
-        if (displays.length == 0) messages.alert(R.string.desktop_display_unavailable, Toast.LENGTH_LONG);
-    }
-
-    private void setPreferredOrientationForCurrentDisplay() {
-        boolean freeWindow = getIntent().getIntExtra(EXTRA_OUTPUT_DISPLAY, Display.DEFAULT_DISPLAY) != Display.DEFAULT_DISPLAY ||
-                (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && isInMultiWindowMode());
-        boolean largeScreen = getResources().getConfiguration().smallestScreenWidthDp >= 600 ||
-                getPackageManager().hasSystemFeature("android.hardware.type.pc");
-        boolean squarish = !freeWindow && !largeScreen &&
-                PreferenceConfiguration.isSquarishScreen(getWindowManager().getDefaultDisplay());
-        PreferenceConfiguration config = prefConfig != null ? prefConfig : new PreferenceConfiguration();
-        setRequestedOrientation(StreamOrientation.requested(streamOrientation, freeWindow, largeScreen, squarish,
-                config.onscreenController, nativeResolutionStream, config.width, config.height));
-    }
-
-    // A host that draws the stream on its virtual display starts it in the shape the Orientation
-    // setting gives the window; any other host keeps the size and the video is scaled into it.
-    private void startInWindowShape(HostCapabilities caps, boolean mediaStream) {
-        HostDisplayChoice display = prefConfig.hostDisplay == null || !caps.has(HostCapabilities.Feature.HOST_DISPLAY_MODES) ?
-                HostDisplayChoice.HOST_DEFAULT : prefConfig.hostDisplay.forRole(app.getRole());
-        hostShapesStream = mediaStream && externalPresentation == null && app.getRole() == NvApp.Role.STREAM &&
-                caps.has(HostCapabilities.Feature.VIRTUAL_DISPLAY) && display.requestsVirtualDisplay(prefConfig.virtualDisplay);
-        boolean windowPortrait = getResources().getConfiguration().orientation == Configuration.ORIENTATION_PORTRAIT;
-        int[] size = StreamOrientation.launchSize(streamOrientation, hostShapesStream, windowPortrait,
-                prefConfig.width, prefConfig.height);
-        if (size[0] != prefConfig.width || size[1] != prefConfig.height) {
-            LimeLog.info("Orientation " + StreamOrientation.value(streamOrientation) + ": stream request turned to " +
-                    size[0] + "x" + size[1]);
-            prefConfig.width = size[0];
-            prefConfig.height = size[1];
-        }
-        launchWidth = prefConfig.width;
-        launchHeight = prefConfig.height;
-        launchPanel = PreferenceConfiguration.nativeResolution(this);
-    }
-
     static boolean isValidLaunch(String host, int port, String uniqueId, int appId, String appUuid) {
         return host != null && !host.trim().isEmpty() && port > 0 && port <= 65535
                 && uniqueId != null && !uniqueId.isEmpty()
@@ -1544,21 +1218,21 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     @Override
     public void onConfigurationChanged(Configuration newConfig) {
         super.onConfigurationChanged(newConfig);
-        configureStreamWindow();
+        videoOutput.configureStreamWindow();
         if (controllerHandler == null || isFinishing()) {
             return;
         }
 
         // Set requested orientation for possible new screen size
-        setPreferredOrientationForCurrentDisplay();
+        videoOutput.setPreferredOrientationForCurrentDisplay();
         // Attaching a hardware keyboard or switching the IME's language changes the layout.
         keyboardInput.reportKeyboardLayout();
 
         // A fold, rotation or window change may change the native size
         boolean turned = newConfig.orientation != lastWindowOrientation;
         lastWindowOrientation = newConfig.orientation;
-        if (turned) noteRotationWithoutReconfigure();
-        scheduleReconfigureCheck(StreamOrientation.settleMs(streamOrientation, hostShapesStream, turned,
+        if (turned) videoOutput.noteRotationWithoutReconfigure();
+        videoOutput.scheduleReconfigureCheck(StreamOrientation.settleMs(streamOrientation, hostShapesStream, turned,
                 StreamReconfigureRequester.SETTLE_MS));
 
         if (virtualController != null && prefConfig.onscreenController) {
@@ -1567,7 +1241,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         }
         // The modern controller and the microphone button follow their frame's size by themselves.
 
-        applyVideoScaling();
+        videoOutput.applyVideoScaling();
 
         // Hide on-screen overlays in PiP mode
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -1641,69 +1315,6 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         overlays.updateHardwareMetricsPolling();
     }
 
-    @TargetApi(Build.VERSION_CODES.O)
-    private PictureInPictureParams getPictureInPictureParams(boolean autoEnter) {
-        int[] ratio = PictureInPicturePolicy.aspectRatio(prefConfig.width, prefConfig.height);
-        Rect source = new Rect();
-        streamView.getGlobalVisibleRect(source);
-        PictureInPictureParams.Builder builder =
-                new PictureInPictureParams.Builder()
-                        .setAspectRatio(new Rational(ratio[0], ratio[1]))
-                        .setSourceRectHint(source);
-
-        if (pipDisconnectIntent == null) {
-            String action = getPackageName() + ".PIP_DISCONNECT." + java.util.UUID.randomUUID();
-            androidx.core.content.ContextCompat.registerReceiver(this, pipReceiver, new IntentFilter(action),
-                    androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED);
-            pipDisconnectIntent = PendingIntent.getBroadcast(this, 0,
-                    new Intent(action).setPackage(getPackageName()), PendingIntent.FLAG_IMMUTABLE);
-        }
-        RemoteAction disconnect = new RemoteAction(Icon.createWithResource(this, R.drawable.ic_close),
-                getString(R.string.stream_disconnect), getString(R.string.pip_disconnect_description), pipDisconnectIntent);
-        disconnect.setEnabled(connected && app.getRole() != NvApp.Role.INPUT_ONLY);
-        builder.setActions(java.util.Collections.singletonList(disconnect));
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            builder.setAutoEnterEnabled(autoEnter);
-            builder.setSeamlessResizeEnabled(true);
-        }
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            if (appName != null) {
-                builder.setTitle(appName);
-                if (pcName != null) {
-                    builder.setSubtitle(pcName);
-                }
-            }
-            else if (pcName != null) {
-                builder.setTitle(pcName);
-            }
-        }
-
-        return builder.build();
-    }
-
-    void updatePipAutoEnter() {
-        if (prefConfig == null || !prefConfig.enablePip || isFinishing() || isDestroyed() ||
-                !getPackageManager().hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)) {
-            return;
-        }
-
-        boolean autoEnter = externalPresentation == null && PictureInPicturePolicy.shouldAutoEnter(connected, app.getRole(), suppressPipRefCount,
-                Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && isInMultiWindowMode());
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            try {
-                setPictureInPictureParams(getPictureInPictureParams(autoEnter));
-            } catch (IllegalStateException | IllegalArgumentException e) {
-                LimeLog.warning("Picture-in-picture unavailable");
-            }
-        }
-        else {
-            autoEnterPip = autoEnter;
-        }
-    }
-
     public void setMetaKeyCaptureState(boolean enabled) {
         keyboardInput.setMetaKeyCaptureState(enabled);
     }
@@ -1720,7 +1331,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                     // This has thrown all sorts of weird exceptions on Samsung devices
                     // running Oreo. Just eat them and close gracefully on leave, rather
                     // than crashing.
-                    enterPictureInPictureMode(getPictureInPictureParams(false));
+                    enterPictureInPictureMode(videoOutput.getPictureInPictureParams(false));
                 } catch (Exception e) {
                     e.printStackTrace();
                 }
@@ -1734,7 +1345,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         // Enter PiP when requested unless we're on Android 12 which supports auto-enter.
         if (autoEnterPip && Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
             try {
-                enterPictureInPictureMode(getPictureInPictureParams(false));
+                enterPictureInPictureMode(videoOutput.getPictureInPictureParams(false));
             } catch (IllegalStateException | IllegalArgumentException e) {
                 LimeLog.warning("Picture-in-picture unavailable");
             }
@@ -1797,289 +1408,18 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         }
     }
 
-    private boolean isRefreshRateEqualMatch(float refreshRate) {
-        return refreshRate >= prefConfig.fps &&
-                refreshRate <= prefConfig.fps + 3;
-    }
-
-    private boolean isRefreshRateGoodMatch(float refreshRate) {
-        return refreshRate >= prefConfig.fps &&
-                Math.round(refreshRate) % prefConfig.fps <= 3;
-    }
-
-    private boolean shouldIgnoreInsetsForResolution(int width, int height) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            Display display = getWindowManager().getDefaultDisplay();
-            for (Display.Mode candidate : display.getSupportedModes()) {
-                // Ignore insets if this is an exact match for the display resolution
-                if ((width == candidate.getPhysicalWidth() && height == candidate.getPhysicalHeight()) ||
-                        (height == candidate.getPhysicalWidth() && width == candidate.getPhysicalHeight())) {
-                    return true;
-                }
-            }
-        }
-
-        // The panel as the window manager reports it right now, for devices whose mode list
-        // describes a different (or scaled) size than the screen the stream fills.
-        android.graphics.Point real = new android.graphics.Point();
-        getWindowManager().getDefaultDisplay().getRealSize(real);
-        if ((width == real.x && height == real.y) || (width == real.y && height == real.x)) {
-            return true;
-        }
-        // A stream in the panel's own shape at another size (a scaled native size, or a PC profile's
-        // "match screen" size) is drawn for the whole panel too: keeping the cutout clear would only
-        // shrink it and leave a strip. The cutout-safe Native entry is narrower by the cutout and
-        // keeps its strip.
-        return PreferenceConfiguration.hasPanelShape(this, width, height, PANEL_SHAPE_TOLERANCE);
-    }
-
-    // Rounding a scaled panel size to even pixels moves its shape by well under this; leaving out a
-    // camera cutout (54 px of a Fold's 2184, 80 px of a phone's 2400) moves it by 2-3%.
-    private static final double PANEL_SHAPE_TOLERANCE = 0.005;
-
     @Override
     public boolean isWindowedStream() {
-        return Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && isInMultiWindowMode() && !windowCoversDisplay();
+        return videoOutput.isWindowedStream();
     }
 
-    /** A free-form or pop-up window maximised to the whole display reports multi-window mode too. */
     protected boolean windowCoversDisplay() {
-        androidx.window.layout.WindowMetricsCalculator calculator =
-                androidx.window.layout.WindowMetricsCalculator.getOrCreate();
-        return calculator.computeCurrentWindowMetrics(this).getBounds()
-                .equals(calculator.computeMaximumWindowMetrics(this).getBounds());
+        return videoOutput.windowCoversDisplay();
     }
 
-    /** Fullscreen native/fill video uses the complete panel; fixed presets retain a cutout-safe area. */
     @Override
     public boolean usesFullDisplayForVideo() {
-        // nativeResolutionStream also includes custom sizes and the explicit cutout-safe
-        // Native entry. Only the user's fill/follow choice or an exact panel size spans a notch.
-        return prefConfig != null && (VideoScaling.coversArea(prefConfig.videoScaling) ||
-                prefConfig.resolutionFollowsScreen || shouldIgnoreInsetsForResolution(prefConfig.width, prefConfig.height));
-    }
-
-    private void configureStreamWindow() {
-        // Let AdaptiveLayout own the safe area. Combining framework cutout avoidance with
-        // root padding cropped the video twice on older Android versions, and DEFAULT is
-        // treated as ALWAYS on Android 15+ regardless of the raw layout attribute.
-        WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            WindowManager.LayoutParams attributes = getWindow().getAttributes();
-            attributes.layoutInDisplayCutoutMode = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R ?
-                    WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS :
-                    WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
-            getWindow().setAttributes(attributes);
-        }
-        View root = findViewById(android.R.id.content);
-        if (root != null) ViewCompat.requestApplyInsets(root);
-    }
-
-    private boolean mayReduceRefreshRate() {
-        return prefConfig.framePacing == PreferenceConfiguration.FRAME_PACING_CAP_FPS ||
-                prefConfig.framePacing == PreferenceConfiguration.FRAME_PACING_MAX_SMOOTHNESS ||
-                prefConfig.reduceRefreshRate;
-    }
-
-    private float prepareDisplayForRendering() {
-        Display display = getVideoDisplay();
-        WindowManager.LayoutParams windowLayoutParams = getVideoWindow().getAttributes();
-        float displayRefreshRate;
-
-        boolean arrSupported = Build.VERSION.SDK_INT >= Build.VERSION_CODES.BAKLAVA && display.hasArrSupport();
-        useArr = com.limelight.binding.video.DisplayFrameRatePolicy.useAdaptiveRefreshRate(
-                Build.VERSION.SDK_INT, prefConfig.vrr, arrSupported);
-        logDisplayRefreshPolicy(display, arrSupported);
-        if (prefConfig.vrr) {
-            com.limelight.binding.video.DisplayFrameRatePolicy.ArrState arr =
-                    com.limelight.binding.video.DisplayFrameRatePolicy.arrState(Build.VERSION.SDK_INT, true, arrSupported);
-            LimeLog.info(useArr ? "VRR: ARR (Android automatic policy)" :
-                    "VRR: max Hz (ARR unavailable: " + arr + ")");
-            // Asked for and not granted: the status line says why, in place of a silent fallback.
-            if (arr == com.limelight.binding.video.DisplayFrameRatePolicy.ArrState.ANDROID_TOO_OLD) {
-                messages.note(getString(R.string.stream_vrr_old_android));
-            } else if (arr == com.limelight.binding.video.DisplayFrameRatePolicy.ArrState.PANEL_WITHOUT_ARR) {
-                messages.note(getString(R.string.stream_vrr_no_arr));
-            }
-        }
-
-        if (useArr && Build.VERSION.SDK_INT >= Build.VERSION_CODES.BAKLAVA) {
-            // Leave refresh-rate selection and touch boost to Android's automatic ARR policy.
-            windowLayoutParams.preferredDisplayModeId = 0;
-            windowLayoutParams.preferredRefreshRate = 0;
-            getVideoWindow().setAttributes(windowLayoutParams);
-            displayRefreshRate = panelMaxRefreshRate;
-        }
-        // On M, we can explicitly set the optimal display mode
-        else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            Display.Mode bestMode = display.getMode();
-            boolean isNativeResolutionStream = PreferenceConfiguration.isNativeResolution(prefConfig.width, prefConfig.height);
-            boolean refreshRateIsGood = isRefreshRateGoodMatch(bestMode.getRefreshRate());
-            boolean refreshRateIsEqual = isRefreshRateEqualMatch(bestMode.getRefreshRate());
-
-            LimeLog.info("Current display mode: "+bestMode.getPhysicalWidth()+"x"+
-                    bestMode.getPhysicalHeight()+"x"+bestMode.getRefreshRate());
-
-            for (Display.Mode candidate : display.getSupportedModes()) {
-                boolean refreshRateReduced = candidate.getRefreshRate() < bestMode.getRefreshRate();
-                boolean resolutionReduced = candidate.getPhysicalWidth() < bestMode.getPhysicalWidth() ||
-                        candidate.getPhysicalHeight() < bestMode.getPhysicalHeight();
-                boolean resolutionFitsStream = candidate.getPhysicalWidth() >= prefConfig.width &&
-                        candidate.getPhysicalHeight() >= prefConfig.height;
-
-                LimeLog.info("Examining display mode: "+candidate.getPhysicalWidth()+"x"+
-                        candidate.getPhysicalHeight()+"x"+candidate.getRefreshRate());
-
-                if (prefConfig.vrr) {
-                    if (candidate.getRefreshRate() > bestMode.getRefreshRate()) bestMode = candidate;
-                    continue;
-                }
-
-                if (candidate.getPhysicalWidth() > 4096 && prefConfig.width <= 4096) {
-                    // Avoid resolutions options above 4K to be safe
-                    continue;
-                }
-
-                // On non-4K streams, we force the resolution to never change unless it's above
-                // 60 FPS, which may require a resolution reduction due to HDMI bandwidth limitations,
-                // or it's a native resolution stream.
-                if (prefConfig.width < 3840 && prefConfig.fps <= 60 && !isNativeResolutionStream) {
-                    if (display.getMode().getPhysicalWidth() != candidate.getPhysicalWidth() ||
-                            display.getMode().getPhysicalHeight() != candidate.getPhysicalHeight()) {
-                        continue;
-                    }
-                }
-
-                // Make sure the resolution doesn't regress unless if it's over 60 FPS
-                // where we may need to reduce resolution to achieve the desired refresh rate.
-                if (resolutionReduced && !(prefConfig.fps > 60 && resolutionFitsStream)) {
-                    continue;
-                }
-
-                if (mayReduceRefreshRate() && refreshRateIsEqual && !isRefreshRateEqualMatch(candidate.getRefreshRate())) {
-                    // If we had an equal refresh rate and this one is not, skip it. In min latency
-                    // mode, we want to always prefer the highest frame rate even though it may cause
-                    // microstuttering.
-                    continue;
-                }
-                else if (refreshRateIsGood) {
-                    // We've already got a good match, so if this one isn't also good, it's not
-                    // worth considering at all.
-                    if (!isRefreshRateGoodMatch(candidate.getRefreshRate())) {
-                        continue;
-                    }
-
-                    if (mayReduceRefreshRate()) {
-                        // User asked for the lowest possible refresh rate, so don't raise it if we
-                        // have a good match already
-                        if (candidate.getRefreshRate() > bestMode.getRefreshRate()) {
-                            continue;
-                        }
-                    }
-                    else {
-                        // User asked for the highest possible refresh rate, so don't reduce it if we
-                        // have a good match already
-                        if (refreshRateReduced) {
-                            continue;
-                        }
-                    }
-                }
-                else if (!isRefreshRateGoodMatch(candidate.getRefreshRate())) {
-                    // We didn't have a good match and this match isn't good either, so just don't
-                    // reduce the refresh rate.
-                    if (refreshRateReduced) {
-                        continue;
-                    }
-                } else {
-                    // We didn't have a good match and this match is good. Prefer this refresh rate
-                    // even if it reduces the refresh rate. Lowering the refresh rate can be beneficial
-                    // when streaming a 60 FPS stream on a 90 Hz device. We want to select 60 Hz to
-                    // match the frame rate even if the active display mode is 90 Hz.
-                }
-
-                bestMode = candidate;
-                refreshRateIsGood = isRefreshRateGoodMatch(candidate.getRefreshRate());
-                refreshRateIsEqual = isRefreshRateEqualMatch(candidate.getRefreshRate());
-            }
-
-            LimeLog.info("Best display mode: "+bestMode.getPhysicalWidth()+"x"+
-                    bestMode.getPhysicalHeight()+"x"+bestMode.getRefreshRate());
-
-            // Only apply new window layout parameters if we've actually changed the display mode
-            if (display.getMode().getModeId() != bestMode.getModeId()) {
-                // If we only changed refresh rate and we're on an OS that supports Surface.setFrameRate()
-                // use that instead of using preferredDisplayModeId to avoid the possibility of triggering
-                // bugs that can cause the system to switch from 4K60 to 4K24 on Chromecast 4K.
-                if (prefConfig.useTextureView || Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
-                        display.getMode().getPhysicalWidth() != bestMode.getPhysicalWidth() ||
-                        display.getMode().getPhysicalHeight() != bestMode.getPhysicalHeight()) {
-                    // Apply the display mode change
-                    windowLayoutParams.preferredDisplayModeId = bestMode.getModeId();
-                    getVideoWindow().setAttributes(windowLayoutParams);
-                }
-                else {
-                    LimeLog.info("Using setFrameRate() instead of preferredDisplayModeId due to matching resolution");
-                }
-            }
-            else {
-                LimeLog.info("Current display mode is already the best display mode");
-            }
-
-            displayRefreshRate = bestMode.getRefreshRate();
-        }
-        // On L, we can at least tell the OS that we want a refresh rate
-        else {
-            float bestRefreshRate = display.getRefreshRate();
-            for (float candidate : display.getSupportedRefreshRates()) {
-                LimeLog.info("Examining refresh rate: "+candidate);
-
-                if (candidate > bestRefreshRate) {
-                    // Ensure the frame rate stays around 60 Hz for <= 60 FPS streams
-                    if (prefConfig.fps <= 60) {
-                        if (candidate >= 63) {
-                            continue;
-                        }
-                    }
-
-                    bestRefreshRate = candidate;
-                }
-            }
-
-            LimeLog.info("Selected refresh rate: "+bestRefreshRate);
-            windowLayoutParams.preferredRefreshRate = bestRefreshRate;
-            displayRefreshRate = bestRefreshRate;
-
-            // Apply the refresh rate change
-            getVideoWindow().setAttributes(windowLayoutParams);
-        }
-
-        if (prefConfig.useTextureView && !useArr) {
-            // A SurfaceTexture is composed into the window, so Surface.setFrameRate() cannot vote for it.
-            windowLayoutParams.preferredRefreshRate = displayRefreshRate;
-            getVideoWindow().setAttributes(windowLayoutParams);
-        }
-
-        if (!prefConfig.useTextureView && prefConfig.upscalingMode == UpscalingPolicy.Mode.OFF) {
-            // Keep decoder buffers at stream resolution; the compositor scales them to the view.
-            renderView.getHolder().setFixedSize(prefConfig.width, prefConfig.height);
-        }
-        applyVideoScaling();
-
-        // Set the desired refresh rate that will get passed into setFrameRate() later
-        desiredRefreshRate = displayRefreshRate;
-
-        if (getPackageManager().hasSystemFeature(PackageManager.FEATURE_TELEVISION) ||
-                getPackageManager().hasSystemFeature(PackageManager.FEATURE_LEANBACK)) {
-            // TVs may take a few moments to switch refresh rates, and we can probably assume
-            // it will be eventually activated.
-            // TODO: Improve this
-            return displayRefreshRate;
-        }
-        else {
-            // Use the lower of the current refresh rate and the selected refresh rate.
-            // The preferred refresh rate may not actually be applied (ex: Battery Saver mode).
-            return Math.min(getVideoDisplay().getRefreshRate(), displayRefreshRate);
-        }
+        return videoOutput.usesFullDisplayForVideo();
     }
 
     @SuppressLint("InlinedApi")
@@ -2114,19 +1454,11 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             }
     };
 
-    void hideSystemUi(int delay) {
-        Handler h = getWindow().getDecorView().getHandler();
-        if (h != null) {
-            h.removeCallbacks(hideSystemUi);
-            h.postDelayed(hideSystemUi, delay);
-        }
-    }
-
     @Override
     @TargetApi(Build.VERSION_CODES.N)
     public void onMultiWindowModeChanged(boolean isInMultiWindowMode) {
         super.onMultiWindowModeChanged(isInMultiWindowMode);
-        configureStreamWindow();
+        videoOutput.configureStreamWindow();
         if (decoderRenderer == null) {
             return;
         }
@@ -2142,296 +1474,11 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             getWindow().addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
         }
 
-        updatePipAutoEnter();
-        scheduleReconfigureCheck();
+        videoOutput.updatePipAutoEnter();
+        videoOutput.scheduleReconfigureCheck();
 
         // Correct the system UI visibility flags
-        hideSystemUi(50);
-    }
-
-    // Mid-stream reconfigure. A Rubylight 2.2 host that lists control message 0x5532 changes the
-    // stream's size or frame rate in place and answers with an IDR. A native-resolution stream asks
-    // for the panel's size when a foldable opens or closes, computed like the stream's start size,
-    // and for its window's size in split screen or a desktop window. A stream at the panel's top
-    // refresh rate follows a panel whose top rate changes. Fixed presets, PyroWave and decoders
-    // without adaptive playback never ask.
-    private void scheduleReconfigureCheck() {
-        scheduleReconfigureCheck(StreamReconfigureRequester.SETTLE_MS);
-    }
-
-    private void scheduleReconfigureCheck(long settleMs) {
-        if (!connected || isFinishing()) {
-            return;
-        }
-        bitrateHandler.removeCallbacks(checkReconfigure);
-        bitrateHandler.postDelayed(checkReconfigure, reconfigureRequester.onChange(SystemClock.uptimeMillis(), settleMs));
-    }
-
-    // Rotate on a host that cannot turn this stream: say once that the picture is scaled instead.
-    private void noteRotationWithoutReconfigure() {
-        if (streamOrientation != StreamOrientation.ROTATE || orientationNoticeShown || !connected ||
-                externalPresentation != null || app == null || app.getRole() == NvApp.Role.INPUT_ONLY ||
-                (hostShapesStream && MoonBridge.hostSupportsControlMessage(MoonBridge.CONTROL_MESSAGE_RECONFIGURE))) {
-            return;
-        }
-        orientationNoticeShown = true;
-        messages.alert(R.string.stream_orientation_scaled, Toast.LENGTH_LONG);
-    }
-
-    private void startReconfigureTracking() {
-        displaySignature = displaySignature();
-        if (decoderRenderer == null) {
-            return;
-        }
-        int[] size = decoderRenderer.getStreamSize();
-        streamStartedLandscape = size[0] >= size[1];
-        int fpsMillihz = decoderRenderer.getStreamFrameRateMilliHz();
-        if (fpsMillihz <= 0) fpsMillihz = streamFps * 1000;
-        // What the phone offered when the stream was asked for, in the window shape and on the panel
-        // it had then: a turn, fold or unfold while the stream connected was not seen, so the settled
-        // check below still asks for it.
-        boolean launchLandscape = launchWidth > 0 && launchHeight > 0 ? launchWidth >= launchHeight : windowLandscape();
-        int[] offered = offeredStream(size[0], size[1], fpsMillihz, launchLandscape,
-                launchPanel != null ? launchPanel : PreferenceConfiguration.nativeResolution(this));
-        if (offered == null) {
-            offered = new int[] {size[0], size[1], fpsMillihz};
-        }
-        reconfigureRequester.start(size[0], size[1], fpsMillihz, offered[0], offered[1], offered[2]);
-        qualityMaxWidth = size[0];
-        qualityMaxHeight = size[1];
-        qualityMaxFps = streamFps;
-        qualityMaxFrameRateMilliHz = fpsMillihz;
-        // The surface was created before negotiation supplied the exact stream cadence.
-        refreshSurfaceFrameRateVote();
-        scheduleReconfigureCheck();
-    }
-
-    private void checkStreamReconfigure() {
-        if (!connected || isFinishing() || decoderRenderer == null || (!nativeResolutionStream && !fpsFollowsDisplay &&
-                !StreamOrientation.followsRotation(streamOrientation, hostShapesStream))) {
-            return;
-        }
-        long now = SystemClock.uptimeMillis();
-        if (!reconfigureRequester.settled(now)) {
-            bitrateHandler.postDelayed(checkReconfigure, reconfigureRequester.remainingMs(now));
-            return;
-        }
-        if ((Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && isInPictureInPictureMode()) ||
-                !MoonBridge.hostSupportsControlMessage(MoonBridge.CONTROL_MESSAGE_RECONFIGURE)) {
-            return;
-        }
-        if (adaptiveQuality != null && pendingQualityTarget != null) {
-            bitrateHandler.postDelayed(checkReconfigure, 1000);
-            return;
-        }
-        int[] offered = offeredStream(adaptiveQuality == null ? reconfigureRequester.width() : qualityMaxWidth,
-                adaptiveQuality == null ? reconfigureRequester.height() : qualityMaxHeight,
-                adaptiveQuality == null ? reconfigureRequester.fpsMillihz() : adaptation.qualityCeilingFrameRateMilliHz());
-        if (adaptiveQuality != null && offered != null) {
-            AdaptiveQualityController.Target target = adaptiveQuality.resizeCeiling(offered[0], offered[1],
-                    Math.round(offered[2] / 1000f), now);
-            // The quality ladder uses whole FPS, but a fractional-only display change still
-            // needs to reach the host when the current level uses the ceiling's rate.
-            if (target == null && adaptiveQuality.current().fps == Math.round(offered[2] / 1000f) &&
-                    reconfigureRequester.fpsMillihz() != offered[2]) target = adaptiveQuality.current();
-            if (target == null || adaptation.applyAdaptiveQuality(target, now, offered[2])) {
-                qualityMaxWidth = offered[0]; qualityMaxHeight = offered[1]; qualityMaxFps = Math.round(offered[2] / 1000f);
-                qualityMaxFrameRateMilliHz = offered[2];
-                streamPanelHz = panelMaxRefreshRate;
-            }
-            return;
-        }
-        int[] request = offered == null ? null : reconfigureRequester.decide(offered[0], offered[1], offered[2]);
-        if (request == null) {
-            return;
-        }
-        if (requestStreamReconfigure(request)) {
-            // This is the new ceiling even if automatic quality is enabled later.
-            qualityMaxWidth = request[0]; qualityMaxHeight = request[1]; qualityMaxFps = Math.round(request[2] / 1000f);
-            qualityMaxFrameRateMilliHz = request[2];
-            streamPanelHz = panelMaxRefreshRate;
-        }
-    }
-
-    boolean requestStreamReconfigure(int[] request) {
-        LimeLog.info("Reconfigure: asking for " + request[0] + "x" + request[1] + " at " + request[2] / 1000f +
-                " fps (was " + reconfigureRequester.width() + "x" + reconfigureRequester.height() + " at " +
-                reconfigureRequester.fpsMillihz() / 1000f + " fps)");
-        if (!decoderRenderer.prepareForReconfigure(request[0], request[1])) {
-            LimeLog.warning("Reconfigure: the decoder cannot switch to " + request[0] + "x" + request[1] +
-                    "; the stream stays as it is");
-            if (StreamOrientation.followsRotation(streamOrientation, hostShapesStream) && !orientationNoticeShown) {
-                orientationNoticeShown = true;
-                messages.alert(R.string.stream_orientation_decoder_limit, Toast.LENGTH_LONG);
-            }
-            return false;
-        }
-        if (!MoonBridge.requestReconfigure(request[0], request[1], request[2])) {
-            LimeLog.warning("Reconfigure: request not sent");
-            return false;
-        }
-        boolean fpsChanged = request[2] != reconfigureRequester.fpsMillihz();
-        reconfigureRequester.sent(request);
-        decoderRenderer.resetDecodeTiming();
-        if (fpsChanged) setStreamFrameRate(request[2]);
-        return true;
-    }
-
-    // The stream runs at this rate now: a reconfigure asked for it, or a 0x553C rate change ran.
-    void setStreamFrameRate(int fpsMillihz) {
-        int fps = Math.round(fpsMillihz / 1000f);
-        streamFps = fps;
-        prefConfig.fps = fps;
-        decoderRenderer.setStreamFrameRateMilliHz(fpsMillihz);
-        if (adaptiveBitrate != null) adaptiveBitrate.setFrameRate(fps);
-        refreshSurfaceFrameRateVote();
-    }
-
-    // What this phone offers a stream that follows it, {width, height, fps in millihertz}, given
-    // the stream's current values; null when this stream cannot change in place.
-    private int[] offeredStream(int width, int height, int fpsMillihz) {
-        return offeredStream(width, height, fpsMillihz, windowLandscape(), PreferenceConfiguration.nativeResolution(this));
-    }
-
-    // As above, for a window of that orientation on a screen whose own resolution is nativeResolution.
-    private int[] offeredStream(int width, int height, int fpsMillihz, boolean windowLandscape, String nativeResolution) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
-            return null;
-        }
-        int[] limits = decoderRenderer.getReconfigureLimits();
-        if (limits == null) {
-            return null;
-        }
-        int[] size = nativeResolutionStream ? nativeStreamSize(limits, windowLandscape, nativeResolution) :
-                StreamOrientation.followsRotation(streamOrientation, hostShapesStream) && !isInMultiWindowMode() ?
-                StreamOrientation.turnedSize(launchWidth, launchHeight, windowLandscape, limits[0], limits[1],
-                        limits[2], limits[3]) : null;
-        int fps = StreamResizePolicy.targetFpsMillihz(fpsFollowsDisplay, fpsMillihz, streamPanelHz, panelMaxRefreshRate);
-        return size == null ? new int[] {width, height, fps} : new int[] {size[0], size[1], fps};
-    }
-
-    @TargetApi(Build.VERSION_CODES.O)
-    private int[] nativeStreamSize(int[] limits, boolean windowLandscape, String nativeResolution) {
-        if (isInMultiWindowMode()) {
-            // Split screen or a desktop window: the stream fills the window's pane, in panel pixels.
-            View pane = findViewById(android.R.id.content);
-            int paneWidth = pane.getWidth() - pane.getPaddingLeft() - pane.getPaddingRight();
-            int paneHeight = pane.getHeight() - pane.getPaddingTop() - pane.getPaddingBottom();
-            Display display = getWindowManager().getDefaultDisplay();
-            Point real = new Point();
-            display.getRealSize(real);
-            // The screen in use's own long side: a foldable can list the other panel's modes too.
-            String panel = PreferenceConfiguration.nativeResolution(this);
-            int modeLong = panel == null ? 0 : Integer.parseInt(panel.substring(0, panel.indexOf('x')));
-            float scale = modeLong > 0 && real.x > 0 && real.y > 0 ? (float) modeLong / Math.max(real.x, real.y) : 1;
-            return StreamResizePolicy.nativeSize(paneWidth, paneHeight, scale, StreamResizePolicy.ORIENTATION_OF_AREA,
-                    limits[0], limits[1], limits[2], limits[3]);
-        }
-        // Full screen: the same native resolution the stream starts with, in the orientation it
-        // started in, even after a split-screen window turned it; with Rotate on a host that
-        // draws the stream at its shape, in the window's orientation.
-        if (nativeResolution == null) {
-            return null;
-        }
-        String[] parts = nativeResolution.split("x");
-        return StreamResizePolicy.nativeSize(Integer.parseInt(parts[0]), Integer.parseInt(parts[1]), 1,
-                StreamOrientation.streamOrientation(streamOrientation, hostShapesStream, streamStartedLandscape,
-                        windowLandscape),
-                limits[0], limits[1], limits[2], limits[3]);
-    }
-
-    private boolean windowLandscape() {
-        Point real = new Point();
-        getWindowManager().getDefaultDisplay().getRealSize(real);
-        return real.x >= real.y;
-    }
-
-    private String displaySignature() {
-        Display display = getVideoDisplay();
-        // The input pane must not hide a refresh-capability change on the video output.
-        // Local output still tracks the phone's native size across folds and mode changes.
-        String resolution = externalPresentation == null ? PreferenceConfiguration.nativeResolution(this) : "";
-        return display.getDisplayId() + ":" + resolution + "@" +
-                com.limelight.binding.video.DisplayFrameRatePolicy.maxRefreshRate(display);
-    }
-
-    // Display changes also fire for refresh rate switches; only a new panel or a new top refresh
-    // rate matters here.
-    private void onDisplayModesChanged() {
-        // ARR support can change with the active mode even when size and maximum Hz do not.
-        // Observe it independently of the selected policy; changing votes here could oscillate modes.
-        logDisplayRefreshPolicy(getVideoDisplay());
-        String signature = displaySignature();
-        if (signature.equals(displaySignature)) {
-            return;
-        }
-        LimeLog.info("Display modes changed: " + displaySignature + " -> " + signature);
-        displaySignature = signature;
-        configureStreamWindow();
-        panelMaxRefreshRate = com.limelight.binding.video.DisplayFrameRatePolicy.maxRefreshRate(
-                getVideoDisplay());
-        scheduleReconfigureCheck();
-    }
-
-    private void logDisplayRefreshPolicy(Display display) {
-        logDisplayRefreshPolicy(display,
-                Build.VERSION.SDK_INT >= Build.VERSION_CODES.BAKLAVA && display.hasArrSupport());
-    }
-
-    private void logDisplayRefreshPolicy(Display display, boolean arrSupported) {
-        WindowManager.LayoutParams attributes = getVideoWindow().getAttributes();
-        String changed = displayRefreshDiagnostics.update(Build.VERSION.SDK_INT, display.getDisplayId(),
-                Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ? display.getMode().getModeId() : 0,
-                arrSupported, prefConfig.vrr, useArr,
-                Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ? attributes.preferredDisplayModeId : 0,
-                attributes.preferredRefreshRate, appSurfaceFrameRateVote);
-        if (changed != null) LimeLog.info(changed);
-    }
-
-    private void onPaneLaidOut(View pane) {
-        if (externalPresentation != null) return;
-        int width = pane.getWidth() - pane.getPaddingLeft() - pane.getPaddingRight();
-        int height = pane.getHeight() - pane.getPaddingTop() - pane.getPaddingBottom();
-        if (width == lastPaneWidth && height == lastPaneHeight) {
-            return;
-        }
-        lastPaneWidth = width;
-        lastPaneHeight = height;
-        // Full-screen sizes come from the display; only a window follows its own pane.
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && isInMultiWindowMode()) {
-            scheduleReconfigureCheck();
-        }
-    }
-
-    // Frames of a new size came out of the decoder: scale, letterbox, touch and picture-in-picture
-    // now follow that size.
-    private void applyStreamSize(int width, int height) {
-        if (isFinishing() || isDestroyed() || (width == prefConfig.width && height == prefConfig.height)) {
-            return;
-        }
-        LimeLog.info("Stream now " + width + "x" + height + " (was " + prefConfig.width + "x" + prefConfig.height + ")");
-        prefConfig.width = width;
-        prefConfig.height = height;
-        if (adaptiveBitrate != null) adaptiveBitrate.setStreamSize(width, height);
-        configureStreamWindow();
-        if (prefConfig.upscalingMode == UpscalingPolicy.Mode.OFF) {
-            if (prefConfig.useTextureView) {
-                SurfaceTexture texture = renderView.getTextureView().getSurfaceTexture();
-                if (texture != null) {
-                    texture.setDefaultBufferSize(width, height);
-                }
-            } else {
-                renderView.getHolder().setFixedSize(width, height);
-            }
-        }
-        applyVideoScaling();
-        if (prefConfig.touchscreenTrackpad && conn != null) {
-            // Trackpad motion is scaled to the stream size.
-            touchInput.cancelTouchInput();
-            touchInput.initializeTouchContexts();
-        }
-        setPreferredOrientationForCurrentDisplay();
-        updatePipAutoEnter();
+        videoOutput.hideSystemUi(50);
     }
 
     @Override
@@ -2909,8 +1956,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         adaptiveBitrate = null;
         qualityAutoBitrate = false;
         bitrateHandler.removeCallbacks(adaptation.sampleStreamHealth);
-        bitrateHandler.removeCallbacks(pollContentRateVote);
-        stopRefreshSwitchPolling();
+        bitrateHandler.removeCallbacks(videoOutput.pollContentRateVote);
+        videoOutput.stopRefreshSwitchPolling();
         if (wifiDiagnostics != null) wifiDiagnostics.stop();
         pyroWaveBitrate = null;
         displayCapsReporter = null;
@@ -2932,7 +1979,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         }
         if (connecting || connected) {
             connecting = connected = false;
-            updatePipAutoEnter();
+            videoOutput.updatePipAutoEnter();
 
             if (controllerHandler != null) controllerHandler.stop();
 
@@ -3315,9 +2362,9 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 getIntent().removeExtra(EXTRA_RECOVERY_MEDIA_FAILURE);
                 bitrateHandler.removeCallbacks(adaptation.sampleStreamHealth);
                 bitrateHandler.postDelayed(adaptation.sampleStreamHealth, 1000);
-                bitrateHandler.removeCallbacks(pollContentRateVote);
-                if (prefConfig.contentRateFrameRate) bitrateHandler.postDelayed(pollContentRateVote, 1000);
-                startRefreshSwitchPolling();
+                bitrateHandler.removeCallbacks(videoOutput.pollContentRateVote);
+                if (prefConfig.contentRateFrameRate) bitrateHandler.postDelayed(videoOutput.pollContentRateVote, 1000);
+                videoOutput.startRefreshSwitchPolling();
                 if (wifiDiagnostics == null) wifiDiagnostics = new com.limelight.utils.WifiDiagnostics(Game.this);
                 wifiDiagnostics.start();
                 streamRecovery.onStreamConnected(SystemClock.elapsedRealtime());
@@ -3334,9 +2381,9 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 }
                 if (app.getRole() != NvApp.Role.INPUT_ONLY && !app.isControlAction()) {
                     displayCapsReporter = new DisplayCapsReporter(MoonBridge::sendDisplayCaps);
-                    reportDisplayCaps();
+                    videoOutput.reportDisplayCaps();
                 }
-                startReconfigureTracking();
+                videoOutput.startReconfigureTracking();
                 requestHostTiming();
                 requestLinkNotice();
                 keyboardInput.requestTextInput();
@@ -3363,7 +2410,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 overlays.notePyroWaveFallback();
                 adaptation.startStreamBitrate();
                 adaptation.startAdaptiveQuality();
-                updatePipAutoEnter();
+                videoOutput.updatePipAutoEnter();
 
                 if (!conn.getHostDetails().hasPermission(ComputerDetails.PERMISSION_INPUT)) {
                     messages.alert(R.string.stream_input_denied, Toast.LENGTH_LONG);
@@ -3389,7 +2436,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 // Update GameManager state to indicate we're in game
                 UiHelper.notifyStreamConnected(Game.this);
 
-                hideSystemUi(1000);
+                videoOutput.hideSystemUi(1000);
 
                 // The first stream says once how to open the stream menu, after the start settles.
                 if (!com.limelight.ui.StreamMenuHint.seen(Game.this)) {
@@ -3637,208 +2684,16 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 ", pacing: " + prefConfig.framePacing + ", newest frame: " + prefConfig.dropLateFrames);
 
         if (prefConfig.useTextureView) {
-            logDisplayRefreshPolicy(getVideoDisplay());
+            videoOutput.logDisplayRefreshPolicy(videoOutput.getVideoDisplay());
             return;
         }
 
-        voteSurfaceFrameRate(surface);
+        videoOutput.voteSurfaceFrameRate(surface);
 
         // Disable producer throttling on the underlying surface for reduced latency
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.CINNAMON_BUN) {
             surface.setProducerThrottlingEnabled(false);
         }
-    }
-
-    private void refreshSurfaceFrameRateVote() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && surfaceCreated && videoSurface != null &&
-                videoSurface.isValid() && !prefConfig.useTextureView) {
-            voteSurfaceFrameRate(videoSurface);
-        }
-    }
-
-    private void voteSurfaceFrameRate(Surface surface) {
-        if (useArr && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            // The stream rate, seamless only: ARR's steps are seamless, and a 0 vote would leave
-            // the game at Android's 60 Hz default for games (see arrVote). arrHalfRate watches for it.
-            int exactRate = decoderRenderer == null ? 0 : decoderRenderer.getStreamFrameRateMilliHz();
-            float vote = com.limelight.binding.video.DisplayFrameRatePolicy.arrVote(
-                    exactRate > 0 ? exactRate / 1000f : prefConfig.fps, panelMaxRefreshRate);
-            applySurfaceFrameRate(surface, vote, Surface.CHANGE_FRAME_RATE_ONLY_IF_SEAMLESS);
-            arrHalfRate.reset();
-            LimeLog.info("VRR: ARR vote " + vote + " Hz (stream rate, seamless only)");
-            logDisplayRefreshPolicy(getVideoDisplay());
-            return;
-        }
-
-        applySurfaceFrameRate(surface, baseSurfaceFrameRate(), Surface.CHANGE_FRAME_RATE_ALWAYS);
-        // The base vote replaced any content rate vote; make it again.
-        contentRateVote.invalidate();
-        logDisplayRefreshPolicy(getVideoDisplay());
-    }
-
-    // The vote for the stream before the content rate is known, or when it is not followed.
-    private float baseSurfaceFrameRate() {
-        float desiredFrameRate;
-
-        // Android will pick the lowest matching refresh rate for a given frame rate value, so we want
-        // to report the true FPS value if refresh rate reduction is enabled. We also report the true
-        // FPS value if there's no suitable matching refresh rate. In that case, Android could try to
-        // select a lower refresh rate that avoids uneven pull-down (ex: 30 Hz for a 60 FPS stream on
-        // a display that maxes out at 50 Hz).
-        if (prefConfig.vrr) {
-            desiredFrameRate = panelMaxRefreshRate;
-        }
-        else if (mayReduceRefreshRate() || desiredRefreshRate < prefConfig.fps) {
-            int exactRate = decoderRenderer == null ? 0 : decoderRenderer.getStreamFrameRateMilliHz();
-            desiredFrameRate = exactRate > 0 ? exactRate / 1000f : prefConfig.fps;
-        }
-        else {
-            // Otherwise, we will pretend that our frame rate matches the refresh rate we picked in
-            // prepareDisplayForRendering(). This will usually be the highest refresh rate that our
-            // frame rate evenly divides into, which ensures the lowest possible display latency.
-            desiredFrameRate = desiredRefreshRate;
-        }
-        return desiredFrameRate;
-    }
-
-    private void applySurfaceFrameRate(Surface surface, float frameRate, int changeStrategy) {
-        // Tell the OS about our frame rate to allow it to adapt the display refresh rate appropriately
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            // The stream's own vote changes the rate even if it's not seamless, since
-            // prepareDisplayForRendering() will not set the display mode on S+ if it only differs
-            // by the refresh rate. It depends on us to trigger the frame rate switch here.
-            surface.setFrameRate(frameRate,
-                    Surface.FRAME_RATE_COMPATIBILITY_FIXED_SOURCE,
-                    changeStrategy);
-            appSurfaceFrameRateVote = frameRate;
-            appSurfaceSeamlessOnly = changeStrategy == Surface.CHANGE_FRAME_RATE_ONLY_IF_SEAMLESS;
-        }
-        else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            // No strategy on API 30: the two-argument vote only ever switches seamlessly.
-            surface.setFrameRate(frameRate,
-                    Surface.FRAME_RATE_COMPATIBILITY_FIXED_SOURCE);
-            appSurfaceFrameRateVote = frameRate;
-            appSurfaceSeamlessOnly = true;
-        }
-    }
-
-    private void startRefreshSwitchPolling() {
-        if (refreshSwitchMonitor == null) {
-            refreshSwitchMonitor = new com.limelight.binding.video.RefreshSwitchMonitor(this);
-        }
-        bitrateHandler.removeCallbacks(pollRefreshSwitch);
-        bitrateHandler.postDelayed(pollRefreshSwitch, 1000);
-    }
-
-    private void stopRefreshSwitchPolling() {
-        bitrateHandler.removeCallbacks(pollRefreshSwitch);
-        arrHalfRate.reset();
-        messages.status("refresh", null);
-        messages.status("arr", null);
-        messages.status("hdr", null);
-    }
-
-    // When the screen has stayed off the rate voted for, says why on the overlay's status line.
-    private void checkRefreshSwitch() {
-        if (refreshSwitchMonitor == null) return;
-        String text = refreshSwitchMonitor.poll(SystemClock.uptimeMillis(), getVideoDisplay(),
-                surfaceCreated && !useArr ? appSurfaceFrameRateVote : null, appSurfaceSeamlessOnly);
-        if (messages.status("refresh", text)) overlays.updatePerformanceOverlay();
-    }
-
-    // Under ARR the refresh switch check above cannot tell what the screen runs at, so watch what it
-    // shows: about half the rendered frames for 3 s, with the display at about half the stream rate,
-    // means Android holds the stream at half its rate.
-    private void checkArrRate() {
-        if (!useArr || decoderRenderer == null) return;
-        float[] rates = decoderRenderer.getFrameRates();
-        float rendered = PerformanceOverlay.renderedFps(rates);
-        float presented = PerformanceOverlay.presentedFps(rates);
-        Display display = getVideoDisplay();
-        float displayHz = display == null ? 0 : display.getRefreshRate();
-        int exactRate = decoderRenderer.getStreamFrameRateMilliHz();
-        float streamHz = exactRate > 0 ? exactRate / 1000f : prefConfig.fps;
-        boolean was = arrHalfRate.flagged();
-        boolean flagged = arrHalfRate.update(SystemClock.uptimeMillis(), rendered, presented, displayHz, streamHz);
-        if (flagged && !was) {
-            LimeLog.warning("VRR: ARR shows " + presented + " of " + rendered + " fps rendered for " +
-                    com.limelight.binding.video.DisplayFrameRatePolicy.ArrHalfRateCheck.HOLD_MS / 1000 +
-                    " s, display at " + displayHz + " Hz: the screen is held at half the stream rate (vote " +
-                    appSurfaceFrameRateVote + " Hz)");
-        } else if (!flagged && was) {
-            LimeLog.info("VRR: ARR shows the rendered frames again (" + presented + " of " + rendered + " fps)");
-        }
-        String text = flagged ? getString(R.string.stream_vrr_arr_half_rate, Math.round(presented), Math.round(rendered)) : null;
-        if (messages.status("arr", text)) overlays.updatePerformanceOverlay();
-    }
-
-    // Render through Vulkan can't keep up on this display: say so once per PC and on the status line.
-    // The renderer stays on and the setting stays; turning it off is the user's choice.
-    private void checkVulkanPace() {
-        if (decoderRenderer != null && decoderRenderer.takeVulkanBehind()) {
-            overlays.hostNotice(HostNotices.Notice.VULKAN_BEHIND, R.string.stream_vulkan_behind);
-        }
-    }
-
-    // HDR was granted and then not delivered: say so on the status line for as long as it lasts,
-    // and log it. A refusal before the stream is already noted by refuseHdr, not repeated here.
-    private void checkHdrStatus() {
-        String text = null;
-        if (streamHdr && decoderRenderer != null) {
-            int format = decoderRenderer.getActiveVideoFormat();
-            HdrPolicy.Status status = format == 0 ? HdrPolicy.Status.WAITING : HdrPolicy.drawnStatus(HdrPolicy.status(true,
-                    (format & MoonBridge.VIDEO_FORMAT_MASK_10BIT) != 0, decoderRenderer.getHostHdrReport(),
-                    decoderRenderer.getHdrMetadataState(), decoderRenderer.getDecodedTransfer(),
-                    decoderRenderer.getStreamTransfer(), HdrPolicy.hlgOnly(HdrPolicy.displayHdrTypes(getVideoDisplay()))),
-                    decoderRenderer.isVulkanHdrToneMapped());
-            int res = hdrStatusText(status, decoderRenderer.isPyroWaveHlgNeedingHostUpdate(),
-                    decoderRenderer.isPyroWaveHlgRefusedByDisplay());
-            if (status == HdrPolicy.Status.SHOWN_AS_SDR) {
-                text = getString(res, HdrFormatPolicy.baseLayerName(decoderRenderer.getAnnouncedHdrFormat()));
-            } else if (res != 0) {
-                text = getString(res);
-            }
-            // The window took HLG before the stream but does not show it as HLG (the renderer and
-            // MediaCodecDecoderRenderer log why).
-            if (decoderRenderer.isPyroWaveHlgLost()) text = getString(R.string.stream_hdr_pyrowave_hlg_lost);
-            // Plain words, once per PC, for what the Vulkan renderer cannot show of this screen's HDR.
-            int limit = vulkanHdrLimitText(decoderRenderer.takeVulkanHdrLimit());
-            if (limit != 0) overlays.hostNotice(HostNotices.Notice.VULKAN_HDR_LIMIT, limit);
-            // Once per stream on the status line (and once per PC as a message): the output window
-            // refused HDR10+, so the picture keeps HDR10's static metadata alone.
-            if (decoderRenderer.takeVulkanHdr10PlusRefused()) {
-                LimeLog.warning("HDR10+ refused by the Vulkan renderer's window");
-                overlays.hostNotice(HostNotices.Notice.VULKAN_HDR10_PLUS_REFUSED, R.string.stream_hdr_vulkan_no_hdr10_plus);
-            }
-            // And for what PyroWave cannot carry; Dolby Vision names what the stream is instead.
-            int pyroWaveLimit = pyroWaveHdrLimitText(decoderRenderer.takePyroWaveHdrLimit());
-            if (pyroWaveLimit != 0) {
-                messages.notice(getIntent().getStringExtra(EXTRA_PC_UUID), HostNotices.Notice.PYROWAVE_HDR_LIMIT,
-                        getString(pyroWaveLimit, HdrFormatPolicy.baseLayerName(decoderRenderer.getAnnouncedHdrFormat())));
-            }
-            if (status != lastHdrStatus) {
-                lastHdrStatus = status;
-                if (res != 0) LimeLog.warning("HDR requested but " + status);
-            }
-        }
-        if (streamSdr10 && decoderRenderer != null) {
-            int format = decoderRenderer.getActiveVideoFormat();
-            boolean tenBit = (format & MoonBridge.VIDEO_FORMAT_MASK_10BIT) != 0;
-            Boolean report = decoderRenderer.getHostHdrReport();
-            if (Sdr10Policy.status(tenBit, report) == Sdr10Policy.Status.HOST_HDR) {
-                text = getString(R.string.stream_sdr10_host_hdr);
-            }
-            Sdr10Policy.HostHdrStep step = Sdr10Policy.hostHdrStep(tenBit, report, sdr10LastHostHdr);
-            if (step == Sdr10Policy.HostHdrStep.SAY) {
-                LimeLog.warning("10-bit SDR requested but the PC sends HDR");
-                overlays.hostNotice(HostNotices.Notice.SDR10_HOST_HDR, R.string.stream_sdr10_host_hdr);
-            } else if (step == Sdr10Policy.HostHdrStep.REARM) {
-                // The PC's display is in SDR now; if it goes to HDR again, say so again.
-                HostNotices.reset(this, getIntent().getStringExtra(EXTRA_PC_UUID), HostNotices.Notice.SDR10_HOST_HDR);
-            }
-            if (tenBit && report != null) sdr10LastHostHdr = report;
-        }
-        if (messages.status("hdr", text)) overlays.updatePerformanceOverlay();
     }
 
     static int hdrStatusText(HdrPolicy.Status status) {
@@ -3885,55 +2740,6 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         }
     }
 
-    private boolean followsContentRate() {
-        return com.limelight.binding.video.DisplayFrameRatePolicy.followsContentRate(Build.VERSION.SDK_INT,
-                prefConfig.contentRateFrameRate,
-                MoonBridge.hostSupportsControlMessage(MoonBridge.CONTROL_MESSAGE_CLOCK_SYNC),
-                useArr, prefConfig.vrr, prefConfig.useTextureView);
-    }
-
-    // Moves the surface's frame rate vote to the rate the game presents at once that held steady,
-    // seamless modes only, so a vote never blanks the screen during the stream.
-    private void voteContentRate() {
-        if (!surfaceCreated || videoSurface == null || !videoSurface.isValid() || decoderRenderer == null ||
-                !followsContentRate()) {
-            return;
-        }
-        long now = SystemClock.uptimeMillis();
-        int contentMilliHz = decoderRenderer.getContentRateMilliHz();
-        if (contentRateVote.withdraw(now, contentMilliHz)) {
-            // The game no longer holds a rate: back to the vote the stream would make.
-            if (keepsVrrVote(baseSurfaceFrameRate())) return;
-            applySurfaceFrameRate(videoSurface, baseSurfaceFrameRate(), Surface.CHANGE_FRAME_RATE_ONLY_IF_SEAMLESS);
-            LimeLog.info("Content frame rate vote withdrawn");
-            logDisplayRefreshPolicy(getVideoDisplay());
-            return;
-        }
-        float contentHz = contentRateVote.next(now, contentMilliHz);
-        if (contentHz <= 0) return;
-        // With VRR (no ARR here) the base vote is the panel maximum. With a lower refresh rate allowed
-        // the vote is as without VRR. Otherwise it goes lower only when the game's rate would judder at
-        // the maximum, to a seamless multiple of it: even frame timing for a little more wait for the
-        // next refresh (about 1.4 ms on average for 90 Hz instead of 120, not measured).
-        float vote = prefConfig.vrr ?
-                com.limelight.binding.video.DisplayFrameRatePolicy.vrrContentVote(contentHz, panelMaxRefreshRate,
-                        mayReduceRefreshRate(),
-                        com.limelight.binding.video.DisplayFrameRatePolicy.seamlessRates(getVideoDisplay())) :
-                com.limelight.binding.video.DisplayFrameRatePolicy.contentVote(contentHz,
-                        baseSurfaceFrameRate(), mayReduceRefreshRate(), panelMaxRefreshRate);
-        if (keepsVrrVote(vote)) return;
-        applySurfaceFrameRate(videoSurface, vote, Surface.CHANGE_FRAME_RATE_ONLY_IF_SEAMLESS);
-        LimeLog.info("Content frame rate vote: " + vote + " Hz (game at " + contentHz + " Hz)");
-        logDisplayRefreshPolicy(getVideoDisplay());
-    }
-
-    // With VRR a content vote that equals the vote in force (the panel maximum the stream started
-    // with) is not made again: re-voting it seamless-only would change the reason the status line
-    // gives when the screen never reached that rate (a TV that needs Match content frame rate).
-    private boolean keepsVrrVote(float vote) {
-        return prefConfig.vrr && appSurfaceFrameRateVote != null && Math.abs(vote - appSurfaceFrameRateVote) < 0.01f;
-    }
-
     @Override
     public void surfaceDestroyed(SurfaceHolder holder) {
         destroyVideoSurface();
@@ -3952,7 +2758,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             decoderRenderer.prepareForStop();
         }
         if (externalPresentation != null && !isFinishing() && !isDestroyed()) {
-            returnVideoToDevice();
+            videoOutput.returnVideoToDevice();
             return;
         }
         if (attemptedConnection) {
@@ -4025,10 +2831,10 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
 
         // This flag is set for all devices
         if ((visibility & View.SYSTEM_UI_FLAG_FULLSCREEN) == 0) {
-            hideSystemUi(2000);
+            videoOutput.hideSystemUi(2000);
         }
         else if ((visibility & View.SYSTEM_UI_FLAG_HIDE_NAVIGATION) == 0) {
-            hideSystemUi(2000);
+            videoOutput.hideSystemUi(2000);
         }
     }
 
@@ -4043,13 +2849,13 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         // Disable PiP auto-enter while the USB permission prompt is on-screen. This prevents
         // us from entering PiP while the user is interacting with the OS permission dialog.
         suppressPipRefCount++;
-        updatePipAutoEnter();
+        videoOutput.updatePipAutoEnter();
     }
 
     @Override
     public void onUsbPermissionPromptCompleted() {
         suppressPipRefCount--;
-        updatePipAutoEnter();
+        videoOutput.updatePipAutoEnter();
     }
 
     @Override

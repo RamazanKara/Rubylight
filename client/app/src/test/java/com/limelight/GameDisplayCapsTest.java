@@ -141,7 +141,7 @@ public class GameDisplayCapsTest {
     }
 
     private static void report(Game game) {
-        ReflectionHelpers.callInstanceMethod(game, "reportDisplayCaps");
+        ReflectionHelpers.callInstanceMethod(game.videoOutput, "reportDisplayCaps");
     }
 
     private static void panel(Display display, int modeId, int width, int height, float refresh, float peak) {

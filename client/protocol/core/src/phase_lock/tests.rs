@@ -561,13 +561,14 @@ fn frames_that_only_move_later_stay_less_than_a_picture_past_the_margin() {
 fn a_correction_left_from_one_mode_never_applies_in_the_other() {
     let report = |lead_ns: i64| Report { frames: 30, period_ns: SIXTY as u32, lead_ns: lead_ns as i32, spread_ns: 0 };
     // Frames at the latch ask for 750 us earlier, 250 us a frame. When the source turns into a
-    // 120 fps game, the rest is dropped instead of moving the frames 500 us at once.
+    // 120 fps game, the rest is dropped instead of moving the frames 500 us at once, and so is
+    // the trim, which step mode never uses.
     let mut lock = PhaseLock::default();
     lock.on_report(&report(0));
-    let trim = lock.trim_ns;
-    assert_eq!(lock.next_interval_ns(SIXTY), SIXTY + trim - PhaseLock::MAX_STEP_NS);
+    lock.trim_ns = 150_000;
+    assert_eq!(lock.next_interval_ns(SIXTY), SIXTY + 150_000 - PhaseLock::MAX_STEP_NS);
     lock.set_step(GAME);
-    assert_eq!(lock.next_interval_ns(SIXTY), SIXTY + trim);
+    assert_eq!(lock.next_interval_ns(SIXTY), SIXTY);
     // Late frames of the game move a picture later; when the game stops, that move is dropped
     // rather than trickled out a quarter millisecond a frame.
     lock.on_report(&report(-3_000_000));

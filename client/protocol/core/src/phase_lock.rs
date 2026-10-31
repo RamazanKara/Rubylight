@@ -281,10 +281,15 @@ impl PhaseLock {
     pub fn set_step(&mut self, step_ns: i64) {
         let step_ns = step_ns.max(0);
         // A correction left from the other mode is dropped: a plain lock's microseconds would
-        // apply at once in step mode, and a picture move would trickle out 250 us a frame.
+        // apply at once in step mode, and a picture move would trickle out 250 us a frame. Step
+        // mode has no trim (the source sets the rate), from the first frame on, not only from
+        // the next report.
         if (step_ns > 0) != (self.step_ns > 0) {
             self.pending_ns = 0;
             self.hold_frames = 0;
+            if step_ns > 0 {
+                self.trim_ns = 0;
+            }
         }
         self.step_ns = step_ns;
     }

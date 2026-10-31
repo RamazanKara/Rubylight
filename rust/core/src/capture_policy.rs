@@ -82,6 +82,45 @@ impl Freshness {
     pub fn picture_mean_interval(&self) -> Option<u64> {
         self.picture_mean
     }
+    /// The mean of the recent picture intervals, a picture split in two (a
+    /// third composition 2 ms or more after its start) counted once: two
+    /// short neighbours that add up to the median within 1/8 are one
+    /// picture, and a short one at either end of the history, whose other
+    /// part may lie outside it, is left out. Any other short interval counts,
+    /// so a source alternating between two cadences still shows.
+    fn whole_picture_mean(&self, median: u64) -> Option<u64> {
+        let len = self.pictures.len();
+        let first = if self.picture_count < len {
+            0
+        } else {
+            self.picture_next
+        };
+        let short = |interval: u64| interval < median - median / 4;
+        let (mut sum, mut count) = (0u64, 0u64);
+        // A short interval waiting for its neighbour, and whether it opened the history.
+        let mut part: Option<(u64, bool)> = None;
+        for i in 0..self.picture_count {
+            let interval = self.pictures[(first + i) % len];
+            if let Some((before, leading)) = part.take() {
+                if short(interval) && (before + interval).abs_diff(median) <= median / 8 {
+                    sum += before + interval;
+                    count += 1;
+                    continue;
+                }
+                if !leading {
+                    sum += before;
+                    count += 1;
+                }
+            }
+            if short(interval) {
+                part = Some((interval, i == 0));
+            } else {
+                sum += interval;
+                count += 1;
+            }
+        }
+        (count > 0).then(|| sum / count)
+    }
     /// When the latest picture's first capture was presented.
     pub fn picture_start(&self) -> Option<u64> {
         self.picture
@@ -202,13 +241,12 @@ impl Freshness {
             self.picture_mean = None;
             self.picture_late = None;
             if self.picture_count >= 4 {
-                let count = self.picture_count as u64;
-                self.picture_mean =
-                    Some(self.pictures[..self.picture_count].iter().sum::<u64>() / count);
                 let mut pictures = self.pictures;
                 pictures[..self.picture_count].sort_unstable();
-                self.picture_median = Some(pictures[self.picture_count / 2]);
+                let median = pictures[self.picture_count / 2];
+                self.picture_median = Some(median);
                 self.picture_late = Some(pictures[self.picture_count * 7 / 8]);
+                self.picture_mean = self.whole_picture_mean(median);
             }
         }
         // Polling reads the same history many times between frames. Recompute
@@ -507,19 +545,30 @@ mod tests {
                     );
                     assert_eq!(cadence.picture_start(), Some(start));
                     assert!(cadence.median_interval().unwrap() < 7_500_000);
-                    // The mean of all captures halves; the pictures' own mean still
-                    // agrees with their median, so step mode can tell the cadence.
-                    if !third {
-                        let mean = cadence.picture_mean_interval().unwrap();
-                        assert!(
-                            mean.abs_diff(picture) <= picture / 16,
-                            "frame {frame}: {mean} {picture}"
-                        );
-                        assert!(cadence.mean_interval().unwrap() < 5_000_000);
-                    }
+                    // The mean of all captures halves; the pictures' own mean, with a
+                    // picture split by a third composition counted once, still agrees
+                    // with their median, so step mode can tell the cadence.
+                    let mean = cadence.picture_mean_interval().unwrap();
+                    assert!(
+                        mean.abs_diff(picture) <= picture / 16,
+                        "third={third} frame {frame}: {mean} {picture}"
+                    );
+                    assert!(cadence.mean_interval().unwrap() < 5_000_000);
                 }
             }
         }
+        // 160 fps on the 240 Hz display: pictures one and two refreshes apart
+        // in turn. Their mean stays apart from the median, so step mode stays off.
+        let mut alternating = Freshness::default();
+        let mut at = 1_000_000_000u64;
+        for picture in 0..64u64 {
+            at += [4_166_667, 8_333_333][(picture % 2) as usize];
+            alternating.observe(at, 100_000);
+            alternating.observe(at + 100_000, 100_000);
+        }
+        let median = alternating.picture_interval().unwrap();
+        let mean = alternating.picture_mean_interval().unwrap();
+        assert!(mean.abs_diff(median) > median / 8, "{median} {mean}");
         // The 1000 Hz virtual display's own refresh is no picture cadence.
         let mut display = Freshness::default();
         for tick in 0..100 {

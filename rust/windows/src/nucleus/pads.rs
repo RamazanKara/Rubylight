@@ -7,6 +7,8 @@ use crate::input::{GamepadThread, PadReport};
 use anyhow::{Context, Result, bail, ensure};
 use butterpollo_core::input::Input;
 use butterpollo_core::nucleus::coop::{self, MAX_PLAYERS};
+use butterpollo_core::session::Warnings;
+use std::sync::{Arc, Mutex, PoisonError, Weak};
 use std::time::{Duration, Instant};
 
 /// Moonlight's controller type for an Xbox pad.
@@ -21,6 +23,9 @@ const POLL: Duration = Duration::from_millis(20);
 pub const KEYBOARD_MOUSE_LIMIT: &str = "Nucleus Co-op streams take controller input only: keyboard, mouse, touch and pen cannot reach one player's game instance yet";
 /// What the stream shows when a player uses a second controller.
 pub const SECOND_CONTROLLER_LIMIT: &str = "Each Nucleus Co-op player has one controller: only this device's first controller reaches its game instance";
+/// The stream's warning for a controller on the PC at a lower XInput index
+/// than a player's pad ([`plug`]).
+pub const CONTROLLER_AHEAD: &str = "nucleus_controller_ahead";
 
 /// The session's virtual pads: the gamepad thread on the PC, a recorder in
 /// tests.
@@ -29,16 +34,96 @@ pub trait Pads: Send + Sync {
     /// Whether every pad in `mask` is plugged in, waiting up to `timeout`.
     fn wait_ready(&self, mask: u16, timeout: Duration) -> bool;
     fn reports(&self) -> Vec<PadReport>;
+    /// Unplug the pads earlier sessions still hold, and return the XInput
+    /// indices they took. A session's pads stay until the host drops its
+    /// last copy, which can be minutes after it ended; meanwhile they would
+    /// hold the low indices a game reads first (#56).
+    fn retire_earlier(&self) -> Result<Vec<u8>> {
+        Ok(Vec::new())
+    }
+    /// Note the XInput indices this session's pads took, for [`free`] and
+    /// a later session's [`Pads::retire_earlier`].
+    fn took(&self, _indices: &[u8]) {}
+    /// Show the stream a warning.
+    fn warn(&self, _code: &str, _message: &str) {}
 }
-impl Pads for GamepadThread {
+
+/// The session's pads on the PC; [`virtual_pads`].
+pub struct SessionPads {
+    thread: Arc<GamepadThread>,
+    warnings: Arc<Warnings>,
+}
+
+/// Every session's pads the host still holds, and the XInput indices they
+/// took. One Nucleus Co-op session runs at a time, so all but the newest
+/// belong to sessions that ended.
+struct Plugged {
+    thread: Weak<GamepadThread>,
+    indices: Vec<u8>,
+}
+static PLUGGED: Mutex<Vec<Plugged>> = Mutex::new(Vec::new());
+
+fn plugged() -> std::sync::MutexGuard<'static, Vec<Plugged>> {
+    let mut plugged = PLUGGED.lock().unwrap_or_else(PoisonError::into_inner);
+    plugged.retain(|p| p.thread.strong_count() > 0);
+    plugged
+}
+
+/// The XInput indices ended sessions' pads hold: free once
+/// [`Pads::retire_earlier`] unplugs them, as it does before a session plugs
+/// its own.
+fn held() -> Vec<u8> {
+    plugged().iter().flat_map(|p| p.indices.clone()).collect()
+}
+
+impl Pads for SessionPads {
     fn send(&self, event: Input) {
-        GamepadThread::send(self, event)
+        self.thread.send(event)
     }
     fn wait_ready(&self, mask: u16, timeout: Duration) -> bool {
-        GamepadThread::wait_ready(self, mask, timeout)
+        self.thread.wait_ready(mask, timeout)
     }
     fn reports(&self) -> Vec<PadReport> {
-        GamepadThread::reports(self).collect()
+        self.thread.reports().collect()
+    }
+    fn retire_earlier(&self) -> Result<Vec<u8>> {
+        let earlier: Vec<_> = {
+            let mut plugged = plugged();
+            let own = Arc::downgrade(&self.thread);
+            let (earlier, own): (Vec<_>, Vec<_>) =
+                plugged.drain(..).partition(|p| !p.thread.ptr_eq(&own));
+            *plugged = own;
+            earlier
+        };
+        let mut indices = Vec::new();
+        for set in earlier {
+            let Some(thread) = set.thread.upgrade() else {
+                continue;
+            };
+            // Joining unplugs them: the thread drops its pads as it ends.
+            if let Some(handle) = thread.stop() {
+                handle.join().map_err(|_| {
+                    anyhow::anyhow!(
+                        "an earlier Nucleus Co-op session's virtual controllers failed to unplug"
+                    )
+                })?;
+            }
+            tracing::info!(
+                xinput = ?set.indices,
+                "Nucleus Co-op: an earlier session's controllers unplugged"
+            );
+            indices.extend(set.indices);
+        }
+        Ok(indices)
+    }
+    fn took(&self, indices: &[u8]) {
+        let own = Arc::downgrade(&self.thread);
+        if let Some(set) = plugged().iter_mut().find(|p| p.thread.ptr_eq(&own)) {
+            set.indices = indices.to_vec();
+        }
+    }
+    fn warn(&self, code: &str, message: &str) {
+        self.warnings.set(code, message);
     }
 }
 
@@ -46,14 +131,20 @@ impl Pads for GamepadThread {
 /// clients' controllers are, since only Xbox pads reach XInput.
 pub fn virtual_pads(
     policy: butterpollo_core::input_policy::Policy,
-    warnings: std::sync::Arc<butterpollo_core::session::Warnings>,
-) -> Result<GamepadThread> {
-    GamepadThread::new(
+    warnings: Arc<Warnings>,
+) -> Result<SessionPads> {
+    let thread = GamepadThread::new(
         butterpollo_core::input_policy::VHF_XBOX_SERIES,
         policy,
-        warnings,
+        warnings.clone(),
     )
-    .context("start the virtual controllers for Nucleus Co-op")
+    .context("start the virtual controllers for Nucleus Co-op")?;
+    let thread = Arc::new(thread);
+    plugged().push(Plugged {
+        thread: Arc::downgrade(&thread),
+        indices: Vec::new(),
+    });
+    Ok(SessionPads { thread, warnings })
 }
 
 /// Which XInput user indices have a controller.
@@ -110,14 +201,24 @@ impl XInput for System {
     }
 }
 
-/// How many XInput indices the PC's own controllers leave free.
+/// How many XInput indices the PC's own controllers leave free; those
+/// ended sessions' pads hold count as free ([`Pads::retire_earlier`]).
 pub fn free(xinput: &mut dyn XInput) -> Result<usize> {
-    Ok(xinput.connected()?.iter().filter(|c| !**c).count())
+    Ok(free_of(xinput.connected()?, &held()))
+}
+
+fn free_of(connected: [bool; MAX_PLAYERS], held: &[u8]) -> usize {
+    (0..MAX_PLAYERS)
+        .filter(|&i| !connected[i] || held.contains(&(i as u8)))
+        .count()
 }
 
 /// Plug one pad per player, in slot order, and learn the XInput index each
 /// took. Plugged one at a time, so each new index belongs to the pad just
 /// plugged; a controller connected meanwhile on the PC makes it ambiguous.
+/// Earlier sessions' pads go first, so the players take the lowest indices
+/// the PC's own controllers leave; a controller of the PC's ahead of a
+/// player's is a warning on the stream ([`CONTROLLER_AHEAD`]).
 pub fn plug(
     pads: &dyn Pads,
     xinput: &mut dyn XInput,
@@ -128,6 +229,23 @@ pub fn plug(
         (1..=MAX_PLAYERS).contains(&players),
         "a Nucleus Co-op session has 1 to {MAX_PLAYERS} players, not {players}"
     );
+    let retired = pads.retire_earlier()?;
+    let deadline = Instant::now() + timeout;
+    loop {
+        let connected = xinput.connected()?;
+        let Some(&index) = retired
+            .iter()
+            .find(|&&i| connected.get(usize::from(i)) == Some(&true))
+        else {
+            break;
+        };
+        ensure!(
+            Instant::now() < deadline,
+            "an earlier Nucleus Co-op session's virtual controller still holds XInput slot {}: start the stream again",
+            index + 1
+        );
+        std::thread::sleep(POLL);
+    }
     let mut indices = Vec::with_capacity(players);
     for slot in 0..players {
         let before = xinput.connected()?;
@@ -164,8 +282,26 @@ pub fn plug(
         };
         tracing::info!(slot, xinput = index, "Nucleus Co-op player controller");
         indices.push(index);
+        // Also those of a start that fails later, should its pads outlive it.
+        pads.took(&indices);
+    }
+    if let Some(message) = ahead(xinput.connected()?, &indices) {
+        tracing::warn!("Nucleus Co-op: {message}");
+        pads.warn(CONTROLLER_AHEAD, &message);
     }
     Ok(indices)
+}
+
+/// What the player should know when a controller that is not the session's
+/// holds a lower XInput index than a player's pad: a game that reads XInput
+/// past Nucleus Co-op's hooks takes the first controller, that one.
+fn ahead(connected: [bool; MAX_PLAYERS], indices: &[u8]) -> Option<String> {
+    let first = indices.iter().copied().min()?;
+    let other = (0..first).find(|&i| connected[usize::from(i)])?;
+    Some(format!(
+        "A controller on the PC holds XInput slot {} ahead of the players' virtual controllers: if the game doesn't respond to your controller, disconnect the PC's controllers or end the PC's other streams, then start again",
+        other + 1
+    ))
 }
 
 /// Why a player's input event did not reach a pad.
@@ -263,6 +399,12 @@ pub(crate) mod tests {
         /// Arrivals that never become ready.
         pub dead: bool,
         pub reports: Mutex<Vec<PadReport>>,
+        /// XInput indices an earlier session's pads hold until retired.
+        pub earlier: Mutex<Vec<u8>>,
+        /// Pads of an earlier session that never unplug.
+        pub stuck: bool,
+        pub took: Mutex<Vec<u8>>,
+        pub warned: Mutex<Vec<(String, String)>>,
     }
     impl Pads for Recorder {
         fn send(&self, event: Input) {
@@ -274,10 +416,27 @@ pub(crate) mod tests {
         fn reports(&self) -> Vec<PadReport> {
             std::mem::take(&mut self.reports.lock().unwrap())
         }
+        fn retire_earlier(&self) -> Result<Vec<u8>> {
+            let mut earlier = self.earlier.lock().unwrap();
+            Ok(if self.stuck {
+                earlier.clone()
+            } else {
+                std::mem::take(&mut earlier)
+            })
+        }
+        fn took(&self, indices: &[u8]) {
+            *self.took.lock().unwrap() = indices.to_vec();
+        }
+        fn warn(&self, code: &str, message: &str) {
+            self.warned
+                .lock()
+                .unwrap()
+                .push((code.to_string(), message.to_string()));
+        }
     }
 
     /// XInput that shows `pads`' arrivals at the first free index, behind
-    /// the PC's own controllers in `taken`.
+    /// the PC's own controllers in `taken` and an earlier session's pads.
     pub(crate) struct Fake<'a> {
         pub pads: &'a Recorder,
         pub taken: [bool; MAX_PLAYERS],
@@ -289,6 +448,9 @@ pub(crate) mod tests {
     impl XInput for Fake<'_> {
         fn connected(&mut self) -> Result<[bool; MAX_PLAYERS]> {
             let mut connected = self.taken;
+            for &index in self.pads.earlier.lock().unwrap().iter() {
+                connected[usize::from(index)] = true;
+            }
             if self.hidden {
                 return Ok(connected);
             }
@@ -336,6 +498,75 @@ pub(crate) mod tests {
             ),
             "{sent:?}"
         );
+        assert_eq!(*pads.took.lock().unwrap(), vec![0, 2, 3]);
+        assert!(pads.warned.lock().unwrap().is_empty());
+    }
+
+    /// #56: the pads of the sessions before still held XInput 0 and 1, so
+    /// the player's pad took 2 and the game read a pad nobody held.
+    #[test]
+    fn earlier_sessions_pads_go_before_the_players_take_the_first_index() {
+        let pads = Recorder {
+            earlier: Mutex::new(vec![0, 1]),
+            ..Default::default()
+        };
+        let mut xinput = Fake {
+            pads: &pads,
+            taken: [false; 4],
+            hidden: false,
+            intruder: false,
+        };
+        assert_eq!(free_of(xinput.connected().unwrap(), &[]), 2);
+        assert_eq!(free_of(xinput.connected().unwrap(), &[0, 1]), 4);
+        assert_eq!(plug(&pads, &mut xinput, 1, PLUG_TIMEOUT).unwrap(), vec![0]);
+        assert!(pads.earlier.lock().unwrap().is_empty());
+        assert_eq!(*pads.took.lock().unwrap(), vec![0]);
+        assert!(pads.warned.lock().unwrap().is_empty());
+
+        // Ones that stay plugged fail the start, never shift the player.
+        let stuck = Recorder {
+            earlier: Mutex::new(vec![1]),
+            stuck: true,
+            ..Default::default()
+        };
+        let mut xinput = Fake {
+            pads: &stuck,
+            taken: [false; 4],
+            hidden: false,
+            intruder: false,
+        };
+        let error = plug(&stuck, &mut xinput, 1, Duration::from_millis(50)).unwrap_err();
+        assert!(
+            error.to_string().contains("still holds XInput slot 2"),
+            "{error}"
+        );
+        assert!(stuck.sent.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_pc_controller_ahead_of_the_players_is_a_warning() {
+        let pads = Recorder::default();
+        let mut xinput = Fake {
+            pads: &pads,
+            taken: [true, false, false, false],
+            hidden: false,
+            intruder: false,
+        };
+        assert_eq!(
+            plug(&pads, &mut xinput, 2, PLUG_TIMEOUT).unwrap(),
+            vec![1, 2]
+        );
+        let warned = pads.warned.lock().unwrap();
+        assert_eq!(warned.len(), 1, "{warned:?}");
+        assert_eq!(warned[0].0, CONTROLLER_AHEAD);
+        assert!(
+            warned[0].1.contains("XInput slot 1 ahead"),
+            "{}",
+            warned[0].1
+        );
+        // Controllers behind the players' are no matter.
+        assert_eq!(ahead([true, true, true, false], &[0, 1]), None);
+        assert_eq!(ahead([false, true, false, false], &[1]), None);
     }
 
     #[test]
@@ -479,7 +710,7 @@ pub(crate) mod tests {
         let players = std::env::var("RUBYLIGHT_NUCLEUS_PLAYERS").map_or(Ok(2), |p| p.parse())?;
         let policy = butterpollo_core::input_policy::Policy::resolve(&Default::default())?;
         let warnings = std::sync::Arc::new(butterpollo_core::session::Warnings::default());
-        let pads = virtual_pads(policy, warnings.clone())?;
+        let pads = virtual_pads(policy.clone(), warnings.clone())?;
         let mut xinput = System::open()?;
         let before = xinput.connected()?;
         let started = Instant::now();
@@ -494,6 +725,19 @@ pub(crate) mod tests {
         for &index in &indices {
             ensure!(!before[usize::from(index)], "index {index} was the PC's");
         }
+        // #56: the next session's pads take the same indices, the first
+        // set's unplugged before them while the host still holds it.
+        let next = virtual_pads(policy, warnings.clone())?;
+        ensure!(
+            free(&mut xinput)? >= players,
+            "the first set's indices count as free"
+        );
+        let again = plug(&next, &mut xinput, players, PLUG_TIMEOUT)?;
+        ensure!(
+            again == indices,
+            "the next set took {again:?}, not {indices:?}"
+        );
+        drop(next);
         drop(pads);
         let deadline = Instant::now() + PLUG_TIMEOUT;
         while xinput.connected()? != before {

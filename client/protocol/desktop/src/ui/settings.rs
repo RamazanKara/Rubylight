@@ -67,7 +67,7 @@ impl Launcher {
         let test_host = if let Screen::HostSettings(id) = self.screen { view.hosts.get(id) } else { None };
         let inherited = self.inherited_settings.clone();
         let overrides = &mut self.edit_overrides;
-        let mut rows = Rows { layer: layered.then_some((&inherited, overrides)), unfolded: &mut self.unfolded, section: "", folded: 0 };
+        let mut rows = Rows { layer: layered.then_some((&inherited, overrides)), sources: &self.inherited_from, unfolded: &mut self.unfolded, section: "", folded: 0 };
         let screen = self.screen;
         let (custom_size_on, custom_fps_on) = (&mut self.custom_size, &mut self.custom_fps);
         let s = if layered { &mut self.edit_settings } else { &mut self.settings };
@@ -818,6 +818,8 @@ pub(super) fn main_row(key: &str) -> bool {
 /// behind a "More … settings" button. A folded row a PC or profile overrides stays in view.
 pub(super) struct Rows<'a> {
     layer: Option<(&'a Settings, &'a mut Overrides)>,
+    /// Where an unchecked row's value comes from when not the main settings (`Launcher::inherited_from`).
+    sources: &'a [(Overrides, String)],
     unfolded: &'a mut std::collections::BTreeSet<&'static str>,
     section: &'static str,
     /// The section's folded rows so far, drawn or not.
@@ -908,6 +910,7 @@ pub(super) fn setting_row(
         return Some(row(ui, label, description, |ui| control(ui, settings)));
     };
     let inherited = *inherited;
+    let from = rows.sources.iter().find(|(layer, _)| layer.has(keys)).map(|(_, from)| from.as_str());
     Some(row(ui, label, description, |ui| {
         ui.with_layout(Layout::top_down(Align::Max), |ui| {
             ui.set_width(240.0);
@@ -917,10 +920,30 @@ pub(super) fn setting_row(
                 overrides.clear(keys);
                 *settings = overrides.apply(inherited);
             }
-            let value = ui.add_enabled_ui(own, |ui| control(ui, settings)).inner;
+            // An unchecked row's control is reachable too (a controller's focus skips disabled
+            // ones, which left only the box): choosing another value checks it, opening a menu
+            // and leaving it changes nothing.
+            let before = settings.clone();
+            let value = control(ui, settings);
             name_for_readers(ui, &value, label, description);
-            if own { overrides.capture(settings, keys); }
+            if !own && *settings != before && chosen(ui) {
+                own = true;
+            }
+            if own {
+                overrides.capture(settings, keys);
+            } else if let Some(from) = from {
+                ui.label(RichText::new(from).font(regular(text::CAPTION)).color(ON_SURFACE_VARIANT));
+            }
             response.union(value)
         }).inner
     }))
+}
+
+/// Whether this frame's input could have chosen a value: a click, a drag, a key or typing. A
+/// range row clamping a value it was handed as it is drawn chooses nothing.
+fn chosen(ui: &Ui) -> bool {
+    ui.input(|i| {
+        i.pointer.any_released() || i.pointer.any_down()
+            || i.events.iter().any(|e| matches!(e, egui::Event::Key { pressed: true, .. } | egui::Event::Text(_)))
+    })
 }

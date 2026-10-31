@@ -208,6 +208,10 @@ pub struct Launcher {
     pub edit_settings: Settings,
     pub inherited_settings: Settings,
     pub edit_overrides: Overrides,
+    /// The layers under the one being edited that can give an unchecked row its value, from the
+    /// top, with what the row then says: the PC and the profile in use for a game, the profile
+    /// for a PC, none for a profile.
+    pub inherited_from: Vec<(Overrides, String)>,
     pub editing_app: Option<nightjar_core::http::App>,
     pub edit_name: String,
     pub settings_dirty: bool,
@@ -292,6 +296,7 @@ impl Launcher {
             edit_settings: Settings::default(),
             inherited_settings: Settings::default(),
             edit_overrides: Overrides::default(),
+            inherited_from: Vec::new(),
             editing_app: None,
             edit_name: String::new(),
             settings_dirty: false,
@@ -511,6 +516,32 @@ impl Launcher {
     pub fn ask(&mut self, dialog: Dialog) {
         self.dialog = dialog;
         self.focus_dialog = true;
+    }
+
+    /// The profile a stream on the current network uses, None for the main settings.
+    pub fn active_profile(&self) -> Option<&crate::config::Profile> {
+        self.profiles.profile(self.network.kind(&self.profiles.home_wifi))
+    }
+
+    /// A PC's own settings, over the profile in use and the main settings.
+    pub fn open_host_settings(&mut self, id: u64, host: &Host) {
+        self.inherited_settings = self.profiles.settings(&self.settings, self.network.kind(&self.profiles.home_wifi));
+        self.edit_overrides = host.record.settings.clone().unwrap_or_default();
+        self.edit_settings = self.edit_overrides.apply(&self.inherited_settings);
+        self.inherited_from = inherited_from(None, self.active_profile());
+        self.edit_name = trf("{} settings", &[&host.display_name()]);
+        self.go(Screen::HostSettings(id));
+    }
+
+    /// A game's own settings, over its PC's, the profile in use and the main settings.
+    pub fn open_app_settings(&mut self, id: u64, host: &Host, app: nightjar_core::http::App) {
+        self.inherited_settings = host.record.settings(&self.profiles.settings(&self.settings, self.network.kind(&self.profiles.home_wifi)));
+        self.edit_overrides = host.record.app_settings(&app.uuid, app.id).cloned().unwrap_or_default();
+        self.edit_settings = self.edit_overrides.apply(&self.inherited_settings);
+        self.inherited_from = inherited_from(host.record.settings.as_ref(), self.active_profile());
+        self.edit_name = trf("{} settings", &[&app.name]);
+        self.editing_app = Some(app);
+        self.go(Screen::AppSettings(id));
     }
 
     pub fn message(&mut self, title: impl Into<String>, body: impl Into<String>) {
@@ -823,6 +854,13 @@ impl Launcher {
             self.switch(screen);
         }
     }
+}
+
+/// [`Launcher::inherited_from`] for a game (`pc` is its PC's own settings) or a PC (`pc` None).
+pub fn inherited_from(pc: Option<&Overrides>, profile: Option<&crate::config::Profile>) -> Vec<(Overrides, String)> {
+    let pc = pc.map(|o| (o.clone(), tr("Set for this PC").to_owned()));
+    let profile = profile.map(|p| (p.settings.clone(), trf("From profile {}", &[&p.name])));
+    pc.into_iter().chain(profile).collect()
 }
 
 #[cfg(test)]

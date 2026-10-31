@@ -489,7 +489,8 @@ impl Launcher {
                 ui.add_space(14.0);
                 let kind = self.network.kind(&self.profiles.home_wifi);
                 let mut settings = host.record.settings(&self.profiles.settings(&self.settings, kind));
-                if let Some(overrides) = classic.as_ref().and_then(|a| host.record.app_settings(&a.uuid, a.id)) {
+                let game = classic.as_ref().and_then(|a| host.record.app_settings(&a.uuid, a.id));
+                if let Some(overrides) = game {
                     settings = overrides.apply(&settings);
                 }
                 let (w, h, fps, kbps) = stream_mode(&settings, self.display);
@@ -498,7 +499,12 @@ impl Launcher {
                     .selected(kind)
                     .and_then(|id| self.profiles.entries.iter().find(|p| p.id == id))
                     .map_or(tr("Main settings"), |p| p.name.as_str());
-                row(ui, "Stream settings", &format!("{}  \u{b7}  {profile}", console::stream_summary(w, h, fps, kbps)), |ui| {
+                let mut summary = format!("{}  \u{b7}  {profile}", console::stream_summary(w, h, fps, kbps));
+                for from in summary_sources(self.profiles.profile(kind), host.record.settings.as_ref(), game) {
+                    summary.push_str("  \u{b7}  ");
+                    summary.push_str(&from);
+                }
+                row(ui, "Stream settings", &summary, |ui| {
                     match &classic {
                         Some(app) => {
                             let r = quiet_button(ui, "Game settings");
@@ -657,4 +663,20 @@ pub(super) fn running_app_id(host: &Host) -> Option<i32> {
         Apps::Loaded(apps) => apps.iter().find(|a| a.matches_running_app(running, None)).map(|a| a.id),
         _ => None,
     }
+}
+
+/// Where the game page's stream size, rate and bitrate come from, for those not from the main
+/// settings: a PC or profile override would otherwise hold them out of sight of the game's
+/// settings ("Frame rate set for this PC").
+pub(super) fn summary_sources(profile: Option<&crate::config::Profile>, pc: Option<&Overrides>, game: Option<&Overrides>) -> Vec<String> {
+    use crate::config::{source, Source as Layer};
+    let rows: [(&str, &[&str]); 3] = [(en("Resolution"), &["width", "height"]), (en("Frame rate"), &["fps"]), (en("Bitrate"), &["bitrate_kbps"])];
+    rows.into_iter()
+        .filter_map(|(name, keys)| match source(keys, profile, pc, game) {
+            Layer::Main => None,
+            Layer::Game => Some(trf("{} set for this game", &[&tr(name)])),
+            Layer::Pc => Some(trf("{} set for this PC", &[&tr(name)])),
+            Layer::Profile(profile) => Some(trf("{} from profile {}", &[&tr(name), &profile])),
+        })
+        .collect()
 }

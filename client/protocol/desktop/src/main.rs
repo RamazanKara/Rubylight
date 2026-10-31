@@ -349,7 +349,14 @@ fn run(launch: Option<cli::Launch>) -> Result<(), String> {
     let settings = store.settings();
     let profiles = store.profiles();
     let mappings = store.controller_mappings();
-    let gpu = settings.needs_gpu() || store.hosts().iter()
+    let mut records = store.hosts();
+    if records.iter_mut().fold(false, |changed, record| record.migrate_legacy_settings(&settings) | changed) {
+        eprintln!("nightjar: PC settings copied from before layered settings now keep only their own values");
+        if let Err(e) = store.save_hosts(&records) {
+            eprintln!("nightjar: saving PCs failed: {e}");
+        }
+    }
+    let gpu = settings.needs_gpu() || records.iter()
         .any(|host| host.settings.as_ref().is_some_and(config::Overrides::needs_gpu) || host.app_settings.values().any(config::Overrides::needs_gpu))
         || profiles.entries.iter().any(|profile| profile.settings.needs_gpu());
 
@@ -421,7 +428,7 @@ fn run(launch: Option<cli::Launch>) -> Result<(), String> {
         launcher.tearing_supported
     );
 
-    let mut hosts = Hosts::new(store.hosts(), waker.clone());
+    let mut hosts = Hosts::new(records, waker.clone());
     let cli = match launch {
         Some(_) if std::env::var_os("NIGHTJAR_AUTOSTREAM").is_some() => {
             return Err("--host and NIGHTJAR_AUTOSTREAM both ask for a stream; give one".into());
@@ -1104,11 +1111,7 @@ impl App {
             }
             Command::HostSettings(id) => {
                 if let Some(host) = self.hosts.get(id) {
-                    self.launcher.inherited_settings = self.launcher.profiles.settings(&self.launcher.settings, self.launcher.network.kind(&self.launcher.profiles.home_wifi));
-                    self.launcher.edit_overrides = host.record.settings.clone().unwrap_or_default();
-                    self.launcher.edit_settings = self.launcher.edit_overrides.apply(&self.launcher.inherited_settings);
-                    self.launcher.edit_name = trf("{} settings", &[&host.display_name()]);
-                    self.launcher.go(Screen::HostSettings(id));
+                    self.launcher.open_host_settings(id, host);
                 }
             }
             Command::SaveHostSettings(id) => {
@@ -1119,12 +1122,7 @@ impl App {
             }
             Command::AppSettings { host: id, app } => {
                 if let Some(host) = self.hosts.get(id) {
-                    self.launcher.inherited_settings = host.record.settings(&self.launcher.profiles.settings(&self.launcher.settings, self.launcher.network.kind(&self.launcher.profiles.home_wifi)));
-                    self.launcher.edit_overrides = host.record.app_settings(&app.uuid, app.id).cloned().unwrap_or_default();
-                    self.launcher.edit_settings = self.launcher.edit_overrides.apply(&self.launcher.inherited_settings);
-                    self.launcher.edit_name = trf("{} settings", &[&app.name]);
-                    self.launcher.editing_app = Some(app);
-                    self.launcher.go(Screen::AppSettings(id));
+                    self.launcher.open_app_settings(id, host, app);
                 }
             }
             Command::SaveAppSettings(id) => {
@@ -1138,6 +1136,7 @@ impl App {
                     self.launcher.inherited_settings = self.launcher.settings.clone();
                     self.launcher.edit_overrides = profile.settings.clone();
                     self.launcher.edit_settings = profile.settings.apply(&self.launcher.inherited_settings);
+                    self.launcher.inherited_from = Vec::new();
                     self.launcher.edit_name = trf("{} settings", &[&profile.name]);
                     self.launcher.go(Screen::ProfileSettings(id));
                 }

@@ -2723,3 +2723,81 @@ fn polish_screenshots() {
         f.waking = None;
     }
 }
+
+/// Issue 55: on a game's (or PC's, or profile's) settings an unchecked row's menu was disabled,
+/// so a controller's focus could only land on its Override box, and A there pinned the value it
+/// inherited. The menu itself takes focus now; opening it and backing out keeps the row
+/// inherited, choosing another value checks Override, and the box still unchecks it.
+#[test]
+fn an_inherited_row_opens_from_a_controller_and_only_a_new_value_overrides_it() {
+    let mut f = Frames::new(record("PC", true, false), Reach::Online);
+    f.size = vec2(1280.0, 4000.0);
+    f.l.settings.fps = 120;
+    let id = f.hosts.list[0].id;
+    f.l.go(Screen::Apps(id));
+    f.l.open_app_settings(id, &f.hosts.list[0], game(7));
+    f.settle();
+    let at = |f: &Frames, text: &str| f.placed.iter().find(|(t, ..)| t == text).map(|p| p.1).unwrap_or_else(|| panic!("{text} in {:?}", f.drawn));
+    let mut reached = false;
+    for _ in 0..12 {
+        f.press(Key::ArrowDown);
+        let focused = f.ctx.memory(|m| m.focused()).and_then(|id| f.ctx.read_response(id)).map(|r| r.rect);
+        if focused.is_some_and(|r| r.contains(at(&f, "120 fps").center())) {
+            reached = true;
+            break;
+        }
+    }
+    assert!(reached, "Down reaches the inherited Frame rate menu");
+    f.press(Key::Enter);
+    assert!(shows(&f, "60 fps") && shows(&f, "240 fps"), "A opens it: {:?}", f.drawn);
+    let commands = f.press(Key::Escape);
+    assert!(f.l.edit_overrides.is_empty(), "backing out pins nothing: {:?}", f.l.edit_overrides);
+    assert!(commands.iter().any(|c| matches!(c, Command::SaveAppSettings(_))), "B still leaves the page");
+
+    f.l.open_app_settings(id, &f.hosts.list[0], game(7));
+    f.settle();
+    assert!(f.l.edit_overrides.is_empty());
+    click_text(&mut f, "120 fps");
+    click_text(&mut f, "60 fps");
+    assert!(f.l.edit_overrides.has(&["fps"]), "a new value overrides the row");
+    assert_eq!(f.l.edit_overrides.apply(&f.l.inherited_settings).fps, 60);
+    // The Frame rate row's own box, the nearest Override above its menu, gives it back.
+    let menu = at(&f, "60 fps");
+    let boxed = f.placed.iter().filter(|(t, r, _)| t == "Override" && r.bottom() <= menu.top()).map(|p| p.1)
+        .min_by(|a, b| (menu.top() - a.bottom()).total_cmp(&(menu.top() - b.bottom()))).expect("its Override box");
+    f.click_at(boxed.center(), egui::PointerButton::Primary);
+    assert!(f.l.edit_overrides.is_empty(), "{:?}", f.l.edit_overrides);
+    assert_eq!(f.l.edit_settings.fps, 120);
+    assert!(shows(&f, "120 fps"), "{:?}", f.drawn);
+}
+
+/// Issue 55: a frame rate a PC or profile overrides looked like the main settings' from a game,
+/// whose "Reset all to inherited" cannot clear it. Unchecked rows and the game page name it.
+#[test]
+fn a_value_from_a_pc_or_profile_says_so_on_the_game_settings_and_page() {
+    let mut f = home_with_games(1);
+    f.size = vec2(1280.0, 4000.0);
+    let pc = f.hosts.list[0].id;
+    f.l.settings.fps = 60;
+    let travel = f.l.profiles.create("Travel", serde_json::from_str(r#"{"bitrate_kbps":20000}"#).unwrap()).unwrap();
+    f.l.profiles.active = Some(travel);
+    f.hosts.list[0].record.settings = Some(serde_json::from_str(r#"{"fps":120}"#).unwrap());
+    f.hosts.list[0].info = Some(answer(true, 1000));
+    f.hosts.list[0].apps = Apps::Loaded(vec![nightjar_core::http::App { name: "Game 00".into(), uuid: "install-0".into(), ..game(1000) }]);
+    f.l.go(Screen::Game { host: pc, app: 1000 });
+    f.settle();
+    let line = f.drawn.iter().find(|t| t.contains("Travel")).unwrap_or_else(|| panic!("{:?}", f.drawn)).clone();
+    assert!(line.contains("Frame rate set for this PC") && line.contains("Bitrate from profile Travel") && !line.contains("Resolution from"), "{line}");
+
+    f.l.open_app_settings(pc, &f.hosts.list[0], nightjar_core::http::App { name: "Game 00".into(), uuid: "install-0".into(), ..game(1000) });
+    f.settle();
+    assert!(shows(&f, "Set for this PC") && shows(&f, "From profile Travel"), "{:?}", f.drawn);
+    // Reset all to inherited keeps showing where the inherited rate comes from.
+    click_text(&mut f, "Reset all to inherited");
+    assert!(shows(&f, "120 fps") && shows(&f, "Set for this PC"), "{:?}", f.drawn);
+    // A PC's own page names the profile only.
+    f.l.open_host_settings(pc, &f.hosts.list[0]);
+    f.settle();
+    assert!(!shows(&f, "Set for this PC") && shows(&f, "From profile Travel"), "{:?}", f.drawn);
+    assert_eq!(summary_sources(None, None, None), Vec::<String>::new());
+}

@@ -12,6 +12,13 @@ test('a cover without art keeps its tint per game and draws the Desktop and Big 
   const portal = placeholder('Portal 2');
   assert.deepEqual(placeholder(' portal 2 '), portal, 'the same game always gets the same tint');
   assert.equal(portal.letters, 'P2');
+  // A sequel's roman numeral reads like a digit, after the first word only.
+  assert.equal(placeholder('Hades II').letters, 'H2');
+  assert.equal(placeholder('Diablo IV').letters, 'D4');
+  assert.equal(placeholder('Ghost X').letters, 'G10');
+  assert.equal(placeholder('Half-Life: Alyx').letters, 'HL');
+  assert.equal(placeholder('X-Men Legends').letters, 'XM');
+  assert.equal(placeholder('Grand Theft Auto V').letters, 'GT');
   assert.equal(portal.icon, null);
   assert.equal(placeholder('Desktop').icon, 'monitor');
   assert.equal(placeholder('Steam Big Picture').icon, 'gamepad');

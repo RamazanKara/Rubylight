@@ -302,7 +302,8 @@ def cmd_score(args):
             rows = score_run(args.ffmpeg, folder, run, pathlib.Path(tmp), not args.all_frames)
         line = dict(name=run['name'], fixture=run['fixture'], packing=run['packing'], ten_bit=run['ten_bit'],
                     target_kbps=run['target_kbps'], actual_kbps=run['actual_bitrate_kbps'],
-                    encode_mean_ms=run['encode_mean_ms'], encode_p99_ms=run['encode_p99_ms'],
+                    encode_mean_ms=run['encode_mean_ms'], encode_p50_ms=run.get('encode_p50_ms'),
+                    encode_p95_ms=run.get('encode_p95_ms'), encode_p99_ms=run['encode_p99_ms'],
                     idr_bytes=run['idr_bytes'], **summarize(rows))
         with open(results, 'a') as f:
             f.write(json.dumps(line) + '\n')

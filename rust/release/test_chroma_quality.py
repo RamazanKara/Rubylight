@@ -85,7 +85,7 @@ class Fixtures(unittest.TestCase):
 
     @unittest.skipUnless((fixtures.FONT_DIRECTORY / 'consola.ttf').exists(), 'needs the Windows fonts')
     def test_frames_are_deterministic_and_scroll_changes_them(self):
-        for kind in fixtures.KINDS:
+        for kind in fixtures.KINDS + fixtures.UI_KINDS:
             first = dict(fixtures.frames(kind, 1280, 720, 32))
             fixtures.COVERAGE.clear()
             second = dict(fixtures.frames(kind, 1280, 720, 32))
@@ -94,7 +94,7 @@ class Fixtures(unittest.TestCase):
             self.assertNotEqual(first[29], first[31])
 
     def test_regions_are_even_and_inside_the_frame(self):
-        for kind in fixtures.KINDS + ('mixed',):
+        for kind in fixtures.KINDS + fixtures.UI_KINDS + ('mixed',):
             for width, height in ((1280, 720), (1920, 1080), (2560, 1440)):
                 for name, rects in fixtures.regions(kind, width, height).items():
                     for x, y, w, h in rects:

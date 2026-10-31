@@ -13,7 +13,7 @@ A fourth scene, `mixed`, is for the encoder focus A/B (focus_ab.py): the editor 
 Each folder gets a `regions.json` beside its frames: the still and moving rectangles (x, y, width,
 height, on even coordinates) the quality scores are cropped to, and for `mixed` the HUD bar.
 
-  python chroma_fixtures.py OUTDIR [--size 1920x1080] [--kind editor|browser|sheet|mixed|all] [--frames 90]
+  python chroma_fixtures.py OUTDIR [--size 1920x1080] [--kind editor|browser|sheet|terminal|colors|desktop|mixed|all] [--frames 90]
 """
 import argparse
 import io
@@ -29,9 +29,12 @@ from PIL import Image, ImageDraw, ImageFont
 FONT_DIRECTORY = pathlib.Path('C:/Windows/Fonts')
 HOLD, SCROLL, STEP = 30, 30, 6
 KINDS = ('editor', 'browser', 'sheet')
+# More text and UI scenes for the Reference preset question: a terminal, coloured text at 9 to 28 px, a desktop.
+UI_KINDS = ('terminal', 'colors', 'desktop')
 # Where each scene's scrolling layer starts, and the rows below it that stay still.
-LAYER_ORIGIN = dict(editor=(300, 36), browser=(0, 84), sheet=(0, 166))
-LAYER_BOTTOM = dict(editor=24, browser=0, sheet=54)
+LAYER_ORIGIN = dict(editor=(300, 36), browser=(0, 84), sheet=(0, 166), terminal=(0, 32), colors=(0, 40),
+                    desktop=(420, 92))
+LAYER_BOTTOM = dict(editor=24, browser=0, sheet=54, terminal=0, colors=0, desktop=80)
 
 
 def scroll_offset(frame):
@@ -455,7 +458,130 @@ def scene_sheet(width, height):
     return base, layer, (0, top)
 
 
-SCENES = dict(editor=scene_editor, browser=scene_browser, sheet=scene_sheet)
+ANSI = ('#cd3131', '#0dbc79', '#e5e510', '#2472c8', '#bc3fbc', '#11a8cd', '#e5e5e5', '#f14c4c', '#23d18b',
+        '#f5f543', '#3b8eea', '#d670d6', '#29b8db')
+
+
+def scene_terminal(width, height):
+    """A dark terminal: a tab bar, then build and log output in ANSI colours at 14 px Consolas."""
+    rng = random.Random('terminal')
+    base = Canvas(width, height, '#0c0c0c')
+    ui = Font.get('segoeui.ttf', 12)
+    base.rect(0, 0, width, 32, '#1f1f1f')
+    for index, name in enumerate(['PowerShell', 'Ubuntu', 'cargo test']):
+        base.rect(8 + index * 170, 4, 8 + index * 170 + 164, 32, '#0c0c0c' if index == 0 else '#2b2b2b')
+        base.rect(20 + index * 170, 12, 30 + index * 170, 22, ['#2472c8', '#e95420', '#dea584'][index])
+        base.text(38 + index * 170, 9, name, ui, '#ffffff' if index == 0 else '#9d9d9d')
+    font = Font.get('consola.ttf', 14)
+    line_height = 17
+    count = (height - 32 + SCROLL * STEP) // line_height + 4
+    layer = Canvas(width, count * line_height, '#0c0c0c')
+    for index in range(count):
+        y = index * line_height + 1
+        choice = rng.random()
+        if choice < 0.2:
+            x = layer.text(8, y, 'PS C:\\src\\rubylight> ', font, '#3b8eea')
+            layer.text(8 + x, y, f'cargo test -p {rng.choice(NAMES)} --locked', font, '#e5e510')
+        elif choice < 0.5:
+            x = 8 + layer.text(8, y, '   Compiling ', font, '#23d18b')
+            layer.text(x, y, f'{rng.choice(WORDS)}-{rng.choice(WORDS)} v0.{rng.randint(1, 40)}.{rng.randint(0, 9)}', font, '#cccccc')
+        elif choice < 0.8:
+            x = 8 + layer.text(8, y, f'test {rng.choice(WORDS)}::{rng.choice(NAMES)} ... ', font, '#cccccc')
+            layer.text(x, y, *(('ok', font, '#23d18b') if rng.random() < 0.8 else ('FAILED', font, '#f14c4c')))
+        else:
+            x = 8
+            for _ in range(rng.randint(3, 7)):
+                x += layer.text(x, y, f'{rng.choice(WORDS)} ', font, rng.choice(ANSI))
+            layer.text(x, y, f'{rng.randint(0, 99999):5d} {rng.random():.4f}', font, '#767676')
+    return base, layer, (0, 32)
+
+
+def scene_colors(width, height):
+    """Coloured text on coloured backgrounds at 9 to 28 px: a swatch grid, the hardest case for 4:2:0."""
+    rng = random.Random('colors')
+    base = Canvas(width, height, '#f0f0f0')
+    base.rect(0, 0, width, 40, '#2b579a')
+    base.text(16, 8, 'Palette and type scale', Font.get('segoeuib.ttf', 18), '#ffffff')
+    pairs = [('#ff0000', '#0000ff'), ('#00a000', '#ff00ff'), ('#ffff00', '#0050ff'), ('#e81123', '#107c10'),
+             ('#ffffff', '#c239b3'), ('#ffb900', '#5c2d91'), ('#00b7c3', '#e74856'), ('#000000', '#ff8c00'),
+             ('#0078d7', '#ffd800'), ('#9a0089', '#00cc6a'), ('#ff4343', '#00188f'), ('#00ff00', '#ff0000')]
+    sizes = (9, 11, 13, 16, 20, 28)
+    faces = ('segoeui.ttf', 'calibri.ttf', 'consola.ttf', 'arial.ttf')
+    tile = 300
+    rows = (height - 40 + SCROLL * STEP) // 60 + 3
+    layer = Canvas(width, rows * 60, '#f0f0f0')
+    for r in range(rows):
+        size = sizes[r % len(sizes)]
+        font = Font.get(faces[r // len(sizes) % len(faces)], size)
+        for c in range(width // tile + 1):
+            ink, fill = pairs[(r * 5 + c) % len(pairs)]
+            x, y = c * tile, r * 60
+            layer.rect(x + 4, y + 4, x + tile - 4, y + 56, fill)
+            layer.text(x + 12, y + 8, f'{size} px {rng.choice(WORDS)} {rng.choice(WORDS)}', font, ink)
+            if size <= 16:
+                layer.text(x + 12, y + 30, f'{rng.choice(WORDS)} {rng.randint(10, 999)} {rng.choice(WORDS)}', font, ink)
+    return base, layer, (0, 40)
+
+
+def scene_desktop(width, height):
+    """A desktop: wallpaper, icons and a taskbar, with a settings window whose page scrolls."""
+    rng = random.Random('desktop')
+    base = Canvas(width, height, '#0a3a6a')
+    for index in range(height):
+        base.pixels[index] = np.array(hex_color('#0a3a6a'), np.float32) * (1 - index / height) + \
+            np.array(hex_color('#5a2a6a'), np.float32) * (index / height)
+    ui = Font.get('segoeui.ttf', 12)
+    for index, name in enumerate(['This PC', 'Recycle Bin', 'Steam', 'Rubylight', 'Notes.txt', 'Photos']):
+        y = 16 + index * 92
+        base.rect(28, y, 76, y + 48, ['#ffb900', '#a0a0a0', '#1b2838', '#c41e3a', '#ffffff', '#0078d7'][index])
+        base.text(52, y + 54, name, ui, '#ffffff', 'm')
+    base.rect(0, height - 48, width, height, '#202020')
+    for index in range(9):
+        x = width // 2 - 216 + index * 48
+        base.rect(x + 10, height - 38, x + 38, height - 10, ['#0078d7', '#ffb900', '#e81123', '#107c10', '#5c2d91',
+                                                              '#00b7c3', '#ff8c00', '#c239b3', '#767676'][index])
+    base.text(width - 16, height - 42, '14:32', ui, '#ffffff', 'r')
+    base.text(width - 16, height - 24, '31.10.2026', ui, '#ffffff', 'r')
+    left, top, right, bottom = 140, 60, width - 80, height - 80
+    base.rect(left - 1, top - 1, right + 1, bottom + 1, '#3a3a3a')
+    base.rect(left, top, right, top + 32, '#f3f3f3')
+    base.text(left + 14, top + 8, 'Settings', ui, '#000000')
+    for index, glyph in enumerate(('x', '[]', '-')):
+        base.text(right - 30 - index * 46, top + 6, glyph, Font.get('segoeui.ttf', 14), '#000000', 'm')
+    base.rect(left, top + 32, left + 280, bottom, '#f3f3f3')
+    nav = ['System', 'Bluetooth & devices', 'Network & internet', 'Personalisation', 'Apps', 'Accounts',
+           'Time & language', 'Gaming', 'Accessibility', 'Privacy & security', 'Windows Update']
+    navf = Font.get('segoeui.ttf', 14)
+    for index, name in enumerate(nav):
+        y = top + 60 + index * 38
+        if index == 7:
+            base.rect(left + 8, y - 6, left + 272, y + 28, '#e5e5e5')
+            base.rect(left + 8, y + 2, left + 11, y + 20, '#0067c0')
+        base.rect(left + 20, y + 3, left + 36, y + 19, ['#0067c0', '#0078d7', '#00b7c3', '#c239b3', '#5c2d91', '#107c10',
+                                                       '#ff8c00', '#107c10', '#0067c0', '#767676', '#0067c0'][index])
+        base.text(left + 48, y, name, navf, '#1a1a1a')
+    page_left, page_top = left + 280, top + 32
+    rows = (bottom - page_top + SCROLL * STEP) // 72 + 3
+    layer = Canvas(right - page_left, rows * 72, '#fafafa')
+    title, body = Font.get('segoeui.ttf', 14), Font.get('segoeui.ttf', 12)
+    for r in range(rows):
+        y = r * 72 + 6
+        layer.rect(24, y, layer.width - 24, y + 64, '#ffffff')
+        layer.box(24, y, layer.width - 24, y + 64, '#e5e5e5')
+        layer.rect(44, y + 20, 68, y + 44, rng.choice(ANSI))
+        layer.text(88, y + 12, f'{rng.choice(WORDS).title()} {rng.choice(WORDS)}', title, '#1a1a1a')
+        layer.text(88, y + 34, f'Choose the {rng.choice(WORDS)} for {rng.choice(WORDS)} and {rng.choice(WORDS)}', body, '#5f5f5f')
+        on = rng.random() < 0.5
+        x = layer.width - 110
+        layer.rect(x, y + 22, x + 40, y + 42, '#0067c0' if on else '#ffffff')
+        layer.box(x, y + 22, x + 40, y + 42, '#0067c0' if on else '#8a8a8a')
+        layer.rect(x + (24 if on else 6), y + 27, x + (34 if on else 16), y + 37, '#ffffff' if on else '#5f5f5f')
+        layer.text(x - 12, y + 22, 'On' if on else 'Off', title, '#1a1a1a', 'r')
+    return base, layer, (page_left, page_top)
+
+
+SCENES = dict(editor=scene_editor, browser=scene_browser, sheet=scene_sheet, terminal=scene_terminal,
+              colors=scene_colors, desktop=scene_desktop)
 TITLE, HUD = 30, 48
 # Pixels a frame the clip window's and the game view's pictures pan by.
 CLIP_PAN, GAME_PAN = (3, 1), (5, 2)
@@ -592,11 +718,11 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.split('\n')[0])
     parser.add_argument('out', type=pathlib.Path)
     parser.add_argument('--size', default='1920x1080')
-    parser.add_argument('--kind', default='all', choices=KINDS + ('mixed', 'all'))
+    parser.add_argument('--kind', default='all', choices=KINDS + UI_KINDS + ('mixed', 'all'))
     parser.add_argument('--frames', type=int, default=HOLD + SCROLL + HOLD)
     args = parser.parse_args(argv)
     width, height = (int(v) for v in args.size.split('x'))
-    for kind in KINDS if args.kind == 'all' else (args.kind,):
+    for kind in KINDS + UI_KINDS if args.kind == 'all' else (args.kind,):
         folder = args.out / f'{kind}-{width}x{height}'
         folder.mkdir(parents=True, exist_ok=True)
         for index, data in frames(kind, width, height, args.frames):

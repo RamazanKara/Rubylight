@@ -479,7 +479,7 @@ private:
     bool renderStopped_ = false;  // Under renderMutex_: the swapchain and window are gone
     int64_t lastVsyncNs_ = 0;
     std::deque<int64_t> vsyncDeltas_;
-    std::vector<int64_t> sortScratch_;  // Reused for medians and percentiles, render thread only
+    std::vector<int64_t> sortScratch_;  // trackVsyncPeriod()'s reused median buffer, render thread only
 
     // Render thread, aligned front buffer: the timer for the next draw, the scan it's for, and
     // how long recent draws took from starting to being submitted to the GPU

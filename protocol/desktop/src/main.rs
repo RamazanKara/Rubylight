@@ -1940,6 +1940,8 @@ impl App {
         }
         // SAFETY: a key event's members.
         let key_action = (kind == SDL_EVENT_KEY_DOWN).then(|| unsafe { shortcuts::key_action(Scope::Stream, event.key.scancode, event.key.r#mod) }).flatten();
+        // SAFETY: a key event's members.
+        let repeat = kind == SDL_EVENT_KEY_DOWN && unsafe { event.key.repeat };
         if key_action == Some(Action::Screenshot) {
             self.screenshot_requested = true;
             if let Some((s, _)) = self.streaming.as_mut() {
@@ -1972,22 +1974,13 @@ impl App {
                 || (kind == SDL_EVENT_GAMEPAD_BUTTON_DOWN && unsafe {
                     event.gbutton.button == back_button.0 as u8 || event.gbutton.button == SDL_GAMEPAD_BUTTON_BACK.0 as u8
                 });
-            if key_action == Some(Action::StreamShortcuts) {
-                streaming.toggle_shortcut_sheet(self.window, &mut self.pads);
-                return;
-            }
-            if back && streaming.shortcut_sheet.is_some() {
-                streaming.close_shortcut_sheet(self.window, &mut self.pads);
-                return;
-            }
-            if back || key_action == Some(Action::StreamControls) {
-                // Escape or B on the Session page goes back to the controls first.
-                if streaming.session_page.is_some() {
-                    streaming.close_session_page();
-                } else {
-                    streaming.toggle_menu(self.window, &mut self.pads);
-                }
-                return;
+            match menu_step(key_action, back, repeat, streaming.shortcut_sheet.is_some(), streaming.session_page.is_some()) {
+                MenuStep::Pass => {}
+                MenuStep::Swallow => return,
+                MenuStep::ToggleSheet => return streaming.toggle_shortcut_sheet(self.window, &mut self.pads),
+                MenuStep::CloseSessionPage => return streaming.close_session_page(),
+                MenuStep::CloseSheet => return streaming.close_shortcut_sheet(self.window, &mut self.pads),
+                MenuStep::CloseMenu => return streaming.toggle_menu(self.window, &mut self.pads),
             }
             if matches!(kind, SDL_EVENT_GAMEPAD_BUTTON_DOWN | SDL_EVENT_GAMEPAD_AXIS_MOTION) {
                 streaming.needs_redraw = true;
@@ -2005,6 +1998,40 @@ impl App {
             }
         }
         streaming.handle(event, self.window, self.renderer, &mut self.pads);
+    }
+}
+
+/// What a key or button does while the stream menu is open.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum MenuStep {
+    /// Not the menu's: egui or the controller navigation gets it.
+    Pass,
+    /// A held key's repeat of a toggle: holding it doesn't flip the menu open and shut.
+    Swallow,
+    ToggleSheet,
+    CloseSessionPage,
+    CloseSheet,
+    CloseMenu,
+}
+
+/// The step for a stream chord (`action`), Escape or B (`back`), with the menu's pages. Back acts
+/// on what is drawn: the Session page first (the sheet never draws over it), then the sheet.
+fn menu_step(action: Option<Action>, back: bool, repeat: bool, sheet: bool, session_page: bool) -> MenuStep {
+    let controls = action == Some(Action::StreamControls);
+    if action != Some(Action::StreamShortcuts) && !back && !controls {
+        return MenuStep::Pass;
+    }
+    if repeat {
+        return MenuStep::Swallow;
+    }
+    if action == Some(Action::StreamShortcuts) {
+        MenuStep::ToggleSheet
+    } else if session_page {
+        MenuStep::CloseSessionPage
+    } else if back && sheet {
+        MenuStep::CloseSheet
+    } else {
+        MenuStep::CloseMenu
     }
 }
 
@@ -2579,6 +2606,27 @@ mod tests {
         assert_eq!((settings.width, settings.height, settings.fps, settings.bitrate_kbps), (640, 360, 30, 500));
         assert_eq!(settings.audio, config::AudioChannels::Stereo);
         assert!(!settings.virtual_display && !settings.vrr && settings.play_audio_on_host, "the PC's display and speakers stay as they are");
+    }
+
+    /// Holding Ctrl+Alt+Shift+H or Escape doesn't flip the sheet or the menu with each repeat,
+    /// and Back acts on the page that is drawn: the Session page before a sheet it hides.
+    #[test]
+    fn menu_keys_ignore_repeats_and_back_leaves_the_drawn_page() {
+        use super::{menu_step, MenuStep};
+        use shortcuts::Action;
+        let sheet = Some(Action::StreamShortcuts);
+        let controls = Some(Action::StreamControls);
+        assert_eq!(menu_step(sheet, false, false, false, false), MenuStep::ToggleSheet);
+        assert_eq!(menu_step(sheet, false, true, true, false), MenuStep::Swallow);
+        assert_eq!(menu_step(controls, false, true, false, false), MenuStep::Swallow);
+        assert_eq!(menu_step(None, true, true, false, true), MenuStep::Swallow, "a held Escape");
+        assert_eq!(menu_step(None, true, false, true, true), MenuStep::CloseSessionPage);
+        assert_eq!(menu_step(controls, false, false, false, true), MenuStep::CloseSessionPage);
+        assert_eq!(menu_step(None, true, false, true, false), MenuStep::CloseSheet);
+        assert_eq!(menu_step(controls, false, false, true, false), MenuStep::CloseMenu);
+        assert_eq!(menu_step(None, true, false, false, false), MenuStep::CloseMenu);
+        assert_eq!(menu_step(Some(Action::SendClipboard), false, true, false, false), MenuStep::Pass);
+        assert_eq!(menu_step(None, false, false, false, false), MenuStep::Pass);
     }
 
     #[test]

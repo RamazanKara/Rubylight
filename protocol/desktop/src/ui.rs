@@ -846,6 +846,14 @@ impl Launcher {
             .scope_builder(UiBuilder::new().max_rect(rect).layout(Layout::left_to_right(Align::Center)), |ui| {
                 ui.spacing_mut().item_spacing.x = space::S;
                 match self.screen {
+                    // All games is always a step away, not only from a row too long to fit.
+                    Screen::Home => {
+                        let sources: Vec<Source> = view.hosts.list.iter().map(Source::of).collect();
+                        if !console::merge_library(&sources).is_empty() && header_button(ui, "All games", Icon::Grid).clicked() {
+                            self.library_filter = console::LibraryFilter::All;
+                            self.open(Screen::AllGames);
+                        }
+                    }
                     Screen::Hosts => {
                         if header_button(ui, "Add PC", Icon::Plus).clicked() {
                             self.add_host_dialog();

@@ -2091,6 +2091,72 @@ fn the_first_window_is_waited_for_and_its_absence_is_refused() {
     );
 }
 
+/// A background stream whose game window never came back (NieR, Sekiro in
+/// #56) ends when its device's return times out waiting for it, saying why:
+/// it no longer refuses every other background launch until the game exits
+/// by itself. A co-op session goes on for its other players.
+#[test]
+fn a_background_stream_without_its_window_ends_when_its_return_times_out() {
+    let (registry, pc, apps) = setup();
+    let owner = client("A", true);
+    let config = Config::default();
+    let seat = background(&registry, &apps[1], "a", &owner, &config).unwrap();
+    registry.leave(seat, "a");
+    let seat = background(&registry, &apps[1], "b", &owner, &config).unwrap();
+    let instance = registry.instance(seat.session).unwrap();
+    assert!(first_window(instance.as_ref(), 0, "d", Duration::ZERO).is_err());
+    let text =
+        end_without_window(&registry, seat, instance.as_ref(), Duration::from_secs(90)).unwrap();
+    assert_eq!(
+        text,
+        "The Portal 2 background stream ended: the game stopped: Player 1's game window did not come back within 90 s, so Rubylight closed the game; start the stream again"
+    );
+    assert!(pc.last().stopped());
+    assert!(instance.end().is_some());
+    // Once is enough: the next look finds it ended and keeps its reason.
+    assert_eq!(
+        end_without_window(&registry, seat, instance.as_ref(), Duration::from_secs(90)),
+        None
+    );
+    assert!(matches!(instance.end(), Some(End::Crashed(_))));
+    // Another background launch starts at once.
+    registry.leave(seat, "b");
+    let other = background(&registry, &apps[1], "c", &client("B", true), &config).unwrap();
+    assert_ne!(other.session, seat.session);
+    registry.leave(other, "c");
+
+    let (registry, pc, apps) = setup();
+    let coop = registry.entries(&apps, "").remove(0);
+    let seat = admit(&registry, &coop, "a", &client("A", false)).unwrap();
+    let instance = registry.instance(seat.session).unwrap();
+    assert_eq!(
+        end_without_window(&registry, seat, instance.as_ref(), Duration::from_secs(90)),
+        None
+    );
+    assert!(!pc.last().stopped());
+    assert!(instance.end().is_none());
+}
+
+/// The registry knows the background stream a device stepped away from, so
+/// its quit ends it after its stream already ended (#56); nobody else's.
+#[test]
+fn the_background_stream_a_device_stepped_away_from_is_known() {
+    let (registry, pc, apps) = setup();
+    let config = Config::default();
+    let seat = background(&registry, &apps[1], "a", &client("A", true), &config).unwrap();
+    assert_eq!(registry.background_of("A"), Some(seat.session));
+    registry.leave(seat, "a");
+    assert_eq!(registry.background_of("A"), Some(seat.session));
+    assert_eq!(registry.background_of("B"), None);
+    assert!(registry.end(seat.session));
+    assert!(pc.last().stopped());
+    assert_eq!(registry.background_of("A"), None);
+    // A co-op seat is no background stream.
+    let coop = registry.entries(&apps, "").remove(0);
+    admit(&registry, &coop, "c", &client("A", true)).unwrap();
+    assert_eq!(registry.background_of("A"), None);
+}
+
 #[test]
 fn a_player_stream_leaves_the_desktop_input_and_clipboard_alone() {
     let mut config = Config::default();

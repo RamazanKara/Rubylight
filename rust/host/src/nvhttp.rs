@@ -1813,22 +1813,28 @@ pub(crate) fn terminate_refused(h: &Shared, client: &str) -> bool {
 }
 /// A Nucleus Co-op player's quit (Moonlight's cancel, WebRTC's stop-host-session): its own
 /// streams end, never the other players' or the host's app, and its slot is kept for the grace
-/// period; its private background session ends with it unless only `disconnect`ing. `None` when
-/// `client` streams nothing of Nucleus's, else the ids of the streams it stopped. The caller holds
-/// `launch_transition`.
+/// period; its private background session ends with it unless only `disconnect`ing. A client
+/// whose background stream already ended (Moonlight and Nightjar end the stream before they quit)
+/// still ends that session when it streams nothing else and owns no host app, which its quit
+/// would then mean (#56). `None` when `client` streams nothing of Nucleus's and has no such
+/// session, else the ids of the streams it stopped. The caller holds `launch_transition`.
 fn quit_nucleus_player(h: &Shared, client: &str, disconnect: bool) -> Option<Vec<String>> {
     let (canceled, ids, seats) = {
         let mut sessions = h.sessions.lock().unwrap();
         let mine = |l: &Launch| l.role == Role::Stream && l.client.uuid == client;
-        let seats: Vec<_> = sessions
+        let streams: Vec<_> = sessions
             .pending
             .values()
             .chain(sessions.active.values().map(|s| &s.launch))
             .filter(|l| mine(l))
-            .filter_map(|l| l.nucleus)
             .collect();
+        let seats: Vec<_> = streams.iter().filter_map(|l| l.nucleus).collect();
         if seats.is_empty() {
-            return None;
+            let streams_other = !streams.is_empty();
+            drop(sessions);
+            return (!disconnect && !streams_other)
+                .then(|| quit_vacated_background(h, client))
+                .flatten();
         }
         let ids: Vec<_> = sessions
             .active
@@ -1856,10 +1862,26 @@ fn quit_nucleus_player(h: &Shared, client: &str, disconnect: bool) -> Option<Vec
     }
     Some(ids)
 }
-/// The native End session (or Disconnect, `disconnect`) of a Nucleus Co-op player, who owns no
-/// host session: [`quit_nucleus_player`], waiting up to five seconds for its streams. False when
-/// `client` streams nothing of Nucleus's; `Busy` while a launch holds the launch lock, as the
-/// session's own actions answer.
+/// The quit of a client that streams nothing: it ends the background stream it stepped away
+/// from, unless it owns the host's app, which Moonlight shows it as running and so quits. No
+/// stream is left to stop.
+fn quit_vacated_background(h: &Shared, client: &str) -> Option<Vec<String>> {
+    if remote_game(h).is_some_and(|game| game.owner == client) {
+        return None;
+    }
+    let session = h.nucleus.background_of(client)?;
+    tracing::info!(
+        client,
+        session,
+        "a quit ends the device's background stream, whose stream had already ended"
+    );
+    h.nucleus.end(session);
+    Some(Vec::new())
+}
+/// The native End session, Close game (or Disconnect, `disconnect`) of a Nucleus Co-op player,
+/// who owns no host session: [`quit_nucleus_player`], waiting up to five seconds for its streams.
+/// False when it did nothing; `Busy` while a launch holds the launch lock, as the session's own
+/// actions answer.
 pub(crate) fn quit_nucleus_stream(
     h: &Shared,
     client: &str,

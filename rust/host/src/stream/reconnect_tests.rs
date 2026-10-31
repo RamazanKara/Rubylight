@@ -2280,6 +2280,87 @@ async fn background_launches_run_in_nucleus_and_only_their_owner_returns() -> Re
     h.finish().await
 }
 
+/// Moonlight and Nightjar end the stream first and then quit: a quit from
+/// the device whose background stream already ended still ends that
+/// session, by Moonlight's /cancel or Nightjar's Close game, instead of
+/// leaving Nucleus Co-op running it for the two minutes its slot is kept
+/// (#56). The host's own app stays.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_quit_after_the_stream_ended_ends_the_background_stream() -> Result<()> {
+    let (h, pc, _) = coop_harness().await?;
+    let portal = h.h.apps.read().unwrap().last().unwrap().id();
+    for client in &mut h.h.paired.write().unwrap().clients {
+        client.extra.insert("background_stream".into(), true.into());
+        client.extra.insert("host_control".into(), true.into());
+    }
+    let generation = || {
+        h.h.current_app
+            .lock()
+            .unwrap()
+            .as_ref()
+            .map(|app| app.generation.clone())
+    };
+    let before = generation();
+    // The stream ends: its launch is gone, its slot kept for the device.
+    let vacate = |h: &Harness| {
+        let launch = pending_of(h, 0).unwrap();
+        let seat = launch.nucleus.unwrap();
+        let canceled = h.h.sessions.lock().unwrap().pending.remove(&launch.id);
+        drop(canceled);
+        h.h.nucleus.leave(seat, &launch.id);
+        seat
+    };
+    let ended = |seat: butterpollo_core::session::Seat| {
+        h.h.nucleus
+            .sessions()
+            .iter()
+            .find(|listed| listed.session.id == seat.session)
+            .is_none_or(|listed| listed.session.ended())
+    };
+    assert!(
+        launch_app(&h, 0, portal)
+            .await?
+            .contains("status_code=\"200\"")
+    );
+    let seat = vacate(&h);
+    assert!(!ended(seat));
+    let response = h.clients[0]
+        .get(format!("https://127.0.0.1:{}/cancel", h.ports.https))
+        .send()
+        .await?
+        .error_for_status()?
+        .text()
+        .await?;
+    assert_eq!(xml(&response, "cancel"), "1", "{response}");
+    assert!(ended(seat));
+    assert!(pc.started.lock().unwrap()[0].stopped());
+    assert_eq!(generation(), before);
+
+    // Nightjar quits with Close game where the device has host control.
+    assert!(
+        launch_app(&h, 0, portal)
+            .await?
+            .contains("status_code=\"200\"")
+    );
+    let seat = vacate(&h);
+    assert_eq!(pc.started.lock().unwrap().len(), 2);
+    let host = h.h.clone();
+    let client = h.h.paired.read().unwrap().clients[0].clone();
+    tokio::task::spawn_blocking(move || {
+        crate::native_api::session_action(&host, &client, crate::native_api::Action::CloseGame)
+    })
+    .await?
+    .map_err(|failure| anyhow::anyhow!("{failure:?}"))?;
+    assert!(ended(seat));
+    assert!(pc.started.lock().unwrap()[1].stopped());
+    assert_eq!(generation(), before);
+    for client in &mut h.h.paired.write().unwrap().clients {
+        client.extra.remove("background_stream");
+        client.extra.remove("host_control");
+    }
+    h.finish().await
+}
+
 /// A one-player game without a hub handler streams in the background with
 /// Rubylight's own handler, written once at the launch: the stream is a
 /// Nucleus player's like any other, with nothing added on its way.

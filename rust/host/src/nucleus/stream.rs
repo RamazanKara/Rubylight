@@ -221,7 +221,17 @@ pub fn prepare(
     // The display only picks the GPU the window is captured on.
     let display = butterpollo_windows::capture::primary_display()
         .context("no display is on the desktop to capture the game window on")?;
-    let first = first_window(instance.as_ref(), seat.slot, &display, wait)?;
+    let first = match first_window(instance.as_ref(), seat.slot, &display, wait) {
+        Ok(first) => first,
+        Err(error) => {
+            return Err(
+                match end_without_window(&h.nucleus, seat, instance.as_ref(), wait) {
+                    Some(ended) => Refusal::unavailable(format!("{error:#}. {ended}")).into(),
+                    None => error,
+                },
+            );
+        }
+    };
     tracing::info!(session = seat.session, slot = seat.slot, target = %first, "Nucleus Co-op: streaming the player's game window");
     warn_audio(
         butterpollo_windows::display::windows_build(),
@@ -274,6 +284,32 @@ pub fn isolate(config: &mut Config) {
 }
 pub fn player(config: &Config) -> bool {
     config.boolean(PLAYER, false)
+}
+
+/// A background stream whose game window did not come back within `wait`
+/// ends: its game still runs without a window to stream (minimised, or lost
+/// by the game), and the session would refuse every other background launch
+/// until the game exits by itself (#56). Its device then starts it again. A
+/// co-op session goes on for the other players. Returns what the launch
+/// answers then.
+pub(super) fn end_without_window(
+    registry: &Registry,
+    seat: Seat,
+    instance: &dyn Instance,
+    wait: Duration,
+) -> Option<String> {
+    let running = instance.session(|s| !s.ended() && s.kind == Kind::Background);
+    if !running {
+        return None;
+    }
+    let end = End::Crashed(format!(
+        "Player {}'s game window did not come back within {} s, so Rubylight closed the game; start the stream again",
+        seat.slot + 1,
+        wait.as_secs()
+    ));
+    let text = instance.session(|s| ended_text(s, &end));
+    registry.end_with(seat.session, end);
+    Some(text)
 }
 
 /// Slot `slot`'s first capture target, waiting up to `wait` for its window.

@@ -958,18 +958,47 @@ impl Registry {
         Some(device)
     }
 
+    /// The running background stream `device` plays in, whether its stream
+    /// runs or it stepped away and keeps its slot: only that device ever
+    /// returns to it.
+    pub fn background_of(&self, device: &str) -> Option<u32> {
+        stop(self.reap());
+        self.lock().sessions.iter().find_map(|(&id, entry)| {
+            entry
+                .instance
+                .session(|s| {
+                    !s.ended() && s.kind == Kind::Background && s.slot_of(device).is_some()
+                })
+                .then_some(id)
+        })
+    }
+
     /// End `session`: Nucleus and every instance stop. False when there is
     /// no such session.
     pub fn end(&self, session: u32) -> bool {
+        self.end_with(session, End::Ended)
+    }
+
+    /// [`Self::end`] with why, which its players' streams and the console
+    /// show. A session that ended already keeps its own reason.
+    pub fn end_with(&self, session: u32, why: End) -> bool {
         let instance = {
             let state = self.lock();
             let Some(entry) = state.sessions.get(&session) else {
                 return false;
             };
-            entry.instance.session(|s| s.end(End::Ended));
+            entry.instance.session(|s| s.end(why));
             entry.instance.clone()
         };
-        tracing::info!(session, "Nucleus Co-op: session ended");
+        let why = instance.session(|s| match &s.phase {
+            coop::Phase::Ended(End::Ended) | coop::Phase::Ended(End::Empty) => None,
+            coop::Phase::Ended(why) => Some(why.to_string()),
+            _ => None,
+        });
+        match why {
+            Some(why) => tracing::warn!(session, why, "Nucleus Co-op: session ended"),
+            None => tracing::info!(session, "Nucleus Co-op: session ended"),
+        }
         instance.stop();
         stop(self.reap());
         true

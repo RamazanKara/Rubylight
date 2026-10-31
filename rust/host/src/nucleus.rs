@@ -345,7 +345,7 @@ pub use stream::{
 use apps::*;
 use on_pc::*;
 #[cfg(test)]
-use stream::{first_window, warn_audio};
+use stream::{end_without_window, first_window, warn_audio};
 
 #[cfg(test)]
 pub(crate) mod fake;

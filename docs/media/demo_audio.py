@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Original, deterministic 120 BPM instrumental bed for the product film.
+"""Original, deterministic 120 BPM instrumental bed for the feature tour.
 
 Only NumPy and Python's standard library are required. No recorded samples,
 external assets, soundfonts, or network requests are used. Outputs 48 kHz stereo
@@ -23,15 +23,19 @@ SEED = 20261019
 BPM = 120
 # Scene starts in the film, and its end: render_demo.py checks these against
 # render_launch_film.TIMELINE. At 120 BPM every cut lands on a bar line.
-TRANSITIONS = [0, 8, 14, 18, 24, 30, 36, 42, 46, 50, 56, 62, 70]
+TRANSITIONS = [0, 8, 14, 20, 26, 30, 36, 42, 48, 54, 60, 66, 70, 76, 82, 88, 94]
+# Film seconds where the music changes: the groove starts after the opening, the
+# display and picture scenes go quiet, the measured numbers lift, the end resolves.
+GROOVE, CALM, PROOF, ENDING_AT = 8, (36, 48), 76, 88
 # A minor, F, C, G: one chord per bar; the ending resolves to C add9.
 LOOP = [([45, 52, 57, 60, 64], 33), ([41, 48, 53, 57, 60], 29),
         ([48, 55, 60, 64, 67], 36), ([43, 50, 55, 59, 62], 31)]
 ENDING = ([48, 55, 62, 64, 67], 36)
-# (film second, notes): devices light, pairing, monitors back, numbers land.
-CUES = [(4.7, [69, 76]), (5.3, [72, 79]), (33.7, [72, 76, 79]), (44.8, [67, 72]),
-        (47.6, [69, 76]), (51.9, [64, 69]), (52.5, [69, 76, 81]),
-        (57.6, [72]), (57.85, [76]), (58.1, [79])]
+# (film second, notes): devices light, a copy lands, pairing, monitors back,
+# network numbers, co-op players, numbers land.
+CUES = [(4.7, [69, 76]), (5.3, [72, 79]), (10.8, [72, 76]), (18.1, [72, 76, 79]), (38.8, [67, 72]),
+        (49.6, [69, 76]), (55.2, [72]), (55.5, [76]), (55.8, [79]), (68.0, [69, 76]),
+        (77.6, [69, 76]), (78.3, [72, 79]), (83.9, [64, 69]), (84.5, [69, 76, 81])]
 
 
 def smooth(value: np.ndarray) -> np.ndarray:
@@ -154,8 +158,8 @@ def render(duration: float) -> tuple[np.ndarray, dict]:
     air = np.zeros_like(pads)
     beat = 60 / BPM
     bar = beat * 4
-    groove, proof, ending = (TRANSITIONS[i] * scale for i in (1, 8, 11))
-    calm = TRANSITIONS[6] * scale, TRANSITIONS[8] * scale
+    groove, proof, ending = (v * scale for v in (GROOVE, PROOF, ENDING_AT))
+    calm = CALM[0] * scale, CALM[1] * scale
 
     def chord(at: float) -> tuple[list[int], int]:
         """The opening holds A minor then F; the rest loops one chord per bar."""

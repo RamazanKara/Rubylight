@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
-"""Build the product film, the README GIF and the website poster.
+"""Build the feature tour, the README GIF and the website poster.
 
 Requires Pillow, NumPy and FFmpeg. No service, game, display or GPU access.
 Usage: python docs/media/render_demo.py --output docs/media/demo.mp4 --poster site/poster.jpg
        python docs/media/render_demo.py --storyboard storyboard.jpg
        python docs/media/render_demo.py --gif-from docs/media/demo.mp4 --output docs/media/demo.gif
        python docs/media/render_demo.py --poster site/poster.jpg
---output writes the film (1920x1080, about 3 MB) and demo.gif beside it (800 wide, under 6 MB).
-The console scenes use docs/media/console/, made by capture_console.cjs. Numbers live in
-NUMBERS at the top of render_launch_film.py.
+--output writes the film (1920x1080, H.264 and AAC, about 5 MB) and demo.gif beside it
+(800 wide, 10 fps, under 8 MB). The console scenes use docs/media/console/, made by
+capture_console.cjs; the Nightjar scene uses docs/media/nightjar/. Numbers live in NUMBERS
+at the top of render_launch_film.py; the score in demo_audio.py shares its timeline.
 """
 import argparse
 from pathlib import Path
@@ -26,8 +27,8 @@ import render_launch_film as film
 assert demo_audio.TRANSITIONS == [*film.STARTS, film.DURATION], 'the score and the film share one timeline'
 
 POSTER_AT = film.POSTER_AT
-GIF_FPS, GIF_WIDTH, GIF_LIMIT = 10, 800, 6_000_000
-FILM_LIMIT = 3_500_000
+GIF_FPS, GIF_WIDTH, GIF_LIMIT = 10, 800, 8_000_000
+FILM_LIMIT = 7_000_000
 # Colours that cover too little of the film for a whole-film palette to keep:
 # the console's live and focus colours, and the ruby accents.
 SMALL_COLOURS = ((76, 194, 122), (106, 166, 240), film.RUBY, film.ROSE, film.RUBY_DEEP)
@@ -78,7 +79,7 @@ def main():
     parser.add_argument('--storyboard', type=Path)
     parser.add_argument('--frame', type=float)
     parser.add_argument('--gif-from', type=Path)
-    parser.add_argument('--size-mb', type=float, default=2.9, help='film size; two-pass encoded to fit')
+    parser.add_argument('--size-mb', type=float, default=4.8, help='film size; two-pass encoded to fit')
     parser.add_argument('--poster', type=Path, help='write the website poster, a still of the opening')
     args = parser.parse_args()
     if args.poster:

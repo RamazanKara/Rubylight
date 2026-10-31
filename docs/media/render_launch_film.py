@@ -1,21 +1,23 @@
 #!/usr/bin/env python3
-"""Rubylight's product film, rendered deterministically with Pillow.
+"""Rubylight's feature tour, rendered deterministically with Pillow.
 
 No service, game, display or GPU access. Requires Pillow, NumPy and FFmpeg.
 The console scenes use docs/media/console/*.jpg: the real web console with
-mocked host replies and the made-up library of the README pictures, made by
-capture_console.cjs (film mode). The game picture is the console's own Home
-artwork, rust/web/src/assets/home-landscape.webp.
+mocked host replies and a made-up library, made by capture_console.cjs. The
+Nightjar scene uses real, privacy-checked screenshots in docs/media/nightjar/.
+The game picture is the console's own Home artwork,
+rust/web/src/assets/home-landscape.webp. Everything else is drawn here.
 
-Every measured number and its caption lives in NUMBERS below, so a remeasured
-value is a one-line change. Each number scene names its source in one line.
+One feature per scene. Every measured number and its conditions live in
+NUMBERS below, so a remeasured value is a one-line change; each number scene
+names its source in one line.
 
-python docs/media/demo_audio.py --output score.wav --duration 70
+python docs/media/demo_audio.py --output score.wav
 python docs/media/render_launch_film.py --storyboard film.jpg
 python docs/media/render_launch_film.py --frame 7.2 --output frame.png
 python docs/media/render_launch_film.py --draft draft.mp4          # 800 wide, 10 fps
 python docs/media/render_launch_film.py --gif-master gif.mkv       # the README GIF's frames
-python docs/media/render_launch_film.py --output film.mp4 --audio score.wav --size-mb 2.9
+python docs/media/render_launch_film.py --output film.mp4 --audio score.wav --size-mb 4.8
 """
 import argparse
 from decimal import Decimal
@@ -32,40 +34,49 @@ import numpy as np
 from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont
 
 # Measured numbers ------------------------------------------------------------------
-# Published values from README.md "Measured" and docs/performance.md. Swap a value
-# here and every scene, count-up and bar follows. 'value' strings keep their
-# decimals: the count-up shows as many places as the string has.
+# Our own runs, as README.md "Measured performance" and rust/PERFORMANCE.md publish
+# them. Swap a value here and every scene, count-up and bar follows. 'value'
+# strings keep their decimals: the count-up shows as many places as the string has.
 NUMBERS = {
-    'latency': {
-        'value': '5.89', 'unit': 'ms',
-        'caption': 'from capture to a presented frame',
-        'detail': 'Median · AV1 1080p60 · client on the same PC',
-        'source': 'Frame timing record · Rubylight 3.0.0-rc.2 · RX 7900 XT · October 26, 2026 · docs/performance.md',
+    'network': {
+        'subtitle': 'Bitrate follows the link, and a lost frame is repaired from one the client still holds.',
+        'tiles': (
+            {'topic': '2.4 GHz Wi-Fi', 'caption': 'Unrecoverable frames per run',
+             'before': ('Without pacing', '61'), 'after': ('Paced from the first frame', '15.7'),
+             'detail': 'HEVC 1080p60 at 47 Mbit/s · three runs per arm'},
+            {'topic': 'Scene cuts at 0.3% loss', 'caption': 'Freezes after scene cuts',
+             'before': ('Before', '15'), 'after': ('Oversized cuts sent again as keyframes', '0'),
+             'detail': 'HEVC 1440p60 at 250 Mbps · 45 s · two runs per arm'},
+        ),
+        'more': 'Wi-Fi is paced from the first frame. A cut too big to protect goes out as a keyframe.',
+        'source': 'Our runs · RX 7900 XT · October 25 and 28, 2026 · rust/PERFORMANCE.md',
+    },
+    'browser': {
+        'value': '17', 'unit': 'ms', 'caption': 'median, glass to glass',
+        'detail': 'WebRTC · AV1 1080p60 · Microsoft Edge on the same PC',
+        'source': 'WebRTC on the real host · RX 7900 XT · October 25, 2026 · rust/PERFORMANCE.md',
+    },
+    'measured': {
+        'heading': 'Fresh frames, timed one by one.',
+        'latency': {'value': '5.89', 'unit': 'ms', 'caption': 'median, capture to client present',
+                    'detail': 'AV1 1080p60 · client on the same PC'},
+        'vrr': {'value': '0.25', 'unit': 'ms', 'caption': 'picture age at the encoder with VRR',
+                'detail': 'median · from 4.68 ms · 120 Hz game, 60 fps stream'},
+        'source': 'Frame timing record · Rubylight 3.0.0-rc.2 · RX 7900 XT · October 26, 2026 · rust/PERFORMANCE.md',
     },
     'versus': {
         # 'heading' is checked against the bars below: "half" needs ours under half of theirs.
         'heading': 'Less than half the picture age.',
-        'subtitle': 'Mean picture age beside a game-like GPU load · lower is better',
+        'subtitle': 'Mean picture age beside a game-like GPU load, against Vibepollo 2.0 · lower is better',
         'unit': 'ms',
         'theirs': ('Vibepollo 2.0', '96'),
         'ours': ('Rubylight', '42'),
-        'detail': 'HEVC 10-bit HDR 1080p60 · 20 Mbps · three runs each, same PC and settings',
-        'source': 'Rubylight 2.0.0-rc.2 and Vibepollo 2.0 · RX 7900 XT · October 4, 2026 · docs/performance.md',
-    },
-    'more': {
-        'heading': 'Fresh frames on every link.',
-        'subtitle': 'With variable refresh, over Wi-Fi and in the browser.',
-        'tiles': (
-            {'value': '0.25', 'unit': 'ms', 'caption': 'picture age at the encoder',
-             'detail': 'with VRR, from 4.68 ms · 120 Hz game'},
-            {'value': '4', 'unit': '×', 'caption': 'cleaner 2.4 GHz Wi-Fi',
-             'detail': 'lost frames per run, 61 to 15.7'},
-            {'value': '17', 'unit': 'ms', 'caption': 'glass to glass in a browser',
-             'detail': 'WebRTC median · AV1 1080p60'},
-        ),
-        'source': 'VRR, Wi-Fi pacing and WebRTC runs · RX 7900 XT · October 24–26, 2026 · docs/performance.md',
+        'detail': 'HEVC 10-bit HDR 1080p60 · 20 Mbps · Desktop Duplication · three runs each, same PC and settings',
+        'source': 'Rubylight 2.0.0-rc.2 and Vibepollo 2.0 · RX 7900 XT · October 4, 2026 · rust/PERFORMANCE.md',
     },
 }
+# Words the film never shows (checked against NUMBERS and every scene's text at render).
+BANNED = ('experimental', 'punktfunk', 'rx 7000', 'or newer', 'fastest')
 
 
 def check_numbers():
@@ -75,6 +86,8 @@ def check_numbers():
     assert ours < theirs, 'the comparison scene shows Rubylight ahead'
     if 'half' in versus['heading']:
         assert ours*2 < theirs, f"'{versus['heading']}' needs {ours} under half of {theirs}"
+    for tile in NUMBERS['network']['tiles']:
+        assert Decimal(tile['after'][1]) < Decimal(tile['before'][1]), f"{tile['topic']} shows an improvement"
 
 
 check_numbers()
@@ -83,17 +96,21 @@ check_numbers()
 # (scene, start, end, transition into it). 120 BPM: every cut lands on a bar line.
 TIMELINE = (
     ('hero', 0, 8, None),
-    ('home', 8, 14, 'wipe'),
-    ('library', 14, 18, 'push'),
-    ('add_games', 18, 24, 'push'),
-    ('radeon', 24, 30, 'push'),
-    ('pair', 30, 36, 'push'),
-    ('colour', 36, 42, 'fade'),
-    ('displays', 42, 46, 'fade'),
-    ('latency', 46, 50, 'wipe'),
-    ('versus', 50, 56, 'fade'),
-    ('more', 56, 62, 'fade'),
-    ('end', 62, 70, 'wipe'),
+    ('moving_in', 8, 14, 'wipe'),
+    ('pair', 14, 20, 'push'),
+    ('home', 20, 26, 'push'),
+    ('library', 26, 30, 'push'),
+    ('game', 30, 36, 'push'),
+    ('displays', 36, 42, 'fade'),
+    ('colour', 42, 48, 'fade'),
+    ('network', 48, 54, 'fade'),
+    ('coop', 54, 60, 'wipe'),
+    ('connected', 60, 66, 'fade'),
+    ('browser', 66, 70, 'fade'),
+    ('nightjar', 70, 76, 'push'),
+    ('measured', 76, 82, 'wipe'),
+    ('versus', 82, 88, 'fade'),
+    ('end', 88, 94, 'wipe'),
 )
 DURATION = TIMELINE[-1][2]
 STARTS = tuple(s for _, s, _, _ in TIMELINE)
@@ -174,6 +191,7 @@ def font(size, weight='regular'):
 
 @lru_cache(maxsize=4000)
 def lettering(value, size, color, weight, spacing=0):
+    assert not [word for word in BANNED if word in value.lower()], f'the film never says: {value}'
     f = font(size, weight)
     if spacing:
         widths = [f.getlength(c) for c in value]
@@ -297,9 +315,10 @@ def backdrop():
 
 # Where the warm light sits in each scene. It holds still inside a scene so the
 # README GIF only changes what moves.
-GLOWS = {'hero': (1500, 300), 'home': (1700, 200), 'library': (300, 160), 'add_games': (1650, 160),
-         'radeon': (240, 200), 'pair': (1600, 200), 'colour': (960, 980), 'displays': (1500, 860),
-         'latency': (1500, 560), 'versus': (1650, 300), 'more': (300, 900), 'end': (960, 560)}
+GLOWS = {'hero': (1500, 300), 'moving_in': (960, 520), 'pair': (1600, 200), 'home': (1700, 200),
+         'library': (300, 160), 'game': (240, 200), 'displays': (1500, 860), 'colour': (960, 980),
+         'network': (300, 900), 'coop': (1600, 300), 'connected': (1650, 900), 'browser': (1500, 560),
+         'nightjar': (300, 300), 'measured': (1500, 560), 'versus': (1650, 300), 'end': (960, 560)}
 
 
 @lru_cache(maxsize=16)
@@ -397,7 +416,7 @@ def boxes():
 
 @lru_cache(maxsize=1)
 def console_bg():
-    return shot('radeon').getpixel((2860, 1790))
+    return shot('game').getpixel((2860, 1790))
 
 
 # The console window: below the heading, running off the bottom of the frame.
@@ -500,25 +519,92 @@ def sample_note(im):
     txt(im, 1820, 120, 'The real console, with a sample library', 24, MUTED, 'regular', 'right')
 
 
-def console_scene(im, name, local, keys, title, subtitle):
-    brand(im)
-    heading(im, title, local, subtitle)
-    sample_note(im)
-    p = ease(local/.7)
-    camera = camera_at(keys, local)
-    console_window(im, name, camera, rise=slide(40*(1-p)))
-    return camera
+# Icons, wrapped text, device frames -------------------------------------------------
+
+ICON_FONT = next((root/'segmdl2.ttf' for root in FONT_ROOTS if (root/'segmdl2.ttf').exists()), None)
+# Segoe MDL2 Assets code points; without the font (not on Windows) the tiles show a dot.
+ICONS = {'clipboard': 0xE77F, 'upload': 0xE898, 'folder': 0xE838, 'usb': 0xE88E, 'mic': 0xE720,
+         'vibrate': 0xE877, 'gamepad': 0xE7FC, 'pen': 0xEDC6, 'speaker': 0xE7F5, 'music': 0xE8D6,
+         'check': 0xE73E, 'sync': 0xE895}
+
+
+@lru_cache(maxsize=64)
+def icon_stamp(name, size, color):
+    if ICON_FONT is None:
+        im = Image.new('RGBA', (size, size))
+        ImageDraw.Draw(im).ellipse((size*.3, size*.3, size*.7, size*.7), fill=color)
+        return im
+    f = ImageFont.truetype(str(ICON_FONT), size)
+    value = chr(ICONS[name])
+    box = f.getbbox(value)
+    im = Image.new('RGBA', (box[2]-box[0]+4, box[3]-box[1]+4))
+    ImageDraw.Draw(im).text((2-box[0], 2-box[1]), value, font=f, fill=color)
+    return im
+
+
+def icon(im, x, y, name, size, color=RUBY, opacity=1.):
+    if opacity > 0:
+        im.paste(*faded_stamp(icon_stamp(name, size, color), opacity, x, y))
+
+
+def wrap(value, size, width, weight='regular'):
+    lines, current = [], ''
+    for word in value.split():
+        trial = f'{current} {word}'.strip()
+        if current and width_of(trial, size, weight) > width:
+            lines.append(current)
+            current = word
+        else:
+            current = trial
+    return lines+[current] if current else lines
+
+
+def paragraph(im, x, y, value, size, width, color=INK, weight='regular', opacity=1., leading=1.32):
+    """Wrapped text; returns the y below its last line."""
+    for i, value in enumerate(wrap(value, size, width, weight)):
+        txt(im, x, y+i*size*leading, value, size, color, weight, opacity=opacity)
+        y_end = y+(i+1)*size*leading
+    return y_end
+
+
+def check_mark(im, cx, cy, size, color, width=5):
+    ImageDraw.Draw(im).line((cx-size*.45, cy, cx-size*.12, cy+size*.34, cx+size*.5, cy-size*.36),
+                            fill=color, width=width, joint='curve')
+
+
+@lru_cache(maxsize=None)
+def nightjar_shot(name):
+    return Image.open(MEDIA/'nightjar'/f'{name}.png').convert('RGB')
+
+
+@lru_cache(maxsize=None)
+def handheld_shot(name):
+    return nightjar_shot(name).resize((720, 360), Image.Resampling.LANCZOS)
+
+
+def bezel(im, box, screen, radius, opacity=1., fill=(24, 16, 22)):
+    """A device outline in the banner's ruby stroke, with its screen pasted in."""
+    x0, y0, x1, y1 = (round(v) for v in box)
+    rrect(im, (x0, y0, x1, y1), fill, OUTLINE, 3, radius, opacity)
+    if screen is not None:
+        sx0, sy0, sx1, sy1 = (round(v) for v in screen[0])
+        pic = screen[1].resize((sx1-sx0, sy1-sy0), Image.Resampling.LANCZOS)
+        im.paste(pic, (sx0, sy0), faded(rr_mask(pic.width, pic.height, 8), opacity))
+
+
+def label_under(im, cx, y, value, opacity, size=28, color=INK):
+    txt(im, cx, y, value, size, color, 'semibold', 'center', opacity)
 
 
 # 1 · Hero ------------------------------------------------------------------------
 
-# Device line art: (kind, outer box, screen box or None, label).
+# Device line art: (kind, outer box, screen box, label).
 DEVICES = (
     ('laptop', (130, 490, 400, 660), (130, 490, 400, 660), 'Laptop'),
     ('phone', (474, 560, 664, 666), (487, 569, 651, 657), 'Phone'),
     ('tv', (690, 330, 1230, 680), (700, 340, 1220, 632), 'TV'),
     ('handheld', (1280, 544, 1570, 666), (1352, 556, 1498, 654), 'Steam Deck'),
-    ('console', (1616, 486, 1836, 666), None, 'Xbox'),
+    ('browser', (1610, 520, 1846, 666), (1620, 556, 1836, 656), 'Browser'),
 )
 TV_SCREEN = DEVICES[2][2]
 
@@ -553,18 +639,13 @@ def device_art():
                 d.ellipse(((cx-17)*k, (y0+30)*k, (cx+17)*k, (y0+64)*k), outline=stroke, width=sw)
                 d.line(((cx-12)*k, (y0+96)*k, (cx+12)*k, (y0+96)*k), fill=stroke, width=sw)
                 d.line((cx*k, (y0+84)*k, cx*k, (y0+108)*k), fill=stroke, width=sw)
-        elif kind == 'console':
-            R((x0+8, y0, x0+100, y1), 14)
-            d.ellipse(((x0+38)*k, (y0+22)*k, (x0+70)*k, (y0+54)*k), outline=stroke, width=sw)
-            # A controller beside it.
-            cx, cy = x0+164, y1-38
-            d.rounded_rectangle(((cx-56)*k, (cy-30)*k, (cx+56)*k, (cy+20)*k), radius=24*k, fill=fill,
-                                outline=stroke, width=sw)
-            d.ellipse(((cx-58)*k, (cy-6)*k, (cx-18)*k, (cy+38)*k), fill=fill, outline=stroke, width=sw)
-            d.ellipse(((cx+18)*k, (cy-6)*k, (cx+58)*k, (cy+38)*k), fill=fill, outline=stroke, width=sw)
-            d.rectangle(((cx-40)*k, (cy-24+sw/k)*k, (cx+40)*k, (cy+12)*k), fill=fill)
-            d.ellipse(((cx-34)*k, (cy-16)*k, (cx-18)*k, cy*k), outline=stroke, width=sw)
-            d.ellipse(((cx+18)*k, (cy-16)*k, (cx+34)*k, cy*k), outline=stroke, width=sw)
+        elif kind == 'browser':
+            R((x0, y0, x1, y1), 12)
+            d.line((x0*k, (y0+28)*k, x1*k, (y0+28)*k), fill=stroke, width=sw)
+            for i in range(3):
+                cx = x0+18+i*16
+                d.ellipse(((cx-4)*k, (y0+10)*k, (cx+4)*k, (y0+18)*k), fill=stroke)
+            d.rounded_rectangle(((x0+70)*k, (y0+8)*k, (x1-14)*k, (y0+20)*k), radius=6*k, outline=stroke, width=2*k)
         if screen:
             d.rectangle(tuple(v*k for v in screen), fill=(17, 12, 18, 255))
     return art.resize((W, H), Image.Resampling.LANCZOS)
@@ -597,9 +678,6 @@ def devices(im, local, appear, lit_at):
         level = clamp((local-lit_at-i*.16)/.5)
         if screen and kind != 'tv':
             lit_screen(im, (screen[0], screen[1]+round(30*(1-p)), screen[2], screen[3]+round(30*(1-p))), level)
-        if kind == 'console' and level > 0:
-            x0, y0 = outer[0], outer[1]
-            ImageDraw.Draw(im).ellipse((x0+46, y0+30, x0+62, y0+46), fill=mix((30, 13, 22), ROSE, level))
         txt(im, (outer[0]+outer[2])/2, 722, label, 30, mix(BG, INK, p*(.55+.45*level)), 'semibold', 'center')
 
 
@@ -611,6 +689,9 @@ def hero_shade():
     y = np.linspace(0, 1, H, dtype=np.float32)
     a = np.maximum(a[None, :], (np.clip((y-.72)/.28, 0, 1)**2*150)[:, None])
     return Image.fromarray(np.round(a).astype(np.uint8), 'L')
+
+
+FACTS = ('Free and open source', 'Windows 10 and 11', 'AMD Radeon with AMF')
 
 
 def hero(t):
@@ -645,13 +726,13 @@ def hero(t):
     out = 1-smooth((t-3.1)/.5)
     if out > 0:
         p = ease((t-.3)/.7)
-        badge(im, 100, 300-0*p, 64, p*out)
+        badge(im, 100, 300, 64, p*out)
         txt(im, 184, 312, 'Rubylight', 44, INK, 'bold', opacity=p*out)
         for i, (value, color) in enumerate((('Your Radeon PC.', INK), ('On every screen.', RUBY))):
             q = ease((t-.55-i*.3)/.7)
             txt(im, 96, 420+i*136+30*(1-q), value, 120, color, 'bold', opacity=q*out)
         q = ease((t-1.5)/.7)
-        txt(im, 102, 720+14*(1-q), 'Every game, on any Moonlight client.', 40,
+        txt(im, 102, 720+14*(1-q), 'Your games, streamed to Nightjar, Moonlight or a browser.', 40,
             (222, 220, 228), 'regular', opacity=q*out)
     # Then: what it is, over every device.
     reveal(im, 960, 104, 'The game-streaming host built for Radeon.', 68, t, at=4.2, align='center')
@@ -659,71 +740,87 @@ def hero(t):
            color=MUTED, weight='regular', align='center', rise=14)
     q = ease((t-5.6)/.6)
     if q > 0:
-        labels = ('Free and open source', 'Windows 10 and 11', 'Any AMD Radeon with AMF')
-        widths = [width_of(v, 28, 'semibold')+28*1.3 for v in labels]
+        widths = [width_of(v, 28, 'semibold')+28*1.3 for v in FACTS]
         x = 960-(sum(widths)+24*2)/2
-        for v, w in zip(labels, widths):
+        for v, w in zip(FACTS, widths):
             chip(im, x, 860+16*(1-q), v, 28, (222, 220, 228), (24, 18, 26), (74, 44, 60), q)
             x += w+24
     return im
 
 
-# 2 · Console -----------------------------------------------------------------------
+# 2 · Moving in -------------------------------------------------------------------
 
-def home(t):
-    im = base_for('home').copy()
-    b = boxes()['home']
-    keys = ((0, wide('home')), (1.4, wide('home')), (2.8, fit('home', b['card'], 30)),
-            (3.9, fit('home', b['card'], 30)), (5.3, fit('home', b['shelf'], 30)))
-    camera = console_scene(im, 'home', t, keys, 'Your PC, ready to play.',
-                           'Home shows every live stream, the running game and your shelf.')
-    ring(im, to_screen(b['spec'], camera), smooth((t-3.0)/.4)*(1-smooth((t-4.1)/.3)), pad=8)
-    return im
+CARRIED = ('Settings', 'Paired devices', 'Games and covers')
+INSTALLS = ('The Rubylight service', 'Virtual display driver', 'Controller support')
 
 
-def library(t):
-    im = base_for('library').copy()
-    b = boxes()['library']
-    g = b['grid']
-    first_row = (g[0], g[1], g[2], g[1]+(g[3]-g[1])*.5)
-    keys = ((0, wide('library', 0)), (.8, wide('library', 0)), (3.4, fit('library', first_row, 24)))
-    console_scene(im, 'library', t, keys, 'Your whole library, with covers.',
-                  'Every game on the PC, one click from the couch.')
-    return im
+def host_card(im, box, title, caption, opacity, accent):
+    x0, y0, x1, y1 = box
+    rrect(im, box, (24, 20, 28), RUBY if accent else (70, 62, 78), 3 if accent else 2, 22, opacity)
+    if accent:
+        badge(im, x0+36, y0+34, 44, opacity)
+    txt(im, x0+(100 if accent else 36), y0+42, title, 38, INK, 'bold', opacity=opacity)
+    txt(im, x0+36, y0+108, caption, 26, MUTED, 'regular', opacity=opacity)
 
 
-LAUNCHERS = ('Steam', 'Epic Games', 'Battle.net', 'EA app', 'Ubisoft Connect', 'GOG', 'Xbox')
-
-
-def add_games(t):
-    im = base_for('add_games').copy()
-    b = boxes()['add-games']
-    panel = b['panel']
-    keys = ((0, wide('add-games', 0)), (.8, wide('add-games', 0)),
-            (2.6, fit('add-games', (panel[0], panel[1], panel[2], panel[1]+1150), 20, anchor='top')))
+def moving_in(t):
+    im = base_for('moving_in').copy()
     brand(im)
-    heading(im, 'Every launcher in one scan.', t)
-    sample_note(im)
-    p = ease(t/.7)
-    console_window(im, 'add-games', camera_at(keys, t), rise=slide(40*(1-p)))
-    # The launchers, one by one, where the subtitle would be.
-    x = 100
-    for i, name in enumerate(LAUNCHERS):
-        q = ease((t-.4-i*.14)/.45)
-        x = chip(im, x, 172+12*(1-q), name, 26, INK, (40, 18, 30), (120, 40, 70), q) + 12
+    heading(im, 'Moving in takes one install.', t,
+            'An Apollo or Vibepollo install carries over, with everything you set up.')
+    left, right = (100, 290, 760, 740), (1160, 290, 1820, 740)
+    p = ease((t-.3)/.6)
+    host_card(im, (left[0], left[1]+slide(24*(1-p)), left[2], left[3]+slide(24*(1-p))),
+              'Apollo or Vibepollo', 'Your current host', p, False)
+    q = ease((t-.5)/.6)
+    host_card(im, (right[0], right[1]+slide(24*(1-q)), right[2], right[3]+slide(24*(1-q))),
+              'Rubylight', 'After setup', q, True)
+    # An arrow between the cards.
+    a = ease((t-.8)/.5)
+    if a > 0:
+        x0, x1, y = 800, 800+(320*a), 515
+        line(im, (x0, y, x1, y), RUBY, 6)
+        if a > .9:
+            ImageDraw.Draw(im).polygon([(1122, y), (1096, y-16), (1096, y+16)], fill=RUBY)
+    # Each row is copied from the old host and lands in Rubylight with a tick; the
+    # original stays behind, dimmed, under the copy.
+    w = right[2]-right[0]-72
+    for i, label in enumerate(CARRIED):
+        o = ease((t-.7-i*.12)/.5)
+        y = 460+i*86
+        rrect(im, (left[0]+36, y, left[0]+36+w, y+66), (26, 24, 30), (60, 54, 66), 2, 14, o*.8)
+        txt(im, left[0]+64, y+33-cap_height(30, 'semibold')/2, label, 30, DIM, 'semibold', opacity=o)
+    for i, label in enumerate(CARRIED):
+        o = ease((t-.7-i*.12)/.5)
+        if o <= 0:
+            continue
+        y = 460+i*86
+        start = 1.0+i*.35
+        move = ease_io((t-start)/.8) if not STILL else float(t > start+.4)
+        x = lerp(left[0]+36, right[0]+36, move)
+        landed = move >= 1
+        rrect(im, (x, y, x+w, y+66), (40, 18, 30) if landed else (32, 28, 38),
+              RUBY if landed else (80, 72, 90), 2, 14, o)
+        txt(im, x+28, y+33-cap_height(30, 'semibold')/2, label, 30, INK, 'semibold', opacity=o)
+        if landed:
+            check_mark(im, x+w-40, y+33, 26, RUBY, 5)
+    # Setup installs the rest.
+    s = ease((t-2.9)/.5)
+    if s > 0:
+        txt(im, 100, 800+slide(12*(1-s)), 'Setup installs', 28, RUBY, 'bold', opacity=s, spacing=1)
+        x = 330
+        for i, label in enumerate(INSTALLS):
+            o = ease((t-3.0-i*.2)/.45)
+            right_edge = chip(im, x, 784+slide(12*(1-o)), '      '+label, 28, INK, (30, 18, 26), (110, 44, 72), o)
+            if o > 0:
+                check_mark(im, x+34, 784+slide(12*(1-o))+25, 22, RUBY, 4)
+            x = right_edge+18
+    source(im, 'Updates are offered in the console; they are verified and installed in an idle minute when you allow it.',
+           t, 3.8)
     return im
 
 
-def radeon(t):
-    im = base_for('radeon').copy()
-    b = boxes()['radeon']['radeon']
-    keys = ((0, wide('radeon', 300)), (.9, wide('radeon', 300)), (2.6, fit('radeon', b, 30)))
-    camera = console_scene(im, 'radeon', t, keys, 'Radeon settings for every game.',
-                           'Anti-Lag, frame caps and filtering at launch, put back when you stop.')
-    profile = (b[0]+50, b[1]+250, b[2]-50, b[3]-50)
-    ring(im, to_screen(profile, camera), smooth((t-3.0)/.4), pad=12)
-    return im
-
+# 3 · Pairing -----------------------------------------------------------------------
 
 def phone(im, x, y, local, paired_at, opacity):
     """A phone in a Moonlight client, showing the PIN and then the game."""
@@ -742,6 +839,7 @@ def phone(im, x, y, local, paired_at, opacity):
         rrect(im, (sx0+40, sy0+290, sx1-40, sy0+296), (60, 44, 54), radius=3, opacity=o)
         frac = 1-clamp((local-.6)/(paired_at-.6))
         rrect(im, (sx0+40, sy0+290, sx0+40+(sx1-sx0-80)*frac, sy0+296), RUBY, radius=3, opacity=o)
+        txt(im, x+w/2, sy1-60, 'Moonlight', 24, MUTED, 'semibold', 'center', o)
     if done > 0:
         pic = picture(round(sx1-sx0), round(sy1-sy0), .6)
         mask = faded(rr_mask(pic.width, pic.height, 18), done*opacity)
@@ -752,43 +850,205 @@ def phone(im, x, y, local, paired_at, opacity):
         txt(im, cx, cy-cap_height(30)/2-1, 'Paired', 30, (24, 10, 16), 'bold', 'center', p)
 
 
+PAIR_VP = (480, 262, 1820, 1080)
+
+
+@lru_cache(maxsize=1)
+def pin_digits():
+    """The typed PIN's four digits in pair-pin.jpg, as column runs of bright ink."""
+    x0, y0, x1, y1 = boxes()['pair']['pin']
+    ink = np.asarray(shot('pair-pin').crop((x0+16, y0+16, x1-16, y1-16)).convert('L')) > 150
+    columns = ink.any(axis=0)
+    runs, start = [], None
+    for x, on in enumerate(columns):
+        if on and start is None:
+            start = x
+        elif not on and start is not None:
+            runs.append((start+16, x+16))
+            start = None
+    assert len(runs) == 4, f'expected four digits in the PIN field, found {len(runs)}'
+    return runs
+
+
+def digit_cuts(width):
+    """Where to cut a screen crop of the PIN field after one, two and three digits."""
+    x0, _, x1, _ = boxes()['pair']['pin']
+    scale = width/(x1-x0+12)
+    runs = pin_digits()
+    return [round((6+(runs[i][1]+runs[i+1][0])/2)*scale) for i in range(3)]
+
+
 def pair(t):
     im = base_for('pair').copy()
     b = boxes()['pair']
-    vp = (480, 262, 1820, 1080)
-    steps = b['steps']
-    keys = ((0, fit('pair', b['panel'], 30, vp)), (1.0, fit('pair', b['panel'], 30, vp)),
-            (2.2, fit('pair', (b['panel'][0], steps[1]-120, b['panel'][2], b['request'][3]+40), 20, vp)))
+    vp = PAIR_VP
+    ways, request = b['ways'], b['request']
+    pin_side = (request[0]-150, ways[1], ways[2], ways[3])
+    keys = ((0, fit('pair', ways, 30, vp)), (2.0, fit('pair', ways, 30, vp)),
+            (2.8, fit('pair', pin_side, 24, vp)))
     brand(im)
-    heading(im, 'Pair in seconds.', t, 'Moonlight shows a PIN. Type it in, and you are in.')
+    heading(im, 'Pair in seconds.', t, 'Scan the code with Nightjar, or type the PIN Moonlight shows.')
     sample_note(im)
     p = ease(t/.7)
     camera = camera_at(keys, t)
-    console_window(im, 'pair', camera, vp, rise=slide(40*(1-p)))
+    rise = round(slide(40*(1-p)))
+    console_window(im, 'pair', camera, vp, rise=rise)
     # The PIN, typed digit by digit: the filled field from the second shot.
-    typed = min(4, max(0, math.floor((t-2.4)/.22)+1))
+    typed = min(4, max(0, math.floor((t-3.0)/.2)+1))
     pin = b['pin']
     if typed:
-        x0, y0, x1, y1 = (round(v) for v in to_screen((pin[0]-6, pin[1]-6, pin[2]+6, pin[3]+6), camera, vp))
+        # All four typed: the whole request from the second shot, its Pair device button now on.
+        area = (pin[0]-6, pin[1]-6, pin[2]+6, pin[3]+6) if typed < 4 else request
+        x0, y0, x1, y1 = (round(v) for v in to_screen(area, camera, vp))
         field = view('pair-pin', round(camera[0], 1), round(camera[1], 1), round(camera[2], 4), vp)
-        ox, oy = vp[0], vp[1]+round(slide(40*(1-p)))
+        ox, oy = vp[0], vp[1]+rise
         crop = field.crop((x0-ox, y0-oy, x1-ox, y1-oy))
-        # Digits sit evenly across the field; reveal one quarter per keystroke.
         if typed < 4:
-            empty = view('pair', round(camera[0], 1), round(camera[1], 1), round(camera[2], 4), vp)
-            blank = empty.crop((x0-ox, y0-oy, x1-ox, y1-oy))
-            cut = round(crop.width*(.18+.2*typed))
-            blank.paste(crop.crop((0, 0, cut, crop.height)), (0, 0))
-            crop = blank
+            # Cover the digits not typed yet with the field's fill, cutting between digits.
+            crop = crop.copy()
+            cut = digit_cuts(crop.width)[typed-1]
+            fill = crop.getpixel((crop.width-16, crop.height//2))
+            ImageDraw.Draw(crop).rectangle((cut, 12, crop.width-14, crop.height-12), fill=fill)
         im.paste(crop, (x0, y0))
-    paired_at = 3.7
-    request = to_screen(b['request'], camera, vp)
-    ring(im, request, smooth((t-paired_at+.15)/.3)*(1-smooth((t-paired_at-1.2)/.4)), pad=6)
+    ring(im, to_screen(b['qr'], camera, vp), smooth((t-.7)/.3)*(1-smooth((t-2.0)/.3)), pad=4)
+    paired_at = 4.1
+    ring(im, to_screen(request, camera, vp), smooth((t-paired_at+.15)/.3)*(1-smooth((t-paired_at-1.3)/.4)), pad=6)
     phone(im, 110, 330, t, paired_at, ease((t-.3)/.7))
     return im
 
 
-# 3 · Picture and displays ----------------------------------------------------------
+# 4 · Home ------------------------------------------------------------------------
+
+def home(t):
+    im = base_for('home').copy()
+    b = boxes()['home']
+    keys = ((0, wide('home', 0)), (2.0, wide('home', 0)), (3.2, fit('home', b['card'], 24)))
+    brand(im)
+    heading(im, 'Ready to play. Live while you play.', t,
+            'Home shows the running game, each stream and its live numbers.')
+    sample_note(im)
+    p = ease(t/.7)
+    camera = camera_at(keys, t)
+    console_window(im, 'home', camera, rise=slide(40*(1-p)))
+    # Before a device connects, Home says Ready to play: the first shot, faded out.
+    ready = 1-smooth((t-1.1)/.5) if not STILL else float(t < 1.4)
+    if ready > 0:
+        at = (round(camera[0], 1), round(camera[1], 1), round(camera[2], 4))
+        before, after = view('home-ready', *at), view('home', *at)
+        im.paste(Image.blend(after, before, ready), (VP[0], VP[1]+round(slide(40*(1-p)))), window_mask())
+    ring(im, to_screen(b['details'], camera), smooth((t-3.6)/.4), pad=8)
+    return im
+
+
+# 5 · Library -----------------------------------------------------------------------
+
+LAUNCHERS = ('Steam', 'Epic Games', 'Battle.net', 'EA app', 'Ubisoft Connect', 'GOG', 'Microsoft Store',
+             'Xbox', 'Playnite')
+
+
+def library(t):
+    im = base_for('library').copy()
+    b = boxes()['library']
+    g = b['grid']
+    first_row = (g[0], g[1], g[2], g[1]+(g[3]-g[1])*.5)
+    keys = ((0, wide('library', 0)), (.6, wide('library', 0)), (2.6, fit('library', first_row, 24)))
+    brand(im)
+    heading(im, 'Your whole library, with cover art.', t)
+    sample_note(im)
+    p = ease(t/.7)
+    console_window(im, 'library', camera_at(keys, t), rise=slide(40*(1-p)))
+    # Every launcher it reads, one by one, where the subtitle would be.
+    x = 100
+    for i, name in enumerate(LAUNCHERS):
+        q = ease((t-.3-i*.1)/.4)
+        x = chip(im, x, 172+12*(1-q), name, 24, INK, (40, 18, 30), (120, 40, 70), q) + 10
+    return im
+
+
+# 6 · Per-game settings -------------------------------------------------------------
+
+def game(t):
+    im = base_for('game').copy()
+    b = boxes()['game']
+    d, r = b['display'], b['radeon']
+    keys = ((0, fit('game', (d[0], d[1], d[2], d[1]+1100), 24, anchor='top')), (1.6, fit('game', (d[0], d[1], d[2], d[1]+1100), 24, anchor='top')),
+            (2.8, fit('game', (r[0], r[1], r[2], r[1]+1060), 24, anchor='top')))
+    brand(im)
+    heading(im, 'Settings for each game.', t,
+            'Display, video, input, Radeon and frame limits: set at launch, put back afterwards.')
+    sample_note(im)
+    p = ease(t/.7)
+    camera = camera_at(keys, t)
+    console_window(im, 'game', camera, rise=slide(40*(1-p)))
+    adjust = (r[0]+30, r[1]+600, r[0]+1300, r[1]+1040)
+    ring(im, to_screen(adjust, camera), smooth((t-3.4)/.4), pad=6)
+    return im
+
+
+# 7 · Displays ------------------------------------------------------------------------
+
+MONITORS = ((330, 380, 900, 700), (980, 380, 1550, 700))
+
+
+def desktop_fill(w, h):
+    """A drawn stand-in for a desktop: a gradient, a bar and three icons. Never a real one."""
+    a, b = np.array((28, 34, 58), np.float32), np.array((70, 34, 70), np.float32)
+    x = np.linspace(0, 1, w, dtype=np.float32)[None, :, None]
+    y = np.linspace(0, 1, h, dtype=np.float32)[:, None, None]
+    rgb = a+(b-a)*(x*.6+y*.4)
+    im = Image.fromarray(np.round(np.broadcast_to(rgb, (h, w, 3))).astype(np.uint8))
+    d = ImageDraw.Draw(im)
+    d.rectangle((0, h-22, w, h), fill=(18, 20, 28))
+    for i in range(3):
+        d.rounded_rectangle((24, 24+i*58, 64, 64+i*58), radius=8, fill=(90, 96, 130))
+    return im
+
+
+@lru_cache(maxsize=4)
+def desktop(w, h):
+    return desktop_fill(w, h)
+
+
+VIRTUAL = 'Living room TV · 3840×2160 · 120 Hz · HDR'
+
+
+def displays(t):
+    im = base_for('displays').copy()
+    brand(im)
+    heading(im, 'A display for every device.', t,
+            'A virtual display at the device’s own resolution, refresh rate and HDR.')
+    # 0-1.1 s your desk; 1.1-2.3 s streaming on a virtual display; from 2.5 s back as it was.
+    away = smooth((t-1.1)/.5)*(1-smooth((t-2.5)/.5))
+    vd = ease((t-1.2)/.5)*(1-smooth((t-2.4)/.4))
+    back = ease((t-2.8)/.5)
+    p = ease((t-.2)/.6)
+    for i, (x0, y0, x1, y1) in enumerate(MONITORS):
+        y0, y1 = y0+round(slide(26*(1-p))), y1+round(slide(26*(1-p)))
+        rrect(im, (x0-12, y0-12, x1+12, y1+12), (24, 20, 28), (90, 84, 100), 3, 16, p)
+        line(im, ((x0+x1)/2, y1+12, (x0+x1)/2, y1+52), (90, 84, 100), 4)
+        line(im, ((x0+x1)/2-70, y1+54, (x0+x1)/2+70, y1+54), (90, 84, 100), 5)
+        screen = desktop(x1-x0, y1-y0)
+        if away > 0:
+            screen = Image.blend(screen, Image.new('RGB', screen.size, (14, 14, 18)), .82*away)
+        im.paste(screen, (x0, y0), faded(Image.new('L', screen.size, 255), p))
+    if vd > 0:
+        x0, y0, x1, y1 = 700, 300+round(20*(1-vd)), 1220, 593+round(20*(1-vd))
+        rrect(im, (x0-6, y0-6, x1+6, y1+6), (20, 14, 20), RUBY, 4, 14, vd)
+        pic = picture(x1-x0, y1-y0)
+        im.paste(pic, (x0, y0), faded(rr_mask(pic.width, pic.height, 8), vd))
+        chip(im, 960-width_of(VIRTUAL, 26, 'semibold')/2-17, y1+22, VIRTUAL, 26, INK, (40, 18, 30), RUBY, vd)
+    if back > 0:
+        label = 'Your monitor layout, restored'
+        w = width_of(label, 30, 'bold')+90
+        x0, y0 = 960-w/2, 800+14*(1-back)
+        rrect(im, (x0, y0, x0+w, y0+60), RUBY, None, radius=30, opacity=back)
+        if back > .5:
+            check_mark(im, x0+36, y0+30, 26, (24, 10, 16), 5)
+        txt(im, x0+60, y0+30-cap_height(30)/2-1, label, 30, (24, 10, 16), 'bold', opacity=back)
+    return im
+
+
+# 8 · Picture -------------------------------------------------------------------------
 
 HUD_BG = (22, 24, 32)
 
@@ -819,7 +1079,8 @@ def hud():
     return Image.fromarray(np.round(out*255).astype(np.uint8)), im
 
 
-PANELS = ((100, 300, 940, 860), (980, 300, 1820, 860))
+PANELS = ((100, 290, 940, 770), (980, 290, 1820, 770))
+HDR = ('HDR10 on HEVC and AV1', 'HDR10+', 'Dolby Vision', 'HLG')
 
 
 def magnified(source_image, box, cx, cy, zoom):
@@ -838,14 +1099,13 @@ def magnified(source_image, box, cx, cy, zoom):
 def colour(t):
     im = base_for('colour').copy()
     brand(im)
-    heading(im, 'Full colour. Bright HDR.', t,
-            '10-bit HDR in HEVC and AV1, and full-colour 4:4:4 with PyroWave for crisp text.')
+    heading(im, 'HDR and full colour.', t,
+            'Full 4:4:4 colour with PyroWave, or packed in HEVC and AV1 for Nightjar.')
     sampled, full = hud()
     p = smooth((t-1.0)/1.8) if not STILL else float(t > 1.9)
     zoom = math.exp(lerp(math.log(3.4), math.log(8.), p))
     cx, cy = lerp(120, 60, p), lerp(54, 68, p)
-    for i, (box, image, label, color) in enumerate(zip(PANELS, (sampled, full), ('4:2:0', '4:4:4 · PyroWave'),
-                                                       (MUTED, RUBY))):
+    for i, (box, image, label, color) in enumerate(zip(PANELS, (sampled, full), ('4:2:0', '4:4:4'), (MUTED, RUBY))):
         q = ease((t-.3-i*.15)/.6)
         if q <= 0:
             continue
@@ -854,74 +1114,184 @@ def colour(t):
         im.paste(panel, (box[0], box[1]+y), faded(rr_mask(panel.width, panel.height, 16), q))
         rrect(im, (box[0], box[1]+y, box[2], box[3]+y), None, (58, 64, 80) if i == 0 else RUBY, 2, 16, q)
         chip(im, box[0]+20, box[1]+20+y, label, 32, color, (12, 13, 18), color, q, 'bold')
-    reveal(im, 100, 900, 'Red and blue text keeps its edges in 4:4:4.', 38, t, at=2.6, color=INK,
-           weight='semibold', rise=12)
+    # The HDR formats, in a row under the panels.
+    x = 100
+    for i, name in enumerate(HDR):
+        q = ease((t-2.4-i*.15)/.45)
+        x = chip(im, x, 830+12*(1-q), name, 30, INK, (40, 18, 30), (120, 40, 70), q, 'semibold') + 16
     source(im, 'Same rendered pixels in both panels · 4:2:0 averages colour over each 2×2 block · BT.709', t, 2.9)
     return im
 
 
-MONITORS = ((330, 380, 900, 700), (980, 380, 1550, 700))
+# 9 · Networks ------------------------------------------------------------------------
+
+def before_after(im, box, n, local, at):
+    """A tile with two bars: before (grey) and after (ruby), counted up."""
+    x0, y0, x1, y1 = box
+    o = ease((local-at)/.6)
+    if o <= 0:
+        return
+    y0 += slide(30*(1-o))
+    rrect(im, (x0, y0, x1, y0+(y1-box[1])), (24, 20, 28), (64, 46, 58), 2, 22, o)
+    txt(im, x0+40, y0+40, n['topic'].upper(), 24, RUBY, 'bold', opacity=o, spacing=2)
+    txt(im, x0+40, y0+90, n['caption'], 40, INK, 'semibold', opacity=o)
+    top = max(float(n['before'][1]), float(n['after'][1]))
+    maxw = x1-x0-260
+    for i, (label, value) in enumerate((n['before'], n['after'])):
+        y = y0+180+i*120
+        ours = i == 1
+        shown, p = counted(value, local, at+.4+i*.5, 1.0)
+        txt(im, x0+40, y, label, 26, INK if ours else (200, 202, 210), 'semibold', opacity=o)
+        w = max(10, maxw*float(value)/top*p) if float(value) > 0 else 10
+        rrect(im, (x0+40, y+40, x0+40+w, y+96), RUBY if ours else GREY, radius=12, opacity=o)
+        txt(im, x0+40+w+22, y+46, shown, 52, RUBY if ours else (210, 212, 220), 'bold', opacity=o)
+    txt(im, x0+40, y0+440, n['detail'], 24, MUTED, 'regular', opacity=o)
 
 
-def desktop_fill(w, h):
-    im = Image.new('RGB', (w, h))
-    a, b = np.array((28, 34, 58), np.float32), np.array((70, 34, 70), np.float32)
-    x = np.linspace(0, 1, w, dtype=np.float32)[None, :, None]
-    y = np.linspace(0, 1, h, dtype=np.float32)[:, None, None]
-    rgb = a+(b-a)*(x*.6+y*.4)
-    im = Image.fromarray(np.round(np.broadcast_to(rgb, (h, w, 3))).astype(np.uint8))
-    d = ImageDraw.Draw(im)
-    d.rectangle((0, h-22, w, h), fill=(18, 20, 28))
-    for i in range(3):
-        d.rounded_rectangle((24, 24+i*58, 64, 64+i*58), radius=8, fill=(90, 96, 130))
-    return im
-
-
-@lru_cache(maxsize=4)
-def desktop(w, h):
-    return desktop_fill(w, h)
-
-
-def displays(t):
-    im = base_for('displays').copy()
+def network(t):
+    im = base_for('network').copy()
+    n = NUMBERS['network']
     brand(im)
-    heading(im, 'Your monitors, back after every stream.', t,
-            'A virtual display sized for your device while you play. Then your layout, exactly as it was.')
-    # 0-1.1 s your desk; 1.1-2.3 s streaming on a virtual display; from 2.5 s back as it was.
-    away = smooth((t-1.1)/.5)*(1-smooth((t-2.5)/.5))
-    vd = ease((t-1.2)/.5)*(1-smooth((t-2.4)/.4))
-    back = ease((t-2.8)/.5)
-    p = ease((t-.2)/.6)
-    for i, (x0, y0, x1, y1) in enumerate(MONITORS):
-        y0, y1 = y0+round(slide(26*(1-p))), y1+round(slide(26*(1-p)))
-        rrect(im, (x0-12, y0-12, x1+12, y1+12), (24, 20, 28), (90, 84, 100), 3, 16, p)
-        line(im, ((x0+x1)/2, y1+12, (x0+x1)/2, y1+52), (90, 84, 100), 4)
-        line(im, ((x0+x1)/2-70, y1+54, (x0+x1)/2+70, y1+54), (90, 84, 100), 5)
-        screen = desktop(x1-x0, y1-y0)
-        if away > 0:
-            screen = Image.blend(screen, Image.new('RGB', screen.size, (14, 14, 18)), .82*away)
-        im.paste(screen, (x0, y0), faded(Image.new('L', screen.size, 255), p))
-    if vd > 0:
-        x0, y0, x1, y1 = 700, 300+round(20*(1-vd)), 1220, 593+round(20*(1-vd))
-        rrect(im, (x0-6, y0-6, x1+6, y1+6), (20, 14, 20), RUBY, 4, 14, vd)
-        pic = picture(x1-x0, y1-y0)
-        im.paste(pic, (x0, y0), faded(rr_mask(pic.width, pic.height, 8), vd))
-        chip(im, 960-width_of('Virtual display · 2560×1440 · 120 Hz', 26, 'semibold')/2-17, y1+22,
-             'Virtual display · 2560×1440 · 120 Hz', 26, INK, (40, 18, 30), RUBY, vd)
-    if back > 0:
-        label = 'Layout restored'
-        w = width_of(label, 30, 'bold')+90
-        x0, y0 = 960-w/2, 800+14*(1-back)
-        rrect(im, (x0, y0, x0+w, y0+60), RUBY, None, radius=30, opacity=back)
-        cx, cy = x0+36, y0+30
-        d = ImageDraw.Draw(im)
-        if back > .5:
-            d.line((cx-11, cy, cx-3, cy+8, cx+12, cy-9), fill=(24, 10, 16), width=5, joint='curve')
-        txt(im, x0+60, y0+30-cap_height(30)/2-1, label, 30, (24, 10, 16), 'bold', opacity=back)
+    heading(im, 'Built for real networks.', t, n['subtitle'])
+    gap = 40
+    tw = (1720-gap)/2
+    for i, tile in enumerate(n['tiles']):
+        x0 = 100+i*(tw+gap)
+        before_after(im, (x0, 290, x0+tw, 790), tile, t, .3+i*.25)
+    reveal(im, 100, 850, n['more'], 32, t, at=2.6, color=INK, weight='semibold', rise=12)
+    source(im, n['source'], t, 2.8)
     return im
 
 
-# 4 · Proof -------------------------------------------------------------------------
+# 10 · Co-op --------------------------------------------------------------------------
+
+COOP_VP = (100, 262, 1290, 1080)
+PLAYERS = (('Player 1', 'Living room TV', .35), ('Player 2', 'Steam Deck', .62), ('Player 3', 'Laptop', .88))
+
+
+def coop(t):
+    im = base_for('coop').copy()
+    b = boxes()['coop']
+    brand(im)
+    heading(im, 'Play together.', t,
+            'Nucleus Co-op gives each device its own copy of the game, with its own picture, sound and controller.')
+    sample_note(im)
+    p = ease(t/.7)
+    camera = fit('coop', b['card'], 30, COOP_VP)
+    console_window(im, 'coop', camera, COOP_VP, rise=slide(40*(1-p)))
+    for i, (player, device, focus) in enumerate(PLAYERS):
+        o = ease((t-.8-i*.3)/.5)
+        if o <= 0:
+            continue
+        x0, y0 = 1340, 290+i*262+slide(20*(1-o))
+        w, h = 400, 225
+        rrect(im, (x0-8, y0-8, x0+w+8, y0+h+8), (24, 16, 22), OUTLINE, 3, 14, o)
+        pic = picture(w, h, focus)
+        im.paste(pic, (x0, round(y0)), faded(rr_mask(w, h, 8), o))
+        chip(im, x0+12, y0+12, f'{player} · {device}', 22, (24, 10, 16), RUBY, RUBY, o, 'bold')
+    return im
+
+
+# 11 · Connected ----------------------------------------------------------------------
+
+CONNECTED = (
+    ('clipboard', 'Clipboard', 'Copy on one, paste on the other'),
+    ('upload', 'File transfer', 'Send files to the PC'),
+    ('folder', 'Shared folders', 'The PC’s folders on the device'),
+    ('usb', 'USB forwarding', 'Plug in on the device, use it on the PC'),
+    ('mic', 'Microphone', 'The device’s microphone on the PC'),
+    ('vibrate', 'DualSense', 'Haptics and adaptive triggers'),
+    ('gamepad', 'Controllers', 'Switch Pro, Xbox and Steam Deck'),
+    ('pen', 'Touch and pen', 'Touchscreens and styluses'),
+    ('speaker', 'Surround sound', 'Audio up to 7.1.4'),
+    ('music', 'Dolby Digital', 'Dolby Digital and Dolby Digital Plus'),
+)
+
+
+def connected(t):
+    im = base_for('connected').copy()
+    brand(im)
+    heading(im, 'Your devices, connected.', t, 'What the device has, the PC can use.')
+    columns, gap = 5, 24
+    tw = (1720-gap*(columns-1))/columns
+    th = 316
+    for i, (name, title, detail) in enumerate(CONNECTED):
+        col, row = i % columns, i//columns
+        o = ease((t-.4-i*.09)/.5)
+        if o <= 0:
+            continue
+        x0, y0 = 100+col*(tw+gap), 290+row*(th+gap)+slide(24*(1-o))
+        rrect(im, (x0, y0, x0+tw, y0+th), (24, 20, 28), (64, 46, 58), 2, 20, o)
+        icon(im, x0+32, y0+36, name, 60, RUBY, o)
+        txt(im, x0+32, y0+140, title, 32, INK, 'semibold', opacity=o)
+        paragraph(im, x0+32, y0+196, detail, 25, tw-64, MUTED, opacity=o)
+    return im
+
+
+# 12 · Browser ------------------------------------------------------------------------
+
+def browser_window(im, box, opacity):
+    x0, y0, x1, y1 = box
+    rrect(im, box, (28, 24, 32), (90, 84, 100), 2, 18, opacity)
+    for i, color in enumerate(((236, 96, 96), (236, 190, 80), (96, 196, 120))):
+        rrect(im, (x0+24+i*30, y0+22, x0+40+i*30, y0+38), color, radius=8, opacity=opacity)
+    rrect(im, (x0+140, y0+14, x1-24, y0+46), (18, 16, 22), None, radius=16, opacity=opacity)
+    txt(im, x0+164, y0+22, 'Living room PC · Stream', 20, MUTED, 'regular', opacity=opacity)
+    pic = picture(round(x1-x0-16), round(y1-y0-68))
+    im.paste(pic, (round(x0+8), round(y0+60)), faded(rr_mask(pic.width, pic.height, 12), opacity))
+
+
+def browser(t):
+    im = base_for('browser').copy()
+    n = NUMBERS['browser']
+    brand(im)
+    heading(im, 'Any browser. Samsung TVs too.', t, 'A built-in WebRTC server streams to a browser tab, when you turn it on.')
+    o = ease((t-.2)/.6)
+    browser_window(im, (100, 300+slide(24*(1-o)), 1040, 860+slide(24*(1-o))), o)
+    shown, _ = counted(n['value'], t, .6, .9)
+    q = ease((t-.5)/.4)
+    txt(im, 1140, 360, shown, 240, RUBY, 'bold', opacity=q)
+    uw = width_of(shown, 240, 'bold')
+    txt(im, 1140+uw+24, 360+cap_height(240)-cap_height(90), n['unit'], 90, RUBY, 'bold', opacity=q)
+    reveal(im, 1144, 660, n['caption'], 44, t, at=1.0, color=INK, weight='semibold', rise=12)
+    reveal(im, 1146, 732, n['detail'], 28, t, at=1.2, color=MUTED, weight='regular', rise=10)
+    source(im, n['source'], t, 1.3)
+    return im
+
+
+# 13 · Nightjar -----------------------------------------------------------------------
+
+def nightjar(t):
+    im = base_for('nightjar').copy()
+    brand(im)
+    heading(im, 'Nightjar, the companion client.', t, 'For Android, Android TV, Fire TV, Windows and Linux.')
+    # A TV and a handheld: real screenshots from a TCL TV and a Retroid Pocket.
+    o = ease((t-.3)/.6)
+    tv = (100, 330+slide(24*(1-o)), 820, 330+417+slide(24*(1-o)))
+    bezel(im, tv, ((tv[0]+12, tv[1]+12, tv[2]-12, tv[3]-12), nightjar_shot('away-tv')), 16, o)
+    if o > 0:
+        line(im, (460-50, tv[3], 460-80, tv[3]+40), OUTLINE, 3)
+        line(im, (460+50, tv[3], 460+80, tv[3]+40), OUTLINE, 3)
+        label_under(im, 460, tv[3]+66, 'Play away from home, on Android TV', o, 26, MUTED)
+    q = ease((t-.6)/.6)
+    if q > 0:
+        x0, y0 = 880, 330+slide(24*(1-q))
+        w, h = 940, 420
+        # The Retroid's screen is 2:1, centred between the sticks; it moves on to Files at 3 s.
+        sx0, sy0 = x0+(w-720)/2, y0+(h-360)/2
+        swap = smooth((t-3.0)/.5) if not STILL else float(t > 3.2)
+        shot = Image.blend(handheld_shot('settings-retroid'), handheld_shot('files-retroid'), swap)
+        bezel(im, (x0, y0, x0+w, y0+h), ((sx0, sy0, sx0+720, sy0+360), shot), 70, q)
+        for cx in (x0+55, x0+w-55):
+            ImageDraw.Draw(im).ellipse((cx-28, y0+h/2-90, cx+28, y0+h/2-34), outline=OUTLINE, width=3)
+        label_under(im, x0+w/2, y0+h+36, 'Video settings on a handheld', q*(1-swap), 26, MUTED)
+        label_under(im, x0+w/2, y0+h+36, 'Files sent from a handheld to the PC', q*swap, 26, MUTED)
+    reveal(im, 100, 1014, 'Real screenshots · Nightjar 4.0 on a TCL TV and a Retroid Pocket 6', 26, t, at=1.4,
+           color=MUTED, weight='regular', rise=8)
+    return im
+
+
+# 14 · Measured -----------------------------------------------------------------------
 
 def decimals(value):
     return len(value.split('.')[1]) if '.' in value else 0
@@ -932,34 +1302,28 @@ def counted(value, local, at, length=1.1):
     return f'{float(value)*p:.{decimals(value)}f}', p
 
 
-def latency(t):
-    im = base_for('latency').copy()
-    n = NUMBERS['latency']
+def big_number(im, x, y, n, local, at, size=220):
+    shown, p = counted(n['value'], local, at)
+    o = ease((local-at+.1)/.4)
+    slot = width_of('8'*len(n['value'].replace('.', ''))+'.', size, 'bold')
+    txt(im, x+slot, y, shown, size, RUBY, 'bold', 'right', o)
+    txt(im, x+slot+24, y+cap_height(size)-cap_height(84), n['unit'], 84, RUBY, 'bold', opacity=o)
+    reveal(im, x+4, y+cap_height(size)+70, n['caption'], 40, local, at=at+.8, color=INK, weight='semibold', rise=12)
+    reveal(im, x+6, y+cap_height(size)+136, n['detail'], 28, local, at=at+1.0, color=MUTED, weight='regular', rise=10)
+
+
+def measured(t):
+    im = base_for('measured').copy()
+    n = NUMBERS['measured']
     brand(im)
     reveal(im, 100, 96, 'MEASURED, IN THE OPEN', 28, t, at=.1, color=RUBY, weight='bold', spacing=4, rise=10)
-    shown, p = counted(n['value'], t, .5)
-    size = 300
-    slot = width_of('8'*len(n['value'].replace('.', ''))+'.', size, 'bold')
-    o = ease((t-.4)/.4)
-    txt(im, 100+slot, 250, shown, size, RUBY, 'bold', 'right', o)
-    unit_x = 100+slot+30
-    txt(im, unit_x, 250+cap_height(size)-cap_height(110), n['unit'], 110, RUBY, 'bold', opacity=o)
-    reveal(im, 104, 620, n['caption'], 56, t, at=1.3, color=INK, weight='semibold', rise=14)
-    reveal(im, 106, 708, n['detail'], 34, t, at=1.5, color=MUTED, weight='regular', rise=12)
-    # A frame's trip, start to end, drawn as the number counts.
-    y = 850
-    x0, x1 = 106, 1814
-    line(im, (x0, y, x1, y), LINE, 4)
-    q = ease((t-.5)/1.1)
-    if q > 0:
-        line(im, (x0, y, x0+(x1-x0)*q, y), RUBY, 6)
-        rrect(im, (x0-10, y-10, x0+10, y+10), RUBY, radius=10)
-        hx = x0+(x1-x0)*q
-        glow(im, hx, y, 160, RUBY, .8)
-        rrect(im, (hx-10, y-10, hx+10, y+10), ROSE if q < 1 else RUBY, radius=10)
-    txt(im, x0, y+34, 'Captured on the PC', 28, MUTED, 'regular', opacity=o)
-    txt(im, x1, y+34, 'On the client’s screen', 28, INK if q >= 1 else MUTED, 'regular', 'right', o)
-    source(im, n['source'], t, 1.6)
+    reveal(im, 100, 160, n['heading'], 56, t, at=.2)
+    big_number(im, 100, 360, n['latency'], t, .5)
+    o = ease((t-1.0)/.5)
+    if o > 0:
+        line(im, (990, 360, 990, 360+(470*o)), LINE, 3)
+    big_number(im, 1060, 360, n['vrr'], t, 1.2)
+    source(im, n['source'], t, 2.0)
     return im
 
 
@@ -990,35 +1354,7 @@ def versus(t):
     return im
 
 
-def more(t):
-    im = base_for('more').copy()
-    n = NUMBERS['more']
-    brand(im)
-    heading(im, n['heading'], t, n['subtitle'])
-    tiles = n['tiles']
-    gap = 40
-    tw = (1720-gap*(len(tiles)-1))/len(tiles)
-    for i, tile in enumerate(tiles):
-        x0 = 100+i*(tw+gap)
-        y0 = 320
-        o = ease((t-.3-i*.18)/.6)
-        if o <= 0:
-            continue
-        y = y0+slide(30*(1-o))
-        rrect(im, (x0, y, x0+tw, y+520), (24, 20, 28), (64, 46, 58), 2, 22, o)
-        rrect(im, (x0+40, y+44, x0+96, y+50), RUBY, radius=3, opacity=o)
-        shown, _ = counted(tile['value'], t, .6+i*.25, 1.0)
-        txt(im, x0+36, y+110, shown, 150, RUBY, 'bold', opacity=o)
-        uw = width_of(shown, 150, 'bold')
-        txt(im, x0+36+uw+(14 if tile['unit'] != '×' else 6), y+110+cap_height(150)-cap_height(64), tile['unit'], 64,
-            RUBY, 'bold', opacity=o)
-        txt(im, x0+40, y+340, tile['caption'], 36, INK, 'semibold', opacity=o)
-        txt(im, x0+40, y+400, tile['detail'], 28, MUTED, 'regular', opacity=o)
-    source(im, n['source'], t, 1.4)
-    return im
-
-
-# 5 · End ---------------------------------------------------------------------------
+# 15 · End ---------------------------------------------------------------------------
 
 @lru_cache(maxsize=1)
 def end_backdrop():
@@ -1031,24 +1367,22 @@ def end(t):
     p = ease((t-.1)/.7)
     mark = width_of('Rubylight', 140, 'bold')
     left = (W-(128+40+mark))/2
-    badge(im, left, 196+20*(1-p), 128, p)
-    reveal(im, left+168, 206, 'Rubylight', 140, t, at=.15)
+    badge(im, left, 216+20*(1-p), 128, p)
+    reveal(im, left+168, 226, 'Rubylight', 140, t, at=.15)
     words, gap = ('Install.', 'Pair.', 'Play.'), 60
     widths = [width_of(w, 96, 'bold') for w in words]
     x = (W-sum(widths)-gap*2)/2
     for i, value in enumerate(words):
-        reveal(im, x, 430, value, 96, t, at=.6+i*.3, color=RUBY)
+        reveal(im, x, 450, value, 96, t, at=.6+i*.3, color=RUBY)
         x += widths[i]+gap
     q = ease((t-1.7)/.6)
     if q > 0:
         url = 'github.com/RamazanKara/Rubylight'
         w = width_of(url, 54, 'bold')+100
-        rrect(im, (960-w/2, 620+16*(1-q), 960+w/2, 720+16*(1-q)), (30, 16, 24), RUBY, 3, 50, q)
-        txt(im, 960, 620+16*(1-q)+50-cap_height(54)/2, url, 54, INK, 'bold', 'center', q)
-    reveal(im, 960, 790, 'Free and open source · Windows 10 and 11 · Any AMD Radeon with AMF', 34, t, at=2.1,
-           color=(200, 200, 210), weight='regular', align='center', rise=12)
-    reveal(im, 960, 850, 'Works with Moonlight on your TV, phone, laptop, Steam Deck and Xbox.', 34, t, at=2.3,
-           color=(200, 200, 210), weight='regular', align='center', rise=12)
+        rrect(im, (960-w/2, 640+16*(1-q), 960+w/2, 740+16*(1-q)), (30, 16, 24), RUBY, 3, 50, q)
+        txt(im, 960, 640+16*(1-q)+50-cap_height(54)/2, url, 54, INK, 'bold', 'center', q)
+    reveal(im, 960, 820, 'Free and open source · Windows 10 and 11 · AMD Radeon with AMF · Works with Moonlight', 34, t,
+           at=2.1, color=(200, 200, 210), weight='regular', align='center', rise=12)
     # Fade to black over the last second, so the loop restarts from dark.
     fade = 0 if STILL else smooth((t-(DURATION-STARTS[-1]-1.0))/1.0)
     if fade > 0:
@@ -1056,9 +1390,9 @@ def end(t):
     return im
 
 
-SCENES = {'hero': hero, 'home': home, 'library': library, 'add_games': add_games, 'radeon': radeon,
-          'pair': pair, 'colour': colour, 'displays': displays, 'latency': latency, 'versus': versus,
-          'more': more, 'end': end}
+SCENES = {'hero': hero, 'moving_in': moving_in, 'pair': pair, 'home': home, 'library': library, 'game': game,
+          'displays': displays, 'colour': colour, 'network': network, 'coop': coop, 'connected': connected,
+          'browser': browser, 'nightjar': nightjar, 'measured': measured, 'versus': versus, 'end': end}
 
 
 def scene_at(t):
@@ -1104,8 +1438,9 @@ def frame(t):
     return im
 
 
-STORY = (1.6, 3.9, 4.6, 7.4, 10.5, 13.0, 16.8, 21.5, 27.5, 33.0, 34.6, 39.5,
-         43.0, 44.6, 48.6, 54.0, 60.0, 66.0)
+# One or two stills per scene, for the storyboard and the contact sheet.
+STORY = (2.0, 7.4, 12.5, 17.0, 19.0, 21.0, 25.0, 29.0, 35.0, 37.0, 39.5, 47.0, 53.0, 59.0, 65.0,
+         69.0, 75.0, 81.0, 87.0, 92.0)
 
 
 def storyboard(destination, times=STORY):
@@ -1153,7 +1488,7 @@ def master(destination, fps, width):
                  str(destination)], fps)
 
 
-def encode(source, destination, audio=None, size_mb=2.9, audio_kbps=64):
+def encode(source, destination, audio=None, size_mb=4.8, audio_kbps=96):
     """Two-pass H.264 sized to size_mb, so the README film stays small."""
     destination.parent.mkdir(parents=True, exist_ok=True)
     video_kbps = int((size_mb*8e6*.97/DURATION-(audio_kbps*1000 if audio else 0))/1000)
@@ -1189,7 +1524,7 @@ def main():
     p.add_argument('--draft', type=Path, help='a quick 800-wide, 10 fps preview')
     p.add_argument('--gif-master', type=Path, help='the lossless GIF cut (.mkv): 800 wide, 10 fps, no moves')
     p.add_argument('--fps', type=int, default=30)
-    p.add_argument('--size-mb', type=float, default=2.9)
+    p.add_argument('--size-mb', type=float, default=4.8)
     args = p.parse_args()
     if args.storyboard:
         storyboard(args.storyboard)

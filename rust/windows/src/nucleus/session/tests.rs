@@ -175,6 +175,9 @@ struct Probe {
     folders: Arc<Mutex<Vec<PathBuf>>>,
     /// What was written through the launcher's account, and when it ran.
     writes: Arc<Mutex<usize>>,
+    /// The user's profile folder, where Nucleus keeps per-game settings;
+    /// None leaves the launcher without one.
+    profile: Arc<Mutex<Option<PathBuf>>>,
 }
 struct FakeNucleus {
     probe: Probe,
@@ -229,6 +232,10 @@ impl Launcher for (Probe, Screen) {
             probe: self.0.clone(),
             screen: self.1.clone(),
         }))
+    }
+    fn in_profile(&self, work: &mut dyn FnMut(&Path) -> Result<()>) -> Result<()> {
+        let profile = self.0.profile.lock().unwrap().clone();
+        profile.map_or(Ok(()), |profile| work(&profile))
     }
 }
 
@@ -1439,6 +1446,9 @@ impl Launcher for (Probe, Screen, ()) {
         *self.0.writes.lock().unwrap() += 1;
         work()
     }
+    fn in_profile(&self, work: &mut dyn FnMut(&Path) -> Result<()>) -> Result<()> {
+        (self.0.clone(), self.1.clone()).in_profile(work)
+    }
 }
 
 fn start_steam(
@@ -1601,6 +1611,50 @@ fn a_game_found_from_steam_starts_with_its_app_id() {
         ])]
     );
     assert_eq!(steam_environment(None), BTreeMap::new());
+}
+
+#[test]
+fn a_game_nucleus_saved_with_pads_by_button_press_gets_them_by_index() {
+    // As Nucleus 2.4.2 saves the first game it loads without the file: it
+    // then waits for a button press on Player 1's pad, and never starts the
+    // game in a background stream (#56).
+    let saved = r#"{"Game": {"Favorite": true, "UseApiIndex": false, "UseApiIndexForGuests": false}, "Other": {"UseApiIndex": false}}"#;
+    let folder = tempfile::tempdir().unwrap();
+    let profile = tempfile::tempdir().unwrap();
+    let meta_info = profile.path().join("NucleusCoop").join("metaInfo.json");
+    std::fs::create_dir_all(meta_info.parent().unwrap()).unwrap();
+    std::fs::write(&meta_info, saved).unwrap();
+    let probe = Probe::default();
+    *probe.profile.lock().unwrap() = Some(profile.path().to_path_buf());
+    // A screen each: the last session's Nucleus stays on a fake one.
+    let start = || start_with(folder.path(), 1, [false; 4], &screen(), &probe).0;
+    let running = start().unwrap();
+    let games: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&meta_info).unwrap()).unwrap();
+    assert_eq!(games["Game"]["UseApiIndex"], true);
+    assert_eq!(games["Game"]["UseApiIndexForGuests"], true);
+    assert_eq!(games["Game"]["Favorite"], true);
+    // Another game is the user's.
+    assert_eq!(games["Other"]["UseApiIndex"], false);
+    running.stop();
+    assert_eq!(
+        std::fs::read(&meta_info).unwrap(),
+        serde_json::to_vec_pretty(&games).unwrap()
+    );
+
+    // Without the file, Nucleus finds an empty one, so the game it adds
+    // takes pads by index from Settings.ini.
+    std::fs::remove_dir_all(meta_info.parent().unwrap()).unwrap();
+    start().unwrap().stop();
+    assert_eq!(std::fs::read(&meta_info).unwrap(), b"{}");
+
+    // One Nucleus can't read fails the start and says which file.
+    std::fs::write(&meta_info, "{").unwrap();
+    let error = format!("{:#}", start().err().unwrap());
+    assert!(
+        error.contains("per-game settings") && error.contains("metaInfo.json"),
+        "{error}"
+    );
 }
 
 #[test]

@@ -421,6 +421,60 @@ pub fn put_back_settings(text: &[u8], forced: &[Forced]) -> (Vec<u8>, usize) {
     (ini.bytes(), changed)
 }
 
+/// Nucleus 2.4.2 keeps per-game settings in `metaInfo.json` in the user's
+/// profile folder (`GameMetaInfo`), and assigns a game's pads by its
+/// `UseApiIndex` there: `GameProfile.LoadGameProfile` puts it over the
+/// profile's "Use XInput Index". `Settings.ini`'s `UseXinputIndex` only
+/// seeds a game the file has no entry for, and without the file Nucleus
+/// saves the first game it loads with every value false. A game saved with
+/// `UseApiIndex` false waits for a button press on each player's pad ("Press
+/// a button on Player1's gamepad"), which nobody gives during a background
+/// stream, and never starts (#56).
+///
+/// `metaInfo.json` (`text`, None when there is none) as game `guid` needs
+/// it, or None when it already is: a missing or empty file becomes an empty
+/// list, so each game Nucleus adds takes `Settings.ini`'s value; the game's
+/// entry gets pads by index for its players and their guests, as Nucleus'
+/// own `UseApiIndex` setter sets both. Every other value stays. A file that
+/// is not a JSON object is refused: Nucleus would read no game's values
+/// from it.
+pub fn meta_info_by_index(text: Option<&[u8]>, guid: &str) -> Result<Option<Vec<u8>>, String> {
+    let text = text.map(|text| text.strip_prefix(BOM).unwrap_or(text));
+    let Some(text) = text.filter(|text| !text.trim_ascii().is_empty()) else {
+        return Ok(Some(b"{}".to_vec()));
+    };
+    let mut games: Value = serde_json::from_slice(text)
+        .map_err(|error| format!("Nucleus Co-op can't read it as JSON ({error})"))?;
+    let Some(games) = games.as_object_mut() else {
+        return Err("Nucleus Co-op can't read it: it is not a JSON object".into());
+    };
+    let Some(game) = games.get_mut(guid) else {
+        return Ok(None);
+    };
+    let Some(game) = game.as_object_mut() else {
+        return Err(format!(
+            "Nucleus Co-op can't read the entry of {guid}: it is not a JSON object"
+        ));
+    };
+    let mut changed = false;
+    for key in ["UseApiIndex", "UseApiIndexForGuests"] {
+        // Nucleus reads a missing value as Settings.ini's.
+        if game
+            .get(key)
+            .is_some_and(|value| value != &Value::Bool(true))
+        {
+            game.insert(key.into(), Value::Bool(true));
+            changed = true;
+        }
+    }
+    if !changed {
+        return Ok(None);
+    }
+    serde_json::to_vec_pretty(games)
+        .map(Some)
+        .map_err(|error| error.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -792,5 +846,101 @@ mod tests {
             value(&text, "Misc", "NucleusAccountPassword").unwrap(),
             "12345"
         );
+    }
+
+    /// An entry as Nucleus 2.4.2 saves the first game it loads without a
+    /// metaInfo.json (`GameMetaInfo.SaveGameMetaInfo`): every value false.
+    const SAVED_FIRST: &str = r#"{
+  "Rubylight-sandfall_win64_shipping-049e4c28": {
+    "TotalPlayTime": null,
+    "LastPlayedAt": null,
+    "IconPath": null,
+    "SaveProfile": false,
+    "DisableProfiles": false,
+    "KeepSymLink": false,
+    "Favorite": false,
+    "FirstLaunch": false,
+    "CheckUpdate": false,
+    "UseApiIndex": false,
+    "UseApiIndexForGuests": false,
+    "ProfileAssignGamepadByButonPress": false,
+    "SteamLanguage": "App Setting"
+  },
+  "Other": {
+    "UseApiIndex": false,
+    "Favorite": true
+  }
+}"#;
+
+    fn entry(text: &[u8], guid: &str) -> serde_json::Map<String, Value> {
+        let games: Value = serde_json::from_slice(text).unwrap();
+        games[guid].as_object().unwrap().clone()
+    }
+
+    #[test]
+    fn a_game_saved_with_pads_by_button_press_gets_them_by_index() {
+        let guid = "Rubylight-sandfall_win64_shipping-049e4c28";
+        let text = meta_info_by_index(Some(SAVED_FIRST.as_bytes()), guid)
+            .unwrap()
+            .unwrap();
+        let game = entry(&text, guid);
+        assert_eq!(game["UseApiIndex"], true);
+        assert_eq!(game["UseApiIndexForGuests"], true);
+        // Every other value stays, the other game's too.
+        let before = entry(SAVED_FIRST.as_bytes(), guid);
+        assert_eq!(game.len(), before.len());
+        for (key, value) in &before {
+            if !key.starts_with("UseApiIndex") {
+                assert_eq!(&game[key], value, "{key}");
+            }
+        }
+        assert_eq!(
+            entry(&text, "Other"),
+            entry(SAVED_FIRST.as_bytes(), "Other")
+        );
+        // Written once: the file it wrote needs nothing more.
+        assert_eq!(meta_info_by_index(Some(&text), guid), Ok(None));
+    }
+
+    #[test]
+    fn without_metainfo_nucleus_gets_an_empty_list_to_seed_from_settings() {
+        // Not Nucleus' own first save, which turns pads by index off.
+        assert_eq!(meta_info_by_index(None, "Game"), Ok(Some(b"{}".to_vec())));
+        assert_eq!(
+            meta_info_by_index(Some(b" \r\n"), "Game"),
+            Ok(Some(b"{}".to_vec()))
+        );
+        assert_eq!(
+            meta_info_by_index(Some(b"\xef\xbb\xbf"), "Game"),
+            Ok(Some(b"{}".to_vec()))
+        );
+    }
+
+    #[test]
+    fn a_game_with_pads_by_index_or_no_entry_leaves_the_file_alone() {
+        let by_index = br#"{"Game": {"UseApiIndex": true, "UseApiIndexForGuests": true}}"#;
+        assert_eq!(meta_info_by_index(Some(by_index), "Game"), Ok(None));
+        // Missing values are Settings.ini's, which the session sets.
+        assert_eq!(
+            meta_info_by_index(Some(br#"{"Game": {"Favorite": true}}"#), "Game"),
+            Ok(None)
+        );
+        // A game Nucleus has not saved yet takes Settings.ini's value.
+        assert_eq!(
+            meta_info_by_index(Some(SAVED_FIRST.as_bytes()), "Game"),
+            Ok(None)
+        );
+        // Its byte order mark is read past.
+        let mut marked = b"\xef\xbb\xbf".to_vec();
+        marked.extend_from_slice(by_index);
+        assert_eq!(meta_info_by_index(Some(&marked), "Game"), Ok(None));
+    }
+
+    #[test]
+    fn a_metainfo_nucleus_can_t_read_is_refused() {
+        for text in [&b"{"[..], b"[]", b"null", br#"{"Game": 1}"#] {
+            let error = meta_info_by_index(Some(text), "Game").unwrap_err();
+            assert!(error.starts_with("Nucleus Co-op can't read"), "{error}");
+        }
     }
 }

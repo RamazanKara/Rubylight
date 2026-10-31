@@ -1,0 +1,2 @@
+# Nucleus pads by index
+- **Background streams no longer stall on "Press a button on Player1's gamepad".** Nucleus Co-op decides per game whether pads are assigned by slot or by a button press, and saves the first game it ever loads with button press. Such a game never started in a background stream, since nobody can press a button before the stream is up (#56). Rubylight now gives the game pads by slot before each background or co-op stream.

@@ -29,6 +29,24 @@ impl Launcher for Elevated {
             None,
         )
     }
+    fn in_profile(&self, work: &mut dyn FnMut(&Path) -> Result<()>) -> Result<()> {
+        // Elevated, it has the same profile; its files are written as the
+        // user without administrator rights, never as the host.
+        let user = crate::user_folder::user_token().context("finding the signed-in user")?;
+        in_profile_of(user.as_ref(), work)
+    }
+}
+
+/// `work` on the profile folder of the user `token` names (the host's own
+/// without one), as that user.
+fn in_profile_of(
+    token: Option<&OwnedHandle>,
+    work: &mut dyn FnMut(&Path) -> Result<()>,
+) -> Result<()> {
+    let profile =
+        crate::user_folder::known_folder(&windows::Win32::UI::Shell::FOLDERID_Profile, token)
+            .context("finding the signed-in user's profile folder")?;
+    super::user_copy::as_user(token, || work(&profile))?
 }
 
 /// Nucleus Co-op from the signed-in user's own copy
@@ -63,6 +81,9 @@ impl Launcher for Unelevated {
     }
     fn write(&self, work: &mut dyn FnMut() -> Result<()>) -> Result<()> {
         super::user_copy::as_user(Some(&self.user), work)?
+    }
+    fn in_profile(&self, work: &mut dyn FnMut(&Path) -> Result<()>) -> Result<()> {
+        in_profile_of(Some(&self.user), work)
     }
     fn reader(&self) -> Result<Option<OwnedHandle>> {
         let user = self

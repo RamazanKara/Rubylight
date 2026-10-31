@@ -713,6 +713,47 @@ pub fn write_copy_settings(copy: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Nucleus' per-game settings in the user's profile folder `profile`
+/// ([`profile::meta_info_by_index`]).
+pub fn meta_info(profile: &Path) -> PathBuf {
+    profile.join("NucleusCoop").join("metaInfo.json")
+}
+
+/// Give game `guid` its pads by XInput index in the `metaInfo.json` at
+/// `path` ([`profile::meta_info_by_index`]), called as the user it belongs
+/// to. Nucleus' other games and values stay, and so does this one's: like
+/// pads by index in `Settings.ini`, it is never put back.
+pub fn index_pads(path: &Path, guid: &str) -> Result<()> {
+    let text = match std::fs::read(path) {
+        Ok(bytes) => Some(bytes),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Err(error) => return Err(error).with_context(|| format!("reading {}", path.display())),
+    };
+    let Some(changed) = profile::meta_info_by_index(text.as_deref(), guid)
+        .map_err(|why| anyhow::anyhow!("{}: {why}; fix or delete it", path.display()))?
+    else {
+        return Ok(());
+    };
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("creating {}", parent.display()))?;
+    }
+    write_whole(path, &changed)?;
+    if text.is_some() {
+        tracing::info!(
+            file = %path.display(),
+            game = guid,
+            "Nucleus Co-op: the game's pads go by XInput index again in its per-game settings"
+        );
+    } else {
+        tracing::info!(
+            file = %path.display(),
+            "Nucleus Co-op: per-game settings started empty, so each game takes pads by index from Settings.ini"
+        );
+    }
+    Ok(())
+}
+
 /// A handler's GUID names its profile folder; one that would name another
 /// folder is refused.
 fn profile_folder(folder: &Path, guid: &str) -> Result<PathBuf> {

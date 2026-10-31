@@ -88,6 +88,12 @@ pub trait Launcher {
     fn write(&self, work: &mut dyn FnMut() -> Result<()>) -> Result<()> {
         work()
     }
+    /// Run `work` on the profile folder of the user Nucleus runs as, as
+    /// that user: Nucleus keeps its per-game settings there
+    /// ([`files::index_pads`]). Nothing runs for a launcher that has none.
+    fn in_profile(&self, _work: &mut dyn FnMut(&Path) -> Result<()>) -> Result<()> {
+        Ok(())
+    }
     /// The account the folder it runs from is read as while the session
     /// runs: None for the host's own, the user for their copy.
     fn reader(&self) -> Result<Option<OwnedHandle>> {
@@ -922,6 +928,13 @@ fn begin(
         number = files::write_profile(folder, &start.handler.guid, &players, &screens)?;
         Ok(())
     })?;
+    // Nucleus takes the pads' assignment from there, not from the profile:
+    // by button press, it would wait for a press no one gives (#56).
+    launcher
+        .in_profile(&mut |profile| {
+            files::index_pads(&files::meta_info(profile), &start.handler.guid)
+        })
+        .context("giving the game its pads by XInput index in Nucleus Co-op's per-game settings")?;
     tracing::info!(
         number,
         game = start.handler.guid,

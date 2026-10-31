@@ -178,3 +178,95 @@ fn interval_changes_stay_small() {
     }
 }
 
+
+/// A 60 fps stream locked to a 60 Hz screen, with a heavy tail of late frames (decode and
+/// Wi-Fi): an exponential delay of `tail_ns` on average on top of a fixed latency. Reports go
+/// out every 30 frames with their elapsed time when `paced`, plain otherwise. Returns the share
+/// of settled frames that missed their latch, in tenths of a percent, and their average slack.
+fn sixty_on_sixty(paced: bool, tail_ns: f64) -> (usize, i64) {
+    const SIXTY: i64 = 16_666_667;
+    let mut rng = Rng(0x2545_f491_4f6c_dd1d);
+    let mut lock = PhaseLock::default();
+    let mut window = SlackWindow::default();
+    let mut host_time: i64 = 0;
+    let mut in_flight: Vec<(usize, Report)> = Vec::new();
+    let (mut missed, mut settled, mut slack_sum) = (0usize, 0usize, 0i64);
+    for frame in 0..60 * 300 {
+        let capture = host_time + host_time * 50 / 1_000_000;
+        let uniform = (rng.next() >> 11) as f64 / (1u64 << 53) as f64;
+        let tail = (-(1.0 - uniform).ln() * tail_ns) as i64;
+        let ready = capture + 20_000_000 + tail;
+        let slack = (5_000_000 - ready).rem_euclid(SIXTY);
+        // The latch this capture is aimed at is the one its frame makes without delay.
+        let aimed = (5_000_000 - capture - 20_000_000).rem_euclid(SIXTY);
+        if frame >= 60 * 30 {
+            settled += 1;
+            if tail > aimed { missed += 1; }
+            slack_sum += slack;
+        }
+        window.push(slack, SIXTY);
+        if window.len() == 30 {
+            let report = if paced { window.report_over(10, 30 * SIXTY) } else { window.report(10) };
+            in_flight.push((frame + 3, report.unwrap()));
+        }
+        while let Some(&(due, report)) = in_flight.first() {
+            if due > frame { break; }
+            in_flight.remove(0);
+            lock.on_report(&report);
+        }
+        host_time += lock.next_interval_ns(SIXTY);
+    }
+    (missed * 1000 / settled, slack_sum / settled as i64)
+}
+
+#[test]
+fn at_one_frame_per_refresh_fewer_frames_miss_their_latch() {
+    // Retroid Pocket Flip 2 (60 Hz) against a 120 Hz phone: at 60 fps a frame that misses
+    // its latch costs a whole refresh and the next frame's slot.
+    for (tail, plain_max, paced_max) in [(1_000_000.0, 25, 13), (2_000_000.0, 50, 30), (3_000_000.0, 70, 60)] {
+        let (plain, plain_wait) = sixty_on_sixty(false, tail);
+        let (paced, paced_wait) = sixty_on_sixty(true, tail);
+        assert!(plain <= plain_max && paced <= paced_max,
+                "tail {tail}: {plain}\u{2030} missed plain, {paced}\u{2030} paced");
+        // The extra room costs well under a millisecond of wait, misses included.
+        assert!(paced_wait - plain_wait < 1_000_000, "tail {tail}: {plain_wait} -> {paced_wait} ns");
+    }
+}
+
+#[test]
+fn the_extra_room_needs_a_frame_for_nearly_every_refresh() {
+    let fill = |window: &mut SlackWindow, period: i64| {
+        for i in 0..30 {
+            window.push(2_000_000 + (i % 10) * 400_000, period);
+        }
+    };
+    let mut window = SlackWindow::default();
+    fill(&mut window, 16_666_667);
+    let plain = window.report(10).unwrap();
+    // 30 frames in half a second on a 60 Hz screen: one per refresh.
+    fill(&mut window, 16_666_667);
+    let paced = window.report_over(10, 500_000_000).unwrap();
+    assert_eq!(paced.lead_ns, plain.lead_ns - plain.spread_ns as i32 / 4);
+    assert_eq!((paced.frames, paced.spread_ns, paced.period_ns), (plain.frames, plain.spread_ns, plain.period_ns));
+    // The same frames on a 120 Hz screen are one per two refreshes: a miss costs no frame.
+    fill(&mut window, 8_333_333);
+    let half = window.report_over(10, 500_000_000).unwrap();
+    fill(&mut window, 8_333_333);
+    assert_eq!(half, window.report(10).unwrap());
+    // Unknown elapsed time: the plain report.
+    fill(&mut window, 16_666_667);
+    assert_eq!(window.report_over(10, 0).unwrap(), plain);
+}
+
+#[test]
+fn the_extra_room_keeps_a_wide_cluster_inside_half_a_refresh() {
+    // A spread of 7 ms on a 60 Hz screen leaves no room: the cluster would cross the wrap.
+    let mut window = SlackWindow::default();
+    for i in 0..30 {
+        window.push(1_000_000 + (i % 10) * 900_000, 16_666_667);
+    }
+    let plain = window.clone().report(10).unwrap();
+    let paced = window.report_over(10, 500_000_000).unwrap();
+    assert!(plain.spread_ns >= 7_000_000);
+    assert_eq!(paced.lead_ns, plain.lead_ns);
+}

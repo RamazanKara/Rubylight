@@ -71,8 +71,11 @@ Java_com_limelight_nvstream_jni_MoonBridge_cReportFrameSlack(JNIEnv *env, jclass
         if (phaseLockLastReportMs == 0) phaseLockLastReportMs = now;
         rp_slack_window_push(phaseLockWindow, slackNs, periodNs);
         if (now - phaseLockLastReportMs >= PHASE_LOCK_REPORT_INTERVAL_MS) {
+            // The window's length tells the report whether a frame came every refresh.
+            int64_t elapsedNs = (int64_t)(now - phaseLockLastReportMs) * 1000000;
             phaseLockLastReportMs = now;
-            ready = rp_slack_window_report(phaseLockWindow, PHASE_LOCK_MIN_FRAMES, phaseLockPendingReport);
+            ready = rp_slack_window_report_over(phaseLockWindow, PHASE_LOCK_MIN_FRAMES, elapsedNs,
+                                                phaseLockPendingReport);
             if (ready) {
                 phaseLockPendingAtMs = now;
                 phaseLockReportPending = true;

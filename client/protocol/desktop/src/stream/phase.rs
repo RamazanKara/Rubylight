@@ -18,9 +18,11 @@ impl Phase {
         if self.last_frame == 0 || now_us.saturating_sub(self.last_frame) > 250_000 { self.reset(); self.last_report = now_us; }
         self.last_frame = now_us;
         self.window.push((latch_us - ready_us as i64) * 1000, period_ns);
-        if now_us.saturating_sub(self.last_report) < 500_000 { return None; }
+        let elapsed_us = now_us.saturating_sub(self.last_report);
+        if elapsed_us < 500_000 { return None; }
         self.last_report = now_us;
-        let report = self.window.report(10)?;
+        // The window's length tells the report whether a frame came every refresh.
+        let report = self.window.report_over(10, elapsed_us.min(u32::MAX as u64) as i64 * 1000)?;
         self.lead_us = Some(report.lead_ns / 1000);
         Some(report)
     }

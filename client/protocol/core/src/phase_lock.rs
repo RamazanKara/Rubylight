@@ -110,6 +110,33 @@ impl SlackWindow {
         self.count == 0
     }
 
+    /// [`report`](Self::report) for a window that took `elapsed_ns` of client time since the
+    /// last report (zero or less: unknown, the plain report).
+    ///
+    /// When the stream had a frame for nearly every refresh (90% or more), a frame that misses
+    /// its latch waits a whole refresh and lands on the next frame's refresh: one of the two is
+    /// never shown. At 60 fps on a 60 Hz screen that is 16.7 ms and a dropped frame per miss,
+    /// against 8.3 ms and no drop at 60 fps on 120 Hz. The early edge is then reported lower by
+    /// a quarter of the spread, so the host keeps it further from the latch: about the 3rd
+    /// percentile at the margin instead of the 10th, still from percentiles that one stray
+    /// frame cannot move.
+    pub fn report_over(&mut self, min_frames: usize, elapsed_ns: i64) -> Option<Report> {
+        let frames = self.count as i64;
+        let period = self.period_ns;
+        let mut report = self.report(min_frames)?;
+        if elapsed_ns > 0 && frames * period * 10 >= elapsed_ns * 9 {
+            // The host keeps the edge at its margin or a quarter of the spread; with the extra
+            // room the whole cluster must still fit in half a refresh, or its earliest frames
+            // would read as late ones across the wrap and the lock would lose the cluster.
+            let spread = i64::from(report.spread_ns);
+            let target = PhaseLock::DEFAULT_MARGIN_NS.max(spread / 4);
+            let room = (period / 2 - spread - target).max(0);
+            let lead = i64::from(report.lead_ns) - (spread / 4).min(room);
+            report.lead_ns = lead.max(-(period / 2)) as i32;
+        }
+        Some(report)
+    }
+
     /// Summarises and clears the window. Needs at least `min_frames` frames.
     ///
     /// Slack is circular: a frame that just missed a latch has almost a full refresh of

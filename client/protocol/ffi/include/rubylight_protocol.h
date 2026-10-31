@@ -42,6 +42,9 @@ void rp_slack_window_push(RpSlackWindow *window, int64_t slack_ns, int64_t perio
 size_t rp_slack_window_len(const RpSlackWindow *window);
 // Writes the report message to out and clears the window; false below min_frames frames.
 bool rp_slack_window_report(RpSlackWindow *window, size_t min_frames, uint8_t *out);
+// As above for a window that took elapsed_ns of client time since the last report: with a frame
+// for nearly every refresh it asks the host for more room before the latch. 0: the plain report.
+bool rp_slack_window_report_over(RpSlackWindow *window, size_t min_frames, int64_t elapsed_ns, uint8_t *out);
 
 // Display HDR luminance (client to host, 2.2.0+). Luminance in nits, 0 when unknown.
 #define RP_DISPLAY_CAPS_MESSAGE_TYPE 0x5531

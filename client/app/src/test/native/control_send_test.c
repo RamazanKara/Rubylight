@@ -196,10 +196,15 @@ static uint8_t fakePhaseLead;
 RpSlackWindow* rp_slack_window_new(void) { return (RpSlackWindow*)&fakeHost; }
 void rp_slack_window_free(RpSlackWindow* window) { }
 void rp_slack_window_push(RpSlackWindow* window, int64_t slack_ns, int64_t period_ns) { }
+static int64_t lastReportElapsedNs = -1;
 bool rp_slack_window_report(RpSlackWindow* window, size_t min_frames, uint8_t* out) {
     memset(out, 0, RP_PHASE_REPORT_BYTES);
     out[8] = fakePhaseLead;
     return true;
+}
+bool rp_slack_window_report_over(RpSlackWindow* window, size_t min_frames, int64_t elapsed_ns, uint8_t* out) {
+    lastReportElapsedNs = elapsed_ns;
+    return rp_slack_window_report(window, min_frames, out);
 }
 
 static void freeSent(void) {
@@ -508,6 +513,8 @@ static void phaseLockReportsNeedTheHostsAnnouncement(void) {
     CHECK(Java_com_limelight_nvstream_jni_MoonBridge_cReportFrameSlack(&env, NULL, 2000000, 16666666) == JNI_FALSE);
     fakeNowMs += 600;
     CHECK(Java_com_limelight_nvstream_jni_MoonBridge_cReportFrameSlack(&env, NULL, 2000000, 16666666) == JNI_TRUE);
+    // The report learns how long its window took, to tell a frame per refresh from fewer.
+    CHECK(lastReportElapsedNs == 600000000LL);
     CHECK(sentCount == 0);
     Java_com_limelight_nvstream_jni_MoonBridge_cFlushPhaseLockReport(&env, NULL);
     CHECK(sentCount == 1 && sentChannels[0] == CTRL_CHANNEL_GENERIC && sent[0]->flags == 0);

@@ -304,8 +304,9 @@ impl PhaseLockReports {
         if now_ms - self.last_report_ms < PHASE_LOCK_REPORT_INTERVAL_MS {
             return false;
         }
+        let elapsed_ns = now_ms.saturating_sub(self.last_report_ms).min(u32::MAX as u64) as i64 * 1_000_000;
         self.last_report_ms = now_ms;
-        match self.window.report(PHASE_LOCK_MIN_FRAMES) {
+        match self.window.report_over(PHASE_LOCK_MIN_FRAMES, elapsed_ns) {
             Some(report) => {
                 self.lead_us = report.lead_ns / 1000;
                 self.pending = Some((report, now_ms));
@@ -603,6 +604,24 @@ mod tests {
             stale.push(2_000_000, 16_666_667, 1 + frame * 10);
         }
         assert!(stale.take(5000).is_none());
+    }
+
+    #[test]
+    fn phase_lock_asks_for_more_room_at_one_frame_per_refresh() {
+        // 60 fps on a 60 Hz screen: half a second holds 30 frames, one per refresh.
+        let lead = |frame_ms: u64, period_ns: i64| {
+            let mut reports = PhaseLockReports::default();
+            let mut frame = 0;
+            while !reports.push(2_000_000 + (frame % 10) as i64 * 400_000, period_ns, 1000 + frame * frame_ms) {
+                frame += 1;
+            }
+            reports.lead_us()
+        };
+        let sixty = lead(16, 16_666_667);
+        // The same slack, one frame per two refreshes of a 120 Hz screen: the plain edge.
+        let half = lead(16, 8_333_333);
+        assert_eq!(half, 2_000, "the 10th percentile");
+        assert!(sixty < half, "{sixty} us at 60 Hz, {half} us at 120 Hz");
     }
 
     #[test]

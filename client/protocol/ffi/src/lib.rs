@@ -135,6 +135,28 @@ pub unsafe extern "C" fn rp_slack_window_report(window: *mut SlackWindow, min_fr
     }
 }
 
+/// [`rp_slack_window_report`] for a window that took `elapsed_ns` of client time since the
+/// last report: with a frame for nearly every refresh the report asks the host for more room
+/// before the latch (`SlackWindow::report_over`). Zero or less is the plain report.
+///
+/// # Safety
+/// `window` is live and `out` points to `RP_PHASE_REPORT_BYTES` writable bytes.
+#[no_mangle]
+pub unsafe extern "C" fn rp_slack_window_report_over(
+    window: *mut SlackWindow,
+    min_frames: usize,
+    elapsed_ns: i64,
+    out: *mut u8,
+) -> bool {
+    match (*window).report_over(min_frames, elapsed_ns) {
+        Some(report) => {
+            core::ptr::copy_nonoverlapping(report.encode().as_ptr(), out, REPORT_BYTES);
+            true
+        }
+        None => false,
+    }
+}
+
 /// Writes the 16-byte display-caps message (0x5531) to `out`. Luminance in nits; 0 for a
 /// value the display does not report.
 ///

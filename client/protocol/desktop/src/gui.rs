@@ -4,7 +4,7 @@
 
 use std::collections::HashMap;
 use std::ffi::CString;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use egui::{epaint::Primitive, Event, Key, Modifiers, PointerButton, Pos2, Rect, TextureId, Vec2};
 use sdl3_sys::everything::*;
@@ -24,6 +24,9 @@ pub struct Gui {
     a11y: Option<crate::a11y::Accessibility>,
     /// Whether the coming passes are worth a screen reader's tree (see [`Self::set_readable`]).
     readable: bool,
+    /// When the last pass ran and when egui wants the next one (see [`Self::repaint_in`]).
+    ran: Instant,
+    repaint_delay: Duration,
 }
 
 /// The system clipboard's text, or None when it holds none.
@@ -171,7 +174,20 @@ impl Gui {
             focused: true,
             a11y: None,
             readable: true,
+            ran: Instant::now(),
+            repaint_delay: Duration::MAX,
         }
+    }
+
+    /// How long until egui wants its next pass, at most one per `frame` after the last: hover
+    /// fades, smooth scrolling, an opening list or a layout settling after a click ask for frames
+    /// of their own, without any input arriving. None while nothing animates.
+    pub fn repaint_in(&self, frame: Duration) -> Option<Duration> {
+        if self.repaint_delay == Duration::MAX {
+            return None;
+        }
+        let due = self.ran + self.repaint_delay.max(frame);
+        Some(due.saturating_duration_since(Instant::now()))
     }
 
     /// Gives screen readers the launcher and the stream menu. Call before the window is shown.
@@ -317,7 +333,18 @@ impl Gui {
                 },
             );
         }
-        self.ctx.run_ui(input, ui)
+        self.ran = Instant::now();
+        let output = self.ctx.run_ui(input, ui);
+        self.note_repaint(&output);
+        output
+    }
+
+    fn note_repaint(&mut self, output: &egui::FullOutput) {
+        // egui says "never" with Duration::MAX; anything past a minute is the same here.
+        self.repaint_delay = output.viewport_output.get(&egui::ViewportId::ROOT)
+            .map(|v| v.repaint_delay)
+            .filter(|d| *d < Duration::from_secs(60))
+            .unwrap_or(Duration::MAX);
     }
 
     /// Applies platform requests: text input, clipboard, cursor, and the screen reader's tree.
@@ -536,6 +563,34 @@ mod tests {
         for key in [Key::Equals, Key::Plus, Key::Minus, Key::Num0] {
             assert_eq!(zoom_after_ctrl(&gui.ctx, key), 1.0, "{key:?}");
         }
+    }
+
+    #[test]
+    fn a_pass_asking_for_a_repaint_wakes_the_loop_once_per_refresh_and_a_settled_one_does_not() {
+        let mut gui = Gui::new();
+        let mut pass = |gui: &mut Gui, n: u32, repaint: bool| {
+            let input = egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(200.0, 200.0))),
+                time: Some(1.0 + f64::from(n) * 0.1),
+                ..Default::default()
+            };
+            gui.ran = Instant::now();
+            let mut output = gui.ctx.run_ui(input, |ui| {
+                ui.label("Settings");
+                if repaint { ui.ctx().request_repaint(); }
+            });
+            output.textures_delta.clear();
+            gui.note_repaint(&output);
+        };
+        // The first passes ask for repaints of their own (fonts, layout); look at a settled one.
+        for n in 0..6 {
+            pass(&mut gui, n, false);
+        }
+        assert_eq!(gui.repaint_in(Duration::ZERO), None, "nothing animates, nothing wakes the loop");
+        pass(&mut gui, 6, true);
+        assert_eq!(gui.repaint_in(Duration::ZERO), Some(Duration::ZERO), "an animation's next frame is due now");
+        let wait = gui.repaint_in(Duration::from_millis(500)).expect("still asked for");
+        assert!(wait > Duration::from_millis(400), "but no sooner than a refresh after the last pass: {wait:?}");
     }
 
     #[test]

@@ -742,6 +742,10 @@ impl App {
         let timeout = if busy { 16 } else { 250 };
         // A held direction wakes the loop for its next step.
         let timeout = self.nav_repeat.next(Instant::now()).map_or(timeout, |next| timeout.min(next.as_millis().min(250) as i32 + 1));
+        // So does egui while it animates or settles a layout, at most once per refresh: without
+        // this, a scroll, a hover fade or an opening list moved only when the next input came.
+        let frame = Duration::from_secs_f32(1.0 / display_of(self.window).refresh_hz.max(30.0));
+        let timeout = self.gui.repaint_in(frame).map_or(timeout, |wait| timeout.min(wait.as_millis() as i32));
         // SAFETY: event polling on the main thread.
         unsafe {
             let mut event: SDL_Event = std::mem::zeroed();
@@ -1799,6 +1803,8 @@ impl App {
         let window = self.window;
         let renderer = self.renderer;
         let display = display_of(window);
+        // The stream menu animates at most once per refresh.
+        let menu_frame = Duration::from_secs_f32(1.0 / display.refresh_hz.max(30.0));
         let Some((streaming, _)) = self.streaming.as_mut() else {
             return;
         };
@@ -1820,6 +1826,11 @@ impl App {
                 stream::Wait::For(duration) => {
                     // A held direction in the stream menu wakes the loop for its next step.
                     let duration = self.nav_repeat.next(Instant::now()).map_or(duration, |next| duration.min(next + Duration::from_millis(1)));
+                    // An animating menu wakes it for egui's next frame, at most once per refresh.
+                    let duration = match self.gui.repaint_in(menu_frame) {
+                        Some(wait) if streaming.menu_visible => duration.min(wait),
+                        _ => duration,
+                    };
                     if duration > Duration::from_micros(1500) {
                         let ms = (duration.as_micros() / 1000).saturating_sub(1).max(1) as i32;
                         if SDL_WaitEventTimeout(&mut event, ms) {
@@ -1847,6 +1858,10 @@ impl App {
         let Some((streaming, _)) = self.streaming.as_mut() else {
             return;
         };
+        // Without a new picture (a still desktop, a paused game) the menu draws when egui asks.
+        if streaming.menu_visible && self.gui.repaint_in(menu_frame).is_some_and(|wait| wait.is_zero()) {
+            streaming.needs_redraw = true;
+        }
         #[cfg(windows)]
         streaming.pump_touchpad(window);
         streaming.pump();

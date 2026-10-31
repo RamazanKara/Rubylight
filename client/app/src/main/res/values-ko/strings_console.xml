@@ -26,8 +26,6 @@
     <string name="console_empty_open_hosts">PC 열기</string>
     <string name="console_detail_host">호스트</string>
     <string name="console_detail_profile">스트림 설정</string>
-    <string name="console_detail_status_running">%1$s에서 실행 중</string>
-    <string name="console_detail_status_suspended">%1$s에서 일시 중지됨</string>
     <string name="console_detail_replaces">%1$s이(가) 실행 중입니다. 이 게임을 시작하면 종료됩니다.</string>
     <string name="console_profile_values">%1$d × %2$d, %3$d FPS, %4$s Mbps</string>
     <string name="console_profile_main">기본 설정</string>

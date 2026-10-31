@@ -26,8 +26,6 @@
     <string name="console_empty_open_hosts">Відкрити ПК</string>
     <string name="console_detail_host">Хост</string>
     <string name="console_detail_profile">Налаштування трансляції</string>
-    <string name="console_detail_status_running">Запущено на %1$s</string>
-    <string name="console_detail_status_suspended">Призупинено на %1$s</string>
     <string name="console_detail_replaces">%1$s запущено. Якщо почати цю гру, її буде закрито.</string>
     <string name="console_profile_values">%1$d × %2$d, %3$d FPS, %4$s Mbps</string>
     <string name="console_profile_main">Основні налаштування</string>

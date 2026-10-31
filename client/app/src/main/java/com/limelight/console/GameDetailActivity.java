@@ -136,7 +136,9 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
         setContentView(R.layout.activity_game_detail);
         UiHelper.notifyNewRootView(this);
 
-        TopAppBar.setUpNavigation(TopAppBar.configure(this, R.id.detail_toolbar, titleExtra == null ? "" : titleExtra, 0),
+        // The page heads itself with the game's title beside the cover; the bar keeps only the way back.
+        if (titleExtra != null) setTitle(titleExtra);
+        TopAppBar.setUpNavigation(TopAppBar.configure(this, R.id.detail_toolbar, "", 0),
                 View.NO_ID, v -> getOnBackPressedDispatcher().onBackPressed());
         // A game's page belongs to Home: Home in the bar is the page it came from, so it closes this one. The
         // other two replace Home's stack the way they do from Home itself.
@@ -352,17 +354,22 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
     void render(GameDetailModel m, ComputerDetails computer) {
         title.setText(m.title);
         host.setText(m.hostName);
-        ((com.google.android.material.appbar.MaterialToolbar) findViewById(R.id.detail_toolbar)).setTitle(m.title);
+        setTitle(m.title);
         covers.bind(computer, CoverLoaders.appOf(m.title, m.appId, m.source), cover, coverText);
 
         CharSequence chip = null;
         if (m.state == GameDetailModel.State.RUNNING) {
-            chip = getString(R.string.console_detail_status_running, m.hostName);
+            chip = getString(R.string.console_badge_running);
         } else if (m.state == GameDetailModel.State.SUSPENDED) {
-            chip = getString(R.string.console_detail_status_suspended, m.hostName);
+            chip = getString(R.string.console_badge_suspended);
         }
         status.setText(chip);
         status.setVisibility(chip == null ? View.GONE : View.VISIBLE);
+        if (chips == null) {
+            // As on the library cards: a running game's chip leads with the green dot.
+            status.setCompoundDrawablesRelativeWithIntrinsicBounds(
+                    m.state == GameDetailModel.State.RUNNING ? R.drawable.status_dot_ok : 0, 0, 0, 0);
+        }
         if (chips != null) {
             shownComputer = computer;
             renderChips(m, chip != null);

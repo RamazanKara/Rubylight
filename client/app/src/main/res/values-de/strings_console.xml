@@ -26,8 +26,6 @@
     <string name="console_empty_open_hosts">PCs öffnen</string>
     <string name="console_detail_host">Host</string>
     <string name="console_detail_profile">Stream-Einstellungen</string>
-    <string name="console_detail_status_running">Läuft auf %1$s</string>
-    <string name="console_detail_status_suspended">Pausiert auf %1$s</string>
     <string name="console_detail_replaces">%1$s läuft. Wenn du dieses Spiel startest, wird es beendet.</string>
     <string name="console_profile_values">%1$d × %2$d, %3$d FPS, %4$s Mbps</string>
     <string name="console_profile_main">Haupteinstellungen</string>

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A TV game page (layout/activity_game_detail_tv). Orientation outranks the television qualifier, so a TV also needs
+     the alias in values-land-television, beside layout-land/activity_game_detail (a handheld or tablet held sideways). -->
+<resources>
+    <item name="activity_game_detail" type="layout">@layout/activity_game_detail_tv</item>
+</resources>

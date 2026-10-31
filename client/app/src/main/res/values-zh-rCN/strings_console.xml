@@ -26,8 +26,6 @@
     <string name="console_empty_open_hosts">打开电脑</string>
     <string name="console_detail_host">主机</string>
     <string name="console_detail_profile">串流设置</string>
-    <string name="console_detail_status_running">在 %1$s 上运行中</string>
-    <string name="console_detail_status_suspended">已在 %1$s 上暂停</string>
     <string name="console_detail_replaces">%1$s 正在运行。开始此游戏会将其关闭。</string>
     <string name="console_profile_values">%1$d × %2$d, %3$d FPS, %4$s Mbps</string>
     <string name="console_profile_main">主要设置</string>

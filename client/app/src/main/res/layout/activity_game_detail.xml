@@ -36,19 +36,20 @@
                         <TextView android:id="@+id/detail_title" android:layout_width="match_parent" android:layout_height="wrap_content"
                             android:textAppearance="@style/TextAppearance.Nightjar.ScreenTitle" android:textColor="?attr/colorOnSurface"
                             android:maxLines="4" android:ellipsize="end" android:accessibilityHeading="true" />
+                        <TextView android:id="@+id/detail_host" android:layout_width="match_parent" android:layout_height="wrap_content"
+                            android:layout_marginTop="@dimen/space_xs"
+                            android:drawableStart="@drawable/tv_ic_host_line" android:drawablePadding="@dimen/space_s"
+                            app:drawableTint="?attr/colorOnSurfaceVariant" android:gravity="center_vertical"
+                            android:textAppearance="@style/TextAppearance.Nightjar.Body" android:textColor="?attr/colorOnSurfaceVariant"
+                            android:maxLines="2" android:ellipsize="end" />
                         <TextView android:id="@+id/detail_status" android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:layout_marginTop="@dimen/space_s"
+                            android:layout_marginTop="@dimen/space_m"
                             android:paddingStart="@dimen/space_s" android:paddingEnd="@dimen/space_s"
                             android:paddingTop="@dimen/space_xs" android:paddingBottom="@dimen/space_xs"
-                            android:background="@drawable/bg_chip"
-                            android:textAppearance="@style/TextAppearance.Nightjar.Caption" android:textColor="?attr/colorOnSurface"
+                            android:background="@drawable/bg_chip" android:drawablePadding="@dimen/space_s"
+                            android:gravity="center_vertical"
+                            android:textAppearance="@style/TextAppearance.Nightjar.Label" android:textColor="?attr/colorOnSurface"
                             android:visibility="gone" />
-                        <TextView android:id="@+id/detail_host_label" android:layout_width="match_parent" android:layout_height="wrap_content"
-                            android:layout_marginTop="@dimen/space_m" android:text="@string/console_detail_host"
-                            android:textAppearance="@style/TextAppearance.Nightjar.Caption" android:textColor="?attr/colorOnSurfaceVariant" />
-                        <TextView android:id="@+id/detail_host" android:layout_width="match_parent" android:layout_height="wrap_content"
-                            android:textAppearance="@style/TextAppearance.Nightjar.Body" android:textColor="?attr/colorOnSurface"
-                            android:maxLines="2" android:ellipsize="end" />
                     </LinearLayout>
                 </LinearLayout>
                 <TextView android:id="@+id/detail_note" android:layout_width="match_parent" android:layout_height="wrap_content"

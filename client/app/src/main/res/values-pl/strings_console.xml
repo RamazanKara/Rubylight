@@ -26,8 +26,6 @@
     <string name="console_empty_open_hosts">Otwórz komputery</string>
     <string name="console_detail_host">Host</string>
     <string name="console_detail_profile">Ustawienia strumienia</string>
-    <string name="console_detail_status_running">Uruchomiona na: %1$s</string>
-    <string name="console_detail_status_suspended">Wstrzymana na: %1$s</string>
     <string name="console_detail_replaces">Gra %1$s jest uruchomiona. Uruchomienie tej gry ją zamknie.</string>
     <string name="console_profile_values">%1$d × %2$d, %3$d FPS, %4$s Mbps</string>
     <string name="console_profile_main">Ustawienia główne</string>

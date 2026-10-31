@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A TV game page: see values-television/layouts_detail.xml. This copy wins over layout-land/activity_game_detail on a TV. -->
+<resources>
+    <item name="activity_game_detail" type="layout">@layout/activity_game_detail_tv</item>
+</resources>

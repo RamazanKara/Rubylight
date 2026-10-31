@@ -26,8 +26,6 @@
     <string name="console_empty_open_hosts">Bilgisayarları aç</string>
     <string name="console_detail_host">Ana bilgisayar</string>
     <string name="console_detail_profile">Yayın ayarları</string>
-    <string name="console_detail_status_running">%1$s üzerinde çalışıyor</string>
-    <string name="console_detail_status_suspended">%1$s üzerinde duraklatıldı</string>
     <string name="console_detail_replaces">%1$s çalışıyor. Bu oyunu başlatmak onu kapatır.</string>
     <string name="console_profile_values">%1$d × %2$d, %3$d FPS, %4$s Mbps</string>
     <string name="console_profile_main">Ana ayarlar</string>

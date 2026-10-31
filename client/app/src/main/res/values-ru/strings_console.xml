@@ -26,8 +26,6 @@
     <string name="console_empty_open_hosts">Открыть ПК</string>
     <string name="console_detail_host">Хост</string>
     <string name="console_detail_profile">Настройки трансляции</string>
-    <string name="console_detail_status_running">Запущена на %1$s</string>
-    <string name="console_detail_status_suspended">Приостановлена на %1$s</string>
     <string name="console_detail_replaces">%1$s запущена. Если начать эту игру, она закроется.</string>
     <string name="console_profile_values">%1$d × %2$d, %3$d FPS, %4$s Mbps</string>
     <string name="console_profile_main">Основные настройки</string>

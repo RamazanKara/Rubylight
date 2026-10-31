@@ -26,8 +26,6 @@
     <string name="console_empty_open_hosts">Ouvrir les PC</string>
     <string name="console_detail_host">Hôte</string>
     <string name="console_detail_profile">Paramètres du flux</string>
-    <string name="console_detail_status_running">En cours sur %1$s</string>
-    <string name="console_detail_status_suspended">Suspendu sur %1$s</string>
     <string name="console_detail_replaces">%1$s est en cours. Lancer ce jeu le fermera.</string>
     <string name="console_profile_values">%1$d × %2$d, %3$d FPS, %4$s Mbps</string>
     <string name="console_profile_main">Paramètres principaux</string>

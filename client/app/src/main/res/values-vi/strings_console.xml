@@ -26,8 +26,6 @@
     <string name="console_empty_open_hosts">Mở danh sách PC</string>
     <string name="console_detail_host">Máy chủ</string>
     <string name="console_detail_profile">Cài đặt luồng</string>
-    <string name="console_detail_status_running">Đang chạy trên %1$s</string>
-    <string name="console_detail_status_suspended">Đã tạm dừng trên %1$s</string>
     <string name="console_detail_replaces">%1$s đang chạy. Chơi trò này sẽ đóng nó.</string>
     <string name="console_profile_values">%1$d × %2$d, %3$d FPS, %4$s Mbps</string>
     <string name="console_profile_main">Cài đặt chính</string>

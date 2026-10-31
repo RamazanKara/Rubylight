@@ -26,8 +26,6 @@
     <string name="console_empty_open_hosts">PC を開く</string>
     <string name="console_detail_host">ホスト</string>
     <string name="console_detail_profile">ストリーム設定</string>
-    <string name="console_detail_status_running">%1$s で実行中</string>
-    <string name="console_detail_status_suspended">%1$s で一時停止中</string>
     <string name="console_detail_replaces">%1$s が実行中です。このゲームを開始すると終了します。</string>
     <string name="console_profile_values">%1$d × %2$d, %3$d FPS, %4$s Mbps</string>
     <string name="console_profile_main">メイン設定</string>

@@ -1,6 +1,8 @@
 //! The stream thread: display preparation, capture admission and pacing, encoding,
 //! encoder recovery and the inline video send.
+mod setup;
 use super::*;
+use setup::{Captured, Configured, Started, StreamDisplay};
 
 /// How soon the stream looks again when another thread held the running app.
 const QUIT_SCAN_RETRY: Duration = Duration::from_millis(50);
@@ -298,6 +300,60 @@ fn refuse_switch(
     s.rate_changes.lock().unwrap().switched(from, Some(reason));
 }
 
+/// What every phase of a session thread reads: the media sockets, the host and the session.
+struct SessionThread<'a> {
+    m: &'a Arc<Media>,
+    h: &'a Shared,
+    s: &'a Arc<Session>,
+}
+
+/// The capture, display and encoder leases and COM, held by the session thread until its
+/// teardown releases them in order. Fields are declared in the reverse of the order the
+/// thread created them: a struct drops its fields in declaration order, so an unwind drops
+/// them as it dropped the thread's locals, the encoder before the capture and display.
+#[derive(Default)]
+struct Leases {
+    encoder: Option<Encoder>,
+    latest: Option<Arc<Source>>,
+    stream_preparation: Option<crate::display_session::StreamPreparation>,
+    com: Option<ComGuard>,
+}
+
+/// The session thread's workers and records, released at teardown before its [`Leases`].
+/// Fields in the reverse of the order the thread created them, as in [`Leases`].
+struct Workers {
+    // A co-op player's stream ends with its Nucleus Co-op session.
+    coop_watch: Option<crate::nucleus::Watch>,
+    #[cfg(test)]
+    fixture_preparation: Option<
+        Box<dyn butterpollo_core::session::Preparation<crate::display_session::StreamPreparation>>,
+    >,
+    // Ends the host-side timing record's writer, which writes its footer, on every
+    // way out of the stream.
+    timing_record: crate::timing_record::Detach,
+    keyframe_loss_memory: Option<crate::state::loss_memory::Guard>,
+    webrtc_sender: Option<crate::webrtc::session::Sender>,
+    pyrowave_sender: Option<crate::pyrowave_send::Sender>,
+    audio: Option<thread::JoinHandle<()>>,
+    client_commands: Option<crate::process::ClientCommands>,
+}
+
+impl Workers {
+    fn new(s: &Arc<Session>) -> Self {
+        Workers {
+            coop_watch: None,
+            #[cfg(test)]
+            fixture_preparation: None,
+            timing_record: crate::timing_record::Detach(s.clone()),
+            keyframe_loss_memory: None,
+            webrtc_sender: None,
+            pyrowave_sender: None,
+            audio: None,
+            client_commands: None,
+        }
+    }
+}
+
 impl Media {
     pub(super) fn spawn_session(
         self: &Arc<Self>,
@@ -312,224 +368,52 @@ impl Media {
             .spawn(move || {
                 let h = worker_h;
                 let s = worker_s;
+                let session = SessionThread { m: &m, h: &h, s: &s };
                 tracing::info!(client=%s.launch.client.name,"CLIENT CONNECTED");
-                let paired_h = h.clone();
-                let client_uuid = s.launch.client.uuid.clone();
-                let last_seen = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_secs();
-                if let Err(error) = thread::Builder::new().name("client last seen".into()).spawn(move || {
-                    let mut paired = paired_h.paired.write().unwrap();
-                    if let Some(client) = paired
-                        .clients
-                        .iter_mut()
-                        .find(|c| c.uuid == client_uuid)
-                    {
-                        let last_seen = last_seen.max(client.extra.get("last_seen").and_then(serde_json::Value::as_u64).unwrap_or(0));
-                        client.extra.insert(
-                            "last_seen".into(),
-                            serde_json::json!(last_seen),
-                        );
-                        if let Err(error) = paired.save(&paired_h.paired_path) {
-                            tracing::warn!(%error,"client last-seen persistence failed");
-                        }
-                    }
-                }) {
-                    tracing::warn!(%error, "client last-seen worker failed");
-                }
-                let mut com = None;
-                let mut stream_preparation = None;
-                let mut latest = None;
-                let mut encoder = None;
-                let mut client_commands = None;
-                let mut audio = None;
-                let mut pyrowave_sender = None;
-                let mut webrtc_sender = None;
-                let mut keyframe_loss_memory = None;
-                // Ends the host-side timing record's writer, which writes its footer, on every
-                // way out of the stream.
-                let timing_record = crate::timing_record::Detach(s.clone());
-                #[cfg(test)]
-                let mut fixture_preparation = None;
-                // A co-op player's stream ends with its Nucleus Co-op session.
-                let mut coop_watch = None;
+                session.record_last_seen();
+                let mut leases = Leases::default();
+                let mut workers = Workers::new(&s);
+                // The loop still borrows the encoder and sender slots it now reaches by reference.
+                #[allow(clippy::needless_borrow)]
                 let result = (|| -> Result<()> {
-                    coop_watch = crate::nucleus::Watch::start(&h, &s)?;
+                    workers.coop_watch = crate::nucleus::Watch::start(&h, &s)?;
                     #[cfg(test)]
                     if let Some(fixture) = &h.reconnect_fixture {
-                        fixture_preparation = s.launch.preparation.lock().unwrap().take();
+                        workers.fixture_preparation = s.launch.preparation.lock().unwrap().take();
                         return fixture.stream(&m, &h, &s);
                     }
-                    com = Some(ComGuard::new()?);
+                    leases.com = Some(ComGuard::new()?);
                     let _priority = Priority::new();
                     let _streaming = butterpollo_windows::timing::StreamingScope::enter();
-                    let mut config_version = h.config_version.load(Ordering::Acquire);
-                    let mut c = effective_config(&h, &s.launch)?;
-                    if s.config.vrr_low_latency {
-                        c.values.insert("wgc_slot_aligned_publish".into(), "false".into());
-                    }
-                    let timer = butterpollo_windows::timing::Timer::new()?;
-                    let output = s
-                        .launch
-                        .client
-                        .extra
-                        .get("output_name_override")
-                        .and_then(serde_json::Value::as_str)
-                        .filter(|s| !s.is_empty())
-                        .unwrap_or(c.get("output_name", ""));
-                    if s.launch.role == Role::InputOnly {
-                        let monitors = butterpollo_windows::input::on_input_desktop(
-                            butterpollo_windows::display::monitors,
-                        )?;
-                        let monitor = monitors
-                            .iter()
-                            .find(|m| m.matches(output))
-                            .or_else(|| monitors.iter().find(|m| m.primary))
-                            .context("input display unavailable")?;
-                        *s.output.write().unwrap() = monitor.display_name.clone();
-                        client_commands = Some(crate::process::ClientCommands::start(&h, &s)?);
-                        while !s.stopping() && !h.stop.load(Ordering::Acquire) {
-                            thread::sleep(Duration::from_millis(10));
-                        }
+                    let Some(config) = session.configure(&mut workers)? else {
                         return Ok(());
-                    }
-                    let initial = s
-                        .launch
-                        .preparation
-                        .lock()
-                        .unwrap()
-                        .take();
-                    // A stream request at another rate than the launch keeps an
-                    // owned virtual display and raises its refresh where needed.
-                    // A co-op player's window follows the stream's size instead.
-                    let initial = match initial {
-                        Some(p) if s.launch.nucleus.is_none() && !p.prepared().display.matches(&s.config) => Some(
-                            crate::display_session::retime(p.into_prepared(), &h, &s.launch, &s.config, &c)?,
-                        ),
-                        Some(p) => Some(Ok(p.into_prepared())),
-                        None => None,
                     };
-                    let stream_preparation = stream_preparation.insert(match initial {
-                        Some(Ok(prepared)) => prepared,
-                        previous => {
-                            if previous.is_some() {
-                                tracing::info!(client = %s.launch.client.name, width = s.config.width, height = s.config.height, fps_millihz = s.config.fps_millihz(), hdr = s.config.hdr, "negotiated mode differs from launch; preparing display again");
-                            }
-                            drop(previous);
-                            let previous = h.app_display.lock().unwrap().remove(&s.launch.client.uuid);
-                            drop(previous);
-                            match s.launch.nucleus {
-                                Some(_) => crate::nucleus::prepare(&h, &s.launch, &s.config, &c, crate::nucleus::WINDOW_WAIT)?,
-                                None => crate::display_session::prepare_stream(
-                                    &h, &s.launch, &s.config, &c,
-                                )?,
-                            }
-                        }
-                    });
-                    stream_preparation.report_limiter(&s.launch.warnings, &c);
-                    let prepared = stream_preparation.display.clone();
-                    // A game window is no display to keep for the device.
-                    if s.launch.role == Role::Stream
-                        && s.launch.nucleus.is_none()
-                        && prepared.kept_for_reconnect()
-                    {
-                        let mut displays = h.app_display.lock().unwrap();
-                        if !s.stopping() {
-                            displays.insert(s.launch.client.uuid.clone(), (prepared.clone(), None));
-                        }
-                    }
-                    let output = prepared.output();
-                    *s.output.write().unwrap() = output.clone();
-                    let (latest, capture_wake) = m.open_session_capture(&s, &c, &prepared, &mut latest)?;
-                    let first = {
-                        let deadline = Instant::now() + Duration::from_secs(10);
-                        loop {
-                            // No frame, encoder or filter is owned during startup.
-                            latest.release_generation(&capture_wake);
-                            if let Some(image) = latest.current()? { break image; }
-                            if s.stopping() || h.stop.load(Ordering::Acquire) {
-                                return Ok(());
-                            }
-                            if Instant::now() >= deadline {
-                                anyhow::bail!("capture produced no GPU frame on {} using {} within 10 seconds; check that the selected display is powered on, or select a virtual display for headless streaming", prepared.output(), prepared.capture());
-                            }
-                            if let Some(image) = latest.wait_for_frame(&timer, &capture_wake, (Instant::now() + Duration::from_millis(50)).min(deadline))? { break image; }
-                        }
+                    let display = session.prepare_display(&config.c, &mut leases.stream_preparation)?;
+                    let Some(capture) = session.start_capture(
+                        &config.c,
+                        &config.timer,
+                        &display.prepared,
+                        &mut leases.latest,
+                        &mut leases.encoder,
+                    )?
+                    else {
+                        return Ok(());
                     };
-                    require_hdr_source(&s, || first.gpu.display_in_hdr(), false)?;
-                    s.source_checked.store(true, Ordering::Release);
-                    m.configure_encoder(&s, &c, &first, &prepared, &mut encoder)?;
-                    drop(first);
-                    let mut focus = crate::stream_focus::Focus::start(
-                        &c,
-                        butterpollo_core::encoder_focus::Context {
-                            codec: s.config.codec,
-                            ten_bit: s.config.ten_bit(),
-                            pyrowave: s.config.codec == 3,
-                            packed_444: s.config.chroma_packing != 0,
-                            d3d12: butterpollo_windows::compute::enabled(&c),
-                            preanalysis: crate::stream_focus::preanalysis(&c, s.config.ten_bit()),
-                            support: h.focus_support(s.config.codec, s.config.ten_bit()),
-                        },
-                        &s.encoder_focus,
-                        &s.encoder_focus_state,
-                        &s.launch.warnings,
-                    );
-                    // One frame a second gets QP feedback for `qp_delta`.
-                    let focus_verify = c
-                        .boolean("encoder_focus_verify", false)
-                        .then(|| s.config.fps.max(1));
+                    let media = session.start_media(&config.c, &display.prepared, &mut workers)?;
+                    let mut encoder = &mut leases.encoder;
+                    let Workers { pyrowave_sender, webrtc_sender, .. } = &workers;
+                    let Configured { mut config_version, c, timer } = config;
+                    let StreamDisplay { prepared, output } = display;
+                    let Captured { latest, capture_wake, mut focus, focus_verify } = capture;
                     let mut staging = None;
-                    client_commands = Some(crate::process::ClientCommands::start(&h, &s)?);
-                    audio = Some(m.spawn_audio(&h, &s)?);
-                    configure_video_fec(&s, &c)?;
-                    configure_adaptive_bitrate(&s, &c);
-                    s.configure_link_rate(c.link_rate_adaptation(), max_bitrate_kbps(&s, &c));
-                    // Packet adaptation is opt-in, or automatic for a client that
-                    // reports a wireless route. Explicit pacing and host bitrate
-                    // adaptation keep their own policies.
-                    let keyframe_loss_pacing = crate::video_send::recovery::configure(&s, &c);
-                    let automatic_pacing = s.automatic_pacing_enabled();
-                    keyframe_loss_memory = Some(h.configure_keyframe_loss(&s, keyframe_loss_pacing));
-                    let mut packetizer = VideoPacketizer {
-                        sequence: 0,
-                        iv_counter: 0,
-                        frame: 1,
-                        packet_size: s.config.packet_size,
-                        fec_percent: c.integer("fec_percentage", 20).clamp(0, 100) as usize,
-                        min_fec: s.config.min_fec,
-                        key: if s.config.encryption & 2 != 0 {
-                            Some(s.launch.key)
-                        } else {
-                            None
-                        },
-                    };
-                    let next_wire_frame = std::cell::Cell::new(u64::from(packetizer.frame));
-                    // New pictures claimed and not yet sent, for the stage timings.
-                    let claims = std::cell::RefCell::new(butterpollo_core::performance::Claims::default());
-                    let start = Instant::now();
-                    let start_qpc_ms = butterpollo_windows::timing::qpc_ms();
-                    *s.media_epoch.write().unwrap() = Some(start);
-                    // Present times come from ETW only if the stamper really has a tracker.
-                    let mut present_stamper = (prepared.capture() == "wgc").then(butterpollo_windows::present_timing::Stamper::default);
-                    let tracks_presents = present_stamper.as_ref().is_some_and(|stamper| stamper.tracks_presents());
-                    // The opt-in host-side record: off, and no thread or file, unless the
-                    // environment names a directory.
-                    *s.timing_record.write().unwrap() = crate::timing_record::attach(
-                        crate::timing_record::directory().as_deref(),
-                        &s.launch.id,
-                        butterpollo_core::timing_record::Meta {
-                            codec: butterpollo_core::timing_record::codec_name(s.config.codec),
-                            capture: prepared.capture().to_string(),
-                            present_source: butterpollo_core::timing_record::present_source(tracks_presents),
-                            media_epoch_qpc_ms: start_qpc_ms,
-                        },
-                    );
-                    webrtc_sender = if s.launch.transport == butterpollo_core::session::Transport::WebRtc {
-                        Some(crate::webrtc::session::Sender::new(h.webrtc_links.take(&s.launch.id).context("the WebRTC media link is missing for this session")?))
-                    } else { None };
-                    pyrowave_sender = if s.config.codec == 3 { Some(crate::pyrowave_send::Sender::new(m.video.clone(),s.clone(),c.clone(),h.clone(),start,present_stamper.take())?) } else { None };
+                    let Started {
+                        automatic_pacing,
+                        mut packetizer,
+                        next_wire_frame,
+                        claims,
+                        start,
+                        mut present_stamper,
+                    } = media;
                     // The stream's size and rate. A client whose display changes can ask
                     // for others mid-stream (0x5532); the encoder is rebuilt from this copy.
                     let mut stream = s.config.clone();
@@ -1167,7 +1051,7 @@ impl Media {
                             if let Some(sender) = video_sender.get() { sender.backlog()?; }
                             if let Some(loss) = recovery.device_loss.take() {
                                 latest.latest.device_lost(loss, &latest.warnings, Instant::now())?;
-                                encoder = None;
+                                *encoder = None;
                             }
                             if Instant::now() >= live_at {
                                 live_at = Instant::now() + Duration::from_millis(250);
@@ -1598,7 +1482,7 @@ impl Media {
                             }
                             let rebuilt = rebuild_encoder;
                             if rebuild_encoder {
-                                encoder = None;
+                                *encoder = None;
                                 // Some drivers accept the compute path at creation and
                                 // fail on it later, every time: after a second failure
                                 // in the session, convert on the graphics queue. One
@@ -1628,7 +1512,7 @@ impl Media {
                                     Ok(mut created) => {
                                         *s.encoder.write().unwrap() = created.backend().into();
                                         created.set_hdr_target(s.hdr_target_nits());
-                                        encoder = Some(created);
+                                        *encoder = Some(created);
                                         focus.encoder_recreated();
                                     },
                                     Err(error) => {
@@ -2014,6 +1898,18 @@ impl Media {
                         Ok(())
                     })()
                 })();
+                let Leases { com, stream_preparation, latest, encoder } = leases;
+                let Workers {
+                    client_commands,
+                    audio,
+                    pyrowave_sender,
+                    webrtc_sender,
+                    keyframe_loss_memory,
+                    timing_record,
+                    #[cfg(test)]
+                    fixture_preparation,
+                    coop_watch: _coop_watch,
+                } = workers;
                 if let Err(e) = result {
                     s.launch.warnings.set("stream_failure", format!("Stream ended: {e:#}"));
                     s.fail();

@@ -522,7 +522,9 @@ public class FrameLatencyStatsTest {
         assertArrayEquals(new double[] {1, 5, 5, 5}, summary[0], 0);
         assertArrayEquals(new double[] {1, 2.75, 2.75, 2.75}, summary[1], 0);
         assertArrayEquals(new double[] {1, 4.5, 4.5, 4.5}, summary[2], 0);
-        assertEquals(26.25, summary[3][1], 0);
+        // Client latency starts with the complete frame (15 ms), not its first packet (1 ms): queue wait,
+        // decode and display wait together.
+        assertEquals(5 + 2.75 + 4.5, summary[3][1], 0);
         assertEquals(2.75, stats.takeDecodeTimeMs(), 0);
 
         StringWriter csv = new StringWriter();

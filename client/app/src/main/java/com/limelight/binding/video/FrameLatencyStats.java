@@ -23,7 +23,8 @@ class FrameLatencyStats {
     // getFrameRates() indexes: frames submitted for display, and frames the compositor confirmed.
     static final int RENDERED_STAGE = 1;
     static final int PRESENTED_STAGE = 2;
-    // Sample stages: 0 queue wait, 1 decode, 2 display wait, 3 client latency, 4 host processing
+    // Sample stages: 0 queue wait, 1 decode, 2 display wait, 3 client latency (frame complete to
+    // hand-off, the three before it together), 4 host processing
     // (the video frame header's value, the one Artemis and Moonlight show), 5 to 7 the host's queue,
     // encode and send split, 8 its present to last packet sent (only from host timing reports), and
     // 9 decoded to on screen.
@@ -575,6 +576,14 @@ class FrameLatencyStats {
         onOutputReleased(index, releaseNs, 0, shown, hasRenderCallback, shown);
     }
 
+    /**
+     * Where client latency starts: when the frame was complete, so it is queue wait, decode and display
+     * wait together. The time its packets took to arrive (from receiveNs) is the network's.
+     */
+    private static long clientStartNs(Frame frame) {
+        return frame.enqueueNs != 0 ? frame.enqueueNs : frame.receiveNs;
+    }
+
     static long handoffNs(long releaseNs, long displayAtNs) {
         return displayAtNs > releaseNs && displayAtNs - releaseNs < MAX_DISPLAY_AHEAD_NS ? displayAtNs : releaseNs;
     }
@@ -587,7 +596,7 @@ class FrameLatencyStats {
             if (render && handsOff && frame.inputNs > 0 && frame.outputNs >= frame.inputNs && releaseNs >= frame.outputNs) {
                 frame.handoffNs = handoffNs(releaseNs, displayAtNs);
                 addSample(2, frame.outputNs, frame.handoffNs);
-                addSample(3, frame.receiveNs, frame.handoffNs);
+                addSample(3, clientStartNs(frame), frame.handoffNs);
             }
             frame.awaitingRender = render && hasRenderCallback;
             if (render) {
@@ -712,7 +721,7 @@ class FrameLatencyStats {
             recordFrameTime(2, renderNs);
             if (frame.handoffNs == 0) {
                 addSample(2, frame.outputNs, renderNs);
-                addSample(3, frame.receiveNs, renderNs);
+                addSample(3, clientStartNs(frame), renderNs);
             }
             latencyProbe.onFrameRendered(frame.receiveNs, renderNs);
             presentJitter.record(renderNs);

@@ -43,6 +43,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
+      # SDL with the Vulkan interop patch (client/protocol/vendor/sdl3-src/README.md).
+      - name: SDL source
+        run: git submodule update --init --depth 1 client/protocol/vendor/sdl3-src/SDL
       # The runner's Ubuntu mirror has crawled at about 45 kB/s (cmake's 11 MB alone took
       # 4 minutes, and libudev-dev pulls a systemd update), three times past the job timeout.
       # The downloaded packages are cached between runs; the runner image has its own cmake.

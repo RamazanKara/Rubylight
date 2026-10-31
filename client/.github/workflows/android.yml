@@ -39,6 +39,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
+      # SDL with the Vulkan interop patch (protocol/vendor/sdl3-src/README.md).
+      - name: SDL source
+        run: git submodule update --init --depth 1 protocol/vendor/sdl3-src/SDL
       - name: Test and lint the desktop client
         run: |
           sudo apt-get update -qq

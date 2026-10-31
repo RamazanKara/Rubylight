@@ -10,3 +10,7 @@
 [submodule "client/app/src/main/jni/moonlight-core/moonlight-common-c"]
 	path = client/app/src/main/jni/moonlight-core/moonlight-common-c
 	url = https://github.com/moonlight-stream/moonlight-common-c.git
+[submodule "client/protocol/vendor/sdl3-src/SDL"]
+	path = client/protocol/vendor/sdl3-src/SDL
+	url = https://github.com/libsdl-org/SDL.git
+	shallow = true

@@ -973,6 +973,21 @@ pub fn control_header(b: &[u8]) -> Result<(u16, &[u8])> {
     }
     Ok((u16::from_le_bytes(b[..2].try_into().unwrap()), &b[2..]))
 }
+/// The control stream's AES-GCM IV and its length. Version 2 marks the
+/// direction (`H` from the host, `C` from the client) and carries the whole
+/// sequence; version 1 only its low byte, as in moonlight-common-c.
+fn control_iv(seq: u32, v2: bool, direction: u8) -> ([u8; 16], usize) {
+    let mut iv = [0; 16];
+    if v2 {
+        iv[..4].copy_from_slice(&seq.to_le_bytes());
+        iv[10] = direction;
+        iv[11] = b'C';
+        (iv, 12)
+    } else {
+        iv[0] = seq as u8;
+        (iv, 16)
+    }
+}
 pub fn encrypted_control(
     key: &[u8; 16],
     seq: u32,
@@ -986,15 +1001,7 @@ pub fn encrypted_control(
     let mut plain = kind.to_le_bytes().to_vec();
     plain.extend_from_slice(&(payload.len() as u16).to_le_bytes());
     plain.extend_from_slice(payload);
-    let mut iv = [0; 16];
-    let iv_len = if v2 { 12 } else { 16 };
-    if v2 {
-        iv[..4].copy_from_slice(&seq.to_le_bytes());
-        iv[10] = b'H';
-        iv[11] = b'C';
-    } else {
-        iv[0] = seq as u8;
-    }
+    let (iv, iv_len) = control_iv(seq, v2, b'H');
     let (tag, b) = crypto::gcm_seal(key, &iv[..iv_len], &plain)?;
     let mut p = 1u16.to_le_bytes().to_vec();
     p.extend_from_slice(&((4 + 16 + b.len()) as u16).to_le_bytes());
@@ -1012,15 +1019,7 @@ pub fn decrypt_control(key: &[u8; 16], packet: &[u8], v2: bool) -> Result<(u32, 
         bail!("control length mismatch");
     }
     let seq = u32::from_le_bytes(packet[4..8].try_into().unwrap());
-    let mut iv = [0; 16];
-    let iv_len = if v2 { 12 } else { 16 };
-    if v2 {
-        iv[..4].copy_from_slice(&seq.to_le_bytes());
-        iv[10] = b'C';
-        iv[11] = b'C';
-    } else {
-        iv[0] = seq as u8;
-    }
+    let (iv, iv_len) = control_iv(seq, v2, b'C');
     let mut b = crypto::gcm_open(key, &iv[..iv_len], &packet[8..24], &packet[24..])?;
     if b.len() < 4 {
         bail!("short decrypted control header");

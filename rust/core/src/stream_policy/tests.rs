@@ -198,6 +198,56 @@ fn simulate_focus(
     }
     claims
 }
+/// Like `simulate_captures`, but the host's loop also wakes every `wake` ms
+/// (encoder output polls, recovery and menu signals) and decides again for
+/// the newest capture each time.
+fn simulate_woken(
+    period: f64,
+    captures: &[f64],
+    detect: impl Fn(usize) -> f64,
+    wake: f64,
+    configure: impl Fn(Pacer) -> Pacer,
+) -> Vec<(f64, f64)> {
+    let start = Instant::now();
+    let ns = |ms: f64| (ms * 1e6).round() as u64;
+    let at = |ms: f64| start + Duration::from_nanos(ns(ms));
+    let ms = |instant: Instant| instant.duration_since(start).as_secs_f64() * 1000.;
+    let mut pacer = configure(Pacer::new(start, Duration::from_secs_f64(period / 1000.)));
+    let mut cadence = crate::capture_policy::Freshness::default();
+    let mut claims = vec![];
+    let (mut newest, mut deadline): (Option<f64>, Option<f64>) = (None, None);
+    let (mut next, mut now) = (0, 0f64);
+    while next < captures.len() {
+        let published = captures[next] + detect(next);
+        let woken = ((now / wake).floor() + 1.) * wake;
+        now = published.min(woken).min(deadline.unwrap_or(f64::MAX));
+        if now >= published {
+            let presented = captures[next];
+            next += 1;
+            cadence.observe(ns(presented), ns(published - presented));
+            pacer.observe_source_rate(cadence.mean_interval().map(Duration::from_nanos));
+            pacer.observe_picture(
+                cadence
+                    .picture_start()
+                    .map(|nanos| start + Duration::from_nanos(nanos)),
+                cadence.late_picture_interval().map(Duration::from_nanos),
+            );
+            pacer.observe_source(at(presented));
+            newest = Some(presented);
+        }
+        let Some(presented) = newest else { continue };
+        let interval = cadence.picture_interval().map(Duration::from_nanos);
+        match pacer.decide(at(now), at(presented), interval) {
+            Pace::Claim => {
+                pacer.claimed(at(now));
+                claims.push((now, presented));
+                (newest, deadline) = (None, None);
+            }
+            Pace::WaitUntil(t) => deadline = Some(ms(t).max(now + 0.001)),
+        }
+    }
+    claims
+}
 /// Deterministic noise in [0, 1).
 fn noise(i: usize, seed: u64) -> f64 {
     let mut x = (i as u64)
@@ -772,6 +822,51 @@ fn a_game_at_twice_a_vrr_stream_rate_is_never_claimed_a_game_frame_old() {
                 .windows(2)
                 .all(|pair| pair[1].0 - pair[0].0 >= period / 2. - 1e-6)
         );
+    }
+}
+#[test]
+fn a_wake_before_the_fresher_frame_does_not_claim_the_one_it_replaces() {
+    // 3.0.0-rc.2 and 3.1.1 on the RX 7900 XT, H.264 and HEVC at 1080p60 with
+    // the strip at 120 Hz: in whole runs 8-41 % of claims took a frame 7-8 ms
+    // old, just before the next one arrived. The pacer waited for that frame,
+    // but the loop woke after the claim was allowed and decided again, and
+    // then took the frame in hand. Without the hold, 45-53 % of claims here
+    // are that late; without the extra wakes, none.
+    let fixed = |pacer: Pacer| pacer.with_source_phase(true).with_spacing(0.75);
+    let vrr = |pacer: Pacer| {
+        pacer
+            .with_prediction_floor(Duration::from_millis(2))
+            .with_source_phase(true)
+            .with_spacing(0.5)
+    };
+    let period = 1000. / 60.;
+    for (name, configure) in [("fixed", &fixed as &dyn Fn(Pacer) -> Pacer), ("vrr", &vrr)] {
+        for wake in [0.5, 1., 2., 5.] {
+            for seed in 0..3 {
+                let frames = source(1000. / 120., 30., |i| 2. + noise(i, seed) * 0.6);
+                let claims = simulate_woken(
+                    period,
+                    &frames,
+                    |i| 0.08 + 0.1 * noise(i, seed + 9),
+                    wake,
+                    configure,
+                );
+                let steady = &claims[300..];
+                let late = steady.iter().filter(|(c, p)| c - p > 4.).count();
+                assert!(
+                    late * 200 < steady.len(),
+                    "{name}, woken every {wake} ms, seed {seed}: {late} of {} claims late",
+                    steady.len()
+                );
+                let seconds = (steady.last().unwrap().0 - steady[0].0) / 1000.;
+                assert!((steady.len() - 1) as f64 / seconds <= 60.2);
+                assert!(
+                    steady
+                        .windows(2)
+                        .all(|pair| pair[1].0 - pair[0].0 >= period / 2. - 1e-6)
+                );
+            }
+        }
     }
 }
 #[test]

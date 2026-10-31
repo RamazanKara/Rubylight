@@ -273,6 +273,8 @@ pub struct Pacer {
     /// Credit a faster source may be lent, in frames, to repay a deficit.
     grace: f64,
     grace_at: Instant,
+    /// A frame held past `allowed_at` for a fresher one, and until when.
+    held: Option<(Instant, Instant)>,
 }
 impl Pacer {
     /// Credit above one frame absorbs arrival jitter of a source at the stream rate.
@@ -296,6 +298,7 @@ impl Pacer {
             static_period: Duration::from_millis(50),
             grace: Self::GRACE_CAP,
             grace_at: now,
+            held: None,
         }
     }
     /// When an unchanged picture is encoded again (`Rates::static_period`):
@@ -496,6 +499,29 @@ impl Pacer {
         presented: Instant,
         source_interval: Option<Duration>,
     ) -> Pace {
+        // A frame held for a fresher one is not claimed before that wait
+        // ends. The host decides again on every wake (encoder output polls,
+        // recovery and menu signals), and a wake after `allowed` claimed the
+        // frame just before the fresher one arrived. On a 60 fps stream of a
+        // 120 Hz source, 8-41 % of frames (whole runs) went out 7-8 ms old.
+        let held = self
+            .held
+            .take()
+            .filter(|(frame, until)| *frame == presented && now < *until);
+        match (self.evaluate(now, presented, source_interval), held) {
+            (Pace::Claim, Some((_, until))) => {
+                self.held = held;
+                Pace::WaitUntil(until)
+            }
+            (pace, _) => pace,
+        }
+    }
+    fn evaluate(
+        &mut self,
+        now: Instant,
+        presented: Instant,
+        source_interval: Option<Duration>,
+    ) -> Pace {
         self.faster = self
             .source_rate
             .or(source_interval)
@@ -548,6 +574,7 @@ impl Pacer {
                     (next + detection).min(last + self.period + self.period / 4)
                 });
                 if deadline > allowed {
+                    self.held = Some((presented, deadline));
                     return Pace::WaitUntil(deadline);
                 }
             }
@@ -589,12 +616,15 @@ impl Pacer {
                 // A frame due at the end of the budget still gets
                 // `PREDICTED_NOTICE` to be noticed in.
                 let noticed = late + Self::PREDICTED_NOTICE;
-                return Pace::WaitUntil((late + detection).min((allowed + slack).max(noticed)));
+                let deadline = (late + detection).min((allowed + slack).max(noticed));
+                self.held = Some((presented, deadline));
+                return Pace::WaitUntil(deadline);
             }
         }
         Pace::WaitUntil(allowed)
     }
     pub fn claimed(&mut self, now: Instant) {
+        self.held = None;
         // The picture of the newest capture, which every claim encodes.
         self.claimed_picture = self.picture;
         self.credit = (self.credit(now) - 1.).max(-1.);

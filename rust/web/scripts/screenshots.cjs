@@ -3,6 +3,7 @@
 // Writes <label>-<page>-<theme>-<form>.png for each page, theme and form factor.
 // SHOT_PAGES=/,/devices picks pages (/design.html is the component gallery);
 // SHOT_FULL=1 captures the full page on desktop too (phones always are).
+// SHOT_CLICK=Select,"Select all" clicks those buttons, in order, before each shot.
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const path = require('node:path');
 const fs = require('node:fs');
@@ -33,7 +34,21 @@ const replies = {
   ] },
   '/api/clients/hdr-profiles': { profiles: [] },
   '/api/display-devices': [],
-  '/api/apps': { apps: [{ uuid: 'desktop', name: 'Desktop' }, { uuid: 'steam', name: 'Steam Big Picture' }] },
+  '/api/apps': { apps: [
+    { uuid: 'desktop', name: 'Desktop' }, { uuid: 'steam', name: 'Steam Big Picture' },
+    { uuid: 'steam-620', name: 'Portal 2', 'steam-id': '620', 'synced-by': 'steam' },
+    { uuid: 'mirage', name: 'Assassin’s Creed Mirage', 'launcher-source': 'ubisoft', 'launcher-id': '13504', 'synced-by': 'launcher' },
+    { uuid: 'fortnite', name: 'Fortnite', 'launcher-source': 'epic', 'launcher-id': 'Fortnite', 'synced-by': 'launcher' },
+  ], 'launcher-dismissed': ['steam:546560', 'steam:617830'] },
+  '/api/library/discovery': { status: true,
+    sources: [['steam', 'Steam'], ['epic', 'Epic Games'], ['battlenet', 'Battle.net'], ['microsoft', 'Microsoft Store and Xbox'],
+      ['ea', 'EA app'], ['ubisoft', 'Ubisoft Connect'], ['gog', 'GOG'], ['local', 'Game folders']]
+      .map(([source, name]) => ({ source, name, state: ['steam', 'epic', 'ubisoft'].includes(source) ? 'available' : 'disabled', errors: [] })),
+    games: [
+      ['steam', '620', 'Portal 2', true], ['steam', '546560', 'Half-Life: Alyx', false], ['steam', '617830', 'SUPERHOT VR', false],
+      ['ubisoft', '13504', 'Assassin’s Creed Mirage', true], ['epic', 'Fortnite', 'Fortnite', true],
+    ].map(([source, id, name, already_added]) => ({ source, id, uuid: `${source}-${id}`, name, install_dir: '', already_added,
+      unavailable_reason: null, has_cover: false })) },
   '/api/session/status': { activeSessions: 0, appRunning: false },
   '/api/rtsp/sessions': { status: true, sessions: [] },
   '/api/logs/tail': { offset: 0, text: '', reset: false },
@@ -84,6 +99,10 @@ const replies = {
           await page.goto(base + where);
           await page.waitForLoadState('networkidle');
           await page.waitForTimeout(300);
+          for (const button of (process.env.SHOT_CLICK || '').split(',').filter(Boolean)) {
+            await page.getByRole('button', { name: button, exact: true }).first().click();
+            await page.waitForTimeout(300);
+          }
           const name = where === '/' ? 'home' : where.slice(1).replace(/\.html$/, '').replace(/\//g, '-');
           const file = path.join(out, `${label}-${name}-${theme}-${form}.png`);
           await page.screenshot({ path: file, fullPage: form !== 'desktop' || !!process.env.SHOT_FULL });

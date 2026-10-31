@@ -863,7 +863,9 @@ impl AdapterStall {
 /// `BUTTERPOLLO_TEST_SEND_JITTER=every_ms:max_ms[:seed]`: a stall starts
 /// `every` times U(0.5, 1.5) after the one before (the first that far into
 /// the stream) and lasts U(max/4, max), drawn from a generator seeded with
-/// `seed` (1 unless given), so two runs stall alike. While one lasts, video
+/// `seed` (1 unless given), so two runs stall alike. `max` may not exceed
+/// `every`: longer stalls would outrun the gaps and hold the link for good.
+/// While one lasts, video
 /// datagrams wait in a [`JitterLine`] and go out in order as a burst when it
 /// ends, as from an access point that held them. A wired link, or an access
 /// point that isolates flows, never does that, so this is how a host A/B
@@ -886,7 +888,7 @@ impl SendJitter {
             None => 1,
             Some(seed) => seed.parse().ok()?,
         };
-        if fields.next().is_some() || every.is_zero() || max.is_zero() {
+        if fields.next().is_some() || every.is_zero() || max.is_zero() || max > every {
             return None;
         }
         let mut jitter = Self {
@@ -907,7 +909,7 @@ impl SendJitter {
         if jitter.is_none() {
             tracing::warn!(
                 value,
-                "BUTTERPOLLO_TEST_SEND_JITTER is not every_ms:max_ms[:seed] with both above 0; ignored"
+                "BUTTERPOLLO_TEST_SEND_JITTER is not every_ms:max_ms[:seed] with 0 < max_ms <= every_ms; ignored"
             );
         }
         jitter

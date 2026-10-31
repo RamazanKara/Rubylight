@@ -2243,15 +2243,25 @@ fn send_jitter_stalls_on_a_seeded_schedule() {
         );
         last = from;
     }
-    // Stalls (7.5 ms or more) that outlast the gap to the next (2 to 6 ms) run into it:
-    // held throughout once the first one starts.
-    let mut tight = SendJitter::parse("4:30:5").unwrap();
-    assert!((150u32..600_000).all(|i| tight.stalled_until(i * step).is_some()));
+    // Stalls as long as the period run into the next now and then, but the link is
+    // free again within a second; longer ones would outrun the gaps and hold it for good.
+    let mut tight = SendJitter::parse("40:40:5").unwrap();
+    let mut held = 0u32;
+    for i in 0..600_000u32 {
+        held = if tight.stalled_until(i * step).is_some() {
+            held + 1
+        } else {
+            0
+        };
+        assert!(held < 10_000, "held for a second at {:?}", i * step);
+    }
     for bad in [
         "",
         "700",
         "0:30",
         "700:0",
+        "4:30",
+        "700:701",
         "x:30",
         "700:-1",
         "700:30:x",
@@ -2316,13 +2326,21 @@ fn sends_during_a_stall_go_out_in_order_right_after_it() {
         ]
     );
     // Back-to-back stalls hold their sends through both.
-    let mut tight = JitterLine::new(SendJitter::parse("4:30:5").unwrap());
-    assert!(tight.holds(Duration::from_millis(15)));
+    let tight = SendJitter::parse("40:40:5").unwrap();
+    let mut probe = tight.clone();
+    let (at, first, second) = (0u32..)
+        .map(|i| i * step)
+        .find_map(|at| {
+            let first = probe.stalled_until(at)?;
+            let second = probe.clone().stalled_until(first)?;
+            Some((at, first, second))
+        })
+        .unwrap();
+    let mut tight = JitterLine::new(tight);
+    assert!(tight.holds(at));
     tight.hold(1);
-    for ms in 16..2000 {
-        assert_eq!(tight.release(Duration::from_millis(ms)).count(), 0);
-    }
-    assert!(tight.release_at() > Some(Duration::from_millis(2000)));
+    assert_eq!(tight.release(first).count(), 0, "the second stall holds it");
+    assert!(tight.release_at() >= Some(second));
 }
 
 #[test]

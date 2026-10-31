@@ -1229,7 +1229,7 @@ mod tests {
     }
 
     #[test]
-    fn select_lb_clicks_the_touchpad_of_a_pad_pinned_as_playstation() {
+    fn select_lb_sends_the_first_button_then_clicks_the_touchpad_of_a_pad_pinned_as_playstation() {
         let mut mapping = Mapping { connect_as: CTYPE_PS, ..Default::default() };
         assert!(mapping.emulates_clickpad(false));
         assert!(!mapping.emulates_clickpad(true), "a pad with a touchpad click keeps it");
@@ -1240,6 +1240,7 @@ mod tests {
 
         let (back, lb) = (button::BACK, button::LB);
         let mut swallowed = 0;
+        // The first button of the combo goes through: holding it back would add latency.
         assert_eq!(clickpad(back, &mut swallowed), back);
         assert_eq!(clickpad(back | lb, &mut swallowed), button::TOUCHPAD);
         assert_eq!(clickpad(back | lb | button::A, &mut swallowed), button::TOUCHPAD | button::A);

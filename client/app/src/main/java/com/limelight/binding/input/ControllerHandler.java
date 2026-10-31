@@ -1505,6 +1505,26 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         return !pressedButtons.containsValue(target);
     }
 
+    /**
+     * The buttons held on a key-event pad, like the USB path's raw report: the clickpad emulation
+     * swaps Select+LB for the touchpad in inputMap, so this swaps them back from pressedButtons.
+     */
+    static int heldButtons(InputDeviceContext context) {
+        int held = context.inputMap;
+        if ((context.emulatingButtonFlags & EMULATING_TOUCHPAD) != 0) {
+            if (!context.pressedButtons.containsValue(ControllerButtonMap.TARGET_TOUCHPAD)) {
+                held &= ~ControllerPacket.TOUCHPAD_FLAG;
+            }
+            if (context.pressedButtons.containsValue(KeyEvent.KEYCODE_BUTTON_SELECT)) {
+                held |= ControllerPacket.BACK_FLAG;
+            }
+            if (context.pressedButtons.containsValue(KeyEvent.KEYCODE_BUTTON_L1)) {
+                held |= ControllerPacket.LB_FLAG;
+            }
+        }
+        return held;
+    }
+
     private static boolean areBatteryCapacitiesEqual(float first, float second) {
         // With no NaNs involved, it is a simple equality comparison.
         if (!Float.isNaN(first) && !Float.isNaN(second)) {
@@ -3264,9 +3284,11 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         // Check if we're emulating the touchpad button
         if ((context.emulatingButtonFlags & ControllerHandler.EMULATING_TOUCHPAD) != 0)
         {
-            // If either select or LB is up, touchpad comes up too
-            if ((context.inputMap & ControllerPacket.BACK_FLAG) == 0 ||
-                    (context.inputMap & ControllerPacket.LB_FLAG) == 0)
+            // If either select or LB is up, touchpad comes up too. The emulation took both
+            // out of inputMap, so ask which buttons are still held.
+            int held = heldButtons(context);
+            if ((held & ControllerPacket.BACK_FLAG) == 0 ||
+                    (held & ControllerPacket.LB_FLAG) == 0)
             {
                 context.inputMap &= ~ControllerPacket.TOUCHPAD_FLAG;
 
@@ -3276,7 +3298,8 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
 
         sendControllerInputPacket(context);
 
-        if (context.pendingExit && context.inputMap == 0) {
+        // pressedButtons too: after a clickpad press, a Select or LB still held is not in inputMap.
+        if (context.pendingExit && context.inputMap == 0 && context.pressedButtons.isEmpty()) {
             context.pendingExit = false;
             if (activityContext instanceof Game) {
                 ((Game) activityContext).showStreamMenu();
@@ -3496,9 +3519,10 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
             return false;
         }
 
-        // Wait for the menu combo to lift so it cannot activate a menu item.
-        if (context.inputMap == (ControllerPacket.BACK_FLAG | ControllerPacket.PLAY_FLAG |
-                                 ControllerPacket.LB_FLAG | ControllerPacket.RB_FLAG)) {
+        // Wait for the menu combo to lift so it cannot activate a menu item. It goes by the
+        // held buttons: a clickpad press before Start+RB took Select and LB out of inputMap.
+        if (heldButtons(context) == (ControllerPacket.BACK_FLAG | ControllerPacket.PLAY_FLAG |
+                                     ControllerPacket.LB_FLAG | ControllerPacket.RB_FLAG)) {
             context.pendingExit = true;
         }
 

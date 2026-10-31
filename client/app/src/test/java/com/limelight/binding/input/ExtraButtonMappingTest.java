@@ -383,7 +383,7 @@ public class ExtraButtonMappingTest {
     }
 
     @Test
-    public void usbPadPinnedAsPlayStationClicksTheTouchpadWithSelectAndLb() {
+    public void usbPadPinnedAsPlayStationSendsTheFirstButtonThenClicksTheTouchpadWithSelectAndLb() {
         try (ActivityController<Activity> activity = Robolectric.buildActivity(Activity.class).create()) {
             ControllerButtonMap stored = new ControllerButtonMap();
             stored.setConnectAs(ControllerButtonMap.CONNECT_AS_PLAYSTATION);
@@ -396,6 +396,7 @@ public class ExtraButtonMappingTest {
             try {
                 handler.deviceAdded(new XboxPad());
                 int back = ControllerPacket.BACK_FLAG, lb = ControllerPacket.LB_FLAG;
+                // The first button of the combo goes through: holding it back would add latency.
                 handler.reportControllerState(42, back, 0, 0, 0, 0, 0, 0);
                 assertEquals(MoonBridge.LI_CTYPE_PS, connection.arrivalType);
                 assertEquals(back, connection.last());

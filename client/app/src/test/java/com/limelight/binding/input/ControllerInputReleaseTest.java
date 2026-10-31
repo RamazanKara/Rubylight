@@ -66,6 +66,56 @@ public class ControllerInputReleaseTest {
     }
 
     @Test
+    public void theMenuComboAndTheClickpadGoByTheHeldButtonsOnAClickpadPad() {
+        MenuGame activity = Robolectric.buildActivity(MenuGame.class).get();
+        RecordingConnection connection = new RecordingConnection();
+        ControllerHandler handler = new ControllerHandler(activity, connection, null, new PreferenceConfiguration());
+        ControllerHandler.InputDeviceContext context = ReflectionHelpers.getField(handler, "defaultContext");
+        context.assignedControllerNumber = true;
+        context.hasSelect = context.hasMode = true;
+        // A pad connected as PlayStation without a touchpad: Select+LB clicks the touchpad.
+        context.needsClickpadEmulation = true;
+        try {
+            down(handler, KeyEvent.KEYCODE_BUTTON_SELECT);
+            down(handler, KeyEvent.KEYCODE_BUTTON_L1);
+            assertEquals(ControllerPacket.TOUCHPAD_FLAG, lastButtons(connection));
+
+            // Lifting an unrelated button keeps the click held.
+            down(handler, KeyEvent.KEYCODE_BUTTON_A);
+            up(handler, KeyEvent.KEYCODE_BUTTON_A);
+            assertEquals(ControllerPacket.TOUCHPAD_FLAG, lastButtons(connection));
+
+            // Start+RB on top completes the menu combo, which opens once everything is up.
+            down(handler, KeyEvent.KEYCODE_BUTTON_START);
+            down(handler, KeyEvent.KEYCODE_BUTTON_R1);
+            assertTrue(context.pendingExit);
+            up(handler, KeyEvent.KEYCODE_BUTTON_START);
+            up(handler, KeyEvent.KEYCODE_BUTTON_R1);
+            assertEquals(ControllerPacket.TOUCHPAD_FLAG, lastButtons(connection));
+            up(handler, KeyEvent.KEYCODE_BUTTON_L1);
+            assertEquals("Lifting LB ends the click", 0, lastButtons(connection));
+            assertEquals(0, activity.menuCount);
+            up(handler, KeyEvent.KEYCODE_BUTTON_SELECT);
+            assertEquals(1, activity.menuCount);
+            assertFalse(context.pendingExit);
+        } finally {
+            handler.destroy();
+        }
+    }
+
+    private static void down(ControllerHandler handler, int key) {
+        assertTrue(handler.handleButtonDown(new KeyEvent(1000, 1000, KeyEvent.ACTION_DOWN, key, 0, 0, 0, 0)));
+    }
+
+    private static void up(ControllerHandler handler, int key) {
+        assertTrue(handler.handleButtonUp(new KeyEvent(1000, 1100, KeyEvent.ACTION_UP, key, 0, 0, 0, 0)));
+    }
+
+    private static int lastButtons(RecordingConnection connection) {
+        return connection.states.get(connection.states.size() - 1)[0];
+    }
+
+    @Test
     public void theChosenQuitComboLeavesOnceReleasedAndIsOffByDefault() {
         MenuGame activity = Robolectric.buildActivity(MenuGame.class).get();
         PreferenceConfiguration prefs = new PreferenceConfiguration();

@@ -327,7 +327,7 @@ final class GameKeyboardInput {
 
                     // Leave the stream
                     case KeyEvent.KEYCODE_Q:
-                        game.leaveStream();
+                        game.menuActions.leaveStream();
                         break;
 
                     case KeyEvent.KEYCODE_M:

@@ -48,7 +48,7 @@ public class GameStreamMenuTest {
 
     private static StreamMenu open(Game game) {
         game.showStreamMenu();
-        StreamMenu menu = ReflectionHelpers.getField(game, "streamMenuSheet");
+        StreamMenu menu = ReflectionHelpers.getField(game.menuActions, "streamMenuSheet");
         assertNotNull(menu);
         assertSame(menu.sheet(), ReflectionHelpers.getField(game, "streamMenu"));
         assertTrue(menu.sheet().isShowing());
@@ -59,14 +59,14 @@ public class GameStreamMenuTest {
     public void backOpensOneSectionedSheetTitledForTheStream() {
         Game game = streamingGame("rubylight-serverinfo.xml");
         game.onBackPressed();
-        StreamMenu menu = ReflectionHelpers.getField(game, "streamMenuSheet");
+        StreamMenu menu = ReflectionHelpers.getField(game.menuActions, "streamMenuSheet");
         assertNotNull("Back opens the stream menu", menu);
         assertEquals(StreamMenu.Page.MAIN, menu.page());
         assertNotNull(menu.row(StreamMenu.Item.QUIT_GAME));
         assertNotNull(menu.row(StreamMenu.Item.BITRATE));
         menu.sheet().dismiss();
         idle();
-        assertNull(ReflectionHelpers.getField(game, "streamMenuSheet"));
+        assertNull(ReflectionHelpers.getField(game.menuActions, "streamMenuSheet"));
         assertNull(ReflectionHelpers.getField(game, "streamMenu"));
     }
 
@@ -85,7 +85,7 @@ public class GameStreamMenuTest {
         menu.row(StreamMenu.Item.CLIPBOARD_RECEIVE).performClick();
         assertFalse(menu.sheet().isShowing());
         idle();
-        assertNull(ReflectionHelpers.getField(game, "streamMenuSheet"));
+        assertNull(ReflectionHelpers.getField(game.menuActions, "streamMenuSheet"));
     }
 
     @Test
@@ -111,7 +111,7 @@ public class GameStreamMenuTest {
         assertFalse(stored.getBoolean("checkbox_enable_perf_overlay", true));
         assertEquals(View.GONE, game.findViewById(R.id.performanceOverlayScroll).getVisibility());
 
-        StreamMenu.Options options = ReflectionHelpers.callInstanceMethod(game, "streamMenuOptions");
+        StreamMenu.Options options = ReflectionHelpers.callInstanceMethod(game.menuActions, "streamMenuOptions");
         assertFalse(options.overlayShown);
         assertEquals("bottom_right", options.overlayPosition);
     }
@@ -156,7 +156,7 @@ public class GameStreamMenuTest {
         Game game = streamingGame("rubylight-serverinfo.xml");
         StreamMenu menu = open(game);
         MaterialButtonColors.assertErrorColour(menu.row(StreamMenu.Item.QUIT_GAME));
-        ReflectionHelpers.callInstanceMethod(game, "confirmQuitApp");
+        ReflectionHelpers.callInstanceMethod(game.menuActions, "confirmQuitApp");
         androidx.appcompat.app.AlertDialog dialog = ReflectionHelpers.getField(game, "streamMenu");
         try {
             assertTrue(dialog.isShowing());

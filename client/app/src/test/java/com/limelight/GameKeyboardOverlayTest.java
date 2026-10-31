@@ -83,7 +83,7 @@ public class GameKeyboardOverlayTest {
         InputMethodManager input = (InputMethodManager) game.getSystemService(Context.INPUT_METHOD_SERVICE);
         assertFalse(shadowOf(input).isSoftInputVisible());
 
-        ReflectionHelpers.callInstanceMethod(game, "onStreamMenuItem",
+        ReflectionHelpers.callInstanceMethod(game.menuActions, "onStreamMenuItem",
                 ReflectionHelpers.ClassParameter.from(StreamMenu.Item.class, StreamMenu.Item.KEYBOARD));
         Runnable action = ReflectionHelpers.getField(game, "streamMenuAction");
         assertNotNull(action);

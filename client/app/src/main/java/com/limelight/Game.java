@@ -22,7 +22,6 @@ import com.limelight.binding.video.DisplayCapsReporter;
 import com.limelight.binding.video.DisplayRefreshDiagnostics;
 import com.limelight.binding.video.HdrFormatPolicy;
 import com.limelight.binding.video.HdrPolicy;
-import com.limelight.binding.video.LatencyProbe;
 import com.limelight.binding.video.LinkNoticeStatus;
 import com.limelight.binding.video.MediaCodecDecoderRenderer;
 import com.limelight.binding.video.MediaCodecHelper;
@@ -34,7 +33,6 @@ import com.limelight.binding.video.StreamResizePolicy;
 import com.limelight.binding.video.UpscalingPolicy;
 import com.limelight.computers.HostCapabilityCache;
 import com.limelight.computers.HostNotices;
-import com.limelight.nativeapi.NativeSession;
 import com.limelight.nvstream.NvConnection;
 import com.limelight.nvstream.AdaptiveBitrateController;
 import com.limelight.nvstream.AdaptiveQualityController;
@@ -42,14 +40,12 @@ import com.limelight.nvstream.PyroWaveBitrateController;
 import com.limelight.nvstream.RateChangeResult;
 import com.limelight.nvstream.NvConnectionListener;
 import com.limelight.nvstream.StreamConfiguration;
-import com.limelight.nvstream.http.ClipboardImageException;
 import com.limelight.nvstream.http.ComputerDetails;
 import com.limelight.nvstream.http.HostCapabilities;
 import com.limelight.nvstream.http.LaunchConfirmation;
 import com.limelight.nvstream.http.NvApp;
 import com.limelight.nvstream.http.NvHTTP;
 import com.limelight.nvstream.jni.MoonBridge;
-import com.limelight.preferences.AppQuitOnLeave;
 import com.limelight.preferences.AutoBitrateChoice;
 import com.limelight.preferences.GlPreferences;
 import com.limelight.preferences.HostDisplayChoice;
@@ -63,7 +59,6 @@ import com.limelight.ui.PcKeyboardOverlay;
 import com.limelight.ui.StreamOrientation;
 import com.limelight.ui.StreamView;
 import com.limelight.ui.VideoScaling;
-import com.limelight.utils.ClipboardImages;
 import com.limelight.utils.Dialog;
 import com.limelight.utils.HdrBrightness;
 import com.limelight.utils.NetworkGrace;
@@ -93,8 +88,6 @@ import com.limelight.ui.PictureInPicturePolicy;
 import android.app.Service;
 import android.content.ComponentName;
 import android.content.Context;
-import android.content.ClipData;
-import android.content.ClipboardManager;
 import android.content.Intent;
 import android.content.ServiceConnection;
 import android.content.SharedPreferences;
@@ -114,7 +107,6 @@ import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
 import android.os.IBinder;
-import android.os.PersistableBundle;
 import android.preference.PreferenceManager;
 import android.text.InputType;
 import android.util.Rational;
@@ -144,7 +136,6 @@ import java.io.IOException;
 import java.security.cert.CertificateException;
 import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
-import com.limelight.ui.ActionSheet;
 import java.math.BigDecimal;
 import java.util.Locale;
 
@@ -158,6 +149,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     final GameOverlays overlays = new GameOverlays(this);
     final GameKeyboardInput keyboardInput = new GameKeyboardInput(this);
     final GameTouchInput touchInput = new GameTouchInput(this);
+    final GameMenuActions menuActions = new GameMenuActions(this);
 
     TrackpadPointer trackpadPointer;
     // Set while the host sends its cursor shapes for the Local cursor; read on the control thread.
@@ -218,31 +210,22 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             showReconnectDialog(R.string.conn_terminated_title, getString(R.string.stream_recovery_exhausted));
         }
     };
-    private int suppressPipRefCount = 0;
+    int suppressPipRefCount = 0;
     android.app.Dialog streamMenu;
-    // The sectioned stream menu while it is open; streamMenu is its sheet or a dialog it opened.
-    private com.limelight.ui.StreamMenu streamMenuSheet;
-    private Runnable streamMenuAction;
+    Runnable streamMenuAction;
     private androidx.appcompat.app.AlertDialog launchConfirmationDialog;
     private LaunchConfirmation pendingConfirmation;
     private String connectionErrorMessage;
-    private boolean hostActionInProgress;
+    boolean hostActionInProgress;
     // Set while this device asks the host to end the session. Hosts drop the stream while
     // handling that request, often without an end message, so any termination is expected.
-    private volatile boolean hostExitRequested;
-    // A failed request may still have ended the session: the host can drop the stream before the
-    // request fails, and the lost transport then takes up to its 10 s timeout to report. The
-    // request has only failed once the stream is still connected after that.
-    private static final long HOST_EXIT_CONFIRM_MS = 15000;
-    private final Runnable hostExitFailed = () -> {
-        if (connected && !hostActionInProgress) hostExitRequested = false;
-    };
+    volatile boolean hostExitRequested;
     boolean foreground;
-    private int foregroundGeneration;
-    private boolean restoreInputAfterMenu;
+    int foregroundGeneration;
+    boolean restoreInputAfterMenu;
     private boolean restoreInputOnResume;
-    private final WindowFocusActionQueue windowFocusActions = new WindowFocusActionQueue();
-    private final Runnable runWindowFocusActions = () -> {
+    final WindowFocusActionQueue windowFocusActions = new WindowFocusActionQueue();
+    final Runnable runWindowFocusActions = () -> {
         if (!foreground || !connected || isFinishing()) {
             windowFocusActions.clear();
         } else if (streamMenu == null) {
@@ -272,10 +255,10 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     private int qualityMaxFrameRateMilliHz;
     final Handler bitrateHandler = new Handler(Looper.getMainLooper());
     final com.limelight.utils.StreamHealth streamHealth = new com.limelight.utils.StreamHealth();
-    private com.limelight.utils.WifiDiagnostics wifiDiagnostics;
-    private int healthOriginalBitrate, healthTrialBitrate;
+    com.limelight.utils.WifiDiagnostics wifiDiagnostics;
+    int healthOriginalBitrate, healthTrialBitrate;
     // 0x553C rate changes, for a Rust stream whose host offered them; null otherwise.
-    private StreamRateChanges rateChanges;
+    StreamRateChanges rateChanges;
     // Automatic bitrate on this device: one client-hint sample a second, as a 0x553C request.
     private final Runnable updateRateChangeBitrate = new Runnable() {
         @Override public void run() {
@@ -454,7 +437,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         }
     };
     private String pcName;
-    private String appName;
+    String appName;
     NvApp app;
     private float desiredRefreshRate;
     private float panelMaxRefreshRate;
@@ -649,7 +632,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         @Override public void onReceive(Context context, Intent intent) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
                     PictureInPicturePolicy.canDisconnect(connected, isInPictureInPictureMode(), app.getRole())) {
-                leaveStream();
+                menuActions.leaveStream();
             }
         }
     };
@@ -687,7 +670,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     // Every message of the stream goes through here: one at a time, lasting facts once per PC.
     final com.limelight.ui.StreamMessages messages = new com.limelight.ui.StreamMessages(this);
     // From the first time the user opens USB devices until the stream stops.
-    private com.limelight.binding.usb.UsbForwarding usbForwarding;
+    com.limelight.binding.usb.UsbForwarding usbForwarding;
     // Clipboard sync (0x5508) while this stream's PC runs it.
     private com.limelight.utils.ClipboardSync clipboardSync;
     final Runnable showStreamMenuHint = overlays::showStreamMenuHint;
@@ -845,7 +828,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     }
 
     private WifiManager.WifiLock highPerfWifiLock;
-    private WifiManager.WifiLock lowLatencyWifiLock;
+    WifiManager.WifiLock lowLatencyWifiLock;
 
     private boolean usbDriverServiceBound;
     private UsbDriverService.UsbDriverBinder usbDriverBinder;
@@ -1362,7 +1345,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 httpsPort, uniqueId, config,
                 PlatformBinding.getCryptoProvider(this), serverCert);
         restoreMicrophoneMute();
-        conn.setMicrophoneNoticeListener(() -> runOnUiThread(this::showMicrophoneNotice));
+        conn.setMicrophoneNoticeListener(() -> runOnUiThread(menuActions::showMicrophoneNotice));
         controllerHandler = new ControllerHandler(this, conn, this, prefConfig);
         conn.setControllerPreparation(controllerHandler::prepareControllersForLaunch);
         updateInputPollingRate();
@@ -1392,7 +1375,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                                     leftX, leftY, rightX, rightY, leftTrigger, rightTrigger);
                         }
                     }, () -> foreground && connected && grabbedInput && streamMenu == null && conn.canSendInput(),
-                    this::showStreamDialog);
+                    menuActions::showStreamDialog);
             gameTouchControls.setStreamTouchListener(touchInput::onTouchControlsPassthrough);
             gameTouchControls.setGestureCancelListener(touchInput::cancelTouchInput);
             ((FrameLayout)streamView.getParent()).addView(gameTouchControls,
@@ -1529,9 +1512,9 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         }
     }
 
-    private void toggleDesktopZoom() {
+    void toggleDesktopZoom() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N && !prefConfig.useTextureView) {
-            showStreamDialog(new NavigationDialogBuilder(this).setMessage(R.string.desktop_zoom_surface_help)
+            menuActions.showStreamDialog(new NavigationDialogBuilder(this).setMessage(R.string.desktop_zoom_surface_help)
                     .setPositiveButton(android.R.string.ok, null).create());
             return;
         }
@@ -1539,22 +1522,22 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         if (desktopGestures.enabled()) messages.alert(R.string.desktop_zoom_help, Toast.LENGTH_LONG);
     }
 
-    private boolean hasPresentationDisplays() {
+    boolean hasPresentationDisplays() {
         return ((android.hardware.display.DisplayManager) getSystemService(DISPLAY_SERVICE))
                 .getDisplays(android.hardware.display.DisplayManager.DISPLAY_CATEGORY_PRESENTATION).length > 0;
     }
 
     // The view changes its scaling at once. An upscaler or PyroWave sets its own output rectangle
     // when the stream starts, so for those the choice waits for the next stream.
-    private boolean canScaleLive() {
+    boolean canScaleLive() {
         return externalPresentation == null && decoderRenderer != null &&
                 prefConfig.upscalingMode == UpscalingPolicy.Mode.OFF &&
                 (decoderRenderer.getActiveVideoFormat() & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) == 0;
     }
 
-    private void showVideoScalingDialog() {
+    void showVideoScalingDialog() {
         if (!canScaleLive()) return;
-        showStreamDialog(new NavigationDialogBuilder(this).setTitle(R.string.video_scaling_title)
+        menuActions.showStreamDialog(new NavigationDialogBuilder(this).setTitle(R.string.video_scaling_title)
                 .setSingleChoiceItems(R.array.video_scaling_modes, prefConfig.videoScaling, (dialog, which) -> {
                     dialog.dismiss();
                     setVideoScaling(which);
@@ -1583,13 +1566,13 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         renderView.setVideoScaling(mode, prefConfig.videoAlignment, prefConfig.width, prefConfig.height);
     }
 
-    private boolean canEnterPictureInPicture() {
+    boolean canEnterPictureInPicture() {
         return Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && prefConfig.enablePip && externalPresentation == null &&
                 app.getRole() != NvApp.Role.INPUT_ONLY &&
                 getPackageManager().hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE);
     }
 
-    private void enterPictureInPictureNow() {
+    void enterPictureInPictureNow() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || !canEnterPictureInPicture() || !connected) return;
         try {
             enterPictureInPictureMode(getPictureInPictureParams(false));
@@ -1598,12 +1581,12 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         }
     }
 
-    private void showVideoOutputDialog() {
+    void showVideoOutputDialog() {
         Display[] displays = ((android.hardware.display.DisplayManager)getSystemService(DISPLAY_SERVICE))
                 .getDisplays(android.hardware.display.DisplayManager.DISPLAY_CATEGORY_PRESENTATION);
         String[] labels = new String[displays.length + 1]; labels[0] = getString(R.string.desktop_output_device);
         for (int i = 0; i < displays.length; i++) labels[i + 1] = displays[i].getName();
-        showStreamDialog(new NavigationDialogBuilder(this).setTitle(R.string.desktop_output)
+        menuActions.showStreamDialog(new NavigationDialogBuilder(this).setTitle(R.string.desktop_output)
                 .setItems(labels, (dialog, which) -> {
                     int id = which == 0 ? Display.DEFAULT_DISPLAY : displays[which - 1].getDisplayId();
                     if (id == getIntent().getIntExtra(EXTRA_OUTPUT_DISPLAY, Display.DEFAULT_DISPLAY)) return;
@@ -1797,7 +1780,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         return builder.build();
     }
 
-    private void updatePipAutoEnter() {
+    void updatePipAutoEnter() {
         if (prefConfig == null || !prefConfig.enablePip || isFinishing() || isDestroyed() ||
                 !getPackageManager().hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)) {
             return;
@@ -2197,7 +2180,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     }
 
     @SuppressLint("InlinedApi")
-    private final Runnable hideSystemUi = new Runnable() {
+    final Runnable hideSystemUi = new Runnable() {
             @Override
             public void run() {
                 View decor = getWindow().getDecorView();
@@ -2228,7 +2211,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             }
     };
 
-    private void hideSystemUi(int delay) {
+    void hideSystemUi(int delay) {
         Handler h = getWindow().getDecorView().getHandler();
         if (h != null) {
             h.removeCallbacks(hideSystemUi);
@@ -2781,373 +2764,21 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         super.attachBaseContext(UiHelper.localeContext(base));
     }
 
-    void showStreamDialog(android.app.Dialog dialog) {
-        keyboardInput.hidePcKeyboard();
-        touchInput.setInputGrabState(false);
-        suppressPipRefCount++;
-        updatePipAutoEnter();
-        streamMenu = dialog;
-        dialog.setOnDismissListener(ignored -> {
-            if (streamMenu == dialog) {
-                streamMenu = null;
-            }
-            if (streamMenuSheet != null && streamMenuSheet.sheet() == dialog) {
-                streamMenuSheet = null;
-            }
-            suppressPipRefCount--;
-            updatePipAutoEnter();
-            Runnable action = streamMenuAction;
-            streamMenuAction = null;
-            if (foreground && connected && !isFinishing()) {
-                windowFocusActions.add(() -> {
-                    touchInput.setInputGrabState(restoreInputAfterMenu);
-                    hideSystemUi(1000);
-                    if (action != null) {
-                        action.run();
-                    }
-                }, SystemClock.uptimeMillis());
-                View decorView = getWindow().getDecorView();
-                decorView.postDelayed(runWindowFocusActions, WindowFocusActionQueue.TIMEOUT_MS);
-                if (hasWindowFocus()) {
-                    decorView.post(runWindowFocusActions);
-                }
-            }
-        });
-        ActionSheet.keepSystemBarsHidden(dialog, this);
-        dialog.show();
-    }
-
-    /** The controller quit combo: leaves the stream like the menu's Disconnect. */
     public void leaveStreamFromController() {
-        if (!foreground || isFinishing()) {
-            return;
-        }
-        leaveStream();
+        menuActions.leaveStreamFromController();
     }
 
     public void showStreamMenu() {
-        if (!foreground || !connected || streamMenu != null) {
-            return;
-        }
-        restoreInputAfterMenu = grabbedInput;
-        // Whoever opens the menu knows how; the first-stream hint has done its job.
-        overlays.dismissStreamMenuHint(true);
-        // The audio switches show the host's state as it is now, so they appear once it answers.
-        hostAudio = null;
-        hostAudioUnread = false;
-        streamMenuSheet = new com.limelight.ui.StreamMenu(this, this::streamMenuOptions, this::onStreamMenuItem,
-                nativeMenuController());
-        showStreamDialog(streamMenuSheet.sheet());
-        refreshHostAudio();
+        menuActions.showStreamMenu();
     }
 
-    // Night mode and headphone surround as the host last answered, for the stream menu; null until it does. UI thread.
-    private com.limelight.nativeapi.NativeAudio hostAudio;
-    // The host offers the switches but its answer didn't come: the menu says so instead of leaving them out silently.
-    private boolean hostAudioUnread;
-    private boolean hostAudioBusy;
+    java.util.concurrent.ScheduledExecutorService nativeMenuThread;
 
-    private boolean offersHostAudio() {
-        return conn != null && app.getRole() == NvApp.Role.STREAM &&
-                (conn.offersHostAudio(com.limelight.nativeapi.NativeCapabilities.NIGHT_MODE) ||
-                        conn.offersHostAudio(com.limelight.nativeapi.NativeCapabilities.HEADPHONE_SURROUND));
-    }
-
-    // Reads the host's audio switches on the native menu thread; the open menu shows them once it answers.
-    private void refreshHostAudio() {
-        if (!offersHostAudio()) return;
-        NvConnection connection = conn;
-        int generation = foregroundGeneration;
-        try {
-            nativeMenuThread().execute(() -> {
-                com.limelight.nativeapi.NativeAudio audio = null;
-                try {
-                    audio = connection.hostAudio();
-                } catch (IOException e) {
-                    LimeLog.warning("Host audio not read: " + e.getMessage());
-                }
-                com.limelight.nativeapi.NativeAudio answer = audio;
-                runOnUiThread(() -> showHostAudio(answer, generation));
-            });
-        } catch (java.util.concurrent.RejectedExecutionException ignored) {
-            // The stream is over.
-        }
-    }
-
-    private void showHostAudio(com.limelight.nativeapi.NativeAudio audio, int generation) {
-        if (generation != foregroundGeneration || isFinishing()) return;
-        hostAudio = audio;
-        hostAudioUnread = audio == null;
-        if (streamMenuSheet != null) streamMenuSheet.refresh();
-    }
-
-    /**
-     * A quick toggle for one of the host's audio switches: the host applies it to this stream from its next audio
-     * packet, and the menu shows the host's answer rather than guessing. A refusal is shown with the host's message.
-     */
-    private void toggleHostAudio(String id) {
-        com.limelight.nativeapi.NativeAudio audio = hostAudio;
-        com.limelight.nativeapi.NativeAudio.Setting setting = audio == null ? null : audio.get(id);
-        if (setting == null || !setting.switchable() || hostAudioBusy || conn == null) return;
-        boolean on = !setting.value;
-        NvConnection connection = conn;
-        int generation = foregroundGeneration;
-        hostAudioBusy = true;
-        try {
-            nativeMenuThread().execute(() -> {
-                com.limelight.nativeapi.NativeAudio answer = null;
-                IOException failure = null;
-                try {
-                    answer = connection.writeHostAudio(id, on);
-                } catch (IOException e) {
-                    failure = e;
-                }
-                com.limelight.nativeapi.NativeAudio changed = answer;
-                IOException refused = failure;
-                runOnUiThread(() -> {
-                    hostAudioBusy = false;
-                    if (refused != null) {
-                        LimeLog.warning("Host audio not changed: " + refused.getMessage());
-                        if (foreground && generation == foregroundGeneration && connected && !isFinishing()) {
-                            messages.alert(getString(R.string.stream_audio_failed, refused.getMessage()), Toast.LENGTH_LONG);
-                        }
-                        // Show what the host has instead of the switch's old state.
-                        refreshHostAudio();
-                        return;
-                    }
-                    showHostAudio(changed, generation);
-                    com.limelight.nativeapi.NativeAudio.Setting now = changed.get(id);
-                    // Why the stream doesn't apply it yet, in the host's words unless it is just the next stream.
-                    String note = now == null || now.reason == null ? null :
-                            com.limelight.nativeapi.NativeAudio.NEXT_STREAM.equals(now.reason) ?
-                                    getString(R.string.stream_audio_next_stream) : now.message;
-                    if (on && note != null && foreground && generation == foregroundGeneration) {
-                        messages.alert(note, Toast.LENGTH_LONG);
-                    }
-                });
-            });
-        } catch (java.util.concurrent.RejectedExecutionException ignored) {
-            // The stream is over.
-            hostAudioBusy = false;
-        }
-    }
-
-    private com.limelight.console.NativeMenuController nativeMenuController;
-    private java.util.concurrent.ScheduledExecutorService nativeMenuThread;
-
-    // The Radeon panel's reads and writes: one background thread, never the render, decode or input threads.
-    private com.limelight.console.NativeMenuController nativeMenuController() {
-        if (conn == null || !conn.hasNativeSessionActions() || app.getRole() != NvApp.Role.STREAM) {
-            return null;
-        }
-        if (nativeMenuController == null) {
-            java.util.concurrent.ScheduledExecutorService thread = nativeMenuThread();
-            Handler main = new Handler(Looper.getMainLooper());
-            nativeMenuController = new com.limelight.console.NativeMenuController(conn::nativeApiClient,
-                    (task, delayMs) -> {
-                        try {
-                            thread.schedule(task, delayMs, java.util.concurrent.TimeUnit.MILLISECONDS);
-                        } catch (java.util.concurrent.RejectedExecutionException ignored) {
-                            // The stream is over.
-                        }
-                    }, main::post);
-        }
-        return nativeMenuController;
-    }
-
-    private java.util.concurrent.ScheduledExecutorService nativeMenuThread() {
-        if (nativeMenuThread == null) {
-            nativeMenuThread = java.util.concurrent.Executors.newSingleThreadScheduledExecutor(task -> {
-                Thread thread = new Thread(task, "Native menu");
-                thread.setDaemon(true);
-                return thread;
-            });
-        }
-        return nativeMenuThread;
-    }
-
-    /**
-     * Opens the menu the host draws into the stream. Like every menu action it runs once Nightjar's own sheet has
-     * closed, so input reaches the stream (and the host's menu) again; the request runs on the native menu thread and
-     * a refusal is shown with the host's message.
-     */
-    private void openHostMenu() {
-        if (conn == null || !connected) return;
-        NvConnection connection = conn;
-        int generation = foregroundGeneration;
-        try {
-            nativeMenuThread().execute(() -> {
-                try {
-                    connection.openHostMenu();
-                } catch (IOException e) {
-                    LimeLog.warning("Host menu not opened: " + e.getMessage());
-                    showHostActionError(e, generation);
-                }
-            });
-        } catch (java.util.concurrent.RejectedExecutionException ignored) {
-            // The stream is over.
-        }
-    }
-
-    // What the stream menu offers right now. Host features and permissions decide the rest.
-    private com.limelight.ui.StreamMenu.Options streamMenuOptions() {
-        com.limelight.ui.StreamMenu.Options options = new com.limelight.ui.StreamMenu.Options(app.getRole(), conn.getHostDetails());
-        options.canSendInput = conn.canSendInput();
-        options.nativeHostControl = conn.hasNativeHostControl();
-        options.hostMenu = conn.hasNativeCouchMenu();
-        options.usbForwarding = prefConfig.usbForwarding && MoonBridge.isRustStream() && conn.offersUsbForwarding();
-        options.imageClipboard = conn.hasImageClipboard();
-        options.microphoneOffered = conn.getMicrophoneStatus().canMute();
-        options.microphoneMuted = conn.isMicrophoneMuted();
-        options.nightModeOffered = conn.offersHostAudio(com.limelight.nativeapi.NativeCapabilities.NIGHT_MODE);
-        options.headphoneSurroundOffered = conn.offersHostAudio(com.limelight.nativeapi.NativeCapabilities.HEADPHONE_SURROUND);
-        options.hostAudio = hostAudio;
-        options.hostAudioUnread = hostAudioUnread;
-        options.micButtonAvailable = micButton != null;
-        options.micButtonShown = micButton != null && prefConfig.micButton;
-        options.overlayShown = prefConfig.enablePerfOverlay;
-        options.overlayMode = overlayMode;
-        options.overlayPosition = overlayCorner.key;
-        options.localOutput = externalPresentation == null;
-        options.mouseConnected = touchInput.hasExternalMouse();
-        options.controllerMouseAvailable = controllerHandler != null && controllerHandler.hasControllers();
-        options.controllerMouseOn = controllerHandler != null && controllerHandler.isMouseEmulationActive();
-        options.cursorVisible = cursorVisible;
-        options.onscreenControls = prefConfig.onscreenController;
-        options.gameControls = gameTouchControls != null;
-        options.keyboardKeysShown = keyboardInput.isKeyboardOverlayVisible();
-        options.scalingAvailable = canScaleLive();
-        options.zoomEnabled = desktopGestures != null && desktopGestures.enabled();
-        options.pictureInPicture = canEnterPictureInPicture();
-        options.externalDisplays = hasPresentationDisplays();
-        options.automaticQuality = supportsAdaptiveQuality();
-        options.automaticBitrateOn = isAdaptiveBitrateEnabled() || isRateChangeBitrateOn();
-        options.rateChange = rateChanges != null;
-        options.rateChangeBitrate = rateChanges != null && prefConfig.rateChangeBitrate;
-        options.webUiAddress = hostWebUiUrl() != null;
-        options.connection = connectionInfo();
-        return options;
-    }
-
-    // What the native page says about the stream; values the stream already holds, nothing read from the network.
-    private com.limelight.console.ConnectionInfo connectionInfo() {
-        if (decoderRenderer == null || prefConfig == null) return null;
-        ComputerDetails details = conn.getHostDetails();
-        return new com.limelight.console.ConnectionInfo(details.name, decoderRenderer.getActiveVideoFormat(),
-                prefConfig.width, prefConfig.height, prefConfig.fps, currentBitrate == 0 ? prefConfig.bitrate : currentBitrate,
-                wifiDiagnostics != null ? wifiDiagnostics.latest() : null,
-                com.limelight.console.ConnectionInfo.rttMs(MoonBridge.getEstimatedRttInfo()));
-    }
-
-    private void onStreamMenuItem(com.limelight.ui.StreamMenu.Item item) {
-        switch (item) {
-            // The quick toggles change in place and leave the menu open.
-            case OVERLAY: overlays.togglePerformanceOverlay(); return;
-            case MICROPHONE: toggleMicrophoneMute(); return;
-            case NIGHT_MODE: toggleHostAudio(com.limelight.nativeapi.NativeCapabilities.NIGHT_MODE); return;
-            case HEADPHONE_SURROUND: toggleHostAudio(com.limelight.nativeapi.NativeCapabilities.HEADPHONE_SURROUND); return;
-            default: break;
-        }
-        Runnable action = null;
-        ComputerDetails details = conn.getHostDetails();
-        switch (item) {
-            case PC_KEYBOARD: action = keyboardInput::togglePcKeyboard; break;
-            case KEYBOARD: action = this::toggleKeyboard; break;
-            case TOUCH_MODE: action = touchInput::showTouchModeDialog; break;
-            case MOUSE_CURSOR: action = touchInput::toggleCursorVisibility; break;
-            case CONTROLLER_MOUSE: action = () -> { if (controllerHandler != null) controllerHandler.toggleMouseEmulationFromMenu(); }; break;
-            case ONSCREEN_CONTROLS: action = () -> touchInput.setOnscreenControlsEnabled(!prefConfig.onscreenController); break;
-            case CONTROLS_LAYOUT: action = touchInput::showControllerLayoutDialog; break;
-            case MIC_BUTTON: action = () -> touchInput.setMicButtonShown(!prefConfig.micButton); break;
-            case GAME_CONTROLS: action = gameTouchControls == null ? null : gameTouchControls::showMenu; break;
-            case KEYBOARD_KEYS: action = keyboardInput::toggleKeyboardOverlay; break;
-            case VIDEO_SCALING: action = this::showVideoScalingDialog; break;
-            case ZOOM: action = this::toggleDesktopZoom; break;
-            case ZOOM_RESET: action = () -> {
-                desktopGestures.reset();
-                if (trackpadPointer != null) trackpadPointer.syncCursor();
-            }; break;
-            case PICTURE_IN_PICTURE: action = this::enterPictureInPictureNow; break;
-            case VIDEO_OUTPUT: action = this::showVideoOutputDialog; break;
-            case BITRATE: action = this::showBitrateDialog; break;
-            case RATE_CHANGE: action = this::showRateChangeDialog; break;
-            case AUTOMATIC_QUALITY: action = this::showAdaptiveQualityDialog; break;
-            case AUTOMATIC_BITRATE: action = this::toggleAdaptiveBitrateFromMenu; break;
-            case SERVER_COMMANDS: action = () -> showServerCommands(details); break;
-            case CLIPBOARD_SEND: action = () -> transferClipboard(true); break;
-            case CLIPBOARD_RECEIVE: action = () -> transferClipboard(false); break;
-            case USB_DEVICES: action = this::showUsbDevices; break;
-            case IMAGE_CLIPBOARD_SEND: action = () -> transferClipboardImage(true); break;
-            case IMAGE_CLIPBOARD_RECEIVE: action = () -> transferClipboardImage(false); break;
-            case FILES: action = this::showFiles; break;
-            case HOST_WEB_UI: action = this::showHostWebUi; break;
-            case HOST_STATUS: action = this::refreshHostStatus; break;
-            case HOST_MENU: action = this::openHostMenu; break;
-            case RECONNECT: action = this::reconnectStream; break;
-            case DISCONNECT: action = this::leaveStream; break;
-            case QUIT_GAME: action = this::confirmQuitApp; break;
-            case END_HOST_SESSION: action = this::confirmEndHostSession; break;
-            case CLOSE_GAME: action = this::confirmCloseGame; break;
-            case END_SESSION: action = this::endRemoteSession; break;
-            case OVERLAY_OFF: action = overlays::hidePerformanceOverlay; break;
-            case OVERLAY_TOP_LEFT: action = () -> overlays.setPerformanceOverlayPosition(com.limelight.ui.OverlayPlacement.Corner.TOP_LEFT); break;
-            case OVERLAY_TOP_RIGHT: action = () -> overlays.setPerformanceOverlayPosition(com.limelight.ui.OverlayPlacement.Corner.TOP_RIGHT); break;
-            case OVERLAY_BOTTOM_LEFT: action = () -> overlays.setPerformanceOverlayPosition(com.limelight.ui.OverlayPlacement.Corner.BOTTOM_LEFT); break;
-            case OVERLAY_BOTTOM_RIGHT: action = () -> overlays.setPerformanceOverlayPosition(com.limelight.ui.OverlayPlacement.Corner.BOTTOM_RIGHT); break;
-            case OVERLAY_COMPACT: action = () -> overlays.showPerformanceOverlay(PerformanceOverlay.MODE_COMPACT); break;
-            case OVERLAY_STATISTICS: action = () -> overlays.showPerformanceOverlay(PerformanceOverlay.MODE_STATISTICS); break;
-            case OVERLAY_DEBUG: action = () -> overlays.showPerformanceOverlay(PerformanceOverlay.MODE_DEBUG); break;
-            case OVERLAY_COPY: action = overlays::copyPerformanceStats; break;
-            case STREAM_HEALTH: action = this::showStreamHealth; break;
-            case LATENCY_TEST: action = this::runLatencyTest; break;
-            default: break;
-        }
-        // Like every menu action, it runs once the menu has closed and the stream has focus again.
-        streamMenuAction = action;
-        if (streamMenuSheet != null) streamMenuSheet.sheet().dismiss();
-    }
-
-    /**
-     * A USB-driver controller produces no Android key events, so its D-pad, A and B reach the open
-     * stream menu or dialog from here: B goes back, A chooses, the D-pad moves the focus.
-     */
     public void steerStreamMenu(int keyCode) {
-        android.app.Dialog dialog = streamMenu;
-        if (dialog == null || !dialog.isShowing() || dialog.getWindow() == null) return;
-        if (keyCode == KeyEvent.KEYCODE_BUTTON_B) {
-            dialog.onBackPressed();
-            return;
-        }
-        View decor = dialog.getWindow().getDecorView();
-        View focused = decor.findFocus();
-        if (focused == null) {
-            // After touch nothing has focus: the first press shows it, as a D-pad would, and chooses nothing.
-            decor.requestFocusFromTouch();
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) decor.restoreDefaultFocus();
-            return;
-        }
-        if (keyCode == KeyEvent.KEYCODE_DPAD_CENTER && focused.isClickable() && !(focused instanceof android.widget.AdapterView)) {
-            focused.performClick();
-            return;
-        }
-        long now = SystemClock.uptimeMillis();
-        KeyEvent down = new KeyEvent(now, now, KeyEvent.ACTION_DOWN, keyCode, 0);
-        // Lists and buttons handle their own keys; plain rows need the focus search the window would do.
-        boolean handled = dialog.dispatchKeyEvent(down);
-        dialog.dispatchKeyEvent(KeyEvent.changeAction(down, KeyEvent.ACTION_UP));
-        if (handled) return;
-        View next = null;
-        switch (keyCode) {
-            case KeyEvent.KEYCODE_DPAD_UP: next = focused.focusSearch(View.FOCUS_UP); break;
-            case KeyEvent.KEYCODE_DPAD_DOWN: next = focused.focusSearch(View.FOCUS_DOWN); break;
-            case KeyEvent.KEYCODE_DPAD_LEFT: next = focused.focusSearch(View.FOCUS_LEFT); break;
-            case KeyEvent.KEYCODE_DPAD_RIGHT: next = focused.focusSearch(View.FOCUS_RIGHT); break;
-            default: break;
-        }
-        if (next != null) next.requestFocus();
+        menuActions.steerStreamMenu(keyCode);
     }
 
-    private void toggleAdaptiveBitrateFromMenu() {
+    void toggleAdaptiveBitrateFromMenu() {
         // Automatic bitrate on this device turns on and off for this stream only; the setting stays.
         if (isRateChangeBitrateOn() || (!isAdaptiveBitrateEnabled() && rateChanges != null && prefConfig.rateChangeBitrate)) {
             boolean enable = !isRateChangeBitrateOn();
@@ -3166,102 +2797,6 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         } else {
             messages.alert(R.string.stream_bitrate_busy, Toast.LENGTH_SHORT);
         }
-    }
-
-    // The host web UI's address for this stream: the address and HTTPS port the stream connected to.
-    private okhttp3.HttpUrl hostWebUiUrl() {
-        ComputerDetails details = conn.getHostDetails();
-        String address = getIntent().getStringExtra(EXTRA_HOST);
-        if (details == null || address == null) return null;
-        ComputerDetails target = new ComputerDetails();
-        target.state = ComputerDetails.State.ONLINE;
-        target.caps = details.caps;
-        target.activeAddress = new ComputerDetails.AddressTuple(address,
-                getIntent().getIntExtra(EXTRA_PORT, NvHTTP.DEFAULT_HTTP_PORT));
-        target.httpsPort = details.httpsPort != 0 ? details.httpsPort : getIntent().getIntExtra(EXTRA_HTTPS_PORT, 0);
-        return ServerHelper.getHostSettingsUrl(target);
-    }
-
-    private void showHostWebUi() {
-        okhttp3.HttpUrl url = hostWebUiUrl();
-        if (url == null) return;
-        AlertDialog dialog = new NavigationDialogBuilder(this).setTitle(R.string.host_administration_menu)
-                .setMessage(getString(R.string.host_administration_help, url.toString()) + "\n\n" +
-                        getString(R.string.stream_web_ui_leaves))
-                .setNegativeButton(android.R.string.cancel, null)
-                .setPositiveButton(R.string.host_administration_open, (prompt, which) -> streamMenuAction = () -> {
-                    try {
-                        startActivity(new Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url.toString())));
-                    } catch (android.content.ActivityNotFoundException | SecurityException e) {
-                        messages.alert(R.string.host_administration_no_browser, Toast.LENGTH_LONG);
-                    }
-                }).create();
-        showStreamDialog(dialog);
-        TextView message = dialog.findViewById(android.R.id.message);
-        if (message != null) message.setTextIsSelectable(true);
-    }
-
-    /** The PC's file transfer screen; it opens over the stream, so the menu says it leaves it first. */
-    private void showFiles() {
-        String uuid = getIntent().getStringExtra(EXTRA_PC_UUID);
-        if (uuid == null) return;
-        showStreamDialog(new NavigationDialogBuilder(this).setTitle(R.string.files_menu)
-                .setMessage(R.string.files_stream_leaves)
-                .setNegativeButton(android.R.string.cancel, null)
-                .setPositiveButton(R.string.files_open, (prompt, which) -> streamMenuAction = () ->
-                        startActivity(com.limelight.files.FileTransferActivity.forPc(this, uuid)))
-                .create());
-    }
-
-    private final com.limelight.binding.audio.MicNotice.Once microphoneNotice = new com.limelight.binding.audio.MicNotice.Once();
-
-    // The microphone settings ask for processing this device lacks: say so in the stream, once per difference.
-    // A microphone that failed and was muted is said every time, since each unmute tries again.
-    private void showMicrophoneNotice() {
-        if (conn == null || isFinishing() || isDestroyed()) return;
-        if (conn.takeMicrophoneFailure()) {
-            messages.alert(getString(R.string.mic_failed), Toast.LENGTH_LONG);
-            if (micButton != null) micButton.refresh();
-        }
-        String text = microphoneNotice.next(com.limelight.binding.audio.MicNotice.text(this, conn.takeMicrophoneNotice()));
-        if (text != null) messages.alert(text, Toast.LENGTH_LONG);
-    }
-
-    private void toggleMicrophoneMute() {
-        if (conn == null) return;
-        conn.setMicrophoneMuted(!conn.isMicrophoneMuted());
-        if (micButton != null) micButton.refresh();
-    }
-
-    private boolean latencyTestRunning;
-
-    private void showStreamHealth() {
-        com.limelight.utils.StreamHealth.Report report = streamHealth.report(SystemClock.uptimeMillis());
-        StringBuilder text = healthText(this, report, wifiText(0));
-        boolean manual = healthTrialAllowed(isAdaptiveBitrateEnabled(), isRateChangeBitrateOn(), adaptiveQuality != null);
-        boolean undo = healthOriginalBitrate > 0 && currentBitrate == healthTrialBitrate && manual;
-        boolean suggest = report.canSuggestBitrate() && supportsAdaptiveBitrate() && manual &&
-                currentBitrate > 500 && !hostActionInProgress && !undo;
-        if (undo || suggest) text.append("\n\n").append(getString(R.string.health_trial_help));
-        MaterialAlertDialogBuilder builder = new NavigationDialogBuilder(this).setTitle(R.string.health_title)
-                .setMessage(text).setNegativeButton(android.R.string.cancel, null)
-                .setNeutralButton(R.string.overlay_copy, (dialog, which) -> {
-                    ClipboardManager clipboard = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
-                    clipboard.setPrimaryClip(ClipData.newPlainText(getString(R.string.health_title), text));
-                });
-        if (undo || suggest) builder.setPositiveButton(undo ? R.string.health_undo : R.string.health_try,
-                (dialog, which) -> applyHealthBitrate(undo));
-        else builder.setPositiveButton(android.R.string.ok, null);
-        showStreamDialog(builder.create());
-    }
-
-    String wifiText(long stallPeriodMs) {
-        com.limelight.utils.WifiDiagnostics.Lock lock = Build.VERSION.SDK_INT < Build.VERSION_CODES.Q ?
-                com.limelight.utils.WifiDiagnostics.Lock.UNSUPPORTED :
-                lowLatencyWifiLock != null && lowLatencyWifiLock.isHeld() ?
-                        com.limelight.utils.WifiDiagnostics.Lock.HELD : com.limelight.utils.WifiDiagnostics.Lock.NOT_HELD;
-        return com.limelight.utils.WifiDiagnostics.describe(this,
-                wifiDiagnostics != null ? wifiDiagnostics.latest() : null, lock, stallPeriodMs);
     }
 
     /** The stream doctor's findings, evidence and connection facts; shared with the debug fixture. */
@@ -3300,7 +2835,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         return !adaptiveBitrate && !rateChangeBitrate && !adaptiveQuality;
     }
 
-    private void applyHealthBitrate(boolean undo) {
+    void applyHealthBitrate(boolean undo) {
         if (!foreground || !connected || hostActionInProgress || !supportsAdaptiveBitrate() ||
                 !healthTrialAllowed(isAdaptiveBitrateEnabled(), isRateChangeBitrateOn(), adaptiveQuality != null)) return;
         if (undo && (healthOriginalBitrate <= 0 || currentBitrate != healthTrialBitrate)) return;
@@ -3344,196 +2879,6 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 runOnUiThread(() -> hostActionInProgress = false);
             }
         }, "Stream doctor bitrate trial").start();
-    }
-
-    // Nudges the host mouse back and forth on a still screen and times each nudge until its frame is shown.
-    private void runLatencyTest() {
-        if (latencyTestRunning || !connected) return;
-        latencyTestRunning = true;
-        messages.alert(R.string.latency_test_running, Toast.LENGTH_LONG);
-        LatencyProbe probe = decoderRenderer.getLatencyProbe();
-        NvConnection connection = conn;
-        new Thread(() -> {
-            final int probes = 15;
-            long[] samples = new long[probes];
-            int count = 0;
-            short step = 8;
-            long giveUpNs = System.nanoTime() + 20_000_000_000L;
-            try {
-                while (count < probes && connected && System.nanoTime() < giveUpNs) {
-                    if (!probe.isIdle(System.nanoTime())) {
-                        Thread.sleep(10);
-                        continue;
-                    }
-                    probe.arm(System.nanoTime());
-                    connection.sendMouseMove(step, (short) 0);
-                    step = (short) -step;
-                    long ns = probe.await(500);
-                    if (ns > 0) samples[count++] = ns;
-                }
-            } catch (InterruptedException ignored) {
-            }
-            int measured = count;
-            float[] result = LatencyProbe.summarize(samples, measured);
-            runOnUiThread(() -> {
-                latencyTestRunning = false;
-                if (!foreground || !connected || isFinishing()) return;
-                String message = result == null || measured < 5 ? getString(R.string.latency_test_failed) :
-                        getString(R.string.latency_test_result, result[1], result[0], result[2], measured);
-                LimeLog.info("Latency test: " + message);
-                showStreamDialog(new NavigationDialogBuilder(this).setTitle(R.string.latency_test)
-                        .setMessage(message).setPositiveButton(android.R.string.ok, null).create());
-            });
-        }, "Latency test").start();
-    }
-
-    private void confirmQuitApp() {
-        confirmHostExit(R.string.stream_quit_game, R.string.stream_quit_game_confirm, this::quitStreamApp);
-    }
-
-    private void confirmCloseGame() {
-        confirmHostExit(R.string.stream_close_game, R.string.stream_close_game_confirm, this::quitStreamApp);
-    }
-
-    private void confirmEndHostSession() {
-        confirmHostExit(R.string.stream_end_session, R.string.stream_end_session_confirm, this::endHostSession);
-    }
-
-    private void confirmHostExit(int title, int message, Runnable exit) {
-        androidx.appcompat.app.AlertDialog dialog = new NavigationDialogBuilder(this).setTitle(title)
-                .setMessage(message).setNegativeButton(android.R.string.cancel, null)
-                .setPositiveButton(title, (prompt, which) -> streamMenuAction = exit).create();
-        showStreamDialog(dialog);
-        // The action ends the session or the game on the PC: its button carries the same error colour as the menu item.
-        android.widget.Button confirm = dialog.getButton(androidx.appcompat.app.AlertDialog.BUTTON_POSITIVE);
-        if (confirm != null) {
-            confirm.setTextColor(com.google.android.material.color.MaterialColors.getColor(confirm,
-                    androidx.appcompat.R.attr.colorError));
-        }
-    }
-
-    /** Closes the game on the PC (the native Close game, or Quit app on a host without the API) and leaves. */
-    private void quitStreamApp() {
-        runHostExit("Quit stream app", () -> conn.closeGame());
-    }
-
-    /** Ends the stream session on the PC and leaves; the game keeps running. */
-    private void endHostSession() {
-        runHostExit("End host session", () -> conn.nativeSessionAction(NativeSession.ActionId.END));
-    }
-
-    private interface HostExit {
-        void run() throws IOException, XmlPullParserException;
-    }
-
-    private void runHostExit(String threadName, HostExit exit) {
-        if (hostActionInProgress || !foreground || !connected) return;
-        int generation = foregroundGeneration;
-        hostActionInProgress = true;
-        hostExitRequested = true;
-        new Thread(() -> {
-            try {
-                exit.run();
-                runOnUiThread(this::finish);
-            } catch (IOException | XmlPullParserException e) {
-                runOnUiThread(this::confirmHostExitFailedLater);
-                showHostActionError(e, generation);
-            } finally {
-                runOnUiThread(() -> hostActionInProgress = false);
-            }
-        }, threadName).start();
-    }
-
-    /**
-     * Leaves the stream as the player asked. A game set to quit on leave is quit first, while the
-     * stream still holds the host connection; a failure is reported because the game stays running.
-     */
-    void leaveStream() {
-        boolean chosen = AppQuitOnLeave.isEnabled(this, getIntent().getStringExtra(EXTRA_PC_UUID),
-                app.getAppUuid(), app.getAppId());
-        // A plain disconnect never waits for a host request; its callbacks check the activity.
-        if (!StreamExitPolicy.quitsOnLeave(chosen, app.getRole(), connected)) {
-            if (connected && conn != null) conn.announceDisconnect();
-            finish();
-            return;
-        }
-        if (hostActionInProgress) {
-            messages.alert(R.string.stream_bitrate_busy, Toast.LENGTH_SHORT);
-            return;
-        }
-        String name = appName != null ? appName : app.getAppName();
-        Context context = getApplicationContext();
-        hostActionInProgress = true;
-        hostExitRequested = true;
-        Toast.makeText(context, getString(R.string.stream_quit_on_leave_progress, name), Toast.LENGTH_SHORT).show();
-        new Thread(() -> {
-            Exception failure = null;
-            try {
-                conn.closeGame();
-            } catch (IOException | XmlPullParserException e) {
-                failure = e;
-            }
-            Exception error = failure;
-            runOnUiThread(() -> {
-                hostActionInProgress = false;
-                // A host that ends the stream while it quits cancels the reply, so a failure counts
-                // only while the stream is still up.
-                if (error != null && connected) {
-                    LimeLog.warning("Quit on leave failed: " + error.getMessage());
-                    Toast.makeText(context, context.getString(R.string.stream_quit_on_leave_failed, name,
-                            error.getMessage()), Toast.LENGTH_LONG).show();
-                }
-                finish();
-            });
-        }, "Quit on leave").start();
-    }
-
-    private void endRemoteSession() {
-        if (hostActionInProgress) {
-            return;
-        }
-        final int generation = foregroundGeneration;
-        hostActionInProgress = true;
-        hostExitRequested = true;
-        new Thread(() -> {
-            try {
-                conn.disconnectRemoteSession();
-                runOnUiThread(this::finish);
-            } catch (IOException | XmlPullParserException e) {
-                runOnUiThread(this::confirmHostExitFailedLater);
-                showHostActionError(e, generation);
-            } finally {
-                runOnUiThread(() -> hostActionInProgress = false);
-            }
-        }, "End remote session").start();
-    }
-
-    private void confirmHostExitFailedLater() {
-        bitrateHandler.removeCallbacks(hostExitFailed);
-        bitrateHandler.postDelayed(hostExitFailed, HOST_EXIT_CONFIRM_MS);
-    }
-
-    private void refreshHostStatus() {
-        if (hostActionInProgress) {
-            return;
-        }
-        final int generation = foregroundGeneration;
-        hostActionInProgress = true;
-        new Thread(() -> {
-            try {
-                ComputerDetails details = conn.refreshHostDetails();
-                runOnUiThread(() -> {
-                    if (!foreground || generation != foregroundGeneration || !connected || isFinishing() || streamMenu != null) {
-                        return;
-                    }
-                    showHostStatus(details);
-                });
-            } catch (IOException | XmlPullParserException e) {
-                showHostActionError(e, generation);
-            } finally {
-                runOnUiThread(() -> hostActionInProgress = false);
-            }
-        }, "Host status").start();
     }
 
     // Creates the on-screen controller the settings ask for, or brings the existing one back.
@@ -3614,7 +2959,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         return retry;
     }
 
-    private void reconnectStream() {
+    void reconnectStream() {
         if (recoveryHandoffInProgress || isFinishing() || isDestroyed()) return;
         stoppedStreamResumeIntent = null;
         final Intent retry = createReconnectIntent();
@@ -4005,264 +3350,13 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     }
 
     private void showReconnectDialog(int title, String message) {
-        showStreamDialog(new NavigationDialogBuilder(this).setTitle(title).setMessage(message)
+        menuActions.showStreamDialog(new NavigationDialogBuilder(this).setTitle(title).setMessage(message)
                 .setCancelable(false)
                 .setNegativeButton(R.string.stream_disconnect, (dialog, which) -> finish())
                 .setPositiveButton(R.string.stream_reconnect, (dialog, which) -> reconnectStream()).create());
     }
 
-    // The devices plugged into this one that may go to the PC; picking a forwarded one detaches it.
-    private void showUsbDevices() {
-        if (!connected) return;
-        if (usbForwarding == null) {
-            usbForwarding = new com.limelight.binding.usb.UsbForwarding(this, prefConfig, conn,
-                    text -> messages.alert(text, Toast.LENGTH_LONG));
-        }
-        com.limelight.binding.usb.UsbForwarding forwarding = usbForwarding;
-        java.util.List<android.hardware.usb.UsbDevice> devices = forwarding.candidates();
-        com.google.android.material.dialog.MaterialAlertDialogBuilder builder = new NavigationDialogBuilder(this)
-                .setTitle(R.string.usb_forwarding_pick_title);
-        if (devices.isEmpty()) {
-            builder.setMessage(R.string.usb_forwarding_none).setPositiveButton(android.R.string.ok, null);
-        } else {
-            CharSequence[] labels = new CharSequence[devices.size()];
-            for (int i = 0; i < labels.length; i++) labels[i] = forwarding.label(devices.get(i));
-            builder.setItems(labels, (dialog, which) -> forwarding.choose(devices.get(which)))
-                    .setNegativeButton(android.R.string.cancel, null);
-        }
-        showStreamDialog(builder.create());
-    }
-
-    private void transferClipboard(boolean send) {
-        if (hostActionInProgress || !foreground || !connected) {
-            return;
-        }
-        ClipboardManager clipboard = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
-        String text = null;
-        if (send) {
-            final ClipData clip;
-            try {
-                clip = clipboard.getPrimaryClip();
-            } catch (RuntimeException e) {
-                showHostActionError(e, foregroundGeneration);
-                return;
-            }
-            if (clip == null || clip.getItemCount() == 0 || clip.getItemAt(0).getText() == null) {
-                messages.alert(R.string.stream_clipboard_empty, Toast.LENGTH_SHORT);
-                return;
-            }
-            text = clip.getItemAt(0).getText().toString();
-        }
-        final String outgoing = text;
-        final int generation = foregroundGeneration;
-        hostActionInProgress = true;
-        new Thread(() -> {
-            try {
-                if (send) {
-                    conn.sendClipboard(outgoing);
-                }
-                String incoming = send ? null : conn.getClipboard();
-                runOnUiThread(() -> {
-                    // Window focus is not asked: a toast or the stream menu's dialog holds it while the stream stays.
-                    if (!foreground || generation != foregroundGeneration || !connected || isFinishing()) {
-                        if (!send) {
-                            messages.alert(R.string.stream_clipboard_not_copied, Toast.LENGTH_LONG);
-                        }
-                        return;
-                    }
-                    if (!send) {
-                        ClipData clip = ClipData.newPlainText(BuildConfig.BRAND_NAME, incoming);
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                            PersistableBundle extras = new PersistableBundle();
-                            extras.putBoolean("android.content.extra.IS_SENSITIVE", true);
-                            clip.getDescription().setExtras(extras);
-                        }
-                        try {
-                            clipboard.setPrimaryClip(clip);
-                        } catch (RuntimeException e) {
-                            showHostActionError(e, generation);
-                            return;
-                        }
-                    }
-                    messages.alert(send ? R.string.stream_clipboard_sent : R.string.stream_clipboard_received, Toast.LENGTH_SHORT);
-                });
-            } catch (IOException | XmlPullParserException e) {
-                showHostActionError(e, generation);
-            } finally {
-                runOnUiThread(() -> hostActionInProgress = false);
-            }
-        }, "Clipboard transfer").start();
-    }
-
-    /**
-     * Sends the image on this device's clipboard to the host as a PNG, or puts the host's PNG on this device's
-     * clipboard as a content URI. Android 13 and later confirm a copy themselves, so only older ones get a toast.
-     */
-    private void transferClipboardImage(boolean send) {
-        if (hostActionInProgress || !foreground || !connected) {
-            return;
-        }
-        ClipboardManager clipboard = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
-        ClipData current = null;
-        if (send) {
-            try {
-                current = clipboard.getPrimaryClip();
-            } catch (RuntimeException e) {
-                showHostActionError(e, foregroundGeneration);
-                return;
-            }
-            if (current == null || current.getItemCount() == 0) {
-                messages.alert(R.string.stream_clipboard_image_empty, Toast.LENGTH_SHORT);
-                return;
-            }
-        }
-        final ClipData outgoing = current;
-        final int generation = foregroundGeneration;
-        hostActionInProgress = true;
-        new Thread(() -> {
-            java.io.File staged = null;
-            try {
-                if (send) {
-                    // The image's type comes from its provider, which may block: never asked on the main thread.
-                    android.net.Uri image = ClipboardImages.imageUri(outgoing, getContentResolver());
-                    if (image == null) {
-                        showClipboardImageResult(R.string.stream_clipboard_image_empty, generation);
-                        return;
-                    }
-                    staged = ClipboardImages.readPng(this, image);
-                    conn.sendClipboardImage(staged);
-                    showClipboardImageResult(R.string.stream_clipboard_image_sent, generation);
-                    return;
-                }
-                staged = ClipboardImages.newIncoming(this);
-                boolean found;
-                try (java.io.OutputStream out = new java.io.FileOutputStream(staged)) {
-                    found = conn.getClipboardImage(out);
-                }
-                if (!found) {
-                    showClipboardImageResult(R.string.stream_clipboard_image_none, generation);
-                    return;
-                }
-                java.io.File incoming = staged;
-                staged = null;
-                runOnUiThread(() -> placeClipboardImage(clipboard, incoming, generation));
-            } catch (ClipboardImageException e) {
-                LimeLog.warning("Clipboard image refused: " + e.getMessage());
-                showClipboardImageResult(ClipboardImages.message(e.reason, send), generation);
-            } catch (OutOfMemoryError e) {
-                LimeLog.warning("Clipboard image out of memory: " + e);
-                showClipboardImageResult(ClipboardImages.message(ClipboardImageException.Reason.TOO_LARGE, send),
-                        generation);
-            } catch (IOException | XmlPullParserException | RuntimeException e) {
-                showHostActionError(e, generation);
-            } finally {
-                if (staged != null) {
-                    ClipboardImages.discard(staged);
-                }
-                runOnUiThread(() -> hostActionInProgress = false);
-            }
-        }, "Clipboard image transfer").start();
-    }
-
-    /**
-     * Puts the host's image, streamed to {@code image}, on this device's clipboard; the images before it go only once
-     * it is there. A stream that closed meanwhile gets it said, not a silent drop.
-     */
-    private void placeClipboardImage(ClipboardManager clipboard, java.io.File image, int generation) {
-        // Window focus is not asked: a toast or the stream menu's dialog holds it while the stream stays.
-        if (!foreground || generation != foregroundGeneration || !connected || isFinishing()) {
-            ClipboardImages.discard(image);
-            messages.alert(R.string.stream_clipboard_image_not_copied, Toast.LENGTH_LONG);
-            return;
-        }
-        try {
-            ClipData clip = ClipData.newUri(getContentResolver(), BuildConfig.BRAND_NAME, ClipboardImages.share(this, image));
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                PersistableBundle extras = new PersistableBundle();
-                extras.putBoolean("android.content.extra.IS_SENSITIVE", true);
-                clip.getDescription().setExtras(extras);
-            }
-            clipboard.setPrimaryClip(clip);
-        } catch (RuntimeException e) {
-            ClipboardImages.discard(image);
-            showHostActionError(e, generation);
-            return;
-        }
-        ClipboardImages.keepOnly(this, image);
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
-            messages.alert(R.string.stream_clipboard_image_received, Toast.LENGTH_SHORT);
-        }
-    }
-
-    private void showClipboardImageResult(int message, int generation) {
-        runOnUiThread(() -> {
-            if (foreground && generation == foregroundGeneration && connected && !isFinishing()) {
-                messages.alert(message, Toast.LENGTH_LONG);
-            }
-        });
-    }
-
-    private void showServerCommands(ComputerDetails details) {
-        String[] names = details.serverCommands.subList(0, Math.min(256, details.serverCommands.size())).toArray(new String[0]);
-        showStreamDialog(new NavigationDialogBuilder(this).setTitle(R.string.stream_server_commands)
-                .setItems(names, (dialog, index) -> {
-                    dialog.dismiss();
-                    showStreamDialog(new NavigationDialogBuilder(this).setTitle(names[index])
-                            .setMessage(R.string.stream_command_confirm)
-                            .setNegativeButton(android.R.string.cancel, null)
-                            .setPositiveButton(R.string.stream_command_run, (confirmation, which) -> {
-                                if (!foreground || !connected || hostActionInProgress) {
-                                    return;
-                                }
-                                hostActionInProgress = true;
-                                final int generation = foregroundGeneration;
-                                new Thread(() -> {
-                                    try {
-                                        boolean sent = conn.sendServerCommand(index, names[index]);
-                                        runOnUiThread(() -> {
-                                            if (foreground && generation == foregroundGeneration && connected && !isFinishing()) {
-                                                messages.alert(sent ? R.string.stream_command_sent : R.string.stream_command_failed, Toast.LENGTH_LONG);
-                                            }
-                                        });
-                                    } catch (IOException | XmlPullParserException e) {
-                                        showHostActionError(e, generation);
-                                    } finally {
-                                        runOnUiThread(() -> hostActionInProgress = false);
-                                    }
-                                }, "Server command").start();
-                            }).create());
-                }).setNegativeButton(android.R.string.cancel, null).create());
-    }
-
-    private void showHostStatus(ComputerDetails details) {
-        StringBuilder status = new StringBuilder();
-        if (details.permission == -1) {
-            status.append(getString(R.string.stream_permissions_unknown));
-        } else {
-            String[] names = getResources().getStringArray(R.array.host_permission_names);
-            int[] masks = ComputerDetails.PERMISSION_DISPLAY_MASKS;
-            for (int i = 0; i < names.length; i++) {
-                status.append(names[i]).append(": ").append(getString(details.hasPermission(masks[i]) ?
-                        R.string.stream_permission_allowed : R.string.stream_permission_denied)).append('\n');
-            }
-        }
-        if (details.permission != -1) {
-            status.append("\n\n").append(getString(R.string.stream_permissions_help));
-        }
-        if (details.caps.has(HostCapabilities.Feature.FRAME_LIMITER_STATUS)) {
-            status.append("\n\n").append(getString(R.string.stream_limiter_status,
-                    getString(details.frameLimiterEnabled ? R.string.stream_enabled : R.string.stream_disabled),
-                    getString(details.virtualDisplayFrameLimiterEnabled ? R.string.stream_enabled : R.string.stream_disabled),
-                    details.frameLimiterFpsLimitMilliHz == 0 ? getString(R.string.stream_limiter_stream_rate) :
-                            String.format(Locale.getDefault(), "%.3f FPS", details.frameLimiterFpsLimitMilliHz / 1000.0)));
-        }
-        status.append("\n\n").append(getString(!prefConfig.vrr ? R.string.stream_android_pacing :
-                useArr ? R.string.stream_android_arr : R.string.stream_android_max_refresh));
-        showStreamDialog(new NavigationDialogBuilder(this).setTitle(R.string.stream_host_status)
-                .setMessage(status).setPositiveButton(android.R.string.ok, null).create());
-    }
-
-    private void showBitrateDialog() {
+    void showBitrateDialog() {
         com.google.android.material.textfield.TextInputLayout field = new com.google.android.material.textfield.TextInputLayout(this);
         field.setBoxBackgroundMode(com.google.android.material.textfield.TextInputLayout.BOX_BACKGROUND_OUTLINE);
         field.setHint(getString(R.string.stream_bitrate));
@@ -4284,7 +3378,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 .setPositiveButton(android.R.string.ok, null).create();
         fields.addView(BitrateSlider.create(this, input, bitrateKbps, () -> applyFromSlider(bitrateDialog)));
         fields.addView(field);
-        showStreamDialog(bitrateDialog);
+        menuActions.showStreamDialog(bitrateDialog);
         bitrateDialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(view -> {
             final int kbps;
             try {
@@ -4335,7 +3429,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     }
 
     // Bitrate and frame rate in one 0x553C request; a field left as it is keeps its value.
-    private void showRateChangeDialog() {
+    void showRateChangeDialog() {
         final StreamRateChanges stream = rateChanges;
         if (stream == null) return;
         float density = getResources().getDisplayMetrics().density;
@@ -4362,7 +3456,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 .setNegativeButton(android.R.string.cancel, null)
                 .setPositiveButton(android.R.string.ok, null).create();
         opened[0] = dialog;
-        showStreamDialog(dialog);
+        menuActions.showStreamDialog(dialog);
         dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(view -> {
             // connected stays true until stopConnection, which closes this dialog: a termination
             // that has arrived but not yet stopped the stream counts as ended (streamEnding).
@@ -4592,7 +3686,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         if (at > 0) bitrateHandler.postAtTime(expireRateChanges, at);
     }
 
-    private boolean isRateChangeBitrateOn() {
+    boolean isRateChangeBitrateOn() {
         return rateChanges != null && rateChanges.automaticOn();
     }
 
@@ -4615,7 +3709,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         bitrateHandler.postDelayed(updateRateChangeBitrate, 1000);
     }
 
-    private boolean supportsAdaptiveBitrate() {
+    boolean supportsAdaptiveBitrate() {
         ComputerDetails details = conn.getHostDetails();
         return app.getRole() != NvApp.Role.INPUT_ONLY && details.caps.has(HostCapabilities.Feature.RUNTIME_BITRATE) &&
                 details.encoderBitrateSupported &&
@@ -4627,7 +3721,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 .getString(getIntent().getStringExtra(EXTRA_PC_UUID), prefConfig.adaptiveQualityMode.preference()));
     }
 
-    private boolean supportsAdaptiveQuality() {
+    boolean supportsAdaptiveQuality() {
         return connected && decoderRenderer != null && app != null && app.getRole() == NvApp.Role.STREAM &&
                 (decoderRenderer.getActiveVideoFormat() & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) == 0 &&
                 MoonBridge.hostSupportsControlMessage(MoonBridge.CONTROL_MESSAGE_RECONFIGURE) &&
@@ -4703,13 +3797,13 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         if (foreground) messages.alert(qualityStatus, Toast.LENGTH_LONG);
     }
 
-    private void showAdaptiveQualityDialog() {
+    void showAdaptiveQualityDialog() {
         String[] modes = getResources().getStringArray(R.array.adaptive_quality_names);
         String[] choices = new String[] {getString(R.string.quality_use_settings), modes[0], modes[1], modes[2], modes[3]};
         SharedPreferences saved = getSharedPreferences("AdaptiveQuality", MODE_PRIVATE);
         String key = getIntent().getStringExtra(EXTRA_PC_UUID);
         int selected = saved.contains(key) ? qualityMode().ordinal() + 1 : 0;
-        showStreamDialog(new NavigationDialogBuilder(this).setTitle(R.string.title_adaptive_quality)
+        menuActions.showStreamDialog(new NavigationDialogBuilder(this).setTitle(R.string.title_adaptive_quality)
                 .setSingleChoiceItems(choices, selected, (dialog, which) -> {
                     if (!foreground || !connected || hostActionInProgress) return;
                     if (which == 0) saved.edit().remove(key).apply();
@@ -4721,7 +3815,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                     }
                 })
                 .setNeutralButton(R.string.quality_about, (dialog, which) ->
-                        showStreamDialog(new NavigationDialogBuilder(this).setTitle(R.string.title_adaptive_quality)
+                        menuActions.showStreamDialog(new NavigationDialogBuilder(this).setTitle(R.string.title_adaptive_quality)
                                 .setMessage(getString(R.string.quality_stream_help) + "\n\n" +
                                         getString(supportsAdaptiveQuality() ? R.string.summary_adaptive_quality : R.string.quality_unavailable))
                                 .setPositiveButton(android.R.string.ok, null).create()))
@@ -4862,7 +3956,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         }
     }
 
-    private void showHostActionError(Exception error, int generation) {
+    void showHostActionError(Exception error, int generation) {
         runOnUiThread(() -> {
             if (foreground && generation == foregroundGeneration && connected && !isFinishing()) {
                 messages.alert(getString(R.string.stream_host_action_failed, error.getMessage()), Toast.LENGTH_LONG);

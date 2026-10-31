@@ -69,7 +69,7 @@ public class GameServerCommandTest {
 
     private AlertDialog sleepConfirmation(Game game, int index) {
         game.showStreamMenu();
-        StreamMenu menu = ReflectionHelpers.getField(game, "streamMenuSheet");
+        StreamMenu menu = ReflectionHelpers.getField(game.menuActions, "streamMenuSheet");
         menu.row(StreamMenu.Item.SERVER_COMMANDS).performClick();
         shadowOf(Looper.getMainLooper()).idleFor(WindowFocusActionQueue.TIMEOUT_MS, TimeUnit.MILLISECONDS);
         // This lightweight Game has no attached stream window to deliver a focus callback.

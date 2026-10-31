@@ -81,7 +81,7 @@ public class GameClipboardTest {
         Game game = game(() -> {});
         // An unattached activity has no window focus, as while a toast or the stream menu's dialog holds it.
         assertFalse(game.hasWindowFocus());
-        ReflectionHelpers.callInstanceMethod(game, "transferClipboard",
+        ReflectionHelpers.callInstanceMethod(game.menuActions, "transferClipboard",
                 ReflectionHelpers.ClassParameter.from(boolean.class, false));
         settle(game);
         ClipboardManager clipboard = (ClipboardManager) game.getSystemService(Context.CLIPBOARD_SERVICE);
@@ -96,7 +96,7 @@ public class GameClipboardTest {
         Game[] holder = new Game[1];
         Game game = game(() -> ReflectionHelpers.setField(holder[0], "connected", false));
         holder[0] = game;
-        ReflectionHelpers.callInstanceMethod(game, "transferClipboard",
+        ReflectionHelpers.callInstanceMethod(game.menuActions, "transferClipboard",
                 ReflectionHelpers.ClassParameter.from(boolean.class, false));
         settle(game);
         ClipboardManager clipboard = (ClipboardManager) game.getSystemService(Context.CLIPBOARD_SERVICE);
@@ -113,7 +113,7 @@ public class GameClipboardTest {
         File directory = new File(game.getCacheDir(), "clipboard");
         assertTrue(directory.isDirectory() || directory.mkdirs());
         File before = File.createTempFile("clipboard-", ".png", directory);
-        ReflectionHelpers.callInstanceMethod(game, "transferClipboardImage",
+        ReflectionHelpers.callInstanceMethod(game.menuActions, "transferClipboardImage",
                 ReflectionHelpers.ClassParameter.from(boolean.class, false));
         settle(game);
         assertEquals(game.getString(R.string.stream_clipboard_image_not_copied), ShadowToast.getTextOfLatestToast());

@@ -299,7 +299,7 @@ final class GameTouchInput {
             return;
         }
         String[] modes = game.getResources().getStringArray(R.array.stream_touch_modes);
-        game.showStreamDialog(new NavigationDialogBuilder(game).setTitle(R.string.stream_touch_mode)
+        game.menuActions.showStreamDialog(new NavigationDialogBuilder(game).setTitle(R.string.stream_touch_mode)
                 .setSingleChoiceItems(modes, touchMode(), (dialog, which) -> {
                     cancelTouchInput();
                     game.prefConfig.touchMode = which;
@@ -366,7 +366,7 @@ final class GameTouchInput {
             game.modernController.startEditing();
             return;
         }
-        game.showStreamDialog(new NavigationDialogBuilder(game).setTitle(R.string.stream_controls_layout)
+        game.menuActions.showStreamDialog(new NavigationDialogBuilder(game).setTitle(R.string.stream_controls_layout)
                 .setItems(R.array.stream_control_layout_actions, (dialog, which) -> {
                     VirtualController.ControllerMode[] modes = {
                             VirtualController.ControllerMode.MoveButtons,

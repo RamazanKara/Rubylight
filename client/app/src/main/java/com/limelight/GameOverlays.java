@@ -311,7 +311,7 @@ final class GameOverlays {
                 for (String note : game.messages.notes()) {
                     if (!note.equals(game.qualityStatus)) networkText += "\n" + note;
                 }
-                networkText += "\n" + game.wifiText(game.streamHealth.stallPeriodMs());
+                networkText += "\n" + game.menuActions.wifiText(game.streamHealth.stallPeriodMs());
                 debugPerformanceText = PerformanceOverlay.debugText(game, video + displayLine, networkText, decode);
                 statisticsPerformanceText = statisticsText;
                 compactPerformanceText = compactText;

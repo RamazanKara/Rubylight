@@ -360,7 +360,7 @@ public class GameRecoveryTest {
             });
             RecoveryBridge.connectivityTests = 0;
             try {
-                ReflectionHelpers.callInstanceMethod(game, "quitStreamApp");
+                ReflectionHelpers.callInstanceMethod(game.menuActions, "quitStreamApp");
                 assertTrue(quitting.await(HANG_GUARD_MS, java.util.concurrent.TimeUnit.MILLISECONDS));
                 game.connectionTerminated(-1);
                 assertTrue(game.isFinishing());
@@ -390,7 +390,7 @@ public class GameRecoveryTest {
             @Override public boolean hasEndedSession() { return false; }
         });
         try {
-            ReflectionHelpers.callInstanceMethod(game, "quitStreamApp");
+            ReflectionHelpers.callInstanceMethod(game.menuActions, "quitStreamApp");
             assertTrue(refused.await(HANG_GUARD_MS, java.util.concurrent.TimeUnit.MILLISECONDS));
             awaitHostAction(game);
             // The stream outlived the time a dropped stream takes to report.
@@ -429,7 +429,7 @@ public class GameRecoveryTest {
                 });
                 RecoveryBridge.connectivityTests = 0;
                 try {
-                    ReflectionHelpers.callInstanceMethod(game, request);
+                    ReflectionHelpers.callInstanceMethod(game.menuActions, request);
                     assertTrue(failed.await(HANG_GUARD_MS, java.util.concurrent.TimeUnit.MILLISECONDS));
                     awaitHostAction(game);
                     // The lost transport reports only after its timeout, well after the failure.

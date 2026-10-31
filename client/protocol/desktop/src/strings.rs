@@ -204,12 +204,13 @@ pub(crate) mod tests {
     // ---- The table against the sources. ----
 
     /// The UI sources, up to their test modules.
-    const SOURCES: [(&str, &str); 22] = [
+    const SOURCES: [(&str, &str); 23] = [
         ("ui.rs", include_str!("ui.rs")),
         ("ui/files.rs", include_str!("ui/files.rs")),
         ("ui/widgets.rs", include_str!("ui/widgets.rs")),
         ("ui/cards.rs", include_str!("ui/cards.rs")),
         ("ui/library.rs", include_str!("ui/library.rs")),
+        ("ui/pages.rs", include_str!("ui/pages.rs")),
         ("host_page.rs", include_str!("host_page.rs")),
         ("folders_page.rs", include_str!("folders_page.rs")),
         ("coop_page.rs", include_str!("coop_page.rs")),
@@ -563,8 +564,8 @@ pub(crate) mod tests {
         let german: Vec<&str> = de::TABLE.iter().map(|(_, g)| *g).filter(|g| says(g)).collect();
         assert!(german.is_empty(), "German text says Experimentell:\n{}", german.join("\n"));
         let shown = |file: &str, text: &str| marked().iter().any(|m| m.file == file && m.text == text);
-        for (file, text) in [("main.rs", "Send image to PC"), ("main.rs", "Copy PC image here"), ("ui.rs", "Shared folders"),
-            ("ui.rs", "Full chroma"), ("ui.rs", "Co-op"), ("ui.rs", "Client roaming"), ("ui.rs", "USB forwarding")]
+        for (file, text) in [("main.rs", "Send image to PC"), ("main.rs", "Copy PC image here"), ("ui/pages.rs", "Shared folders"),
+            ("ui.rs", "Full chroma"), ("ui/pages.rs", "Co-op"), ("ui.rs", "Client roaming"), ("ui.rs", "USB forwarding")]
         {
             assert!(shown(file, text), "{file} shows {text:?}");
         }

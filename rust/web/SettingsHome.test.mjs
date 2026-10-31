@@ -139,3 +139,9 @@ test('full chroma applies when saved: no restart tag, text or notice', async () 
     assert.match(await source(name), /saved = result\.restart_required !== false;\r?\n\s*if \(!saved\) notify\('Settings saved\.', 'ok'\);/, name);
   }
 });
+
+test('pages call the library by its navigation name, Games', async () => {
+  for (const name of ['pages/Stream.svelte', 'pages/Overview.svelte', 'pages/Library.svelte', 'App.svelte']) {
+    assert.doesNotMatch(await source(name), /Games &(amp;)? apps/, name);
+  }
+});

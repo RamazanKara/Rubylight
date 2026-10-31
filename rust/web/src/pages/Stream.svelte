@@ -262,11 +262,11 @@
       <p class="muted" role="status">Quitting the app…</p>
     {/if}
     {#if phase === 'idle'}
-      <Panel title="Games & apps" description="Connect to list them. One tab or browser streams at a time: connecting here takes over from another.">
+      <Panel title="Games" description="Connect to list them. One tab or browser streams at a time: connecting here takes over from another.">
         <div><Button icon="play" onclick={connect}>Connect</Button></div>
       </Panel>
     {:else if phase === 'ready'}
-      <Panel title="Games & apps" description="Pick one to start it on this PC and stream it here." flush>
+      <Panel title="Games" description="Pick one to start it on this PC and stream it here." flush>
         {#if apps.length}
           <ul class="apps">
             {#each apps as app (app.id)}
@@ -279,7 +279,7 @@
           </ul>
         {:else}
           <EmptyState icon="library" title="No games or apps">
-            <p>Add one in <a href="/library" use:link>Games & apps</a>.</p>
+            <p>Add one in <a href="/library" use:link>Games</a>.</p>
           </EmptyState>
         {/if}
       </Panel>

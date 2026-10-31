@@ -163,15 +163,28 @@ impl SessionThread<'_> {
         const SLOW_SEND: Duration = Duration::from_millis(100);
         let mut slow_send_reported: Option<Instant> = None;
         let send_outage = butterpollo_core::stream_policy::SendOutage::from_env();
-        // A test send jitter holds the sender thread's sends; inline it would
-        // hold capture too.
-        let send_jitter = butterpollo_core::stream_policy::SendJitter::configured();
         // On a link paced near the stream bitrate, sending a frame
         // takes a good part of a period; a sender thread lets the
         // next picture be claimed meanwhile. On a fast link the
         // inline send is shorter than the handoff costs.
         let video_sender = std::cell::OnceCell::<crate::video_send::Sender>::new();
         let send_thread = c.boolean("video_send_thread", true);
+        // A test send jitter stalls only the sender thread's paced sends,
+        // which a stall never holds back from capture.
+        let mut send_jitter = butterpollo_core::stream_policy::SendJitter::from_env();
+        if let Some(jitter) = &send_jitter {
+            let ignored_by = if pyrowave_sender.is_some() {
+                Some("pyrowave")
+            } else if webrtc_sender.is_some() {
+                Some("webrtc")
+            } else if !send_thread {
+                Some("video_send_thread=false")
+            } else {
+                None
+            };
+            jitter.warn(ignored_by);
+        }
+        let send_jitter_set = send_jitter.is_some();
         let mut sender_decided = false;
         // An inline frame was paced near the stream bitrate, as after
         // a lost keyframe: later frames move to the sender thread.
@@ -224,7 +237,7 @@ impl SessionThread<'_> {
                     let wire = butterpollo_core::network_pacing::video_frame_wire_rate_bps(&frame_packetizer, frame.bytes.len(), stream_period.get(), peer.is_ipv6());
                     butterpollo_core::network_pacing::paced(bps, wire)
                 });
-                if std::mem::take(&mut inline_paced) || loss_paced || large_frame || automatic_pacing || send_jitter || c.boolean("host_adaptive_bitrate", false) || butterpollo_core::network_pacing::paced(bps, needed) {
+                if std::mem::take(&mut inline_paced) || loss_paced || large_frame || automatic_pacing || send_jitter_set || c.boolean("host_adaptive_bitrate", false) || butterpollo_core::network_pacing::paced(bps, needed) {
                     // The sender continues the inline sends' frame,
                     // packet and IV numbering; nothing sends inline
                     // after this.
@@ -236,9 +249,10 @@ impl SessionThread<'_> {
                         send_loss: std::mem::take(&mut send_loss),
                         slice_blocks,
                         slices: s.config.slices as usize,
+                        send_jitter: send_jitter.take(),
                     };
                     let _ = video_sender.set(crate::video_send::Sender::new(m.video.clone(), s.clone(), c.clone(), h.clone(), start, handoff)?);
-                    tracing::info!(pacing_bps = bps, bitrate_kbps = bitrate, wire_budget_bps = needed, automatic_pacing, large_frame, send_jitter, mid_stream, wire_frame = packetizer.frame, "video frames are sent on their own thread for current or adaptive pacing");
+                    tracing::info!(pacing_bps = bps, bitrate_kbps = bitrate, wire_budget_bps = needed, automatic_pacing, large_frame, send_jitter = send_jitter_set, mid_stream, wire_frame = packetizer.frame, "video frames are sent on their own thread for current or adaptive pacing");
                 }
             }
             // Units of a sliced frame: stream them here, or join them

@@ -2263,6 +2263,69 @@ fn send_jitter_stalls_on_a_seeded_schedule() {
 }
 
 #[test]
+fn sends_during_a_stall_go_out_in_order_right_after_it() {
+    let jitter = SendJitter::parse("700:30:3").unwrap();
+    // The first stall, to the 0.1 ms.
+    let step = Duration::from_micros(100);
+    let mut probe = jitter.clone();
+    let (from, until) = (0u32..)
+        .map(|i| i * step)
+        .find_map(|at| probe.stalled_until(at).map(|end| (at, end)))
+        .unwrap();
+    assert!(
+        until - from > Duration::from_millis(7),
+        "{from:?}..{until:?}"
+    );
+    let mut line = JitterLine::new(jitter);
+    let mut sent = Vec::new();
+    let mut send = |line: &mut JitterLine<u32>, at: Duration, item: u32| {
+        sent.extend(line.release(at).map(|item| (item, at)));
+        if line.holds(at) {
+            line.hold(item);
+        } else {
+            sent.push((item, at));
+        }
+    };
+    // Before the stall a send goes straight out; during it, every send waits
+    // and none is released early.
+    send(&mut line, from - step, 0);
+    assert_eq!(line.release_at(), None);
+    for (i, at) in [from, from + step, until - step].into_iter().enumerate() {
+        send(&mut line, at, i as u32 + 1);
+        assert_eq!(line.release_at(), Some(until));
+    }
+    assert_eq!(line.release(until - step).count(), 0);
+    // At its end they go out first, the next send right behind them.
+    send(&mut line, until, 4);
+    assert_eq!(line.release_at(), None);
+    // A send asked about before a release still waits behind what is held.
+    let mut early = JitterLine::new(SendJitter::parse("700:30:3").unwrap());
+    assert!(early.holds(from));
+    early.hold(1);
+    assert!(early.holds(until), "behind the held send");
+    early.hold(2);
+    assert_eq!(early.release(until).collect::<Vec<_>>(), [1, 2]);
+    assert_eq!(
+        sent,
+        [
+            (0, from - step),
+            (1, until),
+            (2, until),
+            (3, until),
+            (4, until)
+        ]
+    );
+    // Back-to-back stalls hold their sends through both.
+    let mut tight = JitterLine::new(SendJitter::parse("4:30:5").unwrap());
+    assert!(tight.holds(Duration::from_millis(15)));
+    tight.hold(1);
+    for ms in 16..2000 {
+        assert_eq!(tight.release(Duration::from_millis(ms)).count(), 0);
+    }
+    assert!(tight.release_at() > Some(Duration::from_millis(2000)));
+}
+
+#[test]
 fn an_adapter_stall_starts_at_a_large_frame_and_fills_the_socket_buffer() {
     let outage = SendOutage::parse("3000:20:stall").unwrap();
     let start = Instant::now();

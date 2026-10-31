@@ -864,10 +864,10 @@ impl AdapterStall {
 /// `every` times U(0.5, 1.5) after the one before (the first that far into
 /// the stream) and lasts U(max/4, max), drawn from a generator seeded with
 /// `seed` (1 unless given), so two runs stall alike. While one lasts, video
-/// sends wait: frames queue in order and go out as a burst when it ends, as
-/// from an access point that held them. A wired link, or an access point that
-/// isolates flows, never does that, so this is how a host A/B gives a client
-/// a jittery link.
+/// datagrams wait in a [`JitterLine`] and go out in order as a burst when it
+/// ends, as from an access point that held them. A wired link, or an access
+/// point that isolates flows, never does that, so this is how a host A/B
+/// gives a client a jittery link.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SendJitter {
     every: Duration,
@@ -899,23 +899,33 @@ impl SendJitter {
         jitter.advance();
         Some(jitter)
     }
+    /// The schedule in `BUTTERPOLLO_TEST_SEND_JITTER`, if any. A value that
+    /// does not parse is warned about, not silently ignored.
     pub fn from_env() -> Option<Self> {
-        let jitter = Self::parse(&std::env::var("BUTTERPOLLO_TEST_SEND_JITTER").ok()?);
-        if let Some(jitter) = &jitter {
+        let value = std::env::var("BUTTERPOLLO_TEST_SEND_JITTER").ok()?;
+        let jitter = Self::parse(&value);
+        if jitter.is_none() {
             tracing::warn!(
-                every_ms = jitter.every.as_millis(),
-                max_ms = jitter.max.as_millis(),
-                "BUTTERPOLLO_TEST_SEND_JITTER holds video sends on a schedule; unset it outside tests"
+                value,
+                "BUTTERPOLLO_TEST_SEND_JITTER is not every_ms:max_ms[:seed] with both above 0; ignored"
             );
         }
         jitter
     }
-    /// Whether `BUTTERPOLLO_TEST_SEND_JITTER` holds a schedule, without the
-    /// warning: the stream then sends on its own thread, so a stall queues
-    /// frames instead of holding capture.
-    pub fn configured() -> bool {
-        std::env::var("BUTTERPOLLO_TEST_SEND_JITTER")
-            .is_ok_and(|value| Self::parse(&value).is_some())
+    /// Warns that the knob is set: it stalls the paced video sender, or, with
+    /// `ignored_by` naming another send path, nothing at all.
+    pub fn warn(&self, ignored_by: Option<&str>) {
+        match ignored_by {
+            None => tracing::warn!(
+                every_ms = self.every.as_millis(),
+                max_ms = self.max.as_millis(),
+                "BUTTERPOLLO_TEST_SEND_JITTER holds video datagrams on a schedule; unset it outside tests"
+            ),
+            Some(path) => tracing::warn!(
+                path,
+                "BUTTERPOLLO_TEST_SEND_JITTER only stalls the paced video sender; this stream sends another way and ignores it"
+            ),
+        }
     }
     /// The end of the stall `elapsed` into the stream, or `None` outside one.
     /// Times must not go backwards.
@@ -933,6 +943,55 @@ impl SendJitter {
         // Back to back when a stall outlasts the gap to the next.
         self.from = (self.from + Duration::from_nanos(gap)).max(self.until);
         self.until = self.from + Duration::from_nanos(length);
+    }
+}
+/// [`SendJitter`] as the access point that holds what reaches it during a
+/// stall: sends while one lasts wait here and all go out, in the order they
+/// came, the moment it ends (back-to-back stalls hold them through both).
+/// The sender counts them as sent, so its pace, backlog and claims carry on
+/// through the stall as they would on the real link.
+#[derive(Clone, Debug)]
+pub struct JitterLine<T> {
+    jitter: SendJitter,
+    held: std::collections::VecDeque<T>,
+    /// When the held sends go out: the end of the stall that holds them.
+    release: Duration,
+}
+impl<T> JitterLine<T> {
+    pub fn new(jitter: SendJitter) -> Self {
+        Self {
+            jitter,
+            held: Default::default(),
+            release: Duration::ZERO,
+        }
+    }
+    /// Whether a send `elapsed` into the stream has to wait: a stall lasts,
+    /// or sends held before it have not gone yet. Times must not go
+    /// backwards.
+    pub fn holds(&mut self, elapsed: Duration) -> bool {
+        self.stalled(elapsed) || !self.held.is_empty()
+    }
+    /// Queue a send that [`Self::holds`] said has to wait.
+    pub fn hold(&mut self, send: T) {
+        self.held.push_back(send);
+    }
+    /// The held sends, in order, once no stall lasts `elapsed` into the
+    /// stream; none while one does.
+    pub fn release(&mut self, elapsed: Duration) -> std::collections::vec_deque::Drain<'_, T> {
+        let over = self.held.is_empty() || !self.stalled(elapsed);
+        let end = if over { self.held.len() } else { 0 };
+        self.held.drain(..end)
+    }
+    /// When the held sends go out, while any wait.
+    pub fn release_at(&self) -> Option<Duration> {
+        (!self.held.is_empty()).then_some(self.release)
+    }
+    fn stalled(&mut self, elapsed: Duration) -> bool {
+        let stalled = self.jitter.stalled_until(elapsed);
+        if let Some(end) = stalled {
+            self.release = end;
+        }
+        stalled.is_some()
     }
 }
 /// SplitMix64, the test knobs' seeded generator.

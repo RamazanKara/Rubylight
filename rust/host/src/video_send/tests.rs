@@ -862,6 +862,7 @@ fn handoff(packetizer: VideoPacketizer) -> Handoff {
         send_loss: Default::default(),
         slice_blocks: 0,
         slices: 0,
+        send_jitter: None,
     }
 }
 
@@ -942,6 +943,7 @@ fn moonlight_timing_stops_at_packetization_before_a_blocked_sender() {
                 start,
                 Instant::now(),
                 Default::default(),
+                None,
             );
             shared.finish(result);
         }));
@@ -1854,6 +1856,7 @@ fn a_streamed_frame_lost_in_its_first_block_stops_and_is_not_stamped() {
             Instant::now(),
             Default::default(),
             butterpollo_core::stream_policy::SendDrop::parse("100:5"),
+            None,
         );
         shared.finish(result);
     }));
@@ -1875,6 +1878,103 @@ fn a_streamed_frame_lost_in_its_first_block_stops_and_is_not_stamped() {
     assert_eq!(stats.send_loss_recoveries.load(Ordering::Relaxed), 1);
     assert!(rows.try_recv().is_err());
     assert_eq!(session.info()["performance"]["stages"]["frames"], 0);
+}
+
+/// The paced sender with a test Wi-Fi stall given directly: it takes each
+/// frame during the stall at once, so the backlog empties and claims carry
+/// on, and the frames reach the client in order only once the stall is over.
+#[test]
+fn frames_during_a_test_stall_count_as_sent_and_go_out_in_order_after_it() {
+    use butterpollo_core::stream_policy::SendJitter;
+    let ms = Duration::from_millis;
+    // A seed whose first stall starts after the sender does and leaves ample
+    // time to hand it three frames, even on a busy PC; `until` is the first
+    // instant after it (and any stall straight after it) that is not held.
+    let step = Duration::from_micros(100);
+    let (jitter, from, until) = (1..)
+        .find_map(|seed| {
+            let jitter = SendJitter::parse(&format!("1000:600:{seed}")).unwrap();
+            let mut probe = jitter.clone();
+            let mut times = (0u32..).map(|i| i * step);
+            let from = times.find(|&at| probe.stalled_until(at).is_some()).unwrap();
+            let until = times.find(|&at| probe.stalled_until(at).is_none()).unwrap();
+            (from >= ms(300) && until - from >= ms(400) && until <= ms(2000))
+                .then_some((jitter, from, until))
+        })
+        .unwrap();
+    let fixture = crate::state::test_support::Fixture::new();
+    let session = fixture.session(fixture.client(0), butterpollo_core::session::Role::Stream);
+    let socket = Arc::new(ReplySocket::bind("127.0.0.1:0").unwrap());
+    let receiver = UdpSocket::bind("127.0.0.1:0").unwrap();
+    let start = Instant::now();
+    let mut sender = Sender::packetizer(session.clone(), start, handoff(packetizer(None))).unwrap();
+    let shared = sender.slot.clone();
+    let s = session.clone();
+    let config = fixture.host.config.read().unwrap().clone();
+    let host = fixture.host.clone();
+    sender.transport = Some(thread::spawn(move || {
+        let result = transport::run_with(
+            &shared,
+            socket,
+            s,
+            config,
+            host,
+            start,
+            Instant::now(),
+            Default::default(),
+            None,
+            Some(jitter),
+        );
+        shared.finish(result);
+    }));
+    let addr = receiver.local_addr().unwrap();
+    let mut claims = Claims::default();
+    thread::sleep((start + from + ms(5)).saturating_duration_since(Instant::now()));
+    for index in [2u8, 4, 5] {
+        sender
+            .submit(vec![frame(index)], addr, Duration::ZERO, &mut claims)
+            .unwrap();
+        // Taken and counted as sent while the stall lasts.
+        sender.next_wire_frame().unwrap();
+        assert_eq!(sender.backlog().unwrap(), 0);
+    }
+    let sent = session.stats.packets.load(Ordering::Relaxed) as usize;
+    assert_eq!(session.stats.frames.load(Ordering::Relaxed), 3);
+    assert!(
+        Instant::now() < start + until,
+        "the stall outlasts the handoff"
+    );
+    receiver.set_read_timeout(Some(WAIT)).unwrap();
+    let mut buffer = [0; 2048];
+    let mut packets = Vec::new();
+    while packets.len() < sent {
+        let len = receiver.recv(&mut buffer).unwrap();
+        if packets.is_empty() {
+            // Nothing during the stall, then the burst right after it.
+            let arrived = Instant::now();
+            assert!(
+                arrived >= start + until,
+                "{:?} early",
+                start + until - arrived
+            );
+            let late = arrived - (start + until);
+            assert!(late < ms(100), "released {late:?} after the stall");
+        }
+        packets.push(buffer[..len].to_vec());
+    }
+    // In the order they were sent: frame by frame, sequence by sequence.
+    let order: Vec<(u32, u16)> = packets
+        .iter()
+        .map(|packet| {
+            (
+                u32::from_le_bytes(packet[20..24].try_into().unwrap()),
+                u16::from_be_bytes([packet[2], packet[3]]),
+            )
+        })
+        .collect();
+    assert!(order.is_sorted(), "{order:?}");
+    assert_eq!(order.first().unwrap().0, 1);
+    assert_eq!(order.last().unwrap().0, 3);
 }
 
 #[test]

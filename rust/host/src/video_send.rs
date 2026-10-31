@@ -236,6 +236,8 @@ pub struct Handoff {
     pub slice_blocks: usize,
     /// Slices per frame the encoder was asked for.
     pub slices: usize,
+    /// `BUTTERPOLLO_TEST_SEND_JITTER`'s stalls, for the paced sender.
+    pub send_jitter: Option<butterpollo_core::stream_policy::SendJitter>,
 }
 pub struct Sender {
     slot: Arc<Slot>,
@@ -254,11 +256,14 @@ impl Sender {
         let mut handoff = handoff;
         let pacing_due = handoff.pacing_due;
         let send_loss = std::mem::take(&mut handoff.send_loss);
+        let jitter = handoff.send_jitter.take();
         let mut sender = Self::packetizer(s.clone(), start, handoff)?;
         let shared = sender.slot.clone();
         sender.transport = Some(thread::Builder::new().name("video-send".into()).spawn(
             move || {
-                let result = transport::run(&shared, socket, s, c, h, start, pacing_due, send_loss);
+                let result = transport::run(
+                    &shared, socket, s, c, h, start, pacing_due, send_loss, jitter,
+                );
                 shared.finish(result);
             },
         )?);

@@ -3,32 +3,48 @@ use super::*;
 use butterpollo_core::{
     network_pacing,
     performance::Timing,
-    stream_policy::{AdapterStall, SendDrop, SendJitter, SendLoss, SendLossRecovery, SendOutage},
+    stream_policy::{
+        AdapterStall, JitterLine, SendDrop, SendJitter, SendLoss, SendLossRecovery, SendOutage,
+    },
 };
 use butterpollo_windows::{
     net::{Batch, Link, WRITABLE_WAIT, WritableWaits},
     timing::Timer,
 };
 
+/// How long the sender waits between frames before it looks for a new one,
+/// while a test stall holds datagrams.
+const HELD_POLL: Duration = Duration::from_millis(1);
+
 impl Slot {
-    fn transmit(&self, mut send: impl FnMut(&Prepared) -> Result<()>) -> Result<()> {
+    /// Hands each prepared frame to `send`. While its last call returned true
+    /// (it holds datagrams to release later), it is also called with `None`
+    /// whenever no frame is ready, and waits a little there itself.
+    fn transmit(&self, mut send: impl FnMut(Option<&Prepared>) -> Result<bool>) -> Result<()> {
+        let mut holding = false;
         loop {
             let frame = {
                 let mut state = self.state.lock().unwrap();
-                while state.ready.is_none() && !self.stop.load(Ordering::Acquire) {
+                while state.ready.is_none() && !holding && !self.stop.load(Ordering::Acquire) {
                     state = self.changed.wait(state).unwrap();
                 }
                 if self.stop.load(Ordering::Acquire) {
                     return Ok(());
                 }
-                let frame = state.ready.take().unwrap();
-                state.transmitting = true;
-                state.transmitting_keyframe = frame.idr;
-                state.transmitting_remaining = None;
-                self.changed.notify_all();
+                let frame = state.ready.take();
+                if let Some(frame) = &frame {
+                    state.transmitting = true;
+                    state.transmitting_keyframe = frame.idr;
+                    state.transmitting_remaining = None;
+                    self.changed.notify_all();
+                }
                 frame
             };
-            send(&frame)?;
+            let Some(frame) = frame else {
+                holding = send(None)?;
+                continue;
+            };
+            holding = send(Some(&frame))?;
             let mut state = self.state.lock().unwrap();
             state.transmitting = false;
             state.transmitting_keyframe = false;
@@ -102,8 +118,9 @@ struct Transport<'a> {
     /// `BUTTERPOLLO_TEST_SEND_OUTAGE=..:stall`: a large frame meets a stalled
     /// adapter.
     stall: Option<AdapterStall>,
-    /// `BUTTERPOLLO_TEST_SEND_JITTER`: Wi-Fi stalls that hold the sends.
-    jitter: Option<SendJitter>,
+    /// `BUTTERPOLLO_TEST_SEND_JITTER`: Wi-Fi stalls hold the batches sent
+    /// during them, as an access point would.
+    jitter: Option<JitterLine<(SocketAddr, Vec<Vec<u8>>)>>,
     send_drop: Option<SendDrop>,
     send_loss: SendLossRecovery,
     batch_kb: usize,
@@ -185,8 +202,54 @@ impl Transport<'_> {
         }
     }
 
-    /// One batch to the socket, or to the test outage or loss in its place.
+    /// One batch to the socket, or to the test stall, outage or loss in its
+    /// place. A held batch counts as sent.
     fn send_batch(&mut self, packets: &[Vec<u8>], peer: SocketAddr) -> Result<usize> {
+        self.release_held()?;
+        let elapsed = Instant::now().saturating_duration_since(self.start);
+        if let Some(line) = self.jitter.as_mut()
+            && line.holds(elapsed)
+        {
+            line.hold((peer, packets.to_vec()));
+            return Ok(packets.iter().map(Vec::len).sum());
+        }
+        self.socket_batch(packets, peer)
+    }
+
+    /// The batches a test stall held, once it is over: in order and unpaced,
+    /// as the access point's burst.
+    fn release_held(&mut self) -> Result<()> {
+        let elapsed = Instant::now().saturating_duration_since(self.start);
+        let Some(line) = self.jitter.as_mut() else {
+            return Ok(());
+        };
+        let held: Vec<_> = line.release(elapsed).collect();
+        for (peer, packets) in held {
+            self.socket_batch(&packets, peer)?;
+        }
+        Ok(())
+    }
+
+    /// Between frames while a test stall holds batches: wait for its end, or
+    /// at most [`HELD_POLL`] for the next frame, and release them if it is
+    /// over. Returns whether batches are still held.
+    fn idle(&mut self) -> Result<bool> {
+        if let Some(at) = self.jitter.as_ref().and_then(JitterLine::release_at) {
+            self.timer
+                .until((self.start + at).min(Instant::now() + HELD_POLL));
+        }
+        self.release_held()?;
+        Ok(self.holding())
+    }
+
+    fn holding(&self) -> bool {
+        self.jitter
+            .as_ref()
+            .is_some_and(|line| line.release_at().is_some())
+    }
+
+    /// One batch to the socket, or to the test outage or loss in its place.
+    fn socket_batch(&mut self, packets: &[Vec<u8>], peer: SocketAddr) -> Result<usize> {
         Ok(
             match self
                 .outage
@@ -255,16 +318,6 @@ impl Transport<'_> {
                     return Ok(true);
                 }
                 let now = Instant::now();
-                // A test Wi-Fi stall holds this frame, and the frames queue
-                // behind it, until it ends.
-                if let Some(end) = self.jitter.as_mut().and_then(|jitter| {
-                    jitter.stalled_until(now.saturating_duration_since(self.start))
-                }) {
-                    self.timer
-                        .until((self.start + end).min(now + WRITABLE_WAIT));
-                    cur.pacing_wait += now.elapsed();
-                    continue;
-                }
                 if self.pacer.due() > now {
                     self.timer.until_paced(self.pacer.due());
                     cur.pacing_wait += now.elapsed();
@@ -529,6 +582,7 @@ pub(super) fn run(
     start: Instant,
     pacing_due: Instant,
     send_loss: SendLossRecovery,
+    jitter: Option<SendJitter>,
 ) -> Result<()> {
     run_with(
         shared,
@@ -540,6 +594,7 @@ pub(super) fn run(
         pacing_due,
         send_loss,
         SendDrop::from_env(),
+        jitter,
     )
 }
 
@@ -555,6 +610,7 @@ pub(super) fn run_with(
     pacing_due: Instant,
     send_loss: SendLossRecovery,
     send_drop: Option<SendDrop>,
+    jitter: Option<SendJitter>,
 ) -> Result<()> {
     let _priority = butterpollo_windows::capture::Priority::new();
     let mut batch = Batch::default();
@@ -582,13 +638,19 @@ pub(super) fn run_with(
         slow_reported: None,
         outage,
         stall: outage.and_then(|outage| outage.stall()),
-        jitter: SendJitter::from_env(),
+        jitter: jitter.map(JitterLine::new),
         send_drop,
         send_loss,
         batch_kb,
     };
     let mut sending = None;
-    shared.transmit(|frame| transport.part(frame, &mut sending))
+    shared.transmit(|frame| match frame {
+        Some(frame) => {
+            transport.part(frame, &mut sending)?;
+            Ok(transport.holding())
+        }
+        None => transport.idle(),
+    })
 }
 
 #[cfg(test)]

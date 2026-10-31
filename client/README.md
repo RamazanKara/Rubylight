@@ -93,7 +93,7 @@ No accounts, advertising or analytics, and nothing sent to its developers. Video
   <sub><b>A real PC keyboard.</b> Esc, F1 to F12, arrows and sticky modifiers, by touch, controller or TV remote.</sub>
 </td>
 <td valign="top">
-  <img src="docs/assets/shots/desktop-home.png" alt="Nightjar for Windows: Home with a library of games as cover art and the PC below (demo library)"><br>
+  <img src="docs/assets/shots/desktop-home.png" alt="Nightjar for Windows: Home with the game in progress, a library of games as cover art and the PCs below (demo library)"><br>
   <sub><b>On the desktop too.</b> The same engine and settings on Windows and Linux, with VRR and beam racing.</sub>
 </td>
 </tr>

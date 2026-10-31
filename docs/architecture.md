@@ -31,7 +31,7 @@ For standard H.264, HEVC and AV1 streams on supported AMD GPUs:
 | Stage | What happens | Source |
 | --- | --- | --- |
 | **Capture** | On a virtual display Rubylight created, its display driver pushes each composed frame into textures shared with the host. Elsewhere Windows Graphics Capture (WGC) supplies a display texture; Desktop Duplication (DDX) is an explicit choice and fallback. | [Capture backends](../rust/windows/src/capture.rs), [frame push](../rust/windows/src/capture/idd_push.rs) |
-| **Take ownership** | A GPU copy moves the captured image into a texture the host owns. The capture frame stays alive until the copy finishes. Consumers share the latest published frame. | [Frame publication](../rust/host/src/stream/capture.rs), [compute handoff](../rust/windows/src/compute.rs) |
+| **Take ownership** | A GPU copy moves the captured image into a texture the host owns. The capture frame stays alive until the copy finishes. Consumers share the latest published frame. | [Frame publication](../rust/host/src/stream/capture.rs), [compute handoff](../rust/windows/src/compute/handoff.rs) |
 | **Prepare** | D3D12 compute converts RGB into the encoder's YUV format, including resizing and HDR conversion where required. | [Colour conversion](../rust/windows/src/compute.rs) |
 | **Encode** | Native AMD AMF consumes the D3D12 surface and produces an H.264, HEVC or AV1 bitstream. | [AMF GPU integration](../rust/windows/src/amf/gpu.rs) |
 | **Deliver** | The host packetizes encoded bytes, adds forward error correction and applies negotiated encryption, then sends them to Moonlight. | [Video sender](../rust/host/src/video_send.rs), [packet formats](../rust/core/src/packet.rs) |

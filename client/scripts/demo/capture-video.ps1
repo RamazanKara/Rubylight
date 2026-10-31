@@ -159,15 +159,18 @@ $plans = @{
         }
         Check = { $null = Find-Ui 'Adaptive refresh (ARR / VRR)' }
     }
-    # Display & image: the upscaling choices, FSR 1.0 and Snapdragon GSR.
+    # Display & image: the upscaling choices, Sharp (FSR) and Sharp, Snapdragon (SGSR).
     'upscaling' = @{ Landscape = $false; FirstAction = 2.0
         Prepare = {
             Open-DemoState 'settings-display'
-            $script:target = Get-Center (Find-Ui $script:labels['Client-side upscaling'])
-            Warm-Up $script:target 'FSR 1.0'
+            # Client-side upscaling sits behind the section's More row (settings tiers).
+            Tap-Ui $script:labels['More display'] -Scroll -Prefix
+            Start-Sleep -Milliseconds 600
+            $script:target = Get-Center (Find-Ui $script:labels['Client-side upscaling'] -Scroll)
+            Warm-Up $script:target $script:labels['Sharp FSR']
         }
         Act = { At 2.0; Tap-At $script:target }
-        Check = { $null = Find-Ui 'SGSR 1 (Snapdragon Game Super Resolution)' }
+        Check = { $null = Find-Ui 'Sharp, Snapdragon (SGSR)' }
     }
     # Advanced: the Snapdragon GPU driver screen, as on an arm64 Adreno phone (a debug-only demo screen).
     'gpu-driver' = @{ Landscape = $false; FirstAction = 2.0

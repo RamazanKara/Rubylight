@@ -35,7 +35,8 @@ function Find-FFmpeg {
 $script:labels = @{ 'Presets' = 'Presets'; 'Native preset' = 'Native (recommended)'; 'Display & image' = 'Display & image'
     'Client-side upscaling' = 'Client-side upscaling'; 'Display on the PC' = 'Display on the PC'; 'Video' = 'Video'
     'Video codec' = 'Video codec'; 'Controls' = 'Controls'; 'Advanced' = 'Advanced'; 'GPU driver' = 'Snapdragon GPU driver'
-    'PC display mode' = 'PC display mode'; 'USB controllers' = 'USB controllers' }
+    'PC display mode' = 'PC display mode'; 'USB controllers' = 'USB controllers'
+    'More display' = 'More Display & image settings'; 'Sharp FSR' = 'Sharp (FSR)' }
 
 function Set-CaptureLocale([string]$Locale) {
     # Per-app language (Android 13+), so the system UI and launcher stay as they are.
@@ -44,11 +45,13 @@ function Set-CaptureLocale([string]$Locale) {
         'de' { @{ 'Presets' = 'Vorgaben'; 'Native preset' = 'Nativ (empfohlen)'; 'Display & image' = 'Display und Bild'
             'Client-side upscaling' = 'Hochskalierung auf dem Gerät'; 'Display on the PC' = 'Anzeige am PC'; 'Video' = 'Video'
             'Video codec' = 'Videocodec'; 'Controls' = 'Steuerung'; 'Advanced' = 'Erweitert'; 'GPU driver' = 'Snapdragon-GPU-Treiber'
-            'PC display mode' = 'PC-Displaymodus'; 'USB controllers' = 'USB-Controller' } }
+            'PC display mode' = 'PC-Displaymodus'; 'USB controllers' = 'USB-Controller'
+            'More display' = 'Weitere Einstellungen für Display und Bild'; 'Sharp FSR' = 'Scharf (FSR)' } }
         default { @{ 'Presets' = 'Presets'; 'Native preset' = 'Native (recommended)'; 'Display & image' = 'Display & image'
             'Client-side upscaling' = 'Client-side upscaling'; 'Display on the PC' = 'Display on the PC'; 'Video' = 'Video'
             'Video codec' = 'Video codec'; 'Controls' = 'Controls'; 'Advanced' = 'Advanced'; 'GPU driver' = 'Snapdragon GPU driver'
-            'PC display mode' = 'PC display mode'; 'USB controllers' = 'USB controllers' } }
+            'PC display mode' = 'PC display mode'; 'USB controllers' = 'USB controllers'
+            'More display' = 'More Display & image settings'; 'Sharp FSR' = 'Sharp (FSR)' } }
     }
 }
 
@@ -73,7 +76,8 @@ function Get-Bounds($Node) {
     return @([regex]::Matches($Node.GetAttribute('bounds'), '\d+') | ForEach-Object { [int]$_.Value })
 }
 
-function Find-Ui([string]$Label, [switch]$Scroll) {
+# -Prefix matches a row whose text starts with the label, such as a section's More row with its count.
+function Find-Ui([string]$Label, [switch]$Scroll, [switch]$Prefix) {
     for ($attempt = 0; $attempt -lt 12; $attempt++) {
         $tree = Get-Ui
         $cling = $tree.SelectSingleNode('//node[@resource-id="android:id/immersive_cling_title"]')
@@ -85,7 +89,7 @@ function Find-Ui([string]$Label, [switch]$Scroll) {
         foreach ($node in $tree.SelectNodes('//node')) {
             $description = $node.GetAttribute('content-desc')
             if ($Label -in @($node.GetAttribute('text').Split("`n")[0], $description, $node.GetAttribute('resource-id')) -or
-                $description.StartsWith("$Label,")) {
+                $description.StartsWith("$Label,") -or ($Prefix -and $node.GetAttribute('text').StartsWith($Label))) {
                 return $node
             }
         }
@@ -112,8 +116,8 @@ function Tap-Node($Node) {
     $null = Invoke-Adb @('shell', 'input', 'tap', "$x", "$y")
 }
 
-function Tap-Ui([string]$Label, [switch]$Scroll) {
-    Tap-Node (Find-Ui $Label -Scroll:$Scroll)
+function Tap-Ui([string]$Label, [switch]$Scroll, [switch]$Prefix) {
+    Tap-Node (Find-Ui $Label -Scroll:$Scroll -Prefix:$Prefix)
 }
 
 function Hide-Ime([switch]$WaitForShow) {
@@ -170,7 +174,12 @@ function Open-DemoState([string]$State) {
             Start-Sleep -Milliseconds 900
             switch ($State) {
                 'codecs' { Tap-Ui $script:labels['Video codec'] -Scroll; $null = Find-Ui 'PyroWave (host support required)' }
-                'upscaling' { Tap-Ui $script:labels['Client-side upscaling'] -Scroll; $null = Find-Ui 'FSR 1.0' }
+                # Client-side upscaling sits behind the section's More row (settings tiers): unfold it first.
+                'upscaling' {
+                    Tap-Ui $script:labels['More display'] -Scroll -Prefix
+                    Start-Sleep -Milliseconds 600
+                    Tap-Ui $script:labels['Client-side upscaling'] -Scroll; $null = Find-Ui $script:labels['Sharp FSR']
+                }
                 'usb' { Show-UsbControllers }
             }
             Start-Sleep -Milliseconds 600

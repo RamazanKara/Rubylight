@@ -217,15 +217,12 @@ still screen shows 1.
 ## README assets
 
 ```powershell
-.\scripts\demo\readme-assets.ps1 -Docs C:\path\to\readme-checkout   # shots/*.png and demo.gif under docs/assets
+.\scripts\demo\readme-assets.ps1 -Docs C:\path\to\readme-checkout   # shots/*.png under docs/assets
 .\scripts\demo\readme-preview.ps1 -Docs C:\path\to\readme-checkout  # 1440 px and 393 px README previews
 ```
 
 `readme-assets.ps1` builds the four phone shots (PCs, library, the landscape stream's top-left slice with the
-compact overlay, picture-in-picture) from the stills, and `demo.gif` from the rendered 9:16 video cropped to the
-phone column: the tour's strongest motion (the tap into the library, the tap into a stream, the stream menu and the
-switch to Statistics) at 30 fps and 360 px wide, about 2 MB. It uses `out/demo` from a fresh render and
-otherwise the published `site/assets/demo-9x16.mp4`, with shot start times worked out from the shotlist.
+compact overlay, picture-in-picture) from the stills. The README's animated teaser comes from the [trailer](#trailer).
 `readme-preview.ps1` renders the README with GitHub's own markdown renderer
 (read-only) in headless Edge so legibility can be checked at phone width before pushing.
 
@@ -246,3 +243,48 @@ HEVC and AV1 10-bit SDR copies are encoded when their software encoders are
 available. All footage and art are synthetic and contain no third-party games.
 The PNG preview and ffprobe verification reports go to `out/demo/assets/`.
 Only the generated `app/src/debug/assets/demo/` files ship in the debug APK.
+
+## Trailer
+
+`scripts/demo/trailer.py` renders the feature trailer (the README teaser, the site's two videos and their posters)
+from real demo-mode recordings. Everything around them (rings, device frames, type, the moon-and-nightjar mark) is
+drawn in the script with Pillow in the Nightjar palette and Figtree from `protocol/desktop/assets`. Requires
+Python 3 with Pillow and numpy, and FFmpeg with libx264 and libwebp on PATH.
+
+**Inputs.** Six `adb shell screenrecord` takes of the debug build, on emulators only (the `nj-tv` Android TV
+AVD at 1920x1080, and the `nj-demo2` phone AVD at density 320 for the handheld and phone). Before each take: `pm clear`,
+`stream_menu_hint_seen=true` in `shared_prefs/FirstRun.xml` and `demo_FirstRun.xml`, and SystemUI demo mode (10:30,
+full battery, no notifications). All launches go through `DemoLauncherActivity` with `--es host native --es codec h264`:
+
+| Clip | Launch | Recorded |
+| --- | --- | --- |
+| `tv-home` | `state home`, `ui tv` | 1280x720: Down, Right x3, OK (game page), OK (Play) |
+| `hh-flow` | `state home`, `ui handheld`, landscape | 1200x540: tap a game, Play, long-press the overlay for Statistics |
+| `hh-menu` | `state stream`, `ui handheld` | 1200x540: Back opens the stream menu, swipe up |
+| `hh-radeon` | as `hh-menu` | 1200x540: tap "Session and graphics" (found with `uiautomator dump`), swipe to the Radeon section |
+| `hh-keyboard` | as `hh-menu`, `--ez pckeyboard true` | 1200x540: D-pad moves and presses on the PC keyboard |
+| `pip` | `state pip`, `orientation portrait`, `home enable` + `DemoHomeActivity` as home | 540x1200: Home |
+
+screenrecord writes frames only when the screen changes; put each take on a 60 fps grid first:
+
+```powershell
+python scripts\demo\trailer.py --normalize clips\tv-home.raw.mp4 clips\tv-home.mp4
+```
+
+The platform beat uses the published stills (`docs/assets/shots/tv-home.png`, `desktop-home.png`,
+`handheld-home.png`); a missing clip falls back to its still from `docs/assets/shots` or `docs/screenshots/demo`.
+
+**Render.**
+
+```powershell
+python scripts\demo\trailer.py --clips C:\src\nj-trailer\clips --out C:\src\nj-trailer\out            # all cuts
+python scripts\demo\trailer.py --clips C:\src\nj-trailer\clips --out frames --frames 5,12.5,33           # review PNGs
+```
+
+`--cut 16x9|9x16|teaser` renders one cut. **Outputs** in `--out`: `trailer-16x9.mp4` (1920x1080/60, H.264 High,
+about 54 s), `trailer-9x16.mp4` (1080x1920), `teaser.webp` (a 14.8 s loop at 960 px and 25 fps) and `poster.webp`
+(the TV library beat). Publish them as `docs/assets/nightjar-trailer.webp` (the README's teaser), `site/assets/trailer-16x9.mp4` and
+`site/assets/trailer-9x16.mp4` (the site's video, linked from the README), and the site posters
+`site/assets/poster-16x9.webp` (`poster.webp` at 1280x720) and `poster-9x16.webp` (a 720x1280 frame of the 9:16
+cut's TV beat). Stream-overlay numbers in demo footage are scripted and
+captioned as such; the only figures stated as results are our own measurements from `rust/PERFORMANCE.md`.

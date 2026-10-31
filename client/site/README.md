@@ -41,13 +41,14 @@ It also fails when the assets, excluding video, exceed 6 MB.
   launcher icon `app/src/main/res/mipmap-anydpi/ic_launcher.xml` (night circle,
   amber moon, bird), rendered as SVG with a transparent background outside the circle.
 - `assets/og.png`: the 1200 × 630 raster export of `assets/og.svg`.
-- `assets/demo-16x9.mp4` and `assets/demo-9x16.mp4`: the 69 s tour (PCs and
-  library, PC settings, stream with the compact overlay, stream menu, Statistics
-  with host telemetry, PyroWave and adaptive refresh, upscaling, the Snapdragon GPU
-  driver, the DualSense driver and picture-in-picture), H.264 at 60 fps with the
-  metadata at the start of the file and no audio track. They are also attached to
-  the latest release. `assets/poster-16x9.webp` and `poster-9x16.webp` are the
-  posters: a frame of the stream shot, resized from the matching PNG frames.
+- `assets/trailer-16x9.mp4` and `assets/trailer-9x16.mp4`: the 54 s trailer (Home
+  on a TV and a game's page, a handheld stream with the performance overlay, the
+  stream menu, Radeon settings, PC keyboard and picture-in-picture, the feature
+  list, our measurements, platforms and hosts), H.264 at 60 fps with the metadata
+  at the start of the file and no audio track, rendered by
+  `scripts/demo/trailer.py` ([Trailer](../docs/demo/README.md#trailer)). The
+  repository README links the 16:9 file here. `assets/poster-16x9.webp` and
+  `poster-9x16.webp` are the posters: the TV library beat of each cut.
 - Keep everything in `assets/` other than video under 6 MB in total. The link
   checker enforces this.
 

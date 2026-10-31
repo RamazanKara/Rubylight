@@ -99,13 +99,13 @@ final class GameRecovery {
         game.stoppedStreamResumeIntent = null;
         final Intent retry = createReconnectIntent();
         if (retry == null) {
-            game.stopConnection();
+            game.streamConnection.stopConnection();
             game.finish();
             return;
         }
         game.displayedFailureDialog = true;
         game.touchInput.setInputGrabState(false);
-        game.stopConnection();
+        game.streamConnection.stopConnection();
         retry.putExtra(Game.EXTRA_MICROPHONE_MUTED, game.getIntent().getBooleanExtra(Game.EXTRA_MICROPHONE_MUTED, false));
         final Thread stopping = game.connectionStopThread;
         final int generation = game.foregroundGeneration;
@@ -377,7 +377,7 @@ final class GameRecovery {
 
         game.displayedFailureDialog = true;
         game.touchInput.setInputGrabState(false);
-        game.stopConnection();
+        game.streamConnection.stopConnection();
         if (game.spinner != null) game.spinner.dismiss();
         game.spinner = SpinnerDialog.displayDialog(game, game.getString(R.string.conn_establishing_title), tripResume ?
                 game.getString(R.string.stream_reconnecting) :

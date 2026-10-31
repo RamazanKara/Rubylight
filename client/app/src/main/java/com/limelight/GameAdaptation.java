@@ -288,7 +288,7 @@ final class GameAdaptation {
         dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(view -> {
             // connected stays true until stopConnection, which closes this dialog: a termination
             // that has arrived but not yet stopped the stream counts as ended (streamEnding).
-            if (!game.connected || game.streamEnding() || game.rateChanges != stream) {
+            if (!game.connected || game.streamConnection.streamEnding() || game.rateChanges != stream) {
                 // The stream this dialog was opened for ended or restarted: nothing goes out.
                 dialog.dismiss();
                 LimeLog.warning("Rate change: the stream ended before the request was sent");

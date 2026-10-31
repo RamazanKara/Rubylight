@@ -254,7 +254,7 @@ final class GameVideoOutput {
             if (game.stoppedStreamResumeIntent != null) {
                 game.stoppedStreamResumeIntent.removeExtra(EXTRA_OUTPUT_DISPLAY);
                 game.displayedFailureDialog = true;
-                game.stopConnection();
+                game.streamConnection.stopConnection();
             } else game.finish();
         }
     }

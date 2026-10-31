@@ -137,7 +137,7 @@ public class GameExpectedVideoTest {
                 new StreamConfiguration.Builder().build(), null, null) {
             @Override public void stop() {}
         });
-        ReflectionHelpers.callInstanceMethod(game, "stopConnection");
+        ReflectionHelpers.callInstanceMethod(game.streamConnection, "stopConnection");
         assertFalse("Removed when the stream stops", handler.hasCallbacks(poll));
     }
 

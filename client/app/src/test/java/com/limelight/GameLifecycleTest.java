@@ -591,11 +591,11 @@ public class GameLifecycleTest {
         ReflectionHelpers.setField(activity, "lowLatencyWifiLock", lowLatency);
         activity.getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         try {
-            ReflectionHelpers.callInstanceMethod(activity, "stopConnection");
+            ReflectionHelpers.callInstanceMethod(activity.streamConnection, "stopConnection");
             assertFalse(highPerf.isHeld());
             assertFalse(lowLatency.isHeld());
             assertEquals(0, activity.getWindow().getAttributes().flags & WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-            ReflectionHelpers.callInstanceMethod(activity, "stopConnection");
+            ReflectionHelpers.callInstanceMethod(activity.streamConnection, "stopConnection");
         } finally {
             controller.destroy();
         }

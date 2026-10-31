@@ -134,7 +134,7 @@ public class GameRecoveryTest {
         MuteConnection connection = new MuteConnection();
         connection.controllerMicrophoneState(new Object(), false, false, true);
         ReflectionHelpers.setField(game, "conn", connection);
-        ReflectionHelpers.callInstanceMethod(game, "stopConnection");
+        ReflectionHelpers.callInstanceMethod(game.streamConnection, "stopConnection");
         Thread stopping = ReflectionHelpers.getField(game, "connectionStopThread");
         join(stopping);
         assertFalse(connection.isMicrophoneMutedForReconnect());
@@ -1109,7 +1109,7 @@ public class GameRecoveryTest {
         ReflectionHelpers.setField(game, "surfaceCreated", true);
         game.onPause();
         try {
-            ReflectionHelpers.callInstanceMethod(game, "destroyVideoSurface");
+            ReflectionHelpers.callInstanceMethod(game.streamConnection, "destroyVideoSurface");
             assertFalse(game.isFinishing());
             assertNotNull(ReflectionHelpers.getField(game, "stoppedStreamResumeIntent"));
             assertNull(ReflectionHelpers.getField(game, "pendingRecovery"));
@@ -1562,7 +1562,7 @@ public class GameRecoveryTest {
             assertTrue(ReflectionHelpers.callInstanceMethod(game.streamRecovery, "tryAutomaticRecovery"));
             assertNotNull(ReflectionHelpers.getField(game, "pendingRecovery"));
             assertFalse(ReflectionHelpers.callInstanceMethod(game.streamRecovery, "tryAutomaticRecovery"));
-            ReflectionHelpers.callInstanceMethod(game, "stopConnection");
+            ReflectionHelpers.callInstanceMethod(game.streamConnection, "stopConnection");
             assertNull(ReflectionHelpers.getField(game, "pendingRecovery"));
             org.robolectric.Shadows.shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofSeconds(15));
             assertNull(org.robolectric.Shadows.shadowOf(game).getNextStartedActivity());
@@ -1616,7 +1616,7 @@ public class GameRecoveryTest {
             org.robolectric.Shadows.shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofSeconds(1));
             // The delayed retry is now waiting for teardown on a worker thread.
             assertNull(ReflectionHelpers.getField(game, "pendingRecovery"));
-            ReflectionHelpers.callInstanceMethod(game, "stopConnection");
+            ReflectionHelpers.callInstanceMethod(game.streamConnection, "stopConnection");
             stopReleased.countDown();
             // Any late posted continuation must observe the cancellation generation.
             settleHandoff(game);

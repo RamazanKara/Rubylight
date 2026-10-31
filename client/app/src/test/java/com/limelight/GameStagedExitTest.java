@@ -38,7 +38,7 @@ public class GameStagedExitTest {
         ReflectionHelpers.setField(game, "decoderRenderer", renderer);
         ReflectionHelpers.setField(game, "attemptedConnection", true);
         ReflectionHelpers.setField(game, "streamHdr", hdr);
-        ReflectionHelpers.setField(game, "androidTv", tv);
+        ReflectionHelpers.setField(game.streamConnection, "androidTv", tv);
         return game;
     }
 

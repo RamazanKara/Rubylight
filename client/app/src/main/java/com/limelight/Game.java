@@ -2,8 +2,6 @@ package com.limelight;
 
 
 import com.limelight.binding.PlatformBinding;
-import com.limelight.binding.audio.AndroidAudioRenderer;
-import com.limelight.binding.audio.SilentAudioRenderer;
 import com.limelight.binding.input.ControllerHandler;
 import com.limelight.binding.input.KeyboardTranslator;
 import com.limelight.binding.input.capture.InputCaptureManager;
@@ -16,7 +14,6 @@ import com.limelight.binding.video.CrashAccounting;
 import com.limelight.binding.video.CrashListener;
 import com.limelight.binding.video.DecoderSetupFailure;
 import com.limelight.binding.video.PackedFallback;
-import com.limelight.binding.video.DiscardingDecoderRenderer;
 import com.limelight.binding.video.DisplayCapsReporter;
 import com.limelight.binding.video.HdrFormatPolicy;
 import com.limelight.binding.video.HdrPolicy;
@@ -53,21 +50,16 @@ import com.limelight.ui.PcKeyboardOverlay;
 import com.limelight.ui.StreamOrientation;
 import com.limelight.ui.StreamView;
 import com.limelight.utils.Dialog;
-import com.limelight.utils.NetworkGrace;
 import com.limelight.utils.LaunchSource;
-import com.limelight.utils.ServerHelper;
-import com.limelight.utils.ShortcutHelper;
 import com.limelight.utils.SpinnerDialog;
 import com.limelight.utils.UiHelper;
 
 import android.annotation.SuppressLint;
 import android.annotation.TargetApi;
 import android.app.Activity;
-import androidx.appcompat.app.AlertDialog;
 import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsCompat;
 import androidx.core.view.WindowInsetsControllerCompat;
-import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import android.app.PendingIntent;
 import android.content.BroadcastReceiver;
 import com.limelight.ui.PictureInPicturePolicy;
@@ -77,7 +69,6 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.ServiceConnection;
 import android.content.SharedPreferences;
-import android.content.pm.PackageManager;
 import android.content.res.Configuration;
 import android.graphics.SurfaceTexture;
 import android.hardware.input.InputManager;
@@ -131,6 +122,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     final GameAdaptation adaptation = new GameAdaptation(this);
     final GameRecovery streamRecovery = new GameRecovery(this);
     final GameVideoOutput videoOutput = new GameVideoOutput(this);
+    final GameConnection streamConnection = new GameConnection(this);
 
     TrackpadPointer trackpadPointer;
     // Set while the host sends its cursor shapes for the Local cursor; read on the control thread.
@@ -165,7 +157,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     boolean autoEnterPip = false;
     private com.limelight.ui.AdaptiveLayout adaptiveLayout;
     boolean surfaceCreated = false;
-    private boolean attemptedConnection = false;
+    boolean attemptedConnection = false;
     volatile Thread connectionStopThread;
     StreamRecoveryPolicy recoveryPolicy = new StreamRecoveryPolicy(0, 0);
     int recoveryAppId;
@@ -179,7 +171,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     final Runnable recoveryTimeout = () -> {
         if (this.connecting && this.foreground && !isFinishing() && streamRecovery.isRecoveryAttempt()) {
             displayedFailureDialog = true;
-            stopConnection();
+            streamConnection.stopConnection();
             if (spinner != null) { spinner.dismiss(); spinner = null; }
             streamRecovery.showReconnectDialog(R.string.conn_terminated_title, getString(R.string.stream_recovery_exhausted));
         }
@@ -187,9 +179,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     int suppressPipRefCount = 0;
     android.app.Dialog streamMenu;
     Runnable streamMenuAction;
-    private androidx.appcompat.app.AlertDialog launchConfirmationDialog;
-    private LaunchConfirmation pendingConfirmation;
-    private String connectionErrorMessage;
+    LaunchConfirmation pendingConfirmation;
+    String connectionErrorMessage;
     boolean hostActionInProgress;
     // Set while this device asks the host to end the session. Hosts drop the stream while
     // handling that request, often without an end message, so any termination is expected.
@@ -209,9 +200,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     int currentBitrate;
     AdaptiveBitrateController adaptiveBitrate;
     PyroWaveBitrateController pyroWaveBitrate;
-    private boolean poorConnection;
-    // The stream's network is lost: the overlay says so until one returns (or the stream ends).
-    private boolean streamNetworkLost;
+    boolean poorConnection;
     long adaptiveBitrateRetryAt;
     int adaptiveBitrateRetryTarget;
     // Automatic quality switched auto bitrate on for itself; the person's own choice was off.
@@ -355,14 +344,14 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 @Override public void onDisplayAdded(int displayId) {}
                 @Override public void onDisplayRemoved(int displayId) {
                     Display video = videoOutput.getVideoDisplay();
-                    if (video.getDisplayId() == displayId) noteVideoDisplay(video, true);
+                    if (video.getDisplayId() == displayId) streamConnection.noteVideoDisplay(video, true);
                     if (externalPresentation != null && externalPresentation.getDisplay().getDisplayId() == displayId) {
                         videoOutput.returnVideoToDevice();
                     }
                 }
                 @Override public void onDisplayChanged(int displayId) {
                     Display display = videoOutput.getVideoDisplay();
-                    if (display.getDisplayId() == displayId) noteVideoDisplay(display, false);
+                    if (display.getDisplayId() == displayId) streamConnection.noteVideoDisplay(display, false);
                     if (conn != null && display.getDisplayId() == displayId) {
                         videoOutput.updateInputPollingRate();
                         // Also fires when a foldable moves the stream to its other screen.
@@ -376,44 +365,6 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     // 10-bit formats offered for 10-bit SDR (the setting), without asking the PC for HDR.
     boolean streamSdr10;
     DisplayCapsReporter displayCapsReporter;
-
-    // Asks a host that sends per-frame timing reports (0x5536) for them, once per connection.
-    // Feeds the overlay's host latency line and the latency CSV; the stream description's
-    // announcement is the final say, the capability only keeps other hosts from being asked.
-    private void requestHostTiming() {
-        if (conn == null || !conn.getHostDetails().caps.has(HostCapabilities.Feature.HOST_TIMING) ||
-                !MoonBridge.hostSupportsControlMessage(MoonBridge.CONTROL_MESSAGE_HOST_TIMING)) {
-            return;
-        }
-        MoonBridge.sendHostTimingRequest(true);
-    }
-
-    // Asks a host that announces link notices (0x5538) to say when it lowers the video bitrate
-    // because of the network, once per connection. The overlay then shows it until the host is
-    // back at the requested rate. The C engine does not support it.
-    private void requestLinkNotice() {
-        linkNotice = null;
-        if (conn == null || !MoonBridge.hostSupportsControlMessage(MoonBridge.CONTROL_MESSAGE_LINK_NOTICE)) {
-            return;
-        }
-        MoonBridge.sendLinkNoticeRequest(true);
-    }
-
-    // Clipboard sync (0x5508), when this stream's launch asked a Rubylight PC for it. The C engine has none.
-    private void startClipboardSync() {
-        if (clipboardSync != null) {
-            clipboardSync.stop();
-            clipboardSync = null;
-        }
-        if (conn == null || !conn.askedForClipboardSync()) return;
-        if (!MoonBridge.isRustStream()) {
-            LimeLog.warning("Clipboard sync: needs the New streaming engine; this stream has none");
-            return;
-        }
-        clipboardSync = com.limelight.utils.ClipboardSync.forStream(this,
-                text -> messages.alert(text, Toast.LENGTH_LONG));
-        clipboardSync.connectionStarted(hasWindowFocus());
-    }
 
     boolean useArr;
     // The last successful vote made by this activity, not a measurement of the display's rate.
@@ -442,7 +393,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     boolean isHidingOverlays;
     private boolean wasInPictureInPicture;
     TextView notificationOverlayView;
-    private int requestedNotificationOverlayVisibility = View.GONE;
+    int requestedNotificationOverlayVisibility = View.GONE;
     TextView performanceOverlayView;
     View performanceOverlayScroll;
     // What the host last said about holding the bitrate down for the network; null when it has not.
@@ -461,7 +412,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     // From the first time the user opens USB devices until the stream stops.
     com.limelight.binding.usb.UsbForwarding usbForwarding;
     // Clipboard sync (0x5508) while this stream's PC runs it.
-    private com.limelight.utils.ClipboardSync clipboardSync;
+    com.limelight.utils.ClipboardSync clipboardSync;
     final Runnable showStreamMenuHint = overlays::showStreamMenuHint;
 
     MediaCodecDecoderRenderer decoderRenderer;
@@ -471,39 +422,18 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     volatile boolean streamTerminated;
     // Experimental: a TV that loses its HDMI signal takes the decoder down with it. Whether the
     // video display is off, invalid or gone, as of its last change.
-    private volatile boolean videoDisplayOff;
-    private volatile Boolean androidTv;
-
-    private boolean isAndroidTv() {
-        Boolean tv = androidTv;
-        if (tv == null) {
-            tv = getPackageManager().hasSystemFeature(PackageManager.FEATURE_TELEVISION) ||
-                    getPackageManager().hasSystemFeature(PackageManager.FEATURE_LEANBACK);
-            androidTv = tv;
-        }
-        return tv;
-    }
-
-    boolean streamEnding() {
-        // hostExitRequested is left out: a failed quit keeps it set for 15 s while still streaming.
-        return streamTerminated || exiting || connectionStopThread != null;
-    }
-
-    private void noteVideoDisplay(Display display, boolean removed) {
-        videoDisplayOff = removed || !display.isValid() || display.getState() != Display.STATE_ON;
-        stagedExit.onDisplayChanged(SystemClock.uptimeMillis());
-    }
+    volatile boolean videoDisplayOff;
 
     // Experimental: on Android TV, an HDR stream ends in stages (stop and release the decoder and
     // video output, let the display settle, give the display mode back, settle again, then finish)
     // so the HDR to SDR switch and the mode revert never overlap and wedge the TV's HDMI link.
     // Everything else finishes at once, as always. See StagedStreamExit.
-    private final StagedStreamExit stagedExit = new StagedStreamExit();
+    final StagedStreamExit stagedExit = new StagedStreamExit();
     private final Handler exitHandler = new Handler(Looper.getMainLooper());
     private final Runnable stagedExitRunnable = this::stagedExitTick;
     // True from the first finish() of a staged exit on; isFinishing() reports it so every
     // "is this stream ending" check in this class holds while the exit is staged.
-    private volatile boolean exiting;
+    volatile boolean exiting;
     private boolean exitFinished;
     private boolean stagedExitStopDone;
 
@@ -534,7 +464,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
 
     private boolean stagedExitApplies() {
         return !isDestroyed() && attemptedConnection && decoderRenderer != null &&
-                StagedStreamExit.applies(isAndroidTv(),
+                StagedStreamExit.applies(streamConnection.isAndroidTv(),
                         streamHdr || Boolean.TRUE.equals(decoderRenderer.getHostHdrReport()));
     }
 
@@ -545,7 +475,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         touchInput.setInputGrabState(false);
         if (streamMenu != null) streamMenu.dismiss();
         LimeLog.info("Exit: stopping the connection and releasing the decoder");
-        stopConnection();
+        streamConnection.stopConnection();
         exitHandler.post(stagedExitRunnable);
     }
 
@@ -616,11 +546,11 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         }
     }
 
-    private WifiManager.WifiLock highPerfWifiLock;
+    WifiManager.WifiLock highPerfWifiLock;
     WifiManager.WifiLock lowLatencyWifiLock;
 
     private boolean usbDriverServiceBound;
-    private UsbDriverService.UsbDriverBinder usbDriverBinder;
+    UsbDriverService.UsbDriverBinder usbDriverBinder;
     private ServiceConnection usbDriverServiceConnection = new ServiceConnection() {
         @Override
         public void onServiceConnected(ComponentName componentName, IBinder iBinder) {
@@ -937,8 +867,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                     public void notifyCrash(Exception e) {
                         // A stream that is ending, or a TV that just lost its display, is not a decoder
                         // crash: counting it would turn reference frame invalidation off next time.
-                        CrashAccounting.Verdict verdict = CrashAccounting.classify(streamEnding(),
-                                isAndroidTv(), videoDisplayOff);
+                        CrashAccounting.Verdict verdict = CrashAccounting.classify(streamConnection.streamEnding(),
+                                streamConnection.isAndroidTv(), videoDisplayOff);
                         if (verdict != CrashAccounting.Verdict.COUNT) {
                             LimeLog.warning("Decoder failure not counted as a crash (" +
                                     (verdict == CrashAccounting.Verdict.DISPLAY_LOST ? "display lost" : "stream ending") +
@@ -1488,7 +1418,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         // A staged exit still waiting on the display ends here with the activity.
         exitHandler.removeCallbacksAndMessages(null);
         exitFinished = true;
-        stopConnection();
+        streamConnection.stopConnection();
         if (externalPresentation != null) {
             externalPresentation.setOnDismissListener(null);
             externalPresentation.dismiss();
@@ -1535,7 +1465,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         super.onNewIntent(intent);
         // singleTask can deliver a new shortcut launch to a stream still visible in PiP.
         touchInput.setInputGrabState(false);
-        stopConnection();
+        streamConnection.stopConnection();
         finishNow();
         startActivity(new Intent(intent));
     }
@@ -1557,7 +1487,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         }
         if (recoveryCancelledOnPause && !connected && !isFinishing()) {
             displayedFailureDialog = true;
-            stopConnection();
+            streamConnection.stopConnection();
             if (spinner != null) { spinner.dismiss(); spinner = null; }
             streamRecovery.showReconnectDialog(R.string.conn_terminated_title, getString(R.string.stream_recovery_paused));
         }
@@ -1631,7 +1561,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             int videoFormat = decoderRenderer.getActiveVideoFormat();
 
             displayedFailureDialog = true;
-            stopConnection();
+            streamConnection.stopConnection();
 
             if (prefConfig.enableLatencyToast) {
                 int averageEndToEndLat = decoderRenderer.getAverageEndToEndLatency();
@@ -1913,163 +1843,16 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
 
     @Override
     public void stageStarting(final String stage) {
-        runOnUiThread(new Runnable() {
-            @Override
-            public void run() {
-                if (spinner != null) {
-                    spinner.setMessage(getResources().getString(R.string.conn_starting) + " " + stage);
-                }
-            }
-        });
+        streamConnection.stageStarting(stage);
     }
 
     @Override
     public void stageComplete(String stage) {
     }
 
-    void stopConnection() {
-        adaptation.stopFoundationAbr();
-        touchInput.releaseDesktopInput();
-        if (trackpadPointer != null) trackpadPointer.stopMomentum();
-        streamRecovery.rememberMicrophoneMute();
-        streamRecovery.cancelAutomaticRecovery();
-        if (gameTouchControls != null) gameTouchControls.releaseInput();
-        overlays.stopHardwareMetricsPolling();
-        getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-        if (lowLatencyWifiLock != null && lowLatencyWifiLock.isHeld()) {
-            lowLatencyWifiLock.release();
-        }
-        if (highPerfWifiLock != null && highPerfWifiLock.isHeld()) {
-            highPerfWifiLock.release();
-        }
-        streamMenuAction = null;
-        windowFocusActions.clear();
-        getWindow().getDecorView().removeCallbacks(runWindowFocusActions);
-        bitrateHandler.removeCallbacks(updateBitrate);
-        bitrateHandler.removeCallbacks(updateRateChangeBitrate);
-        bitrateHandler.removeCallbacks(expireRateChanges);
-        rateChanges = null;
-        bitrateHandler.removeCallbacks(checkReconfigure);
-        bitrateHandler.removeCallbacks(updateQuality);
-        adaptiveQuality = null;
-        pendingQualityTarget = null;
-        adaptiveBitrate = null;
-        qualityAutoBitrate = false;
-        bitrateHandler.removeCallbacks(adaptation.sampleStreamHealth);
-        bitrateHandler.removeCallbacks(videoOutput.pollContentRateVote);
-        videoOutput.stopRefreshSwitchPolling();
-        if (wifiDiagnostics != null) wifiDiagnostics.stop();
-        pyroWaveBitrate = null;
-        displayCapsReporter = null;
-        touchInput.stopHostCursorShapes();
-        if (clipboardSync != null) {
-            clipboardSync.stop();
-            clipboardSync = null;
-        }
-        // Before the connection stops: detaching tells the host.
-        if (usbForwarding != null) {
-            usbForwarding.stop();
-            usbForwarding = null;
-        }
-        if (usbDriverBinder != null) {
-            usbDriverBinder.setListener(null);
-            usbDriverBinder.setStateListener(null);
-            usbDriverBinder.stop();
-            usbDriverBinder = null;
-        }
-        if (connecting || connected) {
-            connecting = connected = false;
-            videoOutput.updatePipAutoEnter();
-
-            if (controllerHandler != null) controllerHandler.stop();
-
-            // USB teardown can report a final host mute before releasing its route.
-            // Keep that mute after the native connection clears controller state.
-            if (conn.isMicrophoneMutedForReconnect()) getIntent().putExtra(EXTRA_MICROPHONE_MUTED, true);
-
-            // Update GameManager state to indicate we're no longer in game
-            UiHelper.notifyStreamEnded(this);
-
-            // Stop may take a few hundred ms to do some network I/O to tell
-            // the server we're going away and clean up. Let it run in a separate
-            // thread to keep things smooth for the UI. Inside moonlight-common,
-            // we prevent another thread from starting a connection before and
-            // during the process of stopping this one.
-            connectionStopThread = new Thread(conn::stop, "Stop stream");
-            connectionStopThread.start();
-            LimeLog.info("Stream stopping");
-        }
-    }
-
     @Override
     public void stageFailed(final String stage, final int portFlags, final int errorCode) {
-        LimeLog.info("Stream failed");
-        // Perform a connection test if the failure could be due to a blocked port
-        // This does network I/O, so don't do it on the main thread.
-        // Experimental full chroma refused by the PC (or no mode in common): not a network failure.
-        final boolean packedRefused = errorCode == MoonBridge.CLIENT_ERROR_PACKED_444_REFUSED;
-        final boolean transientRecoveryFailure = !packedRefused && streamRecovery.isRecoveryAttempt() &&
-                StreamRecoveryPolicy.transientStartup(stage, portFlags, errorCode);
-        final int portTestResult = portFlags == 0 || transientRecoveryFailure || packedRefused ?
-                MoonBridge.ML_TEST_RESULT_INCONCLUSIVE :
-                MoonBridge.testClientConnectivity(ServerHelper.CONNECTION_TEST_SERVER, 443, portFlags);
-
-        runOnUiThread(new Runnable() {
-            @Override
-            public void run() {
-                if (isFinishing() || isDestroyed()) {
-                    return;
-                }
-                // Once per session: the replacement starts without full chroma. A refusal in a session
-                // already without it (never expected: it does not ask) shows the error as usual.
-                if (packedRefused && streamRecovery.reconnectWithoutPackedChroma("Full chroma refused at stream start (" +
-                        terminationDescription(errorCode) + (connectionErrorMessage != null ?
-                        "): " + connectionErrorMessage : ")"), PackedFallback.refusedToast())) return;
-                if (transientRecoveryFailure && streamRecovery.tryAutomaticRecovery()) return;
-                if (spinner != null) {
-                    spinner.dismiss();
-                    spinner = null;
-                }
-
-                if (!displayedFailureDialog && !foreground) {
-                    displayedFailureDialog = true;
-                    stopConnection();
-                    finish();
-                    return;
-                }
-                if (!displayedFailureDialog && foreground && !isFinishing()) {
-                    displayedFailureDialog = true;
-                    LimeLog.severe(stage + " failed: " + errorCode);
-
-                    // If video initialization failed and the surface is still valid, display extra information for the user
-                    if (stage.contains("video") && videoSurface != null && videoSurface.isValid()) {
-                        messages.alert(getResources().getText(R.string.video_decoder_init_failed), Toast.LENGTH_LONG);
-                    }
-
-                    // A decoder that rejected the stream is this device's failure, not the host's, and
-                    // no port or host advice applies to it.
-                    DecoderSetupFailure decoderFailure = decoderRenderer == null ? null : decoderRenderer.getSetupFailure();
-                    boolean decoderFailed = isDecoderStageFailure(decoderFailure, stage);
-                    String dialogText = startupFailureText(Game.this, decoderFailure, stage, connectionErrorMessage, errorCode);
-
-                    if (portFlags != 0 && !decoderFailed) {
-                        dialogText += "\n\n" + getResources().getString(R.string.check_ports_msg) + "\n" +
-                                MoonBridge.stringifyPortFlags(portFlags, "\n");
-                    }
-
-                    if (portTestResult != MoonBridge.ML_TEST_RESULT_INCONCLUSIVE && portTestResult != 0)  {
-                        dialogText += "\n\n" + getResources().getString(R.string.nettest_text_blocked);
-                    }
-
-                    if (app.isSmallStreamInputOnly()) {
-                        dialogText += "\n\n" + getString(R.string.input_only_small_stream_refused);
-                    }
-
-                    stopConnection();
-                    streamRecovery.showReconnectDialog(R.string.conn_error_title, dialogText);
-                }
-            }
-        });
+        streamConnection.stageFailed(stage, portFlags, errorCode);
     }
 
     /** A recorded decoder setup failure at a video stage: this device's failure, not the host's. */
@@ -2108,442 +1891,58 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     }
 
     /** Large codes are hex values, small ones decimal. */
-    private static String errorCodeText(int errorCode) {
+    static String errorCodeText(int errorCode) {
         return Math.abs(errorCode) > 1000 ? Integer.toHexString(errorCode) : Integer.toString(errorCode);
     }
 
     @Override
     public void connectionTerminated(final int reportedErrorCode) {
-        LimeLog.info("Stream disconnected");
-        streamTerminated = true;
-        final boolean exitRequested = hostExitRequested;
-        if (reportedErrorCode == MoonBridge.ML_ERROR_GRACEFUL_TERMINATION) {
-            LimeLog.info("Connection terminated: the PC ended the stream");
-        } else if (exitRequested) {
-            LimeLog.info("Connection terminated after this device ended the session: " +
-                    terminationDescription(reportedErrorCode));
-        } else {
-            LimeLog.severe("Connection terminated: " + terminationDescription(reportedErrorCode));
-        }
-        // Some hosts close the transport before their graceful termination packet arrives.
-        // Verify an idle host before either retrying or showing an error, even with recovery off.
-        final boolean endedSession = !exitRequested && connected &&
-                StreamRecoveryPolicy.transportTermination(reportedErrorCode) &&
-                conn != null && conn.hasEndedSession();
-        final int errorCode = exitRequested || endedSession ?
-                MoonBridge.ML_ERROR_GRACEFUL_TERMINATION : reportedErrorCode;
-        if (endedSession) LimeLog.info("Connection terminated: the PC ended the previous session");
-        final int portFlags = MoonBridge.getPortFlagsFromTerminationErrorCode(errorCode);
-        // A stream that never had video does not reconnect: its error (and the port test) shows at once.
-        final boolean transientFailure = StreamRecoveryPolicy.recoversTermination(errorCode, streamRecovery.videoStarted());
-        // A renderer failure on this device says nothing about the network
-        final int portTestResult = errorCode == MoonBridge.ML_ERROR_GRACEFUL_TERMINATION ||
-                errorCode == MoonBridge.CLIENT_ERROR_VULKAN_RENDERER || errorCode == MoonBridge.CLIENT_ERROR_DECODER ||
-                (transientFailure && prefConfig != null && prefConfig.autoReconnect) ?
-                MoonBridge.ML_TEST_RESULT_INCONCLUSIVE :
-                MoonBridge.testClientConnectivity(ServerHelper.CONNECTION_TEST_SERVER,443, portFlags);
-
-        runOnUiThread(new Runnable() {
-            @Override
-            public void run() {
-                if (isFinishing() || isDestroyed()) {
-                    return;
-                }
-                if (errorCode == MoonBridge.ML_ERROR_GRACEFUL_TERMINATION && stoppedStreamResumeIntent != null) {
-                    // The PC ended a session that leaving the stream kept for resuming.
-                    stoppedStreamResumeIntent = null;
-                    finish();
-                    return;
-                }
-                if (transientFailure && !StreamRecoveryPolicy.transportTermination(errorCode)) {
-                    // Keep explicit media/early failures visible if a later recovery attempt
-                    // finds the host idle. Transport startup retries carry this same flag.
-                    getIntent().putExtra(EXTRA_RECOVERY_MEDIA_FAILURE, true);
-                }
-                recoveryBudgetExhausted = false;
-                if (transientFailure && streamRecovery.tryAutomaticRecovery()) return;
-                final boolean recoveryExhausted = transientFailure && recoveryBudgetExhausted;
-                if (!foreground && transientFailure) streamRecovery.rememberStreamForResume(false);
-                // Let the display go to sleep now
-                getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-
-                // Stop processing controller input
-                if (controllerHandler != null) controllerHandler.stop();
-
-                // Ungrab input
-                touchInput.setInputGrabState(false);
-
-                if (!displayedFailureDialog) {
-                    displayedFailureDialog = true;
-                    stopConnection();
-
-                    // Display the error dialog if it was an unexpected termination.
-                    // Otherwise, just finish the activity immediately.
-                    if (errorCode != MoonBridge.ML_ERROR_GRACEFUL_TERMINATION) {
-                        String message;
-
-                        if (portTestResult != MoonBridge.ML_TEST_RESULT_INCONCLUSIVE && portTestResult != 0) {
-                            // If we got a blocked result, that supersedes any other error message
-                            message = getResources().getString(R.string.nettest_text_blocked);
-                        }
-                        else {
-                            switch (errorCode) {
-                                case MoonBridge.ML_ERROR_NO_VIDEO_TRAFFIC:
-                                    message = getResources().getString(R.string.no_video_received_error);
-                                    break;
-
-                                case MoonBridge.ML_ERROR_NO_VIDEO_FRAME:
-                                    MediaCodecDecoderRenderer frames = decoderRenderer;
-                                    message = getResources().getString(frames != null && frames.isPyroWaveHlgLost() ?
-                                            R.string.stream_hdr_pyrowave_hlg_lost : R.string.no_frame_received_error);
-                                    break;
-
-                                case MoonBridge.ML_ERROR_UNEXPECTED_EARLY_TERMINATION:
-                                case MoonBridge.ML_ERROR_PROTECTED_CONTENT:
-                                    message = getResources().getString(R.string.early_termination_error);
-                                    break;
-
-                                case MoonBridge.ML_ERROR_FRAME_CONVERSION:
-                                    message = getResources().getString(R.string.frame_conversion_error);
-                                    break;
-
-                                case MoonBridge.CLIENT_ERROR_VULKAN_RENDERER:
-                                    MediaCodecDecoderRenderer renderer = decoderRenderer;
-                                    String failure = renderer != null ? renderer.getVulkanFailure() : null;
-                                    message = getResources().getString(R.string.vulkan_renderer_failed,
-                                            failure != null ? failure : getResources().getString(R.string.vulkan_failure_unknown));
-                                    break;
-
-                                case MoonBridge.CLIENT_ERROR_DECODER:
-                                    MediaCodecDecoderRenderer decoder = decoderRenderer;
-                                    String reason = decoder != null ? decoder.getDecoderFailure() : null;
-                                    message = getResources().getString(StreamExitPolicy.decoderFailureMessage(
-                                                    decoder != null && decoder.decoderFailedWithVulkan()),
-                                            reason != null ? reason : getResources().getString(R.string.vulkan_failure_unknown));
-                                    break;
-
-                                default:
-                                    message = getResources().getString(R.string.conn_terminated_msg) + "\n\n" +
-                                            getResources().getString(R.string.error_code_prefix) + " " + errorCodeText(errorCode);
-                                    if (prefConfig != null &&
-                                            NetworkGrace.mayHaveGivenUp(prefConfig.networkGraceSeconds, errorCode)) {
-                                        message = getResources().getString(R.string.network_grace_gave_up,
-                                                prefConfig.networkGraceSeconds) + "\n\n" + message;
-                                    }
-                                    break;
-                            }
-                        }
-
-                        if (portFlags != 0) {
-                            message += "\n\n" + getResources().getString(R.string.check_ports_msg) + "\n" +
-                                    MoonBridge.stringifyPortFlags(portFlags, "\n");
-                        }
-
-                        boolean portTestBlocked = portTestResult != MoonBridge.ML_TEST_RESULT_INCONCLUSIVE &&
-                                portTestResult != 0;
-                        boolean graceGaveUp = prefConfig != null &&
-                                NetworkGrace.mayHaveGivenUp(prefConfig.networkGraceSeconds, errorCode);
-                        if (foreground && (stoppedStreamResumeIntent != null ||
-                                StreamExitPolicy.terminationNeedsAction(errorCode, portTestBlocked,
-                                        graceGaveUp, recoveryExhausted))) {
-                            streamRecovery.showReconnectDialog(R.string.conn_terminated_title, message);
-                        } else if (foreground) {
-                            // The host went away or the connection was lost: nothing to act on, so
-                            // go back to the list and say why where it outlives this screen. Android
-                            // 12+ shows two lines of a text toast, so it is the title and the code.
-                            Toast.makeText(getApplicationContext(),
-                                    getString(R.string.conn_terminated_title) + "\n" +
-                                            getString(R.string.error_code_prefix) + " " + errorCodeText(errorCode),
-                                    Toast.LENGTH_LONG).show();
-                            finish();
-                        } else if (stoppedStreamResumeIntent == null) {
-                            finish();
-                        }
-                    }
-                    else {
-                        finish();
-                    }
-                }
-            }
-        });
+        streamConnection.connectionTerminated(reportedErrorCode);
     }
 
     @Override
     public void connectionStatusUpdate(final int connectionStatus) {
-        runOnUiThread(new Runnable() {
-            @Override
-            public void run() {
-                if (!connected || isFinishing() || isDestroyed()) {
-                    return;
-                }
-                poorConnection = connectionStatus == MoonBridge.CONN_STATUS_POOR;
-                // The lost-network notice stays until a network returns.
-                if (prefConfig.disableWarnings || streamNetworkLost) {
-                    return;
-                }
-
-                if (connectionStatus == MoonBridge.CONN_STATUS_POOR) {
-                    if (prefConfig.bitrate > 5000) {
-                        notificationOverlayView.setText(getResources().getString(R.string.slow_connection_msg));
-                    }
-                    else {
-                        notificationOverlayView.setText(getResources().getString(R.string.poor_connection_msg));
-                    }
-
-                    requestedNotificationOverlayVisibility = View.VISIBLE;
-                }
-                else if (connectionStatus == MoonBridge.CONN_STATUS_OKAY) {
-                    requestedNotificationOverlayVisibility = View.GONE;
-                }
-
-                if (!isHidingOverlays) {
-                    notificationOverlayView.setVisibility(requestedNotificationOverlayVisibility);
-                }
-            }
-        });
+        streamConnection.connectionStatusUpdate(connectionStatus);
     }
 
     @Override
     public void streamNetworkLost() {
-        runOnUiThread(() -> {
-            if (!connected || displayedFailureDialog || isFinishing() || isDestroyed()) return;
-            // A frozen picture is never silent: say what happened, even with warnings off.
-            // It promises a reconnect only when one will follow (the connection's timeout, or a
-            // return it cannot carry on over, recovers it).
-            streamNetworkLost = true;
-            notificationOverlayView.setText(getString(streamRecovery.recoversAutomatically() &&
-                    prefConfig.networkGraceSeconds * 1000 <= NetworkReturnRecovery.PEER_TIMEOUT_MS ?
-                    R.string.stream_network_lost_reconnecting : R.string.stream_network_lost));
-            requestedNotificationOverlayVisibility = View.VISIBLE;
-            if (!isHidingOverlays) notificationOverlayView.setVisibility(View.VISIBLE);
-        });
+        streamConnection.streamNetworkLost();
     }
 
     @Override
     public void streamNetworkReturned(final int change, final boolean metered) {
-        runOnUiThread(() -> {
-            // A return the connection carried on over (no route yet) is reported again once
-            // the engine's answer changes (the address arrived): only the first clears the notice.
-            if (streamNetworkLost) {
-                streamNetworkLost = false;
-                requestedNotificationOverlayVisibility = View.GONE;
-                if (!isHidingOverlays) notificationOverlayView.setVisibility(View.GONE);
-            }
-            // Roamed, or carrying on (the same address back, or no route yet): the stream goes on,
-            // and its own timeout decides if it cannot.
-            // Like a drop, only a stream whose video started reconnects (desktop: reconnects_on_its_own).
-            if (!connected || displayedFailureDialog || isFinishing() || isDestroyed() || prefConfig == null ||
-                    !streamRecovery.videoStarted() || !NetworkReturnRecovery.reconnectsAtOnce(change == MoonBridge.NETWORK_CANNOT_CONTINUE, metered,
-                            prefConfig.roamingMetered, prefConfig.autoReconnect,
-                            prefConfig.networkGraceSeconds * 1000)) return;
-            // The connection cannot carry on over this network and would only time out first.
-            LimeLog.info("The network is back on another address the stream did not roam to: reconnecting now");
-            if (!streamRecovery.tryAutomaticRecovery(false, true)) {
-                LimeLog.warning("The network is back, but no automatic reconnection is possible now");
-            }
-        });
+        streamConnection.streamNetworkReturned(change, metered);
     }
 
     @Override
     public void connectionStarted() {
-        runOnUiThread(new Runnable() {
-            @Override
-            public void run() {
-                if (!connecting || isFinishing() || isDestroyed()) {
-                    return;
-                }
-                if (spinner != null) {
-                    spinner.dismiss();
-                    spinner = null;
-                }
-
-                connected = true;
-                conn.refreshNativeHostControl();
-                getIntent().removeExtra(EXTRA_RECOVERY_MEDIA_FAILURE);
-                bitrateHandler.removeCallbacks(adaptation.sampleStreamHealth);
-                bitrateHandler.postDelayed(adaptation.sampleStreamHealth, 1000);
-                bitrateHandler.removeCallbacks(videoOutput.pollContentRateVote);
-                if (prefConfig.contentRateFrameRate) bitrateHandler.postDelayed(videoOutput.pollContentRateVote, 1000);
-                videoOutput.startRefreshSwitchPolling();
-                if (wifiDiagnostics == null) wifiDiagnostics = new com.limelight.utils.WifiDiagnostics(Game.this);
-                wifiDiagnostics.start();
-                streamRecovery.onStreamConnected(SystemClock.elapsedRealtime());
-                recoveryAppId = app.getControl() == NvApp.Control.NONE ? app.getAppId() : conn.getHostDetails().runningGameId;
-                recoveryAppUuid = app.getControl() == NvApp.Control.NONE ? app.getAppUuid() : conn.getHostDetails().runningGameUuid;
-                touchInput.updateGameTouchProfile();
-                controllerHandler.resendControllerArrivals();
-                overlays.updateHardwareMetricsPolling();
-                LimeLog.info("Stream connected");
-                connecting = false;
-                if (!streamRecovery.isRecoveryAttempt()) {
-                    com.limelight.update.UpdateFlow.notifyForStream(Game.this, conn.getHostDetails(),
-                            () -> foreground && connected, text -> messages.alert(text, Toast.LENGTH_LONG));
-                }
-                if (app.getRole() != NvApp.Role.INPUT_ONLY && !app.isControlAction()) {
-                    displayCapsReporter = new DisplayCapsReporter(MoonBridge::sendDisplayCaps);
-                    videoOutput.reportDisplayCaps();
-                }
-                videoOutput.startReconfigureTracking();
-                requestHostTiming();
-                requestLinkNotice();
-                keyboardInput.requestTextInput();
-                startClipboardSync();
-                touchInput.updateHostCursorShapes();
-                if (!conn.canSendInput()) {
-                    if (gameTouchControls != null) gameTouchControls.hideForPip(true);
-                    if (virtualController != null) {
-                        virtualController.hide();
-                    }
-                    if (modernController != null) modernController.hide();
-                    if (micButton != null) micButton.setSuppressed(true);
-                    controllerHandler.stop();
-                    touchInput.setInputGrabState(false);
-                }
-                if (app.isSmallStreamInputOnly() && externalPresentation == null) {
-                    ((TextView) findViewById(R.id.inputOnlyStatus)).setText(getString(
-                            R.string.input_only_small_stream_status, InputOnlyPolicy.estimatedKbps() / 1000f));
-                }
-                findViewById(R.id.inputOnlyStatus).setVisibility(
-                        app.getRole() == NvApp.Role.INPUT_ONLY || externalPresentation != null ? View.VISIBLE : View.GONE);
-                // A link test before the launch may have started the stream lower than the setting.
-                currentBitrate = app.isSmallStreamInputOnly() ? prefConfig.bitrate : conn.getStartBitrateKbps();
-                overlays.notePyroWaveFallback();
-                adaptation.startStreamBitrate();
-                adaptation.startAdaptiveQuality();
-                videoOutput.updatePipAutoEnter();
-
-                if (!conn.getHostDetails().hasPermission(ComputerDetails.PERMISSION_INPUT)) {
-                    messages.alert(R.string.stream_input_denied, Toast.LENGTH_LONG);
-                }
-
-                // Hide the mouse cursor now after a short delay.
-                // Doing it before dismissing the spinner seems to be undone
-                // when the spinner gets displayed. On Android Q, even now
-                // is too early to capture. We will delay a second to allow
-                // the spinner to dismiss before capturing.
-                bitrateHandler.postDelayed(new Runnable() {
-                    @Override
-                    public void run() {
-                        if (foreground && connected && streamMenu == null && !isFinishing()) {
-                            touchInput.setInputGrabState(true);
-                        }
-                    }
-                }, 500);
-
-                // Keep the display on
-                getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-
-                // Update GameManager state to indicate we're in game
-                UiHelper.notifyStreamConnected(Game.this);
-
-                videoOutput.hideSystemUi(1000);
-
-                // The first stream says once how to open the stream menu, after the start settles.
-                if (!com.limelight.ui.StreamMenuHint.seen(Game.this)) {
-                    bitrateHandler.removeCallbacks(showStreamMenuHint);
-                    bitrateHandler.postDelayed(showStreamMenuHint, 1500);
-                }
-            }
-        });
-
-        // Report this shortcut being used (off the main thread to prevent ANRs)
-        ComputerDetails computer = new ComputerDetails();
-        computer.name = pcName;
-        computer.uuid = Game.this.getIntent().getStringExtra(EXTRA_PC_UUID);
-        ShortcutHelper shortcutHelper = new ShortcutHelper(this);
-        shortcutHelper.reportComputerShortcutUsed(computer);
-        if (appName != null) {
-            // This may be null if launched from the "Resume Session" PC context menu item
-            shortcutHelper.reportGameLaunched(computer, app);
-        }
+        streamConnection.connectionStarted();
     }
 
     @Override
     public void displayMessage(final String message) {
-        runOnUiThread(new Runnable() {
-            @Override
-            public void run() {
-                connectionErrorMessage = message;
-                if (connected) {
-                    messages.alert(message, Toast.LENGTH_LONG);
-                }
-            }
-        });
+        streamConnection.displayMessage(message);
     }
 
     @Override
     public void launchConfirmationRequired(LaunchConfirmation confirmation) {
-        runOnUiThread(() -> {
-            if (!foreground || isFinishing() || confirmation.getState(LaunchConfirmation.nowMs()) != LaunchConfirmation.State.WAITING) {
-                confirmation.cancel();
-                return;
-            }
-            if (spinner != null) {
-                spinner.dismiss();
-                spinner = null;
-            }
-            pendingConfirmation = confirmation;
-            launchConfirmationDialog = new com.google.android.material.dialog.MaterialAlertDialogBuilder(
-                    new androidx.appcompat.view.ContextThemeWrapper(this, R.style.StreamTheme))
-                    .setTitle(R.string.launch_confirm_title)
-                    .setMessage(launchConfirmationMessage(confirmation))
-                    .setPositiveButton(R.string.launch_confirm, (dialog, which) -> {
-                        confirmation.confirm(LaunchConfirmation.nowMs());
-                        spinner = SpinnerDialog.displayDialog(this, getString(R.string.conn_establishing_title),
-                                getString(R.string.conn_establishing_msg), true);
-                    })
-                    .setNegativeButton(android.R.string.cancel, (dialog, which) -> {
-                        confirmation.cancel();
-                        finish();
-                    }).create();
-            launchConfirmationDialog.setOnCancelListener(dialog -> {
-                confirmation.cancel();
-                finish();
-            });
-            launchConfirmationDialog.setCanceledOnTouchOutside(false);
-            launchConfirmationDialog.show();
-        });
-    }
-
-    /** Names the running game and this one when the start knew both; otherwise "the running app". */
-    private String launchConfirmationMessage(LaunchConfirmation confirmation) {
-        if (confirmation.isTerminate()) {
-            return getString(R.string.launch_confirm_terminate);
-        }
-        String replaced = getIntent().getStringExtra(EXTRA_REPLACED_APP_NAME);
-        return replaced != null && appName != null
-                ? getString(R.string.launch_confirm_replace_named, replaced, appName)
-                : getString(R.string.launch_confirm_replace);
+        streamConnection.launchConfirmationRequired(confirmation);
     }
 
     @Override
     public void launchConfirmationFinished() {
-        runOnUiThread(() -> {
-            pendingConfirmation = null;
-            if (launchConfirmationDialog != null) {
-                launchConfirmationDialog.dismiss();
-                launchConfirmationDialog = null;
-            }
-        });
+        streamConnection.launchConfirmationFinished();
     }
 
     @Override
     public void launchActionCompleted(String message) {
-        runOnUiThread(() -> {
-            if (!isFinishing()) {
-                messages.alert(message, Toast.LENGTH_LONG);
-                finish();
-            }
-        });
+        streamConnection.launchActionCompleted(message);
     }
 
-    // The connection's own once-per-PC facts: a virtual display, 4K or HDR the PC cannot offer.
     @Override
     public void displayTransientMessage(final String message) {
-        runOnUiThread(() -> {
-            if (prefConfig.disableWarnings) messages.note(message);
-            else messages.countedNotice(message);
-        });
+        streamConnection.displayTransientMessage(message);
     }
 
     @Override
@@ -2631,69 +2030,12 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
 
     @Override
     public void surfaceChanged(SurfaceHolder holder, int format, int width, int height) {
-        startConnectionOnSurface();
-    }
-
-    private void startConnectionOnSurface() {
-        if (!surfaceCreated || isFinishing() || isDestroyed()) {
-            return;
-        }
-
-        if (!attemptedConnection) {
-            if (streamRecovery.isRecoveryAttempt()) {
-                long deadlineFrom = streamRecovery.isTripResume() ?
-                        getIntent().getLongExtra(EXTRA_TRIP_RESUME_STARTED, 0) : recoveryPolicy.startedAt();
-                long remaining = StreamRecoveryPolicy.WINDOW_MS -
-                        (SystemClock.elapsedRealtime() - deadlineFrom);
-                if (remaining <= 0) {
-                    if (spinner != null) { spinner.dismiss(); spinner = null; }
-                    streamRecovery.showReconnectDialog(R.string.conn_terminated_title, getString(R.string.stream_recovery_exhausted));
-                    return;
-                }
-                bitrateHandler.postDelayed(recoveryTimeout, remaining);
-            }
-            attemptedConnection = true;
-            connecting = true;
-            LimeLog.info("Stream starting");
-
-            // Update GameManager state to indicate we're "loading" while connecting
-            UiHelper.notifyStreamConnecting(Game.this);
-
-            decoderRenderer.setRenderTarget(videoSurface, renderView.getWidth(), renderView.getHeight());
-            if (app.isSmallStreamInputOnly()) {
-                conn.start(new SilentAudioRenderer(), new DiscardingDecoderRenderer(), Game.this);
-            } else {
-                conn.start(new AndroidAudioRenderer(Game.this, prefConfig.enableAudioFx,
-                                prefConfig.usbDualSenseHaptics ? controllerHandler.headphoneAudioSink() : null),
-                        decoderRenderer, Game.this);
-            }
-        }
+        streamConnection.startConnectionOnSurface();
     }
 
     @Override
     public void surfaceCreated(SurfaceHolder holder) {
-        configureVideoSurface(holder.getSurface());
-    }
-
-    private void configureVideoSurface(Surface surface) {
-        videoSurface = surface;
-        appSurfaceFrameRateVote = null;
-        surfaceCreated = true;
-        if (streamRecovery.resumeStoppedStreamIfNeeded()) return;
-        LimeLog.info("Video surface: " + (prefConfig.useTextureView ? "TextureView" : "SurfaceView") +
-                ", pacing: " + prefConfig.framePacing + ", newest frame: " + prefConfig.dropLateFrames);
-
-        if (prefConfig.useTextureView) {
-            videoOutput.logDisplayRefreshPolicy(videoOutput.getVideoDisplay());
-            return;
-        }
-
-        videoOutput.voteSurfaceFrameRate(surface);
-
-        // Disable producer throttling on the underlying surface for reduced latency
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.CINNAMON_BUN) {
-            surface.setProducerThrottlingEnabled(false);
-        }
+        streamConnection.configureVideoSurface(holder.getSurface());
     }
 
     static int hdrStatusText(HdrPolicy.Status status) {
@@ -2742,41 +2084,15 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
 
     @Override
     public void surfaceDestroyed(SurfaceHolder holder) {
-        destroyVideoSurface();
-    }
-
-    private void destroyVideoSurface() {
-        if (!surfaceCreated) {
-            return;
-        }
-        surfaceCreated = false;
-        videoSurface = null;
-        appSurfaceFrameRateVote = null;
-        if (attemptedConnection && decoderRenderer != null) {
-            // Stop rendering synchronously before TextureView releases its surface.
-            // Reconnecting an external output still tears down the connection on a worker.
-            decoderRenderer.prepareForStop();
-        }
-        if (externalPresentation != null && !isFinishing() && !isDestroyed()) {
-            videoOutput.returnVideoToDevice();
-            return;
-        }
-        if (attemptedConnection) {
-            streamRecovery.rememberStreamForResume(true);
-            displayedFailureDialog = true;
-            stopConnection();
-            // The stopped decoder cannot be reused. Resume the captured game in a fresh
-            // activity when foreground returns; leaving spends nothing from the recovery budget.
-            if (streamRecovery.finishesWhenStopped()) finish();
-        }
+        streamConnection.destroyVideoSurface();
     }
 
     @Override
     public void onSurfaceTextureAvailable(SurfaceTexture texture, int width, int height) {
         texture.setDefaultBufferSize(prefConfig.upscalingMode == UpscalingPolicy.Mode.OFF ? prefConfig.width : width,
                 prefConfig.upscalingMode == UpscalingPolicy.Mode.OFF ? prefConfig.height : height);
-        configureVideoSurface(new Surface(texture));
-        startConnectionOnSurface();
+        streamConnection.configureVideoSurface(new Surface(texture));
+        streamConnection.startConnectionOnSurface();
     }
 
     @Override
@@ -2788,7 +2104,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     @Override
     public boolean onSurfaceTextureDestroyed(SurfaceTexture texture) {
         Surface surface = videoSurface;
-        destroyVideoSurface();
+        streamConnection.destroyVideoSurface();
         if (surface != null) surface.release();
         return true;
     }

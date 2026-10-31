@@ -965,8 +965,12 @@ fn remove_entry(path: &Path) -> Result<()> {
     };
     let removed = if metadata.is_dir() {
         std::fs::remove_dir_all(path)
+    } else if metadata.file_attributes() & DIRECTORY != 0 {
+        // A link to a folder goes as a folder; a file's refusal is its own
+        // error, not "The directory name is invalid" (#56).
+        std::fs::remove_dir(path)
     } else {
-        std::fs::remove_file(path).or_else(|_| std::fs::remove_dir(path))
+        std::fs::remove_file(path)
     };
     match removed {
         Err(error) if error.kind() != std::io::ErrorKind::NotFound => {

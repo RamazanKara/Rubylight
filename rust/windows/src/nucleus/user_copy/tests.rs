@@ -811,6 +811,35 @@ fn the_user_never_makes_their_folder_or_a_held_copy_a_link() {
 }
 
 #[test]
+fn a_file_windows_refuses_to_remove_says_why_and_a_folder_link_goes() {
+    let root = tempfile::tempdir().unwrap();
+    let elsewhere = tempfile::tempdir().unwrap();
+    std::fs::write(elsewhere.path().join("kept.txt"), b"x").unwrap();
+    let file = root.path().join("checkDotNet472Ver.bat");
+    std::fs::write(&file, b"x").unwrap();
+    let link = root.path().join("linked");
+    junction(elsewhere.path(), &link);
+    icacls(&file, &["/deny", "*S-1-1-0:(D)"]);
+    icacls(root.path(), &["/deny", "*S-1-1-0:(DC)"]);
+    let refused = remove_entry(&file);
+    icacls(root.path(), &["/reset", "/T", "/C", "/Q"]);
+    // Windows' own refusal, not a second try at a folder of that name
+    // ("The directory name is invalid", #56).
+    let error = refused.unwrap_err();
+    assert_eq!(
+        error.downcast_ref::<std::io::Error>().map(|e| e.kind()),
+        Some(std::io::ErrorKind::PermissionDenied),
+        "{error:#}"
+    );
+    assert!(format!("{error:#}").starts_with("removing "), "{error:#}");
+    remove_entry(&file).unwrap();
+    // A junction goes itself; what it led to stays.
+    remove_entry(&link).unwrap();
+    assert!(!link.exists() && !file.exists());
+    assert_eq!(names(elsewhere.path()), ["kept.txt"]);
+}
+
+#[test]
 fn the_user_changes_what_is_in_their_copy_but_never_moves_it() {
     let sid = crate::process::own_sid().unwrap();
     // Standing in for the user: no rights by this account's name.

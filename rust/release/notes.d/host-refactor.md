@@ -1,0 +1,2 @@
+# Host refactor
+- Under the hood, the host's largest source files are split into focused modules, and the video packet path, encrypted control messages, browser streaming and Nucleus folder copies do less work per frame or file. Measured on the RX 7900 XT against 3.1.0 (four runs each, alternating): 1440p120 HEVC streams over Desktop Duplication and WGC and 4K60 HEVC and AV1 browser streams keep the same timings, browser HEVC sends 0.05 ms sooner on average, and writing a user's own copy of Nucleus Co-op (a 127 MB folder in our test) takes a median 0.6 s instead of 1.1 s.

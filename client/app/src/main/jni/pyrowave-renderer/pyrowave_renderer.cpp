@@ -2738,6 +2738,37 @@ Java_com_limelight_binding_video_PyroWaveDecoderRenderer_nativeSubmitFrame(JNIEn
     return timing.result;
 }
 
+namespace {
+    struct StatsMethods {
+        jmethodID onCompleted, onReleased, onRendered, discard;
+    };
+
+    // FrameLatencyStats' callbacks, looked up once: this runs after every submitted frame, and
+    // the app's class is never unloaded, so its method IDs stay valid. A failed lookup is not
+    // kept and leaves its NoSuchMethodError pending, as before.
+    bool statsMethods(JNIEnv *env, jobject stats, StatsMethods &out) {
+        static std::atomic<jmethodID> onCompleted {nullptr}, onReleased {nullptr}, onRendered {nullptr}, discard {nullptr};
+        // discard is stored last, so once it is set the other three are too
+        if (jmethodID cached = discard.load(std::memory_order_acquire)) {
+            out = {onCompleted.load(std::memory_order_relaxed), onReleased.load(std::memory_order_relaxed),
+                   onRendered.load(std::memory_order_relaxed), cached};
+            return true;
+        }
+        jclass statsClass = env->GetObjectClass(stats);
+        out.onCompleted = env->GetMethodID(statsClass, "onDecoderOutput", "(IJJ)V");
+        out.onReleased = out.onCompleted ? env->GetMethodID(statsClass, "onOutputReleased", "(IJZZ)V") : nullptr;
+        out.onRendered = out.onReleased ? env->GetMethodID(statsClass, "onFrameRendered", "(JJ)V") : nullptr;
+        out.discard = out.onRendered ? env->GetMethodID(statsClass, "discard", "(JLjava/lang/String;)V") : nullptr;
+        env->DeleteLocalRef(statsClass);
+        if (out.discard == nullptr) return false;
+        onCompleted.store(out.onCompleted, std::memory_order_relaxed);
+        onReleased.store(out.onReleased, std::memory_order_relaxed);
+        onRendered.store(out.onRendered, std::memory_order_relaxed);
+        discard.store(out.discard, std::memory_order_release);
+        return true;
+    }
+}  // namespace
+
 JNIEXPORT jboolean JNICALL
 Java_com_limelight_binding_video_PyroWaveDecoderRenderer_nativePollRenderedFrames(JNIEnv *env, jclass, jlong handle,
                                                                                  jobject stats) {
@@ -2750,13 +2781,12 @@ Java_com_limelight_binding_video_PyroWaveDecoderRenderer_nativePollRenderedFrame
     auto &rendered = renderer->renderedBatch;
     renderer->takeEvents(completed, released, rendered);
     if (completed.empty() && released.empty() && rendered.empty()) return timing;
-    jclass statsClass = env->GetObjectClass(stats);
-    jmethodID onCompleted = env->GetMethodID(statsClass, "onDecoderOutput", "(IJJ)V");
-    jmethodID onReleased = env->GetMethodID(statsClass, "onOutputReleased", "(IJZZ)V");
-    jmethodID onRendered = env->GetMethodID(statsClass, "onFrameRendered", "(JJ)V");
-    jmethodID discard = env->GetMethodID(statsClass, "discard", "(JLjava/lang/String;)V");
-    env->DeleteLocalRef(statsClass);
-    if (onCompleted == nullptr || onReleased == nullptr || onRendered == nullptr || discard == nullptr) return JNI_FALSE;
+    StatsMethods methods;
+    if (!statsMethods(env, stats, methods)) return JNI_FALSE;
+    const jmethodID onCompleted = methods.onCompleted;
+    const jmethodID onReleased = methods.onReleased;
+    const jmethodID onRendered = methods.onRendered;
+    const jmethodID discard = methods.discard;
     for (size_t i = 0; i + 2 <= completed.size(); i += 2) {
         env->CallVoidMethod(stats, onCompleted, jint(completed[i]), completed[i], completed[i + 1]);
         if (env->ExceptionCheck()) return JNI_FALSE;

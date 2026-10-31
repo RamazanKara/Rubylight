@@ -83,3 +83,13 @@ test('scales only grow', () => {
   assert.ok(ascending(px(['--radius-sm', '--radius', '--radius-lg'])));
   assert.ok(ascending(px(['--duration-fast', '--duration-base', '--duration-slow'])));
 });
+
+test('no theme block declares a token twice', () => {
+  // Object.fromEntries keeps the last one silently, so count the raw declarations.
+  for (const [selector, from] of [[':root', 0], [":root[data-theme='dark']", 0], [":root[data-theme='system']", css.indexOf('prefers-color-scheme: dark')]]) {
+    const start = css.indexOf(selector + ' {', from);
+    const body = css.slice(start + selector.length + 2, css.indexOf('}', start));
+    const names = [...body.matchAll(/(--[\w-]+):/g)].map(([, name]) => name);
+    assert.deepEqual(names.filter((name, index) => names.indexOf(name) !== index), [], selector);
+  }
+});

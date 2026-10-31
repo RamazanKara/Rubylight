@@ -1652,7 +1652,7 @@ impl Launcher {
             ui.checkbox(&mut self.controller_test, tr("Test input (pause controller navigation)"));
         });
         let mapping = &mut self.controller_mapping;
-        scroll(ui, "controller-mapping", |ui| {
+        scroll_column(ui, "controller-mapping", SETTINGS_W, |ui| {
             if self.controller_test {
                 let connected: Vec<_> = pads.pads.iter().filter(|p| p.key == self.controller_key).collect();
                 if connected.is_empty() { ui.label(tr("This controller is disconnected.")); }
@@ -6486,6 +6486,31 @@ https://192.0.2.7:47990"));
         assert!(top(&f) < before - 50.0, "the wheel beside the rows scrolls them: {before} to {}", top(&f));
     }
 
+    /// A controller's mapping scrolls in the same column as settings: the wheel beside it scrolls it.
+    #[test]
+    fn controller_mappings_scroll_beside_their_column() {
+        let mut f = Frames::new(record("Desk", true, true), Reach::Online);
+        f.size = vec2(1920.0, 1080.0);
+        f.l.go(Screen::Controllers);
+        f.l.controller_key = "pad".into();
+        f.l.controller_mapping = crate::gamepad::Mapping { name: "Pad".into(), ..Default::default() };
+        f.settle();
+        let top = |f: &Frames| f.placed.iter().find(|(t, ..)| t == "AXES").map(|p| p.1.top()).expect("the axes under Connect as");
+        let before = top(&f);
+        f.frame(vec![egui::Event::PointerMoved(Pos2::new(1500.0, 600.0))]);
+        f.frame(vec![egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Point,
+            delta: vec2(0.0, -200.0),
+            phase: egui::TouchPhase::Move,
+            source: egui::MouseWheelSource::Unknown,
+            modifiers: egui::Modifiers::NONE,
+        }]);
+        for _ in 0..5 {
+            f.settle();
+        }
+        assert!(top(&f) < before - 50.0, "the wheel beside the rows scrolls them: {before} to {}", top(&f));
+    }
+
     /// "More … settings" is a row like the settings it folds, opened from anywhere on it.
     #[test]
     fn the_fold_is_a_row_that_opens_anywhere_on_it() {
@@ -7009,6 +7034,11 @@ https://192.0.2.7:47990"));
             shoot(&mut f, "settings");
             f.scroll_to_end();
             shoot(&mut f, "settings-end");
+            // A controller's mapping, as after choosing it: Connect as leads its rows.
+            f.l.go(Screen::Controllers);
+            f.l.controller_key = "demo-pad".into();
+            f.l.controller_mapping = crate::gamepad::Mapping { name: "Xbox Wireless Controller".into(), ..Default::default() };
+            shoot(&mut f, "controllers");
             f.l.go(Screen::Hosts);
             f.settle();
             f.press(Key::F2);

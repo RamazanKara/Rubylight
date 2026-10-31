@@ -63,36 +63,259 @@ const fn inverse_table() -> [u8; 256] {
     inv
 }
 
+/// Per coefficient `u`, the products of every low nibble (`[0][n] = u * n`) and every high
+/// nibble (`[1][n] = u * (n << 4)`). Multiplication distributes over XOR, so
+/// `u * b == [0][b & 15] ^ [1][b >> 4]`: the 16-byte tables the SIMD kernels shuffle, like
+/// nanors' oblas_lite.
+#[cfg_attr(
+    not(any(target_arch = "x86_64", target_arch = "aarch64")),
+    allow(dead_code)
+)]
+const fn nibble_tables() -> [[[u8; 16]; 2]; 256] {
+    let (exp, log) = EXP_LOG;
+    let mut table = [[[0u8; 16]; 2]; 256];
+    let mut u = 1;
+    while u < 256 {
+        let mut n = 1;
+        while n < 16 {
+            table[u][0][n] = exp[log[u] as usize + log[n] as usize];
+            table[u][1][n] = exp[log[u] as usize + log[n << 4] as usize];
+            n += 1;
+        }
+        u += 1;
+    }
+    table
+}
+
 static MUL: [[u8; 256]; 256] = mul_table();
 /// `INV[0]` is 0, as in nanors.
 static INV: [u8; 256] = inverse_table();
+#[cfg_attr(
+    not(any(target_arch = "x86_64", target_arch = "aarch64")),
+    allow(dead_code)
+)]
+static NIBBLES: [[[u8; 16]; 2]; 256] = nibble_tables();
 
 /// Multiplies two field elements.
 pub fn gf_mul(a: u8, b: u8) -> u8 {
     MUL[a as usize][b as usize]
 }
 
+/// The vector unit `axpy` and `scal` use; the scalar table loop finishes the tail bytes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Kernel {
+    /// AArch64 always has NEON; there only the tests run the scalar loop alone.
+    #[cfg_attr(target_arch = "aarch64", allow(dead_code))]
+    Scalar,
+    #[cfg(target_arch = "x86_64")]
+    Ssse3,
+    #[cfg(target_arch = "x86_64")]
+    Avx2,
+    #[cfg(target_arch = "aarch64")]
+    Neon,
+}
+
+impl Kernel {
+    /// The widest kernel this CPU runs. std caches the CPUID probe.
+    fn best() -> Self {
+        #[cfg(target_arch = "x86_64")]
+        {
+            if is_x86_feature_detected!("avx2") {
+                Kernel::Avx2
+            } else if is_x86_feature_detected!("ssse3") {
+                Kernel::Ssse3
+            } else {
+                Kernel::Scalar
+            }
+        }
+        // NEON is part of the AArch64 baseline.
+        #[cfg(target_arch = "aarch64")]
+        {
+            Kernel::Neon
+        }
+        #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+        {
+            Kernel::Scalar
+        }
+    }
+}
+
 /// `a ^= u * b`
-fn axpy(a: &mut [u8], b: &[u8], u: u8) {
+fn axpy(kernel: Kernel, a: &mut [u8], b: &[u8], u: u8) {
+    let len = a.len().min(b.len());
+    let (a, b) = (&mut a[..len], &b[..len]);
     match u {
         0 => {}
         1 => a.iter_mut().zip(b).for_each(|(a, b)| *a ^= b),
         _ => {
+            // SAFETY: `best` (or a test that probed the CPU) picked a kernel this CPU runs, and
+            // `a` and `b` have the same length.
+            let done = match kernel {
+                Kernel::Scalar => 0,
+                #[cfg(target_arch = "x86_64")]
+                Kernel::Ssse3 => unsafe { x86::axpy_ssse3(a, b, &NIBBLES[u as usize]) },
+                #[cfg(target_arch = "x86_64")]
+                Kernel::Avx2 => unsafe { x86::axpy_avx2(a, b, &NIBBLES[u as usize]) },
+                #[cfg(target_arch = "aarch64")]
+                Kernel::Neon => unsafe { neon::axpy(a, b, &NIBBLES[u as usize]) },
+            };
             let row = &MUL[u as usize];
-            a.iter_mut()
-                .zip(b)
+            a[done..]
+                .iter_mut()
+                .zip(&b[done..])
                 .for_each(|(a, b)| *a ^= row[*b as usize]);
         }
     }
 }
 
 /// `a *= u`
-fn scal(a: &mut [u8], u: u8) {
+fn scal(kernel: Kernel, a: &mut [u8], u: u8) {
     if u < 2 {
         return;
     }
+    // SAFETY: as in `axpy`.
+    let done = match kernel {
+        Kernel::Scalar => 0,
+        #[cfg(target_arch = "x86_64")]
+        Kernel::Ssse3 => unsafe { x86::scal_ssse3(a, &NIBBLES[u as usize]) },
+        #[cfg(target_arch = "x86_64")]
+        Kernel::Avx2 => unsafe { x86::scal_avx2(a, &NIBBLES[u as usize]) },
+        #[cfg(target_arch = "aarch64")]
+        Kernel::Neon => unsafe { neon::scal(a, &NIBBLES[u as usize]) },
+    };
     let row = &MUL[u as usize];
-    a.iter_mut().for_each(|a| *a = row[*a as usize]);
+    a[done..].iter_mut().for_each(|a| *a = row[*a as usize]);
+}
+
+/// Split-nibble `pshufb` kernels. Each handles whole 16- or 32-byte blocks and returns how many
+/// bytes it did; callers guarantee the CPU feature and `a.len() == b.len()`.
+#[cfg(target_arch = "x86_64")]
+mod x86 {
+    use std::arch::x86_64::*;
+
+    #[inline]
+    #[target_feature(enable = "ssse3")]
+    unsafe fn mul128(x: __m128i, lo: __m128i, hi: __m128i) -> __m128i {
+        let mask = _mm_set1_epi8(0x0f);
+        let l = _mm_and_si128(x, mask);
+        let h = _mm_and_si128(_mm_srli_epi64::<4>(x), mask);
+        _mm_xor_si128(_mm_shuffle_epi8(lo, l), _mm_shuffle_epi8(hi, h))
+    }
+
+    #[inline]
+    #[target_feature(enable = "avx2")]
+    unsafe fn mul256(x: __m256i, lo: __m256i, hi: __m256i) -> __m256i {
+        let mask = _mm256_set1_epi8(0x0f);
+        let l = _mm256_and_si256(x, mask);
+        let h = _mm256_and_si256(_mm256_srli_epi64::<4>(x), mask);
+        _mm256_xor_si256(_mm256_shuffle_epi8(lo, l), _mm256_shuffle_epi8(hi, h))
+    }
+
+    #[target_feature(enable = "ssse3")]
+    pub unsafe fn axpy_ssse3(a: &mut [u8], b: &[u8], t: &[[u8; 16]; 2]) -> usize {
+        let lo = _mm_loadu_si128(t[0].as_ptr().cast());
+        let hi = _mm_loadu_si128(t[1].as_ptr().cast());
+        let end = a.len() & !15;
+        let (pa, pb) = (a.as_mut_ptr(), b.as_ptr());
+        let mut i = 0;
+        while i < end {
+            let x = _mm_loadu_si128(pb.add(i).cast());
+            let y = _mm_loadu_si128(pa.add(i).cast());
+            _mm_storeu_si128(pa.add(i).cast(), _mm_xor_si128(y, mul128(x, lo, hi)));
+            i += 16;
+        }
+        end
+    }
+
+    #[target_feature(enable = "ssse3")]
+    pub unsafe fn scal_ssse3(a: &mut [u8], t: &[[u8; 16]; 2]) -> usize {
+        let lo = _mm_loadu_si128(t[0].as_ptr().cast());
+        let hi = _mm_loadu_si128(t[1].as_ptr().cast());
+        let end = a.len() & !15;
+        let pa = a.as_mut_ptr();
+        let mut i = 0;
+        while i < end {
+            let x = _mm_loadu_si128(pa.add(i).cast());
+            _mm_storeu_si128(pa.add(i).cast(), mul128(x, lo, hi));
+            i += 16;
+        }
+        end
+    }
+
+    /// 32-byte blocks, then one 16-byte block.
+    #[target_feature(enable = "avx2")]
+    pub unsafe fn axpy_avx2(a: &mut [u8], b: &[u8], t: &[[u8; 16]; 2]) -> usize {
+        let lo = _mm256_broadcastsi128_si256(_mm_loadu_si128(t[0].as_ptr().cast()));
+        let hi = _mm256_broadcastsi128_si256(_mm_loadu_si128(t[1].as_ptr().cast()));
+        let end = a.len() & !31;
+        let (pa, pb) = (a.as_mut_ptr(), b.as_ptr());
+        let mut i = 0;
+        while i < end {
+            let x = _mm256_loadu_si256(pb.add(i).cast());
+            let y = _mm256_loadu_si256(pa.add(i).cast());
+            _mm256_storeu_si256(pa.add(i).cast(), _mm256_xor_si256(y, mul256(x, lo, hi)));
+            i += 32;
+        }
+        end + axpy_ssse3(&mut a[end..], &b[end..], t)
+    }
+
+    /// 32-byte blocks, then one 16-byte block.
+    #[target_feature(enable = "avx2")]
+    pub unsafe fn scal_avx2(a: &mut [u8], t: &[[u8; 16]; 2]) -> usize {
+        let lo = _mm256_broadcastsi128_si256(_mm_loadu_si128(t[0].as_ptr().cast()));
+        let hi = _mm256_broadcastsi128_si256(_mm_loadu_si128(t[1].as_ptr().cast()));
+        let end = a.len() & !31;
+        let pa = a.as_mut_ptr();
+        let mut i = 0;
+        while i < end {
+            let x = _mm256_loadu_si256(pa.add(i).cast());
+            _mm256_storeu_si256(pa.add(i).cast(), mul256(x, lo, hi));
+            i += 32;
+        }
+        end + scal_ssse3(&mut a[end..], t)
+    }
+}
+
+/// Split-nibble `tbl` kernels on 16-byte blocks; same contract as the x86 ones.
+#[cfg(target_arch = "aarch64")]
+mod neon {
+    use std::arch::aarch64::*;
+
+    #[inline]
+    unsafe fn mul(x: uint8x16_t, lo: uint8x16_t, hi: uint8x16_t) -> uint8x16_t {
+        let l = vandq_u8(x, vdupq_n_u8(0x0f));
+        let h = vshrq_n_u8::<4>(x);
+        veorq_u8(vqtbl1q_u8(lo, l), vqtbl1q_u8(hi, h))
+    }
+
+    pub unsafe fn axpy(a: &mut [u8], b: &[u8], t: &[[u8; 16]; 2]) -> usize {
+        let lo = vld1q_u8(t[0].as_ptr());
+        let hi = vld1q_u8(t[1].as_ptr());
+        let end = a.len() & !15;
+        let (pa, pb) = (a.as_mut_ptr(), b.as_ptr());
+        let mut i = 0;
+        while i < end {
+            let x = vld1q_u8(pb.add(i));
+            let y = vld1q_u8(pa.add(i));
+            vst1q_u8(pa.add(i), veorq_u8(y, mul(x, lo, hi)));
+            i += 16;
+        }
+        end
+    }
+
+    pub unsafe fn scal(a: &mut [u8], t: &[[u8; 16]; 2]) -> usize {
+        let lo = vld1q_u8(t[0].as_ptr());
+        let hi = vld1q_u8(t[1].as_ptr());
+        let end = a.len() & !15;
+        let pa = a.as_mut_ptr();
+        let mut i = 0;
+        while i < end {
+            let x = vld1q_u8(pa.add(i));
+            vst1q_u8(pa.add(i), mul(x, lo, hi));
+            i += 16;
+        }
+        end
+    }
 }
 
 /// Mutable `shards[to]` and shared `shards[from]`; `to != from`.
@@ -203,12 +426,13 @@ impl ReedSolomon {
     /// the data shards.
     pub fn encode(&self, shards: &mut [&mut [u8]], len: usize) -> Result<(), FecError> {
         self.check(shards, len)?;
+        let kernel = Kernel::best();
         let (data, parity) = shards.split_at_mut(self.data);
         for (row, out) in self.matrix.chunks_exact(self.data).zip(parity.iter_mut()) {
             let out = &mut out[..len];
             out.fill(0);
             for (input, &u) in data.iter().zip(row) {
-                axpy(out, &input[..len], u);
+                axpy(kernel, out, &input[..len], u);
             }
         }
         Ok(())
@@ -260,7 +484,7 @@ impl ReedSolomon {
             to[..len].copy_from_slice(&from[..len]);
             j += 1;
         }
-        self.invert(shards, ds - gaps, len, &colperm, &rowperm);
+        self.invert(Kernel::best(), shards, ds - gaps, len, &colperm, &rowperm);
         Ok(())
     }
 
@@ -268,6 +492,7 @@ impl ReedSolomon {
     /// solves the remaining `W x W` system in place.
     fn invert<S: AsMut<[u8]> + AsRef<[u8]>>(
         &self,
+        kernel: Kernel,
         dst: &mut [S],
         v0: usize,
         len: usize,
@@ -295,26 +520,26 @@ impl ReedSolomon {
             for row in 0..v0 {
                 let u = src[dr + c[row] as usize];
                 let (to, from) = pair(dst, c[v] as usize, c[row] as usize);
-                axpy(&mut to[..len], &from[..len], u);
+                axpy(kernel, &mut to[..len], &from[..len], u);
             }
         }
         for x in 0..w {
             let u = INV[wrk[x * w + x] as usize];
-            scal(&mut wrk[x * w + x..x * w + w], u);
-            scal(&mut dst[c[v0 + x] as usize].as_mut()[..len], u);
+            scal(kernel, &mut wrk[x * w + x..x * w + w], u);
+            scal(kernel, &mut dst[c[v0 + x] as usize].as_mut()[..len], u);
             for row in x + 1..w {
                 let u = wrk[row * w + x];
                 let (pivot, rest) = wrk.split_at_mut(row * w);
-                axpy(&mut rest[..w], &pivot[x * w..x * w + w], u);
+                axpy(kernel, &mut rest[..w], &pivot[x * w..x * w + w], u);
                 let (to, from) = pair(dst, c[v0 + row] as usize, c[v0 + x] as usize);
-                axpy(&mut to[..len], &from[..len], u);
+                axpy(kernel, &mut to[..len], &from[..len], u);
             }
         }
         for x in (0..w).rev() {
             for row in 0..x {
                 let u = wrk[row * w + x];
                 let (to, from) = pair(dst, c[v0 + row] as usize, c[v0 + x] as usize);
-                axpy(&mut to[..len], &from[..len], u);
+                axpy(kernel, &mut to[..len], &from[..len], u);
             }
         }
     }
@@ -344,6 +569,86 @@ mod tests {
         assert_eq!(INV[2], 142);
         for a in 1..=255u8 {
             assert_eq!(gf_mul(a, INV[a as usize]), 1);
+        }
+    }
+
+    /// Every vector kernel this CPU runs.
+    fn simd_kernels() -> Vec<Kernel> {
+        #[cfg(target_arch = "x86_64")]
+        {
+            let mut kernels = Vec::new();
+            if is_x86_feature_detected!("ssse3") {
+                kernels.push(Kernel::Ssse3);
+            }
+            if is_x86_feature_detected!("avx2") {
+                kernels.push(Kernel::Avx2);
+            }
+            kernels
+        }
+        #[cfg(target_arch = "aarch64")]
+        {
+            vec![Kernel::Neon]
+        }
+        #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+        {
+            Vec::new()
+        }
+    }
+
+    /// Runs `axpy` and `scal` with `kernel` and with the scalar table loop on the same inputs.
+    fn assert_matches_scalar(kernel: Kernel, a: &[u8], b: &[u8], u: u8) {
+        let (mut want, mut got) = (a.to_vec(), a.to_vec());
+        axpy(Kernel::Scalar, &mut want, b, u);
+        axpy(kernel, &mut got, b, u);
+        assert_eq!(got, want, "{kernel:?} axpy u {u} len {}", a.len());
+        let (mut want, mut got) = (a.to_vec(), a.to_vec());
+        scal(Kernel::Scalar, &mut want, u);
+        scal(kernel, &mut got, u);
+        assert_eq!(got, want, "{kernel:?} scal u {u} len {}", a.len());
+    }
+
+    #[test]
+    fn nibble_tables_split_every_product() {
+        for u in 0..=255usize {
+            for b in 0..=255usize {
+                let split = NIBBLES[u][0][b & 15] ^ NIBBLES[u][1][b >> 4];
+                assert_eq!(split, MUL[u][b], "u {u} b {b}");
+            }
+        }
+    }
+
+    #[test]
+    fn simd_matches_scalar_for_every_coefficient() {
+        let kernels = simd_kernels();
+        #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+        assert!(!kernels.is_empty());
+        let set = shards(2, 1392 + 3, 11);
+        for kernel in kernels {
+            for u in 0..=255u8 {
+                for len in [0, 1, 15, 16, 17, 31, 32, 33, 47, 48, 63, 64, 65, 1392] {
+                    for offset in [0, 3] {
+                        let a = &set[0][offset..offset + len];
+                        let b = &set[1][3 - offset..3 - offset + len];
+                        assert_matches_scalar(kernel, a, b, u);
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn simd_matches_scalar_for_every_length() {
+        let set = shards(2, 4100 + 3, 23);
+        let mut state = 5u32;
+        for kernel in simd_kernels() {
+            for len in 0..=4100 {
+                state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+                let u = (state >> 24) as u8;
+                let (offset_a, offset_b) = (len % 4, (len / 4) % 3);
+                let a = &set[0][offset_a..offset_a + len];
+                let b = &set[1][offset_b..offset_b + len];
+                assert_matches_scalar(kernel, a, b, u);
+            }
         }
     }
 
@@ -380,6 +685,42 @@ mod tests {
             code.decode(&mut refs, &missing, 8),
             Err(FecError::TooFewShards)
         );
+    }
+
+    /// Microseconds per recovery of video-sized shards (1392 bytes, 20 % parity). Run in release:
+    /// `cargo test --release -p nightjar-core --lib fec::tests::bench_recovery -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn bench_recovery() {
+        const LEN: usize = 1392;
+        for (data, erasures) in [(100, 5), (100, 20), (200, 5), (200, 20)] {
+            let parity = data / 5;
+            let code = ReedSolomon::new(data, parity).unwrap();
+            let mut set = shards(data + parity, LEN, data as u32);
+            let mut refs: Vec<&mut [u8]> = set.iter_mut().map(|s| &mut s[..]).collect();
+            code.encode(&mut refs, LEN).unwrap();
+            let encoded = set.clone();
+            let mut missing = vec![false; data + parity];
+            for i in 0..erasures {
+                missing[i * data / erasures] = true;
+            }
+            let lost: Vec<usize> = (0..data).filter(|&i| missing[i]).collect();
+            let iterations = 4_000_000 / (data * erasures);
+            let mut best = f64::MAX;
+            for _ in 0..5 {
+                let start = std::time::Instant::now();
+                for _ in 0..iterations {
+                    for &i in &lost {
+                        set[i].fill(0);
+                    }
+                    code.decode(&mut set, &missing, LEN).unwrap();
+                }
+                let us = start.elapsed().as_secs_f64() * 1e6 / iterations as f64;
+                best = best.min(us);
+                assert_eq!(set, encoded);
+            }
+            println!("data {data:3} erasures {erasures:2}: {best:8.1} us per recovery");
+        }
     }
 
     #[test]

@@ -308,4 +308,40 @@ public class GameDetailShellTest {
             controller.pause().stop().destroy();
         }
     }
+
+    /**
+     * Parity with desktop's game page: the game's own "Quit the game when I leave the stream", until now only in the
+     * library's long-press menu, is a switch row here. The row flips it, says what leaving now does, and reads as a switch.
+     */
+    @Test
+    public void theGamesOwnQuitOnLeaveIsASwitchRowOnItsPage() throws Exception {
+        context.getSharedPreferences("AppQuitOnLeave", Context.MODE_PRIVATE).edit().clear().commit();
+        GameDetailModel model = portal(",\"installed\":true");
+        ActivityController<Detail> controller = detail();
+        try {
+            Detail page = loaded(controller);
+            page.render(model, tower());
+            View row = page.findViewById(R.id.detail_quit_on_leave);
+            com.google.android.material.materialswitch.MaterialSwitch toggle =
+                    page.findViewById(R.id.detail_quit_on_leave_switch);
+            android.widget.TextView note = page.findViewById(R.id.detail_quit_on_leave_note);
+            assertEquals(View.VISIBLE, row.getVisibility());
+            assertFalse(toggle.isChecked());
+            assertEquals(page.getString(R.string.library_quit_on_leave_off), note.getText().toString());
+            android.view.accessibility.AccessibilityNodeInfo info = row.createAccessibilityNodeInfo();
+            assertEquals(android.widget.Switch.class.getName(), String.valueOf(info.getClassName()));
+            assertTrue(info.isCheckable());
+
+            row.performClick();
+            assertTrue(toggle.isChecked());
+            assertTrue(com.limelight.preferences.AppQuitOnLeave.isEnabled(page, "tower", model.source.appUuid, 11));
+            assertEquals(page.getString(R.string.library_quit_on_leave_on), note.getText().toString());
+            assertTrue(row.createAccessibilityNodeInfo().isChecked());
+
+            row.performClick();
+            assertFalse(com.limelight.preferences.AppQuitOnLeave.isEnabled(page, "tower", model.source.appUuid, 11));
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
 }

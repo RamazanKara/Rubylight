@@ -3,4 +3,6 @@
     <!-- The TV game page's 2:3 poster is 220 x 330 dp. -->
     <dimen name="detail_cover_width">220dp</dimen>
     <dimen name="detail_cover_height">330dp</dimen>
+    <!-- The game page's rows line up with the text inside its stream settings panel. -->
+    <dimen name="detail_row_padding">20dp</dimen>
 </resources>

@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A game's own "quit when I leave" switch on its page, a row like a settings switch: the whole row toggles it, and its
+     note says what leaving the stream does now. GameDetailActivity shows it for a game that can be started. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/detail_quit_on_leave" android:layout_width="match_parent" android:layout_height="wrap_content"
+    android:minHeight="@dimen/settings_row_min_height" android:orientation="horizontal" android:gravity="center_vertical"
+    android:paddingStart="@dimen/detail_row_padding" android:paddingEnd="@dimen/detail_row_padding"
+    android:paddingTop="@dimen/space_s" android:paddingBottom="@dimen/space_s"
+    android:background="@drawable/focus_ring_row" android:foreground="?attr/selectableItemBackground"
+    android:focusable="true" android:clickable="true" android:visibility="gone">
+    <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
+        android:orientation="vertical">
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:text="@string/library_quit_on_leave"
+            android:textAppearance="@style/TextAppearance.Nightjar.Body" android:textColor="?attr/colorOnSurface" />
+        <TextView android:id="@+id/detail_quit_on_leave_note" android:layout_width="match_parent"
+            android:layout_height="wrap_content" android:layout_marginTop="@dimen/space_xs"
+            android:textAppearance="@style/TextAppearance.Nightjar.Supporting" android:textColor="?attr/colorOnSurfaceVariant" />
+    </LinearLayout>
+    <com.google.android.material.materialswitch.MaterialSwitch android:id="@+id/detail_quit_on_leave_switch"
+        android:layout_width="wrap_content" android:layout_height="48dp" android:layout_marginStart="@dimen/space_l"
+        android:clickable="false" android:focusable="false" android:importantForAccessibility="no" />
+</LinearLayout>

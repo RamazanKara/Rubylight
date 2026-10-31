@@ -4,4 +4,6 @@
     <dimen name="detail_cover_width">132dp</dimen>
     <!-- 2:3 at that width; only the TV layout reads it, the base value keeps lint's MissingDefaultResource quiet. -->
     <dimen name="detail_cover_height">198dp</dimen>
+    <!-- The game page's rows line up with the text inside its stream settings panel. -->
+    <dimen name="detail_row_padding">16dp</dimen>
 </resources>

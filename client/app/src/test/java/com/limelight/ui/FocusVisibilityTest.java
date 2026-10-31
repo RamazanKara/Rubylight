@@ -250,6 +250,17 @@ public class FocusVisibilityTest {
         assertScreens("television reduced motion");
     }
 
+    /** The game page's quit-on-leave row takes the settings rows' outline from a remote. */
+    @Test @Config(qualifiers = "television")
+    public void theGamePagesSwitchRowShowsFocusOnTelevision() {
+        try (var screen = Robolectric.buildActivity(MotionTest.Screen.class).setup().visible()) {
+            View row = LayoutInflater.from(screen.get()).inflate(R.layout.view_detail_quit_on_leave, null);
+            ((ViewGroup) screen.get().findViewById(android.R.id.content)).addView(row);
+            row.setVisibility(View.VISIBLE);
+            assertEveryStopShowsFocus("game page switch row", row);
+        }
+    }
+
     @Test @Config(qualifiers = "television")
     public void gridCardsShowFocusOnTelevision() {
         for (int layout : new int[] {R.layout.pc_grid_item, R.layout.app_grid_item, R.layout.app_grid_item_small}) {

@@ -87,6 +87,10 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
     private MaterialButton favourite;
     private TextView profileValues;
     private TextView profileLayers;
+    private View quitOnLeave;
+    private com.google.android.material.materialswitch.MaterialSwitch quitOnLeaveSwitch;
+    private TextView quitOnLeaveNote;
+    private GameDetailModel quitOnLeaveGame;
     /** TV only (null on a phone): the backdrop, and the chip line with the installed and HDR chips. */
     private BackdropView backdrop;
     private View chips;
@@ -156,6 +160,20 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
         favourite = findViewById(R.id.detail_favourite);
         profileValues = findViewById(R.id.detail_profile_values);
         profileLayers = findViewById(R.id.detail_profile_layers);
+        quitOnLeave = findViewById(R.id.detail_quit_on_leave);
+        quitOnLeaveSwitch = findViewById(R.id.detail_quit_on_leave_switch);
+        quitOnLeaveNote = findViewById(R.id.detail_quit_on_leave_note);
+        quitOnLeave.setOnClickListener(v -> onQuitOnLeave());
+        androidx.core.view.ViewCompat.setAccessibilityDelegate(quitOnLeave, new androidx.core.view.AccessibilityDelegateCompat() {
+            @Override
+            public void onInitializeAccessibilityNodeInfo(View host,
+                    androidx.core.view.accessibility.AccessibilityNodeInfoCompat info) {
+                super.onInitializeAccessibilityNodeInfo(host, info);
+                info.setClassName(android.widget.Switch.class.getName());
+                info.setCheckable(true);
+                info.setChecked(quitOnLeaveSwitch.isChecked());
+            }
+        });
         chips = findViewById(R.id.detail_chips);
         installed = findViewById(R.id.detail_installed);
         hdr = findViewById(R.id.detail_hdr);
@@ -412,11 +430,37 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
                 m.source != null ? m.source.appUuid : null, m.appId);
         profileValues.setText(profile.values);
         profileLayers.setText(profile.layersOrMain(this));
+        renderQuitOnLeave(m);
 
         if (focusPending && play.isEnabled() && !play.isInTouchMode()) {
             focusPending = false;
             play.requestFocus();
         }
+    }
+
+    /** The game's own quit-on-leave switch, for a game the page can start (one the host has added). */
+    private void renderQuitOnLeave(GameDetailModel m) {
+        boolean offered = m.appId > 0 && (m.source == null || m.source.added);
+        quitOnLeave.setVisibility(offered ? View.VISIBLE : View.GONE);
+        quitOnLeaveGame = offered ? m : null;
+        if (!offered) return;
+        boolean enabled = com.limelight.preferences.AppQuitOnLeave.isEnabled(this, hostUuid, quitOnLeaveUuid(m), m.appId);
+        quitOnLeaveSwitch.setChecked(enabled);
+        quitOnLeaveNote.setText(enabled ? R.string.library_quit_on_leave_on : R.string.library_quit_on_leave_off);
+    }
+
+    private static String quitOnLeaveUuid(GameDetailModel m) {
+        return m.source != null ? m.source.appUuid : null;
+    }
+
+    /** Flips it in place, as the library's menu does; the note and a spoken line say what leaving now does. */
+    private void onQuitOnLeave() {
+        GameDetailModel m = quitOnLeaveGame;
+        if (m == null) return;
+        boolean enabled = !quitOnLeaveSwitch.isChecked();
+        com.limelight.preferences.AppQuitOnLeave.setEnabled(this, hostUuid, quitOnLeaveUuid(m), m.appId, enabled);
+        renderQuitOnLeave(m);
+        quitOnLeave.announceForAccessibility(quitOnLeaveNote.getText());
     }
 
     /** The TV chip line: the state with its dot, installed or not when the host says, and HDR when the game has it. */

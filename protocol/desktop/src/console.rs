@@ -5,7 +5,7 @@
 use nightjar_core::http::native_api::library::{Game, Library};
 use nightjar_core::http::native_api::session::{ActionId, Session, State};
 
-use crate::strings::{tr, trf};
+use crate::strings::{en, tr, trf};
 use crate::config::{Favourite, Recent};
 use crate::hosts::{Host, Reach};
 
@@ -114,7 +114,7 @@ const STORES: [(&str, &str); 7] = [
     ("ea", "EA app"),
     ("ubisoft", "Ubisoft Connect"),
     ("battlenet", "Battle.net"),
-    ("microsoft", "Xbox"),
+    ("microsoft", en("Xbox")),
 ];
 
 /// A store's name: the PC's when it sends one, else the known one, else the key itself.

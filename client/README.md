@@ -69,7 +69,7 @@ No accounts, advertising or analytics, and nothing sent to its developers. Video
 <table>
 <tr>
 <td width="50%" valign="top">
-  <img src="docs/assets/shots/tv-game-page.png" alt="A game's page on a TV: Racing Game running on Living-room PC, with Resume, Add to favourites, Close game and the stream settings it will use (demo library)"><br>
+  <img src="docs/assets/shots/tv-game-page.png" alt="A game's page on a TV: Racing Game running on Living-room PC, with Resume, Add to favourites, Close game, the stream settings it will use and the switch to quit the game on leaving (demo library)"><br>
   <sub><b>A page for every game.</b> Its store, the PC it runs on, whether it is running, and the exact settings the stream will use.</sub>
 </td>
 <td width="50%" valign="top">

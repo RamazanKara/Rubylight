@@ -24,6 +24,9 @@ public class DiskAssetLoader {
     // A cover is decoded to cover this box, a 2:3 poster (a little taller than the old 300x400); its own shape is kept
     private static final int STANDARD_ASSET_WIDTH = 300;
     private static final int STANDARD_ASSET_HEIGHT = 450;
+    // At most this many pixels along either side are kept, cut from the middle: the widest frame a cover fills is a 16:9
+    // backdrop at the box's 450 px height. A 32:9 banner would otherwise decode at 1600x450, about 2.9 MB.
+    static final int MAX_DECODED_SIDE = 800;
 
     private final boolean isLowRamDevice;
     private final File cacheDir;
@@ -51,6 +54,19 @@ public class DiskAssetLoader {
         if (width <= 0 || height <= 0) return new int[] {STANDARD_ASSET_WIDTH, STANDARD_ASSET_HEIGHT};
         float scale = Math.min(1f, Math.max((float) STANDARD_ASSET_WIDTH / width, (float) STANDARD_ASSET_HEIGHT / height));
         return new int[] {Math.max(1, Math.round(width * scale)), Math.max(1, Math.round(height * scale))};
+    }
+
+    /**
+     * The middle of a cover decoded at {@code width} x {@code height} that is kept, as {left, top, right, bottom}: all of it
+     * up to {@link #MAX_DECODED_SIDE} along each side. Every frame crops a cover to its middle, so what is cut away is
+     * what no frame shows, and what is kept stays at the resolution the crop needs.
+     */
+    static int[] keptRegion(int width, int height) {
+        int keptWidth = Math.min(width, MAX_DECODED_SIDE);
+        int keptHeight = Math.min(height, MAX_DECODED_SIDE);
+        int left = (width - keptWidth) / 2;
+        int top = (height - keptHeight) / 2;
+        return new int[] {left, top, left + keptWidth, top + keptHeight};
     }
 
     // https://developer.android.com/topic/performance/graphics/load-bitmap.html
@@ -136,6 +152,10 @@ public class DiskAssetLoader {
 
                         int[] target = targetSize(scaledBitmap.originalWidth, scaledBitmap.originalHeight);
                         imageDecoder.setTargetSize(target[0], target[1]);
+                        int[] kept = keptRegion(target[0], target[1]);
+                        if (kept[2] - kept[0] < target[0] || kept[3] - kept[1] < target[1]) {
+                            imageDecoder.setCrop(new android.graphics.Rect(kept[0], kept[1], kept[2], kept[3]));
+                        }
                         if (isLowRamDevice) {
                             imageDecoder.setMemorySizePolicy(ImageDecoder.MEMORY_POLICY_LOW_RAM);
                         }

@@ -61,4 +61,26 @@ public class DiskAssetLoaderTest {
         assertArrayEquals("a small cover is not enlarged", new int[] {200, 300}, DiskAssetLoader.targetSize(200, 300));
         assertArrayEquals("unknown sizes fall back to the box", new int[] {300, 450}, DiskAssetLoader.targetSize(0, 0));
     }
+
+    /**
+     * A 3840x1080 banner covers the poster box at 1600x450, about 2.9 MB, and shrank the byte-sized memory cache. Only its
+     * middle 800x450 is kept: the poster's 300x450 crop and a 16:9 frame's 800x450 crop both stay at full resolution.
+     */
+    @Test
+    public void aWideBannerKeepsOnlyTheMiddleAnyFrameShowsAtFullResolution() {
+        int[] target = DiskAssetLoader.targetSize(3840, 1080);
+        int[] kept = DiskAssetLoader.keptRegion(target[0], target[1]);
+        assertArrayEquals(new int[] {400, 0, 1200, 450}, kept);
+        int keptWidth = kept[2] - kept[0];
+        int keptHeight = kept[3] - kept[1];
+        assertEquals(DiskAssetLoader.MAX_DECODED_SIDE, keptWidth);
+        assertTrue("half the bytes or less", keptWidth * keptHeight * 2 <= target[0] * target[1]);
+        assertEquals("as sharp as the poster's crop needs", 450, keptHeight);
+        assertTrue("a 16:9 frame's crop fits whole", keptWidth >= Math.round(keptHeight * 16f / 9));
+
+        assertArrayEquals("a tall cover keeps its middle too", new int[] {0, 133, 300, 933},
+                DiskAssetLoader.keptRegion(300, 1067));
+        assertArrayEquals("a poster is kept whole", new int[] {0, 0, 300, 450}, DiskAssetLoader.keptRegion(300, 450));
+        assertArrayEquals("a smaller banner is kept whole", new int[] {0, 0, 764, 430}, DiskAssetLoader.keptRegion(764, 430));
+    }
 }

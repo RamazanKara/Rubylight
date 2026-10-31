@@ -14,7 +14,6 @@
   import type { Access } from './access';
   import { api } from '../../lib/api';
   import { failed } from '../../lib/feedback.svelte';
-  import { link } from '../../lib/router.svelte';
   import { refreshMetadata, refreshPending, session } from '../../lib/session.svelte';
 
   let { title = 'Pair a device', bare = false }: { title?: string; bare?: boolean } = $props();
@@ -26,6 +25,7 @@
   // Pairing is approved here, by showing a code or typing a PIN, so the device may play.
   let access = $state<Access>('play');
   let turningOn = $state(false);
+  let allowing = $state(false);
   onMount(() => { refreshMetadata().catch(() => {}); refreshPending().catch(() => {}); });
 
   async function turnOnQr() {
@@ -39,11 +39,31 @@
       turningOn = false;
     }
   }
+
+  // The same key and call as Allow pairing in Settings.
+  async function allowPairing() {
+    allowing = true;
+    try {
+      await api.config.patch({ enable_pairing: true });
+      await refreshMetadata();
+    } catch (error) {
+      failed('Turning on pairing failed', error);
+    } finally {
+      allowing = false;
+    }
+  }
 </script>
 
 {#snippet body()}
   {#if session.metadata?.enable_pairing === false}
-    <p class="notice">Pairing is off. Turn on Allow pairing in <a href="/settings" use:link>Settings</a> to pair a new device. Devices already paired keep working.</p>
+    <div class="paused">
+      <Icon name="key" size={24} />
+      <div class="paused-text">
+        <h3>Pairing is turned off</h3>
+        <p class="muted">Turning it off keeps new devices from pairing with this PC once yours are set up. Devices already paired keep working.</p>
+      </div>
+      <Button variant="primary" busy={allowing} onclick={allowPairing}>Allow pairing</Button>
+    </div>
   {:else}
     <div class="access">
       <AccessChoice legend="This device can" recommend value={access} onchange={(next) => { if (next !== 'custom') access = next; }} />
@@ -96,6 +116,11 @@
 {/if}
 
 <style>
+  .paused { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-3) var(--space-4); }
+  .paused > :global(svg) { flex: none; align-self: flex-start; margin-top: 2px; color: var(--accent-text); }
+  .paused-text { flex: 1 1 280px; display: grid; gap: var(--space-1); min-width: 0; }
+  .paused h3 { font-size: var(--text-md); font-weight: var(--weight-semibold); }
+  .paused p { font-size: var(--text-sm); max-width: 60ch; }
   .access { display: grid; gap: var(--space-2); margin-bottom: var(--space-4); }
   .access > p { font-size: var(--text-sm); }
   .qr-off { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2) var(--space-3); margin-bottom: var(--space-4); }
@@ -119,5 +144,5 @@
   .alternatives > p { margin: var(--space-3) 0; font-size: var(--text-sm); }
   .addresses { font-size: var(--text-sm); }
   @media (max-width: 900px) { .ways { grid-template-columns: minmax(0, 1fr); } }
-  @media (max-width: 600px) { .way { padding: var(--space-4); } .copy { margin-left: 0; } }
+  @media (max-width: 600px) { .way { padding: var(--space-4); } .copy { margin-left: 0; } .paused > :global(.button) { margin-left: calc(24px + var(--space-4)); } }
 </style>

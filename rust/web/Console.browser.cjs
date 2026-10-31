@@ -86,6 +86,7 @@ async function fixture(t, options = {}) {
     if (url.pathname === '/api/tokens') return reply({ tokens: [] });
     if (url.pathname === '/api/usb') return reply({ status: true, devices: [] });
     if (url.pathname === '/api/token/routes') return reply({ routes: [] });
+    if (url.pathname === '/api/usb') return reply({ status: true, devices: [] });
     return reply({ status: true, available: false, enabled: false });
   });
   return { page, writes, metadata };
@@ -196,13 +197,12 @@ test('device drafts block links, tab closure and browser Back', async t => {
   assert.equal(await page.getByLabel('Name', { exact: true }).inputValue(), 'Unsaved device');
 });
 
-test('disabled pairing points to its setting instead of claiming no request is waiting', async t => {
+test('disabled pairing offers to turn it on right there instead of claiming no request is waiting', async t => {
   const { page } = await fixture(t, { pairing: false });
   await page.goto(base + '/devices');
-  await page.getByText(/Pairing is disabled/).waitFor();
-  assert.equal(await page.getByText('No device is waiting to pair.').count(), 0);
-  await page.getByRole('link', { name: 'General settings', exact: true }).click();
-  await page.getByRole('switch', { name: /^Allow pairing/ }).waitFor();
+  await page.getByText('Pairing is turned off', { exact: true }).waitFor();
+  assert.equal(await page.getByText(/Waiting for a device/).count(), 0);
+  await page.getByRole('button', { name: 'Allow pairing', exact: true }).waitFor();
 });
 
 test('an unavailable host retries automatically and recovers with a usable navigation shell', async t => {
@@ -408,7 +408,7 @@ test('normal PIN pairing stays primary while Artemis alternatives expand', async
   const pin = page.getByLabel('PIN shown on New device', { exact: true });
   await pin.waitFor();
   assert.equal(await page.getByLabel('Passphrase', { exact: true }).isVisible(), false);
-  const other = page.locator('summary', { hasText: 'Other pairing methods' });
+  const other = page.locator('summary', { hasText: 'Other ways to pair' });
   await other.focus();
   await page.keyboard.press('Enter');
   await page.getByLabel('Passphrase', { exact: true }).waitFor();

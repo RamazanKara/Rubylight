@@ -3,6 +3,7 @@
   import Icon from '../components/Icon.svelte';
   import { refreshMetadata } from '../lib/session.svelte';
   import Badge from '../components/Badge.svelte';
+  import StatusPill from '../components/StatusPill.svelte';
   import Button from '../components/Button.svelte';
   import EmptyState from '../components/EmptyState.svelte';
   import PageHeader from '../components/PageHeader.svelte';
@@ -194,6 +195,29 @@
     }
   }
 
+  /** The device's initial: its name says more than a guessed device kind. */
+  const initial = (name: string) => [...name.trim()][0]?.toLocaleUpperCase() ?? '?';
+
+  /** A row menu closes on a click outside it and on Escape, like other menus. */
+  function menu(node: HTMLDetailsElement) {
+    const outside = (event: MouseEvent) => {
+      if (node.open && !node.contains(event.target as Node)) node.open = false;
+    };
+    const escape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || !node.open) return;
+      node.open = false;
+      node.querySelector('summary')?.focus();
+    };
+    document.addEventListener('click', outside);
+    node.addEventListener('keydown', escape);
+    return {
+      destroy() {
+        document.removeEventListener('click', outside);
+        node.removeEventListener('keydown', escape);
+      },
+    };
+  }
+
   async function resetNetworkHistory(client: Client) {
     await run(
       `network-reset:${client.uuid}`,
@@ -205,7 +229,7 @@
 </script>
 
 {#snippet unpairAllAction()}
-<details class="more"><summary>Manage devices</summary><Button variant="danger" size="sm" disabled={acting} busy={busy === 'unpair-all'} onclick={unpairAll}>Unpair all</Button></details>
+<details class="more" use:menu><summary>Manage<Icon name="chevron" size={14} /></summary><div class="menu-list"><Button variant="danger" size="sm" disabled={acting} busy={busy === 'unpair-all'} onclick={unpairAll}>Unpair all</Button></div></details>
 {/snippet}
 
 <PageHeader title="Devices" subtitle="Connect a device, then choose what it can do." />
@@ -238,13 +262,14 @@
         {@const open = editing === client.uuid}
         <li class:open>
           <div class="device">
-            <Icon name="monitor" size={32} />
+            <span class="avatar" aria-hidden="true">{initial(client.name)}</span>
             <div class="identity">
               <div class="title">
                 <span class="name">{client.name}</span>
-                {#if client.connected}<Badge tone="live">Connected</Badge>{:else}<span class="muted">Offline</span>{/if}
+                {#if !client.enabled}<StatusPill status="idle" label="Disabled" />
+                {:else if client.connected}<StatusPill status="ready" label="Connected" />
+                {:else}<StatusPill status="offline" />{/if}
                 {#if client.webrtc}<Badge>WebRTC</Badge>{/if}
-                {#if !client.enabled}<Badge>Disabled</Badge>{/if}
               </div>
               <div class="meta muted">
                 <span title={grantedLabels(client.perm) || 'No permissions'}>Access: {accessLabel(client.perm)}</span>
@@ -262,7 +287,7 @@
               <Button size="sm" disabled={acting} icon={open ? 'x' : accessOf(client.perm) === 'view' ? 'key' : 'settings'} onclick={() => toggleEditor(client.uuid)}>
                 {open ? 'Close' : accessOf(client.perm) === 'view' ? 'Change access' : 'Settings'}<span class="visually-hidden"> {client.name}</span>
               </Button>
-              <details class="more"><summary>More<span class="visually-hidden"> for {client.name}</span></summary><div class="more-actions">
+              <details class="more" use:menu><summary>More<span class="visually-hidden"> for {client.name}</span><Icon name="chevron" size={14} /></summary><div class="menu-list">
               {#if client.network_loss_routes?.length}
                 <Button size="sm" disabled={acting} busy={busy === `network-reset:${client.uuid}`} onclick={() => resetNetworkHistory(client)}>
                   Reset network history<span class="visually-hidden"> for {client.name}</span>
@@ -301,10 +326,59 @@
 {/if}
 
 <style>
+  /* Row menus: a quiet button that opens a small list over the page. */
   .more { position: relative; }
-  .more summary { padding: 10px 14px; }
-  .more-actions { display: grid; gap: var(--space-2); padding: var(--space-3); min-width: 180px; background: var(--panel-raised); border: 1px solid var(--line); border-radius: var(--radius); }
-  .device > :global(svg) { flex: none; color: var(--ink-2); }
+  .more > summary {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+    min-height: var(--control-height);
+    padding: 0 var(--space-3);
+    border-radius: var(--radius);
+    color: var(--ink-2);
+    font-size: var(--text-sm);
+    font-weight: var(--weight-medium);
+    list-style: none;
+    transition: background var(--duration-fast);
+  }
+  .more > summary::-webkit-details-marker { display: none; }
+  .more > summary::before,
+  .more > summary::after { content: none; display: none; }
+  .more > summary :global(svg) { transform: rotate(90deg); transition: transform var(--duration-fast) var(--ease-standard); }
+  .more[open] > summary :global(svg) { transform: rotate(-90deg); }
+  .more > summary:hover,
+  .more[open] > summary { background: var(--sunken); color: var(--ink); }
+  .menu-list {
+    position: absolute;
+    right: 0;
+    top: calc(100% + var(--space-1));
+    z-index: var(--z-sticky);
+    display: grid;
+    gap: var(--space-2);
+    min-width: 200px;
+    padding: var(--space-2);
+    background: var(--panel-raised);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-pop);
+  }
+  /* A menu reaches past the list's rounded clip while it is open. */
+  .devices:has(.more[open]) { overflow: visible; }
+  .avatar {
+    flex: none;
+    display: grid;
+    place-items: center;
+    width: 40px;
+    height: 40px;
+    border-radius: var(--radius);
+    background: var(--sunken);
+    border: 1px solid var(--line);
+    color: var(--ink-2);
+    font-family: var(--font-display);
+    font-size: var(--text-md);
+    font-weight: var(--weight-bold);
+  }
+  .open .avatar { background: var(--panel); }
   .network-memory {
     margin: var(--space-1) 0 0;
     font-size: var(--text-sm);
@@ -335,9 +409,9 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: var(--space-2) var(--space-4);
+    gap: var(--space-3) var(--space-4);
     flex-wrap: wrap;
-    padding: var(--space-5);
+    padding: var(--space-4) var(--space-5);
   }
   .open .device {
     background: var(--sunken);
@@ -366,12 +440,20 @@
   }
   .actions {
     display: flex;
+    align-items: center;
     gap: var(--space-2);
-    flex-wrap: wrap;
+    margin-left: auto;
   }
   @media (max-width: 520px) {
     .device {
-      padding: var(--space-3) var(--space-4);
+      padding: var(--space-4);
+      align-items: flex-start;
+    }
+    /* Under the name, lined up with it rather than with the avatar. */
+    .actions {
+      flex: 1 0 100%;
+      padding-left: calc(40px + var(--space-4));
+      margin-left: 0;
     }
     .load-error {
       margin: var(--space-3) var(--space-4);

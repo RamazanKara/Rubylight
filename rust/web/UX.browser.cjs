@@ -50,6 +50,7 @@ async function fixture(t, intercept = async () => false) {
     if (request.method() !== 'GET') writes.push({ path: url.pathname, body: request.postDataJSON() });
     if (await intercept(route, url, request)) return;
     const reply = body => route.fulfill({ json: body });
+    if (url.pathname === '/api/pairing/qr') return reply({ status: true, codes: [], name: 'Fixture host', expires_in_seconds: 300 });
     if (request.method() !== 'GET') return reply({ status: true });
     const replies = {
       '/api/auth/status': { status: true, credentials_configured: true, authenticated: true },
@@ -72,6 +73,11 @@ async function fixture(t, intercept = async () => false) {
       '/api/display/golden_status': { status: true, exists: true, comparison_available: false, current_mismatch_reason: '' },
       '/api/frame-limiter/status': { enabled: false, configured_provider: 'none', active_provider: 'none', resolved_path: '' },
       '/api/power': powerStatus(),
+      '/api/coop': { mode: { setting: 'nucleus', mode: 'nucleus', label: 'Nucleus Co-op', reason: '' },
+        install: { state: 'missing', path: null, version: null, error: null }, available: true, reason: null, sessions: [] },
+      '/api/logs/analysis': { status: true, findings: [], since: null, until: null, read_bytes: 0 },
+      '/api/usb': { status: true, devices: [] },
+      '/api/tokens': { status: true, tokens: [] },
     };
     return reply(replies[url.pathname] ?? { status: true, available: false, enabled: false });
   });
@@ -151,10 +157,49 @@ test('failed layout refresh keeps the last state visible and offers retry', asyn
   await retry.waitFor({ state: 'detached' });
 });
 
-async function deviceActions(page) {
-  await page.locator('details.more > summary').first().waitFor();
-  for (const summary of await page.locator('details.more > summary').all()) await summary.click();
+// A row menu opens over the page and closes on a click outside it, so one is open at a time.
+async function deviceActions(page, name = 'First device') {
+  await page.locator('details.more > summary', { hasText: `for ${name}` }).click();
 }
+
+test('a row menu opens one at a time and closes on Escape or a click outside', async t => {
+  const { page } = await fixture(t);
+  await page.goto(base + '/devices');
+  const first = page.locator('details.more', { has: page.locator('summary', { hasText: 'for First device' }) });
+  const second = page.locator('details.more', { has: page.locator('summary', { hasText: 'for Second device' }) });
+  await first.locator('summary').click();
+  assert.equal(await page.getByRole('button', { name: 'Unpair First device', exact: true }).isVisible(), true);
+  await page.getByRole('heading', { name: 'Devices', exact: true }).click();
+  assert.equal(await first.evaluate(node => node.open), false);
+  await second.locator('summary').click();
+  await page.keyboard.press('Escape');
+  assert.equal(await second.evaluate(node => node.open), false);
+  assert.equal(await second.locator('summary').evaluate(node => node === document.activeElement), true);
+  // States read the same way for every device: a pill with a word.
+  for (const label of ['Connected', 'Offline']) {
+    await page.locator('.devices [data-status]', { hasText: label }).waitFor();
+  }
+});
+
+test('pairing that is off can be turned on from Devices with the Settings call', async t => {
+  let enabled = false;
+  const { page, writes } = await fixture(t, async (route, url, request) => {
+    if (url.pathname === '/api/config' && request.method() === 'PATCH') enabled = true;
+    if (url.pathname === '/api/pairing/qr') {
+      await route.fulfill({ json: { status: true, codes: [], name: 'Fixture host', expires_in_seconds: 300 } });
+      return true;
+    }
+    if (url.pathname !== '/api/metadata') return false;
+    await route.fulfill({ json: { version: '2.2.2', host_name: 'Fixture host', pc_address: '127.0.0.1',
+      pc_addresses: [], paired_devices: 2, enable_pairing: enabled, warnings: [], features: {} } });
+    return true;
+  });
+  await page.goto(base + '/devices');
+  await page.getByText('Pairing is turned off', { exact: true }).waitFor();
+  await page.getByRole('button', { name: 'Allow pairing', exact: true }).click();
+  await page.getByText('Waiting for a device.', { exact: false }).waitFor();
+  assert.deepEqual(writes.filter(write => write.path === '/api/config').map(write => write.body), [{ enable_pairing: true }]);
+});
 
 test('a device action locks other device actions until completion', async t => {
   const held = deferred(), started = deferred();
@@ -172,7 +217,7 @@ test('a device action locks other device actions until completion', async t => {
   await page.getByRole('dialog').getByRole('button', { name: 'Disconnect', exact: true }).click();
   await started.promise;
   for (const name of ['Unpair all', 'Unpair First device', 'Settings First device', 'Unpair Second device', 'Settings Second device']) {
-    assert.equal(await page.getByRole('button', { name, exact: true }).isDisabled(), true);
+    assert.equal(await page.getByRole('button', { name, exact: true, includeHidden: true }).isDisabled(), true);
   }
   held.resolve();
   await page.getByText('Disconnected First device.', { exact: true }).waitFor();
@@ -199,7 +244,7 @@ test('a host that stops answering cannot keep the device actions locked', async 
   await page.getByRole('button', { name: 'Disconnect First device', exact: true }).click();
   await page.getByRole('dialog').getByRole('button', { name: 'Disconnect', exact: true }).click();
   await page.getByText('Disconnected First device.', { exact: true }).waitFor();
-  const unpair = page.getByRole('button', { name: 'Unpair Second device', exact: true });
+  const unpair = page.getByRole('button', { name: 'Unpair Second device', exact: true, includeHidden: true });
   assert.equal(await unpair.isDisabled(), true);
   await page.clock.runFor(21_000);
   await page.getByText(/Could not refresh the list: The host did not answer within 20 seconds/).waitFor();
@@ -332,8 +377,9 @@ test('saving a device keeps its editor open and blocks conflicting actions', asy
   await page.getByLabel('Name', { exact: true }).fill('New name');
   await page.getByRole('button', { name: 'Save', exact: true }).click();
   await started.promise;
+  // Menu actions are checked while their menus are closed.
   for (const name of ['Unpair all', 'Unpair First device', 'Close First device', 'Settings Second device']) {
-    assert.equal(await page.getByRole('button', { name, exact: true }).isDisabled(), true);
+    assert.equal(await page.getByRole('button', { name, exact: true, includeHidden: true }).isDisabled(), true);
   }
   held.resolve();
   await page.getByText('Saving the device failed: Device save unavailable', { exact: true }).waitFor();

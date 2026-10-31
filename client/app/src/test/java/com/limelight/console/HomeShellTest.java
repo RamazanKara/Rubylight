@@ -280,6 +280,56 @@ public class HomeShellTest {
     }
 
     @Test
+    public void onAPortraitPhoneTheHeadingsAndCardsStartUnderTheFirstTab() throws Exception {
+        assertHeadingsAndCardsStartUnderTheFirstTab();
+    }
+
+    @Test
+    @Config(qualifiers = "w891dp-h411dp-land-xxhdpi")
+    public void inLandscapeTheHeadingsAndCardsStartUnderTheFirstTab() throws Exception {
+        assertHeadingsAndCardsStartUnderTheFirstTab();
+    }
+
+    /** The shell bar's first tab, the section headings' text and the cards' edges all sit on the screen gutter. */
+    private void assertHeadingsAndCardsStartUnderTheFirstTab() throws Exception {
+        ActivityController<Home> controller = home();
+        try {
+            Home home = controller.get();
+            showHosts(home, NativeApiFixtures.nativeHost("tower", "Tower", true));
+            ViewGroup root = home.findViewById(android.R.id.content);
+            android.util.DisplayMetrics metrics = home.getResources().getDisplayMetrics();
+            root.measure(View.MeasureSpec.makeMeasureSpec(metrics.widthPixels, View.MeasureSpec.EXACTLY),
+                    View.MeasureSpec.makeMeasureSpec(metrics.heightPixels, View.MeasureSpec.EXACTLY));
+            root.layout(0, 0, metrics.widthPixels, metrics.heightPixels);
+            int tab = leftIn(root, home.findViewById(R.id.shell_home));
+            assertEquals("the first tab is on the gutter",
+                    home.getResources().getDimensionPixelSize(R.dimen.screen_gutter), tab);
+            RecyclerView list = home.findViewById(R.id.console_list);
+            int headings = 0;
+            int firstCard = Integer.MAX_VALUE;
+            for (int i = 0; i < list.getChildCount(); i++) {
+                View row = list.getChildAt(i);
+                if (row instanceof TextView) {
+                    assertEquals("heading " + ((TextView) row).getText(), tab, leftIn(root, row) + row.getPaddingStart());
+                    headings++;
+                } else {
+                    firstCard = Math.min(firstCard, leftIn(root, row));
+                }
+            }
+            assertTrue("a heading was laid out", headings > 0);
+            assertEquals("the first card of a row", tab, firstCard);
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    private static int leftIn(ViewGroup root, View view) {
+        android.graphics.Rect rect = new android.graphics.Rect(0, 0, view.getWidth(), view.getHeight());
+        root.offsetDescendantRectToMyCoords(view, rect);
+        return rect.left;
+    }
+
+    @Test
     public void thePcsButtonOpensTheListOnTopOfHomeAndSettingsOpensFromTheBar() {
         ActivityController<Home> controller = home();
         try {

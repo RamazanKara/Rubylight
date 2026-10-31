@@ -6,4 +6,7 @@
     <dimen name="shelf_host_width">288dp</dimen>
     <dimen name="shelf_keyline">24dp</dimen>
     <dimen name="hero_height">0dp</dimen>
+    <!-- The phone list's side padding: with a heading's and a card's own space_s, its content starts on the screen gutter,
+         where the shell bar's first tab is. -->
+    <dimen name="home_list_inset">8dp</dimen>
 </resources>

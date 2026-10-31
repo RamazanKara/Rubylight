@@ -1,21 +1,32 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- The TV settings rail's selector: the amber ring around the D-pad's row, on the pill's shape. No scale. -->
+<!-- The TV settings rail's selector: the amber ring around the D-pad's row, on the pill's shape. No scale.
+     The <inset> is for the list, which pads its rows by the selector's padding and widens the selector by it again: alone
+     it leaves the ring on the row's edge, 4dp left of the pill (tv_settings_rail_row) and of the TV edge. The layer's
+     insets then put the ring on the pill. -->
 <selector xmlns:android="http://schemas.android.com/apk/res/android"
     android:exitFadeDuration="@android:integer/config_shortAnimTime">
     <item android:state_pressed="true">
         <inset android:insetLeft="4dp" android:insetRight="4dp" android:insetTop="2dp" android:insetBottom="2dp">
-            <shape android:shape="rectangle">
-                <corners android:radius="16dp" />
-                <solid android:color="?attr/colorControlHighlight" />
-            </shape>
+            <layer-list>
+                <item android:left="4dp" android:right="4dp" android:top="2dp" android:bottom="2dp">
+                    <shape android:shape="rectangle">
+                        <corners android:radius="16dp" />
+                        <solid android:color="?attr/colorControlHighlight" />
+                    </shape>
+                </item>
+            </layer-list>
         </inset>
     </item>
     <item android:state_focused="true">
         <inset android:insetLeft="4dp" android:insetRight="4dp" android:insetTop="2dp" android:insetBottom="2dp">
-            <shape android:shape="rectangle">
-                <corners android:radius="16dp" />
-                <stroke android:width="?attr/nightjarFocusRingWidth" android:color="?attr/colorPrimary" />
-            </shape>
+            <layer-list>
+                <item android:left="4dp" android:right="4dp" android:top="2dp" android:bottom="2dp">
+                    <shape android:shape="rectangle">
+                        <corners android:radius="16dp" />
+                        <stroke android:width="?attr/nightjarFocusRingWidth" android:color="?attr/colorPrimary" />
+                    </shape>
+                </item>
+            </layer-list>
         </inset>
     </item>
     <item>

@@ -54,13 +54,12 @@ pub struct Beam {
 impl Beam {
     /// The picture row the beam is on `elapsed_ns` after a scan began (the counter at line 0):
     /// negative while the blanking lasts, `rows` and over once the picture is scanned.
-    #[allow(dead_code)] // the race itself (B10 step 4, brief 3) reads the beam; the probe and the tests do for now
+    #[cfg_attr(not(test), allow(dead_code))] // only the tests read it; the probe and the race do not
     pub fn row_at(&self, elapsed_ns: u64) -> i64 {
         (elapsed_ns as f64 * self.lines_per_ms / 1e6) as i64 - i64::from(self.blank_rows)
     }
 
     /// The picture row a reading is on, None in the vertical blank (and past the last row).
-    #[allow(dead_code)] // the race itself (B10 step 4, brief 3) reads the beam; the probe and the tests do for now
     pub fn row_of(&self, sample: &Sample) -> Option<u32> {
         if sample.vblank { return None; }
         let row = sample.line.saturating_sub(self.blank_rows);
@@ -76,7 +75,7 @@ impl Beam {
     }
 
     /// How long after a scan began the beam reaches picture row `row` (ns).
-    #[allow(dead_code)] // the race itself (B10 step 4, brief 3) reads the beam; the probe and the tests do for now
+    #[cfg_attr(not(test), allow(dead_code))] // only the tests read it; the probe and the race do not
     pub fn time_to_row(&self, row: u32) -> u64 {
         ((f64::from(self.blank_rows) + f64::from(row)) * 1e6 / self.lines_per_ms) as u64
     }

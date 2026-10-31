@@ -369,8 +369,9 @@ impl Compute {
         // SAFETY: Callers pass a closed compute command list recorded on `self.device`, the queue's
         // device, and keep what it references alive until the returned fence value.
         unsafe {
+            // The base interface by COM inheritance: no QueryInterface per frame.
             self.queue
-                .ExecuteCommandLists(&[Some(list.cast::<ID3D12CommandList>()?)]);
+                .ExecuteCommandLists(&[Some(ID3D12CommandList::clone(list))]);
         }
         // Keep execution and its monotonically increasing completion signal
         // together even when several encoders share this queue.
@@ -900,7 +901,7 @@ impl Handoff {
                 // A conversion may still read the pool texture being reused.
                 self.queue
                     .Wait(&self.compute.fence, readers.load(Ordering::Acquire))?;
-                let commands = commands.cast::<ID3D12CommandList>()?;
+                let commands = ID3D12CommandList::clone(commands);
                 // Once submitted, a failed signal must not leave the list
                 // looking idle (or waiting for an ordinary, never-sent value).
                 *last = u64::MAX;

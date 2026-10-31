@@ -32,6 +32,7 @@ pub const TABLE: &[(&str, &str)] = &[
     ("Del", "Entf"),
     ("Close menu", "Menü schließen"),
     ("Loading the games…", "Spiele werden geladen…"),
+    ("No games match this filter.", "Keine Spiele passen zu diesem Filter."),
     ("No games to show yet. They appear here once a PC that shares its game library is online.", "Noch keine Spiele. Sie erscheinen hier, sobald ein PC online ist, der seine Spielebibliothek teilt."),
     ("This game is no longer in the PC's library.", "Dieses Spiel ist nicht mehr in der Bibliothek des PCs."),
     ("This PC is offline. Your saved library is still here. Reconnect to play.", "Dieser PC ist offline. Deine gespeicherte Bibliothek ist weiterhin da. Verbinde dich erneut, um zu spielen."),

@@ -103,10 +103,38 @@ button {
   white-space: nowrap;
 }
 
-summary {
+/* Every disclosure gets the same chevron after its label, pointing down when
+   closed and up when open, with a hover colour and a rounded focus ring.
+   :where() keeps these rules at zero specificity, so a component's own
+   summary styles win; a summary with its own icon (an <svg>) gets no chevron. */
+:where(summary) {
   cursor: pointer;
   min-height: var(--control-height);
   padding-block: 10px;
+  border-radius: var(--radius-sm);
+  list-style: none;
+  transition: color var(--duration-fast);
+}
+:where(summary)::-webkit-details-marker {
+  display: none;
+}
+:where(summary):not(:has(svg))::after {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-left: var(--space-2);
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  vertical-align: middle;
+  transform: translateY(-3px) rotate(45deg);
+  transition: transform var(--duration-fast) var(--ease-standard);
+}
+:where(details[open]) > :where(summary):not(:has(svg))::after {
+  transform: translateY(0) rotate(225deg);
+}
+:where(summary):hover {
+  color: var(--ink);
 }
 
 @media (max-width: 520px) {

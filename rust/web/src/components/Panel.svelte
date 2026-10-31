@@ -47,9 +47,23 @@
 </section>
 
 <style>
-  summary { padding: 20px var(--space-5); font-weight: var(--weight-semibold); }
-  .description { display: block; margin-top: var(--space-1); font-weight: var(--weight-regular); font-size: var(--text-sm); }
-  details[open] > summary { border-bottom: 1px solid var(--line); }
+  /* A collapsible panel's header: title and description on the left, the
+     shared disclosure chevron (base.css) on the right. */
+  summary {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    column-gap: var(--space-4);
+    padding: var(--space-4) var(--space-5);
+    border-radius: var(--radius-lg);
+    font-weight: var(--weight-semibold);
+    transition: background var(--duration-fast);
+  }
+  summary:hover { background: var(--sunken); }
+  summary::after { grid-column: 2; grid-row: 1 / span 2; margin-right: var(--space-1); }
+  summary .title { grid-column: 1; }
+  .description { grid-column: 1; margin-top: var(--space-1); font-weight: var(--weight-regular); font-size: var(--text-sm); }
+  details[open] > summary { border-bottom: 1px solid var(--line); border-radius: var(--radius-lg) var(--radius-lg) 0 0; }
   .panel {
     background: var(--panel);
     border: 1px solid var(--line);
@@ -87,6 +101,7 @@
   }
   @media (max-width: 520px) {
     header,
+    summary,
     .body {
       padding: var(--space-4);
     }

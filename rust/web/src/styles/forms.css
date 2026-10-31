@@ -104,15 +104,35 @@
   overflow-wrap: anywhere;
 }
 
+/* A short message in a panel. Its text flows like a paragraph, so inline links
+   and code stay in the sentence. A notice laid out in parts (an icon or a
+   <span> of text, then a button or link) lines them up in a row instead. */
 .notice {
-  display: flex;
-  gap: var(--space-3);
-  align-items: flex-start;
+  display: block;
   padding: var(--space-3) var(--space-4);
   border-radius: var(--radius);
   border: 1px solid var(--line);
   background: var(--sunken);
+  color: var(--ink);
   font-size: var(--text-sm);
+  line-height: var(--leading-snug);
+  overflow-wrap: break-word;
+}
+.notice:has(> :is(span, svg, div) + *) {
+  display: flex;
+  gap: var(--space-2) var(--space-3);
+  align-items: flex-start;
+}
+.notice > svg {
+  flex: none;
+  margin-top: 1px;
+}
+.notice:not(:has(> :is(span, svg, div) + *)) > :is(.button, button) {
+  margin: 2px 0 2px var(--space-2);
+  vertical-align: middle;
+}
+.notice a {
+  font-weight: var(--weight-medium);
 }
 .notice.warn {
   background: var(--warn-soft);

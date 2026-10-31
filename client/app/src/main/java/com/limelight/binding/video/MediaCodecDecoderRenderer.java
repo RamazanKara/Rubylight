@@ -20,6 +20,8 @@ import org.jcodec.codecs.h264.H264Utils;
 import org.jcodec.codecs.h264.io.model.SeqParameterSet;
 import org.jcodec.codecs.h264.io.model.VUIParameters;
 
+import androidx.annotation.RequiresApi;
+
 import com.limelight.BuildConfig;
 import com.limelight.LimeLog;
 import com.limelight.R;
@@ -3163,7 +3165,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     }
 
     /** Android 13's vsync callback, kept apart so older versions never load its types. */
-    @TargetApi(Build.VERSION_CODES.TIRAMISU)
+    @RequiresApi(Build.VERSION_CODES.TIRAMISU)
     private static final class FrameTimelineCallback implements Choreographer.VsyncCallback {
         private final MediaCodecDecoderRenderer renderer;
 

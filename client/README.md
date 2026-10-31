@@ -2,49 +2,131 @@
   <img src="docs/assets/banner.png" width="800" alt="Nightjar: low-latency game streaming from your PC">
 </p>
 
+<h3 align="center">Your PC games, on every screen you own.</h3>
+
+<p align="center">
+  Stream your PC to a phone, handheld, TV or laptop with the picture, sound and controls of playing at your desk.<br>
+  Free and open source. No accounts, no ads, no tracking.
+</p>
+
 <p align="center">
   <a href="https://github.com/RamazanKara/nightjar/releases/latest"><img src="https://img.shields.io/github/v/release/RamazanKara/nightjar?label=release&color=e8a33d" alt="Latest release"></a>
   <a href="https://github.com/RamazanKara/nightjar/releases"><img src="https://img.shields.io/github/downloads/RamazanKara/nightjar/total?color=e8a33d" alt="Total downloads"></a>
   <a href="LICENSE.txt"><img src="https://img.shields.io/github/license/RamazanKara/nightjar?color=e8a33d" alt="License: GPL-3.0"></a>
 </p>
 
-# Nightjar
-
-Nightjar is an open-source game-streaming client for Android phones, tablets and handhelds, Android TV and Fire TV, Windows and Linux. It implements the Moonlight protocol and works with any compatible host: Sunshine, Apollo, Vibepollo, Rubylight, NVIDIA GameStream and others.
-
-Every Moonlight-compatible host gets the complete stream: hardware decoding, HDR10, surround sound, controllers, touch, mouse and keyboard, recovery and diagnostics. Beyond that, Nightjar enables each feature from the capabilities a PC's host reports, never from the host's name. With a Rubylight 3.0 PC that adds a unified game library, QR pairing, clipboard and file sharing, USB forwarding, split-screen co-op, Dolby Vision, HDR10+ and HLG, 7.1.4 surround and bitrate changes during a stream.
-
-The Android and desktop apps share one streaming engine, written in Rust, and the same settings model. Nightjar has no accounts, advertising or analytics, and sends nothing to its developers.
-
 <p align="center">
   <a id="download" href="https://github.com/RamazanKara/nightjar/releases/latest"><img src="docs/assets/download.svg" width="260" height="52" alt="Download Nightjar"></a>
 </p>
 
 <p align="center">
-  <img src="docs/assets/shots/tv-home.png" width="820" alt="Nightjar's Home on a TV with a Rubylight 3.0 PC: a game in the hero and a Recently played row of posters with store badges (demo library)">
+  <b>Android</b> · <b>Android TV</b> · <b>Fire TV</b> · <b>Windows</b> · <b>Linux</b><br>
+  <sub>Works with Sunshine, Apollo, Vibepollo, Rubylight, NVIDIA GameStream and every other Moonlight-compatible host.</sub>
 </p>
 
 <p align="center">
-  <img src="docs/assets/shots/handheld-home.png" width="405" alt="Nightjar's Home on a handheld: Continue playing and the Library shelf (demo library)">
-  <img src="docs/assets/shots/stream-stats.png" width="405" alt="A stream with the Statistics overlay: resolution, codec, frame rate, bitrate, round trip, decode time and the PC's CPU and GPU readings (demo data)">
+  <a href="https://ramazankara.github.io/nightjar/assets/trailer-16x9.mp4"><img src="docs/assets/nightjar-trailer.webp" width="880" alt="Nightjar trailer: Home on a TV with games from every store, a game's page, a stream with the performance overlay and the stream menu, the feature list and the supported platforms (offline demo library)"></a><br>
+  <sub><a href="https://ramazankara.github.io/nightjar/assets/trailer-16x9.mp4"><b>▶ Watch the full trailer</b></a></sub>
 </p>
 
-## Highlights
+# Nightjar
 
-- **Video.** H.264, HEVC and AV1 on the device's hardware decoder, with [low-latency settings per decoder family](docs/decoder-flags.md). HDR10 with any HDR-capable host; HDR10+, HLG and Dolby Vision where the PC, decoder and display support them. 10-bit SDR, full-chroma 4:4:4, and the PyroWave codec decoded on the GPU. Upscaling with FSR 1, Snapdragon GSR or, on Windows, the graphics card's video upscaler, and optional rendering through Vulkan on Android.
-- **Frame timing.** Follows the display's refresh rate, including Android's adaptive refresh and VRR on the desktop. Hosts that support it receive phase-lock reports, so frames arrive just before the display needs them. The desktop client can also [beam race](docs/beam-racing.md).
-- **Network.** **Device controls bitrate** adapts to loss, round-trip variation and decode headroom. Bitrate and frame rate can change during a stream, and error correction can be left to the PC, follow measured loss or use a fixed share. **Recover interrupted streams**, on by default, returns to the running game after a transient failure, and **Ride out network drops** holds a stream through up to 60 seconds of network silence.
-- **Audio.** Stereo, 5.1, 7.1 and 7.1.4. Passthrough of PCM, Dolby Digital or Dolby Digital Plus to a receiver, soundbar or TV. A microphone channel with echo cancellation on every platform, and noise suppression, gain and a one-tap mute button on Android.
-- **Input.** Up to 16 controllers with mapping per model; direct USB drivers for DualSense (adaptive triggers and haptics), Xbox and Switch Pro controllers. Trackpad, direct, multi-touch and local-cursor touch modes with the PC's own cursor shapes, native pen input, a full PC keyboard, and a soft keyboard that opens when a text field on the PC takes focus. On-screen controls are available on Android.
-- **Library.** Home merges the games of every paired PC, with a shelf per store on a TV and a page per game, and wakes a sleeping PC. Games launch from Android TV's home screen, Beacon, ES-DE, Daijisho, Pegasus and the desktop command line.
-- **Sharing.** Clipboard sync, clipboard images, file transfer, the PC's shared folders, and USB devices forwarded to the PC.
-- **Diagnostics.** A performance overlay in three levels of detail, a stream health report that explains stutter, an input latency test, a decoder benchmark that runs without a PC, frame timings as CSV, a connection test and redacted problem reports.
+Nightjar streams games from your PC to Android phones, tablets and handhelds, Android TV and Fire TV, Windows and Linux. It speaks the Moonlight protocol, so it works with the host you already run, and it is built to make the stream feel local: hardware decoding tuned for each chip, frame pacing that follows your display, and recovery that keeps you in the game when the network hiccups.
+
+<table>
+<tr>
+<td width="50%" valign="top">
+
+### Feels local
+**7 ms** median picture age, from the PC's capture to the frame on a Retroid Pocket 6 over Wi-Fi, and about **120 fps** on the same handheld ([our measurements](#measured-performance)). Low-latency settings per decoder family, adaptive refresh and VRR, and phase-locked frame timing with hosts that support it.
+
+</td>
+<td width="50%" valign="top">
+
+### One library for every PC
+Home gathers the games of every paired PC, with cover art, **Continue playing** and a page for each game; on a TV, each store gets its own shelf. Pick a game on a sleeping PC and Nightjar wakes the PC and starts it. Home needs a host with the native library API (Rubylight 3.0); other PCs open their app grid.
+
+</td>
+</tr>
+<tr>
+<td valign="top">
+
+### Works with your host
+Every Moonlight-compatible host gets the complete stream: hardware decoding, HDR10, surround sound, every controller, touch, mouse and keyboard, recovery and diagnostics. Nightjar turns on more from the capabilities each PC's host reports, never from the host's name: with a Rubylight 3.0 PC, that includes Home, sharing, USB forwarding, co-op, Dolby Vision and 7.1.4.
+
+</td>
+<td valign="top">
+
+### Private by design
+No accounts, advertising or analytics, and nothing sent to its developers. Video, audio, input, clipboard and files travel only between your device and your PC. Licensed under the GPL-3.0 and developed in the open.
+
+</td>
+</tr>
+</table>
+
+## A look around
+
+<table>
+<tr>
+<td width="50%" valign="top">
+  <img src="docs/assets/shots/tv-game-page.png" alt="A game's page on a TV: Racing Game running on Living-room PC, with Resume, Add to favourites, Close game and the stream settings it will use (demo library)"><br>
+  <sub><b>A page for every game.</b> Its store, the PC it runs on, whether it is running, and the exact settings the stream will use.</sub>
+</td>
+<td width="50%" valign="top">
+  <img src="docs/assets/shots/tv-all-games.png" alt="All games on a TV, filtered by store: All, Installed, Steam, Epic Games, GOG, Xbox and Other apps, with posters (demo library)"><br>
+  <sub><b>Every store in one place.</b> Steam, Epic Games, GOG, EA app, Ubisoft Connect, Battle.net and Xbox, filtered with one press.</sub>
+</td>
+</tr>
+<tr>
+<td valign="top">
+  <img src="docs/assets/shots/stream-stats.png" alt="A stream with the Statistics overlay: resolution, codec, frame rate, bitrate, round trip, decode time and the PC's CPU and GPU readings (demo data)"><br>
+  <sub><b>See every millisecond.</b> The performance overlay shows the network and decoding, and the PC's CPU and GPU readings from a host that sends them.</sub>
+</td>
+<td valign="top">
+  <img src="docs/assets/shots/stream-menu-radeon.png" alt="The Session and graphics menu during a stream: bitrate, the Wi-Fi link and the PC's Radeon settings such as Anti-Lag, Chill and Frame Rate Target Control (demo data)"><br>
+  <sub><b>Tune it while you play.</b> With a Rubylight 3.0 PC, change the bitrate, frame rate and the PC's Radeon graphics settings without leaving the game.</sub>
+</td>
+</tr>
+<tr>
+<td valign="top">
+  <img src="docs/assets/shots/stream-keyboard.png" alt="A stream with Nightjar's PC keyboard open: Esc, F1 to F12, arrows, navigation keys and modifiers (demo data)"><br>
+  <sub><b>A real PC keyboard.</b> Esc, F1 to F12, arrows and sticky modifiers, by touch, controller or TV remote.</sub>
+</td>
+<td valign="top">
+  <img src="docs/assets/shots/desktop-home.png" alt="Nightjar for Windows: Home with a library of games as cover art and the PC below (demo library)"><br>
+  <sub><b>On the desktop too.</b> The same engine and settings on Windows and Linux, with VRR and beam racing.</sub>
+</td>
+</tr>
+</table>
+
+<sub>Screenshots and the trailer use Nightjar's offline demo with a sample library and an original test animation; the performance numbers shown in them are illustrations. Measured results are [below](#measured-performance). Home, store shelves and game pages need a host with the native library API (Rubylight 3.0).</sub>
+
+## Everything in the box
+
+- **Picture.** H.264, HEVC and AV1 on the hardware decoder, tuned for [each decoder family](docs/decoder-flags.md). HDR10 with any HDR-capable host; HDR10+, HLG and Dolby Vision where the PC, decoder and display support them. 10-bit SDR, full-chroma 4:4:4, and the PyroWave codec decoded on the GPU. Upscaling with FSR 1, Snapdragon GSR or, on Windows, the graphics card's video upscaler.
+- **Timing.** Follows the display's refresh rate, including Android's adaptive refresh and VRR on the desktop. Hosts that support it receive phase-lock reports, so frames arrive just before the display needs them. The desktop client can also [beam race](docs/beam-racing.md).
+- **Network.** **Device controls bitrate** adapts to loss, round-trip variation and decode headroom. Bitrate and frame rate can change during a stream, and error correction can follow measured loss, with hosts that accept it. **Recover interrupted streams**, on by default, returns to the running game after a transient failure, and **Ride out network drops** holds a stream through up to 60 seconds of silence.
+- **Sound.** Stereo, 5.1, 7.1 and 7.1.4. Passthrough of PCM, Dolby Digital or Dolby Digital Plus to a receiver, soundbar or TV. A microphone with echo cancellation on every platform, plus noise suppression, gain and one-tap mute on Android.
+- **Controls.** Up to 16 controllers with mapping per model. Direct USB drivers for DualSense (adaptive triggers, lightbar and haptics), Xbox and Switch Pro controllers. Trackpad, direct, multi-touch and local-cursor touch modes, native pen input, on-screen controls on Android, and a soft keyboard that opens when a text field on the PC takes focus.
+- **Library.** With a Rubylight 3.0 PC, Home merges every paired PC's games, with a shelf per store on a TV, a page per game and Wake-on-LAN. Games from any host launch from Android TV's home screen, Beacon, ES-DE, Daijisho, Pegasus and the desktop command line.
+- **Sharing.** With a Rubylight 3.0 PC: clipboard sync in both directions, clipboard images, file transfer, the PC's shared folders, and USB devices forwarded to the PC.
+- **Co-op.** Take a free player slot in a Rubylight 3.0 PC's split-screen co-op session, or go back to your own seat.
+- **Diagnostics.** A performance overlay in three levels of detail, a [stream health](docs/stream-health.md) report that explains stutter, an input latency test, a decoder benchmark that runs without a PC, frame timings as CSV, a connection test and redacted problem reports.
+- **Comfort.** Every screen works with a controller or a TV remote as well as touch, mouse and keyboard. Layered settings with search and presets, high contrast, reduced motion, screen reader support, and 15 languages on Android.
 
 The [feature overview](docs/features.md) lists everything, with a link to each guide.
 
-<p align="center">
-  <img src="docs/assets/shots/desktop-home.png" width="600" alt="Nightjar for Windows: Home with a library of games as cover art and the PC below (demo library)">
-</p>
+## Measured performance
+
+Our own measurements, against a Rubylight PC with a Radeon RX 7900 XT:
+
+| Device and link | Stream | Result |
+| --- | --- | --- |
+| Retroid Pocket 6, Wi-Fi | HEVC 1080p60, 40 Mbps | 7 ms median picture age, from the PC's capture timestamp to the frame rendered on the device, with either streaming engine (6.92 and 7.04 ms; clock join error about ±0.5 ms; [method and runs](https://github.com/RamazanKara/Rubylight/blob/main/rust/PERFORMANCE.md#october-23-rust-engine-against-the-c-engine-on-android-b8)) |
+| Retroid Pocket 6, Wi-Fi | HEVC 1080p120, 28 Mbps | About 120 fps ([4.0.0 release notes](https://github.com/RamazanKara/nightjar/releases/tag/v4.0.0)) |
+| Retroid Pocket 6, Wi-Fi | PyroWave 1080p120, default bitrate | 119.6 to 120 fps, about 1.7 ms per frame for the decode steps ([4.0.0 release notes](https://github.com/RamazanKara/nightjar/releases/tag/v4.0.0)) |
+
+Decoder benchmark results for other devices are in [device results](docs/devices.md#devices); the built-in benchmark measures yours.
 
 ## Install
 
@@ -69,7 +151,7 @@ Nightjar has its own application ID and pairs separately, so it installs beside 
 2. Open Nightjar on the same network. It lists the PCs it finds; otherwise choose **Add PC** and enter the PC's address.
 3. Select the PC and enter the PIN that Nightjar shows in the host's web UI. With a Rubylight PC you can instead choose **Scan QR code** and scan the code on its **Devices** page.
 4. If the host grants permissions per device, allow this device to list, view and launch apps, and the input types you use.
-5. Select a game.
+5. Pick a game and play.
 
 The [quick start](docs/quick-start.md) and [pairing guide](docs/pairing.md) cover each step, including one-time PINs and Wake-on-LAN. To play outside your home network, see [Play away from home](docs/remote-setup.md).
 
@@ -94,18 +176,6 @@ The **Error correction** setting and host-side automatic bitrate also work with 
 | Linux | x86-64 with glibc 2.35 or newer: Ubuntu 22.04, Debian 12, Fedora 36 or later. Hardware decoding through VA-API, V4L2 M2M or NVDEC. |
 | PC | A Moonlight-compatible host. The host's own requirements apply. |
 
-## Measured performance
-
-Our own measurements, against a Rubylight PC with a Radeon RX 7900 XT:
-
-| Device and link | Stream | Result |
-| --- | --- | --- |
-| Retroid Pocket 6, Wi-Fi | HEVC 1080p60, 40 Mbps | 7 ms median picture age, from the PC's capture timestamp to the frame rendered on the device, with either streaming engine (6.92 and 7.04 ms; clock join error about ±0.5 ms; [method and runs](https://github.com/RamazanKara/Rubylight/blob/main/rust/PERFORMANCE.md#october-23-rust-engine-against-the-c-engine-on-android-b8)) |
-| Retroid Pocket 6, Wi-Fi | HEVC 1080p120, 28 Mbps | About 120 fps ([4.0.0 release notes](https://github.com/RamazanKara/nightjar/releases/tag/v4.0.0)) |
-| Retroid Pocket 6, Wi-Fi | PyroWave 1080p120, default bitrate | 119.6 to 120 fps, about 1.7 ms per frame for the decode steps ([4.0.0 release notes](https://github.com/RamazanKara/nightjar/releases/tag/v4.0.0)) |
-
-Decoder benchmark results for other devices are in [device results](docs/devices.md#devices); the built-in benchmark measures yours.
-
 ## Documentation
 
 The [documentation index](docs/index.md) lists every page. The most used:
@@ -120,7 +190,7 @@ The [documentation index](docs/index.md) lists every page. The most used:
 
 ## Building from source
 
-The Android app builds with Gradle and JDK 21; its native code needs the Android NDK and Rust. The streaming engine and the desktop client are a Cargo workspace under [`protocol/`](protocol).
+The Android app builds with Gradle and JDK 21; its native code needs the Android NDK and Rust. The streaming engine and the desktop client are a Cargo workspace under [`protocol/`](protocol), shared by both apps.
 
 - [Building Nightjar](docs/building.md): toolchains, tests, signing, the release workflow and the documentation checks.
 - [Building the desktop client](protocol/desktop/README.md#building): Windows and Linux builds and packaging.

@@ -1,8 +1,8 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="260" height="52" viewBox="0 0 260 52" role="img" aria-label="Download Nightjar for Android">
+<svg xmlns="http://www.w3.org/2000/svg" width="260" height="52" viewBox="0 0 260 52" role="img" aria-label="Download Nightjar for Android, Windows and Linux">
   <rect width="260" height="52" rx="9" fill="#f2a93b"/>
   <g fill="none" stroke="#14161f" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
     <path d="M27 15v16m-6-6 6 6 6-6M19 33v5h16v-5"/>
   </g>
   <text x="50" y="24" fill="#14161f" font-family="Segoe UI,Arial,sans-serif" font-size="17" font-weight="700">Download Nightjar</text>
-  <text x="50" y="40" fill="#14161f" font-family="Segoe UI,Arial,sans-serif" font-size="12">FOR ANDROID</text>
+  <text x="50" y="40" fill="#14161f" font-family="Segoe UI,Arial,sans-serif" font-size="12">ANDROID · WINDOWS · LINUX</text>
 </svg>

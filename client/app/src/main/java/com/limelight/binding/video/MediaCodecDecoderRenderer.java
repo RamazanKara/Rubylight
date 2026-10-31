@@ -3265,117 +3265,21 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                                 // frame timestamps and ADPF durations keep their existing clock.
                                 long outputDrainStartNs = SystemClock.elapsedRealtimeNanos();
                                 frameLatencyStats.onDecoderOutput(outIndex, info.presentationTimeUs, workStartNs);
-                                int lastIndex = outIndex;
-                                long lastPtsUs = info.presentationTimeUs;
+                                long ptsUs = info.presentationTimeUs;
 
                                 numFramesOut++;
                                 checkRunningHdrStaticInfo();
 
                                 if (vulkanRenderer != null) {
-                                    // The Vulkan renderer paces and drops frames itself, so hand each
-                                    // one over as soon as it is decoded. It counts those it presents.
-                                    frameLatencyStats.onOutputReleased(lastIndex, System.nanoTime(), true,
-                                            vulkanPresentReports);
-                                    videoDecoder.releaseOutputBuffer(lastIndex, true);
-                                    frameLatencyStats.onArtemisDecodeCounted(lastPtsUs);
+                                    handOutputToVulkan(outIndex, ptsUs);
                                 }
                                 // Render the latest frame now if frame pacing isn't in balanced mode
                                 else if (prefs.framePacing != PreferenceConfiguration.FRAME_PACING_BALANCED) {
-                                    // Latency mode takes the newest output. Smooth modes only catch up
-                                    // after a backlog exceeds the age budget, then resume normal order.
-                                    // All frames have already been decoded, preserving codec references.
-                                    int drained = 0;
-                                    boolean scheduled = FramePacingPolicy.schedulesFrames(
-                                            hostFrameTimes, prefs.framePacing);
-                                    if (scheduled) noteResidency(lastIndex);
-                                    while (!stopping && codecRecoveryType.get() == CR_RECOVERY_TYPE_NONE &&
-                                            FramePacingPolicy.hasOutputDrainTimeRemaining(
-                                                    SystemClock.elapsedRealtimeNanos() - outputDrainStartNs,
-                                                    streamFrameRateMilliHz) &&
-                                            wantsCatchUp(lastIndex, drained, scheduled) &&
-                                            (outIndex = videoDecoder.dequeueOutputBuffer(info, 0)) >= 0) {
-                                        frameLatencyStats.onDecoderOutput(outIndex, info.presentationTimeUs, System.nanoTime());
-                                        frameLatencyStats.onDropReason(lastIndex, catchUpReason);
-                                        frameLatencyStats.onOutputReleased(lastIndex, System.nanoTime(), false,
-                                                reportsRenderTimes());
-                                        videoDecoder.releaseOutputBuffer(lastIndex, false);
-                                        if (scheduled && "governor".equals(catchUpReason)) {
-                                            residency.onDropped();
-                                            presentScheduler.onGovernorDropped();
-                                        }
-
-                                        numFramesOut++;
-
-                                        lastIndex = outIndex;
-                                        lastPtsUs = info.presentationTimeUs;
-                                        drained++;
-                                        if (scheduled) noteResidency(lastIndex);
-                                    }
-
-                                    if (scheduled) {
-                                        // Not released as one of the frames dropped above: the scheduler
-                                        // decides when, and whether a newer output replaces it.
-                                        lastPtsUs = releaseScheduled(lastIndex, lastPtsUs, drained > 0);
-                                    }
-                                    else {
-                                        frameLatencyStats.onOutputReleased(lastIndex, System.nanoTime(), rendersOnRelease(),
-                                                reportsRenderTimes());
-                                        if (prefs.framePacing == PreferenceConfiguration.FRAME_PACING_MAX_SMOOTHNESS ||
-                                                prefs.framePacing == PreferenceConfiguration.FRAME_PACING_CAP_FPS) {
-                                            // Retain the ordinary smooth-mode presentation behavior after
-                                            // replacing any stale decoded outputs above.
-                                            releaseOutputFrame(lastIndex, 0);
-                                        }
-                                        else if (hostFrameTimes) {
-                                            // Held until the host's frame time plus the jitter delay; the
-                                            // compositor shows it at that time, or replaces it if a later
-                                            // frame is due first.
-                                            releaseOutputFrame(lastIndex, hostFrameClock.presentNs(lastPtsUs, System.nanoTime()));
-                                        }
-                                        else {
-                                            // Use a PTS that will cause this frame to be dropped if another comes in within
-                                            // the same V-sync period. "Now" lets the compositor take it at its very next
-                                            // latch; a computed vsync target that errs late (a conservative deadline, a
-                                            // drifting phase estimate) holds frames back a whole refresh.
-                                            releaseOutputFrame(lastIndex, System.nanoTime());
-                                        }
-                                    }
-                                    // Artemis counts the frame it presents. Its decode time ended when the
-                                    // decoder returned it; release and pacing waits are not decode time.
-                                    frameLatencyStats.onArtemisDecodeCounted(lastPtsUs);
-                                    reportPhaseSlack(System.nanoTime());
-
-                                    activeWindowVideoStats.totalFramesRendered++;
+                                    // A drain that ends on a format change returns it for the check below.
+                                    outIndex = releaseNewestOutput(outIndex, ptsUs, info, outputDrainStartNs);
                                 }
                                 else {
-                                    // For balanced frame pacing case, the Choreographer callback will handle rendering.
-                                    // We just put all frames into the output buffer queue and let it handle things.
-
-                                    // Discard the oldest buffer if we've exceeded our limit.
-                                    //
-                                    // NB: We have to do this on the producer side because the consumer may not
-                                    // run for a while (if there is a huge mismatch between stream FPS and display
-                                    // refresh rate).
-                                    int queueLimit = prefs.dropLateFrames ? 1 : outputBufferQueueLimit;
-                                    Integer droppedIndex;
-                                    synchronized (outputBufferQueue) {
-                                        droppedIndex = outputBufferQueue.size() >= queueLimit ?
-                                                outputBufferQueue.poll() : null;
-                                        outputBufferQueue.add(lastIndex);
-                                    }
-                                    // Publish the replacement before returning the old output to the
-                                    // codec. That call (or timing bookkeeping) can block; the display
-                                    // callback must still find the ready replacement in the meantime.
-                                    if (droppedIndex != null) {
-                                        frameLatencyStats.onOutputReleased(droppedIndex, System.nanoTime(), false,
-                                                reportsRenderTimes());
-                                        videoDecoder.releaseOutputBuffer(droppedIndex, false);
-                                    }
-                                    // Artemis counts a queued frame unless queuing it dropped an older one.
-                                    // Its decode time ended when the decoder returned it.
-                                    if (droppedIndex == null) {
-                                        frameLatencyStats.onArtemisDecodeCounted(lastPtsUs);
-                                    }
+                                    queueOutputForDisplay(outIndex, ptsUs);
                                 }
                             }
                             if (outIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
@@ -3398,6 +3302,121 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         };
         rendererThread.setName("Video - Renderer (MediaCodec)");
         rendererThread.start();
+    }
+
+    private void handOutputToVulkan(int lastIndex, long lastPtsUs) {
+        // The Vulkan renderer paces and drops frames itself, so hand each
+        // one over as soon as it is decoded. It counts those it presents.
+        frameLatencyStats.onOutputReleased(lastIndex, System.nanoTime(), true,
+                vulkanPresentReports);
+        videoDecoder.releaseOutputBuffer(lastIndex, true);
+        frameLatencyStats.onArtemisDecodeCounted(lastPtsUs);
+    }
+
+    /**
+     * Pacing other than balanced: drops outputs a newer one replaces (see wantsCatchUp) and
+     * releases the last. Returns the last dequeue result, which may be a negative INFO_ code.
+     */
+    private int releaseNewestOutput(int outIndex, long ptsUs, BufferInfo info, long outputDrainStartNs) {
+        int lastIndex = outIndex;
+        long lastPtsUs = ptsUs;
+        // Latency mode takes the newest output. Smooth modes only catch up
+        // after a backlog exceeds the age budget, then resume normal order.
+        // All frames have already been decoded, preserving codec references.
+        int drained = 0;
+        boolean scheduled = FramePacingPolicy.schedulesFrames(
+                hostFrameTimes, prefs.framePacing);
+        if (scheduled) noteResidency(lastIndex);
+        while (!stopping && codecRecoveryType.get() == CR_RECOVERY_TYPE_NONE &&
+                FramePacingPolicy.hasOutputDrainTimeRemaining(
+                        SystemClock.elapsedRealtimeNanos() - outputDrainStartNs,
+                        streamFrameRateMilliHz) &&
+                wantsCatchUp(lastIndex, drained, scheduled) &&
+                (outIndex = videoDecoder.dequeueOutputBuffer(info, 0)) >= 0) {
+            frameLatencyStats.onDecoderOutput(outIndex, info.presentationTimeUs, System.nanoTime());
+            frameLatencyStats.onDropReason(lastIndex, catchUpReason);
+            frameLatencyStats.onOutputReleased(lastIndex, System.nanoTime(), false,
+                    reportsRenderTimes());
+            videoDecoder.releaseOutputBuffer(lastIndex, false);
+            if (scheduled && "governor".equals(catchUpReason)) {
+                residency.onDropped();
+                presentScheduler.onGovernorDropped();
+            }
+
+            numFramesOut++;
+
+            lastIndex = outIndex;
+            lastPtsUs = info.presentationTimeUs;
+            drained++;
+            if (scheduled) noteResidency(lastIndex);
+        }
+
+        if (scheduled) {
+            // Not released as one of the frames dropped above: the scheduler
+            // decides when, and whether a newer output replaces it.
+            lastPtsUs = releaseScheduled(lastIndex, lastPtsUs, drained > 0);
+        }
+        else {
+            frameLatencyStats.onOutputReleased(lastIndex, System.nanoTime(), rendersOnRelease(),
+                    reportsRenderTimes());
+            if (prefs.framePacing == PreferenceConfiguration.FRAME_PACING_MAX_SMOOTHNESS ||
+                    prefs.framePacing == PreferenceConfiguration.FRAME_PACING_CAP_FPS) {
+                // Retain the ordinary smooth-mode presentation behavior after
+                // replacing any stale decoded outputs above.
+                releaseOutputFrame(lastIndex, 0);
+            }
+            else if (hostFrameTimes) {
+                // Held until the host's frame time plus the jitter delay; the
+                // compositor shows it at that time, or replaces it if a later
+                // frame is due first.
+                releaseOutputFrame(lastIndex, hostFrameClock.presentNs(lastPtsUs, System.nanoTime()));
+            }
+            else {
+                // Use a PTS that will cause this frame to be dropped if another comes in within
+                // the same V-sync period. "Now" lets the compositor take it at its very next
+                // latch; a computed vsync target that errs late (a conservative deadline, a
+                // drifting phase estimate) holds frames back a whole refresh.
+                releaseOutputFrame(lastIndex, System.nanoTime());
+            }
+        }
+        // Artemis counts the frame it presents. Its decode time ended when the
+        // decoder returned it; release and pacing waits are not decode time.
+        frameLatencyStats.onArtemisDecodeCounted(lastPtsUs);
+        reportPhaseSlack(System.nanoTime());
+
+        activeWindowVideoStats.totalFramesRendered++;
+        return outIndex;
+    }
+
+    private void queueOutputForDisplay(int lastIndex, long lastPtsUs) {
+        // For balanced frame pacing case, the Choreographer callback will handle rendering.
+        // We just put all frames into the output buffer queue and let it handle things.
+
+        // Discard the oldest buffer if we've exceeded our limit.
+        //
+        // NB: We have to do this on the producer side because the consumer may not
+        // run for a while (if there is a huge mismatch between stream FPS and display
+        // refresh rate).
+        int queueLimit = prefs.dropLateFrames ? 1 : outputBufferQueueLimit;
+        Integer droppedIndex;
+        synchronized (outputBufferQueue) {
+            droppedIndex = outputBufferQueue.size() >= queueLimit ?
+                    outputBufferQueue.poll() : null;
+            outputBufferQueue.add(lastIndex);
+        }
+        // Publish the replacement before returning the old output to the
+        // codec. That call (or timing bookkeeping) can block; the display
+        // callback must still find the ready replacement in the meantime.
+        if (droppedIndex != null) {
+            frameLatencyStats.onOutputReleased(droppedIndex, System.nanoTime(), false,
+                    reportsRenderTimes());
+            videoDecoder.releaseOutputBuffer(droppedIndex, false);
+        }
+        // Artemis counts a queued frame unless queuing it dropped an older one.
+        // Its decode time ended when the decoder returned it.
+        if (droppedIndex == null) {
+            frameLatencyStats.onArtemisDecodeCounted(lastPtsUs);
+        }
     }
 
     private boolean fetchNextInputBuffer() {

@@ -230,6 +230,43 @@ fn h264_streaming_allocates_nothing_per_packet_or_frame() {
 }
 
 #[test]
+fn batched_socket_receives_allocate_nothing_per_datagram() {
+    static ALLOCATIONS: AtomicU64 = AtomicU64::new(0);
+    let socket = net::bind_udp(
+        (std::net::Ipv4Addr::LOCALHOST, 0).into(),
+        1 << 20,
+        crate::priority::Qos::Video,
+        false,
+        |_| {},
+    )
+    .unwrap();
+    let sender = UdpSocket::bind("127.0.0.1:0").unwrap();
+    let datagram = [7u8; 1408];
+    let mut batch = net::BatchReceiver::new(&socket, 1408);
+    let round = |batch: &mut net::BatchReceiver| {
+        for _ in 0..200 {
+            sender.send_to(&datagram, socket.local_addr().unwrap()).unwrap();
+        }
+        let mut received = 0;
+        while received < 200 {
+            let count = batch.receive(&socket).unwrap();
+            assert_ne!(count, 0, "timed out");
+            for i in 0..count {
+                assert_eq!(batch.datagram(i), datagram);
+            }
+            received += count;
+        }
+    };
+    round(&mut batch);
+    count_into(Some(&ALLOCATIONS));
+    for _ in 0..MEASURED {
+        round(&mut batch);
+    }
+    count_into(None);
+    assert_eq!(ALLOCATIONS.load(Ordering::Relaxed), 0);
+}
+
+#[test]
 fn pyrowave_early_chunks_allocate_nothing_per_packet_or_frame() {
     static ALLOCATIONS: AtomicU64 = AtomicU64::new(0);
     let mut host = Blocks::new();

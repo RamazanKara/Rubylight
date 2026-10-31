@@ -24,9 +24,6 @@ pub const DECODE_UNIT_QUEUE_BOUND: usize = 15;
 /// No video packet, or no complete key frame after the first packet, for this long ends the
 /// stream (`FIRST_FRAME_TIMEOUT_SEC`).
 const FIRST_FRAME_TIMEOUT: Duration = Duration::from_secs(10);
-/// Large enough that no datagram is truncated (Windows fails a truncating receive); the
-/// receiver cuts datagrams to its own maximum.
-const RECEIVE_BUFFER: usize = 65536;
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(|p| p.into_inner())
@@ -441,19 +438,30 @@ fn receive_thread(
     stop: Arc<AtomicBool>,
     mut direct: Option<Direct>,
 ) -> Option<Box<dyn VideoDecoder>> {
-    let mut buffer = vec![0u8; RECEIVE_BUFFER];
     let mut signals = Vec::new();
     let mut waiting = Duration::ZERO;
     let mut first_data: Option<Instant> = None;
-    let encrypted = lock(&shared.receiver).config().encryption_key.is_some();
+    let (encrypted, max_datagram) = {
+        let receiver = lock(&shared.receiver);
+        let encrypted = receiver.config().encryption_key.is_some();
+        (encrypted, receiver.max_datagram_size())
+    };
+    let mut batch = net::BatchReceiver::new(&socket, max_datagram);
+    match batch.take_fallback() {
+        Some(e) => session.log(&format!("Video receive takes one datagram per call: {e}")),
+        None if batch.batched() => session.log(&format!(
+            "Video receive takes up to {} queued datagrams per call",
+            net::RECEIVE_BATCH
+        )),
+        None => {}
+    }
     let mut trace = PacketTrace::from_env(Stream::Video { encrypted });
     while !stop.load(Ordering::Acquire) {
         if let Some(trace) = trace.as_mut() {
             trace.waiting();
         }
-        let length = match net::receive(&socket, &mut buffer) {
-            Ok(Some(length)) => length,
-            Ok(None) => {
+        let count = match batch.receive(&socket) {
+            Ok(0) => {
                 if let Some(next) = next_socket.take() {
                     session.log("Video moved to the roam's new socket");
                     socket = next;
@@ -468,6 +476,7 @@ fn receive_thread(
                 }
                 continue;
             }
+            Ok(count) => count,
             Err(e) => {
                 // The old socket's address went away with the network, maybe ahead of the
                 // rebind: wait a while for the roam's new socket, then fail.
@@ -486,7 +495,10 @@ fn receive_thread(
                 break;
             }
         };
-        session.received(length);
+        if let Some(e) = batch.take_fallback() {
+            session.log(&format!("Video receive takes one datagram per call from now on: {e}"));
+        }
+        session.received((0..count).map(|i| batch.length(i)).sum());
         let first = *first_data.get_or_insert_with(|| {
             session.log(&format!(
                 "Received first video packet after {} ms",
@@ -499,36 +511,51 @@ fn receive_thread(
             session.terminate(error::NO_VIDEO_FRAME);
             break;
         }
-        let now = now_us();
-        if let Some(trace) = trace.as_mut() {
-            trace.push(now, &buffer[..length]);
-        }
-        {
-            let mut receiver = lock(&shared.receiver);
-            let mut sink = Sink {
-                shared: &shared,
-                direct: direct.as_mut(),
-                signals: &mut signals,
-            };
-            receiver.receive(&buffer[..length], now, &mut sink);
-            if let Some(d) = direct.as_mut() {
-                if std::mem::take(&mut d.decoded_key_frame) {
-                    receiver.frame_decoded(FrameType::Idr);
-                }
-                if std::mem::take(&mut d.need_refresh) {
+        // The batch under one lock of the receiver, each datagram at once. Work a datagram
+        // raised that must not run under the lock (signals: the control thread takes the
+        // receiver's lock too) ends the lock section and runs right after it, ahead of the
+        // rest of the batch.
+        let mut next = 0;
+        while next < count {
+            {
+                let mut receiver = lock(&shared.receiver);
+                while next < count {
+                    let datagram = batch.datagram(next);
+                    next += 1;
+                    let now = now_us();
+                    if let Some(trace) = trace.as_mut() {
+                        trace.push(now, datagram);
+                    }
                     let mut sink = Sink {
                         shared: &shared,
-                        direct: None,
+                        direct: direct.as_mut(),
                         signals: &mut signals,
                     };
-                    receiver.request_decoder_refresh(&mut sink);
-                }
-                for frame in d.done.drain(..) {
-                    receiver.recycle(frame);
+                    receiver.receive(datagram, now, &mut sink);
+                    if let Some(d) = direct.as_mut() {
+                        if std::mem::take(&mut d.decoded_key_frame) {
+                            receiver.frame_decoded(FrameType::Idr);
+                        }
+                        if std::mem::take(&mut d.need_refresh) {
+                            let mut sink = Sink {
+                                shared: &shared,
+                                direct: None,
+                                signals: &mut signals,
+                            };
+                            receiver.request_decoder_refresh(&mut sink);
+                        }
+                        for frame in d.done.drain(..) {
+                            receiver.recycle(frame);
+                        }
+                    }
+                    if !signals.is_empty() {
+                        break;
+                    }
                 }
             }
+            // Outside the lock.
+            route(&control, &mut signals);
         }
-        route(&control, &mut signals);
     }
     if let Some(trace) = trace {
         let session = session.clone();

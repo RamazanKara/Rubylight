@@ -2,13 +2,6 @@
 
 use super::*;
 
-/// Ctrl+Alt+Shift is Nightjar's own chord; every other one, a host's own menu chord such as
-/// Ctrl+Alt+Backspace included, goes to the PC like any key.
-pub(super) fn local_chord(modifiers: SDL_Keymod) -> bool {
-    let has = |flag: SDL_Keymod| modifiers.0 & flag.0 != 0;
-    has(SDL_KMOD_CTRL) && has(SDL_KMOD_ALT) && has(SDL_KMOD_SHIFT)
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct KeyInput {
     pub(super) code: u16,
@@ -250,25 +243,31 @@ impl Streaming {
             }
             return;
         }
-        if k.down && local_chord(k.r#mod) {
-            match k.scancode {
-                SDL_SCANCODE_TAB => {
+        // Nightjar's own chords (shortcuts.rs, the list the help shows); every other key goes to the PC.
+        if k.down {
+            use crate::shortcuts::{key_action, Action, Scope};
+            match key_action(Scope::Stream, k.scancode, k.r#mod) {
+                Some(Action::StreamControls) => {
                     self.toggle_menu(window, pads);
                     return;
                 }
-                SDL_SCANCODE_C => {
+                Some(Action::StreamShortcuts) => {
+                    self.toggle_shortcut_sheet(window, pads);
+                    return;
+                }
+                Some(Action::FetchClipboard) => {
                     self.clipboard(false);
                     return;
                 }
-                SDL_SCANCODE_V => {
+                Some(Action::SendClipboard) => {
                     self.clipboard(true);
                     return;
                 }
-                SDL_SCANCODE_Q => {
+                Some(Action::Disconnect) => {
                     self.exit = Some(Exit::User);
                     return;
                 }
-                SDL_SCANCODE_Z => {
+                Some(Action::Capture) => {
                     let on = !self.captured;
                     self.raise_all_keys();
                     self.set_capture(window, on);
@@ -279,12 +278,12 @@ impl Streaming {
                     });
                     return;
                 }
-                SDL_SCANCODE_S => {
+                Some(Action::Overlay) => {
                     self.overlay_visible = !self.overlay_visible;
                     self.needs_redraw = true;
                     return;
                 }
-                SDL_SCANCODE_M => {
+                Some(Action::MouseMode) => {
                     self.absolute = !self.absolute;
                     let on = self.captured;
                     self.set_capture(window, false);
@@ -296,7 +295,7 @@ impl Streaming {
                     });
                     return;
                 }
-                SDL_SCANCODE_X => {
+                Some(Action::Fullscreen) => {
                     // SAFETY: a live window.
                     unsafe {
                         let fullscreen = SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN != 0;
@@ -305,12 +304,13 @@ impl Streaming {
                     self.raise_all_keys();
                     return;
                 }
-                SDL_SCANCODE_D => {
+                Some(Action::Minimize) => {
                     self.raise_all_keys();
                     // SAFETY: a live window.
                     unsafe { SDL_MinimizeWindow(window) };
                     return;
                 }
+                // F12 is the main loop's (a screenshot); the rest are the launcher's.
                 _ => {}
             }
         }

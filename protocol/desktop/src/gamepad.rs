@@ -497,7 +497,7 @@ impl Gamepads {
                         pad.raw_buttons &= !flag;
                     }
                     // Local escape chords use physical buttons even when remapped or disabled.
-                    let menu = (1 << SDL_GAMEPAD_BUTTON_START.0) | (1 << SDL_GAMEPAD_BUTTON_BACK.0);
+                    let menu = crate::shortcuts::stream_controls_mask();
                     if b.down && (pad.raw_buttons == quit || pad.raw_buttons == menu) {
                         let action = if pad.raw_buttons == quit { Action::Quit } else { Action::Menu };
                         pad.raw_buttons = 0;
@@ -757,6 +757,11 @@ impl Gamepads {
             pad.mouse.tick(pad.report(), self.analog_scrolling, self.mouse_fixed_step, now, queue);
         }
         active
+    }
+
+    /// The buttons that disconnect, as the settings chose them.
+    pub fn quit_combo(&self) -> crate::config::GamepadQuitCombo {
+        self.quit_combo
     }
 
     /// Any controller drives the mouse.

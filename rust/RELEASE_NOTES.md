@@ -42,7 +42,7 @@ Rubylight 3.1.0 polishes the console from sign-in to the last settings page, let
 - **Setup no longer stops on a leftover `C:\ProgramData\Butterpollo` that your own account owns.** With no Rubylight installed, setup can't tell who made that folder, so it doesn't use the settings or pairings in it. It moves the folder to `Butterpollo.untrusted-<time>` unchanged, starts with new settings and says where the old folder went.
 - A stream to a virtual display no longer logs a frame limiter warning when the limiter is off on purpose; the warning stays for a cap that was asked for and failed.
 
-**Tested.** TESTED_PLACEHOLDER
+**Tested.** The console was checked page by page in light and dark, at 1440x900 and on a 390 px phone: against fixture data (52 screenshots), and against a running 3.1.0 host on the RX 7900 XT with its own profile, where first-run setup, sign-in and all eleven pages loaded with that PC's library of 27 games and no script errors. The console's 299 unit tests and its five browser suites pass. The full host suite (4,108 tests), clippy and the release build pass.
 
 ## New in 3.0.1
 

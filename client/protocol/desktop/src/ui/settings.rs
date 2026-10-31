@@ -69,14 +69,18 @@ pub(super) struct SettingsView {
     pub(super) section: &'static str,
     /// The search, as typed.
     pub(super) query: String,
+    /// The search the rows showed last frame: another one starts its results at the top.
+    shown_query: String,
     /// The rows the search found last frame, per section.
-    found: [usize; 7],
+    pub(super) found: [usize; 7],
     /// Another section was opened: its rows start at the top.
     pub(super) to_top: bool,
     /// Reset all (or Clear all on a PC's, game's or profile's settings) waits for its confirmation.
     pub(super) confirm_reset: bool,
     /// The search field had focus last frame, so Escape leaves it before it leaves the page.
     search_focused: bool,
+    /// Left was pressed last frame on this control in the rows.
+    left_from: Option<Id>,
     /// The setting rows the last frame drew, by first key, each with whether a group heading
     /// came before it in its section.
     pub(super) drawn: Vec<(&'static str, bool)>,
@@ -162,12 +166,13 @@ impl Launcher {
         }
         let wide = ui.available_width() >= SIDE_LIST_FROM;
         let page = ui.available_rect_before_wrap();
+        let mut entries: Vec<(&'static str, Id)> = Vec::new();
         let rows_rect = if wide {
             let list = Rect::from_min_size(page.min, vec2(SIDE_LIST_W, page.height()));
             let mut side = ui.new_child(UiBuilder::new().id_salt("settings-sections").max_rect(list).layout(Layout::top_down(Align::Min)));
             self.search_field(&mut side);
             side.add_space(space::M);
-            self.section_list(&mut side, &sections, layered);
+            entries = self.section_list(&mut side, &sections, layered);
             Rect::from_min_max(Pos2::new(page.left() + SIDE_LIST_W + space::XL, page.top()), page.max)
         } else {
             self.search_field(ui);
@@ -175,7 +180,9 @@ impl Launcher {
             ui.horizontal_wrapped(|ui| {
                 for name in &sections {
                     let current = !self.settings_view.searching() && self.settings_view.section == *name;
-                    if section_chip(ui, name, current).clicked() {
+                    let chip = section_chip(ui, name, current);
+                    entries.push((*name, chip.id));
+                    if chip.clicked() {
                         self.settings_view.open(name);
                     }
                 }
@@ -185,7 +192,35 @@ impl Launcher {
             Rect::from_min_max(rest.min, page.max)
         };
         let mut column = ui.new_child(UiBuilder::new().id_salt("settings-rows").max_rect(rows_rect).layout(Layout::top_down(Align::Min)));
+        let screen = self.screen;
         self.settings_rows(&mut column, view, commands);
+        if self.screen == screen {
+            self.left_to_sections(ui, rows_rect, &entries);
+        }
+    }
+
+    /// Left from a control in the rows goes to the open section's entry in the list (its chip
+    /// on a narrow window), never to whatever egui's nearest-widget search finds above, such as
+    /// the header or another chip. egui moves the focus at the end of the frame, so a move out of
+    /// the rows to anything else is corrected on the next one: a control with another left of it in
+    /// its row still goes there, and a slider or a number field keeps the key for itself.
+    fn left_to_sections(&mut self, ui: &Ui, rows: Rect, entries: &[(&'static str, Id)]) {
+        let focused = ui.memory(|m| m.focused());
+        let in_rows = |id: Id| ui.ctx().read_response(id).is_some_and(|r| rows.contains(r.rect.center()));
+        if let Some(from) = self.settings_view.left_from.take() {
+            let open = entries.iter().find(|&&(name, _)| name == self.settings_view.section);
+            let strayed = focused.is_some_and(|id| id != from && !in_rows(id) && open.is_none_or(|&(_, entry)| entry != id));
+            if let (true, Some(&(_, entry))) = (strayed, open) {
+                ui.memory_mut(|m| m.request_focus(entry));
+                ui.ctx().request_repaint();
+            }
+        }
+        let left = ui.input(|i| i.events.iter().any(|e| matches!(e, egui::Event::Key { key: Key::ArrowLeft, pressed: true, modifiers, .. } if !modifiers.any())));
+        if left && focused.is_some_and(in_rows) {
+            self.settings_view.left_from = focused;
+            // The frame that corrects the move, even when nothing else asks for one.
+            ui.ctx().request_repaint();
+        }
     }
 
     /// Above a PC's, game's or profile's settings: what its rows mean, how many it sets, and the
@@ -258,6 +293,9 @@ impl Launcher {
                         .text_color(*ON_SURFACE)
                         .hint_text(RichText::new(tr("Search settings")).color(OUTLINE))
                         .desired_width(field.width())
+                        // The words and the hint on the magnifier's line, not at the field's top.
+                        .min_size(vec2(field.width(), field.height()))
+                        .align(egui::Align2::LEFT_CENTER)
                         .char_limit(60)
                         // Up and Down leave the field, as from any other control.
                         .event_filter(egui::EventFilter { horizontal_arrows: true, ..Default::default() }),
@@ -301,10 +339,12 @@ impl Launcher {
         view.search_focused = edit.has_focus();
     }
 
-    /// The sections, the current one marked. While searching each says how many rows it found;
-    /// on a PC's, game's or profile's settings each says how many it sets.
-    fn section_list(&mut self, ui: &mut Ui, sections: &[&'static str], layered: bool) {
+    /// The sections, the current one marked. While searching each that found rows says how many,
+    /// and a click on any ends the search; on a PC's, game's or profile's settings each says how
+    /// many it sets. Returns each entry's id.
+    fn section_list(&mut self, ui: &mut Ui, sections: &[&'static str], layered: bool) -> Vec<(&'static str, Id)> {
         let searching = self.settings_view.searching();
+        let mut entries = Vec::new();
         for name in sections {
             let at = SETTINGS_SECTIONS.iter().position(|s| s == name).unwrap_or(0);
             let badge = if searching {
@@ -317,10 +357,12 @@ impl Launcher {
             let current = !searching && self.settings_view.section == *name;
             let item = section_item(ui, name, current, badge);
             self.focus_item(&item, &format!("section-{name}"), false);
+            entries.push((*name, item.id));
             if item.clicked() {
                 self.settings_view.open(name);
             }
         }
+        entries
     }
 
     /// The open section's rows, or every row the search finds, in a scrolling column.
@@ -370,6 +412,11 @@ impl Launcher {
         let s = if layered { &mut self.edit_settings } else { &mut self.settings };
         let before = s.clone();
         let mut area = egui::ScrollArea::vertical().id_salt(("settings", open)).auto_shrink(false).content_margin(Margin::same(6));
+        // A changed search, typed or set, shows its results from the top, heading and all.
+        if self.settings_view.query != self.settings_view.shown_query {
+            self.settings_view.shown_query.clone_from(&self.settings_view.query);
+            self.settings_view.to_top = true;
+        }
         if std::mem::take(&mut self.settings_view.to_top) {
             area = area.vertical_scroll_offset(0.0);
         }
@@ -1386,12 +1433,12 @@ impl Rows<'_> {
         if let Some((section, title, note)) = self.heading.take() {
             if section {
                 search_heading(ui, title);
-                // The group this row is in, under the section.
+                // The group this row is in, right under the section, as close as a row would be.
                 if !self.group.is_empty() {
-                    group_heading(ui, self.group, "");
+                    group_heading(ui, self.group, "", 0.0);
                 }
             } else {
-                group_heading(ui, title, note);
+                group_heading(ui, title, note, space::XL);
             }
         }
         self.found[at] += 1;
@@ -1414,9 +1461,10 @@ fn search_heading(ui: &mut Ui, title: &str) {
     ui.add_space(space::XS);
 }
 
-/// A group's heading inside a section: its title in capitals and what it holds.
-fn group_heading(ui: &mut Ui, title: &str, note: &str) {
-    ui.add_space(space::XL);
+/// A group's heading inside a section: its title in capitals and what it holds, `above` apart
+/// from what comes before it.
+fn group_heading(ui: &mut Ui, title: &str, note: &str, above: f32) {
+    ui.add_space(above);
     ui.label(RichText::new(tr(title).to_uppercase()).font(semibold(text::CAPTION)).color(MOON));
     if !note.is_empty() {
         ui.label(RichText::new(tr(note)).font(regular(text::CAPTION)).color(ON_SURFACE_VARIANT));
@@ -1469,8 +1517,14 @@ pub(super) fn setting_row(
                     let (before, chose) = (settings.clone(), chosen(ui));
                     let value = control(ui, settings);
                     name_for_readers(ui, &value, label, description);
+                    // The box on the row's last line, beside where its value comes from, however
+                    // short the control or long the description.
+                    let room = ui.available_height() - (ui.spacing().interact_size.y + ui.text_style_height(&egui::TextStyle::Small)) / 2.0;
+                    if room > 0.0 && room.is_finite() {
+                        ui.add_space(room);
+                    }
                     let mut ticked = own || (*settings != before && chose);
-                    let boxed = ui.checkbox(&mut ticked, tr(box_label));
+                    let boxed = layer_box(ui, &mut ticked, box_label);
                     name_for_readers(ui, &boxed, box_label, label);
                     if boxed.changed() && !ticked {
                         overrides.clear(keys);
@@ -1571,6 +1625,34 @@ fn settings_row(
     out.expect("control drawn")
 }
 
+/// A layered row's box, "For this PC" and the like: outlined while unticked, so it shows on the
+/// row's surface, amber with a check once ticked. The words beside it click it too.
+fn layer_box(ui: &mut Ui, ticked: &mut bool, label: &'static str) -> Response {
+    const SIDE: f32 = 18.0;
+    let words = ui.painter().layout_no_wrap(tr(label).to_owned(), regular(text::BODY), *ON_SURFACE);
+    let size = vec2(SIDE + space::S + words.size().x, ui.spacing().interact_size.y.max(words.size().y));
+    let (rect, mut response) = ui.allocate_exact_size(size, Sense::click());
+    if response.clicked() {
+        *ticked = !*ticked;
+        response.mark_changed();
+    }
+    response.widget_info(|| egui::WidgetInfo::selected(egui::Role::CheckBox, ui.is_enabled(), *ticked, tr(label)));
+    let square = Rect::from_center_size(Pos2::new(rect.left() + SIDE / 2.0, rect.center().y), Vec2::splat(SIDE));
+    let painter = ui.painter();
+    if *ticked {
+        painter.rect_filled(square, CornerRadius::same(4), MOON);
+        let check = Stroke::new(2.0, *ON_MOON);
+        let c = square.center();
+        painter.add(egui::Shape::line(vec![c + vec2(-4.5, 0.0), c + vec2(-1.5, 3.5), c + vec2(4.5, -3.5)], check));
+    } else {
+        let fill = if response.hovered() || response.has_focus() { *SURFACE_HIGH } else { *SURFACE };
+        painter.rect(square, CornerRadius::same(4), fill, Stroke::new(1.5, *OUTLINE), StrokeKind::Inside);
+    }
+    painter.galley(Pos2::new(square.right() + space::S, rect.center().y - words.size().y / 2.0), words, *ON_SURFACE);
+    focus_ring(ui, rect, &response, radius::SMALL);
+    response
+}
+
 /// Whether this frame's input could have chosen a value: a click, a drag, a key, typing or a
 /// screen reader's action. A range row clamping a value it was handed as it is drawn chooses nothing.
 fn chosen(ui: &Ui) -> bool {
@@ -1618,13 +1700,15 @@ fn section_item(ui: &mut Ui, name: &str, current: bool, badge: Badge) -> Respons
         let bar = Rect::from_center_size(Pos2::new(rect.left() + 4.0, rect.center().y), vec2(3.0, 18.0));
         painter.rect_filled(bar, CornerRadius::same(2), MOON);
     }
-    let dim = matches!(badge, Badge::Found(0));
-    let color = if current { *ON_SURFACE } else if dim { *OUTLINE } else { *ON_SURFACE_VARIANT };
+    // While searching, a section with rows found stands out; one without stays as dim as any
+    // other entry, with no count.
+    let found = matches!(badge, Badge::Found(n) if n > 0);
+    let color = if current || found { *ON_SURFACE } else { *ON_SURFACE_VARIANT };
     let font = if current { semibold(text::BODY) } else { regular(text::BODY) };
     let galley = painter.layout_no_wrap(words.to_owned(), font, color);
     painter.galley(Pos2::new(rect.left() + 16.0, rect.center().y - galley.size().y / 2.0), galley, color);
     let count = match badge {
-        Badge::Found(n) => Some((n.to_string(), if dim { *OUTLINE } else { *ON_SURFACE_VARIANT }, None)),
+        Badge::Found(n) if n > 0 => Some((n.to_string(), *ON_SURFACE_VARIANT, None)),
         Badge::Set(n) if n > 0 => Some((n.to_string(), *ON_MOON_CONTAINER, Some(*MOON_CONTAINER))),
         _ => None,
     };
@@ -1681,6 +1765,9 @@ fn banner(ui: &mut Ui, words: impl FnOnce(&mut Ui), action: impl FnOnce(&mut Ui)
 /// A notice above the main settings, with the button that deals with it.
 fn notice(ui: &mut Ui, text: &str, button: &'static str) -> Response {
     banner(ui, |ui| {
+        // A line or two beside the taller button's middle, not at its top.
+        let height = ui.painter().layout(text.to_owned(), regular(text::LABEL), *ON_SURFACE, ui.available_width()).size().y;
+        ui.add_space(((CONTROL_HEIGHT - height) / 2.0).max(0.0));
         ui.label(RichText::new(text).font(regular(text::LABEL)).color(ON_SURFACE));
     }, |ui| quiet_button(ui, button))
 }

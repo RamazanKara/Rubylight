@@ -103,6 +103,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
+      # SDL with the Vulkan interop patch (protocol/vendor/sdl3-src/README.md).
+      - name: SDL source
+        run: git submodule update --init --depth 1 protocol/vendor/sdl3-src/SDL
       # patch 0002 and the Windows build script live in the public Rubylight repo; the SDK build
       # (scripts/build-pyrowave-sdk.*, protocol/desktop/pyrowave-sdk.pin) needs only those files.
       - name: Rubylight host files for the PyroWave SDK

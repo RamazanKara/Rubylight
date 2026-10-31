@@ -139,10 +139,11 @@ sudo apt install cmake ninja-build pkg-config libavcodec-dev libavutil-dev libop
   libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxss-dev libxfixes-dev libxtst-dev \
   libxkbcommon-dev libwayland-dev wayland-protocols libegl-dev libgl-dev libgles-dev libdrm-dev \
   libgbm-dev libpulse-dev libasound2-dev libpipewire-0.3-dev libudev-dev libdbus-1-dev libdecor-0-dev
+git submodule update --init --depth 1 vendor/sdl3-src/SDL   # in protocol/, once
 cargo run --release -p nightjar-desktop      # in protocol/
 ```
 
-On distributions without an SDL3 package (Ubuntu 22.04 and 24.04), `sdl3-sys` builds SDL 3.4 from source and links it statically; the X11, Wayland, PulseAudio, PipeWire, ALSA and udev headers above decide which SDL backends are compiled in.
+`sdl3-sys` builds SDL 3.4.18 from source and links it statically; the X11, Wayland, PulseAudio, PipeWire, ALSA and udev headers above decide which SDL backends are compiled in. The source is the `vendor/sdl3-src/SDL` submodule with a small patch that lets the PyroWave GPU decoder share the renderer's Vulkan device ([vendor/sdl3-src/README.md](../vendor/sdl3-src/README.md)).
 
 ### PyroWave
 

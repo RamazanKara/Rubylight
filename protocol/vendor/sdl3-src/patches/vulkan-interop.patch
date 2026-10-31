@@ -1,0 +1,131 @@
+--- a/include/SDL3/SDL_gpu.h
++++ b/include/SDL3/SDL_gpu.h
+@@ -2594,6 +2594,27 @@
+ #define SDL_PROP_GPU_DEVICE_DRIVER_VERSION_STRING     "SDL.gpu.device.driver_version"
+ #define SDL_PROP_GPU_DEVICE_DRIVER_INFO_STRING        "SDL.gpu.device.driver_info"
+ 
++/*
++ * Nightjar patch (Vulkan interop): the Vulkan backend also sets
++ *
++ * - `SDL_PROP_GPU_DEVICE_VULKAN_INSTANCE_POINTER`: the VkInstance.
++ * - `SDL_PROP_GPU_DEVICE_VULKAN_PHYSICAL_DEVICE_POINTER`: the VkPhysicalDevice.
++ * - `SDL_PROP_GPU_DEVICE_VULKAN_DEVICE_POINTER`: the VkDevice.
++ * - `SDL_PROP_GPU_DEVICE_VULKAN_QUEUE_POINTER`: the one VkQueue SDL submits to.
++ * - `SDL_PROP_GPU_DEVICE_VULKAN_QUEUE_FAMILY_INDEX_NUMBER`: its family.
++ * - `SDL_PROP_GPU_DEVICE_VULKAN_QUEUE_LOCK_POINTER`: the SDL_Mutex SDL holds
++ *   around every use of that queue; lock it around your own submissions.
++ *
++ * The device was created with the API version and features of the
++ * SDL_GPUVulkanOptions it was given.
++ */
++#define SDL_PROP_GPU_DEVICE_VULKAN_INSTANCE_POINTER            "SDL.gpu.device.vulkan.instance"
++#define SDL_PROP_GPU_DEVICE_VULKAN_PHYSICAL_DEVICE_POINTER     "SDL.gpu.device.vulkan.physical_device"
++#define SDL_PROP_GPU_DEVICE_VULKAN_DEVICE_POINTER              "SDL.gpu.device.vulkan.device"
++#define SDL_PROP_GPU_DEVICE_VULKAN_QUEUE_POINTER               "SDL.gpu.device.vulkan.queue"
++#define SDL_PROP_GPU_DEVICE_VULKAN_QUEUE_FAMILY_INDEX_NUMBER   "SDL.gpu.device.vulkan.queue_family_index"
++#define SDL_PROP_GPU_DEVICE_VULKAN_QUEUE_LOCK_POINTER          "SDL.gpu.device.vulkan.queue_lock"
++
+ 
+ /* State Creation */
+ 
+@@ -2851,6 +2872,18 @@
+ #define SDL_PROP_GPU_TEXTURE_CREATE_D3D12_CLEAR_STENCIL_NUMBER  "SDL.gpu.texture.create.d3d12.clear.stencil"
+ #define SDL_PROP_GPU_TEXTURE_CREATE_NAME_STRING                 "SDL.gpu.texture.create.name"
+ 
++/*
++ * Nightjar patch (Vulkan interop): `SDL_PROP_GPU_TEXTURE_CREATE_VULKAN_IMAGE_NUMBER`
++ * wraps an existing VkImage of the device (a 2D color image with one level
++ * and layer, created with at least the usages the texture's usage implies
++ * plus TRANSFER_SRC and TRANSFER_DST) instead of creating one. SDL makes its
++ * views, never cycles, moves or frees the image, and does not transition it:
++ * whenever SDL uses it, it must be in the layout of the texture's default
++ * usage (SHADER_READ_ONLY_OPTIMAL for a sampler texture), and SDL leaves it
++ * there. The image must outlive the texture and every command that used it.
++ */
++#define SDL_PROP_GPU_TEXTURE_CREATE_VULKAN_IMAGE_NUMBER         "SDL.gpu.texture.create.vulkan.image"
++
+ /**
+  * Creates a buffer object to be used in graphics or compute workflows.
+  *
+--- a/src/gpu/vulkan/SDL_gpu_vulkan.c
++++ b/src/gpu/vulkan/SDL_gpu_vulkan.c
+@@ -615,6 +615,7 @@
+     VulkanTextureSubresource *subresources;
+ 
+     bool markedForDestroy; // so that defrag doesn't double-free
++    bool externalImage; // Nightjar patch: the app's VkImage, never freed or moved here
+     SDL_AtomicInt referenceCount;
+ };
+ 
+@@ -3154,7 +3155,7 @@
+             NULL);
+     }
+ 
+-    if (texture->image) {
++    if (texture->image && !texture->externalImage) {
+         renderer->vkDestroyImage(
+             renderer->logicalDevice,
+             texture->image,
+@@ -5808,6 +5809,20 @@
+     imageCreateInfo.pQueueFamilyIndices = NULL;
+     imageCreateInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+ 
++    // Nightjar patch: wrap the app's image (no memory of ours, so defrag never moves it).
++    if (SDL_HasProperty(createinfo->props, SDL_PROP_GPU_TEXTURE_CREATE_VULKAN_IMAGE_NUMBER)) {
++        if (createinfo->type != SDL_GPU_TEXTURETYPE_2D || layerCount != 1 || createinfo->num_levels != 1 ||
++            createinfo->sample_count != SDL_GPU_SAMPLECOUNT_1 || (texture->aspectFlags & ~VK_IMAGE_ASPECT_COLOR_BIT)) {
++            VULKAN_INTERNAL_DestroyTexture(renderer, texture);
++            SET_STRING_ERROR_AND_RETURN("A wrapped Vulkan image must be a 2D color texture with one level, layer and sample", NULL);
++        }
++        texture->image = (VkImage)(uintptr_t)SDL_GetNumberProperty(createinfo->props, SDL_PROP_GPU_TEXTURE_CREATE_VULKAN_IMAGE_NUMBER, 0);
++        texture->externalImage = true;
++        if (texture->image == VK_NULL_HANDLE) {
++            VULKAN_INTERNAL_DestroyTexture(renderer, texture);
++            SET_STRING_ERROR_AND_RETURN("The wrapped Vulkan image is null", NULL);
++        }
++    } else {
+     vulkanResult = renderer->vkCreateImage(
+         renderer->logicalDevice,
+         &imageCreateInfo,
+@@ -5835,6 +5850,7 @@
+     }
+ 
+     texture->usedRegion->vulkanTexture = texture; // lol
++    } // Nightjar patch: end of the image SDL creates
+ 
+     if (createinfo->usage & (SDL_GPU_TEXTUREUSAGE_SAMPLER | SDL_GPU_TEXTUREUSAGE_GRAPHICS_STORAGE_READ | SDL_GPU_TEXTUREUSAGE_COMPUTE_STORAGE_READ)) {
+ 
+@@ -6952,7 +6968,7 @@
+         SDL_CopyProperties(createinfo->props, container->header.info.props);
+     }
+ 
+-    container->canBeCycled = true;
++    container->canBeCycled = !texture->externalImage; // Nightjar patch: one image only
+     container->activeTexture = texture;
+     container->textureCapacity = 1;
+     container->textureCount = 1;
+@@ -6971,7 +6987,8 @@
+     // Let's transition to the default barrier state, because for some reason Vulkan doesn't let us do that with initialLayout.
+     // Only do this after "container" is set, so the texture
+     // is fully initialized before any Submit that could trigger defrag.
+-    {
++    // Nightjar patch: a wrapped image is in that state already, and its contents stay.
++    if (!texture->externalImage) {
+         VulkanCommandBuffer *barrierCommandBuffer = (VulkanCommandBuffer *)VULKAN_AcquireCommandBuffer((SDL_GPURenderer *)renderer);
+         VULKAN_INTERNAL_TextureTransitionToDefaultUsage(
+             renderer,
+@@ -12948,6 +12965,14 @@
+     renderer->descriptorSetLayoutFetchLock = SDL_CreateMutex();
+     renderer->windowLock = SDL_CreateMutex();
+ 
++    // Nightjar patch: the handles an app needs to share this device (SDL_gpu.h).
++    SDL_SetPointerProperty(renderer->props, SDL_PROP_GPU_DEVICE_VULKAN_INSTANCE_POINTER, (void *)renderer->instance);
++    SDL_SetPointerProperty(renderer->props, SDL_PROP_GPU_DEVICE_VULKAN_PHYSICAL_DEVICE_POINTER, (void *)renderer->physicalDevice);
++    SDL_SetPointerProperty(renderer->props, SDL_PROP_GPU_DEVICE_VULKAN_DEVICE_POINTER, (void *)renderer->logicalDevice);
++    SDL_SetPointerProperty(renderer->props, SDL_PROP_GPU_DEVICE_VULKAN_QUEUE_POINTER, (void *)renderer->unifiedQueue);
++    SDL_SetNumberProperty(renderer->props, SDL_PROP_GPU_DEVICE_VULKAN_QUEUE_FAMILY_INDEX_NUMBER, renderer->queueFamilyIndex);
++    SDL_SetPointerProperty(renderer->props, SDL_PROP_GPU_DEVICE_VULKAN_QUEUE_LOCK_POINTER, renderer->submitLock);
++
+     /*
+      * Create submitted command buffer list
+      */

@@ -30,6 +30,7 @@ mod serverinfo;
 mod transport;
 pub mod transfers;
 mod usb;
+mod wire;
 mod xml;
 
 #[cfg(test)]

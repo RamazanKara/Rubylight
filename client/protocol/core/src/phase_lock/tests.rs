@@ -258,6 +258,133 @@ fn the_extra_room_needs_a_frame_for_nearly_every_refresh() {
     assert_eq!(window.report_over(10, 0).unwrap(), plain);
 }
 
+const SIXTY: i64 = 16_666_667; // 60.00 Hz on the client.
+
+/// A frame the host sent in a [`retroid`] run: when it claimed the frame and the frame's
+/// slack at the client, both in client nanoseconds.
+struct Sent {
+    at_ns: i64,
+    slack_ns: i64,
+}
+
+/// A 60 fps stream to a 60.000 Hz screen (Retroid Pocket Flip 2) from a host whose clock runs
+/// `ppm` fast, for `seconds`. The host claims frames like its arrival pacer: the first frame of
+/// its 240 Hz desktop once 7/8 of a frame of credit has built up at the locked interval, at
+/// least 3/4 of an interval after the last claim, with at most 1.5 frames banked. In the
+/// seconds of `busy` each claim comes a further 5 to 15 ms late, like a host busy with a build.
+/// Frames are ready 20 ms plus up to 3 ms after the claim; the client reports every half
+/// second with its elapsed time, and a report reaches the host 3 frames later.
+fn retroid(lock: &mut PhaseLock, ppm: i64, busy: core::ops::Range<i64>, seconds: i64, seed: u64) -> Vec<Sent> {
+    const DESKTOP: i64 = 4_166_667;
+    let mut rng = Rng(seed);
+    let mut window = SlackWindow::default();
+    let mut in_flight: Vec<(usize, Report)> = Vec::new();
+    let (mut credit, mut credit_at, mut last_claim) = (1.5f64, 0i64, i64::MIN / 2);
+    let mut last_report: Option<i64> = None;
+    let mut sent = Vec::new();
+    loop {
+        let interval = lock.next_interval_ns(SIXTY);
+        let funded = credit_at + ((0.875 - credit).max(0.0) * interval as f64) as i64;
+        let allowed = funded.max(last_claim + interval * 3 / 4);
+        let mut claim = (allowed + DESKTOP - 1) / DESKTOP * DESKTOP;
+        if claim >= seconds * 1_000_000_000 {
+            return sent;
+        }
+        if busy.contains(&(claim / 1_000_000_000)) {
+            claim += 5_000_000 + (rng.next() % 10_000_001) as i64;
+        }
+        credit = ((credit + (claim - credit_at) as f64 / interval as f64).min(1.5) - 1.0).max(-1.0);
+        credit_at = claim;
+        last_claim = claim;
+        let at_ns = claim + claim * ppm / 1_000_000;
+        let ready = at_ns + 20_000_000 + (rng.next() % 3_000_001) as i64;
+        let slack_ns = (5_000_000 - ready).rem_euclid(SIXTY);
+        sent.push(Sent { at_ns, slack_ns });
+        window.push(slack_ns, SIXTY);
+        let since = *last_report.get_or_insert(ready);
+        if ready - since >= 500_000_000 {
+            last_report = Some(ready);
+            if let Some(report) = window.report_over(10, ready - since) {
+                in_flight.push((sent.len() + 3, report));
+            }
+        }
+        while let Some(&(due, report)) = in_flight.first() {
+            if due > sent.len() {
+                break;
+            }
+            in_flight.remove(0);
+            lock.on_report(&report);
+        }
+    }
+}
+
+/// The frames sent in `seconds` of client time: their mean interval and median slack.
+fn settled(sent: &[Sent], seconds: core::ops::Range<i64>) -> (i64, i64) {
+    let range = seconds.start * 1_000_000_000..seconds.end * 1_000_000_000;
+    let frames: Vec<&Sent> = sent.iter().filter(|frame| range.contains(&frame.at_ns)).collect();
+    let interval = (frames[frames.len() - 1].at_ns - frames[0].at_ns) / (frames.len() as i64 - 1);
+    let mut slack: Vec<i64> = frames.iter().map(|frame| frame.slack_ns).collect();
+    (interval, percentile(&mut slack, 50))
+}
+
+#[test]
+fn the_lock_recovers_after_the_host_was_busy() {
+    // 20 s of late claims (a build on the host PC) sweep the frames around the client's refresh.
+    // The trim used to run to its limit meanwhile and stay there once the host was free: it
+    // sent at 60.5 to 61 fps, and frames waited 8 to 11 ms for their latch instead of about 4.
+    for ppm in [100, 4_000, -4_000] {
+        for seed in 1..=3 {
+            let mut lock = PhaseLock::default();
+            let sent = retroid(&mut lock, ppm, 10..30, 45, seed);
+            // Five seconds after the host is free again: the screen's rate, frames just in time.
+            let (interval, median) = settled(&sent, 35..45);
+            assert!((interval - SIXTY).abs() < 20_000, "ppm {ppm} seed {seed}: interval {interval}");
+            assert!(median < 6_500_000, "ppm {ppm} seed {seed}: median slack {median}");
+        }
+    }
+}
+
+#[test]
+fn the_lock_recovers_from_a_trim_at_its_limit() {
+    // The state the field runs stayed in: the trim at a hundredth of a refresh per frame.
+    for (ppm, trim) in [(100, -SIXTY / 100), (100, SIXTY / 100), (4_000, -SIXTY / 100), (-4_000, SIXTY / 100)] {
+        for seed in 1..=3 {
+            let mut lock = PhaseLock::default();
+            lock.on_report(&Report { frames: 30, period_ns: SIXTY as u32, lead_ns: 0, spread_ns: 0 });
+            (lock.pending_ns, lock.trim_ns) = (0, trim);
+            let sent = retroid(&mut lock, ppm, 0..0, 20, seed);
+            let (interval, median) = settled(&sent, 3..20);
+            assert!((interval - SIXTY).abs() < 20_000, "ppm {ppm} trim {trim} seed {seed}: interval {interval}");
+            assert!(median < 6_500_000, "ppm {ppm} trim {trim} seed {seed}: median slack {median}");
+        }
+    }
+}
+
+#[test]
+fn only_a_jump_past_half_a_refresh_starts_the_trim_over() {
+    let report = |error: i64| Report {
+        frames: 30,
+        period_ns: SIXTY as u32,
+        lead_ns: (PhaseLock::DEFAULT_MARGIN_NS + error) as i32,
+        spread_ns: 0,
+    };
+    let mut lock = PhaseLock::default();
+    lock.on_report(&report(0));
+    // Errors within half a refresh (8.33 ms) of the last one build the trim as always.
+    let mut trim = 0;
+    for error in [3_000_000, -5_000_000, 3_300_000, -4_000_000] {
+        lock.on_report(&report(error));
+        trim += error / 30 / 16;
+        assert_eq!(lock.trim_ns, trim, "error {error}");
+    }
+    // Further means the frames went around the refresh: the trim starts over, while the
+    // phase correction still applies.
+    lock.on_report(&report(4_400_000));
+    assert_eq!((lock.trim_ns, lock.pending_ns), (0, 2_200_000));
+    lock.on_report(&report(1_000_000));
+    assert_eq!(lock.trim_ns, 1_000_000 / 30 / 16);
+}
+
 #[test]
 fn the_extra_room_keeps_a_wide_cluster_inside_half_a_refresh() {
     // A spread of 7 ms on a 60 Hz screen leaves no room: the cluster would cross the wrap.

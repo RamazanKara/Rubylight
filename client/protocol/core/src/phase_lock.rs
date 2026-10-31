@@ -213,6 +213,8 @@ pub struct PhaseLock {
     trim_ns: i64,
     /// Phase shift still to apply, spread over the next frames.
     pending_ns: i64,
+    /// Phase error of the previous report.
+    error_ns: i64,
     locked: bool,
 }
 
@@ -234,7 +236,7 @@ impl PhaseLock {
     const TRIM_DEN: i64 = 16;
 
     pub fn new(margin_ns: i64) -> Self {
-        Self { margin_ns, period_ns: 0, trim_ns: 0, pending_ns: 0, locked: false }
+        Self { margin_ns, period_ns: 0, trim_ns: 0, pending_ns: 0, error_ns: 0, locked: false }
     }
 
     /// True once a plausible report has arrived.
@@ -250,7 +252,8 @@ impl PhaseLock {
     /// Applies one client report.
     pub fn on_report(&mut self, report: &Report) {
         let period = i64::from(report.period_ns);
-        if !self.locked || period != self.period_ns {
+        let restart = !self.locked || period != self.period_ns;
+        if restart {
             // A new client refresh rate: start over.
             self.trim_ns = 0;
             self.pending_ns = 0;
@@ -266,6 +269,15 @@ impl PhaseLock {
         // still in flight are replaced, not added, because the report already reflects them
         // only partially.
         self.pending_ns = error * Self::GAIN_NUM / Self::GAIN_DEN;
+        let previous = core::mem::replace(&mut self.error_ns, error);
+        if !restart && (error - previous).abs() > period / 2 {
+            // The frames went around the refresh since the last report: the lock lost them.
+            // Lost, the errors average about the target below zero, so a long host stall ran
+            // the trim to its limit, and it stayed there: at the limit it moves the phase 30%
+            // of a refresh or more per report, more than the correction above takes back.
+            self.trim_ns = 0;
+            return;
+        }
         let frames = i64::from(report.frames.max(1));
         self.trim_ns = (self.trim_ns + error / frames / Self::TRIM_DEN).clamp(-period / 100, period / 100);
     }

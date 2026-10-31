@@ -21,9 +21,11 @@
                 <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
                     android:orientation="horizontal" android:gravity="center_vertical"
                     android:paddingStart="@dimen/space_l" android:paddingEnd="@dimen/space_l">
-                    <com.google.android.material.progressindicator.CircularProgressIndicator
+                    <!-- The dim track keeps a whole ring on screen while the arc runs, so the spinner never shrinks to a dot. -->
+                    <com.google.android.material.progressindicator.CircularProgressIndicator android:id="@+id/pc_list_spinner"
                         android:layout_width="wrap_content" android:layout_height="wrap_content" android:indeterminate="true"
                         app:indicatorSize="16dp" app:trackThickness="2dp" app:indicatorColor="?attr/colorOnSurfaceVariant"
+                        app:trackColor="?attr/colorOutlineVariant" app:indicatorTrackGapSize="0dp"
                         android:importantForAccessibility="no" />
                     <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
                         android:layout_marginStart="@dimen/space_m" android:text="@string/pc_list_searching"

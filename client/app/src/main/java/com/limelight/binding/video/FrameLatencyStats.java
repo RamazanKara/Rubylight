@@ -29,8 +29,9 @@ class FrameLatencyStats {
     // 9 decoded to on screen.
     // Display wait and client latency end where Nightjar hands the frame to the display: at the time
     // it asked the compositor to show it (direct path, onOutputHandedOff), or at the queued present
-    // (Vulkan and PyroWave). Android's compositor and the panel come after that; that part only goes
-    // to stage 9, which the stream doctor judges and the overlays do not show, and to the CSV.
+    // (Vulkan, onFrameShown, and PyroWave, onPresentQueued). Android's compositor and the panel come
+    // after that; that part only goes to stage 9, where the device reports it, which the stream doctor
+    // judges and the overlays do not show.
     private static final int STAGES = 10;
     private static final int HOST_STAGE = 4;
     static final int HOST_QUEUE_STAGE = 5;
@@ -90,6 +91,9 @@ class FrameLatencyStats {
     private final long[][] sampleTimes = new long[STAGES][WINDOW_SIZE];
     private final int[] counts = new int[STAGES];
     private final int[] positions = new int[STAGES];
+    // Each stage's sample its last one replaced, for removeLastSample.
+    private final long[] overwritten = new long[STAGES];
+    private final long[] overwrittenTimes = new long[STAGES];
     private final LinkedHashMap<Integer, HostTimingReport.Record> earlyReports = new LinkedHashMap<>();
     private long csvRowsLost;
     private final boolean vrr;
@@ -562,6 +566,15 @@ class FrameLatencyStats {
         onOutputReleased(index, releaseNs, displayAtNs, true, hasRenderCallback, true);
     }
 
+    /**
+     * PyroWave's release event: a shown frame's present was queued at releaseNs, which is its hand-off
+     * (its display time, when the device reports one, only adds decoded to on screen); a frame that
+     * was not shown was replaced.
+     */
+    synchronized void onPresentQueued(int index, long releaseNs, boolean shown, boolean hasRenderCallback) {
+        onOutputReleased(index, releaseNs, 0, shown, hasRenderCallback, shown);
+    }
+
     static long handoffNs(long releaseNs, long displayAtNs) {
         return displayAtNs > releaseNs && displayAtNs - releaseNs < MAX_DISPLAY_AHEAD_NS ? displayAtNs : releaseNs;
     }
@@ -607,6 +620,11 @@ class FrameLatencyStats {
             return;
         }
         lastRenderRelease = null;
+        if (frame.handoffNs != 0) {
+            removeLastSample(2, frame.handoffNs);
+            removeLastSample(3, frame.handoffNs);
+            frame.handoffNs = 0;
+        }
         long[] times = frameTimes[RENDERED_STAGE];
         int last = (frameTimePositions[RENDERED_STAGE] + times.length - 1) % times.length;
         if (times[last] == releaseNs) {
@@ -664,8 +682,8 @@ class FrameLatencyStats {
     }
 
     /**
-     * The codec's render callback (on screen on the direct path) or PyroWave's display report (its
-     * queued present). Display wait and client latency count to it unless the frame was handed off.
+     * The codec's render callback or PyroWave's display report: when the frame reached the screen.
+     * Display wait and client latency count to it only for a frame that was not handed off.
      */
     synchronized void onFrameRendered(long ptsUs, long renderNs, long callbackReceivedNs) {
         rendered(ptsUs, renderNs, callbackReceivedNs, renderNs);
@@ -902,10 +920,28 @@ class FrameLatencyStats {
     }
 
     private void addDuration(int stage, long durationNs, long observedAtNs) {
+        overwritten[stage] = samples[stage][positions[stage]];
+        overwrittenTimes[stage] = sampleTimes[stage][positions[stage]];
         samples[stage][positions[stage]] = durationNs;
         sampleTimes[stage][positions[stage]] = observedAtNs;
         positions[stage] = (positions[stage] + 1) % WINDOW_SIZE;
         counts[stage] = Math.min(counts[stage] + 1, WINDOW_SIZE);
+    }
+
+    // Takes back the stage's last sample if it was observed at observedAtNs, restoring the one it
+    // replaced in a full window.
+    private void removeLastSample(int stage, long observedAtNs) {
+        int last = (positions[stage] + WINDOW_SIZE - 1) % WINDOW_SIZE;
+        if (counts[stage] == 0 || sampleTimes[stage][last] != observedAtNs) return;
+        positions[stage] = last;
+        if (counts[stage] < WINDOW_SIZE) {
+            counts[stage]--;
+            samples[stage][last] = 0;
+            sampleTimes[stage][last] = 0;
+        } else {
+            samples[stage][last] = overwritten[stage];
+            sampleTimes[stage][last] = overwrittenTimes[stage];
+        }
     }
 
     double[][] summarize() {

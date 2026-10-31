@@ -33,8 +33,8 @@ final class DemoMetrics {
                 context.getString(R.string.perf_overlay_low_latency, context.getString(R.string.perf_overlay_low_latency_android_vendor)) +
                 "\nGPU: system driver (scripted)\nSample playback: 1080p60 SDR\n" +
                 MediaCodecDecoderRenderer.formatLatencyOverlay(context, new double[][] {
-                        {600, 0.4, 0.8, 1.2}, {600, decode, 0.8, 1.1}, {600, 1.2, 1.8, 2.5},
-                        {600, 2.2, 3.1, 4.0}, {600, 3.1, 3.8, 4.2}
+                        {600, 0.4, 0.8, 1.2, 0.4}, {600, decode, 0.8, 1.1, decode}, {600, 1.2, 1.8, 2.5, 1.1},
+                        {600, 2.2, 3.1, 4.0, 2.1}, {600, 3.1, 3.8, 4.2, 3.0}
                 });
         CharSequence statistics = PerformanceOverlay.statisticsText(context, "1920×1080 · " + DemoSample.label(sample),
                 fps, 120, 38.6f, 0.1f, 8, 1, 3.1f, -1, decode, 1.2f, false);

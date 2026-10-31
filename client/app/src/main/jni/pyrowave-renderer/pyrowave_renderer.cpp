@@ -2756,7 +2756,7 @@ namespace {
         }
         jclass statsClass = env->GetObjectClass(stats);
         out.onCompleted = env->GetMethodID(statsClass, "onDecoderOutput", "(IJJ)V");
-        out.onReleased = out.onCompleted ? env->GetMethodID(statsClass, "onOutputReleased", "(IJZZ)V") : nullptr;
+        out.onReleased = out.onCompleted ? env->GetMethodID(statsClass, "onPresentQueued", "(IJZZ)V") : nullptr;
         out.onRendered = out.onReleased ? env->GetMethodID(statsClass, "onFrameRendered", "(JJ)V") : nullptr;
         out.discard = out.onRendered ? env->GetMethodID(statsClass, "discard", "(JLjava/lang/String;)V") : nullptr;
         env->DeleteLocalRef(statsClass);

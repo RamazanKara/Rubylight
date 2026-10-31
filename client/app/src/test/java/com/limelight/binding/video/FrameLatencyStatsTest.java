@@ -92,6 +92,43 @@ public class FrameLatencyStatsTest {
         assertArrayEquals(new double[] {1, 25, 25, 25}, summary[FrameLatencyStats.SCREEN_STAGE], 0);
     }
 
+    @Test public void pyroWaveCountsDisplayWaitToItsQueuedPresentAndItsDisplayTimeToTheScreenStage() {
+        FrameLatencyStats stats = new FrameLatencyStats();
+        decodedAndReleased(stats, 1);
+        stats.onPresentQueued(0, 8_000_000, true, true);
+        stats.onFrameRendered(1, 30_000_000);
+        double[][] summary = stats.summarize();
+        assertArrayEquals(new double[] {1, 3, 3, 3}, summary[2], 0);
+        assertArrayEquals(new double[] {1, 7, 7, 7}, summary[3], 0);
+        assertArrayEquals(new double[] {1, 25, 25, 25}, summary[FrameLatencyStats.SCREEN_STAGE], 0);
+        // A replaced frame was never shown: no hand-off.
+        decodedAndReleased(stats, 2);
+        stats.onPresentQueued(0, 9_000_000, false, true);
+        assertEquals(1, stats.summarize()[2][0], 0);
+    }
+
+    @Test public void aFailedReleaseTakesBackItsHandOffSamples() {
+        FrameLatencyStats stats = new FrameLatencyStats();
+        decodedAndReleased(stats, 1);
+        stats.onOutputHandedOff(0, 6_000_000, 6_000_000, true);
+        stats.onReleaseFailed(6_000_000);
+        double[][] summary = stats.summarize();
+        assertEquals(0, summary[2][0], 0);
+        assertEquals(0, summary[3][0], 0);
+        // In a full window the sample it replaced comes back.
+        FrameLatencyStats full = new FrameLatencyStats();
+        for (int i = 1; i <= FrameLatencyStats.WINDOW_SIZE; i++) {
+            decodedAndReleased(full, i);
+            full.onOutputHandedOff(0, 7_000_000, 0, false);
+        }
+        decodedAndReleased(full, 1000);
+        full.onOutputHandedOff(0, 25_000_000, 0, true);
+        assertEquals((599 * 2 + 20) / 600.0, full.summarize()[2][1], 0.00001);
+        full.onReleaseFailed(25_000_000);
+        assertArrayEquals(new double[] {600, 2, 2, 2}, full.summarize()[2], 0.00001);
+        assertArrayEquals(new double[] {600, 6, 6, 6}, full.summarize()[3], 0.00001);
+    }
+
     @Test public void theOverlaySummaryAddsTheMedian() {
         FrameLatencyStats stats = new FrameLatencyStats();
         long[] waits = {1, 2, 3, 4, 20};

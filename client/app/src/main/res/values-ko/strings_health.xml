@@ -7,7 +7,7 @@
     <string name="health_network">네트워크: 프레임 손실 또는 왕복 시간 변동이 반복되었습니다. 비트레이트를 낮추거나, 호스트를 유선으로 연결하거나, 덜 혼잡한 Wi-Fi 연결을 사용해 보세요.</string>
     <string name="health_decoder">디코딩: 출력에 반복적으로 1프레임 간격 이상이 걸렸습니다. 해상도나 프레임 속도를 낮춰 보세요. 비트레이트만 낮추면 효과가 없을 수 있습니다.</string>
     <string name="health_host">호스트: 느린 처리 샘플이 프레임 간격을 초과했습니다. 게임/GPU 부하를 확인하고 게임 프레임 제한을 낮춰 비교해 보세요. 이 측정값에는 인코딩 외의 처리도 포함됩니다.</string>
-    <string name="health_presentation">표시: 프레임이 표시되는 속도보다 빠르게 전달되어 표시 대기 시간이 길었습니다. 프레임 페이싱 모드와 화면 주사율을 비교해 보세요.</string>
+    <string name="health_presentation">표시: 프레임이 표시되는 속도보다 빠르게 전달되어 화면에 늦게 표시되었습니다. 프레임 페이싱 모드와 화면 주사율을 비교해 보세요.</string>
     <string name="health_heat">온도: Android에서 높은 발열 부하를 보고했습니다. 프레임 속도/해상도를 낮추거나 부하가 큰 클라이언트 처리를 끄고 기기를 식히세요.</string>
     <string name="health_evidence">관찰된 최대값:\n프레임 손실: %1$s %%\n디코딩: %2$s ms\n호스트 처리 p95: %3$s ms\n표시 대기 p95: %4$s ms\n이 단계들을 더해도 입력부터 화면까지의 지연 시간이 되지는 않습니다.</string>
     <string name="health_evidence_send">관찰된 최대값:\n프레임 손실: %1$s %%\n디코딩: %2$s ms\n호스트에서 네트워크까지 p95: %3$s ms\n표시 대기 p95: %4$s ms\n이 단계들을 더해도 입력부터 화면까지의 지연 시간이 되지는 않습니다.</string>

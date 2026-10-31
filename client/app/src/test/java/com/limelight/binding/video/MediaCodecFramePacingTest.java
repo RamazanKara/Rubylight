@@ -150,6 +150,21 @@ public class MediaCodecFramePacingTest {
         assertEquals(FramePacingPolicy.MAX_OUTPUT_DRAIN + 1, result.dequeues);
     }
 
+    @Test public void aRenderedOutputCountsDisplayWaitAndClientLatencyAtTheHandOff() throws Exception {
+        for (int mode : new int[] {FRAME_PACING_MIN_LATENCY, FRAME_PACING_CAP_FPS, FRAME_PACING_MAX_SMOOTHNESS}) {
+            Result result = runQueue(mode, new long[] {1}, false, false);
+            assertEquals(Collections.singletonList(0), result.rendered);
+            // Counted when the renderer released the frame, not when a render callback came.
+            double[][] summary = QueuedCodec.stats.summarize();
+            assertEquals(1, summary[2][0], 0);
+            assertEquals(1, summary[3][0], 0);
+            assertEquals(0, summary[FrameLatencyStats.SCREEN_STAGE][0], 0);
+            assertTrue("display wait " + summary[2][1], summary[2][1] < 50);
+            // Received 1 ms before its output, then released: client latency covers both.
+            assertTrue("client latency " + summary[3][1], summary[3][1] >= summary[2][1] + 0.9);
+        }
+    }
+
     @Test public void stopDuringCatchupLeavesNoDequeuedOutputUnreleased() throws Exception {
         Result result = runQueue(FRAME_PACING_MAX_SMOOTHNESS, new long[] {120, 100, 80}, false, true);
         assertEquals(Collections.singletonList(0), result.dropped);

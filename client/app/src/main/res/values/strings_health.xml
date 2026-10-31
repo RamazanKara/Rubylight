@@ -7,7 +7,7 @@
     <string name="health_network">Network: repeated frame loss or round-trip variation. Try a lower bitrate, a wired host or a less congested Wi-Fi connection.</string>
     <string name="health_decoder">Decode: output repeatedly took at least one frame interval. Try a lower resolution or frame rate; lowering bitrate alone may not help.</string>
     <string name="health_host">Host: the slower processing samples exceeded the frame interval. Compare game/GPU load and a lower game frame limit. This measurement includes more than encoding.</string>
-    <string name="health_presentation">Presentation: frames were released faster than they were shown, with long display waits. Compare frame-pacing modes and the screen refresh rate.</string>
+    <string name="health_presentation">Presentation: frames were released faster than they were shown, and reached the screen late. Compare frame-pacing modes and the screen refresh rate.</string>
     <string name="health_heat">Temperature: Android reported high thermal pressure. Lower frame rate/resolution or disable expensive client processing; allow the device to cool.</string>
     <string name="health_evidence">Largest observed values:\nFrame loss: %1$s %%\nDecode: %2$s ms\nHost processing p95: %3$s ms\nDisplay wait p95: %4$s ms\nThese stages do not add up to input-to-screen latency.</string>
     <string name="health_evidence_send">Largest observed values:\nFrame loss: %1$s %%\nDecode: %2$s ms\nHost to network p95: %3$s ms\nDisplay wait p95: %4$s ms\nThese stages do not add up to input-to-screen latency.</string>

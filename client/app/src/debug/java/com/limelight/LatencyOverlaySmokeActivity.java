@@ -153,8 +153,8 @@ public class LatencyOverlaySmokeActivity extends Activity {
                 getString(R.string.perf_overlay_phone_hints, getString(R.string.stream_disabled)) + '\n' +
                 getString(R.string.perf_overlay_dectime, 4.6f) + '\n' +
                 MediaCodecDecoderRenderer.formatLatencyOverlay(this, new double[][] {
-                        {600, 0.4, 0.8, 1.2}, {600, 4.6, 5.8, 6.4}, {600, 1.2, 1.8, 2.5},
-                        {600, 6.4, 8.4, 10.1}, {600, 2.1, 2.8, 3.2}
+                        {600, 0.4, 0.8, 1.2, 0.4}, {600, 4.6, 5.8, 6.4, 4.5}, {600, 1.2, 1.8, 2.5, 1.1},
+                        {600, 6.4, 8.4, 10.1, 6.2}, {600, 2.1, 2.8, 3.2, 2.0}
                 });
         overlay.setText(PerformanceOverlay.withHardwareMetrics(this,
                 PerformanceOverlay.debugText(this, video, network, decode), hardwareMetrics, true));

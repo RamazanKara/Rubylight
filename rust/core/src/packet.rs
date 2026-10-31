@@ -986,7 +986,8 @@ pub fn encrypted_control(
     let mut plain = kind.to_le_bytes().to_vec();
     plain.extend_from_slice(&(payload.len() as u16).to_le_bytes());
     plain.extend_from_slice(payload);
-    let mut iv = vec![0; if v2 { 12 } else { 16 }];
+    let mut iv = [0; 16];
+    let iv_len = if v2 { 12 } else { 16 };
     if v2 {
         iv[..4].copy_from_slice(&seq.to_le_bytes());
         iv[10] = b'H';
@@ -994,7 +995,7 @@ pub fn encrypted_control(
     } else {
         iv[0] = seq as u8;
     }
-    let (tag, b) = crypto::gcm_seal(key, &iv, &plain)?;
+    let (tag, b) = crypto::gcm_seal(key, &iv[..iv_len], &plain)?;
     let mut p = 1u16.to_le_bytes().to_vec();
     p.extend_from_slice(&((4 + 16 + b.len()) as u16).to_le_bytes());
     p.extend_from_slice(&seq.to_le_bytes());
@@ -1011,7 +1012,8 @@ pub fn decrypt_control(key: &[u8; 16], packet: &[u8], v2: bool) -> Result<(u32, 
         bail!("control length mismatch");
     }
     let seq = u32::from_le_bytes(packet[4..8].try_into().unwrap());
-    let mut iv = vec![0; if v2 { 12 } else { 16 }];
+    let mut iv = [0; 16];
+    let iv_len = if v2 { 12 } else { 16 };
     if v2 {
         iv[..4].copy_from_slice(&seq.to_le_bytes());
         iv[10] = b'C';
@@ -1019,7 +1021,7 @@ pub fn decrypt_control(key: &[u8; 16], packet: &[u8], v2: bool) -> Result<(u32, 
     } else {
         iv[0] = seq as u8;
     }
-    let b = crypto::gcm_open(key, &iv, &packet[8..24], &packet[24..])?;
+    let mut b = crypto::gcm_open(key, &iv[..iv_len], &packet[8..24], &packet[24..])?;
     if b.len() < 4 {
         bail!("short decrypted control header");
     }
@@ -1027,7 +1029,8 @@ pub fn decrypt_control(key: &[u8; 16], packet: &[u8], v2: bool) -> Result<(u32, 
     if u16::from_le_bytes(b[2..4].try_into().unwrap()) as usize != b.len() - 4 {
         bail!("decrypted control length mismatch");
     }
-    Ok((seq, kind, b[4..].to_vec()))
+    b.drain(..4);
+    Ok((seq, kind, b))
 }
 const fn gf_mul(mut a: u8, mut b: u8) -> u8 {
     let mut p = 0;

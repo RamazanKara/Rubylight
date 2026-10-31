@@ -269,6 +269,7 @@ public class SettingsKeysTest {
         reads.put("list_virtual_display_dpi", new Read("0", "150", c -> c.virtualDisplayDpi));
         reads.put("checkbox_multi_controller", new Read(true, false, c -> c.multiController));
         reads.put("seekbar_deadzone", new Read(7, 12, c -> c.deadzonePercentage));
+        reads.put("seekbar_trigger_deadzone", new Read(2, 10, c -> c.triggerDeadzonePercentage));
         reads.put("checkbox_flip_face_buttons", new Read(false, true, c -> c.flipFaceButtons));
         reads.put("checkbox_mouse_emulation", new Read(true, false, c -> c.mouseEmulation));
         reads.put("analog_scrolling", new Read("right", "left", c -> c.analogStickForScrolling));

@@ -129,6 +129,7 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
     private final NvConnection conn;
     private final Activity activityContext;
     private final double stickDeadzone;
+    private final float triggerDeadzone;
     private final InputDeviceContext defaultContext = new InputDeviceContext();
     // Gamepad controls of the per-game touch layout, fused into the default context's slot.
     private volatile boolean layoutGamepadUsed;
@@ -208,6 +209,7 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
 
         // Negative values are an anti-deadzone, see applyStickDeadzone()
         this.stickDeadzone = (double)deadzonePercentage / 100.0;
+        this.triggerDeadzone = prefConfig.triggerDeadzonePercentage / 100f;
 
         // Initialize the default context for events with no device
         defaultContext.leftStickXAxis = MotionEvent.AXIS_X;
@@ -216,6 +218,7 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         defaultContext.rightStickXAxis = MotionEvent.AXIS_Z;
         defaultContext.rightStickYAxis = MotionEvent.AXIS_RZ;
         defaultContext.rightStickDeadzoneRadius = (float) stickDeadzone;
+        defaultContext.triggerDeadzone = triggerDeadzone;
         defaultContext.leftTriggerAxis = MotionEvent.AXIS_BRAKE;
         defaultContext.rightTriggerAxis = MotionEvent.AXIS_GAS;
         defaultContext.hatXAxis = MotionEvent.AXIS_HAT_X;
@@ -820,7 +823,7 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
 
         context.leftStickDeadzoneRadius = (float) stickDeadzone;
         context.rightStickDeadzoneRadius = (float) stickDeadzone;
-        context.triggerDeadzone = TRIGGER_REST_ZONE;
+        context.triggerDeadzone = triggerDeadzone;
 
         return context;
     }
@@ -1267,13 +1270,13 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
 
         // The axis' reported flat is ignored: Linux HID gives every axis a generic 1/16 of its
         // range, which would hide the first 6% of trigger travel.
-        context.triggerDeadzone = TRIGGER_REST_ZONE;
+        context.triggerDeadzone = triggerDeadzone;
 
         // The ADT-1 controller needs a similar fixup to the ASUS Gamepad
         if (dev.getVendorId() == 0x18d1 && dev.getProductId() == 0x2c40) {
             context.backIsStart = true;
             context.modeIsSelect = true;
-            context.triggerDeadzone = 0.30f;
+            context.triggerDeadzone = Math.max(triggerDeadzone, QUIRK_TRIGGER_DEADZONE);
             context.hasSelect = true;
             context.hasMode = false;
         }
@@ -1295,7 +1298,7 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
 
                 // The ASUS Gamepad has triggers that sit far forward and are prone to false presses
                 // so we increase the deadzone on them to minimize this
-                context.triggerDeadzone = 0.30f;
+                context.triggerDeadzone = Math.max(triggerDeadzone, QUIRK_TRIGGER_DEADZONE);
             }
             // SHIELD controllers will use small stick deadzones
             else if (devName.contains("SHIELD") || devName.contains("NVIDIA Controller")) {
@@ -2096,10 +2099,12 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
     // batching keeps working.
     static final double MIN_STICK_DEADZONE = 0.01;
 
-    // Triggers get only a 2% rest zone, enough for a resting trigger to read as released so packet
-    // batching keeps working. Moonlight used 13% (XInput's threshold for treating a trigger as a
-    // button), which cut off the first part of the travel; the host and game apply their own.
-    static final float TRIGGER_REST_ZONE = 0.02f;
+    // Trigger deadzone from the settings (2% by default, enough for a resting trigger to read as
+    // released so packet batching keeps working). Moonlight used a fixed 13% (XInput's threshold
+    // for treating a trigger as a button), which cut off the first part of the travel. Like the
+    // stick deadzone, travel past it is sent raw: the host and game apply their own.
+    // Pads whose triggers sit far forward and false-press never go below 30%.
+    static final float QUIRK_TRIGGER_DEADZONE = 0.30f;
 
     static float applyTriggerDeadzone(float value, float deadzone) {
         return value <= deadzone ? 0 : value;

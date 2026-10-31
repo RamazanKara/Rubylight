@@ -40,7 +40,7 @@ impl Launcher {
     }
 
     pub(super) fn controllers_page(&mut self, ui: &mut Ui, pads: &crate::gamepad::Gamepads, commands: &mut Vec<Command>) {
-        use crate::gamepad::{AXIS_NAMES, BUTTON_MAP, BUTTON_NAMES, CONNECT_AS, Mapping};
+        use crate::gamepad::{AXIS_NAMES, BUTTON_MAP, BUTTON_NAMES, CONNECT_AS, MAX_TRIGGER_DEADZONE, Mapping};
         ui.label(tr("Mappings apply to controllers of the same model. Local menu and disconnect chords always use physical buttons."));
         let selected = if self.controller_key.is_empty() { tr("Choose a controller") } else { &self.controller_mapping.name };
         let chooser = egui::ComboBox::from_id_salt("controller-model").selected_text(selected).show_ui(ui, |ui| {
@@ -90,6 +90,9 @@ impl Launcher {
             });
             row(ui, "Stick dead zone", "Ignore small movements near the center, then scale smoothly to full travel.", |ui| {
                 ui.add(egui::Slider::new(&mut mapping.deadzone, 0..=50).suffix("%"))
+            });
+            row(ui, "Trigger dead zone", "Ignore light trigger presses, then scale smoothly to full travel. Raise it if a resting trigger presses by itself.", |ui| {
+                ui.add(egui::Slider::new(&mut mapping.trigger_deadzone, 0..=MAX_TRIGGER_DEADZONE).suffix("%"))
             });
             section(ui, "Axes");
             for (i, name) in AXIS_NAMES.iter().enumerate() {

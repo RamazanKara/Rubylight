@@ -1,12 +1,16 @@
 package com.limelight.binding.input;
 
+import com.limelight.preferences.PreferenceConfiguration;
+
 import org.junit.Test;
 
 import static org.junit.Assert.*;
 
 public class TriggerDeadzoneTest {
+    private static final float DEFAULT = PreferenceConfiguration.DEFAULT_TRIGGER_DEADZONE / 100f;
+
     private static float apply(float value) {
-        return ControllerHandler.applyTriggerDeadzone(value, ControllerHandler.TRIGGER_REST_ZONE);
+        return ControllerHandler.applyTriggerDeadzone(value, DEFAULT);
     }
 
     @Test
@@ -17,21 +21,35 @@ public class TriggerDeadzoneTest {
     }
 
     @Test
-    public void aRestingTriggerStillReadsAsReleased() {
+    public void aRestingTriggerStillReadsAsReleasedByDefault() {
         assertEquals(0f, apply(0f), 0);
         assertEquals(0f, apply(0.01f), 0);
-        assertEquals(0f, apply(ControllerHandler.TRIGGER_REST_ZONE), 0);
+        assertEquals(0f, apply(DEFAULT), 0);
     }
 
     @Test
-    public void travelAboveTheRestZoneIsPassedRaw() {
+    public void travelAboveTheDeadzoneIsPassedRaw() {
         assertEquals(0.5f, apply(0.5f), 0);
         assertEquals(1f, apply(1f), 0);
     }
 
     @Test
-    public void quirkDeadzonesStillApply() {
-        assertEquals(0f, ControllerHandler.applyTriggerDeadzone(0.25f, 0.30f), 0);
-        assertEquals(0.31f, ControllerHandler.applyTriggerDeadzone(0.31f, 0.30f), 0);
+    public void zeroPassesAnyPressAndDropsNegativeNoise() {
+        assertEquals(0.004f, ControllerHandler.applyTriggerDeadzone(0.004f, 0), 0);
+        assertEquals(0f, ControllerHandler.applyTriggerDeadzone(-0.01f, 0), 0);
+    }
+
+    @Test
+    public void aLargerSettingDropsMoreTravel() {
+        assertEquals(0f, ControllerHandler.applyTriggerDeadzone(0.15f, 0.2f), 0);
+        assertEquals(0.25f, ControllerHandler.applyTriggerDeadzone(0.25f, 0.2f), 0);
+    }
+
+    @Test
+    public void quirkPadsNeverGoBelowThirtyPercent() {
+        assertEquals(0.30f, ControllerHandler.QUIRK_TRIGGER_DEADZONE, 0);
+        float quirk = Math.max(0f, ControllerHandler.QUIRK_TRIGGER_DEADZONE);
+        assertEquals(0f, ControllerHandler.applyTriggerDeadzone(0.25f, quirk), 0);
+        assertEquals(0.31f, ControllerHandler.applyTriggerDeadzone(0.31f, quirk), 0);
     }
 }

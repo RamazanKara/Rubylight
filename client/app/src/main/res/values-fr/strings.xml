@@ -144,6 +144,8 @@
     <string name="title_seekbar_deadzone">Zone morte des sticks analogiques</string>
     <string name="summary_seekbar_deadzone">Certains jeux utilisent une zone morte plus grande. Les valeurs négatives amplifient les petits mouvements pour dépasser la zone morte intégrée de la manette ou du jeu. Les valeurs négatives amplifient aussi la dérive d’un stick au repos.</string>
     <string name="suffix_seekbar_deadzone">%</string>
+    <string name="title_seekbar_trigger_deadzone">Zone morte des gâchettes</string>
+    <string name="summary_seekbar_trigger_deadzone">Les pressions légères sur les gâchettes en dessous de cette valeur sont ignorées. Augmentez-la si une gâchette au repos s\'enfonce toute seule ; 0 % envoie chaque pression.</string>
     <string name="title_checkbox_xb1_driver">Pilote de manette USB</string>
     <string name="summary_checkbox_xb1_driver">Pilote intégré pour les manettes Xbox en USB. Root non requis.</string>
     <string name="title_usb_dualsense_haptics">Audio et retour haptique DualSense en USB</string>

@@ -144,6 +144,8 @@
     <string name="title_seekbar_deadzone">Мертва зона аналогового стіка</string>
     <string name="summary_seekbar_deadzone">Деякі ігри використовують більшу мертву зону. Від\'ємні значення посилюють малі відхилення, щоб подолати вбудовану мертву зону контролера або гри. Від’ємні значення також посилюють дрейф нерухомого стіка.</string>
     <string name="suffix_seekbar_deadzone">%</string>
+    <string name="title_seekbar_trigger_deadzone">Мертва зона тригерів</string>
+    <string name="summary_seekbar_trigger_deadzone">Легкі натискання тригерів нижче цього значення ігноруються. Збільште, якщо відпущений тригер натискається сам; 0% передає кожне натискання.</string>
     <string name="title_checkbox_xb1_driver">Драйвер USB-контролерів</string>
     <string name="summary_checkbox_xb1_driver">Вбудований драйвер для контролерів Xbox через USB. Root не потрібен.</string>
     <string name="title_usb_dualsense_haptics">Звук і тактильна віддача DualSense через USB</string>

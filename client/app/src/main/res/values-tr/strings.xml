@@ -144,6 +144,8 @@
     <string name="title_seekbar_deadzone">Analog çubuk ölü bölgesi</string>
     <string name="summary_seekbar_deadzone">Bazı oyunlar daha büyük bir ölü bölge kullanır. Negatif değerler, kontrolcünün veya oyunun yerleşik ölü bölgesini aşmak için küçük hareketleri güçlendirir. Negatif değerler, boştaki çubuğun kaymasını da güçlendirir.</string>
     <string name="suffix_seekbar_deadzone">%</string>
+    <string name="title_seekbar_trigger_deadzone">Tetik ölü bölgesi</string>
+    <string name="summary_seekbar_trigger_deadzone">Bunun altındaki hafif tetik basışları yok sayılır. Bırakılmış bir tetik kendiliğinden basıyorsa artırın; %0 her basışı gönderir.</string>
     <string name="title_checkbox_xb1_driver">USB kumanda sürücüsü</string>
     <string name="summary_checkbox_xb1_driver">USB üzerinden Xbox kumandaları için yerleşik sürücü. Root gerekmez.</string>
     <string name="title_usb_dualsense_haptics">USB DualSense ses ve dokunsal geri bildirim</string>

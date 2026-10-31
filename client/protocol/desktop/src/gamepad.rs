@@ -96,6 +96,8 @@ pub struct Mapping {
     /// Zero disables an axis; otherwise the signed source index plus one.
     pub axes: [i8; 6],
     pub deadzone: u8,
+    /// Percent of trigger travel ignored; 0 (the default) sends triggers raw.
+    pub trigger_deadzone: u8,
     /// One of [`CONNECT_AS`]; mappings saved before it existed load as Automatic.
     #[serde(deserialize_with = "lenient_connect_as")]
     pub connect_as: u8,
@@ -114,7 +116,7 @@ fn lenient_connect_as<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Resu
 
 impl Default for Mapping {
     fn default() -> Self {
-        Self { name: String::new(), buttons: [None; 21], axes: [1, 2, 3, 4, 5, 6], deadzone: 0, connect_as: CTYPE_UNKNOWN }
+        Self { name: String::new(), buttons: [None; 21], axes: [1, 2, 3, 4, 5, 6], deadzone: 0, trigger_deadzone: 0, connect_as: CTYPE_UNKNOWN }
     }
 }
 
@@ -130,6 +132,7 @@ pub struct Report {
 impl Mapping {
     pub fn valid(&self) -> bool {
         self.deadzone <= 50
+            && self.trigger_deadzone <= MAX_TRIGGER_DEADZONE
             && self.buttons.iter().flatten().all(|b| *b == 0 || BUTTON_MAP.contains(b))
             && self.axes.iter().enumerate().all(|(i, source)| {
                 *source == 0 || if i < 4 { (1..=4).contains(&source.unsigned_abs()) } else { (5..=6).contains(source) }
@@ -178,7 +181,7 @@ impl Mapping {
                 if source < 0 { *value = invert(*value); }
             }
         }
-        let trigger = |v: i16| (i32::from(v.max(0)) * 255 / 32767) as u8;
+        let trigger = |v: i16| trigger(v, self.trigger_deadzone);
         Report {
             buttons: self.map_buttons(buttons, swap),
             lt: trigger(mapped[4]), rt: trigger(mapped[5]),
@@ -196,6 +199,17 @@ fn clickpad(buttons: u32, swallowed: &mut u32) -> u32 {
     if *swallowed == 0 && buttons == combo { *swallowed = combo; }
     *swallowed &= buttons;
     (buttons & !*swallowed) | if *swallowed == combo { button::TOUCHPAD } else { 0 }
+}
+
+pub const MAX_TRIGGER_DEADZONE: u8 = 30;
+
+/// A trigger as 0-255: travel inside the dead zone reads as released, the rest scales smoothly to
+/// full, like the stick dead zone.
+fn trigger(value: i16, percent: u8) -> u8 {
+    let value = i32::from(value.max(0));
+    let edge = i32::from(percent) * 32767 / 100;
+    if value <= edge { return 0; }
+    ((value - edge) * 255 / (32767 - edge)) as u8
 }
 
 fn deadzone(value: (i16, i16), percent: u8) -> (i16, i16) {
@@ -1174,6 +1188,18 @@ mod tests {
         assert_eq!(report.rs, (0, -32767));
         assert_eq!((report.lt, report.rt), (255, 0));
         assert_eq!(deadzone((3000, 3000), 20), (0, 0));
+        assert_eq!((trigger(1, 0), trigger(-5, 0), trigger(32767, 0)), (0, 0, 255));
+        assert_eq!(trigger(3300, 0), 25, "no dead zone by default: a 10% press goes through");
+        assert_eq!((trigger(3276, 10), trigger(3400, 10), trigger(32767, 10)), (0, 1, 255));
+        assert_eq!(trigger(19660, 20), 127, "60% raw is 50% of the travel past a 20% dead zone");
+        mapping.trigger_deadzone = 20;
+        // lt reads source 6 here
+        assert_eq!(mapping.apply(0, [0, 0, 0, 0, 0, 6000], false).lt, 0);
+        assert_eq!(mapping.apply(0, [0, 0, 0, 0, 0, 19660], false).lt, 127);
+        assert!(mapping.valid());
+        mapping.trigger_deadzone = MAX_TRIGGER_DEADZONE + 1;
+        assert!(!mapping.valid());
+        mapping.trigger_deadzone = 0;
         assert_eq!(deadzone((32767, 0), 20), (32767, 0));
         let middle = deadzone((20000, 0), 20);
         assert!((16000..18000).contains(&middle.0));

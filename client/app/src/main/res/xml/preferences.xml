@@ -270,6 +270,14 @@
             android:dialogMessage="@string/summary_seekbar_deadzone"
             android:text="@string/suffix_seekbar_deadzone"
             android:title="@string/title_seekbar_deadzone"/>
+        <com.limelight.preferences.SeekBarPreference
+            android:key="seekbar_trigger_deadzone"
+            android:defaultValue="2"
+            android:max="30"
+            seekbar:min="0"
+            android:dialogMessage="@string/summary_seekbar_trigger_deadzone"
+            android:text="@string/suffix_seekbar_deadzone"
+            android:title="@string/title_seekbar_trigger_deadzone"/>
         <com.limelight.preferences.MaterialSwitchPreference
             android:key="checkbox_flip_face_buttons"
             android:title="@string/title_checkbox_flip_face_buttons"

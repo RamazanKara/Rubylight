@@ -144,6 +144,8 @@
     <string name="title_seekbar_deadzone">Zona morta do analógico</string>
     <string name="summary_seekbar_deadzone">Alguns jogos usam uma zona morta maior. Valores negativos amplificam pequenos movimentos para superar a zona morta embutida do controle ou do jogo. Valores negativos também amplificam o desvio do analógico em repouso.</string>
     <string name="suffix_seekbar_deadzone">%</string>
+    <string name="title_seekbar_trigger_deadzone">Zona morta dos gatilhos</string>
+    <string name="summary_seekbar_trigger_deadzone">Toques leves nos gatilhos abaixo deste valor são ignorados. Aumente se um gatilho em repouso pressionar sozinho; 0% envia todo toque.</string>
     <string name="title_checkbox_xb1_driver">Driver de controle USB</string>
     <string name="summary_checkbox_xb1_driver">Driver integrado para controles Xbox via USB. Não requer root.</string>
     <string name="title_usb_dualsense_haptics">Áudio e háptico do DualSense via USB</string>

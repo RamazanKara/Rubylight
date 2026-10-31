@@ -83,6 +83,8 @@ public class PreferenceConfiguration {
     public static final String OSC_STICK_FLOATING = "floating", OSC_STICK_FIXED = "fixed";
     public static final int DEFAULT_OSC_STICK_DEADZONE = 8, MAX_OSC_STICK_DEADZONE = 30;
     private static final String DEADZONE_PREF_STRING = "seekbar_deadzone";
+    static final String TRIGGER_DEADZONE_PREF_STRING = "seekbar_trigger_deadzone";
+    public static final int DEFAULT_TRIGGER_DEADZONE = 2, MAX_TRIGGER_DEADZONE = 30;
     private static final String OSC_OPACITY_PREF_STRING = "seekbar_osc_opacity";
     static final String LANGUAGE_PREF_STRING = "list_languages";
     private static final String SMALL_ICONS_PREF_STRING = "checkbox_small_icon_mode";
@@ -269,6 +271,7 @@ public class PreferenceConfiguration {
     public int mobileBitrateLimit;
     public FormatOption videoFormat;
     public int deadzonePercentage;
+    public int triggerDeadzonePercentage = DEFAULT_TRIGGER_DEADZONE;
     public int oscOpacity;
     // stretchVideo mirrors videoScaling == STRETCH for the renderers; change both with setVideoScaling.
     public boolean stretchVideo, enableSops, playHostAudio, disableWarnings;
@@ -1367,6 +1370,8 @@ public class PreferenceConfiguration {
         config.analogStickForScrolling = getAnalogStickForScrollingValue(context);
 
         config.deadzonePercentage = prefs.getInt(DEADZONE_PREF_STRING, DEFAULT_DEADZONE);
+        config.triggerDeadzonePercentage = Math.max(0, Math.min(MAX_TRIGGER_DEADZONE,
+                prefs.getInt(TRIGGER_DEADZONE_PREF_STRING, DEFAULT_TRIGGER_DEADZONE)));
 
         config.oscOpacity = prefs.getInt(OSC_OPACITY_PREF_STRING, DEFAULT_OPACITY);
 

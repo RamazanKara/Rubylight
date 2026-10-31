@@ -88,6 +88,7 @@ Tier: Main rows show when a section opens; More rows fold behind the section's l
 | Controller quit combo<br>`list_gamepad_quit_combo` | More | Off | Off; Select+LB+RB+Y; Start+LB+RB+A; Start+LB+RB+B; LB+RB+X+Y; LB+RB+A+B | Off by default: Start+Select+LB+RB opens the stream menu, where Disconnect leaves. Choose a combination to leave the stream straight from the controller, for example on a TV; the stream ends once every button of it is let go, so none stays held on the PC. Pick one a game doesn't use. The stream menu's Controller mouse switch turns the controller mouse on or off whether or not holding Start does. |
 | Back button as Guide<br>`checkbox_back_as_guide` | More | Off | On; Off | Enable so Back on any controller sends Guide (Home/PS), as does a handheld's system button that acts as Back, such as the Retroid Pocket's: a built-in Back key and a Back the firmware injects. A controller whose Select is Back sends Guide instead; only a pad that uses Back as Start keeps it. Physical Back opens stream menu takes priority; Android's Back gesture and the controller menu chord still open the stream menu. Android only: desktop controllers report a real Guide button. Applies from the next stream. |
 | Analog stick deadzone<br>`seekbar_deadzone` | More | 7% | -20%–20%; step 1% | Raise to suppress stick drift; lower for small movements. Games can add their own deadzone on top. |
+| Trigger deadzone<br>`seekbar_trigger_deadzone` | More | 2% | 0%–30%; step 1% | Raise if a resting trigger presses by itself; lower so light presses register. 0% sends every press. Games can add their own deadzone on top. |
 | Flip face buttons<br>`checkbox_flip_face_buttons` | Main | Off | On; Off | Enable to swap A/B and X/Y on physical and on-screen gamepads. |
 | Controller mouse mode<br>`checkbox_mouse_emulation` | More | On | On; Off | Leave on to toggle controller mouse mode by holding Start. |
 | Scroll with an analog stick<br>`analog_scrolling` | More | Right analog stick | Both sticks move the mouse; Right analog stick; Left analog stick | Choose which stick scrolls in controller mouse mode. The other moves the pointer; with None, both move it. Requires Controller mouse mode On. |
@@ -452,7 +453,7 @@ Settings marked "Linux: restart" take effect on Linux after Nightjar restarts. D
 
 | Setting | Default | Choices | Notes |
 | --- | --- | --- | --- |
-| Input customization | | Controllers, Shortcuts | Controller mappings, stick dead zones and the type each controller connects as (**Connect as**: Automatic, Xbox without motion or touchpad, PlayStation or Nintendo), and the saved keyboard shortcuts. |
+| Input customization | | Controllers, Shortcuts | Controller mappings, stick and trigger dead zones and the type each controller connects as (**Connect as**: Automatic, Xbox without motion or touchpad, PlayStation or Nintendo), and the saved keyboard shortcuts. |
 | Mouse | Captured | Captured, Desktop pointer | Captured suits games, Desktop pointer suits remote work. Ctrl+Alt+Shift+M switches during a stream. |
 | Send system keys | On | On, Off | Alt+Tab, the Windows key and similar go to the PC while input is captured. |
 | Local cursor | On | On, Off | In Desktop pointer mode, draws the PC's cursor shape locally, without video delay, on hosts that send cursor shapes. |

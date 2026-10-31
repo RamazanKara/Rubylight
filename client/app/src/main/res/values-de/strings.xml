@@ -144,6 +144,8 @@
     <string name="title_seekbar_deadzone">Stick-Deadzone</string>
     <string name="summary_seekbar_deadzone">Manche Spiele nutzen eine größere Deadzone. Negative Werte verstärken kleine Bewegungen, um die eingebaute Deadzone eines Controllers oder Spiels zu überwinden. Negative Werte verstärken auch das Driften eines ruhenden Sticks.</string>
     <string name="suffix_seekbar_deadzone">%</string>
+    <string name="title_seekbar_trigger_deadzone">Trigger-Deadzone</string>
+    <string name="summary_seekbar_trigger_deadzone">Leichte Trigger-Drücke darunter werden ignoriert. Erhöhen, wenn ein ruhender Trigger von selbst drückt; 0 % sendet jeden Druck.</string>
     <string name="title_checkbox_xb1_driver">USB-Controller-Treiber</string>
     <string name="summary_checkbox_xb1_driver">Integrierter Treiber für Xbox-Controller per USB, ohne Root.</string>
     <string name="title_usb_dualsense_haptics">DualSense-Audio und Haptik per USB</string>

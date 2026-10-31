@@ -412,7 +412,7 @@ impl Launcher {
 
             rows.section(ui, "Controls", &mut jump);
             if !layered {
-                row(ui, "Input customization", "Controller mappings, stick dead zones and saved keyboard chords.", |ui| {
+                row(ui, "Input customization", "Controller mappings, stick and trigger dead zones and saved keyboard chords.", |ui| {
                     ui.horizontal(|ui| {
                         let controllers = quiet_button(ui, "Controllers");
                         if controllers.clicked() { commands.push(Command::ControllerSettings); }

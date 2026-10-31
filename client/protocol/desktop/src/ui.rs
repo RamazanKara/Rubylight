@@ -1601,7 +1601,7 @@ impl Launcher {
             if quiet_button(ui, "Export…").clicked() { commands.push(Command::ExportShortcuts); }
         });
         ui.add_space(16.0);
-        scroll(ui, "shortcuts", |ui| {
+        scroll_column(ui, "shortcuts", SETTINGS_W, |ui| {
             for shortcut in &self.shortcuts.data {
                 row(ui, &shortcut.name, &shortcut.keys.join(" + "), |ui| {
                     ui.horizontal(|ui| {
@@ -1733,7 +1733,7 @@ impl Launcher {
         }
         let state = self.remote.state_for(id).cloned();
         let running = state == Some(CheckState::Running);
-        scroll(ui, "host-details", |ui| {
+        scroll_column(ui, "host-details", SETTINGS_W, |ui| {
             ui.set_max_width(SETTINGS_W);
             section(ui, "Host");
             detail(ui, tr("Host software"), &software);
@@ -2177,7 +2177,7 @@ impl Launcher {
         if focus_first {
             self.focus_screen = false;
         }
-        scroll(ui, "settings", |ui| {
+        scroll_column(ui, "settings", SETTINGS_W, |ui| {
             ui.set_max_width(SETTINGS_W);
             rows.section(ui, "Video", &mut jump);
             let native = trf("Native ({}x{})", &[&display.width, &display.height]);
@@ -2948,9 +2948,8 @@ impl Launcher {
                             edit.request_focus();
                             focused = true;
                         }
-                        ui.add_space(8.0);
                         let submitted = edit.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));
-                        ui.horizontal(|ui| {
+                        dialog_buttons(ui, |ui| {
                             if primary_button(ui, "Save").clicked() || submitted {
                                 commands.push(Command::Rename { host: id, alias: text.clone() });
                                 close = true;
@@ -2976,18 +2975,17 @@ impl Launcher {
                             tr("This deletes the PC, its settings and its saved library from this device.")
                         };
                         ui.label(RichText::new(body).color(ON_SURFACE_VARIANT));
-                        ui.add_space(12.0);
-                        ui.horizontal(|ui| {
+                        dialog_buttons(ui, |ui| {
+                            if primary_button(ui, "Remove PC").clicked() {
+                                commands.push(Command::Remove(id));
+                                close = true;
+                            }
                             let cancel = quiet_button(ui, "Cancel");
                             if focus_first {
                                 cancel.request_focus();
                                 focused = true;
                             }
                             if cancel.clicked() {
-                                close = true;
-                            }
-                            if primary_button(ui, "Remove PC").clicked() {
-                                commands.push(Command::Remove(id));
                                 close = true;
                             }
                         });
@@ -3005,18 +3003,17 @@ impl Launcher {
                             RichText::new(tr("The PC drops this device and its saved library is forgotten. It stays in the list; pair again to stream."))
                                 .color(ON_SURFACE_VARIANT),
                         );
-                        ui.add_space(12.0);
-                        ui.horizontal(|ui| {
+                        dialog_buttons(ui, |ui| {
+                            if primary_button(ui, "Unpair").clicked() {
+                                commands.push(Command::Unpair(id));
+                                close = true;
+                            }
                             let cancel = quiet_button(ui, "Cancel");
                             if focus_first {
                                 cancel.request_focus();
                                 focused = true;
                             }
                             if cancel.clicked() {
-                                close = true;
-                            }
-                            if primary_button(ui, "Unpair").clicked() {
-                                commands.push(Command::Unpair(id));
                                 close = true;
                             }
                         });
@@ -3034,16 +3031,21 @@ impl Launcher {
                             RichText::new(tr("The PC sleeps only while no app or stream runs on it. Wake it with Wake up."))
                                 .color(ON_SURFACE_VARIANT),
                         );
-                        ui.add_space(12.0);
                         if offer.is_none() {
+                            ui.add_space(space::M);
                             ui.horizontal(|ui| {
                                 spinner(ui, 9.0);
                                 ui.label(RichText::new(tr("Asking the PC…")).color(ON_SURFACE_VARIANT));
                             });
-                            ui.add_space(10.0);
                         }
-                        ui.horizontal(|ui| {
-                            // Cancel first: putting the PC to sleep is never one stray press away.
+                        dialog_buttons(ui, |ui| {
+                            if let Some((token, at)) = offer {
+                                if primary_button(ui, "Sleep PC").clicked() {
+                                    commands.push(Command::Sleep { host: id, ask, token: token.clone(), at: *at });
+                                    close = true;
+                                }
+                            }
+                            // Cancel has the focus: putting the PC to sleep is never one stray press away.
                             let cancel = quiet_button(ui, "Cancel");
                             if focus_first {
                                 cancel.request_focus();
@@ -3051,12 +3053,6 @@ impl Launcher {
                             }
                             if cancel.clicked() {
                                 close = true;
-                            }
-                            if let Some((token, at)) = offer {
-                                if primary_button(ui, "Sleep PC").clicked() {
-                                    commands.push(Command::Sleep { host: id, ask, token: token.clone(), at: *at });
-                                    close = true;
-                                }
                             }
                         });
                     });
@@ -3071,15 +3067,16 @@ impl Launcher {
                         for step in PAIRING_STEPS {
                             ui.label(RichText::new(step).color(ON_SURFACE_VARIANT));
                         }
-                        ui.add_space(12.0);
-                        let done = primary_button(ui, "Got it");
-                        if focus_first {
-                            done.request_focus();
-                            focused = true;
-                        }
-                        if done.clicked() {
-                            close = true;
-                        }
+                        dialog_buttons(ui, |ui| {
+                            let done = primary_button(ui, "Got it");
+                            if focus_first {
+                                done.request_focus();
+                                focused = true;
+                            }
+                            if done.clicked() {
+                                close = true;
+                            }
+                        });
                     });
             }
             Dialog::PairError { host, body, one_time } => {
@@ -3092,8 +3089,7 @@ impl Launcher {
                         ui.set_width(440.0);
                         ui.label(RichText::new(trf("Pairing with {} failed", &[&name])).font(semibold(text::SECTION)));
                         ui.label(RichText::new(tr(body.as_str())).color(ON_SURFACE_VARIANT));
-                        ui.add_space(12.0);
-                        ui.horizontal(|ui| {
+                        dialog_buttons(ui, |ui| {
                             let retry = primary_button(ui, "Try again");
                             if focus_first {
                                 retry.request_focus();
@@ -3123,9 +3119,11 @@ impl Launcher {
                     ui.set_width(420.0);
                     ui.label(RichText::new(tr("Network test")).font(semibold(text::SECTION)));
                     ui.horizontal(|ui| { spinner(ui, 10.0); ui.label(tr(stage.as_str())); });
-                    let button = quiet_button(ui, "Cancel");
-                    if focus_first { button.request_focus(); focused = true; }
-                    if button.clicked() { commands.push(Command::CancelNetworkTest); close = true; }
+                    dialog_buttons(ui, |ui| {
+                        let button = quiet_button(ui, "Cancel");
+                        if focus_first { button.request_focus(); focused = true; }
+                        if button.clicked() { commands.push(Command::CancelNetworkTest); close = true; }
+                    });
                 });
             }
             Dialog::Shortcut { id, name, chord, error } => {
@@ -3135,12 +3133,13 @@ impl Launcher {
                     .show(ctx, |ui| {
                         ui.set_width(420.0);
                         ui.label(RichText::new(if id.is_some() { tr("Edit shortcut") } else { tr("New shortcut") }).font(semibold(text::SECTION)));
-                        let edit = ui.add(egui::TextEdit::singleline(name).hint_text(tr("Shortcut name")));
+                        ui.add_space(space::S);
+                        let edit = dialog_field(ui, egui::TextEdit::singleline(name).hint_text(tr("Shortcut name")));
                         if focus_first { edit.request_focus(); focused = true; }
-                        ui.add(egui::TextEdit::singleline(chord).hint_text("CTRL + ALT + DELETE"));
-                        ui.label(tr("Use letters, digits, F1–F24, CTRL, SHIFT, ALT, WIN, TAB, ENTER, ESC, arrows or other key names."));
+                        dialog_field(ui, egui::TextEdit::singleline(chord).hint_text("CTRL + ALT + DELETE"));
+                        ui.label(RichText::new(tr("Use letters, digits, F1–F24, CTRL, SHIFT, ALT, WIN, TAB, ENTER, ESC, arrows or other key names.")).font(regular(text::CAPTION)).color(ON_SURFACE_VARIANT));
                         if let Some(error) = error { ui.label(RichText::new(error.as_str()).color(ERROR)); }
-                        ui.horizontal(|ui| {
+                        dialog_buttons(ui, |ui| {
                             if primary_button(ui, "Save").clicked() {
                                 match self.shortcuts.save(id.as_deref(), name, chord) {
                                     Ok(()) => { commands.push(Command::SaveShortcuts); close = true; }
@@ -3158,15 +3157,15 @@ impl Launcher {
                     .show(ctx, |ui| {
                         ui.set_width(420.0);
                         ui.label(RichText::new(trf("Delete {}?", &[&name])).font(semibold(text::SECTION)));
-                        ui.horizontal(|ui| {
-                            let button = quiet_button(ui, "Cancel");
-                            if focus_first { button.request_focus(); focused = true; }
-                            if button.clicked() { close = true; }
+                        dialog_buttons(ui, |ui| {
                             if primary_button(ui, "Delete").clicked() {
                                 self.shortcuts.data.retain(|entry| entry.id != *id);
                                 commands.push(Command::SaveShortcuts);
                                 close = true;
                             }
+                            let button = quiet_button(ui, "Cancel");
+                            if focus_first { button.request_focus(); focused = true; }
+                            if button.clicked() { close = true; }
                         });
                     });
             }
@@ -3177,17 +3176,19 @@ impl Launcher {
                     .show(ctx, |ui| {
                         ui.set_width(420.0);
                         ui.label(RichText::new(tr("Import keyboard shortcuts?")).font(semibold(text::SECTION)));
-                        ui.label(trf("Replace your {} saved shortcuts with {} from this file.", &[&self.shortcuts.data.len(), &entries.data.len()]));
+                        ui.label(RichText::new(trf("Replace your {} saved shortcuts with {} from this file.", &[&self.shortcuts.data.len(), &entries.data.len()])).color(ON_SURFACE_VARIANT));
                         egui::ScrollArea::vertical().max_height(180.0).show(ui, |ui| {
                             for entry in &entries.data { ui.label(format!("{} · {}", entry.name, entry.keys.join(" + "))); }
                         });
-                        ui.horizontal(|ui| {
-                            if quiet_button(ui, "Cancel").clicked() { close = true; }
+                        dialog_buttons(ui, |ui| {
                             if primary_button(ui, "Import").clicked() {
                                 self.shortcuts = entries.clone();
                                 commands.push(Command::SaveShortcuts);
                                 close = true;
                             }
+                            let cancel = quiet_button(ui, "Cancel");
+                            if focus_first { cancel.request_focus(); focused = true; }
+                            if cancel.clicked() { close = true; }
                         });
                     });
             }
@@ -3198,11 +3199,12 @@ impl Launcher {
                     .show(ctx, |ui| {
                         ui.set_width(420.0);
                         ui.label(RichText::new(if id.is_some() { tr("Rename profile") } else { tr("New profile") }).font(semibold(text::SECTION)));
-                        let edit = ui.add(egui::TextEdit::singleline(name).hint_text(tr("Profile name")));
+                        ui.add_space(space::S);
+                        let edit = dialog_field(ui, egui::TextEdit::singleline(name).hint_text(tr("Profile name")));
                         if focus_first { edit.request_focus(); focused = true; }
                         if let Some(error) = error { ui.label(RichText::new(error.as_str()).color(ERROR)); }
                         let submitted = edit.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));
-                        ui.horizontal(|ui| {
+                        dialog_buttons(ui, |ui| {
                             if primary_button(ui, "Save").clicked() || submitted {
                                 let result = if let Some(id) = *id {
                                     self.profiles.check_name(name, Some(id)).map(|()| {
@@ -3234,16 +3236,16 @@ impl Launcher {
                     .show(ctx, |ui| {
                         ui.set_width(420.0);
                         ui.label(RichText::new(trf("Delete {}?", &[&name])).font(semibold(text::SECTION)));
-                        ui.label(tr("If this profile is active, new streams will use main settings instead."));
-                        ui.horizontal(|ui| {
-                            let button = quiet_button(ui, "Cancel");
-                            if focus_first { button.request_focus(); focused = true; }
-                            if button.clicked() { close = true; }
+                        ui.label(RichText::new(tr("If this profile is active, new streams will use main settings instead.")).color(ON_SURFACE_VARIANT));
+                        dialog_buttons(ui, |ui| {
                             if primary_button(ui, "Delete").clicked() {
                                 self.profiles.delete(*id);
                                 commands.push(Command::SaveProfiles);
                                 close = true;
                             }
+                            let button = quiet_button(ui, "Cancel");
+                            if focus_first { button.request_focus(); focused = true; }
+                            if button.clicked() { close = true; }
                         });
                     });
             }
@@ -3255,8 +3257,7 @@ impl Launcher {
                         ui.set_width(440.0);
                         ui.label(RichText::new(trf("Close {} and start {}?", &[&running, &app])).font(semibold(text::SECTION)));
                         ui.label(RichText::new(tr("The PC asks before it closes the running app. Unsaved progress in it is lost.")).color(ON_SURFACE_VARIANT));
-                        ui.add_space(12.0);
-                        ui.horizontal(|ui| {
+                        dialog_buttons(ui, |ui| {
                             if primary_button(ui, "Close and start").clicked() {
                                 commands.push(Command::ConfirmReplace);
                                 close = true;
@@ -3278,18 +3279,18 @@ impl Launcher {
                     .show(ctx, |ui| {
                         ui.set_width(420.0);
                         ui.label(RichText::new(format!("{name}?")).font(semibold(text::SECTION)));
-                        ui.label(tr("This changes the session running on the PC. Ending an app can lose unsaved progress."));
-                        ui.horizontal(|ui| {
+                        ui.label(RichText::new(tr("This changes the session running on the PC. Ending an app can lose unsaved progress.")).color(ON_SURFACE_VARIANT));
+                        dialog_buttons(ui, |ui| {
+                            if primary_button(ui, "Continue").clicked() {
+                                commands.push(Command::ControlAction { host: *host, app: *app });
+                                close = true;
+                            }
                             let button = quiet_button(ui, "Cancel");
                             if focus_first {
                                 button.request_focus();
                                 focused = true;
                             }
                             if button.clicked() { close = true; }
-                            if primary_button(ui, "Continue").clicked() {
-                                commands.push(Command::ControlAction { host: *host, app: *app });
-                                close = true;
-                            }
                         });
                     });
             }
@@ -3300,17 +3301,18 @@ impl Launcher {
                     .show(ctx, |ui| {
                         ui.set_width(420.0);
                         ui.label(RichText::new(tr("Pair with one-time PIN")).font(semibold(text::SECTION)));
-                        ui.label(tr("Enter the PIN and passphrase created on the PC."));
-                        let edit = ui.add(egui::TextEdit::singleline(pin).hint_text(tr("PIN")));
+                        ui.label(RichText::new(tr("Enter the PIN and passphrase created on the PC.")).color(ON_SURFACE_VARIANT));
+                        ui.add_space(space::S);
+                        let edit = dialog_field(ui, egui::TextEdit::singleline(pin).hint_text(tr("PIN")));
                         if focus_first {
                             edit.request_focus();
                             focused = true;
                         }
-                        ui.add(egui::TextEdit::singleline(passphrase).password(true).hint_text(tr("Passphrase")));
+                        dialog_field(ui, egui::TextEdit::singleline(passphrase).password(true).hint_text(tr("Passphrase")));
                         if let Some(error) = error {
                             ui.label(RichText::new(error.as_str()).color(ERROR));
                         }
-                        ui.horizontal(|ui| {
+                        dialog_buttons(ui, |ui| {
                             if primary_button(ui, "Pair").clicked() {
                                 if pin.len() != 4 || !pin.bytes().all(|b| b.is_ascii_digit()) || passphrase.chars().count() < 4 {
                                     *error = Some(tr("Enter four PIN digits and a passphrase of at least four characters.").into());
@@ -3358,9 +3360,8 @@ impl Launcher {
                         if let Some(e) = error {
                             ui.label(RichText::new(e.as_str()).color(ERROR));
                         }
-                        ui.add_space(8.0);
                         let submitted = edit.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));
-                        ui.horizontal(|ui| {
+                        dialog_buttons(ui, |ui| {
                             if (primary_button(ui, "Add").clicked() || submitted) && !text.trim().is_empty() {
                                 commands.push(Command::AddHost(text.trim().to_owned()));
                                 close = true;
@@ -3413,16 +3414,17 @@ impl Launcher {
                             spinner(ui, 9.0);
                             ui.label(RichText::new(tr("Waiting for the PC…")).color(ON_SURFACE_VARIANT));
                         });
-                        ui.add_space(10.0);
-                        let r = quiet_button(ui, "Cancel");
-                        if focus_first {
-                            r.request_focus();
-                            focused = true;
-                        }
-                        if r.clicked() {
-                            commands.push(Command::CancelPair);
-                            close = true;
-                        }
+                        dialog_buttons(ui, |ui| {
+                            let r = quiet_button(ui, "Cancel");
+                            if focus_first {
+                                r.request_focus();
+                                focused = true;
+                            }
+                            if r.clicked() {
+                                commands.push(Command::CancelPair);
+                                close = true;
+                            }
+                        });
                     });
             }
             Dialog::Message { title, body } => {
@@ -3433,15 +3435,16 @@ impl Launcher {
                         ui.set_width(440.0);
                         ui.label(RichText::new(title.as_str()).font(semibold(text::SECTION)));
                         ui.label(RichText::new(tr(body.as_str())).color(ON_SURFACE_VARIANT));
-                        ui.add_space(12.0);
-                        let r = primary_button(ui, "OK");
-                        if focus_first {
-                            r.request_focus();
-                            focused = true;
-                        }
-                        if r.clicked() {
-                            close = true;
-                        }
+                        dialog_buttons(ui, |ui| {
+                            let r = primary_button(ui, "OK");
+                            if focus_first {
+                                r.request_focus();
+                                focused = true;
+                            }
+                            if r.clicked() {
+                                close = true;
+                            }
+                        });
                     });
             }
             Dialog::ConfirmClose { host, name } => {
@@ -3453,8 +3456,7 @@ impl Launcher {
                         ui.set_width(440.0);
                         ui.label(RichText::new(tr("Close the game on the PC?")).font(semibold(text::SECTION)));
                         ui.label(RichText::new(trf("{} closes on the PC. Unsaved progress is lost.", &[&name])).color(ON_SURFACE_VARIANT));
-                        ui.add_space(12.0);
-                        ui.horizontal(|ui| {
+                        dialog_buttons(ui, |ui| {
                             let r = primary_button(ui, "Close game");
                             if focus_first {
                                 r.request_focus();
@@ -3483,8 +3485,7 @@ impl Launcher {
                         };
                         ui.label(RichText::new(title).font(semibold(text::SECTION)));
                         ui.label(RichText::new(tr("Unsaved progress in the running app is lost.")).color(ON_SURFACE_VARIANT));
-                        ui.add_space(12.0);
-                        ui.horizontal(|ui| {
+                        dialog_buttons(ui, |ui| {
                             let r = primary_button(ui, if start.is_some() { en("Quit and start") } else { en("Quit app") });
                             // Replacing a running game starts on the safe choice (Resume, else Cancel), never on
                             // the button that closes it; "Quit app" is what the player just asked for.
@@ -3675,17 +3676,18 @@ impl Launcher {
                 ui.set_width(400.0);
                 ui.label(RichText::new(&c.app).font(semibold(text::SECTION)));
                 ui.label(RichText::new(trf("on {}", &[&c.host])).color(ON_SURFACE_VARIANT));
-                ui.add_space(16.0);
+                ui.add_space(space::M);
                 ui.horizontal(|ui| {
                     spinner(ui, 10.0);
                     ui.label(RichText::new(tr(&c.stage)).color(ON_SURFACE));
                 });
-                ui.add_space(14.0);
-                let r = quiet_button(ui, "Cancel");
-                r.request_focus();
-                if r.clicked() {
-                    commands.push(Command::CancelConnect);
-                }
+                dialog_buttons(ui, |ui| {
+                    let r = quiet_button(ui, "Cancel");
+                    r.request_focus();
+                    if r.clicked() {
+                        commands.push(Command::CancelConnect);
+                    }
+                });
             });
     }
 }
@@ -3703,17 +3705,18 @@ fn waking(ctx: &egui::Context, host: &str, commands: &mut Vec<Command>) {
         .show(ctx, |ui| {
             ui.set_width(400.0);
             ui.label(RichText::new(trf("Waking {}…", &[&host])).font(semibold(text::SECTION)));
-            ui.add_space(16.0);
+            ui.add_space(space::M);
             ui.horizontal(|ui| {
                 spinner(ui, 10.0);
                 ui.label(RichText::new(tr("Sending Wake-on-LAN until the PC answers.")).color(ON_SURFACE));
             });
-            ui.add_space(14.0);
-            let r = quiet_button(ui, "Cancel");
-            r.request_focus();
-            if r.clicked() {
-                commands.push(Command::CancelWake);
-            }
+            dialog_buttons(ui, |ui| {
+                let r = quiet_button(ui, "Cancel");
+                r.request_focus();
+                if r.clicked() {
+                    commands.push(Command::CancelWake);
+                }
+            });
         });
 }
 
@@ -3728,6 +3731,44 @@ fn scroll(ui: &mut Ui, id: &str, add: impl FnOnce(&mut Ui)) {
             .content_margin(Margin::same(6))
             .show(ui, add);
     });
+}
+
+/// [`scroll`] for a column of rows `width` wide: the scroll bar sits just right of the rows, not at
+/// the far edge of a wide window, and the wheel still scrolls the page from beside the column.
+fn scroll_column(ui: &mut Ui, id: &str, width: f32, add: impl FnOnce(&mut Ui)) {
+    let page = ui.available_rect_before_wrap();
+    // The rows, their margin each side, and a gap the floating bar sits in.
+    let right = (page.left() + width + 6.0 + space::L).min(page.right() + 6.0);
+    let rect = Rect::from_min_max(page.min - vec2(6.0, 6.0), Pos2::new(right, page.bottom()));
+    let beside = Rect::from_min_max(Pos2::new(rect.right(), page.top()), page.max);
+    // Where the list was and how far it goes, from the last frame, for a wheel turned beside it.
+    let memory = Id::unique(("scroll-column", id));
+    let wheel = if beside.is_positive() && ui.rect_contains_pointer(beside) { ui.input(|i| i.smooth_scroll_delta.y) } else { 0.0 };
+    let mut area = egui::ScrollArea::vertical().id_salt(id).auto_shrink(false).content_margin(Margin::same(6));
+    if wheel != 0.0 {
+        if let Some((offset, end)) = ui.ctx().data(|d| d.get_temp::<(f32, f32)>(memory)) {
+            area = area.vertical_scroll_offset((offset - wheel).clamp(0.0, end));
+        }
+    }
+    let list = ui.scope_builder(egui::UiBuilder::new().max_rect(rect), |ui| area.show(ui, add)).inner;
+    let end = (list.content_size.y - list.inner_rect.height()).max(0.0);
+    ui.ctx().data_mut(|d| d.insert_temp(memory, (list.state.clamped_offset().y, end)));
+}
+
+/// A dialog's buttons, the same on every dialog: at its foot, aligned right, the one primary
+/// action at the right edge and the other choices left of it, Cancel leftmost (Android's order).
+/// Add them primary first: the layout runs right to left. Escape or B cancels any dialog.
+fn dialog_buttons(ui: &mut Ui, add: impl FnOnce(&mut Ui)) {
+    ui.add_space(space::L);
+    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+        ui.spacing_mut().item_spacing.x = space::S;
+        add(ui);
+    });
+}
+
+/// A dialog's one-line text field: full width, with room around its text.
+fn dialog_field(ui: &mut Ui, edit: egui::TextEdit<'_>) -> Response {
+    ui.add(edit.desired_width(f32::INFINITY).margin(Margin::symmetric(12, 10)))
 }
 
 /// Lets a dialog grow to the window's height less a margin and its frame, and no further. egui
@@ -4072,16 +4113,34 @@ impl Rows<'_> {
         }
         let open = self.open();
         let label = if open { trf("Fewer {} settings", &[&tr(self.section)]) } else { trf("More {} settings ({})", &[&tr(self.section), &self.folded]) };
-        let button = ui.add(egui::Button::new(RichText::new(label).color(ON_SURFACE_VARIANT).font(semibold(text::LABEL)))
-            .frame(false)
-            .min_size(vec2(0.0, 36.0)));
-        focus_ring(ui, button.rect, &button, radius::CONTROL);
+        let button = fold_row(ui, &label, open);
         if button.clicked() && !self.unfolded.remove(self.section) {
             self.unfolded.insert(self.section);
         }
         ui.add_space(6.0);
         self.folded = 0;
     }
+}
+
+/// A section's "More … settings" switch: a row like the settings it folds, its chevron pointing
+/// down while they are hidden and up while they show.
+fn fold_row(ui: &mut Ui, label: &str, open: bool) -> Response {
+    let width = ui.available_width().min(SETTINGS_W);
+    let (rect, response) = ui.allocate_exact_size(vec2(width, CONTROL_HEIGHT + 4.0), Sense::click());
+    response.widget_info(|| egui::WidgetInfo::selected(egui::Role::Button, true, open, label));
+    let painter = ui.painter_at(rect.expand(6.0));
+    let lit = response.hovered() || response.has_focus();
+    painter.rect_filled(rect, CornerRadius::same(radius::CONTROL), if lit { SURFACE_HIGH } else { SURFACE });
+    let galley = painter.layout_no_wrap(label.to_owned(), semibold(text::BODY), *ON_SURFACE);
+    painter.galley(Pos2::new(rect.left() + 18.0, rect.center().y - galley.size().y / 2.0), galley, *ON_SURFACE);
+    let c = Pos2::new(rect.right() - 18.0 - 6.0, rect.center().y);
+    let (tip, wing) = if open { (-3.0, 3.0) } else { (3.0, -3.0) };
+    let stroke = Stroke::new(2.0, *ON_SURFACE_VARIANT);
+    painter.line_segment([c + vec2(-6.0, wing), c + vec2(0.0, tip)], stroke);
+    painter.line_segment([c + vec2(0.0, tip), c + vec2(6.0, wing)], stroke);
+    focus_ring(ui, rect, &response, radius::CONTROL);
+    ui.add_space(2.0);
+    response
 }
 
 /// A setting's row, or None while its section folds it away.
@@ -6373,6 +6432,73 @@ https://192.0.2.7:47990"));
         assert!(!us.is_empty(), "the cover was drawn");
         let (lo, hi) = us.iter().fold((f32::MAX, f32::MIN), |(lo, hi), u| (lo.min(*u), hi.max(*u)));
         assert!(lo > 0.2 && hi < 0.8, "the wide art is cropped to its middle: u from {lo} to {hi}");
+    }
+
+    /// Every dialog lays its buttons out the same way: the one primary action at the right edge,
+    /// Cancel leftmost, all on one line at the foot; Escape (B on a controller) cancels.
+    #[test]
+    fn dialogs_put_the_primary_action_right_and_cancel_left_and_escape_cancels() {
+        let mut f = Frames::new(record("Desk", true, true), Reach::Online);
+        let id = f.hosts.list[0].id;
+        let dialogs = [
+            ("Save", Dialog::Rename { host: id, text: String::new() }),
+            ("Remove PC", Dialog::ConfirmRemove { host: id, name: "Desk".into() }),
+            ("Unpair", Dialog::ConfirmUnpair { host: id, name: "Desk".into() }),
+            ("Add", Dialog::AddHost { text: String::new(), error: None }),
+            ("Close game", Dialog::ConfirmClose { host: id, name: "Game".into() }),
+        ];
+        let buttons = ["Save", "Remove PC", "Unpair", "Add", "Close game", "Paste link", "Cancel"];
+        for (primary, dialog) in dialogs {
+            f.l.dialog = dialog;
+            f.l.focus_dialog = true;
+            f.settle();
+            let placed: Vec<Rect> = f.placed.iter().filter(|(t, ..)| buttons.contains(&t.as_str())).map(|p| p.1).collect();
+            let at = |label: &str| f.placed.iter().find(|(t, ..)| t == label).map(|p| p.1).unwrap_or_else(|| panic!("{primary}: {label} is drawn"));
+            let (main, cancel) = (at(primary), at("Cancel"));
+            assert!(placed.iter().all(|r| r.right() <= main.right() && r.left() >= cancel.left()), "{primary}: primary right, Cancel left: {placed:?}");
+            assert!(placed.iter().all(|r| (r.center().y - main.center().y).abs() < 2.0), "{primary}: one line of buttons: {placed:?}");
+            let commands = f.press(Key::Escape);
+            assert!(f.no_dialog() && commands.is_empty(), "{primary}: Escape cancels");
+        }
+    }
+
+    /// Settings' scroll bar sits next to its rows, and the wheel scrolls them from anywhere beside.
+    #[test]
+    fn settings_scroll_beside_their_column_on_a_wide_window() {
+        let mut f = Frames::new(record("Desk", true, true), Reach::Online);
+        f.size = vec2(1920.0, 1080.0);
+        f.l.go(Screen::Settings);
+        f.settle();
+        let top = |f: &Frames| f.placed.iter().find(|(t, ..)| t.starts_with("More Video settings")).map(|p| p.1.top()).expect("the fold row");
+        let before = top(&f);
+        let beside = Pos2::new(1500.0, 600.0);
+        f.frame(vec![egui::Event::PointerMoved(beside)]);
+        f.frame(vec![egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Point,
+            delta: vec2(0.0, -200.0),
+            phase: egui::TouchPhase::Move,
+            source: egui::MouseWheelSource::Unknown,
+            modifiers: egui::Modifiers::NONE,
+        }]);
+        for _ in 0..5 {
+            f.settle();
+        }
+        assert!(top(&f) < before - 50.0, "the wheel beside the rows scrolls them: {before} to {}", top(&f));
+    }
+
+    /// "More … settings" is a row like the settings it folds, opened from anywhere on it.
+    #[test]
+    fn the_fold_is_a_row_that_opens_anywhere_on_it() {
+        let mut f = Frames::new(record("Desk", true, true), Reach::Online);
+        f.size = vec2(1280.0, 4000.0);
+        f.l.go(Screen::Settings);
+        f.settle();
+        let label = f.placed.iter().find(|(t, ..)| t.starts_with("More Video settings")).map(|p| p.1).expect("Video folds rows");
+        let resolution = f.placed.iter().find(|(t, ..)| t == "Resolution").map(|p| p.1).expect("the first row");
+        // Its right end, where the chevron is, far from the label's text.
+        let at = Pos2::new(resolution.left() + SETTINGS_W - 40.0, label.center().y);
+        f.click_at(at, egui::PointerButton::Primary);
+        assert!(shows(&f, "Fewer Video settings"), "{:?}", f.drawn);
     }
 
     /// Home's PC card says a PC's state once: an offline PC reads "Offline", never "Offline · Offline".

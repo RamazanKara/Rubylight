@@ -1,4 +1,4 @@
-use super::*;
+use super::{ini::UTF8_BOM, *};
 use serde_json::json;
 
 const OPTISCALER: &str = "; OptiScaler settings\r\n[Framerate]\r\n; 0 = no limit\r\nFramerateLimit = 59\r\n\r\n[Upscalers]\r\nDx12Upscaler=fsr31\r\n";

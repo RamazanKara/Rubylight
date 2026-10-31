@@ -2003,13 +2003,6 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         }
     }
 
-    // Game reports foreground changes; the decoder keeps running either way, so nothing uses them.
-    public void notifyVideoForeground() {
-    }
-
-    public void notifyVideoBackground() {
-    }
-
     public int getActiveVideoFormat() {
         return this.videoFormat;
     }

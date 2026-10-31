@@ -1976,7 +1976,6 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 }
 
                 // Update GameManager state to indicate we're in PiP (still gaming, but interruptible)
-                decoderRenderer.notifyVideoBackground();
                 UiHelper.notifyStreamEnteringPiP(this);
             }
             // Rotation, folding, a keyboard or dark mode also change the configuration; only a real
@@ -2008,7 +2007,6 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                 controllerHandler.enableSensors();
 
                 // Update GameManager state to indicate we're out of PiP (gaming, non-interruptible)
-                decoderRenderer.notifyVideoForeground();
                 UiHelper.notifyStreamExitingPiP(this);
             }
         }
@@ -2548,12 +2546,6 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             getWindow().addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
         }
 
-        // A split-screen or desktop window is still visible at full streaming quality.
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && isInPictureInPictureMode()) {
-            decoderRenderer.notifyVideoBackground();
-        } else {
-            decoderRenderer.notifyVideoForeground();
-        }
         updatePipAutoEnter();
         scheduleReconfigureCheck();
 

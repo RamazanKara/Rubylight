@@ -731,6 +731,12 @@ impl Drop for Pinger {
     }
 }
 
+#[cfg(all(test, windows))]
+mod rio;
+
+#[cfg(all(test, any(target_os = "linux", target_os = "android", windows)))]
+mod receive_bench;
+
 #[cfg(test)]
 mod tests {
     use super::*;

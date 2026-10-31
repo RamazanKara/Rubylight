@@ -285,10 +285,10 @@ public class CachedAppAssetLoader {
         }
     }
 
-    /** A cover goes onto its view with the backdrop built for it, so binding does no bitmap work. */
+    /** A cover frame crops its art to fill it, whatever the art's shape. */
     private static void showArt(ImageView imageView, ScaledBitmap art) {
         if (imageView instanceof com.limelight.ui.PosterImageView) {
-            ((com.limelight.ui.PosterImageView) imageView).setArt(art.bitmap, art.backdrop);
+            ((com.limelight.ui.PosterImageView) imageView).setArt(art.bitmap);
         } else {
             imageView.setImageBitmap(art.bitmap);
         }

@@ -124,7 +124,6 @@ public abstract class GenericGridAdapter<T> extends BaseAdapter {
     static void resetRecycledState(View card, ImageView cover, boolean appTile) {
         cover.clearAnimation();
         // Only the app layouts crop their cover; the other layouts keep the scale type they inflate with.
-        // It also drops the letterbox backdrop the last cover left on the frame.
         if (appTile) com.limelight.ui.ArtFit.reset(cover);
         cover.setImageMatrix(null);
         cover.setScaleX(1);

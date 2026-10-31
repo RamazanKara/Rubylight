@@ -314,7 +314,7 @@ final class ShelfAdapter extends RecyclerView.Adapter<ShelfAdapter.CardHolder> {
             image.setImageTintList(null);
             // Set once here, never animated: the art that loads later is drawn through it.
             image.setColorFilter(cover && card.notInstalled() ? NOT_INSTALLED : null);
-            // A cover is fitted to its poster by the art it is given (ArtFit).
+            // A cover crops to fill its poster, whatever its shape (ArtFit).
             ArtFit.reset(image);
             if (card.appId == 0) {
                 // A game not added has no app id, so no cover the host can send: its title on the poster's surface.

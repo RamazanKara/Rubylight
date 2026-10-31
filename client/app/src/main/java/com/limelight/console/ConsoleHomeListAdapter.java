@@ -291,9 +291,8 @@ final class ConsoleHomeListAdapter extends RecyclerView.Adapter<RecyclerView.Vie
                 }
             }
             image.setImageTintList(null);
-            // A cover is fitted to its poster by the art it is given (ArtFit); a wide card always crops.
-            if (libraryCover) ArtFit.reset(image);
-            else image.setScaleType(ImageView.ScaleType.CENTER_CROP);
+            // Every cover crops to fill its card, whatever its shape (ArtFit).
+            ArtFit.reset(image);
             if (covers != null) covers.bind(hosts.apply(card.hostUuid), CoverLoaders.appOf(card.title, card.appId, card.source), image,
                     imageText);
             title.setText(card.title);

@@ -841,6 +841,12 @@ public class HostStreamSettings extends NightjarActivity {
                 showActions();
             }
             updateSummaries();
+            // With a remote or a controller, the first row takes focus, not the help button in the bar above it.
+            View root = getView();
+            View list = root == null ? null : root.findViewById(android.R.id.list);
+            if (list != null) list.post(() -> {
+                if (!list.isInTouchMode() && !list.hasFocus()) list.requestFocus();
+            });
         }
 
         private PreferenceCategory category(PreferenceScreen screen, int title) {

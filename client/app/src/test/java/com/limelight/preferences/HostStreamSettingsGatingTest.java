@@ -194,4 +194,20 @@ public class HostStreamSettingsGatingTest {
                     .endsWith(app.getString(R.string.host_pyrowave_unavailable, automatic)));
         });
     }
+
+    @Test
+    @Config(qualifiers = "television")
+    public void withARemoteTheFirstRowTakesFocusNotTheHelpButton() {
+        Intent intent = new Intent(app, HostStreamSettings.class).putExtra("host_uuid", "focus-pc").putExtra("host_name", "PC");
+        ActivityController<HostStreamSettings> controller = Robolectric.buildActivity(HostStreamSettings.class, intent)
+                .setup().visible();
+        try {
+            org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle();
+            android.view.View list = controller.get().findViewById(android.R.id.list);
+            assertFalse(list.isInTouchMode());
+            assertTrue("the rows have focus", list.hasFocus());
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
 }

@@ -329,9 +329,13 @@ impl Keeper {
                 .window
                 .and_then(|id| windows.iter().find(|w| w.id == id));
             // A game that minimised itself when it lost the focus stays its
-            // instance's window, and is restored below.
+            // instance's window, and is restored below; not once the
+            // instance shows another (a launcher that minimised itself).
             let usable = current.is_some_and(|w| {
-                (w.visible || w.minimized) && !w.owned && !w.tool && pids.contains(&w.pid)
+                !w.owned
+                    && !w.tool
+                    && pids.contains(&w.pid)
+                    && (w.visible || (w.minimized && window::pick(&windows, &pids).is_none()))
             });
             if !usable {
                 let picked = window::pick(&windows, &pids);
@@ -847,10 +851,19 @@ pub(crate) mod tests {
         desktop.windows[0].minimized = true;
         keeper.pass(&mut desktop, &job, &SIZES).unwrap();
         assert_eq!(desktop.placed.len(), 3);
-        // A minimised window it never followed is no instance's window yet.
-        let mut keeper = self::keeper(1);
+        // Minimised beside another window of the instance (a launcher that
+        // minimised itself when the game opened): the other is the window.
         desktop.windows[0].visible = false;
         desktop.windows[0].minimized = true;
+        desktop.windows.push(window(3, 20, ON_SCREEN));
+        assert_eq!(
+            keeper.pass(&mut desktop, &job, &SIZES).unwrap().windows,
+            [Some(3)]
+        );
+        assert_eq!(desktop.placed.last().unwrap().0, 3);
+        // A minimised window it never followed is no instance's window yet.
+        let mut keeper = self::keeper(1);
+        desktop.windows.truncate(1);
         assert_eq!(
             keeper.pass(&mut desktop, &job, &SIZES).unwrap().windows,
             [None]

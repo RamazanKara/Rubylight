@@ -212,22 +212,15 @@ fn rubylights_handler_is_written_and_its_game_added_beside_the_users() {
     assert_eq!(games[0].guid, setup.guid());
 }
 
-/// #56: an Unreal or Unity game's handler starts it in a window, so it
-/// stays where it is parked instead of covering the PC's monitor.
+/// #56: an Unreal game's handler starts it in a window, so it stays where
+/// it is parked instead of covering the PC's monitor.
 #[test]
-fn an_unreal_or_unity_games_handler_starts_it_in_a_window() {
+fn an_unreal_games_handler_starts_it_in_a_window() {
     let nucleus = tempfile::tempdir().unwrap();
-    let games = tempfile::tempdir().unwrap();
-    let unreal = games.path().join(r"Game\Binaries\Win64");
-    let unity = games.path().join("Cuphead");
-    for folder in [&unreal, &unity] {
-        std::fs::create_dir_all(folder).unwrap();
-    }
-    std::fs::write(unity.join("UnityPlayer.dll"), b"").unwrap();
-    let arguments = |exe: &Path| {
+    let arguments = |exe: &str| {
         let setup = Setup {
             arguments: "-x".into(),
-            ..Setup::new(&exe.to_string_lossy(), "Game", None)
+            ..Setup::new(exe, "Game", None)
         };
         write_own(nucleus.path(), &setup).unwrap();
         let text =
@@ -238,15 +231,11 @@ fn an_unreal_or_unity_games_handler_starts_it_in_a_window() {
             .to_string()
     };
     assert_eq!(
-        arguments(&unreal.join("Game-Win64-Shipping.exe")),
+        arguments(r"D:\Games\Game\Game\Binaries\Win64\Game-Win64-Shipping.exe"),
         r#""-x -windowed";"#
     );
-    assert_eq!(
-        arguments(&unity.join("Cuphead.exe")),
-        r#""-x -screen-fullscreen 0";"#
-    );
-    // Without UnityPlayer.dll the game is left as it starts.
-    assert_eq!(arguments(&games.path().join("Other.exe")), r#""-x";"#);
+    // Any other game starts as it would.
+    assert_eq!(arguments(r"D:\Games\Other\Other.exe"), r#""-x";"#);
 }
 
 /// #59: a game that refused the way ProtoInput's hooks were injected

@@ -38,8 +38,8 @@ pub trait Pads: Send + Sync {
     /// indices they took. A session's pads stay until the host drops its
     /// last copy, which can be minutes after it ended; meanwhile they would
     /// hold the low indices a game reads first (#56).
-    fn retire_earlier(&self) -> Result<Vec<u8>> {
-        Ok(Vec::new())
+    fn retire_earlier(&self) -> Vec<u8> {
+        Vec::new()
     }
     /// Note the XInput indices this session's pads took, for [`free`] and
     /// a later session's [`Pads::retire_earlier`].
@@ -63,10 +63,23 @@ struct Plugged {
 }
 static PLUGGED: Mutex<Vec<Plugged>> = Mutex::new(Vec::new());
 
+/// A set stays listed until its pads are unplugged ([`SessionPads`]'s drop),
+/// so a set the host is dropping right now is still waited for.
 fn plugged() -> std::sync::MutexGuard<'static, Vec<Plugged>> {
-    let mut plugged = PLUGGED.lock().unwrap_or_else(PoisonError::into_inner);
-    plugged.retain(|p| p.thread.strong_count() > 0);
-    plugged
+    PLUGGED.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+impl Drop for SessionPads {
+    fn drop(&mut self) {
+        // Joining unplugs them: the thread drops its pads as it ends.
+        if let Some(handle) = self.thread.stop()
+            && handle.join().is_err()
+        {
+            tracing::warn!("Nucleus Co-op: the virtual controllers' thread panicked");
+        }
+        let own = Arc::downgrade(&self.thread);
+        plugged().retain(|p| !p.thread.ptr_eq(&own));
+    }
 }
 
 /// The XInput indices ended sessions' pads hold: free once
@@ -86,35 +99,35 @@ impl Pads for SessionPads {
     fn reports(&self) -> Vec<PadReport> {
         self.thread.reports().collect()
     }
-    fn retire_earlier(&self) -> Result<Vec<u8>> {
+    fn retire_earlier(&self) -> Vec<u8> {
         let earlier: Vec<_> = {
-            let mut plugged = plugged();
+            let plugged = plugged();
             let own = Arc::downgrade(&self.thread);
-            let (earlier, own): (Vec<_>, Vec<_>) =
-                plugged.drain(..).partition(|p| !p.thread.ptr_eq(&own));
-            *plugged = own;
-            earlier
+            plugged
+                .iter()
+                .filter(|p| !p.thread.ptr_eq(&own))
+                .map(|p| (p.thread.clone(), p.indices.clone()))
+                .collect()
         };
         let mut indices = Vec::new();
-        for set in earlier {
-            let Some(thread) = set.thread.upgrade() else {
-                continue;
-            };
-            // Joining unplugs them: the thread drops its pads as it ends.
-            if let Some(handle) = thread.stop() {
-                handle.join().map_err(|_| {
-                    anyhow::anyhow!(
-                        "an earlier Nucleus Co-op session's virtual controllers failed to unplug"
-                    )
-                })?;
+        for (thread, held) in earlier {
+            // Joining unplugs them: the thread drops its pads as it ends. A
+            // set the host is dropping meanwhile is joined there; [`plug`]
+            // waits for its indices either way.
+            if let Some(handle) = thread.upgrade().and_then(|thread| thread.stop())
+                && handle.join().is_err()
+            {
+                tracing::warn!(
+                    "Nucleus Co-op: an earlier session's virtual controllers' thread panicked"
+                );
             }
             tracing::info!(
-                xinput = ?set.indices,
+                xinput = ?held,
                 "Nucleus Co-op: an earlier session's controllers unplugged"
             );
-            indices.extend(set.indices);
+            indices.extend(held);
         }
-        Ok(indices)
+        indices
     }
     fn took(&self, indices: &[u8]) {
         let own = Arc::downgrade(&self.thread);
@@ -229,7 +242,7 @@ pub fn plug(
         (1..=MAX_PLAYERS).contains(&players),
         "a Nucleus Co-op session has 1 to {MAX_PLAYERS} players, not {players}"
     );
-    let retired = pads.retire_earlier()?;
+    let retired = pads.retire_earlier();
     let deadline = Instant::now() + timeout;
     loop {
         let connected = xinput.connected()?;
@@ -416,13 +429,13 @@ pub(crate) mod tests {
         fn reports(&self) -> Vec<PadReport> {
             std::mem::take(&mut self.reports.lock().unwrap())
         }
-        fn retire_earlier(&self) -> Result<Vec<u8>> {
+        fn retire_earlier(&self) -> Vec<u8> {
             let mut earlier = self.earlier.lock().unwrap();
-            Ok(if self.stuck {
+            if self.stuck {
                 earlier.clone()
             } else {
                 std::mem::take(&mut earlier)
-            })
+            }
         }
         fn took(&self, indices: &[u8]) {
             *self.took.lock().unwrap() = indices.to_vec();

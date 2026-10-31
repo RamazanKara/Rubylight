@@ -170,33 +170,26 @@ impl Setup {
         format!("{PREFIX}{stem}-{}", hex::encode(&hash[..4]))
     }
 
-    /// The game's arguments with its engine's switch for a window added: an
-    /// Unreal game's (`-windowed`, its .exe in `<Project>\Binaries\Win64`)
-    /// or a Unity game's (`-screen-fullscreen 0`; `unity` when
-    /// `UnityPlayer.dll` sits beside the .exe). A fullscreen game covers the
-    /// monitor nearest its window, the PC's, however often it is parked
-    /// beside the desktop; in a window it stays parked (#56). Arguments that
-    /// already choose a mode stay as they are.
-    pub fn windowed_arguments(&self, unity: bool) -> String {
+    /// The game's arguments with `-windowed` added for an Unreal game (its
+    /// .exe in `<Project>\Binaries\Win64`): fullscreen, it covers the monitor
+    /// nearest its window, the PC's, however often it is parked beside the
+    /// desktop; in a window it stays parked (#56). The switch overrides the
+    /// game's saved mode for this start only. Arguments that already choose
+    /// a mode stay as they are.
+    pub fn windowed_arguments(&self) -> String {
         let arguments = self.arguments.trim();
-        let chosen = |flags: &[&str]| {
-            arguments.split_whitespace().any(|word| {
-                let word = word.to_ascii_lowercase();
-                flags.iter().any(|flag| word.starts_with(flag))
-            })
-        };
-        let switch = if unreal_root(parent(&self.exe_path)).is_some() {
-            (!chosen(&["-windowed", "-fullscreen", "-borderless"])).then_some("-windowed")
-        } else if unity {
-            (!chosen(&["-screen-fullscreen", "-window-mode", "-popupwindow"]))
-                .then_some("-screen-fullscreen 0")
+        let chosen = arguments.split_whitespace().any(|word| {
+            let word = word.to_ascii_lowercase();
+            ["-windowed", "-fullscreen", "-borderless"]
+                .iter()
+                .any(|flag| word.starts_with(flag))
+        });
+        if unreal_root(parent(&self.exe_path)).is_none() || chosen {
+            arguments.to_string()
+        } else if arguments.is_empty() {
+            "-windowed".to_string()
         } else {
-            None
-        };
-        match switch {
-            Some(switch) if arguments.is_empty() => switch.to_string(),
-            Some(switch) => format!("{arguments} {switch}"),
-            None => arguments.to_string(),
+            format!("{arguments} -windowed")
         }
     }
 
@@ -271,7 +264,7 @@ impl Setup {
             "Game.ProtoInput.GetCursorPosHook = true;",
             "Game.ProtoInput.SetCursorPosHook = true;",
             "Game.ProtoInput.ClipCursorHook = true;",
-            "// Even in front, the game takes no key, click, wheel or cursor position the PC's keyboard and mouse send it (#56).",
+            "// Even in front, the game's window messages carry no key, click, wheel or cursor position from the PC's keyboard and mouse (#56); raw input still reaches a game in front.",
             "Game.ProtoInput.MessageFilterHook = true;",
             "Game.ProtoInput.KeyboardButtonFilter = true;",
             "Game.ProtoInput.MouseButtonFilter = true;",
@@ -909,7 +902,7 @@ mod tests {
             "Game.ProtoInput.GetCursorPosHook = true;",
             "Game.ProtoInput.SetCursorPosHook = true;",
             "Game.ProtoInput.ClipCursorHook = true;",
-            "// Even in front, the game takes no key, click, wheel or cursor position the PC's keyboard and mouse send it (#56).",
+            "// Even in front, the game's window messages carry no key, click, wheel or cursor position from the PC's keyboard and mouse (#56); raw input still reaches a game in front.",
             "Game.ProtoInput.MessageFilterHook = true;",
             "Game.ProtoInput.KeyboardButtonFilter = true;",
             "Game.ProtoInput.MouseButtonFilter = true;",
@@ -1055,7 +1048,7 @@ mod tests {
     }
 
     #[test]
-    fn unreal_and_unity_games_start_in_a_window_unless_their_arguments_choose() {
+    fn unreal_games_start_in_a_window_unless_their_arguments_choose() {
         // #56: Clair Obscur and Silent Hill f went borderless fullscreen on
         // the PC's monitor, wherever their window was parked.
         let unreal = |arguments: &str| Setup {
@@ -1066,43 +1059,19 @@ mod tests {
                 None,
             )
         };
-        assert_eq!(unreal("").windowed_arguments(false), "-windowed");
+        assert_eq!(unreal("").windowed_arguments(), "-windowed");
+        assert_eq!(unreal(" -dx12 ").windowed_arguments(), "-dx12 -windowed");
+        assert_eq!(unreal("-FullScreen").windowed_arguments(), "-FullScreen");
         assert_eq!(
-            unreal(" -dx12 ").windowed_arguments(false),
-            "-dx12 -windowed"
-        );
-        assert_eq!(
-            unreal("-FullScreen").windowed_arguments(false),
-            "-FullScreen"
-        );
-        assert_eq!(
-            unreal("-windowed -ResX=1280").windowed_arguments(false),
+            unreal("-windowed -ResX=1280").windowed_arguments(),
             "-windowed -ResX=1280"
         );
-
-        let unity = |arguments: &str| Setup {
-            arguments: arguments.into(),
-            ..Setup::new(r"D:\Games\Cuphead\Cuphead.exe", "Cuphead", None)
-        };
-        assert_eq!(unity("").windowed_arguments(true), "-screen-fullscreen 0");
-        assert_eq!(
-            unity("-force-d3d11").windowed_arguments(true),
-            "-force-d3d11 -screen-fullscreen 0"
-        );
-        assert_eq!(
-            unity("-screen-fullscreen 1").windowed_arguments(true),
-            "-screen-fullscreen 1"
-        );
-        assert_eq!(
-            unity("-popupwindow").windowed_arguments(true),
-            "-popupwindow"
-        );
-
         // Any other game keeps its own arguments: no switch is known for it.
-        assert_eq!(
-            unity(" -game portal ").windowed_arguments(false),
-            "-game portal"
-        );
+        let portal = Setup {
+            arguments: " -game portal ".into(),
+            ..Setup::new(r"D:\Steam\steamapps\common\Portal\hl2.exe", "Portal", None)
+        };
+        assert_eq!(portal.windowed_arguments(), "-game portal");
     }
 
     #[test]

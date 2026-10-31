@@ -367,7 +367,7 @@ In Settings, Right opens the selected switch's help (Left in RTL). TV settings p
 | Start+Back+LB+RB on a controller, USB-driver pads included | Open the stream menu once all four are released. The stream keeps running. |
 | Start+LB when the controller has no Select/Back button | Send Select/Back. |
 | Start+Select when the controller has no Guide button | Send Guide; without Select, use Start+RB. |
-| Back on a handheld's built-in controls, with **Back button as Guide** on | Send Guide, also for a handheld's system button that acts as Back. External controllers and pads whose Select or Start is Back keep it. Android only: desktop controllers report a real Guide button. |
+| Back on any controller, with **Back button as Guide** on | Send Guide, also for a handheld's system button that acts as Back and for a controller whose Select is Back. A pad that uses Back as Start keeps it. Android only: desktop controllers report a real Guide button. |
 | Select+LB when device-motion fallback emulates a touchpad-capable controller | Send a touchpad click. |
 | Three-finger tap in Trackpad, Direct mouse or Local cursor mode | Toggle the system keyboard (or the PC keyboard when set so), or middle-click when **Three-finger tap** is set to Middle click. |
 | Stream menu → Overlay (top row) | Show or hide the overlay. **Display → Overlay and diagnostics** chooses Compact, Statistics or Debug. |

@@ -91,18 +91,17 @@ public class ControllerHandlerTest {
         assertTrue(handler.handleButtonUp(new KeyEvent(time, time + 100, KeyEvent.ACTION_UP, KeyEvent.KEYCODE_BACK, 0, 0, 0, 0)));
     }
 
-    // #49: a handheld's built-in pad (which leaves Back to Android) sends Guide for Back only with Back
-    // button as Guide on, and releases it on the way up. A pad whose Select is Back, an external pad and a
-    // pad that uses Back as Start keep Back as it was, so Select and the Start+Select+LB+RB menu chord stay.
+    // #49: with Back button as Guide on, every pad's Back sends Guide and releases it on the way up: a
+    // handheld's built-in pad (which leaves Back to Android), a pad whose Select is Back and an external pad,
+    // including built-in pads Android lists as external (Retroid). Only a pad that uses Back as Start keeps it.
     @Test
-    public void backAsGuideSendsGuideOnlyFromABuiltInPadWithItsOwnSelect() {
+    public void backAsGuideSendsGuideFromEveryPadButOneUsingBackAsStart() {
         ControllerInputReleaseTest.MenuGame activity = Robolectric.buildActivity(ControllerInputReleaseTest.MenuGame.class).get();
         RecordingConnection connection = new RecordingConnection();
         PreferenceConfiguration prefs = new PreferenceConfiguration();
         ControllerHandler handler = new ControllerHandler(activity, connection, null, prefs);
         ControllerHandler.InputDeviceContext context = ReflectionHelpers.getField(handler, "defaultContext");
         context.assignedControllerNumber = true;
-        context.hasSelectButton = true;
         try {
             assertFalse("Back stays Android's when off", handler.handleButtonDown(new KeyEvent(1000, 1000,
                     KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_BACK, 0, 0, 0, 0)));
@@ -118,17 +117,24 @@ public class ControllerHandlerTest {
 
             // Back is this pad's Select
             context.ignoreBack = false;
-            context.hasSelectButton = false;
             press(handler, 3000);
-            assertEquals(ControllerPacket.BACK_FLAG, (int) connection.buttons.get(connection.buttons.size() - 1));
+            assertEquals(ControllerPacket.SPECIAL_BUTTON_FLAG, (int) connection.buttons.get(connection.buttons.size() - 1));
             release(handler, 3000);
+            assertEquals(0, (int) connection.buttons.get(connection.buttons.size() - 1));
 
             // An external pad
-            context.hasSelectButton = true;
             context.external = true;
             press(handler, 4000);
-            assertEquals(ControllerPacket.BACK_FLAG, (int) connection.buttons.get(connection.buttons.size() - 1));
+            assertEquals(ControllerPacket.SPECIAL_BUTTON_FLAG, (int) connection.buttons.get(connection.buttons.size() - 1));
             release(handler, 4000);
+            assertEquals(0, (int) connection.buttons.get(connection.buttons.size() - 1));
+
+            // Off again: the external pad's Back is its Select
+            prefs.backAsGuide = false;
+            press(handler, 4500);
+            assertEquals(ControllerPacket.BACK_FLAG, (int) connection.buttons.get(connection.buttons.size() - 1));
+            release(handler, 4500);
+            prefs.backAsGuide = true;
 
             // A pad without Start uses Back as Start
             context.external = false;
@@ -151,7 +157,7 @@ public class ControllerHandlerTest {
         PreferenceConfiguration prefs = new PreferenceConfiguration();
         prefs.backAsGuide = true;
         ControllerHandler handler = new ControllerHandler(activity, connection, null, prefs) {
-            @Override protected boolean[] findInternalGamepadAndSelect() { return new boolean[] {true, true}; }
+            @Override protected boolean[] findInternalGamepadAndSelect() { return new boolean[] {true, true, true}; }
         };
         ControllerHandler.InputDeviceContext context = ReflectionHelpers.getField(handler, "defaultContext");
         context.assignedControllerNumber = true;
@@ -169,6 +175,16 @@ public class ControllerHandlerTest {
         } finally {
             handler.destroy();
         }
+    }
+
+    // #49: a Retroid's built-in pad is listed as external, so a system Back counts as spare whenever a
+    // gamepad is attached, unless a built-in pad has no Select of its own and uses that Back as Select.
+    @Test
+    public void systemBackIsSpareWithAnyGamepadButAShieldPortables() {
+        assertTrue(ControllerHandler.backIsSpareButton(false, false, true));
+        assertTrue(ControllerHandler.backIsSpareButton(true, true, true));
+        assertFalse(ControllerHandler.backIsSpareButton(true, false, true));
+        assertFalse(ControllerHandler.backIsSpareButton(false, false, false));
     }
 
     @Test

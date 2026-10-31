@@ -290,7 +290,7 @@ public class GameRemoteControlTest {
             super(activity, connection, null, prefs);
             this.internalSelect = internalSelect;
         }
-        @Override protected boolean[] findInternalGamepadAndSelect() { return new boolean[] {true, internalSelect}; }
+        @Override protected boolean[] findInternalGamepadAndSelect() { return new boolean[] {true, internalSelect, true}; }
     }
 
     // #49: on a handheld whose built-in pad has no Select (Shield Portable), the system Back is that pad's

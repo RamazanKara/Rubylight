@@ -918,41 +918,59 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
     }
 
     /**
-     * Back as Guide on a built-in gamepad, only where Back is a spare button: the pad has its own
-     * Select and does not use Back as Start. An external pad's Back, often its Select, stays Back.
+     * Back as Guide on any gamepad, built-in or external, as the setting asks: also a Back that is
+     * the pad's Select, which the user then gives up. Only a pad that uses Back as Start keeps it.
      */
-    static boolean isBuiltInPadBackAsGuide(boolean backAsGuide, int keyCode, int flags, boolean external,
-                                           boolean backIsStart, boolean hasSelectButton) {
-        return isBackAsGuide(backAsGuide, keyCode, flags) && !external && !backIsStart && hasSelectButton;
+    static boolean isPadBackAsGuide(boolean backAsGuide, int keyCode, int flags, boolean backIsStart) {
+        return isBackAsGuide(backAsGuide, keyCode, flags) && !backIsStart;
     }
 
     /**
      * A Back from a handheld's system button that is not on its gamepad device: one its firmware
      * injects (Android's virtual keyboard device) or a built-in key device such as gpio-keys.
      * Never the navigation bar or gesture, a fallback key, a mouse's right click, an external or
-     * alphabetic keyboard, a gamepad (handleButtonDown/Up), or a device without a built-in gamepad
-     * with its own Select (that Back is Select, see shouldIgnoreBack).
+     * alphabetic keyboard, a gamepad (handleButtonDown/Up), or a device without a gamepad whose
+     * Back is spare (see backIsSpareButton).
      */
     public static boolean isHandheldSystemBack(int keyCode, int flags, int source, boolean virtualDevice,
                                                boolean external, boolean alphabeticKeyboard, boolean gamepad,
-                                               boolean internalGamepadWithSelect) {
-        return keyCode == KeyEvent.KEYCODE_BACK && internalGamepadWithSelect &&
+                                               boolean backIsSpareButton) {
+        return keyCode == KeyEvent.KEYCODE_BACK && backIsSpareButton &&
                 (flags & (KeyEvent.FLAG_VIRTUAL_HARD_KEY | KeyEvent.FLAG_FALLBACK | KeyEvent.FLAG_SOFT_KEYBOARD)) == 0 &&
                 (source & InputDevice.SOURCE_CLASS_POINTER) == 0 &&
                 (virtualDevice || (!external && !alphabeticKeyboard && !gamepad));
     }
 
-    /** Whether this device has a built-in gamepad and a built-in Select button, on any internal device. */
+    /**
+     * Whether a gamepad is attached, and its system Back is not its Select: a built-in gamepad
+     * without its own Select (Shield Portable) uses that Back as Select (shouldIgnoreBack). Built-in
+     * pads Android lists as external, such as a Retroid's, count like any attached gamepad.
+     */
+    static boolean backIsSpareButton(boolean internalGamepad, boolean internalSelect, boolean anyGamepad) {
+        return anyGamepad && (!internalGamepad || internalSelect);
+    }
+
+    /**
+     * Whether this device has a built-in gamepad and a built-in Select button, on any internal
+     * device, and whether any gamepad, internal or external, is attached.
+     */
     protected boolean[] findInternalGamepadAndSelect() {
         InputManager im = (InputManager) activityContext.getSystemService(Context.INPUT_SERVICE);
 
         boolean foundInternalGamepad = false;
         boolean foundInternalSelect = false;
+        boolean foundGamepad = false;
         for (int id : im.getInputDeviceIds()) {
             InputDevice currentDev = im.getInputDevice(id);
+            if (currentDev == null) {
+                continue;
+            }
+            if (!currentDev.isVirtual() && hasGamepadButtons(currentDev)) {
+                foundGamepad = true;
+            }
 
             // Ignore external devices
-            if (currentDev == null || isExternal(currentDev)) {
+            if (isExternal(currentDev)) {
                 continue;
             }
 
@@ -969,16 +987,12 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
                 foundInternalGamepad = true;
             }
         }
-        return new boolean[] {foundInternalGamepad, foundInternalSelect};
+        return new boolean[] {foundInternalGamepad, foundInternalSelect, foundGamepad};
     }
 
-    /**
-     * A handheld whose system Back is a spare button: a built-in gamepad with its own Select
-     * (Retroid, GPD XD). Without one (Shield Portable), shouldIgnoreBack sends that Back as Select.
-     */
-    private boolean hasInternalGamepadWithSelect() {
-        boolean[] internal = findInternalGamepadAndSelect();
-        return internal[0] && internal[1];
+    private boolean backIsSpareButton() {
+        boolean[] found = findInternalGamepadAndSelect();
+        return backIsSpareButton(found[0], found[1], found[2]);
     }
 
     /**
@@ -994,7 +1008,7 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         if (!isHandheldSystemBack(event.getKeyCode(), event.getFlags(), event.getSource(), virtualDevice,
                 !virtualDevice && isExternal(dev),
                 !virtualDevice && dev.getKeyboardType() == InputDevice.KEYBOARD_TYPE_ALPHABETIC,
-                !virtualDevice && (hasGamepadButtons(dev) || hasJoystickAxes(dev)), hasInternalGamepadWithSelect())) {
+                !virtualDevice && (hasGamepadButtons(dev) || hasJoystickAxes(dev)), backIsSpareButton())) {
             return false;
         }
         if (stopped) {
@@ -1106,7 +1120,6 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         boolean[] buttons = dev.hasKeys(KeyEvent.KEYCODE_BUTTON_MODE, KeyEvent.KEYCODE_BUTTON_SELECT, KeyEvent.KEYCODE_BACK, 0);
         context.hasMode = buttons[0];
         context.hasSelect = buttons[1] || buttons[2];
-        context.hasSelectButton = buttons[1];
 
         context.touchpadXRange = dev.getMotionRange(MotionEvent.AXIS_X, InputDevice.SOURCE_TOUCHPAD);
         context.touchpadYRange = dev.getMotionRange(MotionEvent.AXIS_Y, InputDevice.SOURCE_TOUCHPAD);
@@ -1736,8 +1749,7 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
     // Device MAY BE NULL
     private int handleRemapping(InputDeviceContext context, KeyEvent event) {
         // Back as Guide also takes the Back that handhelds otherwise leave to Android
-        if (isBuiltInPadBackAsGuide(prefConfig.backAsGuide, event.getKeyCode(), event.getFlags(),
-                context.external, context.backIsStart, context.hasSelectButton)) {
+        if (isPadBackAsGuide(prefConfig.backAsGuide, event.getKeyCode(), event.getFlags(), context.backIsStart)) {
             return KeyEvent.KEYCODE_BUTTON_MODE;
         }
 
@@ -4024,8 +4036,6 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
 
         public int emulatingButtonFlags = 0;
         public boolean hasSelect;
-        // A BUTTON_SELECT of its own, so Back is not its Select
-        public boolean hasSelectButton;
         public boolean hasMode;
         public boolean hasPaddles;
         public boolean hasShare;

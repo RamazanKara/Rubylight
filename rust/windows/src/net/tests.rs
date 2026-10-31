@@ -446,6 +446,147 @@ fn native_udp_batches_preserve_datagrams_destinations_and_short_tail() -> Result
     Ok(())
 }
 #[test]
+fn a_segment_run_is_equal_sizes_then_at_most_one_shorter() {
+    let run = |sizes: &[usize]| {
+        let packets: Vec<Vec<u8>> = sizes.iter().map(|&n| vec![0; n]).collect();
+        Segments::run(&packets)
+    };
+    assert_eq!(run(&[]), 0);
+    assert_eq!(run(&[300]), 1);
+    assert_eq!(run(&[1200, 1200, 1200]), 3);
+    // A shorter datagram ends the run; a longer one starts the next.
+    assert_eq!(run(&[1200, 1200, 700, 1200]), 3);
+    assert_eq!(run(&[100, 1200, 1200]), 1);
+    assert_eq!(run(&[1200, 1300]), 1);
+    // At most 64 datagrams and 65507 bytes.
+    assert_eq!(run(&[100; 70]), 64);
+    assert_eq!(run(&[1200; 64]), 54);
+    assert_eq!(run(&[65507, 1]), 1);
+    // Segmentation cannot send an empty datagram.
+    assert_eq!(run(&[0, 0]), 1);
+    assert_eq!(run(&[1200, 1200, 0]), 2);
+}
+#[test]
+fn segments_keep_mixed_datagrams_in_order_in_one_write_per_run() -> Result<()> {
+    for host in ["127.0.0.1:0", "[::1]:0"] {
+        let sender = UdpSocket::bind(host)?;
+        let receiver = UdpSocket::bind(host)?;
+        receiver.set_read_timeout(Some(std::time::Duration::from_secs(2)))?;
+        let sizes = [90, 1200, 1200, 1200, 1200, 350, 1100, 1100, 160, 1];
+        let packets: Vec<Vec<u8>> = sizes
+            .iter()
+            .enumerate()
+            .map(|(i, &n)| (0..n).map(|b| (i * 31 + b) as u8).collect())
+            .collect();
+        let peer = receiver.local_addr()?;
+        let mut segments = Segments::default();
+        let sent = segments.send(&sender, &packets, peer);
+        assert_eq!((sent.datagrams, sent.failed), (sizes.len(), 0), "{host}");
+        assert_eq!(sent.bytes, sizes.iter().sum::<usize>());
+        for expected in &packets {
+            let mut buffer = [0u8; 2048];
+            let (size, from) = receiver.recv_from(&mut buffer)?;
+            assert_eq!(&buffer[..size], expected, "{host}");
+            assert_eq!(from, sender.local_addr()?);
+        }
+        // 90; the four 1200s and their 350; the two 1100s and their 160; 1.
+        assert!(segments.offload, "{host}: segmentation stays on");
+        assert_eq!(segments.system_calls, 4, "{host}");
+        // Without segmentation, one datagram per write, still in order.
+        segments.offload = false;
+        let sent = segments.send(&sender, &packets[1..6], peer);
+        assert_eq!(sent.datagrams, 5);
+        assert_eq!(segments.system_calls, 9, "{host}");
+        for expected in &packets[1..6] {
+            let mut buffer = [0u8; 2048];
+            let size = receiver.recv(&mut buffer)?;
+            assert_eq!(&buffer[..size], expected, "{host}");
+        }
+    }
+    Ok(())
+}
+#[test]
+#[ignore = "timing: cargo test -p butterpollo-windows --lib segment_burst_timing -- --ignored --nocapture"]
+fn segment_burst_timing() -> Result<()> {
+    // A frame's burst over loopback, segmented against one send_to per datagram, alternating:
+    // how long the writes take and when the burst's last datagram reaches the receiver.
+    use std::os::windows::io::AsRawSocket;
+    use std::sync::mpsc;
+    use std::time::{Duration, Instant};
+    use windows::Win32::Networking::WinSock::{SO_RCVBUF, SOCKET, SOL_SOCKET, setsockopt};
+    let sender = UdpSocket::bind("127.0.0.1:0")?;
+    let receiver = UdpSocket::bind("127.0.0.1:0")?;
+    let buffer = (16i32 << 20).to_ne_bytes();
+    let socket = SOCKET(receiver.as_raw_socket() as usize);
+    // SAFETY: the socket is open for the call and the option value is a valid i32 buffer.
+    let set = unsafe { setsockopt(socket, SOL_SOCKET, SO_RCVBUF, Some(&buffer)) };
+    assert_eq!(set, 0);
+    let peer = receiver.local_addr()?;
+    let (arrived, last) = mpsc::channel();
+    std::thread::spawn(move || {
+        let mut buffer = [0u8; 2048];
+        let mut count = 0usize;
+        while let Ok(size) = receiver.recv(&mut buffer) {
+            count += 1;
+            if size > 0 && buffer[0] == 1 {
+                let _ = arrived.send((Instant::now(), count));
+                count = 0;
+            }
+        }
+    });
+    let percentile = |values: &mut Vec<f64>, p: f64| {
+        values.sort_by(f64::total_cmp);
+        values[((values.len() - 1) as f64 * p).round() as usize]
+    };
+    // A 4K60 P frame at 23 Mbps (48 KB) and a 4K key frame (300 KB), as 1200-byte RTP packets.
+    for (name, count) in [("p-frame", 41usize), ("key-frame", 251)] {
+        let mut packets = vec![vec![0u8; 1200]; count];
+        packets[count - 1] = vec![1u8; 700];
+        let mut results: [(Vec<f64>, Vec<f64>); 2] = Default::default();
+        let mut segments = Segments::default();
+        for trial in 0..4000 {
+            let offload = trial % 2 == 0;
+            segments.offload = offload;
+            let start = Instant::now();
+            let sent = segments.send(&sender, &packets, peer);
+            let written = start.elapsed();
+            let (at, received) = last.recv_timeout(Duration::from_secs(2))?;
+            assert_eq!((sent.datagrams, received), (count, count), "{name}");
+            assert_eq!(segments.offload, offload, "segmentation stays on");
+            let result = &mut results[usize::from(offload)];
+            result.0.push(written.as_secs_f64() * 1e6);
+            result.1.push(at.duration_since(start).as_secs_f64() * 1e6);
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        for (mode, (written, arrived)) in ["send_to", "segmented"].iter().zip(&mut results) {
+            println!(
+                "{name:9} {mode:9} write us p50 {:7.1} p99 {:7.1}  last arrival us p50 {:7.1} p90 {:7.1} p99 {:7.1}",
+                percentile(written, 0.5),
+                percentile(written, 0.99),
+                percentile(arrived, 0.5),
+                percentile(arrived, 0.9),
+                percentile(arrived, 0.99),
+            );
+        }
+    }
+    Ok(())
+}
+#[test]
+fn segments_count_a_failed_run_as_lost_and_go_on() -> Result<()> {
+    // An IPv4 socket cannot reach an IPv6 peer: every datagram fails, none is fatal, and an
+    // address error does not turn segmentation off. The failed run is tried again one datagram
+    // at a time, so a passing error loses only the datagrams it hits.
+    let sender = UdpSocket::bind("127.0.0.1:0")?;
+    let packets = vec![vec![7u8; 500]; 5];
+    let mut segments = Segments::default();
+    let sent = segments.send(&sender, &packets, "[::1]:9".parse()?);
+    assert_eq!((sent.datagrams, sent.failed), (0, 5));
+    assert!(sent.error.is_some());
+    assert!(segments.offload);
+    assert_eq!(segments.system_calls, 6);
+    Ok(())
+}
+#[test]
 fn qos_leaves_clients_it_cannot_tag_alone() -> Result<()> {
     let socket = UdpSocket::bind("127.0.0.1:0")?;
     assert!(QosFlow::new(&socket, "127.0.0.1:9".parse()?, false)?.is_none());

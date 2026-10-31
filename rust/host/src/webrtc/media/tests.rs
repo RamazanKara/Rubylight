@@ -975,6 +975,66 @@ fn simulated_losses_are_counted_and_reported_only_with_the_switch_on() {
 }
 
 #[test]
+fn a_batch_goes_out_in_order_in_fewer_writes_than_datagrams() {
+    let socket = UdpSocket::bind("127.0.0.1:0").unwrap();
+    let receivers: Vec<UdpSocket> = (0..2)
+        .map(|_| UdpSocket::bind("127.0.0.1:0").unwrap())
+        .collect();
+    for receiver in &receivers {
+        receiver
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .unwrap();
+    }
+    let (handle, _rx, _idr) = detached(TransportOptions::default());
+    let mut queue = SendQueue::new(Pacing::Off, 30_000, PERIOD, false, Instant::now());
+    // A frame's packets (equal, its last shorter), control and audio of other sizes around
+    // them, and a second peer in the middle: each datagram tagged with its place.
+    let sizes = [
+        100, 1200, 1200, 1200, 1200, 1200, 1200, 1200, 1200, 700, 160, 1200, 1200, 90,
+    ];
+    let mut expected: Vec<Vec<Vec<u8>>> = vec![Vec::new(), Vec::new()];
+    for (i, &size) in sizes.iter().enumerate() {
+        let peer = usize::from(i == 10);
+        let mut packet = Outgoing {
+            destination: receivers[peer].local_addr().unwrap(),
+            ..if (1..10).contains(&i) || (11..13).contains(&i) {
+                rtp_packet(size)
+            } else {
+                Outgoing {
+                    data: vec![0x16; size],
+                    ..control_packet()
+                }
+            }
+        };
+        packet.data[2] = i as u8;
+        expected[peer].push(packet.data.clone());
+        queue.push(packet);
+    }
+    let mut batch = Batch::default();
+    send_due(&socket, &mut queue, &mut batch, &handle.shared);
+    assert!(queue.is_empty());
+    for (receiver, expected) in receivers.iter().zip(&expected) {
+        for want in expected {
+            let mut buffer = [0u8; 2048];
+            let (size, _) = receiver.recv_from(&mut buffer).unwrap();
+            assert_eq!(&buffer[..size], &want[..], "datagram {}", want[2]);
+        }
+    }
+    let stats = handle.stats();
+    assert_eq!(stats.datagrams_sent, sizes.len() as u64);
+    assert_eq!(stats.bytes_sent, sizes.iter().sum::<usize>() as u64);
+    assert_eq!(stats.send_errors, 0);
+    // Where segmentation works (loopback has it on every supported Windows): the lone 100, the
+    // frame and its short last, the 160 to the other peer, then the two 1200s and the 90.
+    println!(
+        "{} datagrams, {} writes",
+        sizes.len(),
+        batch.segments.system_calls
+    );
+    assert_eq!(batch.segments.system_calls, 4);
+}
+
+#[test]
 fn the_pacer_sends_one_millisecond_of_media_per_group() {
     let now = Instant::now();
     // 12 Mbps is 1500 bytes of wire traffic a millisecond: one 1100-byte datagram (1166 on the

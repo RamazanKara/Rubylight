@@ -11,6 +11,7 @@ use super::sdp::{
 };
 use anyhow::{Context, Result, anyhow, bail};
 use butterpollo_core::{audio::OpusLayout, network_pacing};
+use butterpollo_windows::net::Segments;
 use butterpollo_windows::timing::{Signal, Timer};
 use socket2::{Domain, Protocol as SockProtocol, Socket, Type};
 use std::collections::VecDeque;
@@ -195,6 +196,12 @@ pub struct Outgoing {
     /// Video RTP, which the pacer spreads. Audio, STUN, DTLS, SCTP and RTCP go out at once: a
     /// 200-byte Opus packet must not queue behind a keyframe.
     pub paced: bool,
+}
+
+impl AsRef<[u8]> for Outgoing {
+    fn as_ref(&self) -> &[u8] {
+        &self.data
+    }
 }
 
 /// RTP, not RTCP, STUN or DTLS (RFC 7983 demultiplexing, rtcp-mux).
@@ -748,6 +755,8 @@ pub struct Batch {
     pub paced_packets: usize,
     /// The rate the group was cut for.
     rate_bps: u64,
+    /// The socket writes, one per run of equal-sized datagrams to a peer.
+    pub segments: Segments,
 }
 
 impl SendQueue {
@@ -1675,35 +1684,35 @@ fn send_due(socket: &UdpSocket, queue: &mut SendQueue, batch: &mut Batch, shared
                 *peer = Some(last.destination);
             }
         }
-        for out in &batch.packets {
-            if queue.lost_in_the_air(out) {
-                shared
-                    .counters
-                    .simulated_losses
-                    .fetch_add(1, Ordering::Relaxed);
-                continue;
-            }
-            match socket.send_to(&out.data, out.destination) {
-                Ok(_) => {
-                    shared
-                        .counters
-                        .datagrams_sent
-                        .fetch_add(1, Ordering::Relaxed);
-                    shared
-                        .counters
-                        .bytes_sent
-                        .fetch_add(out.data.len() as u64, Ordering::Relaxed);
-                }
-                Err(e) => {
-                    // Loud, but not fatal: the peer may be between networks.
-                    if shared
-                        .counters
-                        .send_errors
-                        .fetch_add(1, Ordering::Relaxed)
-                        .is_multiple_of(100)
-                    {
-                        tracing::warn!("webrtc: sending to {} failed: {e}", out.destination);
-                    }
+        // The simulated link loses them before the socket; the pacer still spent their time.
+        let before = batch.packets.len();
+        batch.packets.retain(|out| !queue.lost_in_the_air(out));
+        shared
+            .counters
+            .simulated_losses
+            .fetch_add((before - batch.packets.len()) as u64, Ordering::Relaxed);
+        // In order: each peer's run of datagrams in as few writes as segmentation allows.
+        let mut rest = &batch.packets[..];
+        while let Some(first) = rest.first() {
+            let to = first.destination;
+            let (run, tail) =
+                rest.split_at(rest.iter().take_while(|out| out.destination == to).count());
+            rest = tail;
+            let sent = batch.segments.send(socket, run, to);
+            let counters = &shared.counters;
+            counters
+                .datagrams_sent
+                .fetch_add(sent.datagrams as u64, Ordering::Relaxed);
+            counters
+                .bytes_sent
+                .fetch_add(sent.bytes as u64, Ordering::Relaxed);
+            if let Some(e) = sent.error {
+                // Loud, but not fatal: the peer may be between networks. Logged for the first
+                // and every hundredth.
+                let failed = sent.failed as u64;
+                let n = counters.send_errors.fetch_add(failed, Ordering::Relaxed);
+                if n.next_multiple_of(100) < n + failed {
+                    tracing::warn!("webrtc: sending to {to} failed: {e}");
                 }
             }
         }

@@ -4246,11 +4246,28 @@ fn host_status(host: &Host) -> (String, Role, Role) {
 }
 
 /// The cover art, or the night surface with the banner's orbits when the PC has none.
+/// The part of art of size `art` that fills a box of size `box_size` without stretching it: the
+/// middle of it, cut at the sides or at top and bottom (CSS's `object-fit: cover`).
+fn cover_uv(art: Vec2, box_size: Vec2) -> Rect {
+    if art.x <= 0.0 || art.y <= 0.0 || box_size.x <= 0.0 || box_size.y <= 0.0 {
+        return Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0));
+    }
+    let (art_aspect, box_aspect) = (art.x / art.y, box_size.x / box_size.y);
+    if art_aspect > box_aspect {
+        let w = box_aspect / art_aspect;
+        Rect::from_min_max(Pos2::new((1.0 - w) / 2.0, 0.0), Pos2::new((1.0 + w) / 2.0, 1.0))
+    } else {
+        let h = art_aspect / box_aspect;
+        Rect::from_min_max(Pos2::new(0.0, (1.0 - h) / 2.0), Pos2::new(1.0, (1.0 + h) / 2.0))
+    }
+}
+
 fn paint_cover(ui: &Ui, image: Rect, name: &str, art: Option<&Art>, running: bool) {
     let painter = ui.painter_at(image.expand(6.0));
     match art {
         Some(Art::Ready(texture)) => {
             egui::Image::from_texture((texture.id(), image.size()))
+                .uv(cover_uv(texture.size_vec2(), image.size()))
                 .corner_radius(CornerRadius::same(10))
                 .paint_at(ui, image);
         }
@@ -6322,6 +6339,39 @@ https://192.0.2.7:47990"));
         f.press(Key::ArrowRight);
         f.settle();
         assert_eq!((count(&f, "Game 00"), count(&f, "Game 01")), (0, 1), "the name follows the focus: {:?}", f.drawn);
+    }
+
+    /// Cover art that is not 3:4 fills its box without being squashed: its middle shows, cut at the
+    /// sides (wide art) or at top and bottom (tall art).
+    #[test]
+    fn cover_art_fills_its_box_cropped_never_squashed() {
+        let close = |uv: Rect, x: (f32, f32), y: (f32, f32)| {
+            (uv.min.x - x.0).abs() < 1e-4 && (uv.max.x - x.1).abs() < 1e-4 && (uv.min.y - y.0).abs() < 1e-4 && (uv.max.y - y.1).abs() < 1e-4
+        };
+        let poster = vec2(3.0, 4.0);
+        assert!(close(cover_uv(vec2(300.0, 400.0), poster), (0.0, 1.0), (0.0, 1.0)), "3:4 art shows whole");
+        assert!(close(cover_uv(vec2(600.0, 400.0), poster), (0.25, 0.75), (0.0, 1.0)), "wide art loses its sides");
+        assert!(close(cover_uv(vec2(300.0, 800.0), poster), (0.0, 1.0), (0.25, 0.75)), "tall art loses top and bottom");
+        // And Home draws it that way: the art's texture is sampled from its middle half only.
+        let mut f = home_with_games(1);
+        let texture = f.ctx.load_texture("wide", egui::ColorImage::new([6, 4], vec![Color32::GRAY; 24]), egui::TextureOptions::LINEAR);
+        let pc = &mut f.hosts.list[0];
+        let g = &mut pc.native.library.as_mut().expect("a library").games[0];
+        g.artwork = nightjar_core::http::native_api::library::Artwork { cover: Some("/cover/0".into()), version: "1".into() };
+        pc.art.insert(g.app_id as i32, Art::Ready(texture.clone()));
+        f.settle();
+        let primitives = f.ctx.tessellate(f.shapes.clone(), f.ctx.pixels_per_point());
+        let us: Vec<f32> = primitives
+            .iter()
+            .filter_map(|p| match &p.primitive {
+                egui::epaint::Primitive::Mesh(mesh) if mesh.texture_id == texture.id() => Some(mesh.vertices.iter().map(|v| v.uv.x)),
+                _ => None,
+            })
+            .flatten()
+            .collect();
+        assert!(!us.is_empty(), "the cover was drawn");
+        let (lo, hi) = us.iter().fold((f32::MAX, f32::MIN), |(lo, hi), u| (lo.min(*u), hi.max(*u)));
+        assert!(lo > 0.2 && hi < 0.8, "the wide art is cropped to its middle: u from {lo} to {hi}");
     }
 
     /// Home's PC card says a PC's state once: an offline PC reads "Offline", never "Offline · Offline".

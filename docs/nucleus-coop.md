@@ -93,8 +93,13 @@ again for each of its sessions.
 
 The game runs from its own folder: nothing is copied, linked or written there,
 and Nucleus Co-op needs no extra tools for it. Its window keeps running and
-reading the pad without focus, and it never sees the PC's keyboard or moves
-the PC's cursor.
+reading the pad without focus. It doesn't move the PC's cursor, and keys,
+clicks, the wheel and cursor positions from the PC's keyboard and mouse don't
+reach it, even when it comes to the front. An Unreal Engine game (its .exe in
+`<Project>\Binaries\Win64`) starts with `-windowed` and a Unity game
+(`UnityPlayer.dll` beside its .exe) with `-screen-fullscreen 0`, unless the
+app's arguments already choose a mode, so it stays in its window beside the
+desktop instead of covering the PC's monitor.
 
 - **The app names the game's .exe, or is a Steam link.** For
   `steam://rungameid/<id>` the host starts the .exe Steam would, with that
@@ -330,10 +335,20 @@ the Nucleus Co-op panel under **Help**.
 
 - **Controllers only.** Each slot gets one virtual Xbox controller, so up to 4
   XInput players. The device's first controller drives its slot. Keyboard,
-  mouse, touch and pen are not sent to the game, and the stream says so.
+  mouse, touch and pen are not sent to the game, and the stream says so. A
+  session first unplugs the virtual controllers an earlier session still
+  holds, so its players take the lowest XInput slots free. If one of the PC's
+  own controllers, or another stream's, sits in a lower slot, the stream
+  warns: a game that reads XInput past Nucleus Co-op's hooks takes that
+  controller instead.
 - **Window capture.** Each instance's window is captured with Windows Graphics
   Capture (Windows 10 1903, build 18362, or later), and the window is parked
   away from the PC's monitors. Your displays and their layout are not touched.
+  The host puts the window back whenever it moves or resizes itself. One that
+  keeps returning to a PC monitor, or minimising itself (some fullscreen games
+  do when they lose the focus), is restored for the whole stream, every 2
+  seconds after the first 5. One that only keeps a place or size of its own
+  away from the monitors is left there.
 - **Sound.** Each stream carries its own instance's sound. Separate sound per
   player needs Windows build 20348 or later. On older builds the host says so.
 - One Nucleus Co-op session at a time: a second one is refused while Nucleus

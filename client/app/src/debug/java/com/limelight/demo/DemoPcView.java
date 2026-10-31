@@ -23,7 +23,8 @@ public final class DemoPcView extends PcView {
     @Override public void startActivityForResult(Intent intent, int requestCode, Bundle options) {
         String target = intent.getComponent() != null ? intent.getComponent().getClassName() : null;
         if (StreamSettings.class.getName().equals(target)) {
-            super.startActivityForResult(new Intent(this, DemoStreamSettings.class), requestCode, options);
+            // The extras come along: from the shell bar, Settings is a top-level page with no back arrow.
+            super.startActivityForResult(new Intent(intent).setClass(this, DemoStreamSettings.class), requestCode, options);
         } else if (HostStreamSettings.class.getName().equals(target)) {
             // PC settings… in a PC's menu opens the real per-PC screen on the fixtures.
             super.startActivityForResult(new Intent(intent).setClass(this, DemoHostStreamSettings.class), requestCode, options);

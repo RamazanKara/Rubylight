@@ -143,6 +143,23 @@ public class DemoModeTest {
         } finally { page.pause().stop().destroy(); }
     }
 
+    @Test public void settingsFromTheDemoShellBarKeepsItsExtrasSoItHasNoBackArrow() throws Exception {
+        DemoContext context = new DemoContext(RuntimeEnvironment.getApplication());
+        DemoFixtures.prepare(context);
+        GlPreferences gl = GlPreferences.readPreferences(context);
+        gl.savedFingerprint = Build.FINGERPRINT;
+        gl.glRenderer = "Test renderer";
+        gl.writePreferences();
+        var pc = Robolectric.buildActivity(DemoPcView.class).setup();
+        try {
+            pc.get().findViewById(R.id.shell_settings).performClick();
+            Intent next = shadowOf(pc.get()).getNextStartedActivity();
+            assertEquals(DemoStreamSettings.class.getName(), next.getComponent().getClassName());
+            assertTrue("the demo's Settings is the bar's top-level page, as in the app",
+                    next.getBooleanExtra(com.limelight.ui.ShellBar.EXTRA_FROM_SHELL, false));
+        } finally { pc.pause().stop().destroy(); }
+    }
+
     @Test public void realPcAndAppAdaptersReceiveDemoRowsAndRunningState() throws Exception {
         DemoContext context = new DemoContext(RuntimeEnvironment.getApplication());
         DemoFixtures.prepare(context);

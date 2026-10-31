@@ -130,7 +130,8 @@ public final class DemoConsoleHome extends ConsoleHomeActivity {
         } else if (PcView.class.getName().equals(target)) {
             super.startActivity(new Intent(intent).setClass(this, DemoPcView.class), options);
         } else if (StreamSettings.class.getName().equals(target)) {
-            super.startActivity(new Intent(this, DemoStreamSettings.class), options);
+            // The extras come along: from the shell bar, Settings is a top-level page with no back arrow.
+            super.startActivity(new Intent(intent).setClass(this, DemoStreamSettings.class), options);
         } else if (target != null && (target.startsWith("com.limelight.demo.") || target.startsWith("com.limelight.pin."))) {
             // The demo's own screens, and the PIN lock pad the app lock puts over Home.
             super.startActivity(intent, options);

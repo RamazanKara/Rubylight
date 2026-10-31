@@ -111,6 +111,7 @@ impl Launcher {
                     return;
                 }
                 scroll(ui, "apps", |ui| {
+                    ui.add_space(LIFT);
                     let (columns, width) = grid(ui.available_width());
                     for (row, chunk) in apps.chunks(columns).enumerate() {
                         ui.horizontal(|ui| {
@@ -320,6 +321,11 @@ impl Launcher {
         if !chips.iter().any(|c| c.filter == self.library_filter) {
             self.library_filter = console::LibraryFilter::All;
         }
+        // A chip exists only for games it shows: with none, the library itself is empty.
+        if chips.is_empty() {
+            ui.label(RichText::new(tr("No games to show yet. They appear here once a PC that shares its game library is online.")).color(ON_SURFACE_VARIANT));
+            return;
+        }
         ui.horizontal_wrapped(|ui| {
             ui.spacing_mut().item_spacing = vec2(space::S, space::S);
             for (n, chip) in chips.iter().enumerate() {
@@ -338,13 +344,17 @@ impl Launcher {
                 }
             }
         });
-        ui.add_space(space::L);
+        // The room a raised cover's ring needs at the top of the scroll comes out of the gap.
+        ui.add_space(space::L - LIFT);
         let shown = console::filtered(&entries, &self.library_filter);
+        // Installed is offered while anything is not, so with nothing installed it holds no game.
         if shown.is_empty() {
-            ui.label(RichText::new(tr("No games to show yet. They appear here once a PC that shares its game library is online.")).color(ON_SURFACE_VARIANT));
+            ui.add_space(LIFT);
+            ui.label(RichText::new(tr("No games match this filter.")).color(ON_SURFACE_VARIANT));
             return;
         }
         scroll(ui, "all-games", |ui| {
+            ui.add_space(LIFT);
             let (columns, width) = grid(ui.available_width());
             let mut first = true;
             for line in shown.chunks(columns) {

@@ -3024,6 +3024,54 @@ fn all_games_filters_by_store_and_by_what_is_installed() {
     assert_eq!(f.l.library_filter, console::LibraryFilter::Installed);
 }
 
+/// Screenshot review: the focused first cover rises into the top of the scroll, and its ring was
+/// cut there (in high contrast most). The grid leaves the room, on All games and a PC's library.
+#[test]
+fn a_risen_covers_ring_is_not_cut_at_the_top_of_the_grid() {
+    for high in [false, true] {
+        let mut store = store_mix();
+        store.l.open(Screen::AllGames);
+        let mut classic = Frames::with(record("Desk", true, true), Reach::Online, Some(answer(true, 0)), vec![game(7), game(9)]);
+        let id = classic.hosts.list[0].id;
+        classic.l.open(Screen::Apps(id));
+        for (page, f) in [("All games", &mut store), ("library", &mut classic)] {
+            f.l.settings.high_contrast = high;
+            for _ in 0..5 {
+                f.settle();
+            }
+            let cover = f.ctx.memory(|m| m.focused()).and_then(|id| f.ctx.read_response(id)).expect("the first cover has focus").rect;
+            let mut rings = Vec::new();
+            for clipped in &f.shapes {
+                if let egui::Shape::Rect(r) = &clipped.shape {
+                    if r.stroke.color == *MOON && r.stroke.width > 0.0 {
+                        rings.push((r.rect.expand(r.stroke.width), clipped.clip_rect));
+                    }
+                }
+            }
+            let (ring, clip) = *rings.first().unwrap_or_else(|| panic!("{page}, {high}: a ring"));
+            assert!(ring.top() < cover.top() - FOCUS_GAP - 1.0, "{page}, {high}: the cover rose: {ring:?} for {cover:?}");
+            assert!(clip.contains_rect(ring), "{page}, {high}: the ring {ring:?} is cut by {clip:?}");
+        }
+    }
+}
+
+/// With nothing installed the Installed chip holds no game and says so; an empty library has no
+/// chips at all, only the line saying why.
+#[test]
+fn an_empty_filter_and_an_empty_library_say_so() {
+    let mut f = home_with_stores(&[("Halo Infinite", "microsoft", false), ("Diablo IV", "battlenet", false)]);
+    f.l.open(Screen::AllGames);
+    f.settle();
+    let chip = f.placed.iter().find(|(t, r, _)| t == "Installed" && r.center().y < 200.0).map(|p| p.1).expect("an Installed chip");
+    f.click_at(chip.center(), egui::PointerButton::Primary);
+    assert!(shows(&f, "No games match this filter.") && !shows(&f, "Halo Infinite"), "{:?}", f.drawn);
+    let mut f = home_with_stores(&[]);
+    f.l.open(Screen::AllGames);
+    f.settle();
+    assert!(shows(&f, "No games to show yet. They appear here once a PC that shares its game library is online."), "{:?}", f.drawn);
+    assert!(!shows(&f, "All") && !shows(&f, "No games match this filter."), "no chips: {:?}", f.drawn);
+}
+
 /// The chips come before the games for Tab and the arrow keys, and the first game has focus on
 /// arrival, so A starts browsing straight away.
 #[test]

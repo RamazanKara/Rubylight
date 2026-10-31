@@ -140,7 +140,8 @@ impl FrameQueue {
 
     /// The next frame or chunk, or `None` once shut down. The chunk buffers in `returned` go
     /// back to the spares under the lock this takes anyway: once [`RETURN_BATCH`] have
-    /// gathered, and before sleeping on an empty queue.
+    /// gathered, before sleeping on an empty queue, and with every frame, which the decoder
+    /// may take a while over while the receiver needs buffers for the next frame's chunks.
     pub fn wait(&self, returned: &mut Vec<Vec<u8>>) -> Option<Item> {
         let mut state = lock(&self.state);
         loop {
@@ -152,7 +153,10 @@ impl FrameQueue {
             }
             if let Some(item) = state.items.pop_front() {
                 match item {
-                    Item::Frame(_) => state.frames -= 1,
+                    Item::Frame(_) => {
+                        state.frames -= 1;
+                        state.take_spares(returned);
+                    }
                     Item::Chunk(_) => state.chunks -= 1,
                 }
                 return Some(item);
@@ -676,6 +680,29 @@ mod tests {
         queue.wait(&mut many);
         assert!(many.is_empty());
         assert_eq!(spares(), CHUNK_QUEUE_BOUND);
+    }
+
+    #[test]
+    fn a_frame_takes_its_chunk_buffers_back_before_the_decoder_holds_it() {
+        // The decoder may sit in submit for a while; the buffers of the chunks it already
+        // decoded must be there for the next frame's chunks, or the receiver allocates new
+        // ones whenever the decoder happens to hold more than before.
+        let queue = FrameQueue::default();
+        for i in 0..3 {
+            assert!(queue.offer_chunk(i == 0, 0, &[i]));
+        }
+        queue.offer(Frame::default()).unwrap();
+        let mut back = Vec::new();
+        for _ in 0..3 {
+            let Some(Item::Chunk(chunk)) = queue.wait(&mut back) else {
+                panic!("a chunk")
+            };
+            back.push(chunk.data);
+        }
+        let spares = || lock(&queue.state).spare.len();
+        assert_eq!((back.len(), spares()), (3, 0), "chunks alone wait for a batch");
+        assert!(matches!(queue.wait(&mut back), Some(Item::Frame(_))));
+        assert_eq!((back.len(), spares()), (0, 3), "the frame hands them back");
     }
 
     #[test]

@@ -1256,6 +1256,11 @@ impl App {
                     self.launcher.message(title, body);
                 }
             }
+            Command::OpenGuide(page) => {
+                if let Some((title, body)) = host_page::open_guide(page, sdl::open_url) {
+                    self.launcher.message(title, body);
+                }
+            }
             Command::CancelPair => self.hosts.cancel_pairing(),
             Command::AddHost(text) => self.add_entry(&text),
             Command::AddFromClipboard => match gui::clipboard_text() {

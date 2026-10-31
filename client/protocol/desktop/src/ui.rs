@@ -18,6 +18,9 @@ use crate::strings::{en, tr, trf};
 use crate::stream::{pyrowave_bitrate_warning, stream_mode, Display};
 use crate::theme::*;
 
+/// Where Nightjar's guides live, the pages Android's help opens.
+pub const GUIDES: &str = "https://github.com/RamazanKara/nightjar/blob/main/docs/";
+
 pub enum Command {
     Launch { host: u64, app: i32, resume: bool },
     /// Input-only through a small ordinary stream, on a PC without its own Input-only mode.
@@ -66,6 +69,8 @@ pub enum Command {
     RemoteCheck(u64),
     /// Open a PC's web UI in the default browser.
     OpenWebUi(String),
+    /// Open one of Nightjar's guides (a page under [`GUIDES`]) in the default browser.
+    OpenGuide(&'static str),
     /// Open the details page's browser of the folders a PC shares with this device.
     SharedFolders(u64),
     /// Choose a folder here and download the file `name` of the listed directory into it.
@@ -446,6 +451,17 @@ fn text_button(ui: &mut Ui, text: &str) -> Response {
         .frame(false)
         .min_size(vec2(0.0, 36.0));
     let response = ui.add(button);
+    focus_ring(ui, response.rect, &response, radius::CONTROL);
+    response
+}
+
+/// A link in running text (How to connect): amber words, underlined while pointed at.
+fn link_button(ui: &mut Ui, text: &str) -> Response {
+    let words = RichText::new(tr(text)).color(MOON).font(semibold(text::LABEL));
+    let id = ui.next_auto_id();
+    let hovered = ui.ctx().read_response(id).is_some_and(|r| r.hovered() || r.has_focus());
+    let button = egui::Button::new(if hovered { words.underline() } else { words }).frame(false).min_size(vec2(0.0, 32.0));
+    let response = ui.add(button).on_hover_cursor(egui::CursorIcon::PointingHand);
     focus_ring(ui, response.rect, &response, radius::CONTROL);
     response
 }
@@ -944,10 +960,8 @@ impl Launcher {
                     let name = view.hosts.get(id).map_or("", |h| h.display_name()).to_owned();
                     ui.label(RichText::new(name).font(semibold(text::SECTION)).color(PAPER));
                 }
+                // A top-level page, as Home and PCs: the top bar leads away, Escape or B still goes back.
                 Screen::Settings => {
-                    if text_button(ui, "‹  Back").clicked() {
-                        self.back(commands);
-                    }
                     ui.label(RichText::new(tr("Settings")).font(semibold(text::SECTION)).color(PAPER));
                 }
                 Screen::HostSettings(_) | Screen::AppSettings(_) | Screen::ProfileSettings(_) => {
@@ -1105,6 +1119,18 @@ impl Launcher {
                     }
                 });
                 ui.add_space(16.0);
+            }
+            // A short list may not be all of them: say the search goes on and where help is.
+            if view.hosts.list.len() <= columns {
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = space::S;
+                    ui.label(RichText::new(tr("Looking for other PCs on this network")).color(ON_SURFACE_VARIANT));
+                    let help = link_button(ui, "How to connect");
+                    self.focus_item(&help, "how-to-connect", false);
+                    if help.clicked() {
+                        commands.push(Command::OpenGuide("pairing.md"));
+                    }
+                });
             }
             ui.add_space(8.0);
             ui.label(
@@ -1405,20 +1431,21 @@ impl Launcher {
             ui.spacing_mut().item_spacing.x = 28.0;
             let (rect, response) = ui.allocate_exact_size(vec2(POSTER_W, POSTER_H), Sense::hover());
             let art = host.art.get(&(app_id as i32));
-            paint_cover(ui, rect, &game.title, art, detail.state != GameState::Idle);
+            // The state chip beside the title says it; a badge on the cover would say it twice.
+            paint_cover(ui, rect, &game.title, art, false);
             request_cover(ui, view, host_id, app_id, &game.artwork.version, &response, commands);
             ui.vertical(|ui| {
                 ui.set_max_width(640.0);
+                match detail.state {
+                    GameState::Running => state_chip(ui, "Running", OK),
+                    GameState::Suspended => state_chip(ui, "Suspended", TERTIARY),
+                    GameState::Idle => {}
+                }
                 ui.label(RichText::new(&game.title).font(semibold(text::TITLE)).color(ON_SURFACE));
                 if let Some(store) = &game.store {
                     ui.label(RichText::new(&store.name).color(ON_SURFACE_VARIANT));
                 }
-                let (status, color) = match detail.state {
-                    GameState::Running => (trf("Running on {}", &[&source.name]), OK),
-                    GameState::Suspended => (trf("Suspended on {}", &[&source.name]), TERTIARY),
-                    GameState::Idle => (trf("On {}", &[&source.name]), ON_SURFACE_VARIANT),
-                };
-                ui.label(RichText::new(status).font(semibold(text::BODY)).color(color));
+                pc_line(ui, source.name);
                 ui.add_space(8.0);
                 if host.reach == Reach::Offline {
                     ui.label(RichText::new(tr("This PC is offline. Your saved library is still here. Reconnect to play.")).color(ERROR));
@@ -4297,7 +4324,7 @@ fn host_status(host: &Host) -> (String, Role, Role) {
     match (host.reach, host.paired()) {
         (Reach::Offline, _) => (tr("Offline").to_owned(), OUTLINE, OUTLINE),
         (Reach::Unknown, _) => (tr("Checking…").to_owned(), ON_SURFACE_VARIANT, ON_SURFACE_VARIANT),
-        (Reach::Online, false) => (tr("Not paired · Select to pair").to_owned(), TERTIARY, ON_SURFACE_VARIANT),
+        (Reach::Online, false) => (tr("Ready to pair").to_owned(), TERTIARY, ON_SURFACE_VARIANT),
         (Reach::Online, true) => match host.running_app() {
             Some(_) => (tr("Paired · an app is running").to_owned(), OK, OK),
             None => (tr("Paired · ready").to_owned(), OK, OK),
@@ -4368,6 +4395,39 @@ fn running_badge(painter: &egui::Painter, at: Pos2) -> Rect {
     let words_at = Pos2::new(dot.x + DOT + space::S, badge.center().y - words.size().y / 2.0);
     painter.galley(words_at, words, Color32::WHITE);
     badge
+}
+
+/// A game's state over its title, as Android's game page: a dot and the word in the state's
+/// colour on a pill of the same hue.
+fn state_chip(ui: &mut Ui, label: &str, color: Role) {
+    const DOT: f32 = 4.0;
+    let color: Color32 = color.into();
+    let words = ui.painter().layout_no_wrap(tr(label).to_owned(), semibold(text::CAPTION), color);
+    let size = vec2(space::M + DOT * 2.0 + space::S + words.size().x + space::M, 26.0);
+    let (rect, response) = ui.allocate_exact_size(size, Sense::hover());
+    let painter = ui.painter();
+    painter.rect_filled(rect, CornerRadius::same(13), color.gamma_multiply(0.16));
+    let dot = Pos2::new(rect.left() + space::M + DOT, rect.center().y);
+    painter.circle_filled(dot, DOT, color);
+    painter.galley(Pos2::new(dot.x + DOT + space::S, rect.center().y - words.size().y / 2.0), words, color);
+    name_for_readers(ui, &response, tr(label), "");
+    ui.add_space(space::XS);
+}
+
+/// The PC a game is on: a monitor and its name on their own line.
+fn pc_line(ui: &mut Ui, name: &str) {
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = space::S;
+        let (rect, _) = ui.allocate_exact_size(vec2(18.0, 18.0), Sense::hover());
+        let ink: Color32 = ON_SURFACE_VARIANT.into();
+        let stroke = Stroke::new(1.5, ink);
+        let screen = Rect::from_min_max(rect.left_top() + vec2(1.0, 2.0), rect.right_top() + vec2(-1.0, 13.0));
+        ui.painter().rect_stroke(screen, CornerRadius::same(2), stroke, egui::StrokeKind::Inside);
+        let foot = rect.center_bottom() - vec2(0.0, 2.0);
+        ui.painter().line_segment([Pos2::new(foot.x, screen.bottom()), foot], stroke);
+        ui.painter().line_segment([foot - vec2(4.0, 0.0), foot + vec2(4.0, 0.0)], stroke);
+        ui.label(RichText::new(name).font(regular(text::BODY)).color(ON_SURFACE_VARIANT));
+    });
 }
 
 /// Delete, or Y on a gamepad (mapped to F3), takes the star off the focused favourite.
@@ -6537,6 +6597,85 @@ https://192.0.2.7:47990"));
         assert!(shows(&f, "PCS"), "the section is Android's \"PCs\": {:?}", f.drawn);
     }
 
+    /// As Android's game page: the state in a chip over the title and the PC on its own line, not a
+    /// "Running on …" sentence; a game that isn't running has no chip.
+    #[test]
+    fn the_game_page_says_its_state_in_a_chip_and_the_pc_on_its_own_line() {
+        let mut f = home_with_games(2);
+        let pc = f.hosts.list[0].id;
+        f.hosts.list[0].info = Some(answer(true, 1000));
+        f.hosts.list[0].apps = Apps::Loaded(vec![nightjar_core::http::App { name: "Game 00".into(), uuid: "install-0".into(), ..game(1000) }]);
+        f.hosts.list[0].native.library.as_mut().expect("the library").games[0].running = true;
+        f.l.go(Screen::Game { host: pc, app: 1000 });
+        f.settle();
+        // The last of a text: the cover without art shows the title too, before the page does.
+        let at = |f: &Frames, text: &str| f.placed.iter().rfind(|(t, ..)| t == text).map(|p| p.1).unwrap_or_else(|| panic!("{text} in {:?}", f.drawn));
+        let (chip, title, line) = (at(&f, "Running"), at(&f, "Game 00"), at(&f, "Desk"));
+        assert!(chip.bottom() <= title.top() && title.bottom() <= line.top(), "chip, title, PC: {chip:?} {title:?} {line:?}");
+        assert!(!f.drawn.iter().any(|t| t.starts_with("Running on")), "{:?}", f.drawn);
+        f.l.go(Screen::Game { host: pc, app: 1001 });
+        f.settle();
+        assert!(shows(&f, "Desk") && !shows(&f, "Running") && !shows(&f, "Suspended"), "{:?}", f.drawn);
+    }
+
+    /// Settings is a top-level page like Home and PCs: no Back in its header. Its sub-pages keep theirs.
+    #[test]
+    fn settings_has_no_back_but_its_sub_pages_do() {
+        let mut f = Frames::new(record("Desk", true, true), Reach::Online);
+        f.l.go(Screen::Settings);
+        f.settle();
+        assert!(shows(&f, "Settings") && !f.drawn.iter().any(|t| t.starts_with('‹')), "{:?}", f.drawn);
+        f.l.open(Screen::Profiles);
+        f.settle();
+        assert!(shows(&f, "‹  Settings"), "{:?}", f.drawn);
+    }
+
+    /// Under a short list of PCs: the search goes on, and How to connect opens the pairing guide.
+    #[test]
+    fn a_short_pc_list_says_the_search_goes_on_and_links_how_to_connect() {
+        let mut f = Frames::new(record("Desk", true, true), Reach::Online);
+        f.l.go(Screen::Hosts);
+        f.settle();
+        assert!(shows(&f, "Looking for other PCs on this network"), "{:?}", f.drawn);
+        let link = f.placed.iter().find(|(t, ..)| t == "How to connect").map(|p| p.1).expect("the link");
+        f.click_at(link.center(), egui::PointerButton::Primary);
+        let commands = f.settle();
+        let opened = |c: &Command| matches!(c, Command::OpenGuide("pairing.md"));
+        let mut commands = commands;
+        if !commands.iter().any(opened) {
+            commands = f.click_at(link.center(), egui::PointerButton::Primary);
+        }
+        assert!(commands.iter().any(opened), "a click opens the pairing guide");
+    }
+
+    /// The pairing PIN is what the dialog is for: large, bold digits in the amber accent.
+    #[test]
+    fn the_pairing_pin_is_large_bold_and_amber() {
+        fn digits(shape: &egui::Shape, out: &mut Vec<(String, egui::FontId, Color32)>) {
+            match shape {
+                egui::Shape::Vec(shapes) => shapes.iter().for_each(|s| digits(s, out)),
+                egui::Shape::Text(t) => {
+                    if let Some(section) = t.galley.job.sections.first() {
+                        out.push((t.galley.text().to_owned(), section.format.font_id.clone(), t.fallback_color));
+                    }
+                }
+                _ => {}
+            }
+        }
+        let mut f = Frames::new(record("Studio", false, false), Reach::Online);
+        let id = f.hosts.list[0].id;
+        f.l.dialog = Dialog::Pairing { host: id, pin: "4071".into() };
+        // Past the dialog's fade-in.
+        for _ in 0..4 {
+            f.settle();
+        }
+        let mut texts = Vec::new();
+        f.shapes.iter().for_each(|c| digits(&c.shape, &mut texts));
+        let pin: Vec<_> = texts.iter().filter(|(t, ..)| t.len() == 1 && "4071".contains(t.as_str())).collect();
+        assert_eq!(pin.len(), 4, "{texts:?}");
+        assert!(pin.iter().all(|(_, font, color)| font.size >= 40.0 && *font == semibold(font.size) && *color == Color32::from(MOON)), "{pin:?}");
+    }
+
     /// Home's card for a PC to pair says only that, whole: no "Games not loaded yet" cut short after it.
     #[test]
     fn the_home_card_of_a_pc_to_pair_fits_its_state() {
@@ -6565,7 +6704,7 @@ https://192.0.2.7:47990"));
         f.hosts.list[1].info = Some(answer(false, 0));
         f.l.go(Screen::Home);
         f.settle();
-        assert!(shows(&f, "Not paired · Select to pair"), "{:?}", f.drawn);
+        assert!(shows(&f, "Ready to pair"), "{:?}", f.drawn);
         assert!(!f.drawn.iter().any(|t| t.contains("Games not") || t.ends_with('…')), "{:?}", f.drawn);
     }
 

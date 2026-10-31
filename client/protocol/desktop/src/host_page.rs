@@ -105,6 +105,15 @@ pub fn open_web_ui(url: &str, open: impl FnOnce(&str) -> Result<(), String>) -> 
     })
 }
 
+/// Command::OpenGuide: opens the guide `page` with `open`. When it could not, the message to show:
+/// the guide's address, so it can be opened elsewhere, and the error.
+pub fn open_guide(page: &str, open: impl FnOnce(&str) -> Result<(), String>) -> Option<(String, String)> {
+    let url = format!("{}{page}", crate::ui::GUIDES);
+    open(&url).err().map(|e| (tr("No browser could open the guide. Its address is below, to open on another device.").to_owned(), format!("{url}
+
+{e}")))
+}
+
 /// The remote check against one PC; `HostClient` in the app, a fake in tests.
 pub trait RemoteProbe: Send + Sync {
     /// Blocks until the check is done or cancelled.
@@ -572,6 +581,17 @@ pub(crate) mod tests {
         let (title, body) = open_web_ui(url, |_| Err("No handler for https".into())).expect("a message");
         assert!(title.starts_with("No browser could open the host's web UI."), "{title}");
         assert_eq!(body, "https://192.0.2.7:47990\n\nNo handler for https", "the link to copy, then the error");
+    }
+
+    /// How to connect opens the pairing guide Android's help opens, or says where it is.
+    #[test]
+    fn open_guide_opens_the_pairing_page_or_says_where_it_is() {
+        let mut opened = None;
+        assert_eq!(open_guide("pairing.md", |u| { opened = Some(u.to_owned()); Ok(()) }), None, "nothing to say");
+        assert_eq!(opened.as_deref(), Some("https://github.com/RamazanKara/nightjar/blob/main/docs/pairing.md"));
+        let (title, body) = open_guide("pairing.md", |_| Err("No handler for https".into())).expect("a message");
+        assert!(title.starts_with("No browser could open the guide."), "{title}");
+        assert_eq!(body, "https://github.com/RamazanKara/nightjar/blob/main/docs/pairing.md\n\nNo handler for https");
     }
 
     #[test]

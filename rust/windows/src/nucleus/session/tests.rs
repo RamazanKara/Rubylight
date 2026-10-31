@@ -1658,6 +1658,23 @@ fn a_game_nucleus_saved_with_pads_by_button_press_gets_them_by_index() {
 }
 
 #[test]
+fn per_game_settings_are_in_the_profile_folder_nucleus_reads() {
+    // Nucleus' `Globals.UserEnvironmentRoot`: the account's profile folder.
+    let mut seen = None;
+    in_profile_of(None, &mut |profile| {
+        seen = Some(profile.to_path_buf());
+        Ok(())
+    })
+    .unwrap();
+    let expected = PathBuf::from(std::env::var_os("USERPROFILE").unwrap());
+    assert_eq!(seen, Some(expected.clone()));
+    assert_eq!(
+        files::meta_info(&expected),
+        expected.join(r"NucleusCoop\metaInfo.json")
+    );
+}
+
+#[test]
 fn a_session_from_the_users_own_copy_writes_and_runs_there() {
     let host = tempfile::tempdir().unwrap();
     let copy = tempfile::tempdir().unwrap();

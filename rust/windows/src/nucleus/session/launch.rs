@@ -30,16 +30,21 @@ impl Launcher for Elevated {
         )
     }
     fn in_profile(&self, work: &mut dyn FnMut(&Path) -> Result<()>) -> Result<()> {
-        // Elevated, it has the same profile; its files are written as the
-        // user without administrator rights, never as the host.
-        let user = crate::user_folder::user_token().context("finding the signed-in user")?;
+        // The service starts it as the user signed in at the screen, whose
+        // files are written as them, never as SYSTEM. A host that runs
+        // elevated starts it with its own token: its own profile.
+        let user = if crate::process::is_system() {
+            crate::user_folder::user_token().context("finding the signed-in user")?
+        } else {
+            None
+        };
         in_profile_of(user.as_ref(), work)
     }
 }
 
 /// `work` on the profile folder of the user `token` names (the host's own
 /// without one), as that user.
-fn in_profile_of(
+pub(super) fn in_profile_of(
     token: Option<&OwnedHandle>,
     work: &mut dyn FnMut(&Path) -> Result<()>,
 ) -> Result<()> {

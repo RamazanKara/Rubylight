@@ -1060,7 +1060,6 @@ impl Converter {
             );
         }
     }
-    /// A free output texture's index.
     /// Copy `values` into `slot`'s 256-byte part of the constant buffer.
     ///
     /// # Safety
@@ -1093,6 +1092,7 @@ impl Converter {
         }
         Ok(())
     }
+    /// A free output texture's index.
     fn target(&mut self) -> Result<usize> {
         for (index, target) in self.targets.iter().enumerate() {
             if target.free()? {

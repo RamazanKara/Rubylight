@@ -165,7 +165,7 @@ go in with `-ExtraA @{ beam_race = $true; window_mode = 'Borderless'; vrr = $tru
 ## The raced presenter
 
 With the capability probe on and a restart delay measured, the pacing mode goes from `Immediate` to
-`Beam race` (the overlay's Pacing line; `PacingMode::BeamRace`, `stream/race.rs` and `stream/mod.rs`).
+`Beam race` (the overlay's Pacing line; `PacingMode::BeamRace`, `stream/race.rs` and `stream/render.rs`).
 With `beam_race` off, or the probe off, the mode never changes and nothing here runs.
 
 A frame still being received is presented in pieces. A tearing present on an idle variable refresh

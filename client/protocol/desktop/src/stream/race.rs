@@ -1,7 +1,7 @@
 //! The raced presenter's scheduling (B10 step 4, docs/beam-racing.md): when the scan starts, which
 //! slices go to the screen at which time, and what a slice that comes too late does. Pure
 //! arithmetic and a state machine over plain values, so it is tested on synthetic traces; the
-//! draws and the presents are in `stream/mod.rs`.
+//! draws and the presents are in `stream/render.rs`.
 //!
 //! The model. A tearing present on an idle variable refresh display starts a new scan. The first
 //! picture row is on the screen `delta` after the present was issued (the probe measures it), and

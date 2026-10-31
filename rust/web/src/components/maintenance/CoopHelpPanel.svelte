@@ -1,6 +1,5 @@
 <script lang="ts">
   import { onMount, untrack } from 'svelte';
-  import Badge from '../Badge.svelte';
   import Banner from '../Banner.svelte';
   import Button from '../Button.svelte';
   import LoadState from '../LoadState.svelte';
@@ -10,6 +9,7 @@
   import { failed } from '../../lib/feedback.svelte';
   import { poll } from '../../lib/format';
   import { link } from '../../lib/router.svelte';
+  import StatusPill from '../StatusPill.svelte';
   import { installStates } from './coop';
   import { statusLoader } from './status-loader';
   import { reason } from './util';
@@ -64,7 +64,7 @@
       <dl class="facts">
         <dt>Install</dt>
         <dd>
-          {#if install}<Badge tone={install.tone}>{install.label}</Badge>{/if}
+          {#if install}<StatusPill status={install.status} label={install.label} />{/if}
           {#if status.install.version}<span class="muted">{status.install.version}</span>{/if}
         </dd>
         {#if status.install.path}

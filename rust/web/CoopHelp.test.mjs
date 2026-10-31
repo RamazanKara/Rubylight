@@ -71,7 +71,8 @@ test('a PC that can’t run co-op, a failed setup and handlers that didn’t loa
 test('every install state is spelled out, with a failure in danger', () => {
   for (const state of ['installed', 'missing', 'configured', 'installing', 'failed']) assert.ok(installStates[state]?.label, state);
   assert.equal(installStates.missing.label, 'Not set up yet');
-  assert.equal(installStates.failed.tone, 'danger');
+  assert.equal(installStates.failed.status, 'error');
+  assert.equal(installStates.missing.status, 'idle');
 });
 
 test('Help shows the co-op panel and no longer the sessions panel', async () => {

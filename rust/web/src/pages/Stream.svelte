@@ -225,9 +225,12 @@
   {:else if phase === 'connecting'}
     <p class="muted" role="status">Connecting to the host…</p>
   {:else if phase === 'off'}
-    <EmptyState icon="monitor" title="The WebRTC server is off">
-      <p>Turn on <strong>WebRTC server</strong> in <a href="/settings/network" use:link>Settings, Network</a>, then restart Rubylight.</p>
-    </EmptyState>
+    <Panel>
+      <EmptyState icon="play" title="The WebRTC server is off">
+        <p>Streaming in this tab needs it. Turn on <strong>WebRTC server</strong> in Network &amp; access, save, then restart Rubylight when the console asks.</p>
+        <Button variant="primary" href="/settings/network?setting=webrtc_server" icon="settings">Open the WebRTC setting</Button>
+      </EmptyState>
+    </Panel>
   {:else if phase === 'failed'}
     <div class="notice danger failure" role="alert">
       <div class="stack">

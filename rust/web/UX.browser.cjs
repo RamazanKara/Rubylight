@@ -864,6 +864,27 @@ test('import scans distinguish missing launchers, empty libraries, partial error
   assert.deepEqual(writes, []);
 });
 
+test('a host with no token paths says so instead of a search with no words, and Create token turns ruby only when it can act', async t => {
+  let routes = [];
+  const { page } = await fixture(t, async (route, url) => {
+    if (url.pathname !== '/api/token/routes') return false;
+    await route.fulfill({ json: { status: true, routes } });
+    return true;
+  });
+  await page.goto(base + '/tokens');
+  await page.getByText('No API paths to grant', { exact: true }).waitFor();
+  assert.equal(await page.getByText(/No API paths match/).count(), 0);
+  routes = [{ path: '/api/apps', methods: ['GET'] }];
+  await page.reload();
+  const create = page.getByRole('button', { name: 'Create token', exact: true });
+  await create.waitFor();
+  assert.doesNotMatch(await create.getAttribute('class'), /\bprimary\b/);
+  await page.getByRole('checkbox', { name: 'GET /api/apps', exact: true }).check();
+  assert.match(await create.getAttribute('class'), /\bprimary\b/);
+  await page.getByPlaceholder('Search API paths').fill('zzz');
+  await page.getByText('No API paths match “zzz”. Search looks at paths and methods.', { exact: true }).waitFor();
+});
+
 test('Return to console is offered only when Windows allows it, and the reason shows when it does not', async t => {
   const { page } = await fixture(t, async (route, url) => {
     if (url.pathname !== '/api/session/console') return false;
@@ -875,4 +896,14 @@ test('Return to console is offered only when Windows allows it, and the reason s
   await page.getByText('This host is already attached to the physical console.', { exact: true }).waitFor();
   assert.equal(await page.getByRole('button', { name: 'Return to console', exact: true }).count(), 0);
   await page.getByRole('button', { name: 'Refresh status', exact: true }).waitFor();
+});
+
+test('Stream with the WebRTC server off fills its panel and links straight to the setting', async t => {
+  const { page } = await fixture(t);
+  await page.goto(base + '/stream');
+  await page.getByRole('heading', { name: 'The WebRTC server is off', exact: true }).waitFor();
+  const open = page.getByRole('link', { name: 'Open the WebRTC setting', exact: true });
+  assert.equal(await open.getAttribute('href'), '/settings/network?setting=webrtc_server');
+  await open.click();
+  await page.waitForURL(base + '/settings/network?setting=webrtc_server');
 });

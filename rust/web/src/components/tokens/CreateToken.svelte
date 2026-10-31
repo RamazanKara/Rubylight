@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import { SvelteSet } from 'svelte/reactivity';
   import Button from '../Button.svelte';
+  import EmptyState from '../EmptyState.svelte';
   import Icon from '../Icon.svelte';
   import LoadState from '../LoadState.svelte';
   import Panel from '../Panel.svelte';
@@ -98,6 +99,10 @@
         <Button onclick={() => (secret = null)}>Done</Button>
       </div>
     </div>
+  {:else if routes && routes.length === 0}
+    <EmptyState icon="key" title="No API paths to grant">
+      <p>This host offers no API paths for tokens. Update Rubylight, then come back to create one.</p>
+    </EmptyState>
   {:else if routes}
     <div class="stack">
       <div class="search">
@@ -140,7 +145,7 @@
             </span>
           </li>
         {:else}
-          <li class="none muted">No API paths match “{query}”.</li>
+          <li class="none muted">No API paths match “{query.trim()}”. Search looks at paths and methods.</li>
         {/each}
       </ul>
       <div class="footer">
@@ -153,7 +158,8 @@
           {/if}
         </span>
         <div class="row">
-          <Button variant="primary" icon="key" {busy} disabled={!scopes.length} onclick={create}>Create token</Button>
+          <!-- The ruby fill arrives with the first permission: a faded one reads as broken. -->
+          <Button variant={scopes.length ? 'primary' : 'secondary'} icon="key" {busy} disabled={!scopes.length} onclick={create}>Create token</Button>
         </div>
       </div>
     </div>

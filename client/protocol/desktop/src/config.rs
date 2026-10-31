@@ -1295,6 +1295,31 @@ mod tests {
         std::fs::remove_dir_all(dir).ok();
     }
 
+    #[test]
+    fn connect_as_survives_a_restart_and_older_mappings_load_as_automatic() {
+        let dir = std::env::temp_dir().join(format!("nightjar-connect-as-{}", std::process::id()));
+        let store = Store::at(dir.clone()).unwrap();
+        // A file from before the choice existed: the mapping stays and connects as Automatic.
+        std::fs::write(dir.join("controllers.json"),
+            r#"{"usb:1532:0717":{"name":"Razer Kishi","buttons":[null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null],"axes":[1,2,3,4,5,6],"deadzone":7}}"#).unwrap();
+        let older = store.controller_mappings();
+        assert_eq!(older["usb:1532:0717"].deadzone, 7);
+        assert_eq!(older["usb:1532:0717"].connect_as, 0);
+        let mut mapping = older["usb:1532:0717"].clone();
+        mapping.connect_as = 1;
+        let mappings = BTreeMap::from([("usb:1532:0717".to_string(), mapping)]);
+        store.save_controller_mappings(&mappings).unwrap();
+        assert_eq!(Store::at(dir.clone()).unwrap().controller_mappings(), mappings);
+        // A type a newer Nightjar adds keeps the mapping and counts as Automatic.
+        let mut newer = mappings.clone();
+        newer.get_mut("usb:1532:0717").unwrap().connect_as = 4;
+        store.save_controller_mappings(&newer).unwrap();
+        let loaded = store.controller_mappings();
+        assert_eq!(loaded["usb:1532:0717"].deadzone, 7);
+        assert_eq!(loaded["usb:1532:0717"].arrival_type(2), 2);
+        std::fs::remove_dir_all(dir).ok();
+    }
+
     fn star(host: &str, install: &str, app: u32) -> Favourite {
         Favourite { host: host.into(), install_id: install.into(), app_id: app, title: format!("Game {app}") }
     }

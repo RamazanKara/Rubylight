@@ -144,6 +144,70 @@ public class ControllerButtonMapTest {
     }
 
     @Test
+    public void connectAsSurvivesStorageBesideTheMappings() {
+        ControllerButtonMap map = new ControllerButtonMap();
+        assertEquals(ControllerButtonMap.CONNECT_AS_AUTOMATIC, map.connectAs());
+        assertFalse(map.isConnectAsPinned());
+        map.put(C, A);
+        map.setConnectAs(ControllerButtonMap.CONNECT_AS_XBOX);
+        assertEquals("98:96,131072:1", map.serialize());
+
+        ControllerButtonMap restored = ControllerButtonMap.deserialize(map.serialize());
+        assertEquals(ControllerButtonMap.CONNECT_AS_XBOX, restored.connectAs());
+        assertTrue(restored.isConnectAsPinned());
+        assertEquals(A, restored.map(C));
+        assertEquals(1, restored.entries().size());
+
+        // A pinned type alone is worth storing; Automatic alone is not.
+        ControllerButtonMap pinnedOnly = new ControllerButtonMap();
+        pinnedOnly.setConnectAs(ControllerButtonMap.CONNECT_AS_NINTENDO);
+        assertFalse(pinnedOnly.isEmpty());
+        assertTrue(pinnedOnly.entries().isEmpty());
+        assertEquals("131072:3", pinnedOnly.serialize());
+        pinnedOnly.setConnectAs(ControllerButtonMap.CONNECT_AS_AUTOMATIC);
+        assertTrue(pinnedOnly.isEmpty());
+        assertEquals("", pinnedOnly.serialize());
+
+        assertThrows(IllegalArgumentException.class, () -> map.setConnectAs(4));
+        assertThrows(IllegalArgumentException.class, () -> map.setConnectAs(-1));
+    }
+
+    @Test
+    public void connectAsIsSkippedByEarlierVersionsAndMissingFromTheirMaps() {
+        // Maps stored before the choice existed connect as Automatic.
+        ControllerButtonMap earlier = ControllerButtonMap.deserialize("98:96,99:65537");
+        assertEquals(ControllerButtonMap.CONNECT_AS_AUTOMATIC, earlier.connectAs());
+        assertEquals("98:96,99:65537", earlier.serialize());
+
+        // An earlier version parses every entry with put(), which refuses the connect-as entry,
+        // so it keeps the buttons and drops only the choice.
+        ControllerButtonMap pinned = ControllerButtonMap.deserialize("98:96");
+        pinned.setConnectAs(ControllerButtonMap.CONNECT_AS_PLAYSTATION);
+        ControllerButtonMap olderLoad = new ControllerButtonMap();
+        for (String entry : pinned.serialize().split(",")) {
+            String[] parts = entry.split(":");
+            try {
+                olderLoad.put(Integer.parseInt(parts[0]), Integer.parseInt(parts[1]));
+            } catch (IllegalArgumentException ignored) {
+            }
+        }
+        assertEquals("98:96", olderLoad.serialize());
+
+        // Unknown or malformed types load as Automatic without losing the buttons.
+        ControllerButtonMap future = ControllerButtonMap.deserialize("98:96,131072:4,131072:x");
+        assertEquals(ControllerButtonMap.CONNECT_AS_AUTOMATIC, future.connectAs());
+        assertEquals(A, future.map(C));
+    }
+
+    @Test
+    public void connectAsCodesAreTheProtocolControllerTypes() {
+        assertEquals(com.limelight.nvstream.jni.MoonBridge.LI_CTYPE_UNKNOWN, ControllerButtonMap.CONNECT_AS_AUTOMATIC);
+        assertEquals(com.limelight.nvstream.jni.MoonBridge.LI_CTYPE_XBOX, ControllerButtonMap.CONNECT_AS_XBOX);
+        assertEquals(com.limelight.nvstream.jni.MoonBridge.LI_CTYPE_PS, ControllerButtonMap.CONNECT_AS_PLAYSTATION);
+        assertEquals(com.limelight.nvstream.jni.MoonBridge.LI_CTYPE_NINTENDO, ControllerButtonMap.CONNECT_AS_NINTENDO);
+    }
+
+    @Test
     public void deviceKeyGroupsModelsAndFallsBackToName() {
         assertEquals("usb:045e:0b13", ControllerButtonMap.deviceKey(0x045e, 0x0b13, "Xbox Wireless Controller"));
         assertEquals("usb:054c:0ce6", ControllerButtonMap.deviceKey(0x054c, 0x0ce6, null));

@@ -20,5 +20,7 @@
     <string name="controller_button_touchpad">Нажатие тачпада</string>
     <string name="controller_button_misc">Поделиться / Снимок</string>
     <string name="controller_button_paddle">Задняя кнопка %1$d</string>
+    <string name="controller_connect_as">Подключать как</string>
+    <string name="controller_connect_as_automatic">Автоматически</string>
     <string name="pc_tap_to_pair">%1$s\nНажмите для сопряжения</string>
 </resources>

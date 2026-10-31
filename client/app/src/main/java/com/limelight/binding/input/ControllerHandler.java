@@ -1444,11 +1444,26 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
     }
 
     /**
-     * The type a pad arrives as. Only PlayStation pads have a touchpad click, so a mapping to it
-     * asks the host for one: hosts choose a DualShock 4 or DualSense for this type.
+     * The type a pad arrives as. A type the user pinned for the pad wins. Otherwise only
+     * PlayStation pads have a touchpad click, so a mapping to it asks the host for one: hosts
+     * choose a DualShock 4 or DualSense for this type.
      */
     static byte arrivalType(byte type, ControllerButtonMap map) {
+        if (map.isConnectAsPinned()) return map.connectAs();
         return (map.targetButtonFlags() & ControllerPacket.TOUCHPAD_FLAG) != 0 ? MoonBridge.LI_CTYPE_PS : type;
+    }
+
+    /**
+     * The type an Android input device arrives as. With Automatic, a non-PlayStation pad with
+     * motion arrives as unknown so the host creates a pad that has motion; a pinned type wins.
+     */
+    static byte inputDeviceArrivalType(byte detected, boolean hasMotion, ControllerButtonMap map) {
+        return arrivalType(motionOverridesType(detected, hasMotion, map) ? MoonBridge.LI_CTYPE_UNKNOWN : detected, map);
+    }
+
+    /** Whether motion changes the type the pad arrives as, which the user is told about. */
+    static boolean motionOverridesType(byte detected, boolean hasMotion, ControllerButtonMap map) {
+        return detected != MoonBridge.LI_CTYPE_PS && hasMotion && !map.isConnectAsPinned();
     }
 
     /**
@@ -4241,20 +4256,20 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
                 capabilities |= MoonBridge.LI_CCAP_GYRO;
             }
 
-            if (type != MoonBridge.LI_CTYPE_PS && sensorManager != null) {
+            if (motionOverridesType(type, sensorManager != null, buttonMap)) {
                 // Override the detected controller type if we're emulating motion sensors on an Xbox controller
                 mainThreadHandler.post(() -> Toast.makeText(activityContext,
                         R.string.toast_controller_type_changed, Toast.LENGTH_LONG).show());
-                reportedType = MoonBridge.LI_CTYPE_UNKNOWN;
 
                 // Remember that we should enable the clickpad emulation combo (Select+LB) for this device
                 needsClickpadEmulation = needsClickpadEmulation(buttonMap);
             }
-            else {
-                // Report the true type to the host PC if we're not emulating motion sensors
-                reportedType = type;
+            else if (buttonMap.connectAs() == MoonBridge.LI_CTYPE_PS && type != MoonBridge.LI_CTYPE_PS) {
+                // Pinned as PlayStation without being one: Select+LB clicks the touchpad it lacks
+                needsClickpadEmulation = needsClickpadEmulation(buttonMap);
             }
-            reportedType = arrivalType(reportedType, buttonMap);
+            // A pinned type wins; otherwise the true type unless motion or a touchpad mapping changes it
+            reportedType = inputDeviceArrivalType(type, sensorManager != null, buttonMap);
 
             // We can perform basic rumble with any vibrator
             if (vibrator != null) {

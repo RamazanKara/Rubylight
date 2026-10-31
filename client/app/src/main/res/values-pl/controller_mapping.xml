@@ -20,5 +20,7 @@
     <string name="controller_button_touchpad">Kliknięcie touchpada</string>
     <string name="controller_button_misc">Udostępnij / Przechwyć</string>
     <string name="controller_button_paddle">Łopatka %1$d</string>
+    <string name="controller_connect_as">Połącz jako</string>
+    <string name="controller_connect_as_automatic">Automatycznie</string>
     <string name="pc_tap_to_pair">%1$s\nKliknij, aby sparować</string>
 </resources>

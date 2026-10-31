@@ -138,11 +138,13 @@ public class ControllerMappingActivity extends NightjarActivity {
         }
         deviceView.setText(deviceName);
         resetButton.setVisibility(map.isEmpty() && axisMap.isEmpty() ? View.GONE : View.VISIBLE);
+        mappingList.addView(row(getString(R.string.controller_connect_as),
+                connectAsName(map.connectAs()), v -> chooseConnectAs()));
         if (!axisMap.isEmpty()) {
             mappingList.addView(row(getString(R.string.controller_axes_title),
                     getString(R.string.controller_axes_configured), v -> chooseAxis()));
         }
-        if (map.isEmpty()) {
+        if (map.entries().isEmpty()) {
             mappingList.addView(row(getString(R.string.controller_mapping_none), null, null));
             return;
         }
@@ -195,6 +197,31 @@ public class ControllerMappingActivity extends NightjarActivity {
         int color = attrs.getColor(0, 0xFFFFFFFF);
         attrs.recycle();
         return color;
+    }
+
+    private void chooseConnectAs() {
+        if (deviceKey == null) return;
+        byte[] choices = ControllerButtonMap.CONNECT_AS_CHOICES;
+        CharSequence[] labels = new CharSequence[choices.length];
+        int selected = 0;
+        for (int i = 0; i < choices.length; i++) {
+            labels[i] = connectAsName(choices[i]);
+            if (choices[i] == map.connectAs()) selected = i;
+        }
+        UiHelper.showDialog(this, new NavigationDialogBuilder(this).setTitle(R.string.controller_connect_as)
+                .setSingleChoiceItems(labels, selected, (dialog, which) -> {
+                    map.setConnectAs(choices[which]);
+                    map.save(this, deviceKey); refresh(); dialog.dismiss();
+                }).setNegativeButton(android.R.string.cancel, null).create());
+    }
+
+    private String connectAsName(byte type) {
+        switch (type) {
+            case ControllerButtonMap.CONNECT_AS_XBOX: return getString(R.string.controller_connect_as_xbox);
+            case ControllerButtonMap.CONNECT_AS_PLAYSTATION: return getString(R.string.controller_connect_as_playstation);
+            case ControllerButtonMap.CONNECT_AS_NINTENDO: return getString(R.string.controller_connect_as_nintendo);
+            default: return getString(R.string.controller_connect_as_automatic);
+        }
     }
 
     private void chooseAxis() {

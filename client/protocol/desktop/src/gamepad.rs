@@ -82,6 +82,12 @@ pub const BUTTON_NAMES: [&str; 21] = [
 ];
 pub const AXIS_NAMES: [&str; 6] = [en("Left stick X"), en("Left stick Y"), en("Right stick X"), en("Right stick Y"), en("Left trigger"), en("Right trigger")];
 
+/// The "Connect as" choices: Automatic (zero) keeps the type SDL detects, the others are the
+/// `LI_CTYPE_*` the host is told instead.
+pub const CONNECT_AS: [(u8, &str); 4] = [
+    (CTYPE_UNKNOWN, en("Automatic")), (CTYPE_XBOX, en("Xbox")), (CTYPE_PS, en("PlayStation")), (CTYPE_NINTENDO, en("Nintendo")),
+];
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Mapping {
@@ -90,11 +96,13 @@ pub struct Mapping {
     /// Zero disables an axis; otherwise the signed source index plus one.
     pub axes: [i8; 6],
     pub deadzone: u8,
+    /// One of [`CONNECT_AS`]; mappings saved before it existed load as Automatic.
+    pub connect_as: u8,
 }
 
 impl Default for Mapping {
     fn default() -> Self {
-        Self { name: String::new(), buttons: [None; 21], axes: [1, 2, 3, 4, 5, 6], deadzone: 0 }
+        Self { name: String::new(), buttons: [None; 21], axes: [1, 2, 3, 4, 5, 6], deadzone: 0, connect_as: CTYPE_UNKNOWN }
     }
 }
 
@@ -114,6 +122,16 @@ impl Mapping {
             && self.axes.iter().enumerate().all(|(i, source)| {
                 *source == 0 || if i < 4 { (1..=4).contains(&source.unsigned_abs()) } else { (5..=6).contains(source) }
             })
+    }
+
+    /// The type the pad arrives as: the pinned one, else `detected`. A value this version does
+    /// not know counts as Automatic, so a newer Nightjar's choice never drops the mapping.
+    pub fn arrival_type(&self, detected: u8) -> u8 {
+        if self.connect_as != CTYPE_UNKNOWN && CONNECT_AS.iter().any(|(kind, _)| *kind == self.connect_as) {
+            self.connect_as
+        } else {
+            detected
+        }
     }
 
     pub fn map_buttons(&self, raw: u32, swap: bool) -> u32 {
@@ -723,6 +741,7 @@ fn describe(pad: &Pad) -> (u8, u32, u16) {
             | SDL_GAMEPAD_TYPE_NINTENDO_SWITCH_JOYCON_PAIR => CTYPE_NINTENDO,
             _ => CTYPE_UNKNOWN,
         };
+        let kind = pad.mapping.arrival_type(kind);
         let mut supported = 0u32;
         for (i, flag) in BUTTON_MAP.iter().enumerate() {
             if SDL_GamepadHasButton(pad.handle, SDL_GamepadButton(i as i32)) {
@@ -1105,6 +1124,29 @@ mod tests {
         mapping.axes[4] = 6;
         mapping.buttons[0] = Some(button::A | button::B);
         assert!(!mapping.valid());
+    }
+
+    #[test]
+    fn a_pinned_type_replaces_the_detected_one_and_automatic_keeps_it() {
+        let mut mapping = Mapping::default();
+        assert_eq!(mapping.connect_as, CTYPE_UNKNOWN);
+        for detected in [CTYPE_UNKNOWN, CTYPE_XBOX, CTYPE_PS, CTYPE_NINTENDO] {
+            assert_eq!(mapping.arrival_type(detected), detected);
+        }
+        // #53: a pad SDL reports as PlayStation can be told to the host as Xbox.
+        mapping.connect_as = CTYPE_XBOX;
+        assert_eq!(mapping.arrival_type(CTYPE_PS), CTYPE_XBOX);
+        assert_eq!(mapping.arrival_type(CTYPE_UNKNOWN), CTYPE_XBOX);
+        mapping.connect_as = CTYPE_PS;
+        assert_eq!(mapping.arrival_type(CTYPE_XBOX), CTYPE_PS);
+        mapping.connect_as = CTYPE_NINTENDO;
+        assert_eq!(mapping.arrival_type(CTYPE_XBOX), CTYPE_NINTENDO);
+        assert!(mapping.valid());
+        // A value this version does not know is Automatic and keeps the mapping valid.
+        mapping.connect_as = 9;
+        assert_eq!(mapping.arrival_type(CTYPE_PS), CTYPE_PS);
+        assert!(mapping.valid());
+        assert_eq!(CONNECT_AS.map(|(kind, _)| kind), [0, 1, 2, 3]);
     }
 
     #[test]

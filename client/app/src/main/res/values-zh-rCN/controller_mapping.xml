@@ -20,5 +20,7 @@
     <string name="controller_button_touchpad">触摸板按下</string>
     <string name="controller_button_misc">分享 / 截图</string>
     <string name="controller_button_paddle">背键 %1$d</string>
+    <string name="controller_connect_as">连接为</string>
+    <string name="controller_connect_as_automatic">自动</string>
     <string name="pc_tap_to_pair">%1$s\n点按即可配对</string>
 </resources>

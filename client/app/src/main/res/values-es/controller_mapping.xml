@@ -20,5 +20,7 @@
     <string name="controller_button_touchpad">Clic del panel táctil</string>
     <string name="controller_button_misc">Compartir / Captura</string>
     <string name="controller_button_paddle">Paleta %1$d</string>
+    <string name="controller_connect_as">Conectar como</string>
+    <string name="controller_connect_as_automatic">Automático</string>
     <string name="pc_tap_to_pair">%1$s\nToca para vincular</string>
 </resources>

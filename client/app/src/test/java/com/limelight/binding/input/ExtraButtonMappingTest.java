@@ -242,4 +242,73 @@ public class ExtraButtonMappingTest {
         assertEquals(MoonBridge.LI_CTYPE_PS, ControllerHandler.arrivalType(MoonBridge.LI_CTYPE_UNKNOWN, misc));
         assertEquals(MoonBridge.LI_CTYPE_PS, ControllerHandler.arrivalType(MoonBridge.LI_CTYPE_PS, misc));
     }
+
+    @Test
+    public void aPinnedTypeBeatsTheTouchpadRuleAndTheMotionOverride() {
+        ControllerButtonMap touchpad = new ControllerButtonMap();
+        touchpad.put(KeyEvent.KEYCODE_BUTTON_C, ControllerButtonMap.TARGET_TOUCHPAD);
+        touchpad.setConnectAs(ControllerButtonMap.CONNECT_AS_XBOX);
+        assertEquals(MoonBridge.LI_CTYPE_XBOX, ControllerHandler.arrivalType(MoonBridge.LI_CTYPE_UNKNOWN, touchpad));
+        // A Razer Kishi: unknown to SDL, motion from the tablet's sensors.
+        assertEquals(MoonBridge.LI_CTYPE_XBOX,
+                ControllerHandler.inputDeviceArrivalType(MoonBridge.LI_CTYPE_UNKNOWN, true, touchpad));
+        assertFalse(ControllerHandler.motionOverridesType(MoonBridge.LI_CTYPE_UNKNOWN, true, touchpad));
+
+        ControllerButtonMap nintendo = new ControllerButtonMap();
+        nintendo.setConnectAs(ControllerButtonMap.CONNECT_AS_NINTENDO);
+        assertEquals(MoonBridge.LI_CTYPE_NINTENDO,
+                ControllerHandler.inputDeviceArrivalType(MoonBridge.LI_CTYPE_XBOX, true, nintendo));
+        assertEquals(MoonBridge.LI_CTYPE_NINTENDO, ControllerHandler.arrivalType(MoonBridge.LI_CTYPE_PS, nintendo));
+
+        ControllerButtonMap playStation = new ControllerButtonMap();
+        playStation.setConnectAs(ControllerButtonMap.CONNECT_AS_PLAYSTATION);
+        assertEquals(MoonBridge.LI_CTYPE_PS,
+                ControllerHandler.inputDeviceArrivalType(MoonBridge.LI_CTYPE_XBOX, false, playStation));
+    }
+
+    @Test
+    public void automaticKeepsTheMotionOverrideAndTheTouchpadRule() {
+        ControllerButtonMap automatic = new ControllerButtonMap();
+        assertEquals(MoonBridge.LI_CTYPE_UNKNOWN,
+                ControllerHandler.inputDeviceArrivalType(MoonBridge.LI_CTYPE_XBOX, true, automatic));
+        assertTrue(ControllerHandler.motionOverridesType(MoonBridge.LI_CTYPE_XBOX, true, automatic));
+        assertEquals(MoonBridge.LI_CTYPE_XBOX,
+                ControllerHandler.inputDeviceArrivalType(MoonBridge.LI_CTYPE_XBOX, false, automatic));
+        assertEquals(MoonBridge.LI_CTYPE_PS,
+                ControllerHandler.inputDeviceArrivalType(MoonBridge.LI_CTYPE_PS, true, automatic));
+        assertFalse(ControllerHandler.motionOverridesType(MoonBridge.LI_CTYPE_PS, true, automatic));
+        automatic.put(KeyEvent.KEYCODE_BUTTON_C, ControllerButtonMap.TARGET_TOUCHPAD);
+        assertEquals(MoonBridge.LI_CTYPE_PS,
+                ControllerHandler.inputDeviceArrivalType(MoonBridge.LI_CTYPE_XBOX, true, automatic));
+        assertEquals(MoonBridge.LI_CTYPE_PS,
+                ControllerHandler.inputDeviceArrivalType(MoonBridge.LI_CTYPE_NINTENDO, false, automatic));
+    }
+
+    @Test
+    public void usbPadPinnedAsNintendoArrivesAsNintendoDespiteATouchpadMapping() {
+        try (ActivityController<Activity> activity = Robolectric.buildActivity(Activity.class).create()) {
+            ControllerButtonMap stored = new ControllerButtonMap();
+            stored.put(KeyEvent.KEYCODE_BUTTON_A, ControllerButtonMap.TARGET_TOUCHPAD);
+            stored.setConnectAs(ControllerButtonMap.CONNECT_AS_NINTENDO);
+            stored.save(activity.get(), ControllerButtonMap.deviceKey(0x045e, 0x028e, null));
+
+            Connection connection = new Connection();
+            PreferenceConfiguration preferences = new PreferenceConfiguration();
+            preferences.multiController = true;
+            ControllerHandler handler = new ControllerHandler(activity.get(), connection, null, preferences);
+            try {
+                handler.deviceAdded(new XboxPad());
+                handler.reportControllerState(42, ControllerPacket.A_FLAG, 0, 0, 0, 0, 0, 0);
+                assertEquals(1, connection.arrivals);
+                assertEquals(MoonBridge.LI_CTYPE_NINTENDO, connection.arrivalType);
+                // The mapped extended button is still announced and sent.
+                assertEquals(ControllerPacket.A_FLAG | ControllerPacket.B_FLAG | ControllerPacket.TOUCHPAD_FLAG,
+                        connection.arrivalButtons);
+                assertEquals(ControllerPacket.TOUCHPAD_FLAG, connection.last());
+            } finally {
+                handler.destroy();
+                activity.get().getSharedPreferences("ControllerButtonMaps", Context.MODE_PRIVATE).edit().clear().commit();
+            }
+        }
+    }
 }

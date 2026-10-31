@@ -48,7 +48,26 @@ public final class ControllerButtonMap {
             BUTTON_THUMBL, BUTTON_THUMBR, BUTTON_START, BUTTON_SELECT, BUTTON_MODE, MEDIA_RECORD
     };
 
+    /**
+     * The type a pad connects as, equal to MoonBridge's LI_CTYPE_* values. Automatic keeps the
+     * detected type and the rules that change it.
+     */
+    public static final byte CONNECT_AS_AUTOMATIC = 0, CONNECT_AS_XBOX = 1, CONNECT_AS_PLAYSTATION = 2,
+            CONNECT_AS_NINTENDO = 3;
+
+    /** Display order of the connect-as choices. */
+    public static final byte[] CONNECT_AS_CHOICES = {
+            CONNECT_AS_AUTOMATIC, CONNECT_AS_XBOX, CONNECT_AS_PLAYSTATION, CONNECT_AS_NINTENDO
+    };
+
+    /**
+     * The connect-as choice is stored as one more entry whose source is above every key code, so
+     * an older Nightjar skips it as an unsupported mapping and still loads the buttons.
+     */
+    static final int CONNECT_AS_ENTRY = 0x20000;
+
     private final TreeMap<Integer, Integer> mappings = new TreeMap<>();
+    private byte connectAs = CONNECT_AS_AUTOMATIC;
 
     /**
      * Digital buttons only. D-pad and trigger keys are left alone because their
@@ -154,8 +173,28 @@ public final class ControllerButtonMap {
         mappings.remove(source);
     }
 
+    /** The pinned controller type, or {@link #CONNECT_AS_AUTOMATIC}. */
+    public byte connectAs() {
+        return connectAs;
+    }
+
+    public boolean isConnectAsPinned() {
+        return connectAs != CONNECT_AS_AUTOMATIC;
+    }
+
+    public void setConnectAs(int type) {
+        for (byte choice : CONNECT_AS_CHOICES) {
+            if (choice == type) {
+                connectAs = choice;
+                return;
+            }
+        }
+        throw new IllegalArgumentException("Unsupported controller type");
+    }
+
+    /** No button mappings and no pinned type: nothing to store. */
     public boolean isEmpty() {
-        return mappings.isEmpty();
+        return mappings.isEmpty() && connectAs == CONNECT_AS_AUTOMATIC;
     }
 
     public Map<Integer, Integer> entries() {
@@ -169,6 +208,12 @@ public final class ControllerButtonMap {
                 builder.append(',');
             }
             builder.append(entry.getKey()).append(':').append(entry.getValue());
+        }
+        if (connectAs != CONNECT_AS_AUTOMATIC) {
+            if (builder.length() > 0) {
+                builder.append(',');
+            }
+            builder.append(CONNECT_AS_ENTRY).append(':').append(connectAs);
         }
         return builder.toString();
     }
@@ -185,7 +230,14 @@ public final class ControllerButtonMap {
                 continue;
             }
             try {
-                map.put(Integer.parseInt(parts[0].trim()), Integer.parseInt(parts[1].trim()));
+                int source = Integer.parseInt(parts[0].trim());
+                int target = Integer.parseInt(parts[1].trim());
+                if (source == CONNECT_AS_ENTRY) {
+                    map.setConnectAs(target);
+                }
+                else {
+                    map.put(source, target);
+                }
             } catch (IllegalArgumentException ignored) {
             }
         }
@@ -198,7 +250,7 @@ public final class ControllerButtonMap {
     }
 
     public void save(Context context, String deviceKey) {
-        if (mappings.isEmpty()) {
+        if (isEmpty()) {
             context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE).edit().remove(deviceKey).apply();
         } else {
             context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE).edit()

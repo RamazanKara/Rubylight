@@ -20,5 +20,7 @@
     <string name="controller_button_touchpad">Dokunmatik yüzey tıklaması</string>
     <string name="controller_button_misc">Paylaş / Yakala</string>
     <string name="controller_button_paddle">Arka tuş %1$d</string>
+    <string name="controller_connect_as">Bağlantı türü</string>
+    <string name="controller_connect_as_automatic">Otomatik</string>
     <string name="pc_tap_to_pair">%1$s\nEşleştirmek için dokunun</string>
 </resources>

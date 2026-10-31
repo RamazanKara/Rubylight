@@ -20,5 +20,7 @@
     <string name="controller_button_touchpad">Clic du pavé tactile</string>
     <string name="controller_button_misc">Partage / Capture</string>
     <string name="controller_button_paddle">Palette %1$d</string>
+    <string name="controller_connect_as">Connecter en tant que</string>
+    <string name="controller_connect_as_automatic">Automatique</string>
     <string name="pc_tap_to_pair">%1$s\nAppuyez pour associer</string>
 </resources>

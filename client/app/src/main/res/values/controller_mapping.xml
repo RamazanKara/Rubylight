@@ -20,5 +20,10 @@
     <string name="controller_button_touchpad">Touchpad click</string>
     <string name="controller_button_misc">Share / Capture</string>
     <string name="controller_button_paddle">Paddle %1$d</string>
+    <string name="controller_connect_as">Connect as</string>
+    <string name="controller_connect_as_automatic">Automatic</string>
+    <string name="controller_connect_as_xbox" translatable="false">Xbox</string>
+    <string name="controller_connect_as_playstation" translatable="false">PlayStation</string>
+    <string name="controller_connect_as_nintendo" translatable="false">Nintendo</string>
     <string name="pc_tap_to_pair">%1$s\nTap to pair</string>
 </resources>

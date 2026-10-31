@@ -1609,7 +1609,7 @@ impl Launcher {
     }
 
     fn controllers_page(&mut self, ui: &mut Ui, pads: &crate::gamepad::Gamepads, commands: &mut Vec<Command>) {
-        use crate::gamepad::{AXIS_NAMES, BUTTON_MAP, BUTTON_NAMES, Mapping};
+        use crate::gamepad::{AXIS_NAMES, BUTTON_MAP, BUTTON_NAMES, CONNECT_AS, Mapping};
         ui.label(tr("Mappings apply to controllers of the same model. Local menu and disconnect chords always use physical buttons."));
         let selected = if self.controller_key.is_empty() { tr("Choose a controller") } else { &self.controller_mapping.name };
         let chooser = egui::ComboBox::from_id_salt("controller-model").selected_text(selected).show_ui(ui, |ui| {
@@ -1649,6 +1649,14 @@ impl Launcher {
                 }
                 ui.separator();
             }
+            let selected = CONNECT_AS.iter().find(|(kind, _)| *kind == mapping.connect_as).map_or(CONNECT_AS[0].1, |(_, label)| label);
+            row(ui, "Connect as", "The controller type games see. Automatic uses the type the controller reports; pick another if games show the wrong buttons.", |ui| {
+                egui::ComboBox::from_id_salt("connect-as").selected_text(tr(selected)).show_ui(ui, |ui| {
+                    for (kind, label) in CONNECT_AS {
+                        ui.selectable_value(&mut mapping.connect_as, kind, tr(label));
+                    }
+                }).response
+            });
             row(ui, "Stick dead zone", "Ignore small movements near the center, then scale smoothly to full travel.", |ui| {
                 ui.add(egui::Slider::new(&mut mapping.deadzone, 0..=50).suffix("%"))
             });

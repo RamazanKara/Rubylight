@@ -82,7 +82,7 @@ Tier: Main rows show when a section opens; More rows fold behind the section's l
 | Setting / preference key | Tier | Default | Choices and units | When to change or use |
 | --- | --- | --- | --- | --- |
 | Multiple controllers<br>`checkbox_multi_controller` | Main | On | On; Off | Leave on so each controller is its own player and the PC sees controllers as they connect. Turn off to make every controller player 1 and keep one controller present on the PC, for games that need one before any connects. |
-| Controller buttons<br>`controller_button_mapping` | Main | No stored default | Action | Open Controller buttons, press a digital button and choose its output or Nothing. Mappings default to the original button, are saved per controller model and apply next stream. |
+| Controller buttons<br>`controller_button_mapping` | Main | No stored default | Action | Open Controller buttons, press a digital button and choose its output or Nothing, and choose what the controller connects as (Automatic, Xbox, PlayStation or Nintendo). Mappings default to the original button and Connect as to Automatic; both are saved per controller model and apply next stream. |
 | Controller test<br>`controller_test` | Main | No stored default | Action | Open Controller test to see buttons, sticks, triggers and the D-pad live and to try rumble, lights, motion sensors and the touchpad where the controller has them. Works with a D-pad or controller alone; hold B or Back for one second to leave. Leaving stops rumble and restores the lights. See [controller test](controls.md#controller-test). |
 | Physical Back opens stream menu<br>`checkbox_back_opens_menu` | More | Off | On; Off | Enable for a handheld's dedicated physical Back key, such as on AYN Thor, to open the stream menu instead of being forwarded as a controller button. Off preserves its existing mapping. Select/Start, mouse right-click and Keyboard Back sends Windows key keep their behavior. Applies from the next stream. |
 | Controller quit combo<br>`list_gamepad_quit_combo` | More | Off | Off; Select+LB+RB+Y; Start+LB+RB+A; Start+LB+RB+B; LB+RB+X+Y; LB+RB+A+B | Off by default: Start+Select+LB+RB opens the stream menu, where Disconnect leaves. Choose a combination to leave the stream straight from the controller, for example on a TV; the stream ends once every button of it is let go, so none stays held on the PC. Pick one a game doesn't use. The stream menu's Controller mouse switch turns the controller mouse on or off whether or not holding Start does. |
@@ -452,7 +452,7 @@ Settings marked "Linux: restart" take effect on Linux after Nightjar restarts. D
 
 | Setting | Default | Choices | Notes |
 | --- | --- | --- | --- |
-| Input customization | | Controllers, Shortcuts | Controller mappings and stick dead zones, and the saved keyboard shortcuts. |
+| Input customization | | Controllers, Shortcuts | Controller mappings, stick dead zones and the type each controller connects as (**Connect as**: Automatic, Xbox, PlayStation or Nintendo), and the saved keyboard shortcuts. |
 | Mouse | Captured | Captured, Desktop pointer | Captured suits games, Desktop pointer suits remote work. Ctrl+Alt+Shift+M switches during a stream. |
 | Send system keys | On | On, Off | Alt+Tab, the Windows key and similar go to the PC while input is captured. |
 | Local cursor | On | On, Off | In Desktop pointer mode, draws the PC's cursor shape locally, without video delay, on hosts that send cursor shapes. |

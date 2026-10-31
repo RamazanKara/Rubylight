@@ -68,6 +68,7 @@
         <Button variant="danger" icon="trash">Unpair</Button>
         <Button busy>Saving</Button>
         <Button disabled>Disabled</Button>
+        <Button variant="primary" disabled>Disabled primary</Button>
         <Button size="sm">Small</Button>
       </div>
       <div class="row">

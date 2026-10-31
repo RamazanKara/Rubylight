@@ -108,9 +108,22 @@
     background: var(--sunken);
     border-color: transparent;
   }
-  .button:disabled {
-    opacity: 0.55;
-    cursor: default;
+  /* Disabled is its own look, not a faded variant: a flat well with a quiet
+     border and muted text (4.5:1 on --sunken), the same for every variant. */
+  .button:disabled:not([aria-busy='true']) {
+    background: var(--sunken);
+    border-color: var(--line);
+    color: var(--muted);
+    cursor: not-allowed;
+  }
+  .ghost:disabled:not([aria-busy='true']) {
+    background: transparent;
+    border-color: transparent;
+  }
+  /* Busy keeps its variant, so a saving primary still reads as the action under way. */
+  .button[aria-busy='true']:disabled {
+    opacity: 0.85;
+    cursor: progress;
   }
   .button :global(svg),
   .spinner {

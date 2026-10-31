@@ -348,6 +348,16 @@ impl<T> Latest<T> {
             .picture_interval()
             .map(std::time::Duration::from_nanos)
     }
+    /// The mean interval between the source's recent pictures, which a source
+    /// alternating between two picture cadences hides from their median.
+    pub(super) fn picture_mean(&self) -> Option<std::time::Duration> {
+        self.state
+            .lock()
+            .unwrap()
+            .cadence
+            .picture_mean_interval()
+            .map(std::time::Duration::from_nanos)
+    }
     /// When the source's latest picture was first captured, the picture
     /// interval nearly all recent pictures arrived within, and whether the
     /// latest capture only extends the focus window's picture.

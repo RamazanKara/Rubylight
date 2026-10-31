@@ -1487,7 +1487,7 @@ impl SessionThread<'_> {
                         // wait from the client to the host, so the lock sets
                         // the rate cap to the client's refresh instead. VRR
                         // displays follow each frame and need no lock.
-                        match (!vrr).then(|| phase_interval(&s, begin, period, latest.picture_interval(), latest.source_rate())).flatten() {
+                        match (!vrr).then(|| phase_interval(&s, begin, period, latest.picture_interval(), latest.picture_mean())).flatten() {
                             Some(interval) => {
                                 let mut grid = latest.grid.lock().unwrap();
                                 unlocked_grid_period.get_or_insert(grid.period);

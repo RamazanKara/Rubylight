@@ -320,6 +320,34 @@ mod tests {
     }
 
     #[test]
+    fn a_game_with_second_compositions_moves_a_picture_at_a_time() {
+        // WGC delivers each picture of a 120 fps game with a second composition 0.1 or
+        // 1 ms later, so the mean of all captures reads about 4.2 ms; the pictures' own
+        // median and mean still read 8.3 ms and the host moves a picture at a time.
+        let now = Instant::now();
+        let sixty = Duration::from_nanos(SIXTY);
+        let mut cadence = crate::capture_policy::Freshness::default();
+        let mut sync = PhaseSync::default();
+        for frame in 0..120u64 {
+            let start = 1_000_000_000 + frame * GAME + frame * 7_919 % 400_000;
+            cadence.observe(start, 100_000);
+            cadence.observe(start + [100_000, 1_000_000][(frame % 2) as usize], 100_000);
+            let ns = |nanos: Option<u64>| nanos.map(Duration::from_nanos);
+            if frame % 2 == 0 {
+                sync.set_source(
+                    ns(cadence.picture_interval()),
+                    ns(cadence.picture_mean_interval()),
+                    sixty,
+                );
+            }
+        }
+        assert!(cadence.mean_interval().unwrap() < 5_000_000);
+        assert_eq!(sync.pictures, Some(2));
+        sync.on_payload(now, &report(SIXTY as u32, 0));
+        assert!(sync.interval(now, sixty).unwrap() > sixty);
+    }
+
+    #[test]
     fn a_reset_forgets_the_source() {
         let now = Instant::now();
         let sixty = Duration::from_nanos(SIXTY);

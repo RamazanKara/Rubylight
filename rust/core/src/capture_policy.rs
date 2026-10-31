@@ -38,6 +38,7 @@ pub struct Freshness {
     picture_count: usize,
     picture_next: usize,
     picture_median: Option<u64>,
+    picture_mean: Option<u64>,
     picture_late: Option<u64>,
     /// The latest capture that changed the focus window, the first capture
     /// of its latest picture and the interval before that picture, and
@@ -72,6 +73,14 @@ impl Freshness {
     /// game's frames under VRR came 7.3 to 9.3 ms apart.
     pub fn late_picture_interval(&self) -> Option<u64> {
         self.picture_late
+    }
+    /// The mean interval between recent pictures. Next to `picture_interval`
+    /// it tells a steady picture cadence from one alternating between two (a
+    /// 240 Hz display showing a 160 fps game for one or two refreshes), where
+    /// the mean of all captures cannot: a second composition of each picture
+    /// halves that.
+    pub fn picture_mean_interval(&self) -> Option<u64> {
+        self.picture_mean
     }
     /// When the latest picture's first capture was presented.
     pub fn picture_start(&self) -> Option<u64> {
@@ -190,8 +199,12 @@ impl Freshness {
             }
             self.picture = Some(captured);
             self.picture_median = None;
+            self.picture_mean = None;
             self.picture_late = None;
             if self.picture_count >= 4 {
+                let count = self.picture_count as u64;
+                self.picture_mean =
+                    Some(self.pictures[..self.picture_count].iter().sum::<u64>() / count);
                 let mut pictures = self.pictures;
                 pictures[..self.picture_count].sort_unstable();
                 self.picture_median = Some(pictures[self.picture_count / 2]);
@@ -494,6 +507,16 @@ mod tests {
                     );
                     assert_eq!(cadence.picture_start(), Some(start));
                     assert!(cadence.median_interval().unwrap() < 7_500_000);
+                    // The mean of all captures halves; the pictures' own mean still
+                    // agrees with their median, so step mode can tell the cadence.
+                    if !third {
+                        let mean = cadence.picture_mean_interval().unwrap();
+                        assert!(
+                            mean.abs_diff(picture) <= picture / 16,
+                            "frame {frame}: {mean} {picture}"
+                        );
+                        assert!(cadence.mean_interval().unwrap() < 5_000_000);
+                    }
                 }
             }
         }

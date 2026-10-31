@@ -2644,9 +2644,13 @@ fn polish_screenshots() {
     let Some(dir) = std::env::var_os("NIGHTJAR_SHOTS").map(std::path::PathBuf::from) else { return };
     std::fs::create_dir_all(&dir).expect("the folder for the screenshots");
     let only = std::env::var("NIGHTJAR_SHOTS_ONLY").unwrap_or_default();
+    // Store keys as a host sends them (console.rs names them). Ten Steam games overflow a row at
+    // both sizes, so Steam's ends in its All tile; one Epic game is not installed.
     let titles = [
-        ("Desktop", ""), ("Racing Game", "Steam"), ("Open World", "Xbox"), ("Space Sim", "Epic Games"), ("Puzzle Night", "GOG"),
-        ("Retro Arcade", "Steam"), ("Strategy", "Battle.net"), ("Music Studio", "Steam"), ("Ocean Explorer", "Xbox"), ("Skybound", ""),
+        ("Desktop", ""), ("Racing Game", "steam"), ("Open World", "microsoft"), ("Space Sim", "epic"), ("Puzzle Night", "gog"),
+        ("Retro Arcade", "steam"), ("Strategy", "battlenet"), ("Music Studio", "steam"), ("Ocean Explorer", "microsoft"), ("Skybound", "steam"),
+        ("Night Drive", "steam"), ("Farm Life", "steam"), ("Dungeon Deep", "steam"), ("Tiny Tactics", "steam"), ("Star Courier", "steam"),
+        ("Frost Peak", "epic"), ("Card Duel", "battlenet"), ("Last Light", "steam"), ("Steam Big Picture", ""),
     ];
     for (width, height, ppp) in [(1280.0, 800.0, 1.5), (1920.0, 1080.0, 1.0)] {
         let size = format!("{}x{}", width as u32, height as u32);
@@ -2694,11 +2698,11 @@ fn polish_screenshots() {
                 install_id: format!("install-{n}"),
                 app_id: 1000 + n as u32,
                 title: (*title).into(),
-                game_id: (!store.is_empty()).then(|| format!("steam:{n}")),
-                store: (!store.is_empty()).then(|| Store { source: "steam".into(), id: n.to_string(), name: (*store).into() }),
-                installed: Some(true),
+                game_id: (!store.is_empty()).then(|| format!("{store}:{n}")),
+                store: (!store.is_empty()).then(|| Store { source: (*store).into(), id: n.to_string(), name: String::new() }),
+                installed: Some(*title != "Frost Peak"),
                 running: n == 1,
-                artwork: Artwork { cover: (n < 9).then(|| format!("/cover/{n}")), version: "1".into() },
+                artwork: Artwork { cover: (n < 10).then(|| format!("/cover/{n}")), version: "1".into() },
             })
             .collect();
         let apps: Vec<nightjar_core::http::App> = games
@@ -2711,7 +2715,7 @@ fn polish_screenshots() {
             pc.info = Some(files::tests::native_answer());
             pc.native.library = Some(Library { revision: "r1".into(), games });
             pc.apps = Apps::Loaded(apps.clone());
-            for (n, app) in apps.iter().enumerate().take(9) {
+            for (n, app) in apps.iter().enumerate().take(10) {
                 pc.art.insert(app.id, demo_art(&f.ctx, n));
             }
         }
@@ -2725,6 +2729,64 @@ fn polish_screenshots() {
         shoot(&mut f, "home-focus-moved");
         f.scroll_to_end();
         shoot(&mut f, "home-end");
+        // All games with every game, then with a store's chip clicked.
+        f.l.open(Screen::AllGames);
+        shoot(&mut f, "all-games");
+        let steam = f.placed.iter().find(|(t, r, _)| t == "Steam" && r.center().y < 200.0).map(|p| p.1).expect("the Steam chip");
+        f.click_at(steam.center(), egui::PointerButton::Primary);
+        shoot(&mut f, "all-games-store");
+        f.l.library_filter = console::LibraryFilter::All;
+        f.frame(vec![egui::Event::PointerGone]);
+        f.settle();
+        // A cover's menu from its ⋮ (the first cover, at the left edge) and from a right-click on
+        // the last cover of the first line (at the right edge).
+        f.l.focused_key = None;
+        f.l.restore_key = None;
+        f.l.focus_screen = true;
+        f.settle();
+        let cover = f.ctx.memory(|m| m.focused()).expect("the first cover has focus");
+        let first = f.ctx.read_response(cover).expect("the cover").rect;
+        f.frame(vec![egui::Event::PointerMoved(first.center())]);
+        f.settle();
+        let dots = f.ctx.read_response(cover.with("options")).expect("the cover's ⋮").rect;
+        f.click_at(dots.center(), egui::PointerButton::Primary);
+        shoot(&mut f, "game-menu-dots");
+        f.l.close_dialog();
+        // Every cover of the line draws its title inside its own width: the rightmost title is the last cover's.
+        let right = f
+            .placed
+            .iter()
+            .filter(|(_, r, _)| r.center().y > first.top() && r.center().y < first.bottom())
+            .map(|p| p.1.center().x)
+            .max_by(f32::total_cmp)
+            .map(|x| pos2(x, first.center().y))
+            .expect("the first line's titles");
+        f.click_at(right + vec2(first.width() * 0.25, 0.0), egui::PointerButton::Secondary);
+        shoot(&mut f, "game-menu-right-click");
+        f.l.close_dialog();
+        // A cover under the pointer with the focus elsewhere: it rises, no ring.
+        // (Closing the menu gave the focus back to the cover it was opened on.)
+        f.settle();
+        if let Some(held) = f.ctx.memory(|m| m.focused()) {
+            f.ctx.memory_mut(|m| m.surrender_focus(held));
+        }
+        f.frame(vec![egui::Event::PointerMoved(right)]);
+        f.settle();
+        shoot(&mut f, "all-games-cover-hover");
+        // The same in high contrast with the first cover focused: one amber ring.
+        f.l.settings.high_contrast = true;
+        f.frame(vec![egui::Event::PointerGone]);
+        f.ctx.memory_mut(|m| m.request_focus(cover));
+        shoot(&mut f, "all-games-focus-high-contrast");
+        f.l.go(Screen::Hosts);
+        shoot(&mut f, "pcs-focus-high-contrast");
+        f.l.settings.high_contrast = false;
+        // A PC's card under the pointer with no focus on it: one step lighter, no outline.
+        let card = f.ctx.memory(|m| m.focused()).and_then(|id| f.ctx.read_response(id)).expect("the first PC has focus");
+        f.ctx.memory_mut(|m| m.surrender_focus(card.id));
+        hover_card(&mut f, card.rect);
+        shoot(&mut f, "pcs-card-hover");
+        f.frame(vec![egui::Event::PointerGone]);
         f.l.go(Screen::Game { host: pc, app: 1001 });
         shoot(&mut f, "game-running");
         f.l.go(Screen::Game { host: pc, app: 1002 });
@@ -2773,6 +2835,28 @@ fn polish_screenshots() {
         f.waking = Some("Office PC".into());
         shoot(&mut f, "waking");
         f.waking = None;
+        // All games of a PC whose library is empty: no chips, and the page says why. A chip exists
+        // only for games it shows, so no filter is ever empty on its own.
+        let mut f = fresh(vec![HostRecord { address: "192.0.2.10".into(), ..record("Living Room PC", true, true) }], true);
+        f.hosts.list[0].reach = Reach::Online;
+        f.hosts.list[0].info = Some(files::tests::native_answer());
+        f.hosts.list[0].native.library = Some(Library { revision: "r1".into(), games: Vec::new() });
+        f.l.open(Screen::AllGames);
+        shoot(&mut f, "all-games-empty");
+        // Nothing installed: the Installed chip is offered and shows no game.
+        let none = |title: &str, n: u32| Game {
+            install_id: format!("install-{n}"),
+            app_id: 1000 + n,
+            title: title.into(),
+            game_id: Some(format!("steam:{n}")),
+            store: Some(Store { source: "steam".into(), id: n.to_string(), name: String::new() }),
+            installed: Some(false),
+            running: false,
+            artwork: Artwork { cover: None, version: String::new() },
+        };
+        f.hosts.list[0].native.library = Some(Library { revision: "r2".into(), games: vec![none("Night Drive", 0), none("Farm Life", 1)] });
+        f.l.library_filter = console::LibraryFilter::Installed;
+        shoot(&mut f, "all-games-empty-filter");
     }
 }
 

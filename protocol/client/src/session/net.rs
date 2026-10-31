@@ -262,31 +262,292 @@ pub fn bind_udp_sized(
     Ok((socket, buffer))
 }
 
+/// What a failed receive means.
+enum Failure {
+    /// The poll timeout.
+    Timeout,
+    /// An ICMP port-unreachable report (a ping sent before the host bound its port): receive
+    /// again, as recvUdpSocket does.
+    Retry,
+    Fatal(io::Error),
+}
+
+fn failure(e: io::Error) -> Failure {
+    match e.kind() {
+        io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut | io::ErrorKind::Interrupted => {
+            Failure::Timeout
+        }
+        io::ErrorKind::ConnectionReset | io::ErrorKind::ConnectionRefused => Failure::Retry,
+        // WSA_IO_PENDING, which some Windows systems return instead of a timeout.
+        _ if cfg!(windows) && e.raw_os_error() == Some(997) => Failure::Timeout,
+        _ => Failure::Fatal(e),
+    }
+}
+
 /// One receive: `Ok(None)` on the poll timeout. ICMP port-unreachable reports (a ping sent
 /// before the host bound its port) are skipped, as in recvUdpSocket.
 pub fn receive(socket: &UdpSocket, buffer: &mut [u8]) -> io::Result<Option<usize>> {
     loop {
-        match socket.recv(buffer) {
+        match socket.recv(buffer).map_err(failure) {
             Ok(n) => return Ok(Some(n)),
-            Err(e)
-                if matches!(
-                    e.kind(),
-                    io::ErrorKind::WouldBlock
-                        | io::ErrorKind::TimedOut
-                        | io::ErrorKind::Interrupted
-                ) =>
-            {
-                return Ok(None)
-            }
-            Err(e)
-                if matches!(
-                    e.kind(),
-                    io::ErrorKind::ConnectionReset | io::ErrorKind::ConnectionRefused
-                ) => {}
-            // WSA_IO_PENDING, which some Windows systems return instead of a timeout.
-            Err(e) if cfg!(windows) && e.raw_os_error() == Some(997) => return Ok(None),
-            Err(e) => return Err(e),
+            Err(Failure::Timeout) => return Ok(None),
+            Err(Failure::Retry) => {}
+            Err(Failure::Fatal(e)) => return Err(e),
         }
+    }
+}
+
+/// Datagrams one [`BatchReceiver::receive`] takes at most.
+pub const RECEIVE_BATCH: usize = 32;
+/// Large enough that no datagram is truncated: Windows fails a truncating receive.
+#[cfg(not(any(target_os = "linux", target_os = "android")))]
+const WHOLE_DATAGRAM: usize = 65536;
+
+/// Receives every datagram already queued on a media socket with one system call, so a high
+/// packet rate does not pay a call per datagram: `recvmmsg` with `MSG_WAITFORONE` on Linux and
+/// Android, which waits (up to the socket's poll timeout) for the first datagram only and
+/// returns at once with whatever else is queued. Elsewhere, and where the kernel refuses
+/// `recvmmsg`, one datagram per receive as [`receive`]. (Windows has no such call for a socket
+/// that also sends and is cloned, as the video socket is: see `rio`.)
+pub struct BatchReceiver {
+    /// Bytes per datagram slot of `buffer`.
+    slot: usize,
+    buffer: Vec<u8>,
+    /// The length of each datagram of the last receive on the wire, which may exceed `slot`.
+    lengths: [usize; RECEIVE_BATCH],
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    batch: Option<mmsg::Batch>,
+    /// Why batching stopped, until the caller takes it.
+    fallback: Option<io::Error>,
+}
+
+impl BatchReceiver {
+    /// A receiver for `socket` and the sockets that replace it. With batches, a datagram longer
+    /// than `max_datagram` (the reader's own maximum) is cut to it; its length still counts in
+    /// full. Without, datagrams are read whole.
+    pub fn new(socket: &UdpSocket, max_datagram: usize) -> Self {
+        Self::with_batches(socket, max_datagram, true)
+    }
+
+    /// One datagram per receive, as where the kernel refuses batches.
+    #[cfg(test)]
+    pub fn unbatched(socket: &UdpSocket, max_datagram: usize) -> Self {
+        Self::with_batches(socket, max_datagram, false)
+    }
+
+    fn with_batches(socket: &UdpSocket, max_datagram: usize, batches: bool) -> Self {
+        #[cfg(any(target_os = "linux", target_os = "android"))]
+        {
+            let slot = max_datagram.max(1).next_multiple_of(64);
+            let mut buffer = vec![0u8; slot * RECEIVE_BATCH];
+            // Points into `buffer`'s allocation, which is never resized and outlives it here.
+            let batch = mmsg::Batch::new(&mut buffer, slot);
+            let (batch, fallback) = match mmsg::probe(socket) {
+                Ok(()) => (batches.then_some(batch), None),
+                Err(e) => (None, Some(e)),
+            };
+            Self {
+                slot,
+                buffer,
+                lengths: [0; RECEIVE_BATCH],
+                batch,
+                fallback,
+            }
+        }
+        #[cfg(not(any(target_os = "linux", target_os = "android")))]
+        {
+            let _ = (socket, max_datagram, batches);
+            Self {
+                slot: WHOLE_DATAGRAM,
+                buffer: vec![0u8; WHOLE_DATAGRAM],
+                lengths: [0; RECEIVE_BATCH],
+                fallback: None,
+            }
+        }
+    }
+
+    /// Whether receives take batches.
+    pub fn batched(&self) -> bool {
+        #[cfg(any(target_os = "linux", target_os = "android"))]
+        return self.batch.is_some();
+        #[cfg(not(any(target_os = "linux", target_os = "android")))]
+        false
+    }
+
+    /// Why receives stopped taking batches, once: the kernel refused `recvmmsg`.
+    pub fn take_fallback(&mut self) -> Option<io::Error> {
+        self.fallback.take()
+    }
+
+    /// Waits up to the socket's poll timeout for a datagram and takes it with every other one
+    /// already queued, up to [`RECEIVE_BATCH`]: their count, 0 on the timeout. ICMP
+    /// port-unreachable reports are skipped as in [`receive`].
+    pub fn receive(&mut self, socket: &UdpSocket) -> io::Result<usize> {
+        #[cfg(any(target_os = "linux", target_os = "android"))]
+        while let Some(batch) = self.batch.as_mut() {
+            match batch.receive(socket) {
+                Ok(count) => {
+                    for (i, length) in self.lengths[..count].iter_mut().enumerate() {
+                        *length = batch.length(i);
+                    }
+                    return Ok(count);
+                }
+                Err(e) if mmsg::unsupported(&e) => {
+                    self.batch = None;
+                    self.fallback = Some(e);
+                }
+                Err(e) => match failure(e) {
+                    Failure::Timeout => return Ok(0),
+                    Failure::Retry => {}
+                    Failure::Fatal(e) => return Err(e),
+                },
+            }
+        }
+        loop {
+            match self.receive_one(socket).map_err(failure) {
+                Ok(length) => {
+                    self.lengths[0] = length;
+                    return Ok(1);
+                }
+                Err(Failure::Timeout) => return Ok(0),
+                Err(Failure::Retry) => {}
+                Err(Failure::Fatal(e)) => return Err(e),
+            }
+        }
+    }
+
+    /// One datagram into the first slot: its length on the wire.
+    fn receive_one(&mut self, socket: &UdpSocket) -> io::Result<usize> {
+        #[cfg(any(target_os = "linux", target_os = "android"))]
+        return mmsg::receive_one(socket, &mut self.buffer[..self.slot]);
+        #[cfg(not(any(target_os = "linux", target_os = "android")))]
+        socket.recv(&mut self.buffer[..self.slot])
+    }
+
+    /// Datagram `index` of the last receive, cut to the slot.
+    pub fn datagram(&self, index: usize) -> &[u8] {
+        let start = index * self.slot;
+        &self.buffer[start..start + self.lengths[index].min(self.slot)]
+    }
+
+    /// The length on the wire of datagram `index` of the last receive.
+    pub fn length(&self, index: usize) -> usize {
+        self.lengths[index]
+    }
+}
+
+#[cfg(any(target_os = "linux", target_os = "android"))]
+mod mmsg {
+    use std::io;
+    use std::net::UdpSocket;
+    use std::os::fd::AsRawFd;
+
+    use super::RECEIVE_BATCH;
+
+    /// `recvmmsg` headers, one per slot of a buffer they point into.
+    pub struct Batch {
+        headers: Box<[libc::mmsghdr]>,
+        _iovecs: Box<[libc::iovec]>,
+    }
+
+    impl Batch {
+        /// The headers for `buffer`'s slots of `slot` bytes. They hold pointers into it: the
+        /// caller keeps it alive and its allocation in place while they are used.
+        pub fn new(buffer: &mut [u8], slot: usize) -> Self {
+            let mut iovecs: Box<[libc::iovec]> = buffer
+                .chunks_exact_mut(slot)
+                .take(RECEIVE_BATCH)
+                .map(|slot| libc::iovec {
+                    iov_base: slot.as_mut_ptr().cast(),
+                    iov_len: slot.len(),
+                })
+                .collect();
+            let headers = iovecs
+                .iter_mut()
+                .map(|iovec| {
+                    // SAFETY: mmsghdr is plain data; all zero is an empty header.
+                    let mut header: libc::mmsghdr = unsafe { std::mem::zeroed() };
+                    header.msg_hdr.msg_iov = iovec;
+                    header.msg_hdr.msg_iovlen = 1;
+                    header
+                })
+                .collect();
+            Self {
+                headers,
+                _iovecs: iovecs,
+            }
+        }
+
+        /// Up to a batch: blocks for the first datagram only (`MSG_WAITFORONE`). `MSG_TRUNC`
+        /// reports a cut datagram's length on the wire.
+        pub fn receive(&mut self, socket: &UdpSocket) -> io::Result<usize> {
+            // SAFETY: the headers point at live iovecs and slots of their lengths.
+            let count = unsafe {
+                libc::recvmmsg(
+                    socket.as_raw_fd(),
+                    self.headers.as_mut_ptr(),
+                    self.headers.len() as libc::c_uint,
+                    libc::MSG_WAITFORONE | libc::MSG_TRUNC,
+                    std::ptr::null_mut(),
+                )
+            };
+            if count < 0 {
+                return Err(io::Error::last_os_error());
+            }
+            Ok(count as usize)
+        }
+
+        pub fn length(&self, index: usize) -> usize {
+            self.headers[index].msg_len as usize
+        }
+    }
+
+    /// Whether the kernel can take batches: `recvmmsg` of no datagrams returns at once, or
+    /// fails where it is missing (before Linux 2.6.33) or filtered out.
+    pub fn probe(socket: &UdpSocket) -> io::Result<()> {
+        // SAFETY: no headers are read or written with a length of 0.
+        let result = unsafe {
+            libc::recvmmsg(
+                socket.as_raw_fd(),
+                std::ptr::null_mut(),
+                0,
+                libc::MSG_DONTWAIT,
+                std::ptr::null_mut(),
+            )
+        };
+        if result < 0 {
+            let e = io::Error::last_os_error();
+            // Any other error is a pending socket error (an ICMP report): batches work.
+            if unsupported(&e) {
+                return Err(e);
+            }
+        }
+        Ok(())
+    }
+
+    /// An error that means `recvmmsg` itself does not work here.
+    pub fn unsupported(e: &io::Error) -> bool {
+        matches!(
+            e.raw_os_error(),
+            Some(libc::ENOSYS | libc::EPERM | libc::EOPNOTSUPP | libc::EINVAL)
+        )
+    }
+
+    /// One datagram; its length on the wire, even when `buffer` cut it (`MSG_TRUNC`).
+    pub fn receive_one(socket: &UdpSocket, buffer: &mut [u8]) -> io::Result<usize> {
+        // SAFETY: `buffer` is valid for its length.
+        let length = unsafe {
+            libc::recv(
+                socket.as_raw_fd(),
+                buffer.as_mut_ptr().cast(),
+                buffer.len(),
+                libc::MSG_TRUNC,
+            )
+        };
+        if length < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        Ok(length as usize)
     }
 }
 
@@ -764,5 +1025,163 @@ mod tests {
             .send_to(b"hello", socket.local_addr().unwrap())
             .unwrap();
         assert_eq!(receive(&socket, &mut buffer).unwrap(), Some(5));
+    }
+
+    /// A loopback media socket with a receive buffer that holds every test datagram.
+    fn media_socket() -> UdpSocket {
+        bind_udp((Ipv4Addr::LOCALHOST, 0).into(), 1 << 20, Qos::Video, false, |_| {}).unwrap()
+    }
+
+    /// `count` datagrams of `size` bytes, the last one `last` bytes, each starting with its
+    /// sequence number, sent to `to`.
+    fn send_numbered(to: &UdpSocket, count: u16, size: usize, last: usize) -> Vec<Vec<u8>> {
+        let sender = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let datagrams: Vec<Vec<u8>> = (0..count)
+            .map(|n| {
+                let length = if n + 1 == count { last } else { size };
+                let mut datagram: Vec<u8> = (0..length).map(|i| (i as u8) ^ (n as u8)).collect();
+                datagram[..2].copy_from_slice(&n.to_be_bytes());
+                datagram
+            })
+            .collect();
+        for datagram in &datagrams {
+            sender.send_to(datagram, to.local_addr().unwrap()).unwrap();
+        }
+        datagrams
+    }
+
+    /// Receives until `expected` datagrams came: them and the count of each receive.
+    fn receive_all(
+        batch: &mut BatchReceiver,
+        socket: &UdpSocket,
+        expected: usize,
+    ) -> (Vec<Vec<u8>>, Vec<usize>) {
+        let mut received = Vec::new();
+        let mut counts = Vec::new();
+        while received.len() < expected {
+            let count = batch.receive(socket).unwrap();
+            assert_ne!(count, 0, "timed out after {} datagrams", received.len());
+            for i in 0..count {
+                assert_eq!(batch.length(i), batch.datagram(i).len());
+                received.push(batch.datagram(i).to_vec());
+            }
+            counts.push(count);
+        }
+        (received, counts)
+    }
+
+    #[test]
+    fn a_batch_delivers_every_queued_datagram_in_order() {
+        let socket = media_socket();
+        let mut batch = BatchReceiver::new(&socket, 1500);
+        assert!(batch.take_fallback().is_none());
+        // More than a batch, all queued before the first receive, the last one short.
+        let sent = send_numbered(&socket, RECEIVE_BATCH as u16 * 2 + 5, 1392, 77);
+        let (received, counts) = receive_all(&mut batch, &socket, sent.len());
+        assert_eq!(received, sent);
+        assert!(counts.iter().all(|&count| count <= RECEIVE_BATCH), "{counts:?}");
+        if cfg!(any(target_os = "linux", target_os = "android")) {
+            assert!(batch.batched());
+            assert_eq!(counts[0], RECEIVE_BATCH, "the queued datagrams came in one call");
+        } else {
+            assert!(!batch.batched());
+            assert!(counts.iter().all(|&count| count == 1), "{counts:?}");
+        }
+        assert_eq!(batch.receive(&socket).unwrap(), 0, "then the poll timeout");
+    }
+
+    #[test]
+    fn without_batches_every_datagram_comes_in_a_call_of_its_own() {
+        let socket = media_socket();
+        let mut batch = BatchReceiver::unbatched(&socket, 1500);
+        assert!(!batch.batched());
+        let sent = send_numbered(&socket, 10, 1392, 3);
+        let (received, counts) = receive_all(&mut batch, &socket, sent.len());
+        assert_eq!(received, sent);
+        assert_eq!(counts, [1; 10]);
+        assert_eq!(batch.receive(&socket).unwrap(), 0);
+    }
+
+    #[test]
+    fn a_datagram_is_delivered_without_waiting_for_more() {
+        for batched in [true, false] {
+            let socket = media_socket();
+            // A receive that waited to fill its batch would wait this long.
+            socket.set_read_timeout(Some(Duration::from_secs(60))).unwrap();
+            let address = socket.local_addr().unwrap();
+            let (tx, rx) = std::sync::mpsc::channel();
+            let receiver = std::thread::spawn(move || {
+                let mut batch = if batched {
+                    BatchReceiver::new(&socket, 1500)
+                } else {
+                    BatchReceiver::unbatched(&socket, 1500)
+                };
+                tx.send(()).unwrap();
+                let count = batch.receive(&socket).unwrap();
+                (count, batch.datagram(0).to_vec())
+            });
+            rx.recv().unwrap();
+            // The receiver is about to block, or already blocked: one datagram, then nothing.
+            std::thread::sleep(Duration::from_millis(50));
+            UdpSocket::bind("127.0.0.1:0")
+                .unwrap()
+                .send_to(b"alone", address)
+                .unwrap();
+            let waiting = Instant::now();
+            while !receiver.is_finished() {
+                assert!(waiting.elapsed() < Duration::from_secs(10), "the receive waited for more");
+                std::thread::sleep(Duration::from_millis(1));
+            }
+            assert_eq!(receiver.join().unwrap(), (1, b"alone".to_vec()));
+        }
+    }
+
+    #[test]
+    fn a_long_datagram_counts_in_full() {
+        let socket = media_socket();
+        let mut batch = BatchReceiver::new(&socket, 100);
+        send_numbered(&socket, 2, 1000, 50);
+        let mut seen = Vec::new();
+        while seen.len() < 2 {
+            let count = batch.receive(&socket).unwrap();
+            assert_ne!(count, 0);
+            seen.extend((0..count).map(|i| (batch.length(i), batch.datagram(i).len())));
+        }
+        // Batches cut it to the reader's maximum (rounded up to the slot); elsewhere it is
+        // read whole.
+        let cut = if batch.batched() { 128 } else { 1000 };
+        assert_eq!(seen, [(1000, cut), (50, 50)]);
+        let mut fallback = BatchReceiver::unbatched(&socket, 100);
+        send_numbered(&socket, 1, 1000, 1000);
+        assert_eq!(fallback.receive(&socket).unwrap(), 1);
+        assert_eq!(fallback.length(0), 1000);
+    }
+
+    #[test]
+    fn a_batch_skips_icmp_reports() {
+        // Connected to a closed port, a send draws an ICMP port unreachable, which the next
+        // receive reports as an error.
+        let refused = || {
+            let socket = media_socket();
+            let closed = UdpSocket::bind("127.0.0.1:0").unwrap().local_addr().unwrap();
+            socket.connect(closed).unwrap();
+            socket
+        };
+        let control = refused();
+        control.send(b"ping").unwrap();
+        std::thread::sleep(Duration::from_millis(50));
+        let error = control.recv(&mut [0; 16]).expect_err("an ICMP report");
+        assert!(matches!(failure(error), Failure::Retry));
+        for batched in [true, false] {
+            let socket = refused();
+            let mut batch = if batched {
+                BatchReceiver::new(&socket, 1500)
+            } else {
+                BatchReceiver::unbatched(&socket, 1500)
+            };
+            socket.send(b"ping").unwrap();
+            std::thread::sleep(Duration::from_millis(50));
+            assert_eq!(batch.receive(&socket).unwrap(), 0, "batched {batched}");
+        }
     }
 }

@@ -318,7 +318,7 @@
              the title starts on the gutter, or 56dp in (phones) after a navigation icon. -->
         <item name="android:paddingStart">@dimen/top_app_bar_padding</item>
         <item name="android:paddingEnd">@dimen/top_app_bar_padding</item>
-        <item name="contentInsetStart">@dimen/screen_gutter</item>
+        <item name="contentInsetStart">@dimen/shell_inset</item>
         <item name="contentInsetStartWithNavigation">56dp</item>
         <item name="contentInsetEnd">0dp</item>
         <item name="titleMarginStart">0dp</item>

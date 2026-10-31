@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Width outranks the television qualifier, so a TV's top app bar padding is set here beside values-w600dp. The bar's
+     title starts on the shell inset (values-television/dimens_shell.xml), which this padding must not push past. -->
+<resources>
+    <dimen name="top_app_bar_padding">@dimen/space_s</dimen>
+</resources>

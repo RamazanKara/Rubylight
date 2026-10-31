@@ -12,14 +12,14 @@
             android:nextFocusDown="@android:id/list" android:visibility="gone"
             android:layout_width="match_parent" android:layout_height="wrap_content"
             android:minHeight="@dimen/touch_target"
-            android:layout_marginStart="@dimen/screen_gutter" android:layout_marginEnd="@dimen/screen_gutter"
+            android:layout_marginStart="@dimen/shell_inset" android:layout_marginEnd="@dimen/shell_inset"
             android:layout_marginBottom="@dimen/space_s"
             android:background="@drawable/settings_search_background"
             app:queryBackground="@android:color/transparent" app:submitBackground="@android:color/transparent"
             app:iconifiedByDefault="false" />
         <TextView android:id="@+id/settings_context"
             android:layout_width="match_parent" android:layout_height="wrap_content"
-            android:paddingStart="@dimen/screen_gutter" android:paddingEnd="@dimen/screen_gutter" android:paddingBottom="@dimen/space_s"
+            android:paddingStart="@dimen/shell_inset" android:paddingEnd="@dimen/shell_inset" android:paddingBottom="@dimen/space_s"
             android:textAppearance="@style/TextAppearance.Nightjar.Supporting" android:textColor="?attr/colorOnSurfaceVariant"
             android:accessibilityLiveRegion="polite" />
         <!-- Two panes: the sections on the left (RootFragment), the chosen section or the search results on the right. -->

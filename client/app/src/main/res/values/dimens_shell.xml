@@ -4,4 +4,7 @@
     <dimen name="shell_overscan_horizontal">0dp</dimen>
     <dimen name="shell_overscan_vertical">0dp</dimen>
     <dimen name="shell_overscan_past_margin">0dp</dimen>
+    <!-- Where a shell screen's bar, title and header text start inside its overscan padding: the screen gutter on
+         phones and tablets; on a TV the 8dp the shelves, All games and the game page start their content at. -->
+    <dimen name="shell_inset">@dimen/screen_gutter</dimen>
 </resources>

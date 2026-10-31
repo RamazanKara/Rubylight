@@ -586,4 +586,76 @@ public class ShellNavigationTest {
             elsewhere.pause().stop().destroy();
         }
     }
+
+    @Test
+    @Config(qualifiers = "w960dp-h540dp-land-television")
+    public void televisionSettingsFromTheBarHasNoBackArrowEitherWithItsSearchRowAndOpenSection() {
+        ActivityController<StreamSettings> controller = settingsFromTheBar();
+        try {
+            StreamSettings screen = controller.get();
+            org.robolectric.shadows.ShadowLooper.idleMainLooper();
+            com.google.android.material.appbar.MaterialToolbar toolbar = screen.findViewById(R.id.settings_toolbar);
+            assertNotNull("the TV shows the sections beside the open section", screen.findViewById(R.id.settings_sections));
+            assertNull("PCs and Home have no back arrow on a TV either", toolbar.getNavigationIcon());
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    /** Where a view's content starts, in {@code root}'s coordinates. */
+    private static int contentLeft(ViewGroup root, View view) {
+        android.graphics.Rect rect = new android.graphics.Rect(0, 0, view.getWidth(), view.getHeight());
+        root.offsetDescendantRectToMyCoords(view, rect);
+        return rect.left + view.getPaddingStart();
+    }
+
+    private static void layOut(View root) {
+        android.util.DisplayMetrics metrics = root.getResources().getDisplayMetrics();
+        root.measure(View.MeasureSpec.makeMeasureSpec(metrics.widthPixels, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(metrics.heightPixels, View.MeasureSpec.EXACTLY));
+        root.layout(0, 0, metrics.widthPixels, metrics.heightPixels);
+    }
+
+    @Test
+    @Config(qualifiers = "w960dp-h540dp-land-television-xhdpi")
+    public void onATelevisionTheBarTheTitleAndThePageContentShareOneEdge() {
+        ActivityController<StreamSettings> controller = settingsFromTheBar();
+        try {
+            StreamSettings screen = controller.get();
+            ViewGroup root = screen.findViewById(android.R.id.content);
+            layOut(root);
+            com.google.android.material.appbar.MaterialToolbar toolbar = screen.findViewById(R.id.settings_toolbar);
+            View title = null;
+            for (int i = 0; i < toolbar.getChildCount(); i++) {
+                View child = toolbar.getChildAt(i);
+                if (child instanceof android.widget.TextView
+                        && screen.getString(R.string.settings).contentEquals(((android.widget.TextView) child).getText())) {
+                    title = child;
+                }
+            }
+            assertNotNull(title);
+            int tab = contentLeft(root, screen.findViewById(R.id.shell_bar));
+            float dp = screen.getResources().getDisplayMetrics().density;
+            assertEquals("80dp from the screen: 24dp TV margin, 48dp overscan, 8dp inset", Math.round(80 * dp), tab);
+            assertEquals("the title starts where the first tab does", tab, contentLeft(root, title));
+            assertEquals("and so does the line under them", tab, contentLeft(root, screen.findViewById(R.id.settings_context)));
+        } finally {
+            controller.pause().stop().destroy();
+        }
+        // All games and the game page start their headings and covers on the same edge as their bar.
+        try (var other = Robolectric.buildActivity(MotionTest.Screen.class).setup().visible()) {
+            android.app.Activity activity = other.get();
+            for (int layout : new int[] {R.layout.activity_all_games, R.layout.activity_game_detail_tv}) {
+                android.widget.FrameLayout host = new android.widget.FrameLayout(activity);
+                ViewGroup page = (ViewGroup) android.view.LayoutInflater.from(activity).inflate(layout, host, false);
+                host.addView(page);
+                layOut(host);
+                int bar = contentLeft(host, page.findViewById(R.id.shell_bar));
+                View content = layout == R.layout.activity_all_games ? page.findViewById(R.id.all_games_title)
+                        : page.findViewById(R.id.detail_poster);
+                assertEquals(activity.getResources().getResourceEntryName(layout), contentLeft(host, content)
+                        - (layout == R.layout.activity_all_games ? 0 : content.getPaddingStart()), bar);
+            }
+        }
+    }
 }

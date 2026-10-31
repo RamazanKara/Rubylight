@@ -4,4 +4,6 @@
     <dimen name="shell_overscan_vertical">27dp</dimen>
     <!-- What the horizontal overscan needs beyond AdaptiveLayout's 24dp TV margin. -->
     <dimen name="shell_overscan_past_margin">24dp</dimen>
+    <!-- The shell bar's first tab, the top app bar's title and the page content share one edge, 80dp from the screen. -->
+    <dimen name="shell_inset">@dimen/space_s</dimen>
 </resources>

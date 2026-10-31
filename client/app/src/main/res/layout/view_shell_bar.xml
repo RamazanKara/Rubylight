@@ -6,7 +6,7 @@
     android:layout_width="match_parent" android:layout_height="wrap_content"
     android:scrollbars="none" android:fillViewport="true" android:overScrollMode="never"
     android:clipToPadding="false" android:focusable="false" android:defaultFocusHighlightEnabled="false"
-    android:paddingStart="@dimen/screen_gutter" android:paddingEnd="@dimen/screen_gutter"
+    android:paddingStart="@dimen/shell_inset" android:paddingEnd="@dimen/shell_inset"
     android:paddingTop="2dp" android:paddingBottom="@dimen/space_s">
     <LinearLayout android:id="@+id/shell_bar_items"
         android:layout_width="wrap_content" android:layout_height="wrap_content"

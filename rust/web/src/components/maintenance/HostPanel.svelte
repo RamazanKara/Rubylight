@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
-  import Badge from '../Badge.svelte';
+  import StatusPill from '../StatusPill.svelte';
   import Button from '../Button.svelte';
   import Panel from '../Panel.svelte';
   import { api } from '../../lib/api';
@@ -78,13 +78,13 @@
 <Panel title="Rubylight" level={3}>
   {#snippet actions()}
     {#if phase === 'stopped'}
-      <Badge tone="danger">Stopped</Badge>
+      <StatusPill status="error" label="Stopped" />
     {:else if phase === 'restarting'}
-      <Badge tone="warn">Restarting</Badge>
+      <StatusPill status="busy" label="Restarting" />
     {:else if phase === 'late'}
-      <Badge tone="warn">Not responding</Badge>
+      <StatusPill status="warning" label="Not responding" />
     {:else}
-      <Badge tone="ok">Running</Badge>
+      <StatusPill status="ready" label="Running" />
     {/if}
   {/snippet}
   <div class="stack">

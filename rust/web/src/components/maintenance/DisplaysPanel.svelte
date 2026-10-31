@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import Badge from '../Badge.svelte';
+  import StatusPill from '../StatusPill.svelte';
   import Button from '../Button.svelte';
   import Panel from '../Panel.svelte';
   import LoadState from '../LoadState.svelte';
@@ -90,14 +90,14 @@
   {#snippet actions()}
     {#if golden?.exists}
       {#if golden.comparison_available && golden.current_mismatch_reason}
-        <Badge tone="warn">Differs from current</Badge>
+        <StatusPill status="warning" label="Differs from current" />
       {:else if golden.comparison_available}
-        <Badge tone="ok">Matches current</Badge>
+        <StatusPill status="ready" label="Matches current" />
       {:else}
-        <Badge>Saved</Badge>
+        <StatusPill status="idle" label="Saved" />
       {/if}
     {:else if golden}
-      <Badge>No saved layout</Badge>
+      <StatusPill status="idle" label="No saved layout" />
     {/if}
   {/snippet}
   {#if golden}
@@ -119,7 +119,7 @@
               A layout is saved and matches the displays as they are now.
             {/if}
           </p>
-          <div class="row">
+          <div class="row layout-actions">
             <Button disabled={running !== null} busy={running === 'save'} onclick={save}>Save current layout</Button>
             <Button disabled={!golden.exists || running !== null} busy={running === 'restore'} onclick={restore}>
               Restore saved layout
@@ -209,5 +209,19 @@
     flex: 1 1 220px;
     display: grid;
     gap: 2px;
+  }
+  /* On a phone, actions line up as full-width buttons instead of a ragged stack. */
+  @container (max-width: 480px) {
+    .layout-actions {
+      flex-direction: column;
+      align-items: stretch;
+    }
+    .action {
+      align-items: stretch;
+      flex-direction: column;
+    }
+    .action > div {
+      flex: none;
+    }
   }
 </style>

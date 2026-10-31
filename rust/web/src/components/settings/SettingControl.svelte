@@ -67,7 +67,7 @@
         break;
       case 'display':
         options.push({ value: '', label: 'Automatic' });
-        for (const display of meta?.capture_status.displays ?? []) {
+        for (const display of meta?.capture_status?.displays ?? []) {
           const name = display.display_name;
           if (!name) continue;
           // The host also matches the device id; keep the stored spelling selected.
@@ -116,7 +116,7 @@
     const meta = session.metadata;
     if (!meta) return '';
     if (control.kind === 'display') {
-      return meta.capture_status.error ? `Could not list displays: ${meta.capture_status.error}` : '';
+      return meta.capture_status?.error ? `Could not list displays: ${meta.capture_status.error}` : '';
     }
     if (control.kind === 'adapter') return meta.gpu_error ? `Could not list graphics cards: ${meta.gpu_error}` : '';
     if (control.kind === 'audio') return meta.audio_error ? `Could not list audio devices: ${meta.audio_error}` : '';

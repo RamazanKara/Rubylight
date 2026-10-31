@@ -93,7 +93,15 @@ test('maintenance panels recover failed loads without reloading the console', as
     return true;
   });
   await page.goto(base + '/maintenance');
-  for (const what of ['the display layout', 'crash reports', 'the Vulkan layer status', 'the frame limiter status']) {
+  for (const what of ['the display layout', 'crash reports']) {
+    const retry = page.getByRole('button', { name: `Retry ${what}`, exact: true });
+    await retry.click();
+    await retry.waitFor({ state: 'detached' });
+  }
+  // The Vulkan layer and RTSS live under All settings › Display & HDR › Integrations.
+  await page.goto(base + '/settings/display');
+  await page.locator('summary', { hasText: 'Integrations' }).click();
+  for (const what of ['the Vulkan layer status', 'the frame limiter status']) {
     const retry = page.getByRole('button', { name: `Retry ${what}`, exact: true });
     await retry.click();
     await retry.waitFor({ state: 'detached' });
@@ -518,7 +526,7 @@ test('maintenance is grouped into sections and every destructive action looks an
   await page.goto(base + '/maintenance');
   await page.getByRole('button', { name: 'Restore saved layout', exact: true }).waitFor();
   assert.deepEqual(await page.locator('main').getByRole('heading', { level: 2 }).allInnerTexts(),
-    ['Host', 'Displays and Windows session', 'Troubleshooting', 'Integrations']);
+    ['Host', 'Displays and Windows session', 'Co-op', 'Logs', 'Crashes and support bundle']);
   for (const [name, title, confirmName] of [
     ['Quit', 'Quit Rubylight?', 'Quit'],
     ['Delete saved layout', 'Delete the saved layout?', 'Delete'],
@@ -854,4 +862,17 @@ test('import scans distinguish missing launchers, empty libraries, partial error
   await page.getByRole('heading', { name: 'No installed games found' }).waitFor();
   assert.equal(scans, 3);
   assert.deepEqual(writes, []);
+});
+
+test('Return to console is offered only when Windows allows it, and the reason shows when it does not', async t => {
+  const { page } = await fixture(t, async (route, url) => {
+    if (url.pathname !== '/api/session/console') return false;
+    await route.fulfill({ json: { status: true, recovery: { session_id: 1, console_session_id: 1, can_reattach: false,
+      reason: 'This host is already attached to the physical console.' } } });
+    return true;
+  });
+  await page.goto(base + '/maintenance');
+  await page.getByText('This host is already attached to the physical console.', { exact: true }).waitFor();
+  assert.equal(await page.getByRole('button', { name: 'Return to console', exact: true }).count(), 0);
+  await page.getByRole('button', { name: 'Refresh status', exact: true }).waitFor();
 });

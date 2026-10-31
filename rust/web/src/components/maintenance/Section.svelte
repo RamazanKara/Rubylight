@@ -4,9 +4,12 @@
   let {
     title,
     columns = 1,
+    quiet = false,
     children,
   }: {
     title: string;
+    /** The panels' own titles say it: the heading stays for screen readers only. */
+    quiet?: boolean;
     /** Two panels side by side on wide screens; they stretch to the same height. */
     columns?: 1 | 2;
     children: Snippet;
@@ -16,7 +19,7 @@
 </script>
 
 <section class="group" aria-labelledby={id}>
-  <h2 {id}>{title}</h2>
+  <h2 {id} class:visually-hidden={quiet}>{title}</h2>
   <div class="panels" class:two={columns === 2}>
     {@render children()}
   </div>
@@ -30,11 +33,11 @@
     container-type: inline-size;
   }
   h2 {
-    font-family: var(--font);
-    font-size: var(--text-sm);
-    font-weight: var(--weight-semibold);
-    /* On the page background, --muted is short of 4.5:1. */
-    color: var(--ink-2);
+    font-family: var(--font-display);
+    font-size: var(--text-md);
+    font-weight: var(--weight-bold);
+    line-height: var(--leading-tight);
+    color: var(--ink);
   }
   .panels {
     display: grid;

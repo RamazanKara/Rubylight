@@ -61,9 +61,12 @@
       <p class="notice" role="status">Return requested. Windows may restart the host while switching sessions. Refresh the status once the host is back, then reconnect Moonlight.</p>
     {/if}
     <div class="line">
-      <p class="muted state" role="status">{recovery ? recovery.reason : checking ? 'Checking the Windows session…' : ''}</p>
+      <p class="state" class:muted={!recovery?.can_reattach} role="status">{recovery ? recovery.reason : checking ? 'Checking the Windows session…' : ''}</p>
       <div class="row">
-        <Button busy={returning} disabled={!recovery?.can_reattach || checking} onclick={returnToConsole}>Return to console</Button>
+        <!-- Offered only when Windows allows it; the reason beside it says why not. -->
+        {#if recovery?.can_reattach}
+          <Button variant="primary" busy={returning} disabled={checking} onclick={returnToConsole}>Return to console</Button>
+        {/if}
         <Button icon="refresh" busy={checking} disabled={returning} onclick={refresh}>Refresh status</Button>
       </div>
     </div>

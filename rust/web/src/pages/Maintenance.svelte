@@ -20,20 +20,20 @@
   </PageHeader>
   <ChildSessionBanner />
   <div id="host"></div>
-  <Section title="Host">
+  <Section title="Host" quiet>
     <HostPanel />
   </Section>
-  <Section title="Displays and Windows session">
+  <Section title="Displays and Windows session" quiet>
     <DisplaysPanel />
     <WindowsSessionPanel />
   </Section>
-  <Section title="Co-op">
+  <Section title="Co-op" quiet>
     <CoopHelpPanel />
   </Section>
-  <Section title="Logs">
+  <Section title="Logs" quiet>
     <LogAnalysisPanel />
   </Section>
-  <Section title="Crashes and support bundle">
+  <Section title="Crashes and support bundle" quiet>
     <CrashPanel />
   </Section>
   <p class="moved muted">
@@ -45,7 +45,7 @@
 <style>
   .page {
     display: grid;
-    gap: var(--space-6);
+    gap: var(--space-5);
     min-width: 0;
   }
   .moved {

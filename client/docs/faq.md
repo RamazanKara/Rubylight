@@ -36,7 +36,7 @@ In the host's web UI, on hosts with per-device permissions such as Apollo, Vibep
 
 ## Does Disconnect close my game?
 
-No. **Disconnect** ends this device's stream and leaves the game running on the PC; select it again to resume, or turn on **Quick resume** to resume with one tap on the PC. **Quit game**, in the stream menu and in the running game's menu in the library, asks the host to end the game and needs permission and confirmation. To quit a game every time you leave it, turn on **Quit the game when I leave the stream** in that game's menu. A lost connection never quits the game. See [leaving a game](controls.md#leaving-a-game).
+No. **Disconnect** ends this device's stream and leaves the game running on the PC; select it again to resume, or turn on **Quick resume** to resume with one tap on the PC. **Quit game**, in the stream menu and in the running game's menu in the library, asks the host to end the game and needs permission and confirmation. To quit a game every time you leave it, turn on **Quit the game when I leave the stream** in that game's menu or on its page. A lost connection never quits the game. See [leaving a game](controls.md#leaving-a-game).
 
 ## Why did changing a preset do nothing?
 

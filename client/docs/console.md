@@ -26,7 +26,7 @@ When the host lists a game as not installed, **Play** is unavailable and the pag
 On a TV the page keeps the backdrop that Home showed for the game. A row of chips above the title shows the state (**Running** or **Suspended**), the store (Steam, Epic, GOG, Microsoft), whether the game is installed, and HDR support. A screen reader reads the row as one item.
 
 <p align="center">
-  <img src="assets/shots/tv-game-page.png" width="720" alt="A game's page on a TV: chips for Running on Living-room PC, Steam and Installed, the Resume, Add to favourites and Close game buttons, and the stream settings 1920 x 1080, 120 FPS, 28 Mbps from the main settings (demo library)">
+  <img src="assets/shots/tv-game-page.png" width="720" alt="A game's page on a TV: chips for Running, Steam and Installed, the PC name Living-room PC under the title, the Resume, Add to favourites and Close game buttons, and the stream settings 1920 x 1080, 120 FPS, 28 Mbps from the main settings (demo library)">
 </p>
 
 ## On a TV

@@ -855,6 +855,37 @@ impl Drop for RouteUpkeep {
         }
     }
 }
+/// Each session's video and audio addresses from its pings, by launch ID. The stream and
+/// audio threads look theirs up for every frame and packet, so a lookup copies no key.
+#[derive(Default)]
+pub(crate) struct Peers(HashMap<String, [Option<SocketAddr>; 2]>);
+impl Peers {
+    pub(crate) fn get(&self, id: &str, audio: bool) -> Option<SocketAddr> {
+        self.0.get(id).and_then(|pair| pair[usize::from(audio)])
+    }
+    /// The address it replaced, if any.
+    fn insert(&mut self, id: &str, audio: bool, peer: SocketAddr) -> Option<SocketAddr> {
+        if let Some(pair) = self.0.get_mut(id) {
+            return pair[usize::from(audio)].replace(peer);
+        }
+        let mut pair = [None; 2];
+        pair[usize::from(audio)] = Some(peer);
+        self.0.insert(id.to_owned(), pair);
+        None
+    }
+    /// Forgets a session's addresses, returning each as (audio, address).
+    fn remove(&mut self, id: &str) -> impl Iterator<Item = (bool, SocketAddr)> + use<> {
+        let pair = self.0.remove(id).unwrap_or_default();
+        [false, true]
+            .into_iter()
+            .zip(pair)
+            .filter_map(|(audio, peer)| Some((audio, peer?)))
+    }
+    #[cfg(test)]
+    pub(crate) fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+}
 pub struct Media {
     video: Arc<ReplySocket>,
     audio: Arc<ReplySocket>,
@@ -862,7 +893,7 @@ pub struct Media {
     control_wake_receiver: UdpSocket,
     /// The microphone receiver's counts; None when its port could not be bound.
     pub(crate) mic: Option<Arc<crate::mic::Counters>>,
-    peers: Mutex<HashMap<(String, bool), SocketAddr>>,
+    peers: Mutex<Peers>,
     captures: Mutex<HashMap<CaptureKey, Weak<Source>>>,
     control_port: u16,
     bind: IpAddr,
@@ -1126,7 +1157,7 @@ impl Media {
             control_wake: Arc::new(control_wake),
             control_wake_receiver,
             mic,
-            peers: Mutex::new(HashMap::new()),
+            peers: Mutex::default(),
             captures: Mutex::new(HashMap::new()),
             control_port: ports.control,
             bind,
@@ -1182,17 +1213,17 @@ impl Media {
                                                 || m.peers
                                                     .lock()
                                                     .unwrap()
-                                                    .get(&(s.launch.id.clone(), is_audio))
-                                                    == Some(&peer)));
+                                                    .get(&s.launch.id, is_audio)
+                                                    == Some(peer)));
                                     if valid {
                                         // Answer from the address the client reached:
                                         // Windows may route a reply out of a VPN address.
                                         socket.answer_from(peer, local);
-                                        let previous = m
-                                            .peers
-                                            .lock()
-                                            .unwrap()
-                                            .insert((s.launch.id.clone(), is_audio), peer);
+                                        let previous = m.peers.lock().unwrap().insert(
+                                            &s.launch.id,
+                                            is_audio,
+                                            peer,
+                                        );
                                         if previous != Some(peer) {
                                             if let Some(previous) = previous {
                                                 socket.forget(previous);
@@ -2713,8 +2744,7 @@ impl Media {
                                     .peers
                                     .lock()
                                     .unwrap()
-                                    .get(&(s.launch.id.clone(), false))
-                                    .copied(),
+                                    .get(&s.launch.id, false),
                             };
                             let Some(peer) = peer else {
                                 // A roam drops the old path's address until the new one pings.
@@ -3350,13 +3380,9 @@ impl Media {
                 drop(keyframe_loss_memory);
                 h.sessions.lock().unwrap().begin_teardown(&s);
                 h.session_webhook("session.ended", &s);
-                m.peers.lock().unwrap().retain(|(id, audio), peer| {
-                    let ended = id == &s.launch.id;
-                    if ended {
-                        if *audio { &m.audio } else { &m.video }.forget(*peer);
-                    }
-                    !ended
-                });
+                for (audio, peer) in m.peers.lock().unwrap().remove(&s.launch.id) {
+                    if audio { &m.audio } else { &m.video }.forget(peer);
+                }
                 // Keep capture and display leases owned until the encoder has
                 // terminated, even if a driver blocks its drop indefinitely.
                 if let Some(audio) = audio {
@@ -5040,13 +5066,7 @@ fn follow_roam(
         if let Some(s) = &session {
             // The old path's media addresses are stale; the first pings from the new path
             // replace them.
-            media.peers.lock().unwrap().retain(|(id, audio), peer| {
-                let keep = *id != commit.id;
-                if !keep {
-                    stale.push((*audio, *peer));
-                }
-                keep
-            });
+            stale.extend(media.peers.lock().unwrap().remove(&commit.id));
             s.roamed(commit.new.ip(), Instant::now());
         }
         session

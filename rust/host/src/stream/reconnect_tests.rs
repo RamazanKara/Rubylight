@@ -383,12 +383,7 @@ impl Fixture {
         // probes are answered from here on.
         *s.media_epoch.write().unwrap() = Some(Instant::now());
         while !h.stop.load(Ordering::Acquire) && !s.stopping() {
-            let peer = media
-                .peers
-                .lock()
-                .unwrap()
-                .get(&(s.launch.id.clone(), false))
-                .copied();
+            let peer = media.peers.lock().unwrap().get(&s.launch.id, false);
             if let Some(peer) = peer {
                 let released = self.input_releases.load(Ordering::Acquire);
                 // A synthetic encoded access unit still uses the production
@@ -1628,7 +1623,7 @@ async fn legacy_media_pings_wake_idle_sockets() -> Result<()> {
         let peers = h.media.as_ref().unwrap().peers.lock().unwrap();
         [false, true]
             .into_iter()
-            .all(|audio| peers.get(&(launch.id.clone(), audio)) == Some(&peer))
+            .all(|audio| peers.get(&launch.id, audio) == Some(peer))
     })
     .await;
     h.end(&session, client).await?;

@@ -9,7 +9,6 @@ use anyhow::Result;
 use butterpollo_core::{audio::HostLoss, packet::AudioPacketizer};
 use butterpollo_windows::{audio::Loopback, net::ReplySocket};
 use std::{
-    collections::HashMap,
     net::SocketAddr,
     sync::{
         Arc, Mutex,
@@ -355,7 +354,7 @@ pub(super) fn collect<C: AudioCapture>(
 /// RTP with FEC on the client's audio port.
 pub(super) struct GameStreamAudio<'a> {
     socket: &'a Arc<ReplySocket>,
-    peers: &'a Mutex<HashMap<(String, bool), SocketAddr>>,
+    peers: &'a Mutex<super::Peers>,
     launch: &'a str,
     packetizer: AudioPacketizer,
     qos: Tagged,
@@ -366,7 +365,7 @@ pub(super) struct GameStreamAudio<'a> {
 impl<'a> GameStreamAudio<'a> {
     pub(super) fn new(
         socket: &'a Arc<ReplySocket>,
-        peers: &'a Mutex<HashMap<(String, bool), SocketAddr>>,
+        peers: &'a Mutex<super::Peers>,
         launch: &'a str,
         packetizer: AudioPacketizer,
         use_qos: bool,
@@ -385,12 +384,7 @@ impl<'a> GameStreamAudio<'a> {
 
 impl AudioSink for GameStreamAudio<'_> {
     fn ready(&mut self) -> bool {
-        self.peer = self
-            .peers
-            .lock()
-            .unwrap()
-            .get(&(self.launch.to_owned(), true))
-            .copied();
+        self.peer = self.peers.lock().unwrap().get(self.launch, true);
         if let (Some(peer), true) = (self.peer, self.use_qos) {
             self.qos.follow(self.socket, peer, true);
         }
@@ -831,7 +825,7 @@ mod tests {
                 .set_read_timeout(Some(std::time::Duration::from_secs(2)))
                 .unwrap();
             let socket = Arc::new(ReplySocket::bind("127.0.0.1:0").unwrap());
-            let peers = Mutex::new(HashMap::new());
+            let peers = Mutex::new(crate::stream::Peers::default());
             let mut sink = GameStreamAudio::new(
                 &socket,
                 &peers,
@@ -843,7 +837,7 @@ mod tests {
             peers
                 .lock()
                 .unwrap()
-                .insert(("launch".into(), true), receiver.local_addr().unwrap());
+                .insert("launch", true, receiver.local_addr().unwrap());
             assert!(sink.ready());
 
             let mut reference = AudioPacketizer::new(KEY, 77, encrypted, 5);
@@ -988,11 +982,11 @@ mod tests {
                 .set_read_timeout(Some(std::time::Duration::from_secs(2)))
                 .unwrap();
             let socket = Arc::new(ReplySocket::bind("127.0.0.1:0").unwrap());
-            let peers = Mutex::new(HashMap::new());
+            let peers = Mutex::new(crate::stream::Peers::default());
             peers
                 .lock()
                 .unwrap()
-                .insert(("launch".into(), true), receiver.local_addr().unwrap());
+                .insert("launch", true, receiver.local_addr().unwrap());
             let mut sink = GameStreamAudio::new(
                 &socket,
                 &peers,

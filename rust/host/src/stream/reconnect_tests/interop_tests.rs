@@ -625,7 +625,6 @@ async fn nightjar_roams_to_a_new_address_and_keeps_its_stream() -> Result<()> {
     assert_eq!(session.roams(), 1);
     assert_eq!(session.client_ip(), IpAddr::from(MOVED));
     // The roam drops the video peer until Nightjar's first ping on the new path.
-    let video = (launch.id.clone(), false);
     until("video to the new address", LOADED, || {
         h.media
             .as_ref()
@@ -633,7 +632,7 @@ async fn nightjar_roams_to_a_new_address_and_keeps_its_stream() -> Result<()> {
             .peers
             .lock()
             .unwrap()
-            .get(&video)
+            .get(&launch.id, false)
             .is_some_and(|peer| peer.ip() == IpAddr::from(MOVED))
     })
     .await;

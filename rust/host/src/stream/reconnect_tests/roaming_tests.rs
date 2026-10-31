@@ -152,7 +152,7 @@ fn a_late_challenge_does_not_answer_a_confirm() {
 fn video_peer(h: &Harness, launch: &Launch) -> Option<SocketAddr> {
     let media = h.media.as_ref().unwrap();
     let peers = media.peers.lock().unwrap();
-    peers.get(&(launch.id.clone(), false)).copied()
+    peers.get(&launch.id, false)
 }
 
 /// DESCRIBE, which offers the session roaming.

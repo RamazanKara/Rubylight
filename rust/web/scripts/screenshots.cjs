@@ -32,7 +32,7 @@ const replies = {
     ...(auth === 'signed-out' ? { creds_program: 'C:\\Program Files\\Rubylight\\butterpollo.exe' } : {}),
   },
   '/api/csrf-token': { csrf_token: 'fixture-token' },
-  '/api/config': { sunshine_name: 'Gaming PC' },
+  '/api/config': { sunshine_name: 'Gaming PC', enable_pairing: false },
   '/api/metadata': metadata,
   '/api/clients/pending': { requests: [] },
   '/api/clients/list': { clients: [
@@ -88,7 +88,8 @@ const replies = {
     available: true, reason: null, elevates: true, admin_protection: false, open_refusal: null, opened: false,
     games: [], catalog_error: null, sessions: [] },
   '/api/logs/analysis': { status: true, findings: [], since: '2026-10-31T08:02:11Z', until: '2026-10-31T09:41:57Z', read_bytes: 812_544 },
-  '/api/session/console': { status: true, recovery: { session_id: 1, console_session_id: 1, can_reattach: false, reason: '' } },
+  '/api/session/console': { status: true, recovery: { session_id: 1, console_session_id: 1, can_reattach: false,
+    reason: 'This host is already attached to the physical console.' } },
   '/api/display/golden_status': { status: true, exists: true, comparison_available: true, current_mismatch_reason: '' },
   '/api/frame-limiter/status': { enabled: false, configured_provider: 'none', active_provider: 'none', resolved_path: '' },
   '/api/power': {

@@ -58,19 +58,35 @@ public final class PerformanceOverlay {
     }
 
     /**
-     * "Display drops: 1.5% (last 2 s)": the share of the overlay window's frames the screen never
-     * reported, from FrameLatencyStats.getDisplayDropPercent, "—" when not measured. The session's
-     * total stays in the CSV.
+     * "Estimated display drops: 1.5% (2 s window ending 5 s ago)": the share of a settled window's
+     * frames the screen never reported, from FrameLatencyStats.getDisplayDropPercent, a plain "—" when
+     * not measured. Estimated, as most drops are inferred from a render callback that never came. The
+     * session's total stays in the CSV.
      */
     @SuppressWarnings("deprecation")
     static String displayDropsText(Context context, float dropPercent) {
         Locale locale = context.getResources().getConfiguration().locale;
-        return context.getString(R.string.perf_overlay_presentdrops, measurement(locale, dropPercent, "%.1f"));
+        return context.getString(R.string.perf_overlay_presentdrops,
+                available(dropPercent) ? measurement(locale, dropPercent, "%.1f") + "%" : "—");
     }
 
-    /** The panel refresh rate for a vsync interval, -1 when it is not known. */
+    /**
+     * The panel refresh rate for a vsync interval, -1 when it is not known: only an interval of 1 to
+     * 100 ms counts (a reported rate of 0 Hz makes the interval Long.MAX_VALUE).
+     */
     public static float refreshHz(long vsyncNs) {
-        return vsyncNs > 0 ? 1e9f / vsyncNs : -1;
+        return vsyncNs >= 1_000_000L && vsyncNs <= 100_000_000L ? 1e9f / vsyncNs : -1;
+    }
+
+    /**
+     * The panel refresh rate the overlay judges against: the display clock's vsync when it runs,
+     * else the display mode's rate (displayHz), which the Vulkan and PyroWave paths without the
+     * display clock only have. -1 when neither is a plausible rate (10 to 1000 Hz).
+     */
+    public static float panelHz(long vsyncNs, float displayHz) {
+        float clock = refreshHz(vsyncNs);
+        if (clock > 0) return clock;
+        return Float.isFinite(displayHz) && displayHz >= 10 && displayHz <= 1000 ? displayHz : -1;
     }
 
     /**
@@ -141,7 +157,7 @@ public final class PerformanceOverlay {
      * The statistics lines with the stream's bandwidth on the wire (wireMbps: every video and audio
      * datagram, FEC parity included, -1 before it was measured) on its own line after the video
      * payload, as Moonlight V+ shows its bandwidth. The stream line ends with the received frame
-     * rate once measured, as Moonlight and Artemis lead with it.
+     * rate once measured, as Moonlight and Artemis show the stream's rate on their first line.
      */
     @SuppressWarnings("deprecation")
     public static CharSequence statisticsText(Context context, String stream, float shownFps, float receivedFps,

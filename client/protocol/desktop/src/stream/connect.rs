@@ -952,7 +952,7 @@ mod replace_tests {
             small_stream_input_only: false,
             settings: Settings::default(),
             identity: Arc::new(ClientIdentity::generate().expect("an identity")),
-            display: Display { width: 1920, height: 1080, refresh_hz: 60.0 },
+            display: Display { width: 1920, height: 1080, refresh_hz: 60.0, refresh_reported: true },
             hardware: Hardware::None,
             dmabuf: false,
             gpu_decoder: None,

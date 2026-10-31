@@ -26,7 +26,7 @@
     <string name="overlay_host">Host</string>
     <string name="perf_overlay_onscreenfps">Dargestellt: %1$s</string>
     <string name="perf_overlay_shownfps">Gerendert: %1$s</string>
-    <string name="perf_overlay_presentdrops">Anzeigeverluste: %1$s%% (letzte 2 s)</string>
+    <string name="perf_overlay_presentdrops">Geschätzte Anzeigeverluste: %1$s (2-s-Fenster bis vor 5 s)</string>
     <string name="perf_overlay_frame_pacing">Bildtakt: %1$s ms · Jitter %2$s ms · Ruckler %3$s%%</string>
     <string name="perf_overlay_frame_pacing_release">Bildtakt (Freigabezeit): %1$s ms · Jitter %2$s ms · Ruckler %3$s%%</string>
     <string name="perf_overlay_frame_pacing_fast">Bildtakt: %1$s ms · Jitter %2$s ms · Ruckler nicht gemessen: Stream schneller als Bildschirm</string>

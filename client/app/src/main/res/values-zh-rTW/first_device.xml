@@ -26,7 +26,7 @@
     <string name="overlay_host">主機</string>
     <string name="perf_overlay_onscreenfps">已呈現：%1$s</string>
     <string name="perf_overlay_shownfps">已渲染：%1$s</string>
-    <string name="perf_overlay_presentdrops">顯示掉格：%1$s%%（最近 2 秒）</string>
+    <string name="perf_overlay_presentdrops">估計顯示掉格：%1$s（截至 5 秒前的 2 秒）</string>
     <string name="perf_overlay_frame_pacing">影格節奏：%1$s ms · 抖動 %2$s ms · 卡頓 %3$s%%</string>
     <string name="perf_overlay_frame_pacing_release">影格節奏（釋放時間）：%1$s ms · 抖動 %2$s ms · 卡頓 %3$s%%</string>
     <string name="perf_overlay_frame_pacing_fast">影格節奏：%1$s ms · 抖動 %2$s ms · 卡頓 未測量：串流快於螢幕</string>

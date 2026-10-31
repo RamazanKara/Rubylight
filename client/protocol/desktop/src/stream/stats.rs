@@ -326,7 +326,7 @@ impl Streaming {
         let measures = overlay::Measures {
             rendered_fps: (w.shown > 0 || received > 0).then(|| (f64::from(w.shown) / secs) as f32),
             received_fps: (received > 0).then(|| (received as f64 / secs) as f32),
-            refresh_hz: (self.plan.display.refresh_hz > 0.0).then_some(self.plan.display.refresh_hz),
+            refresh_hz: self.plan.display.reported_refresh_hz(),
             video_mbps: (received > 0).then(|| overlay::video_mbps(video_bytes.saturating_sub(self.last_video_bytes), secs)).flatten(),
             wire_mbps: (wire_bytes > self.last_wire_bytes)
                 .then(|| overlay::video_mbps(wire_bytes - self.last_wire_bytes, secs))

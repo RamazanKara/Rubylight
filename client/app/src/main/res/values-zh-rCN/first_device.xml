@@ -26,7 +26,7 @@
     <string name="overlay_host">主机</string>
     <string name="perf_overlay_onscreenfps">已呈现：%1$s</string>
     <string name="perf_overlay_shownfps">已渲染：%1$s</string>
-    <string name="perf_overlay_presentdrops">显示丢帧：%1$s%%（最近 2 秒）</string>
+    <string name="perf_overlay_presentdrops">估计显示丢帧：%1$s（截至 5 秒前的 2 秒）</string>
     <string name="perf_overlay_frame_pacing">帧节奏：%1$s ms · 抖动 %2$s ms · 卡顿 %3$s%%</string>
     <string name="perf_overlay_frame_pacing_release">帧节奏（释放时间）：%1$s ms · 抖动 %2$s ms · 卡顿 %3$s%%</string>
     <string name="perf_overlay_frame_pacing_fast">帧节奏：%1$s ms · 抖动 %2$s ms · 卡顿 未测量：串流快于屏幕</string>

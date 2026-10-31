@@ -26,7 +26,7 @@
     <string name="overlay_host">Хост</string>
     <string name="perf_overlay_onscreenfps">Передано на вивід: %1$s</string>
     <string name="perf_overlay_shownfps">Відрендерено: %1$s</string>
-    <string name="perf_overlay_presentdrops">Пропущені кадри на дисплеї: %1$s%% (останні 2 с)</string>
+    <string name="perf_overlay_presentdrops">Орієнтовно пропущено кадрів на дисплеї: %1$s (вікно 2 с до 5 с тому)</string>
     <string name="perf_overlay_frame_pacing">Темп кадрів: %1$s мс · джитер %2$s мс · ривки %3$s%%</string>
     <string name="perf_overlay_frame_pacing_release">Темп кадрів (час видачі): %1$s мс · джитер %2$s мс · ривки %3$s%%</string>
     <string name="perf_overlay_frame_pacing_fast">Темп кадрів: %1$s мс · джитер %2$s мс · ривки не вимірюються: потік швидший за екран</string>

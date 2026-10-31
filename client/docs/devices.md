@@ -120,7 +120,7 @@ Nightjar sets Android's standard low-latency flag and every vendor low-latency k
 | MediaTek Dimensity (Codec2 decoders) | Decode time with and without **Chipset tuning**; whether the CPU boost key changes decode time on a cool and on a warm device. | `medianDecodeMs` with and without, several runs each. |
 | Samsung Exynos and Google Tensor | Whether **Chipset tuning**'s declared operating rate behaves better than the realtime priority hint alone. A maximum operating rate has crashed decoders on other chips, so it stays opt-in. | `medianDecodeMs`, plus the Debug overlay decode timing during a 120 FPS stream. |
 | Amlogic TV boxes | Whether the HEVC reference-frame and low-latency workarounds that apply to Fire TV also suit Google TV and Xiaomi boxes. | `medianDecodeMs` for HEVC and AV1; whether the stream shows frames at all. |
-| MediaTek Pentonic TVs | Whether a different frame pacing mode stops the compositor from dropping frames. This is a display problem, not a decoder one. | `frameIntervalMs` in the latency test and display drops in the Debug overlay. |
+| MediaTek Pentonic TVs | Whether a different frame pacing mode stops the compositor from dropping frames. This is a display problem, not a decoder one. | `frameIntervalMs` in the latency test and estimated display drops in the Debug overlay. |
 | Android TV audio | Audio delay on Android TV 14, which these tools do not measure. | A camera or an audio-video sync test against the host. |
 
 A change that comes out of these measurements ships as an opt-in setting limited to the matching decoders, off by default. It becomes the default only after the decoder benchmark and the stutter report show a gain without freezes on several devices of that family.

@@ -15,7 +15,7 @@ fn the_stand_in_names_fit_their_sentences() {
 
 fn launcher(console_home: bool, home_ready: bool) -> Launcher {
     let settings = Settings { console_home, ..Default::default() };
-    let display = Display { width: 1920, height: 1080, refresh_hz: 60.0 };
+    let display = Display { width: 1920, height: 1080, refresh_hz: 60.0, refresh_reported: true };
     let mut launcher = Launcher::new(settings, Profiles::default(), crate::shortcuts::Shortcuts::default(), display);
     launcher.home_ready = home_ready;
     launcher

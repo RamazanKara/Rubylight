@@ -81,8 +81,8 @@ fn value(value: Option<f32>, decimals: usize) -> String {
     value.filter(|v| v.is_finite() && *v >= 0.0).map_or_else(|| "—".into(), |v| format!("{v:.decimals$}"))
 }
 
-/// Android's six statistics lines: the stream (with the received frame rate once measured, as
-/// Moonlight and Artemis lead with it), frame rates, video payload and loss (and the bandwidth on
+/// Android's six statistics lines: the stream (ending with the received frame rate once measured,
+/// as Moonlight and Artemis show the stream's rate on their first line), frame rates, video payload and loss (and the bandwidth on
 /// the wire once measured), the network, the host (and its present to sent once reported, under
 /// its own label) and this device.
 pub fn statistics(stream: &str, m: &Measures) -> Vec<(String, String)> {

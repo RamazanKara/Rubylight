@@ -86,7 +86,7 @@ public class PerformanceOverlayTest {
             assertTrue(text.contains("Network RTT: — ms (±— ms)"));
             assertTrue(text.contains("Host processing: — ms"));
             assertTrue(text.contains("Decode: — ms · Display wait: — ms"));
-            // The received 60 leads the stream line; nothing missing reads as a zero.
+            // The received 60 ends the stream line; nothing missing reads as a zero.
             assertTrue(text, text.startsWith("1280×720 · PyroWave · SDR · 60.00 FPS\n"));
             assertFalse(text.replace("60.00 FPS", "").contains("0.00"));
         }
@@ -370,10 +370,12 @@ public class PerformanceOverlayTest {
                 PerformanceOverlay.compactText(context(Locale.US), 59.94f, 59.94f, 60, 59.94f, 8, 0, 4).toString());
         assertEquals(60, PerformanceOverlay.refreshHz(16_666_667L), 0.01f);
         assertEquals(-1, PerformanceOverlay.refreshHz(0), 0);
+        assertEquals("✕ 40.0 FPS · 8 ms RTT · 0.0% loss", PerformanceOverlay.compactText(context(Locale.US),
+                40, 40, 60, PerformanceOverlay.panelHz(0, 60), 8, 0, 4).toString());
     }
 
     @Test
-    public void theStatisticsStreamLineLeadsWithTheReceivedFrameRate() {
+    public void theStatisticsStreamLineEndsWithTheReceivedFrameRate() {
         String text = PerformanceOverlay.statisticsText(context(Locale.US), "1920×1080 · HEVC · SDR",
                 103, 120, 20.4f, 0.14f, 8, 1, 2.1f, -1, 4.6f, 1.2f, false).toString();
         assertTrue(text, text.startsWith("1920×1080 · HEVC · SDR · 120.00 FPS\nRendered: 103.0 FPS · Received: 120.0 FPS\n"));
@@ -383,10 +385,35 @@ public class PerformanceOverlayTest {
     }
 
     @Test
-    public void displayDropsAreAPercentageOfTheWindow() {
-        assertEquals("Display drops: 2.5% (last 2 s)", PerformanceOverlay.displayDropsText(context(Locale.US), 2.5f));
-        assertEquals("Display drops: —% (last 2 s)", PerformanceOverlay.displayDropsText(context(Locale.US), -1));
-        assertEquals("Anzeigeverluste: 2,5% (letzte 2 s)", PerformanceOverlay.displayDropsText(context(Locale.GERMANY), 2.5f));
+    public void estimatedDisplayDropsAreAPercentageOfASettledWindowAndAPlainDashUnmeasured() {
+        assertEquals("Estimated display drops: 2.5% (2 s window ending 5 s ago)",
+                PerformanceOverlay.displayDropsText(context(Locale.US), 2.5f));
+        for (float missing : new float[] {-1, Float.NaN}) {
+            assertEquals("Estimated display drops: — (2 s window ending 5 s ago)",
+                    PerformanceOverlay.displayDropsText(context(Locale.US), missing));
+        }
+        assertEquals("Geschätzte Anzeigeverluste: 2,5% (2-s-Fenster bis vor 5 s)",
+                PerformanceOverlay.displayDropsText(context(Locale.GERMANY), 2.5f));
+    }
+
+    // Regression (review): a reported rate of 0 Hz made the vsync Long.MAX_VALUE and the overlay said
+    // "0 Hz screen" and never judged frames; the Vulkan and PyroWave paths had no vsync at all.
+    @Test
+    public void anImplausibleVsyncIsAnUnknownRefreshAndTheDisplayModeStandsInForAMissingClock() {
+        assertEquals(-1, PerformanceOverlay.refreshHz(Long.MAX_VALUE), 0);
+        assertEquals(-1, PerformanceOverlay.refreshHz(999_999L), 0);
+        assertEquals(-1, PerformanceOverlay.refreshHz(100_000_001L), 0);
+        assertEquals(10, PerformanceOverlay.refreshHz(100_000_000L), 0.001f);
+        assertEquals(60, PerformanceOverlay.panelHz(0, 60), 0);
+        assertEquals(60, PerformanceOverlay.panelHz(Long.MAX_VALUE, 60), 0);
+        assertEquals(120, PerformanceOverlay.panelHz(8_333_333L, 60), 0.01f);
+        for (float bad : new float[] {0, -1, Float.NaN, Float.POSITIVE_INFINITY, 5000}) {
+            assertEquals(-1, PerformanceOverlay.panelHz(Long.MAX_VALUE, bad), 0);
+        }
+        // With the refresh unknown the frames judge against the received rate and no hint shows.
+        float unknown = PerformanceOverlay.panelHz((long) (1e9 / 0.0), 0);
+        assertEquals("✕ 40.0 FPS · 8 ms RTT · 0.0% loss",
+                PerformanceOverlay.compactText(context(Locale.US), 40, 40, 120, unknown, 8, 0, 4).toString());
     }
 
     @Test

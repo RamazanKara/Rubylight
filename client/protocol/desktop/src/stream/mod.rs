@@ -101,7 +101,17 @@ pub use negotiate::{codec_name, probes_color, pyrowave_bitrate_warning, pyrowave
 pub struct Display {
     pub width: u32,
     pub height: u32,
+    /// The refresh rate pacing uses: the display's, else 60 Hz.
     pub refresh_hz: f32,
+    /// The display reported `refresh_hz`; otherwise it is the 60 Hz fallback.
+    pub refresh_reported: bool,
+}
+
+impl Display {
+    /// The refresh rate the overlay judges frames against: only a reported one.
+    pub fn reported_refresh_hz(&self) -> Option<f32> {
+        self.refresh_reported.then_some(self.refresh_hz)
+    }
 }
 
 #[derive(Clone)]
@@ -1890,13 +1900,14 @@ mod tests {
             width: 2560,
             height: 1440,
             refresh_hz: 143.9,
+            refresh_reported: true,
         }
     }
 
     #[test]
     fn metered_limit_caps_fixed_auto_and_pyrowave_bitrates() {
         let settings = Settings { codec: CodecPreference::PyroWave, ..Default::default() };
-        let display = Display { width: 1920, height: 1080, refresh_hz: 60.0 };
+        let display = Display { width: 1920, height: 1080, refresh_hz: 60.0, refresh_reported: true };
         let (_, _, _, bitrate) = stream_mode(&settings, display);
         assert!(bitrate > 5_000);
         assert_eq!(capped_bitrate(bitrate, 5_000), 5_000);

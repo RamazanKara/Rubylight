@@ -26,7 +26,7 @@
     <string name="overlay_host">Host</string>
     <string name="perf_overlay_onscreenfps">Przekazane do wyświetlenia: %1$s</string>
     <string name="perf_overlay_shownfps">Renderowane: %1$s</string>
-    <string name="perf_overlay_presentdrops">Pominięte klatki: %1$s%% (ostatnie 2 s)</string>
+    <string name="perf_overlay_presentdrops">Szacowane pominięte klatki: %1$s (okno 2 s do 5 s temu)</string>
     <string name="perf_overlay_frame_pacing">Tempo klatek: %1$s ms · jitter %2$s ms · szarpanie %3$s%%</string>
     <string name="perf_overlay_frame_pacing_release">Tempo klatek (czas zwolnienia): %1$s ms · jitter %2$s ms · szarpanie %3$s%%</string>
     <string name="perf_overlay_frame_pacing_fast">Tempo klatek: %1$s ms · jitter %2$s ms · szarpanie niemierzone: strumień szybszy niż ekran</string>

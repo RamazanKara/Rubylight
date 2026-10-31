@@ -115,6 +115,8 @@ class FrameLatencyStats {
     private long presentDrops;
     private final long[] dropTimes = new long[2048];
     private int dropTimePosition;
+    // The last expire(): frames released CALLBACK_TIMEOUT_NS before it are decided.
+    private long lastExpireNs;
     // The decode time the app shows is counted the way Artemis counts it, so the two apps show the
     // same figure for the same decoder work: each frame Artemis would count is timed from
     // queueInputBuffer() returning to the decoder returning it, rounded down to whole milliseconds, and the
@@ -908,31 +910,43 @@ class FrameLatencyStats {
     }
 
     /**
-     * The display drops counted in the FPS window as a percentage of the frames submitted for display
-     * in it, at most 100; -1 before a frame was submitted in the window or without render callbacks,
-     * where no drop can be seen. A MediaCodec drop counts when its render callback times out, so it
-     * shows up to CALLBACK_TIMEOUT_NS after the frame.
+     * The share of the frames submitted for display in a settled FPS window that never reached the
+     * screen, at most 100. A drop is mostly known only once its render callback timed out, so the
+     * window is the FPS_WINDOW_NS of frames released up to CALLBACK_TIMEOUT_NS before the last
+     * expire(): every frame in it is decided, and the drops (stamped at their release) and the frames
+     * they are a share of cover the same time, whatever the frame rate did since. -1 without render
+     * callbacks, where no drop can be seen, before such a window, or when the frame ring no longer
+     * holds all of it.
      */
     synchronized float getDisplayDropPercent(long nowNs) {
-        long startNs = Math.max(fpsStartNs, nowNs - FPS_WINDOW_NS);
-        if (fpsStartNs == 0 || nowNs <= startNs || !renderCallbacksAvailable) return -1;
-        int submitted = 0, drops = 0;
-        for (long timestamp : frameTimes[RENDERED_STAGE]) {
-            if (timestamp > startNs && timestamp <= nowNs) submitted++;
-        }
-        if (submitted == 0) return -1;
-        for (long timestamp : dropTimes) {
-            if (timestamp > startNs && timestamp <= nowNs) drops++;
-        }
+        long endNs = Math.min(nowNs, lastExpireNs) - CALLBACK_TIMEOUT_NS;
+        long startNs = Math.max(fpsStartNs, endNs - FPS_WINDOW_NS);
+        if (fpsStartNs == 0 || lastExpireNs == 0 || endNs <= startNs || !renderCallbacksAvailable) return -1;
+        int submitted = countWithin(frameTimes[RENDERED_STAGE], frameTimePositions[RENDERED_STAGE], startNs, endNs);
+        int drops = countWithin(dropTimes, dropTimePosition, startNs, endNs);
+        if (submitted <= 0 || drops < 0) return -1;
         return Math.min(100f, 100f * drops / submitted);
     }
 
+    // Timestamps in (startNs, endNs] of a ring whose next write goes to position; -1 when the ring
+    // has wrapped past startNs, so part of the window is gone.
+    private static int countWithin(long[] ring, int position, long startNs, long endNs) {
+        long oldest = ring[position];
+        if (oldest != 0 && oldest > startNs) return -1;
+        int count = 0;
+        for (long timestamp : ring) {
+            if (timestamp > startNs && timestamp <= endNs) count++;
+        }
+        return count;
+    }
+
     synchronized void expire(long nowNs) {
+        lastExpireNs = Math.max(lastExpireNs, nowNs);
         for (Frame frame = pending.oldest, next; frame != null; frame = next) {
             next = frame.newer;
             if (nowNs - (frame.awaitingRender ? frame.releaseNs : frame.inputNs) >= CALLBACK_TIMEOUT_NS) {
                 // MediaCodec exposes no drop callback. Allow delayed render callbacks before estimating a drop.
-                if (frame.awaitingRender) countPresentDrop(nowNs);
+                if (frame.awaitingRender) countPresentDrop(frame.releaseNs);
                 finish(frame, frame.releaseNs != 0 ? "render_unobserved" : "output_unobserved");
             }
         }

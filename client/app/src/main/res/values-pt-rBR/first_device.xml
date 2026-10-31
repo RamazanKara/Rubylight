@@ -26,7 +26,7 @@
     <string name="overlay_host">Host</string>
     <string name="perf_overlay_onscreenfps">Apresentados: %1$s</string>
     <string name="perf_overlay_shownfps">Renderizados: %1$s</string>
-    <string name="perf_overlay_presentdrops">Quadros perdidos na exibição: %1$s%% (últimos 2 s)</string>
+    <string name="perf_overlay_presentdrops">Quadros perdidos na exibição (estimativa): %1$s (janela de 2 s até 5 s atrás)</string>
     <string name="perf_overlay_frame_pacing">Ritmo de quadros: %1$s ms · jitter %2$s ms · engasgos %3$s%%</string>
     <string name="perf_overlay_frame_pacing_release">Ritmo de quadros (na liberação): %1$s ms · jitter %2$s ms · engasgos %3$s%%</string>
     <string name="perf_overlay_frame_pacing_fast">Ritmo de quadros: %1$s ms · jitter %2$s ms · engasgos não medidos: stream mais rápido que a tela</string>

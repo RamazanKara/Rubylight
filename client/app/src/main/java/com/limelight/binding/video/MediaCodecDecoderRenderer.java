@@ -4129,7 +4129,10 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                             PerformanceOverlay.average(timings, 2), !mediaCodec),
                     PerformanceOverlay.compactText(context, PerformanceOverlay.renderedFps(frameRates),
                             PerformanceOverlay.healthFps(frameRates), frameRates[0],
-                            PerformanceOverlay.refreshHz(vsyncNs), networkMs,
+                            PerformanceOverlay.panelHz(vsyncNs, outputDisplay == null ? -1 :
+                                    Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ?
+                                            outputDisplay.getMode().getRefreshRate() : outputDisplay.getRefreshRate()),
+                            networkMs,
                             fps.lossPercent, decodeTimeMs));
         }
     }

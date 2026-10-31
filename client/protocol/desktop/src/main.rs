@@ -173,20 +173,23 @@ fn display_of(window: *mut SDL_Window) -> Display {
         let id = SDL_GetDisplayForWindow(window);
         let mode = SDL_GetCurrentDisplayMode(id);
         if mode.is_null() {
-            return Display {
-                width: 1920,
-                height: 1080,
-                refresh_hz: 60.0,
-            };
+            return display_from_mode(None);
         }
         let m = &*mode;
-        let (width, height) = mode_pixels(m.w, m.h, m.pixel_density);
-        Display {
-            width,
-            height,
-            refresh_hz: if m.refresh_rate > 0.0 { m.refresh_rate } else { 60.0 },
-        }
+        display_from_mode(Some((m.w, m.h, m.pixel_density, m.refresh_rate)))
     }
+}
+
+/// The display from SDL's current mode (width, height, pixel density, refresh rate), if it gave
+/// one. Without a mode or a refresh rate, pacing assumes 1920x1080 at 60 Hz, but the rate is not
+/// marked reported, so the overlay does not judge frames against a guess.
+fn display_from_mode(mode: Option<(i32, i32, f32, f32)>) -> Display {
+    let Some((w, h, pixel_density, refresh_rate)) = mode else {
+        return Display { width: 1920, height: 1080, refresh_hz: 60.0, refresh_reported: false };
+    };
+    let (width, height) = mode_pixels(w, h, pixel_density);
+    let reported = refresh_rate.is_finite() && refresh_rate > 0.0;
+    Display { width, height, refresh_hz: if reported { refresh_rate } else { 60.0 }, refresh_reported: reported }
 }
 
 /// A display mode's size in pixels. SDL 3 gives a mode's size in its own units and
@@ -2546,6 +2549,20 @@ mod tests {
         assert_eq!(mode_pixels(1512, 982, 2.0), (3024, 1964));
         // No density reported counts as 1.
         assert_eq!(mode_pixels(2560, 1440, 0.0), (2560, 1440));
+    }
+
+    // Regression (review): a display without a reported rate paced at the 60 Hz fallback, and the
+    // overlay judged frames against it and could say "60 Hz screen".
+    #[test]
+    fn the_overlay_only_gets_a_refresh_rate_the_display_reported() {
+        let reported = display_from_mode(Some((2560, 1440, 1.0, 143.9)));
+        assert_eq!((reported.refresh_hz, reported.reported_refresh_hz()), (143.9, Some(143.9)));
+        for refresh in [0.0, -1.0, f32::NAN] {
+            let fallback = display_from_mode(Some((2560, 1440, 1.0, refresh)));
+            assert_eq!((fallback.refresh_hz, fallback.reported_refresh_hz()), (60.0, None), "pacing keeps 60 Hz");
+        }
+        let none = display_from_mode(None);
+        assert_eq!((none.width, none.refresh_hz, none.reported_refresh_hz()), (1920, 60.0, None));
     }
 
     #[test]

@@ -26,7 +26,7 @@
     <string name="overlay_host">Host</string>
     <string name="perf_overlay_onscreenfps">Presentati: %1$s</string>
     <string name="perf_overlay_shownfps">Renderizzati: %1$s</string>
-    <string name="perf_overlay_presentdrops">Frame persi al display: %1$s%% (ultimi 2 s)</string>
+    <string name="perf_overlay_presentdrops">Frame persi stimati al display: %1$s (finestra di 2 s fino a 5 s fa)</string>
     <string name="perf_overlay_frame_pacing">Cadenza dei fotogrammi: %1$s ms · jitter %2$s ms · scatti %3$s%%</string>
     <string name="perf_overlay_frame_pacing_release">Cadenza dei fotogrammi (al rilascio): %1$s ms · jitter %2$s ms · scatti %3$s%%</string>
     <string name="perf_overlay_frame_pacing_fast">Cadenza dei fotogrammi: %1$s ms · jitter %2$s ms · scatti non misurati: stream più veloce dello schermo</string>

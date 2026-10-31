@@ -438,9 +438,50 @@ public class FrameLatencyStatsTest {
     }
 
     // Regression: the overlay's display drops were a running total for the whole stream, so one bad
-    // moment read as an ongoing fault for the rest of it.
+    // moment read as an ongoing fault for the rest of it. Then (review) the windowed share divided
+    // drops noticed at the 5 s callback timeout by the last 2 s of frames, so a 120 fps game's drops
+    // read as a huge share of a 30 fps menu that followed it.
     @Test
-    public void displayDropsArePerOverlayWindowAndLeaveItWhileTheTotalStays() {
+    public void estimatedDisplayDropsAreAShareOfOneSettledWindowAcrossAFrameRateChange() {
+        FrameLatencyStats stats = new FrameLatencyStats();
+        long startNs = 1_000_000_000L;
+        stats.onFrameReceived(startNs);
+        int pts = 0;
+        // Six seconds at 120 fps where every tenth frame gets no render callback, then eight
+        // seconds of a 30 fps menu where every frame does.
+        for (long offset = 8_333_333L; offset <= 6_000_000_000L; offset += 8_333_333L) {
+            frame(stats, ++pts, startNs + offset, pts % 10 != 0);
+        }
+        for (long offset = 6_033_333_333L; offset <= 14_000_000_000L; offset += 33_333_333L) {
+            frame(stats, ++pts, startNs + offset, true);
+        }
+        // Not before a window's frames are all decided.
+        stats.expire(startNs + 5_000_000_000L);
+        assertEquals(-1, stats.getDisplayDropPercent(startNs + 5_000_000_000L), 0);
+        // The drops are only known through the timeout, polled once a second as the renderer does.
+        for (long t = 6_000_000_000L; t <= 8_000_000_000L; t += 1_000_000_000L) stats.expire(startNs + t);
+        assertEquals(10f, stats.getDisplayDropPercent(startNs + 8_400_000_000L), 0.5f);
+        for (long t = 9_000_000_000L; t <= 13_000_000_000L; t += 1_000_000_000L) stats.expire(startNs + t);
+        stats.expire(startNs + 13_500_000_000L);
+        // The menu's window (6.5 to 8.5 s) had no drops, though the game's were noticed within 2 s
+        // before it was read.
+        assertEquals(0, stats.getDisplayDropPercent(startNs + 13_600_000_000L), 0);
+        assertEquals(72, stats.getPresentDrops());
+        stats.discardPending("codec_reset");
+        assertEquals(-1, stats.getDisplayDropPercent(startNs + 13_400_000_000L), 0);
+        assertEquals(72, stats.getPresentDrops());
+    }
+
+    private static void frame(FrameLatencyStats stats, int pts, long t, boolean rendered) {
+        stats.onFrameReceived(t);
+        stats.onDecoderInput(pts, pts, t, t, t, (char) 0);
+        stats.onDecoderOutput(0, pts, t + 1_000_000L);
+        stats.onOutputReleased(0, t + 2_000_000L, true, true);
+        if (rendered) stats.onFrameRendered(pts, t + 5_000_000L);
+    }
+
+    @Test
+    public void aFrameTheRendererReplacedCountsInTheWindowOfItsRelease() {
         FrameLatencyStats stats = new FrameLatencyStats();
         long startNs = 1_000_000_000L;
         stats.onFrameReceived(startNs);
@@ -454,14 +495,10 @@ public class FrameLatencyStatsTest {
             if (i <= 120 && i % 40 == 0) stats.onFrameReplaced(i);
             else stats.onFrameRendered(i, t + 5_000_000L);
         }
-        assertEquals(2.5f, stats.getDisplayDropPercent(startNs + 2_010_000_000L), 0.001f);
-        // The next two seconds were clean: the window shows none, the total for the CSV keeps them.
-        assertEquals(0, stats.getDisplayDropPercent(startNs + 4_010_000_000L), 0);
-        assertEquals(3, stats.getPresentDrops());
-        // No frame submitted in the window: not measured.
-        assertEquals(-1, stats.getDisplayDropPercent(startNs + 9_000_000_000L), 0);
-        stats.discardPending("codec_reset");
-        assertEquals(-1, stats.getDisplayDropPercent(startNs + 2_010_000_000L), 0);
+        stats.expire(startNs + 7_010_000_000L);
+        assertEquals(2.5f, stats.getDisplayDropPercent(startNs + 7_010_000_000L), 0.001f);
+        stats.expire(startNs + 9_010_000_000L);
+        assertEquals(0, stats.getDisplayDropPercent(startNs + 9_010_000_000L), 0);
         assertEquals(3, stats.getPresentDrops());
     }
 

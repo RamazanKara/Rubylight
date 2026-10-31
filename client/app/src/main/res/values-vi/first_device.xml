@@ -26,7 +26,7 @@
     <string name="overlay_host">Máy chủ</string>
     <string name="perf_overlay_onscreenfps">Đã gửi hiển thị: %1$s</string>
     <string name="perf_overlay_shownfps">Đã kết xuất: %1$s</string>
-    <string name="perf_overlay_presentdrops">Khung hình hiển thị bị rớt: %1$s%% (2 giây gần nhất)</string>
+    <string name="perf_overlay_presentdrops">Số khung hình hiển thị bị rớt ước tính: %1$s (cửa sổ 2 giây, đến 5 giây trước)</string>
     <string name="perf_overlay_frame_pacing">Nhịp khung hình: %1$s ms · jitter %2$s ms · giật %3$s%%</string>
     <string name="perf_overlay_frame_pacing_release">Nhịp khung hình (thời điểm giải phóng): %1$s ms · jitter %2$s ms · giật %3$s%%</string>
     <string name="perf_overlay_frame_pacing_fast">Nhịp khung hình: %1$s ms · jitter %2$s ms · giật chưa đo: luồng nhanh hơn màn hình</string>

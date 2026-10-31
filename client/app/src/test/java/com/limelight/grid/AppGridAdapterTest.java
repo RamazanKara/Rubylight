@@ -207,31 +207,51 @@ public class AppGridAdapterTest {
         }
     }
 
-    /** A cover prints its own title along its bottom: the Running chip and the role sit at the top start, as on a phone. */
+    /**
+     * A cover prints its own title along its bottom: the Running chip and the role sit at the top start, as on a phone,
+     * just under the options button, since a TV poster at TV type sizes has no room for the chip beside it.
+     */
     @Test
     @Config(qualifiers = "w960dp-h540dp-television-xhdpi")
     public void tvBadgesSitAtTheTopStartClearOfTheCoverTitleAndTheOptionsButton() {
         try (var controller = Robolectric.buildActivity(com.limelight.ui.UiNavigationTest.Screen.class).setup().visible()) {
-            for (int layoutId : new int[] {R.layout.app_grid_item, R.layout.app_grid_item_small}) {
-                android.view.View root = android.view.LayoutInflater.from(controller.get()).inflate(layoutId, null);
+            float dp = controller.get().getResources().getDisplayMetrics().density;
+            // Root widths as the TV library lays them out at 1080p: the art (112dp, small 88dp) plus the glow's 16dp each side.
+            int[][] cases = {{R.layout.app_grid_item, 144}, {R.layout.app_grid_item_small, 120}};
+            for (int[] c : cases) {
+                android.view.View root = android.view.LayoutInflater.from(controller.get()).inflate(c[0], null);
                 android.widget.TextView status = root.findViewById(R.id.grid_status);
                 android.widget.TextView role = root.findViewById(R.id.grid_role);
                 status.setText("Running");
+                status.setCompoundDrawablesRelativeWithIntrinsicBounds(R.drawable.ic_live_dot, 0, 0, 0);
+                status.setCompoundDrawablePadding(Math.round(4 * dp));
                 status.setVisibility(android.view.View.VISIBLE);
-                role.setText("A very long role label that would otherwise run under the options button");
+                role.setText("A very long role label that would otherwise run past the poster");
                 role.setVisibility(android.view.View.VISIBLE);
-                root.measure(android.view.View.MeasureSpec.makeMeasureSpec(432, android.view.View.MeasureSpec.EXACTLY),
+                // GenericGridAdapter gives a TV poster's art a 2:3 shape.
+                android.view.View artwork = (android.view.View) root.findViewById(R.id.grid_image).getParent();
+                artwork.getLayoutParams().height = Math.round((c[1] - 32) * dp * 3f / 2);
+                root.measure(android.view.View.MeasureSpec.makeMeasureSpec(Math.round(c[1] * dp), android.view.View.MeasureSpec.EXACTLY),
                         android.view.View.MeasureSpec.makeMeasureSpec(0, android.view.View.MeasureSpec.UNSPECIFIED));
                 root.layout(0, 0, root.getMeasuredWidth(), root.getMeasuredHeight());
+                String name = controller.get().getResources().getResourceEntryName(c[0]);
                 android.view.View badges = root.findViewById(R.id.grid_badges);
                 android.view.View art = root.findViewById(R.id.grid_image);
                 android.view.View more = root.findViewById(R.id.grid_more);
                 int margin = controller.get().getResources().getDimensionPixelSize(R.dimen.space_xs);
                 assertSame(art.getParent(), badges.getParent());
-                assertEquals(art.getLeft() + margin, badges.getLeft());
-                assertEquals(art.getTop() + margin, badges.getTop());
-                assertTrue("both chips stay in the top half, off the cover's title", badges.getBottom() < art.getHeight() / 2);
-                assertTrue("a long role ends before the options button", badges.getRight() <= more.getLeft());
+                assertEquals(name, art.getLeft() + margin, badges.getLeft());
+                assertTrue(name + ": under the options button", badges.getTop() >= more.getBottom());
+                assertEquals(name + ": Running stays on one line", 1, status.getLineCount());
+                assertTrue(name + ": Running is not cut", status.getLayout().getEllipsisCount(0) == 0);
+                assertTrue(name + ": a long role ends inside the poster", badges.getRight() <= art.getRight() - margin);
+                // A cover prints its title in about its bottom third.
+                assertTrue(name + ": Running stays in the top 60%, off the cover's title",
+                        badges.getTop() + status.getBottom() < art.getHeight() * 0.6f);
+                if (c[0] == R.layout.app_grid_item) {
+                    assertTrue(name + ": with a role too, both stay above the bottom third",
+                            badges.getBottom() < art.getHeight() * 2 / 3);
+                }
             }
         }
     }

@@ -193,3 +193,11 @@ Its drawing of D3D11VA pictures from the decoder's own textures, with the decode
 textures made shader-readable on Intel GPUs as V+ does, follows the same d3d11va.cpp;
 the HDR tone map following HDR10+ metadata or the measured frame peak follows V+'s
 plvk.cpp and libplacebo's peak detection defaults (client/protocol/desktop/src/stream/direct.rs).
+
+sonora and WebRTC audio processing
+
+Nightjar's microphone echo canceller on Android (client/protocol/android/src/echo.rs) runs
+WebRTC's AEC3 through sonora 0.2.0 (https://github.com/dignifiedquire/sonora), a Rust port
+of WebRTC audio processing. Copyright (c) 2011, The WebRTC Project Authors; Copyright (c)
+2016, Arun Raghavan and contributors; Copyright (c) 2026, dignifiedquire. BSD 3-Clause; the
+full notice ships in the app as client/app/src/main/assets/NOTICE-SONORA.txt.

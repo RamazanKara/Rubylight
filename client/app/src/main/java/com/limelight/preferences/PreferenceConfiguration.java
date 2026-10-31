@@ -70,6 +70,8 @@ public class PreferenceConfiguration {
     private static final String HOST_AUDIO_PREF_STRING = "checkbox_host_audio";
     public static final String ENABLE_MIC_PREF_STRING = "checkbox_enable_mic";
     static final String MIC_ECHO_PREF_STRING = "list_mic_echo_cancel";
+    // No row shows it: debug builds set it for echo measurements (EchoProbeActivity).
+    public static final String MIC_ECHO_ENGINE_PREF_STRING = "debug_mic_echo_engine";
     static final String MIC_NOISE_PREF_STRING = "checkbox_mic_noise_suppression";
     static final String MIC_AUTO_GAIN_PREF_STRING = "checkbox_mic_auto_gain";
     static final String MIC_GAIN_PREF_STRING = "seekbar_mic_gain";
@@ -276,6 +278,7 @@ public class PreferenceConfiguration {
     public boolean enableMic;
     // How the microphone is cleaned up before it is sent (MicProcessing).
     public String micEcho = MicProcessing.Echo.AUTO.key;
+    public String micEchoEngine = MicProcessing.EchoEngine.OWN.key;
     public boolean micNoiseSuppression = true, micAutoGain;
     public int micGainPercent = MicGain.DEFAULT_PERCENT;
     // The on-screen microphone button, shown while the host takes the microphone.
@@ -813,7 +816,8 @@ public class PreferenceConfiguration {
 
     /** The microphone processing these settings ask for. */
     public MicProcessing micProcessing() {
-        return new MicProcessing(MicProcessing.Echo.of(micEcho), micNoiseSuppression, micAutoGain, micGainPercent);
+        return new MicProcessing(MicProcessing.Echo.of(micEcho), micNoiseSuppression, micAutoGain, micGainPercent,
+                MicProcessing.EchoEngine.of(micEchoEngine));
     }
 
     /** Whether the modern on-screen controller draws instead of the classic one. */
@@ -1379,6 +1383,7 @@ public class PreferenceConfiguration {
         config.playHostAudio = prefs.getBoolean(HOST_AUDIO_PREF_STRING, DEFAULT_HOST_AUDIO);
         config.enableMic = prefs.getBoolean(ENABLE_MIC_PREF_STRING, DEFAULT_ENABLE_MIC);
         config.micEcho = MicProcessing.Echo.of(prefs.getString(MIC_ECHO_PREF_STRING, null)).key;
+        config.micEchoEngine = MicProcessing.EchoEngine.of(prefs.getString(MIC_ECHO_ENGINE_PREF_STRING, null)).key;
         config.micNoiseSuppression = prefs.getBoolean(MIC_NOISE_PREF_STRING, true);
         config.micAutoGain = prefs.getBoolean(MIC_AUTO_GAIN_PREF_STRING, false);
         config.micGainPercent = MicGain.clampPercent(prefs.getInt(MIC_GAIN_PREF_STRING, MicGain.DEFAULT_PERCENT));

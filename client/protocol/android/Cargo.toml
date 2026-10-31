@@ -20,5 +20,7 @@ nightjar-core = { path = "../client" }
 rubylight-protocol = { path = "../core" }
 jni = "0.21"
 libc = "0.2"
+# The microphone's own echo canceller (src/echo.rs): WebRTC's AEC3, ported to Rust.
+sonora = "0.2"
 serde = "1"
 serde_json = "1"

@@ -113,15 +113,19 @@ final class SettingRules {
 
     /**
      * Whether the setting asks for an effect this device does not have, so its row says so: echo
-     * cancellation unless it is off, the switches while on. The stream says the same when the
-     * microphone opens.
+     * cancellation unless it is off (with neither canceller its engine asks for), the switches while
+     * on. The stream says the same when the microphone opens.
      */
     static boolean micEffectMissing(String key, SharedPreferences prefs, MicProcessing.Availability device) {
         MicProcessing.Effect effect = micEffect(key);
-        if (effect == null || device.has(effect)) return false;
+        if (effect == null) return false;
+        if (effect == MicProcessing.Effect.ECHO_CANCELER) {
+            return MicProcessing.Echo.of(prefs.getString(key, null)) != MicProcessing.Echo.OFF &&
+                    !MicProcessing.EchoEngine.of(prefs.getString(
+                            PreferenceConfiguration.MIC_ECHO_ENGINE_PREF_STRING, null)).available(device);
+        }
+        if (device.has(effect)) return false;
         switch (effect) {
-            case ECHO_CANCELER:
-                return MicProcessing.Echo.of(prefs.getString(key, null)) != MicProcessing.Echo.OFF;
             case NOISE_SUPPRESSOR:
                 return prefs.getBoolean(key, true);
             default:

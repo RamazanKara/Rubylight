@@ -33,6 +33,11 @@ public class MicEffects implements MicProcessing.Availability {
         return DEVICE.has(effect);
     }
 
+    @Override
+    public boolean hasOwnEchoCanceller() {
+        return EchoCanceller.isAvailable();
+    }
+
     /**
      * Attaches the effects to {@code session} as {@code plan} says. Returns the effects that were on
      * the plan but could not be created or turned on; the caller reports them.

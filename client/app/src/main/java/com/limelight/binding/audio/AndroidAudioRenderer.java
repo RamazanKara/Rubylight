@@ -378,6 +378,7 @@ public class AndroidAudioRenderer implements AudioRenderer {
             }
             if (nativeAudio != 0) {
                 if (writeNativeAudio(audioData, length)) {
+                    echoReference(audioData, length, queuedFrames);
                     tuneBuffer();
                     return;
                 }
@@ -392,6 +393,7 @@ public class AndroidAudioRenderer implements AudioRenderer {
             // latency at 40 ms in that situation.
             // A failed write drops only this buffer; the session's audio keeps playing.
             if (writeAudioTrackFully(audioData, length)) {
+                echoReference(audioData, length, queuedFrames);
                 tuneBuffer();
             } else {
                 droppedWrites++;
@@ -403,6 +405,13 @@ public class AndroidAudioRenderer implements AudioRenderer {
             LimeLog.info("Too much pending audio data: " + pendingMs + " ms, output " +
                     framesToMs(queuedFrames) + " of " + framesToMs(reserveFrames) + " ms");
             reportDrops();
+        }
+    }
+
+    // What the speaker is about to play, for the microphone's echo canceller (a volatile read while none runs).
+    private void echoReference(short[] audioData, int length, int queuedFrames) {
+        if (sampleRate == EchoCanceller.RATE && channels > 0) {
+            EchoCanceller.reference(audioData, length, channels, framesToMs(queuedFrames));
         }
     }
 

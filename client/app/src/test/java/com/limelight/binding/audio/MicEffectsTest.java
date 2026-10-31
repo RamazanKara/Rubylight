@@ -25,7 +25,9 @@ import static org.junit.Assert.*;
 @Config(sdk = 29, application = Application.class)
 public class MicEffectsTest {
     private static final MicProcessing.Availability ALL = effect -> true;
-    private final MicProcessing allOn = new MicProcessing(MicProcessing.Echo.ON, true, true, MicGain.DEFAULT_PERCENT);
+    // Android's canceller is the AcousticEchoCanceler effect these tests attach.
+    private final MicProcessing allOn = new MicProcessing(MicProcessing.Echo.ON, true, true, MicGain.DEFAULT_PERCENT,
+            MicProcessing.EchoEngine.PLATFORM);
     private final MicProcessing allOff = new MicProcessing(MicProcessing.Echo.OFF, false, false, MicGain.DEFAULT_PERCENT);
     private final List<AudioEffect> created = new ArrayList<>();
     private Effects effects;
@@ -47,7 +49,7 @@ public class MicEffectsTest {
         MicProcessing.Plan plan = allOn.plan(false, ALL);
         List<MicProcessing.Effect> failed = effects.attach(1, plan);
         assertEquals(Collections.singletonList(MicProcessing.Effect.NOISE_SUPPRESSOR), failed);
-        assertEquals(Collections.singletonList(MicProcessing.Effect.NOISE_SUPPRESSOR), MicrophoneCapture.notOn(plan, failed));
+        assertEquals(Collections.singletonList(MicProcessing.Effect.NOISE_SUPPRESSOR), MicrophoneCapture.notOn(plan, failed, false));
         assertTrue(created.get(MicProcessing.Effect.ECHO_CANCELER.ordinal()).getEnabled());
         assertTrue(created.get(MicProcessing.Effect.AUTOMATIC_GAIN.ordinal()).getEnabled());
     }

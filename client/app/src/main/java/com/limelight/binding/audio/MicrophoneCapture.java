@@ -177,9 +177,18 @@ public class MicrophoneCapture {
     }
 
     /** The effects that should be on but are not: missing from the device, or failed to attach. */
-    static List<MicProcessing.Effect> notOn(MicProcessing.Plan plan, List<MicProcessing.Effect> failed) {
+    /**
+     * What the settings ask for that is not on: the plan's missing effects and the ones Android
+     * refused, where echo cancellation counts as on while either canceller the plan wanted runs.
+     */
+    static List<MicProcessing.Effect> notOn(MicProcessing.Plan plan, List<MicProcessing.Effect> failed, boolean ownOpened) {
         List<MicProcessing.Effect> missing = new ArrayList<>(plan.missing);
-        for (MicProcessing.Effect effect : failed) {
+        List<MicProcessing.Effect> refused = new ArrayList<>(failed);
+        if (plan.ownEchoCanceller) {
+            if (ownOpened) refused.remove(MicProcessing.Effect.ECHO_CANCELER);
+            else if (!plan.echoCanceler) refused.add(MicProcessing.Effect.ECHO_CANCELER);
+        }
+        for (MicProcessing.Effect effect : refused) {
             if (!missing.contains(effect)) {
                 missing.add(effect);
             }
@@ -246,6 +255,7 @@ public class MicrophoneCapture {
     private Boolean capture(boolean privateOutput, short[] frame, long[] counts) throws InterruptedException {
         AudioRecord record = null;
         MicEffects effects = new MicEffects();
+        EchoCanceller canceller = null;
         try {
             int minBuffer = AudioRecord.getMinBufferSize(SAMPLE_RATE, AudioFormat.CHANNEL_IN_MONO,
                     AudioFormat.ENCODING_PCM_16BIT);
@@ -255,8 +265,9 @@ public class MicrophoneCapture {
             }
             routeChanged = false;
             MicProcessing.Plan plan = processing.plan(privateOutput, effects);
-            // VOICE_COMMUNICATION applies the device's echo cancellation, which keeps game audio
-            // from this device's speaker out of the microphone; MIC leaves the voice untouched.
+            // Nightjar's own canceller hears the stream's sound itself and works on the plain MIC
+            // source; VOICE_COMMUNICATION applies the device's, which hears only what the device
+            // routes into its echo reference.
             record = new AudioRecord(plan.source, SAMPLE_RATE,
                     AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT,
                     Math.max(minBuffer, FRAME_SAMPLES * 2 * 4));
@@ -264,10 +275,14 @@ public class MicrophoneCapture {
                 fail("could not open the microphone");
                 return null;
             }
-            List<MicProcessing.Effect> missing = notOn(plan, effects.attach(record.getAudioSessionId(), plan));
+            List<MicProcessing.Effect> failed = effects.attach(record.getAudioSessionId(), plan);
+            if (plan.ownEchoCanceller) canceller = EchoCanceller.open();
+            List<MicProcessing.Effect> missing = notOn(plan, failed, canceller != null);
             LimeLog.info("Microphone: started (" + FRAME_MS + " ms frames, " +
                     (plan.source == MediaRecorder.AudioSource.VOICE_COMMUNICATION ? "voice" : "plain") +
-                    " source, output " + (privateOutput ? "headphones" : "speaker") + ", " + processing +
+                    " source, " + echoCancellers(plan.echoCanceler && !failed.contains(MicProcessing.Effect.ECHO_CANCELER),
+                    canceller != null) +
+                    ", output " + (privateOutput ? "headphones" : "speaker") + ", " + processing +
                     (missing.isEmpty() ? "" : ", not on this device: " + missing) + ")");
             if (!missing.isEmpty()) {
                 LimeLog.warning("Microphone: this device has no " + missing + "; the settings ask for it");
@@ -290,6 +305,7 @@ public class MicrophoneCapture {
                         fail("recording did not start (is another app using the microphone?)");
                         return null;
                     }
+                    if (canceller != null) canceller.restart();
                 }
                 int read = readFrame(record, frame);
                 if (read < 0) {
@@ -299,6 +315,11 @@ public class MicrophoneCapture {
                 // A partial frame comes only from a stop or mute; drop it.
                 if (read < FRAME_SAMPLES || !shouldSend()) {
                     continue;
+                }
+                // Before the gain: the canceller models the echo the microphone itself picked up.
+                if (canceller != null && !canceller.process(frame, FRAME_SAMPLES)) {
+                    fail("the echo canceller refused a frame");
+                    return null;
                 }
                 MicGain.apply(frame, FRAME_SAMPLES, processing.gainPercent);
                 if (sink.send(frame, FRAME_SAMPLES) >= 0) {
@@ -319,7 +340,18 @@ public class MicrophoneCapture {
                 record.release();
             }
             effects.release();
+            if (canceller != null) {
+                LimeLog.info("Microphone: echo canceller " + canceller.stats());
+                canceller.close();
+            }
         }
+    }
+
+    /** The echo cancellers on this capture, for the log. */
+    static String echoCancellers(boolean android, boolean own) {
+        if (android && own) return "echo cancellers Nightjar's and Android's";
+        if (own) return "echo canceller Nightjar's";
+        return android ? "echo canceller Android's" : "no echo canceller";
     }
 
     private void fail(String reason) {

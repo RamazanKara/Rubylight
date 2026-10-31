@@ -19,7 +19,25 @@ import static org.junit.Assert.*;
 @RunWith(RobolectricTestRunner.class)
 @Config(sdk = 34, application = Application.class)
 public class MicEffectRuleTest {
-    private static final MicProcessing.Availability NONE = effect -> false, ALL = effect -> true;
+    private static final MicProcessing.Availability NONE = effect -> false, ALL = new MicProcessing.Availability() {
+        @Override public boolean has(MicProcessing.Effect effect) {
+            return true;
+        }
+
+        @Override public boolean hasOwnEchoCanceller() {
+            return true;
+        }
+    };
+    /** Android's effects without Nightjar's echo canceller, and the reverse. */
+    private static final MicProcessing.Availability ANDROID = effect -> true, OWN = new MicProcessing.Availability() {
+        @Override public boolean has(MicProcessing.Effect effect) {
+            return false;
+        }
+
+        @Override public boolean hasOwnEchoCanceller() {
+            return true;
+        }
+    };
     private static final String ECHO = PreferenceConfiguration.MIC_ECHO_PREF_STRING,
             NOISE = PreferenceConfiguration.MIC_NOISE_PREF_STRING, GAIN = PreferenceConfiguration.MIC_AUTO_GAIN_PREF_STRING;
 
@@ -53,6 +71,19 @@ public class MicEffectRuleTest {
         assertFalse("Off asks for nothing", SettingRules.micEffectMissing(ECHO, prefs(), NONE));
     }
 
+    @Test public void echoCancellationFollowsTheCancellerItsEngineUses() {
+        // Nightjar's own canceller by default: a device without Android's is not missing it.
+        assertFalse(SettingRules.micEffectMissing(ECHO, prefs(), OWN));
+        assertTrue(SettingRules.micEffectMissing(ECHO, prefs(), ANDROID));
+        prefs().edit().putString(PreferenceConfiguration.MIC_ECHO_ENGINE_PREF_STRING, "platform").commit();
+        assertTrue(SettingRules.micEffectMissing(ECHO, prefs(), OWN));
+        assertFalse(SettingRules.micEffectMissing(ECHO, prefs(), ANDROID));
+        prefs().edit().putString(PreferenceConfiguration.MIC_ECHO_ENGINE_PREF_STRING, "both").commit();
+        assertFalse(SettingRules.micEffectMissing(ECHO, prefs(), OWN));
+        assertFalse(SettingRules.micEffectMissing(ECHO, prefs(), ANDROID));
+        assertTrue(SettingRules.micEffectMissing(ECHO, prefs(), NONE));
+    }
+
     @Test public void theSwitchesAreMissingOnlyWhileOnFromTheirOwnDefaults() {
         assertTrue("Noise suppression is on by default", SettingRules.micEffectMissing(NOISE, prefs(), NONE));
         assertFalse("Automatic gain is off by default", SettingRules.micEffectMissing(GAIN, prefs(), NONE));
@@ -62,7 +93,15 @@ public class MicEffectRuleTest {
     }
 
     @Test public void onlyTheLackingEffectIsFlagged() {
-        MicProcessing.Availability noGain = effect -> effect != MicProcessing.Effect.AUTOMATIC_GAIN;
+        MicProcessing.Availability noGain = new MicProcessing.Availability() {
+            @Override public boolean has(MicProcessing.Effect effect) {
+                return effect != MicProcessing.Effect.AUTOMATIC_GAIN;
+            }
+
+            @Override public boolean hasOwnEchoCanceller() {
+                return true;
+            }
+        };
         prefs().edit().putString(ECHO, "on").putBoolean(NOISE, true).putBoolean(GAIN, true).commit();
         assertFalse(SettingRules.micEffectMissing(ECHO, prefs(), noGain));
         assertFalse(SettingRules.micEffectMissing(NOISE, prefs(), noGain));

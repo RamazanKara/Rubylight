@@ -1,4 +1,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- EchoProbeActivity switches to MODE_IN_COMMUNICATION for one of its arms. -->
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <application>
         <activity android:name="com.limelight.demo.DemoLauncherActivity" android:exported="true"
             android:theme="@style/StreamTheme" />
@@ -46,5 +48,6 @@
             android:theme="@style/StreamTheme" />
         <!-- tv-redesign-4 -->
         <activity android:name="com.limelight.demo.DemoAllGames" android:exported="false" />
+        <activity android:name="com.limelight.binding.audio.EchoProbeActivity" android:exported="true" />
     </application>
 </manifest>

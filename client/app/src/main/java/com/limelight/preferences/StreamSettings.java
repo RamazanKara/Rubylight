@@ -1497,7 +1497,16 @@ public class StreamSettings extends NightjarActivity {
                 for (com.limelight.binding.audio.MicProcessing.Effect effect : com.limelight.binding.audio.MicProcessing.Effect.values()) {
                     has.put(effect, com.limelight.binding.audio.MicEffects.DEVICE.has(effect));
                 }
-                micEffects = effect -> Boolean.TRUE.equals(has.get(effect));
+                boolean own = com.limelight.binding.audio.EchoCanceller.isAvailable();
+                micEffects = new com.limelight.binding.audio.MicProcessing.Availability() {
+                    @Override public boolean has(com.limelight.binding.audio.MicProcessing.Effect effect) {
+                        return Boolean.TRUE.equals(has.get(effect));
+                    }
+
+                    @Override public boolean hasOwnEchoCanceller() {
+                        return own;
+                    }
+                };
             }
             return micEffects;
         }

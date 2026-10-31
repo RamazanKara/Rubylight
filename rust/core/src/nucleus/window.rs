@@ -36,6 +36,8 @@ pub struct Window {
     pub pid: u32,
     pub rect: Rect,
     pub visible: bool,
+    /// Shown but minimised: not visible, nothing to capture until restored.
+    pub minimized: bool,
     /// Owned windows are dialogs and popups of another window.
     pub owned: bool,
     /// Tool windows (overlays, launchers' helpers) never show in the taskbar.
@@ -87,7 +89,13 @@ pub fn parking(desktop: Rect, slot: usize, size: (u32, u32)) -> Result<Rect, Str
 /// Whether a window must be moved back to its parking place: it moved or
 /// was resized (games re-centre themselves), or it reached a monitor.
 pub fn strayed(window: Rect, parked: Rect, monitors: &[Rect]) -> bool {
-    window != parked || monitors.iter().any(|m| m.intersects(&window))
+    window != parked || on_monitor(window, monitors)
+}
+
+/// Whether a window reaches one of the PC's monitors, where it covers the
+/// PC's desktop and takes its keyboard and mouse.
+pub fn on_monitor(window: Rect, monitors: &[Rect]) -> bool {
+    monitors.iter().any(|m| m.intersects(&window))
 }
 
 #[cfg(test)]
@@ -105,6 +113,7 @@ mod tests {
                 height,
             },
             visible: true,
+            minimized: false,
             owned: false,
             tool: false,
         }

@@ -64,11 +64,15 @@ impl MessageBox {
     }
 }
 
-/// Passes in a row a window may leave its place before the keeper leaves it
-/// alone (a game that re-centres itself on every frame must not be fought
-/// for the whole stream). A game busy loading moves late, so this allows
-/// several seconds.
+/// Passes in a row a window may leave its place before the keeper stops
+/// moving it back on every pass (a game that re-centres itself on every
+/// frame must not be fought for the whole stream). A game busy loading moves
+/// late, so this allows several seconds.
 const TRIES: u32 = 20;
+/// After [`TRIES`], how many passes apart a window that keeps returning to
+/// the PC's monitors, or minimising itself, is put back: never left there,
+/// where the PC's keyboard and mouse reach it (#56).
+const BACKOFF: u32 = 8;
 
 /// Which Nucleus instance folder a process runs from: Nucleus starts
 /// instance k from `...\Instance<k>\...` when it copies or links the game.
@@ -132,7 +136,8 @@ pub struct Pass {
     pub roots: Vec<Option<Identity>>,
     /// Slots whose instance exited in this pass.
     pub gone: Vec<usize>,
-    /// Slots whose window keeps leaving its place, from this pass on left alone.
+    /// Slots whose window keeps its own place or size off the PC's monitors,
+    /// from this pass on left there.
     pub stuck: Vec<usize>,
 }
 
@@ -323,8 +328,11 @@ impl Keeper {
             let current = slot
                 .window
                 .and_then(|id| windows.iter().find(|w| w.id == id));
-            let usable =
-                current.is_some_and(|w| w.visible && !w.owned && !w.tool && pids.contains(&w.pid));
+            // A game that minimised itself when it lost the focus stays its
+            // instance's window, and is restored below.
+            let usable = current.is_some_and(|w| {
+                (w.visible || w.minimized) && !w.owned && !w.tool && pids.contains(&w.pid)
+            });
             if !usable {
                 let picked = window::pick(&windows, &pids);
                 if picked != slot.window {
@@ -351,19 +359,34 @@ impl Keeper {
             let mut parked =
                 window::parking(screen, index, (widest, height)).map_err(anyhow::Error::msg)?;
             parked.width = i32::try_from(width).map_err(anyhow::Error::msg)?;
-            if !window::strayed(window.rect, parked, &monitors) {
+            if !window.minimized && !window::strayed(window.rect, parked, &monitors) {
                 slot.tries = 0;
                 continue;
             }
+            // Minimised or on a monitor, the stream shows nothing and the
+            // PC's keyboard and mouse reach the game: it always goes back.
+            let in_sight = window.minimized || window::on_monitor(window.rect, &monitors);
             if slot.stuck {
-                continue;
+                if !in_sight {
+                    continue;
+                }
+                slot.stuck = false;
+                slot.tries = 0;
             }
-            slot.tries += 1;
+            slot.tries = slot.tries.saturating_add(1);
             if slot.tries > TRIES {
-                slot.stuck = true;
-                pass.stuck.push(index);
-                tracing::warn!(slot = index, rect = ?window.rect, "Nucleus Co-op window keeps leaving its place; left alone");
-                continue;
+                if !in_sight {
+                    slot.stuck = true;
+                    pass.stuck.push(index);
+                    tracing::warn!(slot = index, rect = ?window.rect, "Nucleus Co-op window keeps its own place or size beside the PC's desktop; left there");
+                    continue;
+                }
+                if slot.tries == TRIES + 1 {
+                    tracing::warn!(slot = index, rect = ?window.rect, minimized = window.minimized, "Nucleus Co-op window keeps returning to the PC's monitors or minimising; put back every {BACKOFF} passes");
+                }
+                if (slot.tries - TRIES - 1) % BACKOFF != 0 {
+                    continue;
+                }
             }
             if let Err(error) = desktop.place(window.id, parked) {
                 tracing::debug!(%error, slot = index, "Nucleus Co-op window could not be moved");
@@ -429,6 +452,8 @@ pub(crate) mod tests {
                 && let Some(w) = self.windows.iter_mut().find(|w| w.id == window)
             {
                 w.rect = to;
+                w.visible |= w.minimized;
+                w.minimized = false;
             }
             Ok(())
         }
@@ -515,6 +540,7 @@ pub(crate) mod tests {
             pid,
             rect,
             visible: true,
+            minimized: false,
             owned: false,
             tool: false,
         }
@@ -732,8 +758,10 @@ pub(crate) mod tests {
         assert_eq!(keeper.pass(&mut desktop, &job, &SIZES).unwrap().gone, [0]);
     }
 
+    /// #56: a borderless fullscreen game kept returning to the PC's monitor,
+    /// and was left there with the PC's keyboard and mouse after 20 tries.
     #[test]
-    fn a_window_that_keeps_returning_is_left_alone_after_a_while() {
+    fn a_window_that_keeps_returning_to_a_monitor_is_put_back_less_often_never_left() {
         let mut keeper = keeper(1);
         let mut desktop = fake(
             vec![process(20, 10, 110, "Game.exe")],
@@ -741,11 +769,35 @@ pub(crate) mod tests {
         );
         let job = BTreeSet::from([20]);
         let mut stuck = Vec::new();
-        for _ in 0..TRIES + 5 {
+        for _ in 0..TRIES + 2 * BACKOFF {
+            stuck.extend(keeper.pass(&mut desktop, &job, &SIZES).unwrap().stuck);
+        }
+        assert!(stuck.is_empty(), "{stuck:?}");
+        assert_eq!(desktop.placed.len(), (TRIES + 2) as usize);
+
+        // One that keeps its own size beside the desktop, off the monitors
+        // (Sekiro), is left there: it is out of the PC's reach.
+        let mut keeper = self::keeper(1);
+        let parked = window::parking(SCREEN, 0, SIZES[0]).unwrap();
+        desktop.windows = vec![window(
+            2,
+            20,
+            Rect {
+                width: 1940,
+                ..parked
+            },
+        )];
+        desktop.placed.clear();
+        for _ in 0..TRIES + 2 * BACKOFF {
             stuck.extend(keeper.pass(&mut desktop, &job, &SIZES).unwrap().stuck);
         }
         assert_eq!(stuck, [0]);
         assert_eq!(desktop.placed.len(), TRIES as usize);
+        // Until it reaches a monitor again.
+        desktop.windows = vec![window(2, 20, ON_SCREEN)];
+        keeper.pass(&mut desktop, &job, &SIZES).unwrap();
+        assert_eq!(desktop.placed.len(), TRIES as usize + 1);
+
         // A window that stays where it was parked is moved once.
         let mut keeper = self::keeper(1);
         desktop.obey = true;
@@ -754,6 +806,55 @@ pub(crate) mod tests {
             keeper.pass(&mut desktop, &job, &SIZES).unwrap();
         }
         assert_eq!(desktop.placed.len(), 1);
+    }
+
+    /// #56: a fullscreen game minimised itself when it lost the focus, and
+    /// the stream lost its window.
+    #[test]
+    fn a_window_that_minimises_itself_is_kept_and_restored() {
+        let mut keeper = keeper(1);
+        let mut desktop = Fake {
+            obey: true,
+            ..fake(
+                vec![process(20, 10, 110, "Game.exe")],
+                vec![window(2, 20, ON_SCREEN)],
+            )
+        };
+        let job = BTreeSet::from([20]);
+        keeper.pass(&mut desktop, &job, &SIZES).unwrap();
+        let parked = desktop.windows[0].rect;
+        assert_eq!(desktop.placed.len(), 1);
+        desktop.windows[0] = Window {
+            visible: false,
+            minimized: true,
+            ..window(
+                2,
+                20,
+                Rect {
+                    x: -32000,
+                    y: -32000,
+                    width: 160,
+                    height: 28,
+                },
+            )
+        };
+        let pass = keeper.pass(&mut desktop, &job, &SIZES).unwrap();
+        assert_eq!(pass.windows, [Some(2)]);
+        assert_eq!(desktop.placed.last(), Some(&(2, parked)));
+        assert!(desktop.windows[0].visible && !desktop.windows[0].minimized);
+        // Minimised again, but in place: still restored.
+        desktop.windows[0].visible = false;
+        desktop.windows[0].minimized = true;
+        keeper.pass(&mut desktop, &job, &SIZES).unwrap();
+        assert_eq!(desktop.placed.len(), 3);
+        // A minimised window it never followed is no instance's window yet.
+        let mut keeper = self::keeper(1);
+        desktop.windows[0].visible = false;
+        desktop.windows[0].minimized = true;
+        assert_eq!(
+            keeper.pass(&mut desktop, &job, &SIZES).unwrap().windows,
+            [None]
+        );
     }
 
     #[test]

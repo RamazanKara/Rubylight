@@ -73,15 +73,16 @@ fn top_level(processes: Option<&BTreeSet<u32>>) -> Result<Vec<Window>> {
             let _ =
                 DwmGetWindowAttribute(window, DWMWA_CLOAKED, (&mut cloaked as *mut u32).cast(), 4);
             let ex = GetWindowLongPtrW(window, GWL_EXSTYLE) as u32;
+            let shown = IsWindowVisible(window).as_bool() && cloaked == 0;
+            let iconic = IsIconic(window).as_bool();
             scan.found.push(Window {
                 id: window.0 as usize as u64,
                 pid,
                 rect: rect_of(rect),
                 // A minimised window shows nothing to capture; a cloaked one
                 // (another virtual desktop, a suspended app) neither.
-                visible: IsWindowVisible(window).as_bool()
-                    && !IsIconic(window).as_bool()
-                    && cloaked == 0,
+                visible: shown && !iconic,
+                minimized: shown && iconic,
                 owned: !GetWindow(window, GW_OWNER).unwrap_or_default().is_invalid(),
                 tool: ex & WS_EX_TOOLWINDOW.0 != 0,
             });
@@ -230,8 +231,9 @@ impl Desktop for Win32 {
         // SAFETY: the handle is a plain value from EnumWindows; a window that closed since makes
         // the calls fail. The asynchronous forms never wait for a hung game's message loop.
         unsafe {
-            if IsZoomed(window).as_bool() {
-                // Maximising shows and activates a window; restore it without activation.
+            if IsZoomed(window).as_bool() || IsIconic(window).as_bool() {
+                // Maximising shows and activates a window; restore it without activation,
+                // as a game that minimised itself when it lost the focus (#56).
                 let _ = ShowWindowAsync(window, SW_SHOWNOACTIVATE);
             }
             SetWindowPos(

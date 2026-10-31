@@ -270,6 +270,10 @@ pub struct VideoDecoder {
     /// import them (`export_dmabuf`).
     #[cfg(unix)]
     dmabuf: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
+    /// The empty frame of the last `receive` that brought no picture, for the next one: each
+    /// decoded frame ends with such a call, so this saves an allocation per frame. Pictures
+    /// themselves go to the presenter and are freed there.
+    spare: Option<Frame>,
 }
 
 /// The size of the pooled packet buffers for a packet of `needed` bytes with its padding: a
@@ -361,6 +365,7 @@ impl VideoDecoder {
                 trims_padding: codec == Codec::Hevc,
                 #[cfg(unix)]
                 dmabuf: None,
+                spare: None,
             };
             if video.context.is_null() || video.packet.is_null() {
                 return Err("Could not allocate the video decoder.".into());
@@ -518,17 +523,26 @@ impl VideoDecoder {
 
     pub fn receive(&mut self) -> Received {
         unsafe {
-            let Some(raw) = NonNull::new(av_frame_alloc()) else {
-                return Received::Error;
-            };
             #[allow(unused_mut)]
-            let mut frame = Frame::new(raw);
+            let mut frame = match self.spare.take() {
+                Some(frame) => frame,
+                None => {
+                    let Some(raw) = NonNull::new(av_frame_alloc()) else {
+                        return Received::Error;
+                    };
+                    Frame::new(raw)
+                }
+            };
+            let raw = frame.raw;
             let status = avcodec_receive_frame(self.context, raw.as_ptr());
-            if status == -11 || status == -541478725 {
-                return Received::None;
-            }
             if status < 0 {
-                return Received::Error;
+                // avcodec_receive_frame unreferences the frame first, so it is empty again.
+                self.spare = Some(frame);
+                return if status == -11 || status == -541478725 {
+                    Received::None
+                } else {
+                    Received::Error
+                };
             }
             let format = (*raw.as_ptr()).format;
             if format == AV_PIX_FMT_VAAPI {
@@ -1160,6 +1174,24 @@ mod tests {
                 panic!("no decoded frame")
             };
             assert_eq!(frame.info().pts, pts);
+        }
+    }
+
+    #[test]
+    fn the_frame_of_a_receive_without_a_picture_holds_the_next_picture() {
+        let fixture =
+            include_bytes!("../../../app/src/main/assets/packed444/hevc-8.bin").as_slice();
+        let mut decoder = VideoDecoder::open(Codec::Hevc, Hardware::None, 1, false).unwrap();
+        for pts in 20..23 {
+            assert!(matches!(decoder.receive(), Received::None));
+            let spare = decoder.spare.as_ref().expect("the empty frame is kept").raw;
+            assert_eq!(decoder.send(fixture, pts), 0);
+            let Received::Frame(frame) = decoder.receive() else {
+                panic!("no decoded frame")
+            };
+            assert_eq!(frame.raw, spare, "the picture is decoded into the kept frame");
+            assert_eq!(frame.info().pts, pts);
+            assert!(decoder.spare.is_none(), "the picture left with its frame");
         }
     }
 

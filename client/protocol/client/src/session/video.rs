@@ -587,6 +587,9 @@ fn decode_loop(
 }
 
 #[cfg(test)]
+mod alloc_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::video::tests::early_chunks::{records, Blocks};

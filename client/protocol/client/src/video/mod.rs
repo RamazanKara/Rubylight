@@ -354,7 +354,9 @@ struct Pools {
 }
 
 const PACKET_POOL_LIMIT: usize = 4096;
-const FRAME_POOL_LIMIT: usize = 4;
+/// Every frame the decode queue holds, plus the one being decoded: a decoder that falls
+/// behind takes its frames back without allocating.
+const FRAME_POOL_LIMIT: usize = crate::session::DECODE_UNIT_QUEUE_BOUND + 1;
 
 impl Pools {
     fn packet(&mut self) -> Box<[u8]> {

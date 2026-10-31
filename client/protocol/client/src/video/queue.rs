@@ -55,6 +55,11 @@ pub(super) struct RtpQueue {
     /// Data packets of the pending block already given to the depacketizer: the run from the
     /// block's first packet with no hole. They stay pending for FEC recovery.
     forwarded: u32,
+
+    /// FEC recovery's code and scratch, kept so that recovering a block allocates nothing.
+    fec: Option<ReedSolomon>,
+    fec_missing: Vec<bool>,
+    fec_shards: Vec<Box<[u8]>>,
 }
 
 impl RtpQueue {
@@ -88,6 +93,9 @@ impl RtpQueue {
             records: config.pyrowave_records,
             early: config.pyrowave_records && config.early_chunks,
             forwarded: 0,
+            fec: None,
+            fec_missing: Vec::new(),
+            fec_shards: Vec::new(),
         }
     }
 
@@ -233,33 +241,41 @@ impl RtpQueue {
             return -1;
         }
 
-        let Some(rs) = ReedSolomon::new(
+        let (data, parity) = (
             self.buffer_data_packets as usize,
             self.buffer_parity_packets as usize,
-        ) else {
+        );
+        let renewed = match &mut self.fec {
+            Some(rs) => rs.renew(data, parity),
+            fec @ None => {
+                *fec = ReedSolomon::new(data, parity);
+                fec.is_some()
+            }
+        };
+        let Some(rs) = self.fec.as_ref().filter(|_| renewed) else {
             return -3;
         };
 
         let total = total as usize;
         let receive_size = self.packet_size + MAX_RTP_HEADER_SIZE;
-        let mut missing = vec![true; total];
-        let mut shards: Vec<Option<Box<[u8]>>> = Vec::with_capacity(total);
-        shards.resize_with(total, || None);
+        self.fec_missing.clear();
+        self.fec_missing.resize(total, true);
+        // Empty boxes hold no memory.
+        self.fec_shards.clear();
+        self.fec_shards.resize_with(total, Box::default);
         for packet in &mut self.pending {
             let index = packet.seq.wrapping_sub(self.buffer_lowest_seq) as usize;
-            missing[index] = false;
+            self.fec_missing[index] = false;
             packet.buf[packet.len..receive_size].fill(0);
-            shards[index] = Some(std::mem::take(&mut packet.buf));
+            self.fec_shards[index] = std::mem::take(&mut packet.buf);
         }
-        let mut shards: Vec<Box<[u8]>> = shards
-            .into_iter()
-            .map(|shard| shard.unwrap_or_else(|| io.pools.packet()))
-            .collect();
+        for (shard, &missing) in self.fec_shards.iter_mut().zip(&self.fec_missing) {
+            if missing {
+                *shard = io.pools.packet();
+            }
+        }
 
-        let decoded = {
-            let mut refs: Vec<&mut [u8]> = shards.iter_mut().map(|s| &mut s[..]).collect();
-            rs.decode(&mut refs, &missing, receive_size)
-        };
+        let decoded = rs.decode(&mut self.fec_shards, &self.fec_missing, receive_size);
         let mut ret = if decoded.is_ok() { 0 } else { -1 };
 
         // Report the final FEC status of a block that needed recovery.
@@ -267,16 +283,17 @@ impl RtpQueue {
 
         for packet in &mut self.pending {
             let index = packet.seq.wrapping_sub(self.buffer_lowest_seq) as usize;
-            packet.buf = std::mem::take(&mut shards[index]);
+            packet.buf = std::mem::take(&mut self.fec_shards[index]);
         }
 
         let head_header = self.pending[0].buf[0];
         let head_timestamp = self.pending[0].timestamp;
         let data_packets = self.buffer_data_packets as usize;
-        for (index, buf) in shards.into_iter().enumerate() {
-            if !missing[index] {
+        for index in 0..total {
+            if !self.fec_missing[index] {
                 continue;
             }
+            let buf = std::mem::take(&mut self.fec_shards[index]);
             if ret != 0 || index >= data_packets {
                 io.pools.recycle_packet(buf);
                 continue;

@@ -10,6 +10,8 @@ use std::fmt;
 
 /// nanors limit on data + parity shards.
 pub const MAX_SHARDS: usize = 255;
+/// Most erasures a decode solves for: no more than either the data or the parity shards.
+const MAX_ERASURES: usize = MAX_SHARDS / 2;
 
 /// The parity matrix GFE and Sunshine use for the 4+2 audio FEC blocks.
 pub const AUDIO_PARITY_MATRIX: [u8; 8] = [0x77, 0x40, 0x38, 0x0e, 0xc7, 0xa7, 0x0d, 0x6c];
@@ -94,14 +96,18 @@ fn scal(a: &mut [u8], u: u8) {
 }
 
 /// Mutable `shards[to]` and shared `shards[from]`; `to != from`.
-fn pair<'a>(shards: &'a mut [&mut [u8]], to: usize, from: usize) -> (&'a mut [u8], &'a [u8]) {
+fn pair<S: AsMut<[u8]> + AsRef<[u8]>>(
+    shards: &mut [S],
+    to: usize,
+    from: usize,
+) -> (&mut [u8], &[u8]) {
     debug_assert_ne!(to, from);
     if to < from {
         let (low, high) = shards.split_at_mut(from);
-        (&mut *low[to], &*high[0])
+        (low[to].as_mut(), high[0].as_ref())
     } else {
         let (low, high) = shards.split_at_mut(to);
-        (&mut *high[0], &*low[from])
+        (high[0].as_mut(), low[from].as_ref())
     }
 }
 
@@ -137,20 +143,30 @@ impl ReedSolomon {
     /// The nanors code for `data` + `parity` shards; `None` outside nanors' limits
     /// (each count 1..=255, total at most 255).
     pub fn new(data: usize, parity: usize) -> Option<Self> {
+        let mut code = Self {
+            data: 0,
+            parity: 0,
+            matrix: Vec::new(),
+        };
+        code.renew(data, parity).then_some(code)
+    }
+
+    /// Makes this the nanors code for `data` + `parity` shards, in the memory it has. False,
+    /// and unchanged, outside nanors' limits.
+    pub fn renew(&mut self, data: usize, parity: usize) -> bool {
         if data == 0 || parity == 0 || data + parity > MAX_SHARDS {
-            return None;
+            return false;
         }
-        let mut matrix = vec![0; data * parity];
-        for (j, row) in matrix.chunks_exact_mut(data).enumerate() {
+        self.data = data;
+        self.parity = parity;
+        self.matrix.clear();
+        self.matrix.resize(data * parity, 0);
+        for (j, row) in self.matrix.chunks_exact_mut(data).enumerate() {
             for (i, value) in row.iter_mut().enumerate() {
                 *value = INV[(parity + i) ^ j];
             }
         }
-        Some(Self {
-            data,
-            parity,
-            matrix,
-        })
+        true
     }
 
     /// A code with an explicit row-major parity matrix (`parity` rows of `data` entries).
@@ -171,12 +187,12 @@ impl ReedSolomon {
         self.parity
     }
 
-    fn check(&self, shards: &[&mut [u8]], len: usize) -> Result<(), FecError> {
+    fn check<S: AsRef<[u8]>>(&self, shards: &[S], len: usize) -> Result<(), FecError> {
         if len == 0
             || shards.len() < self.data + self.parity
             || shards[..self.data + self.parity]
                 .iter()
-                .any(|s| s.len() < len)
+                .any(|s| s.as_ref().len() < len)
         {
             return Err(FecError::BadShards);
         }
@@ -200,10 +216,10 @@ impl ReedSolomon {
 
     /// Recovers the data shards marked missing in `missing` (one flag per shard, data first)
     /// from the received data and parity shards, like `reed_solomon_decode`. Missing parity
-    /// shards are not rebuilt.
-    pub fn decode(
+    /// shards are not rebuilt. Allocates nothing.
+    pub fn decode<S: AsMut<[u8]> + AsRef<[u8]>>(
         &self,
-        shards: &mut [&mut [u8]],
+        shards: &mut [S],
         missing: &[bool],
         len: usize,
     ) -> Result<(), FecError> {
@@ -250,14 +266,24 @@ impl ReedSolomon {
 
     /// nanors' `invert_mat`: eliminates the known columns from the copied parity rows, then
     /// solves the remaining `W x W` system in place.
-    fn invert(&self, dst: &mut [&mut [u8]], v0: usize, len: usize, c: &[u8], d: &[u8]) {
+    fn invert<S: AsMut<[u8]> + AsRef<[u8]>>(
+        &self,
+        dst: &mut [S],
+        v0: usize,
+        len: usize,
+        c: &[u8],
+        d: &[u8],
+    ) {
         let k = self.data;
         let src = &self.matrix;
         let w = k - v0;
         if w == 0 {
             return;
         }
-        let mut wrk = vec![0u8; w * w];
+        // Each erasure took a parity shard, so `w` is at most the smaller shard count.
+        debug_assert!(w <= MAX_ERASURES);
+        let mut work = [0u8; MAX_ERASURES * MAX_ERASURES];
+        let wrk = &mut work[..w * w];
         for i in 0..w {
             let dr = d[i] as usize * k;
             for j in 0..w {
@@ -275,7 +301,7 @@ impl ReedSolomon {
         for x in 0..w {
             let u = INV[wrk[x * w + x] as usize];
             scal(&mut wrk[x * w + x..x * w + w], u);
-            scal(&mut dst[c[v0 + x] as usize][..len], u);
+            scal(&mut dst[c[v0 + x] as usize].as_mut()[..len], u);
             for row in x + 1..w {
                 let u = wrk[row * w + x];
                 let (pivot, rest) = wrk.split_at_mut(row * w);

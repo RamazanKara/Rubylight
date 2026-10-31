@@ -74,6 +74,9 @@ pub(super) struct Depacketizer {
 
     pyro_last_block: u8,
     pyro_last_block_ended: bool,
+
+    /// The SEI ranges a key frame's first packet holds back, kept for its capacity.
+    held: Vec<Range<usize>>,
 }
 
 /// Frame header length by host version and the header's first byte.
@@ -128,6 +131,7 @@ impl Depacketizer {
             consecutive_frame_drops: 0,
             pyro_last_block: 0,
             pyro_last_block_ended: false,
+            held: Vec::new(),
         }
     }
 
@@ -284,7 +288,8 @@ impl Depacketizer {
     /// parameter set: renderers hand parameter sets to the decoder on their own, so picture
     /// data before one would be overwritten.
     fn process_avc_hevc_payload_slow(&mut self, data: &[u8], mut cur: Desc, sei: Range<usize>) {
-        let mut held: Vec<Range<usize>> = Vec::new();
+        let mut held = std::mem::take(&mut self.held);
+        held.clear();
         if !sei.is_empty() {
             held.push(sei);
         }
@@ -327,9 +332,10 @@ impl Depacketizer {
             self.queue_fragment(fragment);
         }
         // SEI at the packet's end: the picture data follows in the next packet.
-        for range in held {
+        for range in held.drain(..) {
             self.queue_fragment(&data[range]);
         }
+        self.held = held;
     }
 
     /// Hands the assembled frame to the sink.

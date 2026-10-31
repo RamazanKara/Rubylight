@@ -5,7 +5,7 @@ const PACKET_SIZE: usize = 1024;
 
 /// A single-block host packetizer: 8-byte frame header, then the payload in
 /// `PACKET_SIZE - 16` byte shards, with parity over the whole RTP packets.
-struct Host {
+pub(crate) struct Host {
     seq: u16,
     spi: u32,
     frame: u32,
@@ -13,7 +13,7 @@ struct Host {
 }
 
 impl Host {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             seq: 100,
             spi: 0,
@@ -22,7 +22,7 @@ impl Host {
         }
     }
 
-    fn frame(&mut self, payload: &[u8], kind: u8) -> Vec<Vec<u8>> {
+    pub(crate) fn frame(&mut self, payload: &[u8], kind: u8) -> Vec<Vec<u8>> {
         let slice = PACKET_SIZE - 16;
         let mut data = vec![1, 0, 0, kind];
         let total = payload.len() + 8;
@@ -85,7 +85,7 @@ pub(crate) fn config(format: u32) -> VideoConfig {
     }
 }
 
-fn h264_idr() -> Vec<u8> {
+pub(crate) fn h264_idr() -> Vec<u8> {
     let mut f = vec![
         0, 0, 0, 1, 0x67, 0x42, 0x00, 0x1f, 0, 0, 0, 1, 0x68, 0xce, 0x3c, 0x80,
     ];
@@ -94,7 +94,7 @@ fn h264_idr() -> Vec<u8> {
     f
 }
 
-fn h264_p(len: usize) -> Vec<u8> {
+pub(crate) fn h264_p(len: usize) -> Vec<u8> {
     let mut f = vec![0, 0, 0, 1, 0x41];
     f.extend((0..len as u32).map(|i| (i % 249) as u8 | 1));
     f

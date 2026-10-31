@@ -455,6 +455,31 @@ for (const [playnite, expected] of [
   });
 }
 
+test('canceling a confirm a device menu opened keeps the menu and gives focus back to its item', async t => {
+  const { page } = await fixture(t);
+  await page.goto(base + '/devices');
+  const manage = page.locator('details.more', { has: page.locator('summary', { hasText: 'Manage' }) });
+  await manage.locator('summary').click();
+  const item = manage.getByRole('button', { name: 'Unpair all' });
+  await item.click();
+  await cancel(page);
+  await page.getByRole('dialog').waitFor({ state: 'hidden' });
+  assert.equal(await manage.evaluate(node => node.open), true, 'the menu stays open under its dialog');
+  assert.equal(await item.evaluate(node => node === document.activeElement), true, 'focus is back on Unpair all');
+  // A click outside closes it; focus still inside goes to the summary, not the page.
+  await page.evaluate(() => document.querySelector('h1').click());
+  assert.equal(await manage.evaluate(node => node.open), false);
+  assert.equal(await manage.locator('summary').evaluate(node => node === document.activeElement), true);
+  // Confirming an item closes the menu, and focus lands on its summary.
+  await manage.locator('summary').click();
+  await item.click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Unpair all', exact: true }).click();
+  await page.getByRole('dialog').waitFor({ state: 'hidden' });
+  await page.waitForFunction(() => document.activeElement?.tagName === 'SUMMARY');
+  assert.equal(await manage.evaluate(node => node.open), false);
+  assert.equal(await manage.locator('summary').evaluate(node => node === document.activeElement), true);
+});
+
 test('on a phone a long game title in the editor keeps whole words above its actions', async t => {
   const apps = [{ uuid: 'mirage', name: 'Assassin’s Creed Mirage' }, { uuid: 'witcher', name: 'The Witcher 3: Wild Hunt' }, { uuid: 'desktop', name: 'Desktop' }];
   const { page } = await fixture(t, { apps });

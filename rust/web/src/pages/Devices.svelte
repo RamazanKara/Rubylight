@@ -131,8 +131,21 @@
     if (open) editing = uuid;
   }
 
+  /** A confirmed menu action closes its menu; focus goes to the menu's summary. The
+   *  confirm dialog may still be handing focus back to the now hidden item, so wait. */
+  function closeMenus() {
+    for (const node of document.querySelectorAll<HTMLDetailsElement>('details.more[open]')) {
+      node.open = false;
+      setTimeout(() => {
+        const active = document.activeElement;
+        if (!active || active === document.body || node.contains(active)) node.querySelector('summary')?.focus();
+      });
+    }
+  }
+
   async function run(key: string, action: () => Promise<unknown>, success: string, failure: string) {
     if (acting) return;
+    closeMenus();
     busy = key;
     try {
       await action();
@@ -201,18 +214,26 @@
   /** A row menu closes on a click outside it and on Escape, like other menus. */
   function menu(node: HTMLDetailsElement) {
     const outside = (event: MouseEvent) => {
-      if (node.open && !node.contains(event.target as Node)) node.open = false;
+      const target = event.target as Element;
+      if (!node.open || node.contains(target)) return;
+      // A confirm dialog a menu item opened is not "outside": its Cancel gives focus
+      // back to that item, which must still be there. Checked in the capture phase,
+      // before the Cancel handler closes the dialog.
+      if (target.closest?.('dialog[open]')) return;
+      const focused = node.contains(document.activeElement);
+      node.open = false;
+      if (focused) node.querySelector('summary')?.focus();
     };
     const escape = (event: KeyboardEvent) => {
       if (event.key !== 'Escape' || !node.open) return;
       node.open = false;
       node.querySelector('summary')?.focus();
     };
-    document.addEventListener('click', outside);
+    document.addEventListener('click', outside, true);
     node.addEventListener('keydown', escape);
     return {
       destroy() {
-        document.removeEventListener('click', outside);
+        document.removeEventListener('click', outside, true);
         node.removeEventListener('keydown', escape);
       },
     };

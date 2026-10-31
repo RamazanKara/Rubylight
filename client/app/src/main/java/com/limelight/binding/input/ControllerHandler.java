@@ -463,6 +463,7 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
             deviceContext.disableSensors();
         }
         for (UsbDeviceContext context : usbDeviceContexts.values()) {
+            context.unregisterDeviceMotion();
             if (context.assignedControllerNumber && (context.capabilities() & MoonBridge.LI_CCAP_GYRO) != 0) {
                 conn.sendControllerMotionEvent((byte)context.controllerNumber, MoonBridge.LI_MOTION_TYPE_GYRO, 0, 0, 0);
             }
@@ -478,6 +479,10 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
 
         for (InputDeviceContext deviceContext : inputDeviceContexts.values()) {
             deviceContext.enableSensors();
+        }
+        for (UsbDeviceContext context : usbDeviceContexts.values()) {
+            context.registerDeviceMotion(MoonBridge.LI_MOTION_TYPE_ACCEL);
+            context.registerDeviceMotion(MoonBridge.LI_MOTION_TYPE_GYRO);
         }
     }
 
@@ -746,7 +751,7 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
 
             // If the gamepad doesn't have motion sensors, use the on-device sensors as a fallback for player 1
             if (prefConfig.gamepadMotionSensorsFallbackToDevice && context.controllerNumber == 0 && devContext.sensorManager == null &&
-                    !dropsMotionAndTouchpad(devContext.buttonMap)) {
+                    !dropsMotionAndTouchpad(devContext.buttonMap) && !deviceSensorsInUse()) {
                 devContext.sensorManager = deviceSensorManager;
             }
         }
@@ -780,6 +785,20 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
 
         LimeLog.info("Assigned as controller "+context.controllerNumber);
         context.assignedControllerNumber = true;
+
+        if (context instanceof UsbDeviceContext) {
+            UsbDeviceContext usbContext = (UsbDeviceContext) context;
+            // A USB pad without motion sensors uses this device's for player 1, as an input device does
+            if (deviceSensorManager != null && !deviceSensorsInUse() &&
+                    takesDeviceMotion(prefConfig.gamepadMotionSensorsFallbackToDevice, context.controllerNumber,
+                            usbContext.device.getCapabilities(), usbContext.buttonMap)) {
+                usbContext.deviceSensors = deviceSensorManager;
+                if (motionOverridesType(usbContext.device.getType(), true, usbContext.buttonMap)) {
+                    mainThreadHandler.post(() -> Toast.makeText(activityContext,
+                            R.string.toast_controller_type_changed, Toast.LENGTH_LONG).show());
+                }
+            }
+        }
 
         // Report attributes of this new controller to the host
         context.sendControllerArrival();
@@ -1475,6 +1494,29 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         if (!dropsMotionAndTouchpad(map)) return capabilities;
         return (short) (capabilities & ~(MoonBridge.LI_CCAP_ACCEL | MoonBridge.LI_CCAP_GYRO |
                 MoonBridge.LI_CCAP_TOUCHPAD | MoonBridge.LI_CCAP_DUAL_TOUCHPAD));
+    }
+
+    /**
+     * Whether a USB pad streams this device's motion sensors: player 1 with "Use device motion
+     * sensors" on, when the pad has none of its own and isn't pinned as Xbox.
+     */
+    static boolean takesDeviceMotion(boolean fallbackToDevice, short controllerNumber, short padCapabilities,
+                                     ControllerButtonMap map) {
+        return fallbackToDevice && controllerNumber == 0 &&
+                (padCapabilities & (MoonBridge.LI_CCAP_ACCEL | MoonBridge.LI_CCAP_GYRO)) == 0 &&
+                !dropsMotionAndTouchpad(map);
+    }
+
+    /** Whether a pad already streams this device's motion sensors, which only one pad may. */
+    private boolean deviceSensorsInUse() {
+        if (deviceSensorManager == null) return false;
+        for (InputDeviceContext context : inputDeviceContexts.values()) {
+            if (context.sensorManager == deviceSensorManager) return true;
+        }
+        for (UsbDeviceContext context : usbDeviceContexts.values()) {
+            if (context.deviceSensors != null) return true;
+        }
+        return false;
     }
 
     /** Whether motion changes the type the pad arrives as, which the user is told about. */
@@ -2700,7 +2742,7 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
                 short caps = context.capabilities();
                 if (!prefConfig.gamepadMotionSensors) caps &= ~(MoonBridge.LI_CCAP_ACCEL | MoonBridge.LI_CCAP_GYRO);
                 controllers[context.controllerNumber] = launchController(context.controllerNumber,
-                        arrivalType(context.device.getType(), context.buttonMap), caps,
+                        context.arrivalType(), caps,
                         context.device.getSupportedButtonFlags() | context.buttonMap.targetButtonFlags());
             }
             StringBuilder result = new StringBuilder();
@@ -2969,8 +3011,14 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
 
         for (UsbDeviceContext context : usbDeviceContexts.values()) {
             if (context.assignedControllerNumber && context.controllerNumber == controllerNumber) {
-                context.device.setMotionEventState(motionType,
-                        prefConfig.gamepadMotionSensors && !dropsMotionAndTouchpad(context.buttonMap) ? reportRateHz : 0);
+                short rate = prefConfig.gamepadMotionSensors && !dropsMotionAndTouchpad(context.buttonMap) ? reportRateHz : 0;
+                if (context.deviceSensors != null) {
+                    // Report rate is restricted to <= 200 Hz without the HIGH_SAMPLING_RATE_SENSORS permission
+                    context.setDeviceMotion(motionType, (short) Math.min(200, rate & 0xFFFF));
+                }
+                else {
+                    context.device.setMotionEventState(motionType, rate);
+                }
             }
         }
 
@@ -4470,14 +4518,57 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         // Select+LB held as the touchpad click: those of the two not let go yet, which stay silent until released
         int clickpadSwallowed;
 
+        // This device's motion sensors, standing in for a pad that has none as player 1
+        SensorManager deviceSensors;
+        SensorEventListener gyroListener, accelListener;
+        short gyroReportRateHz, accelReportRateHz;
+
+        void setDeviceMotion(byte motionType, short reportRateHz) {
+            if (motionType == MoonBridge.LI_MOTION_TYPE_GYRO) gyroReportRateHz = reportRateHz;
+            else if (motionType == MoonBridge.LI_MOTION_TYPE_ACCEL) accelReportRateHz = reportRateHz;
+            else return;
+            registerDeviceMotion(motionType);
+        }
+
+        /** Registers the device sensor for the motion type at the rate the host asked for, if any. */
+        void registerDeviceMotion(byte motionType) {
+            if (deviceSensors == null) return;
+            boolean gyro = motionType == MoonBridge.LI_MOTION_TYPE_GYRO;
+            SensorEventListener old = gyro ? gyroListener : accelListener;
+            if (old != null) deviceSensors.unregisterListener(old);
+            SensorEventListener listener = null;
+            short rate = gyro ? gyroReportRateHz : accelReportRateHz;
+            Sensor sensor = deviceSensors.getDefaultSensor(gyro ? Sensor.TYPE_GYROSCOPE : Sensor.TYPE_ACCELEROMETER);
+            if (!stopped && sensorsEnabled && rate != 0 && sensor != null) {
+                listener = createSensorListener(controllerNumber, motionType, true, null);
+                deviceSensors.registerListener(listener, sensor, 1000000 / rate);
+            }
+            if (gyro) gyroListener = listener;
+            else accelListener = listener;
+        }
+
+        void unregisterDeviceMotion() {
+            if (deviceSensors == null) return;
+            if (gyroListener != null) deviceSensors.unregisterListener(gyroListener);
+            if (accelListener != null) deviceSensors.unregisterListener(accelListener);
+            gyroListener = null;
+            accelListener = null;
+        }
+
+        /** The type the pad arrives as: unknown with Automatic when this device's sensors give it motion. */
+        byte arrivalType() {
+            return inputDeviceArrivalType(device.getType(), deviceSensors != null, buttonMap);
+        }
+
         /**
          * The buttons sent for a report. On a pad pinned as PlayStation without being one, Select+LB
          * pressed together and alone clicks the touchpad it lacks while both stay held, as on an
          * Android-mapped pad.
          */
         int clickpadButtons(int buttons) {
-            if (buttonMap.connectAs() != MoonBridge.LI_CTYPE_PS || device.getType() == MoonBridge.LI_CTYPE_PS ||
-                    !needsClickpadEmulation(buttonMap)) {
+            boolean fakedAsPs = buttonMap.connectAs() == MoonBridge.LI_CTYPE_PS ||
+                    motionOverridesType(device.getType(), deviceSensors != null, buttonMap);
+            if (!fakedAsPs || device.getType() == MoonBridge.LI_CTYPE_PS || !needsClickpadEmulation(buttonMap)) {
                 return buttons;
             }
             final int combo = ControllerPacket.BACK_FLAG | ControllerPacket.LB_FLAG;
@@ -4488,7 +4579,14 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
 
         /** The driver's capabilities as the host is told them: without motion and touchpad when pinned as Xbox. */
         short capabilities() {
-            return arrivalCapabilities(device.getCapabilities(), buttonMap);
+            short capabilities = arrivalCapabilities(device.getCapabilities(), buttonMap);
+            if (deviceSensors != null && deviceSensors.getDefaultSensor(Sensor.TYPE_ACCELEROMETER) != null) {
+                capabilities |= MoonBridge.LI_CCAP_ACCEL;
+            }
+            if (deviceSensors != null && deviceSensors.getDefaultSensor(Sensor.TYPE_GYROSCOPE) != null) {
+                capabilities |= MoonBridge.LI_CCAP_GYRO;
+            }
+            return capabilities;
         }
 
         boolean ensureControllerArrival() {
@@ -4502,6 +4600,7 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         public void destroy() {
             super.destroy();
 
+            unregisterDeviceMotion();
             waveformControllers.remove((short)controllerNumber, device);
         }
 
@@ -4521,7 +4620,7 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
             if (!prefConfig.gamepadMotionSensors) {
                 capabilities &= ~(MoonBridge.LI_CCAP_ACCEL | MoonBridge.LI_CCAP_GYRO);
             }
-            byte type = arrivalType(device.getType(), buttonMap);
+            byte type = arrivalType();
             int result = conn.sendControllerArrivalEvent((byte)controllerNumber, getActiveControllerMask(),
                     type, device.getSupportedButtonFlags() | buttonMap.targetButtonFlags(), capabilities);
             if (result != 0) {

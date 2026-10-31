@@ -3,6 +3,8 @@ package com.limelight.binding.input;
 import android.app.Activity;
 import android.app.Application;
 import android.content.Context;
+import android.hardware.Sensor;
+import android.hardware.SensorManager;
 import android.view.KeyEvent;
 
 import com.limelight.binding.input.driver.AbstractController;
@@ -19,10 +21,14 @@ import org.robolectric.Robolectric;
 import org.robolectric.RobolectricTestRunner;
 import org.robolectric.android.controller.ActivityController;
 import org.robolectric.annotation.Config;
+import org.robolectric.shadow.api.Shadow;
+import org.robolectric.shadows.ShadowSensor;
+import org.robolectric.shadows.ShadowSensorManager;
 import org.robolectric.util.ReflectionHelpers;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 import static org.junit.Assert.*;
 
@@ -378,6 +384,68 @@ public class ExtraButtonMappingTest {
             } finally {
                 handler.destroy();
                 activity.get().getSharedPreferences("ControllerButtonMaps", Context.MODE_PRIVATE).edit().clear().commit();
+            }
+        }
+    }
+
+    @Test
+    public void onlyPlayerOnesUsbPadWithoutMotionTakesTheDeviceSensors() {
+        ControllerButtonMap automatic = new ControllerButtonMap();
+        assertTrue(ControllerHandler.takesDeviceMotion(true, (short) 0, MoonBridge.LI_CCAP_RUMBLE, automatic));
+        assertFalse(ControllerHandler.takesDeviceMotion(false, (short) 0, (short) 0, automatic));
+        assertFalse(ControllerHandler.takesDeviceMotion(true, (short) 1, (short) 0, automatic));
+        assertFalse(ControllerHandler.takesDeviceMotion(true, (short) 0, MoonBridge.LI_CCAP_GYRO, automatic));
+        ControllerButtonMap xbox = new ControllerButtonMap();
+        xbox.setConnectAs(ControllerButtonMap.CONNECT_AS_XBOX);
+        assertFalse(ControllerHandler.takesDeviceMotion(true, (short) 0, (short) 0, xbox));
+    }
+
+    // A pad Nightjar's USB driver claims (a Razer Kishi in Xbox mode) got no device gyro, unlike the same pad as an input device.
+    @Test
+    public void usbPadWithoutMotionStreamsTheDeviceSensorsAsPlayerOne() {
+        try (ActivityController<Activity> activity = Robolectric.buildActivity(Activity.class).create()) {
+            SensorManager device = (SensorManager) activity.get().getSystemService(Context.SENSOR_SERVICE);
+            ShadowSensorManager shadowDevice = Shadow.extract(device);
+            shadowDevice.addSensor(ShadowSensor.newInstance(Sensor.TYPE_GYROSCOPE));
+            shadowDevice.addSensor(ShadowSensor.newInstance(Sensor.TYPE_ACCELEROMETER));
+
+            Connection connection = new Connection();
+            PreferenceConfiguration preferences = new PreferenceConfiguration();
+            preferences.multiController = true;
+            preferences.gamepadMotionSensors = true;
+            preferences.gamepadMotionSensorsFallbackToDevice = true;
+            ControllerHandler handler = new ControllerHandler(activity.get(), connection, null, preferences);
+            XboxPad pad = new XboxPad(MoonBridge.LI_CCAP_RUMBLE);
+            try {
+                handler.deviceAdded(pad);
+                handler.reportControllerState(42, ControllerPacket.A_FLAG, 0, 0, 0, 0, 0, 0);
+                // Arrives with motion and as unknown, so the host gives it a pad that has a gyro.
+                assertEquals(MoonBridge.LI_CTYPE_UNKNOWN, connection.arrivalType);
+                assertEquals(MoonBridge.LI_CCAP_RUMBLE | MoonBridge.LI_CCAP_ACCEL | MoonBridge.LI_CCAP_GYRO,
+                        connection.arrivalCaps);
+
+                handler.handleSetMotionEventState((short) 0, MoonBridge.LI_MOTION_TYPE_GYRO, (short) 100);
+                handler.handleSetMotionEventState((short) 0, MoonBridge.LI_MOTION_TYPE_ACCEL, (short) 100);
+                Map<Integer, ControllerHandler.UsbDeviceContext> contexts =
+                        ReflectionHelpers.getField(handler, "usbDeviceContexts");
+                ControllerHandler.UsbDeviceContext context = contexts.get(42);
+                assertTrue(pad.motionRates.isEmpty());
+                assertTrue(shadowDevice.hasListener(context.gyroListener));
+                assertTrue(shadowDevice.hasListener(context.accelListener));
+
+                handler.disableSensors();
+                assertFalse(shadowDevice.hasListener(context.gyroListener));
+                assertNull(context.gyroListener);
+                handler.enableSensors();
+                assertTrue(shadowDevice.hasListener(context.gyroListener));
+
+                handler.handleSetMotionEventState((short) 0, MoonBridge.LI_MOTION_TYPE_GYRO, (short) 0);
+                assertNull(context.gyroListener);
+                android.hardware.SensorEventListener accel = context.accelListener;
+                handler.deviceRemoved(pad);
+                assertFalse(shadowDevice.hasListener(accel));
+            } finally {
+                handler.destroy();
             }
         }
     }

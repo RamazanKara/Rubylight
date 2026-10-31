@@ -8,7 +8,7 @@ Hosts with per-device permissions must grant this device each input type it uses
 
 ## The stream menu
 
-Open it with Android **Back** (swipe back from the screen edge with gesture navigation), **Ctrl+Alt+Shift+M** on a keyboard, or **Start+Back+LB+RB** on a controller, released together; this works for USB-driver controllers too. The first stream shows a one-line hint naming the ways this device has; tap it to close it.
+On Android, open it with **Back** (swipe back from the screen edge with gesture navigation), **Ctrl+Alt+Shift+M** on a keyboard, or **Start+Back+LB+RB** on a controller, released together; this works for USB-driver controllers too. The first stream shows a one-line hint naming the ways this device has; tap it to close it. On Windows and Linux, open it with **Ctrl+Alt+Shift+Tab** or **Start+Back** instead; there Ctrl+Alt+Shift+M switches the mouse mode (see [Nightjar for Windows and Linux](#nightjar-for-windows-and-linux)).
 
 The menu is one sheet:
 

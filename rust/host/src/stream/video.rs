@@ -274,16 +274,18 @@ const RFI_CONFIRM_KEYFRAME: Duration = Duration::from_secs(1);
 
 /// The interval to the frame after one captured at `at` while the client sends phase
 /// lock reports: its refresh with the phase correction. `None` otherwise, and then the
-/// caller keeps its original pacing. `picture` is the source's interval between pictures
-/// while frames are claimed as they arrive, `None` on the host's own grid.
+/// caller keeps its original pacing. `picture` and `mean` are the source's median and mean
+/// interval between pictures while frames are claimed as they arrive, `None` on the host's
+/// own grid.
 fn phase_interval(
     s: &Session,
     at: Instant,
     period: Duration,
     picture: Option<Duration>,
+    mean: Option<Duration>,
 ) -> Option<Duration> {
     let mut sync = s.phase_sync.lock().unwrap();
-    sync.set_source(picture, period);
+    sync.set_source(picture, mean, period);
     let interval = sync.interval(at, period)?;
     if sync.log_due(at) {
         tracing::info!(

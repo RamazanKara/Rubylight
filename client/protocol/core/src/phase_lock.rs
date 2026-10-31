@@ -216,7 +216,7 @@ pub struct PhaseLock {
     /// Phase error of the previous report.
     error_ns: i64,
     /// How far frames move when the host takes a later picture of the source, when it cannot
-    /// take an earlier one; 0 when frames move by any amount ([`Self::set_source`]).
+    /// take an earlier one; 0 when frames move by any amount ([`Self::set_step`]).
     step_ns: i64,
     /// The previous report moved the frames a picture later.
     moving: bool,
@@ -244,14 +244,12 @@ impl PhaseLock {
         Self { margin_ns, period_ns: 0, trim_ns: 0, pending_ns: 0, error_ns: 0, step_ns: 0, moving: false, locked: false }
     }
 
-    /// The source's interval between pictures when the host takes each frame as the source
-    /// presents it, at least 3/4 of a stream interval (`interval_ns`) after the last (the
-    /// host's arrival pacer); 0 when it captures frames on its own schedule. Call once per frame.
-    pub fn set_source(&mut self, picture_ns: i64, interval_ns: i64) {
-        // The picture before the one the host takes came a picture interval earlier, so the
-        // pacer allows it only within a quarter interval (with room for a measured interval that
-        // reads high): a 120 fps game streamed at 60 fps moves a whole picture later, or not at all.
-        self.step_ns = if picture_ns.saturating_mul(32) > interval_ns.saturating_mul(9) { picture_ns } else { 0 };
+    /// How far frames move when the host takes the source's next picture instead of the one
+    /// it would, while it cannot take the one before: every second picture of a 120 fps game at
+    /// 60 fps moves a whole picture later or not at all. 0 when frames move by any amount, the
+    /// default. The host's `PhaseSync` decides; call once per frame.
+    pub fn set_step(&mut self, step_ns: i64) {
+        self.step_ns = step_ns.max(0);
     }
 
     /// True once a plausible report has arrived.
@@ -267,6 +265,10 @@ impl PhaseLock {
     /// Applies one client report.
     pub fn on_report(&mut self, report: &Report) {
         let period = i64::from(report.period_ns);
+        if period <= 0 {
+            // No refresh to lock to; a decoded report always has one.
+            return;
+        }
         let restart = !self.locked || period != self.period_ns;
         if restart {
             // A new client refresh rate: start over.
@@ -289,14 +291,15 @@ impl PhaseLock {
             // Frames move only later, a picture at a time. Chased from below, the margin asked
             // for earlier frames that never came: the trim ran to its limit while the frames
             // stayed up to a picture late, most of them missing their latch. So frames stay
-            // anywhere from just under the margin to a picture past it, counted round the
+            // from just under the margin to less than a picture past it, counted round the
             // refresh (more than half a refresh early reads as late), and anywhere else move
-            // later until they are there. The room at both ends keeps two places a picture
-            // apart from taking turns. With whole refreshes per picture there is nothing to
-            // move. No trim either way: the source sets the rate.
+            // later until they are there: a picture past the margin, the next picture makes it
+            // too. The room below keeps two places a picture apart from taking turns. With
+            // whole refreshes per picture there is nothing to move. No trim either way: the
+            // source sets the rate.
             let step = self.step_ns % period;
             let room = self.margin_ns / 2;
-            let held = (i64::from(report.lead_ns) - target + room).rem_euclid(period) < step + 2 * room;
+            let held = (i64::from(report.lead_ns) - target + room).rem_euclid(period) < step + room;
             let moving = core::mem::replace(&mut self.moving, false);
             self.trim_ns = 0;
             self.pending_ns = 0;
@@ -305,17 +308,23 @@ impl PhaseLock {
             } else if moving && i64::from(report.spread_ns) > period / 4 {
                 // A window across the move: wait for one that shows where the frames went.
             } else {
+                // A picture at once: the host's pacer has banked credit to spend first, so a
+                // smaller move left frames late for seconds.
                 self.moving = true;
-                self.pending_ns = period / 2 * Self::GAIN_NUM / Self::GAIN_DEN;
+                self.pending_ns = step;
             }
             return;
         }
         if !restart && (error - previous).abs() > period / 2 {
-            // The frames went around the refresh since the last report: the lock lost them.
-            // Lost, the errors average about the target below zero, so a long host stall ran
-            // the trim to its limit, and it stayed there: at the limit it moves the phase 30%
-            // of a refresh or more per report, more than the correction above takes back.
-            self.trim_ns = 0;
+            // The frames went around the refresh since the last report: the lock lost them, or
+            // one window was off. Lost, the errors average about the target below zero, so a
+            // long host stall ran the trim to its limit, and it stayed there: at the limit it
+            // moves the phase 30% of a refresh or more per report, more than the correction
+            // above takes back. A trim that far out starts over; a learned one (16 us per frame
+            // for 59.94 against 60 Hz) is left alone, and so is the window.
+            if self.trim_ns.abs() > period / 200 {
+                self.trim_ns = 0;
+            }
             return;
         }
         let frames = i64::from(report.frames.max(1));

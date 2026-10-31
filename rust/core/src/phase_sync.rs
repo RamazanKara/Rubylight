@@ -15,6 +15,11 @@ pub struct PhaseSync {
     lock: PhaseLock,
     last_report: Option<Instant>,
     logged_at: Option<Instant>,
+    /// Source pictures per stream frame while frames move a picture at a time
+    /// ([`Self::set_source`]).
+    pictures: Option<i64>,
+    /// Frames in a row whose source disagreed with `pictures`.
+    votes: u32,
 }
 
 impl PhaseSync {
@@ -22,6 +27,8 @@ impl PhaseSync {
     pub const TIMEOUT: Duration = Duration::from_secs(3);
     /// How often the applied interval is logged.
     const LOG_PERIOD: Duration = Duration::from_secs(10);
+    /// Frames in a row a changed source takes to change how frames move.
+    const SOURCE_FRAMES: u32 = 30;
 
     /// Applies a report payload. Returns the report, or `None` when it is malformed.
     pub fn on_payload(&mut self, now: Instant, payload: &[u8]) -> Option<Report> {
@@ -38,12 +45,46 @@ impl PhaseSync {
         self.lock.locked()
     }
 
-    /// The source's interval between pictures while the host claims frames as the source
-    /// presents them (arrival pacing), `None` while it captures on its own schedule
-    /// ([`PhaseLock::set_source`]). Call once per frame, before [`Self::interval`].
-    pub fn set_source(&mut self, picture: Option<Duration>, nominal: Duration) {
+    /// The source's median (`picture`) and mean (`mean`) interval between pictures while the
+    /// host claims frames as the source presents them (arrival pacing), `None` while it
+    /// captures on its own schedule. Call once per frame, before [`Self::interval`].
+    ///
+    /// The arrival pacer claims a frame at least 3/4 of a stream interval (`nominal`) after
+    /// the last, so with 2 or 3 pictures per stream frame (a 120 fps game at 60 fps) the host
+    /// never takes the picture before the one it takes: frames move a picture later or not at
+    /// all ([`PhaseLock::set_step`]). Anything else, such as 144 fps content at 60 fps, moves
+    /// by any amount. A changed source takes [`Self::SOURCE_FRAMES`] frames in a row to
+    /// change that, so a median between two picture intervals does not flip it.
+    pub fn set_source(
+        &mut self,
+        picture: Option<Duration>,
+        mean: Option<Duration>,
+        nominal: Duration,
+    ) {
         let ns = |duration: Duration| i64::try_from(duration.as_nanos()).unwrap_or(i64::MAX);
-        self.lock.set_source(picture.map_or(0, ns), ns(nominal));
+        let nominal = ns(nominal);
+        let fits = match (picture.map(ns), mean.map(ns)) {
+            (Some(picture), Some(mean))
+                if picture > 0 && (mean - picture).abs() <= picture / 16 =>
+            {
+                let pictures = nominal.saturating_add(picture / 2) / picture;
+                ((2..=3).contains(&pictures)
+                    && (pictures * picture - nominal).abs() <= nominal / 32)
+                    .then_some(pictures)
+            }
+            _ => None,
+        };
+        if fits == self.pictures {
+            self.votes = 0;
+        } else {
+            self.votes += 1;
+            if self.votes >= Self::SOURCE_FRAMES {
+                self.pictures = fits;
+                self.votes = 0;
+            }
+        }
+        self.lock
+            .set_step(self.pictures.map_or(0, |pictures| nominal / pictures));
     }
 
     /// Interval from the frame captured now to the next one while locked: a whole number
@@ -73,6 +114,8 @@ impl PhaseSync {
         self.lock.reset();
         self.last_report = None;
         self.logged_at = None;
+        self.pictures = None;
+        self.votes = 0;
     }
 
     /// True about once every ten seconds while locked, for logging the applied interval.
@@ -196,21 +239,99 @@ mod tests {
         }
     }
 
+    const SIXTY: u64 = 16_666_667;
+    const GAME: u64 = 8_333_333;
+
+    /// The interval after a report with frames at the client's latch (below the margin),
+    /// once the source has given `frames` frames of (median, mean) picture intervals in
+    /// turn: longer when frames move a picture later, shorter when the lock asks for
+    /// earlier ones.
+    fn after_frames_at_the_latch(
+        client_ns: u64,
+        stream_ns: u64,
+        pictures: &[(u64, u64)],
+        frames: usize,
+    ) -> Duration {
+        let now = Instant::now();
+        let nominal = Duration::from_nanos(stream_ns);
+        let mut sync = PhaseSync::default();
+        for frame in 0..frames {
+            let (picture, mean) = pictures[frame % pictures.len()];
+            let (picture, mean) = (Duration::from_nanos(picture), Duration::from_nanos(mean));
+            sync.set_source(Some(picture), Some(mean), nominal);
+        }
+        sync.on_payload(now, &report(client_ns as u32, 0));
+        sync.interval(now, nominal).unwrap()
+    }
+
     #[test]
     fn a_game_at_twice_the_stream_rate_never_asks_for_earlier_frames() {
         // The host takes every second picture of a 120 fps game at 60 fps and cannot take
         // the one before, so frames below the margin go a picture later instead of asking
-        // for shorter intervals that never bring them earlier.
+        // for shorter intervals that never bring them earlier: on a 60 Hz client, and a
+        // 240 Hz source at 120 fps on a 120 Hz client. Every third picture of a 180 fps
+        // source moves the same way.
+        let sixty = Duration::from_nanos(SIXTY);
+        assert!(after_frames_at_the_latch(SIXTY, SIXTY, &[(GAME, GAME)], 30) > sixty);
+        let desktop = [(4_166_667, 4_166_667)];
+        assert!(after_frames_at_the_latch(GAME, GAME, &desktop, 30) > Duration::from_nanos(GAME));
+        assert!(after_frames_at_the_latch(SIXTY, SIXTY, &[(5_555_556, 5_555_556)], 30) > sixty);
+        // Not before the source has held for 30 frames, nor on the host's own grid.
+        assert!(after_frames_at_the_latch(SIXTY, SIXTY, &[(GAME, GAME)], 29) < sixty);
         let now = Instant::now();
-        let nominal = Duration::from_nanos(16_666_667);
-        let game = Some(Duration::from_nanos(8_333_333));
-        for (picture, longer) in [(None, false), (game, true)] {
-            let mut sync = PhaseSync::default();
-            sync.set_source(picture, nominal);
-            sync.on_payload(now, &report(16_666_667, 0));
-            let interval = sync.interval(now, nominal).unwrap();
-            assert_eq!(interval > nominal, longer, "{picture:?}: {interval:?}");
+        let mut sync = PhaseSync::default();
+        sync.set_source(None, None, sixty);
+        sync.on_payload(now, &report(SIXTY as u32, 0));
+        assert!(sync.interval(now, sixty).unwrap() < sixty);
+    }
+
+    #[test]
+    fn a_source_the_host_can_take_earlier_pictures_of_keeps_the_plain_lock() {
+        // The pacer takes the picture before whenever it came at least 3/4 of a stream
+        // interval after the last claim: 144 fps content at 60 fps (2.4 pictures a frame),
+        // 120 fps content at 90 fps on a 90 Hz client, a 120 fps game at 120 fps on a 120 Hz
+        // client (its median reads 8.0 ms), and 240 Hz content at 60 fps (4 pictures a
+        // frame). The lock asks for earlier frames there.
+        for (client_ns, stream_ns, picture) in [
+            (SIXTY, SIXTY, 6_944_444),
+            (11_111_111, 11_111_111, GAME),
+            (GAME, GAME, 8_000_000),
+            (SIXTY, SIXTY, 4_166_667),
+        ] {
+            let interval =
+                after_frames_at_the_latch(client_ns, stream_ns, &[(picture, picture)], 300);
+            assert!(
+                interval < Duration::from_nanos(stream_ns),
+                "{client_ns} {stream_ns} {picture}: {interval:?}"
+            );
         }
+    }
+
+    #[test]
+    fn a_median_between_two_picture_intervals_keeps_the_plain_lock() {
+        // A source between 120 and 240 fps: the median flips between 8.33 and 4.17 ms while
+        // the mean stays near 6.25 ms, so neither reading is the source's interval.
+        let sixty = Duration::from_nanos(SIXTY);
+        let flipping = [(GAME, 6_250_000), (4_166_667, 6_250_000)];
+        assert!(after_frames_at_the_latch(SIXTY, SIXTY, &flipping, 300) < sixty);
+        // A median that agrees with the mean only every other frame never holds 30 frames.
+        let flipping = [(GAME, GAME), (4_166_667, GAME)];
+        assert!(after_frames_at_the_latch(SIXTY, SIXTY, &flipping, 300) < sixty);
+    }
+
+    #[test]
+    fn a_reset_forgets_the_source() {
+        let now = Instant::now();
+        let sixty = Duration::from_nanos(SIXTY);
+        let game = Some(Duration::from_nanos(GAME));
+        let mut sync = PhaseSync::default();
+        for _ in 0..30 {
+            sync.set_source(game, game, sixty);
+        }
+        sync.reset();
+        sync.set_source(None, None, sixty);
+        sync.on_payload(now, &report(SIXTY as u32, 0));
+        assert!(sync.interval(now, sixty).unwrap() < sixty);
     }
 
     #[test]

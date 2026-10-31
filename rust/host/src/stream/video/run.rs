@@ -1473,7 +1473,7 @@ impl SessionThread<'_> {
                         // wait from the client to the host, so the lock sets
                         // the rate cap to the client's refresh instead. VRR
                         // displays follow each frame and need no lock.
-                        match (!vrr).then(|| phase_interval(&s, begin, period, latest.picture_interval())).flatten() {
+                        match (!vrr).then(|| phase_interval(&s, begin, period, latest.picture_interval(), latest.source_rate())).flatten() {
                             Some(interval) => {
                                 let mut grid = latest.grid.lock().unwrap();
                                 unlocked_grid_period.get_or_insert(grid.period);
@@ -1494,7 +1494,7 @@ impl SessionThread<'_> {
                     // Phase lock: the grid follows the client's refresh, at a
                     // phase that gets frames there just before its latch.
                     // Without reports this is the original fixed-period path.
-                    match phase_interval(&s, begin, period, None) {
+                    match phase_interval(&s, begin, period, None, None) {
                         Some(interval) => {
                             cadence.submitted_after(begin, interval);
                             let mut grid = latest.grid.lock().unwrap();

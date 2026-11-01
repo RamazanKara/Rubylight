@@ -56,10 +56,9 @@ mod usb_winusb;
 #[cfg_attr(not(test), allow(dead_code))]
 mod version_name;
 mod update_check;
-// Linux only, and in tests everywhere with zero_copy, which plans its extensions. Only the renderer
-// request uses it until the decoder order and the presenter take its pictures.
+// Linux only, and in tests everywhere with zero_copy, which plans its extensions.
 #[cfg(any(unix, test))]
-#[allow(dead_code)]
+#[cfg_attr(not(unix), allow(dead_code))]
 mod vulkan_video;
 mod window_place;
 mod wol;
@@ -328,6 +327,34 @@ fn renderer_gpu_device(renderer: *mut SDL_Renderer) -> Option<stream::pipeline::
     (!device.is_null()).then_some(stream::pipeline::GpuDevice(device))
 }
 
+/// Whether Linux needs the GPU renderer for Vulkan video, which decodes on its Vulkan device: when
+/// VAAPI cannot open a device (NVIDIA's driver without a VAAPI one) and the GPU SDL picks has the
+/// video extensions, or `NIGHTJAR_VULKAN_VIDEO=1`; not for software decoding or with
+/// `NIGHTJAR_VULKAN_VIDEO=0`. A machine with VAAPI keeps its renderer. The reason goes to the log.
+#[cfg(unix)]
+fn gpu_for_vulkan_video(settings: &config::Settings) -> bool {
+    use vulkan_video::Choice;
+    let choice = Choice::from_environment();
+    if settings.decoder == DecoderPreference::Software || choice == Choice::Off {
+        return false;
+    }
+    let why = match (choice, media::vaapi_device()) {
+        (Choice::First, _) => format!("{}=1", vulkan_video::ENVIRONMENT),
+        (_, Err(error)) => format!("VAAPI is unavailable ({error})"),
+        (_, Ok(())) => return false,
+    };
+    match stream::pyrowave_sdk::zero_copy::video_devices() {
+        Ok(_) => {
+            vulkan_video::note(&format!("{why}: the GPU renderer is used for Vulkan video decoding"));
+            true
+        }
+        Err(error) => {
+            vulkan_video::note(&format!("{why}, and Vulkan video cannot be used either: {error}"));
+            false
+        }
+    }
+}
+
 fn run(launch: Option<cli::Launch>) -> Result<(), String> {
     sdl::set_hint(SDL_HINT_APP_NAME, c"Nightjar");
     sdl::set_hint(SDL_HINT_APP_ID, c"io.github.ramazankara.nightjar");
@@ -361,6 +388,8 @@ fn run(launch: Option<cli::Launch>) -> Result<(), String> {
     let gpu = settings.needs_gpu() || store.hosts().iter()
         .any(|host| host.settings.as_ref().is_some_and(config::Overrides::needs_gpu) || host.app_settings.values().any(config::Overrides::needs_gpu))
         || profiles.entries.iter().any(|profile| profile.settings.needs_gpu());
+    #[cfg(unix)]
+    let gpu = gpu || gpu_for_vulkan_video(&settings);
 
     // SAFETY: window and renderer creation on the main thread.
     let (window, renderer, wake_event) = unsafe {
@@ -1344,7 +1373,7 @@ impl App {
             }
             Hardware::None
         } else {
-            Hardware::Vaapi
+            Hardware::Auto(renderer_gpu_device(self.renderer).map_or(std::ptr::null_mut(), |device| device.0))
         }
     }
 

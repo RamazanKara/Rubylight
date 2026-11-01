@@ -8,7 +8,7 @@ use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use nightjar_core::control::ControlEvent;
-use nightjar_core::sdp::{VIDEO_FORMAT_MASK_AV1, VIDEO_FORMAT_MASK_H265, VIDEO_FORMAT_MASK_PYROWAVE, VIDEO_FORMAT_MASK_YUV444};
+use nightjar_core::sdp::{VIDEO_FORMAT_MASK_10BIT, VIDEO_FORMAT_MASK_AV1, VIDEO_FORMAT_MASK_H265, VIDEO_FORMAT_MASK_PYROWAVE, VIDEO_FORMAT_MASK_YUV444};
 use nightjar_core::session::{
     self, AudioRenderer, AudioSetup, DecodeStatus, Listener, Stage, VideoDecoder, VideoSetup,
 };
@@ -591,7 +591,12 @@ impl VideoDecoder for Decoder {
                 let failed = |backend: Hardware, error: &str| {
                     eprintln!("nightjar: {} decoding is unavailable: {error}", backend.label());
                 };
-                media::VideoDecoder::open_first(codec, hardware, setup.chroma_packing != 0, failed).or_else(|e| {
+                let pictures = media::Pictures {
+                    ten_bit: setup.format & VIDEO_FORMAT_MASK_10BIT != 0,
+                    chroma444: setup.format & VIDEO_FORMAT_MASK_YUV444 != 0,
+                    packed: setup.chroma_packing != 0,
+                };
+                media::VideoDecoder::open_first(codec, pictures, hardware, setup.chroma_packing != 0, failed).or_else(|e| {
                     if setup.chroma_packing != 0 {
                         return Err(e);
                     }
@@ -703,6 +708,10 @@ impl Decoder {
         loop {
             match decoder.receive() {
                 Received::Frame(picture) => {
+                    if let Some(name) = decoder.renamed() {
+                        *lock(&self.shared.decoder_name) = name.to_owned();
+                        self.shared.notify(Notice::DecoderFallback("Vulkan video cannot decode this stream; decoding in software".into()));
+                    }
                     let ready = session::now_us();
                     let pts = picture.info().pts;
                     let counters = &self.shared.counters;

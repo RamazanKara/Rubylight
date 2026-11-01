@@ -245,6 +245,12 @@ pub fn plan_video(devices: &[DeviceCaps]) -> Result<crate::vulkan_video::Extensi
     Ok(usable)
 }
 
+/// The video extensions the GPU renderer's request would ask for (`plan_video` of the devices the
+/// loader lists), or why Vulkan video cannot be used.
+pub fn video_devices() -> Result<crate::vulkan_video::Extensions, String> {
+    plan_video(&query_devices()?)
+}
+
 /// The Vulkan devices the loader lists, as `plan` reads them.
 fn query_devices() -> Result<Vec<DeviceCaps>, String> {
     // SAFETY: Plain Vulkan calls on handles made here; the instance is destroyed before returning.

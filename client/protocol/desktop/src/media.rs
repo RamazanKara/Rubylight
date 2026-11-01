@@ -42,6 +42,13 @@ pub const FRAME_YUV444P10: c_int = 8;
 /// A VAAPI surface exported as DMA-BUFs for the presenter to import (`crate::dmabuf`), Linux only.
 #[cfg(unix)]
 pub const FRAME_DMABUF: c_int = 9;
+/// A Vulkan video picture on the GPU renderer's own device (`crate::vulkan_video`), Linux only:
+/// two planes, 4:2:0 or (`FRAME_VULKAN444`) 4:4:4, 8- or 10-bit (`ten_bit`). The presenter copies
+/// its planes on the GPU and draws them with the plane shader.
+#[cfg(unix)]
+pub const FRAME_VULKAN: c_int = 10;
+#[cfg(unix)]
+pub const FRAME_VULKAN444: c_int = 11;
 
 /// The shape of a planar picture's textures: R8 planes, or R16 for 10-bit, with half-size chroma
 /// (rounded up, as FFmpeg's) unless the picture is 4:4:4.
@@ -78,6 +85,23 @@ impl PlanarLayout {
         (info.width > 0 && info.height > 0).then_some(Self { width: info.width as u32, height: info.height as u32, chroma444: false, ten_bit })
     }
 
+    /// The layout of a `FRAME_VULKAN` or `FRAME_VULKAN444` picture's planes as the plane shader
+    /// reads them once copied (`vulkan_video::Planes`), its chroma interleaved.
+    #[cfg(unix)]
+    pub fn of_vulkan(info: &FrameInfo) -> Option<Self> {
+        let chroma444 = match info.kind {
+            FRAME_VULKAN => false,
+            FRAME_VULKAN444 => true,
+            _ => return None,
+        };
+        (info.width > 0 && info.height > 0).then_some(Self { width: info.width as u32, height: info.height as u32, chroma444, ten_bit: info.ten_bit != 0 })
+    }
+
+    #[cfg(not(unix))]
+    pub fn of_vulkan(_: &FrameInfo) -> Option<Self> {
+        None
+    }
+
     pub fn plane_size(&self, plane: usize) -> (u32, u32) {
         if plane == 0 || self.chroma444 { (self.width, self.height) } else { (self.width.div_ceil(2), self.height.div_ceil(2)) }
     }
@@ -110,12 +134,28 @@ pub enum Codec {
     Av1,
 }
 
+/// What a stream's pictures are, for a backend that checks it can decode and hand them on before
+/// it opens (Vulkan video): their depth and chroma, and whether they carry packed 4:4:4 chroma.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Pictures {
+    pub ten_bit: bool,
+    pub chroma444: bool,
+    pub packed: bool,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Hardware {
     None,
     D3d11(*mut c_void),
-    /// On Linux this stands for the whole `order`: VAAPI first.
+    /// The whole `order` where no single backend is given: on Linux with the GPU renderer's SDL GPU
+    /// device for Vulkan video (null when the renderer is another kind), and on Windows without a
+    /// Direct3D 11 renderer.
+    Auto(*mut c_void),
     Vaapi,
+    /// FFmpeg's Vulkan video on the GPU renderer's own Vulkan device, this SDL GPU device (or
+    /// null, which does not open), its pictures drawn without a copy to memory. Linux only.
+    #[cfg_attr(not(unix), allow(dead_code))]
+    Vulkan(*mut c_void),
     /// NVDEC, with CUDA frames copied to memory for the presenter.
     Cuda,
     /// The V4L2 memory-to-memory decoders of ARM handhelds and boards (H.264 and HEVC).
@@ -127,13 +167,29 @@ unsafe impl Send for Hardware {}
 
 impl Hardware {
     /// The backends to try, in turn, for this choice. On Linux that is moonlight-qt's and Moonlight
-    /// V+'s order: the first-tier hwaccel (VAAPI), then the hardware decoders outside FFmpeg's
-    /// hwaccels (V4L2 M2M), then the second tier (NVDEC); software decoding comes after them all.
+    /// V+'s order: the first-tier hwaccels (VAAPI, then Vulkan video for GPUs without VAAPI), then
+    /// the hardware decoders outside FFmpeg's hwaccels (V4L2 M2M), then the second tier (NVDEC);
+    /// software decoding comes after them all. `NIGHTJAR_VULKAN_VIDEO` puts Vulkan first or
+    /// leaves it out.
     pub fn order(self) -> Vec<Self> {
         match self {
             Self::None => Vec::new(),
-            Self::Vaapi => vec![Self::Vaapi, Self::V4l2m2m, Self::Cuda],
+            #[cfg(unix)]
+            Self::Auto(gpu) => Self::linux_order(gpu, crate::vulkan_video::Choice::from_environment()),
+            // Vulkan video is Linux's; the rest of the order is tried as before it.
+            #[cfg(not(unix))]
+            Self::Auto(_) => vec![Self::Vaapi, Self::V4l2m2m, Self::Cuda],
             other => vec![other],
+        }
+    }
+
+    #[cfg(any(unix, test))]
+    fn linux_order(gpu: *mut c_void, choice: crate::vulkan_video::Choice) -> Vec<Self> {
+        use crate::vulkan_video::Choice;
+        match choice {
+            Choice::Default => vec![Self::Vaapi, Self::Vulkan(gpu), Self::V4l2m2m, Self::Cuda],
+            Choice::First => vec![Self::Vulkan(gpu), Self::Vaapi, Self::V4l2m2m, Self::Cuda],
+            Choice::Off => vec![Self::Vaapi, Self::V4l2m2m, Self::Cuda],
         }
     }
 
@@ -141,11 +197,28 @@ impl Hardware {
         match self {
             Self::None => "software",
             Self::D3d11(_) => "D3D11VA",
+            Self::Auto(_) => "hardware",
             Self::Vaapi => "VAAPI",
+            Self::Vulkan(_) => "Vulkan",
             Self::Cuda => "NVDEC",
             Self::V4l2m2m => "V4L2 M2M",
         }
     }
+}
+
+/// Whether VAAPI opens a device here: AMD and Intel GPUs do, NVIDIA's driver does not without
+/// a VAAPI driver of its own (Vulkan video is used then, `crate::vulkan_video`).
+#[cfg(unix)]
+pub fn vaapi_device() -> Result<(), String> {
+    let mut device = ptr::null_mut();
+    // SAFETY: FFmpeg makes and frees a device of its own.
+    let status = unsafe { av_hwdevice_ctx_create(&mut device, AV_HWDEVICE_TYPE_VAAPI, ptr::null(), ptr::null_mut(), 0) };
+    if status < 0 {
+        return Err(error(status));
+    }
+    // SAFETY: The reference made above.
+    unsafe { av_buffer_unref(&mut device) };
+    Ok(())
 }
 
 /// Opens the first backend of `order` that opens; `failed` hears about each one that did not, and
@@ -274,6 +347,10 @@ pub struct VideoDecoder {
     /// decoded frame ends with such a call, so this saves an allocation per frame. Pictures
     /// themselves go to the presenter and are freed there.
     spare: Option<Frame>,
+    /// A Vulkan decoder made a picture in memory: FFmpeg could not decode the stream with Vulkan
+    /// video after all and went to software. `told` once `renamed` has said so.
+    refused: bool,
+    told: bool,
 }
 
 /// The size of the pooled packet buffers for a packet of `needed` bytes with its padding: a
@@ -307,15 +384,27 @@ impl VideoDecoder {
     /// (`failed`); the error names every one.
     pub fn open_first(
         codec: Codec,
+        pictures: Pictures,
         hardware: Hardware,
         require_hardware: bool,
         failed: impl FnMut(Hardware, &str),
     ) -> Result<Self, String> {
-        first_opened(hardware.order(), |backend| Self::open(codec, backend, 1, require_hardware), failed)
+        first_opened(hardware.order(), |backend| Self::open_for(codec, pictures, backend, 1, require_hardware), failed)
     }
 
     pub fn open(
         codec: Codec,
+        hardware: Hardware,
+        threads: i32,
+        require_hardware: bool,
+    ) -> Result<Self, String> {
+        Self::open_for(codec, Pictures::default(), hardware, threads, require_hardware)
+    }
+
+    /// `open`, for a stream of `pictures` (which Vulkan video checks it decodes before opening).
+    pub fn open_for(
+        codec: Codec,
+        pictures: Pictures,
         hardware: Hardware,
         threads: i32,
         require_hardware: bool,
@@ -366,6 +455,8 @@ impl VideoDecoder {
                 #[cfg(unix)]
                 dmabuf: None,
                 spare: None,
+                refused: false,
+                told: false,
             };
             if video.context.is_null() || video.packet.is_null() {
                 return Err("Could not allocate the video decoder.".into());
@@ -375,7 +466,9 @@ impl VideoDecoder {
             let device_type = match hardware {
                 Hardware::D3d11(_) => Some(AV_HWDEVICE_TYPE_D3D11VA),
                 Hardware::Vaapi => Some(AV_HWDEVICE_TYPE_VAAPI),
+                Hardware::Vulkan(_) => Some(AV_HWDEVICE_TYPE_VULKAN),
                 Hardware::Cuda => Some(AV_HWDEVICE_TYPE_CUDA),
+                Hardware::Auto(_) => return Err("the hardware order is not a backend of its own".into()),
                 Hardware::None | Hardware::V4l2m2m => None,
             };
             if let Some(kind) = device_type {
@@ -441,7 +534,18 @@ impl VideoDecoder {
                             return Err(format!("no device: {}", error(status)));
                         }
                     }
-                    Hardware::None | Hardware::V4l2m2m => unreachable!(),
+                    Hardware::Vulkan(gpu) => {
+                        #[cfg(unix)]
+                        {
+                            context.hw_device_ctx = crate::vulkan_video::device_context(gpu.cast(), codec, pictures)?;
+                        }
+                        #[cfg(not(unix))]
+                        {
+                            let _ = (gpu, pictures);
+                            return Err("Vulkan video decoding is only used on Linux.".into());
+                        }
+                    }
+                    Hardware::None | Hardware::V4l2m2m | Hardware::Auto(_) => unreachable!(),
                 }
                 context.get_format = Some(select_format);
                 context.extra_hw_frames = 6;
@@ -466,11 +570,21 @@ impl VideoDecoder {
             video.name.push_str(match hardware {
                 Hardware::D3d11(_) => " d3d11va",
                 Hardware::Vaapi => " vaapi",
+                Hardware::Vulkan(_) => " vulkan",
                 Hardware::Cuda => " nvdec",
-                Hardware::None | Hardware::V4l2m2m => "",
+                Hardware::None | Hardware::V4l2m2m | Hardware::Auto(_) => "",
             });
             Ok(video)
         }
+    }
+
+    /// The decoder's new name, once, when it is no longer the backend it opened with (a Vulkan
+    /// decoder FFmpeg took to software), for the overlay.
+    pub fn renamed(&mut self) -> Option<&str> {
+        if !self.refused || std::mem::replace(&mut self.told, true) {
+            return None;
+        }
+        Some(&self.name)
     }
 
     /// Hands VAAPI pictures to the presenter as DMA-BUFs instead of CPU mappings, and says whether
@@ -545,6 +659,11 @@ impl VideoDecoder {
                 };
             }
             let format = (*raw.as_ptr()).format;
+            if matches!(self.hardware, Hardware::Vulkan(_)) && format != AV_PIX_FMT_VULKAN && !self.refused {
+                self.refused = true;
+                eprintln!("nightjar: FFmpeg cannot decode this stream with Vulkan video after all; it decodes in software");
+                self.name = format!("{} (software, Vulkan refused)", self.name.trim_end_matches(" vulkan"));
+            }
             if format == AV_PIX_FMT_VAAPI {
                 #[cfg(unix)]
                 if let Some(decline) = self.dmabuf.as_ref().filter(|d| !d.load(std::sync::atomic::Ordering::Relaxed)) {
@@ -676,6 +795,15 @@ impl Frame {
                         _ => (4, 0),
                     }
                 }
+                #[cfg(unix)]
+                AV_PIX_FMT_VULKAN => match crate::vulkan_video::sw_format(frame) {
+                    AV_PIX_FMT_NV12 => (FRAME_VULKAN, 0),
+                    AV_PIX_FMT_P010LE => (FRAME_VULKAN, 1),
+                    AV_PIX_FMT_NV24 => (FRAME_VULKAN444, 0),
+                    AV_PIX_FMT_P410LE => (FRAME_VULKAN444, 1),
+                    // Not two planes the presenter copies (`vulkan_video::Planes`).
+                    _ => (4, 0),
+                },
                 #[cfg(unix)]
                 AV_PIX_FMT_VAAPI if self.dmabuf.is_some() => {
                     let sw_format = if frame.hw_frames_ctx.is_null() {
@@ -1249,20 +1377,44 @@ mod tests {
     }
 
     #[test]
-    fn linux_tries_vaapi_then_v4l2_m2m_then_nvdec_and_other_choices_alone() {
-        assert_eq!(Hardware::Vaapi.order(), [Hardware::Vaapi, Hardware::V4l2m2m, Hardware::Cuda]);
-        assert!(Hardware::None.order().is_empty());
+    fn linux_tries_vaapi_then_vulkan_then_v4l2_m2m_then_nvdec_and_other_choices_alone() {
+        use crate::vulkan_video::Choice;
         let device = ptr::dangling_mut::<c_void>();
+        let (vaapi, vulkan, v4l2, nvdec) = (Hardware::Vaapi, Hardware::Vulkan(device), Hardware::V4l2m2m, Hardware::Cuda);
+        assert_eq!(Hardware::linux_order(device, Choice::Default), [vaapi, vulkan, v4l2, nvdec]);
+        assert_eq!(Hardware::linux_order(device, Choice::First), [vulkan, vaapi, v4l2, nvdec], "NIGHTJAR_VULKAN_VIDEO=1");
+        assert_eq!(Hardware::linux_order(device, Choice::Off), [vaapi, v4l2, nvdec], "NIGHTJAR_VULKAN_VIDEO=0");
+        assert_eq!(Hardware::Vulkan(device).label(), "Vulkan");
+        assert!(Hardware::None.order().is_empty());
         assert_eq!(Hardware::D3d11(device).order(), [Hardware::D3d11(device)]);
+        assert_eq!(Hardware::Vaapi.order(), [Hardware::Vaapi]);
         assert_eq!(Hardware::Cuda.order(), [Hardware::Cuda]);
+    }
+
+    /// Without the GPU renderer's device, or for packed 4:4:4, Vulkan video does not open and
+    /// says why, so the next backend is tried.
+    #[test]
+    fn vulkan_video_without_the_renderers_device_or_for_packed_chroma_names_the_reason() {
+        let error = VideoDecoder::open_for(Codec::Hevc, Pictures::default(), Hardware::Vulkan(ptr::null_mut()), 1, false).err().unwrap();
+        if cfg!(unix) {
+            assert!(error.contains("does not draw with SDL's GPU API") || error.contains("libavutil"), "{error}");
+            let packed = Pictures { packed: true, ..Pictures::default() };
+            let error = VideoDecoder::open_for(Codec::Hevc, packed, Hardware::Vulkan(ptr::null_mut()), 1, false).err().unwrap();
+            assert!(error.contains("packed 4:4:4"), "{error}");
+        } else {
+            assert!(error.contains("only used on Linux") || error.contains("no Vulkan support"), "{error}");
+        }
+        let error = VideoDecoder::open(Codec::H264, Hardware::Auto(ptr::null_mut()), 1, false).err().unwrap();
+        assert!(error.contains("not a backend"), "{error}");
     }
 
     #[test]
     fn the_first_backend_that_opens_is_used_and_each_one_before_it_is_logged_once() {
         let mut logged = Vec::new();
         let mut tried = Vec::new();
+        let order = vec![Hardware::Vaapi, Hardware::V4l2m2m, Hardware::Cuda];
         let opened = first_opened(
-            Hardware::Vaapi.order(),
+            order.clone(),
             |backend| {
                 tried.push(backend);
                 if backend == Hardware::V4l2m2m { Ok("v4l2") } else { Err(format!("no {}", backend.label())) }
@@ -1274,7 +1426,7 @@ mod tests {
         assert_eq!(logged, ["VAAPI no VAAPI"]);
 
         logged.clear();
-        let failed: Result<(), String> = first_opened(Hardware::Vaapi.order(), |_| Err("gone".into()), |backend, _| logged.push(backend.label().into()));
+        let failed: Result<(), String> = first_opened(order, |_| Err("gone".into()), |backend, _| logged.push(backend.label().into()));
         assert_eq!(failed.unwrap_err(), "VAAPI: gone; V4L2 M2M: gone; NVDEC: gone");
         assert_eq!(logged, ["VAAPI", "V4L2 M2M", "NVDEC"]);
         let none: Result<(), String> = first_opened(Vec::new(), |_| Ok(()), |_, _| panic!("nothing was tried"));

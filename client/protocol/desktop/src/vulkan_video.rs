@@ -15,13 +15,15 @@
 //! the patched SDL makes the renderer's device with the video extensions the renderer asks for
 //! (`zero_copy::RendererRequest`) and one more queue in each video decode family
 //! (`vendor/sdl3-src/patches/vulkan-interop.patch`), and the presenter copies each picture's two
-//! planes into images of its own that SDL draws as an NV12 or P010 texture (`Planes`): SDL can
-//! only wrap single-plane color images, and the copy hands the picture back to the decoder at
-//! once, so SDL's colour handling of NV12 and P010 is the same as for pictures from memory.
+//! planes on the GPU into images of its own that the plane shader draws (`Planes`,
+//! `stream::planes_gpu`): SDL can only wrap single-plane color images, the copy hands the picture
+//! back to the decoder at once, and the plane shader's colour handling (range, matrix, 10-bit
+//! SDR, HDR10, HLG) is the one software-decoded pictures get.
 //!
 //! What cannot be done is said, never skipped silently: the decoder tries the next backend with
-//! the reason in the log (`device_context`), and a presenter that cannot copy a picture copies it
-//! to memory instead and has the decoder do so from then on, the overlay naming the copy.
+//! the reason in the log (`device_context`, which asks the driver for the stream's profile first),
+//! and a picture the presenter cannot copy is dropped with the reason in the log and on the
+//! overlay.
 
 use std::ffi::{c_char, c_int, c_void, CStr};
 use std::ptr;
@@ -33,9 +35,9 @@ use sdl3_sys::everything::*;
 use crate::media::ffi::{
     av_buffer_unref, av_hwdevice_ctx_alloc, av_hwdevice_ctx_init, avutil_version, AVBufferRef,
     AVFrame, AVHWDeviceContext, AVHWFramesContext, AV_HWDEVICE_TYPE_VULKAN, AV_PIX_FMT_NV12,
-    AV_PIX_FMT_P010LE,
+    AV_PIX_FMT_NV24, AV_PIX_FMT_P010LE, AV_PIX_FMT_P410LE,
 };
-use crate::media::Codec;
+use crate::media::{Codec, Pictures};
 use crate::stream::pyrowave_sdk::zero_copy::{
     self, Chain, Features, SdlVulkan, TEXTURE_IMAGE_PROPERTY,
 };
@@ -306,7 +308,14 @@ unsafe extern "C" fn free_opaque(context: *mut AVHWDeviceContext) {
 pub unsafe fn device_context(
     gpu: *mut SDL_GPUDevice,
     codec: Codec,
+    pictures: Pictures,
 ) -> Result<*mut AVBufferRef, String> {
+    if pictures.packed {
+        return Err(
+            "packed 4:4:4 is put together from pictures in memory or DMA-BUFs, not Vulkan images"
+                .into(),
+        );
+    }
     ffmpeg_supported(avutil_version())?;
     if gpu.is_null() {
         return Err(
@@ -346,6 +355,13 @@ pub unsafe fn device_context(
             "no queue of the renderer's Vulkan device decodes {codec:?}"
         ));
     }
+    check_profile(
+        get_instance_proc_addr,
+        sdl.instance,
+        sdl.physical_device,
+        codec,
+        pictures,
+    )?;
 
     let mut chain = Chain::new();
     chain.enable(sdl.features);
@@ -404,6 +420,138 @@ pub unsafe fn device_context(
         ));
     }
     Ok(reference)
+}
+
+/// The two-plane format FFmpeg's Vulkan pictures of that depth and chroma are in (NV12, P010,
+/// NV24 or P410), the one `Planes` copies.
+fn picture_format(ten_bit: bool, chroma444: bool) -> vk::Format {
+    match (ten_bit, chroma444) {
+        (false, false) => vk::Format::G8_B8R8_2PLANE_420_UNORM,
+        (true, false) => vk::Format::G10X6_B10X6R10X6_2PLANE_420_UNORM_3PACK16,
+        (false, true) => vk::Format::G8_B8R8_2PLANE_444_UNORM,
+        (true, true) => vk::Format::G10X6_B10X6R10X6_2PLANE_444_UNORM_3PACK16,
+    }
+}
+
+/// The codec profile FFmpeg asks the driver for, for pictures of that depth and chroma: H.264
+/// High (High 4:4:4 Predictive), HEVC Main or Main 10 (Range Extensions), AV1 Main (High).
+fn profiles(
+    pictures: Pictures,
+) -> (
+    vk::native::StdVideoH264ProfileIdc,
+    vk::native::StdVideoH265ProfileIdc,
+    vk::native::StdVideoAV1Profile,
+) {
+    use vk::native::*;
+    if pictures.chroma444 {
+        return (
+            StdVideoH264ProfileIdc_STD_VIDEO_H264_PROFILE_IDC_HIGH_444_PREDICTIVE,
+            StdVideoH265ProfileIdc_STD_VIDEO_H265_PROFILE_IDC_FORMAT_RANGE_EXTENSIONS,
+            StdVideoAV1Profile_STD_VIDEO_AV1_PROFILE_HIGH,
+        );
+    }
+    let h265 = if pictures.ten_bit {
+        StdVideoH265ProfileIdc_STD_VIDEO_H265_PROFILE_IDC_MAIN_10
+    } else {
+        StdVideoH265ProfileIdc_STD_VIDEO_H265_PROFILE_IDC_MAIN
+    };
+    (
+        StdVideoH264ProfileIdc_STD_VIDEO_H264_PROFILE_IDC_HIGH,
+        h265,
+        StdVideoAV1Profile_STD_VIDEO_AV1_PROFILE_MAIN,
+    )
+}
+
+/// Whether the device decodes `codec` pictures of that depth and chroma into the two-plane format
+/// `Planes` copies, asked of the driver before FFmpeg is: FFmpeg finds out only at the first
+/// picture and then decodes in software (4:4:4 and 10-bit are what drivers refuse).
+///
+/// # Safety
+/// `physical_device` must be a physical device of `instance`, made with `get_instance_proc_addr`.
+unsafe fn check_profile(
+    get_instance_proc_addr: vk::PFN_vkGetInstanceProcAddr,
+    instance: vk::Instance,
+    physical_device: vk::PhysicalDevice,
+    codec: Codec,
+    pictures: Pictures,
+) -> Result<(), String> {
+    let fns = ash::khr::video_queue::InstanceFn::load(|name| {
+        std::mem::transmute(get_instance_proc_addr(instance, name.as_ptr()))
+    });
+    let what = format!(
+        "{codec:?} {}-bit {}",
+        if pictures.ten_bit { 10 } else { 8 },
+        if pictures.chroma444 { "4:4:4" } else { "4:2:0" }
+    );
+    let (h264_idc, h265_idc, av1_profile) = profiles(pictures);
+    let mut h264 = vk::VideoDecodeH264ProfileInfoKHR::default()
+        .std_profile_idc(h264_idc)
+        .picture_layout(vk::VideoDecodeH264PictureLayoutFlagsKHR::PROGRESSIVE);
+    let mut h265 = vk::VideoDecodeH265ProfileInfoKHR::default().std_profile_idc(h265_idc);
+    let mut av1 = vk::VideoDecodeAV1ProfileInfoKHR::default().std_profile(av1_profile);
+    let depth = if pictures.ten_bit {
+        vk::VideoComponentBitDepthFlagsKHR::TYPE_10
+    } else {
+        vk::VideoComponentBitDepthFlagsKHR::TYPE_8
+    };
+    let profile = vk::VideoProfileInfoKHR::default()
+        .video_codec_operation(codec_operation(codec))
+        .chroma_subsampling(if pictures.chroma444 {
+            vk::VideoChromaSubsamplingFlagsKHR::TYPE_444
+        } else {
+            vk::VideoChromaSubsamplingFlagsKHR::TYPE_420
+        })
+        .luma_bit_depth(depth)
+        .chroma_bit_depth(depth);
+    let profile = match codec {
+        Codec::H264 => profile.push_next(&mut h264),
+        Codec::Hevc => profile.push_next(&mut h265),
+        Codec::Av1 => profile.push_next(&mut av1),
+    };
+    let mut h264_caps = vk::VideoDecodeH264CapabilitiesKHR::default();
+    let mut h265_caps = vk::VideoDecodeH265CapabilitiesKHR::default();
+    let mut av1_caps = vk::VideoDecodeAV1CapabilitiesKHR::default();
+    let mut decode_caps = vk::VideoDecodeCapabilitiesKHR::default();
+    let caps = vk::VideoCapabilitiesKHR::default().push_next(&mut decode_caps);
+    let mut caps = match codec {
+        Codec::H264 => caps.push_next(&mut h264_caps),
+        Codec::Hevc => caps.push_next(&mut h265_caps),
+        Codec::Av1 => caps.push_next(&mut av1_caps),
+    };
+    let result =
+        (fns.get_physical_device_video_capabilities_khr)(physical_device, &profile, &mut caps);
+    if result != vk::Result::SUCCESS {
+        return Err(format!(
+            "the renderer's Vulkan device does not decode {what} ({result})"
+        ));
+    }
+    let listed = [profile];
+    let mut list = vk::VideoProfileListInfoKHR::default().profiles(&listed);
+    let info = vk::PhysicalDeviceVideoFormatInfoKHR::default()
+        .image_usage(vk::ImageUsageFlags::VIDEO_DECODE_DST_KHR)
+        .push_next(&mut list);
+    let get_formats = fns.get_physical_device_video_format_properties_khr;
+    let mut count = 0;
+    let mut result = get_formats(physical_device, &info, &mut count, ptr::null_mut());
+    let mut formats = vec![vk::VideoFormatPropertiesKHR::default(); count as usize];
+    if result == vk::Result::SUCCESS {
+        result = get_formats(physical_device, &info, &mut count, formats.as_mut_ptr());
+    }
+    if result != vk::Result::SUCCESS && result != vk::Result::INCOMPLETE {
+        return Err(format!(
+            "the renderer's Vulkan device lists no picture formats for {what} ({result})"
+        ));
+    }
+    formats.truncate(count as usize);
+    let wanted = picture_format(pictures.ten_bit, pictures.chroma444);
+    if !formats.iter().any(|format| format.format == wanted) {
+        let listed: Vec<_> = formats
+            .iter()
+            .map(|format| format.format.as_raw())
+            .collect();
+        return Err(format!("the renderer's Vulkan device decodes {what} into VkFormats {listed:?}, not {}, the two-plane format the presenter copies", wanted.as_raw()));
+    }
+    Ok(())
 }
 
 /// Each queue family's flags and video codec operations.
@@ -476,15 +624,18 @@ const COPY_WAIT: Duration = Duration::from_secs(1);
 const SLOTS: usize = 3;
 
 /// The presenter's two plane images on the renderer's device (R8 and R8G8, or R16 and R16G16 for
-/// P010), wrapped as the SDL GPU textures of an NV12 or P010 SDL texture, and the copies into them.
+/// 10-bit, the chroma at half or full size), wrapped as SDL GPU textures for the plane shader, and
+/// the copies into them.
 pub struct Planes {
     device: ash::Device,
     gpu: *mut SDL_GPUDevice,
     queue: vk::Queue,
+    family: u32,
     lock: *mut SDL_Mutex,
     width: u32,
     height: u32,
     ten_bit: bool,
+    chroma444: bool,
     images: Vec<(vk::Image, vk::DeviceMemory)>,
     textures: [*mut SDL_GPUTexture; 2],
     pool: vk::CommandPool,
@@ -502,6 +653,7 @@ impl Planes {
         width: u32,
         height: u32,
         ten_bit: bool,
+        chroma444: bool,
     ) -> Result<Self, String> {
         let sdl = SdlVulkan::of_device(gpu)?;
         sdl.require(Features::video())?;
@@ -518,10 +670,12 @@ impl Planes {
             device,
             gpu,
             queue: sdl.queue,
+            family: sdl.family,
             lock: sdl.lock,
             width,
             height,
             ten_bit,
+            chroma444,
             images: Vec::new(),
             textures: [ptr::null_mut(); 2],
             pool: vk::CommandPool::null(),
@@ -648,19 +802,13 @@ impl Planes {
         Ok(planes)
     }
 
-    /// Whether these planes hold `width` x `height` pictures of that depth.
-    pub fn fits(&self, width: u32, height: u32, ten_bit: bool) -> bool {
-        (self.width, self.height, self.ten_bit) == (width, height, ten_bit)
-    }
-
-    /// The luma and chroma textures, for `SDL_PROP_TEXTURE_CREATE_GPU_TEXTURE_POINTER` and
-    /// `SDL_PROP_TEXTURE_CREATE_GPU_TEXTURE_UV_POINTER`.
+    /// The luma texture and the chroma one, Cb and Cr interleaved, for the plane shader.
     pub fn textures(&self) -> [*mut SDL_GPUTexture; 2] {
         self.textures
     }
 
     fn plane_size(&self, plane: usize) -> (u32, u32) {
-        if plane == 0 {
+        if plane == 0 || self.chroma444 {
             (self.width, self.height)
         } else {
             (self.width.div_ceil(2), self.height.div_ceil(2))
@@ -685,10 +833,12 @@ impl Planes {
         }
     }
 
-    /// Copies the two planes of `frame`, an NV12 or P010 Vulkan picture as large as the planes,
-    /// into the plane images, on SDL's queue ahead of SDL's next submission (`renderer` is
-    /// flushed first, so nothing SDL recorded before reads the new picture). The picture is the
-    /// decoder's again once the copy is done, which its semaphore tells FFmpeg.
+    /// Copies the two planes of `frame`, an NV12, P010, NV24 or P410 Vulkan picture of the planes'
+    /// size, depth and chroma, into the plane images, on SDL's queue ahead of SDL's next submission
+    /// (`renderer` is flushed first, so nothing SDL recorded before reads the new picture). The
+    /// picture is the decoder's again once the copy is done, which its semaphore tells FFmpeg.
+    /// FFmpeg's images are shared by every queue family it was given (or made in SDL's alone), so
+    /// no ownership moves; an image owned by another family is refused.
     ///
     /// # Safety
     /// `frame` must be a live Vulkan AVFrame made with `device_context` on this device, and
@@ -703,16 +853,28 @@ impl Planes {
         if frames_ref.is_null() || source.is_null() {
             return Err("the picture has no Vulkan frame".into());
         }
-        let wanted = if self.ten_bit {
-            AV_PIX_FMT_P010LE
-        } else {
-            AV_PIX_FMT_NV12
+        let wanted = match (self.ten_bit, self.chroma444) {
+            (false, false) => AV_PIX_FMT_NV12,
+            (true, false) => AV_PIX_FMT_P010LE,
+            (false, true) => AV_PIX_FMT_NV24,
+            (true, true) => AV_PIX_FMT_P410LE,
         };
         if sw_format(frame) != wanted {
             return Err(format!(
                 "the picture's format {} is not the planes' format {wanted}",
                 sw_format(frame)
             ));
+        }
+        let sources = if (*source).img[1] == vk::Image::null() {
+            1
+        } else {
+            2
+        };
+        if let Some(&family) = (&(*source).queue_family)[..sources]
+            .iter()
+            .find(|&&family| family != vk::QUEUE_FAMILY_IGNORED && family != self.family)
+        {
+            return Err(format!("the picture is owned by queue family {family}, not shared with the renderer's ({})", self.family));
         }
         let frames = (*frames_ref).data.cast::<AVHWFramesContext>();
         let vulkan_frames = &*(*frames).hwctx.cast::<FramesContext>();
@@ -1136,8 +1298,8 @@ mod tests {
                 "the renderer has no codec's video extensions"
             );
             for codec in codecs {
-                let mut context =
-                    device_context(gpu, codec).unwrap_or_else(|e| panic!("{codec:?}: {e}"));
+                let mut context = device_context(gpu, codec, Pictures::default())
+                    .unwrap_or_else(|e| panic!("{codec:?}: {e}"));
                 av_buffer_unref(&mut context);
             }
             SDL_DestroyRenderer(renderer);

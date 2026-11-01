@@ -55,7 +55,14 @@ pub fn probe(
     let mut failures = Vec::new();
     for (format, codec, name, data) in FIXTURES {
         let yuv444 = format & VIDEO_FORMAT_MASK_YUV444 != 0;
-        match decode(hardware, codec, data).and_then(|info| drawable(&info, yuv444, &planes)) {
+        let pictures = media::Pictures {
+            ten_bit: format & VIDEO_FORMAT_MASK_10BIT != 0,
+            chroma444: yuv444,
+            packed: false,
+        };
+        match decode(hardware, pictures, codec, data)
+            .and_then(|info| drawable(&info, yuv444, &planes))
+        {
             Ok(()) => decodable |= format,
             Err(reason) => {
                 eprintln!("nightjar: {name} is not offered: {reason}");
@@ -68,13 +75,14 @@ pub fn probe(
 
 fn decode(
     hardware: media::Hardware,
+    pictures: media::Pictures,
     codec: media::Codec,
     data: &[u8],
 ) -> Result<media::FrameInfo, String> {
     // The stream's decoder order; the error names each backend that did not open.
     let mut decoder = match hardware {
         media::Hardware::None => media::VideoDecoder::open(codec, hardware, 1, false)?,
-        hardware => media::VideoDecoder::open_first(codec, hardware, true, |_, _| {})?,
+        hardware => media::VideoDecoder::open_first(codec, pictures, hardware, true, |_, _| {})?,
     };
     let status = decoder.send(data, 0);
     if status < 0 {
@@ -93,7 +101,9 @@ fn drawable(
     yuv444: bool,
     planes: &impl Fn(bool) -> Result<(), String>,
 ) -> Result<(), String> {
-    let planar = media::PlanarLayout::of(info);
+    // A Vulkan video picture is drawn with the plane shader too, from its copied planes.
+    let vulkan = media::PlanarLayout::of_vulkan(info);
+    let planar = media::PlanarLayout::of(info).or(vulkan);
     if yuv444 && !planar.is_some_and(|layout| layout.chroma444) {
         return Err(format!(
             "the decoder's pictures (kind {}) are not 4:4:4 pictures this app draws",
@@ -102,13 +112,14 @@ fn drawable(
     }
     if !yuv444
         && (info.ten_bit == 0
-            || !matches!(
-                info.kind,
-                media::FRAME_P010
-                    | media::FRAME_D3D11
-                    | media::FRAME_YUV420P10
-                    | media::FRAME_YUV444P10
-            ))
+            || !(vulkan.is_some()
+                || matches!(
+                    info.kind,
+                    media::FRAME_P010
+                        | media::FRAME_D3D11
+                        | media::FRAME_YUV420P10
+                        | media::FRAME_YUV444P10
+                )))
     {
         return Err(format!(
             "the decoder's pictures (kind {}) are not 10-bit pictures this app draws",

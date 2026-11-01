@@ -321,6 +321,9 @@ pub struct VideoTexture {
     planes: Option<super::d3d11::PlanesPass>,
     #[cfg(unix)]
     planes: Option<super::planes_gpu::PlanesPass>,
+    /// Vulkan video pictures' planes, copied on the GPU, which `planes` draws (dropped after it).
+    #[cfg(unix)]
+    vulkan: Option<crate::vulkan_video::Planes>,
     /// Why the last `upload` failed, when it knows more than the caller can say.
     pub failure: Option<String>,
     /// The last failure written to the log, so a failing picture stream logs each reason once.
@@ -405,6 +408,8 @@ impl Default for VideoTexture {
             pyrowave_format: None,
             #[cfg(any(windows, unix))]
             planes: None,
+            #[cfg(unix)]
+            vulkan: None,
             failure: None,
             logged_failure: None,
             hdr_frame: false,
@@ -482,6 +487,15 @@ pub(super) fn planar_parameters(info: &FrameInfo, layout: media::PlanarLayout, h
         Some(display) => [layout.width, layout.height, layout.width, layout.height, display.peak.to_bits(), display.gamma.to_bits(), flags, (display.white / 80.0).to_bits()],
         None => [layout.width, layout.height, layout.width, layout.height, 0, 3, flags, white_level.to_bits()],
     }
+}
+
+/// `planar_parameters` for Vulkan video's copied planes when `vulkan`: flag 256 (the chroma
+/// interleaved, 10-bit samples in the high bits) in place of 64 (in the low bits).
+pub(super) fn vulkan_flags(mut parameters: [u32; 8], vulkan: bool) -> [u32; 8] {
+    if vulkan {
+        parameters[6] = parameters[6] & !64 | 256;
+    }
+    parameters
 }
 
 /// The display a plane shader picture shown as HDR with the HLG transfer is drawn for, as the
@@ -960,6 +974,10 @@ impl VideoTexture {
             return self.upload_planar(renderer, &info, layout, white_level);
         }
         #[cfg(unix)]
+        if let Some(layout) = media::PlanarLayout::of_vulkan(&info) {
+            return self.upload_vulkan(renderer, frame, &info, layout, white_level);
+        }
+        #[cfg(unix)]
         if hlg_through_planes(&info) {
             return self.upload_hlg(renderer, frame, &info, white_level);
         }
@@ -1426,23 +1444,7 @@ impl VideoTexture {
     /// Draws a software-decoded planar picture (4:4:4, or 10-bit) with the plane shader into an
     /// RGBA64F texture, as the GPU decoder's planes are drawn: SDL has no texture formats for them.
     fn upload_planar(&mut self, renderer: *mut SDL_Renderer, info: &FrameInfo, layout: media::PlanarLayout, white_level: f32) -> bool {
-        let hdr = shows_hdr(self.hdr_mode, self.hdr_stream, info.color_trc);
-        // An HLG picture needs no HDR output: on an SDR one it is drawn for HLG's reference
-        // display and SDL's tone map brings it into SDR (`planar_hlg`).
-        let hdr_output = crate::sdl::hdr_available(renderer);
-        if hdr && info.color_trc != TRC_HLG && !hdr_output {
-            self.destroy();
-            self.fail(format!("an HDR {}x{} picture needs HDR output, which the renderer {} does not offer", layout.width, layout.height, crate::sdl::renderer_name(renderer)), "the display has no HDR output".into());
-            return false;
-        }
-        // SAFETY: The live renderer belongs to the presenting thread.
-        let headroom = if hdr_output { unsafe { SDL_GetFloatProperty(SDL_GetRendererProperties(renderer), SDL_PROP_RENDERER_HDR_HEADROOM_FLOAT, 1.0) } } else { 1.0 };
-        let hlg = planar_hlg(info, hdr, white_level, headroom);
-        let parameters = planar_parameters(info, layout, hdr, white_level, headroom);
-        if self.pyrowave_format.is_some_and(|previous| previous != parameters) { self.destroy(); }
-        // The HLG picture's own peak over its white, which SDL tone maps down to an output with less.
-        let texture_headroom = hlg.map(|display| display.peak / display.white);
-        if !self.ensure_with(renderer, SDL_PIXELFORMAT_RGBA64_FLOAT, info.width, info.height, SDL_COLORSPACE_SRGB_LINEAR, white_level, texture_headroom) { return false; }
+        let Some(parameters) = self.planar_target(renderer, info, layout, white_level, false) else { return false };
         #[cfg(windows)]
         let drawn = {
             if self.planes.is_none() {
@@ -1477,6 +1479,67 @@ impl VideoTexture {
         match drawn {
             Ok(()) => true,
             Err(error) => { self.fail(format!("drawing a {}x{} planar picture failed: {error}", layout.width, layout.height), error); false }
+        }
+    }
+
+    /// The plane shader's constants for `info` drawn as `layout`, with the RGBA64F texture made for
+    /// them (and a pass made for other constants gone); None, the reason said, when the picture
+    /// cannot be drawn. `vulkan`: from Vulkan video's copied planes (flag 256 in place of 64).
+    fn planar_target(&mut self, renderer: *mut SDL_Renderer, info: &FrameInfo, layout: media::PlanarLayout, white_level: f32, vulkan: bool) -> Option<[u32; 8]> {
+        let hdr = shows_hdr(self.hdr_mode, self.hdr_stream, info.color_trc);
+        // An HLG picture needs no HDR output: on an SDR one it is drawn for HLG's reference
+        // display and SDL's tone map brings it into SDR (`planar_hlg`).
+        let hdr_output = crate::sdl::hdr_available(renderer);
+        if hdr && info.color_trc != TRC_HLG && !hdr_output {
+            self.destroy();
+            self.fail(format!("an HDR {}x{} picture needs HDR output, which the renderer {} does not offer", layout.width, layout.height, crate::sdl::renderer_name(renderer)), "the display has no HDR output".into());
+            return None;
+        }
+        // SAFETY: The live renderer belongs to the presenting thread.
+        let headroom = if hdr_output { unsafe { SDL_GetFloatProperty(SDL_GetRendererProperties(renderer), SDL_PROP_RENDERER_HDR_HEADROOM_FLOAT, 1.0) } } else { 1.0 };
+        let hlg = planar_hlg(info, hdr, white_level, headroom);
+        let parameters = vulkan_flags(planar_parameters(info, layout, hdr, white_level, headroom), vulkan);
+        if self.pyrowave_format.is_some_and(|previous| previous != parameters) { self.destroy(); }
+        // The HLG picture's own peak over its white, which SDL tone maps down to an output with less.
+        let texture_headroom = hlg.map(|display| display.peak / display.white);
+        self.ensure_with(renderer, SDL_PIXELFORMAT_RGBA64_FLOAT, info.width, info.height, SDL_COLORSPACE_SRGB_LINEAR, white_level, texture_headroom).then_some(parameters)
+    }
+
+    /// Draws a Vulkan video picture (`crate::vulkan_video`) as a planar picture of its depth and
+    /// chroma: its two planes are copied on the GPU into the presenter's own images (which hands
+    /// the picture back to the decoder), and the plane shader draws them with the colour handling
+    /// of software-decoded pictures (range, matrix, 10-bit SDR, HDR10, HLG). Nothing goes through
+    /// memory.
+    #[cfg(unix)]
+    fn upload_vulkan(&mut self, renderer: *mut SDL_Renderer, frame: &media::Frame, info: &FrameInfo, layout: media::PlanarLayout, white_level: f32) -> bool {
+        let Some(parameters) = self.planar_target(renderer, info, layout, white_level, true) else { return false };
+        let what = format!("{}x{} {}-bit Vulkan video picture", layout.width, layout.height, if layout.ten_bit { 10 } else { 8 });
+        if self.vulkan.is_none() {
+            let device = crate::sdl::renderer_pointer(renderer, SDL_PROP_RENDERER_GPU_DEVICE_POINTER);
+            // SAFETY: The renderer's live GPU device, which outlives the texture.
+            match unsafe { crate::vulkan_video::Planes::new(device.cast(), layout.width, layout.height, layout.ten_bit, layout.chroma444) } {
+                Ok(planes) => self.vulkan = Some(planes),
+                Err(error) => { self.fail(format!("the planes of a {what} cannot be made: {error}"), error); return false; }
+            }
+        }
+        if self.planes.is_none() {
+            let textures = self.vulkan.as_ref().map_or([std::ptr::null_mut(); 2], |planes| planes.textures());
+            // SAFETY: The live renderer of the presenting thread; the textures live in `vulkan`,
+            // which is dropped after the pass.
+            match unsafe { super::planes_gpu::PlanesPass::for_vulkan(renderer, textures) } {
+                Ok(pass) => { self.planes = Some(pass); self.pyrowave_format = Some(parameters); }
+                Err(error) => { self.fail(format!("the plane shader pass cannot be made: {error}"), format!("the plane shader pass cannot be made: {error}")); return false; }
+            }
+        }
+        let texture = self.texture;
+        let (Some(planes), Some(pass)) = (self.vulkan.as_mut(), self.planes.as_mut()) else { return false };
+        // SAFETY: A live Vulkan frame of the decoder on this renderer's device (`device_context`);
+        // planes and pass made on this renderer for pictures shaped like it (a change of shape
+        // changes the parameters, which destroys them).
+        let drawn = unsafe { planes.copy(renderer, frame.raw.as_ptr()).and_then(|()| pass.draw_bound(renderer, texture, &parameters)) };
+        match drawn {
+            Ok(()) => true,
+            Err(error) => { self.fail(format!("drawing a {what} failed: {error}"), error); false }
         }
     }
 
@@ -1684,6 +1747,40 @@ pub(crate) mod tests {
             assert!(media::PlanarLayout::of(&info(kind, 64, 32, 1, 1)).is_none());
         }
         assert!(media::PlanarLayout::of(&info(media::FRAME_YUV444P, 0, 32, 1, 1)).is_none());
+    }
+
+    /// A Vulkan video picture goes to the plane shader as the planar picture of its depth and
+    /// chroma, with the colour flags a software-decoded one gets, and flag 256 in place of 64: its
+    /// chroma is interleaved and its 10-bit samples sit in the high bits. Never through SDL's P010,
+    /// which SDL reads as PQ.
+    #[cfg(unix)]
+    #[test]
+    fn a_vulkan_picture_is_drawn_as_the_planar_picture_of_its_depth_and_chroma() {
+        // BT.2020 (matrix 2, flag 8), limited range, SDR.
+        let info = |kind, ten_bit, color_trc| FrameInfo { kind, width: 7, height: 5, ten_bit, color_trc, ..frame(1, 9, 1) };
+        let layout = |kind, ten_bit| media::PlanarLayout::of_vulkan(&info(kind, ten_bit, 1)).unwrap();
+        let shape = |layout: media::PlanarLayout| (layout.chroma444, layout.ten_bit);
+        assert_eq!(shape(layout(media::FRAME_VULKAN, 0)), (false, false));
+        assert_eq!(shape(layout(media::FRAME_VULKAN, 1)), (false, true));
+        assert_eq!(shape(layout(media::FRAME_VULKAN444, 1)), (true, true));
+        assert_eq!([0, 1].map(|p| layout(media::FRAME_VULKAN, 0).plane_size(p)), [(7, 5), (4, 3)]);
+        for kind in [media::FRAME_NV12, media::FRAME_P010, media::FRAME_DMABUF, media::FRAME_YUV420P10, 4] {
+            assert!(media::PlanarLayout::of_vulkan(&info(kind, 1, 1)).is_none(), "kind {kind}");
+        }
+        assert!(media::PlanarLayout::of(&info(media::FRAME_VULKAN, 1, 1)).is_none());
+        // 10-bit SDR: no HDR flag, the 10-bit flag (16) and 256, never 64.
+        let sdr10 = info(media::FRAME_VULKAN, 1, 1);
+        let flags = vulkan_flags(planar_parameters(&sdr10, layout(media::FRAME_VULKAN, 1), false, 1.0, 1.0), true)[6];
+        assert_eq!(flags, 8 | 16 | 256);
+        // HDR10 and HLG keep their flags.
+        let pq = FrameInfo { color_trc: TRC_PQ, ..sdr10 };
+        assert_eq!(vulkan_flags(planar_parameters(&pq, layout(media::FRAME_VULKAN, 1), true, 2.5, 4.0), true)[6], 2 | 8 | 16 | 256);
+        let hlg = FrameInfo { color_trc: TRC_HLG, ..pq };
+        assert_eq!(vulkan_flags(planar_parameters(&hlg, layout(media::FRAME_VULKAN, 1), true, 2.5, 4.0), true)[6], 2 | 8 | 16 | 128 | 256);
+        // 8-bit 4:4:4, full range.
+        let full = FrameInfo { color_range: 2, ..info(media::FRAME_VULKAN444, 0, 1) };
+        assert_eq!(vulkan_flags(planar_parameters(&full, layout(media::FRAME_VULKAN444, 0), false, 1.0, 1.0), true)[6], 1 | 8 | 32 | 256);
+        assert_eq!(vulkan_flags([0, 0, 0, 0, 0, 0, 16 | 64, 0], false)[6], 16 | 64, "other pictures keep 64");
     }
 
     /// Linux hardware decoders (VAAPI, NVDEC, V4L2) hand SDL NV12 and P010 pictures, and SDL read

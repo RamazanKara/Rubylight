@@ -210,6 +210,8 @@ pub enum Dialog {
     /// Home or PCs in the top bar would leave a page whose transfers still run, which cancels
     /// them: asked first.
     ConfirmLeave { to: Screen },
+    /// Back where Back ends (Home, or the PCs without Home): a controller's way to close Nightjar.
+    ConfirmExit,
 }
 
 /// The header's top-level destinations, left to right.
@@ -642,11 +644,14 @@ impl Launcher {
     fn back(&mut self, commands: &mut Vec<Command>) {
         match &self.dialog {
             Dialog::None => match self.screen {
-                Screen::Home => {}
+                // The end of the line: B asks to close Nightjar, so a controller alone can.
+                Screen::Home => self.ask(Dialog::ConfirmExit),
                 Screen::Hosts => {
                     if !self.trail.is_empty() || self.root() == Screen::Home {
                         let root = self.root();
                         self.pop(root);
+                    } else {
+                        self.ask(Dialog::ConfirmExit);
                     }
                 }
                 Screen::Apps(_) | Screen::Game { .. } | Screen::AllGames | Screen::HostDetails(_) | Screen::Files(_) | Screen::Help => {

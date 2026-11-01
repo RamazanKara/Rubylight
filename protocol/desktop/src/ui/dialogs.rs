@@ -414,6 +414,30 @@ impl Launcher {
                         });
                     });
             }
+            Dialog::ConfirmExit => {
+                egui::Modal::new(Id::unique("confirm-exit"))
+                    .frame(frame)
+                    .backdrop_color(Color32::from_black_alpha(150))
+                    .show(ctx, |ui| {
+                        ui.set_width(440.0);
+                        ui.label(RichText::new(tr("Close Nightjar?")).font(semibold(text::SECTION)));
+                        dialog_buttons(ui, |ui| {
+                            if primary_button(ui, "Close Nightjar").clicked() {
+                                commands.push(Command::Quit);
+                                close = true;
+                            }
+                            // Focus starts on Cancel: a second B or a stray A never closes the app.
+                            let cancel = quiet_button(ui, "Cancel");
+                            if focus_first {
+                                cancel.request_focus();
+                                focused = true;
+                            }
+                            if cancel.clicked() {
+                                close = true;
+                            }
+                        });
+                    });
+            }
             Dialog::ConfirmSleep { host, ask, name, offer } => {
                 let (id, ask) = (*host, *ask);
                 egui::Modal::new(Id::unique("confirm-sleep"))
@@ -958,6 +982,7 @@ impl Launcher {
                 | Dialog::PairError { .. }
                 | Dialog::PairingHelp
                 | Dialog::HomeView
+                | Dialog::ConfirmExit
         );
         self.dialog = Dialog::None;
         match self.focused_key.clone().filter(|_| from_card) {

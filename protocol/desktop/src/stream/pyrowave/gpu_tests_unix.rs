@@ -277,7 +277,7 @@ fn a_renderer_made_without_the_features_is_not_shared() {
     let rig = Rig::with(false);
     let config = GpuConfig { width: 128, height: 128, chroma444: false, ten_bit: false, slots: 2 };
     let error = GpuDecoder::share(sdk(), rig.device(), config).map(drop).unwrap_err();
-    assert!(error.contains("created without the decoder's features"), "{error}");
+    assert!(error.contains("created without the decoders' features"), "{error}");
 }
 
 /// The frame container `push_container` reads: the packet count, then each packet's size and bytes.

@@ -226,6 +226,12 @@
                 <data android:mimeType="*/*" />
             </intent-filter>
         </activity>
+        <!-- Report a problem sends its report to a PC through this alias: not exported, so only Nightjar can have
+             one of its own files sent (FileTransferActivity.sendable). -->
+        <activity-alias
+            android:name=".files.SendReportToPc"
+            android:targetActivity=".files.FileTransferActivity"
+            android:exported="false" />
         <activity android:name=".preferences.KeyboardShortcutsActivity" android:exported="false" android:resizeableActivity="true" />
         <activity android:name=".LatencyBenchmarkActivity" android:exported="false" android:resizeableActivity="true" />
         <activity android:name=".HelpTopicsActivity" android:exported="false" android:resizeableActivity="true" />

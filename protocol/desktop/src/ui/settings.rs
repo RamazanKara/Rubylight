@@ -1517,7 +1517,7 @@ pub(super) fn setting_row(
                     // box, opening a menu and leaving it changes nothing.
                     // Read before the control: a number field consumes the arrow keys that step it.
                     let (before, chose) = (settings.clone(), chosen(ui));
-                    let value = control(ui, settings);
+                    let value = ui.add_enabled_ui(enabled, |ui| control(ui, settings)).inner;
                     name_for_readers(ui, &value, label, description);
                     // The box on the row's last line, beside where its value comes from, however
                     // short the control or long the description.
@@ -1526,7 +1526,8 @@ pub(super) fn setting_row(
                         ui.add_space(room);
                     }
                     let mut ticked = own || (*settings != before && chose);
-                    let boxed = layer_box(ui, &mut ticked, box_label);
+                    // A value of its own on a row turned off can still be given back.
+                    let boxed = ui.add_enabled_ui(enabled || own, |ui| layer_box(ui, &mut ticked, box_label)).inner;
                     name_for_readers(ui, &boxed, box_label, label);
                     if boxed.changed() && !ticked {
                         overrides.clear(keys);
@@ -1544,15 +1545,17 @@ pub(super) fn setting_row(
             let reset_w = ui.painter().layout_no_wrap(tr("Reset").to_owned(), semibold(text::LABEL), *ON_SURFACE).size().x + 24.0;
             let mut reset = false;
             let response = settings_row(ui, label, description, why, None, false, enabled, reset_w, |ui| {
-                let value = control(ui, settings);
-                name_for_readers(ui, &value, label, description);
-                if differs {
-                    let button = text_button(ui, "Reset").on_hover_text(trf("Default: {}", &[&default]));
-                    let name = trf("Reset {} to its default, {}", &[&tr(label), &default]);
-                    ui.ctx().accesskit_node_builder(button.id, |node| node.set_label(name));
-                    reset = button.clicked();
-                }
-                value
+                ui.add_enabled_ui(enabled, |ui| {
+                    let value = control(ui, settings);
+                    name_for_readers(ui, &value, label, description);
+                    if differs {
+                        let button = text_button(ui, "Reset").on_hover_text(trf("Default: {}", &[&default]));
+                        let name = trf("Reset {} to its default, {}", &[&tr(label), &default]);
+                        ui.ctx().accesskit_node_builder(button.id, |node| node.set_label(name));
+                        reset = button.clicked();
+                    }
+                    value
+                }).inner
             });
             if reset {
                 let mut defaults = Overrides::default();
@@ -1562,9 +1565,11 @@ pub(super) fn setting_row(
             response
         }
         _ => settings_row(ui, label, description, why, None, false, enabled, 0.0, |ui| {
-            let value = control(ui, settings);
-            name_for_readers(ui, &value, label, description);
-            value
+            ui.add_enabled_ui(enabled, |ui| {
+                let value = control(ui, settings);
+                name_for_readers(ui, &value, label, description);
+                value
+            }).inner
         }),
     };
     if std::mem::take(&mut rows.focus_first) {
@@ -1575,7 +1580,8 @@ pub(super) fn setting_row(
 
 /// A row: label, description and any notes on the left, the control on the right. A row a PC,
 /// game or profile sets has an amber bar at its left edge. `reset_w` keeps room left of the
-/// control for a Reset, so the text never moves when it comes and goes.
+/// control for a Reset, so the text never moves when it comes and goes. `enabled` only dims the
+/// text: `control` turns off what it draws itself, so a layer's box can stay on.
 #[allow(clippy::too_many_arguments)]
 fn settings_row(
     ui: &mut Ui,
@@ -1613,9 +1619,7 @@ fn settings_row(
                     }
                 });
                 let align = if state.is_some() { Align::Min } else { Align::Center };
-                ui.with_layout(Layout::right_to_left(align), |ui| {
-                    out = Some(ui.add_enabled_ui(enabled, control).inner);
-                });
+                ui.with_layout(Layout::right_to_left(align), |ui| out = Some(control(ui)));
             });
         });
     if own {

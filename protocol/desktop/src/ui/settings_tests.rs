@@ -331,6 +331,34 @@ fn full_chroma_leaves_video_decoding_alone() {
     assert_eq!(control_disabled(&f, decoding), Some(true));
 }
 
+/// A PC's own value on a row that is turned off (YUV 4:4:4 under PyroWave) can still be given
+/// back with its box; a row turned off and not set here keeps its box off too.
+#[test]
+fn a_pcs_own_value_on_a_disabled_row_can_be_cleared() {
+    use egui::accesskit::{Role, Toggled};
+    let mut f = Frames::new(record("PC", true, false), Reach::Online);
+    f.size = vec2(1280.0, 4000.0);
+    f.ctx.enable_accesskit();
+    f.hosts.list[0].record.settings = Some(serde_json::from_str(r#"{"codec":"PyroWave","prefer_yuv444":true}"#).unwrap());
+    let id = f.hosts.list[0].id;
+    f.l.open_host_settings(id, &f.hosts.list[0]);
+    f.settle();
+    let row_box = |f: &Frames, row: &str| {
+        f.access.as_ref().expect("AccessKit is on").nodes.iter()
+            .find(|(_, n)| n.role() == Role::CheckBox && n.label() == Some("For this PC") && n.description() == Some(row))
+            .map(|(_, n)| (n.toggled(), n.is_disabled(), n.bounds().expect("laid out")))
+            .unwrap_or_else(|| panic!("{row}'s box"))
+    };
+    let (toggled, disabled, bounds) = row_box(&f, "Sharper colored text (YUV 4:4:4)");
+    assert_eq!((toggled, disabled), (Some(Toggled::True), false), "the PC's own value can be unticked");
+    assert_eq!(control_disabled(&f, "Keeps full color detail"), Some(true), "the switch itself stays off under PyroWave");
+    let (toggled, disabled, _) = row_box(&f, "Less color banding (10-bit SDR)");
+    assert_eq!((toggled, disabled), (Some(Toggled::False), true), "a row off and not set here keeps its box off");
+    f.click_at(Pos2::new(((bounds.x0 + bounds.x1) / 2.0) as f32, ((bounds.y0 + bounds.y1) / 2.0) as f32), egui::PointerButton::Primary);
+    assert!(!f.l.edit_overrides.has(&["prefer_yuv444"]) && f.l.edit_overrides.has(&["codec"]), "{:?}", f.l.edit_overrides);
+    assert_eq!(row_box(&f, "Sharper colored text (YUV 4:4:4)").0, Some(Toggled::False));
+}
+
 /// The settings page in every state worth a look, at 1280x800 (150 %) and 1920x1080:
 /// `NIGHTJAR_SHOTS=<dir> cargo test -p nightjar-desktop settings_screenshots -- --ignored`.
 #[test]

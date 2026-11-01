@@ -98,6 +98,90 @@ impl ApiVersion {
     pub const fn event(self) -> u32 {
         self.structure(if self.modern_depth() { 2 } else { 1 }, false)
     }
+    /// A session on an `ID3D12Device`, with fence points on the input and the
+    /// output: API 12.0 (driver 522.25) and newer. SDK 11.1 had the interface
+    /// with other structure layouts, and no reviewed candidate uses them.
+    pub const fn d3d12(self) -> bool {
+        self.0 >= 12
+    }
+    /// Per-block statistics (`enableOutputStats`, `outputStatsPtr`): API 12.1
+    /// (driver 531.61) and newer.
+    pub const fn block_stats(self) -> bool {
+        self.0 > 12 || (self.0 == 12 && self.1 >= 1)
+    }
+}
+
+/// The block edge of NVENC's per-picture QP delta map: a 16x16 macroblock
+/// for H.264, the 32x32 CTB for HEVC (the only CTB size NVENC codes) and a
+/// 64x64 superblock for AV1.
+pub fn delta_block(codec: u8) -> u32 {
+    match codec {
+        0 => 16,
+        1 => 32,
+        _ => 64,
+    }
+}
+
+/// The QP delta map's size in blocks for a coded picture.
+pub fn delta_grid(codec: u8, width: u32, height: u32) -> (u32, u32) {
+    let block = delta_block(codec);
+    (width.div_ceil(block), height.div_ceil(block))
+}
+
+/// QP per importance step. AMF's ROI map moved block QP by about half a QP
+/// per step on the RX 7900 XT (docs/encoder-focus-design.md, section 2), so
+/// the same map weighs blocks alike on both encoders.
+pub const FOCUS_QP_PER_STEP: f64 = 0.5;
+/// AV1's map is in q-index, about four steps per QP, as AMF's AV1 feedback.
+pub const FOCUS_Q_INDEX_SCALE: f64 = 4.0;
+
+/// NVENC's `qpDeltaMap` for an encoder focus importance map (0..=10 per
+/// [`crate::encoder_focus::block`], row by row) of a `width` x `height`
+/// coded picture, written into `out`. A more important block gets a lower
+/// QP. The offsets are centred on the picture's mean importance, so the map
+/// moves bits between blocks without moving the frame's QP away from the
+/// rate control's choice, which the one-frame VBV holds. HEVC's 32x32 CTBs
+/// each take the 64x64 block they lie in.
+pub fn focus_deltas(
+    codec: u8,
+    (width, height): (u32, u32),
+    map: &[u32],
+    (columns, rows): (u32, u32),
+    out: &mut Vec<i8>,
+) -> std::result::Result<(), String> {
+    let expected = crate::encoder_focus::grid(codec, width, height);
+    if (columns, rows) != expected || map.len() != columns as usize * rows as usize {
+        return Err(format!(
+            "encoder focus map is {columns}x{rows} blocks ({} values), but NVENC codes {width}x{height} in {}x{} focus blocks",
+            map.len(),
+            expected.0,
+            expected.1
+        ));
+    }
+    let (map_block, block) = (crate::encoder_focus::block(codec), delta_block(codec));
+    let (wide, high) = delta_grid(codec, width, height);
+    let cell = |x: u32, y: u32| {
+        let column = (x * block / map_block).min(columns - 1);
+        let row = (y * block / map_block).min(rows - 1);
+        map[(row * columns + column) as usize].min(10)
+    };
+    out.clear();
+    out.reserve(wide as usize * high as usize);
+    let mut sum = 0u64;
+    for y in 0..high {
+        for x in 0..wide {
+            sum += u64::from(cell(x, y));
+        }
+    }
+    let mean = sum as f64 / f64::from((wide * high).max(1));
+    let scale = FOCUS_QP_PER_STEP * if codec == 2 { FOCUS_Q_INDEX_SCALE } else { 1. };
+    for y in 0..high {
+        for x in 0..wide {
+            let delta = ((mean - f64::from(cell(x, y))) * scale).round();
+            out.push(delta.clamp(-51., 51.) as i8);
+        }
+    }
+    Ok(())
 }
 
 /// How NVENC spends bits: a constant bitrate, or a variable one up to 1.5
@@ -358,6 +442,10 @@ impl References {
         let pending = std::mem::take(&mut self.confirmation);
         pending && !idr
     }
+    /// What [`Self::confirmation`] returns for the next frame, without taking it.
+    pub fn confirming(&self, idr: bool) -> bool {
+        self.confirmation && !idr
+    }
 }
 
 #[cfg(test)]
@@ -544,5 +632,41 @@ mod tests {
         assert_eq!((unknown.effective, unknown.budget_ms), (5, 0.));
         assert_eq!(frame_budget(5, (1920, 1080), -60., 1, true).effective, 5);
         assert_eq!(frame_budget(0, (1920, 1080), 60., 1, true).configured, 1);
+    }
+    #[test]
+    fn the_d3d12_interface_and_block_statistics_follow_the_api() {
+        assert!(!ApiVersion(11, 0).d3d12());
+        assert!(ApiVersion(12, 0).d3d12() && ApiVersion(13, 0).d3d12());
+        assert!(!ApiVersion(12, 0).block_stats());
+        assert!(ApiVersion(12, 1).block_stats() && ApiVersion(13, 0).block_stats());
+    }
+    #[test]
+    fn the_focus_delta_map_moves_qp_between_blocks_around_the_mean() {
+        let mut out = Vec::new();
+        // H.264: a delta per macroblock, half a QP per importance step.
+        focus_deltas(0, (32, 16), &[10, 0], (2, 1), &mut out).unwrap();
+        assert_eq!(out, [-3, 3]);
+        // A uniform map moves nothing.
+        focus_deltas(0, (32, 16), &[7, 7], (2, 1), &mut out).unwrap();
+        assert_eq!(out, [0, 0]);
+        // HEVC's 32x32 CTBs each take the 64x64 block they lie in.
+        focus_deltas(1, (128, 64), &[10, 0], (2, 1), &mut out).unwrap();
+        assert_eq!(out, [-3, -3, 3, 3, -3, -3, 3, 3]);
+        // A partial CTB at the edge takes the last block.
+        focus_deltas(1, (100, 40), &[10, 0], (2, 1), &mut out).unwrap();
+        assert_eq!(out.len(), 8);
+        assert_eq!(out[3], 3);
+        // AV1 is in q-index, four steps per QP.
+        focus_deltas(2, (128, 64), &[10, 0], (2, 1), &mut out).unwrap();
+        assert_eq!(out, [-10, 10]);
+        // Values over 10 count as 10.
+        focus_deltas(0, (32, 16), &[30, 0], (2, 1), &mut out).unwrap();
+        assert_eq!(out, [-3, 3]);
+        assert_eq!(delta_grid(1, 1920, 1080), (60, 34));
+        assert_eq!(delta_grid(2, 1920, 1080), (30, 17));
+        // A map of another size is refused.
+        let error = focus_deltas(0, (32, 16), &[1, 2, 3], (3, 1), &mut out).unwrap_err();
+        assert!(error.contains("3x1"), "{error}");
+        assert!(focus_deltas(0, (32, 16), &[1], (2, 1), &mut out).is_err());
     }
 }

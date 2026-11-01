@@ -431,6 +431,17 @@ class ServiceInputs(unittest.TestCase):
         readme = (ROOT / 'rust/release/README.md').read_text(encoding='utf-8')
         self.assertIn('service_inputs.py --update', readme)
 
+    def test_build_script_loops_never_reuse_a_parameter_name(self):
+        # PowerShell names are case-insensitive: `foreach ($package ...)` in
+        # rust/build.ps1 assigned to its [switch]$Package and stopped packaging.
+        build = (ROOT / 'rust/build.ps1').read_text(encoding='utf-8')
+        param = re.search(r'^param\s*\((.*?)^\)', build, re.S | re.M | re.I)
+        self.assertIsNotNone(param)
+        names = {n.lower() for n in re.findall(r'\$(\w+)', param.group(1))}
+        loops = {n.lower() for n in re.findall(r'foreach\s*\(\s*\$(\w+)\s+in\b', build, re.I)}
+        self.assertIn('package', names)
+        self.assertEqual(loops & names, set())
+
     def test_the_build_script_counts_and_the_toolchain_and_cargo_configuration_do_not(self):
         inputs = self.tool.files(ROOT)
         self.assertIn('rust/service/build.ps1', inputs)

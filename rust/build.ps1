@@ -283,7 +283,8 @@ try {
         Assert-NativeExit 'Service dependency manifest'
         $packages = @(($metadata | ConvertFrom-Json).packages)
         $known = @{}
-        foreach ($package in $packages) { $known["$($package.name) $($package.version)"] = $true }
+        # Not $package: that is this script's -Package switch.
+        foreach ($dependency in $packages) { $known["$($dependency.name) $($dependency.version)"] = $true }
         $packages += @(($serviceMetadata | ConvertFrom-Json).packages | Where-Object { !$known["$($_.name) $($_.version)"] })
         $packages | Select-Object name, version, license, repository, source | ConvertTo-Json | Set-Content -LiteralPath "$distribution\licenses\rust-dependencies.json" -Encoding utf8
         $version = (Select-String -LiteralPath (Join-Path $repo 'Cargo.toml') -Pattern '^version = "(.+)"').Matches[0].Groups[1].Value

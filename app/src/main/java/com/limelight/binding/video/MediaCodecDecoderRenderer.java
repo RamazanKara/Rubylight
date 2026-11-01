@@ -290,6 +290,10 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     private final PresentScheduler presentScheduler = new PresentScheduler(hostFrameClock);
     private final DecoderQueuePolicy.Residency residency = new DecoderQueuePolicy.Residency();
     private final DecoderQueuePolicy.InFlight inFlight = new DecoderQueuePolicy.InFlight();
+    // Smoothest and the frame rate limit: a frame the decoder keeps queued gives way to the one
+    // behind it (DecoderQueuePolicy.Debt). Renderer thread only, reset where codec recovery has
+    // quiesced it.
+    private final DecoderQueuePolicy.Debt debt = new DecoderQueuePolicy.Debt();
     private volatile boolean frameRenderedListenerSet;
     // Why the catch-up loop wants to drop the output it holds; see wantsCatchUp.
     private String catchUpReason;
@@ -2679,6 +2683,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                 frameLatencyStats.discardPending("codec_reset");
                 // Frames inside the codec are gone; the scheduler counts from here.
                 decoderDepthBase = numFramesIn - numFramesOut;
+                debt.reset();
                 if (hostFrameTimes) {
                     hostFrameClock.reset();
                     presentScheduler.reset();
@@ -3263,6 +3268,15 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         frameLatencyStats.onQueueState(index, DecoderQueuePolicy.depth(numFramesIn, numFramesOut, decoderDepthBase), excessNs);
     }
 
+    /** Feeds the debt policy with the output at index, logs the queue it saw and an ended recovery. */
+    private void noteDebt(int index) {
+        long excessNs = debt.onOutput(frameLatencyStats.getInputToOutputNs(index), System.nanoTime(),
+                contentIntervalNs());
+        frameLatencyStats.onQueueState(index, DecoderQueuePolicy.depth(numFramesIn, numFramesOut, decoderDepthBase), excessNs);
+        String event = debt.takeEvent();
+        if (event != null) LimeLog.info(event);
+    }
+
     /**
      * Whether the output at index, held while a newer one may be waiting, should be dropped for it,
      * and why (catchUpReason): older than the age budget, or the decoder holds a surplus.
@@ -3428,18 +3442,23 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
 
     /**
      * Pacing other than balanced: drops outputs a newer one replaces (see wantsCatchUp) and
-     * releases the last. Returns the last dequeue result, which may be a negative INFO_ code.
+     * releases the last, unless decoder debt drops it for the frame behind it (see
+     * DecoderQueuePolicy.Debt). Returns the last dequeue result, which may be a negative INFO_ code.
      */
     private int releaseNewestOutput(int outIndex, long ptsUs, BufferInfo info, long outputDrainStartNs) {
         int lastIndex = outIndex;
         long lastPtsUs = ptsUs;
         // Latency mode takes the newest output. Smooth modes only catch up
-        // after a backlog exceeds the age budget, then resume normal order.
+        // after a backlog exceeds the age budget or a sustained debt, then
+        // resume normal order.
         // All frames have already been decoded, preserving codec references.
         int drained = 0;
         boolean scheduled = FramePacingPolicy.schedulesFrames(
                 hostFrameTimes, prefs.framePacing);
+        // Smoothest and the frame rate limit, which show every frame.
+        boolean smooth = !scheduled && !FramePacingPolicy.dropQueuedFrames(prefs.framePacing);
         if (scheduled) noteResidency(lastIndex);
+        else if (smooth) noteDebt(lastIndex);
         while (!stopping && codecRecoveryType.get() == CR_RECOVERY_TYPE_NONE &&
                 FramePacingPolicy.hasOutputDrainTimeRemaining(
                         SystemClock.elapsedRealtimeNanos() - outputDrainStartNs,
@@ -3462,6 +3481,37 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             lastPtsUs = info.presentationTimeUs;
             drained++;
             if (scheduled) noteResidency(lastIndex);
+            else if (smooth) noteDebt(lastIndex);
+        }
+
+        if (smooth && outIndex != MediaCodec.INFO_OUTPUT_FORMAT_CHANGED && !stopping &&
+                codecRecoveryType.get() == CR_RECOVERY_TYPE_NONE &&
+                debt.shouldDrop(DecoderQueuePolicy.depth(numFramesIn, numFramesOut, decoderDepthBase))) {
+            // Sustained decoder debt with a newer frame already in the decoder: drop the held
+            // output for it. The newest frame is always shown, and no keyframe is requested.
+            int newer = videoDecoder.dequeueOutputBuffer(info, 0);
+            if (newer == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
+                // Show the held output; the renderer loop takes the format change first.
+                outIndex = newer;
+            }
+            else {
+                long nowNs = System.nanoTime();
+                if (newer >= 0) frameLatencyStats.onDecoderOutput(newer, info.presentationTimeUs, nowNs);
+                frameLatencyStats.onDropReason(lastIndex, "debt");
+                frameLatencyStats.onOutputReleased(lastIndex, nowNs, false, reportsRenderTimes());
+                videoDecoder.releaseOutputBuffer(lastIndex, false);
+                debt.onDropped();
+                if (newer < 0) {
+                    // The newer frame is not decoded yet. The buffer returned here is free for
+                    // it, and the renderer loop shows it when it comes out.
+                    return newer;
+                }
+                numFramesOut++;
+                lastIndex = newer;
+                lastPtsUs = info.presentationTimeUs;
+                outIndex = newer;
+                noteDebt(lastIndex);
+            }
         }
 
         if (scheduled) {

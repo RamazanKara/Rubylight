@@ -1783,6 +1783,20 @@ fn a_display_that_cannot_follow_a_turned_stream_says_so_on_the_card() {
 }
 
 #[test]
+fn a_monitor_left_on_after_repeated_returns_says_so_on_the_card() {
+    let first = Arc::new(Warnings::default());
+    let report = ModeReport::new(first.clone(), (None, None, None), 60_000);
+    report.keep_on();
+    assert_eq!(codes(&first), ["display_kept_on"]);
+    // A later mode finding keeps it; a resumed launch sees it on its own card.
+    report.publish(Ok((1920, 1080, 60_000, false)));
+    assert_eq!(codes(&first), ["display_kept_on"]);
+    let second = Arc::new(Warnings::default());
+    report.attach(second.clone());
+    assert_eq!(codes(&second), ["display_kept_on"]);
+}
+
+#[test]
 fn a_recovery_sets_the_mode_once_while_its_layout_is_retried() {
     let now = std::time::Instant::now();
     let mut recovery = Recovery::new();

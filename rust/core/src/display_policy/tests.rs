@@ -849,16 +849,52 @@ fn a_display_the_exclusive_layout_switched_off_is_put_back_off_after_it_settles(
     assert!(!watch.due(at(100)));
     assert!(watch.due(at(250)));
     // A game's own mode switch that settles within the window is left alone.
-    assert!(!watch.observe(true, at(0)));
-    assert!(!watch.observe(true, at(250)));
-    assert!(!watch.observe(false, at(500)));
-    assert!(!watch.observe(true, at(750)));
-    assert!(!watch.observe(true, at(1000)));
+    let phys = vec!["phys".to_string()];
+    assert_eq!(watch.observe(&phys, at(0)), LayoutAction::Wait);
+    assert_eq!(watch.observe(&phys, at(250)), LayoutAction::Wait);
+    assert_eq!(watch.observe(&[], at(500)), LayoutAction::Wait);
+    assert_eq!(watch.observe(&phys, at(750)), LayoutAction::Wait);
+    assert_eq!(watch.observe(&phys, at(1000)), LayoutAction::Wait);
     // Still on after the settle time: put the layout back once.
-    assert!(watch.observe(true, at(1250)));
-    assert!(!watch.observe(true, at(1500)));
+    assert_eq!(watch.observe(&phys, at(1250)), LayoutAction::Reapply);
+    assert_eq!(watch.observe(&phys, at(1500)), LayoutAction::Wait);
     // A refused attempt waits before the next check.
     watch.failed(at(1500));
     assert!(!watch.due(at(3000)));
     assert!(watch.due(at(3500)));
+}
+
+#[test]
+fn a_monitor_that_keeps_coming_back_is_left_on() {
+    use std::time::{Duration, Instant};
+    let start = Instant::now();
+    let at = |s: u64| start + Duration::from_secs(s);
+    let settled = |watch: &mut LayoutWatch, displays: &[String], s: u64| {
+        assert_eq!(watch.observe(displays, at(s)), LayoutAction::Wait);
+        watch.observe(displays, at(s) + LayoutWatch::SETTLE)
+    };
+    let phys = vec!["phys".to_string()];
+    let tv = vec!["tv".to_string()];
+    let mut watch = LayoutWatch::default();
+    // Refused attempts (the secure desktop) are not returns.
+    for s in [0, 2, 4, 6] {
+        assert_eq!(settled(&mut watch, &phys, s), LayoutAction::Reapply);
+        watch.failed(at(s));
+    }
+    // Returns spread wider than the window keep the fight going.
+    for s in [10, 320, 640, 660] {
+        assert_eq!(settled(&mut watch, &phys, s), LayoutAction::Reapply);
+        watch.reapplied(&phys, at(s));
+    }
+    // Another display's returns count on their own.
+    for s in [670, 680] {
+        assert_eq!(settled(&mut watch, &tv, s), LayoutAction::Reapply);
+        watch.reapplied(&tv, at(s));
+    }
+    // Issue #56: the third return of the same monitor within the window leaves it on.
+    assert_eq!(
+        settled(&mut watch, &phys, 700),
+        LayoutAction::KeepOn(phys.clone())
+    );
+    assert!(!watch.due(at(800)));
 }

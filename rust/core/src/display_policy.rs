@@ -722,36 +722,72 @@ pub fn chosen_layout(
 /// When the heartbeat checks [`switched_back_on`] and puts the stream's layout
 /// back. A display must stay on for [`LayoutWatch::SETTLE`] first, so a game's
 /// own mode switch passes without a fight; a failed attempt (the secure
-/// desktop refuses display changes) waits [`LayoutWatch::RETRY`].
+/// desktop refuses display changes) waits [`LayoutWatch::RETRY`]. A monitor
+/// that comes back [`LayoutWatch::RETURNS`] times within
+/// [`LayoutWatch::RETURN_WINDOW`] is left on for the rest of the stream
+/// (issue #56: a monitor that drops its HDMI link in standby reappears every
+/// 30-60 s, and each switch-off blanked the stream).
 #[derive(Debug, Default)]
 pub struct LayoutWatch {
     next_check: Option<std::time::Instant>,
     since: Option<std::time::Instant>,
+    /// Each display the layout was put back for, and when.
+    returns: Vec<(String, std::time::Instant)>,
+    /// A display kept coming back: the layout is left alone from now on.
+    stopped: bool,
+}
+/// What [`LayoutWatch::observe`] decides.
+#[derive(Debug, PartialEq, Eq)]
+pub enum LayoutAction {
+    Wait,
+    Reapply,
+    /// These displays keep coming back: leave them on and stop watching.
+    KeepOn(Vec<String>),
 }
 impl LayoutWatch {
     pub const INTERVAL: std::time::Duration = std::time::Duration::from_millis(250);
     pub const SETTLE: std::time::Duration = std::time::Duration::from_millis(500);
     pub const RETRY: std::time::Duration = std::time::Duration::from_secs(2);
+    pub const RETURNS: usize = 3;
+    pub const RETURN_WINDOW: std::time::Duration = std::time::Duration::from_secs(300);
     /// Whether to query the displays now.
     pub fn due(&mut self, now: std::time::Instant) -> bool {
-        if self.next_check.is_some_and(|next| now < next) {
+        if self.stopped || self.next_check.is_some_and(|next| now < next) {
             return false;
         }
         self.next_check = Some(now + Self::INTERVAL);
         true
     }
-    /// Record a check; true when the layout should be put back now.
-    pub fn observe(&mut self, switched_on: bool, now: std::time::Instant) -> bool {
-        if !switched_on {
+    /// Record a check of the displays that came back on.
+    pub fn observe(&mut self, switched_on: &[String], now: std::time::Instant) -> LayoutAction {
+        if switched_on.is_empty() {
             self.since = None;
-            return false;
+            return LayoutAction::Wait;
         }
         let since = *self.since.get_or_insert(now);
         if now.duration_since(since) < Self::SETTLE {
-            return false;
+            return LayoutAction::Wait;
         }
         self.since = None;
-        true
+        self.returns
+            .retain(|(_, at)| now.duration_since(*at) < Self::RETURN_WINDOW);
+        let returning: Vec<String> = switched_on
+            .iter()
+            .filter(|display| {
+                self.returns.iter().filter(|(d, _)| d == *display).count() + 1 >= Self::RETURNS
+            })
+            .cloned()
+            .collect();
+        if returning.is_empty() {
+            return LayoutAction::Reapply;
+        }
+        self.stopped = true;
+        LayoutAction::KeepOn(returning)
+    }
+    /// The layout was put back for `displays`; a refused attempt is not a return.
+    pub fn reapplied(&mut self, displays: &[String], now: std::time::Instant) {
+        self.returns
+            .extend(displays.iter().map(|display| (display.clone(), now)));
     }
     pub fn failed(&mut self, now: std::time::Instant) {
         self.since = None;

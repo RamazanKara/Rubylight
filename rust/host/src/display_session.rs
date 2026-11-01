@@ -224,6 +224,8 @@ struct ModeReportState {
     /// A shared virtual display: another stream on it may have raised its
     /// refresh above the requested one, which serves this stream too.
     shared: bool,
+    /// The exclusive layout stopped switching a display off because it kept coming back.
+    kept_on: bool,
 }
 impl ModeReportState {
     fn report(&self) {
@@ -252,6 +254,11 @@ impl ModeReportState {
             Some(error) => self.warnings.set("display_follow", format!("The display could not turn with the stream ({error}); the picture is scaled to fit instead. Check Windows display settings or turn the device back.")),
             None => self.warnings.clear("display_follow"),
         }
+        if self.kept_on {
+            self.warnings.set("display_kept_on", "Windows kept switching a monitor back on during the stream, so it stays on until the stream ends. A monitor that loses its signal in standby or scans its inputs (Auto Scan) reconnects like this; turn that off on the monitor, or use the Extended layout.");
+        } else {
+            self.warnings.clear("display_kept_on");
+        }
     }
 }
 impl ModeReport {
@@ -263,7 +270,14 @@ impl ModeReport {
             last: None,
             unfollowed: None,
             shared: false,
+            kept_on: false,
         })))
+    }
+    /// The layout leaves a display that keeps coming back on for the rest of the stream.
+    fn keep_on(&self) {
+        let mut state = self.0.lock().unwrap();
+        state.kept_on = true;
+        state.report();
     }
     /// The display is a shared virtual display: only a refresh below the
     /// requested one is reported.
@@ -992,6 +1006,7 @@ impl Prepared {
     /// monitor on; the virtual display stays on, so the recovery above never
     /// starts.
     fn keep_layout(&mut self) -> Result<()> {
+        use butterpollo_core::display_policy::LayoutAction;
         let now = std::time::Instant::now();
         if self.recovery.pending || !self.layout_watch.due(now) {
             return Ok(());
@@ -1006,13 +1021,23 @@ impl Prepared {
                 return Err(error);
             }
         };
-        if !self.layout_watch.observe(!switched_on.is_empty(), now) {
-            return Ok(());
+        match self.layout_watch.observe(&switched_on, now) {
+            LayoutAction::Wait => return Ok(()),
+            LayoutAction::Reapply => {}
+            LayoutAction::KeepOn(displays) => {
+                tracing::warn!(
+                    ?displays,
+                    "a display the stream layout switched off keeps coming back on; leaving it on for the rest of the stream"
+                );
+                self.mode_report.keep_on();
+                return Ok(());
+            }
         }
         tracing::info!(displays = ?switched_on, "displays the stream layout switched off came back on; reapplying it");
         let result = arrangement.reapply(&self.output, &self.remote_monitors());
-        if result.is_err() {
-            self.layout_watch.failed(now);
+        match &result {
+            Ok(()) => self.layout_watch.reapplied(&switched_on, now),
+            Err(_) => self.layout_watch.failed(now),
         }
         result
     }

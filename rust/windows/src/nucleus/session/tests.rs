@@ -632,6 +632,71 @@ fn a_refused_hooks_box_from_before_the_start_is_not_this_games() {
     );
 }
 
+/// #59: Black Flag Resynced started with the hooks injected as Nucleus
+/// starts it shows its own box, "Disable Mandatory ASLR", and waits there
+/// with its window up. Rubylight's own handler's session ends saying what
+/// the player can do, and the game gets the next way. Without hooks there
+/// is no next way, and it says so. A hub handler's game is not kept.
+#[test]
+fn a_game_that_refuses_the_hooks_in_its_own_box_gets_the_next_way() {
+    let exe = r"D:\Games\Black Flag\ACBlackFlag.exe";
+    let aslr = MessageBox {
+        window: 600,
+        caption: String::new(),
+        text: "Disable Mandatory ASLR".into(),
+    };
+    let exempt = "turn off \"Force randomization for images (Mandatory ASLR)\" for ACBlackFlag.exe in Windows Security, App & browser control, Exploit protection, Program settings";
+    let host = tempfile::tempdir().unwrap();
+    files::refuse_inject(host.path(), exe).unwrap();
+    // The way it was started, whether it is Rubylight's own handler's game,
+    // and what Rubylight does next.
+    let ladder = [
+        (
+            Inject::Startup,
+            true,
+            Inject::Stealth,
+            format!(
+                "Game refused Nucleus Co-op's input hooks (it showed \"Disable Mandatory ASLR\"), and it waits there for an answer: start the stream again, and Rubylight has Nucleus Co-op hook it another way. To keep the hooks, you can {exempt}"
+            ),
+        ),
+        (
+            Inject::Stealth,
+            true,
+            Inject::None,
+            format!(
+                "Game refused Nucleus Co-op's input hooks (it showed \"Disable Mandatory ASLR\"), and it waits there for an answer: start the stream again, and Rubylight starts it without them. To keep the hooks, you can {exempt}"
+            ),
+        ),
+        (
+            Inject::None,
+            true,
+            Inject::None,
+            format!(
+                "Game showed \"Disable Mandatory ASLR\" even without Nucleus Co-op's input hooks, and it waits there for an answer. To start it, you can {exempt}"
+            ),
+        ),
+        (Inject::None, false, Inject::None, String::new()),
+    ];
+    for (way, own, next, why) in ladder {
+        assert_eq!(files::inject_for(host.path(), exe).unwrap(), way);
+        let t0 = Instant::now();
+        let (screen, probe) = (screen(), Probe::default());
+        let mut runner = runner(1, &screen, &probe, t0);
+        runner.own_game = own.then(|| (host.path().to_path_buf(), exe.to_string()));
+        label(&screen);
+        assert_eq!(runner.step(t0), None);
+        instance(&screen, 0);
+        assert_eq!(runner.step(t0), None);
+        assert_eq!(runner.shared.session.lock().unwrap().phase, Phase::Running);
+        // The game's own box, not Nucleus'.
+        screen.0.lock().unwrap().boxes.push((20, aslr.clone()));
+        let end = runner.step(t0 + PERIOD);
+        let wanted = own.then_some(End::Crashed(why));
+        assert_eq!(end, wanted, "{way:?}");
+        assert_eq!(files::inject_for(host.path(), exe).unwrap(), next);
+    }
+}
+
 /// #59: the stream of a game started without the hooks it refused every
 /// way tells its player that the PC's keyboard, mouse and pads reach it
 /// too; one still hooked another way is not told. A hub handler's game,

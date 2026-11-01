@@ -3115,6 +3115,74 @@ fn home_shows_a_row_per_store_that_ends_in_an_all_tile() {
     assert_eq!(f.l.screen, Screen::Home);
 }
 
+/// A column so narrow that one cover fills a line still shows each long row's All tile, alone,
+/// instead of a header over nothing; the tile still opens the row's games. (The top bar keeps the
+/// window's page wider than that, so Home is drawn into a narrow column of its own here.)
+#[test]
+fn at_one_column_a_long_row_is_its_all_tile() {
+    let mut f = store_mix();
+    let column = vec2(180.0, 2400.0);
+    assert_eq!(grid(column.x).0, 1, "one column");
+    let mut drawn = Vec::new();
+    let mut tile = None;
+    let mut clicked_at = None;
+    for n in 0..6 {
+        // The last passes click where the tile was drawn.
+        let button = |pos, pressed| egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::NONE };
+        let events = match (n, tile.or(clicked_at)) {
+            (3, Some(at)) => {
+                clicked_at = Some(at);
+                vec![egui::Event::PointerMoved(at)]
+            }
+            (4, Some(at)) => vec![button(at, true)],
+            (5, Some(at)) => vec![button(at, false)],
+            _ => Vec::new(),
+        };
+        f.time += 0.05;
+        let input = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, column)), time: Some(f.time), events, focused: true, ..Default::default() };
+        let mut commands = Vec::new();
+        let output = f.ctx.run_ui(input, |ui| {
+            let view = View { hosts: &f.hosts, pads: &f.pads, connecting: None, waking: None };
+            f.l.home(ui, &view, &mut commands, egui::TextureId::default());
+        });
+        drawn.clear();
+        let mut placed = Vec::new();
+        for clipped in &output.shapes {
+            collect_text(&clipped.shape, &mut drawn);
+            collect_placed(&clipped.shape, clipped.clip_rect, &mut placed);
+        }
+        tile = placed.iter().find(|(t, ..)| t == "All 12").map(|p| p.1.center());
+    }
+    assert!(drawn.iter().any(|t| t == "All 2"), "every long row ends in its tile: {drawn:?}");
+    assert!(!drawn.iter().any(|t| t == "Steam 00"), "no cover fits beside the tile: {drawn:?}");
+    assert!(tile.is_some(), "Steam's row is its All tile: {drawn:?}");
+    assert_eq!(f.l.screen, Screen::AllGames, "the tile opens All games");
+    assert_eq!(f.l.library_filter, console::LibraryFilter::Store("steam".into()));
+}
+
+/// A screen reader hears whose games an All tile opens, which destination is the current one,
+/// and a subpage's Back apart from the destination of the same name.
+#[test]
+fn screen_readers_hear_the_all_tiles_store_the_current_destination_and_where_back_leads() {
+    fn node<'a>(f: &'a Frames, label: &str) -> Option<&'a egui::accesskit::Node> {
+        f.access.as_ref()?.nodes.iter().map(|(_, n)| n).find(|n| n.label() == Some(label))
+    }
+    use egui::accesskit::Toggled;
+    let mut f = store_mix();
+    f.ctx.enable_accesskit();
+    f.settle();
+    assert!(node(&f, "All Steam games, 12").is_some(), "the tile names its store");
+    assert_eq!(node(&f, "Home").and_then(|n| n.toggled()), Some(Toggled::True), "Home is the current destination");
+    assert_eq!(node(&f, "PCs").and_then(|n| n.toggled()), Some(Toggled::False));
+    // A PC's library from the PCs list: Back leads to PCs and says so.
+    let id = f.hosts.list[0].id;
+    f.l.go(Screen::Hosts);
+    f.l.open(Screen::Apps(id));
+    f.settle();
+    assert!(node(&f, "Back to PCs").is_some(), "Back is not a second \"PCs\"");
+    assert_eq!(node(&f, "PCs").and_then(|n| n.toggled()), Some(Toggled::True), "the PCs pill, marked");
+}
+
 /// All games: chips for everything, what is installed, each store and the apps of no store; a chip
 /// shows only its games, and a not-installed game says so on its cover.
 #[test]

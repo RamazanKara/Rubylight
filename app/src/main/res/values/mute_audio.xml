@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources xmlns:tools="http://schemas.android.com/tools" tools:ignore="MissingTranslation">
+    <string name="title_checkbox_mute_audio">Mute audio</string>
+    <string name="summary_checkbox_mute_audio">Turns off the sound on this device. The stream and the PC are unchanged: with Play audio on the host PC on, the PC keeps playing it. Takes effect on the next stream.</string>
+</resources>

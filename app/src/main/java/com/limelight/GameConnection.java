@@ -1292,6 +1292,8 @@ final class GameConnection {
             game.decoderRenderer.setRenderTarget(game.videoSurface, game.renderView.getWidth(), game.renderView.getHeight());
             if (game.app.isSmallStreamInputOnly()) {
                 game.conn.start(new SilentAudioRenderer(), new DiscardingDecoderRenderer(), game);
+            } else if (game.prefConfig.muteAudio) {
+                game.conn.start(new SilentAudioRenderer(), game.decoderRenderer, game);
             } else {
                 game.conn.start(new AndroidAudioRenderer(game, game.prefConfig.enableAudioFx,
                                 game.prefConfig.usbDualSenseHaptics ? game.controllerHandler.headphoneAudioSink() : null),

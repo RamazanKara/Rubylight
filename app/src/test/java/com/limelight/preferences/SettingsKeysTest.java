@@ -56,7 +56,7 @@ public class SettingsKeysTest {
             "checkbox_disable_warnings", "export_latency_csv", "checkbox_quick_resume",
             com.limelight.console.HomeSettings.PREF_KEY,
             // Added later; kept here so it is never renamed either.
-            "list_virtual_display_dpi",
+            "list_virtual_display_dpi", "checkbox_mute_audio",
     };
     // Rows that open a screen or a dialog and store nothing under their key.
     private static final Set<String> ACTIONS = new HashSet<>(Arrays.asList(
@@ -331,6 +331,7 @@ public class SettingsKeysTest {
         reads.put("seekbar_osc_stick_deadzone", new Read(8, 15, c -> c.oscStickDeadzone));
         reads.put("checkbox_enable_audiofx", new Read(false, true, c -> c.enableAudioFx));
         reads.put("checkbox_audio_passthrough", new Read(false, true, c -> c.audioPassthrough));
+        reads.put("checkbox_mute_audio", new Read(false, true, c -> c.muteAudio));
         reads.put("checkbox_enable_perf_overlay", new Read(false, true, c -> c.enablePerfOverlay));
         reads.put("performance_overlay_position", new Read("top_left", "bottom_right", c -> c.overlayPosition));
         reads.put("checkbox_enable_pip", new Read(false, true, c -> c.enablePip));

@@ -56,6 +56,10 @@ mod usb_winusb;
 #[cfg_attr(not(test), allow(dead_code))]
 mod version_name;
 mod update_check;
+// Only the renderer request uses it until the decoder order and the presenter take its pictures.
+#[cfg(unix)]
+#[allow(dead_code)]
+mod vulkan_video;
 mod window_place;
 mod wol;
 

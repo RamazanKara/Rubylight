@@ -1,0 +1,1144 @@
+//! Linux hardware decoding with FFmpeg's Vulkan video on the GPU renderer's own Vulkan device,
+//! for GPUs without VAAPI (NVIDIA's driver among them), and the presenter's GPU copy of its
+//! pictures.
+//!
+//! Ported from moonlight-qt's plvk.cpp as Moonlight V+ ships it: the renderer's device is handed
+//! to FFmpeg as an `AVVulkanDeviceContext` (instance, physical and logical device, the features
+//! and device extensions it was made with, every queue family it has queues in, the decode
+//! families with their codec operations), FFmpeg's `lock_queue` / `unlock_queue` take the lock of
+//! the queue they name, and a picture is used only between the frames context's `lock_frame` and
+//! `unlock_frame`, after a wait on its timeline semaphore at `sem_value`, which the use signals
+//! one higher and leaves in the frame with the layout it left the image in (libplacebo's
+//! `pl_vulkan_release_ex` / `pl_vulkan_hold_ex`, which plvk.cpp reaches through
+//! `pl_map_avframe_ex`). Where plvk.cpp makes the device with libplacebo (`pl_vulkan_create`
+//! with the video extensions and every queue) and wraps the planes for it (`pl_vulkan_wrap`),
+//! the patched SDL makes the renderer's device with the video extensions the renderer asks for
+//! (`zero_copy::RendererRequest`) and one more queue in each video decode family
+//! (`vendor/sdl3-src/patches/vulkan-interop.patch`), and the presenter copies each picture's two
+//! planes into images of its own that SDL draws as an NV12 or P010 texture (`Planes`): SDL can
+//! only wrap single-plane color images, and the copy hands the picture back to the decoder at
+//! once, so SDL's colour handling of NV12 and P010 is the same as for pictures from memory.
+//!
+//! What cannot be done is said, never skipped silently: the decoder tries the next backend with
+//! the reason in the log (`device_context`), and a presenter that cannot copy a picture copies it
+//! to memory instead and has the decoder do so from then on, the overlay naming the copy.
+
+use std::ffi::{c_char, c_int, c_void, CStr};
+use std::ptr;
+use std::time::Duration;
+
+use ash::vk::{self, Handle};
+use sdl3_sys::everything::*;
+
+use crate::media::ffi::{
+    av_buffer_unref, av_hwdevice_ctx_alloc, av_hwdevice_ctx_init, avutil_version, AVBufferRef,
+    AVFrame, AVHWDeviceContext, AVHWFramesContext, AV_HWDEVICE_TYPE_VULKAN, AV_PIX_FMT_NV12,
+    AV_PIX_FMT_P010LE,
+};
+use crate::media::Codec;
+use crate::stream::pyrowave_sdk::zero_copy::{self, Chain, SdlVulkan, TEXTURE_IMAGE_PROPERTY};
+
+/// Set to 1, Vulkan video is tried before VAAPI and the GPU renderer is used for it (tests and
+/// A/B runs on machines with VAAPI); set to 0, it is not tried.
+pub const ENVIRONMENT: &str = "NIGHTJAR_VULKAN_VIDEO";
+
+/// What `ENVIRONMENT` asks for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Choice {
+    /// After VAAPI, for machines without it.
+    Default,
+    First,
+    Off,
+}
+
+impl Choice {
+    pub fn of(value: Option<&std::ffi::OsStr>) -> Self {
+        match value.and_then(|value| value.to_str()) {
+            Some("1") => Self::First,
+            Some("0") => Self::Off,
+            _ => Self::Default,
+        }
+    }
+
+    pub fn from_environment() -> Self {
+        Self::of(std::env::var_os(ENVIRONMENT).as_deref())
+    }
+}
+
+/// The device extensions Vulkan video decoding uses (the video ones of plvk.cpp's
+/// `k_OptionalDeviceExtensions`), bit n for `EXTENSIONS[n]`: the first two are needed for any
+/// codec, then one per codec.
+const EXTENSIONS: [&CStr; 5] = [
+    c"VK_KHR_video_queue",
+    c"VK_KHR_video_decode_queue",
+    c"VK_KHR_video_decode_h264",
+    c"VK_KHR_video_decode_h265",
+    c"VK_KHR_video_decode_av1",
+];
+const QUEUE_EXTENSIONS: u32 = 0b11;
+
+/// A set of `EXTENSIONS`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Extensions(pub u32);
+
+impl Extensions {
+    /// The ones among `names`.
+    pub fn among<'a>(names: impl IntoIterator<Item = &'a CStr>) -> Self {
+        Self(names.into_iter().fold(0, |bits, name| {
+            bits | EXTENSIONS
+                .iter()
+                .position(|known| *known == name)
+                .map_or(0, |bit| 1 << bit)
+        }))
+    }
+
+    pub fn and(self, other: Self) -> Self {
+        Self(self.0 & other.0)
+    }
+
+    /// The set itself when it decodes at least one codec, else none.
+    pub fn usable(self) -> Self {
+        if self.0 & QUEUE_EXTENSIONS == QUEUE_EXTENSIONS && self.0 & !QUEUE_EXTENSIONS != 0 {
+            self
+        } else {
+            Self(0)
+        }
+    }
+
+    pub fn is_empty(self) -> bool {
+        self.0 == 0
+    }
+
+    pub fn names(self) -> Vec<&'static CStr> {
+        EXTENSIONS
+            .iter()
+            .enumerate()
+            .filter(|(bit, _)| self.0 & (1 << bit) != 0)
+            .map(|(_, name)| *name)
+            .collect()
+    }
+
+    /// Whether the set decodes `codec`.
+    pub fn decodes(self, codec: Codec) -> bool {
+        let bit = 1 << codec_extension(codec);
+        self.usable().0 & bit != 0
+    }
+}
+
+fn codec_extension(codec: Codec) -> usize {
+    match codec {
+        Codec::H264 => 2,
+        Codec::Hevc => 3,
+        Codec::Av1 => 4,
+    }
+}
+
+fn codec_operation(codec: Codec) -> vk::VideoCodecOperationFlagsKHR {
+    match codec {
+        Codec::H264 => vk::VideoCodecOperationFlagsKHR::DECODE_H264,
+        Codec::Hevc => vk::VideoCodecOperationFlagsKHR::DECODE_H265,
+        Codec::Av1 => vk::VideoCodecOperationFlagsKHR::DECODE_AV1,
+    }
+}
+
+/// The video extensions `device` has.
+///
+/// # Safety
+/// `device` must be a physical device of `instance`.
+pub unsafe fn extensions_of(instance: &ash::Instance, device: vk::PhysicalDevice) -> Extensions {
+    let listed = instance
+        .enumerate_device_extension_properties(device)
+        .unwrap_or_default();
+    Extensions::among(
+        listed
+            .iter()
+            .filter_map(|extension| extension.extension_name_as_c_str().ok()),
+    )
+}
+
+/// Set by `zero_copy::RendererRequest::mark`: the `Extensions` the renderer's device was made with.
+pub const EXTENSIONS_PROPERTY: &CStr = c"nightjar.vulkan_video.extensions";
+// The patched SDL's (vulkan-interop.patch).
+pub const DECODE_QUEUES_PROPERTY: &CStr = c"SDL.gpu.device.create.vulkan.video_decode_queues";
+const DECODE_FAMILIES: &CStr = c"SDL.gpu.device.vulkan.video_decode_queue_families";
+
+/// Whether the libavutil of `version` (`avutil_version()`) has the `AVVulkanDeviceContext` and
+/// frame structs as declared below: their queue families arrived in 59.34 (FFmpeg 7.1), and 61
+/// drops the fixed queue fields before them.
+pub fn ffmpeg_supported(version: u32) -> Result<(), String> {
+    let (major, minor, micro) = (version >> 16, (version >> 8) & 0xff, version & 0xff);
+    if version < (59 << 16 | 34 << 8 | 100) {
+        return Err(format!(
+            "FFmpeg's libavutil {major}.{minor}.{micro} predates the Vulkan queue families this needs (59.34, FFmpeg 7.1)"
+        ));
+    }
+    if major >= 61 {
+        return Err(format!(
+            "FFmpeg's libavutil {major}.{minor}.{micro} has Vulkan structs this build does not know (it knows 59 and 60)"
+        ));
+    }
+    Ok(())
+}
+
+/// `AVVulkanDeviceQueueFamily` (libavutil/hwcontext_vulkan.h, 59.34 to 60).
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct QueueFamily {
+    idx: c_int,
+    num: c_int,
+    flags: vk::QueueFlags,
+    video_caps: vk::VideoCodecOperationFlagsKHR,
+}
+
+/// `AVVulkanDeviceContext` of libavutil 59.34 to 60 (`ffmpeg_supported`).
+#[repr(C)]
+struct DeviceContext {
+    alloc: *const c_void,
+    get_proc_addr: Option<vk::PFN_vkGetInstanceProcAddr>,
+    inst: vk::Instance,
+    phys_dev: vk::PhysicalDevice,
+    act_dev: vk::Device,
+    device_features: vk::PhysicalDeviceFeatures2<'static>,
+    enabled_inst_extensions: *const *const c_char,
+    nb_enabled_inst_extensions: c_int,
+    enabled_dev_extensions: *const *const c_char,
+    nb_enabled_dev_extensions: c_int,
+    /// The deprecated fixed queue fields (`FF_API_VULKAN_FIXED_QUEUES`), left 0: `qf` says it all.
+    fixed_queues: [c_int; 10],
+    lock_queue: Option<unsafe extern "C" fn(*mut AVHWDeviceContext, u32, u32)>,
+    unlock_queue: Option<unsafe extern "C" fn(*mut AVHWDeviceContext, u32, u32)>,
+    qf: [QueueFamily; 64],
+    nb_qf: c_int,
+}
+
+/// `AVVulkanFramesContext` of libavutil 59.34 to 60.
+#[repr(C)]
+struct FramesContext {
+    tiling: vk::ImageTiling,
+    usage: vk::ImageUsageFlags,
+    create_pnext: *mut c_void,
+    alloc_pnext: [*mut c_void; 8],
+    flags: c_int,
+    img_flags: vk::ImageCreateFlags,
+    format: [vk::Format; 8],
+    nb_layers: c_int,
+    lock_frame: Option<unsafe extern "C" fn(*mut AVHWFramesContext, *mut VkFrame)>,
+    unlock_frame: Option<unsafe extern "C" fn(*mut AVHWFramesContext, *mut VkFrame)>,
+}
+
+/// `AVVkFrame` of libavutil 59.34 to 60.
+#[repr(C)]
+struct VkFrame {
+    img: [vk::Image; 8],
+    tiling: vk::ImageTiling,
+    mem: [vk::DeviceMemory; 8],
+    size: [usize; 8],
+    flags: vk::MemoryPropertyFlags,
+    access: [vk::AccessFlags; 8],
+    layout: [vk::ImageLayout; 8],
+    sem: [vk::Semaphore; 8],
+    sem_value: [u64; 8],
+    internal: *mut c_void,
+    offset: [isize; 8],
+    queue_family: [u32; 8],
+}
+
+/// What the device context's callbacks need, kept in its `user_opaque` until FFmpeg frees it.
+struct Opaque {
+    /// The features the device was made with, which `device_features` points into.
+    chain: Box<Chain>,
+    extensions: Vec<*const c_char>,
+    /// SDL's family and the SDL_Mutex SDL holds around its queue.
+    sdl_family: u32,
+    sdl_lock: *mut SDL_Mutex,
+    /// The decode families' queues, which only FFmpeg uses, each with a lock of ours.
+    decode_locks: Vec<(u32, *mut SDL_Mutex)>,
+}
+
+impl Opaque {
+    fn lock_of(&self, family: u32) -> *mut SDL_Mutex {
+        if family == self.sdl_family {
+            return self.sdl_lock;
+        }
+        self.decode_locks
+            .iter()
+            .find(|(decode, _)| *decode == family)
+            .map_or(ptr::null_mut(), |(_, lock)| *lock)
+    }
+}
+
+impl Drop for Opaque {
+    fn drop(&mut self) {
+        for &(_, lock) in &self.decode_locks {
+            // SAFETY: Mutexes made in `device_context`, unused once FFmpeg frees the context.
+            unsafe { SDL_DestroyMutex(lock) };
+        }
+    }
+}
+
+unsafe extern "C" fn lock_queue(context: *mut AVHWDeviceContext, family: u32, _index: u32) {
+    let opaque = &*(*context).user_opaque.cast::<Opaque>();
+    // SDL_LockMutex ignores null, a family the context does not list.
+    SDL_LockMutex(opaque.lock_of(family));
+}
+
+unsafe extern "C" fn unlock_queue(context: *mut AVHWDeviceContext, family: u32, _index: u32) {
+    let opaque = &*(*context).user_opaque.cast::<Opaque>();
+    SDL_UnlockMutex(opaque.lock_of(family));
+}
+
+unsafe extern "C" fn free_opaque(context: *mut AVHWDeviceContext) {
+    let opaque = std::mem::replace(&mut (*context).user_opaque, ptr::null_mut());
+    if !opaque.is_null() {
+        drop(Box::from_raw(opaque.cast::<Opaque>()));
+    }
+}
+
+/// The renderer's Vulkan device as FFmpeg's device context for decoding `codec`, for
+/// `AVCodecContext::hw_device_ctx`. `gpu` is the GPU renderer's SDL_GPUDevice; errors say why
+/// its device cannot decode `codec`.
+///
+/// # Safety
+/// `gpu` must be null or a live SDL GPU device that outlives the context and every frame made
+/// with it.
+pub unsafe fn device_context(
+    gpu: *mut SDL_GPUDevice,
+    codec: Codec,
+) -> Result<*mut AVBufferRef, String> {
+    ffmpeg_supported(avutil_version())?;
+    if gpu.is_null() {
+        return Err(
+            "the renderer does not draw with SDL's GPU API, whose Vulkan device it would decode on"
+                .into(),
+        );
+    }
+    let sdl = SdlVulkan::of_device(gpu)?;
+    let props = SDL_GetGPUDeviceProperties(gpu);
+    let extensions =
+        Extensions(SDL_GetNumberProperty(props, EXTENSIONS_PROPERTY.as_ptr(), 0) as u32);
+    if extensions.usable().is_empty() {
+        return Err("the renderer's Vulkan device was created without the Vulkan video extensions (its devices lack them)".into());
+    }
+    if !extensions.decodes(codec) {
+        return Err(format!(
+            "the renderer's Vulkan device was created without {}",
+            EXTENSIONS[codec_extension(codec)].to_string_lossy()
+        ));
+    }
+    let decode_families = SDL_GetNumberProperty(props, DECODE_FAMILIES.as_ptr(), 0) as u32;
+    let get_instance_proc_addr = zero_copy::get_instance_proc_addr()?;
+    let instance = ash::Instance::load(
+        &ash::StaticFn {
+            get_instance_proc_addr,
+        },
+        sdl.instance,
+    );
+    let families = queue_families(&instance, sdl.physical_device);
+    let listed = listed_families(&families, sdl.family, decode_families);
+    if !listed
+        .iter()
+        .any(|family| family.video_caps.contains(codec_operation(codec)))
+    {
+        return Err(format!(
+            "no queue of the renderer's Vulkan device decodes {codec:?}"
+        ));
+    }
+
+    let mut chain = Chain::new();
+    chain.enable(sdl.features);
+    let names: Vec<*const c_char> = extensions
+        .names()
+        .iter()
+        .map(|name| name.as_ptr())
+        .collect();
+    let mut opaque = Box::new(Opaque {
+        chain,
+        extensions: names,
+        sdl_family: sdl.family,
+        sdl_lock: sdl.lock,
+        decode_locks: Vec::new(),
+    });
+    for family in listed
+        .iter()
+        .filter(|family| family.idx as u32 != sdl.family)
+    {
+        let lock = SDL_CreateMutex();
+        if lock.is_null() {
+            return Err(format!(
+                "a queue lock cannot be made: {}",
+                crate::sdl::error()
+            ));
+        }
+        opaque.decode_locks.push((family.idx as u32, lock));
+    }
+
+    let mut reference = av_hwdevice_ctx_alloc(AV_HWDEVICE_TYPE_VULKAN);
+    if reference.is_null() {
+        return Err("FFmpeg cannot allocate a Vulkan device context".into());
+    }
+    let context = (*reference).data.cast::<AVHWDeviceContext>();
+    let vulkan = &mut *(*context).hwctx.cast::<DeviceContext>();
+    vulkan.get_proc_addr = Some(get_instance_proc_addr);
+    vulkan.inst = sdl.instance;
+    vulkan.phys_dev = sdl.physical_device;
+    vulkan.act_dev = sdl.device;
+    vulkan.device_features = opaque.chain.pdf2;
+    vulkan.enabled_dev_extensions = opaque.extensions.as_ptr();
+    vulkan.nb_enabled_dev_extensions = opaque.extensions.len() as c_int;
+    vulkan.lock_queue = Some(lock_queue);
+    vulkan.unlock_queue = Some(unlock_queue);
+    for (slot, family) in vulkan.qf.iter_mut().zip(&listed) {
+        *slot = *family;
+    }
+    vulkan.nb_qf = listed.len().min(vulkan.qf.len()) as c_int;
+    (*context).user_opaque = Box::into_raw(opaque).cast();
+    (*context).free = Some(free_opaque);
+    let status = av_hwdevice_ctx_init(reference);
+    if status < 0 {
+        av_buffer_unref(&mut reference);
+        return Err(format!(
+            "FFmpeg cannot use the renderer's Vulkan device (error {status})"
+        ));
+    }
+    Ok(reference)
+}
+
+/// Each queue family's flags and video codec operations.
+unsafe fn queue_families(
+    instance: &ash::Instance,
+    device: vk::PhysicalDevice,
+) -> Vec<(vk::QueueFlags, vk::VideoCodecOperationFlagsKHR)> {
+    let count = instance.get_physical_device_queue_family_properties2_len(device);
+    let mut video = vec![vk::QueueFamilyVideoPropertiesKHR::default(); count];
+    let mut families: Vec<_> = video
+        .iter_mut()
+        .map(|video| vk::QueueFamilyProperties2::default().push_next(video))
+        .collect();
+    instance.get_physical_device_queue_family_properties2(device, &mut families);
+    let flags: Vec<_> = families
+        .iter()
+        .map(|family| family.queue_family_properties.queue_flags)
+        .collect();
+    drop(families);
+    flags
+        .into_iter()
+        .zip(video.iter().map(|video| video.video_codec_operations))
+        .collect()
+}
+
+/// The families FFmpeg is told about: SDL's, with its one queue, then each decode family SDL
+/// made a queue in (bit n of `decode_families` for family n).
+fn listed_families(
+    families: &[(vk::QueueFlags, vk::VideoCodecOperationFlagsKHR)],
+    sdl_family: u32,
+    decode_families: u32,
+) -> Vec<QueueFamily> {
+    families
+        .iter()
+        .enumerate()
+        .filter(|&(index, _)| {
+            index as u32 == sdl_family || (index < 32 && decode_families & (1 << index) != 0)
+        })
+        .map(|(index, &(flags, video_caps))| {
+            let decodes = flags.contains(vk::QueueFlags::VIDEO_DECODE_KHR);
+            QueueFamily {
+                idx: index as c_int,
+                num: 1,
+                flags,
+                video_caps: if decodes {
+                    video_caps
+                } else {
+                    vk::VideoCodecOperationFlagsKHR::empty()
+                },
+            }
+        })
+        .collect()
+}
+
+/// The software format of a Vulkan picture's frames context: NV12, P010 or another.
+///
+/// # Safety
+/// `frame` must be a live AVFrame of format `AV_PIX_FMT_VULKAN`.
+pub unsafe fn sw_format(frame: *const AVFrame) -> crate::media::ffi::AVPixelFormat {
+    let frames = (*frame).hw_frames_ctx;
+    if frames.is_null() {
+        return crate::media::ffi::AV_PIX_FMT_NONE;
+    }
+    (*(*frames).data.cast::<AVHWFramesContext>()).sw_format
+}
+
+/// How long the presenter waits for its copy of the picture before last to finish.
+const COPY_WAIT: Duration = Duration::from_secs(1);
+/// Command buffers the copies take turns with.
+const SLOTS: usize = 3;
+
+/// The presenter's two plane images on the renderer's device (R8 and R8G8, or R16 and R16G16 for
+/// P010), wrapped as the SDL GPU textures of an NV12 or P010 SDL texture, and the copies into them.
+pub struct Planes {
+    device: ash::Device,
+    gpu: *mut SDL_GPUDevice,
+    queue: vk::Queue,
+    lock: *mut SDL_Mutex,
+    width: u32,
+    height: u32,
+    ten_bit: bool,
+    images: Vec<(vk::Image, vk::DeviceMemory)>,
+    textures: [*mut SDL_GPUTexture; 2],
+    pool: vk::CommandPool,
+    slots: Vec<(vk::CommandBuffer, vk::Fence)>,
+    next: usize,
+}
+
+impl Planes {
+    /// Plane images for `width` x `height` pictures on `gpu`'s device, wrapped as SDL textures.
+    ///
+    /// # Safety
+    /// `gpu` must be the renderer's live SDL GPU device, which outlives the planes.
+    pub unsafe fn new(
+        gpu: *mut SDL_GPUDevice,
+        width: u32,
+        height: u32,
+        ten_bit: bool,
+    ) -> Result<Self, String> {
+        let sdl = SdlVulkan::of_device(gpu)?;
+        let get_instance_proc_addr = zero_copy::get_instance_proc_addr()?;
+        let instance = ash::Instance::load(
+            &ash::StaticFn {
+                get_instance_proc_addr,
+            },
+            sdl.instance,
+        );
+        let memory = instance.get_physical_device_memory_properties(sdl.physical_device);
+        let device = ash::Device::load(instance.fp_v1_0(), sdl.device);
+        let mut planes = Self {
+            device,
+            gpu,
+            queue: sdl.queue,
+            lock: sdl.lock,
+            width,
+            height,
+            ten_bit,
+            images: Vec::new(),
+            textures: [ptr::null_mut(); 2],
+            pool: vk::CommandPool::null(),
+            slots: Vec::new(),
+            next: 0,
+        };
+        planes.pool = planes
+            .device
+            .create_command_pool(
+                &vk::CommandPoolCreateInfo::default()
+                    .queue_family_index(sdl.family)
+                    .flags(vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER),
+                None,
+            )
+            .map_err(|e| format!("a command pool cannot be created ({e})"))?;
+        let buffers = planes
+            .device
+            .allocate_command_buffers(
+                &vk::CommandBufferAllocateInfo::default()
+                    .command_pool(planes.pool)
+                    .level(vk::CommandBufferLevel::PRIMARY)
+                    .command_buffer_count(SLOTS as u32),
+            )
+            .map_err(|e| format!("command buffers cannot be allocated ({e})"))?;
+        for buffer in buffers {
+            let fence = planes
+                .device
+                .create_fence(
+                    &vk::FenceCreateInfo::default().flags(vk::FenceCreateFlags::SIGNALED),
+                    None,
+                )
+                .map_err(|e| format!("a fence cannot be created ({e})"))?;
+            planes.slots.push((buffer, fence));
+        }
+        for plane in 0..2 {
+            let (w, h) = planes.plane_size(plane);
+            let image = planes
+                .device
+                .create_image(
+                    &vk::ImageCreateInfo::default()
+                        .image_type(vk::ImageType::TYPE_2D)
+                        .format(planes.vk_format(plane))
+                        .extent(vk::Extent3D {
+                            width: w,
+                            height: h,
+                            depth: 1,
+                        })
+                        .mip_levels(1)
+                        .array_layers(1)
+                        .samples(vk::SampleCountFlags::TYPE_1)
+                        .tiling(vk::ImageTiling::OPTIMAL)
+                        .usage(
+                            vk::ImageUsageFlags::SAMPLED
+                                | vk::ImageUsageFlags::TRANSFER_SRC
+                                | vk::ImageUsageFlags::TRANSFER_DST,
+                        )
+                        .sharing_mode(vk::SharingMode::EXCLUSIVE)
+                        .initial_layout(vk::ImageLayout::UNDEFINED),
+                    None,
+                )
+                .map_err(|e| format!("a {w}x{h} plane image cannot be created ({e})"))?;
+            planes.images.push((image, vk::DeviceMemory::null()));
+            let needs = planes.device.get_image_memory_requirements(image);
+            let kinds = &memory.memory_types[..memory.memory_type_count as usize];
+            let usable = |index: &usize| needs.memory_type_bits & (1 << index) != 0;
+            let kind = (0..kinds.len())
+                .filter(usable)
+                .find(|&index| {
+                    kinds[index]
+                        .property_flags
+                        .contains(vk::MemoryPropertyFlags::DEVICE_LOCAL)
+                })
+                .or_else(|| (0..kinds.len()).find(usable))
+                .ok_or("no memory type holds the plane images")?;
+            let allocated = planes
+                .device
+                .allocate_memory(
+                    &vk::MemoryAllocateInfo::default()
+                        .allocation_size(needs.size)
+                        .memory_type_index(kind as u32),
+                    None,
+                )
+                .map_err(|e| {
+                    format!(
+                        "{} bytes of plane memory cannot be allocated ({e})",
+                        needs.size
+                    )
+                })?;
+            planes.images.last_mut().expect("pushed above").1 = allocated;
+            planes
+                .device
+                .bind_image_memory(image, allocated, 0)
+                .map_err(|e| format!("the plane memory cannot be bound ({e})"))?;
+            let props = SDL_CreateProperties();
+            SDL_SetNumberProperty(
+                props,
+                TEXTURE_IMAGE_PROPERTY.as_ptr(),
+                image.as_raw() as i64,
+            );
+            // A sampler texture: SDL expects the image in SHADER_READ_ONLY_OPTIMAL, where the
+            // copy leaves it.
+            planes.textures[plane] = SDL_CreateGPUTexture(
+                gpu,
+                &SDL_GPUTextureCreateInfo {
+                    r#type: SDL_GPU_TEXTURETYPE_2D,
+                    format: planes.sdl_format(plane),
+                    usage: SDL_GPU_TEXTUREUSAGE_SAMPLER,
+                    width: w,
+                    height: h,
+                    layer_count_or_depth: 1,
+                    num_levels: 1,
+                    sample_count: SDL_GPU_SAMPLECOUNT_1,
+                    props,
+                },
+            );
+            SDL_DestroyProperties(props);
+            if planes.textures[plane].is_null() {
+                return Err(format!(
+                    "the plane images cannot be wrapped as textures: {}",
+                    crate::sdl::error()
+                ));
+            }
+        }
+        Ok(planes)
+    }
+
+    /// Whether these planes hold `width` x `height` pictures of that depth.
+    pub fn fits(&self, width: u32, height: u32, ten_bit: bool) -> bool {
+        (self.width, self.height, self.ten_bit) == (width, height, ten_bit)
+    }
+
+    /// The luma and chroma textures, for `SDL_PROP_TEXTURE_CREATE_GPU_TEXTURE_POINTER` and
+    /// `SDL_PROP_TEXTURE_CREATE_GPU_TEXTURE_UV_POINTER`.
+    pub fn textures(&self) -> [*mut SDL_GPUTexture; 2] {
+        self.textures
+    }
+
+    fn plane_size(&self, plane: usize) -> (u32, u32) {
+        if plane == 0 {
+            (self.width, self.height)
+        } else {
+            (self.width.div_ceil(2), self.height.div_ceil(2))
+        }
+    }
+
+    fn vk_format(&self, plane: usize) -> vk::Format {
+        match (plane, self.ten_bit) {
+            (0, false) => vk::Format::R8_UNORM,
+            (0, true) => vk::Format::R16_UNORM,
+            (_, false) => vk::Format::R8G8_UNORM,
+            (_, true) => vk::Format::R16G16_UNORM,
+        }
+    }
+
+    fn sdl_format(&self, plane: usize) -> SDL_GPUTextureFormat {
+        match (plane, self.ten_bit) {
+            (0, false) => SDL_GPU_TEXTUREFORMAT_R8_UNORM,
+            (0, true) => SDL_GPU_TEXTUREFORMAT_R16_UNORM,
+            (_, false) => SDL_GPU_TEXTUREFORMAT_R8G8_UNORM,
+            (_, true) => SDL_GPU_TEXTUREFORMAT_R16G16_UNORM,
+        }
+    }
+
+    /// Copies the two planes of `frame`, an NV12 or P010 Vulkan picture as large as the planes,
+    /// into the plane images, on SDL's queue ahead of SDL's next submission (`renderer` is
+    /// flushed first, so nothing SDL recorded before reads the new picture). The picture is the
+    /// decoder's again once the copy is done, which its semaphore tells FFmpeg.
+    ///
+    /// # Safety
+    /// `frame` must be a live Vulkan AVFrame made with `device_context` on this device, and
+    /// `renderer` the live renderer of the planes' device, on its thread.
+    pub unsafe fn copy(
+        &mut self,
+        renderer: *mut SDL_Renderer,
+        frame: *const AVFrame,
+    ) -> Result<(), String> {
+        let frames_ref = (*frame).hw_frames_ctx;
+        let source = (*frame).data[0].cast::<VkFrame>();
+        if frames_ref.is_null() || source.is_null() {
+            return Err("the picture has no Vulkan frame".into());
+        }
+        let wanted = if self.ten_bit {
+            AV_PIX_FMT_P010LE
+        } else {
+            AV_PIX_FMT_NV12
+        };
+        if sw_format(frame) != wanted {
+            return Err(format!(
+                "the picture's format {} is not the planes' format {wanted}",
+                sw_format(frame)
+            ));
+        }
+        let frames = (*frames_ref).data.cast::<AVHWFramesContext>();
+        let vulkan_frames = &*(*frames).hwctx.cast::<FramesContext>();
+        let (Some(lock_frame), Some(unlock_frame)) =
+            (vulkan_frames.lock_frame, vulkan_frames.unlock_frame)
+        else {
+            return Err("FFmpeg's Vulkan frames context has no frame lock".into());
+        };
+        if !SDL_FlushRenderer(renderer) {
+            return Err(format!(
+                "the renderer cannot be flushed before the copy: {}",
+                crate::sdl::error()
+            ));
+        }
+        let (commands, fence) = self.slots[self.next];
+        match self.device.wait_for_fences(&[fence], true, COPY_WAIT.as_nanos() as u64) {
+            Ok(()) => {}
+            Err(vk::Result::TIMEOUT) => {
+                return Err(format!("an earlier picture's copy did not finish within {COPY_WAIT:?}: the Vulkan device may be hung or lost"))
+            }
+            Err(e) => return Err(format!("waiting for an earlier picture's copy failed ({e})")),
+        }
+        self.device
+            .reset_command_buffer(commands, vk::CommandBufferResetFlags::empty())
+            .map_err(|e| format!("the copy's command buffer cannot be reset ({e})"))?;
+        lock_frame(frames, source);
+        let result = self.record_and_submit(commands, fence, &mut *source);
+        unlock_frame(frames, source);
+        if result.is_ok() {
+            self.next = (self.next + 1) % self.slots.len();
+        }
+        result
+    }
+
+    /// Under the frame's lock: waits for the picture's semaphores, copies and signals them one
+    /// higher, with the layout the copy leaves its images in.
+    unsafe fn record_and_submit(
+        &mut self,
+        commands: vk::CommandBuffer,
+        fence: vk::Fence,
+        source: &mut VkFrame,
+    ) -> Result<(), String> {
+        let device = &self.device;
+        // One multi-plane image, or one image per plane (`AV_VK_FRAME_FLAG_DISABLE_MULTIPLANE`).
+        let separate = source.img[1] != vk::Image::null();
+        let sources = if separate { 2 } else { 1 };
+        let range = |aspect| vk::ImageSubresourceRange {
+            aspect_mask: aspect,
+            base_mip_level: 0,
+            level_count: 1,
+            base_array_layer: 0,
+            layer_count: 1,
+        };
+        device
+            .begin_command_buffer(
+                commands,
+                &vk::CommandBufferBeginInfo::default()
+                    .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT),
+            )
+            .map_err(|e| format!("the copy cannot be recorded ({e})"))?;
+        let mut before: Vec<vk::ImageMemoryBarrier2> = (0..sources)
+            .map(|index| {
+                vk::ImageMemoryBarrier2::default()
+                    .src_stage_mask(vk::PipelineStageFlags2::ALL_COMMANDS)
+                    .src_access_mask(vk::AccessFlags2::from_raw(u64::from(
+                        source.access[index].as_raw(),
+                    )))
+                    .dst_stage_mask(vk::PipelineStageFlags2::COPY)
+                    .dst_access_mask(vk::AccessFlags2::TRANSFER_READ)
+                    .old_layout(source.layout[index])
+                    .new_layout(vk::ImageLayout::TRANSFER_SRC_OPTIMAL)
+                    .src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
+                    .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
+                    .image(source.img[index])
+                    .subresource_range(range(vk::ImageAspectFlags::COLOR))
+            })
+            .collect();
+        // The planes' old contents go; the copy waits for SDL's reads of them before it.
+        before.extend(self.images.iter().map(|&(image, _)| {
+            vk::ImageMemoryBarrier2::default()
+                .src_stage_mask(vk::PipelineStageFlags2::ALL_COMMANDS)
+                .dst_stage_mask(vk::PipelineStageFlags2::COPY)
+                .dst_access_mask(vk::AccessFlags2::TRANSFER_WRITE)
+                .old_layout(vk::ImageLayout::UNDEFINED)
+                .new_layout(vk::ImageLayout::TRANSFER_DST_OPTIMAL)
+                .src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
+                .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
+                .image(image)
+                .subresource_range(range(vk::ImageAspectFlags::COLOR))
+        }));
+        device.cmd_pipeline_barrier2(
+            commands,
+            &vk::DependencyInfo::default().image_memory_barriers(&before),
+        );
+        for plane in 0..2 {
+            let (width, height) = self.plane_size(plane);
+            let (image, aspect) = if separate {
+                (source.img[plane], vk::ImageAspectFlags::COLOR)
+            } else {
+                (
+                    source.img[0],
+                    if plane == 0 {
+                        vk::ImageAspectFlags::PLANE_0
+                    } else {
+                        vk::ImageAspectFlags::PLANE_1
+                    },
+                )
+            };
+            let layers = |aspect_mask| vk::ImageSubresourceLayers {
+                aspect_mask,
+                mip_level: 0,
+                base_array_layer: 0,
+                layer_count: 1,
+            };
+            let region = vk::ImageCopy {
+                src_subresource: layers(aspect),
+                src_offset: vk::Offset3D::default(),
+                dst_subresource: layers(vk::ImageAspectFlags::COLOR),
+                dst_offset: vk::Offset3D::default(),
+                extent: vk::Extent3D {
+                    width,
+                    height,
+                    depth: 1,
+                },
+            };
+            device.cmd_copy_image(
+                commands,
+                image,
+                vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
+                self.images[plane].0,
+                vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+                &[region],
+            );
+        }
+        let after: Vec<vk::ImageMemoryBarrier2> = self
+            .images
+            .iter()
+            .map(|&(image, _)| {
+                vk::ImageMemoryBarrier2::default()
+                    .src_stage_mask(vk::PipelineStageFlags2::COPY)
+                    .src_access_mask(vk::AccessFlags2::TRANSFER_WRITE)
+                    .dst_stage_mask(vk::PipelineStageFlags2::ALL_COMMANDS)
+                    .dst_access_mask(vk::AccessFlags2::SHADER_SAMPLED_READ)
+                    .old_layout(vk::ImageLayout::TRANSFER_DST_OPTIMAL)
+                    .new_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+                    .src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
+                    .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
+                    .image(image)
+                    .subresource_range(range(vk::ImageAspectFlags::COLOR))
+            })
+            .collect();
+        device.cmd_pipeline_barrier2(
+            commands,
+            &vk::DependencyInfo::default().image_memory_barriers(&after),
+        );
+        device
+            .end_command_buffer(commands)
+            .map_err(|e| format!("the copy cannot be recorded ({e})"))?;
+
+        let waits: Vec<vk::SemaphoreSubmitInfo> = (0..sources)
+            .map(|index| {
+                vk::SemaphoreSubmitInfo::default()
+                    .semaphore(source.sem[index])
+                    .value(source.sem_value[index])
+                    .stage_mask(vk::PipelineStageFlags2::ALL_COMMANDS)
+            })
+            .collect();
+        let signals: Vec<vk::SemaphoreSubmitInfo> = (0..sources)
+            .map(|index| {
+                vk::SemaphoreSubmitInfo::default()
+                    .semaphore(source.sem[index])
+                    .value(source.sem_value[index] + 1)
+                    .stage_mask(vk::PipelineStageFlags2::ALL_COMMANDS)
+            })
+            .collect();
+        let buffers = [vk::CommandBufferSubmitInfo::default().command_buffer(commands)];
+        let submit = vk::SubmitInfo2::default()
+            .wait_semaphore_infos(&waits)
+            .command_buffer_infos(&buffers)
+            .signal_semaphore_infos(&signals);
+        device
+            .reset_fences(&[fence])
+            .map_err(|e| format!("the copy's fence cannot be reset ({e})"))?;
+        SDL_LockMutex(self.lock);
+        let submitted = device.queue_submit2(self.queue, &[submit], fence);
+        SDL_UnlockMutex(self.lock);
+        if let Err(e) = submitted {
+            // Never submitted: the fence stays unsignalled, so the slot's next wait would time
+            // out; signal it with an empty submission instead of leaving it.
+            SDL_LockMutex(self.lock);
+            let _ = device.queue_submit2(self.queue, &[], fence);
+            SDL_UnlockMutex(self.lock);
+            return Err(format!("the copy cannot be submitted ({e})"));
+        }
+        for index in 0..sources {
+            source.sem_value[index] += 1;
+            source.layout[index] = vk::ImageLayout::TRANSFER_SRC_OPTIMAL;
+            source.access[index] = vk::AccessFlags::empty();
+        }
+        Ok(())
+    }
+}
+
+impl Drop for Planes {
+    fn drop(&mut self) {
+        // SAFETY: Handles made in `new`; nothing is freed while the GPU may still use it.
+        unsafe {
+            for texture in self
+                .textures
+                .into_iter()
+                .filter(|texture| !texture.is_null())
+            {
+                SDL_ReleaseGPUTexture(self.gpu, texture);
+            }
+            let fences: Vec<vk::Fence> = self.slots.iter().map(|&(_, fence)| fence).collect();
+            // SDL destroys a texture's views once its last command is done, and the images must
+            // outlive them; the copies must be done too.
+            let idle = SDL_WaitForGPUIdle(self.gpu);
+            let copied = fences.is_empty()
+                || self
+                    .device
+                    .wait_for_fences(&fences, true, COPY_WAIT.as_nanos() as u64)
+                    .is_ok();
+            if !idle || !copied {
+                eprintln!(
+                    "nightjar: the GPU did not finish with the Vulkan video planes ({}), so their images stay allocated",
+                    crate::sdl::error()
+                );
+                return;
+            }
+            for &(image, memory) in &self.images {
+                self.device.destroy_image(image, None);
+                if memory != vk::DeviceMemory::null() {
+                    self.device.free_memory(memory, None);
+                }
+            }
+            for fence in fences {
+                self.device.destroy_fence(fence, None);
+            }
+            if self.pool != vk::CommandPool::null() {
+                self.device.destroy_command_pool(self.pool, None);
+            }
+        }
+    }
+}
+
+/// Logs a line about Vulkan video pictures once until it changes, like `zero_copy::note`.
+pub fn note(line: &str) {
+    static NOTED: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+    let mut noted = NOTED.lock().unwrap_or_else(|e| e.into_inner());
+    if noted.as_deref() != Some(line) {
+        eprintln!("nightjar: {line}");
+        *noted = Some(line.to_owned());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_environment_puts_vulkan_video_first_or_off_and_anything_else_leaves_it_after_vaapi() {
+        assert_eq!(Choice::of(Some("1".as_ref())), Choice::First);
+        assert_eq!(Choice::of(Some("0".as_ref())), Choice::Off);
+        for other in [None, Some("yes"), Some(""), Some("2")] {
+            assert_eq!(
+                Choice::of(other.map(AsRef::as_ref)),
+                Choice::Default,
+                "{other:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn video_extensions_decode_a_codec_only_with_both_queue_extensions() {
+        let all = Extensions::among(EXTENSIONS);
+        assert_eq!(all, Extensions(0b11111));
+        assert!([Codec::H264, Codec::Hevc, Codec::Av1]
+            .into_iter()
+            .all(|codec| all.decodes(codec)));
+        let hevc = Extensions::among([
+            c"VK_KHR_video_queue",
+            c"VK_KHR_video_decode_queue",
+            c"VK_KHR_video_decode_h265",
+            c"VK_KHR_swapchain",
+        ]);
+        assert!(
+            hevc.decodes(Codec::Hevc) && !hevc.decodes(Codec::H264) && !hevc.decodes(Codec::Av1)
+        );
+        assert_eq!(
+            hevc.names(),
+            [
+                c"VK_KHR_video_queue",
+                c"VK_KHR_video_decode_queue",
+                c"VK_KHR_video_decode_h265"
+            ]
+        );
+        let no_queue = Extensions::among([c"VK_KHR_video_queue", c"VK_KHR_video_decode_h264"]);
+        assert!(no_queue.usable().is_empty() && !no_queue.decodes(Codec::H264));
+        let no_codec = Extensions::among([c"VK_KHR_video_queue", c"VK_KHR_video_decode_queue"]);
+        assert!(
+            no_codec.usable().is_empty(),
+            "queues without a codec decode nothing"
+        );
+    }
+
+    #[test]
+    fn only_libavutil_59_34_to_60_has_the_structs_declared_here() {
+        let version = |major: u32, minor: u32, micro: u32| major << 16 | minor << 8 | micro;
+        assert!(ffmpeg_supported(version(59, 39, 100)).is_ok(), "FFmpeg 7.1");
+        assert!(ffmpeg_supported(version(60, 26, 103)).is_ok(), "FFmpeg 8.1");
+        let old = ffmpeg_supported(version(59, 8, 100)).unwrap_err();
+        assert!(
+            old.contains("59.8.100") && old.contains("FFmpeg 7.1"),
+            "{old}"
+        );
+        assert!(
+            ffmpeg_supported(version(58, 29, 100)).is_err(),
+            "FFmpeg 6.1"
+        );
+        let new = ffmpeg_supported(version(61, 0, 100)).unwrap_err();
+        assert!(new.contains("61.0.100"), "{new}");
+    }
+
+    #[test]
+    fn the_structs_have_libavutils_layout() {
+        // offsetof and sizeof of FFmpeg 7.1's hwcontext_vulkan.h (libavutil 59.39) with gcc on
+        // x86-64; 60 declares the same.
+        assert_eq!(std::mem::offset_of!(DeviceContext, device_features), 40);
+        assert_eq!(
+            std::mem::offset_of!(DeviceContext, enabled_dev_extensions),
+            296
+        );
+        assert_eq!(std::mem::offset_of!(DeviceContext, lock_queue), 352);
+        assert_eq!(std::mem::offset_of!(DeviceContext, qf), 368);
+        assert_eq!(std::mem::offset_of!(DeviceContext, nb_qf), 1392);
+        assert_eq!(std::mem::size_of::<DeviceContext>(), 1400);
+        assert_eq!(std::mem::offset_of!(FramesContext, lock_frame), 128);
+        assert_eq!(std::mem::size_of::<FramesContext>(), 144);
+        assert_eq!(std::mem::offset_of!(VkFrame, sem), 272);
+        assert_eq!(std::mem::offset_of!(VkFrame, sem_value), 336);
+        assert_eq!(std::mem::offset_of!(VkFrame, queue_family), 472);
+        assert_eq!(std::mem::size_of::<VkFrame>(), 504);
+    }
+
+    #[test]
+    fn ffmpeg_hears_of_sdls_family_and_the_decode_families_sdl_made_a_queue_in() {
+        let graphics =
+            vk::QueueFlags::GRAPHICS | vk::QueueFlags::COMPUTE | vk::QueueFlags::TRANSFER;
+        let decode = vk::QueueFlags::VIDEO_DECODE_KHR | vk::QueueFlags::TRANSFER;
+        let h264_hevc = vk::VideoCodecOperationFlagsKHR::DECODE_H264
+            | vk::VideoCodecOperationFlagsKHR::DECODE_H265;
+        let families = [
+            (graphics, vk::VideoCodecOperationFlagsKHR::empty()),
+            (
+                vk::QueueFlags::COMPUTE,
+                vk::VideoCodecOperationFlagsKHR::empty(),
+            ),
+            (decode, h264_hevc),
+            (
+                vk::QueueFlags::VIDEO_ENCODE_KHR,
+                vk::VideoCodecOperationFlagsKHR::ENCODE_H264,
+            ),
+        ];
+        let listed = listed_families(&families, 0, 1 << 2);
+        // The flags compare as raw bits: ash's flag types print only with its debug feature.
+        let summary: Vec<_> = listed
+            .iter()
+            .map(|family| {
+                (
+                    family.idx,
+                    family.num,
+                    family.flags.as_raw(),
+                    family.video_caps.as_raw(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            summary,
+            [
+                (0, 1, graphics.as_raw(), 0),
+                (2, 1, decode.as_raw(), h264_hevc.as_raw())
+            ]
+        );
+        assert_eq!(
+            listed_families(&families, 0, 0).len(),
+            1,
+            "without SDL's decode queue only SDL's family"
+        );
+    }
+
+    /// FFmpeg takes the shared renderer's device for every codec its video extensions decode. Needs
+    /// a Vulkan device with video decoding (ANV only with `ANV_VIDEO_DECODE=1`) and SDL's offscreen
+    /// driver: `ANV_VIDEO_DECODE=1 cargo test -p nightjar-desktop -- --ignored --test-threads=1 vulkan_video`.
+    #[test]
+    #[ignore = "needs a Vulkan device with video decoding and SDL's offscreen driver"]
+    fn ffmpeg_takes_the_shared_renderers_device() {
+        // SAFETY: Plain SDL calls on objects made here; each device context is freed before the renderer.
+        unsafe {
+            SDL_SetHint(SDL_HINT_VIDEO_DRIVER, c"offscreen".as_ptr());
+            assert!(SDL_Init(SDL_INIT_VIDEO), "{}", crate::sdl::error());
+            let window = SDL_CreateWindow(c"Vulkan video".as_ptr(), 640, 360, SDL_WINDOW_HIDDEN);
+            let renderer = crate::sdl::create_renderer_for(window, true, true);
+            assert!(!renderer.is_null(), "{}", crate::sdl::error());
+            let gpu: *mut SDL_GPUDevice =
+                crate::sdl::renderer_pointer(renderer, SDL_PROP_RENDERER_GPU_DEVICE_POINTER).cast();
+            let props = SDL_GetGPUDeviceProperties(gpu);
+            assert_ne!(
+                SDL_GetNumberProperty(props, DECODE_FAMILIES.as_ptr(), 0),
+                0,
+                "SDL made no decode queue"
+            );
+            let extensions =
+                Extensions(SDL_GetNumberProperty(props, EXTENSIONS_PROPERTY.as_ptr(), 0) as u32);
+            let codecs: Vec<_> = [Codec::H264, Codec::Hevc, Codec::Av1]
+                .into_iter()
+                .filter(|&codec| extensions.decodes(codec))
+                .collect();
+            assert!(
+                !codecs.is_empty(),
+                "the renderer has no codec's video extensions"
+            );
+            for codec in codecs {
+                let mut context =
+                    device_context(gpu, codec).unwrap_or_else(|e| panic!("{codec:?}: {e}"));
+                av_buffer_unref(&mut context);
+            }
+            SDL_DestroyRenderer(renderer);
+            SDL_DestroyWindow(window);
+            SDL_Quit();
+        }
+    }
+}

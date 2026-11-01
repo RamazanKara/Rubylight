@@ -501,8 +501,9 @@ impl Launcher {
                     GameState::Idle => {}
                 }
                 ui.label(RichText::new(&game.title).font(semibold(text::TITLE)).color(ON_SURFACE));
-                if let Some(store) = &game.store {
-                    ui.label(RichText::new(&store.name).color(ON_SURFACE_VARIANT));
+                // Hosts may send only the key: name it as the chips do (steam reads Steam).
+                if let Some(store) = game.store.as_ref().map(|s| console::store_name(&s.source, &s.name)).filter(|n| !n.is_empty()) {
+                    ui.label(RichText::new(store).color(ON_SURFACE_VARIANT));
                 }
                 pc_line(ui, source.name);
                 ui.add_space(8.0);

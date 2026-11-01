@@ -171,7 +171,7 @@ impl Watch {
                         tracing::warn!(session = seat.session, slot = seat.slot, client = %s.launch.client.name, "Nucleus Co-op: {text}");
                         s.launch.warnings.set("coop_ended", &text);
                         match end {
-                            End::Crashed(_) | End::Failed(_) => s.fail(),
+                            End::Crashed(_) | End::Failed(_) => s.fail(text),
                             End::Ended | End::Empty => s.stop(),
                         }
                         return;

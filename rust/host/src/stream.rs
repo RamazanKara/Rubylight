@@ -817,7 +817,9 @@ impl Media {
         h.session_webhook("session.started", &s);
         let result = self.spawn_session(&h, &s);
         if let Err(e) = result {
-            h.sessions.lock().unwrap().fail_start(&s);
+            let reason = format!("the stream could not start: {e:#}");
+            h.sessions.lock().unwrap().fail_start(&s, reason);
+            h.record_failure(&s);
             tracing::error!(error=%e,"could not start session worker");
             h.session_webhook("session.ended", &s);
         }

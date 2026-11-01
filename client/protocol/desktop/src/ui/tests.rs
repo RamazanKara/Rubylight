@@ -1718,9 +1718,15 @@ fn a_late_offer_from_a_cancelled_sleep_pc_is_not_taken_for_the_new_one() {
 #[test]
 fn sleep_pc_not_allowed_is_listed_with_the_reason_and_does_nothing() {
     let mut f = every_state().into_iter().find(|s| s.name == "sleep not allowed").unwrap().frames();
+    f.ctx.enable_accesskit();
     assert!(host_options(&f.hosts.list[0]).contains(&HostOption::Sleep));
     f.press(Key::F2);
     assert!(f.drawn.iter().any(|t| t == crate::hosts::SLEEP_NOT_ALLOWED), "the reason is shown");
+    // And heard: the row's name carries the reason, not only the painted line.
+    let sleep = HostOption::Sleep.label();
+    let said = format!("{}, {}", tr(sleep), tr(crate::hosts::SLEEP_NOT_ALLOWED));
+    let labels: Vec<&str> = f.access.as_ref().unwrap().nodes.iter().filter_map(|(_, n)| n.label()).collect();
+    assert!(labels.contains(&said.as_str()), "{said} in {labels:?}");
     let mut commands = Vec::new();
     let next = f.l.choose_host_option(&f.hosts.list[0], HostOption::Sleep, &mut commands);
     assert!(next.is_none() && commands.is_empty(), "nothing is asked of the PC");

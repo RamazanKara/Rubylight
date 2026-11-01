@@ -1353,7 +1353,12 @@ fn menu_row(ui: &mut Ui, row: &MenuRow) -> Response {
     let height = why.as_ref().map_or(40.0, |w| 20.0 + 11.0 + w.size().y + 9.0);
     let (rect, response) = ui.allocate_exact_size(vec2(width, height), Sense::click());
     let label = tr(row.label);
-    response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, enabled, label));
+    // A screen reader hears why a row is off too, not only the painted line under it.
+    let said = match row.blocked {
+        Some(why) => format!("{label}, {}", tr(why)),
+        None => label.to_owned(),
+    };
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, enabled, &said));
     if !ui.is_rect_visible(rect) {
         return response;
     }

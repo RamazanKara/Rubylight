@@ -275,7 +275,7 @@ pub fn frame_budget(
         configured_ms: 0.,
         over_at_floor: false,
     };
-    if !(fps > 0.) || width == 0 || height == 0 {
+    if fps.is_nan() || fps <= 0. || width == 0 || height == 0 {
         return budget;
     }
     budget.budget_ms = 1000. / fps * BUDGET_SHARE;
@@ -540,6 +540,9 @@ mod tests {
         // P1, the default, is never changed; unknown rates keep the preset.
         assert_eq!(frame_budget(1, (7680, 4320), 240., 1, true).effective, 1);
         assert_eq!(frame_budget(5, (1920, 1080), 0., 1, true).effective, 5);
+        let unknown = frame_budget(5, (1920, 1080), f64::NAN, 1, true);
+        assert_eq!((unknown.effective, unknown.budget_ms), (5, 0.));
+        assert_eq!(frame_budget(5, (1920, 1080), -60., 1, true).effective, 5);
         assert_eq!(frame_budget(0, (1920, 1080), 60., 1, true).configured, 1);
     }
 }

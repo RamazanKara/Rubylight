@@ -25,13 +25,14 @@ pub struct Encoded {
     pub unit: Unit,
     pub idr: bool,
     pub after_invalidation: bool,
-    /// Driver-read AMF frame limit at submission. None means unavailable or
-    /// unsupported; Some(0) means the driver's unrestricted/default setting.
+    /// Driver-read AMF frame limit, or NVENC's VBV bound, at submission. None
+    /// means unavailable or unsupported; Some(0) means AMF's
+    /// unrestricted/default setting.
     pub frame_cap_bytes: Option<u64>,
-    /// AMF encoded this keyframe again in place of an oversize scene cut.
+    /// The encoder made this keyframe again in place of an oversize scene cut.
     pub reencoded: bool,
-    /// The pace-based budget the host asked AMF to hold this frame to (the
-    /// last `set_frame_cap`), against which a keyframe's size is judged.
+    /// The pace-based budget the host asked the encoder to hold this frame to
+    /// (the last `set_frame_cap`), against which a keyframe's size is judged.
     pub frame_cap_target: Option<u64>,
     /// Submission through completed codec output, including asynchronous work.
     pub latency: Option<std::time::Duration>,

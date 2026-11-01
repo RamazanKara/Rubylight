@@ -2,7 +2,7 @@
 
 [Rubylight](../README.md) · [Docs](README.md) · [Architecture](architecture.md) · [Hardware matrix](hardware-matrix.md)
 
-Rubylight encodes with AMF on an AMD GPU and with NVENC on an NVIDIA GPU. With `encoder = auto`, the host picks the encoder from the vendor of the GPU that captures. NVENC is called through NVIDIA's driver ABI (`rust/windows/src/nvenc.rs`), API 11 to 13, on the capture's D3D11 device. Its settings are the `nvenc_*` keys ([configuration](configuration.md)). Intel and software encoding stay removed; those PCs use [Rubylight 2.6.x](https://github.com/RamazanKara/Rubylight/releases/tag/v2.6.0).
+Rubylight encodes with AMF on an AMD GPU and with NVENC on an NVIDIA GPU. With `encoder = auto`, the host picks the encoder from the vendor of the GPU that captures. NVENC is called through NVIDIA's driver ABI (`rust/windows/src/nvenc.rs`), API 11 to 13, on the compute conversion's D3D12 device or the capture's D3D11 device. Its settings are the `nvenc_*` keys ([configuration](configuration.md)). Intel and software encoding stay removed; those PCs use [Rubylight 2.6.x](https://github.com/RamazanKara/Rubylight/releases/tag/v2.6.0).
 
 ## Parity with AMF
 
@@ -26,24 +26,18 @@ Each row lists a feature the AMF path has and how NVENC provides it. Fake-driver
 | Adaptive quantization | VBAQ and pre-analysis | Spatial AQ on by default, temporal AQ opt-in | Spatial AQ by default follows Foundation Sunshine and NVIDIA's game-streaming guidance. |
 | GPU scheduling priority | High | Realtime, falling back to high when it is denied | Under hardware-accelerated GPU scheduling, `nvenc_realtime_hags` (on by default) keeps realtime. AMD stays at high: realtime would also raise AMF's and the game's queues. |
 | Couch menu overlay | Yes | Yes | Drawn by the D3D11 conversion. |
-| D3D12 compute conversion | Yes | No | See [D3D12 conversion](#d3d12-conversion). NVENC converts on the D3D11 graphics queue. Realtime scheduling covers that queue. |
+| D3D12 compute conversion | Yes | Yes | See [D3D12 conversion](#d3d12-conversion). A native D3D12 session waits for the conversion's fence on the GPU (driver 522.25 or newer). Without it NVENC converts on the D3D11 graphics queue, which realtime scheduling covers. |
 | Encoder focus (ROI map) | Yes | No | The map comes from the D3D12 compute conversion. See [Encoder focus](#encoder-focus). Focus reports `nvenc` as its reason. |
 
 ## D3D12 conversion
 
-AMF can take the compute queue's output directly: a D3D12 resource that a D3D12 fence completes. NVENC cannot take it in this release, for these reasons:
+With `gpu_compute_conversion` on (the default), NVENC takes the compute queue's output as AMF does. The session opens on the compute queue's `ID3D12Device` (`Session::open` with an output fence):
 
-- **The D3D11 session never waits on the compute fence.** NVENC runs on the capture's D3D11 device. `nvEncMapInputResource` guarantees that graphics work submitted on the input has finished before encoding. A D3D12 fence on another device is not graphics work on that input, so the session never waits for it.
-- **A D3D12 session has to wait on the fence itself.** For the D3D12 interface the same call "does not provide synchronization guarantee" (`nvEncodeAPI.h`). The wait must be passed in, which takes a second session type opened on the compute queue's `ID3D12Device`:
-  - Each picture's input is an `NV_ENC_INPUT_RESOURCE_D3D12` whose `inputFencePoint` waits for the compute fence at the conversion's value.
-  - Output goes to READBACK buffers the application allocates, registered as `NV_ENC_OUTPUT_BITSTREAM` and passed as `NV_ENC_OUTPUT_RESOURCE_D3D12` with an output fence.
-  - `NV_ENC_INITIALIZE_PARAMS::bufferFormat` must be set.
-  - Completion is read from the output fence, not from events.
-- **The workarounds cost latency or the graphics queue.**
-  - Waiting on the CPU for the compute fence before handing a shared texture to the D3D11 session adds a thread wake-up to every frame.
-  - A D3D11 queue wait followed by a copy puts work back on the graphics queue that compute conversion is meant to avoid.
-
-The D3D12 session is not built in this change. Without an NVIDIA GPU there is nothing to check its fence handling against.
+- **The GPU waits, not the CPU.** For the D3D12 interface `nvEncMapInputResource` "does not provide synchronization guarantee" (`nvEncodeAPI.h`). Each picture's input is an `NV_ENC_INPUT_RESOURCE_D3D12` whose `inputFencePoint` waits for the conversion's fence at its value.
+- **Output goes to READBACK buffers.** Each conversion target gets a buffer of twice an uncompressed picture (at most 16 MiB), registered as `NV_ENC_OUTPUT_BITSTREAM` and passed as an `NV_ENC_OUTPUT_RESOURCE_D3D12`. Its `outputFencePoint` signals the session's own fence.
+- **Completion is read from the output fence.** The poll locks a frame once that fence reaches the frame's value and never waits on the CPU. A frame the fence never reaches fails at the completion timeout.
+- **What the D3D12 interface leaves out.** It has no weighted prediction, so `nvenc_weighted_prediction` warns and stays off. Slice delivery returns whole frames there; set `gpu_compute_conversion = false` for either.
+- **Driver floor.** The D3D12 interface needs API 12.0, NVIDIA driver 522.25 or newer. An older driver, a missing D3D12 device or a refused session warns (`encoder_conversion`) and converts on the D3D11 graphics queue, as AMF falls back. 10-bit 4:4:4 keeps its CUDA path.
 
 ## Encoder focus
 
@@ -61,3 +55,4 @@ The rows above pass the fake-driver tests. These behaviours follow NVIDIA's head
 - Subframe completion: `hwEncodeStatus` 2 as the end of a picture, and the slice offsets a partial lock reports. The debug lines of the first four frames settle both.
 - Keyframes within the one-frame VBV, which the driver does not guarantee.
 - Rate control changes applied with frames in flight.
+- The D3D12 session: fence points, READBACK output and completion by fence.

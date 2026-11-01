@@ -5,8 +5,10 @@
 //! through CUDA interop (`cuda`). The frame budget guard, VBR rate control,
 //! fixed split-encode strips, the codec check and spatial AQ by default follow
 //! Foundation Sunshine (AlkaidLab/foundation-sunshine, GPL-3.0, src/nvenc/).
-//! HDR10+, HDR Vivid and Dolby Vision come from the D3D11 conversion's
-//! statistics pass and are spliced in as with AMF (`amf::dynamic`).
+//! HDR10+, HDR Vivid and Dolby Vision come from the conversion's statistics
+//! pass and are spliced in as with AMF (`amf::dynamic`). With the D3D12
+//! compute conversion the session runs on its `ID3D12Device` and waits for
+//! each conversion's fence on the GPU (API 12.0, driver 522.25 and newer).
 
 mod cuda;
 
@@ -33,7 +35,13 @@ use std::{
 use windows::{
     Win32::{
         Foundation::{CloseHandle, HANDLE, WAIT_OBJECT_0, WAIT_TIMEOUT},
-        Graphics::Direct3D11::ID3D11Texture2D,
+        Graphics::{
+            Direct3D11::ID3D11Texture2D,
+            Direct3D12::{
+                D3D12_FENCE_FLAG_NONE, D3D12_HEAP_TYPE_READBACK, D3D12_RESOURCE_STATE_COPY_DEST,
+                ID3D12Fence, ID3D12Resource,
+            },
+        },
         System::{
             LibraryLoader::LOAD_LIBRARY_SEARCH_SYSTEM32,
             SystemInformation::GetSystemDirectoryW,
@@ -337,13 +345,78 @@ struct Input {
     pitch: u32,
     _texture: Option<ID3D11Texture2D>,
     cuda: Option<cuda::Input>,
+    /// A D3D12 session's input resource and its READBACK output buffer.
+    d3d12: Option<D3d12Input>,
+}
+/// What a D3D12 slot registers: the conversion's texture as its input and a
+/// READBACK buffer the driver writes the bitstream into.
+struct D3d12Input {
+    _resource: Option<ID3D12Resource>,
+    output: *mut c_void,
+    size: u32,
+    _output: Option<ID3D12Resource>,
+}
+/// The fence a D3D12 session's driver signals once a frame's bitstream is
+/// written ([`Session::open`]).
+trait Fence {
+    fn raw(&self) -> *mut c_void;
+    /// The completed value; fails once the device is removed.
+    fn completed(&self) -> Result<u64>;
+}
+impl Fence for ID3D12Fence {
+    fn raw(&self) -> *mut c_void {
+        self.as_raw()
+    }
+    fn completed(&self) -> Result<u64> {
+        // SAFETY: The fence is a live D3D12 fence; GetCompletedValue only reads it.
+        let value = unsafe { self.GetCompletedValue() };
+        if value == u64::MAX {
+            bail!("the D3D12 device was removed while NVENC encoded");
+        }
+        Ok(value)
+    }
+}
+/// A D3D12 session's output fence and the value its last frame signals.
+struct D3d12 {
+    fence: Rc<dyn Fence>,
+    value: u64,
+}
+/// A D3D12 slot's output registration and mapping, and the resource
+/// structures each picture passes in place of buffers. Boxed, so the
+/// driver's pointers to them stay put.
+#[derive(Default)]
+struct D3d12Slot {
+    registered: NV_ENC_REGISTERED_PTR,
+    mapped: NV_ENC_INPUT_PTR,
+    input: NV_ENC_INPUT_RESOURCE_D3D12,
+    output: NV_ENC_OUTPUT_RESOURCE_D3D12,
+}
+/// What a pending frame keeps of its converted input until it is collected,
+/// so the texture is not converted into again and a scene cut can be
+/// encoded once more.
+#[derive(Clone)]
+enum Kept {
+    D3d11 {
+        _texture: Arc<ID3D11Texture2D>,
+    },
+    /// The D3D12 conversion's texture and the fence point the driver waits
+    /// for before it reads it.
+    D3d12 {
+        _texture: Option<Arc<ID3D12Resource>>,
+        _fence: Option<ID3D12Fence>,
+        fence: *mut c_void,
+        value: u64,
+    },
 }
 struct Slot {
     input: Input,
     metadata: Metadata,
     registered: NV_ENC_REGISTERED_PTR,
     mapped: NV_ENC_INPUT_PTR,
+    /// The driver's bitstream buffer, or a D3D12 slot's boxed
+    /// `NV_ENC_OUTPUT_RESOURCE_D3D12`, which the lock takes in its place.
     output: NV_ENC_OUTPUT_PTR,
+    d3d12: Option<Box<D3d12Slot>>,
     event: HANDLE,
     event_registered: bool,
     signaled: bool,
@@ -376,7 +449,9 @@ struct Pending {
     streams: bool,
     /// The units of a frame that has begun to leave slice by slice.
     units: Option<Units>,
-    _converted: Option<Arc<ID3D11Texture2D>>,
+    /// The D3D12 output fence value the frame signals once it is written.
+    signal: Option<u64>,
+    _converted: Option<Kept>,
 }
 /// How far a frame sent slice by slice has left.
 #[derive(Clone, Copy, Debug, Default)]
@@ -399,6 +474,8 @@ struct Session {
     api: ApiVersion,
     _runtime: Arc<Runtime>,
     cuda: Option<Rc<cuda::Context>>,
+    /// A session on the D3D12 conversion's device ([`Session::open`]).
+    d3d12: Option<D3d12>,
     config: Box<NV_ENC_CONFIG>,
     initialize: Box<NV_ENC_INITIALIZE_PARAMS>,
     stream: Negotiated,
@@ -458,22 +535,37 @@ impl Session {
     fn set_hdr_metadata(&mut self, metadata: butterpollo_core::hdr::Metadata) {
         self.metadata.update(metadata, self.stream.codec);
     }
+    /// Open a session on `device`. With `fence` the device is an
+    /// `ID3D12Device`: inputs and outputs are D3D12 resources, each picture
+    /// waits for its conversion's fence and signals `fence` when written.
     fn open(
         runtime: Arc<Runtime>,
         device: *mut c_void,
         kind: NV_ENC_DEVICE_TYPE,
         cuda: Option<Rc<cuda::Context>>,
+        fence: Option<Rc<dyn Fence>>,
         stream: &Negotiated,
         tuning: &Tuning,
     ) -> Result<Self> {
         let _guard = cuda.as_ref().map(|ctx| ctx.enter()).transpose()?;
         let mut failures = Vec::new();
-        for api in ApiVersion::candidates(stream.codec, runtime.maximum) {
+        let candidates = ApiVersion::candidates(stream.codec, runtime.maximum)
+            .filter(|api| fence.is_none() || api.d3d12())
+            .collect::<Vec<_>>();
+        if candidates.is_empty() && fence.is_some() {
+            bail!(
+                "NVENC on the D3D12 conversion needs driver API 12.0 (NVIDIA driver 522.25 or newer); this driver offers {}.{}",
+                runtime.maximum.0,
+                runtime.maximum.1
+            );
+        }
+        for api in candidates {
             match Self::open_version(
                 runtime.clone(),
                 device,
                 kind,
                 cuda.clone(),
+                fence.clone(),
                 stream,
                 tuning,
                 api,
@@ -491,11 +583,13 @@ impl Session {
             failures.join("; ")
         )
     }
+    #[allow(clippy::too_many_arguments)]
     fn open_version(
         runtime: Arc<Runtime>,
         device: *mut c_void,
         kind: NV_ENC_DEVICE_TYPE,
         cuda: Option<Rc<cuda::Context>>,
+        fence: Option<Rc<dyn Fence>>,
         stream: &Negotiated,
         tuning: &Tuning,
         api: ApiVersion,
@@ -519,6 +613,7 @@ impl Session {
             api,
             _runtime: runtime,
             cuda,
+            d3d12: fence.map(|fence| D3d12 { fence, value: 0 }),
             config: Box::default(),
             initialize: Box::default(),
             stream: stream.clone(),
@@ -563,7 +658,7 @@ impl Session {
         // The owner exists before the driver call, so even a partially opened
         // rejected version is destroyed before the next candidate is tried.
         // SAFETY: `validate` confirmed nvEncOpenEncodeSessionEx exists, `device` is the caller's
-        // live D3D11 device or CUDA context, and both out-pointers are live locals.
+        // live D3D11 or D3D12 device or CUDA context, and both out-pointers are live locals.
         let status =
             unsafe { (functions.nvEncOpenEncodeSessionEx.unwrap())(&mut open, &mut session.raw) };
         session.check(status, "open session")?;
@@ -678,8 +773,13 @@ impl Session {
                 .cap(_NV_ENC_CAPS_NV_ENC_CAPS_NUM_ENCODER_ENGINES)
                 .unwrap_or(1)
                 > 1;
-        self.subframe = readback && !splits;
-        if readback && splits {
+        self.subframe = readback && !splits && self.d3d12.is_none();
+        if readback && self.d3d12.is_some() {
+            tracing::info!(
+                blocks = tuning.slice_blocks,
+                "video_slice_delivery is on, but NVENC on the D3D12 conversion returns whole frames; frames leave whole. Set gpu_compute_conversion = false to send slices instead"
+            );
+        } else if readback && splits {
             tracing::info!(
                 blocks = tuning.slice_blocks,
                 "video_slice_delivery is on, but HEVC split encoding uses this GPU's NVENC engines and cannot return slices as they finish; frames leave whole. Set nvenc_split_encode = disabled to send slices instead"
@@ -706,7 +806,9 @@ impl Session {
         } else {
             tuning.split
         };
+        // A D3D12 session completes through its output fence.
         let asynchronous = !self.subframe
+            && self.d3d12.is_none()
             && self.optional_cap(_NV_ENC_CAPS_NV_ENC_CAPS_ASYNC_ENCODE_SUPPORT)
             && self.functions.nvEncRegisterAsyncEvent.is_some()
             && self.functions.nvEncUnregisterAsyncEvent.is_some();
@@ -1034,8 +1136,19 @@ impl Session {
             encodeConfig: self.config.as_mut(),
             ..Default::default()
         };
+        // The D3D12 interface has no weighted prediction (`nvEncodeAPI.h`).
+        if tuning.weighted_prediction && self.d3d12.is_some() {
+            tracing::warn!(
+                "nvenc_weighted_prediction is on, but NVENC on the D3D12 conversion cannot use it; encoding without it. Set gpu_compute_conversion = false to keep it"
+            );
+        }
         let weighted = tuning.weighted_prediction
+            && self.d3d12.is_none()
             && self.optional_cap(_NV_ENC_CAPS_NV_ENC_CAPS_SUPPORT_WEIGHTED_PREDICTION);
+        if self.d3d12.is_some() {
+            // Read only by the D3D12 interface.
+            self.initialize.bufferFormat = buffer_format(&self.stream);
+        }
         self.initialize
             .set_enableWeightedPrediction(u32::from(weighted));
         if self.stream.codec != 0
@@ -1062,6 +1175,7 @@ impl Session {
             rate_control = ?self.rate_control,
             split,
             asynchronous,
+            d3d12 = self.d3d12.is_some(),
             subframe_slices = self.subframe_slices,
             references = self.retained,
             rfi = self.invalidation,
@@ -1077,6 +1191,9 @@ impl Session {
         if self.slots.len() >= MAX_PENDING {
             bail!("NVENC input registration limit reached");
         }
+        if self.d3d12.is_some() != input.d3d12.is_some() {
+            bail!("an NVENC input does not match its session's D3D11 or D3D12 device");
+        }
         let _guard = self.guard()?;
         let index = self.slots.len();
         self.slots.push(Slot {
@@ -1085,6 +1202,7 @@ impl Session {
             registered: ptr::null_mut(),
             mapped: ptr::null_mut(),
             output: ptr::null_mut(),
+            d3d12: None,
             event: HANDLE::default(),
             event_registered: false,
             signaled: false,
@@ -1109,6 +1227,39 @@ impl Session {
         self.check(status, "register GPU input")?;
         if register.registeredResource.is_null() {
             bail!("NVENC returned no registered resource");
+        }
+        let readback = self.slots[index]
+            .input
+            .d3d12
+            .as_ref()
+            .map(|input| (input.output, input.size));
+        if let Some((buffer, size)) = readback {
+            // A D3D12 session writes each bitstream into the slot's READBACK
+            // buffer, registered as a one-row byte buffer.
+            self.slots[index].d3d12 = Some(Box::default());
+            let mut register = NV_ENC_REGISTER_RESOURCE {
+                version: self.api.register(),
+                resourceType: _NV_ENC_INPUT_RESOURCE_TYPE_NV_ENC_INPUT_RESOURCE_TYPE_DIRECTX,
+                width: size,
+                height: 1,
+                resourceToRegister: buffer,
+                bufferFormat: _NV_ENC_BUFFER_FORMAT_NV_ENC_BUFFER_FORMAT_U8,
+                bufferUsage: _NV_ENC_BUFFER_USAGE_NV_ENC_OUTPUT_BITSTREAM,
+                ..Default::default()
+            };
+            // SAFETY: `validate` checked the entry; the buffer is kept alive by the slot's input
+            // until `cleanup_slot` unregisters it.
+            let status =
+                unsafe { (self.functions.nvEncRegisterResource.unwrap())(self.raw, &mut register) };
+            let slot = &mut self.slots[index];
+            let resources = slot.d3d12.as_mut().unwrap();
+            resources.registered = register.registeredResource;
+            slot.output = (&mut resources.output as *mut NV_ENC_OUTPUT_RESOURCE_D3D12).cast();
+            self.check(status, "register D3D12 output")?;
+            if register.registeredResource.is_null() {
+                bail!("NVENC returned no registered output");
+            }
+            return Ok(index);
         }
         let mut output = NV_ENC_CREATE_BITSTREAM_BUFFER {
             version: self.api.structure(1, false),
@@ -1156,6 +1307,7 @@ impl Session {
                 pitch: cuda.pitch,
                 _texture: None,
                 cuda: Some(cuda),
+                d3d12: None,
             }
         } else {
             Input {
@@ -1165,14 +1317,42 @@ impl Session {
                 pitch: 0,
                 _texture: Some(texture.clone()),
                 cuda: None,
+                d3d12: None,
             }
         };
         self.slot(input)
     }
+    /// The slot of a D3D12 conversion target, registered the first time the
+    /// target comes round with the READBACK buffer `output` makes.
+    fn resource_slot(
+        &mut self,
+        resource: &ID3D12Resource,
+        output: impl FnOnce() -> Result<(ID3D12Resource, u32)>,
+    ) -> Result<usize> {
+        let key = resource.as_raw() as usize;
+        if let Some(index) = self.slots.iter().position(|slot| slot.input.key == key) {
+            return Ok(index);
+        }
+        let (buffer, size) = output()?;
+        self.slot(Input {
+            key,
+            raw: resource.as_raw(),
+            kind: _NV_ENC_INPUT_RESOURCE_TYPE_NV_ENC_INPUT_RESOURCE_TYPE_DIRECTX,
+            pitch: 0,
+            _texture: None,
+            cuda: None,
+            d3d12: Some(D3d12Input {
+                _resource: Some(resource.clone()),
+                output: buffer.as_raw(),
+                size,
+                _output: Some(buffer),
+            }),
+        })
+    }
     fn submit(
         &mut self,
         slot: usize,
-        texture: Option<Arc<ID3D11Texture2D>>,
+        texture: Option<Kept>,
         idr: bool,
         presentation: Instant,
     ) -> Result<()> {
@@ -1181,7 +1361,7 @@ impl Session {
     fn submit_frame(
         &mut self,
         slot: usize,
-        texture: Option<Arc<ID3D11Texture2D>>,
+        texture: Option<Kept>,
         idr: bool,
         presentation: Instant,
         again: Option<Again>,
@@ -1191,6 +1371,12 @@ impl Session {
         if self.pending.len() >= MAX_PENDING || self.pending.iter().any(|p| p.slot == slot) {
             bail!("NVENC input is still in flight");
         }
+        // A D3D12 picture waits on the GPU for its conversion's fence.
+        let wait = match (&self.d3d12, &texture) {
+            (None, _) => None,
+            (Some(_), Some(Kept::D3d12 { fence, value, .. })) => Some((*fence, *value)),
+            (Some(_), _) => bail!("a D3D12 NVENC frame needs its conversion's fence"),
+        };
         if let Some(input) = self.slots[slot].input.cuda.as_mut() {
             input.copy()?;
         }
@@ -1207,6 +1393,49 @@ impl Session {
         if map.mappedResource.is_null() || map.mappedBufferFmt != buffer_format(&self.stream) {
             bail!("NVENC mapped an incompatible input");
         }
+        let mut signal = None;
+        let mut input = map.mappedResource;
+        if let Some((fence, value)) = wait {
+            let mut output = NV_ENC_MAP_INPUT_RESOURCE {
+                version: self.api.structure(4, false),
+                registeredResource: self.slots[slot].d3d12.as_ref().unwrap().registered,
+                ..Default::default()
+            };
+            // SAFETY: The registration is this slot's live D3D12 output, which no pending frame
+            // has mapped (checked above).
+            let status =
+                unsafe { (self.functions.nvEncMapInputResource.unwrap())(self.raw, &mut output) };
+            if status != SUCCESS || output.mappedResource.is_null() {
+                // SAFETY: `mapped` is the input mapping made above, which no picture took.
+                let _ = unsafe {
+                    (self.functions.nvEncUnmapInputResource.unwrap())(
+                        self.raw,
+                        self.slots[slot].mapped,
+                    )
+                };
+                self.slots[slot].mapped = ptr::null_mut();
+                self.check(status, "map D3D12 output")?;
+                bail!("NVENC mapped no D3D12 output");
+            }
+            let session = self.d3d12.as_mut().unwrap();
+            session.value += 1;
+            signal = Some(session.value);
+            let resources = self.slots[slot].d3d12.as_mut().unwrap();
+            resources.mapped = output.mappedResource;
+            resources.input = NV_ENC_INPUT_RESOURCE_D3D12 {
+                version: self.api.structure(1, false),
+                pInputBuffer: map.mappedResource,
+                inputFencePoint: fence_point(self.api, fence, value, false),
+                ..Default::default()
+            };
+            resources.output = NV_ENC_OUTPUT_RESOURCE_D3D12 {
+                version: self.api.structure(1, false),
+                pOutputBuffer: output.mappedResource,
+                outputFencePoint: fence_point(self.api, session.fence.raw(), session.value, true),
+                ..Default::default()
+            };
+            input = (&mut resources.input as *mut NV_ENC_INPUT_RESOURCE_D3D12).cast();
+        }
         let metadata = (self.stream.hdr && self.stream.codec != 0 && self.api >= ApiVersion(13, 0))
             .then(|| self.metadata.encoded());
         // The driver emits HDR metadata on IDR/keyframes. Compare only values
@@ -1220,7 +1449,7 @@ impl Session {
             inputPitch: self.slots[slot].input.pitch,
             frameIdx: frame as u32,
             inputTimeStamp: frame,
-            inputBuffer: map.mappedResource,
+            inputBuffer: input,
             outputBitstream: self.slots[slot].output,
             completionEvent: self.slots[slot].event.0,
             bufferFmt: map.mappedBufferFmt,
@@ -1263,6 +1492,14 @@ impl Session {
                 (self.functions.nvEncUnmapInputResource.unwrap())(self.raw, self.slots[slot].mapped)
             };
             self.slots[slot].mapped = ptr::null_mut();
+            if let Some(resources) = self.slots[slot].d3d12.as_mut() {
+                // SAFETY: The D3D12 output mapping made above, which the rejected picture never
+                // took.
+                let _ = unsafe {
+                    (self.functions.nvEncUnmapInputResource.unwrap())(self.raw, resources.mapped)
+                };
+                resources.mapped = ptr::null_mut();
+            }
             self.check(status, "submit picture")?;
         }
         self.force_idr = false;
@@ -1282,6 +1519,7 @@ impl Session {
             cut_limit: self.cut_limit,
             streams: self.subframe && !idr && !after_invalidation && self.frame_cap().is_some(),
             units: None,
+            signal,
             _converted: texture,
         });
         if again.is_none() {
@@ -1365,6 +1603,15 @@ impl Session {
         let _guard = self.guard()?;
         while let Some(pending) = self.pending.front() {
             let index = pending.slot;
+            // A D3D12 frame is written once its output fence is signalled.
+            if let (Some(d3d12), Some(signal)) = (&self.d3d12, pending.signal)
+                && d3d12.fence.completed()? < signal
+            {
+                if pending.started.elapsed() > COMPLETION_TIMEOUT {
+                    bail!("NVENC completion timed out");
+                }
+                break;
+            }
             let slot = &mut self.slots[index];
             if !slot.event.is_invalid() && !slot.signaled {
                 // SAFETY: `slot.event` is a valid handle (checked above) owned by the slot.
@@ -1391,7 +1638,9 @@ impl Session {
             };
             // In subframe mode a lock that does not wait returns the slices
             // written so far.
-            lock.set_doNotWait(u32::from(!slot.event.is_invalid() || self.subframe));
+            lock.set_doNotWait(u32::from(
+                !slot.event.is_invalid() || self.subframe || self.d3d12.is_some(),
+            ));
             // SAFETY: `slot.output` is the pending slot's bitstream buffer on this session,
             // `sliceOffsets` is null or holds an entry per macroblock, and `lock` is versioned.
             let status =
@@ -1550,6 +1799,19 @@ impl Session {
                 "release completed input",
             )?;
             self.slots[index].mapped = ptr::null_mut();
+            let output = self.slots[index]
+                .d3d12
+                .as_ref()
+                .map_or(ptr::null_mut(), |resources| resources.mapped);
+            if !output.is_null() {
+                self.check(
+                    // SAFETY: The D3D12 output mapped for this frame in `submit`, whose bitstream
+                    // has been read and unlocked.
+                    unsafe { (self.functions.nvEncUnmapInputResource.unwrap())(self.raw, output) },
+                    "release completed output",
+                )?;
+                self.slots[index].d3d12.as_mut().unwrap().mapped = ptr::null_mut();
+            }
             let pending = self.pending.pop_front().unwrap();
             if self.reencodes(&pending, &encoded) {
                 match self.reencode(&pending) {
@@ -1565,20 +1827,19 @@ impl Session {
             if idr && crate::amf::over_cap_target(size as u64, pending.frame_cap_target) {
                 self.keyframes_over_cap += 1;
             }
-            if let Some(cap) = pending.frame_cap_bytes {
-                if size as u64 > cap.saturating_mul(2)
-                    && self
-                        .oversize_warned
-                        .is_none_or(|at| at.elapsed() >= OVERSIZE_WARNING_INTERVAL)
-                {
-                    self.oversize_warned = Some(Instant::now());
-                    tracing::warn!(
-                        bytes = size,
-                        cap,
-                        picture = if idr { "keyframe" } else { "inter" },
-                        "NVENC wrote a frame over twice its frame cap; the one-frame VBV targets the cap but the driver does not guarantee it"
-                    );
-                }
+            if let Some(cap) = pending.frame_cap_bytes
+                && size as u64 > cap.saturating_mul(2)
+                && self
+                    .oversize_warned
+                    .is_none_or(|at| at.elapsed() >= OVERSIZE_WARNING_INTERVAL)
+            {
+                self.oversize_warned = Some(Instant::now());
+                tracing::warn!(
+                    bytes = size,
+                    cap,
+                    picture = if idr { "keyframe" } else { "inter" },
+                    "NVENC wrote a frame over twice its frame cap; the one-frame VBV targets the cap but the driver does not guarantee it"
+                );
             }
             self.references.completed(pending.frame, idr);
             self.ready.push_back(encoded);
@@ -1720,6 +1981,24 @@ fn cleanup_slot(
             )?;
             slot.mapped = ptr::null_mut();
         }
+        if let Some(resources) = slot.d3d12.as_mut() {
+            if !resources.mapped.is_null() {
+                check(
+                    (functions.nvEncUnmapInputResource.unwrap())(raw, resources.mapped),
+                    "unmap D3D12 output during cleanup",
+                )?;
+                resources.mapped = ptr::null_mut();
+            }
+            if !resources.registered.is_null() {
+                check(
+                    (functions.nvEncUnregisterResource.unwrap())(raw, resources.registered),
+                    "unregister D3D12 output",
+                )?;
+                resources.registered = ptr::null_mut();
+            }
+            // The output is the slot's own structure, not a driver buffer.
+            slot.output = ptr::null_mut();
+        }
         if slot.event_registered {
             let mut event = NV_ENC_EVENT_PARAMS {
                 version: api.event(),
@@ -1819,6 +2098,28 @@ fn coded(config: &Negotiated) -> Negotiated {
     }
     coded
 }
+/// A D3D12 fence point: the driver waits for `value` before it reads the
+/// input, or signals it once the output is written.
+fn fence_point(
+    api: ApiVersion,
+    fence: *mut c_void,
+    value: u64,
+    signal: bool,
+) -> NV_ENC_FENCE_POINT_D3D12 {
+    let mut point = NV_ENC_FENCE_POINT_D3D12 {
+        version: api.structure(1, false),
+        pFence: fence,
+        ..Default::default()
+    };
+    if signal {
+        point.signalValue = value;
+        point.set_bSignal(1);
+    } else {
+        point.waitValue = value;
+        point.set_bWait(1);
+    }
+    point
+}
 /// Whether a subframe lock holds the whole picture: `hwEncodeStatus` 2, the
 /// completion NVIDIA's developer forum gives for subframe readback. The slice
 /// count alone is not enough, since a driver may report every slice of the
@@ -1837,6 +2138,24 @@ fn slices_consistent(lock: &NV_ENC_LOCK_BITSTREAM, offsets: &[u32]) -> bool {
         && count <= offsets.len()
         && offsets[..count].windows(2).all(|pair| pair[0] < pair[1])
         && offsets[count - 1] < lock.bitstreamSizeInBytes
+}
+/// The statistics pass behind the conversion a frame takes: the compute
+/// queue's, or the D3D11 conversion's (as `amf::stats`).
+fn stats<'a>(
+    compute: Option<&'a mut crate::compute::Converter>,
+    graphics: Option<&'a mut crate::gpu_color::HdrStats>,
+) -> Option<&'a mut dyn crate::amf::dynamic::Stats> {
+    match compute {
+        Some(converter) => Some(converter),
+        None => graphics.map(|stats| stats as &mut dyn crate::amf::dynamic::Stats),
+    }
+}
+/// A D3D12 session's READBACK buffer: twice an uncompressed picture, within
+/// the largest frame collected.
+fn readback_size(stream: &Negotiated) -> u32 {
+    let samples = u64::from(stream.width) * u64::from(stream.height) * 3 / 2;
+    let bytes = samples * if stream.ten_bit() { 2 } else { 1 } * 2;
+    bytes.min(MAX_FRAME_BYTES as u64) as u32
 }
 /// Dynamic HDR metadata spliced into each picture or unit
 /// ([`crate::amf::dynamic::output`]): before the first slice, the Dolby
@@ -1857,6 +2176,9 @@ fn splice(dynamic: Option<&mut crate::amf::dynamic::Dynamic>, frame: &mut Encode
 
 pub struct Encoder {
     session: Session,
+    /// The D3D12 compute conversion the session encodes from. Declared after
+    /// the session, so its targets and fences outlive the frames in flight.
+    compute: Option<Box<crate::compute::Converter>>,
     gpu: Device,
     /// The stream as negotiated; the session codes [`coded`].
     config: Negotiated,
@@ -1885,28 +2207,73 @@ impl Encoder {
         options: &Config,
         warnings: &Arc<Warnings>,
     ) -> Result<Self> {
+        Self::new_gpu(config, gpu, options, warnings, None)
+    }
+    /// NVENC on the capture's D3D11 device, or with `compute` on the compute
+    /// queue's D3D12 device, encoding what its conversion writes as AMF does
+    /// (API 12.0, driver 522.25 and newer).
+    pub fn new_gpu(
+        config: &Negotiated,
+        gpu: Device,
+        options: &Config,
+        warnings: &Arc<Warnings>,
+        compute: Option<Arc<crate::compute::Compute>>,
+    ) -> Result<Self> {
         if config.chroma_packing != 0 {
             config.validate()?;
         }
         let coded = coded(config);
         let runtime = Runtime::load()?;
         let tuning = Tuning::new(options, &coded)?;
-        let cuda = if coded.yuv444 && coded.ten_bit() {
+        let converter = compute
+            .map(|compute| -> Result<_> {
+                anyhow::ensure!(!coded.yuv444, "the D3D12 conversion writes 4:2:0 only");
+                let mut converter = crate::compute::Converter::new(
+                    compute,
+                    coded.width,
+                    coded.height,
+                    config.ten_bit(),
+                )?;
+                if config.chroma_packing != 0 {
+                    converter.pack_chroma()?;
+                }
+                converter.prepare_yuv()?;
+                Ok(Box::new(converter))
+            })
+            .transpose()?;
+        let cuda = if converter.is_none() && coded.yuv444 && coded.ten_bit() {
             Some(cuda::Context::new(&gpu)?)
         } else {
             None
         };
-        let (device, kind) = cuda
-            .as_ref()
-            .map(|context| (context.raw(), _NV_ENC_DEVICE_TYPE_NV_ENC_DEVICE_TYPE_CUDA))
-            .unwrap_or((
+        let (device, kind, fence) = if let Some(converter) = &converter {
+            let device = &converter.compute().device;
+            // SAFETY: `device` is the compute queue's live D3D12 device; the fence is owned.
+            let fence: ID3D12Fence = unsafe { device.CreateFence(0, D3D12_FENCE_FLAG_NONE) }
+                .context("NVENC D3D12 output fence")?;
+            (
+                device.as_raw(),
+                _NV_ENC_DEVICE_TYPE_NV_ENC_DEVICE_TYPE_DIRECTX,
+                Some(Rc::new(fence) as Rc<dyn Fence>),
+            )
+        } else if let Some(context) = &cuda {
+            (
+                context.raw(),
+                _NV_ENC_DEVICE_TYPE_NV_ENC_DEVICE_TYPE_CUDA,
+                None,
+            )
+        } else {
+            (
                 gpu.device.as_raw(),
                 _NV_ENC_DEVICE_TYPE_NV_ENC_DEVICE_TYPE_DIRECTX,
-            ));
-        let session = Session::open(runtime, device, kind, cuda, &coded, &tuning)?;
+                None,
+            )
+        };
+        let session = Session::open(runtime, device, kind, cuda, fence, &coded, &tuning)?;
         let metadata = gpu.hdr_metadata();
         let mut encoder = Self {
             session,
+            compute: converter,
             gpu,
             config: config.clone(),
             converter: None,
@@ -1930,10 +2297,15 @@ impl Encoder {
     fn enable_dynamic(&mut self, options: &Config) -> Option<Box<crate::amf::dynamic::Dynamic>> {
         let wanted = crate::amf::dynamic::wanted(&self.config, options)?;
         let packed = self.config.chroma_packing != 0;
-        if !packed {
+        if !packed && self.compute.is_none() {
             self.stats = Some(Box::new(crate::gpu_color::HdrStats::new(&self.gpu)));
         }
-        crate::amf::dynamic::start(wanted, packed, self.stats.as_deref_mut(), &self.warnings)
+        crate::amf::dynamic::start(
+            wanted,
+            packed,
+            stats(self.compute.as_deref_mut(), self.stats.as_deref_mut()),
+            &self.warnings,
+        )
     }
     pub fn set_luminance(&mut self, luminance: [f32; 2]) {
         self.luminance = luminance;
@@ -1985,7 +2357,11 @@ impl Encoder {
         &self.gpu.display.adapter
     }
     pub fn device_removed(&self) -> Option<crate::device_loss::DeviceLost> {
-        crate::device_loss::DeviceLost::d3d11(&self.gpu.device)
+        crate::device_loss::DeviceLost::d3d11(&self.gpu.device).or_else(|| {
+            self.compute.as_ref().and_then(|converter| {
+                crate::device_loss::DeviceLost::d3d12(&converter.compute().device)
+            })
+        })
     }
     /// AMF's throughput names answered from `NV_ENC_CAPS_MB_PER_SEC_MAX`, in
     /// 16x16 macroblocks per second, for the session's own codec.
@@ -2066,12 +2442,19 @@ impl Encoder {
             oldest_ms = ?oldest.map(|pending| pending.started.elapsed().as_millis()),
             next_frame = self.session.next,
             asynchronous = self.session.initialize.enableEncodeAsync != 0,
+            d3d12 = self.compute.is_some(),
             last_submit = ?self.last_submitted.map(|at| at.elapsed().as_millis()),
             d3d11_removed = ?removed,
             "NVENC stall snapshot"
         );
+        if let Some(converter) = &self.compute {
+            converter.log_stall();
+        }
     }
     pub fn poll(&mut self) -> Result<Vec<Encoded>> {
+        if let Some(converter) = self.compute.as_deref_mut() {
+            converter.release_completed();
+        }
         let mut frames = self.session.poll()?;
         if let Some(error) = self.session.reencode_failure.take() {
             self.warnings.event("encoder_reencode", format!("NVENC could not encode an oversize scene cut again as a keyframe ({error}); the frame goes without full FEC and may freeze the picture briefly. Report this with the host log."), butterpollo_core::session::EVENT_PERIOD);
@@ -2109,6 +2492,53 @@ impl Encoder {
             self.session.drain()?;
         }
         let source = (image.width, image.height, image.pixel);
+        if let Some(converter) = self.compute.as_deref_mut() {
+            let compute = converter.compute().clone();
+            let texture = compute.open(&image.texture)?;
+            let pointer = image
+                .cursor
+                .as_ref()
+                .map(|cursor| converter.pointer(cursor))
+                .transpose()?;
+            converter.values = crate::gpu_color::constants(
+                &self.config,
+                source,
+                self.luminance,
+                image.cursor.as_ref(),
+            );
+            converter.set_overlay(self.overlay.as_ref());
+            let converted = converter.convert(
+                &texture,
+                crate::compute::format(image.pixel),
+                pointer.as_ref(),
+                image,
+            )?;
+            let size = readback_size(&self.session.stream);
+            let slot = self.session.resource_slot(&converted.texture, || {
+                let buffer = crate::compute::focus_buffer(
+                    &compute.device,
+                    D3D12_HEAP_TYPE_READBACK,
+                    u64::from(size),
+                    D3D12_RESOURCE_STATE_COPY_DEST,
+                )
+                .context("NVENC D3D12 output buffer")?;
+                Ok((buffer, size))
+            })?;
+            let kept = Kept::D3d12 {
+                fence: converted.fence.as_raw(),
+                value: converted.value,
+                _texture: Some(converted.texture),
+                _fence: Some(converted.fence),
+            };
+            self.session.submit(slot, Some(kept), idr, image.captured)?;
+            self.last_submitted = Some(Instant::now());
+            crate::amf::dynamic::sample(
+                &mut self.dynamic,
+                stats(self.compute.as_deref_mut(), None),
+                &self.warnings,
+            );
+            return self.poll();
+        }
         if self.source != Some(source) {
             self.session.clear_inputs()?;
             self.converter = Some(crate::gpu_color::Converter::new(
@@ -2127,8 +2557,10 @@ impl Encoder {
             stats.queue(image, converter);
         }
         let slot = self.session.texture_slot(converted.as_ref())?;
-        self.session
-            .submit(slot, Some(converted), idr, image.captured)?;
+        let kept = Kept::D3d11 {
+            _texture: converted,
+        };
+        self.session.submit(slot, Some(kept), idr, image.captured)?;
         self.last_submitted = Some(Instant::now());
         // Before the poll, so the frame it returns carries the newest
         // finished sample.

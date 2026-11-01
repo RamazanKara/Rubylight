@@ -1606,7 +1606,7 @@ fn focus_parameters() -> [D3D12_ROOT_PARAMETER; 3] {
         },
     ]
 }
-fn focus_buffer(
+pub(crate) fn focus_buffer(
     device: &ID3D12Device,
     heap: D3D12_HEAP_TYPE,
     size: u64,

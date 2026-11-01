@@ -61,6 +61,27 @@ struct Driver {
     partial: VecDeque<(u32, usize)>,
     /// Subframe locks report slice offsets past the bytes written.
     bad_offsets: bool,
+    /// A D3D12 session: pictures pass resource structures with fence
+    /// points, and the driver signals the output fence, which reads `fence`,
+    /// as each is written unless `hold_fence`.
+    d3d12: bool,
+    fence: u64,
+    hold_fence: bool,
+    /// Each D3D12 picture's wait fence, wait value and signal value.
+    fence_points: Vec<(usize, u64, u64)>,
+}
+/// The D3D12 output fence, whose value the fake driver keeps.
+struct FakeFence;
+const FAKE_FENCE: usize = 0xfe0;
+/// The conversion fence D3D12 pictures wait for.
+const CONVERSION_FENCE: usize = 0xc0;
+impl Fence for FakeFence {
+    fn raw(&self) -> *mut c_void {
+        FAKE_FENCE as *mut c_void
+    }
+    fn completed(&self) -> Result<u64> {
+        Ok(state(|d| d.fence))
+    }
 }
 thread_local! { static DRIVER: RefCell<Driver> = RefCell::default(); }
 fn state<T>(call: impl FnOnce(&mut Driver) -> T) -> T {
@@ -397,10 +418,49 @@ unsafe extern "C" fn encode(raw: *mut c_void, parameters: *mut NV_ENC_PIC_PARAMS
     if p.encodePicFlags & _NV_ENC_PIC_FLAGS_NV_ENC_PIC_FLAG_EOS != 0 {
         return SUCCESS;
     }
+    // SAFETY: `raw` is a live handle that `open` boxed and `destroy` has not freed.
+    let api = unsafe { handle(raw) };
     state(|d| {
-        assert!(d.mapped.contains(&(p.inputBuffer as usize)));
+        let mut input = p.inputBuffer;
+        let mut signal = None;
+        if d.d3d12 {
+            // SAFETY: A D3D12 session passes its slot's boxed resource structures, live while the
+            // frame is pending.
+            let (resource, output) = unsafe {
+                (
+                    &*(p.inputBuffer as *const NV_ENC_INPUT_RESOURCE_D3D12),
+                    &*(p.outputBitstream as *const NV_ENC_OUTPUT_RESOURCE_D3D12),
+                )
+            };
+            let version = api.structure(1, false);
+            let (wait, done) = (resource.inputFencePoint, output.outputFencePoint);
+            assert_eq!(
+                [resource.version, output.version, wait.version, done.version],
+                [version; 4]
+            );
+            assert_eq!(
+                (wait.bWait(), wait.bSignal(), done.bWait(), done.bSignal()),
+                (1, 0, 0, 1)
+            );
+            assert_eq!(done.pFence as usize, FAKE_FENCE);
+            assert!(done.signalValue > d.fence_points.last().map_or(0, |point| point.2));
+            assert!(d.mapped.contains(&(output.pOutputBuffer as usize)));
+            assert_eq!(
+                d.resources[&(output.pOutputBuffer as usize)],
+                _NV_ENC_BUFFER_FORMAT_NV_ENC_BUFFER_FORMAT_U8
+            );
+            d.fence_points
+                .push((wait.pFence as usize, wait.waitValue, done.signalValue));
+            d.outputs.entry(p.outputBitstream as usize).or_default();
+            input = resource.pInputBuffer;
+            signal = Some(done.signalValue);
+        }
+        assert!(d.mapped.contains(&(input as usize)));
         if d.reject_submit {
             return _NVENCSTATUS_NV_ENC_ERR_GENERIC;
+        }
+        if let Some(value) = signal.filter(|_| !d.hold_fence) {
+            d.fence = value;
         }
         let codec = state_codec(d);
         let buffer = d.outputs.get_mut(&(p.outputBitstream as usize)).unwrap();
@@ -523,6 +583,10 @@ unsafe extern "C" fn unlock(_: *mut c_void, output: NV_ENC_OUTPUT_PTR) -> NVENCS
         let buffer = d.outputs.get_mut(&(output as usize)).unwrap();
         assert!(buffer.locked);
         buffer.locked = false;
+        if d.d3d12 {
+            // The READBACK buffer holds one picture at a time.
+            d.outputs.remove(&(output as usize));
+        }
         d.calls.push("unlock output");
     });
     SUCCESS
@@ -560,6 +624,14 @@ fn session(config: &Negotiated, maximum: ApiVersion) -> Result<Session> {
     session_with(config, maximum, "")
 }
 fn session_with(config: &Negotiated, maximum: ApiVersion, settings: &str) -> Result<Session> {
+    open_with(config, maximum, settings, None)
+}
+fn open_with(
+    config: &Negotiated,
+    maximum: ApiVersion,
+    settings: &str,
+    fence: Option<Rc<dyn Fence>>,
+) -> Result<Session> {
     Session::open(
         Arc::new(Runtime {
             _library: None,
@@ -569,9 +641,41 @@ fn session_with(config: &Negotiated, maximum: ApiVersion, settings: &str) -> Res
         ptr::dangling_mut::<c_void>(),
         _NV_ENC_DEVICE_TYPE_NV_ENC_DEVICE_TYPE_DIRECTX,
         None,
+        fence,
         config,
         &Tuning::new(&Config::parse(settings)?, config)?,
     )
+}
+/// A session on the D3D12 conversion's device.
+fn d3d12_session(config: &Negotiated, maximum: ApiVersion, settings: &str) -> Result<Session> {
+    state(|d| d.d3d12 = true);
+    open_with(config, maximum, settings, Some(Rc::new(FakeFence)))
+}
+/// A D3D12 conversion target's slot, with its READBACK buffer.
+fn d3d12_input(session: &mut Session, key: usize) -> Result<usize> {
+    session.slot(Input {
+        key,
+        raw: key as *mut c_void,
+        kind: _NV_ENC_INPUT_RESOURCE_TYPE_NV_ENC_INPUT_RESOURCE_TYPE_DIRECTX,
+        pitch: 0,
+        _texture: None,
+        cuda: None,
+        d3d12: Some(D3d12Input {
+            _resource: None,
+            output: (key | 0x1000) as *mut c_void,
+            size: 4096,
+            _output: None,
+        }),
+    })
+}
+/// A frame of the D3D12 conversion, ready once its fence reaches `value`.
+fn converted(value: u64) -> Option<Kept> {
+    Some(Kept::D3d12 {
+        _texture: None,
+        _fence: None,
+        fence: CONVERSION_FENCE as *mut c_void,
+        value,
+    })
 }
 fn initialized() -> (NV_ENC_INITIALIZE_PARAMS, NV_ENC_CONFIG) {
     state(|d| d.initialized.unwrap())
@@ -587,6 +691,7 @@ fn input(session: &mut Session, key: usize) -> Result<usize> {
         pitch: 0,
         _texture: None,
         cuda: None,
+        d3d12: None,
     })
 }
 fn assert_clean() {
@@ -1735,6 +1840,115 @@ fn a_frame_over_twice_its_cap_warns_at_most_every_ten_seconds() -> Result<()> {
     encoder.poll()?;
     assert!(encoder.oversize_warned.unwrap() > earlier);
     drop(encoder);
+    assert_clean();
+    Ok(())
+}
+#[test]
+fn a_d3d12_session_waits_for_the_conversion_on_the_gpu_and_signals_its_fence() -> Result<()> {
+    reset();
+    let stream = Negotiated::default();
+    let mut encoder = d3d12_session(&stream, ApiVersion(13, 0), "")?;
+    let (parameters, _) = initialized();
+    // Completion comes from the output fence, not from events.
+    assert_eq!(parameters.enableEncodeAsync, 0);
+    assert_eq!(parameters.bufferFormat, buffer_format(&stream));
+    let slot = d3d12_input(&mut encoder, 17)?;
+    // The READBACK buffer is registered as a byte buffer for the bitstream.
+    state(|d| {
+        assert_eq!(
+            d.resources[&(17 | 0x1000)],
+            _NV_ENC_BUFFER_FORMAT_NV_ENC_BUFFER_FORMAT_U8
+        );
+        assert!(d.outputs.is_empty(), "no driver bitstream buffer");
+    });
+    encoder.submit(slot, converted(5), true, Instant::now())?;
+    let output = encoder.poll()?;
+    assert_eq!(output.len(), 1);
+    assert!(output[0].idr);
+    assert_eq!(output[0].bytes[..8], 1u64.to_le_bytes());
+    state(|d| assert_eq!(d.fence_points, [(CONVERSION_FENCE, 5, 1)]));
+    // Until the driver signals the frame's value, the poll does not lock.
+    state(|d| d.hold_fence = true);
+    encoder.submit(slot, converted(6), false, Instant::now())?;
+    assert!(encoder.poll()?.is_empty());
+    state(|d| assert!(!d.calls.ends_with(&["lock output"])));
+    state(|d| d.fence = 2);
+    assert_eq!(encoder.poll()?.len(), 1);
+    // A frame the fence never reaches fails loudly.
+    encoder.submit(slot, converted(7), false, Instant::now())?;
+    encoder.pending.front_mut().unwrap().started = Instant::now() - COMPLETION_TIMEOUT * 2;
+    let error = encoder.poll().err().unwrap();
+    assert!(format!("{error:#}").contains("timed out"), "{error:#}");
+    state(|d| d.fence = 3);
+    encoder.pending.front_mut().unwrap().started = Instant::now();
+    assert_eq!(encoder.poll()?.len(), 1);
+    // A D3D12 frame without its conversion's fence, or a D3D11 input, is refused.
+    let error = encoder
+        .submit(slot, None, false, Instant::now())
+        .err()
+        .unwrap();
+    assert!(
+        format!("{error:#}").contains("conversion's fence"),
+        "{error:#}"
+    );
+    let error = input(&mut encoder, 18).err().unwrap();
+    assert!(format!("{error:#}").contains("D3D12"), "{error:#}");
+    drop(encoder);
+    assert_clean();
+    Ok(())
+}
+#[test]
+fn a_d3d12_scene_cut_is_encoded_again_after_the_same_conversion() -> Result<()> {
+    reset();
+    let mut encoder = d3d12_session(&Negotiated::default(), ApiVersion(13, 0), "")?;
+    let slot = d3d12_input(&mut encoder, 17)?;
+    encoder.submit(slot, converted(1), true, Instant::now())?;
+    encoder.poll()?;
+    encoder.cut_limit = Some(4);
+    state(|d| d.picture = 24);
+    encoder.submit(slot, converted(2), false, Instant::now())?;
+    let output = encoder.poll()?;
+    assert_eq!(output.len(), 1);
+    assert!(output[0].reencoded && output[0].idr);
+    // The keyframe waits for the same conversion and signals a new value.
+    state(|d| {
+        assert_eq!(
+            d.fence_points[1..],
+            [(CONVERSION_FENCE, 2, 2), (CONVERSION_FENCE, 2, 3)]
+        )
+    });
+    drop(encoder);
+    assert_clean();
+    Ok(())
+}
+#[test]
+fn a_d3d12_session_needs_api_12_and_has_no_slices_or_weighted_prediction() -> Result<()> {
+    reset();
+    let error = d3d12_session(&Negotiated::default(), ApiVersion(11, 0), "")
+        .err()
+        .unwrap();
+    assert!(format!("{error:#}").contains("522.25"), "{error:#}");
+    reset();
+    let hevc = Negotiated {
+        codec: 1,
+        ..Default::default()
+    };
+    let encoder = d3d12_session(
+        &hevc,
+        ApiVersion(13, 0),
+        "video_slice_delivery = 2\nnvenc_weighted_prediction = true\n",
+    )?;
+    assert!(!encoder.subframe);
+    let (parameters, _) = initialized();
+    assert_eq!(parameters.enableWeightedPrediction(), 0);
+    assert_eq!(parameters.enableSubFrameWrite(), 0);
+    drop(encoder);
+    assert_clean();
+    // Each D3D12 candidate is API 12.0 or newer.
+    reset();
+    state(|d| d.reject_open = Some(ApiVersion(12, 0)));
+    assert!(d3d12_session(&Negotiated::default(), ApiVersion(12, 0), "").is_err());
+    state(|d| assert_eq!(d.opened, [ApiVersion(12, 0)]));
     assert_clean();
     Ok(())
 }

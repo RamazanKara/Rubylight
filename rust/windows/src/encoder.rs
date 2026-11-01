@@ -232,12 +232,45 @@ impl Encoder {
             )));
         }
         if backend(&image.gpu, tuning)? == "nvenc" {
-            return match crate::nvenc::Encoder::new_device_reported(
+            // As on AMF: convert on the compute queue and encode on its D3D12
+            // device, or on the graphics queue when that is unavailable.
+            let compute = if !config.yuv444
+                && crate::compute::enabled(tuning)
+                && crate::compute::shareable(&image.texture)
+            {
+                match crate::compute::Compute::for_device(&image.gpu.device) {
+                    Ok(compute) => Some(compute),
+                    Err(error) => {
+                        warnings.set("encoder_conversion", format!("NVENC compute conversion unavailable ({error:#}); converting on the graphics queue. A busy game can delay frames; lower its GPU load or update the NVIDIA driver."));
+                        None
+                    }
+                }
+            } else {
+                if !config.yuv444 && crate::compute::enabled(tuning) {
+                    warnings.set("encoder_conversion", "NVENC compute conversion unavailable: the capture texture cannot be shared. Converting on the graphics queue; lower game GPU load or update the NVIDIA driver if frames are delayed.");
+                }
+                None
+            };
+            let created = match crate::nvenc::Encoder::new_gpu(
                 config,
                 image.gpu.clone(),
                 tuning,
                 warnings,
+                compute.clone(),
             ) {
+                Err(error) if compute.is_some() => {
+                    warnings.set("encoder_conversion", format!("NVENC on the compute queue's D3D12 device failed ({error:#}); converting on the graphics queue. Lower game GPU load or update the NVIDIA driver (522.25 or newer) if frames are delayed."));
+                    crate::nvenc::Encoder::new_gpu(
+                        config,
+                        image.gpu.clone(),
+                        tuning,
+                        warnings,
+                        None,
+                    )
+                }
+                created => created,
+            };
+            return match created {
                 Ok(encoder) => Ok(Self::Nvenc(Box::new(encoder))),
                 Err(error) => Err(nvenc_failed(error, &image.gpu.display.adapter)),
             };

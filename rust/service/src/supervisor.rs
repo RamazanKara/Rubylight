@@ -256,7 +256,12 @@ fn repair_display_driver(install: &std::path::Path, host: &std::path::Path, stop
         let mut refusal = String::new();
         let mut check = Repeated::default();
         // Until the service stops, which also ends a task that runs.
-        let stopped = |interval| stop.wait(interval).unwrap_or(true);
+        let stopped = |interval| {
+            stop.wait(interval).unwrap_or_else(|error| {
+                tracing::error!(%error, "the virtual display driver watch cannot wait; it stops");
+                true
+            })
+        };
         loop {
             // A check that failed decides nothing: the next one comes after
             // the same interval.

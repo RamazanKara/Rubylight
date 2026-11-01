@@ -1,2 +1,2 @@
 # The service's version and the SHA-256 of its files (rust/release/service_inputs.py).
-1.0.0 24c0664854cfdee57c25199b0b1f050aae343c713ca0cf9757c2b58efbc57f27
+1.0.0 48e38cc8a74f03fb60af509626d0a434dbeff7cbdf638cf07eaba9aadf17a695

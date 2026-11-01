@@ -22,6 +22,9 @@ final class VendorLowLatencyKeys {
     static final Map<String, Integer> MEDIATEK;
     // The MediaTek preset for the first configure try: the same keys with shorter queues and waits, no preload.
     static final Map<String, Integer> MEDIATEK_SHORT;
+    // The MediaTek preset for AV1: the low-latency, boost and clock switches only, no queue,
+    // wait, preload or skip keys.
+    static final Map<String, Integer> MEDIATEK_AV1;
     // The Samsung Exynos preset, set on Exynos decoders by name. Experimental: no Exynos device here.
     static final Map<String, Integer> EXYNOS;
     // Google Codec2 frame rate key, read by Android 16 (API 36) and newer, the level Moonlight X gates it on. Experimental: no Tensor device here.
@@ -97,6 +100,7 @@ final class VendorLowLatencyKeys {
                 mtk.put(entry.getKey(), entry.getValue());
             }
         }
+        MEDIATEK_AV1 = Collections.unmodifiableMap(new LinkedHashMap<>(mtk));
         mtk.put("vendor.mtk.vdec.preload.frame.count", 1);
         mtk.put("vendor.mtk.vdec.buffer.fetch.timeout.ms", 4);
         mtk.put("vendor.mtk.vdec.bq.guard.interval.time", 4);
@@ -181,12 +185,16 @@ final class VendorLowLatencyKeys {
 
     /**
      * The whole MediaTek preset for a configure try, set by name whether or not the decoder lists
-     * it: the shorter queues on try 0, the full preset after that. AV1 always gets the full preset:
-     * with the shorter queues a MediaTek AV1 decoder accepted the format and then showed rainbow
-     * colours for whole streams without reporting a single error (issue 56).
+     * it: the shorter queues on try 0, the full preset after that. AV1 gets only the switches
+     * (MEDIATEK_AV1) on every try: a MediaTek AV1 decoder on a Fire TV showed rainbow colours for
+     * whole streams with the shorter queues and again with the full preset, without reporting a
+     * single error and with no loss on the PC's side, so no fallback try ran (issue 56).
      */
     static Map<String, Integer> mediaTekKeys(int tryNumber, String mimeType) {
-        return tryNumber == 0 && !"video/av01".equals(mimeType) ? MEDIATEK_SHORT : MEDIATEK;
+        if ("video/av01".equals(mimeType)) {
+            return MEDIATEK_AV1;
+        }
+        return tryNumber == 0 ? MEDIATEK_SHORT : MEDIATEK;
     }
 
     static boolean isMediaTekDetectOnly(Collection<String> integerParams) {

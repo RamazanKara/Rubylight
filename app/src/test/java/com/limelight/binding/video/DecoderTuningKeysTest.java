@@ -204,20 +204,27 @@ public class DecoderTuningKeysTest {
     }
 
     @Test
-    public void mediaTekAv1KeepsTheFullPresetOnTheFirstTry() {
-        // Issue 56: a MediaTek AV1 decoder with the shorter queues showed rainbow colours for whole
-        // streams and reported no error, so no fallback try ever ran.
+    public void mediaTekAv1GetsOnlyTheSwitches() {
+        // Issue 56: a MediaTek AV1 decoder showed rainbow colours for whole streams with the
+        // shorter queues and again with the full preset, reported no error, and the PC saw no loss.
         for (int attempt = 0; attempt <= 3; attempt++) {
-            assertSame("try " + attempt, VendorLowLatencyKeys.MEDIATEK,
+            assertSame("try " + attempt, VendorLowLatencyKeys.MEDIATEK_AV1,
                     VendorLowLatencyKeys.mediaTekKeys(attempt, "video/av01"));
         }
+        assertTrue(VendorLowLatencyKeys.MEDIATEK_AV1.containsKey("vendor.mtk.vdec.low-latency.mode"));
         for (String name : new String[] {"c2.mtk.av1.decoder", "OMX.MTK.VIDEO.DECODER.AV1"}) {
-            MediaFormat format = MediaFormat.createVideoFormat("video/av01", 2880, 1620);
+            MediaFormat format = MediaFormat.createVideoFormat("video/av01", 3840, 2160);
             assertTrue(MediaCodecHelper.setDecoderLowLatencyOptions(format, decoder(name), 0, true, true, false, false));
-            for (Map.Entry<String, Integer> key : VendorLowLatencyKeys.MEDIATEK.entrySet()) {
+            for (Map.Entry<String, Integer> key : VendorLowLatencyKeys.MEDIATEK_AV1.entrySet()) {
                 assertEquals(name + " try 0 " + key.getKey(), (int) key.getValue(), format.getInteger(key.getKey()));
             }
+            assertAbsent(name, format, "vendor.mtk.vdec.preload.frame.count", "vendor.mtk.vdec.buffer.fetch.timeout.ms",
+                    "vendor.mtk.vdec.bq.guard.interval.time", "vendor.mtk.vdec.input.max.queue.depth",
+                    "vendor.mtk.vdec.output.max.queue.depth", "vendor.mtk.vdec.nvop.skip", "vendor.mtk.vdec.pq",
+                    "vendor.mtk.vdec.skip.mode", "vendor.mtk.vdec.drop.nonref.frame", "vendor.mtk.vdec.frame-drop.policy");
         }
+        // H.264 and HEVC keep the queue keys.
+        assertSame(VendorLowLatencyKeys.MEDIATEK, VendorLowLatencyKeys.mediaTekKeys(1, "video/hevc"));
     }
 
     @Test

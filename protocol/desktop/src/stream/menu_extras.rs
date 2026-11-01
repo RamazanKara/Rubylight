@@ -271,10 +271,9 @@ pub fn bitrate_slider(ui: &mut egui::Ui, value: &mut u32, enabled: bool) -> bool
     let before = at;
     let response = ui.horizontal(|ui| {
         ui.label(tr("Bitrate"));
-        ui.add_enabled(enabled, egui::Slider::new(&mut at, 0.0..=f64::from(positions()))
-            .step_by(1.0)
-            .custom_formatter(|at, _| label(kbps(at)))
-            .custom_parser(|text| parse(text).map(position)))
+        ui.add_enabled_ui(enabled, |ui| crate::theme::slider(ui, &mut at, 0.0..=f64::from(positions()), 1.0,
+            |rail| rail.step_by(1.0),
+            |field| field.speed(0.25).custom_formatter(|at, _| label(kbps(at))).custom_parser(|text| parse(text).map(position)))).inner
     }).inner;
     if at != before { *value = kbps(at); }
     let mut scrub = ui.data(|d| d.get_temp::<Scrub>(scrub_id())).unwrap_or_default();
@@ -477,5 +476,55 @@ mod tests {
         // The menu closed before the wait was over: the change is found, and only once.
         assert!(take_pending(&ctx));
         assert!(!take_pending(&ctx));
+    }
+
+    /// The stream menu's trap (nightjar#61): from the row below, Up landed in the slider's number
+    /// box and every further Up raised the bitrate. Up and Down now pass the row, Left and Right step.
+    #[test]
+    fn up_and_down_pass_the_bitrate_row_without_changing_it() {
+        let ctx = egui::Context::default();
+        let (mut value, mut ids, mut time) = (20_000, [egui::Id::NULL; 2], 0.0);
+        let mut frame = |events: Vec<egui::Event>, value: &mut u32| {
+            time += 0.1;
+            let input = egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(600.0, 400.0))),
+                time: Some(time),
+                events,
+                ..Default::default()
+            };
+            // Full-width rows, as the menu's are, so the bitrate row lies on the way up.
+            let row = |text| egui::Button::new(text).min_size(egui::vec2(560.0, 30.0));
+            ctx.run_ui(input, |ui| {
+                ids[0] = ui.add(row("above")).id;
+                bitrate_slider(ui, value, true);
+                ids[1] = ui.add(row("below")).id;
+            })
+            .textures_delta
+            .clear();
+            ids
+        };
+        let ids = frame(Vec::new(), &mut value);
+        ctx.memory_mut(|m| m.request_focus(ids[1]));
+        frame(Vec::new(), &mut value);
+        frame(Vec::new(), &mut value);
+        assert_eq!(ctx.memory(|m| m.focused()), Some(ids[1]));
+        let mut press = |key, value: &mut u32| {
+            frame(crate::gui::tap(key).to_vec(), value);
+            frame(Vec::new(), value);
+            ctx.memory(|m| m.focused())
+        };
+        let on_row = press(egui::Key::ArrowUp, &mut value);
+        assert!(on_row.is_some_and(|id| !ids.contains(&id)), "Up from below reaches the bitrate row: {on_row:?} {ids:?}");
+        assert_eq!(value, 20_000, "reaching it changes nothing");
+        assert_eq!(press(egui::Key::ArrowRight, &mut value), on_row, "Right steps in place");
+        assert_ne!(value, 20_000, "Right steps the bitrate");
+        let stepped = value;
+        let up = press(egui::Key::ArrowUp, &mut value);
+        assert!(up == Some(ids[0]) || up.is_some_and(|id| id != on_row.unwrap() && id != ids[1]), "Up leaves the box: {up:?}");
+        assert_eq!(value, stepped, "Up does not step");
+        // Up again ends above the row, wherever the row's two stops are.
+        let top = if up == Some(ids[0]) { up } else { press(egui::Key::ArrowUp, &mut value) };
+        assert_eq!(top, Some(ids[0]), "never stuck on the row");
+        assert_eq!(value, stepped);
     }
 }

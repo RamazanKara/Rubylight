@@ -444,6 +444,25 @@ pub fn step_value<N: egui::emath::Numeric>(
     response
 }
 
+/// A slider a controller or the arrow keys can leave. egui's slider shows its value in a `DragValue`
+/// of its own, which steps on Up and Down once it has focus: Up from the row below landed there and
+/// only raised the value (the stream menu's bitrate). Here the value is a [`step_value`] beside the
+/// rail, so Up and Down move focus on both, and Left and Right step on both.
+pub fn slider<N: egui::emath::Numeric>(
+    ui: &mut egui::Ui,
+    value: &mut N,
+    range: std::ops::RangeInclusive<N>,
+    step: f64,
+    rail: impl FnOnce(egui::Slider<'_>) -> egui::Slider<'_>,
+    field: impl FnOnce(egui::DragValue<'_>) -> egui::DragValue<'_>,
+) -> egui::Response {
+    ui.horizontal(|ui| {
+        let slid = ui.add(rail(egui::Slider::new(value, range.clone()).show_value(false)));
+        slid | step_value(ui, value, range, step, field)
+    })
+    .inner
+}
+
 /// The mark as straight RGBA pixels, `size` square: the amber moon with the night bird cut
 /// out, 4x4 supersampled.
 pub fn logo_rgba(size: usize) -> Vec<u8> {

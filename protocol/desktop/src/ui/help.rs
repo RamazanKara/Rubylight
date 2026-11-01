@@ -25,8 +25,16 @@ const SECTIONS: [(&str, &str); 6] = [
 ];
 
 /// The common problems on Windows and Linux and their one-line fixes (`docs/TROUBLESHOOTING.md`).
+/// Only Windows asks about private networks.
 const PROBLEMS: [(&str, &str); 5] = [
-    (en("PCs are not found"), en("Allow Nightjar on private networks when Windows asks, or add the PC by its address with Add PC.")),
+    (
+        en("PCs are not found"),
+        if cfg!(windows) {
+            en("Allow Nightjar on private networks when Windows asks, or add the PC by its address with Add PC.")
+        } else {
+            en("Connect both to the same network, or add the PC by its address with Add PC.")
+        },
+    ),
     (en("Pairing fails"), en("Cancel, clear the pending request in the host's web page, and pair again with a new PIN.")),
     (en("Black picture or no video"), en("Try H.264 at 720p with HDR and upscaling off, then raise one setting at a time.")),
     (en("Stutter or lag"), en("Lower the bitrate or connect the PC by cable. Why did my stream stutter? in the stream controls names the cause.")),

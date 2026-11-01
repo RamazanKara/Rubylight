@@ -327,6 +327,14 @@ fn help_is_in_the_header_and_its_links_open_the_guides_and_logs() {
     }
 }
 
+/// Only Windows asks whether Nightjar may use private networks, so only there is it the fix.
+#[test]
+fn the_private_network_fix_is_offered_only_on_windows() {
+    let fix = PROBLEMS[0].1;
+    assert_eq!(fix.contains("Windows asks"), cfg!(windows), "{fix}");
+    assert!(fix.contains("Add PC"), "the address fix is offered everywhere: {fix}");
+}
+
 /// The page in German fits: every section heading and row label is translated.
 #[test]
 fn the_page_reads_in_german() {

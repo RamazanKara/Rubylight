@@ -63,11 +63,11 @@ public class StreamMenuTest {
     }
 
     @Test
-    public void rubylightGetsTheQuickRowThenEverySectionThenTheSessionActions() {
+    public void rubylightGetsTheQuickRowThenTheSessionActionsThenEverySection() {
         Map<StreamMenu.Section, List<StreamMenu.Item>> menu = sections(StreamMenu.mainPage(
                 options("rubylight-serverinfo.xml", NvApp.Role.STREAM)));
-        assertEquals(Arrays.asList(StreamMenu.Section.QUICK, StreamMenu.Section.INPUT, StreamMenu.Section.DISPLAY,
-                StreamMenu.Section.QUALITY, StreamMenu.Section.HOST, StreamMenu.Section.SESSION), new ArrayList<>(menu.keySet()));
+        assertEquals(Arrays.asList(StreamMenu.Section.QUICK, StreamMenu.Section.SESSION, StreamMenu.Section.INPUT,
+                StreamMenu.Section.DISPLAY, StreamMenu.Section.QUALITY, StreamMenu.Section.HOST), new ArrayList<>(menu.keySet()));
         assertEquals(Arrays.asList(KEYBOARD, PC_KEYBOARD, OVERLAY), menu.get(StreamMenu.Section.QUICK));
         assertEquals(Arrays.asList(TOUCH_MODE, ONSCREEN_CONTROLS, KEYBOARD_KEYS), menu.get(StreamMenu.Section.INPUT));
         assertEquals(Arrays.asList(ZOOM, OVERLAY_PAGE), menu.get(StreamMenu.Section.DISPLAY));
@@ -75,12 +75,60 @@ public class StreamMenuTest {
         assertEquals(Arrays.asList(BITRATE, AUTOMATIC_QUALITY, AUTOMATIC_BITRATE), menu.get(StreamMenu.Section.QUALITY));
         assertEquals(Arrays.asList(SERVER_COMMANDS, CLIPBOARD_SEND, CLIPBOARD_RECEIVE, HOST_WEB_UI, HOST_STATUS),
                 menu.get(StreamMenu.Section.HOST));
-        // Reconnect is a stream action, not a host command; quitting comes last, in the error colour.
-        assertEquals(Arrays.asList(RECONNECT, DISCONNECT, QUIT_GAME), menu.get(StreamMenu.Section.SESSION));
-        List<StreamMenu.Entry> entries = StreamMenu.mainPage(options("rubylight-serverinfo.xml", NvApp.Role.STREAM));
-        StreamMenu.Entry last = entries.get(entries.size() - 1);
+        // Disconnect first (nightjar#52), Reconnect is a stream action, not a host command; quitting closes the
+        // group, in the error colour.
+        assertEquals(Arrays.asList(DISCONNECT, RECONNECT, QUIT_GAME), menu.get(StreamMenu.Section.SESSION));
+        StreamMenu.Entry last = lastSession(StreamMenu.mainPage(options("rubylight-serverinfo.xml", NvApp.Role.STREAM)));
         assertTrue(last.destructive);
         assertEquals(R.string.stream_quit_game, last.label);
+    }
+
+    /**
+     * nightjar#52: with a TV remote, Disconnect is one step down from the quick toggles in every role and on every
+     * host, the whole session group comes before Input, Display, Quality and Host, and focus never starts on a row
+     * that ends the stream.
+     */
+    @Test
+    public void theSessionActionsSitRightUnderTheQuickTogglesWithDisconnectFirst() {
+        List<StreamMenu.Options> menus = new ArrayList<>();
+        for (NvApp.Role role : NvApp.Role.values()) {
+            for (String fixture : new String[] {"gamestream-serverinfo.xml", "sunshine-serverinfo.xml", "apollo-serverinfo.xml",
+                    "vibepollo-serverinfo.xml", "rubylight-serverinfo.xml", "butterpollo-viewer-serverinfo.xml"}) {
+                menus.add(options(fixture, role));
+            }
+            StreamMenu.Options withControl = options(nativeApiHost(), role);
+            withControl.nativeHostControl = true;
+            withControl.hostMenu = true;
+            menus.add(withControl);
+            menus.add(options(nativeApiHost(), role));
+        }
+        for (StreamMenu.Options o : menus) {
+            String name = o.role + " on " + o.host.name;
+            List<StreamMenu.Entry> entries = StreamMenu.mainPage(o);
+            int at = 0;
+            while (entries.get(at).section == StreamMenu.Section.QUICK) at++;
+            assertEquals(name, DISCONNECT, entries.get(at).item);
+            while (at < entries.size() && entries.get(at).section == StreamMenu.Section.SESSION) at++;
+            for (StreamMenu.Entry entry : entries.subList(at, entries.size())) {
+                assertNotEquals(name + ": " + entry, StreamMenu.Section.SESSION, entry.section);
+            }
+            StreamMenu.Entry first = entry(entries, StreamMenu.firstFocus(entries));
+            assertNotEquals(name, DISCONNECT, first.item);
+            assertFalse(name, first.destructive);
+        }
+    }
+
+    @Test
+    public void focusStartsOnTheFirstToggleOrOnReconnectWhenThereAreNoToggles() {
+        assertEquals(KEYBOARD, StreamMenu.firstFocus(StreamMenu.mainPage(options("rubylight-serverinfo.xml", NvApp.Role.STREAM))));
+        // Input-only on a view-only device has no toggles: Disconnect is the first row, so focus skips it.
+        List<StreamMenu.Entry> bare = StreamMenu.mainPage(options("butterpollo-viewer-serverinfo.xml", NvApp.Role.INPUT_ONLY));
+        assertEquals(DISCONNECT, bare.get(0).item);
+        assertEquals(RECONNECT, StreamMenu.firstFocus(bare));
+        // The pages keep their first row.
+        StreamMenu.Options native_ = options(nativeApiHost(), NvApp.Role.STREAM);
+        assertEquals(NATIVE_RESUME, StreamMenu.firstFocus(StreamMenu.nativePage(native_)));
+        assertEquals(OVERLAY_OFF, StreamMenu.firstFocus(StreamMenu.overlayPage(native_)));
     }
 
     @Test
@@ -199,7 +247,7 @@ public class StreamMenuTest {
         // Disconnect leaves the game, then End session, then the destructive Close game last.
         assertTrue(items.indexOf(DISCONNECT) < items.indexOf(END_HOST_SESSION));
         assertTrue(items.indexOf(END_HOST_SESSION) < items.indexOf(CLOSE_GAME));
-        StreamMenu.Entry last = entries.get(entries.size() - 1);
+        StreamMenu.Entry last = lastSession(entries);
         assertEquals(CLOSE_GAME, last.item);
         assertTrue(last.destructive);
         assertEquals(R.string.stream_close_game, last.label);
@@ -218,7 +266,7 @@ public class StreamMenuTest {
         assertFalse(items.contains(CLOSE_GAME));
         assertTrue(items.contains(DISCONNECT));
         assertTrue(items.contains(END_HOST_SESSION));
-        StreamMenu.Entry last = entries.get(entries.size() - 1);
+        StreamMenu.Entry last = lastSession(entries);
         assertEquals(QUIT_GAME, last.item);
         assertTrue(last.destructive);
         assertEquals(R.string.stream_quit_game, last.label);
@@ -262,8 +310,8 @@ public class StreamMenuTest {
         assertFalse(items.contains(CLIPBOARD_SEND));
         assertTrue(items.contains(CLIPBOARD_RECEIVE));
         assertFalse(items.contains(QUIT_GAME));
-        assertEquals(END_SESSION, monitor.get(monitor.size() - 1).item);
-        assertEquals(R.string.stream_end_monitor, monitor.get(monitor.size() - 1).label);
+        assertEquals(END_SESSION, lastSession(monitor).item);
+        assertEquals(R.string.stream_end_monitor, lastSession(monitor).label);
         assertEquals(R.string.stream_monitor_title, StreamMenu.title(NvApp.Role.REMOTE_MONITOR));
 
         List<StreamMenu.Entry> input = StreamMenu.mainPage(options("rubylight-serverinfo.xml", NvApp.Role.INPUT_ONLY));
@@ -271,7 +319,7 @@ public class StreamMenuTest {
         assertNull("Input-only has no video to show or tune", sections.get(StreamMenu.Section.DISPLAY));
         assertNull(sections.get(StreamMenu.Section.QUALITY));
         assertEquals(Arrays.asList(KEYBOARD, PC_KEYBOARD), sections.get(StreamMenu.Section.QUICK));
-        assertEquals(R.string.stream_end_input, input.get(input.size() - 1).label);
+        assertEquals(R.string.stream_end_input, lastSession(input).label);
         assertEquals(R.string.stream_input_title, StreamMenu.title(NvApp.Role.INPUT_ONLY));
     }
 
@@ -305,6 +353,16 @@ public class StreamMenuTest {
         options.canSendInput = false;
         assertFalse(items(StreamMenu.mainPage(options)).contains(MIC_BUTTON));
         assertTrue(items(StreamMenu.mainPage(options)).contains(MICROPHONE));
+    }
+
+    /** The last of the session actions, which now sit under the quick toggles rather than at the end. */
+    private static StreamMenu.Entry lastSession(List<StreamMenu.Entry> entries) {
+        StreamMenu.Entry last = null;
+        for (StreamMenu.Entry entry : entries) {
+            if (entry.section == StreamMenu.Section.SESSION) last = entry;
+        }
+        assertNotNull("the page has session actions", last);
+        return last;
     }
 
     private static StreamMenu.Entry entry(List<StreamMenu.Entry> entries, StreamMenu.Item item) {
@@ -749,8 +807,28 @@ public class StreamMenuTest {
                 assertTrue(entry.item + " is clickable", row.isClickable());
             }
             assertTrue(menu.row(KEYBOARD).isFocusedByDefault());
+            assertFalse(menu.row(DISCONNECT).isFocusedByDefault());
             menu.row(OVERLAY_PAGE).performClick();
             assertTrue("The page's first row takes the focus", menu.row(OVERLAY_OFF).isFocusedByDefault());
+        }
+    }
+
+    @Test
+    public void withoutTogglesFocusStartsPastDisconnectAndBackClosesWithoutLeaving() {
+        try (var controller = Robolectric.buildActivity(Activity.class).setup()) {
+            Activity activity = controller.get();
+            activity.setTheme(R.style.StreamTheme);
+            List<StreamMenu.Item> chosen = new ArrayList<>();
+            StreamMenu menu = new StreamMenu(activity,
+                    () -> options("butterpollo-viewer-serverinfo.xml", NvApp.Role.INPUT_ONLY), chosen::add);
+            menu.show();
+            assertEquals(DISCONNECT, menu.entries().get(0).item);
+            assertFalse("OK right after opening must not disconnect", menu.row(DISCONNECT).isFocusedByDefault());
+            assertTrue(menu.row(RECONNECT).isFocusedByDefault());
+            // Back opened the menu; Back again only closes it.
+            menu.sheet().onBackPressed();
+            assertFalse(menu.sheet().isShowing());
+            assertTrue(chosen.isEmpty());
         }
     }
 

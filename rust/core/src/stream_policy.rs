@@ -401,6 +401,9 @@ pub struct Pacer {
     /// Credit a faster source may be lent, in frames, to repay a deficit.
     grace: f64,
     grace_at: Instant,
+    /// The source phase's 1.25-period bound when the claim may run past it
+    /// into `PREDICTED_NOTICE` (`claimed`).
+    notice_bound: Option<Instant>,
 }
 impl Pacer {
     /// Credit above one frame absorbs arrival jitter of a source at the stream rate.
@@ -415,6 +418,7 @@ impl Pacer {
             prediction_floor: Duration::ZERO,
             source_phase: None,
             spacing: 0.75,
+            notice_bound: None,
             faster: false,
             source_rate: None,
             picture: None,
@@ -650,6 +654,7 @@ impl Pacer {
                 Pace::WaitUntil(repeat)
             };
         }
+        self.notice_bound = None;
         if let Some(phase) = &mut self.source_phase {
             let limit = source_interval.map_or(1, |interval| {
                 let interval = interval.as_nanos().max(1);
@@ -690,15 +695,29 @@ impl Pacer {
             if next + detection > allowed && next <= allowed + slack {
                 // A new picture can precede the learned phase. Waiting for
                 // another composition must not stretch delivery to 1.5 periods.
-                // An update due right at that bound still gets
-                // `PREDICTED_NOTICE` to be noticed in: a 120 Hz game frame
-                // that missed one 240 Hz refresh came at exactly 1.25 periods,
-                // and a cut there took the frame before it, 12.5 ms old.
-                let deadline = self.last_claim.map_or(next + detection, |last| {
-                    (next + detection)
-                        .min(last + self.period + self.period / 4 + Self::PREDICTED_NOTICE)
-                });
-                if deadline > allowed {
+                // With several updates a period, an update due right at that
+                // bound still gets `PREDICTED_NOTICE` to be noticed in: a
+                // 120 Hz game frame that missed one 240 Hz refresh came at
+                // exactly 1.25 periods, and a cut there took the frame before
+                // it, 12.5 ms old. At one update a period the notice only
+                // delayed stale claims: a 60 Hz game frame that misses a
+                // 120 Hz refresh comes half a period late.
+                let notice = if phase.multiple > 1 {
+                    Self::PREDICTED_NOTICE
+                } else {
+                    Duration::ZERO
+                };
+                let bound = self
+                    .last_claim
+                    .map(|last| last + self.period + self.period / 4)
+                    .filter(|bound| *bound + notice < next + detection);
+                self.notice_bound = bound.filter(|_| notice > Duration::ZERO);
+                let deadline = bound.map_or(next + detection, |bound| bound + notice);
+                // Only an update predicted before the deadline is worth the
+                // wait: a fresh frame a missed refresh made late (2 to 5 ms on
+                // a 240 or 360 Hz display) was held to the deadline, then
+                // claimed anyway.
+                if deadline > allowed && next < deadline {
                     return Pace::WaitUntil(deadline);
                 }
             }
@@ -750,7 +769,20 @@ impl Pacer {
         self.claimed_picture = self.picture;
         self.credit = (self.credit(now) - 1.).max(-1.);
         self.credit_at = now;
-        self.last_claim = Some(now);
+        // A claim that waited past the phase bound into the notice spaces the
+        // next one from the bound: spaced from the claim, a missed update (a
+        // 120 Hz game frame that missed a 120 Hz refresh comes a whole update
+        // late) also held the game's next frame on its cadence, and each miss
+        // cost two claims.
+        self.last_claim = Some(
+            self.notice_bound
+                .take()
+                .filter(|bound| now > *bound)
+                .map_or(now, |bound| {
+                    now.checked_sub(Self::PREDICTED_NOTICE)
+                        .map_or(bound, |early| bound.max(early))
+                }),
+        );
     }
 }
 /// When arrival pacing encodes an unchanged picture again. A static repeat

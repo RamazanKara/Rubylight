@@ -30,15 +30,18 @@ fn back_returns_to_the_screen_and_the_item_it_left() {
     assert_eq!(l.screen, Screen::Game { host: 1, app: 5 });
     l.focused_key = Some("play".into());
     let mut commands = Vec::new();
-    l.back(&mut commands);
+    l.back(&mut commands, true);
     assert_eq!(l.screen, Screen::Home);
     assert_eq!(l.restore_key.as_deref(), Some("game:steam:570"));
     assert!(l.focus_screen, "the first item takes focus if the remembered one is gone");
-    // Home is the end of the line: Back there asks to close Nightjar.
-    l.back(&mut commands);
+    // Home is the end of the line: the keyboard's Escape does nothing there, a controller's B
+    // asks to close Nightjar.
+    l.back(&mut commands, false);
+    assert!(matches!(l.dialog, Dialog::None) && l.screen == Screen::Home, "Escape on Home stays harmless");
+    l.back(&mut commands, true);
     assert_eq!(l.screen, Screen::Home);
     assert!(matches!(l.dialog, Dialog::ConfirmExit));
-    l.back(&mut commands);
+    l.back(&mut commands, true);
     assert!(matches!(l.dialog, Dialog::None) && commands.is_empty(), "a second Back keeps Nightjar open");
 }
 
@@ -48,21 +51,21 @@ fn back_ends_on_home_when_it_is_on_and_on_the_pcs_when_it_is_not() {
     on.go(Screen::Hosts);
     on.open(Screen::Apps(1));
     let mut commands = Vec::new();
-    on.back(&mut commands);
+    on.back(&mut commands, true);
     assert_eq!(on.screen, Screen::Hosts);
-    on.back(&mut commands);
+    on.back(&mut commands, true);
     assert_eq!(on.screen, Screen::Home, "the PCs list goes back to Home");
 
     let mut off = launcher(false, true);
     off.go(Screen::Hosts);
     off.open(Screen::Apps(1));
-    off.back(&mut commands);
-    off.back(&mut commands);
+    off.back(&mut commands, true);
+    off.back(&mut commands, true);
     assert_eq!(off.screen, Screen::Hosts, "Open on Home is off: the PCs are the root");
 
     let mut empty = launcher(true, false);
     empty.go(Screen::Hosts);
-    empty.back(&mut commands);
+    empty.back(&mut commands, true);
     assert_eq!(empty.screen, Screen::Hosts, "no library, no Home to go back to");
 }
 
@@ -77,7 +80,7 @@ fn settings_open_once_and_back_leaves_them_where_they_were_opened() {
     assert_eq!(l.screen, Screen::Settings);
     assert_eq!(l.trail.len(), 1, "Start inside Settings does not stack screens");
     let mut commands = Vec::new();
-    l.back(&mut commands);
+    l.back(&mut commands, true);
     assert_eq!(l.screen, Screen::Home);
     assert!(commands.iter().any(|c| matches!(c, Command::SaveSettings)), "leaving Settings saves them");
 }
@@ -92,10 +95,10 @@ fn start_from_a_library_or_game_page_returns_to_it() {
         l.open_settings();
         assert_eq!(l.screen, Screen::Settings);
         let mut commands = Vec::new();
-        l.back(&mut commands);
+        l.back(&mut commands, true);
         assert_eq!(l.screen, page, "B returns to where Start was pressed");
         assert_eq!(l.restore_key.as_deref(), Some("play"));
-        l.back(&mut commands);
+        l.back(&mut commands, true);
         assert_eq!(l.screen, Screen::Home, "and the page still goes back to the root");
     }
     // From a destination, Settings replaces it as before.
@@ -103,7 +106,7 @@ fn start_from_a_library_or_game_page_returns_to_it() {
     l.go(Screen::Hosts);
     l.open_settings();
     let mut commands = Vec::new();
-    l.back(&mut commands);
+    l.back(&mut commands, true);
     assert_eq!(l.screen, Screen::Hosts);
 }
 
@@ -114,7 +117,7 @@ fn a_game_page_for_another_copy_replaces_the_page() {
     l.open(Screen::Game { host: 1, app: 5 });
     l.go(Screen::Game { host: 2, app: 9 });
     let mut commands = Vec::new();
-    l.back(&mut commands);
+    l.back(&mut commands, true);
     assert_eq!(l.screen, Screen::Home, "one Back, not one per copy");
 }
 
@@ -426,7 +429,7 @@ fn destinations_replace_each_other_and_back_ends_at_the_root() {
     assert_eq!((l.screen, l.trail.len()), (Screen::Home, 0), "Home is the root again");
     l.switch(Screen::Hosts);
     let mut commands = Vec::new();
-    l.back(&mut commands);
+    l.back(&mut commands, true);
     assert_eq!(l.screen, Screen::Home);
 }
 
@@ -438,13 +441,13 @@ fn profiles_and_shortcuts_pop_back_to_settings() {
     l.focused_key = Some("profiles-link".into());
     l.open(Screen::Profiles);
     let mut commands = Vec::new();
-    l.back(&mut commands);
+    l.back(&mut commands, true);
     assert_eq!(l.screen, Screen::Settings);
     assert_eq!(l.restore_key.as_deref(), Some("profiles-link"), "the row that opened it takes focus");
     assert_eq!(l.trail.len(), 1, "Settings still goes back to Home in one step");
     l.open(Screen::Shortcuts);
-    l.back(&mut commands);
-    l.back(&mut commands);
+    l.back(&mut commands, true);
+    l.back(&mut commands, true);
     assert_eq!(l.screen, Screen::Home);
 }
 
@@ -3916,17 +3919,20 @@ fn b_where_back_ends_asks_to_close_nightjar_with_focus_on_cancel() {
         let rect = f.ctx.memory(|m| m.focused()).and_then(|id| f.ctx.read_response(id)).map(|r| r.rect);
         f.placed.iter().find(|(_, at, _)| rect.is_some_and(|r| r.contains(at.center()))).map(|p| p.0.clone())
     };
+    // The keyboard's Escape does not ask: a keyboard has Alt+F4.
     assert!(f.press(Key::Escape).is_empty());
+    assert!(f.no_dialog(), "Escape on the root stays harmless");
+    pad_press(&mut f, Key::Escape);
     assert!(matches!(f.l.dialog, Dialog::ConfirmExit) && shows(&f, "Close Nightjar?"), "{:?}", f.drawn);
     assert_eq!(focused_text(&f).as_deref(), Some("Cancel"));
     // A right away keeps Nightjar open, and so does B.
     assert!(f.press(Key::Enter).iter().all(|c| !matches!(c, Command::Quit)));
     assert!(f.no_dialog());
-    f.press(Key::Escape);
+    pad_press(&mut f, Key::Escape);
     assert!(f.press(Key::Escape).iter().all(|c| !matches!(c, Command::Quit)));
     assert!(f.no_dialog(), "B closes the question");
     // Over to Close Nightjar and A: it closes.
-    f.press(Key::Escape);
+    pad_press(&mut f, Key::Escape);
     for key in [Key::ArrowRight, Key::ArrowLeft, Key::ArrowLeft] {
         if focused_text(&f).as_deref() != Some("Close Nightjar") { pad_press(&mut f, key); }
     }

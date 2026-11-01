@@ -259,6 +259,8 @@ pub struct Launcher {
     logo: Option<TextureHandle>,
     focus_screen: bool,
     focus_dialog: bool,
+    /// This frame's Escape came from a controller's B, which alone asks to close Nightjar where Back ends.
+    pad_back: bool,
     /// The last Sleep PC token request's number.
     sleep_asks: u64,
     /// Messages that came while the user was busy with another dialog, shown once it closes.
@@ -343,6 +345,7 @@ impl Launcher {
             logo: None,
             focus_screen: true,
             focus_dialog: false,
+            pad_back: false,
             sleep_asks: 0,
             queued: Default::default(),
             settings_return: Screen::Hosts,
@@ -550,6 +553,9 @@ impl Launcher {
     /// and the press was lost: it puts focus on the open dialog's or the page's first item instead,
     /// with Tab for a page that names none (egui then focuses its first widget).
     pub fn controller_key(&mut self, ctx: &egui::Context, key: Key) -> Vec<egui::Event> {
+        if key == Key::Escape {
+            self.pad_back = true;
+        }
         let lost = matches!(key, Key::ArrowUp | Key::ArrowDown | Key::ArrowLeft | Key::ArrowRight | Key::Enter)
             && ctx.memory(|m| m.focused().is_none())
             && !egui::Popup::is_any_open(ctx);
@@ -640,17 +646,18 @@ impl Launcher {
             .id()
     }
 
-    /// Back: Escape or the controller's B button.
-    fn back(&mut self, commands: &mut Vec<Command>) {
+    /// Back: Escape, the Back button or the controller's B button (`pad`).
+    fn back(&mut self, commands: &mut Vec<Command>, pad: bool) {
         match &self.dialog {
             Dialog::None => match self.screen {
-                // The end of the line: B asks to close Nightjar, so a controller alone can.
-                Screen::Home => self.ask(Dialog::ConfirmExit),
+                // The end of the line: B asks to close Nightjar, so a controller alone can. A
+                // keyboard has Alt+F4 and Escape stays harmless.
+                Screen::Home => if pad { self.ask(Dialog::ConfirmExit) },
                 Screen::Hosts => {
                     if !self.trail.is_empty() || self.root() == Screen::Home {
                         let root = self.root();
                         self.pop(root);
-                    } else {
+                    } else if pad {
                         self.ask(Dialog::ConfirmExit);
                     }
                 }
@@ -720,9 +727,10 @@ impl Launcher {
         // With a menu open, Escape (B) only closes it: the menu closes itself as it is drawn.
         let menu_open = egui::Popup::is_any_open(&ctx);
         let escape = ctx.input(|i| i.key_pressed(Key::Escape)) && !menu_open;
+        let pad = std::mem::take(&mut self.pad_back);
         // On a settings page, Escape leaves the search before the page.
         if escape && view.connecting.is_none() && view.waking.is_none() && !(matches!(self.dialog, Dialog::None) && self.escape_search()) {
-            self.back(&mut commands);
+            self.back(&mut commands, pad);
         } else if view.connecting.is_none() && view.waking.is_none() {
             self.help_keys(&ctx, &mut commands);
         }
@@ -839,7 +847,7 @@ impl Launcher {
             // A screen reader tells it from the destination of the same name in the row above.
             back.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, tr(said)));
             if back.clicked() {
-                self.back(commands);
+                self.back(commands, false);
             }
             if !title.is_empty() {
                 ui.add_space(space::S);

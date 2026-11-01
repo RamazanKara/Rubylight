@@ -719,18 +719,55 @@ fn describe_format(bytes: &[u8]) -> String {
 fn matching_playback_format(playback: &[u8], recording: &[u8]) -> Option<Vec<u8>> {
     (sample_layout(playback) != sample_layout(recording)).then(|| recording.to_vec())
 }
+/// Steam Streaming Microphone's endpoint formats around
+/// `match_steam_microphone_format`, for the log: the playback side before and
+/// after, and the recording side it has to match.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MicrophoneFormats {
+    pub before: String,
+    pub after: String,
+    pub recording: String,
+}
+impl MicrophoneFormats {
+    fn new(before: &[u8], after: &[u8], recording: &[u8]) -> Self {
+        Self {
+            before: describe_format(before),
+            after: describe_format(after),
+            recording: describe_format(recording),
+        }
+    }
+    /// Whether the playback format had to change.
+    pub fn changed(&self) -> bool {
+        self.before != self.after
+    }
+}
+/// The playback format read back after setting it: an error unless it now
+/// matches the recording side, since Windows can accept a format and keep
+/// the old one.
+fn check_matched(after: &[u8], recording: &[u8]) -> Result<()> {
+    if matching_playback_format(after, recording).is_some() {
+        bail!(
+            "its playback format is still {} after setting it to the recording format {}",
+            describe_format(after),
+            describe_format(recording)
+        );
+    }
+    Ok(())
+}
 /// Gives Steam Streaming Microphone's playback endpoint `playback` the format
 /// of its recording endpoint (`matching_playback_format`); Windows converts the
-/// host's stream to it. The formats before and after, when it changed one.
-pub fn match_steam_microphone_format(playback: &str) -> Result<Option<(String, String)>> {
+/// host's stream to it. Returns the formats before and after, read back from
+/// Windows, whether or not one changed.
+pub fn match_steam_microphone_format(playback: &str) -> Result<MicrophoneFormats> {
     let recording = steam_microphone(&endpoints_for(eCapture)?)
         .context("Microphone (Steam Streaming Microphone) is not present")?
         .id
         .clone();
     let policy = Policy::new()?;
     let before = policy.format(playback)?;
-    let Some(desired) = matching_playback_format(&before, &policy.format(&recording)?) else {
-        return Ok(None);
+    let recording = policy.format(&recording)?;
+    let Some(desired) = matching_playback_format(&before, &recording) else {
+        return Ok(MicrophoneFormats::new(&before, &before, &recording));
     };
     policy.set_format(playback, &desired).with_context(|| {
         format!(
@@ -738,7 +775,58 @@ pub fn match_steam_microphone_format(playback: &str) -> Result<Option<(String, S
             describe_format(&desired)
         )
     })?;
-    Ok(Some((describe_format(&before), describe_format(&desired))))
+    let after = policy.format(playback)?;
+    check_matched(&after, &recording)?;
+    Ok(MicrophoneFormats::new(&before, &after, &recording))
+}
+/// The recording level, in dB, to put "Microphone (Steam Streaming
+/// Microphone)" back to, or None to leave it. Its slider runs from -96 to
+/// +30 dB with 0 dB at about 54%: at 100%, or where an app's automatic gain
+/// pushed it, a client's voice came out 30 dB too loud and clipped into
+/// noise (issue 56). The client sets the voice's level; the host never adds
+/// gain on top, while a lower level stays the user's choice.
+fn unity_cap(level_db: f32) -> Option<f32> {
+    // Above half a slider step: the endpoint rounds levels to 1.5 dB steps.
+    (level_db > 0.75).then_some(0.0)
+}
+/// The recording level of "Microphone (Steam Streaming Microphone)", opened
+/// once so that checking it again costs the render thread one call.
+pub struct SteamMicrophoneGain {
+    volume: windows::Win32::Media::Audio::Endpoints::IAudioEndpointVolume,
+}
+impl SteamMicrophoneGain {
+    /// COM must be initialised on the calling thread, as for `limit`.
+    pub fn open() -> Result<Self> {
+        let recording = steam_microphone(&endpoints_for(eCapture)?)
+            .context("Microphone (Steam Streaming Microphone) is not present")?
+            .id
+            .clone();
+        let wide = to_wide(&recording);
+        // SAFETY: the caller initialised COM, and `wide` is NUL-terminated and outlives the call.
+        unsafe {
+            let device = enumerator()?.GetDevice(PCWSTR(wide.as_ptr()))?;
+            Ok(Self {
+                volume: device.Activate(CLSCTX_ALL, None)?,
+            })
+        }
+    }
+    /// Takes the gain off when the recording level is above 0 dB
+    /// (`unity_cap`). The level it had, in dB, when it changed it.
+    pub fn limit(&self) -> Result<Option<f32>> {
+        // SAFETY: `self.volume` is a live endpoint volume on a thread with COM initialised.
+        unsafe {
+            let level = self.volume.GetMasterVolumeLevel()?;
+            let Some(target) = unity_cap(level) else {
+                return Ok(None);
+            };
+            self.volume
+                .SetMasterVolumeLevel(target, std::ptr::null())
+                .with_context(|| {
+                    format!("lowering its recording level from {level:.1} dB to {target} dB")
+                })?;
+            Ok(Some(level))
+        }
+    }
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Sample {
@@ -1282,6 +1370,42 @@ mod tests {
         assert_eq!(
             describe_format(&device_format(1, 44100, Sample::Pcm24In32, 4)),
             "1 ch 44100 Hz 24-in-32-bit PCM"
+        );
+    }
+    #[test]
+    fn steam_microphone_never_adds_gain_to_a_client_voice() {
+        // Its slider at 100% is +30 dB: the voice clipped into noise (issue 56).
+        assert_eq!(unity_cap(30.0), Some(0.0));
+        assert_eq!(unity_cap(1.5), Some(0.0));
+        // Unity, within the endpoint's rounding, and any cut stay as they are.
+        for level in [0.75, 0.0, -0.000_01, -12.0, -96.0] {
+            assert_eq!(unity_cap(level), None, "{level}");
+        }
+    }
+    #[test]
+    fn steam_microphone_formats_are_reported_and_a_kept_format_fails() {
+        // The log names both sides whether or not the playback side changed
+        // (issue 56: a user's log could not tell whether the match applied).
+        let playback = device_format(2, 48000, Sample::Float32, 3);
+        let recording = device_format(1, 44100, Sample::Pcm16, 4);
+        let kept = MicrophoneFormats::new(&recording, &recording, &recording);
+        assert!(!kept.changed());
+        assert_eq!(kept.recording, "1 ch 44100 Hz 16-bit PCM");
+        let set = MicrophoneFormats::new(&playback, &recording, &recording);
+        assert!(set.changed());
+        assert_eq!(
+            (set.before.as_str(), set.after.as_str()),
+            ("2 ch 48000 Hz 32-bit float", "1 ch 44100 Hz 16-bit PCM")
+        );
+        // Windows accepting the format but reading back the old one is an error.
+        check_matched(&recording, &recording).unwrap();
+        let error = check_matched(&playback, &recording)
+            .unwrap_err()
+            .to_string();
+        assert!(
+            error.contains("still 2 ch 48000 Hz 32-bit float")
+                && error.contains("1 ch 44100 Hz 16-bit PCM"),
+            "{error}"
         );
     }
     #[test]

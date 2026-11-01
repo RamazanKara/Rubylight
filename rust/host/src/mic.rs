@@ -42,6 +42,7 @@ const RETRY: Duration = Duration::from_secs(5);
 const WARNING: &str = "microphone";
 const ROUTING_WARNING: &str = "microphone_default";
 const FORMAT_WARNING: &str = "microphone_format";
+const GAIN_WARNING: &str = "microphone_gain";
 
 pub fn spawn(h: Shared, socket: UdpSocket) -> Result<Arc<Counters>> {
     // The shared UDP factory is nonblocking, which bypasses the receive timeout.
@@ -360,6 +361,7 @@ impl Output {
         self.retry = None;
         session.launch.warnings.clear(ROUTING_WARNING);
         session.launch.warnings.clear(FORMAT_WARNING);
+        session.launch.warnings.clear(GAIN_WARNING);
     }
     /// Stops the render thread without waiting for one still installing or
     /// opening the device: that would hold up the receiver, and with it every
@@ -430,11 +432,15 @@ fn render(
     }
     // Before opening: the driver copies samples between its sides unconverted.
     match audio_route::match_steam_microphone_format(&endpoint) {
-        Ok(changed) => {
+        Ok(formats) => {
             warnings.clear(FORMAT_WARNING);
-            if let Some((before, after)) = changed {
-                tracing::info!(%before, %after, "Steam Streaming Microphone playback format set to its recording format");
-            }
+            tracing::info!(
+                playback_before = %formats.before,
+                playback = %formats.after,
+                recording = %formats.recording,
+                changed = formats.changed(),
+                "Steam Streaming Microphone formats"
+            );
         }
         Err(error) => {
             tracing::warn!(error = %format!("{error:#}"), "Steam Streaming Microphone formats could not be matched; the microphone may sound distorted");
@@ -460,11 +466,74 @@ fn render(
         }
     };
     opened.store(true, Ordering::Release);
+    let mut gain = GainCap::open(warnings, stop);
     while !stop.load(Ordering::Acquire) {
         render.wait(Duration::from_millis(50));
         render.fill(&mut playout.lock().unwrap())?;
+        gain.check(Instant::now(), warnings, stop);
     }
     Ok(())
+}
+/// How often the render thread checks that no app (an automatic gain, as in
+/// Discord) raised Steam Streaming Microphone's recording level again.
+const GAIN_CHECK: Duration = Duration::from_secs(1);
+/// Keeps Steam Streaming Microphone's recording level at or below 0 dB
+/// (`audio_route::SteamMicrophoneGain`): at once, then every `GAIN_CHECK`.
+/// A failure is reported once and ends the checks.
+struct GainCap {
+    gain: Option<audio_route::SteamMicrophoneGain>,
+    next: Option<Instant>,
+}
+impl GainCap {
+    fn open(warnings: &butterpollo_core::session::Warnings, stop: &AtomicBool) -> Self {
+        let gain = audio_route::SteamMicrophoneGain::open()
+            .inspect_err(|error| gain_failed(error, warnings, stop))
+            .ok();
+        Self { gain, next: None }
+    }
+    /// Whether a check is due at `now`; each one schedules the next.
+    fn due(&mut self, now: Instant) -> bool {
+        if self.next.is_some_and(|next| now < next) {
+            return false;
+        }
+        self.next = Some(now + GAIN_CHECK);
+        true
+    }
+    fn check(
+        &mut self,
+        now: Instant,
+        warnings: &butterpollo_core::session::Warnings,
+        stop: &AtomicBool,
+    ) {
+        if self.gain.is_none() || !self.due(now) {
+            return;
+        }
+        match self.gain.as_ref().unwrap().limit() {
+            Ok(None) => warnings.clear(GAIN_WARNING),
+            Ok(Some(level_db)) => {
+                warnings.clear(GAIN_WARNING);
+                tracing::info!(
+                    level_db,
+                    "Steam Streaming Microphone recording level lowered to 0 dB: above it, the client's voice is amplified into clipping"
+                );
+            }
+            Err(error) => {
+                gain_failed(&error, warnings, stop);
+                self.gain = None;
+            }
+        }
+    }
+}
+fn gain_failed(
+    error: &anyhow::Error,
+    warnings: &butterpollo_core::session::Warnings,
+    stop: &AtomicBool,
+) {
+    tracing::warn!(error = %format!("{error:#}"), "Steam Streaming Microphone recording level could not be checked; the microphone may sound distorted");
+    // Output::stop has cleared the warning already when this thread was retired meanwhile.
+    if !stop.load(Ordering::Acquire) {
+        warnings.set(GAIN_WARNING, format!("Microphone may sound distorted: Steam Streaming Microphone's recording level could not be checked ({error:#}). Set Microphone (Steam Streaming Microphone) to 54 or lower in Windows' Sound settings."));
+    }
 }
 /// After an install that did not bring the device, the next one waits this
 /// long: each holds the audio routes while it waits for the device.
@@ -629,6 +698,20 @@ mod tests {
         Ok(())
     }
 
+    #[test]
+    fn the_microphone_level_is_checked_at_once_and_then_every_second() {
+        // An app's automatic gain can raise it mid-stream (issue 56).
+        let mut cap = GainCap {
+            gain: None,
+            next: None,
+        };
+        let start = Instant::now();
+        assert!(cap.due(start));
+        assert!(!cap.due(start + Duration::from_millis(999)));
+        assert!(cap.due(start + GAIN_CHECK));
+        assert!(!cap.due(start + GAIN_CHECK + Duration::from_millis(500)));
+        assert!(cap.due(start + GAIN_CHECK * 2));
+    }
     #[test]
     fn a_failed_microphone_install_is_tried_again_after_a_pause() {
         let start = Instant::now();

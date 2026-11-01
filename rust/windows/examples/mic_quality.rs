@@ -141,8 +141,15 @@ fn main() -> Result<()> {
     // As the host does before it plays (MIC_NO_MATCH=1 measures without).
     if std::env::var_os("MIC_NO_MATCH").is_none() {
         eprintln!(
-            "format match: {:?}",
+            "formats: {:?}",
             audio_route::match_steam_microphone_format(&id)?
+        );
+    }
+    // As the host does before it plays (MIC_NO_GAIN_CAP=1 measures without).
+    if std::env::var_os("MIC_NO_GAIN_CAP").is_none() {
+        eprintln!(
+            "recording level lowered from (dB): {:?}",
+            audio_route::SteamMicrophoneGain::open()?.limit()?
         );
     }
     let stop = Arc::new(AtomicBool::new(false));

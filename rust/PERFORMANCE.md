@@ -6,6 +6,8 @@ This is the dated measurement record. For a guided comparison, start with the [p
 
 | Find a result | Recorded evidence |
 | --- | --- |
+| Fixed-rate claims held 1 to 3 ms after publish on main (12 to 16 % of frames, 60.1 claims a second): an early claim off a 120 Hz game's phase spending the credit later claims waited for, why rc.2 looked clean (machine load), model and A/B (fixed) | [November 1, fixed-rate claims that waited 1 to 3 ms after publish](#november-1-fixed-rate-claims-that-waited-1-to-3-ms-after-publish) |
+| Another window's updates beside a 120 Hz game at 60 fps: claims in alternating 12.5 and 20.8 ms gaps, the phase of a source updating 2 to 4 times a period, replay of hardware captures, model and A/B on main (other window at 30 and 90 fps, CPU load, quiet desktop, VRR) (fixed) | [November 1, another window's updates beside a 120 Hz game at 60 fps](#november-1-another-windows-updates-beside-a-120-hz-game-at-60-fps) |
 | AMF's AV1 screen-content tools (palette, integer motion vectors) and the high-motion quality boost on H.264, HEVC and AV1: driver defaults read back, quality, size and encode time on text and game content (none changed) | [November 1, AV1 screen-content tools and high-motion quality boost](#november-1-av1-screen-content-tools-and-high-motion-quality-boost-left-as-they-were) |
 | Packed 4:4:4 against 4:2:0 on six text and UI scenes on the RX 7900 XT (quality at equal targets, bitrate for equal quality, encode time): should it be the Reference preset's default | [November 1, packed 4:4:4 as the Reference default, RX 7900 XT](#november-1-packed-444-as-the-reference-default-rx-7900-xt) |
 | PyroWave's 9 ms send spread on loopback: the test client sends no link hint, so frames are paced at 1.25 times the wire budget; with a wired client's link hint (what Nightjar sends) send, host total and end to end at 20 and 400 Mbps | [November 1, PyroWave send spread with and without a link hint](#november-1-pyrowave-send-spread-with-and-without-a-link-hint) |
@@ -63,6 +65,66 @@ This is the dated measurement record. For a guided comparison, start with the [p
 | PyroWave HDR 4:4:4 | [Transport and decoding](#vibepollo-20-pyrowave-transport) · [SDK patches from Punktfunk](#october-15-pyrowave-sdk-patches-from-punktfunk) |
 | CPU error correction | [C++ FEC comparison](#controlled-comparison-with-the-original-c-fec) |
 | Reproduction and scope | [Probes](#reproduce-on-another-machine) · [Hardware covered](#hardware-covered) |
+
+## November 1: fixed-rate claims that waited 1 to 3 ms after publish
+
+The record behind [holding a frame for the fresher one](#november-1-holding-a-frame-for-the-fresher-one-across-wakes-not-kept) showed main's fixed-rate claims waiting 1 to 3 ms after publish for 12 to 16 % of frames: publish to claim p95 1.9 to 2.0 ms, host total p95 4.8 to 5.0 ms, and every leg at 60.07 to 60.10 claims a second (1080p60, the motion strip at 120 Hz on the 240 Hz primary). The wait itself is the arrival pacer's credit, as intended. The credit had been spent by an early claim. A 120 Hz game updates twice per stream period, and the source phase, folded over the whole period, saw two peaks of half the support each and never learned it. Any picture off the game's cadence was then claimed once the 0.75-period spacing allowed it: a game frame that missed one 240 Hz refresh and came 4.2 ms late, or another window's update ([next section](#november-1-another-windows-updates-beside-a-120-hz-game-at-60-fps)). Each such claim spent credit about 12.5 ms after the last one, and the claims after it waited 0.5 to 2 ms for credit, because for a faster source the credit refills exactly one claim per period and the grace allowance refills 0.1 frame a second. In a model of the pacer (the game's frames on a 240 Hz grid, each with a second composition, published on the capture worker's 0.5 ms poll), a missed refresh every 7 to 29 frames gave 60.10 to 60.12 claims a second, 25 to 34 % of frames held 0.5 to 2 ms and a picture age p95 of 3.2 to 10 ms.
+
+rc.2's clean runs (publish to claim p95 0.06 ms, host total p95 3.3 to 3.4 ms) were not cleaner code. The fixed-slip runs ran beside Rust builds on this PC, with the strip missing refreshes and other windows composing; the rc.2 runs have no load record. In the A/B below, which held the build lock so no build ran beside it, main's waits came with other windows' updates (13 to 33 % of frames) and stayed at 0.2 to 0.7 % in the CPU-load leg and the first quiet leg: eight busy loops did not make the strip miss refreshes the way a build had. No bisect was needed.
+
+Fix (commits `a40cbdba3`, `d8e0f6b0a`): for a source updating 2 to 4 times a stream period, the source phase folds over one update (details in the next section). A picture half a game update off the phase now waits for the game's next frame instead of taking the claim. The phase path's 1.25-period bound now gives a frame due right at it the 1 ms notice the prediction path has: a cutoff right at the bound made the claim take the frame before, 12.5 ms old. In the model the missed refreshes then gave 60.00 to 60.05 claims a second and a picture age p95 of 1.2 to 1.5 ms. On hardware, in the legs where frames had been held more than 0.5 ms, the share fell from 29.2, 32.7 and 13.2 % to 0.2, 0.3 and 1.7 %, and host total p95 fell from 5.03, 5.38 and 4.47 ms to 3.14, 3.25 and 3.38 ms (table in the next section). **Kept.**
+
+## November 1: another window's updates beside a 120 Hz game at 60 fps
+
+Same record: in legs where other windows added about 30 compositions a second, 37 to 53 % of claims came in alternating 12.5 and 20.8 ms gaps, and picture age p95 was 4 ms higher. Cause: as in the section above, the phase of a game updating twice per stream period was never learned. Each update of another window (often on the 240 Hz display's other refresh, half a game update off) was claimed at the 0.75-period spacing limit. That claim showed the game's previous frame, the game's next frame 4 ms later waited a whole period, and the spent credit held the claims after it.
+
+The source phase now learns the multiple from the captures. It takes the largest multiple, 2 to 4, whose densest phase has a capture near it in at least 80 % of the cycles of each of the period's updates; otherwise it learns the phase over the whole period, as before. The picture interval only sets the upper limit, and a lower limit takes over after 250 ms.
+
+A first version took the multiple from the picture interval alone. Other windows' updates and late second compositions split pictures, and the interval's median flickered between 2, 3 and 1. On a replay of a traced leg's captures (a 120 Hz strip beside a 90 fps window, 137 sources a second), that version still claimed 60.111 frames a second with 20.6 % held; the current one claims 60.037 with 0.3 % held and 0.6 % uneven gaps. Counting each update of the period separately matters when the other window updates 50 to 70 times a second: together with the game's frames those updates filled 80 % of the quarter-period cycles, and up to 14 % of claims showed the other window's update.
+
+An off-phase update of a 2 to 4 times source may wait until a radius short of the game's next frame. A quarter period was too short: after an update on the other refresh, the next game frame came 4.1 to 5.3 ms later. With focus labels (VRR) the limit comes from the focus window's picture interval, so another window at 240 Hz beside the game cannot become the phase.
+
+In the model, another window at 10 to 70 updates a second beside a 120 Hz game took 0.0 to 0.2 % of claims (7 to 39 % before), and picture age p95 was 0.56 ms (up to 8 ms before). Regression tests cover the two models, the multiples learned from 60, 90, 120, 180 and 240 Hz captures, and the limit's hold.
+
+Setup: `e2e.py --codec h264|hevc --mode 1920x1080x60 --seconds 30 --record --skip-first 3` with an isolated test host (WGC display capture of the 240 Hz primary, the strip at 120 Hz), one leg per arm, interleaved. A is main at `609f0ca7c` (the commits since touch only 4K slice delivery and AMF readback, off by default at 1080p), and B is A with both commits; both are release builds in the 3.1.1 package. Leg conditions:
+
+- Other window: ffplay drawing `testsrc2` at 30 or 90 fps in a 480x270 window on the primary.
+- CPU load: eight Python busy loops.
+- VRR: `--vrr --motion-script 60 --config minimum_fps_target=20` (HEVC), with ffplay at 240 fps beside the strip.
+
+Column meanings:
+
+- Held: claimed more than 0.5 ms after publish.
+- Uneven: claim gaps outside 14.5 to 19 ms.
+- Game frame steps: consecutive claims whose strip frame numbers are not 2 apart (each claim should show every other game frame).
+- End to end: from the game's Present to the decoded frame.
+- Picture age: from the client.
+- Sources/s: the mean of the host's 5 s source rate.
+
+A test host that dies leaves its ETW present session behind, and the next host's present tracking then fails with error 183. The script stops such sessions before each leg.
+
+| Leg | Arm | Sources/s | Claims/s | Held | Uneven | Game frame steps | Host total p50 / p95 | End to end p50 / p95 | Picture age mean / p95 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| H.264 CPU load | A | 124 | 60.028 | 0.2 % | 0.2 % | 0 | 2.90 / 3.17 | 8.22 / 8.94 | 11.6 / 12.8 |
+| H.264 CPU load | B | 125 | 60.020 | 0.2 % | 0.1 % | 0 | 2.90 / 3.19 | 8.31 / 8.86 | 11.4 / 12.5 |
+| H.264 other 30 fps | B | 133 | 60.036 | 0.2 % | 0.3 % | 5 | 2.87 / 3.14 | 8.22 / 9.14 | 9.7 / 11.2 |
+| H.264 other 30 fps | A | 126 | 60.117 | 29.2 % | 3.9 % | 97 | 3.03 / 5.03 | 9.27 / 11.36 | 13.6 / 16.7 |
+| H.264 other 90 fps | A | 137 | 60.120 | 32.7 % | 9.4 % | 270 | 3.12 / 5.38 | 9.07 / 11.28 | 11.2 / 15.7 |
+| H.264 other 90 fps | B | 137 | 60.010 | 0.3 % | 0.2 % | 0 | 2.93 / 3.25 | 8.82 / 9.77 | 11.2 / 12.7 |
+| HEVC quiet 1 | A | 125 | 60.030 | 0.7 % | 0.2 % | 4 | 2.85 / 3.14 | 9.28 / 10.24 | 11.5 / 13.0 |
+| HEVC quiet 1 | B | 133 | 59.985 | 1.6 % | 2.6 % | 246 | 2.87 / 3.25 | 9.24 / 10.49 | 10.8 / 18.9 |
+| HEVC quiet 2 | B | 232 | 60.114 | 1.7 % | 8.9 % | 91 | 2.87 / 3.38 | 9.31 / 10.27 | 12.9 / 16.4 |
+| HEVC quiet 2 | A | 152 | 60.127 | 13.2 % | 3.7 % | 66 | 2.91 / 4.47 | 9.39 / 11.20 | 13.0 / 17.6 |
+| HEVC VRR | B | 102 | 60.112 | 20.4 % | 15.0 % | - | 3.02 / 5.79 | 9.76 / 13.00 | 16.0 / 25.1 |
+| HEVC VRR | A | 101 | 60.128 | 42.2 % | 19.0 % | - | 3.33 / 7.68 | 10.29 / 14.35 | 21.0 / 28.0 |
+
+With another window beside the strip, B kept the game's every other frame (0 and 5 irregular steps against 97 and 270), and claims fell to the stream rate. End to end p95 fell by 1.5 to 2.2 ms and picture age p95 by 3.0 to 5.5 ms. The CPU-load pair was level.
+
+The first quiet pair is where B measured worse: picture age p95 18.9 against 13.0 ms, though its mean was 0.7 ms lower. In that leg the strip itself rendered closer to composition (render to present 3.1 ms, against 4.6 ms in A's leg) and missed compositions. The capture at the game's slot then held the previous strip frame (render to present 11.5 ms, one game frame more). That capture is also the first after A's spacing limit, so A would claim it too. No other leg in either arm had that render timing.
+
+In the second quiet pair other activity on the desktop added 27 and 107 sources a second (the PC was in use), and B was ahead there. It was also ahead in the VRR pair, which is not a fixed-rate path.
+
+Round 1, with only the first commit, cut held frames in the 30 fps leg to 7.0 %. Its CPU-load leg ran into another window at 157 sources a second and held 29.7 %: the median flicker that the second commit removes. **Kept.** Raw runs: `C:\src\butterpollo-release\claim-wait\runs` (`e2e-ab2-*`, `e2e-ab3-*`).
 
 ## November 1: AV1 screen-content tools and high-motion quality boost (left as they were)
 
@@ -168,7 +230,7 @@ Setup: `e2e.py --codec h264|hevc --mode 1920x1080x60 --seconds 45 --record --ski
 
 On main the tail did not come back: A's late claims were 0.0 to 0.1 % in all four fixed-rate legs, so the hold had nothing to remove. Averaged per codec, B's host total p95 / p99 was 5.03 / 5.91 ms against A's 4.94 / 5.92 for H.264 and 4.88 / 5.88 against 4.94 / 5.82 for HEVC; end to end p95 / p99 was 9.03 / 10.19 against 8.74 / 9.73 (H.264) and 11.47 / 12.67 against 11.66 / 12.84 (HEVC). The VRR pair was level, and every leg ran at 60.07 to 60.10 fps, with distinct frames within 0.03 per second of that in every fixed-rate leg. Which change since rc.2 removed the tail was not measured. **Not kept** (reverted).
 
-Two things this record shows besides the hold. Legs where other windows added about 30 compositions a second (147 to 154 sources/s, on both builds) claimed 37 to 53 % of frames in alternating 12.5 and 20.8 ms gaps and had a picture age p95 of 19.5 to 22.4 ms; legs at 124 to 135 sources/s claimed 0 to 3 % that way at 15.1 to 18.3 ms. And main's fixed-rate claims wait 1 to 3 ms after publish for 12 to 16 % of frames (publish to claim p95 1.9 to 2.0 ms, host total p95 4.8 to 5.0 ms), where rc.2's clean runs claimed at once (p95 0.06 ms, host total p95 3.3 to 3.4 ms). Neither was investigated here.
+Two things this record shows besides the hold. Legs where other windows added about 30 compositions a second (147 to 154 sources/s, on both builds) claimed 37 to 53 % of frames in alternating 12.5 and 20.8 ms gaps and had a picture age p95 of 19.5 to 22.4 ms; legs at 124 to 135 sources/s claimed 0 to 3 % that way at 15.1 to 18.3 ms. And main's fixed-rate claims wait 1 to 3 ms after publish for 12 to 16 % of frames (publish to claim p95 1.9 to 2.0 ms, host total p95 4.8 to 5.0 ms), where rc.2's clean runs claimed at once (p95 0.06 ms, host total p95 3.3 to 3.4 ms). Neither was investigated here; both are in the two sections above ([claim waits](#november-1-fixed-rate-claims-that-waited-1-to-3-ms-after-publish), [another window's updates](#november-1-another-windows-updates-beside-a-120-hz-game-at-60-fps)).
 ## November 1: slice delivery by picture size
 
 `video_slice_delivery = 4` against `off` by picture size, to choose when the host turns slice delivery on by itself. Verdict: **kept on for 4K-size pictures** (`auto`, the new default: four blocks from three quarters of 4K's pixels, 3840x2160, 4096x2160 and 5120x1440); 1440p and 1080p stay whole.

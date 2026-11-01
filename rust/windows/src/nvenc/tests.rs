@@ -2249,8 +2249,9 @@ fn slice_delivery_reads_p_frames_slice_by_slice_in_subframe_mode() -> Result<()>
     assert_eq!(output[0].unit, crate::encoder::Unit::Whole);
     assert!(output[0].idr);
     assert_eq!(output[0].bytes.len(), 24);
-    // A P-frame leaves as NVENC writes it: nothing yet, a slice, the rest.
-    state(|d| d.partial.extend([(0, 0), (1, 10)]));
+    // A P-frame leaves as NVENC writes it: nothing yet, the first of two
+    // slices written, the rest.
+    state(|d| d.partial.extend([(0, 0), (2, 20)]));
     encoder.submit(slot, None, false, Instant::now())?;
     assert!(encoder.poll()?.is_empty());
     let first = encoder.poll()?;
@@ -2267,18 +2268,24 @@ fn slice_delivery_reads_p_frames_slice_by_slice_in_subframe_mode() -> Result<()>
     picture.extend_from_slice(&last[0].bytes);
     assert_eq!(picture.len(), 24);
     assert_eq!(picture[8..], (8..24).map(|i| i as u8).collect::<Vec<_>>());
-    // Slices already written leave together when the poll comes late.
-    state(|d| d.partial.push_back((1, 20)));
+    // Slices already written leave together when the poll comes late; the
+    // newest waits for the next poll.
+    state(|d| d.partial.push_back((5, 20)));
     encoder.submit(slot, None, false, Instant::now())?;
-    assert_eq!(encoder.poll()?[0].bytes.len(), 20);
-    assert_eq!(encoder.poll()?[0].bytes.len(), 4);
+    assert_eq!(encoder.poll()?[0].bytes.len(), 16);
+    assert_eq!(encoder.poll()?[0].bytes.len(), 8);
+    // A single slice written may be the frame's last, so it waits.
+    state(|d| d.partial.push_back((1, 10)));
+    encoder.submit(slot, None, false, Instant::now())?;
+    assert!(encoder.poll()?.is_empty());
+    assert_eq!(encoder.poll()?[0].unit, crate::encoder::Unit::Whole);
     // A frame done at its first poll leaves whole, with full FEC.
     encoder.submit(slot, None, false, Instant::now())?;
     let output = encoder.poll()?;
     assert_eq!(output[0].unit, crate::encoder::Unit::Whole);
     // A started frame ends as it began once slices are joined; the next is
     // waited for and leaves whole.
-    state(|d| d.partial.push_back((1, 10)));
+    state(|d| d.partial.push_back((2, 10)));
     encoder.submit(slot, None, false, Instant::now())?;
     assert_eq!(
         encoder.poll()?[0].unit,
@@ -2320,9 +2327,9 @@ fn slice_output_that_shrinks_fails_and_a_stuck_frame_times_out() -> Result<()> {
     let slot = input(&mut encoder, 17)?;
     encoder.submit(slot, None, true, Instant::now())?;
     encoder.poll()?;
-    state(|d| d.partial.extend([(2, 12), (2, 6)]));
+    state(|d| d.partial.extend([(2, 12), (2, 4)]));
     encoder.submit(slot, None, false, Instant::now())?;
-    assert_eq!(encoder.poll()?[0].bytes.len(), 12);
+    assert_eq!(encoder.poll()?[0].bytes.len(), 6);
     let error = encoder.poll().err().unwrap();
     assert!(
         format!("{error:#}").contains("slice output size"),
@@ -2351,16 +2358,17 @@ fn a_subframe_frame_ends_at_the_drivers_completion_and_bad_offsets_hold_it() -> 
     let slot = input(&mut encoder, 17)?;
     encoder.submit(slot, None, true, Instant::now())?;
     encoder.poll()?;
-    // Every slice reported before the driver says the picture is done: the
-    // bytes leave as a slice, and the frame ends at the completion.
-    state(|d| d.partial.push_back((4, 16)));
+    // Every slice and every byte reported before the driver says the
+    // picture is done: the slices but the newest leave early, and the last
+    // unit carries the newest at the completion.
+    state(|d| d.partial.push_back((4, 24)));
     encoder.submit(slot, None, false, Instant::now())?;
     let first = encoder.poll()?;
     assert_eq!(first[0].unit, crate::encoder::Unit::Slice { index: 0 });
-    assert_eq!(first[0].bytes.len(), 16);
+    assert_eq!(first[0].bytes.len(), 18);
     let last = encoder.poll()?;
     assert_eq!(last[0].unit, crate::encoder::Unit::Last { index: 1 });
-    assert_eq!(last[0].bytes.len(), 8);
+    assert_eq!(last[0].bytes.len(), 6);
     // Slice offsets past the bytes written send nothing early, once warned.
     state(|d| {
         d.bad_offsets = true;

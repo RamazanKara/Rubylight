@@ -1759,9 +1759,16 @@ impl Session {
             if self.subframe && !subframe_complete(&lock) {
                 // Hand on the slices written since the last poll, if the
                 // frame leaves slice by slice and the driver's slice offsets
-                // hold together; otherwise wait for all of it.
+                // hold together; otherwise wait for all of it. The newest
+                // slice waits for the next poll: it may be the last, whose
+                // bytes the completed frame's last unit must carry.
                 let streamed = pending.streams && (pending.units.is_some() || !self.slices_joined);
                 let consistent = slices_consistent(&lock, &self.slice_offsets);
+                let ready = if consistent {
+                    self.slice_offsets[lock.numSlices as usize - 1] as usize
+                } else {
+                    0
+                };
                 let unit = (|| -> Result<Option<Vec<u8>>> {
                     if size > MAX_FRAME_BYTES
                         || size < sent
@@ -1769,13 +1776,14 @@ impl Session {
                     {
                         bail!("invalid NVENC slice output size");
                     }
-                    if !streamed || size == sent || !consistent {
+                    if !streamed || !consistent || ready <= sent {
                         return Ok(None);
                     }
                     // SAFETY: The lock succeeded and the pointer is non-null with `size` bounded
-                    // bytes written; the bytes stay valid until the unlock below.
+                    // bytes written, `ready` of them before the newest slice; the bytes stay
+                    // valid until the unlock below.
                     let written = unsafe {
-                        std::slice::from_raw_parts(lock.bitstreamBufferPtr.cast::<u8>(), size)
+                        std::slice::from_raw_parts(lock.bitstreamBufferPtr.cast::<u8>(), ready)
                     };
                     Ok(Some(written[sent..].to_vec()))
                 })();
@@ -1803,7 +1811,7 @@ impl Session {
                     let units = pending.units.get_or_insert_default();
                     let index = units.next;
                     units.next += 1;
-                    units.sent = size;
+                    units.sent = ready;
                     self.ready.push_back(Encoded {
                         bytes,
                         unit: crate::encoder::Unit::Slice { index },

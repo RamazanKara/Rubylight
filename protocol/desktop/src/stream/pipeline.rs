@@ -612,6 +612,8 @@ impl VideoDecoder for Decoder {
                 if exports_dmabuf(self.dmabuf, setup) && decoder.export_dmabuf() {
                     eprintln!("nightjar: VAAPI pictures go to the renderer as DMA-BUFs");
                 }
+                // The overlay's decoder name, in the log for runs nobody watches.
+                eprintln!("nightjar: video decoder {}", decoder.name);
                 *lock(&self.shared.decoder_name) = decoder.name.clone();
                 self.decoder = Some(decoder);
                 Ok(())

@@ -39,6 +39,10 @@ impl Nics for Fake {
         self.call("advanced", String::new())?;
         Ok(self.advanced.clone())
     }
+    fn advanced_of(&mut self, adapter: &PhysicalAdapter) -> Result<Vec<AdvancedProperty>> {
+        self.call("advanced of", adapter.name.clone())?;
+        Ok(self.advanced.clone())
+    }
     fn instances(&mut self, setting: WakeSetting) -> Result<Vec<WmiInstance>> {
         self.call(setting.class(), String::new())?;
         Ok(match setting {
@@ -218,13 +222,37 @@ fn each_adapter_gets_its_own_keywords_and_every_failure_of_its_own() -> Result<(
             "MSNdis_DeviceWakeOnMagicPacketOnly: Access denied"
         ]
     );
-    // Unreadable advanced properties are each adapter's error too.
-    fake.fail = vec![("advanced", "Not supported")];
+    // One driver failing the whole listing costs only its own adapter's
+    // keywords: each adapter is then asked on its own.
+    fake.log.clear();
+    fake.fail = vec![
+        ("advanced", "Not supported"),
+        ("advanced of", "Generic failure"),
+    ];
     let report = read(&mut fake)?;
     assert!(report.adapters[0].keywords.is_empty());
     assert_eq!(
         report.adapters[0].errors,
-        ["advanced properties: Not supported"]
+        ["advanced properties: Generic failure"]
+    );
+    assert_eq!(report.adapters[1].keywords.len(), 2);
+    assert_eq!(
+        report.adapters[1].errors,
+        [
+            "MSPower_DeviceWakeEnable: the adapter has no PnP id",
+            "MSNdis_DeviceWakeOnMagicPacketOnly: the adapter has no PnP id"
+        ]
+    );
+    assert_eq!(
+        fake.log,
+        [
+            "physical",
+            "advanced",
+            "MSPower_DeviceWakeEnable",
+            "MSNdis_DeviceWakeOnMagicPacketOnly",
+            "advanced of Ethernet",
+            "advanced of WLAN"
+        ]
     );
     // Without the adapters there is nothing to report.
     fake.fail = vec![("physical", "Access denied")];
@@ -447,10 +475,14 @@ fn an_advanced_property_is_written_only_as_the_driver_defines_it() -> Result<()>
     // A driver key of its own under HKCU: never a real adapter's.
     let scratch = scratch();
     let driver = &scratch.0;
-    let magic = create(driver, r"Ndi\Params\*WakeOnMagicPacket\Enum");
-    magic.set_string("0", "Disabled")?;
-    magic.set_string("1", "Enabled")?;
-    create(driver, r"Ndi\Params\*ModernStandbyWoLMagicPacket");
+    let list = |keyword: &str| -> Result<()> {
+        create(driver, &format!(r"Ndi\Params\{keyword}")).set_string("type", "enum")?;
+        let values = create(driver, &format!(r"Ndi\Params\{keyword}\Enum"));
+        values.set_string("0", "Disabled")?;
+        values.set_string("1", "Enabled")
+    };
+    list("*WakeOnMagicPacket")?;
+    list("*ModernStandbyWoLMagicPacket")?;
     driver.set_string("*WakeOnMagicPacket", "0")?;
     driver.set_dword("*ModernStandbyWoLMagicPacket", 0)?;
 
@@ -478,8 +510,60 @@ fn an_advanced_property_is_written_only_as_the_driver_defines_it() -> Result<()>
     );
     assert!(write_advanced(driver, "*ModernStandbyWoLMagicPacket", "on").is_err());
     // Without a value yet it is written as a string.
-    create(driver, r"Ndi\Params\S5WakeOnLan");
+    list("S5WakeOnLan")?;
     write_advanced(driver, "S5WakeOnLan", "1")?;
     assert_eq!(driver.string("S5WakeOnLan")?.as_deref(), Some("1"));
+    // Only lists are set: a number, free text or an untyped property is
+    // refused, as is a list without values, and nothing changes.
+    create(driver, r"Ndi\Params\*JumboPacket").set_string("type", "int")?;
+    create(driver, r"Ndi\Params\NetworkAddress");
+    let listless = create(driver, r"Ndi\Params\WakeOnLink");
+    listless.set_string("type", "Enum")?;
+    let refused = |keyword: &str| {
+        write_advanced(driver, keyword, "1")
+            .unwrap_err()
+            .to_string()
+    };
+    assert_eq!(
+        refused("*JumboPacket"),
+        "*JumboPacket is not a list of values but \"int\": only lists are set"
+    );
+    assert_eq!(
+        refused("NetworkAddress"),
+        "NetworkAddress is not a list of values but untyped: only lists are set"
+    );
+    assert_eq!(refused("WakeOnLink"), "WakeOnLink lists no values");
+    for keyword in ["*JumboPacket", "NetworkAddress", "WakeOnLink"] {
+        assert_eq!(driver.kind(keyword)?, None, "{keyword}");
+    }
     Ok(())
+}
+
+#[test]
+fn a_configuration_manager_failure_is_never_a_success() {
+    use windows::Win32::Devices::DeviceAndDriverInstallation::{CONFIGRET, CR_NO_SUCH_DEVNODE};
+    let code = |error: &anyhow::Error| {
+        error
+            .root_cause()
+            .downcast_ref::<std::io::Error>()
+            .and_then(std::io::Error::raw_os_error)
+    };
+    // A code with no Win32 error of its own, and one that maps to success.
+    for status in [CONFIGRET(0x7F), CONFIGRET(0)] {
+        let error = config_error(status, r"finding the device PCI\X");
+        assert_eq!(code(&error), Some(31), "{error:#}");
+        let text = format!("{error:#}");
+        assert!(
+            text.starts_with(&format!(
+                r"finding the device PCI\X (CONFIGRET {})",
+                status.0
+            )),
+            "{text}"
+        );
+        assert!(!text.contains("completed successfully"), "{text}");
+    }
+    // One with its own keeps it.
+    let error = config_error(CR_NO_SUCH_DEVNODE, "finding the device");
+    assert_ne!(code(&error), Some(31), "{error:#}");
+    assert_ne!(code(&error), Some(0), "{error:#}");
 }

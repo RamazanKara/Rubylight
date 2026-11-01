@@ -85,6 +85,8 @@ pub(super) trait Nics {
     fn physical(&mut self) -> Result<Vec<PhysicalAdapter>>;
     /// Every adapter's advanced properties, hidden ones too.
     fn advanced(&mut self) -> Result<Vec<AdvancedProperty>>;
+    /// One adapter's advanced properties, hidden ones too.
+    fn advanced_of(&mut self, adapter: &PhysicalAdapter) -> Result<Vec<AdvancedProperty>>;
     /// Every instance of the setting's class, of any device.
     fn instances(&mut self, setting: WakeSetting) -> Result<Vec<WmiInstance>>;
     /// Saves one advanced property without restarting the adapter.
@@ -124,56 +126,64 @@ pub(super) fn matching<'a>(
 /// fail; what can't be read of one adapter is in its `errors`.
 pub(super) fn read(nics: &mut impl Nics) -> Result<NicReport> {
     let adapters = nics.physical()?;
+    // One driver that fails fails the listing of every adapter's advanced
+    // properties; then each adapter is asked on its own.
     let advanced = nics.advanced();
     let wake = nics.instances(WakeSetting::WakeEnable);
     let only = nics.instances(WakeSetting::MagicPacketOnly);
-    let adapters = adapters
-        .iter()
-        .map(|adapter| {
-            let mut errors = Vec::new();
-            let mut keywords = BTreeMap::new();
-            match &advanced {
-                Ok(properties) => {
-                    for property in properties.iter().filter(|p| {
-                        p.guid.eq_ignore_ascii_case(&adapter.guid)
-                            && KEYWORDS.iter().any(|k| k.eq_ignore_ascii_case(&p.keyword))
-                    }) {
-                        // As core keeps them: keywords in upper case, values trimmed.
-                        keywords.insert(
-                            property.keyword.to_ascii_uppercase(),
-                            property.value.trim().to_owned(),
-                        );
-                    }
-                }
-                Err(error) => errors.push(format!("advanced properties: {error:#}")),
+    let mut report = NicReport::default();
+    for adapter in &adapters {
+        let mut errors = Vec::new();
+        let mut keywords = BTreeMap::new();
+        let own;
+        let properties = match &advanced {
+            Ok(properties) => Ok(properties.as_slice()),
+            Err(_) => {
+                own = nics.advanced_of(adapter);
+                own.as_deref().map_err(|error| format!("{error:#}"))
             }
-            let mut flag = |setting: WakeSetting, instances: &Result<Vec<WmiInstance>>| {
-                let found = match instances {
-                    Ok(instances) => matching(instances, &adapter.pnp),
-                    Err(error) => Err(anyhow::anyhow!("{error:#}")),
-                };
-                match found {
-                    Ok(found) => found.first().map(|instance| instance.on),
-                    Err(error) => {
-                        errors.push(format!("{}: {error:#}", setting.class()));
-                        None
-                    }
+        };
+        match properties {
+            Ok(properties) => {
+                for property in properties.iter().filter(|p| {
+                    p.guid.eq_ignore_ascii_case(&adapter.guid)
+                        && KEYWORDS.iter().any(|k| k.eq_ignore_ascii_case(&p.keyword))
+                }) {
+                    // As core keeps them: keywords in upper case, values trimmed.
+                    keywords.insert(
+                        property.keyword.to_ascii_uppercase(),
+                        property.value.trim().to_owned(),
+                    );
                 }
+            }
+            Err(error) => errors.push(format!("advanced properties: {error}")),
+        }
+        let mut flag = |setting: WakeSetting, instances: &Result<Vec<WmiInstance>>| {
+            let found = match instances {
+                Ok(instances) => matching(instances, &adapter.pnp),
+                Err(error) => Err(anyhow::anyhow!("{error:#}")),
             };
-            let wake_enable = flag(WakeSetting::WakeEnable, &wake);
-            let magic_packet_only = flag(WakeSetting::MagicPacketOnly, &only);
-            NicSettings {
-                guid: adapter.guid.to_ascii_uppercase(),
-                pnp: adapter.pnp.clone(),
-                name: adapter.name.clone(),
-                wake_enable,
-                magic_packet_only,
-                keywords,
-                errors,
+            match found {
+                Ok(found) => found.first().map(|instance| instance.on),
+                Err(error) => {
+                    errors.push(format!("{}: {error:#}", setting.class()));
+                    None
+                }
             }
-        })
-        .collect();
-    Ok(NicReport { adapters })
+        };
+        let wake_enable = flag(WakeSetting::WakeEnable, &wake);
+        let magic_packet_only = flag(WakeSetting::MagicPacketOnly, &only);
+        report.adapters.push(NicSettings {
+            guid: adapter.guid.to_ascii_uppercase(),
+            pnp: adapter.pnp.clone(),
+            name: adapter.name.clone(),
+            wake_enable,
+            magic_packet_only,
+            keywords,
+            errors,
+        });
+    }
+    Ok(report)
 }
 
 /// Carries out `plan`. A changed advanced property restarts its adapter,
@@ -279,17 +289,13 @@ impl Native {
         }
         Ok(self.devices.as_ref().unwrap())
     }
-}
-
-impl Nics for Native {
-    fn physical(&mut self) -> Result<Vec<PhysicalAdapter>> {
-        net_adapter::physical_adapters(self.adapters()?)
-    }
-    fn advanced(&mut self) -> Result<Vec<AdvancedProperty>> {
+    /// Advanced properties, hidden ones too, narrowed by `filter` (a WHERE
+    /// clause with a leading space, or empty).
+    fn advanced_where(&mut self, filter: &str) -> Result<Vec<AdvancedProperty>> {
         let all = wmi::context(&[("AllProperties", wmi::Value::Flag(true))])?;
         self.adapters()?
             .query(
-                "SELECT * FROM MSFT_NetAdapterAdvancedPropertySettingData",
+                &format!("SELECT * FROM MSFT_NetAdapterAdvancedPropertySettingData{filter}"),
                 Some(&all),
             )?
             .iter()
@@ -306,6 +312,19 @@ impl Nics for Native {
                 })
             })
             .collect()
+    }
+}
+
+impl Nics for Native {
+    fn physical(&mut self) -> Result<Vec<PhysicalAdapter>> {
+        net_adapter::physical_adapters(self.adapters()?)
+    }
+    fn advanced(&mut self) -> Result<Vec<AdvancedProperty>> {
+        self.advanced_where("")
+    }
+    fn advanced_of(&mut self, adapter: &PhysicalAdapter) -> Result<Vec<AdvancedProperty>> {
+        // The class has no InterfaceGuid to filter on; Name is the adapter's.
+        self.advanced_where(&format!(" WHERE Name = {}", wmi::quote(&adapter.name)))
     }
     fn instances(&mut self, setting: WakeSetting) -> Result<Vec<WmiInstance>> {
         self.devices()?
@@ -429,8 +448,7 @@ impl Key {
         }
     }
     /// The string value `name`, `None` when there is none or it isn't a
-    /// string. Tests compare it with what WMI reports.
-    #[cfg(test)]
+    /// string.
     pub(super) fn string(&self, name: &str) -> Result<Option<String>> {
         use windows::Win32::{
             Foundation::{ERROR_FILE_NOT_FOUND, ERROR_UNSUPPORTED_TYPE},
@@ -502,20 +520,15 @@ impl Key {
 pub(super) fn driver_key(pnp: &str, write: bool) -> Result<Key> {
     use windows::Win32::{
         Devices::DeviceAndDriverInstallation::{
-            CM_LOCATE_DEVNODE_NORMAL, CM_Locate_DevNodeW, CM_MapCrToWin32Err, CM_Open_DevNode_Key,
-            CM_REGISTRY_SOFTWARE, CONFIGRET, CR_SUCCESS, RegDisposition_OpenExisting,
+            CM_LOCATE_DEVNODE_NORMAL, CM_Locate_DevNodeW, CM_Open_DevNode_Key,
+            CM_REGISTRY_SOFTWARE, CR_SUCCESS, RegDisposition_OpenExisting,
         },
         System::Registry::{HKEY, KEY_QUERY_VALUE, KEY_SET_VALUE},
     };
     if pnp.is_empty() {
         bail!("the adapter has no PnP id");
     }
-    let failed = |status: CONFIGRET, what: &str| {
-        // SAFETY: Maps a status code; no pointers.
-        let code = unsafe { CM_MapCrToWin32Err(status, 0) };
-        anyhow::Error::from(std::io::Error::from_raw_os_error(code as i32))
-            .context(format!("{what} {pnp} (CONFIGRET {})", status.0))
-    };
+    let failed = |status, what: &str| config_error(status, &format!("{what} {pnp}"));
     let id = to_wide(pnp);
     let mut node = 0u32;
     // SAFETY: `id` is NUL-terminated and outlives the call; `node` is a live local.
@@ -552,18 +565,50 @@ pub(super) fn driver_key(pnp: &str, write: bool) -> Result<Key> {
     Ok(Key(key))
 }
 
+/// The failed `status` of a configuration manager call as an error about
+/// `what`: its Win32 error where there is one, else ERROR_GEN_FAILURE, never
+/// "The operation completed successfully".
+fn config_error(
+    status: windows::Win32::Devices::DeviceAndDriverInstallation::CONFIGRET,
+    what: &str,
+) -> anyhow::Error {
+    use windows::Win32::{
+        Devices::DeviceAndDriverInstallation::CM_MapCrToWin32Err, Foundation::ERROR_GEN_FAILURE,
+    };
+    // SAFETY: Maps a status code; no pointers.
+    let code = match unsafe { CM_MapCrToWin32Err(status, ERROR_GEN_FAILURE.0) } {
+        0 => ERROR_GEN_FAILURE.0,
+        code => code,
+    };
+    anyhow::Error::from(std::io::Error::from_raw_os_error(code as i32))
+        .context(format!("{what} (CONFIGRET {})", status.0))
+}
+
 /// Sets the advanced property `keyword` in the driver key `key` as
-/// `Set-NetAdapterAdvancedProperty` does: only a property the driver
-/// defines (`Ndi\Params\<keyword>`), only a value it lists when it lists
-/// them (`Enum`), and in the type it already has, else as a string.
+/// `Set-NetAdapterAdvancedProperty` does, for the only kind the fixes set: a
+/// property the driver defines (`Ndi\Params\<keyword>`) as a list of values
+/// (`type` enum), to a value it lists (`Enum`), in the type it already has,
+/// else as a string. Anything else (numbers, free text) is refused.
 pub(super) fn write_advanced(key: &Key, keyword: &str, value: &str) -> Result<()> {
     use windows::Win32::System::Registry::{KEY_QUERY_VALUE, REG_DWORD};
     let Some(params) = key.open(&format!(r"Ndi\Params\{keyword}"), KEY_QUERY_VALUE)? else {
         bail!("the adapter has no advanced property {keyword}");
     };
-    if let Some(values) = params.open("Enum", KEY_QUERY_VALUE)?
-        && values.kind(value)?.is_none()
+    let kind = params.string("type")?;
+    if !kind
+        .as_deref()
+        .is_some_and(|kind| kind.eq_ignore_ascii_case("enum"))
     {
+        bail!(
+            "{keyword} is not a list of values but {}: only lists are set",
+            kind.as_deref()
+                .map_or("untyped".into(), |kind| format!("{kind:?}"))
+        );
+    }
+    let Some(values) = params.open("Enum", KEY_QUERY_VALUE)? else {
+        bail!("{keyword} lists no values");
+    };
+    if values.kind(value)?.is_none() {
         bail!("{value:?} is not one of the values {keyword} takes");
     }
     if key.kind(keyword)? == Some(REG_DWORD.0) {

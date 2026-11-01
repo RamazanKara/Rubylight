@@ -33,6 +33,8 @@ struct Driver {
     initialized: Option<(NV_ENC_INITIALIZE_PARAMS, NV_ENC_CONFIG)>,
     reconfigured: Option<(NV_ENC_RECONFIGURE_PARAMS, NV_ENC_CONFIG)>,
     reject_open: Option<ApiVersion>,
+    /// What every open answers, as a driver past its session limit does.
+    open_status: Option<NVENCSTATUS>,
     reject_initialize: Option<ApiVersion>,
     reject_output: bool,
     reject_reconfigure: bool,
@@ -44,6 +46,8 @@ struct Driver {
     preset_fallback: bool,
     preset_hdr_metadata: bool,
     lock_busy: usize,
+    /// Locks of a keyframe that return busy first.
+    keyframe_busy: usize,
     need_more_input: bool,
     destroy_busy: bool,
     /// NV_ENC_CAPS_NUM_ENCODER_ENGINES; 0 reads as 1.
@@ -56,6 +60,8 @@ struct Driver {
     macroblocks: i32,
     /// NV_ENC_CAPS_SUPPORT_SUBFRAME_READBACK is 0.
     no_subframe: bool,
+    /// NV_ENC_CAPS_SUPPORT_DYN_BITRATE_CHANGE is 0.
+    no_dynamic_bitrate: bool,
     /// Bytes in each picture, at least the 8 of its timestamp.
     picture: usize,
     /// Subframe locks before a picture is done: the slices and bytes each
@@ -146,7 +152,9 @@ unsafe extern "C" fn open(
         d.opened.push(api);
         // SAFETY: `raw` was written just above and still points at the session's field.
         d.active.insert(unsafe { *raw } as usize);
-        if d.reject_open == Some(api) {
+        if let Some(status) = d.open_status {
+            status
+        } else if d.reject_open == Some(api) {
             _NVENCSTATUS_NV_ENC_ERR_INVALID_VERSION
         } else {
             SUCCESS
@@ -202,6 +210,7 @@ unsafe extern "C" fn caps(
             _NV_ENC_CAPS_NV_ENC_CAPS_SUPPORTED_RATECONTROL_MODES => d.rate_modes.unwrap_or(0x3f),
             _NV_ENC_CAPS_NV_ENC_CAPS_MB_PER_SEC_MAX => d.macroblocks,
             _NV_ENC_CAPS_NV_ENC_CAPS_SUPPORT_SUBFRAME_READBACK => i32::from(!d.no_subframe),
+            _NV_ENC_CAPS_NV_ENC_CAPS_SUPPORT_DYN_BITRATE_CHANGE => i32::from(!d.no_dynamic_bitrate),
             _ => 1,
         });
     }
@@ -534,6 +543,10 @@ unsafe extern "C" fn lock(raw: *mut c_void, parameters: *mut NV_ENC_LOCK_BITSTRE
             d.lock_busy -= 1;
             return _NVENCSTATUS_NV_ENC_ERR_LOCK_BUSY;
         }
+        if d.keyframe_busy > 0 && d.outputs[&(p.outputBitstream as usize)].idr {
+            d.keyframe_busy -= 1;
+            return _NVENCSTATUS_NV_ENC_ERR_LOCK_BUSY;
+        }
         let slices = configured_slices(d);
         let buffer = d.outputs.get_mut(&(p.outputBitstream as usize)).unwrap();
         if let Some((pointer, expected)) = buffer.metadata {
@@ -820,6 +833,59 @@ fn rejected_versions_destroy_partial_sessions_and_keep_legacy_ten_bit_fields() -
     Ok(())
 }
 #[test]
+fn an_open_past_the_session_limit_is_named_and_no_other_api_is_tried() {
+    for status in [
+        _NVENCSTATUS_NV_ENC_ERR_OUT_OF_MEMORY,
+        _NVENCSTATUS_NV_ENC_ERR_INCOMPATIBLE_CLIENT_KEY,
+    ] {
+        reset();
+        state(|d| d.open_status = Some(status));
+        let Err(error) = session(&Negotiated::default(), ApiVersion(13, 0)) else {
+            panic!("a session opened past the limit");
+        };
+        assert!(session_limit(&error));
+        let message = format!("{error:#}");
+        assert!(
+            message.starts_with("NVENC session limit reached"),
+            "{message}"
+        );
+        assert!(message.contains("OBS, ShadowPlay or Discord"), "{message}");
+        state(|d| assert_eq!(d.opened, vec![ApiVersion(13, 0)]));
+        assert_clean();
+    }
+    reset();
+    state(|d| d.open_status = Some(_NVENCSTATUS_NV_ENC_ERR_INVALID_DEVICE));
+    let Err(error) = session(&Negotiated::default(), ApiVersion(13, 0)) else {
+        panic!("a session opened on a rejected device");
+    };
+    assert!(!session_limit(&error));
+    assert_clean();
+}
+#[test]
+fn a_closed_session_releases_everything_and_refuses_more_work() -> Result<()> {
+    reset();
+    state(|d| d.asynchronous = true);
+    let mut encoder = session(&Negotiated::default(), ApiVersion(13, 0))?;
+    let slot = input(&mut encoder, 17)?;
+    encoder.submit(slot, None, true, Instant::now())?;
+    // Closing collects the frame in flight, then destroys the session, so
+    // another session can open in its place (the focus probe).
+    encoder.close();
+    assert_clean();
+    let error = encoder
+        .submit(slot, None, false, Instant::now())
+        .unwrap_err();
+    assert!(error.to_string().contains("closed"), "{error}");
+    assert!(encoder.bitrate(10000).is_err());
+    let next = session(&Negotiated::default(), ApiVersion(13, 0))?;
+    drop(encoder);
+    state(|d| assert_eq!(d.destroyed.len(), 1));
+    drop(next);
+    state(|d| assert_eq!(d.destroyed.len(), 2));
+    assert_clean();
+    Ok(())
+}
+#[test]
 fn completed_output_retains_inputs_and_async_event_survives_a_busy_lock() -> Result<()> {
     reset();
     state(|d| {
@@ -867,7 +933,7 @@ fn timed_out_submission_retains_resources_until_native_session_destruction() -> 
     let mut encoder = session(&Negotiated::default(), ApiVersion(13, 0))?;
     let slot = input(&mut encoder, 17)?;
     encoder.submit(slot, None, true, Instant::now())?;
-    encoder.pending.front_mut().unwrap().started =
+    encoder.pending.front_mut().unwrap().submitted =
         Instant::now() - COMPLETION_TIMEOUT - Duration::from_millis(1);
     assert!(encoder.poll().is_err());
     drop(encoder);
@@ -880,6 +946,17 @@ fn partial_output_allocation_is_released_and_reference_caps_control_advertisemen
     state(|d| d.reject_output = true);
     let mut encoder = session(&Negotiated::default(), ApiVersion(13, 0))?;
     assert!(input(&mut encoder, 17).is_err());
+    // The failed slot is gone and its registration released, so the
+    // texture registers afresh and encodes once the driver allows it.
+    assert!(encoder.slots.is_empty());
+    state(|d| {
+        assert!(d.resources.is_empty() && d.outputs.is_empty());
+        d.reject_output = false;
+    });
+    let slot = input(&mut encoder, 17)?;
+    assert_eq!(slot, 0);
+    encoder.submit(slot, None, true, Instant::now())?;
+    assert!(encoder.poll()?[0].idr);
     drop(encoder);
     assert_clean();
     reset();
@@ -925,7 +1002,7 @@ fn loss_feedback_drains_pending_frames_and_only_confirms_successful_invalidation
     Ok(())
 }
 #[test]
-fn failed_bitrate_reconfigure_keeps_previous_config_then_higher_rate_requests_idr() -> Result<()> {
+fn failed_bitrate_reconfigure_keeps_the_config_and_a_rise_needs_no_keyframe() -> Result<()> {
     reset();
     let stream = Negotiated {
         codec: 1,
@@ -947,8 +1024,9 @@ fn failed_bitrate_reconfigure_keeps_previous_config_then_higher_rate_requests_id
     );
     state(|d| {
         let (parameters, config) = d.reconfigured.as_ref().unwrap();
-        assert_eq!(parameters.forceIDR(), 1);
-        assert_eq!(parameters.resetEncoder(), 1);
+        // A driver with dynamic bitrate changes takes a rise in place, as AMF.
+        assert_eq!(parameters.forceIDR(), 0);
+        assert_eq!(parameters.resetEncoder(), 0);
         assert_eq!(config.rcParams.maxBitRate, 40_000_000);
         assert_eq!(
             // SAFETY: HEVC was configured; the union member is plain integers and pointers.
@@ -958,10 +1036,12 @@ fn failed_bitrate_reconfigure_keeps_previous_config_then_higher_rate_requests_id
             16
         );
     });
-    assert!(encoder.force_idr);
+    assert!(!encoder.force_idr);
     let slot = input(&mut encoder, 17)?;
-    encoder.submit(slot, None, false, Instant::now())?;
+    encoder.submit(slot, None, true, Instant::now())?;
     assert!(encoder.poll()?[0].idr);
+    encoder.submit(slot, None, false, Instant::now())?;
+    assert!(!encoder.poll()?[0].idr, "a bitrate rise forces no keyframe");
     encoder.bitrate(10000)?;
     assert!(!encoder.force_idr);
     assert!(encoder.bitrate(0).is_err());
@@ -1302,17 +1382,15 @@ fn native_nvenc_loss_recovery_and_444_hdr_decode() -> Result<()> {
     if !gpu.display.adapter.to_ascii_lowercase().contains("nvidia") {
         bail!("select an NVIDIA-attached output with BUTTERPOLLO_TEST_NVENC_DISPLAY");
     }
-    let cases = std::env::var("BUTTERPOLLO_TEST_NVENC_CASES")
-        .unwrap_or_else(|_| "h264,hevc-hdr,hevc444-sdr,hevc444-hdr".into());
+    let cases =
+        std::env::var("BUTTERPOLLO_TEST_NVENC_CASES").unwrap_or_else(|_| "h264,hevc-hdr".into());
     let mut reports = Vec::new();
     for name in cases.split(',').map(str::trim) {
         let (codec, hdr, yuv444) = match name {
             "h264" => (0, false, false),
             "hevc-hdr" => (1, true, false),
-            "hevc444-sdr" => (1, false, true),
-            "hevc444-hdr" => (1, true, true),
             "av1-hdr" => (2, true, false),
-            "av1444-hdr" => (2, true, true),
+            // Native 4:4:4 is refused (`refuse_native_444`).
             _ => bail!("unknown NVIDIA test case {name}"),
         };
         let config = Negotiated {
@@ -1733,6 +1811,21 @@ fn packed_444_codes_a_larger_sdr_picture_like_amf() {
     assert_eq!(packed.csc_mode, 3);
     assert_eq!(packed.chroma_packing, 0);
     packed.validate().unwrap();
+    refuse_native_444(&packed).unwrap();
+}
+#[test]
+fn native_444_is_refused_since_the_conversion_writes_4_2_0() {
+    for hdr in [false, true] {
+        let native = coded(&Negotiated {
+            codec: 1,
+            hdr,
+            yuv444: true,
+            ..Default::default()
+        });
+        let error = refuse_native_444(&native).unwrap_err().to_string();
+        assert!(error.contains("native 4:4:4"), "{error}");
+    }
+    refuse_native_444(&coded(&Negotiated::default())).unwrap();
 }
 #[test]
 fn throughput_names_map_to_their_codec_only() {
@@ -1830,7 +1923,7 @@ fn a_five_frame_vbv_is_the_bound_until_the_host_caps_under_it() -> Result<()> {
     Ok(())
 }
 #[test]
-fn a_frame_cap_applies_with_frames_in_flight_and_a_bitrate_rise_waits() -> Result<()> {
+fn a_frame_cap_and_bitrate_changes_apply_with_frames_in_flight() -> Result<()> {
     reset();
     state(|d| d.asynchronous = true);
     let mut encoder = session(&Negotiated::default(), ApiVersion(13, 0))?;
@@ -1841,14 +1934,40 @@ fn a_frame_cap_applies_with_frames_in_flight_and_a_bitrate_rise_waits() -> Resul
     encoder.set_frame_cap(frame / 2)?;
     state(|d| assert!(d.reconfigured.take().is_some()));
     assert_eq!(encoder.pending.len(), 1);
-    // Neither does a lower bitrate.
+    // Neither does a lower bitrate, nor a higher one: the driver changes
+    // the rate in place without a reset or keyframe.
     encoder.bitrate(10000)?;
     assert_eq!(encoder.pending.len(), 1);
-    // A higher one resets the encoder, so the frame is collected first.
     encoder.bitrate(40000)?;
-    assert!(encoder.pending.is_empty());
-    state(|d| assert_eq!(d.reconfigured.take().unwrap().0.resetEncoder(), 1));
+    assert_eq!(encoder.pending.len(), 1);
+    state(|d| assert_eq!(d.reconfigured.take().unwrap().0.resetEncoder(), 0));
+    assert!(!encoder.force_idr);
     assert_eq!(encoder.poll()?.len(), 1);
+    drop(encoder);
+    assert_clean();
+    Ok(())
+}
+#[test]
+fn without_dynamic_bitrate_a_change_resets_after_the_frames_in_flight() -> Result<()> {
+    reset();
+    state(|d| {
+        d.asynchronous = true;
+        d.no_dynamic_bitrate = true;
+    });
+    let mut encoder = session(&Negotiated::default(), ApiVersion(13, 0))?;
+    let slot = input(&mut encoder, 17)?;
+    encoder.submit(slot, None, true, Instant::now())?;
+    // A lower rate resets too: the driver cannot take either in place.
+    encoder.bitrate(10000)?;
+    assert!(encoder.pending.is_empty());
+    state(|d| {
+        let (parameters, _) = d.reconfigured.take().unwrap();
+        assert_eq!((parameters.resetEncoder(), parameters.forceIDR()), (1, 1));
+    });
+    assert!(encoder.force_idr);
+    assert_eq!(encoder.poll()?.len(), 1);
+    encoder.submit(slot, None, false, Instant::now())?;
+    assert!(encoder.poll()?[0].idr);
     drop(encoder);
     assert_clean();
     Ok(())
@@ -1912,11 +2031,11 @@ fn a_d3d12_session_waits_for_the_conversion_on_the_gpu_and_signals_its_fence() -
     assert_eq!(encoder.poll()?.len(), 1);
     // A frame the fence never reaches fails loudly.
     encoder.submit(slot, converted(7), false, Instant::now())?;
-    encoder.pending.front_mut().unwrap().started = Instant::now() - COMPLETION_TIMEOUT * 2;
+    encoder.pending.front_mut().unwrap().submitted = Instant::now() - COMPLETION_TIMEOUT * 2;
     let error = encoder.poll().err().unwrap();
     assert!(format!("{error:#}").contains("timed out"), "{error:#}");
     state(|d| d.fence = 3);
-    encoder.pending.front_mut().unwrap().started = Instant::now();
+    encoder.pending.front_mut().unwrap().submitted = Instant::now();
     assert_eq!(encoder.poll()?.len(), 1);
     // A D3D12 frame without its conversion's fence, or a D3D11 input, is refused.
     let error = encoder
@@ -2200,6 +2319,31 @@ fn an_oversize_scene_cut_alone_in_flight_is_encoded_again_as_a_keyframe() -> Res
     Ok(())
 }
 #[test]
+fn a_reencoded_scene_cut_has_its_own_completion_deadline() -> Result<()> {
+    reset();
+    let mut encoder = session(&Negotiated::default(), ApiVersion(13, 0))?;
+    let slot = input(&mut encoder, 17)?;
+    encoder.cut_limit = Some(4);
+    encoder.submit(slot, None, true, Instant::now())?;
+    encoder.poll()?;
+    encoder.submit(slot, None, false, Instant::now())?;
+    // The inter frame took longer than the completion timeout to finish.
+    let slow = COMPLETION_TIMEOUT + Duration::from_millis(50);
+    encoder.pending[0].started -= slow;
+    encoder.pending[0].submitted -= slow;
+    // Its keyframe is not ready at the first lock; that is no timeout.
+    state(|d| d.keyframe_busy = 1);
+    assert!(encoder.poll()?.is_empty());
+    assert_eq!(encoder.pending.len(), 1);
+    let output = encoder.poll()?;
+    assert!(output[0].idr && output[0].reencoded);
+    // Its encode time still counts from the first submission.
+    assert!(output[0].latency.unwrap() >= slow);
+    drop(encoder);
+    assert_clean();
+    Ok(())
+}
+#[test]
 fn a_failed_scene_cut_reencode_sends_the_inter_frame_and_says_so() -> Result<()> {
     reset();
     let mut encoder = session(&Negotiated::default(), ApiVersion(13, 0))?;
@@ -2367,11 +2511,11 @@ fn slice_output_that_shrinks_fails_and_a_stuck_frame_times_out() -> Result<()> {
         "{error:#}"
     );
     // The bytes already sent stay sent; the frame is still in flight.
-    encoder.pending.front_mut().unwrap().started = Instant::now() - COMPLETION_TIMEOUT * 2;
+    encoder.pending.front_mut().unwrap().submitted = Instant::now() - COMPLETION_TIMEOUT * 2;
     state(|d| d.partial.push_back((3, 18)));
     let error = encoder.poll().err().unwrap();
     assert!(format!("{error:#}").contains("timed out"), "{error:#}");
-    encoder.pending.front_mut().unwrap().started = Instant::now();
+    encoder.pending.front_mut().unwrap().submitted = Instant::now();
     encoder.poll()?;
     drop(encoder);
     assert_clean();

@@ -131,6 +131,21 @@ impl std::fmt::Display for DriverError {
     }
 }
 impl std::error::Error for DriverError {}
+/// The driver refused another encode session: GeForce drivers cap the
+/// sessions open at once and answer `NV_ENC_ERR_OUT_OF_MEMORY` or
+/// `NV_ENC_ERR_INCOMPATIBLE_CLIENT_KEY` past the cap. Another driver API,
+/// another device or a driver update does not help.
+#[derive(Debug)]
+pub struct SessionLimit;
+impl std::fmt::Display for SessionLimit {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("NVENC session limit reached (another app such as OBS, ShadowPlay or Discord holds the encoder sessions)")
+    }
+}
+/// `error` comes from the driver's session limit ([`SessionLimit`]).
+pub fn session_limit(error: &anyhow::Error) -> bool {
+    error.downcast_ref::<SessionLimit>().is_some()
+}
 fn check_raw(
     status: NVENCSTATUS,
     operation: &'static str,
@@ -261,6 +276,27 @@ fn codec_name(codec: u8) -> &'static str {
         1 => "HEVC",
         _ => "AV1",
     }
+}
+/// What [`Session::open`] tried: each rejected API, or, when the driver is
+/// older than all of them, its API and the reviewed ones for the codec.
+fn api_failures(codec: u8, maximum: ApiVersion, failures: &[String]) -> String {
+    if !failures.is_empty() {
+        return failures.join("; ");
+    }
+    let reviewed = ApiVersion::candidates(codec, ApiVersion::COMPILED)
+        .map(|api| format!("{}.{}", api.0, api.1))
+        .collect::<Vec<_>>();
+    format!(
+        "this driver offers API {}.{}, and {} needs one of {}. Update the NVIDIA driver",
+        maximum.0,
+        maximum.1,
+        codec_name(codec),
+        if reviewed.is_empty() {
+            "none".into()
+        } else {
+            reviewed.join(", ")
+        }
+    )
 }
 /// The NVENC capability behind AMF's throughput property names, for the
 /// codec it names.
@@ -436,6 +472,10 @@ struct Pending {
     slot: usize,
     frame: u64,
     started: Instant,
+    /// When this submission reached the driver: its completion deadline
+    /// counts from here, even for a frame encoded again, whose `started`
+    /// stays the first submission's.
+    submitted: Instant,
     presentation: Instant,
     after_invalidation: bool,
     /// Submitted as a keyframe.
@@ -596,7 +636,7 @@ impl Session {
         }
         bail!(
             "no reviewed NVENC driver API supports this stream: {}",
-            failures.join("; ")
+            api_failures(stream.codec, runtime.maximum, &failures)
         )
     }
     #[allow(clippy::too_many_arguments)]
@@ -683,7 +723,17 @@ impl Session {
         // live D3D11 or D3D12 device or CUDA context, and both out-pointers are live locals.
         let status =
             unsafe { (functions.nvEncOpenEncodeSessionEx.unwrap())(&mut open, &mut session.raw) };
-        session.check(status, "open session")?;
+        session.check(status, "open session").map_err(|error| {
+            if matches!(
+                status,
+                _NVENCSTATUS_NV_ENC_ERR_OUT_OF_MEMORY
+                    | _NVENCSTATUS_NV_ENC_ERR_INCOMPATIBLE_CLIENT_KEY
+            ) {
+                error.context(SessionLimit)
+            } else {
+                error
+            }
+        })?;
         if session.raw.is_null() {
             bail!("NVENC returned no session");
         }
@@ -691,6 +741,9 @@ impl Session {
         Ok(session)
     }
     fn guard(&self) -> Result<Option<cuda::Guard>> {
+        if self.raw.is_null() {
+            bail!("the NVENC session is closed");
+        }
         self.cuda.as_ref().map(|ctx| ctx.enter()).transpose()
     }
     fn check(&self, status: NVENCSTATUS, operation: &'static str) -> Result<()> {
@@ -1243,7 +1296,25 @@ impl Session {
             event_registered: false,
             signaled: false,
         });
-        // Every partial acquisition is now owned by Session::drop.
+        if let Err(error) = self.acquire(index) {
+            // A slot that failed to register is released at once, so the
+            // texture registers afresh when it comes round again instead of
+            // failing at map.
+            let mut slot = self.slots.pop().unwrap();
+            if let Err(cleanup) = cleanup_slot(&self.functions, self.raw, self.api, &mut slot) {
+                // The driver still holds part of it: Session::drop releases
+                // that, and no input finds the slot by its key.
+                tracing::warn!(error = %cleanup, "NVENC input cleanup deferred to session destruction");
+                slot.input.key = 0;
+                self.slots.push(slot);
+            }
+            return Err(error);
+        }
+        Ok(index)
+    }
+    /// Register slot `index`'s input and make its output and completion
+    /// event. A failure leaves what was made in the slot for `cleanup_slot`.
+    fn acquire(&mut self, index: usize) -> Result<()> {
         let mut register = NV_ENC_REGISTER_RESOURCE {
             version: self.api.register(),
             resourceType: self.slots[index].input.kind,
@@ -1295,7 +1366,7 @@ impl Session {
             if register.registeredResource.is_null() {
                 bail!("NVENC returned no registered output");
             }
-            return Ok(index);
+            return Ok(());
         }
         let mut output = NV_ENC_CREATE_BITSTREAM_BUFFER {
             version: self.api.structure(1, false),
@@ -1327,7 +1398,7 @@ impl Session {
             )?;
             self.slots[index].event_registered = true;
         }
-        Ok(index)
+        Ok(())
     }
     fn texture_slot(&mut self, texture: &ID3D11Texture2D) -> Result<usize> {
         let key = texture.as_raw() as usize;
@@ -1524,7 +1595,8 @@ impl Session {
         }
         let measured =
             std::mem::take(&mut self.measure_next) && self.block_stats && again.is_none();
-        let started = again.map_or_else(Instant::now, |again| again.started);
+        let submitted = Instant::now();
+        let started = again.map_or(submitted, |again| again.started);
         // SAFETY: `picture` points at the slot's mapped input, output buffer, boxed metadata and
         // delta map, which all stay alive while the slot is in `pending`.
         let status =
@@ -1555,6 +1627,7 @@ impl Session {
             slot,
             frame,
             started,
+            submitted,
             presentation,
             after_invalidation,
             idr,
@@ -1640,7 +1713,12 @@ impl Session {
             return Ok(self.frame_cap());
         }
         self.cap_requested = Some(bytes);
-        self.reconfigure(self.config.rcParams.averageBitRate, wanted, "frame cap")?;
+        self.reconfigure(
+            self.config.rcParams.averageBitRate,
+            wanted,
+            false,
+            "frame cap",
+        )?;
         Ok(self.frame_cap())
     }
     /// Whether `encoded`, `pending`'s output, goes back to NVENC as a keyframe
@@ -1681,7 +1759,7 @@ impl Session {
             if let (Some(d3d12), Some(signal)) = (&self.d3d12, pending.signal)
                 && d3d12.fence.completed()? < signal
             {
-                if pending.started.elapsed() > COMPLETION_TIMEOUT {
+                if pending.submitted.elapsed() > COMPLETION_TIMEOUT {
                     bail!("NVENC completion timed out");
                 }
                 break;
@@ -1692,7 +1770,7 @@ impl Session {
                 match unsafe { WaitForSingleObject(slot.event, 0) } {
                     WAIT_OBJECT_0 => slot.signaled = true,
                     WAIT_TIMEOUT => {
-                        if pending.started.elapsed() > COMPLETION_TIMEOUT {
+                        if pending.submitted.elapsed() > COMPLETION_TIMEOUT {
                             bail!("NVENC completion timed out");
                         }
                         break;
@@ -1739,7 +1817,7 @@ impl Session {
             let status =
                 unsafe { (self.functions.nvEncLockBitstream.unwrap())(self.raw, &mut lock) };
             if status == _NVENCSTATUS_NV_ENC_ERR_LOCK_BUSY {
-                if pending.started.elapsed() > COMPLETION_TIMEOUT {
+                if pending.submitted.elapsed() > COMPLETION_TIMEOUT {
                     bail!("NVENC output lock timed out");
                 }
                 break;
@@ -1824,7 +1902,7 @@ impl Session {
                         presentation: Some(pending.presentation),
                     });
                 }
-                if pending.started.elapsed() > COMPLETION_TIMEOUT {
+                if pending.submitted.elapsed() > COMPLETION_TIMEOUT {
                     bail!("NVENC completion timed out");
                 }
                 break;
@@ -1997,7 +2075,7 @@ impl Session {
         if bitrate == 0 || bitrate > 800_000 {
             bail!("NVENC bitrate out of range");
         }
-        if !self.dynamic_bitrate {
+        if self.functions.nvEncReconfigureEncoder.is_none() {
             bail!("NVENC driver cannot change bitrate in this session");
         }
         let before = self.config.rcParams.averageBitRate;
@@ -2012,7 +2090,11 @@ impl Session {
         };
         let vbv = scale(self.config.rcParams.vbvBufferSize);
         let ceiling = scale(self.vbv_ceiling);
-        self.reconfigure(after, vbv, "change bitrate")?;
+        // A driver that reports NV_ENC_CAPS_SUPPORT_DYN_BITRATE_CHANGE takes
+        // a new rate in place, either way, as AMF does; any other needs a
+        // reset and a keyframe.
+        let reset = !self.dynamic_bitrate;
+        self.reconfigure(after, vbv, reset, "change bitrate")?;
         self.vbv_ceiling = ceiling;
         // The next frame cap is measured against the new ceiling.
         self.cap_requested = None;
@@ -2020,13 +2102,18 @@ impl Session {
         Ok(())
     }
     /// Reconfigure the rate control to `bitrate` bits per second and a VBV of
-    /// `vbv` bits. A higher bitrate resets the encoder and forces a keyframe,
-    /// after the frames in flight are collected. Any other change applies
-    /// with frames in flight, as FFmpeg reconfigures, so a frame cap or a
-    /// lower bitrate adds no wait.
-    fn reconfigure(&mut self, bitrate: u32, vbv: u32, operation: &'static str) -> Result<()> {
-        let before = self.config.rcParams.averageBitRate;
-        if bitrate > before {
+    /// `vbv` bits. With `reset` the encoder resets and forces a keyframe,
+    /// after the frames in flight are collected. Without it the change
+    /// applies with frames in flight, as FFmpeg reconfigures, so it adds no
+    /// wait and no keyframe.
+    fn reconfigure(
+        &mut self,
+        bitrate: u32,
+        vbv: u32,
+        reset: bool,
+        operation: &'static str,
+    ) -> Result<()> {
+        if reset {
             self.drain()?;
         }
         let _guard = self.guard()?;
@@ -2034,7 +2121,7 @@ impl Session {
         config.rcParams.averageBitRate = bitrate;
         config.rcParams.maxBitRate = self.rate_control.max_bitrate(bitrate);
         config.rcParams.vbvBufferSize = vbv;
-        self.apply(config, bitrate > before, operation)
+        self.apply(config, reset, operation)
     }
     /// Hand the driver `config` in place of the session's. `reset` resets
     /// the encoder and forces a keyframe.
@@ -2053,8 +2140,9 @@ impl Session {
         reconfigure.set_resetEncoder(u32::from(reset));
         reconfigure.set_forceIDR(u32::from(reset));
         self.check(
-            // SAFETY: Callers check that nvEncReconfigureEncoder exists (`dynamic_bitrate` or
-            // `enable_qp_map`), and the boxed `config` is kept as `self.config` after the call.
+            // SAFETY: Callers check that nvEncReconfigureEncoder exists (`bitrate`,
+            // `dynamic_bitrate` or `enable_qp_map`), and the boxed `config` is kept as
+            // `self.config` after the call.
             unsafe {
                 (self.functions.nvEncReconfigureEncoder.unwrap())(self.raw, &mut reconfigure)
             },
@@ -2161,6 +2249,13 @@ fn cleanup_slot(
 }
 impl Drop for Session {
     fn drop(&mut self) {
+        self.close();
+    }
+}
+impl Session {
+    /// Destroy the driver session and release its inputs. Nothing runs on
+    /// it after (`guard` refuses), and dropping it does nothing more.
+    fn close(&mut self) {
         if self.raw.is_null() {
             return;
         }
@@ -2228,6 +2323,17 @@ fn coded(config: &Negotiated) -> Negotiated {
         coded.chroma_packing = 0;
     }
     coded
+}
+/// Both conversions write NV12 or P010 only (`gpu_color`, `compute`), which
+/// a native 4:4:4 session would read as AYUV or as three full planes. A
+/// 4:4:4 stream is refused until a conversion writes 4:4:4; packed 4:4:4
+/// codes 4:2:0 and is unaffected.
+fn refuse_native_444(coded: &Negotiated) -> Result<()> {
+    anyhow::ensure!(
+        !coded.yuv444,
+        "NVENC cannot encode native 4:4:4: the colour conversion writes 4:2:0 only. Turn off 4:4:4 on the device"
+    );
+    Ok(())
 }
 /// A D3D12 fence point: the driver waits for `value` before it reads the
 /// input, or signals it once the output is written.
@@ -2371,11 +2477,11 @@ impl Encoder {
             config.validate()?;
         }
         let coded = coded(config);
+        refuse_native_444(&coded)?;
         let runtime = Runtime::load()?;
         let mut tuning = Tuning::new(options, &coded)?;
         let converter = compute
             .map(|compute| -> Result<_> {
-                anyhow::ensure!(!coded.yuv444, "the D3D12 conversion writes 4:2:0 only");
                 let mut converter = crate::compute::Converter::new(
                     compute,
                     coded.width,
@@ -2885,9 +2991,12 @@ impl Encoder {
     /// The startup check, as AMF's: frames with the left half at 10 and the
     /// right at 0, and as many the other way round, each read back as block
     /// QP. It runs on a session of its own with the delta map and block
-    /// statistics, so the codec check never depends on either. An encoder
-    /// failure is an error; a driver that ignores the map, or returns no
-    /// statistics, is `Unsupported`.
+    /// statistics, so the codec check never depends on either. NVENC caps
+    /// the sessions open at once (GeForce drivers allow a few), so that
+    /// session takes the stream session's place rather than opening beside
+    /// it, and the stream session opens again after. An encoder failure is
+    /// an error; a driver that ignores the map, or returns no statistics, is
+    /// `Unsupported`.
     pub fn probe_focus(&mut self) -> Result<crate::amf::focus::Probe> {
         use crate::amf::focus::Probe;
         if self.config.chroma_packing != 0 {
@@ -2905,21 +3014,44 @@ impl Encoder {
         let mut tuning = self.tuning.clone();
         tuning.qp_map = true;
         tuning.block_stats = true;
-        // On the stream session's device, so the probe's frames take the
-        // same conversion.
-        let opened = Runtime::load().and_then(|runtime| {
-            let (device, fence) = directx_device(self.compute.as_deref(), &self.gpu)?;
-            Session::open(
-                runtime,
-                device,
-                _NV_ENC_DEVICE_TYPE_NV_ENC_DEVICE_TYPE_DIRECTX,
-                None,
-                fence,
-                &self.session.stream,
-                &tuning,
-            )
-        });
-        let session = match opened {
+        let stream = self.session.stream.clone();
+        let last_submitted = self.last_submitted.take();
+        self.session.close();
+        let probed = self.probe_session(&stream, &tuning);
+        self.session.close();
+        let tuning = self.tuning.clone();
+        self.session = self
+            .open_session(&stream, &tuning)
+            .context("NVENC could not open the stream session again after the focus probe")?;
+        // The new session's first picture is a keyframe the stream asks for.
+        self.session.force_idr = true;
+        self.last_submitted = last_submitted;
+        probed
+    }
+    /// A session on the stream session's device, so the probe's frames take
+    /// the same conversion.
+    fn open_session(&self, stream: &Negotiated, tuning: &Tuning) -> Result<Session> {
+        let runtime = Runtime::load()?;
+        let (device, fence) = directx_device(self.compute.as_deref(), &self.gpu)?;
+        Session::open(
+            runtime,
+            device,
+            _NV_ENC_DEVICE_TYPE_NV_ENC_DEVICE_TYPE_DIRECTX,
+            None,
+            fence,
+            stream,
+            tuning,
+        )
+    }
+    /// [`Self::probe_focus`] once the stream session is closed: the probe
+    /// session is left in its place.
+    fn probe_session(
+        &mut self,
+        stream: &Negotiated,
+        tuning: &Tuning,
+    ) -> Result<crate::amf::focus::Probe> {
+        use crate::amf::focus::Probe;
+        let session = match self.open_session(stream, tuning) {
             Ok(session) if session.block_stats => session,
             Ok(_) => {
                 return Ok(Probe::unsupported(
@@ -2946,15 +3078,12 @@ impl Encoder {
                 .map(|index| if index % columns < columns / 2 { 10 } else { 0 })
                 .collect(),
         };
-        let previous = std::mem::replace(&mut self.session, session);
-        let last_submitted = self.last_submitted.take();
+        self.session = session;
         self.answers.clear();
         let measured = self.probe_frames(&half);
         self.focus.fixed = None;
         self.probing = false;
         self.asked.clear();
-        self.session = previous;
-        self.last_submitted = last_submitted;
         measured?;
         Ok(probe_verdict(
             self.config.codec,

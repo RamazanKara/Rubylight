@@ -24,8 +24,10 @@ impl ApiVersion {
             Self(11, 0),
         ]
         .into_iter()
+        // AV1 arrived with API 12.0, whose AV1 configuration and picture
+        // structures have the revisions 12.1 kept (`config`, `picture`).
         .filter(move |v| {
-            *v <= maximum && *v <= Self::COMPILED && codec <= 2 && (codec != 2 || *v >= Self(12, 1))
+            *v <= maximum && *v <= Self::COMPILED && codec <= 2 && (codec != 2 || *v >= Self(12, 0))
         })
     }
     pub const fn modern_depth(self) -> bool {
@@ -465,10 +467,23 @@ mod tests {
             ApiVersion::candidates(1, ApiVersion(12, 1)).collect::<Vec<_>>(),
             vec![ApiVersion(12, 1), ApiVersion(12, 0), ApiVersion(11, 0)]
         );
-        assert_eq!(ApiVersion::candidates(2, ApiVersion(12, 0)).count(), 0);
+        // AV1 needs API 12.0 (driver 522.25), not 12.1.
+        assert_eq!(
+            ApiVersion::candidates(2, ApiVersion(12, 0)).collect::<Vec<_>>(),
+            vec![ApiVersion(12, 0)]
+        );
+        assert_eq!(ApiVersion::candidates(2, ApiVersion(11, 0)).count(), 0);
         assert_eq!(
             ApiVersion::candidates(2, ApiVersion(12, 2)).collect::<Vec<_>>(),
-            vec![ApiVersion(12, 2), ApiVersion(12, 1)]
+            vec![ApiVersion(12, 2), ApiVersion(12, 1), ApiVersion(12, 0)]
+        );
+        assert_eq!(
+            ApiVersion(12, 0).config(),
+            ApiVersion(12, 1).config() & !(1 << 24)
+        );
+        assert_eq!(
+            ApiVersion(12, 0).picture(),
+            ApiVersion(12, 1).picture() & !(1 << 24)
         );
         // SDK 12.2 already changed these revisions; using 12.1 silently breaks 10-bit input.
         assert_eq!(ApiVersion(12, 2).initialize(), 0xf007000c | 2 << 24);

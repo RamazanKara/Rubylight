@@ -48,6 +48,13 @@ fn amf_failed(error: anyhow::Error, adapter: &str) -> anyhow::Error {
 
 /// What a stream reports when NVENC does not start on `adapter`.
 fn nvenc_failed(error: anyhow::Error, adapter: &str) -> anyhow::Error {
+    // The cause names the apps holding the sessions; a driver update or
+    // signing in frees none.
+    if crate::nvenc::session_limit(&error) {
+        return error.context(format!(
+            "NVENC could not start on {adapter}. Close the app recording or streaming with it, then retry"
+        ));
+    }
     error.context(format!(
         "NVENC could not start on {adapter}. If Windows is at the sign-in screen or an RDP session was disconnected, sign in to and unlock the console session, then retry. Otherwise update the NVIDIA graphics driver or select another codec on the device"
     ))
@@ -258,7 +265,9 @@ impl Encoder {
                 warnings,
                 compute.clone(),
             ) {
-                Err(error) if compute.is_some() => {
+                // Past the session limit the graphics queue's device fails
+                // the same way, so it is not tried.
+                Err(error) if compute.is_some() && !crate::nvenc::session_limit(&error) => {
                     warnings.set("encoder_conversion", format!("NVENC on the compute queue's D3D12 device failed ({error:#}); converting on the graphics queue. Lower game GPU load or update the NVIDIA driver (522.25 or newer) if frames are delayed."));
                     crate::nvenc::Encoder::new_gpu(
                         config,
@@ -657,6 +666,25 @@ mod tests {
         assert!(message.contains("update the NVIDIA graphics driver"));
         assert!(!message.contains("AMD"), "{message}");
         assert!(message.ends_with("NVENC session failed"), "{message}");
+    }
+    #[test]
+    fn an_nvenc_session_limit_names_the_apps_not_the_driver() {
+        let message = format!(
+            "{:#}",
+            nvenc_failed(
+                anyhow::anyhow!("NVENC open session failed (10)")
+                    .context(crate::nvenc::SessionLimit),
+                "NVIDIA GeForce RTX 4070",
+            )
+        );
+        assert!(
+            message.starts_with("NVENC could not start on NVIDIA GeForce RTX 4070"),
+            "{message}"
+        );
+        assert!(message.contains("NVENC session limit reached"), "{message}");
+        assert!(message.contains("OBS, ShadowPlay or Discord"), "{message}");
+        assert!(!message.contains("driver"), "{message}");
+        assert!(!message.contains("sign in"), "{message}");
     }
     #[test]
     fn a_stream_on_an_intel_gpu_is_refused_in_words() {

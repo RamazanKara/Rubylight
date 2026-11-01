@@ -2167,6 +2167,8 @@ fn the_game_page_says_its_state_in_a_chip_and_the_pc_on_its_own_line() {
 fn a_game_the_pc_has_not_installed_cannot_be_played_from_its_page() {
     let mut f = home_with_games(2);
     f.hosts.list[0].native.library.as_mut().expect("the library").games[0].installed = Some(false);
+    // Game 01 runs: Play could not close it, so nothing says it would.
+    f.hosts.list[0].native.library.as_mut().unwrap().games[1].running = true;
     // A second PC with the same game, not installed there either.
     let mut hosts = Hosts::without_discovery(vec![record("Desk", true, true), record("Den", true, false)], Arc::new(|| {}));
     for host in &mut hosts.list {
@@ -2181,6 +2183,8 @@ fn a_game_the_pc_has_not_installed_cannot_be_played_from_its_page() {
     f.settle();
     assert!(shows(&f, "Not installed on Desk"), "{:?}", f.drawn);
     assert!(shows(&f, "Den, not installed"), "Also on marks it: {:?}", f.drawn);
+    let closes = "Game 01 is running. Playing this game closes it.";
+    assert!(!shows(&f, closes), "{:?}", f.drawn);
     assert!(f.ctx.memory(|m| m.focused()).is_some(), "something has focus for the D-pad");
     let play = f.placed.iter().find(|(t, ..)| t == "Play").map(|p| p.1).expect("Play is shown");
     let commands = f.click_at(play.center(), egui::PointerButton::Primary);
@@ -2189,6 +2193,9 @@ fn a_game_the_pc_has_not_installed_cannot_be_played_from_its_page() {
     f.hosts.list[0].native.library.as_mut().unwrap().games[0].installed = Some(true);
     f.settle();
     assert!(!shows(&f, "Not installed on Desk"), "{:?}", f.drawn);
+    assert!(shows(&f, closes), "{:?}", f.drawn);
+    f.hosts.list[0].native.library.as_mut().unwrap().games[1].running = false;
+    f.settle();
     let play = f.placed.iter().find(|(t, ..)| t == "Play").map(|p| p.1).expect("Play is shown");
     let commands = f.click_at(play.center(), egui::PointerButton::Primary);
     assert!(commands.iter().any(|c| matches!(c, Command::Launch { app: 1000, .. })), "Play starts it");

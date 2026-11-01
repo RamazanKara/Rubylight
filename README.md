@@ -165,7 +165,7 @@ The console offers updates and, if you allow it, installs them while nothing is 
 ### First stream
 
 1. Open **https://localhost:47990** on the PC and create the console account.
-2. Pair a device. In Nightjar, scan the QR code on the console's **Devices** page (Home shows it too until the first device is paired). In Moonlight, select the PC and enter the PIN it shows on the console's **Devices** page.
+2. Pair a device. In Nightjar, scan the QR code on the console's **Devices** page (Home shows it too until the first device is paired). In Moonlight, select the PC; Moonlight shows a four-digit PIN. On the console's **Devices** page, enter it for the waiting device and select **Pair**.
 3. Start **Desktop** at 1080p60 with HDR off. Once picture, sound and input work, raise the resolution, frame rate and bitrate, and turn on HDR.
 
 [Getting started](docs/getting-started.md) walks through each step, choosing a stream format and importing an existing Apollo or Vibepollo profile.

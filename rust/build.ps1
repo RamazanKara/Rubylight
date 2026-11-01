@@ -178,6 +178,15 @@ try {
         New-Item -ItemType Directory -Path "$distribution\assets\web", "$distribution\licenses" -Force | Out-Null
         # With the diagnostic probes from rust/probes.
         foreach ($exe in @('butterpollo.exe', 'butterpollo-service.exe', 'butterpollo-setup.exe', 'butterpollo-performance.exe', 'butterpollo-protocol-performance.exe', 'butterpollo-video-packet-performance.exe')) { Copy-Item -LiteralPath (Join-Path $output $exe) -Destination $distribution }
+        # The previous release's service, checked against its SHA256SUMS, while
+        # the service's version is unchanged: a new windres or CI image cannot
+        # change its file. CI fails when it cannot read that release; a local
+        # build without network keeps the fresh one.
+        $previousService = @((Join-Path $repo 'rust\release\previous_service.py'), '--exe', (Join-Path $distribution 'butterpollo-service.exe'), '--cache', (Join-Path $TargetDirectory 'previous-release'))
+        if ($env:GITHUB_ACTIONS -eq 'true') { $previousService += '--required' }
+        if ($env:BUTTERPOLLO_RELEASES_JSON) { $previousService += '--releases', $env:BUTTERPOLLO_RELEASES_JSON }
+        & python @previousService
+        Assert-NativeExit 'Previous release service'
         Copy-Item -LiteralPath (Join-Path $output 'butterpollo-start.exe') -Destination (Join-Path $distribution 'Start Rubylight.exe')
         Copy-Item -LiteralPath (Join-Path $PyrowaveRoot 'share\pyrowave-shared\build-info.txt') -Destination "$distribution\licenses\pyrowave-build-info.txt"
         foreach ($dll in $runtimeDlls) { Copy-Item -LiteralPath (Join-Path $output $dll) -Destination $distribution }

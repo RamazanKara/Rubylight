@@ -10,7 +10,9 @@
   "version" parameter the workflow passes (Cargo.toml's version). The
   service is the exception: it carries its own version, the "service_version"
   parameter (rust/service/Cargo.toml's version), so that its file stays the
-  same from release to release.
+  same from release to release. A package that ships the previous release's
+  signed service (rust/release/previous_service.py) leaves it out of the
+  request, so that its signed bytes stay as they are.
   Third-party files in the package keep their own signatures and are never
   sent here.
 -->
@@ -21,7 +23,7 @@
   </parameters>
   <zip-file>
     <pe-file-set product-name="Rubylight" product-version="${service_version}">
-      <include path="butterpollo-service.exe" />
+      <include path="butterpollo-service.exe" min-matches="0" max-matches="1" />
       <for-each>
         <authenticode-sign />
       </for-each>

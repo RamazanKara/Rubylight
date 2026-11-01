@@ -49,6 +49,14 @@ function Assert-Metadata([string]$Path) {
         throw "$Path has product '$($info.ProductName)' version '$($info.ProductVersion)', not Rubylight $expected"
     }
 }
+# A service the package took from the previous release, signed there
+# (rust/release/previous_service.py), keeps that release's bytes: signing it
+# again would change its file. It is not sent, which binaries.xml allows.
+function Test-KeptSigned([string]$Name) {
+    if ($Name -ne 'butterpollo-service.exe') { return $false }
+    $signature = Get-AuthenticodeSignature -LiteralPath (Join-Path $distribution $Name)
+    [bool]($signature.Status -eq 'Valid' -and $signature.SignerCertificate -and $signature.TimeStamperCertificate)
+}
 function Get-KitTool([string]$Name, [string]$Architecture) {
     $kits = Join-Path ${env:ProgramFiles(x86)} 'Windows Kits\10\bin'
     $tool = Get-ChildItem -Path (Join-Path $kits "*\$Architecture\$Name") -File -ErrorAction SilentlyContinue |
@@ -66,6 +74,10 @@ if ($Phase -eq 'CheckMetadata') {
     foreach ($name in Get-Release) {
         $source = Join-Path $distribution $name
         if (!(Test-Path -LiteralPath $source -PathType Leaf)) { throw "Missing release binary: $name" }
+        if (Test-KeptSigned $name) {
+            Write-Host "$name keeps the previous release's signature"
+            continue
+        }
         $target = Join-Path $SigningDirectory $name
         New-Item -ItemType Directory -Path (Split-Path -Parent $target) -Force | Out-Null
         Copy-Item -LiteralPath $source -Destination $target
@@ -73,7 +85,7 @@ if ($Phase -eq 'CheckMetadata') {
 } elseif ($Phase -eq 'ApplyBinaries') {
     # Verify the complete set before replacing anything. Third-party binaries
     # retain their upstream signatures and are never submitted for re-signing.
-    $names = Get-Release
+    $names = @(Get-Release | Where-Object { !(Test-KeptSigned $_) })
     foreach ($name in $names) { Assert-Signed (Join-Path $SigningDirectory $name) }
     foreach ($name in $names) {
         Copy-Item -LiteralPath (Join-Path $SigningDirectory $name) -Destination (Join-Path $distribution $name) -Force

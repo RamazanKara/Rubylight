@@ -1,5 +1,7 @@
-import importlib.util, json, os, pathlib, re, shutil, subprocess, sys, tempfile, textwrap, unittest
+import contextlib, hashlib, importlib.util, io, json, os, pathlib, re, shutil, subprocess, sys, tempfile, textwrap, unittest
+import urllib.error, urllib.request, zipfile
 import xml.etree.ElementTree as ET
+from unittest import mock
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
@@ -466,6 +468,142 @@ class ServiceInputs(unittest.TestCase):
         self.assertEqual(result.stdout.strip(), f'-Clinker=lld|false|||{self.root}', result.stderr)
 
 
+def version_resource(version, padding=b''):
+    """An executable's bytes with a version information String for
+    ProductVersion, as the resource compiler lays it out."""
+    key = 'ProductVersion\0'.encode('utf-16-le')
+    value = f'{version}\0'.encode('utf-16-le')
+    header = len(key) + 6
+    pad = b'\0' * ((-header) % 4)
+    string = (header + len(pad) + len(value)).to_bytes(2, 'little') + (len(value) // 2).to_bytes(2, 'little') + \
+        (1).to_bytes(2, 'little') + key + pad + value
+    return b'MZ' + b'\0' * 62 + padding + 'FileVersion\0'.encode('utf-16-le') + b'\0\0' + string + b'\0' * 16
+
+
+class PreviousService(unittest.TestCase):
+    """previous_service.py: a package ships the previous release's service
+    while the service's version is unchanged."""
+
+    def setUp(self):
+        sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+        import previous_service
+        self.tool = previous_service
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = pathlib.Path(self.temp.name)
+
+    def previous(self, version, data=b'old'):
+        return self.tool.Previous('v3.2.1', version, self.tool.sha256(data), data)
+
+    def test_the_same_version_reuses_another_ships_the_fresh_build(self):
+        fresh = self.tool.sha256(b'old')
+        same = self.tool.choose('1.0.0', fresh, self.previous('1.0.0'))
+        self.assertTrue(same.reuse)
+        self.assertIsNone(same.warning)
+        # A toolchain that changed a byte: the old file still ships, with both hashes said.
+        drifted = self.tool.choose('1.0.0', self.tool.sha256(b'new'), self.previous('1.0.0'))
+        self.assertTrue(drifted.reuse)
+        self.assertIn(self.tool.sha256(b'new'), drifted.warning)
+        self.assertIn(fresh, drifted.warning)
+        self.assertFalse(self.tool.choose('1.1.0', fresh, self.previous('1.0.0')).reuse)
+        # Releases before the service had its own version carry the release's.
+        self.assertFalse(self.tool.choose('1.0.0', fresh, self.previous('3.2.1')).reuse)
+        self.assertFalse(self.tool.choose('1.0.0', fresh, self.previous(None)).reuse)
+        self.assertFalse(self.tool.choose('1.0.0', fresh, None).reuse)
+
+    def test_the_previous_release_is_the_highest_version_below_this_one(self):
+        releases = [{'tag_name': tag, 'draft': draft} for tag, draft in (
+            ('v3.3.0', True), ('v2.6.9', False), ('v3.2.1', False), ('v3.3.0-rc.1', False), ('v3.3.0-beta.2', False),
+            ('v3.2.0', False), ('nightjar-4.0.0', False))]
+        tag = lambda current: (self.tool.previous_release(releases, current) or {}).get('tag_name')
+        self.assertEqual(tag('3.3.0'), 'v3.3.0-rc.1')
+        self.assertEqual(tag('3.3.0-rc.2'), 'v3.3.0-rc.1')
+        self.assertEqual(tag('3.3.0-rc.1'), 'v3.3.0-beta.2')
+        # A run again for a release already out takes the one before it.
+        self.assertEqual(tag('3.2.1'), 'v3.2.0')
+        self.assertEqual(tag('2.6.10'), 'v2.6.9')
+        self.assertIsNone(tag('2.0.0'))
+        self.assertEqual(self.tool.checksums('ab12  rubylight-3.2.1-windows-x64.zip\nCD34 *SHA\n'),
+                         {'rubylight-3.2.1-windows-x64.zip': 'ab12', 'SHA': 'cd34'})
+
+    def test_the_product_version_is_read_from_the_version_information(self):
+        for padding in (b'', b'\0', b'\0\0', b'\0\0\0'):
+            with self.subTest(padding=len(padding)):
+                self.assertEqual(self.tool.product_version(version_resource('1.0.0', padding)), '1.0.0')
+        self.assertEqual(self.tool.product_version(version_resource('3.3.0-rc.1')), '3.3.0-rc.1')
+        self.assertIsNone(self.tool.product_version(b'MZ' + b'\0' * 100))
+
+    def release(self, service=None, tamper=False):
+        """A published release v3.2.1 in a folder, its zip holding `service`."""
+        folder = self.root / 'published'
+        folder.mkdir(exist_ok=True)
+        archive = io.BytesIO()
+        with zipfile.ZipFile(archive, 'w') as package:
+            package.writestr('butterpollo.exe', b'host')
+            if service is not None:
+                package.writestr('butterpollo-service.exe', service)
+        data = archive.getvalue()
+        name = 'rubylight-3.2.1-windows-x64.zip'
+        (folder / name).write_bytes(data + (b'x' if tamper else b''))
+        (folder / 'SHA256SUMS').write_text(f'{hashlib.sha256(data).hexdigest()}  {name}\n', encoding='utf-8')
+        return [{'tag_name': 'v3.2.1', 'draft': False, 'assets': [
+            {'name': file.name, 'browser_download_url': file.as_uri()} for file in folder.iterdir()]}]
+
+    def run_tool(self, releases, *extra):
+        exe = self.root / 'butterpollo-service.exe'
+        exe.write_bytes(version_resource('1.0.0', b'fresh'))
+        def fetch(repository):
+            if isinstance(releases, Exception):
+                raise releases
+            return releases
+        def download(url, path):
+            shutil.copyfile(urllib.request.url2pathname(url.removeprefix('file:')), path)
+        stderr = io.StringIO()
+        with mock.patch.object(self.tool, 'fetch_releases', fetch), mock.patch.object(self.tool, 'download', download), \
+                contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(stderr):
+            code = self.tool.main(['--exe', str(exe), '--cache', str(self.root / 'cache'), '--service-version', '1.0.0',
+                                   '--release', '3.3.0', *extra])
+        return code, exe.read_bytes(), stderr.getvalue()
+
+    def test_a_package_takes_the_checked_service_of_the_previous_release(self):
+        old = version_resource('1.0.0', b'old')
+        code, shipped, warnings = self.run_tool(self.release(old))
+        self.assertEqual((code, shipped), (0, old))
+        self.assertIn(hashlib.sha256(old).hexdigest(), warnings)
+        # Another version, no service in the zip, no earlier release: the fresh build.
+        fresh = version_resource('1.0.0', b'fresh')
+        for releases in (self.release(version_resource('3.2.1')), self.release(None), []):
+            self.assertEqual(self.run_tool(releases)[:2], (0, fresh))
+        # A zip that does not match SHA256SUMS fails the package.
+        code, shipped, warnings = self.run_tool(self.release(old, tamper=True))
+        self.assertEqual((code, shipped), (1, fresh))
+        self.assertIn('SHA256SUMS says', warnings)
+        # Without network, a local build keeps the fresh one; CI fails.
+        offline = urllib.error.URLError('no network')
+        self.assertEqual(self.run_tool(offline)[:2], (0, fresh))
+        self.assertEqual(self.run_tool(offline, '--required')[:2], (1, fresh))
+
+    def test_the_release_build_runs_it_and_ci_requires_it(self):
+        build = (ROOT / 'rust/build.ps1').read_text(encoding='utf-8')
+        self.assertIn(r"rust\release\previous_service.py", build)
+        self.assertIn("if ($env:GITHUB_ACTIONS -eq 'true') { $previousService += '--required' }", build)
+        self.assertIn("$previousService += '--releases', $env:BUTTERPOLLO_RELEASES_JSON", build)
+        # CI reads the release list with the run's token before the build,
+        # which gets no token.
+        workflow = (ROOT / '.github/workflows/rust-windows.yml').read_text(encoding='utf-8')
+        steps = dict(re.findall(r'(?ms)^      - name: ([^\n]+)\n(.*?)(?=^      - |\Z)', workflow))
+        self.assertIn('GH_TOKEN: ${{ github.token }}', steps['List releases'])
+        self.assertIn('BUTTERPOLLO_RELEASES_JSON=', steps['List releases'])
+        self.assertNotIn('GH_TOKEN', steps['Build and package Rust'])
+        self.assertLess(workflow.index('- name: List releases'), workflow.index('- name: Build and package Rust'))
+
+    def test_a_release_list_read_before_is_used(self):
+        old = version_resource('1.0.0', b'old')
+        listing = self.root / 'releases.json'
+        listing.write_text(json.dumps(self.release(old)), encoding='utf-8')
+        self.assertEqual(self.run_tool(RuntimeError('fetched'), '--releases', str(listing))[:2], (0, old))
+
+
 class Signing(unittest.TestCase):
     """The workflow, rust/release/sign-artifacts.ps1 and .signpath/ agree."""
 
@@ -521,6 +659,21 @@ class Signing(unittest.TestCase):
         self.assertIn("'butterpollo-service.exe') { $serviceVersion } else { $Version }", script)
         self.assertIn(r"Join-Path $PSScriptRoot '..\service\Cargo.toml'", script)
         self.assertIn(r"rust\service\Cargo.toml -Pattern '^version", self.workflow)
+
+    def test_a_service_kept_from_the_previous_release_keeps_its_signature(self):
+        # previous_service.py may ship the previous release's signed service:
+        # it is neither sent nor replaced, and the request may go without it.
+        script = (ROOT / 'rust/release/sign-artifacts.ps1').read_text(encoding='utf-8')
+        kept = re.search(r'(?s)function Test-KeptSigned\(\[string\]\$Name\) \{(.*?)\n\}', script)[1]
+        self.assertIn("if ($Name -ne 'butterpollo-service.exe') { return $false }", kept)
+        self.assertIn('TimeStamperCertificate', kept)
+        stage = script[script.index("'StageBinaries') {"):script.index("'ApplyBinaries') {")]
+        self.assertIn('if (Test-KeptSigned $name) {', stage)
+        apply = script[script.index("'ApplyBinaries') {"):script.index("'StageDriver') {")]
+        self.assertIn('$names = @(Get-Release | Where-Object { !(Test-KeptSigned $_) })', apply)
+        service, = [include for include in self.configurations['binaries'].iter(f'{NS}include')
+                    if include.get('path') == 'butterpollo-service.exe']
+        self.assertEqual((service.get('min-matches'), service.get('max-matches')), ('0', '1'))
 
     def test_binaries_configuration_lists_the_staged_binaries(self):
         script = (ROOT / 'rust/release/sign-artifacts.ps1').read_text(encoding='utf-8')

@@ -120,7 +120,7 @@ ADVICE = {
     "checkbox_quick_resume": "Enable to go straight back into the running game when you tap its PC, skipping the library. Use the PC's menu for the library while a game runs. Off keeps the tap opening the library.",
     "help": "Open the bundled help: connecting a PC, pairing, controls and the stream menu, common fixes and problem reports. Works offline; each topic links to these documents for detail.",
     "latency_benchmark": "Run a 10-second local frame-callback, timer and input-dispatch benchmark without a host. Use Measure input latency in the stream menu for end-to-end timing.",
-    "report_problem": "Preview the explanation and share a redacted event/crash report through Android's share sheet.",
+    "report_problem": "Preview the explanation and share a redacted event/crash report through Android's share sheet, or send it to a PC with file transfer (**Send to PC**).",
     "checkbox_check_updates": "Leave on to look for a newer release on GitHub when the PC list opens, at most every 12 hours; you choose whether to install it. Hidden when the app was installed from Google Play, which updates it.",
     "check_updates_now": "Look for a newer release now, even if the automatic check ran recently. A release you skipped is shown again. Hidden when the app was installed from Google Play.",
     "about_app": "View the installed app version and open Source and licenses.",

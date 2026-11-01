@@ -69,11 +69,113 @@ public class GuideHoldTest {
         assertTrue(hold.down(1000, false));
         assertEquals(GuideHold.Release.TAP, hold.up());
 
-        // The input let go (the menu opened another way, focus lost): neither menu nor tap follows.
+        // The input let go (the menu opened another way, focus lost): neither menu nor tap follows,
+        // and the still held Guide stays off the host until let go.
         assertTrue(hold.down(1000, false));
         assertTrue(hold.cancelPending());
         assertFalse(hold.expire());
+        assertTrue(hold.active());
+        assertEquals(GuideHold.Release.SWALLOW, hold.up());
+
+        // A chord: Guide goes out now and its release is an ordinary one.
+        assertTrue(hold.down(1000, false));
+        assertTrue(hold.chord());
+        assertFalse("only once", hold.chord());
+        assertFalse(hold.active());
+        assertFalse(hold.expire());
         assertEquals(GuideHold.Release.PASS, hold.up());
+    }
+
+    // Steam's Guide+RB and Guide+D-pad: Guide goes out before the button, no menu, no stray tap.
+    @Test
+    public void aButtonJoiningAWaitingGuideSendsGuideFirst() {
+        for (int button : new int[] {KeyEvent.KEYCODE_BUTTON_R1, KeyEvent.KEYCODE_DPAD_UP}) {
+            ControllerInputReleaseTest.MenuGame activity = Robolectric.buildActivity(ControllerInputReleaseTest.MenuGame.class).get();
+            RecordingConnection connection = new RecordingConnection();
+            ControllerHandler handler = handler(activity, connection, new PreferenceConfiguration());
+            try {
+                assertTrue(handler.handleButtonDown(key(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_BUTTON_MODE, 1000, 1000)));
+                assertFalse(connection.sent(GUIDE));
+                int before = connection.buttons.size();
+                assertTrue(handler.handleButtonDown(key(KeyEvent.ACTION_DOWN, button, 1100, 1100)));
+                List<Integer> chord = connection.buttons.subList(before, connection.buttons.size());
+                assertEquals("Guide first", GUIDE, (int) chord.get(0));
+                int other = chord.get(chord.size() - 1) & ~GUIDE;
+                assertTrue("then the button with Guide held", other != 0 && (chord.get(chord.size() - 1) & GUIDE) != 0);
+                idle(2000);
+                assertEquals("a chord opens no menu", 0, activity.menuCount);
+                assertTrue(handler.handleButtonUp(key(KeyEvent.ACTION_UP, button, 1100, 3200)));
+                assertEquals(GUIDE, connection.last());
+                int sent = connection.buttons.size();
+                assertTrue(handler.handleButtonUp(key(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_BUTTON_MODE, 1000, 3300)));
+                idle(100);
+                assertEquals(0, connection.last());
+                for (int b : connection.buttons.subList(sent, connection.buttons.size())) {
+                    assertEquals("no Guide tap on release", 0, b & GUIDE);
+                }
+            } finally {
+                handler.destroy();
+            }
+        }
+    }
+
+    // A handheld's system Back as Guide has no key event to replay: the chord sends the flag itself.
+    @Test
+    public void aButtonJoiningAWaitingHandheldBackSendsGuideFirst() {
+        ControllerInputReleaseTest.MenuGame activity = Robolectric.buildActivity(ControllerInputReleaseTest.MenuGame.class).get();
+        RecordingConnection connection = new RecordingConnection();
+        PreferenceConfiguration prefs = new PreferenceConfiguration();
+        prefs.backAsGuide = true;
+        ControllerHandler handler = new ControllerHandler(activity, connection, null, prefs) {
+            @Override protected boolean[] findInternalGamepadAndSelect() { return new boolean[] {true, true, true}; }
+        };
+        ControllerHandler.InputDeviceContext context = ReflectionHelpers.getField(handler, "defaultContext");
+        context.assignedControllerNumber = true;
+        int keyboard = android.view.InputDevice.SOURCE_KEYBOARD;
+        try {
+            assertTrue(handler.handleHandheldBackAsGuide(new KeyEvent(1000, 1000, KeyEvent.ACTION_DOWN,
+                    KeyEvent.KEYCODE_BACK, 0, 0, -1, 0, 0, keyboard)));
+            assertFalse(connection.sent(GUIDE));
+            assertTrue(handler.handleButtonDown(key(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_BUTTON_A, 1100, 1100)));
+            assertEquals("Guide first", GUIDE, (int) connection.buttons.get(connection.buttons.size() - 2));
+            assertEquals(GUIDE | ControllerPacket.A_FLAG, connection.last());
+            idle(2000);
+            assertEquals(0, activity.menuCount);
+            assertTrue(handler.handleButtonUp(key(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_BUTTON_A, 1100, 3200)));
+            assertTrue(handler.handleHandheldBackAsGuide(new KeyEvent(1000, 3300, KeyEvent.ACTION_UP,
+                    KeyEvent.KEYCODE_BACK, 0, 0, -1, 0, 0, keyboard)));
+            idle(100);
+            assertEquals(0, connection.last());
+        } finally {
+            handler.destroy();
+        }
+    }
+
+    // A new Guide press while the last short tap is still going out: that tap ends now, and its
+    // delayed release cannot cut the new press short.
+    @Test
+    public void aGuidePressDuringATapIsHeldOnItsOwn() {
+        ControllerInputReleaseTest.MenuGame activity = Robolectric.buildActivity(ControllerInputReleaseTest.MenuGame.class).get();
+        RecordingConnection connection = new RecordingConnection();
+        ControllerHandler handler = handler(activity, connection, new PreferenceConfiguration());
+        try {
+            assertTrue(handler.handleButtonDown(key(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_BUTTON_MODE, 1000, 1000)));
+            assertTrue(handler.handleButtonUp(key(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_BUTTON_MODE, 1000, 1100)));
+            assertEquals(GUIDE, connection.last());
+            idle(10);
+            assertTrue(handler.handleButtonDown(key(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_BUTTON_MODE, 1110, 1110)));
+            assertEquals("the tap ends before the new press", 0, connection.last());
+            int sent = connection.buttons.size();
+            idle(1000);
+            assertEquals("the new press opens the menu", 1, activity.menuCount);
+            assertTrue(handler.handleButtonUp(key(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_BUTTON_MODE, 1110, 2500)));
+            idle(100);
+            for (int b : connection.buttons.subList(sent, connection.buttons.size())) {
+                assertEquals(0, b & GUIDE);
+            }
+        } finally {
+            handler.destroy();
+        }
     }
 
     @Test
@@ -118,16 +220,13 @@ public class GuideHoldTest {
     }
 
     @Test
-    public void aShortGuidePressReachesTheHostOnReleaseAndOtherButtonsAreNotHeldBack() {
+    public void aShortGuidePressReachesTheHostOnRelease() {
         ControllerInputReleaseTest.MenuGame activity = Robolectric.buildActivity(ControllerInputReleaseTest.MenuGame.class).get();
         RecordingConnection connection = new RecordingConnection();
         ControllerHandler handler = handler(activity, connection, new PreferenceConfiguration());
         try {
             assertTrue(handler.handleButtonDown(key(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_BUTTON_MODE, 1000, 1000)));
-            assertTrue(handler.handleButtonDown(key(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_BUTTON_A, 1100, 1100)));
-            assertEquals("A goes out while Guide waits", ControllerPacket.A_FLAG, connection.last());
-            assertTrue(handler.handleButtonUp(key(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_BUTTON_A, 1100, 1200)));
-            assertEquals(0, connection.last());
+            assertFalse(connection.sent(GUIDE));
 
             idle(300);
             assertTrue(handler.handleButtonUp(key(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_BUTTON_MODE, 1000, 1300)));
@@ -190,17 +289,10 @@ public class GuideHoldTest {
     public void aUsbDriverPadHoldsGuideTheSameWay() {
         ControllerInputReleaseTest.MenuGame activity = Robolectric.buildActivity(ControllerInputReleaseTest.MenuGame.class).get();
         RecordingConnection connection = new RecordingConnection();
-        ControllerHandler handler = new ControllerHandler(activity, connection, null, new PreferenceConfiguration());
-        Map<Integer, ControllerHandler.UsbDeviceContext> usb = ReflectionHelpers.getField(handler, "usbDeviceContexts");
-        ControllerHandler.UsbDeviceContext pad = handler.new UsbDeviceContext();
-        pad.assignedControllerNumber = true;
-        pad.buttonMap = new ControllerButtonMap();
-        pad.device = new UsbController();
-        usb.put(3, pad);
+        ControllerHandler handler = usbHandler(activity, connection);
         try {
             usb(handler, GUIDE);
-            usb(handler, GUIDE | ControllerPacket.B_FLAG);
-            assertEquals("B goes out while Guide waits", ControllerPacket.B_FLAG, connection.last());
+            assertFalse(connection.sent(GUIDE));
             idle(1000);
             assertEquals(1, activity.menuCount);
             usb(handler, 0);
@@ -217,6 +309,78 @@ public class GuideHoldTest {
         } finally {
             handler.destroy();
         }
+    }
+
+    @Test
+    public void aUsbDriverPadChordSendsGuideFirst() {
+        ControllerInputReleaseTest.MenuGame activity = Robolectric.buildActivity(ControllerInputReleaseTest.MenuGame.class).get();
+        RecordingConnection connection = new RecordingConnection();
+        ControllerHandler handler = usbHandler(activity, connection);
+        try {
+            // A button joining a waiting Guide
+            usb(handler, GUIDE);
+            assertFalse(connection.sent(GUIDE));
+            int before = connection.buttons.size();
+            usb(handler, GUIDE | ControllerPacket.RB_FLAG);
+            assertEquals(List.of(GUIDE, GUIDE | ControllerPacket.RB_FLAG),
+                    connection.buttons.subList(before, connection.buttons.size()));
+            idle(2000);
+            usb(handler, GUIDE);
+            int sent = connection.buttons.size();
+            usb(handler, 0);
+            assertEquals("no Guide tap on release", List.of(0), connection.buttons.subList(sent, connection.buttons.size()));
+            assertEquals(0, activity.menuCount);
+
+            // Pressed together in one report
+            before = connection.buttons.size();
+            usb(handler, GUIDE | ControllerPacket.UP_FLAG);
+            assertEquals(List.of(GUIDE | ControllerPacket.UP_FLAG), connection.buttons.subList(before, connection.buttons.size()));
+            idle(2000);
+            usb(handler, 0);
+            assertEquals(0, connection.last());
+            assertEquals(0, activity.menuCount);
+        } finally {
+            handler.destroy();
+        }
+    }
+
+    // The input let go (focus lost) while Guide waits: Guide, still held, stays off the host until let go.
+    @Test
+    public void aUsbGuideWaitingWhenTheInputIsLetGoStaysOffTheHost() {
+        ControllerInputReleaseTest.MenuGame activity = Robolectric.buildActivity(ControllerInputReleaseTest.MenuGame.class).get();
+        RecordingConnection connection = new RecordingConnection();
+        ControllerHandler handler = usbHandler(activity, connection);
+        try {
+            usb(handler, GUIDE);
+            idle(500);
+            handler.releaseInput();
+            idle(2000);
+            assertEquals(0, activity.menuCount);
+            usb(handler, GUIDE);
+            usb(handler, GUIDE | ControllerPacket.A_FLAG);
+            assertEquals(ControllerPacket.A_FLAG, connection.last());
+            usb(handler, GUIDE);
+            usb(handler, 0);
+            assertFalse(connection.sent(GUIDE));
+
+            // The next press is held again
+            usb(handler, GUIDE);
+            usb(handler, 0);
+            assertTrue("a short press is a Guide tap", connection.sent(GUIDE));
+        } finally {
+            handler.destroy();
+        }
+    }
+
+    private static ControllerHandler usbHandler(ControllerInputReleaseTest.MenuGame activity, RecordingConnection connection) {
+        ControllerHandler handler = new ControllerHandler(activity, connection, null, new PreferenceConfiguration());
+        Map<Integer, ControllerHandler.UsbDeviceContext> usb = ReflectionHelpers.getField(handler, "usbDeviceContexts");
+        ControllerHandler.UsbDeviceContext pad = handler.new UsbDeviceContext();
+        pad.assignedControllerNumber = true;
+        pad.buttonMap = new ControllerButtonMap();
+        pad.device = new UsbController();
+        usb.put(3, pad);
+        return handler;
     }
 
     private static ControllerHandler handler(ControllerInputReleaseTest.MenuGame activity, RecordingConnection connection,

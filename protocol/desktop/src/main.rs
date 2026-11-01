@@ -694,9 +694,7 @@ impl App {
                         },
                     };
                     if let Some(key) = key {
-                        for e in gui::tap(key) {
-                            self.gui.push(e);
-                        }
+                        self.push_nav(key);
                         if matches!(key, egui::Key::ArrowUp | egui::Key::ArrowDown | egui::Key::ArrowLeft | egui::Key::ArrowRight) {
                             self.nav_repeat.hold(event.gbutton.which.0, nav_repeat::Input::Button(event.gbutton.button), key, Instant::now());
                         }
@@ -715,9 +713,7 @@ impl App {
                     let held = i32::from(a.value).abs() > 24000;
                     if held && !self.stick_held[slot] {
                         let key = if a.value < 0 { key_neg } else { key_pos };
-                        for e in gui::tap(key) {
-                            self.gui.push(e);
-                        }
+                        self.push_nav(key);
                         self.nav_repeat.hold(a.which.0, nav_repeat::Input::Axis(a.axis, a.value > 0), key, Instant::now());
                     }
                     self.stick_held[slot] = i32::from(a.value).abs() > 12000 && (held || self.stick_held[slot]);
@@ -755,11 +751,19 @@ impl App {
             }
         });
         for key in &keys {
-            for e in gui::tap(*key) {
-                self.gui.push(e);
-            }
+            self.push_nav(*key);
         }
         !keys.is_empty()
+    }
+
+    /// A controller's navigation key for egui. In the launcher a press with nothing focused
+    /// focuses the page's first item (`Launcher::controller_key`); the stream menu focuses Return
+    /// to stream itself.
+    fn push_nav(&mut self, key: egui::Key) {
+        let events = if self.streaming.is_none() { self.launcher.controller_key(&self.gui.ctx, key) } else { gui::tap(key).to_vec() };
+        for e in events {
+            self.gui.push(e);
+        }
     }
 
     /// Minimizing or hiding the window is leaving Nightjar for the PIN lock's grace time.

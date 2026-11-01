@@ -53,7 +53,66 @@ pub struct GpuDecoder {
 struct Shared {
     images: Arc<SharedImages>,
     /// What `pyrowave_create_device` was given, which the SDK device keeps pointing into.
-    _info: Box<ShareInfo>,
+    info: Box<ShareInfo>,
+}
+
+/// Holds the queue lock `info` hands the SDK (SDL's queue mutex) until dropped.
+///
+/// The SDK idles the shared device (vkDeviceWaitIdle, which needs the queue to itself) while
+/// `pyrowave_create_device` sets the device up, before it is given the lock, and again when
+/// `pyrowave_device_destroy` releases it, without the lock: so both run under it, or the
+/// renderer's own submissions on the main thread race them. SDL's mutex is recursive, so the
+/// SDK taking it again inside is fine.
+struct QueueHeld<'a>(&'a SharedDeviceCreateInfo);
+
+impl<'a> QueueHeld<'a> {
+    /// # Safety
+    /// `info`'s callbacks and userdata must be a live lock.
+    unsafe fn new(info: &'a SharedDeviceCreateInfo) -> Self {
+        if let Some(lock) = info.queue_lock_callback {
+            lock(info.userdata);
+        }
+        Self(info)
+    }
+}
+
+impl Drop for QueueHeld<'_> {
+    fn drop(&mut self) {
+        if let Some(unlock) = self.0.queue_unlock_callback {
+            // SAFETY: `new` took the same lock with the same userdata.
+            unsafe { unlock(self.0.userdata) };
+        }
+    }
+}
+
+/// `pyrowave_create_device` on a shared device, under its queue lock (`QueueHeld`).
+///
+/// # Safety
+/// As `pyrowave_create_device`, with `info`'s lock live.
+unsafe fn create_shared(create: unsafe extern "C" fn(*const SharedDeviceCreateInfo, *mut RawDevice) -> PyroResult, info: &SharedDeviceCreateInfo, device: &mut RawDevice) -> PyroResult {
+    let _held = QueueHeld::new(info);
+    create(info, device)
+}
+
+/// Destroys `decoder`, then `device` (each skipped when null), under the queue lock of `shared`
+/// when the device is a shared one (`QueueHeld`).
+///
+/// # Safety
+/// The handles must be live and made on each other, and `shared`'s lock live.
+unsafe fn release(
+    decoder_destroy: unsafe extern "C" fn(RawDecoder),
+    device_destroy: unsafe extern "C" fn(RawDevice),
+    decoder: RawDecoder,
+    device: RawDevice,
+    shared: Option<&SharedDeviceCreateInfo>,
+) {
+    let _held = shared.map(|info| QueueHeld::new(info));
+    if !decoder.is_null() {
+        decoder_destroy(decoder);
+    }
+    if !device.is_null() {
+        device_destroy(device);
+    }
 }
 
 /// A decode into a shared plane set, for the wait thread: `buffers` are images of `images`, which
@@ -182,8 +241,8 @@ impl GpuDecoder {
             let info = ShareInfo::new(&sdl, get_instance_proc_addr);
             let watchdog = Watchdog::new()?;
             let mut s = Self { api, config, device: ptr::null_mut(), decoder: ptr::null_mut(), watchdog, timeout: crate::stream::pyrowave::GPU_DECODE_TIMEOUT, shared: None, decode_value: 0 };
-            let result = (s.api.create_device)(&info.create, &mut s.device);
-            s.shared = Some(Shared { images, _info: info });
+            let result = create_shared(s.api.create_device, &info.create, &mut s.device);
+            s.shared = Some(Shared { images, info });
             if result != SUCCESS {
                 return Err(format!("the SDK cannot share the renderer's Vulkan device (PyroWave error {result}, {})", result_name(result)));
             }
@@ -338,14 +397,10 @@ impl Drop for GpuDecoder {
             return;
         }
         // SAFETY: Each non-null handle was made on `self.device`, which goes last; the SDK idles
-        // the GPU before destroying the decoder.
+        // the GPU before destroying the decoder. A shared device's lock is SDL's, which outlives it.
         unsafe {
-            if !self.decoder.is_null() {
-                (self.api.decoder_destroy)(self.decoder);
-            }
-            if !self.device.is_null() {
-                (self.api.device_destroy)(self.device);
-            }
+            let shared = self.shared.as_ref().map(|shared| &shared.info.create);
+            release(self.api.decoder_destroy, self.api.device_destroy, self.decoder, self.device, shared);
         }
     }
 }
@@ -454,6 +509,75 @@ mod tests {
         let formats = [(false, false), (true, false), (false, true), (true, true)]
             .map(|(chroma444, ten_bit)| GpuConfig { width: 8, height: 8, chroma444, ten_bit, slots: 1 }.cpu_format());
         assert_eq!(formats, [CPU_FORMAT_YUV420P, CPU_FORMAT_YUV444P, CPU_FORMAT_YUV420P16, CPU_FORMAT_YUV444P16]);
+    }
+
+    thread_local! {
+        /// The fake queue lock's depth, and what the fake SDK saw: (call, depth at the call).
+        static DEPTH: std::cell::Cell<i32> = const { std::cell::Cell::new(0) };
+        static CALLS: std::cell::RefCell<Vec<(&'static str, i32)>> = const { std::cell::RefCell::new(Vec::new()) };
+    }
+
+    unsafe extern "C" fn fake_lock(userdata: *mut c_void) {
+        assert_eq!(userdata as usize, 0x5d1);
+        DEPTH.with(|depth| depth.set(depth.get() + 1));
+    }
+
+    unsafe extern "C" fn fake_unlock(userdata: *mut c_void) {
+        assert_eq!(userdata as usize, 0x5d1);
+        DEPTH.with(|depth| depth.set(depth.get() - 1));
+    }
+
+    fn record(call: &'static str) {
+        CALLS.with(|calls| calls.borrow_mut().push((call, DEPTH.with(|depth| depth.get()))));
+    }
+
+    unsafe extern "C" fn fake_create(_: *const SharedDeviceCreateInfo, device: *mut RawDevice) -> PyroResult {
+        record("create_device");
+        *device = 0x1 as RawDevice;
+        SUCCESS
+    }
+
+    unsafe extern "C" fn fake_decoder_destroy(_: RawDecoder) { record("decoder_destroy"); }
+    unsafe extern "C" fn fake_device_destroy(_: RawDevice) { record("device_destroy"); }
+
+    fn calls() -> Vec<(&'static str, i32)> {
+        CALLS.with(|calls| std::mem::take(&mut *calls.borrow_mut()))
+    }
+
+    // The SDK idles the shared device without its queue lock while it creates and destroys it
+    // (Granite's init_frame_contexts and Context::destroy_device): both must run under SDL's lock.
+    #[test]
+    fn the_shared_device_is_created_and_destroyed_under_the_queue_lock() {
+        unsafe extern "system" fn loader(_: vk::Instance, _: *const c_char) -> vk::PFN_vkVoidFunction { None }
+        let info = SharedDeviceCreateInfo {
+            get_instance_proc_addr: loader,
+            instance: vk::Instance::null(),
+            physical_device: vk::PhysicalDevice::null(),
+            device: vk::Device::null(),
+            instance_create_info: ptr::null(),
+            device_create_info: ptr::null(),
+            queue_info: ptr::null_mut(),
+            queue_info_count: 0,
+            queue_lock_callback: Some(fake_lock),
+            queue_unlock_callback: Some(fake_unlock),
+            userdata: 0x5d1 as *mut c_void,
+        };
+        let mut device: RawDevice = ptr::null_mut();
+        unsafe {
+            assert_eq!(create_shared(fake_create, &info, &mut device), SUCCESS);
+            assert!(!device.is_null());
+            release(fake_decoder_destroy, fake_device_destroy, 0x2 as RawDecoder, device, Some(&info));
+        }
+        assert_eq!(calls(), [("create_device", 1), ("decoder_destroy", 1), ("device_destroy", 1)]);
+        assert_eq!(DEPTH.with(|depth| depth.get()), 0, "the lock is released after each");
+
+        // A device of the SDK's own has no lock to take; null handles are skipped.
+        unsafe {
+            release(fake_decoder_destroy, fake_device_destroy, 0x2 as RawDecoder, 0x1 as RawDevice, None);
+            release(fake_decoder_destroy, fake_device_destroy, ptr::null_mut(), ptr::null_mut(), Some(&info));
+        }
+        assert_eq!(calls(), [("decoder_destroy", 0), ("device_destroy", 0)]);
+        assert_eq!(DEPTH.with(|depth| depth.get()), 0);
     }
 
     #[test]

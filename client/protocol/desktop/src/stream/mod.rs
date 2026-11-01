@@ -96,7 +96,7 @@ use present::{viewport, PacingMode, Pacer, VideoTexture};
 use connect::*;
 use negotiate::*;
 use stats::*;
-pub use connect::{offers_714, termination_text, ConnectFailed, Connecting};
+pub use connect::{end_before, offers_714, termination_text, ConnectFailed, Connecting, LEAVE_WAIT};
 pub use negotiate::{codec_name, probes_color, pyrowave_bitrate_warning, pyrowave_notice, stream_mode};
 
 /// What the display offers, for "native" resolution and "display" refresh.

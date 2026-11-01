@@ -51,6 +51,25 @@ pub struct Connecting {
     pub settings: Settings,
     pub(super) plan: LaunchPlan,
     pub(super) result: Receiver<Result<(Session, Facts, LaunchPlan), ConnectError>>,
+    /// The worker, joined when the app leaves (`end_before`); None if it could not be started.
+    pub(super) worker: Option<std::thread::JoinHandle<()>>,
+}
+
+/// How long leaving waits for a launch in progress to end after cancelling it.
+pub const LEAVE_WAIT: Duration = Duration::from_secs(5);
+
+/// Leaving: the launch in progress (if any) is cancelled and ends, and a session it started stops
+/// (`Connecting::finish`), before `teardown` destroys the renderer, whose GPU device the worker
+/// may be using (a PyroWave decoder being made on it on Linux). Past `wait` the launch is still
+/// running, so `teardown` is skipped, loudly, and the process exit reclaims the renderer instead.
+/// True when `teardown` ran.
+pub fn end_before(connecting: Option<Connecting>, wait: Duration, teardown: impl FnOnce()) -> bool {
+    if connecting.is_some_and(|connecting| !connecting.finish(wait)) {
+        eprintln!("nightjar: the connection attempt did not end within {} ms of leaving; the window and its GPU device stay until the process exits, as it may still be using them", wait.as_millis());
+        return false;
+    }
+    teardown();
+    true
 }
 
 impl Connecting {
@@ -84,14 +103,17 @@ impl Connecting {
         let worker_shared = shared.clone();
         let worker_interrupt = interrupt.clone();
         let mut worker_plan = plan.clone();
-        let _ = std::thread::Builder::new()
+        // A worker that cannot start drops the sender: `poll` then reports the attempt ended.
+        let worker = std::thread::Builder::new()
             .name("connect".into())
             .spawn(move || {
                 let result = connect_with_recovery(&mut worker_plan, worker_shared, &worker_interrupt)
                     .map(|(session, facts)| (session, facts, worker_plan));
                 let _ = sender.send(result);
                 waker();
-            });
+            })
+            .inspect_err(|e| eprintln!("nightjar: the connect thread cannot start: {e}"))
+            .ok();
         Self {
             shared,
             interrupt,
@@ -103,7 +125,34 @@ impl Connecting {
             settings,
             plan,
             result,
+            worker,
         }
+    }
+
+    /// Cancels the launch and waits up to `wait` for the worker to end, stopping a session it
+    /// started. True once the worker has ended, so nothing it made is in use any more; false if it
+    /// is still running after `wait`.
+    pub fn finish(self, wait: Duration) -> bool {
+        self.cancel();
+        let deadline = Instant::now() + wait;
+        match self.result.recv_timeout(wait) {
+            Ok(Ok((session, _, _))) => {
+                lock(&self.shared.roam_watch).take();
+                session.stop();
+            }
+            Ok(Err(_)) | Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {}
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => return false,
+        }
+        // After its result the worker only wakes the app.
+        let Some(worker) = self.worker else { return true };
+        while !worker.is_finished() {
+            if Instant::now() >= deadline { return false; }
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        if worker.join().is_err() {
+            eprintln!("nightjar: the connect thread panicked");
+        }
+        true
     }
 
     /// The stream presents for a VRR display (the setting is on and the swap chain tears).
@@ -1109,23 +1158,84 @@ mod replace_tests {
         assert!(!reconnects_automatically(true, false, AppRole::RemoteMonitor));
     }
 
+    type ConnectResult = Result<(Session, Facts, LaunchPlan), ConnectError>;
+
+    fn connecting(result: Receiver<ConnectResult>, worker: Option<std::thread::JoinHandle<()>>) -> Connecting {
+        let plan = launch_plan();
+        Connecting {
+            shared: Shared::new(Arc::new(|| {}), 2),
+            interrupt: Interrupt::default(),
+            stage: String::new(),
+            app_name: plan.app.name.clone(),
+            host_name: plan.host_name.clone(),
+            host_id: plan.host_id,
+            pacing: plan.pacing,
+            settings: plan.settings.clone(),
+            plan,
+            result,
+            worker,
+        }
+    }
+
+    // Quitting while connecting destroyed the renderer's GPU device while the connect thread could
+    // still be making a decoder on it: the launch is cancelled and ends first.
+    #[test]
+    fn leaving_cancels_the_launch_and_tears_down_only_after_its_worker_ended() {
+        let (sender, result) = channel::<ConnectResult>();
+        let interrupt = Interrupt::default();
+        let ended = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let (worker_interrupt, worker_ended) = (interrupt.clone(), ended.clone());
+        let worker = std::thread::spawn(move || {
+            while !worker_interrupt.is_interrupted() {
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            // Still busy for a while after the cancel, as a decoder being made on the GPU is.
+            std::thread::sleep(Duration::from_millis(100));
+            let _ = sender.send(Err("Cancelled.".into()));
+            std::thread::sleep(Duration::from_millis(50));
+            worker_ended.store(true, std::sync::atomic::Ordering::SeqCst);
+        });
+        let mut connecting = connecting(result, Some(worker));
+        connecting.interrupt = interrupt;
+        let mut torn_down = false;
+        assert!(end_before(Some(connecting), Duration::from_secs(10), || {
+            assert!(ended.load(std::sync::atomic::Ordering::SeqCst), "the renderer goes only after the worker ended");
+            torn_down = true;
+        }));
+        assert!(torn_down);
+        // Nothing connecting: straight to the teardown.
+        let mut torn_down = false;
+        assert!(end_before(None, Duration::ZERO, || torn_down = true));
+        assert!(torn_down);
+    }
+
+    #[test]
+    fn a_launch_that_does_not_end_keeps_the_renderer_alive() {
+        let (_sender, result) = channel::<ConnectResult>();
+        let (release, held) = channel::<()>();
+        // Deaf to the cancel until the test lets it go.
+        let worker = std::thread::spawn(move || { let _ = held.recv(); });
+        let started = Instant::now();
+        assert!(!end_before(Some(connecting(result, Some(worker))), Duration::from_millis(100), || panic!("torn down under a running launch")));
+        assert!(started.elapsed() < Duration::from_secs(5), "the wait is bounded");
+        let _ = release.send(());
+
+        // A worker that sent its result but has not returned yet is still waited for.
+        let (sender, result) = channel::<ConnectResult>();
+        let (release, held) = channel::<()>();
+        let worker = std::thread::spawn(move || {
+            let _ = sender.send(Err("refused".into()));
+            let _ = held.recv();
+        });
+        assert!(!end_before(Some(connecting(result, Some(worker))), Duration::from_millis(100), || panic!("torn down before the worker returned")));
+        let _ = release.send(());
+    }
+
     #[test]
     fn a_replace_prompt_hands_back_the_plan_to_launch_again() {
         for asks_replace in [true, false] {
-            let plan = launch_plan();
             let (sender, result) = channel();
-            let mut connecting = Connecting {
-                shared: Shared::new(Arc::new(|| {}), 2),
-                interrupt: Interrupt::default(),
-                stage: String::new(),
-                app_name: plan.app.name.clone(),
-                host_name: plan.host_name.clone(),
-                host_id: plan.host_id,
-                pacing: plan.pacing,
-                settings: plan.settings.clone(),
-                plan,
-                result,
-            };
+            let mut connecting = connecting(result, None);
             sender.send(Err(ConnectError { message: "refused".into(), retryable: false, asks_replace })).unwrap();
             match connecting.poll() {
                 Err(ConnectFailed::ConfirmReplace(plan)) => {

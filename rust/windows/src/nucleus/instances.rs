@@ -388,7 +388,7 @@ impl Keeper {
                 if slot.tries == TRIES + 1 {
                     tracing::warn!(slot = index, rect = ?window.rect, minimized = window.minimized, "Nucleus Co-op window keeps returning to the PC's monitors or minimising; put back every {BACKOFF} passes");
                 }
-                if (slot.tries - TRIES - 1) % BACKOFF != 0 {
+                if !(slot.tries - TRIES - 1).is_multiple_of(BACKOFF) {
                     continue;
                 }
             }

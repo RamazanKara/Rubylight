@@ -220,3 +220,31 @@ fn shared_descriptors_must_match_the_supported_bounded_texture_contract() {
     desc.MiscFlags = D3D11_RESOURCE_MISC_SHARED_NTHANDLE.0 as u32;
     assert!(validate_texture(&desc, 1920, 1080, desc.Format.0).is_err());
 }
+
+/// #56: a game resized its window just after the helper's first frame; the
+/// helper ended and took its handles along, and the stream ended on "Access
+/// is denied" alone. The helper's own error says why.
+#[test]
+fn textures_that_did_not_open_report_the_helpers_own_error() {
+    let denied = || anyhow::anyhow!("Access is denied. (0x80070005)");
+    let resized = super::Reply::Error {
+        message: "the game window was resized from 1920x1080 to 2400x1080; reopening its capture"
+            .into(),
+        device_removed: None,
+    };
+    assert_eq!(
+        format!(
+            "{:#}",
+            super::helper_ended(denied(), vec![super::Reply::Alive, resized], true)
+        ),
+        "WGC helper: the game window was resized from 1920x1080 to 2400x1080; reopening its capture"
+    );
+    assert_eq!(
+        format!("{:#}", super::helper_ended(denied(), Vec::new(), true)),
+        "WGC helper exited before its textures were opened: Access is denied. (0x80070005)"
+    );
+    assert_eq!(
+        format!("{:#}", super::helper_ended(denied(), Vec::new(), false)),
+        "WGC helper textures did not open: Access is denied. (0x80070005)"
+    );
+}

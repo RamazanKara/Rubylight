@@ -741,6 +741,64 @@ fn a_game_window_target_reopens_on_itself_never_the_primary_display() {
         assert_eq!(missing, None, "{target}");
     }
 }
+/// #56: a Nucleus Co-op game replaced its splash window, or resized its
+/// window, as the stream's first capture opened, and the stream ended; the
+/// client's reconnect seconds later worked.
+#[test]
+fn a_game_windows_first_capture_is_tried_again_on_its_current_window() {
+    let splash = (r"window:69518@\\.\DISPLAY1".to_string(), 0);
+    let game = (r"window:11995426@\\.\DISPLAY1".to_string(), 0);
+    // The splash closes as it opens; then the game's window opens, but is
+    // resized as its capture starts; the next try works.
+    let targets = std::cell::RefCell::new(vec![splash.clone(), game.clone(), game.clone()]);
+    let mut tried = Vec::new();
+    let mut waits = 0;
+    let (opened, target) = open_first(
+        || targets.borrow_mut().remove(0),
+        |target| {
+            tried.push(target.clone());
+            match tried.len() {
+                1 => anyhow::bail!("Could not capture the given window. (0x80070057)"),
+                2 => anyhow::bail!("Access is denied. (0x80070005)"),
+                _ => Ok("capture"),
+            }
+        },
+        || {
+            waits += 1;
+            true
+        },
+    )
+    .unwrap();
+    assert_eq!((opened, &target), ("capture", &game));
+    assert_eq!(tried, [splash.clone(), game.clone(), game.clone()]);
+    assert_eq!(waits, 2);
+    // Until the tries run out: then the last error is the stream's.
+    let error = open_first(
+        || splash.clone(),
+        |_| -> Result<()> { anyhow::bail!("The handle is invalid. (0x80070006)") },
+        {
+            let mut left = 3;
+            move || {
+                left -= 1;
+                left > 0
+            }
+        },
+    )
+    .unwrap_err();
+    assert_eq!(error.to_string(), "The handle is invalid. (0x80070006)");
+    // A display's first failure is the stream's at once.
+    let mut opens = 0;
+    let error = open_first(
+        || (r"\\.\DISPLAY1".to_string(), 0),
+        |_| -> Result<()> {
+            opens += 1;
+            anyhow::bail!("no display")
+        },
+        || panic!("a display is not tried again"),
+    )
+    .unwrap_err();
+    assert_eq!((opens, error.to_string()), (1, "no display".to_string()));
+}
 #[test]
 fn background_capture_never_recovers_onto_the_primary_display() {
     let start = Instant::now();

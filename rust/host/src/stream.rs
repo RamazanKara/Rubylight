@@ -124,6 +124,35 @@ fn reopen_on(
         ReopenOn::Wait
     }
 }
+/// How long a game window's first capture is tried again. Within the 10 s
+/// the stream waits for its capture to start, even after a helper start of
+/// up to 5 s.
+const WINDOW_OPEN_RETRY: Duration = Duration::from_secs(4);
+/// Opens a stream's first capture, on the target `target` names when each
+/// try starts. A game window's is tried again while `again` (which waits
+/// between tries) allows: at its start a game replaces its splash window,
+/// or resizes its window as the capture opens, and that open fails while
+/// the next one works (#56: three of five Nucleus Co-op streams ended at
+/// once). A display's first failure is the stream's.
+fn open_first<T>(
+    mut target: impl FnMut() -> (String, u64),
+    mut open: impl FnMut(&(String, u64)) -> Result<T>,
+    mut again: impl FnMut() -> bool,
+) -> Result<(T, (String, u64))> {
+    loop {
+        let next = target();
+        let error = match open(&next) {
+            Ok(capture) => return Ok((capture, next)),
+            Err(error) => error,
+        };
+        let window = butterpollo_windows::capture::WindowTarget::parse(&next.0)
+            .is_ok_and(|window| window.is_some());
+        if !window || !again() {
+            return Err(error);
+        }
+        tracing::warn!(target = %next.0, error = %format!("{error:#}"), "the game window's capture did not open; trying again");
+    }
+}
 
 use butterpollo_windows::{
     audio::{Loopback, Opus},
@@ -548,18 +577,28 @@ impl Media {
                         .inspect_err(|error| tracing::warn!(%error, "capture cannot keep the display awake"))
                         .ok();
                     let timer = butterpollo_windows::timing::Timer::new()?;
-                    let mut target = prepared.capture_target();
                     // Duplicate the desktop that is showing, including the secure
                     // desktop of a UAC prompt or the lock screen.
                     butterpollo_windows::input::follow_input_desktop();
-                    let mut capture =
-                        match Capture::open_for_stream_reported(&target.0, &kind, hdr, &capture_config, capture_warnings.clone()) {
-                            Ok(c) => c,
-                            Err(e) => {
-                                let _ = started_tx.send(Err(format!("{e:#}")));
-                                return Ok(());
+                    let retry_until = Instant::now() + WINDOW_OPEN_RETRY;
+                    let opened = open_first(
+                        || prepared.capture_target(),
+                        |target| Capture::open_for_stream_reported(&target.0, &kind, hdr, &capture_config, capture_warnings.clone()),
+                        || {
+                            if worker_stop.load(Ordering::Acquire) || Instant::now() >= retry_until {
+                                return false;
                             }
-                        };
+                            thread::sleep(RECOVERY_RETRY);
+                            true
+                        },
+                    );
+                    let (mut capture, mut target) = match opened {
+                        Ok(opened) => opened,
+                        Err(e) => {
+                            let _ = started_tx.send(Err(format!("{e:#}")));
+                            return Ok(());
+                        }
+                    };
                     capture.set_claim_grid(worker_grid.clone(), aligned);
                     *worker_backend.lock().unwrap() = capture.backend();
                     tracing::info!(requested=%kind, backend=capture.backend(), output=%target.0, "capture backend opened");
@@ -640,7 +679,10 @@ impl Media {
                             }
                         }
                     };
-                    let _ = started_tx.send(Ok(()));
+                    // A stream that stopped waiting for its capture has none to feed.
+                    if started_tx.send(Ok(())).is_err() {
+                        return Ok(());
+                    }
                     let progress = crate::stall_watch::register("capture", &output, None);
                     let mut check_target = Instant::now();
                     let mut user_desktop = kind == "wgc"

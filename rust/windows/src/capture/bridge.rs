@@ -480,10 +480,15 @@ impl Session {
         });
         let mut textures = Vec::with_capacity(SLOTS);
         for handle in handles {
-            let handle = process.duplicate_resource(usize::try_from(handle)?)?;
+            let handle = process
+                .duplicate_resource(usize::try_from(handle)?)
+                .map_err(|error| startup_failure(error, &pipe, &process))?;
             // SAFETY: `handle` is the helper's shared texture duplicated into this process; `desc`
             // is checked below.
-            let texture: ID3D11Texture2D = unsafe { device.OpenSharedResource1(raw(&handle))? };
+            let texture: windows::core::Result<ID3D11Texture2D> =
+                unsafe { device.OpenSharedResource1(raw(&handle)) };
+            let texture =
+                texture.map_err(|error| startup_failure(error.into(), &pipe, &process))?;
             let mut desc = D3D11_TEXTURE2D_DESC::default();
             // SAFETY: `texture` is a live texture and `desc` a live local.
             unsafe {
@@ -774,6 +779,39 @@ fn helper_error(message: String, reason: Option<i32>) -> anyhow::Error {
     match reason {
         Some(reason) => error.context(crate::device_loss::DeviceLost(reason)),
         None => error,
+    }
+}
+/// Why the helper's textures did not open: its own error when it ended
+/// meanwhile. A game window resized or closed just after the first frame
+/// ends the helper and its handles with it, and only "Access is denied" or
+/// "The handle is invalid" was left to say so (#56).
+fn startup_failure(
+    error: anyhow::Error,
+    pipe: &Pipe,
+    process: &crate::process::Process,
+) -> anyhow::Error {
+    let mut replies = Vec::new();
+    while replies.len() <= 2 * SLOTS {
+        match pipe.receive::<Reply>() {
+            Ok(Some(reply)) => replies.push(reply),
+            _ => break,
+        }
+    }
+    let exited = process.exit_code().ok().flatten().is_some();
+    helper_ended(error, replies, exited)
+}
+fn helper_ended(error: anyhow::Error, replies: Vec<Reply>, exited: bool) -> anyhow::Error {
+    let said = replies.into_iter().find_map(|reply| match reply {
+        Reply::Error {
+            message,
+            device_removed,
+        } => Some(helper_error(message, device_removed)),
+        _ => None,
+    });
+    match said {
+        Some(said) => said,
+        None if exited => error.context("WGC helper exited before its textures were opened"),
+        None => error.context("WGC helper textures did not open"),
     }
 }
 fn native_texture(frame: &NativeFrame) -> Result<ID3D11Texture2D> {

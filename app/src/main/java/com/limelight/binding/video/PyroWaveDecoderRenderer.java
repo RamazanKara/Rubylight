@@ -324,7 +324,7 @@ public final class PyroWaveDecoderRenderer {
         return pyroWave && hostRecords && allowed;
     }
 
-    /** Off by default until measured on a device; debug.nightjar.pyro_early (1 or 0) overrides it. */
+    /** On unless debug.nightjar.pyro_early is 0 (A/B runs against the whole-frame push). */
     public static boolean earlyRecordsAllowed() {
         return LIBRARY_LOADED && nativeEarlyRecordsAllowed();
     }

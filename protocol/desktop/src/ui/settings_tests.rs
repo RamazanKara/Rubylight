@@ -282,6 +282,39 @@ fn the_section_key_table_is_what_the_page_draws() {
     }
 }
 
+/// The rarely needed settings sit in Debug, the last section, and in no other, on the main
+/// settings and a PC's own; the search still finds them there.
+#[test]
+fn the_rarely_needed_settings_are_in_the_debug_section_only() {
+    const DEBUG: [&str; 10] = ["decoder", "full_range", "align_video_top", "cursor_shapes", "unbatched_input", "error_correction",
+        "network_priority", "client_hint_bitrate", "tell_host_wireless", "tell_host_link_speed"];
+    assert_eq!(SETTINGS_SECTIONS.last(), Some(&"Debug"));
+    // Prioritize stream traffic does something on Linux only, so only Linux draws it.
+    let wanted: Vec<&str> = DEBUG.into_iter().filter(|k| *k != "network_priority" || cfg!(target_os = "linux")).collect();
+    let mut f = settings_with(Settings::default());
+    let id = f.hosts.list[0].id;
+    for screen in [Screen::Settings, Screen::HostSettings(id)] {
+        f.l.go(screen);
+        for section in SETTINGS_SECTIONS {
+            if screen != Screen::Settings && section == "App" { continue; }
+            f.l.settings_view.section = section;
+            f.settle();
+            let drawn: Vec<&str> = f.l.settings_view.drawn.iter().map(|(key, _)| *key).collect();
+            if section == "Debug" {
+                assert_eq!(drawn, wanted, "{screen:?}: Debug holds exactly these");
+            } else {
+                assert!(!drawn.iter().any(|k| DEBUG.contains(k)), "{screen:?} {section}: {drawn:?}");
+            }
+        }
+    }
+    f.l.go(Screen::Settings);
+    for (query, row) in [("full color range", "Full color range"), ("error correction", "Error correction"), ("align", "Align video to top")] {
+        f.l.settings_view.query = query.into();
+        f.settle();
+        assert!(shows(&f, row) && shows(&f, "Debug"), "{query} finds {row}: {:?}", f.drawn);
+    }
+}
+
 /// Main settings like `settings_with`, with the AccessKit tree on to read which rows are disabled.
 fn settings_read_with(changed: Settings) -> Frames {
     let mut f = settings_with(changed);
@@ -322,14 +355,20 @@ fn the_vrr_rows_follow_their_own_gates() {
     assert!(shows(&f, "Always on with the chosen frame pacing."), "{:?}", f.drawn);
 }
 
-/// Full chroma turns off YUV 4:4:4 and 10-bit SDR, not Video decoding: only PyroWave does.
+/// Full chroma turns off YUV 4:4:4 and 10-bit SDR, not Video decoding (in Debug): only PyroWave does.
 #[test]
 fn full_chroma_leaves_video_decoding_alone() {
     let decoding = "Automatic decodes on the graphics card";
-    let f = settings_read_with(Settings { experimental_packed_444: true, ..Settings::default() });
-    assert_eq!(control_disabled(&f, decoding), Some(false));
+    let in_debug = |f: &mut Frames| {
+        f.l.settings_view.section = "Debug";
+        f.settle();
+    };
+    let mut f = settings_read_with(Settings { experimental_packed_444: true, ..Settings::default() });
     assert_eq!(control_disabled(&f, "Keeps full color detail"), Some(true));
-    let f = settings_read_with(Settings { codec: CodecPreference::PyroWave, ..Settings::default() });
+    in_debug(&mut f);
+    assert_eq!(control_disabled(&f, decoding), Some(false));
+    let mut f = settings_read_with(Settings { codec: CodecPreference::PyroWave, ..Settings::default() });
+    in_debug(&mut f);
     assert_eq!(control_disabled(&f, decoding), Some(true));
 }
 

@@ -6,10 +6,10 @@
 use super::*;
 
 /// The settings sections in the order Android lists them (App only on the main settings).
-pub(super) const SETTINGS_SECTIONS: [&str; 7] = [en("Video"), en("Display & image"), en("Controls"), en("Audio"), en("Streaming"), en("App"), en("Advanced")];
+pub(super) const SETTINGS_SECTIONS: [&str; 8] = [en("Video"), en("Display & image"), en("Controls"), en("Audio"), en("Streaming"), en("App"), en("Advanced"), en("Debug")];
 
 /// What each section is for, under its title.
-const SECTION_ABOUT: [&str; 7] = [
+const SECTION_ABOUT: [&str; 8] = [
     en("How sharp and smooth the picture is, and how much of your network it uses."),
     en("How the stream fills this screen, and the display it uses on the PC."),
     en("Mouse, keyboard and controllers."),
@@ -17,30 +17,32 @@ const SECTION_ABOUT: [&str; 7] = [
     en("The connection to the PC, profiles and the performance overlay."),
     en("Nightjar itself: where it starts, its language, the PIN lock and accessibility."),
     en("For special setups. The defaults suit almost everyone."),
+    en("Rarely needed settings for troubleshooting."),
 ];
 
 /// Every setting row's keys, by section, in the order the page draws them; the first key names
 /// the row. Rows that show only with another setting (Custom resolution, Bitrate, the controller
 /// mouse's options) share their keys or are listed where they show. A test keeps this equal to
 /// what the page draws.
-pub(super) const SECTION_KEYS: [&[&[&str]]; 7] = [
+pub(super) const SECTION_KEYS: [&[&[&str]]; 8] = [
     &[&["width", "height"], &["fps"], &["bitrate_kbps"], &["adaptive_bitrate"], &["codec"], &["hdr"],
         &["adaptive_quality"], &["quality_min_short_edge"], &["quality_min_fps"], &["upscaling"], &["upscale_sharpness"],
-        &["prefer_yuv444"], &["sdr_10bit"], &["decoder"], &["pyrowave_decoder"]],
+        &["prefer_yuv444"], &["sdr_10bit"], &["pyrowave_decoder"]],
     &[&["window_mode"], &["video_scaling"], &["vrr"],
         &["virtual_display"], &["host_display"], &["virtual_display_scale"], &["virtual_display_dpi"],
-        &["align_video_top"], &["present_at_host_times"], &["frame_pacing"], &["vsync"]],
+        &["present_at_host_times"], &["frame_pacing"], &["vsync"]],
     &[&["mouse_mode"], &["controllers"], &["swap_face_buttons"], &["clipboard_sync"],
-        &["capture_system_keys"], &["cursor_shapes"], &["mouse_speed"], &["mouse_nav_buttons"], &["native_touchpad"], &["right_alt_as_meta"],
+        &["capture_system_keys"], &["mouse_speed"], &["mouse_nav_buttons"], &["native_touchpad"], &["right_alt_as_meta"],
         &["back_opens_menu"], &["gamepad_quit_combo"], &["controller_mouse"], &["analog_scrolling"], &["mouse_fixed_step"],
         &["gamepad_touchpad_as_mouse"], &["disable_rumble"], &["controller_motion"], &["controller_audio"], &["background_controllers"]],
     &[&["audio"], &["play_audio_on_host"], &["microphone"], &["mic_echo_cancel"], &["audio_passthrough"]],
     &[&["overlay", "overlay_mode"], &["overlay_position"], &["auto_reconnect"],
-        &["client_roaming"], &["roaming_metered"], &["network_grace_ms"], &["error_correction"], &["network_priority"],
-        &["usb_forwarding"], &["unbatched_input"]],
+        &["client_roaming"], &["roaming_metered"], &["network_grace_ms"], &["usb_forwarding"]],
     &[&["console_home"], &["quick_resume"], &["language"], &["ui_zoom"], &["high_contrast"], &["reduce_motion"],
         &["input_only_any_host"], &["check_updates"]],
-    &[&["full_range"], &["client_hint_bitrate"], &["experimental_packed_444"], &["tell_host_wireless"], &["tell_host_link_speed"], &["link_probe"]],
+    &[&["experimental_packed_444"], &["link_probe"]],
+    &[&["decoder"], &["full_range"], &["align_video_top"], &["cursor_shapes"], &["unbatched_input"], &["error_correction"],
+        &["network_priority"], &["client_hint_bitrate"], &["tell_host_wireless"], &["tell_host_link_speed"]],
 ];
 
 /// The Resolution menu after Native: Android's 16:9 sizes with common PC and laptop ones, then
@@ -72,7 +74,7 @@ pub(super) struct SettingsView {
     /// The search the rows showed last frame: another one starts its results at the top.
     shown_query: String,
     /// The rows the search found last frame, per section.
-    pub(super) found: [usize; 7],
+    pub(super) found: [usize; 8],
     /// Another section was opened: its rows start at the top.
     pub(super) to_top: bool,
     /// Reset all (or Clear all on a PC's, game's or profile's settings) waits for its confirmation.
@@ -425,7 +427,7 @@ impl Launcher {
             section: "",
             group: "",
             heading: None,
-            found: [0; 7],
+            found: [0; 8],
             enabled: true,
             why: None,
             focus_first,
@@ -669,18 +671,6 @@ impl Launcher {
                 "Streams non-HDR video in 10-bit HEVC or AV1, so gradients show fewer bands. Needs a 10-bit (Main10) decoder on this device, and the PC's display in SDR. On Linux, restart Nightjar after changing this.",
                 |ui, s| toggle(ui, &mut s.sdr_10bit));
             rows.always();
-            rows.when(!s.codec.is_pyrowave(), en("PyroWave uses its own decoder, set below."));
-            setting_row(ui, s, &mut rows, &["decoder"], "Video decoding", "Automatic decodes on the graphics card when it can. Software uses the processor; try it only if the picture shows errors.", |ui, s| {
-                egui::ComboBox::from_id_salt("decoder")
-                    .selected_text(decoder_name(s.decoder))
-                    .show_ui(ui, |ui| {
-                        for decoder in [DecoderPreference::Auto, DecoderPreference::Software] {
-                            ui.selectable_value(&mut s.decoder, decoder, decoder_name(decoder));
-                        }
-                    })
-                    .response
-            });
-            rows.always();
             let decoder_note = match &gpu_decoder_error {
                 Some(reason) => trf("Only for PyroWave. GPU decodes on the graphics card and never falls back to the processor. CPU decodes on the processor and finishes on the graphics card. GPU decoding is unavailable here: {}", &[reason]),
                 None => tr("Only for PyroWave. GPU decodes on the graphics card and never falls back to the processor. CPU decodes on the processor and finishes on the graphics card.").to_owned(),
@@ -757,7 +747,6 @@ impl Launcher {
                 rows.always();
             }
             rows.group(ui, "Fine-tuning", en("Change these only if motion looks uneven or the picture tears."));
-            setting_row(ui, s, &mut rows, &["align_video_top"], "Align video to top", "Puts Fit and Native pixels video at the top of the window instead of the middle.", |ui, s| toggle(ui, &mut s.align_video_top));
             let immediate_packed = cfg!(windows) && s.experimental_packed_444 && tearing;
             rows.when(s.vrr || immediate_packed, en("Turn on Variable refresh rate to use this."));
             rows.when(s.vrr && !immediate_packed, "");
@@ -825,9 +814,6 @@ impl Launcher {
                 "Alt+Tab, the Windows key and similar go to the PC while input is captured.",
                 |ui, s| toggle(ui, &mut s.capture_system_keys),
             );
-            setting_row(ui, s, &mut rows, &["cursor_shapes"], "Local cursor", "In desktop pointer mode, draws the PC's cursor here so it moves without video delay. Works with PCs that send their cursor.", |ui, s| {
-                toggle(ui, &mut s.cursor_shapes)
-            });
             setting_row(ui, s, &mut rows, &["mouse_speed"], "Mouse speed", "How fast the captured pointer moves.", |ui, s| ui.add(egui::Slider::new(&mut s.mouse_speed, 25..=400).suffix("%")));
             setting_row(ui, s, &mut rows, &["mouse_nav_buttons"], "Mouse navigation buttons", "Sends the mouse's Back and Forward buttons to the PC.", |ui, s| toggle(ui, &mut s.mouse_nav_buttons));
             if cfg!(windows) {
@@ -963,22 +949,6 @@ impl Launcher {
                         }
                     }).response
             });
-            setting_row(ui, s, &mut rows, &["error_correction"], "Error correction", "Recovery data the PC adds so lost packets don't break up the picture. Automatic follows this device's losses. PCs that don't take this choice use their own setting.", |ui, s| {
-                egui::ComboBox::from_id_salt("error-correction")
-                    .selected_text(error_correction_name(s.error_correction))
-                    .show_ui(ui, |ui| {
-                        let fixed = ErrorCorrection::PERCENTAGES.map(ErrorCorrection::Percent);
-                        for mode in [ErrorCorrection::Host, ErrorCorrection::Auto].into_iter().chain(fixed) {
-                            ui.selectable_value(&mut s.error_correction, mode, error_correction_name(mode));
-                        }
-                    }).response
-            });
-            // The engine sets socket and thread priorities on Linux only; on Windows the switch would do nothing.
-            if cfg!(target_os = "linux") {
-                setting_row(ui, s, &mut rows, &["network_priority"], "Prioritize stream traffic", "Gives the stream's network traffic and work priority on this device.", |ui, s| {
-                    toggle(ui, &mut s.network_priority)
-                });
-            }
             if let Some(host) = test_host {
                 rows.group(ui, "Network tests", "");
                 let online = host.paired() && host.reach == Reach::Online;
@@ -1003,9 +973,6 @@ impl Launcher {
             rows.group(ui, "Fine-tuning", "");
             setting_row(ui, s, &mut rows, &["usb_forwarding"], "USB forwarding", "Lets you attach USB devices plugged into this computer to the PC from the stream menu. The PC must allow USB devices for this device. On Windows, a device needs the WinUSB driver.", |ui, s| {
                 toggle(ui, &mut s.usb_forwarding)
-            });
-            setting_row(ui, s, &mut rows, &["unbatched_input"], "Instant mouse and pen input", "Sends mouse and pen movement right away instead of in small batches.", |ui, s| {
-                toggle(ui, &mut s.unbatched_input)
             });
 
             if !layered {
@@ -1095,24 +1062,59 @@ impl Launcher {
             }
 
             rows.section(en("Advanced"));
-            setting_row(ui, s, &mut rows, &["full_range"], "Full color range", "Asks the PC for the full range of brightness levels. Turn on only if dark scenes look washed out or crushed.", |ui, s| toggle(ui, &mut s.full_range));
-            rows.group(ui, "Fine-tuning", "");
-            setting_row(ui, s, &mut rows, &["client_hint_bitrate"], "Lower bitrate when frames are lost", "Turns the bitrate down as soon as frames go missing, and back up after a few clean seconds. Works with PCs that can change the bitrate during a stream, and replaces “Lower bitrate when the network is busy” there.", |ui, s| {
-                toggle(ui, &mut s.client_hint_bitrate)
-            });
             rows.when(!s.codec.is_pyrowave(), en("Not used with PyroWave."));
             setting_row(ui, s, &mut rows, &["experimental_packed_444"], "Full chroma", "Sharp colored text through HEVC or AV1, when the PC has its Full chroma option on. On Linux, restart Nightjar after changing this.",
                 |ui, s| toggle(ui, &mut s.experimental_packed_444));
             rows.always();
-            rows.group(ui, "Network hints", en("What Nightjar tells the PC about the connection."));
+            setting_row(ui, s, &mut rows, &["link_probe"], "Test the link before starting", "A new stream at the automatic bitrate first measures the connection to the PC and starts no higher than it holds. Works with PCs that support it.", |ui, s| {
+                toggle(ui, &mut s.link_probe)
+            });
+
+            rows.section(en("Debug"));
+            rows.when(!s.codec.is_pyrowave(), en("Not used with PyroWave."));
+            setting_row(ui, s, &mut rows, &["decoder"], "Video decoding", "Automatic decodes on the graphics card when it can. Software uses the processor; try it only if the picture shows errors.", |ui, s| {
+                egui::ComboBox::from_id_salt("decoder")
+                    .selected_text(decoder_name(s.decoder))
+                    .show_ui(ui, |ui| {
+                        for decoder in [DecoderPreference::Auto, DecoderPreference::Software] {
+                            ui.selectable_value(&mut s.decoder, decoder, decoder_name(decoder));
+                        }
+                    })
+                    .response
+            });
+            rows.always();
+            setting_row(ui, s, &mut rows, &["full_range"], "Full color range", "Asks the PC for the full range of brightness levels. Turn on only if dark scenes look washed out or crushed.", |ui, s| toggle(ui, &mut s.full_range));
+            setting_row(ui, s, &mut rows, &["align_video_top"], "Align video to top", "Puts Fit and Native pixels video at the top of the window instead of the middle.", |ui, s| toggle(ui, &mut s.align_video_top));
+            setting_row(ui, s, &mut rows, &["cursor_shapes"], "Local cursor", "In desktop pointer mode, draws the PC's cursor here so it moves without video delay. Works with PCs that send their cursor.", |ui, s| {
+                toggle(ui, &mut s.cursor_shapes)
+            });
+            setting_row(ui, s, &mut rows, &["unbatched_input"], "Instant mouse and pen input", "Sends mouse and pen movement right away instead of in small batches.", |ui, s| {
+                toggle(ui, &mut s.unbatched_input)
+            });
+            setting_row(ui, s, &mut rows, &["error_correction"], "Error correction", "Recovery data the PC adds so lost packets don't break up the picture. Automatic follows this device's losses. PCs that don't take this choice use their own setting.", |ui, s| {
+                egui::ComboBox::from_id_salt("error-correction")
+                    .selected_text(error_correction_name(s.error_correction))
+                    .show_ui(ui, |ui| {
+                        let fixed = ErrorCorrection::PERCENTAGES.map(ErrorCorrection::Percent);
+                        for mode in [ErrorCorrection::Host, ErrorCorrection::Auto].into_iter().chain(fixed) {
+                            ui.selectable_value(&mut s.error_correction, mode, error_correction_name(mode));
+                        }
+                    }).response
+            });
+            // The engine sets socket and thread priorities on Linux only; on Windows the switch would do nothing.
+            if cfg!(target_os = "linux") {
+                setting_row(ui, s, &mut rows, &["network_priority"], "Prioritize stream traffic", "Gives the stream's network traffic and work priority on this device.", |ui, s| {
+                    toggle(ui, &mut s.network_priority)
+                });
+            }
+            setting_row(ui, s, &mut rows, &["client_hint_bitrate"], "Lower bitrate when frames are lost", "Turns the bitrate down as soon as frames go missing, and back up after a few clean seconds. Works with PCs that can change the bitrate during a stream, and replaces “Lower bitrate when the network is busy” there.", |ui, s| {
+                toggle(ui, &mut s.client_hint_bitrate)
+            });
             setting_row(ui, s, &mut rows, &["tell_host_wireless"], "Tell the PC when on Wi-Fi", "The PC then paces the stream for Wi-Fi from the start. PCs that don't support it aren't told.", |ui, s| {
                 toggle(ui, &mut s.tell_host_wireless)
             });
             setting_row(ui, s, &mut rows, &["tell_host_link_speed"], "Tell the PC the link speed", "Lets the PC limit its sending rate to this device's wired port speed.", |ui, s| {
                 toggle(ui, &mut s.tell_host_link_speed)
-            });
-            setting_row(ui, s, &mut rows, &["link_probe"], "Test the link before starting", "A new stream at the automatic bitrate first measures the connection to the PC and starts no higher than it holds. Works with PCs that support it.", |ui, s| {
-                toggle(ui, &mut s.link_probe)
             });
 
             if searching && rows.found.iter().sum::<usize>() == 0 {
@@ -1394,7 +1396,7 @@ pub(super) struct Rows<'a> {
     /// (true), a group's title and note.
     heading: Option<(bool, &'static str, &'static str)>,
     /// Rows drawn, per section.
-    found: [usize; 7],
+    found: [usize; 8],
     /// Whether the rows that follow can be changed, and why not.
     enabled: bool,
     why: Option<&'static str>,

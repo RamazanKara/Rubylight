@@ -453,13 +453,13 @@ fn settings_sections_follow_androids_order() {
     f.settle();
     // The list beside the rows names the sections in order, then the open one heads the rows.
     let titles: Vec<&str> = f.drawn.iter().map(String::as_str).filter(|t| SETTINGS_SECTIONS.contains(t)).collect();
-    assert_eq!(titles[..7], SETTINGS_SECTIONS, "the list names the sections in order");
-    assert_eq!(titles[7..], ["Video"], "and the first is open");
+    assert_eq!(titles[..8], SETTINGS_SECTIONS, "the list names the sections in order");
+    assert_eq!(titles[8..], ["Video"], "and the first is open");
     // A narrow window lists them as chips above the rows, in the same order.
     f.size = vec2(800.0, 12000.0);
     f.settle();
     let titles: Vec<&str> = f.drawn.iter().map(String::as_str).filter(|t| SETTINGS_SECTIONS.contains(t)).collect();
-    assert_eq!(titles[..7], SETTINGS_SECTIONS, "the chips name the sections in order");
+    assert_eq!(titles[..8], SETTINGS_SECTIONS, "the chips name the sections in order");
 }
 
 /// The widgets a screen reader can press or change that have no name to say, with their role and place.
@@ -557,7 +557,7 @@ fn settings_show_a_sections_every_row_with_the_rarer_ones_in_groups_after() {
     f.size = vec2(1280.0, 12000.0);
     f.l.go(Screen::Settings);
     f.settle();
-    for text in ["Lower bitrate when the network is busy", "FINE-TUNING", "Automatic quality", "Video decoding"] {
+    for text in ["Lower bitrate when the network is busy", "FINE-TUNING", "Automatic quality", "PyroWave decoder"] {
         assert!(shows(&f, text), "{text}: nothing is folded away: {:?}", f.drawn);
     }
     assert!(!shows(&f, "Recover interrupted streams") && !shows(&f, "More Video settings (6)"), "one section at a time, no fold");
@@ -580,7 +580,7 @@ fn settings_show_a_sections_every_row_with_the_rarer_ones_in_groups_after() {
     f.l.settings_view.section = "Streaming";
     f.l.edit_overrides.capture(&Settings { client_roaming: false, ..Settings::default() }, &["client_roaming"]);
     f.settle();
-    assert!(shows(&f, "Keep streaming when the network changes") && shows(&f, "Instant mouse and pen input"), "{:?}", f.drawn);
+    assert!(shows(&f, "Keep streaming when the network changes") && shows(&f, "USB forwarding"), "{:?}", f.drawn);
 }
 
 #[test]

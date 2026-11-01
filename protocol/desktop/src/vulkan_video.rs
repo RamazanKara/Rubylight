@@ -34,9 +34,10 @@ use ash::vk::{self, Handle};
 use sdl3_sys::everything::*;
 
 use crate::media::ffi::{
-    av_buffer_unref, av_hwdevice_ctx_alloc, av_hwdevice_ctx_init, avutil_version, AVBufferRef,
-    AVFrame, AVHWDeviceContext, AVHWFramesContext, AV_HWDEVICE_TYPE_VULKAN, AV_PIX_FMT_NV12,
-    AV_PIX_FMT_NV24, AV_PIX_FMT_P010LE, AV_PIX_FMT_P410LE,
+    av_buffer_unref, av_hwdevice_ctx_alloc, av_hwdevice_ctx_init, av_pix_fmt_desc_get,
+    avcodec_get_hw_frames_parameters, avutil_version, AVBufferRef, AVCodecContext, AVFrame,
+    AVHWDeviceContext, AVHWFramesContext, AVPixelFormat, AV_HWDEVICE_TYPE_VULKAN, AV_PIX_FMT_NV12,
+    AV_PIX_FMT_NV24, AV_PIX_FMT_P010LE, AV_PIX_FMT_P410LE, AV_PIX_FMT_VULKAN,
 };
 use crate::media::{Codec, Pictures};
 use crate::stream::pyrowave_sdk::zero_copy::{
@@ -402,6 +403,114 @@ fn picture_format(ten_bit: bool, chroma444: bool) -> vk::Format {
         (false, true) => vk::Format::G8_B8R8_2PLANE_444_UNORM,
         (true, true) => vk::Format::G10X6_B10X6R10X6_2PLANE_444_UNORM_3PACK16,
     }
+}
+
+/// `picture_format` as FFmpeg's software format: NV12, P010, NV24 or P410.
+fn picture_sw_format(ten_bit: bool, chroma444: bool) -> AVPixelFormat {
+    match (ten_bit, chroma444) {
+        (false, false) => AV_PIX_FMT_NV12,
+        (true, false) => AV_PIX_FMT_P010LE,
+        (false, true) => AV_PIX_FMT_NV24,
+        (true, true) => AV_PIX_FMT_P410LE,
+    }
+}
+
+/// "8-bit 4:2:0" and the like, for messages.
+fn describe(ten_bit: bool, chroma444: bool) -> String {
+    format!(
+        "{}-bit {}",
+        if ten_bit { 10 } else { 8 },
+        if chroma444 { "4:4:4" } else { "4:2:0" }
+    )
+}
+
+/// The depth and chroma (10-bit, 4:4:4) of FFmpeg's software format `format`, if it is a 4:2:0
+/// or 4:4:4 YUV format of 8 or 10 bits.
+fn depth_and_chroma(format: AVPixelFormat) -> Option<(bool, bool)> {
+    // SAFETY: FFmpeg's static descriptor table, or null.
+    let descriptor = unsafe { av_pix_fmt_desc_get(format) };
+    if descriptor.is_null() {
+        return None;
+    }
+    // SAFETY: Checked non-null above.
+    let descriptor = unsafe { &*descriptor };
+    let ten_bit = match descriptor.comp[0].depth {
+        8 => false,
+        10 => true,
+        _ => return None,
+    };
+    let chroma444 = match (descriptor.log2_chroma_w, descriptor.log2_chroma_h) {
+        (1, 1) => false,
+        (0, 0) if descriptor.nb_components >= 3 => true,
+        _ => return None,
+    };
+    Some((ten_bit, chroma444))
+}
+
+/// Makes the decoder's frames context (`AVCodecContext::hw_frames_ctx`, in `get_format`) in the
+/// two-plane format `check_profile` approved for `pictures`, the one `Planes` copies. Left to
+/// itself, FFmpeg picks the driver's format nearest the stream's, a three-plane one where the
+/// driver lists it. Errors, and the decoder falls back, when the stream is not of that depth and
+/// chroma or FFmpeg cannot make the context.
+///
+/// # Safety
+/// `context` must be a live decoder context in `get_format`, with a `device_context` device.
+pub unsafe fn frames_context(
+    context: *mut AVCodecContext,
+    pictures: Pictures,
+) -> Result<(), String> {
+    unsafe extern "C" {
+        fn av_hwframe_ctx_init(reference: *mut AVBufferRef) -> c_int;
+    }
+    let context = &mut *context;
+    let stream = context.sw_pix_fmt;
+    let wanted = (pictures.ten_bit, pictures.chroma444);
+    match depth_and_chroma(stream) {
+        Some(found) if found == wanted => {}
+        Some((ten_bit, chroma444)) => {
+            return Err(format!(
+                "the stream's pictures are {}, not the {} the device was checked for",
+                describe(ten_bit, chroma444),
+                describe(wanted.0, wanted.1)
+            ))
+        }
+        None => return Err(format!(
+            "the stream's pictures are in FFmpeg format {stream}, not 8- or 10-bit 4:2:0 or 4:4:4"
+        )),
+    }
+    av_buffer_unref(&mut context.hw_frames_ctx);
+    let status = avcodec_get_hw_frames_parameters(
+        context,
+        context.hw_device_ctx,
+        AV_PIX_FMT_VULKAN,
+        &mut context.hw_frames_ctx,
+    );
+    if status < 0 {
+        return Err(format!(
+            "FFmpeg cannot describe the Vulkan frames (error {status})"
+        ));
+    }
+    let frames = &mut *(*context.hw_frames_ctx).data.cast::<AVHWFramesContext>();
+    let vulkan = &mut *frames.hwctx.cast::<FramesContext>();
+    let (chosen, format) = (frames.sw_format, picture_sw_format(wanted.0, wanted.1));
+    if chosen != format {
+        note(&format!("FFmpeg would decode into format {chosen}; the frames are made in {format}, the two-plane format the presenter copies"));
+    }
+    frames.sw_format = format;
+    vulkan.format = [vk::Format::UNDEFINED; 8];
+    vulkan.format[0] = picture_format(wanted.0, wanted.1);
+    // ff_decode_get_hw_frames_ctx adds these 3 to the minimum FFmpeg asks for.
+    if frames.initial_pool_size != 0 {
+        frames.initial_pool_size += 3;
+    }
+    let status = av_hwframe_ctx_init(context.hw_frames_ctx);
+    if status < 0 {
+        av_buffer_unref(&mut context.hw_frames_ctx);
+        return Err(format!(
+            "FFmpeg cannot make Vulkan frames in format {format} (error {status})"
+        ));
+    }
+    Ok(())
 }
 
 /// The codec profile FFmpeg asks the driver for, for pictures of that depth and chroma: H.264
@@ -824,12 +933,7 @@ impl Planes {
         if frames_ref.is_null() || source.is_null() {
             return Err("the picture has no Vulkan frame".into());
         }
-        let wanted = match (self.ten_bit, self.chroma444) {
-            (false, false) => AV_PIX_FMT_NV12,
-            (true, false) => AV_PIX_FMT_P010LE,
-            (false, true) => AV_PIX_FMT_NV24,
-            (true, true) => AV_PIX_FMT_P410LE,
-        };
+        let wanted = picture_sw_format(self.ten_bit, self.chroma444);
         if sw_format(frame) != wanted {
             return Err(format!(
                 "the picture's format {} is not the planes' format {wanted}",
@@ -1344,6 +1448,59 @@ mod tests {
             1,
             "without SDL's decode queue only SDL's family"
         );
+    }
+
+    /// The frames are made in the two-plane format of the stream's depth and chroma; other streams
+    /// (4:2:2, 12-bit, grey) and a stream unlike the one the device was checked for are refused
+    /// before FFmpeg makes anything.
+    #[test]
+    fn the_frames_are_made_in_the_two_plane_format_of_the_checked_pictures() {
+        use crate::media::ffi::*;
+        for (ten_bit, chroma444) in [(false, false), (true, false), (false, true), (true, true)] {
+            let format = picture_sw_format(ten_bit, chroma444);
+            assert_eq!(
+                depth_and_chroma(format),
+                Some((ten_bit, chroma444)),
+                "{format}"
+            );
+            // SAFETY: FFmpeg's static descriptor table.
+            let planes = unsafe {
+                let descriptor = &*av_pix_fmt_desc_get(format);
+                (0..descriptor.nb_components as usize)
+                    .map(|c| descriptor.comp[c].plane)
+                    .max()
+            };
+            assert_eq!(planes, Some(1), "{format} has two planes");
+        }
+        let streams = [
+            (AV_PIX_FMT_YUV420P, Some((false, false))),
+            (AV_PIX_FMT_YUV420P10LE, Some((true, false))),
+            (AV_PIX_FMT_YUV444P, Some((false, true))),
+            (AV_PIX_FMT_YUV444P10LE, Some((true, true))),
+            (AV_PIX_FMT_YUV422P, None),
+            (AV_PIX_FMT_YUV420P12LE, None),
+            (AV_PIX_FMT_GRAY8, None),
+        ];
+        for (stream, expected) in streams {
+            assert_eq!(depth_and_chroma(stream), expected, "{stream}");
+        }
+        // SAFETY: A context allocated and freed here, with no device: refused before FFmpeg uses it.
+        unsafe {
+            let mut context = avcodec_alloc_context3(ptr::null());
+            assert!(!context.is_null());
+            let eight = Pictures::default();
+            (*context).sw_pix_fmt = AV_PIX_FMT_YUV420P10LE;
+            let error = frames_context(context, eight).unwrap_err();
+            assert!(
+                error.contains("10-bit 4:2:0, not the 8-bit 4:2:0"),
+                "{error}"
+            );
+            (*context).sw_pix_fmt = AV_PIX_FMT_YUV422P;
+            let error = frames_context(context, eight).unwrap_err();
+            assert!(error.contains("not 8- or 10-bit 4:2:0 or 4:4:4"), "{error}");
+            assert!((*context).hw_frames_ctx.is_null());
+            avcodec_free_context(&mut context);
+        }
     }
 
     /// SDL waits for its whole device under its queue lock, so FFmpeg's decode queues take that lock

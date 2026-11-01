@@ -372,6 +372,22 @@ fn picture(rig: &Rig, case: &Case, hardware: Hardware, look: Look) -> Result<Vec
         "{}: FFmpeg decoded the fixture in software (frame kind {kind}), not with Vulkan video",
         case.name
     );
+    if vulkan {
+        use crate::media::ffi::*;
+        let expected = match (case.ten, case.chroma444) {
+            (false, false) => AV_PIX_FMT_NV12,
+            (true, false) => AV_PIX_FMT_P010LE,
+            (false, true) => AV_PIX_FMT_NV24,
+            (true, true) => AV_PIX_FMT_P410LE,
+        };
+        // SAFETY: The live Vulkan frame.
+        let format = unsafe { crate::vulkan_video::sw_format(frame.raw.as_ptr()) };
+        assert_eq!(
+            format, expected,
+            "{}: the frames context is not in the two-plane format the device was checked for",
+            case.name
+        );
+    }
     let mut texture = VideoTexture::default();
     texture.set_hdr_mode(look.hdr, None);
     Ok(present(rig, &mut texture, &decoded(frame, case)))

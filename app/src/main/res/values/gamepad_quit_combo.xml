@@ -20,4 +20,20 @@
         <item>lb_rb_x_y</item>
         <item>lb_rb_a_b</item>
     </string-array>
+    <string name="title_list_guide_menu_hold">Hold Guide to open the stream menu</string>
+    <string name="summary_list_guide_menu_hold">A short press still goes to the PC as Guide. Applies to the next stream.</string>
+    <string-array name="guide_menu_hold_names" translatable="false">
+        <item>@string/gamepad_quit_combo_off</item>
+        <item>0.5 s</item>
+        <item>1 s</item>
+        <item>1.5 s</item>
+        <item>2 s</item>
+    </string-array>
+    <string-array name="guide_menu_hold_values" translatable="false">
+        <item>0</item>
+        <item>500</item>
+        <item>1000</item>
+        <item>1500</item>
+        <item>2000</item>
+    </string-array>
 </resources>

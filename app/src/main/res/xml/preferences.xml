@@ -257,6 +257,13 @@
             android:entries="@array/gamepad_quit_combo_names"
             android:entryValues="@array/gamepad_quit_combo_values"
             android:defaultValue="off" />
+        <com.limelight.preferences.MaterialListPreference
+            android:key="list_guide_menu_hold"
+            android:title="@string/title_list_guide_menu_hold"
+            android:dialogMessage="@string/summary_list_guide_menu_hold"
+            android:entries="@array/guide_menu_hold_names"
+            android:entryValues="@array/guide_menu_hold_values"
+            android:defaultValue="1000" />
         <com.limelight.preferences.MaterialSwitchPreference
             android:key="checkbox_back_as_guide"
             android:title="@string/title_checkbox_back_as_guide"

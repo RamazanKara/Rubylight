@@ -108,6 +108,10 @@ public class ControllerHandlerTest {
             assertTrue(connection.buttons.isEmpty());
 
             prefs.backAsGuide = true;
+
+            // Guide at once, not held back for Hold Guide to open the stream menu
+
+            prefs.guideMenuHoldMs = 0;
             press(handler, 2000);
             assertEquals(ControllerPacket.SPECIAL_BUTTON_FLAG, (int) connection.buttons.get(connection.buttons.size() - 1));
             release(handler, 2000);
@@ -135,6 +139,8 @@ public class ControllerHandlerTest {
             assertEquals(ControllerPacket.BACK_FLAG, (int) connection.buttons.get(connection.buttons.size() - 1));
             release(handler, 4500);
             prefs.backAsGuide = true;
+            // Guide at once, not held back for Hold Guide to open the stream menu
+            prefs.guideMenuHoldMs = 0;
 
             // A pad without Start uses Back as Start
             context.external = false;
@@ -156,6 +162,8 @@ public class ControllerHandlerTest {
         RecordingConnection connection = new RecordingConnection();
         PreferenceConfiguration prefs = new PreferenceConfiguration();
         prefs.backAsGuide = true;
+        // Guide at once, not held back for Hold Guide to open the stream menu
+        prefs.guideMenuHoldMs = 0;
         ControllerHandler handler = new ControllerHandler(activity, connection, null, prefs) {
             @Override protected boolean[] findInternalGamepadAndSelect() { return new boolean[] {true, true, true}; }
         };

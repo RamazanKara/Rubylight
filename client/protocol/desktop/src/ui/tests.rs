@@ -3854,5 +3854,56 @@ fn hover_lightens_a_card_and_focus_adds_one_ring_without_resizing() {
     assert_eq!(f.ctx.read_response(card_id).unwrap().rect, card, "the card did not move or grow");
 }
 
+/// Drops egui's focus, as a click on blank space or Escape does.
+fn drop_focus(f: &mut Frames) {
+    f.ctx.memory_mut(|m| if let Some(id) = m.focused() { m.surrender_focus(id) });
+    f.settle();
+    assert_eq!(f.ctx.memory(|m| m.focused()), None);
+}
+
+/// A controller press as `main.rs` hands it to egui.
+fn pad_press(f: &mut Frames, key: Key) {
+    let events = f.l.controller_key(&f.ctx, key);
+    f.frame(events);
+    f.settle();
+}
+
+#[test]
+fn a_controller_press_with_nothing_focused_focuses_the_first_item() {
+    let mut f = Frames::new(record("Desk", true, false), Reach::Online);
+    let first = f.ctx.memory(|m| m.focused()).expect("the first card has focus on arrival");
+    for key in [Key::ArrowDown, Key::ArrowUp, Key::ArrowRight, Key::Enter] {
+        drop_focus(&mut f);
+        // egui alone moves nowhere from no focus: the press was lost.
+        f.press(Key::ArrowDown);
+        assert_eq!(f.ctx.memory(|m| m.focused()), None);
+        pad_press(&mut f, key);
+        assert_eq!(f.ctx.memory(|m| m.focused()), Some(first), "{key:?} focuses the first card");
+        assert!(f.no_dialog(), "{key:?}: A only focuses, it does not open the card");
+    }
+    // With focus, the D-pad moves it as before.
+    pad_press(&mut f, Key::ArrowRight);
+    assert_ne!(f.ctx.memory(|m| m.focused()), Some(first), "Right moves on to the card's options");
+
+    // Settings: the first row.
+    let mut s = Frames::new(record("Desk", true, false), Reach::Online);
+    s.l.go(Screen::Settings);
+    s.settle();
+    let row = s.ctx.memory(|m| m.focused()).expect("the first row has focus on arrival");
+    drop_focus(&mut s);
+    pad_press(&mut s, Key::ArrowDown);
+    assert_eq!(s.ctx.memory(|m| m.focused()), Some(row));
+
+    // A dialog: its first control (Cancel on a confirmation).
+    let id = f.hosts.list[0].id;
+    f.l.ask(Dialog::ConfirmRemove { host: id, name: "Desk".into() });
+    f.settle();
+    let cancel = f.ctx.memory(|m| m.focused()).expect("Cancel has focus");
+    drop_focus(&mut f);
+    pad_press(&mut f, Key::ArrowUp);
+    assert_eq!(f.ctx.memory(|m| m.focused()), Some(cancel));
+    assert!(matches!(f.l.dialog, Dialog::ConfirmRemove { .. }));
+}
+
 #[path = "settings_tests.rs"]
 mod settings_tests;

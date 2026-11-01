@@ -543,6 +543,26 @@ impl Launcher {
         self.focus_screen = true;
     }
 
+    /// The events a controller's D-pad, stick or A (as `key`) gives egui. With nothing focused (the
+    /// window just opened, a click on blank space, B, which drops egui's focus), egui moves nowhere
+    /// and the press was lost: it puts focus on the open dialog's or the page's first item instead,
+    /// with Tab for a page that names none (egui then focuses its first widget).
+    pub fn controller_key(&mut self, ctx: &egui::Context, key: Key) -> Vec<egui::Event> {
+        let lost = matches!(key, Key::ArrowUp | Key::ArrowDown | Key::ArrowLeft | Key::ArrowRight | Key::Enter)
+            && ctx.memory(|m| m.focused().is_none())
+            && !egui::Popup::is_any_open(ctx);
+        if !lost {
+            return crate::gui::tap(key).to_vec();
+        }
+        if matches!(self.dialog, Dialog::None) {
+            self.focus_screen = true;
+        } else {
+            self.focus_dialog = true;
+        }
+        ctx.request_repaint();
+        crate::gui::tap(Key::Tab).to_vec()
+    }
+
     /// Opens `dialog` with focus on its first control.
     pub fn ask(&mut self, dialog: Dialog) {
         self.dialog = dialog;

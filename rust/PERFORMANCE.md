@@ -90,6 +90,8 @@ Change against the default. Bitrate is the actual bitrate; encode time is p50 / 
 
 Regression test: `settings_log_queries_screen_content_and_high_motion_tools` (the settings line reads all six back, per codec).
 
+Stream check with these settings (`e2e.py --mode 1920x1080x60 --seconds 30 --hw-decoder d3d11va`, isolated test host, the 3.1.1 package with this build's host): AV1 passed with 1769 of 1769 frames decoded, 60.0 fps steady, no long intervals and picture age p95 11.4 ms. HEVC passed with 1791 of 1791 decoded, 60.1 fps, no long intervals and picture age p95 16.9 ms. The host's settings line read back screen-content tools 1, palette 1, integer motion vectors 0 and high-motion boost 0 (AV1), and high-motion boost 0 (HEVC).
+
 ## October 30: a focused game's pictures beside another window
 
 A 60 Hz game streamed at 60 fps under VRR from the 240 Hz primary display (5120x1440, display capture through WGC) repeated and skipped frames while another window on the same display animated: every composition counted as a picture of its own, so claims drifted through the game's frames. With this change, on Windows 11 24H2 and newer, the capture reads each composition's dirty regions and the foreground window's bounds. While the foreground window keeps changing, a composition that changed only other windows joins its latest picture instead of starting one, and so does a composition with no dirty region (WGC draws the cursor without one). This is not the October 26 hold below: that one held the game's own later compositions by their timing, while this one never holds the game's own compositions. A game alone on the display is claimed exactly as before (`a_game_alone_on_the_display_is_claimed_as_without_focus_labels`).

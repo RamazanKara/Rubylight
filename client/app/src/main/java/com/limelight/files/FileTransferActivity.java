@@ -111,6 +111,8 @@ public class FileTransferActivity extends NightjarActivity implements FileTransf
     private final List<String> shownPcs = new ArrayList<>();
     private final List<String> shownRows = new ArrayList<>();
     private final List<String> shownFiles = new ArrayList<>();
+    /** A PC was just chosen: the first of its buttons to show takes the focus (see {@link #render}). */
+    private boolean focusAfterPick;
 
     private final ActivityResultLauncher<String[]> picker = registerForActivityResult(
             new ActivityResultContracts.OpenMultipleDocuments(), this::onPicked);
@@ -541,6 +543,9 @@ public class FileTransferActivity extends NightjarActivity implements FileTransf
         folder.setVisibility(listed ? View.VISIBLE : View.GONE);
         files.setVisibility(listed ? View.VISIBLE : View.GONE);
         showTransfers(open ? work.controller.rows() : Collections.emptyList());
+        // The chosen PC's button is gone: Send files, or Check again while sending is not allowed, takes the
+        // focus once shown, instead of the Up button.
+        if (focusAfterPick && open) focusAfterPick = !(takesFocus(send) || takesFocus(refresh));
     }
 
     /**
@@ -560,6 +565,7 @@ public class FileTransferActivity extends NightjarActivity implements FileTransf
         }
         if (keys.equals(shownPcs)) return !keys.isEmpty();
         Focus focused = focusIn(pcs);
+        boolean appeared = shownPcs.isEmpty();
         pcs.removeAllViews();
         shownPcs.clear();
         shownPcs.addAll(keys);
@@ -572,12 +578,15 @@ public class FileTransferActivity extends NightjarActivity implements FileTransf
                 ComputerDetails latest = work.computers.get(uuid);
                 work.uuid = uuid;
                 work.computer = null;
+                focusAfterPick = true;
                 onComputer(latest != null ? latest : details);
                 render();
             });
         }
-        // A PC that went away hands the focus to its neighbour.
+        // A PC that went away hands the focus to its neighbour. When the list first shows, the first PC takes
+        // the focus: it was on the Up button, and a remote's first OK closed the screen.
         restoreFocus(pcs, focused, null);
+        if (focused == null && appeared && pcs.getChildCount() > 0) takesFocus(pcs.getChildAt(0));
         return !keys.isEmpty();
     }
 

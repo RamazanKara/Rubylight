@@ -467,6 +467,10 @@ pub struct Streaming {
     last_command: Option<Instant>,
     audio_status: ([u8; 16], Instant),
     controller_mouse_active: bool,
+    /// A Guide held for the setting's time asks for the stream menu; main opens it with the window.
+    guide_menu: bool,
+    /// A Guide press waits on the loop's tick, so the loop wakes often.
+    guide_waiting: bool,
     /// The PC's night mode and headphone surround switches in the stream controls.
     pub host_audio: menu_extras::HostAudio,
     pub pending_command: Option<usize>,
@@ -699,6 +703,8 @@ impl Streaming {
             last_command: None,
             audio_status: ([0; 16], Instant::now() - Duration::from_secs(1)),
             controller_mouse_active: false,
+            guide_menu: false,
+            guide_waiting: false,
             host_audio: Default::default(),
             pending_command: None,
             bitrate_busy: false,
@@ -1434,6 +1440,13 @@ impl Streaming {
             Some(hint) => format!("{summary}\n\n{hint}"),
             None => summary,
         })
+    }
+
+    /// Opens the stream menu when a held Guide asked for it on the last tick.
+    pub fn open_guide_menu(&mut self, window: *mut SDL_Window, pads: &mut Gamepads) {
+        if std::mem::take(&mut self.guide_menu) && !self.menu_visible {
+            self.toggle_menu(window, pads);
+        }
     }
 
     pub fn toggle_menu(&mut self, window: *mut SDL_Window, pads: &mut Gamepads) {

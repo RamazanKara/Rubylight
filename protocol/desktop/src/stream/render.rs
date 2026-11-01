@@ -89,7 +89,7 @@ impl Streaming {
                     Wait::For(Duration::from_micros(due - now))
                 }
             }
-            None => Wait::For(Duration::from_millis(if self.controller_mouse_active || self.audio_status.0.iter().any(|flags| *flags != 0) { 20 } else if self.overlay_visible { 250 } else { 500 })),
+            None => Wait::For(Duration::from_millis(if self.controller_mouse_active || self.guide_waiting || self.audio_status.0.iter().any(|flags| *flags != 0) { 20 } else if self.overlay_visible { 250 } else { 500 })),
         };
         // A hide from the PC waiting out its delay wakes the loop when due.
         match (wait, self.cursor.hide_in(Instant::now())) {

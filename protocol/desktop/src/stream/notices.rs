@@ -173,6 +173,11 @@ impl Streaming {
         self.controller_mouse_active = false;
         if self.settings.controllers && self.facts.role != AppRole::RemoteMonitor && !self.menu_visible && (self.focused || self.settings.background_controllers) {
             self.session.input(|q| self.controller_mouse_active = pads.update_mouse(q));
+            let now = Instant::now();
+            self.session.input(|q| self.guide_menu |= pads.guide_tick(now, q));
+            self.guide_waiting = pads.guide_waiting();
+        } else {
+            self.guide_waiting = false;
         }
         let mut status = [0u8; 16];
         if self.controller_audio_available() {

@@ -380,6 +380,8 @@ pub const TABLE: &[(&str, &str)] = &[
     ("Use Right Alt for Windows-key shortcuts on the PC.", "Die rechte Alt-Taste für Windows-Tasten-Kürzel auf dem PC verwenden."),
     ("Every connected controller becomes a controller on the PC.", "Jeder angeschlossene Controller wird am PC zu einem Controller."),
     ("Back opens stream controls", "Zurück öffnet Stream-Steuerung"),
+    ("Hold Guide to open the stream menu", "Guide halten öffnet das Stream-Menü"),
+    ("A short press still goes to the PC.", "Ein kurzer Druck geht weiter an den PC."),
     ("Controller mouse mode", "Controller-Mausmodus"),
     ("Stick for scrolling", "Stick zum Scrollen"),
     ("Precise controller mouse", "Präzise Controller-Maus"),

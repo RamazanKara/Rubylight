@@ -87,6 +87,9 @@ pub enum GamepadQuitCombo {
     LbRbAB,
 }
 
+/// The choices for holding Guide to open the stream menu, in milliseconds; 0 is off.
+pub const GUIDE_HOLD_MS: [u32; 5] = [0, 500, 1000, 1500, 2000];
+
 impl GamepadQuitCombo {
     /// Their names follow the connected controller (`glyphs::Style::quit_combo`).
     pub const ALL: [Self; 6] = [Self::StartSelectLbRb, Self::SelectLbRbY, Self::StartLbRbA, Self::StartLbRbB, Self::LbRbXY, Self::LbRbAB];
@@ -284,6 +287,9 @@ pub struct Settings {
     pub controller_motion: bool,
     pub controller_audio: bool,
     pub back_opens_menu: bool,
+    /// Holding the controller's Guide (Home) button this long opens the stream menu; a shorter
+    /// press still goes to the PC. 0 is off (one of [`GUIDE_HOLD_MS`]).
+    pub guide_hold_ms: u32,
     pub gamepad_quit_combo: GamepadQuitCombo,
     pub controller_mouse: bool,
     pub analog_scrolling: AnalogScrolling,
@@ -689,6 +695,8 @@ impl Default for Settings {
             controller_motion: true,
             controller_audio: false,
             back_opens_menu: false,
+            // Off: Guide reaches the PC on press as before; on, a lone press reaches it on release.
+            guide_hold_ms: 0,
             gamepad_quit_combo: GamepadQuitCombo::StartSelectLbRb,
             controller_mouse: true,
             analog_scrolling: AnalogScrolling::Right,

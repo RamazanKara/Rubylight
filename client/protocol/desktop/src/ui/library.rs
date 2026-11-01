@@ -516,7 +516,8 @@ impl Launcher {
                     // Play is off: say why, as Android's game page does.
                     ui.label(RichText::new(trf("Not installed on {}", &[&source.name])).color(ON_SURFACE_VARIANT));
                 }
-                if let Some(other) = &other_running {
+                // Only a game that can start would close it.
+                if let Some(other) = other_running.as_ref().filter(|_| detail.can_start) {
                     ui.label(RichText::new(trf("{} is running. Playing this game closes it.", &[&at_sentence_start(other)])).color(TERTIARY));
                 }
                 ui.add_space(8.0);

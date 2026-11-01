@@ -201,6 +201,9 @@ pub enum Dialog {
     PairError { host: u64, body: String, one_time: bool },
     /// How to pair, for a PC that is not paired yet.
     PairingHelp,
+    /// Home or PCs in the top bar would leave a page whose transfers still run, which cancels
+    /// them: asked first.
+    ConfirmLeave { to: Screen },
 }
 
 /// The header's top-level destinations, left to right.
@@ -834,11 +837,36 @@ impl Launcher {
         // The marked one reads as selected, as the chosen filter chip does.
         response.widget_info(|| egui::WidgetInfo::selected(egui::Role::Button, true, marked, tr(name)));
         if response.clicked() && self.screen != screen {
-            if let Some(save) = self.screen.save_command() {
-                commands.push(save);
+            match screen {
+                // As Start does: over a library, game or PC page, so Back returns to it and the
+                // page keeps its check or transfers.
+                Screen::Settings => {
+                    if let Some(save) = self.screen.save_command() {
+                        commands.push(save);
+                    }
+                    self.open_settings();
+                }
+                // Home and PCs drop the trail, and with it a Files or PC page and its transfers.
+                _ if self.transferring() => {
+                    self.dialog = Dialog::ConfirmLeave { to: screen };
+                    self.focus_dialog = true;
+                }
+                _ => self.leave_for(screen, commands),
             }
-            self.switch(screen);
         }
+    }
+
+    /// Moves to destination `to`, saving the page it leaves.
+    pub(super) fn leave_for(&mut self, to: Screen, commands: &mut Vec<Command>) {
+        if let Some(save) = self.screen.save_command() {
+            commands.push(save);
+        }
+        self.switch(to);
+    }
+
+    /// Whether a file transfer runs, on a Files page or a PC page's shared folders.
+    fn transferring(&self) -> bool {
+        self.files.transferring() || self.folders.transferring()
     }
 
     /// The page's actions at the right edge of its row, registered left to right so Tab reaches

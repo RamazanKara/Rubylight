@@ -372,6 +372,11 @@ impl Files {
         self.page.as_ref().is_some_and(Page::busy)
     }
 
+    /// Whether a transfer is queued or running, which leaving the page cancels.
+    pub fn transferring(&self) -> bool {
+        self.page.as_ref().is_some_and(|p| p.transfers.is_active())
+    }
+
     /// Command::ChooseFiles: `pick` shows the system's file dialog and calls back with the files
     /// chosen (none when it was closed), on any thread. One dialog at a time.
     pub fn choose(&mut self, pick: impl FnOnce(Box<dyn FnOnce(Result<Vec<PathBuf>, String>) + Send>)) {
@@ -851,6 +856,17 @@ pub(crate) mod tests {
 
     pub(crate) fn page(api: Arc<Fake>, folder: &Folder) -> Page {
         Page::new(7, api, native_answer().capabilities, Ok(folder.0.clone()), Arc::new(|| {}))
+    }
+
+    /// A Files page for PC `host` whose upload is held running, for the launcher's tests.
+    pub(crate) fn sending(host: u64, downloads: &Folder, here: &Folder) -> Page {
+        let api = fake(true, true);
+        let mut p = Page::new(host, api.clone(), native_answer().capabilities, Ok(downloads.0.clone()), Arc::new(|| {}));
+        until(&mut p, "the list", |p| p.list.is_some());
+        *api.hold.lock().unwrap() = true;
+        p.send(vec![here.file("a.txt", b"a")]);
+        assert!(p.transfers.is_active());
+        p
     }
 
     /// Waits for one report and takes it in: the workers run on threads.

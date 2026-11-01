@@ -738,6 +738,8 @@ pub struct Prepared {
     revision: u64,
     recovery: Recovery,
     layout_watch: butterpollo_core::display_policy::LayoutWatch,
+    /// The console session at the last layout check.
+    console_session: Option<u32>,
     /// Keep switching the physical monitors of an exclusive layout off while
     /// the stream is paused (`dd_hold_layout_while_paused`).
     hold_layout_while_paused: bool,
@@ -888,6 +890,7 @@ impl Prepared {
             revision: 0,
             recovery: Recovery::new(),
             layout_watch: Default::default(),
+            console_session: None,
             // A game window holds no layout to keep while paused.
             hold_layout_while_paused: false,
             mode_report,
@@ -1014,6 +1017,17 @@ impl Prepared {
         let Some(arrangement) = &self._arrangement else {
             return Ok(());
         };
+        // Windows recalls its own layout after the lock screen, a UAC prompt
+        // or a session switch: a display back on then is not coming back.
+        let session = butterpollo_windows::process::console_session();
+        if butterpollo_windows::input::secure_desktop_shown()
+            || self
+                .console_session
+                .replace(session)
+                .is_some_and(|last| last != session)
+        {
+            self.layout_watch.excuse(now);
+        }
         let switched_on = match arrangement.switched_back_on() {
             Ok(switched_on) => switched_on,
             Err(error) => {
@@ -1021,22 +1035,27 @@ impl Prepared {
                 return Err(error);
             }
         };
-        match self.layout_watch.observe(&switched_on, now) {
+        let (displays, kept_now) = match self.layout_watch.observe(&switched_on, now) {
             LayoutAction::Wait => return Ok(()),
-            LayoutAction::Reapply => {}
-            LayoutAction::KeepOn(displays) => {
-                tracing::warn!(
-                    ?displays,
-                    "a display the stream layout switched off keeps coming back on; leaving it on for the rest of the stream"
-                );
-                self.mode_report.keep_on();
-                return Ok(());
-            }
+            LayoutAction::Reapply { displays, kept_now } => (displays, kept_now),
+        };
+        if !kept_now.is_empty() {
+            tracing::warn!(
+                displays = ?kept_now,
+                "a display the stream layout switched off keeps coming back on; leaving it on for the rest of the stream"
+            );
+            self.mode_report.keep_on();
         }
-        tracing::info!(displays = ?switched_on, "displays the stream layout switched off came back on; reapplying it");
-        let result = arrangement.reapply(&self.output, &self.remote_monitors());
+        if displays.is_empty() {
+            return Ok(());
+        }
+        // The displays left on stay on while the rest are switched off again.
+        let mut retained = self.remote_monitors();
+        retained.extend(self.layout_watch.kept().iter().cloned());
+        tracing::info!(displays = ?displays, kept_on = ?self.layout_watch.kept(), "displays the stream layout switched off came back on; reapplying it");
+        let result = arrangement.reapply(&self.output, &retained);
         match &result {
-            Ok(()) => self.layout_watch.reapplied(&switched_on, now),
+            Ok(()) => self.layout_watch.reapplied(&displays, now),
             Err(_) => self.layout_watch.failed(now),
         }
         result
@@ -1572,6 +1591,7 @@ impl Prepared {
                 revision,
                 recovery: Recovery::new(),
                 layout_watch: Default::default(),
+                console_session: None,
                 hold_layout_while_paused,
                 mode_report,
                 recovery_scale: scale,

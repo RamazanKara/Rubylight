@@ -726,23 +726,30 @@ pub fn chosen_layout(
 /// that comes back [`LayoutWatch::RETURNS`] times within
 /// [`LayoutWatch::RETURN_WINDOW`] is left on for the rest of the stream
 /// (issue #56: a monitor that drops its HDMI link in standby reappears every
-/// 30-60 s, and each switch-off blanked the stream).
+/// 30-60 s, and each switch-off blanked the stream); the others are still
+/// switched off. Windows recalling its layout after the lock screen, a UAC
+/// prompt or a session switch is not the monitor coming back.
 #[derive(Debug, Default)]
 pub struct LayoutWatch {
     next_check: Option<std::time::Instant>,
     since: Option<std::time::Instant>,
     /// Each display the layout was put back for, and when.
     returns: Vec<(String, std::time::Instant)>,
-    /// A display kept coming back: the layout is left alone from now on.
-    stopped: bool,
+    /// Displays that kept coming back: left on for the rest of the stream.
+    kept: Vec<String>,
+    /// Until when a reapply follows the secure desktop or a session switch.
+    excused_until: Option<std::time::Instant>,
 }
 /// What [`LayoutWatch::observe`] decides.
 #[derive(Debug, PartialEq, Eq)]
 pub enum LayoutAction {
     Wait,
-    Reapply,
-    /// These displays keep coming back: leave them on and stop watching.
-    KeepOn(Vec<String>),
+    /// Put the layout back for `displays`, leaving [`LayoutWatch::kept`] on;
+    /// `kept_now` are the displays this check found to keep coming back.
+    Reapply {
+        displays: Vec<String>,
+        kept_now: Vec<String>,
+    },
 }
 impl LayoutWatch {
     pub const INTERVAL: std::time::Duration = std::time::Duration::from_millis(250);
@@ -750,17 +757,28 @@ impl LayoutWatch {
     pub const RETRY: std::time::Duration = std::time::Duration::from_secs(2);
     pub const RETURNS: usize = 3;
     pub const RETURN_WINDOW: std::time::Duration = std::time::Duration::from_secs(300);
+    /// How long after the secure desktop or a session switch a return is excused.
+    pub const EXCUSE: std::time::Duration = std::time::Duration::from_secs(30);
     /// Whether to query the displays now.
     pub fn due(&mut self, now: std::time::Instant) -> bool {
-        if self.stopped || self.next_check.is_some_and(|next| now < next) {
+        if self.next_check.is_some_and(|next| now < next) {
             return false;
         }
         self.next_check = Some(now + Self::INTERVAL);
         true
     }
+    /// The displays left on for the rest of the stream.
+    pub fn kept(&self) -> &[String] {
+        &self.kept
+    }
     /// Record a check of the displays that came back on.
     pub fn observe(&mut self, switched_on: &[String], now: std::time::Instant) -> LayoutAction {
-        if switched_on.is_empty() {
+        let displays: Vec<String> = switched_on
+            .iter()
+            .filter(|display| !self.kept.contains(display))
+            .cloned()
+            .collect();
+        if displays.is_empty() {
             self.since = None;
             return LayoutAction::Wait;
         }
@@ -771,27 +789,37 @@ impl LayoutWatch {
         self.since = None;
         self.returns
             .retain(|(_, at)| now.duration_since(*at) < Self::RETURN_WINDOW);
-        let returning: Vec<String> = switched_on
-            .iter()
-            .filter(|display| {
-                self.returns.iter().filter(|(d, _)| d == *display).count() + 1 >= Self::RETURNS
-            })
-            .cloned()
-            .collect();
-        if returning.is_empty() {
-            return LayoutAction::Reapply;
-        }
-        self.stopped = true;
-        LayoutAction::KeepOn(returning)
+        let excused = self.excused(now);
+        let (kept_now, displays): (Vec<String>, Vec<String>) =
+            displays.into_iter().partition(|display| {
+                !excused
+                    && self.returns.iter().filter(|(d, _)| d == display).count() + 1
+                        >= Self::RETURNS
+            });
+        self.kept.extend(kept_now.iter().cloned());
+        LayoutAction::Reapply { displays, kept_now }
     }
-    /// The layout was put back for `displays`; a refused attempt is not a return.
+    /// The layout was put back for `displays`; a refused attempt, or one after
+    /// the secure desktop or a session switch, is not a return.
     pub fn reapplied(&mut self, displays: &[String], now: std::time::Instant) {
+        if self.excused(now) {
+            return;
+        }
         self.returns
             .extend(displays.iter().map(|display| (display.clone(), now)));
     }
     pub fn failed(&mut self, now: std::time::Instant) {
         self.since = None;
         self.next_check = Some(now + Self::RETRY);
+        self.excuse(now);
+    }
+    /// The secure desktop is shown or the console session changed: Windows
+    /// recalls its own layout afterwards.
+    pub fn excuse(&mut self, now: std::time::Instant) {
+        self.excused_until = Some(now + Self::EXCUSE);
+    }
+    fn excused(&self, now: std::time::Instant) -> bool {
+        self.excused_until.is_some_and(|until| now < until)
     }
 }
 #[cfg(test)]

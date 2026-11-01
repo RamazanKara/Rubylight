@@ -856,7 +856,13 @@ fn a_display_the_exclusive_layout_switched_off_is_put_back_off_after_it_settles(
     assert_eq!(watch.observe(&phys, at(750)), LayoutAction::Wait);
     assert_eq!(watch.observe(&phys, at(1000)), LayoutAction::Wait);
     // Still on after the settle time: put the layout back once.
-    assert_eq!(watch.observe(&phys, at(1250)), LayoutAction::Reapply);
+    assert_eq!(
+        watch.observe(&phys, at(1250)),
+        LayoutAction::Reapply {
+            displays: phys.clone(),
+            kept_now: vec![]
+        }
+    );
     assert_eq!(watch.observe(&phys, at(1500)), LayoutAction::Wait);
     // A refused attempt waits before the next check.
     watch.failed(at(1500));
@@ -873,28 +879,108 @@ fn a_monitor_that_keeps_coming_back_is_left_on() {
         assert_eq!(watch.observe(displays, at(s)), LayoutAction::Wait);
         watch.observe(displays, at(s) + LayoutWatch::SETTLE)
     };
+    let reapply = |displays: &[String]| LayoutAction::Reapply {
+        displays: displays.to_vec(),
+        kept_now: vec![],
+    };
     let phys = vec!["phys".to_string()];
     let tv = vec!["tv".to_string()];
     let mut watch = LayoutWatch::default();
     // Refused attempts (the secure desktop) are not returns.
     for s in [0, 2, 4, 6] {
-        assert_eq!(settled(&mut watch, &phys, s), LayoutAction::Reapply);
+        assert_eq!(settled(&mut watch, &phys, s), reapply(&phys));
         watch.failed(at(s));
     }
     // Returns spread wider than the window keep the fight going.
-    for s in [10, 320, 640, 660] {
-        assert_eq!(settled(&mut watch, &phys, s), LayoutAction::Reapply);
+    for s in [100, 320, 640, 660] {
+        assert_eq!(settled(&mut watch, &phys, s), reapply(&phys));
         watch.reapplied(&phys, at(s));
     }
     // Another display's returns count on their own.
     for s in [670, 680] {
-        assert_eq!(settled(&mut watch, &tv, s), LayoutAction::Reapply);
+        assert_eq!(settled(&mut watch, &tv, s), reapply(&tv));
         watch.reapplied(&tv, at(s));
     }
     // Issue #56: the third return of the same monitor within the window leaves it on.
     assert_eq!(
         settled(&mut watch, &phys, 700),
-        LayoutAction::KeepOn(phys.clone())
+        LayoutAction::Reapply {
+            displays: vec![],
+            kept_now: phys.clone()
+        }
     );
-    assert!(!watch.due(at(800)));
+    assert_eq!(watch.kept(), phys);
+    // The watch goes on for the other displays; the kept one is no return.
+    assert!(watch.due(at(800)));
+    assert_eq!(watch.observe(&phys, at(800)), LayoutAction::Wait);
+}
+
+#[test]
+fn a_monitor_kept_on_does_not_stop_switching_another_off() {
+    use std::time::{Duration, Instant};
+    let start = Instant::now();
+    let at = |s: u64| start + Duration::from_secs(s);
+    let phys = "phys".to_string();
+    let tv = "tv".to_string();
+    let mut watch = LayoutWatch::default();
+    for s in [0, 30] {
+        watch.observe(std::slice::from_ref(&phys), at(s));
+        watch.observe(std::slice::from_ref(&phys), at(s) + LayoutWatch::SETTLE);
+        watch.reapplied(std::slice::from_ref(&phys), at(s));
+    }
+    // Phys's third return comes with the TV's first: the TV is still switched off.
+    let both = [phys.clone(), tv.clone()];
+    assert_eq!(watch.observe(&both, at(60)), LayoutAction::Wait);
+    assert_eq!(
+        watch.observe(&both, at(60) + LayoutWatch::SETTLE),
+        LayoutAction::Reapply {
+            displays: vec![tv.clone()],
+            kept_now: vec![phys.clone()]
+        }
+    );
+    watch.reapplied(std::slice::from_ref(&tv), at(60));
+    // Later TV returns are still handled while phys stays on.
+    assert_eq!(watch.observe(&both, at(90)), LayoutAction::Wait);
+    assert_eq!(
+        watch.observe(&both, at(90) + LayoutWatch::SETTLE),
+        LayoutAction::Reapply {
+            displays: vec![tv],
+            kept_now: vec![]
+        }
+    );
+}
+
+#[test]
+fn a_return_after_the_lock_screen_or_a_session_switch_is_not_counted() {
+    use std::time::{Duration, Instant};
+    let start = Instant::now();
+    let at = |s: u64| start + Duration::from_secs(s);
+    let phys = vec!["phys".to_string()];
+    let mut watch = LayoutWatch::default();
+    let mut back = |watch: &mut LayoutWatch, s: u64| {
+        watch.observe(&phys, at(s));
+        let action = watch.observe(&phys, at(s) + LayoutWatch::SETTLE);
+        watch.reapplied(&phys, at(s));
+        action
+    };
+    // Unlocking five times: Windows recalls its layout each time.
+    for s in [0, 40, 80, 120, 160] {
+        watch.excuse(at(s));
+        back(&mut watch, s + 5);
+    }
+    assert!(watch.kept().is_empty());
+    // A successful reapply right after a refused one (the secure desktop) is excused too.
+    watch.failed(at(200));
+    back(&mut watch, 203);
+    back(&mut watch, 240);
+    back(&mut watch, 250);
+    assert!(watch.kept().is_empty());
+    // Two real returns counted: the third leaves it on.
+    assert_eq!(
+        back(&mut watch, 260),
+        LayoutAction::Reapply {
+            displays: vec![],
+            kept_now: phys.clone()
+        }
+    );
 }

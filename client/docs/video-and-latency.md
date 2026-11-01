@@ -53,7 +53,7 @@ Nightjar for Windows and Linux has both under **Settings → Video**. When a str
 
 Few hardware decoders decode true 4:4:4, so on most PCs **Prefer YUV 4:4:4** needs the software decoder. **Full chroma** gets 4:4:4 colour on the hardware decoder instead: the PC packs it into an ordinary HEVC or AV1 stream and Nightjar unpacks it on the GPU. It needs the host option, and PyroWave has its own chroma modes.
 
-**Force full-range video** (under **Settings → Debug** on Android) is an explicit override: mismatched range can crush blacks or clip highlights.
+**Force full-range video** (**Full color range** on the desktop, under **Settings → Debug** on both) is an explicit override: mismatched range can crush blacks or clip highlights.
 
 ## Refresh rate and VRR
 
@@ -225,7 +225,7 @@ Turn on **Device controls bitrate** under Settings → Video, directly below Vid
 ### Bitrate, frame rate and error correction with a Rubylight PC
 
 - **Change bitrate / frame rate.** With a host that accepts rate changes during a stream (Rubylight 3.0), the stream menu's **Quality** section has this one control in place of Set bitrate. The PC's answer, a limit it applied or a refusal shows as a message.
-- **Loss-based bitrate (Rust engine)**, under **Settings → Debug** on Android (off by default): this device lowers the bitrate when frames are lost and raises it again after clean seconds, without a keyframe, in place of Device controls bitrate. It needs the **New streaming engine** and a PC that offers bitrate changes; other streams use Device controls bitrate. The desktop has the same setting under **Settings → Debug**.
+- **Loss-based bitrate (Rust engine)**, under **Settings → Debug** (off by default): this device lowers the bitrate when frames are lost and raises it again after clean seconds, without a keyframe, in place of Device controls bitrate. It needs the **New streaming engine** and a PC that offers bitrate changes; other streams use Device controls bitrate. The desktop has the same setting there.
 - **Error correction**, under **Settings → Debug** (Android and desktop): **PC's setting** (the default) leaves the share of recovery data to the PC; **Automatic** asks it to follow the losses this device reports; **10 %** to **50 %** fixes the share. Rubylight 3.0 and Sunshine-based PCs that accept the request take it. Both streaming engines report lost video to the PC once a second, which is what Automatic follows. On shaped Wi-Fi-like links on 2026-10-27, Automatic lost less and froze less often than the PC's own adaptive share ([measurement](https://github.com/RamazanKara/Rubylight/blob/main/rust/PERFORMANCE.md#october-27-client-error-correction-and-a-link-test-before-the-first-bitrate-nuc)).
 - **Link test before the first bitrate**, under **Settings → Advanced → Diagnostics** (off by default): a new stream at the automatic bitrate first times a short download from the PC (Rubylight 3.0) and starts at no more than 80 % of the result, never below 2 Mbit/s. It is off by default because it started streams lower, with more loss, in our measurement on 2026-10-27 ([client error correction and the link test](https://github.com/RamazanKara/Rubylight/blob/main/rust/PERFORMANCE.md#october-27-client-error-correction-and-a-link-test-before-the-first-bitrate-nuc)).
 - **Tell the PC when on Wi-Fi** and **Tell the PC the link speed**, under **Settings → Debug**: a host that uses these hints (Rubylight 3.0) paces the stream for this device's connection from the first frame.

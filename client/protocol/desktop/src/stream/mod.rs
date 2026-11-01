@@ -1098,6 +1098,7 @@ impl Streaming {
             }
             let grab = on && self.settings.capture_system_keys;
             SDL_SetWindowKeyboardGrab(window, grab);
+            self.direct_motion.keyboard_grab(grab);
         }
         self.direct_motion.set_active(on && !self.absolute && self.focused, self.settings.mouse_speed);
     }

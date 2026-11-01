@@ -13,8 +13,8 @@
 //! the present it changes nothing, so for that time it lends the filter what it decides with
 //! (whether keys and clicks are the PC's, the settings that map them, its controllers) and a
 //! thread reads the controllers every millisecond, as SDL does while the loop waits for events.
-//! A key or click from SDL's raw input thread (Windows reads the keyboard there during a stream)
-//! and a controller event from that thread then leave at once; the loop still gets the keys and
+//! A key or click from SDL's raw input thread (Windows reads the keyboard there while "Capture
+//! system keys" grabs it) and a controller event from that thread then leave at once; the loop still gets the keys and
 //! clicks, marked, and keeps its state without sending them again. Anything the loop sends or
 //! decides on itself (a stream shortcut, an event from before the present, a new controller, a
 //! controller chord's action) holds the keys, clicks and controller events after it back, so
@@ -462,6 +462,31 @@ fn poll_controllers(state: &(Mutex<PollState>, Condvar)) {
     }
 }
 
+/// Whether Windows reads the keyboard on SDL's raw input thread, where keys can leave during the
+/// present: only while the keyboard is grabbed. Without the grab Windows keeps the second key of
+/// its own shortcuts from the window (Tab of Alt+Tab, D of Win+D, Esc of Ctrl+Shift+Esc), but raw
+/// input still reports it, so the PC would get Alt+Tab or a typed "d" as well.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn raw_keyboard(direct_input: bool, grab: bool) -> bool {
+    direct_input && grab
+}
+
+/// Turns Windows' raw keyboard on or off. SDL reports a raw input thread it could not set up only
+/// through its error, not the hint's result.
+#[cfg(windows)]
+fn set_raw_keyboard(on: bool) {
+    // SAFETY: SDL applies the hint at once on this thread; the error is this thread's.
+    let failed = unsafe {
+        SDL_ClearError();
+        let set = if on { SDL_SetHint(SDL_HINT_WINDOWS_RAW_KEYBOARD, c"1".as_ptr()) } else { SDL_ResetHint(SDL_HINT_WINDOWS_RAW_KEYBOARD) };
+        !set || !crate::sdl::error().is_empty()
+    };
+    if failed {
+        let state = if on { "keys wait for the main loop" } else { "the keyboard stays on raw input" };
+        eprintln!("nightjar: {state}: raw keyboard input: {}", crate::sdl::error());
+    }
+}
+
 /// The filter for one stream; removed when dropped.
 pub struct DirectMotion {
     shared: Arc<Shared>,
@@ -469,6 +494,9 @@ pub struct DirectMotion {
     /// Keys, clicks and controllers may leave from the filter during the present.
     direct_input: bool,
     poller: Option<Poller>,
+    /// This stream turned Windows' raw keyboard on.
+    #[cfg_attr(not(windows), allow(dead_code))]
+    raw_keyboard: bool,
 }
 
 impl DirectMotion {
@@ -504,16 +532,24 @@ impl DirectMotion {
         }
         if direct_input {
             poller = Poller::start();
-            // Keys come from SDL's raw input thread, not the main loop's window messages.
-            #[cfg(windows)]
-            // SAFETY: a hint SDL applies at once; Drop resets it.
-            if !unsafe { SDL_SetHint(SDL_HINT_WINDOWS_RAW_KEYBOARD, c"1".as_ptr()) } {
-                eprintln!("nightjar: keys wait for the main loop: raw keyboard input refused: {}", crate::sdl::error());
-            }
         } else if installed {
             eprintln!("nightjar: keys, clicks and controllers through the main loop (NIGHTJAR_DIRECT_INPUT=0)");
         }
-        Self { shared, installed, direct_input, poller }
+        Self { shared, installed, direct_input, poller, raw_keyboard: false }
+    }
+
+    /// The keyboard grab ("Capture system keys" while captured) changed: Windows reads the
+    /// keyboard on SDL's raw input thread only while it is on ([`raw_keyboard`]).
+    #[cfg_attr(not(windows), allow(unused_variables))]
+    pub fn keyboard_grab(&mut self, grab: bool) {
+        #[cfg(windows)]
+        {
+            let on = raw_keyboard(self.direct_input, grab);
+            if on != self.raw_keyboard {
+                self.raw_keyboard = on;
+                set_raw_keyboard(on);
+            }
+        }
     }
 
     /// Whether motion may leave from the filter: captured, relative and focused.
@@ -579,9 +615,8 @@ impl Drop for DirectMotion {
             unsafe { SDL_SetEventFilter(None, std::ptr::null_mut()) };
         }
         #[cfg(windows)]
-        if self.direct_input {
-            // SAFETY: back to the keyboard through window messages.
-            unsafe { SDL_ResetHint(SDL_HINT_WINDOWS_RAW_KEYBOARD) };
+        if self.raw_keyboard {
+            set_raw_keyboard(false);
         }
     }
 }
@@ -737,6 +772,15 @@ mod tests {
         for other in [0, ORDERED, QUEUED, SENT] {
             assert_eq!(action_of(other), None, "{other:#x}");
         }
+    }
+
+    #[test]
+    fn the_raw_keyboard_is_on_only_while_the_keyboard_is_grabbed() {
+        // "Capture system keys" off, or not captured: Windows keeps the keys of its shortcuts
+        // (Tab of Alt+Tab, D of Win+D) from the window, and raw input must not hand them over.
+        assert!(!raw_keyboard(true, false));
+        assert!(raw_keyboard(true, true), "grabbed: SDL's hook keeps them from Windows");
+        assert!(!raw_keyboard(false, true), "NIGHTJAR_DIRECT_INPUT=0 leaves the keyboard alone");
     }
 
     #[test]

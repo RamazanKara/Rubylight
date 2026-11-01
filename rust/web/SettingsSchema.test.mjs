@@ -4,6 +4,7 @@ import { createTestServer } from './test-server.mjs';
 
 const server = await createTestServer({ configFile: false });
 const { schema } = await server.ssrLoadModule('/src/lib/settings-schema.ts');
+const types = await server.ssrLoadModule('/src/lib/settings-types.ts');
 const values =await server.ssrLoadModule('/src/components/settings/values.ts');
 const { computeChanges, describeDefault, differsFromDefault, effective, numberError, toServerCommands } = values;
 const { matchesSetting, searchWords } = await server.ssrLoadModule('/src/components/settings/search.ts');
@@ -86,6 +87,8 @@ test('search finds words that moved behind More, and configuration keys', () => 
   assert.equal(find('fec_percentage', 'fec_percentage'), true);
   assert.equal(find('fec percentage', 'fec_percentage'), true);
   assert.equal(find('amd quality', 'amd_quality'), true);
+  assert.equal(find('nvenc preset', 'nvenc_preset'), true);
+  assert.equal(find('amd quality', 'nvenc_enable_min_qp'), false);
 });
 
 test('the default is shown only when the saved value would differ from it', () => {
@@ -140,6 +143,13 @@ test('spellings the host reads as an option show as that option', () => {
     ['encoder', 'amdvce_experimental', 'amf'],
     ['encoder', 'amdvce_ffmpeg', 'amf'],
     ['encoder', 'amdvce_legacy', 'amf'],
+    ['encoder', 'nvenc_experimental', 'nvenc'],
+    ['encoder', 'nvenc_legacy', 'nvenc'],
+    // nvenc.rs; Vibepollo saved these as nvenc_force_split_encode.
+    ['nvenc_split_encode', 'forced', 'enabled'],
+    ['nvenc_split_encode', true, 'enabled'],
+    ['nvenc_split_encode', 'false', 'disabled'],
+    ['nvenc_split_encode', 'driver_decides', 'auto'],
     ['capture', 'dxgi', 'ddx'],
     ['capture', 'WGCC', 'wgc'],
     ['capture', 'DDX', 'ddx'],
@@ -158,6 +168,7 @@ test('spellings the host reads as an option show as that option', () => {
   // Where the host compares exactly, or does not read a spelling, it stays as saved.
   for (const [key, stored] of [
     ['encoder', 'AMDVCE'],
+    ['nvenc_split_encode', 'Forced'],
     ['amd_coder', 'CABAC'],
     ['gamepad', 'DS5'],
     ['amd_vbaq', 'maybe'],
@@ -215,27 +226,86 @@ test('a saved alias is written back only when the edit means something else', ()
   assert.equal(settings.get('amd_qvbr_quality_level').visibleWhen(current), true);
 });
 
-test('AMD AMF settings stay visible whatever the encoder setting says', () => {
-  // AMF encodes every stream except PyroWave's own, so the group is never hidden by the encoder.
-  const amd = schema.settings.filter(setting => setting.group === 'AMD AMF');
-  assert(amd.length > 10);
-  for (const setting of amd) {
-    assert.doesNotMatch(setting.inactiveHint ?? '', /Automatic selects|is selected/, setting.key);
-    if (setting.key === 'amd_qvbr_quality_level') continue;
-    for (const encoder of [undefined, 'auto', 'amf', 'amdvce', 'amdvce_experimental', 'amdvce_ffmpeg', 'amdvce_legacy', 'pyrowave']) {
-      assert.equal(setting.visibleWhen?.(encoder === undefined ? {} : { encoder }) ?? true, true, `${setting.key} with ${encoder}`);
+test('each encoder group shows for its encoder, and Automatic shows the one for this PC\'s GPUs', () => {
+  const { NATIVE_ENCODERS } = types;
+  const groups = { amf: 'AMD AMF', nvenc: 'NVIDIA NVENC' };
+  const conditional = ['amd_qvbr_quality_level', 'nvenc_target_quality', 'nvenc_min_qp_h264', 'nvenc_min_qp_hevc', 'nvenc_min_qp_av1'];
+  for (const [backend, group] of Object.entries(groups)) {
+    const members = schema.settings.filter(setting => setting.group === group);
+    assert(members.length > 10, group);
+    for (const setting of members) {
+      assert.match(setting.inactiveHint ?? '', backend === 'amf' ? /AMD AMF/ : /NVIDIA NVENC/, setting.key);
+      if (conditional.includes(setting.key)) continue;
+      const shown = (values) => setting.visibleWhen(values);
+      // Chosen by name, including Apollo's and Vibepollo's names, whatever the GPUs.
+      for (const encoder of backend === 'amf' ? ['amf', 'amdvce', 'amdvce_legacy'] : ['nvenc', 'nvenc_experimental', 'nvenc_legacy']) {
+        assert.equal(shown({ encoder, [NATIVE_ENCODERS]: ['amf', 'nvenc'] }), true, `${setting.key} with ${encoder}`);
+        assert.equal(shown({ encoder, [NATIVE_ENCODERS]: [] }), true, `${setting.key} with ${encoder}`);
+      }
+      // Naming the other vendor's encoder hides it.
+      assert.equal(shown({ encoder: backend === 'amf' ? 'nvenc' : 'amf', [NATIVE_ENCODERS]: ['amf', 'nvenc'] }), false, setting.key);
+      // Automatic (and PyroWave, automatic for other codecs) follows the GPUs.
+      for (const encoder of [undefined, 'auto', 'pyrowave']) {
+        assert.equal(shown({ encoder, [NATIVE_ENCODERS]: [backend] }), true, `${setting.key} with ${encoder}`);
+        assert.equal(shown({ encoder, [NATIVE_ENCODERS]: [backend === 'amf' ? 'nvenc' : 'amf'] }), false, `${setting.key} with ${encoder}`);
+        assert.equal(shown({ encoder, [NATIVE_ENCODERS]: ['amf', 'nvenc'] }), true, `${setting.key} with ${encoder}`);
+      }
+      // Before the GPUs are known, AMF shows as before and NVENC waits.
+      assert.equal(shown({ encoder: 'auto' }), backend === 'amf', setting.key);
     }
   }
+  const nv = { encoder: 'auto', [NATIVE_ENCODERS]: ['nvenc'] };
   assert.equal(settings.get('amd_qvbr_quality_level').visibleWhen({ encoder: 'pyrowave', amd_rc: 'qvbr' }), true);
   assert.equal(settings.get('amd_qvbr_quality_level').visibleWhen({ encoder: 'amf', amd_rc: 'cbr' }), false);
+  assert.equal(settings.get('amd_qvbr_quality_level').visibleWhen({ ...nv, amd_rc: 'qvbr' }), false);
+  assert.equal(settings.get('nvenc_target_quality').visibleWhen({ ...nv, nvenc_rate_control: 'vbr' }), true);
+  assert.equal(settings.get('nvenc_target_quality').visibleWhen(nv), false);
+  assert.equal(settings.get('nvenc_target_quality').visibleWhen({ encoder: 'amf', nvenc_rate_control: 'vbr' }), false);
+  assert.equal(settings.get('nvenc_min_qp_hevc').visibleWhen({ ...nv, nvenc_enable_min_qp: 'true' }), true);
+  assert.equal(settings.get('nvenc_min_qp_hevc').visibleWhen(nv), false);
 });
 
-test('no encoder other than AMD AMF and PyroWave is offered', () => {
-  assert.deepEqual(settings.get('encoder').control.options.map(option => option.value), ['auto', 'amf', 'pyrowave']);
-  assert.deepEqual(Object.keys(settings.get('encoder').aliases.spellings).sort(), ['amdvce', 'amdvce_experimental', 'amdvce_ffmpeg', 'amdvce_legacy']);
+test('Automatic uses AMF on AMD and NVENC on NVIDIA GPUs, or on the chosen graphics card', () => {
+  const gpu = (name, vendor, pnp_id = null) => ({ name, vendor, dedicated_memory: 0, luid: [1, 0], pnp_id });
+  const radeon = gpu('AMD Radeon RX 7900 XT', 0x1002, 'PCI\\VEN_1002&DEV_744C\\1');
+  const geforce = gpu('NVIDIA GeForce RTX 4090', 0x10de, 'PCI\\VEN_10DE&DEV_2684\\1');
+  // As encoder_gpu.rs: by vendor ID; Intel has no native encoder.
+  assert.deepEqual(values.nativeEncoders([radeon, gpu('Intel(R) Arc(TM) A770', 0x8086)], ''), ['amf']);
+  assert.deepEqual(values.nativeEncoders([radeon, geforce], ''), ['amf', 'nvenc']);
+  assert.deepEqual(values.nativeEncoders([radeon, geforce], 'nvidia geforce rtx 4090'), ['nvenc']);
+  // The device ID wins over the name, as on the host.
+  assert.deepEqual(values.nativeEncoders([radeon, geforce], 'NVIDIA GeForce RTX 4090', 'pci\\ven_1002&dev_744c\\1'), ['amf']);
+  assert.deepEqual(values.nativeEncoders([radeon], 'Unavailable GPU'), []);
+  assert.deepEqual(values.nativeEncoders(null, ''), []);
+});
+
+test('the encoders offered are Automatic, AMD AMF, NVIDIA NVENC and PyroWave', () => {
+  assert.deepEqual(settings.get('encoder').control.options.map(option => option.value), ['auto', 'amf', 'nvenc', 'pyrowave']);
+  assert.deepEqual(Object.keys(settings.get('encoder').aliases.spellings).sort(), ['amdvce', 'amdvce_experimental', 'amdvce_ffmpeg', 'amdvce_legacy', 'nvenc_experimental', 'nvenc_legacy']);
   assert.deepEqual(settings.get('frame_limiter_provider').control.options.map(option => option.value), ['auto', 'rtss', 'none']);
   assert.deepEqual(settings.get('rtss_frame_limit_type').control.options.map(option => option.value), ['async', 'front edge sync', 'back edge sync']);
-  for (const setting of schema.settings) assert.doesNotMatch(setting.key, /^(nvenc_|qsv_|sw_)|^(min_threads|frame_limiter_disable_vsync|dd_wa_dummy_plug_hdr10)$/, setting.key);
+  for (const setting of schema.settings) assert.doesNotMatch(setting.key, /^(qsv_|sw_)|^(min_threads|frame_limiter_disable_vsync|dd_wa_dummy_plug_hdr10)$/, setting.key);
+});
+
+test('the NVENC group holds exactly the settings the NVENC encoder reads, with its defaults', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const source = await readFile(new URL('../core/src/nvenc.rs', import.meta.url), 'utf8');
+  const read = [...new Set([...source.matchAll(/"(nvenc_[a-z0-9_]+)"/g)].map(match => match[1]))].sort();
+  const shown = schema.settings.filter(setting => setting.key.startsWith('nvenc_'));
+  assert.deepEqual(shown.map(setting => setting.key).sort(), read);
+  assert(shown.every(setting => setting.group === 'NVIDIA NVENC' && setting.category === 'encoders'));
+  // nvenc.rs Tuning::new defaults.
+  for (const [key, value] of [
+    ['nvenc_preset', 1], ['nvenc_twopass', 'quarter_res'], ['nvenc_rate_control', 'cbr'], ['nvenc_target_quality', 0],
+    ['nvenc_spatial_aq', true], ['nvenc_temporal_aq', false], ['nvenc_split_encode', 'auto'], ['nvenc_frame_budget_guard', true],
+    ['nvenc_vbv_increase', 0], ['nvenc_weighted_prediction', false], ['nvenc_h264_cavlc', false], ['nvenc_insert_filler_data', false],
+    ['nvenc_enable_min_qp', false], ['nvenc_min_qp_h264', 19], ['nvenc_min_qp_hevc', 23], ['nvenc_min_qp_av1', 23],
+  ]) {
+    assert.equal(settings.get(key).default, value, key);
+  }
+  assert.deepEqual(settings.get('nvenc_split_encode').control.options.map(option => option.value),
+    ['auto', 'enabled', 'disabled', 'two_strips', 'three_strips', 'four_strips']);
+  for (const setting of shown) assert.doesNotMatch(`${setting.label} ${setting.description} ${setting.details ?? ''}`, /experimental|FFmpeg/i, setting.key);
 });
 
 test('frame rates the host parses reject a fourth decimal place', () => {

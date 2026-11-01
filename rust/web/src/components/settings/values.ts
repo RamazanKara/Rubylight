@@ -4,7 +4,7 @@
 // JSON when it can, so a toggle may arrive as true, "true", "enabled" or 1
 // and a number as 20 or "20". Values are normalised for their control before
 // they are shown or compared.
-import type { Config, ConfigValue, PrepCommand } from '../../lib/api';
+import type { Config, ConfigValue, Gpu, PrepCommand } from '../../lib/api';
 import type { Aliases, Setting } from '../../lib/settings-types';
 import { readFolders, storedFolders } from '../../lib/shared-folders';
 
@@ -235,6 +235,23 @@ export function currentValues(settings: readonly Setting[], edits: Edits, stored
   }
   for (const setting of settings) values[setting.key] = normalise(setting, effective(setting, edits, stored));
   return values;
+}
+
+/**
+ * The encoders Automatic would use on the GPUs that may capture: all listed
+ * GPUs, or the one the graphics card device ID or name picks. As
+ * encoder_gpu.rs: AMF on AMD, NVENC on NVIDIA, by vendor ID.
+ */
+export function nativeEncoders(gpus: readonly Gpu[] | null | undefined, adapter: string, pnpId = ''): string[] {
+  const wantedId = pnpId.trim().toLowerCase();
+  const wanted = adapter.trim().toLowerCase();
+  const found = new Set<string>();
+  for (const gpu of gpus ?? []) {
+    if (wantedId ? (gpu.pnp_id ?? '').toLowerCase() !== wantedId : wanted && gpu.name.toLowerCase() !== wanted) continue;
+    if (gpu.vendor === 0x1002) found.add('amf');
+    else if (gpu.vendor === 0x10de) found.add('nvenc');
+  }
+  return [...found];
 }
 
 const count = (n: number) => (n === 0 ? 'None' : n === 1 ? '1 command' : `${n} commands`);

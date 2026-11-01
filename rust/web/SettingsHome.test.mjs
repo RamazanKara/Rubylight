@@ -84,7 +84,7 @@ test('always-on keys appear only in Debug switches, described as for troubleshoo
 });
 
 test('only the expert groups start collapsed, and each one exists', () => {
-  assert.deepEqual([...EXPERT_GROUPS].sort(), ['AMD AMF', 'Capture troubleshooting', 'Console', DEBUG_GROUP, 'Ports and addresses', 'RTSS'].sort());
+  assert.deepEqual([...EXPERT_GROUPS].sort(), ['AMD AMF', 'Capture troubleshooting', 'Console', DEBUG_GROUP, 'NVIDIA NVENC', 'Ports and addresses', 'RTSS'].sort());
   const groups = new Set(schema.settings.map(setting => setting.group));
   for (const group of EXPERT_GROUPS) assert.ok(groups.has(group), group);
 });

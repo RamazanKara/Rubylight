@@ -20,6 +20,7 @@
     isSet,
     effective,
     has,
+    nativeEncoders,
     normalise,
     NOT_SETTINGS,
     sameValue,
@@ -29,12 +30,12 @@
   import { api, type Config, type ConfigValue } from '../lib/api';
   import { confirm, failed, notify } from '../lib/feedback.svelte';
   import { guardNavigation, match, navigate, query as queryParam, route } from '../lib/router.svelte';
-  import { refreshMetadata } from '../lib/session.svelte';
+  import { refreshMetadata, session } from '../lib/session.svelte';
   import { categoriesOf, schema, settingGroups, settingsGroup } from '../lib/settings-schema';
   import { DEBUG_GROUP, EXPERT_GROUPS } from '../lib/schema/main';
   import SaveBar from '../components/settings/SaveBar.svelte';
   import { SETTING as PRESET, covered, presetById, presetId, presetNotice, withPreset } from '../lib/stream-presets';
-  import type { Category, CategoryId, Setting } from '../lib/settings-types';
+  import { NATIVE_ENCODERS, type Category, type CategoryId, type Setting } from '../lib/settings-types';
 
   const categories = settingGroups;
   const byKey: ReadonlyMap<string, Setting> = new Map(schema.settings.map((setting) => [setting.key, setting]));
@@ -92,7 +93,16 @@
   const preset = $derived(presetById(presetId(has(edits, PRESET) ? edits[PRESET] : config[PRESET])));
   const described = $derived(withPreset(schema.settings, preset.id));
   const defaults: ReadonlyMap<string, Setting> = $derived(new Map(described.map((setting) => [setting.key, setting])));
-  const values = $derived(currentValues(described, edits, config));
+  const values = $derived.by(() => {
+    const current = currentValues(described, edits, config);
+    // Automatic encoder settings follow this PC's GPUs.
+    current[NATIVE_ENCODERS] = nativeEncoders(
+      session.metadata?.gpus,
+      String(current.adapter_name ?? ''),
+      String(current.adapter_pnp_id ?? ''),
+    );
+    return current;
+  });
   const changes = $derived(stored ? computeChanges(defaults, edits, stored, new Set(covered)) : {});
   const presetProblem = $derived(presetNotice(has(edits, PRESET) ? edits[PRESET] : config[PRESET]));
   /** Settings the preset covers that have a value of their own, even one equal to the preset's. */

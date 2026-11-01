@@ -315,28 +315,32 @@ test('a malformed fixed resolution blocks saving and an empty one warns', async 
   assert.deepEqual(writes, [{ dd_resolution_option: 'manual', dd_manual_resolution: '2560x1440' }]);
 });
 
-test("the AMD AMF settings are shown whatever the encoder setting or this PC's GPU is", async t => {
+test("with Automatic, the encoder settings of this PC's GPU are shown", async t => {
   const gpu = (name, vendor) => ({ name, vendor, dedicated_memory: 0, luid: [1, 0], pnp_id: null });
   const { page } = await fixture(t, {}, { gpus: [gpu('NVIDIA GeForce RTX 4090', 0x10de)] });
   await page.goto(base + '/settings/encoders');
-  // AMD AMF is an expert group: folded until opened.
-  await fold(page, 'AMD AMF').locator(':scope > summary').click();
-  const usage = setting(page, 'amd_usage');
-  await usage.waitFor();
-  assert.equal(await usage.locator('.dependency').count(), 0, 'AMF settings are in effect, not conditional');
-  assert.equal(await setting(page, 'nvenc_preset').count(), 0);
+  // NVIDIA NVENC is an expert group: folded until opened.
+  await fold(page, 'NVIDIA NVENC').locator(':scope > summary').click();
+  const preset = setting(page, 'nvenc_preset');
+  await preset.waitFor();
+  assert.equal(await preset.locator('.dependency').count(), 0, 'NVENC settings are in effect, not conditional');
+  assert.equal(await setting(page, 'amd_usage').count(), 0);
   assert.equal(await setting(page, 'qsv_preset').count(), 0);
   assert.equal(await setting(page, 'sw_preset').count(), 0);
   assert.deepEqual(await setting(page, 'encoder').getByRole('combobox').locator('option').allInnerTexts(),
-    ['Automatic', 'AMD AMF', 'PyroWave (automatic for other codecs)']);
+    ['Automatic', 'AMD AMF', 'NVIDIA NVENC', 'PyroWave (automatic for other codecs)']);
   if (process.env.BUTTERPOLLO_TEST_ARTIFACTS) {
-    await page.screenshot({ path: path.join(process.env.BUTTERPOLLO_TEST_ARTIFACTS, 'settings-encoders-amd-desktop.png'), fullPage: true });
+    await page.screenshot({ path: path.join(process.env.BUTTERPOLLO_TEST_ARTIFACTS, 'settings-encoders-nvenc-desktop.png'), fullPage: true });
   }
-  // Choosing AMF or PyroWave keeps them.
-  for (const encoder of ['amf', 'pyrowave']) {
-    await setting(page, 'encoder').getByRole('combobox').selectOption(encoder);
-    await usage.waitFor();
-  }
+  // Target quality follows variable bitrate.
+  assert.equal(await setting(page, 'nvenc_target_quality').count(), 0);
+  await setting(page, 'nvenc_rate_control').getByRole('combobox').selectOption('vbr');
+  await setting(page, 'nvenc_target_quality').waitFor();
+  // Choosing AMF swaps the groups.
+  await setting(page, 'encoder').getByRole('combobox').selectOption('amf');
+  await fold(page, 'AMD AMF').locator(':scope > summary').click();
+  await setting(page, 'amd_usage').waitFor();
+  assert.equal(await setting(page, 'nvenc_preset').count(), 0);
 });
 
 test('undoing a change in an expert group keeps the group open', async t => {

@@ -1,6 +1,6 @@
 // Settings for the categories named in settings-schema.ts: video and encoders.
 import type { ConfigValue } from '../api';
-import type { Aliases, Setting } from '../settings-types';
+import { NATIVE_ENCODERS, type Aliases, type Setting } from '../settings-types';
 import { SETTING, defaultPreset, presets } from '../stream-presets';
 
 type Values = Record<string, ConfigValue>;
@@ -41,6 +41,36 @@ function flag(values: Values, key: string, fallback: boolean): boolean {
 const capture = (values: Values) => read(values, 'capture', 'auto').toLowerCase();
 const gridPacing = (values: Values) =>
   ['grid', 'fixed'].includes(read(values, 'frame_pacing', 'arrival').toLowerCase());
+
+/** The encoder the host resolves `encoder` to (encoder_policy.rs canonical_name). */
+function encoder(values: Values): string {
+  const name = read(values, 'encoder', 'auto');
+  switch (name) {
+    case 'amdvce':
+    case 'amdvce_experimental':
+    case 'amdvce_ffmpeg':
+    case 'amdvce_legacy':
+      return 'amf';
+    case 'nvenc_experimental':
+    case 'nvenc_legacy':
+      return 'nvenc';
+    case 'amf':
+    case 'nvenc':
+      return name;
+    default:
+      return 'auto';
+  }
+}
+/** Automatic uses this native encoder on one of this PC's GPUs; `unknown` until they are listed. */
+function automatic(values: Values, backend: string, unknown: boolean): boolean {
+  if (encoder(values) !== 'auto') return false;
+  const native = values[NATIVE_ENCODERS];
+  return Array.isArray(native) && native.length > 0 ? native.includes(backend) : unknown;
+}
+const amf = (values: Values) => encoder(values) === 'amf' || automatic(values, 'amf', true);
+const nvenc = (values: Values) => encoder(values) === 'nvenc' || automatic(values, 'nvenc', false);
+const amfHint = 'Applies when AMD AMF encodes, as Automatic does on AMD graphics cards.';
+const nvencHint = 'Applies when NVIDIA NVENC encodes, as Automatic does on NVIDIA graphics cards.';
 
 const video: Setting[] = [
   {
@@ -492,9 +522,9 @@ const encoders: Setting[] = [
     key: 'encoder',
     label: 'Encoder',
     description:
-      "Automatic encodes H.264, HEVC and AV1 with AMD AMF, and PyroWave streams with PyroWave's own encoder.",
+      "Automatic encodes H.264, HEVC and AV1 with the graphics card's own encoder, AMD AMF or NVIDIA NVENC, and PyroWave streams with PyroWave's own encoder.",
     details:
-      "If AMF cannot start, the stream fails with AMF's error; there is no fallback to another encoder. The stream card and log show the encoder in use.",
+      "If that encoder cannot start, the stream fails with its error; there is no fallback to another encoder. An encoder the streaming graphics card does not have fails the stream too. The stream card and log show the encoder in use.",
     category: 'encoders',
     group: 'Encoder',
     control: {
@@ -502,16 +532,19 @@ const encoders: Setting[] = [
       options: [
         { value: 'auto', label: 'Automatic' },
         { value: 'amf', label: 'AMD AMF' },
+        { value: 'nvenc', label: 'NVIDIA NVENC' },
         { value: 'pyrowave', label: 'PyroWave (automatic for other codecs)' },
       ],
     },
-    // encoder_policy.rs canonical_name: Apollo and Vibepollo's names for AMF.
+    // encoder_policy.rs canonical_name: Apollo and Vibepollo's names for AMF and NVENC.
     aliases: {
       spellings: {
         amdvce: 'amf',
         amdvce_experimental: 'amf',
         amdvce_ffmpeg: 'amf',
         amdvce_legacy: 'amf',
+        nvenc_experimental: 'nvenc',
+        nvenc_legacy: 'nvenc',
       },
     },
     default: 'auto',
@@ -588,6 +621,8 @@ const amd: Setting[] = [
       ],
     },
     default: 'ultralowlatency',
+    inactiveHint: amfHint,
+    visibleWhen: amf,
   },
   {
     key: 'amd_quality',
@@ -606,6 +641,8 @@ const amd: Setting[] = [
       ],
     },
     default: 'speed',
+    inactiveHint: amfHint,
+    visibleWhen: amf,
   },
   {
     key: 'amd_rc',
@@ -630,6 +667,8 @@ const amd: Setting[] = [
       ],
     },
     default: 'vbr_latency',
+    inactiveHint: amfHint,
+    visibleWhen: amf,
   },
   {
     key: 'amd_peak_bitrate_ratio',
@@ -649,6 +688,8 @@ const amd: Setting[] = [
       ],
     },
     default: 0,
+    inactiveHint: amfHint,
+    visibleWhen: amf,
     advanced: true,
   },
   {
@@ -669,6 +710,8 @@ const amd: Setting[] = [
       ],
     },
     default: 0,
+    inactiveHint: amfHint,
+    visibleWhen: amf,
     advanced: true,
   },
   {
@@ -692,6 +735,8 @@ const amd: Setting[] = [
       ],
     },
     default: 'auto',
+    inactiveHint: amfHint,
+    visibleWhen: amf,
     advanced: true,
   },
   {
@@ -703,8 +748,8 @@ const amd: Setting[] = [
     group: 'AMD AMF',
     control: { kind: 'number', min: 0, max: 51, step: 1 },
     default: 0,
-    inactiveHint: "Applies with Rate control set to Quality VBR. HDR streams use peak-constrained VBR instead.",
-    visibleWhen: (values) => read(values, 'amd_rc', 'vbr_latency') === 'qvbr',
+    inactiveHint: "Applies to AMD AMF with Rate control set to Quality VBR. HDR streams use peak-constrained VBR instead.",
+    visibleWhen: (values) => amf(values) && read(values, 'amd_rc', 'vbr_latency') === 'qvbr',
   },
   {
     key: 'amd_preanalysis',
@@ -715,6 +760,8 @@ const amd: Setting[] = [
     group: 'AMD AMF',
     control: { kind: 'toggle' },
     default: false,
+    inactiveHint: amfHint,
+    visibleWhen: amf,
   },
   {
     key: 'amd_vbaq',
@@ -731,6 +778,8 @@ const amd: Setting[] = [
     aliases: switchWords,
     default: '',
     defaultText: 'Off for H.264, on for HEVC and AV1',
+    inactiveHint: amfHint,
+    visibleWhen: amf,
   },
   {
     key: 'amd_enforce_hrd',
@@ -741,6 +790,8 @@ const amd: Setting[] = [
     group: 'AMD AMF',
     control: { kind: 'toggle' },
     default: false,
+    inactiveHint: amfHint,
+    visibleWhen: amf,
   },
   {
     key: 'amd_coder',
@@ -758,6 +809,8 @@ const amd: Setting[] = [
     },
     aliases: coderWords,
     default: 'auto',
+    inactiveHint: amfHint,
+    visibleWhen: amf,
   },
   {
     key: 'amd_input_queue_size',
@@ -770,6 +823,8 @@ const amd: Setting[] = [
     group: 'AMD AMF',
     control: { kind: 'number', min: 0, max: 32, step: 1, unit: 'frames' },
     default: 0,
+    inactiveHint: amfHint,
+    visibleWhen: amf,
   },
   {
     key: 'amd_ltr_frames',
@@ -781,6 +836,8 @@ const amd: Setting[] = [
     group: 'AMD AMF',
     control: { kind: 'number', min: 0, max: 4, step: 1, unit: 'frames' },
     default: 4,
+    inactiveHint: amfHint,
+    visibleWhen: amf,
   },
   {
     key: 'amd_lowlatency_mode',
@@ -794,6 +851,8 @@ const amd: Setting[] = [
     control: { kind: 'select', options: tristate },
     aliases: switchWords,
     default: 'auto',
+    inactiveHint: amfHint,
+    visibleWhen: amf,
   },
   {
     key: 'amd_high_motion_quality_boost',
@@ -804,6 +863,8 @@ const amd: Setting[] = [
     control: { kind: 'select', options: tristate },
     aliases: switchWords,
     default: 'auto',
+    inactiveHint: amfHint,
+    visibleWhen: amf,
   },
   {
     key: 'amd_smart_access_video',
@@ -815,6 +876,8 @@ const amd: Setting[] = [
     control: { kind: 'select', options: tristate },
     aliases: switchWords,
     default: 'auto',
+    inactiveHint: amfHint,
+    visibleWhen: amf,
   },
   {
     key: 'amd_split_frame',
@@ -835,6 +898,8 @@ const amd: Setting[] = [
     },
     aliases: switchWords,
     default: 'auto',
+    inactiveHint: amfHint,
+    visibleWhen: amf,
   },
   {
     key: 'encoder_focus',
@@ -855,6 +920,8 @@ const amd: Setting[] = [
     },
     aliases: { match: 'case', spellings: { center: 'centre' } },
     default: 'off',
+    inactiveHint: amfHint,
+    visibleWhen: amf,
   },
   {
     key: 'amd_av1_latency_mode',
@@ -876,6 +943,8 @@ const amd: Setting[] = [
       ],
     },
     default: 'auto',
+    inactiveHint: amfHint,
+    visibleWhen: amf,
   },
   {
     key: 'amd_av1_screen_content',
@@ -887,6 +956,8 @@ const amd: Setting[] = [
     control: { kind: 'select', options: tristate },
     aliases: switchWords,
     default: 'auto',
+    inactiveHint: amfHint,
+    visibleWhen: amf,
   },
   {
     key: 'amd_av1_tiles',
@@ -904,8 +975,261 @@ const amd: Setting[] = [
       ],
     },
     default: 0,
+    inactiveHint: amfHint,
+    visibleWhen: amf,
     advanced: true,
   },
 ];
 
-export const settings: Setting[] = [...video, ...encoders, ...amd];
+/** nvenc.rs: Vibepollo's nvenc_force_split_encode values and the fallback console's forced. */
+const splitWords: Aliases = {
+  spellings: { true: 'enabled', forced: 'enabled', false: 'disabled', driver_decides: 'auto' },
+};
+
+const nvidia: Setting[] = [
+  {
+    key: 'nvenc_preset',
+    label: 'Preset',
+    description:
+      'Higher presets compress better at the same bitrate but take longer to encode each frame.',
+    details:
+      'When a preset would not finish frames in time at the stream resolution and frame rate, the frame time guard encodes with a faster one.',
+    category: 'encoders',
+    group: 'NVIDIA NVENC',
+    control: {
+      kind: 'select',
+      options: [
+        { value: '1', label: 'P1 (fastest)' },
+        { value: '2', label: 'P2' },
+        { value: '3', label: 'P3' },
+        { value: '4', label: 'P4' },
+        { value: '5', label: 'P5' },
+        { value: '6', label: 'P6' },
+        { value: '7', label: 'P7 (slowest)' },
+      ],
+    },
+    default: 1,
+    inactiveHint: nvencHint,
+    visibleWhen: nvenc,
+  },
+  {
+    key: 'nvenc_rate_control',
+    label: 'Rate control',
+    description:
+      'Constant bitrate holds every frame to the stream bitrate. Variable bitrate spends less on simple scenes and lets busy ones peak at 1.5× the stream bitrate.',
+    category: 'encoders',
+    group: 'NVIDIA NVENC',
+    control: {
+      kind: 'select',
+      options: [
+        { value: 'cbr', label: 'Constant bitrate' },
+        { value: 'vbr', label: 'Variable bitrate' },
+      ],
+    },
+    default: 'cbr',
+    inactiveHint: nvencHint,
+    visibleWhen: nvenc,
+  },
+  {
+    key: 'nvenc_target_quality',
+    label: 'Target quality',
+    description:
+      'The quality variable bitrate aims for. Lower values look better and use more bits; 0 lets the driver choose.',
+    details: 'Up to 51 for H.264 and HEVC and up to 63 for AV1; higher values use the codec maximum.',
+    category: 'encoders',
+    group: 'NVIDIA NVENC',
+    control: { kind: 'number', min: 0, max: 63, step: 1 },
+    default: 0,
+    inactiveHint: 'Applies to NVIDIA NVENC with Rate control set to Variable bitrate.',
+    visibleWhen: (values) => nvenc(values) && read(values, 'nvenc_rate_control', 'cbr') === 'vbr',
+  },
+  {
+    key: 'nvenc_twopass',
+    label: 'Multi-pass encoding',
+    description:
+      'A first pass over each frame spreads bits better and keeps frames within the bitrate. Off can cause bitrate spikes and packet loss.',
+    category: 'encoders',
+    group: 'NVIDIA NVENC',
+    control: {
+      kind: 'select',
+      options: [
+        { value: 'disabled', label: 'Off' },
+        { value: 'quarter_res', label: 'Quarter resolution' },
+        { value: 'full_res', label: 'Full resolution' },
+      ],
+    },
+    default: 'quarter_res',
+    inactiveHint: nvencHint,
+    visibleWhen: nvenc,
+  },
+  {
+    key: 'nvenc_spatial_aq',
+    label: 'Spatial adaptive quantization',
+    description:
+      'Gives flat areas, where blocking shows most, more bits and detailed areas fewer. Adds no latency.',
+    category: 'encoders',
+    group: 'NVIDIA NVENC',
+    control: { kind: 'toggle' },
+    default: true,
+    inactiveHint: nvencHint,
+    visibleWhen: nvenc,
+  },
+  {
+    key: 'nvenc_temporal_aq',
+    label: 'Temporal adaptive quantization',
+    description:
+      'Spends more bits on parts of the picture that stay the same across frames. GPUs without it encode without it and log a warning.',
+    category: 'encoders',
+    group: 'NVIDIA NVENC',
+    control: { kind: 'toggle' },
+    default: false,
+    inactiveHint: nvencHint,
+    visibleWhen: nvenc,
+  },
+  {
+    key: 'nvenc_split_encode',
+    label: 'Split-frame encoding',
+    description:
+      'Splits each HEVC or AV1 frame across several encoder engines on GPUs that have them. Automatic lets the driver decide.',
+    details:
+      'A fixed strip count asks for that many strips; a GPU with fewer engines encodes fewer. H.264 and drivers before NVENC API 12.1 ignore it, and weighted prediction turns it off for HEVC.',
+    category: 'encoders',
+    group: 'NVIDIA NVENC',
+    control: {
+      kind: 'select',
+      options: [
+        { value: 'auto', label: 'Automatic' },
+        { value: 'enabled', label: 'On' },
+        { value: 'disabled', label: 'Off' },
+        { value: 'two_strips', label: 'Two strips' },
+        { value: 'three_strips', label: 'Three strips' },
+        { value: 'four_strips', label: 'Four strips' },
+      ],
+    },
+    aliases: splitWords,
+    default: 'auto',
+    inactiveHint: nvencHint,
+    visibleWhen: nvenc,
+  },
+  {
+    key: 'nvenc_frame_budget_guard',
+    label: 'Frame time guard',
+    description:
+      'Encodes with a faster preset when the chosen one would not finish each frame in time at the stream resolution and frame rate.',
+    details: 'The estimate counts the encoder engines the GPU has. The log says when the guard lowers the preset.',
+    category: 'encoders',
+    group: 'NVIDIA NVENC',
+    control: { kind: 'toggle' },
+    default: true,
+    inactiveHint: nvencHint,
+    visibleWhen: nvenc,
+    advanced: true,
+  },
+  {
+    key: 'nvenc_vbv_increase',
+    label: 'Frame size headroom',
+    description:
+      'Lets a single frame exceed the average frame size by this much. Helps busy scenes but can cause packet loss.',
+    details: '400 allows frames five times the average. Drivers without a custom buffer size ignore it.',
+    category: 'encoders',
+    group: 'NVIDIA NVENC',
+    control: { kind: 'number', min: 0, max: 400, step: 1, unit: '%' },
+    default: 0,
+    inactiveHint: nvencHint,
+    visibleWhen: nvenc,
+    advanced: true,
+  },
+  {
+    key: 'nvenc_weighted_prediction',
+    label: 'Weighted prediction',
+    description:
+      'Improves quality during fades and brightness changes on GPUs that support it, but turns off split-frame encoding for HEVC.',
+    category: 'encoders',
+    group: 'NVIDIA NVENC',
+    control: { kind: 'toggle' },
+    default: false,
+    inactiveHint: nvencHint,
+    visibleWhen: nvenc,
+    advanced: true,
+  },
+  {
+    key: 'nvenc_h264_cavlc',
+    label: 'Use CAVLC for H.264',
+    description:
+      'Uses the simpler CAVLC entropy coding instead of CABAC. It needs about 10% more bitrate for the same quality.',
+    category: 'encoders',
+    group: 'NVIDIA NVENC',
+    control: { kind: 'toggle' },
+    default: false,
+    inactiveHint: nvencHint,
+    visibleWhen: nvenc,
+    advanced: true,
+  },
+  {
+    key: 'nvenc_insert_filler_data',
+    label: 'Insert filler data',
+    description:
+      'Pads frames so the stream holds a constant bitrate even when the picture is simple, which uses more bandwidth.',
+    category: 'encoders',
+    group: 'NVIDIA NVENC',
+    control: { kind: 'toggle' },
+    default: false,
+    inactiveHint: nvencHint,
+    visibleWhen: nvenc,
+    advanced: true,
+  },
+  {
+    key: 'nvenc_enable_min_qp',
+    label: 'Minimum quantizer',
+    description:
+      'Stops the encoder from spending bits beyond a set quality level on easy scenes, leaving headroom for hard ones.',
+    category: 'encoders',
+    group: 'NVIDIA NVENC',
+    control: { kind: 'toggle' },
+    default: false,
+    inactiveHint: nvencHint,
+    visibleWhen: nvenc,
+    advanced: true,
+  },
+  {
+    key: 'nvenc_min_qp_h264',
+    label: 'Minimum QP for H.264',
+    description:
+      'The lowest quantization parameter (QP), which controls compression, for H.264 frames. Higher values cap quality sooner.',
+    category: 'encoders',
+    group: 'NVIDIA NVENC',
+    control: { kind: 'number', min: 0, max: 51, step: 1 },
+    default: 19,
+    inactiveHint: 'Applies to NVIDIA NVENC with Minimum quantizer on.',
+    visibleWhen: (values) => nvenc(values) && flag(values, 'nvenc_enable_min_qp', false),
+    advanced: true,
+  },
+  {
+    key: 'nvenc_min_qp_hevc',
+    label: 'Minimum QP for HEVC',
+    description:
+      'The lowest quantization parameter (QP), which controls compression, for HEVC frames. Higher values cap quality sooner.',
+    category: 'encoders',
+    group: 'NVIDIA NVENC',
+    control: { kind: 'number', min: 0, max: 51, step: 1 },
+    default: 23,
+    inactiveHint: 'Applies to NVIDIA NVENC with Minimum quantizer on.',
+    visibleWhen: (values) => nvenc(values) && flag(values, 'nvenc_enable_min_qp', false),
+    advanced: true,
+  },
+  {
+    key: 'nvenc_min_qp_av1',
+    label: 'Minimum QP for AV1',
+    description:
+      'The lowest quantization parameter (QP), which controls compression, for AV1 frames, from 0 to 255. Higher values cap quality sooner.',
+    category: 'encoders',
+    group: 'NVIDIA NVENC',
+    control: { kind: 'number', min: 0, max: 255, step: 1 },
+    default: 23,
+    inactiveHint: 'Applies to NVIDIA NVENC with Minimum quantizer on.',
+    visibleWhen: (values) => nvenc(values) && flag(values, 'nvenc_enable_min_qp', false),
+    advanced: true,
+  },
+];
+
+export const settings: Setting[] = [...video, ...encoders, ...amd, ...nvidia];

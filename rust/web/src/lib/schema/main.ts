@@ -64,6 +64,7 @@ export const DEBUG_GROUP = 'Debug switches';
 export const EXPERT_GROUPS: ReadonlySet<string> = new Set([
   'Capture troubleshooting',
   'AMD AMF',
+  'NVIDIA NVENC',
   'RTSS',
   'Ports and addresses',
   'Console',

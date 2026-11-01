@@ -44,6 +44,7 @@
   const hz = (mhz: number | null) => (mhz == null ? '–' : (mhz / 1000).toFixed(mhz < 100_000 ? 1 : 0));
   const encoders: Record<string, string> = {
     amf: 'AMD AMF',
+    nvenc: 'NVIDIA NVENC',
     pyrowave: 'PyroWave',
   };
 </script>

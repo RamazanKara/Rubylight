@@ -44,6 +44,14 @@ struct Driver {
     lock_busy: usize,
     need_more_input: bool,
     destroy_busy: bool,
+    /// NV_ENC_CAPS_NUM_ENCODER_ENGINES; 0 reads as 1.
+    engines: i32,
+    /// NV_ENC_CAPS_SUPPORTED_RATECONTROL_MODES, when not every mode.
+    rate_modes: Option<i32>,
+    /// The codecs nvEncGetEncodeGUIDs lists, when not all three.
+    codecs: Option<Vec<u8>>,
+    /// NV_ENC_CAPS_MB_PER_SEC_MAX.
+    macroblocks: i32,
 }
 thread_local! { static DRIVER: RefCell<Driver> = RefCell::default(); }
 fn state<T>(call: impl FnOnce(&mut Driver) -> T) -> T {
@@ -67,6 +75,8 @@ unsafe extern "C" fn create(table: *mut NV_ENCODE_API_FUNCTION_LIST) -> NVENCSTA
     assert_eq!(table.version, version(table.version).structure(2, false));
     table.nvEncOpenEncodeSessionEx = Some(open);
     table.nvEncGetEncodeCaps = Some(caps);
+    table.nvEncGetEncodeGUIDCount = Some(guid_count);
+    table.nvEncGetEncodeGUIDs = Some(guids);
     table.nvEncGetEncodePresetConfigEx = Some(preset_ex);
     table.nvEncGetEncodePresetConfig = Some(preset);
     table.nvEncInitializeEncoder = Some(initialize);
@@ -154,8 +164,38 @@ unsafe extern "C" fn caps(
             _NV_ENC_CAPS_NV_ENC_CAPS_ASYNC_ENCODE_SUPPORT => i32::from(d.asynchronous),
             _NV_ENC_CAPS_NV_ENC_CAPS_SUPPORT_REF_PIC_INVALIDATION => i32::from(!d.no_rfi),
             _NV_ENC_CAPS_NV_ENC_CAPS_SUPPORT_MULTIPLE_REF_FRAMES => i32::from(!d.no_multiple_refs),
+            _NV_ENC_CAPS_NV_ENC_CAPS_NUM_ENCODER_ENGINES => d.engines.max(1),
+            _NV_ENC_CAPS_NV_ENC_CAPS_SUPPORTED_RATECONTROL_MODES => d.rate_modes.unwrap_or(0x3f),
+            _NV_ENC_CAPS_NV_ENC_CAPS_MB_PER_SEC_MAX => d.macroblocks,
             _ => 1,
         });
+    }
+    SUCCESS
+}
+fn listed_codecs() -> Vec<GUID> {
+    state(|d| d.codecs.clone())
+        .unwrap_or(vec![0, 1, 2])
+        .into_iter()
+        .map(|codec| codec_guid(codec).unwrap())
+        .collect()
+}
+unsafe extern "C" fn guid_count(_: *mut c_void, count: *mut u32) -> NVENCSTATUS {
+    // SAFETY: `count` points at the session's live local out-value.
+    unsafe { *count = listed_codecs().len() as u32 };
+    SUCCESS
+}
+unsafe extern "C" fn guids(
+    _: *mut c_void,
+    out: *mut GUID,
+    capacity: u32,
+    count: *mut u32,
+) -> NVENCSTATUS {
+    let listed = listed_codecs();
+    let written = listed.len().min(capacity as usize);
+    // SAFETY: `out` holds `capacity` GUIDs and `count` is a live local out-value.
+    unsafe {
+        std::ptr::copy_nonoverlapping(listed.as_ptr(), out, written);
+        *count = written as u32;
     }
     SUCCESS
 }
@@ -485,6 +525,9 @@ unsafe extern "C" fn invalidate(_: *mut c_void, frame: u64) -> NVENCSTATUS {
     })
 }
 fn session(config: &Negotiated, maximum: ApiVersion) -> Result<Session> {
+    session_with(config, maximum, "")
+}
+fn session_with(config: &Negotiated, maximum: ApiVersion, settings: &str) -> Result<Session> {
     Session::open(
         Arc::new(Runtime {
             _library: None,
@@ -495,8 +538,14 @@ fn session(config: &Negotiated, maximum: ApiVersion) -> Result<Session> {
         _NV_ENC_DEVICE_TYPE_NV_ENC_DEVICE_TYPE_DIRECTX,
         None,
         config,
-        &Tuning::new(&Config::default(), config)?,
+        &Tuning::new(&Config::parse(settings)?, config)?,
     )
+}
+fn initialized() -> (NV_ENC_INITIALIZE_PARAMS, NV_ENC_CONFIG) {
+    state(|d| d.initialized.unwrap())
+}
+fn same_preset(guid: GUID, preset: usize) -> bool {
+    same_guid(&guid, &preset_guid(preset))
 }
 fn input(session: &mut Session, key: usize) -> Result<usize> {
     session.slot(Input {
@@ -1284,4 +1333,225 @@ fn native_nvenc_loss_recovery_and_444_hdr_decode() -> Result<()> {
     }
     std::fs::write(report, serde_json::to_vec_pretty(&reports)?)?;
     Ok(())
+}
+#[test]
+fn vbr_sets_its_peak_and_quality_keeps_them_on_bitrate_changes_and_falls_back_loudly() -> Result<()>
+{
+    reset();
+    let stream = Negotiated {
+        codec: 2,
+        ..Default::default()
+    };
+    let mut encoder = session_with(
+        &stream,
+        ApiVersion(13, 0),
+        "nvenc_rate_control = vbr\nnvenc_target_quality = 40\n",
+    )?;
+    let (_, config) = initialized();
+    assert_eq!(
+        config.rcParams.rateControlMode,
+        _NV_ENC_PARAMS_RC_MODE_NV_ENC_PARAMS_RC_VBR
+    );
+    assert_eq!(config.rcParams.averageBitRate, 20_000_000);
+    assert_eq!(config.rcParams.maxBitRate, 30_000_000);
+    assert_eq!(config.rcParams.targetQuality, 40);
+    encoder.bitrate(40000)?;
+    state(|d| {
+        let (_, config) = d.reconfigured.as_ref().unwrap();
+        assert_eq!(config.rcParams.averageBitRate, 40_000_000);
+        assert_eq!(config.rcParams.maxBitRate, 60_000_000);
+    });
+    drop(encoder);
+    // A GPU without VBR encodes CBR, with a warning in the log.
+    reset();
+    state(|d| d.rate_modes = Some(_NV_ENC_PARAMS_RC_MODE_NV_ENC_PARAMS_RC_CBR as i32));
+    let encoder = session_with(&stream, ApiVersion(13, 0), "nvenc_rate_control = vbr\n")?;
+    assert_eq!(encoder.rate_control, RateControl::Cbr);
+    let (_, config) = initialized();
+    assert_eq!(
+        config.rcParams.rateControlMode,
+        _NV_ENC_PARAMS_RC_MODE_NV_ENC_PARAMS_RC_CBR
+    );
+    assert_eq!(config.rcParams.maxBitRate, config.rcParams.averageBitRate);
+    drop(encoder);
+    assert_clean();
+    Ok(())
+}
+#[test]
+fn spatial_aq_is_on_by_default_and_the_default_preset_stays_p1() -> Result<()> {
+    reset();
+    let encoder = session(&Negotiated::default(), ApiVersion(13, 0))?;
+    let (parameters, config) = initialized();
+    assert_eq!(config.rcParams.enableAQ(), 1);
+    assert!(same_preset(parameters.presetGUID, 1));
+    assert_eq!(encoder.budget.unwrap().effective, 1);
+    drop(encoder);
+    reset();
+    let encoder = session_with(
+        &Negotiated::default(),
+        ApiVersion(13, 0),
+        "nvenc_spatial_aq = false\n",
+    )?;
+    assert_eq!(initialized().1.rcParams.enableAQ(), 0);
+    drop(encoder);
+    assert_clean();
+    Ok(())
+}
+#[test]
+fn the_frame_budget_guard_lowers_a_slow_preset_unless_turned_off() -> Result<()> {
+    let uhd = Negotiated {
+        codec: 1,
+        width: 3840,
+        height: 2160,
+        fps: 120,
+        ..Default::default()
+    };
+    reset();
+    let encoder = session_with(&uhd, ApiVersion(13, 0), "nvenc_preset = 4\n")?;
+    assert!(same_preset(initialized().0.presetGUID, 1));
+    assert_eq!(encoder.budget.unwrap().configured, 4);
+    drop(encoder);
+    // Two engines that split encoding may use leave P4 in budget, unless
+    // split encoding is off.
+    reset();
+    state(|d| d.engines = 2);
+    let encoder = session_with(&uhd, ApiVersion(13, 0), "nvenc_preset = 4\n")?;
+    assert!(same_preset(initialized().0.presetGUID, 4));
+    drop(encoder);
+    reset();
+    state(|d| d.engines = 2);
+    let encoder = session_with(
+        &uhd,
+        ApiVersion(13, 0),
+        "nvenc_preset = 4\nnvenc_split_encode = disabled\n",
+    )?;
+    assert!(same_preset(initialized().0.presetGUID, 1));
+    drop(encoder);
+    reset();
+    let encoder = session_with(
+        &uhd,
+        ApiVersion(13, 0),
+        "nvenc_preset = 4\nnvenc_frame_budget_guard = false\n",
+    )?;
+    assert!(same_preset(initialized().0.presetGUID, 4));
+    assert!(encoder.budget.unwrap().estimated_ms > encoder.budget.unwrap().budget_ms);
+    drop(encoder);
+    assert_clean();
+    Ok(())
+}
+#[test]
+fn split_strips_and_the_slice_mode_follow_the_settings() -> Result<()> {
+    let hevc = Negotiated {
+        codec: 1,
+        ..Default::default()
+    };
+    let slice_mode = |config: &NV_ENC_CONFIG| {
+        // SAFETY: HEVC was configured; the union member is plain integers and pointers.
+        let hevc = unsafe { config.encodeCodecConfig.hevcConfig };
+        (hevc.sliceMode, hevc.sliceModeData)
+    };
+    reset();
+    let encoder = session_with(
+        &hevc,
+        ApiVersion(13, 0),
+        "nvenc_split_encode = two_strips\n",
+    )?;
+    let (parameters, config) = initialized();
+    assert_eq!(parameters.splitEncodeMode(), 2);
+    // One slice and split encoding allowed: no fixed slice mode.
+    assert_eq!(slice_mode(&config), (0, 0));
+    drop(encoder);
+    reset();
+    let encoder = session_with(&hevc, ApiVersion(13, 0), "nvenc_split_encode = disabled\n")?;
+    let (parameters, config) = initialized();
+    assert_eq!(parameters.splitEncodeMode(), SPLIT_DISABLED);
+    assert_eq!(slice_mode(&config), (3, 1));
+    drop(encoder);
+    reset();
+    let sliced = Negotiated {
+        slices: 4,
+        ..hevc.clone()
+    };
+    let encoder = session(&sliced, ApiVersion(13, 0))?;
+    assert_eq!(slice_mode(&initialized().1), (3, 4));
+    drop(encoder);
+    reset();
+    let encoder = session(&hevc, ApiVersion(12, 1))?;
+    assert_eq!(slice_mode(&initialized().1), (3, 1));
+    drop(encoder);
+    assert_clean();
+    Ok(())
+}
+#[test]
+fn a_codec_the_gpu_lacks_is_refused_by_name_before_the_session_configures() -> Result<()> {
+    reset();
+    state(|d| d.codecs = Some(vec![0, 1]));
+    let av1 = Negotiated {
+        codec: 2,
+        ..Default::default()
+    };
+    let error = format!("{:#}", session(&av1, ApiVersion(13, 0)).err().unwrap());
+    assert!(error.contains("cannot encode AV1"), "{error}");
+    assert!(error.contains("Select another codec"), "{error}");
+    state(|d| assert!(d.initialized.is_none()));
+    assert_clean();
+    let hevc = Negotiated {
+        codec: 1,
+        ..Default::default()
+    };
+    drop(session(&hevc, ApiVersion(13, 0))?);
+    assert_clean();
+    Ok(())
+}
+#[test]
+fn hlg_streams_signal_the_hlg_transfer_and_pq_streams_pq() -> Result<()> {
+    for (hlg, transfer) in [(false, 16), (true, 18)] {
+        reset();
+        let mut stream = Negotiated {
+            codec: 1,
+            hdr: true,
+            ..Default::default()
+        };
+        if hlg {
+            // rubylight_protocol::hdr::HLG
+            stream.hdr_format = 2;
+        }
+        assert_eq!(stream.hlg(), hlg);
+        let encoder = session(&stream, ApiVersion(13, 0))?;
+        // SAFETY: HEVC was configured; the union member is plain integers and pointers.
+        let vui = unsafe { initialized().1.encodeCodecConfig.hevcConfig }.hevcVUIParameters;
+        assert_eq!(vui.transferCharacteristics, transfer);
+        drop(encoder);
+    }
+    assert_clean();
+    Ok(())
+}
+#[test]
+fn packed_444_codes_a_larger_sdr_picture_like_amf() {
+    let stream = Negotiated {
+        codec: 1,
+        hdr: true,
+        width: 1920,
+        height: 1080,
+        chroma_packing: 1,
+        ..Default::default()
+    };
+    let plain = coded(&Negotiated::default());
+    assert_eq!(plain.width, 1920);
+    assert_eq!(plain.chroma_packing, 0);
+    stream.validate().unwrap();
+    let packed = coded(&stream);
+    assert_eq!((packed.width, packed.height), stream.coded_size());
+    assert!(!packed.hdr && packed.sdr_10bit && !packed.yuv444);
+    assert_eq!(packed.csc_mode, 3);
+    assert_eq!(packed.chroma_packing, 0);
+    packed.validate().unwrap();
+}
+#[test]
+fn throughput_names_map_to_their_codec_only() {
+    assert_eq!(throughput_codec("MaxThroughput"), Some(0));
+    assert_eq!(throughput_codec("HevcMaxThroughput"), Some(1));
+    assert_eq!(throughput_codec("Av1CapMaxThroughput"), Some(2));
+    assert_eq!(throughput_codec("MaxBitrate"), None);
+    assert_eq!(codec_name(2), "AV1");
 }

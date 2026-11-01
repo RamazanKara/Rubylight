@@ -131,4 +131,13 @@
     align-items: start;
     gap: var(--space-2) var(--space-3);
   }
+  /* A phone: the path gets the whole row, the button goes below it. */
+  @media (max-width: 520px) {
+    .choose {
+      grid-template-columns: 1fr;
+    }
+    .choose > :global(:last-child) {
+      justify-self: start;
+    }
+  }
 </style>

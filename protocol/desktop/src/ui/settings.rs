@@ -79,8 +79,8 @@ pub(super) struct SettingsView {
     pub(super) confirm_reset: bool,
     /// The search field had focus last frame, so Escape leaves it before it leaves the page.
     search_focused: bool,
-    /// Left was pressed last frame on this control in the rows.
-    left_from: Option<Id>,
+    /// Left was pressed last frame on this control in the rows, laid out there.
+    left_from: Option<(Id, Rect)>,
     /// The setting rows the last frame drew, by first key, each with whether a group heading
     /// came before it in its section.
     pub(super) drawn: Vec<(&'static str, bool)>,
@@ -201,23 +201,27 @@ impl Launcher {
 
     /// Left from a control in the rows goes to the open section's entry in the list (its chip
     /// on a narrow window), never to whatever egui's nearest-widget search finds above, such as
-    /// the header or another chip. egui moves the focus at the end of the frame, so a move out of
-    /// the rows to anything else is corrected on the next one: a control with another left of it in
-    /// its row still goes there, and a slider or a number field keeps the key for itself.
+    /// the header, another chip or another row's Reset. egui moves the focus at the end of the
+    /// frame, so a move to anything outside the row it left is corrected on the next one: a
+    /// control with another left of it in its row (its Reset) still goes there, and a slider or a
+    /// number field keeps the key for itself.
     fn left_to_sections(&mut self, ui: &Ui, rows: Rect, entries: &[(&'static str, Id)]) {
         let focused = ui.memory(|m| m.focused());
-        let in_rows = |id: Id| ui.ctx().read_response(id).is_some_and(|r| rows.contains(r.rect.center()));
-        if let Some(from) = self.settings_view.left_from.take() {
+        let rect = |id: Id| ui.ctx().read_response(id).map(|r| r.rect);
+        let in_rows = |id: Id| rect(id).is_some_and(|r| rows.contains(r.center()));
+        if let Some((from, from_rect)) = self.settings_view.left_from.take() {
             let open = entries.iter().find(|&&(name, _)| name == self.settings_view.section);
-            let strayed = focused.is_some_and(|id| id != from && !in_rows(id) && open.is_none_or(|&(_, entry)| entry != id));
+            // In the same row: beside the control focus left, not above or below it.
+            let same_row = |id: Id| in_rows(id) && rect(id).is_some_and(|r| r.top() < from_rect.bottom() && from_rect.top() < r.bottom());
+            let strayed = focused.is_some_and(|id| id != from && !same_row(id) && open.is_none_or(|&(_, entry)| entry != id));
             if let (true, Some(&(_, entry))) = (strayed, open) {
                 ui.memory_mut(|m| m.request_focus(entry));
                 ui.ctx().request_repaint();
             }
         }
         let left = ui.input(|i| i.events.iter().any(|e| matches!(e, egui::Event::Key { key: Key::ArrowLeft, pressed: true, modifiers, .. } if !modifiers.any())));
-        if left && focused.is_some_and(in_rows) {
-            self.settings_view.left_from = focused;
+        if let Some(from) = focused.filter(|&id| left && in_rows(id)) {
+            self.settings_view.left_from = rect(from).map(|r| (from, r));
             // The frame that corrects the move, even when nothing else asks for one.
             ui.ctx().request_repaint();
         }

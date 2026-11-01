@@ -1234,7 +1234,10 @@ fn learned_phase_anticipates_the_main_update_instead_of_an_extra_composition() {
     let Pace::WaitUntil(deadline) = pacer.decide(extra, extra, Some(period)) else {
         panic!("an extra composition must not consume this source frame's credit");
     };
-    assert_eq!(deadline, last + period + period / 4);
+    assert_eq!(
+        deadline,
+        last + period + period / 4 + Pacer::PREDICTED_NOTICE
+    );
     assert!(deadline - pacer.allowed_at(extra) < period);
     let fresh = last + period;
     pacer.observe_source(fresh);
@@ -1252,7 +1255,10 @@ fn learned_phase_anticipates_the_main_update_instead_of_an_extra_composition() {
     let Pace::WaitUntil(deadline) = pacer.decide(extra, extra, None) else {
         panic!("a funded extra composition must still wait for the imminent update");
     };
-    assert_eq!(deadline, fresh + period + period / 4);
+    assert_eq!(
+        deadline,
+        fresh + period + period / 4 + Pacer::PREDICTED_NOTICE
+    );
     // Surplus compositions distort the interval median, and an already funded
     // slot must still give the imminent source update a chance to arrive.
     for interval in [None, Some(period / 2), Some(period * 2)] {
@@ -1292,7 +1298,10 @@ fn stale_in_phase_compositions_wait_for_late_updates_with_a_fixed_fallback() {
             panic!("an old in-phase composition must not bypass the next update");
         };
         let late = last + period + period / 8;
-        assert_eq!(deadline, last + period + period / 4);
+        assert_eq!(
+            deadline,
+            last + period + period / 4 + Pacer::PREDICTED_NOTICE
+        );
         for step in 0..10 {
             assert_eq!(
                 pacer.decide(now + (deadline - now) * step / 10, extra, None),
@@ -1345,7 +1354,7 @@ fn an_early_new_picture_cannot_wait_past_the_phase_delivery_budget() {
         let picture = last + period.mul_f64(0.8);
         pacer.observe_source(picture);
         let seen = picture + Duration::from_micros(150);
-        let deadline = last + period + period / 4;
+        let deadline = last + period + period / 4 + Pacer::PREDICTED_NOTICE;
         assert!(pacer.source_phase.as_ref().unwrap().has_surplus());
         for step in 0..10 {
             let now = seen + (deadline - seen) * step / 10;
@@ -1650,6 +1659,164 @@ fn phase_prediction_falls_back_for_irregular_faster_and_slower_sources() {
     phase.observe(start + period * 200);
     assert_eq!(phase.count, 1);
     assert!(phase.center.is_none());
+}
+#[test]
+fn source_phase_folds_over_whole_multiples_of_the_stream_rate_only() {
+    let period = Duration::from_secs_f64(1. / 60.).as_nanos() as u64;
+    let interval = |hz: f64| Some(Duration::from_secs_f64(1. / hz));
+    assert_eq!(source_multiple(period, interval(120.)), 2);
+    assert_eq!(source_multiple(period, interval(119.98)), 2);
+    assert_eq!(source_multiple(period, interval(180.)), 3);
+    assert_eq!(source_multiple(period, interval(240.)), 4);
+    // A picture interval at the stream rate, between multiples, or of a
+    // 1000 Hz VRR display keeps one update per period.
+    for hz in [60., 90., 144., 1000.] {
+        assert_eq!(source_multiple(period, interval(hz)), 1, "{hz} Hz");
+    }
+    assert_eq!(source_multiple(period, None), 1);
+    assert_eq!(source_multiple(period, Some(Duration::ZERO)), 1);
+}
+/// Claims of a fixed-rate stream from `captures` (ms), each published on the
+/// capture worker's 0.5 ms poll: (claim, presented, published).
+fn simulate_polled(period: f64, captures: &[f64]) -> Vec<(f64, f64, f64)> {
+    let start = Instant::now();
+    let ns = |ms: f64| (ms * 1e6).round() as u64;
+    let at = |ms: f64| start + Duration::from_nanos(ns(ms));
+    let ms = |instant: Instant| instant.duration_since(start).as_secs_f64() * 1000.;
+    let mut pacer = Pacer::new(start, Duration::from_secs_f64(period / 1000.))
+        .with_source_phase(true)
+        .with_spacing(0.75);
+    let mut cadence = crate::capture_policy::Freshness::default();
+    let mut claims = vec![];
+    let mut newest: Option<(f64, f64)> = None;
+    let mut deadline: Option<f64> = None;
+    let mut interval: Option<Duration> = None;
+    let mut published = 0f64;
+    let mut evaluate = |now: f64,
+                        newest: &mut Option<(f64, f64)>,
+                        deadline: &mut Option<f64>,
+                        pacer: &mut Pacer,
+                        interval: Option<Duration>| {
+        if let Some((presented, publish)) = *newest {
+            match pacer.decide(at(now), at(presented), interval) {
+                Pace::Claim => {
+                    pacer.claimed(at(now));
+                    claims.push((now, presented, publish));
+                    *newest = None;
+                    *deadline = None;
+                }
+                Pace::WaitUntil(t) => *deadline = Some(ms(t).max(now + 0.001)),
+            }
+        }
+    };
+    for &presented in captures {
+        published = published.max(((presented + 0.08) / 0.5).ceil() * 0.5);
+        while let Some(t) = deadline.filter(|t| *t < published) {
+            evaluate(t, &mut newest, &mut deadline, &mut pacer, interval);
+            if deadline == Some(t) {
+                break;
+            }
+        }
+        cadence.observe_focus(ns(presented), ns(published - presented), None);
+        pacer.observe_extension(cadence.extends_picture());
+        interval = cadence.picture_interval().map(Duration::from_nanos);
+        pacer.observe_source_rate(cadence.mean_interval().map(Duration::from_nanos));
+        pacer.observe_picture(
+            cadence
+                .picture_start()
+                .map(|nanos| start + Duration::from_nanos(nanos)),
+            cadence.late_picture_interval().map(Duration::from_nanos),
+        );
+        newest = Some((presented, published));
+        pacer.observe_source(at(presented));
+        evaluate(published, &mut newest, &mut deadline, &mut pacer, interval);
+    }
+    claims
+}
+/// Claims per second after the first tenth, and the mean and 95th
+/// percentile age of the game frame each claim showed when claimed.
+fn polled_rate_and_age(claims: &[(f64, f64, f64)], frames: &[f64]) -> (f64, f64, f64) {
+    let steady = &claims[claims.len() / 10..];
+    let rate = (steady.len() - 1) as f64 * 1000. / (steady.last().unwrap().0 - steady[0].0);
+    let shown = |at: f64| frames.partition_point(|f| *f <= at + 1e-9);
+    let mut ages: Vec<f64> = steady
+        .iter()
+        .map(|c| c.0 - frames[shown(c.1).max(1) - 1])
+        .collect();
+    ages.sort_by(f64::total_cmp);
+    let mean = ages.iter().sum::<f64>() / ages.len() as f64;
+    (rate, mean, ages[ages.len() * 95 / 100])
+}
+#[test]
+fn another_window_beside_a_double_rate_game_does_not_take_fixed_rate_claims() {
+    // A 120 Hz game at 60 fps has two updates per period, so its phase never
+    // reached the support of one: another window's updates (10-30 a second,
+    // no focus labels) were claimed at the spacing limit, the game frame 4 ms
+    // later waited a whole frame, and claims alternated 12.5 and 20.8 ms
+    // apart with up to 39 % of them showing the other window's update.
+    let period = 1000. / 60.;
+    for game in [1000. / 120.02, 1000. / 119.98] {
+        for other in [1000. / 10., 1000. / 30.] {
+            for seed in 0..3 {
+                let (compositions, frames) = mixed_desktop_at(game, 30., 30., other, seed * 10);
+                let captures: Vec<f64> = compositions.iter().map(|c| c.0).collect();
+                let claims = simulate_polled(period, &captures);
+                let (rate, _, age) = polled_rate_and_age(&claims, &frames);
+                let steady = &claims[claims.len() / 10..];
+                let extras = steady
+                    .iter()
+                    .filter(|c| !compositions[compositions.partition_point(|x| x.0 < c.1)].1)
+                    .count();
+                let uneven = steady
+                    .windows(2)
+                    .filter(|w| !(14.5..19.).contains(&(w[1].0 - w[0].0)))
+                    .count();
+                let case = format!("game {game:.3} ms, other {other:.1} ms, seed {seed}");
+                assert!(rate < 60.05, "{case}: {rate:.3} claims/s");
+                assert!(age < 1., "{case}: p95 age {age:.2} ms");
+                assert!(
+                    extras * 100 <= steady.len() * 3,
+                    "{case}: {extras} of {} extras",
+                    steady.len()
+                );
+                assert!(uneven * 100 <= steady.len(), "{case}: {uneven} uneven gaps");
+            }
+        }
+    }
+}
+#[test]
+fn a_game_frame_that_missed_a_refresh_does_not_take_a_fixed_rate_claim_early() {
+    // A 120 Hz game on a 240 Hz display: a frame that misses its refresh is
+    // presented on the next one, 4.2 ms late, off the game's phase. Claimed
+    // at the spacing limit, it spent credit the game's next frames then
+    // waited for: 60.1 claims a second, 25-34 % of frames held 0.5-2 ms after
+    // publishing, p95 age 3-10 ms. Waiting at the phase bound until the late
+    // frame could be noticed matters too: cut off right at it, a claim took
+    // the frame before, 12.5 ms old.
+    let period = 1000. / 60.;
+    let refresh = 1000. / 240.;
+    for late_every in [7, 13, 29] {
+        for seed in 0..3 {
+            let mut compositions = vec![];
+            let mut frames = vec![];
+            for frame in 0..3600 {
+                let missed = (frame + seed) % late_every == 3;
+                let slot = (frame * 2 + usize::from(missed)) as f64;
+                let composed = slot * refresh + 2.5 + 0.2 * noise(frame, seed as u64);
+                frames.push(composed);
+                compositions.push(composed);
+                // A second composition of the same frame.
+                compositions.push(composed + 0.5 + 1.5 * noise(frame, seed as u64 + 1));
+            }
+            compositions.sort_by(f64::total_cmp);
+            let claims = simulate_polled(period, &compositions);
+            let (rate, mean, p95) = polled_rate_and_age(&claims, &frames);
+            let case = format!("a missed refresh every {late_every} frames, seed {seed}");
+            assert!(rate < 60.07, "{case}: {rate:.3} claims/s");
+            assert!(mean < 0.75, "{case}: mean age {mean:.2} ms");
+            assert!(p95 < 2., "{case}: p95 age {p95:.2} ms");
+        }
+    }
 }
 #[test]
 fn pacing_defaults_to_arrival_and_keeps_the_grid_option() {

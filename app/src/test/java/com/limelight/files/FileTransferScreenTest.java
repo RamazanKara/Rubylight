@@ -92,17 +92,22 @@ public class FileTransferScreenTest {
     @Test
     public void onlyTheReportAliasSendsNightjarsReportAndNothingElseOfItsOwn() {
         String own = "com.butterpollo.client";
-        Uri report = Uri.parse("content://com.butterpollo.client.reports/r/nightjar-problem.txt");
-        assertTrue(FileTransferActivity.sendable(report, own, own, true));
-        assertFalse(FileTransferActivity.sendable(report, own, own, false));
-        // Another of Nightjar's providers, or a user-prefixed authority, stays refused through the alias too.
-        assertFalse(FileTransferActivity.sendable(Uri.parse("content://com.butterpollo.client.files/x"), own, own, true));
-        assertFalse(FileTransferActivity.sendable(Uri.parse("content://0@com.butterpollo.client.reports/r/x"),
-                own, null, true));
-        assertFalse(FileTransferActivity.sendable(Uri.parse("file:///data/data/com.butterpollo.client/x"), own, null, true));
+        Uri report = Uri.parse("content://com.butterpollo.client.reports/reports/nightjar-problem.txt");
+        assertTrue(FileTransferActivity.sendable(report, own, own, report));
+        assertFalse(FileTransferActivity.sendable(report, own, own, null));
+        // The rest of the provider that serves the report (the clipboard image), another of Nightjar's providers
+        // or a user-prefixed authority stays refused through the alias too.
+        assertFalse(FileTransferActivity.sendable(
+                Uri.parse("content://com.butterpollo.client.reports/clipboard/image.png"), own, own, report));
+        assertFalse(FileTransferActivity.sendable(
+                Uri.parse("content://com.butterpollo.client.reports/reports/other.txt"), own, own, report));
+        assertFalse(FileTransferActivity.sendable(Uri.parse("content://com.butterpollo.client.files/x"), own, own, report));
+        assertFalse(FileTransferActivity.sendable(
+                Uri.parse("content://0@com.butterpollo.client.reports/reports/nightjar-problem.txt"), own, null, report));
+        assertFalse(FileTransferActivity.sendable(Uri.parse("file:///data/data/com.butterpollo.client/x"), own, null, report));
         // Other apps' files go as before.
         assertTrue(FileTransferActivity.sendable(Uri.parse("content://media/external/1"), own,
-                "com.android.providers.media", true));
+                "com.android.providers.media", report));
     }
 
     @Test

@@ -49,6 +49,7 @@ import com.limelight.nvstream.http.HostCapabilities;
 import com.limelight.nvstream.http.PairingManager;
 import com.limelight.ui.NightjarActivity;
 import com.limelight.ui.TopAppBar;
+import com.limelight.utils.ProblemReport;
 import com.limelight.utils.UiHelper;
 
 import org.json.JSONException;
@@ -76,7 +77,7 @@ public class FileTransferActivity extends NightjarActivity implements FileTransf
     public static final String EXTRA_PC_UUID = "files_pc_uuid";
     /**
      * The not exported alias of this screen that Report a problem opens with its report: only a share through
-     * it may send one of Nightjar's own files, the report (see {@link #sendable(Uri, String, String, boolean)}).
+     * it may send one of Nightjar's own files, the report (see {@link #sendable(Uri, String, String, Uri)}).
      */
     public static final String REPORT_ALIAS = "com.limelight.files.SendReportToPc";
 
@@ -102,12 +103,14 @@ public class FileTransferActivity extends NightjarActivity implements FileTransf
     private TextView folder;
     private LinearLayout files;
     /**
-     * What {@link #pcs} and {@link #transfers} show, one key per button set: every PC is polled every 1.5 s and a
-     * transfer reports its progress many times a second, and buttons made again on each of those lost a press
-     * before it was let go (a remote's OK button, a tap) and the D-pad focus with it (issue 56).
+     * What {@link #pcs}, {@link #transfers} and {@link #files} show, one key per button set: every PC is polled
+     * every 1.5 s, a transfer reports its progress many times a second and the folder is read after every upload.
+     * Buttons made again on each of those lost a press before it was let go (a remote's OK button, a tap) and the
+     * D-pad focus with it (issue 56).
      */
     private final List<String> shownPcs = new ArrayList<>();
     private final List<String> shownRows = new ArrayList<>();
+    private final List<String> shownFiles = new ArrayList<>();
 
     private final ActivityResultLauncher<String[]> picker = registerForActivityResult(
             new ActivityResultContracts.OpenMultipleDocuments(), this::onPicked);
@@ -152,7 +155,7 @@ public class FileTransferActivity extends NightjarActivity implements FileTransf
             work.opened = true;
             work.uuid = chosenPc(getIntent());
             int refused = 0;
-            boolean report = forReport(getIntent());
+            Uri report = forReport(getIntent()) ? ProblemReport.reportUri() : null;
             for (Uri uri : sharedUris(getIntent())) {
                 if (sendable(uri, getPackageName(), providerPackage(uri), report)) work.waiting.add(uri);
                 else refused++;
@@ -200,14 +203,12 @@ public class FileTransferActivity extends NightjarActivity implements FileTransf
     }
 
     /**
-     * As above, except that a share through {@link #REPORT_ALIAS} may also send Nightjar's problem report, from its
-     * own reports provider. Only Nightjar can open that alias, so no other app gets a private file sent this way.
+     * As above, except that a share through {@link #REPORT_ALIAS} may also send Nightjar's problem report:
+     * {@code report} is its URI then, null otherwise. Only that one file, not the rest of the provider that serves
+     * it (the clipboard image), and only Nightjar can open that alias, so no other app gets a private file sent.
      */
-    static boolean sendable(Uri uri, String ownPackage, String providerPackage, boolean report) {
-        if (report && ContentResolver.SCHEME_CONTENT.equals(uri.getScheme())
-                && (ownPackage + ".reports").equals(uri.getAuthority())) {
-            return true;
-        }
+    static boolean sendable(Uri uri, String ownPackage, String providerPackage, Uri report) {
+        if (report != null && report.equals(uri)) return true;
         return sendable(uri, ownPackage, providerPackage);
     }
 
@@ -558,7 +559,7 @@ public class FileTransferActivity extends NightjarActivity implements FileTransf
             keys.add(details.uuid + "\n" + details.displayName());
         }
         if (keys.equals(shownPcs)) return !keys.isEmpty();
-        Object focused = focusedTag(pcs);
+        Focus focused = focusIn(pcs);
         pcs.removeAllViews();
         shownPcs.clear();
         shownPcs.addAll(keys);
@@ -575,14 +576,15 @@ public class FileTransferActivity extends NightjarActivity implements FileTransf
                 render();
             });
         }
-        restoreFocus(pcs, focused);
+        // A PC that went away hands the focus to its neighbour.
+        restoreFocus(pcs, focused, null);
         return !keys.isEmpty();
     }
 
     /**
      * The transfers and the downloads left behind. While the same transfers keep the same buttons, a change only
-     * updates their texts and progress bars; otherwise the rows are made again, and a button that had the focus
-     * keeps it if it is still there.
+     * updates their texts and progress bars; otherwise the rows are made again, and the focus stays on its button,
+     * or goes to the same row's other button or a neighbouring row's (see {@link #restoreFocus}).
      */
     private void showTransfers(List<FileRow> rows) {
         List<String> keys = new ArrayList<>();
@@ -592,10 +594,13 @@ public class FileTransferActivity extends NightjarActivity implements FileTransf
             finished |= row.isFinished();
         }
         for (String name : work.leftovers) keys.add("left\n" + name);
+        boolean shown = !rows.isEmpty() || !work.leftovers.isEmpty();
+        transfersHeading.setVisibility(shown ? View.VISIBLE : View.GONE);
+        clearFinished.setVisibility(finished || !work.leftovers.isEmpty() ? View.VISIBLE : View.GONE);
         if (keys.equals(shownRows)) {
             for (int i = 0; i < rows.size(); i++) updateRow((RowViews) transfers.getChildAt(i).getTag(), rows.get(i));
         } else {
-            Object focused = focusedTag(transfers);
+            Focus focused = focusIn(transfers);
             transfers.removeAllViews();
             shownRows.clear();
             shownRows.addAll(keys);
@@ -604,11 +609,9 @@ public class FileTransferActivity extends NightjarActivity implements FileTransf
                 text(transfers, android.R.style.TextAppearance_Material_Body1)
                         .setText(getString(R.string.files_partial_left, name));
             }
-            restoreFocus(transfers, focused);
+            restoreFocus(transfers, focused, clearFinished.getVisibility() == View.VISIBLE ? clearFinished : send,
+                    otherButton(focused));
         }
-        boolean shown = !rows.isEmpty() || !work.leftovers.isEmpty();
-        transfersHeading.setVisibility(shown ? View.VISIBLE : View.GONE);
-        clearFinished.setVisibility(finished || !work.leftovers.isEmpty() ? View.VISIBLE : View.GONE);
     }
 
     /** What decides a transfer row's views: the transfer, whether it has a progress bar, and its buttons. */
@@ -617,16 +620,64 @@ public class FileTransferActivity extends NightjarActivity implements FileTransf
                 + "\n" + row.canRetry;
     }
 
-    /** The tag of the focused view in {@code group}, or null. */
-    private static Object focusedTag(LinearLayout group) {
-        View focused = group.findFocus();
-        return focused == null ? null : focused.getTag();
+    /** Where the focus was in a group about to be made again: the focused view's tag and its row's index. */
+    static final class Focus {
+        final Object tag;
+        final int index;
+
+        Focus(Object tag, int index) {
+            this.tag = tag;
+            this.index = index;
+        }
     }
 
-    private static void restoreFocus(LinearLayout group, Object tag) {
-        if (tag == null) return;
-        View again = group.findViewWithTag(tag);
-        if (again != null) again.requestFocus();
+    /** The focus in {@code group}, or null when it is elsewhere. */
+    private static Focus focusIn(LinearLayout group) {
+        View focused = group.findFocus();
+        if (focused == null) return null;
+        View row = focused;
+        while (row.getParent() != group) row = (View) row.getParent();
+        return new Focus(focused.getTag(), group.indexOfChild(row));
+    }
+
+    /** The other button of a focused transfer button's row: Try again for Cancel and the other way round. */
+    static Object otherButton(Focus focus) {
+        if (focus == null || !(focus.tag instanceof String)) return null;
+        String tag = (String) focus.tag;
+        if (tag.startsWith("cancel:")) return "retry:" + tag.substring("cancel:".length());
+        if (tag.startsWith("retry:")) return "cancel:" + tag.substring("retry:".length());
+        return null;
+    }
+
+    /**
+     * Gives the focus back after {@code group} was made again: to the view with the same tag, else to one of
+     * {@code others}, else to the row now at the old index or the nearest one after or before it that takes the
+     * focus, else to {@code last}. Without a place it falls to the toolbar's Up button, and the next OK of a
+     * remote closes the screen and cancels the transfers.
+     */
+    private static void restoreFocus(LinearLayout group, Focus focus, View last, Object... others) {
+        if (focus == null) return;
+        if (focus.tag != null && focusTagged(group, focus.tag)) return;
+        for (Object other : others) {
+            if (other != null && focusTagged(group, other)) return;
+        }
+        int count = group.getChildCount();
+        for (int step = 0; step < count; step++) {
+            int after = focus.index + step;
+            int before = focus.index - step - 1;
+            if (after < count && takesFocus(group.getChildAt(after))) return;
+            if (before >= 0 && before < count && takesFocus(group.getChildAt(before))) return;
+        }
+        if (last != null && last.isShown()) last.requestFocus();
+    }
+
+    private static boolean focusTagged(LinearLayout group, Object tag) {
+        View view = group.findViewWithTag(tag);
+        return view != null && takesFocus(view);
+    }
+
+    private static boolean takesFocus(View view) {
+        return view.getVisibility() == View.VISIBLE && view.requestFocus();
     }
 
     /** A transfer row's views that change while it runs. */
@@ -718,17 +769,31 @@ public class FileTransferActivity extends NightjarActivity implements FileTransf
         }
     }
 
+    /**
+     * The PC's folder. It is read again after every upload and on Check again; its rows are made again only when
+     * its files change, and the focus stays on the Download it was on or goes to a neighbouring one.
+     */
     private void showFiles(RemoteFiles list) {
-        files.removeAllViews();
-        if (list == null) return;
-        if (list.problem != null) {
+        List<String> keys = new ArrayList<>();
+        if (list != null && list.problem != null) {
             folder.setText(FileProblems.text(list.problem));
-            return;
+        } else if (list != null) {
+            folder.setText(getString(R.string.files_folder, list.folder, Formatter.formatShortFileSize(this, list.freeBytes)));
+            if (downloadAccess == FileProblems.Access.READY) {
+                if (list.files.isEmpty()) keys.add("empty");
+                for (RemoteFiles.Entry entry : list.files) {
+                    keys.add(entry.name + "\n" + entry.size + "\n" + entry.modifiedUnixMs);
+                }
+            }
         }
-        folder.setText(getString(R.string.files_folder, list.folder, Formatter.formatShortFileSize(this, list.freeBytes)));
-        if (downloadAccess != FileProblems.Access.READY) return;
-        if (list.files.isEmpty()) {
-            text(files, android.R.style.TextAppearance_Material_Body1).setText(R.string.files_empty);
+        if (keys.equals(shownFiles)) return;
+        Focus focused = focusIn(files);
+        files.removeAllViews();
+        shownFiles.clear();
+        shownFiles.addAll(keys);
+        if (keys.isEmpty() || list.files.isEmpty()) {
+            if (!keys.isEmpty()) text(files, android.R.style.TextAppearance_Material_Body1).setText(R.string.files_empty);
+            restoreFocus(files, focused, refresh);
             return;
         }
         for (RemoteFiles.Entry entry : list.files) {
@@ -742,9 +807,12 @@ public class FileTransferActivity extends NightjarActivity implements FileTransf
                             DateUtils.FORMAT_SHOW_DATE | DateUtils.FORMAT_SHOW_TIME)));
             LinearLayout actions = new LinearLayout(this);
             item.addView(actions);
-            button(actions, R.string.files_download).setOnClickListener(v -> download(entry));
+            Button download = button(actions, R.string.files_download);
+            download.setTag("download:" + entry.name);
+            download.setOnClickListener(v -> download(entry));
             files.addView(item);
         }
+        restoreFocus(files, focused, refresh);
     }
 
     @Override

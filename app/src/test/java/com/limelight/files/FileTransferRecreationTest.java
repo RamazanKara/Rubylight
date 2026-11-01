@@ -238,7 +238,7 @@ public class FileTransferRecreationTest {
 
     @Test
     public void theReportAliasTakesNightjarsOwnReportAndTheSharedScreenDoesNot() {
-        Uri report = Uri.parse("content://" + app.getPackageName() + ".reports/r/nightjar-problem.txt");
+        Uri report = com.limelight.utils.ProblemReport.reportUri();
         Intent intent = com.limelight.utils.ProblemReport.sendToPcIntent(app, report);
         assertTrue(FileTransferActivity.forReport(intent));
         ActivityController<FileTransferActivity> screen = Robolectric.buildActivity(FileTransferActivity.class, intent)
@@ -247,6 +247,13 @@ public class FileTransferRecreationTest {
         assertEquals("a report also asks which PC", null, screen.get().work.uuid);
         screen.get().finish();
         screen.pause().stop().destroy();
+        // The alias sends the report only, not the clipboard image its provider also serves.
+        Uri clipboard = report.buildUpon().path("/clipboard/image.png").build();
+        ActivityController<FileTransferActivity> image = Robolectric.buildActivity(FileTransferActivity.class,
+                com.limelight.utils.ProblemReport.sendToPcIntent(app, clipboard)).setup();
+        assertTrue(image.get().work.waiting.isEmpty());
+        image.get().finish();
+        image.pause().stop().destroy();
         // The same report shared to the exported screen is refused: another app could send Nightjar's files so.
         Intent shared = new Intent(app, FileTransferActivity.class).setAction(Intent.ACTION_SEND)
                 .putExtra(Intent.EXTRA_STREAM, report);
@@ -256,6 +263,106 @@ public class FileTransferRecreationTest {
         assertTrue(other.get().work.waiting.isEmpty());
         other.get().finish();
         other.pause().stop().destroy();
+    }
+
+    @Test
+    public void theReportAliasIsNotExportedAndOpensTheFileScreen() throws Exception {
+        android.content.pm.ActivityInfo alias = app.getPackageManager().getActivityInfo(
+                new android.content.ComponentName(app, FileTransferActivity.REPORT_ALIAS), 0);
+        assertFalse("only Nightjar may open the alias that sends its own report", alias.exported);
+        assertEquals(FileTransferActivity.class.getName(), alias.targetActivity);
+    }
+
+    @Test
+    public void aFocusedButtonThatGoesAwayHandsTheFocusOnInsteadOfToTheUpButton() {
+        ActivityController<FileTransferActivity> screen = Robolectric.buildActivity(FileTransferActivity.class,
+                FileTransferActivity.forPc(app, "tower")).setup();
+        FileTransferActivity activity = screen.get();
+        Engine engine = new Engine();
+        activity.work.engine = engine;
+        activity.work.controller = new FileTransferController(engine, HOST, activity.work.workers,
+                activity.work.handler::post, activity.work);
+        View root = activity.getWindow().getDecorView();
+        String a = "{\"id\":1,\"direction\":\"upload\",\"name\":\"a\",\"local_name\":\"a\",\"size\":100,";
+        String b = "{\"id\":2,\"direction\":\"upload\",\"name\":\"b\",\"local_name\":\"b\",\"size\":100,";
+        String running = "\"state\":\"running\",\"done\":10,\"total\":100}";
+        String failed = "\"state\":\"failed\",\"problem\":\"network\",\"message\":\"x\",\"can_retry\":true}";
+        String queued = "\"state\":\"queued\"}";
+        String done = "\"state\":\"done\",\"saved_name\":\"a\"}";
+
+        // Try again on a failed upload queues it: the row's Cancel takes the focus.
+        activity.onTransfersChanged(FileRow.parse("[" + a + failed + "]"));
+        View retry = root.findViewWithTag("retry:1");
+        assertTrue(retry != null && retry.requestFocus());
+        activity.onTransfersChanged(FileRow.parse("[" + a + queued + "]"));
+        assertTrue(root.findViewWithTag("cancel:1").isFocused());
+
+        // A focused Cancel whose upload finishes during a multi-file share: the next row's Cancel takes it.
+        activity.onTransfersChanged(FileRow.parse("[" + a + running + "," + b + running + "]"));
+        assertTrue(root.findViewWithTag("cancel:1").requestFocus());
+        activity.onTransfersChanged(FileRow.parse("[" + a + done + "," + b + running + "]"));
+        assertTrue(root.findViewWithTag("cancel:2").isFocused());
+
+        // The last one finishing leaves no button in the list: Clear finished takes it, not the Up button.
+        activity.onTransfersChanged(FileRow.parse("[" + a + done + "," + b + "\"state\":\"done\",\"saved_name\":\"b\"}]"));
+        View clear = find(root, app.getString(R.string.files_clear_finished));
+        assertTrue(clear.isFocused());
+        screen.get().finish();
+        screen.pause().stop().destroy();
+    }
+
+    @Test
+    public void aFocusedPcThatGoesAwayHandsTheFocusToItsNeighbour() {
+        Intent share = new Intent(app, FileTransferActivity.class).setAction(Intent.ACTION_SEND)
+                .putExtra(Intent.EXTRA_STREAM, SHARED);
+        ActivityController<FileTransferActivity> screen = Robolectric.buildActivity(FileTransferActivity.class, share)
+                .setup();
+        FileTransferActivity activity = screen.get();
+        activity.work.engine = new Engine();
+        View root = activity.getWindow().getDecorView();
+        poll(activity, NativeApiFixtures.nativeHost("tower-uuid", "Tower", true));
+        poll(activity, NativeApiFixtures.nativeHost("desk-uuid", "Desk", true));
+        assertTrue(find(root, "Desk").requestFocus());
+        poll(activity, NativeApiFixtures.nativeHost("desk-uuid", "Desk", false));
+        assertFalse(shows(root, "Desk"));
+        assertTrue(find(root, "Tower").isFocused());
+        screen.get().finish();
+        screen.pause().stop().destroy();
+    }
+
+    @Test
+    public void theFolderReadAgainKeepsItsDownloadButtonsAndTheirFocus() {
+        ActivityController<FileTransferActivity> screen = Robolectric.buildActivity(FileTransferActivity.class,
+                FileTransferActivity.forPc(app, "tower")).setup();
+        FileTransferActivity activity = screen.get();
+        ReflectionHelpers.setField(activity, "downloadAccess", FileProblems.Access.READY);
+        // Shown once the PC lets this device download; no PC answers here.
+        ((View) ReflectionHelpers.getField(activity, "files")).setVisibility(View.VISIBLE);
+        View root = activity.getWindow().getDecorView();
+        String head = "{\"ok\":{\"folder\":\"Downloads\",\"free_bytes\":1000,\"max_file_bytes\":500,\"files\":[";
+        String a = "{\"name\":\"a.txt\",\"size\":3,\"modified_unix_ms\":2000}";
+        String b = "{\"name\":\"b.txt\",\"size\":4,\"modified_unix_ms\":1000}";
+        showFiles(activity, RemoteFiles.parse(head + a + "," + b + "]}}"));
+        View download = root.findViewWithTag("download:b.txt");
+        assertTrue(download.requestFocus());
+        // Read again after every upload and on Check again: the same files keep their buttons.
+        showFiles(activity, RemoteFiles.parse(head + a + "," + b + "]}}"));
+        assertSame(download, root.findViewWithTag("download:b.txt"));
+        assertTrue(download.isFocused());
+        // A new file makes the rows again; the focus stays on the same file's Download.
+        String c = "{\"name\":\"c.txt\",\"size\":5,\"modified_unix_ms\":3000}";
+        showFiles(activity, RemoteFiles.parse(head + c + "," + a + "," + b + "]}}"));
+        assertTrue(root.findViewWithTag("download:b.txt").isFocused());
+        // The focused file deleted on the PC: its neighbour's Download takes the focus.
+        showFiles(activity, RemoteFiles.parse(head + c + "," + a + "]}}"));
+        assertTrue(root.findViewWithTag("download:a.txt").isFocused());
+        screen.get().finish();
+        screen.pause().stop().destroy();
+    }
+
+    private static void showFiles(FileTransferActivity activity, RemoteFiles list) {
+        ReflectionHelpers.callInstanceMethod(activity, "showFiles",
+                ReflectionHelpers.ClassParameter.from(RemoteFiles.class, list));
     }
 
     private static void poll(FileTransferActivity activity, ComputerDetails details) {

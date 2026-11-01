@@ -18,6 +18,7 @@ extern "C" {
         error: *mut i32,
     ) -> *mut c_void;
     fn opus_encoder_destroy(encoder: *mut c_void);
+    fn opus_encoder_ctl(encoder: *mut c_void, request: i32, ...) -> i32;
     fn opus_encode_float(
         encoder: *mut c_void,
         pcm: *const f32,
@@ -32,15 +33,37 @@ struct Encoder(NonNull<c_void>);
 // SAFETY: an Opus encoder is plain memory, used by one thread at a time.
 unsafe impl Send for Encoder {}
 
+/// The microphone's encoder settings, Android's (`android_microphone.c`): speech at 64 kb/s with
+/// in-band FEC for 10 % loss, so the PC recovers a lost packet from the next one (issue 56).
+const BITRATE: i32 = 64_000;
+const PACKET_LOSS_PERCENT: i32 = 10;
+const OPUS_SET_BITRATE: i32 = 4002;
+const OPUS_SET_INBAND_FEC: i32 = 4012;
+const OPUS_SET_PACKET_LOSS_PERC: i32 = 4014;
+const OPUS_SET_SIGNAL: i32 = 4024;
+const OPUS_SIGNAL_VOICE: i32 = 3001;
+
 impl Encoder {
     /// A mono VoIP encoder taking 10 ms frames at `rate` (48 kHz from SDL, 16 kHz from Windows'
     /// echo canceller); the PC's decoder runs at 48 kHz whatever rate the packets were made at.
     fn new(rate: i32) -> Result<Self, String> {
         let mut error = 0;
         let raw = unsafe { opus_encoder_create(rate, 1, 2048, &mut error) };
-        NonNull::new(raw)
+        let encoder = NonNull::new(raw)
             .map(Self)
-            .ok_or_else(|| format!("Microphone encoder failed ({error})."))
+            .ok_or_else(|| format!("Microphone encoder failed ({error})."))?;
+        for (request, value) in [
+            (OPUS_SET_BITRATE, BITRATE),
+            (OPUS_SET_SIGNAL, OPUS_SIGNAL_VOICE),
+            (OPUS_SET_INBAND_FEC, 1),
+            (OPUS_SET_PACKET_LOSS_PERC, PACKET_LOSS_PERCENT),
+        ] {
+            let result = unsafe { opus_encoder_ctl(encoder.0.as_ptr(), request, value) };
+            if result != 0 {
+                return Err(format!("Microphone encoder setting {request} failed ({result})."));
+            }
+        }
+        Ok(encoder)
     }
 
     fn encode(&mut self, samples: &[f32]) -> Result<Vec<u8>, String> {
@@ -377,6 +400,45 @@ mod tests {
         let mut decoded = [0.0; 480];
         assert_eq!(decoder.decode(Some(&packet), &mut decoded), 480);
         assert!(decoded.iter().all(|sample| sample.is_finite()));
+    }
+
+    extern "C" {
+        fn opus_packet_get_bandwidth(data: *const u8) -> i32;
+    }
+
+    fn setting(encoder: &Encoder, request: i32) -> i32 {
+        let mut value = 0i32;
+        assert_eq!(unsafe { opus_encoder_ctl(encoder.0.as_ptr(), request, &mut value as *mut i32) }, 0);
+        value
+    }
+
+    #[test]
+    fn microphone_sends_64_kbps_full_band_speech_with_fec_as_android_does() {
+        // Issue 56: the default (no FEC, about 53 kb/s at 48 kHz, 21 kb/s at 16 kHz) measured
+        // far worse with 5 % loss. Both of the encoder's rates get Android's settings.
+        for rate in [48000, 16000] {
+            let encoder = Encoder::new(rate).unwrap();
+            // The OPUS_GET_* requests follow their OPUS_SET_* ones.
+            assert_eq!(setting(&encoder, OPUS_SET_BITRATE + 1), 64_000);
+            assert_eq!(setting(&encoder, OPUS_SET_SIGNAL + 1), OPUS_SIGNAL_VOICE);
+            assert_eq!(setting(&encoder, OPUS_SET_INBAND_FEC + 1), 1);
+            assert_eq!(setting(&encoder, OPUS_SET_PACKET_LOSS_PERC + 1), 10);
+        }
+        // A voice-like buzz with overtones to 16 kHz keeps its full band at 64 kb/s.
+        let mut encoder = Encoder::new(48000).unwrap();
+        let (mut bytes, mut full_band) = (0, 0);
+        for frame in 0..100 {
+            let samples: [f32; 480] = std::array::from_fn(|i| {
+                let t = (frame * 480 + i) as f32 / 48000.0;
+                (1..=100).map(|k| (std::f32::consts::TAU * 160.0 * k as f32 * t).sin() * 0.05 / k as f32).sum()
+            });
+            let packet = encoder.encode(&samples).unwrap();
+            bytes += packet.len();
+            full_band += usize::from(unsafe { opus_packet_get_bandwidth(packet.as_ptr()) } == 1105);
+        }
+        // 64 kb/s is 80 bytes a 10 ms packet.
+        assert!(bytes / 100 > 60, "{} bytes a packet", bytes / 100);
+        assert!(full_band > 90, "{full_band} of 100 packets full band");
     }
 
     #[test]

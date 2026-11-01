@@ -180,11 +180,6 @@ pub fn uninstall(options: &Options, progress: &Progress) -> Result<Removed> {
                 "earlier virtual display",
                 vec!["-Uninstall"],
             ),
-            (
-                crate::install::LIBVIRTUALDISPLAY_REMOVAL,
-                "old libvirtualdisplay",
-                vec!["-InstallerBestEffort"],
-            ),
         ] {
             let path = install.join(script);
             if path.is_file() {
@@ -203,6 +198,16 @@ pub fn uninstall(options: &Options, progress: &Progress) -> Result<Removed> {
                     system::run_as_system(&powershell, &arguments, Duration::from_secs(600));
                 notes.extend(removal_note(name, "It may still be installed", result));
             }
+        }
+        // The libvirtualdisplay driver earlier versions installed; with
+        // nothing left this changes nothing.
+        let removal = crate::libvirtualdisplay::remove(&mut crate::libvirtualdisplay::Native);
+        if let Some(error) = removal.error {
+            notes.extend(removal_note(
+                crate::install::LIBVIRTUALDISPLAY,
+                "It may still be installed",
+                Err(error),
+            ));
         }
     }
 
@@ -1322,13 +1327,19 @@ mod tests {
         )
         .unwrap();
         assert!(note.contains("exited with code 1"), "{note}");
+        // The native libvirtualdisplay removal's error.
         let note = removal_note(
-            "old libvirtualdisplay",
+            crate::install::LIBVIRTUALDISPLAY,
             "It may still be installed",
-            Err(anyhow::anyhow!("the task did not start")),
+            Err(anyhow::anyhow!(
+                "pnputil /remove-device ROOT\\DISPLAY\\0001 failed with exit code 5"
+            )),
         )
         .unwrap();
-        assert!(note.contains("the task did not start"), "{note}");
+        assert_eq!(
+            note,
+            "The old libvirtualdisplay driver could not be removed: pnputil /remove-device ROOT\\DISPLAY\\0001 failed with exit code 5. It may still be installed: remove it in Device Manager; the setup log has the details."
+        );
         assert_eq!(
             removal_note(
                 "virtual gamepad",

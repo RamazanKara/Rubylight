@@ -16,6 +16,7 @@ mod detect;
 mod encoder_gpu;
 mod gpu;
 mod install;
+mod libvirtualdisplay;
 mod log;
 // Shared with the host's butterpollo-windows, which uses more of them.
 #[allow(dead_code)]

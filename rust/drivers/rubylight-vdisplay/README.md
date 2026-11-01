@@ -277,15 +277,14 @@ refuse unknown signers, as they refuse the Sunshine driver), and WDAC-managed PC
 Rubylight's only virtual display driver. `rust/build.ps1 -Package` builds the package with
 `build-package.ps1` (unsigned), stamped with the release version and the build hour (2.3.1.7020,
 say) so it outranks the 0.1.0.x development builds, and puts it under
-`drivers\rubylight-display` with `install-local.ps1`, the bundled `nefconc.exe` and setup's
-`remove-libvirtualdisplay.ps1`:
+`drivers\rubylight-display` with `install-local.ps1` and the bundled `nefconc.exe`:
 
 - Setup and an in-app update run `install-local.ps1 -InstallerBestEffort` as SYSTEM unless
   setup ran with `--no-display-driver`. A failure becomes a setup note, like the gamepad
   driver's.
-- Once Rubylight's device runs (no note, no restart pending), they also run
-  `remove-libvirtualdisplay.ps1 -InstallerBestEffort`, which removes the libvirtualdisplay
-  device, driver packages and HDR layer earlier versions installed (a note when it cannot; the
+- Once Rubylight's device runs (no note, no restart pending), setup also removes the
+  libvirtualdisplay device, driver packages and HDR layer earlier versions installed, itself
+  (`rust/setup/src/libvirtualdisplay.rs`, with pnputil; a note when it cannot; the
   SignPath certificate stays, the gamepad driver needs it). Where the new driver was refused or
   failed, the old one stays; nothing uses it.
 - The service checks for the driver every minute, and every 5 seconds once it is missing.

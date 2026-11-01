@@ -1296,17 +1296,14 @@ fn display_step(install: &Path, progress: &Progress, notes: &mut Vec<String>) ->
     // once the new device runs; where Windows refused the new driver or
     // its install failed, nothing uses the old one and it stays.
     if libvirtualdisplay_replaced(display_notes > 0, restart_needed) {
-        restart_needed |= remove_libvirtualdisplay(install, progress, notes);
+        restart_needed |= remove_libvirtualdisplay(progress, notes);
     }
     (restart_needed, display_notes)
 }
 /// The installer of Rubylight's own display driver in a package.
 pub(crate) const RUBYLIGHT_DISPLAY_SCRIPT: &str = "drivers\\rubylight-display\\install-local.ps1";
-/// Removes the libvirtualdisplay driver earlier versions installed.
-pub(crate) const LIBVIRTUALDISPLAY_REMOVAL: &str =
-    "drivers\\rubylight-display\\remove-libvirtualdisplay.ps1";
 /// The driver's name in notes about that removal.
-const LIBVIRTUALDISPLAY: &str = "old libvirtualdisplay";
+pub(crate) const LIBVIRTUALDISPLAY: &str = "old libvirtualdisplay";
 /// Set up Rubylight's display driver (again, which also updates it). Returns
 /// whether Windows needs a restart.
 fn rubylight_display_driver(install: &Path, progress: &Progress, notes: &mut Vec<String>) -> bool {
@@ -1326,13 +1323,21 @@ fn libvirtualdisplay_replaced(noted: bool, restart_pending: bool) -> bool {
 }
 /// Remove libvirtualdisplay's device, driver packages and HDR layer, best
 /// effort. Returns whether Windows needs a restart.
-fn remove_libvirtualdisplay(install: &Path, progress: &Progress, notes: &mut Vec<String>) -> bool {
-    let script = install.join(LIBVIRTUALDISPLAY_REMOVAL);
-    if !script.is_file() {
-        return false;
-    }
+fn remove_libvirtualdisplay(progress: &Progress, notes: &mut Vec<String>) -> bool {
     progress.set("Removing the old virtual display driver…");
-    run_driver_script(&script, &["-InstallerBestEffort"], notes, LIBVIRTUALDISPLAY)
+    let removal = crate::libvirtualdisplay::remove(&mut crate::libvirtualdisplay::Native);
+    notes.extend(libvirtualdisplay_note(&removal));
+    removal.restart
+}
+/// The note for a removal that failed: setup tries again on its next run.
+fn libvirtualdisplay_note(removal: &crate::libvirtualdisplay::Removal) -> Option<String> {
+    let error = removal.error.as_ref()?;
+    line(format!(
+        "warning: removing the {LIBVIRTUALDISPLAY} driver: {error:#}"
+    ));
+    Some(format!(
+        "The {LIBVIRTUALDISPLAY} driver could not be removed: {error:#} Setup tries again when it next runs; the setup log has the details."
+    ))
 }
 /// Run a Vibepollo driver script as SYSTEM. A failure is reported, not
 /// fatal: the host still starts without the driver. Returns whether Windows
@@ -1373,11 +1378,10 @@ fn run_driver_script(script: &Path, args: &[&str], notes: &mut Vec<String>, name
 fn driver_error_note(error: &anyhow::Error, name: &str) -> String {
     match error.downcast_ref::<system::StillRunning>() {
         Some(running) => format!(
-            "The {name} driver was still being {} after {} s and goes on in the background. If it does not work once that finishes, run setup again.",
-            action(name),
+            "The {name} driver was still being set up after {} s and goes on in the background. If it does not work once that finishes, run setup again.",
             running.seconds
         ),
-        None => format!("The {name} driver could not be {}: {error:#}", action(name)),
+        None => format!("The {name} driver could not be set up: {error:#}"),
     }
 }
 fn driver_result(code: i32, output: &str, notes: &mut Vec<String>, name: &str) -> bool {
@@ -1404,8 +1408,6 @@ fn driver_result(code: i32, output: &str, notes: &mut Vec<String>, name: &str) -
         let reason = after("driver action failed: ").or_else(|| after("DRIVER_WARNING: "));
         let retry = if name == "USB audio and haptics" {
             "Run setup again with USB audio and haptics selected; the setup log has the details."
-        } else if name == LIBVIRTUALDISPLAY {
-            "Setup tries again when it next runs; the setup log has the details."
         } else if name == "virtual gamepad" {
             "Run setup again; the setup log has the details."
         } else {
@@ -1413,21 +1415,11 @@ fn driver_result(code: i32, output: &str, notes: &mut Vec<String>, name: &str) -
             "The Rubylight service tries again within a day, or run \"butterpollo-setup.exe --repair-drivers --now\" in an administrator shell; the setup log has the details."
         };
         notes.push(match reason {
-            Some(reason) => format!(
-                "The {name} driver could not be {}: {reason} {retry}",
-                action(name)
-            ),
+            Some(reason) => format!("The {name} driver could not be set up: {reason} {retry}"),
             None => format!("The {name} driver reported a problem; see the setup log."),
         });
     }
     code == 3010 || output.contains("RESTART_REQUIRED") || output.contains("A reboot is required")
-}
-fn action(name: &str) -> &'static str {
-    if name == LIBVIRTUALDISPLAY {
-        "removed"
-    } else {
-        "set up"
-    }
 }
 /// The one driver setup at a time, waited for up to `wait`. Without it the
 /// driver scripts run anyway: a stale lock must not keep drivers out.
@@ -1897,7 +1889,7 @@ mod tests {
         // never reaches the setup log.
         assert!(!note.contains("setup log"), "{note}");
         let late = late.context("waiting for the task");
-        assert!(driver_error_note(&late, LIBVIRTUALDISPLAY).contains("still being removed"));
+        assert!(driver_error_note(&late, "virtual gamepad").contains("still being set up"));
         let failed = anyhow::anyhow!("creating the setup task failed (1)");
         assert_eq!(
             driver_error_note(&failed, "virtual gamepad"),
@@ -1982,24 +1974,25 @@ mod tests {
     }
     #[test]
     fn a_failed_libvirtualdisplay_removal_is_a_note_about_removing_it() {
-        let mut notes = Vec::new();
-        let output = "WARNING: [RubylightSetup] DRIVER_WARNING: The old libvirtualdisplay driver was not removed completely.\nWARNING: [RubylightSetup] Installer best-effort driver action failed: pnputil /delete-driver oem7.inf /uninstall /force failed with exit code 5\n";
-        assert!(!driver_result(0, output, &mut notes, LIBVIRTUALDISPLAY));
+        use crate::libvirtualdisplay::Removal;
+        let failed = Removal {
+            restart: false,
+            error: Some(anyhow::anyhow!(
+                "pnputil /delete-driver oem7.inf /uninstall /force failed with exit code 5"
+            )),
+        };
         assert_eq!(
-            notes,
-            [
+            libvirtualdisplay_note(&failed).as_deref(),
+            Some(
                 "The old libvirtualdisplay driver could not be removed: pnputil /delete-driver oem7.inf /uninstall /force failed with exit code 5 Setup tries again when it next runs; the setup log has the details."
-            ]
+            )
         );
-        // A display still in use goes at the next restart.
-        let mut notes = Vec::new();
-        assert!(driver_result(
-            0,
-            "RESTART_REQUIRED\n",
-            &mut notes,
-            LIBVIRTUALDISPLAY
-        ));
-        assert!(notes.is_empty());
+        // A display still in use goes at the next restart, without a note.
+        let later = Removal {
+            restart: true,
+            error: None,
+        };
+        assert_eq!(libvirtualdisplay_note(&later), None);
     }
     #[test]
     fn a_failed_rubylight_display_install_becomes_a_setup_note() {

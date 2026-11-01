@@ -252,7 +252,8 @@ try {
         }
         # Rubylight's own display driver, unsigned: setup installs it with
         # install-local.ps1, signing the catalog on the user's PC, and removes
-        # the libvirtualdisplay driver earlier versions installed. A signed release replaces the catalog with SignPath's
+        # the libvirtualdisplay driver earlier versions installed itself
+        # (rust/setup/src/libvirtualdisplay.rs). A signed release replaces the catalog with SignPath's
         # (rust/release/sign-artifacts.ps1), which install-local.ps1 then keeps.
         # A child PowerShell: the driver's MSVC environment stays out of this one.
         # DriverVer is the release (2.4.0-rc.1 is 2.4.0) plus the build hour, so a release's
@@ -267,7 +268,6 @@ try {
         New-Item -ItemType Directory -Path $displayDriver -Force | Out-Null
         Copy-Item -Path (Join-Path $vdisplay 'target\package\*') -Destination $displayDriver
         Copy-Item -LiteralPath (Join-Path $vdisplay 'install-local.ps1') -Destination $displayDriver
-        Copy-Item -LiteralPath (Join-Path $repo 'rust\setup\remove-libvirtualdisplay.ps1') -Destination $displayDriver
         # install-local.ps1 creates the device with it on a PC that never had one.
         if (!$DriverRoot) { throw 'The display driver needs nefconc.exe: pass -DriverRoot or -FetchDependencies' }
         Copy-Item -LiteralPath (Join-Path $DriverRoot 'sunshine\nefconc.exe') -Destination $displayDriver

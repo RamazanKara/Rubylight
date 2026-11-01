@@ -12,6 +12,7 @@
   import {
     changes,
     DISPLAY_OVERRIDE_OPTIONS,
+    GAMEPAD_OPTIONS,
     PERMISSION_GROUPS,
     savingEndsStream,
     toDraft,
@@ -194,11 +195,16 @@
   // Nothing closes it again: typing a mode that turns valid must not snap it shut under the cursor.
   let displayOpen = $state(untrack(() => modeInvalid));
   let presetOpen = $state(untrack(() => presetUnknown));
+  const gamepadUnknown = $derived(draft.gamepad !== '' && !GAMEPAD_OPTIONS.some((option) => option.value === draft.gamepad));
+  let controllerOpen = $state(untrack(() => gamepadUnknown));
   $effect(() => {
     if (modeInvalid) displayOpen = true;
   });
   $effect(() => {
     if (presetUnknown) presetOpen = true;
+  });
+  $effect(() => {
+    if (gamepadUnknown) controllerOpen = true;
   });
 
   function setPermission(bit: number, granted: boolean) {
@@ -464,6 +470,29 @@
       hint={`When you change the resolution or the scale of this device's own virtual display in Windows during a stream, such as 1440p at 200% under a 4K stream, the next streams start at them. The stream keeps the resolution the device asks for, and the refresh rate and VRR follow the stream as usual. A display mode above comes first, and a Virtual display scale set in the host settings comes before the kept scale.${draft.remember_display_mode && draft.remembered_resolution ? ` Kept now: ${draft.remembered_resolution}${draft.remembered_scale ? ` at ${draft.remembered_scale}%` : ''}.` : draft.remember_display_mode && draft.remembered_scale ? ` Kept now: ${draft.remembered_scale}% scale.` : ''}`}
       bind:checked={draft.remember_display_mode}
     />
+  </section>
+  </details>
+
+  <details class="override" bind:open={controllerOpen}><summary>Controller</summary>
+  <section>
+    <div class="form-grid">
+      <Field
+        label="Controller type"
+        id="{uid}-gamepad"
+        hint="The virtual controller this device's controllers become, in place of the Controller type in Settings. Automatic goes by the controller the device reports; Moonlight on a Nintendo Switch reports none, so choose Switch Pro for it."
+        error={gamepadUnknown ? `“${draft.gamepad}” is not a controller type, so the host ignores it. Choose one.` : undefined}
+      >
+        <select id="{uid}-gamepad" class="select" bind:value={draft.gamepad}>
+          <option value="">Use the host setting</option>
+          {#if gamepadUnknown}
+            <option value={draft.gamepad}>{draft.gamepad} (not a choice)</option>
+          {/if}
+          {#each GAMEPAD_OPTIONS as option (option.value)}
+            <option value={option.value}>{option.label}</option>
+          {/each}
+        </select>
+      </Field>
+    </div>
   </section>
   </details>
 

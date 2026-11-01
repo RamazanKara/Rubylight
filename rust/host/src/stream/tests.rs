@@ -474,6 +474,33 @@ fn an_apps_block_for_the_device_wins_over_the_app_the_device_and_the_host() {
     );
 }
 #[test]
+fn a_devices_controller_type_wins_over_the_hosts_and_an_apps_over_the_devices() {
+    // Issue #68: a Switch running Moonlight reports no controller type, so it needs Switch Pro
+    // of its own while every other device keeps the host's type.
+    use crate::state::test_support::Fixture;
+    use serde_json::json;
+    let f = Fixture::new();
+    *f.host.config.write().unwrap() = Config::parse("gamepad=vhf_xbox").unwrap();
+    let other = f.client(u32::MAX);
+    let mut switch = other.clone();
+    switch.uuid = "switch".into();
+    switch
+        .extra
+        .insert("config_overrides".into(), json!({"gamepad": "vhf_switch"}));
+    let gamepad = |client: &butterpollo_core::state::Client| {
+        effective_config(&f.host, &f.launch(client.clone(), Role::Stream))
+            .unwrap()
+            .get("gamepad", "")
+            .to_owned()
+    };
+    assert_eq!(gamepad(&switch), "vhf_switch");
+    assert_eq!(gamepad(&other), "vhf_xbox");
+    f.host.apps.write().unwrap()[0]
+        .extra
+        .insert("gamepad".into(), json!("vhf_ds5"));
+    assert_eq!(gamepad(&switch), "vhf_ds5");
+}
+#[test]
 fn stream_presets_fill_the_host_and_a_device_or_app_can_pick_its_own() {
     use crate::state::test_support::Fixture;
     use serde_json::json;

@@ -3,6 +3,7 @@ import { PERM, PERM_ALL, type Client } from '../../lib/api';
 import { joinsCoop, storedCoopJoin } from '../../lib/coop-view';
 import { grantsValue, readGrants, type FolderGrants } from '../../lib/shared-folders';
 import { SETTING as STREAM_PRESET, presets } from '../../lib/stream-presets';
+import { settings as basicSettings } from '../../lib/schema/basics';
 import { settings as displaySettings } from '../../lib/schema/display';
 import { settings as extensionSettings } from '../../lib/schema/extensions';
 
@@ -105,6 +106,10 @@ export interface Draft {
   display: Record<DisplayOverride, string>;
   /** Those overrides exactly as stored, sent back while their choice is untouched. */
   stored_display: Partial<Record<DisplayOverride, unknown>>;
+  /** The device's controller type (`gamepad`) as the select shows it; empty follows the host. */
+  gamepad: string;
+  /** The controller type exactly as stored, sent back while its choice is untouched. */
+  stored_gamepad?: unknown;
   /** The device's other config overrides, kept and sent back untouched. */
   other_overrides: Record<string, unknown>;
   /** Lets the device change Radeon settings and close games; off unless granted here. */
@@ -187,6 +192,20 @@ function shownDisplay(value: unknown): string {
   return typeof value === 'number' ? String(value) : text(value).toLowerCase();
 }
 
+/**
+ * The controller type a device sets for itself, in place of the host's (issue #68): Automatic
+ * cannot tell a client that reports no controller type, such as a Switch running Moonlight.
+ */
+const gamepadSetting = basicSettings.find((setting) => setting.key === 'gamepad');
+if (gamepadSetting?.control.kind !== 'select') throw new Error('gamepad is not a select setting');
+export const GAMEPAD_OPTIONS = gamepadSetting.control.options.map(({ value, label }) => ({ value, label }));
+
+/** A stored controller type as the select shows it: another host's name as the type it means. */
+function shownGamepad(value: unknown): string {
+  const name = text(value);
+  return gamepadSetting?.aliases?.spellings?.[name] ?? name;
+}
+
 export function toDraft(client: Client): Draft {
   const sdr = flag(client.prefer_10bit_sdr);
   const stored = client.config_overrides;
@@ -200,6 +219,8 @@ export function toDraft(client: Client): Draft {
       delete other[key];
     }
   }
+  const storedGamepad = other.gamepad;
+  delete other.gamepad;
   return {
     name: client.name,
     enabled: flag(client.enabled) !== false,
@@ -224,6 +245,8 @@ export function toDraft(client: Client): Draft {
       string
     >,
     stored_display: storedDisplay,
+    gamepad: shownGamepad(storedGamepad),
+    stored_gamepad: storedGamepad,
     other_overrides: other,
     // As the host reads it: only true and "true" are on, so 1 and "yes" stay off.
     host_control: client.host_control === true || client.host_control === 'true',
@@ -249,7 +272,7 @@ function commands(rows: CommandRow[]): Command[] {
 }
 
 /**
- * The device's overrides: its other overrides plus its display overrides and preset; null when
+ * The device's overrides: its other overrides plus its display overrides, controller type and preset; null when
  * there are none. A preset or display override the user did not touch goes back as it was stored,
  * so a value this console cannot show (another type, an unknown name) is not rewritten or lost by
  * saving something else.
@@ -267,7 +290,9 @@ function overrides(draft: Draft): Record<string, unknown> | null {
       display[key] = key === 'dd_rotation_option' ? value : Number(value);
     }
   }
-  const next = { ...draft.other_overrides, ...display, ...preset };
+  const gamepadUntouched = draft.stored_gamepad !== undefined && shownGamepad(draft.stored_gamepad) === draft.gamepad;
+  const gamepad = gamepadUntouched ? { gamepad: draft.stored_gamepad } : draft.gamepad ? { gamepad: draft.gamepad } : {};
+  const next = { ...draft.other_overrides, ...display, ...gamepad, ...preset };
   return Object.keys(next).length > 0 ? next : null;
 }
 

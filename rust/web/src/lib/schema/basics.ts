@@ -908,7 +908,7 @@ const input: Setting[] = [
     description:
       "The virtual controller the host uses. Automatic matches each device's controller; choosing a type here uses it for all connected controllers.",
     details:
-      'Automatic picks DualSense, with adaptive triggers, for PlayStation, Switch Pro for Nintendo, and Xbox Series otherwise, or DualSense when the motion or touchpad options below select it. Waveform-capable DualSense clients use native USB audio haptics when usbip-win2 is installed on the host. The USB/IP option requires that driver and exposes a DualSense audio device. Steam stable can list a virtual Xbox controller twice; the Steam beta lists it once.',
+      'A device can set its own type in Devices, which wins over this one. Automatic picks DualSense, with adaptive triggers, for PlayStation, Switch Pro for Nintendo, and Xbox Series otherwise, or DualSense when the motion or touchpad options below select it. Waveform-capable DualSense clients use native USB audio haptics when usbip-win2 is installed on the host. The USB/IP option requires that driver and exposes a DualSense audio device. Steam stable can list a virtual Xbox controller twice; the Steam beta lists it once.',
     category: 'input',
     group: 'Controllers',
     control: {

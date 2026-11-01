@@ -1,0 +1,3 @@
+# Switch clients (#68)
+- **Sound comes back after a late audio ping.** A stream whose client's audio ping missed the first 10 seconds stayed silent until you reconnected. The host now keeps waiting, shows a warning while the ping is missing, and sends sound as soon as it arrives.
+- **A controller type per device.** Devices → device → Controller sets the virtual controller for that device alone, in place of the Controller type in Settings. Moonlight on a Nintendo Switch reports no controller type, so Automatic can't pick Switch Pro for it; now it can be set there without changing every other device's controller.

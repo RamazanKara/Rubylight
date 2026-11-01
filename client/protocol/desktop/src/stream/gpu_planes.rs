@@ -7,8 +7,10 @@
 //! that is dropped unshown frees its set too, so the queue, the pacer and the presenter can drop
 //! pictures in any order without leaking a set.
 //!
-//! On Linux the sets are CPU buffers the decoder reads the planes back into, and the presenter
-//! copies them to its textures while it holds the `Lease`; dropping the lease frees the set.
+//! On Linux the sets are images on the renderer's own Vulkan device when the decoder shares it
+//! (`zero_copy.rs`), released as on Windows once the presenter's copy out of them is queued with
+//! its reuse signal; or else CPU buffers the decoder reads the planes back into, which the
+//! presenter uploads while it holds the `Lease`, and dropping the lease frees the set.
 
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -21,7 +23,7 @@ use windows::Win32::Graphics::Direct3D11::{ID3D11Fence, ID3D11Texture2D};
 
 use super::pyrowave_sdk::GpuDecoder;
 #[cfg(unix)]
-use super::pyrowave_sdk::GpuConfig;
+use super::pyrowave_sdk::{zero_copy::SharedImages, GpuConfig};
 
 /// Which sets are free, and the reuse-fence value a decode into each must wait for (0: none).
 /// Sets come back in the order they were freed, so the one waited for longest is reused first.
@@ -226,33 +228,44 @@ impl Drop for Lease {
     }
 }
 
-/// The decoder's output sets: one CPU buffer per plane, shared by the decoder thread (which
-/// fills a set it holds a `Lease` on) and the presenter (which reads it while it holds the picture).
+/// The decoder's output sets, shared by the decoder thread (which fills a set it holds a `Lease`
+/// on) and the presenter (which reads it while it holds the picture).
 #[cfg(unix)]
 pub struct Planes {
     config: GpuConfig,
-    sets: Vec<Mutex<[Vec<u8>; 3]>>,
+    store: Store,
     pool: Mutex<Pool>,
+}
+
+#[cfg(unix)]
+enum Store {
+    /// One CPU buffer per plane, which the decoder reads the planes back into.
+    Buffers(Vec<Mutex<[Vec<u8>; 3]>>),
+    /// The decoder's images on the renderer's device.
+    Images(Arc<SharedImages>),
 }
 
 #[cfg(unix)]
 impl Planes {
     pub fn new(gpu: &GpuDecoder) -> Arc<Self> {
         let config = gpu.config();
-        Arc::new(Self {
-            config,
-            sets: (0..gpu.slot_count()).map(|_| Mutex::new([0, 1, 2].map(|plane| vec![0; config.plane_bytes(plane)]))).collect(),
-            pool: Mutex::new(Pool::new(gpu.slot_count())),
-        })
+        let store = match gpu.images() {
+            Some(images) => Store::Images(images.clone()),
+            None => Store::Buffers((0..gpu.slot_count()).map(|_| Mutex::new([0, 1, 2].map(|plane| vec![0; config.plane_bytes(plane)]))).collect()),
+        };
+        Arc::new(Self { config, store, pool: Mutex::new(Pool::new(gpu.slot_count())) })
     }
 
     pub fn config(&self) -> GpuConfig {
         self.config
     }
 
-    #[cfg(all(test, windows))]
-    pub fn set_count(&self) -> usize {
-        self.sets.len()
+    /// The sets on the renderer's device, when they are there and not in CPU buffers.
+    pub fn images(&self) -> Option<&Arc<SharedImages>> {
+        match &self.store {
+            Store::Images(images) => Some(images),
+            Store::Buffers(_) => None,
+        }
     }
 
     #[cfg(test)]
@@ -264,11 +277,11 @@ impl Planes {
         self.pool.lock().unwrap_or_else(|e| e.into_inner())
     }
 
-    /// A free set, or None when every set is held by a picture. The second value is the
-    /// reuse-fence value the Windows decoder waits for; nothing is shared with the GPU here, so 0.
+    /// A free set and the reuse value the decode into it must wait for (always 0 for CPU
+    /// buffers), or None when every set is held by a picture.
     pub fn acquire(self: &Arc<Self>) -> Option<(Lease, u64)> {
-        let (set, _) = self.pool().acquire()?;
-        Some((Lease { planes: self.clone(), set, freed: AtomicBool::new(false) }, 0))
+        let (set, after) = self.pool().acquire()?;
+        Some((Lease { planes: self.clone(), set, freed: AtomicBool::new(false) }, after))
     }
 }
 
@@ -286,7 +299,6 @@ pub struct Lease {
 
 #[cfg(unix)]
 impl Lease {
-    #[cfg(test)]
     pub fn set(&self) -> usize {
         self.set
     }
@@ -295,14 +307,24 @@ impl Lease {
         &self.planes
     }
 
-    /// Runs `f` on the set's three plane buffers (tightly packed rows, `GpuConfig::plane_bytes`).
-    pub fn with_buffers<R>(&self, f: impl FnOnce(&mut [Vec<u8>; 3]) -> R) -> R {
-        f(&mut self.planes.sets[self.set].lock().unwrap_or_else(|e| e.into_inner()))
+    /// Runs `f` on the set's three plane buffers (tightly packed rows, `GpuConfig::plane_bytes`),
+    /// or returns None if the set is images on the GPU.
+    pub fn with_buffers<R>(&self, f: impl FnOnce(&mut [Vec<u8>; 3]) -> R) -> Option<R> {
+        match &self.planes.store {
+            Store::Buffers(sets) => Some(f(&mut sets[self.set].lock().unwrap_or_else(|e| e.into_inner()))),
+            Store::Images(_) => None,
+        }
     }
 
     /// Gives the set back (dropping the lease does the same).
     pub fn release(&self) {
         if !self.freed.swap(true, Ordering::AcqRel) { self.planes.pool().release(self.set, None); }
+    }
+
+    /// Gives the set back after the presenter signalled `value` on the reuse timeline behind its
+    /// copy out of it: the next decode into the set waits for that value.
+    pub fn release_after(&self, value: u64) {
+        if !self.freed.swap(true, Ordering::AcqRel) { self.planes.pool().release(self.set, Some(value)); }
     }
 }
 
@@ -383,9 +405,10 @@ mod tests {
         let (first, _) = planes.acquire().unwrap();
         let (second, _) = planes.acquire().unwrap();
         assert!(planes.acquire().is_none(), "every set is held by a picture");
-        first.with_buffers(|buffers| buffers[0][0] = 7);
-        assert_eq!(first.with_buffers(|buffers| buffers[0][0]), 7);
-        assert_eq!([0, 1, 2].map(|p| first.with_buffers(|buffers| buffers[p].len())), [64 * 48, 32 * 24, 32 * 24]);
+        first.with_buffers(|buffers| buffers[0][0] = 7).unwrap();
+        assert_eq!(first.with_buffers(|buffers| buffers[0][0]), Some(7));
+        assert_eq!([0, 1, 2].map(|p| first.with_buffers(|buffers| buffers[p].len())), [Some(64 * 48), Some(32 * 24), Some(32 * 24)]);
+        assert!(planes.images().is_none(), "CPU buffers are not GPU images");
         let (set, _) = (first.set(), first.release());
         first.release();
         assert_eq!(planes.free_count(), 1, "releasing twice frees the set once");
@@ -397,12 +420,29 @@ mod tests {
         assert_eq!(again.set(), set, "sets are reused in the order they were freed");
     }
 
+    /// A set the presenter copied out of on the GPU comes back with its reuse signal, which the
+    /// next decode into it waits for; a picture dropped unshown adds no wait.
+    #[cfg(unix)]
+    #[test]
+    fn a_set_released_after_a_copy_hands_its_reuse_value_to_the_next_decode() {
+        let planes = unix_planes(1);
+        let (lease, after) = planes.acquire().unwrap();
+        assert_eq!(after, 0);
+        lease.release_after(5);
+        lease.release_after(9);
+        drop(lease);
+        let (lease, after) = planes.acquire().unwrap();
+        assert_eq!(after, 5, "released once, with the first value");
+        drop(lease);
+        assert_eq!(planes.acquire().map(|(_, after)| after), Some(5), "an unshown picture does not lower the wait");
+    }
+
     #[cfg(unix)]
     fn unix_planes(sets: usize) -> Arc<Planes> {
         let config = GpuConfig { width: 64, height: 48, chroma444: false, ten_bit: false, slots: sets };
         Arc::new(Planes {
             config,
-            sets: (0..sets).map(|_| Mutex::new([0, 1, 2].map(|plane| vec![0; config.plane_bytes(plane)]))).collect(),
+            store: Store::Buffers((0..sets).map(|_| Mutex::new([0, 1, 2].map(|plane| vec![0; config.plane_bytes(plane)]))).collect()),
             pool: Mutex::new(Pool::new(sets)),
         })
     }

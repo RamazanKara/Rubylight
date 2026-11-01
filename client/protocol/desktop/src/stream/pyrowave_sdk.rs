@@ -2,8 +2,10 @@
 //! libpyrowave-shared.so on Linux), route A of docs/pyrowave-decode.md: the SDK decodes the
 //! entropy-coded records and runs the inverse wavelets on its own Vulkan device. On Windows the
 //! three R8 or R16 planes are shared D3D11 textures and a shared `ID3D11Fence` orders the D3D11
-//! side after the decode. On Linux (`unix.rs`) the planes are read back into CPU buffers that
-//! the presenter uploads to its own textures; no Vulkan memory is shared with the renderer.
+//! side after the decode. On Linux the SDK decodes on the SDL GPU renderer's own Vulkan device
+//! into images the presenter copies from on the GPU (`zero_copy.rs`), or, where that device cannot
+//! be shared, on a device of its own with the planes read back into CPU buffers that the presenter
+//! uploads (`unix.rs`).
 //!
 //! Ported from the Rubylight host's decode test harness (rust/windows/src/pyrowave/decode_tests.rs,
 //! `Decoder`) and its `api!` loader (rust/windows/src/pyrowave.rs). The structs are hand-written
@@ -49,9 +51,12 @@ pub use unix::*;
 // Platform independent, so the deadline logic is tested on every host.
 #[cfg(any(unix, test))]
 mod watchdog;
+// Likewise, so the decisions about sharing the renderer's device are tested on every host.
+#[cfg(any(unix, test))]
+pub mod zero_copy;
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 
 #[cfg(windows)]
 pub const DLL_NAME: &str = "libpyrowave-shared-1.dll";
@@ -173,6 +178,37 @@ pub const CPU_FORMAT_YUV444P16: i32 = 6;
 
 pub type MessageCallback = unsafe extern "C" fn(*mut c_void, *const c_char);
 
+/// `pyrowave_device_create_queue_info`: a queue of the shared device the SDK uses instead of
+/// asking Vulkan for one.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct DeviceQueueInfo {
+    pub queue: vk::Queue,
+    pub family_index: u32,
+    pub index: u32,
+}
+
+/// `pyrowave_queue_lock_cb`: locks or unlocks every submission to the shared device's queues.
+pub type QueueLockCallback = unsafe extern "C" fn(*mut c_void);
+
+/// `pyrowave_device_create_info`: an existing Vulkan device for the SDK to share
+/// (`pyrowave_create_device`). The create infos describe what the device was made with, and they
+/// and everything they point to must outlive the SDK device.
+#[repr(C)]
+pub struct SharedDeviceCreateInfo {
+    pub get_instance_proc_addr: vk::PFN_vkGetInstanceProcAddr,
+    pub instance: vk::Instance,
+    pub physical_device: vk::PhysicalDevice,
+    pub device: vk::Device,
+    pub instance_create_info: *const vk::InstanceCreateInfo<'static>,
+    pub device_create_info: *const vk::DeviceCreateInfo<'static>,
+    pub queue_info: *mut DeviceQueueInfo,
+    pub queue_info_count: u32,
+    pub queue_lock_callback: Option<QueueLockCallback>,
+    pub queue_unlock_callback: Option<QueueLockCallback>,
+    pub userdata: *mut c_void,
+}
+
 macro_rules! api {
     ($($name:ident: $ty:ty),* $(,)?) => {
         /// The SDK's entry points, resolved once from the DLL.
@@ -195,6 +231,7 @@ macro_rules! api {
     };
 }
 api! {
+    create_device: unsafe extern "C" fn(*const SharedDeviceCreateInfo, *mut RawDevice) -> PyroResult,
     create_device_by_compat: unsafe extern "C" fn(u32, u32, *const [u8; 16], *const [u8; 16], *const Luid, i32, *mut RawDevice) -> PyroResult,
     device_confirm_interop_support: unsafe extern "C" fn(RawDevice) -> bool,
     device_get_vk_device_handles: unsafe extern "C" fn(RawDevice, *mut vk::Instance, *mut vk::PhysicalDevice, *mut vk::Device),

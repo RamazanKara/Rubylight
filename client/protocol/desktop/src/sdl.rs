@@ -277,9 +277,50 @@ fn luminance_of(caps: &rubylight_protocol::control::DisplayCaps) -> Option<night
 }
 
 pub fn create_renderer(window: *mut SDL_Window, gpu: bool) -> *mut SDL_Renderer {
-    // SAFETY: The window is live, and all property strings are static.
+    #[cfg(unix)]
+    let share = gpu && crate::stream::pyrowave_sdk::dll_path().is_some_and(|path| path.exists());
+    #[cfg(not(unix))]
+    let share = false;
+    create_renderer_for(window, gpu, share)
+}
+
+/// `create_renderer`, on Linux with `share` (the PyroWave SDK is there) asking for the Vulkan
+/// features its GPU decoder needs to decode on the renderer's own device (`zero_copy.rs`). When
+/// the devices lack them, or the renderer cannot be made with them, it is made as without `share`,
+/// and the reason is logged.
+pub fn create_renderer_for(window: *mut SDL_Window, gpu: bool, share: bool) -> *mut SDL_Renderer {
+    #[cfg(unix)]
+    if gpu && share {
+        use crate::stream::pyrowave_sdk::zero_copy;
+        match zero_copy::RendererRequest::new() {
+            Ok(mut request) => {
+                // The request outlives the call, which copies what it needs of it.
+                let renderer = make_renderer(window, gpu, request.options());
+                // SAFETY: A live renderer made with the request.
+                if !renderer.is_null() && unsafe { request.mark(renderer) } {
+                    return renderer;
+                }
+                let why = if renderer.is_null() { error() } else { format!("it draws with {:?}", renderer_name(renderer)) };
+                // SAFETY: Made above, unused.
+                if !renderer.is_null() { unsafe { SDL_DestroyRenderer(renderer) }; }
+                zero_copy::note(&format!("the GPU renderer cannot be made with PyroWave's Vulkan features {:?} ({why}), so GPU decoding will read its planes back", request.features().names()));
+            }
+            Err(why) => zero_copy::note(&format!("the GPU renderer is made without PyroWave's Vulkan features, so GPU decoding will read its planes back: {why}")),
+        }
+    }
+    let _ = share;
+    make_renderer(window, gpu, std::ptr::null_mut())
+}
+
+/// `window` must be live and `vulkan` null or valid for the call. With `vulkan`, a GPU renderer
+/// that cannot be made is not replaced by another kind.
+fn make_renderer(window: *mut SDL_Window, gpu: bool, vulkan: *mut SDL_GPUVulkanOptions) -> *mut SDL_Renderer {
+    // SAFETY: The window is live, `vulkan` null or valid, and all property strings are static.
     unsafe {
         let props = SDL_CreateProperties();
+        if !vulkan.is_null() {
+            SDL_SetPointerProperty(props, SDL_PROP_GPU_DEVICE_CREATE_VULKAN_OPTIONS_POINTER, vulkan.cast());
+        }
         SDL_SetPointerProperty(
             props,
             SDL_PROP_RENDERER_CREATE_WINDOW_POINTER,
@@ -315,7 +356,7 @@ pub fn create_renderer(window: *mut SDL_Window, gpu: bool) -> *mut SDL_Renderer 
             );
             renderer = SDL_CreateRendererWithProperties(props);
         }
-        if renderer.is_null() && !cfg!(windows) && gpu {
+        if renderer.is_null() && !cfg!(windows) && gpu && vulkan.is_null() {
             SDL_ClearProperty(props, SDL_PROP_RENDERER_CREATE_NAME_STRING);
             renderer = SDL_CreateRendererWithProperties(props);
         }

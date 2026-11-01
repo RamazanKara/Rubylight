@@ -794,11 +794,13 @@ impl GpuStream {
         GpuDecoder::new(device, config).map(Self::with_decoder)
     }
 
-    /// Creates the SDK decoder (on the Vulkan driver's default device) with `slots` plane sets.
+    /// Creates the SDK decoder with `slots` plane sets, on the Vulkan device of the renderer whose
+    /// SDL GPU device is `device` where it can be shared, else on the driver's default device
+    /// (`GpuDecoder::for_renderer`).
     #[cfg(unix)]
-    pub fn new(width: usize, height: usize, chroma444: bool, ten_bit: bool, slots: usize) -> Result<Self, String> {
+    pub fn new(device: *mut std::ffi::c_void, width: usize, height: usize, chroma444: bool, ten_bit: bool, slots: usize) -> Result<Self, String> {
         let config = GpuConfig { width: width as u32, height: height as u32, chroma444, ten_bit, slots };
-        GpuDecoder::new(config).map(Self::with_decoder)
+        GpuDecoder::for_renderer(device, config).map(Self::with_decoder)
     }
 
     pub fn with_decoder(gpu: GpuDecoder) -> Self {
@@ -837,7 +839,7 @@ impl GpuStream {
         });
     }
 
-    #[cfg(all(test, windows))]
+    #[cfg(test)]
     pub fn planes(&self) -> &std::sync::Arc<super::gpu_planes::Planes> {
         &self.planes
     }
@@ -1012,15 +1014,19 @@ impl GpuStream {
             self.stages.add(GPU_WAIT, step);
             fence_value
         };
-        // The decode into the set's CPU buffers blocks until the GPU is done and the planes are read
-        // back, so the whole of it is the "gpu" stage.
+        // The decode blocks until the GPU is done and the planes are final (in the set's images on
+        // the renderer's device, or read back into its CPU buffers), so the whole of it is the
+        // "gpu" stage.
         #[cfg(unix)]
         {
-            let _ = after;
-            let gpu = &mut self.gpu;
-            let decoded = lease.with_buffers(|[y, cb, cr]| gpu.decode([y, cb, cr]));
+            let decoded = if self.gpu.images().is_some() {
+                self.gpu.decode_into(lease.set(), after)
+            } else {
+                let gpu = &mut self.gpu;
+                lease.with_buffers(|[y, cb, cr]| gpu.decode([y, cb, cr])).unwrap_or_else(|| Err("the plane set has no CPU buffers".into()))
+            };
             if let Err(e) = decoded {
-                // A decode that missed its deadline may still write into these buffers once the
+                // A decode that missed its deadline may still write into this set once the
                 // device comes back: the set is never given back, so nothing reads or reuses it.
                 if self.gpu.stalled() { std::mem::forget(lease); }
                 return Err(Failure::Device(format!("PyroWave GPU decode failed: {e}")));

@@ -1073,7 +1073,7 @@ impl Launcher {
                     button
                 });
                 let (reset_label, reset_about) = if *confirm_reset {
-                    (en("Reset all settings?"), en("Every setting on this page goes back to its default. This can't be undone."))
+                    (en("Reset all settings?"), en("Every setting on this page goes back to its default. Your language, PCs, games, profiles, PIN lock, controller buttons, shortcuts and anything not on this page stay as they are. This can't be undone."))
                 } else {
                     (en("Reset all settings"), en("Puts every setting on this page back to its default. Your PCs, games, profiles and language keep theirs."))
                 };

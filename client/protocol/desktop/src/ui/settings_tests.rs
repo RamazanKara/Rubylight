@@ -359,6 +359,44 @@ fn a_pcs_own_value_on_a_disabled_row_can_be_cleared() {
     assert_eq!(row_box(&f, "Sharper colored text (YUV 4:4:4)").0, Some(Toggled::False));
 }
 
+/// Left from any row stays in that row (its Reset, a slider) or goes to the open section's
+/// entry, never to a Reset or control of another row, with changed rows above and below.
+#[test]
+fn left_never_lands_on_another_rows_reset() {
+    let focused = |f: &Frames| f.ctx.memory(|m| m.focused()).and_then(|id| f.ctx.read_response(id)).map(|r| r.rect);
+    let changed = [Settings { fps: 120, ..Settings::default() }, Settings { fps: 60, bitrate_kbps: 40_000, ..Settings::default() }];
+    for width in [1280.0, 900.0] {
+        for (case, settings) in changed.iter().enumerate() {
+            for step in 0..8 {
+                let mut f = settings_with(settings.clone());
+                f.size = vec2(width, 4000.0);
+                f.l.go(Screen::Settings);
+                f.l.settings_view.section = "Video";
+                f.settle();
+                for _ in 0..step {
+                    f.press(Key::ArrowDown);
+                }
+                let from = focused(&f).expect("a row's control has focus");
+                let entry = f.placed.iter().filter(|(t, ..)| t == "Video").map(|p| p.1)
+                    .min_by(|a, b| a.height().total_cmp(&b.height())).expect("the entry");
+                if from.contains(entry.center()) {
+                    continue;
+                }
+                f.press(Key::ArrowLeft);
+                let to = focused(&f).expect("Left keeps a focus");
+                let same_row = to.top() < from.bottom() && from.top() < to.bottom();
+                assert!(to.contains(entry.center()) || same_row, "{width} case {case} step {step}: Left from {from:?} lands on {to:?}, not the entry {entry:?} or its row");
+            }
+        }
+    }
+    // A changed row's own Reset is still left of its control.
+    let mut f = settings_with(Settings { width: 1280, height: 720, ..Settings::default() });
+    let from = focused(&f).expect("Resolution has focus");
+    f.press(Key::ArrowLeft);
+    let reset = f.placed.iter().find(|(t, ..)| t == "Reset").expect("Resolution's Reset").1;
+    assert!(focused(&f).is_some_and(|r| r.contains(reset.center())), "Left from {from:?} reaches the row's Reset {reset:?}, not {:?}", focused(&f));
+}
+
 /// The settings page in every state worth a look, at 1280x800 (150 %) and 1920x1080:
 /// `NIGHTJAR_SHOTS=<dir> cargo test -p nightjar-desktop settings_screenshots -- --ignored`.
 #[test]

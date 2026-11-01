@@ -3194,20 +3194,20 @@ fn home_opens_all_games_from_its_top_row_when_every_row_fits() {
     f.settle();
     assert!(!f.drawn.iter().any(|t| t.strip_prefix("All ").is_some_and(|n| n.parse::<usize>().is_ok())), "every row fits, no All tile: {:?}", f.drawn);
     let stops = header_stops(&mut f);
-    assert_eq!(stops.len(), 4, "Home, PCs, Settings and All games: {stops:?}");
+    assert_eq!(stops.len(), 5, "Home, PCs, Settings, Help and All games: {stops:?}");
     let action = f.placed.iter().find(|(t, r, _)| t == "All games" && r.center().y < 80.0).map(|p| p.1).expect("All games in the top row");
-    assert!(stops[3].contains_rect(action) && 1280.0 - stops[3].right() < 80.0, "last for Tab, at the right edge: {stops:?}");
-    // Right from Settings lands on it.
-    let settings = f.placed.iter().find(|(t, r, _)| t == "Settings" && r.center().y < 80.0).map(|p| p.1).unwrap();
+    assert!(stops[4].contains_rect(action) && 1280.0 - stops[4].right() < 80.0, "last for Tab, at the right edge: {stops:?}");
+    // Right from the last destination, Help, lands on it.
+    let settings = f.placed.iter().find(|(t, r, _)| t == "Help" && r.center().y < 80.0).map(|p| p.1).unwrap();
     let pill = (0..30).find_map(|_| {
         f.press_with(Key::Tab, egui::Modifiers::SHIFT);
         let id = f.ctx.memory(|m| m.focused())?;
         f.ctx.read_response(id).filter(|r| r.rect.contains(settings.center())).map(|r| r.id)
     });
-    assert!(pill.is_some(), "Shift+Tab reaches Settings");
+    assert!(pill.is_some(), "Shift+Tab reaches Help");
     f.press(Key::ArrowRight);
     let focused = f.ctx.memory(|m| m.focused()).and_then(|id| f.ctx.read_response(id)).map(|r| r.rect).expect("focus");
-    assert!(focused.contains_rect(action), "Right from Settings reaches All games: {focused:?}");
+    assert!(focused.contains_rect(action), "Right from Help reaches All games: {focused:?}");
     f.press(Key::Enter);
     assert_eq!(f.l.screen, Screen::AllGames);
     assert_eq!(f.l.library_filter, console::LibraryFilter::All);

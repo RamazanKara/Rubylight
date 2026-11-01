@@ -15,8 +15,10 @@ controller to its own device. This enables two modes:
 
 ## Quick start
 
-1. Download [Nucleus Co-op 2.4.2](https://github.com/SplitScreen-Me/splitscreenme-nucleus/releases/tag/v2.4.2) and unpack it into a folder under
-   `C:\Program Files`. In the console, open **Games**, select the game and,
+1. At the PC, as an administrator: download [Nucleus Co-op 2.4.2](https://github.com/SplitScreen-Me/splitscreenme-nucleus/releases/tag/v2.4.2), unblock
+   the zip (right-click it, **Properties**, tick **Unblock**) and unpack it
+   into a folder under `C:\Program Files` (Windows asks once for
+   administrator rights). In the console, open **Games**, select the game and,
    under **Play together**, choose that folder and select **Use this
    folder**. Rubylight checks it and downloads nothing itself.
 2. If the game has no Nucleus Co-op handler yet, the panel offers **Open
@@ -219,27 +221,43 @@ password that build saved; if that fails, **Maintenance** says why and offers
 
 Rubylight downloads nothing. Download Nucleus Co-op 2.4.2 (`NucleusApp.zip`)
 from [its release page](https://github.com/SplitScreen-Me/splitscreenme-nucleus/releases/tag/v2.4.2), which a game's **Play together** panel and
-the Nucleus Co-op panel under **Help** link to, and unpack it into a folder
-under `C:\Program Files`. Then choose that folder on either panel (type it or
-**Browse**) and select **Use this folder**. The host checks the folder before
-it keeps it as `nucleus_path`, and refuses it with the reason, saving
-nothing, when:
+the Nucleus Co-op panel under **Help** link to. Setting it up needs an
+administrator at the PC:
+
+1. Unblock the zip before extracting it: right-click `NucleusApp.zip`, choose
+   **Properties**, tick **Unblock** and select **OK**. Files unpacked from a
+   zip that still carries the browser's Mark of the Web are refused.
+2. Unpack it into a folder under `C:\Program Files`. Windows asks once for
+   administrator rights (one UAC prompt) to write there.
+3. Choose that folder on either panel (type it or **Browse**) and select
+   **Use this folder**.
+
+The host checks the folder before it keeps it as `nucleus_path`, and refuses
+it with the reason, saving nothing, when:
 
 - it isn't a full path, doesn't exist or holds no `NucleusCoop.exe` (**Not
   found**);
-- its `NucleusCoop.exe` isn't 2.4.2's, by the file's size and SHA-256
-  (**Wrong version**; 2.4.2's file version reads 2.3.0.0, so the version
-  number can't tell);
-- the folder or `NucleusCoop.exe` is a link (a junction or symbolic link), or
-  anyone but SYSTEM, Administrators and TrustedInstaller may change the
-  folder, the exe or the folder's parent (**Folder refused**). Nucleus Co-op
-  runs elevated and the host writes into its folder as SYSTEM, so a folder you
-  can change without elevation would hand both to any program you run. A
-  folder unpacked under `C:\Program Files` passes; one in Downloads, on the
-  desktop or right under `C:\` (as Nucleus Co-op suggests) doesn't.
+- a program file in it isn't 2.4.2's, by each file's size and SHA-256 against
+  the release's file list (**Wrong version**; 2.4.2's file version reads
+  2.3.0.0, so the version number can't tell);
+- it is on a network share (a UNC path), a mapped or removable drive rather
+  than a fixed drive of this PC; anything in it is a link (a junction or
+  symbolic link); or anyone but SYSTEM, Administrators and TrustedInstaller
+  owns or may change a file or folder in it, or any folder above it (**Folder
+  refused**). Nucleus Co-op runs elevated and the host writes into its folder
+  as SYSTEM, so a folder you can change without elevation would hand both to
+  any program you run. A folder unpacked under `C:\Program Files` passes; one
+  in Downloads, on the desktop or right under `C:\` (as Nucleus Co-op
+  suggests) doesn't;
+- a file in it still carries the Mark of the Web (**Blocked by Windows**):
+  unblock the zip and unpack it again into a new folder.
+
+**Forget this folder** on either panel clears `nucleus_path`. Neither it nor
+**Use this folder** works while a co-op or background session runs: end the
+session first.
 
 The panels show the state with the host's reason. A `nucleus_path` set
-elsewhere (Settings, `butterpollo.conf`) is checked the same way at each
+elsewhere (Settings, `sunshine.conf`) is checked the same way at each
 launch: while Nucleus Co-op isn't set up, or its folder is refused, co-op and
 background launches answer 503 and **Open Nucleus Co-op on this PC** is
 refused, each with the reason. Sessions turn Nucleus Co-op's own folder check
@@ -249,7 +267,11 @@ folder under `C:\Program Files`; that warning doesn't apply here.
 Earlier Rubylight versions downloaded Nucleus Co-op into
 `C:\ProgramData\Butterpollo\nucleus\2.4.2`. With no folder chosen, that
 install keeps working (Help shows it as **Earlier install**); choosing a
-folder takes over from it. Nucleus Co-op's handler hub view is a WebView2
+folder takes over from it. A folder kept as `nucleus_path` that isn't 2.4.2
+(one an earlier version allowed) falls back to that install while it exists:
+the panels say so and offer to choose another folder. Games added in Nucleus
+Co-op stay in the copy they were added in, so add them again after moving to
+a new folder. Nucleus Co-op's handler hub view is a WebView2
 browser, which runs without administrator rights, so its data lives in the
 signed-in user's `AppData\Local\Butterpollo\nucleus-webview`.
 

@@ -202,7 +202,8 @@ impl SessionThread<'_> {
         };
         require_hdr_source(&s, || first.gpu.display_in_hdr(), false)?;
         s.source_checked.store(true, Ordering::Release);
-        m.configure_encoder(&s, &c, &first, &prepared, &mut encoder)?;
+        m.configure_encoder(&s, &c, &first, &prepared, &mut encoder)
+            .map_err(|error| error.context(EncoderFailure("the encoder could not be created")))?;
         drop(first);
         let focus = crate::stream_focus::Focus::start(
             &c,

@@ -70,6 +70,57 @@ async fn an_encoder_failure_leaves_nothing_behind() -> Result<()> {
     h.finish().await
 }
 
+/// A stream that ends on an encoder error tells the client so (0x800E9403, Moonlight's
+/// encoder hint), and the device's `/serverinfo` carries the host's words until its next
+/// launch.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_encoder_error_reaches_the_client_with_its_reason() -> Result<()> {
+    let h = Harness::new(10_000, 1).await?;
+    let serverinfo = || async {
+        let response = h.clients[0]
+            .get(format!("https://127.0.0.1:{}/serverinfo", h.ports.https))
+            .send()
+            .await?
+            .error_for_status()?
+            .text()
+            .await?;
+        anyhow::Ok(xml(&response, "RustHostLastFailure").to_owned())
+    };
+    let (session, client) = streaming(&h).await?;
+    assert_eq!(serverinfo().await?, "");
+    h.fixture.fail_encoder.store(true, Ordering::Release);
+    until("the failure reaches the client", WAIT, || {
+        client.reason.load(Ordering::Acquire) != 0
+    })
+    .await;
+    assert_eq!(client.reason.load(Ordering::Acquire), 0x800E_9403);
+    assert_eq!(session.termination_reason(), 0x800E_9403);
+    assert_eq!(
+        serverinfo().await?,
+        "the encoder kept failing: AMF error AMF_FAIL (1)"
+    );
+    // Over plain HTTP the caller is nobody's device.
+    let plain = h
+        .http
+        .get(format!("http://127.0.0.1:{}/serverinfo", h.ports.http))
+        .send()
+        .await?
+        .text()
+        .await?;
+    assert_eq!(xml(&plain, "RustHostLastFailure"), "", "{plain}");
+    drop(client);
+    h.empty().await?;
+    h.fixture.fail_encoder.store(false, Ordering::Release);
+    let (session, client) = streaming(&h).await?;
+    assert_eq!(
+        serverinfo().await?,
+        "",
+        "a new launch starts without the old failure"
+    );
+    h.end(&session, client).await?;
+    h.finish().await
+}
+
 /// The host stopping, as `main` stops it, ends its streams first.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_host_stop_leaves_nothing_behind() -> Result<()> {

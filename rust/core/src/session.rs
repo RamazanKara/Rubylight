@@ -31,6 +31,20 @@ pub enum Role {
     InputOnly,
 }
 
+/// An error that ended the stream because the encoder failed: as the error itself
+/// or as context on the cause, it reads as its message, and
+/// [`Session::fail_with`] sends the client the encoder's termination code.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct EncoderFailure(pub &'static str);
+
+impl std::fmt::Display for EncoderFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.0)
+    }
+}
+
+impl std::error::Error for EncoderFailure {}
+
 #[cfg(test)]
 mod tests;
 #[derive(Default)]
@@ -81,6 +95,8 @@ pub struct Session<P = (), A = ()> {
     /// Set before `stop` when the stream ends on an error, so the client is
     /// told it failed rather than that the host closed it.
     pub failed: AtomicBool,
+    /// Set with `failed` when the error was the encoder's ([`EncoderFailure`]).
+    pub encoder_failed: AtomicBool,
     /// Set by the stream worker once the capture's first frame passed the checks a WebRTC HDR
     /// stream needs (the display is in HDR). The transport holds back its "streaming" status
     /// until then, so a refused stream is never announced first.
@@ -224,6 +240,7 @@ impl<P, A> Session<P, A> {
             config,
             stop: AtomicBool::new(false),
             failed: AtomicBool::new(false),
+            encoder_failed: AtomicBool::new(false),
             source_checked: AtomicBool::new(false),
             idr: AtomicBool::new(true),
             invalidation: Default::default(),
@@ -357,17 +374,29 @@ impl<P, A> Session<P, A> {
         self.failed.store(true, Ordering::Release);
         self.stop();
     }
+    /// Fails the stream on `error`; an [`EncoderFailure`] anywhere in its
+    /// chain tells the client the encoder failed.
+    pub fn fail_with(&self, error: &anyhow::Error) {
+        if error.downcast_ref::<EncoderFailure>().is_some() {
+            self.encoder_failed.store(true, Ordering::Release);
+        }
+        self.fail();
+    }
     pub fn failed(&self) -> bool {
         self.failed.load(Ordering::Acquire)
     }
     /// The termination reason the control stream sends. Moonlight closes
     /// quietly on 0x80030023 (the host closed the stream) and shows an error
-    /// with the code otherwise; 0x80004005 is the generic failure HRESULT.
+    /// with the code otherwise: 0x800E9403 is moonlight-common-c's
+    /// `ML_ERROR_FRAME_CONVERSION`, for which stock Moonlight suggests
+    /// encoder settings; 0x80004005 is the generic failure HRESULT.
     pub fn termination_reason(&self) -> u32 {
-        if self.failed() {
-            0x8000_4005
-        } else {
+        if !self.failed() {
             0x8003_0023
+        } else if self.encoder_failed.load(Ordering::Acquire) {
+            0x800E_9403
+        } else {
+            0x8000_4005
         }
     }
     pub fn request_idr(&self) {

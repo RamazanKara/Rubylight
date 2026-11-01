@@ -4,6 +4,7 @@ mod run;
 mod setup;
 mod teardown;
 use super::*;
+use butterpollo_core::session::EncoderFailure;
 
 /// How soon the stream looks again when another thread held the running app.
 const QUIT_SCAN_RETRY: Duration = Duration::from_millis(50);
@@ -98,7 +99,7 @@ pub(super) fn encoder_progress(
         }
         *failing = None;
     } else if failing.is_some_and(|since| now.duration_since(since) >= ENCODER_RECOVERY) {
-        anyhow::bail!("the encoder did not produce a frame during recovery");
+        return Err(EncoderFailure("the encoder did not produce a frame during recovery").into());
     }
     Ok(())
 }
@@ -207,7 +208,7 @@ impl EncoderRecovery {
                 }
                 let since = *self.failing.get_or_insert_with(&now);
                 if now().duration_since(since) >= ENCODER_RECOVERY {
-                    return Err(error.context("the encoder kept failing"));
+                    return Err(error.context(EncoderFailure("the encoder kept failing")));
                 }
                 warnings.set("encoder_recovery", format!("Encoder output failed ({error:#}); recreating the same encoder while the picture freezes. Lower game GPU load or update the graphics driver if this repeats."));
                 active.log_stall();
@@ -250,7 +251,7 @@ impl EncoderRecovery {
             }
             let since = *self.failing.get_or_insert_with(&now);
             if now().duration_since(since) >= ENCODER_RECOVERY {
-                anyhow::bail!("the encoder stopped returning frames");
+                return Err(EncoderFailure("the encoder stopped returning frames").into());
             }
             warnings.set("encoder_recovery", format!("The encoder returned no frame for {} ms; recreating the same encoder while the picture freezes. Lower game GPU load or update the graphics driver if this repeats.", limit.as_millis()));
             tracing::warn!(

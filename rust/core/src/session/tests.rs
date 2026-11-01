@@ -2140,6 +2140,29 @@ fn a_failed_stream_is_not_reported_as_a_normal_close() {
     assert_eq!(failed.termination_reason(), 0x8000_4005);
 }
 #[test]
+fn an_encoder_failure_sends_the_encoder_termination_code() {
+    let other = Session::new(launch("other", Role::Stream), Negotiated::default());
+    other.fail_with(&anyhow::anyhow!("client video ping timed out"));
+    assert!(other.stopping());
+    assert_eq!(other.termination_reason(), 0x8000_4005);
+    // As the cause or as context below more context, the marker is found.
+    for error in [
+        anyhow::Error::new(EncoderFailure("the encoder stopped returning frames")),
+        anyhow::anyhow!("AMF error")
+            .context(EncoderFailure("the encoder kept failing"))
+            .context("session"),
+    ] {
+        let encoder = Session::new(launch("encoder", Role::Stream), Negotiated::default());
+        encoder.fail_with(&error);
+        assert!(encoder.stopping());
+        assert_eq!(encoder.termination_reason(), 0x800E_9403, "{error:#}");
+    }
+    assert_eq!(
+        anyhow::Error::new(EncoderFailure("the encoder stopped returning frames")).to_string(),
+        "the encoder stopped returning frames"
+    );
+}
+#[test]
 fn a_worker_that_cannot_start_fails_without_leaving_an_active_session() {
     let mut sessions = Sessions::default();
     let failed = launch("failed", Role::Stream);

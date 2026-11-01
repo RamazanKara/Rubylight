@@ -1177,7 +1177,7 @@ impl SessionThread<'_> {
                             }
                             let since = *recovery.failing.get_or_insert_with(Instant::now);
                             if since.elapsed() >= ENCODER_RECOVERY {
-                                return Err(error.context("the encoder could not be recreated"));
+                                return Err(error.context(EncoderFailure("the encoder could not be recreated")));
                             }
                             s.launch.warnings.set("encoder_recovery", format!("Encoder recreation failed ({error:#}); retrying the same backend while the picture freezes. Check the driver and lower game GPU load; the session will fail if frames do not resume."));
                             timer.until(Instant::now() + Duration::from_millis(100));
@@ -1444,7 +1444,7 @@ impl SessionThread<'_> {
                         // that keep coming end the session.
                         let since = *recovery.failing.get_or_insert_with(Instant::now);
                         if since.elapsed() >= ENCODER_RECOVERY {
-                            return Err(error.context("the encoder kept failing"));
+                            return Err(error.context(EncoderFailure("the encoder kept failing")));
                         }
                         s.launch.warnings.set("encoder_recovery", format!("Encoding failed ({error:#}); recreating the same encoder while the picture freezes. Lower game GPU load or update the graphics driver if this repeats."));
                         active.log_stall();

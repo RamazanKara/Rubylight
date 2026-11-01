@@ -131,8 +131,8 @@ impl Stream {
     }
     fn step(&mut self, now: Instant) -> Result<()> {
         let result = self.drive(now);
-        if result.is_err() {
-            self.session.fail();
+        if let Err(error) = &result {
+            self.session.fail_with(error);
         }
         result
     }
@@ -401,7 +401,8 @@ fn a_persistent_stall_backs_off_and_fails_the_session_at_the_recovery_budget() -
     );
     assert_eq!(stream.sent.len(), 1);
     assert!(stream.session.failed());
-    assert_eq!(stream.session.termination_reason(), 0x8000_4005);
+    // The client hears it was the encoder (Moonlight's ML_ERROR_FRAME_CONVERSION).
+    assert_eq!(stream.session.termination_reason(), 0x800E_9403);
     Ok(())
 }
 

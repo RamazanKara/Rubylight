@@ -502,6 +502,7 @@ async fn serverinfo_for_a_default_config_is_byte_identical() {
              <RustHostVersion>{version}</RustHostVersion>\
              <RustHostEncoderBitrateKbps>0</RustHostEncoderBitrateKbps>\
              <RustHostInitialEncoderBitrateKbps>0</RustHostInitialEncoderBitrateKbps>\
+             <RustHostLastFailure></RustHostLastFailure>\
              <RustHostSessionCount>0</RustHostSessionCount>\
              <RustHostPendingSessionCount>0</RustHostPendingSessionCount>\
              <RustHostApplicationActive>0</RustHostApplicationActive>\
@@ -564,6 +565,7 @@ async fn serverinfo_for_a_default_config_is_byte_identical() {
              <RustHostVersion>{version}</RustHostVersion>\
              <RustHostEncoderBitrateKbps>0</RustHostEncoderBitrateKbps>\
              <RustHostInitialEncoderBitrateKbps>0</RustHostInitialEncoderBitrateKbps>\
+             <RustHostLastFailure></RustHostLastFailure>\
              <RustHostSessionCount>0</RustHostSessionCount>\
              <RustHostPendingSessionCount>0</RustHostPendingSessionCount>\
              <RustHostApplicationActive>0</RustHostApplicationActive>\

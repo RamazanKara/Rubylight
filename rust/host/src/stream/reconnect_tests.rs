@@ -51,6 +51,8 @@ pub(crate) struct Fixture {
     /// of starting the desktop's focus watcher.
     pub(crate) text_watches: Mutex<Vec<butterpollo_core::text_input::Watch>>,
     video_after_input_release: AtomicUsize,
+    /// The stream's encoder fails for good, as one that keeps failing past its recovery.
+    fail_encoder: AtomicBool,
     hold_teardown: AtomicBool,
     in_teardown: AtomicBool,
     reset: Mutex<Option<String>>,
@@ -383,6 +385,11 @@ impl Fixture {
         // probes are answered from here on.
         *s.media_epoch.write().unwrap() = Some(Instant::now());
         while !h.stop.load(Ordering::Acquire) && !s.stopping() {
+            if self.fail_encoder.load(Ordering::Acquire) {
+                return Err(anyhow::anyhow!("AMF error AMF_FAIL (1)").context(
+                    butterpollo_core::session::EncoderFailure("the encoder kept failing"),
+                ));
+            }
             let peer = media.peers.lock().unwrap().get(&s.launch.id, false);
             if let Some(peer) = peer {
                 let released = self.input_releases.load(Ordering::Acquire);

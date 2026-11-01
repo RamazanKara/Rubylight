@@ -325,6 +325,7 @@ impl super::Streaming {
                         eprintln!("nightjar: touchpad contacts go to the PC ({transport:?} packets)");
                         self.touchpad.transport = Some(transport);
                         self.touchpad.raw = Some(raw);
+                        self.direct_motion.touchpad_contacts();
                     }
                     Err(e) => eprintln!("nightjar: touchpad gestures stay a mouse: {e}"),
                 },

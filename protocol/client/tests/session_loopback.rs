@@ -276,6 +276,8 @@ struct FakeHost {
     mic: UdpSocket,
     /// Message types the control stream received, in order.
     control_messages: Arc<Mutex<Vec<u16>>>,
+    /// When each input packet arrived.
+    input_arrivals: Arc<Mutex<Vec<Instant>>>,
     control_disconnected: Arc<AtomicBool>,
     terminate: Arc<AtomicBool>,
     /// The roaming payloads the control port received, opened, with their senders.
@@ -412,6 +414,8 @@ fn start_host_with(packed_format: Option<u32>, roaming: bool) -> FakeHost {
     });
 
     let control_messages = Arc::new(Mutex::new(Vec::new()));
+    let input_arrivals = Arc::new(Mutex::new(Vec::new()));
+    let arrivals = input_arrivals.clone();
     let control_disconnected = Arc::new(AtomicBool::new(false));
     let terminate = Arc::new(AtomicBool::new(false));
     let roamed = Arc::new(Mutex::new(Vec::new()));
@@ -463,6 +467,9 @@ fn start_host_with(packed_format: Option<u32>, roaming: bool) -> FakeHost {
                     }
                     Event::Receive { packet, .. } => {
                         let (_, kind, _) = decrypt_control(&KEY, packet.data(), true).unwrap();
+                        if kind == ptype::INPUT_DATA {
+                            arrivals.lock().unwrap().push(Instant::now());
+                        }
                         messages.lock().unwrap().push(kind);
                     }
                     Event::Disconnect { .. } => {
@@ -565,6 +572,7 @@ fn start_host_with(packed_format: Option<u32>, roaming: bool) -> FakeHost {
         audio,
         mic,
         control_messages,
+        input_arrivals,
         control_disconnected,
         terminate,
         roaming: roamed,
@@ -1337,6 +1345,71 @@ fn input_arrives(session: &Session, host: &FakeHost) {
     until("input", || {
         count(&host.control_messages, ptype::INPUT_DATA) > inputs
     });
+}
+
+/// Unbatched mouse motion leaves at the mouse's pace: 1 kHz moves sent from another thread (as
+/// the desktop client's mouse thread does) reach the host in packets of their own about 1 ms
+/// apart, not merged until the host's next datagram or the control thread's service tick, and
+/// the desktop's 0.5 ms floor for relative motion holds none of them back (on an idle machine).
+/// The tests running beside it can starve the control thread, which then merges moves as it
+/// should; the best of three tries counts.
+#[test]
+fn unbatched_mouse_motion_reaches_the_host_at_the_mouse_pace() {
+    let host = start_host(None);
+    let record = Arc::new(Mutex::new(Record::default()));
+    let session = start_session(&host, roaming_config(), &record);
+    input_arrives(&session, &host);
+    session.input(|q| {
+        q.set_unbatched(true);
+        q.set_relative_motion_floor(nightjar_core::input::queue::FAST_MOUSE_FLOOR);
+    });
+    let moves = 300u32;
+    let mut best = (0, f64::MAX);
+    for _ in 0..3 {
+        let input = session.input_handle();
+        let start = Instant::now();
+        thread::spawn(move || {
+            for i in 0..moves {
+                let due = start + Duration::from_millis(u64::from(i));
+                while Instant::now() < due {
+                    std::hint::spin_loop();
+                }
+                input.input(|q| q.send_mouse_move(1, 0)).unwrap();
+            }
+        })
+        .join()
+        .unwrap();
+        thread::sleep(Duration::from_millis(100));
+        let arrivals: Vec<Instant> = host
+            .input_arrivals
+            .lock()
+            .unwrap()
+            .iter()
+            .copied()
+            .filter(|&at| at >= start)
+            .collect();
+        let mut gaps: Vec<f64> = arrivals
+            .windows(2)
+            .map(|w| (w[1] - w[0]).as_secs_f64() * 1000.0)
+            .collect();
+        gaps.sort_by(f64::total_cmp);
+        let p90 = gaps.get(gaps.len() * 9 / 10).copied().unwrap_or(f64::MAX);
+        eprintln!("{moves} moves arrived in {} packets, gap p90 {p90:.2} ms", arrivals.len());
+        let passed = arrivals.len() as u32 >= moves * 3 / 4 && p90 < 3.0;
+        if passed || arrivals.len() > best.0 {
+            best = (arrivals.len(), p90);
+        }
+        if passed {
+            break;
+        }
+    }
+    let (packets, p90) = best;
+    assert!(
+        packets as u32 >= moves * 3 / 4,
+        "{packets} of {moves} moves arrived in packets of their own"
+    );
+    assert!(p90 < 3.0, "gap p90 {p90:.2} ms");
+    session.stop();
 }
 
 /// On a metered network without "Continue on mobile data" the client neither moves nor

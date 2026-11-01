@@ -1,4 +1,4 @@
-# Mouse motion at the mouse's pace, input without waiting for the present (desktop)
+# Mouse motion at the mouse's pace, input during the present (desktop)
 
 A captured mouse (relative mode) sends its motion from SDL's raw input thread as each report
 arrives (`protocol/desktop/src/stream/direct_motion.rs`), and streams on Wi-Fi put the adapter in
@@ -6,9 +6,10 @@ Windows' media streaming mode (`stream/wlan.rs`). Android already does both: it 
 input dispatch and holds a low-latency Wi-Fi lock. On Linux, SDL's X11 and Wayland backends push
 mouse events on the main thread while it pumps events, so the filter runs there at the old pace.
 
-Keys, clicks, wheel turns and controllers leave the same filter while the main loop waits in the
-present ([below](#keys-clicks-and-controllers)): on Windows all of them, on Linux controllers
-(keys and clicks come from the main thread there too).
+Keys, clicks, wheel turns and controllers leave the same filter while V-Sync holds the main loop
+in the present ([below](#keys-clicks-and-controllers)): on Windows clicks, wheel turns,
+controllers and, with "Capture system keys", keys; on Linux controllers (keys and clicks come from
+the main thread there too).
 
 ## Why
 
@@ -46,18 +47,21 @@ leaves the Wi-Fi mode alone, for measurements only. The log ends each stream wit
 ## Keys, clicks and controllers
 
 The main loop reads keys, clicks and controllers between presents. With V-Sync (the default on a
-fixed-refresh display) the present waits for most of a refresh, so a key press or button waited up
-to 16.7 ms at 60 Hz (about 8 on average), and SDL read the controllers only when the loop pumped
-events: a stick's moves reached the PC bunched once per refresh instead of each millisecond.
+fixed-refresh display) the present waits for most of a refresh, so a key press or button could wait
+up to a refresh before the loop read it, and SDL read the controllers only when the loop pumped
+events, once per refresh.
 
-While the loop waits in the present it changes nothing, so it lends the filter what it decides with
-for that time (`DirectMotion::presenting`, `DirectMotion::lend`): whether keys are the PC's (captured,
-focused, menu hidden) and the settings that map them, whether clicks are (the same with a relative
-pointer), whether controllers send, and its controllers themselves. Meanwhile a thread calls
-`SDL_UpdateJoysticks` every millisecond, as SDL does while the loop waits for events, so controller
-events go through the filter on that thread; `Gamepads::handle` turns them into what the PC gets,
-the same code the loop runs. During a stream Windows reads the keyboard on SDL's raw input thread
-(`SDL_HINT_WINDOWS_RAW_KEYBOARD`), where clicks of a captured mouse already come from.
+While V-Sync holds the loop in the present it changes nothing, so it lends the filter what it
+decides with for that time (`DirectMotion::presenting`, `DirectMotion::lend`): whether keys are the
+PC's (captured, focused, menu hidden) and the settings that map them, whether clicks are (the same
+with a relative pointer), whether controllers send, and its controllers themselves. Meanwhile a
+thread calls `SDL_UpdateJoysticks` every millisecond, as SDL does while the loop waits for events,
+so controller events go through the filter on that thread; `Gamepads::handle` turns them into what
+the PC gets, the same code the loop runs. Clicks of a captured mouse already come from SDL's raw
+input thread. Keys come from there only while "Capture system keys" grabs the keyboard
+(`SDL_HINT_WINDOWS_RAW_KEYBOARD`, set by `DirectMotion::keyboard_grab`): without the grab Windows
+keeps the second key of its own shortcuts (Tab of Alt+Tab, D of Win+D) from the window, but raw
+input still reports it, so the PC would get it too. Without the grab keys stay on the loop.
 
 - No double sends: a key, click or wheel turn the filter sent still reaches the loop, marked, so the
   loop keeps track of held keys and buttons (to let them go when focus leaves) and sends nothing. A
@@ -72,6 +76,10 @@ the same code the loop runs. During a stream Windows reads the keyboard on SDL's
   they did.
 - Locks: the filter may run under SDL's joystick lock, so it only tries the lent state's lock and
   leaves the event to the loop when it is taken (while the loop draws with its controllers).
+
+Not measured yet (the laptop's input-to-wire A/B in the hardware queue decides): with the grab,
+SDL's low-level keyboard hook runs on the main loop's thread, which takes no messages while the
+present waits, so keys may still reach the raw input thread only after the present.
 
 ## Measured
 

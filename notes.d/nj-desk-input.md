@@ -1,2 +1,2 @@
 ## en
-- Desktop: keys, clicks and controller buttons and sticks no longer wait for the next picture with V-Sync on; controllers reach the PC every millisecond on Windows and Linux, keys and clicks on Windows.
+- Desktop: with V-Sync on, controller buttons and sticks, mouse clicks and, with "Capture system keys" on, keys are now sent while a frame is being shown instead of after it. On Linux this covers controllers.

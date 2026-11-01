@@ -2291,40 +2291,62 @@ fn parked_launch(h: &Harness, index: usize, uuid: &str) -> Launch {
 /// first XInput slot, and the background game started next read that pad
 /// instead of the player's. A new background session releases parked
 /// controllers before it plugs its player's pad, but not a pending launch's,
-/// which Nightjar prepares before its stream takes them. A launch the
-/// registry refuses, and the owner returning to its session, plug nothing
-/// and leave them.
+/// which Nightjar prepares before its stream takes them, nor a running
+/// stream's, which its control stream takes at its first input. A launch
+/// the registry refuses, and the owner returning to its session, plug
+/// nothing and leave them.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_new_background_stream_releases_parked_controllers_first() -> Result<()> {
+    use crate::controller_sessions::key;
+    use std::collections::BTreeSet;
     let (h, _pc, _) = coop_harness().await?;
     let portal = h.h.apps.read().unwrap().last().unwrap().id();
+    let none = BTreeSet::new();
+    let config = butterpollo_core::config::Config::default();
+    let pool = &h.h.controller_sessions;
+    // Client 1 streams the desktop; its controllers wait for its first
+    // input.
+    let streaming = h.launch(1, false).await?;
+    let (session, client) = h.play(&streaming).await?;
     for client in &mut h.h.paired.write().unwrap().clients {
         client.extra.insert("background_stream".into(), true.into());
     }
-    let none = std::collections::BTreeSet::new();
-    let config = butterpollo_core::config::Config::default();
-    let pool = &h.h.controller_sessions;
-    let park = |launch: &Launch| drop(pool.acquire(launch, &config).unwrap());
-    // A desktop stream that ended, waiting for its reconnect, and client
-    // 1's launch whose controllers Nightjar prepared.
-    let (gap, prepared) = (parked_launch(&h, 1, "gap"), parked_launch(&h, 1, "1"));
-    park(&gap);
-    park(&prepared);
+    // A desktop stream that ended, waiting for its reconnect, and a launch
+    // whose controllers Nightjar prepared.
+    let (gap, prepared) = (
+        parked_launch(&h, 1, "gap"),
+        parked_launch(&h, 1, "nightjar"),
+    );
+    // Parked together: a client's acquire evicts the others' parked ones.
+    let held: Vec<_> = [&streaming, &gap, &prepared]
+        .into_iter()
+        .map(|launch| pool.acquire(launch, &config))
+        .collect::<Result<_>>()?;
+    drop(held);
     h.h.sessions
         .lock()
         .unwrap()
         .pending
         .insert(prepared.id.clone(), prepared.clone());
+    let kept = BTreeSet::from([key(&prepared), key(&streaming)]);
+    assert!(pool.parked(&kept), "the gap's controller is parked");
     let first = launch_app(&h, 0, portal).await?;
     assert!(first.contains("status_code=\"200\""), "{first}");
-    let kept = std::collections::BTreeSet::from([crate::controller_sessions::key(&prepared)]);
     assert!(!pool.parked(&kept), "the gap's controller is gone");
-    assert!(pool.parked(&none), "the prepared one stays");
+    assert!(
+        pool.parked(&BTreeSet::from([key(&prepared)])),
+        "the running stream's stays"
+    );
+    assert!(
+        pool.parked(&BTreeSet::from([key(&streaming)])),
+        "the prepared one stays"
+    );
     let canceled = h.h.sessions.lock().unwrap().pending.remove(&prepared.id);
-    drop(canceled);
+    drop((canceled, streaming));
     let launch = pending_of(&h, 0).unwrap();
     let seat = launch.nucleus.unwrap();
-    // Client 1 is refused: the session is client 0's.
+    // Client 1 is refused: the session is client 0's. Its launch ends its
+    // desktop stream first.
     let refused = launch_app(&h, 1, portal).await?;
     assert!(refused.contains("status_code=\"409\""), "{refused}");
     assert!(pool.parked(&none));
@@ -2336,7 +2358,7 @@ async fn a_new_background_stream_releases_parked_controllers_first() -> Result<(
     let canceled = h.h.sessions.lock().unwrap().pending.remove(&relaunch.id);
     drop(canceled);
     h.h.nucleus.leave(seat, &relaunch.id);
-    drop(relaunch);
+    drop((relaunch, session, client));
     pool.release_parked(Duration::from_secs(5), &none)?;
     // The harness's last launch is a normal one.
     for client in &mut h.h.paired.write().unwrap().clients {

@@ -1814,18 +1814,22 @@ pub(crate) fn terminate_refused(h: &Shared, client: &str) -> bool {
 }
 /// Unplug the controllers that streams which ended still park and wait until XInput shows them
 /// gone, so a new Nucleus Co-op session's players take the first free slots (#56). A pending
-/// launch's controllers stay: Nightjar prepares them before its stream takes them. Nothing to
-/// do, and XInput isn't read, when nothing is parked.
+/// launch's controllers stay: Nightjar prepares them before its stream takes them. So do a
+/// running stream's, which its control stream takes only at its first input (or never, when
+/// its injector failed); a superseded or ended stream is stopping or gone. Nothing to do, and
+/// XInput isn't read, when nothing is parked.
 fn release_parked_pads(h: &Shared) -> Result<()> {
     use butterpollo_windows::nucleus::pads;
-    let pending: std::collections::BTreeSet<String> = h
-        .sessions
-        .lock()
-        .unwrap()
-        .pending
-        .values()
-        .map(crate::controller_sessions::key)
-        .collect();
+    let pending: std::collections::BTreeSet<String> = {
+        let sessions = h.sessions.lock().unwrap();
+        let running = sessions.active.values().filter(|s| !s.stopping());
+        sessions
+            .pending
+            .values()
+            .chain(running.map(|s| &s.launch))
+            .map(crate::controller_sessions::key)
+            .collect()
+    };
     if !h.controller_sessions.parked(&pending) {
         return Ok(());
     }

@@ -396,38 +396,14 @@ impl RunningApp {
                             "APOLLO_APP_STATUS".into(),
                             if active { "RESUMING" } else { "PAUSING" }.into(),
                         );
-                        for command in &commands {
-                            if stopping.requested() {
-                                return;
-                            }
-                            let cmd = if active { &command.r#do } else { &command.undo };
-                            if cmd.is_empty() {
-                                continue;
-                            }
-                            match expand(cmd, &environment)
-                                .and_then(|cmd| {
-                                    Process::shell(
-                                        &cmd,
-                                        directory(&working),
-                                        command.elevated,
-                                        &environment,
-                                    )
-                                })
-                                .and_then(|process| {
-                                    process.wait_cancellable(Duration::from_secs(120), &stopping)
-                                }) {
-                                Ok(Some(0)) => {}
-                                Ok(None) => return,
-                                Ok(Some(code)) => {
-                                    tracing::warn!(code, "application state command failed");
-                                    break;
-                                }
-                                Err(error) => {
-                                    tracing::warn!(%error,"application state command failed");
-                                    break;
-                                }
-                            }
-                        }
+                        start_state_commands(&commands, active, &environment, |cmd, elevated| {
+                            Process::shell_detached(
+                                cmd,
+                                directory(&working),
+                                elevated,
+                                &environment,
+                            )
+                        });
                     }
                 })?;
             running.state_events = Some(StateCommands {
@@ -991,6 +967,25 @@ pub fn app_bool(app: &App, name: &str, default: bool) -> bool {
         _ => default,
     })
 }
+/// Starts each pause (undo) or resume (do) command without waiting for it, as Apollo does: its
+/// auto-pause `pause.ahk` keeps running until `resume.ahk` signals it, so waiting blocked the
+/// resume and the 120 s timeout then killed the paused game's script.
+fn start_state_commands(
+    commands: &[PrepCommand],
+    active: bool,
+    environment: &BTreeMap<String, String>,
+    mut start: impl FnMut(&str, bool) -> Result<()>,
+) {
+    for command in commands {
+        let cmd = if active { &command.r#do } else { &command.undo };
+        if cmd.is_empty() {
+            continue;
+        }
+        if let Err(error) = expand(cmd, environment).and_then(|cmd| start(&cmd, command.elevated)) {
+            tracing::warn!(%error, "application state command failed to start");
+        }
+    }
+}
 fn expand(value: &str, environment: &BTreeMap<String, String>) -> Result<String> {
     let mut output = String::new();
     let mut rest = value;
@@ -1399,6 +1394,38 @@ impl Drop for RunningApp {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn state_commands_start_without_waiting_and_a_failed_start_does_not_stop_the_rest() {
+        let command = |r#do: &str, undo: &str| PrepCommand {
+            r#do: r#do.into(),
+            undo: undo.into(),
+            ..serde_json::from_str("{}").unwrap()
+        };
+        let commands = [
+            command("resume.ahk", "pause.ahk"),
+            command("", "broken"),
+            command("resume $(APOLLO_APP_STATUS)", "after"),
+        ];
+        let mut environment = BTreeMap::new();
+        environment.insert("APOLLO_APP_STATUS".to_string(), "PAUSING".to_string());
+        let mut started = Vec::new();
+        start_state_commands(&commands, false, &environment, |cmd, _| {
+            started.push(cmd.to_string());
+            if cmd == "broken" {
+                bail!("cannot start")
+            } else {
+                Ok(())
+            }
+        });
+        assert_eq!(started, ["pause.ahk", "broken", "after"]);
+        environment.insert("APOLLO_APP_STATUS".to_string(), "RESUMING".to_string());
+        started.clear();
+        start_state_commands(&commands, true, &environment, |cmd, _| {
+            started.push(cmd.to_string());
+            Ok(())
+        });
+        assert_eq!(started, ["resume.ahk", "resume RESUMING"]);
+    }
     #[test]
     fn early_exit_notification_requires_auto_detach_and_a_nonzero_exit_before_five_seconds() {
         let early = Duration::from_millis(4999);

@@ -1,0 +1,1 @@
+- **Pause and resume commands no longer block each other.** Rubylight waited for each pause or resume command to finish, so a script that keeps running while the game is paused (Apollo's auto-pause script with `pause.ahk` and `resume.ahk`) held back the resume and was killed after two minutes. These commands now start without waiting, as on Apollo.

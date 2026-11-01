@@ -2,53 +2,106 @@
 
 use super::*;
 
+/// The narrowest a PC or continue card gets; cards share a row's width up to [`CARD_MAX_W`].
 pub(super) const CARD_W: f32 = 300.0;
+pub(super) const CARD_MAX_W: f32 = 420.0;
+/// The gap between cards.
+pub(super) const CARD_GAP: f32 = 16.0;
 pub(super) const CARD_H: f32 = 112.0;
 /// Home's cards: a game to continue, or a PC with one line of state.
 pub(super) const COMPACT_CARD_H: f32 = 84.0;
 /// The card's inner margin left and right of its status and detail lines.
 pub(super) const CARD_PAD: f32 = 20.0;
+/// The game page's cover. Grids size their covers to fill the row ([`grid`]), 3:4 like it.
 pub(super) const POSTER_W: f32 = 168.0;
 pub(super) const POSTER_H: f32 = 224.0;
-/// Room under a cover for its title, which shows while it has focus.
-pub(super) const POSTER_CAPTION: f32 = 28.0;
+/// The widest a cover in a grid gets: past it a row takes one more.
+pub(super) const POSTER_MAX_W: f32 = 196.0;
+/// The gap between covers in a grid.
+pub(super) const POSTER_GAP: f32 = 18.0;
+/// Room under a cover for its title.
+pub(super) const POSTER_CAPTION: f32 = 30.0;
+/// How far a pointed-at or focused cover rises (none with reduced motion). A grid at the top of a
+/// scroll leaves this much room above it, so the risen cover's ring is not cut.
+pub(super) const LIFT: f32 = 4.0;
+
+/// How many covers fit a row `width` wide, and how wide each is: as many as fit at
+/// [`POSTER_MAX_W`] or less, filling the row exactly.
+pub(super) fn grid(width: f32) -> (usize, f32) {
+    let columns = ((width + POSTER_GAP) / (POSTER_MAX_W + POSTER_GAP)).ceil().max(1.0);
+    (columns as usize, ((width - POSTER_GAP * (columns - 1.0)) / columns).floor())
+}
+
+/// How many cards fit a row `width` wide and how wide each is: at least [`CARD_W`], sharing the
+/// row up to [`CARD_MAX_W`].
+pub(super) fn card_grid(width: f32, gap: f32) -> (usize, f32) {
+    let columns = ((width + gap) / (CARD_W + gap)).floor().max(1.0);
+    (columns as usize, ((width - gap * (columns - 1.0)) / columns).floor().clamp(CARD_W.min(width), CARD_MAX_W))
+}
 
 /// What selecting a PC's card does: open its apps, check again, or pair.
 /// The three dots on a PC's card: a second stop for focus that opens the options.
 pub(super) fn options_button(ui: &mut Ui, card: Rect, id: Id) -> Response {
     let rect = Rect::from_min_size(card.right_top() + vec2(-42.0, 10.0), vec2(32.0, 32.0));
     let response = ui.interact(rect, id, Sense::click()).on_hover_text(tr("Options"));
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, tr("Options")));
     if ui.is_rect_visible(rect) {
-        if response.hovered() || response.has_focus() {
-            ui.painter().rect_filled(rect, CornerRadius::same(16), SURFACE_HIGHEST);
+        let active = response.hovered() || response.has_focus();
+        if active {
+            let fill = if response.is_pointer_button_down_on() { SURFACE_BRIGHT } else { SURFACE_HIGHEST };
+            ui.painter().rect_filled(rect, CornerRadius::same(16), fill);
         }
-        for dy in [-6.0, 0.0, 6.0] {
-            ui.painter().circle_filled(rect.center() + vec2(0.0, dy), 2.0, ON_SURFACE_VARIANT);
-        }
+        let ink = if active { ON_SURFACE } else { ON_SURFACE_VARIANT };
+        icons::paint(ui.painter(), Icon::Dots, Rect::from_center_size(rect.center(), Vec2::splat(20.0)), *ink);
         focus_ring(ui, rect, &response, 16);
     }
     response
 }
 
-/// Right-click, F2 or Shift+F10 on the card or its dots.
-pub(super) fn options_requested(ui: &Ui, responses: &[&Response]) -> bool {
-    responses.iter().any(|r| r.secondary_clicked())
-        || (responses.iter().any(|r| r.has_focus())
-            && ui.input(|i| i.key_pressed(Key::F2) || (i.modifiers.shift && i.key_pressed(Key::F10))))
+/// The ⋮ over a cover while it is pointed at or focused: for the pointer only (the keyboard and
+/// controller open the menu with F2 or X), so it adds no stop for focus.
+pub(super) fn cover_dots(ui: &mut Ui, cover: &Response, image: Rect) -> Option<Response> {
+    let rect = Rect::from_min_size(image.right_top() + vec2(-38.0, 8.0), vec2(30.0, 30.0));
+    let id = cover.id.with("options");
+    let shown = cover.has_focus() || cover.contains_pointer();
+    if !shown {
+        return None;
+    }
+    let response = ui.interact(rect, id, Sense::CLICK).on_hover_text(tr("Options"));
+    let fill = if response.is_pointer_button_down_on() {
+        Color32::from_black_alpha(230)
+    } else if response.hovered() {
+        Color32::from_black_alpha(200)
+    } else {
+        SCRIM
+    };
+    ui.painter().rect_filled(rect, CornerRadius::same(15), fill);
+    icons::paint(ui.painter(), Icon::Dots, Rect::from_center_size(rect.center(), Vec2::splat(18.0)), Color32::WHITE);
+    Some(response)
+}
+
+/// Where a menu asked for on a card opens, if one was: under its ⋮ when that was clicked, at the
+/// pointer for a right-click, beside the card for F2, Shift+F10 or the controller's X.
+pub(super) fn menu_request(ui: &Ui, card: &Response, dots: Option<&Response>) -> Option<Anchor> {
+    if let Some(dots) = dots.filter(|d| d.clicked()) {
+        return Some(Anchor::Below(dots.rect));
+    }
+    if card.secondary_clicked() || dots.is_some_and(Response::secondary_clicked) {
+        let at = ui.input(|i| i.pointer.interact_pos()).unwrap_or(card.rect.center());
+        return Some(Anchor::Point(at));
+    }
+    let focused = card.has_focus() || dots.is_some_and(Response::has_focus);
+    let keys = focused && ui.input(|i| i.key_pressed(Key::F2) || (i.modifiers.shift && i.key_pressed(Key::F10)));
+    keys.then_some(Anchor::Beside(card.rect))
 }
 
 /// A PC's card. With `line` (Home: what it knows of the games) the card is as compact as Home's
 /// game cards, and the line follows the state on one row instead of the address and GPU.
-pub(super) fn host_card(ui: &mut Ui, host: &Host, line: Option<&str>) -> Response {
+pub(super) fn host_card(ui: &mut Ui, host: &Host, line: Option<&str>, width: f32) -> Response {
     let height = if line.is_some() { COMPACT_CARD_H } else { CARD_H };
-    let (rect, response) = ui.allocate_exact_size(vec2(CARD_W, height), Sense::click());
+    let (rect, response) = ui.allocate_exact_size(vec2(width, height), Sense::click());
     let painter = ui.painter_at(rect.expand(6.0));
-    let fill = if response.hovered() || response.has_focus() {
-        SURFACE_HIGH
-    } else {
-        SURFACE
-    };
-    painter.rect_filled(rect, CornerRadius::same(radius::PANEL), fill);
+    card_fill(&painter, rect, &response);
     let (status, color, ring) = host_status(host);
     response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, format!("{}, {status}", host.display_name())));
     // The status dot: full and green when the PC is up and paired, a ring otherwise. Amber stays the
@@ -99,6 +152,13 @@ pub(super) fn host_card(ui: &mut Ui, host: &Host, line: Option<&str>) -> Respons
     }
 }
 
+/// A card's surface: one step lighter while pointed at or focused, two while pressed, the outline
+/// high contrast gives every control.
+pub(super) fn card_fill(painter: &egui::Painter, rect: Rect, response: &Response) {
+    let fill = state_fill(SURFACE, response.hovered() || response.has_focus(), response.is_pointer_button_down_on());
+    painter.rect(rect, CornerRadius::same(radius::PANEL), fill, control_stroke(), StrokeKind::Inside);
+}
+
 /// One line of a card at `y` from its top, cut with "…" at the card's padding. True when it was cut.
 pub(super) fn card_line(painter: &egui::Painter, card: Rect, y: f32, text: &str, font: egui::FontId, color: Color32) -> bool {
     let mut job = egui::text::LayoutJob::simple_singleline(text.to_owned(), font, color);
@@ -120,6 +180,19 @@ pub(super) fn host_status(host: &Host) -> (String, Role, Role) {
             None => (tr("Paired · ready").to_owned(), OK, OK),
         },
     }
+}
+
+/// A Home shelf's heading: its name and, for a library row, how many games it holds.
+pub(super) fn shelf(ui: &mut Ui, name: &str, count: Option<usize>) {
+    ui.add_space(space::XL);
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = space::S;
+        ui.label(RichText::new(name).font(semibold(text::CARD_TITLE)).color(ON_SURFACE));
+        if let Some(count) = count {
+            ui.label(RichText::new(count.to_string()).font(regular(text::BODY)).color(OUTLINE));
+        }
+    });
+    ui.add_space(space::S);
 }
 
 /// The cover art, or the night surface with the banner's orbits when the PC has none.
@@ -227,60 +300,93 @@ pub(super) fn unstar_pressed(ui: &Ui) -> bool {
     })
 }
 
-/// The right-click menu of a game card: star the game or take its star off.
-pub(super) fn favourite_menu(
-    response: &Response,
-    sources: &[Source<'_>],
-    favourites: &[crate::config::Favourite],
-    host: u64,
-    app: u32,
-    commands: &mut Vec<Command>,
-) {
-    let Some(star) = console::favourite_for(sources, host, app) else { return };
-    let starred = favourites.iter().any(|f| f.same_game(&star));
-    response.context_menu(|ui| {
-        if ui.button(if starred { tr("Remove from favourites") } else { tr("Add to favourites") }).clicked() {
-            commands.push(Command::ToggleFavourite(star));
-            ui.close();
-        }
-    });
+/// What a cover says over its art.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(super) enum Badge {
+    None,
+    Running,
+    /// In the PC's library but not installed: the art dims under a "Not installed" pill.
+    NotInstalled,
 }
 
-/// A game's cover. Its title shows on one line under it only while it has focus or the pointer:
-/// cover art carries the title already, and a cover without art shows it inside. The focused cover
-/// lifts a little (not with reduced motion).
-pub(super) fn poster(ui: &mut Ui, name: &str, art: Option<&Art>, running: bool) -> Response {
-    let (rect, response) = ui.allocate_exact_size(vec2(POSTER_W, POSTER_H + POSTER_CAPTION), Sense::click());
-    response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, if running { trf("{}, running", &[&name]) } else { name.to_owned() }));
-    let lifted = response.has_focus() || response.hovered();
-    let lift = ui.ctx().animate_bool_responsive(response.id.with("lift"), lifted);
-    let image = Rect::from_min_size(rect.min, vec2(POSTER_W, POSTER_H)).expand(lift * 3.0);
-    paint_cover(ui, image, name, art, running);
-    if lifted && poster_caption(art) {
-        let painter = ui.painter_at(rect.expand(6.0));
-        let color = if response.has_focus() { MOON } else { ON_SURFACE };
+/// A game's cover, `width` wide at 3:4, its title on one line under it (a cover without art shows
+/// the whole title inside instead). Pointed at or focused it rises a little and its title
+/// brightens; focus adds the ring. Nothing about it changes size.
+pub(super) fn poster(ui: &mut Ui, name: &str, art: Option<&Art>, badge: Badge, width: f32) -> Response {
+    let height = (width * 4.0 / 3.0).round();
+    let (rect, response) = ui.allocate_exact_size(vec2(width, height + POSTER_CAPTION), Sense::click());
+    let said = match badge {
+        Badge::Running => trf("{}, running", &[&name]),
+        Badge::NotInstalled => trf("{}, not installed", &[&name]),
+        Badge::None => name.to_owned(),
+    };
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, said.clone()));
+    if !ui.is_rect_visible(rect.expand(LIFT + 6.0)) {
+        return response;
+    }
+    let active = response.has_focus() || response.contains_pointer();
+    let lift = ui.ctx().animate_bool_responsive(response.id.with("lift"), active);
+    let image = Rect::from_min_size(rect.min - vec2(0.0, lift * LIFT), vec2(width, height));
+    if lift > 0.0 && !high_contrast() {
+        // A soft shadow under the risen cover.
+        let shadow = egui::Shadow { offset: [0, 8], blur: 18, spread: 0, color: Color32::from_black_alpha((110.0 * lift) as u8) };
+        ui.painter().add(shadow.as_shape(image, CornerRadius::same(10)));
+    }
+    paint_cover(ui, image, name, art, badge == Badge::Running);
+    if badge == Badge::NotInstalled {
+        let painter = ui.painter_at(image);
+        painter.rect_filled(image, CornerRadius::same(10), Color32::from_black_alpha(120));
+        let words = painter.layout_no_wrap(tr("Not installed").to_owned(), semibold(text::CAPTION), Color32::WHITE);
+        let pill = Rect::from_min_size(image.left_bottom() + vec2(space::S, -space::S - space::XL), vec2(words.size().x + 2.0 * space::M, space::XL));
+        painter.rect_filled(pill, CornerRadius::same((space::XL / 2.0) as u8), SCRIM);
+        painter.galley(pill.center() - words.size() / 2.0, words, Color32::WHITE);
+    }
+    if high_contrast() {
+        ui.painter().rect_stroke(image, CornerRadius::same(10), control_stroke(), StrokeKind::Inside);
+    }
+    if poster_caption(art) {
+        let color = if active { ON_SURFACE } else { ON_SURFACE_VARIANT };
         let mut job = egui::text::LayoutJob::simple_singleline(name.to_owned(), semibold(text::LABEL), *color);
-        job.wrap = egui::text::TextWrapping::truncate_at_width(POSTER_W);
-        let galley = painter.layout_job(job);
-        painter.galley(Pos2::new(rect.left() + 2.0, image.bottom() + space::S), galley, *color);
+        job.wrap = egui::text::TextWrapping::truncate_at_width(width - 4.0);
+        let galley = ui.painter().layout_job(job);
+        ui.painter().galley(Pos2::new(rect.left() + 2.0, rect.top() + height + space::S), galley, *color);
     }
     focus_ring(ui, image, &response, 10);
     response
 }
 
-/// Whether a lifted cover names its game underneath: only over art, as a cover without art shows
-/// the full title inside already.
+/// The last tile of a Home row with more games than fit: how many there are, and the way to see
+/// them all.
+pub(super) fn all_tile(ui: &mut Ui, count: usize, said: &str, width: f32) -> Response {
+    let height = (width * 4.0 / 3.0).round();
+    let (rect, response) = ui.allocate_exact_size(vec2(width, height + POSTER_CAPTION), Sense::click());
+    let label = trf("All {}", &[&count]);
+    // "All 12" on the tile; a screen reader hears whose games: "All Steam games, 12".
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, said));
+    let tile = Rect::from_min_size(rect.min, vec2(width, height));
+    let active = response.hovered() || response.has_focus();
+    let fill = state_fill(SURFACE, active, response.is_pointer_button_down_on());
+    ui.painter().rect(tile, CornerRadius::same(10), fill, control_stroke(), StrokeKind::Inside);
+    let ink = if active { ON_SURFACE } else { ON_SURFACE_VARIANT };
+    icons::paint(ui.painter(), Icon::Grid, Rect::from_center_size(tile.center() - vec2(0.0, 18.0), Vec2::splat(32.0)), *ink);
+    let words = ui.painter().layout_no_wrap(label, semibold(text::CARD_TITLE), *ink);
+    ui.painter().galley(Pos2::new(tile.center().x - words.size().x / 2.0, tile.center().y + 10.0), words, *ink);
+    focus_ring(ui, tile, &response, 10);
+    response
+}
+
+/// Whether a cover names its game underneath: only over art, as a cover without art shows the
+/// full title inside already.
 pub(super) fn poster_caption(art: Option<&Art>) -> bool {
     matches!(art, Some(Art::Ready(_)))
 }
 
 /// A game to carry on with: title, and where it runs.
-pub(super) fn continue_card(ui: &mut Ui, title: &str, line: &str, running: bool) -> Response {
-    let (rect, response) = ui.allocate_exact_size(vec2(CARD_W, COMPACT_CARD_H), Sense::click());
+pub(super) fn continue_card(ui: &mut Ui, title: &str, line: &str, running: bool, width: f32) -> Response {
+    let (rect, response) = ui.allocate_exact_size(vec2(width, COMPACT_CARD_H), Sense::click());
     response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, format!("{title}, {line}")));
     let painter = ui.painter_at(rect.expand(6.0));
-    let fill = if response.hovered() || response.has_focus() { SURFACE_HIGH } else { SURFACE };
-    painter.rect_filled(rect, CornerRadius::same(radius::PANEL), fill);
+    card_fill(&painter, rect, &response);
     let color = if running { OK } else { TERTIARY };
     let dot = Pos2::new(rect.left() + 26.0, rect.top() + 28.0);
     if running {

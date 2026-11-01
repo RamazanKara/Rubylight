@@ -3,24 +3,6 @@
 
 use super::*;
 
-pub(crate) fn focus_ring(ui: &Ui, rect: Rect, response: &Response, radius: u8) {
-    if response.has_focus() {
-        ui.painter().rect_stroke(
-            rect.expand(3.0),
-            CornerRadius::same(radius + 3),
-            Stroke::new(focus_ring_width(), MOON),
-            StrokeKind::Outside,
-        );
-    } else if response.hovered() {
-        ui.painter().rect_stroke(
-            rect,
-            CornerRadius::same(radius),
-            Stroke::new(1.0, OUTLINE),
-            StrokeKind::Inside,
-        );
-    }
-}
-
 /// A switch in the brand colours; returns whether it changed.
 pub(crate) fn toggle(ui: &mut Ui, on: &mut bool) -> Response {
     let size = vec2(44.0, 24.0);
@@ -43,40 +25,177 @@ pub(crate) fn toggle(ui: &mut Ui, on: &mut bool) -> Response {
     response
 }
 
-pub(crate) fn primary_button(ui: &mut Ui, text: &str) -> Response {
-    let button = egui::Button::new(RichText::new(tr(text)).color(ON_MOON).font(semibold(text::LABEL)))
-        .fill(*MOON)
-        .corner_radius(CornerRadius::same(radius::CONTROL))
-        .min_size(vec2(0.0, CONTROL_HEIGHT));
-    let response = ui.add(button);
-    focus_ring(ui, response.rect, &response, radius::CONTROL);
+/// The focus ring: one amber ring a small gap outside the element, at its own rounding. Only focus
+/// draws it (hover lightens the fill instead, [`crate::theme::state_fill`]), and it sits outside the
+/// element, so nothing resizes or moves when focus arrives.
+pub(crate) fn focus_ring(ui: &Ui, rect: Rect, response: &Response, radius: u8) {
+    if response.has_focus() {
+        paint_focus_ring(ui.painter(), rect, radius);
+    }
+}
+
+pub(crate) fn paint_focus_ring(painter: &egui::Painter, rect: Rect, radius: u8) {
+    painter.rect_stroke(
+        rect.expand(FOCUS_GAP),
+        CornerRadius::same(radius.saturating_add(FOCUS_GAP as u8)),
+        Stroke::new(focus_ring_width(), MOON),
+        StrokeKind::Outside,
+    );
+}
+
+/// Whether the widget about to be added was hovered (or focused) and pressed last frame: how a
+/// control picks its fill before egui knows this frame's answer.
+pub(super) fn last_state(ui: &Ui) -> (bool, bool) {
+    let id = ui.next_auto_id();
+    ui.ctx().read_response(id).map_or((false, false), |r| (r.hovered() || r.has_focus(), r.is_pointer_button_down_on()))
+}
+
+/// The outline every control has: none in the night palette, a visible one in high contrast.
+pub(super) fn control_stroke() -> Stroke {
+    if high_contrast() { Stroke::new(1.5, OUTLINE_VARIANT) } else { Stroke::NONE }
+}
+
+/// What a button is filled with, and so how it reacts.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Tone {
+    /// The one main action: amber.
+    Primary,
+    /// A second choice beside it (Cancel).
+    Quiet,
+    /// A page action in the header (Add PC, Refresh).
+    Raised,
+    /// No fill until pointed at: back links, menu rows.
+    Plain,
+    /// A small pill (filters, section jumps).
+    Chip,
+    /// A chip that is the current choice.
+    Selected,
+    /// The top bar's destination of the page shown: raised, its icon amber.
+    Current,
+}
+
+impl Tone {
+    /// Fill and text colour for the state.
+    pub(crate) fn colors(self, hovered: bool, pressed: bool) -> (Color32, Color32) {
+        let surface = |base: Role, text: Role| (*state_fill(base, hovered, pressed), *text);
+        match self {
+            Tone::Primary => {
+                let fill = if pressed {
+                    tint(*MOON, Color32::BLACK, 0.12)
+                } else if hovered {
+                    tint(*MOON, Color32::WHITE, 0.16)
+                } else {
+                    *MOON
+                };
+                (fill, *ON_MOON)
+            }
+            Tone::Quiet | Tone::Current => surface(SURFACE_HIGHEST, ON_SURFACE),
+            Tone::Raised => surface(SURFACE_HIGH, ON_SURFACE),
+            Tone::Chip => surface(SURFACE, ON_SURFACE_VARIANT),
+            Tone::Plain => {
+                let fill = if pressed {
+                    *SURFACE_HIGHEST
+                } else if hovered {
+                    *SURFACE_HIGH
+                } else {
+                    Color32::TRANSPARENT
+                };
+                (fill, if hovered || pressed { *ON_SURFACE } else { *ON_SURFACE_VARIANT })
+            }
+            Tone::Selected => {
+                let fill = if hovered || pressed { tint(*MOON_CONTAINER, *MOON, 0.14) } else { *MOON_CONTAINER };
+                (fill, *ON_MOON_CONTAINER)
+            }
+        }
+    }
+}
+
+/// A button's size: its height, side padding, rounding and type.
+#[derive(Clone, Copy)]
+pub(crate) struct Size {
+    pub height: f32,
+    pub pad: f32,
+    pub radius: u8,
+    pub font: f32,
+}
+
+impl Size {
+    pub(crate) const CONTROL: Size = Size { height: CONTROL_HEIGHT, pad: 16.0, radius: radius::CONTROL, font: text::LABEL };
+    pub(crate) const HEADER: Size = Size { height: 40.0, pad: 14.0, radius: radius::CONTROL, font: text::LABEL };
+    pub(crate) const CHIP: Size = Size { height: 34.0, pad: 14.0, radius: 17, font: text::LABEL };
+}
+
+/// A button drawn the launcher's way: a fill that lightens on hover and press, never an outline
+/// (high contrast keeps its own), the focus ring outside it, an optional icon before the words.
+/// The words are shown as given (translate them first).
+pub(crate) fn button(ui: &mut Ui, icon: Option<Icon>, words: &str, tone: Tone, size: Size) -> Response {
+    button_with(ui, None, icon, words, None, tone, size)
+}
+
+/// [`button`] with a count after the words, in a quieter colour (a filter chip's games). With an
+/// `id` the button is that one wherever it lands in its row, so the focus stays on it when the
+/// buttons before it change; without, it is known by its place.
+pub(crate) fn button_with(ui: &mut Ui, id: Option<egui::Id>, icon: Option<Icon>, words: &str, count: Option<usize>, tone: Tone, size: Size) -> Response {
+    let (hovered, pressed) = match id {
+        Some(id) => ui.ctx().read_response(id).map_or((false, false), |r| (r.hovered() || r.has_focus(), r.is_pointer_button_down_on())),
+        None => last_state(ui),
+    };
+    let enabled = ui.is_enabled();
+    // A switched-off primary action (Play for a game the PC lacks) goes grey, so faded amber
+    // never reads as something to press.
+    let tone = if enabled || tone != Tone::Primary { tone } else { Tone::Raised };
+    let (fill, ink) = tone.colors(hovered && enabled, pressed && enabled);
+    let galley = ui.painter().layout_no_wrap(words.to_owned(), semibold(size.font), ink);
+    let count = count.map(|n| ui.painter().layout_no_wrap(n.to_string(), regular(size.font), ink.gamma_multiply(0.72)));
+    let icon_w = if icon.is_some() { 18.0 + if words.is_empty() { 0.0 } else { 8.0 } } else { 0.0 };
+    let count_w = count.as_ref().map_or(0.0, |c| 6.0 + c.size().x);
+    let pad = if words.is_empty() { (size.height - 18.0) / 2.0 } else { size.pad };
+    let width = pad * 2.0 + icon_w + galley.size().x + count_w;
+    let (rect, response) = match id {
+        Some(id) => {
+            let (_, rect) = ui.allocate_space(vec2(width, size.height));
+            (rect, ui.interact(rect, id, Sense::click()))
+        }
+        None => ui.allocate_exact_size(vec2(width, size.height), Sense::click()),
+    };
+    let response = response.on_hover_cursor(egui::CursorIcon::PointingHand);
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, enabled, words));
+    if ui.is_rect_visible(rect) {
+        let painter = ui.painter();
+        painter.rect(rect, CornerRadius::same(size.radius), fill, control_stroke(), StrokeKind::Inside);
+        let mut x = rect.left() + pad;
+        if let Some(icon) = icon {
+            let icon_ink = if tone == Tone::Current { *MOON } else { ink };
+            icons::paint(painter, icon, Rect::from_center_size(Pos2::new(x + 9.0, rect.center().y), Vec2::splat(18.0)), icon_ink);
+            x += icon_w;
+        }
+        let words_w = galley.size().x;
+        painter.galley(Pos2::new(x, rect.center().y - galley.size().y / 2.0), galley, ink);
+        if let Some(count) = count {
+            x += words_w + 6.0;
+            painter.galley(Pos2::new(x, rect.center().y - count.size().y / 2.0), count, ink);
+        }
+    }
+    focus_ring(ui, rect, &response, size.radius);
     response
+}
+
+pub(crate) fn primary_button(ui: &mut Ui, text: &str) -> Response {
+    button(ui, None, tr(text), Tone::Primary, Size::CONTROL)
 }
 
 pub(crate) fn quiet_button(ui: &mut Ui, text: &str) -> Response {
-    let button = egui::Button::new(RichText::new(tr(text)).color(ON_SURFACE).font(semibold(text::LABEL)))
-        .fill(*SURFACE_HIGHEST)
-        .corner_radius(CornerRadius::same(radius::CONTROL))
-        .min_size(vec2(0.0, CONTROL_HEIGHT));
-    let response = ui.add(button);
-    focus_ring(ui, response.rect, &response, radius::CONTROL);
-    response
+    button(ui, None, tr(text), Tone::Quiet, Size::CONTROL)
 }
 
 pub(super) fn text_button(ui: &mut Ui, text: &str) -> Response {
-    let button = egui::Button::new(RichText::new(tr(text)).color(ON_SURFACE_VARIANT).font(semibold(text::LABEL)))
-        .frame(false)
-        .min_size(vec2(0.0, 36.0));
-    let response = ui.add(button);
-    focus_ring(ui, response.rect, &response, radius::CONTROL);
-    response
+    button(ui, None, tr(text), Tone::Plain, Size { height: 36.0, pad: 12.0, ..Size::CONTROL })
 }
 
 /// A link in running text (How to connect): amber words, underlined while pointed at.
 pub(super) fn link_button(ui: &mut Ui, text: &str) -> Response {
     let words = RichText::new(tr(text)).color(MOON).font(semibold(text::LABEL));
-    let id = ui.next_auto_id();
-    let hovered = ui.ctx().read_response(id).is_some_and(|r| r.hovered() || r.has_focus());
+    let hovered = last_state(ui).0;
     let button = egui::Button::new(if hovered { words.underline() } else { words }).frame(false).min_size(vec2(0.0, 32.0));
     let response = ui.add(button).on_hover_cursor(egui::CursorIcon::PointingHand);
     focus_ring(ui, response.rect, &response, radius::CONTROL);
@@ -92,27 +211,15 @@ pub(super) fn how_to_connect(ui: &mut Ui, commands: &mut Vec<Command>) -> Respon
     help
 }
 
-/// An action in the header (Add PC, Refresh): a filled button, so it never reads as one of the
-/// destinations beside it, at the header's height.
-pub(super) fn header_button(ui: &mut Ui, text: &str) -> Response {
-    let button = egui::Button::new(RichText::new(tr(text)).color(ON_SURFACE).font(semibold(text::LABEL)))
-        .fill(*SURFACE_HIGH)
-        .corner_radius(CornerRadius::same(radius::CONTROL))
-        .min_size(vec2(0.0, 36.0));
-    let response = ui.add(button);
-    focus_ring(ui, response.rect, &response, radius::CONTROL);
-    response
+/// An action in the header (Add PC, Refresh): a filled button with its icon, so it never reads as
+/// one of the destinations beside it, at the header's height.
+pub(super) fn header_button(ui: &mut Ui, text: &str, icon: Icon) -> Response {
+    button(ui, Some(icon), tr(text), Tone::Raised, Size::HEADER)
 }
 
 /// A small pill that jumps to a section of the settings.
 pub(super) fn chip(ui: &mut Ui, text: &str) -> Response {
-    let button = egui::Button::new(RichText::new(tr(text)).color(ON_SURFACE).font(semibold(text::CAPTION)))
-        .fill(*SURFACE)
-        .corner_radius(CornerRadius::same(14))
-        .min_size(vec2(0.0, 28.0));
-    let response = ui.add(button);
-    focus_ring(ui, response.rect, &response, 14);
-    response
+    button(ui, None, tr(text), Tone::Chip, Size::CHIP)
 }
 
 /// A spinning arc. With reduced motion (egui's animation time is 0) the arc stands still and

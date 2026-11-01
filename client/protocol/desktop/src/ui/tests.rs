@@ -283,7 +283,10 @@ impl Frames {
     /// Turns the mouse wheel down over the middle of the window, far enough to reach the end
     /// of what scrolls there.
     fn scroll_to_end(&mut self) {
-        let centre = (self.size / 2.0).to_pos2();
+        // Over the window's middle, or over a menu open by its card (where the focus is).
+        let menu = self.l.menu_anchor != Anchor::Center && !self.no_dialog();
+        let focused = self.ctx.memory(|m| m.focused()).and_then(|id| self.ctx.read_response(id)).map(|r| r.rect.center());
+        let centre = focused.filter(|_| menu).unwrap_or((self.size / 2.0).to_pos2());
         self.frame(vec![egui::Event::PointerMoved(centre)]);
         self.frame(vec![egui::Event::MouseWheel {
             unit: egui::MouseWheelUnit::Line,
@@ -400,11 +403,11 @@ fn removes(commands: &[Command]) -> bool {
 }
 
 #[test]
-fn the_destinations_read_home_pcs_settings() {
+fn the_destinations_read_home_pcs_settings_help() {
     let names: Vec<&str> = DESTINATIONS.iter().map(|(name, _)| *name).collect();
-    assert_eq!(names, ["Home", "PCs", "Settings"]);
+    assert_eq!(names, ["Home", "PCs", "Settings", "Help"]);
     let screens: Vec<Screen> = DESTINATIONS.iter().map(|(_, screen)| *screen).collect();
-    assert_eq!(screens, [Screen::Home, Screen::Hosts, Screen::Settings]);
+    assert_eq!(screens, [Screen::Home, Screen::Hosts, Screen::Settings, Screen::Help]);
 }
 
 #[test]
@@ -448,12 +451,15 @@ fn settings_sections_follow_androids_order() {
     f.size = vec2(1280.0, 12000.0);
     f.l.go(Screen::Settings);
     f.settle();
-    // The chips come first, then the page's headings in capitals.
-    let chips: Vec<&str> = f.drawn.iter().map(String::as_str).filter(|t| SETTINGS_SECTIONS.contains(t)).collect();
-    assert_eq!(chips, SETTINGS_SECTIONS, "the chips list the sections in order");
-    let upper: Vec<String> = SETTINGS_SECTIONS.iter().map(|s| s.to_uppercase()).collect();
-    let headings: Vec<&String> = f.drawn.iter().filter(|t| upper.contains(t)).collect();
-    assert_eq!(headings, upper.iter().collect::<Vec<_>>(), "and the page has them in the same order");
+    // The list beside the rows names the sections in order, then the open one heads the rows.
+    let titles: Vec<&str> = f.drawn.iter().map(String::as_str).filter(|t| SETTINGS_SECTIONS.contains(t)).collect();
+    assert_eq!(titles[..7], SETTINGS_SECTIONS, "the list names the sections in order");
+    assert_eq!(titles[7..], ["Video"], "and the first is open");
+    // A narrow window lists them as chips above the rows, in the same order.
+    f.size = vec2(800.0, 12000.0);
+    f.settle();
+    let titles: Vec<&str> = f.drawn.iter().map(String::as_str).filter(|t| SETTINGS_SECTIONS.contains(t)).collect();
+    assert_eq!(titles[..7], SETTINGS_SECTIONS, "the chips name the sections in order");
 }
 
 /// The widgets a screen reader can press or change that have no name to say, with their role and place.
@@ -484,12 +490,20 @@ fn screen_readers_hear_a_name_for_everything_on_the_main_screens() {
     let mut missing = Vec::new();
     for (name, screen) in screens {
         f.l.go(screen);
-        for section in SETTINGS_SECTIONS {
-            f.l.unfolded.insert(section);
+        // Every section of the settings pages, and the search with its Clear.
+        let sections: &[&'static str] = if matches!(screen, Screen::Settings | Screen::HostSettings(_)) { &SETTINGS_SECTIONS } else { &[""] };
+        for section in sections {
+            f.l.settings_view.section = section;
+            f.settle();
+            assert!(f.access.as_ref().is_some_and(|t| t.nodes.len() > 5), "{name}: a tree came out");
+            missing.extend(unnamed(&f).into_iter().map(|w| format!("{name} {section}: {w}")));
         }
-        f.settle();
-        assert!(f.access.as_ref().is_some_and(|t| t.nodes.len() > 5), "{name}: a tree came out");
-        missing.extend(unnamed(&f).into_iter().map(|w| format!("{name}: {w}")));
+        if sections.len() > 1 {
+            f.l.settings_view.query = "bitrate".into();
+            f.settle();
+            missing.extend(unnamed(&f).into_iter().map(|w| format!("{name} searching: {w}")));
+            f.l.settings_view.query.clear();
+        }
     }
     f.l.go(Screen::Hosts);
     f.l.dialog = Dialog::HostOptions { host: id };
@@ -538,26 +552,35 @@ fn settings_main_rows_are_androids_tiers() {
 }
 
 #[test]
-fn settings_fold_rows_behind_more_and_show_them_when_opened() {
+fn settings_show_a_sections_every_row_with_the_rarer_ones_in_groups_after() {
     let mut f = Frames::new(record("PC", true, false), Reach::Online);
     f.size = vec2(1280.0, 12000.0);
     f.l.go(Screen::Settings);
     f.settle();
-    assert!(shows(&f, "Device controls bitrate") && shows(&f, "Recover interrupted streams"), "main rows show: {:?}", f.drawn);
-    assert!(!shows(&f, "Tell the PC when on Wi-Fi") && !shows(&f, "Loss-based bitrate (Rust engine)") && !shows(&f, "Diagnostics"), "folded rows wait");
-    let more = f.placed.iter().find(|(t, _, _)| t == "More Advanced settings (5)").map(|p| p.1.center()).expect("Advanced folds five rows");
-    f.click_at(more, egui::PointerButton::Primary);
-    for text in ["Loss-based bitrate (Rust engine)", "Full chroma", "Diagnostics", "Tell the PC when on Wi-Fi", "Link test before the first bitrate", "Fewer Advanced settings"] {
-        assert!(shows(&f, text), "{text} shows once Advanced opens");
+    for text in ["Lower bitrate when the network is busy", "FINE-TUNING", "Automatic quality", "Video decoding"] {
+        assert!(shows(&f, text), "{text}: nothing is folded away: {:?}", f.drawn);
     }
-    assert!(!shows(&f, "Client roaming"), "Streaming stays folded");
-    // A PC's override of a folded row keeps it in view while the section is folded.
-    f.l.unfolded.clear();
+    assert!(!shows(&f, "Recover interrupted streams") && !shows(&f, "More Video settings (6)"), "one section at a time, no fold");
+    // In every section, Android's main rows come before the first group, and no group holds one.
+    for section in SETTINGS_SECTIONS {
+        f.l.settings_view.section = section;
+        f.settle();
+        let drawn = f.l.settings_view.drawn.clone();
+        assert!(!drawn.is_empty(), "{section} draws rows");
+        let first_grouped = drawn.iter().position(|(_, grouped)| *grouped).unwrap_or(drawn.len());
+        for (at, (key, grouped)) in drawn.iter().enumerate() {
+            if main_row(key) {
+                assert!(!grouped && at < first_grouped, "{section}: main row {key} comes first: {drawn:?}");
+            }
+        }
+    }
+    // A PC's own value in a group shows in its section like any other row.
     let id = f.hosts.list[0].id;
     f.l.go(Screen::HostSettings(id));
+    f.l.settings_view.section = "Streaming";
     f.l.edit_overrides.capture(&Settings { client_roaming: false, ..Settings::default() }, &["client_roaming"]);
     f.settle();
-    assert!(shows(&f, "Client roaming") && !shows(&f, "Instant mouse and pen input"), "{:?}", f.drawn);
+    assert!(shows(&f, "Keep streaming when the network changes") && shows(&f, "Instant mouse and pen input"), "{:?}", f.drawn);
 }
 
 #[test]
@@ -617,11 +640,11 @@ fn resolution_and_frame_rate_offer_presets_and_custom_with_its_row() {
 fn the_pc_render_resolution_is_named_and_ranged_as_on_android() {
     let mut f = Frames::new(record("PC", true, false), Reach::Online);
     f.size = vec2(1280.0, 12000.0);
-    f.l.unfolded.insert("Display & image");
+    f.l.settings_view.section = "Display & image";
     f.l.go(Screen::Settings);
     f.settle();
     assert!(shows(&f, "PC render resolution"), "{:?}", f.drawn);
-    assert!(shows(&f, "Percent of the stream resolution that the PC renders at. The size of the transmitted video does not change. To send fewer pixels and upscale on this device, lower Resolution."));
+    assert!(shows(&f, "The size the PC renders at, as a percent of the stream resolution. The video it sends keeps its size. To send fewer pixels and upscale here, lower Resolution instead."));
     // The old name and description went to the Windows scale, a row of its own.
     assert!(!f.drawn.iter().any(|t| t == "Text and interface size on the virtual display."), "{:?}", f.drawn);
     assert!(shows(&f, "PC display scaling") && shows(&f, "Text and interface size on the PC’s virtual display."));
@@ -655,7 +678,7 @@ fn a_pcs_own_display_scaling_is_offered_only_by_hosts_that_read_it() {
     ] {
         let mut f = Frames::with(record("PC", true, false), Reach::Online, Some(info(&extra)), Vec::new());
         f.size = vec2(1280.0, 12000.0);
-        f.l.unfolded.insert("Display & image");
+        f.l.settings_view.section = "Display & image";
         let id = f.hosts.list[0].id;
         f.l.go(Screen::HostSettings(id));
         f.settle();
@@ -777,11 +800,27 @@ fn at_150_percent_the_longest_options_list_scrolls_to_the_option_with_focus() {
             .find(|(text, at, _)| labels.contains(&text.as_str()) && rect.contains(at.center()))
             .map(|(_, _, clip)| *clip)
             .unwrap_or_else(|| panic!("the option's label was drawn: {rect:?}"));
-        assert!(clip.height() < screen.height() - 100.0 && screen.expand(1.0).contains_rect(clip), "the list scrolls inside the window: {clip:?}");
+        assert!(clip.height() < screen.height() - 40.0 && screen.expand(1.0).contains_rect(clip), "the list scrolls inside the window: {clip:?}");
         assert!(clip.expand(1.0).contains_rect(rect), "the option with focus is in the list's visible area: {rect:?} in {clip:?}");
     }
     f.press(Key::Enter);
     assert!(matches!(f.l.dialog, Dialog::ConfirmRemove { .. }), "the last option is Remove");
+}
+
+/// The rectangles drawn filled with `fill`, nested shapes included.
+fn rects_filled(f: &Frames, fill: Color32) -> Vec<Rect> {
+    fn walk(shape: &egui::Shape, fill: Color32, out: &mut Vec<Rect>) {
+        match shape {
+            egui::Shape::Vec(shapes) => shapes.iter().for_each(|s| walk(s, fill, out)),
+            egui::Shape::Rect(r) if r.fill == fill => out.push(r.rect),
+            _ => {}
+        }
+    }
+    let mut found = Vec::new();
+    for clipped in &f.shapes {
+        walk(&clipped.shape, fill, &mut found);
+    }
+    found
 }
 
 /// The faded edges of a scroll area as drawn: a mesh shading from clear into the dialog's fill.
@@ -886,6 +925,20 @@ fn at_150_percent_in_german_every_settings_page_fits_the_width() {
         f.l.go(screen);
         f.settle();
         assert_fits(&f, &format!("{screen:?}"), false);
+        if matches!(screen, Screen::Settings | Screen::HostSettings(_)) {
+            for section in SETTINGS_SECTIONS {
+                f.l.settings_view.section = section;
+                f.settle();
+                assert_fits(&f, &format!("{screen:?} {section}"), false);
+            }
+            f.l.settings_view.query = "bitrate".into();
+            f.settle();
+            assert_fits(&f, &format!("{screen:?} searching"), false);
+            f.l.settings_view.query = "zzz".into();
+            f.settle();
+            assert_fits(&f, &format!("{screen:?} finding nothing"), false);
+            f.l.settings_view.query.clear();
+        }
     }
     for dialog in [
         Dialog::ProfileName { id: None, name: String::new(), settings: Default::default(), error: None },
@@ -909,7 +962,7 @@ fn at_150_percent_in_german_the_roaming_rows_fit_and_mobile_data_shows_only_with
     // The 1280-pixel width is what is checked; the height lets the network rows be drawn
     // without scrolling to them.
     f.size.y = 8000.0;
-    f.l.unfolded.extend(SETTINGS_SECTIONS);
+    f.l.settings_view.section = "Streaming";
     let shown = |f: &Frames, text: &str| f.placed.iter().any(|(t, _, _)| t.contains(text));
     let id = f.hosts.list[0].id;
     for (screen, global) in [(Screen::Settings, true), (Screen::HostSettings(id), false)] {
@@ -1699,9 +1752,15 @@ fn a_late_offer_from_a_cancelled_sleep_pc_is_not_taken_for_the_new_one() {
 #[test]
 fn sleep_pc_not_allowed_is_listed_with_the_reason_and_does_nothing() {
     let mut f = every_state().into_iter().find(|s| s.name == "sleep not allowed").unwrap().frames();
+    f.ctx.enable_accesskit();
     assert!(host_options(&f.hosts.list[0]).contains(&HostOption::Sleep));
     f.press(Key::F2);
     assert!(f.drawn.iter().any(|t| t == crate::hosts::SLEEP_NOT_ALLOWED), "the reason is shown");
+    // And heard: the row's name carries the reason, not only the painted line.
+    let sleep = HostOption::Sleep.label();
+    let said = format!("{}, {}", tr(sleep), tr(crate::hosts::SLEEP_NOT_ALLOWED));
+    let labels: Vec<&str> = f.access.as_ref().unwrap().nodes.iter().filter_map(|(_, n)| n.label()).collect();
+    assert!(labels.contains(&said.as_str()), "{said} in {labels:?}");
     let mut commands = Vec::new();
     let next = f.l.choose_host_option(&f.hosts.list[0], HostOption::Sleep, &mut commands);
     assert!(next.is_none() && commands.is_empty(), "nothing is asked of the PC");
@@ -1851,21 +1910,50 @@ fn header_stops(f: &mut Frames) -> Vec<Rect> {
 
 #[test]
 fn tab_walks_the_header_left_to_right_and_the_actions_sit_at_the_right_edge() {
-    // PCs: Home hides while there is no library, Add PC follows Settings.
+    // PCs: Home hides while there is no library; the destinations sit together beside the brand
+    // and Add PC, the page's action, at the right edge.
     let mut f = Frames::new(record("Paired", true, false), Reach::Online);
     let stops = header_stops(&mut f);
-    assert_eq!(stops.len(), 3, "PCs, Settings and Add PC: {stops:?}");
+    assert_eq!(stops.len(), 4, "PCs, Settings, Help and Add PC: {stops:?}");
     assert!(stops.windows(2).all(|w| w[0].right() < w[1].left()), "in reading order: {stops:?}");
-    assert!(1280.0 - stops[2].right() < 80.0, "Add PC is at the right edge: {:?}", stops[2]);
+    assert!(stops[1].right() < 640.0, "the destinations sit at the left: {stops:?}");
+    assert!(1280.0 - stops[3].right() < 80.0, "Add PC is at the right edge: {:?}", stops[3]);
+    // Hit targets a finger or a pointer finds: no destination is shorter than 36 points.
+    assert!(stops.iter().all(|r| r.height() >= 36.0), "{stops:?}");
 
-    // Home shows all three destinations in order.
+    // Home shows all four destinations in order, one after the other.
     let mut f = Frames::new(record("Paired", true, false), Reach::Online);
     f.l.go(Screen::Home);
     f.settle();
     let stops = header_stops(&mut f);
-    assert_eq!(stops.len(), 3, "Home, PCs and Settings: {stops:?}");
-    assert!(stops.windows(2).all(|w| w[0].right() < w[1].left()), "in reading order: {stops:?}");
-    assert!(1280.0 - stops[2].right() < 80.0, "Settings is at the right edge");
+    assert_eq!(stops.len(), 4, "Home, PCs, Settings and Help: {stops:?}");
+    assert!(stops.windows(2).all(|w| w[0].right() < w[1].left() && w[1].left() - w[0].right() < 12.0), "in reading order, together: {stops:?}");
+}
+
+/// The page shown marks its destination in the top bar, below the top level too: a PC's library
+/// marks PCs, a Settings page Settings.
+#[test]
+fn the_top_bar_marks_the_destination_of_the_page_shown() {
+    assert_eq!(Screen::Apps(1).destination(), Screen::Hosts);
+    assert_eq!(Screen::HostDetails(1).destination(), Screen::Hosts);
+    assert_eq!(Screen::AppSettings(1).destination(), Screen::Hosts);
+    assert_eq!(Screen::Game { host: 1, app: 2 }.destination(), Screen::Home);
+    assert_eq!(Screen::AllGames.destination(), Screen::Home);
+    assert_eq!(Screen::Profiles.destination(), Screen::Settings);
+    for (_, screen) in DESTINATIONS {
+        assert_eq!(screen.destination(), screen, "a destination marks itself");
+    }
+    // Drawn: the marked tab is filled, the others are not.
+    let mut f = Frames::new(record("Desk", true, true), Reach::Online);
+    let id = f.hosts.list[0].id;
+    f.l.open(Screen::HostDetails(id));
+    f.settle();
+    let tab = |f: &Frames, name: &str| f.placed.iter().find(|(t, r, _)| t == name && r.center().y < 60.0).map(|p| p.1).expect(name);
+    let pcs = tab(&f, "PCs");
+    let settings = tab(&f, "Settings");
+    let filled = |f: &Frames, at: Rect| rects_filled(f, *SURFACE_HIGHEST).iter().any(|r| r.contains_rect(at));
+    assert!(filled(&f, pcs), "PCs is marked on a PC's page");
+    assert!(!filled(&f, settings), "Settings is not");
 }
 
 /// A paired PC whose library holds `count` installed games with distinct titles and ids.
@@ -1918,7 +2006,7 @@ fn home_scrolls_to_the_game_the_arrow_keys_focus() {
         assert!(rect.top() >= 0.0 && rect.bottom() <= 720.0, "row {step}: the focused game is on screen: {rect:?}");
     }
     assert!(seen.len() >= 4, "the focus walked down past the first screen: {} rows", seen.len());
-    for step in 0..seen.len() {
+    for step in 0..seen.len() - 1 {
         f.press(Key::ArrowUp);
         scrolled(&mut f);
         let (_, rect) = focused(&f);
@@ -1927,10 +2015,10 @@ fn home_scrolls_to_the_game_the_arrow_keys_focus() {
     assert_eq!(focused(&f).0, start, "back at the first game");
 }
 
-/// A cover with art names its game under it only while it has the focus (the art carries the
-/// title already); a cover without art shows the whole title inside it, once.
+/// A cover with art names its game under it, focused or not, so a row reads at a glance; a cover
+/// without art shows the whole title inside it, once.
 #[test]
-fn covers_name_the_game_inside_without_art_and_under_art_only_when_focused() {
+fn covers_name_the_game_inside_without_art_and_under_art_always() {
     let mut f = home_with_games(3);
     let count = |f: &Frames, title: &str| f.drawn.iter().filter(|t| *t == title).count();
     assert_eq!((count(&f, "Game 00"), count(&f, "Game 01")), (1, 1), "without art each title shows once: {:?}", f.drawn);
@@ -1941,10 +2029,13 @@ fn covers_name_the_game_inside_without_art_and_under_art_only_when_focused() {
         pc.art.insert(g.app_id as i32, Art::Ready(texture.clone()));
     }
     f.settle();
-    assert_eq!((count(&f, "Game 00"), count(&f, "Game 01")), (1, 0), "only the focused cover is named: {:?}", f.drawn);
+    assert_eq!((count(&f, "Game 00"), count(&f, "Game 01")), (1, 1), "every cover is named under its art: {:?}", f.drawn);
+    let under = |f: &Frames, title: &str| f.placed.iter().find(|(t, ..)| t == title).map(|p| p.1).expect(title);
+    let before = under(&f, "Game 01");
     f.press(Key::ArrowRight);
     f.settle();
-    assert_eq!((count(&f, "Game 00"), count(&f, "Game 01")), (0, 1), "the name follows the focus: {:?}", f.drawn);
+    assert_eq!((count(&f, "Game 00"), count(&f, "Game 01")), (1, 1), "focus moving names nothing twice: {:?}", f.drawn);
+    assert_eq!(under(&f, "Game 01").top(), before.top(), "the title stays put when its cover is focused and lifts");
 }
 
 /// Cover art that is not 3:4 fills its box without being squashed: its middle shows, cut at the
@@ -2015,7 +2106,7 @@ fn settings_scroll_beside_their_column_on_a_wide_window() {
     f.size = vec2(1920.0, 1080.0);
     f.l.go(Screen::Settings);
     f.settle();
-    let top = |f: &Frames| f.placed.iter().find(|(t, ..)| t.starts_with("More Video settings")).map(|p| p.1.top()).expect("the fold row");
+    let top = |f: &Frames| f.placed.iter().find(|(t, ..)| t == "Codec").map(|p| p.1.top()).expect("the Codec row");
     let before = top(&f);
     let beside = Pos2::new(1500.0, 600.0);
     f.frame(vec![egui::Event::PointerMoved(beside)]);
@@ -2057,20 +2148,6 @@ fn controller_mappings_scroll_beside_their_column() {
     assert!(top(&f) < before - 50.0, "the wheel beside the rows scrolls them: {before} to {}", top(&f));
 }
 
-/// "More … settings" is a row like the settings it folds, opened from anywhere on it.
-#[test]
-fn the_fold_is_a_row_that_opens_anywhere_on_it() {
-    let mut f = Frames::new(record("Desk", true, true), Reach::Online);
-    f.size = vec2(1280.0, 4000.0);
-    f.l.go(Screen::Settings);
-    f.settle();
-    let label = f.placed.iter().find(|(t, ..)| t.starts_with("More Video settings")).map(|p| p.1).expect("Video folds rows");
-    let resolution = f.placed.iter().find(|(t, ..)| t == "Resolution").map(|p| p.1).expect("the first row");
-    // Its right end, where the chevron is, far from the label's text.
-    let at = Pos2::new(resolution.left() + SETTINGS_W - 40.0, label.center().y);
-    f.click_at(at, egui::PointerButton::Primary);
-    assert!(shows(&f, "Fewer Video settings"), "{:?}", f.drawn);
-}
 
 /// Home's PC card says a PC's state once: an offline PC reads "Offline", never "Offline · Offline".
 #[test]
@@ -2080,7 +2157,7 @@ fn the_home_pc_card_says_the_state_once() {
     f.settle();
     let lines: Vec<&String> = f.drawn.iter().filter(|t| t.contains("Offline")).collect();
     assert!(!lines.is_empty() && lines.iter().all(|t| t.matches("Offline").count() == 1), "{lines:?} in {:?}", f.drawn);
-    assert!(shows(&f, "PCS"), "the section is Android's \"PCs\": {:?}", f.drawn);
+    assert!(f.placed.iter().any(|(t, r, _)| t == "PCs" && r.center().y > 80.0), "the shelf is Android's \"PCs\": {:?}", f.drawn);
 }
 
 /// As Android's game page: the state in a chip over the title and the PC on its own line, not a
@@ -2104,16 +2181,73 @@ fn the_game_page_says_its_state_in_a_chip_and_the_pc_on_its_own_line() {
     assert!(shows(&f, "Desk") && !shows(&f, "Running") && !shows(&f, "Suspended"), "{:?}", f.drawn);
 }
 
+/// Android's game page: a game the PC lists as not installed has Play off and says why, and a
+/// copy on another PC that is not installed says so under "Also on".
+#[test]
+fn a_game_the_pc_has_not_installed_cannot_be_played_from_its_page() {
+    let mut f = home_with_games(2);
+    f.hosts.list[0].native.library.as_mut().expect("the library").games[0].installed = Some(false);
+    // Game 01 runs: Play could not close it, so nothing says it would.
+    f.hosts.list[0].native.library.as_mut().unwrap().games[1].running = true;
+    // A second PC with the same game, not installed there either.
+    let mut hosts = Hosts::without_discovery(vec![record("Desk", true, true), record("Den", true, false)], Arc::new(|| {}));
+    for host in &mut hosts.list {
+        host.reach = Reach::Online;
+        host.native.library = f.hosts.list[0].native.library.clone();
+    }
+    hosts.list[0].info = f.hosts.list[0].info.clone();
+    hosts.list[0].apps = Apps::Loaded(vec![nightjar_core::http::App { name: "Game 00".into(), uuid: "install-0".into(), ..game(1000) }]);
+    f.hosts = hosts;
+    let pc = f.hosts.list[0].id;
+    f.l.go(Screen::Game { host: pc, app: 1000 });
+    f.settle();
+    assert!(shows(&f, "Not installed on Desk"), "{:?}", f.drawn);
+    assert!(shows(&f, "Den, not installed"), "Also on marks it: {:?}", f.drawn);
+    let closes = "Game 01 is running. Playing this game closes it.";
+    assert!(!shows(&f, closes), "{:?}", f.drawn);
+    assert!(f.ctx.memory(|m| m.focused()).is_some(), "something has focus for the D-pad");
+    let play = f.placed.iter().find(|(t, ..)| t == "Play").map(|p| p.1).expect("Play is shown");
+    let commands = f.click_at(play.center(), egui::PointerButton::Primary);
+    assert!(!commands.iter().any(|c| matches!(c, Command::Launch { .. })), "Play is off");
+    // Installed, the same page plays it.
+    f.hosts.list[0].native.library.as_mut().unwrap().games[0].installed = Some(true);
+    f.settle();
+    assert!(!shows(&f, "Not installed on Desk"), "{:?}", f.drawn);
+    assert!(shows(&f, closes), "{:?}", f.drawn);
+    f.hosts.list[0].native.library.as_mut().unwrap().games[1].running = false;
+    f.settle();
+    let play = f.placed.iter().find(|(t, ..)| t == "Play").map(|p| p.1).expect("Play is shown");
+    let commands = f.click_at(play.center(), egui::PointerButton::Primary);
+    assert!(commands.iter().any(|c| matches!(c, Command::Launch { app: 1000, .. })), "Play starts it");
+}
+
+#[test]
+fn a_games_page_names_its_store_when_the_pc_sends_only_the_key() {
+    use nightjar_core::http::native_api::library::Store;
+    let mut f = home_with_games(1);
+    let store = |source: &str, name: &str| Some(Store { source: source.into(), id: "1".into(), name: name.into() });
+    f.hosts.list[0].native.library.as_mut().expect("the library").games[0].store = store("microsoft", "");
+    let pc = f.hosts.list[0].id;
+    f.l.go(Screen::Game { host: pc, app: 1000 });
+    f.settle();
+    assert!(shows(&f, "Xbox"), "the key's known name: {:?}", f.drawn);
+    // The PC's own name wins.
+    f.hosts.list[0].native.library.as_mut().unwrap().games[0].store = store("microsoft", "Microsoft Store");
+    f.settle();
+    assert!(shows(&f, "Microsoft Store") && !shows(&f, "Xbox"), "{:?}", f.drawn);
+}
+
 /// Settings is a top-level page like Home and PCs: no Back in its header. Its sub-pages keep theirs.
 #[test]
 fn settings_has_no_back_but_its_sub_pages_do() {
     let mut f = Frames::new(record("Desk", true, true), Reach::Online);
     f.l.go(Screen::Settings);
     f.settle();
-    assert!(shows(&f, "Settings") && !f.drawn.iter().any(|t| t.starts_with('‹')), "{:?}", f.drawn);
+    let below_bar = |f: &Frames, name: &str| f.placed.iter().any(|(t, r, _)| t == name && r.center().y > 60.0 && r.center().y < 140.0);
+    assert!(shows(&f, "Settings") && !below_bar(&f, "Settings") && !shows(&f, "Back"), "{:?}", f.drawn);
     f.l.open(Screen::Profiles);
     f.settle();
-    assert!(shows(&f, "‹  Settings"), "{:?}", f.drawn);
+    assert!(below_bar(&f, "Settings"), "Back leads to Settings by name: {:?}", f.placed);
 }
 
 /// Under a short list of PCs: the search goes on, and How to connect opens the pairing guide.
@@ -2408,6 +2542,35 @@ fn primary_and_quiet_buttons_take_the_control_height() {
     assert_eq!(heights, [CONTROL_HEIGHT; 2]);
 }
 
+#[test]
+fn a_switched_off_primary_button_is_grey_not_faded_amber() {
+    crate::theme::own_palette();
+    let ctx = egui::Context::default();
+    crate::theme::apply(&ctx);
+    let mut fills = Vec::new();
+    for enabled in [true, false] {
+        let input = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(400.0, 300.0))), ..Default::default() };
+        let mut output = ctx.run_ui(input, |ui| {
+            ui.add_enabled_ui(enabled, |ui| primary_button(ui, "Play"));
+        });
+        output.textures_delta.clear();
+        // Amber whatever the fade: red well above blue (the surfaces are blue-black).
+        let is_amber = |c: Color32| f32::from(c.r()) > 1.6 * f32::from(c.b()) + 10.0;
+        let painted: Vec<Color32> = output
+            .shapes
+            .iter()
+            .filter_map(|clipped| match &clipped.shape {
+                egui::Shape::Rect(r) if r.fill.a() > 0 => Some(r.fill),
+                _ => None,
+            })
+            .collect();
+        let amber = painted.iter().any(|&c| is_amber(c));
+        fills.push((enabled, amber, painted));
+    }
+    assert!(fills[0].1, "an enabled Play is amber: {:?}", fills[0].2);
+    assert!(!fills[1].1 && !fills[1].2.is_empty(), "a switched-off Play is drawn, but not in amber: {:?}", fills[1].2);
+}
+
 /// Every text drawn in `shapes`.
 fn collect_all_text(shapes: &[egui::epaint::ClippedShape]) -> Vec<String> {
     let mut drawn = Vec::new();
@@ -2574,7 +2737,6 @@ fn page_screenshots() {
     f.shoot(&dir, &format!("{prefix}hosts-long-detail-desktop"));
 }
 
-/// Made-up cover art without any words on it: a night gradient in one hue with the brand's orbits.
 /// The demo library's cover art (the same genre covers the Android demo and README use).
 fn demo_art(ctx: &egui::Context, n: usize) -> Art {
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(format!("../../app/src/debug/assets/demo/art/{}.png", n + 1));
@@ -2592,9 +2754,15 @@ fn polish_screenshots() {
     let Some(dir) = std::env::var_os("NIGHTJAR_SHOTS").map(std::path::PathBuf::from) else { return };
     std::fs::create_dir_all(&dir).expect("the folder for the screenshots");
     let only = std::env::var("NIGHTJAR_SHOTS_ONLY").unwrap_or_default();
+    // Store keys as a host sends them (console.rs names them). Ten Steam games overflow a row at
+    // both sizes, so Steam's ends in its All tile; one Epic game is not installed. The first ten
+    // have the demo covers, which carry their titles; the rest sort after them and show the
+    // placeholder, so each row starts as a real library looks.
     let titles = [
-        ("Desktop", ""), ("Racing Game", "Steam"), ("Open World", "Xbox"), ("Space Sim", "Epic Games"), ("Puzzle Night", "GOG"),
-        ("Retro Arcade", "Steam"), ("Strategy", "Battle.net"), ("Music Studio", "Steam"), ("Ocean Explorer", "Xbox"), ("Skybound", ""),
+        ("Desktop", ""), ("Racing Game", "steam"), ("Open World", "steam"), ("Space Sim", "microsoft"), ("Puzzle Night", "gog"),
+        ("Retro Arcade", "steam"), ("Strategy", "battlenet"), ("Music Studio", "steam"), ("Ocean Explorer", "steam"), ("Skybound", "steam"),
+        ("Trail Runner", "microsoft"), ("Star Courier", "steam"), ("Tiny Tactics", "steam"), ("Wild Frontier", "steam"), ("Zen Garden", "steam"),
+        ("Frost Peak", "epic"), ("Tavern Duel", "battlenet"), ("Wayfarer", "epic"), ("Steam Big Picture", ""),
     ];
     for (width, height, ppp) in [(1280.0, 800.0, 1.5), (1920.0, 1080.0, 1.0)] {
         let size = format!("{}x{}", width as u32, height as u32);
@@ -2642,11 +2810,11 @@ fn polish_screenshots() {
                 install_id: format!("install-{n}"),
                 app_id: 1000 + n as u32,
                 title: (*title).into(),
-                game_id: (!store.is_empty()).then(|| format!("steam:{n}")),
-                store: (!store.is_empty()).then(|| Store { source: "steam".into(), id: n.to_string(), name: (*store).into() }),
-                installed: Some(true),
+                game_id: (!store.is_empty()).then(|| format!("{store}:{n}")),
+                store: (!store.is_empty()).then(|| Store { source: (*store).into(), id: n.to_string(), name: String::new() }),
+                installed: Some(*title != "Frost Peak"),
                 running: n == 1,
-                artwork: Artwork { cover: (n < 9).then(|| format!("/cover/{n}")), version: "1".into() },
+                artwork: Artwork { cover: (n < 10).then(|| format!("/cover/{n}")), version: "1".into() },
             })
             .collect();
         let apps: Vec<nightjar_core::http::App> = games
@@ -2659,7 +2827,7 @@ fn polish_screenshots() {
             pc.info = Some(files::tests::native_answer());
             pc.native.library = Some(Library { revision: "r1".into(), games });
             pc.apps = Apps::Loaded(apps.clone());
-            for (n, app) in apps.iter().enumerate().take(9) {
+            for (n, app) in apps.iter().enumerate().take(10) {
                 pc.art.insert(app.id, demo_art(&f.ctx, n));
             }
         }
@@ -2673,10 +2841,75 @@ fn polish_screenshots() {
         shoot(&mut f, "home-focus-moved");
         f.scroll_to_end();
         shoot(&mut f, "home-end");
+        // Help as a returning user meets it, Home in the top bar (the README's shot).
+        f.l.go(Screen::Help);
+        shoot(&mut f, "help-returning");
+        // All games with every game, then with a store's chip clicked.
+        f.l.open(Screen::AllGames);
+        shoot(&mut f, "all-games");
+        f.settle();
+        let steam = f.placed.iter().find(|(t, r, _)| t == "Steam" && r.center().y < 200.0).map(|p| p.1).expect("the Steam chip");
+        f.click_at(steam.center(), egui::PointerButton::Primary);
+        shoot(&mut f, "all-games-store");
+        f.l.library_filter = console::LibraryFilter::All;
+        f.frame(vec![egui::Event::PointerGone]);
+        f.settle();
+        // A cover's menu from its ⋮ (the first cover, at the left edge) and from a right-click on
+        // the last cover of the first line (at the right edge).
+        f.l.focused_key = None;
+        f.l.restore_key = None;
+        f.l.focus_screen = true;
+        f.settle();
+        let cover = f.ctx.memory(|m| m.focused()).expect("the first cover has focus");
+        let first = f.ctx.read_response(cover).expect("the cover").rect;
+        f.frame(vec![egui::Event::PointerMoved(first.center())]);
+        f.settle();
+        let dots = f.ctx.read_response(cover.with("options")).expect("the cover's ⋮").rect;
+        f.click_at(dots.center(), egui::PointerButton::Primary);
+        shoot(&mut f, "game-menu-dots");
+        f.l.close_dialog();
+        // Every cover of the line draws its title inside its own width: the rightmost title is the last cover's.
+        let right = f
+            .placed
+            .iter()
+            .filter(|(_, r, _)| r.center().y > first.top() && r.center().y < first.bottom())
+            .map(|p| p.1.center().x)
+            .max_by(f32::total_cmp)
+            .map(|x| pos2(x, first.center().y))
+            .expect("the first line's titles");
+        f.click_at(right + vec2(first.width() * 0.25, 0.0), egui::PointerButton::Secondary);
+        shoot(&mut f, "game-menu-right-click");
+        f.l.close_dialog();
+        // A cover under the pointer with the focus elsewhere: it rises, no ring.
+        // (Closing the menu gave the focus back to the cover it was opened on.)
+        f.settle();
+        if let Some(held) = f.ctx.memory(|m| m.focused()) {
+            f.ctx.memory_mut(|m| m.surrender_focus(held));
+        }
+        f.frame(vec![egui::Event::PointerMoved(right)]);
+        f.settle();
+        shoot(&mut f, "all-games-cover-hover");
+        // The same in high contrast with the first cover focused: one amber ring.
+        f.l.settings.high_contrast = true;
+        f.frame(vec![egui::Event::PointerGone]);
+        f.ctx.memory_mut(|m| m.request_focus(cover));
+        shoot(&mut f, "all-games-focus-high-contrast");
+        f.l.go(Screen::Hosts);
+        shoot(&mut f, "pcs-focus-high-contrast");
+        f.l.settings.high_contrast = false;
+        // A PC's card under the pointer with no focus on it: one step lighter, no outline.
+        let card = f.ctx.memory(|m| m.focused()).and_then(|id| f.ctx.read_response(id)).expect("the first PC has focus");
+        f.ctx.memory_mut(|m| m.surrender_focus(card.id));
+        hover_card(&mut f, card.rect);
+        shoot(&mut f, "pcs-card-hover");
+        f.frame(vec![egui::Event::PointerGone]);
         f.l.go(Screen::Game { host: pc, app: 1001 });
         shoot(&mut f, "game-running");
         f.l.go(Screen::Game { host: pc, app: 1002 });
         shoot(&mut f, "game");
+        // Frost Peak, which the PC has not installed: no Play.
+        f.l.go(Screen::Game { host: pc, app: 1015 });
+        shoot(&mut f, "game-not-installed");
         f.l.go(Screen::Hosts);
         shoot(&mut f, "pcs");
         f.l.go(Screen::Apps(pc));
@@ -2721,6 +2954,53 @@ fn polish_screenshots() {
         f.waking = Some("Office PC".into());
         shoot(&mut f, "waking");
         f.waking = None;
+        // Home's rows in one column, drawn alone as `at_one_column_a_long_row_is_its_all_tile`
+        // does (the top bar keeps the window wider): a row too long to fit is its All tile.
+        if only.is_empty() || only.split(',').any(|o| "home-one-column".starts_with(o)) {
+            let column = vec2(200.0, height);
+            let mut shapes = Vec::new();
+            for _ in 0..6 {
+                f.time += 0.05;
+                let mut input = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, column)), time: Some(f.time), focused: true, ..Default::default() };
+                input.viewports.entry(egui::ViewportId::ROOT).or_default().native_pixels_per_point = Some(f.native_ppp);
+                let mut commands = Vec::new();
+                let output = f.ctx.run_ui(input, |ui| {
+                    let view = View { hosts: &f.hosts, pads: &f.pads, connecting: None, waking: None };
+                    egui::CentralPanel::default().show(ui, |ui| f.l.home(ui, &view, &mut commands, egui::TextureId::default()));
+                });
+                f.textures.append(output.textures_delta);
+                shapes = output.shapes;
+            }
+            let (window, page) = (f.size, std::mem::replace(&mut f.shapes, shapes));
+            f.size = column;
+            f.shoot(&dir, &format!("home-one-column-{size}"));
+            (f.size, f.shapes) = (window, page);
+        }
+        // All games of a PC whose library is empty: no chips, and the page says why. A chip exists
+        // only for games it shows, so no filter is ever empty on its own.
+        let mut f = fresh(vec![HostRecord { address: "192.0.2.10".into(), ..record("Living Room PC", true, true) }], true);
+        f.hosts.list[0].reach = Reach::Online;
+        f.hosts.list[0].info = Some(files::tests::native_answer());
+        f.hosts.list[0].native.library = Some(Library { revision: "r1".into(), games: Vec::new() });
+        f.l.open(Screen::AllGames);
+        shoot(&mut f, "all-games-empty");
+        // Nothing installed: the Installed chip is offered and shows no game.
+        let none = |title: &str, n: u32| Game {
+            install_id: format!("install-{n}"),
+            app_id: 1000 + n,
+            title: title.into(),
+            game_id: Some(format!("steam:{n}")),
+            store: Some(Store { source: "steam".into(), id: n.to_string(), name: String::new() }),
+            installed: Some(false),
+            running: false,
+            artwork: Artwork { cover: None, version: String::new() },
+        };
+        f.hosts.list[0].native.library = Some(Library { revision: "r2".into(), games: vec![none("Night Drive", 0), none("Farm Life", 1)] });
+        f.l.library_filter = console::LibraryFilter::Installed;
+        shoot(&mut f, "all-games-empty-filter");
+        // The library still on its way: the spinner Home shows.
+        f.hosts.list[0].native.library = None;
+        shoot(&mut f, "all-games-loading");
     }
 }
 
@@ -2756,10 +3036,10 @@ fn an_inherited_row_opens_from_a_controller_and_only_a_new_value_overrides_it() 
     click_text(&mut f, "60 fps");
     assert!(f.l.edit_overrides.has(&["fps"]), "a new value overrides the row");
     assert_eq!(f.l.edit_overrides.apply(&f.l.inherited_settings).fps, 60);
-    // The Frame rate row's own box, the nearest Override above its menu, gives it back.
+    // The Frame rate row's own box, the nearest "For this game" under its menu, gives it back.
     let menu = at(&f, "60 fps");
-    let boxed = f.placed.iter().filter(|(t, r, _)| t == "Override" && r.bottom() <= menu.top()).map(|p| p.1)
-        .min_by(|a, b| (menu.top() - a.bottom()).total_cmp(&(menu.top() - b.bottom()))).expect("its Override box");
+    let boxed = f.placed.iter().filter(|(t, r, _)| t == "For this game" && r.top() >= menu.bottom()).map(|p| p.1)
+        .min_by(|a, b| (a.top() - menu.bottom()).total_cmp(&(b.top() - menu.bottom()))).expect("its box");
     f.click_at(boxed.center(), egui::PointerButton::Primary);
     assert!(f.l.edit_overrides.is_empty(), "{:?}", f.l.edit_overrides);
     assert_eq!(f.l.edit_settings.fps, 120);
@@ -2865,8 +3145,12 @@ fn a_value_from_a_pc_or_profile_says_so_on_the_game_settings_and_page() {
     f.l.open_app_settings(pc, &f.hosts.list[0], nightjar_core::http::App { name: "Game 00".into(), uuid: "install-0".into(), ..game(1000) });
     f.settle();
     assert!(shows(&f, "Set for this PC") && shows(&f, "From profile Travel"), "{:?}", f.drawn);
-    // Reset all to inherited keeps showing where the inherited rate comes from.
-    click_text(&mut f, "Reset all to inherited");
+    // Clearing the game's own settings keeps showing where the inherited rate comes from.
+    f.l.edit_overrides.capture(&Settings { hdr: true, ..Settings::default() }, &["hdr"]);
+    f.settle();
+    click_text(&mut f, "Clear all for this game");
+    click_text(&mut f, "Clear all");
+    assert!(f.l.edit_overrides.is_empty(), "{:?}", f.l.edit_overrides);
     assert!(shows(&f, "120 fps") && shows(&f, "Set for this PC"), "{:?}", f.drawn);
     // A PC's own page names the profile only.
     f.l.open_host_settings(pc, &f.hosts.list[0]);
@@ -2874,3 +3158,587 @@ fn a_value_from_a_pc_or_profile_says_so_on_the_game_settings_and_page() {
     assert!(!shows(&f, "Set for this PC") && shows(&f, "From profile Travel"), "{:?}", f.drawn);
     assert_eq!(summary_sources(None, None, None), Vec::<String>::new());
 }
+
+/// A paired PC whose library holds `games` (title, store key, installed), on Home.
+fn home_with_stores(games: &[(&str, &str, bool)]) -> Frames {
+    use nightjar_core::http::native_api::library::{Artwork, Game, Library, Store};
+    let games = games
+        .iter()
+        .enumerate()
+        .map(|(n, (title, key, installed))| Game {
+            install_id: format!("install-{n}"),
+            app_id: 1000 + n as u32,
+            title: (*title).into(),
+            game_id: Some(format!("{}:{n}", if key.is_empty() { "custom" } else { key })),
+            store: (!key.is_empty()).then(|| Store { source: (*key).into(), id: n.to_string(), name: String::new() }),
+            installed: Some(*installed),
+            running: false,
+            artwork: Artwork { cover: None, version: String::new() },
+        })
+        .collect();
+    let mut f = Frames::with(record("Desk", true, true), Reach::Online, Some(answer(true, 0)), Vec::new());
+    f.hosts.list[0].native.library = Some(Library { revision: "r1".into(), games });
+    f.l.go(Screen::Home);
+    f.settle();
+    f
+}
+
+/// Twelve Steam games, two from Epic, Battle.net and Xbox each, one not installed, and an app of no store.
+fn store_mix() -> Frames {
+    let mut games: Vec<(String, &str, bool)> = (0..12).map(|n| (format!("Steam {n:02}"), "steam", true)).collect();
+    games.extend([
+        ("Fortnite".to_owned(), "epic", true),
+        ("Alan Wake 2".to_owned(), "epic", false),
+        ("Diablo IV".to_owned(), "battlenet", true),
+        ("Overwatch 2".to_owned(), "battlenet", true),
+        ("Halo Infinite".to_owned(), "microsoft", true),
+        ("Forza Horizon 5".to_owned(), "microsoft", true),
+        ("Desktop".to_owned(), "", true),
+    ]);
+    let borrowed: Vec<(&str, &str, bool)> = games.iter().map(|(t, k, i)| (t.as_str(), *k, *i)).collect();
+    home_with_stores(&borrowed)
+}
+
+/// Home has a row per store, largest first, each as wide as the window and ending in an All tile
+/// when more games follow; the apps of no store come last as Other apps.
+#[test]
+fn home_shows_a_row_per_store_that_ends_in_an_all_tile() {
+    let mut f = store_mix();
+    f.size = vec2(1280.0, 2400.0);
+    f.settle();
+    let shelf = |f: &Frames, name: &str| f.placed.iter().find(|(t, r, _)| t == name && r.center().y > 80.0).map(|p| p.1.top()).expect(name);
+    // Largest first, ties by key; Epic, Battle.net and Xbox have their rows as Steam does.
+    let order = ["Steam", "Battle.net", "Epic Games", "Xbox", "Other apps"].map(|name| shelf(&f, name));
+    assert!(order.windows(2).all(|w| w[0] < w[1]), "rows in order: {order:?}");
+    f.size = vec2(1280.0, 720.0);
+    f.settle();
+    // Twelve Steam games do not fit one row at 1280: the row ends in "All 12", which opens All
+    // games on Steam.
+    assert!(shows(&f, "All 12"), "{:?}", f.drawn);
+    assert!(!shows(&f, "Steam 11"), "the rest wait behind the tile");
+    let tile = f.placed.iter().find(|(t, ..)| t == "All 12").map(|p| p.1).unwrap();
+    f.click_at(tile.center(), egui::PointerButton::Primary);
+    assert_eq!(f.l.screen, Screen::AllGames);
+    assert_eq!(f.l.library_filter, console::LibraryFilter::Store("steam".into()));
+    assert!(shows(&f, "Steam 11") && !shows(&f, "Fortnite"), "only Steam's games: {:?}", f.drawn);
+    // Back returns to Home.
+    f.press(Key::Escape);
+    assert_eq!(f.l.screen, Screen::Home);
+}
+
+/// A column so narrow that one cover fills a line still shows each long row's All tile, alone,
+/// instead of a header over nothing; the tile still opens the row's games. (The top bar keeps the
+/// window's page wider than that, so Home is drawn into a narrow column of its own here.)
+#[test]
+fn at_one_column_a_long_row_is_its_all_tile() {
+    let mut f = store_mix();
+    let column = vec2(180.0, 2400.0);
+    assert_eq!(grid(column.x).0, 1, "one column");
+    let mut drawn = Vec::new();
+    let mut tile = None;
+    let mut clicked_at = None;
+    for n in 0..6 {
+        // The last passes click where the tile was drawn.
+        let button = |pos, pressed| egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::NONE };
+        let events = match (n, tile.or(clicked_at)) {
+            (3, Some(at)) => {
+                clicked_at = Some(at);
+                vec![egui::Event::PointerMoved(at)]
+            }
+            (4, Some(at)) => vec![button(at, true)],
+            (5, Some(at)) => vec![button(at, false)],
+            _ => Vec::new(),
+        };
+        f.time += 0.05;
+        let input = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, column)), time: Some(f.time), events, focused: true, ..Default::default() };
+        let mut commands = Vec::new();
+        let mut output = f.ctx.run_ui(input, |ui| {
+            let view = View { hosts: &f.hosts, pads: &f.pads, connecting: None, waking: None };
+            f.l.home(ui, &view, &mut commands, egui::TextureId::default());
+        });
+        // Debug builds of epaint refuse to drop font textures nobody uploaded.
+        output.textures_delta.clear();
+        drawn.clear();
+        let mut placed = Vec::new();
+        for clipped in &output.shapes {
+            collect_text(&clipped.shape, &mut drawn);
+            collect_placed(&clipped.shape, clipped.clip_rect, &mut placed);
+        }
+        tile = placed.iter().find(|(t, ..)| t == "All 12").map(|p| p.1.center());
+    }
+    assert!(drawn.iter().any(|t| t == "All 2"), "every long row ends in its tile: {drawn:?}");
+    assert!(!drawn.iter().any(|t| t == "Steam 00"), "no cover fits beside the tile: {drawn:?}");
+    assert!(tile.is_some(), "Steam's row is its All tile: {drawn:?}");
+    assert_eq!(f.l.screen, Screen::AllGames, "the tile opens All games");
+    assert_eq!(f.l.library_filter, console::LibraryFilter::Store("steam".into()));
+}
+
+/// A screen reader hears whose games an All tile opens, which destination is the current one,
+/// and a subpage's Back apart from the destination of the same name.
+#[test]
+fn screen_readers_hear_the_all_tiles_store_the_current_destination_and_where_back_leads() {
+    fn node<'a>(f: &'a Frames, label: &str) -> Option<&'a egui::accesskit::Node> {
+        f.access.as_ref()?.nodes.iter().map(|(_, n)| n).find(|n| n.label() == Some(label))
+    }
+    use egui::accesskit::Toggled;
+    let mut f = store_mix();
+    f.ctx.enable_accesskit();
+    f.settle();
+    assert!(node(&f, "All Steam games, 12").is_some(), "the tile names its store");
+    assert_eq!(node(&f, "Home").and_then(|n| n.toggled()), Some(Toggled::True), "Home is the current destination");
+    assert_eq!(node(&f, "PCs").and_then(|n| n.toggled()), Some(Toggled::False));
+    // A PC's library from the PCs list: Back leads to PCs and says so.
+    let id = f.hosts.list[0].id;
+    f.l.go(Screen::Hosts);
+    f.l.open(Screen::Apps(id));
+    f.settle();
+    assert!(node(&f, "Back to PCs").is_some(), "Back is not a second \"PCs\"");
+    assert_eq!(node(&f, "PCs").and_then(|n| n.toggled()), Some(Toggled::True), "the PCs pill, marked");
+}
+
+/// All games: chips for everything, what is installed, each store and the apps of no store; a chip
+/// shows only its games, and a not-installed game says so on its cover.
+#[test]
+fn all_games_filters_by_store_and_by_what_is_installed() {
+    let mut f = store_mix();
+    f.l.open(Screen::AllGames);
+    f.settle();
+    let chip = |f: &Frames, name: &str| f.placed.iter().find(|(t, r, _)| t == name && r.center().y < 200.0).map(|p| p.1);
+    for name in ["All", "Installed", "Steam", "Epic Games", "Battle.net", "Xbox", "Other apps"] {
+        assert!(chip(&f, name).is_some(), "a {name} chip: {:?}", f.drawn);
+    }
+    assert!(shows(&f, "Alan Wake 2") && shows(&f, "Not installed"), "All shows what is not installed, marked: {:?}", f.drawn);
+    for (name, shown, hidden) in [
+        ("Xbox", "Halo Infinite", "Fortnite"),
+        ("Battle.net", "Diablo IV", "Steam 00"),
+        ("Epic Games", "Fortnite", "Halo Infinite"),
+        ("Other apps", "Desktop", "Diablo IV"),
+        ("Installed", "Fortnite", "Alan Wake 2"),
+    ] {
+        let at = chip(&f, name).unwrap();
+        f.click_at(at.center(), egui::PointerButton::Primary);
+        assert!(shows(&f, shown) && !shows(&f, hidden), "{name}: shows {shown}, not {hidden}: {:?}", f.drawn);
+    }
+    // The chosen chip is the filled one.
+    let installed = chip(&f, "Installed").unwrap();
+    let marked = [*MOON_CONTAINER, Tone::Selected.colors(true, false).0];
+    assert!(marked.iter().any(|fill| rects_filled(&f, *fill).iter().any(|r| r.contains_rect(installed))), "the chosen chip is marked");
+    assert_eq!(f.l.library_filter, console::LibraryFilter::Installed);
+}
+
+/// Screenshot review: the focused first cover rises into the top of the scroll, and its ring was
+/// cut there (in high contrast most). The grid leaves the room, on All games and a PC's library.
+#[test]
+fn a_risen_covers_ring_is_not_cut_at_the_top_of_the_grid() {
+    for high in [false, true] {
+        let mut store = store_mix();
+        store.l.open(Screen::AllGames);
+        let mut classic = Frames::with(record("Desk", true, true), Reach::Online, Some(answer(true, 0)), vec![game(7), game(9)]);
+        let id = classic.hosts.list[0].id;
+        classic.l.open(Screen::Apps(id));
+        for (page, f) in [("All games", &mut store), ("library", &mut classic)] {
+            f.l.settings.high_contrast = high;
+            for _ in 0..5 {
+                f.settle();
+            }
+            let cover = f.ctx.memory(|m| m.focused()).and_then(|id| f.ctx.read_response(id)).expect("the first cover has focus").rect;
+            let mut rings = Vec::new();
+            for clipped in &f.shapes {
+                if let egui::Shape::Rect(r) = &clipped.shape {
+                    if r.stroke.color == *MOON && r.stroke.width > 0.0 {
+                        rings.push((r.rect.expand(r.stroke.width), clipped.clip_rect));
+                    }
+                }
+            }
+            let (ring, clip) = *rings.first().unwrap_or_else(|| panic!("{page}, {high}: a ring"));
+            assert!(ring.top() < cover.top() - FOCUS_GAP - 1.0, "{page}, {high}: the cover rose: {ring:?} for {cover:?}");
+            assert!(clip.contains_rect(ring), "{page}, {high}: the ring {ring:?} is cut by {clip:?}");
+        }
+    }
+}
+
+/// With nothing installed the Installed chip holds no game and says so; an empty library has no
+/// chips at all, only the line saying why.
+#[test]
+fn an_empty_filter_and_an_empty_library_say_so() {
+    let mut f = home_with_stores(&[("Halo Infinite", "microsoft", false), ("Diablo IV", "battlenet", false)]);
+    f.l.open(Screen::AllGames);
+    f.settle();
+    let chip = f.placed.iter().find(|(t, r, _)| t == "Installed" && r.center().y < 200.0).map(|p| p.1).expect("an Installed chip");
+    f.click_at(chip.center(), egui::PointerButton::Primary);
+    assert!(shows(&f, "No games match this filter.") && !shows(&f, "Halo Infinite"), "{:?}", f.drawn);
+    let mut f = home_with_stores(&[]);
+    f.l.open(Screen::AllGames);
+    f.settle();
+    assert!(shows(&f, "No games to show yet. They appear here once a PC that shares its game library is online."), "{:?}", f.drawn);
+    assert!(!shows(&f, "All") && !shows(&f, "No games match this filter."), "no chips: {:?}", f.drawn);
+}
+
+/// All games is reachable from Home's top row even when every row fits and no All tile shows:
+/// with the pointer, with Tab (after the destinations) and with the D-pad (Right from them). It
+/// opens on All, whatever chip was chosen last.
+#[test]
+fn home_opens_all_games_from_its_top_row_when_every_row_fits() {
+    let mut f = home_with_stores(&[("Portal", "steam", true), ("Celeste", "steam", true), ("Fortnite", "epic", true)]);
+    f.l.library_filter = console::LibraryFilter::Store("epic".into());
+    f.settle();
+    assert!(!f.drawn.iter().any(|t| t.strip_prefix("All ").is_some_and(|n| n.parse::<usize>().is_ok())), "every row fits, no All tile: {:?}", f.drawn);
+    let stops = header_stops(&mut f);
+    assert_eq!(stops.len(), 5, "Home, PCs, Settings, Help and All games: {stops:?}");
+    let action = f.placed.iter().find(|(t, r, _)| t == "All games" && r.center().y < 80.0).map(|p| p.1).expect("All games in the top row");
+    assert!(stops[4].contains_rect(action) && 1280.0 - stops[4].right() < 80.0, "last for Tab, at the right edge: {stops:?}");
+    // Right from the last destination, Help, lands on it.
+    let settings = f.placed.iter().find(|(t, r, _)| t == "Help" && r.center().y < 80.0).map(|p| p.1).unwrap();
+    let pill = (0..30).find_map(|_| {
+        f.press_with(Key::Tab, egui::Modifiers::SHIFT);
+        let id = f.ctx.memory(|m| m.focused())?;
+        f.ctx.read_response(id).filter(|r| r.rect.contains(settings.center())).map(|r| r.id)
+    });
+    assert!(pill.is_some(), "Shift+Tab reaches Help");
+    f.press(Key::ArrowRight);
+    let focused = f.ctx.memory(|m| m.focused()).and_then(|id| f.ctx.read_response(id)).map(|r| r.rect).expect("focus");
+    assert!(focused.contains_rect(action), "Right from Help reaches All games: {focused:?}");
+    f.press(Key::Enter);
+    assert_eq!(f.l.screen, Screen::AllGames);
+    assert_eq!(f.l.library_filter, console::LibraryFilter::All);
+    assert!(shows(&f, "Portal") && shows(&f, "Fortnite"), "{:?}", f.drawn);
+    // An empty library offers no way to an empty page.
+    let mut f = home_with_stores(&[]);
+    f.settle();
+    assert!(!f.placed.iter().any(|(t, r, _)| t == "All games" && r.center().y < 80.0), "{:?}", f.drawn);
+}
+
+/// While a PC's library is on its way, All games says so as Home does instead of calling the
+/// library empty.
+#[test]
+fn all_games_shows_the_library_loading_as_home_does() {
+    let mut f = Frames::with(record("Desk", true, true), Reach::Online, Some(files::tests::native_answer()), Vec::new());
+    f.l.go(Screen::Home);
+    f.settle();
+    assert!(shows(&f, "Loading the games…"), "Home: {:?}", f.drawn);
+    f.l.open(Screen::AllGames);
+    f.settle();
+    assert!(shows(&f, "Loading the games…"), "All games: {:?}", f.drawn);
+    assert!(!shows(&f, "No games to show yet. They appear here once a PC that shares its game library is online."), "{:?}", f.drawn);
+}
+
+/// The chips come before the games for Tab and the arrow keys, and the first game has focus on
+/// arrival, so A starts browsing straight away.
+#[test]
+fn all_games_focuses_the_first_game_and_reaches_the_chips_above_it() {
+    let mut f = store_mix();
+    f.l.open(Screen::AllGames);
+    f.settle();
+    let focused = |f: &Frames| f.ctx.memory(|m| m.focused()).and_then(|id| f.ctx.read_response(id)).map(|r| r.rect).expect("focus");
+    let first = focused(&f);
+    assert!(first.top() > 120.0, "a game has focus, not a chip: {first:?}");
+    f.press(Key::ArrowUp);
+    let chip = focused(&f);
+    assert!(chip.bottom() < first.top() && chip.height() < 40.0, "Up reaches the chips: {chip:?}");
+}
+
+/// A chip keeps the focus when the Installed chip before it comes or goes, and a store Nightjar
+/// does not know is named with a capital, not by its bare key.
+#[test]
+fn a_filter_chip_keeps_the_focus_when_the_installed_chip_comes_or_goes() {
+    let mut f = home_with_stores(&[("Portal", "steam", true), ("Celeste", "steam", false), ("Fortnite", "epic", true), ("Lone", "itchio", true)]);
+    f.l.open(Screen::AllGames);
+    f.settle();
+    assert!(shows(&f, "Itchio") && !shows(&f, "itchio"), "{:?}", f.drawn);
+    let chip = |f: &Frames, name: &str| f.placed.iter().find(|(t, r, _)| t == name && r.center().y < 200.0).map(|p| p.1).expect(name);
+    let focused = |f: &Frames| f.ctx.memory(|m| m.focused()).and_then(|id| f.ctx.read_response(id)).map(|r| r.rect).expect("focus");
+    // Up from the first game reaches the chips; Right walks them to Epic Games.
+    f.press(Key::ArrowUp);
+    for _ in 0..8 {
+        if focused(&f).contains_rect(chip(&f, "Epic Games")) {
+            break;
+        }
+        f.press(Key::ArrowRight);
+    }
+    assert!(focused(&f).contains_rect(chip(&f, "Epic Games")), "the Epic Games chip has focus");
+    // Celeste gets installed: the Installed chip goes, the chips after it move left.
+    f.hosts.list[0].native.library.as_mut().unwrap().games[1].installed = Some(true);
+    f.settle();
+    assert!(!f.placed.iter().any(|(t, r, _)| t == "Installed" && r.center().y < 200.0), "{:?}", f.drawn);
+    assert!(focused(&f).contains_rect(chip(&f, "Epic Games")), "the focus stayed on Epic Games");
+    // And it comes back.
+    f.hosts.list[0].native.library.as_mut().unwrap().games[1].installed = Some(false);
+    f.settle();
+    assert!(focused(&f).contains_rect(chip(&f, "Epic Games")), "the focus stayed on Epic Games");
+}
+
+/// A cover's menu opens with F2 (X) beside it, with a right-click at the pointer, and from its ⋮
+/// under the dots; it lists the game's actions with Enter on what selecting the cover does, and
+/// Escape gives focus back to the cover.
+#[test]
+fn a_cover_menu_opens_by_the_cover_and_gives_focus_back() {
+    let mut f = store_mix();
+    let cover = f.ctx.memory(|m| m.focused()).expect("a cover has focus");
+    let rect = f.ctx.read_response(cover).unwrap().rect;
+    f.press(Key::F2);
+    assert!(matches!(f.l.dialog, Dialog::GameMenu { game: GameTarget::Library { .. }, .. }), "F2 opens the game's menu");
+    for row in ["Game details", "Add to favourites", "Open library"] {
+        assert!(shows(&f, row), "{row}: {:?}", f.drawn);
+    }
+    assert!(shows(&f, "Enter"), "the row selecting does says Enter");
+    let details = f.placed.iter().find(|(t, ..)| t == "Game details").map(|p| p.1).unwrap();
+    assert!(details.left() > rect.right() || details.right() < rect.left(), "beside the cover, not over it: {details:?} by {rect:?}");
+    f.press(Key::Escape);
+    assert!(f.no_dialog());
+    assert_eq!(f.ctx.memory(|m| m.focused()), Some(cover), "focus is back on the cover");
+    // A right-click opens it at the pointer.
+    let at = rect.center();
+    f.click_at(at, egui::PointerButton::Secondary);
+    assert!(matches!(f.l.dialog, Dialog::GameMenu { .. }));
+    let details = f.placed.iter().find(|(t, ..)| t == "Game details").map(|p| p.1).unwrap();
+    assert!((details.left() - at.x).abs() < 80.0 && (details.top() - at.y).abs() < 120.0, "at the pointer: {details:?} for {at:?}");
+    // A press outside closes it.
+    f.click_at(Pos2::new(1200.0, 700.0), egui::PointerButton::Primary);
+    assert!(f.no_dialog(), "a press outside closes the menu");
+    // Enter on Game details opens the game's page.
+    f.l.focused_key = None;
+    f.l.restore_key = None;
+    f.ctx.memory_mut(|m| m.request_focus(cover));
+    f.settle();
+    f.press(Key::F2);
+    f.press(Key::Enter);
+    assert!(matches!(f.l.screen, Screen::Game { .. }), "Game details opens the page");
+}
+
+/// The page under a menu by its card stays as it is: not faded, and the pointer cannot reach it.
+#[test]
+fn a_menu_by_its_card_leaves_the_page_undimmed_and_out_of_reach() {
+    let mut f = Frames::new(record("Desk", true, true), Reach::Online);
+    let (card, dots) = f.card_and_dots();
+    f.click_at(dots.center(), egui::PointerButton::Primary);
+    assert!(f.options_open());
+    assert!(rects_filled(&f, Color32::from_black_alpha(150)).is_empty(), "no backdrop over the page");
+    let rename = f.placed.iter().find(|(t, ..)| t == "Rename").map(|p| p.1).unwrap();
+    assert!(rename.top() > dots.bottom() && rename.left() < dots.right(), "under the dots: {rename:?} below {dots:?}");
+    // A click on the card under the page closes the menu without starting anything.
+    let commands = f.click_at(card.left_center() + vec2(20.0, 0.0), egui::PointerButton::Primary);
+    assert!(f.no_dialog(), "a press outside closes the menu");
+    assert!(!commands.iter().any(|c| matches!(c, Command::OpenApps(_))), "and does not reach the card");
+}
+
+/// Remove PC and Unpair come last, under a divider, in the error colour.
+#[test]
+fn destructive_options_come_last_in_red() {
+    let mut f = Frames::new(record("Desk", true, true), Reach::Online);
+    let options = host_options(&f.hosts.list[0]);
+    assert_eq!(&options[options.len() - 2..], [HostOption::Unpair, HostOption::Remove]);
+    assert!(options[..options.len() - 2].iter().all(|o| !o.destructive()));
+    f.press(Key::F2);
+    let mut colours = Vec::new();
+    for clipped in &f.shapes {
+        fn walk(shape: &egui::Shape, out: &mut Vec<(String, Color32)>) {
+            match shape {
+                egui::Shape::Vec(shapes) => shapes.iter().for_each(|s| walk(s, out)),
+                egui::Shape::Text(t) => out.push((t.galley.text().to_owned(), t.fallback_color)),
+                _ => {}
+            }
+        }
+        walk(&clipped.shape, &mut colours);
+    }
+    for (name, red) in [("Remove PC", true), ("Unpair", true), ("Rename", false)] {
+        let colour = colours.iter().find(|(t, _)| t == name).map(|c| c.1).expect(name);
+        assert_eq!(colour == *ERROR, red, "{name}");
+    }
+}
+
+#[test]
+fn a_menu_stays_inside_the_window_flipping_where_it_would_not_fit() {
+    let screen = Rect::from_min_size(Pos2::ZERO, vec2(1280.0, 720.0));
+    let size = vec2(280.0, 300.0);
+    // Under its dots, right edges lined up.
+    let dots = Rect::from_min_size(Pos2::new(600.0, 100.0), vec2(30.0, 30.0));
+    let at = place(Anchor::Below(dots), size, screen);
+    assert_eq!((at.x + size.x, at.y), (dots.right(), dots.bottom() + 6.0));
+    // Above them near the bottom.
+    let low = dots.translate(vec2(0.0, 560.0));
+    assert_eq!(place(Anchor::Below(low), size, screen).y, low.top() - 6.0 - size.y);
+    // Beside a card, on its left near the right edge.
+    let card = Rect::from_min_size(Pos2::new(1100.0, 100.0), vec2(170.0, 250.0));
+    assert_eq!(place(Anchor::Beside(card), size, screen).x, card.left() - 6.0 - size.x);
+    // At the pointer, flipped up and left in the corner, never off screen.
+    let at = place(Anchor::Point(Pos2::new(1270.0, 710.0)), size, screen);
+    assert!(screen.contains_rect(Rect::from_min_size(at, size)), "{at:?}");
+    // Taller than the window: from its top margin.
+    assert_eq!(place(Anchor::Point(Pos2::new(10.0, 10.0)), vec2(280.0, 900.0), screen).y, 8.0);
+}
+
+/// On a PC's library page, F2 (which the controller's X sends, see `main.rs`) or Shift+F10 on a
+/// game opens its menu with Play (Resume for the running game) and Game settings in it; it no
+/// longer jumps straight to the settings.
+#[test]
+fn the_library_page_opens_a_games_menu_with_play_and_its_settings() {
+    let mut f = Frames::with(record("Desk", true, true), Reach::Online, Some(answer(true, 7)), vec![game(7), game(9)]);
+    let id = f.hosts.list[0].id;
+    f.l.open(Screen::Apps(id));
+    f.settle();
+    let first = f.ctx.memory(|m| m.focused()).expect("the running game has focus on arrival");
+    let shift = egui::Modifiers { shift: true, ..Default::default() };
+    for (keys, chord) in [("F2", None), ("Shift+F10", Some(shift))] {
+        let commands = match chord {
+            None => f.press(Key::F2),
+            Some(modifiers) => f.press_with(Key::F10, modifiers),
+        };
+        assert!(!commands.iter().any(|c| matches!(c, Command::AppSettings { .. })), "{keys} does not jump to the settings");
+        assert!(matches!(f.l.dialog, Dialog::GameMenu { game: GameTarget::Classic { app: 7 }, host } if host == id), "{keys} opens the focused game's menu");
+        assert!(shows(&f, "Resume") && !shows(&f, "Play"), "{keys}: the running game resumes: {:?}", f.drawn);
+        assert!(shows(&f, "Game settings"), "{keys}: {:?}", f.drawn);
+        f.press(Key::Escape);
+        assert!(f.no_dialog());
+        assert_eq!(f.ctx.memory(|m| m.focused()), Some(first), "{keys}: focus is back on the game");
+    }
+    // The game that does not run offers Play.
+    f.press(Key::ArrowRight);
+    assert_ne!(f.ctx.memory(|m| m.focused()), Some(first), "Right moves to the other game");
+    f.press(Key::F2);
+    assert!(matches!(f.l.dialog, Dialog::GameMenu { game: GameTarget::Classic { app: 9 }, .. }), "the other game's menu");
+    assert!(shows(&f, "Play") && shows(&f, "Game settings"), "{:?}", f.drawn);
+}
+
+/// Remove from favourites in a Favourites card's menu moves the focus to the next favourite, as
+/// Delete on the card does; the card it was on is gone, so nothing would hold the focus.
+#[test]
+fn unstarring_a_favourite_from_its_menu_focuses_the_next_one() {
+    let mut f = home_with_games(3);
+    let id = f.hosts.list[0].id;
+    let star = |n: u32| crate::config::Favourite { host: "Desk".into(), install_id: format!("install-{n}"), app_id: 1000 + n, title: format!("Game {n:02}") };
+    f.l.favourites = vec![star(0), star(1)];
+    f.l.restore_key = Some(format!("favourite:{id}:1000"));
+    f.settle();
+    assert_eq!(f.l.focused_key, Some(format!("favourite:{id}:1000")), "the first favourite has focus");
+    f.press(Key::F2);
+    assert!(matches!(f.l.dialog, Dialog::GameMenu { game: GameTarget::Library { app: 1000, favourite: true }, .. }));
+    assert!(shows(&f, "Remove from favourites"), "{:?}", f.drawn);
+    // Down to the second row, Remove from favourites, as a controller does.
+    f.press(Key::ArrowDown);
+    // The app applies the command before the next frame, as here.
+    let commands = f.frame(crate::gui::tap(Key::Enter).to_vec());
+    let unstarred: Vec<_> = commands.iter().filter_map(|c| if let Command::ToggleFavourite(star) = c { Some(star.clone()) } else { None }).collect();
+    assert_eq!(unstarred, vec![star(0)]);
+    crate::config::toggle_favourite(&mut f.l.favourites, star(0));
+    f.settle();
+    assert!(f.no_dialog());
+    assert_eq!(f.l.focused_key, Some(format!("favourite:{id}:1001")), "the next favourite has focus");
+    assert!(f.ctx.memory(|m| m.focused()).is_some(), "something holds the focus");
+}
+
+/// A favourite whose PC is away with no library saved still has its menu, from the stored star:
+/// it can be unstarred, and its settings open once the PC's app list is known.
+#[test]
+fn a_favourite_whose_library_is_not_known_still_has_a_menu() {
+    let app = nightjar_core::http::App { uuid: "install-9".into(), ..game(9) };
+    let mut f = Frames::with(record("Desk", true, true), Reach::Offline, None, vec![app]);
+    let id = f.hosts.list[0].id;
+    let star = crate::config::Favourite { host: "Desk".into(), install_id: "install-9".into(), app_id: 9, title: "Saved".into() };
+    f.l.favourites = vec![star.clone()];
+    f.l.go(Screen::Home);
+    f.l.restore_key = Some(format!("favourite:{id}:9"));
+    f.settle();
+    assert!(shows(&f, "Saved"), "the card shows the stored title: {:?}", f.drawn);
+    assert_eq!(f.l.focused_key, Some(format!("favourite:{id}:9")));
+    f.press(Key::F2);
+    assert!(matches!(f.l.dialog, Dialog::GameMenu { game: GameTarget::Library { app: 9, favourite: true }, .. }), "F2 opens its menu");
+    for row in ["Game details", "Remove from favourites", "Game settings"] {
+        assert!(shows(&f, row), "{row}: {:?}", f.drawn);
+    }
+    let row = f.placed.iter().find(|(t, ..)| t == "Remove from favourites").map(|p| p.1).unwrap();
+    let commands = f.click_at(row.center(), egui::PointerButton::Primary);
+    assert!(commands.iter().any(|c| matches!(c, Command::ToggleFavourite(s) if *s == star)), "the stored star comes off");
+}
+
+/// Where a destination of the top bar is drawn.
+fn destination_at(f: &Frames, name: &str) -> Rect {
+    f.placed.iter().filter(|(t, ..)| t == name).map(|p| p.1).min_by(|a, b| a.top().total_cmp(&b.top())).expect(name)
+}
+
+/// Settings in the top bar opens over a PC's page as Start does: Back returns to the page, and
+/// the trail to it is kept.
+#[test]
+fn the_settings_destination_opens_over_a_page_and_back_returns_to_it() {
+    let mut f = Frames::with(record("Desk", true, true), Reach::Online, Some(answer(true, 0)), vec![game(7)]);
+    let id = f.hosts.list[0].id;
+    f.l.open(Screen::Apps(id));
+    f.settle();
+    f.click_at(destination_at(&f, "Settings").center(), egui::PointerButton::Primary);
+    assert_eq!(f.l.screen, Screen::Settings);
+    f.press(Key::Escape);
+    assert_eq!(f.l.screen, Screen::Apps(id), "Back returns to the PC's games");
+    f.press(Key::Escape);
+    assert_eq!(f.l.screen, Screen::Hosts, "and from there to PCs");
+}
+
+/// PCs in the top bar would leave a Files page whose upload runs, which cancels it: it asks
+/// first. Stay keeps the page and the upload; Leave goes. Settings opens over the page and keeps
+/// the upload without asking.
+#[test]
+fn leaving_a_files_page_by_the_top_bar_asks_while_a_transfer_runs() {
+    let (downloads, here) = (files::tests::Folder::new("top-bar"), files::tests::Folder::new("top-bar-here"));
+    let mut f = Frames::with(record("Desk", true, true), Reach::Online, Some(files::tests::native_answer()), Vec::new());
+    let id = f.hosts.list[0].id;
+    f.l.files.page = Some(files::tests::sending(id, &downloads, &here));
+    f.l.open(Screen::Files(id));
+    f.settle();
+    assert!(f.l.files.transferring());
+    f.click_at(destination_at(&f, "PCs").center(), egui::PointerButton::Primary);
+    assert!(matches!(f.l.dialog, Dialog::ConfirmLeave { to: Screen::Hosts }), "PCs asks first");
+    assert!(shows(&f, "Cancel the transfers?"), "{:?}", f.drawn);
+    assert_eq!(f.l.screen, Screen::Files(id));
+    // Stay has the focus, so A does not cancel anything.
+    f.press(Key::Enter);
+    assert!(f.no_dialog());
+    assert_eq!(f.l.screen, Screen::Files(id));
+    assert!(f.l.files.transferring(), "Stay keeps the upload");
+    // Settings opens over the page: the upload goes on, and Back returns to it.
+    f.click_at(destination_at(&f, "Settings").center(), egui::PointerButton::Primary);
+    assert!(f.no_dialog() && f.l.screen == Screen::Settings, "Settings does not ask");
+    assert!(f.l.files.transferring(), "the upload goes on under Settings");
+    f.press(Key::Escape);
+    assert_eq!(f.l.screen, Screen::Files(id));
+    // Leave goes, and the upload is cancelled with the page.
+    f.click_at(destination_at(&f, "PCs").center(), egui::PointerButton::Primary);
+    let leave = f.placed.iter().find(|(t, ..)| t == "Leave").map(|p| p.1).expect("Leave");
+    f.click_at(leave.center(), egui::PointerButton::Primary);
+    assert!(f.no_dialog());
+    assert_eq!(f.l.screen, Screen::Hosts);
+    assert!(f.l.files.page.is_none(), "the page and its upload are gone");
+}
+
+/// Hover lightens a card one step and draws no outline; focus adds a single amber ring outside it
+/// and the card keeps its size and place.
+#[test]
+fn hover_lightens_a_card_and_focus_adds_one_ring_without_resizing() {
+    let mut f = Frames::new(record("Desk", true, true), Reach::Online);
+    let (card, _) = f.card_and_dots();
+    let card_id = f.ctx.memory(|m| m.focused()).unwrap();
+    let strokes = |f: &Frames| {
+        let mut found = Vec::new();
+        fn walk(shape: &egui::Shape, out: &mut Vec<(Rect, Color32)>) {
+            match shape {
+                egui::Shape::Vec(shapes) => shapes.iter().for_each(|s| walk(s, out)),
+                egui::Shape::Rect(r) if r.stroke.width > 0.0 => out.push((r.rect, r.stroke.color)),
+                _ => {}
+            }
+        }
+        for clipped in &f.shapes {
+            walk(&clipped.shape, &mut found);
+        }
+        found
+    };
+    // Focused (the first card has focus on arrival): one amber ring around it, with a gap.
+    let rings: Vec<Rect> = strokes(&f).into_iter().filter(|(r, c)| *c == *MOON && r.intersects(card)).map(|(r, _)| r).collect();
+    assert_eq!(rings.len(), 1, "one ring: {rings:?}");
+    assert!(rings[0].contains_rect(card) && rings[0] != card, "outside the card: {rings:?} around {card:?}");
+    // Moved off and hovered: lighter, no outline of any colour, same rect.
+    f.ctx.memory_mut(|m| m.surrender_focus(m.focused().unwrap()));
+    hover_card(&mut f, card);
+    assert!(strokes(&f).iter().all(|(r, _)| !r.intersects(card)), "no outline on hover: {:?}", strokes(&f));
+    assert!(rects_filled(&f, *SURFACE_HIGH).contains(&card), "the hovered card is one step lighter");
+    assert_eq!(f.ctx.read_response(card_id).unwrap().rect, card, "the card did not move or grow");
+}
+
+#[path = "settings_tests.rs"]
+mod settings_tests;

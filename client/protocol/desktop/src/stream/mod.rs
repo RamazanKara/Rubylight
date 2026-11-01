@@ -359,6 +359,39 @@ impl RtpClock {
     }
 }
 
+/// How the shortcut sheet was opened, which is where Escape or B goes from it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Sheet {
+    /// From the stream controls: back to them.
+    FromMenu,
+    /// By its chord over the game: back to the game.
+    FromChord,
+}
+
+/// What Ctrl+Alt+Shift+H does from where the stream is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SheetChord {
+    /// The sheet opens, over the controls (closing the Session page first) or over the game.
+    Open(Sheet),
+    /// The sheet was open: it and the controls close.
+    Close,
+    /// End or Close game runs on the Session page, which stays for its answer.
+    Stay,
+}
+
+/// The chord's step for the menu's state; `session_page` is whether the Session page is open and
+/// busy. The sheet draws only without the Session page, so the chord there leaves the page for it.
+pub fn sheet_chord(menu_visible: bool, sheet: Option<Sheet>, session_page: Option<bool>) -> SheetChord {
+    if !menu_visible {
+        return SheetChord::Open(Sheet::FromChord);
+    }
+    match (session_page, sheet) {
+        (Some(true), _) => SheetChord::Stay,
+        (Some(false), _) | (None, None) => SheetChord::Open(Sheet::FromMenu),
+        (None, Some(_)) => SheetChord::Close,
+    }
+}
+
 pub struct Streaming {
     pub session: Session,
     pub shared: Arc<Shared>,
@@ -476,6 +509,8 @@ pub struct Streaming {
     session_link: String,
     /// The menu asked for the page; the main loop opens it (it owns the waker and the network).
     pub session_page_requested: bool,
+    /// The shortcut sheet over the stream controls, and how it was opened.
+    pub shortcut_sheet: Option<Sheet>,
     keys_down: HashSet<u16>,
     mouse_down: HashSet<u8>,
     touch: touch::Touch,
@@ -695,6 +730,7 @@ impl Streaming {
             session_page: None,
             session_link: String::new(),
             session_page_requested: false,
+            shortcut_sheet: None,
             keys_down: HashSet::new(),
             mouse_down: HashSet::new(),
             touch: touch::Touch::default(),
@@ -1408,6 +1444,7 @@ impl Streaming {
             self.refresh_host_audio();
         } else {
             self.session_page = None;
+            self.shortcut_sheet = None;
             // The menu's own text field takes no more text once it closes.
             // SAFETY: a live window on the main thread.
             unsafe {
@@ -1460,6 +1497,36 @@ impl Streaming {
         std::thread::spawn(move || {
             shared.notify(Notice::HostMenu(crate::session_page::host_menu_result(client.couch_menu(true))));
         });
+    }
+
+    /// Ctrl+Alt+Shift+H, or Shortcuts & help in the stream controls: the shortcut sheet opens over
+    /// the stream (from the controls when they or the Session page are open), and the chord again
+    /// closes it and the controls. It draws only while shown, like the controls.
+    pub fn toggle_shortcut_sheet(&mut self, window: *mut SDL_Window, pads: &mut Gamepads) {
+        match sheet_chord(self.menu_visible, self.shortcut_sheet, self.session_page.as_ref().map(|p| p.busy())) {
+            SheetChord::Stay => {}
+            SheetChord::Close => self.toggle_menu(window, pads),
+            SheetChord::Open(from) => {
+                if self.menu_visible {
+                    self.close_session_page();
+                } else {
+                    self.toggle_menu(window, pads);
+                }
+                if self.menu_visible && self.session_page.is_none() {
+                    self.shortcut_sheet = Some(from);
+                    self.needs_redraw = true;
+                }
+            }
+        }
+    }
+
+    /// Escape or B on the shortcut sheet: back to the controls it was opened from, or to the game
+    /// when its chord opened it.
+    pub fn close_shortcut_sheet(&mut self, window: *mut SDL_Window, pads: &mut Gamepads) {
+        match self.shortcut_sheet.take() {
+            Some(Sheet::FromChord) => self.toggle_menu(window, pads),
+            Some(Sheet::FromMenu) | None => self.needs_redraw = true,
+        }
     }
 
     /// Closes the Session page; its worker ends and nothing polls.
@@ -1679,7 +1746,21 @@ mod tests {
     }
 
     #[test]
+    fn the_shortcut_chord_on_the_session_page_leaves_it_for_the_sheet() {
+        assert_eq!(sheet_chord(false, None, None), SheetChord::Open(Sheet::FromChord));
+        assert_eq!(sheet_chord(true, None, None), SheetChord::Open(Sheet::FromMenu));
+        assert_eq!(sheet_chord(true, Some(Sheet::FromMenu), None), SheetChord::Close);
+        assert_eq!(sheet_chord(true, Some(Sheet::FromChord), None), SheetChord::Close);
+        // The sheet draws only without the Session page: the chord there shows it over the
+        // controls, so Escape from it goes back to them.
+        assert_eq!(sheet_chord(true, None, Some(false)), SheetChord::Open(Sheet::FromMenu));
+        assert_eq!(sheet_chord(true, None, Some(true)), SheetChord::Stay, "a running End or Close game keeps its page");
+    }
+
+    #[test]
     fn ctrl_alt_backspace_goes_to_the_pc_and_only_ctrl_alt_shift_stays_local() {
+        // Ctrl+Alt+Shift is Nightjar's own chord; every other one goes to the PC like any key.
+        let local_chord = |mods| crate::shortcuts::Chord::nightjar(crate::shortcuts::Key::Tab).held(mods);
         let ctrl_alt = SDL_Keymod(SDL_KMOD_LCTRL.0 | SDL_KMOD_LALT.0);
         assert!(!local_chord(ctrl_alt), "a host's menu chord is not Nightjar's");
         for (system_keys, right_alt_as_meta) in [(false, false), (true, false), (false, true), (true, true)] {

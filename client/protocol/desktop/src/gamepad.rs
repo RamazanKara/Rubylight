@@ -244,6 +244,9 @@ pub struct Pad {
     /// SDL reports a PlayStation pad or a touchpad click button: no Select+LB stand-in.
     has_touchpad_click: bool,
     clickpad_swallowed: u32,
+    /// With Back opening the stream controls: Back is held while other buttons of a quit combo
+    /// with Select are, so it counts toward that combo and opens the controls on release instead.
+    back_waiting: bool,
 }
 
 impl Pad {
@@ -386,6 +389,7 @@ impl Gamepads {
             announced: false,
             has_touchpad_click,
             clickpad_swallowed: 0,
+            back_waiting: false,
         });
         Ok(())
     }
@@ -453,6 +457,7 @@ impl Gamepads {
             pad.raw_buttons = 0;
             pad.raw_axes = [0; 6];
             pad.clickpad_swallowed = 0;
+            pad.back_waiting = false;
             pad.buttons = 0;
             pad.lt = 0;
             pad.rt = 0;
@@ -487,20 +492,32 @@ impl Gamepads {
                         pad.touchpad.button(b.down, queue);
                         return None;
                     }
-                    if back_opens_menu && i32::from(b.button) == SDL_GAMEPAD_BUTTON_BACK.0 {
-                        return b.down.then_some(Action::Menu);
-                    }
                     let flag = 1 << b.button;
-                    if b.down {
+                    // Local escape chords use physical buttons even when remapped or disabled.
+                    let menu = crate::shortcuts::stream_controls_mask();
+                    if back_opens_menu && i32::from(b.button) == SDL_GAMEPAD_BUTTON_BACK.0 {
+                        // Back is Nightjar's and never reaches the PC. Pressed while only buttons of
+                        // a quit combo with Select are held, it waits for the combo's last button
+                        // and opens the controls on release if the combo doesn't complete.
+                        if !b.down {
+                            return std::mem::take(&mut pad.back_waiting).then_some(Action::Menu);
+                        }
+                        let held = pad.raw_buttons | flag;
+                        if held != quit && held != menu {
+                            pad.back_waiting = pad.raw_buttons != 0 && held & !quit == 0;
+                            return (!pad.back_waiting).then_some(Action::Menu);
+                        }
+                        pad.back_waiting = true;
+                    } else if b.down {
                         pad.raw_buttons |= flag;
                     } else {
                         pad.raw_buttons &= !flag;
                     }
-                    // Local escape chords use physical buttons even when remapped or disabled.
-                    let menu = (1 << SDL_GAMEPAD_BUTTON_START.0) | (1 << SDL_GAMEPAD_BUTTON_BACK.0);
-                    if b.down && (pad.raw_buttons == quit || pad.raw_buttons == menu) {
-                        let action = if pad.raw_buttons == quit { Action::Quit } else { Action::Menu };
+                    let held = pad.raw_buttons | if pad.back_waiting { 1 << SDL_GAMEPAD_BUTTON_BACK.0 } else { 0 };
+                    if b.down && (held == quit || held == menu) {
+                        let action = if held == quit { Action::Quit } else { Action::Menu };
                         pad.raw_buttons = 0;
+                        pad.back_waiting = false;
                         pad.raw_axes = [0; 6];
                         pad.mouse.release(queue);
                         pad.touchpad.release(queue);
@@ -757,6 +774,16 @@ impl Gamepads {
             pad.mouse.tick(pad.report(), self.analog_scrolling, self.mouse_fixed_step, now, queue);
         }
         active
+    }
+
+    /// The buttons that disconnect, as the settings chose them.
+    pub fn quit_combo(&self) -> crate::config::GamepadQuitCombo {
+        self.quit_combo
+    }
+
+    /// Whether Back opens the stream controls, as the settings chose.
+    pub fn back_opens_menu(&self) -> bool {
+        self.back_opens_menu
     }
 
     /// Any controller drives the mouse.
@@ -1110,6 +1137,45 @@ mod tests {
                 press(&mut pads, &mut queue, SDL_GAMEPAD_BUTTON_START.0, false);
                 press(&mut pads, &mut queue, SDL_GAMEPAD_BUTTON_BACK.0, false);
             }
+            // With Back opening the stream controls, a combo with Select still leaves the stream,
+            // Select before or after its other button, and Back never reaches the PC; Back alone
+            // opens the controls on press, Back over a held shoulder on release.
+            pads.back_opens_menu = true;
+            let back = SDL_GAMEPAD_BUTTON_BACK.0;
+            for chosen in [GamepadQuitCombo::StartSelectLbRb, GamepadQuitCombo::SelectLbRbY] {
+                pads.quit_combo = chosen;
+                for reversed in [false, true] {
+                    let mut buttons = order(quit_mask(chosen));
+                    if reversed { buttons[2..].reverse(); }
+                    let mut actions = Vec::new();
+                    for button in &buttons {
+                        actions.push(press(&mut pads, &mut queue, *button, true));
+                        assert_eq!(pads.pads[0].buttons & button::BACK, 0, "Back stays Nightjar's");
+                    }
+                    for button in &buttons { actions.push(press(&mut pads, &mut queue, *button, false)); }
+                    assert_eq!(actions[buttons.len() - 1], Some(Action::Quit), "{chosen:?} {buttons:?}: {actions:?}");
+                    assert_eq!(actions.iter().filter(|a| a.is_some()).count(), 1, "{chosen:?} {buttons:?}: {actions:?}");
+                    assert_eq!(pads.pads[0].raw_buttons, 0);
+                }
+                assert_eq!(press(&mut pads, &mut queue, back, true), Some(Action::Menu), "{chosen:?}");
+                assert_eq!(press(&mut pads, &mut queue, back, false), None);
+                assert_eq!(press(&mut pads, &mut queue, SDL_GAMEPAD_BUTTON_LEFT_SHOULDER.0, true), None);
+                assert_eq!(press(&mut pads, &mut queue, back, true), None, "{chosen:?}: Back waits over a shoulder");
+                assert_eq!(press(&mut pads, &mut queue, back, false), Some(Action::Menu), "{chosen:?}");
+                assert_eq!(press(&mut pads, &mut queue, SDL_GAMEPAD_BUTTON_LEFT_SHOULDER.0, false), None);
+            }
+            // A combo without Select: Back opens the controls on press even over its buttons.
+            pads.quit_combo = GamepadQuitCombo::StartLbRbA;
+            assert_eq!(press(&mut pads, &mut queue, SDL_GAMEPAD_BUTTON_LEFT_SHOULDER.0, true), None);
+            assert_eq!(press(&mut pads, &mut queue, back, true), Some(Action::Menu));
+            assert_eq!(press(&mut pads, &mut queue, back, false), None);
+            press(&mut pads, &mut queue, SDL_GAMEPAD_BUTTON_LEFT_SHOULDER.0, false);
+            assert_eq!(press(&mut pads, &mut queue, SDL_GAMEPAD_BUTTON_START.0, true), None);
+            assert_eq!(press(&mut pads, &mut queue, back, true), Some(Action::Menu), "the menu chord still opens the controls");
+            press(&mut pads, &mut queue, SDL_GAMEPAD_BUTTON_START.0, false);
+            press(&mut pads, &mut queue, back, false);
+            pads.back_opens_menu = false;
+
             assert_eq!(quit_mask(GamepadQuitCombo::StartSelectLbRb), 1 << SDL_GAMEPAD_BUTTON_START.0 | 1 << SDL_GAMEPAD_BUTTON_BACK.0
                 | 1 << SDL_GAMEPAD_BUTTON_LEFT_SHOULDER.0 | 1 << SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER.0, "the default stays moonlight-qt's");
 

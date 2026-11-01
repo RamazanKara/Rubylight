@@ -43,6 +43,12 @@ Home and the PC list have dedicated TV layouts, chosen by Android's television m
   <img src="assets/shots/tv-home-stores.png" width="800" alt="Home on a TV: the Home, PCs and Settings bar, the focused game's title and PC, and the Epic Games row with store chips and a Not installed card (demo library)">
 </p>
 
+## On Windows and Linux
+
+- **Library rows.** Under Favourites, Continue playing and Recently played, Home shows one row per store in the library (Steam, Epic Games, GOG, EA app, Ubisoft Connect, Battle.net, Xbox), the largest first, then **Other apps** for the apps no store owns, then the PCs. Installed games come first in a row. A row is as wide as the window; when it holds more games than fit, its last tile reads **All N** and opens All games with that store's filter. A library without stores is one **Library** row, and a library from a single store is that store's row; either is shown whole, with no **All N** tile.
+- **All games.** Opens from **All games** at the right of Home's top bar, shown once any PC has a game, or from a row's **All N** tile. Every game of the paired PCs as covers, by title, under filter chips: **All**, **Installed** (when some game is not installed), one chip per store, and **Other apps** (beside stores). Each chip shows how many games it holds. A game that is not installed is dimmed and says **Not installed**; its page says **Not installed on** the PC and offers no Play until the PC installs it (a running game still resumes). The first game has focus when the page opens, Up reaches the chips, and Back returns to Home.
+- **Menus.** A game's or PC's menu opens by its card; see [PC and game menus on Windows and Linux](#pc-and-game-menus-on-windows-and-linux).
+
 ## Join co-op
 
 A host with co-op sessions (Rubylight 3.0) can run a game as a [Nucleus Co-op](https://github.com/SplitScreen-Me/splitscreenme-nucleus) split-screen session with one stream per player. Start the game's "(Co-op)" entry from the library on one device; the other players join from theirs:
@@ -89,7 +95,7 @@ You can change a setting when the host marks it configurable, the device has **H
 - The first screen is Home when **Open on Home** is on and a library exists, otherwise PCs. Back from either of the other two returns to the first screen; Back there leaves the app.
 - Switching does not stack screens. A game's page belongs to Home and stays underneath when you open PCs or Settings from it; Back from PCs then returns to Home, not to the game page, and **Home** in the bar closes the game page.
 - Settings opened from a menu or with **Ctrl+,** closes on Back.
-- Help is under **Settings → App → Help**, on **F1**, and in the pairing guide.
+- Help is under **Settings → App → Help**, on **F1**, and in the pairing guide. On Windows and Linux, **Help** is in the bar right after Settings, and opens on **F1** or **?** from any page.
 
 ### PC options on Android
 
@@ -104,11 +110,21 @@ The options depend on the PC's state: **Open library** or **Pair**, **Resume** a
 
 The same **Rename**, **Unpair** and **Remove PC** actions are in the PC's settings page.
 
-### PC options on Windows and Linux
+### PC and game menus on Windows and Linux
 
-The header lists **Home**, **PCs** and **Settings**; **Home** appears when a PC has a library. Back from PCs or Settings returns to Home, or to PCs when Home is off. **Start** on a controller opens Settings from a library or game page, and Back returns to that page. Settings has the sections **Video**, **Display & image**, **Controls**, **Audio**, **Streaming**, **App** and **Advanced**, with a chip for each at the top.
+The header lists **Home**, **PCs** and **Settings**; **Home** appears when a PC has a library. Back from PCs or Settings returns to Home, or to PCs when Home is off. **Start** on a controller, or **Settings** in the header, opens Settings over a library, game or PC page, and Back returns to that page. **Home** and **PCs** leave the page; while a file transfer runs there they ask first, as leaving cancels it. Settings has the sections **Video**, **Display & image**, **Controls**, **Audio**, **Streaming**, **App** and **Advanced**, with a chip for each at the top.
 
-A PC's options open with **F2** (the controller's West button), **Shift+F10**, a right-click or the three dots on its card: **Open library** or **Pair**, **Resume** and **Quit running app**, **Pair with one-time PIN**, **Wake up**, **PC settings**, **Rename**, **Unpair** or **Pairing help**, **Check again** and **Remove PC**. **Ctrl+N** adds a PC by address. Rename, Unpair and Remove behave as on Android; Unpair needs the PC online, and this device keeps its pairing until the PC confirms.
+PCs and games have a menu that opens by the card, never covering the window or dimming the page:
+
+- **⋮** on the card opens it under the dots. A cover shows its ⋮ while the pointer is on it or it has focus.
+- A **right-click** opens it at the pointer.
+- **F2**, **Shift+F10** or a controller's **X** (West button) open it beside the focused card.
+
+The menu stays inside the window, flipping above or to the left where it would not fit. The item that selecting the card does is marked **Enter**. **Escape** (the controller's **B**) closes it and gives focus back to the card, and a click outside closes it too.
+
+A PC's menu: **Open library** or **Pair**, **Resume** and **Quit running app**, **Pair with one-time PIN**, **Wake up**, **PC settings**, **Rename**, **Unpair** or **Pairing help**, **Check again** and **Remove PC**. **Unpair** and **Remove PC** come last, under a divider, in red. **Ctrl+N** on the PCs page adds a PC by address. Rename, Unpair and Remove behave as on Android; Unpair needs the PC online, and this device keeps its pairing until the PC confirms.
+
+A game's menu on Home and All games: **Game details**, **Add to favourites** or **Remove from favourites** (**Delete** on a favourite), **Game settings** and **Open library**. **Game settings** needs the PC's app list, so it appears once that list has loaded. A favourite whose PC is away with no saved library still has its menu. On a PC's library page: **Play** or **Resume**, and **Game settings**.
 
 ## Accessibility on Android
 

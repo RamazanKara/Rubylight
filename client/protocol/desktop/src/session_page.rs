@@ -997,6 +997,36 @@ mod tests {
         assert_eq!(page.state().setup_error.as_deref(), Some("No client for this PC."));
     }
 
+    /// Escape on the page goes back to the stream controls (main.rs), so its key sits on that row,
+    /// not on Resume.
+    #[test]
+    fn the_escape_key_is_shown_on_the_way_back_to_the_controls() {
+        let (fake, _) = fake(true);
+        let mut page = open(fake, 60_000, 60_000);
+        until("the page", || page.state().session.is_some());
+        let lines: Vec<(&'static str, String)> = connection_lines("GAMING-PC", "HEVC", (2560, 1440, 120), 40_000, "Home Wi-Fi", None);
+        let hints = Hints { launch: true, host_control: true };
+        let ctx = egui::Context::default();
+        crate::theme::apply(&ctx);
+        ctx.enable_accesskit();
+        let mut names = Vec::new();
+        for _ in 0..3 {
+            let input = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1920.0, 4000.0))), ..Default::default() };
+            let mut output = ctx.run_ui(input, |ui| {
+                egui::Window::new("Session and graphics").show(ui.ctx(), |ui| {
+                    crate::session_ui::show(ui, &mut page, &lines, hints);
+                });
+            });
+            output.textures_delta.clear();
+            let tree = output.platform_output.accesskit_update.expect("AccessKit is on");
+            names.extend(tree.nodes.iter().filter_map(|(_, n)| n.label().or(n.value()).map(str::to_owned)));
+        }
+        let esc = crate::shortcuts::Key::Escape.cap();
+        assert!(names.iter().any(|n| *n == format!("{}, {esc}", tr("Back to stream controls"))), "{names:#?}");
+        assert!(names.iter().any(|n| n == tr("Resume")), "Resume without a key: {names:#?}");
+        assert!(!names.iter().any(|n| n.starts_with(tr("Resume")) && n.contains(esc)), "{names:#?}");
+    }
+
     /// Benchmark, not a check: `cargo test --release -p nightjar-desktop bench_menu_frame -- --ignored --nocapture`.
     /// One headless egui frame of the open "Session and graphics" window, laid out and tessellated.
     #[test]
@@ -1030,7 +1060,7 @@ mod tests {
                         .vscroll(true)
                         .default_width(440.0)
                         .show(ui.ctx(), |ui| {
-                            crate::session_ui::show(ui, &mut page, "GAMING-PC", &lines, hints);
+                            crate::session_ui::show(ui, &mut page, &lines, hints);
                         });
                 });
                 let meshes = ctx.tessellate(std::mem::take(&mut output.shapes), 1.0);

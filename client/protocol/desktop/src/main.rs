@@ -76,6 +76,7 @@ use gamepad::Gamepads;
 use gui::{Gui, Scale};
 use hosts::{Apps, Event as HostEvent, Hosts};
 use media::Hardware;
+use shortcuts::{Action, Scope};
 use stream::present::{pacing, PacingMode};
 use stream::{ConnectFailed, Connecting, Display, Exit, LaunchPlan, Streaming};
 use strings::{tr, trf};
@@ -600,24 +601,24 @@ impl App {
             match SDL_EventType(event.r#type) {
                 SDL_EVENT_GAMEPAD_BUTTON_DOWN => {
                     let swap = if self.streaming.is_some() { self.pads.swap_face_buttons } else { self.launcher.settings.swap_face_buttons };
-                    let key = match SDL_GamepadButton(i32::from(event.gbutton.button)) {
+                    let button = SDL_GamepadButton(i32::from(event.gbutton.button));
+                    let key = match button {
                         SDL_GAMEPAD_BUTTON_DPAD_UP => Some(egui::Key::ArrowUp),
                         SDL_GAMEPAD_BUTTON_DPAD_DOWN => Some(egui::Key::ArrowDown),
                         SDL_GAMEPAD_BUTTON_DPAD_LEFT => Some(egui::Key::ArrowLeft),
                         SDL_GAMEPAD_BUTTON_DPAD_RIGHT => Some(egui::Key::ArrowRight),
-                        SDL_GAMEPAD_BUTTON_SOUTH => Some(if swap { egui::Key::Escape } else { egui::Key::Enter }),
-                        SDL_GAMEPAD_BUTTON_EAST => Some(if swap { egui::Key::Enter } else { egui::Key::Escape }),
-                        SDL_GAMEPAD_BUTTON_BACK => Some(egui::Key::Escape),
-                        SDL_GAMEPAD_BUTTON_WEST => Some(egui::Key::F2),
-                        SDL_GAMEPAD_BUTTON_NORTH => Some(egui::Key::F3),
-                        SDL_GAMEPAD_BUTTON_START => {
-                            if self.streaming.is_none() && matches!(self.launcher.dialog, Dialog::None) && self.connecting.is_none() {
-                                if let Some(command) = self.launcher.screen.save_command() { self.command(command); }
-                                self.launcher.open_settings();
+                        // What the other buttons do is the binding list's (shortcuts.rs, which Help shows).
+                        _ => match shortcuts::Button::from_sdl(button).and_then(|b| shortcuts::pad_action(b, swap)) {
+                            Some(Action::OpenSettings) => {
+                                if self.streaming.is_none() && matches!(self.launcher.dialog, Dialog::None) && self.connecting.is_none() {
+                                    if let Some(command) = self.launcher.screen.save_command() { self.command(command); }
+                                    self.launcher.open_settings();
+                                }
+                                None
                             }
-                            None
-                        }
-                        _ => None,
+                            Some(action) => nav_key(action),
+                            None => None,
+                        },
                     };
                     if let Some(key) = key {
                         for e in gui::tap(key) {
@@ -718,10 +719,10 @@ impl App {
                 SDL_EVENT_GAMEPAD_BUTTON_DOWN | SDL_EVENT_GAMEPAD_BUTTON_UP | SDL_EVENT_GAMEPAD_AXIS_MOTION => {
                     if self.launcher.screen != Screen::Controllers || !self.launcher.controller_test { self.navigate(event); }
                 }
-                SDL_EVENT_KEY_DOWN if event.key.scancode == SDL_SCANCODE_F12 => {
+                SDL_EVENT_KEY_DOWN if shortcuts::key_action(Scope::Launcher, event.key.scancode, event.key.r#mod) == Some(Action::Screenshot) => {
                     self.screenshot_requested = true;
                 }
-                SDL_EVENT_KEY_DOWN if event.key.scancode == SDL_SCANCODE_F11 => {
+                SDL_EVENT_KEY_DOWN if shortcuts::key_action(Scope::Launcher, event.key.scancode, event.key.r#mod) == Some(Action::Fullscreen) => {
                     let fullscreen = SDL_GetWindowFlags(self.window) & SDL_WINDOW_FULLSCREEN != 0;
                     SDL_SetWindowFullscreen(self.window, !fullscreen);
                 }
@@ -1945,7 +1946,11 @@ impl App {
             }
             return;
         }
-        if kind == SDL_EVENT_KEY_DOWN && unsafe { event.key.scancode } == SDL_SCANCODE_F12 {
+        // SAFETY: a key event's members.
+        let key_action = (kind == SDL_EVENT_KEY_DOWN).then(|| unsafe { shortcuts::key_action(Scope::Stream, event.key.scancode, event.key.r#mod) }).flatten();
+        // SAFETY: a key event's members.
+        let repeat = kind == SDL_EVENT_KEY_DOWN && unsafe { event.key.repeat };
+        if key_action == Some(Action::Screenshot) {
             self.screenshot_requested = true;
             if let Some((s, _)) = self.streaming.as_mut() {
                 s.needs_redraw = true;
@@ -1972,22 +1977,18 @@ impl App {
         }
         if streaming.menu_visible {
             let back_button = if self.pads.swap_face_buttons { SDL_GAMEPAD_BUTTON_SOUTH } else { SDL_GAMEPAD_BUTTON_EAST };
-            let close_menu = (kind == SDL_EVENT_KEY_DOWN && unsafe {
-                let key = event.key;
-                key.scancode == SDL_SCANCODE_ESCAPE || (key.scancode == SDL_SCANCODE_TAB
-                    && key.r#mod.0 & SDL_KMOD_CTRL.0 != 0 && key.r#mod.0 & SDL_KMOD_ALT.0 != 0
-                    && key.r#mod.0 & SDL_KMOD_SHIFT.0 != 0)
-            }) || (kind == SDL_EVENT_GAMEPAD_BUTTON_DOWN && unsafe {
-                event.gbutton.button == back_button.0 as u8 || event.gbutton.button == SDL_GAMEPAD_BUTTON_BACK.0 as u8
-            });
-            if close_menu {
-                // Escape or B on the Session page goes back to the controls first.
-                if streaming.session_page.is_some() {
-                    streaming.close_session_page();
-                } else {
-                    streaming.toggle_menu(self.window, &mut self.pads);
-                }
-                return;
+            // SAFETY: union members read by event type.
+            let back = (kind == SDL_EVENT_KEY_DOWN && unsafe { event.key.scancode } == SDL_SCANCODE_ESCAPE)
+                || (kind == SDL_EVENT_GAMEPAD_BUTTON_DOWN && unsafe {
+                    event.gbutton.button == back_button.0 as u8 || event.gbutton.button == SDL_GAMEPAD_BUTTON_BACK.0 as u8
+                });
+            match menu_step(key_action, back, repeat, streaming.shortcut_sheet.is_some(), streaming.session_page.is_some()) {
+                MenuStep::Pass => {}
+                MenuStep::Swallow => return,
+                MenuStep::ToggleSheet => return streaming.toggle_shortcut_sheet(self.window, &mut self.pads),
+                MenuStep::CloseSessionPage => return streaming.close_session_page(),
+                MenuStep::CloseSheet => return streaming.close_shortcut_sheet(self.window, &mut self.pads),
+                MenuStep::CloseMenu => return streaming.toggle_menu(self.window, &mut self.pads),
             }
             if matches!(kind, SDL_EVENT_GAMEPAD_BUTTON_DOWN | SDL_EVENT_GAMEPAD_AXIS_MOTION) {
                 streaming.needs_redraw = true;
@@ -2005,6 +2006,52 @@ impl App {
             }
         }
         streaming.handle(event, self.window, self.renderer, &mut self.pads);
+    }
+}
+
+/// What a key or button does while the stream menu is open.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum MenuStep {
+    /// Not the menu's: egui or the controller navigation gets it.
+    Pass,
+    /// A held key's repeat of a toggle: holding it doesn't flip the menu open and shut.
+    Swallow,
+    ToggleSheet,
+    CloseSessionPage,
+    CloseSheet,
+    CloseMenu,
+}
+
+/// The step for a stream chord (`action`), Escape or B (`back`), with the menu's pages. Back acts
+/// on what is drawn: the Session page first (the sheet never draws over it), then the sheet.
+fn menu_step(action: Option<Action>, back: bool, repeat: bool, sheet: bool, session_page: bool) -> MenuStep {
+    let controls = action == Some(Action::StreamControls);
+    if action != Some(Action::StreamShortcuts) && !back && !controls {
+        return MenuStep::Pass;
+    }
+    if repeat {
+        return MenuStep::Swallow;
+    }
+    if action == Some(Action::StreamShortcuts) {
+        MenuStep::ToggleSheet
+    } else if session_page {
+        MenuStep::CloseSessionPage
+    } else if back && sheet {
+        MenuStep::CloseSheet
+    } else {
+        MenuStep::CloseMenu
+    }
+}
+
+/// The key egui gets for a controller button's launcher action (`shortcuts::PAD`).
+fn nav_key(action: Action) -> Option<egui::Key> {
+    match action {
+        Action::Select => Some(egui::Key::Enter),
+        Action::Back => Some(egui::Key::Escape),
+        Action::Options => Some(egui::Key::F2),
+        // Y takes the star off a favourite, as Delete does (ui/cards.rs).
+        Action::Unstar => Some(egui::Key::F3),
+        _ => None,
     }
 }
 
@@ -2042,6 +2089,9 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
                     }
                 });
         }
+        if s.menu_visible {
+            menu_style::scrim(&ctx);
+        }
         if s.menu_visible && s.session_page.is_some() {
             let lines = s.connection_lines();
             let hints = s.session_hints();
@@ -2050,9 +2100,8 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
                 menu_style::window(tr("Session and graphics"), "session-and-graphics")
                     .show(&ctx, |ui| menu_style::body(ui, |ui| {
                         gui::follow_focus(ui, &mut s.menu_focus);
-                        ui.label(egui::RichText::new(tr("Session and graphics")).font(theme::semibold(theme::text::SECTION)).color(theme::ON_SURFACE));
-                        ui.add_space(theme::space::S);
-                        outcome = session_ui::show(ui, page, &title, &lines, hints);
+                        menu_style::header(ui, tr("Session and graphics"), &title);
+                        outcome = session_ui::show(ui, page, &lines, hints);
                     }));
             }
             match outcome {
@@ -2063,16 +2112,32 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
                 session_ui::Outcome::Disconnect | session_ui::Outcome::Leave => s.exit = Some(Exit::User),
             }
         }
-        if s.menu_visible && s.session_page.is_none() {
-            menu_style::window(tr("Stream controls"), "stream-controls")
+        if s.menu_visible && s.session_page.is_none() && s.shortcut_sheet.is_some() {
+            let from_menu = s.shortcut_sheet == Some(stream::Sheet::FromMenu);
+            let style = glyphs::Style::of(pads);
+            let offered = s.controller_mouse_offered(pads);
+            let mut back = false;
+            menu_style::window(tr("Shortcuts & help"), "stream-controls")
                 .show(&ctx, |ui| menu_style::body(ui, |ui| {
                     gui::follow_focus(ui, &mut s.menu_focus);
+                    menu_style::header(ui, tr("Shortcuts & help"), &title);
+                    back = menu_style::sheet(ui, style, pads.quit_combo(), pads.back_opens_menu(), offered, from_menu);
+                }));
+            if back {
+                s.close_shortcut_sheet(window, pads);
+            }
+        } else if s.menu_visible && s.session_page.is_none() {
+            menu_style::window(tr("Stream controls"), "stream-controls")
+                .show(&ctx, |ui| menu_style::body(ui, |ui| {
+                    use glyphs::Icon;
+                    gui::follow_focus(ui, &mut s.menu_focus);
                     menu_style::header(ui, tr("Stream controls"), &title);
-                    let back = menu_style::primary(ui, tr("Return to stream"));
+                    let back = menu_style::primary(ui, tr("Return to stream"), Some(crate::shortcuts::Key::Escape.cap()));
                     if ctx.memory(|m| m.focused().is_none()) { back.request_focus(); }
                     if back.clicked() { s.toggle_menu(window, pads); }
-                    menu_style::divider(ui);
-                    menu_style::row(ui, tr("Performance overlay"), |ui| {
+
+                    menu_style::caption(ui, tr("Picture"));
+                    menu_style::row(ui, Icon::Overlay, tr("Performance overlay"), |ui| {
                         let shown = if s.overlay_visible { tr(s.overlay_mode.label()) } else { tr("Off") };
                         egui::ComboBox::from_id_salt("stream-overlay").width(MENU_LIST).selected_text(shown).show_ui(ui, |ui| {
                             if ui.selectable_label(!s.overlay_visible, tr("Off")).clicked() { s.overlay_visible = false; }
@@ -2084,7 +2149,7 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
                         });
                     });
                     if s.overlay_visible {
-                        menu_style::row(ui, tr("Overlay position"), |ui| {
+                        menu_style::row(ui, Icon::Corner, tr("Overlay position"), |ui| {
                             egui::ComboBox::from_id_salt("stream-overlay-corner").width(MENU_LIST).selected_text(tr(s.overlay_corner.label())).show_ui(ui, |ui| {
                                 for corner in config::OverlayCorner::ALL {
                                     ui.selectable_value(&mut s.overlay_corner, corner, tr(corner.label()));
@@ -2094,7 +2159,7 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
                     }
                     let current = s.video_scaling();
                     let (mut scaling, mut top) = current;
-                    menu_style::row(ui, tr("Video size"), |ui| {
+                    menu_style::row(ui, Icon::Screen, tr("Video size"), |ui| {
                         egui::ComboBox::from_id_salt("stream-scaling").width(MENU_LIST).selected_text(tr(scaling.label())).show_ui(ui, |ui| {
                             use config::VideoScaling;
                             for mode in [VideoScaling::Fit, VideoScaling::Fill, VideoScaling::Stretch, VideoScaling::Native] {
@@ -2102,49 +2167,58 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
                             }
                         });
                     });
-                    menu_style::switch(ui, tr("Align video to top"), &mut top);
+                    menu_style::switch(ui, Icon::AlignTop, tr("Align video to top"), &mut top);
                     if (scaling, top) != current { s.set_video_scaling(scaling, top); }
-                    if s.microphone_available() {
-                        let mut muted = s.microphone_muted;
-                        if menu_style::switch(ui, tr("Mute microphone"), &mut muted).changed() { s.mute_microphone(muted, pads); }
+
+                    let microphone = s.microphone_available();
+                    let mouse_offered = s.controller_mouse_offered(pads);
+                    let audio_switches = s.host_audio.switches();
+                    if microphone || mouse_offered || !audio_switches.is_empty() || s.host_audio.problem().is_some() {
+                        menu_style::caption(ui, tr("Sound and input"));
                     }
-                    if s.controller_mouse_offered(pads) {
+                    if microphone {
+                        let mut muted = s.microphone_muted;
+                        if menu_style::switch(ui, Icon::Microphone, tr("Mute microphone"), &mut muted).changed() { s.mute_microphone(muted, pads); }
+                    }
+                    if mouse_offered {
                         let mut mouse = pads.mouse_active();
-                        if menu_style::switch(ui, tr("Controller mouse"), &mut mouse).changed() { s.toggle_controller_mouse(pads); }
+                        if menu_style::switch(ui, Icon::Mouse, tr("Controller mouse"), &mut mouse).changed() { s.toggle_controller_mouse(pads); }
                     }
                     // The PC's night mode and headphone surround, as it answered when the menu opened.
-                    for switch in s.host_audio.switches() {
+                    for switch in audio_switches {
                         let mut on = switch.on;
                         let label = stream::menu_extras::audio_label(switch.id);
-                        if ui.add_enabled_ui(switch.enabled, |ui| menu_style::switch(ui, label, &mut on)).inner.changed() { s.set_host_audio(switch.id, on); }
+                        if ui.add_enabled_ui(switch.enabled, |ui| menu_style::switch(ui, Icon::Speaker, label, &mut on)).inner.changed() { s.set_host_audio(switch.id, on); }
                         if let Some(note) = &switch.note { menu_style::note(ui, note); }
                     }
                     if let Some(problem) = s.host_audio.problem() { menu_style::note(ui, problem); }
-                    menu_style::divider(ui);
-                    if menu_style::button(ui, tr("Export statistics (last hour)")).clicked() { s.export_statistics = true; }
+
+                    menu_style::caption(ui, tr("Clipboard"));
                     ui.add_enabled_ui(s.facts.clipboard, |ui| {
-                        if menu_style::button(ui, tr("Send clipboard to PC")).clicked() { s.clipboard(true); }
-                        if menu_style::button(ui, tr("Copy PC clipboard here")).clicked() { s.clipboard(false); }
+                        if menu_style::action(ui, Icon::ClipboardUp, tr("Send clipboard to PC"), Some(shortcuts::Action::SendClipboard)).clicked() { s.clipboard(true); }
+                        if menu_style::action(ui, Icon::ClipboardDown, tr("Copy PC clipboard here"), Some(shortcuts::Action::FetchClipboard)).clicked() { s.clipboard(false); }
                     });
                     if s.facts.image_clipboard {
-                        if menu_style::button(ui, tr("Send image to PC")).clicked() { s.clipboard_image(true); }
-                        if menu_style::button(ui, tr("Copy PC image here")).clicked() { s.clipboard_image(false); }
+                        if menu_style::action(ui, Icon::Image, tr("Send image to PC"), None).clicked() { s.clipboard_image(true); }
+                        if menu_style::action(ui, Icon::Image, tr("Copy PC image here"), None).clicked() { s.clipboard_image(false); }
                     }
                     if s.facts.role != nightjar_core::http::AppRole::RemoteMonitor && !shortcuts.data.is_empty() {
-                        egui::CollapsingHeader::new(tr("Keyboard shortcuts")).id_salt("keyboard-shortcuts").show(ui, |ui| {
+                        menu_style::fold(ui, "keyboard-shortcuts", Icon::Keyboard, tr("Keyboard shortcuts"), |ui| {
                             for shortcut in &shortcuts.data {
-                                if ui.button(format!("{} · {}", shortcut.name, shortcut.keys.join(" + "))).clicked() {
+                                if menu_style::button(ui, &format!("{} · {}", shortcut.name, shortcut.keys.join(" + "))).clicked() {
                                     s.toggle_menu(window, pads);
                                     s.send_shortcut(shortcut);
                                 }
                             }
                         });
                     }
+
+                    menu_style::caption(ui, tr("Connection"));
                     let controls = s.menu_controls();
                     if s.facts.runtime_bitrate {
                         if s.facts.role == nightjar_core::http::AppRole::Stream && !s.client_hint_active() {
                             let mut enabled = s.adaptive_bitrate;
-                            if ui.add_enabled_ui(!s.bitrate_busy, |ui| menu_style::switch(ui, tr("Device controls bitrate"), &mut enabled)).inner.changed() {
+                            if ui.add_enabled_ui(!s.bitrate_busy, |ui| menu_style::switch(ui, Icon::Gauge, tr("Device controls bitrate"), &mut enabled)).inner.changed() {
                                 s.enable_adaptive_bitrate(enabled);
                             }
                         }
@@ -2155,60 +2229,65 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
                     if let Some(rates) = s.rate_change.as_mut().filter(|_| controls.rate_change) {
                         let busy = rates.menu_busy();
                         let mut apply = stream::menu_extras::bitrate_slider(ui, &mut rates.menu_kbps, !busy);
-                        egui::CollapsingHeader::new(tr("Change bitrate / frame rate")).id_salt("rate-change").show(ui, |ui| {
+                        menu_style::fold(ui, "rate-change", Icon::Gauge, tr("Change bitrate / frame rate"), |ui| {
                             let busy = rates.menu_busy();
                             ui.add_enabled_ui(!busy, |ui| {
                                 ui.horizontal(|ui| {
                                     theme::step_value(ui, &mut rates.menu_kbps, 500..=800_000, 1000.0, |d| d.speed(100).suffix(" kbps"));
                                     theme::step_value(ui, &mut rates.menu_fps, 10.0..=500.0, 1.0, |d| d.suffix(" fps").max_decimals(3));
                                 });
-                                apply |= ui.button(tr("Apply bitrate and frame rate")).clicked();
+                                apply |= menu_style::button(ui, tr("Apply bitrate and frame rate")).clicked();
                             });
-                            if busy { ui.label(tr("Waiting for the PC…")); }
+                            if busy { menu_style::text_block(ui, tr("Waiting for the PC…")); }
                         });
                         if apply { s.change_rates(); }
                     }
                     if s.facts.role != nightjar_core::http::AppRole::InputOnly {
-                        egui::CollapsingHeader::new(tr("Why did my stream stutter?")).id_salt("stream-health").show(ui, |ui| {
+                        menu_style::fold(ui, "stream-health", Icon::Pulse, tr("Why did my stream stutter?"), |ui| {
                             let (text, offer) = s.health();
-                            ui.label(text);
+                            menu_style::text_block(ui, &text);
+                            ui.add_space(theme::space::S);
                             ui.horizontal(|ui| {
                                 if let Some(label) = stream::doctor::offer_label(offer) {
-                                    if ui.add_enabled(!s.bitrate_busy, egui::Button::new(label)).clicked() { s.health_trial(offer); }
+                                    if ui.add_enabled_ui(!s.bitrate_busy, |ui| menu_style::button(ui, label)).inner.clicked() { s.health_trial(offer); }
                                 }
-                                if ui.button(tr("Copy report")).clicked() { s.copy_health(); }
+                                if menu_style::button(ui, tr("Copy report")).clicked() { s.copy_health(); }
                             });
                         });
                     }
                     if controls.size_editor {
-                        ui.separator();
-                        let mut quality = s.quality_mode;
-                        egui::ComboBox::from_id_salt("stream-quality").selected_text(tr(quality.label())).show_ui(ui, |ui| {
-                            for mode in [config::QualityMode::Off, config::QualityMode::Motion, config::QualityMode::Detail, config::QualityMode::Battery] {
-                                ui.selectable_value(&mut quality, mode, tr(mode.label()));
-                            }
-                        });
-                        if quality != s.quality_mode { s.set_quality(quality); }
-                        ui.add_enabled_ui(s.quality_mode == config::QualityMode::Off, |ui| {
-                            ui.horizontal(|ui| {
-                                theme::step_value(ui, &mut s.requested_mode.width, 256..=8192, 16.0, |d| d.speed(2));
-                                ui.label("×");
-                                theme::step_value(ui, &mut s.requested_mode.height, 256..=8192, 16.0, |d| d.speed(2));
-                                // With 0x553C the rate is set above and the size keeps the current one.
-                                if controls.size_editor_fps {
-                                    let mut fps = s.requested_mode.fps_millihz as f64 / 1000.0;
-                                    if theme::step_value(ui, &mut fps, 10.0..=500.0, 1.0, |d| d.suffix(" fps").max_decimals(3)).changed() {
-                                        s.requested_mode.fps_millihz = (fps * 1000.0).round() as u32;
-                                    }
+                        menu_style::fold(ui, "stream-size", Icon::Screen, tr("Stream size"), |ui| {
+                            let mut quality = s.quality_mode;
+                            egui::ComboBox::from_id_salt("stream-quality").selected_text(tr(quality.label())).show_ui(ui, |ui| {
+                                for mode in [config::QualityMode::Off, config::QualityMode::Motion, config::QualityMode::Detail, config::QualityMode::Battery] {
+                                    ui.selectable_value(&mut quality, mode, tr(mode.label()));
                                 }
                             });
-                            let apply = if controls.size_editor_fps { tr("Apply stream size and rate") } else { tr("Apply stream size") };
-                            if ui.button(apply).clicked() { s.set_mode(s.requested_mode); }
+                            if quality != s.quality_mode { s.set_quality(quality); }
+                            ui.add_enabled_ui(s.quality_mode == config::QualityMode::Off, |ui| {
+                                ui.horizontal(|ui| {
+                                    theme::step_value(ui, &mut s.requested_mode.width, 256..=8192, 16.0, |d| d.speed(2));
+                                    ui.label("×");
+                                    theme::step_value(ui, &mut s.requested_mode.height, 256..=8192, 16.0, |d| d.speed(2));
+                                    // With 0x553C the rate is set above and the size keeps the current one.
+                                    if controls.size_editor_fps {
+                                        let mut fps = s.requested_mode.fps_millihz as f64 / 1000.0;
+                                        if theme::step_value(ui, &mut fps, 10.0..=500.0, 1.0, |d| d.suffix(" fps").max_decimals(3)).changed() {
+                                            s.requested_mode.fps_millihz = (fps * 1000.0).round() as u32;
+                                        }
+                                    }
+                                });
+                                let apply = if controls.size_editor_fps { tr("Apply stream size and rate") } else { tr("Apply stream size") };
+                                if menu_style::button(ui, apply).clicked() { s.set_mode(s.requested_mode); }
+                            });
                         });
                     }
+                    if menu_style::action(ui, Icon::Download, tr("Export statistics (last hour)"), None).clicked() { s.export_statistics = true; }
+                    if s.session_page_available() && menu_style::action(ui, Icon::Sliders, tr("Session and graphics"), None).clicked() {
+                        s.session_page_requested = true;
+                    }
                     if s.controller_audio_available() {
-                        ui.separator();
-                        ui.label(tr("DualSense USB audio and waveform haptics"));
+                        menu_style::fold(ui, "controller-audio", Icon::Controller, tr("DualSense USB audio and waveform haptics"), |ui| {
                         let outputs = controller_audio::outputs();
                         let inputs = controller_audio::inputs();
                         let mut selections = Vec::new();
@@ -2254,42 +2333,40 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
                         for (index, device) in input_selections {
                             if let Err(error) = pads.set_audio_input(index, device) { s.show_toast(error); }
                         }
+                        });
                     }
                     if let Some(panel) = s.usb.as_mut() {
-                        ui.separator();
-                        usb::show(ui, panel);
+                        menu_style::fold(ui, "usb", Icon::Usb, tr("USB devices"), |ui| usb::show(ui, panel));
                     } else if let Some(why) = s.usb_refused {
-                        ui.separator();
+                        // Why there are no devices shows without opening anything.
                         usb::show_refusal(ui, why);
                     }
                     if !s.facts.server_commands.is_empty() {
-                        ui.separator();
-                        ui.label(tr("PC commands"));
-                        for (index, name) in s.facts.server_commands.iter().enumerate() {
-                            if !name.is_empty() && ui.button(name).clicked() {
-                                s.pending_command = Some(index);
-                            }
-                        }
-                        if let Some(index) = s.pending_command {
-                            ui.label(trf("Run ‘{}’ on the PC?", &[&s.facts.server_commands[index]]));
-                            ui.horizontal(|ui| {
-                                if ui.button(tr("Run command")).clicked() {
-                                    s.pending_command = None;
-                                    s.server_command(index);
+                        menu_style::fold(ui, "pc-commands", Icon::Terminal, tr("PC commands"), |ui| {
+                            for (index, name) in s.facts.server_commands.iter().enumerate() {
+                                if !name.is_empty() && menu_style::button(ui, name).clicked() {
+                                    s.pending_command = Some(index);
                                 }
-                                if ui.button(tr("Cancel")).clicked() { s.pending_command = None; }
-                            });
-                        }
+                            }
+                            if let Some(index) = s.pending_command {
+                                menu_style::text_block(ui, &trf("Run ‘{}’ on the PC?", &[&s.facts.server_commands[index]]));
+                                ui.horizontal(|ui| {
+                                    if menu_style::button(ui, tr("Run command")).clicked() {
+                                        s.pending_command = None;
+                                        s.server_command(index);
+                                    }
+                                    if menu_style::button(ui, tr("Cancel")).clicked() { s.pending_command = None; }
+                                });
+                            }
+                        });
                     }
+                    if menu_style::action(ui, Icon::Help, tr("Shortcuts & help"), Some(shortcuts::Action::StreamShortcuts)).clicked() {
+                        s.shortcut_sheet = Some(stream::Sheet::FromMenu);
+                        ctx.memory_mut(|m| m.surrender_focus(m.focused().unwrap_or(egui::Id::NULL)));
+                    }
+                    if menu_style::action(ui, Icon::Reconnect, tr("Reconnect"), None).clicked() { s.exit = Some(Exit::Reconnect); }
                     menu_style::divider(ui);
-                    if s.session_page_available() && menu_style::button(ui, tr("Session and graphics")).clicked() {
-                        s.session_page_requested = true;
-                    }
-                    if menu_style::button(ui, tr("Reconnect")).clicked() { s.exit = Some(Exit::Reconnect); }
-                    if menu_style::button(ui, tr("Disconnect")).clicked() { s.exit = Some(Exit::User); }
-                    let style = glyphs::Style::of(pads);
-                    ui.add_space(theme::space::XS);
-                    menu_style::note(ui, &trf("Ctrl+Alt+Shift+Tab or {} opens this menu.", &[&style.chord(&[style.start(), style.select()])]));
+                    if menu_style::danger(ui, Icon::Power, tr("Disconnect"), Some(shortcuts::Action::Disconnect)).clicked() { s.exit = Some(Exit::User); }
                 }));
         } else {
             s.settle_bitrate_slider(&ctx);
@@ -2538,6 +2615,27 @@ mod tests {
         assert_eq!((settings.width, settings.height, settings.fps, settings.bitrate_kbps), (640, 360, 30, 500));
         assert_eq!(settings.audio, config::AudioChannels::Stereo);
         assert!(!settings.virtual_display && !settings.vrr && settings.play_audio_on_host, "the PC's display and speakers stay as they are");
+    }
+
+    /// Holding Ctrl+Alt+Shift+H or Escape doesn't flip the sheet or the menu with each repeat,
+    /// and Back acts on the page that is drawn: the Session page before a sheet it hides.
+    #[test]
+    fn menu_keys_ignore_repeats_and_back_leaves_the_drawn_page() {
+        use super::{menu_step, MenuStep};
+        use shortcuts::Action;
+        let sheet = Some(Action::StreamShortcuts);
+        let controls = Some(Action::StreamControls);
+        assert_eq!(menu_step(sheet, false, false, false, false), MenuStep::ToggleSheet);
+        assert_eq!(menu_step(sheet, false, true, true, false), MenuStep::Swallow);
+        assert_eq!(menu_step(controls, false, true, false, false), MenuStep::Swallow);
+        assert_eq!(menu_step(None, true, true, false, true), MenuStep::Swallow, "a held Escape");
+        assert_eq!(menu_step(None, true, false, true, true), MenuStep::CloseSessionPage);
+        assert_eq!(menu_step(controls, false, false, false, true), MenuStep::CloseSessionPage);
+        assert_eq!(menu_step(None, true, false, true, false), MenuStep::CloseSheet);
+        assert_eq!(menu_step(controls, false, false, true, false), MenuStep::CloseMenu);
+        assert_eq!(menu_step(None, true, false, false, false), MenuStep::CloseMenu);
+        assert_eq!(menu_step(Some(Action::SendClipboard), false, true, false, false), MenuStep::Pass);
+        assert_eq!(menu_step(None, false, false, false, false), MenuStep::Pass);
     }
 
     #[test]

@@ -5,7 +5,7 @@
 use nightjar_core::http::native_api::library::{Game, Library};
 use nightjar_core::http::native_api::session::{ActionId, Session, State};
 
-use crate::strings::{tr, trf};
+use crate::strings::{en, tr, trf};
 use crate::config::{Favourite, Recent};
 use crate::hosts::{Host, Reach};
 
@@ -59,6 +59,12 @@ pub struct Copy {
     pub app_id: u32,
     pub install_id: String,
     pub running: bool,
+    /// The PC lists it as installed (or says nothing either way).
+    pub installed: bool,
+    /// The store's key ("steam", "epic", ...), None for an app no store owns.
+    pub store: Option<String>,
+    /// The store's name as the PC writes it, else the one Nightjar knows.
+    pub store_name: Option<String>,
     /// The cover's version, empty when the PC has no cover for it.
     pub cover_version: String,
     pub has_cover: bool,
@@ -69,7 +75,8 @@ pub struct Copy {
 pub struct Entry {
     pub key: String,
     pub title: String,
-    /// The copy to open first: a running one, then one on a PC that is online, then PC order.
+    /// The copy to open first: a running one, then an installed one, then one on a PC that is
+    /// online, then PC order.
     pub copies: Vec<Copy>,
 }
 
@@ -82,10 +89,202 @@ impl Entry {
         self.copies.iter().any(|c| c.running)
     }
 
+    /// Some PC has it installed; one that is not shows, but cannot start until it is.
+    pub fn installed(&self) -> bool {
+        self.copies.iter().any(|c| c.installed)
+    }
+
+    /// The store of the copy that is opened first: the entry's row and filter.
+    pub fn store(&self) -> Option<&str> {
+        self.best().store.as_deref()
+    }
+
     /// The copy whose cover to draw.
     pub fn cover(&self) -> Option<&Copy> {
         self.copies.iter().find(|c| c.has_cover)
     }
+}
+
+/// The stores a host reads games from, by the key it sends, with their own product names (never
+/// translated): Android's `Stores`. Every store behaves the same; the table only names them.
+const STORES: [(&str, &str); 7] = [
+    ("steam", "Steam"),
+    ("epic", "Epic Games"),
+    ("gog", "GOG"),
+    ("ea", "EA app"),
+    ("ubisoft", "Ubisoft Connect"),
+    ("battlenet", "Battle.net"),
+    ("microsoft", en("Xbox")),
+];
+
+/// A store's name: the PC's when it sends one, else the known one, else the key with a capital
+/// ("itchio" reads "Itchio").
+pub fn store_name(key: &str, from_pc: &str) -> String {
+    if !from_pc.trim().is_empty() {
+        return from_pc.to_owned();
+    }
+    STORES.iter().find(|(k, _)| *k == key).map_or_else(
+        || {
+            let mut chars = key.chars();
+            chars.next().map_or_else(String::new, |first| first.to_uppercase().chain(chars).collect())
+        },
+        |(_, name)| (*name).to_owned(),
+    )
+}
+
+/// A chip above All games: Android's `HomeModel.Filter` keys (all, installed, store:steam, other).
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
+pub enum LibraryFilter {
+    #[default]
+    All,
+    /// Only what some PC has installed; offered only when something is not.
+    Installed,
+    /// One store's games, by its key.
+    Store(String),
+    /// The apps of no store; offered only beside stores.
+    Other,
+}
+
+impl LibraryFilter {
+    /// Whether `entry` shows under this filter.
+    pub fn matches(&self, entry: &Entry) -> bool {
+        match self {
+            Self::All => true,
+            Self::Installed => entry.installed(),
+            Self::Store(key) => entry.store() == Some(key.as_str()),
+            Self::Other => entry.store().is_none(),
+        }
+    }
+
+    /// A key that names the filter itself, not its place among the chips, for focus.
+    pub fn key(&self) -> String {
+        match self {
+            Self::All => "filter:all".into(),
+            Self::Installed => "filter:installed".into(),
+            Self::Store(key) => format!("filter:store:{key}"),
+            Self::Other => "filter:other".into(),
+        }
+    }
+}
+
+/// One chip: the filter, the store's name for a store chip, and how many games it shows.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FilterChip {
+    pub filter: LibraryFilter,
+    pub store_name: Option<String>,
+    pub count: usize,
+}
+
+/// The stores of `entries` by their game count, largest first, ties by key: (key, name, count).
+fn stores_by_size(entries: &[Entry]) -> Vec<(String, String, usize)> {
+    let mut stores: Vec<(String, String, usize)> = Vec::new();
+    for entry in entries {
+        let Some(key) = entry.store() else { continue };
+        match stores.iter_mut().find(|(k, ..)| k == key) {
+            Some(store) => store.2 += 1,
+            None => stores.push((key.to_owned(), entry.best().store_name.clone().unwrap_or_else(|| store_name(key, "")), 1)),
+        }
+    }
+    stores.sort_by(|a, b| b.2.cmp(&a.2).then_with(|| a.0.cmp(&b.0)));
+    stores
+}
+
+/// The chips above All games for what the library has: All, Installed (only when something is
+/// not), each store largest first, Other apps (only beside stores). None for an empty library.
+pub fn library_filters(entries: &[Entry]) -> Vec<FilterChip> {
+    if entries.is_empty() {
+        return Vec::new();
+    }
+    let mut chips = vec![FilterChip { filter: LibraryFilter::All, store_name: None, count: entries.len() }];
+    let installed = entries.iter().filter(|e| e.installed()).count();
+    if installed < entries.len() {
+        chips.push(FilterChip { filter: LibraryFilter::Installed, store_name: None, count: installed });
+    }
+    let stores = stores_by_size(entries);
+    let other = entries.iter().filter(|e| e.store().is_none()).count();
+    let any_store = !stores.is_empty();
+    for (key, name, count) in stores {
+        chips.push(FilterChip { filter: LibraryFilter::Store(key), store_name: Some(name), count });
+    }
+    if other > 0 && any_store {
+        chips.push(FilterChip { filter: LibraryFilter::Other, store_name: None, count: other });
+    }
+    chips
+}
+
+/// The games a filter shows, in the order All games lists them (by title).
+pub fn filtered<'a>(entries: &'a [Entry], filter: &LibraryFilter) -> Vec<&'a Entry> {
+    entries.iter().filter(|e| filter.matches(e)).collect()
+}
+
+/// Which of Home's library rows: one per store, or the apps of no store.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum RowKind {
+    Store { key: String, name: String },
+    /// The apps of no store beside stores ("Other apps").
+    Other,
+    /// A library with no stores at all (a classic host): one plain row.
+    Library,
+}
+
+/// A library row on Home: its games, installed first, and the All games filter its "All N"
+/// tile opens. The row itself shows as many as fit; the tile stands for the rest.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LibraryRow<'a> {
+    pub kind: RowKind,
+    pub filter: LibraryFilter,
+    pub games: Vec<&'a Entry>,
+}
+
+impl LibraryRow<'_> {
+    /// A key that stays the same across refreshes, for focus.
+    pub fn key(&self) -> String {
+        match &self.kind {
+            RowKind::Store { key, .. } => format!("row:store:{key}"),
+            RowKind::Other => "row:other".into(),
+            RowKind::Library => "row:library".into(),
+        }
+    }
+
+    /// The games shown in a line of `room` covers: all that fit, else one fewer and the "All N"
+    /// tile in the last place. Returns how many games to draw and whether the tile follows.
+    pub fn fit(&self, room: usize) -> (usize, bool) {
+        let room = room.max(1);
+        if self.games.len() <= room {
+            (self.games.len(), false)
+        } else {
+            (room - 1, true)
+        }
+    }
+}
+
+/// Home's library rows: one per store, largest first (ties by key), then the apps of no store.
+/// Within a row the installed games come first, each part by title. Android's TV Home rows.
+pub fn library_rows(entries: &[Entry]) -> Vec<LibraryRow<'_>> {
+    fn installed_first(mut games: Vec<&Entry>) -> Vec<&Entry> {
+        // Stable: the titles stay in order within each part.
+        games.sort_by_key(|e| !e.installed());
+        games
+    }
+    let stores = stores_by_size(entries);
+    let mut rows: Vec<LibraryRow<'_>> = stores
+        .iter()
+        .map(|(key, name, _)| LibraryRow {
+            kind: RowKind::Store { key: key.clone(), name: name.clone() },
+            filter: LibraryFilter::Store(key.clone()),
+            games: installed_first(entries.iter().filter(|e| e.store() == Some(key.as_str())).collect()),
+        })
+        .collect();
+    let other: Vec<&Entry> = entries.iter().filter(|e| e.store().is_none()).collect();
+    if !other.is_empty() {
+        let plain = stores.is_empty();
+        rows.push(LibraryRow {
+            kind: if plain { RowKind::Library } else { RowKind::Other },
+            filter: if plain { LibraryFilter::All } else { LibraryFilter::Other },
+            games: installed_first(other),
+        });
+    }
+    rows
 }
 
 fn installed(game: &Game) -> bool {
@@ -110,13 +309,16 @@ fn running_here(source: &Source<'_>, game: &Game) -> bool {
         })
 }
 
-/// Every PC's installed games, one entry per game (by the store's game id, else per PC and
-/// app), sorted by title.
+/// Every PC's games, one entry per game (by the store's game id, else per PC and app), sorted by
+/// title. A game no PC has installed is in it too, marked so (Android's library rows and All
+/// games show it, and the Installed chip leaves it out).
 pub fn merge_library(sources: &[Source<'_>]) -> Vec<Entry> {
     let mut entries: Vec<Entry> = Vec::new();
+    // Where each key's entry is, so a large library merges in one pass.
+    let mut index: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
     for source in sources {
         let Some(library) = source.library else { continue };
-        for game in library.games.iter().filter(|g| installed(g)) {
+        for game in &library.games {
             let key = match game.game_id.as_deref().filter(|id| !id.is_empty()) {
                 Some(id) => format!("game:{id}"),
                 None => format!("host:{}:{}", source.id, game.app_id),
@@ -128,18 +330,24 @@ pub fn merge_library(sources: &[Source<'_>]) -> Vec<Entry> {
                 app_id: game.app_id,
                 install_id: game.install_id.clone(),
                 running: source.online && running_here(source, game),
+                installed: installed(game),
+                store: game.store.as_ref().map(|s| s.source.clone()).filter(|s| !s.is_empty()),
+                store_name: game.store.as_ref().filter(|s| !s.source.is_empty()).map(|s| store_name(&s.source, &s.name)),
                 cover_version: game.artwork.version.clone(),
                 has_cover: game.artwork.cover.is_some(),
             };
-            match entries.iter_mut().find(|e| e.key == key) {
-                Some(entry) => entry.copies.push(copy),
-                None => entries.push(Entry { key, title: game.title.clone(), copies: vec![copy] }),
+            match index.get(&key) {
+                Some(&at) => entries[at].copies.push(copy),
+                None => {
+                    index.insert(key.clone(), entries.len());
+                    entries.push(Entry { key, title: game.title.clone(), copies: vec![copy] });
+                }
             }
         }
     }
     for entry in &mut entries {
         // Stable: PC order decides between equals.
-        entry.copies.sort_by_key(|c| (!c.running, !c.online));
+        entry.copies.sort_by_key(|c| (!c.running, !c.installed, !c.online));
     }
     entries.sort_by_cached_key(|e| e.title.to_lowercase());
     entries
@@ -327,8 +535,11 @@ pub enum EndAction {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Detail {
     pub state: GameState,
-    /// The PC can be played on now (online and paired).
+    /// The game can be played now: the PC is online and paired, and the game installed there
+    /// (one that runs or is suspended can be resumed whatever the library says).
     pub can_start: bool,
+    /// The PC lists the game as installed, or says nothing either way. Android's NOT_INSTALLED.
+    pub installed: bool,
     pub end: EndAction,
     /// Another game that runs on the PC; starting this one closes it.
     pub other_running: Option<String>,
@@ -343,8 +554,8 @@ impl Detail {
 
 /// `native` is whether the PC speaks the native API (Close game is only offered there).
 pub fn detail(source: &Source<'_>, app_id: u32, native: bool) -> Detail {
-    let can_start = source.online && source.paired;
     let game = source.library.into_iter().flat_map(|l| &l.games).find(|g| g.app_id == app_id);
+    let installed = game.is_none_or(installed);
     let session = source.session.filter(|s| active(s));
     // A PC that is away reports nothing live, whatever was saved.
     let mut state = GameState::Idle;
@@ -378,7 +589,9 @@ pub fn detail(source: &Source<'_>, app_id: u32, native: bool) -> Detail {
         _ if native && close_allowed => EndAction::CloseGame,
         _ => EndAction::Quit,
     };
-    Detail { state, can_start, end, other_running }
+    // Android's GameDetailModel.blocked(): only an idle game is held back by the library.
+    let can_start = source.online && source.paired && (installed || state != GameState::Idle);
+    Detail { state, can_start, installed, end, other_running }
 }
 
 /// What a PC's card says about its games.
@@ -390,8 +603,9 @@ pub enum HostLine {
     NoLibrary,
 }
 
+/// Counts every game the PC lists, installed or not, as Home's rows and their "All N" do.
 pub fn host_line(source: &Source<'_>) -> HostLine {
-    let games = source.library.map(|l| l.games.iter().filter(|g| installed(g)).count());
+    let games = source.library.map(|l| l.games.len());
     match (source.online, games) {
         (true, Some(n)) => HostLine::Games(n),
         (false, Some(n)) if n > 0 => HostLine::SavedGames(n),
@@ -526,7 +740,7 @@ mod tests {
         b.games[0].app_id = 7;
         b.games[0].install_id = "other".into();
         b.games[1].title = "alpha".into();
-        b.games[1].installed = Some(false); // not installed: left out
+        b.games[1].installed = Some(false); // not installed: listed, marked so
         let mut c = library();
         c.games[0].game_id = None;
         c.games[0].title = "Zed".into();
@@ -537,13 +751,187 @@ mod tests {
         ];
         let merged = merge_library(&sources);
         let titles: Vec<_> = merged.iter().map(|e| e.title.as_str()).collect();
-        // Desktop (A and C, no game id so one per PC), Dota 2 (A+B by game id), Zed.
-        assert_eq!(titles, ["Desktop", "Desktop", "Dota 2", "Zed"]);
+        // alpha, Desktop (A and C, no game id so one per PC), Dota 2 (A+B by game id), Zed.
+        assert_eq!(titles, ["alpha", "Desktop", "Desktop", "Dota 2", "Zed"]);
         let dota = merged.iter().find(|e| e.key == "game:steam:570").unwrap();
         // The copy on the online PC comes first.
         assert_eq!(dota.copies.iter().map(|c| (c.host, c.app_id)).collect::<Vec<_>>(), [(2, 7), (1, DOTA)]);
         assert_eq!(dota.best().host, 2);
-        assert!(merged.iter().all(|e| e.title != "alpha"));
+        assert_eq!((dota.store(), dota.best().store_name.as_deref()), (Some("steam"), Some("Steam")));
+        let alpha = merged.iter().find(|e| e.title == "alpha").unwrap();
+        assert!(!alpha.installed(), "a game no PC has installed is marked so");
+        assert!(merged.iter().filter(|e| e.title != "alpha").all(Entry::installed));
+    }
+
+    #[test]
+    fn an_installed_copy_is_opened_before_one_that_is_not() {
+        let mut a = library();
+        a.games[0].installed = Some(false);
+        let b = library();
+        let sources = [source(1, "A", true, Some(&a), None), source(2, "B", true, Some(&b), None)];
+        let dota = merge_library(&sources).into_iter().find(|e| e.title == "Dota 2").unwrap();
+        assert_eq!(dota.best().host, 2, "B has it installed");
+        assert!(dota.installed());
+    }
+
+    /// A library of `games` (title, store key, store name as the PC sends it, installed).
+    fn store_library(games: &[(&str, &str, &str, bool)]) -> Library {
+        let mut lib = library();
+        let template = lib.games[0].clone();
+        lib.games = games
+            .iter()
+            .enumerate()
+            .map(|(n, (title, key, name, installed))| Game {
+                install_id: format!("install-{n}"),
+                app_id: 100 + n as u32,
+                title: (*title).into(),
+                game_id: (!key.is_empty()).then(|| format!("{key}:{n}")),
+                store: (!key.is_empty()).then(|| nightjar_core::http::native_api::library::Store {
+                    source: (*key).into(),
+                    id: n.to_string(),
+                    name: (*name).into(),
+                }),
+                installed: Some(*installed),
+                ..template.clone()
+            })
+            .collect();
+        lib
+    }
+
+    fn mixed() -> Library {
+        store_library(&[
+            ("Halo", "microsoft", "", true),
+            ("Portal", "steam", "Steam", true),
+            ("Diablo", "battlenet", "", false),
+            ("Celeste", "steam", "", true),
+            ("Fortnite", "epic", "Epic Games Store", true),
+            ("Notepad", "", "", true),
+            ("Hades", "steam", "", false),
+            ("Forza", "microsoft", "", true),
+        ])
+    }
+
+    #[test]
+    fn store_names_are_the_pcs_else_the_known_product_name_else_the_key_with_a_capital() {
+        assert_eq!(store_name("epic", "Epic Games Store"), "Epic Games Store");
+        assert_eq!(store_name("microsoft", ""), "Xbox");
+        assert_eq!(store_name("battlenet", " "), "Battle.net");
+        // A store Nightjar does not know, and the PC did not name, reads as a name, not a key.
+        assert_eq!(store_name("itchio", ""), "Itchio");
+        assert_eq!(store_name("itchio", "itch.io"), "itch.io");
+    }
+
+    #[test]
+    fn a_filters_focus_key_names_the_filter_not_its_place() {
+        let keys = [LibraryFilter::All, LibraryFilter::Installed, LibraryFilter::Store("steam".into()), LibraryFilter::Other].map(|f| f.key());
+        assert_eq!(keys, ["filter:all", "filter:installed", "filter:store:steam", "filter:other"]);
+    }
+
+    /// The merge keeps its order: entries by title, equal titles in the order the PCs listed them,
+    /// and each game's copies by running, installed, online, then PC order.
+    #[test]
+    fn the_merged_library_keeps_title_then_listing_order() {
+        let a = store_library(&[("Same", "", "", true), ("beta", "steam", "", true), ("Alpha", "steam", "", true)]);
+        let mut b = store_library(&[("same", "", "", true), ("Beta", "steam", "", false)]);
+        // B's "Beta" is A's "beta" by its game id; its "same" has no store, so it stays its own.
+        b.games[1].game_id = a.games[1].game_id.clone();
+        let sources = [source(1, "A", true, Some(&a), None), source(2, "B", true, Some(&b), None)];
+        let merged = merge_library(&sources);
+        let got: Vec<(&str, Vec<u64>)> = merged.iter().map(|e| (e.title.as_str(), e.copies.iter().map(|c| c.host).collect())).collect();
+        assert_eq!(got, [("Alpha", vec![1]), ("beta", vec![1, 2]), ("Same", vec![1]), ("same", vec![2])]);
+        // B listed first: its not-installed copy still comes after A's installed one.
+        let sources = [source(2, "B", true, Some(&b), None), source(1, "A", true, Some(&a), None)];
+        let beta = merge_library(&sources).into_iter().find(|e| e.title == "Beta").unwrap();
+        assert_eq!(beta.copies.iter().map(|c| c.host).collect::<Vec<_>>(), [1, 2]);
+    }
+
+    #[test]
+    fn the_filters_are_all_installed_each_store_by_size_and_other_apps() {
+        let lib = mixed();
+        let sources = [source(1, "A", true, Some(&lib), None)];
+        let entries = merge_library(&sources);
+        let chips = library_filters(&entries);
+        let got: Vec<(LibraryFilter, Option<&str>, usize)> = chips.iter().map(|c| (c.filter.clone(), c.store_name.as_deref(), c.count)).collect();
+        let store = |key: &str| LibraryFilter::Store(key.into());
+        assert_eq!(
+            got,
+            [
+                (LibraryFilter::All, None, 8),
+                (LibraryFilter::Installed, None, 6),
+                (store("steam"), Some("Steam"), 3),
+                (store("microsoft"), Some("Xbox"), 2),
+                // Ties by key: battlenet before epic.
+                (store("battlenet"), Some("Battle.net"), 1),
+                (store("epic"), Some("Epic Games Store"), 1),
+                (LibraryFilter::Other, None, 1),
+            ]
+        );
+        // Every chip shows exactly as many games as it says, by title.
+        for chip in &chips {
+            assert_eq!(filtered(&entries, &chip.filter).len(), chip.count, "{:?}", chip.filter);
+        }
+        let titles = |f: &LibraryFilter| filtered(&entries, f).iter().map(|e| e.title.as_str()).collect::<Vec<_>>();
+        assert_eq!(titles(&store("steam")), ["Celeste", "Hades", "Portal"]);
+        assert_eq!(titles(&LibraryFilter::Installed), ["Celeste", "Fortnite", "Forza", "Halo", "Notepad", "Portal"]);
+        assert_eq!(titles(&LibraryFilter::Other), ["Notepad"]);
+    }
+
+    #[test]
+    fn epic_battle_net_and_xbox_behave_exactly_like_steam() {
+        let lib = store_library(&[("A", "steam", "", true), ("B", "epic", "", true), ("C", "battlenet", "", true), ("D", "microsoft", "", true)]);
+        let sources = [source(1, "A", true, Some(&lib), None)];
+        let entries = merge_library(&sources);
+        let chips = library_filters(&entries);
+        let rows = library_rows(&entries);
+        for key in ["steam", "epic", "battlenet", "microsoft"] {
+            let filter = LibraryFilter::Store(key.into());
+            assert_eq!(chips.iter().filter(|c| c.filter == filter).map(|c| c.count).collect::<Vec<_>>(), [1], "{key}: one chip");
+            assert_eq!(rows.iter().filter(|r| r.filter == filter).map(|r| r.games.len()).collect::<Vec<_>>(), [1], "{key}: one row");
+        }
+        // Nothing uninstalled and no store-less apps: neither Installed nor Other is offered.
+        assert!(!chips.iter().any(|c| matches!(c.filter, LibraryFilter::Installed | LibraryFilter::Other)));
+    }
+
+    #[test]
+    fn home_rows_are_one_per_store_largest_first_installed_first_then_other_apps() {
+        let lib = mixed();
+        let sources = [source(1, "A", true, Some(&lib), None)];
+        let entries = merge_library(&sources);
+        let rows = library_rows(&entries);
+        let got: Vec<(String, Vec<&str>)> = rows.iter().map(|r| (r.key(), r.games.iter().map(|e| e.title.as_str()).collect())).collect();
+        assert_eq!(
+            got,
+            [
+                ("row:store:steam".to_owned(), vec!["Celeste", "Portal", "Hades"]),
+                ("row:store:microsoft".to_owned(), vec!["Forza", "Halo"]),
+                ("row:store:battlenet".to_owned(), vec!["Diablo"]),
+                ("row:store:epic".to_owned(), vec!["Fortnite"]),
+                ("row:other".to_owned(), vec!["Notepad"]),
+            ]
+        );
+        assert_eq!(rows[0].filter, LibraryFilter::Store("steam".into()), "All N opens the store's chip");
+        assert_eq!(rows[4].filter, LibraryFilter::Other);
+        // A library with no stores at all is one plain row under All.
+        let plain = store_library(&[("B", "", "", true), ("A", "", "", true)]);
+        let sources = [source(1, "A", true, Some(&plain), None)];
+        let entries = merge_library(&sources);
+        let rows = library_rows(&entries);
+        assert_eq!(rows.len(), 1);
+        assert_eq!((rows[0].kind.clone(), rows[0].filter.clone()), (RowKind::Library, LibraryFilter::All));
+        assert_eq!(library_filters(&entries).len(), 1, "only All: no Other chip without stores");
+    }
+
+    #[test]
+    fn a_row_shows_what_fits_and_ends_in_the_all_tile_when_more_follow() {
+        let lib = mixed();
+        let sources = [source(1, "A", true, Some(&lib), None)];
+        let entries = merge_library(&sources);
+        let steam = &library_rows(&entries)[0];
+        assert_eq!(steam.fit(3), (3, false), "three fit whole");
+        assert_eq!(steam.fit(8), (3, false));
+        assert_eq!(steam.fit(2), (1, true), "one game and the All tile");
+        assert_eq!(steam.fit(0), (0, true), "a window too narrow for two still shows the tile");
+        assert!(library_filters(&[]).is_empty() && library_rows(&[]).is_empty());
     }
 
     #[test]
@@ -673,15 +1061,36 @@ mod tests {
         assert_eq!(HostLine::Games(2).text(), "Games: 2");
         assert_eq!(HostLine::SavedGames(2).text(), "Offline. Saved games: 2");
         assert_eq!(HostLine::NoLibrary.text(), "Games not loaded yet");
+        // A game the PC has not installed counts, as it does in Home's rows and their "All N".
         let mut some_missing = library();
         some_missing.games[1].installed = Some(false);
-        assert_eq!(host_line(&source(1, "A", true, Some(&some_missing), None)), HostLine::Games(1));
+        assert_eq!(host_line(&source(1, "A", true, Some(&some_missing), None)), HostLine::Games(2));
+        let entries = merge_library(&[source(1, "A", true, Some(&some_missing), None)]);
+        assert_eq!(library_rows(&entries).iter().map(|r| r.games.len()).sum::<usize>(), 2);
     }
 
     #[test]
     fn the_stream_summary_reads_like_the_android_one() {
         assert_eq!(stream_summary(1920, 1080, 60, 20_000), "1920 × 1080, 60 FPS, 20 Mbps");
         assert_eq!(stream_summary(2560, 1440, 120, 37_500), "2560 × 1440, 120 FPS, 37.5 Mbps");
+    }
+
+    /// Android's GameDetailModel: a game the PC lists as not installed cannot be started, but one
+    /// that runs or is suspended there can still be resumed.
+    #[test]
+    fn a_game_the_pc_has_not_installed_cannot_start_but_resumes() {
+        let mut lib = library();
+        lib.games[0].installed = Some(false); // Dota 2
+        let idle = idle();
+        let d = detail(&source(1, "A", true, Some(&lib), Some(&idle)), DOTA, true);
+        assert_eq!((d.installed, d.can_start), (false, false), "not installed: no Play");
+        let suspended = session(); // Dota 2 suspended
+        let d = detail(&source(1, "A", true, Some(&lib), Some(&suspended)), DOTA, true);
+        assert_eq!((d.installed, d.can_start, d.resumes()), (false, true, true), "a suspended game resumes");
+        // Saying nothing either way counts as installed.
+        lib.games[0].installed = None;
+        let d = detail(&source(1, "A", true, Some(&lib), Some(&idle)), DOTA, true);
+        assert_eq!((d.installed, d.can_start), (true, true));
     }
 
     #[test]

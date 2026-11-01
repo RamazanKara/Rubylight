@@ -52,6 +52,8 @@ roles! {
     SURFACE: rgb(0x1E202B), rgb(0x101114);
     SURFACE_HIGH: rgb(0x282A36), rgb(0x1C1D22);
     SURFACE_HIGHEST: rgb(0x333541), rgb(0x2A2C33);
+    // One step past the highest: a hovered or pressed control that already sits on SURFACE_HIGHEST.
+    SURFACE_BRIGHT: rgb(0x3D404D), rgb(0x383A42);
     ON_SURFACE: rgb(0xE3E4EE), rgb(0xFFFFFF);
     ON_SURFACE_VARIANT: rgb(0xC1C4D2), rgb(0xFFFFFF);
     // Text on hovered cards and buttons too (4.5:1 on SURFACE_HIGHEST), lighter than Android's.
@@ -154,6 +156,40 @@ pub fn own_palette() {
 /// contrast.
 pub fn focus_ring_width() -> f32 {
     if high_contrast() { 3.5 } else { 2.0 }
+}
+
+/// The gap between an element and its focus ring, so the ring never touches the element's own fill.
+pub const FOCUS_GAP: f32 = 2.0;
+
+/// The surface ladder, darkest first. Hover lifts a surface one step, pressing two.
+const LADDER: [Role; 6] = [SURFACE_LOWEST, SURFACE_LOW, SURFACE, SURFACE_HIGH, SURFACE_HIGHEST, SURFACE_BRIGHT];
+
+/// One step lighter on the surface ladder (the brightest stays): what a hovered surface fills with.
+/// A role off the ladder (the night background) steps to the lowest card surface.
+pub fn lighter(role: Role) -> Role {
+    match LADDER.iter().position(|r| r.0 == role.0) {
+        Some(at) => LADDER[(at + 1).min(LADDER.len() - 1)],
+        None => SURFACE,
+    }
+}
+
+/// `color` moved `t` of the way toward `toward`: how an accent fill (the amber of a primary button)
+/// lightens on hover, as the surfaces step up their ladder.
+pub fn tint(color: Color32, toward: Color32, t: f32) -> Color32 {
+    let mix = |a: u8, b: u8| (f32::from(a) + (f32::from(b) - f32::from(a)) * t).round() as u8;
+    Color32::from_rgba_unmultiplied(mix(color.r(), toward.r()), mix(color.g(), toward.g()), mix(color.b(), toward.b()), color.a())
+}
+
+/// The fill of a surface `base` in its interaction state: one step lighter while hovered or
+/// focused, two while pressed. Focus adds the ring on top ([`crate::ui::focus_ring`]).
+pub fn state_fill(base: Role, hovered: bool, pressed: bool) -> Role {
+    if pressed {
+        lighter(lighter(base))
+    } else if hovered {
+        lighter(base)
+    } else {
+        base
+    }
 }
 
 /// Whether the operating system asks for less motion. Windows: "Show animations in Windows" is
@@ -269,7 +305,9 @@ pub fn set_look(ctx: &egui::Context, high: bool, still: bool) {
     v.window_corner_radius = radius::PANEL.into();
     v.menu_corner_radius = radius::CONTROL.into();
     v.window_shadow = egui::Shadow::NONE;
-    v.popup_shadow = egui::Shadow::NONE;
+    // Menus float over the page: a soft shadow lifts them off it (none in high contrast, where
+    // their outline does it).
+    v.popup_shadow = if high { egui::Shadow::NONE } else { egui::Shadow { offset: [0, 10], blur: 28, spread: 0, color: Color32::from_black_alpha(120) } };
     let radius = egui::CornerRadius::same(radius::CONTROL);
     for (w, fill) in [
         (&mut v.widgets.noninteractive, *SURFACE),
@@ -293,8 +331,9 @@ pub fn set_look(ctx: &egui::Context, high: bool, still: bool) {
     }
     v.widgets.noninteractive.bg_stroke = Stroke::new(1.0, *OUTLINE_VARIANT);
     v.widgets.noninteractive.fg_stroke = Stroke::new(1.0, *ON_SURFACE_VARIANT);
-    // Keyboard and controller focus must be obvious from across a room.
-    v.widgets.hovered.bg_stroke = Stroke::new(if high { 2.0 } else { 1.0 }, *OUTLINE);
+    // Hover lightens the fill one step and draws no outline (high contrast keeps the outline every
+    // control has). Focus, which egui draws with the active look, is the amber ring.
+    v.widgets.hovered.bg_stroke = if high { Stroke::new(1.5, *OUTLINE_VARIANT) } else { Stroke::NONE };
     v.widgets.active.bg_stroke = Stroke::new(focus_ring_width(), *MOON);
     ctx.set_global_style(style);
 }
@@ -708,6 +747,41 @@ mod tests {
         assert!(!std::thread::spawn(high_contrast).join().unwrap());
         set_high_contrast(false);
         assert!(!high_contrast());
+    }
+
+    #[test]
+    fn hover_lifts_a_surface_one_step_and_pressing_two_never_past_the_brightest() {
+        assert_eq!(lighter(SURFACE).0, SURFACE_HIGH.0);
+        assert_eq!(lighter(SURFACE_HIGH).0, SURFACE_HIGHEST.0);
+        assert_eq!(lighter(SURFACE_BRIGHT).0, SURFACE_BRIGHT.0, "the top of the ladder holds");
+        assert_eq!(lighter(NIGHT).0, SURFACE.0, "the page background steps to a card surface");
+        assert_eq!(state_fill(SURFACE, false, false).0, SURFACE.0);
+        assert_eq!(state_fill(SURFACE, true, false).0, SURFACE_HIGH.0);
+        assert_eq!(state_fill(SURFACE, true, true).0, SURFACE_HIGHEST.0);
+        // Every step is a visible change and text stays readable on the brightest.
+        for high in [false, true] {
+            for pair in LADDER.windows(2) {
+                assert_ne!(color(high, pair[0]), color(high, pair[1]), "high={high}: {:?} and {:?}", pair[0], pair[1]);
+            }
+            let floor = if high { 7.0 } else { 4.5 };
+            for text in [ON_SURFACE, ON_SURFACE_VARIANT] {
+                let ratio = contrast(color(high, text), color(high, SURFACE_BRIGHT));
+                assert!(ratio >= floor, "high={high}: {text:?} on the brightest surface is {ratio:.2}:1");
+            }
+        }
+    }
+
+    #[test]
+    fn hover_draws_no_outline_and_focus_stays_the_amber_ring() {
+        let ctx = egui::Context::default();
+        own_palette();
+        set_look(&ctx, false, false);
+        let v = ctx.global_style().visuals.clone();
+        assert_eq!(v.widgets.hovered.bg_stroke, Stroke::NONE, "no white outline on hover");
+        assert_eq!(v.widgets.active.bg_stroke.color, color(false, MOON));
+        set_look(&ctx, true, false);
+        let v = ctx.global_style().visuals.clone();
+        assert_eq!(v.widgets.hovered.bg_stroke, v.widgets.inactive.bg_stroke, "high contrast keeps the outline every control has, no brighter one");
     }
 
     #[test]

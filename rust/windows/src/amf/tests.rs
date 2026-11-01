@@ -1102,6 +1102,37 @@ fn settings_log_queries_each_codecs_frame_skip_property() {
 }
 
 #[test]
+fn settings_log_queries_screen_content_and_high_motion_tools() {
+    // Whether the driver keeps these on by default decides what the opt-in
+    // settings change, so the settings line reads them back.
+    for (codec, expected) in [
+        (0, &["HighMotionQualityBoostEnable"][..]),
+        (1, &["HevcHighMotionQualityBoostEnable"][..]),
+        (
+            2,
+            &[
+                "Av1HighMotionQualityBoost",
+                "Av1ScreenContentTools",
+                "Av1PaletteMode",
+                "Av1ForceIntegerMv",
+            ][..],
+        ),
+    ] {
+        let names: Vec<_> = Encoder::setting_names(codec)
+            .iter()
+            .copied()
+            .filter(|name| {
+                name.contains("HighMotionQualityBoost")
+                    || ["ScreenContentTools", "PaletteMode", "ForceIntegerMv"]
+                        .iter()
+                        .any(|tool| name.ends_with(tool))
+            })
+            .collect();
+        assert_eq!(names, expected);
+    }
+}
+
+#[test]
 fn smart_access_video_excludes_only_forced_low_latency() -> Result<()> {
     use butterpollo_core::{config::Config, encoder_policy, rtsp::Negotiated};
     for codec in 0..=2 {

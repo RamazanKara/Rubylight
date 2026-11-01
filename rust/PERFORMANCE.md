@@ -6,6 +6,7 @@ This is the dated measurement record. For a guided comparison, start with the [p
 
 | Find a result | Recorded evidence |
 | --- | --- |
+| AMF's AV1 screen-content tools (palette, integer motion vectors) and the high-motion quality boost on H.264, HEVC and AV1: driver defaults read back, quality, size and encode time on text and game content (none changed) | [November 1, AV1 screen-content tools and high-motion quality boost](#november-1-av1-screen-content-tools-and-high-motion-quality-boost-left-as-they-were) |
 | A focused VRR game next to another animating window: WGC dirty regions tell the game's pictures from the other window's updates and pointer moves; repeats, age, present-to-sent, with and without the pointer moving (ABBA) | [October 30, a focused game's pictures beside another window](#october-30-a-focused-games-pictures-beside-another-window) |
 | Nightjar desktop presenting for VRR: the display check on a 240 Hz FreeSync panel and a fixed 120 Hz laptop panel, what it costs, mid-scan presents, sync interval 1 and waiting out the scan (not kept as defaults) | [October 29, Nightjar desktop on a VRR panel and a fixed one](#october-29-nightjar-desktop-on-a-vrr-panel-and-a-fixed-one) |
 | False slow-pace latches from #59's rc.4 logs: a decoder asking twice for a keyframe, a host adapter refusing packets (lifted after 10 s), holding frames for a full socket (not kept), the keyframe cap scale (inert here); latches, stalls, picture age, presentation gaps (ABBA) | [October 29, false slow-pace latches and a stalled adapter](#october-29-false-slow-pace-latches-and-a-stalled-adapter-rc4-field-logs) |
@@ -58,6 +59,36 @@ This is the dated measurement record. For a guided comparison, start with the [p
 | PyroWave HDR 4:4:4 | [Transport and decoding](#vibepollo-20-pyrowave-transport) · [SDK patches from Punktfunk](#october-15-pyrowave-sdk-patches-from-punktfunk) |
 | CPU error correction | [C++ FEC comparison](#controlled-comparison-with-the-original-c-fec) |
 | Reproduction and scope | [Probes](#reproduce-on-another-machine) · [Hardware covered](#hardware-covered) |
+
+## November 1: AV1 screen-content tools and high-motion quality boost (left as they were)
+
+Whether AMF's AV1 screen-content tools (`Av1ScreenContentTools`, `Av1PaletteMode`, `Av1ForceIntegerMv`) and the high-motion quality boost (`HighMotionQualityBoostEnable`, `HevcHighMotionQualityBoostEnable`, `Av1HighMotionQualityBoost`) give a better picture at the same bitrate without encode time. None was changed: the driver already keeps palette coding on, and nothing else paid.
+
+Probe (RX 7900 XT, each property set and read back; the encoder's settings line now lists all six): every codec accepted every property and kept the value set. Unset, the driver has the high-motion boost off on all three codecs and, for AV1, screen-content tools on, palette mode on and integer motion vectors off. The host writes none of them unless `amd_high_motion_quality_boost` or `amd_av1_screen_content` is set.
+
+Setup: `amf_quality` (release, each frame encoded on its own), 1920x1080 at 60 fps, Rec.709 limited, one arm per property, with the default run first and again last. Text: `chroma_fixtures.py` editor, browser and spreadsheet scenes (90 frames: still, scrolling 6 px a frame, still) at 6 Mbps requested (mostly still pictures, so 0.7-2.8 Mbps came out). Game: 300 frames each of Xiph's GTAV (from 30 s, a plane over a runway) and CSGO (from 30 s, a firefight) at 12 Mbps. Scores are FFmpeg PSNR and SSIM per plane of the decoded 4:2:0 picture against the source in 4:2:0, chroma included. AV1's palette mode and integer motion vectors were set through `probe_amf_properties`. The two default runs gave bit-identical streams, so quality has no run noise; their encode time spread was at most 0.11 ms at p50 and 0.33 ms at p95. Other lanes' builds ran beside some arms.
+
+Change against the default. Bitrate is the actual bitrate; encode time is p50 / p95 in ms.
+
+| Codec, arm | Content | Bitrate | ΔPSNR Y / U / V dB | ΔSSIM Y ×10⁻³ | Encode Δ p50 / p95 |
+| --- | --- | ---: | --- | ---: | --- |
+| AV1, screen-content tools off | editor | +1.6 % | +0.06 / +0.09 / +0.12 | -0.29 | +0.03 / -0.10 |
+| | browser | +3.3 % | -0.21 / -0.10 / +0.03 | -0.52 | +0.08 / +0.12 |
+| | sheet | +5.8 % | -0.13 / +0.07 / +0.04 | -1.90 | +0.29 / +0.28 |
+| | GTAV, CSGO | 0, +0.1 % | -0.01 to +0.01 | 0, +0.07 | +0.20 / +0.31, 0 / -0.22 |
+| AV1, palette off | all five | same sizes and scores as screen-content tools off | | | -0.08 to +0.12 / -0.27 to +0.21 |
+| AV1, integer motion vectors forced | editor, browser, sheet | -0.7 to -1.1 % | -0.05 to +0.04 | -0.06 to +0.01 | -0.09 to +0.08 / -0.15 to +0.01 |
+| | GTAV | +5.5 % | +0.01 / +0.13 / -0.01 | -0.05 | +0.12 / +0.12 |
+| | CSGO | -0.6 % | **-0.87 / -0.38 / -0.50** | **-18.05** | 0 / -0.14 |
+| AV1, high-motion boost | all five | -0.1 to +0.2 % (sheet +54.8 %) | -0.06 to +0.06 | -0.02 to +0.04 | **+0.24 to +0.39 / +0.18 to +0.58** |
+| HEVC, high-motion boost | all five | 0 (editor -0.1 %, sheet +4.9 %) | 0 (sheet +0.03 to +0.06) | 0 (sheet +0.19) | **+0.24 to +0.28 / +0.18 to +0.37** |
+| H.264, high-motion boost | all five | bit-identical streams | 0 | 0 | **+0.59 to +0.72 / +0.35 to +1.05** |
+
+- Screen-content tools on this driver come down to palette coding: palette off gave the same sizes and scores as the switch off. They stay on, as the driver has them: off cost 1.6-5.8 % more bits on text, with lower luma on the browser and spreadsheet, and changed nothing on game content.
+- Forced integer motion vectors: neutral on text, 5.5 % more bits on GTAV and 0.87 dB less luma on CSGO. Left off.
+- High-motion boost: bit-identical H.264 streams everywhere and bit-identical HEVC streams on GTAV, CSGO and the browser, at 0.24-0.72 ms more encode time per frame at p50 (above the 0.11 ms spread). That is latency without a picture gain, as the October sweeps found (0.2-1.1 ms). Left off; `amd_high_motion_quality_boost` stays opt-in.
+
+Regression test: `settings_log_queries_screen_content_and_high_motion_tools` (the settings line reads all six back, per codec).
 
 ## October 30: a focused game's pictures beside another window
 

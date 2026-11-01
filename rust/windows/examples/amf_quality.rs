@@ -258,6 +258,7 @@ fn main() -> anyhow::Result<()> {
             "frame_bytes_max": all_sizes.last(),
             "all_frame_bytes_p99": all_sizes.get(all_sizes.len().saturating_sub(1) * 99 / 100),
             "encode_mean_ms": latencies.iter().sum::<f64>() / latencies.len().max(1) as f64,
+            "encode_p50_ms": percentile(&latencies, 50),
             "encode_p95_ms": percentile(&latencies, 95),
             "encode_p99_ms": percentile(&latencies, 99),
             "frame_bytes_mean": sizes.iter().sum::<usize>() as f64 / sizes.len().max(1) as f64,

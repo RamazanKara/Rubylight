@@ -230,7 +230,7 @@ pub fn exclude_from_capture_if_asked(window: *mut SDL_Window) {
 }
 
 /// The title bar's DWM attributes, in the order they are set: dark mode first, which Windows 10
-/// (20H1 and later) has, then the caption, border and title colours, which only Windows 11 has.
+/// has (20H1 and later as 20, earlier as [`title_bar_fallback`]), then the caption, border and title colours, which only Windows 11 has.
 /// Colours are COLORREFs (0x00BBGGRR). The border takes the background too, so a maximized or
 /// snapped window shows one dark surface from the caption down.
 #[cfg_attr(not(windows), allow(dead_code))]
@@ -238,6 +238,19 @@ fn title_bar_attributes(background: egui::Color32, text: egui::Color32) -> [(i32
     let colorref = |c: egui::Color32| u32::from(c.r()) | u32::from(c.g()) << 8 | u32::from(c.b()) << 16;
     // DWMWA_USE_IMMERSIVE_DARK_MODE, DWMWA_BORDER_COLOR, DWMWA_CAPTION_COLOR, DWMWA_TEXT_COLOR.
     [(20, 1), (34, colorref(background)), (35, colorref(background)), (36, colorref(text))]
+}
+
+/// The number an older Windows knows a refused title bar attribute by: Windows 10 1809 to 1909
+/// take immersive dark mode only as 19, before it became 20.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn title_bar_fallback(attribute: i32) -> Option<i32> {
+    (attribute == 20).then_some(19)
+}
+
+/// What a refused title bar attribute needs, for the log.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn title_bar_needs(attribute: i32) -> &'static str {
+    if attribute == 20 { "Windows 10 1809 or later" } else { "Windows 11" }
 }
 
 /// Gives the Windows title bar the launcher's colours: dark mode and the page's background as the
@@ -256,11 +269,15 @@ pub fn blend_title_bar(window: *mut SDL_Window, background: egui::Color32, text:
             eprintln!("nightjar: title bar colours: the window has no HWND");
             return;
         }
+        // SAFETY: the window belongs to this process; the value is a 4-byte BOOL or COLORREF.
+        let apply = |attribute: i32, value: u32| unsafe { DwmSetWindowAttribute(HWND(hwnd), DWMWINDOWATTRIBUTE(attribute), (&raw const value).cast(), 4) };
         for (attribute, value) in title_bar_attributes(background, text) {
-            // SAFETY: the window belongs to this process; the value is a 4-byte BOOL or COLORREF.
-            let set = unsafe { DwmSetWindowAttribute(HWND(hwnd), DWMWINDOWATTRIBUTE(attribute), (&raw const value).cast(), 4) };
+            let set = apply(attribute, value).or_else(|error| match title_bar_fallback(attribute) {
+                Some(older) => apply(older, value).map_err(|_| error),
+                None => Err(error),
+            });
             if let Err(error) = set {
-                eprintln!("nightjar: title bar attribute {attribute} not set (Windows 11 has it): {error}");
+                eprintln!("nightjar: title bar attribute {attribute} not set (needs {}): {error}", title_bar_needs(attribute));
             }
         }
     }
@@ -503,6 +520,11 @@ mod tests {
         // Dark mode first: Windows 10 refuses the colours but still takes it.
         assert_eq!(attributes[0], (20, 1));
         assert_eq!(attributes[1..], [(34, 0x001F_1614), (35, 0x001F_1614), (36, 0x00EE_E4E3)]);
+        // Windows 10 1809 to 1909 know dark mode as 19; the colours have no older number.
+        assert_eq!(title_bar_fallback(20), Some(19));
+        assert!(attributes[1..].iter().all(|(attribute, _)| title_bar_fallback(*attribute).is_none()));
+        assert_eq!(title_bar_needs(20), "Windows 10 1809 or later");
+        assert_eq!(title_bar_needs(35), "Windows 11");
     }
 }
 

@@ -49,6 +49,13 @@ pub(super) async fn handle(h: &Shared, method: &Method, path: &str, data: &Value
                 );
             };
             let path = path.trim().to_string();
+            // The settings file takes # as the start of a comment.
+            if path.contains('#') {
+                return error(
+                    StatusCode::BAD_REQUEST,
+                    "Rubylight can't keep a folder with # in its path: rename the folder, or unpack the release into another one",
+                );
+            }
             match tokio::task::spawn_blocking(move || choose(&h, &path)).await {
                 Ok(Ok(install)) => Json(install).into_response(),
                 Ok(Err(refusal)) => refused(&refusal),
@@ -119,22 +126,36 @@ fn configured(h: &Shared) -> String {
 
 /// The console's Choose folder: `path` checked as a launch checks it, then
 /// kept as `nucleus_path`; a refused folder saves nothing. An empty `path`
-/// goes back to an earlier Rubylight's install, if any.
+/// forgets the folder, unchecked: an earlier Rubylight's install runs again,
+/// if any. What sessions left in the Nucleus Co-op left behind is put back
+/// first ([`crate::nucleus::Registry::change_folder`]).
 fn choose(h: &Shared, path: &str) -> Result<Value, Refusal> {
-    let install = h.nucleus.check_folder(path)?;
-    super::config::save_setting(h, "nucleus_path", |_| Ok(path.to_string())).map_err(|e| {
-        Refusal {
-            status: 500,
-            message: format!("Saving the Nucleus Co-op folder failed: {e:#}"),
-        }
+    let checked = if path.is_empty() {
+        None
+    } else {
+        Some(h.nucleus.check_folder(path)?)
+    };
+    h.nucleus.change_folder(&configured(h), path, || {
+        super::config::save_setting(h, "nucleus_path", |_| Ok(path.to_string())).map_err(|e| {
+            Refusal {
+                status: 500,
+                message: format!("Saving the Nucleus Co-op folder failed: {e:#}"),
+            }
+        })
     })?;
-    tracing::info!(folder = path, "Nucleus Co-op: folder chosen in the console");
-    Ok(install_json(&install, path))
+    let install = checked.unwrap_or_else(|| h.nucleus.install(path));
+    if path.is_empty() {
+        tracing::info!("Nucleus Co-op: folder forgotten in the console");
+    } else {
+        tracing::info!(folder = path, "Nucleus Co-op: folder chosen in the console");
+    }
+    Ok(install_json(&install, path, h.nucleus.notice(path)))
 }
 
 /// Where Nucleus Co-op stands, as the panels show it: `chosen` is
-/// `nucleus_path`, for the folder field.
-fn install_json(install: &Install, chosen: &str) -> Value {
+/// `nucleus_path`, for the folder field, and `notice` why the copy an
+/// earlier Rubylight installed runs instead of it.
+fn install_json(install: &Install, chosen: &str, notice: Option<String>) -> Value {
     let (state, path, version, problem, install_error) = match install {
         Install::Missing => ("missing", None, None, None, None),
         // An earlier Rubylight's install, which still runs.
@@ -155,6 +176,7 @@ fn install_json(install: &Install, chosen: &str) -> Value {
         "version": version,
         "problem": problem,
         "error": install_error,
+        "notice": notice,
         // Where the user downloads it: Rubylight downloads nothing.
         "release": {"version": VERSION, "page": RELEASE_PAGE},
     })
@@ -179,7 +201,11 @@ fn status(h: &Shared) -> Value {
     let setting = config.get(KEY, "");
     let decision = Decision::nucleus();
     let chosen = crate::nucleus::configured(&config);
-    let install = install_json(&h.nucleus.install(&chosen), &chosen);
+    let install = install_json(
+        &h.nucleus.install(&chosen),
+        &chosen,
+        h.nucleus.notice(&chosen),
+    );
     let apps = h
         .apps
         .read()
@@ -360,6 +386,7 @@ mod tests {
         state::{App, Client},
     };
     use serde_json::{Value, json};
+    use std::path::PathBuf;
     use std::sync::Arc;
 
     /// A host with Nucleus Co-op (the fake) running a two-player Portal 2
@@ -448,7 +475,7 @@ mod tests {
         assert_eq!(
             body["install"],
             json!({"state": "installed", "path": r"C:\Nucleus", "chosen": "", "version": "2.4.2",
-                   "problem": null, "error": null,
+                   "problem": null, "error": null, "notice": null,
                    "release": {"version": "2.4.2", "page": "https://github.com/SplitScreen-Me/splitscreenme-nucleus/releases/tag/v2.4.2"}})
         );
         assert_eq!(
@@ -680,6 +707,173 @@ mod tests {
         .await;
         assert_eq!(cleared["state"], "missing");
         assert_eq!(kept(&f), "");
+        // Gone from the settings file too, not just from memory.
+        let saved = Config::load(&f.host.config_path).unwrap();
+        assert!(!saved.values.contains_key("nucleus_path"), "{saved:?}");
+        assert_eq!(panel(&f).await["install"]["state"], "missing");
+    }
+
+    #[tokio::test]
+    async fn a_folder_is_forgotten_unchecked_even_where_sessions_cant_run() {
+        let f = Fixture::new();
+        let pc = Arc::new(fake::Pc::installed());
+        f.host.nucleus.use_pc(pc.clone());
+        let chosen = || {
+            request(
+                &f,
+                "POST",
+                "/api/coop/folder",
+                json!({"path": r"D:\Nucleus"}),
+            )
+        };
+        value(chosen().await, StatusCode::OK).await;
+        assert_eq!(kept(&f), r"D:\Nucleus");
+        let put_back = pc.put_back.lock().unwrap().clone();
+        // A folder refused now, or a host without the service: forgetting it
+        // still works, never a 503.
+        pc.unusable.lock().unwrap().insert(
+            r"D:\Nucleus".into(),
+            Unusable {
+                problem: Problem::Untrusted,
+                message: r"D:\Nucleus can be changed by S-1-5-11".into(),
+            },
+        );
+        *pc.unavailable.lock().unwrap() = Some("not on this test PC".into());
+        let cleared = value(
+            request(&f, "POST", "/api/coop/folder", json!({"path": "  "})).await,
+            StatusCode::OK,
+        )
+        .await;
+        assert_eq!(cleared["state"], "installed");
+        assert_eq!(cleared["path"], r"C:\Nucleus");
+        assert_eq!(kept(&f), "");
+        assert!(
+            !Config::load(&f.host.config_path)
+                .unwrap()
+                .values
+                .contains_key("nucleus_path")
+        );
+        // Nothing was put back into a folder that is refused, or on a host
+        // that runs no sessions.
+        assert_eq!(*pc.put_back.lock().unwrap(), put_back);
+    }
+
+    #[tokio::test]
+    async fn a_hash_in_the_folder_is_refused_before_anything_is_checked() {
+        let f = Fixture::new();
+        let pc = Arc::new(fake::Pc::installed());
+        *pc.unavailable.lock().unwrap() = Some("not on this test PC".into());
+        f.host.nucleus.use_pc(pc.clone());
+        let body = value(
+            request(
+                &f,
+                "POST",
+                "/api/coop/folder",
+                json!({"path": r"D:\Games #2\Nucleus"}),
+            )
+            .await,
+            StatusCode::BAD_REQUEST,
+        )
+        .await;
+        assert_eq!(
+            body["error"],
+            "Rubylight can't keep a folder with # in its path: rename the folder, or unpack the release into another one"
+        );
+        assert_eq!(kept(&f), "");
+    }
+
+    #[tokio::test]
+    async fn changing_the_folder_puts_back_what_the_one_left_kept() {
+        let f = Fixture::new();
+        let pc = Arc::new(fake::Pc::installed());
+        f.host.nucleus.use_pc(pc.clone());
+        let choose =
+            |path: &'static str| request(&f, "POST", "/api/coop/folder", json!({ "path": path }));
+        // From the earlier install to a folder chosen: the earlier one's
+        // journals are put back first.
+        value(choose(r"D:\Nucleus").await, StatusCode::OK).await;
+        assert_eq!(*pc.put_back.lock().unwrap(), [PathBuf::from(r"C:\Nucleus")]);
+        // The same folder again: nothing to put back.
+        value(choose(r"D:\Nucleus").await, StatusCode::OK).await;
+        assert_eq!(pc.put_back.lock().unwrap().len(), 1);
+        // One that can't be put back keeps the folder, and says why.
+        let why = r"D:\Nucleus\Rubylight-layers-S-1-5-21-9.json keeps the compatibility settings a Nucleus Co-op session changed for another Windows account: sign in to this PC as that account, so Rubylight puts them back, then choose the folder again";
+        *pc.put_back_error.lock().unwrap() = Some(why.into());
+        let body = value(choose(r"E:\Nucleus").await, StatusCode::CONFLICT).await;
+        assert_eq!(body["error"], why);
+        assert_eq!(kept(&f), r"D:\Nucleus");
+        *pc.put_back_error.lock().unwrap() = None;
+        value(choose("").await, StatusCode::OK).await;
+        assert_eq!(
+            *pc.put_back.lock().unwrap(),
+            [PathBuf::from(r"C:\Nucleus"), PathBuf::from(r"D:\Nucleus")]
+        );
+        assert_eq!(kept(&f), "");
+    }
+
+    #[tokio::test]
+    async fn the_folder_stays_while_a_session_runs_from_it() {
+        let c = coop();
+        let body = value(
+            request(
+                &c.f,
+                "POST",
+                "/api/coop/folder",
+                json!({"path": r"D:\Nucleus"}),
+            )
+            .await,
+            StatusCode::CONFLICT,
+        )
+        .await;
+        assert_eq!(
+            body["error"],
+            "Nucleus Co-op is running Portal 2: end that session first, then choose the folder"
+        );
+        assert_eq!(kept(&c.f), "");
+        assert!(c.pc.put_back.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn another_release_kept_runs_the_earlier_install_with_a_notice_and_is_never_chosen() {
+        let f = Fixture::new();
+        let pc = Arc::new(fake::Pc::installed());
+        let why = r"The NucleusCoop.exe in D:\Old isn't Nucleus Co-op 2.4.2's: download 2.4.2 from its release page and choose its folder";
+        let notice = format!(
+            r"{why}. Until then Rubylight runs the Nucleus Co-op 2.4.2 an earlier Rubylight installed, in C:\Nucleus"
+        );
+        *pc.instead.lock().unwrap() = Some((
+            Unusable {
+                problem: Problem::Version,
+                message: why.into(),
+            },
+            notice.clone(),
+        ));
+        f.host.nucleus.use_pc(pc.clone());
+        // Kept by an earlier Rubylight: the earlier install runs, and says why.
+        value(
+            request(
+                &f,
+                "PATCH",
+                "/api/config",
+                json!({"nucleus_path": r"D:\Old"}),
+            )
+            .await,
+            StatusCode::OK,
+        )
+        .await;
+        let install = panel(&f).await["install"].clone();
+        assert_eq!(install["state"], "configured");
+        assert_eq!(install["path"], r"C:\Nucleus");
+        assert_eq!(install["chosen"], r"D:\Old");
+        assert_eq!(install["notice"], notice);
+        // Chosen in the console: refused, as without the earlier install.
+        let body = value(
+            request(&f, "POST", "/api/coop/folder", json!({"path": r"D:\Other"})).await,
+            StatusCode::BAD_REQUEST,
+        )
+        .await;
+        assert_eq!(body["error"], why);
+        assert_eq!(kept(&f), r"D:\Old");
     }
 
     #[tokio::test]

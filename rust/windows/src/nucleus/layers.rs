@@ -609,6 +609,49 @@ fn restore_console_with(
     Ok(AtConsole::Done)
 }
 
+/// Before the host runs another Nucleus Co-op than the one at `folder`: put
+/// back what sessions left in it, Settings.ini from its journal
+/// ([`super::files::restore_settings_left`]) and the compatibility settings
+/// of the user signed in at the console from theirs, so neither file stays
+/// where no session looks again. Refused while a session runs from it, and
+/// while a file waits for a user who is not signed in at the console.
+pub fn put_back_to_leave(folder: &Path) -> Result<()> {
+    leave_with(
+        folder,
+        crate::process::console_session(),
+        crate::process::session_user_sid,
+        |sid| Box::new(UserHive::of(sid)),
+    )
+}
+
+/// [`put_back_to_leave`] with [`restore_console_with`]'s seams.
+fn leave_with(
+    folder: &Path,
+    console: u32,
+    sid_of: impl FnOnce(u32) -> Result<String>,
+    hive: impl FnOnce(String) -> Box<dyn Layers>,
+) -> Result<()> {
+    let busy = || {
+        anyhow::anyhow!(
+            "A Nucleus Co-op session runs from {}: end it, then choose the folder again",
+            folder.display()
+        )
+    };
+    if super::files::restore_settings_left(folder)?.is_none() {
+        return Err(busy());
+    }
+    if restore_console_with(folder, console, sid_of, hive)? == AtConsole::Busy {
+        return Err(busy());
+    }
+    if let Some(left) = waiting(folder)?.first() {
+        anyhow::bail!(
+            "{} keeps the compatibility settings a Nucleus Co-op session changed for another Windows account: sign in to this PC as that account, so Rubylight puts them back, then choose the folder again",
+            left.display()
+        );
+    }
+    Ok(())
+}
+
 /// The files in Nucleus' `folder` that keep a user's values.
 fn waiting(folder: &Path) -> Result<Vec<PathBuf>> {
     let mut files = Vec::new();

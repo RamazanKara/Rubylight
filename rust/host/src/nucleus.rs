@@ -113,6 +113,14 @@ pub trait Pc: Send + Sync {
     /// the folder the user chose, whose refusal is an
     /// [`install::Unusable`](butterpollo_core::nucleus::install::Unusable).
     fn installed(&self, configured: &str) -> Result<Option<PathBuf>>;
+    /// Why [`Self::installed`] runs the copy an earlier Rubylight installed
+    /// rather than the folder `configured` names (it holds another release),
+    /// and what the console says meanwhile; None when it runs that folder.
+    fn instead(&self, configured: &str) -> Option<(Unusable, String)>;
+    /// Put back what sessions left in the Nucleus at `folder` before the host
+    /// runs another, so it doesn't stay where no session looks again
+    /// ([`butterpollo_windows::nucleus::layers::put_back_to_leave`]).
+    fn put_back(&self, folder: &Path) -> Result<()>;
     /// Open Nucleus Co-op's own window at `folder` on the PC's screen, as the
     /// signed-in user, so they can add a handler or a game.
     fn open(&self, folder: &Path) -> Result<Box<dyn Window>>;

@@ -489,7 +489,7 @@ fn open_needs_the_install_and_no_running_session() {
     let refused = registry.open("").unwrap_err();
     assert_eq!(
         (refused.status, refused.message.as_str()),
-        (409, not_set_up().as_str())
+        (503, not_set_up().as_str())
     );
     *pc.installed.lock().unwrap() = Some(PathBuf::from(r"C:\Nucleus"));
     registry.open("").unwrap();

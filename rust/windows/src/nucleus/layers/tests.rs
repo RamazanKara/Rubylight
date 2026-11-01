@@ -414,6 +414,65 @@ fn the_service_puts_back_what_the_user_at_the_console_left() {
 }
 
 #[test]
+fn leaving_a_nucleus_puts_back_what_its_sessions_left_or_says_why_not() {
+    let map = Map::default();
+    map.values
+        .lock()
+        .unwrap()
+        .insert(GAME.into(), text("~ WIN8RTM"));
+    let folder = tempfile::tempdir().unwrap();
+    let settings = folder.path().join("Settings.ini");
+    std::fs::write(&settings, b"[Dev]\r\nShowFavoriteOnly=True\r\n").unwrap();
+    let leave = |console: u32| {
+        leave_with(
+            folder.path(),
+            console,
+            |session| {
+                anyhow::ensure!(session == 1, "no token");
+                Ok("S-1-5-21-7".into())
+            },
+            |_| Box::new(map.clone()),
+        )
+    };
+    let favourites = || {
+        let text = std::fs::read(&settings).unwrap();
+        butterpollo_core::nucleus::profile::ini_value(&text, "Dev", "ShowFavoriteOnly").unwrap()
+    };
+    // A session runs from it: nothing is put back under it.
+    let mut forced = crate::nucleus::files::write_settings(folder.path()).unwrap();
+    let guard = take(&map, folder.path()).unwrap();
+    nucleus_runs(&map, &[GAME]);
+    let error = format!("{:#}", leave(1).unwrap_err());
+    assert!(
+        error.contains("A Nucleus Co-op session runs from") && error.contains("end it"),
+        "{error}"
+    );
+    assert_eq!(favourites(), b"False");
+    // The host stopped with it running, and nobody is at the console now:
+    // Settings.ini is put back, the user's file waits and is named.
+    forced._lock = None;
+    std::mem::forget(forced);
+    host_stops(guard);
+    let journal = journal(folder.path(), "S-1-5-21-7");
+    let error = format!("{:#}", leave(u32::MAX).unwrap_err());
+    assert!(
+        error.contains(&format!(
+            "{} keeps the compatibility settings",
+            journal.display()
+        )) && error.contains("sign in to this PC as that account"),
+        "{error}"
+    );
+    assert_eq!(favourites(), b"True");
+    assert!(!folder.path().join("Rubylight-settings.json").exists());
+    assert_eq!(map.values.lock().unwrap()[GAME], text("~ HIGHDPIAWARE"));
+    // Signed in at the console: theirs come back too, and nothing is left.
+    leave(1).unwrap();
+    assert_eq!(map.values.lock().unwrap()[GAME], text("~ WIN8RTM"));
+    assert!(!journal.exists());
+    leave(u32::MAX).unwrap();
+}
+
+#[test]
 fn a_running_session_keeps_its_values_from_the_service_and_a_check_waits() {
     let map = Map::default();
     map.values

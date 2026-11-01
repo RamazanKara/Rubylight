@@ -588,7 +588,7 @@ pub struct SettingsGuard {
     forced: Vec<profile::Forced>,
     restored: bool,
     /// Tests let go of it to stand in for a host that stopped.
-    _lock: Option<Lock>,
+    pub(super) _lock: Option<Lock>,
 }
 
 impl SettingsGuard {

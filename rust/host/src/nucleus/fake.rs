@@ -16,6 +16,13 @@ pub(crate) struct Pc {
     pub installed_error: Mutex<Option<String>>,
     /// Why a chosen folder (`nucleus_path`) is refused, by its path.
     pub unusable: Mutex<BTreeMap<String, Unusable>>,
+    /// Why every folder chosen holds another release, while the earlier
+    /// install (`installed`) runs instead, and the console's notice.
+    pub instead: Mutex<Option<(Unusable, String)>>,
+    /// The Nucleus folders whose sessions' leftovers were put back, in order.
+    pub put_back: Mutex<Vec<PathBuf>>,
+    /// What putting them back fails with.
+    pub put_back_error: Mutex<Option<String>>,
     /// While true a read of the handlers and games waits, until `release`.
     pub hold: Mutex<bool>,
     pub release: std::sync::Condvar,
@@ -93,6 +100,9 @@ impl Pc {
             installed: Mutex::new(Some(PathBuf::from(r"C:\Nucleus"))),
             installed_error: Mutex::new(None),
             unusable: Mutex::new(BTreeMap::new()),
+            instead: Mutex::new(None),
+            put_back: Mutex::new(Vec::new()),
+            put_back_error: Mutex::new(None),
             hold: Mutex::new(false),
             release: std::sync::Condvar::new(),
             opened: AtomicUsize::new(0),
@@ -164,10 +174,24 @@ impl super::Pc for Pc {
         if let Some(unusable) = self.unusable.lock().unwrap().get(configured) {
             return Err(anyhow::Error::new(unusable.clone()));
         }
-        if !configured.is_empty() {
+        if !configured.is_empty() && self.instead.lock().unwrap().is_none() {
             return Ok(Some(PathBuf::from(configured)));
         }
         Ok(self.installed.lock().unwrap().clone())
+    }
+    fn instead(&self, configured: &str) -> Option<(Unusable, String)> {
+        let configured = configured.trim();
+        if configured.is_empty() || self.unusable.lock().unwrap().contains_key(configured) {
+            return None;
+        }
+        self.instead.lock().unwrap().clone()
+    }
+    fn put_back(&self, folder: &Path) -> Result<()> {
+        if let Some(error) = self.put_back_error.lock().unwrap().clone() {
+            anyhow::bail!(error);
+        }
+        self.put_back.lock().unwrap().push(folder.to_path_buf());
+        Ok(())
     }
     fn open(&self, _folder: &Path) -> Result<Box<dyn super::Window>> {
         let count = self.opened.fetch_add(1, Ordering::Relaxed);

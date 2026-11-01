@@ -17,6 +17,15 @@ impl Pc for OnPc {
     fn installed(&self, configured: &str) -> Result<Option<PathBuf>> {
         install::installed(&butterpollo_core::paths::data_root(), configured)
     }
+    fn instead(&self, configured: &str) -> Option<(Unusable, String)> {
+        // Kept from `installed`'s check moments before.
+        let found = install::found(&butterpollo_core::paths::data_root(), configured).ok()??;
+        let notice = found.notice()?;
+        Some((found.instead?, notice))
+    }
+    fn put_back(&self, folder: &Path) -> Result<()> {
+        butterpollo_windows::nucleus::layers::put_back_to_leave(folder)
+    }
     fn open(&self, folder: &Path) -> Result<Box<dyn Window>> {
         Ok(Box::new(butterpollo_windows::nucleus::session::open(
             folder,

@@ -160,6 +160,12 @@ impl Registry {
         Install::of(configured, self.pc().installed(configured))
     }
 
+    /// What the console says while the copy an earlier Rubylight installed
+    /// runs instead of the folder `configured` names ([`Pc::instead`]).
+    pub fn notice(&self, configured: &str) -> Option<String> {
+        self.pc().instead(configured).map(|(_, notice)| notice)
+    }
+
     /// The Nucleus folder a launch runs: refused with the reason when none
     /// is set up, or the folder chosen is one Nucleus Co-op can't run from.
     /// Rubylight installs nothing itself.
@@ -175,19 +181,87 @@ impl Registry {
 
     /// The console's Choose folder: `path` checked as a launch would check
     /// it, so a folder Nucleus Co-op can't run from is refused before it is
-    /// saved; an empty `path` goes back to an earlier install, if any.
+    /// saved, as is one only the copy an earlier Rubylight installed would
+    /// stand in for ([`Pc::instead`]).
     pub fn check_folder(&self, path: &str) -> Result<Install, Refusal> {
         let pc = self.pc();
         if let Some(why) = pc.unavailable() {
             return Err(Refusal::unavailable(why));
         }
+        let refused = |message: String| Refusal {
+            status: 400,
+            message,
+        };
         match Install::of(path, pc.installed(path)) {
-            Install::Failed { error, .. } => Err(Refusal {
-                status: 400,
-                message: error,
-            }),
-            install => Ok(install),
+            Install::Failed { error, .. } => Err(refused(error)),
+            install => match pc.instead(path) {
+                Some((why, _)) => Err(refused(why.to_string())),
+                None => Ok(install),
+            },
         }
+    }
+
+    /// Keep `to` as `nucleus_path` in place of `from` with `save`. When the
+    /// Nucleus Co-op `from` names is another than `to`'s, what its sessions
+    /// left (Settings.ini's and the compatibility settings' journals) is put
+    /// back first, or it would stay where no session looks again
+    /// ([`Pc::put_back`]): refused while a session runs or starts, which
+    /// would leave more. A folder the check refuses is not written to, and a
+    /// host that runs no sessions has nothing to put back.
+    pub fn change_folder(
+        &self,
+        from: &str,
+        to: &str,
+        save: impl FnOnce() -> Result<(), Refusal>,
+    ) -> Result<(), Refusal> {
+        let pc = self.pc();
+        if pc.unavailable().is_some() {
+            return save();
+        }
+        let old = match pc.installed(from) {
+            Ok(Some(old)) => old,
+            Ok(None) => return save(),
+            Err(error) => {
+                tracing::warn!(
+                    error = format!("{error:#}"),
+                    "Nucleus Co-op: the folder left is refused, so what its sessions left stays there"
+                );
+                return save();
+            }
+        };
+        let new = pc.installed(to).ok().flatten();
+        if new.is_some_and(|new| new.as_os_str().eq_ignore_ascii_case(old.as_os_str())) {
+            return save();
+        }
+        // A launch being admitted would leave its own.
+        let _one = match self.admit.try_lock() {
+            Ok(one) => one,
+            Err(std::sync::TryLockError::Poisoned(one)) => one.into_inner(),
+            Err(std::sync::TryLockError::WouldBlock) => {
+                return Err(Refusal::busy(
+                    "A co-op or background stream is starting: choose the folder once it has",
+                ));
+            }
+        };
+        if let Some(title) = self.running_title() {
+            return Err(Refusal::busy(format!(
+                "Nucleus Co-op is running {title}: end that session first, then choose the folder"
+            )));
+        }
+        pc.put_back(&old)
+            .map_err(|error| Refusal::busy(format!("{error:#}")))?;
+        tracing::info!(folder = %old.display(), "Nucleus Co-op: what its sessions left is put back before the folder changes");
+        save()
+    }
+
+    /// The title of the session that runs or starts, read with no launch
+    /// being admitted.
+    fn running_title(&self) -> Option<String> {
+        self.lock().sessions.values().find_map(|entry| {
+            entry
+                .instance
+                .session(|s| (!s.ended()).then(|| s.title.clone()))
+        })
     }
 
     /// Open Nucleus Co-op's window on the PC, where the user adds a handler
@@ -201,7 +275,7 @@ impl Registry {
         }
         let folder = match pc.installed(configured) {
             Ok(Some(folder)) => folder,
-            Ok(None) => return Err(Refusal::busy(not_set_up())),
+            Ok(None) => return Err(Refusal::unavailable(not_set_up())),
             Err(error) => {
                 return Err(Refusal::unavailable(format!(
                     "Nucleus Co-op is not ready: {error:#}"
@@ -219,12 +293,7 @@ impl Registry {
             }
         };
         // Read with no launch being admitted, so a session can't slip in.
-        let running = self.lock().sessions.values().find_map(|entry| {
-            entry
-                .instance
-                .session(|s| (!s.ended()).then(|| s.title.clone()))
-        });
-        if let Some(title) = running {
+        if let Some(title) = self.running_title() {
             return Err(Refusal::busy(format!(
                 "Nucleus Co-op is running {title}: end that session first"
             )));

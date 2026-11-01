@@ -64,7 +64,7 @@ Keep development profiles and ports distinct from the installed service. See [mu
 | [setup](setup) | Installation, upgrade and recovery. |
 | [vulkan-layer](vulkan-layer) | Implicit Vulkan HDR layer for owned sessions. |
 
-The Windows service, [service](service), is a workspace of its own with its own version, so `butterpollo-service.exe` stays the same file across releases ([the rule](release/README.md#the-service-executable)). It starts and supervises the host, rolls back interrupted updates and runs the rest as `butterpollo.exe` tasks.
+The Windows service, [service](service), is a workspace of its own with its own version, so `butterpollo-service.exe` stays the same file across releases while that version is unchanged ([the rule](release/README.md#the-service-executable)). It starts and supervises the host, rolls back interrupted updates and runs the rest as `butterpollo.exe` tasks.
 
 The [Svelte console](web) is packaged with the host; server-rendered pages remain a fallback. The [architecture guide](../docs/architecture.md) explains compute queues, producer/output fences, service-mode WGC, HDR and PyroWave.
 

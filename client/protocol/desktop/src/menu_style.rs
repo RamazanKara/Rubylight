@@ -599,6 +599,8 @@ mod tests {
         }
         // Why the PC offers no USB devices shows without opening a fold.
         assert!(!menu.contains("|ui| usb::show_refusal("), "the USB refusal is folded away");
+        // Align video to top lives in the settings' Debug section only.
+        assert!(!menu.contains("Align video to top"), "the stream menu has no Align video to top");
     }
 
     fn shoot(dir: &std::path::Path, name: &str, width: f32, height: f32, ppp: f32, high_contrast: bool, sheet: bool) {
@@ -614,7 +616,7 @@ mod tests {
             egui::ColorImage::from_rgba_unmultiplied([art.width() as usize, art.height() as usize], &art),
             egui::TextureOptions::LINEAR,
         );
-        let (mut overlay, mut mouse, mut top, mut muted) = (0usize, false, false, false);
+        let (mut overlay, mut mouse, mut muted) = (0usize, false, false);
         let mut textures = egui::TexturesDelta::default();
         let mut shapes = Vec::new();
         for n in 0..6 {
@@ -654,7 +656,6 @@ mod tests {
                         row(ui, Icon::Screen, tr("Video size"), |ui| {
                             egui::ComboBox::from_id_salt("s").width(170.0).selected_text(tr("Fit")).show_index(ui, &mut overlay, 1, |_| tr("Fit"));
                         });
-                        switch(ui, Icon::AlignTop, tr("Align video to top"), &mut top);
                         caption(ui, tr("Sound and input"));
                         switch(ui, Icon::Microphone, tr("Mute microphone"), &mut muted);
                         switch(ui, Icon::Mouse, tr("Controller mouse"), &mut mouse);

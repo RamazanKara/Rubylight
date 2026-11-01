@@ -364,7 +364,6 @@ pub enum Icon {
     Overlay,
     Corner,
     Screen,
-    AlignTop,
     Microphone,
     Mouse,
     Speaker,
@@ -422,10 +421,6 @@ pub fn icon(painter: &egui::Painter, rect: Rect, icon: Icon, color: Color32) {
             round(r(-7.5, -6.0, 7.5, 4.0), 2.0);
             line(&[p(-3.0, 7.0), p(3.0, 7.0)]);
             line(&[p(0.0, 4.0), p(0.0, 7.0)]);
-        }
-        Icon::AlignTop => {
-            line(&[p(-7.0, -7.0), p(7.0, -7.0)]);
-            round(r(-4.5, -4.0, 4.5, 6.5), 1.5);
         }
         Icon::Microphone => {
             round(r(-2.5, -7.5, 2.5, 2.0), 2.5);

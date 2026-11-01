@@ -2166,7 +2166,7 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
                         });
                     }
                     let current = s.video_scaling();
-                    let (mut scaling, mut top) = current;
+                    let (mut scaling, top) = current;
                     menu_style::row(ui, Icon::Screen, tr("Video size"), |ui| {
                         egui::ComboBox::from_id_salt("stream-scaling").width(MENU_LIST).selected_text(tr(scaling.label())).show_ui(ui, |ui| {
                             use config::VideoScaling;
@@ -2175,8 +2175,7 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
                             }
                         });
                     });
-                    menu_style::switch(ui, Icon::AlignTop, tr("Align video to top"), &mut top);
-                    if (scaling, top) != current { s.set_video_scaling(scaling, top); }
+                    if scaling != current.0 { s.set_video_scaling(scaling, top); }
 
                     let microphone = s.microphone_available();
                     let mouse_offered = s.controller_mouse_offered(pads);

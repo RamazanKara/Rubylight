@@ -3460,22 +3460,36 @@ fn a_menu_stays_inside_the_window_flipping_where_it_would_not_fit() {
     assert_eq!(place(Anchor::Point(Pos2::new(10.0, 10.0)), vec2(280.0, 900.0), screen).y, 8.0);
 }
 
-/// On a PC's library page, F2 (X) on a game opens its menu with Play and Game settings in it; it
-/// no longer jumps straight to the settings.
+/// On a PC's library page, F2 (which the controller's X sends, see `main.rs`) or Shift+F10 on a
+/// game opens its menu with Play (Resume for the running game) and Game settings in it; it no
+/// longer jumps straight to the settings.
 #[test]
 fn the_library_page_opens_a_games_menu_with_play_and_its_settings() {
-    let mut f = Frames::new(record("Desk", true, true), Reach::Online);
+    let mut f = Frames::with(record("Desk", true, true), Reach::Online, Some(answer(true, 7)), vec![game(7), game(9)]);
     let id = f.hosts.list[0].id;
     f.l.open(Screen::Apps(id));
     f.settle();
-    if f.ctx.memory(|m| m.focused()).is_none() {
-        return; // The fixture lists no apps.
+    let first = f.ctx.memory(|m| m.focused()).expect("the running game has focus on arrival");
+    let shift = egui::Modifiers { shift: true, ..Default::default() };
+    for (keys, chord) in [("F2", None), ("Shift+F10", Some(shift))] {
+        let commands = match chord {
+            None => f.press(Key::F2),
+            Some(modifiers) => f.press_with(Key::F10, modifiers),
+        };
+        assert!(!commands.iter().any(|c| matches!(c, Command::AppSettings { .. })), "{keys} does not jump to the settings");
+        assert!(matches!(f.l.dialog, Dialog::GameMenu { game: GameTarget::Classic { app: 7 }, host } if host == id), "{keys} opens the focused game's menu");
+        assert!(shows(&f, "Resume") && !shows(&f, "Play"), "{keys}: the running game resumes: {:?}", f.drawn);
+        assert!(shows(&f, "Game settings"), "{keys}: {:?}", f.drawn);
+        f.press(Key::Escape);
+        assert!(f.no_dialog());
+        assert_eq!(f.ctx.memory(|m| m.focused()), Some(first), "{keys}: focus is back on the game");
     }
-    let commands = f.press(Key::F2);
-    assert!(!commands.iter().any(|c| matches!(c, Command::AppSettings { .. })), "F2 does not jump to the settings");
-    assert!(matches!(f.l.dialog, Dialog::GameMenu { game: GameTarget::Classic { .. }, .. }));
-    assert!(shows(&f, "Play") || shows(&f, "Resume"), "{:?}", f.drawn);
-    assert!(shows(&f, "Game settings"), "{:?}", f.drawn);
+    // The game that does not run offers Play.
+    f.press(Key::ArrowRight);
+    assert_ne!(f.ctx.memory(|m| m.focused()), Some(first), "Right moves to the other game");
+    f.press(Key::F2);
+    assert!(matches!(f.l.dialog, Dialog::GameMenu { game: GameTarget::Classic { app: 9 }, .. }), "the other game's menu");
+    assert!(shows(&f, "Play") && shows(&f, "Game settings"), "{:?}", f.drawn);
 }
 
 /// Hover lightens a card one step and draws no outline; focus adds a single amber ring outside it

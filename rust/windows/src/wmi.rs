@@ -11,7 +11,11 @@
 use anyhow::{Context, Result, bail};
 use std::{
     mem::ManuallyDrop,
-    sync::mpsc::{RecvTimeoutError, channel},
+    sync::{
+        Arc, Mutex, PoisonError,
+        atomic::{AtomicBool, Ordering},
+        mpsc::{RecvTimeoutError, channel},
+    },
     time::Duration,
 };
 use windows::{
@@ -43,18 +47,45 @@ use windows::{
 const AUTHN_WINNT: u32 = 10;
 const AUTHZ_NONE: u32 = 0;
 
+/// The calls that ran out of time, by `what`, each with the flag its thread
+/// sets when it ends after all.
+static LATE: Mutex<Vec<(String, Arc<AtomicBool>)>> = Mutex::new(Vec::new());
+
+/// Sets its flag when dropped, so a thread that panics has ended too.
+struct Ended(Arc<AtomicBool>);
+
+impl Drop for Ended {
+    fn drop(&mut self) {
+        self.0.store(true, Ordering::Release);
+    }
+}
+
 /// Runs `work` on a thread of its own with COM initialised, and returns its
 /// result, or an error naming `what` when it hasn't finished within
-/// `timeout`. A late `work` goes on unwatched until its process ends.
+/// `timeout`. A late `work` goes on unwatched until its process ends; while
+/// it does, another call for the same `what` fails the same way without
+/// starting a thread, so a hung WMI never collects threads.
 pub fn on_com_thread<T: Send + 'static>(
     what: &str,
     timeout: Duration,
     work: impl FnOnce() -> Result<T> + Send + 'static,
 ) -> Result<T> {
+    {
+        let mut late = LATE.lock().unwrap_or_else(PoisonError::into_inner);
+        late.retain(|(_, ended)| !ended.load(Ordering::Acquire));
+        if late.iter().any(|(name, _)| name == what) {
+            bail!(
+                "{what} did not finish within {timeout:?}: the previous one is still running past its deadline"
+            );
+        }
+    }
+    let ended = Arc::new(AtomicBool::new(false));
+    let guard = Ended(ended.clone());
     let (send, receive) = channel();
     std::thread::Builder::new()
         .name("wmi".into())
         .spawn(move || {
+            let _ended = guard;
             // SAFETY: No pointers; a successful call is balanced by CoUninitialize below.
             let initialized = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) }.ok();
             let uninitialize = initialized.is_ok();
@@ -74,7 +105,12 @@ pub fn on_com_thread<T: Send + 'static>(
         .with_context(|| format!("starting a thread for {what}"))?;
     match receive.recv_timeout(timeout) {
         Ok(result) => result,
-        Err(RecvTimeoutError::Timeout) => bail!("{what} did not finish within {timeout:?}"),
+        Err(RecvTimeoutError::Timeout) => {
+            LATE.lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .push((what.to_owned(), ended));
+            bail!("{what} did not finish within {timeout:?}")
+        }
         Err(RecvTimeoutError::Disconnected) => bail!("{what} stopped without a result"),
     }
 }
@@ -443,6 +479,40 @@ mod tests {
         assert_eq!(
             on_com_thread("a sum", Duration::from_secs(30), || Ok(2 + 2)).unwrap(),
             4
+        );
+    }
+
+    #[test]
+    fn a_late_call_starts_no_other_until_it_ends() {
+        use std::sync::atomic::AtomicBool;
+        let what = "a hung read";
+        let error = on_com_thread(what, Duration::from_millis(50), || {
+            std::thread::sleep(Duration::from_millis(1500));
+            Ok(())
+        })
+        .unwrap_err();
+        assert_eq!(error.to_string(), "a hung read did not finish within 50ms");
+        // The same call again fails at once and starts nothing.
+        let ran = Arc::new(AtomicBool::new(false));
+        let flag = ran.clone();
+        let error = on_com_thread(what, Duration::from_secs(30), move || {
+            flag.store(true, Ordering::SeqCst);
+            Ok(())
+        })
+        .unwrap_err();
+        assert!(error.to_string().contains("still running"), "{error:#}");
+        std::thread::sleep(Duration::from_millis(100));
+        assert!(!ran.load(Ordering::SeqCst));
+        // Another call is not held up by it.
+        assert_eq!(
+            on_com_thread("another read", Duration::from_secs(30), || Ok(1)).unwrap(),
+            1
+        );
+        // Once the late one has ended, the next goes ahead.
+        std::thread::sleep(Duration::from_millis(2000));
+        assert_eq!(
+            on_com_thread(what, Duration::from_secs(30), || Ok(2)).unwrap(),
+            2
         );
     }
 

@@ -54,12 +54,14 @@ function Read-Adapter($adapter) {
     } catch { $errors += "advanced properties: $_" }
     $wake = $null
     $only = $null
+    # A function returns one match unwrapped, and Windows PowerShell gives a
+    # lone CimInstance no Count: @() keeps the array.
     try {
-        $found = Find-Wmi 'MSPower_DeviceWakeEnable' $adapter.PnPDeviceID
+        $found = @(Find-Wmi 'MSPower_DeviceWakeEnable' $adapter.PnPDeviceID)
         if ($found.Count -gt 0) { $wake = [bool]$found[0].Enable }
     } catch { $errors += "MSPower_DeviceWakeEnable: $_" }
     try {
-        $found = Find-Wmi 'MSNdis_DeviceWakeOnMagicPacketOnly' $adapter.PnPDeviceID
+        $found = @(Find-Wmi 'MSNdis_DeviceWakeOnMagicPacketOnly' $adapter.PnPDeviceID)
         if ($found.Count -gt 0) { $only = [bool]$found[0].EnableWakeOnMagicPacketOnly }
     } catch { $errors += "MSNdis_DeviceWakeOnMagicPacketOnly: $_" }
     @{

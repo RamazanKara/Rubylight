@@ -215,6 +215,30 @@ ConvertTo-Json -Compress -InputObject @{
 }
 
 #[test]
+fn a_single_wmi_instance_is_read() -> Result<()> {
+    // Windows PowerShell gives a lone CimInstance no Count, so one match
+    // read as unreadable on every PC.
+    let nic = run_with_stand_ins(
+        &["Find-Wmi", "Read-Adapter"],
+        r##"
+$keywords = @('*WakeOnMagicPacket')
+function Get-NetAdapterAdvancedProperty { param([Parameter(ValueFromPipeline)]$InputObject, [switch]$AllProperties)
+    process { [pscustomobject]@{ RegistryKeyword = '*WakeOnMagicPacket'; RegistryValue = @('1') } } }
+function Get-CimInstance { param($Namespace, $ClassName)
+    New-CimInstance -ClassName $ClassName -Namespace root/wmi -ClientOnly -Property @{
+        InstanceName = 'PCI\VEN_10EC&DEV_8125\01_0'; Enable = $true; EnableWakeOnMagicPacketOnly = $false } }
+ConvertTo-Json -Compress -InputObject (Read-Adapter ([pscustomobject]@{
+    InterfaceGuid = '{875511c7-0ef5-45f7-876c-3be50726ac42}'; PnPDeviceID = 'PCI\VEN_10EC&DEV_8125\01'; Name = 'Ethernet' }))
+"##,
+        &[],
+    )?;
+    assert_eq!(nic["errors"], serde_json::json!([]));
+    assert_eq!(nic["wake_enable"], true);
+    assert_eq!(nic["magic_packet_only"], false);
+    Ok(())
+}
+
+#[test]
 fn a_failed_restart_enables_the_adapter_again() -> Result<()> {
     let restarted = run_with_stand_ins(
         &["Restart-Adapter"],

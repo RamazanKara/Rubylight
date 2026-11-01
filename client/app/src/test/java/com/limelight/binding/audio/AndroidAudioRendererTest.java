@@ -73,6 +73,7 @@ public class AndroidAudioRendererTest {
         private long now = 1000;
         private final List<Integer> offsets = new ArrayList<>();
         private final List<Integer> lengths = new ArrayList<>();
+        private final List<short[]> writtenData = new ArrayList<>();
 
         ScriptedRenderer(int... results) {
             this(null, null, results);
@@ -86,6 +87,7 @@ public class AndroidAudioRendererTest {
         @Override int writeAudioTrack(short[] data, int offset, int length) {
             offsets.add(offset);
             lengths.add(length);
+            if (offset == 0) writtenData.add(data.clone());
             assertTrue("Unexpected retry", nextResult < results.length);
             return results[nextResult++];
         }
@@ -103,7 +105,29 @@ public class AndroidAudioRendererTest {
         }
 
         @Override boolean writeNativeAudio(short[] data, int length) {
+            nativeWrites++;
+            if (failNextNativeWrites > 0) {
+                failNextNativeWrites--;
+                return false;
+            }
             return nativeWriteSucceeds;
+        }
+
+        private boolean reopenSucceeds;
+        private int reopens, closes, nativeWrites, failNextNativeWrites;
+
+        @Override boolean openNativeAudio() {
+            reopens++;
+            if (!reopenSucceeds) return false;
+            ReflectionHelpers.setField(this, "nativeAudio", 2L);
+            ReflectionHelpers.setField(this, "bufferPolicy", new AudioBufferPolicy(192, 384, 384, 0, 0));
+            ReflectionHelpers.setField(this, "lastBufferCheckMs", Long.MAX_VALUE);
+            return true;
+        }
+
+        @Override void closeNativeAudio() {
+            closes++;
+            ReflectionHelpers.setField(this, "nativeAudio", 0L);
         }
 
         @Override long uptimeMillis() {
@@ -628,15 +652,115 @@ public class AndroidAudioRendererTest {
         renderer.play();
         assertEquals(Long.valueOf(1), ReflectionHelpers.<Long>getField(renderer, "droppedWrites"));
 
-        // The stream disconnects and the fallback cannot start either.
+        // The stream disconnects, AAudio does not reopen and the fallback cannot start either.
         renderer = new ScriptedRenderer();
         renderer.fallbackSucceeds = false;
         renderer.nativeWriteSucceeds = false;
         ReflectionHelpers.setField(renderer, "nativeAudio", 1L);
         ReflectionHelpers.setField(renderer, "bufferPolicy", new AudioBufferPolicy(192, 384, 384, 0, 0));
         renderer.play();
-        assertEquals("AAudio disconnected", renderer.fallbackReason);
+        assertEquals(1, renderer.reopens);
+        assertEquals("AAudio disconnected and AAudio did not reopen", renderer.fallbackReason);
         assertEquals(Long.valueOf(1), ReflectionHelpers.<Long>getField(renderer, "droppedWrites"));
+    }
+
+    @Test public void clockDriftSurplusTrimsOnePacketAndTheNextFadesInFromIt() {
+        // 5 ms stereo packets with 15 ms waiting beyond a full output: surplus a slow device clock built up.
+        int[] results = new int[400];
+        java.util.Arrays.fill(results, 480);
+        ScriptedRenderer renderer = new ScriptedRenderer(results);
+        ReflectionHelpers.setField(renderer, "sampleRate", 48000);
+        ReflectionHelpers.setField(renderer, "channels", 2);
+        ReflectionHelpers.setField(renderer, "reserveFrames", 672);
+        renderer.queuedFrames = 672;
+        renderer.pendingMs = 15;
+        for (int i = 0; i < 401; i++) {
+            short[] pcm = new short[480];
+            java.util.Arrays.fill(pcm, (short)(i == 399 ? 1000 : i == 400 ? -1000 : 0));
+            renderer.playDecodedAudio(pcm, 480);
+        }
+        // 2 s of packets above the line: the 400th goes, faded into the 401st, which starts where it would have.
+        assertEquals(400, renderer.writtenData.size());
+        assertEquals(Long.valueOf(1), ReflectionHelpers.<Long>getField(renderer, "driftTrimmed"));
+        assertEquals(Long.valueOf(0), ReflectionHelpers.<Long>getField(renderer, "lateDropped"));
+        short[] faded = renderer.writtenData.get(399);
+        assertEquals(1000, faded[0]);
+        assertEquals(1000, faded[1]);
+        assertEquals((-1000 * 120 + 1000 * 120) / 240, faded[240]);
+        assertEquals((-1000 * 239 + 1000) / 240, faded[479]);
+        assertEquals(0, renderer.writtenData.get(398)[0]);
+    }
+
+    @Test public void aSteadyOutputIsNeverTrimmed() {
+        int[] results = new int[2000];
+        java.util.Arrays.fill(results, 480);
+        ScriptedRenderer renderer = new ScriptedRenderer(results);
+        ReflectionHelpers.setField(renderer, "sampleRate", 48000);
+        ReflectionHelpers.setField(renderer, "channels", 2);
+        ReflectionHelpers.setField(renderer, "reserveFrames", 672);
+        // Pairs of packets: the first sees its partner waiting, the second only the output.
+        for (int i = 0; i < 2000; i++) {
+            renderer.queuedFrames = 672 - 240 * (i % 2);
+            renderer.pendingMs = i % 2 == 0 ? 5 : 0;
+            renderer.playDecodedAudio(new short[480], 480);
+        }
+        assertEquals(2000, renderer.writtenData.size());
+        assertEquals(Long.valueOf(0), ReflectionHelpers.<Long>getField(renderer, "driftTrimmed"));
+    }
+
+    private static ScriptedRenderer disconnectedAAudio() {
+        ScriptedRenderer renderer = new ScriptedRenderer(6);
+        renderer.nativeWriteSucceeds = false;
+        ReflectionHelpers.setField(renderer, "nativeAudio", 1L);
+        ReflectionHelpers.setField(renderer, "bufferPolicy", new AudioBufferPolicy(192, 384, 384, 0, 0));
+        ReflectionHelpers.setField(renderer, "lastBufferCheckMs", Long.MAX_VALUE);
+        return renderer;
+    }
+
+    @Test public void aRouteChangeReopensAAudioInsteadOfFallingBack() {
+        // Headphones plugged in: the stream disconnects, AAudio opens on the new route and plays the buffer.
+        ScriptedRenderer renderer = disconnectedAAudio();
+        renderer.nativeWriteSucceeds = true;
+        renderer.failNextNativeWrites = 1;
+        renderer.reopenSucceeds = true;
+        renderer.play();
+        assertEquals(1, renderer.closes);
+        assertEquals(1, renderer.reopens);
+        assertNull(renderer.fallbackReason);
+        assertEquals(Long.valueOf(2), ReflectionHelpers.<Long>getField(renderer, "nativeAudio"));
+        assertEquals("the failed write, then the same buffer on the new stream", 2, renderer.nativeWrites);
+        assertEquals(0, renderer.nextResult);
+        assertEquals(Long.valueOf(0), ReflectionHelpers.<Long>getField(renderer, "droppedWrites"));
+        // Unplugged again much later: reopened again, never AudioTrack.
+        renderer.failNextNativeWrites = 1;
+        renderer.now += 60000;
+        renderer.play();
+        assertEquals(2, renderer.reopens);
+        assertNull(renderer.fallbackReason);
+        assertEquals(Long.valueOf(0), ReflectionHelpers.<Long>getField(renderer, "droppedWrites"));
+        ReflectionHelpers.setField(renderer, "nativeAudio", 0L);
+    }
+
+    @Test public void anAAudioThatDoesNotReopenFallsBackToAudioTrack() {
+        ScriptedRenderer renderer = disconnectedAAudio();
+        renderer.play();
+        assertEquals(1, renderer.reopens);
+        assertEquals("AAudio disconnected and AAudio did not reopen", renderer.fallbackReason);
+        assertEquals("the buffer goes to the AudioTrack", 1, renderer.nextResult);
+    }
+
+    @Test public void anAAudioThatKeepsDyingRightAfterReopeningFallsBack() {
+        ScriptedRenderer renderer = disconnectedAAudio();
+        renderer.reopenSucceeds = true;
+        for (int i = 0; i < AudioBufferPolicy.MAX_QUICK_REOPENS; i++) {
+            renderer.play();
+            renderer.now += 200;
+            assertNull(renderer.fallbackReason);
+        }
+        assertEquals(AudioBufferPolicy.MAX_QUICK_REOPENS, renderer.reopens);
+        renderer.play();
+        assertEquals("no fourth reopen within a second of each", AudioBufferPolicy.MAX_QUICK_REOPENS, renderer.reopens);
+        assertEquals("AAudio disconnected 3 times right after reopening", renderer.fallbackReason);
     }
 
     @Test public void failedRecreationIsRetriedByALaterBuffer() {

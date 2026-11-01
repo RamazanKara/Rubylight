@@ -457,7 +457,7 @@ impl Launcher {
         let (mut reset_all, mut clear_search) = (false, false);
         ui.scope_builder(UiBuilder::new().max_rect(rect), |ui| area.show(ui, |ui| {
             // The D-pad walks the rows down past the window's edge: the row it reaches scrolls in.
-            crate::gui::follow_focus_here(ui);
+            crate::gui::follow_focus_here(ui, ("settings", open));
             if searching {
                 ui.label(RichText::new(trf("Results for “{}”", &[&self.settings_view.query.trim()])).font(semibold(text::SECTION)).color(PAPER));
             } else {

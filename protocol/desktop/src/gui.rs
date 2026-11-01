@@ -153,20 +153,29 @@ pub fn follow_focus(ui: &mut egui::Ui, last: &mut Option<egui::Id>) {
         return;
     }
     *last = focused;
-    if let Some(rect) = focused.and_then(|id| ui.ctx().read_response(id)).map(|r| r.rect) {
-        // Only what this area holds: not a header or a side list beside it. The content starts at
-        // the area's top edge less the scroll offset, so nothing in it lies above that or beside it.
-        let content = ui.max_rect();
-        if content.x_range().contains(rect.center().x) && rect.center().y >= content.top() {
-            ui.scroll_to_rect(rect, None);
+    if let Some(response) = focused.and_then(|id| ui.ctx().read_response(id)) {
+        if holds(ui, &response) {
+            ui.scroll_to_rect(response.rect, None);
         }
     }
 }
 
+/// Whether the scroll area whose content `ui` is holds the widget: not a header or a side list
+/// beside it. A widget still showing is clipped to its own area, so one showing outside this
+/// area's view is another's. One out of sight (clipped away) is this area's when it lies in its
+/// content: that starts at the area's top edge less the scroll offset, nothing of it above or beside.
+fn holds(ui: &egui::Ui, response: &egui::Response) -> bool {
+    if response.interact_rect.is_positive() {
+        return ui.clip_rect().contains_rect(response.interact_rect);
+    }
+    let (rect, content) = (response.rect, ui.max_rect());
+    content.x_range().contains(rect.center().x) && rect.center().y >= content.top()
+}
+
 /// [`follow_focus`] for a scroll area without a place of its own for the last focus: egui's memory
-/// keeps it under the content's id. Call it first in the scroll area's content.
-pub fn follow_focus_here(ui: &mut egui::Ui) {
-    let key = ui.scope_id().with("follow-focus");
+/// keeps it under `area`, the scroll area's id salt. Call it first in the scroll area's content.
+pub fn follow_focus_here(ui: &mut egui::Ui, area: impl std::hash::Hash + std::fmt::Debug) {
+    let key = egui::Id::unique(("follow-focus", area));
     let mut last = ui.data(|d| d.get_temp::<Option<egui::Id>>(key)).flatten();
     follow_focus(ui, &mut last);
     ui.data_mut(|d| d.insert_temp(key, last));
@@ -651,5 +660,35 @@ mod tests {
             offset = frame(vec![]);
         }
         assert!(offset > 100.0, "the scroll area followed focus down to row 25, offset {offset}");
+    }
+
+    /// A header above a scrolled area (Settings' search field) taking focus leaves the rows where
+    /// they are: it lies inside the content's geometry once scrolled, but shows outside the area.
+    #[test]
+    fn focus_on_a_header_above_a_scrolled_area_does_not_scroll_it() {
+        let ctx = egui::Context::default();
+        let mut last: Option<egui::Id> = None;
+        let mut frame = |n: usize, focus_header: bool| -> f32 {
+            let mut offset = 0.0;
+            let input = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 300.0))), ..Default::default() };
+            let mut output = ctx.run_ui(input, |ui| {
+                let header = ui.button("Search");
+                if focus_header { header.request_focus(); }
+                let mut area = egui::ScrollArea::vertical().max_height(100.0);
+                if n == 0 { area = area.vertical_scroll_offset(300.0); }
+                let out = area.show(ui, |ui| {
+                    follow_focus(ui, &mut last);
+                    for i in 0..30 { let _ = ui.button(format!("Row {i}")); }
+                });
+                offset = out.state.clamped_offset().y;
+            });
+            output.textures_delta.clear();
+            offset
+        };
+        for n in 0..3 { frame(n, false); }
+        frame(3, true);
+        let mut offset = 0.0;
+        for n in 4..8 { offset = frame(n, false); }
+        assert_eq!(offset, 300.0, "the rows stay scrolled");
     }
 }

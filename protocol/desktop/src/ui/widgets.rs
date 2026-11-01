@@ -253,7 +253,7 @@ pub(super) fn scroll(ui: &mut Ui, id: &str, add: impl FnOnce(&mut Ui)) {
             .auto_shrink(false)
             .content_margin(Margin::same(6))
             .show(ui, |ui| {
-                crate::gui::follow_focus_here(ui);
+                crate::gui::follow_focus_here(ui, id);
                 add(ui);
             });
     });
@@ -277,7 +277,7 @@ pub(super) fn scroll_column(ui: &mut Ui, id: &str, width: f32, add: impl FnOnce(
         }
     }
     let list = ui.scope_builder(egui::UiBuilder::new().max_rect(rect), |ui| area.show(ui, |ui| {
-        crate::gui::follow_focus_here(ui);
+        crate::gui::follow_focus_here(ui, id);
         add(ui);
     })).inner;
     let end = (list.content_size.y - list.inner_rect.height()).max(0.0);

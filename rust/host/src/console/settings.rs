@@ -131,6 +131,24 @@ pub const GLOBAL: &[Setting] = settings! {
         "amd_input_queue_size", "AMF input queue size", Number;
         "amd_ltr_frames", "Long-term reference frames", Number;
     ]
+    "NVIDIA encoding" => [
+        "nvenc_preset", "NVENC preset (1 fastest to 7 slowest)", Number;
+        "nvenc_rate_control", "NVENC rate control", Choice(&["cbr","vbr"]);
+        "nvenc_target_quality", "Variable bitrate target quality (0 lets the driver choose)", Number;
+        "nvenc_twopass", "Multi-pass encoding", Choice(&["disabled","quarter_res","full_res"]);
+        "nvenc_spatial_aq", "Spatial adaptive quantization", Bool;
+        "nvenc_temporal_aq", "Temporal adaptive quantization", Bool;
+        "nvenc_split_encode", "Split-frame encoding (HEVC and AV1)", Choice(&["auto","enabled","disabled","two_strips","three_strips","four_strips"]);
+        "nvenc_frame_budget_guard", "Frame time guard (a faster preset when frames would be late)", Bool;
+        "nvenc_vbv_increase", "Frame size headroom (%)", Number;
+        "nvenc_weighted_prediction", "Weighted prediction", Bool;
+        "nvenc_h264_cavlc", "Use CAVLC for H.264", Bool;
+        "nvenc_insert_filler_data", "Insert filler data", Bool;
+        "nvenc_enable_min_qp", "Minimum quantizer", Bool;
+        "nvenc_min_qp_h264", "Minimum QP for H.264", Number;
+        "nvenc_min_qp_hevc", "Minimum QP for HEVC", Number;
+        "nvenc_min_qp_av1", "Minimum QP for AV1", Number;
+    ]
     "Input" => [
         "keyboard", "Keyboard input", Bool;
         "mouse", "Mouse input", Bool;
@@ -351,6 +369,12 @@ pub fn render(prefix: &str, schema: &[Setting], values: &Value) -> String {
                             "quality" => "Quality",
                             "cqp" => "Constant quantization (fixed compression level)",
                             "cbr" => "Constant bitrate",
+                            "vbr" => "Variable bitrate",
+                            "quarter_res" => "Quarter resolution",
+                            "full_res" => "Full resolution",
+                            "two_strips" => "Two strips",
+                            "three_strips" => "Three strips",
+                            "four_strips" => "Four strips",
                             "vbr_latency" => "Variable bitrate, limited latency",
                             "vbr_peak" => "Variable bitrate, limited peak rate",
                             "qvbr" => "Variable bitrate, target quality",
@@ -551,9 +575,41 @@ mod tests {
         assert!(html.contains("value=\"centre\">Still areas and centre</option>"));
     }
     #[test]
+    fn the_nvidia_group_lists_every_setting_the_nvenc_encoder_reads() {
+        let source = include_str!("../../../core/src/nvenc.rs");
+        let keys: std::collections::BTreeSet<&str> = source
+            .match_indices("\"nvenc_")
+            .filter_map(|(at, _)| source[at + 1..].split('"').next())
+            .filter(|key| {
+                key.bytes()
+                    .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
+            })
+            .collect();
+        let listed: std::collections::BTreeSet<&str> = GLOBAL
+            .iter()
+            .filter(|setting| setting.key.starts_with("nvenc_"))
+            .map(|setting| setting.key)
+            .collect();
+        assert_eq!(listed, keys);
+        let html = i18n::render(
+            &render(
+                "cfg_",
+                GLOBAL,
+                &serde_json::json!({"nvenc_split_encode": "three_strips", "nvenc_twopass": "full_res"}),
+            ),
+            "en",
+        );
+        assert!(html.contains("value=\"three_strips\" selected>Three strips</option>"));
+        assert!(html.contains("value=\"full_res\" selected>Full resolution</option>"));
+        assert!(html.contains("value=\"vbr\">Variable bitrate</option>"));
+    }
+    #[test]
     fn encoder_settings_save_keys_the_encoders_read() {
         for setting in GLOBAL {
-            if setting.key.starts_with("amd_") || setting.key == "encoder_focus" {
+            if setting.key.starts_with("amd_")
+                || setting.key.starts_with("nvenc_")
+                || setting.key == "encoder_focus"
+            {
                 assert!(
                     butterpollo_core::config::override_allowed(setting.key),
                     "{} is not an encoder setting",

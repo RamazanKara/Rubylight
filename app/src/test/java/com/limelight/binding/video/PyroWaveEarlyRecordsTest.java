@@ -18,6 +18,21 @@ public class PyroWaveEarlyRecordsTest {
     }
 
     @Test
+    public void performanceHintsSeeTheEarlyPushesWithTheirFrame() {
+        PyroWaveDecoderRenderer.EarlyWork work = new PyroWaveDecoderRenderer.EarlyWork();
+        // No early pushes: the submit alone, as before.
+        assertEquals(900_000, work.take(900_000));
+        // Some 25 pushes while the frame arrived count with its submit, once.
+        for (int i = 0; i < 25; i++) work.add(40_000);
+        assertEquals(300_000 + 1_000_000, work.take(300_000));
+        assertEquals(300_000, work.take(300_000));
+        // A frame replaced before its submit: its pushes go with the next frame reported.
+        work.add(500_000);
+        work.add(600_000);
+        assertEquals(1_400_000, work.take(300_000));
+    }
+
+    @Test
     public void overlaySaysHowManyFramesCameEarlyAndCountsTheFallbacks() {
         assertEquals("Early record push: 100% of frames",
                 PyroWaveDecoderRenderer.earlyRecordsLine(new float[] {100, 0}));

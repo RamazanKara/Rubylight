@@ -28,6 +28,7 @@ public final class PyroWaveDecoderRenderer {
     private GpuDriverStore.Driver customDriver;
     private String driverStatus = "";
     private long lastSubmissionDurationNs;
+    private final EarlyWork earlyWork = new EarlyWork();
     // Survives a crash, so the next stream can hand GPU power management back to the kernel.
     private static final String MAX_CLOCKS_ACTIVE = "pyrowave_max_clocks_active";
 
@@ -242,7 +243,7 @@ public final class PyroWaveDecoderRenderer {
             // Match Moonlight X's wall-clock interval around native parsing, command recording
             // and submission. Polling and Android performance-hint work are not submission work.
             lastSubmissionDurationNs = System.nanoTime() - submissionStartNs;
-            performanceHints.reportWorkDuration(Debug.threadCpuTimeNanos() - workStartNs, frameRate);
+            performanceHints.reportWorkDuration(earlyWork.take(Debug.threadCpuTimeNanos() - workStartNs), frameRate);
         }
         nativePollRenderedFrames(handle, stats);
         return result;
@@ -312,7 +313,33 @@ public final class PyroWaveDecoderRenderer {
     }
 
     synchronized void submitChunks(byte[] data, int length, boolean first) {
-        if (handle != 0) nativeSubmitChunks(handle, data, length, first);
+        if (handle == 0) return;
+        long workStartNs = Debug.threadCpuTimeNanos();
+        try {
+            nativeSubmitChunks(handle, data, length, first);
+        } finally {
+            earlyWork.add(Debug.threadCpuTimeNanos() - workStartNs);
+        }
+    }
+
+    /**
+     * Thread CPU time of the early record pushes since the last frame's submit. They are that
+     * frame's parse work, done while it arrived, so the next performance-hint report includes
+     * them; otherwise the hint session would see only the shorter submit and lower the clocks.
+     */
+    static final class EarlyWork {
+        private long pendingNs;
+
+        void add(long ns) {
+            pendingNs += ns;
+        }
+
+        /** A frame's submit time plus the pushes before it; the pushes start over. */
+        long take(long submitNs) {
+            long total = submitNs + pendingNs;
+            pendingNs = 0;
+            return total;
+        }
     }
 
     /**
@@ -365,6 +392,7 @@ public final class PyroWaveDecoderRenderer {
 
     synchronized void cleanup(FrameLatencyStats stats) {
         submissionThread = null;
+        earlyWork.take(0);
         if (performanceHints != null) {
             performanceHints.close();
             performanceHints = null;

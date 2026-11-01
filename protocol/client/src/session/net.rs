@@ -307,8 +307,8 @@ const WHOLE_DATAGRAM: usize = 65536;
 /// packet rate does not pay a call per datagram: `recvmmsg` with `MSG_WAITFORONE` on Linux and
 /// Android, which waits (up to the socket's poll timeout) for the first datagram only and
 /// returns at once with whatever else is queued. Elsewhere, and where the kernel refuses
-/// `recvmmsg`, one datagram per receive as [`receive`]. (Windows has no such call for a socket
-/// that also sends and is cloned, as the video socket is: see `rio`.)
+/// `recvmmsg`, one datagram per receive as [`receive`]. (Windows' Registered I/O takes batches,
+/// but its sockets refuse the plain sends and the clone the video socket needs.)
 pub struct BatchReceiver {
     /// Bytes per datagram slot of `buffer`.
     slot: usize,
@@ -730,9 +730,6 @@ impl Drop for Pinger {
         self.stop();
     }
 }
-
-#[cfg(all(test, windows))]
-mod rio;
 
 #[cfg(all(test, any(target_os = "linux", target_os = "android", windows)))]
 mod receive_bench;

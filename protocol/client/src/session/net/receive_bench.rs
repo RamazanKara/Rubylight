@@ -2,9 +2,8 @@
 //! against [`BatchReceiver`], with the receiver's lock per datagram or per batch as the video
 //! receive thread takes it. Loopback senders at a fixed rate (each receive may wait for its
 //! datagram, so the thread pays a wake-up per packet whenever it keeps up), and bursts queued
-//! before the receiver drains them (no waits: the cost of the calls alone). Two candidates
-//! measured and not taken run beside them: UDP GRO on Linux and Registered I/O on Windows. A
-//! measurement, not a check:
+//! before the receiver drains them (no waits: the cost of the calls alone). A measurement, not a
+//! check:
 //!
 //! `cargo test --release -p nightjar-core --lib receive_bench -- --ignored --nocapture --test-threads 1`
 
@@ -27,6 +26,9 @@ enum Pattern {
     Frames { fps: u32, per_frame: u32 },
     /// Bursts queued in full before the receiver takes them.
     Queued,
+    /// One datagram queued, then taken, on one thread: the cost of a call that finds one
+    /// datagram, as evenly paced traffic brings, without the wake-ups (the sends count too).
+    Lone,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -35,22 +37,9 @@ enum Arm {
     PerDatagram,
     /// [`BatchReceiver`] and the lock per batch.
     Batched,
-    /// `UDP_GRO`: one receive of the datagrams the kernel coalesced, split by segment size.
-    #[cfg(target_os = "linux")]
-    Gro,
-    /// Registered I/O ([`super::rio`]) and the lock per batch.
-    #[cfg(windows)]
-    Rio,
 }
 
-const ARMS: &[Arm] = &[
-    Arm::PerDatagram,
-    Arm::Batched,
-    #[cfg(target_os = "linux")]
-    Arm::Gro,
-    #[cfg(windows)]
-    Arm::Rio,
-];
+const ARMS: &[Arm] = &[Arm::PerDatagram, Arm::Batched];
 
 #[derive(Default)]
 struct Outcome {
@@ -98,7 +87,7 @@ fn send(to: SocketAddr, pattern: Pattern, share: u32) -> u64 {
     let (interval, count) = match pattern {
         Pattern::Paced { pps } => (Duration::from_secs(1) * share / pps, 1),
         Pattern::Frames { fps, per_frame } => (Duration::from_secs(1) / fps, per_frame / share),
-        Pattern::Queued => unreachable!("queued bursts are sent by the receiver's side"),
+        Pattern::Queued | Pattern::Lone => unreachable!("sent by the receiver's side"),
     };
     let mut due = start;
     while due < start + ARM {
@@ -151,34 +140,8 @@ impl Take for BatchReceiver {
     }
 }
 
-#[cfg(windows)]
-impl Take for super::rio::Rio {
-    fn take(&mut self, _: &UdpSocket, lock: &Mutex<Vec<u64>>) -> usize {
-        let count = self.receive().unwrap();
-        if count > 0 {
-            let mut sum = lock.lock().unwrap();
-            for i in 0..count {
-                arrived(&mut sum, self.datagram(i));
-            }
-        }
-        count
-    }
-}
-
 /// The arm's socket, its granted receive buffer, and its receive side.
 fn arm_socket(arm: Arm) -> (UdpSocket, usize, Box<dyn Take>) {
-    #[cfg(windows)]
-    if arm == Arm::Rio {
-        let socket = super::rio::socket(Domain::IPV4).unwrap();
-        socket
-            .bind(&SocketAddr::from((Ipv4Addr::LOCALHOST, 0)).into())
-            .unwrap();
-        socket.set_recv_buffer_size(SOCKET_BUFFER).unwrap();
-        let socket: UdpSocket = socket.into();
-        // As many posted receives as the buffer holds datagrams.
-        let take = Box::new(super::rio::Rio::new(&socket, DATAGRAM).unwrap());
-        return (socket, SOCKET_BUFFER, take);
-    }
     let (socket, buffer) = bind_udp_sized(
         (Ipv4Addr::LOCALHOST, 0).into(),
         SOCKET_BUFFER,
@@ -190,10 +153,6 @@ fn arm_socket(arm: Arm) -> (UdpSocket, usize, Box<dyn Take>) {
     let take: Box<dyn Take> = match arm {
         Arm::PerDatagram => Box::new(PerDatagram(vec![0; 65536])),
         Arm::Batched => Box::new(BatchReceiver::new(&socket, DATAGRAM)),
-        #[cfg(target_os = "linux")]
-        Arm::Gro => Box::new(gro::Receiver::new(&socket)),
-        #[cfg(windows)]
-        Arm::Rio => unreachable!("made above"),
     };
     (socket, buffer.unwrap().granted, take)
 }
@@ -226,6 +185,27 @@ fn run(arm: Arm, pattern: Pattern) -> Outcome {
             o.cpu += cpu::thread_time() - cpu;
             o.wall += wall.elapsed();
         }
+        return o;
+    }
+    if let Pattern::Lone = pattern {
+        let sender = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let mut datagram = vec![0x5au8; DATAGRAM];
+        let start = Instant::now();
+        let cpu = cpu::thread_time();
+        while start.elapsed() < ARM {
+            for _ in 0..1000 {
+                datagram[8..16].copy_from_slice(&clock_ns().to_be_bytes());
+                sender.send_to(&datagram, address).unwrap();
+                o.sent += 1;
+                let count = taker.take(&socket, &lock);
+                assert_eq!(count, 1);
+                o.received += 1;
+                o.calls += 1;
+            }
+            lock.lock().unwrap().clear();
+        }
+        o.cpu = cpu::thread_time() - cpu;
+        o.wall = start.elapsed();
         return o;
     }
     let done = Arc::new(AtomicBool::new(false));
@@ -277,6 +257,7 @@ fn run(arm: Arm, pattern: Pattern) -> Outcome {
 fn receive_bench() {
     let patterns = [
         Pattern::Queued,
+        Pattern::Lone,
         Pattern::Paced { pps: 100_000 },
         Pattern::Paced { pps: 150_000 },
         // 120 fps at about 1.1 Gbps.
@@ -293,7 +274,9 @@ fn receive_bench() {
     // Windows measures its counter's rate first, not while a sender runs.
     cpu::thread_time();
     for pattern in patterns {
-        for round in 0..2 {
+        // Paced arms vary the most from run to run.
+        let rounds = if matches!(pattern, Pattern::Paced { .. }) { 4 } else { 2 };
+        for round in 0..rounds {
             for &arm in ARMS {
                 let o = run(arm, pattern);
                 println!(
@@ -311,85 +294,6 @@ fn receive_bench() {
                     quantile_us(&o.latencies, 0.99),
                 );
             }
-        }
-    }
-}
-
-/// UDP GRO: the kernel hands over datagrams of one size that arrived together as one buffer,
-/// with the segment size in a control message (Linux 5.0).
-#[cfg(target_os = "linux")]
-mod gro {
-    use std::net::UdpSocket;
-    use std::os::fd::AsRawFd;
-    use std::sync::Mutex;
-
-    const UDP_GRO: libc::c_int = 104;
-
-    pub struct Receiver {
-        buffer: Vec<u8>,
-        control: [u64; 8],
-    }
-
-    impl Receiver {
-        pub fn new(socket: &UdpSocket) -> Self {
-            let on: libc::c_int = 1;
-            // SAFETY: a valid option value of its size.
-            let set = unsafe {
-                libc::setsockopt(
-                    socket.as_raw_fd(),
-                    libc::SOL_UDP,
-                    UDP_GRO,
-                    (&on as *const libc::c_int).cast(),
-                    std::mem::size_of::<libc::c_int>() as libc::socklen_t,
-                )
-            };
-            assert_eq!(set, 0, "UDP_GRO: {}", std::io::Error::last_os_error());
-            Self {
-                buffer: vec![0; 65536],
-                control: [0; 8],
-            }
-        }
-    }
-
-    impl super::Take for Receiver {
-        fn take(&mut self, socket: &UdpSocket, lock: &Mutex<Vec<u64>>) -> usize {
-            let mut iovec = libc::iovec {
-                iov_base: self.buffer.as_mut_ptr().cast(),
-                iov_len: self.buffer.len(),
-            };
-            // SAFETY: plain data; all zero is an empty header.
-            let mut header: libc::msghdr = unsafe { std::mem::zeroed() };
-            header.msg_iov = &mut iovec;
-            header.msg_iovlen = 1;
-            header.msg_control = self.control.as_mut_ptr().cast();
-            header.msg_controllen = std::mem::size_of_val(&self.control);
-            // SAFETY: the header points at live buffers of their lengths.
-            let length = unsafe { libc::recvmsg(socket.as_raw_fd(), &mut header, 0) };
-            if length < 0 {
-                let e = std::io::Error::last_os_error();
-                assert_eq!(e.kind(), std::io::ErrorKind::WouldBlock, "{e}");
-                return 0;
-            }
-            let length = length as usize;
-            let mut segment = length;
-            // SAFETY: walks the control messages the kernel wrote within msg_controllen.
-            unsafe {
-                let mut message = libc::CMSG_FIRSTHDR(&header);
-                while !message.is_null() {
-                    if (*message).cmsg_level == libc::SOL_UDP && (*message).cmsg_type == UDP_GRO {
-                        segment = (libc::CMSG_DATA(message) as *const libc::c_int).read_unaligned()
-                            as usize;
-                    }
-                    message = libc::CMSG_NXTHDR(&header, message);
-                }
-            }
-            let mut sum = lock.lock().unwrap();
-            let mut count = 0;
-            for datagram in self.buffer[..length].chunks(segment.max(1)) {
-                super::arrived(&mut sum, datagram);
-                count += 1;
-            }
-            count
         }
     }
 }

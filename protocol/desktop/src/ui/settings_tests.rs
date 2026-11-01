@@ -430,6 +430,21 @@ fn ctrl_f_leaves_an_open_dialog_alone() {
     assert_eq!(f.ctx.memory(|m| m.focused()), before, "the dialog keeps the focus");
 }
 
+/// A PC's own value without a row on the page (beam racing) still counts, and Clear all clears it.
+#[test]
+fn a_pcs_value_without_a_row_counts_and_clears() {
+    let mut f = Frames::new(record("PC", true, false), Reach::Online);
+    f.size = vec2(1280.0, 4000.0);
+    f.hosts.list[0].record.settings = Some(serde_json::from_str(r#"{"beam_race":true}"#).unwrap());
+    let id = f.hosts.list[0].id;
+    f.l.open_host_settings(id, &f.hosts.list[0]);
+    f.settle();
+    assert!(shows(&f, "1 setting is set here.") && shows(&f, "1 of them has no row on this page; Clear all clears it too."), "{:?}", f.drawn);
+    click_text(&mut f, "Clear all for this PC");
+    click_text(&mut f, "Clear all");
+    assert!(f.l.edit_overrides.is_empty() && shows(&f, "Nothing is set here yet."), "{:?}", f.drawn);
+}
+
 /// The settings page in every state worth a look, at 1280x800 (150 %) and 1920x1080:
 /// `NIGHTJAR_SHOTS=<dir> cargo test -p nightjar-desktop settings_screenshots -- --ignored`.
 #[test]

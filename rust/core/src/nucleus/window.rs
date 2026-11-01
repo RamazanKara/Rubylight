@@ -42,6 +42,9 @@ pub struct Window {
     pub owned: bool,
     /// Tool windows (overlays, launchers' helpers) never show in the taskbar.
     pub tool: bool,
+    /// It has a title bar or a sizing border, which a stream of it would
+    /// show around the game's picture.
+    pub framed: bool,
 }
 
 /// The instance's game window: the largest visible, unowned, non-tool
@@ -116,6 +119,7 @@ mod tests {
             minimized: false,
             owned: false,
             tool: false,
+            framed: false,
         }
     }
 

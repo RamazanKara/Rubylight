@@ -19,6 +19,9 @@ pub trait Desktop: Send {
     fn virtual_screen(&mut self) -> Rect;
     /// Move and size a window without activating it.
     fn place(&mut self, window: u64, to: Rect) -> Result<()>;
+    /// Take away a window's title bar and sizing border, so its stream
+    /// shows only the game.
+    fn unframe(&mut self, window: u64) -> Result<()>;
     /// Keep Windows from throttling these background processes; the ones
     /// no longer listed get their settings back.
     fn unthrottle(&mut self, processes: &BTreeSet<u32>);
@@ -369,7 +372,11 @@ impl Keeper {
             let mut parked =
                 window::parking(screen, index, (widest, height)).map_err(anyhow::Error::msg)?;
             parked.width = i32::try_from(width).map_err(anyhow::Error::msg)?;
-            if !window.minimized && !window::strayed(window.rect, parked, &monitors) {
+            // A frame showed a title bar around Split Fiction's picture (#56).
+            if !window.minimized
+                && !window.framed
+                && !window::strayed(window.rect, parked, &monitors)
+            {
                 slot.tries = 0;
                 continue;
             }
@@ -388,7 +395,7 @@ impl Keeper {
                 if !in_sight {
                     slot.stuck = true;
                     pass.stuck.push(index);
-                    tracing::warn!(slot = index, rect = ?window.rect, "Nucleus Co-op window keeps its own place or size beside the PC's desktop; left there");
+                    tracing::warn!(slot = index, rect = ?window.rect, framed = window.framed, "Nucleus Co-op window keeps its own place, size or frame beside the PC's desktop; left there");
                     continue;
                 }
                 if slot.tries == TRIES + 1 {
@@ -397,6 +404,12 @@ impl Keeper {
                 if !(slot.tries - TRIES - 1).is_multiple_of(BACKOFF) {
                     continue;
                 }
+            }
+            // Without its frame first: the place's size is then the game's.
+            if window.framed
+                && let Err(error) = desktop.unframe(window.id)
+            {
+                tracing::debug!(%error, slot = index, "Nucleus Co-op window's frame could not be taken away");
             }
             if let Err(error) = desktop.place(window.id, parked) {
                 tracing::debug!(%error, slot = index, "Nucleus Co-op window could not be moved");
@@ -425,6 +438,11 @@ pub(crate) mod tests {
         pub paths: BTreeMap<u32, String>,
         pub windows: Vec<Window>,
         pub placed: Vec<(u64, Rect)>,
+        /// The windows whose frames were taken away, in order.
+        pub unframed: Vec<u64>,
+        /// Frames come back as soon as they are taken away, as a game that
+        /// sets its own window style does.
+        pub keep_frames: bool,
         pub unthrottled: BTreeSet<u32>,
         pub labels: Vec<(u32, String, u64)>,
         pub clicks: Vec<u64>,
@@ -467,6 +485,15 @@ pub(crate) mod tests {
                 w.rect = to;
                 w.visible |= w.minimized;
                 w.minimized = false;
+            }
+            Ok(())
+        }
+        fn unframe(&mut self, window: u64) -> Result<()> {
+            self.unframed.push(window);
+            if !self.keep_frames
+                && let Some(w) = self.windows.iter_mut().find(|w| w.id == window)
+            {
+                w.framed = false;
             }
             Ok(())
         }
@@ -568,6 +595,7 @@ pub(crate) mod tests {
             minimized: false,
             owned: false,
             tool: false,
+            framed: false,
         }
     }
     pub(crate) const ON_SCREEN: Rect = Rect {
@@ -889,6 +917,48 @@ pub(crate) mod tests {
             keeper.pass(&mut desktop, &job, &SIZES).unwrap().windows,
             [None]
         );
+    }
+
+    /// #56: Split Fiction started in a window with a title bar, which its
+    /// stream showed above the game.
+    #[test]
+    fn a_framed_window_loses_its_frame_then_takes_its_place() {
+        let mut keeper = keeper(1);
+        let parked = window::parking(SCREEN, 0, SIZES[0]).unwrap();
+        let mut desktop = Fake {
+            obey: true,
+            ..fake(
+                vec![process(20, 10, 110, "Game.exe")],
+                vec![Window {
+                    framed: true,
+                    ..window(2, 20, ON_SCREEN)
+                }],
+            )
+        };
+        let job = BTreeSet::from([20]);
+        keeper.pass(&mut desktop, &job, &SIZES).unwrap();
+        assert_eq!(desktop.unframed, [2]);
+        assert_eq!(desktop.placed, [(2, parked)]);
+        assert!(!desktop.windows[0].framed);
+        // Settled: left alone.
+        keeper.pass(&mut desktop, &job, &SIZES).unwrap();
+        assert_eq!((desktop.unframed.len(), desktop.placed.len()), (1, 1));
+        // Already in its place, a frame alone is taken away too.
+        desktop.windows[0].framed = true;
+        keeper.pass(&mut desktop, &job, &SIZES).unwrap();
+        assert_eq!(desktop.unframed, [2, 2]);
+        // A game that puts its frame back each time is left framed beside
+        // the desktop after its tries, out of the PC's reach.
+        let mut keeper = self::keeper(1);
+        desktop.keep_frames = true;
+        desktop.windows[0].framed = true;
+        desktop.unframed.clear();
+        let mut stuck = Vec::new();
+        for _ in 0..TRIES + 2 * BACKOFF {
+            stuck.extend(keeper.pass(&mut desktop, &job, &SIZES).unwrap().stuck);
+        }
+        assert_eq!(stuck, [0]);
+        assert_eq!(desktop.unframed.len(), TRIES as usize);
     }
 
     #[test]

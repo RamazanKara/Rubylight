@@ -141,6 +141,9 @@ impl Desktop for Screen {
     fn place(&mut self, window: u64, to: Rect) -> Result<()> {
         self.0.lock().unwrap().place(window, to)
     }
+    fn unframe(&mut self, window: u64) -> Result<()> {
+        self.0.lock().unwrap().unframe(window)
+    }
     fn unthrottle(&mut self, processes: &BTreeSet<u32>) {
         self.0.lock().unwrap().unthrottle(processes)
     }

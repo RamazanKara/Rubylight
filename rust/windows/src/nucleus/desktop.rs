@@ -46,6 +46,22 @@ fn hwnd(id: u64) -> HWND {
     HWND(id as usize as *mut _)
 }
 
+/// What a window's frame is made of: its title bar, sizing border and their
+/// buttons. A thin border alone is no frame.
+const FRAME: WINDOW_STYLE = WINDOW_STYLE(
+    WS_CAPTION.0 | WS_THICKFRAME.0 | WS_SYSMENU.0 | WS_MINIMIZEBOX.0 | WS_MAXIMIZEBOX.0,
+);
+
+/// Whether a window with `style` has a title bar or a sizing border.
+pub(crate) fn framed(style: u32) -> bool {
+    style & WS_CAPTION.0 == WS_CAPTION.0 || style & WS_THICKFRAME.0 != 0
+}
+
+/// `style` without its frame ([`FRAME`]).
+pub(crate) fn unframed(style: u32) -> u32 {
+    style & !FRAME.0
+}
+
 /// Every top-level window, or only those of `processes` when given.
 fn top_level(processes: Option<&BTreeSet<u32>>) -> Result<Vec<Window>> {
     struct Scan<'a> {
@@ -73,6 +89,7 @@ fn top_level(processes: Option<&BTreeSet<u32>>) -> Result<Vec<Window>> {
             let _ =
                 DwmGetWindowAttribute(window, DWMWA_CLOAKED, (&mut cloaked as *mut u32).cast(), 4);
             let ex = GetWindowLongPtrW(window, GWL_EXSTYLE) as u32;
+            let style = GetWindowLongPtrW(window, GWL_STYLE) as u32;
             let shown = IsWindowVisible(window).as_bool() && cloaked == 0;
             let iconic = IsIconic(window).as_bool();
             scan.found.push(Window {
@@ -85,6 +102,7 @@ fn top_level(processes: Option<&BTreeSet<u32>>) -> Result<Vec<Window>> {
                 minimized: shown && iconic,
                 owned: !GetWindow(window, GW_OWNER).unwrap_or_default().is_invalid(),
                 tool: ex & WS_EX_TOOLWINDOW.0 != 0,
+                framed: framed(style),
             });
             true.into()
         }
@@ -324,6 +342,41 @@ impl Desktop for Win32 {
                 to.width,
                 to.height,
                 SWP_NOACTIVATE | SWP_NOZORDER | SWP_NOOWNERZORDER | SWP_ASYNCWINDOWPOS,
+            )?;
+        }
+        Ok(())
+    }
+    fn unframe(&mut self, window: u64) -> Result<()> {
+        let window = hwnd(window);
+        // SAFETY: the handle is a plain value from EnumWindows; a window that closed since makes
+        // the calls fail. The asynchronous move never waits for a hung game's message loop.
+        unsafe {
+            let style = GetWindowLongPtrW(window, GWL_STYLE) as u32;
+            ensure!(style != 0, "the window closed");
+            if !framed(style) {
+                return Ok(());
+            }
+            SetLastError(WIN32_ERROR(0));
+            let previous = SetWindowLongPtrW(window, GWL_STYLE, unframed(style) as isize);
+            // Zero is also the previous style of none, so the error says.
+            if previous == 0 && GetLastError() != WIN32_ERROR(0) {
+                return Err(windows::core::Error::from_thread().into());
+            }
+            // Windows lays the window out again without its frame.
+            SetWindowPos(
+                window,
+                None,
+                0,
+                0,
+                0,
+                0,
+                SWP_FRAMECHANGED
+                    | SWP_NOMOVE
+                    | SWP_NOSIZE
+                    | SWP_NOACTIVATE
+                    | SWP_NOZORDER
+                    | SWP_NOOWNERZORDER
+                    | SWP_ASYNCWINDOWPOS,
             )?;
         }
         Ok(())
@@ -651,6 +704,53 @@ mod tests {
                 assert_eq!(topmost(game), over == WS_EX_TOPMOST);
             }
         }
+    }
+
+    /// #56: a game window's title bar and sizing border are listed and
+    /// taken away; its other styles stay.
+    #[test]
+    fn a_windows_frame_is_listed_and_taken_away() {
+        assert!(framed(WS_OVERLAPPEDWINDOW.0));
+        assert!(framed(WS_POPUP.0 | WS_THICKFRAME.0));
+        assert!(!framed(WS_POPUP.0 | WS_BORDER.0));
+        assert_eq!(
+            unframed((WS_OVERLAPPEDWINDOW | WS_VISIBLE | WS_CLIPCHILDREN).0),
+            (WS_VISIBLE | WS_CLIPCHILDREN).0
+        );
+        // SAFETY: the class and text are NUL-terminated strings that outlive the call.
+        let window = unsafe {
+            CreateWindowExW(
+                WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
+                &windows::core::HSTRING::from("Static"),
+                &windows::core::HSTRING::from("Rubylight frame test"),
+                WS_OVERLAPPEDWINDOW,
+                -32000,
+                -32000,
+                300,
+                200,
+                None,
+                None,
+                None,
+                None,
+            )
+        }
+        .unwrap();
+        let listed = || {
+            top_level(Some(&BTreeSet::from([std::process::id()])))
+                .unwrap()
+                .into_iter()
+                .find(|w| w.id == window.0 as usize as u64)
+                .unwrap()
+        };
+        assert!(listed().framed);
+        let mut desktop = Win32::default();
+        desktop.unframe(window.0 as usize as u64).unwrap();
+        assert!(!listed().framed);
+        // Once is enough; again changes nothing.
+        desktop.unframe(window.0 as usize as u64).unwrap();
+        // SAFETY: a window this thread made.
+        unsafe { DestroyWindow(window).unwrap() };
+        assert!(desktop.unframe(window.0 as usize as u64).is_err());
     }
 
     #[test]

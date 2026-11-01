@@ -55,6 +55,10 @@ public abstract class VideoDecoderRenderer {
                                          int frameNumber, int frameType, char frameHostProcessingLatency,
                                          long receiveTimeUs, long enqueueTimeUs, long receiveTimeNs,
                                          long presentationTimeUs);
+
+    // Packets of the next PyroWave records frame while it arrives, as [length][flags][payload]
+    // each; first marks the frame's first packet. Only with early record push requested.
+    public void submitChunks(byte[] data, int length, boolean first) {}
     
     public abstract void cleanup();
 

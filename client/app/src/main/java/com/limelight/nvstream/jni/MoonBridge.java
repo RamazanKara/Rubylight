@@ -259,6 +259,12 @@ public class MoonBridge {
         }
     }
 
+    public static void bridgeDrSubmitChunks(byte[] data, int length, boolean first) {
+        if (videoRenderer != null) {
+            videoRenderer.submitChunks(data, length, first);
+        }
+    }
+
     public static int bridgeDrSubmitDecodeUnit(byte[] decodeUnitData, int decodeUnitLength, int decodeUnitType,
                                                int frameNumber, int frameType, char frameHostProcessingLatency,
                                                long receiveTimeUs, long enqueueTimeUs, long receiveTimeNs,
@@ -536,6 +542,7 @@ public class MoonBridge {
     private static volatile boolean roamingMeteredRequested;
     private static volatile int audioPassthroughRequested;
     private static volatile int videoFecRequested = -2;
+    private static volatile boolean pyroWaveEarlyRequested;
 
     /** Call before startConnection(): whether the next stream should use the Rust engine. */
     public static void requestRustEngine(boolean requested) {
@@ -557,6 +564,19 @@ public class MoonBridge {
      */
     public static void requestAudioPassthrough(int codecs) {
         audioPassthroughRequested = codecs;
+    }
+
+    /**
+     * Call before startConnection(): early record push for the next stream
+     * (PyroWaveDecoderRenderer.wantsEarlyRecords). Only the Rust engine hands frames over early.
+     */
+    public static void requestPyroWaveEarly(boolean requested) {
+        pyroWaveEarlyRequested = requested;
+    }
+
+    /** Whether the running stream (or the last one) hands PyroWave frames over while they arrive. */
+    public static boolean isPyroWaveEarlyStream() {
+        return rustStream && pyroWaveEarlyRequested;
     }
 
     /** Whether the running stream (or the last one) uses the Rust engine. */
@@ -670,7 +690,7 @@ public class MoonBridge {
                     colorSpace, colorRange, hostFeatures, inputOnly, enableMic, hapticsPcm,
                     pyrowaveLinkMbps, pyrowavePaceMbps, clientWireless, networkGracePeriodMs, packed444Requested, packedModes,
                     remoteMonitor, unbatchedInput, networkPriority, roamingRequested, roamingMeteredRequested,
-                    audioPassthroughRequested, hdrFormatRequested, videoFecRequested);
+                    audioPassthroughRequested, hdrFormatRequested, videoFecRequested, pyroWaveEarlyRequested);
         }
         return cStartConnection(address, appVersion, gfeVersion, rtspSessionUrl, serverCodecModeSupport,
                 width, height, fps, bitrate, packetSize, streamingRemotely, audioConfiguration,

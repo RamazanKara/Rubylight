@@ -44,6 +44,7 @@ import com.limelight.binding.audio.MicrophoneCapture;
 import com.limelight.binding.audio.MicrophoneStatus;
 import com.limelight.binding.audio.Surround714;
 import com.limelight.binding.input.InputBatcher;
+import com.limelight.binding.video.PyroWaveDecoderRenderer;
 import com.limelight.binding.video.Sdr10Policy;
 import com.limelight.computers.HostNotices;
 import com.limelight.computers.HostPackedModes;
@@ -1320,6 +1321,10 @@ public class NvConnection {
                         // Sent only to a host whose DESCRIBE offers Foundation's FEC control.
                         MoonBridge.requestVideoFec((context.fecChoice != null ? context.fecChoice : FecChoice.HOST)
                                 .summaryPercentage());
+                        // Record-framed PyroWave reaches the renderer while each frame arrives.
+                        MoonBridge.requestPyroWaveEarly(PyroWaveDecoderRenderer.wantsEarlyRecords(pyroWave,
+                                hostDetails.caps.has(HostCapabilities.Feature.PYROWAVE_RECORDS),
+                                PyroWaveDecoderRenderer.earlyRecordsAllowed()));
                         MoonBridge.requestRoaming(prefs.clientRoaming, prefs.roamingMetered);
                         MoonBridge.requestAudioPassthrough(audioPassthroughCodecs(prefs.audioPassthrough,
                                 context.streamConfig.getAudioConfiguration().channelCount));

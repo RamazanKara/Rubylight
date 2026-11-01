@@ -4108,6 +4108,9 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                         .append(" | screen image ").append(metric(waits[1], " ms"))
                         .append("\nReplaced by a newer frame: before decode ").append(metric(pyroWaveSkippedPercent, "%"))
                         .append(" | before display ").append(metric(waits[2], "%"));
+                if (MoonBridge.isPyroWaveEarlyStream()) {
+                    decode.append('\n').append(PyroWaveDecoderRenderer.earlyRecordsLine(pyroWaveRenderer.getEarlyRecords()));
+                }
             }
             int leadUs = MoonBridge.getPhaseLockLeadUs();
             if (leadUs != Integer.MIN_VALUE) {
@@ -4417,6 +4420,13 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         lastWindowVideoStats.copy(activeWindowVideoStats);
         activeWindowVideoStats.clear();
         activeWindowVideoStats.measurementStartTimestamp = SystemClock.uptimeMillis();
+    }
+
+    @Override
+    public void submitChunks(byte[] data, int length, boolean first) {
+        if (!stopping && (videoFormat & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) != 0) {
+            pyroWaveRenderer.submitChunks(data, length, first);
+        }
     }
 
     private int submitPyroWaveFrame(byte[] decodeUnitData, int decodeUnitLength, int frameNumber,

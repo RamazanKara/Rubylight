@@ -14,6 +14,7 @@ import com.limelight.R;
 import com.limelight.nvstream.jni.MoonBridge;
 
 import java.io.File;
+import java.util.Locale;
 
 // Adapted from joemossjr16/artemis-android-pyrowave 387d3a5c (GPL-3.0).
 public final class PyroWaveDecoderRenderer {
@@ -310,6 +311,41 @@ public final class PyroWaveDecoderRenderer {
         return handle != 0 ? nativeGetPresentMode(handle) : "unavailable";
     }
 
+    synchronized void submitChunks(byte[] data, int length, boolean first) {
+        if (handle != 0) nativeSubmitChunks(handle, data, length, first);
+    }
+
+    /**
+     * Whether a stream asks for early record push: a PyroWave stream from a host with record
+     * framing hands the renderer each frame's packets while they arrive, so its records are in
+     * the decoder by the frame's last packet. allowed is {@link #earlyRecordsAllowed()}.
+     */
+    public static boolean wantsEarlyRecords(boolean pyroWave, boolean hostRecords, boolean allowed) {
+        return pyroWave && hostRecords && allowed;
+    }
+
+    /** Off by default until measured on a device; debug.nightjar.pyro_early (1 or 0) overrides it. */
+    public static boolean earlyRecordsAllowed() {
+        return LIBRARY_LOADED && nativeEarlyRecordsAllowed();
+    }
+
+    /**
+     * Early record push over the last stats interval: the percentage of frames whose records were
+     * in the decoder by their last packet (-1 when none came early), and the frames whose early
+     * packets fell short and were pushed whole.
+     */
+    synchronized float[] getEarlyRecords() {
+        float[] early = handle != 0 ? nativeGetEarlyRecords(handle) : null;
+        return early != null && early.length >= 2 ? early : new float[] {-1, 0};
+    }
+
+    /** The overlay line for {@link #getEarlyRecords()}; a frame that fell back is counted. */
+    static String earlyRecordsLine(float[] early) {
+        if (early[0] < 0) return "Early record push: no frame came early";
+        String line = String.format(Locale.US, "Early record push: %.0f%% of frames", early[0]);
+        return early[1] > 0 ? line + String.format(Locale.US, " | %.0f pushed whole", early[1]) : line;
+    }
+
     synchronized float getLastRecordLossPercent() {
         return handle != 0 ? nativeGetLastRecordLossPercent(handle) : 0;
     }
@@ -375,6 +411,9 @@ public final class PyroWaveDecoderRenderer {
     private static native float[] nativeGetWaits(long handle);
     private static native String nativeGetPresentMode(long handle);
     private static native float nativeGetLastRecordLossPercent(long handle);
+    private static native void nativeSubmitChunks(long handle, byte[] data, int length, boolean first);
+    private static native boolean nativeEarlyRecordsAllowed();
+    private static native float[] nativeGetEarlyRecords(long handle);
     private static native void nativeSetHdrMode(long handle, boolean enabled, byte[] metadata);
     private static native void nativeSetTransfer(long handle, boolean hlg);
     private static native void nativeDestroy(long handle, FrameLatencyStats stats);

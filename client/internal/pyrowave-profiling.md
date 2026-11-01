@@ -35,6 +35,7 @@ average/maximum milliseconds for both monotonic wall time and thread CPU time:
 | `sdk` | Record and submit the decode through the SDK, including any SDK retirement waits. |
 | `publish` | Publish the submitted slot to the completion worker. |
 | `stats` | Existing periodic decoder statistics. |
+| `early` | One batch of early chunks (early record push): copy it out of Java and push the records it completes. One sample per batch, between frames, so it is not part of `total`. |
 | `total` | The complete native submission call, including early failures. |
 
 Warmup is excluded. Stages after a rejected or busy frame may have fewer samples

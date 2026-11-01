@@ -71,8 +71,8 @@ jobs:
     # .deb, .rpm and AppImage from that archive, and each is installed and started here. A fixed
     # Ubuntu, the oldest LTS still in standard support: the glibc it builds against is the
     # packages' floor (2.35), the AppImage catalog tests on it, and the .deb's dependency names are
-    # read off it. Its dav1d and NVIDIA headers are too old for FFmpeg 8, so ffmpeg-deps-linux.sh
-    # builds both, and its cmake is too old for the PyroWave SDK (3.27): the runner's newer one builds.
+    # read off it. Its dav1d, NVIDIA and Vulkan headers are too old for FFmpeg 8, so
+    # ffmpeg-deps-linux.sh provides all three, and its cmake is too old for the PyroWave SDK (3.27): the runner's newer one builds.
     needs: preflight
     runs-on: ubuntu-22.04
     timeout-minutes: 60

@@ -355,6 +355,11 @@ pub struct Settings {
     /// once; a choice made after that is kept.
     #[serde(default)]
     pub auto_reconnect_default_on: bool,
+    /// The once-only look at the PCs' and games' own settings has run: before 4.1.1, pressing A
+    /// on an inherited row pinned its value for the whole PC, and a pin can't be told apart from
+    /// a choice (`Launcher::show_kept_settings_once`). Missing from files written before it.
+    #[serde(default)]
+    pub kept_settings_checked: bool,
     pub virtual_display: bool,
     /// "PC render resolution": the percent of the stream resolution the PC renders its virtual
     /// display at (`scaleFactor`), as on Android. Kept in `RENDER_SCALE` when read: older versions
@@ -723,6 +728,7 @@ impl Default for Settings {
             network_priority: true,
             auto_reconnect: true,
             auto_reconnect_default_on: true,
+            kept_settings_checked: false,
             virtual_display: false,
             virtual_display_scale: 100,
             virtual_display_dpi: 0,
@@ -860,6 +866,19 @@ impl HostRecord {
     /// The PC has the feature again: if it loses it later, the notice is shown again. True when it was shown.
     pub fn reset_notice(&mut self, notice: &str) -> bool {
         self.notices.remove(notice)
+    }
+
+    /// What this PC keeps over the main settings and profiles: whether it has settings of its
+    /// own, and for how many games (each saved under `id:`, and `uuid:` when it has one).
+    pub fn own_settings(&self) -> (bool, usize) {
+        let count = |prefix: &str| self.app_settings.iter().filter(|(key, own)| key.starts_with(prefix) && !own.is_empty()).count();
+        (self.settings.as_ref().is_some_and(|own| !own.is_empty()), count("id:").max(count("uuid:")))
+    }
+
+    /// Drops the PC's and its games' own settings, so they follow the profile or main settings.
+    pub fn clear_own_settings(&mut self) {
+        self.settings = None;
+        self.app_settings.clear();
     }
 
     pub fn app_settings(&self, uuid: &str, id: i32) -> Option<&Overrides> {
@@ -1737,6 +1756,31 @@ mod tests {
         assert!(saved.settings(&global).microphone);
         host.settings = None;
         assert_eq!(host.settings(&global).fps, 144);
+    }
+
+    #[test]
+    fn a_pcs_own_settings_count_each_game_once_and_clear_to_the_layers_below() {
+        // As 4.1.0 wrote it: Frame rate pinned for the PC, one game with a UUID (saved under both
+        // keys) and one without.
+        let mut host: HostRecord = serde_json::from_value(serde_json::json!({
+            "address": "pc.local",
+            "settings": { "fps": 120 },
+            "app_settings": { "uuid:a": { "hdr": true }, "id:1": { "hdr": true }, "id:2": { "fps": 30 } },
+        })).unwrap();
+        assert_eq!(host.own_settings(), (true, 2));
+        host.clear_own_settings();
+        assert_eq!(host.own_settings(), (false, 0));
+        let main = Settings { fps: 60, ..Default::default() };
+        assert_eq!(host.settings(&main).fps, 60);
+        assert!(host.app_settings("a", 1).is_none());
+
+        let untouched: HostRecord = serde_json::from_str(r#"{"address":"pc.local","settings":{}}"#).unwrap();
+        assert_eq!(untouched.own_settings(), (false, 0));
+        // Settings saved before the look at kept settings have it still to run; after, it stays done.
+        let old: Settings = serde_json::from_str(r#"{"fps":60}"#).unwrap();
+        assert!(!old.kept_settings_checked);
+        let done = Settings { kept_settings_checked: true, ..old };
+        assert!(serde_json::from_str::<Settings>(&serde_json::to_string(&done).unwrap()).unwrap().kept_settings_checked);
     }
 
     #[test]

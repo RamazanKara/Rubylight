@@ -871,6 +871,30 @@ impl Launcher {
                         });
                     });
             }
+            Dialog::KeptSettings { pcs } => {
+                egui::Modal::new(Id::unique("kept-settings"))
+                    .frame(frame)
+                    .backdrop_color(Color32::from_black_alpha(150))
+                    .show(ctx, |ui| {
+                        ui.set_width(440.0);
+                        ui.label(RichText::new(tr("Some PCs and games keep their own settings")).font(semibold(text::SECTION)));
+                        ui.label(RichText::new(tr("Older versions could keep a setting for a whole PC when it was only opened.")).color(ON_SURFACE_VARIANT));
+                        ui.add_space(space::S);
+                        for pc in pcs.iter() {
+                            ui.label(pc.line());
+                        }
+                        dialog_buttons(ui, |ui| {
+                            if primary_button(ui, "Reset all").clicked() {
+                                commands.push(Command::ResetKeptSettings);
+                                close = true;
+                            }
+                            // Keep has focus: some lines may be choices, which one A press must not drop.
+                            let keep = quiet_button(ui, "Keep");
+                            if focus_first { keep.request_focus(); focused = true; }
+                            if keep.clicked() { close = true; }
+                        });
+                    });
+            }
             Dialog::ConfirmClose { host, name } => {
                 let (host, name) = (*host, name.clone());
                 egui::Modal::new(Id::unique("confirm-close"))
@@ -1066,6 +1090,26 @@ impl Launcher {
         self.menu_anchor = anchor;
         self.dialog = dialog;
         self.focus_dialog = true;
+    }
+
+    /// Once per install: lists the PCs that keep settings of their own or for games, which
+    /// before 4.1.1 an A press on an inherited row could pin without a choice. Waits while
+    /// another dialog is open. True when `settings.kept_settings_checked` changed and needs saving.
+    pub fn show_kept_settings_once(&mut self, hosts: &[Host]) -> bool {
+        if self.settings.kept_settings_checked || !matches!(self.dialog, Dialog::None) {
+            return false;
+        }
+        self.settings.kept_settings_checked = true;
+        // Words come when drawn: at start the language setting isn't applied yet.
+        let pcs: Vec<KeptPc> = hosts.iter().filter_map(|host| {
+            let (own, games) = host.record.own_settings();
+            (own || games > 0).then(|| KeptPc { name: host.display_name().to_owned(), own, games })
+        }).collect();
+        if !pcs.is_empty() {
+            self.dialog = Dialog::KeptSettings { pcs };
+            self.focus_dialog = true;
+        }
+        true
     }
 
     /// The PC answered a pairing request. Returns true when this device is now paired and the

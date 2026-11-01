@@ -519,6 +519,12 @@ fn run(launch: Option<cli::Launch>) -> Result<(), String> {
             launcher.go(Screen::Home);
         }
     }
+    // A stream started from the command line waits for the next ordinary start.
+    if cli.is_none() && std::env::var_os("NIGHTJAR_AUTOSTREAM").is_none() && launcher.show_kept_settings_once(&hosts.list) {
+        if let Err(e) = store.save_settings(&launcher.settings) {
+            eprintln!("nightjar: saving settings failed: {e}");
+        }
+    }
     let identity = match store.identity() {
         Some(saved) => match ClientIdentity::from_pem(saved.unique_id, &saved.certificate_pem, &saved.private_key_pem) {
             Ok(identity) => {
@@ -1228,6 +1234,10 @@ impl App {
                     host.record.save_app_settings(&app.uuid, app.id, self.launcher.edit_overrides.clone());
                     self.save_hosts();
                 }
+            }
+            Command::ResetKeptSettings => {
+                self.hosts.list.iter_mut().for_each(|host| host.record.clear_own_settings());
+                self.save_hosts();
             }
             Command::ProfileSettings(id) => {
                 if let Some(profile) = self.launcher.profiles.entries.iter().find(|p| p.id == id) {

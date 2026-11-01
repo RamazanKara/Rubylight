@@ -287,8 +287,9 @@ fn the_section_key_table_is_what_the_page_draws() {
 /// Display & image.
 #[test]
 fn the_rarely_needed_settings_are_in_the_debug_section_only() {
-    const DEBUG: [&str; 9] = ["decoder", "full_range", "cursor_shapes", "unbatched_input", "error_correction",
-        "network_priority", "client_hint_bitrate", "tell_host_wireless", "tell_host_link_speed"];
+    // Android's main rows in its order, then the desktop's own in Fine-tuning.
+    const DEBUG: [&str; 9] = ["error_correction", "client_hint_bitrate", "tell_host_wireless", "tell_host_link_speed",
+        "network_priority", "unbatched_input", "full_range", "decoder", "cursor_shapes"];
     assert_eq!(SETTINGS_SECTIONS.last(), Some(&"Debug"));
     // Prioritize stream traffic does something on Linux only, so only Linux draws it.
     let wanted: Vec<&str> = DEBUG.into_iter().filter(|k| *k != "network_priority" || cfg!(target_os = "linux")).collect();
@@ -313,7 +314,9 @@ fn the_rarely_needed_settings_are_in_the_debug_section_only() {
     for (query, row) in [("full color range", "Full color range"), ("error correction", "Error correction"), ("local cursor", "Local cursor")] {
         f.l.settings_view.query = query.into();
         f.settle();
-        assert!(shows(&f, row) && shows(&f, "Debug"), "{query} finds {row}: {:?}", f.drawn);
+        // The sidebar always shows "Debug"; the section's count says the row was found there.
+        assert!(shows(&f, row) && f.l.settings_view.found[SETTINGS_SECTIONS.len() - 1] > 0,
+            "{query} finds {row} in Debug: {:?} {:?}", f.l.settings_view.found, f.drawn);
     }
 }
 

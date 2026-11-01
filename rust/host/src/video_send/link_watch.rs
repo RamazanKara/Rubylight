@@ -4,7 +4,7 @@
 //! frames; they now read the watcher's latest answer.
 use butterpollo_windows::net::Link;
 use std::{
-    net::{IpAddr, SocketAddr},
+    net::SocketAddr,
     sync::{
         Arc, Condvar, Mutex,
         atomic::{AtomicU64, Ordering},
@@ -15,13 +15,17 @@ use std::{
 
 /// How often the route is looked up again, as the stream threads did.
 const INTERVAL: Duration = Duration::from_secs(2);
+/// A lookup slower than this is reported: the route it answers is stale.
+const SLOW_LOOKUP: Duration = Duration::from_secs(2);
+/// Client addresses followed at once: while a client roams, the paced sender
+/// still sends the old address's frames as the encoder meets the new one.
+const ROUTES: usize = 2;
 
 type Query = dyn Fn(SocketAddr) -> Link + Send + Sync;
 
-/// One per stream, shared by its encode loop and video sender.
+/// One per stream, shared by its encode loop and video senders.
 pub(crate) struct LinkWatch {
     inner: Arc<Inner>,
-    watcher: Mutex<Option<thread::JoinHandle<()>>>,
 }
 
 struct Inner {
@@ -33,15 +37,25 @@ struct Inner {
     slowest: AtomicU64,
 }
 
+#[derive(Clone, Copy)]
+struct Route {
+    peer: SocketAddr,
+    link: Link,
+    /// When the lookup was made.
+    at: Instant,
+    /// When a stream thread last asked for it.
+    used: Instant,
+}
+
 #[derive(Default)]
 struct State {
-    /// The client the stream sends to now.
-    peer: Option<SocketAddr>,
-    /// The latest lookup, for the address it routed and when it was made.
-    link: Option<(IpAddr, Link, Instant)>,
+    /// The latest lookups, for the client addresses the stream sent to last.
+    routes: Vec<Route>,
     watching: bool,
     /// The watcher thread could not start; told once.
     spawn_failed: bool,
+    /// A stale route was reported; reset by a fresh lookup.
+    stale_warned: bool,
     stopped: bool,
 }
 
@@ -49,19 +63,54 @@ impl State {
     /// A lookup made for `peer`; one for an address the stream has left is
     /// stale and dropped.
     fn publish(&mut self, peer: SocketAddr, link: Link, at: Instant) -> bool {
-        if self.peer.map(|current| current.ip()) != Some(peer.ip()) {
+        let Some(route) = self.routes.iter_mut().find(|r| r.peer.ip() == peer.ip()) else {
             return false;
-        }
-        self.link = Some((peer.ip(), link, at));
+        };
+        route.link = link;
+        route.at = at;
+        self.stale_warned = false;
         true
+    }
+
+    /// A route a stream thread looked up itself, replacing the one used least
+    /// recently once [`ROUTES`] are followed.
+    fn insert(&mut self, peer: SocketAddr, link: Link, now: Instant) {
+        self.routes.retain(|r| r.peer.ip() != peer.ip());
+        if self.routes.len() >= ROUTES
+            && let Some(oldest) = (0..self.routes.len()).min_by_key(|&i| self.routes[i].used)
+        {
+            self.routes.remove(oldest);
+        }
+        self.routes.push(Route {
+            peer,
+            link,
+            at: now,
+            used: now,
+        });
     }
 
     /// The published route to `peer`, while it is still current: the
     /// watcher keeps it so, or without one, the interval bounds its age.
-    fn current(&self, peer: SocketAddr, interval: Duration, now: Instant) -> Option<Link> {
-        let (routed, link, at) = self.link?;
-        (routed == peer.ip() && (self.watching || now.saturating_duration_since(at) < interval))
-            .then_some(link)
+    fn current(&mut self, peer: SocketAddr, interval: Duration, now: Instant) -> Option<Link> {
+        let watching = self.watching;
+        let route = self.routes.iter_mut().find(|r| r.peer.ip() == peer.ip())?;
+        let age = now.saturating_duration_since(route.at);
+        if !watching && age >= interval {
+            return None;
+        }
+        route.used = now;
+        route.peer = peer;
+        let link = route.link;
+        if watching
+            && age >= interval + SLOW_LOOKUP
+            && !std::mem::replace(&mut self.stale_warned, true)
+        {
+            tracing::warn!(
+                age_ms = age.as_millis() as u64,
+                "the route to the client was not looked up again in time; pacing keeps the last known link"
+            );
+        }
+        Some(link)
     }
 }
 
@@ -84,7 +133,6 @@ impl LinkWatch {
                 interval,
                 slowest: AtomicU64::new(0),
             }),
-            watcher: Mutex::new(None),
         }
     }
 
@@ -95,26 +143,21 @@ impl LinkWatch {
         {
             let mut state = self.inner.state.lock().unwrap();
             if let Some(link) = state.current(peer, self.inner.interval, Instant::now()) {
-                state.peer = Some(peer);
                 return link;
             }
         }
-        let started = Instant::now();
-        let link = (self.inner.query)(peer);
-        self.inner.note(started);
+        let link = self.inner.lookup(peer);
         let mut state = self.inner.state.lock().unwrap();
-        state.peer = Some(peer);
-        state.publish(peer, link, Instant::now());
+        state.insert(peer, link, Instant::now());
         if !state.watching && !state.spawn_failed && !state.stopped {
             let inner = self.inner.clone();
+            // Detached: a lookup stuck in the network stack must not hold up
+            // the stream's teardown; the thread ends after that lookup.
             match thread::Builder::new()
                 .name("link-watch".into())
                 .spawn(move || inner.watch())
             {
-                Ok(handle) => {
-                    state.watching = true;
-                    *self.watcher.lock().unwrap() = Some(handle);
-                }
+                Ok(_) => state.watching = true,
                 Err(error) => {
                     // Without the thread, this lookup runs here every interval.
                     state.spawn_failed = true;
@@ -132,9 +175,21 @@ impl LinkWatch {
 }
 
 impl Inner {
-    fn note(&self, started: Instant) {
-        let micros = started.elapsed().as_micros().min(u128::from(u64::MAX)) as u64;
-        self.slowest.fetch_max(micros, Ordering::Relaxed);
+    fn lookup(&self, peer: SocketAddr) -> Link {
+        let started = Instant::now();
+        let link = (self.query)(peer);
+        let took = started.elapsed();
+        self.slowest.fetch_max(
+            took.as_micros().min(u128::from(u64::MAX)) as u64,
+            Ordering::Relaxed,
+        );
+        if took >= SLOW_LOOKUP {
+            tracing::warn!(
+                took_ms = took.as_millis() as u64,
+                "looking up the route to the client took long; the network stack was slow to answer"
+            );
+        }
+        link
     }
 
     fn watch(&self) {
@@ -148,13 +203,16 @@ impl Inner {
             if state.stopped {
                 return;
             }
-            let Some(peer) = state.peer else { continue };
+            let peers: Vec<SocketAddr> = state.routes.iter().map(|r| r.peer).collect();
             drop(state);
-            let started = Instant::now();
-            let link = (self.query)(peer);
-            self.note(started);
+            let links: Vec<(SocketAddr, Link, Instant)> = peers
+                .into_iter()
+                .map(|peer| (peer, self.lookup(peer), Instant::now()))
+                .collect();
             state = self.state.lock().unwrap();
-            state.publish(peer, link, Instant::now());
+            for (peer, link, at) in links {
+                state.publish(peer, link, at);
+            }
         }
     }
 }
@@ -163,9 +221,6 @@ impl Drop for LinkWatch {
     fn drop(&mut self) {
         self.inner.state.lock().unwrap().stopped = true;
         self.inner.changed.notify_all();
-        if let Some(handle) = self.watcher.get_mut().unwrap().take() {
-            let _ = handle.join();
-        }
     }
 }
 
@@ -291,8 +346,12 @@ mod tests {
         let mut state = State::default();
         let old = peer("192.168.4.20:47998");
         let new = peer("192.168.4.21:47998");
+        let newer = peer("192.168.4.22:47998");
         let now = Instant::now();
-        state.peer = Some(new);
+        state.insert(old, Link::default(), now);
+        state.insert(new, Link::default(), now + Duration::from_millis(1));
+        // A third address replaces the one used least recently.
+        state.insert(newer, Link::default(), now + Duration::from_millis(2));
         assert!(!state.publish(old, Link::default(), now));
         assert_eq!(state.current(old, INTERVAL, now), None);
         let link = Link {
@@ -301,7 +360,22 @@ mod tests {
         };
         assert!(state.publish(new, link, now));
         assert_eq!(state.current(new, INTERVAL, now), Some(link));
-        assert_eq!(state.current(old, INTERVAL, now), None);
+    }
+
+    #[test]
+    fn a_roaming_client_s_old_and_new_address_both_stay_routed() {
+        let (watch, fake) = watch(Duration::from_secs(3600));
+        let old = peer("192.168.4.20:47998");
+        let new = peer("10.0.0.7:47998");
+        watch.get(old);
+        watch.get(new);
+        assert_eq!(fake.lookups.load(Ordering::SeqCst), 2);
+        // The paced sender's old-address frames and the encoder's new address alternate.
+        for _ in 0..100 {
+            watch.get(old);
+            watch.get(new);
+        }
+        assert_eq!(fake.lookups.load(Ordering::SeqCst), 2);
     }
 
     #[test]
@@ -309,8 +383,7 @@ mod tests {
         let mut state = State::default();
         let client = peer("192.168.4.20:47998");
         let now = Instant::now();
-        state.peer = Some(client);
-        state.publish(client, Link::default(), now);
+        state.insert(client, Link::default(), now);
         assert!(
             state
                 .current(client, INTERVAL, now + INTERVAL / 2)
@@ -326,14 +399,60 @@ mod tests {
     }
 
     #[test]
+    fn a_stale_route_is_reported_once_until_a_lookup_answers() {
+        let mut state = State::default();
+        let client = peer("192.168.4.20:47998");
+        let now = Instant::now();
+        state.insert(client, Link::default(), now);
+        state.watching = true;
+        assert!(state.current(client, INTERVAL, now + INTERVAL).is_some());
+        assert!(!state.stale_warned);
+        let stale = now + INTERVAL + SLOW_LOOKUP;
+        assert!(state.current(client, INTERVAL, stale).is_some());
+        assert!(state.stale_warned);
+        assert!(state.publish(client, Link::default(), stale));
+        assert!(!state.stale_warned);
+    }
+
+    #[test]
     fn dropping_the_watch_stops_its_thread() {
         let (watch, fake) = watch(Duration::from_millis(5));
         watch.get(peer("192.168.4.20:47998"));
         assert!(eventually(|| fake.lookups.load(Ordering::SeqCst) >= 2));
         drop(watch);
+        // A lookup already under way may still finish.
+        thread::sleep(Duration::from_millis(20));
         let after = fake.lookups.load(Ordering::SeqCst);
         thread::sleep(Duration::from_millis(50));
         assert_eq!(fake.lookups.load(Ordering::SeqCst), after);
+    }
+
+    #[test]
+    fn a_hung_lookup_does_not_hold_up_teardown() {
+        let release = Arc::new((Mutex::new(false), Condvar::new()));
+        let gate = release.clone();
+        let calls = Arc::new(AtomicUsize::new(0));
+        let counted = calls.clone();
+        let watch = LinkWatch::new(
+            move |_| {
+                if counted.fetch_add(1, Ordering::SeqCst) > 0 {
+                    let (lock, changed) = &*gate;
+                    let _held = changed
+                        .wait_while(lock.lock().unwrap(), |released| !*released)
+                        .unwrap();
+                }
+                Link::default()
+            },
+            Duration::from_millis(5),
+        );
+        watch.get(peer("192.168.4.20:47998"));
+        assert!(eventually(|| calls.load(Ordering::SeqCst) >= 2));
+        let started = Instant::now();
+        drop(watch);
+        assert!(started.elapsed() < Duration::from_secs(1));
+        let (lock, changed) = &*release;
+        *lock.lock().unwrap() = true;
+        changed.notify_all();
     }
 
     #[test]

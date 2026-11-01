@@ -17,8 +17,9 @@ pub(super) fn run(
     let timer = Timer::new()?;
     let mut batch = Batch::default();
     let mut pacer = Pacer::new(Instant::now());
-    let mut route = butterpollo_windows::net::Link::default();
     let mut route_check = RouteCheck::new(Instant::now());
+    // The route lookup runs on its own thread, not between frames here.
+    let link_watch = crate::video_send::link_watch::LinkWatch::default();
     while !shared.stop.load(Ordering::Acquire)
         && !current.stopping()
         && !host.stop.load(Ordering::Acquire)
@@ -36,9 +37,7 @@ pub(super) fn run(
         };
         let Some(frame) = frame else { continue };
         let report = route_check.due(Instant::now(), frame.peer);
-        if report {
-            route = butterpollo_windows::net::routed_link(frame.peer);
-        }
+        let route = link_watch.get(frame.peer);
         let client = client_path(&current);
         let bps = pace(&current, &config, frame.kbps, frame.wire_frame, route);
         if report {

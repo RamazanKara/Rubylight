@@ -5,7 +5,7 @@
 use anyhow::{Context, Result};
 use butterpollo_core::session::{Warning, Warnings};
 use serde::{Deserialize, Serialize};
-use std::{collections::BTreeMap, path::Path};
+use std::{collections::BTreeMap, path::Path, sync::Mutex};
 
 const FILE: &str = "host-warnings.json";
 /// Raised by the Windows Firewall check at start.
@@ -21,10 +21,19 @@ struct Saved {
     dismissed: BTreeMap<String, String>,
 }
 
+/// Held across each load, change and save of the file, so concurrent dismisses
+/// and notices do not lose one another's change.
+static FILE_LOCK: Mutex<()> = Mutex::new(());
+
+/// The saved notices and dismissals. A file that is not valid JSON counts as
+/// empty, so it is replaced by the next save instead of blocking every dismiss.
 fn load(directory: &Path) -> Result<Saved> {
     let path = directory.join(FILE);
     match std::fs::read(&path) {
-        Ok(bytes) => serde_json::from_slice(&bytes).with_context(|| format!("{}", path.display())),
+        Ok(bytes) => Ok(serde_json::from_slice(&bytes).unwrap_or_else(|error| {
+            tracing::warn!(path = %path.display(), %error, "the host's saved warnings are damaged; starting from none");
+            Saved::default()
+        })),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Saved::default()),
         Err(error) => Err(error).with_context(|| format!("{}", path.display())),
     }
@@ -48,6 +57,7 @@ pub fn restore(directory: &Path, warnings: &Warnings) {
 /// that cannot be saved still shows until the host stops.
 pub fn notice(directory: &Path, warnings: &Warnings, code: &str, message: &str) {
     warnings.set(code, message);
+    let _file = FILE_LOCK.lock().unwrap();
     let saved = load(directory).and_then(|mut saved| {
         saved.notices.insert(code.into(), message.into());
         saved.dismissed.remove(code);
@@ -75,6 +85,7 @@ pub fn dismiss(directory: &Path, warnings: &Warnings, code: &str) -> Result<()> 
     let Some(current) = warnings.snapshot().into_iter().find(|w| w.code == code) else {
         anyhow::bail!("there is no host warning {code:?} to dismiss");
     };
+    let _file = FILE_LOCK.lock().unwrap();
     let mut saved = load(directory)?;
     if saved.notices.remove(code).is_some() {
         warnings.clear(code);
@@ -161,6 +172,36 @@ mod tests {
         assert_eq!(codes(&warnings), ["other"]);
         warnings.set("codec_support", "AV1 and HEVC are missing");
         assert_eq!(codes(&warnings), ["codec_support", "other"]);
+        Ok(())
+    }
+
+    #[test]
+    fn dismisses_at_the_same_time_all_stick() -> Result<()> {
+        let directory = tempdir()?;
+        let warnings = Warnings::default();
+        let codes: Vec<String> = (0..16).map(|i| format!("code_{i}")).collect();
+        for code in &codes {
+            warnings.set(code, "shown");
+        }
+        std::thread::scope(|scope| {
+            for code in &codes {
+                let (directory, warnings) = (directory.path(), &warnings);
+                scope.spawn(move || dismiss(directory, warnings, code).unwrap());
+            }
+        });
+        assert!(visible(directory.path(), &warnings).is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn a_damaged_file_is_replaced_instead_of_blocking_dismiss() -> Result<()> {
+        let directory = tempdir()?;
+        std::fs::write(directory.path().join(FILE), b"{\"notices\": [trunc")?;
+        let warnings = Warnings::default();
+        warnings.set("codec_support", "AV1 is missing");
+        assert_eq!(visible(directory.path(), &warnings).len(), 1);
+        dismiss(directory.path(), &warnings, "codec_support")?;
+        assert!(visible(directory.path(), &warnings).is_empty());
         Ok(())
     }
 

@@ -39,23 +39,27 @@ the Wi-Fi mode alone, for measurements only. The log ends each stream with
 
 ## Measured
 
-2026-10-31, laptop on Wi-Fi 6E (RZ616, AC power) streaming the desktop from the RX 7900 XT PC with
-V-Sync on and the latency frame pacing. A script moved the mouse 2 px every 1 ms for 25 s (1000 Hz,
-direction flipping every 500 ms); the PC's pointer was sampled at the PC and the laptop's uplink
-captured with pktmon.
+2026-10-31 and 11-01, laptop on Wi-Fi 6E (RZ616, AC power) streaming the desktop from the RX 7900
+XT PC with V-Sync on and the latency frame pacing. A script moved the mouse 2 px every 1 ms for 25 s
+(1000 Hz, direction flipping every 500 ms; the 8 kHz rows 1 px every 125 us, flipping every 100 ms);
+the PC's pointer was sampled at the PC and the laptop's uplink captured with pktmon. One value per
+run.
 
 | arm | PC pointer updates/s | gap p90 | per-frame motion CV | laptop packets/s (gap p90) |
 |---|---|---|---|---|
 | before | 185 | 13.6 ms | 0.94 | 553 (4.8 ms) |
 | Wi-Fi mode only | 126 | 16.9 ms | 1.01 | 504 (5.7 ms) |
-| direct motion only | 90, 402 | stalls to 90 ms, 5.9 ms | –, 0.62 | 1097, 1106 (1.04 ms) |
-| both | 682, 511, 576, 77 | 2.9, 4.0, 3.5 ms, stalls to 110 ms | 0.30, 0.49, 0.41, – | 959 to 1143 (1.04 to 1.6 ms) |
-| both, 8 kHz mouse (1 px per 125 us) | 277 | 9.2 ms | 0.82 | 1188 (1.1 ms) |
+| direct motion only, no floor | 90, 402 | stalls to 90 ms, 5.9 ms | –, 0.62 | 1097, 1106 (1.04 ms) |
+| both, no floor | 682, 511, 576 | 2.9, 4.0, 3.5 ms | 0.30, 0.49, 0.41 | 1109 to 1143 (1.04 ms) |
+| both, 1 ms floor | 77 | stalls to 110 ms | – | 959 (1.6 ms) |
+| both, 0.5 ms floor (shipped) | 817, 657 | 2.1, 3.3 ms | 0.22, 0.26 | 1067, 1117 (1.03 ms) |
+| 8 kHz, both, 1 ms floor | 277 | 9.2 ms | 0.82 | 1188 (1.1 ms) |
+| 8 kHz, both, 0.5 ms floor | 913 | 2.2 ms | 0.41 | 1952 (0.63 ms) |
 
 Every arm delivered the full distance. With direct motion the laptop sends one packet per
-millisecond, and in no run did its uplink have a gap over 20 ms; with an 8 kHz mouse the 1 ms floor
-holds it to about 1200 packets/s. What the PC receives depends on the link: in 2 of 7 direct-motion
-runs (one with the Wi-Fi mode, one without) the Wi-Fi delivered the input in clumps 50 to 110 ms
-apart while the PC was idle, so a bad Wi-Fi moment still shows. With direct motion, runs with the
-Wi-Fi mode reached 682, 511, 576 and 77 updates/s, runs without it 90 and 402; alone it changes
-nothing while motion still leaves once per refresh.
+millisecond (an 8 kHz mouse about one per 0.5 ms), and in no run did its uplink have a gap over
+20 ms. What the PC receives depends on the link: in 2 of 9 direct-motion runs (one with the Wi-Fi
+mode, one without) the Wi-Fi delivered the input in clumps 50 to 110 ms apart while the PC was idle,
+so a bad Wi-Fi moment still shows. With direct motion, runs with the Wi-Fi mode reached 817, 682,
+657, 576, 511 and 77 updates/s, runs without it 90 and 402; alone it changes nothing while motion
+still leaves once per refresh.

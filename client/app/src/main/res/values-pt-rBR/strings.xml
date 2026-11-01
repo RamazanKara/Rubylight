@@ -52,6 +52,8 @@
     <string name="no_video_received_error">Nenhum vídeo recebido do host.</string>
     <string name="no_frame_received_error">Reduza a taxa de bits ou use uma rede mais rápida.</string>
     <string name="early_termination_error">A transmissão não iniciou.\nFeche vídeos protegidos ou reinicie o PC.</string>
+    <string name="early_stop_error">O PC encerrou a transmissão antes da primeira imagem.\nO jogo pode ter fechado. Inicie-o de novo.</string>
+    <string name="host_failure_reason">O PC informou: %1$s</string>
     <string name="frame_conversion_error">Falha na codificação do vídeo no PC.\nDesative o HDR ou mude a resolução.</string>
     <string name="check_ports_msg">Verifique o firewall e o encaminhamento destas portas:</string>
     <string name="conn_establishing_title">Conectando</string>

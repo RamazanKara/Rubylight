@@ -52,6 +52,8 @@
     <string name="no_video_received_error">Aucune vidéo reçue de l’hôte.</string>
     <string name="no_frame_received_error">Baissez le débit ou utilisez un réseau plus rapide.</string>
     <string name="early_termination_error">Échec du démarrage du stream.\nFermez les vidéos protégées ou redémarrez le PC.</string>
+    <string name="early_stop_error">Le PC a arrêté le stream avant la première image.\nLe jeu s\'est peut-être fermé. Relancez-le.</string>
+    <string name="host_failure_reason">Le PC signale : %1$s</string>
     <string name="frame_conversion_error">Échec de l’encodage vidéo sur le PC.\nDésactivez le HDR ou changez la résolution.</string>
     <string name="check_ports_msg">Vérifiez le pare-feu et la redirection pour les ports :</string>
     <string name="conn_establishing_title">Connexion</string>

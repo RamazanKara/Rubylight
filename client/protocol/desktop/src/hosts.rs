@@ -653,6 +653,26 @@ impl Hosts {
         self.list.iter().find(|h| h.id == id)
     }
 
+    /// The poll of the PC in flight, if one is.
+    pub fn polling_seq(&self, id: u64) -> Option<u64> {
+        self.get(id).filter(|host| host.polling).map(|host| host.poll_seq)
+    }
+
+    /// Once poll `seq` (or a later one) answered: the reason the PC gave for this device's
+    /// latest failed stream, `Some(None)` when it gave none or could not be asked. `None` while
+    /// the poll is still out.
+    pub fn failure_after(&self, id: u64, seq: u64) -> Option<Option<String>> {
+        let Some(host) = self.get(id) else {
+            return Some(None);
+        };
+        (host.info_seq >= seq).then(|| {
+            host.info
+                .as_ref()
+                .filter(|_| host.error.is_none())
+                .and_then(|info| info.last_failure.clone())
+        })
+    }
+
     pub fn get_mut(&mut self, id: u64) -> Option<&mut Host> {
         self.list.iter_mut().find(|h| h.id == id)
     }
@@ -2143,6 +2163,26 @@ pub(crate) mod tests {
         send(&mut hosts, info_event(id, 3, 0));
         send(&mut hosts, info_event(id, 2, 7));
         assert_eq!(hosts.list[0].running_app(), None, "the app list must not show the quit game as running");
+    }
+
+    #[test]
+    fn the_failure_reason_comes_only_from_the_poll_after_the_stream() {
+        let mut hosts = Hosts::without_discovery(vec![paired_record("uid")], Arc::new(|| {}));
+        let id = hosts.list[0].id;
+        let failed = |seq| {
+            let text = INFO.replace("<state>", "<RustHostLastFailure>HDR is on, but the display is not in HDR</RustHostLastFailure><state>");
+            Event::Info { id, seq, address: "192.0.2.1".into(), result: Ok(Box::new(ServerInfo::parse(&text, 47989).unwrap())) }
+        };
+        // An answer from before the stream says nothing about it.
+        send(&mut hosts, failed(1));
+        assert_eq!(hosts.failure_after(id, 2), None, "still waiting for the poll after the stream");
+        send(&mut hosts, failed(2));
+        assert_eq!(hosts.failure_after(id, 2), Some(Some("HDR is on, but the display is not in HDR".into())));
+        // A PC that gives no reason, or could not be asked, ends the wait without one.
+        send(&mut hosts, info_event(id, 3, 0));
+        assert_eq!(hosts.failure_after(id, 3), Some(None));
+        send(&mut hosts, Event::Info { id, seq: 4, address: "192.0.2.1".into(), result: Err("timed out".into()) });
+        assert_eq!(hosts.failure_after(id, 4), Some(None));
     }
 
     #[test]

@@ -98,7 +98,7 @@ use present::{viewport, PacingMode, Pacer, VideoTexture};
 use connect::*;
 use negotiate::*;
 use stats::*;
-pub use connect::{end_before, offers_714, termination_text, ConnectFailed, Connecting, LEAVE_WAIT};
+pub use connect::{end_before, host_ended_stream, offers_714, termination_text, ConnectFailed, Connecting, LEAVE_WAIT};
 pub use negotiate::{codec_name, probes_color, pyrowave_bitrate_warning, pyrowave_notice, stream_mode};
 
 /// What the display offers, for "native" resolution and "display" refresh.
@@ -2365,5 +2365,34 @@ mod tests {
     fn terminations_read_well() {
         assert!(termination_text(0).is_none());
         assert!(termination_text(-100).unwrap().contains("UDP"));
+        // A stop before the first picture is usually the game closing, not protected content.
+        let early = termination_text(nightjar_core::session::error::UNEXPECTED_EARLY).unwrap();
+        assert!(early.contains("The game may have closed"), "{early}");
+    }
+
+    #[test]
+    fn only_terminations_the_pc_sent_ask_it_for_the_reason() {
+        use nightjar_core::session::error;
+        for code in [
+            0x8000_4005_u32 as i32,
+            0xc000_0005_u32 as i32,
+            error::UNEXPECTED_EARLY,
+            error::PROTECTED_CONTENT,
+            error::FRAME_CONVERSION,
+        ] {
+            assert!(host_ended_stream(code), "{code:#x}");
+        }
+        for code in [error::GRACEFUL, error::DISCONNECTED, error::NO_VIDEO_TRAFFIC, error::NO_VIDEO_FRAME, 110, 10054, 503] {
+            assert!(!host_ended_stream(code), "{code}");
+        }
+        let body = doctor::with_host_reason(
+            "The PC could not convert the picture for streaming.".into(),
+            Some("HDR is on, but the display is not in HDR"),
+        );
+        assert_eq!(
+            body,
+            "The PC could not convert the picture for streaming.\n\nThe PC reported: HDR is on, but the display is not in HDR"
+        );
+        assert_eq!(doctor::with_host_reason("Ended.".into(), None), "Ended.");
     }
 }

@@ -1540,6 +1540,26 @@ public class NvConnection {
     }
 
     /**
+     * Why the host failed the stream, in its own words, or null when it does not say (a host
+     * without {@code RustHostLastFailure}) or cannot be asked. Same pinned, three-second request
+     * as {@link #hasEndedSession()}.
+     */
+    public String hostFailureReason() {
+        NvHTTP connection;
+        synchronized (this) {
+            if (stopRequested || http == null) return null;
+            connection = http;
+        }
+        try {
+            String reason = connection.probePairedComputer().hostLastFailure;
+            return reason == null || reason.isEmpty() ? null : reason;
+        } catch (IOException | XmlPullParserException e) {
+            LimeLog.warning("The host's failure reason could not be read: " + e);
+            return null;
+        }
+    }
+
+    /**
      * Turns on Foundation Sunshine's own bitrate controller up to {@code maxKbps} (FoundationAbr).
      * Returns its initial bitrate, or -1 when the PC has none.
      */

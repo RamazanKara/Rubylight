@@ -52,6 +52,8 @@
     <string name="no_video_received_error">Видео от хоста не получено.</string>
     <string name="no_frame_received_error">Снизьте битрейт или используйте более быструю сеть.</string>
     <string name="early_termination_error">Не удалось начать трансляцию.\nЗакройте защищённые видео или перезапустите ПК.</string>
+    <string name="early_stop_error">ПК завершил трансляцию до первого кадра.\nВозможно, игра закрылась. Запустите её снова.</string>
+    <string name="host_failure_reason">ПК сообщает: %1$s</string>
     <string name="frame_conversion_error">Ошибка кодирования видео на ПК.\nОтключите HDR или измените разрешение.</string>
     <string name="check_ports_msg">Проверьте брандмауэр и переадресацию для портов:</string>
     <string name="conn_establishing_title">Подключение</string>

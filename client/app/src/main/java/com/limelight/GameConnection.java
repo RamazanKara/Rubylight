@@ -860,6 +860,10 @@ final class GameConnection {
         final int errorCode = exitRequested || endedSession ?
                 MoonBridge.ML_ERROR_GRACEFUL_TERMINATION : reportedErrorCode;
         if (endedSession) LimeLog.info("Connection terminated: the PC ended the previous session");
+        // The PC's own words for a failure it ended the stream on, where it says them.
+        final String hostFailure = !exitRequested && StreamExitPolicy.hostEndedStream(errorCode) &&
+                game.conn != null ? game.conn.hostFailureReason() : null;
+        if (hostFailure != null) LimeLog.severe("The PC reported: " + hostFailure);
         final int portFlags = MoonBridge.getPortFlagsFromTerminationErrorCode(errorCode);
         // A stream that never had video does not reconnect: its error (and the port test) shows at once.
         final boolean transientFailure = StreamRecoveryPolicy.recoversTermination(errorCode, game.streamRecovery.videoStarted());
@@ -926,6 +930,11 @@ final class GameConnection {
                                     break;
 
                                 case MoonBridge.ML_ERROR_UNEXPECTED_EARLY_TERMINATION:
+                                    // The PC closed the stream before its first picture: often the
+                                    // game simply exited, not protected content.
+                                    message = game.getResources().getString(R.string.early_stop_error);
+                                    break;
+
                                 case MoonBridge.ML_ERROR_PROTECTED_CONTENT:
                                     message = game.getResources().getString(R.string.early_termination_error);
                                     break;
@@ -961,6 +970,10 @@ final class GameConnection {
                             }
                         }
 
+                        if (hostFailure != null) {
+                            message += "\n\n" + game.getResources().getString(R.string.host_failure_reason, hostFailure);
+                        }
+
                         if (portFlags != 0) {
                             message += "\n\n" + game.getResources().getString(R.string.check_ports_msg) + "\n" +
                                     MoonBridge.stringifyPortFlags(portFlags, "\n");
@@ -970,7 +983,8 @@ final class GameConnection {
                                 portTestResult != 0;
                         boolean graceGaveUp = game.prefConfig != null &&
                                 NetworkGrace.mayHaveGivenUp(game.prefConfig.networkGraceSeconds, errorCode);
-                        if (game.foreground && (game.stoppedStreamResumeIntent != null ||
+                        // The PC's reason is worth reading: it often says what to change.
+                        if (game.foreground && (game.stoppedStreamResumeIntent != null || hostFailure != null ||
                                 StreamExitPolicy.terminationNeedsAction(errorCode, portTestBlocked,
                                         graceGaveUp, recoveryExhausted))) {
                             game.streamRecovery.showReconnectDialog(R.string.conn_terminated_title, message);

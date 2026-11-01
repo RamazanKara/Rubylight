@@ -52,6 +52,8 @@
     <string name="no_video_received_error">未從主機接收到影像。</string>
     <string name="no_frame_received_error">請降低位元速率或使用速度更快的網路。</string>
     <string name="early_termination_error">串流無法啟動。\n請關閉受保護的影片或重新啟動電腦。</string>
+    <string name="early_stop_error">電腦在第一個畫面之前結束了串流。\n遊戲可能已關閉。請重新啟動。</string>
+    <string name="host_failure_reason">電腦回報：%1$s</string>
     <string name="frame_conversion_error">電腦上的視訊編碼失敗。\n請關閉 HDR 或變更解析度。</string>
     <string name="check_ports_msg">請檢查下列通訊埠的防火牆和轉送設定：</string>
     <string name="conn_establishing_title">正在連線</string>

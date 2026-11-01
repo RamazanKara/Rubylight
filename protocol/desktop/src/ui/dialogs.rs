@@ -188,6 +188,8 @@ impl Launcher {
             .stroke(Stroke::new(1.0, OUTLINE_VARIANT));
         let mut close = false;
         let mut next: Option<Dialog> = None;
+        // The destination ConfirmLeave goes to once it is closed.
+        let mut leave: Option<Screen> = None;
         let focus_first = self.focus_dialog;
         let mut focused = false;
         match &mut self.dialog {
@@ -357,6 +359,31 @@ impl Launcher {
                                 focused = true;
                             }
                             if cancel.clicked() {
+                                close = true;
+                            }
+                        });
+                    });
+            }
+            Dialog::ConfirmLeave { to } => {
+                let to = *to;
+                egui::Modal::new(Id::unique("confirm-leave"))
+                    .frame(frame)
+                    .backdrop_color(Color32::from_black_alpha(150))
+                    .show(ctx, |ui| {
+                        ui.set_width(440.0);
+                        ui.label(RichText::new(tr("Cancel the transfers?")).font(semibold(text::SECTION)));
+                        ui.label(RichText::new(tr("Leaving this page cancels the transfers that have not finished.")).color(ON_SURFACE_VARIANT));
+                        dialog_buttons(ui, |ui| {
+                            if primary_button(ui, "Leave").clicked() {
+                                leave = Some(to);
+                                close = true;
+                            }
+                            let stay = quiet_button(ui, "Stay");
+                            if focus_first {
+                                stay.request_focus();
+                                focused = true;
+                            }
+                            if stay.clicked() {
                                 close = true;
                             }
                         });
@@ -886,6 +913,9 @@ impl Launcher {
                 self.focused_key = None;
             }
             self.close_dialog();
+        }
+        if let Some(to) = leave {
+            self.leave_for(to, commands);
         }
     }
 

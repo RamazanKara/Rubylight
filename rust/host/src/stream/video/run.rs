@@ -193,9 +193,10 @@ impl SessionThread<'_> {
         // `video_slice_delivery`: AMF returns a P-frame in slices and
         // they are sent in FEC blocks as they arrive, here or on the
         // sender thread. Off for the rest of the session after a
-        // frame passes its byte cap.
-        let delivery = slices::Delivery::new(usize::from(butterpollo_core::encoder_policy::slice_delivery(&c, &s.config)));
-        let slice_blocks = delivery.blocks();
+        // frame passes its byte cap. The block count follows the
+        // encoder, which `auto` builds from the picture size.
+        let delivery = slices::Delivery::new(encoder.as_ref().map_or(0, |e| usize::from(e.slice_delivery())));
+        tracing::info!(client = %s.launch.client.name, slice_blocks = delivery.blocks(), "video slice delivery");
         let mut slice_route = slices::Route::default();
         let mut streaming: Option<slices::Streaming> = None;
         // The streamed frames' payload buffer, kept between frames.
@@ -247,7 +248,7 @@ impl SessionThread<'_> {
                         last_stamp,
                         pacing_due: network_pacer.due(),
                         send_loss: std::mem::take(&mut send_loss),
-                        slice_blocks,
+                        slice_blocks: delivery.blocks(),
                         slices: s.config.slices as usize,
                         send_jitter: send_jitter.take(),
                     };
@@ -264,7 +265,7 @@ impl SessionThread<'_> {
                 let mut routed = Vec::with_capacity(output.len());
                 for frame in output {
                     let result = slice_route.route(frame, |first| {
-                        delivery.streams() && first.frame_cap_bytes.is_some_and(|cap| packetizer.streamable(slice_blocks, cap as usize))
+                        delivery.streams() && first.frame_cap_bytes.is_some_and(|cap| packetizer.streamable(delivery.blocks(), cap as usize))
                     });
                     // On the sender thread, it sees the new frame begin and drops the old one itself.
                     if result.interrupted && !threaded {
@@ -309,7 +310,7 @@ impl SessionThread<'_> {
                         let packetize_started = Instant::now();
                         let processing = micros(packetize_started.saturating_duration_since(processing_started));
                         let cap = frame.frame_cap_bytes.unwrap_or(0) as usize;
-                        streaming = match packetizer.streamed_in(std::mem::take(&mut slice_spare), timestamp, processing, slice_blocks, slice_blocks.max(s.config.slices as usize), cap) {
+                        streaming = match packetizer.streamed_in(std::mem::take(&mut slice_spare), timestamp, processing, delivery.blocks(), delivery.blocks().max(s.config.slices as usize), cap) {
                             Ok(streamed) => Some(slices::Streaming {
                                 frame: streamed, wire_frame, timestamp, claim, claimed, age, started, packetize_started,
                                 first_polled: polled, last_polled: polled, payload_bytes: 0, processing, bps,
@@ -1149,6 +1150,13 @@ impl SessionThread<'_> {
                         Ok(mut created) => {
                             *s.encoder.write().unwrap() = created.backend().into();
                             created.set_hdr_target(s.hdr_target_nits());
+                            // A mode switch can turn `auto` slices on or off.
+                            if delivery.follow(usize::from(created.slice_delivery())) {
+                                tracing::info!(client = %s.launch.client.name, slice_blocks = delivery.blocks(), width = stream.width, height = stream.height, "video slice delivery follows the rebuilt encoder");
+                            }
+                            if let Some(sender) = video_sender.get() {
+                                sender.follow_slice_blocks(delivery.blocks());
+                            }
                             *encoder = Some(created);
                             focus.encoder_recreated();
                         },

@@ -24,20 +24,27 @@ use std::{cell::Cell, net::SocketAddr, sync::atomic::Ordering, time::Instant};
 /// cap turns it off for the rest of the stream, on whichever thread sends
 /// it; the encoder is then told to return whole frames.
 pub struct Delivery {
-    blocks: usize,
+    blocks: Cell<usize>,
     off: Cell<bool>,
 }
 
 impl Delivery {
-    /// `blocks` is `video_slice_delivery` (0 when off).
+    /// `blocks` is the encoder's slice delivery (0 when off).
     pub fn new(blocks: usize) -> Self {
         Self {
-            blocks,
+            blocks: Cell::new(blocks),
             off: Cell::new(false),
         }
     }
     pub fn blocks(&self) -> usize {
-        self.blocks
+        self.blocks.get()
+    }
+    /// Take the block count of a rebuilt encoder: `auto` decides from the
+    /// picture size, so a mode switch can turn slices on or off. An overflow
+    /// keeps delivery off for the rest of the stream. Returns whether the
+    /// count changed.
+    pub fn follow(&self, blocks: usize) -> bool {
+        self.blocks.replace(blocks) != blocks
     }
     pub fn turn_off(&self) {
         self.off.set(true);
@@ -51,11 +58,11 @@ impl Delivery {
     }
     /// A new P-frame may be streamed.
     pub fn streams(&self) -> bool {
-        self.blocks > 0 && !self.off.get()
+        self.blocks.get() > 0 && !self.off.get()
     }
     /// The encoder should return whole frames from now on.
     pub fn joins(&self) -> bool {
-        self.blocks > 0 && self.off.get()
+        self.blocks.get() > 0 && self.off.get()
     }
 }
 
@@ -544,6 +551,29 @@ mod tests {
         delivery.sync(&stats);
         assert!(!delivery.streams() && delivery.joins());
         assert_eq!(stats.slice_delivery_overflows.load(Ordering::Relaxed), 1);
+    }
+
+    #[test]
+    fn delivery_follows_the_encoder_across_mode_switches_and_keeps_an_overflow() {
+        // 4K to 1440p: the rebuilt encoder returns whole frames.
+        let delivery = Delivery::new(4);
+        assert!(delivery.follow(0));
+        assert_eq!(delivery.blocks(), 0);
+        assert!(!delivery.streams() && !delivery.joins());
+        // And back to 4K: its frames stream in four blocks again.
+        assert!(delivery.follow(4));
+        assert!(!delivery.follow(4));
+        assert!(delivery.streams() && !delivery.joins());
+        // 1440p to 4K turns it on for a stream that began without it.
+        let delivery = Delivery::new(0);
+        assert!(delivery.follow(4));
+        assert!(delivery.streams());
+        // After an overflow, a rebuilt sliced encoder is told to join.
+        delivery.turn_off();
+        delivery.follow(0);
+        assert!(!delivery.streams() && !delivery.joins());
+        delivery.follow(4);
+        assert!(!delivery.streams() && delivery.joins());
     }
 
     #[test]

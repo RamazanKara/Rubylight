@@ -17,6 +17,7 @@ use rubylight_protocol::control::{
 use rubylight_protocol::present_clock::{Grid, PresentClock, Settings};
 use rubylight_protocol::fec_report::{FecBlock, FecTally, FEC_REPORT_BYTES};
 use rubylight_protocol::phase_lock::{SlackWindow, REPORT_BYTES};
+use rubylight_protocol::pyrowave::early::{EarlyPush, Finish};
 use rubylight_protocol::pyrowave::{self, Records};
 
 /// Receives one decoder packet; returns false to stop and fail the frame.
@@ -84,6 +85,78 @@ pub unsafe extern "C" fn rp_pyrowave_push_container(
     user: *mut c_void,
 ) -> bool {
     pyrowave::push_container(bytes(data, length), forward(push, user))
+}
+
+/// Creates early record push state (`pyrowave::early::EarlyPush`).
+#[no_mangle]
+pub extern "C" fn rp_pyrowave_early_new() -> *mut EarlyPush {
+    Box::into_raw(Box::new(EarlyPush::default()))
+}
+
+/// # Safety
+/// `early` comes from `rp_pyrowave_early_new` and is not used afterwards; null is ignored.
+#[no_mangle]
+pub unsafe extern "C" fn rp_pyrowave_early_free(early: *mut EarlyPush) {
+    if !early.is_null() {
+        drop(Box::from_raw(early));
+    }
+}
+
+/// Packets of the frame in progress in the envelope layout (per packet its byte length, its flags
+/// and its payload); `first` starts a frame, after the caller cleared its decoder. The records
+/// they complete go to `push`.
+///
+/// # Safety
+/// `early` and `records` are live, `data` points to `length` readable bytes, and `push` is safe
+/// to call with `user`.
+#[no_mangle]
+pub unsafe extern "C" fn rp_pyrowave_early_chunks(
+    early: *mut EarlyPush,
+    records: *mut Records,
+    data: *const u8,
+    length: usize,
+    first: bool,
+    push: PushPacket,
+    user: *mut c_void,
+) {
+    (*early).chunks(&mut *records, bytes(data, length), first, forward(push, user));
+}
+
+/// `rp_pyrowave_early_finish`: no packet came early, push the frame whole.
+pub const RP_PYROWAVE_EARLY_WHOLE: i32 = 0;
+/// `rp_pyrowave_early_finish`: the early packets were not the frame; clear and push it whole.
+pub const RP_PYROWAVE_EARLY_FALLBACK: i32 = 1;
+/// `rp_pyrowave_early_finish`: the frame is complete in the decoder.
+pub const RP_PYROWAVE_EARLY_DONE: i32 = 2;
+
+/// Ends the frame whose container is `length` bytes; one of `RP_PYROWAVE_EARLY_*`. With DONE the
+/// header and the records not pushed yet went to `push`.
+///
+/// # Safety
+/// `early` and `records` are live, and `push` is safe to call with `user`.
+#[no_mangle]
+pub unsafe extern "C" fn rp_pyrowave_early_finish(
+    early: *mut EarlyPush,
+    records: *mut Records,
+    length: usize,
+    push: PushPacket,
+    user: *mut c_void,
+) -> i32 {
+    match (*early).finish(&mut *records, length, forward(push, user)) {
+        Finish::Whole => RP_PYROWAVE_EARLY_WHOLE,
+        Finish::Fallback => RP_PYROWAVE_EARLY_FALLBACK,
+        Finish::Done => RP_PYROWAVE_EARLY_DONE,
+    }
+}
+
+/// Frames finished early and frames that fell back to the whole push, since creation.
+///
+/// # Safety
+/// `early` is live; `done` and `fallback` are writable.
+#[no_mangle]
+pub unsafe extern "C" fn rp_pyrowave_early_stats(early: *const EarlyPush, done: *mut u64, fallback: *mut u64) {
+    *done = (*early).stats.done;
+    *fallback = (*early).stats.fallback;
 }
 
 /// Creates an empty phase-lock slack window.

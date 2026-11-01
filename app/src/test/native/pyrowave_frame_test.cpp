@@ -159,8 +159,39 @@ static void testRecords() {
     std::puts("PyroWave records: passed (including truncation and count sweeps)");
 }
 
+// The renderer's early push: records go to the decoder with the chunks, the frame adds the header.
+static void testEarlyPush() {
+    PyroWaveRecords whole, state;
+    std::vector<std::vector<uint8_t>> early, expected;
+    auto into = [](std::vector<std::vector<uint8_t>>& out) {
+        return [&out](const uint8_t *data, size_t length) { out.emplace_back(data, data + length); return true; };
+    };
+    auto frame = recordEnvelope(recordPackets(5, 70));
+    assert(whole.pushFrame(frame.data(), frame.size(), into(expected)));
+    assert(state.finishEarly(frame.size(), into(early)) == RP_PYROWAVE_EARLY_WHOLE && early.empty());
+    // Two batches of [length][flags][payload] packets, as the Rust engine forwards them.
+    const size_t half = 4 + 2 * (8 + 24);
+    state.chunks(frame.data() + 4, half - 4, true, into(early));
+    state.chunks(frame.data() + half, frame.size() - half, false, into(early));
+    assert(early.size() == 3);
+    assert(state.finishEarly(frame.size(), into(early)) == RP_PYROWAVE_EARLY_DONE);
+    assert(early.size() == 4 && early.back() == expected.front() && state.lossPercent == 0);
+    std::sort(early.begin(), early.end());
+    std::sort(expected.begin(), expected.end());
+    assert(early == expected);
+    // The second batch never came: the frame is pushed whole after a clear.
+    early.clear();
+    state.chunks(frame.data() + 4, half - 4, true, into(early));
+    assert(state.finishEarly(frame.size(), into(early)) == RP_PYROWAVE_EARLY_FALLBACK);
+    uint64_t done = 0, fallback = 0;
+    state.earlyStats(done, fallback);
+    assert(done == 1 && fallback == 1);
+    std::puts("PyroWave early push: passed");
+}
+
 int main() {
     testRecords();
+    testEarlyPush();
     int calls = 0;
     auto push = [&calls](const uint8_t *, size_t) { calls++; return true; };
     // One sequence header and an empty eight-byte coefficient block in a single packet.

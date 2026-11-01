@@ -9,6 +9,7 @@
 
 use alloc::vec::Vec;
 
+pub mod early;
 pub mod rows;
 
 /// The bitstream revision both sides must agree on (SDP `a=x-ss-pyrowave.bitstream:`).

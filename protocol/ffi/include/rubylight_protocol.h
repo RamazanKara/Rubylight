@@ -28,6 +28,27 @@ float rp_pyrowave_records_loss_percent(const RpPyroWaveRecords *records);
 // Validates an ordinary (pre-record) container and feeds its packets to push.
 bool rp_pyrowave_push_container(const uint8_t *data, size_t length, RpPushPacket push, void *user);
 
+// Early record push (core/src/pyrowave/early.rs): the records of a frame go to the decoder while
+// its packets arrive, and the frame then pushes only the rest.
+typedef struct RpPyroWaveEarly RpPyroWaveEarly;
+
+#define RP_PYROWAVE_EARLY_WHOLE 0     // no packet came early: push the frame whole
+#define RP_PYROWAVE_EARLY_FALLBACK 1  // the early packets were not the frame: clear, push it whole
+#define RP_PYROWAVE_EARLY_DONE 2      // the frame is complete in the decoder
+
+RpPyroWaveEarly *rp_pyrowave_early_new(void);
+void rp_pyrowave_early_free(RpPyroWaveEarly *early);
+// Packets of the frame in progress as [length][flags][payload] each; first starts a frame, after
+// the caller cleared its decoder. The records they complete go to push.
+void rp_pyrowave_early_chunks(RpPyroWaveEarly *early, RpPyroWaveRecords *records, const uint8_t *data, size_t length,
+                              bool first, RpPushPacket push, void *user);
+// Ends the frame whose container is length bytes; one of RP_PYROWAVE_EARLY_*. With DONE the header
+// and the records not pushed yet went to push.
+int rp_pyrowave_early_finish(RpPyroWaveEarly *early, RpPyroWaveRecords *records, size_t length, RpPushPacket push,
+                             void *user);
+// Frames finished early and frames that fell back to the whole push, since creation.
+void rp_pyrowave_early_stats(const RpPyroWaveEarly *early, uint64_t *done, uint64_t *fallback);
+
 // Phase lock (core/src/phase_lock.rs): the client reports how early its frames are ready
 // before the display latch, and the host times its frames to match.
 #define RP_PHASE_REPORT_MESSAGE_TYPE 0x5530
@@ -168,13 +189,37 @@ public:
         return ok;
     }
 
+    // Early push: packets of the frame in progress ([length][flags][payload] each), whose records
+    // go to push now. first starts a frame; clear the decoder before.
+    template <typename Push>
+    void chunks(const uint8_t *data, size_t length, bool first, Push push) {
+        if (state && early) rp_pyrowave_early_chunks(early.get(), state.get(), data, length, first, &rpPushThunk<Push>, &push);
+    }
+
+    // Ends the frame of the chunks; RP_PYROWAVE_EARLY_DONE when it is complete in the decoder,
+    // otherwise push it with pushFrame (after a clear for FALLBACK).
+    template <typename Push>
+    int finishEarly(size_t length, Push push) {
+        if (!state || !early) return RP_PYROWAVE_EARLY_WHOLE;
+        const int result = rp_pyrowave_early_finish(early.get(), state.get(), length, &rpPushThunk<Push>, &push);
+        if (result == RP_PYROWAVE_EARLY_DONE) lossPercent = rp_pyrowave_records_loss_percent(state.get());
+        return result;
+    }
+
+    void earlyStats(uint64_t &done, uint64_t &fallback) const {
+        done = fallback = 0;
+        if (early) rp_pyrowave_early_stats(early.get(), &done, &fallback);
+    }
+
     float lossPercent = 0;
 
 private:
     struct Free {
         void operator()(RpPyroWaveRecords *records) const { rp_pyrowave_records_free(records); }
+        void operator()(RpPyroWaveEarly *early) const { rp_pyrowave_early_free(early); }
     };
     std::unique_ptr<RpPyroWaveRecords, Free> state;
+    std::unique_ptr<RpPyroWaveEarly, Free> early {rp_pyrowave_early_new()};
 };
 
 template <typename Push>

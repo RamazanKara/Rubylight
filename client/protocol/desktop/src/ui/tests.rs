@@ -3492,6 +3492,57 @@ fn the_library_page_opens_a_games_menu_with_play_and_its_settings() {
     assert!(shows(&f, "Play") && shows(&f, "Game settings"), "{:?}", f.drawn);
 }
 
+/// Remove from favourites in a Favourites card's menu moves the focus to the next favourite, as
+/// Delete on the card does; the card it was on is gone, so nothing would hold the focus.
+#[test]
+fn unstarring_a_favourite_from_its_menu_focuses_the_next_one() {
+    let mut f = home_with_games(3);
+    let id = f.hosts.list[0].id;
+    let star = |n: u32| crate::config::Favourite { host: "Desk".into(), install_id: format!("install-{n}"), app_id: 1000 + n, title: format!("Game {n:02}") };
+    f.l.favourites = vec![star(0), star(1)];
+    f.l.restore_key = Some(format!("favourite:{id}:1000"));
+    f.settle();
+    assert_eq!(f.l.focused_key, Some(format!("favourite:{id}:1000")), "the first favourite has focus");
+    f.press(Key::F2);
+    assert!(matches!(f.l.dialog, Dialog::GameMenu { game: GameTarget::Library { app: 1000, favourite: true }, .. }));
+    assert!(shows(&f, "Remove from favourites"), "{:?}", f.drawn);
+    // Down to the second row, Remove from favourites, as a controller does.
+    f.press(Key::ArrowDown);
+    // The app applies the command before the next frame, as here.
+    let commands = f.frame(crate::gui::tap(Key::Enter).to_vec());
+    let unstarred: Vec<_> = commands.iter().filter_map(|c| if let Command::ToggleFavourite(star) = c { Some(star.clone()) } else { None }).collect();
+    assert_eq!(unstarred, vec![star(0)]);
+    crate::config::toggle_favourite(&mut f.l.favourites, star(0));
+    f.settle();
+    assert!(f.no_dialog());
+    assert_eq!(f.l.focused_key, Some(format!("favourite:{id}:1001")), "the next favourite has focus");
+    assert!(f.ctx.memory(|m| m.focused()).is_some(), "something holds the focus");
+}
+
+/// A favourite whose PC is away with no library saved still has its menu, from the stored star:
+/// it can be unstarred, and its settings open once the PC's app list is known.
+#[test]
+fn a_favourite_whose_library_is_not_known_still_has_a_menu() {
+    let app = nightjar_core::http::App { uuid: "install-9".into(), ..game(9) };
+    let mut f = Frames::with(record("Desk", true, true), Reach::Offline, None, vec![app]);
+    let id = f.hosts.list[0].id;
+    let star = crate::config::Favourite { host: "Desk".into(), install_id: "install-9".into(), app_id: 9, title: "Saved".into() };
+    f.l.favourites = vec![star.clone()];
+    f.l.go(Screen::Home);
+    f.l.restore_key = Some(format!("favourite:{id}:9"));
+    f.settle();
+    assert!(shows(&f, "Saved"), "the card shows the stored title: {:?}", f.drawn);
+    assert_eq!(f.l.focused_key, Some(format!("favourite:{id}:9")));
+    f.press(Key::F2);
+    assert!(matches!(f.l.dialog, Dialog::GameMenu { game: GameTarget::Library { app: 9, favourite: true }, .. }), "F2 opens its menu");
+    for row in ["Game details", "Remove from favourites", "Game settings"] {
+        assert!(shows(&f, row), "{row}: {:?}", f.drawn);
+    }
+    let row = f.placed.iter().find(|(t, ..)| t == "Remove from favourites").map(|p| p.1).unwrap();
+    let commands = f.click_at(row.center(), egui::PointerButton::Primary);
+    assert!(commands.iter().any(|c| matches!(c, Command::ToggleFavourite(s) if *s == star)), "the stored star comes off");
+}
+
 /// Hover lightens a card one step and draws no outline; focus adds a single amber ring outside it
 /// and the card keeps its size and place.
 #[test]

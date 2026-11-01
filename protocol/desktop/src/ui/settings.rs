@@ -1366,7 +1366,7 @@ pub(super) const MAIN_KEYS: [(&str, &[&str]); 8] = [
 
 /// Desktop rows and the Android preference each one matches. A row is main when its match is.
 #[cfg_attr(not(test), allow(dead_code))]
-pub(super) const ANDROID_KEYS: [(&str, &str); 36] = [
+pub(super) const ANDROID_KEYS: [(&str, &str); 37] = [
     ("width", "list_resolution"), ("fps", "list_fps"), ("bitrate_kbps", "seekbar_bitrate_kbps"),
     ("adaptive_bitrate", "checkbox_auto_bitrate"), ("codec", "video_format"), ("hdr", "checkbox_enable_hdr"),
     ("video_scaling", "checkbox_stretch_video"), ("controllers", "checkbox_multi_controller"),
@@ -1381,7 +1381,7 @@ pub(super) const ANDROID_KEYS: [(&str, &str); 36] = [
     ("audio_passthrough", "checkbox_audio_passthrough"), ("usb_forwarding", "checkbox_usb_forwarding"),
     ("unbatched_input", "checkbox_unbatched_input"), ("network_priority", "checkbox_network_priority"),
     ("input_only_any_host", "checkbox_input_only_any_host"),
-    ("gamepad_quit_combo", "list_gamepad_quit_combo"), ("check_updates", "checkbox_check_updates"),
+    ("gamepad_quit_combo", "list_gamepad_quit_combo"), ("guide_hold_ms", "list_guide_menu_hold"), ("check_updates", "checkbox_check_updates"),
     ("frame_pacing", "frame_pacing"), ("mic_echo_cancel", "list_mic_echo_cancel"),
     ("pin_lock", "pin_lock"),
 ];

@@ -410,6 +410,28 @@ impl GamepadThread {
         self.shared.wake.notify_all();
         self.thread.lock().unwrap().take()
     }
+    /// Stop the thread and wait up to `timeout` for it to end, which unplugs
+    /// its pads. A thread stuck in the driver is an error and is never
+    /// waited for again, here or on drop.
+    pub fn stop_within(&self, timeout: Duration) -> Result<()> {
+        let Some(thread) = self.stop() else {
+            return Ok(());
+        };
+        let deadline = Instant::now() + timeout;
+        while !thread.is_finished() {
+            anyhow::ensure!(
+                Instant::now() < deadline,
+                "the virtual controllers did not unplug within {} s: the virtual gamepad driver isn't responding",
+                timeout.as_secs_f32()
+            );
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        if thread.join().is_err() {
+            // Unwinding dropped the pads too.
+            tracing::warn!("the virtual controllers' thread panicked");
+        }
+        Ok(())
+    }
 }
 impl Drop for GamepadThread {
     fn drop(&mut self) {
@@ -1100,6 +1122,40 @@ mod tests {
             pads.shared.audio_input.lock().unwrap().status[0],
             Some(disabled)
         );
+    }
+
+    /// #56: a thread stuck in the driver must not hold up whoever stops it
+    /// (the next Nucleus Co-op launch) beyond the bound.
+    #[test]
+    fn stopping_within_a_bound_unplugs_or_gives_up_on_a_stuck_driver() {
+        let arrival = Event::Arrival {
+            id: 0,
+            kind: 2,
+            capabilities: 0,
+            buttons: 0,
+        };
+        let (pads, gate, log) = fake();
+        gate.open();
+        pads.send(arrival.clone());
+        assert!(pads.wait_ready(1, Duration::from_secs(1)));
+        pads.stop_within(Duration::from_secs(5)).unwrap();
+        assert_eq!(log.lock().unwrap().last().unwrap(), "unplugged");
+
+        let (pads, gate, log) = fake();
+        pads.send(arrival);
+        gate.wait_entered(1);
+        let started = Instant::now();
+        let error = pads
+            .stop_within(Duration::from_millis(50))
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("did not unplug within 0.05 s"), "{error}");
+        assert!(started.elapsed() < Duration::from_secs(5));
+        // Never waited for again: dropping it returns at once.
+        drop(pads);
+        assert!(!log.lock().unwrap().iter().any(|e| e == "unplugged"));
+        gate.open();
+        gate.wait_until(|| log.lock().unwrap().iter().any(|e| e == "unplugged"));
     }
 
     #[test]

@@ -18,6 +18,10 @@ const CAPABILITIES: u16 = 0x01 | 0x02;
 /// How long a pad may take to plug in and to reach XInput.
 pub const PLUG_TIMEOUT: Duration = Duration::from_secs(5);
 const POLL: Duration = Duration::from_millis(20);
+/// How long a set of pads may take to unplug when it is stopped: a launch
+/// that waits on a driver that stopped answering fails after this instead of
+/// hanging, and so do the launches after it.
+pub const RETIRE_TIMEOUT: Duration = Duration::from_secs(3);
 
 /// What the stream shows when a player's keyboard or mouse input arrives.
 pub const KEYBOARD_MOUSE_LIMIT: &str = "Nucleus Co-op streams take controller input only: keyboard, mouse, touch and pen cannot reach one player's game instance yet";
@@ -38,8 +42,8 @@ pub trait Pads: Send + Sync {
     /// indices they took. A session's pads stay until the host drops its
     /// last copy, which can be minutes after it ended; meanwhile they would
     /// hold the low indices a game reads first (#56).
-    fn retire_earlier(&self) -> Vec<u8> {
-        Vec::new()
+    fn retire_earlier(&self) -> Result<Vec<u8>> {
+        Ok(Vec::new())
     }
     /// Note the XInput indices this session's pads took, for [`free`] and
     /// a later session's [`Pads::retire_earlier`].
@@ -71,11 +75,9 @@ fn plugged() -> std::sync::MutexGuard<'static, Vec<Plugged>> {
 
 impl Drop for SessionPads {
     fn drop(&mut self) {
-        // Joining unplugs them: the thread drops its pads as it ends.
-        if let Some(handle) = self.thread.stop()
-            && handle.join().is_err()
-        {
-            tracing::warn!("Nucleus Co-op: the virtual controllers' thread panicked");
+        // The thread unplugs its pads as it ends.
+        if let Err(error) = self.thread.stop_within(RETIRE_TIMEOUT) {
+            tracing::warn!("Nucleus Co-op: {error:#}");
         }
         let own = Arc::downgrade(&self.thread);
         plugged().retain(|p| !p.thread.ptr_eq(&own));
@@ -99,7 +101,7 @@ impl Pads for SessionPads {
     fn reports(&self) -> Vec<PadReport> {
         self.thread.reports().collect()
     }
-    fn retire_earlier(&self) -> Vec<u8> {
+    fn retire_earlier(&self) -> Result<Vec<u8>> {
         let earlier: Vec<_> = {
             let plugged = plugged();
             let own = Arc::downgrade(&self.thread);
@@ -111,15 +113,13 @@ impl Pads for SessionPads {
         };
         let mut indices = Vec::new();
         for (thread, held) in earlier {
-            // Joining unplugs them: the thread drops its pads as it ends. A
-            // set the host is dropping meanwhile is joined there; [`plug`]
-            // waits for its indices either way.
-            if let Some(handle) = thread.upgrade().and_then(|thread| thread.stop())
-                && handle.join().is_err()
-            {
-                tracing::warn!(
-                    "Nucleus Co-op: an earlier session's virtual controllers' thread panicked"
-                );
+            // The thread unplugs its pads as it ends. A set the host is
+            // dropping meanwhile, or that a launch before gave up on, is not
+            // waited for here; [`plug`] waits for its indices either way.
+            if let Some(thread) = thread.upgrade() {
+                thread
+                    .stop_within(RETIRE_TIMEOUT)
+                    .context("an earlier Nucleus Co-op session's controllers are still plugged in; restart Rubylight and start again")?;
             }
             tracing::info!(
                 xinput = ?held,
@@ -127,7 +127,7 @@ impl Pads for SessionPads {
             );
             indices.extend(held);
         }
-        indices
+        Ok(indices)
     }
     fn took(&self, indices: &[u8]) {
         let own = Arc::downgrade(&self.thread);
@@ -242,7 +242,7 @@ pub fn plug(
         (1..=MAX_PLAYERS).contains(&players),
         "a Nucleus Co-op session has 1 to {MAX_PLAYERS} players, not {players}"
     );
-    let retired = pads.retire_earlier();
+    let retired = pads.retire_earlier()?;
     let deadline = Instant::now() + timeout;
     loop {
         let connected = xinput.connected()?;
@@ -416,6 +416,8 @@ pub(crate) mod tests {
         pub earlier: Mutex<Vec<u8>>,
         /// Pads of an earlier session that never unplug.
         pub stuck: bool,
+        /// An earlier session's pad thread that never ends.
+        pub hung: bool,
         pub took: Mutex<Vec<u8>>,
         pub warned: Mutex<Vec<(String, String)>>,
     }
@@ -429,13 +431,14 @@ pub(crate) mod tests {
         fn reports(&self) -> Vec<PadReport> {
             std::mem::take(&mut self.reports.lock().unwrap())
         }
-        fn retire_earlier(&self) -> Vec<u8> {
+        fn retire_earlier(&self) -> Result<Vec<u8>> {
+            ensure!(!self.hung, "the virtual controllers did not unplug");
             let mut earlier = self.earlier.lock().unwrap();
-            if self.stuck {
+            Ok(if self.stuck {
                 earlier.clone()
             } else {
                 std::mem::take(&mut earlier)
-            }
+            })
         }
         fn took(&self, indices: &[u8]) {
             *self.took.lock().unwrap() = indices.to_vec();
@@ -554,6 +557,22 @@ pub(crate) mod tests {
             "{error}"
         );
         assert!(stuck.sent.lock().unwrap().is_empty());
+
+        // Their thread stuck in the driver fails the start too, at once.
+        let hung = Recorder {
+            earlier: Mutex::new(vec![0]),
+            hung: true,
+            ..Default::default()
+        };
+        let mut xinput = Fake {
+            pads: &hung,
+            taken: [false; 4],
+            hidden: false,
+            intruder: false,
+        };
+        let error = plug(&hung, &mut xinput, 1, PLUG_TIMEOUT).unwrap_err();
+        assert!(error.to_string().contains("did not unplug"), "{error}");
+        assert!(hung.sent.lock().unwrap().is_empty());
     }
 
     #[test]

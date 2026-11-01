@@ -339,7 +339,8 @@ the Nucleus Co-op panel under **Help**.
   XInput players. The device's first controller drives its slot. Keyboard,
   mouse, touch and pen are not sent to the game, and the stream says so. A
   session first unplugs the virtual controllers an earlier session still
-  holds, so its players take the lowest XInput slots free. If one of the PC's
+  holds, so its players take the lowest XInput slots free; controllers that
+  don't unplug within 3 seconds fail the launch, which says so. If one of the PC's
   own controllers, or another stream's, sits in a lower slot, the stream
   warns: a game that reads XInput past Nucleus Co-op's hooks takes that
   controller instead.

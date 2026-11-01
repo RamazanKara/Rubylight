@@ -670,7 +670,6 @@ impl Launcher {
     }
 }
 
-/// Quick resume: a paired PC running a game from its known library goes straight back into it.
 /// Whether a paired PC that is up and shares its library has not sent it yet.
 fn library_loading(view: &View<'_>) -> bool {
     view.hosts.list.iter().any(|h| {
@@ -686,6 +685,7 @@ fn loading_games(ui: &mut Ui) {
     });
 }
 
+/// Quick resume: a paired PC running a game from its known library goes straight back into it.
 pub(super) fn host_clicked(host: &Host, quick_resume: bool, commands: &mut Vec<Command>) {
     let running = running_entry(host).filter(|_| host.paired());
     if let Some(app) = running.filter(|_| nightjar_policy::launch::resumes_on_pc_tap(quick_resume, true)) {

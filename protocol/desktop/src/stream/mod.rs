@@ -365,6 +365,30 @@ pub enum Sheet {
     FromChord,
 }
 
+/// What Ctrl+Alt+Shift+H does from where the stream is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SheetChord {
+    /// The sheet opens, over the controls (closing the Session page first) or over the game.
+    Open(Sheet),
+    /// The sheet was open: it and the controls close.
+    Close,
+    /// End or Close game runs on the Session page, which stays for its answer.
+    Stay,
+}
+
+/// The chord's step for the menu's state; `session_page` is whether the Session page is open and
+/// busy. The sheet draws only without the Session page, so the chord there leaves the page for it.
+pub fn sheet_chord(menu_visible: bool, sheet: Option<Sheet>, session_page: Option<bool>) -> SheetChord {
+    if !menu_visible {
+        return SheetChord::Open(Sheet::FromChord);
+    }
+    match (session_page, sheet) {
+        (Some(true), _) => SheetChord::Stay,
+        (Some(false), _) | (None, None) => SheetChord::Open(Sheet::FromMenu),
+        (None, Some(_)) => SheetChord::Close,
+    }
+}
+
 pub struct Streaming {
     pub session: Session,
     pub shared: Arc<Shared>,
@@ -1465,20 +1489,23 @@ impl Streaming {
     }
 
     /// Ctrl+Alt+Shift+H, or Shortcuts & help in the stream controls: the shortcut sheet opens over
-    /// the stream (from the controls when they are open), and the chord again closes it and the
-    /// controls. It draws only while shown, like the controls.
+    /// the stream (from the controls when they or the Session page are open), and the chord again
+    /// closes it and the controls. It draws only while shown, like the controls.
     pub fn toggle_shortcut_sheet(&mut self, window: *mut SDL_Window, pads: &mut Gamepads) {
-        if self.menu_visible && self.shortcut_sheet.is_some() {
-            self.toggle_menu(window, pads);
-            return;
-        }
-        let from = if self.menu_visible { Sheet::FromMenu } else { Sheet::FromChord };
-        if !self.menu_visible {
-            self.toggle_menu(window, pads);
-        }
-        if self.menu_visible {
-            self.shortcut_sheet = Some(from);
-            self.needs_redraw = true;
+        match sheet_chord(self.menu_visible, self.shortcut_sheet, self.session_page.as_ref().map(|p| p.busy())) {
+            SheetChord::Stay => {}
+            SheetChord::Close => self.toggle_menu(window, pads),
+            SheetChord::Open(from) => {
+                if self.menu_visible {
+                    self.close_session_page();
+                } else {
+                    self.toggle_menu(window, pads);
+                }
+                if self.menu_visible && self.session_page.is_none() {
+                    self.shortcut_sheet = Some(from);
+                    self.needs_redraw = true;
+                }
+            }
         }
     }
 
@@ -1701,6 +1728,18 @@ mod tests {
         assert!(texts[6].contains(&Error::Cancelled.to_string()));
         let distinct: HashSet<&String> = texts.iter().collect();
         assert_eq!(distinct.len(), texts.len(), "{texts:#?}");
+    }
+
+    #[test]
+    fn the_shortcut_chord_on_the_session_page_leaves_it_for_the_sheet() {
+        assert_eq!(sheet_chord(false, None, None), SheetChord::Open(Sheet::FromChord));
+        assert_eq!(sheet_chord(true, None, None), SheetChord::Open(Sheet::FromMenu));
+        assert_eq!(sheet_chord(true, Some(Sheet::FromMenu), None), SheetChord::Close);
+        assert_eq!(sheet_chord(true, Some(Sheet::FromChord), None), SheetChord::Close);
+        // The sheet draws only without the Session page: the chord there shows it over the
+        // controls, so Escape from it goes back to them.
+        assert_eq!(sheet_chord(true, None, Some(false)), SheetChord::Open(Sheet::FromMenu));
+        assert_eq!(sheet_chord(true, None, Some(true)), SheetChord::Stay, "a running End or Close game keeps its page");
     }
 
     #[test]

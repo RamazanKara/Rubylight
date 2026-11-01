@@ -95,7 +95,7 @@ You can change a setting when the host marks it configurable, the device has **H
 - The first screen is Home when **Open on Home** is on and a library exists, otherwise PCs. Back from either of the other two returns to the first screen; Back there leaves the app.
 - Switching does not stack screens. A game's page belongs to Home and stays underneath when you open PCs or Settings from it; Back from PCs then returns to Home, not to the game page, and **Home** in the bar closes the game page.
 - Settings opened from a menu or with **Ctrl+,** closes on Back.
-- Help is under **Settings → App → Help**, on **F1**, and in the pairing guide. On Windows and Linux, **Help** is the fourth place in the bar, after Settings, and opens on **F1** or **?** from any page.
+- Help is under **Settings → App → Help**, on **F1**, and in the pairing guide. On Windows and Linux, **Help** is in the bar right after Settings, and opens on **F1** or **?** from any page.
 
 ### PC options on Android
 
@@ -122,7 +122,7 @@ PCs and games have a menu that opens by the card, never covering the window or d
 
 The menu stays inside the window, flipping above or to the left where it would not fit. The item that selecting the card does is marked **Enter**. **Escape** (the controller's **B**) closes it and gives focus back to the card, and a click outside closes it too.
 
-A PC's menu: **Open library** or **Pair**, **Resume** and **Quit running app**, **Pair with one-time PIN**, **Wake up**, **PC settings**, **Rename**, **Unpair** or **Pairing help**, **Check again** and **Remove PC**. **Unpair** and **Remove PC** come last, under a divider, in red. **Ctrl+N** adds a PC by address. Rename, Unpair and Remove behave as on Android; Unpair needs the PC online, and this device keeps its pairing until the PC confirms.
+A PC's menu: **Open library** or **Pair**, **Resume** and **Quit running app**, **Pair with one-time PIN**, **Wake up**, **PC settings**, **Rename**, **Unpair** or **Pairing help**, **Check again** and **Remove PC**. **Unpair** and **Remove PC** come last, under a divider, in red. **Ctrl+N** on the PCs page adds a PC by address. Rename, Unpair and Remove behave as on Android; Unpair needs the PC online, and this device keeps its pairing until the PC confirms.
 
 A game's menu on Home and All games: **Game details**, **Add to favourites** or **Remove from favourites** (**Delete** on a favourite), **Game settings** and **Open library**. On a PC's library page: **Play** or **Resume**, and **Game settings**.
 

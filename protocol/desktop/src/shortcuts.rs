@@ -244,7 +244,7 @@ impl Action {
             Self::Select => en("Open or select"),
             Self::Back => en("Go back"),
             Self::Options => en("Options for a PC or game"),
-            Self::AddPc => en("Add a PC"),
+            Self::AddPc => en("Add a PC (on the PCs page)"),
             Self::Unstar => en("Remove a favourite"),
             Self::ZoomIn => en("Zoom in"),
             Self::ZoomOut => en("Zoom out"),

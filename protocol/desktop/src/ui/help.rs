@@ -25,8 +25,16 @@ const SECTIONS: [(&str, &str); 6] = [
 ];
 
 /// The common problems on Windows and Linux and their one-line fixes (`docs/TROUBLESHOOTING.md`).
+/// Only Windows asks about private networks.
 const PROBLEMS: [(&str, &str); 5] = [
-    (en("PCs are not found"), en("Allow Nightjar on private networks when Windows asks, or add the PC by its address with Add PC.")),
+    (
+        en("PCs are not found"),
+        if cfg!(windows) {
+            en("Allow Nightjar on private networks when Windows asks, or add the PC by its address with Add PC.")
+        } else {
+            en("Connect both to the same network, or add the PC by its address with Add PC.")
+        },
+    ),
     (en("Pairing fails"), en("Cancel, clear the pending request in the host's web page, and pair again with a new PIN.")),
     (en("Black picture or no video"), en("Try H.264 at 720p with HDR and upscaling off, then raise one setting at a time.")),
     (en("Stutter or lag"), en("Lower the bitrate or connect the PC by cable. Why did my stream stutter? in the stream controls names the cause.")),
@@ -159,7 +167,7 @@ impl Launcher {
                     let mut pieces = shortcuts::chord_for(Scope::Stream, Action::StreamControls).map(|c| glyphs::chord(c, false)).unwrap_or_default();
                     if let Some(pad) = shortcuts::pad_in(Scope::Stream).find(|b| b.action == Action::StreamControls) {
                         pieces.push(Piece::Or);
-                        pieces.extend(style.press(pad.press, quit));
+                        pieces.extend(style.stream_press(pad, quit, self.settings.back_opens_menu));
                     }
                     ui.horizontal_wrapped(|ui| {
                         glyphs::show(ui, &pieces);
@@ -212,6 +220,8 @@ impl Launcher {
 
     fn help_controller(&mut self, ui: &mut Ui, width: f32, view: &View<'_>) {
         let ctx = ui.ctx().clone();
+        // Only a choice made here is kept; without one the labels follow the controllers connected
+        // now, so a pad plugged in while the page is open changes them.
         let style_id = Id::unique("help-pad-style");
         let mut style = ctx.data(|d| d.get_temp::<Style>(style_id)).unwrap_or_else(|| Style::of(view.pads));
         ui.horizontal(|ui| {
@@ -222,10 +232,10 @@ impl Launcher {
                 self.focus_item(&response, &format!("help-style-{n}"), false);
                 if response.clicked() {
                     style = choice;
+                    ctx.data_mut(|d| d.insert_temp(style_id, choice));
                 }
             }
         });
-        ctx.data_mut(|d| d.insert_temp(style_id, style));
         ui.add_space(space::S);
         let s = &self.settings;
         let (swap, quit, back_opens, mouse) = (s.swap_face_buttons, s.gamepad_quit_combo, s.back_opens_menu, s.controller_mouse);
@@ -253,14 +263,7 @@ impl Launcher {
             .collect();
         let stream: Vec<(Action, Vec<Piece>)> = shortcuts::pad_in(Scope::Stream)
             .filter(|b| b.action != Action::ControllerMouse || mouse)
-            .map(|b| {
-                let mut pieces = style.press(b.press, quit);
-                if b.action == Action::StreamControls && back_opens {
-                    pieces.push(Piece::Or);
-                    pieces.push(style.piece(Button::Back));
-                }
-                (b.action, pieces)
-            })
+            .map(|b| (b.action, style.stream_press(b, quit, back_opens)))
             .collect();
         let columns = if width >= TWO_UP { 2 } else { 1 };
         grid(ui, "help-pad", columns, 2, |ui, n| {

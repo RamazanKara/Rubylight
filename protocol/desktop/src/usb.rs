@@ -658,21 +658,19 @@ pub fn refusal(availability: Availability) -> Option<&'static str> {
 
 /// The stream controls' USB section when the setting is on but the PC offers nothing: why.
 pub fn show_refusal(ui: &mut egui::Ui, why: &str) {
-    ui.label(tr("USB devices"));
-    ui.colored_label(crate::theme::ERROR, tr(why));
+    crate::menu_style::row(ui, crate::glyphs::Icon::Usb, tr("USB devices"), |_| {});
+    crate::menu_style::problem(ui, tr(why));
 }
 
 /// The stream controls' USB section: each device plugged in here with Attach or Detach and
 /// where it stands, a device that can't be forwarded with why, and what the PC made of the
 /// ones that ended.
 pub fn show(ui: &mut egui::Ui, panel: &mut Panel) {
-    ui.horizontal(|ui| {
-        ui.label(tr("USB devices"));
-        if ui.button(tr("Refresh")).clicked() {
-            panel.error = None;
-            panel.refresh();
-        }
-    });
+    // The fold's row names the section; its body starts with Refresh.
+    if ui.button(tr("Refresh")).clicked() {
+        panel.error = None;
+        panel.refresh();
+    }
     let failed = panel.opening().failed.take();
     if failed.is_some() { panel.error = failed; }
     let local = panel.local().to_vec();

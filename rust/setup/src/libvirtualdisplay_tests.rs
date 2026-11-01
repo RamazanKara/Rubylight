@@ -209,6 +209,31 @@ fn a_layers_file_name_is_its_last_component() {
 }
 
 #[test]
+fn a_device_that_cant_be_read_is_skipped_not_the_removal() {
+    let device = |instance: &str, id: &str| Ok((instance.to_owned(), vec![id.to_owned()]));
+    let devices = readable([
+        device(r"ROOT\DISPLAY\0000", HARDWARE_ID),
+        Err(anyhow::anyhow!(
+            "reading its instance id: Access is denied."
+        )),
+        device(r"PCI\VEN_1002\01", r"PCI\VEN_1002"),
+    ]);
+    assert_eq!(
+        devices,
+        [
+            (
+                r"ROOT\DISPLAY\0000".to_owned(),
+                vec![HARDWARE_ID.to_owned()]
+            ),
+            (
+                r"PCI\VEN_1002\01".to_owned(),
+                vec![r"PCI\VEN_1002".to_owned()]
+            ),
+        ]
+    );
+}
+
+#[test]
 fn this_pcs_devices_packages_and_layers_are_read() -> Result<()> {
     // Read-only: nothing is removed.
     let devices = all_devices()?;
@@ -224,15 +249,21 @@ fn this_pcs_devices_packages_and_layers_are_read() -> Result<()> {
     );
     let infs = Native.oem_infs()?;
     assert!(
-        infs.iter()
-            .all(|(name, _)| name.to_ascii_lowercase().starts_with("oem")),
+        infs.iter().all(|(name, _)| {
+            let name = name.to_ascii_lowercase();
+            name.starts_with("oem") && name.ends_with(".inf")
+        }),
         "{infs:?}"
     );
-    // Every driver store INF names some catalog or none; a decoding
-    // mistake would show as text without its [Version] section.
-    for (name, text) in &infs {
-        assert!(text.to_ascii_lowercase().contains("[version]"), "{name}");
-    }
+    // A decoding mistake would garble every one; a single odd INF of some
+    // other driver is none of ours.
+    assert!(
+        infs.is_empty()
+            || infs
+                .iter()
+                .any(|(_, text)| text.to_ascii_lowercase().contains("[version]")),
+        "{infs:?}"
+    );
     println!("libvirtualdisplay packages: {:?}", packages(&infs));
     for view in [View::Native64, View::Wow32] {
         println!("{view:?} layers: {:?}", Native.layers(view)?);

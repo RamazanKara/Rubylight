@@ -278,16 +278,29 @@ fn layers_key(
     }
 }
 
-/// Every device, present or not, by instance id with its hardware ids.
+/// The devices that could be read. One that can't is logged and skipped, as
+/// the script this replaced went on past it: it can't be ours to remove.
+fn readable(
+    devices: impl IntoIterator<Item = Result<(String, Vec<String>)>>,
+) -> Vec<(String, Vec<String>)> {
+    devices
+        .into_iter()
+        .filter_map(|device| {
+            device
+                .map_err(|error| line(format!("warning: a device was skipped: {error:#}")))
+                .ok()
+        })
+        .collect()
+}
+
+/// Every device, present or not, by instance id with its hardware ids. Only
+/// listing them fails; a device that can't be read is skipped.
 fn all_devices() -> Result<Vec<(String, Vec<String>)>> {
-    use windows::Win32::{
-        Devices::DeviceAndDriverInstallation::{
-            DIGCF_ALLCLASSES, HDEVINFO, SP_DEVINFO_DATA, SPDRP_HARDWAREID,
-            SetupDiDestroyDeviceInfoList, SetupDiEnumDeviceInfo, SetupDiGetClassDevsW,
-            SetupDiGetDeviceInstanceIdW, SetupDiGetDeviceRegistryPropertyW,
-        },
-        Foundation::{ERROR_INSUFFICIENT_BUFFER, ERROR_INVALID_DATA, ERROR_NO_MORE_ITEMS},
+    use windows::Win32::Devices::DeviceAndDriverInstallation::{
+        DIGCF_ALLCLASSES, HDEVINFO, SP_DEVINFO_DATA, SetupDiDestroyDeviceInfoList,
+        SetupDiEnumDeviceInfo, SetupDiGetClassDevsW,
     };
+    use windows::Win32::Foundation::ERROR_NO_MORE_ITEMS;
     struct Set(HDEVINFO);
     impl Drop for Set {
         fn drop(&mut self) {
@@ -312,68 +325,84 @@ fn all_devices() -> Result<Vec<(String, Vec<String>)>> {
             Err(error) if error.code() == ERROR_NO_MORE_ITEMS.to_hresult() => break,
             Err(error) => return Err(error).context("listing the devices"),
         }
-        let mut size = 0u32;
-        // SAFETY: The device belongs to the live set; this call only asks the size.
-        let _ = unsafe { SetupDiGetDeviceInstanceIdW(set.0, &device, None, Some(&mut size)) };
-        let mut instance = vec![0u16; size.max(1) as usize];
-        // SAFETY: The device belongs to the live set and `instance` has the size asked.
-        unsafe { SetupDiGetDeviceInstanceIdW(set.0, &device, Some(&mut instance), None) }
-            .context("reading a device's instance id")?;
-        let instance = String::from_utf16_lossy(&instance)
-            .trim_end_matches('\0')
-            .to_owned();
-        let mut size = 0u32;
-        // SAFETY: As above; this call only asks the size.
-        let asked = unsafe {
-            SetupDiGetDeviceRegistryPropertyW(
-                set.0,
-                &device,
-                SPDRP_HARDWAREID,
-                None,
-                None,
-                Some(&mut size),
-            )
-        };
-        match asked {
-            Err(error) if error.code() == ERROR_INSUFFICIENT_BUFFER.to_hresult() => {}
-            // A device without hardware ids lists none.
-            Err(error) if error.code() == ERROR_INVALID_DATA.to_hresult() => {
-                devices.push((instance, Vec::new()));
-                continue;
-            }
-            Err(error) => {
-                return Err(error)
-                    .with_context(|| format!("reading the hardware ids of {instance}"));
-            }
-            Ok(()) => {}
-        }
-        let mut bytes = vec![0u8; size as usize];
-        // SAFETY: As above, with a buffer of the size asked.
-        unsafe {
-            SetupDiGetDeviceRegistryPropertyW(
-                set.0,
-                &device,
-                SPDRP_HARDWAREID,
-                None,
-                Some(&mut bytes),
-                None,
-            )
-        }
-        .with_context(|| format!("reading the hardware ids of {instance}"))?;
-        let units: Vec<u16> = bytes
-            .as_chunks::<2>()
-            .0
-            .iter()
-            .map(|pair| u16::from_le_bytes(*pair))
-            .collect();
-        let ids = String::from_utf16_lossy(&units)
-            .split('\0')
-            .filter(|id| !id.is_empty())
-            .map(str::to_owned)
-            .collect();
-        devices.push((instance, ids));
+        devices.push(device_ids(set.0, &device).with_context(|| format!("device {index}")));
     }
-    Ok(devices)
+    Ok(readable(devices))
+}
+
+/// The instance id and hardware ids of `device` in the live set `set`.
+fn device_ids(
+    set: windows::Win32::Devices::DeviceAndDriverInstallation::HDEVINFO,
+    device: &windows::Win32::Devices::DeviceAndDriverInstallation::SP_DEVINFO_DATA,
+) -> Result<(String, Vec<String>)> {
+    use windows::Win32::{
+        Devices::DeviceAndDriverInstallation::{
+            SPDRP_HARDWAREID, SetupDiGetDeviceInstanceIdW, SetupDiGetDeviceRegistryPropertyW,
+        },
+        Foundation::{ERROR_INSUFFICIENT_BUFFER, ERROR_INVALID_DATA},
+    };
+    let mut size = 0u32;
+    // SAFETY: The device belongs to the live set; this call only asks the size.
+    match unsafe { SetupDiGetDeviceInstanceIdW(set, device, None, Some(&mut size)) } {
+        Err(error) if error.code() == ERROR_INSUFFICIENT_BUFFER.to_hresult() => {}
+        Err(error) => return Err(error).context("asking the size of its instance id"),
+        Ok(()) => bail!("it has no instance id"),
+    }
+    let mut instance = vec![0u16; size as usize];
+    // SAFETY: The device belongs to the live set and `instance` has the size asked.
+    unsafe { SetupDiGetDeviceInstanceIdW(set, device, Some(&mut instance), None) }
+        .context("reading its instance id")?;
+    let instance = String::from_utf16_lossy(&instance)
+        .trim_end_matches('\0')
+        .to_owned();
+    let mut size = 0u32;
+    // SAFETY: As above; this call only asks the size.
+    let asked = unsafe {
+        SetupDiGetDeviceRegistryPropertyW(
+            set,
+            device,
+            SPDRP_HARDWAREID,
+            None,
+            None,
+            Some(&mut size),
+        )
+    };
+    match asked {
+        Err(error) if error.code() == ERROR_INSUFFICIENT_BUFFER.to_hresult() => {}
+        // A device without hardware ids lists none.
+        Err(error) if error.code() == ERROR_INVALID_DATA.to_hresult() => {
+            return Ok((instance, Vec::new()));
+        }
+        Err(error) => {
+            return Err(error).with_context(|| format!("reading the hardware ids of {instance}"));
+        }
+        Ok(()) => {}
+    }
+    let mut bytes = vec![0u8; size as usize];
+    // SAFETY: As above, with a buffer of the size asked.
+    unsafe {
+        SetupDiGetDeviceRegistryPropertyW(
+            set,
+            device,
+            SPDRP_HARDWAREID,
+            None,
+            Some(&mut bytes),
+            None,
+        )
+    }
+    .with_context(|| format!("reading the hardware ids of {instance}"))?;
+    let units: Vec<u16> = bytes
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|pair| u16::from_le_bytes(*pair))
+        .collect();
+    let ids = String::from_utf16_lossy(&units)
+        .split('\0')
+        .filter(|id| !id.is_empty())
+        .map(str::to_owned)
+        .collect();
+    Ok((instance, ids))
 }
 
 #[cfg(test)]

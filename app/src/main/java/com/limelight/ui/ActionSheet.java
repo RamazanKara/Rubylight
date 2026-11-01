@@ -158,6 +158,16 @@ public final class ActionSheet extends BottomSheetDialog {
         if (!content.isInTouchMode() && firstAction != null) firstAction.requestFocus();
     }
 
+    /** Makes another row the one D-pad focus starts on, such as one that doesn't end the stream. */
+    public void setFirstAction(MaterialButton button) {
+        if (button == null || button == firstAction) return;
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            if (firstAction != null) firstAction.setFocusedByDefault(false);
+            button.setFocusedByDefault(true);
+        }
+        firstAction = button;
+    }
+
     /** A row of equal toggle buttons above the actions, for settings changed without leaving the sheet. */
     public LinearLayout addToggleRow() {
         LinearLayout row = new ToggleRow(getContext(), spacing);

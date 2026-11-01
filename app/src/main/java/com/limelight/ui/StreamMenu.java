@@ -24,8 +24,8 @@ import java.util.Map;
 import java.util.function.Supplier;
 
 /**
- * The stream menu: one sheet with a row of quick toggles, then Input, Display, Quality and Host
- * sections, then the session actions. A page (overlay and diagnostics) opens in the same sheet, and
+ * The stream menu: one sheet with a row of quick toggles, the session actions right under it, then
+ * Input, Display, Quality and Host sections. A page (overlay and diagnostics) opens in the same sheet, and
  * Back there returns to the first page. Items a host or this stream cannot use are left out.
  */
 public final class StreamMenu {
@@ -183,6 +183,8 @@ public final class StreamMenu {
             }
         }
 
+        addSession(entries, o);
+
         if (o.canSendInput) {
             if (o.localOutput) entries.add(action(Section.INPUT, Item.TOUCH_MODE, R.string.stream_touch_mode, R.drawable.ic_touch));
             if (o.mouseConnected) {
@@ -286,8 +288,18 @@ public final class StreamMenu {
             entries.add(action(Section.HOST, Item.HOST_STATUS, R.string.stream_host_status, R.drawable.ic_info));
         }
 
-        entries.add(action(Section.SESSION, Item.RECONNECT, R.string.stream_reconnect, R.drawable.ic_refresh));
+        return entries;
+    }
+
+    /**
+     * Leaving comes first, so a remote reaches Disconnect one step down from the quick toggles; Reconnect follows,
+     * and the actions that end the PC's game or session close the group in the error colour.
+     */
+    private static void addSession(List<Entry> entries, Options o) {
+        ComputerDetails host = o.host;
+        HostCapabilities caps = host.caps;
         entries.add(action(Section.SESSION, Item.DISCONNECT, R.string.stream_disconnect, R.drawable.ic_close));
+        entries.add(action(Section.SESSION, Item.RECONNECT, R.string.stream_reconnect, R.drawable.ic_refresh));
         if (host.hasPermission(ComputerDetails.PERMISSION_LAUNCH)) {
             if (o.role == NvApp.Role.STREAM && caps.has(HostCapabilities.Feature.NATIVE_API)) {
                 // The native API tells ending the session (the game keeps running) from closing the game.
@@ -303,7 +315,17 @@ public final class StreamMenu {
                         R.string.stream_end_monitor : R.string.stream_end_input, R.drawable.ic_stop, null, true));
             }
         }
-        return entries;
+    }
+
+    /**
+     * The row D-pad focus starts on: the first that doesn't end the stream, so OK pressed right after opening the
+     * menu never disconnects or quits.
+     */
+    public static Item firstFocus(List<Entry> entries) {
+        for (Entry entry : entries) {
+            if (entry.item != Item.DISCONNECT && !entry.destructive) return entry.item;
+        }
+        return entries.isEmpty() ? null : entries.get(0).item;
     }
 
     /**
@@ -467,6 +489,7 @@ public final class StreamMenu {
             button.setOnClickListener(view -> choose(entry));
         }
         if (target == Page.NATIVE) addNativeFacts(o);
+        sheet.setFirstAction(rows.get(firstFocus(entries)));
         sheet.focusFirstAction();
         MaterialButton focused = focus == null ? null : rows.get(focus);
         if (focused != null && !focused.isInTouchMode()) focused.requestFocus();

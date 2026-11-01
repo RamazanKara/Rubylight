@@ -603,6 +603,27 @@ mod tests {
         assert!(!menu.contains("Align video to top"), "the stream menu has no Align video to top");
     }
 
+    /// nightjar#52: Disconnect, then Reconnect, sit right under Return to stream and before the Picture section,
+    /// so a controller or remote reaches them in a step or two, while the first focus stays on Return to stream.
+    #[test]
+    fn leaving_sits_right_under_return_to_stream() {
+        let main = include_str!("main.rs");
+        let start = main.find("fn draw_overlay(").expect("draw_overlay");
+        let overlay = &main[start..start + main[start..].find("\nfn ").unwrap_or(main.len() - start)];
+        let menu = &overlay[overlay.find("tr(\"Stream controls\"), &title").expect("the stream controls")..];
+        let at = |needle: &str| menu.find(needle).unwrap_or_else(|| panic!("{needle} in the stream controls"));
+        let (back, focus, disconnect, reconnect, picture) =
+            (at("tr(\"Return to stream\")"), at("back.request_focus()"), at("tr(\"Disconnect\")"), at("Exit::Reconnect"), at("tr(\"Picture\")"));
+        assert!(back < focus && focus < disconnect && disconnect < reconnect && reconnect < picture,
+            "Return to stream (focused), Disconnect, Reconnect, then Picture");
+        let between = &menu[focus..disconnect];
+        for row in ["menu_style::action(", "menu_style::row(", "menu_style::switch(", "menu_style::fold(", "menu_style::caption("] {
+            assert!(!between.contains(row), "nothing between Return to stream and Disconnect: {row}");
+        }
+        assert_eq!(overlay.matches("tr(\"Disconnect\")").count(), 1, "Disconnect is drawn once");
+        assert_eq!(overlay.matches("Exit::Reconnect").count(), 1, "Reconnect is drawn once");
+    }
+
     fn shoot(dir: &std::path::Path, name: &str, width: f32, height: f32, ppp: f32, high_contrast: bool, sheet: bool) {
         use crate::strings::tr;
         crate::theme::own_palette();
@@ -649,6 +670,8 @@ mod tests {
                         if n == 0 {
                             back.request_focus();
                         }
+                        danger(ui, Icon::Power, tr("Disconnect"), Some(Action::Disconnect));
+                        action(ui, Icon::Reconnect, tr("Reconnect"), None);
                         caption(ui, tr("Picture"));
                         row(ui, Icon::Overlay, tr("Performance overlay"), |ui| {
                             egui::ComboBox::from_id_salt("o").width(170.0).selected_text(tr("Off")).show_index(ui, &mut overlay, 1, |_| tr("Off"));
@@ -667,9 +690,6 @@ mod tests {
                         action(ui, Icon::Download, tr("Export statistics (last hour)"), None);
                         action(ui, Icon::Sliders, tr("Session and graphics"), None);
                         action(ui, Icon::Help, tr("Shortcuts & help"), Some(Action::StreamShortcuts));
-                        action(ui, Icon::Reconnect, tr("Reconnect"), None);
-                        divider(ui);
-                        danger(ui, Icon::Power, tr("Disconnect"), Some(Action::Disconnect));
                     })
                 });
             });

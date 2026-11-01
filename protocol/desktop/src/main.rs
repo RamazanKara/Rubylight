@@ -2203,6 +2203,10 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
                     let back = menu_style::primary(ui, tr("Return to stream"), Some(crate::shortcuts::Key::Escape.cap()));
                     if ctx.memory(|m| m.focused().is_none()) { back.request_focus(); }
                     if back.clicked() { s.toggle_menu(window, pads); }
+                    // Leaving sits right under Return to stream, one step down for a controller or remote (nightjar#52);
+                    // the focus stays on Return to stream, so Enter or A right after opening never leaves.
+                    if menu_style::danger(ui, Icon::Power, tr("Disconnect"), Some(shortcuts::Action::Disconnect)).clicked() { s.exit = Some(Exit::User); }
+                    if menu_style::action(ui, Icon::Reconnect, tr("Reconnect"), None).clicked() { s.exit = Some(Exit::Reconnect); }
 
                     menu_style::caption(ui, tr("Picture"));
                     menu_style::row(ui, Icon::Overlay, tr("Performance overlay"), |ui| {
@@ -2431,9 +2435,6 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
                         s.shortcut_sheet = Some(stream::Sheet::FromMenu);
                         ctx.memory_mut(|m| m.surrender_focus(m.focused().unwrap_or(egui::Id::NULL)));
                     }
-                    if menu_style::action(ui, Icon::Reconnect, tr("Reconnect"), None).clicked() { s.exit = Some(Exit::Reconnect); }
-                    menu_style::divider(ui);
-                    if menu_style::danger(ui, Icon::Power, tr("Disconnect"), Some(shortcuts::Action::Disconnect)).clicked() { s.exit = Some(Exit::User); }
                 }));
         } else {
             s.settle_bitrate_slider(&ctx);

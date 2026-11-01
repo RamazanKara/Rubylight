@@ -81,6 +81,8 @@ struct Cache<S: Source> {
     next_check: Instant,
     snapshot: std::result::Result<Option<Description>, String>,
     metadata: butterpollo_core::hdr::Metadata,
+    /// The refresh rate in Hz at the last check, 0 when unknown.
+    refresh: u32,
 }
 
 impl<S: Source> Cache<S> {
@@ -92,12 +94,15 @@ impl<S: Source> Cache<S> {
             next_check: now,
             snapshot: Ok(None),
             metadata: Default::default(),
+            refresh: 0,
         }
     }
 
     fn poll(&mut self, now: Instant) -> Result<Option<Description>> {
         if now >= self.next_check {
             self.next_check = now + CHECK_INTERVAL;
+            // Read with the colour, at its interval only.
+            self.refresh = self.source.refresh_hz(&self.identity);
             let mut attempts = 0;
             let result = loop {
                 attempts += 1;
@@ -332,8 +337,7 @@ where
     fn check(&self, now: Instant) -> Snapshot {
         let mut cache = self.cache.lock().unwrap();
         let _ = cache.poll(now);
-        let refresh = cache.source.refresh_hz(&cache.identity);
-        (cache.snapshot.clone(), cache.metadata, refresh)
+        (cache.snapshot.clone(), cache.metadata, cache.refresh)
     }
 
     fn next_check(&self) -> Instant {
@@ -406,7 +410,9 @@ where
 {
     let watched: Arc<dyn PublishedRefresh> = watched.clone();
     let mut outputs = REFRESH.lock().unwrap();
-    outputs.retain(|(other, weak)| other != name && weak.strong_count() > 0);
+    // Another device on the same output (a GPU probe's) keeps its own entry:
+    // any live one answers, whichever stops first.
+    outputs.retain(|(_, weak)| weak.strong_count() > 0);
     outputs.push((name.to_owned(), Arc::downgrade(&watched)));
 }
 
@@ -417,8 +423,9 @@ pub(crate) fn published_refresh_hz(name: &str) -> Option<u32> {
         .lock()
         .unwrap()
         .iter()
-        .find(|(other, _)| other == name)
-        .and_then(|(_, weak)| weak.upgrade())?;
+        .rev()
+        .filter(|(other, _)| other == name)
+        .find_map(|(_, weak)| weak.upgrade())?;
     Some(watched.refresh_hz())
 }
 
@@ -474,6 +481,7 @@ mod tests {
         enumerations: usize,
         reads: Cell<usize>,
         refresh: u32,
+        refresh_reads: Cell<usize>,
     }
 
     impl Source for Fake {
@@ -492,6 +500,7 @@ mod tests {
             *output
         }
         fn refresh_hz(&self, _: &Identity) -> u32 {
+            self.refresh_reads.set(self.refresh_reads.get() + 1);
             self.refresh
         }
     }
@@ -525,6 +534,7 @@ mod tests {
                 enumerations: 0,
                 reads: Cell::new(0),
                 refresh: 120,
+                refresh_reads: Cell::new(0),
             },
             identity(),
             initial,
@@ -883,6 +893,38 @@ mod tests {
         assert!(published_refresh_hz(name).is_some());
         drop(watched);
         assert_eq!(published_refresh_hz(name), None);
+    }
+
+    #[test]
+    fn another_device_on_the_same_output_does_not_hide_the_stream_s() {
+        // A GPU probe opens its own device on the stream's display after the
+        // stream did, and stops mid-stream.
+        let now = Instant::now();
+        let name = r"\.\REFRESH-PROBE";
+        let stream = watched(now, None);
+        let probe = watched(now, None);
+        probe.cache.lock().unwrap().source.refresh = 60;
+        register(name, &stream);
+        register(name, &probe);
+        assert!(published_refresh_hz(name).is_some());
+        drop(probe);
+        assert_eq!(published_refresh_hz(name), Some(120));
+        drop(stream);
+        assert_eq!(published_refresh_hz(name), None);
+    }
+
+    #[test]
+    fn the_refresh_is_read_at_the_check_interval_even_without_a_watcher() {
+        let now = Instant::now();
+        let watched = watched(now, None);
+        for ms in [0, 10, 500, 999] {
+            let _ = watched.read_with(now + Duration::from_millis(ms), |_| {
+                Err(std::io::Error::other("no threads"))
+            });
+        }
+        assert_eq!(watched.cache.lock().unwrap().source.refresh_reads.get(), 1);
+        let _ = watched.read_with(now + CHECK_INTERVAL, |_| unreachable!());
+        assert_eq!(watched.cache.lock().unwrap().source.refresh_reads.get(), 2);
     }
 
     #[test]

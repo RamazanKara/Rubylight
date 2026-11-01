@@ -2221,6 +2221,22 @@ fn a_game_the_pc_has_not_installed_cannot_be_played_from_its_page() {
     assert!(commands.iter().any(|c| matches!(c, Command::Launch { app: 1000, .. })), "Play starts it");
 }
 
+#[test]
+fn a_games_page_names_its_store_when_the_pc_sends_only_the_key() {
+    use nightjar_core::http::native_api::library::Store;
+    let mut f = home_with_games(1);
+    let store = |source: &str, name: &str| Some(Store { source: source.into(), id: "1".into(), name: name.into() });
+    f.hosts.list[0].native.library.as_mut().expect("the library").games[0].store = store("microsoft", "");
+    let pc = f.hosts.list[0].id;
+    f.l.go(Screen::Game { host: pc, app: 1000 });
+    f.settle();
+    assert!(shows(&f, "Xbox"), "the key's known name: {:?}", f.drawn);
+    // The PC's own name wins.
+    f.hosts.list[0].native.library.as_mut().unwrap().games[0].store = store("microsoft", "Microsoft Store");
+    f.settle();
+    assert!(shows(&f, "Microsoft Store") && !shows(&f, "Xbox"), "{:?}", f.drawn);
+}
+
 /// Settings is a top-level page like Home and PCs: no Back in its header. Its sub-pages keep theirs.
 #[test]
 fn settings_has_no_back_but_its_sub_pages_do() {

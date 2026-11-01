@@ -1037,9 +1037,7 @@ fn begin(
     // Nucleus takes the pads' assignment from there, not from the profile:
     // by button press, it would wait for a press no one gives (#56).
     launcher
-        .in_profile(&mut |profile| {
-            files::index_pads(&files::meta_info(profile), &start.handler.guid)
-        })
+        .in_profile(&mut |profile| files::index_pads(profile, &start.handler.guid))
         .context("giving the game its pads by XInput index in Nucleus Co-op's per-game settings")?;
     tracing::info!(
         number,

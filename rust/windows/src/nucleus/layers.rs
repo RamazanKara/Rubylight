@@ -15,7 +15,6 @@ use crate::text::to_wide;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
-use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 use windows::Win32::Foundation::{
@@ -226,26 +225,17 @@ fn journal(folder: &Path, user: &str) -> PathBuf {
 
 /// Write `snapshot` to `journal` whole: a temporary file, on the disk before
 /// it is renamed over it, so a crash or power loss never leaves half a file.
+/// Never through a link ([`super::unfollowed`]).
 fn write_journal(journal: &Path, snapshot: &Snapshot) -> Result<()> {
     let text = serde_json::to_vec_pretty(snapshot)?;
-    let temporary = journal.with_extension("json.tmp");
-    let mut file = std::fs::File::create(&temporary)
-        .with_context(|| format!("writing {}", temporary.display()))?;
-    file.write_all(&text)
-        .and_then(|()| file.sync_all())
-        .with_context(|| format!("writing {}", temporary.display()))?;
-    drop(file);
-    std::fs::rename(&temporary, journal).with_context(|| format!("replacing {}", journal.display()))
+    let folder = journal.parent().context("the journal has no folder")?;
+    super::unfollowed::write(folder, journal, &text)
 }
 
 /// Remove a file restored from; one already gone is fine.
 fn remove_journal(journal: &Path) -> Result<()> {
-    match std::fs::remove_file(journal) {
-        Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
-            Err(error).with_context(|| format!("removing {}", journal.display()))
-        }
-        _ => Ok(()),
-    }
+    let folder = journal.parent().context("the journal has no folder")?;
+    super::unfollowed::remove(folder, journal).map(drop)
 }
 
 /// How long a session's start or check waits for a restore by the service

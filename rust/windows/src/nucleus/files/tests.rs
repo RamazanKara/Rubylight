@@ -537,7 +537,7 @@ fn only_a_game_list_file_on_the_disk_of_sane_size_is_read_never_a_link() {
             catalog(nucleus.path(), true).map(|_| ()),
             check_list(nucleus.path(), Some(&setup), &[]),
             write_own(nucleus.path(), &setup).map(|_| ()),
-            remove_game(&list, "A"),
+            remove_game(nucleus.path(), "A"),
         ];
         for error in errors {
             let error = format!("{:#}", error.unwrap_err());
@@ -603,7 +603,7 @@ fn only_a_game_list_file_on_the_disk_of_sane_size_is_read_never_a_link() {
     std::fs::remove_dir(&temporary).unwrap();
     std::fs::remove_file(&list).unwrap();
     junction(&list);
-    let error = format!("{:#}", replace(&list, theirs).unwrap_err());
+    let error = format!("{:#}", replace(nucleus.path(), &list, theirs).unwrap_err());
     assert!(
         error.contains(&shown) && error.contains("is a link"),
         "{error}"

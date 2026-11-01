@@ -209,14 +209,13 @@ pub fn write_own(folder: &Path, setup: &Setup) -> Result<Handler> {
     let text = setup.handler_of(Some(&owner));
     let handler = handler::parse(&file, &text).map_err(anyhow::Error::msg)?;
     let handlers = folder.join("handlers");
-    std::fs::create_dir_all(&handlers)
-        .with_context(|| format!("creating {}", handlers.display()))?;
+    super::unfollowed::create_folders(folder, &handlers)?;
     let path = handlers.join(&file);
     check_own(folder, setup)?;
     match read_existing(&path)? {
         Some(old) if old == text => {}
         _ => {
-            std::fs::write(&path, &text).with_context(|| format!("writing {}", path.display()))?;
+            super::unfollowed::write(folder, &path, text.as_bytes())?;
             tracing::info!(
                 file,
                 exe = setup.exe_path,
@@ -224,7 +223,7 @@ pub fn write_own(folder: &Path, setup: &Setup) -> Result<Handler> {
             );
         }
     }
-    add_game(&list(folder), setup)?;
+    add_game(folder, setup)?;
     Ok(handler)
 }
 
@@ -293,7 +292,7 @@ pub fn refuse_inject(folder: &Path, exe: &str) -> Result<Inject> {
         .map(|(game, way)| (game, way.name().into()))
         .collect();
     let text = serde_json::to_string_pretty(&serde_json::json!({ "Games": games }))?;
-    replace(&injection(folder), &text)?;
+    replace(folder, &injection(folder), &text)?;
     tracing::warn!(
         exe,
         refused = refused.name(),
@@ -303,9 +302,10 @@ pub fn refuse_inject(folder: &Path, exe: &str) -> Result<Inject> {
     Ok(next)
 }
 
-/// Add `setup`'s game to the game list at `path`, replacing the file whole
-/// so Nucleus never reads half of it.
-pub(super) fn add_game(path: &Path, setup: &Setup) -> Result<()> {
+/// Add `setup`'s game to the game list of the Nucleus Co-op at `folder`
+/// ([`list`]), replacing the file whole so Nucleus never reads half of it.
+pub(super) fn add_game(folder: &Path, setup: &Setup) -> Result<()> {
+    let path = &list(folder);
     let old = read_list(path)?;
     let Some(new) = generic::add_game(old.as_deref(), &setup.guid(), &setup.exe_path)
         .map_err(anyhow::Error::msg)
@@ -314,8 +314,8 @@ pub(super) fn add_game(path: &Path, setup: &Setup) -> Result<()> {
         return Ok(());
     };
     let parent = path.parent().context("the game list has no folder")?;
-    std::fs::create_dir_all(parent).with_context(|| format!("creating {}", parent.display()))?;
-    replace(path, &new)?;
+    super::unfollowed::create_folders(folder, parent)?;
+    replace(folder, path, &new)?;
     tracing::info!(
         guid = setup.guid(),
         "Nucleus Co-op: game added to its game list"
@@ -323,24 +323,10 @@ pub(super) fn add_game(path: &Path, setup: &Setup) -> Result<()> {
     Ok(())
 }
 
-/// Replace the game list at `path` whole, so Nucleus never reads half of it.
-fn replace(path: &Path, text: &str) -> Result<()> {
-    use std::os::windows::fs::MetadataExt;
-    let temporary = path.with_extension("json.rubylight");
-    // Writing would follow a link to wherever it leads.
-    for file in [path, temporary.as_path()] {
-        match std::fs::symlink_metadata(file) {
-            Ok(metadata) => ensure!(
-                metadata.file_attributes() & 0x400 == 0,
-                "{} is a link to elsewhere, so Rubylight does not write Nucleus Co-op's game list through it: move it away",
-                file.display()
-            ),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-            Err(error) => return Err(error).with_context(|| format!("reading {}", file.display())),
-        }
-    }
-    std::fs::write(&temporary, text).with_context(|| format!("writing {}", temporary.display()))?;
-    std::fs::rename(&temporary, path).with_context(|| format!("replacing {}", path.display()))
+/// Replace the game list at `path` below `root` whole, so Nucleus never
+/// reads half of it, through no link at its name or on its way.
+fn replace(root: &Path, path: &Path, text: &str) -> Result<()> {
+    super::unfollowed::write(root, path, text.as_bytes())
 }
 
 /// The game list of the Nucleus Co-op at `folder`, the one 2.4.2 reads
@@ -400,10 +386,10 @@ pub fn remove_own(folder: &Path, own: &Handler) -> Result<()> {
             "{} is not Rubylight's handler, so Rubylight leaves it as it is",
             path.display()
         );
-        std::fs::remove_file(&path).with_context(|| format!("removing {}", path.display()))?;
+        super::unfollowed::remove(folder, &path)?;
     }
     let list = list(folder);
-    remove_game(&list, &own.guid).with_context(|| {
+    remove_game(folder, &own.guid).with_context(|| {
         format!(
             "{} is removed, but {} still lists its game. Nucleus Co-op leaves a game whose handler is gone out of the list as it loads it, and Rubylight's next handler for the game takes the entry over",
             path.display(),
@@ -423,12 +409,12 @@ pub fn remove_own(folder: &Path, own: &Handler) -> Result<()> {
 /// Nucleus Co-op 2.4.2 never reads that list. Returns how many went; none
 /// once they are gone.
 pub fn forget_appdata_games(appdata: &Path) -> Result<usize> {
-    let path = appdata_list(appdata);
-    crate::user_folder::as_session_user(|| forget_games(&path))
+    crate::user_folder::as_session_user(|| forget_games(appdata))
         .context("acting as the signed-in user")?
 }
 
-fn forget_games(path: &Path) -> Result<usize> {
+fn forget_games(appdata: &Path) -> Result<usize> {
+    let path = &appdata_list(appdata);
     let Some(mut text) = read_list(path)? else {
         return Ok(0);
     };
@@ -452,7 +438,7 @@ fn forget_games(path: &Path) -> Result<usize> {
         }
     }
     if forgotten > 0 {
-        replace(path, &text)?;
+        replace(appdata, path, &text)?;
         tracing::info!(
             forgotten,
             list = %path.display(),
@@ -462,8 +448,10 @@ fn forget_games(path: &Path) -> Result<usize> {
     Ok(forgotten)
 }
 
-/// Remove the game `guid` from the game list at `path`, if it is there.
-pub(super) fn remove_game(path: &Path, guid: &str) -> Result<()> {
+/// Remove the game `guid` from the game list of the Nucleus Co-op at
+/// `folder` ([`list`]), if it is there.
+pub(super) fn remove_game(folder: &Path, guid: &str) -> Result<()> {
+    let path = &list(folder);
     let Some(old) = read_list(path)? else {
         return Ok(());
     };
@@ -471,7 +459,7 @@ pub(super) fn remove_game(path: &Path, guid: &str) -> Result<()> {
         .map_err(anyhow::Error::msg)
         .with_context(|| path.display().to_string())?
     {
-        Some(new) => replace(path, &new),
+        Some(new) => replace(folder, path, &new),
         None => Ok(()),
     }
 }
@@ -482,17 +470,11 @@ fn settings_journal(folder: &Path) -> PathBuf {
     folder.join("Rubylight-settings.json")
 }
 
-/// Write `path` whole: a temporary file, on the disk before it is renamed
-/// over it, so a crash or power loss never leaves half a file.
-fn write_whole(path: &Path, bytes: &[u8]) -> Result<()> {
-    let temporary = path.with_extension("rubylight.tmp");
-    let mut file = std::fs::File::create(&temporary)
-        .with_context(|| format!("writing {}", temporary.display()))?;
-    std::io::Write::write_all(&mut file, bytes)
-        .and_then(|()| file.sync_all())
-        .with_context(|| format!("writing {}", temporary.display()))?;
-    drop(file);
-    std::fs::rename(&temporary, path).with_context(|| format!("replacing {}", path.display()))
+/// Write `path` below `root` whole: a temporary file, on the disk before it
+/// is renamed over it, so a crash or power loss never leaves half a file.
+/// Never through a link below `root` ([`super::unfollowed`]).
+fn write_whole(root: &Path, path: &Path, bytes: &[u8]) -> Result<()> {
+    super::unfollowed::write(root, path, bytes)
 }
 
 /// `Settings.ini` refused when it is UTF-16 text, which the host does not
@@ -525,19 +507,15 @@ fn put_back_settings(folder: &Path, forced: &[profile::Forced]) -> Result<usize>
     ansi_settings(&path, &text)?;
     let (text, changed) = profile::put_back_settings(&text, forced);
     if changed > 0 {
-        write_whole(&path, &text)?;
+        write_whole(folder, &path, &text)?;
     }
     Ok(changed)
 }
 
 /// Remove a journal put back from; one already gone is fine.
 fn remove_settings_journal(journal: &Path) -> Result<()> {
-    match std::fs::remove_file(journal) {
-        Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
-            Err(error).with_context(|| format!("removing {}", journal.display()))
-        }
-        _ => Ok(()),
-    }
+    let folder = journal.parent().context("the journal has no folder")?;
+    super::unfollowed::remove(folder, journal).map(drop)
 }
 
 /// Put back what a session the host never ended forced in the
@@ -661,10 +639,14 @@ pub fn write_settings(folder: &Path) -> Result<SettingsGuard> {
     let (text, settings) = session_settings(&path)?;
     // The journal first: a host that stops after the next write finds it.
     if !settings.forced.is_empty() {
-        write_whole(&journal, &serde_json::to_vec_pretty(&settings.forced)?)?;
+        write_whole(
+            folder,
+            &journal,
+            &serde_json::to_vec_pretty(&settings.forced)?,
+        )?;
     }
     if settings.text != text {
-        write_whole(&path, &settings.text)?;
+        write_whole(folder, &path, &settings.text)?;
     }
     Ok(SettingsGuard {
         folder: folder.to_path_buf(),
@@ -704,7 +686,7 @@ pub fn write_copy_settings(copy: &Path) -> Result<()> {
     let path = copy.join("Settings.ini");
     let (text, settings) = session_settings(&path)?;
     if settings.text != text {
-        write_whole(&path, &settings.text)?;
+        write_whole(copy, &path, &settings.text)?;
     }
     Ok(())
 }
@@ -715,11 +697,13 @@ pub fn meta_info(profile: &Path) -> PathBuf {
     profile.join("NucleusCoop").join("metaInfo.json")
 }
 
-/// Give game `guid` its pads by XInput index in the `metaInfo.json` at
-/// `path` ([`profile::meta_info_by_index`]), called as the user it belongs
-/// to. Nucleus' other games and values stay, and so does this one's: like
-/// pads by index in `Settings.ini`, it is never put back.
-pub fn index_pads(path: &Path, guid: &str) -> Result<()> {
+/// Give game `guid` its pads by XInput index in the `metaInfo.json` of the
+/// profile folder `profile` ([`meta_info`], [`profile::meta_info_by_index`]),
+/// called as the user it belongs to. Nucleus' other games and values stay,
+/// and so does this one's: like pads by index in `Settings.ini`, it is never
+/// put back.
+pub fn index_pads(profile: &Path, guid: &str) -> Result<()> {
+    let path = &meta_info(profile);
     let text = match std::fs::read(path) {
         Ok(bytes) => Some(bytes),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
@@ -731,10 +715,9 @@ pub fn index_pads(path: &Path, guid: &str) -> Result<()> {
         return Ok(());
     };
     if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)
-            .with_context(|| format!("creating {}", parent.display()))?;
+        super::unfollowed::create_folders(profile, parent)?;
     }
-    write_whole(path, &changed)?;
+    write_whole(profile, path, &changed)?;
     if text.is_some() {
         tracing::info!(
             file = %path.display(),
@@ -804,8 +787,7 @@ pub fn write_profile(
         "a Nucleus Co-op profile needs a player"
     );
     let profiles = profile_folder(folder, guid)?;
-    std::fs::create_dir_all(&profiles)
-        .with_context(|| format!("creating {}", profiles.display()))?;
+    super::unfollowed::create_folders(folder, &profiles)?;
     let before = listed(&profiles)?;
     let titles: Vec<(u32, Option<String>)> = before
         .iter()
@@ -825,12 +807,13 @@ pub fn write_profile(
     };
     let path = profiles.join(&name);
     let text = serde_json::to_string_pretty(&profile::build(players, screens))?;
-    std::fs::write(&path, text).with_context(|| format!("writing {}", path.display()))?;
+    super::unfollowed::write(folder, &path, text.as_bytes())?;
     let after = listed(&profiles)?;
     let place = after.iter().position(|(file, _, _)| *file == name);
     if place != Some(number as usize - 1) {
         if !ours {
-            let _ = std::fs::remove_file(&path);
+            // The refusal says what to do; a profile left behind is listed.
+            let _ = super::unfollowed::remove(folder, &path);
         }
         let files: Vec<&str> = after.iter().map(|(file, _, _)| file.as_str()).collect();
         bail!(

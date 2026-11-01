@@ -999,7 +999,7 @@ pub fn write_own(
     let handler = files::write_own(folder, setup)?;
     let handlers = mirror_handlers(folder, copy, &handler.file, token)?;
     tracing::debug!(handlers, copy = %copy.display(), "Nucleus Co-op: the user's own copy has the host's handlers");
-    as_user(token, || files::add_game(&files::list(copy), setup))??;
+    as_user(token, || files::add_game(copy, setup))??;
     Ok(handler)
 }
 
@@ -1007,7 +1007,7 @@ pub fn write_own(
 /// removed from the list of the user's copy at `copy`, as the user of
 /// `token`.
 pub fn remove_game(copy: &Path, guid: &str, token: Option<&OwnedHandle>) -> Result<()> {
-    as_user(token, || files::remove_game(&files::list(copy), guid))?
+    as_user(token, || files::remove_game(copy, guid))?
 }
 
 /// Make the handlers of the user's copy at `copy` the host's hub handlers

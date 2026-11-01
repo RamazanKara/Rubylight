@@ -32,7 +32,7 @@
 
 <table>
   <tr>
-    <td align="center" width="25%"><h3>5.89&nbsp;ms</h3>median from capture to the client's screen<br><sub>AV1 1080p60, over loopback</sub></td>
+    <td align="center" width="25%"><h3>2.35&nbsp;ms</h3>median from capture to the client's screen<br><sub>PyroWave 1080p60, wired pace, over loopback</sub></td>
     <td align="center" width="25%"><h3>42 vs 96&nbsp;ms</h3>mean picture age under a game-like GPU load<br><sub>against Vibepollo 2.0</sub></td>
     <td align="center" width="25%"><h3>15 → 0</h3>freezes after scene cuts on a lossy link<br><sub>HEVC 1440p60, 0.3&nbsp;% loss</sub></td>
     <td align="center" width="25%"><h3>17&nbsp;ms</h3>glass to glass in a web browser<br><sub>WebRTC, AV1 1080p60, over loopback</sub></td>
@@ -188,12 +188,16 @@ All figures come from our own runs on an RX 7900 XT under Windows 11 25H2. Each 
 
 | Result | Conditions |
 | :-- | :-- |
-| **5.89 ms** median, capture to client present | AV1 1080p60 over loopback, per-frame timing record; H.264 6.92 ms, HEVC 8.37 ms, PyroWave 11.14 ms ([run](rust/PERFORMANCE.md#october-26-300-rc2-against-the-published-numbers)) |
+| **2.35 ms** median, capture to client present | PyroWave 1080p60 at 20 Mbps over loopback, paced as for a wired client that reports its link (as Nightjar does); 7.05 ms at 400 Mbps ([run](rust/PERFORMANCE.md#november-1-pyrowave-send-spread-with-and-without-a-link-hint)) |
+| **5.89 ms** median, capture to client present | AV1 1080p60 over loopback, per-frame timing record; H.264 6.92 ms, HEVC 8.37 ms ([run](rust/PERFORMANCE.md#october-26-300-rc2-against-the-published-numbers)) |
+| **1.2 to 1.3 ms** sooner to the client at 4K60 | HEVC with slice delivery over loopback; 0.5 to 1.0 ms sooner paced as for a Wi-Fi client ([run](rust/PERFORMANCE.md#november-1-slice-delivery-by-picture-size)) |
 | **42 ms against 96 ms** mean picture age under GPU load | Rubylight 2.0.0-rc.2 against Vibepollo 2.0, HEVC 10-bit HDR 1080p60 at 20 Mbps, Desktop Duplication, same PC and settings, three runs each ([comparison](rust/PERFORMANCE.md#against-vibepollo-20)) |
 | **0.25 ms** median picture age at the encoder | VRR, a 120 Hz game in a 60 fps stream; 4.68 ms without VRR-aware capture ([run](rust/PERFORMANCE.md#october-26-300-rc2-against-the-published-numbers), [method](rust/PERFORMANCE.md#october-24-predictive-claim-waits-under-vrr)) |
 | **15 to 0** freezes after scene cuts | HEVC 1440p60 at 250 Mbps with 0.3 % random loss, 45 s, two runs per arm ([run](rust/PERFORMANCE.md#october-28-oversize-scene-cuts-encoded-again-as-keyframes)) |
 | **61 to 15.7** unrecoverable frames per run on 2.4 GHz Wi-Fi | Wi-Fi pacing from the first frame, HEVC 1080p60 at 47 Mbit/s, three runs per arm; median unchanged at 4.7 ms on 5 GHz ([run](rust/PERFORMANCE.md#october-25-wi-fi-pacing-hint-on-a-real-laptop)) |
+| **14 to 0** frames lost on real Wi-Fi | Retroid Pocket 6 at HEVC 1080p60 and 150 Mbps, Automatic error correction without and with its floor, six and four runs ([run](rust/PERFORMANCE.md#november-1-client-error-correction-on-real-wi-fi-retroid)) |
 | **1.17 % and 1.08 %** of frames lost | 75 Mbps requested over a 50 Mbit/s link with link-rate adaptation, against 6.7 % before its 3.0 fixes ([run](rust/PERFORMANCE.md#october-24-a-lossless-standing-queue-link-fix-delay-signal), [before](rust/PERFORMANCE.md#october-24-link-rate-false-cuts-and-the-knee-hold-link-fix)) |
+| **185 µs** from a WebRTC frame to its last packet | P frames over loopback with a game running, against 402 µs on 3.1.0; key frames 1,047 against 2,825 µs ([3.1.1 notes](rust/RELEASE_NOTES.md#new-in-311)) |
 | **17 ms** median glass to glass in a browser | WebRTC, AV1 1080p60, Microsoft Edge on the same PC over loopback ([run](rust/PERFORMANCE.md#october-25-webrtc-on-the-real-host-pacing-rtx-90-and-120-fps-4k-and-hdr-b5b)) |
 
 The [performance guide](docs/performance.md) defines each metric and how to measure your own setup. The measurement record keeps every run, including changes that measured worse and were reverted.

@@ -126,6 +126,8 @@ pub fn network_changed(metered: bool) -> NetworkChange {
 pub struct StartParams {
     pub host: HostInfo,
     pub config: SessionConfig,
+    /// PyroWave records go to the decoder while the frame arrives (`Video::wants_early_chunks`).
+    pub early_records: bool,
 }
 
 /// Builds the stream as `callbacks.c` fills STREAM_CONFIGURATION.
@@ -202,7 +204,7 @@ pub fn start(bridge: &'static Bridge, params: StartParams) -> i32 {
     let session = match Session::start(
         &params.host,
         params.config,
-        Box::new(Video::new(bridge)),
+        Box::new(Video::new(bridge, params.early_records)),
         Box::new(Audio::new(bridge, audio_passthrough)),
         events.clone(),
         &interrupt,

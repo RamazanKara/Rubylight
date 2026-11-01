@@ -12,6 +12,7 @@ use nightjar_core::session::{
     self, AudioRenderer, AudioSetup, DecodeStatus, VideoDecoder, VideoSetup,
 };
 use nightjar_core::video::{BufferType, Frame};
+use rubylight_protocol::pyrowave::PACKET_FRAME_END;
 
 use crate::bridge::{self, byte_array, Bridge};
 use crate::extras::audio_configuration_to_int;
@@ -24,15 +25,85 @@ pub struct Video {
     bridge: &'static Bridge,
     buffer: Option<GlobalRef>,
     capacity: usize,
+    /// PyroWave records frames reach the renderer as their packets arrive (early record push).
+    early: bool,
+    chunks: ChunkBatch,
 }
 
 impl Video {
-    pub fn new(bridge: &'static Bridge) -> Self {
+    pub fn new(bridge: &'static Bridge, early: bool) -> Self {
         Self {
             bridge,
             buffer: None,
             capacity: 0,
+            early,
+            chunks: ChunkBatch::default(),
         }
+    }
+
+    /// Hands the collected chunks to `bridgeDrSubmitChunks`, in the frame buffer: Java's renderer
+    /// copies them out before it returns, and the frame comes after them on this thread.
+    fn flush_chunks(&mut self) {
+        if self.chunks.bytes.is_empty() {
+            return;
+        }
+        let b = self.bridge;
+        let needed = self.chunks.bytes.len();
+        let (chunks, buffer, capacity) = (&self.chunks, &mut self.buffer, &mut self.capacity);
+        b.with_env(|env| {
+            if needed > *capacity || buffer.is_none() {
+                let array = env.new_byte_array(needed as i32)?;
+                *buffer = Some(env.new_global_ref(array)?);
+                *capacity = needed;
+            }
+            let buffer = buffer.as_ref().expect("allocated above");
+            env.set_byte_array_region(byte_array(buffer), 0, bridge::jbytes(&chunks.bytes))?;
+            let args = [
+                bridge::object(buffer.as_obj()),
+                bridge::int(needed as i32),
+                jni::objects::JValue::Bool(chunks.first.into()).as_jni(),
+            ];
+            b.void(env, b.m.dr_chunks, &args);
+            Ok(())
+        });
+        self.chunks.clear();
+    }
+}
+
+/// Early chunks collected before one call into Java: about two dozen packets, so a frame of
+/// 800 KB (400 Mbps at 60 fps) takes some 25 calls rather than 600, and the frame's own submit
+/// has at most this much left to push.
+const CHUNK_BATCH_BYTES: usize = 32 * 1024;
+
+/// Early chunks (`VideoDecoder::chunk`) for one `bridgeDrSubmitChunks` call, in the records
+/// envelope's own layout: per packet its byte length, its flags and its payload. The buffer is
+/// reused, so once it has grown a frame's chunks allocate nothing.
+#[derive(Default)]
+struct ChunkBatch {
+    bytes: Vec<u8>,
+    /// The batch starts with the first packet of a frame.
+    first: bool,
+}
+
+impl ChunkBatch {
+    /// Adds a packet; true when the batch should go now, because the packet ends the frame or
+    /// the batch is full. A packet that starts a frame drops what is left of the last one, whose
+    /// frame never came (the decoder thread takes chunks and frames in arrival order).
+    fn push(&mut self, first: bool, flags: u32, payload: &[u8]) -> bool {
+        if first {
+            self.bytes.clear();
+            self.first = true;
+        }
+        self.bytes
+            .extend_from_slice(&(payload.len() as u32).to_le_bytes());
+        self.bytes.extend_from_slice(&flags.to_le_bytes());
+        self.bytes.extend_from_slice(payload);
+        flags & PACKET_FRAME_END != 0 || self.bytes.len() >= CHUNK_BATCH_BYTES
+    }
+
+    fn clear(&mut self) {
+        self.bytes.clear();
+        self.first = false;
     }
 }
 
@@ -87,6 +158,8 @@ impl VideoDecoder for Video {
     }
 
     fn submit(&mut self, frame: &Frame) -> DecodeStatus {
+        // Chunks still collected go first: the frame's end packet, which sends a batch, was lost.
+        self.flush_chunks();
         let b = self.bridge;
         let receive_ns = monotonic_ns_of(frame.receive_time_us);
         let needed = frame.data().len();
@@ -136,12 +209,23 @@ impl VideoDecoder for Video {
         }
     }
 
+    fn wants_early_chunks(&self) -> bool {
+        self.early
+    }
+
+    fn chunk(&mut self, first: bool, flags: u32, payload: &[u8]) {
+        if self.chunks.push(first, flags, payload) {
+            self.flush_chunks();
+        }
+    }
+
     fn stop(&mut self) {
         self.bridge.post(self.bridge.m.dr_stop, &[]);
     }
 
     fn cleanup(&mut self) {
         self.buffer = None;
+        self.chunks.clear();
         self.bridge.post(self.bridge.m.dr_cleanup, &[]);
     }
 }
@@ -414,6 +498,149 @@ impl AudioRenderer for Audio {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rubylight_protocol::pyrowave::early::{EarlyPush, Finish};
+    use rubylight_protocol::pyrowave::{
+        Records, PACKET_CONTIGUOUS, PACKET_FRAME_START, PACKET_RECORD_START,
+    };
+
+    /// A records frame of `count` records as (flags, payload) packets: the 16-byte prefix with the
+    /// sequence header, then one 16-byte record per packet, every packet padded to `size` bytes.
+    fn records_frame(count: u32, size: usize) -> Vec<(u32, Vec<u8>)> {
+        let word = |bytes: &mut Vec<u8>, value: u32| bytes.extend_from_slice(&value.to_le_bytes());
+        let mut packets = Vec::new();
+        let mut first = vec![1, 0, 0, 0, 16, 0, 0, 0];
+        word(&mut first, 0x8000_0000 | (1 << 28) | 63 | (63 << 14));
+        word(&mut first, count);
+        packets.push(first);
+        for index in 0..count {
+            let mut packet = Vec::new();
+            word(&mut packet, (1 << 28) | (4 << 16));
+            word(&mut packet, index << 8);
+            word(&mut packet, index);
+            word(&mut packet, !index);
+            packets.push(packet);
+        }
+        let last = packets.len() - 1;
+        packets
+            .into_iter()
+            .enumerate()
+            .map(|(i, mut payload)| {
+                if i != last && payload.len() < size {
+                    // A padding block: its marker, then the words after its 8 bytes.
+                    let words = ((size - payload.len() - 8) / 4) as u32;
+                    word(&mut payload, u32::MAX);
+                    word(&mut payload, words);
+                    payload.resize(size, 0);
+                }
+                let mut flags = PACKET_RECORD_START;
+                if i == 0 {
+                    flags |= PACKET_FRAME_START;
+                } else {
+                    flags |= PACKET_CONTIGUOUS;
+                }
+                if i == last {
+                    flags |= PACKET_FRAME_END;
+                }
+                (flags, payload)
+            })
+            .collect()
+    }
+
+    fn envelope(packets: &[(u32, Vec<u8>)]) -> Vec<u8> {
+        let mut out = vec![0; 4];
+        for (flags, payload) in packets {
+            out.extend_from_slice(&(payload.len() as u32).to_le_bytes());
+            out.extend_from_slice(&flags.to_le_bytes());
+            out.extend_from_slice(payload);
+        }
+        out
+    }
+
+    #[test]
+    fn chunks_go_in_envelope_batches_that_end_with_the_frame() {
+        let packets = records_frame(3, 24);
+        let mut batch = ChunkBatch::default();
+        assert!(!batch.push(true, packets[0].0, &packets[0].1));
+        assert!(!batch.push(false, packets[1].0, &packets[1].1));
+        assert!(batch.first);
+        // The batch is the envelope's own bytes, without the container's leading zero word.
+        assert_eq!(batch.bytes, envelope(&packets[..2])[4..]);
+        batch.clear();
+        assert!(!batch.push(false, packets[2].0, &packets[2].1));
+        assert!(
+            !batch.first,
+            "a batch after the first does not start the frame"
+        );
+        assert!(
+            batch.push(false, packets[3].0, &packets[3].1),
+            "the frame's end goes at once"
+        );
+
+        // A full batch goes too, and the buffer keeps its allocation for the next one.
+        batch.clear();
+        let payload = [0u8; 1400];
+        let full = (0..)
+            .position(|_| batch.push(false, PACKET_CONTIGUOUS, &payload))
+            .unwrap();
+        assert_eq!(full + 1, CHUNK_BATCH_BYTES.div_ceil(8 + payload.len()));
+        let capacity = batch.bytes.capacity();
+        batch.clear();
+        assert!(batch.bytes.is_empty() && batch.bytes.capacity() == capacity);
+
+        // A frame that starts drops what was left of one that never came.
+        batch.push(false, PACKET_CONTIGUOUS, &payload);
+        batch.push(true, packets[0].0, &packets[0].1);
+        assert_eq!(batch.bytes, envelope(&packets[..1])[4..]);
+        assert!(batch.first);
+    }
+
+    #[test]
+    fn forwarded_batches_give_the_renderer_the_frame_whole_frame_push_gives() {
+        for size in [24, 64, 1400] {
+            let packets = records_frame(40, size);
+            let data = envelope(&packets);
+            let mut whole = Vec::new();
+            assert!(Records::default().push_frame(&data, |packet| {
+                whole.push(packet.to_vec());
+                true
+            }));
+            // What the renderer does with each bridgeDrSubmitChunks call, then the frame.
+            let (mut records, mut early, mut batch) = (
+                Records::default(),
+                EarlyPush::default(),
+                ChunkBatch::default(),
+            );
+            let mut pushed = Vec::new();
+            let mut calls = 0;
+            for (i, (flags, payload)) in packets.iter().enumerate() {
+                if batch.push(i == 0, *flags, payload) {
+                    calls += 1;
+                    early.chunks(&mut records, &batch.bytes, batch.first, |packet| {
+                        pushed.push(packet.to_vec());
+                        true
+                    });
+                    batch.clear();
+                }
+            }
+            assert!(batch.bytes.is_empty(), "the end packet sent the rest");
+            let before_frame = pushed.len();
+            let finish = early.finish(&mut records, data.len(), |packet| {
+                pushed.push(packet.to_vec());
+                true
+            });
+            assert_eq!(finish, Finish::Done, "{size}-byte packets");
+            assert_eq!(before_frame, 40, "every record before the frame");
+            assert_eq!(
+                pushed.last(),
+                whole.first(),
+                "only the header waits for the frame"
+            );
+            pushed.sort();
+            whole.sort();
+            assert_eq!(pushed, whole);
+            assert!(calls >= data.len() / CHUNK_BATCH_BYTES);
+        }
+    }
 
     #[test]
     fn pcm_packets_become_samples_and_lost_ones_silence() {

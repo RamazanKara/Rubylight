@@ -2354,6 +2354,38 @@ async fn a_quit_after_the_stream_ended_ends_the_background_stream() -> Result<()
     assert!(ended(seat));
     assert!(pc.started.lock().unwrap()[1].stopped());
     assert_eq!(generation(), before);
+
+    // Native End too. A device that owns the host's app quits that app, as
+    // Moonlight shows it running, and its background stream stays.
+    assert!(
+        launch_app(&h, 0, portal)
+            .await?
+            .contains("status_code=\"200\"")
+    );
+    let seat = vacate(&h);
+    let owner = |who: &str| {
+        let mut app = h.h.current_app.lock().unwrap();
+        std::mem::replace(&mut app.as_mut().unwrap().owner, who.into())
+    };
+    let previous = owner("0");
+    let host = h.h.clone();
+    let quit =
+        tokio::task::spawn_blocking(move || crate::nvhttp::quit_nucleus_stream(&host, "0", false))
+            .await?
+            .map_err(|failure| anyhow::anyhow!("{failure:?}"))?;
+    assert!(!quit);
+    assert!(!ended(seat));
+    owner(&previous);
+    let host = h.h.clone();
+    let client = h.h.paired.read().unwrap().clients[0].clone();
+    tokio::task::spawn_blocking(move || {
+        crate::native_api::session_action(&host, &client, crate::native_api::Action::End)
+    })
+    .await?
+    .map_err(|failure| anyhow::anyhow!("{failure:?}"))?;
+    assert!(ended(seat));
+    assert!(pc.started.lock().unwrap()[2].stopped());
+    assert_eq!(generation(), before);
     for client in &mut h.h.paired.write().unwrap().clients {
         client.extra.remove("background_stream");
         client.extra.remove("host_control");

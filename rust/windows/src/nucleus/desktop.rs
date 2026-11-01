@@ -172,13 +172,21 @@ fn children(parent: HWND) -> Vec<HWND> {
 
 /// How long a raised Nucleus Co-op may take to come above the window over it.
 const RAISE_WAIT: std::time::Duration = std::time::Duration::from_secs(1);
+/// How [`Raised`] moves a window: in the order only, never activated, and
+/// queued so a hung owner never holds the host.
+const RAISE_FLAGS: SET_WINDOW_POS_FLAGS = SET_WINDOW_POS_FLAGS(
+    SWP_NOMOVE.0 | SWP_NOSIZE.0 | SWP_NOACTIVATE.0 | SWP_NOOWNERZORDER.0 | SWP_ASYNCWINDOWPOS.0,
+);
 
 /// A top-level window raised above every other for a click, never
 /// activated; dropped, it goes back below the window that was over it.
+/// Its owned windows (a box it shows) never move: raised with them, an
+/// owner stays below them and out of the topmost windows.
 struct Raised {
     window: HWND,
-    /// The window just above it before; None at the top.
-    below: Option<HWND>,
+    /// The window just above it before, and whether that one was topmost
+    /// then; None at the top.
+    below: Option<(HWND, bool)>,
     /// Whether it stayed above the windows that do not before.
     topmost: bool,
 }
@@ -197,17 +205,10 @@ impl Raised {
         unsafe {
             let below = GetWindow(window, GW_HWNDPREV)
                 .ok()
-                .filter(|above| !above.is_invalid());
+                .filter(|above| !above.is_invalid())
+                .map(|above| (above, topmost(above)));
             let topmost = topmost(window);
-            SetWindowPos(
-                window,
-                Some(HWND_TOPMOST),
-                0,
-                0,
-                0,
-                0,
-                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_ASYNCWINDOWPOS,
-            )?;
+            SetWindowPos(window, Some(HWND_TOPMOST), 0, 0, 0, 0, RAISE_FLAGS)?;
             Ok(Self {
                 window,
                 below,
@@ -218,24 +219,32 @@ impl Raised {
 }
 impl Drop for Raised {
     fn drop(&mut self) {
-        let flags = SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_ASYNCWINDOWPOS;
+        let flags = RAISE_FLAGS;
         // SAFETY: as in Raised::new.
         unsafe {
-            // Put below a window of its own kind, it takes that window's
-            // place in the order. Otherwise a window that was not topmost
-            // goes to the top of the windows that are not, where it was when
-            // only topmost windows were over it.
-            let back = self.below.is_some_and(|above| {
-                IsWindow(Some(above)).as_bool()
-                    && topmost(above) == self.topmost
-                    && SetWindowPos(self.window, Some(above), 0, 0, 0, 0, flags).is_ok()
-            });
-            if !back
-                && !self.topmost
+            // A window that was not topmost goes to the top of the windows
+            // that are not: where it was when only topmost windows were over
+            // it. Below a window of its own kind it then takes its place
+            // again. The calls are queued in order.
+            if !self.topmost
                 && let Err(error) =
                     SetWindowPos(self.window, Some(HWND_NOTOPMOST), 0, 0, 0, 0, flags)
             {
                 tracing::warn!(%error, "Nucleus Co-op stays above the PC's other windows after the click on its profile entry");
+                return;
+            }
+            let Some((above, above_topmost)) = self.below else {
+                return;
+            };
+            if above_topmost != self.topmost {
+                return;
+            }
+            let back = IsWindow(Some(above)).as_bool()
+                && SetWindowPos(self.window, Some(above), 0, 0, 0, 0, flags).is_ok();
+            if !back {
+                tracing::warn!(
+                    "the window over Nucleus Co-op closed during the click on its profile entry, so Nucleus Co-op stays above the PC's other windows"
+                );
             }
         }
     }
@@ -540,8 +549,9 @@ mod tests {
                 }
             }
         }
-        let make = |ex: WINDOW_EX_STYLE| {
-            // SAFETY: the class and text are NUL-terminated strings that outlive the call.
+        let make = |ex: WINDOW_EX_STYLE, owner: Option<HWND>| {
+            // SAFETY: the class and text are NUL-terminated strings that outlive the call; the
+            // owner, when given, is a window this thread made.
             unsafe {
                 CreateWindowExW(
                     WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | ex,
@@ -552,7 +562,7 @@ mod tests {
                     -32000,
                     300,
                     200,
-                    None,
+                    owner,
                     None,
                     None,
                     None,
@@ -576,19 +586,23 @@ mod tests {
             false
         };
         for over in [WINDOW_EX_STYLE::default(), WS_EX_TOPMOST] {
-            let nucleus = make(Default::default());
-            let game = make(over);
-            let _made = Made(vec![game, nucleus]);
+            let nucleus = make(Default::default(), None);
+            // A box of its own over it stays where it is.
+            let shown = make(Default::default(), Some(nucleus));
+            let game = make(over, None);
+            let _made = Made(vec![game, shown, nucleus]);
             // SAFETY: windows this thread made.
             unsafe {
-                assert!(above(game, nucleus));
+                assert!(above(shown, nucleus) && above(game, shown));
                 assert!(!topmost(nucleus));
                 let raised = Raised::new(nucleus).unwrap();
-                assert!(topmost(nucleus));
-                assert!(above(nucleus, game));
+                assert!(topmost(nucleus), "{over:?}");
+                assert!(above(nucleus, game), "{over:?}");
+                assert!(!topmost(shown) && above(game, shown), "{over:?}");
                 drop(raised);
-                assert!(!topmost(nucleus), "{over:?}");
-                assert!(above(game, nucleus), "{over:?}");
+                assert!(!topmost(nucleus) && !topmost(shown), "{over:?}");
+                assert_eq!(GetWindow(nucleus, GW_HWNDPREV).unwrap(), shown);
+                assert!(above(game, shown), "{over:?}");
                 assert_eq!(topmost(game), over == WS_EX_TOPMOST);
             }
         }

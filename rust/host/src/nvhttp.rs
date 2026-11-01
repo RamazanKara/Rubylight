@@ -1815,10 +1815,16 @@ pub(crate) fn terminate_refused(h: &Shared, client: &str) -> bool {
 /// streams end, never the other players' or the host's app, and its slot is kept for the grace
 /// period; its private background session ends with it unless only `disconnect`ing. A client
 /// whose background stream already ended (Moonlight and Nightjar end the stream before they quit)
-/// still ends that session when it streams nothing else and owns no host app, which its quit
-/// would then mean (#56). `None` when `client` streams nothing of Nucleus's and has no such
-/// session, else the ids of the streams it stopped. The caller holds `launch_transition`.
-fn quit_nucleus_player(h: &Shared, client: &str, disconnect: bool) -> Option<Vec<String>> {
+/// still ends that session with a `vacated` quit when it streams nothing else and owns no host
+/// app, which its quit would then mean (#56); WebRTC's stop and switch, which may return to that
+/// game, never do. `None` when `client` streams nothing of Nucleus's and ends no such session,
+/// else the ids of the streams it stopped. The caller holds `launch_transition`.
+fn quit_nucleus_player(
+    h: &Shared,
+    client: &str,
+    disconnect: bool,
+    vacated: bool,
+) -> Option<Vec<String>> {
     let (canceled, ids, seats) = {
         let mut sessions = h.sessions.lock().unwrap();
         let mine = |l: &Launch| l.role == Role::Stream && l.client.uuid == client;
@@ -1832,7 +1838,7 @@ fn quit_nucleus_player(h: &Shared, client: &str, disconnect: bool) -> Option<Vec
         if seats.is_empty() {
             let streams_other = !streams.is_empty();
             drop(sessions);
-            return (!disconnect && !streams_other)
+            return (vacated && !disconnect && !streams_other)
                 .then(|| quit_vacated_background(h, client))
                 .flatten();
         }
@@ -1888,7 +1894,7 @@ pub(crate) fn quit_nucleus_stream(
     disconnect: bool,
 ) -> Result<bool, butterpollo_core::session_state::Refusal> {
     let _transition = h.transition()?;
-    let Some(ids) = quit_nucleus_player(h, client, disconnect) else {
+    let Some(ids) = quit_nucleus_player(h, client, disconnect, true) else {
         return Ok(false);
     };
     if !wait_for_teardown(&h.sessions, &ids, Duration::from_secs(5)) {
@@ -1910,7 +1916,8 @@ pub(crate) enum StopStreams {
 /// and Remote Input sessions stay, and are not waited for.
 pub(crate) fn stop_streams(h: &Shared, terminate_app: Option<&str>) -> StopStreams {
     let _transition = h.launch_transition.lock().unwrap();
-    if let Some(ids) = terminate_app.and_then(|client| quit_nucleus_player(h, client, false)) {
+    if let Some(ids) = terminate_app.and_then(|client| quit_nucleus_player(h, client, false, false))
+    {
         return if wait_for_teardown(&h.sessions, &ids, Duration::from_secs(10)) {
             StopStreams::Stopped
         } else {
@@ -2542,7 +2549,7 @@ fn cancel_app(h: Shared, connection: Connection) -> Response {
         Err(e) => return xml(401, &[], Some(e.to_string())),
     };
     let _transition = h.launch_transition.lock().unwrap();
-    if quit_nucleus_player(&h, &client.uuid, false).is_some() {
+    if quit_nucleus_player(&h, &client.uuid, false, true).is_some() {
         return xml(200, &[("cancel", "1".into())], None);
     }
     if remote_game(&h).is_none() {

@@ -2094,16 +2094,26 @@ fn the_first_window_is_waited_for_and_its_absence_is_refused() {
 /// A background stream whose game window never came back (NieR, Sekiro in
 /// #56) ends when its device's return times out waiting for it, saying why:
 /// it no longer refuses every other background launch until the game exits
-/// by itself. A co-op session goes on for its other players.
+/// by itself. One still starting (a slow first window) goes on, and so does
+/// a co-op session for its other players.
 #[test]
 fn a_background_stream_without_its_window_ends_when_its_return_times_out() {
     let (registry, pc, apps) = setup();
     let owner = client("A", true);
     let config = Config::default();
     let seat = background(&registry, &apps[1], "a", &owner, &config).unwrap();
+    let instance = registry.instance(seat.session).unwrap();
+    let wait = Duration::from_secs(90);
+    assert_eq!(
+        end_without_window(&registry, seat, instance.as_ref(), wait),
+        None
+    );
+    assert!(!pc.last().stopped());
+    // It ran, and its window went away.
+    pc.last().show();
+    instance.session(|s| s.slots[0].window = None);
     registry.leave(seat, "a");
     let seat = background(&registry, &apps[1], "b", &owner, &config).unwrap();
-    let instance = registry.instance(seat.session).unwrap();
     assert!(first_window(instance.as_ref(), 0, "d", Duration::ZERO).is_err());
     let text =
         end_without_window(&registry, seat, instance.as_ref(), Duration::from_secs(90)).unwrap();

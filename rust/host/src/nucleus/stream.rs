@@ -286,19 +286,20 @@ pub fn player(config: &Config) -> bool {
     config.boolean(PLAYER, false)
 }
 
-/// A background stream whose game window did not come back within `wait`
-/// ends: its game still runs without a window to stream (minimised, or lost
-/// by the game), and the session would refuse every other background launch
-/// until the game exits by itself (#56). Its device then starts it again. A
-/// co-op session goes on for the other players. Returns what the launch
-/// answers then.
+/// A running background stream whose game window did not come back within
+/// `wait` ends: its game still runs without a window to stream (minimised,
+/// or lost by the game), and the session would refuse every other
+/// background launch until the game exits by itself (#56). Its device then
+/// starts it again. One still starting goes on, and Nucleus Co-op's own
+/// start timeout says why it fails. A co-op session goes on for the other
+/// players. Returns what the launch answers then.
 pub(super) fn end_without_window(
     registry: &Registry,
     seat: Seat,
     instance: &dyn Instance,
     wait: Duration,
 ) -> Option<String> {
-    let running = instance.session(|s| !s.ended() && s.kind == Kind::Background);
+    let running = instance.session(|s| s.phase == Phase::Running && s.kind == Kind::Background);
     if !running {
         return None;
     }

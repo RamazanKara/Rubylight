@@ -509,9 +509,10 @@ pub(crate) fn session_action(h: &Shared, client: &Client, action: Action) -> Res
     // The actions check the session's owner themselves, under the launch lock.
     // With no session, Close game closes a game End session left running.
     let device = client.uuid.as_str();
-    // A Nucleus Co-op player owns no host session: each action ends only its own streams, and
-    // End and Close game its background stream too, as Moonlight's quit does (#56). Nightjar's
-    // Quit is Close game where the device has host control.
+    // A Nucleus Co-op player owns no host session: while it streams, each action ends only its
+    // own streams, and End and Close game its background stream too, as Moonlight's quit does;
+    // after its stream ended they still end its background stream (#56). Nightjar's Quit is
+    // Close game where the device has host control.
     let disconnect = matches!(action, Action::Disconnect);
     if crate::nvhttp::quit_nucleus_stream(h, device, disconnect)? {
         return Ok(());

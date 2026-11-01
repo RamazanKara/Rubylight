@@ -77,7 +77,7 @@ const video: Setting[] = [
     key: SETTING,
     label: 'Stream preset',
     description:
-      'Fills in the AMD encoder settings you have not set yourself. Settings you change below always win.',
+      'Fills in the AMD and NVIDIA encoder settings you have not set yourself. Settings you change below always win.',
     details:
       'Balanced is the host\'s defaults. Lowest latency limits every frame, recovery keyframes included, to one frame\'s share of the bitrate. Reference quality leaves recovery keyframes unlimited, which suits a fast, steady link. No preset changes the rate control. Each value comes from our own measurements in PERFORMANCE.md. A device or an app can choose its own preset.',
     category: 'video',
@@ -1008,7 +1008,7 @@ const nvidia: Setting[] = [
         { value: '7', label: 'P7 (slowest)' },
       ],
     },
-    default: 1,
+    default: '1',
     inactiveHint: nvencHint,
     visibleWhen: nvenc,
   },

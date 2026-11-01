@@ -174,11 +174,17 @@ mod tests {
         assert!(encoder_policy::amf_frame_cap_automatic(&nothing));
         assert_eq!(nothing.get("amd_quality", "speed"), "speed");
         assert!(!nothing.boolean("amd_preanalysis", false));
+        let nvenc = crate::nvenc::Tuning::new(&nothing, &stream(1)).unwrap();
+        assert_eq!((nvenc.vbv_increase, nvenc.preset), (0, 1));
+        assert!(!nvenc.temporal_aq);
         for covered in &table().covered {
             let default = match covered.key.as_str() {
                 "amd_max_frame_size" => "auto",
                 "amd_quality" => "speed",
                 "amd_preanalysis" => "false",
+                "nvenc_vbv_increase" => "0",
+                "nvenc_preset" => "1",
+                "nvenc_temporal_aq" => "false",
                 other => panic!("{other} is covered but this test does not know its default"),
             };
             assert_eq!(covered.default, default);
@@ -372,6 +378,68 @@ mod tests {
                 "codec {codec}"
             );
             assert_eq!(property(&explicit, rc), Some(2), "codec {codec}");
+        }
+    }
+
+    #[test]
+    fn every_amf_setting_a_preset_fills_has_its_nvenc_counterpart() {
+        // AMF setting and value -> NVENC setting and value, as docs/configuration.md lists them.
+        let counterparts = [
+            ("amd_max_frame_size", "1", "nvenc_vbv_increase", "0"),
+            ("amd_max_frame_size", "0", "nvenc_vbv_increase", "400"),
+            ("amd_quality", "speed", "nvenc_preset", "1"),
+            ("amd_preanalysis", "false", "nvenc_temporal_aq", "false"),
+        ];
+        for preset in &table().presets {
+            let amd = preset.settings.keys().filter(|k| k.starts_with("amd_"));
+            let nvenc = preset.settings.keys().filter(|k| k.starts_with("nvenc_"));
+            assert_eq!(amd.count(), nvenc.count(), "{}", preset.id);
+            for (key, value) in &preset.settings {
+                if !key.starts_with("amd_") {
+                    continue;
+                }
+                let (_, _, nv_key, nv_value) = counterparts
+                    .iter()
+                    .find(|(k, v, ..)| k == key && v == value)
+                    .unwrap_or_else(|| {
+                        panic!("{} {key}={value} has no NVENC counterpart", preset.id)
+                    });
+                assert_eq!(
+                    preset.settings.get(*nv_key).map(String::as_str),
+                    Some(*nv_value),
+                    "{}",
+                    preset.id
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn the_presets_reach_the_nvenc_tuning() {
+        for codec in 0..=2u8 {
+            let stream = stream(codec);
+            let tuning = |text: &str| crate::nvenc::Tuning::new(&filled(text), &stream).unwrap();
+            // One frame at 40 Mbps and 60 fps is 666,667 bits.
+            let one_frame = tuning("").vbv(stream.bitrate_kbps, 60_000);
+            assert_eq!(one_frame, 666_666, "codec {codec}");
+            // Lowest latency is P1, no temporal AQ and a one-frame VBV, as the defaults.
+            let latency = tuning("stream_preset = lowest_latency");
+            assert_eq!(latency.preset, 1);
+            assert!(!latency.temporal_aq);
+            assert_eq!(latency.vbv(stream.bitrate_kbps, 60_000), one_frame);
+            // Reference quality loosens the VBV to five frames and leaves the rest alone.
+            let reference = tuning("stream_preset = reference");
+            assert_eq!(
+                reference.vbv(stream.bitrate_kbps, 60_000),
+                one_frame * 5 + 3
+            );
+            assert_eq!(reference.preset, 1);
+            assert_eq!(reference.rate_control, tuning("").rate_control);
+            // An explicit value still wins.
+            let explicit =
+                tuning("stream_preset = reference\nnvenc_vbv_increase = 100\nnvenc_preset = 4");
+            assert_eq!(explicit.vbv(stream.bitrate_kbps, 60_000), 1_333_333);
+            assert_eq!(explicit.preset, 4);
         }
     }
 

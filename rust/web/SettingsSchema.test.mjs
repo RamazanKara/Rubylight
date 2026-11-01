@@ -296,7 +296,7 @@ test('the NVENC group holds exactly the settings the NVENC encoder reads, with i
   assert(shown.every(setting => setting.group === 'NVIDIA NVENC' && setting.category === 'encoders'));
   // nvenc.rs Tuning::new defaults.
   for (const [key, value] of [
-    ['nvenc_preset', 1], ['nvenc_twopass', 'quarter_res'], ['nvenc_rate_control', 'cbr'], ['nvenc_target_quality', 0],
+    ['nvenc_preset', '1'], ['nvenc_twopass', 'quarter_res'], ['nvenc_rate_control', 'cbr'], ['nvenc_target_quality', 0],
     ['nvenc_spatial_aq', true], ['nvenc_temporal_aq', false], ['nvenc_split_encode', 'auto'], ['nvenc_frame_budget_guard', true],
     ['nvenc_vbv_increase', 0], ['nvenc_weighted_prediction', false], ['nvenc_h264_cavlc', false], ['nvenc_insert_filler_data', false],
     ['nvenc_enable_min_qp', false], ['nvenc_min_qp_h264', 19], ['nvenc_min_qp_hevc', 23], ['nvenc_min_qp_av1', 23],

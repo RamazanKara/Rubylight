@@ -83,6 +83,28 @@ test('under a preset the covered settings show its values as their defaults', ()
   assert.equal(shown({ stream_preset: 'lowest-latency' }).id, 'lowest_latency');
 });
 
+test('each preset sets the NVENC counterparts of the AMF settings it sets', () => {
+  const lowest = shown({ stream_preset: 'lowest_latency' }).byKey;
+  assert.equal(lowest.get('nvenc_vbv_increase').default, 0);
+  assert.equal(lowest.get('nvenc_preset').default, '1');
+  assert.equal(lowest.get('nvenc_temporal_aq').default, false);
+  const reference = shown({ stream_preset: 'reference' });
+  assert.equal(reference.byKey.get('nvenc_vbv_increase').default, 400);
+  // Reference leaves the preset and temporal AQ at the defaults, as it does amd_quality and amd_preanalysis.
+  assert.equal(reference.byKey.get('nvenc_preset').default, '1');
+  assert.equal(reference.byKey.get('nvenc_temporal_aq').default, false);
+  assert.equal(currentValues(reference.described, {}, { stream_preset: 'reference' }).nvenc_vbv_increase, 400);
+  // A hand-set value beats the preset, and saving the preset sends its name only.
+  const stored = { stream_preset: 'reference', nvenc_vbv_increase: 50 };
+  assert.equal(differsFromDefault(reference.byKey.get('nvenc_vbv_increase'), {}, stored), true);
+  assert.deepEqual(computeChanges(reference.byKey, { stream_preset: 'reference' }, {}, explicit), { stream_preset: 'reference' });
+  // Every AMF setting a preset fills has an NVENC one beside it.
+  for (const preset of table.presets) {
+    const keys = Object.keys(preset.settings);
+    assert.equal(keys.filter(key => key.startsWith('nvenc_')).length, keys.filter(key => key.startsWith('amd_')).length, preset.id);
+  }
+});
+
 test('a value set by hand is kept and shows as differing from the preset', () => {
   const { byKey } = shown({ stream_preset: 'reference', amd_max_frame_size: '4' });
   const frame = byKey.get('amd_max_frame_size');

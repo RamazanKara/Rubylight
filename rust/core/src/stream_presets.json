@@ -4,22 +4,31 @@
   "covered": [
     { "key": "amd_max_frame_size", "default": "auto" },
     { "key": "amd_quality", "default": "speed" },
-    { "key": "amd_preanalysis", "default": "false" }
+    { "key": "amd_preanalysis", "default": "false" },
+    { "key": "nvenc_vbv_increase", "default": "0" },
+    { "key": "nvenc_preset", "default": "1" },
+    { "key": "nvenc_temporal_aq", "default": "false" }
   ],
   "presets": [
     {
       "id": "lowest_latency",
       "label": "Lowest latency",
-      "description": "Keeps the AMD encoder on its fastest settings and limits every frame, recovery keyframes included, to one frame's share of the bitrate, so a lost frame costs less time on the wire.",
+      "description": "Keeps the encoder on its fastest settings and limits every frame, recovery keyframes included, to one frame's share of the bitrate, so a lost frame costs less time on the wire.",
       "settings": {
         "amd_max_frame_size": "1",
         "amd_quality": "speed",
-        "amd_preanalysis": "false"
+        "amd_preanalysis": "false",
+        "nvenc_vbv_increase": "0",
+        "nvenc_preset": "1",
+        "nvenc_temporal_aq": "false"
       },
       "evidence": {
         "amd_max_frame_size": "rust/PERFORMANCE.md, \"October 7, 2026: AMF rate control and recovery keyframes\", \"Decision and limits\": a one-frame cap cut the largest recovery frame of 4K40 HEVC by 66% (265,995 to 89,626 bytes) with the same steady-state frame sizes and encode time within 0.1 ms.",
         "amd_quality": "rust/PERFORMANCE.md, \"October 7: AMF split-frame encoding\", quality preset rows: the quality preset costs 1.0 ms (HEVC) and 12 ms (AV1) per 4K60 frame over speed.",
-        "amd_preanalysis": "rust/PERFORMANCE.md, same table: pre-analysis takes 25 ms per 4K60 frame (HEVC and AV1) against 5-6 ms without."
+        "amd_preanalysis": "rust/PERFORMANCE.md, same table: pre-analysis takes 25 ms per 4K60 frame (HEVC and AV1) against 5-6 ms without.",
+        "nvenc_vbv_increase": "NVENC's counterpart of amd_max_frame_size = 1: a one-frame VBV, which NVENC also holds keyframes to. Measured on AMF only: rust/PERFORMANCE.md, \"October 7, 2026: AMF rate control and recovery keyframes\", \"Decision and limits\".",
+        "nvenc_preset": "NVENC's counterpart of amd_quality = speed: P1, the fastest preset. Measured on AMF only: rust/PERFORMANCE.md, \"October 7: AMF split-frame encoding\", quality preset rows.",
+        "nvenc_temporal_aq": "NVENC's counterpart of amd_preanalysis = false: no analysis across frames. Measured on AMF only: rust/PERFORMANCE.md, \"October 7: AMF split-frame encoding\", pre-analysis rows."
       }
     },
     {
@@ -34,10 +43,12 @@
       "label": "Reference quality",
       "description": "Removes the size limit on recovery keyframes, so they are larger on the wire. It suits a fast, steady link; no picture quality gain was measured. Rate control, quality preset and pre-analysis stay at the defaults.",
       "settings": {
-        "amd_max_frame_size": "0"
+        "amd_max_frame_size": "0",
+        "nvenc_vbv_increase": "400"
       },
       "evidence": {
-        "amd_max_frame_size": "rust/PERFORMANCE.md, \"Decision and limits\": the cap lowered encoded payload from 64 to 51 Mbps in the 63 Mbps recovery run, so removing it makes recovery keyframes larger on the wire. HEVC was measured with a one-frame cap; H.264 was not measured separately with one."
+        "amd_max_frame_size": "rust/PERFORMANCE.md, \"Decision and limits\": the cap lowered encoded payload from 64 to 51 Mbps in the 63 Mbps recovery run, so removing it makes recovery keyframes larger on the wire. HEVC was measured with a one-frame cap; H.264 was not measured separately with one.",
+        "nvenc_vbv_increase": "NVENC's counterpart of amd_max_frame_size = 0: NVENC always has a VBV, so the loosest one it takes, five frames, lets recovery keyframes grow. Measured on AMF only: rust/PERFORMANCE.md, \"Decision and limits\"."
       }
     }
   ]

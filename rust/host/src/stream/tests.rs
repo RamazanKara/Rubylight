@@ -538,6 +538,18 @@ fn stream_presets_fill_the_host_and_a_device_or_app_can_pick_its_own() {
     assert_eq!(config.get("amd_max_frame_size", ""), "1");
     assert_eq!(config.get("amd_quality", ""), "quality");
     assert_eq!(config.get("amd_preanalysis", ""), "false");
+    // The NVENC counterparts follow the same layers.
+    assert_eq!(config.get("nvenc_vbv_increase", ""), "0");
+    assert_eq!(config.get("nvenc_preset", ""), "1");
+    assert_eq!(config.get("nvenc_temporal_aq", ""), "false");
+    set("stream_preset=reference\nnvenc_preset=4");
+    assert_eq!(effective(&device).get("nvenc_preset", ""), "4");
+    let mut nvenc = client.clone();
+    nvenc.extra.insert(
+        "config_overrides".into(),
+        json!({"stream_preset":"reference","nvenc_vbv_increase":"50"}),
+    );
+    assert_eq!(effective(&nvenc).get("nvenc_vbv_increase", ""), "50");
     set("stream_preset=reference\namd_max_frame_size=4");
     let config = effective(&device);
     assert_eq!(config.get("amd_max_frame_size", ""), "4");
@@ -571,7 +583,9 @@ fn stream_presets_fill_the_host_and_a_device_or_app_can_pick_its_own() {
     );
     let config = effective(&client);
     assert_eq!(config.get("amd_max_frame_size", ""), "0");
+    assert_eq!(config.get("nvenc_vbv_increase", ""), "400");
     assert!(!config.values.contains_key("amd_quality"));
+    assert!(!config.values.contains_key("nvenc_preset"));
     let config = effective(&device);
     assert_eq!(config.get("stream_preset", ""), "reference");
     assert_eq!(config.get("amd_max_frame_size", ""), "3");

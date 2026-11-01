@@ -42,10 +42,10 @@ void rp_pyrowave_early_free(RpPyroWaveEarly *early);
 // the caller cleared its decoder. The records they complete go to push.
 void rp_pyrowave_early_chunks(RpPyroWaveEarly *early, RpPyroWaveRecords *records, const uint8_t *data, size_t length,
                               bool first, RpPushPacket push, void *user);
-// Ends the frame whose container is length bytes; one of RP_PYROWAVE_EARLY_*. With DONE the header
-// and the records not pushed yet went to push.
-int rp_pyrowave_early_finish(RpPyroWaveEarly *early, RpPyroWaveRecords *records, size_t length, RpPushPacket push,
-                             void *user);
+// Ends the frame whose container is data (length bytes); one of RP_PYROWAVE_EARLY_*. With DONE the
+// header and the records not pushed yet went to push.
+int rp_pyrowave_early_finish(RpPyroWaveEarly *early, RpPyroWaveRecords *records, const uint8_t *data, size_t length,
+                             RpPushPacket push, void *user);
 // Frames finished early and frames that fell back to the whole push, since creation.
 void rp_pyrowave_early_stats(const RpPyroWaveEarly *early, uint64_t *done, uint64_t *fallback);
 
@@ -199,10 +199,35 @@ public:
     // Ends the frame of the chunks; RP_PYROWAVE_EARLY_DONE when it is complete in the decoder,
     // otherwise push it with pushFrame (after a clear for FALLBACK).
     template <typename Push>
-    int finishEarly(size_t length, Push push) {
+    int finishEarly(const uint8_t *data, size_t length, Push push) {
         if (!state || !early) return RP_PYROWAVE_EARLY_WHOLE;
-        const int result = rp_pyrowave_early_finish(early.get(), state.get(), length, &rpPushThunk<Push>, &push);
+        const int result = rp_pyrowave_early_finish(early.get(), state.get(), data, length, &rpPushThunk<Push>, &push);
         if (result == RP_PYROWAVE_EARLY_DONE) lossPercent = rp_pyrowave_records_loss_percent(state.get());
+        return result;
+    }
+
+    // The decoder's side of early push. A frame's first chunk clears the decoder before its records
+    // go in, so a frame replaced before its submit leaves nothing behind.
+    template <typename Clear, typename Push>
+    void pushChunks(const uint8_t *data, size_t length, bool first, Clear clear, Push push) {
+        if (first) clear();
+        chunks(data, length, first, push);
+    }
+
+    // Then the frame: complete early (DONE) it goes as it is; otherwise the decoder is cleared and
+    // whole() pushes the frame, with a second clear when that fails. Returns the
+    // RP_PYROWAVE_EARLY_* result; pushed is false when the frame is not in the decoder.
+    template <typename Clear, typename Whole, typename Push>
+    int submitFrame(const uint8_t *data, size_t length, Clear clear, Whole whole, Push push, bool &pushed) {
+        const int result = finishEarly(data, length, push);
+        pushed = true;
+        if (result != RP_PYROWAVE_EARLY_DONE) {
+            clear();
+            if (!whole()) {
+                clear();
+                pushed = false;
+            }
+        }
         return result;
     }
 

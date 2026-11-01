@@ -482,8 +482,14 @@ fn random_losses_and_feed_sizes_never_differ_from_the_whole_frame() {
 /// Sends `data` (a container) to `early` the way the session's early chunks reach a decoder, in
 /// batches of `per_batch` packets with `dropped` packets never arriving (a full queue), then
 /// finishes the frame. Returns how it finished and every push, early and final, in order.
-fn early_frame(early: &mut super::early::EarlyPush, records: &mut Records, data: &[u8], per_batch: usize, dropped: &[usize],
-    mut accept: impl FnMut(&[u8]) -> bool) -> (super::early::Finish, Vec<Vec<u8>>) {
+fn early_frame(
+    early: &mut super::early::EarlyPush,
+    records: &mut Records,
+    data: &[u8],
+    per_batch: usize,
+    dropped: &[usize],
+    mut accept: impl FnMut(&[u8]) -> bool,
+) -> (super::early::Finish, Vec<Vec<u8>>) {
     let mut envelope = Vec::new();
     let mut offset = 4;
     while offset < data.len() {
@@ -493,15 +499,25 @@ fn early_frame(early: &mut super::early::EarlyPush, records: &mut Records, data:
     }
     let mut pushed = Vec::new();
     for (batch, packets) in envelope.chunks(per_batch).enumerate() {
-        let kept: Vec<u8> = packets.iter().enumerate().filter(|(i, _)| !dropped.contains(&(batch * per_batch + i)))
-            .flat_map(|(_, packet)| packet.to_vec()).collect();
+        let kept: Vec<u8> = packets
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| !dropped.contains(&(batch * per_batch + i)))
+            .flat_map(|(_, packet)| packet.to_vec())
+            .collect();
         if kept.is_empty() {
             continue;
         }
         let first = batch == 0 && !dropped.contains(&0);
-        early.chunks(records, &kept, first, |packet| { pushed.push(packet.to_vec()); accept(packet) });
+        early.chunks(records, &kept, first, |packet| {
+            pushed.push(packet.to_vec());
+            accept(packet)
+        });
     }
-    let finish = early.finish(records, data.len(), |packet| { pushed.push(packet.to_vec()); accept(packet) });
+    let finish = early.finish(records, data, |packet| {
+        pushed.push(packet.to_vec());
+        accept(packet)
+    });
     (finish, pushed)
 }
 
@@ -513,29 +529,49 @@ fn sorted(mut packets: Vec<Vec<u8>>) -> Vec<Vec<u8>> {
 #[test]
 fn early_push_gives_the_decoder_the_whole_frames_packets_once_each() {
     use super::early::{EarlyPush, Finish};
-    let frames: Vec<Vec<u8>> = (1..=4u32).map(|n| {
-        (0..9).flat_map(|i| record(n, i, 3 + (i * 5 + n) % 9, (n * 16 + i) as u8)).collect()
-    }).collect();
+    let frames: Vec<Vec<u8>> = (1..=4u32)
+        .map(|n| {
+            (0..9)
+                .flat_map(|i| record(n, i, 3 + (i * 5 + n) % 9, (n * 16 + i) as u8))
+                .collect()
+        })
+        .collect();
     // Network losses, as in the container: the header packet, a record's middle, the last packet.
     let lost: [&[usize]; 4] = [&[], &[2, 7], &[0, 5], &[9, 3]];
     for per_batch in [1, 2, 5, 100] {
-        let (mut whole, mut records, mut early) =
-            (Records::with_geometry(WIDTH, HEIGHT, false), Records::with_geometry(WIDTH, HEIGHT, false), EarlyPush::default());
+        let (mut whole, mut records, mut early) = (
+            Records::with_geometry(WIDTH, HEIGHT, false),
+            Records::with_geometry(WIDTH, HEIGHT, false),
+            EarlyPush::default(),
+        );
         for (n, body) in frames.iter().enumerate() {
             let sequence = n as u32 + 1;
             let mut all = packets(header(sequence, 9), body, 24);
             // Only packets that begin a record say so; the others continue a longer one.
             let mut starts = vec![0];
-            for i in 0..9 { starts.push(starts[i] + ((3 + (i as u32 * 5 + sequence) % 9) * 4) as usize); }
+            for i in 0..9 {
+                starts.push(starts[i] + ((3 + (i as u32 * 5 + sequence) % 9) * 4) as usize);
+            }
             for (i, packet) in all.iter_mut().enumerate().skip(1) {
-                if !starts.contains(&(i * 24)) { packet.flags &= !PACKET_RECORD_START; }
+                if !starts.contains(&(i * 24)) {
+                    packet.flags &= !PACKET_RECORD_START;
+                }
             }
             let data = container(&all, lost[n]);
             let expected = decode(&mut whole, &data).unwrap();
-            let (finish, pushed) = early_frame(&mut early, &mut records, &data, per_batch, &[], |_| true);
-            assert_eq!(finish, Finish::Done, "frame {n}, {per_batch} packets per batch");
+            let (finish, pushed) =
+                early_frame(&mut early, &mut records, &data, per_batch, &[], |_| true);
+            assert_eq!(
+                finish,
+                Finish::Done,
+                "frame {n}, {per_batch} packets per batch"
+            );
             // Records decode in any order: the same packets, each once, the header among them.
-            assert_eq!(sorted(pushed.clone()), sorted(expected.clone()), "frame {n}, {per_batch} packets per batch");
+            assert_eq!(
+                sorted(pushed.clone()),
+                sorted(expected.clone()),
+                "frame {n}, {per_batch} packets per batch"
+            );
             assert_eq!(records.loss_percent, whole.loss_percent);
             if lost[n].is_empty() {
                 // Only the header waits for the frame: every record went while it arrived.
@@ -555,41 +591,104 @@ fn early_push_leaves_frames_whose_packets_did_not_all_come_to_the_whole_push() {
     let mut records = Records::with_geometry(WIDTH, HEIGHT, false);
     let mut early = EarlyPush::default();
     // No chunks at all (early push off, or a frame not record-framed): the frame alone.
-    assert_eq!(early.finish(&mut records, data.len(), |_| true), Finish::Whole);
+    assert_eq!(early.finish(&mut records, &data, |_| true), Finish::Whole);
     // The first packet or one later never reached the decoder.
-    assert_eq!(early_frame(&mut early, &mut records, &data, 2, &[0], |_| true).0, Finish::Fallback);
-    assert_eq!(early_frame(&mut early, &mut records, &data, 2, &[3], |_| true).0, Finish::Fallback);
+    assert_eq!(
+        early_frame(&mut early, &mut records, &data, 2, &[0], |_| true).0,
+        Finish::Fallback
+    );
+    assert_eq!(
+        early_frame(&mut early, &mut records, &data, 2, &[3], |_| true).0,
+        Finish::Fallback
+    );
     // The decoder refused a record while the frame arrived.
     let mut calls = 0;
-    assert_eq!(early_frame(&mut early, &mut records, &data, 1, &[], |_| { calls += 1; calls != 2 }).0, Finish::Fallback);
+    assert_eq!(
+        early_frame(&mut early, &mut records, &data, 1, &[], |_| {
+            calls += 1;
+            calls != 2
+        })
+        .0,
+        Finish::Fallback
+    );
     // A frame of other bytes than the chunks (a frame the chunks did not belong to).
     let other = container(&packets(header(1, 6), &body, 32), &[]);
     early.chunks(&mut records, &data[4..], true, |_| true);
-    assert_eq!(early.finish(&mut records, other.len(), |_| true), Finish::Fallback);
+    assert_eq!(
+        early.finish(&mut records, &other, |_| true),
+        Finish::Fallback
+    );
     // A batch cut short.
     early.chunks(&mut records, &data[4..data.len() - 3], true, |_| true);
-    assert_eq!(early.finish(&mut records, data.len(), |_| true), Finish::Fallback);
-    assert_eq!(early.stats, super::early::EarlyStats { done: 0, fallback: 5 });
+    assert_eq!(
+        early.finish(&mut records, &data, |_| true),
+        Finish::Fallback
+    );
+    assert_eq!(
+        early.stats,
+        super::early::EarlyStats {
+            done: 0,
+            fallback: 5
+        }
+    );
     // And the next frame goes early again, recovering nothing it did not lose.
     let (finish, pushed) = early_frame(&mut early, &mut records, &data, 3, &[], |_| true);
     assert_eq!(finish, Finish::Done);
-    assert_eq!(sorted(pushed), sorted(decode(&mut Records::with_geometry(WIDTH, HEIGHT, false), &data).unwrap()));
+    assert_eq!(
+        sorted(pushed),
+        sorted(decode(&mut Records::with_geometry(WIDTH, HEIGHT, false), &data).unwrap())
+    );
+}
+
+#[test]
+fn an_unfinished_frame_of_the_same_length_is_not_the_next_frame() {
+    use super::early::{EarlyPush, Finish};
+    let first: Vec<u8> = (0..4)
+        .flat_map(|i| record(1, i, 4, 0x10 + i as u8))
+        .collect();
+    let second: Vec<u8> = (0..4)
+        .flat_map(|i| record(2, i, 4, 0x20 + i as u8))
+        .collect();
+    let one = container(&packets(header(1, 4), &first, 24), &[]);
+    let two = container(&packets(header(2, 4), &second, 24), &[]);
+    assert_eq!(one.len(), two.len());
+    let mut records = Records::with_geometry(WIDTH, HEIGHT, false);
+    let mut early = EarlyPush::default();
+    // Frame 1's chunks all came, but it was replaced before its submit; frame 2 lost all of its
+    // chunks (a full queue). Frame 1's records are not frame 2's.
+    early.chunks(&mut records, &one[4..], true, |_| true);
+    assert_eq!(early.finish(&mut records, &two, |_| true), Finish::Fallback);
 }
 
 #[test]
 fn a_frame_that_never_finished_does_not_leak_into_the_next() {
     use super::early::{EarlyPush, Finish};
-    let first: Vec<u8> = (0..4).flat_map(|i| record(1, i, 4, 0x10 + i as u8)).collect();
-    let second: Vec<u8> = (0..4).flat_map(|i| record(2, i, 5, 0x20 + i as u8)).collect();
-    let (one, two) = (container(&packets(header(1, 4), &first, 24), &[]), container(&packets(header(2, 4), &second, 24), &[]));
+    let first: Vec<u8> = (0..4)
+        .flat_map(|i| record(1, i, 4, 0x10 + i as u8))
+        .collect();
+    let second: Vec<u8> = (0..4)
+        .flat_map(|i| record(2, i, 5, 0x20 + i as u8))
+        .collect();
+    let (one, two) = (
+        container(&packets(header(1, 4), &first, 24), &[]),
+        container(&packets(header(2, 4), &second, 24), &[]),
+    );
     let mut records = Records::with_geometry(WIDTH, HEIGHT, false);
     let mut early = EarlyPush::default();
     // Frame 1 is replaced before its submit: its chunks came, its finish never does.
     early.chunks(&mut records, &one[4..], true, |_| true);
     let (finish, pushed) = early_frame(&mut early, &mut records, &two, 4, &[], |_| true);
     assert_eq!(finish, Finish::Done);
-    assert_eq!(sorted(pushed), sorted(decode(&mut Records::with_geometry(WIDTH, HEIGHT, false), &two).unwrap()));
+    assert_eq!(
+        sorted(pushed),
+        sorted(decode(&mut Records::with_geometry(WIDTH, HEIGHT, false), &two).unwrap())
+    );
     // Frame 1's later packets, arriving after frame 2 ended, are taken for no frame.
-    early.chunks(&mut records, &one[4 + 8 + le32(&one, 4) as usize..], false, |_| true);
-    assert_eq!(early.finish(&mut records, one.len(), |_| true), Finish::Fallback);
+    early.chunks(
+        &mut records,
+        &one[4 + 8 + le32(&one, 4) as usize..],
+        false,
+        |_| true,
+    );
+    assert_eq!(early.finish(&mut records, &one, |_| true), Finish::Fallback);
 }

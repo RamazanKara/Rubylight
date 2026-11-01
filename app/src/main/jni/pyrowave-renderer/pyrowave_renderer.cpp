@@ -792,14 +792,11 @@ namespace {
                 SubmissionDiagnostics::Stage timing(submissionDiagnostics, SubmissionDiagnostics::PARSE);
                 // Records that came early (pushChunks) are in the decoder already; a frame whose
                 // chunks were not the frame, or that had none, is pushed whole as before.
-                const int early = finishEarly(length);
-                if (early != RP_PYROWAVE_EARLY_DONE) {
-                    pyrowave_decoder_clear(decoder);
-                    if (!pushFrame(data, length)) {
-                        pyrowave_decoder_clear(decoder);
-                        return SUBMIT_SKIPPED;
-                    }
-                }
+                bool pushed = false;
+                countEarly(records.submitFrame(data, length, [this] { pyrowave_decoder_clear(decoder); },
+                                               [this, data, length] { return pushFrame(data, length); },
+                                               sdkPush(), pushed));
+                if (!pushed) return SUBMIT_SKIPPED;
                 // Intra-only: a frame missing packets still decodes, with lost detail.
                 if (!pyrowave_decoder_decode_is_ready(decoder, false)) {
                     return SUBMIT_SKIPPED;
@@ -842,10 +839,7 @@ namespace {
         // the SDK now, so submit() has only the header and the last records to push.
         void pushChunks(const uint8_t *data, size_t length, bool first) {
             if (failed) return;
-            if (first) pyrowave_decoder_clear(decoder);
-            records.chunks(data, length, first, [this](const uint8_t *packet, size_t size) {
-                return pyrowave_decoder_push_packet(decoder, packet, size) == PYROWAVE_SUCCESS;
-            });
+            records.pushChunks(data, length, first, [this] { pyrowave_decoder_clear(decoder); }, sdkPush());
         }
 
     private:
@@ -1705,20 +1699,23 @@ namespace {
             return true;
         }
 
-        int finishEarly(size_t length) {
-            const int result = records.finishEarly(length, [this](const uint8_t *packet, size_t size) {
+        struct SdkPush {
+            pyrowave_decoder decoder;
+            bool operator()(const uint8_t *packet, size_t size) const {
                 return pyrowave_decoder_push_packet(decoder, packet, size) == PYROWAVE_SUCCESS;
-            });
+            }
+        };
+
+        SdkPush sdkPush() const { return {decoder}; }
+
+        void countEarly(int result) {
             if (result == RP_PYROWAVE_EARLY_DONE) decodeStats.earlyDone++;
             else if (result == RP_PYROWAVE_EARLY_FALLBACK) decodeStats.earlyFallback++;
             else decodeStats.earlyWhole++;
-            return result;
         }
 
         bool pushFrame(const uint8_t *data, size_t length) {
-            auto push = [this](const uint8_t *packet, size_t size) {
-                return pyrowave_decoder_push_packet(decoder, packet, size) == PYROWAVE_SUCCESS;
-            };
+            auto push = sdkPush();
             if (length >= 4 && pyroReadLe32(data) == 0) return records.pushFrame(data, length, push);
             records.lossPercent = 0;
             return pushPyroWaveFrame(data, length, push);

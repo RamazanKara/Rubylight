@@ -624,7 +624,7 @@ mod tests {
             }
             assert!(batch.bytes.is_empty(), "the end packet sent the rest");
             let before_frame = pushed.len();
-            let finish = early.finish(&mut records, data.len(), |packet| {
+            let finish = early.finish(&mut records, &data, |packet| {
                 pushed.push(packet.to_vec());
                 true
             });

@@ -119,7 +119,12 @@ pub unsafe extern "C" fn rp_pyrowave_early_chunks(
     push: PushPacket,
     user: *mut c_void,
 ) {
-    (*early).chunks(&mut *records, bytes(data, length), first, forward(push, user));
+    (*early).chunks(
+        &mut *records,
+        bytes(data, length),
+        first,
+        forward(push, user),
+    );
 }
 
 /// `rp_pyrowave_early_finish`: no packet came early, push the frame whole.
@@ -129,20 +134,22 @@ pub const RP_PYROWAVE_EARLY_FALLBACK: i32 = 1;
 /// `rp_pyrowave_early_finish`: the frame is complete in the decoder.
 pub const RP_PYROWAVE_EARLY_DONE: i32 = 2;
 
-/// Ends the frame whose container is `length` bytes; one of `RP_PYROWAVE_EARLY_*`. With DONE the
-/// header and the records not pushed yet went to `push`.
+/// Ends the frame whose container is `data` (`length` bytes); one of `RP_PYROWAVE_EARLY_*`. With
+/// DONE the header and the records not pushed yet went to `push`.
 ///
 /// # Safety
-/// `early` and `records` are live, and `push` is safe to call with `user`.
+/// `early` and `records` are live, `data` points to `length` readable bytes, and `push` is safe
+/// to call with `user`.
 #[no_mangle]
 pub unsafe extern "C" fn rp_pyrowave_early_finish(
     early: *mut EarlyPush,
     records: *mut Records,
+    data: *const u8,
     length: usize,
     push: PushPacket,
     user: *mut c_void,
 ) -> i32 {
-    match (*early).finish(&mut *records, length, forward(push, user)) {
+    match (*early).finish(&mut *records, bytes(data, length), forward(push, user)) {
         Finish::Whole => RP_PYROWAVE_EARLY_WHOLE,
         Finish::Fallback => RP_PYROWAVE_EARLY_FALLBACK,
         Finish::Done => RP_PYROWAVE_EARLY_DONE,
@@ -154,7 +161,11 @@ pub unsafe extern "C" fn rp_pyrowave_early_finish(
 /// # Safety
 /// `early` is live; `done` and `fallback` are writable.
 #[no_mangle]
-pub unsafe extern "C" fn rp_pyrowave_early_stats(early: *const EarlyPush, done: *mut u64, fallback: *mut u64) {
+pub unsafe extern "C" fn rp_pyrowave_early_stats(
+    early: *const EarlyPush,
+    done: *mut u64,
+    fallback: *mut u64,
+) {
     *done = (*early).stats.done;
     *fallback = (*early).stats.fallback;
 }

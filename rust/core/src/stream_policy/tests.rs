@@ -1657,12 +1657,12 @@ fn source_phase_learns_whole_multiples_of_the_stream_rate_from_the_captures() {
     let period = Duration::from_secs_f64(1. / 60.);
     let learned = |hz: f64, other: bool| {
         let mut phase = SourcePhase::new(period);
-        // As a picture interval of a 240 Hz display's refresh allows.
-        phase.limit = 4;
         let interval = 1. / hz;
         for update in 0..96 {
             let at = start
                 + Duration::from_secs_f64(update as f64 * interval + 0.0003 * noise(update, 1));
+            // As a picture interval of a 240 Hz display's refresh allows.
+            phase.limit_to(4, at);
             phase.observe(at);
             // Another window's update on the 240 Hz display's other refresh.
             if other && update % 2 == 0 {
@@ -1706,16 +1706,75 @@ fn source_phase_keeps_its_multiple_through_a_brief_lower_picture_interval() {
             "update {update}"
         );
     }
-    // A lower limit that lasts takes over.
+    // A lower limit that lasts takes over once `LIMIT_HOLD` has passed since
+    // the limit last read two, not before.
+    let read = at(191);
     for update in 192..240 {
         phase.limit_to(1, at(update));
         phase.observe(at(update));
+        let since = at(update).duration_since(read);
+        if since + Duration::from_millis(5) < SourcePhase::LIMIT_HOLD {
+            assert_eq!(phase.multiple, 2, "update {update}");
+        } else if since > SourcePhase::LIMIT_HOLD + Duration::from_millis(10) {
+            assert_eq!(
+                (phase.multiple, phase.center.is_some()),
+                (1, true),
+                "update {update}"
+            );
+        }
     }
-    assert_eq!(phase.multiple, 1);
+}
+#[test]
+fn a_source_phase_restart_keeps_its_multiple_limit_and_hold() {
+    // A 120 Hz game at 60 fps whose frames move half a cycle for good: three
+    // of its updates off the phase start learning again, for the same game.
+    // Its multiple, picture limit and the limit's hold stay: reset to one, a
+    // single picture interval reading a whole period right after the move
+    // took over at once.
+    let start = Instant::now();
+    let period = Duration::from_secs_f64(1. / 60.);
+    let mut phase = SourcePhase::new(period);
+    let at = |update: usize, moved: f64| {
+        start + Duration::from_secs_f64(update as f64 / 120. + moved + 0.0003 * noise(update, 1))
+    };
+    for update in 0..96 {
+        phase.limit_to(2, at(update, 0.));
+        phase.observe(at(update, 0.));
+    }
+    assert_eq!((phase.multiple, phase.center.is_some()), (2, true));
+    let moved = 1. / 240.;
+    let mut update = 96;
+    while phase.center.is_some() {
+        phase.limit_to(2, at(update, moved));
+        phase.observe(at(update, moved));
+        update += 1;
+        assert!(update < 100, "the old phase kept past three updates");
+    }
+    assert_eq!((phase.multiple, phase.limit), (2, 2));
+    phase.limit_to(1, at(update, moved));
+    assert_eq!(phase.limit, 2, "a single lower reading inside the hold");
+    // Learnt again at the moved phase.
+    for update in update..update + 40 {
+        phase.limit_to(2, at(update, moved));
+        phase.observe(at(update, moved));
+    }
+    let center = phase.center.expect("the moved phase is learnt again");
+    assert_eq!(phase.multiple, 2);
+    let next = phase.offset(at(update + 40, moved));
+    assert!(phase.distance(next, center) <= phase.radius_ns());
 }
 /// Claims of a fixed-rate stream from `captures` (ms), each published on the
 /// capture worker's 0.5 ms poll: (claim, presented, published).
 fn simulate_polled(period: f64, captures: &[f64]) -> Vec<(f64, f64, f64)> {
+    simulate_noticed(period, captures, |_| 0.08)
+}
+/// As `simulate_polled`, each capture reaching the poll `notice(index)` ms
+/// after its present.
+fn simulate_noticed(
+    period: f64,
+    captures: &[f64],
+    notice: impl Fn(usize) -> f64,
+) -> Vec<(f64, f64, f64)> {
     let start = Instant::now();
     let ns = |ms: f64| (ms * 1e6).round() as u64;
     let at = |ms: f64| start + Duration::from_nanos(ns(ms));
@@ -1746,8 +1805,8 @@ fn simulate_polled(period: f64, captures: &[f64]) -> Vec<(f64, f64, f64)> {
             }
         }
     };
-    for &presented in captures {
-        published = published.max(((presented + 0.08) / 0.5).ceil() * 0.5);
+    for (index, &presented) in captures.iter().enumerate() {
+        published = published.max(((presented + notice(index)) / 0.5).ceil() * 0.5);
         while let Some(t) = deadline.filter(|t| *t < published) {
             evaluate(t, &mut newest, &mut deadline, &mut pacer, interval);
             if deadline == Some(t) {
@@ -2000,6 +2059,137 @@ fn another_window_on_the_other_refreshes_does_not_become_a_double_rate_games_pha
                 steady.len()
             );
             assert!(uneven * 100 <= steady.len(), "{case}: {uneven} uneven gaps");
+        }
+    }
+}
+/// A game's frames at `times` (ms), each with a second composition 0.1-1 ms
+/// later: the captures and the frames.
+fn with_second_compositions(times: &[f64], seed: u64) -> (Vec<f64>, Vec<f64>) {
+    let mut captures: Vec<f64> = times
+        .iter()
+        .enumerate()
+        .flat_map(|(frame, &at)| [at, at + 0.1 + 0.9 * noise(frame, seed + 1)])
+        .collect();
+    captures.sort_by(f64::total_cmp);
+    let mut frames = times.to_vec();
+    frames.sort_by(f64::total_cmp);
+    (captures, frames)
+}
+/// The oldest game frame a claim after the first tenth showed, in ms, and how
+/// many of those claims showed the same frame as the claim before.
+fn polled_oldest_and_repeats(claims: &[(f64, f64, f64)], frames: &[f64]) -> (f64, usize) {
+    let steady = &claims[claims.len() / 10..];
+    let shown = |at: f64| frames.partition_point(|f| *f <= at + 1e-9);
+    let oldest = steady
+        .iter()
+        .map(|c| c.0 - frames[shown(c.1).max(1) - 1])
+        .fold(0., f64::max);
+    let repeats = steady
+        .windows(2)
+        .filter(|w| shown(w[0].1) == shown(w[1].1))
+        .count();
+    (oldest, repeats)
+}
+#[test]
+fn an_in_phase_frame_noticed_late_is_claimed_once_allowed() {
+    // A game at two or four times the stream rate whose captures reach the
+    // claim more than about two phase radii after their present: an in-phase
+    // capture waited for the game's next frame, noticed as late, and so on
+    // to the phase bound. A 240 Hz game at 120 fps noticed 0.9-1.5 ms late
+    // took 88-105 claims a second, p95 age 4.3-5.8 ms.
+    for (period, game, notice) in [
+        (1000. / 60., 1000. / 120., 2.0..2.5),
+        (1000. / 60., 1000. / 240., 2.0..2.5),
+        (1000. / 120., 1000. / 240., 1.0..1.5),
+    ] {
+        for seed in 0..3 {
+            let times: Vec<f64> = (0..(20_000. / game) as usize)
+                .map(|frame| frame as f64 * game + 2.5 + 0.3 * noise(frame, seed))
+                .collect();
+            let (captures, frames) = with_second_compositions(&times, seed);
+            let claims = simulate_noticed(period, &captures, |index| {
+                notice.start + (notice.end - notice.start) * noise(index, seed + 7)
+            });
+            let (rate, _, p95) = polled_rate_and_age(&claims, &frames);
+            let case = format!(
+                "{:.0} fps, a {:.0} Hz game noticed {notice:?} ms late, seed {seed}",
+                1000. / period,
+                1000. / game
+            );
+            assert!(
+                (rate - 1000. / period).abs() < 0.2,
+                "{case}: {rate:.2} claims/s"
+            );
+            assert!(p95 < notice.end + 1., "{case}: p95 age {p95:.2} ms");
+        }
+    }
+}
+#[test]
+fn a_jittery_double_rate_game_noticed_late_is_waited_for_as_long_as_its_notice() {
+    // A 120 Hz game at 60 fps whose frames come up to 1 ms off their cadence
+    // and are noticed 0.5-2.5 ms late. A wait for its next frame that ended
+    // a fixed millisecond after the picture interval's prediction took the
+    // frame before, 10 ms old, for one claim in twenty.
+    let period = 1000. / 60.;
+    let game = 1000. / 120.;
+    for seed in 0..3 {
+        let times: Vec<f64> = (0..2400)
+            .map(|frame| frame as f64 * game + 2.5 + 2. * (noise(frame, seed + 5) - 0.5))
+            .collect();
+        let (captures, frames) = with_second_compositions(&times, seed);
+        let claims = simulate_noticed(period, &captures, |index| {
+            0.5 + 2. * noise(index, seed + 99)
+        });
+        let (rate, _, p95) = polled_rate_and_age(&claims, &frames);
+        let case = format!("seed {seed}");
+        assert!((rate - 60.).abs() < 0.1, "{case}: {rate:.2} claims/s");
+        assert!(p95 < 3.3, "{case}: p95 age {p95:.2} ms");
+    }
+}
+#[test]
+fn a_double_rate_game_that_stalls_or_halves_is_not_held_for_frames_that_do_not_come() {
+    // A 120 Hz game at 60 fps whose frames stop for a 30 ms hitch or a
+    // 200 ms pause, or fall to 60 Hz every other 2 s. Held to the phase
+    // bound for the frame the phase predicted, the claim before a hitch or
+    // pause showed a frame 14 ms old, against 9.6 ms where the picture
+    // interval's wait ends; at 60 Hz the phase still waited for the game's
+    // other frame of the period, and claims showed frames up to 16.9 ms old,
+    // some twice.
+    let period = 1000. / 60.;
+    let game = 1000. / 120.;
+    for seed in 0..3 {
+        let hitches: Vec<f64> = (0..3600)
+            .map(|frame| frame as f64 * game + 2.5 + (frame / 60) as f64 * (30. - game))
+            .collect();
+        let pauses: Vec<f64> = (0..3000)
+            .map(|frame| frame as f64 * game + 2.5 + (frame / 240) as f64 * 200.)
+            .collect();
+        let mut halves = vec![];
+        let mut at = 2.5;
+        while at < 30_000. {
+            halves.push(at);
+            at += if ((at / 2000.) as usize).is_multiple_of(2) {
+                game
+            } else {
+                2. * game
+            };
+        }
+        for (name, times, oldest_limit) in [
+            ("a 30 ms hitch every 60 frames", hitches, 10.2),
+            ("a 200 ms pause every 240 frames", pauses, 10.2),
+            ("120 and 60 Hz in turns of 2 s", halves, 1.5),
+        ] {
+            let times: Vec<f64> = times
+                .iter()
+                .enumerate()
+                .map(|(frame, at)| at + 0.3 * noise(frame, seed))
+                .collect();
+            let (captures, frames) = with_second_compositions(&times, seed);
+            let claims = simulate_polled(period, &captures);
+            let (oldest, repeats) = polled_oldest_and_repeats(&claims, &frames);
+            let case = format!("{name}, seed {seed}");
+            assert!(oldest < oldest_limit, "{case}: a claim {oldest:.2} ms old");
+            assert_eq!(repeats, 0, "{case}: claims showing a frame twice");
         }
     }
 }

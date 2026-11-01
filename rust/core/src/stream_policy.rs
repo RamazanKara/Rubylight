@@ -89,6 +89,8 @@ struct SourcePhase {
     next: usize,
     center: Option<u64>,
     last_phase: Option<Instant>,
+    /// When an update last came a display refresh late (`observe`).
+    missed: Option<Instant>,
 }
 impl SourcePhase {
     fn new(period: Duration) -> Self {
@@ -105,6 +107,7 @@ impl SourcePhase {
             next: 0,
             center: None,
             last_phase: None,
+            missed: None,
         }
     }
     /// The interval phases fold over: one source update.
@@ -148,9 +151,36 @@ impl SourcePhase {
         }
         None
     }
+    /// A source that falls to fewer updates a period keeps the ones that
+    /// still come: the phase at the largest whole divisor of the multiple the
+    /// limit allows whose cycles one of its updates still covers. A 120 Hz
+    /// game falling to 60 Hz left neither a 2x phase nor a 1x peak of 65 %
+    /// among the samples of both rates; the claims fell back to the picture
+    /// interval, still the 120 Hz one, and its wait ended just before the
+    /// next 60 Hz frame was noticed: a claim 16.8 ms old. Leaves the samples
+    /// folded over the phase found, or over the multiple when none is.
+    fn lower_multiple(&mut self, center: u64) -> Option<u64> {
+        let (multiple, cycle) = (self.multiple, self.cycle_ns());
+        for lower in (1..multiple).rev() {
+            if multiple % lower != 0 || lower > self.limit {
+                continue;
+            }
+            self.fold(lower);
+            for update in 0..multiple / lower {
+                let candidate = (center + update * cycle) % self.cycle_ns();
+                if self.covers_cycles(candidate) {
+                    return Some(candidate);
+                }
+            }
+        }
+        self.fold(multiple);
+        None
+    }
     /// A lower limit takes over once the higher one has not shown for this
     /// long: the picture interval's median flickers.
     const LIMIT_HOLD: Duration = Duration::from_millis(250);
+    /// How long a missed refresh (`missed`) keeps a wait to the phase bound.
+    const MISS_HOLD: Duration = Duration::from_secs(1);
     /// The whole source updates per period the picture interval allows at
     /// `now`. With focus labels the picture interval is the focus window's:
     /// another window at 240 Hz beside a 60 Hz game must not become the
@@ -284,6 +314,22 @@ impl SourcePhase {
         {
             self.last_phase = Some(at);
         }
+        // A frame that missed a refresh of a display at two to four times the
+        // source's rate comes that refresh late, two radii to half a cycle off
+        // the phase, in place of its update: the update before that one came.
+        // Another window's update off the phase comes after the source's own
+        // update, not in its place.
+        if let (Some(center), Some(last)) = (self.center, self.last_phase) {
+            let (cycle, radius) = (self.cycle_ns(), self.radius_ns());
+            let late = (phase + cycle - center) % cycle;
+            let since = at.duration_since(last).as_nanos();
+            if (2 * radius..=cycle / 2 + radius).contains(&late)
+                && (u128::from(late + cycle - radius)..=u128::from(late + cycle + radius))
+                    .contains(&since)
+            {
+                self.missed = Some(at);
+            }
+        }
         // A phase jump or irregular source must not keep a stale prediction.
         // Extra compositions can outnumber source updates without a phase jump.
         // Counted in updates: kept three stream periods, the old phase of a
@@ -324,8 +370,13 @@ impl SourcePhase {
         // Retain a learned source while it still updates in most stream cycles;
         // counting all captures would let extra compositions dilute its support.
         // A larger multiple the limit allows replaces it.
-        let retained =
+        let mut retained =
             previous.filter(|&center| self.multiple <= self.limit && self.covers_cycles(center));
+        if retained.is_none()
+            && let Some(center) = previous
+        {
+            retained = self.lower_multiple(center);
+        }
         let multiple = self.multiple;
         let least = if retained.is_some() { multiple + 1 } else { 2 };
         let center = match (self.multiple_from(least), retained) {
@@ -404,9 +455,14 @@ pub struct Pacer {
     /// Credit a faster source may be lent, in frames, to repay a deficit.
     grace: f64,
     grace_at: Instant,
-    /// The source phase's 1.25-period bound when the claim may run past it
-    /// into `PREDICTED_NOTICE` (`claimed`).
+    /// The source phase's 1.25-period bound when a wait since the latest
+    /// claim ran past it into `PREDICTED_NOTICE` (`claimed`).
     notice_bound: Option<Instant>,
+    /// The newest capture `decide` has seen, and how long after their
+    /// presents the latest ones first reached it (`notice`).
+    noticed: Option<Instant>,
+    notices: [Duration; 16],
+    notice_next: usize,
 }
 impl Pacer {
     /// Credit above one frame absorbs arrival jitter of a source at the stream rate.
@@ -422,6 +478,9 @@ impl Pacer {
             source_phase: None,
             spacing: 0.75,
             notice_bound: None,
+            noticed: None,
+            notices: [Duration::ZERO; 16],
+            notice_next: 0,
             faster: false,
             source_rate: None,
             picture: None,
@@ -623,6 +682,32 @@ impl Pacer {
             due
         }
     }
+    /// The first capture of the picture `presented` belongs to, and when the
+    /// next picture is due at the latest, by the late interval at most a
+    /// quarter period past the median (`observe_picture`).
+    fn picture_due(&self, presented: Instant, interval: Duration) -> (Instant, Instant) {
+        // Count from the first capture of the picture `presented` belongs
+        // to. A start after it is a newer capture this claim has not seen.
+        let since = self
+            .picture
+            .filter(|start| {
+                *start <= presented
+                    && (self.extends || presented.duration_since(*start) < interval / 2)
+            })
+            .unwrap_or(presented);
+        let late = since
+            + self.late_picture.map_or(interval, |late| {
+                late.clamp(interval, interval + self.period / 4)
+            });
+        (since, late)
+    }
+    /// How long after its present a capture reaches the claim: the longest
+    /// of the latest 16 captures' first decisions, at least
+    /// `PREDICTED_NOTICE` and at most a quarter period.
+    fn notice(&self) -> Duration {
+        let longest = self.notices.iter().copied().max().unwrap_or_default();
+        longest.clamp(Self::PREDICTED_NOTICE, self.period / 4)
+    }
     /// Decide for the newest unclaimed frame, presented at `presented`, given
     /// the source's recent frame interval as seen by the capture worker.
     pub fn decide(
@@ -637,6 +722,11 @@ impl Pacer {
             .is_some_and(|i| i < self.period.mul_f64(0.95));
         if self.faster {
             self.lend_grace(now);
+        }
+        if self.noticed.is_none_or(|seen| presented > seen) {
+            self.noticed = Some(presented);
+            self.notices[self.notice_next] = now.saturating_duration_since(presented);
+            self.notice_next = (self.notice_next + 1) % self.notices.len();
         }
         let allowed = self.allowed_at(now);
         // Another window's update next to a focus picture already claimed
@@ -657,7 +747,6 @@ impl Pacer {
                 Pace::WaitUntil(repeat)
             };
         }
-        self.notice_bound = None;
         if let Some(phase) = &mut self.source_phase {
             let limit = source_interval.map_or(1, |interval| {
                 let interval = interval.as_nanos().max(1);
@@ -678,10 +767,29 @@ impl Pacer {
             if advance <= u128::from(phase.radius_ns()) {
                 advance += cycle;
             }
-            let next = presented + Duration::from_nanos(advance as u64);
+            let mut next = presented + Duration::from_nanos(advance as u64);
             // A compositor update can arrive half a stream period late.
             // Keep the fallback anchored to this capture, not the polling time.
-            let detection = self.period / 2 + Duration::from_micros(500);
+            // With several updates a period, half a cycle late (a missed
+            // refresh of a display at twice the source's rate) is the most:
+            // later than that, it is the next update.
+            let detection = if phase.multiple > 1 {
+                Duration::from_nanos(phase.cycle_ns() / 2) + Self::PREDICTED_NOTICE
+            } else {
+                self.period / 2 + Duration::from_micros(500)
+            };
+            // The update this capture waits for is the first one due once the
+            // claim is allowed; an earlier one, if it comes, is decided on its
+            // own. Waiting for one due before then (a 120 Hz game's frame
+            // 1.3 ms early, just outside the radius, or a game falling to
+            // 60 Hz) took the capture 10-14 ms old at that update's fallback,
+            // just before the game's next frame was noticed. One whose late
+            // window has passed was missed: the capture is claimed.
+            if phase.multiple > 1 {
+                while next < allowed && now < next + detection {
+                    next += Duration::from_nanos(phase.cycle_ns());
+                }
+            }
             // A source updating several times a period: an in-phase capture's
             // next update is at least a cycle less a radius away, and the
             // slack stays a radius short of that. Past it (a 240 Hz source at
@@ -695,6 +803,13 @@ impl Pacer {
             } else {
                 self.period / 4 + Duration::from_micros(500)
             };
+            // An in-phase capture of a source updating several times a period
+            // is that update, claimed once allowed: noticed later than about
+            // two radii after it, it waited for the next update, noticed as
+            // late, and so on to the bound (a 240 Hz game at 120 fps noticed
+            // 0.9-1.5 ms late: 88-105 claims a second, p95 age 4.3-5.8 ms).
+            let in_phase =
+                phase.multiple > 1 && phase.distance(offset, center) <= phase.radius_ns();
             if next + detection > allowed && next <= allowed + slack {
                 // A new picture can precede the learned phase. Waiting for
                 // another composition must not stretch delivery to 1.5 periods.
@@ -712,15 +827,43 @@ impl Pacer {
                 };
                 let bound = self
                     .last_claim
-                    .map(|last| last + self.period + self.period / 4)
-                    .filter(|bound| *bound + notice < next + detection);
-                self.notice_bound = bound.filter(|_| notice > Duration::ZERO);
-                let deadline = bound.map_or(next + detection, |bound| bound + notice);
+                    .map(|last| last + self.period + self.period / 4);
+                let mut deadline = bound
+                    .filter(|bound| *bound + notice < next + detection)
+                    .map_or(next + detection, |bound| bound + notice);
+                // With several updates a period, the wait ends where the
+                // picture interval's would (below), given as long as recent
+                // captures took to be noticed: to the bound, a game's frame
+                // before a 30 ms hitch or a pause was held for an update that
+                // did not come and claimed 14 ms old, against 9.6 ms. A game
+                // whose frame missed a refresh within `MISS_HOLD` waits to the
+                // bound, where its late frames come: cut where the picture
+                // interval's would, one claim in 13 took the frame before,
+                // 9.5 ms old, when the game missed every 13th refresh.
+                if phase.multiple > 1
+                    && let Some(interval) = source_interval
+                    && phase.missed.is_none_or(|missed| {
+                        now.saturating_duration_since(missed) > SourcePhase::MISS_HOLD
+                    })
+                {
+                    let (_, late) = self.picture_due(presented, interval);
+                    deadline = deadline.min(
+                        (allowed + self.period / 4 + Duration::from_micros(500))
+                            .max(late + self.notice()),
+                    );
+                }
+                // Kept until the claim (`claimed`): the decision that claims
+                // can come from a later capture, or skip this wait.
+                if let Some(bound) =
+                    bound.filter(|bound| notice > Duration::ZERO && deadline > *bound)
+                {
+                    self.notice_bound = Some(bound);
+                }
                 // Only an update predicted before the deadline is worth the
                 // wait: a fresh frame a missed refresh made late (2 to 5 ms on
                 // a 240 or 360 Hz display) was held to the deadline, then
                 // claimed anyway.
-                if deadline > allowed && next < deadline {
+                if !(in_phase && now >= allowed) && deadline > allowed && next < deadline {
                     return Pace::WaitUntil(deadline);
                 }
             }
@@ -734,15 +877,7 @@ impl Pacer {
                 *interval >= self.prediction_floor && *interval <= self.period * 4
             })
         {
-            // Count from the first capture of the picture `presented` belongs
-            // to. A start after it is a newer capture this claim has not seen.
-            let since = self
-                .picture
-                .filter(|start| {
-                    *start <= presented
-                        && (self.extends || presented.duration_since(*start) < interval / 2)
-                })
-                .unwrap_or(presented);
+            let (since, late) = self.picture_due(presented, interval);
             let next = since + interval;
             let slack = self.period / 4 + Duration::from_micros(500);
             // `next` is when Windows will present the fresher frame; the
@@ -750,11 +885,6 @@ impl Pacer {
             // can reach a millisecond with a polled capture. A frame presented
             // just before the claim is allowed may still arrive after it.
             let detection = self.period / 4;
-            // The next picture can also come as late as the late interval.
-            let late = since
-                + self.late_picture.map_or(interval, |late| {
-                    late.clamp(interval, interval + self.period / 4)
-                });
             if late + detection > allowed && next <= allowed + slack {
                 // Detection shares the prediction budget: adding it after
                 // the latest expected arrival held an available frame for

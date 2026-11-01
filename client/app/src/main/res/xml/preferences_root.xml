@@ -16,5 +16,6 @@
     <Preference android:key="app" android:title="@string/settings_section_app" />
     <Preference android:key="advanced" android:title="@string/settings_section_advanced"
         android:summary="@string/settings_advanced_summary" />
-    <Preference android:key="debug" android:title="@string/settings_section_debug" />
+    <Preference android:key="debug" android:title="@string/settings_section_debug"
+        android:summary="@string/settings_debug_summary" />
 </PreferenceScreen>

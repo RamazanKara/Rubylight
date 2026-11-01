@@ -319,9 +319,9 @@ fn shortcut(ui: &mut Ui, label: &str, pieces: &[Piece], spoken: &str) {
 }
 
 /// The stream's shortcuts, keyboard and controller, from the same list the key handling reads.
-/// `controller_mouse` lists holding Start for the mouse when the stream offers it. Returns true
-/// when the back row was chosen.
-pub fn sheet(ui: &mut Ui, style: Style, quit: GamepadQuitCombo, controller_mouse: bool, from_menu: bool) -> bool {
+/// `controller_mouse` lists holding Start for the mouse when the stream offers it, `back_opens`
+/// Select for the controls as the Help page does. Returns true when the back row was chosen.
+pub fn sheet(ui: &mut Ui, style: Style, quit: GamepadQuitCombo, back_opens: bool, controller_mouse: bool, from_menu: bool) -> bool {
     let back_label = if from_menu { tr("Back to stream controls") } else { tr("Return to stream") };
     let back = action_row(ui, if from_menu { Icon::Sliders } else { Icon::Play }, back_label, Trail::Keys(shortcuts::Key::Escape.cap()), *ON_SURFACE);
     back.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, back_label));
@@ -352,7 +352,7 @@ pub fn sheet(ui: &mut Ui, style: Style, quit: GamepadQuitCombo, controller_mouse
         if binding.action == Action::ControllerMouse && !controller_mouse {
             continue;
         }
-        let pieces = style.press(binding.press, quit);
+        let pieces = style.stream_press(binding, quit, back_opens);
         shortcut(ui, tr(binding.action.label()), &pieces, &glyphs::spoken(&pieces));
     }
     back.clicked()
@@ -446,6 +446,34 @@ mod tests {
         let amber = |c: Color32| c.to_array().iter().zip(MOON.gamma_multiply(f32::from(c.a()) / 255.0).to_array()).all(|(a, b)| a.abs_diff(b) <= 2);
         let ring = shapes.iter().any(|s| matches!(&s.shape, egui::Shape::Rect(r) if r.rect == rest && r.stroke.color.a() > 0 && amber(r.stroke.color) && r.stroke_kind == StrokeKind::Inside));
         assert!(ring, "focus is an amber ring inside the row");
+    }
+
+    /// With "Back opens stream controls" on, the sheet lists Select for the controls as the Help
+    /// page does (both through `Style::stream_press`); with it off, it doesn't.
+    #[test]
+    fn the_sheet_lists_select_for_the_controls_when_back_opens_them() {
+        crate::theme::own_palette();
+        let ctx = egui::Context::default();
+        crate::theme::apply(&ctx);
+        ctx.enable_accesskit();
+        let quit = GamepadQuitCombo::StartSelectLbRb;
+        let binding = shortcuts::pad_in(Scope::Stream).find(|b| b.action == Action::StreamControls).expect("the controls' buttons");
+        let select = glyphs::spoken(&[Style::Xbox.piece(shortcuts::Button::Back)]);
+        for back_opens in [false, true] {
+            // AccessKit sends only what changed after the first frame: gather every frame's names.
+            let mut names = Vec::new();
+            for _ in 0..3 {
+                let output = run(&ctx, Vec::new(), |ui| {
+                    sheet(ui, Style::Xbox, quit, back_opens, false, true);
+                });
+                let tree = output.platform_output.accesskit_update.expect("AccessKit is on");
+                names.extend(tree.nodes.iter().filter_map(|(_, n)| n.label().or(n.value()).map(str::to_owned)));
+            }
+            let pieces = Style::Xbox.stream_press(binding, quit, back_opens);
+            let row = format!("{}: {}", tr(Action::StreamControls.label()), glyphs::spoken(&pieces));
+            assert!(names.contains(&row), "{row} on the sheet: {names:#?}");
+            assert_eq!(row.ends_with(&format!(" {select}")), back_opens, "{row}");
+        }
     }
 
     /// Every action the stream menu had is still in it (main.rs draws it with these pieces), and
@@ -577,7 +605,7 @@ mod tests {
     }
 
     fn sheet_(ui: &mut Ui) {
-        sheet(ui, Style::Xbox, GamepadQuitCombo::StartSelectLbRb, true, true);
+        sheet(ui, Style::Xbox, GamepadQuitCombo::StartSelectLbRb, false, true, true);
     }
 
     /// The stream menu and its sheet of shortcuts as they open over a game, normal and high

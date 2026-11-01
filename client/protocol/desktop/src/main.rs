@@ -2113,7 +2113,7 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
                 .show(&ctx, |ui| menu_style::body(ui, |ui| {
                     gui::follow_focus(ui, &mut s.menu_focus);
                     menu_style::header(ui, tr("Shortcuts & help"), &title);
-                    back = menu_style::sheet(ui, style, pads.quit_combo(), offered, from_menu);
+                    back = menu_style::sheet(ui, style, pads.quit_combo(), pads.back_opens_menu(), offered, from_menu);
                 }));
             if back {
                 s.close_shortcut_sheet(window, pads);

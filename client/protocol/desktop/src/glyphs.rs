@@ -9,7 +9,7 @@ use egui::{pos2, vec2, Color32, CornerRadius, FontId, Pos2, Rect, Stroke, Ui};
 use sdl3_sys::everything::*;
 
 use crate::config::GamepadQuitCombo;
-use crate::shortcuts::{Button, Chord, Press};
+use crate::shortcuts::{Action, Button, Chord, PadBinding, Press};
 use crate::strings::tr;
 use crate::theme::{radius, regular, semibold, text, ON_SURFACE, ON_SURFACE_VARIANT, OUTLINE, OUTLINE_VARIANT, SURFACE_HIGHEST};
 
@@ -193,6 +193,18 @@ impl Style {
             Press::Hold(button) => vec![Piece::Word(tr("Hold").to_owned()), self.piece(button)],
             Press::QuitCombo => together(&crate::shortcuts::quit_buttons(quit)),
         }
+    }
+
+    /// A stream binding's pieces: its press and, with "Back opens stream controls" on
+    /// (`back_opens`), Select besides for the stream controls. The shortcut sheet and the Help
+    /// page both list it so.
+    pub fn stream_press(self, binding: &PadBinding, quit: GamepadQuitCombo, back_opens: bool) -> Vec<Piece> {
+        let mut pieces = self.press(binding.press, quit);
+        if binding.action == Action::StreamControls && back_opens {
+            pieces.push(Piece::Or);
+            pieces.push(self.piece(Button::Back));
+        }
+        pieces
     }
 
     /// A press as a screen reader says it: "Start+Select", "Hold Start", "D-pad or Left stick".

@@ -1,10 +1,29 @@
-# Rubylight 3.2.0 for Windows
+# Rubylight 3.2.1 for Windows
 
 [Documentation](../docs/README.md) · [Install and migrate](../docs/getting-started.md) · [Configuration](../docs/configuration.md) · [Features](../docs/features.md)
 
-**Release history:** [3.2.0](#new-in-320) · [3.1.1](#new-in-311) · [3.1.0](#new-in-310) · [3.0.1](#new-in-301) · [3.0.0](#new-in-300) · [3.0.0-rc.5](#new-in-300-rc5) · [3.0.0-rc.4](#new-in-300-rc4) · [3.0.0-rc.3](#new-in-300-rc3) · [3.0.0-rc.2](#new-in-300-rc2) · [3.0.0-rc.1](#new-in-300-rc1) · [3.0.0-beta.1](#new-in-300-beta1) · [3.0.0-alpha.3](#new-in-300-alpha3) · [3.0.0-alpha.2](#new-in-300-alpha2) · [3.0.0-alpha.1](#new-in-300-alpha1) · [2.6.0](#new-in-260) · [2.5.13](#new-in-2513) · [2.5.12](#new-in-2512) · [2.5.11](#new-in-2511) · [2.5.10](#new-in-2510) · [2.5.9](#new-in-259) · [2.5.8](#new-in-258) · [2.5.7](#new-in-257) · [2.5.6](#new-in-256) · [2.5.5](#new-in-255) · [2.5.4](#new-in-254) · [2.5.3](#new-in-253) · [2.5.2](#new-in-252) · [2.5.1](#new-in-251) · [2.5.0](#new-in-250) · [2.4.8](#new-in-248) · [2.4.7](#new-in-247) · [2.4.6](#new-in-246) · [2.4.5](#new-in-245) · [2.4.4](#new-in-244) · [2.4.3](#new-in-243) · [2.4.2](#new-in-242) · [2.4.1](#new-in-241) · [2.4.0](#new-in-240) · [2.3.1](#new-in-231) · [2.3.0](#new-in-230) · [2.2.2 – 2.2.21](#new-in-2221) · [2.2.1](#new-in-221) · [2.2.0](#new-in-220) · [2.1.0](#new-in-210) · [2.0.x](#new-in-201) · [release candidates](#new-in-rc30)
+**Release history:** [3.2.1](#new-in-321) · [3.2.0](#new-in-320) · [3.1.1](#new-in-311) · [3.1.0](#new-in-310) · [3.0.1](#new-in-301) · [3.0.0](#new-in-300) · [3.0.0-rc.5](#new-in-300-rc5) · [3.0.0-rc.4](#new-in-300-rc4) · [3.0.0-rc.3](#new-in-300-rc3) · [3.0.0-rc.2](#new-in-300-rc2) · [3.0.0-rc.1](#new-in-300-rc1) · [3.0.0-beta.1](#new-in-300-beta1) · [3.0.0-alpha.3](#new-in-300-alpha3) · [3.0.0-alpha.2](#new-in-300-alpha2) · [3.0.0-alpha.1](#new-in-300-alpha1) · [2.6.0](#new-in-260) · [2.5.13](#new-in-2513) · [2.5.12](#new-in-2512) · [2.5.11](#new-in-2511) · [2.5.10](#new-in-2510) · [2.5.9](#new-in-259) · [2.5.8](#new-in-258) · [2.5.7](#new-in-257) · [2.5.6](#new-in-256) · [2.5.5](#new-in-255) · [2.5.4](#new-in-254) · [2.5.3](#new-in-253) · [2.5.2](#new-in-252) · [2.5.1](#new-in-251) · [2.5.0](#new-in-250) · [2.4.8](#new-in-248) · [2.4.7](#new-in-247) · [2.4.6](#new-in-246) · [2.4.5](#new-in-245) · [2.4.4](#new-in-244) · [2.4.3](#new-in-243) · [2.4.2](#new-in-242) · [2.4.1](#new-in-241) · [2.4.0](#new-in-240) · [2.3.1](#new-in-231) · [2.3.0](#new-in-230) · [2.2.2 – 2.2.21](#new-in-2221) · [2.2.1](#new-in-221) · [2.2.0](#new-in-220) · [2.1.0](#new-in-210) · [2.0.x](#new-in-201) · [release candidates](#new-in-rc30)
 
-Rubylight, called Butterpollo until rc.29, is written in Rust: host, native helpers, service and setup, with a Svelte web console. The 3.2.0 installer is named `rubylight-setup-3.2.0.exe` and upgrades an existing Vibepollo or Butterpollo installation in place, keeping settings, paired devices, the app library and covers. Codec SDKs and Windows drivers remain external components; the setup installs the drivers.
+Rubylight, called Butterpollo until rc.29, is written in Rust: host, native helpers, service and setup, with a Svelte web console. The 3.2.1 installer is named `rubylight-setup-3.2.1.exe` and upgrades an existing Vibepollo or Butterpollo installation in place, keeping settings, paired devices, the app library and covers. Codec SDKs and Windows drivers remain external components; the setup installs the drivers.
+
+## New in 3.2.1
+
+Rubylight 3.2.1 lets Stream in the browser pick AV1, HEVC or H.264 and stream in Firefox ([#66](https://github.com/RamazanKara/Rubylight/issues/66), [#67](https://github.com/RamazanKara/Rubylight/issues/67)), keeps fixed-rate streams steady when a game runs faster than the stream, and fixes the Wake-on-LAN check in the console.
+
+### Stream in the browser
+
+- **Stream in the browser picks the codec, resolution and frame rate.** The Stream page now offers AV1, HEVC and H.264 at every resolution and frame rate the host's encoder takes, limited to what the browser can receive. It starts with a codec the browser decodes in hardware at 1080p60 and remembers your choice ([#67](https://github.com/RamazanKara/Rubylight/issues/67)).
+- **Firefox streams in the browser.** Firefox refused the host's offer with "SIPCC Failed to parse SDP: Min is not smaller than max". The page now leaves out the Samsung TV line that caused it ([#66](https://github.com/RamazanKara/Rubylight/issues/66)).
+
+### Streaming
+
+- **Steadier fixed-rate streams beside other windows.** When a game runs at two to four times the stream rate (120 Hz at 60 fps), the host now follows the game's own frame timing, so another window's updates no longer take the place of the game's frames or hold back the frames after them. Measured on the RX 7900 XT at 1080p60 with a 120 Hz game: beside a window animating at 30 fps, end to end p95 was 0.6 ms lower and picture age p95 1.0 ms lower; on a quiet desktop, 0.9 and 1.9 ms lower. Frames ready for the encoder waited under 0.5 ms at p95 in most runs, against 1.4 to 2.3 ms before.
+
+### Console
+
+- **Wake-on-LAN check reads the adapter again.** Settings → This PC showed "Allow this device to wake the computer" and "Only allow a magic packet" as Unreadable on every PC, so no adapter ever showed as ready and the console never offered to switch them on. It now reads both, and offers the fix when they're off.
+
+**Tested.** On the RX 7900 XT at 1080p60 with a 120 Hz game, alternating old and new builds for 30 s each, fixed-rate streams had a lower end to end p95 in every pairing: 10.66 to 10.02 ms beside a window animating at 30 fps, 12.31 to 11.44 ms on a quiet desktop, and 10.30 to 10.08 ms at 1080p120, where the host claimed about 0.2 % fewer frames (119.8 to 119.9 fps against 120.1). Firefox 159 rejected the host's real offer exactly as reported in #66 and accepted it with the page's edit, answering H.264 and AV1; AV1 and H.264 at 1080p60 streamed through the Stream page from an isolated host. The full host suite, clippy and the release build pass.
 
 ## New in 3.2.0
 

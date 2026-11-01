@@ -4,7 +4,7 @@
 //! textures from capture and Radeon compute without a copy, and applies the
 //! per-codec settings from `butterpollo_core::encoder_policy`.
 mod create;
-mod dynamic;
+pub(crate) mod dynamic;
 pub mod focus;
 pub(crate) mod gpu;
 mod intra_refresh;

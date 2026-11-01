@@ -1418,7 +1418,9 @@ fn start(h: Shared, connection: Connection, args: Args, resume: bool) -> Respons
         if role != Role::InputOnly
             && h.codecs.load(std::sync::atomic::Ordering::Acquire) & 0x0783_0301 == 0
         {
-            return Err(LaunchFailure(503, butterpollo_core::amd_gpu::NO_ENCODER_LAUNCH).into());
+            return Err(
+                LaunchFailure(503, butterpollo_core::encoder_gpu::NO_ENCODER_LAUNCH).into(),
+            );
         }
         let mut launch =
             build_launch_session(&connection, &args, client, app_id, role, key, key_id);
@@ -1754,7 +1756,9 @@ pub(crate) fn launch_webrtc(
         }
         h.wait_for_startup_codecs_blocking(STARTUP_CODEC_WAIT);
         if h.codecs.load(std::sync::atomic::Ordering::Acquire) & 0x0783_0301 == 0 {
-            return Err(LaunchFailure(503, butterpollo_core::amd_gpu::NO_ENCODER_LAUNCH).into());
+            return Err(
+                LaunchFailure(503, butterpollo_core::encoder_gpu::NO_ENCODER_LAUNCH).into(),
+            );
         }
         // The stream key belongs to GameStream's RTSP; nothing on this launch uses it.
         let mut launch = build_launch(
@@ -1774,7 +1778,7 @@ pub(crate) fn launch_webrtc(
         Some(LaunchFailure(404, _)) => WebRtcLaunchError::InvalidApplication,
         Some(LaunchFailure(409, message)) => WebRtcLaunchError::SessionActive((*message).into()),
         Some(LaunchFailure(503, message))
-            if *message != butterpollo_core::amd_gpu::NO_ENCODER_LAUNCH =>
+            if *message != butterpollo_core::encoder_gpu::NO_ENCODER_LAUNCH =>
         {
             WebRtcLaunchError::HostBusy
         }

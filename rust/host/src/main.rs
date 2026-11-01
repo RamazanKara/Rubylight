@@ -292,20 +292,22 @@ fn main() -> Result<()> {
         .block_on(run(args, assets))
 }
 
-/// Rubylight streams only with an AMD GPU. A PC without one still starts the
-/// console, whose warnings and the encoder probe say why no stream can start;
-/// this puts the same words in the log. The AMF runtime is the probe's to judge.
-fn log_amd_check() {
+/// Rubylight streams only with an AMD or NVIDIA GPU. A PC without one still
+/// starts the console, whose warnings and the encoder probe say why no stream
+/// can start; this puts the same words in the log. The AMF and NVENC runtimes
+/// are the probe's to judge.
+fn log_encoder_gpu_check() {
+    use butterpollo_core::encoder_gpu::{Refusal, Runtimes, check};
     let adapters = butterpollo_windows::capture::gpus()
-        .map(|gpus| butterpollo_windows::capture::amd_adapters(&gpus))
+        .map(|gpus| butterpollo_windows::capture::gpu_adapters(&gpus))
         .unwrap_or_default();
-    match butterpollo_core::amd_gpu::check(&adapters, true) {
+    match check(&adapters, Runtimes::ALL) {
         Ok(()) => {}
         // No driver may only mean the GPU is not up yet, as at boot.
-        Err(refusal @ butterpollo_core::amd_gpu::Refusal::NoGpu) => {
-            tracing::warn!(%refusal, "no graphics adapter yet; streams wait for an AMD GPU");
+        Err(refusal @ Refusal::NoGpu) => {
+            tracing::warn!(%refusal, "no graphics adapter yet; streams wait for an AMD or NVIDIA GPU");
         }
-        Err(refusal) => tracing::error!(%refusal, "this PC cannot stream; no AMD GPU"),
+        Err(refusal) => tracing::error!(%refusal, "this PC cannot stream; no AMD or NVIDIA GPU"),
     }
 }
 
@@ -453,7 +455,7 @@ async fn run(args: Args, assets: PathBuf) -> Result<()> {
         }
     };
     let media = stream::Media::new(h.clone(), bind)?;
-    log_amd_check();
+    log_encoder_gpu_check();
     h.probe_codecs();
     let mut tasks = tokio::task::JoinSet::new();
     for (port, https, web) in [

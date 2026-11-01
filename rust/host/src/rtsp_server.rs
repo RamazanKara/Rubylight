@@ -249,11 +249,15 @@ async fn connection(
                     )
                     .into_bytes();
                     // AMF recovers lost references unless long-term references
-                    // are turned off.
+                    // are turned off; NVENC invalidates them natively when the
+                    // probe found the driver can (flag 0x40000000).
                     let backend = *h.probed_encoder.lock().unwrap();
                     if flags & 0x40000000 != 0
-                        && backend == "amf"
-                        && butterpollo_core::encoder_policy::amf_offers_invalidation(&config)
+                        && (backend == "nvenc"
+                            || (backend == "amf"
+                                && butterpollo_core::encoder_policy::amf_offers_invalidation(
+                                    &config,
+                                )))
                     {
                         body.extend_from_slice(b"a=x-nv-video[0].refPicInvalidation:1\r\n");
                     }

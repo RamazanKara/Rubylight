@@ -1100,13 +1100,13 @@ fn display_policies_keep_resolution_and_refresh_independent() {
         assert!(config.display_request(1920, 1080, 60).is_err());
     }
 }
-/// A profile from a host that streamed with NVIDIA, Intel or software
-/// encoding, or limited frames in the NVIDIA driver.
-const REMOVED_FEATURES: &str = "encoder = nvenc\nframe_limiter_provider = nvidia-control-panel\nrtss_frame_limit_type = nvidia-reflex\nnvenc_preset = 4\nqsv_preset = slow\nsw_preset = fast\nmin_threads = 4\nframe_limiter_disable_vsync = true\nrtss_disable_vsync_ullm = true\nnvenc_force_split_encode = forced\ndd_wa_dummy_plug_hdr10 = true\nport = 48123\n";
+/// A profile from a host that streamed with Intel or software encoding, or
+/// limited frames in the NVIDIA driver.
+const REMOVED_FEATURES: &str = "encoder = quicksync\nframe_limiter_provider = nvidia-control-panel\nrtss_frame_limit_type = nvidia-reflex\nqsv_preset = slow\nsw_preset = fast\nmin_threads = 4\nframe_limiter_disable_vsync = true\nrtss_disable_vsync_ullm = true\ndd_wa_dummy_plug_hdr10 = true\nport = 48123\n";
 #[test]
 fn removed_encoders_and_nvidia_limiters_migrate_with_one_report() {
     let (config, retired) = Config::parse_retiring(REMOVED_FEATURES).unwrap();
-    assert_eq!(config.get("encoder", ""), "amf");
+    assert_eq!(config.get("encoder", ""), "auto");
     assert_eq!(config.get("frame_limiter_provider", ""), "auto");
     assert_eq!(config.get("rtss_frame_limit_type", ""), "async");
     assert_eq!(config.port().unwrap(), 48123);
@@ -1118,13 +1118,16 @@ fn removed_encoders_and_nvidia_limiters_migrate_with_one_report() {
             .map(|r| (r.key.as_str(), r.value.as_str(), r.current))
             .collect::<Vec<_>>(),
         [
-            ("encoder", "nvenc", "amf"),
+            ("encoder", "quicksync", "auto"),
             ("frame_limiter_provider", "nvidia-control-panel", "auto"),
             ("rtss_frame_limit_type", "nvidia-reflex", "async"),
         ]
     );
     let warning = retired_warning(&retired).unwrap();
-    assert!(warning.contains("encoder nvenc is now amf"), "{warning}");
+    assert!(
+        warning.contains("encoder quicksync is now auto"),
+        "{warning}"
+    );
     assert!(warning.contains("frame_limiter_provider nvidia-control-panel is now auto"));
     // What the host writes back reads without a report.
     let (again, retired) = Config::parse_retiring(&config.text()).unwrap();
@@ -1133,23 +1136,28 @@ fn removed_encoders_and_nvidia_limiters_migrate_with_one_report() {
     assert!(retired_warning(&retired).is_none());
 }
 #[test]
-fn every_encoder_the_host_no_longer_has_becomes_amf() {
+fn every_encoder_the_host_no_longer_has_selects_automatically() {
     for name in [
-        "nvenc",
-        "nvenc_experimental",
-        "nvenc_legacy",
         "quicksync",
         "qsv",
         "software",
         "mediafoundation",
-        "\"nvenc\"",
+        "\"qsv\"",
         "something_else",
     ] {
         let (config, retired) = Config::parse_retiring(&format!("encoder = {name}\n")).unwrap();
-        assert_eq!(config.get("encoder", ""), "amf", "{name}");
+        assert_eq!(config.get("encoder", ""), "auto", "{name}");
         assert_eq!(retired.len(), 1, "{name}");
     }
-    for kept in ["auto", "amf", "pyrowave", "amdvce", "amdvce_legacy"] {
+    for kept in [
+        "auto",
+        "amf",
+        "nvenc",
+        "pyrowave",
+        "amdvce",
+        "amdvce_legacy",
+        "nvenc_legacy",
+    ] {
         let (config, retired) = Config::parse_retiring(&format!("encoder = {kept}\n")).unwrap();
         assert_eq!(config.get("encoder", ""), kept);
         assert!(retired.is_empty(), "{kept}");
@@ -1171,10 +1179,12 @@ fn every_encoder_the_host_no_longer_has_becomes_amf() {
         let config = Config::parse(&format!("{key} = {kept}\n")).unwrap();
         assert_eq!(config.get(key, ""), kept);
     }
-    // A save sending a removed encoder stores AMF.
+    // A save sending a removed encoder stores automatic selection.
     let mut config = Config::default();
+    change(&mut config, "encoder", "qsv").unwrap();
+    assert_eq!(config.get("encoder", ""), "auto");
     change(&mut config, "encoder", "nvenc").unwrap();
-    assert_eq!(config.get("encoder", ""), "amf");
+    assert_eq!(config.get("encoder", ""), "nvenc");
     // An app's or a device's own overrides.
     let mut app = serde_json::json!({"name": "Game", "frame-generation-mode": "nvidia-smooth-motion",
             "config-overrides": {"encoder": "software", "frame_limiter_provider": "nvidia-control-panel"}});
@@ -1182,7 +1192,7 @@ fn every_encoder_the_host_no_longer_has_becomes_amf() {
     assert_eq!(
         app,
         serde_json::json!({"name": "Game", "frame-generation-mode": "none",
-                "config-overrides": {"encoder": "amf", "frame_limiter_provider": "auto"}})
+                "config-overrides": {"encoder": "auto", "frame_limiter_provider": "auto"}})
     );
     assert!(!replace_retired_in_app(app.as_object_mut().unwrap()));
 }

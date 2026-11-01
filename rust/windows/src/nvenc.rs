@@ -2,7 +2,11 @@
 //!
 //! Supports NVENC API 11 to 13 and reference frame invalidation. GPU
 //! resources stay owned until their output completes; 10-bit 4:4:4 input goes
-//! through CUDA interop (`cuda`).
+//! through CUDA interop (`cuda`). The frame budget guard, VBR rate control,
+//! fixed split-encode strips, the codec check and spatial AQ by default follow
+//! Foundation Sunshine (AlkaidLab/foundation-sunshine, GPL-3.0, src/nvenc/).
+//! HDR10+, HDR Vivid and Dolby Vision come from the D3D11 conversion's
+//! statistics pass and are spliced in as with AMF (`amf::dynamic`).
 
 mod cuda;
 
@@ -14,8 +18,9 @@ use crate::{
 use anyhow::{Context, Result, bail};
 use butterpollo_core::{
     config::Config,
-    nvenc::{ApiVersion, Recovery, References, Tuning},
+    nvenc::{ApiVersion, Budget, RateControl, Recovery, References, SPLIT_DISABLED, Tuning},
     rtsp::Negotiated,
+    session::Warnings,
 };
 use std::{
     collections::VecDeque,
@@ -223,7 +228,34 @@ fn colors(config: &Negotiated) -> (u32, u32, u32) {
         2 => (9, 9, 14),
         _ => (1, 1, 1),
     };
-    (primaries, if config.hdr { 16 } else { transfer }, matrix)
+    // PQ, or ARIB STD-B67 for HLG and Dolby Vision 8.4.
+    let transfer = match (config.hdr, config.hlg()) {
+        (true, true) => 18,
+        (true, false) => 16,
+        _ => transfer,
+    };
+    (primaries, transfer, matrix)
+}
+fn same_guid(a: &GUID, b: &GUID) -> bool {
+    a.Data1 == b.Data1 && a.Data2 == b.Data2 && a.Data3 == b.Data3 && a.Data4 == b.Data4
+}
+/// The codec's name for a refusal.
+fn codec_name(codec: u8) -> &'static str {
+    match codec {
+        0 => "H.264",
+        1 => "HEVC",
+        _ => "AV1",
+    }
+}
+/// The NVENC capability behind AMF's throughput property names, for the
+/// codec it names.
+fn throughput_codec(name: &str) -> Option<u8> {
+    match name {
+        "MaxThroughput" => Some(0),
+        "HevcMaxThroughput" => Some(1),
+        "Av1CapMaxThroughput" => Some(2),
+        _ => None,
+    }
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct EncodedMetadata {
@@ -344,6 +376,10 @@ struct Session {
     retained: u32,
     invalidation: bool,
     dynamic_bitrate: bool,
+    /// The rate control the driver accepted, for bitrate changes.
+    rate_control: RateControl,
+    /// The frame budget guard's verdict on the configured preset.
+    budget: Option<Budget>,
     next: u64,
     initialized: bool,
     force_idr: bool,
@@ -374,7 +410,7 @@ impl Session {
             ) {
                 Ok(session) => return Ok(session),
                 Err(error) if retry_version(&error) => {
-                    tracing::warn!(error = %format!("{error:#}"), major = api.0, minor = api.1, "NVENC rejected this driver API; retrying a reviewed older API. Update the NVIDIA driver, or use Vibepollo if encoding remains unstable");
+                    tracing::warn!(error = %format!("{error:#}"), major = api.0, minor = api.1, "NVENC rejected this driver API; retrying a reviewed older API. Update the NVIDIA driver if encoding remains unstable");
                     failures.push(format!("{}.{}: {error}", api.0, api.1))
                 }
                 Err(error) => return Err(error),
@@ -425,6 +461,8 @@ impl Session {
             retained: 1,
             invalidation: false,
             dynamic_bitrate: false,
+            rate_control: RateControl::Cbr,
+            budget: None,
             next: 1,
             initialized: false,
             force_idr: false,
@@ -480,9 +518,49 @@ impl Session {
     fn optional_cap(&self, cap: NV_ENC_CAPS) -> bool {
         self.cap(cap).unwrap_or(0) > 0
     }
+    /// A GPU whose NVENC lacks the stream's codec is refused by name, before
+    /// any capability query fails less clearly. Drivers without the list
+    /// leave it to the session.
+    fn check_codec(&self) -> Result<()> {
+        let (Some(count), Some(list)) = (
+            self.functions.nvEncGetEncodeGUIDCount,
+            self.functions.nvEncGetEncodeGUIDs,
+        ) else {
+            return Ok(());
+        };
+        let mut total = 0;
+        // SAFETY: `self.raw` is the open session and `total` a live local.
+        self.check(unsafe { count(self.raw, &mut total) }, "count codecs")?;
+        let mut guids = vec![GUID::default(); total.min(64) as usize];
+        let mut written = 0;
+        self.check(
+            // SAFETY: `guids` holds `guids.len()` writable GUIDs and `written` is a live local.
+            unsafe {
+                list(
+                    self.raw,
+                    guids.as_mut_ptr(),
+                    guids.len() as u32,
+                    &mut written,
+                )
+            },
+            "list codecs",
+        )?;
+        let wanted = codec_guid(self.stream.codec)?;
+        if !guids[..(written as usize).min(guids.len())]
+            .iter()
+            .any(|guid| same_guid(guid, &wanted))
+        {
+            bail!(
+                "this NVIDIA GPU's NVENC cannot encode {}. Select another codec on the device",
+                codec_name(self.stream.codec)
+            );
+        }
+        Ok(())
+    }
     fn configure(&mut self, tuning: &Tuning) -> Result<()> {
         let _guard = self.guard()?;
         self.stream.validate()?;
+        self.check_codec()?;
         if self.stream.width > self.cap(_NV_ENC_CAPS_NV_ENC_CAPS_WIDTH_MAX)?.max(0) as u32
             || self.stream.height > self.cap(_NV_ENC_CAPS_NV_ENC_CAPS_HEIGHT_MAX)?.max(0) as u32
         {
@@ -525,8 +603,35 @@ impl Session {
             },
             ..Default::default()
         };
+        // Multi-engine throughput counts only when split encoding may use it.
+        let engines = if tuning.split == SPLIT_DISABLED {
+            1
+        } else {
+            self.cap(_NV_ENC_CAPS_NV_ENC_CAPS_NUM_ENCODER_ENGINES)
+                .unwrap_or(1)
+                .max(1) as u32
+        };
+        let budget = butterpollo_core::nvenc::frame_budget(
+            tuning.preset,
+            (self.stream.width, self.stream.height),
+            f64::from(self.stream.fps_millihz()) / 1000.,
+            engines,
+            tuning.frame_budget_guard,
+        );
+        if budget.effective < budget.configured {
+            tracing::warn!(
+                configured = budget.configured,
+                effective = budget.effective,
+                budget_ms = budget.budget_ms,
+                configured_ms = budget.configured_ms,
+                engines,
+                over_at_floor = budget.over_at_floor,
+                "NVENC frame budget guard lowered the preset so encoding keeps up with the frame rate. Turn off nvenc_frame_budget_guard to keep the configured preset"
+            );
+        }
+        self.budget = Some(budget);
         let guid = codec_guid(self.stream.codec)?;
-        let preset_guid = preset_guid(tuning.preset);
+        let preset_guid = preset_guid(budget.effective);
         let result = if let Some(get) = self.functions.nvEncGetEncodePresetConfigEx {
             // SAFETY: `get` is the driver's own preset entry, `self.raw` is the open session and
             // `preset` is versioned.
@@ -546,7 +651,7 @@ impl Session {
             if let Some(get) = self.functions.nvEncGetEncodePresetConfig {
                 tracing::warn!(
                     code = result,
-                    "NVENC low-latency preset query failed; using a compatible preset with explicit low-latency settings. Update the NVIDIA driver or use Vibepollo if frame times worsen"
+                    "NVENC low-latency preset query failed; using a compatible preset with explicit low-latency settings. Update the NVIDIA driver if frame times worsen"
                 );
                 preset = NV_ENC_PRESET_CONFIG {
                     version: self.api.preset(),
@@ -577,7 +682,7 @@ impl Session {
             tuning.temporal_aq && self.optional_cap(_NV_ENC_CAPS_NV_ENC_CAPS_SUPPORT_TEMPORAL_AQ);
         if !custom_vbv {
             tracing::warn!(
-                "NVENC custom VBV unavailable; the driver controls buffering and may increase latency. Update the NVIDIA driver or use Vibepollo"
+                "NVENC custom VBV unavailable; the driver controls buffering and may increase latency. Update the NVIDIA driver"
             );
         }
         if tuning.temporal_aq && !temporal_aq {
@@ -585,11 +690,32 @@ impl Session {
                 "NVENC temporal AQ unavailable; encoding without the requested quality feature. Update the NVIDIA driver or disable temporal AQ"
             );
         }
+        let vbr_supported = self
+            .cap(_NV_ENC_CAPS_NV_ENC_CAPS_SUPPORTED_RATECONTROL_MODES)
+            .unwrap_or(0)
+            & _NV_ENC_PARAMS_RC_MODE_NV_ENC_PARAMS_RC_VBR as i32
+            != 0;
+        self.rate_control = match tuning.rate_control {
+            RateControl::Vbr { .. } if !vbr_supported => {
+                tracing::warn!(
+                    "NVENC VBR rate control unavailable on this GPU; encoding at a constant bitrate. Update the NVIDIA driver or set nvenc_rate_control to cbr"
+                );
+                RateControl::Cbr
+            }
+            chosen => chosen,
+        };
+        let rate_control = self.rate_control;
         let rc = &mut self.config.rcParams;
         rc.version = self.api.structure(1, false);
-        rc.rateControlMode = _NV_ENC_PARAMS_RC_MODE_NV_ENC_PARAMS_RC_CBR;
         rc.averageBitRate = self.stream.bitrate_kbps * 1000;
-        rc.maxBitRate = rc.averageBitRate;
+        rc.maxBitRate = rate_control.max_bitrate(rc.averageBitRate);
+        match rate_control {
+            RateControl::Cbr => rc.rateControlMode = _NV_ENC_PARAMS_RC_MODE_NV_ENC_PARAMS_RC_CBR,
+            RateControl::Vbr { target_quality } => {
+                rc.rateControlMode = _NV_ENC_PARAMS_RC_MODE_NV_ENC_PARAMS_RC_VBR;
+                rc.targetQuality = target_quality;
+            }
+        }
         rc.set_zeroReorderDelay(1);
         rc.set_enableLookahead(0);
         rc.lookaheadDepth = 0;
@@ -614,7 +740,7 @@ impl Session {
             intra_refresh && self.optional_cap(_NV_ENC_CAPS_NV_ENC_CAPS_SINGLE_SLICE_INTRA_REFRESH);
         if self.stream.intra_refresh && !intra_refresh {
             tracing::warn!(
-                "NVENC intra-refresh unavailable; keeping IDR recovery, which can cause larger recovery frames. Reduce bitrate on lossy links or use Vibepollo"
+                "NVENC intra-refresh unavailable; keeping IDR recovery, which can cause larger recovery frames. Reduce bitrate on lossy links or update the NVIDIA driver"
             );
         }
         let ten = self.stream.ten_bit();
@@ -622,9 +748,10 @@ impl Session {
         let chroma = if self.stream.yuv444 { 3 } else { 1 };
         let metadata = self.stream.hdr && self.api >= ApiVersion(13, 0);
         let cabac = !tuning.cavlc && self.optional_cap(_NV_ENC_CAPS_NV_ENC_CAPS_SUPPORT_CABAC);
+        let slice_mode = tuning.slice_mode(self.stream.slices, self.api);
         if self.stream.hdr && !metadata {
             tracing::warn!(
-                "NVENC driver API cannot embed HDR mastering metadata; only control-channel metadata is available. Update the NVIDIA driver or use Vibepollo if HDR tone mapping is wrong"
+                "NVENC driver API cannot embed HDR mastering metadata; only control-channel metadata is available. Update the NVIDIA driver if HDR tone mapping is wrong"
             );
         }
         if self.stream.codec == 0 && !tuning.cavlc && !cabac {
@@ -646,8 +773,10 @@ impl Session {
                 let codec = unsafe { &mut self.config.encodeCodecConfig.h264Config };
                 codec.set_repeatSPSPPS(1);
                 codec.idrPeriod = u32::MAX;
-                codec.sliceMode = 3;
-                codec.sliceModeData = self.stream.slices.max(1);
+                if slice_mode {
+                    codec.sliceMode = 3;
+                    codec.sliceModeData = self.stream.slices.max(1);
+                }
                 codec.chromaFormatIDC = chroma;
                 codec.set_enableFillerDataInsertion(u32::from(tuning.filler));
                 codec.entropyCodingMode = if cabac {
@@ -683,8 +812,10 @@ impl Session {
                 let codec = unsafe { &mut self.config.encodeCodecConfig.hevcConfig };
                 codec.set_repeatSPSPPS(1);
                 codec.idrPeriod = u32::MAX;
-                codec.sliceMode = 3;
-                codec.sliceModeData = self.stream.slices.max(1);
+                if slice_mode {
+                    codec.sliceMode = 3;
+                    codec.sliceModeData = self.stream.slices.max(1);
+                }
                 codec.set_chromaFormatIDC(chroma);
                 codec.set_enableFillerDataInsertion(u32::from(tuning.filler));
                 codec.maxNumRefFramesInDPB = self.retained;
@@ -780,6 +911,9 @@ impl Session {
         tracing::info!(
             api_major = self.api.0,
             api_minor = self.api.1,
+            preset = budget.effective,
+            rate_control = ?self.rate_control,
+            split = tuning.split,
             asynchronous,
             references = self.retained,
             rfi = self.invalidation,
@@ -1116,7 +1250,7 @@ impl Session {
         let before = config.rcParams.averageBitRate;
         let after = bitrate * 1000;
         config.rcParams.averageBitRate = after;
-        config.rcParams.maxBitRate = after;
+        config.rcParams.maxBitRate = self.rate_control.max_bitrate(after);
         if config.rcParams.vbvBufferSize > 0 && before > 0 {
             config.rcParams.vbvBufferSize =
                 (u64::from(after) * u64::from(config.rcParams.vbvBufferSize) / u64::from(before))
@@ -1276,18 +1410,71 @@ impl Drop for Session {
     }
 }
 
+/// What the session codes for `config`: a packed 4:4:4 stream is a larger
+/// full-range BT.709 SDR 4:2:0 picture (`Negotiated::coded_size`), as AMF
+/// codes it; the device unpacks it and takes HDR from the control channel.
+fn coded(config: &Negotiated) -> Negotiated {
+    let mut coded = config.clone();
+    if config.chroma_packing != 0 {
+        (coded.width, coded.height) = config.coded_size();
+        coded.sdr_10bit = config.ten_bit();
+        coded.hdr = false;
+        coded.csc_mode = 3;
+        coded.chroma_packing = 0;
+    }
+    coded
+}
+/// Dynamic HDR metadata spliced into each picture
+/// ([`crate::amf::dynamic::output`]); NVENC returns whole pictures.
+fn splice(dynamic: Option<&mut crate::amf::dynamic::Dynamic>, frame: &mut Encoded) {
+    let (spliced, cap) = crate::amf::dynamic::output(
+        dynamic,
+        crate::encoder::Unit::Whole,
+        &frame.bytes,
+        frame.frame_cap_bytes,
+        frame.idr,
+    );
+    if let Some(bytes) = spliced {
+        frame.bytes = bytes;
+    }
+    frame.frame_cap_bytes = cap;
+}
+
 pub struct Encoder {
     session: Session,
     gpu: Device,
+    /// The stream as negotiated; the session codes [`coded`].
+    config: Negotiated,
     converter: Option<crate::gpu_color::Converter>,
     source: Option<(u32, u32, Pixel)>,
     luminance: [f32; 2],
+    /// The couch menu's panel, drawn into GPU frames by the conversion.
+    pub overlay: Option<crate::overlay::Overlay>,
+    /// The session's reporter, shared with the stream.
+    pub(crate) warnings: Arc<Warnings>,
+    dynamic: Option<Box<crate::amf::dynamic::Dynamic>>,
+    /// The D3D11 conversion's statistics pass behind HDR10+, HDR Vivid and
+    /// measured Dolby Vision light levels.
+    stats: Option<Box<crate::gpu_color::HdrStats>>,
+    last_submitted: Option<Instant>,
 }
 impl Encoder {
     pub fn new_device_options(config: &Negotiated, gpu: Device, options: &Config) -> Result<Self> {
+        Self::new_device_reported(config, gpu, options, &Arc::default())
+    }
+    pub fn new_device_reported(
+        config: &Negotiated,
+        gpu: Device,
+        options: &Config,
+        warnings: &Arc<Warnings>,
+    ) -> Result<Self> {
+        if config.chroma_packing != 0 {
+            config.validate()?;
+        }
+        let coded = coded(config);
         let runtime = Runtime::load()?;
-        let tuning = Tuning::new(options, config)?;
-        let cuda = if config.yuv444 && config.ten_bit() {
+        let tuning = Tuning::new(options, &coded)?;
+        let cuda = if coded.yuv444 && coded.ten_bit() {
             Some(cuda::Context::new(&gpu)?)
         } else {
             None
@@ -1299,21 +1486,53 @@ impl Encoder {
                 gpu.device.as_raw(),
                 _NV_ENC_DEVICE_TYPE_NV_ENC_DEVICE_TYPE_DIRECTX,
             ));
-        let mut session = Session::open(runtime, device, kind, cuda, config, &tuning)?;
-        session.set_hdr_metadata(gpu.hdr_metadata());
-        Ok(Self {
+        let session = Session::open(runtime, device, kind, cuda, &coded, &tuning)?;
+        let metadata = gpu.hdr_metadata();
+        let mut encoder = Self {
             session,
             gpu,
+            config: config.clone(),
             converter: None,
             source: None,
             luminance: [100., 1.],
-        })
+            overlay: None,
+            warnings: warnings.clone(),
+            dynamic: None,
+            stats: None,
+            last_submitted: None,
+        };
+        encoder.dynamic = encoder.enable_dynamic(options);
+        encoder.set_hdr_metadata(metadata);
+        Ok(encoder)
+    }
+    /// HDR10+ and HDR Vivid for an HDR stream with `hdr_dynamic_metadata`
+    /// on, and Dolby Vision RPUs for a stream that picked it, as AMF sends
+    /// them ([`crate::amf::dynamic::start`]). Asks with the negotiated
+    /// stream, not the coded one: a packed 4:4:4 stream codes SDR.
+    fn enable_dynamic(&mut self, options: &Config) -> Option<Box<crate::amf::dynamic::Dynamic>> {
+        let wanted = crate::amf::dynamic::wanted(&self.config, options)?;
+        let packed = self.config.chroma_packing != 0;
+        if !packed {
+            self.stats = Some(Box::new(crate::gpu_color::HdrStats::new(&self.gpu)));
+        }
+        crate::amf::dynamic::start(wanted, packed, self.stats.as_deref_mut(), &self.warnings)
     }
     pub fn set_luminance(&mut self, luminance: [f32; 2]) {
         self.luminance = luminance;
     }
+    /// HDR10 static metadata for the bitstream (API 13 and newer) and as the
+    /// stand-in of dynamic metadata.
     pub fn set_hdr_metadata(&mut self, metadata: butterpollo_core::hdr::Metadata) {
+        if let Some(dynamic) = self.dynamic.as_deref_mut() {
+            dynamic.set_metadata(metadata);
+        }
         self.session.set_hdr_metadata(metadata);
+    }
+    /// The receiver's display peak, for dynamic metadata that names one.
+    pub fn set_hdr_target(&mut self, nits: u16) {
+        if let Some(dynamic) = self.dynamic.as_deref_mut() {
+            dynamic.set_target(nits);
+        }
     }
     pub fn set_next_frame(&mut self, frame: u64) {
         debug_assert!(self.session.pending.is_empty() && self.session.ready.is_empty());
@@ -1339,13 +1558,69 @@ impl Encoder {
     pub fn backlog(&self) -> usize {
         self.session.pending.len()
     }
+    /// When NVENC accepted the last submitted picture.
+    pub fn last_submitted(&self) -> Option<Instant> {
+        self.last_submitted
+    }
+    /// The GPU this encoder opened on.
+    pub fn adapter(&self) -> &str {
+        &self.gpu.display.adapter
+    }
+    pub fn device_removed(&self) -> Option<crate::device_loss::DeviceLost> {
+        crate::device_loss::DeviceLost::d3d11(&self.gpu.device)
+    }
+    /// AMF's throughput names answered from `NV_ENC_CAPS_MB_PER_SEC_MAX`, in
+    /// 16x16 macroblocks per second, for the session's own codec.
+    pub fn capability(&self, name: &str) -> Option<i64> {
+        if throughput_codec(name)? != self.session.stream.codec {
+            return None;
+        }
+        let _guard = self.session.guard().ok()?;
+        self.session
+            .cap(_NV_ENC_CAPS_NV_ENC_CAPS_MB_PER_SEC_MAX)
+            .ok()
+            .filter(|rate| *rate > 0)
+            .map(i64::from)
+    }
+    /// The frame budget guard's verdict on this session's preset.
+    pub fn budget(&self) -> Option<Budget> {
+        self.session.budget
+    }
+    /// Snapshot only at failure/recreation, before dropping the driver state.
+    pub fn log_stall(&self) {
+        let oldest = self.session.pending.front();
+        // SAFETY: the D3D11 device is owned by this encoder and outlives the
+        // call; GetDeviceRemovedReason only reads its state.
+        let removed = unsafe { self.gpu.device.GetDeviceRemovedReason() };
+        tracing::warn!(
+            in_flight = self.session.pending.len(),
+            ready = self.session.ready.len(),
+            oldest_frame = ?oldest.map(|pending| pending.frame),
+            oldest_ms = ?oldest.map(|pending| pending.started.elapsed().as_millis()),
+            next_frame = self.session.next,
+            asynchronous = self.session.initialize.enableEncodeAsync != 0,
+            last_submit = ?self.last_submitted.map(|at| at.elapsed().as_millis()),
+            d3d11_removed = ?removed,
+            "NVENC stall snapshot"
+        );
+    }
     pub fn poll(&mut self) -> Result<Vec<Encoded>> {
-        self.session.poll()
+        let mut frames = self.session.poll()?;
+        for frame in &mut frames {
+            splice(self.dynamic.as_deref_mut(), frame);
+        }
+        Ok(frames)
     }
     pub fn accepts_gpu_device(&self, image: &GpuImage) -> bool {
         self.gpu.device.as_raw() == image.gpu.device.as_raw()
     }
+    /// A CPU image, such as the codec probe's, goes through the same GPU
+    /// conversion as a capture.
     pub fn encode(&mut self, image: &Image, idr: bool, bitrate: u32) -> Result<Vec<Encoded>> {
+        anyhow::ensure!(
+            self.overlay.is_none(),
+            "couch menu: needs wgc_direct_encoder_input"
+        );
         let gpu = GpuImage::upload(&self.gpu, image)?;
         self.encode_gpu(&gpu, idr, bitrate)
     }
@@ -1368,18 +1643,27 @@ impl Encoder {
             self.session.clear_inputs()?;
             self.converter = Some(crate::gpu_color::Converter::new(
                 &self.gpu,
-                &self.session.stream,
+                &self.config,
                 source,
             )?);
             self.source = Some(source);
         }
         let converter = self.converter.as_mut().unwrap();
         converter.set_luminance(self.luminance);
+        converter.set_overlay(self.overlay.as_ref());
         let converted = converter.convert(image)?;
+        // Submitted with `dynamic::sample`, once the frame went to NVENC.
+        if let (Some(stats), Some(converter)) = (self.stats.as_deref_mut(), &self.converter) {
+            stats.queue(image, converter);
+        }
         let slot = self.session.texture_slot(converted.as_ref())?;
         self.session
             .submit(slot, Some(converted), idr, image.captured)?;
-        self.session.poll()
+        self.last_submitted = Some(Instant::now());
+        // Before the poll, so the frame it returns carries the newest
+        // finished sample.
+        crate::amf::dynamic::sample(&mut self.dynamic, self.stats.as_deref_mut(), &self.warnings);
+        self.poll()
     }
 }
 #[cfg(test)]

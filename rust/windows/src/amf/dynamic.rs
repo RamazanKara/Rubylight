@@ -19,21 +19,21 @@ use std::time::{Duration, Instant};
 
 /// What an HDR stream's frames carry beside the picture.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) struct Wanted {
-    pub(super) codec: Codec,
+pub(crate) struct Wanted {
+    pub(crate) codec: Codec,
     /// HDR10+ and HDR Vivid (`hdr_dynamic_metadata`), HDR Vivid alone on an
     /// HLG stream.
-    pub(super) t35: bool,
+    pub(crate) t35: bool,
     /// A Dolby Vision RPU on every frame ([`dovi::negotiated`]): profile 10.1
     /// on AV1, 8.4 on an HLG HEVC stream, else 8.1.
-    pub(super) dolby_vision: bool,
+    pub(crate) dolby_vision: bool,
     /// An HLG stream (`Negotiated::hlg`): HLG or Dolby Vision 8.4.
-    pub(super) hlg: bool,
+    pub(crate) hlg: bool,
 }
 
 impl Wanted {
     #[cfg(test)]
-    pub(super) fn t35(codec: Codec) -> Self {
+    pub(crate) fn t35(codec: Codec) -> Self {
         Self {
             codec,
             t35: true,
@@ -65,7 +65,7 @@ impl Wanted {
 /// whose client picked Dolby Vision 8.1 or 8.4, and AV1 streams whose client
 /// picked 10.1. `None` leaves every output byte as AMF wrote it. Ten-bit SDR
 /// never gets any, even if a path marked it SDR without clearing `hdr`.
-pub(super) fn wanted(
+pub(crate) fn wanted(
     config: &butterpollo_core::rtsp::Negotiated,
     options: &butterpollo_core::config::Config,
 ) -> Option<Wanted> {
@@ -86,7 +86,7 @@ pub(super) fn wanted(
 /// The statistics pass behind the compute conversion
 /// ([`crate::compute::Converter`]) or the D3D11 one
 /// ([`crate::gpu_color::HdrStats`]), or a fake in tests.
-pub(super) trait Stats {
+pub(crate) trait Stats {
     fn enable(&mut self) -> anyhow::Result<()>;
     fn submit(&mut self) -> anyhow::Result<()>;
     fn latest(&self, newer_than: u64) -> anyhow::Result<Option<HdrStatsReadout>>;
@@ -163,7 +163,7 @@ fn unmeasured(wanted: Wanted, stream: &str, why: &str, warnings: &Warnings) {
 /// bitstream says SDR, and the device unpacks the picture in its own shader
 /// and takes the static HDR10 metadata from the control channel, so no
 /// decoder would read them (`stream_policy::packed_drops_dolby_vision`).
-pub(super) fn start(
+pub(crate) fn start(
     wanted: Wanted,
     packed: bool,
     stats: Option<&mut (impl Stats + ?Sized)>,
@@ -199,7 +199,7 @@ pub(super) fn start(
             return Some(Box::new(Dynamic::with(wanted, true)));
         }
         Some(Err(error)) => format!(
-            "the GPU statistics pass did not start ({error:#}). Update the AMD driver, or turn off hdr_dynamic_metadata"
+            "the GPU statistics pass did not start ({error:#}). Update the graphics driver, or turn off hdr_dynamic_metadata"
         ),
         None => {
             "its encoder input has no GPU statistics pass. Report this with the host log".to_owned()
@@ -228,7 +228,7 @@ pub(super) fn start(
 /// waits for the GPU. A pass that fails ends the measurements for the rest
 /// of the stream and says so: it costs no frame, HDR10+ goes off and Dolby
 /// Vision goes back to the static light levels.
-pub(super) fn sample(
+pub(crate) fn sample(
     slot: &mut Option<Box<Dynamic>>,
     stats: Option<&mut (impl Stats + ?Sized)>,
     warnings: &Warnings,
@@ -271,7 +271,7 @@ pub(super) fn sample(
 /// gets a cap that counts what the frame gained. A `keyframe` refreshes the
 /// RPU's scene. The bytes are `None` to send them as they are: without
 /// dynamic metadata, a middle unit, or nothing added.
-pub(super) fn output(
+pub(crate) fn output(
     dynamic: Option<&mut Dynamic>,
     unit: Unit,
     bytes: &[u8],
@@ -297,7 +297,7 @@ pub(super) fn output(
 }
 
 /// One encoder's dynamic metadata.
-pub(super) struct Dynamic {
+pub(crate) struct Dynamic {
     wanted: Wanted,
     /// HDR10+ and HDR Vivid, and the smoothing every sample goes through.
     writer: Writer,
@@ -363,13 +363,13 @@ impl Cost {
 impl Dynamic {
     /// HDR10+ and HDR Vivid from the statistics pass.
     #[cfg(test)]
-    pub(super) fn new(codec: Codec) -> Self {
+    pub(crate) fn new(codec: Codec) -> Self {
         Self::with(Wanted::t35(codec), true)
     }
     /// Until the stream names its target display, the 1000-nit default of
     /// [`hdr_dynamic::target_display_nits`]; until it names its static
     /// metadata, `hdr::Metadata::default`.
-    pub(super) fn with(wanted: Wanted, measuring: bool) -> Self {
+    pub(crate) fn with(wanted: Wanted, measuring: bool) -> Self {
         let target = hdr_dynamic::target_display_nits(None, None);
         let (writer, dovi) = wanted.writers(target);
         Self {
@@ -386,13 +386,13 @@ impl Dynamic {
     }
     /// The conversion the last sample measured, for
     /// [`crate::compute::Converter::latest_hdr_stats`].
-    pub(super) fn sampled(&self) -> u64 {
+    pub(crate) fn sampled(&self) -> u64 {
         self.sampled
     }
     /// The receiver's display peak. HDR10+ profile A and HDR Vivid name no
     /// target display, so the units stay as they are; Dolby Vision's L2
     /// trims are written for it.
-    pub(super) fn set_target(&mut self, nits: u16) {
+    pub(crate) fn set_target(&mut self, nits: u16) {
         if self.display_peak != nits {
             tracing::info!(
                 nits,
@@ -407,19 +407,19 @@ impl Dynamic {
     }
     /// The stream's static HDR10 metadata, which frames before the first
     /// sample carry as a stand-in, and which every RPU carries.
-    pub(super) fn set_metadata(&mut self, metadata: butterpollo_core::hdr::Metadata) {
+    pub(crate) fn set_metadata(&mut self, metadata: butterpollo_core::hdr::Metadata) {
         self.writer.set_metadata(&metadata);
         if let Some(rpus) = self.dovi.as_mut() {
             rpus.set_metadata(metadata);
         }
     }
-    pub(super) fn submitted(&mut self, started: Instant) {
+    pub(crate) fn submitted(&mut self, started: Instant) {
         self.report.submit.add(started);
     }
     /// Take what [`crate::compute::Converter::latest_hdr_stats`] found.
     /// Nothing new keeps the current units; a readout that disagrees with
     /// itself is logged and skipped.
-    pub(super) fn take(
+    pub(crate) fn take(
         &mut self,
         readout: anyhow::Result<Option<HdrStatsReadout>>,
         started: Instant,
@@ -469,7 +469,7 @@ impl Dynamic {
     /// `None` to send it as it is: without them, when it has no insertion
     /// point, or when AMF produced nothing. Counts what the frame gains for
     /// its cap, an HEVC frame's RPU ([`Dynamic::next_rpu`]) included.
-    pub(super) fn first_unit(&mut self, bytes: &[u8]) -> Option<Vec<u8>> {
+    pub(crate) fn first_unit(&mut self, bytes: &[u8]) -> Option<Vec<u8>> {
         let started = Instant::now();
         self.added = 0;
         if bytes.is_empty() {
@@ -547,7 +547,7 @@ impl Dynamic {
     }
     /// A frame cap that counts the units the current frame gained. Zero (the
     /// driver's unrestricted default) and unknown stay as they are.
-    pub(super) fn cap(&self, cap: Option<u64>) -> Option<u64> {
+    pub(crate) fn cap(&self, cap: Option<u64>) -> Option<u64> {
         cap.map(|cap| if cap > 0 { cap + self.added } else { cap })
     }
 }

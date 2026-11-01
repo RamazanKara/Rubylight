@@ -636,12 +636,17 @@ fn desktop_duplication_on_a_display_driven_by_another_vendor_suggests_wgc() {
             amd
         },
     ];
-    let error = require_amd_duplication("Intel(R) HD Graphics 530", 0x8086, &all).unwrap_err();
+    let error = require_encoding_duplication("Intel(R) HD Graphics 530", 0x8086, &all).unwrap_err();
     let detail = format!("{error:#}");
-    assert!(detail.starts_with("Intel(R) HD Graphics 530 is not an AMD graphics card"));
+    assert!(
+        detail
+            .starts_with("Intel(R) HD Graphics 530 is neither an AMD nor an NVIDIA graphics card")
+    );
     assert!(detail.contains("AMD Radeon(TM) 680M"));
     assert!(detail.contains("use WGC capture"));
-    assert!(require_amd_duplication("AMD Radeon(TM) 680M", 0x1002, &all).is_ok());
+    assert!(require_encoding_duplication("AMD Radeon(TM) 680M", 0x1002, &all).is_ok());
+    // An NVIDIA GPU encodes with NVENC where it captures.
+    assert!(require_encoding_duplication("NVIDIA RTX 3050", 0x10de, &all).is_ok());
 }
 #[test]
 fn a_stream_pins_to_the_amd_gpu_when_the_pc_has_another_vendors_too() {
@@ -667,13 +672,23 @@ fn a_stream_pins_to_the_amd_gpu_when_the_pc_has_another_vendors_too() {
         pinned_choice(&gpus, None, "Intel(R) UHD Graphics", ""),
         ("Intel(R) UHD Graphics".to_string(), String::new())
     );
-    // An all-AMD PC, or one with no AMD GPU, leaves Automatic alone.
+    // An all-AMD PC, or one with no GPU, leaves Automatic alone.
     assert_eq!(pinned_choice(&hybrid_gpus(), None, "", ""), none());
-    let mut no_amd = hybrid_gpus();
-    no_amd[0].vendor = 0x8086;
-    no_amd[1].vendor = 0x10de;
-    assert_eq!(pinned_choice(&no_amd, None, "", ""), none());
     assert_eq!(pinned_choice(&[], None, "", ""), none());
+    // An Intel GPU beside an NVIDIA one: the NVIDIA GPU, which NVENC encodes on.
+    let mut nvidia = hybrid_gpus();
+    nvidia[0].vendor = 0x8086;
+    nvidia[1].vendor = 0x10de;
+    assert_eq!(
+        pinned_choice(&nvidia, None, "", ""),
+        (
+            "AMD Radeon RX 6850M XT".to_string(),
+            nvidia[1].pnp_id.clone().unwrap()
+        )
+    );
+    // An all-NVIDIA PC is left alone too.
+    nvidia[0].vendor = 0x10de;
+    assert_eq!(pinned_choice(&nvidia, None, "", ""), none());
 }
 #[test]
 fn a_stream_pins_to_the_biggest_radeon_and_leaves_a_display_already_on_one() {
@@ -690,15 +705,18 @@ fn a_stream_pins_to_the_biggest_radeon_and_leaves_a_display_already_on_one() {
     let gpus = [nvidia, igpu, dgpu];
     // Not the first Radeon: the one with the most video memory.
     assert_eq!(pinned_choice(&gpus, None, "", ""), dgpu_choice);
-    assert_eq!(pinned_choice(&gpus, Some(0x10de), "", ""), dgpu_choice);
-    // The monitor is on a Radeon already: capture stays on that one.
-    assert_eq!(
-        pinned_choice(&gpus, Some(0x1002), "", ""),
-        (String::new(), String::new())
-    );
+    assert_eq!(pinned_choice(&gpus, Some(0x8086), "", ""), dgpu_choice);
+    // The monitor is on a Radeon or the NVIDIA GPU already: capture stays on
+    // that one, and its own encoder encodes.
+    for vendor in [0x1002, 0x10de] {
+        assert_eq!(
+            pinned_choice(&gpus, Some(vendor), "", ""),
+            (String::new(), String::new())
+        );
+    }
 }
 #[test]
-fn with_no_display_the_stream_gpu_is_the_pinned_or_only_radeon_or_refused() {
+fn with_no_display_the_stream_gpu_is_the_pinned_or_only_encoding_gpu_or_refused() {
     let other = |name: &str, vendor| Gpu {
         name: name.into(),
         vendor,
@@ -722,6 +740,15 @@ fn with_no_display_the_stream_gpu_is_the_pinned_or_only_radeon_or_refused() {
         headless_gpu(&[intel(), igpu]).unwrap().name,
         "AMD Radeon(TM) 680M"
     );
+    // The only NVIDIA GPU, alone or beside an Intel one.
+    assert_eq!(
+        headless_gpu(&[nvidia()]).unwrap().name,
+        "NVIDIA GeForce RTX 3050"
+    );
+    assert_eq!(
+        headless_gpu(&[intel(), nvidia()]).unwrap().name,
+        "NVIDIA GeForce RTX 3050"
+    );
     // Several Radeons and none chosen, or none at all: refused, not guessed.
     let error = format!(
         "{:#}",
@@ -730,26 +757,27 @@ fn with_no_display_the_stream_gpu_is_the_pinned_or_only_radeon_or_refused() {
             .unwrap_err()
     );
     assert!(error.contains("Graphics card setting"), "{error}");
-    for gpus in [vec![nvidia(), intel()], vec![]] {
+    for gpus in [vec![intel()], vec![]] {
         let error = format!(
             "{:#}",
             headless_gpu(&gpus).map(|gpu| &gpu.name).unwrap_err()
         );
-        assert!(error.contains("no AMD GPU"), "{error}");
+        assert!(error.contains("no AMD or NVIDIA GPU"), "{error}");
     }
 }
 #[test]
-fn the_probe_skips_a_non_amd_display_only_when_no_gpu_is_chosen_and_an_amd_one_exists() {
+fn the_probe_skips_an_intel_display_only_when_no_gpu_is_chosen_and_an_encoding_one_exists() {
     let (nvidia, amd, intel) = (0x10de, 0x1002, 0x8086);
-    // The monitor on NVIDIA, an AMD iGPU beside it, Graphics card Automatic.
-    assert!(probe_skips_display(nvidia, false, &[nvidia, amd]));
+    // The monitor on Intel, an AMD or NVIDIA GPU beside it, Graphics card Automatic.
     assert!(probe_skips_display(intel, false, &[amd, intel]));
-    // A chosen GPU is probed as chosen; an AMD monitor stays as it is.
-    assert!(!probe_skips_display(nvidia, true, &[nvidia, amd]));
+    assert!(probe_skips_display(intel, false, &[intel, nvidia]));
+    // A chosen GPU is probed as chosen; an AMD or NVIDIA monitor stays as it is.
+    assert!(!probe_skips_display(intel, true, &[intel, amd]));
     assert!(!probe_skips_display(amd, false, &[nvidia, amd]));
-    // Nothing AMD to move to: the encoder says why on the display's GPU.
-    assert!(!probe_skips_display(nvidia, false, &[nvidia, intel]));
-    assert!(!probe_skips_display(nvidia, false, &[]));
+    assert!(!probe_skips_display(nvidia, false, &[nvidia, amd]));
+    // Nothing to move to: the encoder says why on the display's GPU.
+    assert!(!probe_skips_display(intel, false, &[intel]));
+    assert!(!probe_skips_display(intel, false, &[]));
 }
 
 #[test]

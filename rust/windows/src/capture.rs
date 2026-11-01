@@ -1,7 +1,7 @@
 use crate::text::from_wide;
 use anyhow::{Context, Result, bail, ensure};
-use butterpollo_core::amd_gpu;
 use butterpollo_core::capture_policy::notification_wait_interval;
+use butterpollo_core::encoder_gpu;
 use serde::Serialize;
 use std::time::{Duration, Instant};
 use windows::{
@@ -228,20 +228,20 @@ pub fn gpus() -> Result<Vec<Gpu>> {
         Ok(result)
     }
 }
-/// The hardware GPUs as the AMD check reads them.
-pub fn amd_adapters(gpus: &[Gpu]) -> Vec<amd_gpu::Adapter> {
+/// The hardware GPUs as the encoder GPU check reads them.
+pub fn gpu_adapters(gpus: &[Gpu]) -> Vec<encoder_gpu::Adapter> {
     gpus.iter()
-        .map(|gpu| amd_gpu::Adapter {
+        .map(|gpu| encoder_gpu::Adapter {
             name: gpu.name.clone(),
             vendor: gpu.vendor,
         })
         .collect()
 }
 /// The GPU choice a stream that encodes on the capture device opens it with.
-/// A chosen GPU stays. With none chosen on a PC that also has a non-AMD GPU it
-/// is the AMD GPU with the most video memory, unless the display is already on
-/// an AMD GPU (`display_vendor`), so that WGC captures and AMF encodes there
-/// whichever GPU drives the monitor, as the probe already assumes.
+/// A chosen GPU stays. With none chosen on a PC that mixes vendors it is the
+/// AMD or NVIDIA GPU with the most video memory, unless the display is already
+/// on one (`display_vendor`), so that WGC captures and AMF or NVENC encodes
+/// there whichever GPU drives the monitor, as the probe already assumes.
 fn pinned_choice(
     gpus: &[Gpu],
     display_vendor: Option<u32>,
@@ -253,7 +253,8 @@ fn pinned_choice(
             .iter()
             .map(|gpu| (gpu.vendor, gpu.dedicated_memory))
             .collect();
-        if let Some(gpu) = amd_gpu::pinned(&adapters, display_vendor).map(|index| &gpus[index]) {
+        if let Some(gpu) = encoder_gpu::pinned(&adapters, display_vendor).map(|index| &gpus[index])
+        {
             return (gpu.name.clone(), gpu.pnp_id.clone().unwrap_or_default());
         }
     }
@@ -303,24 +304,25 @@ pub fn stream_gpu(display: &str, adapter_name: &str, pnp_id: &str) -> Result<(St
     ))
 }
 /// The GPU a stream encodes on while no display is connected, as on a
-/// headless host or one whose monitor is off: the AMD GPU
-/// [`amd_gpu::pinned`] chooses, else the only AMD GPU. With several AMD GPUs
-/// and none chosen, or none at all, which one would stream is unknown.
+/// headless host or one whose monitor is off: the GPU
+/// [`encoder_gpu::pinned`] chooses, else the only AMD or NVIDIA GPU. With
+/// several of them and none chosen, or none at all, which one would stream is
+/// unknown.
 fn headless_gpu(gpus: &[Gpu]) -> Result<&Gpu> {
     let adapters: Vec<(u32, u64)> = gpus
         .iter()
         .map(|gpu| (gpu.vendor, gpu.dedicated_memory))
         .collect();
-    if let Some(index) = amd_gpu::pinned(&adapters, None) {
+    if let Some(index) = encoder_gpu::pinned(&adapters, None) {
         return Ok(&gpus[index]);
     }
-    let mut amd = gpus.iter().filter(|gpu| amd_gpu::is_amd(gpu.vendor));
-    match (amd.next(), amd.next()) {
+    let mut encoding = gpus.iter().filter(|gpu| encoder_gpu::encodes(gpu.vendor));
+    match (encoding.next(), encoding.next()) {
         (Some(gpu), None) => Ok(gpu),
         (Some(_), Some(_)) => bail!(
-            "no display is connected, and of this PC's AMD GPUs none is chosen: choose one in the Graphics card setting"
+            "no display is connected, and of this PC's AMD and NVIDIA GPUs none is chosen: choose one in the Graphics card setting"
         ),
-        (None, _) => bail!("no display is connected, and this PC has no AMD GPU"),
+        (None, _) => bail!("no display is connected, and this PC has no AMD or NVIDIA GPU"),
     }
 }
 /// The PCI vendor of the GPU that drives `name` (the primary if it is gone).
@@ -343,19 +345,22 @@ fn display_vendor(name: &str) -> Option<u32> {
         )
     }
 }
-/// Whether the probe's device skips the display's adapter for the AMD one: no
-/// GPU is chosen, the display is on a non-AMD adapter, and an AMD one exists.
+/// Whether the probe's device skips the display's adapter for an encoding
+/// one: no GPU is chosen, the display is on an adapter that is neither AMD nor
+/// NVIDIA, and an AMD or NVIDIA one exists.
 fn probe_skips_display(display_vendor: u32, chosen: bool, vendors: &[u32]) -> bool {
-    !chosen && !amd_gpu::is_amd(display_vendor) && vendors.iter().any(|v| amd_gpu::is_amd(*v))
+    !chosen
+        && !encoder_gpu::encodes(display_vendor)
+        && vendors.iter().any(|v| encoder_gpu::encodes(*v))
 }
 /// Whether capture on `gpu` can be encoded, for Desktop Duplication, which can
 /// capture a display only on the GPU that drives it: the refusal otherwise.
-fn require_amd_duplication(name: &str, vendor: u32, all: &[Gpu]) -> Result<()> {
-    let adapter = amd_gpu::Adapter {
+fn require_encoding_duplication(name: &str, vendor: u32, all: &[Gpu]) -> Result<()> {
+    let adapter = encoder_gpu::Adapter {
         name: name.to_string(),
         vendor,
     };
-    amd_gpu::check_adapter(&adapter, &amd_adapters(all))?;
+    encoder_gpu::check_adapter(&adapter, &gpu_adapters(all))?;
     Ok(())
 }
 impl ComGuard {
@@ -494,7 +499,7 @@ pub struct Device {
     /// where the device can still encode.
     pub output: Option<IDXGIOutput1>,
     pub display: std::sync::Arc<Display>,
-    /// The PCI vendor of the device's adapter. Streams encode only on AMD.
+    /// The PCI vendor of the device's adapter. Streams encode only on AMD and NVIDIA.
     pub vendor: u32,
     // Capture and all encoder clones observe one throttled colour snapshot.
     color: Option<std::sync::Arc<std::sync::Mutex<output::Color>>>,
@@ -551,10 +556,10 @@ impl Device {
             if !hardware_adapter(&desc) {
                 return Self::without_display(adapter_name, pnp_id);
             }
-            // With no GPU chosen, a monitor on an NVIDIA or Intel card must
-            // not hide an AMD card that can encode (an AMD iGPU beside an
-            // NVIDIA dGPU). The stream then captures and encodes on that card
-            // too (`stream_adapter`), so the probe promises what it delivers.
+            // With no GPU chosen, a monitor on an Intel card must not hide an
+            // AMD or NVIDIA card that can encode. The stream then captures and
+            // encodes on that card too (`stream_adapter`), so the probe
+            // promises what it delivers.
             if gpus().is_ok_and(|all| {
                 let vendors: Vec<u32> = all.iter().map(|gpu| gpu.vendor).collect();
                 probe_skips_display(
@@ -656,12 +661,14 @@ impl Device {
                 if !adapter_name.is_empty() || !pnp_id.is_empty() {
                     bail!("the configured GPU adapter was not found: {adapter_name} {pnp_id}");
                 }
-                bail!("{}", amd_gpu::Refusal::NoGpu);
+                bail!("{}", encoder_gpu::Refusal::NoGpu);
             }
-            // The AMD adapter encodes: take it first when no GPU is chosen.
-            // Nothing AMD leaves the first one, which the encoder refuses.
+            // An AMD, else an NVIDIA adapter encodes: take it first when no
+            // GPU is chosen. Neither leaves the first one, which the encoder
+            // refuses.
             let vendors: Vec<u32> = candidates.iter().map(|c| c.2).collect();
-            let (index, adapter, _, description) = candidates.remove(amd_gpu::preferred(&vendors));
+            let (index, adapter, _, description) =
+                candidates.remove(encoder_gpu::preferred(&vendors));
             let display = Display {
                 device_id: String::new(),
                 display_name: String::new(),
@@ -774,9 +781,9 @@ impl GpuMismatch {
 /// Desktop Duplication duplicates a display only on the GPU that renders it.
 /// A device on the selected GPU is replaced by one on that GPU: the encoder
 /// follows the captured frames, so the stream encodes there and says so
-/// instead of ending without a picture. Rubylight 3.0 encodes only on AMD, so
-/// a display driven by another vendor's GPU fails with the refusal, which
-/// suggests WGC capture, instead of moving there.
+/// instead of ending without a picture. Rubylight encodes only on AMD and
+/// NVIDIA, so a display driven by another vendor's GPU fails with the refusal,
+/// which suggests WGC capture, instead of moving there.
 fn duplication_device<D>(
     selected: D,
     mismatch: impl FnOnce(&D) -> Option<GpuMismatch>,
@@ -787,7 +794,7 @@ fn duplication_device<D>(
         return Ok(selected);
     };
     drop(selected);
-    if !amd_gpu::is_amd(mismatch.owner_vendor) {
+    if !encoder_gpu::encodes(mismatch.owner_vendor) {
         bail!("{}", mismatch.refusal());
     }
     let device = owner().with_context(|| mismatch.refusal())?;
@@ -1623,9 +1630,9 @@ impl Capture {
                 name, window, hdr, config, warnings,
             )?)));
         }
-        // WGC captures a display on any GPU, so it opens on the AMD one; Desktop
-        // Duplication needs the GPU that drives the display and is refused when
-        // that is not AMD.
+        // WGC captures a display on any GPU, so it opens on the encoding one;
+        // Desktop Duplication needs the GPU that drives the display and is
+        // refused when that is neither AMD nor NVIDIA.
         let (adapter_name, pnp_id) = if matches!(kind, "ddx" | "dxgi") {
             (
                 config.get("adapter_name", "").to_string(),
@@ -1659,8 +1666,8 @@ impl Capture {
             )?;
             // A display on another vendor's GPU captures there and could only
             // be encoded there.
-            if !amd_gpu::is_amd(gpu.vendor) {
-                require_amd_duplication(&gpu.display.adapter, gpu.vendor, &gpus()?)?;
+            if !encoder_gpu::encodes(gpu.vendor) {
+                require_encoding_duplication(&gpu.display.adapter, gpu.vendor, &gpus()?)?;
             }
             let mut duplication = Duplication::new_device(gpu, hdr)?;
             duplication.owned.warnings = warnings.clone();

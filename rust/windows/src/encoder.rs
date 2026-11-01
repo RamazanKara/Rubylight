@@ -1,12 +1,13 @@
 //! The video encoder of a stream.
 //!
-//! [`Encoder`] is AMF for H.264, HEVC and AV1 and PyroWave's own encoder for
-//! PyroWave streams. There is no other encoder to fall back to: when AMF
-//! cannot start, that is the error the stream reports.
+//! [`Encoder`] is AMF on an AMD GPU and NVENC on an NVIDIA GPU for H.264,
+//! HEVC and AV1, and PyroWave's own encoder for PyroWave streams. There is no
+//! other encoder to fall back to: when the GPU's encoder cannot start, that
+//! is the error the stream reports.
 
 use crate::capture::{GpuImage, Image};
 use anyhow::{Context, Result};
-use butterpollo_core::{amd_gpu, encoder_focus, rtsp::Negotiated, session::Warnings};
+use butterpollo_core::{encoder_focus, encoder_gpu, rtsp::Negotiated, session::Warnings};
 
 /// How `Encoded::bytes` relates to a picture. Only AMF in slice output mode
 /// (`video_slice_delivery`) returns anything but `Whole`: a P-frame then comes
@@ -43,26 +44,45 @@ fn amf_failed(error: anyhow::Error, adapter: &str) -> anyhow::Error {
     ))
 }
 
-/// Rubylight encodes only on an AMD GPU. A device on another vendor's GPU is
-/// refused in words, naming the AMD GPU to use when the PC has one, and never
-/// handed to AMF or PyroWave to fail obscurely.
-fn require_amd(device: &crate::capture::Device) -> Result<()> {
-    if amd_gpu::is_amd(device.vendor) {
+/// What a stream reports when NVENC does not start on `adapter`.
+fn nvenc_failed(error: anyhow::Error, adapter: &str) -> anyhow::Error {
+    error.context(format!(
+        "NVENC could not start on {adapter}. If Windows is at the sign-in screen or an RDP session was disconnected, sign in to and unlock the console session, then retry. Otherwise update the NVIDIA graphics driver or select another codec on the device"
+    ))
+}
+
+/// Rubylight encodes only on an AMD or an NVIDIA GPU. A device on another
+/// vendor's GPU is refused in words, naming the GPU to use when the PC has
+/// one, and never handed to an encoder to fail obscurely.
+fn require_encoding_gpu(device: &crate::capture::Device) -> Result<()> {
+    if encoder_gpu::encodes(device.vendor) {
         return Ok(());
     }
-    require_amd_among(
+    require_encoding_among(
         &device.display.adapter,
         device.vendor,
         &crate::capture::gpus().unwrap_or_default(),
     )
 }
-fn require_amd_among(name: &str, vendor: u32, gpus: &[crate::capture::Gpu]) -> Result<()> {
-    let all = crate::capture::amd_adapters(gpus);
-    let adapter = amd_gpu::Adapter {
+fn require_encoding_among(name: &str, vendor: u32, gpus: &[crate::capture::Gpu]) -> Result<()> {
+    let all = crate::capture::gpu_adapters(gpus);
+    let adapter = encoder_gpu::Adapter {
         name: name.into(),
         vendor,
     };
-    Ok(amd_gpu::check_adapter(&adapter, &all)?)
+    Ok(encoder_gpu::check_adapter(&adapter, &all)?)
+}
+/// AMF or NVENC for this device and the `encoder` setting
+/// ([`butterpollo_core::encoder_policy::backend`]).
+fn backend(
+    device: &crate::capture::Device,
+    tuning: &butterpollo_core::config::Config,
+) -> Result<&'static str> {
+    butterpollo_core::encoder_policy::backend(
+        tuning.get("encoder", "auto"),
+        device.vendor,
+        &device.display.adapter,
+    )
 }
 
 /// Preserve startup warnings when the selected encoder adopts the session's
@@ -76,6 +96,7 @@ fn attach_warnings(current: &mut std::sync::Arc<Warnings>, reported: &std::sync:
 
 pub enum Encoder {
     Amf(Box<crate::amf::Encoder>),
+    Nvenc(Box<crate::nvenc::Encoder>),
     Pyrowave(Box<crate::pyrowave::Encoder>),
 }
 impl Encoder {
@@ -96,7 +117,8 @@ impl Encoder {
         }
     }
     /// The largest inter frame sent as encoded; AMF encodes a larger one again
-    /// as a keyframe. PyroWave holds every picture to its budget.
+    /// as a keyframe. PyroWave holds every picture to its budget, and NVENC's
+    /// one-frame VBV every inter frame to the stream's rate.
     pub fn set_cut_limit(&mut self, bytes: u64) {
         if let Self::Amf(encoder) = self {
             encoder.set_cut_limit(bytes);
@@ -123,15 +145,19 @@ impl Encoder {
         }
     }
     pub fn set_hdr_metadata(&mut self, metadata: butterpollo_core::hdr::Metadata) {
-        if let Self::Amf(encoder) = self {
-            encoder.set_hdr_metadata(metadata);
+        match self {
+            Self::Amf(encoder) => encoder.set_hdr_metadata(metadata),
+            Self::Nvenc(encoder) => encoder.set_hdr_metadata(metadata),
+            Self::Pyrowave(_) => {}
         }
     }
     /// The receiver's display peak, for dynamic metadata that names a target
     /// display. PyroWave carries none.
     pub fn set_hdr_target(&mut self, nits: u16) {
-        if let Self::Amf(encoder) = self {
-            encoder.set_hdr_target(nits);
+        match self {
+            Self::Amf(encoder) => encoder.set_hdr_target(nits),
+            Self::Nvenc(encoder) => encoder.set_hdr_target(nits),
+            Self::Pyrowave(_) => {}
         }
     }
     /// SDR white is absolute luminance; the scRGB scale expands a 1000-nit ceiling.
@@ -139,6 +165,7 @@ impl Encoder {
         let luminance = [white_nits.clamp(100., 200.), linear_scale.clamp(1., 2.)];
         match self {
             Self::Amf(e) => e.luminance = luminance,
+            Self::Nvenc(e) => e.set_luminance(luminance),
             Self::Pyrowave(e) => e.luminance = luminance,
         }
     }
@@ -173,7 +200,7 @@ impl Encoder {
         // including when recovery selects a different codec.
         warnings.clear("encoder_intra_refresh");
         warnings.clear("hdr_dynamic_metadata");
-        require_amd(&image.gpu)?;
+        require_encoding_gpu(&image.gpu)?;
         if config.codec == 3 {
             if config.hdr {
                 // The colour conversion (`gpu_color::constants`) encodes this curve.
@@ -195,6 +222,17 @@ impl Encoder {
                     warnings.clone(),
                 )?,
             )));
+        }
+        if backend(&image.gpu, tuning)? == "nvenc" {
+            return match crate::nvenc::Encoder::new_device_reported(
+                config,
+                image.gpu.clone(),
+                tuning,
+                warnings,
+            ) {
+                Ok(encoder) => Ok(Self::Nvenc(Box::new(encoder))),
+                Err(error) => Err(nvenc_failed(error, &image.gpu.display.adapter)),
+            };
         }
         // Colour conversion on a compute queue keeps running beside a
         // game that fills the GPU's graphics queue.
@@ -247,18 +285,21 @@ impl Encoder {
     ) -> Result<Vec<Encoded>> {
         match self {
             Self::Amf(e) => e.encode_gpu(image, idr, bitrate),
+            Self::Nvenc(e) => e.encode_gpu(image, idr, bitrate),
             Self::Pyrowave(e) => e.encode_gpu(image, idr, bitrate),
         }
     }
     pub fn accepts_gpu_device(&self, image: &GpuImage) -> bool {
         match self {
             Self::Amf(e) => e.accepts_gpu_device(image),
+            Self::Nvenc(e) => e.accepts_gpu_device(image),
             Self::Pyrowave(e) => e.accepts_gpu_device(image),
         }
     }
     pub fn pending(&self) -> bool {
         match self {
             Self::Amf(e) => e.pending(),
+            Self::Nvenc(e) => e.pending(),
             Self::Pyrowave(_) => false,
         }
     }
@@ -267,6 +308,7 @@ impl Encoder {
     pub fn last_submitted(&self) -> Option<std::time::Instant> {
         match self {
             Self::Amf(e) => e.last_submitted(),
+            Self::Nvenc(e) => e.last_submitted(),
             Self::Pyrowave(_) => None,
         }
     }
@@ -274,13 +316,14 @@ impl Encoder {
     pub fn backlog(&self) -> usize {
         match self {
             Self::Amf(e) => e.backlog(),
+            Self::Nvenc(e) => e.backlog(),
             Self::Pyrowave(_) => 0,
         }
     }
     pub fn backlog_limit(&self) -> usize {
         match self {
             Self::Amf(e) => e.backlog_limit(),
-            Self::Pyrowave(_) => butterpollo_core::encoder_backlog::DEFAULT_LIMIT,
+            Self::Nvenc(_) | Self::Pyrowave(_) => butterpollo_core::encoder_backlog::DEFAULT_LIMIT,
         }
     }
     pub fn recovery_backlog_limit(&self) -> usize {
@@ -296,13 +339,16 @@ impl Encoder {
         }
     }
     pub fn log_stall(&self) {
-        if let Self::Amf(encoder) = self {
-            encoder.log_stall();
+        match self {
+            Self::Amf(encoder) => encoder.log_stall(),
+            Self::Nvenc(encoder) => encoder.log_stall(),
+            Self::Pyrowave(_) => {}
         }
     }
     pub fn device_removed(&self) -> Option<crate::device_loss::DeviceLost> {
         match self {
             Self::Amf(encoder) => encoder.device_removed(),
+            Self::Nvenc(encoder) => encoder.device_removed(),
             Self::Pyrowave(encoder) => encoder.device_removed(),
         }
     }
@@ -310,6 +356,7 @@ impl Encoder {
     pub fn adapter(&self) -> Option<&str> {
         match self {
             Self::Amf(encoder) => Some(encoder.adapter()),
+            Self::Nvenc(encoder) => Some(encoder.adapter()),
             Self::Pyrowave(_) => None,
         }
     }
@@ -317,6 +364,7 @@ impl Encoder {
     pub fn capability(&self, name: &str) -> Option<i64> {
         match self {
             Self::Amf(encoder) => encoder.capability(name),
+            Self::Nvenc(encoder) => encoder.capability(name),
             Self::Pyrowave(_) => None,
         }
     }
@@ -324,18 +372,21 @@ impl Encoder {
     pub fn backend(&self) -> &'static str {
         match self {
             Self::Amf(_) => "amf",
+            Self::Nvenc(_) => "nvenc",
             Self::Pyrowave(_) => "pyrowave",
         }
     }
     pub fn supports_invalidation(&self) -> bool {
         match self {
             Self::Amf(e) => e.supports_invalidation(),
+            Self::Nvenc(e) => e.supports_invalidation(),
             Self::Pyrowave(_) => false,
         }
     }
     pub fn invalidate_ref_frames(&mut self, first: u64, last: u64) -> bool {
         match self {
             Self::Amf(encoder) => encoder.invalidate_ref_frames(first, last),
+            Self::Nvenc(encoder) => encoder.invalidate_ref_frames(first, last),
             Self::Pyrowave(_) => false,
         }
     }
@@ -345,6 +396,7 @@ impl Encoder {
     pub fn poll(&mut self) -> Result<Vec<Encoded>> {
         match self {
             Self::Amf(e) => e.poll(),
+            Self::Nvenc(e) => e.poll(),
             Self::Pyrowave(_) => Ok(vec![]),
         }
     }
@@ -354,7 +406,7 @@ impl Encoder {
     pub fn slice_delivery(&self) -> u8 {
         match self {
             Self::Amf(e) => e.slice_delivery(),
-            Self::Pyrowave(_) => 0,
+            Self::Nvenc(_) | Self::Pyrowave(_) => 0,
         }
     }
     /// Slice delivery is off for the rest of the session: later frames come
@@ -366,8 +418,10 @@ impl Encoder {
     }
     /// A recreated encoder must keep the wire frame numbers used by RFI.
     pub fn set_next_frame(&mut self, frame: u64) {
-        if let Self::Amf(e) = self {
-            e.set_next_frame(frame);
+        match self {
+            Self::Amf(e) => e.set_next_frame(frame),
+            Self::Nvenc(e) => e.set_next_frame(frame),
+            Self::Pyrowave(_) => {}
         }
     }
     pub fn new(config: &Negotiated, display: &str) -> Result<Self> {
@@ -392,13 +446,18 @@ impl Encoder {
             tuning.get("adapter_pnp_id", ""),
         )
         .context("the encoder could not open the configured GPU. If Windows is at the sign-in screen or an RDP session was disconnected, sign in to and unlock the console session, then retry. Otherwise check the adapter setting")?;
-        require_amd(&device)?;
+        require_encoding_gpu(&device)?;
         if config.codec == 3 {
             return Ok(Self::Pyrowave(Box::new(
                 crate::pyrowave::Encoder::new_device(config, device, tuning)?,
             )));
         }
         let adapter = device.display.adapter.clone();
+        if backend(&device, tuning)? == "nvenc" {
+            return crate::nvenc::Encoder::new_device_options(config, device, tuning)
+                .map(|encoder| Self::Nvenc(Box::new(encoder)))
+                .map_err(|error| nvenc_failed(error, &adapter));
+        }
         crate::amf::Encoder::new_device_options(config, device, tuning)
             .map(|mut encoder| {
                 encoder.probe = true;
@@ -409,6 +468,7 @@ impl Encoder {
     pub fn encode(&mut self, image: &Image, idr: bool, bitrate: u32) -> Result<Vec<Encoded>> {
         match self {
             Self::Amf(e) => e.encode(image, idr, bitrate),
+            Self::Nvenc(e) => e.encode(image, idr, bitrate),
             Self::Pyrowave(e) => e.encode(image, idr, bitrate),
         }
     }
@@ -422,6 +482,7 @@ impl Encoder {
     pub fn set_overlay(&mut self, overlay: Option<crate::overlay::Overlay>) {
         match self {
             Self::Amf(e) => e.overlay = overlay,
+            Self::Nvenc(e) => e.overlay = overlay,
             Self::Pyrowave(e) => e.overlay = overlay,
         }
     }
@@ -429,22 +490,31 @@ impl Encoder {
     pub fn has_overlay(&self) -> bool {
         match self {
             Self::Amf(e) => e.overlay.is_some(),
+            Self::Nvenc(e) => e.overlay.is_some(),
             Self::Pyrowave(e) => e.overlay.is_some(),
         }
     }
 }
-// Encoder focus (docs/encoder-focus-design.md): AMF's ROI map. PyroWave has
-// none: it refuses a map and reports `Reason::Pyrowave`.
+// Encoder focus (docs/encoder-focus-design.md): AMF's ROI map. PyroWave and
+// NVENC have none: they refuse a map and report `Reason::Pyrowave` or
+// `Reason::Nvenc`.
 impl Encoder {
+    /// Why an encoder other than AMF has no map.
+    fn no_focus(&self) -> encoder_focus::Reason {
+        match self {
+            Self::Nvenc(_) => encoder_focus::Reason::Nvenc,
+            _ => encoder_focus::Reason::Pyrowave,
+        }
+    }
     /// The map's settings for the next frames, or `None` for no map.
     pub fn set_focus(&mut self, settings: Option<crate::compute::FocusSettings>) -> Result<()> {
         match self {
             Self::Amf(e) => e.set_focus(settings),
-            Self::Pyrowave(_) if settings.is_some() => Err(anyhow::anyhow!(
+            other if settings.is_some() => Err(anyhow::anyhow!(
                 "encoder focus: {}",
-                encoder_focus::Reason::Pyrowave.message()
+                other.no_focus().message()
             )),
-            Self::Pyrowave(_) => Ok(()),
+            _ => Ok(()),
         }
     }
     pub fn set_focus_verify(&mut self, every: Option<u32>) {
@@ -455,7 +525,7 @@ impl Encoder {
     pub fn focus_stats(&self) -> std::result::Result<encoder_focus::Stats, encoder_focus::Reason> {
         match self {
             Self::Amf(e) => Ok(e.focus_stats()),
-            Self::Pyrowave(_) => Err(encoder_focus::Reason::Pyrowave),
+            other => Err(other.no_focus()),
         }
     }
     /// Why a map failed on a frame since the last call. The encoder has
@@ -463,16 +533,16 @@ impl Encoder {
     pub fn take_focus_failure(&mut self) -> Option<anyhow::Error> {
         match self {
             Self::Amf(e) => e.take_focus_failure(),
-            Self::Pyrowave(_) => None,
+            _ => None,
         }
     }
     /// The startup check (design section 7). An error is the encoder's.
     pub fn probe_focus(&mut self) -> Result<encoder_focus::Support> {
         match self {
             Self::Amf(e) => Ok(e.probe_focus()?.support),
-            Self::Pyrowave(_) => Ok(encoder_focus::Support::Unsupported {
-                reason: encoder_focus::Reason::Pyrowave,
-                message: encoder_focus::Reason::Pyrowave.message().into(),
+            other => Ok(encoder_focus::Support::Unsupported {
+                reason: other.no_focus(),
+                message: other.no_focus().message().into(),
             }),
         }
     }
@@ -524,38 +594,60 @@ mod tests {
         }
     }
     #[test]
-    fn a_stream_on_a_non_amd_gpu_is_refused_in_words() {
-        let all = [gpu("NVIDIA GeForce RTX 4070", 0x10de)];
-        let error = require_amd_among(&all[0].name, all[0].vendor, &all).unwrap_err();
+    fn nvenc_failure_names_the_adapter_and_the_nvidia_driver() {
+        let message = format!(
+            "{:#}",
+            nvenc_failed(
+                anyhow::anyhow!("NVENC session failed"),
+                "NVIDIA GeForce RTX 4070",
+            )
+        );
+        assert!(
+            message.starts_with("NVENC could not start on NVIDIA GeForce RTX 4070"),
+            "{message}"
+        );
+        assert!(message.contains("unlock the console session"));
+        assert!(message.contains("update the NVIDIA graphics driver"));
+        assert!(!message.contains("AMD"), "{message}");
+        assert!(message.ends_with("NVENC session failed"), "{message}");
+    }
+    #[test]
+    fn a_stream_on_an_intel_gpu_is_refused_in_words() {
+        let all = [gpu("Intel(R) Arc(TM) A770", 0x8086)];
+        let error = require_encoding_among(&all[0].name, all[0].vendor, &all).unwrap_err();
         let message = format!("{error:#}");
         assert!(
-            message.contains("this PC has only NVIDIA GeForce RTX 4070"),
+            message.contains("this PC has only Intel(R) Arc(TM) A770"),
             "{message}"
         );
         assert!(message.contains("stay on Rubylight 2.6.x"), "{message}");
         assert!(message.contains("/releases/tag/v2.6.0"), "{message}");
-        // It never reaches AMF, whose failure text would blame the driver.
-        assert!(!message.contains("AMF could not start"), "{message}");
+        // It never reaches an encoder, whose failure text would blame the driver.
+        assert!(!message.contains("could not start"), "{message}");
     }
     #[test]
-    fn an_amd_igpu_beside_an_nvidia_dgpu_is_named_when_the_display_is_on_the_nvidia() {
+    fn amd_and_nvidia_gpus_encode_and_an_intel_display_names_the_one_that_can() {
         let all = [
+            gpu("Intel(R) UHD Graphics 770", 0x8086),
             gpu("NVIDIA GeForce RTX 4070", 0x10de),
             gpu("AMD Radeon(TM) Graphics", 0x1002),
         ];
+        assert!(require_encoding_among(&all[1].name, 0x10de, &all).is_ok());
+        assert!(require_encoding_among(&all[2].name, 0x1002, &all).is_ok());
         let message = format!(
             "{:#}",
-            require_amd_among(&all[0].name, 0x10de, &all).unwrap_err()
+            require_encoding_among(&all[0].name, 0x8086, &all).unwrap_err()
         );
         assert!(
-            message.starts_with("NVIDIA GeForce RTX 4070 is not an AMD graphics card"),
+            message.starts_with(
+                "Intel(R) UHD Graphics 770 is neither an AMD nor an NVIDIA graphics card"
+            ),
             "{message}"
         );
         assert!(
-            message.contains("also has AMD Radeon(TM) Graphics"),
+            message.contains("also has NVIDIA GeForce RTX 4070"),
             "{message}"
         );
-        assert!(require_amd_among(&all[1].name, 0x1002, &all).is_ok());
     }
     #[test]
     fn startup_warnings_survive_attaching_the_session_reporter() {

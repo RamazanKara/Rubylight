@@ -2219,33 +2219,42 @@ mod tests {
         let path = directory.join("sunshine.conf");
         std::fs::write(
             &path,
-            "encoder = nvenc\nframe_limiter_provider = nvidia-control-panel\nnvenc_preset = 4\nsunshine_name = Host\n",
+            "encoder = quicksync\nframe_limiter_provider = nvidia-control-panel\nqsv_preset = slow\nnvenc_preset = 4\nsunshine_name = Host\n",
         )
         .unwrap();
         let first = Fixture::load(directory.clone());
         {
             let config = first.host.config.read().unwrap();
-            assert_eq!(config.get("encoder", ""), "amf");
+            assert_eq!(config.get("encoder", ""), "auto");
             assert_eq!(config.get("frame_limiter_provider", ""), "auto");
-            assert!(!config.values.contains_key("nvenc_preset"));
+            assert!(!config.values.contains_key("qsv_preset"));
+            // NVENC is an encoder again: its settings stay.
+            assert_eq!(config.get("nvenc_preset", ""), "4");
             assert_eq!(config.get("sunshine_name", ""), "Host");
         }
         let warnings = first.host.warnings.snapshot();
         assert_eq!(warnings.len(), 1, "{warnings:?}");
         assert_eq!(warnings[0].code, "settings_retired");
-        assert!(warnings[0].message.contains("encoder nvenc is now amf"));
+        assert!(
+            warnings[0]
+                .message
+                .contains("encoder quicksync is now auto")
+        );
         assert!(
             warnings[0]
                 .message
                 .contains("frame_limiter_provider nvidia-control-panel is now auto")
         );
         let saved = std::fs::read_to_string(&path).unwrap();
-        assert!(saved.contains("encoder = amf"), "{saved}");
-        assert!(!saved.contains("nvenc"), "{saved}");
+        assert!(saved.contains("encoder = auto"), "{saved}");
+        assert!(!saved.contains("qsv"), "{saved}");
         // The next start reads the migrated file without a warning.
         let second = Fixture::load(directory);
         assert!(second.host.warnings.snapshot().is_empty());
-        assert_eq!(second.host.config.read().unwrap().get("encoder", ""), "amf");
+        assert_eq!(
+            second.host.config.read().unwrap().get("encoder", ""),
+            "auto"
+        );
     }
 
     #[test]

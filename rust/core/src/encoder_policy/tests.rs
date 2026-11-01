@@ -128,13 +128,44 @@ fn only_an_automatic_cap_in_frame_mode_is_scaled() {
 }
 
 #[test]
-fn the_probe_accepts_amf_and_auto_and_rejects_any_other_encoder() {
+fn the_probe_accepts_amf_nvenc_and_auto_and_rejects_any_other_encoder() {
     assert!(super::probe_option("amf").is_ok());
+    assert!(super::probe_option("nvenc").is_ok());
     assert!(super::probe_option("auto").is_ok());
-    for other in ["nvenc", "qsv", "software", "amdvce", ""] {
+    for other in ["qsv", "software", "amdvce", ""] {
         let error = super::probe_option(other).unwrap_err().to_string();
-        assert!(error.contains("AMF-only"), "{other}: {error}");
+        assert!(error.contains("AMF or NVENC"), "{other}: {error}");
     }
+}
+
+#[test]
+fn automatic_encodes_with_the_gpus_own_encoder_and_a_mismatch_is_refused() {
+    for setting in ["", "auto", "pyrowave", "amdvce"] {
+        assert_eq!(super::backend(setting, 0x1002, "Radeon").unwrap(), "amf");
+    }
+    for setting in ["", "auto", "nvenc", "nvenc_legacy"] {
+        assert_eq!(super::backend(setting, 0x10de, "GeForce").unwrap(), "nvenc");
+    }
+    let amd = super::backend("nvenc", 0x1002, "AMD Radeon RX 7900 XT")
+        .unwrap_err()
+        .to_string();
+    assert!(amd.contains("asks for NVIDIA NVENC"), "{amd}");
+    assert!(
+        amd.contains("AMD Radeon RX 7900 XT encodes with AMD AMF"),
+        "{amd}"
+    );
+    assert!(amd.contains("Set the encoder to Automatic"), "{amd}");
+    let nvidia = super::backend("amf", 0x10de, "NVIDIA GeForce RTX 4070")
+        .unwrap_err()
+        .to_string();
+    assert!(
+        nvidia.contains("NVIDIA GeForce RTX 4070 encodes with NVIDIA NVENC"),
+        "{nvidia}"
+    );
+    let intel = super::backend("auto", 0x8086, "Intel Arc A770")
+        .unwrap_err()
+        .to_string();
+    assert!(intel.contains("neither an AMD nor an NVIDIA"), "{intel}");
 }
 
 use super::*;
@@ -880,7 +911,7 @@ fn amf_split_frame_hint_follows_the_setting_and_the_engine_count() {
     }
 }
 #[test]
-fn imported_amd_encoder_names_select_amf_and_others_select_automatically() {
+fn imported_amd_and_nvidia_encoder_names_select_their_encoder_and_others_automatically() {
     for name in [
         "amdvce",
         "amdvce_experimental",
@@ -892,6 +923,11 @@ fn imported_amd_encoder_names_select_amf_and_others_select_automatically() {
         assert_eq!(canonical_name(config.get("encoder", "auto")), "amf");
         assert_eq!(config.get("encoder", "auto"), name);
     }
+    for name in ["nvenc", "nvenc_experimental", "nvenc_legacy"] {
+        let config = Config::parse(&format!("encoder={name}\n")).unwrap();
+        assert_eq!(canonical_name(config.get("encoder", "auto")), "nvenc");
+        assert_eq!(config.get("encoder", "auto"), name);
+    }
     for name in ["", "auto"] {
         assert_eq!(canonical_name(name), name);
     }
@@ -899,9 +935,6 @@ fn imported_amd_encoder_names_select_amf_and_others_select_automatically() {
         "mediafoundation",
         "unknown",
         "pyrowave",
-        "nvenc",
-        "nvenc_experimental",
-        "nvenc_legacy",
         "quicksync",
         "qsv",
         "software",

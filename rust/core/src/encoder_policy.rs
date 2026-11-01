@@ -3,14 +3,15 @@
 use crate::{config::Config, rtsp::Negotiated};
 use anyhow::{Result, bail};
 
-/// Apollo's and Vibepollo's names for AMD's encoder are AMF. Automatic is AMF
-/// too: it is the host's only encoder for H.264, HEVC and AV1. Names this
-/// host cannot use select automatically; reading the configuration already
-/// replaced them (see [`retired`]).
+/// Apollo's and Vibepollo's names for AMD's encoder are AMF, and for
+/// NVIDIA's NVENC. Automatic encodes with the stream GPU's own encoder
+/// ([`backend`]). Names this host cannot use select automatically; reading
+/// the configuration already replaced them (see [`retired`]).
 pub fn canonical_name(name: &str) -> &str {
     match name {
         "amdvce" | "amdvce_experimental" | "amdvce_ffmpeg" | "amdvce_legacy" => "amf",
-        "" | "auto" | "amf" => name,
+        "nvenc_experimental" | "nvenc_legacy" => "nvenc",
+        "" | "auto" | "amf" | "nvenc" => name,
         // Chooses PyroWave's own encoder; other codecs select automatically.
         "pyrowave" => "auto",
         other => {
@@ -19,28 +20,62 @@ pub fn canonical_name(name: &str) -> &str {
         }
     }
 }
-/// An `encoder` value naming an encoder this host does not have: NVENC,
-/// Quick Sync, software, Media Foundation or anything else. The
-/// configuration replaces it with AMF.
+/// An `encoder` value naming an encoder this host does not have: Quick
+/// Sync, software, Media Foundation or anything else. The configuration
+/// replaces it with automatic selection.
 pub fn retired(name: &str) -> bool {
     !matches!(
         name,
         "" | "auto"
             | "amf"
+            | "nvenc"
             | "pyrowave"
             | "amdvce"
             | "amdvce_experimental"
             | "amdvce_ffmpeg"
             | "amdvce_legacy"
+            | "nvenc_experimental"
+            | "nvenc_legacy"
     )
 }
 
+/// The encoder for H.264, HEVC and AV1 on the stream's GPU: AMF on an AMD
+/// GPU, NVENC on an NVIDIA one. An `encoder` setting that names the other
+/// vendor's encoder is refused in words, never swapped for the right one.
+pub fn backend(setting: &str, vendor: u32, adapter: &str) -> Result<&'static str> {
+    let own = if crate::encoder_gpu::is_nvidia(vendor) {
+        "nvenc"
+    } else if crate::encoder_gpu::is_amd(vendor) {
+        "amf"
+    } else {
+        bail!(
+            "{adapter} is neither an AMD nor an NVIDIA graphics card, and Rubylight encodes only on those"
+        )
+    };
+    match canonical_name(setting) {
+        named @ ("amf" | "nvenc") if named != own => bail!(
+            "the encoder setting asks for {}, but {adapter} encodes with {}. Set the encoder to Automatic, or pick the GPU for {} in the adapter setting",
+            display_name(named),
+            display_name(own),
+            display_name(named)
+        ),
+        _ => Ok(own),
+    }
+}
+fn display_name(backend: &str) -> &'static str {
+    if backend == "nvenc" {
+        "NVIDIA NVENC"
+    } else {
+        "AMD AMF"
+    }
+}
+
 /// The `--encoder` of the measurement probes. Older repro commands pass
-/// `--encoder amf`; it and `auto` still mean the only encoder there is.
+/// `--encoder amf`; `auto` encodes with the GPU's own encoder.
 pub fn probe_option(value: &str) -> Result<()> {
     match value {
-        "amf" | "auto" => Ok(()),
-        other => bail!("--encoder {other} is not available: Rubylight 3.0 is AMF-only"),
+        "amf" | "nvenc" | "auto" => Ok(()),
+        other => bail!("--encoder {other} is not available: Rubylight encodes with AMF or NVENC"),
     }
 }
 

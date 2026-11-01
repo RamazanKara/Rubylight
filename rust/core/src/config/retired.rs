@@ -25,8 +25,8 @@ pub const RETIRED_SETTINGS: &[RetiredSetting] = &[
     RetiredSetting {
         key: "encoder",
         retired: crate::encoder_policy::retired,
-        current: "amf",
-        reason: "this host encodes H.264, HEVC and AV1 with AMF only",
+        current: "auto",
+        reason: "this host encodes H.264, HEVC and AV1 with AMF or NVENC only",
     },
     RetiredSetting {
         key: "frame_limiter_provider",
@@ -116,8 +116,8 @@ pub const REMOVED_KEYS: &[&str] = &[
     "child_session_port",
     "child_session_host",
 ];
-/// The settings of the removed NVENC, Quick Sync and software encoders.
-pub const REMOVED_PREFIXES: &[&str] = &["nvenc_", "qsv_", "sw_"];
+/// The settings of the removed Quick Sync and software encoders.
+pub const REMOVED_PREFIXES: &[&str] = &["qsv_", "sw_"];
 /// Whether `key` belongs to a removed feature (`REMOVED_KEYS`,
 /// `REMOVED_PREFIXES`).
 pub fn removed(key: &str) -> bool {

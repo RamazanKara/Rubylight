@@ -1541,8 +1541,12 @@ async fn an_unavailable_encoder_does_not_queue_a_launch_or_start_an_app() {
     let message = &root.attributes["status_message"];
     assert!(message.contains("No video encoder is ready"), "{message}");
     assert!(message.contains("AMD Radeon GPU"), "{message}");
-    assert!(message.contains("update the Radeon driver"), "{message}");
-    assert!(message.contains("stay on Rubylight 2.6.x"), "{message}");
+    assert!(message.contains("NVIDIA GPU and its NVENC"), "{message}");
+    assert!(message.contains("update the graphics driver"), "{message}");
+    assert!(
+        message.contains("For Intel graphics, stay on Rubylight 2.6.x"),
+        "{message}"
+    );
     assert!(message.contains("/releases/tag/v2.6.0"), "{message}");
     assert!(f.host.sessions.lock().unwrap().pending.is_empty());
     assert!(f.host.current_app.lock().unwrap().is_none());

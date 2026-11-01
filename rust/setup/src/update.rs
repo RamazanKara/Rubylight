@@ -1015,14 +1015,14 @@ mod tests {
         Ok(())
     }
     #[test]
-    fn a_pc_without_an_amd_gpu_is_recorded_as_a_failed_update() -> Result<()> {
+    fn a_pc_without_an_encoding_gpu_is_recorded_as_a_failed_update() -> Result<()> {
         // The profile must be owned by Administrators, as setup leaves it.
         if !system::elevated() {
             return Ok(());
         }
         let temp = tempfile::tempdir_in(system::program_data())?;
         let profile = trusted_profile(temp.path())?;
-        let refusal = crate::amd_gpu::Refusal::NoGpu;
+        let refusal = crate::encoder_gpu::Refusal::NoGpu;
         let text = refusal.to_string();
         // What main does for `--update` on a PC the check refuses.
         record_refusal(&profile, None, &anyhow::Error::new(refusal));

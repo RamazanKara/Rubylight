@@ -397,6 +397,27 @@ fn left_never_lands_on_another_rows_reset() {
     assert!(focused(&f).is_some_and(|r| r.contains(reset.center())), "Left from {from:?} reaches the row's Reset {reset:?}, not {:?}", focused(&f));
 }
 
+/// Escape (B) in the search field leaves it for the first row found, so the D-pad carries on.
+#[test]
+fn escape_in_the_search_moves_focus_to_the_rows() {
+    let mut f = settings_with(Settings::default());
+    f.press_with(Key::F, egui::Modifiers::COMMAND);
+    f.frame(vec![egui::Event::Text("hdr".into())]);
+    f.settle();
+    f.press(Key::Escape);
+    let focused = |f: &Frames| f.ctx.memory(|m| m.focused()).and_then(|id| f.ctx.read_response(id)).map(|r| r.rect);
+    let results = f.placed.iter().find(|(t, ..)| t == "Results for “hdr”").expect("the results").1;
+    assert_eq!(f.l.settings_view.query, "hdr", "the first Escape keeps the search");
+    assert!(focused(&f).is_some_and(|r| r.left() > results.left() && r.top() > results.bottom()), "a row found has focus: {:?}", focused(&f));
+    // With nothing found, the open section's entry takes it.
+    f.press_with(Key::F, egui::Modifiers::COMMAND);
+    f.frame(vec![egui::Event::Text("zzzz".into())]);
+    f.settle();
+    f.press(Key::Escape);
+    let entry = f.placed.iter().filter(|(t, ..)| t == "Video").map(|p| p.1).min_by(|a, b| a.height().total_cmp(&b.height())).expect("the entry");
+    assert!(focused(&f).is_some_and(|r| r.contains(entry.center())), "the entry has focus: {:?}", focused(&f));
+}
+
 /// The settings page in every state worth a look, at 1280x800 (150 %) and 1920x1080:
 /// `NIGHTJAR_SHOTS=<dir> cargo test -p nightjar-desktop settings_screenshots -- --ignored`.
 #[test]

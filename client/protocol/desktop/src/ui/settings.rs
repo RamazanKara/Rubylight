@@ -79,6 +79,9 @@ pub(super) struct SettingsView {
     pub(super) confirm_reset: bool,
     /// The search field had focus last frame, so Escape leaves it before it leaves the page.
     search_focused: bool,
+    /// The first row drawn takes focus next frame (the search field was left); with none drawn,
+    /// the open section's entry does.
+    focus_rows: bool,
     /// Left was pressed last frame on this control in the rows, laid out there.
     left_from: Option<(Id, Rect)>,
     /// The setting rows the last frame drew, by first key, each with whether a group heading
@@ -125,7 +128,8 @@ impl Launcher {
         }
         let view = &mut self.settings_view;
         if view.search_focused {
-            view.search_focused = false;
+            // The rows take the focus the field gives up, so the D-pad carries on from there.
+            (view.search_focused, view.focus_rows) = (false, true);
             view.to_top = true;
             return true;
         }
@@ -195,6 +199,11 @@ impl Launcher {
         let screen = self.screen;
         self.settings_rows(&mut column, view, commands);
         if self.screen == screen {
+            if std::mem::take(&mut self.settings_view.focus_rows) {
+                if let Some(&(_, entry)) = entries.iter().find(|&&(name, _)| name == self.settings_view.section) {
+                    ui.memory_mut(|m| m.request_focus(entry));
+                }
+            }
             self.left_to_sections(ui, rows_rect, &entries);
         }
     }
@@ -391,6 +400,7 @@ impl Launcher {
         if focus_first {
             self.focus_screen = false;
         }
+        let focus_first = focus_first || self.settings_view.focus_rows;
         let mut rows = Rows {
             layer: layered.then_some((&inherited, overrides)),
             sources: &self.inherited_from,
@@ -1112,6 +1122,8 @@ impl Launcher {
         }
         self.settings_view.found = rows.found;
         self.settings_view.drawn = rows.drawn;
+        // Still waiting when no row was drawn to take it.
+        self.settings_view.focus_rows &= rows.focus_first;
         for (key, response) in links {
             self.focus_item(&response, key, false);
             if key == "profiles-link" && response.clicked() {

@@ -639,6 +639,7 @@ impl Launcher {
             setting_row(ui, s, &mut rows, &["sdr_10bit"], "Less color banding (10-bit SDR)",
                 "Streams non-HDR video in 10-bit HEVC or AV1, so gradients show fewer bands. Needs a 10-bit (Main10) decoder on this device, and the PC's display in SDR. On Linux, restart Nightjar after changing this.",
                 |ui, s| toggle(ui, &mut s.sdr_10bit));
+            rows.always();
             rows.when(!s.codec.is_pyrowave(), en("PyroWave uses its own decoder, set below."));
             setting_row(ui, s, &mut rows, &["decoder"], "Video decoding", "Automatic decodes on the graphics card when it can. Software uses the processor; try it only if the picture shows errors.", |ui, s| {
                 egui::ComboBox::from_id_salt("decoder")
@@ -739,6 +740,7 @@ impl Launcher {
                 },
                 |ui, s| toggle(ui, &mut s.present_at_host_times),
             );
+            rows.always();
             rows.when(!s.vrr, en("Used only with Variable refresh rate off."));
             setting_row(ui, s, &mut rows, &["frame_pacing"], "Frame pacing",
                 "Without VRR: Lowest latency shows the newest frame at once. Balanced waits for the screen's refresh. With an FPS limit, early frames wait their turn. Smoothest video shows every frame in turn and adds up to a frame of delay.",
@@ -749,8 +751,8 @@ impl Launcher {
                         }
                     }).response
                 });
-            rows.when(!s.vrr, en("Used only with Variable refresh rate off."));
-            rows.when(s.vrr || !s.frame_pacing.forces_vsync(), en("Always on with the chosen frame pacing."));
+            // Still narrowed to VRR off, as Frame pacing.
+            rows.when(!s.frame_pacing.forces_vsync(), en("Always on with the chosen frame pacing."));
             setting_row(ui, s, &mut rows, &["vsync"], "V-Sync", "Without VRR: waits for the screen's refresh, so the picture never tears.", |ui, s| {
                 toggle(ui, &mut s.vsync)
             });

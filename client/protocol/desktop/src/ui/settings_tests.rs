@@ -280,6 +280,57 @@ fn the_section_key_table_is_what_the_page_draws() {
     }
 }
 
+/// Main settings like `settings_with`, with the AccessKit tree on to read which rows are disabled.
+fn settings_read_with(changed: Settings) -> Frames {
+    let mut f = settings_with(changed);
+    f.ctx.enable_accesskit();
+    f.settle();
+    f
+}
+
+/// Whether the control whose description starts with `description` is disabled; None when no
+/// such control is drawn.
+fn control_disabled(f: &Frames, description: &str) -> Option<bool> {
+    f.access.as_ref().expect("AccessKit is on").nodes.iter()
+        .find(|(_, n)| n.role() != egui::accesskit::Role::Label && n.description().is_some_and(|d| d.starts_with(description)))
+        .map(|(_, n)| n.is_disabled())
+}
+
+/// Frame pacing and V-Sync work with Variable refresh rate off and Show frames with it on: a
+/// gate over some rows never carries over to the rows after them.
+#[test]
+fn the_vrr_rows_follow_their_own_gates() {
+    let (pacing, vsync, host_times) = ("Without VRR: Lowest latency", "Without VRR: waits", "With VRR: each frame");
+    for vrr in [false, true] {
+        let mut f = settings_read_with(Settings { vrr, frame_pacing: crate::config::FramePacing::Latency, ..Settings::default() });
+        f.l.settings_view.section = "Display & image";
+        f.settle();
+        assert_eq!(control_disabled(&f, pacing), Some(vrr), "vrr {vrr}: Frame pacing");
+        assert_eq!(control_disabled(&f, vsync), Some(vrr), "vrr {vrr}: V-Sync");
+        assert_eq!(control_disabled(&f, host_times), Some(!vrr), "vrr {vrr}: Show frames at the PC's frame times");
+        let notes = |text: &str| f.drawn.iter().filter(|t| *t == text).count();
+        assert_eq!(notes("Used only with Variable refresh rate off."), if vrr { 2 } else { 0 }, "{:?}", f.drawn);
+        assert_eq!(notes("Turn on Variable refresh rate to use this."), usize::from(!vrr), "{:?}", f.drawn);
+    }
+    // A frame pacing that waits for the refresh keeps V-Sync on, and says so.
+    let mut f = settings_read_with(Settings { vrr: false, frame_pacing: crate::config::FramePacing::Balanced, ..Settings::default() });
+    f.l.settings_view.section = "Display & image";
+    f.settle();
+    assert_eq!((control_disabled(&f, pacing), control_disabled(&f, vsync)), (Some(false), Some(true)));
+    assert!(shows(&f, "Always on with the chosen frame pacing."), "{:?}", f.drawn);
+}
+
+/// Full chroma turns off YUV 4:4:4 and 10-bit SDR, not Video decoding: only PyroWave does.
+#[test]
+fn full_chroma_leaves_video_decoding_alone() {
+    let decoding = "Automatic decodes on the graphics card";
+    let f = settings_read_with(Settings { experimental_packed_444: true, ..Settings::default() });
+    assert_eq!(control_disabled(&f, decoding), Some(false));
+    assert_eq!(control_disabled(&f, "Keeps full color detail"), Some(true));
+    let f = settings_read_with(Settings { codec: CodecPreference::PyroWave, ..Settings::default() });
+    assert_eq!(control_disabled(&f, decoding), Some(true));
+}
+
 /// The settings page in every state worth a look, at 1280x800 (150 %) and 1920x1080:
 /// `NIGHTJAR_SHOTS=<dir> cargo test -p nightjar-desktop settings_screenshots -- --ignored`.
 #[test]

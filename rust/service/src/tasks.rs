@@ -95,6 +95,8 @@ fn run(host: &Path, args: &[OsString], timeout: Duration, stop: &Signal) -> Resu
     // the readers below see the end of both.
     if let Err(error) = job.end() {
         tracing::warn!(task, %error, "what the task started could not be ended");
+        // The task itself at least, so that the wait below returns.
+        let _ = child.kill();
     }
     let status = child.wait()?;
     let mut texts = [String::new(), String::new()];

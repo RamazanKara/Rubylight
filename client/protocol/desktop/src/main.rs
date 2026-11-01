@@ -554,6 +554,11 @@ impl App {
         }
         self.pads.close_all();
         self.gui.destroy();
+        if self.connecting.is_some() {
+            // Ending a launch can take seconds: the window goes now rather than sitting frozen meanwhile.
+            // SAFETY: the window run() created, still alive.
+            unsafe { SDL_HideWindow(self.window) };
+        }
         // The connect thread may be using the renderer's GPU device (a decoder being made on it),
         // so a launch in progress ends, and a session it started stops, before the renderer goes.
         let (renderer, window) = (self.renderer, self.window);

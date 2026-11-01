@@ -245,17 +245,31 @@ impl Launcher {
             Screen::HostSettings(_) => (en("Settings with “For this PC” ticked apply to this PC only. The others follow the profile in use and your main settings."), en("Clear all for this PC")),
             _ => (en("Settings with “For this game” ticked apply to this game only. The others follow this PC, the profile in use and your main settings."), en("Clear all for this game")),
         };
-        let set = SECTION_KEYS.iter().flat_map(|keys| keys.iter()).filter(|keys| self.edit_overrides.has(keys)).count();
+        // The rows set here, and the settings set here that have no row (beam racing set from the
+        // stream menu): Clear all clears those too.
+        let rows = SECTION_KEYS.iter().flat_map(|keys| keys.iter());
+        let in_rows = rows.clone().filter(|keys| self.edit_overrides.has(keys)).count();
+        let values = serde_json::to_value(&self.edit_overrides).expect("overrides serialize");
+        let without_row = values.as_object().map_or(0, |values| values.keys().filter(|key| !rows.clone().any(|keys| keys.contains(&key.as_str()))).count());
+        let set = in_rows + without_row;
         let count = match set {
             0 => tr("Nothing is set here yet.").to_owned(),
             1 => tr("1 setting is set here.").to_owned(),
             n => trf("{} settings are set here.", &[&n]),
+        };
+        let hidden = match without_row {
+            0 => None,
+            1 => Some(tr("1 of them has no row on this page; Clear all clears it too.").to_owned()),
+            n => Some(trf("{} of them have no row on this page; Clear all clears them too.", &[&n])),
         };
         let confirm = &mut self.settings_view.confirm_reset;
         let mut cleared = false;
         banner(ui, |ui| {
             ui.label(RichText::new(tr(about)).font(regular(text::LABEL)).color(ON_SURFACE));
             ui.label(RichText::new(count).font(regular(text::CAPTION)).color(ON_SURFACE_VARIANT));
+            if let Some(hidden) = hidden {
+                ui.label(RichText::new(hidden).font(regular(text::CAPTION)).color(ON_SURFACE_VARIANT));
+            }
         }, |ui| {
             if *confirm {
                 if primary_button(ui, "Clear all").clicked() {

@@ -1,4 +1,5 @@
 //! Ordered conventional output with separate packetization and paced sending.
+pub(crate) mod link_watch;
 pub(crate) mod recovery;
 mod streamed;
 mod transport;
@@ -241,6 +242,20 @@ pub struct Handoff {
     pub slices: usize,
     /// `BUTTERPOLLO_TEST_SEND_JITTER`'s stalls, for the paced sender.
     pub send_jitter: Option<butterpollo_core::stream_policy::SendJitter>,
+    /// The stream's route, shared with the encode loop.
+    pub link: Arc<link_watch::LinkWatch>,
+}
+/// The priority the packetizer and paced sender run at. With
+/// `video_send_mmcss_only`, MMCSS's boost alone, as the input thread has it:
+/// the thread priority [`Priority::new`] sets after it cancels the boost.
+///
+/// [`Priority::new`]: butterpollo_windows::capture::Priority::new
+pub(crate) fn send_priority(mmcss_only: bool) -> butterpollo_windows::capture::Priority {
+    if mmcss_only {
+        butterpollo_windows::capture::Priority::input()
+    } else {
+        butterpollo_windows::capture::Priority::new()
+    }
 }
 pub struct Sender {
     slot: Arc<Slot>,
@@ -262,12 +277,15 @@ impl Sender {
         let pacing_due = handoff.pacing_due;
         let send_loss = std::mem::take(&mut handoff.send_loss);
         let jitter = handoff.send_jitter.take();
-        let mut sender = Self::packetizer(s.clone(), start, handoff)?;
+        let link = handoff.link.clone();
+        let mmcss_only = c.boolean("video_send_mmcss_only", false);
+        let mut sender = Self::packetizer(s.clone(), start, handoff, mmcss_only)?;
         let shared = sender.slot.clone();
         sender.transport = Some(thread::Builder::new().name("video-send".into()).spawn(
             move || {
+                let _priority = send_priority(mmcss_only);
                 let result = transport::run(
-                    &shared, socket, s, c, h, start, pacing_due, send_loss, jitter,
+                    &shared, socket, s, c, h, start, pacing_due, send_loss, jitter, link,
                 );
                 shared.finish(result);
             },
@@ -275,7 +293,12 @@ impl Sender {
         Ok(sender)
     }
 
-    fn packetizer(s: Arc<Session>, start: Instant, handoff: Handoff) -> Result<Self> {
+    fn packetizer(
+        s: Arc<Session>,
+        start: Instant,
+        handoff: Handoff,
+        mmcss_only: bool,
+    ) -> Result<Self> {
         let Handoff {
             mut packetizer,
             mut present_stamper,
@@ -286,7 +309,7 @@ impl Sender {
         } = handoff;
         let next_wire_frame = packetizer.frame;
         let sender = Self::spawn(s.launch.id.clone(), next_wire_frame, move |shared| {
-            let _priority = butterpollo_windows::capture::Priority::new();
+            let _priority = send_priority(mmcss_only);
             let mut fec_reported = None;
             let mut streams = streamed::Streams::new(slices);
             // Frames skipped while a streamed frame was open, owed to the next one.

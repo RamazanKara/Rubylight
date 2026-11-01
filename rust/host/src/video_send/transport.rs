@@ -1,5 +1,5 @@
 //! Socket pacing consumes packets whose Moonlight timing was already written.
-use super::*;
+use super::{link_watch::LinkWatch, *};
 use butterpollo_core::{
     network_pacing,
     performance::Timing,
@@ -111,6 +111,8 @@ struct Transport<'a> {
     batch: Batch,
     pacer: network_pacing::Pacer,
     link: Option<Link>,
+    /// The route, looked up off this thread.
+    watch: Arc<LinkWatch>,
     link_due: Instant,
     reported_pacing: Option<u64>,
     slow_reported: Option<Instant>,
@@ -138,9 +140,8 @@ impl Transport<'_> {
             self.link = None;
         }
         let first = self.link.is_none();
-        let route = *self
-            .link
-            .get_or_insert_with(|| butterpollo_windows::net::routed_link(peer));
+        let route = self.watch.get(peer);
+        self.link = Some(route);
         let bitrate = s.bitrate.load(Ordering::Relaxed);
         let client_link_mbps = s.client_link_mbps();
         if first {
@@ -419,7 +420,6 @@ impl Transport<'_> {
     fn finish(&mut self, frame: &Prepared, cur: Sending) {
         let (s, c) = (&self.s, &self.c);
         let period = s.stream_mode().period();
-        let peer = frame.peer;
         let start = self.start;
         let Sending {
             dequeued,
@@ -543,7 +543,6 @@ impl Transport<'_> {
             s.record_sent(frame.wire_frame, frame.timestamp, stamps, start);
         }
         if Instant::now() >= self.link_due {
-            self.link = Some(butterpollo_windows::net::routed_link(peer));
             self.link_due = Instant::now() + Duration::from_secs(2);
         }
     }
@@ -583,6 +582,7 @@ pub(super) fn run(
     pacing_due: Instant,
     send_loss: SendLossRecovery,
     jitter: Option<SendJitter>,
+    watch: Arc<LinkWatch>,
 ) -> Result<()> {
     run_with(
         shared,
@@ -595,6 +595,7 @@ pub(super) fn run(
         send_loss,
         SendDrop::from_env(),
         jitter,
+        watch,
     )
 }
 
@@ -611,8 +612,8 @@ pub(super) fn run_with(
     send_loss: SendLossRecovery,
     send_drop: Option<SendDrop>,
     jitter: Option<SendJitter>,
+    watch: Arc<LinkWatch>,
 ) -> Result<()> {
-    let _priority = butterpollo_windows::capture::Priority::new();
     let mut batch = Batch::default();
     batch.waits = Some(Default::default());
     let batch_kb = match c.integer("video_max_batch_size_kb", 64) {
@@ -633,6 +634,7 @@ pub(super) fn run_with(
         batch,
         pacer: network_pacing::Pacer::new(pacing_due),
         link: None,
+        watch,
         link_due: Instant::now(),
         reported_pacing: None,
         slow_reported: None,

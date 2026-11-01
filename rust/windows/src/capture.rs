@@ -501,8 +501,8 @@ pub struct Device {
     pub display: std::sync::Arc<Display>,
     /// The PCI vendor of the device's adapter. Streams encode only on AMD and NVIDIA.
     pub vendor: u32,
-    // Capture and all encoder clones observe one throttled colour snapshot.
-    color: Option<std::sync::Arc<std::sync::Mutex<output::Color>>>,
+    // Capture and all encoder clones read one watched colour snapshot.
+    color: Option<std::sync::Arc<output::Color>>,
 }
 impl Device {
     /// The monitor this device captures.
@@ -515,7 +515,7 @@ impl Device {
     pub fn hdr_metadata(&self) -> butterpollo_core::hdr::Metadata {
         self.color
             .as_ref()
-            .map(|color| color.lock().unwrap().metadata(Instant::now()))
+            .map(|color| color.read().1)
             .unwrap_or_default()
     }
     /// Whether Windows composes the captured output as HDR10 (BT.2020 PQ) right now. The pixel
@@ -528,7 +528,7 @@ impl Device {
     fn color_description(&self) -> Result<Option<output::Description>> {
         self.color
             .as_ref()
-            .map_or(Ok(None), |color| color.lock().unwrap().poll(Instant::now()))
+            .map_or(Ok(None), |color| color.read().0.map_err(anyhow::Error::msg))
     }
     pub fn new(name: &str) -> Result<Self> {
         Self::new_adapter(name, "", "")
@@ -711,9 +711,9 @@ impl Device {
             let _ = multithread.SetMultithreadProtected(true);
             let color = output
                 .as_ref()
-                .map(|output| output::Color::new(output, &display.display_name))
+                .map(|output| output::Color::open(output, &display.display_name))
                 .transpose()?
-                .map(|color| std::sync::Arc::new(std::sync::Mutex::new(color)));
+                .map(std::sync::Arc::new);
             Ok(Self {
                 device: device.unwrap(),
                 context,

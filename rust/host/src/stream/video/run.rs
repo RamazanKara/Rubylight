@@ -148,10 +148,12 @@ impl SessionThread<'_> {
         let mut routed = None;
         let mut link_due = Instant::now();
         let mut reported_pacing = None;
-        // Encoder admission needs the route before its very first
-        // picture, independently of the asynchronous sender's cache.
-        let mut encode_route = None;
-        let mut encode_route_due = Instant::now();
+        // The route, looked up on its own thread: encoder admission
+        // and both send paths read its latest answer.
+        let link_watch = Arc::new(crate::video_send::link_watch::LinkWatch::default());
+        // The checks the encode loop still makes a frame (display
+        // colour and route reads), for the timing log.
+        let mut checks = crate::video_send::link_watch::CheckTimes::default();
         let mut recovery_packetizer = packetizer.clone();
         // The largest frame with full parity, for the FEC percentage,
         // packet size and FEC choice it was found at.
@@ -227,7 +229,8 @@ impl SessionThread<'_> {
             if send_thread && video_sender.get().is_none() && !slices::open(&slice_route, &streaming) && (!sender_decided || !output.is_empty() || inline_paced || loss_paced) {
                 let mid_stream = sender_decided;
                 sender_decided = true;
-                let route = *link.get_or_insert_with(|| butterpollo_windows::net::routed_link(peer));
+                let route = link_watch.get(peer);
+                link = Some(route);
                 packetizer.fec_percent = s.fec_percent();
                 let bitrate = s.bitrate.load(Ordering::Relaxed);
                 let crate::video_send::recovery::Pace { bps, needed } =
@@ -251,6 +254,7 @@ impl SessionThread<'_> {
                         slice_blocks: delivery.blocks(),
                         slices: s.config.slices as usize,
                         send_jitter: send_jitter.take(),
+                        link: link_watch.clone(),
                     };
                     let _ = video_sender.set(crate::video_send::Sender::new(m.video.clone(), s.clone(), c.clone(), h.clone(), start, handoff)?);
                     tracing::info!(pacing_bps = bps, bitrate_kbps = bitrate, wire_budget_bps = needed, automatic_pacing, large_frame, send_jitter = send_jitter_set, mid_stream, wire_frame = packetizer.frame, "video frames are sent on their own thread for current or adaptive pacing");
@@ -300,7 +304,8 @@ impl SessionThread<'_> {
                         let timestamp = (stamp.saturating_duration_since(start).as_secs_f64() * 90000.) as u64 as u32;
                         packetizer.fec_percent = s.frame_fec_percent(false);
                         let wire_frame = packetizer.frame;
-                        let route = *link.get_or_insert_with(|| butterpollo_windows::net::routed_link(peer));
+                        let route = link_watch.get(peer);
+                        link = Some(route);
                         let bitrate = s.bitrate.load(Ordering::Relaxed);
                         let crate::video_send::recovery::Pace { bps, needed } =
                             crate::video_send::recovery::pace(&s, &c, &packetizer, stream_period.get(), peer, route);
@@ -458,7 +463,6 @@ impl SessionThread<'_> {
                     }
                     slice_spare = streamed.into_buffer();
                     if Instant::now() >= link_due {
-                        link = Some(butterpollo_windows::net::routed_link(peer));
                         link_due = Instant::now() + Duration::from_secs(2);
                     }
                     continue 'frames;
@@ -491,7 +495,8 @@ impl SessionThread<'_> {
                     link = None;
                 }
                 let first_link = link.is_none();
-                let route = *link.get_or_insert_with(|| butterpollo_windows::net::routed_link(peer));
+                let route = link_watch.get(peer);
+                link = Some(route);
                 if first_link {
                     crate::video_send::recovery::warn_if_client_link_below_stream(&s, route);
                 }
@@ -660,11 +665,10 @@ impl SessionThread<'_> {
                     }
                 }
                 let record_time = sent.elapsed();
-                // The interface lookup takes a moment: refresh the
-                // link speed after the frame is out, for the next one.
+                // The route watcher refreshes the link speed; this paces
+                // the pacing report.
                 let link_started = Instant::now();
                 if Instant::now() >= link_due {
-                    link = Some(butterpollo_windows::net::routed_link(peer));
                     link_due = Instant::now() + Duration::from_secs(2);
                 }
                 let link_time = link_started.elapsed();
@@ -786,6 +790,10 @@ impl SessionThread<'_> {
                                 wgc_stamp_frames,
                                 wgc_stamp_future_frames,
 
+                                // The encode loop's remaining display and route reads a frame:
+                                // mean/max ms; the watcher's longest lookup, off the hot path.
+                                stage_checks_ms=%checks.take(),
+                                link_lookup_max_ms=link_watch.take_slowest().as_secs_f64() * 1000.,
                                 send_interval_p95_ms=timing["send_interval_p95_ms"].as_f64().unwrap_or(0.),
                                 send_interval_p99_ms=timing["send_interval_p99_ms"].as_f64().unwrap_or(0.),
                                 send_interval_max_ms=timing["send_interval_max_ms"].as_f64().unwrap_or(0.),
@@ -962,7 +970,9 @@ impl SessionThread<'_> {
                     latest.release_generation(&capture_wake);
                     continue;
                 };
+                let checks_started = Instant::now();
                 require_hdr_source(&s, || image.gpu.display_in_hdr(), true)?;
+                let mut frame_checks = checks_started.elapsed();
                 // Resolution changes or DXGI loss can recreate the capture device.
                 rebuild_encoder |= encoder
                     .as_ref()
@@ -1275,7 +1285,10 @@ impl SessionThread<'_> {
                     }
                 }
                 if Instant::now() >= metadata_due {
-                    let metadata = m.set_display_hdr_metadata(&s, image.gpu.hdr_metadata());
+                    let checks_started = Instant::now();
+                    let display_metadata = image.gpu.hdr_metadata();
+                    frame_checks += checks_started.elapsed();
+                    let metadata = m.set_display_hdr_metadata(&s, display_metadata);
                     active.set_hdr_metadata(metadata);
                     // A receiver's report (0x5531) arrives after the stream starts.
                     active.set_hdr_target(s.hdr_target_nits());
@@ -1306,14 +1319,12 @@ impl SessionThread<'_> {
                 let bitrate = s.encoder_bitrate(idr || rebuilt);
                 if s.config.codec != 3 {
                     let now = Instant::now();
-                    if encode_route.is_none_or(|(address, _)| address != peer.ip()) || now >= encode_route_due {
-                        encode_route = Some((peer.ip(), butterpollo_windows::net::routed_link(peer)));
-                        encode_route_due = now + Duration::from_secs(2);
-                    }
+                    let encode_route = link_watch.get(peer);
+                    frame_checks += now.elapsed();
                     // Budget for the parity a recovery picture uses,
                     // even while ordinary frames use adaptive FEC.
                     recovery_packetizer.fec_percent = s.recovery_fec_percent();
-                    let pace = crate::video_send::recovery::preview_pace(&s, &c, &recovery_packetizer, period, peer, encode_route.unwrap().1);
+                    let pace = crate::video_send::recovery::preview_pace(&s, &c, &recovery_packetizer, period, peer, encode_route);
                     let cap = butterpollo_core::network_pacing::recovery_frame_cap(
                         pace.bps, bitrate, period, recovery_packetizer.fec_percent,
                         recovery_packetizer.packet_size, peer.is_ipv6(),
@@ -1339,6 +1350,7 @@ impl SessionThread<'_> {
                             .unwrap_or(0),
                     );
                 }
+                checks.record(frame_checks);
                 // The device draws the pointer: only Desktop Duplication supplies
                 // it apart, so with any other capture it stays in the video and the
                 // device is told to hide its own.

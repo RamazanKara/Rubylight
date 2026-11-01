@@ -577,7 +577,11 @@ pub fn routed_link(peer: SocketAddr) -> Link {
             InterfaceIndex: index,
             ..Default::default()
         };
-        if GetIfEntry2(&mut row).0 != 0 || row.OperStatus != IfOperStatusUp {
+        // Without statistics: the counters cost the driver a query, and
+        // only the interface's type, state and speed are read.
+        if GetIfEntry2Ex(MibIfEntryNormalWithoutStatistics, &mut row).0 != 0
+            || row.OperStatus != IfOperStatusUp
+        {
             return Link::default();
         }
         // The interface the route leaves by, whatever the medium under it.
@@ -599,7 +603,7 @@ pub fn routed_link(peer: SocketAddr) -> Link {
                 InterfaceIndex: index,
                 ..Default::default()
             };
-            (GetIfEntry2(&mut row).0 == 0).then_some(row)
+            (GetIfEntry2Ex(MibIfEntryNormalWithoutStatistics, &mut row).0 == 0).then_some(row)
         });
         FreeMibTable(table.cast());
         Link { interface, ..link }

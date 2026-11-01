@@ -864,6 +864,7 @@ fn handoff(packetizer: VideoPacketizer) -> Handoff {
         slice_blocks: 0,
         slices: 0,
         send_jitter: None,
+        link: Default::default(),
     }
 }
 
@@ -889,7 +890,7 @@ fn moonlight_timing_stops_at_packetization_before_a_blocked_sender() {
         let start = Instant::now();
         let tick = start - Duration::from_millis(2);
         let mut sender =
-            Sender::packetizer(session.clone(), start, handoff(packetizer(key))).unwrap();
+            Sender::packetizer(session.clone(), start, handoff(packetizer(key)), false).unwrap();
         let mut picture = frame(2);
         picture.frame_cap_bytes = Some(112_815);
         picture.latency = Some(Duration::from_millis(12));
@@ -945,6 +946,7 @@ fn moonlight_timing_stops_at_packetization_before_a_blocked_sender() {
                 Instant::now(),
                 Default::default(),
                 None,
+                Default::default(),
             );
             shared.finish(result);
         }));
@@ -984,8 +986,13 @@ fn moonlight_timing_stops_at_packetization_before_a_blocked_sender() {
 fn keyframe_skips_raw_and_prepared_waiters_without_spending_wire_numbers_twice() {
     let fixture = crate::state::test_support::Fixture::new();
     let session = fixture.session(fixture.client(0), butterpollo_core::session::Role::Stream);
-    let sender =
-        Sender::packetizer(session, Instant::now(), handoff(packetizer(Some([9; 16])))).unwrap();
+    let sender = Sender::packetizer(
+        session,
+        Instant::now(),
+        handoff(packetizer(Some([9; 16]))),
+        false,
+    )
+    .unwrap();
     sender
         .submit(
             vec![frame(2)],
@@ -1052,7 +1059,8 @@ fn keyframe_skips_raw_and_prepared_waiters_without_spending_wire_numbers_twice()
 fn stopping_wakes_a_packetizer_blocked_on_the_prepared_slot() {
     let fixture = crate::state::test_support::Fixture::new();
     let session = fixture.session(fixture.client(0), butterpollo_core::session::Role::Stream);
-    let sender = Sender::packetizer(session, Instant::now(), handoff(packetizer(None))).unwrap();
+    let sender =
+        Sender::packetizer(session, Instant::now(), handoff(packetizer(None)), false).unwrap();
     sender
         .submit(
             vec![frame(2)],
@@ -1389,7 +1397,7 @@ fn streaming_sender(session: Arc<Session>, blocks: usize, slices: usize) -> Send
     let mut handoff = handoff(packetizer(None));
     handoff.slice_blocks = blocks;
     handoff.slices = slices;
-    Sender::packetizer(session, Instant::now(), handoff).unwrap()
+    Sender::packetizer(session, Instant::now(), handoff, false).unwrap()
 }
 
 fn take_prepared(sender: &Sender) -> Prepared {
@@ -1848,7 +1856,7 @@ fn a_streamed_frame_lost_in_its_first_block_stops_and_is_not_stamped() {
     let mut handoff = handoff(packetizer(None));
     handoff.slice_blocks = 2;
     handoff.slices = 2;
-    let mut sender = Sender::packetizer(session.clone(), now, handoff).unwrap();
+    let mut sender = Sender::packetizer(session.clone(), now, handoff, false).unwrap();
     let (sink, rows) = butterpollo_core::timing_record::channel(8);
     *session.timing_record.write().unwrap() = Some(Arc::new(sink));
     let key = now - Duration::from_millis(4);
@@ -1885,6 +1893,7 @@ fn a_streamed_frame_lost_in_its_first_block_stops_and_is_not_stamped() {
             Default::default(),
             butterpollo_core::stream_policy::SendDrop::parse("100:5"),
             None,
+            Default::default(),
         );
         shared.finish(result);
     }));
@@ -1935,7 +1944,8 @@ fn frames_during_a_test_stall_count_as_sent_and_go_out_in_order_after_it() {
     let socket = Arc::new(ReplySocket::bind("127.0.0.1:0").unwrap());
     let receiver = UdpSocket::bind("127.0.0.1:0").unwrap();
     let start = Instant::now();
-    let mut sender = Sender::packetizer(session.clone(), start, handoff(packetizer(None))).unwrap();
+    let mut sender =
+        Sender::packetizer(session.clone(), start, handoff(packetizer(None)), false).unwrap();
     let shared = sender.slot.clone();
     let s = session.clone();
     let config = fixture.host.config.read().unwrap().clone();
@@ -1952,6 +1962,7 @@ fn frames_during_a_test_stall_count_as_sent_and_go_out_in_order_after_it() {
             Default::default(),
             None,
             Some(jitter),
+            Default::default(),
         );
         shared.finish(result);
     }));

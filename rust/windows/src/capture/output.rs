@@ -4,6 +4,8 @@
 //! https://learn.microsoft.com/windows/win32/api/dxgi1_6/nf-dxgi1_6-idxgioutput6-getdesc1
 
 use super::*;
+use std::sync::{Arc, Mutex, Weak};
+use std::thread;
 
 const CHECK_INTERVAL: Duration = Duration::from_secs(1);
 /// Enumerations per poll while the display topology keeps changing, and the
@@ -12,7 +14,7 @@ const REFRESH_ATTEMPTS: usize = 3;
 const REFRESH_RETRY: Duration = Duration::from_millis(50);
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-struct Identity {
+pub(super) struct Identity {
     adapter: (u32, i32),
     name: String,
     monitor: usize,
@@ -63,7 +65,7 @@ fn selected<T>(
     Ok(output)
 }
 
-trait Source {
+pub(super) trait Source {
     type Output;
     fn current(&self) -> bool;
     fn refresh(&mut self, identity: &Identity) -> Result<Self::Output>;
@@ -139,13 +141,14 @@ impl<S: Source> Cache<S> {
         self.snapshot.clone().map_err(anyhow::Error::msg)
     }
 
+    #[cfg(test)]
     fn metadata(&mut self, now: Instant) -> butterpollo_core::hdr::Metadata {
         let _ = self.poll(now);
         self.metadata
     }
 }
 
-struct Dxgi {
+pub(super) struct Dxgi {
     factory: IDXGIFactory1,
 }
 
@@ -217,10 +220,141 @@ impl Source for Dxgi {
     }
 }
 
-pub(super) struct Color(Cache<Dxgi>);
+/// A check's result: the description or why it failed, and the last known
+/// luminance.
+pub(super) type Snapshot = (
+    std::result::Result<Option<Description>, String>,
+    butterpollo_core::hdr::Metadata,
+);
+
+/// With no read for this long the watcher stops; the next read checks at once.
+const IDLE: Duration = Duration::from_secs(5);
+
+/// One output's colour, checked on a thread of its own. The check (IsCurrent,
+/// GetDesc1 and, after a topology change, a new factory's enumeration) ran on
+/// the encode and capture threads, under the lock both take; they now read the
+/// last check.
+pub(super) struct Watched<S: Source> {
+    cache: Mutex<Cache<S>>,
+    published: Mutex<Published>,
+}
+
+#[derive(Default)]
+struct Published {
+    /// Kept current by the watcher while it runs.
+    snapshot: Option<Snapshot>,
+    last_read: Option<Instant>,
+    watching: bool,
+    /// The watcher thread could not start; told once.
+    spawn_failed: bool,
+}
+
+pub(super) type Color = Watched<Dxgi>;
+
+impl<S: Source + Send + 'static> Watched<S>
+where
+    S::Output: Send,
+{
+    fn new(cache: Cache<S>) -> Self {
+        Self {
+            cache: Mutex::new(cache),
+            published: Mutex::default(),
+        }
+    }
+
+    /// The last check, or a check now when no watcher keeps one.
+    pub(super) fn read(self: &Arc<Self>) -> Snapshot {
+        self.read_with(Instant::now(), |watched| {
+            thread::Builder::new()
+                .name("display-watch".into())
+                .spawn(move || watch(watched))
+                .map(drop)
+        })
+    }
+
+    fn read_with(
+        self: &Arc<Self>,
+        now: Instant,
+        spawn: impl FnOnce(Weak<Self>) -> std::io::Result<()>,
+    ) -> Snapshot {
+        {
+            let mut published = self.published.lock().unwrap();
+            published.last_read = Some(now);
+            if let Some(snapshot) = &published.snapshot {
+                return snapshot.clone();
+            }
+        }
+        let snapshot = self.check(now);
+        let mut published = self.published.lock().unwrap();
+        if !published.watching && !published.spawn_failed {
+            match spawn(Arc::downgrade(self)) {
+                Ok(()) => published.watching = true,
+                Err(error) => {
+                    // Without the thread, every read checks as before.
+                    published.spawn_failed = true;
+                    tracing::warn!(%error, "the display colour watcher did not start; capture and encode check the display themselves");
+                }
+            }
+        }
+        if published.watching {
+            published.snapshot = Some(snapshot.clone());
+        }
+        snapshot
+    }
+
+    fn check(&self, now: Instant) -> Snapshot {
+        let mut cache = self.cache.lock().unwrap();
+        let _ = cache.poll(now);
+        (cache.snapshot.clone(), cache.metadata)
+    }
+
+    fn next_check(&self) -> Instant {
+        self.cache.lock().unwrap().next_check
+    }
+
+    /// One pass of the watcher; false when it stops, unread for [`IDLE`].
+    fn tick(&self, now: Instant) -> bool {
+        {
+            let mut published = self.published.lock().unwrap();
+            if published
+                .last_read
+                .is_none_or(|at| now.saturating_duration_since(at) >= IDLE)
+            {
+                published.snapshot = None;
+                published.watching = false;
+                return false;
+            }
+        }
+        let snapshot = self.check(now);
+        let mut published = self.published.lock().unwrap();
+        if published.watching {
+            published.snapshot = Some(snapshot);
+        }
+        true
+    }
+}
+
+/// Holds the output only while it checks: the last device clone dropped ends it.
+fn watch<S: Source + Send + 'static>(watched: Weak<Watched<S>>)
+where
+    S::Output: Send,
+{
+    loop {
+        let Some(due) = watched.upgrade().map(|watched| watched.next_check()) else {
+            return;
+        };
+        thread::sleep(due.saturating_duration_since(Instant::now()));
+        let Some(watched) = watched.upgrade() else {
+            return;
+        };
+        if !watched.tick(Instant::now()) {
+            return;
+        }
+    }
+}
 
 impl Color {
-    pub(super) fn new(output: &IDXGIOutput1, name: &str) -> Result<Self> {
+    pub(super) fn open(output: &IDXGIOutput1, name: &str) -> Result<Self> {
         // Use the output's owner, which may differ from the encode device's
         // adapter when WGC captures a display on another GPU.
         // SAFETY: The output is live; GetParent returns owned COM references.
@@ -241,21 +375,13 @@ impl Color {
                 desc.AttachedToDesktop.as_bool(),
             )?;
             let factory = adapter.GetParent()?;
-            Ok(Self(Cache::new(
+            Ok(Self::new(Cache::new(
                 Dxgi { factory },
                 identity,
                 output.clone(),
                 Instant::now(),
             )))
         }
-    }
-
-    pub(super) fn poll(&mut self, now: Instant) -> Result<Option<Description>> {
-        self.0.poll(now)
-    }
-
-    pub(super) fn metadata(&mut self, now: Instant) -> butterpollo_core::hdr::Metadata {
-        self.0.metadata(now)
     }
 }
 
@@ -527,6 +653,133 @@ mod tests {
         cache.source.candidates = vec![(identity(), None)];
         assert_eq!(cache.poll(now + CHECK_INTERVAL * 2).unwrap(), None);
         assert_eq!(cache.metadata(now + CHECK_INTERVAL * 2), known.metadata);
+    }
+
+    fn watched(now: Instant, initial: Option<Description>) -> Arc<Watched<Fake>> {
+        Arc::new(Watched::new(cache(now, initial)))
+    }
+
+    fn reads(watched: &Watched<Fake>) -> usize {
+        watched.cache.lock().unwrap().source.reads.get()
+    }
+
+    #[test]
+    fn hot_reads_take_the_watchers_last_check_without_querying() {
+        let now = Instant::now();
+        let old = description(true, 1000.);
+        let new = description(false, 300.);
+        let watched = watched(now, Some(old));
+        let mut spawned = 0;
+        assert_eq!(
+            watched
+                .read_with(now, |_| {
+                    spawned += 1;
+                    Ok(())
+                })
+                .0,
+            Ok(Some(old))
+        );
+        assert_eq!(spawned, 1);
+        assert_eq!(reads(&watched), 1);
+        {
+            let mut cache = watched.cache.lock().unwrap();
+            cache.source.current = false;
+            cache.source.candidates = vec![(identity(), Some(new))];
+        }
+        // Past the check interval, a read still only takes the published check.
+        let later = now + CHECK_INTERVAL * 3 / 2;
+        assert_eq!(
+            watched.read_with(later, |_| unreachable!()).0,
+            Ok(Some(old))
+        );
+        assert_eq!(reads(&watched), 1);
+        // The watcher's check publishes the change, as a poll did.
+        assert!(watched.tick(later));
+        let (current, metadata) = watched.read_with(later, |_| unreachable!());
+        assert_eq!(current, Ok(Some(new)));
+        assert!(mode_changed(Some(old.color_space), current.unwrap()));
+        assert_eq!(metadata, new.metadata);
+        assert_eq!(watched.cache.lock().unwrap().source.enumerations, 1);
+    }
+
+    #[test]
+    fn a_failed_check_is_published_with_the_last_known_metadata() {
+        let now = Instant::now();
+        let old = description(true, 1000.);
+        let watched = watched(now, Some(old));
+        let _ = watched.read_with(now, |_| Ok(()));
+        {
+            let mut cache = watched.cache.lock().unwrap();
+            cache.source.current = false;
+            cache.source.candidates.clear();
+        }
+        assert!(watched.tick(now + CHECK_INTERVAL));
+        let (current, metadata) = watched.read_with(now + CHECK_INTERVAL, |_| unreachable!());
+        assert!(current.is_err());
+        assert_eq!(metadata, old.metadata);
+    }
+
+    #[test]
+    fn an_unread_watcher_stops_and_the_next_read_checks_at_once() {
+        let now = Instant::now();
+        let old = description(true, 1000.);
+        let new = description(true, 600.);
+        let watched = watched(now, Some(old));
+        let _ = watched.read_with(now, |_| Ok(()));
+        assert!(watched.tick(now + CHECK_INTERVAL));
+        assert!(!watched.tick(now + IDLE));
+        {
+            let mut cache = watched.cache.lock().unwrap();
+            cache.source.current = false;
+            cache.source.candidates = vec![(identity(), Some(new))];
+        }
+        let mut spawned = false;
+        let (current, _) = watched.read_with(now + IDLE * 2, |_| {
+            spawned = true;
+            Ok(())
+        });
+        assert_eq!(current, Ok(Some(new)));
+        assert!(spawned);
+    }
+
+    #[test]
+    fn without_a_watcher_every_read_checks_as_before() {
+        let now = Instant::now();
+        let watched = watched(now, Some(description(true, 1000.)));
+        let mut spawns = 0;
+        for step in 0..3 {
+            let _ = watched.read_with(now + CHECK_INTERVAL * step, |_| {
+                spawns += 1;
+                Err(std::io::Error::other("no threads"))
+            });
+        }
+        // Told once; the cache's own interval throttles the checks.
+        assert_eq!(spawns, 1);
+        assert_eq!(reads(&watched), 3);
+        assert!(watched.published.lock().unwrap().snapshot.is_none());
+    }
+
+    #[test]
+    fn the_watcher_thread_ends_with_the_last_reader() {
+        let now = Instant::now();
+        let watched = watched(now, Some(description(true, 1000.)));
+        let mut handle = None;
+        let _ = watched.read_with(now, |weak| {
+            handle = Some(thread::spawn(move || watch(weak)));
+            Ok(())
+        });
+        // Waiting for its next check, the watcher holds no reference.
+        thread::sleep(Duration::from_millis(200));
+        assert!(!handle.as_ref().unwrap().is_finished());
+        assert_eq!(Arc::strong_count(&watched), 1);
+        drop(watched);
+        let handle = handle.unwrap();
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while !handle.is_finished() && Instant::now() < deadline {
+            thread::sleep(Duration::from_millis(10));
+        }
+        assert!(handle.is_finished());
+        handle.join().expect("the watcher ends without a panic");
     }
 
     #[test]

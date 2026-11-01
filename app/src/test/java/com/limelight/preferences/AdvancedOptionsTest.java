@@ -235,6 +235,9 @@ public class AdvancedOptionsTest {
             List<String> sections = new ArrayList<>(StreamSettings.SECTIONS.keySet());
             assertEquals("debug", sections.get(sections.size() - 1));
             assertEquals("Debug", screen.getString(StreamSettings.sectionTitle("debug")));
+            // The overview says what each holds now that input settings left Advanced.
+            assertEquals("Rarely needed settings for troubleshooting", root(screen).findPreference("debug").getSummary().toString());
+            assertEquals("Decoding and diagnostics", root(screen).findPreference("advanced").getSummary().toString());
             PreferenceGroup debug = (PreferenceGroup) open(screen, "debug").getPreferenceScreen().findPreference("category_debug");
             assertEquals(DEBUG_CONTROLS, SettingsStructureTest.keys(debug));
             assertEquals(DEBUG_CONTROLS, StreamSettings.mainKeys(screen, "debug"));
@@ -277,17 +280,25 @@ public class AdvancedOptionsTest {
         choices.put("checkbox_texture_view", true);
         choices.put("checkbox_enable_post_stream_toast", true);
         choices.put(GPU_BOOST, true);
+        // Now under Debug; the move keeps each one's stored choice, set opposite to its default.
+        Map<String, Boolean> debugChoices = new LinkedHashMap<>();
+        debugChoices.put("checkbox_rate_change_bitrate", true);
+        debugChoices.put("checkbox_tell_host_wireless", false);
+        debugChoices.put("checkbox_tell_host_link_speed", false);
+        debugChoices.put("checkbox_network_priority", false);
+        debugChoices.put("checkbox_unbatched_input", false);
+        debugChoices.put("checkbox_full_range", true);
         for (boolean legacy : new boolean[] {false, true}) {
             SharedPreferences.Editor editor = prefs().edit().putBoolean(LEGACY_UNLOCK, legacy)
                     .putBoolean("checkbox_unlock_fps", true)
                     // Do not rerun the older migration that enables the latency switches.
                     .putInt(PreferenceConfiguration.PREFS_VERSION_PREF_STRING, PreferenceConfiguration.PROFILE_NATIVE_VERSION)
                     .putString("performance_overlay_mode", "debug")
-                    // Now under Debug; the move keeps it too.
-                    .putBoolean("checkbox_network_priority", false)
+                    .putString("list_fec_choice", "20")
                     // Choices made after the new engine became the default are kept, off included.
                     .putBoolean(PreferenceConfiguration.RUST_ENGINE_DEFAULT_ON_PREF_STRING, true);
             for (Map.Entry<String, Boolean> entry : choices.entrySet()) editor.putBoolean(entry.getKey(), entry.getValue());
+            for (Map.Entry<String, Boolean> entry : debugChoices.entrySet()) editor.putBoolean(entry.getKey(), entry.getValue());
             editor.commit();
             try (ActivityController<StreamSettings> controller = Robolectric.buildActivity(StreamSettings.class).setup()) {
                 StreamSettings screen = controller.get();
@@ -302,6 +313,13 @@ public class AdvancedOptionsTest {
                         }
                         assertEquals(entry.getKey(), entry.getValue(), prefs().getBoolean(entry.getKey(), !entry.getValue()));
                     }
+                }
+                PreferenceScreen debug = open(screen, "debug").getPreferenceScreen();
+                assertEquals("20", ((ListPreference) debug.findPreference("list_fec_choice")).getValue());
+                for (Map.Entry<String, Boolean> entry : debugChoices.entrySet()) {
+                    assertEquals(entry.getKey(), entry.getValue(),
+                            ((SwitchPreference) debug.findPreference(entry.getKey())).isChecked());
+                    assertEquals(entry.getKey(), entry.getValue(), prefs().getBoolean(entry.getKey(), !entry.getValue()));
                 }
                 PreferenceConfiguration config = PreferenceConfiguration.readPreferences(screen);
                 assertTrue(config.useTextureView);

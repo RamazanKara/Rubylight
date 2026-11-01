@@ -1,8 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="settings_section_advanced">Avançado</string>
-    <string name="settings_advanced_summary">Decodificação, entrada e diagnóstico</string>
+    <string name="settings_advanced_summary">Decodificação e diagnóstico</string>
     <string name="settings_section_debug">Depuração</string>
+    <string name="settings_debug_summary">Configurações raramente necessárias, para solução de problemas</string>
     <string name="settings_custom">Personalizado</string>
     <string name="setting_help">Sobre %1$s</string>
     <string name="stream_presets_help_title">Sobre as predefinições</string>

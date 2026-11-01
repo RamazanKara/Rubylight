@@ -1,8 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="settings_section_advanced">Додатково</string>
-    <string name="settings_advanced_summary">Декодування, введення та діагностика</string>
+    <string name="settings_advanced_summary">Декодування та діагностика</string>
     <string name="settings_section_debug">Налагодження</string>
+    <string name="settings_debug_summary">Рідко потрібні налаштування для усунення несправностей</string>
     <string name="settings_custom">Власні</string>
     <string name="setting_help">Про %1$s</string>
     <string name="stream_presets_help_title">Про пресети</string>

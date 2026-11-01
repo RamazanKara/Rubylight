@@ -1,8 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="settings_section_advanced">Avanzate</string>
-    <string name="settings_advanced_summary">Decodifica, input e diagnostica</string>
+    <string name="settings_advanced_summary">Decodifica e diagnostica</string>
     <string name="settings_section_debug">Debug</string>
+    <string name="settings_debug_summary">Impostazioni usate di rado, per la risoluzione dei problemi</string>
     <string name="settings_custom">Personalizzato</string>
     <string name="setting_help">Informazioni su %1$s</string>
     <string name="stream_presets_help_title">Informazioni sui preset</string>

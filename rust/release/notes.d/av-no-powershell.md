@@ -1,0 +1,2 @@
+# No background PowerShell
+- **No hidden PowerShell runs.** The Wake-on-LAN check and fix, the setup's network adapter list and the restore of the Remote Desktop firewall rules after child sessions now ask Windows directly (WMI and the registry) instead of starting PowerShell in the background, which antivirus heuristics treat as suspicious. The Wake-on-LAN check also works where PowerShell is blocked by policy.

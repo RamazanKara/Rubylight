@@ -6,6 +6,7 @@ This is the dated measurement record. For a guided comparison, start with the [p
 
 | Find a result | Recorded evidence |
 | --- | --- |
+| Fixed-rate H.264 and HEVC frames held a frame period before the claim (3.0.0-rc.2): holding a frame for the fresher one across the host loop's wakes, late claims, host total and end to end on main (ABBA, VRR pair); other windows' compositions and claim cadence | [November 1, holding a frame for the fresher one across wakes (not kept)](#november-1-holding-a-frame-for-the-fresher-one-across-wakes-not-kept) |
 | A focused VRR game next to another animating window: WGC dirty regions tell the game's pictures from the other window's updates and pointer moves; repeats, age, present-to-sent, with and without the pointer moving (ABBA) | [October 30, a focused game's pictures beside another window](#october-30-a-focused-games-pictures-beside-another-window) |
 | Nightjar desktop presenting for VRR: the display check on a 240 Hz FreeSync panel and a fixed 120 Hz laptop panel, what it costs, mid-scan presents, sync interval 1 and waiting out the scan (not kept as defaults) | [October 29, Nightjar desktop on a VRR panel and a fixed one](#october-29-nightjar-desktop-on-a-vrr-panel-and-a-fixed-one) |
 | False slow-pace latches from #59's rc.4 logs: a decoder asking twice for a keyframe, a host adapter refusing packets (lifted after 10 s), holding frames for a full socket (not kept), the keyframe cap scale (inert here); latches, stalls, picture age, presentation gaps (ABBA) | [October 29, false slow-pace latches and a stalled adapter](#october-29-false-slow-pace-latches-and-a-stalled-adapter-rc4-field-logs) |
@@ -58,6 +59,29 @@ This is the dated measurement record. For a guided comparison, start with the [p
 | PyroWave HDR 4:4:4 | [Transport and decoding](#vibepollo-20-pyrowave-transport) · [SDK patches from Punktfunk](#october-15-pyrowave-sdk-patches-from-punktfunk) |
 | CPU error correction | [C++ FEC comparison](#controlled-comparison-with-the-original-c-fec) |
 | Reproduction and scope | [Probes](#reproduce-on-another-machine) · [Hardware covered](#hardware-covered) |
+
+## November 1: holding a frame for the fresher one across wakes (not kept)
+
+In the October 26 timing record of 3.0.0-rc.2 (H.264 and HEVC at 1080p60, the motion strip at 120 Hz), four of six runs held frames about a frame period between publish and claim for the whole stream: 5.9 to 43.8 % of claims came more than 4 ms after the frame was published, most of them 7 to 8.5 ms, and host total p95 was 8.9 to 11.0 ms against 3.3 to 3.4 ms in the other two runs. The record points at the arrival pacer. When the next picture is due just after a claim is allowed, the pacer waits for it, but the host's loop decides again on every wake that leaves the capture unchanged (encoder output polls, recovery and menu signals). Once the claim was allowed, that second decision took the frame in hand without looking at the prediction, shortly before the fresher one arrived. In a model of the pacer with a 120 Hz source and extra wakes every 0.5 to 2 ms, 45 to 53 % of claims were that late, and none without the extra wakes. Commit `3bdae52db` held the frame until its wait ended unless a fresher capture replaced it; in the model no claim was late.
+
+Setup: `e2e.py --codec h264|hevc --mode 1920x1080x60 --seconds 45 --record --skip-first 3` with an isolated test host (WGC display capture of the 240 Hz primary, the strip at 120 Hz); the VRR pair adds `--vrr --motion-script 60 --config minimum_fps_target=20` (HEVC). A is main at `609f0ca7c`, B is A with the hold, each in the 3.1.1 package; the first pairs ran A B B A and the second B A A B. Late claims and host total are from the timing record (late: claimed more than 4 ms after publish), end to end from the client's frames joined on the shared clock (it ends when decoding ends), picture age from the client. Sources/s is the mean of the host's 5 s `stream timings` source rate: other windows on the desktop added compositions in some legs.
+
+| Leg | Arm | Sources/s | Late claims | Host total p50 / p95 / p99 | Publish to claim p95 / p99 | End to end p50 / p95 / p99 | Picture age mean / p95 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| H.264 1 | A | 135 | 0.1 % | 2.95 / 5.04 / 6.09 | 1.99 / 3.02 | 6.50 / 8.65 / 9.74 | 12.6 / 15.6 |
+| H.264 1 | B | 147 | 0.3 % | 3.04 / 5.30 / 6.29 | 2.45 / 3.34 | 7.11 / 9.21 / 10.43 | 14.5 / 19.5 |
+| H.264 2 | B | 124 | 0.0 % | 3.01 / 4.75 / 5.52 | 1.47 / 2.48 | 7.13 / 8.85 / 9.94 | 12.6 / 15.1 |
+| H.264 2 | A | 124 | 0.0 % | 3.02 / 4.83 / 5.75 | 1.94 / 2.48 | 7.13 / 8.83 / 9.71 | 13.8 / 16.2 |
+| HEVC 1 | B | 132 | 0.1 % | 2.94 / 4.98 / 5.96 | 2.00 / 2.98 | 9.15 / 11.65 / 13.05 | 15.1 / 18.3 |
+| HEVC 1 | A | 154 | 0.1 % | 3.02 / 4.91 / 5.78 | 1.98 / 2.96 | 8.96 / 11.65 / 12.80 | 16.2 / 22.2 |
+| HEVC 2 | A | 153 | 0.1 % | 3.08 / 4.97 / 5.85 | 1.98 / 2.97 | 9.33 / 11.66 / 12.87 | 16.0 / 22.4 |
+| HEVC 2 | B | 125 | 0.0 % | 2.94 / 4.78 / 5.79 | 1.83 / 2.49 | 9.05 / 11.28 / 12.29 | 12.9 / 15.9 |
+| HEVC VRR | A | 182 | 0.3 % | 2.95 / 3.43 / 3.67 | 0.07 / 0.10 | 9.16 / 11.16 / 11.64 | 19.1 / 26.4 |
+| HEVC VRR | B | 183 | 0.4 % | 2.98 / 3.43 / 3.60 | 0.07 / 0.09 | 9.14 / 11.11 / 11.70 | 19.4 / 26.5 |
+
+On main the tail did not come back: A's late claims were 0.0 to 0.1 % in all four fixed-rate legs, so the hold had nothing to remove. Averaged per codec, B's host total p95 / p99 was 5.03 / 5.91 ms against A's 4.94 / 5.92 for H.264 and 4.88 / 5.88 against 4.94 / 5.82 for HEVC; end to end p95 / p99 was 9.03 / 10.19 against 8.74 / 9.73 (H.264) and 11.47 / 12.67 against 11.66 / 12.84 (HEVC). The VRR pair was level, and every leg ran at 60.07 to 60.10 fps, with distinct frames within 0.03 per second of that in every fixed-rate leg. Which change since rc.2 removed the tail was not measured. **Not kept** (reverted).
+
+Two things this record shows besides the hold. Legs where other windows added about 30 compositions a second (147 to 154 sources/s, on both builds) claimed 37 to 53 % of frames in alternating 12.5 and 20.8 ms gaps and had a picture age p95 of 19.5 to 22.4 ms; legs at 124 to 135 sources/s claimed 0 to 3 % that way at 15.1 to 18.3 ms. And main's fixed-rate claims wait 1 to 3 ms after publish for 12 to 16 % of frames (publish to claim p95 1.9 to 2.0 ms, host total p95 4.8 to 5.0 ms), where rc.2's clean runs claimed at once (p95 0.06 ms, host total p95 3.3 to 3.4 ms). Neither was investigated here.
 
 ## October 30: a focused game's pictures beside another window
 

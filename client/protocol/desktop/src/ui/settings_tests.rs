@@ -503,6 +503,8 @@ fn settings_screenshots() {
                 f.size = vec2(width, height);
                 f.native_ppp = ppp;
                 f.shots = true;
+                // The logo went up in frames before shots were kept; load it again so they see it.
+                f.l.logo = None;
                 f.l.settings.high_contrast = high;
                 f.l.settings.fps = 60;
                 f.l.settings.bitrate_kbps = 40_000;

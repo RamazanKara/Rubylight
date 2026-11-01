@@ -846,10 +846,10 @@ impl Launcher {
             .scope_builder(UiBuilder::new().max_rect(rect).layout(Layout::left_to_right(Align::Center)), |ui| {
                 ui.spacing_mut().item_spacing.x = space::S;
                 match self.screen {
-                    // All games is always a step away, not only from a row too long to fit.
+                    // All games is always a step away, not only from a row too long to fit, once
+                    // some PC has games to list (`home_ready`, worked out once a frame).
                     Screen::Home => {
-                        let sources: Vec<Source> = view.hosts.list.iter().map(Source::of).collect();
-                        if !console::merge_library(&sources).is_empty() && header_button(ui, "All games", Icon::Grid).clicked() {
+                        if self.home_ready && header_button(ui, "All games", Icon::Grid).clicked() {
                             self.library_filter = console::LibraryFilter::All;
                             self.open(Screen::AllGames);
                         }

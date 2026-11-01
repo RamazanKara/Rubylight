@@ -1958,6 +1958,29 @@ fn a_d3d12_scene_cut_is_encoded_again_after_the_same_conversion() -> Result<()> 
     Ok(())
 }
 #[test]
+fn the_d3d12_structures_have_the_api_12_0_layout() {
+    // nv-codec-headers n12.0.16.1 and n12.1.14.0 declare the same versioned
+    // fence point and resource structures (SDK 11.1 had a fence point of
+    // only a fence and a value), so the D3D12 session may open at API 12.0.
+    use std::mem::{offset_of, size_of};
+    assert_eq!(offset_of!(NV_ENC_FENCE_POINT_D3D12, pFence), 8);
+    assert_eq!(offset_of!(NV_ENC_FENCE_POINT_D3D12, waitValue), 16);
+    assert_eq!(offset_of!(NV_ENC_FENCE_POINT_D3D12, signalValue), 24);
+    assert_eq!(size_of::<NV_ENC_FENCE_POINT_D3D12>(), 64);
+    assert_eq!(offset_of!(NV_ENC_INPUT_RESOURCE_D3D12, pInputBuffer), 8);
+    assert_eq!(offset_of!(NV_ENC_INPUT_RESOURCE_D3D12, inputFencePoint), 16);
+    assert_eq!(size_of::<NV_ENC_INPUT_RESOURCE_D3D12>(), 272);
+    assert_eq!(offset_of!(NV_ENC_OUTPUT_RESOURCE_D3D12, pOutputBuffer), 8);
+    assert_eq!(offset_of!(NV_ENC_OUTPUT_RESOURCE_D3D12, outputFencePoint), 16);
+    assert_eq!(size_of::<NV_ENC_OUTPUT_RESOURCE_D3D12>(), 272);
+    let mut point = NV_ENC_FENCE_POINT_D3D12::default();
+    point.set_bWait(1);
+    point.set_bSignal(1);
+    // SAFETY: The bit fields follow the three 8-byte fields as one `uint32_t`.
+    let bits = unsafe { *std::ptr::from_ref(&point).cast::<u8>().add(32).cast::<u32>() };
+    assert_eq!(bits, 0b11);
+}
+#[test]
 fn a_d3d12_session_needs_api_12_and_has_no_slices_or_weighted_prediction() -> Result<()> {
     reset();
     let error = d3d12_session(&Negotiated::default(), ApiVersion(11, 0), "")

@@ -124,7 +124,7 @@ The menu stays inside the window, flipping above or to the left where it would n
 
 A PC's menu: **Open library** or **Pair**, **Resume** and **Quit running app**, **Pair with one-time PIN**, **Wake up**, **PC settings**, **Rename**, **Unpair** or **Pairing help**, **Check again** and **Remove PC**. **Unpair** and **Remove PC** come last, under a divider, in red. **Ctrl+N** adds a PC by address. Rename, Unpair and Remove behave as on Android; Unpair needs the PC online, and this device keeps its pairing until the PC confirms.
 
-A game's menu on Home and All games: **Game details**, **Add to favourites** or **Remove from favourites** (**Delete** on a favourite), **Game settings** and **Open library**. **Game settings** needs the PC's app list, so it is missing until the PC has answered once. A favourite whose PC is away with no saved library still has its menu. On a PC's library page: **Play** or **Resume**, and **Game settings**.
+A game's menu on Home and All games: **Game details**, **Add to favourites** or **Remove from favourites** (**Delete** on a favourite), **Game settings** and **Open library**. **Game settings** needs the PC's app list, so it appears once that list has loaded. A favourite whose PC is away with no saved library still has its menu. On a PC's library page: **Play** or **Resume**, and **Game settings**.
 
 ## Accessibility on Android
 

@@ -283,10 +283,29 @@ fn tracker() -> Option<Arc<Tracker>> {
     *shared = Arc::downgrade(&active);
     Some(active)
 }
+/// One refresh interval of `output`'s current mode in QPC ticks, 0 when unknown.
+fn refresh_grid(output: &str, frequency: i64) -> i64 {
+    let name: Vec<u16> = output.encode_utf16().chain(Some(0)).collect();
+    let mut mode = DEVMODEW {
+        dmSize: size_of::<DEVMODEW>() as u16,
+        ..Default::default()
+    };
+    // SAFETY: `name` is NUL-terminated and `mode` has dmSize set; both outlive the call.
+    if unsafe { EnumDisplaySettingsW(PCWSTR(name.as_ptr()), ENUM_CURRENT_SETTINGS, &mut mode) }
+        .as_bool()
+        && mode.dmDisplayFrequency > 1
+    {
+        frequency / i64::from(mode.dmDisplayFrequency)
+    } else {
+        0
+    }
+}
 pub struct Stamper {
     tracker: Option<Arc<Tracker>>,
     output: String,
     grid: i64,
+    /// When `stamp` reads the output's refresh again (QPC ticks).
+    next_mode: i64,
     next_poll: i64,
     pid: u32,
     chain: u64,
@@ -299,6 +318,7 @@ impl Default for Stamper {
             tracker: tracker(),
             output: String::new(),
             grid: 0,
+            next_mode: 0,
             next_poll: 0,
             pid: 0,
             chain: 0,
@@ -318,30 +338,25 @@ impl Stamper {
             return captured;
         }
         let frequency = qpc_frequency();
-        if output != self.output {
-            self.output = output.into();
-            let name: Vec<u16> = output.encode_utf16().chain(Some(0)).collect();
-            let mut mode = DEVMODEW {
-                dmSize: size_of::<DEVMODEW>() as u16,
-                ..Default::default()
-            };
-            // SAFETY: `name` is NUL-terminated and `mode` has dmSize set; both outlive the call.
-            self.grid = if unsafe {
-                EnumDisplaySettingsW(PCWSTR(name.as_ptr()), ENUM_CURRENT_SETTINGS, &mut mode)
-            }
-            .as_bool()
-                && mode.dmDisplayFrequency > 1
-            {
-                frequency / i64::from(mode.dmDisplayFrequency)
-            } else {
-                0
-            };
-            self.refiner = Refiner::default();
-        }
         let mut counter = 0;
         // SAFETY: `counter` is a local i64 that outlives the call.
         if unsafe { QueryPerformanceCounter(&mut counter) }.is_err() {
             return captured;
+        }
+        if output != self.output {
+            self.output = output.into();
+            self.grid = refresh_grid(output, frequency);
+            self.next_mode = counter + frequency;
+            self.refiner = Refiner::default();
+        } else if counter >= self.next_mode {
+            // The output's refresh can change mid-stream (a game's mode switch, VRR off):
+            // a stale grid would build violations that turn refinement off for good.
+            self.next_mode = counter + frequency;
+            let grid = refresh_grid(output, frequency);
+            if grid != self.grid {
+                self.grid = grid;
+                self.refiner.reset_grid();
+            }
         }
         let now = Instant::now();
         let age = now.saturating_duration_since(captured);

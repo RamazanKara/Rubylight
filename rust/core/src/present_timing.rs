@@ -29,6 +29,13 @@ impl Refiner {
         self.count = 0;
         self.index = 0;
     }
+    /// The display's refresh changed: a grid from the old one may have turned
+    /// refinement off, so start over. Stamps stay increasing.
+    pub fn reset_grid(&mut self) {
+        self.reset_source();
+        self.composition = None;
+        self.violations = 0;
+    }
     pub fn grid_disabled(&self) -> bool {
         self.violations >= 3
     }
@@ -141,5 +148,25 @@ mod tests {
         assert!(r.grid_disabled());
         assert_eq!(r.refine(25000, 2000, &[], 12, 100000), 25000);
         assert_eq!(r.refine(25000, 0, &[], 12, 100000), 25012);
+    }
+    #[test]
+    fn a_refresh_change_mid_stream_turns_refinement_back_on() {
+        // The grid of a 60 Hz mode while the display now runs 120 Hz: compositions
+        // every 1000 ticks against a 2000-tick grid turn refinement off.
+        let mut r = Refiner::default();
+        for c in [10000, 11000, 12000, 13000] {
+            r.refine(c, 2000, &[], 12, 100000);
+        }
+        assert!(r.grid_disabled());
+        assert_eq!(r.refine(14000, 1000, &[], 12, 100000), 14000);
+        // The refresh is read again: refinement uses the new grid, stamps keep rising.
+        r.reset_grid();
+        assert!(!r.grid_disabled());
+        assert_eq!(r.refine(15000, 1000, &[], 12, 100000), 14500);
+        for c in [16000, 17000, 18000] {
+            r.refine(c, 1000, &[], 12, 100000);
+        }
+        assert!(!r.grid_disabled());
+        assert_eq!(r.refine(15000, 1000, &[], 12, 100000), 17512);
     }
 }

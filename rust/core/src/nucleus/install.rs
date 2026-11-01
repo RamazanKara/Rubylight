@@ -1,10 +1,11 @@
 //! The Nucleus Co-op release the host runs. Rubylight neither bundles nor
 //! downloads it: the user downloads it from its release page in their
 //! browser, unpacks it and chooses its folder in the console
-//! (`nucleus_path`). Only this release's NucleusCoop.exe is accepted.
+//! (`nucleus_path`). Only this release's files are accepted, each by its
+//! size and SHA-256 ([`release`]).
 use super::generic;
 use sha2::{Digest, Sha256};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
@@ -14,20 +15,13 @@ pub const VERSION: &str = "2.4.2";
 pub const RELEASE_PAGE: &str =
     "https://github.com/SplitScreen-Me/splitscreenme-nucleus/releases/tag/v2.4.2";
 pub const EXECUTABLE: &str = "NucleusCoop.exe";
-/// The size and SHA-256 of the release's NucleusCoop.exe, which tell it from
-/// another release's: its file version still says 2.3.0.0.
-pub const EXECUTABLE_SIZE: u64 = 3_008_000;
-pub const EXECUTABLE_SHA256: &str =
-    "a6f65dbb80fcb0d846e8f7ea3e81ccc4bcb89411cb35126045a2d5312faf6178";
 
-/// Whether `file`, of `size` bytes, is the release's NucleusCoop.exe.
-pub fn is_executable(size: u64, file: &mut impl Read) -> std::io::Result<bool> {
-    if size != EXECUTABLE_SIZE {
-        return Ok(false);
-    }
+/// The SHA-256 of what is left of `file`, in lower-case hex, reading no more
+/// than `limit` bytes.
+pub fn sha256(file: &mut impl Read, limit: u64) -> std::io::Result<String> {
     let mut digest = Sha256::new();
-    std::io::copy(&mut file.take(EXECUTABLE_SIZE + 1), &mut digest)?;
-    Ok(hex::encode(digest.finalize()) == EXECUTABLE_SHA256)
+    std::io::copy(&mut file.take(limit), &mut digest)?;
+    Ok(hex::encode(digest.finalize()))
 }
 
 /// Why Rubylight doesn't run Nucleus Co-op from a folder, for the console.
@@ -35,10 +29,14 @@ pub fn is_executable(size: u64, file: &mut impl Read) -> std::io::Result<bool> {
 pub enum Problem {
     /// No such folder, or no NucleusCoop.exe in it.
     Missing,
-    /// Its NucleusCoop.exe is another release's.
+    /// A program file is another release's, changed or missing.
     Version,
-    /// A link, or a folder others than SYSTEM and Administrators can change.
+    /// A link, or a file or folder others than SYSTEM and Administrators can
+    /// change, move or own.
     Untrusted,
+    /// Its files carry the Mark of the Web: the zip was not unblocked before
+    /// it was unpacked.
+    Blocked,
 }
 impl Problem {
     /// The console's name for it.
@@ -47,6 +45,7 @@ impl Problem {
             Self::Missing => "missing",
             Self::Version => "version",
             Self::Untrusted => "untrusted",
+            Self::Blocked => "blocked",
         }
     }
 }
@@ -133,71 +132,151 @@ const SEEDED: [&str; 2] = [
 /// `Settings.ini`; `userprofile.json.rubylight` a game list).
 const TEMPORARY: [&str; 2] = [".rubylight.tmp", ".rubylight"];
 
-/// Every file of the pinned release's archive, `\`-separated as it unpacks,
-/// and its empty folders (ending in `\`): the only program a user's copy
-/// takes.
+/// The pinned release's manifest, written from its archive by
+/// `tools/nucleus_manifest.py`: each file as `<sha256> <size> <path>`, and
+/// each empty folder as `<path>\`, `\`-separated as it unpacks. A path may
+/// hold spaces. Its program files ([`part`]) are the only ones an elevated
+/// Nucleus runs, and the only ones a user's copy takes.
 const RELEASE: &str = include_str!("release-2.4.2.txt");
 
-/// [`RELEASE`]'s files, and its folders with every one that holds a file,
-/// in lower case: Windows' names are case-insensitive.
-#[derive(Default)]
-struct Release {
-    files: HashSet<String>,
-    folders: HashSet<String>,
+/// A file of a release, as its manifest lists it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Shipped {
+    /// `\`-separated below the release's folder, in the archive's case.
+    pub path: String,
+    pub size: u64,
+    /// Lower-case hex.
+    pub sha256: String,
 }
 
-fn release() -> &'static Release {
-    static PARSED: LazyLock<Release> = LazyLock::new(|| {
-        let mut release = Release::default();
-        for line in RELEASE.lines() {
-            let line = line.to_ascii_lowercase();
-            let mut folder = match line.strip_suffix('\\') {
-                Some(folder) => Some(folder),
+/// A release's manifest ([`RELEASE`]): its files, and its folders with every
+/// one that holds a file, by their names in lower case (Windows' names are
+/// case-insensitive), and its files in the archive's order.
+#[derive(Debug, Default)]
+pub struct Manifest {
+    files: HashMap<String, Shipped>,
+    folders: HashSet<String>,
+    order: Vec<String>,
+}
+
+impl Manifest {
+    /// The manifest `text` holds; an error names its first malformed line.
+    pub fn parse(text: &str) -> Result<Self, String> {
+        let mut manifest = Self::default();
+        for line in text.lines().filter(|line| !line.is_empty()) {
+            let lower = line.to_ascii_lowercase();
+            let mut folder = match lower.strip_suffix('\\') {
+                Some(folder) => Some(folder.to_string()),
                 None => {
-                    release.files.insert(line.clone());
-                    line.rsplit_once('\\').map(|(folder, _)| folder)
+                    let mut parts = line.splitn(3, ' ');
+                    let (Some(sha256), Some(size), Some(path)) =
+                        (parts.next(), parts.next(), parts.next())
+                    else {
+                        return Err(format!("{line:?} is no file of a release"));
+                    };
+                    let size = size.parse().map_err(|_| format!("{line:?} has no size"))?;
+                    if sha256.len() != 64 || !sha256.bytes().all(|b| b.is_ascii_hexdigit()) {
+                        return Err(format!("{line:?} has no SHA-256"));
+                    }
+                    let key = path.to_ascii_lowercase();
+                    manifest.order.push(key.clone());
+                    manifest.files.insert(
+                        key.clone(),
+                        Shipped {
+                            path: path.to_string(),
+                            size,
+                            sha256: sha256.to_ascii_lowercase(),
+                        },
+                    );
+                    key.rsplit_once('\\').map(|(folder, _)| folder.to_string())
                 }
             };
             while let Some(name) = folder {
-                release.folders.insert(name.to_string());
-                folder = name.rsplit_once('\\').map(|(parent, _)| parent);
+                folder = name.rsplit_once('\\').map(|(parent, _)| parent.to_string());
+                manifest.folders.insert(name);
             }
         }
-        release
+        Ok(manifest)
+    }
+
+    /// What the file or `folder` at `relative` (below a Nucleus Co-op
+    /// folder, `\`-separated) is to a user's own copy, and to the host's
+    /// check of the folder. Only the release's own files and folders are
+    /// program: anything else in the host's folder is state, never copied
+    /// into a user's copy. The host's own files beside Nucleus
+    /// (`Rubylight-*`, its compatibility settings' journal) and its
+    /// temporary files ([`TEMPORARY`]), wherever they are, are state too.
+    pub fn part(&self, relative: &str, folder: bool) -> Part {
+        let named = |list: &[&str]| list.iter().any(|name| name.eq_ignore_ascii_case(relative));
+        let lower = relative.to_ascii_lowercase();
+        if folder {
+            return if !named(&STATE_FOLDERS) && self.folders.contains(&lower) {
+                Part::Program
+            } else {
+                Part::State
+            };
+        }
+        let ours = !relative.contains('\\')
+            && relative
+                .get(..generic::PREFIX.len())
+                .is_some_and(|start| start.eq_ignore_ascii_case(generic::PREFIX));
+        let temporary = TEMPORARY.iter().any(|end| lower.ends_with(end));
+        // What the release ships in a state folder (its sample handler) is
+        // Nucleus' and the user's to change or delete.
+        let in_state = STATE_FOLDERS.iter().any(|folder| {
+            lower
+                .strip_prefix(&folder.to_ascii_lowercase())
+                .is_some_and(|rest| rest.starts_with('\\'))
+        });
+        if ours || temporary || in_state || named(&STATE_FILES) {
+            Part::State
+        } else if named(&SEEDED) {
+            Part::Seeded
+        } else if self.files.contains_key(&lower) {
+            Part::Program
+        } else {
+            Part::State
+        }
+    }
+
+    /// The program file at `relative` ([`Self::part`]), as the release ships
+    /// it; None for anything else.
+    pub fn program(&self, relative: &str) -> Option<&Shipped> {
+        let shipped = self.files.get(&relative.to_ascii_lowercase())?;
+        (self.part(relative, false) == Part::Program).then_some(shipped)
+    }
+
+    /// Every program file of the release, in the archive's order: an
+    /// elevated Nucleus runs from a folder only while each is there as it
+    /// shipped. Otherwise Windows would look for a missing DLL in the
+    /// folders of `PATH`, which its user may write.
+    pub fn programs(&self) -> impl Iterator<Item = &Shipped> {
+        self.order
+            .iter()
+            .filter_map(|key| self.files.get(key))
+            .filter(|shipped| self.part(&shipped.path, false) == Part::Program)
+    }
+
+    /// Whether `file`, of `size` bytes, is `shipped` by size and SHA-256.
+    pub fn matches(shipped: &Shipped, size: u64, file: &mut impl Read) -> std::io::Result<bool> {
+        if size != shipped.size {
+            return Ok(false);
+        }
+        Ok(sha256(file, shipped.size + 1)? == shipped.sha256)
+    }
+}
+
+/// The pinned release's manifest ([`RELEASE`]).
+pub fn release() -> &'static Manifest {
+    static PARSED: LazyLock<Manifest> = LazyLock::new(|| {
+        Manifest::parse(RELEASE).expect("the pinned release's manifest is well-formed")
     });
     &PARSED
 }
 
-/// What the file or `folder` at `relative` (below a Nucleus Co-op folder,
-/// `\`-separated) is to a user's own copy. Only the pinned release's own
-/// files and folders ([`RELEASE`]) are program: anything else in the host's
-/// folder is state, never copied into a user's copy. The host's own files
-/// beside Nucleus (`Rubylight-*`, its compatibility settings' journal) and
-/// its temporary files ([`TEMPORARY`]), wherever they are, are state too.
+/// [`Manifest::part`] of the pinned release's manifest.
 pub fn part(relative: &str, folder: bool) -> Part {
-    let named = |list: &[&str]| list.iter().any(|name| name.eq_ignore_ascii_case(relative));
-    let lower = relative.to_ascii_lowercase();
-    if folder {
-        return if !named(&STATE_FOLDERS) && release().folders.contains(&lower) {
-            Part::Program
-        } else {
-            Part::State
-        };
-    }
-    let ours = !relative.contains('\\')
-        && relative
-            .get(..generic::PREFIX.len())
-            .is_some_and(|start| start.eq_ignore_ascii_case(generic::PREFIX));
-    let temporary = TEMPORARY.iter().any(|end| lower.ends_with(end));
-    if ours || temporary || named(&STATE_FILES) {
-        Part::State
-    } else if named(&SEEDED) {
-        Part::Seeded
-    } else if release().files.contains(&lower) {
-        Part::Program
-    } else {
-        Part::State
-    }
+    release().part(relative, folder)
 }
 
 /// The name of a user's copy of the Nucleus Co-op folder whose program
@@ -234,14 +313,75 @@ mod tests {
     use super::*;
 
     #[test]
-    fn only_the_pinned_releases_executable_is_accepted() {
+    fn only_the_pinned_releases_files_are_accepted() {
+        let release = release();
+        let exe = release.program(EXECUTABLE).unwrap();
+        // The release's NucleusCoop.exe, whose file version still says
+        // 2.3.0.0: only its size and SHA-256 tell it from another release's.
+        assert_eq!(exe.size, 3_008_000);
+        assert_eq!(
+            exe.sha256,
+            "a6f65dbb80fcb0d846e8f7ea3e81ccc4bcb89411cb35126045a2d5312faf6178"
+        );
         // Another file of the same size, and a size of another release.
-        let same_size = vec![0u8; EXECUTABLE_SIZE as usize];
-        assert!(!is_executable(EXECUTABLE_SIZE, &mut same_size.as_slice()).unwrap());
-        assert!(!is_executable(11, &mut b"not nucleus".as_slice()).unwrap());
-        assert_eq!(EXECUTABLE_SHA256.len(), 64);
+        let same_size = vec![0u8; exe.size as usize];
+        assert!(!Manifest::matches(exe, exe.size, &mut same_size.as_slice()).unwrap());
+        assert!(!Manifest::matches(exe, 11, &mut b"not nucleus".as_slice()).unwrap());
+        // What the elevated Nucleus loads beside it is the release's too.
+        for name in [
+            "NucleusCoop.exe.config",
+            "Nucleus.Gaming.dll",
+            "Jint.dll",
+            "Newtonsoft.Json.dll",
+            "EasyHook.dll",
+            "EasyHook64.dll",
+            "ProtoInputHooks64.dll",
+            r"utils\Hooks\EasyHook64.dll",
+        ] {
+            assert!(release.program(name).is_some(), "{name}");
+        }
+        // Settings Nucleus changes as it runs are not checked by their bytes.
+        assert_eq!(
+            release.program(r"utils\FlawlessWidescreen\x64\settings.xml"),
+            None
+        );
         assert!(RELEASE_PAGE.ends_with(&format!("/v{VERSION}")));
         assert_eq!(Problem::Version.as_str(), "version");
+        assert_eq!(Problem::Blocked.as_str(), "blocked");
+        let digest = sha256(&mut b"abc".as_slice(), 2).unwrap();
+        assert_eq!(digest, sha256(&mut b"ab".as_slice(), 9).unwrap());
+    }
+
+    #[test]
+    fn the_manifest_is_parsed_with_spaces_in_names_and_refuses_a_broken_line() {
+        let sha = "ab".repeat(32);
+        let manifest = Manifest::parse(&format!(
+            "{sha} 12 game profiles\\Some Game\\a b.txt\n{sha} 3 x.dll\nempty folder\\\n"
+        ))
+        .unwrap();
+        let shipped = &manifest.files[r"game profiles\some game\a b.txt"];
+        assert_eq!(shipped.path, r"game profiles\Some Game\a b.txt");
+        assert_eq!(shipped.size, 12);
+        assert!(manifest.folders.contains("empty folder"));
+        assert!(manifest.folders.contains(r"game profiles\some game"));
+        assert_eq!(
+            manifest
+                .programs()
+                .map(|f| f.path.as_str())
+                .collect::<Vec<_>>(),
+            ["x.dll"],
+            "a state folder's file is no program"
+        );
+        for broken in [
+            "x.dll".to_string(),
+            format!("{sha} x.dll"),
+            format!("{sha} twelve x.dll"),
+            format!("{} 3 x.dll", "z".repeat(64)),
+        ] {
+            assert!(Manifest::parse(&broken).is_err(), "{broken}");
+        }
+        // Every path of the pinned release has its size and SHA-256.
+        assert_eq!(release().order.len(), 783);
     }
 
     #[test]
@@ -284,7 +424,7 @@ mod tests {
         }
         let release = release();
         assert_eq!(release.files.len(), 783);
-        assert!(release.files.contains("nucleuscoop.exe"));
+        assert!(release.files.contains_key("nucleuscoop.exe"));
         assert!(release.folders.contains(r"utils\flawlesswidescreen\x64"));
         for (path, folder) in [
             ("content", true),
@@ -319,6 +459,9 @@ mod tests {
         }
         // A user's own settings are never copied into another's copy.
         assert_eq!(part("settings.ini", false), Part::State);
+        // The release's sample handler is the handlers folder's, like any.
+        assert_eq!(part(r"handlers\MasterHandler.js", false), Part::State);
+        assert!(release.files.contains_key(r"handlers\masterhandler.js"));
         assert_eq!(
             part(r"utils\FlawlessWidescreen\x86\settings.xml", false),
             Part::Seeded

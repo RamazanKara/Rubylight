@@ -1,788 +1,788 @@
-checkDotNet472Ver.bat
-EasyHook.dll
-EasyHook32.dll
-EasyHook32Svc.exe
-EasyHook64.dll
-EasyHook64Svc.exe
-EasyHookSvc.exe
-gui\icons\default.png
-gui\shortcuts\KbShortcutsReminder.jpeg
-gui\shortcuts\XShortcutsReminder.jpeg
-gui\theme\classic\16players.png
-gui\theme\classic\2horizontal.png
-gui\theme\classic\2vertical.png
-gui\theme\classic\4players.png
-gui\theme\classic\6players.png
-gui\theme\classic\8players.png
-gui\theme\classic\add_game.png
-gui\theme\classic\arrow_left.png
-gui\theme\classic\arrow_left_mousehover.png
-gui\theme\classic\arrow_right.png
-gui\theme\classic\arrow_right_mousehover.png
-gui\theme\classic\audio.png
-gui\theme\classic\background.jpg
-gui\theme\classic\buttons_dropdown.png
-gui\theme\classic\click.png
-gui\theme\classic\cover_layer.png
-gui\theme\classic\cursor.ico
-gui\theme\classic\cursor_hand.ico
-gui\theme\classic\customLayout.png
-gui\theme\classic\dinput.png
-gui\theme\classic\dinput_icon.png
-gui\theme\classic\donation.png
-gui\theme\classic\expand_Notes.png
-gui\theme\classic\extract_nc.png
-gui\theme\classic\extract_nc_mousehover.png
-gui\theme\classic\favorite_selected.png
-gui\theme\classic\favorite_unselected.png
-gui\theme\classic\fullscreen.png
-gui\theme\classic\game_options.png
-gui\theme\classic\gamepads\Playstation\b1.png
-gui\theme\classic\gamepads\Playstation\b2.png
-gui\theme\classic\gamepads\Playstation\b3.png
-gui\theme\classic\gamepads\Playstation\b4.png
-gui\theme\classic\gamepads\Playstation\dd.png
-gui\theme\classic\gamepads\Playstation\dl.png
-gui\theme\classic\gamepads\Playstation\dn.png
-gui\theme\classic\gamepads\Playstation\dr.png
-gui\theme\classic\gamepads\Playstation\du.png
-gui\theme\classic\gamepads\Playstation\h.png
-gui\theme\classic\gamepads\Playstation\lb.png
-gui\theme\classic\gamepads\Playstation\ls.png
-gui\theme\classic\gamepads\Playstation\lsc.png
-gui\theme\classic\gamepads\Playstation\lse.png
-gui\theme\classic\gamepads\Playstation\lsn.png
-gui\theme\classic\gamepads\Playstation\lsnsew.png
-gui\theme\classic\gamepads\Playstation\lss.png
-gui\theme\classic\gamepads\Playstation\lsw.png
-gui\theme\classic\gamepads\Playstation\lt.png
-gui\theme\classic\gamepads\Playstation\rb.png
-gui\theme\classic\gamepads\Playstation\rs.png
-gui\theme\classic\gamepads\Playstation\rsc.png
-gui\theme\classic\gamepads\Playstation\rse.png
-gui\theme\classic\gamepads\Playstation\rsn.png
-gui\theme\classic\gamepads\Playstation\rsnsew.png
-gui\theme\classic\gamepads\Playstation\rss.png
-gui\theme\classic\gamepads\Playstation\rsw.png
-gui\theme\classic\gamepads\Playstation\rt.png
-gui\theme\classic\gamepads\Playstation\select.png
-gui\theme\classic\gamepads\Playstation\start.png
-gui\theme\classic\gamepads\Xbox\b1.png
-gui\theme\classic\gamepads\Xbox\b2.png
-gui\theme\classic\gamepads\Xbox\b3.png
-gui\theme\classic\gamepads\Xbox\b4.png
-gui\theme\classic\gamepads\Xbox\dd.png
-gui\theme\classic\gamepads\Xbox\dl.png
-gui\theme\classic\gamepads\Xbox\dn.png
-gui\theme\classic\gamepads\Xbox\dr.png
-gui\theme\classic\gamepads\Xbox\du.png
-gui\theme\classic\gamepads\Xbox\h.png
-gui\theme\classic\gamepads\Xbox\lb.png
-gui\theme\classic\gamepads\Xbox\ls.png
-gui\theme\classic\gamepads\Xbox\lsc.png
-gui\theme\classic\gamepads\Xbox\lse.png
-gui\theme\classic\gamepads\Xbox\lsn.png
-gui\theme\classic\gamepads\Xbox\lsnsew.png
-gui\theme\classic\gamepads\Xbox\lss.png
-gui\theme\classic\gamepads\Xbox\lsw.png
-gui\theme\classic\gamepads\Xbox\lt.png
-gui\theme\classic\gamepads\Xbox\rb.png
-gui\theme\classic\gamepads\Xbox\rs.png
-gui\theme\classic\gamepads\Xbox\rsc.png
-gui\theme\classic\gamepads\Xbox\rse.png
-gui\theme\classic\gamepads\Xbox\rsn.png
-gui\theme\classic\gamepads\Xbox\rsnsew.png
-gui\theme\classic\gamepads\Xbox\rss.png
-gui\theme\classic\gamepads\Xbox\rsw.png
-gui\theme\classic\gamepads\Xbox\rt.png
-gui\theme\classic\gamepads\Xbox\select.png
-gui\theme\classic\gamepads\Xbox\start.png
-gui\theme\classic\home.png
-gui\theme\classic\instruction_closed.png
-gui\theme\classic\instruction_opened.png
-gui\theme\classic\keyboard.png
-gui\theme\classic\keyboard_icon.png
-gui\theme\classic\layout.png
-gui\theme\classic\loading.gif
-gui\theme\classic\locked.png
-gui\theme\classic\log.png
-gui\theme\classic\log_mousehover.png
-gui\theme\classic\logo.png
-gui\theme\classic\magnifier.png
-gui\theme\classic\magnifier_close.png
-gui\theme\classic\manualLayout.png
-gui\theme\classic\no_cover.png
-gui\theme\classic\other_backgrounds.jpg
-gui\theme\classic\page1.png
-gui\theme\classic\page2.png
-gui\theme\classic\play.png
-gui\theme\classic\players.png
-gui\theme\classic\processor.png
-gui\theme\classic\profile_info.png
-gui\theme\classic\profile_info_mousehover.png
-gui\theme\classic\profile_settings.png
-gui\theme\classic\profiles_list.png
-gui\theme\classic\proto_keyboard.png
-gui\theme\classic\proto_mouse.png
-gui\theme\classic\refresh.png
-gui\theme\classic\screen.png
-gui\theme\classic\search_game.png
-gui\theme\classic\search_game_mousehover.png
-gui\theme\classic\shared.png
-gui\theme\classic\theme.ini
-gui\theme\classic\title_close.png
-gui\theme\classic\title_close_mousehover.png
-gui\theme\classic\title_download_assets.png
-gui\theme\classic\title_download_assets_mousehover.png
-gui\theme\classic\title_dropdown_closed.png
-gui\theme\classic\title_dropdown_opened.png
-gui\theme\classic\title_logo.png
-gui\theme\classic\title_maximize.png
-gui\theme\classic\title_maximize_mousehover.png
-gui\theme\classic\title_minimize.png
-gui\theme\classic\title_minimize_mousehover.png
-gui\theme\classic\title_no_hub.png
-gui\theme\classic\title_settings.png
-gui\theme\classic\title_settings_mousehover.png
-gui\theme\classic\title_windowed.png
-gui\theme\classic\title_windowed_mousehover.png
-gui\theme\classic\unlocked.png
-gui\theme\classic\update.png
-gui\theme\classic\xinput.png
-gui\theme\classic\xinput_background.jpg
-gui\theme\classic\xinput_icon.png
-gui\theme\default\16players.png
-gui\theme\default\2horizontal.png
-gui\theme\default\2vertical.png
-gui\theme\default\4players.png
-gui\theme\default\6players.png
-gui\theme\default\8players.png
-gui\theme\default\add_game.png
-gui\theme\default\arrow_left.png
-gui\theme\default\arrow_left_mousehover.png
-gui\theme\default\arrow_right.png
-gui\theme\default\arrow_right_mousehover.png
-gui\theme\default\audio.png
-gui\theme\default\background.jpg
-gui\theme\default\buttons_dropdown.png
-gui\theme\default\click.png
-gui\theme\default\cover_layer.png
-gui\theme\default\cursor.ico
-gui\theme\default\cursor_hand.ico
-gui\theme\default\customLayout.png
-gui\theme\default\dinput.png
-gui\theme\default\dinput_icon.png
-gui\theme\default\donation.png
-gui\theme\default\expand_Notes.png
-gui\theme\default\extract_nc.png
-gui\theme\default\extract_nc_mousehover.png
-gui\theme\default\favorite_selected.png
-gui\theme\default\favorite_unselected.png
-gui\theme\default\fullscreen.png
-gui\theme\default\game_options.png
-gui\theme\default\gamepads\Playstation\b1.png
-gui\theme\default\gamepads\Playstation\b2.png
-gui\theme\default\gamepads\Playstation\b3.png
-gui\theme\default\gamepads\Playstation\b4.png
-gui\theme\default\gamepads\Playstation\dd.png
-gui\theme\default\gamepads\Playstation\dl.png
-gui\theme\default\gamepads\Playstation\dn.png
-gui\theme\default\gamepads\Playstation\dr.png
-gui\theme\default\gamepads\Playstation\du.png
-gui\theme\default\gamepads\Playstation\h.png
-gui\theme\default\gamepads\Playstation\lb.png
-gui\theme\default\gamepads\Playstation\ls.png
-gui\theme\default\gamepads\Playstation\lsc.png
-gui\theme\default\gamepads\Playstation\lse.png
-gui\theme\default\gamepads\Playstation\lsn.png
-gui\theme\default\gamepads\Playstation\lsnsew.png
-gui\theme\default\gamepads\Playstation\lss.png
-gui\theme\default\gamepads\Playstation\lsw.png
-gui\theme\default\gamepads\Playstation\lt.png
-gui\theme\default\gamepads\Playstation\rb.png
-gui\theme\default\gamepads\Playstation\rs.png
-gui\theme\default\gamepads\Playstation\rsc.png
-gui\theme\default\gamepads\Playstation\rse.png
-gui\theme\default\gamepads\Playstation\rsn.png
-gui\theme\default\gamepads\Playstation\rsnsew.png
-gui\theme\default\gamepads\Playstation\rss.png
-gui\theme\default\gamepads\Playstation\rsw.png
-gui\theme\default\gamepads\Playstation\rt.png
-gui\theme\default\gamepads\Playstation\select.png
-gui\theme\default\gamepads\Playstation\start.png
-gui\theme\default\gamepads\Xbox\b1.png
-gui\theme\default\gamepads\Xbox\b2.png
-gui\theme\default\gamepads\Xbox\b3.png
-gui\theme\default\gamepads\Xbox\b4.png
-gui\theme\default\gamepads\Xbox\dd.png
-gui\theme\default\gamepads\Xbox\dl.png
-gui\theme\default\gamepads\Xbox\dn.png
-gui\theme\default\gamepads\Xbox\dr.png
-gui\theme\default\gamepads\Xbox\du.png
-gui\theme\default\gamepads\Xbox\h.png
-gui\theme\default\gamepads\Xbox\lb.png
-gui\theme\default\gamepads\Xbox\ls.png
-gui\theme\default\gamepads\Xbox\lsc.png
-gui\theme\default\gamepads\Xbox\lse.png
-gui\theme\default\gamepads\Xbox\lsn.png
-gui\theme\default\gamepads\Xbox\lsnsew.png
-gui\theme\default\gamepads\Xbox\lss.png
-gui\theme\default\gamepads\Xbox\lsw.png
-gui\theme\default\gamepads\Xbox\lt.png
-gui\theme\default\gamepads\Xbox\rb.png
-gui\theme\default\gamepads\Xbox\rs.png
-gui\theme\default\gamepads\Xbox\rsc.png
-gui\theme\default\gamepads\Xbox\rse.png
-gui\theme\default\gamepads\Xbox\rsn.png
-gui\theme\default\gamepads\Xbox\rsnsew.png
-gui\theme\default\gamepads\Xbox\rss.png
-gui\theme\default\gamepads\Xbox\rsw.png
-gui\theme\default\gamepads\Xbox\rt.png
-gui\theme\default\gamepads\Xbox\select.png
-gui\theme\default\gamepads\Xbox\start.png
-gui\theme\default\home.png
-gui\theme\default\instruction_closed.png
-gui\theme\default\instruction_opened.png
-gui\theme\default\keyboard.png
-gui\theme\default\keyboard_icon.png
-gui\theme\default\layout.png
-gui\theme\default\loading.gif
-gui\theme\default\locked.png
-gui\theme\default\log.png
-gui\theme\default\log_mousehover.png
-gui\theme\default\logo.png
-gui\theme\default\magnifier.png
-gui\theme\default\magnifier_close.png
-gui\theme\default\manualLayout.png
-gui\theme\default\no_cover.png
-gui\theme\default\other_backgrounds.jpg
-gui\theme\default\page1.png
-gui\theme\default\page2.png
-gui\theme\default\play.png
-gui\theme\default\players.png
-gui\theme\default\processor.png
-gui\theme\default\profile_info.png
-gui\theme\default\profile_info_mousehover.png
-gui\theme\default\profile_settings.png
-gui\theme\default\profiles_list.png
-gui\theme\default\proto_keyboard.png
-gui\theme\default\proto_mouse.png
-gui\theme\default\refresh.png
-gui\theme\default\screen.png
-gui\theme\default\search_game.png
-gui\theme\default\search_game_mousehover.png
-gui\theme\default\shared.png
-gui\theme\default\theme.ini
-gui\theme\default\title_close.png
-gui\theme\default\title_close_mousehover.png
-gui\theme\default\title_download_assets.png
-gui\theme\default\title_download_assets_mousehover.png
-gui\theme\default\title_dropdown_closed.png
-gui\theme\default\title_dropdown_opened.png
-gui\theme\default\title_logo.png
-gui\theme\default\title_maximize.png
-gui\theme\default\title_maximize_mousehover.png
-gui\theme\default\title_minimize.png
-gui\theme\default\title_minimize_mousehover.png
-gui\theme\default\title_no_hub.png
-gui\theme\default\title_settings.png
-gui\theme\default\title_settings_mousehover.png
-gui\theme\default\title_windowed.png
-gui\theme\default\title_windowed_mousehover.png
-gui\theme\default\unlocked.png
-gui\theme\default\update.png
-gui\theme\default\xinput.png
-gui\theme\default\xinput_background.jpg
-gui\theme\default\xinput_icon.png
-gui\tutorial\tutorial.gif
-handlers\MasterHandler.js
-handlers\You must download and place game handlers here before adding to Nucleus.txt
-Ionic.Zip.Reduced.dll
-Jint.dll
-NAudio.dll
-Newtonsoft.Json.dll
-Nucleus.Gaming.dll
-Nucleus.Hook32.dll
-Nucleus.Hook64.dll
-Nucleus.IJx64.exe
-Nucleus.IJx86.exe
-Nucleus.SHook32.dll
-Nucleus.SHook64.dll
-Nucleus_Launcher.exe
-NucleusCoop.exe
-NucleusCoop.exe.config
-openxinput1_3.dll
-ProtoInputHooks32.dll
-ProtoInputHooks64.dll
-ProtoInputHost.exe
-ProtoInputIJ32.exe
-ProtoInputIJ64.exe
-ProtoInputIJP32.dll
-ProtoInputIJP64.dll
-ProtoInputLoader32.dll
-ProtoInputLoader64.dll
-ProtoInputUtilDynamic32.dll
-ProtoInputUtilDynamic64.dll
-readme Proto Input.txt
-readme.txt
-SDL2.dll
-Settings.ini
-SharpDX.DirectInput.dll
-SharpDX.dll
-SharpDX.XInput.dll
-StartGame.exe
-StartGame.exe.config
-Updater.exe
-utils\Credits.txt
-utils\Custom utils go in User folder.txt
-utils\devcon\devcon.exe
-utils\devreorder\DeviceLister.exe
-utils\devreorder\devreorder.ini
-utils\devreorder\x64\dinput8.dll
-utils\devreorder\x86\dinput8.dll
-utils\dinput8.blocker\x64\dinput8.dll
-utils\dinput8.blocker\x86\dinput8.dll
-utils\DInput8CoopLvlUnlocker\x64\dinput8.dll
-utils\DInput8CoopLvlUnlocker\x86\dinput8.dll
-utils\DirectXWrapper\d3d9.dll
-utils\Do NOT change file or folder names.txt
-utils\EAC Bypass\EasyAntiCheat_x64.dll
-utils\EAC Bypass\EasyAntiCheat_x86.dll
-utils\FlawlessWidescreen\x64\bass.dll
-utils\FlawlessWidescreen\x64\BeaEngine.dll
-utils\FlawlessWidescreen\x64\data\about_1.png
-utils\FlawlessWidescreen\x64\data\about_2.png
-utils\FlawlessWidescreen\x64\data\about_3.jpg
-utils\FlawlessWidescreen\x64\data\about_track.xm
-utils\FlawlessWidescreen\x64\data\b-execstep.png
-utils\FlawlessWidescreen\x64\data\b-nextstep.png
-utils\FlawlessWidescreen\x64\data\b-prevstep.png
-utils\FlawlessWidescreen\x64\data\donate_button.png
-utils\FlawlessWidescreen\x64\data\largeicon_default.png
-utils\FlawlessWidescreen\x64\data\Logo.png
-utils\FlawlessWidescreen\x64\data\lv-critical.png
-utils\FlawlessWidescreen\x64\data\lv-debug.png
-utils\FlawlessWidescreen\x64\data\lv-error.png
-utils\FlawlessWidescreen\x64\data\lv-information.png
-utils\FlawlessWidescreen\x64\data\lv-warning.png
-utils\FlawlessWidescreen\x64\data\tc-status.png
-utils\FlawlessWidescreen\x64\data\tv-avail.png
-utils\FlawlessWidescreen\x64\data\tv-downloading.png
-utils\FlawlessWidescreen\x64\data\tv-installed.png
-utils\FlawlessWidescreen\x64\data\tv-missingdep.png
-utils\FlawlessWidescreen\x64\data\tv-module.png
-utils\FlawlessWidescreen\x64\data\tv-plugin.png
-utils\FlawlessWidescreen\x64\FASM.dll
-utils\FlawlessWidescreen\x64\fasm_wrapper.exe
-utils\FlawlessWidescreen\x64\FlawlessWidescreen.exe
-utils\FlawlessWidescreen\x64\libcurl.dll
-utils\FlawlessWidescreen\x64\licences\BeaEngine.txt
-utils\FlawlessWidescreen\x64\licences\FASM.txt
-utils\FlawlessWidescreen\x64\licences\FlawlessWidescreen.txt
-utils\FlawlessWidescreen\x64\licences\libcurl.txt
-utils\FlawlessWidescreen\x64\licences\Summary.txt
-utils\FlawlessWidescreen\x64\PluginCache\FWS_Plugins\GlobalDependencies\Scripts\StandardBase.lua
-utils\FlawlessWidescreen\x64\PluginCache\FWS_Plugins\GlobalDependencies\Scripts\StandardTheme.lua
-utils\FlawlessWidescreen\x64\Plugins\FWS_Plugins.fws
-utils\FlawlessWidescreen\x64\RepositoryCache\FWS_MasterRepo.xml
-utils\FlawlessWidescreen\x64\settings.xml
-utils\FlawlessWidescreen\x86\bass.dll
-utils\FlawlessWidescreen\x86\BeaEngine.dll
-utils\FlawlessWidescreen\x86\data\about_1.png
-utils\FlawlessWidescreen\x86\data\about_2.png
-utils\FlawlessWidescreen\x86\data\about_3.jpg
-utils\FlawlessWidescreen\x86\data\about_track.xm
-utils\FlawlessWidescreen\x86\data\b-execstep.png
-utils\FlawlessWidescreen\x86\data\b-nextstep.png
-utils\FlawlessWidescreen\x86\data\b-prevstep.png
-utils\FlawlessWidescreen\x86\data\donate_button.png
-utils\FlawlessWidescreen\x86\data\largeicon_default.png
-utils\FlawlessWidescreen\x86\data\Logo.png
-utils\FlawlessWidescreen\x86\data\lv-critical.png
-utils\FlawlessWidescreen\x86\data\lv-debug.png
-utils\FlawlessWidescreen\x86\data\lv-error.png
-utils\FlawlessWidescreen\x86\data\lv-information.png
-utils\FlawlessWidescreen\x86\data\lv-warning.png
-utils\FlawlessWidescreen\x86\data\tc-status.png
-utils\FlawlessWidescreen\x86\data\tv-avail.png
-utils\FlawlessWidescreen\x86\data\tv-downloading.png
-utils\FlawlessWidescreen\x86\data\tv-installed.png
-utils\FlawlessWidescreen\x86\data\tv-missingdep.png
-utils\FlawlessWidescreen\x86\data\tv-module.png
-utils\FlawlessWidescreen\x86\data\tv-plugin.png
-utils\FlawlessWidescreen\x86\FASM.dll
-utils\FlawlessWidescreen\x86\FlawlessWidescreen.exe
-utils\FlawlessWidescreen\x86\libcurl.dll
-utils\FlawlessWidescreen\x86\licences\BeaEngine.txt
-utils\FlawlessWidescreen\x86\licences\FASM.txt
-utils\FlawlessWidescreen\x86\licences\FlawlessWidescreen.txt
-utils\FlawlessWidescreen\x86\licences\libcurl.txt
-utils\FlawlessWidescreen\x86\licences\Summary.txt
-utils\ForceBindIP\BindIP.dll
-utils\ForceBindIP\BindIP64.dll
-utils\ForceBindIP\ForceBindIP.exe
-utils\ForceBindIP\ForceBindIP64.exe
-utils\GoldbergEmu\account_name.txt
-utils\GoldbergEmu\debug_experimental\Readme.txt
-utils\GoldbergEmu\debug_experimental\steam_api.dll
-utils\GoldbergEmu\debug_experimental\steam_api64.dll
-utils\GoldbergEmu\debug_experimental_steamclient\steamclient.dll
-utils\GoldbergEmu\debug_experimental_steamclient\steamclient64.dll
-utils\GoldbergEmu\experimental\Readme.txt
-utils\GoldbergEmu\experimental\steam_api.dll
-utils\GoldbergEmu\experimental\steam_api64.dll
-utils\GoldbergEmu\experimental\steamclient.dll
-utils\GoldbergEmu\experimental\steamclient64.dll
-utils\GoldbergEmu\experimental_steamclient\ColdClientLoader.ini
-utils\GoldbergEmu\experimental_steamclient\Readme.txt
-utils\GoldbergEmu\experimental_steamclient\steamclient.dll
-utils\GoldbergEmu\experimental_steamclient\steamclient64.dll
-utils\GoldbergEmu\experimental_steamclient\steamclient_loader.exe
-utils\GoldbergEmu\job_id
-utils\GoldbergEmu\linux\lobby_connect\lobby_connect_x64
-utils\GoldbergEmu\linux\lobby_connect\lobby_connect_x86
-utils\GoldbergEmu\linux\tools\find_interfaces.sh
-utils\GoldbergEmu\linux\tools\steamclient_loader.sh
-utils\GoldbergEmu\linux\x86_64\libsteam_api.so
-utils\GoldbergEmu\linux\x86_64\steamclient.so
-utils\GoldbergEmu\lobby_connect\lobby_connect.exe
-utils\GoldbergEmu\lobby_connect\Readme.txt
-utils\GoldbergEmu\Readme.txt
-utils\GoldbergEmu\settings\account_name.txt
-utils\GoldbergEmu\settings\user_steam_id.txt
-utils\GoldbergEmu\source_code\Readme.txt
-utils\GoldbergEmu\source_code\source_code.bundle
-utils\GoldbergEmu\steam_api.dll
-utils\GoldbergEmu\steam_api64.dll
-utils\GoldbergEmu\steam_appid.EDIT_AND_RENAME.txt
-utils\GoldbergEmu\steam_interfaces.EXAMPLE.txt
-utils\GoldbergEmu\steam_settings.EXAMPLE\achievements_EXAMPLE.json
-utils\GoldbergEmu\steam_settings.EXAMPLE\app_paths.EXAMPLE.txt
-utils\GoldbergEmu\steam_settings.EXAMPLE\build_id.EXAMPLE.txt
-utils\GoldbergEmu\steam_settings.EXAMPLE\controller.EXAMPLE\glyphs\button_a.png
-utils\GoldbergEmu\steam_settings.EXAMPLE\controller.EXAMPLE\glyphs\button_b.png
-utils\GoldbergEmu\steam_settings.EXAMPLE\controller.EXAMPLE\glyphs\button_x.png
-utils\GoldbergEmu\steam_settings.EXAMPLE\controller.EXAMPLE\glyphs\button_y.png
-utils\GoldbergEmu\steam_settings.EXAMPLE\controller.EXAMPLE\glyphs\shoulder_l.png
-utils\GoldbergEmu\steam_settings.EXAMPLE\controller.EXAMPLE\glyphs\shoulder_r.png
-utils\GoldbergEmu\steam_settings.EXAMPLE\controller.EXAMPLE\glyphs\stick_dpad_e.png
-utils\GoldbergEmu\steam_settings.EXAMPLE\controller.EXAMPLE\glyphs\stick_dpad_n.png
-utils\GoldbergEmu\steam_settings.EXAMPLE\controller.EXAMPLE\glyphs\stick_dpad_s.png
-utils\GoldbergEmu\steam_settings.EXAMPLE\controller.EXAMPLE\glyphs\stick_dpad_w.png
-utils\GoldbergEmu\steam_settings.EXAMPLE\controller.EXAMPLE\glyphs\stick_l_click.png
-utils\GoldbergEmu\steam_settings.EXAMPLE\controller.EXAMPLE\glyphs\stick_l_move.png
-utils\GoldbergEmu\steam_settings.EXAMPLE\controller.EXAMPLE\glyphs\stick_r_click.png
-utils\GoldbergEmu\steam_settings.EXAMPLE\controller.EXAMPLE\glyphs\stick_r_move.png
-utils\GoldbergEmu\steam_settings.EXAMPLE\controller.EXAMPLE\glyphs\trigger_l_click.png
-utils\GoldbergEmu\steam_settings.EXAMPLE\controller.EXAMPLE\glyphs\trigger_l_pull.png
-utils\GoldbergEmu\steam_settings.EXAMPLE\controller.EXAMPLE\glyphs\trigger_r_click.png
-utils\GoldbergEmu\steam_settings.EXAMPLE\controller.EXAMPLE\glyphs\trigger_r_pull.png
-utils\GoldbergEmu\steam_settings.EXAMPLE\controller.EXAMPLE\glyphs\xbox_button_dpad_e.png
-utils\GoldbergEmu\steam_settings.EXAMPLE\controller.EXAMPLE\glyphs\xbox_button_dpad_move.png
-utils\GoldbergEmu\steam_settings.EXAMPLE\controller.EXAMPLE\glyphs\xbox_button_dpad_n.png
-utils\GoldbergEmu\steam_settings.EXAMPLE\controller.EXAMPLE\glyphs\xbox_button_dpad_s.png
-utils\GoldbergEmu\steam_settings.EXAMPLE\controller.EXAMPLE\glyphs\xbox_button_dpad_w.png
-utils\GoldbergEmu\steam_settings.EXAMPLE\controller.EXAMPLE\glyphs\xbox_button_select.png
-utils\GoldbergEmu\steam_settings.EXAMPLE\controller.EXAMPLE\glyphs\xbox_button_start.png
-utils\GoldbergEmu\steam_settings.EXAMPLE\controller.EXAMPLE\InGameControls.txt
-utils\GoldbergEmu\steam_settings.EXAMPLE\controller.EXAMPLE\MenuControls.txt
-utils\GoldbergEmu\steam_settings.EXAMPLE\custom_broadcasts.EXAMPLE.txt
-utils\GoldbergEmu\steam_settings.EXAMPLE\debug_experimental\Readme.txt
-utils\GoldbergEmu\steam_settings.EXAMPLE\debug_experimental\steam_api.dll
-utils\GoldbergEmu\steam_settings.EXAMPLE\debug_experimental\steam_api64.dll
-utils\GoldbergEmu\steam_settings.EXAMPLE\debug_experimental_steamclient\steamclient.dll
-utils\GoldbergEmu\steam_settings.EXAMPLE\debug_experimental_steamclient\steamclient64.dll
-utils\GoldbergEmu\steam_settings.EXAMPLE\default_items.EXAMPLE.json
-utils\GoldbergEmu\steam_settings.EXAMPLE\depots.EXAMPLE.txt
-utils\GoldbergEmu\steam_settings.EXAMPLE\disable_networking.EXAMPLE.txt
-utils\GoldbergEmu\steam_settings.EXAMPLE\disable_overlay.EXAMPLE.txt
-utils\GoldbergEmu\steam_settings.EXAMPLE\DLC.EXAMPLE.txt
-utils\GoldbergEmu\steam_settings.EXAMPLE\experimental\Readme.txt
-utils\GoldbergEmu\steam_settings.EXAMPLE\experimental\steam_api.dll
-utils\GoldbergEmu\steam_settings.EXAMPLE\experimental\steam_api64.dll
-utils\GoldbergEmu\steam_settings.EXAMPLE\experimental\steamclient.dll
-utils\GoldbergEmu\steam_settings.EXAMPLE\experimental\steamclient64.dll
-utils\GoldbergEmu\steam_settings.EXAMPLE\experimental_steamclient\ColdClientLoader.ini
-utils\GoldbergEmu\steam_settings.EXAMPLE\experimental_steamclient\Readme.txt
-utils\GoldbergEmu\steam_settings.EXAMPLE\experimental_steamclient\steamclient.dll
-utils\GoldbergEmu\steam_settings.EXAMPLE\experimental_steamclient\steamclient64.dll
-utils\GoldbergEmu\steam_settings.EXAMPLE\experimental_steamclient\steamclient_loader.exe
-utils\GoldbergEmu\steam_settings.EXAMPLE\force_account_name.EXAMPLE.txt
-utils\GoldbergEmu\steam_settings.EXAMPLE\force_language.EXAMPLE.txt
-utils\GoldbergEmu\steam_settings.EXAMPLE\force_listen_port.EXAMPLE.txt
-utils\GoldbergEmu\steam_settings.EXAMPLE\force_steamid.EXAMPLE.txt
-utils\GoldbergEmu\steam_settings.EXAMPLE\http.EXAMPLE\accounts.starbreeze.com\iam\oauth\token
-utils\GoldbergEmu\steam_settings.EXAMPLE\items.EXAMPLE.json
-utils\GoldbergEmu\steam_settings.EXAMPLE\job_id
-utils\GoldbergEmu\steam_settings.EXAMPLE\leaderboards.EXAMPLE.txt
-utils\GoldbergEmu\steam_settings.EXAMPLE\linux\lobby_connect\lobby_connect_x64
-utils\GoldbergEmu\steam_settings.EXAMPLE\linux\lobby_connect\lobby_connect_x86
-utils\GoldbergEmu\steam_settings.EXAMPLE\linux\tools\find_interfaces.sh
-utils\GoldbergEmu\steam_settings.EXAMPLE\linux\tools\steamclient_loader.sh
-utils\GoldbergEmu\steam_settings.EXAMPLE\linux\x86_64\libsteam_api.so
-utils\GoldbergEmu\steam_settings.EXAMPLE\linux\x86_64\steamclient.so
-utils\GoldbergEmu\steam_settings.EXAMPLE\lobby_connect\lobby_connect.exe
-utils\GoldbergEmu\steam_settings.EXAMPLE\lobby_connect\Readme.txt
-utils\GoldbergEmu\steam_settings.EXAMPLE\mods.EXAMPLE\12345\mod_file1
-utils\GoldbergEmu\steam_settings.EXAMPLE\mods.EXAMPLE\12345\mod_file2
-utils\GoldbergEmu\steam_settings.EXAMPLE\mods.EXAMPLE\12345\random_mod_file
-utils\GoldbergEmu\steam_settings.EXAMPLE\mods.EXAMPLE\12345\Readme.txt
-utils\GoldbergEmu\steam_settings.EXAMPLE\offline.EXAMPLE.txt
-utils\GoldbergEmu\steam_settings.EXAMPLE\Readme.txt
-utils\GoldbergEmu\steam_settings.EXAMPLE\source_code\Readme.txt
-utils\GoldbergEmu\steam_settings.EXAMPLE\source_code\source_code.bundle
-utils\GoldbergEmu\steam_settings.EXAMPLE\stats.EXAMPLE.txt
-utils\GoldbergEmu\steam_settings.EXAMPLE\steam_api.dll
-utils\GoldbergEmu\steam_settings.EXAMPLE\steam_api64.dll
-utils\GoldbergEmu\steam_settings.EXAMPLE\steam_appid.EDIT_AND_RENAME.txt
-utils\GoldbergEmu\steam_settings.EXAMPLE\steam_interfaces.EXAMPLE.txt
-utils\GoldbergEmu\steam_settings.EXAMPLE\steam_settings.EXAMPLE\achievements_EXAMPLE.json
-utils\GoldbergEmu\steam_settings.EXAMPLE\steam_settings.EXAMPLE\app_paths.EXAMPLE.txt
-utils\GoldbergEmu\steam_settings.EXAMPLE\steam_settings.EXAMPLE\build_id.EXAMPLE.txt
-utils\GoldbergEmu\steam_settings.EXAMPLE\steam_settings.EXAMPLE\controller.EXAMPLE\glyphs\button_a.png
-utils\GoldbergEmu\steam_settings.EXAMPLE\steam_settings.EXAMPLE\controller.EXAMPLE\glyphs\button_b.png
-utils\GoldbergEmu\steam_settings.EXAMPLE\steam_settings.EXAMPLE\controller.EXAMPLE\glyphs\button_x.png
-utils\GoldbergEmu\steam_settings.EXAMPLE\steam_settings.EXAMPLE\controller.EXAMPLE\glyphs\button_y.png
-utils\GoldbergEmu\steam_settings.EXAMPLE\steam_settings.EXAMPLE\controller.EXAMPLE\glyphs\shoulder_l.png
-utils\GoldbergEmu\steam_settings.EXAMPLE\steam_settings.EXAMPLE\controller.EXAMPLE\glyphs\shoulder_r.png
-utils\GoldbergEmu\steam_settings.EXAMPLE\steam_settings.EXAMPLE\controller.EXAMPLE\glyphs\stick_dpad_e.png
-utils\GoldbergEmu\steam_settings.EXAMPLE\steam_settings.EXAMPLE\controller.EXAMPLE\glyphs\stick_dpad_n.png
-utils\GoldbergEmu\steam_settings.EXAMPLE\steam_settings.EXAMPLE\controller.EXAMPLE\glyphs\stick_dpad_s.png
-utils\GoldbergEmu\steam_settings.EXAMPLE\steam_settings.EXAMPLE\controller.EXAMPLE\glyphs\stick_dpad_w.png
-utils\GoldbergEmu\steam_settings.EXAMPLE\steam_settings.EXAMPLE\controller.EXAMPLE\glyphs\stick_l_click.png
-utils\GoldbergEmu\steam_settings.EXAMPLE\steam_settings.EXAMPLE\controller.EXAMPLE\glyphs\stick_l_move.png
-utils\GoldbergEmu\steam_settings.EXAMPLE\steam_settings.EXAMPLE\controller.EXAMPLE\glyphs\stick_r_click.png
-utils\GoldbergEmu\steam_settings.EXAMPLE\steam_settings.EXAMPLE\controller.EXAMPLE\glyphs\stick_r_move.png
-utils\GoldbergEmu\steam_settings.EXAMPLE\steam_settings.EXAMPLE\controller.EXAMPLE\glyphs\trigger_l_click.png
-utils\GoldbergEmu\steam_settings.EXAMPLE\steam_settings.EXAMPLE\controller.EXAMPLE\glyphs\trigger_l_pull.png
-utils\GoldbergEmu\steam_settings.EXAMPLE\steam_settings.EXAMPLE\controller.EXAMPLE\glyphs\trigger_r_click.png
-utils\GoldbergEmu\steam_settings.EXAMPLE\steam_settings.EXAMPLE\controller.EXAMPLE\glyphs\trigger_r_pull.png
-utils\GoldbergEmu\steam_settings.EXAMPLE\steam_settings.EXAMPLE\controller.EXAMPLE\glyphs\xbox_button_dpad_e.png
-utils\GoldbergEmu\steam_settings.EXAMPLE\steam_settings.EXAMPLE\controller.EXAMPLE\glyphs\xbox_button_dpad_move.png
-utils\GoldbergEmu\steam_settings.EXAMPLE\steam_settings.EXAMPLE\controller.EXAMPLE\glyphs\xbox_button_dpad_n.png
-utils\GoldbergEmu\steam_settings.EXAMPLE\steam_settings.EXAMPLE\controller.EXAMPLE\glyphs\xbox_button_dpad_s.png
-utils\GoldbergEmu\steam_settings.EXAMPLE\steam_settings.EXAMPLE\controller.EXAMPLE\glyphs\xbox_button_dpad_w.png
-utils\GoldbergEmu\steam_settings.EXAMPLE\steam_settings.EXAMPLE\controller.EXAMPLE\glyphs\xbox_button_select.png
-utils\GoldbergEmu\steam_settings.EXAMPLE\steam_settings.EXAMPLE\controller.EXAMPLE\glyphs\xbox_button_start.png
-utils\GoldbergEmu\steam_settings.EXAMPLE\steam_settings.EXAMPLE\controller.EXAMPLE\InGameControls.txt
-utils\GoldbergEmu\steam_settings.EXAMPLE\steam_settings.EXAMPLE\controller.EXAMPLE\MenuControls.txt
-utils\GoldbergEmu\steam_settings.EXAMPLE\steam_settings.EXAMPLE\custom_broadcasts.EXAMPLE.txt
-utils\GoldbergEmu\steam_settings.EXAMPLE\steam_settings.EXAMPLE\default_items.EXAMPLE.json
-utils\GoldbergEmu\steam_settings.EXAMPLE\steam_settings.EXAMPLE\depots.EXAMPLE.txt
-utils\GoldbergEmu\steam_settings.EXAMPLE\steam_settings.EXAMPLE\disable_networking.EXAMPLE.txt
-utils\GoldbergEmu\steam_settings.EXAMPLE\steam_settings.EXAMPLE\disable_overlay.EXAMPLE.txt
-utils\GoldbergEmu\steam_settings.EXAMPLE\steam_settings.EXAMPLE\DLC.EXAMPLE.txt
-utils\GoldbergEmu\steam_settings.EXAMPLE\steam_settings.EXAMPLE\force_account_name.EXAMPLE.txt
-utils\GoldbergEmu\steam_settings.EXAMPLE\steam_settings.EXAMPLE\force_language.EXAMPLE.txt
-utils\GoldbergEmu\steam_settings.EXAMPLE\steam_settings.EXAMPLE\force_listen_port.EXAMPLE.txt
-utils\GoldbergEmu\steam_settings.EXAMPLE\steam_settings.EXAMPLE\force_steamid.EXAMPLE.txt
-utils\GoldbergEmu\steam_settings.EXAMPLE\steam_settings.EXAMPLE\items.EXAMPLE.json
-utils\GoldbergEmu\steam_settings.EXAMPLE\steam_settings.EXAMPLE\leaderboards.EXAMPLE.txt
-utils\GoldbergEmu\steam_settings.EXAMPLE\steam_settings.EXAMPLE\mods.EXAMPLE\12345\mod_file1
-utils\GoldbergEmu\steam_settings.EXAMPLE\steam_settings.EXAMPLE\mods.EXAMPLE\12345\mod_file2
-utils\GoldbergEmu\steam_settings.EXAMPLE\steam_settings.EXAMPLE\mods.EXAMPLE\12345\random_mod_file
-utils\GoldbergEmu\steam_settings.EXAMPLE\steam_settings.EXAMPLE\mods.EXAMPLE\12345\Readme.txt
-utils\GoldbergEmu\steam_settings.EXAMPLE\steam_settings.EXAMPLE\offline.EXAMPLE.txt
-utils\GoldbergEmu\steam_settings.EXAMPLE\steam_settings.EXAMPLE\stats.EXAMPLE.txt
-utils\GoldbergEmu\steam_settings.EXAMPLE\steam_settings.EXAMPLE\subscribed_groups.EXAMPLE.txt
-utils\GoldbergEmu\steam_settings.EXAMPLE\subscribed_groups.EXAMPLE.txt
-utils\GoldbergEmu\steam_settings.EXAMPLE\supported_languages.EXAMPLE.txt
-utils\GoldbergEmu\steam_settings.EXAMPLE\tools\generate_interfaces_file.exe
-utils\GoldbergEmu\steam_settings.EXAMPLE\tools\Readme_generate_interfaces.txt
-utils\GoldbergEmu\tools\generate_interfaces_file.exe
-utils\GoldbergEmu\tools\Readme_generate_interfaces.txt
-utils\GoldbergEmu\user_steam_id.txt
-utils\Hooks\EasyHook.dll
-utils\Hooks\EasyHook32.dll
-utils\Hooks\EasyHook32Svc.exe
-utils\Hooks\EasyHook64.dll
-utils\Hooks\EasyHook64Svc.exe
-utils\Hooks\EasyLoad32.dll
-utils\Hooks\EasyLoad64.dll
-utils\Hooks\Hk_IJ.exe
-utils\Hooks\How to use Hk_IJ.txt
-utils\Hooks\Lossless_Hook.dll
-utils\LaunchUsers\PsExec.exe
-utils\NemirtingasEpicEmu\x64\EOSSDK-Win64-Shipping.dll
-utils\NemirtingasEpicEmu\x86\EOSSDK-Win32-Shipping.dll
-utils\NemirtingasGalaxyEmu\x64\Galaxy64.dll
-utils\NemirtingasGalaxyEmu\x86\Galaxy.dll
-utils\SDL2\x64\SDL2.dll
-utils\SDL2\x86\SDL2.dll
-utils\SmartSteamEmu\SmartSteamEmu.dll
-utils\SmartSteamEmu\SmartSteamEmu.ini
-utils\SmartSteamEmu\SmartSteamEmu.txt
-utils\SmartSteamEmu\SmartSteamEmu64.dll
-utils\SmartSteamEmu\SmartSteamEmu\Common\218620\inventory.bin
-utils\SmartSteamEmu\SmartSteamEmu\Common\218620\item_schema.bin
-utils\SmartSteamEmu\SmartSteamEmu\Common\620\items.bin
-utils\SmartSteamEmu\SmartSteamEmu\Common\730\items.bin
-utils\SmartSteamEmu\SmartSteamEmu\Common\avatar.png
-utils\SmartSteamEmu\SmartSteamEmu\Common\Readme.txt
-utils\SmartSteamEmu\SmartSteamEmu\Plugins\SSEFirewall.dll
-utils\SmartSteamEmu\SmartSteamEmu\Plugins\SSEFirewall.ini
-utils\SmartSteamEmu\SmartSteamEmu\Plugins\SSEFirewall64.dll
-utils\SmartSteamEmu\SmartSteamEmu\Plugins\SSEOverlay\Language.ini
-utils\SmartSteamEmu\SmartSteamEmu\Plugins\SSEOverlay\message.wav
-utils\SmartSteamEmu\SmartSteamEmu\Plugins\SSEOverlay\screenshot.wav
-utils\SmartSteamEmu\SmartSteamLoader.exe
-utils\SmartSteamEmu\SmartSteamLoader_x64.exe
-utils\SplitCalculator\SplitCalculator.exe
-utils\Steam Stub DRM Patcher\x64\winmm.dll
-utils\Steam Stub DRM Patcher\x86\winmm.dll
-utils\Steamless\Plugins\ExamplePlugin.dll
-utils\Steamless\Plugins\SharpDisasm.dll
-utils\Steamless\Plugins\Steamless.API.dll
-utils\Steamless\Plugins\Steamless.Unpacker.Variant10.x86.dll
-utils\Steamless\Plugins\Steamless.Unpacker.Variant20.x86.dll
-utils\Steamless\Plugins\Steamless.Unpacker.Variant21.x86.dll
-utils\Steamless\Plugins\Steamless.Unpacker.Variant30.x64.dll
-utils\Steamless\Plugins\Steamless.Unpacker.Variant30.x86.dll
-utils\Steamless\Plugins\Steamless.Unpacker.Variant31.x64.dll
-utils\Steamless\Plugins\Steamless.Unpacker.Variant31.x86.dll
-utils\Steamless\Steamless.CLI.exe
-utils\x360ce\dinput8.dll
-utils\x360ce\dinput8_x64.dll
-utils\x360ce\x360ce.exe
-utils\x360ce\x360ce.ini
-utils\x360ce\x360ce_x64.exe
-utils\x360ce\xinput1_3.dll
-utils\x360ce\xinput1_3_x64.dll
-utils\XInputPlus\DI8dotNET.dll
-utils\XInputPlus\ja\XInputPlus.resources.dll
-utils\XInputPlus\Loader\ja\XInputPlusLoader.resources.dll
-utils\XInputPlus\Loader\ReadMe_en.txt
-utils\XInputPlus\Loader\ReadMe_ja.txt
-utils\XInputPlus\Loader\XInputPlusInjector.dll
-utils\XInputPlus\Loader\XInputPlusInjector64.dll
-utils\XInputPlus\Loader\XInputPlusLoader.exe
-utils\XInputPlus\old\DI8dotNET.dll
-utils\XInputPlus\old\ja\XInputPlus.resources.dll
-utils\XInputPlus\old\Loader\ja\XInputPlusLoader.resources.dll
-utils\XInputPlus\old\Loader\XInputPlusInjector.dll
-utils\XInputPlus\old\Loader\XInputPlusInjector64.dll
-utils\XInputPlus\old\Loader\XInputPlusLoader.exe
-utils\XInputPlus\old\ReadMe_en.txt
-utils\XInputPlus\old\x64\Dinput.dl_
-utils\XInputPlus\old\x64\Dinput8.dl_
-utils\XInputPlus\old\x64\xinput1_3.dl_
-utils\XInputPlus\old\x86\Dinput.dl_
-utils\XInputPlus\old\x86\Dinput8.dl_
-utils\XInputPlus\old\x86\xinput1_3.dl_
-utils\XInputPlus\old\XInputPlus.exe
-utils\XInputPlus\old\XInputPlus.ini
-utils\XInputPlus\old\XInputPlus_Default.ini
-utils\XInputPlus\proxy\x64\OpenXinput.txt
-utils\XInputPlus\proxy\x64\xinput.dll
-utils\XInputPlus\proxy\x86\OpenXinput.txt
-utils\XInputPlus\proxy\x86\xinput.dll
-utils\XInputPlus\ReadMe_en.txt
-utils\XInputPlus\winmm\Readme.txt
-utils\XInputPlus\winmm\Winmm.dll
-utils\XInputPlus\x64\Dinput.dl_
-utils\XInputPlus\x64\Dinput8.dl_
-utils\XInputPlus\x64\xinput1_3.dl_
-utils\XInputPlus\x86\Dinput.dl_
-utils\XInputPlus\x86\Dinput8.dl_
-utils\XInputPlus\x86\xinput1_3.dl_
-utils\XInputPlus\XInputPlus.exe
-utils\XInputPlus\XInputPlus.ini
-utils\XInputPlus\XInputPlus_Default.ini
-webview\darkreader\_locales\ar\messages.json
-webview\darkreader\_locales\be\messages.json
-webview\darkreader\_locales\bn\messages.json
-webview\darkreader\_locales\cs\messages.json
-webview\darkreader\_locales\da_DK\messages.json
-webview\darkreader\_locales\de\messages.json
-webview\darkreader\_locales\el\messages.json
-webview\darkreader\_locales\en\messages.json
-webview\darkreader\_locales\en_GB\messages.json
-webview\darkreader\_locales\en_US\messages.json
-webview\darkreader\_locales\es\messages.json
-webview\darkreader\_locales\es_419\messages.json
-webview\darkreader\_locales\fa\messages.json
-webview\darkreader\_locales\fa_IR\messages.json
-webview\darkreader\_locales\fil\messages.json
-webview\darkreader\_locales\fr\messages.json
-webview\darkreader\_locales\he\messages.json
-webview\darkreader\_locales\hi\messages.json
-webview\darkreader\_locales\id\messages.json
-webview\darkreader\_locales\it\messages.json
-webview\darkreader\_locales\ja\messages.json
-webview\darkreader\_locales\ko\messages.json
-webview\darkreader\_locales\ms\messages.json
-webview\darkreader\_locales\nl\messages.json
-webview\darkreader\_locales\no\messages.json
-webview\darkreader\_locales\pl\messages.json
-webview\darkreader\_locales\pt_BR\messages.json
-webview\darkreader\_locales\pt_PT\messages.json
-webview\darkreader\_locales\ro\messages.json
-webview\darkreader\_locales\ru\messages.json
-webview\darkreader\_locales\si\messages.json
-webview\darkreader\_locales\sk\messages.json
-webview\darkreader\_locales\sr\messages.json
-webview\darkreader\_locales\sv\messages.json
-webview\darkreader\_locales\te\messages.json
-webview\darkreader\_locales\th\messages.json
-webview\darkreader\_locales\tr\messages.json
-webview\darkreader\_locales\uk\messages.json
-webview\darkreader\_locales\vi\messages.json
-webview\darkreader\_locales\zh_CN\messages.json
-webview\darkreader\_locales\zh_TW\messages.json
-webview\darkreader\background.js
-webview\darkreader\config\color-schemes.drconf
-webview\darkreader\config\dark-sites.config
-webview\darkreader\config\detector-hints.config
-webview\darkreader\config\dynamic-theme-fixes.config
-webview\darkreader\config\inversion-fixes.config
-webview\darkreader\config\static-themes.config
-webview\darkreader\icons\dr_128.png
-webview\darkreader\icons\dr_16.png
-webview\darkreader\icons\dr_48.png
-webview\darkreader\icons\dr_active_19.png
-webview\darkreader\icons\dr_active_38.png
-webview\darkreader\icons\dr_inactive_19.png
-webview\darkreader\icons\dr_inactive_38.png
-webview\darkreader\inject\color-scheme-watcher.js
-webview\darkreader\inject\fallback.js
-webview\darkreader\inject\index.js
-webview\darkreader\inject\proxy.js
-webview\darkreader\manifest.json
-webview\darkreader\ui\assets\fonts\LICENSE.txt
-webview\darkreader\ui\assets\fonts\OpenSans-Light.ttf
-webview\darkreader\ui\assets\fonts\OpenSans-Regular.ttf
-webview\darkreader\ui\assets\fonts\OpenSans-SemiBold.ttf
-webview\darkreader\ui\assets\images\darkreader-icon-256x256.png
-webview\darkreader\ui\assets\images\darkreader-type.svg
-webview\darkreader\ui\assets\images\mobile-icon-40x64.svg
-webview\darkreader\ui\assets\images\mode-dark-32.svg
-webview\darkreader\ui\assets\images\mode-light-32.svg
-webview\darkreader\ui\devtools\index.html
-webview\darkreader\ui\devtools\index.js
-webview\darkreader\ui\devtools\style.css
-webview\darkreader\ui\options\index.html
-webview\darkreader\ui\options\index.js
-webview\darkreader\ui\options\style.css
-webview\darkreader\ui\popup\index.html
-webview\darkreader\ui\popup\index.js
-webview\darkreader\ui\popup\style.css
-webview\darkreader\ui\stylesheet-editor\index.html
-webview\darkreader\ui\stylesheet-editor\index.js
-webview\darkreader\ui\stylesheet-editor\style.css
-webview\Microsoft.Web.WebView2.Core.dll
-webview\Microsoft.Web.WebView2.Core.xml
-webview\Microsoft.Web.WebView2.WinForms.dll
-webview\Microsoft.Web.WebView2.WinForms.xml
-webview\Microsoft.Web.WebView2.Wpf.dll
-webview\Microsoft.Web.WebView2.Wpf.xml
-webview\runtimes\win-arm64\native\WebView2Loader.dll
-webview\runtimes\win-x64\native\WebView2Loader.dll
-webview\runtimes\win-x86\native\WebView2Loader.dll
-WindowScrape.dll
-x64\AutoHotkey.dll
-x86\AutoHotkey.dll
+f436c46929f5a8c9f8900f58117e8942edbc82025ab3702bbf909901227d358a 1563 checkDotNet472Ver.bat
+df58e7a3f6423dd8aa6e95867f59691845672a5884be2d4d28257c5c931fff0e 52224 EasyHook.dll
+aab29d771bdb8c600b4df654de2d6832cda259dc3f4955b2c697db30fd151817 296448 EasyHook32.dll
+65492608f5da52ed8d5b6f9360b6d9792456802e6fb03adf38656223501a923a 8192 EasyHook32Svc.exe
+04f967d77dba69d8369218a2ae316c210749f0b1279ac563d8d281dea7b8c6e4 354816 EasyHook64.dll
+361a8652870dfc554f2ef6d87c517a3c50770b90bc06e9d44b06d2005dd67bcd 8192 EasyHook64Svc.exe
+65492608f5da52ed8d5b6f9360b6d9792456802e6fb03adf38656223501a923a 8192 EasyHookSvc.exe
 gui\covers\
+74a3050c4526e92a3a2b18463c34e34bdad605bd8e1ffa8cd466f92eff3bef1c 82926 gui\icons\default.png
 gui\screenshots\
+672c280d4cd2f9eceb0b013784b747830e9bea64293ca3e239122984f9a40581 29056 gui\shortcuts\KbShortcutsReminder.jpeg
+cb13823d2acab3ac3572c20aed8710d156442258e4519ff6f22d713e38c8771c 15885 gui\shortcuts\XShortcutsReminder.jpeg
+817145dcb74e1960d23e68f27adc9e064e09da39039c8a8092afe5f2acbd65fa 268 gui\theme\classic\16players.png
+f1f4315625446fe49fbc42ac656d8967dda1ae59ceeb5b38a82f4d6478682ec1 261 gui\theme\classic\2horizontal.png
+17f13a10bf8329f1562a2ff988686407452b1b4ff0cd9b3440c4bea346d3ac22 266 gui\theme\classic\2vertical.png
+44437d1328eca3738bc75a58ff50d521e0b2ae4c84be9f95fabe2d6bc4928b78 265 gui\theme\classic\4players.png
+71093790223004c57296a50f95a4c203a7ca6f7e004135a285d533750098c341 503 gui\theme\classic\6players.png
+6be67abe649f1d01962accb7dc7665e9b8f487cb7d5747dc216ae0e9d15355a0 358 gui\theme\classic\8players.png
+f674d6515e07eab612b9306478284f4ea4bc8cf455b1a9167bb97a894ca74fc5 7402 gui\theme\classic\add_game.png
+7ef4970e681efd5e4fab1935c6611384f2c2f1896efe73e9c7e4884f00efb8a3 10174 gui\theme\classic\arrow_left.png
+81313aaf55a4fb16eab0e1f0b1d80d83df4ec066c21ab03b27a55ce89ca05e8b 6795 gui\theme\classic\arrow_left_mousehover.png
+eaa4aef11765b45e99de15efa0750768608e9d64f5dce9f8c8b14d39135e98bd 10392 gui\theme\classic\arrow_right.png
+2721b036fbd4cd0be7869e227cd78d729af7c80676c5308b6ec24bfa2e229df7 6802 gui\theme\classic\arrow_right_mousehover.png
+0d94e1fd851b0ba1453c36d9faa87dded80c06faf58d42dbbf470519974103df 14149 gui\theme\classic\audio.png
+b070bc1554c693ecbd7faacf3fe9f77b0494f2fa6b3fa32174aba196777527fd 33857 gui\theme\classic\background.jpg
+cf289c89854cb196bfe9aee63dfd00d25ad78142eecfdb5688b1ffb61acee079 4605 gui\theme\classic\buttons_dropdown.png
+6cbfd9af4882a27d8a8a83de0c9a6732c7a6cb9ff890899aa1e0df6be69b570b 5150 gui\theme\classic\click.png
+fcfeb1da8fcdf36d4833f8cc32f733a96132b516c249f7c673288d8afde10e8a 34437 gui\theme\classic\cover_layer.png
+8b7835ea5c64acf5fa7214e4609a7c8114600fd4e939bf656f9303e06f4183aa 4286 gui\theme\classic\cursor.ico
+ddf0fc21f3b4c87c99d6a73e8076072c499cdcd1869e02ba363194d0ba093caf 4286 gui\theme\classic\cursor_hand.ico
+14b401c7bb417d75645acb20fde79b0e9bd253177e98ebcced7b1d1f75264a80 5593 gui\theme\classic\customLayout.png
+fcfcd0c31ba13c98c849523307b44d1e0746d81a7eac16d0c4a8ecc6138fccbf 31968 gui\theme\classic\dinput.png
+83ac7490c05d88eb9448b97e3f5fc3d2b33af6567512c3d500ade53135de43be 15745 gui\theme\classic\dinput_icon.png
+a66c370d7fde5332c7e805eeafebb81f2fcf377c4115d33e8c53cf605c17a670 7045 gui\theme\classic\donation.png
+fd9e4a710e4fc7917f5b7dadc51a107c6f51b9f1339cc0f8fc960f2b3735450a 10761 gui\theme\classic\expand_Notes.png
+fa5ec85cd6a84ee928c9bafdb184a9550a7bf66c5aef2af1099770a9a1126da2 6536 gui\theme\classic\extract_nc.png
+bb6249ea37ad0d574b47fdb6e4d003cc9d45c3e49dc834a253bfd2244c3768d0 6507 gui\theme\classic\extract_nc_mousehover.png
+a373f3c6f05e75597912b33b054ec2b3de51b667451a481128de354bb8b25a95 10707 gui\theme\classic\favorite_selected.png
+092c331f3641ca6b8d5d3c3438620eedd70560f299e9b49f6648a2c1a58836c0 12790 gui\theme\classic\favorite_unselected.png
+ccaedb6d684c06aaefb15fc34d7d9e745ff7f6264c30619edf90a6d9ddd8b97f 284 gui\theme\classic\fullscreen.png
+18af13c6cf732456200df05982a9543c25b473a0f01d413eece9491d231ed8d5 2880 gui\theme\classic\gamepads\Playstation\b1.png
+82ed6cecad4d93569c717115741541c41f6d4a15f18ec4526b16b5b476e53f05 3566 gui\theme\classic\gamepads\Playstation\b2.png
+bc3b4b6dcff3e982f6888ef419d7d8f206f283247e4ce1604f17a9507c1027ab 2404 gui\theme\classic\gamepads\Playstation\b3.png
+fafed195ef899e9155aed08882e36ea03872369098815999a15a58021bf0b41a 3041 gui\theme\classic\gamepads\Playstation\b4.png
+086c674a0d41a86dee40c4bc3c9ad6327e3518e7000b12c1de7c7949b4b8dc93 1591 gui\theme\classic\gamepads\Playstation\dd.png
+4d5e365341c5552f2a6057ccfdef3f9c7e0063cd864a57b3aa20e74253ce2a2d 1485 gui\theme\classic\gamepads\Playstation\dl.png
+f176363da04a7c58301e46480a7182843672dbf30fe7c2f15b1627d06245f31f 1267 gui\theme\classic\gamepads\Playstation\dn.png
+3b92ad377713da6c60545b944efa2dc7e1e48fdfacff1c9a221840a303f00e1c 1497 gui\theme\classic\gamepads\Playstation\dr.png
+14776454158cd41533528365b142c6f3759e837f2f2d2b52b59852937f50b623 1580 gui\theme\classic\gamepads\Playstation\du.png
+dfb098d14651ea0c7d1263286d8731adda54e8f7b430e8f8570796af4e10f710 13286 gui\theme\classic\gamepads\Playstation\h.png
+9304d2cb8341ac8b707f2babc5aa982d7d5331a79d40d504b6c2091c25b3809a 1669 gui\theme\classic\gamepads\Playstation\lb.png
+643dca6f4d035d53ae959e9600f8289083165850651d38edffb413a2d9e78211 2674 gui\theme\classic\gamepads\Playstation\ls.png
+4a1f1111a0f8ce7f501ad78fa18d1f33b390fec3c3e41acc1a2541c0897b697d 3649 gui\theme\classic\gamepads\Playstation\lsc.png
+989637cf5b00338e350d1dc0d7f176a0822c7c82d6fb57c81ec8383fad4b71b7 2837 gui\theme\classic\gamepads\Playstation\lse.png
+93e67b9bd100fd67cae0c416984a4368c04c5600c2d74e9c678e60565293fce3 2862 gui\theme\classic\gamepads\Playstation\lsn.png
+41a88496861718e928e9b82ec2bb222925bd90e9f9626cedd2f7487c849fa58b 4528 gui\theme\classic\gamepads\Playstation\lsnsew.png
+8c92970363186f6b1612dbb4ccd0f9a03dde83b5e99697d31b9480433c4e78c1 2872 gui\theme\classic\gamepads\Playstation\lss.png
+bf75b7dfc991f7189b84659143b574bd5b377b91d0fa3484ec2a3b0fce5047a9 2870 gui\theme\classic\gamepads\Playstation\lsw.png
+79a772df2ba7403db742a6b2b819b4b08a1820e082329a87240a255d1da60b65 2549 gui\theme\classic\gamepads\Playstation\lt.png
+0056bc13e10857d7ceee3490ddbd870de8b038963f0298ffdb27b7284d00071d 2123 gui\theme\classic\gamepads\Playstation\rb.png
+6d8be45f25204e2adfc08db84fe9c99cfcc9a88d2a5f3c4e112cc668c5d16668 2915 gui\theme\classic\gamepads\Playstation\rs.png
+a04068a7652f3fc1f3486099f2121a515e09584a6803279f20a648e973898d2d 4454 gui\theme\classic\gamepads\Playstation\rsc.png
+2c4b90d155962c26e7ef7cc7ea2c7c5785b21e8234040bfadf433e3c0a98cfad 3083 gui\theme\classic\gamepads\Playstation\rse.png
+17fe0d7d58b087e5f295c54d11663eaa8b0a08d3885fa2225250d7a7d0c40516 3149 gui\theme\classic\gamepads\Playstation\rsn.png
+388cfd787bc4730da1a1d20870f354c42452d5c0ae3a24d090ec9bb3833f357b 4769 gui\theme\classic\gamepads\Playstation\rsnsew.png
+eec315418cea214047813326551b4aad0e70b099744644a86c43c777f206ce5f 3107 gui\theme\classic\gamepads\Playstation\rss.png
+4a2b9fe6810363b4fd1a1b4dc32b8f0d610a529547b38dce2fd2e49656b5e93d 3106 gui\theme\classic\gamepads\Playstation\rsw.png
+698c211d47b4a73a99c46f03b0f26bf3b4ba430a0f8483f100f1e862b2649d96 3079 gui\theme\classic\gamepads\Playstation\rt.png
+6c69992b3e45e158cd15a4d69212a39840d5b099e435a9ebdd23badf400e44ca 18150 gui\theme\classic\gamepads\Playstation\select.png
+84bcad43682d1f4bbd967d9ac46b3c0b93943e738eb466d617c53f68a10c64b7 14723 gui\theme\classic\gamepads\Playstation\start.png
+a6a438981faab2ed85cfd42bbbe02f383442cd157e84f1068f8b145a6880dafe 2959 gui\theme\classic\gamepads\Xbox\b1.png
+c8258c092b3856c0f7f4c604080a9380986509396838d0cde1a2a54d4001cc33 3001 gui\theme\classic\gamepads\Xbox\b2.png
+ce80af0a4ea98e580df1c87c5836636bf1c5401445cb83392ab92cd3b3071913 3171 gui\theme\classic\gamepads\Xbox\b3.png
+0c9af8e58b5a8ead7bb168fbc5df8054655d1af8d17fad84421c5eb7af76a89c 2959 gui\theme\classic\gamepads\Xbox\b4.png
+086c674a0d41a86dee40c4bc3c9ad6327e3518e7000b12c1de7c7949b4b8dc93 1591 gui\theme\classic\gamepads\Xbox\dd.png
+4d5e365341c5552f2a6057ccfdef3f9c7e0063cd864a57b3aa20e74253ce2a2d 1485 gui\theme\classic\gamepads\Xbox\dl.png
+f176363da04a7c58301e46480a7182843672dbf30fe7c2f15b1627d06245f31f 1267 gui\theme\classic\gamepads\Xbox\dn.png
+3b92ad377713da6c60545b944efa2dc7e1e48fdfacff1c9a221840a303f00e1c 1497 gui\theme\classic\gamepads\Xbox\dr.png
+14776454158cd41533528365b142c6f3759e837f2f2d2b52b59852937f50b623 1580 gui\theme\classic\gamepads\Xbox\du.png
+958cdc5313b8d1b1e9454111ad74c0e57e3a66f549ed0878dc565f7e770eb449 16246 gui\theme\classic\gamepads\Xbox\h.png
+28bfd55655e3c5588c2664868ab2b96f0543f2ae0de197a95cad0e4d2eb95196 2116 gui\theme\classic\gamepads\Xbox\lb.png
+cf1d0eba059f252874f37815be7bf8839c711b6ebf13edccec7f846534c071ca 2045 gui\theme\classic\gamepads\Xbox\ls.png
+2b4d5797367d44fe1129dc871f4098210aacbc9ae1d6f0bc553ae9c0013b7d59 1820 gui\theme\classic\gamepads\Xbox\lsc.png
+d14ab569cb2d71562d2d589e1ee2b32bf09f709e9fe09f099597a7afdec1982d 2238 gui\theme\classic\gamepads\Xbox\lse.png
+a828f6f127d312ccf31d5254178ebeb5bde4a9874c056cba0cb6f2d02a79f0ac 2239 gui\theme\classic\gamepads\Xbox\lsn.png
+414f670566db50c1ca630e31b60629d4fb6bf1a224feb5756e59cd34fbff8718 3927 gui\theme\classic\gamepads\Xbox\lsnsew.png
+c57529bbffb7ffc140684b96ef50513dd32427a1bdc6f8bc073859b552098b77 2247 gui\theme\classic\gamepads\Xbox\lss.png
+021dd0d1cac9d2be288896d6f1f9e84256cd8888db1a64697ad65028e37767ec 2274 gui\theme\classic\gamepads\Xbox\lsw.png
+dd7f7b711df2a980451d4a49ee924306608d03b74620701f67244f4d3e2e8d13 1809 gui\theme\classic\gamepads\Xbox\lt.png
+5973c04be16302f5bf56837f7df35255474efa0e6f29d3a7ad7f7e492be355b8 2520 gui\theme\classic\gamepads\Xbox\rb.png
+65f59627a4182fa68707569b5e3fe132a02eb111996afe4837df2dc0691db0fd 2520 gui\theme\classic\gamepads\Xbox\rs.png
+6f9870b9a84108ca5746e9665c1016f9df6d4282d0ae96e12f955b3e40f84a7c 2748 gui\theme\classic\gamepads\Xbox\rsc.png
+6dfbf4fef6deae55c4e1ed2c440b85076792bc5c5d1a0d676efd098481e83bca 2713 gui\theme\classic\gamepads\Xbox\rse.png
+b4ce4e27c881c5d2dca60ad4136adbd4c449d440508c6046e545c582d9940507 2706 gui\theme\classic\gamepads\Xbox\rsn.png
+1551b648cfaca4a08020ec33c19a1bcda31c2ceb6f448d42c40e7b80208ec50b 4425 gui\theme\classic\gamepads\Xbox\rsnsew.png
+dcd6f297a776144887fcd26c59f4c36ffa6419d132fbf7a1d3b5863cd0e87383 2710 gui\theme\classic\gamepads\Xbox\rss.png
+12102d65fe194bca31f5b489dad48e72f6729111e402cb85452808f78fa200ac 2736 gui\theme\classic\gamepads\Xbox\rsw.png
+4143142ccac6d6002d69f0b3cf23c9a8efd15ee5684ddc222732af82d20292e8 2187 gui\theme\classic\gamepads\Xbox\rt.png
+0e70716f6c46c898d22e04a6802f39cf0ad0b46e1cb53033d386afeabddb1b82 2759 gui\theme\classic\gamepads\Xbox\select.png
+40ec616d2618cc2280279a194d1f78b665246e05725ef6068e79364de506f7dd 2727 gui\theme\classic\gamepads\Xbox\start.png
+59a25dd193f8017c117fd0279ee164996c48daff078b5d3adb7fa1235709cd14 14781 gui\theme\classic\game_options.png
+35aad20531258517fa7127bd75a4a25aad613521ded9426784ca5d740711235c 9085 gui\theme\classic\home.png
+55df045c67f81695a49b7e70d254bd85b6b27f0c1c462f07100cbaa5d78ac8b7 2880 gui\theme\classic\instruction_closed.png
+ee97f4a9030da4af6ae98802cef7320db388971e7bb2db8a1ff1a56aad96ae8b 4507 gui\theme\classic\instruction_opened.png
+d912d9d25acd848a9ed09069145f318aa7f8dea36922def2d449557b5d768eba 31244 gui\theme\classic\keyboard.png
+3298a40a5bf8ba4dc810232cc8895ba796cee64a10fcb5cdc3a4dd58d435371b 12262 gui\theme\classic\keyboard_icon.png
+0b90c5203d8a1c375b65db6b3a7f4fef60442b80c84cffa1c31d7d0c350cc826 7167 gui\theme\classic\layout.png
+d0974b750a046887f4446a88626f1541af8c8bc5f320b5b4e34293c568e0762b 12979 gui\theme\classic\loading.gif
+69146243b0a1efdf2272723ff7140d33d38be7f603ea9bc54a8c0f757fa8bff1 5867 gui\theme\classic\locked.png
+0e2b4a9af57721d12cd9e49898fa1bbfb482bf86f40282d1411dea1df2645de5 6151 gui\theme\classic\log.png
+813ba55bc1c9e6587d238c5bb5245ae3de23aa5c7d1f010e30b20c5050504ad7 27441 gui\theme\classic\logo.png
+6c3921443255ae7d44db44c85422445d5f914eb7462c69b70e6232285ec24652 6556 gui\theme\classic\log_mousehover.png
+11c87a0df41ba5569de5da242c5f2546a2ff3b9a9f243aed35049ae23f4ba94a 63358 gui\theme\classic\magnifier.png
+b56fe88fe51e35886137d1c2300f68da29ffda76a443a7408c22a478ab2cfc6b 12353 gui\theme\classic\magnifier_close.png
+52ba15a0e7a841bdc629b437a3be8f039579ff95e80d797fb0650bc1df2472d1 5404 gui\theme\classic\manualLayout.png
+7128752965d3e62e0cd28bd668b1a4fc0c472f3ac093206323241ef8cc2fdc5d 259928 gui\theme\classic\no_cover.png
+7fff3b2aee4cd1c4994faf8d2bdb9b62129a6752cbd3e27af43f59653f8b7efb 26495 gui\theme\classic\other_backgrounds.jpg
+0d1af48ca514f8e7839d65a5b2f22331c3f8c7afed2712946772bc25ff4d02d4 19629 gui\theme\classic\page1.png
+5abbed22602ea58e741a8ff091e7cd1d1514820da6361fb4a2e21d55b7e3e470 20565 gui\theme\classic\page2.png
+2054da8182cda0c0d38c6b801a0723c9114aa37071a95ee9c6e4832dfa9b5ca5 10681 gui\theme\classic\play.png
+130d34a6ebde34621cef27d43f88f205e2915c5083180e210b63299791dcc2ac 16152 gui\theme\classic\players.png
+acb95f5af3a23a1be9f6bbe091780e8f75ea9d326d42a0513fdc47c96ccb2598 17850 gui\theme\classic\processor.png
+4c337fe5bcbf1ba181b598efa437861c4af5ff60796d4c3eb823413ef1996735 35577 gui\theme\classic\profiles_list.png
+c15277988a15fc8cd75cb0ba7ab689a75af7f77918c1b0ce5034b96989ffdd7f 12192 gui\theme\classic\profile_info.png
+ec028cab1ed5dc809a58b45480081e6e67069c3e45b5d0bfab8710add3a12260 13463 gui\theme\classic\profile_info_mousehover.png
+b23cf8281959fe15b18e96ec5a51c849f0c632d3b9cb69470ca1bd79ef1833b8 43062 gui\theme\classic\profile_settings.png
+fef7b3d2bf3ddcd22eef9d0fbae269c492144d8711ee77301d7fed2aad753ee7 22092 gui\theme\classic\proto_keyboard.png
+179bb9792c3d60fe1262f5ae499b6aff83d39da5927ffaeeb361c1d57dd69445 15020 gui\theme\classic\proto_mouse.png
+638c0065bb07283ed8c895260724e28dd7c67badf428ffe34b7cbb5fc6c30289 13972 gui\theme\classic\refresh.png
+25de8557d1f03c896dcf51af4f0aa32e23a1479fd3bb985ba7cb6951e0b45c47 22399 gui\theme\classic\screen.png
+9c075c4088b906f1dd13268a01e70a3dc06502de7cfa419dfe4c7a42be471280 8055 gui\theme\classic\search_game.png
+2962d98549807f27d66ec61db16689c0b106df746646928d9ea1eb64e687e4f3 10184 gui\theme\classic\search_game_mousehover.png
+ce7a6b43e80cf059f4e8b7d3f40312635855e3f4ad93c0af524d6484ad890f23 14036 gui\theme\classic\shared.png
+5287099642bf60d91640f21212fc6f4c1e7b1dc0d66af75759042aeb9c5ff6f6 1149 gui\theme\classic\theme.ini
+cc7c5514d70765fdc4798e4b8a3def530e5df8610cdc63f2300ad026ea684dc4 12296 gui\theme\classic\title_close.png
+680b8d507676a1acc102dfd87ce2323111d169bbf5edc5c23b5df4c9106059c0 19074 gui\theme\classic\title_close_mousehover.png
+0b06e8290d263a692726b8cd57b7311319516ad43482647c50fbed07c7aa26bc 6988 gui\theme\classic\title_download_assets.png
+6c3d80500e315b211ce2f338f4c3d70e131e5c605e095256674d88fa364ed7f5 7962 gui\theme\classic\title_download_assets_mousehover.png
+1a2a0e8e3b8dbfb57f6200cc7884a6e60cafd3594db91bb86b9c13105d11983d 11063 gui\theme\classic\title_dropdown_closed.png
+5668dbe5d4fa521170d7189b234bbbf6a00ff47b2f8bc736729e4805a573554a 10975 gui\theme\classic\title_dropdown_opened.png
+47a68b0941af6982f4fde407ded4f86e1cfd4ab6901cc483757dce9098b040cd 18733 gui\theme\classic\title_logo.png
+7166bd820bac8da84940318d394ba1613efb64587d1824c29355ab4f0aff43d0 7791 gui\theme\classic\title_maximize.png
+5db7288deda6ffee29f4b88f5d0af0c46432c3c52fc5847571e5789d19f18a0c 8213 gui\theme\classic\title_maximize_mousehover.png
+f3602bf99b8090e68dba2a60cb46159a0f28a206825805bafd96f61a977ac0e7 6972 gui\theme\classic\title_minimize.png
+ab750889c81f0373fc220eefa12cab14eb2b95414f8c1edab675e416f97ecbf7 7517 gui\theme\classic\title_minimize_mousehover.png
+1861f4923c5a5bada18441bfe7be030a502142aeefa5d06dc864f75670eb95f2 9706 gui\theme\classic\title_no_hub.png
+b06b72ce4e9145ae8a58d48697b3fcac6afc9af8a07ad67077c500ce6f0e710e 8454 gui\theme\classic\title_settings.png
+2cc5f0d3b4c11c39dc92bb3b91ecfcb70e7688d56eed4d64281a5d14d318623d 10348 gui\theme\classic\title_settings_mousehover.png
+8f06573b465534a5e9b0800c1d563e1bc6564bf9a0c9dcbc99ce3425bfb642a0 8926 gui\theme\classic\title_windowed.png
+bcfbda5c4c4e9c679e55c6220c91d4bcf4f436543d291695a194ef75d0b8c9cc 10347 gui\theme\classic\title_windowed_mousehover.png
+b2176f256b1b86caa912345d401d70e9c8dcd50cda4810a37d215c22812db91e 4812 gui\theme\classic\unlocked.png
+cde9d849e879a509326fe472b1843c8cd124b393d1de1532923e6f290b7e25a5 17691 gui\theme\classic\update.png
+6f5d13231244b223e9ed51e3e7bb05547d5e21c6522cc04cc506a5a03a161fda 31130 gui\theme\classic\xinput.png
+b4093634c4c67218397280ddbb68c77fc8cd6010ad45a22f09f78c4e1b3cc029 11684 gui\theme\classic\xinput_background.jpg
+572fa74e7b7bdcfc01eabd5922125eeb65a61f35060f414d88f1f210189958f4 14480 gui\theme\classic\xinput_icon.png
+817145dcb74e1960d23e68f27adc9e064e09da39039c8a8092afe5f2acbd65fa 268 gui\theme\default\16players.png
+f1f4315625446fe49fbc42ac656d8967dda1ae59ceeb5b38a82f4d6478682ec1 261 gui\theme\default\2horizontal.png
+17f13a10bf8329f1562a2ff988686407452b1b4ff0cd9b3440c4bea346d3ac22 266 gui\theme\default\2vertical.png
+44437d1328eca3738bc75a58ff50d521e0b2ae4c84be9f95fabe2d6bc4928b78 265 gui\theme\default\4players.png
+71093790223004c57296a50f95a4c203a7ca6f7e004135a285d533750098c341 503 gui\theme\default\6players.png
+6be67abe649f1d01962accb7dc7665e9b8f487cb7d5747dc216ae0e9d15355a0 358 gui\theme\default\8players.png
+f674d6515e07eab612b9306478284f4ea4bc8cf455b1a9167bb97a894ca74fc5 7402 gui\theme\default\add_game.png
+438da3bf4be926d3d888a04fda0bdb3b996ecb3a1e0f265d4ef936813897bc62 12475 gui\theme\default\arrow_left.png
+c11b64414a8ce4d71f5f59ea02269a8a632612a9852369d3f886779d45fe5a4e 9959 gui\theme\default\arrow_left_mousehover.png
+55d88508adb8c3c43e7a5d0be0576ac94d9ff28823d8aeacf133413cba9a5ece 12481 gui\theme\default\arrow_right.png
+759f3157c58508592dec43007b20a667e3e76879d64646f07eeb093bb27b57e5 9881 gui\theme\default\arrow_right_mousehover.png
+0d94e1fd851b0ba1453c36d9faa87dded80c06faf58d42dbbf470519974103df 14149 gui\theme\default\audio.png
+b0eb89644b406554e59b2f01a36fd2ebb637f902af2f98cd19f638cc1b53bb09 491834 gui\theme\default\background.jpg
+cf289c89854cb196bfe9aee63dfd00d25ad78142eecfdb5688b1ffb61acee079 4605 gui\theme\default\buttons_dropdown.png
+33be25f4312e089cef837c593bb451d595e925a94d27c5c4494e68e49a1b57c9 6339 gui\theme\default\click.png
+9177e88acec2fa44bfbe3d8e8f6134e9f129d775027656a150b94b91dee4b17e 48397 gui\theme\default\cover_layer.png
+7333ad337909c7045cbadcae01453b091770a1cbae711d8676e2e42814413649 4286 gui\theme\default\cursor.ico
+3d574491503e796f88e4645818f617ef33864e5854730f3d113dd8f9e59d5985 4286 gui\theme\default\cursor_hand.ico
+14b401c7bb417d75645acb20fde79b0e9bd253177e98ebcced7b1d1f75264a80 5593 gui\theme\default\customLayout.png
+21af895ab6e7e1523141daa6c1d82fe4b488ac68a67213ebb4eb2a3baa3669c2 169233 gui\theme\default\dinput.png
+83ac7490c05d88eb9448b97e3f5fc3d2b33af6567512c3d500ade53135de43be 15745 gui\theme\default\dinput_icon.png
+a66c370d7fde5332c7e805eeafebb81f2fcf377c4115d33e8c53cf605c17a670 7045 gui\theme\default\donation.png
+fd9e4a710e4fc7917f5b7dadc51a107c6f51b9f1339cc0f8fc960f2b3735450a 10761 gui\theme\default\expand_Notes.png
+fa5ec85cd6a84ee928c9bafdb184a9550a7bf66c5aef2af1099770a9a1126da2 6536 gui\theme\default\extract_nc.png
+bb6249ea37ad0d574b47fdb6e4d003cc9d45c3e49dc834a253bfd2244c3768d0 6507 gui\theme\default\extract_nc_mousehover.png
+9e0e38a678871b01a3a75f5417806ca831aa91dabcb2df59975eabe5bd8e18b4 12085 gui\theme\default\favorite_selected.png
+092c331f3641ca6b8d5d3c3438620eedd70560f299e9b49f6648a2c1a58836c0 12790 gui\theme\default\favorite_unselected.png
+ccaedb6d684c06aaefb15fc34d7d9e745ff7f6264c30619edf90a6d9ddd8b97f 284 gui\theme\default\fullscreen.png
+18af13c6cf732456200df05982a9543c25b473a0f01d413eece9491d231ed8d5 2880 gui\theme\default\gamepads\Playstation\b1.png
+82ed6cecad4d93569c717115741541c41f6d4a15f18ec4526b16b5b476e53f05 3566 gui\theme\default\gamepads\Playstation\b2.png
+bc3b4b6dcff3e982f6888ef419d7d8f206f283247e4ce1604f17a9507c1027ab 2404 gui\theme\default\gamepads\Playstation\b3.png
+fafed195ef899e9155aed08882e36ea03872369098815999a15a58021bf0b41a 3041 gui\theme\default\gamepads\Playstation\b4.png
+086c674a0d41a86dee40c4bc3c9ad6327e3518e7000b12c1de7c7949b4b8dc93 1591 gui\theme\default\gamepads\Playstation\dd.png
+4d5e365341c5552f2a6057ccfdef3f9c7e0063cd864a57b3aa20e74253ce2a2d 1485 gui\theme\default\gamepads\Playstation\dl.png
+f176363da04a7c58301e46480a7182843672dbf30fe7c2f15b1627d06245f31f 1267 gui\theme\default\gamepads\Playstation\dn.png
+3b92ad377713da6c60545b944efa2dc7e1e48fdfacff1c9a221840a303f00e1c 1497 gui\theme\default\gamepads\Playstation\dr.png
+14776454158cd41533528365b142c6f3759e837f2f2d2b52b59852937f50b623 1580 gui\theme\default\gamepads\Playstation\du.png
+dfb098d14651ea0c7d1263286d8731adda54e8f7b430e8f8570796af4e10f710 13286 gui\theme\default\gamepads\Playstation\h.png
+9304d2cb8341ac8b707f2babc5aa982d7d5331a79d40d504b6c2091c25b3809a 1669 gui\theme\default\gamepads\Playstation\lb.png
+643dca6f4d035d53ae959e9600f8289083165850651d38edffb413a2d9e78211 2674 gui\theme\default\gamepads\Playstation\ls.png
+4a1f1111a0f8ce7f501ad78fa18d1f33b390fec3c3e41acc1a2541c0897b697d 3649 gui\theme\default\gamepads\Playstation\lsc.png
+989637cf5b00338e350d1dc0d7f176a0822c7c82d6fb57c81ec8383fad4b71b7 2837 gui\theme\default\gamepads\Playstation\lse.png
+93e67b9bd100fd67cae0c416984a4368c04c5600c2d74e9c678e60565293fce3 2862 gui\theme\default\gamepads\Playstation\lsn.png
+41a88496861718e928e9b82ec2bb222925bd90e9f9626cedd2f7487c849fa58b 4528 gui\theme\default\gamepads\Playstation\lsnsew.png
+8c92970363186f6b1612dbb4ccd0f9a03dde83b5e99697d31b9480433c4e78c1 2872 gui\theme\default\gamepads\Playstation\lss.png
+bf75b7dfc991f7189b84659143b574bd5b377b91d0fa3484ec2a3b0fce5047a9 2870 gui\theme\default\gamepads\Playstation\lsw.png
+79a772df2ba7403db742a6b2b819b4b08a1820e082329a87240a255d1da60b65 2549 gui\theme\default\gamepads\Playstation\lt.png
+0056bc13e10857d7ceee3490ddbd870de8b038963f0298ffdb27b7284d00071d 2123 gui\theme\default\gamepads\Playstation\rb.png
+6d8be45f25204e2adfc08db84fe9c99cfcc9a88d2a5f3c4e112cc668c5d16668 2915 gui\theme\default\gamepads\Playstation\rs.png
+a04068a7652f3fc1f3486099f2121a515e09584a6803279f20a648e973898d2d 4454 gui\theme\default\gamepads\Playstation\rsc.png
+2c4b90d155962c26e7ef7cc7ea2c7c5785b21e8234040bfadf433e3c0a98cfad 3083 gui\theme\default\gamepads\Playstation\rse.png
+17fe0d7d58b087e5f295c54d11663eaa8b0a08d3885fa2225250d7a7d0c40516 3149 gui\theme\default\gamepads\Playstation\rsn.png
+388cfd787bc4730da1a1d20870f354c42452d5c0ae3a24d090ec9bb3833f357b 4769 gui\theme\default\gamepads\Playstation\rsnsew.png
+eec315418cea214047813326551b4aad0e70b099744644a86c43c777f206ce5f 3107 gui\theme\default\gamepads\Playstation\rss.png
+4a2b9fe6810363b4fd1a1b4dc32b8f0d610a529547b38dce2fd2e49656b5e93d 3106 gui\theme\default\gamepads\Playstation\rsw.png
+698c211d47b4a73a99c46f03b0f26bf3b4ba430a0f8483f100f1e862b2649d96 3079 gui\theme\default\gamepads\Playstation\rt.png
+6c69992b3e45e158cd15a4d69212a39840d5b099e435a9ebdd23badf400e44ca 18150 gui\theme\default\gamepads\Playstation\select.png
+84bcad43682d1f4bbd967d9ac46b3c0b93943e738eb466d617c53f68a10c64b7 14723 gui\theme\default\gamepads\Playstation\start.png
+a6a438981faab2ed85cfd42bbbe02f383442cd157e84f1068f8b145a6880dafe 2959 gui\theme\default\gamepads\Xbox\b1.png
+c8258c092b3856c0f7f4c604080a9380986509396838d0cde1a2a54d4001cc33 3001 gui\theme\default\gamepads\Xbox\b2.png
+ce80af0a4ea98e580df1c87c5836636bf1c5401445cb83392ab92cd3b3071913 3171 gui\theme\default\gamepads\Xbox\b3.png
+0c9af8e58b5a8ead7bb168fbc5df8054655d1af8d17fad84421c5eb7af76a89c 2959 gui\theme\default\gamepads\Xbox\b4.png
+086c674a0d41a86dee40c4bc3c9ad6327e3518e7000b12c1de7c7949b4b8dc93 1591 gui\theme\default\gamepads\Xbox\dd.png
+4d5e365341c5552f2a6057ccfdef3f9c7e0063cd864a57b3aa20e74253ce2a2d 1485 gui\theme\default\gamepads\Xbox\dl.png
+f176363da04a7c58301e46480a7182843672dbf30fe7c2f15b1627d06245f31f 1267 gui\theme\default\gamepads\Xbox\dn.png
+3b92ad377713da6c60545b944efa2dc7e1e48fdfacff1c9a221840a303f00e1c 1497 gui\theme\default\gamepads\Xbox\dr.png
+14776454158cd41533528365b142c6f3759e837f2f2d2b52b59852937f50b623 1580 gui\theme\default\gamepads\Xbox\du.png
+958cdc5313b8d1b1e9454111ad74c0e57e3a66f549ed0878dc565f7e770eb449 16246 gui\theme\default\gamepads\Xbox\h.png
+28bfd55655e3c5588c2664868ab2b96f0543f2ae0de197a95cad0e4d2eb95196 2116 gui\theme\default\gamepads\Xbox\lb.png
+cf1d0eba059f252874f37815be7bf8839c711b6ebf13edccec7f846534c071ca 2045 gui\theme\default\gamepads\Xbox\ls.png
+2b4d5797367d44fe1129dc871f4098210aacbc9ae1d6f0bc553ae9c0013b7d59 1820 gui\theme\default\gamepads\Xbox\lsc.png
+d14ab569cb2d71562d2d589e1ee2b32bf09f709e9fe09f099597a7afdec1982d 2238 gui\theme\default\gamepads\Xbox\lse.png
+a828f6f127d312ccf31d5254178ebeb5bde4a9874c056cba0cb6f2d02a79f0ac 2239 gui\theme\default\gamepads\Xbox\lsn.png
+414f670566db50c1ca630e31b60629d4fb6bf1a224feb5756e59cd34fbff8718 3927 gui\theme\default\gamepads\Xbox\lsnsew.png
+c57529bbffb7ffc140684b96ef50513dd32427a1bdc6f8bc073859b552098b77 2247 gui\theme\default\gamepads\Xbox\lss.png
+021dd0d1cac9d2be288896d6f1f9e84256cd8888db1a64697ad65028e37767ec 2274 gui\theme\default\gamepads\Xbox\lsw.png
+dd7f7b711df2a980451d4a49ee924306608d03b74620701f67244f4d3e2e8d13 1809 gui\theme\default\gamepads\Xbox\lt.png
+5973c04be16302f5bf56837f7df35255474efa0e6f29d3a7ad7f7e492be355b8 2520 gui\theme\default\gamepads\Xbox\rb.png
+65f59627a4182fa68707569b5e3fe132a02eb111996afe4837df2dc0691db0fd 2520 gui\theme\default\gamepads\Xbox\rs.png
+6f9870b9a84108ca5746e9665c1016f9df6d4282d0ae96e12f955b3e40f84a7c 2748 gui\theme\default\gamepads\Xbox\rsc.png
+6dfbf4fef6deae55c4e1ed2c440b85076792bc5c5d1a0d676efd098481e83bca 2713 gui\theme\default\gamepads\Xbox\rse.png
+b4ce4e27c881c5d2dca60ad4136adbd4c449d440508c6046e545c582d9940507 2706 gui\theme\default\gamepads\Xbox\rsn.png
+1551b648cfaca4a08020ec33c19a1bcda31c2ceb6f448d42c40e7b80208ec50b 4425 gui\theme\default\gamepads\Xbox\rsnsew.png
+dcd6f297a776144887fcd26c59f4c36ffa6419d132fbf7a1d3b5863cd0e87383 2710 gui\theme\default\gamepads\Xbox\rss.png
+12102d65fe194bca31f5b489dad48e72f6729111e402cb85452808f78fa200ac 2736 gui\theme\default\gamepads\Xbox\rsw.png
+4143142ccac6d6002d69f0b3cf23c9a8efd15ee5684ddc222732af82d20292e8 2187 gui\theme\default\gamepads\Xbox\rt.png
+0e70716f6c46c898d22e04a6802f39cf0ad0b46e1cb53033d386afeabddb1b82 2759 gui\theme\default\gamepads\Xbox\select.png
+40ec616d2618cc2280279a194d1f78b665246e05725ef6068e79364de506f7dd 2727 gui\theme\default\gamepads\Xbox\start.png
+59a25dd193f8017c117fd0279ee164996c48daff078b5d3adb7fa1235709cd14 14781 gui\theme\default\game_options.png
+35aad20531258517fa7127bd75a4a25aad613521ded9426784ca5d740711235c 9085 gui\theme\default\home.png
+55df045c67f81695a49b7e70d254bd85b6b27f0c1c462f07100cbaa5d78ac8b7 2880 gui\theme\default\instruction_closed.png
+ee97f4a9030da4af6ae98802cef7320db388971e7bb2db8a1ff1a56aad96ae8b 4507 gui\theme\default\instruction_opened.png
+f1d2bea8c9e55a6c2545f3875900f2840e673092a018a9c75be0819c82e0dde1 110986 gui\theme\default\keyboard.png
+3298a40a5bf8ba4dc810232cc8895ba796cee64a10fcb5cdc3a4dd58d435371b 12262 gui\theme\default\keyboard_icon.png
+0b90c5203d8a1c375b65db6b3a7f4fef60442b80c84cffa1c31d7d0c350cc826 7167 gui\theme\default\layout.png
+d0974b750a046887f4446a88626f1541af8c8bc5f320b5b4e34293c568e0762b 12979 gui\theme\default\loading.gif
+69146243b0a1efdf2272723ff7140d33d38be7f603ea9bc54a8c0f757fa8bff1 5867 gui\theme\default\locked.png
+0e2b4a9af57721d12cd9e49898fa1bbfb482bf86f40282d1411dea1df2645de5 6151 gui\theme\default\log.png
+4a0d0ca721b6c75ea1f7caaebccbe5bee2674a05104e7af78952863af5865e04 78892 gui\theme\default\logo.png
+6c3921443255ae7d44db44c85422445d5f914eb7462c69b70e6232285ec24652 6556 gui\theme\default\log_mousehover.png
+11c87a0df41ba5569de5da242c5f2546a2ff3b9a9f243aed35049ae23f4ba94a 63358 gui\theme\default\magnifier.png
+b56fe88fe51e35886137d1c2300f68da29ffda76a443a7408c22a478ab2cfc6b 12353 gui\theme\default\magnifier_close.png
+52ba15a0e7a841bdc629b437a3be8f039579ff95e80d797fb0650bc1df2472d1 5404 gui\theme\default\manualLayout.png
+8ec6bd3d95fd8675f1e07b7f4f6c3d32d31cd942ee4f0ea54e4d407e97787887 183037 gui\theme\default\no_cover.png
+e02db91b7add4346ba3b9d52bb642f7338c092eb3f53779a860992bce4c53027 131486 gui\theme\default\other_backgrounds.jpg
+28cd406c65d419c67d1ed2dda554126743611a0494076d7f7897e12461625688 20375 gui\theme\default\page1.png
+122bf57dab93ed8331a022746106ea7c99f5beff9be049f8c0818f4155c50a46 21224 gui\theme\default\page2.png
+2054da8182cda0c0d38c6b801a0723c9114aa37071a95ee9c6e4832dfa9b5ca5 10681 gui\theme\default\play.png
+130d34a6ebde34621cef27d43f88f205e2915c5083180e210b63299791dcc2ac 16152 gui\theme\default\players.png
+acb95f5af3a23a1be9f6bbe091780e8f75ea9d326d42a0513fdc47c96ccb2598 17850 gui\theme\default\processor.png
+4c337fe5bcbf1ba181b598efa437861c4af5ff60796d4c3eb823413ef1996735 35577 gui\theme\default\profiles_list.png
+c15277988a15fc8cd75cb0ba7ab689a75af7f77918c1b0ce5034b96989ffdd7f 12192 gui\theme\default\profile_info.png
+ec028cab1ed5dc809a58b45480081e6e67069c3e45b5d0bfab8710add3a12260 13463 gui\theme\default\profile_info_mousehover.png
+b23cf8281959fe15b18e96ec5a51c849f0c632d3b9cb69470ca1bd79ef1833b8 43062 gui\theme\default\profile_settings.png
+4d8f3616cb1a6d22df1c7bbbdc1861597fa60ddb0e8a1b764fc83756f530283d 79213 gui\theme\default\proto_keyboard.png
+51c674782949b375075d86a422a4ed5f5b35c7e6f3657878301e431673327b65 40684 gui\theme\default\proto_mouse.png
+638c0065bb07283ed8c895260724e28dd7c67badf428ffe34b7cbb5fc6c30289 13972 gui\theme\default\refresh.png
+25de8557d1f03c896dcf51af4f0aa32e23a1479fd3bb985ba7cb6951e0b45c47 22399 gui\theme\default\screen.png
+9c075c4088b906f1dd13268a01e70a3dc06502de7cfa419dfe4c7a42be471280 8055 gui\theme\default\search_game.png
+2962d98549807f27d66ec61db16689c0b106df746646928d9ea1eb64e687e4f3 10184 gui\theme\default\search_game_mousehover.png
+ce7a6b43e80cf059f4e8b7d3f40312635855e3f4ad93c0af524d6484ad890f23 14036 gui\theme\default\shared.png
+5db5cc0e2936414e40e764641cfe6a823b9ef208854f14e30d924380e4d96237 1084 gui\theme\default\theme.ini
+cc7c5514d70765fdc4798e4b8a3def530e5df8610cdc63f2300ad026ea684dc4 12296 gui\theme\default\title_close.png
+680b8d507676a1acc102dfd87ce2323111d169bbf5edc5c23b5df4c9106059c0 19074 gui\theme\default\title_close_mousehover.png
+0b06e8290d263a692726b8cd57b7311319516ad43482647c50fbed07c7aa26bc 6988 gui\theme\default\title_download_assets.png
+6c3d80500e315b211ce2f338f4c3d70e131e5c605e095256674d88fa364ed7f5 7962 gui\theme\default\title_download_assets_mousehover.png
+6fd910c93e956754b26f9fa04700b11207bfc7b0fac7d375a216e986dee24fe8 5191 gui\theme\default\title_dropdown_closed.png
+341d4f7b4416a1c452622403e7e3ef9a551a4f2cf74709a706faa95e4444926c 5062 gui\theme\default\title_dropdown_opened.png
+9eb1ef46e44f0d637f41c1015c208ebd03624736d8d08fd7f92ad22846f6b4a5 25895 gui\theme\default\title_logo.png
+7166bd820bac8da84940318d394ba1613efb64587d1824c29355ab4f0aff43d0 7791 gui\theme\default\title_maximize.png
+5db7288deda6ffee29f4b88f5d0af0c46432c3c52fc5847571e5789d19f18a0c 8213 gui\theme\default\title_maximize_mousehover.png
+f3602bf99b8090e68dba2a60cb46159a0f28a206825805bafd96f61a977ac0e7 6972 gui\theme\default\title_minimize.png
+ab750889c81f0373fc220eefa12cab14eb2b95414f8c1edab675e416f97ecbf7 7517 gui\theme\default\title_minimize_mousehover.png
+1861f4923c5a5bada18441bfe7be030a502142aeefa5d06dc864f75670eb95f2 9706 gui\theme\default\title_no_hub.png
+b06b72ce4e9145ae8a58d48697b3fcac6afc9af8a07ad67077c500ce6f0e710e 8454 gui\theme\default\title_settings.png
+2cc5f0d3b4c11c39dc92bb3b91ecfcb70e7688d56eed4d64281a5d14d318623d 10348 gui\theme\default\title_settings_mousehover.png
+8f06573b465534a5e9b0800c1d563e1bc6564bf9a0c9dcbc99ce3425bfb642a0 8926 gui\theme\default\title_windowed.png
+bcfbda5c4c4e9c679e55c6220c91d4bcf4f436543d291695a194ef75d0b8c9cc 10347 gui\theme\default\title_windowed_mousehover.png
+b2176f256b1b86caa912345d401d70e9c8dcd50cda4810a37d215c22812db91e 4812 gui\theme\default\unlocked.png
+cde9d849e879a509326fe472b1843c8cd124b393d1de1532923e6f290b7e25a5 17691 gui\theme\default\update.png
+834478b4d8754259a93386fc1b24c03dba5b246d71e1c2d503374237fc429228 60768 gui\theme\default\xinput.png
+b4093634c4c67218397280ddbb68c77fc8cd6010ad45a22f09f78c4e1b3cc029 11684 gui\theme\default\xinput_background.jpg
+572fa74e7b7bdcfc01eabd5922125eeb65a61f35060f414d88f1f210189958f4 14480 gui\theme\default\xinput_icon.png
+7171d132143487552519b53d1b900026f7c4093a99a1f7c62824fd39adc17f31 14337625 gui\tutorial\tutorial.gif
+5af8c09734ab6eecb8aa78f9231d076eddb1c58cca7654e3ddca4fc12eb5523c 11851 handlers\MasterHandler.js
+e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 0 handlers\You must download and place game handlers here before adding to Nucleus.txt
+a4009288982e4c30d22b544167f72db882e34f0fda7d4061b2c02c84688c0ed1 253440 Ionic.Zip.Reduced.dll
+ed618668ae9e7c02c7c2b7332dd09079168cca96432a051044683c996337001c 249856 Jint.dll
+bc4bacc3b8b28d898f1671b79f216cca439f95eb60cd32d3e3ecafbecac42780 513536 NAudio.dll
+e1e27af7b07eeedf5ce71a9255f0422816a6fc5849a483c6714e1b472044fa9d 711952 Newtonsoft.Json.dll
+6930c496b1fb3f8a4e5c4603acbfa6173344c757e46c675c54aef7cd91c6a793 2629120 Nucleus.Gaming.dll
+b97e7f2af4d6e99f55612b1309773bbc53f637acb34c86da81aa6ef7e54ce213 211968 Nucleus.Hook32.dll
+51246e4956173b2ad715ed3ce180c8bc8effb1e15b404e4747473778bc012bcc 259072 Nucleus.Hook64.dll
+ae7f7cfb45096b8a5ca75c476f8c0c32d9091fe5f9a499d0f84a58aa942cca2b 13312 Nucleus.IJx64.exe
+824fbe51fe71059dc63ddb1dd05e11d896c404ee775bd343646c9c65cfdfc94f 13824 Nucleus.IJx86.exe
+e3ddfec0628b07cf4332834f483e64b3d2a27df1f931c9096b44faf402834779 414208 Nucleus.SHook32.dll
+afd9f2e9fd263ba5bf16f6eadd9cbac5182ff5bc04440506ba357cf3dc5bfedb 523776 Nucleus.SHook64.dll
+a6f65dbb80fcb0d846e8f7ea3e81ccc4bcb89411cb35126045a2d5312faf6178 3008000 NucleusCoop.exe
+2b00e05e5ede00c92f5e3b50ddb425965ae3738f08c19b791a9ebd9cf6cd6b27 892 NucleusCoop.exe.config
+7acc2d50b934ac78c30b2daf480b4cfee4aac3d46d7e9c893eaaf5a05ca2ebcb 346112 Nucleus_Launcher.exe
+bdd2942fe5b5cd8a80de18adc1e617f93ab8000744b9e6e77af8d5e53bb306f2 132096 openxinput1_3.dll
+fb12143280df7c3fc50615521180e7b05d44b42993c422f31856d564147a5907 1116160 ProtoInputHooks32.dll
+90dd2e7749f216d2fd16c39162041cf3bd012d4ef2b194415d71c1abd51870a7 1276416 ProtoInputHooks64.dll
+87ac769b8a2205cda685db0011e2cd8bab27da7669bffa36a62680c05295a0ef 1160192 ProtoInputHost.exe
+438d6b928a6ed5b254173b9b9a5b9f02aed2e1e37f1c897229bbed72b39e1742 91136 ProtoInputIJ32.exe
+e150a2fb7fa347b69ef8b6f931fe3434df50bff674f8e23444f1233f8c935fec 117760 ProtoInputIJ64.exe
+e3d807982cb87e4f2fde42093a750435e35a9519e7870a2a0ceabdbfd23e9d44 245760 ProtoInputIJP32.dll
+4a632d7a938585502452bc3afd328a7d598934bd56dcb13042ecd76f10743510 284672 ProtoInputIJP64.dll
+1d3e62ca7a6b94d20256290d0e42ebc1afdd1f5120ad809ce0c3b48685b5ce59 612864 ProtoInputLoader32.dll
+3d06251735184814c5eb1f1b3825ee005073e1e53cbbd4ec01d2a44c2e603315 687616 ProtoInputLoader64.dll
+96c06ca5d4613c64936c0dc7ce680775afdfe6872a2ee68a293ea889b57c2429 67584 ProtoInputUtilDynamic32.dll
+3da942f7816f125f5aa8cb8a702b25d974f5c6a8ea0df4aba39d884c21e6e815 50688 ProtoInputUtilDynamic64.dll
+58cfbc08131903439fef9c1c681799d1f172f57f12b460a5636cd15d5d50543c 34697 readme Proto Input.txt
+5b95992eeb530f4cba4b800b0ea1590d5c3ddaaa3c2059b99307b7dbb9f0e01d 129226 readme.txt
+7806fe53d09bc2bb86c96b42b3dd493b179d5235b670470c405de6cef2cbfbba 1338368 SDL2.dll
+b7ba12e041744b32a497c95474aabb522f88a95dc0fc41e43341cedb5ac85bd3 3246 Settings.ini
+aabd8c944ed5a47e586f661a7aad4c0d990f2b85a29e14b32553714c58a523d2 151040 SharpDX.DirectInput.dll
+a0af255ea4b09a8cdb995b8c6fd1075e46f098e23c2351c974e6ded9b8b620cf 274944 SharpDX.dll
+b4808043d91f93f31369ade5e40b5d1016c527956c7868602d00e51482e34e33 13824 SharpDX.XInput.dll
+0cbe00b146e2c38f9a18fe25e77e0e769810dcc0b174f06a6c0671cbf95e0857 26624 StartGame.exe
+7921098e47e894412fdfd0cafe0f88cc68497740998eac17c68c00129069d803 186 StartGame.exe.config
+83c3e194b8ca18b0994c0cb4764da6260c6fa71dcc4f591d8fc78e3c8ee5f408 1449984 Updater.exe
 utils\backup\
+746c2c54a28b72db3cbb05528fcda0e4a103d11d73486839d4dbe9abf65f0705 1080 utils\Credits.txt
+e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 0 utils\Custom utils go in User folder.txt
+df048df347a738b6addec6f3fd65c73e371d0e11e2dc02f88f8ef307b964e1b7 81920 utils\devcon\devcon.exe
+c45fc34e3fad254abd66102a7124935fef200622978bbc19e182d99ad218fd20 9216 utils\devreorder\DeviceLister.exe
+4244875196d6ae1381796f6a61383d38f6f6f24b1c72d246c20e785254647578 976 utils\devreorder\devreorder.ini
+d523200defa86aa203d3f5fc8f7e563f6a13eb2b60958dfb81cc98a4416ca0e4 227840 utils\devreorder\x64\dinput8.dll
+515be44e7785f5f8e21e780187ce9713b68f9a0fcbb11ff09912f64737ead646 196096 utils\devreorder\x86\dinput8.dll
+8575b6ad6c1172d423b278fcba33d1a7246f73eec63ac13bb8f5a8b7d8238140 8704 utils\dinput8.blocker\x64\dinput8.dll
+3c4664ec7b23d787509bfbf6b6b7acc5ac3d8fb601a84df78cf6bf1061935978 7680 utils\dinput8.blocker\x86\dinput8.dll
+2a46810f8cefddf019a7702ef1861803fba4b25b20acfe25e8641923e97c0bad 221696 utils\DInput8CoopLvlUnlocker\x64\dinput8.dll
+a6f63cf6ea43ac33ab6d8cf1a6ad428804d4466728ce067ce6b541f41d44e4cc 171008 utils\DInput8CoopLvlUnlocker\x86\dinput8.dll
+020091cd031bfdc05299b331137045855953fe5cb529a0acc773b68edb229dde 11264 utils\DirectXWrapper\d3d9.dll
+e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 0 utils\Do NOT change file or folder names.txt
+9578c92e967733f14f9e7e688f00ad916d2a3401b5fef241c3627d4d5613bed8 4608 utils\EAC Bypass\EasyAntiCheat_x64.dll
+4b08d90e7241a009096105b2d8254d9dd10b0c9eadccf113069416c8c64a3906 3072 utils\EAC Bypass\EasyAntiCheat_x86.dll
+eda3f66eedc49ff9b9506c1ccf679a7822104c771eaab3afa367f0d6a2c9bbd5 223744 utils\FlawlessWidescreen\x64\bass.dll
+d3239960c2794532354927581898c07ae29e14a52e25e2ef81c928a770f6cac8 222720 utils\FlawlessWidescreen\x64\BeaEngine.dll
+bef5a18882013e28a4a58a5a28786ea61fd31952fc1cdb83ed8d9bcc0176204a 8567 utils\FlawlessWidescreen\x64\data\about_1.png
+e9a5e771c1e4795bc8d338405a9cf0d111e230f73c34904c16ec4792b54b13c4 2159 utils\FlawlessWidescreen\x64\data\about_2.png
+9ddf76577923af2fe42372699a35abd913986cdd0b125ae0728ffaa9865f355e 15923 utils\FlawlessWidescreen\x64\data\about_3.jpg
+170c1a4f945c2730980da5b373177b857e0826313cd60fc16a11c8f62fd1d33e 35045 utils\FlawlessWidescreen\x64\data\about_track.xm
+de9428d2b87a97029513fc62009e0d805e3087a2fe7115e883a0377a480d4183 6338 utils\FlawlessWidescreen\x64\data\b-execstep.png
+47ac2fd359079d991683542cf245a234939ccd4aec092cb01b0817bf3d2572f3 5520 utils\FlawlessWidescreen\x64\data\b-nextstep.png
+434733a07739cfdd9e42c7816e2c02526cae41b76c000b8d7397453ba937fb73 5533 utils\FlawlessWidescreen\x64\data\b-prevstep.png
+5132f6ae94504686a9e859f3136f565282555937ae65362c32fbc2af71df9c35 1408 utils\FlawlessWidescreen\x64\data\donate_button.png
+05814578ae3418e62f152a9db65be47bcea0d1e44ceb8c45fe173370bd58b437 6132 utils\FlawlessWidescreen\x64\data\largeicon_default.png
+79315289c722e58794f767db5665f0ff0813283ab1d8772acaa065085c3dec87 17499 utils\FlawlessWidescreen\x64\data\Logo.png
+03a0d890904b15f0e6d64d8a2a23f55adb7b9f65ead8d9ade6753e6b5fb311d0 3333 utils\FlawlessWidescreen\x64\data\lv-critical.png
+5333a964e5ae1791eed80ccf0597e195d19af4a5923fe2bbfb009c6200239e88 3616 utils\FlawlessWidescreen\x64\data\lv-debug.png
+5dffd2c86218239b977aab78f5a329986707d45f57db4e7d242efcfebe6ea86c 3401 utils\FlawlessWidescreen\x64\data\lv-error.png
+b3de70617c4e7a237dee3703cf8bda6d848a975b619761fa79106432f2dcd827 3463 utils\FlawlessWidescreen\x64\data\lv-information.png
+3e66d107bbd574f8f82243db843bd3af6aa6434b38234a4b3f79bbcecc3f4210 3387 utils\FlawlessWidescreen\x64\data\lv-warning.png
+adacb833c98b96257bfe973db97a50c01af7e2a83c512595d731ae6a2fbc4341 3271 utils\FlawlessWidescreen\x64\data\tc-status.png
+0c98a64f362cddb3c1b77e383e386cf07f413cc811badf4d0854d74930a29376 3317 utils\FlawlessWidescreen\x64\data\tv-avail.png
+abe80cabce24050cc49204ee28ecf6f082929c3f975835a951a441e29ec42892 3422 utils\FlawlessWidescreen\x64\data\tv-downloading.png
+7e47d5da96235c1bb28ff12a1d09c6b95034c1ae7299ec9c3fda6ab9528dbaa2 3263 utils\FlawlessWidescreen\x64\data\tv-installed.png
+a5c8cf574eb6da448866273fdc23bd1136330ef8d3d912d472e0528d6c609f1f 3410 utils\FlawlessWidescreen\x64\data\tv-missingdep.png
+0d2c581716a4034c86e53b3cc1289cad25205f8cb59335d078b7d9c1d7e19733 3454 utils\FlawlessWidescreen\x64\data\tv-module.png
+f691e717953958dbd7f71554aa76984bf1a7ad0764210d77e7ae9a80c7b7eec3 3354 utils\FlawlessWidescreen\x64\data\tv-plugin.png
+f208c54d2a16ffbe167e4262cb497f671eee7554454fcd38b35a13aaf19dbf0b 98816 utils\FlawlessWidescreen\x64\FASM.dll
+10f1713710008a6dd9d25a0c849707ec486ea6d7b11f9c2c13da2e3d3cdf085b 15872 utils\FlawlessWidescreen\x64\fasm_wrapper.exe
+fe6911ab62fc221068c97bbafe9870dc3e1f403d2255eedb72ae9e5e0e856977 2607104 utils\FlawlessWidescreen\x64\FlawlessWidescreen.exe
+4afe7b6056b07417bb5e3825767e22df3d970fec894be9c30b23ed5a03ca0618 326656 utils\FlawlessWidescreen\x64\libcurl.dll
+267c37f7bdb1a263b6b97a263797096bb49123027674a9b8aef37a4a1553db75 724 utils\FlawlessWidescreen\x64\licences\BeaEngine.txt
+f091a4db5bc7d2e0bca7d72ca7fc4ad8bba697cc8f12a9064f4465d97df50286 1820 utils\FlawlessWidescreen\x64\licences\FASM.txt
+e349c0b4e2c27a8fdf4c2e5036e32af102b41dfbdc7633bd37a8f05aa845f6d1 902 utils\FlawlessWidescreen\x64\licences\FlawlessWidescreen.txt
+949128ea4e8f7fc7644b6cd9b48c23df68547014f36f5c8502eb12a4a07bc741 1065 utils\FlawlessWidescreen\x64\licences\libcurl.txt
+35270096a9b33693e62bff3631b1fbe009039a1332e712c1cab290bd67d014e3 5605 utils\FlawlessWidescreen\x64\licences\Summary.txt
+ae0c1ebed6e97b71bd573c6663b3336fdd273704de38e6ec0ced8ac750db0384 26440 utils\FlawlessWidescreen\x64\PluginCache\FWS_Plugins\GlobalDependencies\Scripts\StandardBase.lua
+b1cbe83e80f6c422cc0cd26179734b5513b5a82dbe5e5ae989f1a86ae60b1957 5573 utils\FlawlessWidescreen\x64\PluginCache\FWS_Plugins\GlobalDependencies\Scripts\StandardTheme.lua
 utils\FlawlessWidescreen\x64\PluginCache\FWS_Plugins\Modules\
+06f0aa3c989dab80937b27072c575b70997575bddb868a2c84f2081313de8abf 268997 utils\FlawlessWidescreen\x64\Plugins\FWS_Plugins.fws
+6e399b83b76845f5f944f431aae3af9901ad04f64d020d288c6995110976d6b0 127644 utils\FlawlessWidescreen\x64\RepositoryCache\FWS_MasterRepo.xml
+c2cdd759c245957595966648f6d66ff97172e719a26fefccdce00307b708eb1f 1476 utils\FlawlessWidescreen\x64\settings.xml
+a3b00967d5c4ef1a2b4980183934d46ef36cee4b3dc1b2a6da1f820d63448390 107584 utils\FlawlessWidescreen\x86\bass.dll
+7e2f6e637c15a50c1057677cb948ea2fe57175641947b60facb1c1340e7ee453 221696 utils\FlawlessWidescreen\x86\BeaEngine.dll
+bef5a18882013e28a4a58a5a28786ea61fd31952fc1cdb83ed8d9bcc0176204a 8567 utils\FlawlessWidescreen\x86\data\about_1.png
+e9a5e771c1e4795bc8d338405a9cf0d111e230f73c34904c16ec4792b54b13c4 2159 utils\FlawlessWidescreen\x86\data\about_2.png
+9ddf76577923af2fe42372699a35abd913986cdd0b125ae0728ffaa9865f355e 15923 utils\FlawlessWidescreen\x86\data\about_3.jpg
+170c1a4f945c2730980da5b373177b857e0826313cd60fc16a11c8f62fd1d33e 35045 utils\FlawlessWidescreen\x86\data\about_track.xm
+de9428d2b87a97029513fc62009e0d805e3087a2fe7115e883a0377a480d4183 6338 utils\FlawlessWidescreen\x86\data\b-execstep.png
+47ac2fd359079d991683542cf245a234939ccd4aec092cb01b0817bf3d2572f3 5520 utils\FlawlessWidescreen\x86\data\b-nextstep.png
+434733a07739cfdd9e42c7816e2c02526cae41b76c000b8d7397453ba937fb73 5533 utils\FlawlessWidescreen\x86\data\b-prevstep.png
+5132f6ae94504686a9e859f3136f565282555937ae65362c32fbc2af71df9c35 1408 utils\FlawlessWidescreen\x86\data\donate_button.png
+05814578ae3418e62f152a9db65be47bcea0d1e44ceb8c45fe173370bd58b437 6132 utils\FlawlessWidescreen\x86\data\largeicon_default.png
+79315289c722e58794f767db5665f0ff0813283ab1d8772acaa065085c3dec87 17499 utils\FlawlessWidescreen\x86\data\Logo.png
+03a0d890904b15f0e6d64d8a2a23f55adb7b9f65ead8d9ade6753e6b5fb311d0 3333 utils\FlawlessWidescreen\x86\data\lv-critical.png
+5333a964e5ae1791eed80ccf0597e195d19af4a5923fe2bbfb009c6200239e88 3616 utils\FlawlessWidescreen\x86\data\lv-debug.png
+5dffd2c86218239b977aab78f5a329986707d45f57db4e7d242efcfebe6ea86c 3401 utils\FlawlessWidescreen\x86\data\lv-error.png
+b3de70617c4e7a237dee3703cf8bda6d848a975b619761fa79106432f2dcd827 3463 utils\FlawlessWidescreen\x86\data\lv-information.png
+3e66d107bbd574f8f82243db843bd3af6aa6434b38234a4b3f79bbcecc3f4210 3387 utils\FlawlessWidescreen\x86\data\lv-warning.png
+adacb833c98b96257bfe973db97a50c01af7e2a83c512595d731ae6a2fbc4341 3271 utils\FlawlessWidescreen\x86\data\tc-status.png
+0c98a64f362cddb3c1b77e383e386cf07f413cc811badf4d0854d74930a29376 3317 utils\FlawlessWidescreen\x86\data\tv-avail.png
+abe80cabce24050cc49204ee28ecf6f082929c3f975835a951a441e29ec42892 3422 utils\FlawlessWidescreen\x86\data\tv-downloading.png
+7e47d5da96235c1bb28ff12a1d09c6b95034c1ae7299ec9c3fda6ab9528dbaa2 3263 utils\FlawlessWidescreen\x86\data\tv-installed.png
+a5c8cf574eb6da448866273fdc23bd1136330ef8d3d912d472e0528d6c609f1f 3410 utils\FlawlessWidescreen\x86\data\tv-missingdep.png
+0d2c581716a4034c86e53b3cc1289cad25205f8cb59335d078b7d9c1d7e19733 3454 utils\FlawlessWidescreen\x86\data\tv-module.png
+f691e717953958dbd7f71554aa76984bf1a7ad0764210d77e7ae9a80c7b7eec3 3354 utils\FlawlessWidescreen\x86\data\tv-plugin.png
+f208c54d2a16ffbe167e4262cb497f671eee7554454fcd38b35a13aaf19dbf0b 98816 utils\FlawlessWidescreen\x86\FASM.dll
+1682b2cfff0bfa516c25e0f1d03de549366703dd34c783c1ecc8fe341b3ca607 2199040 utils\FlawlessWidescreen\x86\FlawlessWidescreen.exe
+96659dd0338e76360cfbf4324da8156731e19f4485cb2e656b2aafd9701e5640 286720 utils\FlawlessWidescreen\x86\libcurl.dll
+267c37f7bdb1a263b6b97a263797096bb49123027674a9b8aef37a4a1553db75 724 utils\FlawlessWidescreen\x86\licences\BeaEngine.txt
+f091a4db5bc7d2e0bca7d72ca7fc4ad8bba697cc8f12a9064f4465d97df50286 1820 utils\FlawlessWidescreen\x86\licences\FASM.txt
+e349c0b4e2c27a8fdf4c2e5036e32af102b41dfbdc7633bd37a8f05aa845f6d1 902 utils\FlawlessWidescreen\x86\licences\FlawlessWidescreen.txt
+949128ea4e8f7fc7644b6cd9b48c23df68547014f36f5c8502eb12a4a07bc741 1065 utils\FlawlessWidescreen\x86\licences\libcurl.txt
+35270096a9b33693e62bff3631b1fbe009039a1332e712c1cab290bd67d014e3 5605 utils\FlawlessWidescreen\x86\licences\Summary.txt
+51921aa88f6b872d35b6e495ac1898cd731296a2745755300e240c8cf678dae4 17448 utils\ForceBindIP\BindIP.dll
+10e347eebe0cc17897d5a72f7a061d23a81dfe3ea2205f534dc2ff15b43a3438 22504 utils\ForceBindIP\BindIP64.dll
+920678ee507ac8aee6f26a9137f208c48e3af9eb5aedc22aaa9b8e92d77b935e 20008 utils\ForceBindIP\ForceBindIP.exe
+7deccb2683741ecda2246f268553d2f4c9427006746eb5b232f743d8ada063e9 23080 utils\ForceBindIP\ForceBindIP64.exe
+51823d918630957c95fa7ec883720407c156f7a5504dfa877fa4e02093ea7721 10 utils\GoldbergEmu\account_name.txt
+2a9670ebd7344dcade5c7c267976cccde67f16dcaf862aaea174abd90be98083 176 utils\GoldbergEmu\debug_experimental\Readme.txt
+398653f360ad10f923663881c484dcb9863c55e43bc613db17e5afe2b79fafbd 2815488 utils\GoldbergEmu\debug_experimental\steam_api.dll
+a41a803fa4e6f08efddae1f0930e55258ec14c23d769d407b1fce668b6823193 3535360 utils\GoldbergEmu\debug_experimental\steam_api64.dll
+7381fd3f577164806d1f09527fbcbe7254dbed8d45ec8d941dc32702607f4642 2674176 utils\GoldbergEmu\debug_experimental_steamclient\steamclient.dll
+adbdfa4a87e1fbe91fa0bfea1cc19a022c1a6f2334026c8b32922c63e85fc33d 3341824 utils\GoldbergEmu\debug_experimental_steamclient\steamclient64.dll
+5c0c6a9bc399c64c3c9244feab4bffb9c9648cf74419bccdb6eef3be4d62031b 2252 utils\GoldbergEmu\experimental\Readme.txt
+3554fa409a7df923465fa2647a26de31bbdcc96a7f2e42e432a2aa7169774400 74240 utils\GoldbergEmu\experimental\steamclient.dll
+7f9fabf5055db099c90b952739e970cd6aab01171d1a980bf96fe9b77885a6a6 89600 utils\GoldbergEmu\experimental\steamclient64.dll
+33585536081b1e6f4bc1e5cc91f16d5513822cb0510546446c2e9be35d08b74f 2531328 utils\GoldbergEmu\experimental\steam_api.dll
+286f2ed575fb16bba9c451bdf5c8738b5aa6587ec7831830cfae1739c6347edd 3207680 utils\GoldbergEmu\experimental\steam_api64.dll
+5d5301b3d22ca7b0777a8ba26f2914eb954e7dd198a3400fe6dbfbb247461dd7 217 utils\GoldbergEmu\experimental_steamclient\ColdClientLoader.ini
+edb842e9abe74ba6c165c3986438995549a9fba3a25061c49a0b374c359aca47 488 utils\GoldbergEmu\experimental_steamclient\Readme.txt
+23b86547d3733d7909f4a3cf680441c166a8dccc651f30f7f44b58e5bf5ab8c1 2395648 utils\GoldbergEmu\experimental_steamclient\steamclient.dll
+4c2813290f2547d92d40d7dc0a54d9ffbdce9a3d44c055b45a496366d829be5d 3019776 utils\GoldbergEmu\experimental_steamclient\steamclient64.dll
+6d76785ff9806540c469c3b466eeacacb5d129d38723d53936a90b419f22a5a0 100864 utils\GoldbergEmu\experimental_steamclient\steamclient_loader.exe
+3b1c270009702eb34f9dd94cb079ea7358bf07718c4247cee5ec976d2fc4fbdc 12 utils\GoldbergEmu\job_id
+42e5d679aac9d91387e66b1edfae0a77711c9314a6a861002adf3ef8538a7b59 2820048 utils\GoldbergEmu\linux\lobby_connect\lobby_connect_x64
+433a598deb5da5f3defd8b6848f4d06ec2fda176f030104285143f2fdd6bccc1 2553384 utils\GoldbergEmu\linux\lobby_connect\lobby_connect_x86
+a5778b242c6760329e70aa769184a27efcb2846c613e0dd724f3f07e58df5b18 1173 utils\GoldbergEmu\linux\tools\find_interfaces.sh
+0fc44ee76e5c99a5df39ac7d644e4cfdc651b7606e53682e2a95751aee5ceeee 1221 utils\GoldbergEmu\linux\tools\steamclient_loader.sh
+98eb4291ee79267767c42d8cebc702763f892372986d4e367c3d37d092964136 4184112 utils\GoldbergEmu\linux\x86_64\libsteam_api.so
+f403194199adf4d738bbdb249cc22dd8c28690ab47f37d22029877b798e9bf78 3946288 utils\GoldbergEmu\linux\x86_64\steamclient.so
+2222c3e91ac406265392120b9592c6b02de373d57351b9d3feb798c71e49d080 1400320 utils\GoldbergEmu\lobby_connect\lobby_connect.exe
+e190c2244ef9b2dbbc2d72ad9f68de4085d78be09cae0590c2995ef075af3911 768 utils\GoldbergEmu\lobby_connect\Readme.txt
+a49c3ddecd7af392d63f06666272970834b8f767ae0e2b310451269183a1938d 14217 utils\GoldbergEmu\Readme.txt
+51823d918630957c95fa7ec883720407c156f7a5504dfa877fa4e02093ea7721 10 utils\GoldbergEmu\settings\account_name.txt
+86c5c4dcfed945caadfba20e13bb3c07255091a2b816e4d18a869287d1de27e9 17 utils\GoldbergEmu\settings\user_steam_id.txt
+fe0e4bc81544fa577351d9579e138ebca28e2353154aa15ee2b0863fa8495724 93 utils\GoldbergEmu\source_code\Readme.txt
+aa751fbc421cab0da4ad4edd2e5080d304cfb32794f92430db8a4cb0f291efbf 5731790 utils\GoldbergEmu\source_code\source_code.bundle
+eaeaf26f60229ae4d1a9aae07d03ab4e93ea599dd883eb810d6adebcf0e52e14 1488896 utils\GoldbergEmu\steam_api.dll
+0cfe547ea82071953cf99daffa3bd11bb468eec0e400961e7e33e4dc36674ea8 1958912 utils\GoldbergEmu\steam_api64.dll
+5db1fee4b5703808c48078a76768b155b421b210c0761cd6a5d223f4d99f1eaa 4 utils\GoldbergEmu\steam_appid.EDIT_AND_RENAME.txt
+f32a58870b3da4214e4d9c132783e6e8f2f277aa9025cf3211ddfef9a3becd5e 573 utils\GoldbergEmu\steam_interfaces.EXAMPLE.txt
+99ed6625cc5aabf7dbd3d9ca34c6e28be42fe36386bd3badd25ace06a55c45e8 69372 utils\GoldbergEmu\steam_settings.EXAMPLE\achievements_EXAMPLE.json
+081531241ce47c0f9ce04c3e751baced73ad610a7582f254aaf61475f5da97b2 160 utils\GoldbergEmu\steam_settings.EXAMPLE\app_paths.EXAMPLE.txt
+5994471abb01112afcc18159f6cc74b4f511b99806da59b3caf5a9c173cacfc5 5 utils\GoldbergEmu\steam_settings.EXAMPLE\build_id.EXAMPLE.txt
+aad85589c65f4624c283f3c0cc86b31bb230bc26a9fed29412191c8fb53d339c 9456 utils\GoldbergEmu\steam_settings.EXAMPLE\controller.EXAMPLE\glyphs\button_a.png
+40193d449c6992c00454cd6844986007cd361e46c12a5e175cdd9fc1d61b3df7 8556 utils\GoldbergEmu\steam_settings.EXAMPLE\controller.EXAMPLE\glyphs\button_b.png
+d48cfbe44767c432b70a25771a8be0162e5644270047497b423cf8078a03378f 10713 utils\GoldbergEmu\steam_settings.EXAMPLE\controller.EXAMPLE\glyphs\button_x.png
+7710d3113955f6e1933c07e1495c412a4e1ab2deeba30b9ec8ed7a19e20a891f 9184 utils\GoldbergEmu\steam_settings.EXAMPLE\controller.EXAMPLE\glyphs\button_y.png
+06f4007ee74ed82e1327cb1b03cb740b0f4d23fd1de4c242e47b10493396f286 2711 utils\GoldbergEmu\steam_settings.EXAMPLE\controller.EXAMPLE\glyphs\shoulder_l.png
+d00995974d66bb5e2bd83cd3a4990dff3ec108b9eb86dc4fd4f31a2fb33b40f9 3119 utils\GoldbergEmu\steam_settings.EXAMPLE\controller.EXAMPLE\glyphs\shoulder_r.png
+63da80cff089402decbaf2afbfbee4841830cfd0d117751f68336ef542dcbf42 5994 utils\GoldbergEmu\steam_settings.EXAMPLE\controller.EXAMPLE\glyphs\stick_dpad_e.png
+4d284e811156f0376e1b39b9ffd86ae15f0639c1da67719fd56b96ce1eb93790 6034 utils\GoldbergEmu\steam_settings.EXAMPLE\controller.EXAMPLE\glyphs\stick_dpad_n.png
+57c1b3ff038f50b3e4eea9f6db752058891ce4c0e7551ae5fbf7bcc2658cd6e0 5985 utils\GoldbergEmu\steam_settings.EXAMPLE\controller.EXAMPLE\glyphs\stick_dpad_s.png
+cd7042919525b3d720a76d85679547e837ada74a89d59f8d05b266c2f349d50e 6001 utils\GoldbergEmu\steam_settings.EXAMPLE\controller.EXAMPLE\glyphs\stick_dpad_w.png
+5d69ea410b79b27c73572954057e706c4bc2959bb1da385fa453fff023a94d5b 6381 utils\GoldbergEmu\steam_settings.EXAMPLE\controller.EXAMPLE\glyphs\stick_l_click.png
+11c1aceb28739081290a0c86494d7df43ad975dc8ff942147b894bf558de5a12 5147 utils\GoldbergEmu\steam_settings.EXAMPLE\controller.EXAMPLE\glyphs\stick_l_move.png
+44db68034534cc61e818302747b8c98d8fe65c52b1159f76ed24896695e35f73 7036 utils\GoldbergEmu\steam_settings.EXAMPLE\controller.EXAMPLE\glyphs\stick_r_click.png
+00fae2212e2a54896b0fc18ab7d267e39ad6cdacd62b055da3063f081f1a518c 5798 utils\GoldbergEmu\steam_settings.EXAMPLE\controller.EXAMPLE\glyphs\stick_r_move.png
+f6f9b7869c0835ad1de706e51d1f4da474eb1d646301f6e920d3bcdc3284252a 1802 utils\GoldbergEmu\steam_settings.EXAMPLE\controller.EXAMPLE\glyphs\trigger_l_click.png
+f6f9b7869c0835ad1de706e51d1f4da474eb1d646301f6e920d3bcdc3284252a 1802 utils\GoldbergEmu\steam_settings.EXAMPLE\controller.EXAMPLE\glyphs\trigger_l_pull.png
+66184fa95f5a564410e943011ae913d5f169e511dadec02b6a1e35583702fa82 2396 utils\GoldbergEmu\steam_settings.EXAMPLE\controller.EXAMPLE\glyphs\trigger_r_click.png
+66184fa95f5a564410e943011ae913d5f169e511dadec02b6a1e35583702fa82 2396 utils\GoldbergEmu\steam_settings.EXAMPLE\controller.EXAMPLE\glyphs\trigger_r_pull.png
+723b52602aeb0dc3b7a403245d867b86bac4cb1906c4c59d1d029ea5af2d05d6 5994 utils\GoldbergEmu\steam_settings.EXAMPLE\controller.EXAMPLE\glyphs\xbox_button_dpad_e.png
+ca1f4678c542cbe15de5c2276e69617ca7d41b886a2aba68f7972d0e26051f00 5013 utils\GoldbergEmu\steam_settings.EXAMPLE\controller.EXAMPLE\glyphs\xbox_button_dpad_move.png
+99526d88d69e47ff9d15b9c669001db3f85046d0e0adb6aeb71a3a5d3a0a4ceb 5881 utils\GoldbergEmu\steam_settings.EXAMPLE\controller.EXAMPLE\glyphs\xbox_button_dpad_n.png
+edef3da4507d5840e5fe18860407678b464fbf78ba3256df86022ba13e246756 5915 utils\GoldbergEmu\steam_settings.EXAMPLE\controller.EXAMPLE\glyphs\xbox_button_dpad_s.png
+5ae6a9a01369833ead651f12a571e3a8e998c83d8a27e2b115ea293586d8be7c 5966 utils\GoldbergEmu\steam_settings.EXAMPLE\controller.EXAMPLE\glyphs\xbox_button_dpad_w.png
+702b06e046779234c8ecb2ba6db1c4d533c89cf4bdbc92a00660c11e976af573 3871 utils\GoldbergEmu\steam_settings.EXAMPLE\controller.EXAMPLE\glyphs\xbox_button_select.png
+199923784d9b2838d96b3aba842f685973881a29c7ad6140d14c34691a41dba2 3927 utils\GoldbergEmu\steam_settings.EXAMPLE\controller.EXAMPLE\glyphs\xbox_button_start.png
+b0f1f24e43fe11353fb461b48b4c8fabd1f4bcb51fe04fb05811147a18867e17 356 utils\GoldbergEmu\steam_settings.EXAMPLE\controller.EXAMPLE\InGameControls.txt
+ac139cefa603d6b734e747dde3b5b07b202a80fccd4bc330c7c646d72de09f3f 307 utils\GoldbergEmu\steam_settings.EXAMPLE\controller.EXAMPLE\MenuControls.txt
+730c50403fd846aa14719ceecce65247713e7faf5658a0ea1610448a91555c7b 84 utils\GoldbergEmu\steam_settings.EXAMPLE\custom_broadcasts.EXAMPLE.txt
+2a9670ebd7344dcade5c7c267976cccde67f16dcaf862aaea174abd90be98083 176 utils\GoldbergEmu\steam_settings.EXAMPLE\debug_experimental\Readme.txt
+98da5427c98fcf8ad207a0d99d4a7424820dcaa8534ce1b578966751d7afe1f8 3508224 utils\GoldbergEmu\steam_settings.EXAMPLE\debug_experimental\steam_api.dll
+ef7e28db597ca9973862a057acd76151a74e067dca9d47611612a18b17b2f0b5 4645888 utils\GoldbergEmu\steam_settings.EXAMPLE\debug_experimental\steam_api64.dll
+90f6cf5d7867486c8aae29b9e3306fef48f3ea4b92a86590fabdcad844ea9c80 3366400 utils\GoldbergEmu\steam_settings.EXAMPLE\debug_experimental_steamclient\steamclient.dll
+de3c33c6fa4a2775be4f45ff1ac222326f80785d6616b721994b4d9c869ea079 4439040 utils\GoldbergEmu\steam_settings.EXAMPLE\debug_experimental_steamclient\steamclient64.dll
+b3d78a7547bf521d00142fc0f6dc8e5b8aeeab3030ad5b47123d2c41d746761a 31 utils\GoldbergEmu\steam_settings.EXAMPLE\default_items.EXAMPLE.json
+e9441ee98b74e4c7215994a49e5c957f57fe490e1a4e2c270fbee1bb4970d921 49 utils\GoldbergEmu\steam_settings.EXAMPLE\depots.EXAMPLE.txt
+f7fd6426bd798fad5dfd616ea43a01eaa45b223078794c5c98a230c7ec095945 79 utils\GoldbergEmu\steam_settings.EXAMPLE\disable_networking.EXAMPLE.txt
+3c9e84c8212ae1b69024b5a37e01ce3aa07e96af01d5755b2d6b0cd12f4c5025 67 utils\GoldbergEmu\steam_settings.EXAMPLE\disable_overlay.EXAMPLE.txt
+8d9f6c7af3cc9b991abdb645c3afa76835b6cd12b6b7ed45b4f610b4673c3200 114 utils\GoldbergEmu\steam_settings.EXAMPLE\DLC.EXAMPLE.txt
+e8db5e475af0314e47e8ddd8f1d2c8c7522def4715d4aad220d5083fc84a5be3 2191 utils\GoldbergEmu\steam_settings.EXAMPLE\experimental\Readme.txt
+38561798f73a09b1bbe9e902020de4232e411f22dec7d88444dd814dc02bb76d 74240 utils\GoldbergEmu\steam_settings.EXAMPLE\experimental\steamclient.dll
+814368e044e9a298397090795b7958fab7968fe3125b0311dfda747adcae7694 89600 utils\GoldbergEmu\steam_settings.EXAMPLE\experimental\steamclient64.dll
+07239c6e0f3fd0f7dbdc60a7a97b49568357a0df70bb2476c062101334cfe76b 2358272 utils\GoldbergEmu\steam_settings.EXAMPLE\experimental\steam_api.dll
+35982c443b958816f7b2b83cbbd35b68c2a67f6abd95fcd087852b3e0e3d7217 2998784 utils\GoldbergEmu\steam_settings.EXAMPLE\experimental\steam_api64.dll
+5d5301b3d22ca7b0777a8ba26f2914eb954e7dd198a3400fe6dbfbb247461dd7 217 utils\GoldbergEmu\steam_settings.EXAMPLE\experimental_steamclient\ColdClientLoader.ini
+edb842e9abe74ba6c165c3986438995549a9fba3a25061c49a0b374c359aca47 488 utils\GoldbergEmu\steam_settings.EXAMPLE\experimental_steamclient\Readme.txt
+a0a39fdb38197ddece9d9a1cf3ff95f998ad8dae60f472b302733685a49e8955 2241536 utils\GoldbergEmu\steam_settings.EXAMPLE\experimental_steamclient\steamclient.dll
+655bef9ebc08d58b1c62a237e3a0c07cfdcd17ff00d53ed29776b05242909552 2835968 utils\GoldbergEmu\steam_settings.EXAMPLE\experimental_steamclient\steamclient64.dll
+355e3e662b70811f8eaeaa787537f268de60ea023409df5bb41b4e0e95a618ab 100864 utils\GoldbergEmu\steam_settings.EXAMPLE\experimental_steamclient\steamclient_loader.exe
+5745efccad30eda68b8da83d1403dd13285d2f5743028df89b238a84bbc03872 11 utils\GoldbergEmu\steam_settings.EXAMPLE\force_account_name.EXAMPLE.txt
+b6234d2ea0d6022be63db80d7b80e221097fe4a469dc44febcd2a9241effdeba 7 utils\GoldbergEmu\steam_settings.EXAMPLE\force_language.EXAMPLE.txt
+45095e3e3f29ea73ffab2e23158b7cd2afa6532004b5a9b6f06d4e5e068a89aa 5 utils\GoldbergEmu\steam_settings.EXAMPLE\force_listen_port.EXAMPLE.txt
+9d135e264c5f017159e5eec06889665766660d38ce1bf8a73db256863f97953b 17 utils\GoldbergEmu\steam_settings.EXAMPLE\force_steamid.EXAMPLE.txt
+9c14016bf474e932ab5efb001f299986557041a3cc742598b485bd12f3a247e1 473 utils\GoldbergEmu\steam_settings.EXAMPLE\http.EXAMPLE\accounts.starbreeze.com\iam\oauth\token
+9f7e02fc8e3d6e9e4d4f15fee99432124558d179f008a395bca5e0edc5aa9159 3906 utils\GoldbergEmu\steam_settings.EXAMPLE\items.EXAMPLE.json
+4b1cda6fc8c5f70ee341d467be51cb10b0d64d230b05c90e87e23dd3159b2394 12 utils\GoldbergEmu\steam_settings.EXAMPLE\job_id
+81ab26ea2b5679d2c6b59704d48d72ed53e3b260bbdeb86a335e9c526b915058 57 utils\GoldbergEmu\steam_settings.EXAMPLE\leaderboards.EXAMPLE.txt
+632727d51dd680426d340f8a816ef19272d9345d9732fbc15771c670b7a7b093 2666216 utils\GoldbergEmu\steam_settings.EXAMPLE\linux\lobby_connect\lobby_connect_x64
+c1d95f9ac474e0ba7663743ed879d127101559fa72ef2b3ac9013fea5f99243d 2431500 utils\GoldbergEmu\steam_settings.EXAMPLE\linux\lobby_connect\lobby_connect_x86
+a5778b242c6760329e70aa769184a27efcb2846c613e0dd724f3f07e58df5b18 1173 utils\GoldbergEmu\steam_settings.EXAMPLE\linux\tools\find_interfaces.sh
+0fc44ee76e5c99a5df39ac7d644e4cfdc651b7606e53682e2a95751aee5ceeee 1221 utils\GoldbergEmu\steam_settings.EXAMPLE\linux\tools\steamclient_loader.sh
+3041101da1a2e07a6fac0e1922c449d6d79b3b10832cfab9d9dbfe618fcb44d9 3947896 utils\GoldbergEmu\steam_settings.EXAMPLE\linux\x86_64\libsteam_api.so
+f01a44fd6201ebb639f0137bbef4d57ff4d57a065daac2a9a8f8b10b00c158d9 3730552 utils\GoldbergEmu\steam_settings.EXAMPLE\linux\x86_64\steamclient.so
+0c7e74fb227243cb4da50fec91054dd6fe0bd1dcbb8d57d807cd8cd3cda13e55 1318912 utils\GoldbergEmu\steam_settings.EXAMPLE\lobby_connect\lobby_connect.exe
+e190c2244ef9b2dbbc2d72ad9f68de4085d78be09cae0590c2995ef075af3911 768 utils\GoldbergEmu\steam_settings.EXAMPLE\lobby_connect\Readme.txt
+e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 0 utils\GoldbergEmu\steam_settings.EXAMPLE\mods.EXAMPLE\12345\mod_file1
+e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 0 utils\GoldbergEmu\steam_settings.EXAMPLE\mods.EXAMPLE\12345\mod_file2
+e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 0 utils\GoldbergEmu\steam_settings.EXAMPLE\mods.EXAMPLE\12345\random_mod_file
+87988d7e9f983d16c90fec7f6e84012357cb87007ac38247e0c62613d3f120e7 93 utils\GoldbergEmu\steam_settings.EXAMPLE\mods.EXAMPLE\12345\Readme.txt
+69891e570f633c90b7f135486b9d790f7884d3c6b962773af404fed6f41f6448 72 utils\GoldbergEmu\steam_settings.EXAMPLE\offline.EXAMPLE.txt
+7d102218f4b12cf1103bdc097851c4d178d38373593ad51fd295652be2c09231 12996 utils\GoldbergEmu\steam_settings.EXAMPLE\Readme.txt
+fe0e4bc81544fa577351d9579e138ebca28e2353154aa15ee2b0863fa8495724 93 utils\GoldbergEmu\steam_settings.EXAMPLE\source_code\Readme.txt
+715f42bb9e41de08bf4241eeb3c9fb94b5305323520da8a11a4178ab069be2b7 4702024 utils\GoldbergEmu\steam_settings.EXAMPLE\source_code\source_code.bundle
+81370655148ed22f825efda9a6e7f4f015a41cdb28fe51321d78aef7a271de39 188 utils\GoldbergEmu\steam_settings.EXAMPLE\stats.EXAMPLE.txt
+240c72ec94786277963fef1ac2cb7036d6c8cf6e0b2c51b89648bdebae85f9c4 1408512 utils\GoldbergEmu\steam_settings.EXAMPLE\steam_api.dll
+8b3873570b45f5e2de22551ab948bae9f591c3f10ef53adaf469dfdcfdb36aff 1850880 utils\GoldbergEmu\steam_settings.EXAMPLE\steam_api64.dll
+5db1fee4b5703808c48078a76768b155b421b210c0761cd6a5d223f4d99f1eaa 4 utils\GoldbergEmu\steam_settings.EXAMPLE\steam_appid.EDIT_AND_RENAME.txt
+f32a58870b3da4214e4d9c132783e6e8f2f277aa9025cf3211ddfef9a3becd5e 573 utils\GoldbergEmu\steam_settings.EXAMPLE\steam_interfaces.EXAMPLE.txt
+99ed6625cc5aabf7dbd3d9ca34c6e28be42fe36386bd3badd25ace06a55c45e8 69372 utils\GoldbergEmu\steam_settings.EXAMPLE\steam_settings.EXAMPLE\achievements_EXAMPLE.json
+081531241ce47c0f9ce04c3e751baced73ad610a7582f254aaf61475f5da97b2 160 utils\GoldbergEmu\steam_settings.EXAMPLE\steam_settings.EXAMPLE\app_paths.EXAMPLE.txt
+5994471abb01112afcc18159f6cc74b4f511b99806da59b3caf5a9c173cacfc5 5 utils\GoldbergEmu\steam_settings.EXAMPLE\steam_settings.EXAMPLE\build_id.EXAMPLE.txt
+aad85589c65f4624c283f3c0cc86b31bb230bc26a9fed29412191c8fb53d339c 9456 utils\GoldbergEmu\steam_settings.EXAMPLE\steam_settings.EXAMPLE\controller.EXAMPLE\glyphs\button_a.png
+40193d449c6992c00454cd6844986007cd361e46c12a5e175cdd9fc1d61b3df7 8556 utils\GoldbergEmu\steam_settings.EXAMPLE\steam_settings.EXAMPLE\controller.EXAMPLE\glyphs\button_b.png
+d48cfbe44767c432b70a25771a8be0162e5644270047497b423cf8078a03378f 10713 utils\GoldbergEmu\steam_settings.EXAMPLE\steam_settings.EXAMPLE\controller.EXAMPLE\glyphs\button_x.png
+7710d3113955f6e1933c07e1495c412a4e1ab2deeba30b9ec8ed7a19e20a891f 9184 utils\GoldbergEmu\steam_settings.EXAMPLE\steam_settings.EXAMPLE\controller.EXAMPLE\glyphs\button_y.png
+06f4007ee74ed82e1327cb1b03cb740b0f4d23fd1de4c242e47b10493396f286 2711 utils\GoldbergEmu\steam_settings.EXAMPLE\steam_settings.EXAMPLE\controller.EXAMPLE\glyphs\shoulder_l.png
+d00995974d66bb5e2bd83cd3a4990dff3ec108b9eb86dc4fd4f31a2fb33b40f9 3119 utils\GoldbergEmu\steam_settings.EXAMPLE\steam_settings.EXAMPLE\controller.EXAMPLE\glyphs\shoulder_r.png
+63da80cff089402decbaf2afbfbee4841830cfd0d117751f68336ef542dcbf42 5994 utils\GoldbergEmu\steam_settings.EXAMPLE\steam_settings.EXAMPLE\controller.EXAMPLE\glyphs\stick_dpad_e.png
+4d284e811156f0376e1b39b9ffd86ae15f0639c1da67719fd56b96ce1eb93790 6034 utils\GoldbergEmu\steam_settings.EXAMPLE\steam_settings.EXAMPLE\controller.EXAMPLE\glyphs\stick_dpad_n.png
+57c1b3ff038f50b3e4eea9f6db752058891ce4c0e7551ae5fbf7bcc2658cd6e0 5985 utils\GoldbergEmu\steam_settings.EXAMPLE\steam_settings.EXAMPLE\controller.EXAMPLE\glyphs\stick_dpad_s.png
+cd7042919525b3d720a76d85679547e837ada74a89d59f8d05b266c2f349d50e 6001 utils\GoldbergEmu\steam_settings.EXAMPLE\steam_settings.EXAMPLE\controller.EXAMPLE\glyphs\stick_dpad_w.png
+5d69ea410b79b27c73572954057e706c4bc2959bb1da385fa453fff023a94d5b 6381 utils\GoldbergEmu\steam_settings.EXAMPLE\steam_settings.EXAMPLE\controller.EXAMPLE\glyphs\stick_l_click.png
+11c1aceb28739081290a0c86494d7df43ad975dc8ff942147b894bf558de5a12 5147 utils\GoldbergEmu\steam_settings.EXAMPLE\steam_settings.EXAMPLE\controller.EXAMPLE\glyphs\stick_l_move.png
+44db68034534cc61e818302747b8c98d8fe65c52b1159f76ed24896695e35f73 7036 utils\GoldbergEmu\steam_settings.EXAMPLE\steam_settings.EXAMPLE\controller.EXAMPLE\glyphs\stick_r_click.png
+00fae2212e2a54896b0fc18ab7d267e39ad6cdacd62b055da3063f081f1a518c 5798 utils\GoldbergEmu\steam_settings.EXAMPLE\steam_settings.EXAMPLE\controller.EXAMPLE\glyphs\stick_r_move.png
+f6f9b7869c0835ad1de706e51d1f4da474eb1d646301f6e920d3bcdc3284252a 1802 utils\GoldbergEmu\steam_settings.EXAMPLE\steam_settings.EXAMPLE\controller.EXAMPLE\glyphs\trigger_l_click.png
+f6f9b7869c0835ad1de706e51d1f4da474eb1d646301f6e920d3bcdc3284252a 1802 utils\GoldbergEmu\steam_settings.EXAMPLE\steam_settings.EXAMPLE\controller.EXAMPLE\glyphs\trigger_l_pull.png
+66184fa95f5a564410e943011ae913d5f169e511dadec02b6a1e35583702fa82 2396 utils\GoldbergEmu\steam_settings.EXAMPLE\steam_settings.EXAMPLE\controller.EXAMPLE\glyphs\trigger_r_click.png
+66184fa95f5a564410e943011ae913d5f169e511dadec02b6a1e35583702fa82 2396 utils\GoldbergEmu\steam_settings.EXAMPLE\steam_settings.EXAMPLE\controller.EXAMPLE\glyphs\trigger_r_pull.png
+723b52602aeb0dc3b7a403245d867b86bac4cb1906c4c59d1d029ea5af2d05d6 5994 utils\GoldbergEmu\steam_settings.EXAMPLE\steam_settings.EXAMPLE\controller.EXAMPLE\glyphs\xbox_button_dpad_e.png
+ca1f4678c542cbe15de5c2276e69617ca7d41b886a2aba68f7972d0e26051f00 5013 utils\GoldbergEmu\steam_settings.EXAMPLE\steam_settings.EXAMPLE\controller.EXAMPLE\glyphs\xbox_button_dpad_move.png
+99526d88d69e47ff9d15b9c669001db3f85046d0e0adb6aeb71a3a5d3a0a4ceb 5881 utils\GoldbergEmu\steam_settings.EXAMPLE\steam_settings.EXAMPLE\controller.EXAMPLE\glyphs\xbox_button_dpad_n.png
+edef3da4507d5840e5fe18860407678b464fbf78ba3256df86022ba13e246756 5915 utils\GoldbergEmu\steam_settings.EXAMPLE\steam_settings.EXAMPLE\controller.EXAMPLE\glyphs\xbox_button_dpad_s.png
+5ae6a9a01369833ead651f12a571e3a8e998c83d8a27e2b115ea293586d8be7c 5966 utils\GoldbergEmu\steam_settings.EXAMPLE\steam_settings.EXAMPLE\controller.EXAMPLE\glyphs\xbox_button_dpad_w.png
+702b06e046779234c8ecb2ba6db1c4d533c89cf4bdbc92a00660c11e976af573 3871 utils\GoldbergEmu\steam_settings.EXAMPLE\steam_settings.EXAMPLE\controller.EXAMPLE\glyphs\xbox_button_select.png
+199923784d9b2838d96b3aba842f685973881a29c7ad6140d14c34691a41dba2 3927 utils\GoldbergEmu\steam_settings.EXAMPLE\steam_settings.EXAMPLE\controller.EXAMPLE\glyphs\xbox_button_start.png
+b0f1f24e43fe11353fb461b48b4c8fabd1f4bcb51fe04fb05811147a18867e17 356 utils\GoldbergEmu\steam_settings.EXAMPLE\steam_settings.EXAMPLE\controller.EXAMPLE\InGameControls.txt
+ac139cefa603d6b734e747dde3b5b07b202a80fccd4bc330c7c646d72de09f3f 307 utils\GoldbergEmu\steam_settings.EXAMPLE\steam_settings.EXAMPLE\controller.EXAMPLE\MenuControls.txt
+730c50403fd846aa14719ceecce65247713e7faf5658a0ea1610448a91555c7b 84 utils\GoldbergEmu\steam_settings.EXAMPLE\steam_settings.EXAMPLE\custom_broadcasts.EXAMPLE.txt
+b3d78a7547bf521d00142fc0f6dc8e5b8aeeab3030ad5b47123d2c41d746761a 31 utils\GoldbergEmu\steam_settings.EXAMPLE\steam_settings.EXAMPLE\default_items.EXAMPLE.json
+e9441ee98b74e4c7215994a49e5c957f57fe490e1a4e2c270fbee1bb4970d921 49 utils\GoldbergEmu\steam_settings.EXAMPLE\steam_settings.EXAMPLE\depots.EXAMPLE.txt
+f7fd6426bd798fad5dfd616ea43a01eaa45b223078794c5c98a230c7ec095945 79 utils\GoldbergEmu\steam_settings.EXAMPLE\steam_settings.EXAMPLE\disable_networking.EXAMPLE.txt
+3c9e84c8212ae1b69024b5a37e01ce3aa07e96af01d5755b2d6b0cd12f4c5025 67 utils\GoldbergEmu\steam_settings.EXAMPLE\steam_settings.EXAMPLE\disable_overlay.EXAMPLE.txt
+8d9f6c7af3cc9b991abdb645c3afa76835b6cd12b6b7ed45b4f610b4673c3200 114 utils\GoldbergEmu\steam_settings.EXAMPLE\steam_settings.EXAMPLE\DLC.EXAMPLE.txt
+5745efccad30eda68b8da83d1403dd13285d2f5743028df89b238a84bbc03872 11 utils\GoldbergEmu\steam_settings.EXAMPLE\steam_settings.EXAMPLE\force_account_name.EXAMPLE.txt
+b6234d2ea0d6022be63db80d7b80e221097fe4a469dc44febcd2a9241effdeba 7 utils\GoldbergEmu\steam_settings.EXAMPLE\steam_settings.EXAMPLE\force_language.EXAMPLE.txt
+45095e3e3f29ea73ffab2e23158b7cd2afa6532004b5a9b6f06d4e5e068a89aa 5 utils\GoldbergEmu\steam_settings.EXAMPLE\steam_settings.EXAMPLE\force_listen_port.EXAMPLE.txt
+9d135e264c5f017159e5eec06889665766660d38ce1bf8a73db256863f97953b 17 utils\GoldbergEmu\steam_settings.EXAMPLE\steam_settings.EXAMPLE\force_steamid.EXAMPLE.txt
+9f7e02fc8e3d6e9e4d4f15fee99432124558d179f008a395bca5e0edc5aa9159 3906 utils\GoldbergEmu\steam_settings.EXAMPLE\steam_settings.EXAMPLE\items.EXAMPLE.json
+81ab26ea2b5679d2c6b59704d48d72ed53e3b260bbdeb86a335e9c526b915058 57 utils\GoldbergEmu\steam_settings.EXAMPLE\steam_settings.EXAMPLE\leaderboards.EXAMPLE.txt
+e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 0 utils\GoldbergEmu\steam_settings.EXAMPLE\steam_settings.EXAMPLE\mods.EXAMPLE\12345\mod_file1
+e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 0 utils\GoldbergEmu\steam_settings.EXAMPLE\steam_settings.EXAMPLE\mods.EXAMPLE\12345\mod_file2
+e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 0 utils\GoldbergEmu\steam_settings.EXAMPLE\steam_settings.EXAMPLE\mods.EXAMPLE\12345\random_mod_file
+87988d7e9f983d16c90fec7f6e84012357cb87007ac38247e0c62613d3f120e7 93 utils\GoldbergEmu\steam_settings.EXAMPLE\steam_settings.EXAMPLE\mods.EXAMPLE\12345\Readme.txt
+69891e570f633c90b7f135486b9d790f7884d3c6b962773af404fed6f41f6448 72 utils\GoldbergEmu\steam_settings.EXAMPLE\steam_settings.EXAMPLE\offline.EXAMPLE.txt
+81370655148ed22f825efda9a6e7f4f015a41cdb28fe51321d78aef7a271de39 188 utils\GoldbergEmu\steam_settings.EXAMPLE\steam_settings.EXAMPLE\stats.EXAMPLE.txt
+fdfaf07381d1140224663d3eab49eb7819bf75a44e76667a41fcfff8a8764c1e 80 utils\GoldbergEmu\steam_settings.EXAMPLE\steam_settings.EXAMPLE\subscribed_groups.EXAMPLE.txt
+fdfaf07381d1140224663d3eab49eb7819bf75a44e76667a41fcfff8a8764c1e 80 utils\GoldbergEmu\steam_settings.EXAMPLE\subscribed_groups.EXAMPLE.txt
+1beb3eac96efe630272b6967a8746787ce757071221bf8b5673ff7f8476fbf77 70 utils\GoldbergEmu\steam_settings.EXAMPLE\supported_languages.EXAMPLE.txt
+d8f0b649e3824302ce20c05f1963f36971c3a83b2f0dc479bd8f10d25b0c599f 240640 utils\GoldbergEmu\steam_settings.EXAMPLE\tools\generate_interfaces_file.exe
+914b68bc67cbaba04b17574cb440ef0b1dd8d7382a00e3ca09e6c5d8ad31dfff 278 utils\GoldbergEmu\steam_settings.EXAMPLE\tools\Readme_generate_interfaces.txt
+6c35ca67266e95e2804c278b68d549e1af5fb8f7ab56ecb70accaac50d2ddc6c 240640 utils\GoldbergEmu\tools\generate_interfaces_file.exe
+914b68bc67cbaba04b17574cb440ef0b1dd8d7382a00e3ca09e6c5d8ad31dfff 278 utils\GoldbergEmu\tools\Readme_generate_interfaces.txt
+86c5c4dcfed945caadfba20e13bb3c07255091a2b816e4d18a869287d1de27e9 17 utils\GoldbergEmu\user_steam_id.txt
+3f6df47a655908cc3f91aebd4a93667a6fe1a96968c50a8c1bfee1e5a120f87f 52224 utils\Hooks\EasyHook.dll
+fea2c5634555d29fbae098d6ea7ddab927b25d4ce68b4d877aa35ff3da7e9e51 268800 utils\Hooks\EasyHook32.dll
+9cfda284e280cf9c6afeb2d3016d78beda4e5b3cbaaf893684b569f5c246b99e 8192 utils\Hooks\EasyHook32Svc.exe
+03e75032981fd6152f4d9ee18d321bf553f9191f254f326de87b9ad0af0b8ced 310272 utils\Hooks\EasyHook64.dll
+b84c26f91d304f0922e620c96b606d325893760c14f9417ad73f7a152c539f9c 8192 utils\Hooks\EasyHook64Svc.exe
+6ae23e848531c6d67327071e994f65b37b8efce27e4e3e1b53d96a2d3a1d2f2f 7680 utils\Hooks\EasyLoad32.dll
+63e31e6fe6e81f8852d5beacbc32d440ad65b64f9bd53d2d3f308fef736d049d 7680 utils\Hooks\EasyLoad64.dll
+cb7c4e696c164a7ab592e028dde82354766716bfb07e77aefcd18cc2779bbf45 4608 utils\Hooks\Hk_IJ.exe
+23ab1cb293496ef9b9f8a73f561f7d36741fc50ea9506456e9d7ce9c6ac8aba8 143 utils\Hooks\How to use Hk_IJ.txt
+5a067b0a344ed8dbd124de2e62b1f50fbe0667751fe58d1b6ab11c18d5628683 5632 utils\Hooks\Lossless_Hook.dll
+3337e3875b05e0bfba69ab926532e3f179e8cfbf162ebb60ce58a0281437a7ef 339096 utils\LaunchUsers\PsExec.exe
+d2282a61385a2ab7fae90b3431bc2f7cef65658bc923c8eb6bb3173a9a0993fc 11290112 utils\NemirtingasEpicEmu\x64\EOSSDK-Win64-Shipping.dll
+b23fc44eb07faae9a902f2b78d5f0e2b4a48137283d32cb783176cdb8902392e 6759976 utils\NemirtingasEpicEmu\x86\EOSSDK-Win32-Shipping.dll
+9a44d8414c5a58fa12737be966cd92644b1fcab05831ec608455a7947ba06449 7066112 utils\NemirtingasGalaxyEmu\x64\Galaxy64.dll
+5de55894359fab45b58bc84ae73e66ab4a4374a92865ab8b797736f6ddfa2f4b 6012416 utils\NemirtingasGalaxyEmu\x86\Galaxy.dll
+6cbe321f721a1172fc438872d09fce76555eb297470752225d27f247f6547448 1589248 utils\SDL2\x64\SDL2.dll
+568684cbad0a9d141b05cb70fb93a48afdb5242f5983ec30b3275d63ed8eed4e 1346048 utils\SDL2\x86\SDL2.dll
+89fcd21e90d3d8ba5e65e82ec3fb6616d6fb29bf6ffc97738f7b7399ccd13a03 76 utils\SmartSteamEmu\SmartSteamEmu\Common\218620\inventory.bin
+3b54e7e520d488db83ce6ecf15ed90cf9ce15858353b110f0df5c24d59f065cb 1447855 utils\SmartSteamEmu\SmartSteamEmu\Common\218620\item_schema.bin
+d72dde20b5aeaad449079425aa9ba9f18658da35508658f22373e07cc08fabdd 444 utils\SmartSteamEmu\SmartSteamEmu\Common\620\items.bin
+65c53bceb8e6b2d921d189b9a109774c685cb5236eb0820136488d7522545e88 3228 utils\SmartSteamEmu\SmartSteamEmu\Common\730\items.bin
+4d199a03cf58250934b4cce9413466863d732c78bf215b46700051055bfd1533 797 utils\SmartSteamEmu\SmartSteamEmu\Common\avatar.png
+ad2f29e88431d222f8350d16dcbcc63df48d5411ea51a3939fa79407c714cba0 86 utils\SmartSteamEmu\SmartSteamEmu\Common\Readme.txt
+56bff3b129a0f05cfb9f125a32aa8d8d1aac4c8668614c5636adc0786955757b 16384 utils\SmartSteamEmu\SmartSteamEmu\Plugins\SSEFirewall.dll
+6518ff35767d28962ab7ac59fab295bf926360ae1c4caaa879a829ef4ec2aeac 90 utils\SmartSteamEmu\SmartSteamEmu\Plugins\SSEFirewall.ini
+5ad094eededaee23d57b9248c74116e94032c83053bb2e042e4624bfcd5a0490 20992 utils\SmartSteamEmu\SmartSteamEmu\Plugins\SSEFirewall64.dll
+5ce6d306662dc28040a9eb577fc85fa4f5b732b83020bc5cc99dccf2814ef8b9 63064 utils\SmartSteamEmu\SmartSteamEmu\Plugins\SSEOverlay\Language.ini
+6b5c6c54f08e2f02d4cd6e5bea6a16a4e19ee137c484e3efabcc9462a1b840a4 20780 utils\SmartSteamEmu\SmartSteamEmu\Plugins\SSEOverlay\message.wav
+bb580215824dd89825f114f4fbe5514f0e9783a1ca7bb7aed2376fadc349b6aa 18086 utils\SmartSteamEmu\SmartSteamEmu\Plugins\SSEOverlay\screenshot.wav
+6800f3dc1d74beb791e3e6e12ab0d6202c116a6ce21006ba67a723b64837d17d 5053952 utils\SmartSteamEmu\SmartSteamEmu.dll
+6cd8ad84fa31d6d14721dc8d2076925c45e456f55771d71ca88e66de978e570d 14536 utils\SmartSteamEmu\SmartSteamEmu.ini
+6d8ad4ab62dd75dd3c8051cdd6a087c45e6d9cb61c26f1f92555e43feae8e9e5 34246 utils\SmartSteamEmu\SmartSteamEmu.txt
+815d162dfd7177b95aa8c635fe09eb938896688cdbb518b573b69023f011622e 6391296 utils\SmartSteamEmu\SmartSteamEmu64.dll
+44e6e2035db0ab9c4e811e7418c72f01f50e675dbdffd8114e29f965ec62eb38 232448 utils\SmartSteamEmu\SmartSteamLoader.exe
+14e3f10176b339febe4cb6bfbfa31a44818c5f56f028f831a9246e07ba9845d0 272896 utils\SmartSteamEmu\SmartSteamLoader_x64.exe
+3bfc3de1a07b61c45a3b04fbdfd1edf1b77c1cb8a6d3416e2f0d797071cce505 457728 utils\SplitCalculator\SplitCalculator.exe
+93e45d10eead6386949087163841dd8079e5587e08f71dc68eda7bb1be354458 104960 utils\Steam Stub DRM Patcher\x64\winmm.dll
+b2c36d96b996f57c0e00f271a22a9216300de4569fbd2d34c743e374d684cf7e 88576 utils\Steam Stub DRM Patcher\x86\winmm.dll
+efec389fc8ff3b9d4c9f5adef8ec2463368e40d14cadd3186441098574392411 5632 utils\Steamless\Plugins\ExamplePlugin.dll
+6d3ce990cdf58da228697d25416d16d15994135c5f66571fe1e00e9c975bc2cf 220672 utils\Steamless\Plugins\SharpDisasm.dll
+ef65b553408c2a0cfb226223d28ab248b3449a9699b14f967b51910897a1de17 34304 utils\Steamless\Plugins\Steamless.API.dll
+78b073fc372de7044f1ebd60c16342eee16eecd6d4092873d1a516a792facbd8 11264 utils\Steamless\Plugins\Steamless.Unpacker.Variant10.x86.dll
+116d3ffa954adffb5c47e480262d5951baa7c35ea5fe76c153b02ef23f9546ce 19456 utils\Steamless\Plugins\Steamless.Unpacker.Variant20.x86.dll
+3d5c8854c79d4e71e6cd6177663fec293a09bbd2b455dc4aca1a362f8ac438c3 24576 utils\Steamless\Plugins\Steamless.Unpacker.Variant21.x86.dll
+12d66aea0d40a566fd56be8e33f8aed3557ed0c7041a8f3d4c0c010e196944db 17408 utils\Steamless\Plugins\Steamless.Unpacker.Variant30.x64.dll
+e80e71fa010ce670dd512243f932b25e23ccf4ef86e49007ce45ab9031a1f0a0 16384 utils\Steamless\Plugins\Steamless.Unpacker.Variant30.x86.dll
+dc4aeb588fd03836eb77197525cf38e6c55aa5ef415cec0bf2eebb0049fde7a2 16384 utils\Steamless\Plugins\Steamless.Unpacker.Variant31.x64.dll
+9030b644171659839a2428cb28d4c827798ff93aa5b0903eb076b175987c740e 16384 utils\Steamless\Plugins\Steamless.Unpacker.Variant31.x86.dll
+6b78303b21003efbf113e742799eb3dc4bd1c705890f759937d411fac818322f 113152 utils\Steamless\Steamless.CLI.exe
 utils\User\
+0a19f49993b277af37d7b0279cca885bdea35d5bf7e543039340071f4c4e4037 29184 utils\x360ce\dinput8.dll
+c434c265d53e8d7b699736b05edc54700b2f0c4f21b9e7433248e0c7b9b90705 36864 utils\x360ce\dinput8_x64.dll
+28e424c515f3724c872fc1d5d79709fa9d13e7986c47fb678b90a677a225abf5 3212456 utils\x360ce\x360ce.exe
+d06182d765d556df5780ad25369998d0e53dfac6b34024107d55713d07287389 4296 utils\x360ce\x360ce.ini
+92baa41f94a860ea33409d9f739bb2a0447342bb81eb4e0ac64a1ccb7ac7cbfb 3211432 utils\x360ce\x360ce_x64.exe
+301f0d831d95bb5c3b5c57f8a92a35211531b410fcf2bd08927a286b867142a3 126616 utils\x360ce\xinput1_3.dll
+2d8e3e39ffa1c5cf15f6a7f6cc8020d00d8277b1c2e61c49443b80fc1fbe97ad 146072 utils\x360ce\xinput1_3_x64.dll
+06edd356f039e2d54d4ce8242cdac537079082df36669291c282d11f9e35662b 38400 utils\XInputPlus\DI8dotNET.dll
+b3a356cc81cf75da6a931d12b44785169f8aa16373eb92cb24f42b12d2fe7c58 137216 utils\XInputPlus\ja\XInputPlus.resources.dll
+2bb6ec7b9e680fa7aed0aefd963393be710d4329472530715969fee0946329aa 55808 utils\XInputPlus\Loader\ja\XInputPlusLoader.resources.dll
+603736b22b209c3faa38d8f88d9613d0febb00df25cb2931aafc527766ad7f07 427 utils\XInputPlus\Loader\ReadMe_en.txt
+8bbb1858970c2f63f847c8ce1c3803ceb651af49b84d881377d64c27ec1b3bff 629 utils\XInputPlus\Loader\ReadMe_ja.txt
+86cd169dd8e899252992bc8b7ed0ce71d06c32a9986492f34eea7c6413895345 344576 utils\XInputPlus\Loader\XInputPlusInjector.dll
+c68e60f19a99ae70b8c0829f594e8ce90d1e171432220f556c021717b40e49fd 383488 utils\XInputPlus\Loader\XInputPlusInjector64.dll
+a0c8d7a24bdcb26615930f4d69109de80833b0c4d35b9034891d806060774992 135680 utils\XInputPlus\Loader\XInputPlusLoader.exe
+2de8fca837354fbf7f9340e70f2e4f2346b1b001af3636766fdfc3da1f909ced 37888 utils\XInputPlus\old\DI8dotNET.dll
+a13f9f87fe38b8958417a34f61534fc8a52a8745c162cd5b4a9e3676ef5c85d6 155648 utils\XInputPlus\old\ja\XInputPlus.resources.dll
+1130e299d744bddd2d012af8a7d389f4087277c03727fd7f3d53b5cf4df6f5c8 6144 utils\XInputPlus\old\Loader\ja\XInputPlusLoader.resources.dll
+d1835ba3d4d2fc3303d01fd6391b8170afc85fcb95e27b8a4343111013bb6302 320512 utils\XInputPlus\old\Loader\XInputPlusInjector.dll
+bba052a5316a8ad96670e9e836ee5cd5d50b49fc605f127100792cae42ef51c1 351232 utils\XInputPlus\old\Loader\XInputPlusInjector64.dll
+1b4aa034610ef935de5ab61f87c6028db71a2d1cc356920e9b3219a33ad401d3 134144 utils\XInputPlus\old\Loader\XInputPlusLoader.exe
+0ba56226744033222adc64fe671a299658bd4da2471398455b7e0d58570ae962 7621 utils\XInputPlus\old\ReadMe_en.txt
+759101dafd063b5b8b1e6f4b69949b756a3b3d54d946b1446881a6f0be2812e4 208384 utils\XInputPlus\old\x64\Dinput.dl_
+9061afbf07c5d3711f70c03c477a6ba677d54fa21518c278330d275686d23149 211968 utils\XInputPlus\old\x64\Dinput8.dl_
+6ae9986c92c164e858a93e5670313bbff2dac647e3ed0fd2af1f5c829d23e542 494080 utils\XInputPlus\old\x64\xinput1_3.dl_
+ca30aeb3cfbf8c16bbcbe8e559661ff6340b06d01c99fe26f297059c59b38a8e 188416 utils\XInputPlus\old\x86\Dinput.dl_
+787275d0996907ff79ba4b15ab1b0dc2b637f956ff0fbee48bfc39217f41589d 188928 utils\XInputPlus\old\x86\Dinput8.dl_
+b82b5111d80a21458da7a50103bf076a7f4b7acccfaaf04fee7a0a059415f1e9 494080 utils\XInputPlus\old\x86\xinput1_3.dl_
+3d3c43d9ada537a334ae2831fe14fbe0888d330613839c5016c12104c498da76 1174016 utils\XInputPlus\old\XInputPlus.exe
+eac466f09013091e32c103743d21b98fb11e07fdc24887eb892e2b92646ba679 2785 utils\XInputPlus\old\XInputPlus.ini
+1b6f5ef63539d35fb1e17a100027673b55aa1ce746dea029fb8060ff04205b5b 187 utils\XInputPlus\old\XInputPlus_Default.ini
+33ea5b46b0cfac7004f59043af0f2dc2cf265acb3c2d62c136fa5c6160535cc7 261 utils\XInputPlus\proxy\x64\OpenXinput.txt
+766195ce16e3a5aa676b50d28e44c8831fdd0e809d127bd07d027d025587b3f4 175616 utils\XInputPlus\proxy\x64\xinput.dll
+33ea5b46b0cfac7004f59043af0f2dc2cf265acb3c2d62c136fa5c6160535cc7 261 utils\XInputPlus\proxy\x86\OpenXinput.txt
+4bfc52e4e36bc7b4a5266b39aaeb8a7c4279cfd57f60a142a36cc557274c17d2 136192 utils\XInputPlus\proxy\x86\xinput.dll
+21ea69e142f580c3ce027153efe80a6dfbfe9b82e890f9de34763e840c7643d1 9220 utils\XInputPlus\ReadMe_en.txt
+7c5da33a38da4104fdfec21d5ddad4086b1fd7a8a63a4b2d0dee6f6d98a0d030 882 utils\XInputPlus\winmm\Readme.txt
+cb63d2ca013ae8b0e5686a7e694a4d8895444c542b01240978b995b1b6dcbaa3 181760 utils\XInputPlus\winmm\Winmm.dll
+af1f927da4df50a65638b313778363bc488c6c88ad5dd5320e5185d2c5a3be79 228352 utils\XInputPlus\x64\Dinput.dl_
+abdf11bca5f03869ce073d4d36be7a5ecd9b5fd297f4e2448b4506a793727efd 231936 utils\XInputPlus\x64\Dinput8.dl_
+972f6c4a76520513d6a462c64f3f1b114ad956afd63574e95a1671ff081fe99b 549376 utils\XInputPlus\x64\xinput1_3.dl_
+28abb5f2496ab5ba9ff7860e31b9ce35ce35e0ad0259922f81e5e583ce5e834f 203264 utils\XInputPlus\x86\Dinput.dl_
+b355f5a32c905d69d32e82a4ec67bdf8b65f8ddf19f69540e4e6f3b58f4ba491 203776 utils\XInputPlus\x86\Dinput8.dl_
+c0ba5f9f4da435008f8ebbeba345e622064c88da7fcc0bbee563baed15605007 551936 utils\XInputPlus\x86\xinput1_3.dl_
+27f2a15deaf069a390dd81b53f4d9b7ff4e243c0ae4e0f017c5836936aff1b30 1191936 utils\XInputPlus\XInputPlus.exe
+c618494fc5300c35579b231eeae6934ba0902731cfa45f8d664b83b7b30925b5 2864 utils\XInputPlus\XInputPlus.ini
+1b6f5ef63539d35fb1e17a100027673b55aa1ce746dea029fb8060ff04205b5b 187 utils\XInputPlus\XInputPlus_Default.ini
+b39cebe5c5553043e13ba3bb6d8efcac71d594fc444f8d2130b61c86d6454954 245292 webview\darkreader\background.js
+7935e88a9d90ec5f8f568c2b442ccd771a429cd2d02d53ac5030d1c615b982c7 1426 webview\darkreader\config\color-schemes.drconf
+be793350a68d052653e561d1c5d6364484f4b5c66e7226dd3bfcd00f507f3b90 18541 webview\darkreader\config\dark-sites.config
+9a2bf7db504b497994b4d5a61e37da982090b72c1ce553b2c25439be926545d9 6241 webview\darkreader\config\detector-hints.config
+da4d0e45040c7a042c4bb15dc99593f8249fa3104031c262a74c691fb388aa66 523252 webview\darkreader\config\dynamic-theme-fixes.config
+aeebefcd54fc1b86dbfacbf4f500378b38b303fbcfa1a396005510e3843ba1a2 45267 webview\darkreader\config\inversion-fixes.config
+72e2d29eea7e67fefe1fb932b0d41171a705db65879efb48fdde1477a7996d3c 3024 webview\darkreader\config\static-themes.config
+444f893a1d9ab3137144fc4f12b27bc066567fdc87252c4f5d129ce529fb63a9 7950 webview\darkreader\icons\dr_128.png
+6583892ec43e1485f847a54e236b23c1fba5b05db3931c05a08c09f9603723db 608 webview\darkreader\icons\dr_16.png
+314f44440c2da8e255b025794d1e6f32d2a8822afb95b36e846e2616ca4e0e1e 2289 webview\darkreader\icons\dr_48.png
+4cac824ecb1e1ddd647c3e60cf9b21234b95c9c325b86d2e719aac6de94612f4 615 webview\darkreader\icons\dr_active_19.png
+9d24f2462e83f837a4391d8bda883ad6dbf674994adf313b9156e8d607ec2048 1522 webview\darkreader\icons\dr_active_38.png
+91e440420b414796cc45084b2e53091a86e8455ae7bfc7d22ada34b06eff0c5e 686 webview\darkreader\icons\dr_inactive_19.png
+fb0b36f1117eea87a7212e7086f4e5c03fdfb2d38d48fc6bf5299bd8ded4cec6 1694 webview\darkreader\icons\dr_inactive_38.png
+a2c6f8e5066b21c5ed7c828ff90451432614e6573ef8fafe12a3e4afc7eee4e1 10307 webview\darkreader\inject\color-scheme-watcher.js
+0deaf60477b5e97759f75aca93307853bf33433255fd311c2bc131aeb3add8ce 1332 webview\darkreader\inject\fallback.js
+e158a8c9f7818c43e300519d639172476b406d790cb68b62f361c76d894f41df 268540 webview\darkreader\inject\index.js
+23ea253ebf2997b8d2117da4036e40ce9d45746f530c89944c3adbcdf3e0a9a1 21450 webview\darkreader\inject\proxy.js
+d1b1ef45d848205ddf3bb0b46e12269593703d6fce89df4dea19f8191ba6d814 2846 webview\darkreader\manifest.json
+3ddf9be5c28fe27dad143a5dc76eea25222ad1dd68934a047064e56ed2fa40c5 11560 webview\darkreader\ui\assets\fonts\LICENSE.txt
+80d5513e21af52eeac6e5893ad47c3f7d74b2464987ad669d28690d45eeafa23 101696 webview\darkreader\ui\assets\fonts\OpenSans-Light.ttf
+037236ed4bf58a85f67074c165d308260fd6be01c86d7df4e79ea16eb273f8c5 96932 webview\darkreader\ui\assets\fonts\OpenSans-Regular.ttf
+5e8d9e1a89083cd1b0849993fe2f3acc9aa33b7f439f7e8616872f6897f30684 100820 webview\darkreader\ui\assets\fonts\OpenSans-SemiBold.ttf
+420bd17a835656b1c6404f7a47511ebbfa59fdfbc0dadc1323f494434b0d625e 16484 webview\darkreader\ui\assets\images\darkreader-icon-256x256.png
+09c0b8290445dd3b19cbb6a309146495dd6bf66e153df5388afb014015a1983f 3292 webview\darkreader\ui\assets\images\darkreader-type.svg
+e4c2d08d92d957ade6d73511748b4e8890c05ecf9a1c3c907640f0a15dc40de8 10104 webview\darkreader\ui\assets\images\mobile-icon-40x64.svg
+b7f939e9fec195998e15ef5a9a958dd1b2919b5e43c6d3bc3e8c563cd7a76c01 9003 webview\darkreader\ui\assets\images\mode-dark-32.svg
+b6115526b2d3b87c44cd99b487cf7181a520901c3232c55e7ec9b20e620c4402 9342 webview\darkreader\ui\assets\images\mode-light-32.svg
+79f0f22d066c0e462f5c6be3e7d3e6900647e90f34f5162552edceddc9aca50a 542 webview\darkreader\ui\devtools\index.html
+1eaf68c1e69a0bce05a519f6ee3c2fdf88673d941f0ba7c484da2d65cb92aec0 105969 webview\darkreader\ui\devtools\index.js
+2701b127fc9715f8aa541deb4bc777bc6fb8ebf7a7682c922088cc7a83f804af 26015 webview\darkreader\ui\devtools\style.css
+e4dc8f5d5a9a6e77b2c28f31cb6564cd0fcabfe32f2e18f7231c072c9d98867b 535 webview\darkreader\ui\options\index.html
+e6a073051fafd0bf30a99931809850dc8c2da75b0d2a765f2c48de777e1d534f 168578 webview\darkreader\ui\options\index.js
+b5ca9268e98f2c82fc1d5d78a2d31f1eaa26f7361400b99714e1379f8790df81 31376 webview\darkreader\ui\options\style.css
+ae9863f594f8fa01824dc58087734f94e38a6dc79177e4e274b451cc83536a3b 660 webview\darkreader\ui\popup\index.html
+180975aa64231ba841e7a03d74d90b075519222adaec66446782317acf006053 262299 webview\darkreader\ui\popup\index.js
+fc4ec2cadc916025a84aac151b5c5bfe0d1b39f5e9773f69d324b9c4d87b6525 67690 webview\darkreader\ui\popup\style.css
+ff9afe5d44b62eb6ac92808b41b0547e3ab0f152c2b21f4ccb9f612113486c2e 537 webview\darkreader\ui\stylesheet-editor\index.html
+9b03e9ee23563b5bbcd2cd0b3f11bcd0980c8c6fccbdf9b434ef096b17ba4f8d 99285 webview\darkreader\ui\stylesheet-editor\index.js
+2701b127fc9715f8aa541deb4bc777bc6fb8ebf7a7682c922088cc7a83f804af 26015 webview\darkreader\ui\stylesheet-editor\style.css
+1e432304d7389de77aab08fb3f3fdcce887ae6f53c606181ff43cd4e63684c48 7906 webview\darkreader\_locales\ar\messages.json
+880c1dc88904bfc3256683409f0a431180e5e16ed3feb01e45c229fd23d2be67 8405 webview\darkreader\_locales\be\messages.json
+3c7e69913b3fba31aabda5a34d8a47c569fd26465248bfa67394fcf676ac8ce0 10162 webview\darkreader\_locales\bn\messages.json
+2399a8ab0ac74cbaeb9380ba87d904b8e5413227967b3e0ec43eabe0a7eb2078 6900 webview\darkreader\_locales\cs\messages.json
+645ed99dbdbda33ee8df2e74a9d9662a5bd6704e2eb5f0f1ee0840ca4689863b 6525 webview\darkreader\_locales\da_DK\messages.json
+eae2b80be261a3148d8c485bf87f7febd11d9a35bdd76d7bb15c9232d8ebb109 6860 webview\darkreader\_locales\de\messages.json
+b88bd287a2dabb382902f0590fd535cd721db0b8469428b563a38967b3c7f9e1 9087 webview\darkreader\_locales\el\messages.json
+8753ad9bfe78d08fe9af4acfe3a7a323c04e4c42a744a502ea70af9daa035a2d 6278 webview\darkreader\_locales\en\messages.json
+1040f43d2f99484761e7438bc41f066bb72f2e6f0421ebd2d33325143d86b1d6 6282 webview\darkreader\_locales\en_GB\messages.json
+8753ad9bfe78d08fe9af4acfe3a7a323c04e4c42a744a502ea70af9daa035a2d 6278 webview\darkreader\_locales\en_US\messages.json
+9c8e520ab8430b75c21aa1cd8aa9a008a0fb84792c98015a38e2245131dcda34 6910 webview\darkreader\_locales\es\messages.json
+4da44d4459d2a9e64805f634a3e41860c1f4cf0e07d30374f80f14e73bf64e47 7001 webview\darkreader\_locales\es_419\messages.json
+8f9ad8f431bbcc3e0b67a97a4a37882a6eb55be41f45664835100c077c069ee1 8302 webview\darkreader\_locales\fa\messages.json
+8f9ad8f431bbcc3e0b67a97a4a37882a6eb55be41f45664835100c077c069ee1 8302 webview\darkreader\_locales\fa_IR\messages.json
+c854dfac80af2e23433eda75a15c06bf8dbe3234fc3634f863234391d73ea787 6961 webview\darkreader\_locales\fil\messages.json
+fdcc5e03e8c9d34d5c5cd9f3baca33c3d0cae56fa3f270e56563241b4bb57d54 7169 webview\darkreader\_locales\fr\messages.json
+5cbfac1227c2969366d0ade52c57ab0d77d141459775d7827b6326226e9bcea7 7519 webview\darkreader\_locales\he\messages.json
+e3bd6425a26331eb01194c267c012e79f14c8ba0fb6e64abdb3d01eaaddff9cb 10379 webview\darkreader\_locales\hi\messages.json
+7bad940fd96a53c7b01b7d12ee25cd73e119ddbf12435c3ea08a496fe6faf147 6541 webview\darkreader\_locales\id\messages.json
+5c4d64f64bf56605e5a016ea158e6071b3c473a77d33bda9a5be6939cc9421ca 6801 webview\darkreader\_locales\it\messages.json
+361ae42074ac549f633239bf715545900ac2308fb3c1c42ff8d01d6d931a6592 7442 webview\darkreader\_locales\ja\messages.json
+8f91459bf6e81b15f90595df046a527dc355b3169fea5661ada719592b4be808 7085 webview\darkreader\_locales\ko\messages.json
+c9448916d677fa92ee08f0c26a249a2a32f4d28f47b3295c3bcb15af45d99ffc 6549 webview\darkreader\_locales\ms\messages.json
+fe5b833e17aabf41e29947e124749e256d1a757e31e4c0d550826da66be2b75c 6646 webview\darkreader\_locales\nl\messages.json
+5ee0ddf32839956f6844f3a6bd6edda0169e25d0149881de981ce066cf5d453f 6460 webview\darkreader\_locales\no\messages.json
+728ff24e3d27255a394f46ef3cb98e7fb43f2ed83ce1eaf9173ba349ae5b1a42 6790 webview\darkreader\_locales\pl\messages.json
+4cc7018272174e0c4e6e490ac4903981f7eb325c12440493804afc927ae2c388 6802 webview\darkreader\_locales\pt_BR\messages.json
+62befdb1f74a2431fe7491d89a893fb605faaeead26075146efdcf4074a7bd75 6757 webview\darkreader\_locales\pt_PT\messages.json
+52cfa67c0970af56d38730aab14d705d2d4c785ea6b3440c68cfc0ec60b61d1c 6928 webview\darkreader\_locales\ro\messages.json
+e365e8c6adb7d66dc1eb2d14c775d5210f8863d745646c5289598a22c7a01211 8473 webview\darkreader\_locales\ru\messages.json
+8595d67ecb34a71b494746b6a09b115902c41360011e09a05fbcd4968a9a7980 10293 webview\darkreader\_locales\si\messages.json
+55ce40118d63a721816df1d87ea39e94be2b3fd58e1520aa32eab135f01b493f 6839 webview\darkreader\_locales\sk\messages.json
+6e2bb45be2fc24436eb7f42f920a8be072628ebd81eb5981374307e04ff8d322 7017 webview\darkreader\_locales\sr\messages.json
+352d539477bc6aa49546243229a69d6e861d2c2c22769e257c0073d041ba74e5 6616 webview\darkreader\_locales\sv\messages.json
+bac0726d8b27a366a4ac35e779038f13696bda2abfe1d49087d4f3792a5eaa97 11210 webview\darkreader\_locales\te\messages.json
+d9feab1959da68c83bbb67572cc1af3c2174d66922c799f21969094d759214bb 10195 webview\darkreader\_locales\th\messages.json
+479bc3f1f5656e52580a37c211d57a1dca573f2adabe283ce3120f2d6fa0cfe2 6741 webview\darkreader\_locales\tr\messages.json
+5cff35b52e75cf4da77435fa722b16eab721db2af45c39d630e9d58a0a9e8f51 8657 webview\darkreader\_locales\uk\messages.json
+7ab759354c0148e512954d1721529538f72b25eb7bba834a5df9eda79f2f06ca 7219 webview\darkreader\_locales\vi\messages.json
+698f2006be1995f62fd5809fc11ca34890776fefc9a6af3a07605cfc3dbdfa62 6318 webview\darkreader\_locales\zh_CN\messages.json
+72a148bae458aeea13614c3e6a4ee2a7485e56eba5749a13b9682646bc0a0fd2 6457 webview\darkreader\_locales\zh_TW\messages.json
+5e172b4f558723b7dbb7f568f301077c84d6571436fbe5a5f45bfa621c020403 536152 webview\Microsoft.Web.WebView2.Core.dll
+e961f24722e98d6bda96853bf9b6dd26ccb1f1163eb1885b6567b681144fdf94 553014 webview\Microsoft.Web.WebView2.Core.xml
+bef507a4ce7b6a848993bc504af7e2273cec22e77469787cb1d47d3f362164ed 40528 webview\Microsoft.Web.WebView2.WinForms.dll
+4b40e49aec5dbda597224f997d57a16645ddc2eb00f31a6329204d1853a2245a 41393 webview\Microsoft.Web.WebView2.WinForms.xml
+bf8fd64fe7afbcf7646631baa160c3a6d85b8a51777e52fb471f0230950de754 47680 webview\Microsoft.Web.WebView2.Wpf.dll
+7c2966f6937f3f230e818357c824332e75d09ef762cdbfd2ce6e036487db9a30 88868 webview\Microsoft.Web.WebView2.Wpf.xml
+a2db5a4f76238837d46abac8255d1c5f7691d39bba20c5c5271e64a9700964e5 137792 webview\runtimes\win-arm64\native\WebView2Loader.dll
+31423e905e29c8a40a483e81dae1491990805fa066634d218b35bb96692bef0d 162368 webview\runtimes\win-x64\native\WebView2Loader.dll
+ad5cfe82f102739d4cc15c3eb38a411525762520c9c4229c902f67dbab23c5fb 117312 webview\runtimes\win-x86\native\WebView2Loader.dll
+3617367b99860bec7c19ba11f0602716b880fb783566d6faa0559028a19e9a09 17920 WindowScrape.dll
+6cff0d22fbf4395aa29207b341c9bce6812f68af3df3d3f386962833d8de7b6b 1409536 x64\AutoHotkey.dll
+09fd7cb08d5b1115889e1c02f0067593ef1c00e1ca17e95541aef71de8b6b9dd 1037312 x86\AutoHotkey.dll

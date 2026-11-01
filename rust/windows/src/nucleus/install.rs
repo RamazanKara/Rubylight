@@ -3,140 +3,753 @@
 //! Rubylight installed below the host's data folder. Rubylight downloads and
 //! unpacks nothing: the console links to the release's page.
 //!
-//! Nucleus runs elevated, and the host writes its handlers, game list and
-//! settings in its folder, so the folder must be one only SYSTEM and
-//! Administrators can change: a folder its user could write without
-//! elevation would let any program of that user run elevated. Its
-//! NucleusCoop.exe must be the pinned release's, by size and SHA-256.
-use anyhow::{Context, Result, bail, ensure};
-use butterpollo_core::nucleus::install::{self as pinned, Problem, Unusable};
+//! Nucleus runs elevated and loads its DLLs, its .config and its handlers
+//! from its folder, and the host writes its handlers, game list and settings
+//! there as SYSTEM. So the whole folder must be one only SYSTEM,
+//! Administrators and TrustedInstaller own and change ([`TRUSTED`]), with no
+//! link anywhere in it, on a fixed drive of this PC, below folders nobody
+//! else may move: otherwise a program of its user could run elevated, or
+//! point the host's writes elsewhere. Each program file must be the pinned
+//! release's, by size and SHA-256 ([`pinned::release`]), and none may carry
+//! the Mark of the Web. The check reads every file and folder by a handle
+//! that never follows a link, and a launch holds the folder and its
+//! NucleusCoop.exe open from the check until Windows started it ([`hold`]).
+use anyhow::{Context, Result, bail};
+use butterpollo_core::nucleus::install::{self as pinned, Manifest, Problem, Shipped, Unusable};
+use std::collections::{HashMap, HashSet};
+use std::os::windows::fs::{MetadataExt, OpenOptionsExt};
+use std::os::windows::io::AsRawHandle;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
-/// The Nucleus folder streams use: `nucleus_path` when set, which must be a
-/// folder of the pinned release that only SYSTEM and Administrators may
-/// change ([`Unusable`] says why not; the host's earlier copy never stands
-/// in for it), else the host's earlier copy below `data` while it is there.
+const REPARSE_POINT: u32 = 0x400;
+const DIRECTORY: u32 = 0x10;
+/// GetDriveTypeW's answers.
+const DRIVE_NO_ROOT_DIR: u32 = 1;
+const DRIVE_REMOVABLE: u32 = 2;
+const DRIVE_FIXED: u32 = 3;
+const DRIVE_REMOTE: u32 = 4;
+const DRIVE_CDROM: u32 = 5;
+const DRIVE_RAMDISK: u32 = 6;
+
+/// The one fix for a folder others can change or move.
+const PROGRAM_FILES: &str =
+    "Unpack the release into a new folder under C:\\Program Files and choose that one";
+
+/// The Nucleus folder streams use, by the path Windows resolved it to:
+/// `nucleus_path` when set, which must be a folder of the pinned release
+/// that only SYSTEM and Administrators may change ([`Unusable`] says why
+/// not; the host's earlier copy stands in for it only when it holds another
+/// release, [`Found::instead`]), else the host's earlier copy below `data`
+/// while it is there.
 pub fn installed(data: &Path, configured: &str) -> Result<Option<PathBuf>> {
-    installed_checked(data, configured, &Checks::PC)
+    Ok(found(data, configured)?.map(|found| found.folder))
 }
 
-/// The checks that differ in tests: a test can't hold the release's
-/// executable, and its process may not own files as Administrators.
-struct Checks {
-    release: fn(&Path) -> Result<bool>,
-    trusted: fn(&Path) -> Result<()>,
+/// The Nucleus folder [`installed`] names, and why `nucleus_path` doesn't
+/// name it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Found {
+    pub folder: PathBuf,
+    /// Why the folder chosen is not used: it holds another release, and
+    /// the copy an earlier Rubylight installed runs instead.
+    pub instead: Option<Unusable>,
 }
-impl Checks {
-    const PC: Self = Self {
-        release: release_executable,
-        trusted: administrators_only,
-    };
-}
-
-fn installed_checked(data: &Path, configured: &str, checks: &Checks) -> Result<Option<PathBuf>> {
-    let configured = configured.trim();
-    if configured.is_empty() {
-        // Checked as it was unpacked: an earlier Rubylight downloaded it.
-        let folder = pinned::folder(data);
-        return Ok(folder.join(pinned::EXECUTABLE).is_file().then_some(folder));
+impl Found {
+    /// What the console says while the earlier copy runs instead of the
+    /// folder chosen.
+    pub fn notice(&self) -> Option<String> {
+        self.instead.as_ref().map(|why| {
+            format!(
+                "{why}. Until then Rubylight runs the Nucleus Co-op {} an earlier Rubylight installed, in {}",
+                pinned::VERSION,
+                self.folder.display()
+            )
+        })
     }
-    chosen(Path::new(configured), checks).map(Some)
+}
+
+/// How long [`found`] keeps a folder it accepted: the console asks every
+/// few seconds, and Moonlight's app list too. A refusal is never kept, and
+/// a launch checks again ([`hold`]).
+const KEPT_FOR: Duration = Duration::from_secs(10);
+
+/// [`installed`] with why the folder chosen is not used.
+pub fn found(data: &Path, configured: &str) -> Result<Option<Found>> {
+    type Kept = Option<(PathBuf, String, Instant, Option<Found>)>;
+    static KEPT: Mutex<Kept> = Mutex::new(None);
+    let configured = configured.trim();
+    {
+        let kept = KEPT.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        if let Some((_, _, _, found)) = kept
+            .as_ref()
+            .filter(|(d, c, at, _)| d == data && c == configured && at.elapsed() < KEPT_FOR)
+        {
+            return Ok(found.clone());
+        }
+    }
+    let found = found_checked(data, configured, &Checks::pc())?;
+    *KEPT.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some((
+        data.to_path_buf(),
+        configured.to_string(),
+        Instant::now(),
+        found.clone(),
+    ));
+    Ok(found)
+}
+
+/// What differs in tests: a test process may not own files as
+/// Administrators, its temporary folder lies below its user's profile, and
+/// it can't hold the release's files.
+struct Checks<'a> {
+    /// Who may own and change the folder, what is in it and the folders
+    /// above it: [`TRUSTED`].
+    trusted: Vec<String>,
+    /// The folder above which no folder is checked; None on the PC: every
+    /// one up to the drive's root.
+    top: Option<&'a Path>,
+    release: &'a Manifest,
+}
+impl Checks<'static> {
+    fn pc() -> Self {
+        Self {
+            trusted: TRUSTED.iter().map(|sid| sid.to_string()).collect(),
+            top: None,
+            release: pinned::release(),
+        }
+    }
+}
+impl Checks<'_> {
+    fn trusts(&self, sid: &str) -> bool {
+        self.trusted.iter().any(|trusted| trusted == sid)
+    }
+}
+
+fn found_checked(data: &Path, configured: &str, checks: &Checks) -> Result<Option<Found>> {
+    let earlier = pinned::folder(data);
+    // Checked like a chosen one: an earlier Rubylight unpacked it there.
+    let earlier_found = || -> Result<Option<Found>> {
+        if std::fs::symlink_metadata(earlier.join(pinned::EXECUTABLE)).is_err() {
+            return Ok(None);
+        }
+        let checked = chosen(&earlier, checks)?;
+        Ok(Some(Found {
+            folder: checked.folder,
+            instead: None,
+        }))
+    };
+    if configured.is_empty() {
+        return earlier_found();
+    }
+    let error = match chosen(Path::new(configured), checks) {
+        Ok(checked) => {
+            return Ok(Some(Found {
+                folder: checked.folder,
+                instead: None,
+            }));
+        }
+        Err(error) => error,
+    };
+    // Another release chosen while an earlier Rubylight's copy of this one
+    // is there: that one runs until the right one is chosen.
+    let Some(why) = error
+        .downcast_ref::<Unusable>()
+        .filter(|why| why.problem == Problem::Version)
+    else {
+        return Err(error);
+    };
+    match earlier_found() {
+        Ok(Some(found)) => Ok(Some(Found {
+            instead: Some(why.clone()),
+            ..found
+        })),
+        Ok(None) => Err(error),
+        Err(left) => {
+            tracing::warn!(folder = %earlier.display(), error = format!("{left:#}"), "Nucleus Co-op: the copy an earlier Rubylight installed does not stand in for the folder chosen");
+            Err(error)
+        }
+    }
 }
 
 fn refuse(problem: Problem, message: String) -> anyhow::Error {
     anyhow::Error::new(Unusable { problem, message })
 }
 
-/// The folder the user chose, when Rubylight runs Nucleus Co-op from it: a
-/// folder, no link, holding the pinned release's NucleusCoop.exe (no link
-/// either), and one only SYSTEM and Administrators may change.
-fn chosen(folder: &Path, checks: &Checks) -> Result<PathBuf> {
+/// The Nucleus folder, checked ([`chosen`]) and held open: neither it nor
+/// its NucleusCoop.exe can be renamed, deleted or replaced while this lives,
+/// and nobody may write the program. Launch from [`Held::folder`], the path
+/// Windows resolved it to, and drop this once Windows started it.
+pub struct Held {
+    folder: PathBuf,
+    _folder: std::fs::File,
+    _program: std::fs::File,
+}
+impl Held {
+    /// The folder by the path Windows resolved it to.
+    pub fn folder(&self) -> &Path {
+        &self.folder
+    }
+    /// Its NucleusCoop.exe, which Windows starts.
+    pub fn program(&self) -> PathBuf {
+        self.folder.join(pinned::EXECUTABLE)
+    }
+}
+
+/// The Nucleus folder at `folder` checked again, every file of it, and held
+/// until Windows starts Nucleus from it ([`Held`]).
+pub fn hold(folder: &Path) -> Result<Held> {
+    let checked = chosen(folder, &Checks::pc())?;
+    Ok(Held {
+        folder: checked.folder,
+        _folder: checked.handle,
+        _program: checked.program,
+    })
+}
+
+/// A folder [`chosen`] accepted, still open.
+struct Checked {
+    folder: PathBuf,
+    handle: std::fs::File,
+    program: std::fs::File,
+}
+
+/// The folder at `folder`, when Rubylight runs Nucleus Co-op from it: a
+/// folder on a fixed drive of this PC named by its own full path, holding
+/// the pinned release whole and unblocked, owned and changed only by those
+/// `checks` trusts, as is every file and folder in it, with no link in it or
+/// on its way, below folders only they may move.
+fn chosen(folder: &Path, checks: &Checks) -> Result<Checked> {
     let shown = folder.display();
     let version = pinned::VERSION;
     let exe_name = pinned::EXECUTABLE;
+    let text = folder.to_string_lossy();
+    let device = [r"\\?\", r"\\.\", "//?/", "//./"]
+        .iter()
+        .any(|prefix| text.starts_with(prefix));
+    let unc = ["\\\\?\\UNC\\", "\\\\.\\UNC\\", "//?/UNC/", "//./UNC/"]
+        .iter()
+        .any(|prefix| {
+            text.get(..prefix.len())
+                .is_some_and(|head| head.eq_ignore_ascii_case(prefix))
+        });
+    if device && !unc {
+        return Err(refuse(
+            Problem::Untrusted,
+            format!(
+                "{shown} is a device path: choose the folder by its own full path, such as C:\\Program Files\\Nucleus Co-op"
+            ),
+        ));
+    }
+    if text.starts_with(r"\\") || text.starts_with("//") {
+        return Err(refuse(
+            Problem::Untrusted,
+            format!(
+                "{shown} is a network path, and Nucleus Co-op runs elevated, so Rubylight runs it only from a drive of this PC. {PROGRAM_FILES}"
+            ),
+        ));
+    }
     if !folder.is_absolute() {
         return Err(refuse(
             Problem::Missing,
             format!("{shown} is no full folder path: choose the folder that holds {exe_name}"),
         ));
     }
-    // Never followed: a link would be checked here and run from elsewhere.
-    let Ok(metadata) = std::fs::symlink_metadata(folder) else {
+    if text
+        .split(['\\', '/'])
+        .any(|part| part == "." || part == "..")
+    {
         return Err(refuse(
-            Problem::Missing,
-            format!(
-                "{shown} doesn't exist: choose the folder you unpacked Nucleus Co-op {version} into"
-            ),
+            Problem::Untrusted,
+            format!("{shown} goes through . or ..: choose the folder by its own full path"),
         ));
+    }
+    let root = format!("{}\\", &text[..2]);
+    if let Some(why) = drive_refusal(&shown.to_string(), &root, drive_kind(&root)) {
+        return Err(why);
+    }
+    // Never followed: a link would be checked here and run from elsewhere.
+    let handle = match crate::process::open_unfollowed(folder, true) {
+        Ok(handle) => handle,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Err(refuse(
+                Problem::Missing,
+                format!(
+                    "{shown} doesn't exist: choose the folder you unpacked Nucleus Co-op {version} into"
+                ),
+            ));
+        }
+        Err(error) => return Err(error).with_context(|| format!("opening {shown}")),
     };
-    if is_link(&metadata) {
+    let attributes = attributes_of(&handle, folder)?;
+    if attributes & REPARSE_POINT != 0 {
         return Err(refuse(
             Problem::Untrusted,
             format!("{shown} is a link to elsewhere: choose the folder itself"),
         ));
     }
     let exe = folder.join(exe_name);
-    let found = std::fs::symlink_metadata(&exe).ok();
-    if !metadata.is_dir()
-        || found
-            .as_ref()
-            .is_none_or(|exe| !exe.is_file() && !is_link(exe))
-    {
-        return Err(refuse(
+    let no_exe = || {
+        refuse(
             Problem::Missing,
             format!(
                 "{shown} holds no {exe_name}: choose the folder you unpacked Nucleus Co-op {version} into"
             ),
-        ));
+        )
+    };
+    if attributes & DIRECTORY == 0 {
+        return Err(no_exe());
     }
-    if found.as_ref().is_some_and(is_link) {
+    let program = match open_program(&exe) {
+        Ok(program) => program,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Err(no_exe()),
+        Err(error) => return Err(error).with_context(|| format!("opening {}", exe.display())),
+    };
+    if attributes_of(&program, &exe)? & (REPARSE_POINT | DIRECTORY) != 0 {
         return Err(refuse(
             Problem::Untrusted,
             format!("{} is a link to elsewhere", exe.display()),
         ));
     }
-    let release = (checks.release)(&exe).with_context(|| format!("reading {}", exe.display()))?;
-    if !release {
+    // By the path Windows resolved: a link or an 8.3 short name on the way
+    // would be checked here and lead elsewhere later.
+    let resolved =
+        normal(&crate::user_folder::final_path(&handle).context("reading the folder's path")?);
+    if !crate::user_folder::same_name(
+        std::ffi::OsStr::new(&resolved),
+        std::ffi::OsStr::new(&normal(folder.as_os_str())),
+    ) {
         return Err(refuse(
-            Problem::Version,
+            Problem::Untrusted,
             format!(
-                "The {exe_name} in {shown} isn't Nucleus Co-op {version}'s: download {version} from its release page and choose its folder"
+                "{shown} leads to {resolved} through a link or a short name: choose {resolved} itself"
             ),
         ));
     }
-    (checks.trusted)(folder).map_err(|error| {
+    let canonical = PathBuf::from(&resolved);
+    let opened =
+        normal(&crate::user_folder::final_path(&program).context("reading the program's path")?);
+    let expected = canonical.join(exe_name);
+    if !crate::user_folder::same_name(std::ffi::OsStr::new(&opened), expected.as_os_str()) {
+        bail!(
+            "{} opened as {opened}, not in {}",
+            exe.display(),
+            canonical.display()
+        );
+    }
+    // Which release first, then whether it was unblocked, then who may
+    // change it: the first fix that helps.
+    let shipped = checks
+        .release
+        .program(exe_name)
+        .context("the pinned release has no NucleusCoop.exe")?;
+    if !as_shipped(&expected, &program, shipped)? {
+        return Err(refuse(
+            Problem::Version,
+            format!(
+                "The {exe_name} in {} isn't Nucleus Co-op {version}'s: download {version} from its release page and choose its folder",
+                canonical.display()
+            ),
+        ));
+    }
+    blocked(&expected)?;
+    above(&canonical, checks)?;
+    let owner = crate::process::open_file_owner(&handle)
+        .with_context(|| format!("reading the owner of {}", canonical.display()))?;
+    let writers = crate::process::open_file_writers(&handle)
+        .with_context(|| format!("reading the permissions of {}", canonical.display()))?;
+    trusted(&canonical, &owner, &writers, checks)?;
+    walk(&canonical, checks)?;
+    Ok(Checked {
+        folder: canonical,
+        handle,
+        program,
+    })
+}
+
+/// `path` as Windows names it to a person: without the `\\?\` that
+/// GetFinalPathNameByHandleW puts first, `\` between names, and no `\` at
+/// the end but a drive's root's.
+fn normal(path: &std::ffi::OsStr) -> String {
+    let text = path.to_string_lossy().replace('/', "\\");
+    let text = if let Some(share) = text.strip_prefix(r"\\?\UNC\") {
+        format!(r"\\{share}")
+    } else {
+        text.strip_prefix(r"\\?\").unwrap_or(&text).to_string()
+    };
+    let trimmed = text.trim_end_matches('\\');
+    if trimmed.len() == 2 && trimmed.ends_with(':') {
+        format!("{trimmed}\\")
+    } else {
+        trimmed.to_string()
+    }
+}
+
+/// GetDriveTypeW's answer for the drive `root` (`C:\`).
+fn drive_kind(root: &str) -> u32 {
+    let wide: Vec<u16> = root.encode_utf16().chain(Some(0)).collect();
+    // SAFETY: `wide` is NUL-terminated and outlives the call.
+    unsafe {
+        windows::Win32::Storage::FileSystem::GetDriveTypeW(windows::core::PCWSTR(wide.as_ptr()))
+    }
+}
+
+/// Why Rubylight doesn't run Nucleus Co-op from `shown` on the drive `root`
+/// of `kind` ([`drive_kind`]): only a fixed drive of this PC. A network
+/// drive mapped for its user is no drive of the service's.
+fn drive_refusal(shown: &str, root: &str, kind: u32) -> Option<anyhow::Error> {
+    let what = match kind {
+        DRIVE_FIXED => return None,
+        DRIVE_NO_ROOT_DIR => {
+            return Some(refuse(
+                Problem::Missing,
+                format!(
+                    "{shown} is on {root}, which is no drive of this PC to Rubylight (a network drive mapped for its user is none). {PROGRAM_FILES}"
+                ),
+            ));
+        }
+        DRIVE_REMOVABLE => "a removable drive",
+        DRIVE_REMOTE => "a network drive",
+        DRIVE_CDROM => "a CD or DVD drive",
+        DRIVE_RAMDISK => "a RAM disk",
+        _ => "a drive Windows doesn't know",
+    };
+    Some(refuse(
+        Problem::Untrusted,
+        format!(
+            "{shown} is on {what}, and Nucleus Co-op runs elevated, so Rubylight runs it only from a fixed drive of this PC. {PROGRAM_FILES}"
+        ),
+    ))
+}
+
+fn attributes_of(file: &std::fs::File, path: &Path) -> Result<u32> {
+    Ok(file
+        .metadata()
+        .with_context(|| format!("reading {}", path.display()))?
+        .file_attributes())
+}
+
+/// The program `path`, never through a link, open for reading only and
+/// shared only for reading: it can't be written, renamed or deleted while it
+/// is open.
+fn open_program(path: &Path) -> std::io::Result<std::fs::File> {
+    use windows::Win32::Storage::FileSystem::{FILE_FLAG_OPEN_REPARSE_POINT, FILE_SHARE_READ};
+    std::fs::OpenOptions::new()
+        .read(true)
+        .share_mode(FILE_SHARE_READ.0)
+        .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT.0)
+        .open(path)
+}
+
+/// Each folder above `folder` (the path Windows resolved), from the drive's
+/// root down, up to [`Checks::top`]: no link, owned by those `checks`
+/// trusts, and nobody else may rename or delete it, or move what it holds
+/// (a drive's root itself can't be moved). Otherwise a program of its user
+/// could move the checked folder aside and put another in its place between
+/// the check and the launch.
+fn above(folder: &Path, checks: &Checks) -> Result<()> {
+    let mut ancestors: Vec<&Path> = folder.ancestors().skip(1).collect();
+    ancestors.reverse();
+    for path in ancestors {
+        if checks.top.is_some_and(|top| !path.starts_with(top)) {
+            continue;
+        }
+        let file = crate::process::open_unfollowed(path, true)
+            .with_context(|| format!("opening {}", path.display()))?;
+        if attributes_of(&file, path)? & REPARSE_POINT != 0 {
+            return Err(refuse(
+                Problem::Untrusted,
+                format!("{} is a link to elsewhere. {PROGRAM_FILES}", path.display()),
+            ));
+        }
+        let owner = crate::process::open_file_owner(&file)
+            .with_context(|| format!("reading the owner of {}", path.display()))?;
+        let movers = if path.parent().is_none() {
+            crate::process::open_file_child_movers(&file)
+        } else {
+            crate::process::open_file_movers(&file)
+        }
+        .with_context(|| format!("reading the permissions of {}", path.display()))?;
+        let refused = |why: String| {
+            refuse(
+                Problem::Untrusted,
+                format!(
+                    "Rubylight doesn't run Nucleus Co-op from {}: it runs elevated, and {why}, so the folder could be swapped. {PROGRAM_FILES}",
+                    folder.display()
+                ),
+            )
+        };
+        if !checks.trusts(&owner) {
+            return Err(refused(format!(
+                "{} is owned by {owner}, not by SYSTEM or Administrators",
+                path.display()
+            )));
+        }
+        if let Some(other) = movers.iter().find(|sid| !checks.trusts(sid)) {
+            return Err(refused(format!(
+                "{} can be moved or renamed by {other}",
+                path.display()
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// An error naming `path` unless those `checks` trusts own it (`owner`) and
+/// alone may change it (`writers`, [`crate::process::open_file_writers`]).
+fn trusted(path: &Path, owner: &str, writers: &[String], checks: &Checks) -> Result<()> {
+    verdict(path, owner, writers, |sid| checks.trusts(sid)).map_err(|why| {
         refuse(
             Problem::Untrusted,
-            format!("Rubylight doesn't run Nucleus Co-op from {shown}: it runs elevated, so only administrators may change its folder ({error:#}). Unpack the release into a folder under C:\\Program Files and choose that one"),
+            format!(
+                "Rubylight doesn't run Nucleus Co-op from there: it runs elevated, so only administrators may change its files ({why:#}). {PROGRAM_FILES}, rather than moving it there"
+            ),
         )
-    })?;
-    Ok(folder.to_path_buf())
+    })
 }
 
-fn is_link(metadata: &std::fs::Metadata) -> bool {
-    use std::os::windows::fs::MetadataExt;
-    metadata.file_attributes() & 0x400 != 0
-}
-
-/// Whether `exe` is the pinned release's NucleusCoop.exe, read without
-/// following a link. The answer stands while its size and time do: the
-/// console asks every few seconds.
-fn release_executable(exe: &Path) -> Result<bool> {
-    static LAST: Mutex<Option<(PathBuf, u64, std::time::SystemTime, bool)>> = Mutex::new(None);
-    let mut file = crate::process::open_unfollowed(exe, false)?;
-    let metadata = file.metadata()?;
-    let (size, modified) = (metadata.len(), metadata.modified()?);
-    let mut last = LAST.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-    if let Some((_, _, _, release)) = last
-        .as_ref()
-        .filter(|(path, s, m, _)| path == exe && *s == size && *m == modified)
-    {
-        return Ok(*release);
+/// A file or folder below the Nucleus folder opened to check it: never
+/// through a link, for its attributes and permissions only, so a file
+/// Nucleus has open is no matter.
+fn open_checked(path: &Path, folder: bool) -> std::io::Result<std::fs::File> {
+    use windows::Win32::Storage::FileSystem::{
+        FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT, FILE_READ_ATTRIBUTES,
+        FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE, READ_CONTROL,
+    };
+    let mut flags = FILE_FLAG_OPEN_REPARSE_POINT;
+    if folder {
+        flags |= FILE_FLAG_BACKUP_SEMANTICS;
     }
-    let release = pinned::is_executable(size, &mut file)?;
-    *last = Some((exe.to_path_buf(), size, modified, release));
-    Ok(release)
+    std::fs::OpenOptions::new()
+        .access_mode(READ_CONTROL.0 | FILE_READ_ATTRIBUTES.0)
+        .share_mode((FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE).0)
+        .custom_flags(flags.0)
+        .open(path)
+}
+
+/// Every file and folder below `folder` (checked itself), never following a
+/// link: each with no link, owned and changed only by those `checks` trusts,
+/// each program file as the release ships it and unblocked, and none of
+/// them missing. Nucleus' game instances below `content\<game>` (links to
+/// the game's own files, or a whole copy of a game, which Nucleus may give
+/// its helper accounts) are checked at that folder only: an owner it
+/// trusts, and no link.
+fn walk(folder: &Path, checks: &Checks) -> Result<()> {
+    let mut found = HashSet::new();
+    let mut pending = vec![PathBuf::new()];
+    while let Some(below) = pending.pop() {
+        let path = folder.join(&below);
+        let entries =
+            std::fs::read_dir(&path).with_context(|| format!("listing {}", path.display()))?;
+        for entry in entries {
+            let entry = entry.with_context(|| format!("listing {}", path.display()))?;
+            let relative = below.join(entry.file_name());
+            let path = folder.join(&relative);
+            let name = relative.to_string_lossy();
+            // From the listing itself, which never follows a link, and then
+            // from the handle.
+            let listed = entry
+                .metadata()
+                .with_context(|| format!("reading {}", path.display()))?
+                .file_attributes();
+            let file = match open_checked(&path, listed & DIRECTORY != 0) {
+                Ok(file) => file,
+                // Gone since it was listed: Nucleus' own temporary file.
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+                Err(error) => {
+                    return Err(error).with_context(|| format!("opening {}", path.display()));
+                }
+            };
+            let attributes = listed | attributes_of(&file, &path)?;
+            if attributes & REPARSE_POINT != 0 {
+                return Err(refuse(
+                    Problem::Untrusted,
+                    format!(
+                        "{} is a link to elsewhere, which an elevated Nucleus Co-op would follow: unpack the release again into a new folder under C:\\Program Files",
+                        path.display()
+                    ),
+                ));
+            }
+            let owner = crate::process::open_file_owner(&file)
+                .with_context(|| format!("reading the owner of {}", path.display()))?;
+            let is_folder = attributes & DIRECTORY != 0;
+            let mut parts = relative.components();
+            let instance = is_folder
+                && parts
+                    .next()
+                    .is_some_and(|first| first.as_os_str().eq_ignore_ascii_case("content"))
+                && parts.next().is_some()
+                && parts.next().is_none();
+            if instance {
+                trusted(&path, &owner, &[], checks)?;
+                continue;
+            }
+            let writers = crate::process::open_file_writers(&file)
+                .with_context(|| format!("reading the permissions of {}", path.display()))?;
+            trusted(&path, &owner, &writers, checks)?;
+            if is_folder {
+                pending.push(relative);
+                continue;
+            }
+            let Some(shipped) = checks.release.program(&name) else {
+                continue;
+            };
+            found.insert(shipped.path.to_ascii_lowercase());
+            blocked(&path)?;
+            if !as_shipped(&path, &file, shipped)? {
+                return Err(refuse(
+                    Problem::Version,
+                    format!(
+                        "{} isn't Nucleus Co-op {}'s: unpack the whole release again into a new folder under C:\\Program Files and choose that one",
+                        path.display(),
+                        pinned::VERSION
+                    ),
+                ));
+            }
+        }
+    }
+    if let Some(missing) = checks
+        .release
+        .programs()
+        .find(|shipped| !found.contains(&shipped.path.to_ascii_lowercase()))
+    {
+        return Err(refuse(
+            Problem::Version,
+            format!(
+                "{} is missing from Nucleus Co-op {}: unpack the whole release again into a new folder under C:\\Program Files and choose that one",
+                folder.join(&missing.path).display(),
+                pinned::VERSION
+            ),
+        ));
+    }
+    Ok(())
+}
+
+/// An error when the file at `path` carries the Mark of the Web, which
+/// Windows gives what is unpacked from a downloaded zip that was not
+/// unblocked: .NET refuses to load such a DLL, and Windows asks before it
+/// starts such a program. The mark is never removed: unblocking is the
+/// user's.
+fn blocked(path: &Path) -> Result<()> {
+    use windows::Win32::Storage::FileSystem::{
+        FILE_READ_ATTRIBUTES, FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE,
+    };
+    let mut stream = path.as_os_str().to_owned();
+    stream.push(":Zone.Identifier");
+    match std::fs::OpenOptions::new()
+        .access_mode(FILE_READ_ATTRIBUTES.0)
+        .share_mode((FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE).0)
+        .open(&stream)
+    {
+        Ok(_) => Err(refuse(
+            Problem::Blocked,
+            format!(
+                "{} is marked as downloaded from the internet. Unblock the zip before extracting: right-click NucleusApp.zip, choose Properties, tick Unblock, then unpack it again into a new folder",
+                path.display()
+            ),
+        )),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => {
+            Err(error).with_context(|| format!("reading whether {} was downloaded", path.display()))
+        }
+    }
+}
+
+/// What tells a file's bytes from another's without reading them: its size,
+/// its last write time, its id on its volume and the time it last changed
+/// (any write, rename or change of its attributes moves that, a new file
+/// under its name has another id).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Stamp {
+    size: u64,
+    written: i64,
+    changed: i64,
+    volume: u64,
+    id: [u8; 16],
+}
+
+fn stamp(file: &std::fs::File) -> std::io::Result<Stamp> {
+    use windows::Win32::Foundation::HANDLE;
+    use windows::Win32::Storage::FileSystem::{
+        FILE_BASIC_INFO, FILE_ID_INFO, FILE_STANDARD_INFO, FileBasicInfo, FileIdInfo,
+        FileStandardInfo, GetFileInformationByHandleEx,
+    };
+    let handle = HANDLE(file.as_raw_handle());
+    let mut basic = FILE_BASIC_INFO::default();
+    let mut standard = FILE_STANDARD_INFO::default();
+    let mut id = FILE_ID_INFO::default();
+    // SAFETY: the handle is open for as long as `file` is, and each buffer
+    // is a writable structure of the size passed.
+    unsafe {
+        GetFileInformationByHandleEx(
+            handle,
+            FileBasicInfo,
+            (&raw mut basic).cast(),
+            size_of::<FILE_BASIC_INFO>() as u32,
+        )
+        .and_then(|()| {
+            GetFileInformationByHandleEx(
+                handle,
+                FileStandardInfo,
+                (&raw mut standard).cast(),
+                size_of::<FILE_STANDARD_INFO>() as u32,
+            )
+        })
+        .and_then(|()| {
+            GetFileInformationByHandleEx(
+                handle,
+                FileIdInfo,
+                (&raw mut id).cast(),
+                size_of::<FILE_ID_INFO>() as u32,
+            )
+        })
+    }
+    .map_err(crate::user_folder::os_error)?;
+    Ok(Stamp {
+        size: standard.EndOfFile as u64,
+        written: basic.LastWriteTime,
+        changed: basic.ChangeTime,
+        volume: id.VolumeSerialNumber,
+        id: id.FileId.Identifier,
+    })
+}
+
+/// Whether the file at `path`, open as `file`, is `shipped` by size and
+/// SHA-256. The answer stands while its [`Stamp`] does: the console asks
+/// every few seconds, and the release is 127 MB.
+fn as_shipped(path: &Path, file: &std::fs::File, shipped: &Shipped) -> Result<bool> {
+    static HASHED: Mutex<Option<HashMap<PathBuf, (Stamp, bool)>>> = Mutex::new(None);
+    let stamp_of =
+        |file: &std::fs::File| stamp(file).with_context(|| format!("reading {}", path.display()));
+    let seen = stamp_of(file)?;
+    if seen.size != shipped.size {
+        return Ok(false);
+    }
+    let kept = HASHED
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .as_ref()
+        .and_then(|hashed| hashed.get(path).copied());
+    if let Some((_, matches)) = kept.filter(|(stamp, _)| *stamp == seen) {
+        return Ok(matches);
+    }
+    // Shares no writing while it is read.
+    let mut reader = crate::process::open_unfollowed(path, false)
+        .with_context(|| format!("opening {}", path.display()))?;
+    if stamp_of(&reader)? != seen {
+        bail!(
+            "{} changed while Rubylight read it: choose the folder again",
+            path.display()
+        );
+    }
+    let matches = Manifest::matches(shipped, seen.size, &mut reader)
+        .with_context(|| format!("reading {}", path.display()))?;
+    HASHED
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .get_or_insert_default()
+        .insert(path.to_path_buf(), (seen, matches));
+    Ok(matches)
 }
 
 /// SYSTEM's, the Administrators group's and TrustedInstaller's (what Program
@@ -147,243 +760,25 @@ pub(super) const TRUSTED: [&str; 3] = [
     "S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464",
 ];
 
-/// Whether an elevated program may run from `folder`: neither it, its
-/// NucleusCoop.exe nor its parent is a link, each is owned by [`TRUSTED`],
-/// nobody else may write the folder or the executable, and nobody else may
-/// move the folder out of its parent (the parent's own new folders are no
-/// matter). Otherwise a program of an ordinary user could swap what runs
-/// elevated, or point the host's settings writes elsewhere.
-fn administrators_only(folder: &Path) -> Result<()> {
-    use crate::process::{open_file_child_movers, open_file_owner, open_file_writers};
-    let exe = folder.join(pinned::EXECUTABLE);
-    let parent = folder.parent().filter(|p| !p.as_os_str().is_empty());
-    let checked = [(folder, true), (exe.as_path(), false)]
-        .into_iter()
-        .chain(parent.map(|p| (p, true)));
-    for (index, (path, is_folder)) in checked.enumerate() {
-        let file = crate::process::open_unfollowed(path, is_folder)
-            .with_context(|| format!("opening {}", path.display()))?;
-        let owner = open_file_owner(&file)
-            .with_context(|| format!("reading the owner of {}", path.display()))?;
-        let others = if index < 2 {
-            open_file_writers(&file)
-        } else {
-            open_file_child_movers(&file)
-        }
-        .with_context(|| format!("reading the permissions of {}", path.display()))?;
-        untrusted(path, &file, &owner, &others)?;
+/// Whether those `trusts` trusts own the file or folder at `path` (`owner`)
+/// and alone may change it (`others`).
+fn verdict(
+    path: &Path,
+    owner: &str,
+    others: &[String],
+    trusts: impl Fn(&str) -> bool,
+) -> Result<()> {
+    if !trusts(owner) {
+        bail!(
+            "{} is owned by {owner}, not by SYSTEM or Administrators",
+            path.display()
+        );
     }
-    Ok(())
-}
-
-/// [`administrators_only`]'s verdict on one path, from its owner and those
-/// who may change it.
-fn untrusted(path: &Path, file: &std::fs::File, owner: &str, others: &[String]) -> Result<()> {
-    use std::os::windows::fs::MetadataExt;
-    let attributes = file
-        .metadata()
-        .with_context(|| format!("reading {}", path.display()))?
-        .file_attributes();
-    ensure!(
-        attributes & 0x400 == 0,
-        "{} is a link to elsewhere",
-        path.display()
-    );
-    verdict(path, owner, others)
-}
-
-fn verdict(path: &Path, owner: &str, others: &[String]) -> Result<()> {
-    ensure!(
-        TRUSTED.contains(&owner),
-        "{} is owned by {owner}, not by SYSTEM or Administrators",
-        path.display()
-    );
-    if let Some(other) = others.iter().find(|sid| !TRUSTED.contains(&sid.as_str())) {
+    if let Some(other) = others.iter().find(|sid| !trusts(sid)) {
         bail!("{} can be changed by {other}", path.display());
     }
     Ok(())
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn release(exe: &Path) -> Result<bool> {
-        Ok(std::fs::read(exe)? == b"MZ 2.4.2")
-    }
-    fn trusted(_: &Path) -> Result<()> {
-        Ok(())
-    }
-    fn changeable(_: &Path) -> Result<()> {
-        bail!("C:\\x can be changed by S-1-5-11")
-    }
-    const TEST: Checks = Checks { release, trusted };
-
-    fn problem(error: &anyhow::Error) -> Option<Problem> {
-        error
-            .downcast_ref::<Unusable>()
-            .map(|unusable| unusable.problem)
-    }
-
-    /// A folder as the user unpacked the release into it, `exe` its
-    /// NucleusCoop.exe.
-    fn unpacked(exe: &[u8]) -> tempfile::TempDir {
-        let folder = tempfile::tempdir().unwrap();
-        std::fs::write(folder.path().join(pinned::EXECUTABLE), exe).unwrap();
-        std::fs::create_dir(folder.path().join("handlers")).unwrap();
-        folder
-    }
-
-    fn text(path: &Path) -> String {
-        path.to_str().unwrap().to_string()
-    }
-
-    #[test]
-    fn the_chosen_folder_of_the_release_is_used_and_remembered_over_the_old_install() {
-        let data = tempfile::tempdir().unwrap();
-        let old = pinned::folder(data.path());
-        std::fs::create_dir_all(&old).unwrap();
-        std::fs::write(old.join(pinned::EXECUTABLE), b"MZ").unwrap();
-        let own = unpacked(b"MZ 2.4.2");
-        // Spaces around a pasted path don't matter.
-        let configured = format!(" {} ", text(own.path()));
-        assert_eq!(
-            installed_checked(data.path(), &configured, &TEST).unwrap(),
-            Some(own.path().to_path_buf())
-        );
-    }
-
-    #[test]
-    fn an_earlier_install_keeps_working_and_nothing_is_installed() {
-        let data = tempfile::tempdir().unwrap();
-        assert_eq!(installed_checked(data.path(), "", &TEST).unwrap(), None);
-        // Nothing was made below the host's data folder.
-        assert_eq!(std::fs::read_dir(data.path()).unwrap().count(), 0);
-        let old = pinned::folder(data.path());
-        std::fs::create_dir_all(old.join("handlers")).unwrap();
-        // A folder without the executable is a broken copy: none.
-        assert_eq!(installed_checked(data.path(), "", &TEST).unwrap(), None);
-        std::fs::write(old.join(pinned::EXECUTABLE), b"MZ").unwrap();
-        assert_eq!(installed(data.path(), "").unwrap(), Some(old));
-    }
-
-    #[test]
-    fn a_folder_without_nucleus_is_refused_never_replaced_by_the_old_install() {
-        let data = tempfile::tempdir().unwrap();
-        let old = pinned::folder(data.path());
-        std::fs::create_dir_all(&old).unwrap();
-        std::fs::write(old.join(pinned::EXECUTABLE), b"MZ").unwrap();
-        let empty = tempfile::tempdir().unwrap();
-        let gone = empty.path().join("Nucleus");
-        let file = empty.path().join("NucleusApp.zip");
-        std::fs::write(&file, b"PK").unwrap();
-        for (path, says) in [
-            (text(empty.path()), "holds no NucleusCoop.exe"),
-            (text(&gone), "doesn't exist"),
-            (text(&file), "holds no NucleusCoop.exe"),
-            ("Nucleus".to_string(), "is no full folder path"),
-        ] {
-            let error = installed_checked(data.path(), &path, &TEST).unwrap_err();
-            assert_eq!(problem(&error), Some(Problem::Missing), "{error:#}");
-            assert!(error.to_string().contains(says), "{error:#}");
-        }
-    }
-
-    #[test]
-    fn another_release_is_refused_with_the_version_it_needs() {
-        let data = tempfile::tempdir().unwrap();
-        let other = unpacked(b"MZ 2.3.1");
-        let error = installed_checked(data.path(), &text(other.path()), &TEST).unwrap_err();
-        assert_eq!(problem(&error), Some(Problem::Version));
-        assert_eq!(
-            error.to_string(),
-            format!(
-                "The NucleusCoop.exe in {} isn't Nucleus Co-op 2.4.2's: download 2.4.2 from its release page and choose its folder",
-                other.path().display()
-            )
-        );
-        // The release's executable is told by its bytes, read through the
-        // file itself.
-        assert!(!release_executable(&other.path().join(pinned::EXECUTABLE)).unwrap());
-    }
-
-    #[test]
-    fn a_link_is_refused_never_followed() {
-        let data = tempfile::tempdir().unwrap();
-        let own = unpacked(b"MZ 2.4.2");
-        let links = tempfile::tempdir().unwrap();
-        // A junction to the release's folder: checked here, it could point
-        // elsewhere by the time Nucleus runs.
-        let junction = links.path().join("Nucleus");
-        let made = std::process::Command::new("cmd")
-            .args(["/C", "mklink", "/J"])
-            .arg(&junction)
-            .arg(own.path())
-            .output()
-            .unwrap();
-        assert!(made.status.success(), "{made:?}");
-        let error = installed_checked(data.path(), &text(&junction), &TEST).unwrap_err();
-        assert_eq!(problem(&error), Some(Problem::Untrusted), "{error:#}");
-        assert!(
-            error.to_string().contains("is a link to elsewhere"),
-            "{error:#}"
-        );
-    }
-
-    #[test]
-    fn a_folder_its_user_can_change_is_refused_with_the_reason() {
-        let data = tempfile::tempdir().unwrap();
-        // A temporary folder is the user's, as an extracted download is.
-        let own = unpacked(b"MZ 2.4.2");
-        let checks = Checks {
-            release,
-            trusted: changeable,
-        };
-        let error = installed_checked(data.path(), &text(own.path()), &checks).unwrap_err();
-        assert_eq!(problem(&error), Some(Problem::Untrusted));
-        let error = error.to_string();
-        assert!(
-            error.contains("only administrators may change its folder"),
-            "{error}"
-        );
-        assert!(error.contains("can be changed by S-1-5-11"), "{error}");
-        assert!(
-            error.contains("Unpack the release into a folder under C:\\Program Files"),
-            "{error}"
-        );
-        // And on this PC, with the release's executable taken as read.
-        let checks = Checks {
-            release,
-            trusted: administrators_only,
-        };
-        let error = installed_checked(data.path(), &text(own.path()), &checks).unwrap_err();
-        assert_eq!(problem(&error), Some(Problem::Untrusted), "{error:#}");
-    }
-
-    #[test]
-    fn only_system_and_administrators_may_change_a_folder_nucleus_runs_from() {
-        let folder = Path::new(r"C:\Program Files\Nucleus");
-        let trusted = &["S-1-5-18".to_string(), "S-1-5-32-544".to_string()];
-        assert!(verdict(folder, "S-1-5-32-544", trusted).is_ok());
-        assert!(
-            verdict(
-                folder,
-                "S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464",
-                &[]
-            )
-            .is_ok()
-        );
-        let user = verdict(folder, "S-1-5-21-1-2-3-1001", &[]).unwrap_err();
-        assert!(
-            user.to_string().contains("is owned by S-1-5-21-1-2-3-1001"),
-            "{user}"
-        );
-        let writer = verdict(folder, "S-1-5-18", &["S-1-5-11".into()]).unwrap_err();
-        assert!(
-            writer.to_string().contains("can be changed by S-1-5-11"),
-            "{writer}"
-        );
-        let entry = verdict(folder, "S-1-5-18", &["ACE type 5".into()]).unwrap_err();
-        assert!(entry.to_string().contains("ACE type 5"), "{entry}");
-    }
-}
+mod tests;

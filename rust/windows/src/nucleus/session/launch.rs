@@ -24,8 +24,12 @@ impl Launcher for Elevated {
         extra: &BTreeMap<String, String>,
     ) -> Result<Box<dyn Nucleus>> {
         require_administrator(crate::process::user_account()?, Refused::Game)?;
+        // Checked again and held until Windows started it: nobody can swap
+        // the folder or the program between the check and the launch, which
+        // runs it by the path Windows resolved.
+        let held = crate::nucleus::install::hold(folder)?;
         started(
-            &launch_of(folder, guid, &environment(extra)?, Run::Elevated),
+            &launch_of(held.folder(), guid, &environment(extra)?, Run::Elevated),
             None,
         )
     }
@@ -198,7 +202,10 @@ pub(super) fn rights_note(asked: bool, elevated: &Result<bool>) -> Option<String
 /// it; the [`Opened`] it returns closes it before a session starts.
 pub fn open(folder: &Path) -> Result<Opened> {
     require_administrator(crate::process::user_account()?, Refused::Open)?;
-    let program = folder.join(EXECUTABLE);
+    // As a session's launch: checked again, held until Windows started it.
+    let held = crate::nucleus::install::hold(folder)?;
+    let folder = held.folder();
+    let program = held.program();
     let line = crate::process::quote(program.as_os_str())?;
     let process = crate::process::Process::spawn_command(
         &program,

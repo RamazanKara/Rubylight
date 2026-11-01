@@ -27,6 +27,7 @@ pub const TABLE: &[(&str, &str)] = &[
     ("Other apps", "Andere Apps"),
     ("Not installed", "Nicht installiert"),
     ("{}, not installed", "{}, nicht installiert"),
+    ("Not installed on {}", "Nicht installiert auf {}"),
     ("Game details", "Spieldetails"),
     ("Enter", "Eingabe"),
     ("Del", "Entf"),

@@ -501,6 +501,9 @@ impl Launcher {
                     ui.label(RichText::new(tr("Checking the PC…")).color(ON_SURFACE_VARIANT));
                 } else if !source.paired {
                     ui.label(RichText::new(tr("Pair Nightjar with this PC to play.")).color(ERROR));
+                } else if !detail.can_start && !detail.installed {
+                    // Play is off: say why, as Android's game page does.
+                    ui.label(RichText::new(trf("Not installed on {}", &[&source.name])).color(ON_SURFACE_VARIANT));
                 }
                 if let Some(other) = &other_running {
                     ui.label(RichText::new(trf("{} is running. Playing this game closes it.", &[&at_sentence_start(other)])).color(TERTIARY));
@@ -535,7 +538,9 @@ impl Launcher {
                             quiet_button(ui, if starred { en("Remove from favourites") } else { en("Add to favourites") })
                         })
                         .inner;
-                    self.focus_item(&r, "favourite", false);
+                    // With Play off (not installed, the PC away) and nothing to end, the star takes the
+                    // focus, so the D-pad has somewhere to start.
+                    self.focus_item(&r, "favourite", !can_play && detail.end == EndAction::None);
                     if r.clicked() {
                         if let Some(star) = star {
                             commands.push(Command::ToggleFavourite(star));
@@ -620,7 +625,9 @@ impl Launcher {
                     section(ui, "Also on");
                     ui.horizontal_wrapped(|ui| {
                         for copy in &others {
-                            let r = quiet_button(ui, &copy.host_name);
+                            // A copy there that is not installed opens, but says so first.
+                            let name = if copy.installed { copy.host_name.clone() } else { trf("{}, not installed", &[&copy.host_name]) };
+                            let r = quiet_button(ui, &name);
                             self.focus_item(&r, &format!("copy:{}", copy.host), false);
                             if r.clicked() {
                                 self.go(Screen::Game { host: copy.host, app: copy.app_id });

@@ -2155,6 +2155,39 @@ fn the_game_page_says_its_state_in_a_chip_and_the_pc_on_its_own_line() {
     assert!(shows(&f, "Desk") && !shows(&f, "Running") && !shows(&f, "Suspended"), "{:?}", f.drawn);
 }
 
+/// Android's game page: a game the PC lists as not installed has Play off and says why, and a
+/// copy on another PC that is not installed says so under "Also on".
+#[test]
+fn a_game_the_pc_has_not_installed_cannot_be_played_from_its_page() {
+    let mut f = home_with_games(2);
+    f.hosts.list[0].native.library.as_mut().expect("the library").games[0].installed = Some(false);
+    // A second PC with the same game, not installed there either.
+    let mut hosts = Hosts::without_discovery(vec![record("Desk", true, true), record("Den", true, false)], Arc::new(|| {}));
+    for host in &mut hosts.list {
+        host.reach = Reach::Online;
+        host.native.library = f.hosts.list[0].native.library.clone();
+    }
+    hosts.list[0].info = f.hosts.list[0].info.clone();
+    hosts.list[0].apps = Apps::Loaded(vec![nightjar_core::http::App { name: "Game 00".into(), uuid: "install-0".into(), ..game(1000) }]);
+    f.hosts = hosts;
+    let pc = f.hosts.list[0].id;
+    f.l.go(Screen::Game { host: pc, app: 1000 });
+    f.settle();
+    assert!(shows(&f, "Not installed on Desk"), "{:?}", f.drawn);
+    assert!(shows(&f, "Den, not installed"), "Also on marks it: {:?}", f.drawn);
+    assert!(f.ctx.memory(|m| m.focused()).is_some(), "something has focus for the D-pad");
+    let play = f.placed.iter().find(|(t, ..)| t == "Play").map(|p| p.1).expect("Play is shown");
+    let commands = f.click_at(play.center(), egui::PointerButton::Primary);
+    assert!(!commands.iter().any(|c| matches!(c, Command::Launch { .. })), "Play is off");
+    // Installed, the same page plays it.
+    f.hosts.list[0].native.library.as_mut().unwrap().games[0].installed = Some(true);
+    f.settle();
+    assert!(!shows(&f, "Not installed on Desk"), "{:?}", f.drawn);
+    let play = f.placed.iter().find(|(t, ..)| t == "Play").map(|p| p.1).expect("Play is shown");
+    let commands = f.click_at(play.center(), egui::PointerButton::Primary);
+    assert!(commands.iter().any(|c| matches!(c, Command::Launch { app: 1000, .. })), "Play starts it");
+}
+
 /// Settings is a top-level page like Home and PCs: no Back in its header. Its sub-pages keep theirs.
 #[test]
 fn settings_has_no_back_but_its_sub_pages_do() {

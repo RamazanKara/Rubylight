@@ -513,8 +513,11 @@ pub enum EndAction {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Detail {
     pub state: GameState,
-    /// The PC can be played on now (online and paired).
+    /// The game can be played now: the PC is online and paired, and the game installed there
+    /// (one that runs or is suspended can be resumed whatever the library says).
     pub can_start: bool,
+    /// The PC lists the game as installed, or says nothing either way. Android's NOT_INSTALLED.
+    pub installed: bool,
     pub end: EndAction,
     /// Another game that runs on the PC; starting this one closes it.
     pub other_running: Option<String>,
@@ -529,8 +532,8 @@ impl Detail {
 
 /// `native` is whether the PC speaks the native API (Close game is only offered there).
 pub fn detail(source: &Source<'_>, app_id: u32, native: bool) -> Detail {
-    let can_start = source.online && source.paired;
     let game = source.library.into_iter().flat_map(|l| &l.games).find(|g| g.app_id == app_id);
+    let installed = game.is_none_or(installed);
     let session = source.session.filter(|s| active(s));
     // A PC that is away reports nothing live, whatever was saved.
     let mut state = GameState::Idle;
@@ -564,7 +567,9 @@ pub fn detail(source: &Source<'_>, app_id: u32, native: bool) -> Detail {
         _ if native && close_allowed => EndAction::CloseGame,
         _ => EndAction::Quit,
     };
-    Detail { state, can_start, end, other_running }
+    // Android's GameDetailModel.blocked(): only an idle game is held back by the library.
+    let can_start = source.online && source.paired && (installed || state != GameState::Idle);
+    Detail { state, can_start, installed, end, other_running }
 }
 
 /// What a PC's card says about its games.
@@ -1016,6 +1021,24 @@ mod tests {
     fn the_stream_summary_reads_like_the_android_one() {
         assert_eq!(stream_summary(1920, 1080, 60, 20_000), "1920 × 1080, 60 FPS, 20 Mbps");
         assert_eq!(stream_summary(2560, 1440, 120, 37_500), "2560 × 1440, 120 FPS, 37.5 Mbps");
+    }
+
+    /// Android's GameDetailModel: a game the PC lists as not installed cannot be started, but one
+    /// that runs or is suspended there can still be resumed.
+    #[test]
+    fn a_game_the_pc_has_not_installed_cannot_start_but_resumes() {
+        let mut lib = library();
+        lib.games[0].installed = Some(false); // Dota 2
+        let idle = idle();
+        let d = detail(&source(1, "A", true, Some(&lib), Some(&idle)), DOTA, true);
+        assert_eq!((d.installed, d.can_start), (false, false), "not installed: no Play");
+        let suspended = session(); // Dota 2 suspended
+        let d = detail(&source(1, "A", true, Some(&lib), Some(&suspended)), DOTA, true);
+        assert_eq!((d.installed, d.can_start, d.resumes()), (false, true, true), "a suspended game resumes");
+        // Saying nothing either way counts as installed.
+        lib.games[0].installed = None;
+        let d = detail(&source(1, "A", true, Some(&lib), Some(&idle)), DOTA, true);
+        assert_eq!((d.installed, d.can_start), (true, true));
     }
 
     #[test]

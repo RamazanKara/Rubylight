@@ -180,7 +180,9 @@ impl Setup {
     /// desktop; in a window it stays parked (#56). The switch overrides the
     /// game's saved mode for this start only. Arguments that already choose
     /// a mode stay as they are. In a window it renders at the stream's
-    /// [`Setup::size`] (`-ResX`, `-ResY`), not at its saved resolution,
+    /// [`Setup::size`] (`-ResX`, `-ResY`, and `-ForceRes`, without which a
+    /// window larger than the primary display shrinks to fit it), not at its
+    /// saved resolution,
     /// which showed a 16:9 picture on a 20:9 phone (#56), unless the
     /// arguments choose a resolution.
     pub fn windowed_arguments(&self) -> String {
@@ -211,6 +213,12 @@ impl Setup {
             && !has(&["-resx", "-resy"])
         {
             add(&format!("-ResX={width} -ResY={height}"));
+            // Unreal shrinks a window larger than the primary display to fit
+            // it (a 2400x1080 phone beside a 1920x1080 monitor) unless told
+            // to keep the size.
+            if !has(&["-forceres"]) {
+                add("-ForceRes");
+            }
         }
         started
     }
@@ -1103,11 +1111,16 @@ mod tests {
         };
         assert_eq!(
             streamed("").windowed_arguments(),
-            "-windowed -ResX=2400 -ResY=1080"
+            "-windowed -ResX=2400 -ResY=1080 -ForceRes"
         );
         assert_eq!(
             streamed("-dx12 -windowed").windowed_arguments(),
-            "-dx12 -windowed -ResX=2400 -ResY=1080"
+            "-dx12 -windowed -ResX=2400 -ResY=1080 -ForceRes"
+        );
+        // Larger than the PC's monitor it keeps its size (-ForceRes), once.
+        assert_eq!(
+            streamed("-forceres").windowed_arguments(),
+            "-forceres -windowed -ResX=2400 -ResY=1080"
         );
         assert_eq!(
             streamed("-ResY=720").windowed_arguments(),

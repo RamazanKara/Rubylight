@@ -220,7 +220,7 @@ fn an_unreal_games_handler_starts_it_in_a_window() {
     // At the stream's size: the phone's 20:9, not the game's saved 16:9.
     assert_eq!(
         sized(unreal, Some((2400, 1080))),
-        r#""-x -windowed -ResX=2400 -ResY=1080";"#
+        r#""-x -windowed -ResX=2400 -ResY=1080 -ForceRes";"#
     );
 }
 

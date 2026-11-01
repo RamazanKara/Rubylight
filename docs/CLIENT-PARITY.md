@@ -44,7 +44,7 @@ Which Nightjar features each client provides: Android (phones, handhelds, tablet
 
 | Feature | Android | Windows | Linux | Notes |
 | --- | --- | --- | --- | --- |
-| H.264, HEVC and AV1 hardware decoding | Yes | Yes | Partial | Windows: D3D11VA, without CPU copies. Linux: VA-API, then V4L2 M2M, then NVDEC; 8-bit 4:2:0 VA-API pictures reach the OpenGL renderer without copies, while 10-bit pictures and those drawn by the GPU renderer (HDR, upscaling, 4:4:4) are copied through memory. A fallback to software decoding is announced. |
+| H.264, HEVC and AV1 hardware decoding | Yes | Yes | Partial | Windows: D3D11VA, without CPU copies. Linux: VA-API, then Vulkan video, then V4L2 M2M, then NVDEC; 8-bit 4:2:0 VA-API pictures reach the OpenGL renderer without copies, while 10-bit pictures and those drawn by the GPU renderer (HDR, upscaling, 4:4:4) are copied through memory. Vulkan video, for GPUs without a VA-API driver such as NVIDIA's, decodes on the GPU renderer's own device without CPU copies; its pictures match software decoding on Intel's Mesa driver (the NUC), and on NVIDIA it is Experimental. A fallback to software decoding is announced. |
 | HDR10 | Yes | Yes | Yes | Linux requests an HDR surface from the compositor. |
 | HDR10+ | Yes | No | No | |
 | HLG | Yes | Yes | Yes | The desktop draws HLG through the BT.2100 inverse OETF and OOTF for the display's peak; on Linux for hardware-decoded pictures. |

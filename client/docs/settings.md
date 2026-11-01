@@ -409,9 +409,9 @@ The PC puts its displays back when the stream ends. Separated displays still sha
 
 ## Nightjar for Windows and Linux
 
-The desktop client's **Settings** has the same seven sections in the same order. A wide window lists them on the left, with the open section's rows on the right; a narrow one shows them as chips above the rows. Each section shows the same main rows as Android first, then the rarer rows in labelled groups after them (**Fine-tuning**, for example), never folded away. **Search settings** at the top (Ctrl+F) finds rows in every section by name, description, section or group; Escape leaves the field, then clears the search. A row changed from its default has **Reset** beside it, and **App → Reset all settings** puts every row back to its default after a confirmation, keeping the language, paired PCs, game and PC settings and profiles.
+The desktop client's **Settings** has the same seven sections in the same order, then **Debug** with the rarely needed settings. A wide window lists them on the left, with the open section's rows on the right; a narrow one shows them as chips above the rows. Each section shows the same main rows as Android first, then the rarer rows in labelled groups after them (**Fine-tuning**, for example), never folded away. **Search settings** at the top (Ctrl+F) finds rows in every section by name, description, section or group; Escape leaves the field, then clears the search. A row changed from its default has **Reset** beside it, and **App → Reset all settings** puts every row back to its default after a confirmation, keeping the language, paired PCs, game and PC settings and profiles.
 
-A PC's, game's or profile's settings show the same rows (no App section). Each row has a box, **For this PC**, **For this game** or **In this profile**: ticked, the row keeps its own value and says what it would otherwise be; unticked, it says where its value comes from (**From main settings**, **From profile …**, **Set for this PC**). Choosing another value ticks the box; opening a menu and backing out changes nothing. The section list counts the rows set there, and **Clear all** at the top unticks every row after a confirmation. **Streaming → Profiles → Manage profiles** selects the active profile by hand or, with **Choose automatically**, by network (mobile data, home Wi-Fi, other Wi-Fi); while one is in use, the main settings say so at the top. **Mobile data bitrate limit** caps the bitrate on metered networks after all overrides. Settings are stored in `settings.json` in `%APPDATA%\Nightjar\config` on Windows or `~/.config/nightjar` on Linux; `NIGHTJAR_CONFIG_DIR` overrides the folder.
+A PC's, game's or profile's settings show the same rows (no App section, Debug last). Each row has a box, **For this PC**, **For this game** or **In this profile**: ticked, the row keeps its own value and says what it would otherwise be; unticked, it says where its value comes from (**From main settings**, **From profile …**, **Set for this PC**). Choosing another value ticks the box; opening a menu and backing out changes nothing. The section list counts the rows set there, and **Clear all** at the top unticks every row after a confirmation. **Streaming → Profiles → Manage profiles** selects the active profile by hand or, with **Choose automatically**, by network (mobile data, home Wi-Fi, other Wi-Fi); while one is in use, the main settings say so at the top. **Mobile data bitrate limit** caps the bitrate on metered networks after all overrides. Settings are stored in `settings.json` in `%APPDATA%\Nightjar\config` on Windows or `~/.config/nightjar` on Linux; `NIGHTJAR_CONFIG_DIR` overrides the folder.
 
 Settings marked "Linux: restart" take effect on Linux after Nightjar restarts. Defaults are those of a fresh installation. Rows below a group name are listed after the section's main rows.
 
@@ -432,7 +432,6 @@ Settings marked "Linux: restart" take effect on Linux after Nightjar restarts. D
 | Sharpness | 50 % | 0–100 % | Shown for FSR 1 and SGSR 1. |
 | Sharper colored text (YUV 4:4:4) | Off | On, Off | When the PC and this device support it; HDR takes priority. Not used with PyroWave or Full chroma. Linux: restart. |
 | Less color banding (10-bit SDR) | Off | On, Off | SDR in 10-bit HEVC or AV1. Needs a Main10 decoder; the PC's display must be in SDR. Linux: restart. |
-| Video decoding | Automatic | Automatic, Software | Automatic uses hardware decoding: D3D11VA on Windows, VA-API, V4L2 M2M or NVDEC on Linux. A fallback to software decoding is announced. Not used with PyroWave. |
 | PyroWave decoder | GPU | CPU, GPU | GPU decodes with the PyroWave SDK and never falls back to the CPU; the row says why GPU decoding is unavailable. |
 
 ### Display & image
@@ -446,8 +445,7 @@ Settings marked "Linux: restart" take effect on Linux after Nightjar restarts. D
 | Display arrangement | The PC's own setting | The display modes listed under [Display on the PC](#display-on-the-pc) | Applied to normal streams on hosts that support display modes. |
 | PC render resolution | 100 % | 50–200 % in 5 % steps | The PC renders at this size; the transmitted video keeps its size. |
 | PC display scaling | The PC's own | PC's own, 100–500 % | Shown for hosts that read it, as on Android. |
-| *Fine-tuning:* Align video to top | Off | On, Off | Moves Fit and Native pixels video to the top of the window. |
-| Show frames at the PC's frame times | Off | On, Off | With VRR: each frame appears at the moment the game made it, plus a steady delay. |
+| *Fine-tuning:* Show frames at the PC's frame times | Off | On, Off | With VRR: each frame appears at the moment the game made it, plus a steady delay. |
 | Frame pacing | Lowest latency | Lowest latency, Balanced, Balanced with FPS limit, Smoothest video (more delay) | Without VRR. Every choice except Lowest latency waits for the display's refresh. |
 | V-Sync | On | On, Off | Without VRR: waits for the display's refresh, so there is no tearing. |
 
@@ -461,7 +459,6 @@ Settings marked "Linux: restart" take effect on Linux after Nightjar restarts. D
 | Clipboard sync | Off | On, Off | Shares copied text both ways; see [clipboard](sharing.md#clipboard). |
 | Controller buttons and keyboard shortcuts | | Controllers, Shortcuts | Controller mappings, stick and trigger dead zones and the type each controller connects as (**Connect as**: Automatic, Xbox without motion or touchpad, PlayStation or Nintendo), and the saved keyboard shortcuts. Main settings only. |
 | *Mouse and keyboard:* Send system keys | On | On, Off | Alt+Tab, the Windows key and similar go to the PC while input is captured. |
-| Local cursor | On | On, Off | In Desktop pointer mode, draws the PC's cursor shape locally, without video delay, on hosts that send cursor shapes. |
 | Mouse speed | 100 % | 25–400 % | Speed of the captured pointer. |
 | Mouse navigation buttons | On | On, Off | Sends the mouse's Back and Forward buttons. |
 | Touchpad gestures on the PC | Off | On, Off | Windows. Sends the touchpad's fingers to a PC that takes them. |
@@ -500,12 +497,9 @@ The Controllers group can be changed while **Controllers** is on. On-screen cont
 | *Connection:* Keep streaming when the network changes | On | On, Off | Client roaming: keeps the stream when this device changes networks, with Rubylight PCs that support it. |
 | Continue on mobile data | Off | On, Off | Lets a roaming stream move onto a metered network. |
 | Wait through network dropouts | 3 seconds | 0, 3, 5, 10, 15 seconds | Keeps the session through brief network interruptions. |
-| Error correction | PC's setting | PC's setting, Automatic, 10 %, 20 %, 30 %, 50 % | As on Android: Rubylight PCs and Sunshine-based PCs that accept it take the choice. |
-| Prioritize stream traffic | On | On, Off | Linux. Gives stream traffic priority on this device. |
 | *Network tests:* Network speed test | | Action, per PC | Receives 32 MiB from the PC to measure throughput, on paired hosts that offer the test. |
 | PyroWave frame pace | | Action, per PC | Finds and saves a frame pace for PyroWave on this network. Can take several minutes and uses substantial data. |
 | *Fine-tuning:* USB forwarding | Off | On, Off | Attaches USB devices to the PC from the stream controls; see [USB devices](sharing.md#usb-devices). On Windows a device needs the WinUSB driver. |
-| Instant mouse and pen input | On | On, Off | Sends mouse and pen motion immediately instead of batching it. |
 
 ### App
 
@@ -527,11 +521,24 @@ The Controllers group can be changed while **Controllers** is on. On-screen cont
 
 | Setting | Default | Choices | Notes |
 | --- | --- | --- | --- |
-| Full color range | Off | On, Off | Requests the full RGB range from the host. |
-| *Fine-tuning:* Lower bitrate when frames are lost | Off | On, Off | Loss-based bitrate: lowers the bitrate when frames are lost and raises it after clean seconds, on Rubylight PCs that take bitrate changes during a stream. Replaces Lower bitrate when the network is busy there. |
 | Full chroma | Off | On, Off | Requires the host's Full chroma option and HEVC or AV1. Not used with PyroWave. Linux: restart. |
-| *Network hints:* Tell the PC when on Wi-Fi | On | On, Off | A Rubylight PC paces the stream for Wi-Fi from the start. |
-| Tell the PC the link speed | On | On, Off | Lets the PC limit its sending rate to this device's wired port speed. |
 | Test the link before starting | Off | On, Off | A new stream at the automatic bitrate tests the link to a Rubylight PC first. |
+
+### Debug
+
+Rarely needed settings, last in the section list. The search finds them like any other row, and a PC's, game's or profile's settings list them here too. Align video to top is not in the stream menu.
+
+| Setting | Default | Choices | Notes |
+| --- | --- | --- | --- |
+| Video decoding | Automatic | Automatic, Software | Automatic uses hardware decoding: D3D11VA on Windows, VA-API, V4L2 M2M or NVDEC on Linux. A fallback to software decoding is announced. Not used with PyroWave. |
+| Full color range | Off | On, Off | Requests the full RGB range from the host. |
+| Align video to top | Off | On, Off | Moves Fit and Native pixels video to the top of the window. |
+| Local cursor | On | On, Off | In Desktop pointer mode, draws the PC's cursor shape locally, without video delay, on hosts that send cursor shapes. |
+| Instant mouse and pen input | On | On, Off | Sends mouse and pen motion immediately instead of batching it. |
+| Error correction | Automatic | PC's setting, Automatic, 10 %, 20 %, 30 %, 50 % | Automatic asks the PC to follow the losses this device reports. Settings saved with PC's setting before Automatic became the default switch to Automatic once; choosing PC's setting again keeps it. Rubylight PCs and Sunshine-based PCs that accept it take the choice; other PCs use their own setting. |
+| Prioritize stream traffic | On | On, Off | Linux. Gives stream traffic priority on this device. |
+| Lower bitrate when frames are lost | Off | On, Off | Loss-based bitrate: lowers the bitrate when frames are lost and raises it after clean seconds, on Rubylight PCs that take bitrate changes during a stream. Replaces Lower bitrate when the network is busy there. |
+| Tell the PC when on Wi-Fi | On | On, Off | A Rubylight PC paces the stream for Wi-Fi from the start. |
+| Tell the PC the link speed | On | On, Off | Lets the PC limit its sending rate to this device's wired port speed. |
 
 Beam racing and early decode for PyroWave have no row on the Settings page. Both are off by default and are set with the `beam_race` and `early_decode` keys in `settings.json`, or the `NIGHTJAR_BEAM_RACE` and `NIGHTJAR_EARLY_DECODE` environment variables; see [beam racing](beam-racing.md) and [early decode](early-decode.md).

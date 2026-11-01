@@ -74,6 +74,9 @@ class ReleaseVersions(unittest.TestCase):
         self.assertEqual(package['version'], new)
         self.assertEqual(lock['version'], new)
         self.assertEqual(lock['packages']['']['version'], new)
+        # The service keeps its own version (rust/service).
+        service = self.root / 'rust/service/Cargo.toml'
+        self.assertEqual(service.read_bytes(), (ROOT / 'rust/service/Cargo.toml').read_bytes())
 
     def test_prerelease_keeps_its_full_version_as_label(self):
         readme = self.root / 'README.md'
@@ -346,6 +349,87 @@ class NightjarNotes(unittest.TestCase):
         self.assertFalse((self.notes / 'x.md').exists())
 
 
+class ServiceInputs(unittest.TestCase):
+    """service_inputs.py: a change to what goes into butterpollo-service.exe
+    comes with a new version of the service."""
+
+    def setUp(self):
+        sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+        import service_inputs
+        self.tool = service_inputs
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = pathlib.Path(self.temp.name)
+        for name in ('rust/service/Cargo.toml', 'rust/service/src/main.rs', 'rust/core/src/update_recovery.rs',
+                     'rust/assets/version_info.rs', 'rust-toolchain.toml', '.cargo/config.toml'):
+            target = self.root / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(ROOT / name, target)
+
+    def bump(self, version):
+        manifest = self.root / 'rust/service/Cargo.toml'
+        text = manifest.read_text(encoding='utf-8')
+        manifest.write_text(re.sub(r'(?m)^version = "[^"]+"', f'version = "{version}"', text, count=1),
+                            encoding='utf-8', newline='')
+
+    def test_the_repository_records_the_service_as_it_is(self):
+        self.assertEqual(self.tool.problems(), [])
+
+    def test_a_change_needs_a_new_version(self):
+        self.assertIsNone(self.tool.update(self.root))
+        self.assertEqual(self.tool.problems(self.root), [])
+        with open(self.root / 'rust/service/src/main.rs', 'a', encoding='utf-8', newline='') as file:
+            file.write('// changed\n')
+        problem, = self.tool.problems(self.root)
+        self.assertIn('its version did not', problem)
+        self.assertIn('already recorded', self.tool.update(self.root))
+        self.bump('9.0.0')
+        self.assertIn('9.0.0 of the service is not recorded', self.tool.problems(self.root)[0])
+        self.assertIsNone(self.tool.update(self.root))
+        self.assertEqual(self.tool.problems(self.root), [])
+        self.assertEqual([entry[0] for entry in self.tool.recorded(self.root)], ['1.0.0', '9.0.0'])
+        # Back to the old files under the old version is a version recorded twice.
+        record = self.root / 'rust/service/inputs.txt'
+        with open(record, 'a', encoding='utf-8', newline='') as file:
+            file.write(' '.join(self.tool.recorded(self.root)[0]) + '\n')
+        self.assertIn('more than once', self.tool.problems(self.root)[0])
+
+    def test_shared_inputs_count_and_build_output_line_ends_and_docs_do_not(self):
+        before = self.tool.digest(self.root)
+        main = self.root / 'rust/service/src/main.rs'
+        main.write_bytes(main.read_bytes().replace(b'\r\n', b'\n').replace(b'\n', b'\r\n'))
+        for name in ('rust/service/target/release/butterpollo-service.exe', 'rust/service/README.md',
+                     'rust/service/inputs.txt'):
+            (self.root / name).parent.mkdir(parents=True, exist_ok=True)
+            (self.root / name).write_text('x', encoding='utf-8')
+        self.assertEqual(self.tool.digest(self.root), before)
+        with open(self.root / 'rust/assets/version_info.rs', 'a', encoding='utf-8') as file:
+            file.write('// changed\n')
+        self.assertNotEqual(self.tool.digest(self.root), before)
+
+    def test_every_file_the_service_compiles_counts(self):
+        # A core file the service includes with #[path] is the service's code.
+        inputs = set(self.tool.files(ROOT))
+        sources = (ROOT / 'rust/service/src').glob('*.rs')
+        included = [(source.parent / path).resolve().relative_to(ROOT).as_posix()
+                    for source in sources
+                    for path in re.findall(r'#\[path = "([^"]+)"\]', source.read_text(encoding='utf-8'))]
+        self.assertIn('rust/core/src/update_recovery.rs', included)
+        self.assertLessEqual(set(included), inputs)
+        with open(self.root / 'rust/core/src/update_recovery.rs', 'a', encoding='utf-8') as file:
+            before = self.tool.digest(self.root)
+            file.write('// changed\n')
+        self.assertNotEqual(self.tool.digest(self.root), before)
+
+    def test_the_release_build_and_the_rule_name_the_same_files(self):
+        # rust/build.ps1 builds the service with its own script, and the
+        # release README states the rule.
+        build = (ROOT / 'rust/build.ps1').read_text(encoding='utf-8')
+        self.assertIn(r"rust\service\build.ps1", build)
+        readme = (ROOT / 'rust/release/README.md').read_text(encoding='utf-8')
+        self.assertIn('service_inputs.py --update', readme)
+
+
 class Signing(unittest.TestCase):
     """The workflow, rust/release/sign-artifacts.ps1 and .signpath/ agree."""
 
@@ -372,6 +456,7 @@ class Signing(unittest.TestCase):
             with self.subTest(slug=slug):
                 self.assertIn(slug, self.configurations)
                 self.assertIn('version: ${{ toJSON(env.RELEASE_VERSION) }}', step)
+                self.assertEqual('service_version: ${{ toJSON(env.SERVICE_VERSION) }}' in step, slug == 'binaries')
                 self.assertIn('wait-for-completion: true', step)
                 # Long enough for an approver to answer the e-mail.
                 timeout = int(re.search(r'wait-for-completion-timeout-in-seconds: (\d+)', step)[1])
@@ -387,7 +472,19 @@ class Signing(unittest.TestCase):
                 for element in root.iter():
                     if element.tag in (f'{NS}pe-file', f'{NS}pe-file-set'):
                         self.assertEqual(element.get('product-name'), 'Rubylight')
-                        self.assertEqual(element.get('product-version'), '${version}')
+                        # The service alone carries its own version (rust/service).
+                        includes = [include.get('path') for include in element.iter(f'{NS}include')]
+                        service = includes == ['butterpollo-service.exe']
+                        self.assertEqual(element.get('product-version'),
+                                         '${service_version}' if service else '${version}', includes)
+        parameter = self.configurations['binaries'].find(f'{NS}parameters/{NS}parameter[@name="service_version"]')
+        self.assertEqual(parameter.get('required'), 'true')
+        # sign-artifacts.ps1 checks the service against its own version, the
+        # one the workflow passes.
+        script = (ROOT / 'rust/release/sign-artifacts.ps1').read_text(encoding='utf-8')
+        self.assertIn("'butterpollo-service.exe') { $serviceVersion } else { $Version }", script)
+        self.assertIn(r"Join-Path $PSScriptRoot '..\service\Cargo.toml'", script)
+        self.assertIn(r"rust\service\Cargo.toml -Pattern '^version", self.workflow)
 
     def test_binaries_configuration_lists_the_staged_binaries(self):
         script = (ROOT / 'rust/release/sign-artifacts.ps1').read_text(encoding='utf-8')
@@ -429,10 +526,12 @@ class Signing(unittest.TestCase):
         # The service sets the driver up again only when it is missing
         # (--repair-drivers), never after a settings edit: an unattended
         # uninstall after one broke measurements on the development PC.
-        service = (ROOT / 'rust/windows/src/service.rs').read_text(encoding='utf-8')
+        service = (ROOT / 'rust/service/src/supervisor.rs').read_text(encoding='utf-8')
         self.assertIn(r'"drivers\\rubylight-display\\install-local.ps1"', service)
         self.assertNotIn('--rubylight-display', service)
         self.assertNotIn('virtual_display_driver', service)
+        # Its presence check runs as a host task (rust/host/src/service_tasks.rs).
+        self.assertNotIn('virtual_display_driver', (ROOT / 'rust/host/src/service_tasks.rs').read_text(encoding='utf-8'))
         signing = (ROOT / 'rust/release/sign-artifacts.ps1').read_text(encoding='utf-8')
         self.assertIn(r"$distribution 'drivers\rubylight-display'", signing)
         workflow = (ROOT / '.github/workflows/rust-windows.yml').read_text(encoding='utf-8')

@@ -27,6 +27,7 @@ mod radeon_session;
 mod remote_display;
 mod rtsp_server;
 mod runtime;
+mod service_tasks;
 mod session_control;
 mod session_notes;
 #[cfg(any(debug_assertions, test))]
@@ -149,6 +150,13 @@ struct Args {
     /// uninstaller runs it). Needs administrator rights.
     #[arg(long, hide = true)]
     child_session_restore: bool,
+    /// The Windows service's tasks (service_tasks.rs): put back what a
+    /// Nucleus Co-op session left at the console, check the virtual display
+    /// driver.
+    #[arg(long, hide = true, requires = "config_dir")]
+    restore_nucleus_at_console: bool,
+    #[arg(long, hide = true)]
+    virtual_display_installed: bool,
 }
 fn main() -> Result<()> {
     butterpollo_windows::capture::enable_dpi_awareness();
@@ -173,6 +181,12 @@ fn main() -> Result<()> {
     }
     if args.child_session_restore {
         std::process::exit(child_session::restore_exit_code());
+    }
+    if let (true, Some(profile)) = (args.restore_nucleus_at_console, &args.config_dir) {
+        std::process::exit(service_tasks::restore_nucleus_exit_code(profile));
+    }
+    if args.virtual_display_installed {
+        std::process::exit(service_tasks::virtual_display_installed_exit_code());
     }
     if let Some(paths) = &args.playnite_install {
         std::process::exit(playnite::helper_exit_code(&playnite::install_worker(

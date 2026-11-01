@@ -14,13 +14,9 @@ fn main() {
     println!("cargo:rerun-if-changed=../assets/version_info.rs");
     let path = icon.display().to_string().replace('\\', "/");
     let icon = format!("1 ICON \"{path}\"\n");
+    // The service is a crate of its own, rust/service.
     for (bin, file, description) in [
         ("butterpollo", "butterpollo.exe", "Rubylight host"),
-        (
-            "butterpollo-service",
-            "butterpollo-service.exe",
-            "Rubylight service",
-        ),
         // rust/build.ps1 packages it under this name.
         (
             "butterpollo-start",

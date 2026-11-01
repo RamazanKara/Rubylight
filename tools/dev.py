@@ -12,6 +12,8 @@ checks (see plan()):
 - client/protocol crates, and their dependants, to `cargo test` in Nightjar's
   workspace, plus the interop tests once tests/interop exists;
 - client/app sources to the Gradle unit tests of the touched classes;
+- rust/service, the Windows service's own workspace, to its fmt, clippy and
+  tests (and the release suites, which check its version rule);
 - rust/web to the web console checks;
 - rust/release scripts to their unittest suites, tools/ to its own.
 
@@ -25,10 +27,16 @@ RL_QUICK = pathlib.Path(r'C:\src\rl-quick.ps1')
 LOG_ROOT = pathlib.Path(r'C:\src\butterpollo-release\unified\dev-check')
 CLIENT_WORKSPACE = 'client/protocol'
 # Files that change how every host crate builds.
-HOST_WIDE = ('Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', 'clippy.toml', '.cargo/')
+HOST_WIDE = ('Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', 'clippy.toml', '.cargo/',
+             'rust/assets/version_info.rs')
+# The Windows service's workspace and what else goes into its executable
+# (rust/release/service_inputs.py).
+SERVICE_WORKSPACE = 'rust/service'
+SERVICE_INPUTS = ('rust/service/', 'rust/core/src/update_recovery.rs', 'rust/core/src/update_files.rs',
+                  'rust/assets/version_info.rs', 'rust/assets/butterpollo.ico', 'rust-toolchain.toml', '.cargo/')
 # The suites CI runs from rust/release.
 RELEASE_SUITES = ('test_release.py', 'test_gpu_hang.py', 'test_timing_report.py', 'test_cadence_matrix.py')
-RELEASE_INPUTS = ('rust/release/', 'tools/nightjar_notes.py', '.github/workflows/rust-windows.yml')
+RELEASE_INPUTS = ('rust/release/', 'tools/nightjar_notes.py', '.github/workflows/rust-windows.yml') + SERVICE_INPUTS
 GRADLE_WIDE = ('client/build.gradle', 'client/settings.gradle', 'client/gradle.properties', 'client/gradle/',
                'client/app/build.gradle', 'client/app/proguard-rules.pro', 'client/app/src/main/res/',
                'client/app/src/main/AndroidManifest.xml')
@@ -142,7 +150,7 @@ def plan(paths, root=ROOT):
     interop = root / 'tests/interop'
     interop_in_host = 'tests/interop' in host
 
-    host_dirs, client_dirs, client_all = set(), set(), False
+    host_dirs, client_dirs, client_all, service = set(), set(), False, False
     app_sources, gradle_all, web, release, tools, interop_hit, notes = [], False, False, set(), False, False, []
     for path in paths:
         hit = False
@@ -174,6 +182,9 @@ def plan(paths, root=ROOT):
             hit = True
         elif under(path, GRADLE_WIDE):
             gradle_all = True
+            hit = True
+        if under(path, SERVICE_INPUTS):
+            service = True
             hit = True
         if path.startswith('rust/web/'):
             web = True
@@ -210,6 +221,8 @@ def plan(paths, root=ROOT):
             checks.append(Check('interop', 'interop', ['tests/interop']))
         else:
             checks.append(Check('interop', 'interop', skip='tests/interop does not exist yet'))
+    if service:
+        checks.append(Check('service', 'service', ['butterpollo-service']))
     if gradle_all:
         checks.append(Check('app', 'gradle', []))
     elif app_sources:
@@ -321,6 +334,18 @@ def execute(check, root, log, target):
         args = [a for spec in client_specs(root, check.items) for a in ('-p', spec)]
         env = client_env(f'{target}-client')
         return run(['cargo', 'test', '-j', '4', *args], log, root / CLIENT_WORKSPACE, env) == 0
+    if check.kind == 'service':
+        # Its own workspace, in a folder of this worktree's target dir; without a
+        # developer's linker flags, as its release build (rust/service/build.ps1).
+        env = client_env(pathlib.Path(target) / 'service')
+        for name in ('RUSTFLAGS', 'CARGO_TARGET_X86_64_PC_WINDOWS_GNU_RUSTFLAGS'):
+            env.pop(name, None)
+        manifest = ['--manifest-path', str(root / SERVICE_WORKSPACE / 'Cargo.toml')]
+        return all([run(command, log, root, env) == 0 for command in (
+            ['cargo', 'fmt', *manifest, '--', '--check'],
+            ['cargo', 'clippy', '-j', '4', '--all-targets', '--locked', *manifest, '--', '-D', 'warnings'],
+            ['cargo', 'test', '-j', '4', '--locked', *manifest],
+        )])
     if check.kind == 'interop':
         env = client_env(f'{target}-client')
         return run(['cargo', 'test', '-j', '4', '--manifest-path', str(root / 'tests/interop/Cargo.toml')],

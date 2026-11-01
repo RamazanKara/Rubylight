@@ -37,12 +37,16 @@ function Assert-Signed([string]$Path) {
         throw "Missing valid timestamped Authenticode signature: $Path ($($signature.Status))"
     }
 }
+# The service carries its own version, so that its file stays the same from
+# release to release (rust/service); binaries.xml signs it under that version.
+$serviceVersion = (Select-String -LiteralPath (Join-Path $PSScriptRoot '..\service\Cargo.toml') -Pattern '^version = "(.+)"').Matches[0].Groups[1].Value
 function Assert-Metadata([string]$Path) {
     # SignPath signs only files whose version information names the project
     # and the release: the restrictions in .signpath/*.xml.
+    $expected = if ((Split-Path -Leaf $Path) -eq 'butterpollo-service.exe') { $serviceVersion } else { $Version }
     $info = (Get-Item -LiteralPath $Path).VersionInfo
-    if ($info.ProductName -ne 'Rubylight' -or $info.ProductVersion -ne $Version) {
-        throw "$Path has product '$($info.ProductName)' version '$($info.ProductVersion)', not Rubylight $Version"
+    if ($info.ProductName -ne 'Rubylight' -or $info.ProductVersion -ne $expected) {
+        throw "$Path has product '$($info.ProductName)' version '$($info.ProductVersion)', not Rubylight $expected"
     }
 }
 function Get-KitTool([string]$Name, [string]$Architecture) {

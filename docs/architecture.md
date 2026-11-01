@@ -17,6 +17,7 @@ The Windows host, the Moonlight protocol implementation, native helpers, the ser
 | [Core](../rust/core) | Pairing, encryption, RTSP/SDP, error correction, input parsing, permissions, configuration and durable state, and the encoder, pacing and display policies the host applies. Builds and is tested on any OS. |
 | [Windows integration](../rust/windows) | Capture, colour conversion, native encoders, audio, input, displays, frame limiting and Windows service integration. |
 | [Host](../rust/host) | HTTP/TLS, Moonlight endpoints, the console API, control and media transport, scheduling and session lifecycle. |
+| [Service](../rust/service) | The Windows service: starts and supervises the host in the console session. A workspace of its own with its own version, so its executable stays the same file across releases. |
 | [Setup](../rust/setup) | Installation, upgrades and package recovery. |
 | [Web console](../rust/web) | Devices, games, settings, stream statistics, logs and maintenance. |
 | [Vulkan layer](../rust/vulkan-layer) | Native HDR integration for Vulkan games. |

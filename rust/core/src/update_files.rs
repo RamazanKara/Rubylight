@@ -1,4 +1,6 @@
 //! Publish complete package files without truncating the installed version.
+//! The service (rust/service) compiles this file itself: a change here needs a
+//! new service version (rust/release/README.md).
 use anyhow::{Context, Result};
 use std::{fs::File, path::Path};
 

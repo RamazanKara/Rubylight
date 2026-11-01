@@ -129,10 +129,16 @@ try {
     # dependency's whole workspace), which keeps its own formatting.
     & cargo $toolchain fmt -- --check
     Assert-NativeExit 'Rust formatting'
+    # The service is a workspace of its own (rust/service).
+    $serviceManifest = Join-Path $repo 'rust\service\Cargo.toml'
+    & cargo $toolchain fmt --manifest-path $serviceManifest -- --check
+    Assert-NativeExit 'Service formatting'
     if ($runTests) {
         & (Join-Path $repo 'rust\drivers\usbip\test_usbip.ps1')
         & cargo $toolchain test --workspace --locked
         Assert-NativeExit 'Rust tests'
+        & cargo $toolchain test --manifest-path $serviceManifest --locked
+        Assert-NativeExit 'Service tests'
         # The ignored FFmpeg AC3 and ANNOUNCE tests. --workspace like the run
         # above reuses its build: -p would unify features differently and
         # rebuild the workspace crates. The encode-cost benchmark also needs
@@ -143,6 +149,8 @@ try {
     if ($runLint) {
         & cargo $toolchain clippy --workspace --all-targets --locked -- -D warnings
         Assert-NativeExit 'Rust lint'
+        & cargo $toolchain clippy --manifest-path $serviceManifest --all-targets --locked -- -D warnings
+        Assert-NativeExit 'Service lint'
     }
     if (!$runBuild) { return }
     $buildArgs = @('build', '--workspace', '--locked')
@@ -151,6 +159,11 @@ try {
     & cargo $toolchain @buildArgs
     Assert-NativeExit 'Rust host build'
     $output = Join-Path $TargetDirectory $profile
+    # The service's own script makes the same file from the same inputs, in a
+    # clean environment and its own target folder, debug packages included.
+    & (Get-Process -Id $PID).Path -NoProfile -ExecutionPolicy Bypass -File (Join-Path $repo 'rust\service\build.ps1') -TargetDirectory (Join-Path $TargetDirectory 'service')
+    Assert-NativeExit 'Service build'
+    Copy-Item -LiteralPath (Join-Path $TargetDirectory 'service\release\butterpollo-service.exe') -Destination $output
     $runtimeDlls = @('libopus-0.dll','libpyrowave-shared-1.dll') + $ffmpegDlls
     Copy-Item -LiteralPath (Join-Path "$MsysRoot\ucrt64\bin" 'libopus-0.dll') -Destination $output
     Copy-Item -LiteralPath (Join-Path $PyrowaveRoot 'bin\libpyrowave-shared-1.dll') -Destination $output
@@ -257,7 +270,13 @@ try {
         Copy-Item -LiteralPath (Join-Path $repo 'rust\drivers\usbip\LICENSE.txt') -Destination "$distribution\licenses\usbip-win2.txt"
         $metadata = & cargo $toolchain metadata --format-version 1 --locked
         Assert-NativeExit 'Dependency manifest'
-        ($metadata | ConvertFrom-Json).packages | Select-Object name, version, license, repository, source | ConvertTo-Json | Set-Content -LiteralPath "$distribution\licenses\rust-dependencies.json" -Encoding utf8
+        $serviceMetadata = & cargo $toolchain metadata --format-version 1 --locked --manifest-path $serviceManifest
+        Assert-NativeExit 'Service dependency manifest'
+        $packages = @(($metadata | ConvertFrom-Json).packages)
+        $known = @{}
+        foreach ($package in $packages) { $known["$($package.name) $($package.version)"] = $true }
+        $packages += @(($serviceMetadata | ConvertFrom-Json).packages | Where-Object { !$known["$($_.name) $($_.version)"] })
+        $packages | Select-Object name, version, license, repository, source | ConvertTo-Json | Set-Content -LiteralPath "$distribution\licenses\rust-dependencies.json" -Encoding utf8
         $version = (Select-String -LiteralPath (Join-Path $repo 'Cargo.toml') -Pattern '^version = "(.+)"').Matches[0].Groups[1].Value
         & (Join-Path $repo 'rust\release\package.ps1') -Distribution $distribution -TargetDirectory $TargetDirectory `
             -Stub (Join-Path $output 'butterpollo-setup.exe') -Version $version -ProfileName $profile

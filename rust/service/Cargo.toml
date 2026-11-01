@@ -1,0 +1,61 @@
+# Rubylight's Windows service, ApolloService. A workspace of its own with its
+# own lock file and version, outside the host's: its executable stays the same,
+# byte for byte, from release to release until this folder (or the core files
+# it compiles, see src/main.rs) changes, so the reputation Windows and
+# antivirus programs give its file hash carries over. Bump the version with
+# every change here (rust/release/README.md, "The service executable");
+# rust/release/service_inputs.py checks it.
+[package]
+name = "butterpollo-service"
+version = "1.0.0"
+edition = "2024"
+rust-version = "1.88"
+license = "GPL-3.0-only"
+repository = "https://github.com/RamazanKara/Rubylight"
+publish = false
+
+[[bin]]
+name = "butterpollo-service"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1.0"
+serde_json = "1.0"
+tracing = "0.1"
+tracing-appender = "0.2"
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "std"] }
+windows-service = "=0.8.1"
+windows = { version = "0.62.2", features = [
+ "Win32_Foundation", "Win32_Security", "Win32_System_Environment", "Win32_System_JobObjects",
+ "Win32_System_RemoteDesktop", "Win32_System_Threading"
+] }
+
+[build-dependencies]
+embed-resource = "3.0.12"
+
+[dev-dependencies]
+tempfile = "3.23"
+
+[workspace]
+
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+
+[lints.clippy]
+dbg_macro = "warn"
+todo = "warn"
+unimplemented = "warn"
+
+# As the host's release profile, but with every symbol stripped: symbol names
+# carry the hashes of crate versions, which would change the file.
+[profile.release]
+lto = "thin"
+codegen-units = 1
+panic = "abort"
+strip = "symbols"
+
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false

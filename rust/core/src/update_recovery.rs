@@ -1,7 +1,8 @@
 //! Rolling back an in-place update that power loss or a crash interrupted,
 //! when the service starts. Setup (rust/setup/src/update.rs) writes the
 //! backup and the record read here, and rolls back the same way when it
-//! starts; keep the two in step.
+//! starts; keep the two in step. The service (rust/service) compiles this file
+//! itself: a change here needs a new service version (rust/release/README.md).
 use crate::state;
 use anyhow::{Context, Result, bail};
 use serde_json::{Value, json};

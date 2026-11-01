@@ -347,6 +347,8 @@ jobs:
           if (!$env:SIGNPATH_TOKEN -or !$env:ORGANIZATION -or !$env:POLICY) { throw 'Incomplete SignPath configuration; refusing an unsigned fallback' }
           $version = (Select-String -LiteralPath Cargo.toml -Pattern '^version = "(.+)"').Matches[0].Groups[1].Value
           "RELEASE_VERSION=$version" >> $env:GITHUB_ENV
+          $service = (Select-String -LiteralPath rust\service\Cargo.toml -Pattern '^version = "(.+)"').Matches[0].Groups[1].Value
+          "SERVICE_VERSION=$service" >> $env:GITHUB_ENV
           .\rust\release\sign-artifacts.ps1 -Phase StageBinaries -TargetDirectory "$env:RUNNER_TEMP\butterpollo-rust-target" -SigningDirectory "$env:RUNNER_TEMP\unsigned-binaries" -Version $version
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         if: env.SIGNPATH_ENABLED == 'true'
@@ -368,6 +370,7 @@ jobs:
           github-artifact-id: ${{ steps.unsigned-binaries.outputs.artifact-id }}
           parameters: |
             version: ${{ toJSON(env.RELEASE_VERSION) }}
+            service_version: ${{ toJSON(env.SERVICE_VERSION) }}
           wait-for-completion: true
           wait-for-completion-timeout-in-seconds: 3600
           output-artifact-directory: ${{ runner.temp }}/signed-binaries

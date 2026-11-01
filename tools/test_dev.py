@@ -100,6 +100,21 @@ class Plan(unittest.TestCase):
         planned, _ = checks('tools/nightjar_notes.py')
         self.assertEqual(set(planned), {'tools-py', 'release-py'})
 
+    def test_the_service_has_its_own_check_and_its_version_rule(self):
+        planned, _ = checks('rust/service/src/supervisor.rs')
+        self.assertEqual(set(planned), {'service', 'release-py'})
+        self.assertIn('test_release.py', planned['release-py'].items)
+        # The version resource script goes into every executable, the service's too.
+        planned, _ = checks('rust/assets/version_info.rs')
+        self.assertEqual(set(planned), {'host', 'service', 'release-py'})
+        self.assertIn('butterpollo-setup', planned['host'].items)
+        planned, _ = checks('rust-toolchain.toml')
+        self.assertIn('service', planned)
+        # It compiles core's update recovery itself.
+        planned, _ = checks('rust/core/src/update_recovery.rs')
+        self.assertIn('service', planned)
+        self.assertIn('butterpollo-core', planned['host'].items)
+
     def test_docs_map_to_nothing(self):
         planned, unchecked = checks('docs/architecture.md', 'rust/core/README.md', 'client/notes.d/x.md',
                                     'client/site/index.html')

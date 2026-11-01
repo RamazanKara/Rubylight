@@ -645,9 +645,6 @@ fn environment(token: Option<&OwnedHandle>) -> Result<BTreeMap<String, String>> 
     }
 }
 impl Process {
-    pub(crate) fn handle(&self) -> HANDLE {
-        raw(&self.handle)
-    }
     /// Whether Windows gave this process administrator rights: its token,
     /// which is not always what its [`Target`] asked for (an administrator
     /// with User Account Control off has only their full token).

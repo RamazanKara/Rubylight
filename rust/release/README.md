@@ -22,6 +22,18 @@ The tag's run (or the published run) of [`rust-windows.yml`](../../.github/workf
 
 Tag a commit whose main run is green and the release is out in about a minute. A failed run can be re-run from the Actions page. To release again after a fix, bump to the next version.
 
+## The service executable
+
+`butterpollo-service.exe` is the same file, byte for byte, from release to release while its own sources stay the same, so the reputation Windows and antivirus programs give its hash carries over. It is a workspace of its own in [`rust/service`](../service) with its own version (`bump.py` leaves it alone), built by [`rust/service/build.ps1`](../service/build.ps1): the toolchain's own MinGW linker, no link timestamp, stripped, Cargo's home remapped and a clean environment. The service runs what changes with the host as `butterpollo.exe` tasks (the Nucleus Co-op restore and the display driver check; see `rust/host/src/service_tasks.rs`). It rolls back an interrupted update itself, compiling core's `update_recovery.rs` and `update_files.rs`, since the host may be the half-updated file.
+
+The rule: a change to anything in `rust/service`, those two core files, `rust/assets/version_info.rs`, the icon, `rust-toolchain.toml` or `.cargo/config.toml` comes with a new version in `rust/service/Cargo.toml`, recorded with
+
+```sh
+python rust/release/service_inputs.py --update
+```
+
+`test_release.py` fails while `rust/service/inputs.txt` doesn't end with the current version and files. The binaries signing request signs the service under its own version (`service_version`). A signature makes the signed file differ per release; only an unsigned release keeps the same bytes.
+
 ## Host check
 
 The only part GitHub's runners cannot do needs the Radeon release workstation, with the installed host idle:

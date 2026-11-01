@@ -7,18 +7,27 @@
 
   The SignPath Foundation requires every signed file to name the project and
   the release: ProductName "Rubylight" and ProductVersion equal to the
-  "version" parameter the workflow passes (Cargo.toml's version).
+  "version" parameter the workflow passes (Cargo.toml's version). The
+  service is the exception: it carries its own version, the "service_version"
+  parameter (rust/service/Cargo.toml's version), so that its file stays the
+  same from release to release.
   Third-party files in the package keep their own signatures and are never
   sent here.
 -->
 <artifact-configuration xmlns="http://signpath.io/artifact-configuration/v1">
   <parameters>
     <parameter name="version" required="true" />
+    <parameter name="service_version" required="true" />
   </parameters>
   <zip-file>
+    <pe-file-set product-name="Rubylight" product-version="${service_version}">
+      <include path="butterpollo-service.exe" />
+      <for-each>
+        <authenticode-sign />
+      </for-each>
+    </pe-file-set>
     <pe-file-set product-name="Rubylight" product-version="${version}">
       <include path="butterpollo.exe" />
-      <include path="butterpollo-service.exe" />
       <include path="Start Rubylight.exe" />
       <include path="butterpollo-setup.exe" />
       <include path="butterpollo-performance.exe" />

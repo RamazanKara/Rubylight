@@ -23,7 +23,7 @@ pub const MARKER: &str = "// Rubylight one-player handler";
 pub const OWNER: &str = "// Written for ";
 /// Bumped when the template changes; a handler with another version is
 /// rewritten.
-const VERSION: u32 = 2;
+const VERSION: u32 = 3;
 
 /// Whether a handler's text is one Rubylight wrote.
 pub fn owns(text: &str) -> bool {
@@ -72,6 +72,9 @@ pub struct Setup {
     pub arguments: String,
     /// How Nucleus Co-op injects ProtoInput's input hooks into the game.
     pub inject: Inject,
+    /// The stream's size, which an Unreal game started in a window renders
+    /// at ([`Setup::windowed_arguments`]); None when no stream asked.
+    pub size: Option<(u32, u32)>,
 }
 
 /// What Nucleus Co-op 2.4.2 says in a message box when ProtoInput's hooks
@@ -146,6 +149,7 @@ impl Setup {
             anti_cheat: None,
             arguments: String::new(),
             inject: Inject::Runtime,
+            size: None,
         }
     }
 
@@ -175,22 +179,40 @@ impl Setup {
     /// nearest its window, the PC's, however often it is parked beside the
     /// desktop; in a window it stays parked (#56). The switch overrides the
     /// game's saved mode for this start only. Arguments that already choose
-    /// a mode stay as they are.
+    /// a mode stay as they are. In a window it renders at the stream's
+    /// [`Setup::size`] (`-ResX`, `-ResY`), not at its saved resolution,
+    /// which showed a 16:9 picture on a 20:9 phone (#56), unless the
+    /// arguments choose a resolution.
     pub fn windowed_arguments(&self) -> String {
         let arguments = self.arguments.trim();
-        let chosen = arguments.split_whitespace().any(|word| {
-            let word = word.to_ascii_lowercase();
-            ["-windowed", "-fullscreen", "-borderless"]
+        let words: Vec<String> = arguments
+            .split_whitespace()
+            .map(str::to_ascii_lowercase)
+            .collect();
+        let has = |flags: &[&str]| {
+            words
                 .iter()
-                .any(|flag| word.starts_with(flag))
-        });
-        if unreal_root(parent(&self.exe_path)).is_none() || chosen {
-            arguments.to_string()
-        } else if arguments.is_empty() {
-            "-windowed".to_string()
-        } else {
-            format!("{arguments} -windowed")
+                .any(|word| flags.iter().any(|flag| word.starts_with(flag)))
+        };
+        if unreal_root(parent(&self.exe_path)).is_none() || has(&["-fullscreen", "-borderless"]) {
+            return arguments.to_string();
         }
+        let mut started = arguments.to_string();
+        let mut add = |word: &str| {
+            if !started.is_empty() {
+                started.push(' ');
+            }
+            started.push_str(word);
+        };
+        if !has(&["-windowed"]) {
+            add("-windowed");
+        }
+        if let Some((width, height)) = self.size
+            && !has(&["-resx", "-resy"])
+        {
+            add(&format!("-ResX={width} -ResY={height}"));
+        }
+        started
     }
 
     /// The handler's file name in Nucleus' `handlers` folder.
@@ -264,12 +286,15 @@ impl Setup {
             "Game.ProtoInput.GetCursorPosHook = true;",
             "Game.ProtoInput.SetCursorPosHook = true;",
             "Game.ProtoInput.ClipCursorHook = true;",
-            "// Even in front, the game's window messages carry no key, click, wheel or cursor position from the PC's keyboard and mouse (#56); raw input still reaches a game in front.",
+            "// Even in front, the game's window messages carry no key, click, wheel or cursor position from the PC's keyboard and mouse (#56).",
             "Game.ProtoInput.MessageFilterHook = true;",
             "Game.ProtoInput.KeyboardButtonFilter = true;",
             "Game.ProtoInput.MouseButtonFilter = true;",
             "Game.ProtoInput.MouseWheelFilter = true;",
             "Game.ProtoInput.MouseMoveFilter = true;",
+            "// Nor its raw input, which DirectInput reads too (NieR:Automata, #56): ProtoInput takes the game's raw input and passes on only the slot's keyboard and mouse, and a pad's slot has none.",
+            "Game.ProtoInput.RegisterRawInputHook = true;",
+            "Game.ProtoInput.GetRawInputDataHook = true;",
         ];
         let unhooked = [
             "// The game refused ProtoInput's input hooks every way Nucleus Co-op injects them, so none are injected: Nucleus Co-op only tells it it has focus, and a keyboard, mouse or pad on the PC can reach it too.",
@@ -874,10 +899,11 @@ mod tests {
         let hooked = steam_game();
         assert_eq!(hooked.inject, Inject::Runtime);
         let runtime = hooked.handler_of(owner);
-        // The first way's text, whole: v2 filters the PC's keyboard and
-        // mouse messages too (#56), so the handlers v1 wrote are rewritten.
-        let runtime_v2 = [
-            "// Rubylight one-player handler v2: Rubylight writes this file for background streams and rewrites it when it changes. A hub handler for this game takes its place.",
+        // The first way's text, whole: v2 filtered the PC's keyboard and
+        // mouse messages too (#56), v3 their raw input (NieR:Automata), so
+        // the handlers earlier versions wrote are rewritten.
+        let runtime_v3 = [
+            "// Rubylight one-player handler v3: Rubylight writes this file for background streams and rewrites it when it changes. A hub handler for this game takes its place.",
             "// Written for S-1-5-21-1-2-3-1001",
             format!("Game.GUID = \"{}\";", hooked.guid()).as_str(),
             "Game.GameName = \"Assassin's Creed \\\"IV\\\"\";",
@@ -902,16 +928,19 @@ mod tests {
             "Game.ProtoInput.GetCursorPosHook = true;",
             "Game.ProtoInput.SetCursorPosHook = true;",
             "Game.ProtoInput.ClipCursorHook = true;",
-            "// Even in front, the game's window messages carry no key, click, wheel or cursor position from the PC's keyboard and mouse (#56); raw input still reaches a game in front.",
+            "// Even in front, the game's window messages carry no key, click, wheel or cursor position from the PC's keyboard and mouse (#56).",
             "Game.ProtoInput.MessageFilterHook = true;",
             "Game.ProtoInput.KeyboardButtonFilter = true;",
             "Game.ProtoInput.MouseButtonFilter = true;",
             "Game.ProtoInput.MouseWheelFilter = true;",
             "Game.ProtoInput.MouseMoveFilter = true;",
+            "// Nor its raw input, which DirectInput reads too (NieR:Automata, #56): ProtoInput takes the game's raw input and passes on only the slot's keyboard and mouse, and a pad's slot has none.",
+            "Game.ProtoInput.RegisterRawInputHook = true;",
+            "Game.ProtoInput.GetRawInputDataHook = true;",
         ]
         .join("\r\n")
             + "\r\n";
-        assert_eq!(runtime, runtime_v2);
+        assert_eq!(runtime, runtime_v3);
         let hook_lines = |text: &str| {
             text.lines()
                 .filter(|l| l.starts_with("Game.ProtoInput.") && l.contains("Hook"))
@@ -1066,9 +1095,30 @@ mod tests {
             unreal("-windowed -ResX=1280").windowed_arguments(),
             "-windowed -ResX=1280"
         );
+        // #56: in its window it renders at the stream's size, the phone's
+        // 20:9, not at its saved 16:9; a resolution the arguments choose stays.
+        let streamed = |arguments: &str| Setup {
+            size: Some((2400, 1080)),
+            ..unreal(arguments)
+        };
+        assert_eq!(
+            streamed("").windowed_arguments(),
+            "-windowed -ResX=2400 -ResY=1080"
+        );
+        assert_eq!(
+            streamed("-dx12 -windowed").windowed_arguments(),
+            "-dx12 -windowed -ResX=2400 -ResY=1080"
+        );
+        assert_eq!(
+            streamed("-ResY=720").windowed_arguments(),
+            "-ResY=720 -windowed"
+        );
+        // Never in fullscreen, which would change the PC monitor's mode.
+        assert_eq!(streamed("-fullscreen").windowed_arguments(), "-fullscreen");
         // Any other game keeps its own arguments: no switch is known for it.
         let portal = Setup {
             arguments: " -game portal ".into(),
+            size: Some((2400, 1080)),
             ..Setup::new(r"D:\Steam\steamapps\common\Portal\hl2.exe", "Portal", None)
         };
         assert_eq!(portal.windowed_arguments(), "-game portal");

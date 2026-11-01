@@ -1031,6 +1031,8 @@ fn a_one_player_game_without_a_hub_handler_streams_in_the_background_with_ours()
     assert_eq!(own[0].name, "Ice");
     // The game starts with the app's arguments.
     assert_eq!(own[0].arguments, "-windowed");
+    // At the stream's size, which an Unreal game renders at (#56).
+    assert_eq!(own[0].size, Some((1280, 720)));
     // One player, our handler's game, listed under the app.
     let listed = registry.sessions();
     assert_eq!(listed[0].session.kind, Kind::Background);

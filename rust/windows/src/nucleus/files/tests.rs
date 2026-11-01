@@ -198,9 +198,10 @@ fn rubylights_handler_is_written_and_its_game_added_beside_the_users() {
 #[test]
 fn an_unreal_games_handler_starts_it_in_a_window() {
     let nucleus = tempfile::tempdir().unwrap();
-    let arguments = |exe: &str| {
+    let sized = |exe: &str, size: Option<(u32, u32)>| {
         let setup = Setup {
             arguments: "-x".into(),
+            size,
             ..Setup::new(exe, "Game", None)
         };
         write_own(nucleus.path(), &setup).unwrap();
@@ -211,12 +212,16 @@ fn an_unreal_games_handler_starts_it_in_a_window() {
             .unwrap_or_default()
             .to_string()
     };
-    assert_eq!(
-        arguments(r"D:\Games\Game\Game\Binaries\Win64\Game-Win64-Shipping.exe"),
-        r#""-x -windowed";"#
-    );
+    let arguments = |exe: &str| sized(exe, None);
+    let unreal = r"D:\Games\Game\Game\Binaries\Win64\Game-Win64-Shipping.exe";
+    assert_eq!(arguments(unreal), r#""-x -windowed";"#);
     // Any other game starts as it would.
     assert_eq!(arguments(r"D:\Games\Other\Other.exe"), r#""-x";"#);
+    // At the stream's size: the phone's 20:9, not the game's saved 16:9.
+    assert_eq!(
+        sized(unreal, Some((2400, 1080))),
+        r#""-x -windowed -ResX=2400 -ResY=1080";"#
+    );
 }
 
 /// #59: a game that refused the way ProtoInput's hooks were injected

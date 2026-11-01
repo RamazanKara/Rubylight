@@ -1,3 +1,0 @@
-# Service file
-- **The service file stays the same while the service version is unchanged.** `butterpollo-service.exe` now has its own version and changes only with it, so after an update antivirus programs see a file they already know instead of a new one. The service starts and watches the host, watches the display driver and rolls back interrupted updates as before. It asks the host about the driver only when the device appears, before a repair, or again later when a check failed, and the Nucleus Co-op restore runs as the host starts and as you sign in. The checks it starts end with the service, so none of them holds Rubylight's files during an update.
-- Every Rubylight executable now names its company, copyright and original file name in its file properties.

@@ -10,8 +10,6 @@ import android.net.Uri;
 import android.os.Build;
 import android.widget.Toast;
 
-import androidx.core.content.FileProvider;
-
 import com.limelight.BuildConfig;
 import com.limelight.LimeLog;
 import com.limelight.R;
@@ -85,13 +83,31 @@ public final class ProblemReport {
                 .setType("text/plain").putExtra(Intent.EXTRA_STREAM, report);
     }
 
+    /** The reports provider's root for the report (res/xml/report_paths.xml): cache-path "reports/" named so. */
+    static final String REPORT_ROOT = "reports";
+    static final String REPORT_NAME = "nightjar-problem.txt";
+
+    private static File reportFile(Context context) {
+        return new File(new File(context.getCacheDir(), REPORT_ROOT), REPORT_NAME);
+    }
+
+    /**
+     * The report's content URI, the one file of the reports provider that Send to PC may send: what
+     * FileProvider.getUriForFile gives for {@link #reportFile} (root name, then the file's path under the root),
+     * built here because FileProvider cannot place a Windows path under its root in unit tests.
+     */
+    public static Uri reportUri() {
+        return new Uri.Builder().scheme("content").authority(BuildConfig.APPLICATION_ID + ".reports")
+                .appendPath(REPORT_ROOT).appendPath(REPORT_NAME).build();
+    }
+
     /** Writes the report to the reports provider's folder and returns its content URI. */
     private static Uri write(Activity activity) throws IOException {
-        File directory = new File(activity.getCacheDir(), "reports");
+        File report = reportFile(activity);
+        File directory = report.getParentFile();
         if (!directory.isDirectory() && !directory.mkdirs()) {
             throw new IOException("Cannot create report directory");
         }
-        File report = new File(directory, "nightjar-problem.txt");
         String text = BuildConfig.BRAND_NAME + " " + BuildConfig.VERSION_NAME + " / Android API " + Build.VERSION.SDK_INT
                 + "\nRedacted event log for this app process, oldest first (up to 200 entries)."
                 + "\nAddresses, user-assigned device/host names, PINs, credentials and free-text diagnostic details are omitted.\n\n"
@@ -102,6 +118,6 @@ public final class ProblemReport {
         try (FileOutputStream output = new FileOutputStream(report)) {
             output.write(text.getBytes(StandardCharsets.UTF_8));
         }
-        return FileProvider.getUriForFile(activity, BuildConfig.APPLICATION_ID + ".reports", report);
+        return reportUri();
     }
 }

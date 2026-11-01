@@ -38,6 +38,10 @@ struct Driver {
     reject_initialize: Option<ApiVersion>,
     reject_output: bool,
     reject_reconfigure: bool,
+    /// Reconfigures without a reset are refused.
+    reject_in_place: bool,
+    /// Unregistering an input fails and keeps it registered.
+    reject_unregister: bool,
     reject_invalidate: Option<u64>,
     reject_submit: bool,
     asynchronous: bool,
@@ -340,6 +344,9 @@ unsafe extern "C" fn register(
     SUCCESS
 }
 unsafe extern "C" fn unregister(_: *mut c_void, resource: NV_ENC_REGISTERED_PTR) -> NVENCSTATUS {
+    if state(|d| d.reject_unregister) {
+        return _NVENCSTATUS_NV_ENC_ERR_GENERIC;
+    }
     state(|d| {
         assert!(!d.mapped.contains(&(resource as usize)));
         assert!(d.resources.remove(&(resource as usize)).is_some());
@@ -643,7 +650,7 @@ unsafe extern "C" fn reconfigure(
     let config = unsafe { *p.reInitEncodeParams.encodeConfig };
     state(|d| {
         d.reconfigured = Some((p, config));
-        if d.reject_reconfigure {
+        if d.reject_reconfigure || (d.reject_in_place && p.resetEncoder() == 0) {
             _NVENCSTATUS_NV_ENC_ERR_INVALID_PARAM
         } else {
             SUCCESS
@@ -850,6 +857,12 @@ fn an_open_past_the_session_limit_is_named_and_no_other_api_is_tried() {
             "{message}"
         );
         assert!(message.contains("OBS, ShadowPlay or Discord"), "{message}");
+        // Out of memory may also be the GPU's memory.
+        assert_eq!(
+            message.contains("GPU memory exhausted"),
+            status == _NVENCSTATUS_NV_ENC_ERR_OUT_OF_MEMORY,
+            "{message}"
+        );
         state(|d| assert_eq!(d.opened, vec![ApiVersion(13, 0)]));
         assert_clean();
     }
@@ -1943,6 +1956,73 @@ fn a_frame_cap_and_bitrate_changes_apply_with_frames_in_flight() -> Result<()> {
     state(|d| assert_eq!(d.reconfigured.take().unwrap().0.resetEncoder(), 0));
     assert!(!encoder.force_idr);
     assert_eq!(encoder.poll()?.len(), 1);
+    drop(encoder);
+    assert_clean();
+    Ok(())
+}
+#[test]
+fn a_bitrate_change_refused_in_place_applies_with_a_reset() -> Result<()> {
+    reset();
+    state(|d| d.reject_in_place = true);
+    let mut encoder = session(&Negotiated::default(), ApiVersion(13, 0))?;
+    encoder.bitrate(40000)?;
+    assert_eq!(encoder.config.rcParams.averageBitRate, 40_000_000);
+    assert_eq!(encoder.stream.bitrate_kbps, 40000);
+    state(|d| {
+        let (parameters, _) = d.reconfigured.take().unwrap();
+        assert_eq!((parameters.resetEncoder(), parameters.forceIDR()), (1, 1));
+    });
+    assert!(encoder.force_idr);
+    let slot = input(&mut encoder, 17)?;
+    encoder.submit(slot, None, false, Instant::now())?;
+    assert!(encoder.poll()?[0].idr);
+    drop(encoder);
+    assert_clean();
+    Ok(())
+}
+#[test]
+fn the_focus_probe_refuses_a_session_a_stream_has_set_up() -> Result<()> {
+    reset();
+    let mut encoder = session(&Negotiated::default(), ApiVersion(13, 0))?;
+    encoder.startup_only()?;
+    let refused = |encoder: &Session| {
+        let error = encoder.startup_only().unwrap_err().to_string();
+        assert!(error.contains("startup check"), "{error}");
+    };
+    encoder.cut_limit = Some(4);
+    refused(&encoder);
+    encoder.cut_limit = None;
+    encoder.set_frame_cap(1000)?;
+    refused(&encoder);
+    encoder.frame_cap_target = None;
+    encoder.slices_joined = true;
+    refused(&encoder);
+    encoder.slices_joined = false;
+    encoder.qp_map = true;
+    refused(&encoder);
+    drop(encoder);
+    assert_clean();
+    Ok(())
+}
+#[test]
+fn inputs_the_driver_keeps_do_not_use_up_the_registration_limit() -> Result<()> {
+    reset();
+    state(|d| {
+        d.reject_output = true;
+        d.reject_unregister = true;
+    });
+    let mut encoder = session(&Negotiated::default(), ApiVersion(13, 0))?;
+    for key in 0..2 * MAX_PENDING {
+        let error = input(&mut encoder, 100 + key).unwrap_err();
+        assert!(!format!("{error:#}").contains("limit"), "{error:#}");
+    }
+    assert!(encoder.slots.iter().all(|slot| slot.input.key == 0));
+    state(|d| d.reject_output = false);
+    let slot = input(&mut encoder, 17)?;
+    encoder.submit(slot, None, true, Instant::now())?;
+    assert!(encoder.poll()?[0].idr);
+    // Session destruction releases them once the driver lets go.
+    state(|d| d.reject_unregister = false);
     drop(encoder);
     assert_clean();
     Ok(())

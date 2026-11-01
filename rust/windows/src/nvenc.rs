@@ -135,11 +135,19 @@ impl std::error::Error for DriverError {}
 /// sessions open at once and answer `NV_ENC_ERR_OUT_OF_MEMORY` or
 /// `NV_ENC_ERR_INCOMPATIBLE_CLIENT_KEY` past the cap. Another driver API,
 /// another device or a driver update does not help.
+/// `NV_ENC_ERR_OUT_OF_MEMORY` also means the GPU's memory is exhausted,
+/// so `memory` names both.
 #[derive(Debug)]
-pub struct SessionLimit;
+pub struct SessionLimit {
+    pub memory: bool,
+}
 impl std::fmt::Display for SessionLimit {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("NVENC session limit reached (another app such as OBS, ShadowPlay or Discord holds the encoder sessions)")
+        if self.memory {
+            f.write_str("NVENC session limit reached or GPU memory exhausted (another app such as OBS, ShadowPlay or Discord may hold the encoder sessions, or a game the GPU's memory)")
+        } else {
+            f.write_str("NVENC session limit reached (another app such as OBS, ShadowPlay or Discord holds the encoder sessions)")
+        }
     }
 }
 /// `error` comes from the driver's session limit ([`SessionLimit`]).
@@ -591,6 +599,18 @@ impl Session {
     fn set_hdr_metadata(&mut self, metadata: butterpollo_core::hdr::Metadata) {
         self.metadata.update(metadata, self.stream.codec);
     }
+    /// Refuse a session a stream has set up ([`Encoder::probe_focus`]
+    /// reopens it without that).
+    fn startup_only(&self) -> Result<()> {
+        anyhow::ensure!(
+            self.frame_cap_target.is_none()
+                && self.cut_limit.is_none()
+                && !self.slices_joined
+                && !self.qp_map,
+            "the NVENC focus probe runs only on the startup check's encoder, before a stream sets it up"
+        );
+        Ok(())
+    }
     /// Open a session on `device`. With `fence` the device is an
     /// `ID3D12Device`: inputs and outputs are D3D12 resources, each picture
     /// waits for its conversion's fence and signals `fence` when written.
@@ -729,7 +749,9 @@ impl Session {
                 _NVENCSTATUS_NV_ENC_ERR_OUT_OF_MEMORY
                     | _NVENCSTATUS_NV_ENC_ERR_INCOMPATIBLE_CLIENT_KEY
             ) {
-                error.context(SessionLimit)
+                error.context(SessionLimit {
+                    memory: status == _NVENCSTATUS_NV_ENC_ERR_OUT_OF_MEMORY,
+                })
             } else {
                 error
             }
@@ -1276,7 +1298,9 @@ impl Session {
         Ok(())
     }
     fn slot(&mut self, input: Input) -> Result<usize> {
-        if self.slots.len() >= MAX_PENDING {
+        // Slots the driver would not release (key 0) wait for the session's
+        // destruction and do not count.
+        if self.slots.iter().filter(|slot| slot.input.key != 0).count() >= MAX_PENDING {
             bail!("NVENC input registration limit reached");
         }
         if self.d3d12.is_some() != input.d3d12.is_some() {
@@ -1303,7 +1327,8 @@ impl Session {
             let mut slot = self.slots.pop().unwrap();
             if let Err(cleanup) = cleanup_slot(&self.functions, self.raw, self.api, &mut slot) {
                 // The driver still holds part of it: Session::drop releases
-                // that, and no input finds the slot by its key.
+                // that, no input finds the slot by its key and it does not
+                // count against the registration limit.
                 tracing::warn!(error = %cleanup, "NVENC input cleanup deferred to session destruction");
                 slot.input.key = 0;
                 self.slots.push(slot);
@@ -2094,7 +2119,15 @@ impl Session {
         // a new rate in place, either way, as AMF does; any other needs a
         // reset and a keyframe.
         let reset = !self.dynamic_bitrate;
-        self.reconfigure(after, vbv, reset, "change bitrate")?;
+        if let Err(error) = self.reconfigure(after, vbv, reset, "change bitrate") {
+            if reset {
+                return Err(error);
+            }
+            // Refused in place, the same change may still apply with a reset;
+            // otherwise every later frame would fail on it.
+            tracing::warn!(error = %format!("{error:#}"), bitrate, "NVENC refused a bitrate change in place; resetting the encoder with a keyframe");
+            self.reconfigure(after, vbv, true, "change bitrate with a reset")?;
+        }
         self.vbv_ceiling = ceiling;
         // The next frame cap is measured against the new ceiling.
         self.cap_requested = None;
@@ -2997,6 +3030,11 @@ impl Encoder {
     /// it, and the stream session opens again after. An encoder failure is
     /// an error; a driver that ignores the map, or returns no statistics, is
     /// `Unsupported`.
+    ///
+    /// Only for the startup check's encoder (`state.rs`): the session that
+    /// opens again keeps the HDR metadata, but not what a stream sets on it
+    /// (frame cap, scene-cut limit, joined slices, the delta map), so an
+    /// encoder with any of those is refused.
     pub fn probe_focus(&mut self) -> Result<crate::amf::focus::Probe> {
         use crate::amf::focus::Probe;
         if self.config.chroma_packing != 0 {
@@ -3014,7 +3052,9 @@ impl Encoder {
         let mut tuning = self.tuning.clone();
         tuning.qp_map = true;
         tuning.block_stats = true;
+        self.session.startup_only()?;
         let stream = self.session.stream.clone();
+        let metadata = std::mem::take(&mut self.session.metadata);
         let last_submitted = self.last_submitted.take();
         self.session.close();
         let probed = self.probe_session(&stream, &tuning);
@@ -3023,6 +3063,7 @@ impl Encoder {
         self.session = self
             .open_session(&stream, &tuning)
             .context("NVENC could not open the stream session again after the focus probe")?;
+        self.session.metadata = metadata;
         // The new session's first picture is a keyframe the stream asks for.
         self.session.force_idr = true;
         self.last_submitted = last_submitted;

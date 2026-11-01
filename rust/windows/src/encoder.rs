@@ -673,7 +673,7 @@ mod tests {
             "{:#}",
             nvenc_failed(
                 anyhow::anyhow!("NVENC open session failed (10)")
-                    .context(crate::nvenc::SessionLimit),
+                    .context(crate::nvenc::SessionLimit { memory: false }),
                 "NVIDIA GeForce RTX 4070",
             )
         );

@@ -2838,6 +2838,9 @@ fn polish_screenshots() {
         shoot(&mut f, "game-running");
         f.l.go(Screen::Game { host: pc, app: 1002 });
         shoot(&mut f, "game");
+        // Frost Peak, which the PC has not installed: no Play.
+        f.l.go(Screen::Game { host: pc, app: 1015 });
+        shoot(&mut f, "game-not-installed");
         f.l.go(Screen::Hosts);
         shoot(&mut f, "pcs");
         f.l.go(Screen::Apps(pc));
@@ -2882,6 +2885,28 @@ fn polish_screenshots() {
         f.waking = Some("Office PC".into());
         shoot(&mut f, "waking");
         f.waking = None;
+        // Home's rows in one column, drawn alone as `at_one_column_a_long_row_is_its_all_tile`
+        // does (the top bar keeps the window wider): a row too long to fit is its All tile.
+        if only.is_empty() || only.split(',').any(|o| "home-one-column".starts_with(o)) {
+            let column = vec2(200.0, height);
+            let mut shapes = Vec::new();
+            for _ in 0..6 {
+                f.time += 0.05;
+                let mut input = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, column)), time: Some(f.time), focused: true, ..Default::default() };
+                input.viewports.entry(egui::ViewportId::ROOT).or_default().native_pixels_per_point = Some(f.native_ppp);
+                let mut commands = Vec::new();
+                let output = f.ctx.run_ui(input, |ui| {
+                    let view = View { hosts: &f.hosts, pads: &f.pads, connecting: None, waking: None };
+                    egui::CentralPanel::default().show(ui, |ui| f.l.home(ui, &view, &mut commands, egui::TextureId::default()));
+                });
+                f.textures.append(output.textures_delta);
+                shapes = output.shapes;
+            }
+            let (window, page) = (f.size, std::mem::replace(&mut f.shapes, shapes));
+            f.size = column;
+            f.shoot(&dir, &format!("home-one-column-{size}"));
+            (f.size, f.shapes) = (window, page);
+        }
         // All games of a PC whose library is empty: no chips, and the page says why. A chip exists
         // only for games it shows, so no filter is ever empty on its own.
         let mut f = fresh(vec![HostRecord { address: "192.0.2.10".into(), ..record("Living Room PC", true, true) }], true);

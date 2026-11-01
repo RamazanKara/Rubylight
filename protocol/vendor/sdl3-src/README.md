@@ -2,8 +2,9 @@
 
 The Linux desktop client builds SDL from source (sdl3-sys `build-from-source-static`). This
 crate replaces the crates.io `sdl3-src` 3.4.18 there (`[patch.crates-io]` in
-`protocol/Cargo.toml`) so that PyroWave GPU decoding can share the renderer's Vulkan device
-instead of reading every frame back to the CPU. SDL 3.4.18 has no way to share it: SDL_GPU
+`protocol/Cargo.toml`) so that PyroWave GPU decoding and FFmpeg's Vulkan video decoding can
+share the renderer's Vulkan device instead of reading every frame back to the CPU. SDL 3.4.18
+has no way to share it: SDL_GPU
 neither exposes its Vulkan handles nor takes external images, and upstream `main` has nothing
 either (libsdl-org/SDL issue 10876; pull request 14157 adds no Vulkan path).
 
@@ -13,9 +14,11 @@ either (libsdl-org/SDL issue 10876; pull request 14157 adds no Vulkan path).
   DLL and never builds this.
 - `patches/vulkan-interop.patch` (Vulkan backend only) adds device properties with the
   `VkInstance`, `VkPhysicalDevice`, `VkDevice`, the queue, its family and the mutex SDL holds
-  around it, and `SDL_PROP_GPU_TEXTURE_CREATE_VULKAN_IMAGE_NUMBER`, which wraps an image the app
-  owns in an `SDL_GPUTexture` (never cycled, moved, transitioned or freed by SDL). The comments it
-  adds to `SDL_gpu.h` are the contract.
+  around it, `SDL_PROP_GPU_DEVICE_CREATE_VULKAN_VIDEO_DECODE_QUEUES_BOOLEAN`, which gives the
+  device one extra queue in each video decode family for the app (SDL never uses them; a device
+  property names their families), and `SDL_PROP_GPU_TEXTURE_CREATE_VULKAN_IMAGE_NUMBER`, which
+  wraps an image the app owns in an `SDL_GPUTexture` (never cycled, moved, transitioned or freed
+  by SDL). The comments it adds to `SDL_gpu.h` are the contract.
 - `build.rs` copies the submodule into the build directory and applies the patch there; a hunk
   that does not match fails the build, and so does a patch that would change nothing (no
   `+++ b/` file, a file without hunks). Its tests: see the top of `build.rs`.

@@ -1,6 +1,6 @@
 --- a/include/SDL3/SDL_gpu.h
 +++ b/include/SDL3/SDL_gpu.h
-@@ -2594,6 +2594,27 @@
+@@ -2594,6 +2594,35 @@
  #define SDL_PROP_GPU_DEVICE_DRIVER_VERSION_STRING     "SDL.gpu.device.driver_version"
  #define SDL_PROP_GPU_DEVICE_DRIVER_INFO_STRING        "SDL.gpu.device.driver_info"
  
@@ -14,9 +14,15 @@
 + * - `SDL_PROP_GPU_DEVICE_VULKAN_QUEUE_FAMILY_INDEX_NUMBER`: its family.
 + * - `SDL_PROP_GPU_DEVICE_VULKAN_QUEUE_LOCK_POINTER`: the SDL_Mutex SDL holds
 + *   around every use of that queue; lock it around your own submissions.
++ * - `SDL_PROP_GPU_DEVICE_VULKAN_VIDEO_DECODE_QUEUE_FAMILIES_NUMBER`: bit i
++ *   set when the device has one more queue (index 0) in family i, a video
++ *   decode family, that SDL itself never uses.
 + *
-+ * The device was created with the API version and features of the
-+ * SDL_GPUVulkanOptions it was given.
++ * The device was created with the API version, features and extensions of
++ * the SDL_GPUVulkanOptions it was given. With
++ * `SDL_PROP_GPU_DEVICE_CREATE_VULKAN_VIDEO_DECODE_QUEUES_BOOLEAN` true at
++ * creation, it also gets those queues: one in each family other than SDL's
++ * whose flags include VK_QUEUE_VIDEO_DECODE_BIT_KHR.
 + */
 +#define SDL_PROP_GPU_DEVICE_VULKAN_INSTANCE_POINTER            "SDL.gpu.device.vulkan.instance"
 +#define SDL_PROP_GPU_DEVICE_VULKAN_PHYSICAL_DEVICE_POINTER     "SDL.gpu.device.vulkan.physical_device"
@@ -24,11 +30,13 @@
 +#define SDL_PROP_GPU_DEVICE_VULKAN_QUEUE_POINTER               "SDL.gpu.device.vulkan.queue"
 +#define SDL_PROP_GPU_DEVICE_VULKAN_QUEUE_FAMILY_INDEX_NUMBER   "SDL.gpu.device.vulkan.queue_family_index"
 +#define SDL_PROP_GPU_DEVICE_VULKAN_QUEUE_LOCK_POINTER          "SDL.gpu.device.vulkan.queue_lock"
++#define SDL_PROP_GPU_DEVICE_VULKAN_VIDEO_DECODE_QUEUE_FAMILIES_NUMBER "SDL.gpu.device.vulkan.video_decode_queue_families"
++#define SDL_PROP_GPU_DEVICE_CREATE_VULKAN_VIDEO_DECODE_QUEUES_BOOLEAN "SDL.gpu.device.create.vulkan.video_decode_queues"
 +
  
  /* State Creation */
  
-@@ -2851,6 +2872,18 @@
+@@ -2851,6 +2880,18 @@
  #define SDL_PROP_GPU_TEXTURE_CREATE_D3D12_CLEAR_STENCIL_NUMBER  "SDL.gpu.texture.create.d3d12.clear.stencil"
  #define SDL_PROP_GPU_TEXTURE_CREATE_NAME_STRING                 "SDL.gpu.texture.create.name"
  
@@ -57,7 +65,23 @@
      SDL_AtomicInt referenceCount;
  };
  
-@@ -3154,7 +3155,7 @@
+@@ -1105,6 +1106,7 @@
+     VkPhysicalDeviceVulkan13Features desiredVulkan13DeviceFeatures;
+ 
+     bool usesCustomVulkanOptions;
++    bool videoDecodeQueues; // Nightjar patch: SDL_PROP_GPU_DEVICE_CREATE_VULKAN_VIDEO_DECODE_QUEUES_BOOLEAN
+ 
+     Uint32 additionalDeviceExtensionCount;
+     const char **additionalDeviceExtensionNames;
+@@ -1150,6 +1152,7 @@
+ 
+     Uint32 queueFamilyIndex;
+     VkQueue unifiedQueue;
++    Uint32 videoDecodeQueueFamilies; // Nightjar patch: families with one extra queue for the app
+ 
+     VulkanCommandBuffer **submittedCommandBuffers;
+     Uint32 submittedCommandBufferCount;
+@@ -3154,7 +3157,7 @@
              NULL);
      }
  
@@ -66,7 +90,7 @@
          renderer->vkDestroyImage(
              renderer->logicalDevice,
              texture->image,
-@@ -5808,6 +5809,20 @@
+@@ -5808,6 +5811,20 @@
      imageCreateInfo.pQueueFamilyIndices = NULL;
      imageCreateInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
  
@@ -87,7 +111,7 @@
      vulkanResult = renderer->vkCreateImage(
          renderer->logicalDevice,
          &imageCreateInfo,
-@@ -5835,6 +5850,7 @@
+@@ -5835,6 +5852,7 @@
      }
  
      texture->usedRegion->vulkanTexture = texture; // lol
@@ -95,7 +119,7 @@
  
      if (createinfo->usage & (SDL_GPU_TEXTUREUSAGE_SAMPLER | SDL_GPU_TEXTUREUSAGE_GRAPHICS_STORAGE_READ | SDL_GPU_TEXTUREUSAGE_COMPUTE_STORAGE_READ)) {
  
-@@ -6952,7 +6968,7 @@
+@@ -6952,7 +6970,7 @@
          SDL_CopyProperties(createinfo->props, container->header.info.props);
      }
  
@@ -104,7 +128,7 @@
      container->activeTexture = texture;
      container->textureCapacity = 1;
      container->textureCount = 1;
-@@ -6971,7 +6987,8 @@
+@@ -6971,7 +6989,8 @@
      // Let's transition to the default barrier state, because for some reason Vulkan doesn't let us do that with initialLayout.
      // Only do this after "container" is set, so the texture
      // is fully initialized before any Submit that could trigger defrag.
@@ -114,7 +138,54 @@
          VulkanCommandBuffer *barrierCommandBuffer = (VulkanCommandBuffer *)VULKAN_AcquireCommandBuffer((SDL_GPURenderer *)renderer);
          VULKAN_INTERNAL_TextureTransitionToDefaultUsage(
              renderer,
-@@ -12948,6 +12965,14 @@
+@@ -11896,6 +11915,7 @@
+ 
+ static void VULKAN_INTERNAL_AddOptInVulkanOptions(SDL_PropertiesID props, VulkanRenderer *renderer, VulkanFeatures *features)
+ {
++    features->videoDecodeQueues = SDL_GetBooleanProperty(props, SDL_PROP_GPU_DEVICE_CREATE_VULKAN_VIDEO_DECODE_QUEUES_BOOLEAN, false);
+     if (SDL_HasProperty(props, SDL_PROP_GPU_DEVICE_CREATE_VULKAN_OPTIONS_POINTER)) {
+         SDL_GPUVulkanOptions *options = (SDL_GPUVulkanOptions *)SDL_GetPointerProperty(props, SDL_PROP_GPU_DEVICE_CREATE_VULKAN_OPTIONS_POINTER, NULL);
+         if (options) {
+@@ -12500,6 +12520,8 @@
+ 
+     VkDeviceQueueCreateInfo queueCreateInfo;
+     float queuePriority = 1.0f;
++    VkDeviceQueueCreateInfo queueCreateInfos[32]; // Nightjar patch: SDL's queue and the decode queues
++    Uint32 queueCreateInfoCount = 1;
+ 
+     queueCreateInfo.sType =
+         VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+@@ -12553,8 +12575,27 @@
+         deviceCreateInfo.pNext = NULL;
+     }
+     deviceCreateInfo.flags = 0;
+-    deviceCreateInfo.queueCreateInfoCount = 1;
+-    deviceCreateInfo.pQueueCreateInfos = &queueCreateInfo;
++    // Nightjar patch: one more queue in each video decode family for the app (SDL_gpu.h).
++    queueCreateInfos[0] = queueCreateInfo;
++    renderer->videoDecodeQueueFamilies = 0;
++    if (features->videoDecodeQueues) {
++        Uint32 familyCount = 0;
++        VkQueueFamilyProperties *families;
++        renderer->vkGetPhysicalDeviceQueueFamilyProperties(renderer->physicalDevice, &familyCount, NULL);
++        families = SDL_stack_alloc(VkQueueFamilyProperties, familyCount);
++        renderer->vkGetPhysicalDeviceQueueFamilyProperties(renderer->physicalDevice, &familyCount, families);
++        for (i = 0; i < familyCount && i < 32; i += 1) {
++            if (i != renderer->queueFamilyIndex && (families[i].queueFlags & VK_QUEUE_VIDEO_DECODE_BIT_KHR)) {
++                queueCreateInfos[queueCreateInfoCount] = queueCreateInfo;
++                queueCreateInfos[queueCreateInfoCount].queueFamilyIndex = i;
++                queueCreateInfoCount += 1;
++                renderer->videoDecodeQueueFamilies |= 1u << i;
++            }
++        }
++        SDL_stack_free(families);
++    }
++    deviceCreateInfo.queueCreateInfoCount = queueCreateInfoCount;
++    deviceCreateInfo.pQueueCreateInfos = queueCreateInfos;
+     deviceCreateInfo.enabledLayerCount = 0;
+     deviceCreateInfo.ppEnabledLayerNames = NULL;
+ 
+@@ -12948,6 +12989,15 @@
      renderer->descriptorSetLayoutFetchLock = SDL_CreateMutex();
      renderer->windowLock = SDL_CreateMutex();
  
@@ -125,6 +196,7 @@
 +    SDL_SetPointerProperty(renderer->props, SDL_PROP_GPU_DEVICE_VULKAN_QUEUE_POINTER, (void *)renderer->unifiedQueue);
 +    SDL_SetNumberProperty(renderer->props, SDL_PROP_GPU_DEVICE_VULKAN_QUEUE_FAMILY_INDEX_NUMBER, renderer->queueFamilyIndex);
 +    SDL_SetPointerProperty(renderer->props, SDL_PROP_GPU_DEVICE_VULKAN_QUEUE_LOCK_POINTER, renderer->submitLock);
++    SDL_SetNumberProperty(renderer->props, SDL_PROP_GPU_DEVICE_VULKAN_VIDEO_DECODE_QUEUE_FAMILIES_NUMBER, renderer->videoDecodeQueueFamilies);
 +
      /*
       * Create submitted command buffer list

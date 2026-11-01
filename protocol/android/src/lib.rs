@@ -123,6 +123,7 @@ pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_startConnectio
     audio_passthrough: jint,
     hdr_format: jint,
     video_fec_percentage: jint,
+    pyrowave_early: jboolean,
 ) -> jint {
     let Some(bridge) = bridge::get() else {
         platform::error("RustBridge.startConnection before init");
@@ -175,7 +176,7 @@ pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_startConnectio
         network_priority: network_priority == JNI_TRUE,
         roaming: extras::roaming_config(roaming == JNI_TRUE, roaming_metered == JNI_TRUE),
     };
-    engine::start(bridge, engine::StartParams { host, config })
+    engine::start(bridge, engine::StartParams { host, config, early_records: pyrowave_early == JNI_TRUE })
 }
 
 #[no_mangle]

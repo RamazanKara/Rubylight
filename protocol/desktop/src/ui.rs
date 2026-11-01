@@ -791,12 +791,15 @@ impl Launcher {
         ui.horizontal(|ui| {
             ui.set_min_height(40.0);
             // Back names where it leads when that is a destination's page.
-            let to = match self.screen {
-                Screen::Apps(_) if self.trail.last().is_none_or(|(s, _)| *s == Screen::Hosts) => en("PCs"),
-                Screen::Profiles | Screen::Controllers | Screen::Shortcuts => en("Settings"),
-                _ => en("Back"),
+            let (to, said) = match self.screen {
+                Screen::Apps(_) if self.trail.last().is_none_or(|(s, _)| *s == Screen::Hosts) => (en("PCs"), en("Back to PCs")),
+                Screen::Profiles | Screen::Controllers | Screen::Shortcuts => (en("Settings"), en("Back to Settings")),
+                _ => (en("Back"), en("Back")),
             };
-            if button(ui, Some(Icon::Back), tr(to), Tone::Plain, Size { pad: 12.0, ..Size::HEADER }).clicked() {
+            let back = button(ui, Some(Icon::Back), tr(to), Tone::Plain, Size { pad: 12.0, ..Size::HEADER });
+            // A screen reader tells it from the destination of the same name in the row above.
+            back.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, tr(said)));
+            if back.clicked() {
                 self.back(commands);
             }
             if !title.is_empty() {
@@ -828,6 +831,8 @@ impl Launcher {
     fn destination(&mut self, ui: &mut Ui, name: &str, screen: Screen, marked: bool, commands: &mut Vec<Command>) {
         let tone = if marked { Tone::Current } else { Tone::Plain };
         let response = button(ui, Some(destination_icon(screen)), tr(name), tone, Size { height: 36.0, pad: 14.0, ..Size::HEADER });
+        // The marked one reads as selected, as the chosen filter chip does.
+        response.widget_info(|| egui::WidgetInfo::selected(egui::Role::Button, true, marked, tr(name)));
         if response.clicked() && self.screen != screen {
             if let Some(save) = self.screen.save_command() {
                 commands.push(save);

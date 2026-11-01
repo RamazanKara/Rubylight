@@ -268,15 +268,24 @@ impl Launcher {
                 };
                 shelf(ui, name, Some(row.games.len()));
                 let (shown, more) = if whole { (row.games.len(), false) } else { row.fit(columns) };
-                for line in row.games[..shown].chunks(columns) {
+                // What a screen reader says for the tile: whose games it opens, and how many.
+                let said = match &row.kind {
+                    console::RowKind::Store { name, .. } => trf("All {} games, {}", &[name, &row.games.len()]),
+                    console::RowKind::Other => trf("All other apps, {}", &[&row.games.len()]),
+                    console::RowKind::Library => trf("All games, {}", &[&row.games.len()]),
+                };
+                let games = &row.games[..shown];
+                // At one column no cover fits beside the tile: the tile is the row.
+                let lines: Vec<&[&console::Entry]> = if games.is_empty() && more { vec![games] } else { games.chunks(columns).collect() };
+                for line in lines {
                     ui.horizontal(|ui| {
                         ui.spacing_mut().item_spacing.x = POSTER_GAP;
                         for entry in line {
                             self.library_cover(ui, view, entry, cover_w, std::mem::take(&mut first), commands);
                         }
                         if more && line.len() < columns {
-                            let tile = all_tile(ui, row.games.len(), cover_w);
-                            self.focus_item(&tile, &format!("all:{}", row.key()), false);
+                            let tile = all_tile(ui, row.games.len(), &said, cover_w);
+                            self.focus_item(&tile, &format!("all:{}", row.key()), std::mem::take(&mut first));
                             if tile.clicked() {
                                 self.library_filter = row.filter.clone();
                                 self.open(Screen::AllGames);

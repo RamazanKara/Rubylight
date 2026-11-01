@@ -11,9 +11,9 @@ pub const ROI_MIN_DELTA: f32 = 2.0;
 /// AV1 feedback is q-index (0..=255), about four steps per QP.
 pub const Q_INDEX_SCALE: f32 = 4.0;
 /// Probe frames before the measured ones, the first an IDR, so rate control settles.
-const PROBE_WARMUP: u32 = 4;
+pub(crate) const PROBE_WARMUP: u32 = 4;
 /// Measured probe frames with the left half important, then as many with the right.
-const PROBE_FRAMES: u32 = 3;
+pub(crate) const PROBE_FRAMES: u32 = 3;
 /// Frames after a keyframe, a recovery picture or the encoder's first frame
 /// that carry no map. Any ROI map, even an all-zero one, lifts the
 /// latency-constrained rate control's limit on big frames from the frame it
@@ -172,7 +172,7 @@ pub(crate) fn importance_delta(qp: &Grid, importance: &Grid) -> Option<f32> {
 
 /// What one frame does with the newest finished map, given as `(value, uniform)`.
 #[derive(Clone, Copy, Debug, PartialEq)]
-enum Pick {
+pub(crate) enum Pick {
     /// A keyframe, recovery picture or first frame, or one of the
     /// [`SETTLE_FRAMES`] after them: no map.
     Skip,
@@ -220,19 +220,19 @@ struct Ask {
 /// The encoder's focus state.
 #[derive(Default)]
 pub(crate) struct State {
-    settings: Option<crate::compute::FocusSettings>,
+    pub(crate) settings: Option<crate::compute::FocusSettings>,
     /// The value of the last map a frame used.
-    last: u64,
+    pub(crate) last: u64,
     /// Frames since the last keyframe, recovery picture or first frame.
     settled: u32,
-    stats: Stats,
+    pub(crate) stats: Stats,
     /// Ask for QP feedback on one frame in this many that carry a map.
-    verify: Option<u32>,
-    since_verify: u32,
-    qp_sum: f64,
-    qp_count: u32,
+    pub(crate) verify: Option<u32>,
+    pub(crate) since_verify: u32,
+    pub(crate) qp_sum: f64,
+    pub(crate) qp_count: u32,
     /// The probe's map, attached instead of the converter's.
-    fixed: Option<Grid>,
+    pub(crate) fixed: Option<Grid>,
     /// The probe asks every frame for feedback.
     keep: bool,
     asked: VecDeque<Ask>,
@@ -240,7 +240,7 @@ pub(crate) struct State {
     /// none, or why it could not be read.
     answers: Vec<std::result::Result<Option<Grid>, String>>,
     /// Why a map failed on a frame, until the stream takes it.
-    failure: Option<anyhow::Error>,
+    pub(crate) failure: Option<anyhow::Error>,
 }
 impl State {
     /// One frame at submission. Counts it towards the settle window, with
@@ -248,7 +248,7 @@ impl State {
     /// waits. With focus on (`map` is `Some`, holding the newest finished map
     /// as `(value, uniform)` if there is one), picks what the frame does with
     /// that map, counts it and marks the map used.
-    fn frame(
+    pub(crate) fn frame(
         &mut self,
         idr: bool,
         recover: bool,
@@ -277,7 +277,7 @@ impl State {
     }
     /// A map failed on a frame: focus is off in this encoder, the frame goes
     /// without one, and the stream takes `error` to turn it off and say so.
-    fn fail(&mut self, error: anyhow::Error) {
+    pub(crate) fn fail(&mut self, error: anyhow::Error) {
         self.settings = None;
         self.failure = Some(error);
     }
@@ -453,7 +453,7 @@ pub struct Probe {
     pub feedback_grid: Option<(u32, u32)>,
 }
 impl Probe {
-    fn unsupported(reason: Reason, message: impl Into<String>) -> Self {
+    pub(crate) fn unsupported(reason: Reason, message: impl Into<String>) -> Self {
         Self {
             support: Support::Unsupported {
                 reason,
@@ -468,14 +468,17 @@ impl Probe {
 /// The map's effect and the picture's own difference from the mean
 /// right-minus-left differences with the left half important and with the
 /// right half important.
-fn effect(left_important: Option<f32>, right_important: Option<f32>) -> (Option<f32>, Option<f32>) {
+pub(crate) fn effect(
+    left_important: Option<f32>,
+    right_important: Option<f32>,
+) -> (Option<f32>, Option<f32>) {
     match (left_important, right_important) {
         (Some(left), Some(right)) => (Some((left - right) / 2.0), Some((left + right) / 2.0)),
         _ => (None, None),
     }
 }
 /// The probe's verdict from the map's measured effect.
-fn verdict(codec: u8, effect: Option<f32>) -> Support {
+pub(crate) fn verdict(codec: u8, effect: Option<f32>) -> Support {
     let (scale, unit) = if codec == 2 {
         (Q_INDEX_SCALE, "q-index")
     } else {
@@ -508,7 +511,12 @@ fn mix(mut value: u32) -> u32 {
 }
 /// A probe frame: 8x8 cells of hashed grey scrolling 3 pixels a frame, with
 /// fresh grain, so both halves code the same kind of residual every frame.
-fn probe_picture(device: &Device, width: u32, height: u32, frame: u32) -> Result<GpuImage> {
+pub(crate) fn probe_picture(
+    device: &Device,
+    width: u32,
+    height: u32,
+    frame: u32,
+) -> Result<GpuImage> {
     let mut bytes = vec![0u8; width as usize * height as usize * 4];
     for (y, row) in bytes.chunks_exact_mut(width as usize * 4).enumerate() {
         let y = y as u32;

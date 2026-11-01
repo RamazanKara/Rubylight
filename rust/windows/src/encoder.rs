@@ -539,21 +539,19 @@ impl Encoder {
         }
     }
 }
-// Encoder focus (docs/encoder-focus-design.md): AMF's ROI map. PyroWave and
-// NVENC have none: they refuse a map and report `Reason::Pyrowave` or
-// `Reason::Nvenc`.
+// Encoder focus (docs/encoder-focus-design.md): AMF's ROI map and NVENC's
+// QP delta map. PyroWave has none: it refuses a map and reports
+// `Reason::Pyrowave`.
 impl Encoder {
-    /// Why an encoder other than AMF has no map.
+    /// Why PyroWave has no map.
     fn no_focus(&self) -> encoder_focus::Reason {
-        match self {
-            Self::Nvenc(_) => encoder_focus::Reason::Nvenc,
-            _ => encoder_focus::Reason::Pyrowave,
-        }
+        encoder_focus::Reason::Pyrowave
     }
     /// The map's settings for the next frames, or `None` for no map.
     pub fn set_focus(&mut self, settings: Option<crate::compute::FocusSettings>) -> Result<()> {
         match self {
             Self::Amf(e) => e.set_focus(settings),
+            Self::Nvenc(e) => e.set_focus(settings),
             other if settings.is_some() => Err(anyhow::anyhow!(
                 "encoder focus: {}",
                 other.no_focus().message()
@@ -562,13 +560,16 @@ impl Encoder {
         }
     }
     pub fn set_focus_verify(&mut self, every: Option<u32>) {
-        if let Self::Amf(e) = self {
-            e.set_focus_verify(every);
+        match self {
+            Self::Amf(e) => e.set_focus_verify(every),
+            Self::Nvenc(e) => e.set_focus_verify(every),
+            Self::Pyrowave(_) => {}
         }
     }
     pub fn focus_stats(&self) -> std::result::Result<encoder_focus::Stats, encoder_focus::Reason> {
         match self {
             Self::Amf(e) => Ok(e.focus_stats()),
+            Self::Nvenc(e) => Ok(e.focus_stats()),
             other => Err(other.no_focus()),
         }
     }
@@ -577,13 +578,15 @@ impl Encoder {
     pub fn take_focus_failure(&mut self) -> Option<anyhow::Error> {
         match self {
             Self::Amf(e) => e.take_focus_failure(),
-            _ => None,
+            Self::Nvenc(e) => e.take_focus_failure(),
+            Self::Pyrowave(_) => None,
         }
     }
     /// The startup check (design section 7). An error is the encoder's.
     pub fn probe_focus(&mut self) -> Result<encoder_focus::Support> {
         match self {
             Self::Amf(e) => Ok(e.probe_focus()?.support),
+            Self::Nvenc(e) => Ok(e.probe_focus()?.support),
             other => Ok(encoder_focus::Support::Unsupported {
                 reason: other.no_focus(),
                 message: other.no_focus().message().into(),

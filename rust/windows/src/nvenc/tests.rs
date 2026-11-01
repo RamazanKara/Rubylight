@@ -16,6 +16,8 @@ struct Buffer {
     locked: bool,
     metadata: Option<(*const MASTERING_DISPLAY_INFO, u32)>,
     light: Option<(*const CONTENT_LIGHT_LEVEL, u16, u16)>,
+    /// The picture's QP delta map, which the block statistics reflect.
+    deltas: Option<Vec<i8>>,
 }
 #[derive(Default)]
 struct Driver {
@@ -69,6 +71,8 @@ struct Driver {
     hold_fence: bool,
     /// Each D3D12 picture's wait fence, wait value and signal value.
     fence_points: Vec<(usize, u64, u64)>,
+    /// Each picture's QP delta map.
+    maps: Vec<Option<Vec<i8>>>,
 }
 /// The D3D12 output fence, whose value the fake driver keeps.
 struct FakeFence;
@@ -468,6 +472,11 @@ unsafe extern "C" fn encode(raw: *mut c_void, parameters: *mut NV_ENC_PIC_PARAMS
         buffer.bytes.extend((8..d.picture).map(|i| i as u8));
         buffer.timestamp = p.inputTimeStamp;
         buffer.idr = p.encodePicFlags & _NV_ENC_PIC_FLAGS_NV_ENC_PIC_FLAG_FORCEIDR != 0;
+        buffer.deltas = (!p.qpDeltaMap.is_null()).then(|| {
+            // SAFETY: A non-null map holds `qpDeltaMapSize` bytes, live while the frame is pending.
+            unsafe { std::slice::from_raw_parts(p.qpDeltaMap, p.qpDeltaMapSize as usize) }.to_vec()
+        });
+        d.maps.push(buffer.deltas.clone());
         let pointer = if codec == 1 {
             // SAFETY: An HEVC session fills this union member; it holds only integers and pointers.
             unsafe { p.codecPicParams.hevcPicParams.pMasteringDisplay }
@@ -568,6 +577,24 @@ unsafe extern "C" fn lock(raw: *mut c_void, parameters: *mut NV_ENC_LOCK_BITSTRE
             p.numSlices = slices;
             p.hwEncodeStatus = 2;
         }
+        if !p.outputStatsPtr.is_null() {
+            // Each block's QP is 30 moved by the picture's delta map.
+            let size = std::mem::size_of::<NV_ENC_OUTPUT_STATS_BLOCK>();
+            let blocks = p.outputStatsPtrSize as usize / size;
+            for index in 0..blocks {
+                // SAFETY: The session passes a buffer of `outputStatsPtrSize` bytes.
+                let block = unsafe {
+                    &mut *p
+                        .outputStatsPtr
+                        .cast::<NV_ENC_OUTPUT_STATS_BLOCK>()
+                        .add(index)
+                };
+                // SAFETY: `raw` is a live handle that `open` boxed and `destroy` has not freed.
+                assert_eq!(block.version, unsafe { handle(raw) }.structure(1, false));
+                let delta = buffer.deltas.as_ref().map_or(0, |deltas| deltas[index]);
+                block.QP = (30 + i32::from(delta)) as u8;
+            }
+        }
         p.outputTimeStamp = buffer.timestamp;
         p.pictureType = if buffer.idr {
             _NV_ENC_PIC_TYPE_NV_ENC_PIC_TYPE_IDR
@@ -632,6 +659,15 @@ fn open_with(
     settings: &str,
     fence: Option<Rc<dyn Fence>>,
 ) -> Result<Session> {
+    let tuning = Tuning::new(&Config::parse(settings)?, config)?;
+    open_tuned(config, maximum, &tuning, fence)
+}
+fn open_tuned(
+    config: &Negotiated,
+    maximum: ApiVersion,
+    tuning: &Tuning,
+    fence: Option<Rc<dyn Fence>>,
+) -> Result<Session> {
     Session::open(
         Arc::new(Runtime {
             _library: None,
@@ -643,7 +679,7 @@ fn open_with(
         None,
         fence,
         config,
-        &Tuning::new(&Config::parse(settings)?, config)?,
+        tuning,
     )
 }
 /// A session on the D3D12 conversion's device.
@@ -1951,6 +1987,137 @@ fn a_d3d12_session_needs_api_12_and_has_no_slices_or_weighted_prediction() -> Re
     state(|d| assert_eq!(d.opened, [ApiVersion(12, 0)]));
     assert_clean();
     Ok(())
+}
+#[test]
+fn a_focus_map_rides_on_inter_frames_and_turns_on_without_a_reset() -> Result<()> {
+    reset();
+    let mut encoder = session(&Negotiated::default(), ApiVersion(13, 0))?;
+    // SAFETY: Initialization filled the rate control.
+    assert_eq!(
+        initialized().1.rcParams.qpMapMode,
+        _NV_ENC_QP_MAP_MODE_NV_ENC_QP_MAP_DISABLED
+    );
+    let slot = input(&mut encoder, 17)?;
+    // Without the delta map on, a map is not passed.
+    encoder.next_map = Some(vec![-3, 3]);
+    encoder.submit(slot, None, true, Instant::now())?;
+    encoder.poll()?;
+    encoder.enable_qp_map()?;
+    state(|d| {
+        let (parameters, config) = d.reconfigured.take().unwrap();
+        assert_eq!((parameters.resetEncoder(), parameters.forceIDR()), (0, 0));
+        assert_eq!(
+            config.rcParams.qpMapMode,
+            _NV_ENC_QP_MAP_MODE_NV_ENC_QP_MAP_DELTA
+        );
+    });
+    assert!(!encoder.force_idr);
+    encoder.enable_qp_map()?;
+    state(|d| assert!(d.reconfigured.is_none(), "turned on once"));
+    // A keyframe carries no map; an inter frame carries its own, once.
+    encoder.next_map = Some(vec![-3, 3]);
+    encoder.submit(slot, None, true, Instant::now())?;
+    encoder.poll()?;
+    encoder.next_map = Some(vec![-3, 3]);
+    encoder.submit(slot, None, false, Instant::now())?;
+    encoder.poll()?;
+    encoder.submit(slot, None, false, Instant::now())?;
+    encoder.poll()?;
+    state(|d| assert_eq!(d.maps, [None, None, Some(vec![-3, 3]), None]));
+    // A frame asked as an inter frame becomes a keyframe when the encoder
+    // must make one, and the keyframe drops the map.
+    encoder.force_idr = true;
+    assert!(encoder.keyframe(false));
+    encoder.next_map = Some(vec![-3, 3]);
+    encoder.submit(slot, None, false, Instant::now())?;
+    assert!(encoder.poll()?[0].idr);
+    state(|d| assert_eq!(d.maps.last(), Some(&None)));
+    drop(encoder);
+    assert_clean();
+    Ok(())
+}
+#[test]
+fn block_statistics_are_read_for_measured_frames_from_api_12_1() -> Result<()> {
+    reset();
+    let stream = Negotiated::default();
+    // API 12.0 has no output statistics.
+    let encoder = session_with(&stream, ApiVersion(12, 0), "encoder_focus_verify = true\n")?;
+    assert!(!encoder.block_stats);
+    assert_eq!(initialized().0.enableOutputStats(), 0);
+    drop(encoder);
+    reset();
+    let mut tuning = Tuning::new(&Config::default(), &stream)?;
+    tuning.qp_map = true;
+    tuning.block_stats = true;
+    let mut encoder = open_tuned(&stream, ApiVersion(13, 0), &tuning, None)?;
+    assert!(encoder.block_stats && encoder.qp_map);
+    let (parameters, config) = initialized();
+    assert_eq!(parameters.enableOutputStats(), 1);
+    assert_eq!(
+        parameters.outputStatsLevel,
+        _NV_ENC_OUTPUT_STATS_LEVEL_NV_ENC_OUTPUT_STATS_BLOCK_LEVEL
+    );
+    assert_eq!(
+        config.rcParams.qpMapMode,
+        _NV_ENC_QP_MAP_MODE_NV_ENC_QP_MAP_DELTA
+    );
+    let slot = input(&mut encoder, 17)?;
+    encoder.submit(slot, None, true, Instant::now())?;
+    encoder.poll()?;
+    assert!(encoder.qp_grids.is_empty(), "only measured frames are read");
+    let (columns, rows) = butterpollo_core::nvenc::delta_grid(0, 1920, 1080);
+    let blocks = (columns * rows) as usize;
+    let map = (0..blocks)
+        .map(|index| if index % 2 == 0 { -3 } else { 3 })
+        .collect::<Vec<i8>>();
+    encoder.next_map = Some(map);
+    encoder.measure_next = true;
+    encoder.submit(slot, None, false, Instant::now())?;
+    encoder.poll()?;
+    let (frame, grid) = encoder.qp_grids.pop_front().unwrap();
+    assert_eq!(frame, 2);
+    assert_eq!((grid.width, grid.height), (columns, rows));
+    assert_eq!(grid.values[..4], [27, 33, 27, 33]);
+    drop(encoder);
+    assert_clean();
+    Ok(())
+}
+#[test]
+fn the_focus_probe_verdict_needs_every_grid_and_a_two_qp_effect() {
+    use crate::amf::focus::Grid;
+    let half = |left: u32, right: u32| Grid {
+        width: 4,
+        height: 1,
+        values: vec![left, left, right, right],
+    };
+    let frames = crate::amf::focus::PROBE_FRAMES as usize;
+    let mut grids = vec![half(27, 33); frames];
+    grids.extend(vec![half(33, 27); frames]);
+    let probe = probe_verdict(0, grids.clone());
+    assert_eq!(
+        probe.support,
+        encoder_focus::Support::Verified { delta: 6.0 }
+    );
+    assert_eq!(probe.control_delta, Some(0.0));
+    assert_eq!(probe.feedback_grid, Some((4, 1)));
+    // A map that moves QP by less than two is not focus.
+    let mut weak = vec![half(30, 31); frames];
+    weak.extend(vec![half(31, 30); frames]);
+    assert!(matches!(
+        probe_verdict(0, weak).support,
+        encoder_focus::Support::Unsupported { .. }
+    ));
+    // AV1 needs the same in q-index.
+    assert!(matches!(
+        probe_verdict(2, grids.clone()).support,
+        encoder_focus::Support::Unsupported { .. }
+    ));
+    // A missing grid leaves the effect unknown.
+    grids.pop();
+    assert!(matches!(
+        probe_verdict(0, grids).support,
+        encoder_focus::Support::Unsupported { .. }
+    ));
 }
 #[test]
 fn a_driver_controlled_vbv_reports_no_frame_cap() -> Result<()> {

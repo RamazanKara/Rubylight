@@ -225,6 +225,11 @@ pub struct Tuning {
     /// Blocks a P-frame is sent in as its slices leave the encoder
     /// ([`crate::encoder_policy::slice_delivery`]), the same setting as AMF's.
     pub slice_blocks: u8,
+    /// `qpMapMode` is the delta map from the start: the focus probe's own
+    /// session. A stream turns it on when focus does.
+    pub qp_map: bool,
+    /// Per-block QP statistics for `encoder_focus_verify` and the probe.
+    pub block_stats: bool,
 }
 impl Tuning {
     pub fn new(config: &Config, stream: &Negotiated) -> Result<Self> {
@@ -292,6 +297,8 @@ impl Tuning {
             rate_control,
             frame_budget_guard: config.boolean("nvenc_frame_budget_guard", true),
             slice_blocks: crate::encoder_policy::slice_delivery(config, stream),
+            qp_map: false,
+            block_stats: config.boolean("encoder_focus_verify", false),
         })
     }
     /// Slices per frame when NVENC returns them as they finish: at least one

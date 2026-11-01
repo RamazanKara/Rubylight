@@ -20,6 +20,7 @@ use crate::{
 use anyhow::{Context, Result, bail};
 use butterpollo_core::{
     config::Config,
+    encoder_focus::{self, Reason},
     nvenc::{ApiVersion, Budget, RateControl, Recovery, References, SPLIT_DISABLED, Tuning},
     rtsp::Negotiated,
     session::Warnings,
@@ -417,6 +418,8 @@ struct Slot {
     /// `NV_ENC_OUTPUT_RESOURCE_D3D12`, which the lock takes in its place.
     output: NV_ENC_OUTPUT_PTR,
     d3d12: Option<Box<D3d12Slot>>,
+    /// The QP delta map of the frame in flight, which the driver reads.
+    deltas: Vec<i8>,
     event: HANDLE,
     event_registered: bool,
     signaled: bool,
@@ -451,6 +454,8 @@ struct Pending {
     units: Option<Units>,
     /// The D3D12 output fence value the frame signals once it is written.
     signal: Option<u64>,
+    /// The lock reads the frame's block QP statistics.
+    measured: bool,
     _converted: Option<Kept>,
 }
 /// How far a frame sent slice by slice has left.
@@ -476,6 +481,17 @@ struct Session {
     cuda: Option<Rc<cuda::Context>>,
     /// A session on the D3D12 conversion's device ([`Session::open`]).
     d3d12: Option<D3d12>,
+    /// `qpMapMode` is the delta map, for encoder focus.
+    qp_map: bool,
+    /// The driver returns per-block statistics (`enableOutputStats`).
+    block_stats: bool,
+    /// The QP delta map for the next submission, left off a keyframe.
+    next_map: Option<Vec<i8>>,
+    /// The next submission's block QP statistics are read.
+    measure_next: bool,
+    stats_buffer: Vec<NV_ENC_OUTPUT_STATS_BLOCK>,
+    /// Block QP grids of measured frames, by frame number.
+    qp_grids: VecDeque<(u64, crate::amf::focus::Grid)>,
     config: Box<NV_ENC_CONFIG>,
     initialize: Box<NV_ENC_INITIALIZE_PARAMS>,
     stream: Negotiated,
@@ -614,6 +630,12 @@ impl Session {
             _runtime: runtime,
             cuda,
             d3d12: fence.map(|fence| D3d12 { fence, value: 0 }),
+            qp_map: false,
+            block_stats: false,
+            next_map: None,
+            measure_next: false,
+            stats_buffer: Vec::new(),
+            qp_grids: VecDeque::new(),
             config: Box::default(),
             initialize: Box::default(),
             stream: stream.clone(),
@@ -1157,6 +1179,19 @@ impl Session {
         {
             self.initialize.set_splitEncodeMode(split);
         }
+        if tuning.qp_map {
+            self.config.rcParams.qpMapMode = _NV_ENC_QP_MAP_MODE_NV_ENC_QP_MAP_DELTA;
+            self.qp_map = true;
+        }
+        // Per-block QP for `encoder_focus_verify` and the focus probe.
+        self.block_stats = tuning.block_stats
+            && self.api.block_stats()
+            && self.optional_cap(_NV_ENC_CAPS_NV_ENC_CAPS_OUTPUT_BLOCK_STATS);
+        if self.block_stats {
+            self.initialize.set_enableOutputStats(1);
+            self.initialize.outputStatsLevel =
+                _NV_ENC_OUTPUT_STATS_LEVEL_NV_ENC_OUTPUT_STATS_BLOCK_LEVEL;
+        }
         self.initialize
             .set_reportSliceOffsets(u32::from(self.subframe));
         self.initialize
@@ -1203,6 +1238,7 @@ impl Session {
             mapped: ptr::null_mut(),
             output: ptr::null_mut(),
             d3d12: None,
+            deltas: Vec::new(),
             event: HANDLE::default(),
             event_registered: false,
             signaled: false,
@@ -1436,12 +1472,8 @@ impl Session {
             };
             input = (&mut resources.input as *mut NV_ENC_INPUT_RESOURCE_D3D12).cast();
         }
-        let metadata = (self.stream.hdr && self.stream.codec != 0 && self.api >= ApiVersion(13, 0))
-            .then(|| self.metadata.encoded());
-        // The driver emits HDR metadata on IDR/keyframes. Compare only values
-        // actually encoded, and keep the old snapshot until a submission is
-        // accepted so a failed attempt cannot consume a metadata update.
-        let idr = idr || self.force_idr || metadata != self.submitted_metadata;
+        let metadata = self.encoded_metadata();
+        let idr = self.keyframe(idr);
         let mut picture = NV_ENC_PIC_PARAMS {
             version: self.api.picture(),
             inputWidth: self.stream.width,
@@ -1479,9 +1511,22 @@ impl Session {
                 }
             }
         }
+        // Encoder focus: the map the encoder set for this frame, never on a
+        // keyframe or a frame encoded again.
+        let map = self
+            .next_map
+            .take()
+            .filter(|_| self.qp_map && !idr && again.is_none());
+        if let Some(map) = map {
+            self.slots[slot].deltas = map;
+            picture.qpDeltaMap = self.slots[slot].deltas.as_mut_ptr();
+            picture.qpDeltaMapSize = self.slots[slot].deltas.len() as u32;
+        }
+        let measured =
+            std::mem::take(&mut self.measure_next) && self.block_stats && again.is_none();
         let started = again.map_or_else(Instant::now, |again| again.started);
-        // SAFETY: `picture` points at the slot's mapped input, output buffer and boxed metadata,
-        // which all stay alive while the slot is in `pending`.
+        // SAFETY: `picture` points at the slot's mapped input, output buffer, boxed metadata and
+        // delta map, which all stay alive while the slot is in `pending`.
         let status =
             unsafe { (self.functions.nvEncEncodePicture.unwrap())(self.raw, &mut picture) };
         if status != SUCCESS && status != _NVENCSTATUS_NV_ENC_ERR_NEED_MORE_INPUT {
@@ -1520,6 +1565,7 @@ impl Session {
             streams: self.subframe && !idr && !after_invalidation && self.frame_cap().is_some(),
             units: None,
             signal,
+            measured,
             _converted: texture,
         });
         if again.is_none() {
@@ -1528,6 +1574,34 @@ impl Session {
                 .checked_add(1)
                 .context("NVENC frame index overflow")?;
         }
+        Ok(())
+    }
+    /// HDR metadata for the next picture's bitstream (API 13, HEVC and AV1).
+    fn encoded_metadata(&self) -> Option<EncodedMetadata> {
+        (self.stream.hdr && self.stream.codec != 0 && self.api >= ApiVersion(13, 0))
+            .then(|| self.metadata.encoded())
+    }
+    /// Whether the next picture, asked as `idr`, is coded as a keyframe. The
+    /// driver emits HDR metadata on keyframes, so a change in the values
+    /// actually encoded asks for one; the old snapshot is kept until a
+    /// submission is accepted, so a failed attempt cannot consume an update.
+    fn keyframe(&self, idr: bool) -> bool {
+        idr || self.force_idr || self.encoded_metadata() != self.submitted_metadata
+    }
+    /// Turn the delta map on for encoder focus: a reconfigure without a
+    /// reset or keyframe, with frames in flight.
+    fn enable_qp_map(&mut self) -> Result<()> {
+        if self.qp_map {
+            return Ok(());
+        }
+        if self.functions.nvEncReconfigureEncoder.is_none() {
+            bail!("this NVENC driver cannot turn on the QP delta map");
+        }
+        let _guard = self.guard()?;
+        let mut config = Box::new(*self.config);
+        config.rcParams.qpMapMode = _NV_ENC_QP_MAP_MODE_NV_ENC_QP_MAP_DELTA;
+        self.apply(config, false, "turn on the QP delta map")?;
+        self.qp_map = true;
         Ok(())
     }
     /// The bound the session targets for every frame: its one-frame VBV, or
@@ -1641,6 +1715,25 @@ impl Session {
             lock.set_doNotWait(u32::from(
                 !slot.event.is_invalid() || self.subframe || self.d3d12.is_some(),
             ));
+            if pending.measured {
+                let (columns, rows) = butterpollo_core::nvenc::delta_grid(
+                    self.stream.codec,
+                    self.stream.width,
+                    self.stream.height,
+                );
+                let blocks = columns as usize * rows as usize;
+                self.stats_buffer.clear();
+                self.stats_buffer.resize(
+                    blocks,
+                    NV_ENC_OUTPUT_STATS_BLOCK {
+                        version: self.api.structure(1, false),
+                        ..Default::default()
+                    },
+                );
+                lock.outputStatsPtr = self.stats_buffer.as_mut_ptr().cast();
+                lock.outputStatsPtrSize =
+                    (blocks * std::mem::size_of::<NV_ENC_OUTPUT_STATS_BLOCK>()) as u32;
+            }
             // SAFETY: `slot.output` is the pending slot's bitstream buffer on this session,
             // `sliceOffsets` is null or holds an entry per macroblock, and `lock` is versioned.
             let status =
@@ -1813,6 +1906,26 @@ impl Session {
                 self.slots[index].d3d12.as_mut().unwrap().mapped = ptr::null_mut();
             }
             let pending = self.pending.pop_front().unwrap();
+            if pending.measured {
+                let (width, height) = butterpollo_core::nvenc::delta_grid(
+                    self.stream.codec,
+                    self.stream.width,
+                    self.stream.height,
+                );
+                let values = self
+                    .stats_buffer
+                    .iter()
+                    .map(|block| u32::from(block.QP))
+                    .collect();
+                self.qp_grids.push_back((
+                    pending.frame,
+                    crate::amf::focus::Grid {
+                        width,
+                        height,
+                        values,
+                    },
+                ));
+            }
             if self.reencodes(&pending, &encoded) {
                 match self.reencode(&pending) {
                     // The loop collects the keyframe when it is done.
@@ -1913,17 +2026,27 @@ impl Session {
         config.rcParams.averageBitRate = bitrate;
         config.rcParams.maxBitRate = self.rate_control.max_bitrate(bitrate);
         config.rcParams.vbvBufferSize = vbv;
+        self.apply(config, bitrate > before, operation)
+    }
+    /// Hand the driver `config` in place of the session's. `reset` resets
+    /// the encoder and forces a keyframe.
+    fn apply(
+        &mut self,
+        mut config: Box<NV_ENC_CONFIG>,
+        reset: bool,
+        operation: &'static str,
+    ) -> Result<()> {
         let mut reconfigure = NV_ENC_RECONFIGURE_PARAMS {
             version: self.api.reconfigure(),
             reInitEncodeParams: *self.initialize,
             ..Default::default()
         };
         reconfigure.reInitEncodeParams.encodeConfig = config.as_mut();
-        reconfigure.set_resetEncoder(u32::from(bitrate > before));
-        reconfigure.set_forceIDR(u32::from(bitrate > before));
+        reconfigure.set_resetEncoder(u32::from(reset));
+        reconfigure.set_forceIDR(u32::from(reset));
         self.check(
-            // SAFETY: `dynamic_bitrate` requires nvEncReconfigureEncoder, and the boxed `config` is
-            // kept as `self.config` after the call.
+            // SAFETY: Callers check that nvEncReconfigureEncoder exists (`dynamic_bitrate` or
+            // `enable_qp_map`), and the boxed `config` is kept as `self.config` after the call.
             unsafe {
                 (self.functions.nvEncReconfigureEncoder.unwrap())(self.raw, &mut reconfigure)
             },
@@ -1931,7 +2054,7 @@ impl Session {
         )?;
         self.config = config;
         self.initialize.encodeConfig = self.config.as_mut();
-        self.force_idr |= bitrate > before;
+        self.force_idr |= reset;
         Ok(())
     }
     fn invalidate(&mut self, first: u64, last: u64) -> Result<bool> {
@@ -2196,6 +2319,23 @@ pub struct Encoder {
     last_submitted: Option<Instant>,
     /// The frame cap failed and its warning is up.
     cap_warned: bool,
+    tuning: Tuning,
+    /// Encoder focus, with AMF's rules ([`crate::amf::focus`]).
+    focus: crate::amf::focus::State,
+    /// Frames whose block QP statistics were asked for.
+    asked: VecDeque<Ask>,
+    /// The focus probe's QP grids in frame order.
+    answers: Vec<crate::amf::focus::Grid>,
+    /// The focus probe is running: every frame is measured.
+    probing: bool,
+}
+/// A frame whose block QP statistics were asked for.
+struct Ask {
+    frame: u64,
+    /// The importances it carried, for `qp_delta`.
+    importance: Option<crate::amf::focus::Grid>,
+    /// The probe keeps the answer.
+    keep: bool,
 }
 impl Encoder {
     pub fn new_device_options(config: &Negotiated, gpu: Device, options: &Config) -> Result<Self> {
@@ -2224,7 +2364,7 @@ impl Encoder {
         }
         let coded = coded(config);
         let runtime = Runtime::load()?;
-        let tuning = Tuning::new(options, &coded)?;
+        let mut tuning = Tuning::new(options, &coded)?;
         let converter = compute
             .map(|compute| -> Result<_> {
                 anyhow::ensure!(!coded.yuv444, "the D3D12 conversion writes 4:2:0 only");
@@ -2246,29 +2386,22 @@ impl Encoder {
         } else {
             None
         };
-        let (device, kind, fence) = if let Some(converter) = &converter {
-            let device = &converter.compute().device;
-            // SAFETY: `device` is the compute queue's live D3D12 device; the fence is owned.
-            let fence: ID3D12Fence = unsafe { device.CreateFence(0, D3D12_FENCE_FLAG_NONE) }
-                .context("NVENC D3D12 output fence")?;
-            (
-                device.as_raw(),
-                _NV_ENC_DEVICE_TYPE_NV_ENC_DEVICE_TYPE_DIRECTX,
-                Some(Rc::new(fence) as Rc<dyn Fence>),
-            )
-        } else if let Some(context) = &cuda {
+        let (device, kind, fence) = if let Some(context) = &cuda {
             (
                 context.raw(),
                 _NV_ENC_DEVICE_TYPE_NV_ENC_DEVICE_TYPE_CUDA,
                 None,
             )
         } else {
+            let (device, fence) = directx_device(converter.as_deref(), &gpu)?;
             (
-                gpu.device.as_raw(),
+                device,
                 _NV_ENC_DEVICE_TYPE_NV_ENC_DEVICE_TYPE_DIRECTX,
-                None,
+                fence,
             )
         };
+        // A stream turns the delta map on with focus (`enable_qp_map`).
+        tuning.qp_map = false;
         let session = Session::open(runtime, device, kind, cuda, fence, &coded, &tuning)?;
         let metadata = gpu.hdr_metadata();
         let mut encoder = Self {
@@ -2285,6 +2418,11 @@ impl Encoder {
             stats: None,
             last_submitted: None,
             cap_warned: false,
+            tuning,
+            focus: Default::default(),
+            asked: VecDeque::new(),
+            answers: Vec::new(),
+            probing: false,
         };
         encoder.dynamic = encoder.enable_dynamic(options);
         encoder.set_hdr_metadata(metadata);
@@ -2456,6 +2594,7 @@ impl Encoder {
             converter.release_completed();
         }
         let mut frames = self.session.poll()?;
+        self.focus_feedback();
         if let Some(error) = self.session.reencode_failure.take() {
             self.warnings.event("encoder_reencode", format!("NVENC could not encode an oversize scene cut again as a keyframe ({error}); the frame goes without full FEC and may freeze the picture briefly. Report this with the host log."), butterpollo_core::session::EVENT_PERIOD);
         }
@@ -2530,6 +2669,7 @@ impl Encoder {
                 _texture: Some(converted.texture),
                 _fence: Some(converted.fence),
             };
+            self.attach_focus(idr, Some(converted.conversion));
             self.session.submit(slot, Some(kept), idr, image.captured)?;
             self.last_submitted = Some(Instant::now());
             crate::amf::dynamic::sample(
@@ -2560,12 +2700,336 @@ impl Encoder {
         let kept = Kept::D3d11 {
             _texture: converted,
         };
+        self.attach_focus(idr, None);
         self.session.submit(slot, Some(kept), idr, image.captured)?;
         self.last_submitted = Some(Instant::now());
         // Before the poll, so the frame it returns carries the newest
         // finished sample.
         crate::amf::dynamic::sample(&mut self.dynamic, self.stats.as_deref_mut(), &self.warnings);
         self.poll()
+    }
+}
+// Encoder focus (docs/encoder-focus-design.md) through NVENC's QP delta
+// map, with AMF's rules for which frames carry a map.
+impl Encoder {
+    /// Focus on with `settings`, or off. On needs the D3D12 conversion and
+    /// planar 4:2:0, and fails loudly without them, as on AMF.
+    pub fn set_focus(&mut self, settings: Option<crate::compute::FocusSettings>) -> Result<()> {
+        if settings.is_some() {
+            anyhow::ensure!(
+                self.config.chroma_packing == 0,
+                "encoder focus: {}",
+                Reason::Packed444.message()
+            );
+            let converter = self.compute.as_deref_mut().with_context(|| {
+                format!(
+                    "encoder focus: {}",
+                    Reason::D3d12ConversionUnavailable.message()
+                )
+            })?;
+            converter.enable_focus(encoder_focus::block(self.config.codec))?;
+            self.session.enable_qp_map()?;
+        }
+        if let Some(converter) = self.compute.as_deref_mut() {
+            converter.set_focus(settings)?;
+        }
+        self.focus.settings = settings;
+        Ok(())
+    }
+    /// Read block QP statistics on one frame in `every` that carries a map,
+    /// for [`encoder_focus::Stats::qp_delta`]. Needs `encoder_focus_verify`
+    /// when the encoder is made, since NVENC turns statistics on only then.
+    pub fn set_focus_verify(&mut self, every: Option<u32>) {
+        self.focus.verify = every.map(|every| every.max(1));
+    }
+    pub fn focus_stats(&self) -> encoder_focus::Stats {
+        let mut stats = self.focus.stats;
+        stats.qp_delta = (self.focus.qp_count > 0)
+            .then(|| (self.focus.qp_sum / f64::from(self.focus.qp_count)) as f32);
+        stats
+    }
+    /// Why a map failed on a frame since the last call. Focus is then off in
+    /// this encoder; the stream turns it off for the session and says why.
+    pub fn take_focus_failure(&mut self) -> Option<anyhow::Error> {
+        self.focus.failure.take()
+    }
+    /// Before a submission asked as `idr`: the newest finished map from a
+    /// conversion up to this frame's (`conversion`) as the frame's delta map,
+    /// unless the frame is a keyframe, a recovery picture or the encoder's
+    /// first, or one of the frames settling after them. A map that fails
+    /// turns focus off and leaves the error for [`Self::take_focus_failure`];
+    /// the frame goes on without it.
+    fn attach_focus(&mut self, idr: bool, conversion: Option<u64>) {
+        let idr = self.session.keyframe(idr);
+        let recover = self.session.references.confirming(idr);
+        let first = self.last_submitted.is_none();
+        if self.focus.fixed.is_none() && self.focus.settings.is_some() {
+            if let Err(error) = self.attach_converted(idr, recover, first, conversion) {
+                tracing::warn!(error = %format!("{error:#}"), "encoder focus failed on a frame, so it is off");
+                self.focus.fail(error);
+            }
+            return;
+        }
+        self.focus.frame(idr, recover, first, None);
+        let frame = self.session.next;
+        if let Some(fixed) = &self.focus.fixed
+            && encoder_focus::attach_for(idr, recover, first, false)
+        {
+            let mut deltas = Vec::new();
+            match butterpollo_core::nvenc::focus_deltas(
+                self.config.codec,
+                (self.session.stream.width, self.session.stream.height),
+                &fixed.values,
+                (fixed.width, fixed.height),
+                &mut deltas,
+            ) {
+                Ok(()) => self.session.next_map = Some(deltas),
+                Err(error) => tracing::warn!(%error, "encoder focus probe map refused"),
+            }
+        }
+        if self.probing {
+            self.session.measure_next = true;
+            self.asked.push_back(Ask {
+                frame,
+                importance: self.focus.fixed.clone(),
+                keep: true,
+            });
+        }
+    }
+    /// [`Self::attach_focus`] with focus on.
+    fn attach_converted(
+        &mut self,
+        idr: bool,
+        recover: bool,
+        first: bool,
+        conversion: Option<u64>,
+    ) -> Result<()> {
+        let converter = self
+            .compute
+            .as_deref()
+            .context("encoder focus is on without the D3D12 conversion")?;
+        let view = conversion.and_then(|conversion| {
+            converter
+                .latest_map(self.focus.last)
+                .filter(|view| view.value <= conversion)
+        });
+        let picked = self.focus.frame(
+            idr,
+            recover,
+            first,
+            Some(view.as_ref().map(|view| (view.value, view.uniform))),
+        );
+        let Some(view) = view.filter(|_| picked == Some(crate::amf::focus::Pick::Attach)) else {
+            return Ok(());
+        };
+        let mut deltas = Vec::new();
+        butterpollo_core::nvenc::focus_deltas(
+            self.config.codec,
+            (self.session.stream.width, self.session.stream.height),
+            view.rows,
+            (view.width, view.height),
+            &mut deltas,
+        )
+        .map_err(anyhow::Error::msg)?;
+        self.session.next_map = Some(deltas);
+        let Some(every) = self.focus.verify.filter(|_| self.session.block_stats) else {
+            return Ok(());
+        };
+        self.focus.since_verify += 1;
+        if self.focus.since_verify < every {
+            return Ok(());
+        }
+        self.focus.since_verify = 0;
+        self.session.measure_next = true;
+        self.asked.push_back(Ask {
+            frame: self.session.next,
+            importance: Some(crate::amf::focus::Grid {
+                width: view.width,
+                height: view.height,
+                values: view.rows.to_vec(),
+            }),
+            keep: false,
+        });
+        Ok(())
+    }
+    /// Pair the block QP grids the session read with the frames that asked.
+    fn focus_feedback(&mut self) {
+        while let Some((frame, qp)) = self.session.qp_grids.pop_front() {
+            // Asks older than this frame belong to frames that were lost.
+            while self.asked.front().is_some_and(|ask| ask.frame < frame) {
+                self.asked.pop_front();
+            }
+            if self.asked.front().is_none_or(|ask| ask.frame != frame) {
+                continue;
+            }
+            let ask = self.asked.pop_front().expect("checked above");
+            if let Some(importance) = &ask.importance
+                && let Some(delta) = crate::amf::focus::importance_delta(&qp, importance)
+            {
+                self.focus.qp_sum += f64::from(delta);
+                self.focus.qp_count += 1;
+            }
+            if ask.keep {
+                self.answers.push(qp);
+            }
+        }
+    }
+    /// The startup check, as AMF's: frames with the left half at 10 and the
+    /// right at 0, and as many the other way round, each read back as block
+    /// QP. It runs on a session of its own with the delta map and block
+    /// statistics, so the codec check never depends on either. An encoder
+    /// failure is an error; a driver that ignores the map, or returns no
+    /// statistics, is `Unsupported`.
+    pub fn probe_focus(&mut self) -> Result<crate::amf::focus::Probe> {
+        use crate::amf::focus::Probe;
+        if self.config.chroma_packing != 0 {
+            return Ok(Probe::unsupported(
+                Reason::Packed444,
+                Reason::Packed444.message(),
+            ));
+        }
+        if self.session.cuda.is_some() || self.config.yuv444 {
+            return Ok(Probe::unsupported(
+                Reason::D3d12ConversionUnavailable,
+                Reason::D3d12ConversionUnavailable.message(),
+            ));
+        }
+        let mut tuning = self.tuning.clone();
+        tuning.qp_map = true;
+        tuning.block_stats = true;
+        // On the stream session's device, so the probe's frames take the
+        // same conversion.
+        let opened = Runtime::load().and_then(|runtime| {
+            let (device, fence) = directx_device(self.compute.as_deref(), &self.gpu)?;
+            Session::open(
+                runtime,
+                device,
+                _NV_ENC_DEVICE_TYPE_NV_ENC_DEVICE_TYPE_DIRECTX,
+                None,
+                fence,
+                &self.session.stream,
+                &tuning,
+            )
+        });
+        let session = match opened {
+            Ok(session) if session.block_stats => session,
+            Ok(_) => {
+                return Ok(Probe::unsupported(
+                    Reason::CodecUnsupported,
+                    "this NVENC driver returns no block QP statistics (API 12.1, NVIDIA driver 531.61 or newer), so ROI cannot be verified",
+                ));
+            }
+            Err(error) => {
+                return Ok(Probe::unsupported(
+                    Reason::CodecUnsupported,
+                    format!("NVENC refused a session with the QP delta map: {error:#}"),
+                ));
+            }
+        };
+        let (columns, rows) = encoder_focus::grid(
+            self.config.codec,
+            self.session.stream.width,
+            self.session.stream.height,
+        );
+        let half = crate::amf::focus::Grid {
+            width: columns,
+            height: rows,
+            values: (0..columns * rows)
+                .map(|index| if index % columns < columns / 2 { 10 } else { 0 })
+                .collect(),
+        };
+        let previous = std::mem::replace(&mut self.session, session);
+        let last_submitted = self.last_submitted.take();
+        self.answers.clear();
+        let measured = self.probe_frames(&half);
+        self.focus.fixed = None;
+        self.probing = false;
+        self.asked.clear();
+        self.session = previous;
+        self.last_submitted = last_submitted;
+        measured?;
+        Ok(probe_verdict(
+            self.config.codec,
+            std::mem::take(&mut self.answers),
+        ))
+    }
+    fn probe_frames(&mut self, half: &crate::amf::focus::Grid) -> Result<()> {
+        use crate::amf::focus::{PROBE_FRAMES, PROBE_WARMUP};
+        let bitrate = self.config.bitrate_kbps;
+        let mirrored = crate::amf::focus::Grid {
+            values: half.values.iter().map(|value| 10 - value).collect(),
+            ..half.clone()
+        };
+        for frame in 0..PROBE_WARMUP + 2 * PROBE_FRAMES {
+            self.probing = frame >= PROBE_WARMUP;
+            self.focus.fixed = (frame >= PROBE_WARMUP).then(|| {
+                if frame < PROBE_WARMUP + PROBE_FRAMES {
+                    half.clone()
+                } else {
+                    mirrored.clone()
+                }
+            });
+            let image = crate::amf::focus::probe_picture(
+                &self.gpu,
+                self.config.width,
+                self.config.height,
+                frame,
+            )?;
+            let started = Instant::now();
+            let mut idr = self
+                .encode_gpu(&image, frame == 0, bitrate)?
+                .iter()
+                .any(|encoded| encoded.idr);
+            while self.pending() {
+                anyhow::ensure!(
+                    started.elapsed() < Duration::from_secs(2),
+                    "focus probe frame {frame} was not encoded within two seconds"
+                );
+                idr |= self.poll()?.iter().any(|encoded| encoded.idr);
+            }
+            anyhow::ensure!(
+                !idr || frame == 0,
+                "focus probe frame {frame} came out as a keyframe"
+            );
+        }
+        Ok(())
+    }
+}
+/// The DirectX device a session opens on: the D3D12 conversion's, with an
+/// output fence of its own, or the capture device.
+fn directx_device(
+    converter: Option<&crate::compute::Converter>,
+    gpu: &Device,
+) -> Result<(*mut c_void, Option<Rc<dyn Fence>>)> {
+    let Some(converter) = converter else {
+        return Ok((gpu.device.as_raw(), None));
+    };
+    let device = &converter.compute().device;
+    // SAFETY: `device` is the compute queue's live D3D12 device; the fence is owned.
+    let fence: ID3D12Fence = unsafe { device.CreateFence(0, D3D12_FENCE_FLAG_NONE) }
+        .context("NVENC D3D12 output fence")?;
+    Ok((device.as_raw(), Some(Rc::new(fence) as Rc<dyn Fence>)))
+}
+/// The focus probe's verdict from its QP grids, in frame order: the first
+/// half with the left half important, the rest mirrored. Missing grids
+/// leave the effect unknown, which is `Unsupported`.
+fn probe_verdict(codec: u8, grids: Vec<crate::amf::focus::Grid>) -> crate::amf::focus::Probe {
+    use crate::amf::focus::{PROBE_FRAMES, effect, half_delta, verdict};
+    let mean = |grids: &[crate::amf::focus::Grid]| -> Option<f32> {
+        let deltas = grids.iter().map(half_delta).collect::<Option<Vec<_>>>()?;
+        (!deltas.is_empty()).then(|| deltas.iter().sum::<f32>() / deltas.len() as f32)
+    };
+    let (qp_delta, control_delta) = if grids.len() == 2 * PROBE_FRAMES as usize {
+        let (left, right) = grids.split_at(PROBE_FRAMES as usize);
+        effect(mean(left), mean(right))
+    } else {
+        (None, None)
+    };
+    crate::amf::focus::Probe {
+        support: verdict(codec, qp_delta),
+        qp_delta,
+        control_delta,
+        feedback_grid: grids.first().map(|grid| (grid.width, grid.height)),
     }
 }
 #[cfg(test)]

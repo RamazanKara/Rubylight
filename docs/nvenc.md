@@ -27,7 +27,7 @@ Each row lists a feature the AMF path has and how NVENC provides it. Fake-driver
 | GPU scheduling priority | High | Realtime, falling back to high when it is denied | Under hardware-accelerated GPU scheduling, `nvenc_realtime_hags` (on by default) keeps realtime. AMD stays at high: realtime would also raise AMF's and the game's queues. |
 | Couch menu overlay | Yes | Yes | Drawn by the D3D11 conversion. |
 | D3D12 compute conversion | Yes | Yes | See [D3D12 conversion](#d3d12-conversion). A native D3D12 session waits for the conversion's fence on the GPU (driver 522.25 or newer). Without it NVENC converts on the D3D11 graphics queue, which realtime scheduling covers. |
-| Encoder focus (ROI map) | Yes | No | The map comes from the D3D12 compute conversion. See [Encoder focus](#encoder-focus). Focus reports `nvenc` as its reason. |
+| Encoder focus (ROI map) | Yes | QP delta map | The map comes from the D3D12 compute conversion; the probe needs driver 531.61 or newer. See [Encoder focus](#encoder-focus). |
 
 ## D3D12 conversion
 
@@ -41,12 +41,14 @@ With `gpu_compute_conversion` on (the default), NVENC takes the compute queue's 
 
 ## Encoder focus
 
-AMF attaches focus as an ROI map that the D3D12 compute conversion builds from its still-age detector (`compute::Converter::latest_map`). NVENC converts on D3D11, which builds no map. The NVENC side of focus is in the SDK:
+Focus works as on AMF: the D3D12 compute conversion builds the importance map from its still-age detector (`compute::Converter::latest_map`), and the same rules pick the frames that carry it ([`amf::focus`](../rust/windows/src/amf/focus.rs)). No map goes on a keyframe, a recovery picture, the encoder's first frame or the 30 frames after them, or when the map is uniform or not newer than the last one used. Without the D3D12 conversion, focus is off with the same reason as on AMF.
 
-- **Delta map.** `NV_ENC_RC_PARAMS::qpMapMode = NV_ENC_QP_MAP_DELTA` takes a per-picture `qpDeltaMap` of signed QP offsets: one per 16x16 macroblock for H.264, one per CTB for HEVC and one per 64x64 superblock for AV1.
-- **Emphasis map.** `NV_ENC_QP_MAP_EMPHASIS` is H.264-only and cannot run with spatial or temporal AQ, so the delta map is the one to use.
+- **Delta map.** NVENC takes the map as a per-picture `qpDeltaMap` (`NV_ENC_QP_MAP_DELTA`): one signed offset per 16x16 macroblock for H.264, per 32x32 CTB for HEVC (the only CTB size NVENC codes) and per 64x64 superblock for AV1 (`nvenc::focus_deltas`). Turning focus on switches `qpMapMode` with a reconfigure, without a reset or a keyframe. The emphasis map is H.264-only, so it is not used.
+- **Same weight as AMF.** Each importance step is half a QP (two q-index steps on AV1), the effect AMF's map measured on the RX 7900 XT. The offsets are centred on the picture's mean importance, so the map moves bits between blocks and leaves the frame's QP to the rate control and its one-frame VBV.
+- **Startup check.** The probe encodes half-and-half maps, as on AMF, on a session of its own with the delta map and per-block statistics, so the codec check never depends on either. It reads each block's QP from `NV_ENC_OUTPUT_STATS_BLOCK` and needs an effect of 2 QP (8 q-index on AV1). Block statistics need API 12.1, NVIDIA driver 531.61 or newer (`NV_ENC_CAPS_OUTPUT_BLOCK_STATS`); without them focus reports that ROI cannot be verified.
+- **Verification during a stream.** `encoder_focus_verify` turns block statistics on when the encoder is made, and `qp_delta` then reports the QP difference between the least and most important blocks, as on AMF.
 
-Focus can follow once NVENC consumes the D3D12 conversion. Until then the console and the log give `nvenc` as the reason focus is off.
+The D3D11 conversion builds no map, so focus needs the D3D12 conversion on NVENC too.
 
 ## Not yet run on NVIDIA hardware
 
@@ -56,3 +58,4 @@ The rows above pass the fake-driver tests. These behaviours follow NVIDIA's head
 - Keyframes within the one-frame VBV, which the driver does not guarantee.
 - Rate control changes applied with frames in flight.
 - The D3D12 session: fence points, READBACK output and completion by fence.
+- Encoder focus: the delta map's effect per codec, `qpMapMode` switched by a reconfigure, and the block statistics the probe reads.

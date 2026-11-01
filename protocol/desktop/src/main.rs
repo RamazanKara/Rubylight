@@ -554,12 +554,15 @@ impl App {
         }
         self.pads.close_all();
         self.gui.destroy();
-        // SAFETY: tearing down what run() created.
-        unsafe {
-            SDL_DestroyRenderer(self.renderer);
-            SDL_DestroyWindow(self.window);
+        // The connect thread may be using the renderer's GPU device (a decoder being made on it),
+        // so a launch in progress ends, and a session it started stops, before the renderer goes.
+        let (renderer, window) = (self.renderer, self.window);
+        // SAFETY: tearing down what run() created, with nothing else using it any more.
+        stream::end_before(self.connecting.take(), stream::LEAVE_WAIT, || unsafe {
+            SDL_DestroyRenderer(renderer);
+            SDL_DestroyWindow(window);
             SDL_Quit();
-        }
+        });
         if let Some(stop) = abr_stop { stop.wait(); }
     }
 

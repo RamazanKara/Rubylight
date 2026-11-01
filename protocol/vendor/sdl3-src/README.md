@@ -17,7 +17,8 @@ either (libsdl-org/SDL issue 10876; pull request 14157 adds no Vulkan path).
   owns in an `SDL_GPUTexture` (never cycled, moved, transitioned or freed by SDL). The comments it
   adds to `SDL_gpu.h` are the contract.
 - `build.rs` copies the submodule into the build directory and applies the patch there; a hunk
-  that does not match fails the build.
+  that does not match fails the build, and so does a patch that would change nothing (no
+  `+++ b/` file, a file without hunks). Its tests: see the top of `build.rs`.
 
 To move to another SDL release: check out the new tag in the submodule, bump the version here
 and in `src/lib.rs` to the one sdl3-sys pins, and regenerate the patch against the new files

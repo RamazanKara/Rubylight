@@ -418,6 +418,18 @@ fn escape_in_the_search_moves_focus_to_the_rows() {
     assert!(focused(&f).is_some_and(|r| r.contains(entry.center())), "the entry has focus: {:?}", focused(&f));
 }
 
+/// Ctrl+F is the page's: with a dialog open it leaves the focus where it is.
+#[test]
+fn ctrl_f_leaves_an_open_dialog_alone() {
+    let mut f = settings_with(Settings::default());
+    f.l.ask(Dialog::Message { title: "Network test failed".into(), body: "The PC did not answer.".into() });
+    f.settle();
+    let before = f.ctx.memory(|m| m.focused());
+    assert!(before.is_some(), "the dialog's button has focus");
+    f.press_with(Key::F, egui::Modifiers::COMMAND);
+    assert_eq!(f.ctx.memory(|m| m.focused()), before, "the dialog keeps the focus");
+}
+
 /// The settings page in every state worth a look, at 1280x800 (150 %) and 1920x1080:
 /// `NIGHTJAR_SHOTS=<dir> cargo test -p nightjar-desktop settings_screenshots -- --ignored`.
 #[test]

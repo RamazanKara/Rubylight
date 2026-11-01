@@ -154,7 +154,8 @@ impl Launcher {
             view.query.clear();
             (view.confirm_reset, view.to_top) = (false, true);
         }
-        if ui.input(|i| i.modifiers.command && i.key_pressed(Key::F)) {
+        // Not under a dialog, which keeps the focus as long as it is open.
+        if matches!(self.dialog, Dialog::None) && ui.input(|i| i.modifiers.command && i.key_pressed(Key::F)) {
             ui.memory_mut(|m| m.request_focus(search_id()));
         }
         if layered {

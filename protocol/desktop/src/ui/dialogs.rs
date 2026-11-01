@@ -188,6 +188,8 @@ impl Launcher {
             .stroke(Stroke::new(1.0, OUTLINE_VARIANT));
         let mut close = false;
         let mut next: Option<Dialog> = None;
+        // The destination ConfirmLeave goes to once it is closed.
+        let mut leave: Option<Screen> = None;
         let focus_first = self.focus_dialog;
         let mut focused = false;
         match &mut self.dialog {
@@ -249,6 +251,15 @@ impl Launcher {
                             MenuOutcome::Chosen(n) => {
                                 next = self.choose_game_action(host, game, actions[n], commands);
                                 close = next.is_none();
+                                // The Favourites card goes with its star: the focus goes back to
+                                // its neighbour instead, as Delete on the card does.
+                                if let (GameAction::Unstar, GameTarget::Library { app, favourite: true }) = (actions[n], game) {
+                                    let sources: Vec<Source> = view.hosts.list.iter().map(Source::of).collect();
+                                    let starred = console::favourite_games(&sources, &self.favourites);
+                                    if let Some(index) = starred.iter().position(|s| s.host == id && s.app_id == app) {
+                                        self.focused_key = favourite_neighbour(&starred, index);
+                                    }
+                                }
                             }
                             MenuOutcome::Dismissed => close = true,
                             MenuOutcome::Open => {}
@@ -348,6 +359,31 @@ impl Launcher {
                                 focused = true;
                             }
                             if cancel.clicked() {
+                                close = true;
+                            }
+                        });
+                    });
+            }
+            Dialog::ConfirmLeave { to } => {
+                let to = *to;
+                egui::Modal::new(Id::unique("confirm-leave"))
+                    .frame(frame)
+                    .backdrop_color(Color32::from_black_alpha(150))
+                    .show(ctx, |ui| {
+                        ui.set_width(440.0);
+                        ui.label(RichText::new(tr("Cancel the transfers?")).font(semibold(text::SECTION)));
+                        ui.label(RichText::new(tr("Leaving this page cancels the transfers that have not finished.")).color(ON_SURFACE_VARIANT));
+                        dialog_buttons(ui, |ui| {
+                            if primary_button(ui, "Leave").clicked() {
+                                leave = Some(to);
+                                close = true;
+                            }
+                            let stay = quiet_button(ui, "Stay");
+                            if focus_first {
+                                stay.request_focus();
+                                focused = true;
+                            }
+                            if stay.clicked() {
                                 close = true;
                             }
                         });
@@ -878,6 +914,9 @@ impl Launcher {
             }
             self.close_dialog();
         }
+        if let Some(to) = leave {
+            self.leave_for(to, commands);
+        }
     }
 
     /// Closes the dialog. Those opened from a PC's card give focus back to it, the rest to the
@@ -947,18 +986,20 @@ impl Launcher {
             (GameAction::Open, GameTarget::Library { app, .. }) => self.open(Screen::Game { host: id, app }),
             (GameAction::Star | GameAction::Unstar, GameTarget::Library { app, .. }) => {
                 let sources: Vec<Source> = std::iter::once(Source::of(host)).collect();
-                if let Some(star) = console::favourite_for(&sources, id, app) {
+                // From the library, else the stored star of a favourite whose library is not known.
+                let star = console::favourite_for(&sources, id, app).or_else(|| stored_favourite(host, app, &self.favourites).cloned());
+                if let Some(star) = star {
                     commands.push(Command::ToggleFavourite(star));
                 }
             }
             (GameAction::Library, _) => commands.push(Command::OpenApps(id)),
             (GameAction::Settings, _) => {
-                if let Some(app) = classic_of(host, game) {
+                if let Some(app) = classic_of(host, game, &self.favourites) {
                     commands.push(Command::AppSettings { host: id, app: app.clone() });
                 }
             }
             (GameAction::Play | GameAction::Resume, _) => {
-                if let Some(app) = classic_of(host, game) {
+                if let Some(app) = classic_of(host, game, &self.favourites) {
                     return self.start_app(host, app, commands);
                 }
             }
@@ -1069,24 +1110,33 @@ impl Launcher {
 }
 
 /// A game's menu: its title and what it offers, the action selecting it does first. None when the
-/// game is gone from the PC.
+/// game is gone from the PC. A favourite whose PC's library is not known (away with nothing saved,
+/// not read yet, or the game gone) still has its menu, from the stored star: its card is on Home.
 pub(super) fn game_menu(host: &Host, view: &View<'_>, game: GameTarget, favourites: &[crate::config::Favourite]) -> Option<(String, Vec<GameAction>)> {
     let _ = view;
     match game {
-        GameTarget::Library { app, .. } => {
-            let entry = host.native.library.as_ref()?.games.iter().find(|g| g.app_id == app)?;
+        GameTarget::Library { app, favourite } => {
+            let listed = host.native.library.as_ref().and_then(|l| l.games.iter().find(|g| g.app_id == app));
+            let (title, starred) = match listed {
+                Some(entry) => {
+                    let sources: Vec<Source> = std::iter::once(Source::of(host)).collect();
+                    let star = console::favourite_for(&sources, host.id, app);
+                    (entry.title.clone(), star.map(|star| favourites.iter().any(|f| f.same_game(&star))))
+                }
+                None if favourite => (stored_favourite(host, app, favourites)?.title.clone(), Some(true)),
+                None => return None,
+            };
             let mut actions = vec![GameAction::Open];
-            let sources: Vec<Source> = std::iter::once(Source::of(host)).collect();
-            if let Some(star) = console::favourite_for(&sources, host.id, app) {
-                actions.push(if favourites.iter().any(|f| f.same_game(&star)) { GameAction::Unstar } else { GameAction::Star });
+            if let Some(starred) = starred {
+                actions.push(if starred { GameAction::Unstar } else { GameAction::Star });
             }
-            if classic_of(host, game).is_some() {
+            if classic_of(host, game, favourites).is_some() {
                 actions.push(GameAction::Settings);
             }
             if host.paired() {
                 actions.push(GameAction::Library);
             }
-            Some((entry.title.clone(), actions))
+            Some((title, actions))
         }
         GameTarget::Classic { app } => {
             let Apps::Loaded(apps) = &host.apps else { return None };
@@ -1101,17 +1151,28 @@ pub(super) fn game_menu(host: &Host, view: &View<'_>, game: GameTarget, favourit
     }
 }
 
-/// The classic app entry a game menu's game starts through, once the PC's app list is loaded.
-pub(super) fn classic_of(host: &Host, game: GameTarget) -> Option<&nightjar_core::http::App> {
+/// The classic app entry a game menu's game starts through, once the PC's app list is loaded. A
+/// game its library does not list is found by its stored star, if it has one.
+pub(super) fn classic_of<'a>(host: &'a Host, game: GameTarget, favourites: &[crate::config::Favourite]) -> Option<&'a nightjar_core::http::App> {
     let Apps::Loaded(apps) = &host.apps else { return None };
     match game {
         GameTarget::Classic { app } => apps.iter().find(|a| a.id == app),
         GameTarget::Library { app, .. } => {
-            let entry = host.native.library.as_ref()?.games.iter().find(|g| g.app_id == app)?;
+            let install_id = match host.native.library.as_ref().and_then(|l| l.games.iter().find(|g| g.app_id == app)) {
+                Some(entry) => entry.install_id.as_str(),
+                None => stored_favourite(host, app, favourites)?.install_id.as_str(),
+            };
             let pairs: Vec<(i32, &str)> = apps.iter().map(|a| (a.id, a.uuid.as_str())).collect();
-            console::classic_app(&pairs, &entry.install_id, app).and_then(|id| apps.iter().find(|a| a.id == id))
+            console::classic_app(&pairs, install_id, app).and_then(|id| apps.iter().find(|a| a.id == id))
         }
     }
+}
+
+/// The star stored for game `app` on `host`, matched as Home's Favourites row matches a star
+/// whose library is not known: by the PC's unique id and the saved app id.
+fn stored_favourite<'a>(host: &Host, app: u32, favourites: &'a [crate::config::Favourite]) -> Option<&'a crate::config::Favourite> {
+    let unique_id = host.record.unique_id.as_str();
+    favourites.iter().find(|f| !unique_id.is_empty() && f.host == unique_id && f.app_id == app)
 }
 
 /// "Waking <PC>…" while the wake packets go out, with a way to stop.
@@ -1353,7 +1414,12 @@ fn menu_row(ui: &mut Ui, row: &MenuRow) -> Response {
     let height = why.as_ref().map_or(40.0, |w| 20.0 + 11.0 + w.size().y + 9.0);
     let (rect, response) = ui.allocate_exact_size(vec2(width, height), Sense::click());
     let label = tr(row.label);
-    response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, enabled, label));
+    // A screen reader hears why a row is off too, not only the painted line under it.
+    let said = match row.blocked {
+        Some(why) => format!("{label}, {}", tr(why)),
+        None => label.to_owned(),
+    };
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, enabled, &said));
     if !ui.is_rect_visible(rect) {
         return response;
     }

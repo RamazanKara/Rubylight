@@ -396,6 +396,11 @@ impl SharedFolders {
         }
     }
 
+    /// Whether a file goes to or from a shared folder, which leaving the PC's page cancels.
+    pub fn transferring(&self) -> bool {
+        self.open.as_ref().is_some_and(|open| open.transfer.is_some())
+    }
+
     /// Takes in what the workers found. `page` is the PC whose details page is open or on the
     /// way back: leaving it closes the browser, which cancels what is running.
     pub fn poll(&mut self, page: Option<u64>) {
@@ -919,11 +924,13 @@ pub(crate) mod tests {
         folders.open(7, fake.clone(), waker());
         settle(&mut folders, 7);
         assert!(folders.download(7, &saves(), "a.txt", 3, std::env::temp_dir()));
+        assert!(folders.transferring(), "leaving the page now would cancel the download");
         let local = std::env::temp_dir().join("nightjar-second-transfer.txt");
         assert!(folders.upload(7, &saves(), local.clone()));
         let said = folders.state_for(7).unwrap().transfer_error.clone();
         assert_eq!(said.as_deref(), Some("Another transfer is still running."));
         settle(&mut folders, 7);
+        assert!(!folders.transferring());
         assert!(!calls(&fake).iter().any(|c| c.starts_with("upload")));
 
         // Leaving the page closes the browser: what was chosen for it is not started.

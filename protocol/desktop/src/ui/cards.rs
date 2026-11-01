@@ -357,11 +357,12 @@ pub(super) fn poster(ui: &mut Ui, name: &str, art: Option<&Art>, badge: Badge, w
 
 /// The last tile of a Home row with more games than fit: how many there are, and the way to see
 /// them all.
-pub(super) fn all_tile(ui: &mut Ui, count: usize, width: f32) -> Response {
+pub(super) fn all_tile(ui: &mut Ui, count: usize, said: &str, width: f32) -> Response {
     let height = (width * 4.0 / 3.0).round();
     let (rect, response) = ui.allocate_exact_size(vec2(width, height + POSTER_CAPTION), Sense::click());
     let label = trf("All {}", &[&count]);
-    response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, label.clone()));
+    // "All 12" on the tile; a screen reader hears whose games: "All Steam games, 12".
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, said));
     let tile = Rect::from_min_size(rect.min, vec2(width, height));
     let active = response.hovered() || response.has_focus();
     let fill = state_fill(SURFACE, active, response.is_pointer_button_down_on());

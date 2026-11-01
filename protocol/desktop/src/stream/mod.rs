@@ -52,7 +52,7 @@ mod wasapi;
 #[cfg(windows)]
 mod wlan;
 pub mod gpu_planes;
-mod pyrowave_sdk;
+pub(crate) mod pyrowave_sdk;
 #[cfg(unix)]
 mod planes_gpu;
 mod negotiate;

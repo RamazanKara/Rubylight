@@ -1,17 +1,22 @@
 //! Draws the GPU decoder's planes through SDL's GPU renderer (brief G3, Linux).
 //!
-//! The planes the SDK decoded sit in CPU buffers (`gpu_planes::Lease`). This pass copies them into
-//! three persistent R8 or R16 UNORM textures of the renderer's device and draws a full-target
-//! rectangle with `pyrowave-planes.spv`, the `planes` entry of pyrowave.hlsl, which converts the
-//! planes to the same linear RGB as the CPU path. Nothing here waits for the GPU: the uploads and
-//! the draw are ordered by the renderer's own queue.
+//! The planes the SDK decoded sit in images on the renderer's own device (`zero_copy.rs`) or in
+//! CPU buffers (`gpu_planes::Lease`). This pass copies them into three persistent R8 or R16 UNORM
+//! textures of the renderer's device, on the GPU from the images (wrapped as SDL textures once per
+//! plane set) or as an upload from the buffers, and draws a full-target rectangle with
+//! `pyrowave-planes.spv`, the `planes` entry of pyrowave.hlsl, which converts the planes to the
+//! same linear RGB as the CPU path. Nothing here waits for the GPU: the copies and the draw are
+//! ordered by the renderer's own queue, and a plane set copied on the GPU goes back to the decoder
+//! with the reuse value signalled behind the copy.
 
 use std::ptr;
+use std::sync::Arc;
 use std::time::Instant;
 
 use sdl3_sys::everything::*;
 
-use super::gpu_planes::Lease;
+use super::gpu_planes::{Lease, Planes};
+use super::pyrowave_sdk::zero_copy::{SharedImages, TEXTURE_IMAGE_PROPERTY};
 use super::pyrowave_sdk::GpuConfig;
 use super::stage_times::Stages;
 
@@ -44,6 +49,9 @@ pub struct PlanesPass {
     /// The width and height of each plane texture.
     sizes: [(u32, u32); 3],
     sample_bytes: usize,
+    /// The decoder's images wrapped as textures of this device, per plane set, for the planes
+    /// they belong to.
+    wrapped: Option<(Arc<Planes>, Vec<[*mut SDL_GPUTexture; 3]>)>,
 }
 
 impl PlanesPass {
@@ -89,7 +97,7 @@ impl PlanesPass {
         }
         let mut pass = Self {
             device, shader: ptr::null_mut(), sampler: ptr::null_mut(), textures: [ptr::null_mut(); 3],
-            transfer: ptr::null_mut(), state: ptr::null_mut(), sizes, sample_bytes: if ten_bit { 2 } else { 1 },
+            transfer: ptr::null_mut(), state: ptr::null_mut(), sizes, sample_bytes: if ten_bit { 2 } else { 1 }, wrapped: None,
         };
         pass.shader = create_shader(device);
         if pass.shader.is_null() {
@@ -126,14 +134,18 @@ impl PlanesPass {
         Ok(pass)
     }
 
-    /// Uploads the planes of `lease` and draws them, converted, over all of `target` (the
-    /// renderer's RGBA64F picture texture). `parameters` are the shader's constants. The CPU time
-    /// of copying and submitting the upload goes to `stages`' upload, that of the conversion to
-    /// its passes (the GPU runs on after the submit returns).
+    /// Copies the planes of `lease` (on the GPU, or as an upload) and draws them, converted, over
+    /// all of `target` (the renderer's RGBA64F picture texture). `parameters` are the shader's
+    /// constants. The CPU time of filling and submitting the copy goes to `stages`' upload, that
+    /// of the conversion to its passes (the GPU runs on after the submit returns).
     ///
     /// # Safety
     /// `renderer` and `target` must be live and the pass the one made on this renderer.
     pub unsafe fn draw(&mut self, renderer: *mut SDL_Renderer, target: *mut SDL_Texture, lease: &Lease, parameters: &[u32; 8], stages: &mut Stages<2>) -> Result<(), String> {
+        if let Some(images) = lease.planes().images() {
+            let images = images.clone();
+            return self.draw_shared(renderer, target, lease, &images, parameters, stages);
+        }
         let bytes = [0, 1, 2].map(|plane| self.plane_bytes(plane));
         self.draw_with(renderer, target, parameters, Some(stages), |mapped, offsets| {
             lease.with_buffers(|buffers| {
@@ -142,6 +154,86 @@ impl PlanesPass {
                 }
             });
         })
+    }
+
+    /// `draw` for a set in the decoder's images: copies it into the plane textures on the GPU,
+    /// signals the reuse timeline behind the copy and gives the set back with that value, so the
+    /// decoder can write it again as soon as the copy is done, not after the draw.
+    unsafe fn draw_shared(&mut self, renderer: *mut SDL_Renderer, target: *mut SDL_Texture, lease: &Lease, images: &SharedImages, parameters: &[u32; 8], stages: &mut Stages<2>) -> Result<(), String> {
+        let step = Instant::now();
+        if !SDL_FlushRenderer(renderer) {
+            return Err(format!("the renderer cannot flush: {}", crate::sdl::error()));
+        }
+        let sources = self.wrap(lease.planes(), images)?[lease.set()];
+        let commands = SDL_AcquireGPUCommandBuffer(self.device);
+        if commands.is_null() {
+            return Err(format!("no GPU command buffer for the plane copy: {}", crate::sdl::error()));
+        }
+        let copy = SDL_BeginGPUCopyPass(commands);
+        for (plane, source) in sources.into_iter().enumerate() {
+            let (width, height) = self.sizes[plane];
+            SDL_CopyGPUTextureToTexture(copy,
+                &SDL_GPUTextureLocation { texture: source, ..Default::default() },
+                &SDL_GPUTextureLocation { texture: self.textures[plane], ..Default::default() },
+                width, height, 1, true);
+        }
+        SDL_EndGPUCopyPass(copy);
+        if !SDL_SubmitGPUCommandBuffer(commands) {
+            return Err(format!("the plane copy cannot be submitted: {}", crate::sdl::error()));
+        }
+        lease.release_after(images.signal_reuse()?);
+        stages.add(super::pyrowave_gpu::UPLOAD, step);
+        self.convert(renderer, target, parameters, Some(stages))
+    }
+
+    /// The textures wrapping each plane set of `planes`' images, made on first use. Those of
+    /// earlier planes (an earlier decoder's) are released first.
+    unsafe fn wrap(&mut self, planes: &Arc<Planes>, images: &SharedImages) -> Result<&[[*mut SDL_GPUTexture; 3]], String> {
+        if self.wrapped.as_ref().is_some_and(|(wrapped, _)| !Arc::ptr_eq(wrapped, planes)) {
+            self.unwrap();
+        }
+        if self.wrapped.is_none() {
+            let config = images.config();
+            let mut sets: Vec<[*mut SDL_GPUTexture; 3]> = Vec::new();
+            for set in 0..config.slots {
+                let mut textures = [ptr::null_mut(); 3];
+                for (plane, texture) in textures.iter_mut().enumerate() {
+                    let (width, height) = config.plane_size(plane);
+                    let props = SDL_CreateProperties();
+                    SDL_SetNumberProperty(props, TEXTURE_IMAGE_PROPERTY.as_ptr(), ash::vk::Handle::as_raw(images.image(set, plane)) as i64);
+                    // Compute storage, so SDL expects the image in GENERAL, where the decoder leaves it.
+                    *texture = SDL_CreateGPUTexture(self.device, &SDL_GPUTextureCreateInfo {
+                        r#type: SDL_GPU_TEXTURETYPE_2D, format: plane_format(config.ten_bit), usage: SDL_GPU_TEXTUREUSAGE_COMPUTE_STORAGE_WRITE,
+                        width, height, layer_count_or_depth: 1, num_levels: 1, sample_count: SDL_GPU_SAMPLECOUNT_1, props });
+                    SDL_DestroyProperties(props);
+                }
+                // Kept before the check, so `unwrap` releases what was made.
+                let failed = textures.iter().any(|texture| texture.is_null());
+                sets.push(textures);
+                if failed {
+                    self.wrapped = Some((planes.clone(), sets));
+                    let error = crate::sdl::error();
+                    self.unwrap();
+                    return Err(format!("the decoder's plane images cannot be wrapped as textures: {error}"));
+                }
+            }
+            self.wrapped = Some((planes.clone(), sets));
+        }
+        Ok(self.wrapped.as_ref().map_or(&[], |(_, sets)| sets.as_slice()))
+    }
+
+    /// Releases the wrapped textures and lets their images go. SDL destroys a texture's views only
+    /// once its last command is done, and the images must outlive them, so this waits for that.
+    unsafe fn unwrap(&mut self) {
+        let Some((planes, sets)) = self.wrapped.take() else { return };
+        for texture in sets.into_iter().flatten().filter(|texture| !texture.is_null()) {
+            SDL_ReleaseGPUTexture(self.device, texture);
+        }
+        if !SDL_WaitForGPUIdle(self.device) {
+            // The views may still be in use: keep the images rather than free them under the GPU.
+            eprintln!("nightjar: the GPU did not go idle after the PyroWave planes ({}), so their images stay allocated", crate::sdl::error());
+            std::mem::forget(planes);
+        }
     }
 
     /// Uploads the planes of a software-decoded planar picture (row by row: FFmpeg pads its rows),
@@ -200,6 +292,11 @@ impl PlanesPass {
             return Err(format!("the plane upload cannot be submitted: {}", crate::sdl::error()));
         }
         if let Some(stages) = stages.as_deref_mut() { stages.add(super::pyrowave_gpu::UPLOAD, step); }
+        self.convert(renderer, target, parameters, stages)
+    }
+
+    /// Draws the plane textures, converted, over `target`.
+    unsafe fn convert(&mut self, renderer: *mut SDL_Renderer, target: *mut SDL_Texture, parameters: &[u32; 8], stages: Option<&mut Stages<2>>) -> Result<(), String> {
         let step = Instant::now();
         if !SDL_SetGPURenderStateFragmentUniforms(self.state, 0, parameters.as_ptr().cast(), 32) {
             return Err(format!("the plane constants cannot be set: {}", crate::sdl::error()));
@@ -276,6 +373,7 @@ impl Drop for PlanesPass {
     fn drop(&mut self) {
         // SAFETY: These objects belong to the renderer's device, which outlives the pass.
         unsafe {
+            self.unwrap();
             if !self.state.is_null() { SDL_DestroyGPURenderState(self.state); }
             if !self.transfer.is_null() { SDL_ReleaseGPUTransferBuffer(self.device, self.transfer); }
             for texture in self.textures { if !texture.is_null() { SDL_ReleaseGPUTexture(self.device, texture); } }

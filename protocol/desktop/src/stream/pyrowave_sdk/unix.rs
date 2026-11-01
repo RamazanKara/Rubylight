@@ -1,12 +1,14 @@
-//! The Linux side of the SDK decoder (brief G3): libpyrowave-shared.so on its own Vulkan device,
+//! The Linux side of the SDK decoder (brief G3): libpyrowave-shared.so on the SDL GPU renderer's
+//! own Vulkan device, decoding into images the presenter copies on the GPU (`zero_copy.rs`,
+//! `for_renderer`), or, where that device cannot be shared, on a Vulkan device of its own,
 //! decoding into CPU plane buffers.
 //!
-//! The Windows decoder shares D3D11 textures and fences with the renderer. SDL's GPU renderer on
-//! Linux gives no such handles, and a decoder on a different Vulkan device than the renderer
-//! (an iGPU decoding for a dGPU display, say) could not share memory anyway, so the planes cross
-//! through the CPU: the SDK decodes on the GPU (`pyrowave_decoder_decode_cpu_buffer_async`), reads the
-//! planes back into the buffers handed to `decode`, and the presenter uploads them to its own
+//! The readback: the SDK decodes on the GPU (`pyrowave_decoder_decode_cpu_buffer_async`), reads
+//! the planes back into the buffers handed to `decode`, and the presenter uploads them to its own
 //! textures. The readback is one memcpy per plane out of host-visible memory.
+//!
+//! The shared device: `decode_into` decodes into a plane set of `SharedImages` and waits on the
+//! decode timeline, under the same watchdog, so a picture is just as final when it is handed on.
 //!
 //! `decode` blocks until the GPU is done and the planes are in the buffers. The SDK's `complete`
 //! waits on its fence without a timeout (and `async` submits to the queue, which a lost device can
@@ -27,10 +29,11 @@ use std::time::Duration;
 use ash::vk;
 
 use super::watchdog::Watchdog;
+use super::zero_copy::{self, SdlVulkan, ShareInfo, SharedImages};
 use super::*;
 
-/// The SDK's decoder on a Vulkan device of its own choosing (the default one), with the plane
-/// buffers handed in per `decode`.
+/// The SDK's decoder, on the renderer's Vulkan device with its plane sets there (`shared`), or on
+/// a device of its own choosing (the default one) with the plane buffers handed in per `decode`.
 ///
 /// `Send` but not `Sync`: the SDK's entry points are not thread safe, so move it between
 /// threads, never share it.
@@ -41,6 +44,47 @@ pub struct GpuDecoder {
     decoder: RawDecoder,
     watchdog: Watchdog,
     timeout: Duration,
+    shared: Option<Shared>,
+    /// The last value a decode signalled on the decode timeline.
+    decode_value: u64,
+}
+
+/// The renderer's device as the SDK shares it.
+struct Shared {
+    images: Arc<SharedImages>,
+    /// What `pyrowave_create_device` was given, which the SDK device keeps pointing into.
+    _info: Box<ShareInfo>,
+}
+
+/// A decode into a shared plane set, for the wait thread: `buffers` are images of `images`, which
+/// the job keeps alive.
+struct SharedDecode {
+    api: Arc<Api>,
+    decoder: RawDecoder,
+    images: Arc<SharedImages>,
+    buffers: GpuBuffers,
+    after: u64,
+    value: u64,
+    wait: Duration,
+}
+
+// SAFETY: As `Pending`: the decoder outlives the call (a stalled one is leaked).
+unsafe impl Send for SharedDecode {}
+
+impl SharedDecode {
+    /// Submits the decode after the reuse timeline reached `after` (the presenter's last copy out
+    /// of the set), with a signal of `value` on the decode timeline, and waits for that.
+    fn run(self) -> Result<(), String> {
+        let (decode, reuse) = self.images.semaphores();
+        let acquire = GpuSyncOperation { images: ptr::null(), num_images: 0, sync: SyncPoint { semaphore: reuse, value: self.after } };
+        let release = GpuSyncOperation { images: ptr::null(), num_images: 0, sync: SyncPoint { semaphore: decode, value: self.value } };
+        // SAFETY: The decoder is live, the images outlive the job, and the owner thread does not
+        // call the SDK while it waits on this job.
+        let result = unsafe { (self.api.decoder_decode_gpu_buffer)(self.decoder, if self.after > 0 { &acquire } else { ptr::null() }, &release, &self.buffers) };
+        check(result, "decoding PyroWave into the renderer's planes")?;
+        self.images.decode_queued(self.value);
+        self.images.wait_decode(self.value, self.wait)
+    }
 }
 
 /// What the wait thread needs of a decode: the decoder and the buffer description. The planes
@@ -101,6 +145,64 @@ impl GpuDecoder {
         Self::with_api(Api::shared()?, config)
     }
 
+    /// The decoder for the renderer whose SDL GPU device is `device`: on that device, decoding
+    /// into images the presenter copies on the GPU (`share`), unless `NIGHTJAR_PYROWAVE_READBACK=1`
+    /// or the device cannot be shared; then on a device of the SDK's choosing, reading the planes
+    /// back (`new`). Which way and why goes to the log once.
+    pub fn for_renderer(device: *mut c_void, config: GpuConfig) -> Result<Self, String> {
+        let api = Api::shared()?;
+        let shared = if zero_copy::readback_forced(std::env::var_os(zero_copy::FORCE_READBACK).as_deref()) {
+            Err(format!("{}=1", zero_copy::FORCE_READBACK))
+        } else {
+            Self::share(api.clone(), device, config)
+        };
+        match shared {
+            Ok(decoder) => {
+                zero_copy::note("PyroWave GPU decoding shares the renderer's Vulkan device, without a plane readback");
+                Ok(decoder)
+            }
+            Err(reason) => {
+                zero_copy::note(&format!("PyroWave GPU decoding reads its planes back through the CPU: {reason}"));
+                Self::with_api(api, config)
+            }
+        }
+    }
+
+    /// The decoder on the renderer's Vulkan device (`device`, its SDL GPU device), with
+    /// `config.slots` plane sets there. Errors say why the device cannot be shared.
+    pub fn share(api: Arc<Api>, device: *mut c_void, config: GpuConfig) -> Result<Self, String> {
+        check_config(config)?;
+        // SAFETY: `device` is the renderer's live GPU device, which outlives the stream; `s` owns
+        // every handle made, so Drop releases them on any early return, the SDK device before the
+        // structs it points into.
+        unsafe {
+            let sdl = SdlVulkan::of_device(device.cast())?;
+            let get_instance_proc_addr = zero_copy::get_instance_proc_addr()?;
+            let images = SharedImages::new(&sdl, get_instance_proc_addr, config)?;
+            let info = ShareInfo::new(&sdl, get_instance_proc_addr);
+            let watchdog = Watchdog::new()?;
+            let mut s = Self { api, config, device: ptr::null_mut(), decoder: ptr::null_mut(), watchdog, timeout: crate::stream::pyrowave::GPU_DECODE_TIMEOUT, shared: None, decode_value: 0 };
+            let result = (s.api.create_device)(&info.create, &mut s.device);
+            s.shared = Some(Shared { images, _info: info });
+            if result != SUCCESS {
+                return Err(format!("the SDK cannot share the renderer's Vulkan device (PyroWave error {result}, {})", result_name(result)));
+            }
+            let result = (s.api.decoder_create)(
+                &DecoderCreateInfo { device: s.device, width: config.width as i32, height: config.height as i32, chroma: i32::from(config.chroma444), fragment_path: false },
+                &mut s.decoder,
+            );
+            if result != SUCCESS {
+                return Err(format!("the SDK's decoder does not run on the renderer's Vulkan device (PyroWave error {result}, {})", result_name(result)));
+            }
+            Ok(s)
+        }
+    }
+
+    /// The plane sets on the renderer's device, when the decoder shares it.
+    pub fn images(&self) -> Option<&Arc<SharedImages>> {
+        self.shared.as_ref().map(|shared| &shared.images)
+    }
+
     /// How long `decode` waits for the GPU before it fails (`GPU_DECODE_TIMEOUT` unless changed).
     pub fn set_decode_timeout(&mut self, timeout: Duration) {
         self.timeout = timeout;
@@ -116,11 +218,9 @@ impl GpuDecoder {
     /// path). `config.slots` is only the number of plane sets the stream keeps; the buffers are
     /// the caller's. Errors name the step that failed.
     pub fn with_api(api: Arc<Api>, config: GpuConfig) -> Result<Self, String> {
-        if config.slots == 0 || config.width == 0 || config.height == 0 || (!config.chroma444 && (config.width % 2 != 0 || config.height % 2 != 0)) {
-            return Err(format!("PyroWave GPU decoding: bad picture {}x{} with {} plane sets", config.width, config.height, config.slots));
-        }
+        check_config(config)?;
         let watchdog = Watchdog::new()?;
-        let mut s = Self { api, config, device: ptr::null_mut(), decoder: ptr::null_mut(), watchdog, timeout: crate::stream::pyrowave::GPU_DECODE_TIMEOUT };
+        let mut s = Self { api, config, device: ptr::null_mut(), decoder: ptr::null_mut(), watchdog, timeout: crate::stream::pyrowave::GPU_DECODE_TIMEOUT, shared: None, decode_value: 0 };
         // SAFETY: The out-pointers outlive each call, and `s` owns every handle made so Drop
         // releases them on any early return.
         unsafe {
@@ -198,6 +298,22 @@ impl GpuDecoder {
         self.watchdog.run(self.timeout, move || pending.run())
     }
 
+    /// Decodes the pushed records into plane set `set` of `images` once the presenter's copy out
+    /// of it that signalled `after` on the reuse timeline is done (0: none), and returns when the
+    /// planes are final, or fails like `decode`.
+    pub fn decode_into(&mut self, set: usize, after: u64) -> Result<(), String> {
+        if self.stalled() { return Err("the PyroWave decoder is stalled: an earlier decode never finished".into()); }
+        let Some(shared) = &self.shared else { return Err("the PyroWave decoder does not share the renderer's device".into()) };
+        if set >= self.config.slots { return Err(format!("PyroWave plane set {set} of {}", self.config.slots)); }
+        self.decode_value += 1;
+        // The wait outlasts the watchdog, which gives up first and marks the decoder stalled.
+        let job = SharedDecode {
+            api: self.api.clone(), decoder: self.decoder, images: shared.images.clone(), buffers: shared.images.views(set),
+            after, value: self.decode_value, wait: self.timeout * 2,
+        };
+        self.watchdog.run(self.timeout, move || job.run())
+    }
+
     /// The SDK's GPU timestamps since the last reset, as the lines it reports.
     pub fn performance_stats(&self, reset: bool) -> Vec<String> {
         unsafe extern "C" fn collect(userdata: *mut c_void, message: *const c_char) {
@@ -216,8 +332,11 @@ impl GpuDecoder {
 impl Drop for GpuDecoder {
     fn drop(&mut self) {
         // A stalled device is hung: destroying the decoder would idle it and block here for good,
-        // and the stuck call is still using it. Leak both.
-        if self.stalled() { return; }
+        // and the stuck call is still using it. Leak both, and what a shared device points into.
+        if self.stalled() {
+            std::mem::forget(self.shared.take());
+            return;
+        }
         // SAFETY: Each non-null handle was made on `self.device`, which goes last; the SDK idles
         // the GPU before destroying the decoder.
         unsafe {
@@ -229,6 +348,13 @@ impl Drop for GpuDecoder {
             }
         }
     }
+}
+
+fn check_config(config: GpuConfig) -> Result<(), String> {
+    if config.slots == 0 || config.width == 0 || config.height == 0 || (!config.chroma444 && (config.width % 2 != 0 || config.height % 2 != 0)) {
+        return Err(format!("PyroWave GPU decoding: bad picture {}x{} with {} plane sets", config.width, config.height, config.slots));
+    }
+    Ok(())
 }
 
 /// The decoder is offered only if this succeeds, with the library next to the executable. It

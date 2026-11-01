@@ -51,6 +51,19 @@ fn structs_have_the_layout_of_the_c_header() {
     );
     assert_eq!((offset_of!(CpuBuffer, width), offset_of!(CpuBuffer, height), offset_of!(CpuBuffer, format)), (72, 76, 80));
     assert_eq!((size_of::<GpuSyncOperation>(), offset_of!(GpuSyncOperation, num_images), offset_of!(GpuSyncOperation, sync)), (32, 8, 16));
+    // pyrowave_device_create_queue_info and pyrowave_device_create_info (the shared device):
+    // a queue and two indices; the loader entry, three handles, two create infos, the queue
+    // list and its count (padded), the two lock callbacks and their userdata.
+    assert_eq!((size_of::<DeviceQueueInfo>(), offset_of!(DeviceQueueInfo, family_index), offset_of!(DeviceQueueInfo, index)), (16, 8, 12));
+    assert_eq!(size_of::<SharedDeviceCreateInfo>(), 88);
+    assert_eq!(
+        (offset_of!(SharedDeviceCreateInfo, instance), offset_of!(SharedDeviceCreateInfo, device), offset_of!(SharedDeviceCreateInfo, instance_create_info), offset_of!(SharedDeviceCreateInfo, queue_info)),
+        (8, 24, 32, 48),
+    );
+    assert_eq!(
+        (offset_of!(SharedDeviceCreateInfo, queue_info_count), offset_of!(SharedDeviceCreateInfo, queue_lock_callback), offset_of!(SharedDeviceCreateInfo, queue_unlock_callback), offset_of!(SharedDeviceCreateInfo, userdata)),
+        (56, 64, 72, 80),
+    );
 }
 
 #[test]
@@ -630,7 +643,7 @@ fn block_count(width: usize, height: usize, full: bool) -> usize {
 /// A full 4:2:0 frame of `width`x`height` as the SDK's packets: the sequence header and one record
 /// for every block, each a fixture record re-addressed. The records are picked for a frame about
 /// `bytes` long, which with Rubylight's link-speed rate (300 Mbps at 60 fps) is 0.3 byte per pixel.
-fn synthetic_frame(pool: &[Vec<u8>], width: usize, height: usize, bytes: usize, sequence: u32) -> Vec<Vec<u8>> {
+pub(crate) fn synthetic_frame(pool: &[Vec<u8>], width: usize, height: usize, bytes: usize, sequence: u32) -> Vec<Vec<u8>> {
     let count = block_count(width, height, false);
     let average = bytes / count;
     let mut pool: Vec<&Vec<u8>> = pool.iter().collect();
@@ -651,7 +664,23 @@ fn synthetic_frame(pool: &[Vec<u8>], width: usize, height: usize, bytes: usize, 
     out
 }
 
-fn percentile(values: &mut [f64], p: usize) -> f64 {
+/// The records of the 4:2:0 fixtures, one by one, for `synthetic_frame`.
+pub(crate) fn record_pool() -> Vec<Vec<u8>> {
+    let mut pool = Vec::new();
+    for fixture in &fixtures()[..2] {
+        for packet in fixture.packets().into_iter().skip(1) {
+            let mut at = 0;
+            while at < packet.len() {
+                let length = ((word(&packet, at) >> 16) & 0xfff) as usize * 4;
+                pool.push(packet[at..at + length].to_vec());
+                at += length;
+            }
+        }
+    }
+    pool
+}
+
+pub(crate) fn percentile(values: &mut [f64], p: usize) -> f64 {
     values.sort_by(f64::total_cmp);
     values[(values.len() * p / 100).min(values.len() - 1)]
 }
@@ -1189,17 +1218,7 @@ fn probing_twice_loads_the_sdk_once_and_gives_the_same_answer() {
 fn decode_timing_at_1080p_1440p_and_4k() {
     let _gpu = gpu_lock();
     let api = sdk();
-    let mut pool = Vec::new();
-    for fixture in &fixtures()[..2] {
-        for packet in fixture.packets().into_iter().skip(1) {
-            let mut at = 0;
-            while at < packet.len() {
-                let length = ((word(&packet, at) >> 16) & 0xfff) as usize * 4;
-                pool.push(packet[at..at + length].to_vec());
-                at += length;
-            }
-        }
-    }
+    let pool = record_pool();
     for (name, width, height) in [("1080p", 1920usize, 1080usize), ("1440p", 2560, 1440), ("4K", 3840, 2160)] {
         let config = GpuConfig { width: width as u32, height: height as u32, chroma444: false, ten_bit: false, slots: 1 };
         let mut gpu = GpuDecoder::with_api(api.clone(), config).unwrap();

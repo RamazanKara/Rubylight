@@ -533,12 +533,11 @@ fn gpu_pyrowave(device: GpuDevice, setup: &VideoSetup, slots: usize) -> Result<s
     }
     #[cfg(unix)]
     {
-        // The SDK decodes on its own Vulkan device and the planes cross through CPU memory, so
-        // the renderer's device is only the proof that the presenter can draw them.
-        let _ = device;
+        // The SDK decodes on the renderer's Vulkan device where it can share it, else on its own
+        // with the planes crossing through CPU memory (`GpuDecoder::for_renderer`).
         let ten_bit = setup.format & nightjar_core::sdp::VIDEO_FORMAT_MASK_10BIT != 0;
         let chroma444 = setup.format & VIDEO_FORMAT_MASK_YUV444 != 0;
-        super::pyrowave::GpuStream::new(setup.width as usize, setup.height as usize, chroma444, ten_bit, slots)
+        super::pyrowave::GpuStream::new(device.0, setup.width as usize, setup.height as usize, chroma444, ten_bit, slots)
             .map(|stream| super::pyrowave::Pyrowave::Gpu(Box::new(stream)))
     }
 }

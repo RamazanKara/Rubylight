@@ -114,7 +114,7 @@ public class TvSettingsFocusTest {
             visited.add(keyAt(list, list.getSelectedItemPosition()));
         }
         assertEquals(Arrays.asList(StreamSettings.SEARCH_ROW_KEY, "input", "stream_presets", "stream_profiles", "video", "display",
-                "audio", "streaming", "app", "advanced"), visited);
+                "audio", "streaming", "app", "advanced", "debug"), visited);
         for (int i = list.getCount() - 2; i >= 0; i--) {
             press(screen, KeyEvent.KEYCODE_DPAD_UP);
             assertEquals("Up moves one row", i, list.getSelectedItemPosition());

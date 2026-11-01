@@ -106,7 +106,8 @@ public class PcSettingsTest {
             assertEquals("Den PC", toolbar.getTitle().toString());
             assertEquals(TestHosts.rubylight().familyLabel(app), toolbar.getSubtitle().toString());
             assertEquals(List.of(app.getString(R.string.settings_section_video), app.getString(R.string.pc_settings_display),
-                    app.getString(R.string.pc_settings_connection), app.getString(R.string.pc_settings_host)), groups(screen));
+                    app.getString(R.string.settings_section_debug), app.getString(R.string.pc_settings_connection),
+                    app.getString(R.string.pc_settings_host)), groups(screen));
         } finally {
             controller.pause().stop().destroy();
         }
@@ -116,8 +117,8 @@ public class PcSettingsTest {
     public void aHostWithoutDisplayControlsHasNoDisplayGroup() {
         ActivityController<HostStreamSettings> controller = open("sunshine-hub", TestHosts.fixture("sunshine-serverinfo.xml"));
         try {
-            assertEquals(List.of(app.getString(R.string.settings_section_video), app.getString(R.string.pc_settings_connection),
-                    app.getString(R.string.pc_settings_host)), groups(controller.get()));
+            assertEquals(List.of(app.getString(R.string.settings_section_video), app.getString(R.string.settings_section_debug),
+                    app.getString(R.string.pc_settings_connection), app.getString(R.string.pc_settings_host)), groups(controller.get()));
         } finally {
             controller.pause().stop().destroy();
         }

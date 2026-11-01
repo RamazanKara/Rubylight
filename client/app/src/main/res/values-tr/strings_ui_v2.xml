@@ -2,6 +2,7 @@
 <resources>
     <string name="settings_section_advanced">Gelişmiş</string>
     <string name="settings_advanced_summary">Kod çözme, giriş ve tanılama</string>
+    <string name="settings_section_debug">Hata ayıklama</string>
     <string name="settings_custom">Özel</string>
     <string name="setting_help">%1$s hakkında</string>
     <string name="stream_presets_help_title">Hazır ayarlar hakkında</string>

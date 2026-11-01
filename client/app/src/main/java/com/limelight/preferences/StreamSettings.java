@@ -110,8 +110,10 @@ public class StreamSettings extends NightjarActivity {
         SECTIONS.put("streaming", new String[] {"category_streaming", "category_more_streaming"});
         SECTIONS.put("app", new String[] {"category_ui_settings", "category_accessibility", "category_more_app"});
         SECTIONS.put("advanced", new String[] {"category_advanced_settings", "category_advanced_decoder",
-                "category_advanced_compatibility", "category_advanced_input", "category_advanced_experimental",
+                "category_advanced_compatibility", "category_advanced_experimental",
                 "category_advanced_diagnostics", "category_more_advanced"});
+        // Settings whose default is right for nearly everyone, kept for troubleshooting.
+        SECTIONS.put("debug", new String[] {"category_debug", "category_more_debug"});
     }
     /**
      * The row ending each section, "more_" and the section: it shows and hides the rows settings_tiers.xml does not
@@ -130,6 +132,7 @@ public class StreamSettings extends NightjarActivity {
             case "streaming": tier = R.array.settings_tier_streaming; break;
             case "app": tier = R.array.settings_tier_app; break;
             case "advanced": tier = R.array.settings_tier_advanced; break;
+            case "debug": tier = R.array.settings_tier_debug; break;
             default: throw new IllegalArgumentException("No settings section " + section);
         }
         return Arrays.asList(context.getResources().getStringArray(tier));
@@ -506,6 +509,7 @@ public class StreamSettings extends NightjarActivity {
             case "audio": return R.string.settings_section_audio;
             case "streaming": return R.string.settings_section_streaming;
             case "advanced": return R.string.settings_section_advanced;
+            case "debug": return R.string.settings_section_debug;
             default: return R.string.settings_section_app;
         }
     }

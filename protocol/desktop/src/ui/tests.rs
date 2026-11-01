@@ -2526,6 +2526,35 @@ fn primary_and_quiet_buttons_take_the_control_height() {
     assert_eq!(heights, [CONTROL_HEIGHT; 2]);
 }
 
+#[test]
+fn a_switched_off_primary_button_is_grey_not_faded_amber() {
+    crate::theme::own_palette();
+    let ctx = egui::Context::default();
+    crate::theme::apply(&ctx);
+    let mut fills = Vec::new();
+    for enabled in [true, false] {
+        let input = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(400.0, 300.0))), ..Default::default() };
+        let mut output = ctx.run_ui(input, |ui| {
+            ui.add_enabled_ui(enabled, |ui| primary_button(ui, "Play"));
+        });
+        output.textures_delta.clear();
+        // Amber whatever the fade: red well above blue (the surfaces are blue-black).
+        let is_amber = |c: Color32| f32::from(c.r()) > 1.6 * f32::from(c.b()) + 10.0;
+        let painted: Vec<Color32> = output
+            .shapes
+            .iter()
+            .filter_map(|clipped| match &clipped.shape {
+                egui::Shape::Rect(r) if r.fill.a() > 0 => Some(r.fill),
+                _ => None,
+            })
+            .collect();
+        let amber = painted.iter().any(|&c| is_amber(c));
+        fills.push((enabled, amber, painted));
+    }
+    assert!(fills[0].1, "an enabled Play is amber: {:?}", fills[0].2);
+    assert!(!fills[1].1 && !fills[1].2.is_empty(), "a switched-off Play is drawn, but not in amber: {:?}", fills[1].2);
+}
+
 /// Every text drawn in `shapes`.
 fn collect_all_text(shapes: &[egui::epaint::ClippedShape]) -> Vec<String> {
     let mut drawn = Vec::new();

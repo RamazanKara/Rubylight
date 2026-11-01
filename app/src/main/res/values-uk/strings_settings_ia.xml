@@ -12,7 +12,6 @@
     <string name="settings_category_usb">USB-контролери</string>
     <string name="settings_category_keyboard">Клавіатура</string>
     <string name="settings_category_decoder">Декодер</string>
-    <string name="settings_category_input_network">Введення та мережа</string>
     <string name="settings_category_diagnostics">Діагностика</string>
     <string name="settings_needs_host_support">Потрібна підтримка хоста</string>
     <string name="settings_pc_display_mode_value">Задається для кожного ПК у його меню</string>

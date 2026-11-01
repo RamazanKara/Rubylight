@@ -12,7 +12,6 @@
     <string name="settings_category_usb">Kontrolery USB</string>
     <string name="settings_category_keyboard">Klawiatura</string>
     <string name="settings_category_decoder">Dekoder</string>
-    <string name="settings_category_input_network">Sterowanie i sieć</string>
     <string name="settings_category_diagnostics">Diagnostyka</string>
     <string name="settings_needs_host_support">Wymaga obsługi przez host</string>
     <string name="settings_pc_display_mode_value">Ustawiane dla każdego komputera w jego menu</string>

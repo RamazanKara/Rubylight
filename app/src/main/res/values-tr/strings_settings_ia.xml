@@ -12,7 +12,6 @@
     <string name="settings_category_usb">USB kumandalar</string>
     <string name="settings_category_keyboard">Klavye</string>
     <string name="settings_category_decoder">Kod çözücü</string>
-    <string name="settings_category_input_network">Giriş ve ağ</string>
     <string name="settings_category_diagnostics">Tanılama</string>
     <string name="settings_needs_host_support">Ana bilgisayar desteği gerekir</string>
     <string name="settings_pc_display_mode_value">Her bilgisayar için kendi menüsünden ayarlanır</string>

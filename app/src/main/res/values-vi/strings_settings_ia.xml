@@ -12,7 +12,6 @@
     <string name="settings_category_usb">Tay cầm điều khiển USB</string>
     <string name="settings_category_keyboard">Bàn phím</string>
     <string name="settings_category_decoder">Trình giải mã</string>
-    <string name="settings_category_input_network">Đầu vào và mạng</string>
     <string name="settings_category_diagnostics">Chẩn đoán</string>
     <string name="settings_needs_host_support">Cần máy chủ hỗ trợ</string>
     <string name="settings_pc_display_mode_value">Đặt cho từng PC trong menu của PC đó</string>

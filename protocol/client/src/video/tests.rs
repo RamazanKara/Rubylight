@@ -247,6 +247,78 @@ fn lost_frame_requests_idr_without_rfi() {
 }
 
 #[test]
+fn a_late_packet_in_a_block_without_parity_is_not_a_lost_frame() {
+    // Retroid on Wi-Fi, November 1: with statistical FEC at 0 % a packet overtaken by the next
+    // one was reported lost at once (missing=0 in the FEC report), and the frame was dropped.
+    let mut host = Host::new();
+    let mut rx = VideoReceiver::new(VideoConfig {
+        rfi: true,
+        ..config(0x1)
+    });
+    let mut events = Vec::new();
+    for packet in host.frame(&h264_idr(), 2) {
+        rx.receive(&packet, 1, &mut events);
+    }
+    rx.frame_decoded(FrameType::Idr);
+    host.fec_percent = 0;
+    let mut late = host.frame(&h264_p(5000), 1);
+    assert_eq!(late.len(), 5);
+    late.swap(1, 2);
+    for packet in &late {
+        rx.receive(packet, 2, &mut events);
+    }
+    let lost = |events: &[VideoEvent]| {
+        events.iter().any(|e| {
+            matches!(
+                e,
+                VideoEvent::Signal(VideoSignal::InvalidateFrames { .. } | VideoSignal::RequestIdr)
+            )
+        })
+    };
+    assert!(!lost(&events), "a late packet is not a loss");
+    assert_eq!(frames(&events).len(), 2);
+    assert!(fec_blocks(&events)
+        .iter()
+        .all(|b| b.missing_shards == 0 && !b.unrecovered));
+
+    // A packet that never comes is still reported, when the next frame begins.
+    events.clear();
+    let gone = host.frame(&h264_p(5000), 1);
+    for (i, packet) in gone.iter().enumerate() {
+        if i != 1 {
+            rx.receive(packet, 3, &mut events);
+        }
+    }
+    assert!(!lost(&events), "no guess without parity");
+    for packet in host.frame(&h264_p(5000), 1) {
+        rx.receive(&packet, 4, &mut events);
+    }
+    assert!(lost(&events));
+    assert!(fec_blocks(&events)[0].unrecovered);
+
+    // With parity, a block missing more than it can rebuild is still reported at once (on a
+    // fresh receiver: the late packet above stops guesses for a while).
+    let mut host = Host::new();
+    let mut rx = VideoReceiver::new(VideoConfig {
+        rfi: true,
+        ..config(0x1)
+    });
+    events.clear();
+    for packet in host.frame(&h264_idr(), 2) {
+        rx.receive(&packet, 1, &mut events);
+    }
+    rx.frame_decoded(FrameType::Idr);
+    let short = host.frame(&h264_p(5000), 1);
+    assert_eq!(short.len(), 6);
+    for (i, packet) in short.iter().enumerate() {
+        if i != 1 && i != 2 {
+            rx.receive(packet, 5, &mut events);
+        }
+    }
+    assert!(lost(&events), "speculative loss with parity");
+}
+
+#[test]
 fn encrypted_packets_decrypt() {
     use aes_gcm::aead::generic_array::GenericArray;
     use aes_gcm::aead::{AeadInPlace, KeyInit};

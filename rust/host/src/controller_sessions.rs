@@ -80,6 +80,42 @@ impl Pool {
             .values()
             .any(|entry| Arc::strong_count(&entry.pads) > 1)
     }
+    /// Unplug the parked controllers no stream holds, waiting up to
+    /// `timeout` for each, and return how many: a Nucleus Co-op launch does
+    /// this before it plugs its players' pads, so a stream that ended no
+    /// longer holds the first XInput slot (#56). Their clients get new ones
+    /// when they reconnect.
+    // Its caller, the Nucleus Co-op launch in nvhttp.rs, lands with the
+    // session lifecycle changes.
+    #[allow(dead_code)]
+    pub fn release_parked(&self, timeout: Duration) -> Result<usize> {
+        let parked: Vec<Entry> = {
+            let mut entries = self.0.lock().unwrap();
+            let keys: Vec<String> = entries
+                .iter()
+                .filter(|(_, entry)| Arc::strong_count(&entry.pads) == 1)
+                .map(|(key, _)| key.clone())
+                .collect();
+            keys.iter().filter_map(|key| entries.remove(key)).collect()
+        };
+        // Each is stopped, so none is waited for again when dropped here.
+        let mut failed = None;
+        for entry in &parked {
+            if let Err(error) = entry.pads.stop_within(timeout) {
+                failed.get_or_insert(error);
+            }
+        }
+        if let Some(error) = failed {
+            return Err(error.context("a stream's parked controllers are still plugged in"));
+        }
+        if !parked.is_empty() {
+            tracing::info!(
+                controllers = parked.len(),
+                "parked controllers released for Nucleus Co-op"
+            );
+        }
+        Ok(parked.len())
+    }
     pub fn expire(&self, app_running: bool) {
         self.0.lock().unwrap().retain(|_, entry| {
             if Arc::strong_count(&entry.pads) > 1 {
@@ -203,6 +239,34 @@ mod tests {
         assert_eq!(Arc::as_ptr(&again), retained);
         assert_eq!(keys(&pool), ["laptop:Stream", "tv:Stream"]);
         drop((tv_pads, again));
+    }
+
+    /// #56: a desktop stream's parked controller held XInput slot 0, and the
+    /// background game that started next read it instead of the player's.
+    #[test]
+    fn parked_controllers_are_released_for_a_nucleus_launch_and_held_ones_stay() {
+        let f = crate::state::test_support::Fixture::new();
+        let paired = f.client(0);
+        let launch = |uuid: &str| {
+            let mut client = paired.clone();
+            client.uuid = uuid.into();
+            f.launch(client, Role::Stream)
+        };
+        let config = Config::default();
+        let pool = Pool::default();
+        let keys = |pool: &Pool| pool.0.lock().unwrap().keys().cloned().collect::<Vec<_>>();
+        // The TV streams on; the phone's desktop stream ended and parked its
+        // controller.
+        let tv = pool.acquire(&launch("tv"), &config).unwrap();
+        drop(pool.acquire(&launch("phone"), &config).unwrap());
+        assert_eq!(keys(&pool), ["phone:Stream", "tv:Stream"]);
+        assert_eq!(pool.release_parked(Duration::from_secs(5)).unwrap(), 1);
+        assert_eq!(keys(&pool), ["tv:Stream"]);
+        assert!(pool.in_use());
+        drop(tv);
+        assert_eq!(pool.release_parked(Duration::from_secs(5)).unwrap(), 1);
+        assert!(keys(&pool).is_empty());
+        assert_eq!(pool.release_parked(Duration::from_secs(5)).unwrap(), 0);
     }
 
     #[test]

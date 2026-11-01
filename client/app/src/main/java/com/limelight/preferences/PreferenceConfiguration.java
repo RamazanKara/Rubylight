@@ -121,6 +121,8 @@ public class PreferenceConfiguration {
     private static final String BACK_OPENS_MENU_PREF_STRING = "checkbox_back_opens_menu";
     private static final String GAMEPAD_QUIT_COMBO_PREF_STRING = "list_gamepad_quit_combo";
     private static final String BACK_AS_GUIDE_PREF_STRING = "checkbox_back_as_guide";
+    private static final String GUIDE_MENU_HOLD_PREF_STRING = "list_guide_menu_hold";
+    public static final int DEFAULT_GUIDE_MENU_HOLD_MS = 1000;
     private static final String CAPTURE_SYSTEM_KEYS_PREF_STRING = "checkbox_capture_system_keys";
     private static final String RIGHT_ALT_AS_META_PREF_STRING = "checkbox_right_alt_as_meta";
     private static final String KEYBOARD_FOLLOWS_TEXT_FIELDS_PREF_STRING = "checkbox_keyboard_follows_text_fields";
@@ -355,6 +357,8 @@ public class PreferenceConfiguration {
     public String gamepadQuitCombo = "off";
     // A controller's or handheld's Back sends Guide (Home/PS).
     public boolean backAsGuide;
+    // Holding a controller's Guide this long opens the stream menu; 0 is off.
+    public int guideMenuHoldMs = DEFAULT_GUIDE_MENU_HOLD_MS;
     // Alt+Tab, the Windows key and a keyboard's Back (as Esc) go to the PC where Android allows it.
     public boolean captureSystemKeys = true;
     public boolean rightAltAsMeta;
@@ -829,6 +833,15 @@ public class PreferenceConfiguration {
     }
 
     /** The stored controller style; anything but "modern" is the classic controller. */
+    /** The stored Hold Guide to open the stream menu time in ms; the default for anything else. */
+    public static int guideMenuHoldMs(String stored) {
+        if (stored == null) return DEFAULT_GUIDE_MENU_HOLD_MS;
+        switch (stored) {
+            case "0": case "500": case "1000": case "1500": case "2000": return Integer.parseInt(stored);
+            default: return DEFAULT_GUIDE_MENU_HOLD_MS;
+        }
+    }
+
     public static String oscStyle(String stored) {
         return OSC_STYLE_MODERN.equals(stored) ? OSC_STYLE_MODERN : OSC_STYLE_CLASSIC;
     }
@@ -1440,6 +1453,7 @@ public class PreferenceConfiguration {
         config.backOpensMenu = prefs.getBoolean(BACK_OPENS_MENU_PREF_STRING, false);
         config.gamepadQuitCombo = prefs.getString(GAMEPAD_QUIT_COMBO_PREF_STRING, "off");
         config.backAsGuide = prefs.getBoolean(BACK_AS_GUIDE_PREF_STRING, false);
+        config.guideMenuHoldMs = guideMenuHoldMs(prefs.getString(GUIDE_MENU_HOLD_PREF_STRING, null));
         config.captureSystemKeys = prefs.getBoolean(CAPTURE_SYSTEM_KEYS_PREF_STRING, true);
         config.rightAltAsMeta = prefs.getBoolean(RIGHT_ALT_AS_META_PREF_STRING, false);
         config.keyboardFollowsTextFields = prefs.getBoolean(KEYBOARD_FOLLOWS_TEXT_FIELDS_PREF_STRING, true);

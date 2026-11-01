@@ -4,4 +4,6 @@
     <string name="summary_list_gamepad_quit_combo">Segure estes botões para sair da transmissão; ela termina quando todos são soltos. Desligado deixa isso para o menu da transmissão, que Start+Select+LB+RB abre. Vale a partir da próxima transmissão.</string>
     <string name="gamepad_quit_combo_off">Desligado</string>
     <string name="stream_controller_mouse">Mouse no controle</string>
+    <string name="title_list_guide_menu_hold">Segurar Guide para abrir o menu da transmissão</string>
+    <string name="summary_list_guide_menu_hold">Um toque curto continua indo para o PC como Guide. Vale a partir da próxima transmissão.</string>
 </resources>

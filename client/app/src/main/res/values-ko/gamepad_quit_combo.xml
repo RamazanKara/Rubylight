@@ -4,4 +4,6 @@
     <string name="summary_list_gamepad_quit_combo">이 버튼들을 누르고 있으면 스트림을 종료합니다. 모두 놓으면 종료됩니다. 끄면 Start+Select+LB+RB로 여는 스트림 메뉴를 사용합니다. 다음 스트림부터 적용됩니다.</string>
     <string name="gamepad_quit_combo_off">끔</string>
     <string name="stream_controller_mouse">컨트롤러 마우스</string>
+    <string name="title_list_guide_menu_hold">Guide 길게 눌러 스트림 메뉴 열기</string>
+    <string name="summary_list_guide_menu_hold">짧게 누르면 Guide로 PC에 전달됩니다. 다음 스트림부터 적용됩니다.</string>
 </resources>

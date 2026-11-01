@@ -4,4 +4,6 @@
     <string name="summary_list_gamepad_quit_combo">Maintenez ces boutons pour quitter le flux ; il se termine quand tous sont relâchés. Désactivé laisse cela au menu du flux, qu’ouvre Start+Select+LB+RB. Au prochain flux.</string>
     <string name="gamepad_quit_combo_off">Désactivé</string>
     <string name="stream_controller_mouse">Souris à la manette</string>
+    <string name="title_list_guide_menu_hold">Maintenir Guide pour ouvrir le menu du flux</string>
+    <string name="summary_list_guide_menu_hold">Un appui court est toujours envoyé au PC comme Guide. Au prochain flux.</string>
 </resources>

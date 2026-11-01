@@ -671,6 +671,62 @@ pub fn install_steam_microphone(config: &Config) -> Result<Option<SavedDefaults>
     }
     Ok(Some(saved))
 }
+/// What Steam Streaming Microphone's driver copies between its pins as it is:
+/// channels, rate, container and valid bits, and whether samples are float.
+fn sample_layout(bytes: &[u8]) -> (u16, u32, u16, u16, bool) {
+    // SAFETY: callers pass bytes from Policy::format, which hold at least a whole WAVEFORMATEX,
+    // and the read is unaligned.
+    let format = unsafe { std::ptr::read_unaligned(bytes.as_ptr().cast::<WAVEFORMATEX>()) };
+    let float = format.wFormatTag == 3
+        || (format.wFormatTag == 65534
+            && bytes.len() >= size_of::<WAVEFORMATEXTENSIBLE>()
+            // SAFETY: `bytes` was just checked to hold a whole WAVEFORMATEXTENSIBLE, and the read
+            // is unaligned.
+            && unsafe { std::ptr::read_unaligned(bytes.as_ptr().cast::<WAVEFORMATEXTENSIBLE>()) }
+                .SubFormat
+                .data1
+                == 3);
+    (
+        format.nChannels,
+        format.nSamplesPerSec,
+        format.wBitsPerSample,
+        valid_bits(bytes),
+        float,
+    )
+}
+/// "2 ch 48000 Hz 32-bit PCM", for the log.
+fn describe_format(bytes: &[u8]) -> String {
+    let (channels, rate, bits, valid, float) = sample_layout(bytes);
+    let depth = if valid == bits { format!("{bits}-bit") } else { format!("{valid}-in-{bits}-bit") };
+    format!("{channels} ch {rate} Hz {depth} {}", if float { "float" } else { "PCM" })
+}
+/// Steam Streaming Microphone hands what plays on "Speakers (Steam Streaming
+/// Microphone)" to "Microphone (Steam Streaming Microphone)" sample for
+/// sample, without converting. With its own defaults (stereo 48 kHz playback,
+/// mono 44.1 kHz recording) a voice reached apps at 0.46 times its pitch and
+/// in pieces (issue 56). The playback format to set, the
+/// recording side's, or None when the two already agree.
+fn matching_playback_format(playback: &[u8], recording: &[u8]) -> Option<Vec<u8>> {
+    (sample_layout(playback) != sample_layout(recording)).then(|| recording.to_vec())
+}
+/// Gives Steam Streaming Microphone's playback endpoint `playback` the format
+/// of its recording endpoint (`matching_playback_format`); Windows converts the
+/// host's stream to it. The formats before and after, when it changed one.
+pub fn match_steam_microphone_format(playback: &str) -> Result<Option<(String, String)>> {
+    let recording = steam_microphone(&endpoints_for(eCapture)?)
+        .context("Microphone (Steam Streaming Microphone) is not present")?
+        .id
+        .clone();
+    let policy = Policy::new()?;
+    let before = policy.format(playback)?;
+    let Some(desired) = matching_playback_format(&before, &policy.format(&recording)?) else {
+        return Ok(None);
+    };
+    policy
+        .set_format(playback, &desired)
+        .with_context(|| format!("setting its playback format to {}", describe_format(&desired)))?;
+    Ok(Some((describe_format(&before), describe_format(&desired))))
+}
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Sample {
     Float32,
@@ -1171,6 +1227,50 @@ mod tests {
         }
     }
 
+    fn device_format(channels: u16, rate: u32, sample: Sample, mask: u32) -> Vec<u8> {
+        let mut bytes = virtual_format(usize::from(channels), sample, false);
+        let (bits, _) = sample.bits();
+        // SAFETY: virtual_format returns a whole WAVEFORMATEXTENSIBLE; the access is unaligned.
+        unsafe {
+            let format = bytes.as_mut_ptr().cast::<WAVEFORMATEXTENSIBLE>();
+            let mut value = std::ptr::read_unaligned(format);
+            value.Format.nSamplesPerSec = rate;
+            value.Format.nAvgBytesPerSec = rate * u32::from(channels) * u32::from(bits / 8);
+            value.dwChannelMask = mask;
+            std::ptr::write_unaligned(format, value);
+        }
+        bytes
+    }
+    #[test]
+    fn steam_microphone_playback_takes_the_recording_format() {
+        // Steam's defaults: stereo 48 kHz float playback, mono 44.1 kHz float
+        // recording, which the driver copies without converting (issue 56).
+        let playback = device_format(2, 48000, Sample::Float32, 3);
+        let recording = device_format(1, 44100, Sample::Float32, 4);
+        assert_eq!(
+            matching_playback_format(&playback, &recording),
+            Some(recording.clone())
+        );
+        assert_eq!(describe_format(&playback), "2 ch 48000 Hz 32-bit float");
+        assert_eq!(describe_format(&recording), "1 ch 44100 Hz 32-bit float");
+        // Rate, channels or sample type alone differing is a mismatch too.
+        for other in [
+            device_format(1, 48000, Sample::Float32, 4),
+            device_format(2, 44100, Sample::Float32, 3),
+            device_format(1, 44100, Sample::Pcm32, 4),
+            device_format(1, 44100, Sample::Pcm24In32, 4),
+        ] {
+            assert!(matching_playback_format(&other, &recording).is_some());
+        }
+        // The same samples with another speaker mask need no change.
+        let same = device_format(1, 44100, Sample::Float32, 0);
+        assert_eq!(matching_playback_format(&same, &recording), None);
+        assert_eq!(matching_playback_format(&recording, &recording), None);
+        assert_eq!(
+            describe_format(&device_format(1, 44100, Sample::Pcm24In32, 4)),
+            "1 ch 44100 Hz 24-in-32-bit PCM"
+        );
+    }
     #[test]
     fn streams_sharing_the_sink_get_the_most_channels_any_asked_for() {
         assert_eq!(shared_channels(&BTreeMap::new()), None);

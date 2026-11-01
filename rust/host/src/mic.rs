@@ -41,6 +41,7 @@ const HANDOVER: Duration = Duration::from_secs(1);
 const RETRY: Duration = Duration::from_secs(5);
 const WARNING: &str = "microphone";
 const ROUTING_WARNING: &str = "microphone_default";
+const FORMAT_WARNING: &str = "microphone_format";
 
 pub fn spawn(h: Shared, socket: UdpSocket) -> Result<Arc<Counters>> {
     // The shared UDP factory is nonblocking, which bypasses the receive timeout.
@@ -358,6 +359,7 @@ impl Output {
         }
         self.retry = None;
         session.launch.warnings.clear(ROUTING_WARNING);
+        session.launch.warnings.clear(FORMAT_WARNING);
     }
     /// Stops the render thread without waiting for one still installing or
     /// opening the device: that would hold up the receiver, and with it every
@@ -425,6 +427,19 @@ fn render(
     // Stopped while installing: neither open the device nor move the defaults.
     if stop.load(Ordering::Acquire) {
         return Ok(());
+    }
+    // Before opening: the driver copies samples between its sides unconverted.
+    match audio_route::match_steam_microphone_format(&endpoint) {
+        Ok(changed) => {
+            warnings.clear(FORMAT_WARNING);
+            if let Some((before, after)) = changed {
+                tracing::info!(%before, %after, "Steam Streaming Microphone playback format set to its recording format");
+            }
+        }
+        Err(error) => {
+            tracing::warn!(error = %format!("{error:#}"), "Steam Streaming Microphone formats could not be matched; the microphone will sound distorted");
+            warnings.set(FORMAT_WARNING, format!("Microphone may sound distorted: Steam Streaming Microphone's playback and recording formats differ and could not be matched ({error:#}). Set both to the same format in Windows' Sound settings."));
+        }
     }
     let mut render = Render::open(&endpoint)?;
     if stop.load(Ordering::Acquire) {

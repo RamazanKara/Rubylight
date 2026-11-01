@@ -5,8 +5,9 @@
 //!
 //! The stream is shared-mode, event-driven, stereo 32-bit float at 48 kHz
 //! with the mono microphone in both channels. Windows converts to whatever
-//! format the endpoint is set to (`AUTOCONVERTPCM`), so the host does not
-//! change the device's format.
+//! format the endpoint is set to (`AUTOCONVERTPCM`); the driver passes that on
+//! to the recording side unconverted, so the host first gives the endpoint the
+//! recording side's format (`audio_route::match_steam_microphone_format`).
 use anyhow::{Result, bail};
 use butterpollo_core::mic::{Playout, RATE};
 use std::time::Duration;

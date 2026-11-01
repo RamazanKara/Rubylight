@@ -14,8 +14,9 @@ pub const RESTART_EXIT_CODE: u32 = 75;
 
 /// Put back the compatibility settings a Nucleus Co-op session left for the
 /// user at the console when its host stopped mid-session
-/// (`nucleus::layers`): the service has the host do it before a host starts,
-/// and as the user signs in. A session of theirs that runs keeps its own.
+/// (`nucleus::layers`): a host the service runs does it as it starts, and the
+/// service has the host do it as the user signs in. A session of theirs that
+/// runs keeps its own.
 /// Whether nothing failed; each failure is logged.
 pub fn restore_nucleus_layers(config: &std::path::Path) -> bool {
     use crate::nucleus::layers::AtConsole;
@@ -159,5 +160,23 @@ mod tests {
         // A folder where the settings file belongs cannot be read as one.
         std::fs::create_dir(profile.path().join("sunshine.conf")).unwrap();
         assert!(!restore_nucleus_layers(profile.path()));
+    }
+    #[test]
+    fn the_service_looks_for_the_drivers_own_device() {
+        // The service reads Plug and Play itself, without this crate.
+        let driver = include_str!("../../service/src/driver.rs");
+        let guid = driver
+            .split_once("const INTERFACE: GUID = GUID::from_u128(0x")
+            .and_then(|(_, rest)| rest.split_once(')'))
+            .map(|(digits, _)| digits.replace('_', ""))
+            .unwrap();
+        assert_eq!(
+            u128::from_str_radix(&guid, 16).unwrap(),
+            rubylight_vdisplay_proto::INTERFACE_GUID_U128
+        );
+        assert!(driver.contains(&format!(
+            "const HARDWARE_ID: &str = r\"{}\";",
+            rubylight_vdisplay_proto::HARDWARE_ID
+        )));
     }
 }

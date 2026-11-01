@@ -105,34 +105,82 @@ fn status(state: ServiceState, checkpoint: u32) -> ServiceStatus {
 /// the service runs. After a repair attempt the watch stays quiet for an hour;
 /// setup also limits itself, and a repair that failed must not start a new
 /// setup process every few seconds.
+///
+/// Whether the device is there the service reads itself ([`crate::driver`]),
+/// on every poll. Whether the host can use it (a driver of another protocol
+/// left by an update that did not finish its driver step) only the host can
+/// say, so the host is asked ([`Step::AskHost`]) on two occasions only: once
+/// per service run, the first time the device is there, and before a repair
+/// for a device it refused, in case that was passing. Never twice within a
+/// minute, and the second at most once an hour.
 #[derive(Default)]
 struct DriverWatch {
     missing_since: Option<Instant>,
     quiet_until: Option<Instant>,
+    /// The host was asked this run.
+    asked: bool,
+    /// Its last answer: it could not use the device that is there.
+    refused: bool,
+    /// It is being asked again before a repair.
+    confirming: bool,
+}
+/// What a poll of the [`DriverWatch`] asks for.
+#[derive(Debug, PartialEq, Eq)]
+enum Step {
+    Wait,
+    /// Ask the host whether it can use the driver, then poll again at once.
+    AskHost,
+    /// Set the driver up again.
+    Repair,
 }
 impl DriverWatch {
     const GRACE: Duration = Duration::from_secs(60);
     const QUIET: Duration = Duration::from_secs(3600);
-    /// Whether to run the repair now.
-    fn poll(&mut self, available: bool, now: Instant) -> bool {
-        if available {
+    /// `present`: whether the device is there now.
+    fn poll(&mut self, present: bool, now: Instant) -> Step {
+        if present && !self.asked {
+            return Step::AskHost;
+        }
+        if present && !self.refused {
             self.missing_since = None;
-            return false;
+            self.confirming = false;
+            return Step::Wait;
         }
         if self.quiet_until.is_some_and(|until| now < until) {
-            return false;
+            return Step::Wait;
         }
         let since = *self.missing_since.get_or_insert(now);
         if now.duration_since(since) < Self::GRACE {
-            return false;
+            return Step::Wait;
+        }
+        if present && !self.confirming {
+            self.confirming = true;
+            return Step::AskHost;
         }
         self.missing_since = None;
         self.quiet_until = Some(now + Self::QUIET);
-        true
+        self.confirming = false;
+        Step::Repair
+    }
+    /// The host's answer to [`Step::AskHost`]: whether it can use the driver,
+    /// None when the check failed. A failed check decides nothing; one before a
+    /// repair keeps the watch quiet for an hour instead of repairing.
+    fn answered(&mut self, usable: Option<bool>, now: Instant) {
+        self.asked = true;
+        match usable {
+            Some(usable) => self.refused = !usable,
+            None if self.confirming => {
+                self.missing_since = None;
+                self.quiet_until = Some(now + Self::QUIET);
+                self.confirming = false;
+            }
+            None => {}
+        }
     }
     /// How long to wait before the next poll: a minute while the driver is
     /// there, which is the common case for the whole life of the service, and
-    /// 5 seconds while its minute of grace runs.
+    /// 5 seconds while its minute of grace runs. Polls read Plug and Play;
+    /// only [`Step::AskHost`] starts a process.
     fn interval(&self) -> Duration {
         if self.missing_since.is_some() {
             Duration::from_secs(5)
@@ -149,7 +197,9 @@ impl DriverWatch {
 /// this installation. Setup does that at most once a day per version, never
 /// during a stream and never after --no-display-driver; the driver script stops
 /// and restarts this service. A device the user switched off counts as there.
-/// The host's `--virtual-display-installed` task checks the driver.
+/// The service reads whether the device is there; the host's
+/// `--virtual-display-installed` task says whether it can use it, asked as
+/// [`DriverWatch`] says.
 fn repair_display_driver(install: &std::path::Path, host: &std::path::Path, stop: Arc<AtomicBool>) {
     use std::os::windows::process::CommandExt;
     let setup = install.join("uninstall.exe");
@@ -163,30 +213,54 @@ fn repair_display_driver(install: &std::path::Path, host: &std::path::Path, stop
     let host = host.to_owned();
     std::thread::spawn(move || {
         let mut watch = DriverWatch::default();
+        // Why the host refused the device, for the repair's log line.
+        let mut refusal = String::new();
         while !stop.load(Ordering::Acquire) {
             // A check that failed decides nothing: the next one comes after
             // the same interval.
-            let checked = tasks::virtual_display(&host).inspect_err(|error| {
-                tracing::error!(error = %format!("{error:#}"), "the virtual display driver could not be checked")
-            });
-            let reason = match &checked {
-                Ok(tasks::Driver::Missing(reason)) => Some(reason.as_str()),
-                _ => None,
+            let present = match crate::driver::present() {
+                Ok(present) => present,
+                Err(error) => {
+                    tracing::error!(error = %format!("{error:#}"), "the virtual display driver could not be checked");
+                    std::thread::sleep(watch.interval());
+                    continue;
+                }
             };
-            if checked.is_ok() && watch.poll(reason.is_none(), Instant::now()) {
-                tracing::warn!(
-                    reason = reason.unwrap_or(""),
-                    "the virtual display driver is missing; setting it up again"
-                );
-                // Not a child that dies with the service: the script stops it.
-                // Plain --repair-drivers is the limited, quiet run; only a
-                // person adds --now.
-                if let Err(error) = std::process::Command::new(&setup)
-                    .arg("--repair-drivers")
-                    .creation_flags(windows::Win32::System::Threading::CREATE_NO_WINDOW.0)
-                    .spawn()
-                {
-                    tracing::warn!(%error, "the driver repair could not start");
+            match watch.poll(present, Instant::now()) {
+                Step::Wait => {}
+                Step::AskHost => {
+                    let usable = match tasks::virtual_display(&host) {
+                        Ok(tasks::Driver::Installed) => Some(true),
+                        Ok(tasks::Driver::Missing(reason)) => {
+                            tracing::warn!(%reason, "the host cannot use the virtual display driver");
+                            refusal = reason;
+                            Some(false)
+                        }
+                        Err(error) => {
+                            tracing::error!(error = %format!("{error:#}"), "the host could not check the virtual display driver");
+                            None
+                        }
+                    };
+                    watch.answered(usable, Instant::now());
+                    continue;
+                }
+                Step::Repair => {
+                    let reason = if present { refusal.as_str() } else { "" };
+                    tracing::warn!(
+                        reason,
+                        present,
+                        "the virtual display driver is missing; setting it up again"
+                    );
+                    // Not a child that dies with the service: the script stops it.
+                    // Plain --repair-drivers is the limited, quiet run; only a
+                    // person adds --now.
+                    if let Err(error) = std::process::Command::new(&setup)
+                        .arg("--repair-drivers")
+                        .creation_flags(windows::Win32::System::Threading::CREATE_NO_WINDOW.0)
+                        .spawn()
+                    {
+                        tracing::warn!(%error, "the driver repair could not start");
+                    }
                 }
             }
             std::thread::sleep(watch.interval());
@@ -210,8 +284,9 @@ fn supervise() -> Result<()> {
     let event_stop = stop.clone();
     let wake = Arc::new(Signal::new()?);
     let event_wake = wake.clone();
-    // Due at the start, after a host stops, and as the user signs in.
-    let restore = Arc::new(AtomicBool::new(true));
+    // Due as the user signs in at the console while a host runs; a host puts
+    // back what an earlier one left as it starts (service_tasks.rs).
+    let restore = Arc::new(AtomicBool::new(false));
     let event_restore = restore.clone();
     let reporter = service_control_handler::register(NAME, move |control| match control {
         ServiceControl::Stop | ServiceControl::Shutdown => {
@@ -292,7 +367,6 @@ fn supervise() -> Result<()> {
         if current != session {
             if let Some(process) = child.take() {
                 shutdown_child(process);
-                restore.store(true, Ordering::Release);
             }
             session = current;
             restart = RestartPolicy::default();
@@ -302,7 +376,6 @@ fn supervise() -> Result<()> {
             && let Some(code) = process.exit_code()?
         {
             child = None;
-            restore.store(true, Ordering::Release);
             let now = Instant::now();
             let Some(delay) = restart.exited(code, now) else {
                 stop.store(true, Ordering::Release);
@@ -325,9 +398,10 @@ fn supervise() -> Result<()> {
             }
             retry_at = now + delay;
         }
-        // Before a host starts, and as the user signs in while one runs: a
-        // session it runs holds its file's lock, and the restore skips it.
-        if restore.swap(false, Ordering::AcqRel) {
+        // As the user signs in while a host runs: a session it runs holds its
+        // file's lock, and the restore skips it. Without a host, the next one
+        // puts it back as it starts.
+        if restore.swap(false, Ordering::AcqRel) && child.is_some() {
             tasks::restore_nucleus(&executable, &config);
         }
         // A stop can arrive while a host shuts down above; a new host would
@@ -397,40 +471,102 @@ mod tests {
             assert!(!signs_in(reason, 1, 1), "{reason:?}");
         }
     }
+    /// Drives a [`DriverWatch`] as the watch thread does, from second 0 to
+    /// `end`: `present` is the Plug and Play answer at a second, `host` the
+    /// host's answer to an ask. The seconds at which the host was asked and a
+    /// repair started.
+    fn drive(
+        end: u64,
+        present: impl Fn(u64) -> bool,
+        mut host: impl FnMut(u64) -> Option<bool>,
+    ) -> (Vec<u64>, Vec<u64>) {
+        let start = Instant::now();
+        let mut watch = DriverWatch::default();
+        let (mut asks, mut repairs) = (Vec::new(), Vec::new());
+        let mut second = 0;
+        while second < end {
+            let now = start + Duration::from_secs(second);
+            match watch.poll(present(second), now) {
+                Step::Wait => {}
+                Step::AskHost => {
+                    asks.push(second);
+                    assert!(asks.len() < 100, "the host is asked in a loop");
+                    watch.answered(host(second), now);
+                    continue;
+                }
+                Step::Repair => repairs.push(second),
+            }
+            second += watch.interval().as_secs();
+        }
+        (asks, repairs)
+    }
+    fn spaced(seconds: &[u64], at_least: u64) -> bool {
+        seconds.windows(2).all(|pair| pair[1] - pair[0] >= at_least)
+    }
     #[test]
     fn a_driver_removed_while_the_service_runs_is_repaired_after_a_minute() {
-        let mut watch = DriverWatch::default();
-        let start = Instant::now();
-        let at = |seconds| start + Duration::from_secs(seconds);
-        // Present for ten minutes, then removed (pnputil /remove-device).
-        for second in (0..600).step_by(5) {
-            assert!(!watch.poll(true, at(second)));
-        }
-        assert!(!watch.poll(false, at(600)));
-        assert!(!watch.poll(false, at(655)));
-        assert!(watch.poll(false, at(660)));
+        // Present for ten minutes, then removed (pnputil /remove-device): the
+        // host is asked once, at the start; the removal needs no host.
+        let (asks, repairs) = drive(5000, |second| second < 600, |_| Some(true));
+        assert_eq!(asks, [0]);
         // A repair that left it missing is not started again every few
         // seconds; the next try comes an hour later.
-        assert!(!watch.poll(false, at(665)));
-        assert!(!watch.poll(false, at(660 + 3599)));
-        assert!(!watch.poll(false, at(660 + 3600)));
-        assert!(watch.poll(false, at(660 + 3600 + 60)));
+        assert_eq!(repairs, [660, 660 + 3600 + 60]);
+        // A blip that heals within the minute never repairs; the next
+        // removal gets its own minute.
+        let present = |second| !(60..110).contains(&second) && second < 200;
+        let (_, repairs) = drive(300, present, |_| Some(true));
+        assert_eq!(repairs, [290]);
         // A minute apart while the driver is there, 5 seconds while it is not.
+        let start = Instant::now();
         let mut watch = DriverWatch::default();
-        watch.poll(true, at(0));
+        assert_eq!(watch.poll(true, start), Step::AskHost);
+        watch.answered(Some(true), start);
+        assert_eq!(watch.poll(true, start), Step::Wait);
         assert_eq!(watch.interval(), Duration::from_secs(60));
-        watch.poll(false, at(60));
+        watch.poll(false, start + Duration::from_secs(60));
         assert_eq!(watch.interval(), Duration::from_secs(5));
-        assert!(watch.poll(false, at(120)));
+        assert_eq!(
+            watch.poll(false, start + Duration::from_secs(120)),
+            Step::Repair
+        );
         // Missing through the quiet hour: back to a minute.
         assert_eq!(watch.interval(), Duration::from_secs(60));
-        // A blip that heals within the minute never repairs.
-        let mut watch = DriverWatch::default();
-        assert!(!watch.poll(false, at(0)));
-        assert!(!watch.poll(true, at(30)));
-        assert!(!watch.poll(false, at(40)));
-        assert!(!watch.poll(false, at(95)));
-        assert!(watch.poll(false, at(100)));
+    }
+    #[test]
+    fn the_host_is_asked_once_unless_it_refuses_and_never_on_a_timer() {
+        // A day with the driver there and usable: one ask, at the start.
+        let (asks, repairs) = drive(86_400, |_| true, |_| Some(true));
+        assert_eq!(asks, [0]);
+        assert!(repairs.is_empty());
+        // At boot the device comes up after the service: the ask waits for it.
+        let (asks, repairs) = drive(86_400, |second| second >= 30, |_| Some(true));
+        assert_eq!(asks, [30]);
+        assert!(repairs.is_empty());
+        // A day with a device the host keeps refusing (another protocol):
+        // asked again a minute later before the repair, then once an hour.
+        let (asks, repairs) = drive(86_400, |_| true, |_| Some(false));
+        assert_eq!(&asks[..3], [0, 60, 60 + 3600 + 60]);
+        assert_eq!(&repairs[..2], [60, 60 + 3600 + 60]);
+        assert!(spaced(&asks[1..], 3600), "{asks:?}");
+        assert!(asks.len() <= 25 && repairs.len() <= 24);
+        // A refusal that passed (the device was still starting) repairs nothing.
+        let (asks, repairs) = drive(86_400, |_| true, |second| Some(second > 0));
+        assert_eq!(asks, [0, 60]);
+        assert!(repairs.is_empty());
+        // A host that cannot answer decides nothing: no repair from its
+        // silence, and no ask more than once an hour.
+        let (asks, repairs) = drive(86_400, |_| true, |_| None);
+        assert_eq!(asks, [0]);
+        assert!(repairs.is_empty());
+        let (asks, repairs) = drive(86_400, |_| true, |second| (second == 0).then_some(false));
+        assert!(repairs.is_empty());
+        assert!(spaced(&asks, 60) && spaced(&asks[1..], 3600), "{asks:?}");
+        // Whatever the answers, never twice within a minute.
+        for host in [Some(true), Some(false), None] {
+            let (asks, _) = drive(86_400, |second| (second / 600) % 2 == 0, |_| host);
+            assert!(spaced(&asks, 60), "{host:?}: {asks:?}");
+        }
     }
     #[test]
     fn windows_termination_does_not_trigger_or_reset_crash_backoff() {

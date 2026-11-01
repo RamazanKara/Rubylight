@@ -2,9 +2,11 @@
 //! `butterpollo.exe`, as SYSTEM in the console session, starts it again when
 //! it exits or the session changes, and stops it with the service. What
 //! changes with the host from release to release (putting back what a Nucleus
-//! Co-op session left, checking the virtual display driver) runs as short
-//! `butterpollo.exe` tasks ([`tasks`]), so this executable stays the same
+//! Co-op session left as the user signs in, whether the host can use the
+//! virtual display driver) runs as short `butterpollo.exe` tasks ([`tasks`]),
+//! only on those events, never on a timer; so this executable stays the same
 //! until its own code does.
+mod driver;
 mod logfile;
 mod process;
 mod state;

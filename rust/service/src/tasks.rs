@@ -7,12 +7,14 @@
 //! - `--restore-nucleus-at-console --config-dir PROFILE`: put back what a
 //!   Nucleus Co-op session left for the user at the console. 0: nothing
 //!   failed (also when nothing was due, or it waits for the user); 1: a part
-//!   failed.
-//! - `--virtual-display-installed`: 0: the virtual display driver is there
-//!   (or switched off); 1: it is missing, and standard output says why.
+//!   failed. Run as the user signs in at the console while a host runs.
+//! - `--virtual-display-installed`: 0: the host can use the virtual display
+//!   driver (or it is switched off); 1: it cannot, and standard output says
+//!   why. Run once the device is there and before a repair, never twice
+//!   within a minute, as the driver watch says.
 //!
 //! Any other exit code, a task that cannot start or one that outlives its
-//! time is an error here.
+//! time is an error here. No task runs on a timer.
 use anyhow::{Context, Result, bail};
 use std::{
     ffi::OsString,
@@ -128,8 +130,9 @@ fn parse(line: &str) -> Option<(tracing::Level, &str)> {
 
 /// Put back the compatibility settings and Nucleus Co-op settings a Nucleus
 /// Co-op session left for the user at the console when its host stopped
-/// mid-session: before a host starts, and as the user signs in. A session of
-/// theirs that runs keeps its own. The task logs what it did and what failed.
+/// mid-session, as the user signs in (a host does it itself as it starts). A
+/// session of theirs that runs keeps its own. The task logs what it did and
+/// what failed.
 pub fn restore_nucleus(host: &Path, profile: &Path) {
     let args = [
         "--restore-nucleus-at-console".into(),
@@ -149,9 +152,9 @@ pub fn restore_nucleus(host: &Path, profile: &Path) {
     }
 }
 
-/// Whether the virtual display driver counts as there for the repair watch:
-/// its interface opens, or its device is installed and switched off, which
-/// the user may have done on purpose. Missing comes with the reason.
+/// Whether the host can use the virtual display driver: its interface opens
+/// and speaks the host's protocol, or its device is installed and switched
+/// off, which the user may have done on purpose. Missing comes with the reason.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Driver {
     Installed,

@@ -74,6 +74,7 @@ fn launch(s: &Setup, index: usize, launch: &str) -> butterpollo_core::session::S
             size: (1920, 1080),
             config: &Default::default(),
             warnings: Default::default(),
+            release_parked: &|| Ok(()),
         })
         .unwrap()
 }

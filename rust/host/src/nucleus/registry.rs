@@ -702,6 +702,13 @@ impl Registry {
                         app.name
                     )));
                 };
+                // A stream that ended parks its controller in the first
+                // XInput slot, and the game would read that one (#56).
+                (request.release_parked)().map_err(|error| {
+                    Refusal::unavailable(format!(
+                        "Nucleus Co-op could not unplug the controllers of streams that ended: {error:#}"
+                    ))
+                })?;
                 let free = pc.free_pads().map_err(|error| {
                     Refusal::unavailable(format!(
                         "Nucleus Co-op could not count the free controller slots: {error:#}"

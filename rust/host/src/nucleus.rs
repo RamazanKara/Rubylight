@@ -307,6 +307,10 @@ pub struct Admission<'a> {
     pub size: (u32, u32),
     pub config: &'a Config,
     pub warnings: Arc<Warnings>,
+    /// Unplug the controllers that streams which ended still park, so a
+    /// new session's players take the first XInput slots (#56): called only
+    /// once the launch starts one, before its free slots are counted.
+    pub release_parked: &'a (dyn Fn() -> anyhow::Result<()> + Sync),
 }
 
 /// Why a device's join from its session list failed.

@@ -885,6 +885,7 @@ fn a_co_op_players_input_drives_only_its_slots_pad() {
             size: (1920, 1080),
             config: &Config::default(),
             warnings: Default::default(),
+            release_parked: &|| Ok(()),
         })
         .unwrap();
     launch.nucleus = Some(seat);

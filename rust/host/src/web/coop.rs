@@ -385,6 +385,7 @@ mod tests {
                     size: (1920, 1080),
                     config: &Config::default(),
                     warnings: Default::default(),
+                    release_parked: &|| Ok(()),
                 })
                 .unwrap();
             launch.nucleus = Some(seat);

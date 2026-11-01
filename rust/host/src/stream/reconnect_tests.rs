@@ -2280,11 +2280,20 @@ async fn background_launches_run_in_nucleus_and_only_their_owner_returns() -> Re
     h.finish().await
 }
 
+/// A stream's launch for client `index` of the harness, under `uuid`.
+fn parked_launch(h: &Harness, index: usize, uuid: &str) -> Launch {
+    let mut client = h.h.paired.read().unwrap().clients[index].clone();
+    client.uuid = uuid.into();
+    crate::state::test_support::Fixture::new().launch(client, Role::Stream)
+}
+
 /// #56: a desktop stream that ended parks its controller, which keeps the
 /// first XInput slot, and the background game started next read that pad
 /// instead of the player's. A new background session releases parked
-/// controllers before it plugs its player's pad; the owner returning to its
-/// session plugs nothing and leaves them.
+/// controllers before it plugs its player's pad, but not a pending launch's,
+/// which Nightjar prepares before its stream takes them. A launch the
+/// registry refuses, and the owner returning to its session, plug nothing
+/// and leave them.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_new_background_stream_releases_parked_controllers_first() -> Result<()> {
     let (h, _pc, _) = coop_harness().await?;
@@ -2292,33 +2301,68 @@ async fn a_new_background_stream_releases_parked_controllers_first() -> Result<(
     for client in &mut h.h.paired.write().unwrap().clients {
         client.extra.insert("background_stream".into(), true.into());
     }
-    let other = h.h.paired.read().unwrap().clients[1].clone();
-    let other = crate::state::test_support::Fixture::new().launch(other, Role::Stream);
+    let none = std::collections::BTreeSet::new();
     let config = butterpollo_core::config::Config::default();
-    let park = || drop(h.h.controller_sessions.acquire(&other, &config).unwrap());
-    park();
-    assert!(h.h.controller_sessions.parked());
+    let pool = &h.h.controller_sessions;
+    let park = |launch: &Launch| drop(pool.acquire(launch, &config).unwrap());
+    // A desktop stream that ended, waiting for its reconnect, and client
+    // 1's launch whose controllers Nightjar prepared.
+    let (gap, prepared) = (parked_launch(&h, 1, "gap"), parked_launch(&h, 1, "1"));
+    park(&gap);
+    park(&prepared);
+    h.h.sessions
+        .lock()
+        .unwrap()
+        .pending
+        .insert(prepared.id.clone(), prepared.clone());
     let first = launch_app(&h, 0, portal).await?;
     assert!(first.contains("status_code=\"200\""), "{first}");
-    assert!(!h.h.controller_sessions.parked());
+    let kept = std::collections::BTreeSet::from([crate::controller_sessions::key(&prepared)]);
+    assert!(!pool.parked(&kept), "the gap's controller is gone");
+    assert!(pool.parked(&none), "the prepared one stays");
+    let canceled = h.h.sessions.lock().unwrap().pending.remove(&prepared.id);
+    drop(canceled);
     let launch = pending_of(&h, 0).unwrap();
     let seat = launch.nucleus.unwrap();
-    park();
+    // Client 1 is refused: the session is client 0's.
+    let refused = launch_app(&h, 1, portal).await?;
+    assert!(refused.contains("status_code=\"409\""), "{refused}");
+    assert!(pool.parked(&none));
     let again = launch_app(&h, 0, portal).await?;
     assert!(again.contains("status_code=\"200\""), "{again}");
-    assert!(h.h.controller_sessions.parked());
+    assert!(pool.parked(&none));
     let relaunch = pending_of(&h, 0).unwrap();
     drop(launch);
     let canceled = h.h.sessions.lock().unwrap().pending.remove(&relaunch.id);
     drop(canceled);
     h.h.nucleus.leave(seat, &relaunch.id);
     drop(relaunch);
-    h.h.controller_sessions
-        .release_parked(Duration::from_secs(5))?;
+    pool.release_parked(Duration::from_secs(5), &none)?;
     // The harness's last launch is a normal one.
     for client in &mut h.h.paired.write().unwrap().clients {
         client.extra.remove("background_stream");
     }
+    h.finish().await
+}
+
+/// #56: a new co-op session plugs its players' pads too, so it releases the
+/// controllers that streams which ended still park first.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_new_co_op_session_releases_parked_controllers_first() -> Result<()> {
+    let (h, _pc, id) = coop_harness().await?;
+    let none = std::collections::BTreeSet::new();
+    let gap = parked_launch(&h, 0, "gap");
+    drop(
+        h.h.controller_sessions
+            .acquire(&gap, &butterpollo_core::config::Config::default())?,
+    );
+    assert!(h.h.controller_sessions.parked(&none));
+    let started = launch_app(&h, 1, id).await?;
+    assert!(started.contains("status_code=\"200\""), "{started}");
+    assert!(!h.h.controller_sessions.parked(&none));
+    let launch = pending_of(&h, 1).unwrap();
+    let canceled = h.h.sessions.lock().unwrap().pending.remove(&launch.id);
+    drop((canceled, launch));
     h.finish().await
 }
 

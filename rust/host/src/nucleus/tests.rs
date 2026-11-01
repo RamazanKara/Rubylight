@@ -47,6 +47,7 @@ fn admit(
         size: (1920, 1080),
         config: &Config::default(),
         warnings: Default::default(),
+        release_parked: &|| Ok(()),
     })
 }
 
@@ -560,10 +561,78 @@ fn a_session_closes_the_window_the_console_opened_first() {
             size: (1920, 1080),
             config: &Config::default(),
             warnings: Default::default(),
+            release_parked: &|| Ok(()),
         })
         .unwrap();
     assert!(!pc.window().open.load(Relaxed));
     assert_eq!(pc.started.lock().unwrap().len(), 1);
+}
+
+/// #56: a launch that starts a session, co-op or background, first unplugs
+/// the controllers that streams which ended still park, and one that can't
+/// is refused with the reason before Nucleus starts anything. A launch that
+/// joins, or that is refused before it would start one, unplugs nothing.
+#[test]
+fn only_a_starting_session_releases_parked_controllers() {
+    use std::sync::atomic::{AtomicUsize, Ordering::Relaxed};
+    let released = AtomicUsize::new(0);
+    let release = || {
+        released.fetch_add(1, Relaxed);
+        Ok(())
+    };
+    let (registry, _pc, apps) = setup();
+    let coop = registry.entries(&apps, "").remove(0);
+    let join = |launch, client: &Client| {
+        registry.admit(Admission {
+            launch,
+            client,
+            game: Game::Coop(&coop),
+            size: (1920, 1080),
+            config: &Config::default(),
+            warnings: Default::default(),
+            release_parked: &release,
+        })
+    };
+    join("a", &client("A", true)).unwrap();
+    assert_eq!(released.load(Relaxed), 1);
+    join("b", &client("B", true)).unwrap();
+    assert_eq!(released.load(Relaxed), 1);
+    // One Nucleus Co-op session at a time.
+    let busy = registry.admit(Admission {
+        launch: "c",
+        client: &client("C", false),
+        game: Game::Background(&apps[1]),
+        size: (1920, 1080),
+        config: &Config::default(),
+        warnings: Default::default(),
+        release_parked: &release,
+    });
+    assert!(busy.is_err());
+    assert_eq!(released.load(Relaxed), 1);
+
+    let (registry, pc, apps) = setup();
+    let background = |release_parked: &(dyn Fn() -> anyhow::Result<()> + Sync)| {
+        registry.admit(Admission {
+            launch: "d",
+            client: &client("D", false),
+            game: Game::Background(&apps[1]),
+            size: (1920, 1080),
+            config: &Config::default(),
+            warnings: Default::default(),
+            release_parked,
+        })
+    };
+    let stuck = background(&|| anyhow::bail!("the driver did not answer")).unwrap_err();
+    assert!(
+        stuck.message.contains(
+            "Nucleus Co-op could not unplug the controllers of streams that ended: the driver did not answer"
+        ),
+        "{}",
+        stuck.message
+    );
+    assert!(pc.started.lock().unwrap().is_empty());
+    background(&release).unwrap();
+    assert_eq!(released.load(Relaxed), 2);
 }
 
 #[test]
@@ -851,6 +920,7 @@ fn background(
         size: (1280, 720),
         config,
         warnings: Default::default(),
+        release_parked: &|| Ok(()),
     })
 }
 
@@ -1528,6 +1598,7 @@ fn ours_goes_as_soon_as_a_hub_handler_for_its_exe_is_installed() {
             size: (1280, 720),
             config: &config,
             warnings: warnings.clone(),
+            release_parked: &|| Ok(()),
         })
         .unwrap();
     let shown = warnings.snapshot();
@@ -3275,6 +3346,7 @@ fn a_background_stream_without_a_hub_handler_on_this_pc() -> Result<()> {
             size: (1280, 720),
             config: &config,
             warnings: warnings.clone(),
+            release_parked: &|| Ok(()),
         })
         .map_err(|refused| anyhow!("refused ({}): {}", refused.status, refused.message))?;
     let instance = registry

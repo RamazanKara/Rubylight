@@ -8,7 +8,7 @@ use butterpollo_core::{
 };
 use butterpollo_windows::input::GamepadThread;
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
@@ -28,9 +28,13 @@ pub struct Pool(
     Mutex<BTreeMap<String, Entry>>,
     Mutex<Vec<Arc<GamepadThread>>>,
 );
+/// The pool's key for `launch`'s controllers: its client and role.
+pub fn key(launch: &Launch) -> String {
+    format!("{}:{:?}", launch.client.uuid, launch.role)
+}
 impl Pool {
     pub fn acquire(&self, launch: &Launch, config: &Config) -> Result<Arc<GamepadThread>> {
-        let key = format!("{}:{:?}", launch.client.uuid, launch.role);
+        let key = key(launch);
         let profile = gamepad_profile(config.get("gamepad", "auto"));
         let policy = Policy::resolve(config)?;
         let mut entries = self.0.lock().unwrap();
@@ -87,28 +91,34 @@ impl Pool {
             .any(|entry| Arc::strong_count(&entry.pads) > 1)
     }
     /// Whether [`Self::release_parked`] has anything to unplug: a parked
-    /// controller session no stream holds, or one whose release got stuck.
-    pub fn parked(&self) -> bool {
+    /// controller session no stream holds and no key in `kept`, or one whose
+    /// release got stuck.
+    pub fn parked(&self, kept: &BTreeSet<String>) -> bool {
         !self.1.lock().unwrap().is_empty()
             || self
                 .0
                 .lock()
                 .unwrap()
-                .values()
-                .any(|entry| Arc::strong_count(&entry.pads) == 1)
+                .iter()
+                .any(|(key, entry)| Self::released(key, entry, kept))
+    }
+    fn released(key: &str, entry: &Entry, kept: &BTreeSet<String>) -> bool {
+        Arc::strong_count(&entry.pads) == 1 && !kept.contains(key)
     }
     /// Unplug the parked controllers no stream holds, all at once within
     /// `timeout`, and return how many pads they had plugged in: a new
-    /// background stream does this before it plugs its player's pad, so a
-    /// stream that ended no longer holds the first XInput slot (#56), and
-    /// waits for XInput to show them gone (`pads::released`). Their clients
-    /// get new ones when they reconnect.
-    pub fn release_parked(&self, timeout: Duration) -> Result<u32> {
+    /// Nucleus Co-op session does this before it plugs its players' pads,
+    /// so a stream that ended no longer holds the first XInput slot (#56),
+    /// and waits for XInput to show them gone (`pads::released`). Their
+    /// clients get new ones when they reconnect. The ones under a key in
+    /// `kept` stay: a pending launch's, prepared before its stream takes
+    /// them.
+    pub fn release_parked(&self, timeout: Duration, kept: &BTreeSet<String>) -> Result<u32> {
         let parked: Vec<Arc<GamepadThread>> = {
             let mut entries = self.0.lock().unwrap();
             let keys: Vec<String> = entries
                 .iter()
-                .filter(|(_, entry)| Arc::strong_count(&entry.pads) == 1)
+                .filter(|(key, entry)| Self::released(key, entry, kept))
                 .map(|(key, _)| key.clone())
                 .collect();
             keys.iter()
@@ -287,23 +297,36 @@ mod tests {
         let config = Config::default();
         let pool = Pool::default();
         let keys = |pool: &Pool| pool.0.lock().unwrap().keys().cloned().collect::<Vec<_>>();
+        let none = BTreeSet::new();
         // The TV streams on; the phone's desktop stream ended and parked its
         // controller.
         let tv = pool.acquire(&launch("tv"), &config).unwrap();
         drop(pool.acquire(&launch("phone"), &config).unwrap());
         assert_eq!(keys(&pool), ["phone:Stream", "tv:Stream"]);
-        assert!(pool.parked());
+        assert!(pool.parked(&none));
         // No driver in the test: their threads never plugged a pad.
-        assert_eq!(pool.release_parked(Duration::from_secs(5)).unwrap(), 0);
+        assert_eq!(
+            pool.release_parked(Duration::from_secs(5), &none).unwrap(),
+            0
+        );
         assert_eq!(keys(&pool), ["tv:Stream"]);
         assert!(pool.in_use());
         // The TV's held controller is nothing to release.
-        assert!(!pool.parked());
+        assert!(!pool.parked(&none));
+        // A pending launch's prepared controllers wait for its stream; they
+        // stay. The TV's go once its stream ended.
+        let laptop = launch("laptop");
+        drop(pool.acquire(&laptop, &config).unwrap());
+        let pending = BTreeSet::from([key(&laptop)]);
+        assert!(!pool.parked(&pending));
         drop(tv);
-        assert!(pool.parked());
-        pool.release_parked(Duration::from_secs(5)).unwrap();
+        assert!(pool.parked(&pending));
+        pool.release_parked(Duration::from_secs(5), &pending)
+            .unwrap();
+        assert_eq!(keys(&pool), ["laptop:Stream"]);
+        assert!(!pool.parked(&pending));
+        pool.release_parked(Duration::from_secs(5), &none).unwrap();
         assert!(keys(&pool).is_empty());
-        assert!(!pool.parked());
     }
 
     #[test]

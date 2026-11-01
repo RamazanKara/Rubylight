@@ -34,9 +34,12 @@ fn back_returns_to_the_screen_and_the_item_it_left() {
     assert_eq!(l.screen, Screen::Home);
     assert_eq!(l.restore_key.as_deref(), Some("game:steam:570"));
     assert!(l.focus_screen, "the first item takes focus if the remembered one is gone");
-    // Home is the end of the line.
+    // Home is the end of the line: Back there asks to close Nightjar.
     l.back(&mut commands);
     assert_eq!(l.screen, Screen::Home);
+    assert!(matches!(l.dialog, Dialog::ConfirmExit));
+    l.back(&mut commands);
+    assert!(matches!(l.dialog, Dialog::None) && commands.is_empty(), "a second Back keeps Nightjar open");
 }
 
 #[test]
@@ -3903,6 +3906,32 @@ fn a_controller_press_with_nothing_focused_focuses_the_first_item() {
     pad_press(&mut f, Key::ArrowUp);
     assert_eq!(f.ctx.memory(|m| m.focused()), Some(cancel));
     assert!(matches!(f.l.dialog, Dialog::ConfirmRemove { .. }));
+}
+
+#[test]
+fn b_where_back_ends_asks_to_close_nightjar_with_focus_on_cancel() {
+    // The PCs are the root here (no Home): B there asks.
+    let mut f = Frames::new(record("Desk", true, false), Reach::Online);
+    let focused_text = |f: &Frames| {
+        let rect = f.ctx.memory(|m| m.focused()).and_then(|id| f.ctx.read_response(id)).map(|r| r.rect);
+        f.placed.iter().find(|(_, at, _)| rect.is_some_and(|r| r.contains(at.center()))).map(|p| p.0.clone())
+    };
+    assert!(f.press(Key::Escape).is_empty());
+    assert!(matches!(f.l.dialog, Dialog::ConfirmExit) && shows(&f, "Close Nightjar?"), "{:?}", f.drawn);
+    assert_eq!(focused_text(&f).as_deref(), Some("Cancel"));
+    // A right away keeps Nightjar open, and so does B.
+    assert!(f.press(Key::Enter).iter().all(|c| !matches!(c, Command::Quit)));
+    assert!(f.no_dialog());
+    f.press(Key::Escape);
+    assert!(f.press(Key::Escape).iter().all(|c| !matches!(c, Command::Quit)));
+    assert!(f.no_dialog(), "B closes the question");
+    // Over to Close Nightjar and A: it closes.
+    f.press(Key::Escape);
+    for key in [Key::ArrowRight, Key::ArrowLeft, Key::ArrowLeft] {
+        if focused_text(&f).as_deref() != Some("Close Nightjar") { pad_press(&mut f, key); }
+    }
+    assert_eq!(focused_text(&f).as_deref(), Some("Close Nightjar"));
+    assert!(f.press(Key::Enter).iter().any(|c| matches!(c, Command::Quit)));
 }
 
 #[path = "settings_tests.rs"]

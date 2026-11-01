@@ -247,7 +247,29 @@ pub struct Pad {
     /// With Back opening the stream controls: Back is held while other buttons of a quit combo
     /// with Select are, so it counts toward that combo and opens the controls on release instead.
     back_waiting: bool,
+    /// Holding Guide opens the stream menu: where this pad's Guide press is.
+    guide: Guide,
 }
+
+/// A Guide press while holding it opens the stream menu. The press is kept from the PC until it is
+/// known to be short (then the PC gets a whole tap), part of a chord, or long (then it is the menu's).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum Guide {
+    #[default]
+    Up,
+    /// Down since then, not sent yet.
+    Held(std::time::Instant),
+    /// A short press, sent to the PC as down at this time; it goes up after [`GUIDE_TAP`].
+    Tapped(std::time::Instant),
+    /// Down with another button: the PC has it like any button.
+    Passed,
+    /// Held long enough: it opened the menu, and its release is the menu's too.
+    Opened,
+}
+
+/// How long the PC sees a short Guide press held: long enough for games and the system to notice it
+/// (moonlight-android's minimum is 25 ms).
+const GUIDE_TAP: std::time::Duration = std::time::Duration::from_millis(50);
 
 impl Pad {
     pub fn preview(&self, mapping: &Mapping, swap: bool) -> Report {
@@ -303,6 +325,8 @@ pub struct Gamepads {
     mouse_fixed_step: bool,
     touchpad_as_mouse: bool,
     disable_rumble: bool,
+    /// How long Guide is held to open the stream menu; None: Guide always goes to the PC.
+    guide_hold: Option<std::time::Duration>,
 }
 
 /// The physical buttons of a quit combo, as bits of `1 << SDL_GamepadButton`. Face buttons are
@@ -337,6 +361,7 @@ impl Gamepads {
         self.mouse_fixed_step = settings.mouse_fixed_step;
         self.touchpad_as_mouse = settings.gamepad_touchpad_as_mouse;
         self.disable_rumble = settings.disable_rumble;
+        self.guide_hold = (settings.guide_hold_ms > 0).then(|| std::time::Duration::from_millis(u64::from(settings.guide_hold_ms)));
     }
 
     /// Opens a newly attached gamepad. One that SDL cannot open, or one past the [`MAX_PADS`]
@@ -390,6 +415,7 @@ impl Gamepads {
             has_touchpad_click,
             clickpad_swallowed: 0,
             back_waiting: false,
+            guide: Guide::Up,
         });
         Ok(())
     }
@@ -458,6 +484,7 @@ impl Gamepads {
             pad.raw_axes = [0; 6];
             pad.clickpad_swallowed = 0;
             pad.back_waiting = false;
+            pad.guide = Guide::Up;
             pad.buttons = 0;
             pad.lt = 0;
             pad.rt = 0;
@@ -476,6 +503,7 @@ impl Gamepads {
         let motion = self.motion;
         let mask = self.active_mask();
         let back_opens_menu = self.back_opens_menu;
+        let guide_hold = self.guide_hold;
         let quit = quit_mask(self.quit_combo);
         let mouse_emulation = self.mouse_emulation;
         let precision = self.mouse_fixed_step;
@@ -493,6 +521,44 @@ impl Gamepads {
                         return None;
                     }
                     let flag = 1 << b.button;
+                    if guide_hold.is_some() && i32::from(b.button) == SDL_GAMEPAD_BUTTON_GUIDE.0 {
+                        let now = std::time::Instant::now();
+                        match (b.down, pad.guide) {
+                            (true, held) => {
+                                // A tap still going out ends first.
+                                if matches!(held, Guide::Tapped(_)) {
+                                    pad.raw_buttons &= !flag;
+                                    pad.update(swap);
+                                    send_state(pad, mask, queue);
+                                }
+                                if pad.raw_buttons != 0 {
+                                    // Guide joining held buttons is a chord (a quit combo with Guide): it goes through.
+                                    pad.guide = Guide::Passed;
+                                } else {
+                                    pad.guide = Guide::Held(now);
+                                    return None;
+                                }
+                            }
+                            (false, Guide::Held(_)) => {
+                                // Let go before the menu: the PC gets the whole press, and `guide_tick` its release.
+                                pad.raw_buttons |= flag;
+                                pad.guide = Guide::Tapped(now);
+                                pad.update(swap);
+                                send_state(pad, mask, queue);
+                                return None;
+                            }
+                            (false, Guide::Opened | Guide::Tapped(_)) => {
+                                if pad.guide == Guide::Opened { pad.guide = Guide::Up; }
+                                return None;
+                            }
+                            // Passed with a chord: released below like any button.
+                            (false, Guide::Up | Guide::Passed) => pad.guide = Guide::Up,
+                        }
+                    } else if b.down && matches!(pad.guide, Guide::Held(_)) {
+                        // Another button while Guide is held: a chord for the PC (Steam's Guide chords), Guide first.
+                        pad.raw_buttons |= 1 << SDL_GAMEPAD_BUTTON_GUIDE.0;
+                        pad.guide = Guide::Passed;
+                    }
                     // Local escape chords use physical buttons even when remapped or disabled.
                     let menu = crate::shortcuts::stream_controls_mask();
                     if back_opens_menu && i32::from(b.button) == SDL_GAMEPAD_BUTTON_BACK.0 {
@@ -764,6 +830,34 @@ impl Gamepads {
         if let Some(pad) = self.pads.iter_mut().find(|p| u16::from(p.index) == index) {
             if let Some(audio) = &mut pad.audio { audio.control(payload, pad.handle); }
         }
+    }
+
+    /// Holding Guide, on the stream loop's tick: true when a Guide held for the setting's time opens
+    /// the stream menu. A short press's release goes out here once the PC has seen it down.
+    pub fn guide_tick(&mut self, now: std::time::Instant, queue: &mut InputQueue) -> bool {
+        let (swap, mask) = (self.swap_face_buttons, self.active_mask());
+        let mut open = false;
+        for pad in &mut self.pads {
+            match pad.guide {
+                Guide::Held(at) if self.guide_hold.is_some_and(|hold| now.duration_since(at) >= hold) => {
+                    pad.guide = Guide::Opened;
+                    open = true;
+                }
+                Guide::Tapped(at) if now.duration_since(at) >= GUIDE_TAP => {
+                    pad.raw_buttons &= !(1 << SDL_GAMEPAD_BUTTON_GUIDE.0);
+                    pad.guide = Guide::Up;
+                    pad.update(swap);
+                    send_state(pad, mask, queue);
+                }
+                _ => {}
+            }
+        }
+        open
+    }
+
+    /// A Guide press waits on [`Self::guide_tick`]: the stream loop wakes often until it is settled.
+    pub fn guide_waiting(&self) -> bool {
+        self.pads.iter().any(|pad| matches!(pad.guide, Guide::Held(_) | Guide::Tapped(_)))
     }
 
     pub fn update_mouse(&mut self, queue: &mut InputQueue) -> bool {
@@ -1189,6 +1283,115 @@ mod tests {
             SDL_DetachVirtualJoystick(id);
             SDL_QuitSubSystem(SDL_INIT_GAMEPAD);
             assert_eq!(Gamepads::default().toggle_mouse(&mut queue), None, "no controller, no switch");
+        }
+    }
+
+    /// Holding Guide for the chosen time opens the stream menu and the PC never sees it; a short
+    /// press still reaches the PC whole, Guide in a chord goes through, and Off sends it on press
+    /// (nightjar#63).
+    #[test]
+    fn holding_guide_opens_the_menu_and_a_short_press_reaches_the_pc() {
+        use crate::config::GamepadQuitCombo;
+        use std::time::{Duration, Instant};
+        let _sdl = crate::sdl::TEST_LOCK.lock().unwrap();
+        use nightjar_core::control::HostCapabilities;
+        // SAFETY: SDL calls on this test's thread; the descriptor outlives the attach.
+        unsafe {
+            assert!(SDL_Init(SDL_INIT_GAMEPAD), "{}", crate::sdl::error());
+            let mut desc: SDL_VirtualJoystickDesc = std::mem::zeroed();
+            desc.version = std::mem::size_of::<SDL_VirtualJoystickDesc>() as u32;
+            desc.r#type = SDL_JOYSTICK_TYPE_GAMEPAD.0 as u16;
+            desc.naxes = SDL_GAMEPAD_AXIS_COUNT.0 as u16;
+            desc.nbuttons = SDL_GAMEPAD_BUTTON_COUNT.0 as u16;
+            desc.button_mask = (1u32 << SDL_GAMEPAD_BUTTON_COUNT.0) - 1;
+            desc.axis_mask = (1u32 << SDL_GAMEPAD_AXIS_COUNT.0) - 1;
+            desc.name = c"Nightjar test pad".as_ptr();
+            let id = SDL_AttachVirtualJoystick(&desc);
+            assert!(id.0 != 0, "{}", crate::sdl::error());
+            let mut pads = Gamepads::default();
+            pads.added(id).unwrap();
+            let mut queue = InputQueue::new(&HostCapabilities { app_version: [7, 1, 431, -1], feature_flags: 0x03, ..Default::default() });
+            pads.announce_all(&mut queue);
+            let press = |pads: &mut Gamepads, queue: &mut InputQueue, button: i32, down: bool| {
+                let event = SDL_Event { gbutton: SDL_GamepadButtonEvent { r#type: if down { SDL_EVENT_GAMEPAD_BUTTON_DOWN } else { SDL_EVENT_GAMEPAD_BUTTON_UP },
+                    which: id, button: button as u8, down, ..Default::default() } };
+                pads.handle(&event, queue)
+            };
+            let guide = SDL_GAMEPAD_BUTTON_GUIDE.0;
+
+            // Off: Guide reaches the PC on press, as before.
+            assert_eq!(press(&mut pads, &mut queue, guide, true), None);
+            assert_eq!(pads.pads[0].buttons, button::SPECIAL);
+            press(&mut pads, &mut queue, guide, false);
+            assert_eq!(pads.pads[0].buttons, 0);
+            assert!(!pads.guide_tick(Instant::now() + Duration::from_secs(5), &mut queue));
+
+            pads.guide_hold = Some(Duration::from_secs(1));
+            // A short press: held back on press, sent on release, let go after the tap time.
+            let queued = queue.len();
+            assert_eq!(press(&mut pads, &mut queue, guide, true), None);
+            assert_eq!(pads.pads[0].buttons, 0);
+            assert_eq!(queue.len(), queued, "nothing goes out while it may still be a hold");
+            assert!(pads.guide_waiting());
+            assert!(!pads.guide_tick(Instant::now(), &mut queue));
+            press(&mut pads, &mut queue, guide, false);
+            assert_eq!(pads.pads[0].buttons, button::SPECIAL, "the short press reaches the PC");
+            assert!(queue.len() > queued);
+            assert!(!pads.guide_tick(Instant::now(), &mut queue));
+            assert_eq!(pads.pads[0].buttons, button::SPECIAL, "held long enough for the PC to see");
+            assert!(!pads.guide_tick(Instant::now() + GUIDE_TAP, &mut queue));
+            assert_eq!(pads.pads[0].buttons, 0);
+            assert!(!pads.guide_waiting());
+
+            // A hold: the tick opens the menu once, and the release is swallowed.
+            let queued = queue.len();
+            press(&mut pads, &mut queue, guide, true);
+            assert!(!pads.guide_tick(Instant::now() + Duration::from_millis(900), &mut queue));
+            assert!(pads.guide_tick(Instant::now() + Duration::from_millis(1100), &mut queue));
+            assert!(!pads.guide_tick(Instant::now() + Duration::from_millis(1200), &mut queue), "opens once");
+            assert_eq!(press(&mut pads, &mut queue, guide, false), None);
+            assert_eq!(pads.pads[0].buttons, 0);
+            assert_eq!(queue.len(), queued, "the PC never sees a held Guide");
+            assert!(!pads.guide_waiting());
+
+            // Guide then A: a chord for the PC, Guide first.
+            press(&mut pads, &mut queue, guide, true);
+            press(&mut pads, &mut queue, SDL_GAMEPAD_BUTTON_SOUTH.0, true);
+            assert_eq!(pads.pads[0].buttons, button::SPECIAL | button::A);
+            assert!(!pads.guide_tick(Instant::now() + Duration::from_secs(2), &mut queue), "a chord never opens the menu");
+            press(&mut pads, &mut queue, guide, false);
+            assert_eq!(pads.pads[0].buttons, button::A);
+            press(&mut pads, &mut queue, SDL_GAMEPAD_BUTTON_SOUTH.0, false);
+            // A then Guide: Guide joins the held button right away.
+            press(&mut pads, &mut queue, SDL_GAMEPAD_BUTTON_SOUTH.0, true);
+            press(&mut pads, &mut queue, guide, true);
+            assert_eq!(pads.pads[0].buttons, button::SPECIAL | button::A);
+            press(&mut pads, &mut queue, guide, false);
+            press(&mut pads, &mut queue, SDL_GAMEPAD_BUTTON_SOUTH.0, false);
+            assert_eq!(pads.pads[0].raw_buttons, 0);
+
+            // The quit combos and the menu chord still work.
+            for combo in GamepadQuitCombo::ALL {
+                pads.quit_combo = combo;
+                let mut buttons: Vec<i32> = (0..32).filter(|b| quit_mask(combo) & 1 << b != 0).collect();
+                buttons.sort_by_key(|b| ![SDL_GAMEPAD_BUTTON_LEFT_SHOULDER.0, SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER.0].contains(b));
+                let actions: Vec<_> = buttons.iter().map(|b| press(&mut pads, &mut queue, *b, true)).collect();
+                for b in &buttons { press(&mut pads, &mut queue, *b, false); }
+                assert_eq!(actions.last(), Some(&Some(Action::Quit)), "{combo:?}");
+            }
+            press(&mut pads, &mut queue, SDL_GAMEPAD_BUTTON_START.0, true);
+            assert_eq!(press(&mut pads, &mut queue, SDL_GAMEPAD_BUTTON_BACK.0, true), Some(Action::Menu));
+            press(&mut pads, &mut queue, SDL_GAMEPAD_BUTTON_START.0, false);
+            press(&mut pads, &mut queue, SDL_GAMEPAD_BUTTON_BACK.0, false);
+
+            // Opening the menu releases everything, a held Guide too.
+            press(&mut pads, &mut queue, guide, true);
+            pads.release(&mut queue);
+            assert!(!pads.guide_waiting());
+
+            pads.close_all();
+            SDL_DetachVirtualJoystick(id);
+            SDL_QuitSubSystem(SDL_INIT_GAMEPAD);
         }
     }
 

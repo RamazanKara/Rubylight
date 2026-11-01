@@ -33,7 +33,7 @@ pub(super) const SECTION_KEYS: [&[&[&str]]; 8] = [
         &["align_video_top"], &["present_at_host_times"], &["frame_pacing"], &["vsync"]],
     &[&["mouse_mode"], &["controllers"], &["swap_face_buttons"], &["clipboard_sync"],
         &["capture_system_keys"], &["mouse_speed"], &["mouse_nav_buttons"], &["native_touchpad"], &["right_alt_as_meta"],
-        &["back_opens_menu"], &["gamepad_quit_combo"], &["controller_mouse"], &["analog_scrolling"], &["mouse_fixed_step"],
+        &["back_opens_menu"], &["guide_hold_ms"], &["gamepad_quit_combo"], &["controller_mouse"], &["analog_scrolling"], &["mouse_fixed_step"],
         &["gamepad_touchpad_as_mouse"], &["disable_rumble"], &["controller_motion"], &["controller_audio"], &["background_controllers"]],
     &[&["audio"], &["play_audio_on_host"], &["microphone"], &["mic_echo_cancel"], &["audio_passthrough"]],
     &[&["overlay", "overlay_mode"], &["overlay_position"], &["auto_reconnect"],
@@ -822,6 +822,13 @@ impl Launcher {
             rows.group(ui, "Controllers", "");
             rows.when(s.controllers, en("Turn on Controllers to use this."));
             setting_row(ui, s, &mut rows, &["back_opens_menu"], "Back opens stream controls", "The controller's Back or Select button opens the stream menu.", |ui, s| toggle(ui, &mut s.back_opens_menu));
+            setting_row(ui, s, &mut rows, &["guide_hold_ms"], "Hold Guide to open the stream menu", "A short press still goes to the PC.", |ui, s| {
+                egui::ComboBox::from_id_salt("guide-hold").selected_text(guide_hold_name(s.guide_hold_ms)).show_ui(ui, |ui| {
+                    for ms in crate::config::GUIDE_HOLD_MS {
+                        ui.selectable_value(&mut s.guide_hold_ms, ms, guide_hold_name(ms));
+                    }
+                }).response
+            });
             setting_row(ui, s, &mut rows, &["gamepad_quit_combo"], "Buttons to leave the stream", "Hold these buttons together to leave the stream. Pick others if a game or your controller needs these.", |ui, s| {
                 egui::ComboBox::from_id_salt("gamepad-quit-combo").selected_text(style.quit_combo(s.gamepad_quit_combo)).show_ui(ui, |ui| {
                     for combo in crate::config::GamepadQuitCombo::ALL {
@@ -1259,6 +1266,16 @@ fn scrolling_name(stick: crate::config::AnalogScrolling) -> &'static str {
     }
 }
 
+/// How long Guide is held to open the stream menu, as the settings show it: Off, or "1.5 s".
+fn guide_hold_name(ms: u32) -> String {
+    if ms == 0 {
+        return tr("Off").to_owned();
+    }
+    let seconds = format!("{}", f64::from(ms) / 1000.0);
+    let seconds = if crate::strings::current() == crate::strings::Lang::De { seconds.replace('.', ",") } else { seconds };
+    trf("{} s", &[&seconds])
+}
+
 fn audio_name(channels: AudioChannels) -> &'static str {
     match channels {
         AudioChannels::Stereo => tr("Stereo"),
@@ -1312,6 +1329,7 @@ pub(super) fn value_text(key: &str, s: &Settings, display: &Display, style: crat
         "mouse_speed" => format!("{}%", s.mouse_speed),
         "gamepad_quit_combo" => style.quit_combo(s.gamepad_quit_combo),
         "analog_scrolling" => scrolling_name(s.analog_scrolling).to_owned(),
+        "guide_hold_ms" => guide_hold_name(s.guide_hold_ms),
         "audio" => audio_name(s.audio).to_owned(),
         "mic_echo_cancel" => tr(s.mic_echo_cancel.label()).to_owned(),
         "overlay" | "overlay_mode" if s.overlay => tr(s.overlay_mode.label()).to_owned(),

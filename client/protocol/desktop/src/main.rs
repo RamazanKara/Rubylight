@@ -1893,6 +1893,7 @@ impl App {
         // SAFETY: the window lives as long as the app.
         let away = unsafe { SDL_GetWindowFlags(window) & (SDL_WINDOW_MINIMIZED | SDL_WINDOW_HIDDEN) != 0 };
         streaming.drain_notices(&mut self.pads, away);
+        streaming.open_guide_menu(window, &mut self.pads);
         streaming.follow_text_field(window);
         streaming.pump();
         streaming.follow_display(display);

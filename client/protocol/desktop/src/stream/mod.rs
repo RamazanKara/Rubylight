@@ -55,6 +55,8 @@ pub mod gpu_planes;
 pub(crate) mod pyrowave_sdk;
 #[cfg(unix)]
 mod planes_gpu;
+#[cfg(all(test, unix))]
+mod vulkan_tests_unix;
 mod negotiate;
 mod connect;
 mod stats;

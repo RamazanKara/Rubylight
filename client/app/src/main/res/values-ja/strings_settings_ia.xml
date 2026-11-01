@@ -12,7 +12,6 @@
     <string name="settings_category_usb">USB コントローラ</string>
     <string name="settings_category_keyboard">キーボード</string>
     <string name="settings_category_decoder">デコーダー</string>
-    <string name="settings_category_input_network">入力とネットワーク</string>
     <string name="settings_category_diagnostics">診断</string>
     <string name="settings_needs_host_support">ホストの対応が必要</string>
     <string name="settings_pc_display_mode_value">各 PC のメニューで設定します</string>

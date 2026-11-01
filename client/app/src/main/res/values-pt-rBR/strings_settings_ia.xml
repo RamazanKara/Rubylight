@@ -12,7 +12,6 @@
     <string name="settings_category_usb">Controles USB</string>
     <string name="settings_category_keyboard">Teclado</string>
     <string name="settings_category_decoder">Decodificador</string>
-    <string name="settings_category_input_network">Entrada e rede</string>
     <string name="settings_category_diagnostics">Diagnósticos</string>
     <string name="settings_needs_host_support">Requer suporte do host</string>
     <string name="settings_pc_display_mode_value">Defina para cada PC no menu dele</string>

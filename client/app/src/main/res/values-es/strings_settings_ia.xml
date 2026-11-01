@@ -12,7 +12,6 @@
     <string name="settings_category_usb">Mandos USB</string>
     <string name="settings_category_keyboard">Teclado</string>
     <string name="settings_category_decoder">Decodificador</string>
-    <string name="settings_category_input_network">Entrada y red</string>
     <string name="settings_category_diagnostics">Diagnóstico</string>
     <string name="settings_needs_host_support">Requiere compatibilidad del servidor</string>
     <string name="settings_pc_display_mode_value">Se configura para cada PC en su menú</string>

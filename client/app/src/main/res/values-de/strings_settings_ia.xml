@@ -15,7 +15,6 @@
     <string name="settings_category_usb">USB-Controller</string>
     <string name="settings_category_keyboard">Tastatur</string>
     <string name="settings_category_decoder">Decoder</string>
-    <string name="settings_category_input_network">Eingabe und Netzwerk</string>
     <string name="settings_category_diagnostics">Diagnose</string>
 
     <!-- Short lines under a row -->

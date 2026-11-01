@@ -107,6 +107,7 @@ impl Connecting {
         // Host-time pacing schedules every picture; the other modes keep only the newest.
         let limit = if plan.pacing == PacingMode::HostTimes { 8 } else { 2 };
         let shared = Shared::new(waker.clone(), limit);
+        shared.host_times.store(plan.pacing == PacingMode::HostTimes, std::sync::atomic::Ordering::Relaxed);
         let interrupt = Interrupt::default();
         let (sender, result) = channel();
         let app_name = plan.app.name.clone();

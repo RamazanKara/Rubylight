@@ -141,6 +141,9 @@ pub struct Pictures {
     pub ten_bit: bool,
     pub chroma444: bool,
     pub packed: bool,
+    /// How many pictures the stream may keep waiting to be shown (`pipeline::pool_waiting`): a
+    /// hardware pool gets these and two more beyond FFmpeg's minimum ([`pool_extra`]).
+    pub waiting: usize,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -256,9 +259,15 @@ struct Format {
     vulkan: Option<Pictures>,
 }
 
-/// Surfaces a hardware decoder's pool has beyond FFmpeg's minimum, for pictures waiting to be
-/// shown; the stream keeps fewer waiting than this (`pipeline::POOL_WAITING`).
+/// Surfaces a hardware decoder's pool has at least beyond FFmpeg's minimum, for pictures waiting
+/// to be shown, the one on the screen and the one being drawn.
 pub const EXTRA_HW_FRAMES: i32 = 6;
+
+/// The pool's surfaces beyond FFmpeg's minimum for `waiting` pictures waiting to be shown, plus
+/// the shown and the drawn one.
+pub fn pool_extra(waiting: usize) -> i32 {
+    (waiting.min(64) as i32 + 2).max(EXTRA_HW_FRAMES)
+}
 
 unsafe extern "C" fn select_format(
     context: *mut AVCodecContext,
@@ -566,7 +575,7 @@ impl VideoDecoder {
                     Hardware::None | Hardware::V4l2m2m | Hardware::Auto(_) => unreachable!(),
                 }
                 context.get_format = Some(select_format);
-                context.extra_hw_frames = EXTRA_HW_FRAMES;
+                context.extra_hw_frames = pool_extra(pictures.waiting);
             }
             context.thread_count = if hardware == Hardware::None {
                 threads

@@ -184,6 +184,7 @@ fn decode(
         ten_bit: case.ten,
         chroma444: case.chroma444,
         packed: false,
+        waiting: 0,
     };
     let mut decoder = match hardware {
         Hardware::None => VideoDecoder::open(case.codec, hardware, 1, false)?,

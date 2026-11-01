@@ -282,10 +282,10 @@ pub fn create_renderer(window: *mut SDL_Window, gpu: bool) -> *mut SDL_Renderer 
 }
 
 /// `create_renderer`, on Linux with `share` asking for the Vulkan features PyroWave's GPU decoder
-/// needs and the video extensions and decode queues FFmpeg's Vulkan video needs, to decode on the
-/// renderer's own device (`zero_copy.rs`, `vulkan_video.rs`). When the devices lack the features,
-/// or the renderer cannot be made with them, it is made as without `share`, and the reason is
-/// logged.
+/// needs and, apart from them, the video extensions and decode queues FFmpeg's Vulkan video needs,
+/// to decode on the renderer's own device (`zero_copy.rs`, `vulkan_video.rs`). When the devices
+/// lack both, or the renderer cannot be made with them, it is made as without `share`, and the
+/// reason is logged.
 pub fn create_renderer_for(window: *mut SDL_Window, gpu: bool, share: bool) -> *mut SDL_Renderer {
     #[cfg(unix)]
     if gpu && share {
@@ -293,9 +293,6 @@ pub fn create_renderer_for(window: *mut SDL_Window, gpu: bool, share: bool) -> *
         match zero_copy::RendererRequest::new() {
             Ok(mut request) => {
                 let video = request.video();
-                if video.is_empty() {
-                    crate::vulkan_video::note("the GPU renderer is made without Vulkan video: the Vulkan devices SDL picks from lack its extensions");
-                }
                 // The request outlives the call, which copies what it needs of it.
                 let renderer = make_renderer(window, gpu, request.options(), !video.is_empty());
                 // SAFETY: A live renderer made with the request.
@@ -306,9 +303,9 @@ pub fn create_renderer_for(window: *mut SDL_Window, gpu: bool, share: bool) -> *
                 // SAFETY: Made above, unused.
                 if !renderer.is_null() { unsafe { SDL_DestroyRenderer(renderer) }; }
                 let extensions: Vec<_> = video.names().iter().map(|name| name.to_string_lossy()).collect();
-                zero_copy::note(&format!("the GPU renderer cannot be made with PyroWave's Vulkan features {:?} and the video extensions {extensions:?} ({why}), so GPU decoding will read its planes back and Vulkan video is not used", request.features().names()));
+                zero_copy::note(&format!("the GPU renderer cannot be made with the Vulkan features {:?} and the video extensions {extensions:?} ({why}), so PyroWave GPU decoding will read its planes back and Vulkan video is not used", request.features().names()));
             }
-            Err(why) => zero_copy::note(&format!("the GPU renderer is made without PyroWave's Vulkan features, so GPU decoding will read its planes back and Vulkan video is not used: {why}")),
+            Err(why) => zero_copy::note(&format!("the GPU renderer is made without PyroWave's Vulkan features or Vulkan video, so PyroWave GPU decoding will read its planes back and Vulkan video is not used: {why}")),
         }
     }
     let _ = share;

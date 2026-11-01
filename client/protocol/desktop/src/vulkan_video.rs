@@ -36,7 +36,9 @@ use crate::media::ffi::{
     AV_PIX_FMT_P010LE,
 };
 use crate::media::Codec;
-use crate::stream::pyrowave_sdk::zero_copy::{self, Chain, SdlVulkan, TEXTURE_IMAGE_PROPERTY};
+use crate::stream::pyrowave_sdk::zero_copy::{
+    self, Chain, Features, SdlVulkan, TEXTURE_IMAGE_PROPERTY,
+};
 
 /// Set to 1, Vulkan video is tried before VAAPI and the GPU renderer is used for it (tests and
 /// A/B runs on machines with VAAPI); set to 0, it is not tried.
@@ -313,6 +315,7 @@ pub unsafe fn device_context(
         );
     }
     let sdl = SdlVulkan::of_device(gpu)?;
+    sdl.require(Features::video())?;
     let props = SDL_GetGPUDeviceProperties(gpu);
     let extensions =
         Extensions(SDL_GetNumberProperty(props, EXTENSIONS_PROPERTY.as_ptr(), 0) as u32);
@@ -501,6 +504,7 @@ impl Planes {
         ten_bit: bool,
     ) -> Result<Self, String> {
         let sdl = SdlVulkan::of_device(gpu)?;
+        sdl.require(Features::video())?;
         let get_instance_proc_addr = zero_copy::get_instance_proc_addr()?;
         let instance = ash::Instance::load(
             &ash::StaticFn {

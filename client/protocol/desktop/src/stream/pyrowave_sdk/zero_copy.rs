@@ -149,6 +149,12 @@ impl Features {
         Self((1 << FEATURES.len()) - 1)
     }
 
+    /// The ones FFmpeg's Vulkan video needs (`crate::vulkan_video`): it submits with
+    /// vkQueueSubmit2 and orders its pictures with timeline semaphores.
+    pub fn video() -> Self {
+        Self(FEATURES.iter().enumerate().filter(|(_, feature)| matches!(feature.name, "synchronization2" | "timelineSemaphore")).fold(0, |bits, (bit, _)| bits | 1 << bit))
+    }
+
     pub fn and(self, other: Self) -> Self {
         Self(self.0 & other.0)
     }
@@ -214,11 +220,29 @@ pub fn plan(devices: &[DeviceCaps]) -> Result<Features, String> {
     Ok(features)
 }
 
-/// The Vulkan video extensions the renderer should ask for: the ones every device SDL could pick
-/// (`plan`'s) has, so none is refused for them, and none unless they decode a codec.
-pub fn plan_video(devices: &[DeviceCaps]) -> crate::vulkan_video::Extensions {
-    let Some(best) = devices.iter().map(|device| rank(device.kind)).max() else { return Default::default() };
-    devices.iter().filter(|device| rank(device.kind) == best).fold(crate::vulkan_video::Extensions(u32::MAX), |video, device| video.and(device.video)).usable()
+/// The Vulkan video extensions the renderer should ask for, or why it should not ask, apart from
+/// PyroWave's `plan`: every device SDL could pick needs Vulkan 1.3 and `Features::video`, and the
+/// extensions asked for are the ones they all have, so none is refused for them, if they decode a
+/// codec.
+pub fn plan_video(devices: &[DeviceCaps]) -> Result<crate::vulkan_video::Extensions, String> {
+    let best = devices.iter().map(|device| rank(device.kind)).max().ok_or("Vulkan lists no devices")?;
+    let mut video = crate::vulkan_video::Extensions(u32::MAX);
+    for device in devices.iter().filter(|device| rank(device.kind) == best) {
+        let name = &device.name;
+        if device.api < vk::API_VERSION_1_3 {
+            return Err(format!("{name} supports Vulkan {}.{}, FFmpeg's Vulkan video needs 1.3", vk::api_version_major(device.api), vk::api_version_minor(device.api)));
+        }
+        let missing = Features::video().without(device.supported);
+        if !missing.is_empty() {
+            return Err(format!("{name} lacks {}", missing.names().join(", ")));
+        }
+        video = video.and(device.video);
+    }
+    let usable = video.usable();
+    if usable.is_empty() {
+        return Err("the Vulkan devices SDL picks from lack the video decoding extensions".into());
+    }
+    Ok(usable)
 }
 
 /// The Vulkan devices the loader lists, as `plan` reads them.
@@ -270,11 +294,11 @@ pub struct RendererRequest {
 }
 
 impl RendererRequest {
-    /// The request for the devices the loader lists, or why the renderer should not make it.
+    /// The request for the devices the loader lists, or why the renderer should not make it. Either
+    /// half is asked for without the other, the reason for a missing one in the log.
     pub fn new() -> Result<Box<Self>, String> {
         let devices = query_devices()?;
-        let features = plan(&devices)?;
-        let video = plan_video(&devices);
+        let (features, video) = Self::halves(plan(&devices), plan_video(&devices))?;
         let mut chain = Chain::new();
         chain.enable(features);
         let extensions = video.names().iter().map(|name| name.as_ptr()).collect();
@@ -286,6 +310,24 @@ impl RendererRequest {
         request.options.device_extension_count = request.extensions.len() as u32;
         request.options.device_extension_names = request.extensions.as_mut_ptr();
         Ok(request)
+    }
+
+    /// The features and video extensions to ask for from PyroWave's `plan` and `plan_video`:
+    /// without PyroWave's, only the ones Vulkan video needs; without video, no extensions. Each
+    /// missing half is logged; an error when both are.
+    fn halves(pyrowave: Result<Features, String>, video: Result<crate::vulkan_video::Extensions, String>) -> Result<(Features, crate::vulkan_video::Extensions), String> {
+        match (pyrowave, video) {
+            (Ok(features), Ok(video)) => Ok((features, video)),
+            (Ok(features), Err(why)) => {
+                crate::vulkan_video::note(&format!("the GPU renderer is made without Vulkan video: {why}"));
+                Ok((features, Default::default()))
+            }
+            (Err(why), Ok(video)) => {
+                note(&format!("the GPU renderer is made without PyroWave's Vulkan features, so PyroWave GPU decoding will read its planes back: {why}"));
+                Ok((Features::video(), video))
+            }
+            (Err(pyrowave), Err(video)) => Err(format!("{pyrowave}; and for Vulkan video, {video}")),
+        }
     }
 
     pub fn features(&self) -> Features {
@@ -360,13 +402,9 @@ impl SdlVulkan {
             return Err("this SDL does not share its Vulkan device (the Nightjar SDL patch is missing)".into());
         }
         if !SDL_HasProperty(props, FEATURES_PROPERTY.as_ptr()) {
-            return Err("the renderer's Vulkan device was created without the decoder's features".into());
+            return Err("the renderer's Vulkan device was created without the decoders' features".into());
         }
         let features = Features(SDL_GetNumberProperty(props, FEATURES_PROPERTY.as_ptr(), 0) as u32);
-        let missing = Features::required().without(features);
-        if !missing.is_empty() {
-            return Err(format!("the renderer's Vulkan device was created without {}", missing.names().join(", ")));
-        }
         Ok(Self {
             instance: vk::Instance::from_raw(handles[0] as u64),
             physical_device: vk::PhysicalDevice::from_raw(handles[1] as u64),
@@ -376,6 +414,13 @@ impl SdlVulkan {
             lock: handles[4].cast(),
             features,
         })
+    }
+
+    /// Whether the device was created with `needed` (PyroWave's `Features::required`, or
+    /// `Features::video`); the error names the ones it lacks.
+    pub fn require(&self, needed: Features) -> Result<(), String> {
+        let missing = needed.without(self.features);
+        if missing.is_empty() { Ok(()) } else { Err(format!("the renderer's Vulkan device was created without {}", missing.names().join(", "))) }
     }
 }
 
@@ -694,12 +739,34 @@ mod tests {
         let discrete = vk::PhysicalDeviceType::DISCRETE_GPU;
         let with_video = |name, kind, video| DeviceCaps { video: Extensions(video), ..caps(name, kind, Features::all()) };
         let rtx = with_video("RTX 4070", discrete, 0b11111);
-        assert_eq!(plan_video(&[rtx.clone(), with_video("GTX 1660", discrete, 0b01111)]), Extensions(0b01111), "no AV1 for either");
+        assert_eq!(plan_video(&[rtx.clone(), with_video("GTX 1660", discrete, 0b01111)]), Ok(Extensions(0b01111)), "no AV1 for either");
         // SDL picks the discrete GPU, so the integrated one's lack of video does not matter.
-        assert_eq!(plan_video(&[rtx, with_video("iGPU", vk::PhysicalDeviceType::INTEGRATED_GPU, 0)]), Extensions(0b11111));
-        assert!(plan_video(&[with_video("queues only", discrete, 0b00011)]).is_empty(), "queues without a codec");
-        assert!(plan_video(&[with_video("a", discrete, 0b11111), with_video("b", discrete, 0b11100)]).is_empty(), "b has no queues");
-        assert!(plan_video(&[]).is_empty());
+        assert_eq!(plan_video(&[rtx.clone(), with_video("iGPU", vk::PhysicalDeviceType::INTEGRATED_GPU, 0)]), Ok(Extensions(0b11111)));
+        let none = Err("the Vulkan devices SDL picks from lack the video decoding extensions".to_string());
+        assert_eq!(plan_video(&[with_video("queues only", discrete, 0b00011)]), none, "queues without a codec");
+        assert_eq!(plan_video(&[with_video("a", discrete, 0b11111), with_video("b", discrete, 0b11100)]), none, "b has no queues");
+        assert_eq!(plan_video(&[]), Err("Vulkan lists no devices".into()));
+        // Apart from PyroWave: a device without its subgroup operations and features decodes video
+        // with synchronization2 and timeline semaphores alone, and not without them.
+        let narrow = DeviceCaps { subgroup_ops: vk::SubgroupFeatureFlags::BASIC, supported: Features::video(), ..rtx.clone() };
+        assert!(plan(std::slice::from_ref(&narrow)).is_err());
+        assert_eq!(plan_video(&[narrow]), Ok(Extensions(0b11111)));
+        let error = plan_video(&[DeviceCaps { supported: with(&["synchronization2"]), ..rtx.clone() }]).unwrap_err();
+        assert!(error.contains("RTX 4070 lacks timelineSemaphore"), "{error}");
+        let error = plan_video(&[DeviceCaps { api: vk::make_api_version(0, 1, 2, 0), ..rtx }]).unwrap_err();
+        assert!(error.contains("supports Vulkan 1.2, FFmpeg's Vulkan video needs 1.3"), "{error}");
+    }
+
+    #[test]
+    fn each_half_of_the_request_is_asked_for_without_the_other() {
+        use crate::vulkan_video::Extensions;
+        assert_eq!(Features::video().names(), ["synchronization2", "timelineSemaphore"]);
+        assert_eq!(Features::video().without(Features::required()), Features::default(), "PyroWave's include video's");
+        let both = RendererRequest::halves(Ok(Features::all()), Ok(Extensions(0b111)));
+        assert_eq!(both, Ok((Features::all(), Extensions(0b111))));
+        assert_eq!(RendererRequest::halves(Ok(Features::all()), Err("no video".into())), Ok((Features::all(), Extensions(0))));
+        assert_eq!(RendererRequest::halves(Err("no subgroups".into()), Ok(Extensions(0b111))), Ok((Features::video(), Extensions(0b111))));
+        assert_eq!(RendererRequest::halves(Err("a".into()), Err("b".into())), Err("a; and for Vulkan video, b".into()));
     }
 
     #[test]
@@ -766,10 +833,17 @@ mod tests {
             }
             SDL_SetNumberProperty(props, QUEUE_FAMILY.as_ptr(), 2);
             let error = SdlVulkan::from_properties(props, "vulkan").unwrap_err();
-            assert!(error.contains("created without the decoder's features"), "{error}");
+            assert!(error.contains("created without the decoders' features"), "{error}");
+            // Each decoder checks the features it needs.
             SDL_SetNumberProperty(props, FEATURES_PROPERTY.as_ptr(), i64::from(with(&["timelineSemaphore"]).0));
-            let error = SdlVulkan::from_properties(props, "vulkan").unwrap_err();
+            let sdl = SdlVulkan::from_properties(props, "vulkan").unwrap();
+            let error = sdl.require(Features::required()).unwrap_err();
             assert!(error.contains("without subgroupSizeControl, computeFullSubgroups, synchronization2"), "{error}");
+            assert_eq!(sdl.require(Features::video()), Err("the renderer's Vulkan device was created without synchronization2".into()));
+            SDL_SetNumberProperty(props, FEATURES_PROPERTY.as_ptr(), i64::from(Features::video().0));
+            let sdl = SdlVulkan::from_properties(props, "vulkan").unwrap();
+            assert_eq!(sdl.require(Features::video()), Ok(()));
+            assert!(sdl.require(Features::required()).is_err());
             SDL_SetNumberProperty(props, FEATURES_PROPERTY.as_ptr(), i64::from(Features::all().0));
             let error = SdlVulkan::from_properties(props, "direct3d12").unwrap_err();
             assert!(error.contains("not Vulkan"), "{error}");

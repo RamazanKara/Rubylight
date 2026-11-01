@@ -17,6 +17,10 @@ mod encoder_gpu;
 mod gpu;
 mod install;
 mod log;
+// Shared with the host's butterpollo-windows, which uses more of them.
+#[allow(dead_code)]
+#[path = "../../windows/src/net_adapter.rs"]
+mod net_adapter;
 mod payload;
 #[cfg(test)]
 mod profile_tests;
@@ -30,6 +34,9 @@ mod usbip;
 #[path = "../../core/src/version.rs"]
 mod version;
 mod wake;
+#[allow(dead_code)]
+#[path = "../../windows/src/wmi.rs"]
+mod wmi;
 
 use std::path::PathBuf;
 

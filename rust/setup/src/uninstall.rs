@@ -1607,8 +1607,14 @@ mod tests {
         package(&root);
         let staging = root.join(STAGING);
         write(&staging.join("package\\butterpollo.exe"), "new");
-        write(&staging.join("transaction-42-7\\package\\butterpollo.exe"), "new");
-        write(&staging.join("transaction-42-7\\previous\\butterpollo.exe"), "old");
+        write(
+            &staging.join("transaction-42-7\\package\\butterpollo.exe"),
+            "new",
+        );
+        write(
+            &staging.join("transaction-42-7\\previous\\butterpollo.exe"),
+            "old",
+        );
         write(&staging.join("Rubylight-setup.exe"), "download");
         link(&staging.join("transaction-42-7\\through"), &outside);
         let touched = remove_package(&root);

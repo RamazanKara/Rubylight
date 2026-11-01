@@ -4,21 +4,16 @@
 //! An update neither asks again nor applies again unless `--wake-on-lan` is
 //! passed (`docs/wake-and-audio-design.md`, A.3). Fast Startup is left alone:
 //! only the console offers to turn it off.
+use crate::net_adapter::{self, MEDIUM_WIFI, PhysicalAdapter};
 use anyhow::{Context, Result, bail};
 use std::{path::Path, time::Duration};
 
 const CHOICE: &str = "wake-on-lan.json";
 /// Reading the adapters and restarting the ones whose settings changed. Later
 /// than the host's own bound (`SETTINGS_TIMEOUT` in butterpollo-windows,
-/// 260 s), which ends its NIC script before this could kill it mid-restart.
+/// 260 s), which gives up on its NIC changes before this could kill it
+/// mid-restart.
 const APPLY_TIMEOUT: Duration = Duration::from_secs(300);
-/// The physical adapters the host changes: the wired ones (NdisPhysicalMedium
-/// 0 or 14), or the Wi-Fi ones (9) without any, as "Name (description)".
-const ADAPTERS: &str = "[Console]::OutputEncoding = [Text.Encoding]::UTF8; \
-$all = @(Get-NetAdapter -Physical); \
-$wired = @($all | Where-Object { $_.NdisPhysicalMedium -in 0, 14 }); \
-$chosen = if ($wired) { $wired } else { @($all | Where-Object { $_.NdisPhysicalMedium -eq 9 }) }; \
-foreach ($a in $chosen) { 'adapter: ' + $a.Name + ' (' + $a.InterfaceDescription + ')' }";
 const ADAPTERS_TIMEOUT: Duration = Duration::from_secs(30);
 
 pub fn selected(profile: &Path, explicit: Option<bool>) -> bool {
@@ -65,28 +60,30 @@ pub fn after_update(
     }
 }
 
-/// The adapters the host would change, for the installer's question.
+/// The adapters the host would change, for the installer's question, as
+/// "Name (description)".
 pub fn adapters() -> Result<Vec<String>> {
-    let (code, output) = crate::system::run(
-        &crate::system::system32("WindowsPowerShell\\v1.0\\powershell.exe"),
-        &[
-            "-NoProfile",
-            "-NonInteractive",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-Command",
-            ADAPTERS,
-        ],
-        ADAPTERS_TIMEOUT,
-    )?;
-    if code != 0 {
-        bail!("Get-NetAdapter exited with code {code}: {}", output.trim());
-    }
-    Ok(output
-        .lines()
-        .filter_map(|line| line.trim().strip_prefix("adapter: "))
-        .map(str::to_owned)
+    let adapters =
+        crate::wmi::on_com_thread("listing the network adapters", ADAPTERS_TIMEOUT, || {
+            net_adapter::physical_adapters(&crate::wmi::Wmi::connect(net_adapter::NAMESPACE)?)
+        })?;
+    Ok(changed(&adapters)
+        .into_iter()
+        .map(|adapter| format!("{} ({})", adapter.name, adapter.description))
         .collect())
+}
+
+/// The physical adapters the host changes: the wired ones, or the Wi-Fi ones
+/// on a PC without any.
+fn changed(adapters: &[PhysicalAdapter]) -> Vec<&PhysicalAdapter> {
+    let wired: Vec<_> = adapters.iter().filter(|a| a.wired()).collect();
+    if !wired.is_empty() {
+        return wired;
+    }
+    adapters
+        .iter()
+        .filter(|a| a.medium == MEDIUM_WIFI)
+        .collect()
 }
 
 /// The installer's question: which adapters, and what changes on them.
@@ -220,6 +217,40 @@ mod tests {
         let two = question(&["Ethernet (A)".into(), "Ethernet 2 (B)".into()]);
         assert!(two.contains("for Ethernet (A), Ethernet 2 (B),"), "{two}");
         assert!(question(&[]).contains("for the wired network adapters,"));
+    }
+
+    #[test]
+    fn the_wired_adapters_change_or_the_wifi_ones_without_any() {
+        let adapter = |name: &str, medium| PhysicalAdapter {
+            name: name.into(),
+            medium,
+            ..Default::default()
+        };
+        let all = [
+            adapter("WLAN", MEDIUM_WIFI),
+            adapter("Ethernet", 14),
+            adapter("Ethernet 2", 0),
+            adapter("Mobile", 8),
+        ];
+        let names = |adapters: &[PhysicalAdapter]| -> Vec<String> {
+            changed(adapters).iter().map(|a| a.name.clone()).collect()
+        };
+        assert_eq!(names(&all), ["Ethernet", "Ethernet 2"]);
+        assert_eq!(names(&[all[0].clone(), all[3].clone()]), ["WLAN"]);
+        assert!(names(&[all[3].clone()]).is_empty());
+    }
+
+    #[test]
+    fn this_pcs_adapters_are_listed_for_the_question() -> Result<()> {
+        // Read-only, and without elevation.
+        for adapter in adapters()? {
+            let (name, description) = adapter
+                .strip_suffix(')')
+                .and_then(|rest| rest.split_once(" ("))
+                .unwrap_or_else(|| panic!("{adapter}"));
+            assert!(!name.is_empty() && !description.is_empty(), "{adapter}");
+        }
+        Ok(())
     }
 
     #[test]

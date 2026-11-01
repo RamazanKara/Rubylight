@@ -332,10 +332,14 @@ impl Streaming {
         }
         if probe { self.wait_out_scan(); }
         let beam_before = self.race_probe.as_ref().filter(|_| probe).and_then(race_probe::RaceProbe::before);
+        // Keys, clicks and controllers leave from their own threads while the present waits.
+        // SAFETY: a live renderer.
+        self.direct_motion.presenting(Some(self.direct_rules(unsafe { SDL_GetRenderWindow(renderer) })));
         let issued_us = session::now_us();
         // SAFETY: a live renderer.
         unsafe { SDL_RenderPresent(renderer) };
         let returned_us = session::now_us();
+        self.direct_motion.presenting(None);
         let mode_tears = self.pacer.mode != PacingMode::Vsync;
         let fps = f64::from(self.facts.fps);
         let scan = self.race_probe.as_mut().filter(|_| probe).map(|probe| {

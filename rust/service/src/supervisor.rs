@@ -112,7 +112,9 @@ fn status(state: ServiceState, checkpoint: u32) -> ServiceStatus {
 /// say, so the host is asked ([`Step::AskHost`]) on two occasions only: once
 /// per service run, the first time the device is there, and before a repair
 /// for a device it refused, in case that was passing. Never twice within a
-/// minute, and the second at most once an hour.
+/// minute, and the second at most once an hour. An ask that got no answer
+/// (the task failed) is asked again 10 minutes later, then hourly, until one
+/// comes; an answer is never asked for again on a timer.
 #[derive(Default)]
 struct DriverWatch {
     missing_since: Option<Instant>,
@@ -123,6 +125,9 @@ struct DriverWatch {
     refused: bool,
     /// It is being asked again before a repair.
     confirming: bool,
+    /// Asks in a row that got no answer, and when to ask again.
+    unanswered: u32,
+    ask_again: Option<Instant>,
 }
 /// What a poll of the [`DriverWatch`] asks for.
 #[derive(Debug, PartialEq, Eq)]
@@ -136,9 +141,12 @@ enum Step {
 impl DriverWatch {
     const GRACE: Duration = Duration::from_secs(60);
     const QUIET: Duration = Duration::from_secs(3600);
+    /// The first ask again after one that got no answer; later ones wait
+    /// [`Self::QUIET`].
+    const RETRY: Duration = Duration::from_secs(600);
     /// `present`: whether the device is there now.
     fn poll(&mut self, present: bool, now: Instant) -> Step {
-        if present && !self.asked {
+        if present && (!self.asked || self.ask_again.is_some_and(|at| now >= at)) {
             return Step::AskHost;
         }
         if present && !self.refused {
@@ -164,17 +172,30 @@ impl DriverWatch {
     }
     /// The host's answer to [`Step::AskHost`]: whether it can use the driver,
     /// None when the check failed. A failed check decides nothing; one before a
-    /// repair keeps the watch quiet for an hour instead of repairing.
+    /// repair keeps the watch quiet for an hour instead of repairing, any
+    /// other is asked again later.
     fn answered(&mut self, usable: Option<bool>, now: Instant) {
         self.asked = true;
         match usable {
-            Some(usable) => self.refused = !usable,
+            Some(usable) => {
+                self.refused = !usable;
+                self.unanswered = 0;
+                self.ask_again = None;
+            }
             None if self.confirming => {
                 self.missing_since = None;
                 self.quiet_until = Some(now + Self::QUIET);
                 self.confirming = false;
             }
-            None => {}
+            None => {
+                self.unanswered += 1;
+                let wait = if self.unanswered == 1 {
+                    Self::RETRY
+                } else {
+                    Self::QUIET
+                };
+                self.ask_again = Some(now + wait);
+            }
         }
     }
     /// How long to wait before the next poll: a minute while the driver is
@@ -187,6 +208,24 @@ impl DriverWatch {
         } else {
             Duration::from_secs(60)
         }
+    }
+}
+/// The error of a check that runs again and again, such as every minute:
+/// logged once, then again only when it changes, and once more as it clears.
+#[derive(Default)]
+struct Repeated(Option<String>);
+impl Repeated {
+    /// The check failed with `error`; whether to log it.
+    fn failed(&mut self, error: &str) -> bool {
+        let new = self.0.as_deref() != Some(error);
+        if new {
+            self.0 = Some(error.to_owned());
+        }
+        new
+    }
+    /// The check passed; whether that ends an error logged before.
+    fn passed(&mut self) -> bool {
+        self.0.take().is_some()
     }
 }
 /// Setup installs Rubylight's virtual display driver, but a failed driver
@@ -215,15 +254,24 @@ fn repair_display_driver(install: &std::path::Path, host: &std::path::Path, stop
         let mut watch = DriverWatch::default();
         // Why the host refused the device, for the repair's log line.
         let mut refusal = String::new();
+        let mut check = Repeated::default();
         // Until the service stops, which also ends a task that runs.
         let stopped = |interval| stop.wait(interval).unwrap_or(true);
         loop {
             // A check that failed decides nothing: the next one comes after
             // the same interval.
             let present = match crate::driver::present() {
-                Ok(present) => present,
+                Ok(present) => {
+                    if check.passed() {
+                        tracing::info!("the virtual display driver can be checked again");
+                    }
+                    present
+                }
                 Err(error) => {
-                    tracing::error!(error = %format!("{error:#}"), "the virtual display driver could not be checked");
+                    let error = format!("{error:#}");
+                    if check.failed(&error) {
+                        tracing::error!(%error, "the virtual display driver could not be checked");
+                    }
                     if stopped(watch.interval()) {
                         break;
                     }
@@ -575,6 +623,21 @@ mod tests {
         due.launched();
         assert!(!due.start(true, false));
     }
+    #[test]
+    fn a_check_that_keeps_failing_logs_once_then_on_a_change_or_as_it_clears() {
+        let mut check = Repeated::default();
+        assert!(!check.passed());
+        assert!(check.failed("CM_Get_Device_ID_List failed (13)"));
+        for _ in 0..60 {
+            assert!(!check.failed("CM_Get_Device_ID_List failed (13)"));
+        }
+        assert!(check.failed("CM_Get_Device_ID_List failed (31)"));
+        assert!(!check.failed("CM_Get_Device_ID_List failed (31)"));
+        assert!(check.passed());
+        assert!(!check.passed());
+        // The same error after it cleared is news again.
+        assert!(check.failed("CM_Get_Device_ID_List failed (31)"));
+    }
     /// Drives a [`DriverWatch`] as the watch thread does, from second 0 to
     /// `end`: `present` is the Plug and Play answer at a second, `host` the
     /// host's answer to an ask. The seconds at which the host was asked and a
@@ -659,10 +722,26 @@ mod tests {
         assert_eq!(asks, [0, 60]);
         assert!(repairs.is_empty());
         // A host that cannot answer decides nothing: no repair from its
-        // silence, and no ask more than once an hour.
+        // silence. It is asked again 10 minutes later, then once an hour.
         let (asks, repairs) = drive(86_400, |_| true, |_| None);
-        assert_eq!(asks, [0]);
+        assert_eq!(&asks[..4], [0, 600, 600 + 3600, 600 + 7200]);
+        assert!(spaced(&asks[1..], 3600) && asks.len() <= 25, "{asks:?}");
         assert!(repairs.is_empty());
+        // Once it answers, it is not asked again on a timer.
+        let (asks, repairs) = drive(86_400, |_| true, |second| (second > 600).then_some(true));
+        assert_eq!(asks, [0, 600, 4200]);
+        assert!(repairs.is_empty());
+        let (asks, repairs) = drive(86_400, |_| true, |second| (second > 0).then_some(true));
+        assert_eq!(asks, [0, 600]);
+        assert!(repairs.is_empty());
+        // A refusal that comes after a failed ask repairs as any other.
+        let (asks, repairs) = drive(86_400, |_| true, |second| (second > 0).then_some(false));
+        assert_eq!(&asks[..3], [0, 600, 660]);
+        assert_eq!(repairs[0], 660);
+        // A device that comes and goes does not restart the backoff.
+        let (asks, _) = drive(86_400, |second| second % 1200 < 900, |_| None);
+        assert_eq!(&asks[..2], [0, 600]);
+        assert!(spaced(&asks[1..], 3600), "{asks:?}");
         let (asks, repairs) = drive(86_400, |_| true, |second| (second == 0).then_some(false));
         assert!(repairs.is_empty());
         assert!(spaced(&asks, 60) && spaced(&asks[1..], 3600), "{asks:?}");

@@ -173,8 +173,11 @@ impl Streaming {
         self.controller_mouse_active = false;
         if self.settings.controllers && self.facts.role != AppRole::RemoteMonitor && !self.menu_visible && (self.focused || self.settings.background_controllers) {
             self.session.input(|q| self.controller_mouse_active = pads.update_mouse(q));
-            let now = Instant::now();
-            self.session.input(|q| self.guide_menu |= pads.guide_tick(now, q));
+            // Only while a Guide press is pending: otherwise no input lock or control-thread wake per loop.
+            if pads.guide_waiting() {
+                let now = Instant::now();
+                self.session.input(|q| self.guide_menu |= pads.guide_tick(now, q));
+            }
             self.guide_waiting = pads.guide_waiting();
         } else {
             self.guide_waiting = false;

@@ -2721,7 +2721,6 @@ fn page_screenshots() {
     f.shoot(&dir, &format!("{prefix}hosts-long-detail-desktop"));
 }
 
-/// Made-up cover art without any words on it: a night gradient in one hue with the brand's orbits.
 /// The demo library's cover art (the same genre covers the Android demo and README use).
 fn demo_art(ctx: &egui::Context, n: usize) -> Art {
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(format!("../../app/src/debug/assets/demo/art/{}.png", n + 1));
@@ -2740,12 +2739,14 @@ fn polish_screenshots() {
     std::fs::create_dir_all(&dir).expect("the folder for the screenshots");
     let only = std::env::var("NIGHTJAR_SHOTS_ONLY").unwrap_or_default();
     // Store keys as a host sends them (console.rs names them). Ten Steam games overflow a row at
-    // both sizes, so Steam's ends in its All tile; one Epic game is not installed.
+    // both sizes, so Steam's ends in its All tile; one Epic game is not installed. The first ten
+    // have the demo covers, which carry their titles; the rest sort after them and show the
+    // placeholder, so each row starts as a real library looks.
     let titles = [
-        ("Desktop", ""), ("Racing Game", "steam"), ("Open World", "microsoft"), ("Space Sim", "epic"), ("Puzzle Night", "gog"),
-        ("Retro Arcade", "steam"), ("Strategy", "battlenet"), ("Music Studio", "steam"), ("Ocean Explorer", "microsoft"), ("Skybound", "steam"),
-        ("Night Drive", "steam"), ("Farm Life", "steam"), ("Dungeon Deep", "steam"), ("Tiny Tactics", "steam"), ("Star Courier", "steam"),
-        ("Frost Peak", "epic"), ("Card Duel", "battlenet"), ("Last Light", "steam"), ("Steam Big Picture", ""),
+        ("Desktop", ""), ("Racing Game", "steam"), ("Open World", "steam"), ("Space Sim", "microsoft"), ("Puzzle Night", "gog"),
+        ("Retro Arcade", "steam"), ("Strategy", "battlenet"), ("Music Studio", "steam"), ("Ocean Explorer", "steam"), ("Skybound", "steam"),
+        ("Trail Runner", "microsoft"), ("Star Courier", "steam"), ("Tiny Tactics", "steam"), ("Wild Frontier", "steam"), ("Zen Garden", "steam"),
+        ("Frost Peak", "epic"), ("Tavern Duel", "battlenet"), ("Wayfarer", "epic"), ("Steam Big Picture", ""),
     ];
     for (width, height, ppp) in [(1280.0, 800.0, 1.5), (1920.0, 1080.0, 1.0)] {
         let size = format!("{}x{}", width as u32, height as u32);

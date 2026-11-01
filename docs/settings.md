@@ -316,7 +316,7 @@ Implementation: [HostStreamSettings.java](../app/src/main/java/com/limelight/pre
 | PC render resolution | Same as all PCs, or 50–200% | Change the PC's render resolution relative to the stream. Used with the virtual-display request. |
 | PC display scaling | Same as all PCs, PC’s own, or 100–500% in Windows' steps | Larger text and interface on this PC's virtual display; the resolution does not change. Shown only for PCs whose host reads it; on an older host version it is disabled with the reason. |
 | Prefer YUV 4:4:4 | Same as all PCs, On, Off | Request supported chroma behavior for this PC. |
-| Force full-range video (under **Debug**, last) | Same as all PCs, On, Off | Request full-range color for this PC. |
+| Force full-range video (under **Debug**, last, after the Connection and Host groups) | Same as all PCs, On, Off | Request full-range color for this PC. |
 | Save | Action | Stores this PC's own values. Takes effect next stream. |
 
 A PC keeps only the values that differ from the main settings. The host's device and app policy may override a request. The performance overlay and the log show the PC's own values and the display choice for each stream.

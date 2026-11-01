@@ -1,0 +1,2 @@
+# Setup staging
+- **Setup no longer unpacks programs into ProgramData.** Windows Defender's cloud protection quarantined the Rubylight service while setup had it unpacked in `C:\ProgramData\Butterpollo\setup`. Setup and updates now unpack into a `.staging` folder inside the Rubylight folder, which only administrators can change, and remove it when they finish; a failed update keeps its backup there for the rollback. Setup deletes the old `ProgramData\Butterpollo\setup` folder.

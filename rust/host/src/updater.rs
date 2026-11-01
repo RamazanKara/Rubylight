@@ -584,7 +584,7 @@ fn check_recovery(profile: &std::path::Path) -> Result<Value> {
         || (record["phase"] == "installing" && record["backup"].is_string())
     {
         bail!(
-            "An earlier update could not be rolled back. Run the Rubylight installer to repair this installation; keep the updates folder in the profile until it has finished."
+            "An earlier update could not be rolled back. Run the Rubylight installer to repair this installation; keep the backup the update record names until it has finished."
         );
     }
     Ok(record)

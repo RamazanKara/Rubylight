@@ -38,7 +38,7 @@ pub fn run(
         }
     };
     let _lock = lock;
-    write_result(&result, "installing", None)?;
+    write_result(&result, "installing", None).inspect_err(|_| remove_work(&work))?;
     progress.set("Stopping Rubylight…");
     stop_for_update(
         &result,
@@ -49,7 +49,8 @@ pub fn run(
             }
             system::start_service(detect::SERVICE)
         },
-    )?;
+    )
+    .inspect_err(|_| remove_work(&work))?;
     // Nothing has been overwritten if the backup fails.
     let saved = Backup::create(&install, &backup, &paths).and_then(|saved| {
         // From here files change. If this setup cannot finish, setup or
@@ -65,6 +66,8 @@ pub fn run(
         Ok(saved) => saved,
         Err(error) => {
             let _ = system::start_service(detect::SERVICE);
+            // No record names this backup: nothing was replaced.
+            remove_work(&work);
             write_result(&result, "failed", Some(&format!("{error:#}")))?;
             return Err(error);
         }
@@ -173,33 +176,55 @@ fn prepare(
     // update left.
     install::ensure_idle(install::probe(profile), end_streams)?;
     recover_or_supersede(&profile.join("update-result.json"))?;
-    let work = profile.join("updates").join(format!(
+    if let Err(error) = install::remove_legacy_staging(&system::program_data()) {
+        line(format!("warning: {error:#}"));
+    }
+    // In the installation folder, which only administrators may change,
+    // never in ProgramData (see install::staging_root).
+    let staging = install::prepare_staging_root(folder)?;
+    // No record names a backup still to be restored any more.
+    prune_transactions(&staging);
+    let work = staging.join(format!(
         "transaction-{}-{}",
         std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)?
             .as_nanos()
     ));
-    std::fs::create_dir_all(&work)?;
-    system::restrict(&work, false)?;
+    std::fs::create_dir(&work)?;
     let staged = work.join("package");
     let backup = work.join("previous");
-    std::fs::create_dir(&staged)?;
-    progress.set("Verifying the update…");
-    payload::Payload::open()?
-        .context("The update installer has no package")?
-        .extract(&staged)?;
-    let entries = payload::verify(&staged)?;
-    let previous = payload::manifest(&install).context(
-        "The installed package has no readable manifest; run the Rubylight installer to repair it",
-    )?;
+    let unpacked = (|| -> Result<_> {
+        system::restrict(&work, false)?;
+        std::fs::create_dir(&staged)?;
+        progress.set("Verifying the update…");
+        payload::Payload::open()?
+            .context("The update installer has no package")?
+            .extract(&staged)?;
+        let entries = payload::verify(&staged)?;
+        let previous = payload::manifest(&install).context(
+            "The installed package has no readable manifest; run the Rubylight installer to repair it",
+        )?;
+        Ok((entries, previous))
+    })();
+    let (entries, previous) = match unpacked {
+        Ok(unpacked) => unpacked,
+        Err(error) => {
+            // Nothing is backed up yet: the staged files have no use.
+            remove_work(&work);
+            return Err(error);
+        }
+    };
     let paths = previous
         .iter()
         .chain(&entries)
         .map(|e| e.path.clone())
         .chain(["manifest.json".into(), "uninstall.exe".into()])
         .collect();
-    install::ensure_idle(install::probe(profile), end_streams)?;
+    if let Err(error) = install::ensure_idle(install::probe(profile), end_streams) {
+        remove_work(&work);
+        return Err(error);
+    }
     Ok(Prepared {
         install,
         work,
@@ -310,8 +335,65 @@ fn finish_update(
             system::remove_file_later(&payload::safe_join(install, &old.path)?);
         }
     }
-    let _ = std::fs::remove_dir_all(work);
+    remove_work(work);
     Ok(())
+}
+/// Delete an update's transaction folder, and the staging folder holding it
+/// once nothing else is in it.
+fn remove_work(work: &Path) {
+    match std::fs::remove_dir_all(work) {
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => line(format!(
+            "the update folder {} could not be removed: {error}",
+            work.display()
+        )),
+    }
+    if let Some(staging) = work.parent() {
+        let _ = std::fs::remove_dir(staging);
+    }
+}
+/// A failed update keeps its transaction folder, with the backup, in the
+/// staging folder; all but the newest `KEPT_TRANSACTIONS` go, as the host's
+/// updater did when they were in the profile. Only once no record names a
+/// backup still to be restored. Other names are left alone.
+fn prune_transactions(staging: &Path) {
+    let Ok(entries) = std::fs::read_dir(staging) else {
+        return;
+    };
+    let names: Vec<String> = entries
+        .flatten()
+        .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir()))
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .collect();
+    for name in stale_transactions(&names) {
+        let folder = staging.join(name);
+        if let Err(error) = std::fs::remove_dir_all(&folder) {
+            line(format!(
+                "the earlier update folder {} could not be removed: {error}",
+                folder.display()
+            ));
+        }
+    }
+}
+const KEPT_TRANSACTIONS: usize = 2;
+/// Transaction folders (transaction-<process id>-<nanoseconds>) older than
+/// the newest `KEPT_TRANSACTIONS`.
+fn stale_transactions(names: &[String]) -> Vec<&str> {
+    let mut dated: Vec<(u128, &str)> = names
+        .iter()
+        .filter_map(|name| {
+            let (process, time) = name.strip_prefix("transaction-")?.split_once('-')?;
+            process.parse::<u32>().ok()?;
+            Some((time.parse().ok()?, name.as_str()))
+        })
+        .collect();
+    dated.sort_unstable_by(|a, b| b.cmp(a));
+    dated
+        .into_iter()
+        .skip(KEPT_TRANSACTIONS)
+        .map(|(_, name)| name)
+        .collect()
 }
 /// The update works, so the record must stop saying "installing" with a
 /// backup: the service would restore the previous version over it at its
@@ -395,7 +477,7 @@ fn recover_locked(result: &Path) -> Result<()> {
         Err(error) => return Err(error.into()),
     };
     let mut record: serde_json::Value = serde_json::from_slice(&bytes).context(
-        "The update recovery record cannot be read; keep the updates folder for recovery",
+        "The update recovery record cannot be read; keep the update's backup for recovery",
     )?;
     let (Some("installing" | "recovery_failed"), Some(backup), Some(install)) = (
         record["phase"].as_str(),
@@ -1136,6 +1218,58 @@ mod tests {
             assert!(record["error"].is_null());
             assert_eq!(record["warning"], expected);
         }
+        Ok(())
+    }
+    /// Failed updates keep their backup in the installation folder's
+    /// staging folder now, where the host's updater no longer prunes them.
+    #[test]
+    fn only_the_two_newest_failed_update_transactions_are_kept() -> Result<()> {
+        let staging = tempfile::tempdir()?;
+        let names = [
+            "transaction-9876-1700000000000000300",
+            "transaction-12-1700000000000000100",
+            "transaction-555-1700000000000000400",
+            "transaction-7-1700000000000000200",
+            "package",
+            "transaction-x-1",
+        ];
+        for name in names {
+            std::fs::create_dir_all(staging.path().join(name).join("previous"))?;
+        }
+        prune_transactions(staging.path());
+        let mut left: Vec<String> = std::fs::read_dir(staging.path())?
+            .map(|entry| Ok(entry?.file_name().to_string_lossy().into_owned()))
+            .collect::<Result<_>>()?;
+        left.sort();
+        assert_eq!(
+            left,
+            [
+                "package",
+                "transaction-555-1700000000000000400",
+                "transaction-9876-1700000000000000300",
+                "transaction-x-1",
+            ]
+        );
+        Ok(())
+    }
+    #[test]
+    fn a_finished_transaction_takes_the_empty_staging_folder_with_it() -> Result<()> {
+        let install = tempfile::tempdir()?;
+        let staging = install::staging_root(install.path());
+        let (kept, work) = (
+            staging.join("transaction-1-1"),
+            staging.join("transaction-1-2"),
+        );
+        std::fs::create_dir_all(kept.join("previous"))?;
+        std::fs::create_dir_all(work.join("package"))?;
+        remove_work(&work);
+        assert!(!work.exists());
+        assert!(kept.exists());
+        std::fs::remove_dir_all(&kept)?;
+        std::fs::create_dir_all(work.join("package"))?;
+        remove_work(&work);
+        assert!(!staging.exists());
+        assert!(install.path().exists());
         Ok(())
     }
 }

@@ -194,6 +194,9 @@ fn install_with(
             aside.display()
         ));
     }
+    if let Err(error) = remove_legacy_staging(&system::program_data()) {
+        notes.push(format!("{error:#}. Delete that folder."));
+    }
     let mut restart_needed = false;
 
     if updating {
@@ -253,7 +256,8 @@ fn install_with(
 
     // Previous hosts are only removed by a full installation.
     let previous = migration_source(&found, &profile, &install)?;
-    let (staging, entries) = unpack(&mut payload, progress)?;
+    let created = create_install(&install)?;
+    let (staging, entries) = unpack(&mut payload, &install, created, progress)?;
 
     let active_profile = previous
         .as_ref()
@@ -295,8 +299,8 @@ fn install_with(
         // A package without drivers reuses the signed drivers already
         // installed with Vibepollo.
         for (from, to) in [("drivers\\vhf-gamepad", "drivers\\gamepad")] {
-            if !staging.join(to).exists() && root.join(from).is_dir() {
-                copy_tree(&root.join(from), &staging.join(to))?;
+            if !staging.path().join(to).exists() && root.join(from).is_dir() {
+                copy_tree(&root.join(from), &staging.path().join(to))?;
             }
         }
     }
@@ -310,7 +314,7 @@ fn install_with(
                 root.clone()
             };
             let (code, output) = system::run(
-                &staging.join("butterpollo.exe").display().to_string(),
+                &staging.path().join("butterpollo.exe").display().to_string(),
                 &[
                     "--config-dir",
                     &profile.display().to_string(),
@@ -336,12 +340,10 @@ fn install_with(
         }
 
         progress.set("Installing files…");
-        std::fs::create_dir_all(&install)?;
-        secure_install(&install)?;
-        copy_package(&staging, &install, &entries)?;
+        copy_package(staging.path(), &install, &entries)?;
         payload::write_stub(
             &install.join("uninstall.exe"),
-            payload::packaged_stub(&staging, &entries)?.as_deref(),
+            payload::packaged_stub(staging.path(), &entries)?.as_deref(),
         )
     })?;
 
@@ -475,7 +477,7 @@ fn install_with(
     }
     restart.services.clear();
     crate::update::record_installed(&profile);
-    let _ = std::fs::remove_dir_all(&staging);
+    drop(staging);
     Ok(Outcome {
         install,
         web_port,
@@ -484,23 +486,129 @@ fn install_with(
     })
 }
 
-/// Unpack and verify the package in the profile's setup folder.
-fn unpack(payload: &mut Payload, progress: &Progress) -> Result<(PathBuf, Vec<payload::Entry>)> {
-    progress.set("Unpacking Rubylight…");
-    let staging = system::program_data().join("Butterpollo").join("setup");
-    let staging_root = staging.parent().context("staging folder has no parent")?;
-    std::fs::create_dir_all(staging_root)?;
-    restrict_profile_root(staging_root)?;
-    if staging.exists() {
-        std::fs::remove_dir_all(&staging).context("removing the previous setup staging folder")?;
+/// Create `install` if needed and give it the service folder's permissions,
+/// before setup stages anything in it. Returns whether it was created.
+fn create_install(install: &Path) -> Result<bool> {
+    let created = std::fs::symlink_metadata(install).is_err();
+    std::fs::create_dir_all(install)?;
+    secure_install(install)?;
+    Ok(created)
+}
+/// Setup's staging folder, inside the installation folder: the package of a
+/// full installation (`package`) and each update's transaction (new files
+/// and the backup) go there. Only administrators may change the
+/// installation folder; elevated programs run from ProgramData, where
+/// earlier setups staged, look like malware (Defender's cloud model quarantined
+/// the staged service there).
+pub(crate) fn staging_root(install: &Path) -> PathBuf {
+    install.join(".staging")
+}
+/// [`staging_root`] of an installation folder setup has already secured,
+/// limited to SYSTEM and Administrators. A link in its place or inside it
+/// is refused, never followed.
+pub(crate) fn prepare_staging_root(install: &Path) -> Result<PathBuf> {
+    let root = staging_root(install);
+    match std::fs::symlink_metadata(&root) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => std::fs::create_dir(&root)?,
+        Err(error) => return Err(error.into()),
+        Ok(_) => {}
     }
-    std::fs::create_dir_all(&staging)?;
+    system::restrict(&root, false).with_context(|| format!("securing {}", root.display()))?;
+    Ok(root)
+}
+/// The staged package of a full installation. Dropping it deletes the
+/// package, the staging folder once nothing else is in it (a failed
+/// update's backup stays), and an installation folder this run created that
+/// is still empty: a setup that fails leaves no folder behind.
+struct Staging {
+    package: PathBuf,
+    /// Set once the staging folder passed its check: a link in its place
+    /// would lead the removal elsewhere.
+    checked: bool,
+    created: Option<PathBuf>,
+}
+impl Staging {
+    fn path(&self) -> &Path {
+        &self.package
+    }
+}
+impl Drop for Staging {
+    fn drop(&mut self) {
+        if self.checked {
+            match std::fs::remove_dir_all(&self.package) {
+                Ok(()) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => line(format!(
+                    "the staged package {} could not be removed: {error}",
+                    self.package.display()
+                )),
+            }
+            if let Some(root) = self.package.parent() {
+                let _ = std::fs::remove_dir(root);
+            }
+        }
+        if let Some(install) = &self.created {
+            let _ = std::fs::remove_dir(install);
+        }
+    }
+}
+/// An empty, locked-down package folder in `install`'s staging folder; what
+/// an interrupted setup left there is removed first.
+fn prepare_staging(install: &Path, created: bool) -> Result<Staging> {
+    // First, so that a failure from here on also removes a folder this run
+    // created.
+    let mut staging = Staging {
+        package: staging_root(install).join("package"),
+        checked: false,
+        created: created.then(|| install.to_path_buf()),
+    };
+    prepare_staging_root(install)?;
+    staging.checked = true;
+    // `prepare_staging_root` refused a link anywhere in the folder.
+    if std::fs::symlink_metadata(staging.path()).is_ok() {
+        std::fs::remove_dir_all(staging.path())
+            .context("removing the previous setup staging folder")?;
+    }
+    // A new folder, so nothing made before this point is inside it.
+    std::fs::create_dir(staging.path())?;
     // The staged host runs elevated (settings import) and loads DLLs from its
     // own folder: lock the folder down before anything lands in it.
-    system::restrict(&staging, false)?;
-    payload.extract(&staging)?;
-    let entries = payload::verify(&staging)?;
+    system::restrict(staging.path(), false)?;
+    Ok(staging)
+}
+/// Unpack and verify the package in `install`'s staging folder.
+fn unpack(
+    payload: &mut Payload,
+    install: &Path,
+    created: bool,
+    progress: &Progress,
+) -> Result<(Staging, Vec<payload::Entry>)> {
+    progress.set("Unpacking Rubylight…");
+    let staging = prepare_staging(install, created)?;
+    payload.extract(staging.path())?;
+    let entries = payload::verify(staging.path())?;
     Ok((staging, entries))
+}
+/// Where earlier setups staged the package. It may still hold the
+/// programs of an earlier version's setup; a link there is removed itself,
+/// never followed.
+pub(crate) fn remove_legacy_staging(program_data: &Path) -> Result<()> {
+    use std::os::windows::fs::MetadataExt;
+    let folder = program_data.join("Butterpollo").join("setup");
+    let removed = match std::fs::symlink_metadata(&folder) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => Err(error),
+        Ok(metadata) if metadata.file_attributes() & 0x400 != 0 => {
+            std::fs::remove_dir(&folder).or_else(|_| std::fs::remove_file(&folder))
+        }
+        Ok(_) => std::fs::remove_dir_all(&folder),
+    };
+    removed.with_context(|| format!("removing the earlier staging folder {}", folder.display()))?;
+    line(format!(
+        "removed the earlier staging folder {}",
+        folder.display()
+    ));
+    Ok(())
 }
 
 /// Moves an installed Rubylight out of a folder it cannot stay in (see
@@ -524,7 +632,10 @@ fn move_install(
         old.display(),
         install.display()
     ));
-    let (staging, entries) = unpack(payload, progress)?;
+    // Staged in the new folder: the old one is the folder that fails the
+    // owner check.
+    let created = create_install(install)?;
+    let (staging, entries) = unpack(payload, install, created, progress)?;
     ensure_idle(probe(profile), options.end_streams)?;
     progress.set("Stopping Rubylight…");
     // Until the service has started from `install`, a failure starts it
@@ -537,12 +648,10 @@ fn move_install(
     )?;
     crate::update::recover(profile)?;
     progress.set("Installing files…");
-    std::fs::create_dir_all(install)?;
-    secure_install(install)?;
-    copy_package(&staging, install, &entries)?;
+    copy_package(staging.path(), install, &entries)?;
     payload::write_stub(
         &install.join("uninstall.exe"),
-        payload::packaged_stub(&staging, &entries)?.as_deref(),
+        payload::packaged_stub(staging.path(), &entries)?.as_deref(),
     )?;
     remember_driver_choice(profile, options.display_driver);
     let mut notes = Vec::new();
@@ -620,7 +729,7 @@ fn move_install(
         "Rubylight was moved from {} and nothing uses that folder any more. Delete it once you no longer need anything in it.",
         old.display()
     ));
-    let _ = std::fs::remove_dir_all(&staging);
+    drop(staging);
     Ok(Outcome {
         install: install.to_path_buf(),
         web_port: web_port(profile),
@@ -928,11 +1037,6 @@ fn secure_profile(profile: &Path) -> Result<()> {
         |folder, users_read| system::restrict_except(folder, users_read, &opaque),
         |root| system::inherit_contents(root, &opaque),
     )
-}
-/// [`system::restrict`] for the profile's root, which leaves the users'
-/// Nucleus copies as they are: a link a user makes in theirs is no error.
-fn restrict_profile_root(root: &Path) -> Result<()> {
-    system::restrict_except(root, true, &[nucleus_user_root(root)])
 }
 fn secure_profile_with(
     profile: &Path,
@@ -2331,7 +2435,6 @@ mod tests {
         for installed in [true, false] {
             assert_eq!(prepare_profile(&profile, installed)?, None);
         }
-        restrict_profile_root(&root)?;
         secure_profile(&profile)?;
         assert_nucleus_copy_kept(&root, &copy)?;
         system::trusted_tree(&root, std::slice::from_ref(&nucleus))?;
@@ -2342,7 +2445,6 @@ mod tests {
         std::fs::remove_dir_all(&nucleus)?;
         std::os::windows::fs::symlink_dir(&outside, &nucleus)?;
         for error in [
-            restrict_profile_root(&root).unwrap_err(),
             secure_profile(&profile).unwrap_err(),
             prepare_profile(&profile, true).unwrap_err(),
         ] {
@@ -3153,6 +3255,121 @@ Caused by:\n    0: invalid JSON in C:\\ProgramData\\Butterpollo\\.butterpollo-im
         };
         restart.services.clear();
         drop(restart);
+        Ok(())
+    }
+    /// Setup staged the package in ProgramData\Butterpollo\setup and ran the
+    /// staged host from there elevated; Defender's cloud model quarantined
+    /// the staged service. It stages in the installation folder now, which
+    /// it secures first, and leaves nothing behind.
+    #[test]
+    fn the_package_is_staged_in_the_installation_folder() -> Result<()> {
+        if !system::elevated() {
+            return Ok(());
+        }
+        let temp = tempfile::tempdir_in(system::program_data())?;
+        system::restrict(temp.path(), true)?;
+        let install = temp.path().join("Rubylight");
+        let created = create_install(&install)?;
+        assert!(created);
+        let staging = prepare_staging(&install, created)?;
+        assert_eq!(staging.path(), install.join(".staging").join("package"));
+        assert!(
+            !staging
+                .path()
+                .starts_with(system::program_data().join("Butterpollo"))
+        );
+        system::trusted_tree(&staging_root(&install), &[])?;
+        std::fs::write(staging.path().join("butterpollo.exe"), b"staged")?;
+        drop(staging);
+        // The folder this run created goes with the staging folder.
+        assert!(!install.exists());
+
+        std::fs::create_dir(&install)?;
+        std::fs::write(install.join("own.txt"), b"the user's")?;
+        drop(prepare_staging(&install, true)?);
+        assert!(!staging_root(&install).exists());
+        assert_eq!(std::fs::read(install.join("own.txt"))?, b"the user's");
+        Ok(())
+    }
+    #[test]
+    fn an_interrupted_setups_staging_is_replaced_and_update_backups_kept() -> Result<()> {
+        if !system::elevated() {
+            return Ok(());
+        }
+        let temp = tempfile::tempdir_in(system::program_data())?;
+        system::restrict(temp.path(), true)?;
+        let install = temp.path().join("Rubylight");
+        create_install(&install)?;
+        let root = staging_root(&install);
+        std::fs::create_dir_all(root.join("package"))?;
+        std::fs::write(root.join("package").join("stale.exe"), b"old")?;
+        let backup = root.join("transaction-1-2").join("previous");
+        std::fs::create_dir_all(&backup)?;
+        std::fs::write(backup.join("butterpollo.exe"), b"previous")?;
+        let staging = prepare_staging(&install, false)?;
+        assert!(!staging.path().join("stale.exe").exists());
+        system::trusted_tree(&root, &[])?;
+        drop(staging);
+        assert_eq!(std::fs::read(backup.join("butterpollo.exe"))?, b"previous");
+        Ok(())
+    }
+    #[test]
+    fn a_link_in_the_staging_folder_is_refused_not_followed() -> Result<()> {
+        if !system::elevated() {
+            return Ok(());
+        }
+        let temp = tempfile::tempdir_in(system::program_data())?;
+        system::restrict(temp.path(), true)?;
+        let install = temp.path().join("Rubylight");
+        create_install(&install)?;
+        let outside = temp.path().join("outside");
+        std::fs::create_dir_all(outside.join("package"))?;
+        std::fs::write(outside.join("file.dll"), b"unchanged")?;
+        std::fs::write(outside.join("package").join("file.dll"), b"unchanged")?;
+        let root = staging_root(&install);
+        for link in [root.clone(), root.join("package")] {
+            if let Some(parent) = link.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            std::os::windows::fs::symlink_dir(&outside, &link)?;
+            let error = prepare_staging(&install, false)
+                .err()
+                .context("a link was followed")?;
+            assert!(error.to_string().contains("reparse point"), "{error:#}");
+            for file in [
+                outside.join("file.dll"),
+                outside.join("package").join("file.dll"),
+            ] {
+                assert_eq!(std::fs::read(file)?, b"unchanged");
+            }
+            std::fs::remove_dir(&link)?;
+        }
+        Ok(())
+    }
+    #[test]
+    fn the_earlier_staging_folder_in_program_data_is_removed() -> Result<()> {
+        let temp = tempfile::tempdir()?;
+        let setup = temp.path().join("Butterpollo").join("setup");
+        let profile = temp.path().join("Butterpollo").join("config");
+        std::fs::create_dir_all(setup.join("drivers"))?;
+        std::fs::create_dir_all(&profile)?;
+        std::fs::write(setup.join("butterpollo-service.exe"), b"staged")?;
+        std::fs::write(profile.join("sunshine.conf"), b"kept")?;
+        remove_legacy_staging(temp.path())?;
+        assert!(!setup.exists());
+        assert_eq!(std::fs::read(profile.join("sunshine.conf"))?, b"kept");
+        // Nothing to remove is no error.
+        remove_legacy_staging(temp.path())?;
+        if system::elevated() {
+            // A link there goes itself; what it leads to stays.
+            let outside = temp.path().join("outside");
+            std::fs::create_dir(&outside)?;
+            std::fs::write(outside.join("file"), b"unchanged")?;
+            std::os::windows::fs::symlink_dir(&outside, &setup)?;
+            remove_legacy_staging(temp.path())?;
+            assert!(std::fs::symlink_metadata(&setup).is_err());
+            assert_eq!(std::fs::read(outside.join("file"))?, b"unchanged");
+        }
         Ok(())
     }
 }

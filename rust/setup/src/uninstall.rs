@@ -877,7 +877,7 @@ fn remove_leftover_folders(install: &Path, touched: &BTreeSet<PathBuf>) {
             );
         }
     }
-    remove_staging(&install.join(STAGING));
+    remove_staging(&install.join(STAGING), &mut system::remove_file_later);
     // Deepest first, so a parent is empty by the time it comes up.
     for folder in folders.iter().rev() {
         let _ = std::fs::remove_dir(folder);
@@ -889,18 +889,64 @@ fn remove_leftover_folders(install: &Path, touched: &BTreeSet<PathBuf>) {
 const STAGING: &str = ".staging";
 /// Delete the staging folder with everything in it: it is Rubylight's alone.
 /// A link there is removed itself, never followed; a file of that name stays.
-fn remove_staging(staging: &Path) {
+/// What can't go now (a file in use) is handed to `later`, as the package's
+/// files are, and every failure is logged.
+fn remove_staging(staging: &Path, later: &mut dyn FnMut(&Path)) {
     match std::fs::symlink_metadata(staging) {
-        // A junction or symbolic link: on Windows a link to a folder goes
-        // with remove_dir, one to a file with remove_file.
-        Ok(meta) if meta.file_type().is_symlink() => {
-            let _ = std::fs::remove_dir(staging).or_else(|_| std::fs::remove_file(staging));
-        }
+        Ok(meta) if meta.file_type().is_symlink() => remove_link(staging),
         // remove_dir_all removes the links inside without following them.
         Ok(meta) if meta.is_dir() => {
-            let _ = std::fs::remove_dir_all(staging);
+            if let Err(error) = std::fs::remove_dir_all(staging) {
+                line(format!(
+                    "warning: {} could not be removed now: {error}; what is left goes at the next restart",
+                    staging.display()
+                ));
+                remove_tree_later(staging, later);
+            }
         }
-        _ => {}
+        Ok(_) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => line(format!(
+            "warning: {} could not be read: {error}",
+            staging.display()
+        )),
+    }
+}
+/// Remove the junction or symbolic link `link` itself: on Windows a link to a
+/// folder goes with remove_dir, one to a file with remove_file.
+fn remove_link(link: &Path) {
+    if let Err(error) = std::fs::remove_dir(link).or_else(|_| std::fs::remove_file(link)) {
+        line(format!(
+            "warning: the link {} could not be removed: {error}",
+            link.display()
+        ));
+    }
+}
+/// Hand every file in `folder` to `later`, then each folder that isn't empty
+/// by then, deepest first. A link is removed now or left: deleting it at a
+/// restart might follow it.
+fn remove_tree_later(folder: &Path, later: &mut dyn FnMut(&Path)) {
+    match std::fs::read_dir(folder) {
+        Ok(entries) => {
+            for entry in entries {
+                match entry.and_then(|entry| Ok((entry.path(), entry.file_type()?))) {
+                    Ok((path, kind)) if kind.is_symlink() => remove_link(&path),
+                    Ok((path, kind)) if kind.is_dir() => remove_tree_later(&path, later),
+                    Ok((path, _)) => later(&path),
+                    Err(error) => line(format!(
+                        "warning: listing {} failed: {error}",
+                        folder.display()
+                    )),
+                }
+            }
+        }
+        Err(error) => line(format!(
+            "warning: listing {} failed: {error}",
+            folder.display()
+        )),
+    }
+    if std::fs::remove_dir(folder).is_err() {
+        later(folder);
     }
 }
 fn files_in(folder: &Path) -> std::io::Result<Vec<PathBuf>> {
@@ -1646,6 +1692,43 @@ mod tests {
         write(&other.join(STAGING), "mine");
         remove_leftover_folders(&other, &BTreeSet::new());
         assert!(other.join(STAGING).is_file());
+    }
+    #[test]
+    fn a_staging_file_in_use_goes_at_the_next_restart_with_its_folders() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let temp = tempfile::tempdir().unwrap();
+        let staging = temp.path().join(STAGING);
+        let held = staging.join("transaction-42-7\\package\\butterpollo.exe");
+        write(&held, "new");
+        write(&staging.join("Rubylight-setup.exe"), "download");
+        std::fs::create_dir_all(staging.join("empty")).unwrap();
+        // Open without sharing, as a running updater would hold it.
+        let open = std::fs::OpenOptions::new()
+            .read(true)
+            .share_mode(0)
+            .open(&held)
+            .unwrap();
+        let mut later = Vec::new();
+        remove_staging(&staging, &mut |path: &Path| later.push(path.to_path_buf()));
+        // The file in use and every folder above it, deepest first; what was
+        // left besides is handed over too, and an empty folder goes now.
+        for path in held.ancestors().take(4) {
+            assert!(later.iter().any(|p| p == path), "{path:?} not in {later:?}");
+        }
+        let download = staging.join("Rubylight-setup.exe");
+        assert!(!download.exists() || later.contains(&download), "{later:?}");
+        assert!(!staging.join("empty").exists());
+        assert_eq!(later.last(), Some(&staging), "{later:?}");
+        for (at, path) in later.iter().enumerate() {
+            assert!(path.starts_with(&staging), "{path:?}");
+            assert!(
+                !later[at + 1..]
+                    .iter()
+                    .any(|after| after.starts_with(path) && after != path),
+                "{path:?} before what it holds: {later:?}"
+            );
+        }
+        drop(open);
     }
     #[test]
     fn an_installation_of_only_the_package_leaves_nothing_behind() {

@@ -236,6 +236,7 @@ impl GpuDecoder {
         // structs it points into.
         unsafe {
             let sdl = SdlVulkan::of_device(device.cast())?;
+            sdl.require(zero_copy::Features::required())?;
             let get_instance_proc_addr = zero_copy::get_instance_proc_addr()?;
             let images = SharedImages::new(&sdl, get_instance_proc_addr, config)?;
             let info = ShareInfo::new(&sdl, get_instance_proc_addr);

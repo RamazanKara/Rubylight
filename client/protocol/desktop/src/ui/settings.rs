@@ -456,6 +456,8 @@ impl Launcher {
         let rect = Rect::from_min_max(rect.min - vec2(6.0, 6.0), rect.max + vec2(6.0, 0.0));
         let (mut reset_all, mut clear_search) = (false, false);
         ui.scope_builder(UiBuilder::new().max_rect(rect), |ui| area.show(ui, |ui| {
+            // The D-pad walks the rows down past the window's edge: the row it reaches scrolls in.
+            crate::gui::follow_focus_here(ui);
             if searching {
                 ui.label(RichText::new(trf("Results for “{}”", &[&self.settings_view.query.trim()])).font(semibold(text::SECTION)).color(PAPER));
             } else {

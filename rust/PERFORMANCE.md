@@ -449,7 +449,22 @@ Both fixes, then the 150 Mbps rerun. Statistical FEC now keeps at least 10 % par
 | Host | 0 / 0 | 0 / 0 | 0 / 0 | 1 / 1 | 0 / 0 | 0.54 / 0.57 | 147.0 | 18.2-18.5 / 22.9-25.7 |
 | Automatic, 10 % floor | 0 / 0 | 0 / 0 | 0 / 0 | 1 / 1 | 0 / 0 | 0.75 / 0.71 | 121.4-122.0 | 17.7-18.3 / 21.3-26.8 |
 
-Automatic with the floor matched Host on everything the decision counts: no loss, unrecovered blocks, lost frames or extra IDR requests, and no freezes in any of the four runs. Host processing was 0.18 ms higher on average, as in the first batch (0.21 ms at worst, inside the 0.3 ms limit). Both arms encoded at 119 Mbps, and Automatic sent 17 % less (10 % parity instead of 20 %). This link lost nothing in these four minutes, so the floor was never tested against a burst like the 383 packets of the first batch. At 10 % it recovers up to 18 shards per block, where 0.4 % recovered none. By the rule set for this test (equal or better on the four counts, host processing within 0.3 ms), Automatic qualifies as the default. Changing the client defaults is a separate decision.
+Automatic with the floor matched Host on everything the decision counts: no loss, unrecovered blocks, lost frames or extra IDR requests, and no freezes in any of the four runs. Host processing was 0.18 ms higher on average, as in the first batch (0.21 ms at worst, inside the 0.3 ms limit). Both arms encoded at 119 Mbps, and Automatic sent 17 % less (10 % parity instead of 20 %). This link lost nothing in these four minutes, so the floor was never tested against a burst like the 383 packets of the first batch. At 10 % it recovers up to 18 shards per block, where 0.4 % recovered none. On this clean link Automatic was equal to Host. That alone doesn't decide the default.
+
+Under shaped loss, with the same host build: catalog case `net-fec-auto-nuc` (`linkspeed.py`, nightjar-cli in the NUC container, image unchanged), wifi (150 Mbit/s, 3 ± 2 ms, 0.5 % loss, 20 Mbps) and wifi-hi (60 Mbps), two 45 s runs per arm, Host first. Picture age is end-to-end, from linkspeed's clock sync. The session wasn't elevated, so the runs used nj-e2e-host, whose exe already has inbound rules, instead of linkspeed's own firewall rule.
+
+| Arm | Frames lost % (2 runs) | Unrecoverable frames | IDR requests | Freezes | Picture age p50 / p99 ms | Host ms | Sent Mbit/s |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| wifi, Host | 0 / 0 | 0 / 0 | 1 / 1 | 0 / 0 | 17.8, 17.6 / 31.3, 31.2 | 0.66 / 0.67 | 18.8-18.9 |
+| wifi, Automatic | 0.14 / 0 | 2 / 8 | 4 / 2 | 0 / 0 | 17.3, 17.8 / 30.0, 26.9 | 0.63 / 0.57 | 15.4-15.9 |
+| wifi-hi, Host | 0 / 0 | 0 / 0 | 1 / 1 | 0 / 0 | 18.1, 18.0 / 31.4, 31.5 | 0.63 / 0.64 | 23.6-24.1 |
+| wifi-hi, Automatic | 0.22 / 0 | 2 / 0 | 4 / 1 | 1 / 0 | 18.3, 18.1 / 31.0, 30.2 | 0.66 / 0.63 | 32.1-32.9 |
+
+Automatic measured worse under loss. `linkspeed.py compare` fails both profiles on loss (0.07 and 0.11 % against 0). Across the four runs Automatic had 12 unrecoverable frames to Host's 0, 7 extra IDR requests to none, and one 129 ms freeze. Picture age was within 0.15 ms at p50 and lower at p99 (-2.8 and -0.9 ms). The floor plays no part here. Statistical FEC goes from 20 to 37-50 % (its cap) within two seconds and stays there, while Host keeps its 20 %. Even so, Automatic lost frames in the first second, before any report (at the same 20 % as Host), and later at 50 %. The jitter reorders far more packets than netem drops: the client's FEC status counts 15-47 thousand missing packets per run in both arms. Why Automatic loses frames that Host's lower parity recovers is open. It did not converge in this session's timebox.
+
+Host processing: the +0.18 ms on the Retroid doesn't come from statistical FEC's work. Timed in a release build of `butterpollo-core`, the per-frame calls cost 0.08 µs under Automatic (0.005 µs under Host), and the search for the largest whole recovery frame, run once a second, costs 2.7 µs. On the NUC, Automatic's host processing averaged 0.02 ms lower than Host's (0.63 against 0.65 ms). On the Retroid, the 5 s medians fall into two states, about 0.5 and about 0.7 ms. Host runs settle at 0.5 after the first 5-25 s; Automatic runs, which send 17 % fewer packets, stayed at 0.7. In the first batch one Host run also spent its first 25 s at 0.75 with no stream event at the change. So this is a property of the PC, not of the FEC code, and nothing in the FEC code removes it.
+
+Decision: Host stays the default error correction. Automatic now matches it on a clean Wi-Fi link, but it is worse under loss, and that is the condition error correction exists for.
 
 ## October 27: AV1 intra refresh and recovery after a lost frame
 

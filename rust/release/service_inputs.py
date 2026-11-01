@@ -25,7 +25,7 @@ RECORD = f'{SERVICE}/inputs.txt'
 # linker and CARGO_ENCODED_RUSTFLAGS override them (test_release.py checks
 # that the configuration sets nothing else).
 INPUTS = (SERVICE, 'rust/core/src/update_recovery.rs', 'rust/core/src/update_files.rs',
-          'rust/assets/version_info.rs', 'rust/assets/butterpollo.ico')
+          'rust/core/src/state/file.rs', 'rust/assets/version_info.rs', 'rust/assets/butterpollo.ico')
 # The only Cargo configuration in the repository's .cargo/config.toml that the
 # service's build may meet: settings build.ps1 overrides.
 OVERRIDDEN_CONFIG = {('target', 'x86_64-pc-windows-gnu', 'linker')}

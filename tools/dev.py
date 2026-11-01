@@ -30,10 +30,12 @@ CLIENT_WORKSPACE = 'client/protocol'
 HOST_WIDE = ('Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', 'clippy.toml', '.cargo/',
              'rust/assets/version_info.rs')
 # The Windows service's workspace and what else goes into its executable
-# (rust/release/service_inputs.py).
+# (rust/release/service_inputs.py), plus the toolchain and Cargo settings its
+# tests and clippy run with here.
 SERVICE_WORKSPACE = 'rust/service'
 SERVICE_INPUTS = ('rust/service/', 'rust/core/src/update_recovery.rs', 'rust/core/src/update_files.rs',
-                  'rust/assets/version_info.rs', 'rust/assets/butterpollo.ico', 'rust-toolchain.toml', '.cargo/')
+                  'rust/core/src/state/file.rs', 'rust/assets/version_info.rs', 'rust/assets/butterpollo.ico',
+                  'rust-toolchain.toml', '.cargo/')
 # The suites CI runs from rust/release.
 RELEASE_SUITES = ('test_release.py', 'test_gpu_hang.py', 'test_timing_report.py', 'test_cadence_matrix.py')
 RELEASE_INPUTS = ('rust/release/', 'tools/nightjar_notes.py', '.github/workflows/rust-windows.yml') + SERVICE_INPUTS

@@ -119,8 +119,9 @@ struct Feature {
     field: Field,
 }
 
-/// The features the SDK's decoder and Granite use (pyrowave.h and the SDK's shaders), one bit each in `Features`.
-const FEATURES: [Feature; 13] = [
+/// The features the SDK's decoder and Granite use (pyrowave.h and the SDK's shaders), and the one
+/// only FFmpeg's Vulkan video adds (`Features::video`), one bit each in `Features`.
+const FEATURES: [Feature; 14] = [
     Feature { name: "subgroupSizeControl", required: true, field: |c| &mut c.v13.subgroup_size_control },
     Feature { name: "computeFullSubgroups", required: true, field: |c| &mut c.v13.compute_full_subgroups },
     Feature { name: "synchronization2", required: true, field: |c| &mut c.v13.synchronization2 },
@@ -134,6 +135,7 @@ const FEATURES: [Feature; 13] = [
     Feature { name: "uniformAndStorageBuffer8BitAccess", required: false, field: |c| &mut c.v12.uniform_and_storage_buffer8_bit_access },
     Feature { name: "shaderFloat16", required: false, field: |c| &mut c.v12.shader_float16 },
     Feature { name: "shaderInt8", required: false, field: |c| &mut c.v12.shader_int8 },
+    Feature { name: "samplerYcbcrConversion", required: false, field: |c| &mut c.v11.sampler_ycbcr_conversion },
 ];
 
 /// A set of the decoder's features, bit n for `FEATURES[n]`.
@@ -150,9 +152,10 @@ impl Features {
     }
 
     /// The ones FFmpeg's Vulkan video needs (`crate::vulkan_video`): it submits with
-    /// vkQueueSubmit2 and orders its pictures with timeline semaphores.
+    /// vkQueueSubmit2, orders its pictures with timeline semaphores and (FFmpeg 7.1) makes a
+    /// Y'CbCr conversion for its picture views.
     pub fn video() -> Self {
-        Self(FEATURES.iter().enumerate().filter(|(_, feature)| matches!(feature.name, "synchronization2" | "timelineSemaphore")).fold(0, |bits, (bit, _)| bits | 1 << bit))
+        Self(FEATURES.iter().enumerate().filter(|(_, feature)| matches!(feature.name, "synchronization2" | "timelineSemaphore" | "samplerYcbcrConversion")).fold(0, |bits, (bit, _)| bits | 1 << bit))
     }
 
     pub fn and(self, other: Self) -> Self {
@@ -319,11 +322,12 @@ impl RendererRequest {
     }
 
     /// The features and video extensions to ask for from PyroWave's `plan` and `plan_video`:
-    /// without PyroWave's, only the ones Vulkan video needs; without video, no extensions. Each
-    /// missing half is logged; an error when both are.
+    /// both halves' features (`plan_video` checked every candidate has Vulkan video's); without
+    /// PyroWave's, only the ones Vulkan video needs; without video, no extensions. Each missing
+    /// half is logged; an error when both are.
     fn halves(pyrowave: Result<Features, String>, video: Result<crate::vulkan_video::Extensions, String>) -> Result<(Features, crate::vulkan_video::Extensions), String> {
         match (pyrowave, video) {
-            (Ok(features), Ok(video)) => Ok((features, video)),
+            (Ok(features), Ok(video)) => Ok((Features(features.0 | Features::video().0), video)),
             (Ok(features), Err(why)) => {
                 crate::vulkan_video::note(&format!("the GPU renderer is made without Vulkan video: {why}"));
                 Ok((features, Default::default()))
@@ -766,10 +770,13 @@ mod tests {
     #[test]
     fn each_half_of_the_request_is_asked_for_without_the_other() {
         use crate::vulkan_video::Extensions;
-        assert_eq!(Features::video().names(), ["synchronization2", "timelineSemaphore"]);
-        assert_eq!(Features::video().without(Features::required()), Features::default(), "PyroWave's include video's");
+        assert_eq!(Features::video().names(), ["synchronization2", "timelineSemaphore", "samplerYcbcrConversion"]);
         let both = RendererRequest::halves(Ok(Features::all()), Ok(Extensions(0b111)));
         assert_eq!(both, Ok((Features::all(), Extensions(0b111))));
+        // A device whose PyroWave plan has only the required features still gets video's for FFmpeg.
+        let both = RendererRequest::halves(Ok(Features::required()), Ok(Extensions(0b111)));
+        assert_eq!(both, Ok((Features(Features::required().0 | Features::video().0), Extensions(0b111))));
+        assert_eq!(Features::video().without(Features::required()).names(), ["samplerYcbcrConversion"]);
         assert_eq!(RendererRequest::halves(Ok(Features::all()), Err("no video".into())), Ok((Features::all(), Extensions(0))));
         assert_eq!(RendererRequest::halves(Err("no subgroups".into()), Ok(Extensions(0b111))), Ok((Features::video(), Extensions(0b111))));
         assert_eq!(RendererRequest::halves(Err("a".into()), Err("b".into())), Err("a; and for Vulkan video, b".into()));
@@ -845,7 +852,7 @@ mod tests {
             let sdl = SdlVulkan::from_properties(props, "vulkan").unwrap();
             let error = sdl.require(Features::required()).unwrap_err();
             assert!(error.contains("without subgroupSizeControl, computeFullSubgroups, synchronization2"), "{error}");
-            assert_eq!(sdl.require(Features::video()), Err("the renderer's Vulkan device was created without synchronization2".into()));
+            assert_eq!(sdl.require(Features::video()), Err("the renderer's Vulkan device was created without synchronization2, samplerYcbcrConversion".into()));
             SDL_SetNumberProperty(props, FEATURES_PROPERTY.as_ptr(), i64::from(Features::video().0));
             let sdl = SdlVulkan::from_properties(props, "vulkan").unwrap();
             assert_eq!(sdl.require(Features::video()), Ok(()));

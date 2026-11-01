@@ -362,6 +362,12 @@ impl Gamepads {
         self.touchpad_as_mouse = settings.gamepad_touchpad_as_mouse;
         self.disable_rumble = settings.disable_rumble;
         self.guide_hold = (settings.guide_hold_ms > 0).then(|| std::time::Duration::from_millis(u64::from(settings.guide_hold_ms)));
+        if self.guide_hold.is_none() {
+            // Turned off mid-press: the held Guide is forgotten (the PC never had it), a tap still goes up on the tick.
+            for pad in &mut self.pads {
+                if matches!(pad.guide, Guide::Held(_) | Guide::Opened) { pad.guide = Guide::Up; }
+            }
+        }
     }
 
     /// Opens a newly attached gamepad. One that SDL cannot open, or one past the [`MAX_PADS`]
@@ -1388,6 +1394,18 @@ mod tests {
             press(&mut pads, &mut queue, guide, true);
             pads.release(&mut queue);
             assert!(!pads.guide_waiting());
+
+            // Turned off mid-press: the held Guide is dropped, not chorded into the next button.
+            pads.configure(&crate::config::Settings { guide_hold_ms: 1000, ..Default::default() });
+            assert_eq!(pads.guide_hold, Some(Duration::from_secs(1)));
+            press(&mut pads, &mut queue, guide, true);
+            pads.configure(&crate::config::Settings::default());
+            assert!(!pads.guide_waiting());
+            press(&mut pads, &mut queue, SDL_GAMEPAD_BUTTON_SOUTH.0, true);
+            assert_eq!(pads.pads[0].buttons, button::A);
+            press(&mut pads, &mut queue, SDL_GAMEPAD_BUTTON_SOUTH.0, false);
+            press(&mut pads, &mut queue, guide, false);
+            assert_eq!(pads.pads[0].buttons, 0);
 
             pads.close_all();
             SDL_DetachVirtualJoystick(id);

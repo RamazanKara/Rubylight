@@ -22,6 +22,71 @@ import java.util.concurrent.atomic.AtomicInteger;
 @RunWith(RobolectricTestRunner.class)
 @Config(sdk = 29, application = Application.class)
 public class BitrateSliderTest {
+    // #65: in the stream menu's bitrate dialogs D-pad Up and Down move between the slider and the fields,
+    // and only Left and Right change the bitrate. Also the Radeon panel's sliders leave Up and Down alone.
+    @Test
+    public void dpadUpAndDownMoveTheFocusAndOnlyLeftAndRightChangeTheValue() {
+        android.app.Activity activity = org.robolectric.Robolectric.buildActivity(android.app.Activity.class).setup().get();
+        android.content.Context themed = new androidx.appcompat.view.ContextThemeWrapper(activity, com.limelight.R.style.StreamTheme);
+        android.widget.LinearLayout column = new android.widget.LinearLayout(themed);
+        column.setOrientation(android.widget.LinearLayout.VERTICAL);
+        EditText field = new EditText(themed);
+        field.setSingleLine(true);
+        field.setText("20");
+        BitrateSlider.moveFocusOnUpDown(field);
+        SeekBar bar = BitrateSlider.create(themed, field, 20_000, () -> { });
+        EditText fps = new EditText(themed);
+        fps.setSingleLine(true);
+        fps.setText("60");
+        BitrateSlider.moveFocusOnUpDown(fps);
+        com.google.android.material.slider.Slider radeon = new com.google.android.material.slider.Slider(themed);
+        radeon.setValueFrom(0);
+        radeon.setValueTo(100);
+        radeon.setStepSize(1);
+        radeon.setValue(50);
+        for (android.view.View view : new android.view.View[] {bar, field, fps, radeon}) {
+            view.setFocusable(true);
+            column.addView(view, new android.widget.LinearLayout.LayoutParams(400, 60));
+        }
+        activity.setContentView(column);
+        column.measure(android.view.View.MeasureSpec.makeMeasureSpec(400, android.view.View.MeasureSpec.EXACTLY),
+                android.view.View.MeasureSpec.makeMeasureSpec(400, android.view.View.MeasureSpec.EXACTLY));
+        column.layout(0, 0, 400, 400);
+        int progress = bar.getProgress();
+
+        field.requestFocus();
+        field.selectAll();
+        dpad(field, android.view.KeyEvent.KEYCODE_DPAD_UP);
+        assertTrue("Up leaves the field at once", bar.isFocused());
+        // The slider leaves Up and Down to the window, which moves the focus.
+        assertEquals(false, bar.onKeyDown(android.view.KeyEvent.KEYCODE_DPAD_UP,
+                new android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_DPAD_UP)));
+        assertEquals(false, bar.onKeyDown(android.view.KeyEvent.KEYCODE_DPAD_DOWN,
+                new android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_DPAD_DOWN)));
+        assertEquals("Up and Down never change the bitrate", progress, bar.getProgress());
+        assertEquals("20", field.getText().toString());
+        field.requestFocus();
+        field.setSelection(1);
+        dpad(field, android.view.KeyEvent.KEYCODE_DPAD_DOWN);
+        assertTrue("Down leaves the field at once", fps.isFocused());
+
+        bar.requestFocus();
+        dpad(bar, android.view.KeyEvent.KEYCODE_DPAD_RIGHT);
+        assertEquals(progress + 1, bar.getProgress());
+
+        radeon.requestFocus();
+        assertEquals(false, radeon.onKeyDown(android.view.KeyEvent.KEYCODE_DPAD_UP,
+                new android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_DPAD_UP)));
+        assertEquals(false, radeon.onKeyDown(android.view.KeyEvent.KEYCODE_DPAD_DOWN,
+                new android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_DPAD_DOWN)));
+        assertEquals(50f, radeon.getValue(), 0);
+    }
+
+    private static void dpad(android.view.View view, int keyCode) {
+        view.dispatchKeyEvent(new android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, keyCode));
+        view.dispatchKeyEvent(new android.view.KeyEvent(android.view.KeyEvent.ACTION_UP, keyCode));
+    }
+
     @Test
     public void theScaleIsVPlussAndRoundTrips() {
         assertEquals(67, BitrateSlider.MAX_PROGRESS);

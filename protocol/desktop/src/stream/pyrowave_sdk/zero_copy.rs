@@ -303,11 +303,12 @@ pub struct RendererRequest {
 }
 
 impl RendererRequest {
-    /// The request for the devices the loader lists, or why the renderer should not make it. Either
-    /// half is asked for without the other, the reason for a missing one in the log.
-    pub fn new() -> Result<Box<Self>, String> {
+    /// The request for the devices the loader lists, with PyroWave's half when `pyrowave` and
+    /// Vulkan video's when `video`, or why the renderer should not make it. Either half is asked
+    /// for without the other, the reason for a missing one in the log.
+    pub fn new(pyrowave: bool, video: bool) -> Result<Box<Self>, String> {
         let devices = query_devices()?;
-        let (features, video) = Self::halves(plan(&devices), plan_video(&devices))?;
+        let (features, video) = Self::halves(pyrowave.then(|| plan(&devices)), video.then(|| plan_video(&devices)))?;
         let mut chain = Chain::new();
         chain.enable(features);
         let extensions = video.names().iter().map(|name| name.as_ptr()).collect();
@@ -321,22 +322,30 @@ impl RendererRequest {
         Ok(request)
     }
 
-    /// The features and video extensions to ask for from PyroWave's `plan` and `plan_video`:
-    /// both halves' features (`plan_video` checked every candidate has Vulkan video's); without
-    /// PyroWave's, only the ones Vulkan video needs; without video, no extensions. Each missing
-    /// half is logged; an error when both are.
-    fn halves(pyrowave: Result<Features, String>, video: Result<crate::vulkan_video::Extensions, String>) -> Result<(Features, crate::vulkan_video::Extensions), String> {
+    /// The features and video extensions to ask for from PyroWave's `plan` and `plan_video` (None:
+    /// that half is not wanted): both halves' features (`plan_video` checked every candidate has
+    /// Vulkan video's); without PyroWave's, only the ones Vulkan video needs; without video, no
+    /// extensions, PyroWave's plan alone. A wanted half that is missing is logged; an error when
+    /// no half is left.
+    fn halves(pyrowave: Option<Result<Features, String>>, video: Option<Result<crate::vulkan_video::Extensions, String>>) -> Result<(Features, crate::vulkan_video::Extensions), String> {
         match (pyrowave, video) {
-            (Ok(features), Ok(video)) => Ok((Features(features.0 | Features::video().0), video)),
-            (Ok(features), Err(why)) => {
-                crate::vulkan_video::note(&format!("the GPU renderer is made without Vulkan video: {why}"));
+            (Some(Ok(features)), Some(Ok(video))) => Ok((Features(features.0 | Features::video().0), video)),
+            (Some(Ok(features)), video) => {
+                if let Some(Err(why)) = video {
+                    crate::vulkan_video::note(&format!("the GPU renderer is made without Vulkan video: {why}"));
+                }
                 Ok((features, Default::default()))
             }
-            (Err(why), Ok(video)) => {
-                note(&format!("the GPU renderer is made without PyroWave's Vulkan features, so PyroWave GPU decoding will read its planes back: {why}"));
+            (pyrowave, Some(Ok(video))) => {
+                if let Some(Err(why)) = pyrowave {
+                    note(&format!("the GPU renderer is made without PyroWave's Vulkan features, so PyroWave GPU decoding will read its planes back: {why}"));
+                }
                 Ok((Features::video(), video))
             }
-            (Err(pyrowave), Err(video)) => Err(format!("{pyrowave}; and for Vulkan video, {video}")),
+            (Some(Err(pyrowave)), Some(Err(video))) => Err(format!("{pyrowave}; and for Vulkan video, {video}")),
+            (Some(Err(pyrowave)), None) => Err(pyrowave),
+            (None, Some(Err(video))) => Err(format!("for Vulkan video, {video}")),
+            (None, None) => Err("neither PyroWave nor Vulkan video decodes on the renderer's device".into()),
         }
     }
 
@@ -771,15 +780,27 @@ mod tests {
     fn each_half_of_the_request_is_asked_for_without_the_other() {
         use crate::vulkan_video::Extensions;
         assert_eq!(Features::video().names(), ["synchronization2", "timelineSemaphore", "samplerYcbcrConversion"]);
-        let both = RendererRequest::halves(Ok(Features::all()), Ok(Extensions(0b111)));
+        let both = RendererRequest::halves(Some(Ok(Features::all())), Some(Ok(Extensions(0b111))));
         assert_eq!(both, Ok((Features::all(), Extensions(0b111))));
         // A device whose PyroWave plan has only the required features still gets video's for FFmpeg.
-        let both = RendererRequest::halves(Ok(Features::required()), Ok(Extensions(0b111)));
+        let both = RendererRequest::halves(Some(Ok(Features::required())), Some(Ok(Extensions(0b111))));
         assert_eq!(both, Ok((Features(Features::required().0 | Features::video().0), Extensions(0b111))));
         assert_eq!(Features::video().without(Features::required()).names(), ["samplerYcbcrConversion"]);
-        assert_eq!(RendererRequest::halves(Ok(Features::all()), Err("no video".into())), Ok((Features::all(), Extensions(0))));
-        assert_eq!(RendererRequest::halves(Err("no subgroups".into()), Ok(Extensions(0b111))), Ok((Features::video(), Extensions(0b111))));
-        assert_eq!(RendererRequest::halves(Err("a".into()), Err("b".into())), Err("a; and for Vulkan video, b".into()));
+        assert_eq!(RendererRequest::halves(Some(Ok(Features::all())), Some(Err("no video".into()))), Ok((Features::all(), Extensions(0))));
+        assert_eq!(RendererRequest::halves(Some(Err("no subgroups".into())), Some(Ok(Extensions(0b111)))), Ok((Features::video(), Extensions(0b111))));
+        assert_eq!(RendererRequest::halves(Some(Err("a".into())), Some(Err("b".into()))), Err("a; and for Vulkan video, b".into()));
+    }
+
+    /// A half nobody wants is not asked for: without Vulkan video the request is PyroWave's plan
+    /// alone, as before Vulkan video, and without PyroWave only video's features.
+    #[test]
+    fn a_half_nobody_wants_is_left_out_of_the_request() {
+        use crate::vulkan_video::Extensions;
+        assert_eq!(RendererRequest::halves(Some(Ok(Features::required())), None), Ok((Features::required(), Extensions(0))));
+        assert_eq!(RendererRequest::halves(Some(Err("no subgroups".into())), None), Err("no subgroups".into()));
+        assert_eq!(RendererRequest::halves(None, Some(Ok(Extensions(0b111)))), Ok((Features::video(), Extensions(0b111))));
+        assert_eq!(RendererRequest::halves(None, Some(Err("b".into()))), Err("for Vulkan video, b".into()));
+        assert!(RendererRequest::halves(None, None).is_err());
     }
 
     #[test]

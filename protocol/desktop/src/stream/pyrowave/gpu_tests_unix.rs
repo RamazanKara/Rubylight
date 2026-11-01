@@ -51,7 +51,7 @@ impl Rig {
             SDL_SetHint(SDL_HINT_VIDEO_DRIVER, c"offscreen".as_ptr());
             assert!(SDL_Init(SDL_INIT_VIDEO), "{}", crate::sdl::error());
             let window = SDL_CreateWindow(c"PyroWave GPU decode".as_ptr(), 640, 360, SDL_WINDOW_HIDDEN);
-            let renderer = crate::sdl::create_renderer_for(window, true, share);
+            let renderer = crate::sdl::create_renderer_for(window, true, share, false);
             assert!(!renderer.is_null(), "{}", crate::sdl::error());
             assert_eq!(crate::sdl::renderer_name(renderer), "gpu", "the presenter's GPU path needs the SDL GPU renderer");
             Self { window, renderer }

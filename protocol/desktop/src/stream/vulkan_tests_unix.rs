@@ -41,7 +41,7 @@ impl Rig {
             SDL_SetHint(SDL_HINT_VIDEO_DRIVER, c"offscreen".as_ptr());
             assert!(SDL_Init(SDL_INIT_VIDEO), "{}", crate::sdl::error());
             let window = SDL_CreateWindow(c"Vulkan video".as_ptr(), 640, 360, SDL_WINDOW_HIDDEN);
-            let renderer = crate::sdl::create_renderer_for(window, true, true);
+            let renderer = crate::sdl::create_renderer_for(window, true, false, true);
             assert!(!renderer.is_null(), "{}", crate::sdl::error());
             assert_eq!(
                 crate::sdl::renderer_name(renderer),

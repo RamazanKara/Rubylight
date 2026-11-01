@@ -276,21 +276,33 @@ fn luminance_of(caps: &rubylight_protocol::control::DisplayCaps) -> Option<night
     )
 }
 
+/// The tests' renderer: `create_renderer_with` without Vulkan video.
+#[cfg(test)]
 pub fn create_renderer(window: *mut SDL_Window, gpu: bool) -> *mut SDL_Renderer {
-    // On Linux a GPU renderer always shares: FFmpeg's Vulkan video decodes on its device too.
-    create_renderer_for(window, gpu, cfg!(unix))
+    create_renderer_with(window, gpu, false)
 }
 
-/// `create_renderer`, on Linux with `share` asking for the Vulkan features PyroWave's GPU decoder
-/// needs and, apart from them, the video extensions and decode queues FFmpeg's Vulkan video needs,
-/// to decode on the renderer's own device (`zero_copy.rs`, `vulkan_video.rs`). When the devices
-/// lack both, or the renderer cannot be made with them, it is made as without `share`, and the
-/// reason is logged.
-pub fn create_renderer_for(window: *mut SDL_Window, gpu: bool, share: bool) -> *mut SDL_Renderer {
+/// `create_renderer`, with the GPU renderer's device on Linux shared with PyroWave's GPU decoder
+/// when its library is there, and with FFmpeg's Vulkan video when `vulkan_video` (a stream can
+/// decode with it).
+pub fn create_renderer_with(window: *mut SDL_Window, gpu: bool, vulkan_video: bool) -> *mut SDL_Renderer {
     #[cfg(unix)]
-    if gpu && share {
+    let pyrowave = gpu && crate::stream::pyrowave_sdk::dll_path().is_some_and(|path| path.exists());
+    #[cfg(not(unix))]
+    let pyrowave = false;
+    create_renderer_for(window, gpu, pyrowave, vulkan_video)
+}
+
+/// `create_renderer`, on Linux with `pyrowave` asking for the Vulkan features PyroWave's GPU decoder
+/// needs and, apart from them, with `vulkan_video` the video extensions and decode queues FFmpeg's
+/// Vulkan video needs, to decode on the renderer's own device (`zero_copy.rs`, `vulkan_video.rs`).
+/// When the devices lack what is asked for, or the renderer cannot be made with it, it is made as
+/// without either, and the reason is logged.
+pub fn create_renderer_for(window: *mut SDL_Window, gpu: bool, pyrowave: bool, vulkan_video: bool) -> *mut SDL_Renderer {
+    #[cfg(unix)]
+    if gpu && (pyrowave || vulkan_video) {
         use crate::stream::pyrowave_sdk::zero_copy;
-        match zero_copy::RendererRequest::new() {
+        match zero_copy::RendererRequest::new(pyrowave, vulkan_video) {
             Ok(mut request) => {
                 let video = request.video();
                 // The request outlives the call, which copies what it needs of it.
@@ -308,7 +320,7 @@ pub fn create_renderer_for(window: *mut SDL_Window, gpu: bool, share: bool) -> *
             Err(why) => zero_copy::note(&format!("the GPU renderer is made without PyroWave's Vulkan features or Vulkan video, so PyroWave GPU decoding will read its planes back and Vulkan video is not used: {why}")),
         }
     }
-    let _ = share;
+    let _ = (pyrowave, vulkan_video);
     make_renderer(window, gpu, std::ptr::null_mut(), false)
 }
 

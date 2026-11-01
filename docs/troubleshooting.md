@@ -70,6 +70,7 @@ In **Help → Updates**, read the current phase and any error. Installation need
 - Confirm both devices are on the same local network, then try adding the host's local IP address in Moonlight. Guest networks and access-point isolation can keep devices from reaching each other.
 - Check **All settings → General → Allow pairing**. Enter the four-digit PIN **shown by Moonlight** into the matching pending request on **Devices**.
 - If discovery alone fails, check the discovery and bind-address settings in **All settings → Network & access**. An address restricted to `127.0.0.1` is reachable only from the host itself.
+- If Home in the console warns that a Windows Firewall rule blocks Rubylight, a block rule for `butterpollo.exe` (left when Windows asked whether to allow it and the prompt was closed) overrides setup's allow rule. Open Windows Defender Firewall, **Advanced settings**, **Inbound Rules**, and allow `butterpollo.exe` or delete the rule that blocks it.
 - If setup reported a firewall-rule failure, read the setup log for the exact error and check that Windows Firewall allows the installed `butterpollo.exe` on your local network. Do not disable the whole firewall to diagnose one application.
 
 If the device pairs but cannot launch Desktop, open the device on **Devices** and check that it is enabled and has the **List apps**, **View streams** and **Launch apps** permissions. A device without mouse or keyboard permission can receive video without that input working.

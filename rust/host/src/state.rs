@@ -529,19 +529,21 @@ impl Host {
         let config_path = directory.join("sunshine.conf");
         let (mut config, retired) = Config::load_retiring(&config_path)?;
         let warnings = Warnings::default();
+        crate::host_warnings::restore(&directory, &warnings);
         if let Some(warning) = butterpollo_core::config::retired_warning(&retired) {
-            // Written back, so the warning shows once. A file that cannot be
-            // written keeps the old values and warns again on the next start.
+            // Written back, so the file no longer has them; the notice is saved
+            // until the console dismisses it. A file that cannot be written
+            // keeps the old values and warns again on the next start.
             if let Err(error) = butterpollo_core::state::atomic_write(
                 &config_path,
                 Config::load(&config_path)?.text().as_bytes(),
             ) {
                 tracing::warn!(error = %format!("{error:#}"), "the replaced settings could not be saved");
             }
-            warnings.set("settings_retired", warning);
+            crate::host_warnings::notice(&directory, &warnings, "settings_retired", &warning);
         }
         if let Some(warning) = butterpollo_windows::limiter::take_stale_nvidia(&directory) {
-            warnings.set("nvidia_limiter_retired", warning);
+            crate::host_warnings::notice(&directory, &warnings, "nvidia_limiter_retired", &warning);
         }
         if let Some(port) = port {
             config.values.insert("port".into(), port.to_string());

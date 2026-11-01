@@ -50,6 +50,7 @@ const FREEZE: &str = "the-picture-freezes-while-audio-and-input-continue";
 const NETWORK: &str = "the-stream-breaks-up-drops-or-times-out-on-the-network";
 const PORT: &str = "the-console-will-not-open-or-a-port-is-occupied";
 const OUTSIDE: &str = "clients-outside-your-network-cannot-connect";
+const DISCOVER: &str = "moonlight-cannot-find-or-pair-with-the-pc";
 const SEND: &str = "the-stream-disconnects-after-a-second-with-os-error-10035";
 const DRIVER: &str = "a-driver-is-missing-or-out-of-date";
 const MODE: &str = "windows-refuses-the-virtual-displays-requested-mode";
@@ -273,6 +274,20 @@ pub const RULES: &[Rule] = &[
         explanation: "UPnP is on, but the router refused or did not answer the port forwarding request. Devices outside your network cannot reach this PC.",
         fix: "Turn on UPnP in the router, remove old mappings for these ports there, or forward the ports by hand.",
         anchor: OUTSIDE,
+    },
+    Rule {
+        id: "firewall_blocked",
+        category: Category::Network,
+        all: &["Windows Firewall"],
+        any: &[
+            "blocks incoming connections to the host",
+            "allows incoming connections to the host",
+        ],
+        at_least: None,
+        title: "Windows Firewall blocks the host",
+        explanation: "A Windows Firewall rule blocks the host, or no rule allows it on this network. It is usually left behind when Windows asked whether to allow the program and the prompt was closed. Devices may not find the PC or may fail to connect.",
+        fix: "In Windows Defender Firewall, open Advanced settings, Inbound Rules, and allow butterpollo.exe or delete the rule that blocks it.",
+        anchor: DISCOVER,
     },
     Rule {
         id: "client_timeout",

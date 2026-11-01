@@ -124,6 +124,14 @@ const LINES: &[(&str, &str)] = &[
         "2026-10-22T04:33:28.725063Z  WARN butterpollo_core::session: Display resolution 2184x1968 was not applied; using 5120x1440 and scaling the stream. The mode may be unsupported or shared with another stream; select a supported mode or a virtual display. code=\"display_resolution\"",
     ),
     (
+        "firewall_blocked",
+        "2026-11-01T09:12:03.000000Z  WARN butterpollo_core::session::warnings: Windows Firewall rule \"butterpollo.exe\" blocks incoming connections to the host. Devices on the network may not find or reach this PC. In Windows Defender Firewall, open Advanced settings, Inbound Rules, and allow butterpollo.exe or delete the rule that blocks it. code=\"firewall_blocked\"",
+    ),
+    (
+        "firewall_blocked",
+        "2026-11-01T09:12:03.000000Z  WARN butterpollo: no Windows Firewall rule allows incoming connections to the host on this network program=butterpollo.exe",
+    ),
+    (
         "virtual_display_deadline",
         "2026-10-17T10:00:03.000000Z  WARN butterpollo::nvhttp: Moonlight session launch failed error=Virtual display did not become active before the deadline app_id=1 resume=false",
     ),

@@ -207,6 +207,7 @@ fn token_catalog() -> Vec<auth::Scope> {
         ("/api/configLocale", &["GET"][..]),
         ("/api/meta", &["GET"][..]),
         ("/api/metadata", &["GET"][..]),
+        ("/api/warnings/dismiss", &["POST"][..]),
         ("/api/apps", &["GET", "POST"][..]),
         ("/api/apps/[^/]+", &["DELETE"][..]),
         ("/api/apps/delete", &["POST"][..]),
@@ -1130,7 +1131,8 @@ pub(crate) async fn api(
             ("GET", "/api/config")
             | ("POST" | "PATCH", "/api/config")
             | ("GET", "/api/configLocale")
-            | ("GET", "/api/meta" | "/api/metadata") => {
+            | ("GET", "/api/meta" | "/api/metadata")
+            | ("POST", "/api/warnings/dismiss") => {
                 config::handle(&h, method.as_str(), path, &data)?
             }
             ("GET", "/api/apps")

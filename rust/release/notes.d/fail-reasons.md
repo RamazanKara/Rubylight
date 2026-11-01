@@ -1,2 +1,4 @@
 # Failure reasons
 - **Clients learn why a stream failed.** A stream that ends on an encoder error now tells Moonlight it was the encoder, so stock Moonlight shows its encoder advice instead of a bare "Error code: 80004005". The host keeps its own words for the failure (for example that HDR is on but the display is not in HDR), and Nightjar shows them in its error dialog.
+- **Host warnings on Home.** The console lists the host's own warnings (settings replaced after moving from Apollo or Vibepollo, the removed NVIDIA frame limiter setting, missing codecs, a Windows Firewall rule that blocks Rubylight) with a Dismiss button. A one-time notice stays until you dismiss it, also across restarts; a dismissed warning comes back only when its text changes.
+- A Windows Firewall rule that blocks the host is now a warning on Home and a finding in Help & diagnostics, not only a log line.

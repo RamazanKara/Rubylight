@@ -1,9 +1,10 @@
 <script lang="ts">
-  import { hostChecks } from '../../lib/host-readiness';
+  import { hostChecks, hostWarnings } from '../../lib/host-readiness';
   import Badge from '../Badge.svelte';
   import Button from '../Button.svelte';
   import Panel from '../Panel.svelte';
-  import type { Metadata } from '../../lib/api';
+  import { api, type Metadata } from '../../lib/api';
+  import { failed } from '../../lib/feedback.svelte';
   import { link } from '../../lib/router.svelte';
 
   let {
@@ -15,12 +16,35 @@
 
   const plural = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`;
   const checks = $derived(metadata ? hostChecks(metadata) : []);
-  const attention = $derived(checks.filter((check) => check.tone === 'warn' || check.tone === 'danger').length);
+  let dismissing = $state('');
+  // Hidden at once; the host keeps them hidden until their text changes.
+  let dismissed = $state<string[]>([]);
+  const warnings = $derived(
+    metadata ? hostWarnings(metadata).filter((warning) => !dismissed.includes(`${warning.code}
+${warning.message}`)) : [],
+  );
+  const attention = $derived(
+    checks.filter((check) => check.tone === 'warn' || check.tone === 'danger').length + warnings.length,
+  );
+
+  async function dismiss(code: string, message: string) {
+    dismissing = code;
+    try {
+      await api.dismissWarning(code);
+      dismissed = [...dismissed, `${code}
+${message}`];
+      onrecheck();
+    } catch (error) {
+      failed('Dismissing the warning failed', error);
+    } finally {
+      dismissing = '';
+    }
+  }
   const summary = $derived(
     !metadata
       ? undefined
       : attention
-        ? `${plural(attention, 'check needs', 'checks need')} attention.`
+        ? `${plural(attention, 'item needs', 'items need')} attention.`
         : metadata.encoder_status.state === 'checking' ? 'Checking the host…' : 'Ready to stream.',
   );
 </script>
@@ -38,6 +62,17 @@
     {#if !error}<p class="placeholder muted">Checking the host…</p>{/if}
   {:else}
     <ul>
+      {#each warnings as warning (warning.code)}
+        <!-- The host's own words, until they're dismissed here. -->
+        <li class="warning">
+          <div class="head">
+            <h3>{warning.title}</h3>
+            <Badge tone="warn">Warning</Badge>
+          </div>
+          <p class="text">{warning.message}</p>
+          <Button size="sm" variant="ghost" busy={dismissing === warning.code} onclick={() => dismiss(warning.code, warning.message)}>Dismiss</Button>
+        </li>
+      {/each}
       {#each checks as check (check.title)}
         {@const problem = check.tone === 'warn' || check.tone === 'danger'}
         <li>
@@ -110,6 +145,10 @@
     color: var(--ink-2);
     line-height: 1.45;
     overflow-wrap: anywhere;
+  }
+  .warning :global(button) {
+    justify-self: start;
+    margin-top: 2px;
   }
   a {
     justify-self: start;

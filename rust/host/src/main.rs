@@ -5,6 +5,7 @@ mod couch_menu;
 mod display_session;
 mod extensions;
 mod game_files;
+mod host_warnings;
 mod launcher_watch;
 mod library;
 mod logging;
@@ -517,17 +518,18 @@ async fn run(args: Args, assets: PathBuf) -> Result<()> {
     // A block rule, left when Windows' "allow access" prompt was dismissed,
     // overrides the installer's allow rule: say so rather than leave users to
     // open ports by hand. Only a host listening on the network is affected.
+    // The console shows it as a host warning; setting it logs it.
     if bind.is_unspecified() {
-        std::thread::spawn(|| {
+        let h = h.clone();
+        std::thread::spawn(move || {
             let Ok(program) = std::env::current_exe() else {
                 return;
             };
             match butterpollo_windows::firewall::problems(&program) {
-                Ok(problems) => {
-                    for problem in problems {
-                        tracing::warn!(program = %program.display(), "{problem}");
-                    }
-                }
+                Ok(problems) => match host_warnings::firewall(&problems) {
+                    Some(warning) => h.warnings.set(host_warnings::FIREWALL, warning),
+                    None => h.warnings.clear(host_warnings::FIREWALL),
+                },
                 Err(error) => tracing::debug!(%error, "Windows Firewall rules could not be read"),
             }
         });

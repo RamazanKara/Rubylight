@@ -987,6 +987,8 @@ export const api = {
     }) => post<Ok>('/api/password', body),
   },
   metadata: () => get<Metadata>('/api/metadata'),
+  /** Hide a host warning (`Metadata.warnings`) until its text changes. */
+  dismissWarning: (code: string) => post<Ok>('/api/warnings/dismiss', { code }),
   /** List a folder of the host; an empty path lists the drives. */
   browse: (path: string, type: BrowseType) =>
     get<BrowseListing>(`/api/browse?path=${encodeURIComponent(path)}&type=${type}`, ACTION_TIMEOUT_MS),

@@ -148,6 +148,28 @@ function capture(meta: Metadata): Check {
   };
 }
 
+interface HostWarning {
+  code: string;
+  title: string;
+  /** The host's own text. */
+  message: string;
+}
+
+const WARNING_TITLES: Record<string, string> = {
+  settings_retired: 'Settings replaced',
+  nvidia_limiter_retired: 'NVIDIA frame limiter setting removed',
+  codec_support: 'Codecs missing',
+  firewall_blocked: 'Windows Firewall blocks Rubylight',
+};
+
+/** The host's warnings beyond the checks: each shown until it's dismissed. */
+export function hostWarnings(metadata: Metadata): HostWarning[] {
+  return (metadata.warnings ?? [])
+    // The encoder check shows this one, and it clears itself on recovery.
+    .filter((warning) => warning.code !== 'video_encoder')
+    .map((warning) => ({ ...warning, title: WARNING_TITLES[warning.code] ?? 'Host warning' }));
+}
+
 export function hostChecks(metadata: Metadata): Check[] {
   return [encoder(metadata), virtualDisplay(metadata), audio(metadata), capture(metadata)];
 }

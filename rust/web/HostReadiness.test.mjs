@@ -63,3 +63,25 @@ test('host readiness writes notes in the text face and opens them only for probl
   assert.match(broken, /<details open[^>]*>\s*<summary[^>]*>Details<\/summary>\s*<p class="detail[^"]*">Only the Rubylight/);
   assert.match(broken, /Check that the Rubylight service is running/);
 });
+
+test('host readiness lists the host warnings with a way to dismiss each', () => {
+  const healthy = {
+    encoder_status: { ...metadata.encoder_status, state: 'ready', h264: true },
+    capture_status: { ...metadata.capture_status, displays: [{ name: 'DISPLAY1' }] },
+  };
+  const result = html({
+    ...healthy,
+    warnings: [
+      { code: 'video_encoder', message: 'No video encoder available: AMF error 1. Retrying.' },
+      { code: 'settings_retired', message: 'Replaced settings from Apollo: <encoder>.' },
+      { code: 'firewall_blocked', message: 'Windows Firewall rule "butterpollo.exe" blocks incoming connections to the host.' },
+    ],
+  });
+  assert.match(result, /Settings replaced/);
+  assert.match(result, /Replaced settings from Apollo: &lt;encoder>\./);
+  assert.match(result, /Windows Firewall blocks Rubylight/);
+  assert.equal(result.match(/>Dismiss</g)?.length, 2, 'the encoder warning stays with its check');
+  assert.match(result, /Needs attention/);
+  const quiet = html({ ...healthy, warnings: [] });
+  assert.doesNotMatch(quiet, /Dismiss|Needs attention/);
+});

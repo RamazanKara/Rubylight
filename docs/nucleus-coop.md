@@ -15,9 +15,10 @@ controller to its own device. This enables two modes:
 
 ## Quick start
 
-1. In the console, open **Games**, select the game and, under **Play
-   together**, select **Set up co-op**. The host downloads Nucleus Co-op once
-   and shows the progress.
+1. Download [Nucleus Co-op 2.4.2](https://github.com/SplitScreen-Me/splitscreenme-nucleus/releases/tag/v2.4.2) and unpack it into a folder under
+   `C:\Program Files`. In the console, open **Games**, select the game and,
+   under **Play together**, choose that folder and select **Use this
+   folder**. Rubylight checks it and downloads nothing itself.
 2. If the game has no Nucleus Co-op handler yet, the panel offers **Open
    Nucleus Co-op on this PC**. Search the handler hub for the game there,
    download the handler and add the game; the panel moves on by itself once
@@ -28,8 +29,6 @@ controller to its own device. This enables two modes:
 4. **Home** shows the running session: who plays in which slot, a player who
    stepped away and keeps the slot for two minutes, and a **Let … join**
    button for each paired device that may not join yet.
-
-![A game's page in the console: the Play together panel with Set up co-op, naming the Nucleus Co-op 2.4.2 download (97 MB) from its GitHub release.](media/showcase/coop-setup.png)
 
 ![The Play together panel once co-op is ready: up to 2 players, start the game's Co-op entry from Nightjar or Moonlight, and a switch that shows the entry in the library.](media/showcase/coop-ready.png)
 
@@ -70,7 +69,7 @@ streaming the PC's monitors.
 
 A background stream needs no handler from the hub. A game you added at that
 exact path with a hub handler always uses it, and co-op still needs one.
-Otherwise, in the Nucleus Co-op the host installs, the host writes its own
+Otherwise, in Nucleus Co-op's folder, the host writes its own
 one-player handler into Nucleus Co-op's `handlers` folder
 (`Rubylight-<game>-<hash>.js`) and adds the game to Nucleus Co-op's game list (`content\userprofile.json` in its folder, the only
 one 2.4.2 reads), as Nucleus' own "add game" would, and to the game list of
@@ -80,10 +79,7 @@ only while Nucleus Co-op isn't running, and never over a file it did not write.
 Earlier Rubylight versions added the game to
 `%APPDATA%\Nucleus Coop\userprofile.json` instead, which Nucleus Co-op never
 reads, so it showed no game and the stream hung at its start (#59); the host
-removes those entries, and only those, from that file. With `nucleus_path`
-set, another Nucleus Co-op release may read another list, so such a game is
-refused with the reason (add its handler from the hub, or clear
-`nucleus_path`), and the games you added in either list count.
+removes those entries, and only those, from that file.
 
 Installing a hub handler for the same .exe doesn't remove the host's handler
 right away: the next Nucleus Co-op session of another game removes it and its
@@ -158,12 +154,13 @@ A background stream with Rubylight's own handler runs Nucleus Co-op as the
 signed-in user, without administrator rights, unless the game needs them.
 That holds on an administrator account too. It runs from the user's own copy
 of Nucleus Co-op in `C:\ProgramData\Butterpollo\nucleus-user\<SID>`, which
-the host copies from the release it installs, once Nucleus Co-op is closed,
+the host copies from Nucleus Co-op's folder, once Nucleus Co-op is closed,
 without its settings, logs, game list and game data, and copies again when a
 program file changes on either side. Only the files of the pinned 2.4.2
-release are copied; anything else in the host's folder stays there. With
-`nucleus_path` set, such a game is refused ([Games without a
-handler](#games-without-a-handler)). The copy starts from Nucleus Co-op's own
+release are copied; anything else in that folder stays there. The copy is
+needed because the folder Nucleus Co-op runs from elevated may only be
+changed by administrators, and the user's Nucleus Co-op writes its settings
+and logs next to its program. The copy starts from Nucleus Co-op's own
 default settings, never another account's nicknames or Steam IDs. Its
 handlers are the elevated one's hub handlers and Rubylight's handler for the
 game launched, never Rubylight's handlers for other games or other accounts.
@@ -220,21 +217,41 @@ password that build saved; if that fails, **Maintenance** says why and offers
 
 ## Installing Nucleus Co-op
 
-Set it up from a game's page in the console: **Games** › the game ›
-**Play together** › **Set up co-op**. That, or else the first Nucleus launch,
-downloads Nucleus Co-op 2.4.2 (`NucleusApp.zip`, 97 MB, from its GitHub
-release) and the panel shows the progress. It
-checks the archive's size and SHA-256 and refuses one that doesn't match, then
-unpacks it into `C:\ProgramData\Butterpollo\nucleus\2.4.2`, which only SYSTEM
-and Administrators can change. Nucleus Co-op's handler hub view is a WebView2
+Rubylight downloads nothing. Download Nucleus Co-op 2.4.2 (`NucleusApp.zip`)
+from [its release page](https://github.com/SplitScreen-Me/splitscreenme-nucleus/releases/tag/v2.4.2), which a game's **Play together** panel and
+the Nucleus Co-op panel under **Help** link to, and unpack it into a folder
+under `C:\Program Files`. Then choose that folder on either panel (type it or
+**Browse**) and select **Use this folder**. The host checks the folder before
+it keeps it as `nucleus_path`, and refuses it with the reason, saving
+nothing, when:
+
+- it isn't a full path, doesn't exist or holds no `NucleusCoop.exe` (**Not
+  found**);
+- its `NucleusCoop.exe` isn't 2.4.2's, by the file's size and SHA-256
+  (**Wrong version**; 2.4.2's file version reads 2.3.0.0, so the version
+  number can't tell);
+- the folder or `NucleusCoop.exe` is a link (a junction or symbolic link), or
+  anyone but SYSTEM, Administrators and TrustedInstaller may change the
+  folder, the exe or the folder's parent (**Folder refused**). Nucleus Co-op
+  runs elevated and the host writes into its folder as SYSTEM, so a folder you
+  can change without elevation would hand both to any program you run. A
+  folder unpacked under `C:\Program Files` passes; one in Downloads, on the
+  desktop or right under `C:\` (as Nucleus Co-op suggests) doesn't.
+
+The panels show the state with the host's reason. A `nucleus_path` set
+elsewhere (Settings, `butterpollo.conf`) is checked the same way at each
+launch: while Nucleus Co-op isn't set up, or its folder is refused, co-op and
+background launches answer 503 and **Open Nucleus Co-op on this PC** is
+refused, each with the reason. Sessions turn Nucleus Co-op's own folder check
+off, but the window **Open Nucleus Co-op on this PC** opens may warn about a
+folder under `C:\Program Files`; that warning doesn't apply here.
+
+Earlier Rubylight versions downloaded Nucleus Co-op into
+`C:\ProgramData\Butterpollo\nucleus\2.4.2`. With no folder chosen, that
+install keeps working (Help shows it as **Earlier install**); choosing a
+folder takes over from it. Nucleus Co-op's handler hub view is a WebView2
 browser, which runs without administrator rights, so its data lives in the
-signed-in user's `AppData\Local\Butterpollo\nucleus-webview` instead. To use your own copy instead, set
-`nucleus_path` to the folder that holds `NucleusCoop.exe`. Nucleus Co-op runs
-elevated, so that folder, the exe and the folder's parent must be ones only
-SYSTEM and Administrators can change (under `C:\Program Files`, for example);
-a copy in a folder you can change without elevation is refused. The game page
-and Help show the install state and any download or check error. While
-Nucleus Co-op cannot be installed, launches answer 503 with the reason.
+signed-in user's `AppData\Local\Butterpollo\nucleus-webview`.
 
 Nucleus Co-op launches a game through its **handler** for that game. Handlers
 come from Nucleus Co-op's handler hub and are your own content: Rubylight
@@ -265,8 +282,7 @@ or after a host crash when the service starts it again; a value you or Nucleus
 Co-op changed meanwhile stays, and a `Settings.ini` deleted meanwhile has
 nothing to put back. While a session starts or runs, the service leaves its
 values alone. Keys missing from `Settings.ini`, or the whole file, are filled
-in from Nucleus Co-op 2.4.2's own defaults; another Nucleus Co-op release set
-with `nucleus_path` ignores keys it doesn't read. A
+in from Nucleus Co-op 2.4.2's own defaults. A
 `Settings.ini` saved as UTF-16 (Unicode) text is never edited: the launch
 says to save it as ANSI or delete it.
 
@@ -274,7 +290,7 @@ A start that times out says what Nucleus Co-op shows instead: a message on the
 PC's screen, from Nucleus Co-op or from Windows on its behalf, before or after
 the click on the profile (answer or fix it there; a box Windows showed for
 another program before the launch doesn't count), that it doesn't list the
-game (naming the game list it reads, in the Nucleus Co-op the host installs),
+game (naming the game list it reads),
 no profile Rubylight (open Nucleus Co-op and load the profile Rubylight once,
 then launch again), that it still shows its setup screen with the profile
 Rubylight (Nucleus Co-op plays a profile once every player has a controller),
@@ -346,8 +362,8 @@ words.
 Ending a session stops Nucleus Co-op and every instance, and ends each
 player's stream. A session also ends when every player has left, when an
 instance crashes, or when its start fails. For a minute after, Home says
-which ended last and why, and the log keeps it. Install troubleshooting is in
-the Nucleus Co-op panel under **Help**.
+which ended last and why, and the log keeps it. Nucleus Co-op's folder and
+why it can't run from it are in the Nucleus Co-op panel under **Help**.
 
 ## Limits
 

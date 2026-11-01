@@ -73,9 +73,9 @@ Nucleus Co-op
 Background streaming and co-op (rust/core/src/nucleus/, rust/windows/src/nucleus/)
 launch games through Nucleus Co-op (https://github.com/SplitScreen-Me/splitscreenme-nucleus)
 by SplitScreen.Me, GPL-3.0 licensed, which includes ProtoInput by Ilyaki, MIT
-licensed. Rubylight does not bundle them: the host downloads Nucleus Co-op 2.4.2
-from its GitHub release at first use and checks its size and SHA-256, or uses a
-copy the user names in nucleus_path. Game handlers come from Nucleus Co-op's
+licensed. Rubylight neither bundles nor downloads them: the user downloads
+Nucleus Co-op 2.4.2 from its GitHub release and chooses its folder, whose
+NucleusCoop.exe the host checks by size and SHA-256. Game handlers come from Nucleus Co-op's
 handler hub and are the user's own content.
 
 AMDNR (Neural Rendering)

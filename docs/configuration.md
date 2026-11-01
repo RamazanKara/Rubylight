@@ -665,8 +665,9 @@ Windows service and an administrator account signed in on the PC;
 [Nucleus Co-op](nucleus-coop.md) has the install, the limits, and co-op for
 several devices at once. Two settings under
 **All settings → General → Background streaming** shape it:
-**Nucleus Co-op folder** (`nucleus_path`, empty: the host's own copy, which it
-downloads on first use) and **Co-op players** (`nucleus_coop_players`, default
+**Nucleus Co-op folder** (`nucleus_path`, the folder you unpacked Nucleus
+Co-op 2.4.2 into, checked at each launch; empty: an earlier Rubylight's
+install, if any) and **Co-op players** (`nucleus_coop_players`, default
 `4`; the game's handler and the free controller slots can allow fewer). Which
 devices may join a co-op game is the per-device **Can join co-op games**
 (`coop_join`); a device that may launch apps may join until you take it away.
@@ -907,7 +908,7 @@ Every setting in the console, by the console's own groups, with its key and the 
 | USB devices: USB devices at once | `usb_max_devices` | `4` | How many USB devices this PC takes from devices at the same time. |
 | Clipboard: Copy images | `clipboard_image` | `true` | Let devices with clipboard permission copy images to and from this PC, besides text. |
 | Clipboard: Largest image | `clipboard_image_max_mb` | `16` MiB | Images larger than this, as PNG, are refused in both directions. |
-| Background streaming: Nucleus Co-op folder | `nucleus_path` | empty | The folder of your own Nucleus Co-op copy. Empty: the host's own copy, which it downloads on first use. |
+| Background streaming: Nucleus Co-op folder | `nucleus_path` | empty | The folder you unpacked Nucleus Co-op 2.4.2 into, under C:\Program Files. Empty: an earlier Rubylight's install, if any. |
 | Background streaming: Co-op players | `nucleus_coop_players` | `4` | The most players a Nucleus co-op session gets. The game's handler and the free controller slots can allow fewer. |
 
 #### Advanced

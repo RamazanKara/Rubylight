@@ -469,7 +469,7 @@ cases:
     preconditions: [idle, gpu-lock]
     pass: 'exit 0; session.log has "handler Rubylight-lotrbfme-*.js for lotrbfme.exe", "listed in <the folder Nucleus ran from>\content\userprofile.json", "running after", "game process", "capture window:...: wgc" with a size and at least 5 % lit, "pad A held and released at XInput index", "stopped in", "compatibility settings as before" and "handlers and game list as before"'
     output: '{{out}}\session.log'
-    note: runs the host's ignored test nucleus::tests::a_background_stream_without_a_hub_handler_on_this_pc as SYSTEM through a one-shot scheduled task; Nucleus Co-op installed (console, Set up co-op) and not running, no host session. The app goes through the host's admission (path, launcher, anti-cheat, arguments, Unreal stub). The pad is checked at the session's XInput index, not inside the game. Covers the session, not a client; the stream itself is in the rc pass
+    note: runs the host's ignored test nucleus::tests::a_background_stream_without_a_hub_handler_on_this_pc as SYSTEM through a one-shot scheduled task; Nucleus Co-op 2.4.2 set up (its folder chosen in the console, or -Nucleus) and not running, no host session. The app goes through the host's admission (path, launcher, anti-cheat, arguments, Unreal stub). The pad is checked at the session's XInput index, not inside the game. Covers the session, not a client; the stream itself is in the rc pass
 
   - id: nucleus-generic-background-user
     device: desktop

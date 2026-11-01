@@ -1,0 +1,2 @@
+# Nucleus Co-op folder
+- **Rubylight no longer downloads Nucleus Co-op.** The game page's Play together panel and Help link to the Nucleus Co-op 2.4.2 release instead: unpack it into a folder under C:\Program Files and choose that folder there. Rubylight checks the folder before it keeps it and says why when it refuses one: no NucleusCoop.exe, another release, or a folder that anyone but administrators may change. A Nucleus Co-op an earlier version downloaded keeps working.

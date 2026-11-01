@@ -140,7 +140,10 @@ fn main() -> Result<()> {
         .context("Steam Streaming Microphone is not installed")?;
     // As the host does before it plays (MIC_NO_MATCH=1 measures without).
     if std::env::var_os("MIC_NO_MATCH").is_none() {
-        eprintln!("format match: {:?}", audio_route::match_steam_microphone_format(&id)?);
+        eprintln!(
+            "format match: {:?}",
+            audio_route::match_steam_microphone_format(&id)?
+        );
     }
     let stop = Arc::new(AtomicBool::new(false));
     let ready = Arc::new(AtomicBool::new(false));

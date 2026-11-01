@@ -674,8 +674,11 @@ pub fn install_steam_microphone(config: &Config) -> Result<Option<SavedDefaults>
 /// What Steam Streaming Microphone's driver copies between its pins as it is:
 /// channels, rate, container and valid bits, and whether samples are float.
 fn sample_layout(bytes: &[u8]) -> (u16, u32, u16, u16, bool) {
-    // SAFETY: callers pass bytes from Policy::format, which hold at least a whole WAVEFORMATEX,
-    // and the read is unaligned.
+    assert!(
+        bytes.len() >= size_of::<WAVEFORMATEX>(),
+        "audio format shorter than WAVEFORMATEX"
+    );
+    // SAFETY: `bytes` was just checked to hold a whole WAVEFORMATEX, and the read is unaligned.
     let format = unsafe { std::ptr::read_unaligned(bytes.as_ptr().cast::<WAVEFORMATEX>()) };
     let float = format.wFormatTag == 3
         || (format.wFormatTag == 65534
@@ -697,8 +700,15 @@ fn sample_layout(bytes: &[u8]) -> (u16, u32, u16, u16, bool) {
 /// "2 ch 48000 Hz 32-bit PCM", for the log.
 fn describe_format(bytes: &[u8]) -> String {
     let (channels, rate, bits, valid, float) = sample_layout(bytes);
-    let depth = if valid == bits { format!("{bits}-bit") } else { format!("{valid}-in-{bits}-bit") };
-    format!("{channels} ch {rate} Hz {depth} {}", if float { "float" } else { "PCM" })
+    let depth = if valid == bits {
+        format!("{bits}-bit")
+    } else {
+        format!("{valid}-in-{bits}-bit")
+    };
+    format!(
+        "{channels} ch {rate} Hz {depth} {}",
+        if float { "float" } else { "PCM" }
+    )
 }
 /// Steam Streaming Microphone hands what plays on "Speakers (Steam Streaming
 /// Microphone)" to "Microphone (Steam Streaming Microphone)" sample for
@@ -722,9 +732,12 @@ pub fn match_steam_microphone_format(playback: &str) -> Result<Option<(String, S
     let Some(desired) = matching_playback_format(&before, &policy.format(&recording)?) else {
         return Ok(None);
     };
-    policy
-        .set_format(playback, &desired)
-        .with_context(|| format!("setting its playback format to {}", describe_format(&desired)))?;
+    policy.set_format(playback, &desired).with_context(|| {
+        format!(
+            "setting its playback format to {}",
+            describe_format(&desired)
+        )
+    })?;
     Ok(Some((describe_format(&before), describe_format(&desired))))
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

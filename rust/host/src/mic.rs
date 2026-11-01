@@ -437,8 +437,11 @@ fn render(
             }
         }
         Err(error) => {
-            tracing::warn!(error = %format!("{error:#}"), "Steam Streaming Microphone formats could not be matched; the microphone will sound distorted");
-            warnings.set(FORMAT_WARNING, format!("Microphone may sound distorted: Steam Streaming Microphone's playback and recording formats differ and could not be matched ({error:#}). Set both to the same format in Windows' Sound settings."));
+            tracing::warn!(error = %format!("{error:#}"), "Steam Streaming Microphone formats could not be matched; the microphone may sound distorted");
+            // Output::stop has cleared the warning already when this thread was retired meanwhile.
+            if !stop.load(Ordering::Acquire) {
+                warnings.set(FORMAT_WARNING, format!("Microphone may sound distorted: Steam Streaming Microphone's playback format could not be matched to its recording format ({error:#}). Give both the same format in Windows' Sound settings."));
+            }
         }
     }
     let mut render = Render::open(&endpoint)?;

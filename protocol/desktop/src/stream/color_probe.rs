@@ -59,6 +59,7 @@ pub fn probe(
             ten_bit: format & VIDEO_FORMAT_MASK_10BIT != 0,
             chroma444: yuv444,
             packed: false,
+            waiting: 0,
         };
         match decode(hardware, pictures, codec, data)
             .and_then(|info| drawable(&info, yuv444, &planes))

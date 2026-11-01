@@ -209,6 +209,48 @@ final class AudioBufferPolicy {
         }
     }
 
+    /**
+     * Slow trim for clock drift. A device clock slower than the host's (35 ppm measured) leaves a surplus
+     * that grows by about 2 ms a minute until the late bound drops a whole packet unfaded, 40 ms of latency
+     * later. When all waiting audio (the network queue and the output) stays more than one packet above
+     * the reserve for TRIM_AFTER_MS of packets, one packet goes, faded out by the renderer. Steady state
+     * never stays there: any packet within one packet of the reserve starts the count again.
+     */
+    static final class DriftTrim {
+        static final int TRIM_AFTER_MS = 2000;
+        // Audio in packets seen above the trim line in a row.
+        private long aboveFrames;
+
+        boolean trim(int pendingFrames, int queuedFrames, int reserveFrames, int packetFrames, int sampleRate) {
+            if (packetFrames <= 0 || sampleRate <= 0) return false;
+            long excess = (long)Math.max(0, pendingFrames) + Math.max(0, queuedFrames) - Math.max(0, reserveFrames);
+            if (excess <= packetFrames) {
+                aboveFrames = 0;
+                return false;
+            }
+            aboveFrames += packetFrames;
+            if (aboveFrames < (long)sampleRate * TRIM_AFTER_MS / 1000) return false;
+            aboveFrames = 0;
+            return true;
+        }
+
+        void reset() {
+            aboveFrames = 0;
+        }
+    }
+
+    /**
+     * After a route change disconnected AAudio: reopen it on the new route, unless the last reopen came
+     * less than REOPEN_SETTLE_MS before and MAX_QUICK_REOPENS of them did so in a row, an output that
+     * keeps dying, which AudioTrack takes over.
+     */
+    static final long REOPEN_SETTLE_MS = 1000;
+    static final int MAX_QUICK_REOPENS = 3;
+
+    static boolean reopenAAudio(int quickReopens) {
+        return quickReopens < MAX_QUICK_REOPENS;
+    }
+
     static boolean useAAudio(int sdk, int channels, boolean effects, int sampleRate, int nativeRate) {
         // Android 8.0's first AAudio implementation and surround/effects retain AudioTrack.
         return sdk >= 27 && channels == 2 && !effects && sampleRate == nativeRate;

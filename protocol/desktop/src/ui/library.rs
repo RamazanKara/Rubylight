@@ -189,7 +189,7 @@ impl Launcher {
                     for (index, item) in starred.iter().enumerate() {
                         let line = if item.online { trf("On {}", &[&item.host_name]) } else { trf("{} is away", &[&item.host_name]) };
                         let response = continue_card(ui, &item.title, &line, false, card_w);
-                        let key = format!("favourite:{}:{}", item.host, item.app_id);
+                        let key = favourite_key(item);
                         self.focus_item(&response, &key, std::mem::take(&mut first));
                         if response.clicked() {
                             self.open(Screen::Game { host: item.host, app: item.app_id });
@@ -197,10 +197,8 @@ impl Launcher {
                         if response.has_focus() && unstar_pressed(ui) {
                             commands.push(Command::ToggleFavourite(item.favourite.clone()));
                             // The focus moves to the next favourite (else the previous), not back to the top.
-                            match console::neighbour(starred.len(), index) {
-                                Some(near) => {
-                                    self.restore_key = Some(format!("favourite:{}:{}", starred[near].host, starred[near].app_id));
-                                }
+                            match favourite_neighbour(&starred, index) {
+                                Some(near) => self.restore_key = Some(near),
                                 None => self.focus_screen = true,
                             }
                         }
@@ -695,6 +693,17 @@ fn library_loading(view: &View<'_>) -> bool {
     view.hosts.list.iter().any(|h| {
         h.reach == Reach::Online && h.paired() && h.native_api() && h.native.library.is_none() && h.native.error.is_none()
     })
+}
+
+/// A Favourites card's focus key.
+pub(super) fn favourite_key(item: &console::Starred) -> String {
+    format!("favourite:{}:{}", item.host, item.app_id)
+}
+
+/// The card to focus once favourite `index` loses its star: the next, else the previous; None
+/// when it was the last.
+pub(super) fn favourite_neighbour(starred: &[console::Starred], index: usize) -> Option<String> {
+    console::neighbour(starred.len(), index).map(|near| favourite_key(&starred[near]))
 }
 
 /// "Loading the games…" by a spinner, on Home and All games alike.

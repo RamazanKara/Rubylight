@@ -852,6 +852,21 @@ impl Pacer {
                             .max(late + self.notice()),
                     );
                 }
+                // A capture just early of the radius (up to half a radius
+                // more) is most likely that update come early: it waits only
+                // to the phase center and a notice. Second compositions pull
+                // the learned center late, and a jittery 120 Hz game's frame
+                // 1.2-1.8 ms early waited for itself to the bound, claimed
+                // 6.6 ms old with 21.8 ms gaps. Widening `in_phase` instead
+                // took other windows' updates just before game frames.
+                if phase.multiple > 1 && now >= allowed {
+                    let early = (u128::from(center) + cycle - u128::from(offset)) % cycle;
+                    let radius = u128::from(phase.radius_ns());
+                    if early > radius && early <= radius + radius / 2 {
+                        deadline = deadline
+                            .min(presented + Duration::from_nanos(early as u64) + self.notice());
+                    }
+                }
                 // Kept until the claim (`claimed`): the decision that claims
                 // can come from a later capture, or skip this wait.
                 if let Some(bound) =

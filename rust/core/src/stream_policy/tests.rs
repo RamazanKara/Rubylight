@@ -2147,6 +2147,36 @@ fn a_jittery_double_rate_game_noticed_late_is_waited_for_as_long_as_its_notice()
     }
 }
 #[test]
+fn a_jittery_double_rate_game_frame_just_early_of_its_phase_does_not_wait_for_itself() {
+    // A 120 Hz game at 60 fps whose frames come up to 1 ms off their cadence,
+    // beside second compositions that pull the learned center late. A frame
+    // 1.2-1.8 ms early, just outside the radius, waited for the update it
+    // was to the phase bound: 3-4 gaps of 21.8 ms a run, frames 6.6 ms old.
+    let period = 1000. / 60.;
+    let game = 1000. / 120.;
+    for seed in 0..2 {
+        let times: Vec<f64> = (0..3600)
+            .map(|frame| frame as f64 * game + 2.5 + 2. * (noise(frame, seed + 5) - 0.5))
+            .collect();
+        let (captures, frames) = with_second_compositions(&times, seed);
+        let claims = simulate_polled(period, &captures);
+        let steady = &claims[claims.len() / 10..];
+        let shown = |at: f64| frames.partition_point(|f| *f <= at + 1e-9);
+        let age = steady
+            .iter()
+            .map(|c| c.0 - frames[shown(c.1).max(1) - 1])
+            .fold(0., f64::max);
+        let gap = steady
+            .windows(2)
+            .map(|w| w[1].0 - w[0].0)
+            .fold(0., f64::max);
+        let case = format!("seed {seed}");
+        assert!(age < 3., "{case}: max age {age:.2} ms");
+        // Jitter alone spaces claims up to 19 ms; the wait made 21-22 ms.
+        assert!(gap < 20., "{case}: longest gap {gap:.2} ms");
+    }
+}
+#[test]
 fn a_double_rate_game_that_stalls_or_halves_is_not_held_for_frames_that_do_not_come() {
     // A 120 Hz game at 60 fps whose frames stop for a 30 ms hitch or a
     // 200 ms pause, or fall to 60 Hz every other 2 s. Held to the phase

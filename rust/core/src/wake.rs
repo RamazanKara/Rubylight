@@ -27,7 +27,7 @@ pub enum Medium {
 #[serde(default)]
 pub struct Adapter {
     pub index: u32,
-    /// `InterfaceGuid`, `{8-4-4-4-12}` in upper case; the key of the NIC script's report.
+    /// `InterfaceGuid`, `{8-4-4-4-12}` in upper case; the key of the NIC settings report.
     pub guid: String,
     /// The friendly name, for logs only: it is localized.
     pub name: String,

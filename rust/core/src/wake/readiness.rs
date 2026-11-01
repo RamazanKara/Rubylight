@@ -1,5 +1,5 @@
-//! Wake-on-LAN readiness: judging what `wake_nics.ps1 read` reports, and the
-//! plan its `apply` mode carries out (`docs/wake-and-audio-design.md`, A.3).
+//! Wake-on-LAN readiness: judging the NIC wake settings Windows reports, and
+//! the plan that changes them (`docs/wake-and-audio-design.md`, A.3).
 use super::{Adapter, Medium, format_mac, primary};
 use rubylight_native_api::wake::{
     self as api, AdapterKind, Check, CheckState, FastStartup, ShutdownWake, Sleep, TargetState,
@@ -14,7 +14,7 @@ pub const MODERN_STANDBY_MAGIC_PACKET: &str = "*ModernStandbyWoLMagicPacket";
 /// Realtek's wake from shutdown; each vendor defines its own meaning.
 pub const SHUTDOWN_WAKE: &str = "S5WakeOnLan";
 
-/// What `wake_nics.ps1 read` prints.
+/// The wake settings of every physical adapter.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
 pub struct NicReport {
     #[serde(default)]
@@ -140,7 +140,7 @@ fn keyword_state(value: Option<&str>, off: CheckState) -> CheckState {
 }
 
 /// The checks of one adapter, and its state: `NicSettings` is `Err` with the
-/// reason when the script failed or didn't report the adapter.
+/// reason when the reading failed or didn't report the adapter.
 pub fn judge(
     adapter: &Adapter,
     settings: Result<&NicSettings, &str>,
@@ -216,7 +216,7 @@ pub fn judge(
 
 /// Every physical adapter as a wake target, and the MAC `/serverinfo`
 /// reports for a request that reached the PC at `local`. `report` is `Err`
-/// with the reason when the NIC script failed.
+/// with the reason when reading the NIC settings failed.
 pub fn targets(
     adapters: &[Adapter],
     report: Result<&NicReport, &str>,
@@ -237,7 +237,7 @@ pub fn targets(
             let settings = match report {
                 Ok(report) => report
                     .get(adapter)
-                    .ok_or("the NIC script did not report this adapter"),
+                    .ok_or("the NIC settings reading did not report this adapter"),
                 Err(error) => Err(error),
             };
             let (state, checks) = judge(adapter, settings, modern_standby);
@@ -278,13 +278,13 @@ pub struct AdapterFix {
     pub magic_packet_only: bool,
 }
 
-/// What `wake_nics.ps1 apply` changes, with consent.
+/// What a fix changes, with consent.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FixPlan {
     pub adapters: Vec<AdapterFix>,
     /// `HiberbootEnabled = 0`, a separate choice offered while Fast Startup is active.
     pub fast_startup_off: bool,
-    /// Adapters that need a change the script can't make, and why.
+    /// Adapters that need a change the fix can't make, and why.
     #[serde(default)]
     pub skipped: Vec<String>,
 }
@@ -332,8 +332,8 @@ impl FixPlan {
             if !(fix.wake_enable || fix.magic_packet_only || !fix.keywords.is_empty()) {
                 continue;
             }
-            // The script finds the WMI settings by PnP id; an empty one would
-            // match every adapter.
+            // The fix finds the adapter's settings by its PnP id, so it can't
+            // change them without one.
             if fix.pnp.trim().is_empty() {
                 plan.skipped.push(format!(
                     "{}: Windows reports no device id for it, so its wake settings can't be changed",
@@ -399,14 +399,14 @@ impl FixPlan {
     }
 }
 
-/// What `wake_nics.ps1 apply` prints.
+/// What carrying out a [`FixPlan`] did.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
 #[serde(default)]
 pub struct ApplyReport {
     /// The adapters restarted for a changed advanced property.
     pub restarted: Vec<String>,
     /// The adapters whose changed property takes effect at the next restart
-    /// of the PC: the script was too close to its deadline to restart them.
+    /// of the PC: the fix was too close to its deadline to restart them.
     pub after_reboot: Vec<String>,
     pub errors: Vec<String>,
 }
@@ -525,8 +525,8 @@ mod tests {
             .insert(MODERN_STANDBY_MAGIC_PACKET.to_ascii_uppercase(), "0".into());
         assert_eq!(judge(realtek, Ok(&nic), false).0, TargetState::Ready);
         assert_eq!(judge(realtek, Ok(&nic), true).0, TargetState::NeedsSetup);
-        // A blocked script: every check unknown, never ready.
-        let (state, checks) = judge(realtek, Err("PowerShell is blocked"), false);
+        // A refused reading: every check unknown, never ready.
+        let (state, checks) = judge(realtek, Err("WMI refused access"), false);
         assert_eq!(state, TargetState::Unknown);
         assert!(checks.iter().all(|c| c.state == CheckState::Unknown));
         let (primary, targets) = targets(&adapters, Err("blocked"), false, None);
@@ -547,7 +547,7 @@ mod tests {
         let nic = report.get(&this_pc()[0]).unwrap();
         assert_eq!(nic.keyword(MAGIC_PACKET), Some("1"));
         assert!(nic.armed());
-        // An empty keyword map comes out of PowerShell as `{}` or `null`.
+        // An empty keyword map comes as `{}` or `null`.
         let report = NicReport::parse("{\"adapters\":[{\"keywords\":null}]}").unwrap();
         assert!(report.adapters[0].keywords.is_empty());
     }
@@ -654,7 +654,8 @@ mod tests {
                 "Turn off Fast Startup",
             ]
         );
-        // The plan travels to the script as JSON with the registry's keywords.
+        // The plan travels to `--apply-wake-settings` as JSON with the
+        // registry's keywords.
         let json = serde_json::to_string(&plan).unwrap();
         assert!(json.contains("\"*WakeOnMagicPacket\":\"1\""), "{json}");
         // Without consent to Fast Startup, or when all is set, nothing changes.

@@ -86,13 +86,13 @@ System facts:
 
 How the host reads and changes them:
 
-- **One script:** a PowerShell script embedded in `butterpollo-windows` has two modes, `read` and `apply`. It runs in the service with `-NoProfile -NonInteractive -ExecutionPolicy Bypass` and takes its script on stdin.
-- **Locale-independent JSON:** it prints JSON keyed by InterfaceGuid, PnP id and registry keyword, never by display names. Core parses and judges that JSON, so fake-NIC tests are plain fixture files.
+- **Native reading:** `rust/windows/src/wake/nics.rs` reads them in the service through WMI, without PowerShell: `MSFT_NetAdapter` with the `Physical` option, `MSFT_NetAdapterAdvancedPropertySettingData` with `AllProperties`, and `MSPower_DeviceWakeEnable` and `MSNdis_DeviceWakeOnMagicPacketOnly` in `root\wmi`.
+- **Locale-independent:** the report is keyed by InterfaceGuid, PnP id and registry keyword, never by display names. Core judges it, so fake-NIC tests are plain JSON fixture files.
 - **Caching:** results are cached for 60 s, and the console's Check again refreshes them.
-- **Blocked script:** if PowerShell is blocked (Constrained Language Mode, AppLocker), the check reports `unknown` with the error.
+- **Refused reading:** if WMI refuses access or fails, the check reports `unknown` with the error.
 - **Applying:**
-  - Advanced properties are set with `Set-NetAdapterAdvancedProperty ... -NoRestart` per keyword, then one `Restart-NetAdapter` for each changed adapter. This drops the network for a few seconds.
-  - WMI changes use `Set-CimInstance`.
+  - Advanced properties are written to the adapter's driver key, checked against the keyword's `Ndi\Params` choices, then each changed adapter restarts once (`MSFT_NetAdapter` `Disable` and `Enable`). This drops the network for a few seconds.
+  - The WMI wake settings are written with `PutInstance`.
   - Turning Fast Startup off sets `HiberbootEnabled=0`. It's a separate choice, offered only while Fast Startup is active.
 
 How consent is given:
@@ -589,14 +589,13 @@ General rules for every brief:
 
 **Files**
 
-- `rust/core/src/wake.rs`: the MAC policy, the readiness judgement from the script's JSON, `IdleSleep` and `WakeGrace`, with tests.
+- `rust/core/src/wake.rs`: the MAC policy, the readiness judgement of the NIC report, `IdleSleep` and `WakeGrace`, with tests.
 - `rust/core/src/wake/fixtures/*.json` (new): anonymized MACs, locally administered `02:…`.
 - `rust/windows/src/wake.rs`:
   - adapter facts: `GetAdaptersAddresses` plus `GetIfEntry2`;
-  - the embedded `wake_nics.ps1` and its runner, for read and apply;
+  - the NIC reader and fixer, for read and apply (first an embedded `wake_nics.ps1`, now native WMI and registry in `wake/nics.rs`);
   - `GetPwrCapabilities`, `HiberbootEnabled`, `SystemExecutionState`, `PowerCreateRequest` and `SetSuspendState` with privilege enabling;
   - the `--idle-seconds` worker.
-- `rust/windows/src/wake_nics.ps1` (new).
 - `rust/windows/src/net.rs`: `local_mac` goes through the policy, with the same signature and output format.
 - `rust/windows/Cargo.toml`: only if a `windows` feature is missing.
 - `rust/host/src/wake.rs` (new):

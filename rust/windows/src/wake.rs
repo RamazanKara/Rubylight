@@ -211,7 +211,7 @@ fn route_source(destination: IpAddr) -> Result<Option<IpAddr>> {
 /// armed; the MAC policy prefers an armed NIC.
 static ARMED: RwLock<Option<HashMap<String, bool>>> = RwLock::new(None);
 
-/// The cached readiness of `adapter`; `None` until the NIC script has read it.
+/// The cached readiness of `adapter`; `None` until [`read_nics`] has read it.
 pub fn armed(adapter: &Adapter) -> Option<bool> {
     ARMED
         .read()
@@ -221,7 +221,7 @@ pub fn armed(adapter: &Adapter) -> Option<bool> {
         .copied()
 }
 
-/// Remember which adapters the NIC script last read as armed.
+/// Remember which adapters [`read_nics`] last read as armed.
 pub fn remember_armed(armed: impl IntoIterator<Item = (String, bool)>) {
     *ARMED.write().unwrap() = Some(
         armed
@@ -231,32 +231,27 @@ pub fn remember_armed(armed: impl IntoIterator<Item = (String, bool)>) {
     );
 }
 
-/// Reads and applies the NIC wake settings; it takes its own text on stdin.
-const NICS_SCRIPT: &str = include_str!("wake_nics.ps1");
-/// The `apply` mode's FixPlan, as JSON.
-const PLAN_VARIABLE: &str = "BUTTERPOLLO_WAKE_PLAN";
-/// The seconds after which `apply` starts no adapter restart.
-const RESTART_BEFORE_VARIABLE: &str = "BUTTERPOLLO_WAKE_RESTART_BEFORE";
-/// How long `wake_nics.ps1 read` may take.
+/// How long reading the NIC wake settings may take.
 pub const READ_TIMEOUT: Duration = Duration::from_secs(60);
-/// How long `wake_nics.ps1 apply` may take before it is killed.
+/// How long applying them may take before the caller stops waiting.
 pub const APPLY_TIMEOUT: Duration = Duration::from_secs(180);
 /// The time left for an adapter restart, which takes a few seconds: `apply`
-/// starts none later than this before its kill, so the kill never lands
-/// between disabling and enabling an adapter. A later one waits for the next
-/// restart of the PC.
+/// starts none later than this before its deadline, so a process that ends
+/// when it gives up on a late apply never ends it between disabling and
+/// enabling an adapter. A later one waits for the next restart of the PC.
 const RESTART_ALLOWANCE: Duration = Duration::from_secs(60);
 /// How long `butterpollo.exe --apply-wake-settings` may take: a read and an
 /// apply, each bounded above, and some slack. Whoever starts it waits at
-/// least this long, so it is never killed before its script's own deadline.
+/// least this long, so it is never killed before its own deadlines.
 pub const SETTINGS_TIMEOUT: Duration =
     Duration::from_secs(READ_TIMEOUT.as_secs() + APPLY_TIMEOUT.as_secs() + 20);
 
-/// `wake_nics.ps1 read`, also remembering which adapters are armed. The
-/// error carries PowerShell's own message, as for a blocked script
-/// (Constrained Language Mode, AppLocker).
+/// The wake settings of every physical adapter, also remembering which are
+/// armed. The error says what failed, such as WMI refusing access.
 pub fn read_nics() -> Result<NicReport> {
-    let report = NicReport::parse(&run_script(NICS_SCRIPT, "read", &[], READ_TIMEOUT)?)?;
+    let report = crate::wmi::on_com_thread("reading the NIC wake settings", READ_TIMEOUT, || {
+        nics::read(&mut nics::Native::default())
+    })?;
     remember_armed(
         report
             .adapters
@@ -266,57 +261,14 @@ pub fn read_nics() -> Result<NicReport> {
     Ok(report)
 }
 
-/// `wake_nics.ps1 apply`: changed adapters restart, which drops the network
-/// for a few seconds.
+/// Carries out `plan`: changed adapters restart, which drops the network for
+/// a few seconds.
 pub fn apply_nics(plan: &FixPlan) -> Result<ApplyReport> {
     let restart_before = APPLY_TIMEOUT.saturating_sub(RESTART_ALLOWANCE);
-    let environment = [
-        (PLAN_VARIABLE, serde_json::to_string(plan)?),
-        (
-            RESTART_BEFORE_VARIABLE,
-            restart_before.as_secs_f64().to_string(),
-        ),
-    ];
-    let output = run_script(NICS_SCRIPT, "apply", &environment, APPLY_TIMEOUT)?;
-    Ok(serde_json::from_str(output.trim_start_matches('\u{feff}'))?)
-}
-
-/// `script` on stdin with `mode`, killed after `timeout`; its stdout.
-fn run_script(
-    script: &str,
-    mode: &str,
-    environment: &[(&str, String)],
-    timeout: Duration,
-) -> Result<String> {
-    use std::{os::windows::process::CommandExt, process::Command};
-    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    let root = std::env::var_os("SystemRoot").unwrap_or_else(|| "C:\\Windows".into());
-    let program =
-        std::path::Path::new(&root).join("System32\\WindowsPowerShell\\v1.0\\powershell.exe");
-    let mut command = Command::new(&program);
-    command
-        .args([
-            "-NoProfile",
-            "-NonInteractive",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-Command",
-            &format!("& ([scriptblock]::Create([Console]::In.ReadToEnd())) {mode}"),
-        ])
-        // A PowerShell 7 parent's module path breaks Windows PowerShell's modules.
-        .env_remove("PSModulePath")
-        .env_remove(PLAN_VARIABLE)
-        .env_remove(RESTART_BEFORE_VARIABLE)
-        .envs(environment.iter().map(|(name, value)| (name, value)))
-        .creation_flags(CREATE_NO_WINDOW);
-    let (status, stdout, stderr) = output_within(&mut command, script.as_bytes(), timeout)
-        .with_context(|| format!("the NIC wake script ({mode})"))?;
-    anyhow::ensure!(
-        status.success(),
-        "the NIC wake script ({mode}) failed with {status}: {}",
-        stderr.trim()
-    );
-    Ok(stdout)
+    let plan = plan.clone();
+    crate::wmi::on_com_thread("changing the NIC wake settings", APPLY_TIMEOUT, move || {
+        nics::apply(&mut nics::Native::default(), &plan, restart_before)
+    })
 }
 
 /// Run `command` with `input` on its stdin; its exit status, stdout and
@@ -547,6 +499,8 @@ impl Drop for PowerRequest {
         let _ = unsafe { windows::Win32::Foundation::CloseHandle(self.0) };
     }
 }
+
+mod nics;
 
 #[cfg(test)]
 mod tests;

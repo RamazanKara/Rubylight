@@ -23,7 +23,8 @@ use std::{
     time::{Duration, Instant, SystemTime},
 };
 
-/// How long a NIC script reading stays fresh; a fix or `refresh` reads again.
+/// How long a reading of the NIC settings stays fresh; a fix or `refresh` reads
+/// again.
 const NIC_CACHE: Duration = Duration::from_secs(60);
 /// The console's POST answers before the fix starts, as the adapter restart
 /// drops the connection it came on.
@@ -41,7 +42,7 @@ pub trait PowerSystem: Send + Sync {
     fn adapters(&self) -> Result<Vec<Adapter>>;
     /// The PC's own address on its default route; `None` without one.
     fn default_route(&self) -> Result<Option<IpAddr>>;
-    /// `wake_nics.ps1 read`.
+    /// The wake settings of every physical adapter.
     fn read_nics(&self) -> Result<NicReport>;
     fn system_facts(&self) -> Result<SystemFacts>;
     /// `SystemExecutionState`.
@@ -52,7 +53,7 @@ pub trait PowerSystem: Send + Sync {
     fn input(&self) -> Input;
     /// Sleep (S3); returns after the PC resumes.
     fn sleep(&self) -> Result<()>;
-    /// `wake_nics.ps1 apply`.
+    /// Carries out `plan`: changed adapters restart.
     fn apply_nics(&self, plan: &FixPlan) -> Result<ApplyReport>;
     /// `butterpollo.exe --apply-wake-settings` in a child process, as the
     /// host's own account (SYSTEM under the service), applying exactly `plan`.
@@ -128,9 +129,9 @@ impl PowerSystem for Windows {
             .arg("--apply-wake-settings")
             .env(FIX_VARIABLE, serde_json::to_string(plan)?)
             .creation_flags(CREATE_NO_WINDOW);
-        // The child kills its NIC script at the script's own deadline, which
-        // never falls in an adapter restart; SETTINGS_TIMEOUT is later, so a
-        // kill here never lands in one either.
+        // The child gives up on its apply at its own deadline, which never
+        // falls in an adapter restart; SETTINGS_TIMEOUT is later, so a kill
+        // here never lands in one either.
         let (status, stdout, stderr) = output_within(&mut command, b"", SETTINGS_TIMEOUT)
             .context("butterpollo.exe --apply-wake-settings")?;
         serde_json::from_str(&stdout).with_context(|| {
@@ -314,8 +315,8 @@ impl Wake {
     pub fn set_power(&self, power: Arc<dyn PowerSystem>) {
         *self.power.write().unwrap() = power;
     }
-    /// The NIC script's reading, at most [`NIC_CACHE`] old unless `refresh`.
-    /// Concurrent readers wait for one run of the script.
+    /// The NIC settings, read at most [`NIC_CACHE`] ago unless `refresh`.
+    /// Concurrent readers wait for one reading.
     fn nics(&self, power: &dyn PowerSystem, refresh: bool) -> Result<NicReport, String> {
         let mut cache = locked(&self.nics);
         if !refresh
@@ -1493,7 +1494,7 @@ mod tests {
         let plan = fix_plan(&f.host, false).unwrap();
         fake.hook(|_, method| {
             if method == "read_nics" {
-                panic!("the fake NIC script crashed");
+                panic!("the fake NIC reading crashed");
             }
         });
         request_fix(&f.host, &plan).unwrap();
@@ -1635,7 +1636,7 @@ mod tests {
         locked(&fake.facts).as_mut().unwrap().hibernate = true;
         apply_settings(&*fake, false).unwrap();
         assert!(!locked(&fake.plans)[0].fast_startup_off);
-        // Nothing to change: the script is not run.
+        // Nothing to change: nothing is applied.
         let fake = Fake::new();
         if let Ok(nics) = locked(&fake.nics).as_mut() {
             nics.adapters[0].magic_packet_only = Some(true);
@@ -1645,7 +1646,7 @@ mod tests {
         assert!(locked(&fake.plans).is_empty());
         // A failed read is an error, never an empty plan.
         let fake = Fake::new();
-        *locked(&fake.nics) = Err("PowerShell is blocked".into());
+        *locked(&fake.nics) = Err("WMI refused access".into());
         assert!(apply_settings(&*fake, false).is_err());
     }
 
@@ -1675,7 +1676,7 @@ mod tests {
         let wake = readiness(&f.host, false, Some("127.0.0.1".parse().unwrap())).unwrap();
         assert_eq!(wake.primary, None);
         assert!(wake.targets.iter().all(|target| !target.route));
-        *locked(&fake.nics) = Err("PowerShell is blocked".into());
+        *locked(&fake.nics) = Err("WMI refused access".into());
         let wake = readiness(&f.host, true, None).unwrap();
         assert_eq!(wake.targets.len(), 2, "virtual adapters are never listed");
         assert_eq!(wake.targets[0].state, api::TargetState::Unknown);

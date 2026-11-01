@@ -97,7 +97,7 @@ fn another_processs_power_request_shows_in_the_execution_state() -> Result<()> {
 
 #[test]
 #[ignore = "run as SYSTEM on this PC: rust/release/elevated.ps1"]
-fn the_nic_script_reads_this_pcs_realtek_as_ready() -> Result<()> {
+fn this_pcs_realtek_reads_as_ready() -> Result<()> {
     let adapters = adapters()?;
     let report = read_nics()?;
     println!("{report:#?}");
@@ -105,10 +105,100 @@ fn the_nic_script_reads_this_pcs_realtek_as_ready() -> Result<()> {
         .iter()
         .find(|a| a.physical() && a.connected && a.medium == Medium::Wired)
         .expect("a connected wired NIC");
-    let nic = report.get(realtek).expect("the script reports it");
+    let nic = report.get(realtek).expect("the reading reports it");
     assert!(nic.errors.is_empty(), "{:?}", nic.errors);
     assert!(nic.armed(), "{nic:?}");
     assert!(system_facts()?.s3);
+    Ok(())
+}
+
+#[test]
+fn this_pcs_nic_settings_are_read_from_the_drivers_own_keys() -> Result<()> {
+    // Read-only. Without elevation WMI's wake classes refuse access, which
+    // is each adapter's error, never the reading's.
+    let report = read_nics()?;
+    println!("{report:#?}");
+    let listed = adapters()?;
+    for nic in &report.adapters {
+        assert_eq!(nic.guid.len(), 38, "{}", nic.guid);
+        assert_eq!(nic.guid, nic.guid.to_ascii_uppercase());
+        // Any physical adapter IP Helper sees is the same one by its GUID.
+        if let Some(adapter) = listed
+            .iter()
+            .find(|a| a.guid.eq_ignore_ascii_case(&nic.guid))
+        {
+            assert!(adapter.hardware && adapter.connector, "{adapter:?}");
+        }
+        if nic.pnp.is_empty() {
+            continue;
+        }
+        // The key a fix would write is the one these values came from.
+        let key = nics::driver_key(&nic.pnp, false)?;
+        for (keyword, value) in &nic.keywords {
+            if let Some(stored) = key.string(keyword)? {
+                assert_eq!(stored.trim(), value, "{} {keyword}", nic.name);
+            }
+        }
+    }
+    // Every physical, connected adapter IP Helper lists is in the reading.
+    for adapter in listed.iter().filter(|a| a.physical() && a.connected) {
+        assert!(report.get(adapter).is_some(), "{adapter:?} is not read");
+    }
+    Ok(())
+}
+
+/// The reading against what Windows PowerShell's cmdlets report on this PC:
+/// the script the native reading replaced ran them (test tooling only; the
+/// host and setup run no PowerShell).
+#[test]
+#[ignore = "compares with Windows PowerShell; elevated for the wake classes"]
+fn the_reading_matches_the_powershell_cmdlets() -> Result<()> {
+    const SCRIPT: &str = r#"
+$ErrorActionPreference = 'Stop'
+[Console]::OutputEncoding = [Text.Encoding]::UTF8
+$keywords = @('*WakeOnMagicPacket', '*WakeOnPattern', '*ModernStandbyWoLMagicPacket', 'S5WakeOnLan')
+function Find-Wmi([string]$Class, [string]$Pnp) {
+    $pattern = [Management.Automation.WildcardPattern]::Escape($Pnp) + '_*'
+    @(Get-CimInstance -Namespace root\wmi -ClassName $Class | Where-Object { $_.InstanceName -like $pattern })
+}
+$adapters = @(Get-NetAdapter -Physical | ForEach-Object {
+    $values = @{}
+    foreach ($p in @($_ | Get-NetAdapterAdvancedProperty -AllProperties)) {
+        if ($keywords -contains $p.RegistryKeyword) { $values[$p.RegistryKeyword.ToUpperInvariant()] = ([string]@($p.RegistryValue)[0]).Trim() }
+    }
+    $wake = $null; $only = $null
+    try { $f = @(Find-Wmi 'MSPower_DeviceWakeEnable' $_.PnPDeviceID); if ($f.Count) { $wake = [bool]$f[0].Enable } } catch {}
+    try { $f = @(Find-Wmi 'MSNdis_DeviceWakeOnMagicPacketOnly' $_.PnPDeviceID); if ($f.Count) { $only = [bool]$f[0].EnableWakeOnMagicPacketOnly } } catch {}
+    @{ guid = ([string]$_.InterfaceGuid).ToUpperInvariant(); pnp = [string]$_.PnPDeviceID; name = [string]$_.Name
+       wake_enable = $wake; magic_packet_only = $only; keywords = $values }
+})
+ConvertTo-Json -InputObject @{ adapters = $adapters } -Depth 6 -Compress
+"#;
+    let root = std::env::var_os("SystemRoot").unwrap_or_else(|| r"C:\Windows".into());
+    let (status, stdout, stderr) = output_within(
+        std::process::Command::new(
+            std::path::Path::new(&root).join(r"System32\WindowsPowerShell\v1.0\powershell.exe"),
+        )
+        .args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            "& ([scriptblock]::Create([Console]::In.ReadToEnd()))",
+        ])
+        .env_remove("PSModulePath"),
+        SCRIPT.as_bytes(),
+        Duration::from_secs(120),
+    )?;
+    anyhow::ensure!(status.success(), "PowerShell failed: {stderr}");
+    let mut expected = NicReport::parse(&stdout)?;
+    let mut native = read_nics()?;
+    for report in [&mut expected, &mut native] {
+        report.adapters.sort_by(|a, b| a.guid.cmp(&b.guid));
+        for nic in &mut report.adapters {
+            nic.errors.clear();
+        }
+    }
+    assert_eq!(native, expected);
     Ok(())
 }
 
@@ -138,175 +228,8 @@ fn armed_is_cached_by_guid_in_any_case() {
     );
 }
 
-/// `function name` from the NIC script, up to its closing brace.
-fn script_function(name: &str) -> &'static str {
-    function_in(NICS_SCRIPT, name)
-}
-
-/// `function name` in `script` up to and including the line ending after its
-/// closing brace. CI's Windows checkout gives the script CRLF endings, so
-/// both kinds count.
-fn function_in<'a>(script: &'a str, name: &str) -> &'a str {
-    let start = script
-        .find(&format!("function {name}"))
-        .unwrap_or_else(|| panic!("{name} is not in the NIC script"));
-    let rest = &script[start..];
-    let (close, ending) = ["\n}\n", "\r\n}\r\n"]
-        .iter()
-        .filter_map(|ending| rest.find(ending).map(|at| (at, ending.len())))
-        .min()
-        .unwrap_or_else(|| panic!("{name} has no closing brace in the NIC script"));
-    &rest[..close + ending]
-}
-
 #[test]
-fn script_functions_are_found_with_either_line_ending() {
-    let lf = "function A {\n  1\n}\nfunction B {\n  2\n}\n";
-    let crlf = lf.replace('\n', "\r\n");
-    assert_eq!(function_in(lf, "A"), "function A {\n  1\n}\n");
-    assert_eq!(function_in(lf, "B"), "function B {\n  2\n}\n");
-    assert_eq!(function_in(&crlf, "A"), "function A {\r\n  1\r\n}\r\n");
-    assert_eq!(function_in(&crlf, "B"), "function B {\r\n  2\r\n}\r\n");
-}
-/// `body` after `functions` from the NIC script, with stand-ins for the
-/// cmdlets that would touch the adapters; its JSON.
-fn run_with_stand_ins(
-    functions: &[&str],
-    body: &str,
-    environment: &[(&str, String)],
-) -> Result<serde_json::Value> {
-    let mut script = String::from("$ErrorActionPreference = 'Stop'\n");
-    script += "$log = [Collections.Generic.List[string]]::new()\n";
-    for name in functions {
-        script += script_function(name);
-    }
-    script += body;
-    let output = run_script(&script, "", environment, Duration::from_secs(60))?;
-    Ok(serde_json::from_str(output.trim_start_matches('\u{feff}'))?)
-}
-
-#[test]
-fn wmi_instances_match_the_whole_pnp_id_and_an_empty_one_none() -> Result<()> {
-    let found = run_with_stand_ins(
-        &["Find-Wmi"],
-        r##"
-function Get-CimInstance { param($Namespace, $ClassName)
-    'PCI\VEN_10EC&DEV_8125\01_0', 'PCI\VEN_10EC&DEV_8125\012_0', 'PCI\VEN_10EC&DEV_8125[1]_0' |
-        ForEach-Object { [pscustomobject]@{ InstanceName = $_ } } }
-$empty = try { Find-Wmi 'MSPower_DeviceWakeEnable' ''; 'matched' } catch { "$_" }
-ConvertTo-Json -Compress -InputObject @{
-    one = @(Find-Wmi 'MSPower_DeviceWakeEnable' 'pci\ven_10ec&dev_8125\01' | ForEach-Object InstanceName)
-    bracket = @(Find-Wmi 'MSPower_DeviceWakeEnable' 'PCI\VEN_10EC&DEV_8125[1]' | ForEach-Object InstanceName)
-    empty = $empty
-}
-"##,
-        &[],
-    )?;
-    assert_eq!(
-        found["one"],
-        serde_json::json!(["PCI\\VEN_10EC&DEV_8125\\01_0"])
-    );
-    assert_eq!(
-        found["bracket"],
-        serde_json::json!(["PCI\\VEN_10EC&DEV_8125[1]_0"])
-    );
-    assert_eq!(found["empty"], "the adapter has no PnP id");
-    Ok(())
-}
-
-#[test]
-fn a_single_wmi_instance_is_read() -> Result<()> {
-    // Windows PowerShell gives a lone CimInstance no Count, so one match
-    // read as unreadable on every PC.
-    let nic = run_with_stand_ins(
-        &["Find-Wmi", "Read-Adapter"],
-        r##"
-$keywords = @('*WakeOnMagicPacket')
-function Get-NetAdapterAdvancedProperty { param([Parameter(ValueFromPipeline)]$InputObject, [switch]$AllProperties)
-    process { [pscustomobject]@{ RegistryKeyword = '*WakeOnMagicPacket'; RegistryValue = @('1') } } }
-function Get-CimInstance { param($Namespace, $ClassName)
-    New-CimInstance -ClassName $ClassName -Namespace root/wmi -ClientOnly -Property @{
-        InstanceName = 'PCI\VEN_10EC&DEV_8125\01_0'; Enable = $true; EnableWakeOnMagicPacketOnly = $false } }
-ConvertTo-Json -Compress -InputObject (Read-Adapter ([pscustomobject]@{
-    InterfaceGuid = '{875511c7-0ef5-45f7-876c-3be50726ac42}'; PnPDeviceID = 'PCI\VEN_10EC&DEV_8125\01'; Name = 'Ethernet' }))
-"##,
-        &[],
-    )?;
-    assert_eq!(nic["errors"], serde_json::json!([]));
-    assert_eq!(nic["wake_enable"], true);
-    assert_eq!(nic["magic_packet_only"], false);
-    Ok(())
-}
-
-#[test]
-fn a_failed_restart_enables_the_adapter_again() -> Result<()> {
-    let restarted = run_with_stand_ins(
-        &["Restart-Adapter"],
-        r##"
-function Disable-NetAdapter { param([Parameter(ValueFromPipeline)]$InputObject, [switch]$Confirm)
-    process { $log.Add('disable'); throw 'disabling failed halfway' } }
-function Enable-NetAdapter { param([Parameter(ValueFromPipeline)]$InputObject, [switch]$Confirm)
-    process { $log.Add('enable'); if ($log.Count -eq 2) { throw 'busy' } } }
-$failure = try { Restart-Adapter ([pscustomobject]@{ Name = 'Ethernet' }); 'none' } catch { "$_" }
-ConvertTo-Json -Compress -InputObject @{ log = @($log); error = $failure }
-"##,
-        &[],
-    )?;
-    assert_eq!(
-        restarted["log"],
-        serde_json::json!(["disable", "enable", "enable"])
-    );
-    assert_eq!(restarted["error"], "disabling failed halfway");
-    Ok(())
-}
-
-#[test]
-fn a_restart_too_close_to_the_kill_waits_for_the_next_boot() -> Result<()> {
-    let plan = FixPlan {
-        adapters: vec![butterpollo_core::wake::AdapterFix {
-            guid: "{G}".into(),
-            pnp: "PCI\\X".into(),
-            name: "Ethernet".into(),
-            keywords: [("*WakeOnMagicPacket".to_string(), "1".to_string())].into(),
-            ..Default::default()
-        }],
-        ..Default::default()
-    };
-    let apply = |restart_before: Option<&str>| {
-        let mut environment = vec![(PLAN_VARIABLE, serde_json::to_string(&plan).unwrap())];
-        if let Some(seconds) = restart_before {
-            environment.push((RESTART_BEFORE_VARIABLE, seconds.to_string()));
-        }
-        run_with_stand_ins(
-            &["Invoke-Apply"],
-            r##"
-function Get-NetAdapter { param([switch]$Physical) [pscustomobject]@{ InterfaceGuid = '{G}' } }
-function Set-NetAdapterAdvancedProperty { param([Parameter(ValueFromPipeline)]$InputObject,
-    $RegistryKeyword, $RegistryValue, [switch]$NoRestart) process { $log.Add("set $RegistryKeyword") } }
-function Restart-Adapter($adapter) { $log.Add('restart') }
-ConvertTo-Json -Compress -Depth 4 -InputObject @{ report = (Invoke-Apply); log = @($log) }
-"##,
-            &environment,
-        )
-    };
-    let early = apply(Some("120"))?;
-    assert_eq!(
-        early["log"],
-        serde_json::json!(["set *WakeOnMagicPacket", "restart"])
-    );
-    assert_eq!(early["report"]["restarted"], serde_json::json!(["{G}"]));
-    assert_eq!(early["report"]["after_reboot"], serde_json::json!([]));
-    let late = apply(Some("0.000001"))?;
-    assert_eq!(late["log"], serde_json::json!(["set *WakeOnMagicPacket"]));
-    assert_eq!(late["report"]["restarted"], serde_json::json!([]));
-    assert_eq!(late["report"]["after_reboot"], serde_json::json!(["{G}"]));
-    // Without its deadline the script changes nothing.
-    assert!(apply(None).is_err());
-    Ok(())
-}
-
-#[test]
-fn the_host_kills_apply_only_after_its_last_restart_could_end() {
+fn a_late_apply_is_given_up_only_after_its_last_restart_could_end() {
     assert!(APPLY_TIMEOUT >= RESTART_ALLOWANCE * 2);
     assert!(SETTINGS_TIMEOUT > READ_TIMEOUT + APPLY_TIMEOUT);
 }

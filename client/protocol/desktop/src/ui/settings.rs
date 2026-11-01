@@ -575,13 +575,9 @@ impl Launcher {
                 setting_row(ui, s, &mut rows, &["bitrate_kbps"], "Bitrate",
                     note,
                     |ui, s| {
-                        let r = ui.add(
-                            egui::Slider::new(&mut mbps, 0.5..=2000.0)
-                                .logarithmic(true)
-                                .suffix(" Mbps")
-                                .max_decimals(1)
-                                .step_by(0.5),
-                        );
+                        let r = slider(ui, &mut mbps, 0.5..=2000.0, 0.5,
+                            |rail| rail.logarithmic(true).step_by(0.5),
+                            |field| field.suffix(" Mbps").max_decimals(1).speed(0.5));
                         if r.changed() {
                             s.bitrate_kbps = (mbps * 1000.0) as u32;
                         }
@@ -662,7 +658,7 @@ impl Launcher {
             });
             if s.upscaling.is_shader() {
                 setting_row(ui, s, &mut rows, &["upscale_sharpness"], "Sharpness", "How much extra sharpening the upscaler adds.", |ui, s| {
-                    ui.add(egui::Slider::new(&mut s.upscale_sharpness, 0..=100).suffix("%"))
+                    slider(ui, &mut s.upscale_sharpness, 0..=100, 5.0, |rail| rail, |field| field.suffix("%"))
                 });
             }
             rows.when(!s.codec.is_pyrowave() && !s.experimental_packed_444, en("Not used with PyroWave or Full chroma."));
@@ -726,7 +722,7 @@ impl Launcher {
                     }).response
             });
             setting_row(ui, s, &mut rows, &["virtual_display_scale"], "PC render resolution", "The size the PC renders at, as a percent of the stream resolution. The video it sends keeps its size. To send fewer pixels and upscale here, lower Resolution instead.", |ui, s| {
-                ui.add(egui::Slider::new(&mut s.virtual_display_scale, crate::config::RENDER_SCALE).step_by(5.0).suffix("%"))
+                slider(ui, &mut s.virtual_display_scale, crate::config::RENDER_SCALE, 5.0, |rail| rail.step_by(5.0), |field| field.suffix("%"))
             });
             // A PC's own settings offer it only if its host reads rlDisplayScale (DisplayScale).
             let dpi_gate = display_scale_gate(test_host.and_then(|h| h.info.as_ref())
@@ -817,7 +813,7 @@ impl Launcher {
                 "Alt+Tab, the Windows key and similar go to the PC while input is captured.",
                 |ui, s| toggle(ui, &mut s.capture_system_keys),
             );
-            setting_row(ui, s, &mut rows, &["mouse_speed"], "Mouse speed", "How fast the captured pointer moves.", |ui, s| ui.add(egui::Slider::new(&mut s.mouse_speed, 25..=400).suffix("%")));
+            setting_row(ui, s, &mut rows, &["mouse_speed"], "Mouse speed", "How fast the captured pointer moves.", |ui, s| slider(ui, &mut s.mouse_speed, 25..=400, 5.0, |rail| rail, |field| field.suffix("%")));
             setting_row(ui, s, &mut rows, &["mouse_nav_buttons"], "Mouse navigation buttons", "Sends the mouse's Back and Forward buttons to the PC.", |ui, s| toggle(ui, &mut s.mouse_nav_buttons));
             if cfg!(windows) {
                 setting_row(ui, s, &mut rows, &["native_touchpad"], "Touchpad gestures on the PC", "Sends your touchpad's fingers to a PC that accepts them, so its gestures work there. Other PCs get a normal pointer.", |ui, s| toggle(ui, &mut s.native_touchpad));

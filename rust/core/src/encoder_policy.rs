@@ -98,7 +98,7 @@ pub const AUTO_SLICE_PIXELS: u64 = 3840 * 2160 * 3 / 4;
 /// the whole frame, which grows with the picture: on the RX 7900 XT at 4K it
 /// was 2.1 ms and the picture arrived 1.4 ms sooner, at 1080p it was 0.9 ms
 /// and the client's extra reassembly ate it (rust/PERFORMANCE.md, October 23
-/// and October 31). Off when the stream would use the intra refresh the
+/// and November 1). Off when the stream would use the intra refresh the
 /// client asked for, which slice output would trade for keyframe recovery.
 pub fn auto_slice_blocks(stream: &Negotiated) -> u8 {
     let pixels = u64::from(stream.width) * u64::from(stream.height);

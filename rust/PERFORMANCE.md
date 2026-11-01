@@ -6,6 +6,7 @@ This is the dated measurement record. For a guided comparison, start with the [p
 
 | Find a result | Recorded evidence |
 | --- | --- |
+| Slice delivery by picture size (`video_slice_delivery = auto`): 4K60, 1440p120 and 1080p60 on loopback and paced at twice the bitrate (the Wi-Fi pacing a `clientWireless` client gets), why the paced emulation and the phone gained little, the rule kept | [November 1, slice delivery by picture size](#november-1-slice-delivery-by-picture-size) |
 | A focused VRR game next to another animating window: WGC dirty regions tell the game's pictures from the other window's updates and pointer moves; repeats, age, present-to-sent, with and without the pointer moving (ABBA) | [October 30, a focused game's pictures beside another window](#october-30-a-focused-games-pictures-beside-another-window) |
 | Nightjar desktop presenting for VRR: the display check on a 240 Hz FreeSync panel and a fixed 120 Hz laptop panel, what it costs, mid-scan presents, sync interval 1 and waiting out the scan (not kept as defaults) | [October 29, Nightjar desktop on a VRR panel and a fixed one](#october-29-nightjar-desktop-on-a-vrr-panel-and-a-fixed-one) |
 | False slow-pace latches from #59's rc.4 logs: a decoder asking twice for a keyframe, a host adapter refusing packets (lifted after 10 s), holding frames for a full socket (not kept), the keyframe cap scale (inert here); latches, stalls, picture age, presentation gaps (ABBA) | [October 29, false slow-pace latches and a stalled adapter](#october-29-false-slow-pace-latches-and-a-stalled-adapter-rc4-field-logs) |
@@ -58,6 +59,55 @@ This is the dated measurement record. For a guided comparison, start with the [p
 | PyroWave HDR 4:4:4 | [Transport and decoding](#vibepollo-20-pyrowave-transport) · [SDK patches from Punktfunk](#october-15-pyrowave-sdk-patches-from-punktfunk) |
 | CPU error correction | [C++ FEC comparison](#controlled-comparison-with-the-original-c-fec) |
 | Reproduction and scope | [Probes](#reproduce-on-another-machine) · [Hardware covered](#hardware-covered) |
+
+## November 1: slice delivery by picture size
+
+`video_slice_delivery = 4` against `off` by picture size, to choose when the host turns slice delivery on by itself. Verdict: **kept on for 4K-size pictures** (`auto`, the new default: four blocks from three quarters of 4K's pixels, 3840x2160, 4096x2160 and 5120x1440); 1440p and 1080p stay whole.
+
+**Fixture.** RX 7900 XT, the 3.1.1 release package (main at 609f0ca7c has the same slice code), isolated host on port 48523, WGC capture of the physical 5120x1440 monitor, the moonlight-common-c receiver (stock Moonlight's protocol library) decoding with D3D11VA, `e2e.py --record --noise-height 1024 --seconds 45 --skip-first 2`, HEVC, 80 Mbps (1080p60: 40 Mbps), `--config video_slice_delivery=off|4`. "Paced" adds `pacing_max_bitrate_kbps=160000`, twice the bitrate, which is the rate the host picks for a client that reports `clientWireless` (Nightjar on Wi-Fi). The arms of a case ran back to back, off first, one run each. The 4K cases got a second pair in the other order (4 first) for their borderline tails, and 4K60 loopback two more pairs after the user's game load dropped. The user was playing a game on the PC through the first two pairs, so their absolute times sit about 1 ms above October 23's; the difference between arms is what counts. Every run: exit 0, every received frame decoded, no overflow, "never finished", lost-last-slice or later-slice picture type warning in the host log.
+
+| Case | Arm | Frames | end_to_end median / p95 / p99 (ms) | encode median | overlap median | send median | assemble median | fps |
+| --- | --- | ---: | --- | ---: | ---: | ---: | ---: | ---: |
+| 4K60 | off | 2693 | 13.37 / 19.73 / 21.58 | 5.94 | none | 1.04 | 1.08 | 60.2 |
+| | 4 | 2659 | 12.20 / 20.07 / 26.60 | 5.77 | 1.76 | 0.08 | 2.01 | 59.0 |
+| 4K60 paced | off | 2649 | 18.82 / 25.95 / 32.08 | 5.90 | none | 7.57 | 6.43 | 59.5 |
+| | 4 | 2702 | 17.83 / 23.98 / 27.50 | 5.66 | 2.07 | 6.11 | 8.20 | 60.0 |
+| 1440p120 | off | 5360 | 6.40 / 7.83 / 9.11 | 3.06 | none | 0.07 | 0.18 | 120.1 |
+| | 4 | 5377 | 6.08 / 7.64 / 9.97 | 2.98 | 0.82 | 0.07 | 0.97 | 119.8 |
+| 1440p120 paced | off | 5347 | 9.01 / 11.81 / 16.53 | 3.07 | none | 3.50 | 2.61 | 117.9 |
+| | 4 | 5323 | 9.11 / 10.84 / 12.30 | 2.96 | 0.91 | 2.92 | 3.85 | 120.0 |
+| 1080p60 | off | 2696 | 6.59 / 12.80 / 15.96 | 2.55 | none | 0.07 | 0.20 | 60.1 |
+| | 4 | 2653 | 6.29 / 13.79 / 22.08 | 2.85 | 0.46 | 0.09 | 0.70 | 58.4 |
+
+Second pairs, 4 first (`ab3` under the game, `ab4` and `ab5` with less load):
+
+| Case | Pair | Arm | Frames | end_to_end median / p95 / p99 (ms) | encode median | overlap median | send median | assemble median | fps |
+| --- | --- | --- | ---: | --- | ---: | ---: | ---: | ---: | ---: |
+| 4K60 | ab3 | 4 | 2687 | 11.91 / 20.23 / 33.07 | 5.83 | 1.80 | 0.08 | 2.04 | 58.4 |
+| | | off | 2707 | 13.24 / 19.20 / 23.46 | 5.95 | none | 1.02 | 1.07 | 59.9 |
+| 4K60 paced | ab3 | 4 | 2702 | 17.63 / 24.27 / 28.95 | 5.70 | 2.15 | 6.07 | 8.21 | 60.0 |
+| | | off | 2685 | 18.11 / 24.63 / 27.30 | 5.86 | none | 7.53 | 6.38 | 60.1 |
+| 4K60 | ab4 | 4 | 2702 | 11.27 / 17.79 / 18.97 | 5.68 | 2.04 | 0.06 | 2.19 | 60.3 |
+| | | off | 2703 | 12.51 / 18.89 / 20.19 | 5.90 | none | 1.01 | 1.01 | 60.3 |
+| 4K60 | ab5 | 4 | 2689 | 11.39 / 17.76 / 19.04 | 5.70 | 2.03 | 0.07 | 2.19 | 60.3 |
+| | | off | 2697 | 12.72 / 19.06 / 20.41 | 5.88 | none | 1.02 | 1.00 | 60.2 |
+
+**Gain (off minus 4, median `end_to_end`):** 4K60 1.17, 1.33, 1.24 and 1.33 ms over the four pairs; under the game its p99 was 5.0 and 9.6 ms worse (decode p99 spikes of 17.5 and 23.6 ms in the sliced runs), with less load p95 and p99 were 1.1 to 1.4 ms better. 4K60 paced 0.99 and 0.48 ms (p95 1.97 and 0.36 ms better, p99 4.58 better and 1.65 worse). 1440p120 0.32 ms (p99 0.86 ms worse), 1440p120 paced -0.10 ms (tails better), 1080p60 0.30 ms (p95 1.0 and p99 6.1 ms worse, with a decode p99 spike in that run).
+
+**Why the emulation and the phone gained little.**
+
+- **The gain is the encoder's slice lead, and the lead grows with the picture.** `overlap`, the time the first block is on the wire before the encoder finishes, was 1.8 to 2.1 ms at 4K, 0.8 to 0.9 ms at 1440p and 0.5 ms at 1080p (0.93 ms on the phone's 1080p stream on October 23). Against that the receiver puts four blocks together instead of one: `assemble` grows by 0.5 to 0.9 ms here and by 0.5 ms on the phone. At 4K the lead clears that cost by about 1 ms; at 1440p and 1080p it does not, and the tails get no better. The phone's 0.17 ms on October 23 is this, not a client that cannot use slices: Nightjar and stock Moonlight reassemble the blocks and decode the whole frame either way (no client decodes H.264 or HEVC slices early; Nightjar's early decode is PyroWave's).
+- **Pacing stretches the wire time past the lead.** At 160 Mbps a 4K frame of this content needs 7.6 ms on the wire, 3.6 times the 2.1 ms lead. The sender starts 2.1 ms early but finishes only 1.5 ms early (`send` 7.57 to 6.11 ms), because between blocks it waits for the next slices, and the picture is complete about 1.0 ms sooner (October 23: 0.5 to 1.0 ms). It is still a gain, with better p95 and p99, so `auto` does not look at `clientWireless` or the pace. At 1440p120 the 0.9 ms lead is lost entirely to the wait and the extra reassembly.
+- **Loss played no part.** No run injected loss and the receiver decoded every frame it got; October 23's 1% loss runs showed no difference and only 5% loss cost recoverability (smaller blocks). 
+- **The game's load hits the sliced loopback arms.** With the user's game running, the sliced 4K60 and 1080p60 loopback runs received 1.2 to 1.7 fps fewer and carried decode p99 spikes (17.5 and 23.6 ms at 4K) that their whole-frame pairs and the paced sliced runs did not show; the paced cases received 0.5 and 2.1 fps more with 4. With less load (`ab4`, `ab5`) both arms held 60.3 fps and every percentile was better with 4. The receiver decoding 4K with D3D11VA on the GPU the game uses is the likely cause; it was not isolated further.
+
+**Scene cuts.** `bottleneck.py --codec hevc --mode 3840x2160x60 --bitrate 80000 --seconds 30 --cut-ms 2000 --rfi --hw-decoder d3d11va` (a full-picture cut every 2 s, pictures timed from capture to decode): picture age median / p95 / p99 was 16.53 / 18.35 / 22.44 ms off and 15.11 / 17.35 / 18.73 ms with 4, paced 20.54 / 22.83 / 25.78 against 20.98 / 22.36 / 23.29. The cut frames came to about 420 KB, under the frame cap: no overflow, slice delivery stayed on throughout.
+
+**Moonlight's host processing reading rises.** The frame header's value (`host_mean_ms`) went from 0.63 to 2.91 ms at 4K60 and from 0.68 to 2.51 ms paced (1440p120: 0.49 to 1.51), as on October 23: a client's overlay shows about 2 ms more host processing on these streams while the picture arrives about 1 ms sooner. The value's definition is unchanged.
+
+**Rule kept.** `auto` gives four blocks when the stream's picture has at least 6.2 million pixels (three quarters of 4K) and off below, from the negotiated width and height; it also stays off when the stream would use intra refresh the client asked for, so a client that wants refresh stripes keeps them (an explicit `2` or `4` still trades them for keyframe recovery). Explicit `off`, `2` and `4` override it; WebRTC stays off. No client or protocol change. The step between 1440p and 4K is where the lead clears the reassembly cost on every 4K case measured (loopback here and on October 23, real Wi-Fi to the laptop on October 23, paced); there are no measurements between 3.7 and 8.3 million pixels.
+
+**Not measured.** The laptop over real Wi-Fi was not rerun (its Nightjar was busy with another test session; October 23's run gave 1.41 ms at 4K60, before the `clientWireless` hint paced it); a 4K stream to a phone; H.264 (October 23: same as HEVC); game content, and scene cuts at bitrates high enough to push a cut frame past the frame cap (slice delivery turns off the oversize-cut keyframe re-encode, so such a cut still turns slice delivery off for the stream with a warning, as before); a fresh build of this branch (the arms use the same code `auto` selects; the rule itself is covered by unit tests). Raw runs: `C:\src\butterpollo-release\slice-cap\ab1`, `ab3`, `ab4`, `ab5` and `cuts`.
 
 ## October 30: a focused game's pictures beside another window
 

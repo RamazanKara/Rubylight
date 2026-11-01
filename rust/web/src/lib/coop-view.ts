@@ -67,9 +67,28 @@ export function folderTitle(problem: CoopInstall['problem']): string {
       return 'The folder chosen holds another Nucleus Co-op';
     case 'untrusted':
       return 'Rubylight won’t run Nucleus Co-op from the folder chosen';
+    case 'blocked':
+      return 'Windows still blocks the folder chosen';
     default:
       return 'Nucleus Co-op can’t run';
   }
+}
+
+/**
+ * The title over the host's reason when choosing or forgetting a folder was refused: 409 while a co-op
+ * session runs, the folder's own check (or a `#` in its path) otherwise.
+ */
+export function refusalTitle(status: number | undefined, forgetting: boolean): string {
+  if (status === 409) return 'Nucleus Co-op is in use';
+  return forgetting ? 'The folder wasn’t forgotten' : 'This folder can’t run Nucleus Co-op';
+}
+
+/** Games are added in a copy of Nucleus Co-op; another copy starts without them. */
+export const EARLIER_COPY_GAMES = 'Games added in the earlier copy stay there; add them again in the new one.';
+
+/** The copy an earlier Rubylight installed runs: none chosen yet, or the one chosen isn't the pinned release. */
+export function earlierCopyRuns(install: CoopInstall): boolean {
+  return install.state === 'installed' || Boolean(install.notice);
 }
 
 /** A background stream run elevated: every hub handler, and Rubylight's own for a game that needs it. */

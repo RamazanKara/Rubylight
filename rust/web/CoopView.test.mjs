@@ -133,6 +133,71 @@ test('a folder Nucleus Co-op can’t run from is loud, says why, and another can
   assert.equal(folderTitle(null), 'Nucleus Co-op can’t run');
   const unchecked = playTogether(status({ install: install({ state: 'failed', error: null }) }), 'portal');
   assert.equal(unchecked.error, 'Nucleus Co-op’s folder could not be checked.');
+  // A folder chosen and kept can be forgotten from the same card.
+  assert.match(out, /Forget this folder/);
+  assert.doesNotMatch(html(fixtures.setup), /Forget this folder/);
+});
+
+test('files Windows still marks as downloaded say to unblock the zip', () => {
+  const blocked = status({
+    install: install({
+      state: 'failed',
+      chosen: 'C:\\Program Files\\Nucleus Co-op',
+      problem: 'blocked',
+      error: 'C:\\Program Files\\Nucleus Co-op\\NucleusCoop.exe is marked as downloaded from the internet. Unblock the zip before extracting',
+    }),
+  }, { status: 'unknown' });
+  const view = playTogether(blocked, 'portal');
+  assert.equal(view.kind, 'failed');
+  assert.equal(view.title, 'Windows still blocks the folder chosen');
+  const out = html(blocked);
+  assert.match(out, /Windows still blocks the folder chosen/);
+  assert.match(out, /Unblock the zip before extracting\./);
+});
+
+test('a kept folder that isn’t 2.4.2 runs the earlier copy, says why, and keeps games where they were added', () => {
+  const notice = 'The NucleusCoop.exe in D:\\Old isn\'t Nucleus Co-op 2.4.2\'s: download 2.4.2 from its release page and choose its folder. Until then Rubylight runs the Nucleus Co-op 2.4.2 an earlier Rubylight installed, in C:\\Nucleus';
+  const fallback = status({ install: { ...status().install, state: 'configured', path: 'C:\\Nucleus', chosen: 'D:\\Old', notice } });
+  assert.equal(playTogether(fallback, 'portal').kind, 'ready');
+  const out = html(fallback);
+  assert.match(out, /Rubylight runs the earlier copy/);
+  assert.match(out, /an earlier Rubylight installed, in C:\\Nucleus\./);
+  assert.match(out, /Games added in the earlier copy stay there/);
+  assert.match(out, /value="D:\\Old"/);
+  assert.match(out, /Forget this folder/);
+  // Without a notice the ready card has no folder picker and no note.
+  const ready = html(fixtures.ready);
+  assert.doesNotMatch(ready, /earlier copy|Use this folder|Forget this folder/);
+  // A folder that isn't kept never shows the note.
+  assert.doesNotMatch(html(fixtures.setup), /earlier copy/);
+});
+
+test('a change refused while a session runs, or a # in the path, shows the host’s reason under its own title', () => {
+  assert.equal(home.refusalTitle(409, false), 'Nucleus Co-op is in use');
+  assert.equal(home.refusalTitle(409, true), 'Nucleus Co-op is in use');
+  assert.equal(home.refusalTitle(400, false), 'This folder can’t run Nucleus Co-op');
+  assert.equal(home.refusalTitle(400, true), 'The folder wasn’t forgotten');
+  assert.equal(home.earlierCopyRuns({ state: 'installed' }), true);
+  assert.equal(home.earlierCopyRuns({ state: 'configured', notice: null }), false);
+});
+
+test('forgetting the folder posts an empty path, and a 409 carries the host’s reason', async () => {
+  const sent = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    if (String(url).endsWith('/api/csrf-token')) return new Response('{"csrf_token":"t"}', { status: 200 });
+    sent.push([String(url), init?.body]);
+    return new Response(JSON.stringify({ error: 'A co-op session is running: end it before changing Nucleus Co-op’s folder' }), {
+      status: 409,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  };
+  try {
+    await assert.rejects(api.coop.folder(''), (error) => error.status === 409 && /co-op session is running/.test(error.message));
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  assert.deepEqual(JSON.parse(sent[0][1]), { path: '' });
 });
 
 test('choosing a folder posts it, and a refusal carries the host’s reason', async () => {

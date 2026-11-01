@@ -87,7 +87,26 @@ test('every install state is spelled out: found, wrong version and missing apart
   assert.deepEqual(pill({ problem: 'version' }), { label: 'Wrong version', status: 'error' });
   assert.deepEqual(pill({ problem: 'missing' }), { label: 'Not found', status: 'error' });
   assert.deepEqual(pill({ problem: 'untrusted' }), { label: 'Folder refused', status: 'error' });
+  assert.deepEqual(pill({ problem: 'blocked' }), { label: 'Blocked by Windows', status: 'error' });
   assert.deepEqual(pill({ problem: null }), { label: 'Can’t run', status: 'error' });
+  // A kept folder that isn't the pinned release: the earlier install runs, as a warning.
+  assert.deepEqual(installPill({ state: 'configured', path: 'C:\\Nucleus', version: '2.4.2', error: null, notice: 'why' }), {
+    label: 'Earlier install',
+    status: 'warning',
+  });
+});
+
+test('Help says when the earlier copy runs instead of the folder kept, and the folder can be forgotten', () => {
+  const notice = 'The NucleusCoop.exe in D:\\Old isn\'t Nucleus Co-op 2.4.2\'s. Until then Rubylight runs the Nucleus Co-op 2.4.2 an earlier Rubylight installed';
+  const out = html(status({ install: { state: 'configured', path: 'C:\\Nucleus', chosen: 'D:\\Old', version: '2.4.2', problem: null, error: null, notice, release } }));
+  assert.match(out, /Rubylight runs the earlier copy/);
+  assert.match(out, /an earlier Rubylight installed\./);
+  assert.match(out, /Games added in the earlier copy stay there/);
+  assert.match(out, /Forget this folder/);
+  // An earlier install with no folder kept has nothing to forget.
+  const earlier = html(status({}));
+  assert.doesNotMatch(earlier, /Forget this folder|Rubylight runs the earlier copy/);
+  assert.match(earlier, /Games added in the earlier copy stay there/);
 });
 
 test('Help shows the co-op panel and no longer the sessions panel', async () => {

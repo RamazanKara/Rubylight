@@ -14,9 +14,12 @@ const problems: Record<NonNullable<CoopInstall['problem']>, string> = {
   missing: 'Not found',
   version: 'Wrong version',
   untrusted: 'Folder refused',
+  blocked: 'Blocked by Windows',
 };
 
 export function installPill(install: CoopInstall): { label: string; status: Status } {
+  // The folder chosen isn't the pinned release, so the earlier install runs instead; the banner says why.
+  if (install.notice) return { label: installStates.installed.label, status: 'warning' };
   const pill = installStates[install.state];
   return install.state === 'failed' && install.problem ? { ...pill, label: problems[install.problem] } : pill;
 }

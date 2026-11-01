@@ -701,9 +701,17 @@ export interface CoopInstall {
   /** The folder chosen (`nucleus_path`), empty when none is. */
   chosen?: string;
   version: string | null;
-  /** Why the chosen folder can't run: no NucleusCoop.exe, another release, or a folder others can change. */
-  problem?: 'missing' | 'version' | 'untrusted' | null;
+  /**
+   * Why the chosen folder can't run: no NucleusCoop.exe, another release, a folder others can change, or files
+   * Windows marks as downloaded from the internet.
+   */
+  problem?: 'missing' | 'version' | 'untrusted' | 'blocked' | null;
   error: string | null;
+  /**
+   * Why the copy an earlier Rubylight installed runs instead of the chosen folder (it isn't the pinned release);
+   * null when it doesn't, and older hosts leave it out.
+   */
+  notice?: string | null;
   /** The release to unpack and the page it downloads from (older hosts leave it out). */
   release?: { version: string; page: string };
 }

@@ -94,6 +94,10 @@
 {:else if view && view.kind !== 'hidden'}
   <Panel title="Play together">
     <div class="play">
+      {#if status?.install.notice && ['handler', 'ready', 'checking', 'broken'].includes(view.kind)}
+        <!-- The folder kept isn't the pinned release, so the earlier install runs: say so, and let another be chosen. -->
+        <NucleusFolder {status} onchosen={load} />
+      {/if}
       {#if view.kind === 'unavailable'}
         <Banner tone="warn" title="Co-op can’t run on this PC">{view.reason}</Banner>
       {:else if view.kind === 'launcher'}

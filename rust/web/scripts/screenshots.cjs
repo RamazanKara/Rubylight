@@ -6,7 +6,7 @@
 // SHOT_CLICK=Select,"Select all" clicks those buttons, in order, before each shot.
 // SHOT_AUTH=signed-out shows the sign-in page, SHOT_AUTH=setup first-run setup
 // (the fixture is signed in otherwise); either one shoots that page by default.
-// SHOT_COOP=missing or failed sets Nucleus Co-op's folder state (Help, /library/steam-620).
+// SHOT_COOP=missing, failed, blocked or notice sets Nucleus Co-op's folder state (Help, /library/steam-620).
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const path = require('node:path');
 const fs = require('node:fs');
@@ -83,7 +83,8 @@ const replies = {
     hooks: [{ url: 'https://home.example/hooks/rubylight', events: ['app.started', 'app.stopped'],
       last: { event: 'app.started', delivery: 'fixture', time_unix_ms: Date.now() - 12 * 60_000, ok: true, http_status: 200, error: null, attempts: 1 } }] },
   // Nucleus Co-op in the folder the user chose (rust/core/src/nucleus/install.rs VERSION and RELEASE_PAGE);
-  // SHOT_COOP=missing shows it not set up yet, SHOT_COOP=failed a folder with another release.
+  // SHOT_COOP=missing shows it not set up yet, SHOT_COOP=failed a folder with another release, SHOT_COOP=blocked
+  // one Windows still marks as downloaded, SHOT_COOP=notice another release kept, so the earlier install runs.
   '/api/coop': { mode: { setting: 'nucleus', mode: 'nucleus', label: 'Nucleus Co-op', reason: '' },
     install: { release: { version: '2.4.2', page: 'https://github.com/SplitScreen-Me/splitscreenme-nucleus/releases/tag/v2.4.2' }, ...{
       configured: { state: 'configured', path: 'C:\\Program Files\\Nucleus Co-op', chosen: 'C:\\Program Files\\Nucleus Co-op',
@@ -91,6 +92,11 @@ const replies = {
       missing: { state: 'missing', path: null, chosen: '', version: null, problem: null, error: null },
       failed: { state: 'failed', path: null, chosen: 'C:\\Program Files\\Nucleus Co-op', version: null, problem: 'version',
         error: 'The NucleusCoop.exe in C:\\Program Files\\Nucleus Co-op isn\'t Nucleus Co-op 2.4.2\'s: download 2.4.2 from its release page and choose its folder' },
+      blocked: { state: 'failed', path: null, chosen: 'C:\\Program Files\\Nucleus Co-op', version: null, problem: 'blocked',
+        error: 'C:\\Program Files\\Nucleus Co-op\\NucleusCoop.exe is marked as downloaded from the internet. Unblock the zip before extracting: right-click NucleusApp.zip, choose Properties, tick Unblock, then unpack it again into a new folder' },
+      notice: { state: 'configured', path: 'C:\\ProgramData\\Butterpollo\\nucleus\\2.4.2', chosen: 'C:\\Program Files\\Nucleus Co-op',
+        version: '2.4.2', problem: null, error: null,
+        notice: 'The NucleusCoop.exe in C:\\Program Files\\Nucleus Co-op isn\'t Nucleus Co-op 2.4.2\'s: download 2.4.2 from its release page and choose its folder. Until then Rubylight runs the Nucleus Co-op 2.4.2 an earlier Rubylight installed, in C:\\ProgramData\\Butterpollo\\nucleus\\2.4.2' },
     }[process.env.SHOT_COOP || 'configured'] },
     available: true, reason: null, elevates: true, admin_protection: false, open_refusal: null, opened: false,
     games: [{ app: 'steam-620', name: 'Portal 2', status: 'unknown', reason: null, handler: null, players: null, entry: 'Portal 2 (Co-op)' }],

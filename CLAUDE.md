@@ -39,7 +39,7 @@ Read the relevant doc instead of exploring: [docs/building.md](docs/building.md)
 - Every fix gets a regression test. Failures are loud: no silent fallback such as AMF to software.
 - Don't change `PROTOCOL_VERSION`; stay compatible with Nonary's Moonlight.
 - No added latency. Prefer client-reported hints (`pyrowaveLinkMbps`, `pyrowavePaceMbps`) to host probes. Revert changes that measure worse.
-- `main` (3.0) is AMD-only: only NVENC, QSV and software encoders are gone (NVIDIA and Intel stay on 2.6.x, no backports unless the user asks). Every AMD GPU with AMF, Windows 10, physical displays, WGC and Desktop Duplication, D3D11 and the keyed-mutex ring stay; new paths go beside them (plan decision 1a). Never write "RX 7000 or newer" or drop hardware support silently.
+- `main` (3.0) encodes with AMF on AMD and NVENC on NVIDIA (`docs/nvenc.md`, parity with AMF, no NVIDIA test hardware); QSV and software encoders stay removed (Intel stays on 2.6.x, no backports unless the user asks). Every AMD GPU with AMF, Windows 10, physical displays, WGC and Desktop Duplication, D3D11 and the keyed-mutex ring stay; new paths go beside them (plan decision 1a). Never write "RX 7000 or newer" or drop hardware support silently.
 - Claims: only our own measurements; no first/only/fastest without evidence. Check `rust/PERFORMANCE.md` and the release notes before calling something unmeasured or reviving an old branch. Never install or measure competing hosts (Vibepollo, Apollo, Sunshine, punktfunk); cite "Against Vibepollo 2.0" in `rust/PERFORMANCE.md`. Don't mention punktfunk.
 - Keep the credits and fork history in `AGENTS.md`, `NOTICE` and the README intact.
 - GitHub issues: reply yourself with `gh issue comment`, short and human. Never post on Reddit.

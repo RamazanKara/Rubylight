@@ -644,7 +644,10 @@ public class ShellNavigationTest {
             assertEquals(screen.getString(R.string.settings), screen.getTitle().toString());
             int tab = contentLeft(root, screen.findViewById(R.id.shell_bar));
             float dp = screen.getResources().getDisplayMetrics().density;
-            assertEquals("80dp from the screen: 24dp TV margin, 48dp overscan, 8dp inset", Math.round(80 * dp), tab);
+            // Settings are compact on a TV (TvSettingsScaleTest); the TV margin and the overscan keep the app's size.
+            float full = screen.fullSizeDensity();
+            assertEquals("80dp from the screen: 24dp TV margin, 48dp overscan, 8dp inset",
+                    Math.round(72 * full) + screen.getResources().getDimensionPixelSize(R.dimen.shell_inset), tab);
             assertEquals("the line under the tabs starts there too", tab,
                     contentLeft(root, screen.findViewById(R.id.settings_context)));
             // The rail's focus ring is drawn on the row's pill, which starts on the same edge.
@@ -652,7 +655,8 @@ public class ShellNavigationTest {
                     .findViewById(android.R.id.list);
             android.graphics.Rect padding = new android.graphics.Rect();
             rail.getSelector().getPadding(padding);
-            assertEquals("the rail pads its rows by the ring's inset", Math.round(4 * dp), padding.left);
+            // An inset is a pixel offset, which truncates at the compact density.
+            assertEquals("the rail pads its rows by the ring's inset", (int) (4 * dp), padding.left);
             View row = rail.getChildAt(0);
             android.graphics.Rect ring = new android.graphics.Rect(0, 0, row.getWidth(), row.getHeight());
             root.offsetDescendantRectToMyCoords(row, ring);
@@ -660,7 +664,8 @@ public class ShellNavigationTest {
             android.graphics.drawable.Drawable selector = rail.getSelector().getCurrent();
             selector.setBounds(ring.left - padding.left, ring.top - padding.top, ring.right + padding.right,
                     ring.bottom + padding.bottom);
-            assertEquals("the ring sits on the edge, not 4dp left of it", tab, ringLeft(selector));
+            // At the compact density (1.7 on an xhdpi TV) each 4dp inset truncates on its own: up to 2px off, not 4dp.
+            assertEquals("the ring sits on the edge, not 4dp left of it", tab, ringLeft(selector), 2);
             // Search sits at the end of the tab row, and Right from the last tab reaches it.
             View search = screen.findViewById(R.id.settings_search_button);
             assertNotNull(search);

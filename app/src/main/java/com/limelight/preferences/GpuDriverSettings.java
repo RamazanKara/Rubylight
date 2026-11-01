@@ -35,6 +35,12 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 public class GpuDriverSettings extends NightjarActivity {
+    /** A TV lays out Settings' screens at {@link com.limelight.ui.AppTheme#TV_COMPACT_PERCENT} of the interface size. */
+    @Override
+    protected boolean compactOnTelevision() {
+        return true;
+    }
+
     private static final int IMPORT_DRIVER = 1;
     private DriverWork work;
     /** The choice or button that had focus before the last rebuild, until it has focus again. */

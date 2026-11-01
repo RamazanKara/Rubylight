@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- A section row of TV Settings' rail: its icon (StreamSettings.RootFragment sets it), title and summary. The current
-     section is a filled pill with the rail's amber bar at its start; the D-pad's row adds the ring. -->
+     section has the rail's amber bar at its start and an amber icon and title; the D-pad's row is filled and ringed. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android" xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="@dimen/settings_section_min_height"
     android:gravity="center_vertical" android:paddingStart="28dp" android:paddingEnd="@dimen/space_l"
@@ -13,7 +13,7 @@
         android:orientation="vertical">
         <TextView android:id="@android:id/title" android:layout_width="match_parent" android:layout_height="wrap_content"
             android:maxLines="1" android:ellipsize="end"
-            android:textAppearance="@style/TextAppearance.Nightjar.Title" android:textColor="?attr/colorOnSurface" />
+            android:textAppearance="@style/TextAppearance.Nightjar.Title" android:textColor="@color/tv_rail_title" />
         <com.limelight.preferences.ExpandingSummaryView android:id="@android:id/summary" android:layout_width="match_parent" android:layout_height="wrap_content"
             android:layout_marginTop="2dp" android:maxLines="@integer/settings_section_summary_lines" android:ellipsize="end"
             android:textAppearance="@style/TextAppearance.Nightjar.Supporting" android:textColor="?attr/colorOnSurfaceVariant" />

@@ -82,6 +82,12 @@ import java.util.Map;
 import java.util.Set;
 
 public class StreamSettings extends NightjarActivity {
+    /** A TV lays out Settings' screens at {@link com.limelight.ui.AppTheme#TV_COMPACT_PERCENT} of the interface size. */
+    @Override
+    protected boolean compactOnTelevision() {
+        return true;
+    }
+
     private static final int EXPORT_LATENCY_REQUEST = 1;
     private static final String STATE_SECTION = "section";
     private static final String STATE_CUSTOMIZE = "customize_open";
@@ -176,6 +182,8 @@ public class StreamSettings extends NightjarActivity {
     private final java.util.Map<String, Integer> paneSelection = new java.util.HashMap<>();
     private String returnSearchQuery;
     private String returnSearchSection;
+    /** The query search showed last, which opening search again brings back with its results; empty once cleared. */
+    private String lastSearchQuery = "";
     private TextView contextLabel;
     private boolean changingQuery;
     private boolean stateSaved;
@@ -427,7 +435,7 @@ public class StreamSettings extends NightjarActivity {
                 && searchView.getVisibility() != View.VISIBLE && (section == null || twoPane);
         if (topLevel == (toolbar.getNavigationIcon() == null)) return;
         toolbar.setNavigationIcon(topLevel ? null
-                : androidx.appcompat.content.res.AppCompatResources.getDrawable(this, R.drawable.ic_arrow_back));
+                : androidx.appcompat.content.res.AppCompatResources.getDrawable(toolbar.getContext(), R.drawable.ic_arrow_back));
     }
 
     private void renderSearch() {
@@ -449,6 +457,7 @@ public class StreamSettings extends NightjarActivity {
     }
 
     private void setSearchQuery(String query) {
+        if (!query.isEmpty()) lastSearchQuery = query;
         changingQuery = true;
         searchQuery = query;
         searchView.setQuery(query, false);
@@ -458,8 +467,16 @@ public class StreamSettings extends NightjarActivity {
         reloadSettings();
     }
 
-    /** Shows the search field under the top app bar and focuses it; search stays out of the way until asked for. */
+    /**
+     * Shows the search field under the top app bar and focuses it; search stays out of the way until asked for. A search
+     * left for a section or by Back comes back as it was, its query and its results.
+     */
     public void openSearch() {
+        if (searchQuery.isEmpty() && !lastSearchQuery.isEmpty()) {
+            returnSearchQuery = null;
+            returnSearchSection = null;
+            setSearchQuery(lastSearchQuery);
+        }
         searchView.setVisibility(View.VISIBLE);
         updateNavigation();
         linkListsToSearch();
@@ -541,6 +558,17 @@ public class StreamSettings extends NightjarActivity {
         linkListToSearch(listOf(R.id.stream_settings), searchView);
     }
 
+    /**
+     * An empty search field closes once focus leaves it: open beside the TV rail's search row, it showed search twice
+     * while nothing was searched (nightjar#7). A field with a query stays; it is the search on screen.
+     */
+    private void closeEmptySearch() {
+        if (!searchQuery.isEmpty() || searchView.getVisibility() != View.VISIBLE || searchView.hasFocus()) return;
+        searchView.setVisibility(View.GONE);
+        updateNavigation();
+        linkListsToSearch();
+    }
+
     private void navigateBack() {
         if (searchQuery.isEmpty() && searchView.getVisibility() == View.VISIBLE) {
             searchView.clearFocus();
@@ -611,6 +639,7 @@ public class StreamSettings extends NightjarActivity {
             searchQuery = savedInstanceState.getString("search", "");
             returnSearchQuery = savedInstanceState.getString("return_search");
             returnSearchSection = normalizeSection(savedInstanceState.getString("return_section"));
+            lastSearchQuery = savedInstanceState.getString("last_search", "");
             searchResultKey = savedInstanceState.getString("search_result");
             customizeOpen = savedInstanceState.getBoolean(STATE_CUSTOMIZE, false);
             ArrayList<String> open = savedInstanceState.getStringArrayList(STATE_MORE_OPEN);
@@ -642,6 +671,7 @@ public class StreamSettings extends NightjarActivity {
         twoPane = findViewById(R.id.settings_sections) != null;
         rail = SettingsRail.attach(this);
         dropMisplacedPanes();
+        keepShellFullSize();
         toolbar = TopAppBar.configure(this, R.id.settings_toolbar, getString(R.string.settings), R.menu.settings);
         TopAppBar.setUpNavigation(toolbar, R.id.settings_back, v -> navigateBack());
         ShellBar.install(this, ShellBar.Destination.SETTINGS);
@@ -669,6 +699,7 @@ public class StreamSettings extends NightjarActivity {
             @Override public boolean onQueryTextChange(String query) {
                 if (changingQuery) return true;
                 searchQuery = query.trim();
+                lastSearchQuery = searchQuery;
                 returnSearchQuery = null;
                 returnSearchSection = null;
                 navigationHandler.removeCallbacks(searchUpdate);
@@ -677,12 +708,40 @@ public class StreamSettings extends NightjarActivity {
                 return true;
             }
         });
+        // Once the focus has moved: while it moves, the field still counts as holding it.
+        searchView.setOnQueryTextFocusChangeListener((view, focused) -> {
+            if (!focused) searchView.post(this::closeEmptySearch);
+        });
         getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
             @Override public void handleOnBackPressed() { navigateBack(); }
         });
         updateHeader();
 
         UiHelper.notifyNewRootView(this);
+    }
+
+    /**
+     * Compact on a TV, Settings keeps the shell bar and the TV's overscan margin at the size they have on the other tabs:
+     * it is the same bar, and switching tabs must not move or shrink it. The bar is inflated again at the full size, but
+     * its first tab starts on the screen's own inset, the edge of the line below and of the rail's rings.
+     */
+    private void keepShellFullSize() {
+        Context full = fullSizeContext();
+        View frame = findViewById(R.id.settings_frame);
+        View old = findViewById(R.id.settings_toolbar);
+        if (full == this || frame == null || old == null || old.getParent() != frame) return;
+        ViewGroup parent = (ViewGroup) frame;
+        int index = parent.indexOfChild(old);
+        View bar = LayoutInflater.from(full).inflate(R.layout.view_shell_app_bar, parent, false);
+        bar.setId(R.id.settings_toolbar);
+        MaterialToolbar toolbar = (MaterialToolbar) bar;
+        toolbar.setContentInsetsRelative(getResources().getDimensionPixelSize(R.dimen.shell_inset), toolbar.getContentInsetEnd());
+        parent.removeViewAt(index);
+        parent.addView(bar, index, old.getLayoutParams());
+        android.content.res.Resources resources = full.getResources();
+        int horizontal = resources.getDimensionPixelSize(R.dimen.shell_overscan_horizontal);
+        int vertical = resources.getDimensionPixelSize(R.dimen.shell_overscan_vertical);
+        parent.setPaddingRelative(horizontal, vertical, horizontal, vertical);
     }
 
     /** A recreated activity gets back the fragments of the layout it had; the other layout has no place for them. */
@@ -720,6 +779,7 @@ public class StreamSettings extends NightjarActivity {
         outState.putString("search", searchQuery);
         outState.putString("return_search", returnSearchQuery);
         outState.putString("return_section", returnSearchSection);
+        outState.putString("last_search", lastSearchQuery);
         outState.putString("search_result", searchResultKey);
         outState.putBoolean(STATE_CUSTOMIZE, customizeOpen);
         outState.putStringArrayList(STATE_MORE_OPEN, new ArrayList<>(moreOpen));

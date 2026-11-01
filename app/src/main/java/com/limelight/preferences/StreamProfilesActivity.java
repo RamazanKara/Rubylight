@@ -41,6 +41,12 @@ import java.util.TreeSet;
  * the network pick one when a stream starts. Each profile's values open in {@link HostStreamSettings}.
  */
 public class StreamProfilesActivity extends NightjarActivity {
+    /** A TV lays out Settings' screens at {@link com.limelight.ui.AppTheme#TV_COMPACT_PERCENT} of the interface size. */
+    @Override
+    protected boolean compactOnTelevision() {
+        return true;
+    }
+
     private static final int LOCATION_REQUEST = 1;
     static final StreamLayers.Network[] RULE_NETWORKS = {
             StreamLayers.Network.MOBILE, StreamLayers.Network.HOME_WIFI, StreamLayers.Network.WIFI};

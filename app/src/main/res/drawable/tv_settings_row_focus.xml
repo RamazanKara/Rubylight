@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- The TV settings content pane's selector: the D-pad's row gets a fill and the amber ring. No scale. -->
-<selector xmlns:android="http://schemas.android.com/apk/res/android"
-    android:exitFadeDuration="@android:integer/config_shortAnimTime">
+<!-- The TV settings content pane's selector: the D-pad's row gets a fill and the amber ring, as on the rail
+     (tv_settings_rail_focus). No scale, and no fade: the ring leaves a row at once. -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
     <item android:state_pressed="true">
         <inset android:insetLeft="4dp" android:insetRight="4dp" android:insetTop="2dp" android:insetBottom="2dp">
             <shape android:shape="rectangle">

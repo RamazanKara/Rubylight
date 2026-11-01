@@ -24,6 +24,12 @@ import java.util.Map;
 
 /** Lets the user choose what each physical controller button sends to the host. */
 public class ControllerMappingActivity extends NightjarActivity {
+    /** A TV lays out Settings' screens at {@link com.limelight.ui.AppTheme#TV_COMPACT_PERCENT} of the interface size. */
+    @Override
+    protected boolean compactOnTelevision() {
+        return true;
+    }
+
     private TextView deviceView;
     private LinearLayout mappingList;
     private Button resetButton;

@@ -317,7 +317,7 @@ impl Runner {
         // refused before its process runs, and ended before the box shows.
         if self.clicked
             && injecting
-            && let Some(end) = self.refused_hooks(&job)
+            && let Some(end) = self.refused_hooks(&job, &pass.roots)
         {
             return Some(end);
         }
@@ -442,7 +442,7 @@ impl Runner {
     /// after the last, and the session ends saying so. Any handler's game
     /// may also wait on a box of its own about Mandatory ASLR
     /// ([`Self::mandatory_aslr`]).
-    fn refused_hooks(&mut self, job: &BTreeSet<u32>) -> Option<End> {
+    fn refused_hooks(&mut self, job: &BTreeSet<u32>, roots: &[Option<Identity>]) -> Option<End> {
         let boxes = match self.desktop.message_boxes(job) {
             Ok(boxes) => boxes,
             Err(error) => {
@@ -473,7 +473,7 @@ impl Runner {
             .filter(new)
             .find(|shown| shown.text.contains(MANDATORY_ASLR))?
             .clone();
-        Some(self.mandatory_aslr(&shown))
+        Some(self.mandatory_aslr(&shown, job, roots))
     }
 
     /// The game waits on its own box about Mandatory ASLR. Windows forcing
@@ -481,9 +481,28 @@ impl Runner {
     /// way is kept and the player is told how to exempt it; a game Windows
     /// doesn't force it on refused the way, which is given up as for
     /// Nucleus' box. When the policy can't be read, the way is kept too.
-    fn mandatory_aslr(&mut self, shown: &MessageBox) -> End {
+    /// A box Windows shows for the game (MB_SERVICE_NOTIFICATION, owned by
+    /// csrss.exe, whose policy can't be read) is the game instance's: its
+    /// process is read instead.
+    fn mandatory_aslr(
+        &mut self,
+        shown: &MessageBox,
+        job: &BTreeSet<u32>,
+        roots: &[Option<Identity>],
+    ) -> End {
         let said = shown.summary();
-        let forced = self.desktop.forced_aslr(shown.window);
+        let game = self.desktop.owner(shown.window).and_then(|owner| {
+            if job.contains(&owner) {
+                return Ok(owner);
+            }
+            roots
+                .iter()
+                .flatten()
+                .next()
+                .map(|root| root.pid)
+                .ok_or_else(|| anyhow::anyhow!("no instance of the game runs"))
+        });
+        let forced = game.and_then(|pid| Ok((pid, self.desktop.forced_aslr(pid)?)));
         let program = forced
             .as_ref()
             .ok()

@@ -156,8 +156,11 @@ impl Desktop for Screen {
     fn close_forms(&mut self, processes: &BTreeSet<u32>) -> Result<Vec<MessageBox>> {
         self.0.lock().unwrap().close_forms(processes)
     }
-    fn forced_aslr(&mut self, window: u64) -> Result<(u32, bool)> {
-        self.0.lock().unwrap().forced_aslr(window)
+    fn owner(&mut self, window: u64) -> Result<u32> {
+        self.0.lock().unwrap().owner(window)
+    }
+    fn forced_aslr(&mut self, pid: u32) -> Result<bool> {
+        self.0.lock().unwrap().forced_aslr(pid)
     }
 }
 
@@ -769,6 +772,47 @@ fn a_game_waiting_on_its_mandatory_aslr_box_ends_and_keeps_its_way_unless_it_ref
         }
         let end = runner.step(t0 + PERIOD);
         assert_eq!(end, Some(End::Crashed(why)), "{way:?} {own} {forced:?}");
+        assert_eq!(files::inject_for(host.path(), exe).unwrap(), kept);
+    }
+}
+
+/// #59: a Mandatory ASLR box Windows shows for the game
+/// (MB_SERVICE_NOTIFICATION) is csrss.exe's, whose policy can't be read:
+/// the game instance's process is read instead, so a game Windows doesn't
+/// force it on still gets the next way.
+#[test]
+fn a_mandatory_aslr_box_windows_shows_reads_the_games_policy() {
+    use super::super::instances::tests::CSRSS;
+    let exe = r"D:\Games\Black Flag\ACBlackFlag.exe";
+    let host = tempfile::tempdir().unwrap();
+    files::refuse_inject(host.path(), exe).unwrap();
+    let aslr = MessageBox {
+        window: 600,
+        caption: String::new(),
+        text: "Disable Mandatory ASLR".into(),
+    };
+    for (forced, said, kept) in [
+        (true, "Windows forces randomization", Inject::Startup),
+        (false, "hook it another way", Inject::Stealth),
+    ] {
+        let t0 = Instant::now();
+        let (screen, probe) = (screen(), Probe::default());
+        let mut runner = runner(1, &screen, &probe, t0);
+        runner.own_game = Some((host.path().to_path_buf(), exe.to_string()));
+        label(&screen);
+        assert_eq!(runner.step(t0), None);
+        instance(&screen, 0);
+        assert_eq!(runner.step(t0), None);
+        {
+            let mut desktop = screen.0.lock().unwrap();
+            desktop.boxes.push((CSRSS, aslr.clone()));
+            desktop.aslr.insert(20, forced);
+        }
+        let end = runner.step(t0 + PERIOD);
+        assert!(
+            matches!(&end, Some(End::Crashed(why)) if why.contains(said)),
+            "{end:?}"
+        );
         assert_eq!(files::inject_for(host.path(), exe).unwrap(), kept);
     }
 }

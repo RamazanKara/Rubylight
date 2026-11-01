@@ -522,12 +522,15 @@ impl Desktop for Win32 {
         }
         Ok(closed)
     }
-    fn forced_aslr(&mut self, window: u64) -> Result<(u32, bool)> {
+    fn owner(&mut self, window: u64) -> Result<u32> {
         let mut pid = 0;
         // SAFETY: a plain query of a window handle; one that closed meanwhile leaves `pid` 0.
         unsafe { GetWindowThreadProcessId(hwnd(window), Some(&mut pid)) };
         ensure!(pid != 0, "the box closed");
-        Ok((pid, forced_aslr(pid)?))
+        Ok(pid)
+    }
+    fn forced_aslr(&mut self, pid: u32) -> Result<bool> {
+        forced_aslr(pid)
     }
 }
 

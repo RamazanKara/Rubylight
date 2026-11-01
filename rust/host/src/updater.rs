@@ -6,7 +6,8 @@ use butterpollo_core::version::newer;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::{
-    path::PathBuf,
+    path::{Path, PathBuf},
+    sync::atomic::{AtomicU64, Ordering},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tokio::io::AsyncWriteExt;
@@ -311,6 +312,7 @@ pub fn cancel(h: &Shared) -> Result<()> {
 /// Called by maintenance. All admission checks and the final handoff share the
 /// Moonlight launch lock, so a connection cannot slip between the check and setup.
 pub fn poll(h: &Shared) {
+    tidy_downloads(h);
     poll_with(h, None, &hash_installer)
 }
 
@@ -411,7 +413,7 @@ fn poll_with(h: &Shared, hashed: Option<Hashed>, hash: &dyn Fn(&std::path::Path)
             if state["download_id"] != id {
                 drop(state);
                 if let Ok(path) = result {
-                    let _ = std::fs::remove_dir_all(path.parent().unwrap());
+                    remove_download(path.parent().unwrap());
                 }
                 return;
             }
@@ -477,6 +479,7 @@ fn poll_with(h: &Shared, hashed: Option<Hashed>, hash: &dyn Fn(&std::path::Path)
                 &h.directory.join("update-result.json"),
                 &json!({"version":candidate.version,"phase":"installing","started_at":now()}),
             )?;
+            let download = path.parent().map(Path::to_path_buf);
             let mut command = std::process::Command::new(path);
             use std::os::windows::process::CommandExt;
             // The installer must survive the service stopping its host job.
@@ -494,6 +497,10 @@ fn poll_with(h: &Shared, hashed: Option<Hashed>, hash: &dyn Fn(&std::path::Path)
             std::thread::spawn(move || {
                 let result = child.wait();
                 // If the old host is still here, setup failed before the restart.
+                // It has exited, so its folder can go.
+                if let Some(download) = &download {
+                    remove_download(download);
+                }
                 let error = setup_failure(&h.directory, result);
                 failed(&mut h.updates.lock().unwrap(), error);
             });
@@ -544,36 +551,150 @@ fn verify(size: u64, digest: &str, candidate: &Installer) -> Result<()> {
 
 async fn download(h: &Shared, id: &str, candidate: &Installer) -> Result<PathBuf> {
     check_recovery(&h.directory)?;
-    let directory = h.directory.join("updates");
-    std::fs::create_dir_all(&directory)?;
-    butterpollo_windows::process::restrict_to_administrators(&directory)?;
-    // Reclaim old/cancelled downloads, and failed transaction backups but
-    // the newest two. An in-flight cancelled download keeps its file open
-    // and cleans itself up.
-    let mut transactions = Vec::new();
-    for entry in std::fs::read_dir(&directory)?.flatten() {
-        if !entry.file_type()?.is_dir() {
+    // No record names a backup still to be restored.
+    remove_legacy_downloads(&h.directory.join("updates"));
+    let directory = prepare_download(&install_folder()?, id)?;
+    let path = directory.join("setup.exe");
+    let result = transfer(h, id, candidate, &path).await;
+    if result.is_err() {
+        remove_download(&directory);
+    }
+    result
+}
+
+/// The folder this host runs from, which setup installed and secured.
+fn install_folder() -> Result<PathBuf> {
+    Ok(std::env::current_exe()?
+        .parent()
+        .context("installation folder missing")?
+        .to_path_buf())
+}
+/// Setup's staging folder in the installation folder (setup's
+/// `install::staging_root`). The installer is downloaded there, never to
+/// ProgramData: Defender's cloud model scores an unsigned setup that runs
+/// elevated from ProgramData as malware.
+fn staging_folder(install: &Path) -> PathBuf {
+    install.join(".staging")
+}
+const DOWNLOAD_PREFIX: &str = "download-";
+/// A new, empty folder for download `id` in `install`'s staging folder,
+/// limited to SYSTEM and Administrators before anything lands in it. A link
+/// at or in the staging folder is refused, never followed. Earlier
+/// downloads go first; one a cancelled transfer still holds open stays and
+/// cleans itself up.
+fn prepare_download(install: &Path, id: &str) -> Result<PathBuf> {
+    let staging = staging_folder(install);
+    match std::fs::symlink_metadata(&staging) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            butterpollo_windows::process::create_folder_administrators_only(&staging)?
+        }
+        Err(error) => return Err(error.into()),
+        Ok(_) => {}
+    }
+    butterpollo_windows::process::restrict_to_administrators(&staging)
+        .with_context(|| format!("securing {}", staging.display()))?;
+    remove_downloads(&staging);
+    // A UUID folder per download avoids partial downloads and overlapping
+    // cancellation races; a new one, so nothing made before is inside it.
+    let directory = staging.join(format!("{DOWNLOAD_PREFIX}{id}"));
+    butterpollo_windows::process::create_folder_administrators_only(&directory)?;
+    Ok(directory)
+}
+/// Remove the download folders in `staging`. Returns how many are left: one a setup still runs from, or a cancelled transfer
+/// still writes to.
+fn remove_downloads(staging: &Path) -> usize {
+    let Ok(entries) = std::fs::read_dir(staging) else {
+        return 0;
+    };
+    let mut left = 0;
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if !name
+            .strip_prefix(DOWNLOAD_PREFIX)
+            .is_some_and(|id| uuid::Uuid::parse_str(id).is_ok())
+        {
             continue;
         }
+        if let Err(error) = remove_tree(&entry.path()) {
+            tracing::debug!(%error, folder = %entry.path().display(), "download folder not removed yet");
+            left += 1;
+        }
+    }
+    left
+}
+/// One download folder, and its staging folder once nothing else is in it.
+fn remove_download(directory: &Path) {
+    if let Err(error) = remove_tree(directory)
+        && error.kind() != std::io::ErrorKind::NotFound
+    {
+        tracing::warn!(%error, folder = %directory.display(), "the update download could not be removed");
+    }
+    if let Some(staging) = directory.parent() {
+        let _ = std::fs::remove_dir(staging);
+    }
+}
+/// `path` and everything in it; a link is removed itself, never followed.
+fn remove_tree(path: &Path) -> std::io::Result<()> {
+    use std::os::windows::fs::MetadataExt;
+    let metadata = std::fs::symlink_metadata(path)?;
+    if metadata.file_attributes() & 0x400 != 0 {
+        std::fs::remove_dir(path).or_else(|_| std::fs::remove_file(path))
+    } else if metadata.is_dir() {
+        std::fs::remove_dir_all(path)
+    } else {
+        std::fs::remove_file(path)
+    }
+}
+/// Earlier hosts downloaded into the profile's `updates` folder, where
+/// earlier setups also kept their transactions. Its downloads go (a link
+/// is removed itself), its transactions but the newest two, and the folder
+/// once empty. Only after `check_recovery`: no record may name a backup
+/// still to be restored.
+fn remove_legacy_downloads(updates: &Path) {
+    let Ok(entries) = std::fs::read_dir(updates) else {
+        return;
+    };
+    let mut transactions = Vec::new();
+    for entry in entries.flatten() {
         let name = entry.file_name().to_string_lossy().into_owned();
         if uuid::Uuid::parse_str(&name).is_ok() {
-            let _ = std::fs::remove_dir_all(entry.path());
-        } else {
+            if let Err(error) = remove_tree(&entry.path()) {
+                tracing::warn!(%error, folder = %entry.path().display(), "an earlier update download could not be removed");
+            }
+        } else if entry.file_type().is_ok_and(|kind| kind.is_dir()) {
             transactions.push(name);
         }
     }
     for name in stale_transactions(&transactions) {
-        let _ = std::fs::remove_dir_all(directory.join(name));
+        let _ = remove_tree(&updates.join(name));
     }
-    // UUID directories avoid partial downloads and overlapping cancellation races.
-    let directory = directory.join(id);
-    std::fs::create_dir(&directory)?;
-    let path = directory.join("setup.exe");
-    let result = transfer(h, id, candidate, &path).await;
-    if result.is_err() {
-        let _ = std::fs::remove_dir_all(directory);
+    let _ = std::fs::remove_dir(updates);
+}
+/// When the next `tidy_downloads` runs, in seconds since the epoch.
+static NEXT_TIDY: AtomicU64 = AtomicU64::new(0);
+/// A setup that updated this host ran from its download folder until after
+/// it started this host, so only this host can remove that folder once
+/// setup has exited: tried every minute until none is left.
+fn tidy_downloads(h: &Shared) {
+    let now = now();
+    if NEXT_TIDY.load(Ordering::Relaxed) > now {
+        return;
     }
-    result
+    NEXT_TIDY.store(now + 60, Ordering::Relaxed);
+    let phase = h.updates.lock().unwrap()["phase"].clone();
+    if matches!(phase.as_str(), Some("downloading" | "ready" | "installing")) || !supported(h) {
+        return;
+    }
+    let Ok(install) = install_folder() else {
+        return;
+    };
+    let staging = staging_folder(&install);
+    if remove_downloads(&staging) == 0 {
+        // Once nothing else is in it (setup keeps a failed update's backup
+        // there).
+        let _ = std::fs::remove_dir(&staging);
+        NEXT_TIDY.store(u64::MAX, Ordering::Relaxed);
+    }
 }
 
 fn check_recovery(profile: &std::path::Path) -> Result<Value> {
@@ -1156,5 +1277,162 @@ mod tests {
         assert!(verify(32, &candidate.digest, &candidate).is_ok());
         assert!(verify(31, &candidate.digest, &candidate).is_err());
         assert!(verify(32, &"00".repeat(32), &candidate).is_err());
+    }
+    /// A temporary folder, removed with what is in it.
+    struct Temporary(PathBuf);
+    impl Temporary {
+        fn new() -> Self {
+            let path = std::env::temp_dir().join(format!(
+                "butterpollo-download-test-{}",
+                uuid::Uuid::new_v4()
+            ));
+            std::fs::create_dir(&path).unwrap();
+            Self(path)
+        }
+    }
+    impl Drop for Temporary {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+    fn elevated() -> bool {
+        butterpollo_windows::process::elevated().unwrap_or(false)
+    }
+    /// The host downloaded setup.exe into ProgramData\Butterpollo\config\
+    /// updates and ran it elevated from there, which Defender scores as
+    /// malware. It downloads into the installation folder's staging folder,
+    /// admin-only from the start, and removes earlier downloads first.
+    #[test]
+    fn the_installer_is_downloaded_into_the_installation_folder() -> Result<()> {
+        if !elevated() {
+            return Ok(());
+        }
+        let temporary = Temporary::new();
+        let install = temporary.0.join("Rubylight");
+        std::fs::create_dir(&install)?;
+        let staging = install.join(".staging");
+        let earlier = staging.join(format!("download-{}", uuid::Uuid::new_v4()));
+        let backup = staging.join("transaction-1-2").join("previous");
+        std::fs::create_dir_all(&earlier)?;
+        std::fs::create_dir_all(&backup)?;
+        std::fs::write(earlier.join("setup.exe"), b"earlier")?;
+        std::fs::write(backup.join("butterpollo.exe"), b"previous")?;
+        let id = uuid::Uuid::new_v4().to_string();
+        let directory = prepare_download(&install, &id)?;
+        assert_eq!(directory, staging.join(format!("download-{id}")));
+        assert!(!directory.starts_with(butterpollo_core::paths::installed_profile()));
+        assert_eq!(std::fs::read_dir(&directory)?.count(), 0);
+        assert!(!earlier.exists());
+        assert_eq!(std::fs::read(backup.join("butterpollo.exe"))?, b"previous");
+        std::fs::write(directory.join("setup.exe"), b"downloaded")?;
+        // A failed or finished download goes; a failed update's backup stays.
+        remove_download(&directory);
+        assert!(!directory.exists());
+        assert!(backup.exists());
+        std::fs::remove_dir_all(staging.join("transaction-1-2"))?;
+        let directory = prepare_download(&install, &uuid::Uuid::new_v4().to_string())?;
+        remove_download(&directory);
+        assert!(!staging.exists());
+        assert!(install.exists());
+        Ok(())
+    }
+    #[test]
+    fn a_link_at_or_in_the_staging_folder_is_refused_not_followed() -> Result<()> {
+        if !elevated() {
+            return Ok(());
+        }
+        let temporary = Temporary::new();
+        let install = temporary.0.join("Rubylight");
+        std::fs::create_dir(&install)?;
+        let outside = temporary.0.join("outside");
+        let planted = outside.join(format!("download-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&planted)?;
+        std::fs::write(planted.join("setup.exe"), b"unchanged")?;
+        let staging = install.join(".staging");
+        for link in [staging.clone(), staging.join("package")] {
+            if let Some(parent) = link.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            std::os::windows::fs::symlink_dir(&outside, &link)?;
+            let error = prepare_download(&install, &uuid::Uuid::new_v4().to_string())
+                .err()
+                .context("a link was followed")?;
+            assert!(format!("{error:#}").contains("reparse point"), "{error:#}");
+            assert_eq!(std::fs::read(planted.join("setup.exe"))?, b"unchanged");
+            std::fs::remove_dir(&link)?;
+        }
+        Ok(())
+    }
+    #[test]
+    fn a_download_a_setup_still_runs_from_is_left_for_later() -> Result<()> {
+        use std::os::windows::fs::OpenOptionsExt;
+        let staging = Temporary::new();
+        let running = staging.0.join(format!("download-{}", uuid::Uuid::new_v4()));
+        let done = staging.0.join(format!("download-{}", uuid::Uuid::new_v4()));
+        for folder in [&running, &done] {
+            std::fs::create_dir(folder)?;
+            std::fs::write(folder.join("setup.exe"), b"setup")?;
+        }
+        for other in ["package", "transaction-1-2", "download-not-a-uuid"] {
+            std::fs::create_dir(staging.0.join(other))?;
+        }
+        // As Windows holds a running program.
+        let held = std::fs::OpenOptions::new()
+            .read(true)
+            .share_mode(0x1)
+            .open(running.join("setup.exe"))?;
+        assert_eq!(remove_downloads(&staging.0), 1);
+        assert!(!done.exists());
+        assert!(running.join("setup.exe").exists());
+        drop(held);
+        assert_eq!(remove_downloads(&staging.0), 0);
+        let mut left: Vec<String> = std::fs::read_dir(&staging.0)?
+            .map(|entry| Ok(entry?.file_name().to_string_lossy().into_owned()))
+            .collect::<Result<_>>()?;
+        left.sort();
+        assert_eq!(left, ["download-not-a-uuid", "package", "transaction-1-2"]);
+        Ok(())
+    }
+    #[test]
+    fn downloads_left_in_the_profile_are_removed() -> Result<()> {
+        let profile = Temporary::new();
+        let updates = profile.0.join("updates");
+        let download = updates.join(uuid::Uuid::new_v4().to_string());
+        std::fs::create_dir_all(&download)?;
+        std::fs::write(download.join("setup.exe"), b"earlier")?;
+        let transactions = [
+            "transaction-1-100",
+            "transaction-2-400",
+            "transaction-3-300",
+            "transaction-4-200",
+        ];
+        for name in transactions {
+            std::fs::create_dir_all(updates.join(name).join("previous"))?;
+        }
+        std::fs::create_dir(updates.join("other"))?;
+        remove_legacy_downloads(&updates);
+        let mut left: Vec<String> = std::fs::read_dir(&updates)?
+            .map(|entry| Ok(entry?.file_name().to_string_lossy().into_owned()))
+            .collect::<Result<_>>()?;
+        left.sort();
+        assert_eq!(left, ["other", "transaction-2-400", "transaction-3-300"]);
+        for name in left {
+            std::fs::remove_dir_all(updates.join(name))?;
+        }
+        std::fs::create_dir(&download)?;
+        remove_legacy_downloads(&updates);
+        assert!(!updates.exists());
+        if elevated() {
+            // A link there goes itself; what it leads to stays.
+            let outside = profile.0.join("outside");
+            std::fs::create_dir_all(&updates)?;
+            std::fs::create_dir(&outside)?;
+            std::fs::write(outside.join("file"), b"unchanged")?;
+            std::os::windows::fs::symlink_dir(&outside, &download)?;
+            remove_legacy_downloads(&updates);
+            assert!(std::fs::symlink_metadata(&download).is_err());
+            assert_eq!(std::fs::read(outside.join("file"))?, b"unchanged");
+        }
+        Ok(())
     }
 }

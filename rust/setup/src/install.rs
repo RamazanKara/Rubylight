@@ -495,8 +495,8 @@ fn create_install(install: &Path) -> Result<bool> {
     Ok(created)
 }
 /// Setup's staging folder, inside the installation folder: the package of a
-/// full installation (`package`) and each update's transaction (new files
-/// and the backup) go there. Only administrators may change the
+/// full installation (`package`), each update's transaction (new files and
+/// the backup) and the host's update downloads (`download-<id>`) go there. Only administrators may change the
 /// installation folder; elevated programs run from ProgramData, where
 /// earlier setups staged, look like malware (Defender's cloud model quarantined
 /// the staged service there).
@@ -3335,7 +3335,7 @@ Caused by:\n    0: invalid JSON in C:\\ProgramData\\Butterpollo\\.butterpollo-im
             let error = prepare_staging(&install, false)
                 .err()
                 .context("a link was followed")?;
-            assert!(error.to_string().contains("reparse point"), "{error:#}");
+            assert!(format!("{error:#}").contains("reparse point"), "{error:#}");
             for file in [
                 outside.join("file.dll"),
                 outside.join("package").join("file.dll"),

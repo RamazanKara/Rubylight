@@ -15,7 +15,9 @@
 //! - A report gap (a skipped sequence number or [`FEEDBACK_TIMEOUT`] without
 //!   one) forgets the history. Without fresh reports the host's own
 //!   percentage applies, and zero loss after a gap keeps it for a whole
-//!   window before protection drops to zero.
+//!   window before protection drops to [`MINIMUM_PERCENT`].
+//! - Unlike Foundation's, protection never drops below [`MINIMUM_PERCENT`]
+//!   (or the cap): a clean second says nothing about the next burst.
 //!
 //! The binomial tails are computed when a report changes the estimate, on the
 //! control thread and outside the lock frames take ([`StatisticalFec::observe`],
@@ -32,6 +34,13 @@ use crate::pyrowave::fec_parameters;
 
 /// The modelled chance that some block of a frame cannot be rebuilt.
 pub const FRAME_FAILURE_TARGET: f64 = 0.001;
+/// The least protection once reports show little or no loss. On real Wi-Fi
+/// (Retroid, rust/PERFORMANCE.md, November 1) zero parity after a clean
+/// second turned every lost packet into a lost frame and a keyframe, and a
+/// single reordered packet into a lost-frame report; the PC's 20 % recovered
+/// what that link lost. Half of it still keeps a few shards per block (5 at
+/// 40 Mbps, 18 at 150 Mbps, 1080p60).
+pub const MINIMUM_PERCENT: u8 = 10;
 /// History the estimate covers, in one-second buckets.
 pub const WINDOW_SECONDS: usize = 10;
 pub const WINDOW: Duration = Duration::from_secs(WINDOW_SECONDS as u64);
@@ -164,6 +173,11 @@ impl StatisticalFec {
         usize::from(self.fallback)
     }
 
+    /// [`MINIMUM_PERCENT`], within the cap.
+    pub fn floor(&self) -> usize {
+        usize::from(MINIMUM_PERCENT.min(self.maximum))
+    }
+
     /// Whether a report was accepted since the stream started.
     pub fn reported(&self) -> bool {
         self.last.is_some()
@@ -281,7 +295,11 @@ impl StatisticalFec {
                 let settling = self
                     .resumed
                     .is_some_and(|at| now.saturating_duration_since(at) < WINDOW);
-                if settling { self.fallback() } else { 0 }
+                if settling {
+                    self.fallback()
+                } else {
+                    self.floor()
+                }
             }
             Some(_) => self.select(data_shards),
         }
@@ -292,7 +310,7 @@ impl StatisticalFec {
             return 0;
         }
         let mut best = None;
-        for ratio in 1..=self.maximum() {
+        for ratio in self.floor().max(1)..=self.maximum() {
             let (blocks, applied) = conventional_fec(data_shards, ratio, self.minimum_parity);
             if applied < ratio || blocks == 0 || blocks > MAX_BLOCKS {
                 // The frame can't carry this percentage.
@@ -409,7 +427,10 @@ mod tests {
         assert_eq!(fec.loss(), Some(0.01));
         for shards in [1, 5, 30, 120, 255, 600, 900] {
             let percent = fec.percent(start, shards);
-            assert!((1..=50).contains(&percent), "{shards}: {percent}");
+            assert!(
+                (MINIMUM_PERCENT as usize..=50).contains(&percent),
+                "{shards}: {percent}"
+            );
             let check = |percent: usize| {
                 let (blocks, applied) = conventional_fec(shards, percent, 0);
                 assert_eq!(applied, percent);
@@ -422,8 +443,8 @@ mod tests {
             };
             assert!(check(percent), "{shards}: {percent} misses the target");
             assert!(
-                !check(percent - 1),
-                "{shards}: {percent} is not the smallest"
+                percent == fec.floor() || !check(percent - 1),
+                "{shards}: {percent} is not the smallest above the floor"
             );
         }
         // Small frames need a larger share than large ones.
@@ -450,9 +471,9 @@ mod tests {
         let mut fec = StatisticalFec::new(50, 20, 2, start);
         assert_eq!(fec.percent(start, 100), 20, "before the first report");
         fec.report(start, &report(0, 600, 0)).unwrap();
-        // The first clean report may drop protection at once.
-        assert_eq!(fec.percent(start, 100), 0);
-        assert_eq!(fec.percent(start + FEEDBACK_TIMEOUT, 100), 0);
+        // The first clean report may drop protection to the floor at once.
+        assert_eq!(fec.percent(start, 100), 10);
+        assert_eq!(fec.percent(start + FEEDBACK_TIMEOUT, 100), 10);
         let stale = start + FEEDBACK_TIMEOUT + Duration::from_millis(1);
         assert_eq!(fec.percent(stale, 100), 20, "stale");
     }
@@ -474,7 +495,7 @@ mod tests {
             now += Duration::from_secs(1);
             fec.report(now, &report(seq, 600, 0)).unwrap();
         }
-        assert_eq!(fec.percent(now, 100), 0);
+        assert_eq!(fec.percent(now, 100), fec.floor());
         // Loss after a gap counts at once.
         now += FEEDBACK_TIMEOUT + Duration::from_secs(1);
         fec.report(now, &report(13, 600, 30)).unwrap();
@@ -592,12 +613,12 @@ mod tests {
             assert_eq!(fec.observe(at, &report(seq, 600, 60)).unwrap(), None);
         }
         assert_eq!(fec.loss(), Some(0.));
-        assert_eq!(fec.percent(start, 100), 0);
+        assert_eq!(fec.percent(start, 100), fec.floor());
         // The next report past the interval estimates with everything counted.
         fec.report(start + MIN_ESTIMATE_INTERVAL, &report(100, 600, 0))
             .unwrap();
         assert_eq!(fec.loss(), Some(99. * 60. / (101. * 600.)));
-        assert!(fec.percent(start + MIN_ESTIMATE_INTERVAL, 100) > 0);
+        assert!(fec.percent(start + MIN_ESTIMATE_INTERVAL, 100) > fec.floor());
         // A gap always estimates afresh.
         let gap = start + MIN_ESTIMATE_INTERVAL + Duration::from_millis(1);
         fec.report(gap, &report(102, 600, 0)).unwrap();
@@ -610,8 +631,34 @@ mod tests {
         let mut fec = StatisticalFec::new(50, 20, 4, start);
         fec.report(start, &report(0, 100_000, 1)).unwrap();
         // At 0.001 % loss one parity shard is plenty, but every block carries
-        // the client's four: the smallest percentage already reaches it.
-        assert_eq!(fec.percent(start, 200), 1);
+        // the client's four: the floor already reaches it, even for 2 shards.
+        assert_eq!(fec.percent(start, 200), fec.floor());
+        assert_eq!(fec_parameters(2, fec.percent(start, 2), 4).0, 4);
+    }
+
+    #[test]
+    fn a_clean_link_keeps_the_floor() {
+        // Retroid on Wi-Fi, November 1: after one clean second the share went
+        // from 20 to 0 %, and the next lost or late packet cost a frame.
+        let start = Instant::now();
+        let mut fec = StatisticalFec::new(50, 20, 0, start);
+        let mut now = start;
+        for seq in 0..WINDOW_SECONDS as u32 * 2 {
+            fec.report(now, &report(seq, 3000, 0)).unwrap();
+            for shards in [1, 47, 180, 600] {
+                assert_eq!(fec.percent(now, shards), 10, "{seq} {shards}");
+            }
+            now += Duration::from_secs(1);
+        }
+        assert!(fec_parameters(47, fec.percent(now, 47), 0).0 >= 5);
+        // Light loss whose binomial choice is below the floor keeps the floor.
+        fec.report(now, &report(WINDOW_SECONDS as u32 * 2, 100_000, 1))
+            .unwrap();
+        assert_eq!(fec.percent(now, 180), 10);
+        // A cap under the floor wins.
+        let mut capped = StatisticalFec::new(5, 20, 0, start);
+        capped.report(start, &report(0, 3000, 0)).unwrap();
+        assert_eq!(capped.percent(start, 180), 5);
     }
 
     #[test]

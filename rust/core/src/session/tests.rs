@@ -1466,16 +1466,19 @@ fn a_client_fec_share_splits_the_encoder_budget_at_a_fence_or_a_report() {
     auto.bitrate.store(12_000, Ordering::Release);
     assert_eq!(auto.encoder_bitrate(false), 10_000, "12 Mbps at 20 % FEC");
     auto.record_fec_report_at(&report(0, 0), start).unwrap();
-    assert_eq!(auto.fec_percent(), 0);
+    assert_eq!(
+        auto.fec_percent(),
+        usize::from(crate::statistical_fec::MINIMUM_PERCENT)
+    );
     assert_eq!(
         auto.encoder_bitrate(false),
-        12_000,
-        "the first report replaces the fallback share without an IDR"
+        10_909,
+        "the first report replaces the fallback share without an IDR: 12 Mbps × 100 / 110"
     );
     assert_eq!(
         auto.encoder_bitrate(true),
-        12_000,
-        "a clean link: all video"
+        10_909,
+        "a clean link: video and the floor's parity"
     );
     auto.record_fec_report_at(&report(1, 540), start + Duration::from_secs(1))
         .unwrap();
@@ -1546,10 +1549,13 @@ fn auto_fec_keeps_the_configured_share_for_recovery_frames() {
     auto.bitrate.store(12_000, Ordering::Release);
     let start = Instant::now();
     auto.record_fec_report_at(&report(0, 0), start).unwrap();
-    // A clean link: ordinary frames go without parity, but a keyframe or
+    // A clean link: ordinary frames get the floor's parity, but a keyframe or
     // the frame after an invalidation keeps the configured 20 %, and the
     // recovery budget is planned with the same share.
-    assert_eq!(auto.video_fec_percent(false, 30_000), 0);
+    assert_eq!(
+        auto.video_fec_percent(false, 30_000),
+        usize::from(crate::statistical_fec::MINIMUM_PERCENT)
+    );
     assert_eq!(auto.video_fec_percent(true, 30_000), 20);
     assert_eq!(auto.video_fec_percent(true, 3_000), 20);
     assert_eq!(auto.recovery_fec_percent(), 20);

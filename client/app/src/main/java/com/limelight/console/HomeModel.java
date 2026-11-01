@@ -158,6 +158,8 @@ public final class HomeModel {
     }
 
     public static final int ROW_CAP = 20;
+    /** The key of the one row a library of no stores has, and of the library shown ungrouped. */
+    public static final String LIBRARY_ROW = "shelf:library";
     public static final String FILTER_ALL = "all";
     public static final String FILTER_INSTALLED = "installed";
     public static final String FILTER_OTHER = "other";
@@ -228,6 +230,26 @@ public final class HomeModel {
             if (!host.hasPermission(ComputerDetails.PERMISSION_LAUNCH)) denied.add(host.uuid);
         }
         return denied;
+    }
+
+    /**
+     * The library's rows under {@link HomeView.Group}: by store as {@link #rows} has them, or the whole library as one
+     * row, the installed games by name as the phone's grid lists them.
+     */
+    public List<Row> rows(boolean grouped) {
+        if (grouped) return rows;
+        if (library.isEmpty()) return Collections.emptyList();
+        return Collections.singletonList(new Row(LIBRARY_ROW, RowKind.OTHER, null, null, library, FILTER_INSTALLED, true));
+    }
+
+    /** Every game of a row, not only those before its "All N" tile: a grid shows each row whole. */
+    public List<GameCard> whole(Row row) {
+        if (!row.hasMore()) return row.cards;
+        List<GameCard> cards = new ArrayList<>();
+        for (GameCard card : allGames) {
+            if (matches(row.filter, card)) cards.add(card);
+        }
+        return installedFirst(cards);
     }
 
     /** The row with this key, or null. */
@@ -420,7 +442,7 @@ public final class HomeModel {
         if (!other.isEmpty()) {
             // A library with no stores at all (a classic host) is one plain row, as before stores were known.
             boolean plain = stores.isEmpty();
-            rows.add(new Row(plain ? "shelf:library" : "shelf:other", RowKind.OTHER, null, null, installedFirst(other),
+            rows.add(new Row(plain ? LIBRARY_ROW : "shelf:other", RowKind.OTHER, null, null, installedFirst(other),
                     plain ? FILTER_ALL : FILTER_OTHER, true));
         }
         if (!unadded.isEmpty()) {

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="home_view">Вигляд</string>
+    <string name="home_view_layout">Розкладка</string>
+    <string name="home_view_layout_grid">Сітка</string>
+    <string name="home_view_layout_rows">Ряди</string>
+    <string name="home_view_group">Групувати за</string>
+    <string name="home_view_group_store">Магазин</string>
+    <string name="home_view_group_none">Немає</string>
+    <string name="home_view_size">Розмір карток</string>
+    <string name="home_view_size_small">Малі</string>
+    <string name="home_view_size_medium">Середні</string>
+    <string name="home_view_size_large">Великі</string>
+</resources>

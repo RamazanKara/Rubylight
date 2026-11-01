@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="home_view">Görünüm</string>
+    <string name="home_view_layout">Düzen</string>
+    <string name="home_view_layout_grid">Izgara</string>
+    <string name="home_view_layout_rows">Satırlar</string>
+    <string name="home_view_group">Grupla</string>
+    <string name="home_view_group_store">Mağaza</string>
+    <string name="home_view_group_none">Yok</string>
+    <string name="home_view_size">Kart boyutu</string>
+    <string name="home_view_size_small">Küçük</string>
+    <string name="home_view_size_medium">Orta</string>
+    <string name="home_view_size_large">Büyük</string>
+</resources>

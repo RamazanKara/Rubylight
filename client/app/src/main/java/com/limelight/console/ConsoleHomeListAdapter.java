@@ -12,7 +12,6 @@ import android.widget.ImageView;
 import android.widget.TextView;
 
 import androidx.annotation.NonNull;
-import androidx.annotation.StringRes;
 import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
@@ -38,6 +37,8 @@ final class ConsoleHomeListAdapter extends RecyclerView.Adapter<RecyclerView.Vie
     static final int WIDE_GAME = 1;
     static final int COVER_GAME = 2;
     static final int HOST = 3;
+    /** The shelf a TV card tells the focus listener it is on: the grid is one. */
+    private static final String TV_SHELF = "home-grid";
 
     /**
      * How visible a section header is as it scrolls under the top of the list: opaque while most of it is in view,
@@ -64,11 +65,11 @@ final class ConsoleHomeListAdapter extends RecyclerView.Adapter<RecyclerView.Vie
     private static final class Row {
         final int type;
         final String key;
-        @StringRes final int title;
+        final CharSequence title;
         final HomeModel.GameCard game;
         final HomeModel.HostCard host;
 
-        Row(int type, String key, int title, HomeModel.GameCard game, HomeModel.HostCard host) {
+        Row(int type, String key, CharSequence title, HomeModel.GameCard game, HomeModel.HostCard host) {
             this.type = type;
             this.key = key;
             this.title = title;
@@ -86,18 +87,28 @@ final class ConsoleHomeListAdapter extends RecyclerView.Adapter<RecyclerView.Vie
     private int coverHeightPx;
     /** Tells a held D-pad key from a press, so a run across the covers does not queue a focus tween per card. */
     private final FastTravel travel = new FastTravel();
+    /** On TV the cards are the shelves' posters and PC cards, sharing this; null on a phone. */
+    private final ShelfAdapter.Env tv;
 
     ConsoleHomeListAdapter(Context context, CoverLoaders covers, Function<String, ComputerDetails> hosts, ConsoleHomeAdapter.Listener listener) {
+        this(context, covers, hosts, listener, false);
+    }
+
+    /** {@code television}: the cards are TV posters, which the hero names, instead of the phone's captioned covers. */
+    ConsoleHomeListAdapter(Context context, CoverLoaders covers, Function<String, ComputerDetails> hosts, ConsoleHomeAdapter.Listener listener,
+                           boolean television) {
         this.context = context;
         this.covers = covers;
         this.hosts = hosts;
         this.listener = listener;
+        this.tv = television ? new ShelfAdapter.Env(context, covers, hosts, listener) : null;
         setHasStableIds(true);
     }
 
     /** The cover loaders exist once the app's client identity is known. */
     void setCovers(CoverLoaders covers) {
         this.covers = covers;
+        if (tv != null) tv.covers = covers;
         notifyDataSetChanged();
     }
 
@@ -105,34 +116,78 @@ final class ConsoleHomeListAdapter extends RecyclerView.Adapter<RecyclerView.Vie
     void setCoverHeight(int px) {
         if (px != coverHeightPx) {
             coverHeightPx = px;
+            if (tv != null) tv.coverHeightPx = px;
             notifyDataSetChanged();
         }
     }
 
+    /** A TV poster's width: its column's. */
+    void setCardWidth(int px) {
+        if (tv != null && px != tv.cardWidthPx) {
+            tv.cardWidthPx = px;
+            notifyDataSetChanged();
+        }
+    }
+
+    /** Who hears of every card that takes focus (TV Home's hero and backdrop). */
+    void setFocusListener(ShelfAdapter.FocusListener listener) {
+        if (tv != null) tv.focus = listener;
+    }
+
+    /** True while a key is held down along the cards, or the next one is a moment away from the last. */
+    boolean isFastTravel() {
+        return (tv != null ? tv.travel : travel).isActive(SystemClock.uptimeMillis());
+    }
+
+    /** The item a TV card binds, or null for a header or out of range. */
+    ShelfAdapter.Item itemAt(int position) {
+        if (position < 0 || position >= rows.size() || rows.get(position).type == HEADER) return null;
+        Row row = rows.get(position);
+        return new ShelfAdapter.Item(row.key, row.game, row.host);
+    }
+
     void submit(HomeModel model) {
+        submit(model, false);
+    }
+
+    /**
+     * {@code grouped}: the library under a heading per store, each part whole (a grid has no "All N" tile), as the
+     * shelves have it; otherwise one Library part.
+     */
+    void submit(HomeModel model, boolean grouped) {
         rows.clear();
         if (!model.favourites.isEmpty()) {
-            rows.add(new Row(HEADER, "header:favourites", R.string.console_section_favourites, null, null));
+            rows.add(new Row(HEADER, "header:favourites", context.getString(R.string.console_section_favourites), null, null));
             for (HomeModel.GameCard card : model.favourites) {
-                rows.add(new Row(COVER_GAME, card.key, 0, card, null));
+                rows.add(new Row(COVER_GAME, card.key, null, card, null));
             }
         }
         if (!model.continuePlaying.isEmpty()) {
-            rows.add(new Row(HEADER, "header:continue", R.string.console_section_continue, null, null));
+            rows.add(new Row(HEADER, "header:continue", context.getString(R.string.console_section_continue), null, null));
             for (HomeModel.GameCard card : model.continuePlaying) {
-                rows.add(new Row(WIDE_GAME, card.key, 0, card, null));
+                // A TV has no wide card: the hero says where the game runs.
+                rows.add(new Row(tv != null ? COVER_GAME : WIDE_GAME, card.key, null, card, null));
             }
         }
-        if (!model.library.isEmpty()) {
-            rows.add(new Row(HEADER, "header:library", R.string.console_section_library, null, null));
+        if (grouped) {
+            for (HomeModel.Row part : model.rows) {
+                List<HomeModel.GameCard> cards = model.whole(part);
+                if (cards.isEmpty()) continue;
+                rows.add(new Row(HEADER, "header:" + part.key, ShelfAdapter.CardHolder.rowTitle(context, part), null, null));
+                for (HomeModel.GameCard card : cards) {
+                    rows.add(new Row(COVER_GAME, card.key, null, card, null));
+                }
+            }
+        } else if (!model.library.isEmpty()) {
+            rows.add(new Row(HEADER, "header:library", context.getString(R.string.console_section_library), null, null));
             for (HomeModel.GameCard card : model.library) {
-                rows.add(new Row(COVER_GAME, card.key, 0, card, null));
+                rows.add(new Row(COVER_GAME, card.key, null, card, null));
             }
         }
         if (!model.hosts.isEmpty()) {
-            rows.add(new Row(HEADER, "header:hosts", R.string.console_section_hosts, null, null));
+            rows.add(new Row(HEADER, "header:hosts", context.getString(R.string.console_section_hosts), null, null));
             for (HomeModel.HostCard card : model.hosts) {
-                rows.add(new Row(HOST, "host:" + card.uuid, 0, null, card));
+                rows.add(new Row(HOST, "host:" + card.uuid, null, null, card));
             }
         }
         notifyDataSetChanged();
@@ -230,6 +285,15 @@ final class ConsoleHomeListAdapter extends RecyclerView.Adapter<RecyclerView.Vie
     @Override
     public RecyclerView.ViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int type) {
         LayoutInflater inflater = LayoutInflater.from(parent.getContext());
+        if (tv != null && type != HEADER) {
+            boolean cover = type != HOST;
+            View view = inflater.inflate(cover ? R.layout.console_card_cover : R.layout.console_card_host, parent, false);
+            // A card fills its cell: one column for a poster, the span of a PC's card.
+            ViewGroup.LayoutParams params = view.getLayoutParams();
+            params.width = ViewGroup.LayoutParams.MATCH_PARENT;
+            view.setLayoutParams(params);
+            return new ShelfAdapter.CardHolder(tv, view, cover);
+        }
         switch (type) {
             case HEADER:
                 return new RecyclerView.ViewHolder(inflater.inflate(R.layout.console_section_header, parent, false)) { };
@@ -247,6 +311,10 @@ final class ConsoleHomeListAdapter extends RecyclerView.Adapter<RecyclerView.Vie
         Row row = rows.get(position);
         if (row.type == HEADER) {
             ((TextView) holder.itemView).setText(row.title);
+        } else if (holder instanceof ShelfAdapter.CardHolder) {
+            ShelfAdapter.Item item = new ShelfAdapter.Item(row.key, row.game, row.host);
+            if (row.game != null) ((ShelfAdapter.CardHolder) holder).bindGame(TV_SHELF, item);
+            else ((ShelfAdapter.CardHolder) holder).bindHost(TV_SHELF, item);
         } else if (row.game != null) {
             ((CardHolder) holder).bindGame(row.game, row.type == COVER_GAME);
         } else {
@@ -291,9 +359,16 @@ final class ConsoleHomeListAdapter extends RecyclerView.Adapter<RecyclerView.Vie
                 }
             }
             image.setImageTintList(null);
+            // A store's part, shown when the library is grouped, has the games not installed too: in grey, as on TV.
+            image.setColorFilter(libraryCover && card.notInstalled() ? ShelfAdapter.NOT_INSTALLED : null);
             // Every cover crops to fill its card, whatever its shape (ArtFit).
             ArtFit.reset(image);
-            if (covers != null) covers.bind(hosts.apply(card.hostUuid), CoverLoaders.appOf(card.title, card.appId, card.source), image,
+            if (card.appId == 0) {
+                // A game not added has no app id, so no cover the host can send: its title on the cover's surface.
+                image.setImageDrawable(null);
+                imageText.setText(card.title);
+                imageText.setVisibility(View.VISIBLE);
+            } else if (covers != null) covers.bind(hosts.apply(card.hostUuid), CoverLoaders.appOf(card.title, card.appId, card.source), image,
                     imageText);
             title.setText(card.title);
             String where = card.hostCount > 1 ? context.getString(R.string.console_card_on_hosts, card.hostCount)

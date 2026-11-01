@@ -9,6 +9,7 @@ import android.os.Bundle;
 
 import com.limelight.AppView;
 import com.limelight.console.GameDetailActivity;
+import com.limelight.console.HomeView;
 import com.limelight.pin.PinGate;
 import com.limelight.pin.PinLockActivity;
 import com.limelight.pin.PinStore;
@@ -29,6 +30,19 @@ public final class DemoLauncherActivity extends Activity {
         android.preference.PreferenceManager.getDefaultSharedPreferences(this).edit()
                 .putString(AppTheme.UI_MODE, AppTheme.UI_MODE_TV.equals(ui) ? AppTheme.UI_MODE_TV
                         : AppTheme.UI_MODE_HANDHELD.equals(ui) ? AppTheme.UI_MODE_HANDHELD : AppTheme.UI_MODE_AUTO).commit();
+        // "--es view grid,store,large" sets Home's View (layout, group by, card size) for this run; "--es view default"
+        // forgets it, so each device's own look shows. Without it the last one stays.
+        String view = getIntent().getStringExtra("view");
+        if (view != null) {
+            String[] parts = view.split(",");
+            android.content.SharedPreferences.Editor edit = android.preference.PreferenceManager.getDefaultSharedPreferences(this).edit()
+                    .remove(HomeView.KEY_LAYOUT).remove(HomeView.KEY_GROUP).remove(HomeView.KEY_SIZE);
+            if (parts.length == 3) {
+                edit.putString(HomeView.KEY_LAYOUT, parts[0]).putString(HomeView.KEY_GROUP, parts[1])
+                        .putString(HomeView.KEY_SIZE, parts[2]);
+            }
+            edit.commit();
+        }
         if ("input-workspace".equals(getIntent().getStringExtra("state"))) {
             Intent preview = new Intent(this, DemoInputWorkspaceActivity.class);
             if (getIntent().getExtras() != null) preview.putExtras(getIntent().getExtras());

@@ -216,4 +216,40 @@ public class HomeLibraryRowsTest {
         for (HomeModel.Filter filter : model().filters) filters.add(filter.key);
         assertEquals(Arrays.asList("all", "store:epic", "store:steam"), filters);
     }
+
+    @Test
+    public void ungroupedIsOneLibraryRowOfTheInstalledGames() throws Exception {
+        tower(Collections.emptyList(), game(1, "Portal", "steam", true, null), game(2, "Hades", "epic", true, null),
+                game(3, "Doom", "steam", false, null));
+        HomeModel model = model();
+        // Grouped stays the rows per store.
+        assertEquals(model.rows, model.rows(true));
+        List<HomeModel.Row> plain = model.rows(false);
+        assertEquals(1, plain.size());
+        assertEquals(HomeModel.LIBRARY_ROW, plain.get(0).key);
+        assertEquals(titles(model.library), titles(plain.get(0).cards));
+        assertFalse(titles(plain.get(0).cards).contains("Doom"));
+    }
+
+    @Test
+    public void ungroupedWithNothingInstalledHasNoRow() throws Exception {
+        tower(Collections.emptyList(), game(1, "Portal", "steam", false, null));
+        assertTrue(model().rows(false).isEmpty());
+    }
+
+    @Test
+    public void aWholeRowHasEveryGamePastTheCap() throws Exception {
+        List<String> games = new ArrayList<>();
+        for (int i = 1; i <= 23; i++) games.add(game(i, String.format("Game %02d", i), "steam", true, null));
+        games.add(game(30, "Hades", "epic", true, null));
+        tower(Collections.emptyList(), games.toArray(new String[0]));
+        HomeModel model = model();
+        List<HomeModel.GameCard> steam = model.whole(model.row("shelf:store:steam"));
+        assertEquals(23, steam.size());
+        assertEquals("Game 23", steam.get(22).title);
+        assertFalse(titles(steam).contains("Hades"));
+        // A row that already holds all its games is itself.
+        HomeModel.Row epic = model.row("shelf:store:epic");
+        assertEquals(epic.cards, model.whole(epic));
+    }
 }

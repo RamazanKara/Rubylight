@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="home_view">檢視</string>
+    <string name="home_view_layout">版面配置</string>
+    <string name="home_view_layout_grid">格狀</string>
+    <string name="home_view_layout_rows">列</string>
+    <string name="home_view_group">分組方式</string>
+    <string name="home_view_group_store">商店</string>
+    <string name="home_view_group_none">無</string>
+    <string name="home_view_size">卡片大小</string>
+    <string name="home_view_size_small">小</string>
+    <string name="home_view_size_medium">中</string>
+    <string name="home_view_size_large">大</string>
+</resources>

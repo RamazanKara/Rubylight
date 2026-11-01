@@ -16,13 +16,13 @@
                 android:gravity="center" android:padding="@dimen/space_m"
                 android:textAppearance="@style/TextAppearance.Nightjar.Body" android:textColor="?attr/colorOnSurface"
                 android:maxLines="4" android:ellipsize="end" android:importantForAccessibility="no" />
-            <TextView android:id="@+id/grid_status" android:layout_width="wrap_content" android:layout_height="wrap_content"
+            <com.limelight.ui.MarqueeLabel android:id="@+id/grid_status" android:layout_width="wrap_content" android:layout_height="wrap_content"
                 android:layout_gravity="top|start" android:layout_margin="@dimen/space_xs"
                 android:paddingStart="@dimen/space_s" android:paddingEnd="@dimen/space_s"
                 android:paddingTop="@dimen/space_xs" android:paddingBottom="@dimen/space_xs" android:background="@drawable/bg_chip"
                 android:textAppearance="@style/TextAppearance.Nightjar.Caption" android:textColor="?attr/colorOnSurface"
                 android:visibility="gone" android:importantForAccessibility="no" />
-            <TextView android:id="@+id/grid_role" android:layout_width="wrap_content" android:layout_height="wrap_content"
+            <com.limelight.ui.MarqueeLabel android:id="@+id/grid_role" android:layout_width="wrap_content" android:layout_height="wrap_content"
                 android:layout_gravity="bottom|start" android:layout_margin="@dimen/space_xs"
                 android:paddingStart="@dimen/space_s" android:paddingEnd="@dimen/space_s"
                 android:paddingTop="@dimen/space_xs" android:paddingBottom="@dimen/space_xs"
@@ -33,7 +33,7 @@
                 android:padding="@dimen/space_l" android:background="@drawable/bg_cover_action" android:focusable="false"
                 android:importantForAccessibility="yes" android:src="@drawable/ic_library_more" android:contentDescription="@string/library_options" />
         </FrameLayout>
-        <TextView android:id="@+id/grid_title" android:layout_width="match_parent" android:layout_height="wrap_content"
+        <com.limelight.ui.MarqueeLabel android:id="@+id/grid_title" android:layout_width="match_parent" android:layout_height="wrap_content"
             android:paddingStart="@dimen/space_s" android:paddingEnd="@dimen/space_s" android:paddingTop="@dimen/space_xs" android:paddingBottom="@dimen/space_s"
             android:lines="1" android:ellipsize="end"
             android:textAppearance="@style/TextAppearance.Nightjar.Label" android:textColor="?attr/colorOnSurface"

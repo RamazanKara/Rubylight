@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="home_view">보기</string>
+    <string name="home_view_layout">레이아웃</string>
+    <string name="home_view_layout_grid">격자</string>
+    <string name="home_view_layout_rows">행</string>
+    <string name="home_view_group">그룹화 기준</string>
+    <string name="home_view_group_store">스토어</string>
+    <string name="home_view_group_none">없음</string>
+    <string name="home_view_size">카드 크기</string>
+    <string name="home_view_size_small">작게</string>
+    <string name="home_view_size_medium">보통</string>
+    <string name="home_view_size_large">크게</string>
+</resources>

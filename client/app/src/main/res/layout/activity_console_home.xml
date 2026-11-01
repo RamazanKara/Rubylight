@@ -7,7 +7,16 @@
     android:paddingTop="@dimen/shell_overscan_vertical" android:paddingBottom="@dimen/shell_overscan_vertical">
     <!-- The screen's title is the shell bar's selected tab, as on a TV; the toolbar stays for the code that configures it. -->
     <include android:id="@+id/console_toolbar" layout="@layout/view_top_app_bar" android:visibility="gone" />
-    <include layout="@layout/view_shell_bar" />
+    <!-- The shell bar, and at its end View: how Home lays out its games (ConsoleHomeActivity). -->
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:orientation="horizontal" android:gravity="center_vertical">
+        <include layout="@layout/view_shell_bar" android:layout_width="0dp" android:layout_height="wrap_content"
+            android:layout_weight="1" />
+        <com.google.android.material.button.MaterialButton android:id="@+id/console_view" style="@style/Widget.Nightjar.ShellItem"
+            android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:layout_marginTop="2dp" android:layout_marginBottom="@dimen/space_s" android:layout_marginEnd="@dimen/shell_inset"
+            android:text="@string/home_view" app:icon="@drawable/ic_tune" />
+    </LinearLayout>
     <ProgressBar android:id="@+id/console_loading" style="?android:attr/progressBarStyleHorizontal"
         android:layout_width="match_parent" android:layout_height="4dp" android:indeterminate="true" />
     <FrameLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1"

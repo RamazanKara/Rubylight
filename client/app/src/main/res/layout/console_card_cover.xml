@@ -21,7 +21,7 @@
                 android:textAppearance="@style/TextAppearance.Nightjar.Caption" android:textColor="?attr/colorOnSurface"
                 android:visibility="gone" android:importantForAccessibility="no" />
         </FrameLayout>
-        <TextView android:id="@+id/console_title" android:layout_width="match_parent" android:layout_height="wrap_content"
+        <com.limelight.ui.MarqueeLabel android:id="@+id/console_title" android:layout_width="match_parent" android:layout_height="wrap_content"
             android:paddingStart="@dimen/space_s" android:paddingEnd="@dimen/space_s" android:paddingTop="@dimen/space_s"
             android:maxLines="1" android:ellipsize="end"
             android:textAppearance="@style/TextAppearance.Nightjar.Label" android:textColor="?attr/colorOnSurface"

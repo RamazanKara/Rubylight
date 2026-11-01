@@ -335,7 +335,7 @@ pub struct Host {
     pub client_agents: Mutex<BTreeMap<String, String>>,
     /// Why each paired device's latest stream failed, by device UUID, for its
     /// `/serverinfo` (`RustHostLastFailure`). Its next launch clears it. Not saved.
-    pub last_failures: Mutex<BTreeMap<String, String>>,
+    pub last_failures: Mutex<BTreeMap<String, LastFailure>>,
     /// The encoder family the capability probe selected for H.264.
     pub probed_encoder: Mutex<&'static str>,
     /// Why each codec the last probe pass did not advertise is missing.
@@ -411,7 +411,51 @@ impl<'a> AppStop<'a> {
         }
     }
 }
+/// A device's latest stream failure, and since when it counts.
+pub struct LastFailure {
+    since: Instant,
+    reason: Option<String>,
+}
+
 impl Host {
+    /// Keeps a failed session's reason for its device's `/serverinfo`, unless
+    /// the device launched again after that session started: an old stream's
+    /// late teardown does not describe the new one.
+    pub fn record_failure(&self, s: &Session) {
+        let Some(reason) = s.failure() else { return };
+        let mut failures = self.last_failures.lock().unwrap();
+        if failures
+            .get(&s.launch.client.uuid)
+            .is_some_and(|last| last.since > s.started)
+        {
+            return;
+        }
+        failures.insert(
+            s.launch.client.uuid.clone(),
+            LastFailure {
+                since: s.started,
+                reason: Some(reason),
+            },
+        );
+    }
+    /// A new launch of device `uuid`: its last failure no longer describes it.
+    pub fn clear_failure(&self, uuid: &str) {
+        self.last_failures.lock().unwrap().insert(
+            uuid.to_owned(),
+            LastFailure {
+                since: Instant::now(),
+                reason: None,
+            },
+        );
+    }
+    /// Why device `uuid`'s latest stream failed, if it did.
+    pub fn last_failure(&self, uuid: &str) -> Option<String> {
+        self.last_failures
+            .lock()
+            .unwrap()
+            .get(uuid)
+            .and_then(|last| last.reason.clone())
+    }
     /// The running app, or None while another thread holds it. A stream or
     /// input thread skips its once-a-second look instead of waiting: housekeeping
     /// and launches hold the app, and on a PC busy loading a game a thread

@@ -31,6 +31,26 @@ pub enum Role {
     InputOnly,
 }
 
+/// The longest failure text a client is sent, in bytes.
+pub const FAILURE_TEXT_MAX: usize = 1024;
+
+/// `reason` as a client can be sent it in `/serverinfo` XML: control
+/// characters (from driver or FFI strings) other than tab and line breaks
+/// dropped, at most [`FAILURE_TEXT_MAX`] bytes, cut at a character boundary.
+pub fn failure_text(reason: &str) -> String {
+    let mut text = String::new();
+    for c in reason
+        .chars()
+        .filter(|c| !c.is_control() || matches!(c, '\t' | '\r' | '\n'))
+    {
+        if text.len() + c.len_utf8() > FAILURE_TEXT_MAX {
+            break;
+        }
+        text.push(c);
+    }
+    text
+}
+
 /// An error that ended the stream because the encoder failed: as the error itself
 /// or as context on the cause, it reads as its message, and
 /// [`Session::fail_with`] sends the client the encoder's termination code.
@@ -97,6 +117,9 @@ pub struct Session<P = (), A = ()> {
     pub failed: AtomicBool,
     /// Set with `failed` when the error was the encoder's ([`EncoderFailure`]).
     pub encoder_failed: AtomicBool,
+    /// The host's words for the failure, from the first `fail`: what the
+    /// client reads as `RustHostLastFailure`.
+    failure: std::sync::Mutex<Option<String>>,
     /// Set by the stream worker once the capture's first frame passed the checks a WebRTC HDR
     /// stream needs (the display is in HDR). The transport holds back its "streaming" status
     /// until then, so a refused stream is never announced first.
@@ -241,6 +264,7 @@ impl<P, A> Session<P, A> {
             stop: AtomicBool::new(false),
             failed: AtomicBool::new(false),
             encoder_failed: AtomicBool::new(false),
+            failure: std::sync::Mutex::new(None),
             source_checked: AtomicBool::new(false),
             idr: AtomicBool::new(true),
             invalidation: Default::default(),
@@ -370,7 +394,13 @@ impl<P, A> Session<P, A> {
     pub fn stop(&self) {
         self.stop.store(true, Ordering::Release)
     }
-    pub fn fail(&self) {
+    /// Fails the stream with the host's reason; the first reason stays, as
+    /// later ones are usually its consequences.
+    pub fn fail(&self, reason: impl Into<String>) {
+        self.failure
+            .lock()
+            .unwrap()
+            .get_or_insert_with(|| failure_text(&reason.into()));
         self.failed.store(true, Ordering::Release);
         self.stop();
     }
@@ -380,7 +410,14 @@ impl<P, A> Session<P, A> {
         if error.downcast_ref::<EncoderFailure>().is_some() {
             self.encoder_failed.store(true, Ordering::Release);
         }
-        self.fail();
+        // The outer two contexts say what failed; deeper ones carry paths and
+        // driver detail the host log keeps.
+        let text: Vec<String> = error.chain().take(2).map(ToString::to_string).collect();
+        self.fail(text.join(": "));
+    }
+    /// The reason of the first `fail`, if the stream failed.
+    pub fn failure(&self) -> Option<String> {
+        self.failure.lock().unwrap().clone()
     }
     pub fn failed(&self) -> bool {
         self.failed.load(Ordering::Acquire)

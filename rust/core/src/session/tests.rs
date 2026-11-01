@@ -2135,10 +2135,52 @@ fn a_failed_stream_is_not_reported_as_a_normal_close() {
     closed.stop();
     assert_eq!(closed.termination_reason(), 0x8003_0023);
     let failed = Session::new(launch("failed", Role::Stream), Negotiated::default());
-    failed.fail();
+    failed.fail("the capture stopped");
     assert!(failed.stopping());
     assert_eq!(failed.termination_reason(), 0x8000_4005);
+    // The first reason is the one the client reads; what follows is its consequence.
+    failed.fail("the control stream timed out");
+    assert_eq!(failed.failure().as_deref(), Some("the capture stopped"));
+    assert_eq!(closed.failure(), None);
 }
+#[test]
+fn a_failure_reason_is_safe_to_send_in_serverinfo() {
+    // Driver and FFI strings can carry NUL and other control characters, which
+    // XML cannot hold; tab and line breaks stay.
+    assert_eq!(
+        failure_text("AMF\0 error\u{1b}[0m\tline\r\nnext"),
+        "AMF error[0m\tline\r\nnext"
+    );
+    // At most FAILURE_TEXT_MAX bytes, cut between characters.
+    let long = "\u{e9}".repeat(FAILURE_TEXT_MAX);
+    let text = failure_text(&long);
+    assert_eq!(text.len(), FAILURE_TEXT_MAX);
+    assert!(text.chars().all(|c| c == '\u{e9}'));
+    assert_eq!(
+        failure_text(&format!("x{long}")).len(),
+        FAILURE_TEXT_MAX - 1
+    );
+    // Through `fail_with`: only the outer two contexts, which name what failed.
+    let session = Session::new(launch("chain", Role::Stream), Negotiated::default());
+    session.fail_with(
+        &anyhow::anyhow!("C:\\Users\\someone\\driver.dll: bad")
+            .context("AMF error AMF_FAIL (1)")
+            .context("the encoder kept failing"),
+    );
+    assert_eq!(
+        session.failure().as_deref(),
+        Some("the encoder kept failing: AMF error AMF_FAIL (1)")
+    );
+    // Through `fail`: cleaned and capped as well.
+    let session = Session::new(launch("nul", Role::Stream), Negotiated::default());
+    session.fail(format!("capture\0 {long}"));
+    let failure = session.failure().unwrap();
+    assert!(
+        failure.starts_with("capture ") && failure.len() <= FAILURE_TEXT_MAX,
+        "{failure}"
+    );
+}
+
 #[test]
 fn an_encoder_failure_sends_the_encoder_termination_code() {
     let other = Session::new(launch("other", Role::Stream), Negotiated::default());
@@ -2171,7 +2213,7 @@ fn a_worker_that_cannot_start_fails_without_leaving_an_active_session() {
     let other = launch("other", Role::InputOnly);
     sessions.queue(other.clone()).unwrap();
     let other = sessions.start(other, Negotiated::default()).unwrap();
-    sessions.fail_start(&failed);
+    sessions.fail_start(&failed, "the stream worker did not start");
     assert!(failed.failed());
     assert!(failed.stopping());
     assert_eq!(failed.termination_reason(), 0x8000_4005);

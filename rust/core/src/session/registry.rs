@@ -149,8 +149,8 @@ impl<P, A> Sessions<P, A> {
         self.teardown
             .insert(session.launch.id.clone(), Instant::now());
     }
-    pub fn fail_start(&mut self, session: &Session<P, A>) {
-        session.fail();
+    pub fn fail_start(&mut self, session: &Session<P, A>, reason: impl Into<String>) {
+        session.fail(reason);
         self.active.remove(&session.launch.id);
     }
     #[must_use = "drop canceled launches after releasing the sessions lock"]

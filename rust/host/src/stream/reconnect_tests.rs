@@ -219,7 +219,7 @@ impl Fixture {
             return;
         }
         let session = h.sessions.lock().unwrap().active[id].clone();
-        session.fail();
+        session.fail("the fixture failed on control connect");
         // Model the session worker finishing between the ENet Connect event
         // and the control worker's first sweep. This can happen when capture
         // or encoder startup fails before the first input packet arrives.
@@ -354,8 +354,8 @@ impl Fixture {
         })();
         // The production worker marks the session failed while it still holds its sender, so the
         // client hears an error and not the idle that dropping the link would cause.
-        if result.is_err() {
-            s.fail();
+        if let Err(e) = &result {
+            s.fail_with(e);
         }
         drop(sender);
         result

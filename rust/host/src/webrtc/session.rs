@@ -630,10 +630,12 @@ impl Actor {
                 session = live.id,
                 "the stream worker did not check the HDR source in time"
             );
-            live.session.fail();
+            live.session
+                .fail("the stream worker did not check the HDR source in time");
         } else if !live.connected && live.since.elapsed() > CONNECT_TIMEOUT {
             tracing::warn!(session = live.id, "WebRTC session did not connect in time");
-            live.session.fail();
+            live.session
+                .fail("the WebRTC session did not connect in time");
         }
     }
 

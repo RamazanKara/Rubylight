@@ -59,12 +59,46 @@ async fn a_network_drop_past_the_ping_timeout_leaves_nothing_behind() -> Result<
 async fn an_encoder_failure_leaves_nothing_behind() -> Result<()> {
     let h = Harness::new(10_000, 1).await?;
     let (session, client) = streaming(&h).await?;
-    session.fail();
+    session.fail("the capture failed");
     until("the failure reaches the client", WAIT, || {
         client.reason.load(Ordering::Acquire) != 0
     })
     .await;
     assert_eq!(client.reason.load(Ordering::Acquire), FAILED);
+    drop(client);
+    h.empty().await?;
+    h.finish().await
+}
+
+/// The `RustHostLastFailure` the paired device reads from `/serverinfo`.
+async fn last_failure(h: &Harness) -> Result<String> {
+    let response = h.clients[0]
+        .get(format!("https://127.0.0.1:{}/serverinfo", h.ports.https))
+        .send()
+        .await?
+        .error_for_status()?
+        .text()
+        .await?;
+    Ok(xml(&response, "RustHostLastFailure").to_owned())
+}
+
+/// A failure the stream worker never sees as an error (the capture, the control stream, a
+/// Nucleus Co-op game) still gives the client the host's reason by the time it hears the
+/// stream failed.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_failure_outside_the_stream_worker_reaches_the_client_with_its_reason() -> Result<()> {
+    let h = Harness::new(10_000, 1).await?;
+    let (session, client) = streaming(&h).await?;
+    session.fail("the capture failed: the display went away");
+    until("the failure reaches the client", WAIT, || {
+        client.reason.load(Ordering::Acquire) != 0
+    })
+    .await;
+    assert_eq!(client.reason.load(Ordering::Acquire), FAILED);
+    assert_eq!(
+        last_failure(&h).await?,
+        "the capture failed: the display went away"
+    );
     drop(client);
     h.empty().await?;
     h.finish().await
@@ -76,16 +110,7 @@ async fn an_encoder_failure_leaves_nothing_behind() -> Result<()> {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn an_encoder_error_reaches_the_client_with_its_reason() -> Result<()> {
     let h = Harness::new(10_000, 1).await?;
-    let serverinfo = || async {
-        let response = h.clients[0]
-            .get(format!("https://127.0.0.1:{}/serverinfo", h.ports.https))
-            .send()
-            .await?
-            .error_for_status()?
-            .text()
-            .await?;
-        anyhow::Ok(xml(&response, "RustHostLastFailure").to_owned())
-    };
+    let serverinfo = || last_failure(&h);
     let (session, client) = streaming(&h).await?;
     assert_eq!(serverinfo().await?, "");
     h.fixture.fail_encoder.store(true, Ordering::Release);
@@ -111,13 +136,20 @@ async fn an_encoder_error_reaches_the_client_with_its_reason() -> Result<()> {
     drop(client);
     h.empty().await?;
     h.fixture.fail_encoder.store(false, Ordering::Release);
-    let (session, client) = streaming(&h).await?;
+    let (next, client) = streaming(&h).await?;
     assert_eq!(
         serverinfo().await?,
         "",
         "a new launch starts without the old failure"
     );
-    h.end(&session, client).await?;
+    // The old stream's teardown finishing late does not bring it back.
+    h.h.record_failure(&session);
+    assert_eq!(
+        serverinfo().await?,
+        "",
+        "an old stream's failure is not the new one's"
+    );
+    h.end(&next, client).await?;
     h.finish().await
 }
 

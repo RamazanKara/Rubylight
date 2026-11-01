@@ -98,7 +98,7 @@ pub(super) fn end_unattended_sessions(
                 control_datagrams = if received.is_empty() { "none".into() } else { received.join(", ") },
                 "session has no control connection; ending it"
             );
-            s.fail();
+            s.fail("the client's control stream never connected");
             s.stop();
         }
     }
@@ -410,7 +410,7 @@ impl Media {
                                 && p.seen.elapsed() > ping_timeout
                             {
                                 tracing::warn!(client=%session.launch.client.name,"client control stream timed out");
-                                session.fail();
+                                session.fail("the client's control stream timed out");
                             }
                             let canceled = h.sessions.lock().unwrap().request_stop(Some(&p.id));
                             drop(canceled);
@@ -1019,7 +1019,7 @@ impl Media {
                     if s.stopping() || timed_out {
                         if timed_out && !s.stopping() {
                             tracing::warn!(client=%s.launch.client.name,"client control stream timed out");
-                            s.fail();
+                            s.fail("the client's control stream timed out");
                         }
                         host.socket_mut().roaming.set_stopping(&p.id);
                         // Its forwarded USB devices detach, and the client hears so before the
@@ -1044,6 +1044,8 @@ impl Media {
                                 tracing::warn!(error = %format!("{e:#}"), ?usb, "USB message not sent");
                             }
                         }
+                        // Before the client hears it: it asks `/serverinfo` for the reason then.
+                        h.record_failure(&s);
                         let reason = s.termination_reason();
                         if let Ok(message) = p.encrypt(&s, 0x0109, &reason.to_be_bytes()) {
                             let peer = host.peer_mut(*peer_id);

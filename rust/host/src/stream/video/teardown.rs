@@ -26,12 +26,12 @@ impl SessionThread<'_> {
         } = workers;
         if let Err(e) = result {
             s.launch.warnings.set("stream_failure", format!("Stream ended: {e:#}"));
-            // Before the failure stops the session: the client asks `/serverinfo` for the
-            // reason as soon as it hears the stream ended.
-            h.last_failures.lock().unwrap().insert(s.launch.client.uuid.clone(), format!("{e:#}"));
             s.fail_with(&e);
             tracing::error!(error=%format!("{e:#}"),client=%s.launch.client.name,"session failed; check the reported encoder, capture or socket error before reconnecting");
         }
+        // The control stream records it as it tells the client; this covers a client it no
+        // longer reaches.
+        h.record_failure(&s);
         s.stop();
         // A failed stream must not count as a healthy fast-rate probe.
         drop(keyframe_loss_memory);

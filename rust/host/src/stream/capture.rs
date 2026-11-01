@@ -412,7 +412,7 @@ impl<T> Latest<T> {
                     .launch
                     .warnings
                     .set("stream_failure", format!("Stream ended: {error}"));
-                session.fail();
+                session.fail(format!("the capture failed: {error}"));
             }
         }
         let image = state.image.take();

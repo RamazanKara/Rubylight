@@ -566,7 +566,7 @@ fn serverinfo_response(
         (
             "RustHostLastFailure",
             client
-                .and_then(|client| h.last_failures.lock().unwrap().get(&client.uuid).cloned())
+                .and_then(|client| h.last_failure(&client.uuid))
                 .unwrap_or_default(),
         ),
         ("RustHostSessionCount", session_count),
@@ -1390,7 +1390,7 @@ fn start(h: Shared, connection: Connection, args: Args, resume: bool) -> Respons
     };
     let _transition = h.launch_transition.lock().unwrap();
     // A new stream: the last one's failure no longer describes it.
-    h.last_failures.lock().unwrap().remove(&client.uuid);
+    h.clear_failure(&client.uuid);
     // The reply names the endpoint Moonlight called. Android and iOS read
     // <gamesession> from /launch and fail without it, also when the launch
     // joins the running game.

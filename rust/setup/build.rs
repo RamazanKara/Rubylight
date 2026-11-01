@@ -15,7 +15,13 @@ fn main() {
     println!("cargo:rerun-if-changed=../assets/version_info.rs");
     let path = icon.display().to_string().replace('\\', "/");
     let icon = format!("1 ICON \"{path}\"\n");
-    let rc = write_resource("setup", &icon, "Rubylight Setup", false);
+    let rc = write_resource(
+        "setup",
+        Some("butterpollo-setup.exe"),
+        &icon,
+        "Rubylight Setup",
+        false,
+    );
     embed_resource::compile(&rc, embed_resource::NONE)
         .manifest_optional()
         .unwrap();

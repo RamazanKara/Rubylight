@@ -14,12 +14,21 @@ fn main() {
     println!("cargo:rerun-if-changed=../assets/version_info.rs");
     let path = icon.display().to_string().replace('\\', "/");
     let icon = format!("1 ICON \"{path}\"\n");
-    for (bin, description) in [
-        ("butterpollo", "Rubylight host"),
-        ("butterpollo-service", "Rubylight service"),
-        ("butterpollo-start", "Start Rubylight"),
+    for (bin, file, description) in [
+        ("butterpollo", "butterpollo.exe", "Rubylight host"),
+        (
+            "butterpollo-service",
+            "butterpollo-service.exe",
+            "Rubylight service",
+        ),
+        // rust/build.ps1 packages it under this name.
+        (
+            "butterpollo-start",
+            "Start Rubylight.exe",
+            "Start Rubylight",
+        ),
     ] {
-        let rc = write_resource(bin, &icon, description, false);
+        let rc = write_resource(bin, Some(file), &icon, description, false);
         embed_resource::compile_for(&rc, [bin], embed_resource::NONE)
             .manifest_optional()
             .unwrap();

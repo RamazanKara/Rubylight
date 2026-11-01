@@ -8,7 +8,8 @@ fn main() {
     }
     // The diagnostic examples name the release in their version information.
     println!("cargo:rerun-if-changed=../assets/version_info.rs");
-    let rc = write_resource("examples", "", "Rubylight diagnostic tool", false);
+    // One resource for every example, so it names no file.
+    let rc = write_resource("examples", None, "", "Rubylight diagnostic tool", false);
     embed_resource::compile_for_examples(&rc, embed_resource::NONE)
         .manifest_optional()
         .unwrap();

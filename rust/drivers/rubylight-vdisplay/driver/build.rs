@@ -21,6 +21,7 @@ fn link_version_resource() {
     println!("cargo:rerun-if-changed=../../../assets/version_info.rs");
     let rc = write_resource(
         "rubylight-vdisplay",
+        Some("rubylight_vdisplay.dll"),
         "",
         "Rubylight virtual display driver",
         true,

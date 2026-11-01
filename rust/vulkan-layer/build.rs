@@ -6,7 +6,13 @@ fn main() {
         return;
     }
     println!("cargo:rerun-if-changed=../assets/version_info.rs");
-    let rc = write_resource("vulkan-layer", "", "Rubylight Vulkan HDR layer", true);
+    let rc = write_resource(
+        "vulkan-layer",
+        Some("butterpollo_vulkan_layer.dll"),
+        "",
+        "Rubylight Vulkan HDR layer",
+        true,
+    );
     embed_resource::compile_for_cdylib(&rc, embed_resource::NONE)
         .manifest_optional()
         .unwrap();

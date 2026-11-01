@@ -6,8 +6,15 @@ fn main() {
         return;
     }
     println!("cargo:rerun-if-changed=../assets/version_info.rs");
-    let rc = write_resource("probes", "", "Rubylight diagnostic tool", false);
-    embed_resource::compile(&rc, embed_resource::NONE)
-        .manifest_optional()
-        .unwrap();
+    for bin in [
+        "butterpollo-performance",
+        "butterpollo-protocol-performance",
+        "butterpollo-video-packet-performance",
+    ] {
+        let file = format!("{bin}.exe");
+        let rc = write_resource(bin, Some(&file), "", "Rubylight diagnostic tool", false);
+        embed_resource::compile_for(&rc, [bin], embed_resource::NONE)
+            .manifest_optional()
+            .unwrap();
+    }
 }

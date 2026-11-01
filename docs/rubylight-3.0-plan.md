@@ -155,7 +155,7 @@ Each track starts with a spike and needs the user's go-ahead.
 
 - **Linux host.** Needs an AMD Linux test machine. Spike: PipeWire/DMA-BUF or gamescope capture plus VA-API HEVC on Mesa, measured against the Windows path.
 - **Nightjar desktop out of preview,** if it didn't pass the B9 gate in time.
-- **Packed 4:4:4 as the Reference default** (B3 leftover), once text and UI fixture measurements show a gain.
+- **Packed 4:4:4 as the Reference default** (B3 leftover): measured on November 1 on the RX 7900 XT with six text and UI scenes; not adopted. Still text gains 3 to 17 dB from a 5 Mbit/s target at about 4:2:0's bitrate for equal quality, but encode adds 1.2 ms (1080p) and 2.0 ms (1440p) plus hardware decode, more than an opt-in preset may cost ([measurements](../rust/PERFORMANCE.md#november-1-packed-444-as-the-reference-default-rx-7900-xt)). It stays the separate **Full chroma** choice; reopen only if the packing's encode cost drops below about 1 ms.
 - **Smaller tracks:** multi-client policy beyond one owned session, Wake-on-LAN, NAT traversal, battery and thermal adaptation.
 
 ## Risks

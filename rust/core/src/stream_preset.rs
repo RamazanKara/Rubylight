@@ -15,8 +15,10 @@
 //! defaults. No preset adds an encoder knob. Pre-analysis, quality presets,
 //! quality rate-control modes and the high-motion boost stay out of Reference
 //! quality because the measurements show no consistent picture gain for their
-//! encode time. Packed 4:4:4 as a Reference default waits for measurements on
-//! text fixtures.
+//! encode time. Packed 4:4:4 is no Reference default either: on text and UI
+//! fixtures it adds 1.2 to 2.0 ms of encode time on the RX 7900 XT
+//! (`rust/PERFORMANCE.md`, "November 1: packed 4:4:4 as the Reference
+//! default").
 use crate::config::Config;
 use serde::Deserialize;
 use std::{collections::BTreeMap, sync::OnceLock};

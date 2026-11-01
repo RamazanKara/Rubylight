@@ -49,13 +49,6 @@ pub(super) async fn handle(h: &Shared, method: &Method, path: &str, data: &Value
                 );
             };
             let path = path.trim().to_string();
-            // The settings file takes # as the start of a comment.
-            if path.contains('#') {
-                return error(
-                    StatusCode::BAD_REQUEST,
-                    "Rubylight can't keep a folder with # in its path: rename the folder, or unpack the release into another one",
-                );
-            }
             match tokio::task::spawn_blocking(move || choose(&h, &path)).await {
                 Ok(Ok(install)) => Json(install).into_response(),
                 Ok(Err(refusal)) => refused(&refusal),
@@ -128,8 +121,16 @@ fn configured(h: &Shared) -> String {
 /// kept as `nucleus_path`; a refused folder saves nothing. An empty `path`
 /// forgets the folder, unchecked: an earlier Rubylight's install runs again,
 /// if any. What sessions left in the Nucleus Co-op left behind is put back
-/// first ([`crate::nucleus::Registry::change_folder`]).
-fn choose(h: &Shared, path: &str) -> Result<Value, Refusal> {
+/// first ([`crate::nucleus::Registry::change_folder`]). A settings save that
+/// changes `nucleus_path` comes here too.
+pub(super) fn choose(h: &Shared, path: &str) -> Result<Value, Refusal> {
+    // The settings file takes # as the start of a comment.
+    if path.contains('#') {
+        return Err(Refusal {
+            status: 400,
+            message: "Rubylight can't keep a folder with # in its path: rename the folder, or unpack the release into another one".into(),
+        });
+    }
     let checked = if path.is_empty() {
         None
     } else {
@@ -656,6 +657,73 @@ mod tests {
         .await
     }
 
+    /// `nucleus_path` as an earlier Rubylight kept it, or as written into the
+    /// settings file by hand: never checked.
+    fn kept_by_hand(f: &Fixture, folder: &str) {
+        super::super::config::save_setting(&f.host, "nucleus_path", |_| Ok(folder.into())).unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_settings_save_keeps_the_folder_as_the_panels_do() {
+        let f = Fixture::new();
+        let pc = Arc::new(fake::Pc::installed());
+        let why = r"D:\Downloads holds no NucleusCoop.exe: choose the folder you unpacked Nucleus Co-op 2.4.2 into";
+        pc.unusable.lock().unwrap().insert(
+            r"D:\Downloads".into(),
+            Unusable {
+                problem: Problem::Missing,
+                message: why.into(),
+            },
+        );
+        f.host.nucleus.use_pc(pc.clone());
+        let save = |body: Value| request(&f, "PATCH", "/api/config", body);
+        // Refused with the reason, and nothing else in the save kept.
+        let body = value(
+            save(json!({"nucleus_path": r"D:\Downloads", "locale": "de"})).await,
+            StatusCode::BAD_REQUEST,
+        )
+        .await;
+        assert_eq!(body["error"], why);
+        assert_eq!(kept(&f), "");
+        assert_eq!(f.host.config.read().unwrap().get("locale", "en"), "en");
+        let body = value(
+            save(json!({"nucleus_path": r"D:\Games #2\Nucleus"})).await,
+            StatusCode::BAD_REQUEST,
+        )
+        .await;
+        assert!(
+            body["error"].as_str().unwrap().contains("# in its path"),
+            "{body}"
+        );
+        assert_eq!(kept(&f), "");
+        // A setting the save gets wrong keeps no folder either.
+        value(
+            save(json!({"nucleus_path": r"D:\Nucleus", "stream_preset": "fastest"})).await,
+            StatusCode::BAD_REQUEST,
+        )
+        .await;
+        assert_eq!(kept(&f), "");
+        // Checked and kept, with the rest of the save.
+        value(
+            save(json!({"nucleus_path": r" D:\Nucleus ", "locale": "de"})).await,
+            StatusCode::OK,
+        )
+        .await;
+        assert_eq!(kept(&f), r"D:\Nucleus");
+        assert_eq!(f.host.config.read().unwrap().get("locale", "en"), "de");
+        // The same folder again is no change, and a save without it leaves it.
+        value(
+            save(json!({"nucleus_path": r"D:\Nucleus"})).await,
+            StatusCode::OK,
+        )
+        .await;
+        value(save(json!({"locale": "en"})).await, StatusCode::OK).await;
+        assert_eq!(kept(&f), r"D:\Nucleus");
+        // Emptied, it is forgotten.
+        value(save(json!({"nucleus_path": ""})).await, StatusCode::OK).await;
+        assert_eq!(kept(&f), "");
+    }
+
     fn kept(f: &Fixture) -> String {
         f.host
             .config
@@ -850,17 +918,7 @@ mod tests {
         ));
         f.host.nucleus.use_pc(pc.clone());
         // Kept by an earlier Rubylight: the earlier install runs, and says why.
-        value(
-            request(
-                &f,
-                "PATCH",
-                "/api/config",
-                json!({"nucleus_path": r"D:\Old"}),
-            )
-            .await,
-            StatusCode::OK,
-        )
-        .await;
+        kept_by_hand(&f, r"D:\Old");
         let install = panel(&f).await["install"].clone();
         assert_eq!(install["state"], "configured");
         assert_eq!(install["path"], r"C:\Nucleus");
@@ -936,17 +994,7 @@ mod tests {
         );
         f.host.nucleus.use_pc(pc.clone());
         // Set where the console doesn't check it, or replaced since.
-        value(
-            request(
-                &f,
-                "PATCH",
-                "/api/config",
-                json!({"nucleus_path": r"D:\Old"}),
-            )
-            .await,
-            StatusCode::OK,
-        )
-        .await;
+        kept_by_hand(&f, r"D:\Old");
         let body = panel(&f).await;
         assert_eq!(body["install"]["state"], "failed");
         assert_eq!(body["install"]["problem"], "version");

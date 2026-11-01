@@ -36,6 +36,9 @@ pub(super) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyh
                     "webhooks are saved on the Webhooks page (/api/webhooks), which keeps their secrets"
                 );
             }
+            if let Some(folder) = object.remove("nucleus_path") {
+                choose_nucleus_folder(h, &folder, &object)?;
+            }
             let _save = h.config_save.lock().unwrap();
             let mut next = if h.port_override.is_some() {
                 butterpollo_core::config::Config::load(&h.config_path)?
@@ -75,6 +78,32 @@ pub(super) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyh
         )?,
         _ => return Err(anyhow::anyhow!("unknown API endpoint")),
     })
+}
+
+/// A save's `nucleus_path` (`folder`), kept as the console's Choose folder
+/// keeps it ([`super::coop::choose`]): checked first, refused with the
+/// reason and status the panels give (409 while a session runs), and what
+/// sessions left in the folder before it put back. The save's other
+/// settings (`rest`) are checked first, so a refused one keeps no folder.
+fn choose_nucleus_folder(
+    h: &Shared,
+    folder: &Value,
+    rest: &serde_json::Map<String, Value>,
+) -> anyhow::Result<()> {
+    let folder = match folder {
+        Value::String(text) => text.trim(),
+        Value::Null => "",
+        _ => anyhow::bail!("nucleus_path must be the folder Nucleus Co-op was unpacked into"),
+    };
+    let current = crate::nucleus::configured(&h.config.read().unwrap());
+    if folder == current {
+        return Ok(());
+    }
+    let mut trial = h.config.read().unwrap().clone();
+    trial.update(rest)?;
+    trial.check_saved(rest.keys())?;
+    super::coop::choose(h, folder)?;
+    Ok(())
 }
 
 /// Settings a save applies to the running host. Every other key still answers

@@ -240,9 +240,12 @@ it with the reason, saving nothing, when:
 - a program file in it isn't 2.4.2's, by each file's size and SHA-256 against
   the release's file list (**Wrong version**; 2.4.2's file version reads
   2.3.0.0, so the version number can't tell);
-- it is on a network share (a UNC path), a mapped or removable drive rather
-  than a fixed drive of this PC; anything in it is a link (a junction or
-  symbolic link); or anyone but SYSTEM, Administrators and TrustedInstaller
+- it is on a network share (a UNC path), a mapped, removable or USB drive
+  rather than a fixed drive inside this PC, or on another drive under the same
+  letter than when the host first checked it since it started; anything in
+  it is a link (a junction or symbolic link; only inside Nucleus' game
+  instance folders, `content\<game>\InstanceN`, which link to the game's
+  files); or anyone but SYSTEM, Administrators and TrustedInstaller
   owns or may change a file or folder in it, or any folder above it (**Folder
   refused**). Nucleus Co-op runs elevated and the host writes into its folder
   as SYSTEM, so a folder you can change without elevation would hand both to
@@ -256,9 +259,10 @@ it with the reason, saving nothing, when:
 **Use this folder** works while a co-op or background session runs: end the
 session first.
 
-The panels show the state with the host's reason. A `nucleus_path` set
-elsewhere (Settings, `sunshine.conf`) is checked the same way at each
-launch: while Nucleus Co-op isn't set up, or its folder is refused, co-op and
+The panels show the state with the host's reason. Saving the folder under
+**Settings** checks it the same way and refuses the whole save with the
+reason. A `nucleus_path` written into `sunshine.conf` by hand is checked at
+each launch: while Nucleus Co-op isn't set up, or its folder is refused, co-op and
 background launches answer 503 and **Open Nucleus Co-op on this PC** is
 refused, each with the reason. Sessions turn Nucleus Co-op's own folder check
 off, but the window **Open Nucleus Co-op on this PC** opens may warn about a

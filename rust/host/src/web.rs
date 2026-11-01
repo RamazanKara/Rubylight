@@ -1212,7 +1212,14 @@ pub(crate) async fn api(
     match result {
         Ok(v) => Json(v).into_response(),
         Err(e) if e.is::<crate::neural::Busy>() => error(StatusCode::CONFLICT, &e.to_string()),
-        Err(e) => error(StatusCode::BAD_REQUEST, &e.to_string()),
+        Err(e) => match e.downcast_ref::<crate::nucleus::Refusal>() {
+            // A settings save's Nucleus Co-op folder, refused as the panels refuse it.
+            Some(refusal) => error(
+                StatusCode::from_u16(refusal.status).unwrap_or(StatusCode::BAD_REQUEST),
+                &refusal.message,
+            ),
+            None => error(StatusCode::BAD_REQUEST, &e.to_string()),
+        },
     }
 }
 #[cfg(test)]

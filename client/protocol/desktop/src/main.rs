@@ -2023,12 +2023,13 @@ impl App {
             }
         }
         let gui = &mut self.gui;
-        let pads = &mut self.pads;
+        // The input filter sends controller input while the present waits (direct_motion.rs).
+        let pads = streaming.direct_motion.lend(std::mem::take(&mut self.pads));
         let shortcuts = &self.launcher.shortcuts;
         let screenshot = std::mem::take(&mut self.screenshot_requested);
         let dir = self.screenshot_dir.clone();
         streaming.present(renderer, |s, renderer| {
-            draw_overlay(gui, window, renderer, s, pads, shortcuts);
+            draw_overlay(gui, window, renderer, s, &mut pads.pads(), shortcuts);
             if screenshot {
                 let stamp = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
@@ -2040,6 +2041,7 @@ impl App {
                 }
             }
         });
+        self.pads = pads.take_back();
         // No picture for 12 s after the start means the stream never came up.
         if streaming.facts.role != nightjar_core::http::AppRole::InputOnly
             && !streaming.has_picture() && streaming.since_start() > Duration::from_secs(12) && streaming.exit.is_none() {

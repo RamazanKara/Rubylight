@@ -30,7 +30,48 @@ pub(super) fn key_input(scancode: SDL_Scancode, held: SDL_Keymod, system_keys: b
     Some(KeyInput { code, modifiers, flags })
 }
 
+/// The PC's button for an SDL mouse button, or None for one it doesn't get.
+pub(super) fn mouse_button_code(button: u8, nav_buttons: bool) -> Option<u8> {
+    match i32::from(button) {
+        SDL_BUTTON_LEFT => Some(mouse_button::LEFT),
+        SDL_BUTTON_MIDDLE => Some(mouse_button::MIDDLE),
+        SDL_BUTTON_RIGHT => Some(mouse_button::RIGHT),
+        SDL_BUTTON_X1 if nav_buttons => Some(mouse_button::X1),
+        SDL_BUTTON_X2 if nav_buttons => Some(mouse_button::X2),
+        _ => None,
+    }
+}
+
+/// A wheel turn as the PC's high-resolution scroll.
+pub(super) fn send_wheel(w: &SDL_MouseWheelEvent, q: &mut nightjar_core::input::InputQueue) {
+    let flip = if w.direction == SDL_MOUSEWHEEL_FLIPPED { -1.0 } else { 1.0 };
+    let (x, y) = (w.x * flip, w.y * flip);
+    if y != 0.0 {
+        let _ = q.send_high_res_scroll((y * 120.0).clamp(-32000.0, 32000.0) as i16);
+    }
+    if x != 0.0 {
+        let _ = q.send_high_res_hscroll((x * 120.0).clamp(-32000.0, 32000.0) as i16);
+    }
+}
+
 impl Streaming {
+    /// What the input filter may send while the loop waits in the present: what this loop would
+    /// send itself, with nothing changing it meanwhile (`direct_motion::Rules`).
+    pub(super) fn direct_rules(&self, window: *mut SDL_Window) -> direct_motion::Rules {
+        // SAFETY: a live window.
+        let focused = unsafe { SDL_GetWindowFlags(window) & SDL_WINDOW_INPUT_FOCUS != 0 };
+        let ours = self.captured && self.focused && !self.menu_visible;
+        direct_motion::Rules {
+            keys: ours.then_some(direct_motion::KeyRules {
+                system_keys: self.settings.capture_system_keys,
+                right_alt_as_meta: self.settings.right_alt_as_meta,
+            }),
+            clicks: (ours && !self.absolute).then_some(direct_motion::ClickRules { nav_buttons: self.settings.mouse_nav_buttons }),
+            pads: !self.menu_visible && self.facts.role != AppRole::RemoteMonitor && self.settings.controllers
+                && (focused || self.settings.background_controllers),
+        }
+    }
+
     /// Handles one SDL event while streaming.
     pub fn handle(
         &mut self,
@@ -55,7 +96,7 @@ impl Streaming {
                     eprintln!("nightjar: {reason}");
                     self.exit.get_or_insert(Exit::Ended(Some(reason.into())));
                 }
-                SDL_EVENT_KEY_DOWN | SDL_EVENT_KEY_UP => self.key(&event.key, window, pads),
+                SDL_EVENT_KEY_DOWN | SDL_EVENT_KEY_UP => self.key(&event.key, direct_motion::sent(event), window, pads),
                 SDL_EVENT_TEXT_INPUT if !event.text.text.is_null() => {
                     let text = std::ffi::CStr::from_ptr(event.text.text).to_string_lossy();
                     self.text(&text);
@@ -109,38 +150,25 @@ impl Streaming {
                         }
                         return;
                     }
-                    let button = match i32::from(b.button) {
-                        SDL_BUTTON_LEFT => mouse_button::LEFT,
-                        SDL_BUTTON_MIDDLE => mouse_button::MIDDLE,
-                        SDL_BUTTON_RIGHT => mouse_button::RIGHT,
-                        SDL_BUTTON_X1 if self.settings.mouse_nav_buttons => mouse_button::X1,
-                        SDL_BUTTON_X2 if self.settings.mouse_nav_buttons => mouse_button::X2,
-                        _ => return,
-                    };
+                    let Some(button) = mouse_button_code(b.button, self.settings.mouse_nav_buttons) else { return };
                     if b.down {
                         self.mouse_down.insert(button);
                     } else {
                         self.mouse_down.remove(&button);
+                    }
+                    // The input filter sent it while the loop waited in the present.
+                    if direct_motion::sent(event) {
+                        return;
                     }
                     self.session.input(|q| {
                         let _ = q.send_mouse_button(button, b.down);
                     });
                 }
                 SDL_EVENT_MOUSE_WHEEL => {
-                    if !self.captured {
+                    if !self.captured || direct_motion::sent(event) {
                         return;
                     }
-                    let w = event.wheel;
-                    let flip = if w.direction == SDL_MOUSEWHEEL_FLIPPED { -1.0 } else { 1.0 };
-                    let (x, y) = (w.x * flip, w.y * flip);
-                    self.session.input(|q| {
-                        if y != 0.0 {
-                            let _ = q.send_high_res_scroll((y * 120.0).clamp(-32000.0, 32000.0) as i16);
-                        }
-                        if x != 0.0 {
-                            let _ = q.send_high_res_hscroll((x * 120.0).clamp(-32000.0, 32000.0) as i16);
-                        }
-                    });
+                    self.session.input(|q| send_wheel(&event.wheel, q));
                 }
                 SDL_EVENT_FINGER_DOWN | SDL_EVENT_FINGER_MOTION | SDL_EVENT_FINGER_UP | SDL_EVENT_FINGER_CANCELED
                 | SDL_EVENT_PEN_MOTION | SDL_EVENT_PEN_DOWN | SDL_EVENT_PEN_UP | SDL_EVENT_PEN_AXIS
@@ -183,12 +211,17 @@ impl Streaming {
                     }
                 }
                 _ => {
+                    // A controller event the input filter applied while the loop waited in the
+                    // present: only its action is left.
+                    let acted = direct_motion::acted(event);
                     let focused = SDL_GetWindowFlags(window) & SDL_WINDOW_INPUT_FOCUS != 0;
-                    if self.facts.role == AppRole::RemoteMonitor || !self.settings.controllers || (!focused && !self.settings.background_controllers) {
+                    if acted.is_none() && (self.facts.role == AppRole::RemoteMonitor || !self.settings.controllers || (!focused && !self.settings.background_controllers)) {
                         return;
                     }
-                    let mut action = None;
-                    self.session.input(|q| action = pads.handle(event, q));
+                    let mut action = acted;
+                    if acted.is_none() {
+                        self.session.input(|q| action = pads.handle(event, q));
+                    }
                     match action {
                         Some(Action::Quit) => self.exit = Some(Exit::User),
                         Some(Action::Menu) => self.toggle_menu(window, pads),
@@ -224,7 +257,8 @@ impl Streaming {
         });
     }
 
-    pub(super) fn key(&mut self, k: &SDL_KeyboardEvent, window: *mut SDL_Window, pads: &mut Gamepads) {
+    /// `sent`: the input filter sent it while the loop waited in the present.
+    pub(super) fn key(&mut self, k: &SDL_KeyboardEvent, sent: bool, window: *mut SDL_Window, pads: &mut Gamepads) {
         if k.repeat {
             // The PC repeats a held key itself; SDL's repeated text is that key's too.
             let held = key_input(k.scancode, k.r#mod, self.settings.capture_system_keys, self.settings.right_alt_as_meta)
@@ -318,6 +352,9 @@ impl Streaming {
             self.text_field.key_down(text_field::types(k.key, k.r#mod));
         } else {
             self.keys_down.remove(&code);
+        }
+        if sent {
+            return;
         }
         self.session.input(|q| {
             let _ = q.send_keyboard(0x8000 | code, k.down, modifiers, flags);

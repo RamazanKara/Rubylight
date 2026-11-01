@@ -1624,6 +1624,10 @@ impl Streaming {
         if direct + queued > 0 {
             eprintln!("nightjar: mouse moves: {direct} sent as they arrived, {queued} through the main loop");
         }
+        let input = self.direct_motion.input_count();
+        if input > 0 {
+            eprintln!("nightjar: keys, clicks and controller events: {input} sent during the present");
+        }
         self.cursor.clear();
         crate::sdl::alt_f4_to_host(false);
         for controller in 0..16 {

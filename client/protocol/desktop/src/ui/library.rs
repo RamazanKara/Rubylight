@@ -189,7 +189,7 @@ impl Launcher {
                     for (index, item) in starred.iter().enumerate() {
                         let line = if item.online { trf("On {}", &[&item.host_name]) } else { trf("{} is away", &[&item.host_name]) };
                         let response = continue_card(ui, &item.title, &line, false, card_w);
-                        let key = format!("favourite:{}:{}", item.host, item.app_id);
+                        let key = favourite_key(item);
                         self.focus_item(&response, &key, std::mem::take(&mut first));
                         if response.clicked() {
                             self.open(Screen::Game { host: item.host, app: item.app_id });
@@ -197,10 +197,8 @@ impl Launcher {
                         if response.has_focus() && unstar_pressed(ui) {
                             commands.push(Command::ToggleFavourite(item.favourite.clone()));
                             // The focus moves to the next favourite (else the previous), not back to the top.
-                            match console::neighbour(starred.len(), index) {
-                                Some(near) => {
-                                    self.restore_key = Some(format!("favourite:{}:{}", starred[near].host, starred[near].app_id));
-                                }
+                            match favourite_neighbour(&starred, index) {
+                                Some(near) => self.restore_key = Some(near),
                                 None => self.focus_screen = true,
                             }
                         }
@@ -268,15 +266,24 @@ impl Launcher {
                 };
                 shelf(ui, name, Some(row.games.len()));
                 let (shown, more) = if whole { (row.games.len(), false) } else { row.fit(columns) };
-                for line in row.games[..shown].chunks(columns) {
+                // What a screen reader says for the tile: whose games it opens, and how many.
+                let said = match &row.kind {
+                    console::RowKind::Store { name, .. } => trf("All {} games, {}", &[name, &row.games.len()]),
+                    console::RowKind::Other => trf("All other apps, {}", &[&row.games.len()]),
+                    console::RowKind::Library => trf("All games, {}", &[&row.games.len()]),
+                };
+                let games = &row.games[..shown];
+                // At one column no cover fits beside the tile: the tile is the row.
+                let lines: Vec<&[&console::Entry]> = if games.is_empty() && more { vec![games] } else { games.chunks(columns).collect() };
+                for line in lines {
                     ui.horizontal(|ui| {
                         ui.spacing_mut().item_spacing.x = POSTER_GAP;
                         for entry in line {
                             self.library_cover(ui, view, entry, cover_w, std::mem::take(&mut first), commands);
                         }
                         if more && line.len() < columns {
-                            let tile = all_tile(ui, row.games.len(), cover_w);
-                            self.focus_item(&tile, &format!("all:{}", row.key()), false);
+                            let tile = all_tile(ui, row.games.len(), &said, cover_w);
+                            self.focus_item(&tile, &format!("all:{}", row.key()), std::mem::take(&mut first));
                             if tile.clicked() {
                                 self.library_filter = row.filter.clone();
                                 self.open(Screen::AllGames);
@@ -328,17 +335,21 @@ impl Launcher {
         }
         ui.horizontal_wrapped(|ui| {
             ui.spacing_mut().item_spacing = vec2(space::S, space::S);
-            for (n, chip) in chips.iter().enumerate() {
+            for chip in &chips {
                 let name = match &chip.filter {
-                    console::LibraryFilter::All => tr("All"),
-                    console::LibraryFilter::Installed => tr("Installed"),
-                    console::LibraryFilter::Store(key) => chip.store_name.as_deref().unwrap_or(key),
-                    console::LibraryFilter::Other => tr("Other apps"),
+                    console::LibraryFilter::All => tr("All").to_owned(),
+                    console::LibraryFilter::Installed => tr("Installed").to_owned(),
+                    console::LibraryFilter::Store(key) => chip.store_name.clone().unwrap_or_else(|| console::store_name(key, "")),
+                    console::LibraryFilter::Other => tr("Other apps").to_owned(),
                 };
                 let selected = chip.filter == self.library_filter;
-                let r = button_with(ui, None, name, Some(chip.count), if selected { Tone::Selected } else { Tone::Chip }, Size::CHIP);
+                // Known by the filter, not its place: the Installed chip coming or going moves the
+                // others, and the focus stays on the one it was on.
+                let key = chip.filter.key();
+                let tone = if selected { Tone::Selected } else { Tone::Chip };
+                let r = button_with(ui, Some(Id::unique(("all-games", &key))), None, &name, Some(chip.count), tone, Size::CHIP);
                 r.widget_info(|| egui::WidgetInfo::selected(egui::Role::Button, true, selected, format!("{name}, {}", chip.count)));
-                self.focus_item(&r, &format!("filter:{n}"), false);
+                self.focus_item(&r, &key, false);
                 if r.clicked() {
                     self.library_filter = chip.filter.clone();
                 }
@@ -501,8 +512,12 @@ impl Launcher {
                     ui.label(RichText::new(tr("Checking the PC…")).color(ON_SURFACE_VARIANT));
                 } else if !source.paired {
                     ui.label(RichText::new(tr("Pair Nightjar with this PC to play.")).color(ERROR));
+                } else if !detail.can_start && !detail.installed {
+                    // Play is off: say why, as Android's game page does.
+                    ui.label(RichText::new(trf("Not installed on {}", &[&source.name])).color(ON_SURFACE_VARIANT));
                 }
-                if let Some(other) = &other_running {
+                // Only a game that can start would close it.
+                if let Some(other) = other_running.as_ref().filter(|_| detail.can_start) {
                     ui.label(RichText::new(trf("{} is running. Playing this game closes it.", &[&at_sentence_start(other)])).color(TERTIARY));
                 }
                 ui.add_space(8.0);
@@ -535,7 +550,9 @@ impl Launcher {
                             quiet_button(ui, if starred { en("Remove from favourites") } else { en("Add to favourites") })
                         })
                         .inner;
-                    self.focus_item(&r, "favourite", false);
+                    // With Play off (not installed, the PC away) and nothing to end, the star takes the
+                    // focus, so the D-pad has somewhere to start.
+                    self.focus_item(&r, "favourite", !can_play && detail.end == EndAction::None);
                     if r.clicked() {
                         if let Some(star) = star {
                             commands.push(Command::ToggleFavourite(star));
@@ -620,7 +637,9 @@ impl Launcher {
                     section(ui, "Also on");
                     ui.horizontal_wrapped(|ui| {
                         for copy in &others {
-                            let r = quiet_button(ui, &copy.host_name);
+                            // A copy there that is not installed opens, but says so first.
+                            let name = if copy.installed { copy.host_name.clone() } else { trf("{}, not installed", &[&copy.host_name]) };
+                            let r = quiet_button(ui, &name);
                             self.focus_item(&r, &format!("copy:{}", copy.host), false);
                             if r.clicked() {
                                 self.go(Screen::Game { host: copy.host, app: copy.app_id });
@@ -670,12 +689,22 @@ impl Launcher {
     }
 }
 
-/// Quick resume: a paired PC running a game from its known library goes straight back into it.
 /// Whether a paired PC that is up and shares its library has not sent it yet.
 fn library_loading(view: &View<'_>) -> bool {
     view.hosts.list.iter().any(|h| {
         h.reach == Reach::Online && h.paired() && h.native_api() && h.native.library.is_none() && h.native.error.is_none()
     })
+}
+
+/// A Favourites card's focus key.
+pub(super) fn favourite_key(item: &console::Starred) -> String {
+    format!("favourite:{}:{}", item.host, item.app_id)
+}
+
+/// The card to focus once favourite `index` loses its star: the next, else the previous; None
+/// when it was the last.
+pub(super) fn favourite_neighbour(starred: &[console::Starred], index: usize) -> Option<String> {
+    console::neighbour(starred.len(), index).map(|near| favourite_key(&starred[near]))
 }
 
 /// "Loading the games…" by a spinner, on Home and All games alike.
@@ -686,6 +715,7 @@ fn loading_games(ui: &mut Ui) {
     });
 }
 
+/// Quick resume: a paired PC running a game from its known library goes straight back into it.
 pub(super) fn host_clicked(host: &Host, quick_resume: bool, commands: &mut Vec<Command>) {
     let running = running_entry(host).filter(|_| host.paired());
     if let Some(app) = running.filter(|_| nightjar_policy::launch::resumes_on_pc_tap(quick_resume, true)) {

@@ -117,12 +117,19 @@ const STORES: [(&str, &str); 7] = [
     ("microsoft", en("Xbox")),
 ];
 
-/// A store's name: the PC's when it sends one, else the known one, else the key itself.
+/// A store's name: the PC's when it sends one, else the known one, else the key with a capital
+/// ("itchio" reads "Itchio").
 pub fn store_name(key: &str, from_pc: &str) -> String {
     if !from_pc.trim().is_empty() {
         return from_pc.to_owned();
     }
-    STORES.iter().find(|(k, _)| *k == key).map_or_else(|| key.to_owned(), |(_, name)| (*name).to_owned())
+    STORES.iter().find(|(k, _)| *k == key).map_or_else(
+        || {
+            let mut chars = key.chars();
+            chars.next().map_or_else(String::new, |first| first.to_uppercase().chain(chars).collect())
+        },
+        |(_, name)| (*name).to_owned(),
+    )
 }
 
 /// A chip above All games: Android's `HomeModel.Filter` keys (all, installed, store:steam, other).
@@ -146,6 +153,16 @@ impl LibraryFilter {
             Self::Installed => entry.installed(),
             Self::Store(key) => entry.store() == Some(key.as_str()),
             Self::Other => entry.store().is_none(),
+        }
+    }
+
+    /// A key that names the filter itself, not its place among the chips, for focus.
+    pub fn key(&self) -> String {
+        match self {
+            Self::All => "filter:all".into(),
+            Self::Installed => "filter:installed".into(),
+            Self::Store(key) => format!("filter:store:{key}"),
+            Self::Other => "filter:other".into(),
         }
     }
 }
@@ -297,6 +314,8 @@ fn running_here(source: &Source<'_>, game: &Game) -> bool {
 /// games show it, and the Installed chip leaves it out).
 pub fn merge_library(sources: &[Source<'_>]) -> Vec<Entry> {
     let mut entries: Vec<Entry> = Vec::new();
+    // Where each key's entry is, so a large library merges in one pass.
+    let mut index: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
     for source in sources {
         let Some(library) = source.library else { continue };
         for game in &library.games {
@@ -317,9 +336,12 @@ pub fn merge_library(sources: &[Source<'_>]) -> Vec<Entry> {
                 cover_version: game.artwork.version.clone(),
                 has_cover: game.artwork.cover.is_some(),
             };
-            match entries.iter_mut().find(|e| e.key == key) {
-                Some(entry) => entry.copies.push(copy),
-                None => entries.push(Entry { key, title: game.title.clone(), copies: vec![copy] }),
+            match index.get(&key) {
+                Some(&at) => entries[at].copies.push(copy),
+                None => {
+                    index.insert(key.clone(), entries.len());
+                    entries.push(Entry { key, title: game.title.clone(), copies: vec![copy] });
+                }
             }
         }
     }
@@ -513,8 +535,11 @@ pub enum EndAction {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Detail {
     pub state: GameState,
-    /// The PC can be played on now (online and paired).
+    /// The game can be played now: the PC is online and paired, and the game installed there
+    /// (one that runs or is suspended can be resumed whatever the library says).
     pub can_start: bool,
+    /// The PC lists the game as installed, or says nothing either way. Android's NOT_INSTALLED.
+    pub installed: bool,
     pub end: EndAction,
     /// Another game that runs on the PC; starting this one closes it.
     pub other_running: Option<String>,
@@ -529,8 +554,8 @@ impl Detail {
 
 /// `native` is whether the PC speaks the native API (Close game is only offered there).
 pub fn detail(source: &Source<'_>, app_id: u32, native: bool) -> Detail {
-    let can_start = source.online && source.paired;
     let game = source.library.into_iter().flat_map(|l| &l.games).find(|g| g.app_id == app_id);
+    let installed = game.is_none_or(installed);
     let session = source.session.filter(|s| active(s));
     // A PC that is away reports nothing live, whatever was saved.
     let mut state = GameState::Idle;
@@ -564,7 +589,9 @@ pub fn detail(source: &Source<'_>, app_id: u32, native: bool) -> Detail {
         _ if native && close_allowed => EndAction::CloseGame,
         _ => EndAction::Quit,
     };
-    Detail { state, can_start, end, other_running }
+    // Android's GameDetailModel.blocked(): only an idle game is held back by the library.
+    let can_start = source.online && source.paired && (installed || state != GameState::Idle);
+    Detail { state, can_start, installed, end, other_running }
 }
 
 /// What a PC's card says about its games.
@@ -576,8 +603,9 @@ pub enum HostLine {
     NoLibrary,
 }
 
+/// Counts every game the PC lists, installed or not, as Home's rows and their "All N" do.
 pub fn host_line(source: &Source<'_>) -> HostLine {
-    let games = source.library.map(|l| l.games.iter().filter(|g| installed(g)).count());
+    let games = source.library.map(|l| l.games.len());
     match (source.online, games) {
         (true, Some(n)) => HostLine::Games(n),
         (false, Some(n)) if n > 0 => HostLine::SavedGames(n),
@@ -784,11 +812,37 @@ mod tests {
     }
 
     #[test]
-    fn store_names_are_the_pcs_else_the_known_product_name_else_the_key() {
+    fn store_names_are_the_pcs_else_the_known_product_name_else_the_key_with_a_capital() {
         assert_eq!(store_name("epic", "Epic Games Store"), "Epic Games Store");
         assert_eq!(store_name("microsoft", ""), "Xbox");
         assert_eq!(store_name("battlenet", " "), "Battle.net");
-        assert_eq!(store_name("itch", ""), "itch");
+        // A store Nightjar does not know, and the PC did not name, reads as a name, not a key.
+        assert_eq!(store_name("itchio", ""), "Itchio");
+        assert_eq!(store_name("itchio", "itch.io"), "itch.io");
+    }
+
+    #[test]
+    fn a_filters_focus_key_names_the_filter_not_its_place() {
+        let keys = [LibraryFilter::All, LibraryFilter::Installed, LibraryFilter::Store("steam".into()), LibraryFilter::Other].map(|f| f.key());
+        assert_eq!(keys, ["filter:all", "filter:installed", "filter:store:steam", "filter:other"]);
+    }
+
+    /// The merge keeps its order: entries by title, equal titles in the order the PCs listed them,
+    /// and each game's copies by running, installed, online, then PC order.
+    #[test]
+    fn the_merged_library_keeps_title_then_listing_order() {
+        let a = store_library(&[("Same", "", "", true), ("beta", "steam", "", true), ("Alpha", "steam", "", true)]);
+        let mut b = store_library(&[("same", "", "", true), ("Beta", "steam", "", false)]);
+        // B's "Beta" is A's "beta" by its game id; its "same" has no store, so it stays its own.
+        b.games[1].game_id = a.games[1].game_id.clone();
+        let sources = [source(1, "A", true, Some(&a), None), source(2, "B", true, Some(&b), None)];
+        let merged = merge_library(&sources);
+        let got: Vec<(&str, Vec<u64>)> = merged.iter().map(|e| (e.title.as_str(), e.copies.iter().map(|c| c.host).collect())).collect();
+        assert_eq!(got, [("Alpha", vec![1]), ("beta", vec![1, 2]), ("Same", vec![1]), ("same", vec![2])]);
+        // B listed first: its not-installed copy still comes after A's installed one.
+        let sources = [source(2, "B", true, Some(&b), None), source(1, "A", true, Some(&a), None)];
+        let beta = merge_library(&sources).into_iter().find(|e| e.title == "Beta").unwrap();
+        assert_eq!(beta.copies.iter().map(|c| c.host).collect::<Vec<_>>(), [1, 2]);
     }
 
     #[test]
@@ -1007,15 +1061,36 @@ mod tests {
         assert_eq!(HostLine::Games(2).text(), "Games: 2");
         assert_eq!(HostLine::SavedGames(2).text(), "Offline. Saved games: 2");
         assert_eq!(HostLine::NoLibrary.text(), "Games not loaded yet");
+        // A game the PC has not installed counts, as it does in Home's rows and their "All N".
         let mut some_missing = library();
         some_missing.games[1].installed = Some(false);
-        assert_eq!(host_line(&source(1, "A", true, Some(&some_missing), None)), HostLine::Games(1));
+        assert_eq!(host_line(&source(1, "A", true, Some(&some_missing), None)), HostLine::Games(2));
+        let entries = merge_library(&[source(1, "A", true, Some(&some_missing), None)]);
+        assert_eq!(library_rows(&entries).iter().map(|r| r.games.len()).sum::<usize>(), 2);
     }
 
     #[test]
     fn the_stream_summary_reads_like_the_android_one() {
         assert_eq!(stream_summary(1920, 1080, 60, 20_000), "1920 × 1080, 60 FPS, 20 Mbps");
         assert_eq!(stream_summary(2560, 1440, 120, 37_500), "2560 × 1440, 120 FPS, 37.5 Mbps");
+    }
+
+    /// Android's GameDetailModel: a game the PC lists as not installed cannot be started, but one
+    /// that runs or is suspended there can still be resumed.
+    #[test]
+    fn a_game_the_pc_has_not_installed_cannot_start_but_resumes() {
+        let mut lib = library();
+        lib.games[0].installed = Some(false); // Dota 2
+        let idle = idle();
+        let d = detail(&source(1, "A", true, Some(&lib), Some(&idle)), DOTA, true);
+        assert_eq!((d.installed, d.can_start), (false, false), "not installed: no Play");
+        let suspended = session(); // Dota 2 suspended
+        let d = detail(&source(1, "A", true, Some(&lib), Some(&suspended)), DOTA, true);
+        assert_eq!((d.installed, d.can_start, d.resumes()), (false, true, true), "a suspended game resumes");
+        // Saying nothing either way counts as installed.
+        lib.games[0].installed = None;
+        let d = detail(&source(1, "A", true, Some(&lib), Some(&idle)), DOTA, true);
+        assert_eq!((d.installed, d.can_start), (true, true));
     }
 
     #[test]

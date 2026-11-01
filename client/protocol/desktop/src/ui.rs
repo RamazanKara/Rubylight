@@ -205,6 +205,9 @@ pub enum Dialog {
     PairError { host: u64, body: String, one_time: bool },
     /// How to pair, for a PC that is not paired yet.
     PairingHelp,
+    /// Home or PCs in the top bar would leave a page whose transfers still run, which cancels
+    /// them: asked first.
+    ConfirmLeave { to: Screen },
 }
 
 /// The header's top-level destinations, left to right.
@@ -800,12 +803,15 @@ impl Launcher {
         ui.horizontal(|ui| {
             ui.set_min_height(40.0);
             // Back names where it leads when that is a destination's page.
-            let to = match self.screen {
-                Screen::Apps(_) if self.trail.last().is_none_or(|(s, _)| *s == Screen::Hosts) => en("PCs"),
-                Screen::Profiles | Screen::Controllers | Screen::Shortcuts => en("Settings"),
-                _ => en("Back"),
+            let (to, said) = match self.screen {
+                Screen::Apps(_) if self.trail.last().is_none_or(|(s, _)| *s == Screen::Hosts) => (en("PCs"), en("Back to PCs")),
+                Screen::Profiles | Screen::Controllers | Screen::Shortcuts => (en("Settings"), en("Back to Settings")),
+                _ => (en("Back"), en("Back")),
             };
-            if button(ui, Some(Icon::Back), tr(to), Tone::Plain, Size { pad: 12.0, ..Size::HEADER }).clicked() {
+            let back = button(ui, Some(Icon::Back), tr(to), Tone::Plain, Size { pad: 12.0, ..Size::HEADER });
+            // A screen reader tells it from the destination of the same name in the row above.
+            back.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, tr(said)));
+            if back.clicked() {
                 self.back(commands);
             }
             if !title.is_empty() {
@@ -837,12 +843,39 @@ impl Launcher {
     fn destination(&mut self, ui: &mut Ui, name: &str, screen: Screen, marked: bool, commands: &mut Vec<Command>) {
         let tone = if marked { Tone::Current } else { Tone::Plain };
         let response = button(ui, Some(destination_icon(screen)), tr(name), tone, Size { height: 36.0, pad: 14.0, ..Size::HEADER });
+        // The marked one reads as selected, as the chosen filter chip does.
+        response.widget_info(|| egui::WidgetInfo::selected(egui::Role::Button, true, marked, tr(name)));
         if response.clicked() && self.screen != screen {
-            if let Some(save) = self.screen.save_command() {
-                commands.push(save);
+            match screen {
+                // As Start does: over a library, game or PC page, so Back returns to it and the
+                // page keeps its check or transfers.
+                Screen::Settings => {
+                    if let Some(save) = self.screen.save_command() {
+                        commands.push(save);
+                    }
+                    self.open_settings();
+                }
+                // Home and PCs drop the trail, and with it a Files or PC page and its transfers.
+                _ if self.transferring() => {
+                    self.dialog = Dialog::ConfirmLeave { to: screen };
+                    self.focus_dialog = true;
+                }
+                _ => self.leave_for(screen, commands),
             }
-            self.switch(screen);
         }
+    }
+
+    /// Moves to destination `to`, saving the page it leaves.
+    pub(super) fn leave_for(&mut self, to: Screen, commands: &mut Vec<Command>) {
+        if let Some(save) = self.screen.save_command() {
+            commands.push(save);
+        }
+        self.switch(to);
+    }
+
+    /// Whether a file transfer runs, on a Files page or a PC page's shared folders.
+    fn transferring(&self) -> bool {
+        self.files.transferring() || self.folders.transferring()
     }
 
     /// The page's actions at the right edge of its row, registered left to right so Tab reaches
@@ -855,10 +888,10 @@ impl Launcher {
             .scope_builder(UiBuilder::new().max_rect(rect).layout(Layout::left_to_right(Align::Center)), |ui| {
                 ui.spacing_mut().item_spacing.x = space::S;
                 match self.screen {
-                    // All games is always a step away, not only from a row too long to fit.
+                    // All games is always a step away, not only from a row too long to fit, once
+                    // some PC has games to list (`home_ready`, worked out once a frame).
                     Screen::Home => {
-                        let sources: Vec<Source> = view.hosts.list.iter().map(Source::of).collect();
-                        if !console::merge_library(&sources).is_empty() && header_button(ui, "All games", Icon::Grid).clicked() {
+                        if self.home_ready && header_button(ui, "All games", Icon::Grid).clicked() {
                             self.library_filter = console::LibraryFilter::All;
                             self.open(Screen::AllGames);
                         }

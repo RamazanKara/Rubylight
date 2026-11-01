@@ -77,12 +77,44 @@ unsafe fn hags(
 struct ProcessPriority {
     previous: Option<i32>,
     configured: Option<i32>,
+    /// A denied realtime class has been warned about.
+    realtime_warned: bool,
 }
 static PROCESS_PRIORITY: std::sync::Mutex<ProcessPriority> =
     std::sync::Mutex::new(ProcessPriority {
         previous: None,
         configured: None,
+        realtime_warned: false,
     });
+/// Set the scheduling class `wanted` through `set`, which returns an
+/// NTSTATUS. Realtime needs administrator rights, which the capture helper in
+/// the user's session lacks: a denied realtime falls back to high, the next
+/// best rather than the default, and warns once per process (`warned`) with
+/// the status. Returns the class set.
+fn apply_priority(
+    mut set: impl FnMut(i32) -> i32,
+    wanted: i32,
+    warned: &mut bool,
+) -> Result<i32> {
+    let code = set(wanted);
+    if code >= 0 {
+        return Ok(wanted);
+    }
+    if wanted <= HIGH {
+        bail!("GPU process scheduling priority was denied ({code:#x})");
+    }
+    let fallback = set(HIGH);
+    if fallback < 0 {
+        bail!("GPU process scheduling priority was denied ({fallback:#x})");
+    }
+    if !std::mem::replace(warned, true) {
+        tracing::warn!(
+            status = format!("{code:#x}"),
+            "realtime GPU scheduling for NVENC was denied (it needs administrator rights), so the host runs at high, where NVENC can fall behind a game that fills the GPU"
+        );
+    }
+    Ok(HIGH)
+}
 
 pub(crate) fn resume() -> Result<()> {
     let mut state = PROCESS_PRIORITY.lock().unwrap();
@@ -184,21 +216,16 @@ pub fn configure(
         {
             let _ = get(GetCurrentProcess().0, &mut original);
         }
-        let mut priority = priority(
+        let wanted = priority(
             gpu.vendor,
             hags,
             config.boolean("nvenc_realtime_hags", true),
         );
-        let mut code = set(GetCurrentProcess().0, priority);
-        // Realtime needs administrator rights, which the capture helper in
-        // the user's session lacks: high is the next best, not the default.
-        if code < 0 && priority > HIGH {
-            priority = HIGH;
-            code = set(GetCurrentProcess().0, priority);
-        }
-        if code < 0 {
-            bail!("GPU process scheduling priority was denied ({code:#x})");
-        }
+        let priority = apply_priority(
+            |class| set(GetCurrentProcess().0, class),
+            wanted,
+            &mut state.realtime_warned,
+        )?;
         state.previous.get_or_insert(original);
         state.configured = Some(priority);
         tracing::debug!(hags, priority, "GPU process scheduling configured");
@@ -227,6 +254,38 @@ mod tests {
         assert_eq!(priority(0x10de, false, false), REALTIME);
         assert_eq!(priority(0x10de, true, true), REALTIME);
         assert_eq!(priority(0x10de, true, false), HIGH);
+    }
+    #[test]
+    fn denied_realtime_falls_back_to_high_and_warns_once() -> Result<()> {
+        const ACCESS_DENIED: i32 = 0xc000_0022_u32 as i32;
+        let deny_realtime = |class| if class == REALTIME { ACCESS_DENIED } else { 0 };
+        let mut warned = false;
+        let mut calls = Vec::new();
+        let class = apply_priority(
+            |class| {
+                calls.push(class);
+                deny_realtime(class)
+            },
+            REALTIME,
+            &mut warned,
+        )?;
+        assert_eq!((class, warned), (HIGH, true));
+        assert_eq!(calls, [REALTIME, HIGH]);
+        // Later denials keep high without a second warning.
+        assert_eq!(apply_priority(deny_realtime, REALTIME, &mut warned)?, HIGH);
+        assert!(warned);
+        // Realtime allowed, or high wanted: one call and no warning.
+        let mut fresh = false;
+        assert_eq!(apply_priority(|_| 0, REALTIME, &mut fresh)?, REALTIME);
+        assert_eq!(apply_priority(|_| 0, HIGH, &mut fresh)?, HIGH);
+        assert!(!fresh);
+        // High denied too fails loudly with the status.
+        for wanted in [HIGH, REALTIME] {
+            let error = apply_priority(|_| ACCESS_DENIED, wanted, &mut fresh).unwrap_err();
+            assert!(format!("{error}").contains("0xc0000022"), "{error}");
+        }
+        assert!(!fresh);
+        Ok(())
     }
     #[test]
     fn d3dkmt_structs_match_the_kernel_layout() {

@@ -59,6 +59,8 @@ struct Driver {
     /// Subframe locks before a picture is done: the slices and bytes each
     /// returns.
     partial: VecDeque<(u32, usize)>,
+    /// Subframe locks report slice offsets past the bytes written.
+    bad_offsets: bool,
 }
 thread_local! { static DRIVER: RefCell<Driver> = RefCell::default(); }
 fn state<T>(call: impl FnOnce(&mut Driver) -> T) -> T {
@@ -492,6 +494,16 @@ unsafe extern "C" fn lock(raw: *mut c_void, parameters: *mut NV_ENC_LOCK_BITSTRE
             p.numSlices = written;
             p.bitstreamSizeInBytes = bytes as u32;
             p.hwEncodeStatus = 1;
+            for slice in 0..written as usize {
+                let offset = if d.bad_offsets {
+                    bytes
+                } else {
+                    slice * bytes / written as usize
+                };
+                // SAFETY: `sliceOffsets` holds an entry per macroblock, more than any test's
+                // slices.
+                unsafe { *p.sliceOffsets.add(slice) = offset as u32 };
+            }
         } else {
             p.numSlices = slices;
             p.hwEncodeStatus = 2;
@@ -1645,6 +1657,88 @@ fn the_frame_cap_lowers_the_vbv_under_it_and_a_steady_link_never_reconfigures() 
     Ok(())
 }
 #[test]
+fn a_five_frame_vbv_is_the_bound_until_the_host_caps_under_it() -> Result<()> {
+    reset();
+    let one = session(&Negotiated::default(), ApiVersion(13, 0))?;
+    let single = u64::from(one.config.rcParams.vbvBufferSize);
+    drop(one);
+    reset();
+    // "Reference quality" sets nvenc_vbv_increase = 400: five frames.
+    let mut encoder = session_with(
+        &Negotiated::default(),
+        ApiVersion(13, 0),
+        "nvenc_vbv_increase = 400\n",
+    )?;
+    let ceiling = encoder.config.rcParams.vbvBufferSize;
+    assert!(u64::from(ceiling).abs_diff(single * 5) <= 5, "{ceiling}");
+    let five = u64::from(ceiling).div_ceil(8);
+    assert_eq!(encoder.frame_cap(), Some(five));
+    // A cap over the five frames is the reported bound without a change.
+    assert_eq!(encoder.set_frame_cap(five * 2)?, Some(five * 2));
+    state(|d| assert!(d.reconfigured.is_none()));
+    // A link that carries two frames' worth lowers the VBV to it.
+    let link = single.div_ceil(8) * 2;
+    assert_eq!(encoder.set_frame_cap(link)?, Some(link));
+    assert_eq!(u64::from(encoder.config.rcParams.vbvBufferSize), link * 8);
+    state(|d| assert!(d.reconfigured.take().is_some()));
+    // Back over it: the five-frame VBV returns at once.
+    assert_eq!(encoder.set_frame_cap(five + 1)?, Some(five + 1));
+    assert_eq!(encoder.config.rcParams.vbvBufferSize, ceiling);
+    drop(encoder);
+    assert_clean();
+    Ok(())
+}
+#[test]
+fn a_frame_cap_applies_with_frames_in_flight_and_a_bitrate_rise_waits() -> Result<()> {
+    reset();
+    state(|d| d.asynchronous = true);
+    let mut encoder = session(&Negotiated::default(), ApiVersion(13, 0))?;
+    let frame = encoder.frame_cap().unwrap();
+    let slot = input(&mut encoder, 17)?;
+    encoder.submit(slot, None, true, Instant::now())?;
+    // Lowering the VBV adds no wait for the frame in flight.
+    encoder.set_frame_cap(frame / 2)?;
+    state(|d| assert!(d.reconfigured.take().is_some()));
+    assert_eq!(encoder.pending.len(), 1);
+    // Neither does a lower bitrate.
+    encoder.bitrate(10000)?;
+    assert_eq!(encoder.pending.len(), 1);
+    // A higher one resets the encoder, so the frame is collected first.
+    encoder.bitrate(40000)?;
+    assert!(encoder.pending.is_empty());
+    state(|d| assert_eq!(d.reconfigured.take().unwrap().0.resetEncoder(), 1));
+    assert_eq!(encoder.poll()?.len(), 1);
+    drop(encoder);
+    assert_clean();
+    Ok(())
+}
+#[test]
+fn a_frame_over_twice_its_cap_warns_at_most_every_ten_seconds() -> Result<()> {
+    reset();
+    let mut encoder = session(&Negotiated::default(), ApiVersion(13, 0))?;
+    let cap = encoder.frame_cap().unwrap() as usize;
+    let slot = input(&mut encoder, 17)?;
+    state(|d| d.picture = cap * 2);
+    encoder.submit(slot, None, true, Instant::now())?;
+    assert_eq!(encoder.poll()?[0].bytes.len(), cap * 2);
+    assert!(encoder.oversize_warned.is_none());
+    state(|d| d.picture = cap * 2 + 1);
+    encoder.submit(slot, None, false, Instant::now())?;
+    encoder.poll()?;
+    let warned = encoder.oversize_warned.unwrap();
+    encoder.submit(slot, None, false, Instant::now())?;
+    encoder.poll()?;
+    assert_eq!(encoder.oversize_warned, Some(warned));
+    let earlier = warned - OVERSIZE_WARNING_INTERVAL;
+    encoder.oversize_warned = Some(earlier);
+    encoder.submit(slot, None, false, Instant::now())?;
+    encoder.poll()?;
+    assert!(encoder.oversize_warned.unwrap() > earlier);
+    drop(encoder);
+    assert_clean();
+    Ok(())
+}
+#[test]
 fn a_driver_controlled_vbv_reports_no_frame_cap() -> Result<()> {
     reset();
     let mut encoder = session(&Negotiated::default(), ApiVersion(13, 0))?;
@@ -1860,6 +1954,53 @@ fn slice_output_that_shrinks_fails_and_a_stuck_frame_times_out() -> Result<()> {
     assert!(format!("{error:#}").contains("timed out"), "{error:#}");
     encoder.pending.front_mut().unwrap().started = Instant::now();
     encoder.poll()?;
+    drop(encoder);
+    assert_clean();
+    Ok(())
+}
+#[test]
+fn a_subframe_frame_ends_at_the_drivers_completion_and_bad_offsets_hold_it() -> Result<()> {
+    reset();
+    state(|d| d.picture = 24);
+    let mut encoder = session_with(
+        &Negotiated::default(),
+        ApiVersion(13, 0),
+        "video_slice_delivery = 4\n",
+    )?;
+    let slot = input(&mut encoder, 17)?;
+    encoder.submit(slot, None, true, Instant::now())?;
+    encoder.poll()?;
+    // Every slice reported before the driver says the picture is done: the
+    // bytes leave as a slice, and the frame ends at the completion.
+    state(|d| d.partial.push_back((4, 16)));
+    encoder.submit(slot, None, false, Instant::now())?;
+    let first = encoder.poll()?;
+    assert_eq!(first[0].unit, crate::encoder::Unit::Slice { index: 0 });
+    assert_eq!(first[0].bytes.len(), 16);
+    let last = encoder.poll()?;
+    assert_eq!(last[0].unit, crate::encoder::Unit::Last { index: 1 });
+    assert_eq!(last[0].bytes.len(), 8);
+    // Slice offsets past the bytes written send nothing early, once warned.
+    state(|d| {
+        d.bad_offsets = true;
+        d.partial.push_back((2, 12));
+    });
+    encoder.submit(slot, None, false, Instant::now())?;
+    assert!(encoder.poll()?.is_empty());
+    assert!(encoder.offsets_warned);
+    let output = encoder.poll()?;
+    assert_eq!(output[0].unit, crate::encoder::Unit::Whole);
+    assert_eq!(output[0].bytes.len(), 24);
+    assert_eq!(encoder.subframe_traced, 3);
+    let lock = NV_ENC_LOCK_BITSTREAM {
+        numSlices: 3,
+        bitstreamSizeInBytes: 30,
+        ..Default::default()
+    };
+    assert!(slices_consistent(&lock, &[0, 10, 20, 0]));
+    assert!(!slices_consistent(&lock, &[0, 10, 10, 0]));
+    assert!(!slices_consistent(&lock, &[0, 10, 30, 0]));
+    assert!(!slices_consistent(&lock, &[0, 10]));
     drop(encoder);
     assert_clean();
     Ok(())

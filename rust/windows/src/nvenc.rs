@@ -49,6 +49,10 @@ const COMPLETION_TIMEOUT: Duration = Duration::from_millis(100);
 const MAX_FRAME_BYTES: usize = 16 * 1024 * 1024;
 /// The smallest VBV a bitrate change or a frame cap sets.
 const MIN_VBV_BITS: u64 = 100_000;
+/// The least time between warnings about a frame over twice its cap.
+const OVERSIZE_WARNING_INTERVAL: Duration = Duration::from_secs(10);
+/// Subframe frames whose locks are traced at debug level.
+const TRACED_SUBFRAMES: u8 = 4;
 type CreateInstance = unsafe extern "C" fn(*mut NV_ENCODE_API_FUNCTION_LIST) -> NVENCSTATUS;
 type GetMaximum = unsafe extern "C" fn(*mut u32) -> NVENCSTATUS;
 
@@ -423,6 +427,8 @@ struct Session {
     cut_limit: Option<u64>,
     reencoded_cuts: u64,
     keyframes_over_cap: u64,
+    /// When a frame over twice its cap was last reported.
+    oversize_warned: Option<Instant>,
     /// Why encoding a scene cut again failed, until the encoder reports it.
     reencode_failure: Option<String>,
     /// Blocks a P-frame is sent in when slice delivery is on, else 0.
@@ -432,6 +438,10 @@ struct Session {
     subframe: bool,
     /// The slices of each frame in subframe mode.
     subframe_slices: u32,
+    /// Subframe frames completed, for the first frames' lock trace.
+    subframe_traced: u8,
+    /// A subframe lock's slice offsets were inconsistent once.
+    offsets_warned: bool,
     /// Slice delivery is off for the rest of the session
     /// ([`Encoder::join_slices`]).
     slices_joined: bool,
@@ -529,10 +539,13 @@ impl Session {
             cut_limit: None,
             reencoded_cuts: 0,
             keyframes_over_cap: 0,
+            oversize_warned: None,
             reencode_failure: None,
             slice_blocks: 0,
             subframe: false,
             subframe_slices: 0,
+            subframe_traced: 0,
+            offsets_warned: false,
             slices_joined: false,
             slice_offsets: Vec::new(),
             unit_idr_reported: false,
@@ -1279,17 +1292,19 @@ impl Session {
         }
         Ok(())
     }
-    /// The bound the session holds every frame to: its one-frame VBV, or the
-    /// host's cap when that is larger, since the VBV keeps frames under it.
+    /// The bound the session targets for every frame: its one-frame VBV, or
+    /// the host's cap when that is larger, since the VBV aims under it.
     /// `None` when the driver controls buffering.
     fn frame_cap(&self) -> Option<u64> {
         let vbv = u64::from(self.config.rcParams.vbvBufferSize).div_ceil(8);
         (vbv > 0).then(|| vbv.max(self.frame_cap_target.unwrap_or(0)))
     }
     /// The host's pace-based frame cap, which AMF writes as its frame size
-    /// limit. NVENC holds every frame, keyframes too (`lowDelayKeyFrameScale`),
-    /// to its one-frame VBV, which is under the cap on any link that carries
-    /// the stream; a cap under the VBV lowers the VBV to it. Changes within a
+    /// limit. NVENC targets it for every frame, keyframes too, with
+    /// `lowDelayKeyFrameScale` 1 and a one-frame VBV, as Sunshine does; the
+    /// driver does not guarantee the bound, so `collect` warns about a frame
+    /// over twice it. The VBV is under the cap on any link that carries the
+    /// stream; a cap under the VBV lowers the VBV to it. Changes within a
     /// tenth are skipped and the VBV returns to its ceiling at once, so a
     /// steady link never reconfigures.
     fn set_frame_cap(&mut self, bytes: u64) -> Result<Option<u64>> {
@@ -1390,10 +1405,21 @@ impl Session {
             self.check(status, "lock completed output")?;
             let size = lock.bitstreamSizeInBytes as usize;
             let sent = pending.units.map_or(0, |units| units.sent);
-            if self.subframe && !subframe_complete(&lock, self.subframe_slices) {
+            if self.subframe && self.subframe_traced < TRACED_SUBFRAMES {
+                tracing::debug!(
+                    frame = pending.frame,
+                    status = lock.hwEncodeStatus,
+                    slices = lock.numSlices,
+                    bytes = size,
+                    "NVENC subframe lock"
+                );
+            }
+            if self.subframe && !subframe_complete(&lock) {
                 // Hand on the slices written since the last poll, if the
-                // frame leaves slice by slice; otherwise wait for all of it.
+                // frame leaves slice by slice and the driver's slice offsets
+                // hold together; otherwise wait for all of it.
                 let streamed = pending.streams && (pending.units.is_some() || !self.slices_joined);
+                let consistent = slices_consistent(&lock, &self.slice_offsets);
                 let unit = (|| -> Result<Option<Vec<u8>>> {
                     if size > MAX_FRAME_BYTES
                         || size < sent
@@ -1401,7 +1427,7 @@ impl Session {
                     {
                         bail!("invalid NVENC slice output size");
                     }
-                    if !streamed || size == sent {
+                    if !streamed || size == sent || !consistent {
                         return Ok(None);
                     }
                     // SAFETY: The lock succeeded and the pointer is non-null with `size` bounded
@@ -1422,6 +1448,14 @@ impl Session {
                     "unlock output",
                 )?;
                 let unit = unit?;
+                if streamed && size > sent && !consistent && !self.offsets_warned {
+                    self.offsets_warned = true;
+                    tracing::warn!(
+                        slices = lock.numSlices,
+                        bytes = size,
+                        "NVENC reported slice offsets that do not fit the bytes written; this frame waits to finish before it leaves. Report this with the host log."
+                    );
+                }
                 let pending = self.pending.front_mut().unwrap();
                 if let Some(bytes) = unit {
                     let units = pending.units.get_or_insert_default();
@@ -1492,6 +1526,9 @@ impl Session {
                 "unlock output",
             )?;
             let (encoded, idr) = result?;
+            if self.subframe {
+                self.subframe_traced = self.subframe_traced.saturating_add(1);
+            }
             if idr && encoded.unit != crate::encoder::Unit::Whole && !self.unit_idr_reported {
                 // Only P-frames are sent slice by slice, and NVENC makes a
                 // keyframe only when asked: say so, once, if one was.
@@ -1527,6 +1564,21 @@ impl Session {
             }
             if idr && crate::amf::over_cap_target(size as u64, pending.frame_cap_target) {
                 self.keyframes_over_cap += 1;
+            }
+            if let Some(cap) = pending.frame_cap_bytes {
+                if size as u64 > cap.saturating_mul(2)
+                    && self
+                        .oversize_warned
+                        .is_none_or(|at| at.elapsed() >= OVERSIZE_WARNING_INTERVAL)
+                {
+                    self.oversize_warned = Some(Instant::now());
+                    tracing::warn!(
+                        bytes = size,
+                        cap,
+                        picture = if idr { "keyframe" } else { "inter" },
+                        "NVENC wrote a frame over twice its frame cap; the one-frame VBV targets the cap but the driver does not guarantee it"
+                    );
+                }
             }
             self.references.completed(pending.frame, idr);
             self.ready.push_back(encoded);
@@ -1586,12 +1638,17 @@ impl Session {
         Ok(())
     }
     /// Reconfigure the rate control to `bitrate` bits per second and a VBV of
-    /// `vbv` bits. A higher bitrate resets the encoder and forces a keyframe.
+    /// `vbv` bits. A higher bitrate resets the encoder and forces a keyframe,
+    /// after the frames in flight are collected. Any other change applies
+    /// with frames in flight, as FFmpeg reconfigures, so a frame cap or a
+    /// lower bitrate adds no wait.
     fn reconfigure(&mut self, bitrate: u32, vbv: u32, operation: &'static str) -> Result<()> {
-        self.drain()?;
+        let before = self.config.rcParams.averageBitRate;
+        if bitrate > before {
+            self.drain()?;
+        }
         let _guard = self.guard()?;
         let mut config = Box::new(*self.config);
-        let before = config.rcParams.averageBitRate;
         config.rcParams.averageBitRate = bitrate;
         config.rcParams.maxBitRate = self.rate_control.max_bitrate(bitrate);
         config.rcParams.vbvBufferSize = vbv;
@@ -1762,12 +1819,24 @@ fn coded(config: &Negotiated) -> Negotiated {
     }
     coded
 }
-/// Whether a subframe lock holds the whole picture: every slice the session
-/// set (`sliceMode` 3) is written. The SDK leaves `hwEncodeStatus`'s values
-/// undocumented, so it is not read; a frame whose slices never all arrive
-/// fails loudly at the completion timeout rather than leave cut short.
-fn subframe_complete(lock: &NV_ENC_LOCK_BITSTREAM, slices: u32) -> bool {
-    lock.numSlices >= slices
+/// Whether a subframe lock holds the whole picture: `hwEncodeStatus` 2, the
+/// completion NVIDIA's developer forum gives for subframe readback. The slice
+/// count alone is not enough, since a driver may report every slice of the
+/// mode (`sliceMode` 3) before the last is written. A frame that never
+/// completes fails loudly at the completion timeout rather than leave cut
+/// short.
+fn subframe_complete(lock: &NV_ENC_LOCK_BITSTREAM) -> bool {
+    lock.hwEncodeStatus == 2
+}
+/// Whether an unfinished subframe lock's slice offsets fit the bytes
+/// written: at least one slice, offsets rising strictly and the last slice
+/// starting inside the written size.
+fn slices_consistent(lock: &NV_ENC_LOCK_BITSTREAM, offsets: &[u32]) -> bool {
+    let count = lock.numSlices as usize;
+    count > 0
+        && count <= offsets.len()
+        && offsets[..count].windows(2).all(|pair| pair[0] < pair[1])
+        && offsets[count - 1] < lock.bitstreamSizeInBytes
 }
 /// Dynamic HDR metadata spliced into each picture or unit
 /// ([`crate::amf::dynamic::output`]): before the first slice, the Dolby

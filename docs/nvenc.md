@@ -18,9 +18,9 @@ Each row lists a feature the AMF path has and how NVENC provides it. Fake-driver
 | Bitrate changes | Yes | Yes | Reconfigured in place. A higher bitrate resets the encoder and forces a keyframe. |
 | Reference frame invalidation | Yes | Yes | Used where the driver reports it and keeps more than one reference. Otherwise a lost frame is recovered with a keyframe. |
 | Intra refresh | Yes | Yes | Off while slice delivery runs, as on AMF. |
-| Frame cap | Writes the per-codec maximum frame size | Holds frames to the one-frame VBV and lowers the VBV to a cap below it | Changes within a tenth are skipped, so a steady link never reconfigures. Lowering the VBV needs no reset and no keyframe. NVENC holds keyframes to the VBV (`lowDelayKeyFrameScale`), so it needs no keyframe cap scale. |
+| Frame cap | Writes the per-codec maximum frame size | Targets the one-frame VBV and lowers the VBV to a cap below it | Changes within a tenth are skipped, so a steady link never reconfigures. Lowering the VBV needs no reset, no keyframe and no wait for frames in flight. Keyframes are targeted too (`lowDelayKeyFrameScale` 1 and a one-frame VBV, as Sunshine), so there is no keyframe cap scale. The driver does not guarantee the bound: a frame over twice the cap logs a warning, at most every 10 s. |
 | Scene-cut re-encode | Yes | Yes | An inter frame past the full-FEC bound that is alone in flight is submitted again as a keyframe from the kept input, with the same frame number. The rule is AMF's (`reencodes_cut`). A failed re-encode sends the inter frame and raises the same `encoder_reencode` event. |
-| Slice delivery (`video_slice_delivery`) | Slice output mode | Subframe readback | `enableSubFrameWrite` and `reportSliceOffsets` require synchronous mode, so only these streams poll without completion events. A frame is complete once every slice the session set is written (`sliceMode` 3). `hwEncodeStatus` is not read because the SDK leaves its values undocumented. HEVC split encoding cannot run beside it, so a GPU with several NVENC engines keeps split encoding and sends whole frames (set `nvenc_split_encode = disabled` to stream slices). A driver without `NV_ENC_CAPS_SUPPORT_SUBFRAME_READBACK` warns and sends whole frames. No AV1, as on AMF. |
+| Slice delivery (`video_slice_delivery`) | Slice output mode | Subframe readback | `enableSubFrameWrite` and `reportSliceOffsets` require synchronous mode, so only these streams poll without completion events. A frame is complete when the lock reports `hwEncodeStatus` 2 (NVIDIA's developer forum); the slice count alone is not trusted. Slices leave early only while their offsets rise strictly and fit the bytes written; otherwise the frame waits to finish and the log warns once. The first four frames' locks are logged at debug level. HEVC split encoding cannot run beside it, so a GPU with several NVENC engines keeps split encoding and sends whole frames (set `nvenc_split_encode = disabled` to stream slices). A driver without `NV_ENC_CAPS_SUPPORT_SUBFRAME_READBACK` warns and sends whole frames. No AV1, as on AMF. |
 | Split-frame encoding | Not engaged by the driver | `nvenc_split_encode` (auto, forced, 2 to 4 strips) | Fixed strip counts and the slice-mode rule follow Foundation Sunshine. |
 | Frame budget guard | Not needed | `nvenc_frame_budget_guard` | Lowers a preset whose estimated encode time misses the frame interval. The per-preset calibration comes from Foundation Sunshine. |
 | Adaptive quantization | VBAQ and pre-analysis | Spatial AQ on by default, temporal AQ opt-in | Spatial AQ by default follows Foundation Sunshine and NVIDIA's game-streaming guidance. |
@@ -53,3 +53,11 @@ AMF attaches focus as an ROI map that the D3D12 compute conversion builds from i
 - **Emphasis map.** `NV_ENC_QP_MAP_EMPHASIS` is H.264-only and cannot run with spatial or temporal AQ, so the delta map is the one to use.
 
 Focus can follow once NVENC consumes the D3D12 conversion. Until then the console and the log give `nvenc` as the reason focus is off.
+
+## Not yet run on NVIDIA hardware
+
+The rows above pass the fake-driver tests. These behaviours follow NVIDIA's headers and other hosts' code and still need a first run on an NVIDIA GPU:
+
+- Subframe completion: `hwEncodeStatus` 2 as the end of a picture, and the slice offsets a partial lock reports. The debug lines of the first four frames settle both.
+- Keyframes within the one-frame VBV, which the driver does not guarantee.
+- Rate control changes applied with frames in flight.

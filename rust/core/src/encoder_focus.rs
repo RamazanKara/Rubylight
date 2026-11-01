@@ -154,7 +154,6 @@ pub enum Reason {
     D3d12ConversionUnavailable,
     SplitFrame,
     NoAmf,
-    Nvenc,
     NotProbed,
     InvalidValue,
 }
@@ -168,7 +167,6 @@ impl Reason {
             Self::D3d12ConversionUnavailable => "d3d12_conversion_unavailable",
             Self::SplitFrame => "split_frame",
             Self::NoAmf => "no_amf",
-            Self::Nvenc => "nvenc",
             Self::NotProbed => "not_probed",
             Self::InvalidValue => "invalid_value",
         }
@@ -181,7 +179,6 @@ impl Reason {
             Self::D3d12ConversionUnavailable,
             Self::SplitFrame,
             Self::NoAmf,
-            Self::Nvenc,
             Self::NotProbed,
             Self::InvalidValue,
         ]
@@ -197,9 +194,6 @@ impl Reason {
             Self::D3d12ConversionUnavailable => "the D3D12 colour conversion is unavailable",
             Self::SplitFrame => "split-frame encoding ignores the ROI map",
             Self::NoAmf => "no AMF encoder",
-            Self::Nvenc => {
-                "NVENC encodes from the D3D11 colour conversion, which builds no ROI map"
-            }
             Self::NotProbed => "the startup encoder check did not test ROI maps",
             Self::InvalidValue => "encoder_focus has an unknown value",
         }
@@ -479,7 +473,6 @@ mod tests {
             ),
             (Reason::SplitFrame, "split_frame"),
             (Reason::NoAmf, "no_amf"),
-            (Reason::Nvenc, "nvenc"),
             (Reason::NotProbed, "not_probed"),
             (Reason::InvalidValue, "invalid_value"),
         ];
@@ -488,6 +481,8 @@ mod tests {
             assert_eq!(Reason::from_wire(wire), Some(reason));
         }
         assert_eq!(Reason::from_wire("other"), None);
+        // NVENC has focus now; a verdict saved with its old reason is unknown.
+        assert_eq!(Reason::from_wire("nvenc"), None);
     }
 
     #[test]

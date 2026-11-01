@@ -540,7 +540,7 @@ Rarely needed settings, last in the section list. The search finds them like any
 | Prioritize stream traffic | On | On, Off | Linux. Gives stream traffic priority on this device. |
 | Instant mouse and pen input | On | On, Off | Sends mouse and pen motion immediately instead of batching it. |
 | Full color range | Off | On, Off | Requests the full RGB range from the host. |
-| *Fine-tuning:* Video decoding | Automatic | Automatic, Software | Automatic uses hardware decoding: D3D11VA on Windows, VA-API, V4L2 M2M or NVDEC on Linux. A fallback to software decoding is announced. Not used with PyroWave. |
+| *Fine-tuning:* Video decoding | Automatic | Automatic, Software | Automatic uses hardware decoding: D3D11VA on Windows, VA-API, Vulkan video, V4L2 M2M or NVDEC on Linux. A fallback to software decoding is announced. Not used with PyroWave. |
 | *Fine-tuning:* Local cursor | On | On, Off | In Desktop pointer mode, draws the PC's cursor shape locally, without video delay, on hosts that send cursor shapes. |
 
 Beam racing and early decode for PyroWave have no row on the Settings page. Both are off by default and are set with the `beam_race` and `early_decode` keys in `settings.json`, or the `NIGHTJAR_BEAM_RACE` and `NIGHTJAR_EARLY_DECODE` environment variables; see [beam racing](beam-racing.md) and [early decode](early-decode.md).

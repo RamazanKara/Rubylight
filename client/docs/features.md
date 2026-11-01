@@ -29,7 +29,7 @@ This page lists every feature with a link to its guide. Features available on on
 
 ## Picture
 
-- **H.264, HEVC and AV1** on the hardware decoder: MediaCodec with per-chip low-latency settings for Snapdragon, MediaTek, Tegra, Exynos, Google Tensor and Amlogic on Android ([decoder flags](decoder-flags.md)), D3D11VA on Windows, and VA-API, V4L2 M2M or NVDEC on Linux.
+- **H.264, HEVC and AV1** on the hardware decoder: MediaCodec with per-chip low-latency settings for Snapdragon, MediaTek, Tegra, Exynos, Google Tensor and Amlogic on Android ([decoder flags](decoder-flags.md)), D3D11VA on Windows, and VA-API, Vulkan video, V4L2 M2M or NVDEC on Linux.
 - **HDR.** HDR10 with any HDR-capable host. HDR10+ (with scene statistics), HLG and Dolby Vision (profile 10.1 on AV1, 8.1 and 8.4 on HEVC) need a host that sends them (Rubylight 3.0). Android shows all four; Windows HDR10, HLG and Dolby Vision; Linux HDR10 and HLG where the compositor provides an HDR surface. [HDR formats](video-and-latency.md#hdr-formats)
 - **10-bit SDR and 4:4:4.** 10-bit SDR reduces banding; full-chroma 4:4:4 keeps colored text sharp. **Full chroma** packs 4:4:4 into a stream that ordinary hardware decoders handle; true 4:4:4 needs a decoder that supports it, usually the software decoder. Each is offered only where this device's decoder handles it; otherwise the stream uses 8-bit or 4:2:0 and states the reason. [HDR and color](video-and-latency.md#hdr-and-color)
 - **PyroWave.** A low-latency wavelet codec, decoded through Vulkan on Android and on the GPU on Windows and Linux, including 4:4:4 and HDR. On Snapdragon devices a newer Adreno driver can be loaded for it. Needs a host that offers PyroWave. [PyroWave GPU decoding](pyrowave-decode.md)

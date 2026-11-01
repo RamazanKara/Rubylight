@@ -357,6 +357,7 @@ fn gpu_for_vulkan_video(possible: bool, choice: vulkan_video::Choice) -> bool {
 /// Whether a stream can decode with Vulkan video, so the GPU renderer's device is made with its
 /// video extensions and decode queues: on Linux, when a stream may decode in hardware
 /// (`any_hardware_decoding`) and `NIGHTJAR_VULKAN_VIDEO` is not 0 (`choice`).
+#[cfg(any(unix, test))]
 fn vulkan_video_possible(hardware_decoding: bool, choice: vulkan_video::Choice) -> bool {
     cfg!(unix) && hardware_decoding && choice != vulkan_video::Choice::Off
 }
@@ -365,6 +366,7 @@ fn vulkan_video_possible(hardware_decoding: bool, choice: vulkan_video::Choice) 
 /// or an app's override of it, applied over the global settings as a stream applies it. The
 /// renderer is chosen once for every stream, so only when all of them say Software is it chosen
 /// as for software decoding.
+#[cfg_attr(not(unix), allow(dead_code))]
 fn any_hardware_decoding<'a>(settings: &config::Settings, overrides: impl IntoIterator<Item = &'a config::Overrides>) -> bool {
     settings.decoder != DecoderPreference::Software
         || overrides.into_iter().any(|own| own.apply(settings).decoder != DecoderPreference::Software)
@@ -404,12 +406,16 @@ fn run(launch: Option<cli::Launch>) -> Result<(), String> {
     let gpu = settings.needs_gpu() || hosts.iter()
         .any(|host| host.settings.as_ref().is_some_and(config::Overrides::needs_gpu) || host.app_settings.values().any(config::Overrides::needs_gpu))
         || profiles.entries.iter().any(|profile| profile.settings.needs_gpu());
+    #[cfg(unix)]
     let vulkan_choice = vulkan_video::Choice::from_environment();
+    #[cfg(unix)]
     let vulkan_video = vulkan_video_possible(any_hardware_decoding(&settings, hosts.iter()
         .flat_map(|host| host.settings.iter().chain(host.app_settings.values()))
         .chain(profiles.entries.iter().map(|profile| &profile.settings))), vulkan_choice);
     #[cfg(unix)]
     let gpu = gpu || gpu_for_vulkan_video(vulkan_video, vulkan_choice);
+    #[cfg(not(unix))]
+    let vulkan_video = false;
 
     // SAFETY: window and renderer creation on the main thread.
     let (window, renderer, wake_event) = unsafe {

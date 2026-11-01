@@ -70,6 +70,8 @@ pub(super) trait Source {
     fn current(&self) -> bool;
     fn refresh(&mut self, identity: &Identity) -> Result<Self::Output>;
     fn describe(&self, output: &Self::Output) -> Option<Description>;
+    /// The output's refresh rate in Hz, 0 when unknown.
+    fn refresh_hz(&self, identity: &Identity) -> u32;
 }
 
 struct Cache<S: Source> {
@@ -218,13 +220,38 @@ impl Source for Dxgi {
                 })
         }
     }
+
+    fn refresh_hz(&self, identity: &Identity) -> u32 {
+        current_refresh_hz(&identity.name)
+    }
 }
 
-/// A check's result: the description or why it failed, and the last known
-/// luminance.
+/// The current mode's refresh rate of the display named `name` (its GDI
+/// device name), in Hz; 0 when unknown.
+pub(crate) fn current_refresh_hz(name: &str) -> u32 {
+    use windows::Win32::Graphics::Gdi::{DEVMODEW, ENUM_CURRENT_SETTINGS, EnumDisplaySettingsW};
+    let name: Vec<u16> = name.encode_utf16().chain(Some(0)).collect();
+    let mut mode = DEVMODEW {
+        dmSize: size_of::<DEVMODEW>() as u16,
+        ..Default::default()
+    };
+    // SAFETY: `name` is NUL-terminated and `mode` has dmSize set; both outlive the call.
+    if unsafe { EnumDisplaySettingsW(PCWSTR(name.as_ptr()), ENUM_CURRENT_SETTINGS, &mut mode) }
+        .as_bool()
+        && mode.dmDisplayFrequency > 1
+    {
+        mode.dmDisplayFrequency
+    } else {
+        0
+    }
+}
+
+/// A check's result: the description or why it failed, the last known
+/// luminance, and the refresh rate in Hz (0 when unknown).
 pub(super) type Snapshot = (
     std::result::Result<Option<Description>, String>,
     butterpollo_core::hdr::Metadata,
+    u32,
 );
 
 /// With no read for this long the watcher stops; the next read checks at once.
@@ -305,7 +332,8 @@ where
     fn check(&self, now: Instant) -> Snapshot {
         let mut cache = self.cache.lock().unwrap();
         let _ = cache.poll(now);
-        (cache.snapshot.clone(), cache.metadata)
+        let refresh = cache.source.refresh_hz(&cache.identity);
+        (cache.snapshot.clone(), cache.metadata, refresh)
     }
 
     fn next_check(&self) -> Instant {
@@ -353,7 +381,54 @@ where
     }
 }
 
+/// A watched output's published refresh rate, for readers that know the
+/// output only by name (the present-time stamper).
+trait PublishedRefresh: Send + Sync {
+    fn refresh_hz(self: Arc<Self>) -> u32;
+}
+
+impl<S: Source + Send + 'static> PublishedRefresh for Watched<S>
+where
+    S::Output: Send,
+{
+    fn refresh_hz(self: Arc<Self>) -> u32 {
+        self.read().2
+    }
+}
+
+/// The watched outputs by GDI device name; a newer device's watch replaces
+/// an older one, and dropped ones are skipped.
+static REFRESH: Mutex<Vec<(String, Weak<dyn PublishedRefresh>)>> = Mutex::new(Vec::new());
+
+fn register<S: Source + Send + 'static>(name: &str, watched: &Arc<Watched<S>>)
+where
+    S::Output: Send,
+{
+    let watched: Arc<dyn PublishedRefresh> = watched.clone();
+    let mut outputs = REFRESH.lock().unwrap();
+    outputs.retain(|(other, weak)| other != name && weak.strong_count() > 0);
+    outputs.push((name.to_owned(), Arc::downgrade(&watched)));
+}
+
+/// The refresh rate the display watcher last published for the output named
+/// `name`; `None` when no device watches it.
+pub(crate) fn published_refresh_hz(name: &str) -> Option<u32> {
+    let watched = REFRESH
+        .lock()
+        .unwrap()
+        .iter()
+        .find(|(other, _)| other == name)
+        .and_then(|(_, weak)| weak.upgrade())?;
+    Some(watched.refresh_hz())
+}
+
 impl Color {
+    /// Makes the colour readable by output name too, for the refresh rate.
+    pub(super) fn publish(self: &Arc<Self>) {
+        let name = self.cache.lock().unwrap().identity.name.clone();
+        register(&name, self);
+    }
+
     pub(super) fn open(output: &IDXGIOutput1, name: &str) -> Result<Self> {
         // Use the output's owner, which may differ from the encode device's
         // adapter when WGC captures a display on another GPU.
@@ -398,6 +473,7 @@ mod tests {
         candidates: Vec<(Identity, Option<Description>)>,
         enumerations: usize,
         reads: Cell<usize>,
+        refresh: u32,
     }
 
     impl Source for Fake {
@@ -414,6 +490,9 @@ mod tests {
         fn describe(&self, output: &Self::Output) -> Option<Description> {
             self.reads.set(self.reads.get() + 1);
             *output
+        }
+        fn refresh_hz(&self, _: &Identity) -> u32 {
+            self.refresh
         }
     }
 
@@ -445,6 +524,7 @@ mod tests {
                 candidates: vec![(identity(), initial)],
                 enumerations: 0,
                 reads: Cell::new(0),
+                refresh: 120,
             },
             identity(),
             initial,
@@ -695,7 +775,7 @@ mod tests {
         assert_eq!(reads(&watched), 1);
         // The watcher's check publishes the change, as a poll did.
         assert!(watched.tick(later));
-        let (current, metadata) = watched.read_with(later, |_| unreachable!());
+        let (current, metadata, _) = watched.read_with(later, |_| unreachable!());
         assert_eq!(current, Ok(Some(new)));
         assert!(mode_changed(Some(old.color_space), current.unwrap()));
         assert_eq!(metadata, new.metadata);
@@ -714,7 +794,7 @@ mod tests {
             cache.source.candidates.clear();
         }
         assert!(watched.tick(now + CHECK_INTERVAL));
-        let (current, metadata) = watched.read_with(now + CHECK_INTERVAL, |_| unreachable!());
+        let (current, metadata, _) = watched.read_with(now + CHECK_INTERVAL, |_| unreachable!());
         assert!(current.is_err());
         assert_eq!(metadata, old.metadata);
     }
@@ -734,7 +814,7 @@ mod tests {
             cache.source.candidates = vec![(identity(), Some(new))];
         }
         let mut spawned = false;
-        let (current, _) = watched.read_with(now + IDLE * 2, |_| {
+        let (current, _, _) = watched.read_with(now + IDLE * 2, |_| {
             spawned = true;
             Ok(())
         });
@@ -780,6 +860,29 @@ mod tests {
         }
         assert!(handle.is_finished());
         handle.join().expect("the watcher ends without a panic");
+    }
+
+    #[test]
+    fn a_refresh_change_is_published_by_the_watcher_and_found_by_name() {
+        let now = Instant::now();
+        let watched = watched(now, Some(description(false, 300.)));
+        assert_eq!(watched.read_with(now, |_| Ok(())).2, 120);
+        // A game's mode switch: hot reads keep the published rate until the watcher checks.
+        watched.cache.lock().unwrap().source.refresh = 60;
+        assert_eq!(watched.read_with(now, |_| unreachable!()).2, 120);
+        assert!(watched.tick(now + CHECK_INTERVAL));
+        assert_eq!(
+            watched
+                .read_with(now + CHECK_INTERVAL, |_| unreachable!())
+                .2,
+            60
+        );
+        // The stamper finds it by output name while a device holds it.
+        let name = r"\.\REFRESH-TEST";
+        register(name, &watched);
+        assert!(published_refresh_hz(name).is_some());
+        drop(watched);
+        assert_eq!(published_refresh_hz(name), None);
     }
 
     #[test]

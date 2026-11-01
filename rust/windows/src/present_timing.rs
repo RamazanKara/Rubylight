@@ -11,7 +11,6 @@ use std::{
 use windows::{
     Win32::{
         Foundation::{ERROR_INVALID_PARAMETER, ERROR_SUCCESS},
-        Graphics::Gdi::{DEVMODEW, ENUM_CURRENT_SETTINGS, EnumDisplaySettingsW},
         System::{Diagnostics::Etw::*, Performance::QueryPerformanceCounter},
         UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowThreadProcessId},
     },
@@ -284,18 +283,18 @@ fn tracker() -> Option<Arc<Tracker>> {
     Some(active)
 }
 /// One refresh interval of `output`'s current mode in QPC ticks, 0 when unknown.
+/// The display watcher's published rate while a capture device watches the
+/// output, so the frame path makes no display call; read directly otherwise.
 fn refresh_grid(output: &str, frequency: i64) -> i64 {
-    let name: Vec<u16> = output.encode_utf16().chain(Some(0)).collect();
-    let mut mode = DEVMODEW {
-        dmSize: size_of::<DEVMODEW>() as u16,
-        ..Default::default()
-    };
-    // SAFETY: `name` is NUL-terminated and `mode` has dmSize set; both outlive the call.
-    if unsafe { EnumDisplaySettingsW(PCWSTR(name.as_ptr()), ENUM_CURRENT_SETTINGS, &mut mode) }
-        .as_bool()
-        && mode.dmDisplayFrequency > 1
-    {
-        frequency / i64::from(mode.dmDisplayFrequency)
+    grid(
+        crate::capture::published_refresh_hz(output)
+            .unwrap_or_else(|| crate::capture::current_refresh_hz(output)),
+        frequency,
+    )
+}
+fn grid(refresh_hz: u32, frequency: i64) -> i64 {
+    if refresh_hz > 1 {
+        frequency / i64::from(refresh_hz)
     } else {
         0
     }
@@ -401,6 +400,14 @@ impl Stamper {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn the_grid_is_one_refresh_interval_or_unknown() {
+        assert_eq!(grid(120, 10_000_000), 83_333);
+        assert_eq!(grid(60, 10_000_000), 166_666);
+        // EnumDisplaySettings reports 0 or 1 for the hardware default.
+        assert_eq!(grid(1, 10_000_000), 0);
+        assert_eq!(grid(0, 10_000_000), 0);
+    }
     #[test]
     fn dxgi_event_abi_rejects_test_truncated_and_unrelated_presents() {
         let events = Events {

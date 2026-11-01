@@ -31,6 +31,7 @@ use windows::{
 };
 
 mod output;
+pub(crate) use output::{current_refresh_hz, published_refresh_hz};
 mod wgc;
 pub use wgc::*;
 
@@ -713,7 +714,11 @@ impl Device {
                 .as_ref()
                 .map(|output| output::Color::open(output, &display.display_name))
                 .transpose()?
-                .map(std::sync::Arc::new);
+                .map(|color| {
+                    let color = std::sync::Arc::new(color);
+                    color.publish();
+                    color
+                });
             Ok(Self {
                 device: device.unwrap(),
                 context,

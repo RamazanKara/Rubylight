@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The classic on-screen controls' opacity for the control picked while resizing. VirtualController fills it in. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="320dp"
+    android:layout_height="wrap_content"
+    android:background="@drawable/bg_pad_editor_panel"
+    android:clickable="true"
+    android:gravity="center_vertical"
+    android:orientation="horizontal"
+    android:paddingStart="@dimen/space_l"
+    android:paddingEnd="@dimen/space_l">
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="@string/title_osc_opacity"
+        android:textAppearance="@style/TextAppearance.Nightjar.Label"
+        android:textColor="@color/night_on_surface_variant" />
+
+    <com.google.android.material.slider.Slider
+        android:id="@+id/osc_opacity_slider"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:contentDescription="@string/title_osc_opacity"
+        android:enabled="false"
+        android:stepSize="5"
+        android:value="100"
+        android:valueFrom="10"
+        android:valueTo="100"
+        app:labelBehavior="gone"
+        app:tickVisible="false"
+        app:thumbColor="@color/night_primary"
+        app:trackColorActive="@color/night_primary"
+        app:trackColorInactive="@color/night_outline_variant" />
+
+    <TextView
+        android:id="@+id/osc_opacity_value"
+        android:layout_width="48dp"
+        android:layout_height="wrap_content"
+        android:gravity="end"
+        android:textAppearance="@style/TextAppearance.Nightjar.Label"
+        android:textColor="@color/night_on_surface" />
+</LinearLayout>

@@ -90,26 +90,30 @@ impl PlanesPass {
         Self::with_planes(renderer, [0, 1, 2].map(|plane| layout.plane_size(plane)), layout.ten_bit)
     }
 
+    /// The pass for Vulkan video pictures: it draws `textures`, the luma and the interleaved chroma
+    /// of `vulkan_video::Planes`, which the presenter copies each picture into on the GPU, with
+    /// flag 256 (`draw_bound`); it has no textures or upload of its own.
+    ///
+    /// # Safety
+    /// `renderer` must be the live SDL GPU renderer of the calling thread, and `textures` live
+    /// textures of its device that outlive the pass.
+    pub unsafe fn for_vulkan(renderer: *mut SDL_Renderer, textures: [*mut SDL_GPUTexture; 2]) -> Result<Self, String> {
+        let mut pass = Self::shader_only(renderer, [(0, 0); 3], 1)?;
+        pass.bind(renderer, [textures[0], textures[1], textures[1]])?;
+        Ok(pass)
+    }
+
+    /// Draws the textures a `for_vulkan` pass was made with, converted, over all of `target`.
+    ///
+    /// # Safety
+    /// `renderer` and `target` must be live and the pass the one made on this renderer.
+    pub unsafe fn draw_bound(&mut self, renderer: *mut SDL_Renderer, target: *mut SDL_Texture, parameters: &[u32; 8]) -> Result<(), String> {
+        self.convert(renderer, target, parameters, None)
+    }
+
     unsafe fn with_planes(renderer: *mut SDL_Renderer, sizes: [(u32, u32); 3], ten_bit: bool) -> Result<Self, String> {
-        let device = device_of(renderer);
-        if device.is_null() {
-            return Err("it needs the SDL GPU renderer".into());
-        }
-        let mut pass = Self {
-            device, shader: ptr::null_mut(), sampler: ptr::null_mut(), textures: [ptr::null_mut(); 3],
-            transfer: ptr::null_mut(), state: ptr::null_mut(), sizes, sample_bytes: if ten_bit { 2 } else { 1 }, wrapped: None,
-        };
-        pass.shader = create_shader(device);
-        if pass.shader.is_null() {
-            return Err(format!("the plane shader does not load: {}", crate::sdl::error()));
-        }
-        pass.sampler = SDL_CreateGPUSampler(device, &SDL_GPUSamplerCreateInfo {
-            min_filter: SDL_GPU_FILTER_LINEAR, mag_filter: SDL_GPU_FILTER_LINEAR, mipmap_mode: SDL_GPU_SAMPLERMIPMAPMODE_NEAREST,
-            address_mode_u: SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE, address_mode_v: SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE,
-            address_mode_w: SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE, ..Default::default() });
-        if pass.sampler.is_null() {
-            return Err(format!("the plane sampler cannot be created: {}", crate::sdl::error()));
-        }
+        let mut pass = Self::shader_only(renderer, sizes, if ten_bit { 2 } else { 1 })?;
+        let device = pass.device;
         for (plane, texture) in pass.textures.iter_mut().enumerate() {
             let (width, height) = sizes[plane];
             *texture = SDL_CreateGPUTexture(device, &SDL_GPUTextureCreateInfo {
@@ -125,13 +129,43 @@ impl PlanesPass {
         if pass.transfer.is_null() {
             return Err(format!("the plane transfer buffer cannot be created: {}", crate::sdl::error()));
         }
-        let bindings = pass.textures.map(|texture| SDL_GPUTextureSamplerBinding { texture, sampler: pass.sampler });
-        pass.state = SDL_CreateGPURenderState(renderer, &SDL_GPURenderStateCreateInfo {
-            fragment_shader: pass.shader, num_sampler_bindings: 3, sampler_bindings: bindings.as_ptr(), ..Default::default() });
-        if pass.state.is_null() {
-            return Err(format!("the plane render state cannot be created: {}", crate::sdl::error()));
+        pass.bind(renderer, pass.textures)?;
+        Ok(pass)
+    }
+
+    /// The pass's shader and sampler, without textures or a render state yet.
+    unsafe fn shader_only(renderer: *mut SDL_Renderer, sizes: [(u32, u32); 3], sample_bytes: usize) -> Result<Self, String> {
+        let device = device_of(renderer);
+        if device.is_null() {
+            return Err("it needs the SDL GPU renderer".into());
+        }
+        let mut pass = Self {
+            device, shader: ptr::null_mut(), sampler: ptr::null_mut(), textures: [ptr::null_mut(); 3],
+            transfer: ptr::null_mut(), state: ptr::null_mut(), sizes, sample_bytes, wrapped: None,
+        };
+        pass.shader = create_shader(device);
+        if pass.shader.is_null() {
+            return Err(format!("the plane shader does not load: {}", crate::sdl::error()));
+        }
+        pass.sampler = SDL_CreateGPUSampler(device, &SDL_GPUSamplerCreateInfo {
+            min_filter: SDL_GPU_FILTER_LINEAR, mag_filter: SDL_GPU_FILTER_LINEAR, mipmap_mode: SDL_GPU_SAMPLERMIPMAPMODE_NEAREST,
+            address_mode_u: SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE, address_mode_v: SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE,
+            address_mode_w: SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE, ..Default::default() });
+        if pass.sampler.is_null() {
+            return Err(format!("the plane sampler cannot be created: {}", crate::sdl::error()));
         }
         Ok(pass)
+    }
+
+    /// The render state drawing `textures` in the shader's three plane slots.
+    unsafe fn bind(&mut self, renderer: *mut SDL_Renderer, textures: [*mut SDL_GPUTexture; 3]) -> Result<(), String> {
+        let bindings = textures.map(|texture| SDL_GPUTextureSamplerBinding { texture, sampler: self.sampler });
+        self.state = SDL_CreateGPURenderState(renderer, &SDL_GPURenderStateCreateInfo {
+            fragment_shader: self.shader, num_sampler_bindings: 3, sampler_bindings: bindings.as_ptr(), ..Default::default() });
+        if self.state.is_null() {
+            return Err(format!("the plane render state cannot be created: {}", crate::sdl::error()));
+        }
+        Ok(())
     }
 
     /// Copies the planes of `lease` (on the GPU, or as an upload) and draws them, converted, over

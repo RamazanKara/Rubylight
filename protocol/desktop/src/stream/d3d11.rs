@@ -549,6 +549,13 @@ mod tests {
     use super::after_slice_draw;
     use std::cell::Cell;
 
+    /// pyrowave.hlsl's Vulkan-only parts (Vulkan video's interleaved chroma) leave the plane shader
+    /// Direct3D compiles as it was.
+    #[test]
+    fn the_plane_shader_compiles_for_direct3d() {
+        assert_eq!(super::PlanesPass::compiles(), Ok(()));
+    }
+
     #[test]
     fn a_slice_draw_that_was_not_recorded_still_signals_the_reuse_fence() {
         let signals = Cell::new(0);

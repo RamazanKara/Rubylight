@@ -104,6 +104,8 @@ fn reset_all_asks_first_and_keeps_the_language() {
     click_text(&mut f, "App");
     click_text(&mut f, "Reset all…");
     assert!(shows(&f, "Reset all settings?") && shows(&f, "Cancel"), "{:?}", f.drawn);
+    // The question says what stays.
+    assert!(shows(&f, "Every setting on this page goes back to its default. Your language, PCs, games, profiles, PIN lock, controller buttons, shortcuts and anything not on this page stay as they are. This can't be undone."), "{:?}", f.drawn);
     click_text(&mut f, "Cancel");
     assert!(f.l.settings.fps == 120 && shows(&f, "Reset all…"), "Cancel changes nothing");
     click_text(&mut f, "Reset all…");
@@ -278,6 +280,171 @@ fn the_section_key_table_is_what_the_page_draws() {
         let listed: Vec<&str> = SECTION_KEYS[at].iter().map(|keys| keys[0]).filter(|k| only_here(k)).collect();
         assert_eq!(drawn, listed, "{section}");
     }
+}
+
+/// Main settings like `settings_with`, with the AccessKit tree on to read which rows are disabled.
+fn settings_read_with(changed: Settings) -> Frames {
+    let mut f = settings_with(changed);
+    f.ctx.enable_accesskit();
+    f.settle();
+    f
+}
+
+/// Whether the control whose description starts with `description` is disabled; None when no
+/// such control is drawn.
+fn control_disabled(f: &Frames, description: &str) -> Option<bool> {
+    f.access.as_ref().expect("AccessKit is on").nodes.iter()
+        .find(|(_, n)| n.role() != egui::accesskit::Role::Label && n.description().is_some_and(|d| d.starts_with(description)))
+        .map(|(_, n)| n.is_disabled())
+}
+
+/// Frame pacing and V-Sync work with Variable refresh rate off and Show frames with it on: a
+/// gate over some rows never carries over to the rows after them.
+#[test]
+fn the_vrr_rows_follow_their_own_gates() {
+    let (pacing, vsync, host_times) = ("Without VRR: Lowest latency", "Without VRR: waits", "With VRR: each frame");
+    for vrr in [false, true] {
+        let mut f = settings_read_with(Settings { vrr, frame_pacing: crate::config::FramePacing::Latency, ..Settings::default() });
+        f.l.settings_view.section = "Display & image";
+        f.settle();
+        assert_eq!(control_disabled(&f, pacing), Some(vrr), "vrr {vrr}: Frame pacing");
+        assert_eq!(control_disabled(&f, vsync), Some(vrr), "vrr {vrr}: V-Sync");
+        assert_eq!(control_disabled(&f, host_times), Some(!vrr), "vrr {vrr}: Show frames at the PC's frame times");
+        let notes = |text: &str| f.drawn.iter().filter(|t| *t == text).count();
+        assert_eq!(notes("Used only with Variable refresh rate off."), if vrr { 2 } else { 0 }, "{:?}", f.drawn);
+        assert_eq!(notes("Turn on Variable refresh rate to use this."), usize::from(!vrr), "{:?}", f.drawn);
+    }
+    // A frame pacing that waits for the refresh keeps V-Sync on, and says so.
+    let mut f = settings_read_with(Settings { vrr: false, frame_pacing: crate::config::FramePacing::Balanced, ..Settings::default() });
+    f.l.settings_view.section = "Display & image";
+    f.settle();
+    assert_eq!((control_disabled(&f, pacing), control_disabled(&f, vsync)), (Some(false), Some(true)));
+    assert!(shows(&f, "Always on with the chosen frame pacing."), "{:?}", f.drawn);
+}
+
+/// Full chroma turns off YUV 4:4:4 and 10-bit SDR, not Video decoding: only PyroWave does.
+#[test]
+fn full_chroma_leaves_video_decoding_alone() {
+    let decoding = "Automatic decodes on the graphics card";
+    let f = settings_read_with(Settings { experimental_packed_444: true, ..Settings::default() });
+    assert_eq!(control_disabled(&f, decoding), Some(false));
+    assert_eq!(control_disabled(&f, "Keeps full color detail"), Some(true));
+    let f = settings_read_with(Settings { codec: CodecPreference::PyroWave, ..Settings::default() });
+    assert_eq!(control_disabled(&f, decoding), Some(true));
+}
+
+/// A PC's own value on a row that is turned off (YUV 4:4:4 under PyroWave) can still be given
+/// back with its box; a row turned off and not set here keeps its box off too.
+#[test]
+fn a_pcs_own_value_on_a_disabled_row_can_be_cleared() {
+    use egui::accesskit::{Role, Toggled};
+    let mut f = Frames::new(record("PC", true, false), Reach::Online);
+    f.size = vec2(1280.0, 4000.0);
+    f.ctx.enable_accesskit();
+    f.hosts.list[0].record.settings = Some(serde_json::from_str(r#"{"codec":"PyroWave","prefer_yuv444":true}"#).unwrap());
+    let id = f.hosts.list[0].id;
+    f.l.open_host_settings(id, &f.hosts.list[0]);
+    f.settle();
+    let row_box = |f: &Frames, row: &str| {
+        f.access.as_ref().expect("AccessKit is on").nodes.iter()
+            .find(|(_, n)| n.role() == Role::CheckBox && n.label() == Some("For this PC") && n.description() == Some(row))
+            .map(|(_, n)| (n.toggled(), n.is_disabled(), n.bounds().expect("laid out")))
+            .unwrap_or_else(|| panic!("{row}'s box"))
+    };
+    let (toggled, disabled, bounds) = row_box(&f, "Sharper colored text (YUV 4:4:4)");
+    assert_eq!((toggled, disabled), (Some(Toggled::True), false), "the PC's own value can be unticked");
+    assert_eq!(control_disabled(&f, "Keeps full color detail"), Some(true), "the switch itself stays off under PyroWave");
+    let (toggled, disabled, _) = row_box(&f, "Less color banding (10-bit SDR)");
+    assert_eq!((toggled, disabled), (Some(Toggled::False), true), "a row off and not set here keeps its box off");
+    f.click_at(Pos2::new(((bounds.x0 + bounds.x1) / 2.0) as f32, ((bounds.y0 + bounds.y1) / 2.0) as f32), egui::PointerButton::Primary);
+    assert!(!f.l.edit_overrides.has(&["prefer_yuv444"]) && f.l.edit_overrides.has(&["codec"]), "{:?}", f.l.edit_overrides);
+    assert_eq!(row_box(&f, "Sharper colored text (YUV 4:4:4)").0, Some(Toggled::False));
+}
+
+/// Left from any row stays in that row (its Reset, a slider) or goes to the open section's
+/// entry, never to a Reset or control of another row, with changed rows above and below.
+#[test]
+fn left_never_lands_on_another_rows_reset() {
+    let focused = |f: &Frames| f.ctx.memory(|m| m.focused()).and_then(|id| f.ctx.read_response(id)).map(|r| r.rect);
+    let changed = [Settings { fps: 120, ..Settings::default() }, Settings { fps: 60, bitrate_kbps: 40_000, ..Settings::default() }];
+    for width in [1280.0, 900.0] {
+        for (case, settings) in changed.iter().enumerate() {
+            for step in 0..8 {
+                let mut f = settings_with(settings.clone());
+                f.size = vec2(width, 4000.0);
+                f.l.go(Screen::Settings);
+                f.l.settings_view.section = "Video";
+                f.settle();
+                for _ in 0..step {
+                    f.press(Key::ArrowDown);
+                }
+                let from = focused(&f).expect("a row's control has focus");
+                let entry = f.placed.iter().filter(|(t, ..)| t == "Video").map(|p| p.1)
+                    .min_by(|a, b| a.height().total_cmp(&b.height())).expect("the entry");
+                if from.contains(entry.center()) {
+                    continue;
+                }
+                f.press(Key::ArrowLeft);
+                let to = focused(&f).expect("Left keeps a focus");
+                let same_row = to.top() < from.bottom() && from.top() < to.bottom();
+                assert!(to.contains(entry.center()) || same_row, "{width} case {case} step {step}: Left from {from:?} lands on {to:?}, not the entry {entry:?} or its row");
+            }
+        }
+    }
+    // A changed row's own Reset is still left of its control.
+    let mut f = settings_with(Settings { width: 1280, height: 720, ..Settings::default() });
+    let from = focused(&f).expect("Resolution has focus");
+    f.press(Key::ArrowLeft);
+    let reset = f.placed.iter().find(|(t, ..)| t == "Reset").expect("Resolution's Reset").1;
+    assert!(focused(&f).is_some_and(|r| r.contains(reset.center())), "Left from {from:?} reaches the row's Reset {reset:?}, not {:?}", focused(&f));
+}
+
+/// Escape (B) in the search field leaves it for the first row found, so the D-pad carries on.
+#[test]
+fn escape_in_the_search_moves_focus_to_the_rows() {
+    let mut f = settings_with(Settings::default());
+    f.press_with(Key::F, egui::Modifiers::COMMAND);
+    f.frame(vec![egui::Event::Text("hdr".into())]);
+    f.settle();
+    f.press(Key::Escape);
+    let focused = |f: &Frames| f.ctx.memory(|m| m.focused()).and_then(|id| f.ctx.read_response(id)).map(|r| r.rect);
+    let results = f.placed.iter().find(|(t, ..)| t == "Results for “hdr”").expect("the results").1;
+    assert_eq!(f.l.settings_view.query, "hdr", "the first Escape keeps the search");
+    assert!(focused(&f).is_some_and(|r| r.left() > results.left() && r.top() > results.bottom()), "a row found has focus: {:?}", focused(&f));
+    // With nothing found, the open section's entry takes it.
+    f.press_with(Key::F, egui::Modifiers::COMMAND);
+    f.frame(vec![egui::Event::Text("zzzz".into())]);
+    f.settle();
+    f.press(Key::Escape);
+    let entry = f.placed.iter().filter(|(t, ..)| t == "Video").map(|p| p.1).min_by(|a, b| a.height().total_cmp(&b.height())).expect("the entry");
+    assert!(focused(&f).is_some_and(|r| r.contains(entry.center())), "the entry has focus: {:?}", focused(&f));
+}
+
+/// Ctrl+F is the page's: with a dialog open it leaves the focus where it is.
+#[test]
+fn ctrl_f_leaves_an_open_dialog_alone() {
+    let mut f = settings_with(Settings::default());
+    f.l.ask(Dialog::Message { title: "Network test failed".into(), body: "The PC did not answer.".into() });
+    f.settle();
+    let before = f.ctx.memory(|m| m.focused());
+    assert!(before.is_some(), "the dialog's button has focus");
+    f.press_with(Key::F, egui::Modifiers::COMMAND);
+    assert_eq!(f.ctx.memory(|m| m.focused()), before, "the dialog keeps the focus");
+}
+
+/// A PC's own value without a row on the page (beam racing) still counts, and Clear all clears it.
+#[test]
+fn a_pcs_value_without_a_row_counts_and_clears() {
+    let mut f = Frames::new(record("PC", true, false), Reach::Online);
+    f.size = vec2(1280.0, 4000.0);
+    f.hosts.list[0].record.settings = Some(serde_json::from_str(r#"{"beam_race":true}"#).unwrap());
+    let id = f.hosts.list[0].id;
+    f.l.open_host_settings(id, &f.hosts.list[0]);
+    f.settle();
+    assert!(shows(&f, "1 setting is set here.") && shows(&f, "1 of them has no row on this page; Clear all clears it too."), "{:?}", f.drawn);
+    click_text(&mut f, "Clear all for this PC");
+    click_text(&mut f, "Clear all");
+    assert!(f.l.edit_overrides.is_empty() && shows(&f, "Nothing is set here yet."), "{:?}", f.drawn);
 }
 
 /// The settings page in every state worth a look, at 1280x800 (150 %) and 1920x1080:

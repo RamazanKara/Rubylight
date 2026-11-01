@@ -79,8 +79,11 @@ pub(super) struct SettingsView {
     pub(super) confirm_reset: bool,
     /// The search field had focus last frame, so Escape leaves it before it leaves the page.
     search_focused: bool,
-    /// Left was pressed last frame on this control in the rows.
-    left_from: Option<Id>,
+    /// The first row drawn takes focus next frame (the search field was left); with none drawn,
+    /// the open section's entry does.
+    focus_rows: bool,
+    /// Left was pressed last frame on this control in the rows, laid out there.
+    left_from: Option<(Id, Rect)>,
     /// The setting rows the last frame drew, by first key, each with whether a group heading
     /// came before it in its section.
     pub(super) drawn: Vec<(&'static str, bool)>,
@@ -125,7 +128,8 @@ impl Launcher {
         }
         let view = &mut self.settings_view;
         if view.search_focused {
-            view.search_focused = false;
+            // The rows take the focus the field gives up, so the D-pad carries on from there.
+            (view.search_focused, view.focus_rows) = (false, true);
             view.to_top = true;
             return true;
         }
@@ -150,7 +154,8 @@ impl Launcher {
             view.query.clear();
             (view.confirm_reset, view.to_top) = (false, true);
         }
-        if ui.input(|i| i.modifiers.command && i.key_pressed(Key::F)) {
+        // Not under a dialog, which keeps the focus as long as it is open.
+        if matches!(self.dialog, Dialog::None) && ui.input(|i| i.modifiers.command && i.key_pressed(Key::F)) {
             ui.memory_mut(|m| m.request_focus(search_id()));
         }
         if layered {
@@ -195,29 +200,38 @@ impl Launcher {
         let screen = self.screen;
         self.settings_rows(&mut column, view, commands);
         if self.screen == screen {
+            if std::mem::take(&mut self.settings_view.focus_rows) {
+                if let Some(&(_, entry)) = entries.iter().find(|&&(name, _)| name == self.settings_view.section) {
+                    ui.memory_mut(|m| m.request_focus(entry));
+                }
+            }
             self.left_to_sections(ui, rows_rect, &entries);
         }
     }
 
     /// Left from a control in the rows goes to the open section's entry in the list (its chip
     /// on a narrow window), never to whatever egui's nearest-widget search finds above, such as
-    /// the header or another chip. egui moves the focus at the end of the frame, so a move out of
-    /// the rows to anything else is corrected on the next one: a control with another left of it in
-    /// its row still goes there, and a slider or a number field keeps the key for itself.
+    /// the header, another chip or another row's Reset. egui moves the focus at the end of the
+    /// frame, so a move to anything outside the row it left is corrected on the next one: a
+    /// control with another left of it in its row (its Reset) still goes there, and a slider or a
+    /// number field keeps the key for itself.
     fn left_to_sections(&mut self, ui: &Ui, rows: Rect, entries: &[(&'static str, Id)]) {
         let focused = ui.memory(|m| m.focused());
-        let in_rows = |id: Id| ui.ctx().read_response(id).is_some_and(|r| rows.contains(r.rect.center()));
-        if let Some(from) = self.settings_view.left_from.take() {
+        let rect = |id: Id| ui.ctx().read_response(id).map(|r| r.rect);
+        let in_rows = |id: Id| rect(id).is_some_and(|r| rows.contains(r.center()));
+        if let Some((from, from_rect)) = self.settings_view.left_from.take() {
             let open = entries.iter().find(|&&(name, _)| name == self.settings_view.section);
-            let strayed = focused.is_some_and(|id| id != from && !in_rows(id) && open.is_none_or(|&(_, entry)| entry != id));
+            // In the same row: beside the control focus left, not above or below it.
+            let same_row = |id: Id| in_rows(id) && rect(id).is_some_and(|r| r.top() < from_rect.bottom() && from_rect.top() < r.bottom());
+            let strayed = focused.is_some_and(|id| id != from && !same_row(id) && open.is_none_or(|&(_, entry)| entry != id));
             if let (true, Some(&(_, entry))) = (strayed, open) {
                 ui.memory_mut(|m| m.request_focus(entry));
                 ui.ctx().request_repaint();
             }
         }
         let left = ui.input(|i| i.events.iter().any(|e| matches!(e, egui::Event::Key { key: Key::ArrowLeft, pressed: true, modifiers, .. } if !modifiers.any())));
-        if left && focused.is_some_and(in_rows) {
-            self.settings_view.left_from = focused;
+        if let Some(from) = focused.filter(|&id| left && in_rows(id)) {
+            self.settings_view.left_from = rect(from).map(|r| (from, r));
             // The frame that corrects the move, even when nothing else asks for one.
             ui.ctx().request_repaint();
         }
@@ -231,17 +245,31 @@ impl Launcher {
             Screen::HostSettings(_) => (en("Settings with “For this PC” ticked apply to this PC only. The others follow the profile in use and your main settings."), en("Clear all for this PC")),
             _ => (en("Settings with “For this game” ticked apply to this game only. The others follow this PC, the profile in use and your main settings."), en("Clear all for this game")),
         };
-        let set = SECTION_KEYS.iter().flat_map(|keys| keys.iter()).filter(|keys| self.edit_overrides.has(keys)).count();
+        // The rows set here, and the settings set here that have no row (beam racing set from the
+        // stream menu): Clear all clears those too.
+        let rows = SECTION_KEYS.iter().flat_map(|keys| keys.iter());
+        let in_rows = rows.clone().filter(|keys| self.edit_overrides.has(keys)).count();
+        let values = serde_json::to_value(&self.edit_overrides).expect("overrides serialize");
+        let without_row = values.as_object().map_or(0, |values| values.keys().filter(|key| !rows.clone().any(|keys| keys.contains(&key.as_str()))).count());
+        let set = in_rows + without_row;
         let count = match set {
             0 => tr("Nothing is set here yet.").to_owned(),
             1 => tr("1 setting is set here.").to_owned(),
             n => trf("{} settings are set here.", &[&n]),
+        };
+        let hidden = match without_row {
+            0 => None,
+            1 => Some(tr("1 of them has no row on this page; Clear all clears it too.").to_owned()),
+            n => Some(trf("{} of them have no row on this page; Clear all clears them too.", &[&n])),
         };
         let confirm = &mut self.settings_view.confirm_reset;
         let mut cleared = false;
         banner(ui, |ui| {
             ui.label(RichText::new(tr(about)).font(regular(text::LABEL)).color(ON_SURFACE));
             ui.label(RichText::new(count).font(regular(text::CAPTION)).color(ON_SURFACE_VARIANT));
+            if let Some(hidden) = hidden {
+                ui.label(RichText::new(hidden).font(regular(text::CAPTION)).color(ON_SURFACE_VARIANT));
+            }
         }, |ui| {
             if *confirm {
                 if primary_button(ui, "Clear all").clicked() {
@@ -387,6 +415,7 @@ impl Launcher {
         if focus_first {
             self.focus_screen = false;
         }
+        let focus_first = focus_first || self.settings_view.focus_rows;
         let mut rows = Rows {
             layer: layered.then_some((&inherited, overrides)),
             sources: &self.inherited_from,
@@ -639,6 +668,7 @@ impl Launcher {
             setting_row(ui, s, &mut rows, &["sdr_10bit"], "Less color banding (10-bit SDR)",
                 "Streams non-HDR video in 10-bit HEVC or AV1, so gradients show fewer bands. Needs a 10-bit (Main10) decoder on this device, and the PC's display in SDR. On Linux, restart Nightjar after changing this.",
                 |ui, s| toggle(ui, &mut s.sdr_10bit));
+            rows.always();
             rows.when(!s.codec.is_pyrowave(), en("PyroWave uses its own decoder, set below."));
             setting_row(ui, s, &mut rows, &["decoder"], "Video decoding", "Automatic decodes on the graphics card when it can. Software uses the processor; try it only if the picture shows errors.", |ui, s| {
                 egui::ComboBox::from_id_salt("decoder")
@@ -739,6 +769,7 @@ impl Launcher {
                 },
                 |ui, s| toggle(ui, &mut s.present_at_host_times),
             );
+            rows.always();
             rows.when(!s.vrr, en("Used only with Variable refresh rate off."));
             setting_row(ui, s, &mut rows, &["frame_pacing"], "Frame pacing",
                 "Without VRR: Lowest latency shows the newest frame at once. Balanced waits for the screen's refresh. With an FPS limit, early frames wait their turn. Smoothest video shows every frame in turn and adds up to a frame of delay.",
@@ -749,8 +780,8 @@ impl Launcher {
                         }
                     }).response
                 });
-            rows.when(!s.vrr, en("Used only with Variable refresh rate off."));
-            rows.when(s.vrr || !s.frame_pacing.forces_vsync(), en("Always on with the chosen frame pacing."));
+            // Still narrowed to VRR off, as Frame pacing.
+            rows.when(!s.frame_pacing.forces_vsync(), en("Always on with the chosen frame pacing."));
             setting_row(ui, s, &mut rows, &["vsync"], "V-Sync", "Without VRR: waits for the screen's refresh, so the picture never tears.", |ui, s| {
                 toggle(ui, &mut s.vsync)
             });
@@ -1042,7 +1073,7 @@ impl Launcher {
                     button
                 });
                 let (reset_label, reset_about) = if *confirm_reset {
-                    (en("Reset all settings?"), en("Every setting on this page goes back to its default. This can't be undone."))
+                    (en("Reset all settings?"), en("Every setting on this page goes back to its default. Your language, PCs, games, profiles, PIN lock, controller buttons, shortcuts and anything not on this page stay as they are. This can't be undone."))
                 } else {
                     (en("Reset all settings"), en("Puts every setting on this page back to its default. Your PCs, games, profiles and language keep theirs."))
                 };
@@ -1106,6 +1137,8 @@ impl Launcher {
         }
         self.settings_view.found = rows.found;
         self.settings_view.drawn = rows.drawn;
+        // Still waiting when no row was drawn to take it.
+        self.settings_view.focus_rows &= rows.focus_first;
         for (key, response) in links {
             self.focus_item(&response, key, false);
             if key == "profiles-link" && response.clicked() {
@@ -1515,7 +1548,7 @@ pub(super) fn setting_row(
                     // box, opening a menu and leaving it changes nothing.
                     // Read before the control: a number field consumes the arrow keys that step it.
                     let (before, chose) = (settings.clone(), chosen(ui));
-                    let value = control(ui, settings);
+                    let value = ui.add_enabled_ui(enabled, |ui| control(ui, settings)).inner;
                     name_for_readers(ui, &value, label, description);
                     // The box on the row's last line, beside where its value comes from, however
                     // short the control or long the description.
@@ -1524,7 +1557,8 @@ pub(super) fn setting_row(
                         ui.add_space(room);
                     }
                     let mut ticked = own || (*settings != before && chose);
-                    let boxed = layer_box(ui, &mut ticked, box_label);
+                    // A value of its own on a row turned off can still be given back.
+                    let boxed = ui.add_enabled_ui(enabled || own, |ui| layer_box(ui, &mut ticked, box_label)).inner;
                     name_for_readers(ui, &boxed, box_label, label);
                     if boxed.changed() && !ticked {
                         overrides.clear(keys);
@@ -1542,15 +1576,17 @@ pub(super) fn setting_row(
             let reset_w = ui.painter().layout_no_wrap(tr("Reset").to_owned(), semibold(text::LABEL), *ON_SURFACE).size().x + 24.0;
             let mut reset = false;
             let response = settings_row(ui, label, description, why, None, false, enabled, reset_w, |ui| {
-                let value = control(ui, settings);
-                name_for_readers(ui, &value, label, description);
-                if differs {
-                    let button = text_button(ui, "Reset").on_hover_text(trf("Default: {}", &[&default]));
-                    let name = trf("Reset {} to its default, {}", &[&tr(label), &default]);
-                    ui.ctx().accesskit_node_builder(button.id, |node| node.set_label(name));
-                    reset = button.clicked();
-                }
-                value
+                ui.add_enabled_ui(enabled, |ui| {
+                    let value = control(ui, settings);
+                    name_for_readers(ui, &value, label, description);
+                    if differs {
+                        let button = text_button(ui, "Reset").on_hover_text(trf("Default: {}", &[&default]));
+                        let name = trf("Reset {} to its default, {}", &[&tr(label), &default]);
+                        ui.ctx().accesskit_node_builder(button.id, |node| node.set_label(name));
+                        reset = button.clicked();
+                    }
+                    value
+                }).inner
             });
             if reset {
                 let mut defaults = Overrides::default();
@@ -1560,9 +1596,11 @@ pub(super) fn setting_row(
             response
         }
         _ => settings_row(ui, label, description, why, None, false, enabled, 0.0, |ui| {
-            let value = control(ui, settings);
-            name_for_readers(ui, &value, label, description);
-            value
+            ui.add_enabled_ui(enabled, |ui| {
+                let value = control(ui, settings);
+                name_for_readers(ui, &value, label, description);
+                value
+            }).inner
         }),
     };
     if std::mem::take(&mut rows.focus_first) {
@@ -1573,7 +1611,8 @@ pub(super) fn setting_row(
 
 /// A row: label, description and any notes on the left, the control on the right. A row a PC,
 /// game or profile sets has an amber bar at its left edge. `reset_w` keeps room left of the
-/// control for a Reset, so the text never moves when it comes and goes.
+/// control for a Reset, so the text never moves when it comes and goes. `enabled` only dims the
+/// text: `control` turns off what it draws itself, so a layer's box can stay on.
 #[allow(clippy::too_many_arguments)]
 fn settings_row(
     ui: &mut Ui,
@@ -1611,9 +1650,7 @@ fn settings_row(
                     }
                 });
                 let align = if state.is_some() { Align::Min } else { Align::Center };
-                ui.with_layout(Layout::right_to_left(align), |ui| {
-                    out = Some(ui.add_enabled_ui(enabled, control).inner);
-                });
+                ui.with_layout(Layout::right_to_left(align), |ui| out = Some(control(ui)));
             });
         });
     if own {

@@ -28,7 +28,8 @@ use windows::core::HRESULT;
 
 const VERSION: u32 = 3;
 const SLOTS: usize = 4;
-const START_TIMEOUT: Duration = Duration::from_secs(5);
+/// How long a WGC helper's start may take before it is given up.
+pub const START_TIMEOUT: Duration = Duration::from_secs(5);
 const PIPE_PREFIX: &str = r"\\.\pipe\Butterpollo.Wgc.";
 
 fn owned(handle: HANDLE) -> OwnedHandle {

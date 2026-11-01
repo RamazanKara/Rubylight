@@ -799,6 +799,46 @@ fn a_game_windows_first_capture_is_tried_again_on_its_current_window() {
     .unwrap_err();
     assert_eq!((opens, error.to_string()), (1, "no display".to_string()));
 }
+/// A try of a game window's capture starts only while it, with a WGC
+/// helper's whole start, ends before the stream stops waiting: one that ran
+/// past it ended the stream with a timeout instead of the capture's error.
+#[test]
+fn a_game_windows_capture_is_tried_again_only_within_the_streams_wait() {
+    let started = Instant::now();
+    let stop = AtomicBool::new(false);
+    let at = |millis: u64| started + Duration::from_millis(millis);
+    let last = CAPTURE_START_WAIT
+        - RECOVERY_RETRY
+        - butterpollo_windows::capture::WGC_START_TIMEOUT
+        - WINDOW_OPEN_MARGIN;
+    assert_eq!(last, Duration::from_millis(3850));
+    assert!(window_open_again(started, &stop, at(0)));
+    assert!(window_open_again(started, &stop, started + last));
+    assert!(!window_open_again(
+        started,
+        &stop,
+        started + last + Duration::from_millis(1)
+    ));
+    // Every try that starts, helper start and all, ends within the wait.
+    assert!(
+        last + RECOVERY_RETRY + butterpollo_windows::capture::WGC_START_TIMEOUT
+            < CAPTURE_START_WAIT
+    );
+    // A stopped stream's capture is not tried again.
+    stop.store(true, Ordering::Release);
+    assert!(!window_open_again(started, &stop, at(0)));
+    // The capture thread's own wait: once between tries, never past the wait.
+    stop.store(false, Ordering::Release);
+    let before = Instant::now();
+    assert!(wait_to_open_again(started, &stop));
+    assert!(before.elapsed() >= RECOVERY_RETRY);
+    let late = Instant::now() - last - Duration::from_millis(10);
+    let before = Instant::now();
+    assert!(!wait_to_open_again(late, &stop));
+    assert!(before.elapsed() < RECOVERY_RETRY);
+    stop.store(true, Ordering::Release);
+    assert!(!wait_to_open_again(Instant::now(), &stop));
+}
 #[test]
 fn background_capture_never_recovers_onto_the_primary_display() {
     let start = Instant::now();

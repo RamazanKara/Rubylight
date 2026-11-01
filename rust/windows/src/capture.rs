@@ -1413,6 +1413,7 @@ fn nanos(at: Instant, origin: Instant) -> i64 {
     }
 }
 mod bridge;
+pub use bridge::START_TIMEOUT as WGC_START_TIMEOUT;
 pub use bridge::run_worker as run_wgc_worker;
 mod focus;
 mod idd_push;

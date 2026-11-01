@@ -124,10 +124,32 @@ fn reopen_on(
         ReopenOn::Wait
     }
 }
-/// How long a game window's first capture is tried again. Within the 10 s
-/// the stream waits for its capture to start, even after a helper start of
-/// up to 5 s.
-const WINDOW_OPEN_RETRY: Duration = Duration::from_secs(4);
+/// How long a stream waits for its capture to start.
+const CAPTURE_START_WAIT: Duration = Duration::from_secs(10);
+/// What a try of a game window's capture takes beyond its WGC helper's start.
+const WINDOW_OPEN_MARGIN: Duration = Duration::from_secs(1);
+/// Whether a game window's first capture, whose stream began waiting for it
+/// at `started`, is tried again at `now`: not once the stream stops, and only
+/// while the wait before the try and the try itself, with a WGC helper's
+/// start of up to [`butterpollo_windows::capture::WGC_START_TIMEOUT`], end
+/// before the stream stops waiting. A try that ran past it would end the
+/// stream with a timeout instead of the capture's own error.
+fn window_open_again(started: Instant, stop: &AtomicBool, now: Instant) -> bool {
+    !stop.load(Ordering::Acquire)
+        && now
+            + RECOVERY_RETRY
+            + butterpollo_windows::capture::WGC_START_TIMEOUT
+            + WINDOW_OPEN_MARGIN
+            <= started + CAPTURE_START_WAIT
+}
+/// [`window_open_again`] now, after the wait between tries when it is.
+fn wait_to_open_again(started: Instant, stop: &AtomicBool) -> bool {
+    if !window_open_again(started, stop, Instant::now()) {
+        return false;
+    }
+    thread::sleep(RECOVERY_RETRY);
+    true
+}
 /// Opens a stream's first capture, on the target `target` names when each
 /// try starts. A game window's is tried again while `again` (which waits
 /// between tries) allows: at its start a game replaces its splash window,
@@ -567,6 +589,8 @@ impl Media {
         let worker_backend = backend.clone();
         let kind = kind.to_owned();
         let (started_tx, started_rx) = std::sync::mpsc::sync_channel(1);
+        // Before the wait below begins: the capture's tries end within it.
+        let started = Instant::now();
         let thread = thread::Builder::new()
             .name("capture".into())
             .spawn(move || {
@@ -580,17 +604,10 @@ impl Media {
                     // Duplicate the desktop that is showing, including the secure
                     // desktop of a UAC prompt or the lock screen.
                     butterpollo_windows::input::follow_input_desktop();
-                    let retry_until = Instant::now() + WINDOW_OPEN_RETRY;
                     let opened = open_first(
                         || prepared.capture_target(),
                         |target| Capture::open_for_stream_reported(&target.0, &kind, hdr, &capture_config, capture_warnings.clone()),
-                        || {
-                            if worker_stop.load(Ordering::Acquire) || Instant::now() >= retry_until {
-                                return false;
-                            }
-                            thread::sleep(RECOVERY_RETRY);
-                            true
-                        },
+                        || wait_to_open_again(started, &worker_stop),
                     );
                     let (mut capture, mut target) = match opened {
                         Ok(opened) => opened,
@@ -790,7 +807,7 @@ impl Media {
             thread: Some(thread),
         });
         started_rx
-            .recv_timeout(Duration::from_secs(10))?
+            .recv_timeout(CAPTURE_START_WAIT)?
             .map_err(|e| anyhow::anyhow!(e))?;
         captures.insert(key, Arc::downgrade(&latest));
         Ok(latest)

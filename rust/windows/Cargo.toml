@@ -40,7 +40,7 @@ windows = { version = "0.62.2", features = [
  "Win32_System_WinRT", "Win32_System_WinRT_Direct3D11", "Win32_System_WinRT_Graphics_Capture",
  "Win32_Devices_DeviceAndDriverInstallation", "Win32_Devices_Display", "Win32_System_IO", "Win32_Networking_WinSock",
  "Win32_NetworkManagement_IpHelper", "Win32_NetworkManagement_Ndis", "Win32_NetworkManagement_WiFi",
- "Win32_NetworkManagement_WindowsFirewall"
+ "Win32_NetworkManagement_WindowsFirewall", "Win32_System_Wmi"
 ] }
 
 [build-dependencies]

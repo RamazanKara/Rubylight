@@ -50,6 +50,7 @@ pub mod limiter;
 pub mod lossless;
 pub mod mic;
 pub mod net;
+pub mod net_adapter;
 pub mod nucleus;
 pub mod nvenc;
 pub mod overlay;
@@ -73,6 +74,7 @@ pub mod vulkan;
 pub mod wake;
 pub mod window_list;
 pub mod window_placement;
+pub mod wmi;
 
 #[allow(
     non_camel_case_types,

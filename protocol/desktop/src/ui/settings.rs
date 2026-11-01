@@ -30,7 +30,7 @@ pub(super) const SECTION_KEYS: [&[&[&str]]; 8] = [
         &["prefer_yuv444"], &["sdr_10bit"], &["pyrowave_decoder"]],
     &[&["window_mode"], &["video_scaling"], &["vrr"],
         &["virtual_display"], &["host_display"], &["virtual_display_scale"], &["virtual_display_dpi"],
-        &["present_at_host_times"], &["frame_pacing"], &["vsync"]],
+        &["align_video_top"], &["present_at_host_times"], &["frame_pacing"], &["vsync"]],
     &[&["mouse_mode"], &["controllers"], &["swap_face_buttons"], &["clipboard_sync"],
         &["capture_system_keys"], &["mouse_speed"], &["mouse_nav_buttons"], &["native_touchpad"], &["right_alt_as_meta"],
         &["back_opens_menu"], &["gamepad_quit_combo"], &["controller_mouse"], &["analog_scrolling"], &["mouse_fixed_step"],
@@ -41,7 +41,7 @@ pub(super) const SECTION_KEYS: [&[&[&str]]; 8] = [
     &[&["console_home"], &["quick_resume"], &["language"], &["ui_zoom"], &["high_contrast"], &["reduce_motion"],
         &["input_only_any_host"], &["check_updates"]],
     &[&["experimental_packed_444"], &["link_probe"]],
-    &[&["decoder"], &["full_range"], &["align_video_top"], &["cursor_shapes"], &["unbatched_input"], &["error_correction"],
+    &[&["decoder"], &["full_range"], &["cursor_shapes"], &["unbatched_input"], &["error_correction"],
         &["network_priority"], &["client_hint_bitrate"], &["tell_host_wireless"], &["tell_host_link_speed"]],
 ];
 
@@ -747,6 +747,7 @@ impl Launcher {
                 rows.always();
             }
             rows.group(ui, "Fine-tuning", en("Change these only if motion looks uneven or the picture tears."));
+            setting_row(ui, s, &mut rows, &["align_video_top"], "Align video to top", "Puts Fit and Native pixels video at the top of the window instead of the middle.", |ui, s| toggle(ui, &mut s.align_video_top));
             let immediate_packed = cfg!(windows) && s.experimental_packed_444 && tearing;
             rows.when(s.vrr || immediate_packed, en("Turn on Variable refresh rate to use this."));
             rows.when(s.vrr && !immediate_packed, "");
@@ -1084,7 +1085,6 @@ impl Launcher {
             });
             rows.always();
             setting_row(ui, s, &mut rows, &["full_range"], "Full color range", "Asks the PC for the full range of brightness levels. Turn on only if dark scenes look washed out or crushed.", |ui, s| toggle(ui, &mut s.full_range));
-            setting_row(ui, s, &mut rows, &["align_video_top"], "Align video to top", "Puts Fit and Native pixels video at the top of the window instead of the middle.", |ui, s| toggle(ui, &mut s.align_video_top));
             setting_row(ui, s, &mut rows, &["cursor_shapes"], "Local cursor", "In desktop pointer mode, draws the PC's cursor here so it moves without video delay. Works with PCs that send their cursor.", |ui, s| {
                 toggle(ui, &mut s.cursor_shapes)
             });

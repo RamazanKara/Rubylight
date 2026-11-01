@@ -445,7 +445,8 @@ Settings marked "Linux: restart" take effect on Linux after Nightjar restarts. D
 | Display arrangement | The PC's own setting | The display modes listed under [Display on the PC](#display-on-the-pc) | Applied to normal streams on hosts that support display modes. |
 | PC render resolution | 100 % | 50–200 % in 5 % steps | The PC renders at this size; the transmitted video keeps its size. |
 | PC display scaling | The PC's own | PC's own, 100–500 % | Shown for hosts that read it, as on Android. |
-| *Fine-tuning:* Show frames at the PC's frame times | Off | On, Off | With VRR: each frame appears at the moment the game made it, plus a steady delay. |
+| *Fine-tuning:* Align video to top | Off | On, Off | Moves Fit and Native pixels video to the top of the window. Not in the stream controls. |
+| Show frames at the PC's frame times | Off | On, Off | With VRR: each frame appears at the moment the game made it, plus a steady delay. |
 | Frame pacing | Lowest latency | Lowest latency, Balanced, Balanced with FPS limit, Smoothest video (more delay) | Without VRR. Every choice except Lowest latency waits for the display's refresh. |
 | V-Sync | On | On, Off | Without VRR: waits for the display's refresh, so there is no tearing. |
 
@@ -526,13 +527,12 @@ The Controllers group can be changed while **Controllers** is on. On-screen cont
 
 ### Debug
 
-Rarely needed settings, last in the section list. The search finds them like any other row, and a PC's, game's or profile's settings list them here too. Align video to top is not in the stream menu.
+Rarely needed settings, last in the section list. The search finds them like any other row, and a PC's, game's or profile's settings list them here too.
 
 | Setting | Default | Choices | Notes |
 | --- | --- | --- | --- |
 | Video decoding | Automatic | Automatic, Software | Automatic uses hardware decoding: D3D11VA on Windows, VA-API, V4L2 M2M or NVDEC on Linux. A fallback to software decoding is announced. Not used with PyroWave. |
 | Full color range | Off | On, Off | Requests the full RGB range from the host. |
-| Align video to top | Off | On, Off | Moves Fit and Native pixels video to the top of the window. |
 | Local cursor | On | On, Off | In Desktop pointer mode, draws the PC's cursor shape locally, without video delay, on hosts that send cursor shapes. |
 | Instant mouse and pen input | On | On, Off | Sends mouse and pen motion immediately instead of batching it. |
 | Error correction | Automatic | PC's setting, Automatic, 10 %, 20 %, 30 %, 50 % | Automatic asks the PC to follow the losses this device reports. Settings saved with PC's setting before Automatic became the default switch to Automatic once; choosing PC's setting again keeps it. Rubylight PCs and Sunshine-based PCs that accept it take the choice; other PCs use their own setting. |

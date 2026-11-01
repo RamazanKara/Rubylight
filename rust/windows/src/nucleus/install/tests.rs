@@ -35,13 +35,16 @@ fn sddl(extra: &str) -> String {
     format!("O:{owner}D:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;FA;;;{owner}){extra}")
 }
 
+/// [`TRUSTED`] and the test's [`owner`] trusted, the real drive, and a
+/// memory of drives of the test's own.
 fn checks<'a>(release: &'a Manifest, top: &'a Path) -> Checks<'a> {
-    let mut trusted: Vec<String> = TRUSTED.iter().map(|sid| sid.to_string()).collect();
-    trusted.push(owner());
+    let me = owner();
     Checks {
-        trusted,
+        trusts: Box::new(move |_, sid| TRUSTED.contains(&sid) || sid == me),
         top: Some(top),
         release,
+        volume: Box::new(volume_of),
+        volumes: Box::leak(Box::default()),
     }
 }
 
@@ -116,12 +119,40 @@ fn the_chosen_release_is_checked_whole_and_named_as_windows_resolved_it() {
     assert_eq!(check(&tree, Path::new(&pasted)).unwrap(), tree.folder);
     let upper = tree.folder.to_string_lossy().to_uppercase();
     assert_eq!(check(&tree, Path::new(&upper)).unwrap(), tree.folder);
-    // Nucleus' game instances: links to the game's files, and folders it
-    // gives its helper accounts, are no matter.
+}
+
+#[test]
+fn a_game_instance_folder_others_can_change_is_refused_and_links_inside_it_are_not() {
+    // Nucleus' instances link to the game's own files: not walked.
+    let tree = tree();
     let instance = tree.folder.join(r"content\Game");
-    crate::process::restrict(&instance, &sddl("(A;OICI;0x1301bf;;;AU)")).unwrap();
     junction(&instance.join("Instance1"), &tree.top);
     assert_eq!(check(&tree, &tree.folder).unwrap(), tree.folder);
+    // A folder its user may change: they could plant a junction or a DLL
+    // in it, which the elevated Nucleus follows or runs.
+    let tree = self::tree();
+    let instance = tree.folder.join(r"content\Game");
+    crate::process::restrict(&instance, &sddl("(A;OICI;0x1301bf;;;AU)")).unwrap();
+    let (problem, error) = refused(&tree, &tree.folder);
+    assert_eq!(problem, Some(Problem::Untrusted), "{error}");
+    assert!(
+        error.contains(&format!(
+            "{} can be changed by S-1-5-11",
+            instance.display()
+        )),
+        "{error}"
+    );
+    // A link in its place.
+    let tree = self::tree();
+    let instance = tree.folder.join(r"content\Game");
+    std::fs::remove_dir_all(&instance).unwrap();
+    junction(&instance, &tree.top);
+    let (problem, error) = refused(&tree, &tree.folder);
+    assert_eq!(problem, Some(Problem::Untrusted), "{error}");
+    assert!(
+        error.contains(&format!("{} is a link to elsewhere", instance.display())),
+        "{error}"
+    );
 }
 
 #[test]
@@ -149,27 +180,42 @@ fn a_dll_config_or_handler_others_can_change_is_refused_by_name() {
 }
 
 #[test]
-fn a_file_its_user_owns_is_refused_in_an_otherwise_good_folder() {
-    let me = crate::process::own_sid().unwrap();
-    if owner() == me {
-        // Unelevated, everything this test makes is its account's.
-        eprintln!("skipped: needs an elevated test, which makes files the Administrators group's");
-        return;
-    }
+fn a_file_or_folder_an_untrusted_account_owns_is_refused_in_an_otherwise_good_folder() {
+    // As a file unpacked into Downloads and moved keeps its user as its
+    // owner: here the test's own account, trusted everywhere but there, so
+    // this runs unelevated and shows each check passes the owner it read.
+    let me = owner();
     for name in [
+        "",
+        "NucleusCoop.exe",
         "Nucleus.Gaming.dll",
         "NucleusCoop.exe.config",
+        "handlers",
         r"handlers\Game.js",
+        r"content\Game",
     ] {
         let tree = tree();
-        let path = tree.folder.join(name);
-        // As a file unpacked into Downloads and moved keeps its owner.
-        crate::process::restrict(&path, &format!("O:{me}D:P(A;;FA;;;SY)(A;;FA;;;BA)")).unwrap();
-        let (problem, error) = refused(&tree, &tree.folder);
-        assert_eq!(problem, Some(Problem::Untrusted), "{error}");
+        let release = manifest();
+        let planted = if name.is_empty() {
+            tree.folder.clone()
+        } else {
+            tree.folder.join(name)
+        };
+        let mut checks = checks(&release, &tree.top);
+        let (mine, at) = (me.clone(), planted.clone());
+        checks.trusts = Box::new(move |path, sid| {
+            (TRUSTED.contains(&sid) || sid == mine) && !(sid == mine && path == at)
+        });
+        let error = chosen(&tree.folder, &checks).err().unwrap();
+        assert_eq!(
+            problem_of(&error),
+            Some(Problem::Untrusted),
+            "{name}: {error:#}"
+        );
+        let error = format!("{error:#}");
         assert!(
-            error.contains(&format!("{} is owned by {me}", path.display())),
-            "{error}"
+            error.contains(&format!("{} is owned by {me}", planted.display())),
+            "{name}: {error}"
         );
     }
 }
@@ -364,6 +410,101 @@ fn a_swapped_program_file_is_found_though_its_size_and_time_stay() {
     );
     let (problem, error) = refused(&tree, &tree.folder);
     assert_eq!(problem, Some(Problem::Version), "{error}");
+}
+
+#[test]
+fn a_program_file_held_open_to_write_is_refused_though_its_answer_is_kept() {
+    let tree = tree();
+    // Checked, so its answer is kept.
+    check(&tree, &tree.folder).unwrap();
+    let dll = tree.folder.join("Nucleus.Gaming.dll");
+    // Its stamp stays, but whoever holds it may write it after the check.
+    let writer = std::fs::OpenOptions::new().write(true).open(&dll).unwrap();
+    let error = format!("{:#}", check(&tree, &tree.folder).unwrap_err());
+    assert!(
+        error.contains(&format!("opening {}", dll.display())),
+        "{error}"
+    );
+    drop(writer);
+    check(&tree, &tree.folder).unwrap();
+}
+
+#[test]
+fn a_held_folder_and_its_program_cant_be_moved_replaced_or_written_until_dropped() {
+    let tree = tree();
+    let release = manifest();
+    let checks = checks(&release, &tree.top);
+    let held = hold_checked(&tree.folder, &checks).unwrap();
+    assert_eq!(held.folder(), tree.folder);
+    let exe = held.program();
+    assert_eq!(exe, tree.folder.join(pinned::EXECUTABLE));
+    let moved = tree.top.join("Moved");
+    let other = tree.folder.join("other.exe");
+    std::fs::write(&other, b"MZ 2.4.2").unwrap();
+    assert!(std::fs::rename(&tree.folder, &moved).is_err());
+    assert!(std::fs::rename(&exe, tree.folder.join("old.exe")).is_err());
+    assert!(std::fs::rename(&other, &exe).is_err());
+    assert!(std::fs::OpenOptions::new().write(true).open(&exe).is_err());
+    assert!(std::fs::remove_file(&exe).is_err());
+    drop(held);
+    std::fs::rename(&other, &exe).unwrap();
+    std::fs::rename(&tree.folder, &moved).unwrap();
+}
+
+#[test]
+fn a_drive_swapped_under_the_same_letter_or_on_usb_is_refused() {
+    let tree = tree();
+    let release = manifest();
+    let first = Volume {
+        name: r"\\?\Volume{11111111-2222-3333-4444-555555555555}\".into(),
+        serial: 0x1234_abcd,
+        usb: false,
+    };
+    let now = std::sync::Arc::new(Mutex::new(first.clone()));
+    let mut checks = checks(&release, &tree.top);
+    let seen = now.clone();
+    checks.volume = Box::new(move |_| Ok(seen.lock().unwrap().clone()));
+    hold_checked(&tree.folder, &checks).unwrap();
+    // Another disk with the same files and owners, or the same serial
+    // number on a volume Windows names otherwise.
+    for swapped in [
+        Volume {
+            serial: 0x0bad_f00d,
+            ..first.clone()
+        },
+        Volume {
+            name: r"\\?\Volume{99999999-2222-3333-4444-555555555555}\".into(),
+            ..first.clone()
+        },
+    ] {
+        *now.lock().unwrap() = swapped;
+        let error = hold_checked(&tree.folder, &checks).err().unwrap();
+        assert_eq!(problem_of(&error), Some(Problem::Untrusted), "{error:#}");
+        assert!(
+            error
+                .to_string()
+                .contains("isn't the one Rubylight first checked it on"),
+            "{error}"
+        );
+        // The status the console shows says so too.
+        assert!(chosen(&tree.folder, &checks).is_err());
+    }
+    *now.lock().unwrap() = first.clone();
+    hold_checked(&tree.folder, &checks).unwrap();
+    // On a USB drive, which Windows may count as fixed.
+    *now.lock().unwrap() = Volume {
+        usb: true,
+        ..first.clone()
+    };
+    let (problem, error) = match chosen(&tree.folder, &checks) {
+        Err(error) => (problem_of(&error), format!("{error:#}")),
+        Ok(_) => panic!("a folder on a USB drive was accepted"),
+    };
+    assert_eq!(problem, Some(Problem::Untrusted), "{error}");
+    assert!(error.contains("is on a USB drive"), "{error}");
+    // This PC's own drive, read as the PC does.
+    let real = volume_of(&format!("{}\\", &tree.top.to_string_lossy()[..2])).unwrap();
+    assert!(real.name.starts_with(r"\\?\Volume{"), "{real:?}");
 }
 
 #[test]

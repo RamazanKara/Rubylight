@@ -99,30 +99,46 @@ pub fn found(data: &Path, configured: &str) -> Result<Option<Found>> {
     Ok(found)
 }
 
+/// Whether the account (a SID) may own and change the file or folder at the
+/// path.
+type Trusts<'a> = Box<dyn Fn(&Path, &str) -> bool + 'a>;
+/// The drive at a root (`C:\`).
+type VolumeAt<'a> = Box<dyn Fn(&str) -> Result<Volume> + 'a>;
+
 /// What differs in tests: a test process may not own files as
-/// Administrators, its temporary folder lies below its user's profile, and
-/// it can't hold the release's files.
+/// Administrators, its temporary folder lies below its user's profile, it
+/// can't hold the release's files, and it can't swap a drive.
 struct Checks<'a> {
-    /// Who may own and change the folder, what is in it and the folders
-    /// above it: [`TRUSTED`].
-    trusted: Vec<String>,
+    /// Whether the account (a SID) may own and change the file or folder at
+    /// the path: one of [`TRUSTED`], for the folder, what is in it and the
+    /// folders above it.
+    trusts: Trusts<'a>,
     /// The folder above which no folder is checked; None on the PC: every
     /// one up to the drive's root.
     top: Option<&'a Path>,
     release: &'a Manifest,
+    /// The drive at a root (`C:\`), [`volume_of`].
+    volume: VolumeAt<'a>,
+    /// The drive each folder was on when it was first checked, by its
+    /// lowercase path ([`same_drive`]).
+    volumes: &'a Mutex<HashMap<String, Volume>>,
 }
 impl Checks<'static> {
     fn pc() -> Self {
+        static VOLUMES: std::sync::LazyLock<Mutex<HashMap<String, Volume>>> =
+            std::sync::LazyLock::new(Mutex::default);
         Self {
-            trusted: TRUSTED.iter().map(|sid| sid.to_string()).collect(),
+            trusts: Box::new(|_, sid| TRUSTED.contains(&sid)),
             top: None,
             release: pinned::release(),
+            volume: Box::new(volume_of),
+            volumes: &VOLUMES,
         }
     }
 }
 impl Checks<'_> {
-    fn trusts(&self, sid: &str) -> bool {
-        self.trusted.iter().any(|trusted| trusted == sid)
+    fn trusts(&self, path: &Path, sid: &str) -> bool {
+        (self.trusts)(path, sid)
     }
 }
 
@@ -199,7 +215,11 @@ impl Held {
 /// The Nucleus folder at `folder` checked again, every file of it, and held
 /// until Windows starts Nucleus from it ([`Held`]).
 pub fn hold(folder: &Path) -> Result<Held> {
-    let checked = chosen(folder, &Checks::pc())?;
+    hold_checked(folder, &Checks::pc())
+}
+
+fn hold_checked(folder: &Path, checks: &Checks) -> Result<Held> {
+    let checked = chosen(folder, checks)?;
     Ok(Held {
         folder: checked.folder,
         _folder: checked.handle,
@@ -218,7 +238,8 @@ struct Checked {
 /// folder on a fixed drive of this PC named by its own full path, holding
 /// the pinned release whole and unblocked, owned and changed only by those
 /// `checks` trusts, as is every file and folder in it, with no link in it or
-/// on its way, below folders only they may move.
+/// on its way, below folders only they may move, on a drive inside this PC
+/// and the one it was on when it was first checked.
 fn chosen(folder: &Path, checks: &Checks) -> Result<Checked> {
     let shown = folder.display();
     let version = pinned::VERSION;
@@ -267,6 +288,15 @@ fn chosen(folder: &Path, checks: &Checks) -> Result<Checked> {
     let root = format!("{}\\", &text[..2]);
     if let Some(why) = drive_refusal(&shown.to_string(), &root, drive_kind(&root)) {
         return Err(why);
+    }
+    let volume = (checks.volume)(&root).with_context(|| format!("reading the drive {root}"))?;
+    if volume.usb {
+        return Err(refuse(
+            Problem::Untrusted,
+            format!(
+                "{shown} is on a USB drive, and Nucleus Co-op runs elevated, so Rubylight runs it only from a drive inside this PC. {PROGRAM_FILES}"
+            ),
+        ));
     }
     // Never followed: a link would be checked here and run from elsewhere.
     let handle = match crate::process::open_unfollowed(folder, true) {
@@ -360,11 +390,141 @@ fn chosen(folder: &Path, checks: &Checks) -> Result<Checked> {
         .with_context(|| format!("reading the permissions of {}", canonical.display()))?;
     trusted(&canonical, &owner, &writers, checks)?;
     walk(&canonical, checks)?;
+    same_drive(&canonical, &root, &volume, checks)?;
     Ok(Checked {
         folder: canonical,
         handle,
         program,
     })
+}
+
+/// An error when `folder` is on another drive under `root` than when it was
+/// first checked: a disk swapped in under the same letter could hold
+/// anything its maker wanted, owners included. The first check remembers
+/// the drive until the host restarts.
+fn same_drive(folder: &Path, root: &str, volume: &Volume, checks: &Checks) -> Result<()> {
+    let key = folder.to_string_lossy().to_lowercase();
+    let mut volumes = checks
+        .volumes
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    match volumes.get(&key) {
+        Some(first) if first != volume => Err(refuse(
+            Problem::Untrusted,
+            format!(
+                "The drive {root} that holds {} isn't the one Rubylight first checked it on ({}, serial number {:08X}; now {}, {:08X}). If you replaced that drive yourself, restart the PC",
+                folder.display(),
+                first.name,
+                first.serial,
+                volume.name,
+                volume.serial
+            ),
+        )),
+        Some(_) => Ok(()),
+        None => {
+            volumes.insert(key, volume.clone());
+            Ok(())
+        }
+    }
+}
+
+/// A drive as Windows knows it: its volume's name (`\\?\Volume{...}\`,
+/// which Windows gives each volume as it first sees it), the serial number
+/// its format gave it, and whether it is attached by USB.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct Volume {
+    name: String,
+    serial: u32,
+    usb: bool,
+}
+
+/// The drive at `root` (`C:\`).
+fn volume_of(root: &str) -> Result<Volume> {
+    use windows::Win32::Storage::FileSystem::{
+        GetVolumeInformationW, GetVolumeNameForVolumeMountPointW,
+    };
+    let wide: Vec<u16> = root.encode_utf16().chain(Some(0)).collect();
+    let mut name = [0u16; 64];
+    let mut serial = 0u32;
+    // SAFETY: `wide` is NUL-terminated, and `name` and `serial` are
+    // writable, all outliving the calls.
+    unsafe {
+        GetVolumeNameForVolumeMountPointW(windows::core::PCWSTR(wide.as_ptr()), &mut name)
+            .context("reading the volume's name")?;
+        GetVolumeInformationW(
+            windows::core::PCWSTR(wide.as_ptr()),
+            None,
+            Some(&raw mut serial),
+            None,
+            None,
+            None,
+        )
+        .context("reading the volume's serial number")?;
+    }
+    let len = name.iter().position(|&c| c == 0).unwrap_or(name.len());
+    Ok(Volume {
+        name: String::from_utf16_lossy(&name[..len]),
+        serial,
+        usb: on_usb(root).context("reading the drive's bus")?,
+    })
+}
+
+/// Whether the drive at `root` (`C:\`) is attached by USB, by the bus its
+/// storage device names.
+fn on_usb(root: &str) -> Result<bool> {
+    use windows::Win32::Foundation::CloseHandle;
+    use windows::Win32::Storage::FileSystem::{
+        BusTypeUsb, CreateFileW, FILE_FLAGS_AND_ATTRIBUTES, FILE_SHARE_READ, FILE_SHARE_WRITE,
+        OPEN_EXISTING,
+    };
+    use windows::Win32::System::IO::DeviceIoControl;
+    use windows::Win32::System::Ioctl::{
+        IOCTL_STORAGE_QUERY_PROPERTY, PropertyStandardQuery, STORAGE_DEVICE_DESCRIPTOR,
+        STORAGE_PROPERTY_QUERY, StorageDeviceProperty,
+    };
+    let device: Vec<u16> = format!(r"\\.\{}", root.trim_end_matches('\\'))
+        .encode_utf16()
+        .chain(Some(0))
+        .collect();
+    // SAFETY: `device` is NUL-terminated and outlives the call. No access is
+    // asked: a storage query needs none.
+    let handle = unsafe {
+        CreateFileW(
+            windows::core::PCWSTR(device.as_ptr()),
+            0,
+            FILE_SHARE_READ | FILE_SHARE_WRITE,
+            None,
+            OPEN_EXISTING,
+            FILE_FLAGS_AND_ATTRIBUTES(0),
+            None,
+        )
+    }?;
+    let query = STORAGE_PROPERTY_QUERY {
+        PropertyId: StorageDeviceProperty,
+        QueryType: PropertyStandardQuery,
+        ..Default::default()
+    };
+    let mut descriptor = STORAGE_DEVICE_DESCRIPTOR::default();
+    let mut returned = 0u32;
+    // SAFETY: the handle is open until it is closed below, and each buffer
+    // is the size passed and outlives the call. The descriptor's fixed part
+    // fits; the strings after it are not asked for.
+    let asked = unsafe {
+        DeviceIoControl(
+            handle,
+            IOCTL_STORAGE_QUERY_PROPERTY,
+            Some((&raw const query).cast()),
+            size_of::<STORAGE_PROPERTY_QUERY>() as u32,
+            Some((&raw mut descriptor).cast()),
+            size_of::<STORAGE_DEVICE_DESCRIPTOR>() as u32,
+            Some(&raw mut returned),
+            None,
+        )
+    };
+    // SAFETY: opened above, closed once.
+    let _ = unsafe { CloseHandle(handle) };
+    asked?;
+    Ok(descriptor.BusType == BusTypeUsb)
 }
 
 /// `path` as Windows names it to a person: without the `\\?\` that
@@ -479,13 +639,13 @@ fn above(folder: &Path, checks: &Checks) -> Result<()> {
                 ),
             )
         };
-        if !checks.trusts(&owner) {
+        if !checks.trusts(path, &owner) {
             return Err(refused(format!(
                 "{} is owned by {owner}, not by SYSTEM or Administrators",
                 path.display()
             )));
         }
-        if let Some(other) = movers.iter().find(|sid| !checks.trusts(sid)) {
+        if let Some(other) = movers.iter().find(|sid| !checks.trusts(path, sid)) {
             return Err(refused(format!(
                 "{} can be moved or renamed by {other}",
                 path.display()
@@ -498,7 +658,7 @@ fn above(folder: &Path, checks: &Checks) -> Result<()> {
 /// An error naming `path` unless those `checks` trusts own it (`owner`) and
 /// alone may change it (`writers`, [`crate::process::open_file_writers`]).
 fn trusted(path: &Path, owner: &str, writers: &[String], checks: &Checks) -> Result<()> {
-    verdict(path, owner, writers, |sid| checks.trusts(sid)).map_err(|why| {
+    verdict(path, owner, writers, |sid| checks.trusts(path, sid)).map_err(|why| {
         refuse(
             Problem::Untrusted,
             format!(
@@ -531,9 +691,13 @@ fn open_checked(path: &Path, folder: bool) -> std::io::Result<std::fs::File> {
 /// link: each with no link, owned and changed only by those `checks` trusts,
 /// each program file as the release ships it and unblocked, and none of
 /// them missing. Nucleus' game instances below `content\<game>` (links to
-/// the game's own files, or a whole copy of a game, which Nucleus may give
-/// its helper accounts) are checked at that folder only: an owner it
-/// trusts, and no link.
+/// the game's own files, or a whole copy of a game) are checked at that
+/// folder only, which like the rest has no link and is owned and changed
+/// only by those `checks` trusts: the elevated Nucleus makes `InstanceN`
+/// there and starts the game from it, so a folder others could change would
+/// let them plant a link or a DLL it follows or runs elevated. Nucleus 2.4.2
+/// sets no permissions anywhere, so what it makes there inherits
+/// `content`'s.
 fn walk(folder: &Path, checks: &Checks) -> Result<()> {
     let mut found = HashSet::new();
     let mut pending = vec![PathBuf::new()];
@@ -580,13 +744,12 @@ fn walk(folder: &Path, checks: &Checks) -> Result<()> {
                     .is_some_and(|first| first.as_os_str().eq_ignore_ascii_case("content"))
                 && parts.next().is_some()
                 && parts.next().is_none();
-            if instance {
-                trusted(&path, &owner, &[], checks)?;
-                continue;
-            }
             let writers = crate::process::open_file_writers(&file)
                 .with_context(|| format!("reading the permissions of {}", path.display()))?;
             trusted(&path, &owner, &writers, checks)?;
+            if instance {
+                continue;
+            }
             if is_folder {
                 pending.push(relative);
                 continue;
@@ -725,15 +888,9 @@ fn as_shipped(path: &Path, file: &std::fs::File, shipped: &Shipped) -> Result<bo
     if seen.size != shipped.size {
         return Ok(false);
     }
-    let kept = HASHED
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-        .as_ref()
-        .and_then(|hashed| hashed.get(path).copied());
-    if let Some((_, matches)) = kept.filter(|(stamp, _)| *stamp == seen) {
-        return Ok(matches);
-    }
-    // Shares no writing while it is read.
+    // Shares no writing, so it fails while anyone holds the file open to
+    // write it: opened even when its answer is kept, which only saves
+    // reading it again.
     let mut reader = crate::process::open_unfollowed(path, false)
         .with_context(|| format!("opening {}", path.display()))?;
     if stamp_of(&reader)? != seen {
@@ -741,6 +898,14 @@ fn as_shipped(path: &Path, file: &std::fs::File, shipped: &Shipped) -> Result<bo
             "{} changed while Rubylight read it: choose the folder again",
             path.display()
         );
+    }
+    let kept = HASHED
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .as_ref()
+        .and_then(|hashed| hashed.get(path).copied());
+    if let Some((_, matches)) = kept.filter(|(stamp, _)| *stamp == seen) {
+        return Ok(matches);
     }
     let matches = Manifest::matches(shipped, seen.size, &mut reader)
         .with_context(|| format!("reading {}", path.display()))?;

@@ -383,15 +383,30 @@ public class DecoderFailureTest {
         assertFalse((boolean) ReflectionHelpers.callInstanceMethod(renderer, "fetchNextInputBuffer"));
         // The thread running the reset hangs inside MediaCodec, holding the recovery monitor.
         Object monitor = ReflectionHelpers.getField(renderer, "codecRecoveryMonitor");
+        Thread ui;
         synchronized (monitor) {
             long deadline = System.nanoTime() + 10_000_000_000L;
             while (terminated.isEmpty() && System.nanoTime() < deadline) Thread.sleep(5);
+            // Leaving after the -107 dialog, with the reset still hung: the UI's calls into the
+            // renderer took the same monitor and waited for good (an ANR).
+            ui = new Thread(() -> {
+                renderer.setStreamFrameRateMilliHz(120_000);
+                assertNull(renderer.getReconfigureLimits());
+                assertFalse(renderer.prepareForReconfigure(1920, 1080));
+                renderer.setHdrMode(true, null);
+                renderer.prepareForStop();
+            });
+            ui.setDaemon(true);
+            ui.start();
+            ui.join(5000);
+            assertFalse("The UI waited for the hung reset's monitor", ui.isAlive());
         }
         assertEquals(Collections.singletonList(MoonBridge.CLIENT_ERROR_DECODER), terminated);
         assertEquals("c2.mtk.hevc.decoder took no input for 5000 ms, and its reset did not finish within 50 ms",
                 renderer.getDecoderFailure());
         assertTrue((boolean) ReflectionHelpers.getField(renderer, "stopping"));
         assertEquals(1, crashes.size());
+        assertEquals(Collections.emptyList(), uncaught);
     }
 
     @Test
@@ -419,8 +434,14 @@ public class DecoderFailureTest {
         assertEquals(0, ((AtomicInteger)
                 ReflectionHelpers.getField(renderer, "codecRecoveryType")).get());
 
-        // 600 good frames since the last recovery: hours of streaming later, it is recovered again.
+        // 600 frames within a few seconds (240 FPS) is still a crash loop.
         ReflectionHelpers.setField(renderer, "numFramesOut", 900 + 600);
+        ShadowSystemClock.advanceBy(Duration.ofMillis(9_999));
+        failOnce();
+        assertEquals(0, ((AtomicInteger) ReflectionHelpers.getField(renderer, "codecRecoveryType")).get());
+
+        // 600 good frames and 10 s since the last recovery: hours later, it is recovered again.
+        ShadowSystemClock.advanceBy(Duration.ofMillis(1));
         failOnce();
         assertEquals(3, ((AtomicInteger)
                 ReflectionHelpers.getField(renderer, "codecRecoveryType")).get());

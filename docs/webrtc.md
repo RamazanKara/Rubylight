@@ -39,13 +39,13 @@ The app then holds a client ID and a secret and signs in with them from then on.
 
 ### Stream in the console
 
-The console's **Stream** page plays a game from this PC in the browser tab, with no app and no pairing: H.264 at 1920×1080 and 60 fps, stereo sound, keyboard and mouse.
+The console's **Stream** page plays a game from this PC in the browser tab, with no app and no pairing: AV1, HEVC or H.264 at any resolution and frame rate the host offers, stereo sound, keyboard and mouse.
 
 1. Turn on the WebRTC server (see above) and restart Rubylight.
 2. Open the console from a device on the local network or Tailscale, sign in, open **Stream** and click **Connect**.
 3. Pick a game. Click the picture to play: keys and the mouse go to the PC while it has the focus. Click outside it, or press Ctrl+Alt+Shift+Z, to get them back. **Quit app** ends the stream and the game, **Disconnect** only the stream.
 
-The page signals over the console's own HTTPS port (`wss://`, at `/api/webrtc/signal`), so the WebRTC signalling port is not used, and it signs in with the console session. The browser streams as the device "Console (*your user name*)" on **Devices**; disable it there to stop the console from streaming. Signing out ends the stream within 5 seconds. One tab or browser holds the connection at a time: connecting from another one ends the stream in the first, which says so. A browser that cannot receive H.264, or a host that does not offer it at 1080p60, gets an error instead of another format.
+The page signals over the console's own HTTPS port (`wss://`, at `/api/webrtc/signal`), so the WebRTC signalling port is not used, and it signs in with the console session. The browser streams as the device "Console (*your user name*)" on **Devices**; disable it there to stop the console from streaming. Signing out ends the stream within 5 seconds. One tab or browser holds the connection at a time: connecting from another one ends the stream in the first, which says so. The **Picture** panel lists only the codecs this browser receives over WebRTC (`RTCRtpReceiver.getCapabilities`) that the host also offers, with the resolutions and frame rates the host's encoder takes for each. The first time, the page picks a codec the browser decodes in hardware (Media Capabilities), AV1 first, then HEVC, then H.264, at 1080p and 60 fps or the nearest offered; it remembers your choice in the browser. In the project's tests Chromium and Firefox 159 offer AV1 and H.264; HEVC appears only where the browser has an H.265 receiver (see below). The page drops the host's `a=imageattr` line, which is there for Samsung's TVs, before handing the offer to the browser: Firefox refuses it ("Min is not smaller than max").
 
 The browser does not say why the host refused the connection, so the page lists the causes (it asks you to sign in again when the tab's sign-in has lapsed): the tab is not signed in or opened the console from an address the host does not list as its own (`csrf_allowed_origins`), the device is not on the local network or Tailscale, the WebRTC server is off or was turned on without a restart, or the console device is disabled.
 

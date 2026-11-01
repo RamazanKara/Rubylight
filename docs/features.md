@@ -113,7 +113,7 @@ Each of these needs a permission you grant the device; pairing never grants them
 ## Browsers and TVs
 
 - **WebRTC server** (off by default). Pair a Samsung Tizen TV or a browser with a PIN and stream H.264, HEVC or AV1 with HDR, surround sound, gamepads, keyboard and mouse. The median glass-to-glass time for AV1 1080p60 was 17 ms with the browser on the host over loopback ([WebRTC](webrtc.md)).
-- **Stream in the console.** With the WebRTC server on, the console's **Stream in the browser** page plays a game in the browser tab, authenticated by the console session instead of pairing: H.264 1080p60, stereo, keyboard and mouse ([WebRTC](webrtc.md#stream-in-the-console)).
+- **Stream in the console.** With the WebRTC server on, the console's **Stream in the browser** page plays a game in the browser tab, authenticated by the console session instead of pairing: AV1, HEVC or H.264 at the resolution and frame rate you pick, stereo, keyboard and mouse ([WebRTC](webrtc.md#stream-in-the-console)).
 
 ## Console and pairing
 

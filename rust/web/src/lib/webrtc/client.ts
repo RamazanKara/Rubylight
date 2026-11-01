@@ -1,11 +1,28 @@
-// The Stream page's protocol v2 client: H.264 1080p60 and stereo Opus from the host's offer,
+// The Stream page's protocol v2 client: H.264, HEVC or AV1 and stereo Opus from the host's offer,
 // keyboard and mouse on the `input` channel. Ported from rust/tests/webrtc_client/client.js;
-// codecs, surround, gamepads and settings come later (docs/webrtc.md, "Stream in the console").
+// surround, HDR and gamepads come later (docs/webrtc.md, "Stream in the console").
 import { Held, INPUT_LABEL, INPUT_OPTIONS, type InputMessage } from './input';
 import { Signalling, SignallingError, signalUrl, type Message } from './signalling';
 
-/** What this page asks for. Every browser decodes H.264. */
-export const STREAM = { width: 1920, height: 1080, fps: 60, codec: 'h264', channels: 2 } as const;
+/** Stereo sound; surround comes later. */
+const CHANNELS = 2;
+
+export type Codec = 'av1' | 'hevc' | 'h264';
+
+/** The codecs in the order the page prefers them: the best picture per bit first. */
+export const CODECS: readonly { id: Codec; name: string; mimeType: string }[] = [
+  { id: 'av1', name: 'AV1', mimeType: 'video/av1' },
+  { id: 'hevc', name: 'HEVC', mimeType: 'video/h265' },
+  { id: 'h264', name: 'H.264', mimeType: 'video/h264' },
+];
+
+export const codecName = (codec: Codec) => CODECS.find((c) => c.id === codec)!.name;
+
+/** What the page asks the host for. */
+export type Choice = { codec: Codec; width: number; height: number; fps: number };
+
+/** One resolution and codec both sides can do, with the frame rates the host's encoder takes. */
+export type StreamOption = { codec: Codec; width: number; height: number; frameRates: number[]; bitrateKbps: number };
 
 export type AppEntry = { id: string; title: string; artworkAvailable: boolean; running: boolean };
 
@@ -19,21 +36,95 @@ export type Capabilities = {
   };
 };
 
+/** The codecs this browser can receive over WebRTC, in the page's order. */
+export function receivableCodecs(capabilities: RTCRtpCapabilities | null | undefined): Codec[] {
+  const types = new Set(capabilities?.codecs.map((c) => c.mimeType.toLowerCase()) ?? []);
+  return CODECS.filter((c) => types.has(c.mimeType)).map((c) => c.id);
+}
+
 /**
- * The bitrate for STREAM when the host offers it, from the mode's default. Throws when the host
- * cannot send H.264 at 1080p60 or does not take keyboard and mouse: there is no fallback.
+ * Every resolution and codec the host offers and the browser receives. A codec's frame rates come
+ * from `codecFrameRates` when the host lists them there, which may take a codec the mode's own
+ * list leaves out. Throws when the host does not take keyboard and mouse: there is no fallback.
  */
-export function streamBitrate(capabilities: Capabilities): number {
-  const { width, height, fps, codec } = STREAM;
-  const mode = capabilities.videoModes?.find((m) => m.width === width && m.height === height);
-  const rates = capabilities.extensions?.codecFrameRates?.find((c) => c.width === width && c.height === height && c.codec === codec)?.frameRates;
-  const offered = mode && (rates ?? (mode.codecs.includes(codec) ? mode.frameRates : [])).includes(fps);
-  if (!mode || !offered) throw new SignallingError(`The host does not offer H.264 at ${width}×${height} and ${fps} fps.`);
+export function streamOptions(capabilities: Capabilities, receivable: readonly Codec[]): StreamOption[] {
   const input = capabilities.extensions?.input;
   if (input?.label !== INPUT_LABEL || !input.keyboard || !input.mouse) {
     throw new SignallingError('The host does not take keyboard and mouse from the console.');
   }
-  return mode.defaultBitrateKbps;
+  const options: StreamOption[] = [];
+  for (const mode of capabilities.videoModes ?? []) {
+    for (const codec of receivable) {
+      const listed = capabilities.extensions?.codecFrameRates?.find((c) => c.width === mode.width && c.height === mode.height && c.codec === codec);
+      const frameRates = listed?.frameRates ?? (mode.codecs.includes(codec) ? mode.frameRates : []);
+      if (frameRates.length) {
+        options.push({ codec, width: mode.width, height: mode.height, frameRates: [...frameRates].sort((a, b) => a - b), bitrateKbps: mode.defaultBitrateKbps });
+      }
+    }
+  }
+  return options;
+}
+
+/** The option `choice` names, when both sides can do it. */
+export function optionFor(options: readonly StreamOption[], choice: Choice): StreamOption | undefined {
+  return options.find((o) => o.codec === choice.codec && o.width === choice.width && o.height === choice.height && o.frameRates.includes(choice.fps));
+}
+
+/**
+ * The saved choice when it still works; otherwise the first of `preferred` (the codecs the
+ * browser decodes in hardware first) at 1080p and 60 fps, or the nearest the host offers.
+ */
+export function defaultChoice(options: readonly StreamOption[], preferred: readonly Codec[], saved?: Choice | null): Choice | null {
+  if (saved && optionFor(options, saved)) return saved;
+  const order = [...preferred, ...CODECS.map((c) => c.id).filter((c) => !preferred.includes(c))];
+  for (const codec of order) {
+    const choice = fitChoice(options, { codec, width: 1920, height: 1080, fps: 60 });
+    if (choice) return choice;
+  }
+  return null;
+}
+
+/**
+ * `wanted`'s codec at the offered resolution nearest to `wanted`'s, and its frame rate or the
+ * fastest below it (the slowest when none is). Null when the codec is not offered at all.
+ */
+export function fitChoice(options: readonly StreamOption[], wanted: Choice): Choice | null {
+  const distance = (o: StreamOption) => Math.abs(o.width * o.height - wanted.width * wanted.height);
+  const option = options.filter((o) => o.codec === wanted.codec).sort((a, b) => distance(a) - distance(b))[0];
+  if (!option) return null;
+  const fps = option.frameRates.filter((f) => f <= wanted.fps).pop() ?? option.frameRates[0]!;
+  return { codec: wanted.codec, width: option.width, height: option.height, fps };
+}
+
+/**
+ * The receivable codecs this browser decodes in hardware, from Media Capabilities: those make
+ * the default. Empty when the browser cannot say.
+ */
+export async function hardwareCodecs(receivable: readonly Codec[]): Promise<Codec[]> {
+  const info = navigator.mediaCapabilities;
+  if (!info?.decodingInfo) return [];
+  const checks = receivable.map(async (codec) => {
+    try {
+      const contentType = CODECS.find((c) => c.id === codec)!.mimeType;
+      const result = await info.decodingInfo({
+        type: 'webrtc',
+        video: { contentType, width: 1920, height: 1080, bitrate: 20_000_000, framerate: 60 },
+      } as MediaDecodingConfiguration);
+      return result.supported && result.powerEfficient ? codec : null;
+    } catch {
+      return null;
+    }
+  });
+  return (await Promise.all(checks)).filter((c): c is Codec => c !== null);
+}
+
+/**
+ * The host's offer without `a=imageattr`: the host adds it for Samsung's TVs, a browser does not
+ * need it, and Firefox refuses its ranges (`[1920:1920]`, issue 66) with "Min is not smaller
+ * than max".
+ */
+export function browserOffer(sdp: string): string {
+  return sdp.replace(/^a=imageattr:[^\r\n]*\r?\n/gm, '');
 }
 
 /**
@@ -47,11 +138,6 @@ export function stereoAnswer(sdp: string): string {
   const fmtp = new RegExp(`^a=fmtp:${type} [^\\r\\n]*`, 'm');
   if (!fmtp.test(sdp)) return sdp.replace(/^a=rtpmap:\d+ opus\/48000\/2(?=\r?$)/im, (line) => `${line}\r\na=fmtp:${type} stereo=1;sprop-stereo=1`);
   return sdp.replace(fmtp, (line) => (/(^|[ ;])stereo=1/.test(line) ? line : `${line};stereo=1;sprop-stereo=1`));
-}
-
-/** Whether this browser can receive H.264 over WebRTC. */
-export function receivesH264(capabilities: RTCRtpCapabilities | null | undefined): boolean {
-  return !!capabilities?.codecs.some((c) => c.mimeType.toLowerCase() === 'video/h264');
 }
 
 type Receiver = RTCRtpReceiver & { jitterBufferTarget?: number | null; playoutDelayHint?: number | null };
@@ -124,11 +210,12 @@ export class ConsoleStream {
    * stops the half-started session on the host before it rejects. Call it from the click: up to
    * `video.play()` it runs within the user's gesture, which Safari needs to play sound.
    */
-  async start(appId: string, video: HTMLVideoElement, status: (text: string) => void): Promise<void> {
-    if (!receivesH264(RTCRtpReceiver.getCapabilities?.('video'))) {
-      throw new SignallingError('This browser cannot receive H.264 over WebRTC.');
+  async start(appId: string, choice: Choice, video: HTMLVideoElement, status: (text: string) => void): Promise<void> {
+    const receivable = receivableCodecs(RTCRtpReceiver.getCapabilities?.('video'));
+    const option = optionFor(streamOptions(this.capabilities, receivable), choice);
+    if (!option) {
+      throw new SignallingError(`This browser and the host cannot stream ${codecName(choice.codec)} at ${choice.width}×${choice.height} and ${choice.fps} fps.`);
     }
-    const bitrateKbps = streamBitrate(this.capabilities);
     const run = (this.run = {});
     let fail: (error: Error) => void = () => {};
     const failed = new Promise<never>((_, reject) => (fail = reject));
@@ -143,7 +230,7 @@ export class ConsoleStream {
       if (this.input) this.end(message, true);
     });
     try {
-      await this.connectStream(appId, bitrateKbps, media, status, failed, fail);
+      await this.connectStream(appId, { ...choice, bitrateKbps: option.bitrateKbps }, media, status, failed, fail);
     } catch (error) {
       // stop() or end() has told the host already when they ended the start.
       if (this.abort === fail) {
@@ -158,7 +245,7 @@ export class ConsoleStream {
 
   private async connectStream(
     appId: string,
-    bitrateKbps: number,
+    choice: Choice & { bitrateKbps: number },
     media: MediaStream,
     status: (text: string) => void,
     failed: Promise<never>,
@@ -178,10 +265,10 @@ export class ConsoleStream {
         else status(`Host: ${String(message.state)}${text}`);
       }
     });
-    const { width, height, fps, codec, channels } = STREAM;
+    const { width, height, fps, codec, bitrateKbps } = choice;
     status('Starting the app…');
     const video = { width, height, fps, codec, bitrateKbps, hdr: false };
-    const offer = await Promise.race([this.sig.request('start-session', { appId, video, audio: { channels } }, 'offer', CONNECT_TIMEOUT_MS), failed]);
+    const offer = await Promise.race([this.sig.request('start-session', { appId, video, audio: { channels: CHANNELS } }, 'offer', CONNECT_TIMEOUT_MS), failed]);
     const sessionId = offer.sessionId;
     const pc = (this.pc = new RTCPeerConnection({ iceServers: [] }));
     pc.ontrack = (event) => {
@@ -198,7 +285,7 @@ export class ConsoleStream {
       };
     });
     status('Connecting…');
-    await pc.setRemoteDescription({ type: 'offer', sdp: String(offer.sdp) });
+    await pc.setRemoteDescription({ type: 'offer', sdp: browserOffer(String(offer.sdp)) });
     const answer = await pc.createAnswer();
     await pc.setLocalDescription({ type: 'answer', sdp: stereoAnswer(answer.sdp ?? '') });
     this.sig.send('answer', { sessionId, sdp: pc.localDescription?.sdp });

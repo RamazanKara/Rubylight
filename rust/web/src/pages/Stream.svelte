@@ -3,12 +3,27 @@
   import Badge from '../components/Badge.svelte';
   import Button from '../components/Button.svelte';
   import EmptyState from '../components/EmptyState.svelte';
+  import Field from '../components/Field.svelte';
   import PageHeader from '../components/PageHeader.svelte';
   import Panel from '../components/Panel.svelte';
+  import Select from '../components/Select.svelte';
   import { api, sessionCsrfToken } from '../lib/api';
   import { link } from '../lib/router.svelte';
   import { on } from '../lib/schema/basics';
-  import { ConsoleStream, STREAM, type AppEntry } from '../lib/webrtc/client';
+  import {
+    CODECS,
+    ConsoleStream,
+    codecName,
+    defaultChoice,
+    fitChoice,
+    hardwareCodecs,
+    receivableCodecs,
+    streamOptions,
+    type AppEntry,
+    type Choice,
+    type Codec,
+    type StreamOption,
+  } from '../lib/webrtc/client';
   import { buttonChanges, keyMessage, positionMessage, Wheel } from '../lib/webrtc/input';
   import { RefusedError } from '../lib/webrtc/signalling';
 
@@ -34,6 +49,49 @@
   /** The mouse buttons the host holds, as a `MouseEvent.buttons` mask. */
   let buttons = 0;
   let wheelInput = new Wheel();
+  /** What both this browser and the host can stream, and what the page asks for. */
+  let options = $state.raw<StreamOption[]>([]);
+  let choice = $state<Choice | null>(null);
+
+  const CHOICE_KEY = 'butterpollo.stream';
+  // A browser that blocks site data throws on localStorage: the choice then lasts for this visit.
+  function savedChoice(): Choice | null {
+    try {
+      const value = JSON.parse(localStorage.getItem(CHOICE_KEY) ?? 'null') as Choice | null;
+      return value && typeof value.codec === 'string' && [value.width, value.height, value.fps].every(Number.isInteger) ? value : null;
+    } catch {
+      return null;
+    }
+  }
+  function choose(next: Choice | null) {
+    if (!next) return;
+    choice = next;
+    try {
+      localStorage.setItem(CHOICE_KEY, JSON.stringify(next));
+    } catch {
+      // Not remembered; see savedChoice().
+    }
+  }
+
+  const codecOptions = $derived(CODECS.filter((c) => options.some((o) => o.codec === c.id)).map((c) => ({ value: c.id, label: c.name })));
+  const sizeOptions = $derived(
+    options
+      .filter((o) => o.codec === choice?.codec)
+      .sort((a, b) => a.width * a.height - b.width * b.height)
+      .map((o) => ({ value: `${o.width}x${o.height}`, label: `${o.width}×${o.height}` })),
+  );
+  const rateOptions = $derived(
+    (options.find((o) => o.codec === choice?.codec && o.width === choice?.width && o.height === choice?.height)?.frameRates ?? []).map((f) => ({
+      value: String(f),
+      label: `${f} fps`,
+    })),
+  );
+  const pickCodec = (codec: string) => choice && choose(fitChoice(options, { ...choice, codec: codec as Codec }));
+  function pickSize(size: string) {
+    const [width, height] = size.split('x').map(Number);
+    if (choice) choose(fitChoice(options, { ...choice, width: width!, height: height! }));
+  }
+  const pickRate = (fps: string) => choice && choose({ ...choice, fps: Number(fps) });
 
   const live = $derived(phase === 'starting' || phase === 'streaming');
 
@@ -63,8 +121,18 @@
       if (gone) return opened.close();
       stream = opened;
       opened.onended = (reason, closed) => ended(opened, reason, closed);
+      const receivable = receivableCodecs(RTCRtpReceiver.getCapabilities?.('video'));
+      const offered = streamOptions(opened.capabilities, receivable);
+      if (!offered.length) {
+        const names = receivable.map(codecName).join(', ') || 'none';
+        throw new Error(`The host offers no format this browser receives over WebRTC (this browser: ${names}).`);
+      }
+      const preferred = await hardwareCodecs(receivable);
       apps = await opened.apps();
-      if (stream === opened) phase = 'ready';
+      if (stream !== opened) return;
+      options = offered;
+      choice = defaultChoice(offered, preferred, savedChoice());
+      phase = 'ready';
     } catch (cause) {
       if (gone) return;
       refused = cause instanceof RefusedError;
@@ -103,14 +171,14 @@
 
   async function start(app: AppEntry) {
     const current = stream;
-    if (!current || !video || phase !== 'ready') return;
+    if (!current || !video || !choice || phase !== 'ready') return;
     error = '';
     title = app.title;
     phase = 'starting';
     buttons = 0;
     wheelInput = new Wheel();
     // Called before the first await: `video.play()` needs the click's user gesture in Safari.
-    const started = current.start(app.id, video, (text) => (status = text));
+    const started = current.start(app.id, choice, video, (text) => (status = text));
     try {
       await started;
       if (stream !== current || phase !== 'starting') return;
@@ -213,7 +281,7 @@
 </script>
 
 <div class="page">
-  <PageHeader title="Stream" subtitle="Play a game from this PC in this browser tab: H.264 at {STREAM.width}×{STREAM.height} and {STREAM.fps} fps, stereo sound, keyboard and mouse.">
+  <PageHeader title="Stream" subtitle="Play a game from this PC in this browser tab, with stereo sound, keyboard and mouse.">
   </PageHeader>
 
   {#if anyNetwork}
@@ -266,6 +334,21 @@
         <div><Button icon="play" onclick={connect}>Connect</Button></div>
       </Panel>
     {:else if phase === 'ready'}
+      {#if choice}
+        <Panel title="Picture">
+          <div class="picture">
+            <Field label="Codec" id="stream-codec">
+              <Select id="stream-codec" value={choice.codec} options={codecOptions} onchange={pickCodec} />
+            </Field>
+            <Field label="Resolution" id="stream-size">
+              <Select id="stream-size" value="{choice.width}x{choice.height}" options={sizeOptions} onchange={pickSize} />
+            </Field>
+            <Field label="Frame rate" id="stream-fps">
+              <Select id="stream-fps" value={String(choice.fps)} options={rateOptions} onchange={pickRate} />
+            </Field>
+          </div>
+        </Panel>
+      {/if}
       <Panel title="Games" description="Pick one to start it on this PC and stream it here." flush>
         {#if apps.length}
           <ul class="apps">
@@ -333,6 +416,11 @@
   .failure ul {
     margin: 0;
     padding-left: 1.2em;
+  }
+  .picture {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+    gap: var(--space-4);
   }
   .apps {
     list-style: none;

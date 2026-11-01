@@ -169,26 +169,55 @@ test('the answer asks for stereo Opus on the Opus format only', () => {
   assert.throws(() => client.stereoAnswer(''), /without stereo Opus/);
 });
 
-test('the page streams H.264 1080p60 at the host’s bitrate, or says why not', () => {
-  assert.equal(client.streamBitrate(CAPABILITIES), 20000);
-  // Without codecFrameRates, the mode's own codecs and rates decide.
-  const plain = { ...CAPABILITIES, extensions: { input: CAPABILITIES.extensions.input } };
-  assert.equal(client.streamBitrate(plain), 20000);
-  const no60 = structuredClone(CAPABILITIES);
-  no60.extensions.codecFrameRates[0].frameRates = [30];
-  assert.throws(() => client.streamBitrate(no60), /does not offer H\.264 at 1920×1080 and 60 fps/);
-  const noH264 = structuredClone(plain);
-  noH264.videoModes[1].codecs = ['hevc'];
-  assert.throws(() => client.streamBitrate(noH264), /does not offer H\.264/);
-  assert.throws(() => client.streamBitrate({ ...CAPABILITIES, videoModes: [CAPABILITIES.videoModes[0]] }), /does not offer/);
-  assert.throws(() => client.streamBitrate({ videoModes: CAPABILITIES.videoModes }), /keyboard and mouse/);
+test('the options are what the host offers and the browser receives, or say why not', () => {
+  const all = ['av1', 'hevc', 'h264'];
+  // codecFrameRates decides H.264 at 1080p; HEVC there falls back to the mode's own rates.
+  assert.deepEqual(client.streamOptions(CAPABILITIES, all), [
+    { codec: 'h264', width: 1280, height: 720, frameRates: [30, 60], bitrateKbps: 10000 },
+    { codec: 'hevc', width: 1920, height: 1080, frameRates: [30, 60, 120], bitrateKbps: 20000 },
+    { codec: 'h264', width: 1920, height: 1080, frameRates: [30, 60], bitrateKbps: 20000 },
+  ]);
+  assert.deepEqual(client.streamOptions(CAPABILITIES, ['h264']).map((o) => o.codec), ['h264', 'h264']);
+  // A codec only codecFrameRates lists is offered at that mode.
+  const listed = structuredClone(CAPABILITIES);
+  listed.extensions.codecFrameRates.push({ width: 1280, height: 720, codec: 'av1', frameRates: [60, 30] });
+  assert.deepEqual(client.streamOptions(listed, ['av1']), [{ codec: 'av1', width: 1280, height: 720, frameRates: [30, 60], bitrateKbps: 10000 }]);
+  assert.throws(() => client.streamOptions({ videoModes: CAPABILITIES.videoModes }, all), /keyboard and mouse/);
   const noMouse = structuredClone(CAPABILITIES);
   noMouse.extensions.input.mouse = false;
-  assert.throws(() => client.streamBitrate(noMouse), /keyboard and mouse/);
+  assert.throws(() => client.streamOptions(noMouse, all), /keyboard and mouse/);
 
-  assert.equal(client.receivesH264({ codecs: [{ mimeType: 'video/VP8' }, { mimeType: 'video/H264' }], headerExtensions: [] }), true);
-  assert.equal(client.receivesH264({ codecs: [{ mimeType: 'video/VP8' }], headerExtensions: [] }), false);
-  assert.equal(client.receivesH264(null), false);
+  const caps = (...types) => ({ codecs: types.map((mimeType) => ({ mimeType })), headerExtensions: [] });
+  assert.deepEqual(client.receivableCodecs(caps('video/VP8', 'video/H264', 'video/AV1', 'video/H265')), ['av1', 'hevc', 'h264']);
+  assert.deepEqual(client.receivableCodecs(caps('video/VP8')), []);
+  assert.deepEqual(client.receivableCodecs(null), []);
+});
+
+test('the default is a hardware codec at 1080p60, a saved choice that still works, or the nearest', () => {
+  const options = client.streamOptions(CAPABILITIES, ['av1', 'hevc', 'h264']);
+  assert.deepEqual(client.defaultChoice(options, []), { codec: 'hevc', width: 1920, height: 1080, fps: 60 });
+  assert.deepEqual(client.defaultChoice(options, ['h264']), { codec: 'h264', width: 1920, height: 1080, fps: 60 });
+  const saved = { codec: 'h264', width: 1280, height: 720, fps: 30 };
+  assert.deepEqual(client.defaultChoice(options, ['hevc'], saved), saved);
+  // A saved choice the host no longer takes falls back to the default.
+  assert.deepEqual(client.defaultChoice(options, [], { ...saved, fps: 120 }), { codec: 'hevc', width: 1920, height: 1080, fps: 60 });
+  assert.equal(client.defaultChoice([], ['h264']), null);
+
+  // Switching codec keeps the nearest resolution and the fastest rate at most the old one.
+  assert.deepEqual(client.fitChoice(options, { codec: 'h264', width: 1920, height: 1080, fps: 120 }), { codec: 'h264', width: 1920, height: 1080, fps: 60 });
+  assert.deepEqual(client.fitChoice(options, { codec: 'hevc', width: 1280, height: 720, fps: 30 }), { codec: 'hevc', width: 1920, height: 1080, fps: 30 });
+  assert.deepEqual(client.fitChoice(options, { codec: 'hevc', width: 1920, height: 1080, fps: 24 }), { codec: 'hevc', width: 1920, height: 1080, fps: 30 });
+  assert.equal(client.fitChoice(options, { codec: 'av1', width: 1920, height: 1080, fps: 60 }), null);
+  assert.ok(client.optionFor(options, { codec: 'hevc', width: 1920, height: 1080, fps: 120 }));
+  assert.equal(client.optionFor(options, { codec: 'h264', width: 1920, height: 1080, fps: 120 }), undefined);
+});
+
+test('the offer reaches the browser without Samsung’s imageattr, which Firefox refuses (issue 66)', () => {
+  const sdp = (...lines) => lines.map((l) => `${l}\r\n`).join('');
+  const head = ['v=0', 'm=video 9 UDP/TLS/RTP/SAVPF 96', 'a=rtpmap:96 H264/90000'];
+  const offer = sdp(...head, 'a=imageattr:96 send [x=[1920:1920],y=[1080:1080],fps=[60:60]]', 'a=rtcp-fb:96 nack pli');
+  assert.equal(client.browserOffer(offer), sdp(...head, 'a=rtcp-fb:96 nack pli'));
+  assert.equal(client.browserOffer(client.browserOffer(offer)), client.browserOffer(offer));
 });
 
 test('a refused socket is told apart from a host error', async () => {

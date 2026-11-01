@@ -1,3 +1,3 @@
 ## en
-- Android: Send to PC reacts to the remote and to taps again. Its PC buttons were rebuilt every time Nightjar checked the PCs, so a press often landed on a button that was already gone; a transfer's Cancel and Try again had the same problem while it ran.
+- Android: Send to PC reacts to the remote and to taps again. Its PC buttons were rebuilt every time Nightjar checked the PCs, so a press often landed on a button that was already gone; a transfer's Cancel and Try again had the same problem while it ran. With a remote, the focus now starts on the first PC, moves on to the screen's buttons once one is picked, and no longer falls back to the Back button, where the next OK closed the screen and cancelled the transfers.
 - Android: **Report a problem** has a **Send to PC** button that sends the report straight into the PC's file transfer folder. This works on TVs whose share sheet offers no app for files.

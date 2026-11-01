@@ -331,6 +331,36 @@ public class FileTransferRecreationTest {
     }
 
     @Test
+    public void aRemoteStartsOnTheFirstPcAndGoesOnToSendFilesOnceOneIsChosen() {
+        Intent share = new Intent(app, FileTransferActivity.class).setAction(Intent.ACTION_SEND)
+                .putExtra(Intent.EXTRA_STREAM, SHARED);
+        ActivityController<FileTransferActivity> screen = Robolectric.buildActivity(FileTransferActivity.class, share)
+                .setup();
+        FileTransferActivity activity = screen.get();
+        Engine engine = new Engine();
+        activity.work.engine = engine;
+        View root = activity.getWindow().getDecorView();
+        // On the TV the focus sat on the Up button when the PCs showed and again after one was chosen: a remote's
+        // next OK closed the screen and dropped the share.
+        poll(activity, NativeApiFixtures.nativeHost("tower-uuid", "Tower", true));
+        View tower = find(root, "Tower");
+        assertTrue(tower.isFocused());
+        tower.performClick();
+        activity.work.controller = new FileTransferController(engine, HOST, activity.work.workers,
+                activity.work.handler::post, activity.work);
+        ReflectionHelpers.setField(activity, "uploadAccess", FileProblems.Access.READY);
+        ReflectionHelpers.callInstanceMethod(activity, "render");
+        assertTrue(find(root, app.getString(R.string.files_send)).isFocused());
+        // Only once: a later render leaves the focus where the user put it.
+        View refresh = (View) ReflectionHelpers.getField(activity, "refresh");
+        assertTrue(refresh.requestFocus());
+        ReflectionHelpers.callInstanceMethod(activity, "render");
+        assertTrue(refresh.isFocused());
+        screen.get().finish();
+        screen.pause().stop().destroy();
+    }
+
+    @Test
     public void theFolderReadAgainKeepsItsDownloadButtonsAndTheirFocus() {
         ActivityController<FileTransferActivity> screen = Robolectric.buildActivity(FileTransferActivity.class,
                 FileTransferActivity.forPc(app, "tower")).setup();

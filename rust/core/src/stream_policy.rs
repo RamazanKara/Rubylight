@@ -75,8 +75,12 @@ struct SourcePhase {
     /// The stream period the phase was learned for.
     period_ns: u64,
     /// The source's updates per stream period: phases fold over
-    /// `period_ns / multiple` (`set_multiple`).
+    /// `period_ns / multiple` (`multiple_from`).
     multiple: u64,
+    /// The most updates per stream period the picture interval allows
+    /// (`limit_to`), and when it last allowed as many.
+    limit: u64,
+    limit_at: Option<Instant>,
     origin: Option<Instant>,
     last: Option<Instant>,
     samples: [u64; 64],
@@ -91,6 +95,8 @@ impl SourcePhase {
         Self {
             period_ns: period.as_nanos().clamp(1, u128::from(u64::MAX)) as u64,
             multiple: 1,
+            limit: 1,
+            limit_at: None,
             origin: None,
             last: None,
             samples: [0; 64],
@@ -105,26 +111,81 @@ impl SourcePhase {
     fn cycle_ns(&self) -> u64 {
         (self.period_ns / self.multiple).max(1)
     }
-    /// A source updating `multiple` times a stream period (a 120 Hz game at
-    /// 60 fps) shows one phase per update, `cycle_ns` apart; folded over the
-    /// stream period they are `multiple` peaks, none with enough support, and
-    /// the phase was never learned. Another window's updates then started
-    /// pictures of their own: claimed once allowed, each took the game's
-    /// previous frame a few milliseconds before its next, and the claims
-    /// after it waited for the credit it spent. A change keeps the samples
-    /// and learns the phase again from them.
-    fn set_multiple(&mut self, multiple: u64) {
-        if multiple == self.multiple {
-            return;
-        }
+    /// Fold the samples over one update of a source updating `multiple`
+    /// times a stream period.
+    fn fold(&mut self, multiple: u64) {
         self.multiple = multiple;
         let cycle = self.cycle_ns();
         for index in 0..self.count {
             self.samples[index] = self.elapsed_ns[index] % cycle;
         }
-        self.center = None;
-        self.last_phase = None;
-        self.learn(None);
+    }
+    /// A source updating 2 to 4 times a stream period (a 120 Hz game at
+    /// 60 fps) shows one phase per update; folded over the stream period
+    /// they are as many peaks, none with enough support, and the phase was
+    /// never learned. Another window's updates then started pictures of
+    /// their own: claimed once allowed, each took the game's previous frame
+    /// a few milliseconds before its next, and the claims after it waited
+    /// for the credit it spent. The largest multiple whose peak has an update
+    /// in 80 % of its cycles is the source's, counted for every update of the
+    /// period on its own (`cycle_share`): another window's updates on a
+    /// 240 Hz display's other refreshes, 50 to 70 a second, filled 80 % of a
+    /// 120 Hz game's quarter-period cycles together, but only the game's own
+    /// two updates of the period fill them all. The multiple comes from the
+    /// captures, with the picture interval only as the limit: other windows'
+    /// updates and late second compositions split pictures, and the
+    /// interval's median flickered between 2, 3 and 1 for a 120 Hz game.
+    /// Tries the multiples from the limit down to `least`; leaves the samples
+    /// folded over the last one tried.
+    fn multiple_from(&mut self, least: u64) -> Option<u64> {
+        for multiple in (least.max(2)..=self.limit.min(4)).rev() {
+            self.fold(multiple);
+            let (center, _) = self.peak();
+            let (matched, complete) = self.cycle_share(center);
+            if complete > 0 && matched * 100 >= complete * 80 {
+                return Some(center);
+            }
+        }
+        None
+    }
+    /// A lower limit takes over once the higher one has not shown for this
+    /// long: the picture interval's median flickers.
+    const LIMIT_HOLD: Duration = Duration::from_millis(250);
+    /// The whole source updates per period the picture interval allows at
+    /// `now`. With focus labels the picture interval is the focus window's:
+    /// another window at 240 Hz beside a 60 Hz game must not become the
+    /// phase, and a multiple above the limit is learned again.
+    fn limit_to(&mut self, limit: u64, now: Instant) {
+        if limit >= self.limit
+            || self
+                .limit_at
+                .is_none_or(|at| now.saturating_duration_since(at) >= Self::LIMIT_HOLD)
+        {
+            self.limit = limit;
+            self.limit_at = Some(now);
+        }
+    }
+    /// The center of the densest radius-wide window of samples, and how many
+    /// samples it holds.
+    fn peak(&self) -> (u64, usize) {
+        let cycle = self.cycle_ns();
+        let mut bins = [0usize; 64];
+        for &sample in &self.samples[..self.count] {
+            bins[(u128::from(sample) * 64 / u128::from(cycle)) as usize] += 1;
+        }
+        // The bins within the radius on either side: 4 of 64 at a multiple
+        // of 1.
+        let half = (u128::from(self.radius_ns()) * 64 / u128::from(cycle)) as usize;
+        let population = |bin: usize| {
+            (0..=2 * half)
+                .map(|offset| bins[(bin + offset + 64 - half) % 64])
+                .sum::<usize>()
+        };
+        let peak = (0..64).max_by_key(|&bin| population(bin)).unwrap();
+        (
+            ((peak as u128 * 2 + 1) * u128::from(cycle) / 128) as u64,
+            population(peak),
+        )
     }
     fn offset(&self, at: Instant) -> u64 {
         (at.saturating_duration_since(self.origin.unwrap_or(at))
@@ -161,6 +222,13 @@ impl SourcePhase {
             && (self.count as u128 - 1) * u128::from(self.period_ns) * 10 >= u128::from(span) * 11
     }
     fn covers_cycles(&self, center: u64) -> bool {
+        let (matched, complete) = self.cycle_share(center);
+        complete > 0 && matched * 100 >= complete * 65
+    }
+    /// The complete cycles within the samples, and how many of them have a
+    /// sample near `center`: of the update of the stream period (the cycle's
+    /// index modulo the multiple) with the fewest.
+    fn cycle_share(&self, center: u64) -> (u128, u128) {
         let oldest = if self.count == self.samples.len() {
             self.next
         } else {
@@ -174,7 +242,8 @@ impl SourcePhase {
         let first = cycle(self.elapsed_ns[oldest]);
         let last = cycle(self.elapsed_ns[newest]);
         let complete = last.saturating_sub(first + 1);
-        let mut matched = 0u128;
+        let updates = u128::from(self.multiple.clamp(1, 4));
+        let mut matched = [0u128; 4];
         let mut previous = None;
         for offset in 0..self.count {
             let index = (oldest + offset) % self.samples.len();
@@ -184,11 +253,19 @@ impl SourcePhase {
                 && previous != Some(cycle)
                 && self.distance(self.samples[index], center) <= self.radius_ns()
             {
-                matched += 1;
+                matched[(cycle % updates) as usize] += 1;
                 previous = Some(cycle);
             }
         }
-        complete > 0 && matched * 100 >= complete * 65
+        // The complete cycles first + 1 ..= last - 1 of each update.
+        let start = (first + 1) % updates;
+        (0..updates)
+            .map(|update| {
+                let extra = u128::from((update + updates - start) % updates < complete % updates);
+                (matched[update as usize], complete / updates + extra)
+            })
+            .min_by(|a, b| (a.0 * b.1).cmp(&(b.0 * a.1)).then(a.1.cmp(&b.1)))
+            .unwrap_or((0, 0))
     }
     fn observe(&mut self, at: Instant) {
         if self.last == Some(at) {
@@ -241,30 +318,30 @@ impl SourcePhase {
         if self.count < 32 {
             return;
         }
-        let cycle = self.cycle_ns();
         // Retain a learned source while it still updates in most stream cycles;
         // counting all captures would let extra compositions dilute its support.
-        let center = if let Some(center) = previous.filter(|&center| self.covers_cycles(center)) {
-            center
-        } else {
-            let mut bins = [0usize; 64];
-            for &sample in &self.samples[..self.count] {
-                bins[(u128::from(sample) * 64 / u128::from(cycle)) as usize] += 1;
+        // A larger multiple the limit allows replaces it.
+        let retained =
+            previous.filter(|&center| self.multiple <= self.limit && self.covers_cycles(center));
+        let multiple = self.multiple;
+        let least = if retained.is_some() { multiple + 1 } else { 2 };
+        let center = match (self.multiple_from(least), retained) {
+            (Some(center), _) => center,
+            (None, Some(center)) => {
+                self.fold(multiple);
+                center
             }
-            // The bins within the radius on either side: 4 of 64 at a
-            // multiple of 1.
-            let half = (u128::from(self.radius_ns()) * 64 / u128::from(cycle)) as usize;
-            let population = |bin: usize| {
-                (0..=2 * half)
-                    .map(|offset| bins[(bin + offset + 64 - half) % 64])
-                    .sum::<usize>()
-            };
-            let peak = (0..64).max_by_key(|&bin| population(bin)).unwrap();
-            if population(peak) * 100 < self.count * 65 {
-                return;
+            (None, None) => {
+                // The phase over the whole period, as before.
+                self.fold(1);
+                let (center, population) = self.peak();
+                if population * 100 < self.count * 65 {
+                    return;
+                }
+                center
             }
-            ((peak as u128 * 2 + 1) * u128::from(cycle) / 128) as u64
         };
+        let cycle = self.cycle_ns();
         let half = i128::from(cycle / 2);
         let period = i128::from(cycle);
         let radius = i128::from(self.radius_ns());
@@ -287,24 +364,6 @@ impl SourcePhase {
                 .map(|(_, &elapsed)| self.origin.unwrap() + Duration::from_nanos(elapsed))
                 .max();
         }
-    }
-}
-/// The source's updates per stream period of `period_ns`: 2 to 4 when its
-/// pictures come within an eighth of that fraction of the period apart, else
-/// 1, the phase over the whole period as before.
-fn source_multiple(period_ns: u64, interval: Option<Duration>) -> u64 {
-    let Some(interval) = interval
-        .map(|interval| interval.as_nanos().min(u128::from(u64::MAX)) as u64)
-        .filter(|interval| *interval > 0)
-    else {
-        return 1;
-    };
-    let multiple = (period_ns + interval / 2) / interval;
-    let cycle = period_ns / multiple.max(1);
-    if (2..=4).contains(&multiple) && cycle.abs_diff(interval) * 8 <= cycle {
-        multiple
-    } else {
-        1
     }
 }
 /// Claims frames when they arrive, without exceeding the stream rate on average.
@@ -592,7 +651,11 @@ impl Pacer {
             };
         }
         if let Some(phase) = &mut self.source_phase {
-            phase.set_multiple(source_multiple(phase.period_ns, source_interval));
+            let limit = source_interval.map_or(1, |interval| {
+                let interval = interval.as_nanos().max(1);
+                ((u128::from(phase.period_ns) + interval / 2) / interval).clamp(1, 4) as u64
+            });
+            phase.limit_to(limit, now);
         }
         if let Some(phase) = &self.source_phase
             && let Some(center) = phase.center
@@ -611,13 +674,19 @@ impl Pacer {
             // A compositor update can arrive half a stream period late.
             // Keep the fallback anchored to this capture, not the polling time.
             let detection = self.period / 2 + Duration::from_micros(500);
-            // An in-phase capture's next update is at least a cycle less a
-            // radius away; the slack stays a radius short of that. Past it (a
-            // 240 Hz source at 60 fps), an in-phase capture that may be
-            // claimed waited for the next one, and every claim ran a cycle late.
-            let slack = (self.period / 4 + Duration::from_micros(500)).min(Duration::from_nanos(
-                phase.cycle_ns().saturating_sub(2 * phase.radius_ns()),
-            ));
+            // A source updating several times a period: an in-phase capture's
+            // next update is at least a cycle less a radius away, and the
+            // slack stays a radius short of that. Past it (a 240 Hz source at
+            // 60 fps), a fresh in-phase capture waited for the next one, and
+            // every claim ran a cycle late. Up to it, an update half a 120 Hz
+            // game's cycle off its phase (another window's on the 240 Hz
+            // display's other refresh) waits for the game's next frame, which
+            // came 4.1 to 5.3 ms later: a quarter period was too short.
+            let slack = if phase.multiple > 1 {
+                Duration::from_nanos(phase.cycle_ns().saturating_sub(2 * phase.radius_ns()))
+            } else {
+                self.period / 4 + Duration::from_micros(500)
+            };
             if next + detection > allowed && next <= allowed + slack {
                 // A new picture can precede the learned phase. Waiting for
                 // another composition must not stretch delivery to 1.5 periods.

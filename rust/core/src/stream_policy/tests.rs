@@ -1661,20 +1661,66 @@ fn phase_prediction_falls_back_for_irregular_faster_and_slower_sources() {
     assert!(phase.center.is_none());
 }
 #[test]
-fn source_phase_folds_over_whole_multiples_of_the_stream_rate_only() {
-    let period = Duration::from_secs_f64(1. / 60.).as_nanos() as u64;
-    let interval = |hz: f64| Some(Duration::from_secs_f64(1. / hz));
-    assert_eq!(source_multiple(period, interval(120.)), 2);
-    assert_eq!(source_multiple(period, interval(119.98)), 2);
-    assert_eq!(source_multiple(period, interval(180.)), 3);
-    assert_eq!(source_multiple(period, interval(240.)), 4);
-    // A picture interval at the stream rate, between multiples, or of a
-    // 1000 Hz VRR display keeps one update per period.
-    for hz in [60., 90., 144., 1000.] {
-        assert_eq!(source_multiple(period, interval(hz)), 1, "{hz} Hz");
+fn source_phase_learns_whole_multiples_of_the_stream_rate_from_the_captures() {
+    let start = Instant::now();
+    let period = Duration::from_secs_f64(1. / 60.);
+    let learned = |hz: f64, other: bool| {
+        let mut phase = SourcePhase::new(period);
+        // As a picture interval of a 240 Hz display's refresh allows.
+        phase.limit = 4;
+        let interval = 1. / hz;
+        for update in 0..96 {
+            let at = start
+                + Duration::from_secs_f64(update as f64 * interval + 0.0003 * noise(update, 1));
+            phase.observe(at);
+            // Another window's update on the 240 Hz display's other refresh.
+            if other && update % 2 == 0 {
+                phase.observe(at + Duration::from_secs_f64(interval / 2.));
+            }
+        }
+        (phase.multiple, phase.center.is_some())
+    };
+    assert_eq!(learned(120., false), (2, true));
+    assert_eq!(learned(119.98, false), (2, true));
+    assert_eq!(learned(180., false), (3, true));
+    assert_eq!(learned(240., false), (4, true));
+    assert_eq!(learned(60., false), (1, true));
+    assert_eq!(learned(120., true), (2, true));
+    assert_eq!(learned(90., false).0, 1);
+}
+#[test]
+fn source_phase_keeps_its_multiple_through_a_brief_lower_picture_interval() {
+    // Late second compositions split a 120 Hz game's pictures, and the
+    // picture interval's median read a whole period now and then. Taken as
+    // the limit right away, it dropped the learned multiple: on a replay of
+    // hardware captures 3.7 % of claims waited for credit afterwards.
+    let start = Instant::now();
+    let period = Duration::from_secs_f64(1. / 60.);
+    let mut phase = SourcePhase::new(period);
+    let at = |update: usize| {
+        start + Duration::from_secs_f64(update as f64 / 120. + 0.0003 * noise(update, 1))
+    };
+    for update in 0..96 {
+        phase.limit_to(2, at(update));
+        phase.observe(at(update));
     }
-    assert_eq!(source_multiple(period, None), 1);
-    assert_eq!(source_multiple(period, Some(Duration::ZERO)), 1);
+    assert_eq!((phase.multiple, phase.center.is_some()), (2, true));
+    for update in 96..192 {
+        // One picture interval in twelve reads a whole period.
+        phase.limit_to(if update % 12 == 0 { 1 } else { 2 }, at(update));
+        phase.observe(at(update));
+        assert_eq!(
+            (phase.multiple, phase.center.is_some()),
+            (2, true),
+            "update {update}"
+        );
+    }
+    // A lower limit that lasts takes over.
+    for update in 192..240 {
+        phase.limit_to(1, at(update));
+        phase.observe(at(update));
+    }
+    assert_eq!(phase.multiple, 1);
 }
 /// Claims of a fixed-rate stream from `captures` (ms), each published on the
 /// capture worker's 0.5 ms poll: (claim, presented, published).
@@ -1815,6 +1861,66 @@ fn a_game_frame_that_missed_a_refresh_does_not_take_a_fixed_rate_claim_early() {
             assert!(rate < 60.07, "{case}: {rate:.3} claims/s");
             assert!(mean < 0.75, "{case}: mean age {mean:.2} ms");
             assert!(p95 < 2., "{case}: p95 age {p95:.2} ms");
+        }
+    }
+}
+#[test]
+fn another_window_on_the_other_refreshes_does_not_become_a_double_rate_games_phase() {
+    // A 120 Hz game on a 240 Hz display with its second compositions, and
+    // another window updating 30 to 70 times a second on the refreshes in
+    // between. At 50 to 70 a second they filled 80 % of the quarter-period
+    // cycles together with the game's frames, the phase was learned at four
+    // updates a period, and up to 14 % of claims showed the other window's
+    // update between two game frames.
+    let period = 1000. / 60.;
+    let refresh = 1000. / 240.;
+    for other_every in [8usize, 4, 3] {
+        for seed in 0..3u64 {
+            let mut compositions = vec![];
+            let mut frames = vec![];
+            for slot in 0..30 * 240usize {
+                let at = slot as f64 * refresh + 2.5;
+                if slot % 2 == 0 {
+                    let frame = slot / 2;
+                    let composed = at + 0.8 * noise(frame, seed * 10);
+                    frames.push(composed);
+                    compositions.push((composed, true));
+                    // Its second composition, a tenth of them 2 to 3 ms later.
+                    let late = noise(frame, seed * 10 + 1);
+                    let second = if late > 0.9 {
+                        2. + 10. * (late - 0.9)
+                    } else {
+                        0.8 + 0.5 * late
+                    };
+                    compositions.push((composed + second, true));
+                } else if (slot / 2 + seed as usize * 10).is_multiple_of(other_every)
+                    || noise(slot, seed * 10 + 2) * other_every as f64 > other_every as f64 - 1.
+                {
+                    compositions.push((at + 0.2 * noise(slot, seed * 10 + 3), false));
+                }
+            }
+            compositions.sort_by(|a, b| a.0.total_cmp(&b.0));
+            let captures: Vec<f64> = compositions.iter().map(|c| c.0).collect();
+            let claims = simulate_polled(period, &captures);
+            let (rate, _, age) = polled_rate_and_age(&claims, &frames);
+            let steady = &claims[claims.len() / 10..];
+            let extras = steady
+                .iter()
+                .filter(|c| !compositions[compositions.partition_point(|x| x.0 < c.1)].1)
+                .count();
+            let uneven = steady
+                .windows(2)
+                .filter(|w| !(14.5..19.).contains(&(w[1].0 - w[0].0)))
+                .count();
+            let case = format!("other window on every {other_every}th refresh, seed {seed}");
+            assert!(rate < 60.08, "{case}: {rate:.3} claims/s");
+            assert!(age < 1., "{case}: p95 age {age:.2} ms");
+            assert!(
+                extras * 100 <= steady.len(),
+                "{case}: {extras} of {} extras",
+                steady.len()
+            );
+            assert!(uneven * 100 <= steady.len(), "{case}: {uneven} uneven gaps");
         }
     }
 }

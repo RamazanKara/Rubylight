@@ -573,6 +573,12 @@ fn settings_show_a_sections_every_row_with_the_rarer_ones_in_groups_after() {
                 assert!(!grouped && at < first_grouped, "{section}: main row {key} comes first: {drawn:?}");
             }
         }
+        // A section without any of Android's main rows (Advanced) lists its rows directly.
+        if drawn.iter().any(|(key, _)| main_row(key)) {
+            for (key, grouped) in &drawn {
+                assert!(main_row(key) || *grouped, "{section}: rarer row {key} sits in a group: {drawn:?}");
+            }
+        }
     }
     // A PC's own value in a group shows in its section like any other row.
     let id = f.hosts.list[0].id;

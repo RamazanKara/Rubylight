@@ -41,8 +41,8 @@ pub(super) const SECTION_KEYS: [&[&[&str]]; 8] = [
     &[&["console_home"], &["quick_resume"], &["language"], &["ui_zoom"], &["high_contrast"], &["reduce_motion"],
         &["input_only_any_host"], &["check_updates"]],
     &[&["experimental_packed_444"], &["link_probe"]],
-    &[&["decoder"], &["full_range"], &["cursor_shapes"], &["unbatched_input"], &["error_correction"],
-        &["network_priority"], &["client_hint_bitrate"], &["tell_host_wireless"], &["tell_host_link_speed"]],
+    &[&["error_correction"], &["client_hint_bitrate"], &["tell_host_wireless"], &["tell_host_link_speed"],
+        &["network_priority"], &["unbatched_input"], &["full_range"], &["decoder"], &["cursor_shapes"]],
 ];
 
 /// The Resolution menu after Native: Android's 16:9 sizes with common PC and laptop ones, then
@@ -1072,6 +1072,37 @@ impl Launcher {
             });
 
             rows.section(en("Debug"));
+            // Android's main rows first, in its order.
+            setting_row(ui, s, &mut rows, &["error_correction"], "Error correction", "Recovery data the PC adds so lost packets don't break up the picture. Automatic follows this device's losses. PCs that don't take this choice use their own setting.", |ui, s| {
+                egui::ComboBox::from_id_salt("error-correction")
+                    .selected_text(error_correction_name(s.error_correction))
+                    .show_ui(ui, |ui| {
+                        let fixed = ErrorCorrection::PERCENTAGES.map(ErrorCorrection::Percent);
+                        for mode in [ErrorCorrection::Host, ErrorCorrection::Auto].into_iter().chain(fixed) {
+                            ui.selectable_value(&mut s.error_correction, mode, error_correction_name(mode));
+                        }
+                    }).response
+            });
+            setting_row(ui, s, &mut rows, &["client_hint_bitrate"], "Lower bitrate when frames are lost", "Turns the bitrate down as soon as frames go missing, and back up after a few clean seconds. Works with PCs that can change the bitrate during a stream, and replaces “Lower bitrate when the network is busy” there.", |ui, s| {
+                toggle(ui, &mut s.client_hint_bitrate)
+            });
+            setting_row(ui, s, &mut rows, &["tell_host_wireless"], "Tell the PC when on Wi-Fi", "The PC then paces the stream for Wi-Fi from the start. PCs that don't support it aren't told.", |ui, s| {
+                toggle(ui, &mut s.tell_host_wireless)
+            });
+            setting_row(ui, s, &mut rows, &["tell_host_link_speed"], "Tell the PC the link speed", "Lets the PC limit its sending rate to this device's wired port speed.", |ui, s| {
+                toggle(ui, &mut s.tell_host_link_speed)
+            });
+            // The engine sets socket and thread priorities on Linux only; on Windows the switch would do nothing.
+            if cfg!(target_os = "linux") {
+                setting_row(ui, s, &mut rows, &["network_priority"], "Prioritize stream traffic", "Gives the stream's network traffic and work priority on this device.", |ui, s| {
+                    toggle(ui, &mut s.network_priority)
+                });
+            }
+            setting_row(ui, s, &mut rows, &["unbatched_input"], "Instant mouse and pen input", "Sends mouse and pen movement right away instead of in small batches.", |ui, s| {
+                toggle(ui, &mut s.unbatched_input)
+            });
+            setting_row(ui, s, &mut rows, &["full_range"], "Full color range", "Asks the PC for the full range of brightness levels. Turn on only if dark scenes look washed out or crushed.", |ui, s| toggle(ui, &mut s.full_range));
+            rows.group(ui, "Fine-tuning", "");
             rows.when(!s.codec.is_pyrowave(), en("Not used with PyroWave."));
             setting_row(ui, s, &mut rows, &["decoder"], "Video decoding", "Automatic decodes on the graphics card when it can. Software uses the processor; try it only if the picture shows errors.", |ui, s| {
                 egui::ComboBox::from_id_salt("decoder")
@@ -1084,37 +1115,8 @@ impl Launcher {
                     .response
             });
             rows.always();
-            setting_row(ui, s, &mut rows, &["full_range"], "Full color range", "Asks the PC for the full range of brightness levels. Turn on only if dark scenes look washed out or crushed.", |ui, s| toggle(ui, &mut s.full_range));
             setting_row(ui, s, &mut rows, &["cursor_shapes"], "Local cursor", "In desktop pointer mode, draws the PC's cursor here so it moves without video delay. Works with PCs that send their cursor.", |ui, s| {
                 toggle(ui, &mut s.cursor_shapes)
-            });
-            setting_row(ui, s, &mut rows, &["unbatched_input"], "Instant mouse and pen input", "Sends mouse and pen movement right away instead of in small batches.", |ui, s| {
-                toggle(ui, &mut s.unbatched_input)
-            });
-            setting_row(ui, s, &mut rows, &["error_correction"], "Error correction", "Recovery data the PC adds so lost packets don't break up the picture. Automatic follows this device's losses. PCs that don't take this choice use their own setting.", |ui, s| {
-                egui::ComboBox::from_id_salt("error-correction")
-                    .selected_text(error_correction_name(s.error_correction))
-                    .show_ui(ui, |ui| {
-                        let fixed = ErrorCorrection::PERCENTAGES.map(ErrorCorrection::Percent);
-                        for mode in [ErrorCorrection::Host, ErrorCorrection::Auto].into_iter().chain(fixed) {
-                            ui.selectable_value(&mut s.error_correction, mode, error_correction_name(mode));
-                        }
-                    }).response
-            });
-            // The engine sets socket and thread priorities on Linux only; on Windows the switch would do nothing.
-            if cfg!(target_os = "linux") {
-                setting_row(ui, s, &mut rows, &["network_priority"], "Prioritize stream traffic", "Gives the stream's network traffic and work priority on this device.", |ui, s| {
-                    toggle(ui, &mut s.network_priority)
-                });
-            }
-            setting_row(ui, s, &mut rows, &["client_hint_bitrate"], "Lower bitrate when frames are lost", "Turns the bitrate down as soon as frames go missing, and back up after a few clean seconds. Works with PCs that can change the bitrate during a stream, and replaces “Lower bitrate when the network is busy” there.", |ui, s| {
-                toggle(ui, &mut s.client_hint_bitrate)
-            });
-            setting_row(ui, s, &mut rows, &["tell_host_wireless"], "Tell the PC when on Wi-Fi", "The PC then paces the stream for Wi-Fi from the start. PCs that don't support it aren't told.", |ui, s| {
-                toggle(ui, &mut s.tell_host_wireless)
-            });
-            setting_row(ui, s, &mut rows, &["tell_host_link_speed"], "Tell the PC the link speed", "Lets the PC limit its sending rate to this device's wired port speed.", |ui, s| {
-                toggle(ui, &mut s.tell_host_link_speed)
             });
 
             if searching && rows.found.iter().sum::<usize>() == 0 {

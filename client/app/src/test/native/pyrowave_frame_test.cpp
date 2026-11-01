@@ -168,13 +168,13 @@ static void testEarlyPush() {
     };
     auto frame = recordEnvelope(recordPackets(5, 70));
     assert(whole.pushFrame(frame.data(), frame.size(), into(expected)));
-    assert(state.finishEarly(frame.size(), into(early)) == RP_PYROWAVE_EARLY_WHOLE && early.empty());
+    assert(state.finishEarly(frame.data(), frame.size(), into(early)) == RP_PYROWAVE_EARLY_WHOLE && early.empty());
     // Two batches of [length][flags][payload] packets, as the Rust engine forwards them.
     const size_t half = 4 + 2 * (8 + 24);
     state.chunks(frame.data() + 4, half - 4, true, into(early));
     state.chunks(frame.data() + half, frame.size() - half, false, into(early));
     assert(early.size() == 3);
-    assert(state.finishEarly(frame.size(), into(early)) == RP_PYROWAVE_EARLY_DONE);
+    assert(state.finishEarly(frame.data(), frame.size(), into(early)) == RP_PYROWAVE_EARLY_DONE);
     assert(early.size() == 4 && early.back() == expected.front() && state.lossPercent == 0);
     std::sort(early.begin(), early.end());
     std::sort(expected.begin(), expected.end());
@@ -182,16 +182,75 @@ static void testEarlyPush() {
     // The second batch never came: the frame is pushed whole after a clear.
     early.clear();
     state.chunks(frame.data() + 4, half - 4, true, into(early));
-    assert(state.finishEarly(frame.size(), into(early)) == RP_PYROWAVE_EARLY_FALLBACK);
+    assert(state.finishEarly(frame.data(), frame.size(), into(early)) == RP_PYROWAVE_EARLY_FALLBACK);
     uint64_t done = 0, fallback = 0;
     state.earlyStats(done, fallback);
     assert(done == 1 && fallback == 1);
     std::puts("PyroWave early push: passed");
 }
 
+// The renderer's sequence around its decoder (pushChunks while a frame arrives, then submitFrame),
+// with a decoder that holds what was pushed since its last clear.
+static void testEarlySequence() {
+    std::vector<std::vector<uint8_t>> decoder;
+    int clears = 0;
+    auto clear = [&] { decoder.clear(); clears++; };
+    auto push = [&decoder](const uint8_t *data, size_t length) { decoder.emplace_back(data, data + length); return true; };
+    auto sorted = [](std::vector<std::vector<uint8_t>> packets) { std::sort(packets.begin(), packets.end()); return packets; };
+    auto wholeOf = [&](const std::vector<uint8_t>& frame) {
+        PyroWaveRecords fresh;
+        std::vector<std::vector<uint8_t>> out;
+        assert(fresh.pushFrame(frame.data(), frame.size(), [&out](const uint8_t *data, size_t length) {
+            out.emplace_back(data, data + length);
+            return true;
+        }));
+        return sorted(out);
+    };
+    PyroWaveRecords state;
+    auto submit = [&](const std::vector<uint8_t>& frame, bool &pushed) {
+        return state.submitFrame(frame.data(), frame.size(), clear,
+                                 [&] { return state.pushFrame(frame.data(), frame.size(), push); }, push, pushed);
+    };
+    auto chunks = [&](const std::vector<uint8_t>& frame, size_t from, size_t to, bool first) {
+        state.pushChunks(frame.data() + from, to - from, first, clear, push);
+    };
+    const auto one = recordEnvelope(recordPackets(1, 70)), two = recordEnvelope(recordPackets(2, 71));
+    assert(one.size() == two.size());
+    const size_t half = 4 + 2 * (8 + 24);
+    bool pushed = false;
+
+    // Complete early: the first chunk clears, the frame adds only the header, no clear after.
+    chunks(one, 4, half, true);
+    chunks(one, half, one.size(), false);
+    assert(clears == 1);
+    assert(submit(one, pushed) == RP_PYROWAVE_EARLY_DONE && pushed && clears == 1);
+    assert(sorted(decoder) == wholeOf(one));
+    // Chunks that fell short: a clear, then the whole push.
+    chunks(two, 4, half, true);
+    assert(submit(two, pushed) == RP_PYROWAVE_EARLY_FALLBACK && pushed && clears == 3);
+    assert(sorted(decoder) == wholeOf(two));
+    // No chunks: a clear, then the whole push.
+    assert(submit(one, pushed) == RP_PYROWAVE_EARLY_WHOLE && pushed && clears == 4);
+    assert(sorted(decoder) == wholeOf(one));
+    // A frame replaced before its submit, then the next frame early: none of the first is left.
+    chunks(one, 4, one.size(), true);
+    chunks(two, 4, two.size(), true);
+    assert(submit(two, pushed) == RP_PYROWAVE_EARLY_DONE && pushed && clears == 6);
+    assert(sorted(decoder) == wholeOf(two));
+    // A replaced frame, then a frame of the same length whose chunks were all lost: not taken for it.
+    chunks(one, 4, one.size(), true);
+    assert(submit(two, pushed) == RP_PYROWAVE_EARLY_FALLBACK && pushed && clears == 8);
+    assert(sorted(decoder) == wholeOf(two));
+    // A whole push that fails leaves the decoder cleared.
+    assert(state.submitFrame(two.data(), two.size(), clear, [] { return false; }, push, pushed) == RP_PYROWAVE_EARLY_WHOLE);
+    assert(!pushed && clears == 10 && decoder.empty());
+    std::puts("PyroWave early push sequence: passed");
+}
+
 int main() {
     testRecords();
     testEarlyPush();
+    testEarlySequence();
     int calls = 0;
     auto push = [&calls](const uint8_t *, size_t) { calls++; return true; };
     // One sequence header and an empty eight-byte coefficient block in a single packet.

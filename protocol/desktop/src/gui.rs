@@ -154,8 +154,22 @@ pub fn follow_focus(ui: &mut egui::Ui, last: &mut Option<egui::Id>) {
     }
     *last = focused;
     if let Some(rect) = focused.and_then(|id| ui.ctx().read_response(id)).map(|r| r.rect) {
-        ui.scroll_to_rect(rect, None);
+        // Only what this area holds: not a header or a side list beside it. The content starts at
+        // the area's top edge less the scroll offset, so nothing in it lies above that or beside it.
+        let content = ui.max_rect();
+        if content.x_range().contains(rect.center().x) && rect.center().y >= content.top() {
+            ui.scroll_to_rect(rect, None);
+        }
     }
+}
+
+/// [`follow_focus`] for a scroll area without a place of its own for the last focus: egui's memory
+/// keeps it under the content's id. Call it first in the scroll area's content.
+pub fn follow_focus_here(ui: &mut egui::Ui) {
+    let key = ui.id().with("follow-focus");
+    let mut last = ui.data(|d| d.get_temp::<Option<egui::Id>>(key)).flatten();
+    follow_focus(ui, &mut last);
+    ui.data_mut(|d| d.insert_temp(key, last));
 }
 
 impl Gui {

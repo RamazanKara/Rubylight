@@ -27,6 +27,32 @@ fn focus_to(f: &mut Frames, key: Key, text: &str) -> bool {
 }
 
 #[test]
+fn the_d_pad_scrolls_each_row_it_reaches_into_view() {
+    // The main settings and a PC's own, on a window too short for a section.
+    let mut f = Frames::new(record("PC", true, false), Reach::Online);
+    let id = f.hosts.list[0].id;
+    for page in [Screen::Settings, Screen::HostSettings(id)] {
+        if page == Screen::Settings { f.l.go(page) } else { f.l.open_host_settings(id, &f.hosts.list[0]) }
+        f.settle();
+        let first = f.ctx.memory(|m| m.focused()).expect("the first row has focus");
+        let top = f.ctx.read_response(first).expect("laid out").rect.top();
+        let mut reached = std::collections::HashSet::new();
+        for _ in 0..24 {
+            f.press(Key::ArrowDown);
+            // The scroll animates.
+            f.settle();
+            f.settle();
+            let focused = f.ctx.memory(|m| m.focused()).expect("a row has focus");
+            reached.insert(focused);
+            let rect = f.ctx.read_response(focused).expect("laid out").rect;
+            assert!(rect.top() >= 0.0 && rect.bottom() <= f.size.y, "{page:?}: the focused row {rect:?} is in the window");
+        }
+        let moved = top - f.ctx.read_response(first).expect("laid out").rect.top();
+        assert!(reached.len() > 6 && moved > 100.0, "{page:?}: Down went past the window's edge and the page scrolled ({} rows, {moved})", reached.len());
+    }
+}
+
+#[test]
 fn the_search_finds_rows_in_every_section_and_says_when_nothing_matches() {
     let mut f = settings_with(Settings::default());
     f.l.settings_view.query = "microphone".into();

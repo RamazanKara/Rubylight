@@ -206,6 +206,82 @@ fn environment_block(environment: &BTreeMap<String, String>) -> Vec<u16> {
     block
 }
 
+/// A new job object that ends everything in it when its last handle closes,
+/// with these limits besides.
+fn job(limits: JOB_OBJECT_LIMIT) -> Result<OwnedHandle> {
+    // SAFETY: the limits are a live local of the size passed, and the new handle is owned once.
+    unsafe {
+        let job = owned(CreateJobObjectW(None, PCWSTR::null())?);
+        let limits = JOBOBJECT_EXTENDED_LIMIT_INFORMATION {
+            BasicLimitInformation: JOBOBJECT_BASIC_LIMIT_INFORMATION {
+                LimitFlags: limits | JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        SetInformationJobObject(
+            raw(&job),
+            JobObjectExtendedLimitInformation,
+            (&limits as *const JOBOBJECT_EXTENDED_LIMIT_INFORMATION).cast(),
+            size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
+        )?;
+        Ok(job)
+    }
+}
+
+/// A job for a task ([`crate::tasks`]): what the task starts stays in it, and
+/// all of it ends when the job is ended or dropped, or this service exits.
+pub struct Job(OwnedHandle);
+impl Job {
+    pub fn new() -> Result<Self> {
+        Ok(Self(job(JOB_OBJECT_LIMIT(0))?))
+    }
+    /// Take in `child`, started with CREATE_SUSPENDED, and let it run: it can
+    /// start nothing outside the job.
+    pub fn adopt(&self, child: &std::process::Child) -> Result<()> {
+        // SAFETY: the child's handle stays open while `child` lives.
+        unsafe { AssignProcessToJobObject(raw(&self.0), HANDLE(child.as_raw_handle()))? };
+        resume(child.id())
+    }
+    /// End everything in the job.
+    pub fn end(&self) -> Result<()> {
+        // SAFETY: `self.0` is the owned job handle, open while `self` lives.
+        unsafe { TerminateJobObject(raw(&self.0), 1)? };
+        Ok(())
+    }
+}
+/// Resume the threads of `pid`, a process started suspended: its main thread.
+/// std's Child does not hand that thread out.
+fn resume(pid: u32) -> Result<()> {
+    use windows::Win32::System::Diagnostics::ToolHelp::*;
+    // SAFETY: `entry` is a live local whose dwSize is its size, and every handle is owned once.
+    unsafe {
+        let snapshot = owned(CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0)?);
+        let mut entry = THREADENTRY32 {
+            dwSize: size_of::<THREADENTRY32>() as u32,
+            ..Default::default()
+        };
+        let mut resumed = 0;
+        let mut more = Thread32First(raw(&snapshot), &mut entry).is_ok();
+        while more {
+            if entry.th32OwnerProcessID == pid {
+                let thread = owned(OpenThread(
+                    THREAD_SUSPEND_RESUME,
+                    false,
+                    entry.th32ThreadID,
+                )?);
+                if ResumeThread(raw(&thread)) == u32::MAX {
+                    return Err(windows::core::Error::from_thread().into());
+                }
+                resumed += 1;
+            }
+            more = Thread32Next(raw(&snapshot), &mut entry).is_ok();
+        }
+        anyhow::ensure!(resumed > 0, "process {pid} has no thread to resume");
+    }
+    Ok(())
+}
+
 /// A program this service started, in a job of its own that ends everything
 /// in it when the process is dropped.
 pub struct Process {
@@ -248,20 +324,7 @@ impl Process {
         // SAFETY: the strings given to CreateProcess are NUL-terminated locals, and each new
         // handle is owned once.
         unsafe {
-            let job = owned(CreateJobObjectW(None, PCWSTR::null())?);
-            let limits = JOBOBJECT_EXTENDED_LIMIT_INFORMATION {
-                BasicLimitInformation: JOBOBJECT_BASIC_LIMIT_INFORMATION {
-                    LimitFlags: JOB_OBJECT_LIMIT_BREAKAWAY_OK | JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
-                    ..Default::default()
-                },
-                ..Default::default()
-            };
-            SetInformationJobObject(
-                raw(&job),
-                JobObjectExtendedLimitInformation,
-                (&limits as *const JOBOBJECT_EXTENDED_LIMIT_INFORMATION).cast(),
-                size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
-            )?;
+            let job = job(JOB_OBJECT_LIMIT_BREAKAWAY_OK)?;
             let mut desktop: Vec<u16> = "winsta0\\default\0".encode_utf16().collect();
             let startup = STARTUPINFOW {
                 cb: size_of::<STARTUPINFOW>() as u32,
@@ -418,6 +481,19 @@ impl Signal {
     pub fn raw(&self) -> HANDLE {
         raw(&self.0)
     }
+    /// Wait up to `timeout` for the event; whether it is set.
+    pub fn wait(&self, timeout: Duration) -> Result<bool> {
+        // SAFETY: `self.0` is the event this Signal owns, open while it lives.
+        match unsafe { WaitForSingleObject(raw(&self.0), millis(timeout)) } {
+            WAIT_OBJECT_0 => Ok(true),
+            WAIT_TIMEOUT => Ok(false),
+            _ => Err(windows::core::Error::from_thread().into()),
+        }
+    }
+}
+/// A wait's timeout in milliseconds, short of INFINITE.
+pub fn millis(timeout: Duration) -> u32 {
+    timeout.as_millis().min(u128::from(u32::MAX - 1)) as u32
 }
 
 #[cfg(test)]

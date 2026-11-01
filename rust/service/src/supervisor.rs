@@ -200,7 +200,7 @@ impl DriverWatch {
 /// The service reads whether the device is there; the host's
 /// `--virtual-display-installed` task says whether it can use it, asked as
 /// [`DriverWatch`] says.
-fn repair_display_driver(install: &std::path::Path, host: &std::path::Path, stop: Arc<AtomicBool>) {
+fn repair_display_driver(install: &std::path::Path, host: &std::path::Path, stop: Arc<Signal>) {
     use std::os::windows::process::CommandExt;
     let setup = install.join("uninstall.exe");
     if !setup.is_file()
@@ -215,27 +215,33 @@ fn repair_display_driver(install: &std::path::Path, host: &std::path::Path, stop
         let mut watch = DriverWatch::default();
         // Why the host refused the device, for the repair's log line.
         let mut refusal = String::new();
-        while !stop.load(Ordering::Acquire) {
+        // Until the service stops, which also ends a task that runs.
+        let stopped = |interval| stop.wait(interval).unwrap_or(true);
+        loop {
             // A check that failed decides nothing: the next one comes after
             // the same interval.
             let present = match crate::driver::present() {
                 Ok(present) => present,
                 Err(error) => {
                     tracing::error!(error = %format!("{error:#}"), "the virtual display driver could not be checked");
-                    std::thread::sleep(watch.interval());
+                    if stopped(watch.interval()) {
+                        break;
+                    }
                     continue;
                 }
             };
             match watch.poll(present, Instant::now()) {
                 Step::Wait => {}
                 Step::AskHost => {
-                    let usable = match tasks::virtual_display(&host) {
+                    let usable = match tasks::virtual_display(&host, &stop) {
                         Ok(tasks::Driver::Installed) => Some(true),
                         Ok(tasks::Driver::Missing(reason)) => {
                             tracing::warn!(%reason, "the host cannot use the virtual display driver");
                             refusal = reason;
                             Some(false)
                         }
+                        // The service stops, which ended the task.
+                        Err(_) if stopped(Duration::ZERO) => break,
                         Err(error) => {
                             tracing::error!(error = %format!("{error:#}"), "the host could not check the virtual display driver");
                             None
@@ -263,7 +269,9 @@ fn repair_display_driver(install: &std::path::Path, host: &std::path::Path, stop
                     }
                 }
             }
-            std::thread::sleep(watch.interval());
+            if stopped(watch.interval()) {
+                break;
+            }
         }
     });
 }
@@ -278,12 +286,42 @@ fn signs_in(reason: SessionChangeReason, session: u32, console: u32) -> bool {
             SessionChangeReason::SessionLogon | SessionChangeReason::ConsoleConnect
         )
 }
+/// When the Nucleus Co-op restore ([`tasks::restore_nucleus`]) that a sign-in
+/// asked for runs: on a worker, so that a stop, the host's exit or a session
+/// change is handled while it runs, and only while a host runs. A request
+/// waits for a restore that runs to finish, then runs again, since the
+/// sign-in came after that one began. A host launched while one is due puts
+/// it back itself as it starts (rust/host/src/service_tasks.rs), which serves
+/// the request.
+#[derive(Default)]
+struct RestoreDue(bool);
+impl RestoreDue {
+    fn requested(&mut self) {
+        self.0 = true;
+    }
+    fn launched(&mut self) {
+        self.0 = false;
+    }
+    /// Whether to start the restore now: it is due, a host runs (`host`) and no
+    /// restore runs (`running`).
+    fn start(&mut self, host: bool, running: bool) -> bool {
+        let start = self.0 && host && !running;
+        if start {
+            self.0 = false;
+        }
+        start
+    }
+}
 
 fn supervise() -> Result<()> {
     let stop = Arc::new(AtomicBool::new(false));
     let event_stop = stop.clone();
     let wake = Arc::new(Signal::new()?);
     let event_wake = wake.clone();
+    // Set once as the service stops, never reset: it ends the tasks that run
+    // and the driver watch.
+    let stopping = Arc::new(Signal::new()?);
+    let event_stopping = stopping.clone();
     // Due as the user signs in at the console while a host runs; a host puts
     // back what an earlier one left as it starts (service_tasks.rs).
     let restore = Arc::new(AtomicBool::new(false));
@@ -291,6 +329,7 @@ fn supervise() -> Result<()> {
     let reporter = service_control_handler::register(NAME, move |control| match control {
         ServiceControl::Stop | ServiceControl::Shutdown => {
             event_stop.store(true, Ordering::Release);
+            let _ = event_stopping.set();
             let _ = event_wake.set();
             ServiceControlHandlerResult::NoError
         }
@@ -352,12 +391,17 @@ fn supervise() -> Result<()> {
         }
     }
     if let Some(install) = executable.parent() {
-        repair_display_driver(install, &executable, stop.clone());
+        repair_display_driver(install, &executable, stopping.clone());
     }
     let mut child: Option<Process> = None;
     let mut session = u32::MAX;
     let mut restart = RestartPolicy::default();
     let mut retry_at = Instant::now();
+    let mut due = RestoreDue::default();
+    // The restore's worker, and whether it still runs: it clears the flag,
+    // then wakes this loop.
+    let mut restorer: Option<std::thread::JoinHandle<()>> = None;
+    let restoring = Arc::new(AtomicBool::new(false));
     loop {
         wake.reset()?;
         if stop.load(Ordering::Acquire) {
@@ -401,8 +445,22 @@ fn supervise() -> Result<()> {
         // As the user signs in while a host runs: a session it runs holds its
         // file's lock, and the restore skips it. Without a host, the next one
         // puts it back as it starts.
-        if restore.swap(false, Ordering::AcqRel) && child.is_some() {
-            tasks::restore_nucleus(&executable, &config);
+        if restore.swap(false, Ordering::AcqRel) {
+            due.requested();
+        }
+        let running = restoring.load(Ordering::Acquire);
+        if !running && let Some(worker) = restorer.take() {
+            let _ = worker.join();
+        }
+        if due.start(child.is_some(), running) {
+            restoring.store(true, Ordering::Release);
+            let (host, profile) = (executable.clone(), config.clone());
+            let (stopping, wake, restoring) = (stopping.clone(), wake.clone(), restoring.clone());
+            restorer = Some(std::thread::spawn(move || {
+                tasks::restore_nucleus(&host, &profile, &stopping);
+                restoring.store(false, Ordering::Release);
+                let _ = wake.set();
+            }));
         }
         // A stop can arrive while a host shuts down above; a new host would
         // only delay it.
@@ -415,6 +473,7 @@ fn supervise() -> Result<()> {
                 Ok(process) => {
                     tracing::info!(pid = process.pid, session, "service host launched");
                     child = Some(process);
+                    due.launched();
                 }
                 Err(e) => {
                     tracing::warn!(error=%e,"service host launch failed");
@@ -443,8 +502,22 @@ fn supervise() -> Result<()> {
         }
     }
     reporter.set_service_status(status(ServiceState::StopPending, 1))?;
+    // Also when the host's exit stopped the service: the tasks that run end.
+    let _ = stopping.set();
     if let Some(process) = child.take() {
         shutdown_child(process);
+    }
+    // The restore's task has ended with its job; its worker reads what is left.
+    if let Some(worker) = restorer.take() {
+        let started = Instant::now();
+        while !worker.is_finished() && started.elapsed() < Duration::from_secs(10) {
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        if worker.is_finished() {
+            let _ = worker.join();
+        } else {
+            tracing::warn!("the Nucleus Co-op restore did not end with the service");
+        }
     }
     // All process and job handles are released before SCM observes STOPPED.
     reporter.set_service_status(status(ServiceState::Stopped, 0))?;
@@ -470,6 +543,37 @@ mod tests {
         ] {
             assert!(!signs_in(reason, 1, 1), "{reason:?}");
         }
+    }
+    #[test]
+    fn the_restore_runs_only_with_a_host_and_no_request_is_lost() {
+        let mut due = RestoreDue::default();
+        assert!(!due.start(true, false), "nothing asked for it");
+        // A sign-in while no host runs: no restore without a host.
+        due.requested();
+        assert!(!due.start(false, false));
+        assert!(!due.start(false, false));
+        // It stays due until the host that is launched next, which puts it
+        // back itself as it starts.
+        assert!(due.0);
+        due.launched();
+        assert!(!due.start(true, false));
+        // A sign-in while a host runs starts it once.
+        due.requested();
+        assert!(due.start(true, false));
+        assert!(!due.start(true, true));
+        // Another while it runs waits for it, then runs again.
+        due.requested();
+        assert!(!due.start(true, true));
+        assert!(!due.start(true, true));
+        assert!(due.start(true, false));
+        assert!(!due.start(true, false));
+        // One that comes while a restore runs and the host restarts goes to
+        // the new host (restores take the journal's lock in turn).
+        due.requested();
+        assert!(!due.start(false, true));
+        assert!(!due.start(false, false));
+        due.launched();
+        assert!(!due.start(true, false));
     }
     /// Drives a [`DriverWatch`] as the watch thread does, from second 0 to
     /// `end`: `present` is the Plug and Play answer at a second, `host` the

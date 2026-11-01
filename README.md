@@ -215,7 +215,7 @@ Video, audio, input, clipboard contents and files travel only between your devic
 
 ## License and credits
 
-Nightjar is licensed under the [GNU General Public License v3.0](LICENSE.txt).
+Nightjar is licensed under the [GNU General Public License v3.0](LICENSE.txt). Everyone who helped, with their GitHub names, is in [CONTRIBUTORS.md](CONTRIBUTORS.md).
 
 Nightjar is a fork of [Moonlight Android](https://github.com/moonlight-stream/moonlight-android) by Cameron Gutman, Diego Waxemberg, Aaron Neyer, Andrew Hennessy and contributors, and was previously published as Butterpollo and as Rubylight Android ([rename history](docs/RENAME.md)). It incorporates work from these GPL-3.0 projects:
 

@@ -82,7 +82,7 @@ Android needs no scan-line check: SurfaceFlinger never flips mid-scan, and a pan
 | Automatic resolution and frame rate | Yes | Yes | Yes | |
 | Change bitrate / frame rate during a stream | Yes | Yes | Yes | |
 | Loss-based bitrate | Yes | Yes | Yes | Off by default. |
-| Error correction choice and the loss report | Yes | Yes | Yes | Android: Automatic by default, under **Settings → Debug**. |
+| Error correction choice and the loss report | Yes | Yes | Yes | Under **Settings → Debug** on both; the PC's setting by default. |
 | Link test before the first bitrate | Yes | Yes | Yes | Off by default. |
 | Recover interrupted streams | Yes | Yes | Yes | On by default. |
 | Ride out network drops | Yes | Yes | Yes | |

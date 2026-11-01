@@ -139,7 +139,7 @@ feeds `SendLoss::push_block` (the streamed counterpart of `block_layout`).
 
 ## 6. Config and measurement gate
 
-Config: `video_slice_delivery = off | 2 | 4` (blocks), default `off`, in `docs/configuration.md`, not in the console
+Config: `video_slice_delivery = off | 2 | 4` (blocks), default `off`, in `docs/configuration.md`, not in the console (since 2026-11-01 `auto` is the default: four blocks for 4K-size pictures, off below; [PERFORMANCE.md](../rust/PERFORMANCE.md#november-1-slice-delivery-by-picture-size))
 until it passes the gate. Off means frame output mode and the exact current code path.
 
 Tests (each brief adds its own; every one fails on today's code or guards a fallback):

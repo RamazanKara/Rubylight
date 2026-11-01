@@ -69,21 +69,44 @@ pub fn tristate(config: &Config, key: &str, default: Option<bool>) -> Option<boo
         },
     }
 }
-/// `video_slice_delivery = off | 2 | 4`: how many blocks an H.264 or HEVC
-/// P-frame is sent in, each as soon as its slices leave the encoder. 0 is off
-/// (the default, and always for AV1): frame output and the whole-frame send.
-pub fn slice_delivery(config: &Config, codec: u8) -> u8 {
+/// `video_slice_delivery = auto | off | 2 | 4`: how many blocks an H.264 or
+/// HEVC P-frame is sent in, each as soon as its slices leave the encoder. 0 is
+/// off (always for AV1): frame output and the whole-frame send. `auto`, the
+/// default, decides from the stream the client asked for
+/// ([`auto_slice_blocks`]).
+pub fn slice_delivery(config: &Config, stream: &Negotiated) -> u8 {
     const KEY: &str = "video_slice_delivery";
-    let blocks = match config.get(KEY, "off") {
+    let blocks = match config.get(KEY, "auto") {
+        "auto" => auto_slice_blocks(stream),
         "off" | "0" => 0,
         "2" => 2,
         "4" => 4,
         other => {
-            crate::config::fallback(KEY, other, "off");
-            0
+            crate::config::fallback(KEY, other, "auto");
+            auto_slice_blocks(stream)
         }
     };
-    if codec > 1 { 0 } else { blocks }
+    if stream.codec > 1 { 0 } else { blocks }
+}
+
+/// Pictures of at least this many pixels are sliced by `auto`: three
+/// quarters of 4K, so 5120x1440 is in and 3440x1440 is out.
+pub const AUTO_SLICE_PIXELS: u64 = 3840 * 2160 * 3 / 4;
+
+/// `video_slice_delivery = auto`: four blocks for a large picture, else off.
+/// The gain is the encoder's slice lead, the time between its first slice and
+/// the whole frame, which grows with the picture: on the RX 7900 XT at 4K it
+/// was 2.1 ms and the picture arrived 1.4 ms sooner, at 1080p it was 0.9 ms
+/// and the client's extra reassembly ate it (rust/PERFORMANCE.md, October 23
+/// and November 1). Off when the stream would use the intra refresh the
+/// client asked for, which slice output would trade for keyframe recovery.
+pub fn auto_slice_blocks(stream: &Negotiated) -> u8 {
+    let pixels = u64::from(stream.width) * u64::from(stream.height);
+    if amf_intra_refresh(stream) || pixels < AUTO_SLICE_PIXELS {
+        0
+    } else {
+        4
+    }
 }
 /// AVC intra refresh requires two retained references in AMF. A client that
 /// negotiated only one must use IDR recovery instead of exceeding its budget.
@@ -377,7 +400,7 @@ pub fn amf(config: &Config, stream: &Negotiated) -> Result<Vec<Property>> {
     if codec > 2 {
         bail!("invalid AMF codec");
     }
-    let blocks = slice_delivery(config, codec);
+    let blocks = slice_delivery(config, stream);
     // Refresh stripes and slice output interact; slice delivery wins.
     let intra_refresh = amf_intra_refresh(stream) && blocks == 0;
     let prefix = match codec {

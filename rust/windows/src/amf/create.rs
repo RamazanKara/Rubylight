@@ -177,7 +177,7 @@ impl Encoder {
         effective_config.intra_refresh =
             butterpollo_core::encoder_policy::amf_intra_refresh(config)
                 || intra_refresh::av1_forced(config);
-        let slice_blocks = butterpollo_core::encoder_policy::slice_delivery(options, config.codec);
+        let slice_blocks = butterpollo_core::encoder_policy::slice_delivery(options, config);
         if slice_blocks > 0 && effective_config.intra_refresh {
             effective_config.intra_refresh = false;
             tracing::warn!(
@@ -401,10 +401,7 @@ impl Encoder {
                 last_accepted: None,
                 input_full: 0,
                 unit_log: None,
-                slice_blocks: butterpollo_core::encoder_policy::slice_delivery(
-                    options,
-                    config.codec,
-                ),
+                slice_blocks: butterpollo_core::encoder_policy::slice_delivery(options, config),
                 slices_joined: false,
                 units: Default::default(),
                 unit_held: false,

@@ -318,6 +318,7 @@ fn a_keyframe_waiting_for_the_sender_also_blocks_the_next_claim() {
             processing_started: now,
             skipped: 0,
             claim: None,
+            slice_blocks: 0,
         }),
         sending: false,
         sending_keyframe: false,
@@ -1516,6 +1517,33 @@ fn the_packetizer_thread_sends_each_block_of_a_streamed_frame_as_one_part() {
     submit_units(&sender, vec![frame(2)]);
     let next = take_prepared(&sender);
     assert_eq!((next.stream, next.wire_frame), (None, 2));
+}
+
+#[test]
+fn streamed_frames_follow_the_block_count_of_a_rebuilt_encoder() {
+    let fixture = crate::state::test_support::Fixture::new();
+    let session = fixture.session(fixture.client(0), butterpollo_core::session::Role::Stream);
+    // Handed off at 1440p, whole frames; a switch to 4K brings slices.
+    let sender = streaming_sender(session.clone(), 0, 2);
+    sender.follow_slice_blocks(2);
+    submit_units(&sender, vec![slice(0, 20, 1)]);
+    let first = take_prepared(&sender);
+    assert_eq!(first.stream.map(|part| part.first), Some(true));
+    // A switch back while the frame is open: it ends with the blocks it began with.
+    sender.follow_slice_blocks(0);
+    submit_units(&sender, vec![last(1, 20, 2)]);
+    let second = take_prepared(&sender);
+    assert_eq!(second.stream.map(|part| part.last), Some(true));
+    assert_eq!(sender.next_wire_frame().unwrap(), 2);
+    submit_units(&sender, vec![frame(2)]);
+    assert_eq!(take_prepared(&sender).stream, None);
+    assert_eq!(
+        session
+            .stats
+            .slice_delivery_overflows
+            .load(Ordering::Relaxed),
+        0
+    );
 }
 
 #[test]

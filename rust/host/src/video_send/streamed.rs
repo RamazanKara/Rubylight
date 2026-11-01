@@ -29,6 +29,9 @@ pub(super) struct Start {
     pub claim: Option<Claim>,
     pub timestamp: u32,
     pub cap: Option<u64>,
+    /// FEC blocks the stream thread planned the frame for: the encoder's
+    /// slice delivery when the frame was submitted.
+    pub blocks: usize,
 }
 
 /// The streamed frame being built, with what its parts share.
@@ -45,7 +48,7 @@ struct Open {
 }
 
 pub(super) struct Streams {
-    blocks: usize,
+    /// Slices per frame the encoder was asked for.
     slices: usize,
     open: Option<Open>,
     /// The payload buffer, kept from frame to frame.
@@ -54,10 +57,9 @@ pub(super) struct Streams {
 }
 
 impl Streams {
-    pub fn new(blocks: usize, slices: usize) -> Self {
+    pub fn new(slices: usize) -> Self {
         Self {
-            blocks,
-            slices: blocks.max(slices),
+            slices,
             open: None,
             spare: Vec::new(),
             shards: PacketBlock::new(),
@@ -107,8 +109,8 @@ impl Streams {
             std::mem::take(&mut self.spare),
             start.timestamp,
             start.processing,
-            self.blocks,
-            self.slices,
+            start.blocks,
+            start.blocks.max(self.slices),
             cap,
         ) {
             Ok(frame) => {

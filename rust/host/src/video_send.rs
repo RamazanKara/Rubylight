@@ -17,7 +17,7 @@ use std::{
     net::SocketAddr,
     sync::{
         Arc, Condvar, Mutex,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
     },
     thread,
     time::{Duration, Instant},
@@ -39,6 +39,8 @@ struct Frame {
     skipped: u32,
     /// A new picture's claim, for the stage timings.
     claim: Option<Claim>,
+    /// The encoder's slice delivery when the frame was submitted.
+    slice_blocks: usize,
 }
 /// Fully prepared packets. Their Moonlight timing is immutable before the send queue.
 struct Prepared {
@@ -233,6 +235,7 @@ pub struct Handoff {
     pub pacing_due: Instant,
     pub send_loss: butterpollo_core::stream_policy::SendLossRecovery,
     /// FEC blocks per streamed frame; 0 when the stream does not stream.
+    /// A rebuilt encoder's count follows through [`Sender::follow_slice_blocks`].
     pub slice_blocks: usize,
     /// Slices per frame the encoder was asked for.
     pub slices: usize,
@@ -243,6 +246,8 @@ pub struct Sender {
     slot: Arc<Slot>,
     worker: Option<thread::JoinHandle<()>>,
     transport: Option<thread::JoinHandle<()>>,
+    /// FEC blocks the next streamed frame is planned for.
+    slice_blocks: AtomicUsize,
 }
 impl Sender {
     pub fn new(
@@ -280,16 +285,16 @@ impl Sender {
             ..
         } = handoff;
         let next_wire_frame = packetizer.frame;
-        Self::spawn(s.launch.id.clone(), next_wire_frame, move |shared| {
+        let sender = Self::spawn(s.launch.id.clone(), next_wire_frame, move |shared| {
             let _priority = butterpollo_windows::capture::Priority::new();
             let mut fec_reported = None;
-            let mut streams = streamed::Streams::new(slice_blocks, slices);
+            let mut streams = streamed::Streams::new(slices);
             // Frames skipped while a streamed frame was open, owed to the next one.
             let mut owed = 0u32;
             shared.run(|queued| {
                 let Frame {
                     encoded: frame, peer, claimed, polled, latency: encode,
-                    processing_started, skipped, claim,
+                    processing_started, skipped, claim, slice_blocks,
                 } = queued;
                 owed = owed.wrapping_add(skipped);
                 if frame.unit != Unit::Whole && !streamed::begins(frame.unit) {
@@ -321,7 +326,7 @@ impl Sender {
                         peer, claimed, polled, packetized,
                         processing: micros(packetized.saturating_duration_since(processing_started)),
                         age: micros(claimed.saturating_duration_since(captured)),
-                        claim, timestamp, cap: frame.frame_cap_bytes,
+                        claim, timestamp, cap: frame.frame_cap_bytes, blocks: slice_blocks,
                     });
                     streams.unit(
                         shared, &s, &mut packetizer, &frame.bytes, streamed::is_last(frame.unit),
@@ -386,7 +391,16 @@ impl Sender {
                 })?;
                 Ok(packetizer.frame)
             })
-        })
+        })?;
+        sender.follow_slice_blocks(slice_blocks);
+        Ok(sender)
+    }
+
+    /// Plan the streamed frames submitted from now on for `blocks` FEC
+    /// blocks, as a rebuilt encoder's slice delivery says; frames already
+    /// submitted keep the count they were submitted with.
+    pub fn follow_slice_blocks(&self, blocks: usize) {
+        self.slice_blocks.store(blocks, Ordering::Relaxed);
     }
 
     fn spawn(
@@ -424,6 +438,7 @@ impl Sender {
             slot,
             worker: Some(worker),
             transport: None,
+            slice_blocks: AtomicUsize::new(0),
         })
     }
 
@@ -482,6 +497,7 @@ impl Sender {
                 processing_started,
                 skipped: 0,
                 claim,
+                slice_blocks: self.slice_blocks.load(Ordering::Relaxed),
             });
             tracing::trace!(target: "pacing", pending=usize::from(state.pending.is_some()),
                 sending=usize::from(state.sending), inventory=state.backlog()?,

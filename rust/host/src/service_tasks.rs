@@ -22,6 +22,23 @@ fn log_to_stderr() {
         .try_init();
 }
 
+/// As a host starts: what a Nucleus Co-op session left for the user at the
+/// console when an earlier host stopped mid-session is put back (`restore`,
+/// [`butterpollo_windows::service::restore_nucleus_layers`], which logs what
+/// failed) before a stream can start a new one, when the service runs this
+/// host (`supervised`). The service asks for it again only as the user signs
+/// in while a host runs, and leaves a sign-in before a host it launches to
+/// that host (rust/service/src/supervisor.rs, `RestoreDue`).
+pub fn restore_nucleus_at_start(
+    supervised: bool,
+    profile: &Path,
+    restore: impl FnOnce(&Path) -> bool,
+) {
+    if supervised {
+        restore(profile);
+    }
+}
+
 /// What a Nucleus Co-op session left for the user at the console, put back
 /// ([`butterpollo_windows::service::restore_nucleus_layers`]).
 pub fn restore_nucleus_exit_code(profile: &Path) -> i32 {
@@ -48,6 +65,26 @@ pub fn virtual_display_installed_exit_code() -> i32 {
 #[cfg(test)]
 mod tests {
     use clap::Parser;
+    use std::path::Path;
+
+    #[test]
+    fn a_host_the_service_runs_restores_what_nucleus_left_as_it_starts() {
+        let profile = Path::new(r"C:\ProgramData\Butterpollo\config");
+        let mut restored = Vec::new();
+        super::restore_nucleus_at_start(true, profile, |path| {
+            restored.push(path.to_owned());
+            false
+        });
+        assert_eq!(restored, [profile]);
+        // A host started by hand leaves it to the service's host.
+        super::restore_nucleus_at_start(false, profile, |_| unreachable!());
+        // The service counts on it: a host it launches serves a sign-in that
+        // came before it.
+        let supervisor = include_str!("../../service/src/supervisor.rs");
+        assert!(supervisor.contains("due.launched();"));
+        let main = include_str!("main.rs");
+        assert!(main.contains("service_tasks::restore_nucleus_at_start("));
+    }
 
     #[test]
     fn the_service_tasks_parse_as_the_service_starts_them() {

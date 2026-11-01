@@ -421,11 +421,12 @@ async fn run(args: Args, assets: PathBuf) -> Result<()> {
     game_files::start(&h);
     // What a Nucleus Co-op session left for the user at the console when an
     // earlier host stopped mid-session is put back before a stream can start
-    // a new one. The service asks for it again only as the user signs in
-    // (rust/service/src/supervisor.rs); it logs what failed.
-    if supervised {
-        butterpollo_windows::service::restore_nucleus_layers(&h.directory);
-    }
+    // a new one.
+    service_tasks::restore_nucleus_at_start(
+        supervised,
+        &h.directory,
+        butterpollo_windows::service::restore_nucleus_layers,
+    );
     // The service's keys: SYSTEM and Administrators only, also after a
     // profile was copied in or restored from a backup.
     let credentials = h.directory.join("credentials");

@@ -407,7 +407,7 @@ fn inside(polygon: &[(f32, f32)], x: f32, y: f32) -> bool {
 /// A number field a controller or the arrow keys can leave. egui's `DragValue` edits as soon as it has
 /// focus and steps on Up and Down, so those keys changed the value and the user was stuck on the row.
 /// Here Up and Down stay with focus navigation like every other row, and Left and Right step the value
-/// by `step` (the caret does not move; typing replaces the whole number).
+/// by `step`. Once the user types into the field, Left and Right move the caret again until focus leaves.
 pub fn step_value<N: egui::emath::Numeric>(
     ui: &mut egui::Ui,
     value: &mut N,
@@ -416,12 +416,21 @@ pub fn step_value<N: egui::emath::Numeric>(
     style: impl FnOnce(egui::DragValue<'_>) -> egui::DragValue<'_>,
 ) -> egui::Response {
     let id = ui.next_auto_id();
+    let typing = id.with("typing");
     let mut stepped = false;
     if ui.is_enabled() && ui.memory(|m| m.has_focus(id)) {
+        let typed = ui.data(|d| d.get_temp::<bool>(typing).unwrap_or(false))
+            || ui.input(|i| i.events.iter().any(|e| match e {
+                egui::Event::Text(_) | egui::Event::Paste(_) => true,
+                egui::Event::Key { key, pressed: true, .. } => matches!(key, egui::Key::Backspace | egui::Key::Delete),
+                _ => false,
+            }));
+        if typed { ui.data_mut(|d| d.insert_temp(typing, true)); }
         let steps = ui.input_mut(|i| {
             // Focus has already moved on these (egui reads them before the frame); the field must not step too.
             i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowUp);
             i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowDown);
+            if typed { return 0; }
             i.count_and_consume_key(egui::Modifiers::NONE, egui::Key::ArrowRight) as i64
                 - i.count_and_consume_key(egui::Modifiers::NONE, egui::Key::ArrowLeft) as i64
         });
@@ -431,6 +440,8 @@ pub fn step_value<N: egui::emath::Numeric>(
             *value = N::from_f64((before + steps as f64 * step).clamp(low, high));
             stepped = value.to_f64() != before;
         }
+    } else {
+        ui.data_mut(|d| d.remove::<bool>(typing));
     }
     let mut response = ui.add(style(egui::DragValue::new(value).range(range)));
     // The value changed before the DragValue saw it, so the response would not say so; callers that
@@ -609,6 +620,28 @@ mod tests {
         assert_eq!(column.focused(), Some(column.ids[1]), "Left keeps the field focused");
         for _ in 0..10 { column.press(egui::Key::ArrowLeft); }
         assert_eq!(column.value, 1000, "the bottom of the range holds");
+    }
+
+    /// Typing into the field gives Left and Right back to the caret, so they neither step the value
+    /// nor clobber the typed text; once focus leaves and comes back they step again.
+    #[test]
+    fn left_and_right_move_the_caret_once_the_user_types() {
+        let mut column = Column::new(2000);
+        column.focus_field();
+        column.frame(vec![egui::Event::Text("5".into())]);
+        column.frame(Vec::new());
+        let typed = column.value;
+        assert!(typed >= 2000, "room for Left to step: {typed}");
+        column.press(egui::Key::ArrowLeft);
+        column.press(egui::Key::ArrowLeft);
+        assert_eq!(column.value, typed, "Left does not step while typing");
+        assert_eq!(column.focused(), Some(column.ids[1]));
+        column.press(egui::Key::ArrowDown);
+        assert_eq!(column.focused(), Some(column.ids[2]), "Down still leaves the field");
+        column.focus_field();
+        let before = column.value;
+        column.press(egui::Key::ArrowLeft);
+        assert_eq!(column.value, (before - 500).max(1000), "back on the field, Left steps again");
     }
 
     fn luminance(c: Color32) -> f64 {

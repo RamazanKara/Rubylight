@@ -18,11 +18,28 @@ import argparse, hashlib, pathlib, sys, tomllib
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 SERVICE = 'rust/service'
 RECORD = f'{SERVICE}/inputs.txt'
-# What the service's executable is made from, besides its crate: the core files
-# it compiles (#[path] in its main.rs), the shared version resource script,
-# the icon, the toolchain and Cargo's configuration.
+# What the service's executable is made from: its crate, build.ps1 included
+# (the toolchain, linker and flags it names), the core files it compiles
+# (#[path] in its sources), the shared version resource script and the icon.
+# Not rust-toolchain.toml or .cargo/config.toml: build.ps1's +toolchain,
+# linker and CARGO_ENCODED_RUSTFLAGS override them (test_release.py checks
+# that the configuration sets nothing else).
 INPUTS = (SERVICE, 'rust/core/src/update_recovery.rs', 'rust/core/src/update_files.rs',
-          'rust/assets/version_info.rs', 'rust/assets/butterpollo.ico', 'rust-toolchain.toml', '.cargo/config.toml')
+          'rust/assets/version_info.rs', 'rust/assets/butterpollo.ico')
+# The only Cargo configuration in the repository's .cargo/config.toml that the
+# service's build may meet: settings build.ps1 overrides.
+OVERRIDDEN_CONFIG = {('target', 'x86_64-pc-windows-gnu', 'linker')}
+
+
+def config_keys(text):
+    """The dotted keys a Cargo configuration file sets, as tuples."""
+    def walk(table, prefix):
+        for key, value in table.items():
+            if isinstance(value, dict):
+                yield from walk(value, prefix + (key,))
+            else:
+                yield prefix + (key,)
+    return set(walk(tomllib.loads(text), ()))
 
 
 def files(root):

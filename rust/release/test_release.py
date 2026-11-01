@@ -361,7 +361,7 @@ class ServiceInputs(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.root = pathlib.Path(self.temp.name)
         for name in ('rust/service/Cargo.toml', 'rust/service/src/main.rs', 'rust/core/src/update_recovery.rs',
-                     'rust/assets/version_info.rs', 'rust-toolchain.toml', '.cargo/config.toml'):
+                     'rust/assets/version_info.rs'):
             target = self.root / name
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(ROOT / name, target)
@@ -428,6 +428,42 @@ class ServiceInputs(unittest.TestCase):
         self.assertIn(r"rust\service\build.ps1", build)
         readme = (ROOT / 'rust/release/README.md').read_text(encoding='utf-8')
         self.assertIn('service_inputs.py --update', readme)
+
+    def test_the_build_script_counts_and_the_toolchain_and_cargo_configuration_do_not(self):
+        inputs = self.tool.files(ROOT)
+        self.assertIn('rust/service/build.ps1', inputs)
+        self.assertNotIn('rust-toolchain.toml', inputs)
+        self.assertNotIn('.cargo/config.toml', inputs)
+        # build.ps1 names the toolchain and sets the linker and every flag, which
+        # override those files; a setting it does not override (a [profile], say)
+        # would change the file unnoticed.
+        script = (ROOT / 'rust/service/build.ps1').read_text(encoding='utf-8')
+        self.assertIn('& cargo $Toolchain build', script)
+        self.assertIn('$env:CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER = $linker', script)
+        self.assertIn('$env:CARGO_ENCODED_RUSTFLAGS = ', script)
+        config = (ROOT / '.cargo/config.toml').read_text(encoding='utf-8')
+        self.assertLessEqual(self.tool.config_keys(config), self.tool.OVERRIDDEN_CONFIG)
+        self.assertEqual(self.tool.config_keys('[profile.release]\nlto = false\n[target.x86_64-pc-windows-gnu]\n'
+                                               'linker = "gcc"\n'),
+                         {('profile', 'release', 'lto'), ('target', 'x86_64-pc-windows-gnu', 'linker')})
+        self.assertFalse(list((ROOT / 'rust').glob('.cargo/config*')) + list((ROOT / 'rust/service').glob('.cargo/*')))
+
+    def test_the_build_script_gives_the_callers_environment_back(self):
+        # Run in the caller's shell, a failed build (a toolchain that does not
+        # exist) leaves the flags it cleared as they were, and sets none.
+        shell = shutil.which('pwsh') or shutil.which('powershell')
+        if not shell:
+            self.skipTest('no PowerShell')
+        script = ROOT / 'rust/service/build.ps1'
+        command = textwrap.dedent(f'''\
+            $env:RUSTFLAGS = '-Clinker=lld'; $env:CARGO_PROFILE_RELEASE_LTO = 'false'
+            Remove-Item Env:CARGO_ENCODED_RUSTFLAGS, Env:CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER -ErrorAction SilentlyContinue
+            try {{ & '{script}' -TargetDirectory '{self.root}' -Toolchain '+rubylight-missing' *> $null }} catch {{ }}
+            "$env:RUSTFLAGS|$env:CARGO_PROFILE_RELEASE_LTO|$env:CARGO_ENCODED_RUSTFLAGS|$env:CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER|$((Get-Location).Path)"
+            ''')
+        result = subprocess.run([shell, '-NoProfile', '-NonInteractive', '-Command', command], cwd=self.root,
+                                capture_output=True, text=True, timeout=120)
+        self.assertEqual(result.stdout.strip(), f'-Clinker=lld|false|||{self.root}', result.stderr)
 
 
 class Signing(unittest.TestCase):

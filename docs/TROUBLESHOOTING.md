@@ -88,9 +88,9 @@ On Windows and Linux, **Play away from home → Remote access → Test this PC**
 ## Export a problem report
 
 1. Reproduce the problem and note the app version, the device and its Android version, the host's version and the time.
-2. Open **Settings → App → Report a problem**, select **Share** and choose an app in Android's share sheet.
+2. Open **Settings → App → Report a problem**, select **Share** and choose an app in Android's share sheet. On a TV, or anywhere the share sheet has no app for files, select **Send to PC** instead: the report goes into the file transfer folder of the PC you pick (the host needs file transfer on and Upload files for this device).
 3. Where relevant, add **stream menu → Display → Overlay and diagnostics → Copy stats** and **Settings → Advanced → Export latency CSV**. Copy stats includes every Debug value.
 4. For pairing and host problems, long-press the PC, open **PC settings… → View details → Copy debug info**, and add the host's log.
 5. Describe what you did, what you expected and what happened in a [Nightjar issue](https://github.com/RamazanKara/nightjar/issues).
 
-The report is a text file, `nightjar-problem.txt`. It contains up to 200 redacted events from the running app, the last decoder configuration and the last saved crash record. Addresses, names given to PCs and devices, PINs, credentials and free-text diagnostic details are removed. Nothing is uploaded: the report leaves the device only through the app you choose. Review host details and logs you copy separately before sharing them.
+The report is a text file, `nightjar-problem.txt`. It contains up to 200 redacted events from the running app, the last decoder configuration and the last saved crash record. Addresses, names given to PCs and devices, PINs, credentials and free-text diagnostic details are removed. Nothing is uploaded: the report leaves the device only through the app or the PC you choose. Review host details and logs you copy separately before sharing them.

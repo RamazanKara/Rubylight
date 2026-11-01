@@ -7,6 +7,9 @@ use butterpollo_core::nucleus::window::{Rect, Window};
 use butterpollo_core::steam::Process;
 use std::collections::{BTreeMap, BTreeSet};
 use std::os::windows::io::OwnedHandle;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
 use windows::Win32::{
     Foundation::*, Graphics::Dwm::*, Graphics::Gdi::*, System::Threading::*,
     UI::WindowsAndMessaging::*,
@@ -17,12 +20,17 @@ use windows::core::BOOL;
 const WINDOW_LIMIT: usize = 4096;
 /// `MK_LBUTTON`: the left button is down.
 const LEFT_BUTTON: usize = 0x0001;
+/// How long a pass waits for a game window to take its frame's removal,
+/// which waits on the game's message loop: a hung game never runs it.
+const UNFRAME_WAIT: Duration = Duration::from_millis(250);
 
 /// The desktop of the signed-in user. Dropping it gives every process it
 /// unthrottled its power settings back.
 #[derive(Default)]
 pub struct Win32 {
     unthrottled: BTreeMap<u32, (OwnedHandle, PROCESS_POWER_THROTTLING_STATE)>,
+    /// Whether a frame's removal still waits on its window ([`take_frame`]).
+    unframing: Arc<AtomicBool>,
 }
 
 impl Drop for Win32 {
@@ -60,6 +68,44 @@ pub(crate) fn framed(style: u32) -> bool {
 /// `style` without its frame ([`FRAME`]).
 pub(crate) fn unframed(style: u32) -> u32 {
     style & !FRAME.0
+}
+
+/// Takes the frame from `window` ([`unframed`]). Windows waits for the
+/// window's thread to take the change, without end.
+fn take_frame(window: u64) -> Result<()> {
+    let window = hwnd(window);
+    // SAFETY: the handle is a plain value from EnumWindows; a window that closed since makes the
+    // calls fail.
+    unsafe {
+        let style = GetWindowLongPtrW(window, GWL_STYLE) as u32;
+        ensure!(style != 0, "the window closed");
+        if !framed(style) {
+            return Ok(());
+        }
+        SetLastError(WIN32_ERROR(0));
+        let previous = SetWindowLongPtrW(window, GWL_STYLE, unframed(style) as isize);
+        // Zero is also the previous style of none, so the error says.
+        if previous == 0 && GetLastError() != WIN32_ERROR(0) {
+            return Err(windows::core::Error::from_thread().into());
+        }
+        // Windows lays the window out again without its frame.
+        SetWindowPos(
+            window,
+            None,
+            0,
+            0,
+            0,
+            0,
+            SWP_FRAMECHANGED
+                | SWP_NOMOVE
+                | SWP_NOSIZE
+                | SWP_NOACTIVATE
+                | SWP_NOZORDER
+                | SWP_NOOWNERZORDER
+                | SWP_ASYNCWINDOWPOS,
+        )?;
+    }
+    Ok(())
 }
 
 /// Every top-level window, or only those of `processes` when given.
@@ -347,39 +393,50 @@ impl Desktop for Win32 {
         Ok(())
     }
     fn unframe(&mut self, window: u64) -> Result<()> {
-        let window = hwnd(window);
+        let handle = hwnd(window);
         // SAFETY: the handle is a plain value from EnumWindows; a window that closed since makes
-        // the calls fail. The asynchronous move never waits for a hung game's message loop.
-        unsafe {
-            let style = GetWindowLongPtrW(window, GWL_STYLE) as u32;
-            ensure!(style != 0, "the window closed");
-            if !framed(style) {
-                return Ok(());
-            }
-            SetLastError(WIN32_ERROR(0));
-            let previous = SetWindowLongPtrW(window, GWL_STYLE, unframed(style) as isize);
-            // Zero is also the previous style of none, so the error says.
-            if previous == 0 && GetLastError() != WIN32_ERROR(0) {
-                return Err(windows::core::Error::from_thread().into());
-            }
-            // Windows lays the window out again without its frame.
-            SetWindowPos(
-                window,
-                None,
-                0,
-                0,
-                0,
-                0,
-                SWP_FRAMECHANGED
-                    | SWP_NOMOVE
-                    | SWP_NOSIZE
-                    | SWP_NOACTIVATE
-                    | SWP_NOZORDER
-                    | SWP_NOOWNERZORDER
-                    | SWP_ASYNCWINDOWPOS,
-            )?;
+        // the calls fail. Neither waits on the window's message loop.
+        let style = unsafe {
+            ensure!(
+                !IsHungAppWindow(handle).as_bool(),
+                "the window is not responding"
+            );
+            GetWindowLongPtrW(handle, GWL_STYLE) as u32
+        };
+        ensure!(style != 0, "the window closed");
+        if !framed(style) {
+            return Ok(());
         }
-        Ok(())
+        // The change waits on the game's message loop, so it is made on a
+        // thread of its own: a game that hangs then holds that thread, never
+        // the pass, and no other change starts until it is taken.
+        ensure!(
+            !self.unframing.swap(true, Ordering::AcqRel),
+            "an earlier window has not yet taken its frame's removal"
+        );
+        struct Done(Arc<AtomicBool>);
+        impl Drop for Done {
+            fn drop(&mut self) {
+                self.0.store(false, Ordering::Release);
+            }
+        }
+        let done = Done(self.unframing.clone());
+        let (result_tx, result_rx) = std::sync::mpsc::sync_channel(1);
+        std::thread::Builder::new()
+            .name("nucleus-unframe".into())
+            .spawn(move || {
+                let _done = done;
+                // As the host's own threads: on the user's desktop.
+                crate::input::follow_input_desktop();
+                let _ = result_tx.send(take_frame(window));
+            })?;
+        match result_rx.recv_timeout(UNFRAME_WAIT) {
+            Ok(result) => result,
+            Err(_) => bail!(
+                "the window did not take its frame's removal within {} ms",
+                UNFRAME_WAIT.as_millis()
+            ),
+        }
     }
     fn unthrottle(&mut self, processes: &BTreeSet<u32>) {
         self.unthrottled.retain(|pid, (process, previous)| {
@@ -744,10 +801,35 @@ mod tests {
         };
         assert!(listed().framed);
         let mut desktop = Win32::default();
-        desktop.unframe(window.0 as usize as u64).unwrap();
-        assert!(!listed().framed);
-        // Once is enough; again changes nothing.
-        desktop.unframe(window.0 as usize as u64).unwrap();
+        let id = window.0 as usize as u64;
+        // This thread owns the window and runs no message loop while the
+        // pass waits, as a hung game: the pass gives up in time instead of
+        // waiting without end, and starts no second change meanwhile.
+        let before = std::time::Instant::now();
+        let error = desktop.unframe(id).unwrap_err().to_string();
+        assert!(
+            error.contains("did not take its frame's removal"),
+            "{error}"
+        );
+        assert!(before.elapsed() < Duration::from_secs(2));
+        let error = desktop.unframe(id).unwrap_err().to_string();
+        assert!(error.contains("has not yet taken"), "{error}");
+        // Once its messages run, the window takes the change.
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        while desktop.unframing.load(Ordering::Acquire) || listed().framed {
+            assert!(std::time::Instant::now() < deadline, "the frame stayed");
+            let mut message = MSG::default();
+            // SAFETY: `message` is a live local; only this thread's messages are run.
+            unsafe {
+                while PeekMessageW(&mut message, None, 0, 0, PM_REMOVE).as_bool() {
+                    let _ = TranslateMessage(&message);
+                    DispatchMessageW(&message);
+                }
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        // Once is enough; again changes nothing, and waits on no thread.
+        desktop.unframe(id).unwrap();
         // SAFETY: a window this thread made.
         unsafe { DestroyWindow(window).unwrap() };
         assert!(desktop.unframe(window.0 as usize as u64).is_err());

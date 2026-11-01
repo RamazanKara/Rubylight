@@ -1,0 +1,7 @@
+• PyroWave decodes sooner on Android, and lost packets are rebuilt up to 17x faster.
+• Send to PC works with a TV remote, and Report a problem can send to the PC.
+• Clearer microphone at 64 kb/s with error correction.
+• Triggers respond from the first few percent.
+• Device motion works with USB controllers.
+• Rarely needed settings moved to a Debug section.
+• Fewer false lost frames on Wi-Fi.

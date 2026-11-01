@@ -238,6 +238,7 @@ impl Media {
         // stream in 48 kHz samples; the WebRTC RTP clock follows that, not wall time.
         let mut pace = AudioPace::new(Instant::now(), interval, frames);
         let mut last_loss = None;
+        let mut ping = audio_sink::PingWait::default();
         let mut upkeep: Option<RouteUpkeep> = None;
         let timer = butterpollo_windows::timing::Timer::new()?;
         let silence = couch.silence(frames);
@@ -360,6 +361,18 @@ impl Media {
                 couch.set_source(capturing.source())?;
             }
             let ready = output.ready();
+            ping.update(
+                ready,
+                || {
+                    audio_sink::ping_timed_out(
+                        &s,
+                        &h.stop,
+                        start,
+                        crate::network::ping_timeout(&config),
+                    )
+                },
+                &s.launch.warnings,
+            );
             // Every whole packet the endpoint has delivered goes out at once, as
             // Sunshine sends them. On a fixed tick each waited up to a packet,
             // and a tick just before a late chunk sent silence in its place.
@@ -393,13 +406,6 @@ impl Media {
                     // on the control thread; one atomic load while unused.
                     s.audio_haptics.push(samples, client_channels);
                 }
-            } else if audio_sink::ping_timed_out(
-                &s,
-                &h.stop,
-                start,
-                crate::network::ping_timeout(&config),
-            ) {
-                anyhow::bail!("client audio ping timed out");
             }
             let now = Instant::now();
             if let Some(report) = loss.report(now) {

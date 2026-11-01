@@ -19,7 +19,7 @@ use std::{
 
 pub(super) trait AudioSink {
     /// Whether the far end is known. Audio is encoded either way (the capture must be drained),
-    /// but a sink that never becomes ready ends the audio when the ping window passes.
+    /// and a sink that is not ready when the ping window passes raises [`PingWait::WARNING`].
     fn ready(&mut self) -> bool;
     /// Send one encoded Opus packet. Returns how many packets did not go out, which the caller
     /// counts as loss; only a broken transport is an error. `position` is where the packet starts
@@ -50,6 +50,37 @@ pub(super) fn ping_timed_out(
 ) -> bool {
     let stopping = session.stopping() || host_stop.load(Ordering::Acquire);
     !stopping && session.media_wait_start(start).elapsed() > timeout
+}
+
+/// The client's audio ping, waited for as long as the session lives. A missed ping window raises
+/// a warning but keeps the audio thread: the ping can still come (a ping from a shared address is
+/// only accepted once no other session holds it), and the client hears sound from then on.
+#[derive(Default)]
+pub(super) struct PingWait {
+    missing: bool,
+}
+
+impl PingWait {
+    pub(super) const WARNING: &'static str = "audio_ping";
+
+    /// One pass of the audio thread: `ready` is whether the client's audio address is known,
+    /// `timed_out` is [`ping_timed_out`], asked only while the sink is not ready.
+    pub(super) fn update(
+        &mut self,
+        ready: bool,
+        timed_out: impl FnOnce() -> bool,
+        warnings: &butterpollo_core::session::Warnings,
+    ) {
+        if ready {
+            if std::mem::take(&mut self.missing) {
+                warnings.clear(Self::WARNING);
+                tracing::info!("client audio ping arrived; audio resumed");
+            }
+        } else if !self.missing && timed_out() {
+            self.missing = true;
+            warnings.set(Self::WARNING, "No audio ping from the client; video is running without sound until it arrives. Check the network between this PC and the client if sound does not return.");
+        }
+    }
 }
 
 /// Where the audio thread is in its stream, in 48 kHz samples. It counts what the thread encoded
@@ -493,6 +524,36 @@ mod tests {
         // The quit stops the session and then forgets its peers: no warning.
         session.stop();
         assert!(!ping_timed_out(&session, &host_stop, long_ago, timeout));
+    }
+
+    #[test]
+    fn a_late_audio_ping_brings_the_sound_back_and_clears_the_warning() {
+        let warnings = butterpollo_core::session::Warnings::default();
+        let codes = || {
+            warnings
+                .snapshot()
+                .into_iter()
+                .map(|warning| warning.code)
+                .collect::<Vec<_>>()
+        };
+        let mut ping = PingWait::default();
+        // Inside the window nothing is raised.
+        ping.update(false, || false, &warnings);
+        assert!(codes().is_empty());
+        // The window passes without a ping: warned once, and the thread keeps waiting.
+        ping.update(false, || true, &warnings);
+        assert_eq!(codes(), [PingWait::WARNING]);
+        ping.update(
+            false,
+            || panic!("asked again while already warned"),
+            &warnings,
+        );
+        // The ping arrives: sound goes out again and the warning is gone.
+        ping.update(true, || panic!("a ready sink has no timeout"), &warnings);
+        assert!(codes().is_empty());
+        // A later gap (a roam that drops the address) warns again.
+        ping.update(false, || true, &warnings);
+        assert_eq!(codes(), [PingWait::WARNING]);
     }
 
     fn audio(count: usize) -> Vec<Vec<f32>> {

@@ -685,13 +685,6 @@
             android:title="@string/title_roaming_metered"
             android:dialogMessage="@string/summary_roaming_metered"
             android:defaultValue="false" />
-        <com.limelight.preferences.MaterialListPreference
-            android:key="list_fec_choice"
-            android:title="@string/title_fec_choice"
-            android:dialogMessage="@string/summary_fec_choice"
-            android:entries="@array/fec_choice_names"
-            android:entryValues="@array/fec_choice_values"
-            android:defaultValue="host" />
         <com.limelight.preferences.MaterialSwitchPreference
             android:key="checkbox_input_only_any_host"
             android:title="@string/title_checkbox_input_only_any_host"
@@ -849,11 +842,6 @@
             android:title="@string/title_vulkan_render"
             android:dialogMessage="@string/summary_vulkan_render"
             android:defaultValue="false" />
-        <com.limelight.preferences.MaterialSwitchPreference
-            android:key="checkbox_full_range"
-            android:title="@string/title_full_range"
-            android:dialogMessage="@string/summary_full_range"
-            android:defaultValue="false" />
     </PreferenceCategory>
     <PreferenceCategory android:key="category_advanced_compatibility" android:title="@string/settings_category_compatibility">
         <com.limelight.preferences.MaterialSwitchPreference
@@ -863,26 +851,7 @@
             android:dialogMessage="@string/summary_checkbox_enable_sops"
             android:defaultValue="true" />
     </PreferenceCategory>
-    <PreferenceCategory android:key="category_advanced_input" android:title="@string/settings_category_input_network">
-        <com.limelight.preferences.MaterialSwitchPreference
-            android:key="checkbox_unbatched_input"
-            android:title="@string/title_unbatched_input"
-            android:dialogMessage="@string/summary_unbatched_input"
-            android:defaultValue="true" />
-        <com.limelight.preferences.MaterialSwitchPreference
-            android:key="checkbox_network_priority"
-            android:title="@string/title_network_priority"
-            android:dialogMessage="@string/summary_network_priority"
-            android:defaultValue="true" />
-    </PreferenceCategory>
     <PreferenceCategory android:key="category_advanced_experimental" android:title="@string/settings_category_experimental">
-        <!-- Client-hint bitrate over 0x553C (StreamRateChanges); a stream without it keeps Device controls bitrate (Video). -->
-        <com.limelight.preferences.MaterialSwitchPreference
-            android:key="checkbox_rate_change_bitrate"
-            android:title="@string/title_rate_change_bitrate"
-            android:summary="@string/summary_short_rate_change_bitrate"
-            android:dialogMessage="@string/summary_rate_change_bitrate"
-            android:defaultValue="false" />
         <com.limelight.preferences.MaterialSwitchPreference
             android:key="checkbox_experimental_chipset_tuning"
             android:title="@string/title_experimental_chipset_tuning"
@@ -890,16 +859,6 @@
             android:defaultValue="false" />
     </PreferenceCategory>
     <PreferenceCategory android:key="category_advanced_diagnostics" android:title="@string/settings_category_diagnostics">
-        <com.limelight.preferences.MaterialSwitchPreference
-            android:key="checkbox_tell_host_wireless"
-            android:title="@string/title_tell_host_wireless"
-            android:dialogMessage="@string/summary_tell_host_wireless"
-            android:defaultValue="true" />
-        <com.limelight.preferences.MaterialSwitchPreference
-            android:key="checkbox_tell_host_link_speed"
-            android:title="@string/title_tell_host_link_speed"
-            android:dialogMessage="@string/summary_tell_host_link_speed"
-            android:defaultValue="true" />
         <com.limelight.preferences.MaterialSwitchPreference
             android:key="checkbox_link_probe"
             android:title="@string/title_link_probe"
@@ -919,5 +878,51 @@
     </PreferenceCategory>
     <PreferenceCategory android:key="category_more_advanced">
         <Preference android:key="more_advanced" android:title="@string/settings_more" android:persistent="false" />
+    </PreferenceCategory>
+
+    <!-- Debug: settings whose default is right for nearly everyone, kept for troubleshooting. -->
+    <PreferenceCategory android:key="category_debug">
+        <com.limelight.preferences.MaterialListPreference
+            android:key="list_fec_choice"
+            android:title="@string/title_fec_choice"
+            android:dialogMessage="@string/summary_fec_choice"
+            android:entries="@array/fec_choice_names"
+            android:entryValues="@array/fec_choice_values"
+            android:defaultValue="host" />
+        <!-- Client-hint bitrate over 0x553C (StreamRateChanges); a stream without it keeps Device controls bitrate (Video). -->
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_rate_change_bitrate"
+            android:title="@string/title_rate_change_bitrate"
+            android:summary="@string/summary_short_rate_change_bitrate"
+            android:dialogMessage="@string/summary_rate_change_bitrate"
+            android:defaultValue="false" />
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_tell_host_wireless"
+            android:title="@string/title_tell_host_wireless"
+            android:dialogMessage="@string/summary_tell_host_wireless"
+            android:defaultValue="true" />
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_tell_host_link_speed"
+            android:title="@string/title_tell_host_link_speed"
+            android:dialogMessage="@string/summary_tell_host_link_speed"
+            android:defaultValue="true" />
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_network_priority"
+            android:title="@string/title_network_priority"
+            android:dialogMessage="@string/summary_network_priority"
+            android:defaultValue="true" />
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_unbatched_input"
+            android:title="@string/title_unbatched_input"
+            android:dialogMessage="@string/summary_unbatched_input"
+            android:defaultValue="true" />
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_full_range"
+            android:title="@string/title_full_range"
+            android:dialogMessage="@string/summary_full_range"
+            android:defaultValue="false" />
+    </PreferenceCategory>
+    <PreferenceCategory android:key="category_more_debug">
+        <Preference android:key="more_debug" android:title="@string/settings_more" android:persistent="false" />
     </PreferenceCategory>
 </PreferenceScreen>

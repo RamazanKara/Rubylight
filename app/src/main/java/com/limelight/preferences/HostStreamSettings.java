@@ -797,7 +797,6 @@ public class HostStreamSettings extends NightjarActivity {
             row(stream, "vrr", R.string.title_vrr, () -> showSwitch("vrr", R.string.title_vrr));
             row(stream, "pacing", R.string.title_frame_pacing, this::showPacing);
             row(stream, "yuv444", R.string.title_yuv444, () -> showSwitch("yuv444", R.string.title_yuv444));
-            row(stream, "full_range", R.string.title_full_range, () -> showSwitch("full_range", R.string.title_full_range));
             boolean pc = activity.mode == Mode.PC;
             int reset = pc ? R.string.host_profile_reset : R.string.layers_reset;
             row(stream, "reset", reset, () -> UiHelper.showDialog(activity,
@@ -829,6 +828,9 @@ public class HostStreamSettings extends NightjarActivity {
                     row(display, "dpi", R.string.title_virtual_display_dpi, this::showDisplayScale);
                 }
             }
+            // Last, as in Settings: rarely needed, kept for troubleshooting.
+            PreferenceCategory debug = category(screen, R.string.settings_section_debug);
+            row(debug, "full_range", R.string.title_full_range, () -> showSwitch("full_range", R.string.title_full_range));
             Preference footer = new Preference(activity);
             footer.setLayoutResource(R.layout.settings_preference);
             footer.setSummary(pc ? R.string.host_profile_footer : R.string.layers_footer);

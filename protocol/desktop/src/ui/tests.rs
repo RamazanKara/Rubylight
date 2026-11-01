@@ -548,7 +548,7 @@ fn settings_main_rows_are_androids_tiers() {
         assert!(!DESKTOP_MAIN.contains(&desktop), "{desktop}: Android decides its tier");
     }
     assert!(main_row("adaptive_bitrate") && main_row("auto_reconnect") && main_row("window_mode"));
-    assert!(!main_row("tell_host_wireless") && !main_row("client_hint_bitrate") && !main_row("ui_zoom"));
+    assert!(!main_row("ui_zoom") && !main_row("usb_forwarding"));
 }
 
 #[test]

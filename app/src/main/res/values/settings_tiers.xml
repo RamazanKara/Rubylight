@@ -57,6 +57,14 @@
         <item>checkbox_gpu_max_clocks</item>
         <item>checkbox_texture_view</item>
         <item>checkbox_vulkan_render</item>
+    </string-array>
+    <string-array name="settings_tier_debug" translatable="false">
+        <item>list_fec_choice</item>
+        <item>checkbox_rate_change_bitrate</item>
+        <item>checkbox_tell_host_wireless</item>
+        <item>checkbox_tell_host_link_speed</item>
+        <item>checkbox_network_priority</item>
+        <item>checkbox_unbatched_input</item>
         <item>checkbox_full_range</item>
     </string-array>
 </resources>

@@ -52,8 +52,7 @@ public class AdvancedOptionsTest {
     private static final String HEVC_MODE = PreferenceConfiguration.HEVC_LOW_LATENCY_MODE_PREF_STRING;
     /** The controls Advanced shows with its More row open. The individual decoding switches sit behind Customize. */
     private static final String[] ADVANCED_CONTROLS = {
-            "low_latency_customize", "checkbox_unbatched_input",
-            "checkbox_network_priority", "checkbox_texture_view", "checkbox_vulkan_render", "checkbox_full_range",
+            "low_latency_customize", "checkbox_texture_view", "checkbox_vulkan_render",
             "checkbox_enable_sops", "export_latency_csv", "latency_benchmark", "checkbox_enable_post_stream_toast",
             "checkbox_rust_engine"
     };
@@ -224,6 +223,32 @@ public class AdvancedOptionsTest {
         }
     }
 
+    // Settings whose default is right for nearly everyone sit together in Debug, the last section, all on its main rows.
+    private static final List<String> DEBUG_CONTROLS = Arrays.asList(
+            "list_fec_choice", "checkbox_rate_change_bitrate", "checkbox_tell_host_wireless", "checkbox_tell_host_link_speed",
+            "checkbox_network_priority", "checkbox_unbatched_input", "checkbox_full_range");
+
+    @Test
+    public void debugIsTheLastSectionAndSearchStillFindsItsSettings() {
+        try (ActivityController<StreamSettings> controller = Robolectric.buildActivity(StreamSettings.class).setup()) {
+            StreamSettings screen = controller.get();
+            List<String> sections = new ArrayList<>(StreamSettings.SECTIONS.keySet());
+            assertEquals("debug", sections.get(sections.size() - 1));
+            assertEquals("Debug", screen.getString(StreamSettings.sectionTitle("debug")));
+            PreferenceGroup debug = (PreferenceGroup) open(screen, "debug").getPreferenceScreen().findPreference("category_debug");
+            assertEquals(DEBUG_CONTROLS, SettingsStructureTest.keys(debug));
+            assertEquals(DEBUG_CONTROLS, StreamSettings.mainKeys(screen, "debug"));
+            for (String section : sections) {
+                if (section.equals("debug")) continue;
+                PreferenceScreen other = open(screen, section).getPreferenceScreen();
+                for (String key : DEBUG_CONTROLS) assertNull(section + ": " + key, other.findPreference(key));
+            }
+            for (String key : DEBUG_CONTROLS) assertEquals(key, "debug", StreamSettings.sectionOfKey(screen, key));
+            assertEquals("Debug", resultGroup(search(screen, "Error correction"), "list_fec_choice").toString());
+            assertEquals("Debug", resultGroup(search(screen, "Prioritize stream traffic"), "checkbox_network_priority").toString());
+        }
+    }
+
     @Test
     public void debugIsAlwaysAnOverlayChoiceOfTheOverlayPicker() {
         assertEquals(Arrays.asList("compact", "statistics", "debug"), Arrays.asList(OverlayChoice.MODES));
@@ -258,6 +283,8 @@ public class AdvancedOptionsTest {
                     // Do not rerun the older migration that enables the latency switches.
                     .putInt(PreferenceConfiguration.PREFS_VERSION_PREF_STRING, PreferenceConfiguration.PROFILE_NATIVE_VERSION)
                     .putString("performance_overlay_mode", "debug")
+                    // Now under Debug; the move keeps it too.
+                    .putBoolean("checkbox_network_priority", false)
                     // Choices made after the new engine became the default are kept, off included.
                     .putBoolean(PreferenceConfiguration.RUST_ENGINE_DEFAULT_ON_PREF_STRING, true);
             for (Map.Entry<String, Boolean> entry : choices.entrySet()) editor.putBoolean(entry.getKey(), entry.getValue());

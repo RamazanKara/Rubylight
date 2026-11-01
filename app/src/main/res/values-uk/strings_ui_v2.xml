@@ -2,6 +2,7 @@
 <resources>
     <string name="settings_section_advanced">Додатково</string>
     <string name="settings_advanced_summary">Декодування, введення та діагностика</string>
+    <string name="settings_section_debug">Налагодження</string>
     <string name="settings_custom">Власні</string>
     <string name="setting_help">Про %1$s</string>
     <string name="stream_presets_help_title">Про пресети</string>

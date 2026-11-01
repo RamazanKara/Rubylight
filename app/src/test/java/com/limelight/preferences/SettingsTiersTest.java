@@ -135,6 +135,15 @@ public class SettingsTiersTest {
                 StreamSettings.SettingsFragment fragment = openFolded(screen, section);
                 List<String> folded = visible(fragment);
                 Preference more = fragment.findPreference(moreKey);
+                if (sections.get(section).stream().noneMatch(key -> !key.equals(moreKey) &&
+                        StreamSettings.foldsInSection(context(), section, key))) {
+                    // Debug: every row is main, so nothing folds and the More row stays hidden.
+                    assertFalse(section + " has no More row to open", folded.contains(moreKey));
+                    List<String> rows = new ArrayList<>(sections.get(section));
+                    rows.remove(moreKey);
+                    assertTrue(section + " shows only its rows", rows.containsAll(folded));
+                    continue;
+                }
                 assertEquals(section + " ends on its More row", moreKey, folded.get(folded.size() - 1));
                 assertTrue("a D-pad reaches the More row", more.isSelectable() && more.isEnabled());
                 String closedTitle = String.valueOf(more.getTitle());
@@ -208,12 +217,12 @@ public class SettingsTiersTest {
 
     @Test
     public void aLinkToAFoldedRowOpensItsSectionUnfolded() {
-        android.content.Intent link = StreamSettings.intent(context(), null, "checkbox_tell_host_wireless");
+        android.content.Intent link = StreamSettings.intent(context(), null, "checkbox_link_probe");
         try (ActivityController<StreamSettings> controller = Robolectric.buildActivity(StreamSettings.class, link).setup()) {
             StreamSettings screen = controller.get();
             settle(screen);
             StreamSettings.SettingsFragment section = (StreamSettings.SettingsFragment) shown(screen);
-            assertTrue(visible(section).contains("checkbox_tell_host_wireless"));
+            assertTrue(visible(section).contains("checkbox_link_probe"));
             assertTrue(screen.moreOpen.contains("advanced"));
         }
     }
@@ -232,20 +241,19 @@ public class SettingsTiersTest {
     }
 
     @Test
-    public void tellThePcAndTheLinkTestSitInAdvancedDiagnostics() {
+    public void tellThePcSitsInDebugAndTheLinkTestInAdvancedDiagnostics() {
         try (ActivityController<StreamSettings> controller = Robolectric.buildActivity(StreamSettings.class).setup()) {
             StreamSettings screen = controller.get();
-            for (String key : new String[] {"checkbox_tell_host_wireless", "checkbox_tell_host_link_speed",
-                    "checkbox_link_probe"}) {
-                assertEquals(key, "advanced", StreamSettings.sectionOfKey(screen, key));
+            for (String key : new String[] {"checkbox_tell_host_wireless", "checkbox_tell_host_link_speed"}) {
+                assertEquals(key, "debug", StreamSettings.sectionOfKey(screen, key));
             }
+            assertEquals("advanced", StreamSettings.sectionOfKey(screen, "checkbox_link_probe"));
             screen.moreOpen.add("advanced");
             screen.showSection("advanced");
             settle(screen);
             PreferenceGroup diagnostics = (PreferenceGroup) ((StreamSettings.SettingsFragment) shown(screen))
                     .getPreferenceScreen().findPreference("category_advanced_diagnostics");
-            assertEquals(java.util.Arrays.asList("checkbox_tell_host_wireless", "checkbox_tell_host_link_speed",
-                    "checkbox_link_probe"), SettingsStructureTest.keys(diagnostics).subList(0, 3));
+            assertEquals("checkbox_link_probe", SettingsStructureTest.keys(diagnostics).get(0));
             assertEquals("Link test before the first bitrate", String.valueOf(diagnostics.findPreference("checkbox_link_probe").getTitle()));
             assertEquals("USB Switch Pro driver", screen.getString(R.string.title_usb_switch_pro));
         }
@@ -283,9 +291,9 @@ public class SettingsTiersTest {
             StreamSettings.SettingsFragment video = SettingsStructureTest.open(screen, "video");
             assertEquals("the loss-based switch left Video", -1, StreamSettings.RootFragment.positionOf(
                     video.getView().findViewById(android.R.id.list), "checkbox_rate_change_bitrate"));
-            Preference loss = SettingsStructureTest.open(screen, "advanced").findPreference("checkbox_rate_change_bitrate");
+            Preference loss = SettingsStructureTest.open(screen, "debug").findPreference("checkbox_rate_change_bitrate");
             assertNotNull(loss);
-            assertEquals("category_advanced_experimental", loss.getParent().getKey());
+            assertEquals("category_debug", loss.getParent().getKey());
             assertEquals("Loss-based bitrate (Rust engine)", String.valueOf(loss.getTitle()));
             assertEquals("Off: uses Device controls bitrate. On: this device adjusts from frame loss and network delay.",
                     String.valueOf(loss.getSummary()));
@@ -294,7 +302,7 @@ public class SettingsTiersTest {
             Preference device = results.findPreference("search_result_checkbox_auto_bitrate");
             Preference lossResult = results.findPreference("search_result_checkbox_rate_change_bitrate");
             assertNotNull(device);
-            assertNotNull("search finds the folded Experimental row", lossResult);
+            assertNotNull("search finds the Debug row", lossResult);
             assertEquals("Device controls bitrate", String.valueOf(device.getTitle()));
             assertEquals("Loss-based bitrate (Rust engine)", String.valueOf(lossResult.getTitle()));
         }

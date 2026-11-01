@@ -1335,19 +1335,20 @@ pub(super) fn value_text(key: &str, s: &Settings, display: &Display, style: crat
 /// by Android preference key, in `SETTINGS_SECTIONS` order. A test keeps the two equal, and another
 /// that each section draws its main rows first, before its groups.
 #[cfg_attr(not(test), allow(dead_code))]
-pub(super) const MAIN_KEYS: [(&str, &[&str]); 7] = [
+pub(super) const MAIN_KEYS: [(&str, &[&str]); 8] = [
     ("video", &["list_resolution", "list_fps", "seekbar_bitrate_kbps", "checkbox_auto_bitrate", "list_mobile_bitrate_kbps", "video_format", "checkbox_enable_hdr"]),
     ("display", &["checkbox_stretch_video", "stream_orientation"]),
     ("input", &["checkbox_multi_controller", "controller_button_mapping", "controller_test", "checkbox_flip_face_buttons", "checkbox_touchscreen_trackpad", "checkbox_show_onscreen_controls", "checkbox_keyboard_follows_text_fields", "checkbox_clipboard_sync"]),
     ("audio", &["list_audio_config", "checkbox_host_audio", "checkbox_enable_mic", "checkbox_mic_button"]),
     ("streaming", &["checkbox_enable_perf_overlay", "checkbox_auto_reconnect"]),
     ("app", &["checkbox_always_dark", "list_languages", "checkbox_console_home", "checkbox_quick_resume", "pin_lock", "help", "report_problem", "check_updates_now"]),
-    ("advanced", &["checkbox_rust_engine", "low_latency_decoding", "low_latency_customize", "gpu_driver", "checkbox_gpu_max_clocks", "checkbox_texture_view", "checkbox_vulkan_render", "checkbox_full_range"]),
+    ("advanced", &["checkbox_rust_engine", "low_latency_decoding", "low_latency_customize", "gpu_driver", "checkbox_gpu_max_clocks", "checkbox_texture_view", "checkbox_vulkan_render"]),
+    ("debug", &["list_fec_choice", "checkbox_rate_change_bitrate", "checkbox_tell_host_wireless", "checkbox_tell_host_link_speed", "checkbox_network_priority", "checkbox_unbatched_input", "checkbox_full_range"]),
 ];
 
 /// Desktop rows and the Android preference each one matches. A row is main when its match is.
 #[cfg_attr(not(test), allow(dead_code))]
-pub(super) const ANDROID_KEYS: [(&str, &str); 35] = [
+pub(super) const ANDROID_KEYS: [(&str, &str); 36] = [
     ("width", "list_resolution"), ("fps", "list_fps"), ("bitrate_kbps", "seekbar_bitrate_kbps"),
     ("adaptive_bitrate", "checkbox_auto_bitrate"), ("codec", "video_format"), ("hdr", "checkbox_enable_hdr"),
     ("video_scaling", "checkbox_stretch_video"), ("controllers", "checkbox_multi_controller"),
@@ -1355,7 +1356,7 @@ pub(super) const ANDROID_KEYS: [(&str, &str); 35] = [
     ("audio", "list_audio_config"), ("play_audio_on_host", "checkbox_host_audio"), ("microphone", "checkbox_enable_mic"),
     ("overlay", "checkbox_enable_perf_overlay"), ("auto_reconnect", "checkbox_auto_reconnect"),
     ("console_home", "checkbox_console_home"), ("quick_resume", "checkbox_quick_resume"), ("language", "list_languages"),
-    ("full_range", "checkbox_full_range"),
+    ("full_range", "checkbox_full_range"), ("error_correction", "list_fec_choice"),
     ("client_hint_bitrate", "checkbox_rate_change_bitrate"), ("experimental_packed_444", "experimental_packed_444"),
     ("tell_host_wireless", "checkbox_tell_host_wireless"), ("tell_host_link_speed", "checkbox_tell_host_link_speed"),
     ("link_probe", "checkbox_link_probe"), ("client_roaming", "checkbox_client_roaming"),

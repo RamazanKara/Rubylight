@@ -66,7 +66,8 @@ public class SettingsKeysTest {
             // The merged switch writes the three decoder switches and stores nothing itself.
             StreamSettings.LOW_LATENCY_DECODING_KEY, StreamSettings.LOW_LATENCY_CUSTOMIZE_KEY,
             // Each section's More row shows and hides its other rows.
-            "more_video", "more_display", "more_input", "more_audio", "more_streaming", "more_app", "more_advanced"));
+            "more_video", "more_display", "more_input", "more_audio", "more_streaming", "more_app", "more_advanced",
+            "more_debug"));
     // Stored settings that a picker or a dialog writes without a row of their own.
     private static final Set<String> WRITTEN_BY_PICKERS = new HashSet<>(Arrays.asList(
             "checkbox_unlock_fps", // the frame rate picker's button

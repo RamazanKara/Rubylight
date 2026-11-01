@@ -318,15 +318,16 @@ public class SettingsBatchTest {
     }
 
     @Test
-    public void vulkanRenderingAndFullRangeMoveToAdvancedAndKeepTheirValues() {
+    public void vulkanRenderingSitsInAdvancedAndFullRangeInDebug() {
         try (ActivityController<StreamSettings> controller = Robolectric.buildActivity(StreamSettings.class).setup()) {
             PreferenceScreen display = section(controller, "display");
             PreferenceScreen advanced = section(controller, "advanced");
-            for (String key : new String[] {"checkbox_vulkan_render", "checkbox_full_range"}) {
-                assertNull(key, display.findPreference(key));
-                assertNotNull(key, advanced.findPreference(key));
-                assertEquals("category_advanced_decoder", groupOf(advanced, key).getKey());
-            }
+            assertNull(display.findPreference("checkbox_vulkan_render"));
+            assertEquals("category_advanced_decoder", groupOf(advanced, "checkbox_vulkan_render").getKey());
+            PreferenceScreen debug = section(controller, "debug");
+            assertNull(display.findPreference("checkbox_full_range"));
+            assertNull(advanced.findPreference("checkbox_full_range"));
+            assertEquals("category_debug", groupOf(debug, "checkbox_full_range").getKey());
         }
     }
 

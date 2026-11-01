@@ -36,6 +36,7 @@ final class SettingsRail implements ViewTreeObserver.OnPreDrawListener {
             case "streaming": return R.drawable.ic_network;
             case "app": return R.drawable.ic_info;
             case "advanced": return R.drawable.ic_tune;
+            case "debug": return R.drawable.ic_terminal;
             default: return 0;
         }
     }

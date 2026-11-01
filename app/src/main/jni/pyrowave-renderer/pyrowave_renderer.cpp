@@ -514,7 +514,7 @@ namespace {
     // clocks; enabled scopes keep bounded counters and log once per five seconds.
     class SubmissionDiagnostics {
     public:
-        enum StageId { COPY, CLOCK, PARSE, SLOT, ORDER, SDK, PUBLISH, STATS, TOTAL, STAGE_COUNT };
+        enum StageId { COPY, CLOCK, PARSE, SLOT, ORDER, SDK, PUBLISH, STATS, EARLY, TOTAL, STAGE_COUNT };
 
         void configure() {
             char value[PROP_VALUE_MAX] = {};
@@ -565,7 +565,8 @@ namespace {
                  (unsigned long long)window.errors, double(window.bytes) / double(window.frames),
                  (unsigned long long)window.maxBytes, (unsigned long long)window.recordFrames,
                  (unsigned long long)window.ordinaryFrames, getpriority(PRIO_PROCESS, 0));
-            static const char *const names[] = {"copy", "clock", "parse", "slot", "order", "sdk", "publish", "stats", "total"};
+            static const char *const names[] = {"copy", "clock", "parse", "slot", "order", "sdk", "publish", "stats", "early",
+                                                "total"};
             for (int i = 0; i < STAGE_COUNT; ++i) {
                 const auto &timing = window.timing[i];
                 if (timing.count == 0) continue;
@@ -626,6 +627,19 @@ namespace {
             size_t bytes;
             Stamp start{};
             bool framingKnown = false, recordFraming = false;
+        };
+
+        // One batch of early chunks, between frames: the early stage, one sample per batch,
+        // outside every frame's total.
+        class Chunks {
+        public:
+            explicit Chunks(SubmissionDiagnostics &owner) : owner(owner.enabled ? &owner : nullptr) {
+                if (this->owner) start = stamp();
+            }
+            ~Chunks() { if (owner) owner->add(EARLY, start, stamp()); }
+        private:
+            SubmissionDiagnostics *owner;
+            Stamp start{};
         };
     };
 
@@ -776,10 +790,15 @@ namespace {
             }
             {
                 SubmissionDiagnostics::Stage timing(submissionDiagnostics, SubmissionDiagnostics::PARSE);
-                pyrowave_decoder_clear(decoder);
-                if (!pushFrame(data, length)) {
+                // Records that came early (pushChunks) are in the decoder already; a frame whose
+                // chunks were not the frame, or that had none, is pushed whole as before.
+                const int early = finishEarly(length);
+                if (early != RP_PYROWAVE_EARLY_DONE) {
                     pyrowave_decoder_clear(decoder);
-                    return SUBMIT_SKIPPED;
+                    if (!pushFrame(data, length)) {
+                        pyrowave_decoder_clear(decoder);
+                        return SUBMIT_SKIPPED;
+                    }
                 }
                 // Intra-only: a frame missing packets still decodes, with lost detail.
                 if (!pyrowave_decoder_decode_is_ready(decoder, false)) {
@@ -816,6 +835,17 @@ namespace {
             decodeReady.notify_all();
             slotReady.notify_all();
             return SUBMIT_ERROR;
+        }
+
+        // Packets of the next frame while it arrives (the Rust engine's early chunks, a batch of
+        // [length][flags][payload] at a time, on the thread that submits): their records go to
+        // the SDK now, so submit() has only the header and the last records to push.
+        void pushChunks(const uint8_t *data, size_t length, bool first) {
+            if (failed) return;
+            if (first) pyrowave_decoder_clear(decoder);
+            records.chunks(data, length, first, [this](const uint8_t *packet, size_t size) {
+                return pyrowave_decoder_push_packet(decoder, packet, size) == PYROWAVE_SUCCESS;
+            });
         }
 
     private:
@@ -1675,6 +1705,16 @@ namespace {
             return true;
         }
 
+        int finishEarly(size_t length) {
+            const int result = records.finishEarly(length, [this](const uint8_t *packet, size_t size) {
+                return pyrowave_decoder_push_packet(decoder, packet, size) == PYROWAVE_SUCCESS;
+            });
+            if (result == RP_PYROWAVE_EARLY_DONE) decodeStats.earlyDone++;
+            else if (result == RP_PYROWAVE_EARLY_FALLBACK) decodeStats.earlyFallback++;
+            else decodeStats.earlyWhole++;
+            return result;
+        }
+
         bool pushFrame(const uint8_t *data, size_t length) {
             auto push = [this](const uint8_t *packet, size_t size) {
                 return pyrowave_decoder_push_packet(decoder, packet, size) == PYROWAVE_SUCCESS;
@@ -2347,6 +2387,11 @@ namespace {
         std::atomic<float> lastWaitFreeSlotMs{0};
         std::atomic<float> lastWaitImageMs{-1};
         std::atomic<float> lastReplacedPercent{-1};
+        // Early record push over the last stats interval: the share of frames whose records were
+        // in the decoder by their last packet (-1 before any frame came with chunks), and the
+        // frames whose chunks were not the frame and went whole.
+        std::atomic<float> lastEarlyPercent{-1};
+        std::atomic<uint32_t> lastEarlyFallbacks{0};
         bool displayTimingSupported = false;
         // Filled by completion/presentation workers, drained by nativePollRenderedFrames.
         std::mutex eventsMutex;
@@ -2520,6 +2565,7 @@ namespace {
         struct {
             uint64_t startUs = 0;
             uint32_t frames = 0;
+            uint32_t earlyDone = 0, earlyFallback = 0, earlyWhole = 0;
         } decodeStats;
         struct {
             uint64_t startUs = 0;
@@ -2540,6 +2586,7 @@ namespace {
             const double seconds = double(now - stats.startUs) / 1e6;
             LOGI("%.1f fps submitted for asynchronous decode", stats.frames / seconds);
             const uint32_t decodedFrames = stats.frames;
+            logEarlyStats(stats.earlyDone, stats.earlyFallback, stats.earlyWhole);
             stats = {};
             stats.startUs = now;
             {
@@ -2553,6 +2600,32 @@ namespace {
             pyrowave_device_report_performance_stats(pyroDevice, [](void *, const char *msg) {
                 LOGI("PyroWave pass: %s", msg);
             }, nullptr, true);
+        }
+
+        // Frames whose chunks were not the frame decode as before, whole, but lose what early push
+        // gains: loud in the log, counted in the overlay.
+        void logEarlyStats(uint32_t done, uint32_t fallback, uint32_t whole) {
+            uint64_t totalDone = 0, totalFallback = 0;
+            records.earlyStats(totalDone, totalFallback);
+            if (done + fallback == 0) {
+                lastEarlyPercent = -1;
+                lastEarlyFallbacks = 0;
+                // Chunks came earlier in the stream and stopped: every frame goes whole again.
+                if (whole != 0 && totalDone + totalFallback != 0) {
+                    LOGW("Early record push: no frame came early, %u pushed whole", whole);
+                }
+                return;
+            }
+            const float percent = 100.0f * float(done) / float(done + fallback + whole);
+            lastEarlyPercent = percent;
+            lastEarlyFallbacks = fallback;
+            if (fallback != 0 || whole != 0) {
+                LOGW("Early record push: %.1f%% of frames, %u pushed whole after their chunks fell short, %u without "
+                     "chunks (stream: %llu early, %llu fell back)", percent, fallback, whole,
+                     (unsigned long long) totalDone, (unsigned long long) totalFallback);
+            } else {
+                LOGI("Early record push: every frame (stream: %llu early)", (unsigned long long) totalDone);
+            }
         }
 
         void logPresentStatsIfDue(uint64_t now) {
@@ -2738,6 +2811,35 @@ Java_com_limelight_binding_video_PyroWaveDecoderRenderer_nativeSubmitFrame(JNIEn
     return timing.result;
 }
 
+JNIEXPORT void JNICALL
+Java_com_limelight_binding_video_PyroWaveDecoderRenderer_nativeSubmitChunks(JNIEnv *env, jclass, jlong handle,
+                                                                            jbyteArray data, jint length,
+                                                                            jboolean first) {
+    auto *renderer = reinterpret_cast<Renderer *>(handle);
+    if (renderer == nullptr || data == nullptr || length <= 0) return;
+    SubmissionDiagnostics::Chunks timing(renderer->submissionDiagnostics);
+    // The frame's thread, so the buffer is reused like nativeSubmitFrame's.
+    static thread_local std::vector<uint8_t> chunks;
+    if (length > env->GetArrayLength(data)) return;
+    chunks.resize(size_t(length));
+    env->GetByteArrayRegion(data, 0, length, reinterpret_cast<jbyte *>(chunks.data()));
+    if (env->ExceptionCheck()) return;
+    renderer->pushChunks(chunks.data(), chunks.size(), first == JNI_TRUE);
+}
+
+// Early record push stays off until a device A/B measures it; debug.nightjar.pyro_early set to 1
+// or 0 turns it on or off for the next stream either way.
+static constexpr bool EARLY_RECORDS_BY_DEFAULT = false;
+
+JNIEXPORT jboolean JNICALL
+Java_com_limelight_binding_video_PyroWaveDecoderRenderer_nativeEarlyRecordsAllowed(JNIEnv *, jclass) {
+    char value[PROP_VALUE_MAX] = {};
+    __system_property_get("debug.nightjar.pyro_early", value);
+    if (std::strcmp(value, "1") == 0) return JNI_TRUE;
+    if (std::strcmp(value, "0") == 0) return JNI_FALSE;
+    return EARLY_RECORDS_BY_DEFAULT ? JNI_TRUE : JNI_FALSE;
+}
+
 namespace {
     struct StatsMethods {
         jmethodID onCompleted, onReleased, onRendered, discard;
@@ -2815,6 +2917,15 @@ JNIEXPORT jint JNICALL
 Java_com_limelight_binding_video_PyroWaveDecoderRenderer_nativeGetLastGpuDecodeUs(JNIEnv *, jclass, jlong handle) {
     auto *renderer = reinterpret_cast<Renderer *>(handle);
     return renderer != nullptr ? jint(renderer->lastGpuDecodeUs) : 0;
+}
+
+JNIEXPORT jfloatArray JNICALL
+Java_com_limelight_binding_video_PyroWaveDecoderRenderer_nativeGetEarlyRecords(JNIEnv *env, jclass, jlong handle) {
+    auto *renderer = reinterpret_cast<Renderer *>(handle);
+    jfloat values[2] = {renderer->lastEarlyPercent, float(renderer->lastEarlyFallbacks.load())};
+    jfloatArray result = env->NewFloatArray(2);
+    if (result != nullptr) env->SetFloatArrayRegion(result, 0, 2, values);
+    return result;
 }
 
 JNIEXPORT jfloatArray JNICALL

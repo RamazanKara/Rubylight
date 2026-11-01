@@ -169,7 +169,9 @@ const DECODE_FAMILIES: &CStr = c"SDL.gpu.device.vulkan.video_decode_queue_famili
 
 /// Whether the libavutil of `version` (`avutil_version()`) has the `AVVulkanDeviceContext` and
 /// frame structs as declared below: their queue families arrived in 59.34 (FFmpeg 7.1), and 61
-/// drops the fixed queue fields before them.
+/// drops the fixed queue fields before them. The layout is checked against 59.39 (FFmpeg 7.1) and
+/// 60.26 (FFmpeg 8.1.2) (`the_structs_have_libavutils_layout`); FFmpeg moves no field within a
+/// major version.
 pub fn ffmpeg_supported(version: u32) -> Result<(), String> {
     let (major, minor, micro) = (version >> 16, (version >> 8) & 0xff, version & 0xff);
     if version < (59 << 16 | 34 << 8 | 100) {
@@ -1170,23 +1172,132 @@ mod tests {
 
     #[test]
     fn the_structs_have_libavutils_layout() {
-        // offsetof and sizeof of FFmpeg 7.1's hwcontext_vulkan.h (libavutil 59.39) with gcc on
-        // x86-64; 60 declares the same.
-        assert_eq!(std::mem::offset_of!(DeviceContext, device_features), 40);
-        assert_eq!(
-            std::mem::offset_of!(DeviceContext, enabled_dev_extensions),
-            296
-        );
-        assert_eq!(std::mem::offset_of!(DeviceContext, lock_queue), 352);
-        assert_eq!(std::mem::offset_of!(DeviceContext, qf), 368);
-        assert_eq!(std::mem::offset_of!(DeviceContext, nb_qf), 1392);
-        assert_eq!(std::mem::size_of::<DeviceContext>(), 1400);
-        assert_eq!(std::mem::offset_of!(FramesContext, lock_frame), 128);
-        assert_eq!(std::mem::size_of::<FramesContext>(), 144);
-        assert_eq!(std::mem::offset_of!(VkFrame, sem), 272);
-        assert_eq!(std::mem::offset_of!(VkFrame, sem_value), 336);
-        assert_eq!(std::mem::offset_of!(VkFrame, queue_family), 472);
-        assert_eq!(std::mem::size_of::<VkFrame>(), 504);
+        use std::mem::{offset_of, size_of};
+        // Each field's offset (or size) here, then offsetof and sizeof with gcc on x86-64 in the
+        // hwcontext_vulkan.h of FFmpeg 7.1 (libavutil 59.39) and of FFmpeg 8.1.2 (60.26), which
+        // the release ships: 60 still has the fixed queue fields (FF_API_VULKAN_FIXED_QUEUES
+        // lasts until 61) and lock_queue (FF_API_VULKAN_SYNC_QUEUES until 62).
+        let fields = [
+            (
+                "AVVulkanDeviceContext.get_proc_addr",
+                offset_of!(DeviceContext, get_proc_addr),
+                8,
+                8,
+            ),
+            (
+                "AVVulkanDeviceContext.act_dev",
+                offset_of!(DeviceContext, act_dev),
+                32,
+                32,
+            ),
+            (
+                "AVVulkanDeviceContext.device_features",
+                offset_of!(DeviceContext, device_features),
+                40,
+                40,
+            ),
+            (
+                "AVVulkanDeviceContext.enabled_dev_extensions",
+                offset_of!(DeviceContext, enabled_dev_extensions),
+                296,
+                296,
+            ),
+            (
+                "AVVulkanDeviceContext.nb_enabled_dev_extensions",
+                offset_of!(DeviceContext, nb_enabled_dev_extensions),
+                304,
+                304,
+            ),
+            (
+                "AVVulkanDeviceContext.lock_queue",
+                offset_of!(DeviceContext, lock_queue),
+                352,
+                352,
+            ),
+            (
+                "AVVulkanDeviceContext.unlock_queue",
+                offset_of!(DeviceContext, unlock_queue),
+                360,
+                360,
+            ),
+            (
+                "AVVulkanDeviceContext.qf",
+                offset_of!(DeviceContext, qf),
+                368,
+                368,
+            ),
+            (
+                "AVVulkanDeviceContext.nb_qf",
+                offset_of!(DeviceContext, nb_qf),
+                1392,
+                1392,
+            ),
+            (
+                "sizeof AVVulkanDeviceQueueFamily",
+                size_of::<QueueFamily>(),
+                16,
+                16,
+            ),
+            (
+                "AVVulkanFramesContext.usage",
+                offset_of!(FramesContext, usage),
+                4,
+                4,
+            ),
+            (
+                "AVVulkanFramesContext.img_flags",
+                offset_of!(FramesContext, img_flags),
+                84,
+                84,
+            ),
+            (
+                "AVVulkanFramesContext.format",
+                offset_of!(FramesContext, format),
+                88,
+                88,
+            ),
+            (
+                "AVVulkanFramesContext.nb_layers",
+                offset_of!(FramesContext, nb_layers),
+                120,
+                120,
+            ),
+            (
+                "AVVulkanFramesContext.lock_frame",
+                offset_of!(FramesContext, lock_frame),
+                128,
+                128,
+            ),
+            (
+                "AVVulkanFramesContext.unlock_frame",
+                offset_of!(FramesContext, unlock_frame),
+                136,
+                136,
+            ),
+            ("AVVkFrame.access", offset_of!(VkFrame, access), 204, 204),
+            ("AVVkFrame.layout", offset_of!(VkFrame, layout), 236, 236),
+            ("AVVkFrame.sem", offset_of!(VkFrame, sem), 272, 272),
+            (
+                "AVVkFrame.sem_value",
+                offset_of!(VkFrame, sem_value),
+                336,
+                336,
+            ),
+            ("AVVkFrame.offset", offset_of!(VkFrame, offset), 408, 408),
+            (
+                "AVVkFrame.queue_family",
+                offset_of!(VkFrame, queue_family),
+                472,
+                472,
+            ),
+            ("sizeof AVVkFrame", size_of::<VkFrame>(), 504, 504),
+        ];
+        for (name, ours, v59, v60) in fields {
+            assert_eq!(ours, v59, "{name} in libavutil 59.39");
+            assert_eq!(ours, v60, "{name} in libavutil 60.26");
+        }
+        assert_eq!(size_of::<DeviceContext>(), 1400);
+        assert_eq!(size_of::<FramesContext>(), 144);
     }
 
     #[test]

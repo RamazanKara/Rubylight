@@ -101,13 +101,16 @@ The game runs from its own folder: nothing is copied, linked or written there,
 and Nucleus Co-op needs no extra tools for it. Its window keeps running and
 reading the pad without focus. It doesn't move the PC's cursor, and its
 window messages carry no keys, clicks, wheel or cursor positions from the PC's
-keyboard and mouse, even when it comes to the front. A game that reads the
-keyboard or mouse as raw input (many Unreal games read the mouse that way)
-still sees the PC's while it is in front, which is why the host keeps it off
-the PC's monitors. An Unreal Engine game (its .exe in
-`<Project>\Binaries\Win64`, `Win32` or `WinGDK`) starts with `-windowed`,
-unless the app's arguments already choose a mode, so it stays in its window
-beside the desktop instead of covering the PC's monitor.
+keyboard and mouse, even when it comes to the front. Its raw input, which
+DirectInput reads too, comes from ProtoInput, which passes on only the slot's
+keyboard and mouse, and a pad's slot has none. The host still keeps the
+window off the PC's monitors. An Unreal Engine game (its .exe in
+`<Project>\Binaries\Win64`, `Win32` or `WinGDK`) starts with `-windowed` at
+the stream's resolution (`-ResX`, `-ResY`), unless the app's arguments already
+choose a mode or a resolution, so it stays in its window beside the desktop
+instead of covering the PC's monitor and fills the client's screen. A game
+window with a title bar or sizing border loses it, so the stream shows the
+game alone.
 
 - **The app names the game's .exe, or is a Steam link.** For
   `steam://rungameid/<id>` the host starts the .exe Steam would, with that

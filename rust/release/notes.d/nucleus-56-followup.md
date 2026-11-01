@@ -1,0 +1,5 @@
+# Nucleus Co-op follow-up (#56)
+- **Background streams survive a game's start.** A game that swaps its splash screen for its main window, or resizes its window, while the stream opens no longer ends the first stream: the capture tries again on the game's current window for a few seconds. When the capture helper ends during start, the stream now says why instead of "Access is denied" or "The handle is invalid".
+- **Unreal games fill the phone's screen.** A game Rubylight adds to Nucleus Co-op itself starts in a window at the stream's resolution (`-ResX`/`-ResY`, such as 2400x1080 on a 20:9 phone) instead of at its saved 16:9 resolution, unless its arguments choose one.
+- **No title bar in the stream.** A game window with a title bar or sizing border (Split Fiction) loses it, so the stream shows the game alone at the stream's size.
+- **The PC's keyboard and mouse stay out of more games.** Rubylight's Nucleus Co-op handler now also keeps the PC's raw input, which DirectInput games read too, from the game, so NieR:Automata no longer reacts to keys pressed on the PC.

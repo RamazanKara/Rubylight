@@ -329,13 +329,14 @@ fn renderer_gpu_device(renderer: *mut SDL_Renderer) -> Option<stream::pipeline::
 
 /// Whether Linux needs the GPU renderer for Vulkan video, which decodes on its Vulkan device: when
 /// VAAPI cannot open a device (NVIDIA's driver without a VAAPI one) and the GPU SDL picks has the
-/// video extensions, or `NIGHTJAR_VULKAN_VIDEO=1`; not for software decoding or with
-/// `NIGHTJAR_VULKAN_VIDEO=0`. A machine with VAAPI keeps its renderer. The reason goes to the log.
+/// video extensions, or `NIGHTJAR_VULKAN_VIDEO=1`; not when no stream decodes in hardware
+/// (`any_hardware_decoding`) or with `NIGHTJAR_VULKAN_VIDEO=0`. A machine with VAAPI keeps its
+/// renderer. The reason goes to the log.
 #[cfg(unix)]
-fn gpu_for_vulkan_video(settings: &config::Settings) -> bool {
+fn gpu_for_vulkan_video(hardware_decoding: bool) -> bool {
     use vulkan_video::Choice;
     let choice = Choice::from_environment();
-    if settings.decoder == DecoderPreference::Software || choice == Choice::Off {
+    if !hardware_decoding || choice == Choice::Off {
         return false;
     }
     let why = match (choice, media::vaapi_device()) {
@@ -353,6 +354,16 @@ fn gpu_for_vulkan_video(settings: &config::Settings) -> bool {
             false
         }
     }
+}
+
+/// Whether a stream may decode in hardware: the global decoder setting, or a profile's, a host's
+/// or an app's override of it, applied over the global settings as a stream applies it. The
+/// renderer is chosen once for every stream, so only when all of them say Software is it chosen
+/// as for software decoding.
+#[cfg_attr(not(unix), allow(dead_code))]
+fn any_hardware_decoding<'a>(settings: &config::Settings, overrides: impl IntoIterator<Item = &'a config::Overrides>) -> bool {
+    settings.decoder != DecoderPreference::Software
+        || overrides.into_iter().any(|own| own.apply(settings).decoder != DecoderPreference::Software)
 }
 
 fn run(launch: Option<cli::Launch>) -> Result<(), String> {
@@ -385,11 +396,14 @@ fn run(launch: Option<cli::Launch>) -> Result<(), String> {
     let settings = store.settings();
     let profiles = store.profiles();
     let mappings = store.controller_mappings();
-    let gpu = settings.needs_gpu() || store.hosts().iter()
+    let hosts = store.hosts();
+    let gpu = settings.needs_gpu() || hosts.iter()
         .any(|host| host.settings.as_ref().is_some_and(config::Overrides::needs_gpu) || host.app_settings.values().any(config::Overrides::needs_gpu))
         || profiles.entries.iter().any(|profile| profile.settings.needs_gpu());
     #[cfg(unix)]
-    let gpu = gpu || gpu_for_vulkan_video(&settings);
+    let gpu = gpu || gpu_for_vulkan_video(any_hardware_decoding(&settings, hosts.iter()
+        .flat_map(|host| host.settings.iter().chain(host.app_settings.values()))
+        .chain(profiles.entries.iter().map(|profile| &profile.settings))));
 
     // SAFETY: window and renderer creation on the main thread.
     let (window, renderer, wake_event) = unsafe {
@@ -2645,6 +2659,25 @@ mod shot;
 
 #[cfg(test)]
 mod tests {
+    /// Vulkan video's renderer is left out only when every decoder setting a stream can use says
+    /// Software: a host's, an app's or a profile's override counts as the global setting does.
+    #[test]
+    fn hardware_decoding_counts_every_override_of_the_decoder_setting() {
+        use super::{any_hardware_decoding, config::{DecoderPreference, Overrides, Settings}};
+        let decoder = |decoder| {
+            let mut own = Overrides::default();
+            own.capture(&Settings { decoder, ..Default::default() }, &["decoder"]);
+            own
+        };
+        let (software, auto) = (Settings { decoder: DecoderPreference::Software, ..Default::default() }, Settings::default());
+        let other = Overrides::default();
+        assert!(!any_hardware_decoding(&software, []), "Software everywhere");
+        assert!(!any_hardware_decoding(&software, [&other, &decoder(DecoderPreference::Software)]), "overrides that leave it Software");
+        assert!(any_hardware_decoding(&software, [&other, &decoder(DecoderPreference::Auto)]), "a host that decodes in hardware");
+        assert!(any_hardware_decoding(&auto, []));
+        assert!(any_hardware_decoding(&auto, [&decoder(DecoderPreference::Software)]), "other hosts still use the global setting");
+    }
+
     #[test]
     fn input_only_through_a_small_stream_asks_for_the_smallest_stream_and_leaves_the_pc_alone() {
         let mut settings = config::Settings { width: 3840, height: 2160, fps: 120, bitrate_kbps: 80_000, vrr: true,

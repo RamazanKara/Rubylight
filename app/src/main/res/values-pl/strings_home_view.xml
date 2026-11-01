@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="home_view">Widok</string>
+    <string name="home_view_layout">Układ</string>
+    <string name="home_view_layout_grid">Siatka</string>
+    <string name="home_view_layout_rows">Rzędy</string>
+    <string name="home_view_group">Grupuj według</string>
+    <string name="home_view_group_store">Sklep</string>
+    <string name="home_view_group_none">Brak</string>
+    <string name="home_view_size">Rozmiar kart</string>
+    <string name="home_view_size_small">Małe</string>
+    <string name="home_view_size_medium">Średnie</string>
+    <string name="home_view_size_large">Duże</string>
+</resources>

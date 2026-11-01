@@ -171,7 +171,7 @@ final class ShelfAdapter extends RecyclerView.Adapter<ShelfAdapter.CardHolder> {
     }
 
     /** A poster in grey: a game the host lists but has not installed. One filter for every such card, set at bind. */
-    private static final ColorMatrixColorFilter NOT_INSTALLED;
+    static final ColorMatrixColorFilter NOT_INSTALLED;
 
     static {
         ColorMatrix grey = new ColorMatrix();
@@ -428,7 +428,7 @@ final class ShelfAdapter extends RecyclerView.Adapter<ShelfAdapter.CardHolder> {
                 case UNADDED:
                     return context.getString(R.string.console_row_unadded);
                 default:
-                    return context.getString(HomeModel.FILTER_ALL.equals(row.filter)
+                    return context.getString(HomeModel.FILTER_ALL.equals(row.filter) || HomeModel.LIBRARY_ROW.equals(row.key)
                             ? R.string.console_section_library : R.string.console_row_other);
             }
         }

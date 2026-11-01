@@ -93,6 +93,9 @@ final class ConsoleHomeAdapter extends RecyclerView.Adapter<ConsoleHomeAdapter.S
     private final java.util.Set<ShelfHolder> attached = new java.util.HashSet<>();
     private final RecyclerView.RecycledViewPool pool = new RecyclerView.RecycledViewPool();
     private ShelfAdapter.FocusListener focusListener;
+    private boolean television;
+    private boolean grouped = true;
+    private float cardScale = 1f;
 
     ConsoleHomeAdapter(Context context, CoverLoaders covers, Function<String, ComputerDetails> hosts, Listener listener) {
         env = new ShelfAdapter.Env(context, covers, hosts, listener);
@@ -113,7 +116,22 @@ final class ConsoleHomeAdapter extends RecyclerView.Adapter<ConsoleHomeAdapter.S
 
     /** True on TV: posters are 2:3, on a phone covers are 4/3. */
     void setTelevision(boolean television) {
-        setCoverHeight(ShelfAdapter.coverHeight(env.context, television));
+        this.television = television;
+        setCardScale(cardScale);
+    }
+
+    /** A game card's width against the usual one ({@link HomeView.Size}); the cover's height follows. */
+    void setCardScale(float scale) {
+        cardScale = scale;
+        int usual = env.context.getResources().getDimensionPixelSize(R.dimen.shelf_card_width);
+        // The usual size keeps the shelves' own width, as before the size could be chosen.
+        env.cardWidthPx = scale == 1f ? 0 : Math.round(usual * scale);
+        setCoverHeight(ShelfAdapter.coverHeight(env.context, television, env.cardWidthPx > 0 ? env.cardWidthPx : usual));
+    }
+
+    /** False shows the library as one row instead of a row per store ({@link HomeModel#rows(boolean)}). */
+    void setGrouped(boolean grouped) {
+        this.grouped = grouped;
     }
 
     /** The cover loaders exist once the app's client identity is known. */
@@ -140,8 +158,9 @@ final class ConsoleHomeAdapter extends RecyclerView.Adapter<ConsoleHomeAdapter.S
         shelves.clear();
         addGames("continue", R.string.console_section_continue, model.continuePlaying);
         addGames("favourites", R.string.console_section_favourites, model.favourites);
-        // The library's rows: Recently played, one per store (largest first), Other apps, the games not added.
-        for (HomeModel.Row row : model.rows) {
+        // The library's rows: Recently played, one per store (largest first), Other apps, the games not added; or,
+        // ungrouped, the library in one row.
+        for (HomeModel.Row row : model.rows(grouped)) {
             List<ShelfAdapter.Item> items = items(row.cards);
             if (row.hasMore()) items.add(ShelfAdapter.Item.allOf(row));
             shelves.add(new Shelf(row.key, ShelfAdapter.CardHolder.rowTitle(env.context, row), items));

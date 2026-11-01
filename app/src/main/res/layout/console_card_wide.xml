@@ -18,7 +18,7 @@
         </FrameLayout>
         <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
             android:orientation="vertical" android:padding="@dimen/space_m">
-            <TextView android:id="@+id/console_title" android:layout_width="match_parent" android:layout_height="wrap_content"
+            <com.limelight.ui.MarqueeLabel android:id="@+id/console_title" android:layout_width="match_parent" android:layout_height="wrap_content"
                 android:maxLines="2" android:ellipsize="end"
                 android:textAppearance="@style/TextAppearance.Nightjar.Title" android:textColor="?attr/colorOnSurface"
                 android:importantForAccessibility="no" />

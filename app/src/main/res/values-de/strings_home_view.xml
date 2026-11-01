@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="home_view">Ansicht</string>
+    <string name="home_view_layout">Anordnung</string>
+    <string name="home_view_layout_grid">Raster</string>
+    <string name="home_view_layout_rows">Reihen</string>
+    <string name="home_view_group">Gruppieren nach</string>
+    <string name="home_view_group_store">Store</string>
+    <string name="home_view_group_none">Keine</string>
+    <string name="home_view_size">Kartengröße</string>
+    <string name="home_view_size_small">Klein</string>
+    <string name="home_view_size_medium">Mittel</string>
+    <string name="home_view_size_large">Groß</string>
+</resources>

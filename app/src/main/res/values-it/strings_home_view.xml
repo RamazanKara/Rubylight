@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="home_view">Vista</string>
+    <string name="home_view_layout">Disposizione</string>
+    <string name="home_view_layout_grid">Griglia</string>
+    <string name="home_view_layout_rows">Righe</string>
+    <string name="home_view_group">Raggruppa per</string>
+    <string name="home_view_group_store">Store</string>
+    <string name="home_view_group_none">Nessuno</string>
+    <string name="home_view_size">Dimensione schede</string>
+    <string name="home_view_size_small">Piccole</string>
+    <string name="home_view_size_medium">Medie</string>
+    <string name="home_view_size_large">Grandi</string>
+</resources>

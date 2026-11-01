@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="home_view">Chế độ xem</string>
+    <string name="home_view_layout">Bố cục</string>
+    <string name="home_view_layout_grid">Lưới</string>
+    <string name="home_view_layout_rows">Hàng</string>
+    <string name="home_view_group">Nhóm theo</string>
+    <string name="home_view_group_store">Cửa hàng</string>
+    <string name="home_view_group_none">Không</string>
+    <string name="home_view_size">Cỡ thẻ</string>
+    <string name="home_view_size_small">Nhỏ</string>
+    <string name="home_view_size_medium">Vừa</string>
+    <string name="home_view_size_large">Lớn</string>
+</resources>

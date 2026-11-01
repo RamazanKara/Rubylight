@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="home_view">Affichage</string>
+    <string name="home_view_layout">Disposition</string>
+    <string name="home_view_layout_grid">Grille</string>
+    <string name="home_view_layout_rows">Rangées</string>
+    <string name="home_view_group">Grouper par</string>
+    <string name="home_view_group_store">Boutique</string>
+    <string name="home_view_group_none">Aucun</string>
+    <string name="home_view_size">Taille des cartes</string>
+    <string name="home_view_size_small">Petite</string>
+    <string name="home_view_size_medium">Moyenne</string>
+    <string name="home_view_size_large">Grande</string>
+</resources>

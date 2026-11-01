@@ -104,6 +104,8 @@ fn reset_all_asks_first_and_keeps_the_language() {
     click_text(&mut f, "App");
     click_text(&mut f, "Reset all…");
     assert!(shows(&f, "Reset all settings?") && shows(&f, "Cancel"), "{:?}", f.drawn);
+    // The question says what stays.
+    assert!(shows(&f, "Every setting on this page goes back to its default. Your language, PCs, games, profiles, PIN lock, controller buttons, shortcuts and anything not on this page stay as they are. This can't be undone."), "{:?}", f.drawn);
     click_text(&mut f, "Cancel");
     assert!(f.l.settings.fps == 120 && shows(&f, "Reset all…"), "Cancel changes nothing");
     click_text(&mut f, "Reset all…");

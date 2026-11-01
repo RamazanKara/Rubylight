@@ -10,7 +10,7 @@ Rubylight runs on the Windows PC that has the games; a Moonlight-compatible clie
 
 | Requirement | Details |
 | --- | --- |
-| **Host PC** | Windows 10 or 11 x64 with an **AMD Radeon GPU** that has a working AMF video encoder, and AMD Software. The stream formats on offer depend on the GPU's encoder; the [hardware matrix](hardware-matrix.md) lists each generation. Rubylight 3.x does not run on NVIDIA or Intel graphics, and setup stops and says so; those PCs use [Rubylight 2.6.x](https://github.com/RamazanKara/Rubylight/releases/tag/v2.6.0). |
+| **Host PC** | Windows 10 or 11 x64 with an **AMD Radeon GPU** that has a working AMF video encoder, and AMD Software, or an **NVIDIA GPU** with NVENC and the NVIDIA driver. The stream formats on offer depend on the GPU's encoder; the [hardware matrix](hardware-matrix.md) lists each generation. Rubylight 3.x does not run on Intel graphics, and setup stops and says so; those PCs use [Rubylight 2.6.x](https://github.com/RamazanKara/Rubylight/releases/tag/v2.6.0). |
 | **Client** | [Nightjar](https://github.com/RamazanKara/nightjar), Moonlight or another Sunshine-compatible client on the device you play from. |
 | **Network** | Both devices on the same local network for the first pairing and stream. Close any other streaming host that uses the default ports. |
 | **A display to stream** | An active monitor, or the virtual display the installer sets up (Windows 11 23H2 or later). The portable package streams a monitor unless the drivers are installed separately. |

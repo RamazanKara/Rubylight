@@ -1333,7 +1333,7 @@ impl SessionThread<'_> {
                     let cap = butterpollo_core::network_pacing::fec_whole_frame_cap(cap, fec_whole.1, bitrate, period);
                     let _ = active.set_frame_cap(cap, butterpollo_core::network_pacing::two_frames(bitrate, period));
                     // AMF does not hold a scene cut's inter frame to the cap: one
-                    // past this bound is encoded again as a keyframe.
+                    // past this bound is encoded again as a keyframe, on NVENC too.
                     active.set_cut_limit(
                         butterpollo_core::network_pacing::fec_whole_frame_limit(fec_whole.1, bitrate, period)
                             .unwrap_or(0),

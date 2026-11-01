@@ -175,8 +175,8 @@ The console offers updates and, if you allow it, installs them while nothing is 
 | | Requirement |
 | --- | --- |
 | **Operating system** | Windows 10 or Windows 11, x64. Virtual displays need Windows 11 23H2 or later; earlier versions stream a physical display. |
-| **Graphics** | An AMD Radeon GPU with a working AMF video encoder, and AMD Software. The host probes each codec at startup and offers only what the driver encodes. AV1 needs a VCN 4.0 or 5.0 engine (RX 7000 and RX 9000 series, Radeon 780M and 890M). The RX 6300, 6400 and 6500 have no video encoder. |
-| **NVIDIA or Intel** | Use [Rubylight 2.6.x](https://github.com/RamazanKara/Rubylight/releases/tag/v2.6.0). Setup for 3.x stops and says so on these PCs. |
+| **Graphics** | An AMD Radeon GPU with a working AMF video encoder, and AMD Software. The host probes each codec at startup and offers only what the driver encodes. AV1 needs a VCN 4.0 or 5.0 engine (RX 7000 and RX 9000 series, Radeon 780M and 890M). The RX 6300, 6400 and 6500 have no video encoder. Or an NVIDIA GPU with NVENC and the NVIDIA driver, which encodes H.264, HEVC and, where its NVENC lists it, AV1 ([NVENC](docs/nvenc.md)). |
+| **Intel** | Use [Rubylight 2.6.x](https://github.com/RamazanKara/Rubylight/releases/tag/v2.6.0). Setup for 3.x stops and says so on PCs with only Intel graphics. |
 | **Network** | A local network or your own VPN; a wired connection for the host is recommended. PyroWave needs a fast local network, about 400 Mbps for 1080p60. |
 | **Client** | Any Moonlight-compatible client; see [Works with the client you already have](#works-with-the-client-you-already-have). |
 
@@ -233,8 +233,8 @@ The [build guide](docs/building.md) lists the prerequisites, options and outputs
 
 ## Project status
 
-- **Rubylight 3.0** is the current release line, developed on `main`, and supports AMD Radeon GPUs only. Patch releases fix bugs; minor releases add features. Changes are listed in the [release notes](rust/RELEASE_NOTES.md).
-- **Rubylight 2.6.x** remains available for PCs with NVIDIA or Intel graphics. It does not receive 3.x features.
+- **Rubylight 3.0** is the current release line, developed on `main`, and supports AMD Radeon GPUs with AMF and NVIDIA GPUs with NVENC. Patch releases fix bugs; minor releases add features. Changes are listed in the [release notes](rust/RELEASE_NOTES.md).
+- **Rubylight 2.6.x** remains available for PCs with Intel graphics. It does not receive 3.x features.
 - **Nightjar**, the companion client for Android, Android TV, Windows and Linux, is developed in this repository under `client/` and released from [RamazanKara/nightjar](https://github.com/RamazanKara/nightjar) with its own version numbers.
 - Rubylight was called **Butterpollo** until October 2026. The executable (`butterpollo.exe`), the profile folder (`%ProgramData%\Butterpollo`) and the `BUTTERPOLLO_*` environment variables keep that name, so existing installations and scripts continue to work.
 

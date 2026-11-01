@@ -46,6 +46,12 @@ The GPU luminance statistics those writers take, the hdr_stats_cs compute shader
 hdr_luminance_analysis_cs.hlsl from the same commit. The HLG encoding curve, hlg in
 rust/windows/src/shaders/color.hlsl, follows scRGBTo2100HLG, DisplayLinearToHLGScene
 and LinearToHLG in that commit's src_assets/windows/assets/shaders/directx/include/common.hlsl.
+
+The NVIDIA encoder's frame budget guard and its per-preset encode-time calibration
+(src/nvenc/frame_budget.cpp), its VBR rate control and bounds, the fixed split-encode
+strip counts and the slice-mode rule that keeps split encoding available, the codec
+check and spatial AQ by default (rust/core/src/nvenc.rs, rust/windows/src/nvenc.rs)
+follow Foundation Sunshine's src/nvenc/.
 Copyright (c) Foundation Sunshine authors, GPL-3.0.
 
 The Dolby Vision profile 8.1 RPU writer (rust/core/src/dovi.rs) follows the syntax,

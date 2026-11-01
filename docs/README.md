@@ -2,7 +2,7 @@
 
 [Rubylight](../README.md) · [Download 3.2.1](https://github.com/RamazanKara/Rubylight/releases/tag/v3.2.1) · [Release notes](../rust/RELEASE_NOTES.md)
 
-Rubylight is a Moonlight-compatible game-streaming host for Windows 10 and 11 PCs with an AMD Radeon GPU that has a working AMF encoder. PCs with NVIDIA or Intel graphics use [Rubylight 2.6.x](https://github.com/RamazanKara/Rubylight/releases/tag/v2.6.0).
+Rubylight is a Moonlight-compatible game-streaming host for Windows 10 and 11 PCs with an AMD Radeon GPU that has a working AMF encoder or an NVIDIA GPU with NVENC ([NVENC](nvenc.md)). PCs with Intel graphics use [Rubylight 2.6.x](https://github.com/RamazanKara/Rubylight/releases/tag/v2.6.0).
 
 **First stream:** [install the host](getting-started.md#install-or-run-portable), [open the console](getting-started.md#open-the-console), [pair a device](getting-started.md#pair-a-device-and-start-desktop), then start **Desktop** at 1080p60 in SDR.
 
@@ -57,6 +57,7 @@ Feature guides: [Co-op and background streaming](nucleus-coop.md) · [WebRTC ser
 | Document | Contents |
 | --- | --- |
 | [Architecture](architecture.md) | The crates, the frame path from capture to packet, compute queues, HDR and PyroWave. |
+| [NVENC](nvenc.md) | The NVIDIA encoder: its parity with AMF, feature by feature, and what it does not do yet. |
 | [Build guide](building.md) | Toolchain, pinned dependencies, packaging, the web console and the website. |
 | [Developer guide](../rust/README.md) | Workspace layout, isolated profiles, running the host from source and validation tools. |
 | [Measurement record](../rust/PERFORMANCE.md) | Dated fixtures, raw results, reverted experiments and reproduction steps. |

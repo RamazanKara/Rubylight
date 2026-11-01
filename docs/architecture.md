@@ -4,7 +4,7 @@
 
 Rubylight turns a Windows display into a Moonlight stream. On Radeon, captured pixels stay on the GPU, are prepared on D3D12 compute queues and go straight to AMD's native encoder. The host bounds outstanding work, so a busy encoder or network cannot turn into a growing queue of old pictures.
 
-Rubylight 3.0 encodes on AMD GPUs only: AMF for H.264, HEVC and AV1, and PyroWave's own encoder. The NVENC, Quick Sync and software encoders were removed in 3.0; PCs with NVIDIA or Intel graphics use [Rubylight 2.6.x](https://github.com/RamazanKara/Rubylight/releases/tag/v2.6.0). Physical displays, WGC, Desktop Duplication and the D3D11 fallback remain supported.
+Rubylight 3.0 encodes on AMD and NVIDIA GPUs: AMF for H.264, HEVC and AV1 on AMD, NVENC for the same codecs on NVIDIA ([NVENC](nvenc.md)), and PyroWave's own encoder. The Quick Sync and software encoders were removed in 3.0; PCs with Intel graphics use [Rubylight 2.6.x](https://github.com/RamazanKara/Rubylight/releases/tag/v2.6.0). Physical displays, WGC, Desktop Duplication and the D3D11 fallback remain supported.
 
 This document follows a frame from capture to delivery, then covers the process boundaries, colour paths and recovery that keep a stream running. [Performance](performance.md) separates measured host processing from the complete render-to-client path.
 

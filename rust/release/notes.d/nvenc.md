@@ -1,0 +1,4 @@
+# NVENC
+- Experimental: **NVIDIA GPUs stream again.** Rubylight encodes with NVENC on NVIDIA graphics cards: H.264, HEVC, and AV1 where the card's encoder offers it, with HDR, HDR10+, HDR Vivid, Dolby Vision and 4:4:4. Setup and the host accept NVIDIA. With the encoder set to automatic, the host picks NVENC or AMF from the graphics card that captures. Intel graphics stay on Rubylight 2.6.x.
+- Experimental: NVENC keeps frames within the same frame cap as AMF. An oversize scene cut is encoded again as a keyframe, so it keeps its error correction. With slice delivery on, a large picture's slices leave as they finish.
+- Experimental: on NVIDIA the host runs at realtime GPU priority, so encoding keeps up with a game that fills the GPU. This applies with hardware-accelerated GPU scheduling on, unless you turn off `nvenc_realtime_hags`.

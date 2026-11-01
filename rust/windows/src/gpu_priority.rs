@@ -32,10 +32,10 @@ const REALTIME: i32 = 5;
 /// scheduling is on.
 const WDDM_2_7_CAPS: u32 = 70;
 /// The process's GPU scheduling class. An NVIDIA adapter runs at realtime,
-/// as Foundation Sunshine runs NVENC, unless `nvenc_realtime_hags` is off
-/// while hardware-accelerated GPU scheduling is on: at high, NVENC falls
-/// behind a game that fills the GPU. Every other adapter, AMD included, stays
-/// at high.
+/// Sunshine's NVENC policy that Rubylight carried before 3.0, unless
+/// `nvenc_realtime_hags` is off while hardware-accelerated GPU scheduling is
+/// on: at high, NVENC falls behind a game that fills the GPU. Every other
+/// adapter, AMD included, stays at high.
 fn priority(vendor: u32, hags: bool, realtime_hags: bool) -> i32 {
     if butterpollo_core::encoder_gpu::is_nvidia(vendor) && (!hags || realtime_hags) {
         REALTIME

@@ -522,6 +522,39 @@ impl Desktop for Win32 {
         }
         Ok(closed)
     }
+    fn forced_aslr(&mut self, window: u64) -> Result<(u32, bool)> {
+        let mut pid = 0;
+        // SAFETY: a plain query of a window handle; one that closed meanwhile leaves `pid` 0.
+        unsafe { GetWindowThreadProcessId(hwnd(window), Some(&mut pid)) };
+        ensure!(pid != 0, "the box closed");
+        Ok((pid, forced_aslr(pid)?))
+    }
+}
+
+/// Whether Windows forces process `pid` to load its images at random
+/// addresses: `PROCESS_MITIGATION_ASLR_POLICY`'s EnableForceRelocateImages.
+fn forced_aslr(pid: u32) -> Result<bool> {
+    use anyhow::Context;
+    use std::os::windows::io::{AsRawHandle, FromRawHandle};
+    const FORCE_RELOCATE_IMAGES: u32 = 1 << 1;
+    let mut flags = 0u32;
+    // SAFETY: the newly opened handle has one owner; `flags` is a live u32, the size of the
+    // policy's flags union.
+    unsafe {
+        let process = OwnedHandle::from_raw_handle(
+            OpenProcess(PROCESS_QUERY_INFORMATION, false, pid)
+                .with_context(|| format!("opening process {pid}"))?
+                .0,
+        );
+        GetProcessMitigationPolicy(
+            HANDLE(process.as_raw_handle()),
+            ProcessASLRPolicy,
+            (&mut flags as *mut u32).cast(),
+            std::mem::size_of::<u32>(),
+        )
+        .with_context(|| format!("reading process {pid}'s ASLR policy"))?;
+    }
+    Ok(flags & FORCE_RELOCATE_IMAGES != 0)
 }
 
 #[cfg(test)]
@@ -534,6 +567,15 @@ mod tests {
         // A label narrower than eight pixels is clicked in its middle.
         assert_eq!(click_point(6, 10), (3, 5));
         assert_eq!(click_point(0, 0), (0, 0));
+    }
+
+    /// #59: a process's Mandatory ASLR policy is read, and one that can't be
+    /// opened is an error, never "not forced".
+    #[test]
+    fn a_processes_mandatory_aslr_is_read_or_an_error() {
+        let ours = forced_aslr(std::process::id());
+        assert!(ours.is_ok(), "{ours:?}");
+        assert!(forced_aslr(0).is_err());
     }
 
     /// Nucleus Co-op is raised above the window over its profile list for the

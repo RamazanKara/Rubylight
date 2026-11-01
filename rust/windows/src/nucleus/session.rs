@@ -58,16 +58,16 @@ const FAILED_PASSES: u32 = 8;
 /// its hooks: one Nucleus fails to inject into as it starts it is ended
 /// before the box shows (#59).
 const REFUSAL_GRACE: Duration = Duration::from_secs(2);
-/// What a game says in its own message box when it won't start the way
-/// ProtoInput's hooks went in, and what the player can do about it.
+/// What a game says in its own message box when Windows forces it to load
+/// its images at random addresses (Exploit protection's "Force
+/// randomization for images"), and waits there, its window up and black.
 /// Assassin's Creed IV Black Flag Resynced shows only "Disable Mandatory
-/// ASLR" with startup injection and waits there, its window up and black
-/// (#59); none of Nucleus Co-op, ProtoInput and EasyHook has that text. An
-/// exemption is a security setting, so it is the player's to make.
-const GAME_REFUSED: [(&str, &str); 1] = [(
-    "Mandatory ASLR",
-    "turn off \"Force randomization for images (Mandatory ASLR)\" for {program} in Windows Security, App & browser control, Exploit protection, Program settings",
-)];
+/// ASLR" (#59); none of Nucleus Co-op, ProtoInput and EasyHook has that
+/// text.
+const MANDATORY_ASLR: &str = "Mandatory ASLR";
+/// What the player can do about it. An exemption is a security setting, so
+/// it is theirs to make.
+const EXEMPT_ASLR: &str = "turn off \"Force randomization for images (Mandatory ASLR)\" for {program} in Windows Security, App & browser control, Exploit protection, Program settings";
 /// How long Nucleus and the instances get to close before they are ended.
 const STOP_TIMEOUT: Duration = Duration::from_secs(10);
 /// Process loopback capture of one process tree came with this build.
@@ -437,12 +437,12 @@ impl Runner {
     /// Rubylight's own handler's game refused ProtoInput's hooks: Nucleus
     /// shows [`generic::INJECT_FAILED`] as it starts the game or once the
     /// game runs, and ends it when the box is answered, which nobody does
-    /// during a background stream (#59). The game may also refuse them in a
-    /// box of its own ([`GAME_REFUSED`]) and wait for it. The game is kept
-    /// so its next handler injects them the next way ([`generic::Inject`]),
-    /// or none after the last, and the session ends saying so.
+    /// during a background stream (#59). The game is kept so its next
+    /// handler injects them the next way ([`generic::Inject`]), or none
+    /// after the last, and the session ends saying so. Any handler's game
+    /// may also wait on a box of its own about Mandatory ASLR
+    /// ([`Self::mandatory_aslr`]).
     fn refused_hooks(&mut self, job: &BTreeSet<u32>) -> Option<End> {
-        self.own_game.as_ref()?;
         let boxes = match self.desktop.message_boxes(job) {
             Ok(boxes) => boxes,
             Err(error) => {
@@ -450,7 +450,7 @@ impl Runner {
                 if self.unseen.as_ref() != Some(&why) {
                     tracing::warn!(
                         why,
-                        "the PC's message boxes not listed, so a game refusing Nucleus Co-op's input hooks is not seen"
+                        "the PC's message boxes not listed, so a game refusing Nucleus Co-op's input hooks or waiting on a box is not seen"
                     );
                 }
                 self.unseen = Some(why);
@@ -458,39 +458,78 @@ impl Runner {
             }
         };
         let new = |shown: &&MessageBox| !self.before.contains(&shown.window);
-        let (shown, ends, hint) = match boxes.iter().filter(new).find(|shown| {
-            generic::INJECT_FAILED
-                .iter()
-                .any(|failed| shown.text.contains(failed))
-        }) {
-            Some(shown) => (shown, "Nucleus Co-op ends a game it can't hook", None),
-            None => boxes.iter().filter(new).find_map(|shown| {
-                let (_, hint) = GAME_REFUSED
+        if self.own_game.is_some()
+            && let Some(shown) = boxes.iter().filter(new).find(|shown| {
+                generic::INJECT_FAILED
                     .iter()
-                    .find(|(said, _)| shown.text.contains(said))?;
-                Some((shown, "it waits there for an answer", Some(*hint)))
-            })?,
-        };
-        let said = shown.summary();
-        let (folder, exe) = self.own_game.as_ref()?;
-        let program = Path::new(exe)
-            .file_name()
-            .map_or_else(|| exe.clone(), |name| name.to_string_lossy().into_owned());
-        let hint = hint.map(|hint: &str| hint.replace("{program}", &program));
-        // Without hooks there is no other way left to try.
-        if let Some(hint) = &hint
-            && matches!(files::inject_for(folder, exe), Ok(Inject::None))
+                    .any(|failed| shown.text.contains(failed))
+            })
         {
-            return Some(self.failure(format!(
-                "{} showed \"{said}\" even without Nucleus Co-op's input hooks, and it waits there for an answer. To start it, you can {hint}",
-                self.title
-            )));
+            let why = self.refuse_way(&shown.summary(), "Nucleus Co-op ends a game it can't hook");
+            return Some(self.failure(why));
         }
+        let shown = boxes
+            .iter()
+            .filter(new)
+            .find(|shown| shown.text.contains(MANDATORY_ASLR))?
+            .clone();
+        Some(self.mandatory_aslr(&shown))
+    }
+
+    /// The game waits on its own box about Mandatory ASLR. Windows forcing
+    /// it on the game shows that box whatever way the hooks went in, so the
+    /// way is kept and the player is told how to exempt it; a game Windows
+    /// doesn't force it on refused the way, which is given up as for
+    /// Nucleus' box. When the policy can't be read, the way is kept too.
+    fn mandatory_aslr(&mut self, shown: &MessageBox) -> End {
+        let said = shown.summary();
+        let forced = self.desktop.forced_aslr(shown.window);
+        let program = forced
+            .as_ref()
+            .ok()
+            .and_then(|(pid, _)| self.desktop.image_path(*pid))
+            .or_else(|| self.own_game.as_ref().map(|(_, exe)| exe.clone()))
+            .and_then(|path| {
+                Path::new(&path)
+                    .file_name()
+                    .map(|name| name.to_string_lossy().into_owned())
+            })
+            .unwrap_or_else(|| "the game's .exe".into());
+        let exempt = EXEMPT_ASLR.replace("{program}", &program);
+        let waits = format!(
+            "{} showed \"{said}\" and waits there for an answer",
+            self.title
+        );
+        let why = match forced {
+            Ok((_, true)) => format!(
+                "{waits}: Windows forces randomization for images (Mandatory ASLR) on it. To start it, you can {exempt}"
+            ),
+            Ok((_, false)) => match &self.own_game {
+                Some((folder, exe))
+                    if files::inject_for(folder, exe).ok() != Some(Inject::None) =>
+                {
+                    self.refuse_way(&said, "it waits there for an answer")
+                }
+                Some(_) => format!("{waits}, even without Nucleus Co-op's input hooks"),
+                None => waits,
+            },
+            Err(error) => format!(
+                "{waits}; Rubylight could not read whether Windows forces randomization for images (Mandatory ASLR) on it: {error:#}. If it does, you can {exempt}"
+            ),
+        };
+        self.failure(why)
+    }
+
+    /// Give up the way Rubylight's own handler's game refused, and say so.
+    fn refuse_way(&self, said: &str, ends: &str) -> String {
+        let Some((folder, exe)) = &self.own_game else {
+            return format!("{} showed \"{said}\", and {ends}", self.title);
+        };
         let refused = format!(
             "{} refused Nucleus Co-op's input hooks (it showed \"{said}\"), and {ends}",
             self.title
         );
-        let mut why = match files::refuse_inject(folder, exe) {
+        match files::refuse_inject(folder, exe) {
             Ok(Inject::None) => {
                 format!("{refused}: start the stream again, and Rubylight starts it without them")
             }
@@ -500,11 +539,7 @@ impl Runner {
             Err(error) => {
                 format!("{refused}; Rubylight could not keep that for its next start: {error:#}")
             }
-        };
-        if let Some(hint) = hint {
-            why = format!("{why}. To keep the hooks, you can {hint}");
         }
-        Some(self.failure(why))
     }
 
     /// Player `slot`'s instance exited.

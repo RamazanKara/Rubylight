@@ -35,6 +35,10 @@ pub trait Desktop: Send {
     /// its close button does: the visible, enabled one whose owner it
     /// disabled. The ones closed, with what they said.
     fn close_forms(&mut self, processes: &BTreeSet<u32>) -> Result<Vec<MessageBox>>;
+    /// The process showing `window`, and whether Windows forces it to load
+    /// its images at random addresses (Exploit protection's "Force
+    /// randomization for images", Mandatory ASLR).
+    fn forced_aslr(&mut self, window: u64) -> Result<(u32, bool)>;
 }
 
 /// A message box on the desktop: its window, its caption and its text.
@@ -431,6 +435,9 @@ pub(crate) mod tests {
         /// Forms that disable their owner, and the process showing each.
         pub forms: Vec<(u32, MessageBox)>,
         pub closed: Vec<u64>,
+        /// Whether Windows forces Mandatory ASLR on each process; one not
+        /// listed can't be read.
+        pub aslr: BTreeMap<u32, bool>,
         /// Placing a window moves it there, as a cooperative game does.
         pub obey: bool,
     }
@@ -495,6 +502,18 @@ pub(crate) mod tests {
             let closed: Vec<MessageBox> = closed.into_iter().map(|(_, form)| form).collect();
             self.closed.extend(closed.iter().map(|form| form.window));
             Ok(closed)
+        }
+        fn forced_aslr(&mut self, window: u64) -> Result<(u32, bool)> {
+            let (pid, _) = self
+                .boxes
+                .iter()
+                .find(|(_, shown)| shown.window == window)
+                .ok_or_else(|| anyhow::anyhow!("no such window"))?;
+            let forced = self.aslr.get(pid).copied();
+            Ok((
+                *pid,
+                forced.ok_or_else(|| anyhow::anyhow!("access denied"))?,
+            ))
         }
     }
 

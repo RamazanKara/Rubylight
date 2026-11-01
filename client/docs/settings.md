@@ -2,7 +2,7 @@
 
 [Documentation](index.md)
 
-This page is the reference for every setting in Nightjar for Android, Android TV and Fire TV, followed by [Nightjar for Windows and Linux](#nightjar-for-windows-and-linux). Both clients use the same seven sections, **Video**, **Display & image**, **Controls**, **Audio**, **Streaming**, **App** and **Advanced**, and the same layers of values: the main settings, a [named profile](#named-profiles-and-game-settings), [this PC](#per-pc-stream-profiles) and this game.
+This page is the reference for every setting in Nightjar for Android, Android TV and Fire TV, followed by [Nightjar for Windows and Linux](#nightjar-for-windows-and-linux). Both clients use the same sections, **Video**, **Display & image**, **Controls**, **Audio**, **Streaming**, **App**, **Advanced** and **Debug** at the end for settings whose default is right for nearly everyone, and the same layers of values: the main settings, a [named profile](#named-profiles-and-game-settings), [this PC](#per-pc-stream-profiles) and this game.
 
 Each row shows its current value; the explanation appears with the setting or behind its info or **Help** button. Search matches titles, explanations and section names, including everything in **Advanced**. Selecting a result opens its section, and Back returns first to the search, then to the section where you started. Changes save automatically. Nightjar shows only the options the device supports.
 
@@ -185,10 +185,9 @@ Tier: Main rows show when a section opens; More rows fold behind the section's l
 | Ride out network drops<br>`list_network_grace` | More | Off (10 seconds) | Off (10 seconds); 20 seconds; 30 seconds; 60 seconds | Off by default: the stream ends after 10 seconds without contact. 20, 30 or 60 seconds keeps it open through a Wi-Fi roam, a short dropout or a VPN moving between Wi-Fi and mobile data; the picture freezes until the network returns. Longer waits only help if the host waits too, so raise its own client timeout. When the wait runs out the stream ends with a message saying so, and Recover interrupted streams, if on, then reconnects. See [network drops](video-and-latency.md#network-drops). |
 | Client roaming<br>`checkbox_client_roaming` | More | On | On; Off | On by default. When this device changes networks, the stream moves to the new address instead of waiting for the old one. Needs the New streaming engine and a PC that offers client roaming (Rubylight 3.0); other PCs keep the network grace period. |
 | Continue on mobile data<br>`checkbox_roaming_metered` | More | Off | On; Off | Off by default. Lets client roaming move the stream onto mobile data or another metered network. Leave off unless you want streams to keep running on mobile data; streaming uses a lot of data. |
-| Error correction<br>`list_fec_choice` | More | PC's setting | PC's setting; Automatic; 10 %; 20 %; 30 %; 50 % | PC's setting by default: the PC adds the recovery data its own settings call for. Automatic asks it to follow the losses this device reports; 10, 20, 30 or 50 % fixes the share. Rubylight PCs and Sunshine-based PCs that accept it take this choice; other PCs use their own setting either way. |
 | Input-only on any PC<br>`checkbox_input_only_any_host` | More | Off | On; Off | Enable to add Input-only to a game's menu on PCs whose host has no Input-only mode of its own (Sunshine, GameStream, Apollo with its input-only mode off). The PC still streams video and audio at 640x360, 30 FPS and 500 kbps, about 0.7 Mbit/s with overhead; Nightjar discards both. Hosts with their own mode keep using their Input-only tile. See [Input-only on any PC](controls.md#input-only-on-any-pc). |
 | Hide connection warnings<br>`checkbox_disable_warnings` | More | Off | On; Off | Enable to hide stream connection warnings once your connection is tuned. |
-| More settings<br>`more_streaming` | Main | Closed | Action | Shows or hides the Streaming rows that are not main, such as picture-in-picture, network grace, client roaming and FEC. Settings search and links find them while it is closed. |
+| More settings<br>`more_streaming` | Main | Closed | Action | Shows or hides the Streaming rows that are not main, such as picture-in-picture, network grace and client roaming. Settings search and links find them while it is closed. |
 
 ### App
 
@@ -238,7 +237,6 @@ Tier: Main rows show when a section opens; More rows fold behind the section's l
 | Boost GPU performance for PyroWave<br>`checkbox_gpu_max_clocks` | Main | Off | On; Off | Off by default. Optionally request higher Adreno GPU clocks during PyroWave streaming to reduce decode time; this can increase power use and heat. Thermal protection remains active. Installs that already stored a choice keep it. Shown on Adreno devices only. |
 | Compatibility video view<br>`checkbox_texture_view` | Main | Off | On; Off | Try for black or flickering video or misplaced output. Adds composition work and is disabled for HDR, 10-bit color (SDR) and PyroWave. |
 | Render through Vulkan<br>`checkbox_vulkan_render` | Main | Off | On; Off | Presents H.264, HEVC and AV1 through Vulkan with its own frame pacing, for frame-generation overlays that hook Vulkan. It adds a render pass, so some latency, and needs Android 10 and a GPU with Vulkan 1.1. If it cannot be used (PyroWave, Android 9 or older, no Vulkan support, 4:4:4 video, or it fails to start) the stream uses direct output and a message says why. While it is on, client-side upscaling is off. If it stops working during a stream, the stream ends with a message that names it; turn this switch off to go back. Leave it off unless you need such an overlay. |
-| Force full-range video<br>`checkbox_full_range` | Main | Off | On; Off | Use when the host and display both send full-range color, for full shadow and highlight detail. |
 
 #### Compatibility
 
@@ -246,31 +244,34 @@ Tier: Main rows show when a section opens; More rows fold behind the section's l
 | --- | --- | --- | --- | --- |
 | Game optimization hint<br>`checkbox_enable_sops` | More | On | On; Off | Leave on. Tells the PC whether it may optimize a game's settings for this stream. Rubylight only passes the choice on to commands you run on the PC, as SUNSHINE_CLIENT_ENABLE_SOPS; other hosts may change the game's settings themselves. |
 
-#### Input and network
-
-| Setting / preference key | Tier | Default | Choices and units | When to change or use |
-| --- | --- | --- | --- | --- |
-| Instant mouse and pen input<br>`checkbox_unbatched_input` | More | On | On; Off | Enable to bypass display-rate input batching. High-rate input can increase CPU and network load. |
-| Prioritize stream traffic<br>`checkbox_network_priority` | More | On | On; Off | Enable to compare scheduling under load. Requests streaming thread priority on this device. |
-
 #### More options
 
 | Setting / preference key | Tier | Default | Choices and units | When to change or use |
 | --- | --- | --- | --- | --- |
-| Loss-based bitrate (Rust engine)<br>`checkbox_rate_change_bitrate` | More | Off | On; Off | Off by default, under Advanced: turn on to let this device lower or raise the bitrate from its own frame loss and network delay readings, in place of Device controls bitrate. Needs the New streaming engine and a host that offers bitrate changes; other streams use Device controls bitrate. |
 | Chipset tuning<br>`checkbox_experimental_chipset_tuning` | More | Off | On; Off | Off by default. Sends `vdec-lowlatency` to MediaTek Dimensity (`c2.mtk`) decoders and, with decoder performance hints on, asks Samsung Exynos decoders for the operating rate they declare next to the realtime priority hint. Needs vendor low-latency options on and HEVC low-latency flags not disabled. Only the first configure try carries them, so a decoder that rejects them falls back to the normal options. If video stops or stutters, turn it off. |
 
 #### Diagnostics
 
 | Setting / preference key | Tier | Default | Choices and units | When to change or use |
 | --- | --- | --- | --- | --- |
-| Tell the PC when on Wi-Fi<br>`checkbox_tell_host_wireless` | More | On | On; Off | On by default. Tells a Rubylight PC when this device streams over Wi-Fi, so it paces the stream for Wi-Fi from the start. Other PCs are not told. |
-| Tell the PC the link speed<br>`checkbox_tell_host_link_speed` | More | On | On; Off | On by default. Tells a Rubylight PC this device's wired port speed, so it never sends faster than the port can take. Other PCs are not told. |
 | Link test before the first bitrate<br>`checkbox_link_probe` | More | Off | On; Off | Off by default. A new stream at the automatic bitrate first times a short download from a Rubylight PC that offers it and starts at no more than 80 % of the result (never below 2 Mbit/s). Resumes, a bitrate you set and PyroWave are not tested. Off because it started streams lower, with more loss and freezes, in our measurement. |
 | Show decode time after streaming<br>`checkbox_enable_post_stream_toast` | More | Off | On; Off | Enable to see the average decode time after a session ends; it is not end-to-end latency. |
 | Latency benchmark<br>`latency_benchmark` | More | No stored default | Action | Run a 10-second local frame-callback, timer and input-dispatch benchmark without a host. Use Measure input latency in the stream menu for end-to-end timing. |
 | Export latency CSV<br>`export_latency_csv` | More | No stored default | Action | Choose a destination for the latest local frame-timing CSV. Each row holds the measured stage timings. |
-| More settings<br>`more_advanced` | Main | Closed | Action | Shows or hides the Advanced rows that are not main: compatibility, input and network, More options and Diagnostics. Settings search and links find them while it is closed. |
+| More settings<br>`more_advanced` | Main | Closed | Action | Shows or hides the Advanced rows that are not main: compatibility, More options and Diagnostics. Settings search and links find them while it is closed. |
+
+### Debug
+
+| Setting / preference key | Tier | Default | Choices and units | When to change or use |
+| --- | --- | --- | --- | --- |
+| Error correction<br>`list_fec_choice` | Main | Automatic | PC's setting; Automatic; 10 %; 20 %; 30 %; 50 % | Automatic by default: the PC follows the losses this device measures and reports. PC's setting leaves the recovery data to the PC's own settings; 10, 20, 30 or 50 % fixes the share. A stored PC's setting from before Automatic became the default moves to Automatic once; choosing it again is kept. Rubylight PCs and Sunshine-based PCs that accept it take this choice; other PCs use their own setting either way. |
+| Loss-based bitrate (Rust engine)<br>`checkbox_rate_change_bitrate` | Main | Off | On; Off | Off by default, under Debug: turn on to let this device lower or raise the bitrate from its own frame loss and network delay readings, in place of Device controls bitrate. Needs the New streaming engine and a host that offers bitrate changes; other streams use Device controls bitrate. |
+| Tell the PC when on Wi-Fi<br>`checkbox_tell_host_wireless` | Main | On | On; Off | On by default. Tells a Rubylight PC when this device streams over Wi-Fi, so it paces the stream for Wi-Fi from the start. Other PCs are not told. |
+| Tell the PC the link speed<br>`checkbox_tell_host_link_speed` | Main | On | On; Off | On by default. Tells a Rubylight PC this device's wired port speed, so it never sends faster than the port can take. Other PCs are not told. |
+| Prioritize stream traffic<br>`checkbox_network_priority` | Main | On | On; Off | Enable to compare scheduling under load. Requests streaming thread priority on this device. |
+| Instant mouse and pen input<br>`checkbox_unbatched_input` | Main | On | On; Off | Enable to bypass display-rate input batching. High-rate input can increase CPU and network load. |
+| Force full-range video<br>`checkbox_full_range` | Main | Off | On; Off | Use when the host and display both send full-range color, for full shadow and highlight detail. |
+| More settings<br>`more_debug` | Main | Closed | Action | Shows or hides the Debug rows that are not main. Every Debug row is main today, so it stays hidden. Settings search and links find them while it is closed. |
 
 ## Presets
 
@@ -314,7 +315,8 @@ Implementation: [HostStreamSettings.java](../app/src/main/java/com/limelight/pre
 | Host virtual display | Same as all PCs, On, Off | On asks the PC for a display matching this stream. Off leaves it to the PC's display settings. |
 | PC render resolution | Same as all PCs, or 50–200% | Change the PC's render resolution relative to the stream. Used with the virtual-display request. |
 | PC display scaling | Same as all PCs, PC’s own, or 100–500% in Windows' steps | Larger text and interface on this PC's virtual display; the resolution does not change. Shown only for PCs whose host reads it; on an older host version it is disabled with the reason. |
-| Prefer YUV 4:4:4 / Force full-range video | Same as all PCs, On, Off | Request supported chroma/range behavior for this PC. |
+| Prefer YUV 4:4:4 | Same as all PCs, On, Off | Request supported chroma behavior for this PC. |
+| Force full-range video (under **Debug**, last) | Same as all PCs, On, Off | Request full-range color for this PC. |
 | Save | Action | Stores this PC's own values. Takes effect next stream. |
 
 A PC keeps only the values that differ from the main settings. The host's device and app policy may override a request. The performance overlay and the log show the PC's own values and the display choice for each stream.
@@ -341,7 +343,7 @@ Every value screen says where a value it doesn't set comes from: *from the main 
 | Control | What it does |
 | --- | --- |
 | New profile | Asks for a name (1–32 characters, unique) and opens the new, empty profile. Set only the values it should change. |
-| A profile → Edit values | The same rows as a PC's stream values: resolution, frame rate, bitrate, codec, upscaling and sharpness, HDR, adaptive refresh, frame pacing, YUV 4:4:4 and full-range video. Unset values say **Not set** and follow the main settings. A profile leaves host display choices to each PC. |
+| A profile → Edit values | The same rows as a PC's stream values: resolution, frame rate, bitrate, codec, upscaling and sharpness, HDR, adaptive refresh, frame pacing, YUV 4:4:4 and, under **Debug** at the end, full-range video. Unset values say **Not set** and follow the main settings. A profile leaves host display choices to each PC. |
 | A profile → Rename / Duplicate / Delete | Duplicate copies the values under a new name. Delete also clears the profile from **Profile in use** and every network choice; streams use the main settings instead. |
 | Profile in use | The profile every stream uses when no network choice applies. **None** uses the main settings. |
 | Choose by network | Off by default. On, the network a stream starts on picks the profile below; Ethernet and networks without a choice use the profile in use. |
@@ -409,7 +411,7 @@ The PC puts its displays back when the stream ends. Separated displays still sha
 
 ## Nightjar for Windows and Linux
 
-The desktop client's **Settings** has the same seven sections in the same order, then **Debug** with the rarely needed settings. A wide window lists them on the left, with the open section's rows on the right; a narrow one shows them as chips above the rows. Each section shows the same main rows as Android first, then the rarer rows in labelled groups after them (**Fine-tuning**, for example), never folded away. **Search settings** at the top (Ctrl+F) finds rows in every section by name, description, section or group; Escape leaves the field, then clears the search. A row changed from its default has **Reset** beside it, and **App → Reset all settings** puts every row back to its default after a confirmation, keeping the language, paired PCs, game and PC settings and profiles.
+The desktop client's **Settings** has the same eight sections in the same order, Debug last. A wide window lists them on the left, with the open section's rows on the right; a narrow one shows them as chips above the rows. Each section shows the same main rows as Android first, then the rarer rows in labelled groups after them (**Fine-tuning**, for example), never folded away. **Search settings** at the top (Ctrl+F) finds rows in every section by name, description, section or group; Escape leaves the field, then clears the search. A row changed from its default has **Reset** beside it, and **App → Reset all settings** puts every row back to its default after a confirmation, keeping the language, paired PCs, game and PC settings and profiles.
 
 A PC's, game's or profile's settings show the same rows (no App section, Debug last). Each row has a box, **For this PC**, **For this game** or **In this profile**: ticked, the row keeps its own value and says what it would otherwise be; unticked, it says where its value comes from (**From main settings**, **From profile …**, **Set for this PC**). Choosing another value ticks the box; opening a menu and backing out changes nothing. The section list counts the rows set there, and **Clear all** at the top unticks every row after a confirmation. **Streaming → Profiles → Manage profiles** selects the active profile by hand or, with **Choose automatically**, by network (mobile data, home Wi-Fi, other Wi-Fi); while one is in use, the main settings say so at the top. **Mobile data bitrate limit** caps the bitrate on metered networks after all overrides. Settings are stored in `settings.json` in `%APPDATA%\Nightjar\config` on Windows or `~/.config/nightjar` on Linux; `NIGHTJAR_CONFIG_DIR` overrides the folder.
 

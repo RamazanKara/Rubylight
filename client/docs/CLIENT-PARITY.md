@@ -29,7 +29,7 @@ Which Nightjar features each client provides: Android (phones, handhelds, tablet
 | Remote Monitor and Input-only entries | Yes | Yes | Yes | Remote Monitor sends no input, microphone, clipboard or commands. |
 | Input-only on any PC | Yes | Yes | Yes | Off by default. A 640×360, 30 fps, 500 kbps stream that is neither shown nor played. |
 | Settings per PC and per game, profiles by network, mobile data cap | Yes | Yes | Yes | |
-| Settings that open on the main rows, with "More … settings" | Yes | Yes | Yes | |
+| Settings that open on the main rows, with "More … settings" | Yes | Yes | Yes | Android: rarely needed settings sit in a Debug section at the end. |
 | Settings search and presets | Yes | No | No | |
 | PIN lock | Yes | Yes | Yes | Android can also lock individual PCs. |
 | Launching from a launcher or frontend | Yes | Yes | Yes | Android: TV home screen, Beacon, ES-DE, Daijisho, Pegasus and shortcuts. Desktop: `nightjar --host … [--app …] [--quit-on-exit]`. |
@@ -82,7 +82,7 @@ Android needs no scan-line check: SurfaceFlinger never flips mid-scan, and a pan
 | Automatic resolution and frame rate | Yes | Yes | Yes | |
 | Change bitrate / frame rate during a stream | Yes | Yes | Yes | |
 | Loss-based bitrate | Yes | Yes | Yes | Off by default. |
-| Error correction choice and the loss report | Yes | Yes | Yes | |
+| Error correction choice and the loss report | Yes | Yes | Yes | Android: Automatic by default, under **Settings → Debug**. |
 | Link test before the first bitrate | Yes | Yes | Yes | Off by default. |
 | Recover interrupted streams | Yes | Yes | Yes | On by default. |
 | Ride out network drops | Yes | Yes | Yes | |

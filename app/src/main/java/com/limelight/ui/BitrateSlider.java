@@ -85,12 +85,12 @@ public final class BitrateSlider {
      */
     public static void moveFocusOnUpDown(EditText field) {
         field.setOnKeyListener((view, keyCode, event) -> {
-            int direction = keyCode == KeyEvent.KEYCODE_DPAD_UP ? View.FOCUS_UP :
-                    keyCode == KeyEvent.KEYCODE_DPAD_DOWN ? View.FOCUS_DOWN : 0;
-            if (direction == 0 || !event.hasNoModifiers()) return false;
+            if ((keyCode != KeyEvent.KEYCODE_DPAD_UP && keyCode != KeyEvent.KEYCODE_DPAD_DOWN) ||
+                    !event.hasNoModifiers()) return false;
             if (event.getAction() == KeyEvent.ACTION_DOWN) {
-                View next = view.focusSearch(direction);
-                if (next != null) next.requestFocus(direction);
+                View next = keyCode == KeyEvent.KEYCODE_DPAD_UP ? view.focusSearch(View.FOCUS_UP) :
+                        view.focusSearch(View.FOCUS_DOWN);
+                if (next != null) next.requestFocus();
             }
             return true;
         });

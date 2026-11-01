@@ -1053,6 +1053,14 @@ impl AudioRenderer for Audio {
                 counters.audio_dropped.fetch_add(1, Ordering::Relaxed);
                 return;
             }
+            Fed::Trimmed => {
+                counters.audio_dropped.fetch_add(1, Ordering::Relaxed);
+                eprintln!(
+                    "nightjar: audio: clock drift, trimmed a packet with {:.1} ms queued",
+                    f64::from(queued) / bytes_per_us / 1000.0
+                );
+                return;
+            }
             Fed::Failed => return,
         };
         let pcm = playout.pcm();

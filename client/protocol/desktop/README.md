@@ -68,7 +68,7 @@ Everything below works on Windows and Linux unless a platform is named.
 
 **Picture**
 
-- H.264, HEVC and AV1 with hardware decoding: D3D11VA on Windows; VA-API, then V4L2 M2M, then NVDEC on Linux. A fallback to software decoding is announced. PyroWave decodes on the GPU or the CPU, with a bandwidth test and a frame-pace calibration per network.
+- H.264, HEVC and AV1 with hardware decoding: D3D11VA on Windows; VA-API, then Vulkan video (GPUs without a VA-API driver, such as NVIDIA's), then V4L2 M2M, then NVDEC on Linux. A fallback to software decoding is announced. PyroWave decodes on the GPU or the CPU, with a bandwidth test and a frame-pace calibration per network.
 - HDR: HDR10 and HLG, plus Dolby Vision profiles 8.1 and 10.1 on Windows from hosts that send them. On Linux the client requests an HDR surface from the compositor and draws HLG for hardware-decoded pictures. 10-bit SDR, YUV 4:4:4 and full chroma where the host and decoder support them.
 - Upscaling with bilinear, FSR 1, SGSR 1 or AI enhancement (the GPU vendor's video super resolution).
 - Variable refresh rate with frames shown at the PC's frame times, frame pacing modes and V-Sync without VRR, fractional refresh rates, virtual displays and PC display modes.
@@ -155,6 +155,8 @@ PyroWave GPU decoding (`pyrowave_decoder = Gpu`, the default; see [PyroWave deco
 
 The crate is a member of the `protocol/` workspace but not a default member, so `cargo test` there and `build-android.sh` cover only the engine. Test the desktop client with `cargo test -p nightjar-desktop` and `cargo clippy -p nightjar-desktop --all-targets`.
 
+On Linux with a GPU that has Vulkan video, the ignored tests `cargo test -p nightjar-desktop -- --ignored --test-threads=1 stream::vulkan_tests_unix vulkan_video` decode the fixtures with Vulkan video on an offscreen "gpu" renderer and compare the presenter's pictures with software-decoded ones (Mesa's Intel driver needs `ANV_VIDEO_DECODE=1`).
+
 ### Packaging for Windows
 
 `package-windows.ps1` builds the release executable and zips it into `dist/` with the DLLs it imports (found from the import tables, system libraries excluded), so it runs on a PC without MSYS2. With `-FfmpegDir <prefix>`, the executable is built against the decode-only FFmpeg that `ffmpeg-decode-only.sh <ffmpeg 8 source> <prefix>` builds in an MSYS2 UCRT64 shell: libavcodec and libavutil with the H.264, HEVC and AV1 decoders, their D3D11VA paths and dav1d. The script fails if an import is satisfied neither by the zip nor by Windows itself (the Visual C++ runtime counts as missing), then starts the unpacked executable with only the Windows folders on `PATH`. `-Version` names the zip after a release version, as the release workflow does.
@@ -188,7 +190,7 @@ The launcher and the stream share one SDL3 window and one `SDL_Renderer`. egui i
 
 - **Video decoding.** FFmpeg's libavcodec through Rust bindings (`src/media.rs`), in low-delay mode. Packets reach FFmpeg in pooled, reused buffers: a fresh allocation per frame costs page faults once frames reach about 1 MiB on Windows (high bitrates, key frames).
 - **Windows.** D3D11VA decodes on the renderer's own D3D11 device, made multithread-protected because the decoder thread and the renderer share the immediate context. A draw pass (`src/stream/direct.rs`) renders hardware-decoded pictures straight into SDL's back buffer. With decoder-texture binding (Intel GPUs by default; `NIGHTJAR_D3D11_BIND=1` or `0` overrides) it reads the picture from the decoder's texture array; otherwise it reads a GPU copy made under FFmpeg's device lock. Its tone map takes the content peak per frame from the Dolby Vision RPU, else HDR10+ metadata, else the picture itself, and HLG goes through BT.2100's inverse OETF and OOTF for the display's peak. `NIGHTJAR_D3D11_PASS=0` leaves drawing to SDL. 7.1.4 audio plays through WASAPI (`src/stream/wasapi.rs`), since SDL opens at most eight channels.
-- **Linux.** The decoder tries VA-API, then the V4L2 memory-to-memory decoders (ARM handhelds and boards, H.264 and HEVC), then NVDEC, the order moonlight-qt and Moonlight V+ use; each failure is logged before the next is tried. With the OpenGL renderer on EGL (`SDL_HINT_VIDEO_FORCE_EGL` makes X11 use it too), an 8-bit 4:2:0 VA-API picture never crosses the CPU (`src/dmabuf.rs`): the decoder thread exports the surface as DMA-BUFs, one layer per plane, and the presenter binds an EGL image of each to the matching plane of SDL's NV12 texture, holding the picture until the next replaces it. Otherwise (the GPU renderer, 10-bit, packed formats, or a failed import, logged once) the decoder maps each picture for reading and the presenter uploads from that mapping without a second copy; NVDEC pictures are copied out of CUDA memory. `NIGHTJAR_DMABUF=0` turns the import off for A/B measurements.
+- **Linux.** The decoder tries VA-API, then FFmpeg's Vulkan video, then the V4L2 memory-to-memory decoders (ARM handhelds and boards, H.264 and HEVC), then NVDEC, the order moonlight-qt and Moonlight V+ use; each failure is logged before the next is tried. Vulkan video (`src/vulkan_video.rs`) decodes on the GPU renderer's own Vulkan device, to which the SDL patch adds video decode queues: the presenter copies the picture's two planes on the GPU into its own images, ordered by the picture's timeline semaphore, and draws them with the plane shader, so range, matrix, 10-bit, HDR10 and HLG are drawn as for the other decoders and the picture never crosses the CPU. When VA-API cannot open a device (NVIDIA's driver) and the GPU has the Vulkan video extensions, the GPU renderer is chosen at start for it, unless every decoder setting, the hosts' and profiles' included, says Software. The device is checked for the stream's profile and picture format before FFmpeg opens; packed 4:4:4 is left to the next decoder, and a stream FFmpeg still decodes in software is logged and named on the overlay. With the OpenGL renderer on EGL (`SDL_HINT_VIDEO_FORCE_EGL` makes X11 use it too), an 8-bit 4:2:0 VA-API picture never crosses the CPU (`src/dmabuf.rs`): the decoder thread exports the surface as DMA-BUFs, one layer per plane, and the presenter binds an EGL image of each to the matching plane of SDL's NV12 texture, holding the picture until the next replaces it. Otherwise (the GPU renderer, 10-bit, packed formats, or a failed import, logged once) the decoder maps each picture for reading and the presenter uploads from that mapping without a second copy; NVDEC pictures are copied out of CUDA memory. `NIGHTJAR_DMABUF=0` turns the import off for A/B measurements.
 - **Pacing** (`src/stream/present.rs`), chosen at stream start:
   - VRR with **Show frames at the PC's frame times**: `rubylight_protocol::present_clock::PresentClock` schedules each picture at the host's frame time (RTP timestamp) plus a steady delay derived from recent lateness, so the display refreshes at the game's cadence. Presents are immediate with tearing allowed (`DXGI_PRESENT_ALLOW_TEARING` on SDL's flip-model swap chain), and the UI thread sleeps to the scheduled time with a 1 ms timer. The launch asks the host for VRR handling when pacing by host times.
   - VRR without it: each picture is presented as soon as it is decoded.
@@ -217,6 +219,7 @@ The launcher and the stream share one SDL3 window and one `SDL_Renderer`. egui i
 | `NIGHTJAR_AUTOSTREAM=address[:port]` | Measurement only: starts one stream without the launcher and ends it after `NIGHTJAR_AUTOSTREAM_SECONDS` (default 60), with `NIGHTJAR_AUTOSTREAM_APP` (default "Desktop") and, for an unpaired PC, `NIGHTJAR_AUTOSTREAM_PIN` (default 1234, entered on the PC). Exits with 0 after a full run and 2 otherwise. |
 | `NIGHTJAR_BEAM_RACE`, `NIGHTJAR_EARLY_DECODE` | Turn on [beam racing](../../docs/beam-racing.md) and [early decode](../../docs/early-decode.md) for PyroWave, as the `beam_race` and `early_decode` settings keys do. |
 | `NIGHTJAR_D3D11_PASS`, `NIGHTJAR_D3D11_BIND`, `NIGHTJAR_DMABUF`, `NIGHTJAR_VRR_CHECK`, `NIGHTJAR_VRR_SYNC` | A/B switches for the presentation paths described above. |
+| `NIGHTJAR_VULKAN_VIDEO` | Linux: `1` tries Vulkan video first and picks the GPU renderer for it, `0` leaves Vulkan video out. |
 
 All are off unless set.
 
@@ -259,7 +262,9 @@ Nightjar's desktop client ports logic and approaches from:
 - [moonlight-qt](https://github.com/moonlight-stream/moonlight-qt) (GPL-3.0, Cameron Gutman
   and contributors): the keyboard table (`keyboard.cpp`), controller mapping
   (`gamepad.cpp`), the special key combos, the FFmpeg decoder setup and the D3D11VA surface
-  copy under the device lock (`ffmpeg.cpp`, `d3d11va.cpp`), and the default bitrate curve.
+  copy under the device lock (`ffmpeg.cpp`, `d3d11va.cpp`), FFmpeg's Vulkan video on the
+  renderer's own Vulkan device (`plvk.cpp`, as Moonlight V+ ships it), and the default
+  bitrate curve.
 - [Moonlight V+ PC](https://github.com/qiin2333/moonlight-qt) (GPL-3.0, qiin2333 and
   contributors): the Windows D3D11 draw pass and its tone mapping (`d3d11va.cpp`), AI
   enhancement with the GPU vendors' video super resolution and AMF's HQ Scaler

@@ -22,6 +22,10 @@ A PyroWave host sends each frame as one burst at its link speed. Some receive pa
 
 Long-press a PC and use **PC settings… → Connection test** before increasing bandwidth. On hosts that support it (Rubylight, or Vibepollo with PyroWave available), its optional, cancellable 32 MiB HTTPS download starts only when requested and reports throughput and the host link speed.
 
+### Hardware decoding on Windows and Linux
+
+Nightjar for Windows decodes with D3D11VA on the GPU that draws the window. Nightjar for Linux tries VA-API first, then Vulkan video, then the V4L2 decoders of ARM boards and handhelds, then NVDEC. Vulkan video is for GPUs without a VA-API driver, such as NVIDIA's: it decodes on the GPU that draws the window, and the picture stays on that GPU until it is shown. It needs the driver's Vulkan video support for the stream's codec and format. The overlay names the decoder in use, and a stream that ends up decoding in software says so. With **Video decoding** under **Settings → Video** on Software, for all PCs or in one PC's own settings, those streams decode in software.
+
 ## HDR and color
 
 HDR10 needs an HDR10 display, Android 7+ and a compatible HEVC Main10 or AV1 10-bit decoder, plus HDR configured on the streamed host display. PyroWave has its own HDR-capability checks. Enable **HDR** in Stream settings or the PC profile.

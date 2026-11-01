@@ -12,7 +12,10 @@
 
 pub mod lock;
 
-use crate::text::{from_wide, to_wide};
+use crate::{
+    text::{from_wide, to_wide},
+    wmi::Wmi,
+};
 use anyhow::{Context, Result, bail};
 use butterpollo_core::child_session::{Hive, Registry, SystemSettings};
 use std::{
@@ -53,6 +56,7 @@ use windows::{
                 WTSQueryUserToken,
             },
             Threading::{GetCurrentProcess, OpenProcessToken},
+            Wmi::IWbemContext,
         },
         UI::Shell::FOLDERID_LocalAppData,
     },
@@ -114,41 +118,56 @@ impl NativeSettings {
     }
 }
 
-/// Turns one rule of a group on by its ID; the COM firewall API names rules
-/// only by their display name, which several rules can share.
-const RULES_SCRIPT: &str = include_str!("child_session_rules.ps1");
+/// How long turning a firewall rule on may take.
 const RULES_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
-fn run_rules_script(mode: &str, environment: &[(&str, &str)]) -> Result<String> {
-    use std::{os::windows::process::CommandExt, process::Command};
-    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    let root = std::env::var_os("SystemRoot").unwrap_or_else(|| "C:\\Windows".into());
-    let mut command = Command::new(
-        std::path::Path::new(&root).join("System32\\WindowsPowerShell\\v1.0\\powershell.exe"),
-    );
-    command
-        .args([
-            "-NoProfile",
-            "-NonInteractive",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-Command",
-            &format!("& ([scriptblock]::Create([Console]::In.ReadToEnd())) {mode}"),
-        ])
-        // A PowerShell 7 parent's module path breaks Windows PowerShell's modules.
-        .env_remove("PSModulePath")
-        .env_remove("BUTTERPOLLO_FIREWALL_RULE")
-        .envs(environment.iter().copied())
-        .creation_flags(CREATE_NO_WINDOW);
-    let (status, stdout, stderr) =
-        crate::wake::output_within(&mut command, RULES_SCRIPT.as_bytes(), RULES_TIMEOUT)
-            .with_context(|| format!("the firewall rule script ({mode})"))?;
-    if !status.success() {
-        bail!(
-            "the firewall rule script ({mode}) failed with {status}: {}",
-            stderr.trim()
-        );
+/// The persistent store's firewall rules, through WMI: the COM firewall API
+/// names rules only by their display name, which several rules can share.
+const FIREWALL_NAMESPACE: &str = r"root\StandardCimv2";
+
+/// Turns one rule of a group on by its ID (`Get-NetFirewallRule`'s Name), as
+/// `Get-NetFirewallRule -PolicyStore PersistentStore -Group` piped to
+/// `Enable-NetFirewallRule` does.
+fn enable_rule_by_id(group: &str, id: &str) -> Result<()> {
+    let (group, id) = (group.to_owned(), id.to_owned());
+    crate::wmi::on_com_thread("turning a firewall rule on", RULES_TIMEOUT, move || {
+        let wmi = Wmi::connect(FIREWALL_NAMESPACE)?;
+        let persistent = persistent_store()?;
+        let rule = rule_in_group(&wmi, &persistent, &group, &id)?;
+        wmi.call(&rule, "Enable", Some(&persistent))
+    })
+}
+
+fn persistent_store() -> Result<IWbemContext> {
+    crate::wmi::context(&[("PolicyStore", crate::wmi::Value::Text("PersistentStore"))])
+}
+
+/// The path of the rule `id` of `group`: matched by equality inside the
+/// group, never by a pattern, and exactly one.
+fn rule_in_group(wmi: &Wmi, persistent: &IWbemContext, group: &str, id: &str) -> Result<String> {
+    if group.is_empty() {
+        bail!("no firewall group was given");
     }
-    Ok(stdout)
+    if id.is_empty() {
+        bail!("no firewall rule was given");
+    }
+    let rules = wmi.query(
+        &format!(
+            "SELECT * FROM MSFT_NetFirewallRule WHERE RuleGroup = {}",
+            crate::wmi::quote(group)
+        ),
+        Some(persistent),
+    )?;
+    let mut found = Vec::new();
+    for rule in &rules {
+        if crate::wmi::string(rule, "InstanceID")?.is_some_and(|name| name.eq_ignore_ascii_case(id))
+        {
+            found.push(crate::wmi::string(rule, "__RELPATH")?.unwrap_or_default());
+        }
+    }
+    match found.as_slice() {
+        [path] if !path.is_empty() => Ok(path.clone()),
+        _ => bail!("the firewall rule {id} is not in the group {group}"),
+    }
 }
 const PROTOCOLS: [&str; 2] = ["TCP", "UDP"];
 fn read_dword(hive: &Hive, path: &str, name: &str) -> Result<Option<u32>> {
@@ -251,15 +270,8 @@ impl SystemSettings for NativeSettings {
         Ok(false)
     }
     fn enable_rule(&mut self, group: &str, id: &str) -> Result<()> {
-        run_rules_script(
-            "enable",
-            &[
-                ("BUTTERPOLLO_FIREWALL_GROUP", group),
-                ("BUTTERPOLLO_FIREWALL_RULE", id),
-            ],
-        )
-        .with_context(|| format!("turning the firewall rule {id} back on"))?;
-        Ok(())
+        enable_rule_by_id(group, id)
+            .with_context(|| format!("turning the firewall rule {id} back on"))
     }
     fn remove_rule(&mut self, name: &str) -> Result<()> {
         self.remove_named(&staging_name(name))?;
@@ -585,7 +597,9 @@ impl NativeSettings {
 
 #[cfg(test)]
 mod tests {
-    use butterpollo_core::child_session::{Hive, Registry, SystemSettings, TERMINAL_SERVER};
+    use butterpollo_core::child_session::{
+        Hive, REMOTE_DESKTOP_RULES, Registry, SystemSettings, TERMINAL_SERVER,
+    };
 
     #[test]
     fn reading_settings_changes_nothing() {
@@ -631,6 +645,51 @@ mod tests {
                 .unwrap_err()
         );
         assert!(error.contains("is not in the group"), "{error}");
+        // Nor one the group doesn't have, and nothing is looked up for
+        // neither a group nor a rule.
+        for (group, id, expected) in [
+            (
+                REMOTE_DESKTOP_RULES,
+                "RubylightNoSuchRule",
+                "is not in the group",
+            ),
+            (
+                "",
+                "RemoteDesktop-UserMode-In-TCP",
+                "no firewall group was given",
+            ),
+            (REMOTE_DESKTOP_RULES, "", "no firewall rule was given"),
+        ] {
+            let error = format!("{:#}", settings.enable_rule(group, id).unwrap_err());
+            assert!(error.contains(expected), "{error}");
+        }
+    }
+
+    #[test]
+    fn a_remote_desktop_rule_is_found_by_its_id_in_its_group() {
+        // Read-only: the rule is looked up and read back, never turned on.
+        let (id, group) = crate::wmi::on_com_thread(
+            "reading a firewall rule",
+            std::time::Duration::from_secs(60),
+            || {
+                let wmi = super::Wmi::connect(super::FIREWALL_NAMESPACE)?;
+                let persistent = super::persistent_store()?;
+                let path = super::rule_in_group(
+                    &wmi,
+                    &persistent,
+                    REMOTE_DESKTOP_RULES,
+                    "remotedesktop-usermode-in-tcp",
+                )?;
+                let rule = wmi.get(&path)?;
+                Ok((
+                    crate::wmi::string(&rule, "InstanceID")?,
+                    crate::wmi::string(&rule, "RuleGroup")?,
+                ))
+            },
+        )
+        .unwrap();
+        assert_eq!(id.as_deref(), Some("RemoteDesktop-UserMode-In-TCP"));
+        assert_eq!(group.as_deref(), Some(REMOTE_DESKTOP_RULES));
     }
 
     #[test]

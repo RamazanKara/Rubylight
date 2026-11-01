@@ -5,8 +5,9 @@
 //! Ported from moonlight-qt's plvk.cpp as Moonlight V+ ships it: the renderer's device is handed
 //! to FFmpeg as an `AVVulkanDeviceContext` (instance, physical and logical device, the features
 //! and device extensions it was made with, every queue family it has queues in, the decode
-//! families with their codec operations), FFmpeg's `lock_queue` / `unlock_queue` take the lock of
-//! the queue they name, and a picture is used only between the frames context's `lock_frame` and
+//! families with their codec operations), FFmpeg's `lock_queue` / `unlock_queue` take SDL's queue
+//! lock for every queue (SDL waits for the whole device under it, and Vulkan wants every queue
+//! left alone for that wait), and a picture is used only between the frames context's `lock_frame` and
 //! `unlock_frame`, after a wait on its timeline semaphore at `sem_value`, which the use signals
 //! one higher and leaves in the frame with the layout it left the image in (libplacebo's
 //! `pl_vulkan_release_ex` / `pl_vulkan_hold_ex`, which plvk.cpp reaches through
@@ -252,43 +253,26 @@ struct Opaque {
     /// The features the device was made with, which `device_features` points into.
     chain: Box<Chain>,
     extensions: Vec<*const c_char>,
-    /// SDL's family and the SDL_Mutex SDL holds around its queue.
-    sdl_family: u32,
+    /// The SDL_Mutex SDL holds around its queue and around `vkDeviceWaitIdle` (`SDL_WaitForGPUIdle`,
+    /// swapchain rebuilds, the device's end), which needs every queue of the device externally
+    /// synchronized: the decode queues take it too. SDL's mutexes are recursive, and FFmpeg holds
+    /// it only around a submit, inside its frame locks as the presenter's copy does.
     sdl_lock: *mut SDL_Mutex,
-    /// The decode families' queues, which only FFmpeg uses, each with a lock of ours.
-    decode_locks: Vec<(u32, *mut SDL_Mutex)>,
 }
 
-impl Opaque {
-    fn lock_of(&self, family: u32) -> *mut SDL_Mutex {
-        if family == self.sdl_family {
-            return self.sdl_lock;
-        }
-        self.decode_locks
-            .iter()
-            .find(|(decode, _)| *decode == family)
-            .map_or(ptr::null_mut(), |(_, lock)| *lock)
-    }
-}
-
-impl Drop for Opaque {
-    fn drop(&mut self) {
-        for &(_, lock) in &self.decode_locks {
-            // SAFETY: Mutexes made in `device_context`, unused once FFmpeg frees the context.
-            unsafe { SDL_DestroyMutex(lock) };
-        }
-    }
+/// The lock FFmpeg takes for a queue of `family`: SDL's for every family (`Opaque::sdl_lock`).
+fn lock_of(opaque: &Opaque, _family: u32) -> *mut SDL_Mutex {
+    opaque.sdl_lock
 }
 
 unsafe extern "C" fn lock_queue(context: *mut AVHWDeviceContext, family: u32, _index: u32) {
     let opaque = &*(*context).user_opaque.cast::<Opaque>();
-    // SDL_LockMutex ignores null, a family the context does not list.
-    SDL_LockMutex(opaque.lock_of(family));
+    SDL_LockMutex(lock_of(opaque, family));
 }
 
 unsafe extern "C" fn unlock_queue(context: *mut AVHWDeviceContext, family: u32, _index: u32) {
     let opaque = &*(*context).user_opaque.cast::<Opaque>();
-    SDL_UnlockMutex(opaque.lock_of(family));
+    SDL_UnlockMutex(lock_of(opaque, family));
 }
 
 unsafe extern "C" fn free_opaque(context: *mut AVHWDeviceContext) {
@@ -370,26 +354,11 @@ pub unsafe fn device_context(
         .iter()
         .map(|name| name.as_ptr())
         .collect();
-    let mut opaque = Box::new(Opaque {
+    let opaque = Box::new(Opaque {
         chain,
         extensions: names,
-        sdl_family: sdl.family,
         sdl_lock: sdl.lock,
-        decode_locks: Vec::new(),
     });
-    for family in listed
-        .iter()
-        .filter(|family| family.idx as u32 != sdl.family)
-    {
-        let lock = SDL_CreateMutex();
-        if lock.is_null() {
-            return Err(format!(
-                "a queue lock cannot be made: {}",
-                crate::sdl::error()
-            ));
-        }
-        opaque.decode_locks.push((family.idx as u32, lock));
-    }
 
     let mut reference = av_hwdevice_ctx_alloc(AV_HWDEVICE_TYPE_VULKAN);
     if reference.is_null() {
@@ -1264,6 +1233,21 @@ mod tests {
             1,
             "without SDL's decode queue only SDL's family"
         );
+    }
+
+    /// SDL waits for its whole device under its queue lock, so FFmpeg's decode queues take that lock
+    /// too, not one of their own (`stream::vulkan_tests_unix` runs it against a device wait).
+    #[test]
+    fn every_queue_ffmpeg_submits_to_takes_sdls_queue_lock() {
+        let mut fake = 0u8;
+        let opaque = Opaque {
+            chain: Chain::new(),
+            extensions: Vec::new(),
+            sdl_lock: (&raw mut fake).cast(),
+        };
+        for family in [0, 1, 3, 31] {
+            assert_eq!(lock_of(&opaque, family), opaque.sdl_lock, "family {family}");
+        }
     }
 
     /// FFmpeg takes the shared renderer's device for every codec its video extensions decode. Needs

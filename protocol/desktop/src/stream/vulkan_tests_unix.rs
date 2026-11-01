@@ -485,3 +485,92 @@ fn a_sequence_of_vulkan_pictures_reuses_the_copy_slots_and_stays_the_software_pi
         );
     }
 }
+
+/// Decoding on its own thread while the presenter's thread waits for the whole device over and over,
+/// as `SDL_WaitForGPUIdle` and swapchain rebuilds do, and rebuilds the presenter now and then (a
+/// resize or display change; dropping `Planes` waits for the device too): `vkDeviceWaitIdle`
+/// needs every queue left alone, so FFmpeg submits to its decode queue only under SDL's queue lock.
+/// Run it under `VK_LAYER_KHRONOS_validation`: a THREADING ERROR there, a submit during the wait,
+/// is the failure (the layer's limit of 10 with the decode queue under a lock of its own).
+#[test]
+#[ignore = "needs a Vulkan device with video decoding and SDL's offscreen driver"]
+fn decoding_while_the_presenter_waits_for_the_device_keeps_every_queue_under_sdls_lock() {
+    const PICTURES: i64 = 120;
+    let _lock = gpu_lock();
+    let rig = Rig::new();
+    let case = &cases()[0];
+    let look = looks(case.ten)[0];
+    let software =
+        picture(&rig, case, Hardware::None, look).unwrap_or_else(|e| panic!("software: {e}"));
+    let gpu: *mut SDL_GPUDevice = rig.device().cast();
+    // Opened before the waits start: the validation layer miscounts a queue FFmpeg fetches while a
+    // device wait runs (`vkGetDeviceQueue` needs no lock) and then reports each later use of it.
+    let (mut decoder, first) = decode(case, Hardware::Vulkan(rig.device()), look)
+        .unwrap_or_else(|e| panic!("{}: Vulkan video: {e}", case.name));
+    let (sender, pictures) = std::sync::mpsc::channel();
+    let (decoded_count, shown, waits) = std::thread::scope(|scope| {
+        scope.spawn(move || {
+            let mut frame = first;
+            for number in 1..PICTURES {
+                if sender.send(frame).is_err() {
+                    return;
+                }
+                assert!(
+                    decoder.send(case.bin, number) >= 0,
+                    "picture {number}: the decoder rejected the fixture"
+                );
+                let Received::Frame(next) = decoder.receive() else {
+                    panic!("picture {number}: no picture")
+                };
+                tag(&next, look);
+                frame = next;
+            }
+            let _ = sender.send(frame);
+        });
+        let (mut decoded_count, mut shown, mut waits) = (0, 0, 0);
+        loop {
+            // SAFETY: The renderer's live device.
+            assert!(
+                unsafe { SDL_WaitForGPUIdle(gpu) },
+                "{}",
+                crate::sdl::error()
+            );
+            waits += 1;
+            match pictures.try_recv() {
+                Ok(frame) => {
+                    let kind = frame.info().kind;
+                    assert_eq!(
+                        kind,
+                        media::FRAME_VULKAN,
+                        "picture {decoded_count} is not a Vulkan picture"
+                    );
+                    decoded_count += 1;
+                    // Every eighth picture through a new texture, as a rebuilt presenter makes; the
+                    // old one's planes wait for the device when it drops.
+                    if decoded_count % 8 == 1 {
+                        let mut texture = VideoTexture::default();
+                        let (max, rms, _) = compare(
+                            &software,
+                            &present(&rig, &mut texture, &decoded(frame, case)),
+                            false,
+                        );
+                        let (limit, rms_limit) = bounds(case.ten);
+                        assert!(
+                            max < limit && rms < rms_limit,
+                            "picture {decoded_count}: max {max}, rms {rms}"
+                        );
+                        shown += 1;
+                    }
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => {}
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => break,
+            }
+        }
+        (decoded_count, shown, waits)
+    });
+    println!("{}: {decoded_count} pictures decoded, {shown} shown by rebuilt presenters, {waits} device waits meanwhile", case.name);
+    assert_eq!(
+        decoded_count, PICTURES as usize,
+        "the decoding thread stopped early"
+    );
+}

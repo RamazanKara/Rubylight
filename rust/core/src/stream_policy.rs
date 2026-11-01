@@ -286,10 +286,12 @@ impl SourcePhase {
         }
         // A phase jump or irregular source must not keep a stale prediction.
         // Extra compositions can outnumber source updates without a phase jump.
-        if self
-            .last_phase
-            .is_some_and(|last| at.duration_since(last) >= Duration::from_nanos(self.period_ns) * 3)
-        {
+        // Counted in updates: kept three stream periods, the old phase of a
+        // 120 Hz game whose frames moved one 240 Hz refresh held a claim to
+        // the phase bound, showing a frame 5.4 ms old.
+        if self.last_phase.is_some_and(|last| {
+            at.duration_since(last) >= Duration::from_nanos(self.cycle_ns()) * 3
+        }) {
             self.restart();
             self.origin = Some(at);
             phase = 0;
@@ -306,11 +308,12 @@ impl SourcePhase {
         self.last_phase = None;
         self.learn(previous);
     }
-    /// Start learning from scratch, for the same stream period and multiple.
+    /// Start learning from scratch, for the same stream period, multiple and
+    /// limit.
     fn restart(&mut self) {
-        let multiple = self.multiple;
+        let (multiple, limit, limit_at) = (self.multiple, self.limit, self.limit_at);
         *self = Self::new(Duration::from_nanos(self.period_ns));
-        self.multiple = multiple;
+        (self.multiple, self.limit, self.limit_at) = (multiple, limit, limit_at);
     }
     /// Find the center from the samples, keeping `previous` while the source
     /// still updates near it.

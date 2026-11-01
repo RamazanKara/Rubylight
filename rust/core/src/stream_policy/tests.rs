@@ -1904,6 +1904,46 @@ fn a_missed_refresh_on_a_120_hz_display_costs_one_stale_claim() {
     }
 }
 #[test]
+fn a_double_rate_game_that_moves_a_refresh_is_followed_within_three_of_its_frames() {
+    // A 120 Hz game on a 240 Hz display whose frames move one refresh for
+    // good is half its cycle off the learned phase. Kept for three stream
+    // periods, the old phase held the claim after the move to the phase
+    // bound, showing a frame 5.4 ms old; three of the game's frames drop it.
+    let period = 1000. / 60.;
+    for (hz, per) in [(240., 2), (360., 3)] {
+        let refresh = 1000. / hz;
+        for seed in 0..3 {
+            let mut compositions = vec![];
+            let mut frames = vec![];
+            for frame in 0..3600 {
+                let slot = (frame * per + usize::from(frame >= 1800)) as f64;
+                let composed = slot * refresh + 2.5 + 0.2 * noise(frame, seed);
+                frames.push(composed);
+                compositions.push(composed);
+                compositions.push(composed + 0.5 + 1.5 * noise(frame, seed + 1));
+            }
+            compositions.sort_by(f64::total_cmp);
+            frames.sort_by(f64::total_cmp);
+            let moved = frames[1800];
+            let claims = simulate_polled(period, &compositions);
+            let shown = |at: f64| frames.partition_point(|f| *f <= at + 1e-9);
+            for claim in claims.iter().filter(|c| c.0 >= moved && c.0 < moved + 300.) {
+                let age = claim.0 - frames[shown(claim.1) - 1];
+                let case = format!(
+                    "{hz} Hz, seed {seed}, claim {:.2} ms after the move",
+                    claim.0 - moved
+                );
+                assert!(age < 1., "{case}: age {age:.2} ms");
+                assert!(
+                    claim.0 - claim.2 <= 0.5,
+                    "{case}: held {:.2} ms",
+                    claim.0 - claim.2
+                );
+            }
+        }
+    }
+}
+#[test]
 fn another_window_on_the_other_refreshes_does_not_become_a_double_rate_games_phase() {
     // A 120 Hz game on a 240 Hz display with its second compositions, and
     // another window updating 30 to 70 times a second on the refreshes in

@@ -86,15 +86,23 @@ impl Pool {
             .values()
             .any(|entry| Arc::strong_count(&entry.pads) > 1)
     }
+    /// Whether [`Self::release_parked`] has anything to unplug: a parked
+    /// controller session no stream holds, or one whose release got stuck.
+    pub fn parked(&self) -> bool {
+        !self.1.lock().unwrap().is_empty()
+            || self
+                .0
+                .lock()
+                .unwrap()
+                .values()
+                .any(|entry| Arc::strong_count(&entry.pads) == 1)
+    }
     /// Unplug the parked controllers no stream holds, all at once within
-    /// `timeout`, and return how many pads they had plugged in: a Nucleus
-    /// Co-op launch does this before it plugs its players' pads, so a stream
-    /// that ended no longer holds the first XInput slot (#56), and waits for
-    /// XInput to show them gone (`pads::released`). Their clients get new
-    /// ones when they reconnect.
-    // Its caller, the Nucleus Co-op launch, lands with the session
-    // lifecycle changes.
-    #[allow(dead_code)]
+    /// `timeout`, and return how many pads they had plugged in: a new
+    /// background stream does this before it plugs its player's pad, so a
+    /// stream that ended no longer holds the first XInput slot (#56), and
+    /// waits for XInput to show them gone (`pads::released`). Their clients
+    /// get new ones when they reconnect.
     pub fn release_parked(&self, timeout: Duration) -> Result<u32> {
         let parked: Vec<Arc<GamepadThread>> = {
             let mut entries = self.0.lock().unwrap();
@@ -284,13 +292,18 @@ mod tests {
         let tv = pool.acquire(&launch("tv"), &config).unwrap();
         drop(pool.acquire(&launch("phone"), &config).unwrap());
         assert_eq!(keys(&pool), ["phone:Stream", "tv:Stream"]);
+        assert!(pool.parked());
         // No driver in the test: their threads never plugged a pad.
         assert_eq!(pool.release_parked(Duration::from_secs(5)).unwrap(), 0);
         assert_eq!(keys(&pool), ["tv:Stream"]);
         assert!(pool.in_use());
+        // The TV's held controller is nothing to release.
+        assert!(!pool.parked());
         drop(tv);
+        assert!(pool.parked());
         pool.release_parked(Duration::from_secs(5)).unwrap();
         assert!(keys(&pool).is_empty());
+        assert!(!pool.parked());
     }
 
     #[test]

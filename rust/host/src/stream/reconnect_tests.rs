@@ -2280,6 +2280,48 @@ async fn background_launches_run_in_nucleus_and_only_their_owner_returns() -> Re
     h.finish().await
 }
 
+/// #56: a desktop stream that ended parks its controller, which keeps the
+/// first XInput slot, and the background game started next read that pad
+/// instead of the player's. A new background session releases parked
+/// controllers before it plugs its player's pad; the owner returning to its
+/// session plugs nothing and leaves them.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_new_background_stream_releases_parked_controllers_first() -> Result<()> {
+    let (h, _pc, _) = coop_harness().await?;
+    let portal = h.h.apps.read().unwrap().last().unwrap().id();
+    for client in &mut h.h.paired.write().unwrap().clients {
+        client.extra.insert("background_stream".into(), true.into());
+    }
+    let other = h.h.paired.read().unwrap().clients[1].clone();
+    let other = crate::state::test_support::Fixture::new().launch(other, Role::Stream);
+    let config = butterpollo_core::config::Config::default();
+    let park = || drop(h.h.controller_sessions.acquire(&other, &config).unwrap());
+    park();
+    assert!(h.h.controller_sessions.parked());
+    let first = launch_app(&h, 0, portal).await?;
+    assert!(first.contains("status_code=\"200\""), "{first}");
+    assert!(!h.h.controller_sessions.parked());
+    let launch = pending_of(&h, 0).unwrap();
+    let seat = launch.nucleus.unwrap();
+    park();
+    let again = launch_app(&h, 0, portal).await?;
+    assert!(again.contains("status_code=\"200\""), "{again}");
+    assert!(h.h.controller_sessions.parked());
+    let relaunch = pending_of(&h, 0).unwrap();
+    drop(launch);
+    let canceled = h.h.sessions.lock().unwrap().pending.remove(&relaunch.id);
+    drop(canceled);
+    h.h.nucleus.leave(seat, &relaunch.id);
+    drop(relaunch);
+    h.h.controller_sessions
+        .release_parked(Duration::from_secs(5))?;
+    // The harness's last launch is a normal one.
+    for client in &mut h.h.paired.write().unwrap().clients {
+        client.extra.remove("background_stream");
+    }
+    h.finish().await
+}
+
 /// Moonlight and Nightjar end the stream first and then quit: a quit from
 /// the device whose background stream already ended still ends that
 /// session, by Moonlight's /cancel or Nightjar's Close game, instead of

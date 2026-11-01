@@ -1526,6 +1526,15 @@ fn launch_back_half(
     match game {
         Some(game) => {
             let config = crate::stream::effective_config(h, &launch)?;
+            // A new background session plugs its player's pad: one that a
+            // stream which ended still parks would hold the first XInput
+            // slot, and the game would read that one (#56). A device
+            // returning to its own session, and co-op, plug nothing.
+            if matches!(game, crate::nucleus::Game::Background(_))
+                && h.nucleus.background_of(&launch.client.uuid).is_none()
+            {
+                release_parked_pads(h)?;
+            }
             let seat = h.nucleus.admit(crate::nucleus::Admission {
                 launch: &id,
                 client: &launch.client,
@@ -1810,6 +1819,18 @@ pub(crate) fn terminate_refused(h: &Shared, client: &str) -> bool {
             .values()
             .any(|s| !s.stopping() && s.launch.role != Role::Stream);
     remote_active && game.owner != client
+}
+/// Unplug the controllers that streams which ended still park and wait until XInput shows them
+/// gone, so a new background session's player takes the first free slot (#56). Nothing to do,
+/// and XInput isn't read, when nothing is parked.
+fn release_parked_pads(h: &Shared) -> Result<()> {
+    use butterpollo_windows::nucleus::pads;
+    if !h.controller_sessions.parked() {
+        return Ok(());
+    }
+    pads::released(&mut pads::System::open()?, || {
+        h.controller_sessions.release_parked(pads::RETIRE_TIMEOUT)
+    })
 }
 /// A Nucleus Co-op player's quit (Moonlight's cancel, WebRTC's stop-host-session): its own
 /// streams end, never the other players' or the host's app, and its slot is kept for the grace

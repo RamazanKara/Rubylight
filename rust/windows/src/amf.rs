@@ -177,11 +177,11 @@ impl Submission {
 /// inter frame past the stream's full-FEC bound, once per frame (`keyframe`
 /// covers a requested or re-encoded one), and only while nothing submitted
 /// after it can reference it (`alone`).
-fn reencodes_cut(keyframe: bool, bytes: u64, limit: Option<u64>, alone: bool) -> bool {
+pub(crate) fn reencodes_cut(keyframe: bool, bytes: u64, limit: Option<u64>, alone: bool) -> bool {
     !keyframe && alone && limit.is_some_and(|limit| bytes > limit)
 }
 /// A keyframe AMF made more than 1.1 times the cap the host asked for.
-fn over_cap_target(bytes: u64, target: Option<u64>) -> bool {
+pub(crate) fn over_cap_target(bytes: u64, target: Option<u64>) -> bool {
     target.is_some_and(|target| target > 0 && bytes * 10 > target * 11)
 }
 pub struct Encoder {

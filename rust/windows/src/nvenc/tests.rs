@@ -1555,3 +1555,155 @@ fn throughput_names_map_to_their_codec_only() {
     assert_eq!(throughput_codec("MaxBitrate"), None);
     assert_eq!(codec_name(2), "AV1");
 }
+#[test]
+fn the_frame_cap_lowers_the_vbv_under_it_and_a_steady_link_never_reconfigures() -> Result<()> {
+    reset();
+    let mut encoder = session(&Negotiated::default(), ApiVersion(13, 0))?;
+    let ceiling = encoder.config.rcParams.vbvBufferSize;
+    assert!(ceiling > 0);
+    assert_eq!(encoder.vbv_ceiling, ceiling);
+    let frame = u64::from(ceiling).div_ceil(8);
+    assert_eq!(encoder.frame_cap(), Some(frame));
+    // A cap over the one-frame VBV is already held: no reconfigure, and the
+    // cap is the bound frames report.
+    assert_eq!(encoder.set_frame_cap(frame * 3)?, Some(frame * 3));
+    state(|d| assert!(d.reconfigured.is_none()));
+    // A cap under it lowers the VBV, without a reset or a keyframe.
+    assert_eq!(encoder.set_frame_cap(frame / 2)?, Some(frame / 2));
+    assert_eq!(
+        u64::from(encoder.config.rcParams.vbvBufferSize),
+        frame / 2 * 8
+    );
+    assert_eq!(encoder.config.rcParams.averageBitRate, 20_000_000);
+    state(|d| {
+        let (parameters, config) = d.reconfigured.take().unwrap();
+        assert_eq!(parameters.resetEncoder(), 0);
+        assert_eq!(parameters.forceIDR(), 0);
+        assert_eq!(u64::from(config.rcParams.vbvBufferSize), frame / 2 * 8);
+    });
+    assert!(!encoder.force_idr);
+    // Jitter within a tenth leaves it.
+    encoder.set_frame_cap(frame / 2 + frame / 40)?;
+    encoder.set_frame_cap(frame / 2 - frame / 40)?;
+    state(|d| assert!(d.reconfigured.is_none()));
+    // The submitted frame carries the cap and the host's target.
+    let slot = input(&mut encoder, 17)?;
+    encoder.submit(slot, None, true, Instant::now())?;
+    let output = encoder.poll()?;
+    assert_eq!(output[0].frame_cap_target, Some(frame / 2 - frame / 40));
+    assert_eq!(output[0].frame_cap_bytes, Some(frame / 2));
+    // Back over the ceiling: the VBV returns to it at once.
+    encoder.set_frame_cap(frame * 2)?;
+    assert_eq!(encoder.config.rcParams.vbvBufferSize, ceiling);
+    state(|d| assert!(d.reconfigured.take().is_some()));
+    // A bitrate change moves the ceiling with the rate.
+    encoder.bitrate(10000)?;
+    assert_eq!(encoder.vbv_ceiling, ceiling / 2);
+    assert_eq!(encoder.config.rcParams.vbvBufferSize, ceiling / 2);
+    // A refused change is not retried for the same cap.
+    state(|d| d.reject_reconfigure = true);
+    assert!(encoder.set_frame_cap(frame / 8).is_err());
+    state(|d| d.reconfigured = None);
+    assert!(encoder.set_frame_cap(frame / 8).is_ok());
+    state(|d| assert!(d.reconfigured.is_none()));
+    drop(encoder);
+    assert_clean();
+    Ok(())
+}
+#[test]
+fn a_driver_controlled_vbv_reports_no_frame_cap() -> Result<()> {
+    reset();
+    let mut encoder = session(&Negotiated::default(), ApiVersion(13, 0))?;
+    encoder.config.rcParams.vbvBufferSize = 0;
+    encoder.vbv_ceiling = 0;
+    assert_eq!(encoder.set_frame_cap(1000)?, None);
+    state(|d| assert!(d.reconfigured.is_none()));
+    drop(encoder);
+    assert_clean();
+    Ok(())
+}
+#[test]
+fn an_oversize_scene_cut_alone_in_flight_is_encoded_again_as_a_keyframe() -> Result<()> {
+    reset();
+    let mut encoder = session(&Negotiated::default(), ApiVersion(13, 0))?;
+    let slot = input(&mut encoder, 17)?;
+    let other = input(&mut encoder, 18)?;
+    // Every fake picture is 8 bytes: past a 4-byte limit.
+    encoder.cut_limit = Some(4);
+    encoder.submit(slot, None, true, Instant::now())?;
+    let output = encoder.poll()?;
+    assert!(output[0].idr && !output[0].reencoded, "a keyframe is sent");
+    let presentation = Instant::now() - Duration::from_millis(5);
+    encoder.submit(slot, None, false, presentation)?;
+    let output = encoder.poll()?;
+    assert_eq!(output.len(), 1);
+    assert!(output[0].idr && output[0].reencoded);
+    // The keyframe keeps the cut's number and presentation.
+    assert_eq!(output[0].bytes, 2u64.to_le_bytes());
+    assert_eq!(output[0].presentation, Some(presentation));
+    assert_eq!(encoder.reencoded_cuts, 1);
+    assert_eq!(encoder.next, 3);
+    // A cut with a later frame in flight is sent: that frame references it.
+    encoder.submit(slot, None, false, Instant::now())?;
+    encoder.submit(other, None, false, Instant::now())?;
+    let output = encoder.poll()?;
+    assert!(!output[0].idr && !output[0].reencoded);
+    assert_eq!(output[0].bytes, 3u64.to_le_bytes());
+    assert!(output[1].reencoded, "the newest is alone once collected");
+    assert_eq!(encoder.reencoded_cuts, 2);
+    // Without a limit nothing is encoded again.
+    encoder.cut_limit = None;
+    encoder.submit(slot, None, false, Instant::now())?;
+    assert!(!encoder.poll()?[0].idr);
+    drop(encoder);
+    assert_clean();
+    Ok(())
+}
+#[test]
+fn a_failed_scene_cut_reencode_sends_the_inter_frame_and_says_so() -> Result<()> {
+    reset();
+    let mut encoder = session(&Negotiated::default(), ApiVersion(13, 0))?;
+    let slot = input(&mut encoder, 17)?;
+    encoder.submit(slot, None, true, Instant::now())?;
+    encoder.poll()?;
+    encoder.cut_limit = Some(4);
+    encoder.submit(slot, None, false, Instant::now())?;
+    state(|d| d.reject_submit = true);
+    let output = encoder.poll()?;
+    assert_eq!(output.len(), 1);
+    assert!(!output[0].idr && !output[0].reencoded);
+    assert!(encoder.reencode_failure.take().is_some());
+    assert_eq!(encoder.reencoded_cuts, 0);
+    // The rejected keyframe left nothing mapped, and the next frame is one.
+    state(|d| {
+        assert!(d.mapped.is_empty());
+        d.reject_submit = false;
+    });
+    assert!(encoder.force_idr);
+    encoder.submit(slot, None, false, Instant::now())?;
+    let output = encoder.poll()?;
+    assert!(output[0].idr && !output[0].reencoded);
+    drop(encoder);
+    assert_clean();
+    Ok(())
+}
+#[test]
+fn keyframes_past_a_tenth_over_the_target_are_counted() -> Result<()> {
+    reset();
+    let mut encoder = session(&Negotiated::default(), ApiVersion(13, 0))?;
+    let slot = input(&mut encoder, 17)?;
+    encoder.frame_cap_target = Some(7);
+    encoder.submit(slot, None, true, Instant::now())?;
+    encoder.poll()?;
+    assert_eq!(encoder.keyframes_over_cap, 1, "8 bytes against 7");
+    encoder.frame_cap_target = Some(8);
+    encoder.submit(slot, None, true, Instant::now())?;
+    encoder
+        .submit(slot, None, false, Instant::now())
+        .unwrap_err();
+    encoder.poll()?;
+    assert_eq!(encoder.keyframes_over_cap, 1);
+    drop(encoder);
+    assert_clean();
+    Ok(())
+}

@@ -47,6 +47,8 @@ const SUCCESS: NVENCSTATUS = _NVENCSTATUS_NV_ENC_SUCCESS;
 const MAX_PENDING: usize = 8;
 const COMPLETION_TIMEOUT: Duration = Duration::from_millis(100);
 const MAX_FRAME_BYTES: usize = 16 * 1024 * 1024;
+/// The smallest VBV a bitrate change or a frame cap sets.
+const MIN_VBV_BITS: u64 = 100_000;
 type CreateInstance = unsafe extern "C" fn(*mut NV_ENCODE_API_FUNCTION_LIST) -> NVENCSTATUS;
 type GetMaximum = unsafe extern "C" fn(*mut u32) -> NVENCSTATUS;
 
@@ -356,7 +358,23 @@ struct Pending {
     started: Instant,
     presentation: Instant,
     after_invalidation: bool,
+    /// Submitted as a keyframe.
+    idr: bool,
+    /// The keyframe encoded again in place of an oversize scene cut.
+    reencoded: bool,
+    /// [`Session::frame_cap`], [`Session::frame_cap_target`] and
+    /// [`Session::cut_limit`] at submission.
+    frame_cap_bytes: Option<u64>,
+    frame_cap_target: Option<u64>,
+    cut_limit: Option<u64>,
     _converted: Option<Arc<ID3D11Texture2D>>,
+}
+/// A frame submitted once more ([`Session::reencode`]): it keeps its number
+/// and its encode time counts from the first submission, as AMF counts it.
+#[derive(Clone, Copy)]
+struct Again {
+    frame: u64,
+    started: Instant,
 }
 struct Session {
     raw: *mut c_void,
@@ -380,6 +398,20 @@ struct Session {
     rate_control: RateControl,
     /// The frame budget guard's verdict on the configured preset.
     budget: Option<Budget>,
+    /// The one-frame VBV, in bits, that the settings give at the current
+    /// bitrate; [`Session::set_frame_cap`] lowers the session's VBV under it
+    /// and never raises it above. 0 when the driver controls buffering.
+    vbv_ceiling: u32,
+    /// The last frame cap the VBV was set for, against small changes.
+    cap_requested: Option<u64>,
+    /// The host's last pace-based frame cap ([`Session::set_frame_cap`]).
+    frame_cap_target: Option<u64>,
+    /// The largest inter frame sent as encoded ([`Session::reencodes`]).
+    cut_limit: Option<u64>,
+    reencoded_cuts: u64,
+    keyframes_over_cap: u64,
+    /// Why encoding a scene cut again failed, until the encoder reports it.
+    reencode_failure: Option<String>,
     next: u64,
     initialized: bool,
     force_idr: bool,
@@ -463,6 +495,13 @@ impl Session {
             dynamic_bitrate: false,
             rate_control: RateControl::Cbr,
             budget: None,
+            vbv_ceiling: 0,
+            cap_requested: None,
+            frame_cap_target: None,
+            cut_limit: None,
+            reencoded_cuts: 0,
+            keyframes_over_cap: 0,
+            reencode_failure: None,
             next: 1,
             initialized: false,
             force_idr: false,
@@ -725,6 +764,7 @@ impl Session {
         rc.set_enableTemporalAQ(u32::from(temporal_aq));
         if custom_vbv {
             rc.vbvBufferSize = tuning.vbv(self.stream.bitrate_kbps, self.stream.fps_millihz());
+            self.vbv_ceiling = rc.vbvBufferSize;
         }
         if let Some(qp) = tuning.min_qp {
             rc.set_enableMinQP(1);
@@ -1028,7 +1068,18 @@ impl Session {
         idr: bool,
         presentation: Instant,
     ) -> Result<()> {
+        self.submit_frame(slot, texture, idr, presentation, None)
+    }
+    fn submit_frame(
+        &mut self,
+        slot: usize,
+        texture: Option<Arc<ID3D11Texture2D>>,
+        idr: bool,
+        presentation: Instant,
+        again: Option<Again>,
+    ) -> Result<()> {
         let _guard = self.guard()?;
+        let frame = again.map_or(self.next, |again| again.frame);
         if self.pending.len() >= MAX_PENDING || self.pending.iter().any(|p| p.slot == slot) {
             bail!("NVENC input is still in flight");
         }
@@ -1059,8 +1110,8 @@ impl Session {
             inputWidth: self.stream.width,
             inputHeight: self.stream.height,
             inputPitch: self.slots[slot].input.pitch,
-            frameIdx: self.next as u32,
-            inputTimeStamp: self.next,
+            frameIdx: frame as u32,
+            inputTimeStamp: frame,
             inputBuffer: map.mappedResource,
             outputBitstream: self.slots[slot].output,
             completionEvent: self.slots[slot].event.0,
@@ -1091,13 +1142,19 @@ impl Session {
                 }
             }
         }
-        let started = Instant::now();
+        let started = again.map_or_else(Instant::now, |again| again.started);
         // SAFETY: `picture` points at the slot's mapped input, output buffer and boxed metadata,
         // which all stay alive while the slot is in `pending`.
         let status =
             unsafe { (self.functions.nvEncEncodePicture.unwrap())(self.raw, &mut picture) };
         if status != SUCCESS && status != _NVENCSTATUS_NV_ENC_ERR_NEED_MORE_INPUT {
             self.force_idr |= idr;
+            // The input stays registered; only this frame's mapping goes.
+            // SAFETY: `mapped` is the mapping made above, which the rejected picture never took.
+            let _ = unsafe {
+                (self.functions.nvEncUnmapInputResource.unwrap())(self.raw, self.slots[slot].mapped)
+            };
+            self.slots[slot].mapped = ptr::null_mut();
             self.check(status, "submit picture")?;
         }
         self.force_idr = false;
@@ -1106,16 +1163,89 @@ impl Session {
         self.slots[slot].signaled = false;
         self.pending.push_back(Pending {
             slot,
-            frame: self.next,
+            frame,
             started,
             presentation,
             after_invalidation,
+            idr,
+            reencoded: again.is_some(),
+            frame_cap_bytes: self.frame_cap(),
+            frame_cap_target: self.frame_cap_target,
+            cut_limit: self.cut_limit,
             _converted: texture,
         });
-        self.next = self
-            .next
-            .checked_add(1)
-            .context("NVENC frame index overflow")?;
+        if again.is_none() {
+            self.next = self
+                .next
+                .checked_add(1)
+                .context("NVENC frame index overflow")?;
+        }
+        Ok(())
+    }
+    /// The bound the session holds every frame to: its one-frame VBV, or the
+    /// host's cap when that is larger, since the VBV keeps frames under it.
+    /// `None` when the driver controls buffering.
+    fn frame_cap(&self) -> Option<u64> {
+        let vbv = u64::from(self.config.rcParams.vbvBufferSize).div_ceil(8);
+        (vbv > 0).then(|| vbv.max(self.frame_cap_target.unwrap_or(0)))
+    }
+    /// The host's pace-based frame cap, which AMF writes as its frame size
+    /// limit. NVENC holds every frame, keyframes too (`lowDelayKeyFrameScale`),
+    /// to its one-frame VBV, which is under the cap on any link that carries
+    /// the stream; a cap under the VBV lowers the VBV to it. Changes within a
+    /// tenth are skipped and the VBV returns to its ceiling at once, so a
+    /// steady link never reconfigures.
+    fn set_frame_cap(&mut self, bytes: u64) -> Result<Option<u64>> {
+        if bytes == 0 {
+            return Ok(self.frame_cap());
+        }
+        self.frame_cap_target = Some(bytes);
+        let current = self.config.rcParams.vbvBufferSize;
+        if self.vbv_ceiling == 0 || !self.dynamic_bitrate || current == 0 {
+            return Ok(self.frame_cap());
+        }
+        let wanted = bytes.saturating_mul(8).clamp(
+            MIN_VBV_BITS,
+            u64::from(self.vbv_ceiling.max(MIN_VBV_BITS as u32)),
+        ) as u32;
+        let small = u64::from(wanted.abs_diff(current)) * 10 <= u64::from(current);
+        if wanted == current
+            || (small && wanted != self.vbv_ceiling)
+            || self.cap_requested == Some(bytes)
+        {
+            return Ok(self.frame_cap());
+        }
+        self.cap_requested = Some(bytes);
+        self.reconfigure(self.config.rcParams.averageBitRate, wanted, "frame cap")?;
+        Ok(self.frame_cap())
+    }
+    /// Whether `encoded`, `pending`'s output, goes back to NVENC as a keyframe
+    /// instead of to the client: the rule AMF follows
+    /// ([`crate::amf::reencodes_cut`]), for an inter frame past the stream's
+    /// full-FEC bound that the VBV did not hold, while nothing submitted after
+    /// it can reference it.
+    fn reencodes(&self, pending: &Pending, encoded: &Encoded) -> bool {
+        crate::amf::reencodes_cut(
+            encoded.idr || pending.idr || pending.reencoded,
+            encoded.bytes.len() as u64,
+            pending.cut_limit,
+            self.pending.is_empty(),
+        )
+    }
+    /// Submit `cut`'s input again as a keyframe with its frame number. The
+    /// keyframe resets the references, so a later repair names only it.
+    fn reencode(&mut self, cut: &Pending) -> Result<()> {
+        self.submit_frame(
+            cut.slot,
+            cut._converted.clone(),
+            true,
+            cut.presentation,
+            Some(Again {
+                frame: cut.frame,
+                started: cut.started,
+            }),
+        )?;
+        self.reencoded_cuts += 1;
         Ok(())
     }
     fn collect(&mut self) -> Result<()> {
@@ -1175,9 +1305,9 @@ impl Session {
                     unit: crate::encoder::Unit::Whole,
                     idr,
                     after_invalidation: pending.after_invalidation && !idr,
-                    frame_cap_bytes: None,
-                    reencoded: false,
-                    frame_cap_target: None,
+                    frame_cap_bytes: pending.frame_cap_bytes,
+                    reencoded: pending.reencoded,
+                    frame_cap_target: pending.frame_cap_target,
                     latency: Some(pending.started.elapsed()),
                     presentation: Some(pending.presentation),
                 })
@@ -1206,6 +1336,22 @@ impl Session {
             )?;
             self.slots[index].mapped = ptr::null_mut();
             let pending = self.pending.pop_front().unwrap();
+            if self.reencodes(&pending, &encoded) {
+                match self.reencode(&pending) {
+                    // The loop collects the keyframe when it is done.
+                    Ok(()) => continue,
+                    Err(error) => {
+                        let error = format!("{error:#}");
+                        tracing::error!(%error, frame = pending.frame, bytes = encoded.bytes.len(), "NVENC could not encode an oversize scene cut again as a keyframe; sending the inter frame, which loses its FEC. Report this with the host log.");
+                        self.reencode_failure = Some(error);
+                    }
+                }
+            }
+            if encoded.idr
+                && crate::amf::over_cap_target(encoded.bytes.len() as u64, pending.frame_cap_target)
+            {
+                self.keyframes_over_cap += 1;
+            }
             self.references.completed(pending.frame, encoded.idr);
             self.ready.push_back(encoded);
         }
@@ -1244,38 +1390,54 @@ impl Session {
         if !self.dynamic_bitrate {
             bail!("NVENC driver cannot change bitrate in this session");
         }
+        let before = self.config.rcParams.averageBitRate;
+        let after = bitrate * 1000;
+        let scale = |bits: u32| {
+            if bits > 0 && before > 0 {
+                (u64::from(after) * u64::from(bits) / u64::from(before))
+                    .clamp(MIN_VBV_BITS, u64::from(u32::MAX)) as u32
+            } else {
+                bits
+            }
+        };
+        let vbv = scale(self.config.rcParams.vbvBufferSize);
+        let ceiling = scale(self.vbv_ceiling);
+        self.reconfigure(after, vbv, "change bitrate")?;
+        self.vbv_ceiling = ceiling;
+        // The next frame cap is measured against the new ceiling.
+        self.cap_requested = None;
+        self.stream.bitrate_kbps = bitrate;
+        Ok(())
+    }
+    /// Reconfigure the rate control to `bitrate` bits per second and a VBV of
+    /// `vbv` bits. A higher bitrate resets the encoder and forces a keyframe.
+    fn reconfigure(&mut self, bitrate: u32, vbv: u32, operation: &'static str) -> Result<()> {
         self.drain()?;
         let _guard = self.guard()?;
         let mut config = Box::new(*self.config);
         let before = config.rcParams.averageBitRate;
-        let after = bitrate * 1000;
-        config.rcParams.averageBitRate = after;
-        config.rcParams.maxBitRate = self.rate_control.max_bitrate(after);
-        if config.rcParams.vbvBufferSize > 0 && before > 0 {
-            config.rcParams.vbvBufferSize =
-                (u64::from(after) * u64::from(config.rcParams.vbvBufferSize) / u64::from(before))
-                    .clamp(100_000, u64::from(u32::MAX)) as u32;
-        }
+        config.rcParams.averageBitRate = bitrate;
+        config.rcParams.maxBitRate = self.rate_control.max_bitrate(bitrate);
+        config.rcParams.vbvBufferSize = vbv;
         let mut reconfigure = NV_ENC_RECONFIGURE_PARAMS {
             version: self.api.reconfigure(),
             reInitEncodeParams: *self.initialize,
             ..Default::default()
         };
         reconfigure.reInitEncodeParams.encodeConfig = config.as_mut();
-        reconfigure.set_resetEncoder(u32::from(after > before));
-        reconfigure.set_forceIDR(u32::from(after > before));
+        reconfigure.set_resetEncoder(u32::from(bitrate > before));
+        reconfigure.set_forceIDR(u32::from(bitrate > before));
         self.check(
             // SAFETY: `dynamic_bitrate` requires nvEncReconfigureEncoder, and the boxed `config` is
             // kept as `self.config` after the call.
             unsafe {
                 (self.functions.nvEncReconfigureEncoder.unwrap())(self.raw, &mut reconfigure)
             },
-            "change bitrate",
+            operation,
         )?;
         self.config = config;
         self.initialize.encodeConfig = self.config.as_mut();
-        self.stream.bitrate_kbps = bitrate;
-        self.force_idr |= after > before;
+        self.force_idr |= bitrate > before;
         Ok(())
     }
     fn invalidate(&mut self, first: u64, last: u64) -> Result<bool> {
@@ -1457,6 +1619,8 @@ pub struct Encoder {
     /// measured Dolby Vision light levels.
     stats: Option<Box<crate::gpu_color::HdrStats>>,
     last_submitted: Option<Instant>,
+    /// The frame cap failed and its warning is up.
+    cap_warned: bool,
 }
 impl Encoder {
     pub fn new_device_options(config: &Negotiated, gpu: Device, options: &Config) -> Result<Self> {
@@ -1500,6 +1664,7 @@ impl Encoder {
             dynamic: None,
             stats: None,
             last_submitted: None,
+            cap_warned: false,
         };
         encoder.dynamic = encoder.enable_dynamic(options);
         encoder.set_hdr_metadata(metadata);
@@ -1586,6 +1751,40 @@ impl Encoder {
     pub fn budget(&self) -> Option<Budget> {
         self.session.budget
     }
+    /// The host's pace-based frame cap ([`Session::set_frame_cap`]); the
+    /// bound frames are held to, or `None` when the driver controls buffering.
+    pub fn set_frame_cap(&mut self, bytes: u64) -> Option<u64> {
+        match self.session.set_frame_cap(bytes) {
+            Ok(cap) => {
+                if std::mem::take(&mut self.cap_warned) {
+                    self.warnings.clear("encoder_frame_size");
+                }
+                cap
+            }
+            Err(error) => {
+                self.cap_warned = true;
+                tracing::warn!(error = %format!("{error:#}"), bytes, "NVENC could not hold frames to the frame cap; keeping its one-frame VBV");
+                self.warnings.set("encoder_frame_size", format!("NVENC could not lower its frame size limit to {bytes} bytes ({error:#}); large frames may leave without full FEC. Update the NVIDIA driver."));
+                self.session.frame_cap()
+            }
+        }
+    }
+    pub fn frame_cap(&self) -> Option<u64> {
+        self.session.frame_cap()
+    }
+    /// The largest inter frame sent as encoded; a larger one is encoded again
+    /// as a keyframe, as AMF does.
+    pub fn set_cut_limit(&mut self, bytes: u64) {
+        self.session.cut_limit = (bytes > 0).then_some(bytes);
+    }
+    /// Inter frames encoded again as keyframes since the encoder opened.
+    pub fn reencoded_cuts(&self) -> u64 {
+        self.session.reencoded_cuts
+    }
+    /// Keyframes more than 1.1 times the cap the host asked for.
+    pub fn keyframes_over_cap(&self) -> u64 {
+        self.session.keyframes_over_cap
+    }
     /// Snapshot only at failure/recreation, before dropping the driver state.
     pub fn log_stall(&self) {
         let oldest = self.session.pending.front();
@@ -1606,6 +1805,9 @@ impl Encoder {
     }
     pub fn poll(&mut self) -> Result<Vec<Encoded>> {
         let mut frames = self.session.poll()?;
+        if let Some(error) = self.session.reencode_failure.take() {
+            self.warnings.event("encoder_reencode", format!("NVENC could not encode an oversize scene cut again as a keyframe ({error}); the frame goes without full FEC and may freeze the picture briefly. Report this with the host log."), butterpollo_core::session::EVENT_PERIOD);
+        }
         for frame in &mut frames {
             splice(self.dynamic.as_deref_mut(), frame);
         }

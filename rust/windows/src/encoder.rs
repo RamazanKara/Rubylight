@@ -100,44 +100,50 @@ pub enum Encoder {
     Pyrowave(Box<crate::pyrowave::Encoder>),
 }
 impl Encoder {
-    /// Best-effort pace-based frame cap. Unsupported backends safely ignore
-    /// it; AMF preserves an explicit user setting, including driver default.
-    /// `floor` (two nominal frames) bounds how far AMF's keyframe cap scale
-    /// lowers it.
+    /// Best-effort pace-based frame cap. PyroWave ignores it; AMF preserves an
+    /// explicit user setting, including driver default. `floor` (two nominal
+    /// frames) bounds how far AMF's keyframe cap scale lowers it. NVENC holds
+    /// frames to its one-frame VBV and lowers that to a smaller cap.
     pub fn set_frame_cap(&mut self, bytes: u64, floor: u64) -> Option<u64> {
         match self {
             Self::Amf(encoder) => encoder.set_frame_cap(bytes, floor),
-            _ => None,
+            Self::Nvenc(encoder) => encoder.set_frame_cap(bytes),
+            Self::Pyrowave(_) => None,
         }
     }
     pub fn frame_cap(&self) -> Option<u64> {
         match self {
             Self::Amf(encoder) => encoder.frame_cap(),
-            _ => None,
+            Self::Nvenc(encoder) => encoder.frame_cap(),
+            Self::Pyrowave(_) => None,
         }
     }
-    /// The largest inter frame sent as encoded; AMF encodes a larger one again
-    /// as a keyframe. PyroWave holds every picture to its budget, and NVENC's
-    /// one-frame VBV every inter frame to the stream's rate.
+    /// The largest inter frame sent as encoded; AMF and NVENC encode a larger
+    /// one again as a keyframe. PyroWave holds every picture to its budget.
     pub fn set_cut_limit(&mut self, bytes: u64) {
-        if let Self::Amf(encoder) = self {
-            encoder.set_cut_limit(bytes);
+        match self {
+            Self::Amf(encoder) => encoder.set_cut_limit(bytes),
+            Self::Nvenc(encoder) => encoder.set_cut_limit(bytes),
+            Self::Pyrowave(_) => {}
         }
     }
     /// Inter frames encoded again as keyframes since the encoder opened.
     pub fn reencoded_cuts(&self) -> u64 {
         match self {
             Self::Amf(encoder) => encoder.reencoded_cuts(),
-            _ => 0,
+            Self::Nvenc(encoder) => encoder.reencoded_cuts(),
+            Self::Pyrowave(_) => 0,
         }
     }
     pub fn keyframes_over_cap(&self) -> u64 {
         match self {
             Self::Amf(encoder) => encoder.keyframes_over_cap(),
-            _ => 0,
+            Self::Nvenc(encoder) => encoder.keyframes_over_cap(),
+            Self::Pyrowave(_) => 0,
         }
     }
-    /// How far under the pace-based target AMF's cap is written; 1 elsewhere.
+    /// How far under the pace-based target AMF's cap is written; 1 elsewhere:
+    /// NVENC's VBV holds keyframes to the cap without one.
     pub fn keyframe_cap_scale(&self) -> f64 {
         match self {
             Self::Amf(encoder) => encoder.keyframe_cap_scale(),

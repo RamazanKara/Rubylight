@@ -193,10 +193,13 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     private static final int CR_FLAG_ALL = CR_FLAG_INPUT_THREAD | CR_FLAG_RENDER_THREAD | CR_FLAG_CHOREOGRAPHER;
     private int codecRecoveryThreadQuiescedFlags = 0;
     private int codecRecoveryAttempts = 0;
-    // Frames out when the last recovery ran: CR_REFILL_FRAMES good frames since refill the attempts,
-    // so only a tight crash loop uses them up, not ten recoveries hours apart
+    // Frames out and uptime when the last recovery ran: CR_REFILL_FRAMES good frames and
+    // CR_REFILL_MS since refill the attempts, so only a crash loop uses them up (one every few
+    // seconds at 240 FPS included), not ten recoveries hours apart
     private static final int CR_REFILL_FRAMES = 600;
+    private static final long CR_REFILL_MS = 10_000;
     private int framesOutAtLastRecovery;
+    private long uptimeAtLastRecoveryMs;
     // A decoder that stops taking input gets one reset (through the same attempts) before the
     // stream ends; past this timeout, room for the quiesce and a back-off as well, a watchdog
     // takes the reset for hung and ends the stream
@@ -814,6 +817,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     // {max width, max height, width alignment, height alignment} this stream's decoder can switch
     // to mid-stream, or null when it cannot change size in place.
     public int[] getReconfigureLimits() {
+        // A failed decoder's monitor may be held by a reset that hung (see prepareForStop).
+        if (decoderFailure != null) return null;
         synchronized (codecRecoveryMonitor) {
             MediaCodecInfo.VideoCapabilities caps = reconfigureCapabilities();
             if (caps == null) {
@@ -835,6 +840,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     // raises the maximum to cover both sizes, which restarts the decoder once and asks for an IDR;
     // either size can then arrive first. False when this decoder cannot take the size.
     public boolean prepareForReconfigure(int width, int height) {
+        if (decoderFailure != null) return false;
         synchronized (codecRecoveryMonitor) {
             if (packing != null) {
                 MoonBridge.bridgeClDisplayMessage("Reconnect to change the logical size of a packed full-chroma stream.");
@@ -885,6 +891,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     @Override
     public void setStreamFrameRateMilliHz(int fpsMilliHz) {
         FramePacingPolicy.frameIntervalNs(fpsMilliHz); // Validate before publishing to the render threads.
+        if (decoderFailure != null) return;
         synchronized (codecRecoveryMonitor) {
             if (stopping || fpsMilliHz == streamFrameRateMilliHz) return;
             streamFrameRateMilliHz = fpsMilliHz;
@@ -923,6 +930,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     }
 
     private void updateUpscalingFrameRate(float panelHz) {
+        if (decoderFailure != null) return;
         synchronized (codecRecoveryMonitor) {
             GlesUpscaler current = upscaler;
             if (current != null) current.setFrameRate(Math.max(1, Math.min(refreshRate, Math.round(panelHz))));
@@ -2748,6 +2756,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                 if (codecRecoveryType.get() != CR_RECOVERY_TYPE_NONE) {
                     codecRecoveryAttempts++;
                     framesOutAtLastRecovery = numFramesOut;
+                    uptimeAtLastRecoveryMs = SystemClock.uptimeMillis();
                     LimeLog.info("Codec recovery attempt: "+codecRecoveryAttempts);
 
                     // The codec is configured again, with the current metadata.
@@ -3730,11 +3739,12 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         return true;
     }
 
-    // The recovery attempts are refilled once the decoder put out CR_REFILL_FRAMES frames since the
-    // last recovery: only failures close together use them up.
+    // The recovery attempts are refilled once the decoder put out CR_REFILL_FRAMES frames over at
+    // least CR_REFILL_MS since the last recovery: only failures close together use them up.
     private boolean recoveryAttemptsLeft() {
         int framesSince = numFramesOut - framesOutAtLastRecovery;
-        if (codecRecoveryAttempts > 0 && framesSince >= CR_REFILL_FRAMES) {
+        if (codecRecoveryAttempts > 0 && framesSince >= CR_REFILL_FRAMES &&
+                SystemClock.uptimeMillis() - uptimeAtLastRecoveryMs >= CR_REFILL_MS) {
             LimeLog.info("Codec recovery attempts refilled after " + framesSince + " frames since the last");
             codecRecoveryAttempts = 0;
         }
@@ -3801,9 +3811,15 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         }
 
         // Stop any active codec recovery operations
-        synchronized (codecRecoveryMonitor) {
+        if (decoderFailure != null) {
+            // A reset that hung may hold the monitor for good (the watchdog ended the stream); the
+            // UI must not wait for it. Waiting threads look at the type again within a second.
             codecRecoveryType.set(CR_RECOVERY_TYPE_NONE);
-            codecRecoveryMonitor.notifyAll();
+        } else {
+            synchronized (codecRecoveryMonitor) {
+                codecRecoveryType.set(CR_RECOVERY_TYPE_NONE);
+                codecRecoveryMonitor.notifyAll();
+            }
         }
 
         // The output surface may be about to go away, so stop presenting to it now
@@ -3922,6 +3938,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     @Override
     public void setHdrMode(boolean enabled, byte[] hdrMetadata) {
         // A callback during recovery must not have its new metadata or restart request overwritten.
+        if (decoderFailure != null) return;
         synchronized (codecRecoveryMonitor) {
             if (stopping) {
                 return;

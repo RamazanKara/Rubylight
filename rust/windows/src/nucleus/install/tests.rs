@@ -387,7 +387,11 @@ fn a_swapped_program_file_is_found_though_its_size_and_time_stay() {
             .set_modified(written)
             .unwrap();
     };
+    // The change time ticks with the system clock (15.6 ms on some PCs): each
+    // write waits for a new tick, as a real change would come later anyway.
+    let tick = || std::thread::sleep(std::time::Duration::from_millis(50));
     // Written in place, its time put back: the same file id.
+    tick();
     std::fs::write(&dll, b"MZ gamin!").unwrap();
     same_time(&dll);
     let (problem, error) = refused(&tree, &tree.folder);
@@ -396,10 +400,12 @@ fn a_swapped_program_file_is_found_though_its_size_and_time_stay() {
         error.contains(&format!("{} isn't Nucleus Co-op 2.4.2's", dll.display())),
         "{error}"
     );
+    tick();
     std::fs::write(&dll, b"MZ gaming").unwrap();
     same_time(&dll);
     check(&tree, &tree.folder).unwrap();
     // Another file renamed over it with the same size and time.
+    tick();
     let other = tree.folder.join("other.tmp");
     std::fs::write(&other, b"MZ gamin?").unwrap();
     same_time(&other);

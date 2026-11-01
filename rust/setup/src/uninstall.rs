@@ -844,7 +844,7 @@ const LEGACY_FOLDERS: [&str; 1] = ["licenses\\libvpl"];
 /// What `remove_package` leaves of the install folder besides the user's own
 /// files: the legacy folders no manifest lists any more (an update deletes the
 /// files a new version stops shipping, not their folders, and 3.0 stopped
-/// shipping libvpl's), and the folders that were `touched` (held a package
+/// shipping libvpl's), setup's staging folder, and the folders that were `touched` (held a package
 /// file) or hold a legacy folder, once they are empty. Other empty folders are
 /// the user's, in a folder they may have chosen themselves (D:\Games), and stay,
 /// as does everything when `install` is a drive root. Everything stays inside
@@ -872,9 +872,30 @@ fn remove_leftover_folders(install: &Path, touched: &BTreeSet<PathBuf>) {
             );
         }
     }
+    remove_staging(&install.join(STAGING));
     // Deepest first, so a parent is empty by the time it comes up.
     for folder in folders.iter().rev() {
         let _ = std::fs::remove_dir(folder);
+    }
+}
+/// Setup's staging folder in the install folder: packages being installed,
+/// the previous version a transaction keeps for its rollback, and the
+/// updater's downloads. No manifest lists it.
+const STAGING: &str = ".staging";
+/// Delete the staging folder with everything in it: it is Rubylight's alone.
+/// A link there is removed itself, never followed; a file of that name stays.
+fn remove_staging(staging: &Path) {
+    match std::fs::symlink_metadata(staging) {
+        // A junction or symbolic link: on Windows a link to a folder goes
+        // with remove_dir, one to a file with remove_file.
+        Ok(meta) if meta.file_type().is_symlink() => {
+            let _ = std::fs::remove_dir(staging).or_else(|_| std::fs::remove_file(staging));
+        }
+        // remove_dir_all removes the links inside without following them.
+        Ok(meta) if meta.is_dir() => {
+            let _ = std::fs::remove_dir_all(staging);
+        }
+        _ => {}
     }
 }
 fn files_in(folder: &Path) -> std::io::Result<Vec<PathBuf>> {
@@ -1566,6 +1587,48 @@ mod tests {
         remove_leftover_folders(&other, &touched);
         assert!(outside.join("libvpl\\keep.txt").exists());
         assert!(outside.join("empty").exists());
+    }
+    #[test]
+    fn setup_staging_goes_with_the_uninstall_and_its_links_lead_nowhere() {
+        let temp = tempfile::tempdir().unwrap();
+        let link = |at: &Path, to: &Path| {
+            let made = std::process::Command::new("cmd")
+                .args(["/c", "mklink", "/J"])
+                .arg(at)
+                .arg(to)
+                .output()
+                .unwrap();
+            assert!(made.status.success(), "{made:?}");
+        };
+        let outside = temp.path().join("outside");
+        write(&outside.join("keep.txt"), "not ours");
+        // A transaction cut short, an unpacked package and a download.
+        let root = temp.path().join("Rubylight");
+        package(&root);
+        let staging = root.join(STAGING);
+        write(&staging.join("package\\butterpollo.exe"), "new");
+        write(&staging.join("transaction-42-7\\package\\butterpollo.exe"), "new");
+        write(&staging.join("transaction-42-7\\previous\\butterpollo.exe"), "old");
+        write(&staging.join("Rubylight-setup.exe"), "download");
+        link(&staging.join("transaction-42-7\\through"), &outside);
+        let touched = remove_package(&root);
+        remove_leftover_folders(&root, &touched);
+        assert!(!staging.exists());
+        assert!(outside.join("keep.txt").exists());
+        std::fs::remove_dir(&root).unwrap();
+        // The staging folder itself a junction: the junction goes, not what
+        // it leads to.
+        let other = temp.path().join("Other");
+        package(&other);
+        link(&other.join(STAGING), &outside);
+        let touched = remove_package(&other);
+        remove_leftover_folders(&other, &touched);
+        assert!(std::fs::symlink_metadata(other.join(STAGING)).is_err());
+        assert!(outside.join("keep.txt").exists());
+        // A file of that name is not setup's folder and stays.
+        write(&other.join(STAGING), "mine");
+        remove_leftover_folders(&other, &BTreeSet::new());
+        assert!(other.join(STAGING).is_file());
     }
     #[test]
     fn an_installation_of_only_the_package_leaves_nothing_behind() {

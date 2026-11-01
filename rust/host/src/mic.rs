@@ -241,9 +241,15 @@ impl Receiver {
             return;
         };
         self.output.stop(&speaker.session);
-        let (trimmed, underruns, underrun) = {
+        let (trimmed, underruns, underrun, filled, conceal_failed) = {
             let mut playout = self.playout.lock().unwrap();
-            let counts = (playout.trimmed, playout.underruns, playout.underrun_samples);
+            let counts = (
+                playout.trimmed,
+                playout.underruns,
+                playout.underrun_samples,
+                playout.concealed_samples,
+                playout.conceal_failed,
+            );
             playout.clear();
             counts
         };
@@ -259,6 +265,8 @@ impl Receiver {
             trimmed_ms = trimmed * 1000 / mic::RATE as u64,
             underruns,
             underrun_ms = underrun * 1000 / mic::RATE as u64,
+            underrun_concealed_ms = filled * 1000 / mic::RATE as u64,
+            conceal_failed,
             "microphone stopped"
         );
     }
@@ -496,16 +504,14 @@ fn render(
             .map_err(|error| tracing::warn!(%error, "microphone level thread could not start"))
             .ok();
         let played = (|| -> Result<()> {
+            let mut warned = None;
             while !stop.load(Ordering::Acquire) {
                 render.wait(Duration::from_millis(50));
-                let mut decoder = decoder.lock().unwrap();
-                let mut playout = playout.lock().unwrap();
                 // A dry spell plays the decoder's concealment, not silence.
-                render.fill_concealing(&mut playout, &mut |out| {
-                    decoder
-                        .as_mut()
-                        .and_then(|decoder| decoder.decode(None, false, out).ok())
-                        .unwrap_or(0)
+                // The playout is locked for the pull only, and the decoder
+                // only inside it, without waiting.
+                render.fill_concealing(playout, &mut |out| {
+                    conceal_frame(decoder, out, &mut warned, Instant::now())
                 })?;
             }
             Ok(())
@@ -513,6 +519,41 @@ fn render(
         done.store(true, Ordering::Release);
         played
     })
+}
+/// How often a failing concealment is logged.
+const CONCEAL_WARNING: Duration = Duration::from_secs(10);
+/// One concealed frame from the receiver's decoder for the render thread's
+/// playout ([`mic::Conceal`]). The render thread runs at raised priority and
+/// must not wait on the receiver: while the receiver holds the decoder it is
+/// queueing a packet, which ends the dry spell anyway, so a busy decoder
+/// gives nothing this wake-up. A failure is logged at most once every
+/// `CONCEAL_WARNING` (`warned`: the last time) and counted by the playout.
+fn conceal_frame(
+    decoder: &Mutex<Option<OpusDecoder>>,
+    out: &mut Vec<f32>,
+    warned: &mut Option<Instant>,
+    now: Instant,
+) -> std::result::Result<usize, ()> {
+    let Ok(mut decoder) = decoder.try_lock() else {
+        return Ok(0);
+    };
+    let Some(decoder) = decoder.as_mut() else {
+        return Ok(0);
+    };
+    decoder.decode(None, false, out).map_err(|error| {
+        if warning_due(warned, now) {
+            tracing::warn!(error = %format!("{error:#}"), "microphone underrun could not be concealed; playing silence");
+        }
+    })
+}
+/// Whether a concealment failure at `now` is logged; each logged one
+/// silences the next `CONCEAL_WARNING`.
+fn warning_due(warned: &mut Option<Instant>, now: Instant) -> bool {
+    let due = warned.is_none_or(|at| now.saturating_duration_since(at) >= CONCEAL_WARNING);
+    if due {
+        *warned = Some(now);
+    }
+    due
 }
 /// The level thread: `GainCap` until the render thread stops.
 fn keep_gain(warnings: &butterpollo_core::session::Warnings, stop: &AtomicBool, done: &AtomicBool) {
@@ -748,6 +789,109 @@ mod tests {
         assert_eq!(playout.take(&mut actual), 960);
         assert_eq!(actual, pcm[pcm.len() - 960..]);
         Ok(())
+    }
+
+    /// A 437 Hz voice through the real encoder and decoder, 20 ms packets
+    /// held back 60 ms twice a second, played by 10 ms device wake-ups with
+    /// `conceal` (or silence): what the device played.
+    fn played_through_opus(root: &std::path::Path, conceal: bool) -> Result<Vec<f32>> {
+        let tone = |n: usize| ((n * 437 % 48_000) as f64 * std::f64::consts::TAU / 48_000.).sin();
+        let mut encoder = butterpollo_windows::audio::Opus::new(root, 2, false)?;
+        let decoder = Mutex::new(Some(OpusDecoder::new(root)?));
+        let mut playout = Playout::default();
+        let (mut played, mut out, mut pcm) = (Vec::new(), Vec::new(), Vec::new());
+        let (mut padding, mut warned) = (0, None);
+        let mut packets = (0..150usize).map(|k| {
+            let at = k * 20 + 5;
+            // Held back 60 ms at the start of each half second, then sent.
+            let at = if at % 500 < 60 {
+                at - at % 500 + 60
+            } else {
+                at
+            };
+            let frame: Vec<f32> = (k * 960..(k + 1) * 960)
+                .flat_map(|n| [tone(n) as f32 * 0.5; 2])
+                .collect();
+            (at, frame)
+        });
+        let mut next = packets.next();
+        for now in (0..3_000).step_by(10) {
+            while let Some((_, frame)) = next.take_if(|(at, _)| *at < now) {
+                let packet = encoder.encode(&frame)?;
+                // As the receiver: the decoder is held until the audio is queued.
+                let mut decoder = decoder.lock().unwrap();
+                pcm.clear();
+                decoder
+                    .as_mut()
+                    .unwrap()
+                    .decode(Some(&packet), false, &mut pcm)?;
+                playout.push_batch(&pcm, pcm.len());
+                drop(decoder);
+                next = packets.next();
+            }
+            padding = usize::saturating_sub(padding, 480);
+            let silence = playout.pull_concealing(960, padding, 480, &mut out, &mut |out| {
+                if conceal {
+                    conceal_frame(&decoder, out, &mut warned, Instant::now())
+                } else {
+                    Ok(0)
+                }
+            });
+            played.extend(&out);
+            played.extend(std::iter::repeat_n(0., silence));
+            padding += out.len() + silence;
+        }
+        assert_eq!(playout.conceal_failed, 0);
+        Ok(played)
+    }
+
+    #[test]
+    #[ignore = "requires the packaged libopus DLL"]
+    fn opus_concealment_fills_microphone_underruns_without_clicks() -> Result<()> {
+        let root = PathBuf::from(
+            std::env::var_os("BUTTERPOLLO_TEST_OPUS_ROOT").expect("set BUTTERPOLLO_TEST_OPUS_ROOT"),
+        );
+        let step = |played: &[f32]| {
+            played[4_800..]
+                .windows(2)
+                .map(|pair| (pair[1] - pair[0]).abs())
+                .fold(0., f32::max)
+        };
+        let silent_runs = |played: &[f32]| {
+            played[4_800..]
+                .windows(48)
+                .filter(|run| run.iter().all(|sample| *sample == 0.))
+                .count()
+        };
+        let silent = played_through_opus(&root, false)?;
+        let concealed = played_through_opus(&root, true)?;
+        // Silence broke the voice off with hard edges; Opus concealment
+        // carries it through and crossfades back into it. The tone itself
+        // moves at most 0.029 a sample.
+        assert!(silent_runs(&silent) > 0);
+        assert!(step(&silent) > 0.1, "{}", step(&silent));
+        assert_eq!(silent_runs(&concealed), 0);
+        assert!(step(&concealed) < 0.06, "{}", step(&concealed));
+        // The same amount played: no added delay.
+        assert_eq!(silent.len(), concealed.len());
+        Ok(())
+    }
+
+    #[test]
+    fn concealment_never_waits_for_the_receiver_and_failures_are_logged_rarely() {
+        let decoder = Mutex::new(None);
+        let (mut out, mut warned) = (Vec::new(), None);
+        let now = Instant::now();
+        // No decoder yet, or the receiver holding it: nothing, at once.
+        assert_eq!(conceal_frame(&decoder, &mut out, &mut warned, now), Ok(0));
+        let held = decoder.lock().unwrap();
+        assert_eq!(conceal_frame(&decoder, &mut out, &mut warned, now), Ok(0));
+        drop(held);
+        assert!(out.is_empty() && warned.is_none());
+        // A decoder failing every wake-up is logged once in ten seconds.
+        assert!(warning_due(&mut warned, now));
+        assert!(!warning_due(&mut warned, now + Duration::from_secs(9)));
+        assert!(warning_due(&mut warned, now + CONCEAL_WARNING));
     }
 
     #[test]

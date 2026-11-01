@@ -248,7 +248,8 @@ fn main() -> Result<()> {
     let playout = Arc::new(Mutex::new(Playout::default()));
     let opus = std::env::var_os("MIC_OPUS").map(std::path::PathBuf::from);
     let mut encoder = opus.as_deref().map(ClientEncoder::new).transpose()?;
-    // Lock order as in the host: the decoder before the playout.
+    // As in the host: the feeder holds the decoder until its audio is
+    // queued; the renderer locks the playout and only tries the decoder.
     let decoder = Arc::new(Mutex::new(
         opus.as_deref().map(OpusDecoder::new).transpose()?,
     ));
@@ -262,14 +263,14 @@ fn main() -> Result<()> {
             let mut render = Render::open(&id)?;
             while !stop.load(Ordering::Acquire) {
                 render.wait(Duration::from_millis(50));
-                let mut decoder = decoder.lock().unwrap();
-                let mut playout = playout.lock().unwrap();
-                render.fill_concealing(&mut playout, &mut |out| {
-                    decoder
-                        .as_mut()
-                        .filter(|_| conceal)
-                        .and_then(|decoder| decoder.decode(None, false, out).ok())
-                        .unwrap_or(0)
+                render.fill_concealing(&playout, &mut |out| {
+                    let Ok(mut decoder) = decoder.try_lock() else {
+                        return Ok(0);
+                    };
+                    match decoder.as_mut().filter(|_| conceal) {
+                        Some(decoder) => decoder.decode(None, false, out).map_err(|_| ()),
+                        None => Ok(0),
+                    }
                 })?;
             }
             Ok(())
@@ -337,6 +338,8 @@ fn main() -> Result<()> {
             "trimmed_ms": playout.trimmed * 1000 / 48000,
             "underruns": playout.underruns,
             "underrun_ms": playout.underrun_samples * 1000 / 48000,
+            "concealed_ms": playout.concealed_samples * 1000 / 48000,
+            "conceal_failed": playout.conceal_failed,
         })
     );
     Ok(())

@@ -9,8 +9,8 @@
 //! to the recording side unconverted, so the host first gives the endpoint the
 //! recording side's format (`audio_route::match_steam_microphone_format`).
 use anyhow::{Result, bail};
-use butterpollo_core::mic::{Playout, RATE};
-use std::time::Duration;
+use butterpollo_core::mic::{Conceal, Playout, RATE};
+use std::{sync::Mutex, time::Duration};
 use windows::{
     Win32::{
         Foundation::{CloseHandle, HANDLE},
@@ -118,26 +118,33 @@ impl Render {
     /// only when it would otherwise run dry (which `playout` counts as an
     /// underrun). Returns the samples written.
     pub fn fill(&mut self, playout: &mut Playout) -> Result<usize> {
-        self.fill_concealing(playout, &mut |_| 0)
+        self.write(|buffer, padding, period, out| playout.pull(buffer, padding, period, out))
     }
-    /// [`Self::fill`], with `conceal` filling a dry spell instead of silence
-    /// (`Playout::pull_concealing`).
+    /// [`Self::fill`] from a playout shared with the thread that feeds it,
+    /// with `conceal` filling a dry spell instead of silence
+    /// ([`Playout::pull_concealing`]). The playout is locked for the pull
+    /// only, not across the device calls.
     pub fn fill_concealing(
         &mut self,
-        playout: &mut Playout,
-        conceal: &mut dyn FnMut(&mut Vec<f32>) -> usize,
+        playout: &Mutex<Playout>,
+        conceal: &mut Conceal,
+    ) -> Result<usize> {
+        self.write(|buffer, padding, period, out| {
+            let mut playout = playout.lock().unwrap();
+            playout.pull_concealing(buffer, padding, period, out, conceal)
+        })
+    }
+    /// One wake-up: `pull` gets the buffer size, the device's padding and
+    /// period, and the scratch to fill, and returns the silence after it.
+    fn write(
+        &mut self,
+        pull: impl FnOnce(usize, usize, usize, &mut Vec<f32>) -> usize,
     ) -> Result<usize> {
         // SAFETY: `self.client` and `self.render` are live and initialised, GetBuffer returns
         // room for `total` stereo float frames, and the buffer is released before returning.
         unsafe {
             let padding = self.client.GetCurrentPadding()? as usize;
-            let silence = playout.pull_concealing(
-                self.buffer,
-                padding,
-                self.period,
-                &mut self.scratch,
-                conceal,
-            );
+            let silence = pull(self.buffer, padding, self.period, &mut self.scratch);
             let samples = self.scratch.len();
             let total = samples + silence;
             if total == 0 {

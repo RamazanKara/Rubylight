@@ -199,7 +199,7 @@ struct Run<Q> {
     delay: f64,
 }
 /// A device of `period` samples in a buffer of two, pulled every period
-/// until `until` (µs), fed a 1 kHz tone: `deliveries` are (µs, samples),
+/// until `until` (µs), fed [`tone`]: `deliveries` are (µs, samples),
 /// ascending, in packets of `packet` (more is concealment before one).
 /// `each` sees the queue after every push and pull, with the time.
 fn simulate<Q: Queue>(
@@ -217,9 +217,7 @@ fn simulate<Q: Queue>(
     let mut deliveries = deliveries.iter().copied().peekable();
     for now in (0..until).step_by(period * 1_000_000 / RATE) {
         while let Some((at, frames)) = deliveries.next_if(|&(at, _)| at < now) {
-            let samples: Vec<f32> = (sent..sent + frames)
-                .map(|n| ((n % 48) as f32 * std::f32::consts::TAU / 48.).sin() * 0.5)
-                .collect();
+            let samples: Vec<f32> = (sent..sent + frames).map(tone).collect();
             sent += frames;
             queue.push_batch(&samples, packet);
             each(at, &queue);
@@ -528,77 +526,107 @@ fn the_device_is_kept_two_periods_ahead_and_never_runs_dry() {
     assert_eq!(render_plan(4800, 0, 480, 4000), (960, 0));
 }
 
-/// The playout with a concealer that continues the simulated tone from the
-/// last sample it was given, as Opus PLC continues the voice.
+/// The simulated voice: a 437 Hz tone, whose period divides neither a
+/// packet nor a device period, so seams land anywhere in its cycle.
+fn tone(n: usize) -> f32 {
+    ((n * 437 % RATE) as f64 * std::f64::consts::TAU / RATE as f64).sin() as f32 * 0.5
+}
+/// The playout with a concealer that, like Opus PLC, continues the voice
+/// from the last sample pushed, one 20 ms frame a call: the packet that
+/// follows starts out of phase with what was concealed.
 #[derive(Default)]
 struct Concealing {
     playout: Playout,
+    pushed: usize,
     next: usize,
-}
-fn tone(n: usize) -> f32 {
-    ((n % 48) as f32 * std::f32::consts::TAU / 48.).sin() * 0.5
 }
 impl Queue for Concealing {
     fn push_batch(&mut self, samples: &[f32], packet_frames: usize) {
-        self.next += samples.len();
+        self.pushed += samples.len();
+        self.next = self.pushed;
         self.playout.push_batch(samples, packet_frames);
     }
     fn pull(&mut self, buffer: usize, padding: usize, period: usize, out: &mut Vec<f32>) -> usize {
-        let Self { playout, next } = self;
+        let Self { playout, next, .. } = self;
         playout.pull_concealing(buffer, padding, period, out, &mut |frame| {
             frame.extend((*next..*next + 960).map(tone));
             *next += 960;
-            960
+            Ok(960)
         })
     }
+    /// Real audio only: concealment kept back is replaced by the next
+    /// packet, so it delays nothing.
     fn len(&self) -> usize {
-        self.playout.len()
+        self.playout.len() - self.playout.provisional
     }
 }
 /// The largest step between neighbouring samples played after `from`
-/// samples: a hard edge to or from silence is a click.
+/// samples: a hard edge to or from silence is a click. The tone itself
+/// moves at most 0.029 a sample.
 fn largest_step(played: &[f32], from: usize) -> f32 {
     played[from..]
         .windows(2)
         .map(|pair| (pair[1] - pair[0]).abs())
         .fold(0., f32::max)
 }
-
-#[test]
-fn a_dry_spell_plays_concealment_without_clicks_or_delay() {
-    // A 60 ms stall every two seconds, its packets then released at once
-    // (issue 56: a phone's Wi-Fi, 7 underruns in 51 s).
-    let deliveries = packets((0..500u64).map(|k| {
+/// Whether two samples in a row after the first 100 ms are silent (the
+/// tone is never 0 twice in a row).
+fn breaks_off(played: &[f32]) -> bool {
+    played[ms(100)..].windows(2).any(|pair| pair == [0., 0.])
+}
+/// 20 ms packets with a stall of `stall` µs every two seconds, its packets
+/// then released at once.
+fn stalling(stall: u64) -> Vec<(u64, usize)> {
+    packets((0..500u64).map(|k| {
         let at = 5_000 + k * 20_000;
         let phase = at % 2_000_000;
-        if (1_000_000..1_060_000).contains(&phase) {
-            at - phase + 1_060_000
+        if (1_000_000..1_000_000 + stall).contains(&phase) {
+            at - phase + 1_000_000 + stall
         } else {
             at
         }
-    }));
-    let silent = simulate::<Playout>(&deliveries, 960, 480, 10_000_000, 1_000_000, |_, _| {});
-    let concealed = simulate::<Concealing>(&deliveries, 960, 480, 10_000_000, 1_000_000, |_, _| {});
-    // Before: each spell broke the voice off into silence.
-    let gaps = |played: &[f32]| played[ms(100)..].windows(2).any(|pair| pair == [0., 0.]);
-    assert!(silent.queue.underruns >= 4, "{}", silent.queue.underruns);
-    assert!(gaps(&silent.played));
-    // Now the same spells are counted, but the tone never breaks off.
-    let playout = &concealed.queue.playout;
-    assert_eq!(playout.underruns, silent.queue.underruns);
-    assert!(playout.underrun_samples > 0);
-    let step = largest_step(&concealed.played, ms(100));
-    assert!(step < 0.1, "{step}");
-    // No silence at all (the tone itself crosses zero one sample at a time).
-    assert!(!gaps(&concealed.played));
-    // And it plays no later than the silence did (within a fraction of a
-    // 2.5 ms trim slice: the trim waits while concealment is queued).
-    assert!(
-        concealed.delay <= silent.delay + 0.5,
-        "{:.1} ms, before {:.1} ms",
-        concealed.delay,
-        silent.delay
-    );
+    }))
+}
+
+#[test]
+fn a_dry_spell_plays_concealment_without_clicks_or_delay() {
+    // Stalls as on a phone's Wi-Fi (issue 56: 7 underruns in 51 s), each
+    // long enough to run the queue dry, with the packet's seam falling at
+    // a different point of the device period and of the tone each time.
+    for stall in [20_000, 30_000, 40_000, 60_000] {
+        let deliveries = stalling(stall);
+        let silent = simulate::<Playout>(&deliveries, 960, 480, 10_000_000, 1_000_000, |_, _| {});
+        let concealed =
+            simulate::<Concealing>(&deliveries, 960, 480, 10_000_000, 1_000_000, |_, _| {});
+        // Before: each spell broke the voice off into silence.
+        assert!(
+            silent.queue.underruns >= 4,
+            "{stall}: {}",
+            silent.queue.underruns
+        );
+        assert!(breaks_off(&silent.played), "{stall}");
+        // Now the same spells are counted, but the voice never breaks off
+        // and neither end of a spell clicks.
+        let playout = &concealed.queue.playout;
+        assert_eq!(playout.underruns, silent.queue.underruns, "{stall}");
+        assert!(playout.concealed_samples > 0, "{stall}");
+        assert!(!breaks_off(&concealed.played), "{stall}");
+        let step = largest_step(&concealed.played, ms(100));
+        assert!(step < 0.06, "{stall}: {step}");
+        // And it plays exactly as late as the silence did, trimming no more.
+        assert!(
+            concealed.delay <= silent.delay + 0.01,
+            "{stall}: {:.2} ms, before {:.2} ms",
+            concealed.delay,
+            silent.delay
+        );
+        assert!(
+            playout.trimmed <= silent.queue.trimmed,
+            "{stall}: {} trimmed, before {}",
+            playout.trimmed,
+            silent.queue.trimmed
+        );
+    }
 }
 
 #[test]
@@ -611,7 +639,7 @@ fn long_concealment_fades_out_and_the_voice_fades_back_in() {
     );
     let run = simulate::<Concealing>(&deliveries, 960, 480, 4_000_000, 0, |_, _| {});
     let step = largest_step(&run.played, ms(100));
-    assert!(step < 0.1, "{step}");
+    assert!(step < 0.06, "{step}");
     // Concealment for at most 60 ms, then silence until the voice returns.
     let longest_silence = run.played[ms(100)..]
         .split(|sample| *sample != 0.)
@@ -623,4 +651,45 @@ fn long_concealment_fades_out_and_the_voice_fades_back_in() {
         run.queue.playout.underruns, 0,
         "a pause longer than 250 ms is not an underrun"
     );
+}
+
+#[test]
+fn a_failing_or_busy_decoder_leaves_silence_and_is_counted() {
+    let mut playout = Playout::default();
+    let mut out = Vec::new();
+    playout.push(&(0..960).map(tone).collect::<Vec<_>>());
+    while !playout.is_empty() {
+        playout.pull_concealing(960, 0, 480, &mut out, &mut |_| unreachable!());
+    }
+    // Dry: a failure is counted and the wake-up is silent.
+    let silence = playout.pull_concealing(960, 0, 480, &mut out, &mut |_| Err(()));
+    assert_eq!((out.len(), silence, playout.conceal_failed), (0, 480, 1));
+    // A busy decoder gives nothing and fails nothing.
+    playout.push(&(0..960).map(tone).collect::<Vec<_>>());
+    playout.pull_concealing(960, 0, 480, &mut out, &mut |_| Ok(0));
+    playout.pull_concealing(960, 0, 480, &mut out, &mut |_| Ok(0));
+    let silence = playout.pull_concealing(960, 0, 480, &mut out, &mut |_| Ok(0));
+    assert_eq!((out.len(), silence, playout.conceal_failed), (0, 480, 1));
+    assert_eq!(playout.concealed_samples, 0);
+}
+
+#[test]
+fn taking_the_queue_takes_its_concealment_too() {
+    let mut playout = Playout::default();
+    let mut out = Vec::new();
+    playout.push(&(0..600).map(tone).collect::<Vec<_>>());
+    // 480 real, then 120 real and 360 concealed, with more kept back.
+    playout.pull_concealing(960, 480, 480, &mut out, &mut |_| unreachable!());
+    playout.pull_concealing(960, 0, 480, &mut out, &mut |frame| {
+        frame.extend((600..1560).map(tone));
+        Ok(960)
+    });
+    assert!(playout.provisional > 0);
+    let mut all = vec![0.; 4000];
+    playout.take(&mut all);
+    assert_eq!((playout.len(), playout.provisional), (0, 0));
+    // The queue still works: a new packet and a pull do not underflow.
+    playout.push(&(0..960).map(tone).collect::<Vec<_>>());
+    playout.pull_concealing(960, 0, 480, &mut out, &mut |_| Ok(0));
+    assert_eq!(out.len(), 960);
 }

@@ -256,6 +256,10 @@ struct Format {
     vulkan: Option<Pictures>,
 }
 
+/// Surfaces a hardware decoder's pool has beyond FFmpeg's minimum, for pictures waiting to be
+/// shown; the stream keeps fewer waiting than this (`pipeline::POOL_WAITING`).
+pub const EXTRA_HW_FRAMES: i32 = 6;
+
 unsafe extern "C" fn select_format(
     context: *mut AVCodecContext,
     formats: *const AVPixelFormat,
@@ -562,7 +566,7 @@ impl VideoDecoder {
                     Hardware::None | Hardware::V4l2m2m | Hardware::Auto(_) => unreachable!(),
                 }
                 context.get_format = Some(select_format);
-                context.extra_hw_frames = 6;
+                context.extra_hw_frames = EXTRA_HW_FRAMES;
             }
             context.thread_count = if hardware == Hardware::None {
                 threads
@@ -599,6 +603,17 @@ impl VideoDecoder {
             return None;
         }
         Some(&self.name)
+    }
+
+    /// Whether its pictures hold a surface of the decoder's fixed pool until they are dropped
+    /// (D3D11VA, VAAPI, Vulkan video): only [`EXTRA_HW_FRAMES`] are there beyond what the decoder
+    /// itself needs. NVDEC's are copied out.
+    pub fn pooled(&self) -> bool {
+        match self.hardware {
+            Hardware::D3d11(_) | Hardware::Vaapi => true,
+            Hardware::Vulkan(_) => !self.refused,
+            _ => false,
+        }
     }
 
     /// Hands VAAPI pictures to the presenter as DMA-BUFs instead of CPU mappings, and says whether

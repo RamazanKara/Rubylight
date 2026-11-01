@@ -753,17 +753,22 @@ impl Registry {
                 };
                 let (handler, steam_app) = match found {
                     Chosen::Hub(found) => (found.handler, None),
-                    // The game renders at the stream's size where it can be told.
+                    // The game renders at the stream's size where it can be told,
+                    // and a DirectInput game's raw input is taken from it.
                     Chosen::Own(setup) => (
-                        pc.write_own(
-                            &folder,
-                            copy.as_deref(),
-                            &Setup {
-                                size: Some(request.size),
-                                ..setup.clone()
-                            },
-                        )
-                        .map_err(|error| {
+                        pc.reads_direct_input(&setup.exe_path)
+                            .and_then(|direct_input| {
+                                pc.write_own(
+                                    &folder,
+                                    copy.as_deref(),
+                                    &Setup {
+                                        size: Some(request.size),
+                                        direct_input,
+                                        ..setup.clone()
+                                    },
+                                )
+                            })
+                            .map_err(|error| {
                             Refusal::unavailable(format!(
                                 "Rubylight's Nucleus Co-op handler for {} was not written: {error:#}",
                                 app.name

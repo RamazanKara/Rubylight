@@ -103,6 +103,26 @@ fn a_file_that_is_no_program_is_an_error() {
     std::fs::write(&text, b"not a program").unwrap();
     let error = format!("{:#}", manifest_need(&text).unwrap_err());
     assert!(error.contains("game.exe's manifest"), "{error}");
+    let error = format!("{:#}", reads_direct_input(&text, None).unwrap_err());
+    assert!(error.contains("not a Windows program"), "{error}");
+}
+
+/// A Windows program's import tables are read from its file: where.exe
+/// reads no DirectInput, so a game like it keeps its raw input (#56).
+#[test]
+fn a_programs_imports_are_read_from_its_file() {
+    let system = std::env::var("SystemRoot").unwrap();
+    let exe = Path::new(&system).join(r"System32\where.exe");
+    let dlls = butterpollo_core::nucleus::imports::imported_dlls(&mut std::io::BufReader::new(
+        std::fs::File::open(&exe).unwrap(),
+    ))
+    .unwrap();
+    assert!(
+        dlls.iter()
+            .any(|dll| dll == "kernel32.dll" || dll.starts_with("api-ms-win-")),
+        "{dlls:?}"
+    );
+    assert!(!reads_direct_input(&exe, None).unwrap());
 }
 
 #[test]

@@ -75,6 +75,10 @@ pub struct Setup {
     /// The stream's size, which an Unreal game started in a window renders
     /// at ([`Setup::windowed_arguments`]); None when no stream asked.
     pub size: Option<(u32, u32)>,
+    /// Whether the game's .exe imports DirectInput
+    /// ([`super::imports::direct_input`]), which reads the PC's keyboard
+    /// through raw input; ProtoInput then takes the game's raw input.
+    pub direct_input: bool,
 }
 
 /// What Nucleus Co-op 2.4.2 says in a message box when ProtoInput's hooks
@@ -150,6 +154,7 @@ impl Setup {
             arguments: String::new(),
             inject: Inject::Runtime,
             size: None,
+            direct_input: false,
         }
     }
 
@@ -300,10 +305,19 @@ impl Setup {
             "Game.ProtoInput.MouseButtonFilter = true;",
             "Game.ProtoInput.MouseWheelFilter = true;",
             "Game.ProtoInput.MouseMoveFilter = true;",
-            "// Nor its raw input, which DirectInput reads too (NieR:Automata, #56): ProtoInput takes the game's raw input and passes on only the slot's keyboard and mouse, and a pad's slot has none.",
-            "Game.ProtoInput.RegisterRawInputHook = true;",
-            "Game.ProtoInput.GetRawInputDataHook = true;",
         ];
+        // Only for a game that reads DirectInput: ProtoInput takes all of a
+        // game's raw input and passes on none of a pad's, so a game reading
+        // its pad through raw input (SDL, Rewired) would lose it.
+        let raw_input: &[&str] = if self.direct_input {
+            &[
+                "// Nor its raw input, through which DirectInput reads the PC's keyboard (NieR:Automata, #56): ProtoInput takes the game's raw input and passes on only the slot's keyboard and mouse, and a pad's slot has none. The game reads DirectInput, so its pad does not come through raw input.",
+                "Game.ProtoInput.RegisterRawInputHook = true;",
+                "Game.ProtoInput.GetRawInputDataHook = true;",
+            ]
+        } else {
+            &[]
+        };
         let unhooked = [
             "// The game refused ProtoInput's input hooks every way Nucleus Co-op injects them, so none are injected: Nucleus Co-op only tells it it has focus, and a keyboard, mouse or pad on the PC can reach it too.",
             "Game.FakeFocus = true;",
@@ -315,6 +329,7 @@ impl Setup {
                 .chain(&focus)
                 .chain(way)
                 .chain(&hooks)
+                .chain(raw_input)
                 .collect(),
         };
         let lines: Vec<&str> = head
@@ -908,8 +923,9 @@ mod tests {
         assert_eq!(hooked.inject, Inject::Runtime);
         let runtime = hooked.handler_of(owner);
         // The first way's text, whole: v2 filtered the PC's keyboard and
-        // mouse messages too (#56), v3 their raw input (NieR:Automata), so
-        // the handlers earlier versions wrote are rewritten.
+        // mouse messages too (#56), v3 a DirectInput game's raw input
+        // (NieR:Automata), so the handlers earlier versions wrote are
+        // rewritten.
         let runtime_v3 = [
             "// Rubylight one-player handler v3: Rubylight writes this file for background streams and rewrites it when it changes. A hub handler for this game takes its place.",
             "// Written for S-1-5-21-1-2-3-1001",
@@ -942,13 +958,28 @@ mod tests {
             "Game.ProtoInput.MouseButtonFilter = true;",
             "Game.ProtoInput.MouseWheelFilter = true;",
             "Game.ProtoInput.MouseMoveFilter = true;",
-            "// Nor its raw input, which DirectInput reads too (NieR:Automata, #56): ProtoInput takes the game's raw input and passes on only the slot's keyboard and mouse, and a pad's slot has none.",
-            "Game.ProtoInput.RegisterRawInputHook = true;",
-            "Game.ProtoInput.GetRawInputDataHook = true;",
         ]
         .join("\r\n")
             + "\r\n";
         assert_eq!(runtime, runtime_v3);
+        // A game reading DirectInput (NieR:Automata) gets its raw input
+        // taken too, after the rest; any other keeps it, so a pad it reads
+        // through raw input (SDL, Rewired) still reaches it.
+        let direct_input = Setup {
+            direct_input: true,
+            ..steam_game()
+        }
+        .handler_of(owner);
+        let raw_input = [
+            "// Nor its raw input, through which DirectInput reads the PC's keyboard (NieR:Automata, #56): ProtoInput takes the game's raw input and passes on only the slot's keyboard and mouse, and a pad's slot has none. The game reads DirectInput, so its pad does not come through raw input.",
+            "Game.ProtoInput.RegisterRawInputHook = true;",
+            "Game.ProtoInput.GetRawInputDataHook = true;",
+        ];
+        assert_eq!(
+            direct_input,
+            runtime_v3.clone() + &raw_input.join("\r\n") + "\r\n"
+        );
+        assert!(!runtime.contains("RawInput"), "{runtime}");
         let hook_lines = |text: &str| {
             text.lines()
                 .filter(|l| l.starts_with("Game.ProtoInput.") && l.contains("Hook"))

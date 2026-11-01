@@ -88,6 +88,19 @@ pub fn manifest_need(exe: &Path) -> Result<Option<Need>> {
     manifest_as(exe, None, embedded_manifest)
 }
 
+/// Whether the game at `exe` imports DirectInput
+/// ([`butterpollo_core::nucleus::imports`]), read as the user of `token`
+/// (None: as the host, in tests).
+pub fn reads_direct_input(exe: &Path, token: Option<&OwnedHandle>) -> Result<bool> {
+    read_as(token, exe, |exe| {
+        let file = std::fs::File::open(exe)?;
+        let dlls =
+            butterpollo_core::nucleus::imports::imported_dlls(&mut std::io::BufReader::new(file))?;
+        Ok(butterpollo_core::nucleus::imports::direct_input(&dlls))
+    })
+    .with_context(|| format!("reading the DLLs {} imports", exe.display()))
+}
+
 /// [`manifest_need`] read as the user of `token`, with `embedded` reading
 /// the manifest `exe` embeds.
 fn manifest_as(

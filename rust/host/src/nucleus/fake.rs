@@ -67,6 +67,10 @@ pub(crate) struct Pc {
     pub needs: Mutex<BTreeMap<String, Need>>,
     /// What walking each game's folder adds, by .exe path.
     pub folder_needs: Mutex<BTreeMap<String, Need>>,
+    /// The games' .exe paths that import DirectInput.
+    pub direct_input: Mutex<std::collections::BTreeSet<String>>,
+    /// Why reading a game's imports fails.
+    pub direct_input_error: Mutex<Option<String>>,
     /// How often the game's folder was walked.
     pub walks: AtomicUsize,
     /// What making the user's own copy fails with.
@@ -146,6 +150,8 @@ impl Pc {
             elevations: AtomicUsize::new(0),
             needs: Mutex::new(BTreeMap::new()),
             folder_needs: Mutex::new(BTreeMap::new()),
+            direct_input: Mutex::new(std::collections::BTreeSet::new()),
+            direct_input_error: Mutex::new(None),
             walks: AtomicUsize::new(0),
             copy_error: Mutex::new(None),
             ready_runs: Mutex::new(Vec::new()),
@@ -272,6 +278,12 @@ impl super::Pc for Pc {
             need(&self.needs),
             need(&self.folder_needs),
         ]))
+    }
+    fn reads_direct_input(&self, exe: &str) -> Result<bool> {
+        if let Some(error) = self.direct_input_error.lock().unwrap().clone() {
+            anyhow::bail!(error);
+        }
+        Ok(self.direct_input.lock().unwrap().contains(exe))
     }
     fn user_copy(&self, folder: &Path) -> Result<PathBuf> {
         if let Some(error) = self.copy_error.lock().unwrap().clone() {

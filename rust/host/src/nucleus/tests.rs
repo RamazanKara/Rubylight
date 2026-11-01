@@ -1033,6 +1033,9 @@ fn a_one_player_game_without_a_hub_handler_streams_in_the_background_with_ours()
     assert_eq!(own[0].arguments, "-windowed");
     // At the stream's size, which an Unreal game renders at (#56).
     assert_eq!(own[0].size, Some((1280, 720)));
+    // It reads no DirectInput, so it keeps its raw input and a pad read
+    // through it.
+    assert!(!own[0].direct_input);
     // One player, our handler's game, listed under the app.
     let listed = registry.sessions();
     assert_eq!(listed[0].session.kind, Kind::Background);
@@ -1069,6 +1072,37 @@ fn a_one_player_game_without_a_hub_handler_streams_in_the_background_with_ours()
             .starts_with("No Nucleus Co-op handler for Ice.exe"),
         "{refused}"
     );
+}
+
+/// NieR:Automata reads the PC's keyboard through DirectInput's raw input
+/// (#56): our handler takes a DirectInput game's raw input, and only its. A
+/// game whose .exe can't be read gets no handler written from a guess.
+#[test]
+fn a_direct_input_games_handler_takes_its_raw_input() {
+    let (registry, pc, mut apps) = setup();
+    let owner = client("A", false);
+    let config = Config::default();
+    apps.push(app("NieR", r#""C:\NoSuchGames\NieR\NieRAutomata.exe""#));
+    pc.direct_input_error
+        .lock()
+        .unwrap()
+        .replace("the game's file is unreadable".into());
+    let refused = background(&registry, &apps[3], "a", &owner, &config).unwrap_err();
+    assert!(
+        refused.message.contains("the game's file is unreadable"),
+        "{refused}"
+    );
+    assert!(pc.own.lock().unwrap().is_empty());
+    pc.direct_input_error.lock().unwrap().take();
+    pc.direct_input
+        .lock()
+        .unwrap()
+        .insert(r"C:\NoSuchGames\NieR\NieRAutomata.exe".into());
+    background(&registry, &apps[3], "a", &owner, &config).unwrap();
+    let own = pc.own.lock().unwrap().clone();
+    assert_eq!(own.len(), 1);
+    assert!(own[0].direct_input);
+    assert!(own[0].handler().contains("RegisterRawInputHook = true"));
 }
 
 #[test]

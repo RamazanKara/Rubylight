@@ -16,6 +16,7 @@ pub mod coop;
 pub mod elevation;
 pub mod generic;
 pub mod handler;
+pub mod imports;
 pub mod install;
 pub mod mode;
 pub mod profile;

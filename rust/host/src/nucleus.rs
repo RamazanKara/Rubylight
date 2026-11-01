@@ -141,6 +141,9 @@ pub trait Pc: Send + Sync {
     /// whether the signed-in user may change its folder's files as Nucleus
     /// does (a walk of the folder: at launch, not for the console).
     fn game_need(&self, exe: &str, folder: bool) -> Result<Need>;
+    /// Whether the game at `exe` imports DirectInput, read as the signed-in
+    /// user.
+    fn reads_direct_input(&self, exe: &str) -> Result<bool>;
     /// The signed-in user's own copy of the Nucleus at `folder`, made again
     /// when it isn't that one's program
     /// ([`butterpollo_windows::nucleus::user_copy`]).

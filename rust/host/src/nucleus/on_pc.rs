@@ -115,6 +115,13 @@ impl Pc for OnPc {
         ]);
         Ok(need)
     }
+    fn reads_direct_input(&self, exe: &str) -> Result<bool> {
+        // Read as the user, as game_need reads the game's files.
+        butterpollo_windows::nucleus::elevation::reads_direct_input(
+            Path::new(exe),
+            Some(&user_copy::user()?),
+        )
+    }
     fn user_copy(&self, folder: &Path) -> Result<PathBuf> {
         let user = user_copy::user()?;
         let sid = user_copy::sid(&user)?;

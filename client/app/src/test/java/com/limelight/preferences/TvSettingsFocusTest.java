@@ -1,16 +1,19 @@
 package com.limelight.preferences;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import android.app.Application;
+import android.graphics.drawable.Drawable;
 import android.preference.Preference;
 import android.preference.PreferenceManager;
 import android.view.KeyEvent;
 import android.view.View;
 import android.widget.ListView;
+import android.widget.TextView;
 
 import androidx.appcompat.app.AlertDialog;
 
@@ -163,7 +166,7 @@ public class TvSettingsFocusTest {
 
     /**
      * TV run on a TCL C6K: with search results on the right the rail still marked Controls. The search row is marked
-     * (grey pill and amber bar), and Left from the results comes back to it.
+     * (amber bar, icon and title), and Left from the results comes back to it.
      */
     @Test
     public void searchResultsMarkTheSearchRowAndLeftReturnsToIt() {
@@ -203,7 +206,7 @@ public class TvSettingsFocusTest {
         }
         String selected = keyAt(list, list.getSelectedItemPosition());
         assertEquals("display", selected);
-        // The pane follows the selected row after its pause, and the grey pill follows the pane.
+        // The pane follows the selected row after its pause, and the mark follows the pane.
         ShadowLooper.idleMainLooper(1, TimeUnit.SECONDS);
         settle(screen);
         assertEquals(selected, keyAt(list, list.getCheckedItemPosition()));
@@ -232,6 +235,142 @@ public class TvSettingsFocusTest {
         assertEquals(screen.getResources().getStringArray(R.array.stream_preset_names).length,
                 chooser.getListView().getCount());
         chooser.dismiss();
+    }
+
+    private static void goToRow(StreamSettings screen, String key) {
+        ListView list = sections(screen);
+        int target = StreamSettings.RootFragment.positionOf(list, key);
+        for (int i = 0; i < 2 * list.getCount() && list.getSelectedItemPosition() != target; i++) {
+            press(screen, list.getSelectedItemPosition() < target ? KeyEvent.KEYCODE_DPAD_DOWN : KeyEvent.KEYCODE_DPAD_UP);
+        }
+        assertEquals(key, keyAt(list, list.getSelectedItemPosition()));
+    }
+
+    /**
+     * nightjar#7 (Shield TV): the search row opened the field, and with nothing typed it stayed open under the bar when
+     * the D-pad went back to the rail, so the screen showed the search row and the field. An empty field closes as
+     * focus leaves it.
+     */
+    @Test
+    public void anEmptySearchFieldClosesWhenFocusLeavesIt() {
+        StreamSettings screen = open();
+        goToRow(screen, StreamSettings.SEARCH_ROW_KEY);
+        press(screen, KeyEvent.KEYCODE_DPAD_CENTER);
+        androidx.appcompat.widget.SearchView field = screen.findViewById(R.id.settings_search);
+        assertEquals("Select on the search row opens the field", View.VISIBLE, field.getVisibility());
+        assertTrue(field.hasFocus());
+        press(screen, KeyEvent.KEYCODE_DPAD_DOWN);
+        assertFalse("focus left the field", field.hasFocus());
+        assertEquals("the empty field closed", View.GONE, field.getVisibility());
+        assertTrue("focus is on the rail", sections(screen).hasFocus());
+    }
+
+    /**
+     * nightjar#7: picking a section ends the search and closes its field, and the search row brings the search back as
+     * it was left, its query and its results. A field with a query stays open while focus is elsewhere: that is the
+     * search still on screen.
+     */
+    @Test
+    public void theSearchRowBringsBackTheQueryAndResultsASectionLeft() {
+        StreamSettings screen = open();
+        goToRow(screen, StreamSettings.SEARCH_ROW_KEY);
+        press(screen, KeyEvent.KEYCODE_DPAD_CENTER);
+        androidx.appcompat.widget.SearchView field = screen.findViewById(R.id.settings_search);
+        field.setQuery("controller", false);
+        settle(screen);
+        sections(screen).requestFocus();
+        settle(screen);
+        assertEquals("a field with a query stays while the search shows", View.VISIBLE, field.getVisibility());
+        goToRow(screen, "video");
+        press(screen, KeyEvent.KEYCODE_DPAD_CENTER);
+        assertEquals("a section ends the search and closes the field", View.GONE, field.getVisibility());
+        ListView list = sections(screen);
+        assertEquals("video", keyAt(list, list.getCheckedItemPosition()));
+        press(screen, KeyEvent.KEYCODE_DPAD_LEFT);
+        goToRow(screen, StreamSettings.SEARCH_ROW_KEY);
+        press(screen, KeyEvent.KEYCODE_DPAD_CENTER);
+        assertEquals(View.VISIBLE, field.getVisibility());
+        assertEquals("the query is back", "controller", field.getQuery().toString());
+        assertEquals("and its results", "controller", org.robolectric.util.ReflectionHelpers.getField(screen, "searchQuery"));
+        list = sections(screen);
+        assertEquals("the rail marks the search row again", StreamSettings.SEARCH_ROW_KEY,
+                keyAt(list, list.getCheckedItemPosition()));
+        TextView context = screen.findViewById(R.id.settings_context);
+        String none = screen.getResources().getQuantityString(R.plurals.settings_search_count, 0, 0);
+        assertFalse("results are listed: " + context.getText(), none.contentEquals(context.getText()));
+    }
+
+    private static android.graphics.Bitmap render(Drawable drawable, StreamSettings screen, int[] from, int[] to) {
+        Drawable copy = drawable.getConstantState().newDrawable(screen.getResources(), screen.getTheme()).mutate();
+        float density = screen.getResources().getDisplayMetrics().density;
+        int w = Math.round(400 * density), h = Math.round(56 * density);
+        copy.setBounds(0, 0, w, h);
+        copy.setState(from);
+        copy.jumpToCurrentState();
+        // No jump here: a fade would still draw the state left.
+        if (to != null) copy.setState(to);
+        android.graphics.Bitmap bitmap = android.graphics.Bitmap.createBitmap(w, h, android.graphics.Bitmap.Config.ARGB_8888);
+        copy.draw(new android.graphics.Canvas(bitmap));
+        return bitmap;
+    }
+
+    private static final int[] FOCUSED = {android.R.attr.state_enabled, android.R.attr.state_focused};
+    private static final int[] IDLE = {android.R.attr.state_enabled};
+
+    /**
+     * nightjar#7 (Shield TV): the ring was on one rail row and a grey fill on another (the shown section), and the right
+     * pane's focused row was grey and ringed, so grey meant focus there and the shown section here. Focus is now one
+     * look in both panes, fill and amber ring; the shown section has no fill, only the amber bar, icon and title.
+     */
+    @Test
+    public void focusIsFillAndRingInBothPanesAndTheShownSectionIsNotFilled() {
+        StreamSettings screen = open();
+        // Presets is no section: the pane keeps showing Input, the section a TV opens on.
+        goToRow(screen, "stream_presets");
+        ListView list = sections(screen);
+        float density = screen.getResources().getDisplayMetrics().density;
+        int amber = com.google.android.material.color.MaterialColors.getColor(screen, androidx.appcompat.R.attr.colorPrimary, 0);
+        ListView pane = (ListView) screen.getFragmentManager().findFragmentById(R.id.stream_settings).getView()
+                .findViewById(android.R.id.list);
+        android.graphics.Bitmap rail = render(list.getSelector(), screen, FOCUSED, null);
+        android.graphics.Bitmap row = render(pane.getSelector(), screen, FOCUSED, null);
+        int w = rail.getWidth(), h = rail.getHeight();
+        assertEquals("the rail's ring is amber", amber, rail.getPixel(w / 2, Math.round(4 * density) + 1));
+        assertTrue("the rail's focused row is filled", android.graphics.Color.alpha(rail.getPixel(w / 2, h / 2)) > 0);
+        assertEquals("with the right pane's fill", row.getPixel(w / 2, h / 2), rail.getPixel(w / 2, h / 2));
+
+        int input = StreamSettings.RootFragment.positionOf(list, "input");
+        assertEquals(input, list.getCheckedItemPosition());
+        View shown = list.getChildAt(input - list.getFirstVisiblePosition());
+        View other = list.getChildAt(StreamSettings.RootFragment.positionOf(list, "video") - list.getFirstVisiblePosition());
+        assertTrue(shown.isActivated());
+        android.graphics.Bitmap pill = render(shown.getBackground(), screen, shown.getDrawableState(), null);
+        assertEquals("no fill on the shown section", 0, android.graphics.Color.alpha(pill.getPixel(pill.getWidth() / 2, pill.getHeight() / 2)));
+        assertEquals("its title is amber", amber, ((TextView) shown.findViewById(android.R.id.title)).getCurrentTextColor());
+        android.widget.ImageView icon = shown.findViewById(android.R.id.icon);
+        assertEquals("its icon is amber", amber, androidx.core.widget.ImageViewCompat.getImageTintList(icon)
+                .getColorForState(icon.getDrawableState(), 0));
+        assertTrue("another section's title is not",
+                amber != ((TextView) other.findViewById(android.R.id.title)).getCurrentTextColor());
+    }
+
+    /** nightjar#7: the ring faded out of the row it left while it was already on the next, two rings at once. It goes at once. */
+    @Test
+    public void theRingLeavesARowAtOnceInBothPanes() {
+        StreamSettings screen = open();
+        ListView list = sections(screen);
+        ListView pane = (ListView) screen.getFragmentManager().findFragmentById(R.id.stream_settings).getView()
+                .findViewById(android.R.id.list);
+        for (Drawable selector : new Drawable[] {list.getSelector(), pane.getSelector()}) {
+            android.graphics.Bitmap left = render(selector, screen, FOCUSED, IDLE);
+            for (int y = 0; y < left.getHeight(); y++) {
+                for (int x = 0; x < left.getWidth(); x++) {
+                    if (android.graphics.Color.alpha(left.getPixel(x, y)) != 0) {
+                        throw new AssertionError("the ring is still drawn at " + x + "," + y);
+                    }
+                }
+            }
+        }
     }
 
     /**

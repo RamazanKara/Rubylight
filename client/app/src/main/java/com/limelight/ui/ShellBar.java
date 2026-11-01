@@ -89,8 +89,9 @@ public final class ShellBar {
 
         Menu menu = new PopupMenu(activity, bar).getMenu();
         activity.getMenuInflater().inflate(R.menu.shell, menu);
-        LayoutInflater inflater = LayoutInflater.from(activity);
-        int gap = activity.getResources().getDimensionPixelSize(R.dimen.space_s);
+        // The bar's own context: on a screen that is compact on a TV the bar keeps the full size (NightjarActivity.fullSizeContext).
+        LayoutInflater inflater = LayoutInflater.from(bar.getContext());
+        int gap = bar.getResources().getDimensionPixelSize(R.dimen.space_s);
         for (int i = 0; i < menu.size(); i++) {
             MenuItem item = menu.getItem(i);
             MaterialButton button = (MaterialButton) inflater.inflate(R.layout.view_shell_item, items, false);

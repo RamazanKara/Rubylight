@@ -145,7 +145,9 @@ public final class AdaptiveLayout {
             root.setPadding(0, 0, 0, 0);
             return;
         }
-        float density = root.getResources().getDisplayMetrics().density;
+        // The TV margin is the screen's: a screen that is compact on a TV keeps it at the app's size.
+        float density = activity instanceof NightjarActivity ? ((NightjarActivity) activity).fullSizeDensity()
+                : root.getResources().getDisplayMetrics().density;
         boolean television = (root.getResources().getConfiguration().uiMode & Configuration.UI_MODE_TYPE_MASK)
                 == Configuration.UI_MODE_TYPE_TELEVISION;
         int types;

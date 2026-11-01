@@ -36,6 +36,12 @@ import java.util.concurrent.Executors;
 
 /** Edits chords without sending any input; imports are bounded and reviewed before replacement. */
 public final class KeyboardShortcutsActivity extends NightjarActivity {
+    /** A TV lays out Settings' screens at {@link com.limelight.ui.AppTheme#TV_COMPACT_PERCENT} of the interface size. */
+    @Override
+    protected boolean compactOnTelevision() {
+        return true;
+    }
+
     private static final int IMPORT = 1;
     private static final int EXPORT = 2;
     private static final String STATE_DRAFT = "shortcutDraft";

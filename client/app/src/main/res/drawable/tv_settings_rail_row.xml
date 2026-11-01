@@ -1,15 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- A section row of the TV settings rail: the section the right pane shows is a filled pill (the amber bar over it is
-     StreamSettings' rail indicator, one view that slides between rows). Focus adds the rail's ring (tv_settings_rail_focus). -->
+<!-- A row of the TV settings rail. The section the right pane shows has no fill: it has the amber bar (StreamSettings' rail
+     indicator, one view that slides between rows) and an amber icon and title (tv_rail_icon, tv_rail_title). A fill is
+     focus, which the rail's selector draws with its ring (tv_settings_rail_focus), as the right pane does (nightjar#7). -->
 <selector xmlns:android="http://schemas.android.com/apk/res/android">
-    <item android:state_activated="true">
-        <inset android:insetLeft="4dp" android:insetRight="4dp" android:insetTop="2dp" android:insetBottom="2dp">
-            <shape android:shape="rectangle">
-                <solid android:color="@color/tv_rail_fill" />
-                <corners android:radius="16dp" />
-            </shape>
-        </inset>
-    </item>
     <item android:state_pressed="true">
         <color android:color="?attr/colorControlHighlight" />
     </item>

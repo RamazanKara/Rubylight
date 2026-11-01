@@ -8,7 +8,7 @@ Rubylight, called Butterpollo until rc.29, is written in Rust: host, native help
 
 ## New in 3.2.1
 
-Rubylight 3.2.1 lets Stream in the browser pick AV1, HEVC or H.264 and stream in Firefox ([#66](https://github.com/RamazanKara/Rubylight/issues/66), [#67](https://github.com/RamazanKara/Rubylight/issues/67)), keeps fixed-rate streams steady when a game runs faster than the stream, and fixes the Wake-on-LAN check in the console.
+Rubylight 3.2.1 lets Stream in the browser pick AV1, HEVC or H.264 and stream in Firefox ([#66](https://github.com/RamazanKara/Rubylight/issues/66), [#67](https://github.com/RamazanKara/Rubylight/issues/67)), keeps fixed-rate streams steady when a game runs faster than the stream, lets pause and resume commands run side by side, and fixes the Wake-on-LAN check in the console.
 
 ### Stream in the browser
 
@@ -18,6 +18,10 @@ Rubylight 3.2.1 lets Stream in the browser pick AV1, HEVC or H.264 and stream in
 ### Streaming
 
 - **Steadier fixed-rate streams beside other windows.** When a game runs at two to four times the stream rate (120 Hz at 60 fps), the host now follows the game's own frame timing, so another window's updates no longer take the place of the game's frames or hold back the frames after them. Measured on the RX 7900 XT at 1080p60 with a 120 Hz game: beside a window animating at 30 fps, end to end p95 was 0.6 ms lower and picture age p95 1.0 ms lower; on a quiet desktop, 0.9 and 1.9 ms lower. Frames ready for the encoder waited under 0.5 ms at p95 in most runs, against 1.4 to 2.3 ms before.
+
+### Apps
+
+- **Pause and resume commands no longer block each other.** Rubylight waited for each pause or resume command to finish, so a script that keeps running while the game is paused (Apollo's auto-pause script with `pause.ahk` and `resume.ahk`) held back the resume and was killed after two minutes. These commands now start without waiting, as on Apollo.
 
 ### Console
 

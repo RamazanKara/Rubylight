@@ -288,7 +288,7 @@ pub struct Settings {
     pub controller_audio: bool,
     pub back_opens_menu: bool,
     /// Holding the controller's Guide (Home) button this long opens the stream menu; a shorter
-    /// press still goes to the PC. 0 is off (one of [`GUIDE_HOLD_MS`]).
+    /// press still goes to the PC. 0 is off (one of [`GUIDE_HOLD_MS`], Android's stored values).
     pub guide_hold_ms: u32,
     pub gamepad_quit_combo: GamepadQuitCombo,
     pub controller_mouse: bool,
@@ -695,8 +695,8 @@ impl Default for Settings {
             controller_motion: true,
             controller_audio: false,
             back_opens_menu: false,
-            // Off: Guide reaches the PC on press as before; on, a lone press reaches it on release.
-            guide_hold_ms: 0,
+            // 1 s, Android's default (`list_guide_menu_hold`); a lone press reaches the PC on release.
+            guide_hold_ms: 1000,
             gamepad_quit_combo: GamepadQuitCombo::StartSelectLbRb,
             controller_mouse: true,
             analog_scrolling: AnalogScrolling::Right,

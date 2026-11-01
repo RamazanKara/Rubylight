@@ -1396,10 +1396,11 @@ mod tests {
             assert!(!pads.guide_waiting());
 
             // Turned off mid-press: the held Guide is dropped, not chorded into the next button.
-            pads.configure(&crate::config::Settings { guide_hold_ms: 1000, ..Default::default() });
+            // The default is 1 s, as on Android.
+            pads.configure(&crate::config::Settings::default());
             assert_eq!(pads.guide_hold, Some(Duration::from_secs(1)));
             press(&mut pads, &mut queue, guide, true);
-            pads.configure(&crate::config::Settings::default());
+            pads.configure(&crate::config::Settings { guide_hold_ms: 0, ..Default::default() });
             assert!(!pads.guide_waiting());
             press(&mut pads, &mut queue, SDL_GAMEPAD_BUTTON_SOUTH.0, true);
             assert_eq!(pads.pads[0].buttons, button::A);

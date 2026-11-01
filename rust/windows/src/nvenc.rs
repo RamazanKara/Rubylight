@@ -367,7 +367,20 @@ struct Pending {
     frame_cap_bytes: Option<u64>,
     frame_cap_target: Option<u64>,
     cut_limit: Option<u64>,
+    /// With slice delivery, a P-frame that may leave slice by slice: not a
+    /// keyframe or a recovery frame, and under a frame cap.
+    streams: bool,
+    /// The units of a frame that has begun to leave slice by slice.
+    units: Option<Units>,
     _converted: Option<Arc<ID3D11Texture2D>>,
+}
+/// How far a frame sent slice by slice has left.
+#[derive(Clone, Copy, Debug, Default)]
+struct Units {
+    /// Bytes of the picture already handed on.
+    sent: usize,
+    /// The index of the next unit.
+    next: u32,
 }
 /// A frame submitted once more ([`Session::reencode`]): it keeps its number
 /// and its encode time counts from the first submission, as AMF counts it.
@@ -412,6 +425,21 @@ struct Session {
     keyframes_over_cap: u64,
     /// Why encoding a scene cut again failed, until the encoder reports it.
     reencode_failure: Option<String>,
+    /// Blocks a P-frame is sent in when slice delivery is on, else 0.
+    slice_blocks: u8,
+    /// NVENC writes each slice as it finishes (`enableSubFrameWrite`), and
+    /// frames are read while they encode: slice delivery is on.
+    subframe: bool,
+    /// The slices of each frame in subframe mode.
+    subframe_slices: u32,
+    /// Slice delivery is off for the rest of the session
+    /// ([`Encoder::join_slices`]).
+    slices_joined: bool,
+    /// `sliceOffsets` for a subframe lock, one entry per macroblock as the
+    /// API asks.
+    slice_offsets: Vec<u32>,
+    /// A frame sent slice by slice came out a keyframe, and the log says so.
+    unit_idr_reported: bool,
     next: u64,
     initialized: bool,
     force_idr: bool,
@@ -502,6 +530,12 @@ impl Session {
             reencoded_cuts: 0,
             keyframes_over_cap: 0,
             reencode_failure: None,
+            slice_blocks: 0,
+            subframe: false,
+            subframe_slices: 0,
+            slices_joined: false,
+            slice_offsets: Vec::new(),
+            unit_idr_reported: false,
             next: 1,
             initialized: false,
             force_idr: false,
@@ -615,7 +649,52 @@ impl Session {
         {
             bail!("this NVENC codec does not support 4:4:4");
         }
-        let asynchronous = self.optional_cap(_NV_ENC_CAPS_NV_ENC_CAPS_ASYNC_ENCODE_SUPPORT)
+        // Slice delivery reads a frame while it encodes. The driver writes
+        // each slice as it finishes only in synchronous mode, polled without
+        // waiting; every other stream keeps completion events.
+        self.slice_blocks = tuning.slice_blocks;
+        let readback = tuning.slice_blocks > 0
+            && self.stream.codec < 2
+            && self.optional_cap(_NV_ENC_CAPS_NV_ENC_CAPS_SUPPORT_SUBFRAME_READBACK);
+        // HEVC split encoding and subframe readback exclude each other. On a
+        // GPU with several NVENC engines split encoding keeps the frame budget
+        // (`frame_budget`), so it is kept.
+        let splits = self.stream.codec == 1
+            && tuning.split != SPLIT_DISABLED
+            && self
+                .cap(_NV_ENC_CAPS_NV_ENC_CAPS_NUM_ENCODER_ENGINES)
+                .unwrap_or(1)
+                > 1;
+        self.subframe = readback && !splits;
+        if readback && splits {
+            tracing::info!(
+                blocks = tuning.slice_blocks,
+                "video_slice_delivery is on, but HEVC split encoding uses this GPU's NVENC engines and cannot return slices as they finish; frames leave whole. Set nvenc_split_encode = disabled to send slices instead"
+            );
+        } else if tuning.slice_blocks > 0 && !self.subframe {
+            tracing::warn!(
+                blocks = tuning.slice_blocks,
+                "video_slice_delivery is on, but this NVENC driver cannot return a frame's slices as they finish; frames leave whole. Update the NVIDIA driver"
+            );
+        }
+        self.subframe_slices = if self.subframe {
+            tuning.subframe_slices(self.stream.slices)
+        } else {
+            0
+        };
+        self.slice_offsets = if self.subframe {
+            vec![0; (self.stream.width.div_ceil(16) * self.stream.height.div_ceil(16)) as usize]
+        } else {
+            Vec::new()
+        };
+        // HEVC split encoding cannot run in subframe mode.
+        let split = if self.subframe && self.stream.codec == 1 {
+            SPLIT_DISABLED
+        } else {
+            tuning.split
+        };
+        let asynchronous = !self.subframe
+            && self.optional_cap(_NV_ENC_CAPS_NV_ENC_CAPS_ASYNC_ENCODE_SUPPORT)
             && self.functions.nvEncRegisterAsyncEvent.is_some()
             && self.functions.nvEncUnregisterAsyncEvent.is_some();
         self.retained = if self.optional_cap(_NV_ENC_CAPS_NV_ENC_CAPS_SUPPORT_MULTIPLE_REF_FRAMES) {
@@ -643,7 +722,7 @@ impl Session {
             ..Default::default()
         };
         // Multi-engine throughput counts only when split encoding may use it.
-        let engines = if tuning.split == SPLIT_DISABLED {
+        let engines = if split == SPLIT_DISABLED {
             1
         } else {
             self.cap(_NV_ENC_CAPS_NV_ENC_CAPS_NUM_ENCODER_ENGINES)
@@ -775,10 +854,16 @@ impl Session {
             };
         }
         let intra_refresh = self.stream.intra_refresh
+            && !self.subframe
             && self.optional_cap(_NV_ENC_CAPS_NV_ENC_CAPS_SUPPORT_INTRA_REFRESH);
         let single_slice =
             intra_refresh && self.optional_cap(_NV_ENC_CAPS_NV_ENC_CAPS_SINGLE_SLICE_INTRA_REFRESH);
-        if self.stream.intra_refresh && !intra_refresh {
+        if self.stream.intra_refresh && self.subframe {
+            // As AMF does with slice delivery.
+            tracing::warn!(
+                "video_slice_delivery is on: intra refresh is off for this stream and a lost frame is recovered with a keyframe"
+            );
+        } else if self.stream.intra_refresh && !intra_refresh {
             tracing::warn!(
                 "NVENC intra-refresh unavailable; keeping IDR recovery, which can cause larger recovery frames. Reduce bitrate on lossy links or update the NVIDIA driver"
             );
@@ -788,7 +873,12 @@ impl Session {
         let chroma = if self.stream.yuv444 { 3 } else { 1 };
         let metadata = self.stream.hdr && self.api >= ApiVersion(13, 0);
         let cabac = !tuning.cavlc && self.optional_cap(_NV_ENC_CAPS_NV_ENC_CAPS_SUPPORT_CABAC);
-        let slice_mode = tuning.slice_mode(self.stream.slices, self.api);
+        let slice_mode = self.subframe || tuning.slice_mode(self.stream.slices, self.api);
+        let slices = if self.subframe {
+            self.subframe_slices
+        } else {
+            self.stream.slices.max(1)
+        };
         if self.stream.hdr && !metadata {
             tracing::warn!(
                 "NVENC driver API cannot embed HDR mastering metadata; only control-channel metadata is available. Update the NVIDIA driver if HDR tone mapping is wrong"
@@ -815,7 +905,7 @@ impl Session {
                 codec.idrPeriod = u32::MAX;
                 if slice_mode {
                     codec.sliceMode = 3;
-                    codec.sliceModeData = self.stream.slices.max(1);
+                    codec.sliceModeData = slices;
                 }
                 codec.chromaFormatIDC = chroma;
                 codec.set_enableFillerDataInsertion(u32::from(tuning.filler));
@@ -854,7 +944,7 @@ impl Session {
                 codec.idrPeriod = u32::MAX;
                 if slice_mode {
                     codec.sliceMode = 3;
-                    codec.sliceModeData = self.stream.slices.max(1);
+                    codec.sliceModeData = slices;
                 }
                 codec.set_chromaFormatIDC(chroma);
                 codec.set_enableFillerDataInsertion(u32::from(tuning.filler));
@@ -937,10 +1027,14 @@ impl Session {
             .set_enableWeightedPrediction(u32::from(weighted));
         if self.stream.codec != 0
             && self.api >= ApiVersion(12, 1)
-            && !(self.stream.codec == 1 && weighted)
+            && (!(self.stream.codec == 1 && weighted) || split == SPLIT_DISABLED)
         {
-            self.initialize.set_splitEncodeMode(tuning.split);
+            self.initialize.set_splitEncodeMode(split);
         }
+        self.initialize
+            .set_reportSliceOffsets(u32::from(self.subframe));
+        self.initialize
+            .set_enableSubFrameWrite(u32::from(self.subframe));
         // SAFETY: `validate` checked nvEncInitializeEncoder; `initialize` and the config it points
         // to are boxed in `self`, so both addresses stay valid for the session.
         let status = unsafe {
@@ -953,8 +1047,9 @@ impl Session {
             api_minor = self.api.1,
             preset = budget.effective,
             rate_control = ?self.rate_control,
-            split = tuning.split,
+            split,
             asynchronous,
+            subframe_slices = self.subframe_slices,
             references = self.retained,
             rfi = self.invalidation,
             width = self.stream.width,
@@ -1172,6 +1267,8 @@ impl Session {
             frame_cap_bytes: self.frame_cap(),
             frame_cap_target: self.frame_cap_target,
             cut_limit: self.cut_limit,
+            streams: self.subframe && !idr && !after_invalidation && self.frame_cap().is_some(),
+            units: None,
             _converted: texture,
         });
         if again.is_none() {
@@ -1223,14 +1320,15 @@ impl Session {
     /// instead of to the client: the rule AMF follows
     /// ([`crate::amf::reencodes_cut`]), for an inter frame past the stream's
     /// full-FEC bound that the VBV did not hold, while nothing submitted after
-    /// it can reference it.
+    /// it can reference it. Not with slice delivery, as on AMF.
     fn reencodes(&self, pending: &Pending, encoded: &Encoded) -> bool {
-        crate::amf::reencodes_cut(
-            encoded.idr || pending.idr || pending.reencoded,
-            encoded.bytes.len() as u64,
-            pending.cut_limit,
-            self.pending.is_empty(),
-        )
+        !self.subframe
+            && crate::amf::reencodes_cut(
+                encoded.idr || pending.idr || pending.reencoded,
+                encoded.bytes.len() as u64,
+                pending.cut_limit,
+                self.pending.is_empty(),
+            )
     }
     /// Submit `cut`'s input again as a keyframe with its frame number. The
     /// keyframe resets the references, so a later repair names only it.
@@ -1269,11 +1367,18 @@ impl Session {
             let mut lock = NV_ENC_LOCK_BITSTREAM {
                 version: self.api.lock(),
                 outputBitstream: slot.output,
+                sliceOffsets: if self.subframe {
+                    self.slice_offsets.as_mut_ptr()
+                } else {
+                    ptr::null_mut()
+                },
                 ..Default::default()
             };
-            lock.set_doNotWait(u32::from(!slot.event.is_invalid()));
-            // SAFETY: `slot.output` is the pending slot's bitstream buffer on this session and
-            // `lock` is versioned.
+            // In subframe mode a lock that does not wait returns the slices
+            // written so far.
+            lock.set_doNotWait(u32::from(!slot.event.is_invalid() || self.subframe));
+            // SAFETY: `slot.output` is the pending slot's bitstream buffer on this session,
+            // `sliceOffsets` is null or holds an entry per macroblock, and `lock` is versioned.
             let status =
                 unsafe { (self.functions.nvEncLockBitstream.unwrap())(self.raw, &mut lock) };
             if status == _NVENCSTATUS_NV_ENC_ERR_LOCK_BUSY {
@@ -1283,34 +1388,98 @@ impl Session {
                 break;
             }
             self.check(status, "lock completed output")?;
-            let result = (|| -> Result<Encoded> {
+            let size = lock.bitstreamSizeInBytes as usize;
+            let sent = pending.units.map_or(0, |units| units.sent);
+            if self.subframe && !subframe_complete(&lock, self.subframe_slices) {
+                // Hand on the slices written since the last poll, if the
+                // frame leaves slice by slice; otherwise wait for all of it.
+                let streamed = pending.streams && (pending.units.is_some() || !self.slices_joined);
+                let unit = (|| -> Result<Option<Vec<u8>>> {
+                    if size > MAX_FRAME_BYTES
+                        || size < sent
+                        || (size > 0 && lock.bitstreamBufferPtr.is_null())
+                    {
+                        bail!("invalid NVENC slice output size");
+                    }
+                    if !streamed || size == sent {
+                        return Ok(None);
+                    }
+                    // SAFETY: The lock succeeded and the pointer is non-null with `size` bounded
+                    // bytes written; the bytes stay valid until the unlock below.
+                    let written = unsafe {
+                        std::slice::from_raw_parts(lock.bitstreamBufferPtr.cast::<u8>(), size)
+                    };
+                    Ok(Some(written[sent..].to_vec()))
+                })();
+                self.check(
+                    // SAFETY: `output` was locked by the successful nvEncLockBitstream above.
+                    unsafe {
+                        (self.functions.nvEncUnlockBitstream.unwrap())(
+                            self.raw,
+                            self.slots[index].output,
+                        )
+                    },
+                    "unlock output",
+                )?;
+                let unit = unit?;
+                let pending = self.pending.front_mut().unwrap();
+                if let Some(bytes) = unit {
+                    let units = pending.units.get_or_insert_default();
+                    let index = units.next;
+                    units.next += 1;
+                    units.sent = size;
+                    self.ready.push_back(Encoded {
+                        bytes,
+                        unit: crate::encoder::Unit::Slice { index },
+                        idr: false,
+                        after_invalidation: false,
+                        frame_cap_bytes: pending.frame_cap_bytes,
+                        reencoded: false,
+                        frame_cap_target: pending.frame_cap_target,
+                        latency: Some(pending.started.elapsed()),
+                        presentation: Some(pending.presentation),
+                    });
+                }
+                if pending.started.elapsed() > COMPLETION_TIMEOUT {
+                    bail!("NVENC completion timed out");
+                }
+                break;
+            }
+            let result = (|| -> Result<(Encoded, bool)> {
                 if lock.outputTimeStamp != pending.frame
                     || lock.bitstreamBufferPtr.is_null()
-                    || lock.bitstreamSizeInBytes == 0
-                    || lock.bitstreamSizeInBytes as usize > MAX_FRAME_BYTES
+                    || size == 0
+                    || size > MAX_FRAME_BYTES
+                    || size <= sent
                 {
                     bail!("invalid NVENC output timestamp or size");
                 }
                 let idr = lock.pictureType == _NV_ENC_PIC_TYPE_NV_ENC_PIC_TYPE_IDR;
-                Ok(Encoded {
-                    // SAFETY: The lock succeeded and the pointer is non-null with a bounded size;
-                    // the bytes stay valid until the unlock below.
-                    bytes: unsafe {
-                        std::slice::from_raw_parts(
-                            lock.bitstreamBufferPtr.cast(),
-                            lock.bitstreamSizeInBytes as usize,
-                        )
-                    }
-                    .to_vec(),
-                    unit: crate::encoder::Unit::Whole,
+                // A frame that has begun to leave slice by slice ends with its
+                // last unit; any other leaves whole.
+                let unit = pending.units.map_or(crate::encoder::Unit::Whole, |units| {
+                    crate::encoder::Unit::Last { index: units.next }
+                });
+                let whole = unit == crate::encoder::Unit::Whole;
+                // SAFETY: The lock succeeded and the pointer is non-null with a bounded size;
+                // the bytes stay valid until the unlock below.
+                let written = unsafe {
+                    std::slice::from_raw_parts(lock.bitstreamBufferPtr.cast::<u8>(), size)
+                };
+                Ok((
+                    Encoded {
+                        bytes: written[sent..].to_vec(),
+                        unit,
+                        idr: whole && idr,
+                        after_invalidation: whole && pending.after_invalidation && !idr,
+                        frame_cap_bytes: pending.frame_cap_bytes,
+                        reencoded: whole && pending.reencoded,
+                        frame_cap_target: pending.frame_cap_target,
+                        latency: Some(pending.started.elapsed()),
+                        presentation: Some(pending.presentation),
+                    },
                     idr,
-                    after_invalidation: pending.after_invalidation && !idr,
-                    frame_cap_bytes: pending.frame_cap_bytes,
-                    reencoded: pending.reencoded,
-                    frame_cap_target: pending.frame_cap_target,
-                    latency: Some(pending.started.elapsed()),
-                    presentation: Some(pending.presentation),
-                })
+                ))
             })();
             self.check(
                 // SAFETY: `output` was locked by the successful nvEncLockBitstream above.
@@ -1322,7 +1491,16 @@ impl Session {
                 },
                 "unlock output",
             )?;
-            let encoded = result?;
+            let (encoded, idr) = result?;
+            if idr && encoded.unit != crate::encoder::Unit::Whole && !self.unit_idr_reported {
+                // Only P-frames are sent slice by slice, and NVENC makes a
+                // keyframe only when asked: say so, once, if one was.
+                self.unit_idr_reported = true;
+                tracing::error!(
+                    frame = pending.frame,
+                    "NVENC returned a keyframe for a frame sent slice by slice as a P-frame. Report this with the host log."
+                );
+            }
             self.check(
                 // SAFETY: `mapped` is the input mapped for this frame in `submit`, and its output
                 // has been collected.
@@ -1347,12 +1525,10 @@ impl Session {
                     }
                 }
             }
-            if encoded.idr
-                && crate::amf::over_cap_target(encoded.bytes.len() as u64, pending.frame_cap_target)
-            {
+            if idr && crate::amf::over_cap_target(size as u64, pending.frame_cap_target) {
                 self.keyframes_over_cap += 1;
             }
-            self.references.completed(pending.frame, encoded.idr);
+            self.references.completed(pending.frame, idr);
             self.ready.push_back(encoded);
         }
         Ok(())
@@ -1586,12 +1762,20 @@ fn coded(config: &Negotiated) -> Negotiated {
     }
     coded
 }
-/// Dynamic HDR metadata spliced into each picture
-/// ([`crate::amf::dynamic::output`]); NVENC returns whole pictures.
+/// Whether a subframe lock holds the whole picture: every slice the session
+/// set (`sliceMode` 3) is written. The SDK leaves `hwEncodeStatus`'s values
+/// undocumented, so it is not read; a frame whose slices never all arrive
+/// fails loudly at the completion timeout rather than leave cut short.
+fn subframe_complete(lock: &NV_ENC_LOCK_BITSTREAM, slices: u32) -> bool {
+    lock.numSlices >= slices
+}
+/// Dynamic HDR metadata spliced into each picture or unit
+/// ([`crate::amf::dynamic::output`]): before the first slice, the Dolby
+/// Vision RPU after the last.
 fn splice(dynamic: Option<&mut crate::amf::dynamic::Dynamic>, frame: &mut Encoded) {
     let (spliced, cap) = crate::amf::dynamic::output(
         dynamic,
-        crate::encoder::Unit::Whole,
+        frame.unit,
         &frame.bytes,
         frame.frame_cap_bytes,
         frame.idr,
@@ -1784,6 +1968,21 @@ impl Encoder {
     /// Keyframes more than 1.1 times the cap the host asked for.
     pub fn keyframes_over_cap(&self) -> u64 {
         self.session.keyframes_over_cap
+    }
+    /// Blocks a P-frame is sent in as NVENC writes its slices; 0 when
+    /// `video_slice_delivery` is off, the driver has no subframe readback,
+    /// and after [`Self::join_slices`].
+    pub fn slice_delivery(&self) -> u8 {
+        if self.session.subframe && !self.session.slices_joined {
+            self.session.slice_blocks
+        } else {
+            0
+        }
+    }
+    /// Return every later frame whole, from the next one on. A frame whose
+    /// first unit has left is finished as it began.
+    pub fn join_slices(&mut self) {
+        self.session.slices_joined = true;
     }
     /// Snapshot only at failure/recreation, before dropping the driver state.
     pub fn log_stall(&self) {

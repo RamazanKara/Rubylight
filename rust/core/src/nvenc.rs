@@ -138,6 +138,9 @@ pub struct Tuning {
     /// Lower `preset` when its estimated encode time misses the frame budget
     /// ([`frame_budget`]).
     pub frame_budget_guard: bool,
+    /// Blocks a P-frame is sent in as its slices leave the encoder
+    /// ([`crate::encoder_policy::slice_delivery`]), the same setting as AMF's.
+    pub slice_blocks: u8,
 }
 impl Tuning {
     pub fn new(config: &Config, stream: &Negotiated) -> Result<Self> {
@@ -204,7 +207,13 @@ impl Tuning {
             split,
             rate_control,
             frame_budget_guard: config.boolean("nvenc_frame_budget_guard", true),
+            slice_blocks: crate::encoder_policy::slice_delivery(config, stream),
         })
+    }
+    /// Slices per frame when NVENC returns them as they finish: at least one
+    /// per block, as AMF sets its slice count.
+    pub fn subframe_slices(&self, slices: u32) -> u32 {
+        u32::from(self.slice_blocks).max(slices).max(2)
     }
     /// H.264 and HEVC set a slice count only for several slices, or with
     /// split encoding off: a fixed slice mode keeps the driver from
@@ -481,6 +490,20 @@ mod tests {
         assert_eq!(tuning("nvenc_preset = 9\n", 1).preset, 7);
         assert_eq!(tuning("nvenc_twopass = full_res\n", 1).multipass, 2);
         assert_eq!(tuning("nvenc_twopass = disabled\n", 1).multipass, 0);
+    }
+    #[test]
+    fn slice_delivery_follows_the_amf_setting_with_a_slice_per_block() {
+        assert_eq!(tuning("", 1).slice_blocks, 0, "auto is off at 1080p");
+        let four = tuning("video_slice_delivery = 4\n", 0);
+        assert_eq!(four.slice_blocks, 4);
+        assert_eq!(four.subframe_slices(1), 4);
+        assert_eq!(four.subframe_slices(8), 8);
+        assert_eq!(
+            tuning("video_slice_delivery = 2\n", 1).subframe_slices(0),
+            2
+        );
+        // AV1 returns tiles, which slice delivery does not stream.
+        assert_eq!(tuning("video_slice_delivery = 4\n", 2).slice_blocks, 0);
     }
     #[test]
     fn a_fixed_slice_mode_is_set_only_where_it_cannot_block_split_encoding() {

@@ -52,6 +52,13 @@ struct Driver {
     codecs: Option<Vec<u8>>,
     /// NV_ENC_CAPS_MB_PER_SEC_MAX.
     macroblocks: i32,
+    /// NV_ENC_CAPS_SUPPORT_SUBFRAME_READBACK is 0.
+    no_subframe: bool,
+    /// Bytes in each picture, at least the 8 of its timestamp.
+    picture: usize,
+    /// Subframe locks before a picture is done: the slices and bytes each
+    /// returns.
+    partial: VecDeque<(u32, usize)>,
 }
 thread_local! { static DRIVER: RefCell<Driver> = RefCell::default(); }
 fn state<T>(call: impl FnOnce(&mut Driver) -> T) -> T {
@@ -167,6 +174,7 @@ unsafe extern "C" fn caps(
             _NV_ENC_CAPS_NV_ENC_CAPS_NUM_ENCODER_ENGINES => d.engines.max(1),
             _NV_ENC_CAPS_NV_ENC_CAPS_SUPPORTED_RATECONTROL_MODES => d.rate_modes.unwrap_or(0x3f),
             _NV_ENC_CAPS_NV_ENC_CAPS_MB_PER_SEC_MAX => d.macroblocks,
+            _NV_ENC_CAPS_NV_ENC_CAPS_SUPPORT_SUBFRAME_READBACK => i32::from(!d.no_subframe),
             _ => 1,
         });
     }
@@ -395,6 +403,7 @@ unsafe extern "C" fn encode(raw: *mut c_void, parameters: *mut NV_ENC_PIC_PARAMS
         let codec = state_codec(d);
         let buffer = d.outputs.get_mut(&(p.outputBitstream as usize)).unwrap();
         buffer.bytes = p.inputTimeStamp.to_le_bytes().to_vec();
+        buffer.bytes.extend((8..d.picture).map(|i| i as u8));
         buffer.timestamp = p.inputTimeStamp;
         buffer.idr = p.encodePicFlags & _NV_ENC_PIC_FLAGS_NV_ENC_PIC_FLAG_FORCEIDR != 0;
         let pointer = if codec == 1 {
@@ -454,6 +463,7 @@ unsafe extern "C" fn lock(raw: *mut c_void, parameters: *mut NV_ENC_LOCK_BITSTRE
             d.lock_busy -= 1;
             return _NVENCSTATUS_NV_ENC_ERR_LOCK_BUSY;
         }
+        let slices = configured_slices(d);
         let buffer = d.outputs.get_mut(&(p.outputBitstream as usize)).unwrap();
         if let Some((pointer, expected)) = buffer.metadata {
             assert_eq!(
@@ -476,6 +486,16 @@ unsafe extern "C" fn lock(raw: *mut c_void, parameters: *mut NV_ENC_LOCK_BITSTRE
         buffer.locked = true;
         p.bitstreamBufferPtr = buffer.bytes.as_mut_ptr().cast();
         p.bitstreamSizeInBytes = buffer.bytes.len() as u32;
+        if let Some((written, bytes)) = d.partial.pop_front() {
+            assert_eq!(p.doNotWait(), 1, "a subframe lock does not wait");
+            assert!(!p.sliceOffsets.is_null());
+            p.numSlices = written;
+            p.bitstreamSizeInBytes = bytes as u32;
+            p.hwEncodeStatus = 1;
+        } else {
+            p.numSlices = slices;
+            p.hwEncodeStatus = 2;
+        }
         p.outputTimeStamp = buffer.timestamp;
         p.pictureType = if buffer.idr {
             _NV_ENC_PIC_TYPE_NV_ENC_PIC_TYPE_IDR
@@ -565,6 +585,20 @@ fn assert_clean() {
         assert!(d.events.is_empty());
         assert!(d.mapped.is_empty());
     });
+}
+/// The slices a frame has when the session reports slice offsets.
+fn configured_slices(driver: &Driver) -> u32 {
+    let (initialize, config) = driver.initialized.as_ref().unwrap();
+    if initialize.reportSliceOffsets() == 0 {
+        return 0;
+    }
+    match state_codec(driver) {
+        // SAFETY: An H.264 session fills this union member; it holds only integers and pointers.
+        0 => unsafe { config.encodeCodecConfig.h264Config.sliceModeData },
+        // SAFETY: An HEVC session fills this union member.
+        1 => unsafe { config.encodeCodecConfig.hevcConfig.sliceModeData },
+        _ => 0,
+    }
 }
 fn state_codec(driver: &Driver) -> u8 {
     let guid = driver.initialized.as_ref().unwrap().0.encodeGUID;
@@ -1703,6 +1737,203 @@ fn keyframes_past_a_tenth_over_the_target_are_counted() -> Result<()> {
         .unwrap_err();
     encoder.poll()?;
     assert_eq!(encoder.keyframes_over_cap, 1);
+    drop(encoder);
+    assert_clean();
+    Ok(())
+}
+#[test]
+fn slice_delivery_reads_p_frames_slice_by_slice_in_subframe_mode() -> Result<()> {
+    reset();
+    state(|d| {
+        d.asynchronous = true;
+        d.picture = 24;
+    });
+    let hevc = Negotiated {
+        codec: 1,
+        ..Default::default()
+    };
+    let mut encoder = session_with(&hevc, ApiVersion(13, 0), "video_slice_delivery = 2\n")?;
+    assert!(encoder.subframe);
+    let (parameters, config) = initialized();
+    // Subframe readback runs only synchronously, and HEVC never splits it.
+    assert_eq!(parameters.enableEncodeAsync, 0);
+    assert_eq!(parameters.reportSliceOffsets(), 1);
+    assert_eq!(parameters.enableSubFrameWrite(), 1);
+    assert_eq!(parameters.splitEncodeMode(), SPLIT_DISABLED);
+    // SAFETY: An HEVC session fills this union member.
+    let codec = unsafe { config.encodeCodecConfig.hevcConfig };
+    assert_eq!((codec.sliceMode, codec.sliceModeData), (3, 2));
+    assert_eq!(encoder.slice_offsets.len(), 120 * 68);
+    let slot = input(&mut encoder, 17)?;
+    // A keyframe waits for all of its slices and leaves whole.
+    state(|d| d.partial.push_back((1, 12)));
+    encoder.submit(slot, None, true, Instant::now())?;
+    assert!(encoder.poll()?.is_empty());
+    let output = encoder.poll()?;
+    assert_eq!(output.len(), 1);
+    assert_eq!(output[0].unit, crate::encoder::Unit::Whole);
+    assert!(output[0].idr);
+    assert_eq!(output[0].bytes.len(), 24);
+    // A P-frame leaves as NVENC writes it: nothing yet, a slice, the rest.
+    state(|d| d.partial.extend([(0, 0), (1, 10)]));
+    encoder.submit(slot, None, false, Instant::now())?;
+    assert!(encoder.poll()?.is_empty());
+    let first = encoder.poll()?;
+    assert_eq!(first.len(), 1);
+    assert_eq!(first[0].unit, crate::encoder::Unit::Slice { index: 0 });
+    assert!(!first[0].idr);
+    assert!(first[0].frame_cap_bytes.is_some());
+    assert_eq!(first[0].bytes[..8], 2u64.to_le_bytes());
+    let last = encoder.poll()?;
+    assert_eq!(last.len(), 1);
+    assert_eq!(last[0].unit, crate::encoder::Unit::Last { index: 1 });
+    assert!(!last[0].idr);
+    let mut picture = first[0].bytes.clone();
+    picture.extend_from_slice(&last[0].bytes);
+    assert_eq!(picture.len(), 24);
+    assert_eq!(picture[8..], (8..24).map(|i| i as u8).collect::<Vec<_>>());
+    // Slices already written leave together when the poll comes late.
+    state(|d| d.partial.push_back((1, 20)));
+    encoder.submit(slot, None, false, Instant::now())?;
+    assert_eq!(encoder.poll()?[0].bytes.len(), 20);
+    assert_eq!(encoder.poll()?[0].bytes.len(), 4);
+    // A frame done at its first poll leaves whole, with full FEC.
+    encoder.submit(slot, None, false, Instant::now())?;
+    let output = encoder.poll()?;
+    assert_eq!(output[0].unit, crate::encoder::Unit::Whole);
+    // A started frame ends as it began once slices are joined; the next is
+    // waited for and leaves whole.
+    state(|d| d.partial.push_back((1, 10)));
+    encoder.submit(slot, None, false, Instant::now())?;
+    assert_eq!(
+        encoder.poll()?[0].unit,
+        crate::encoder::Unit::Slice { index: 0 }
+    );
+    encoder.slices_joined = true;
+    assert_eq!(
+        encoder.poll()?[0].unit,
+        crate::encoder::Unit::Last { index: 1 }
+    );
+    state(|d| d.partial.push_back((1, 10)));
+    encoder.submit(slot, None, false, Instant::now())?;
+    assert!(encoder.poll()?.is_empty());
+    let output = encoder.poll()?;
+    assert_eq!(output[0].unit, crate::encoder::Unit::Whole);
+    assert_eq!(output[0].bytes.len(), 24);
+    // As on AMF, slice delivery never encodes a scene cut again.
+    encoder.slices_joined = false;
+    encoder.cut_limit = Some(4);
+    encoder.submit(slot, None, false, Instant::now())?;
+    assert!(!encoder.poll()?[0].reencoded);
+    assert_eq!(encoder.reencoded_cuts, 0);
+    drop(encoder);
+    assert_clean();
+    Ok(())
+}
+#[test]
+fn slice_output_that_shrinks_fails_and_a_stuck_frame_times_out() -> Result<()> {
+    reset();
+    state(|d| d.picture = 24);
+    let mut encoder = session_with(
+        &Negotiated::default(),
+        ApiVersion(13, 0),
+        "video_slice_delivery = 4\n",
+    )?;
+    // SAFETY: An H.264 session fills this union member.
+    let codec = unsafe { initialized().1.encodeCodecConfig.h264Config };
+    assert_eq!((codec.sliceMode, codec.sliceModeData), (3, 4));
+    let slot = input(&mut encoder, 17)?;
+    encoder.submit(slot, None, true, Instant::now())?;
+    encoder.poll()?;
+    state(|d| d.partial.extend([(2, 12), (2, 6)]));
+    encoder.submit(slot, None, false, Instant::now())?;
+    assert_eq!(encoder.poll()?[0].bytes.len(), 12);
+    let error = encoder.poll().err().unwrap();
+    assert!(
+        format!("{error:#}").contains("slice output size"),
+        "{error:#}"
+    );
+    // The bytes already sent stay sent; the frame is still in flight.
+    encoder.pending.front_mut().unwrap().started = Instant::now() - COMPLETION_TIMEOUT * 2;
+    state(|d| d.partial.push_back((3, 18)));
+    let error = encoder.poll().err().unwrap();
+    assert!(format!("{error:#}").contains("timed out"), "{error:#}");
+    encoder.pending.front_mut().unwrap().started = Instant::now();
+    encoder.poll()?;
+    drop(encoder);
+    assert_clean();
+    Ok(())
+}
+#[test]
+fn without_subframe_readback_slice_delivery_stays_off_and_events_stay() -> Result<()> {
+    reset();
+    state(|d| {
+        d.asynchronous = true;
+        d.no_subframe = true;
+    });
+    let stream = Negotiated {
+        intra_refresh: true,
+        ..Default::default()
+    };
+    let encoder = session_with(&stream, ApiVersion(13, 0), "video_slice_delivery = 2\n")?;
+    assert!(!encoder.subframe);
+    let (parameters, config) = initialized();
+    assert_eq!(parameters.enableEncodeAsync, 1);
+    assert_eq!(parameters.enableSubFrameWrite(), 0);
+    assert_eq!(parameters.reportSliceOffsets(), 0);
+    // SAFETY: An H.264 session fills this union member.
+    let codec = unsafe { config.encodeCodecConfig.h264Config };
+    assert_eq!(
+        codec.enableIntraRefresh(),
+        1,
+        "the client's intra refresh stays"
+    );
+    drop(encoder);
+    // With subframe readback, slice delivery takes intra refresh's place, as
+    // on AMF.
+    reset();
+    let encoder = session_with(&stream, ApiVersion(13, 0), "video_slice_delivery = 2\n")?;
+    assert!(encoder.subframe);
+    // SAFETY: An H.264 session fills this union member.
+    let codec = unsafe { initialized().1.encodeCodecConfig.h264Config };
+    assert_eq!(codec.enableIntraRefresh(), 0);
+    drop(encoder);
+    // HEVC split encoding on several engines keeps the frame budget, and
+    // cannot run beside subframe readback; H.264 never splits.
+    let hevc = Negotiated {
+        codec: 1,
+        ..Default::default()
+    };
+    reset();
+    state(|d| d.engines = 2);
+    let encoder = session_with(&hevc, ApiVersion(13, 0), "video_slice_delivery = 2\n")?;
+    assert!(!encoder.subframe);
+    assert_eq!(initialized().0.splitEncodeMode(), 0);
+    drop(encoder);
+    reset();
+    state(|d| d.engines = 2);
+    let encoder = session_with(
+        &hevc,
+        ApiVersion(13, 0),
+        "video_slice_delivery = 2\nnvenc_split_encode = disabled\n",
+    )?;
+    assert!(encoder.subframe);
+    drop(encoder);
+    reset();
+    state(|d| d.engines = 2);
+    let encoder = session_with(
+        &Negotiated::default(),
+        ApiVersion(13, 0),
+        "video_slice_delivery = 2\n",
+    )?;
+    assert!(encoder.subframe);
+    drop(encoder);
+    // Off by default at this size: nothing changes.
+    reset();
+    state(|d| d.asynchronous = true);
+    let encoder = session(&Negotiated::default(), ApiVersion(13, 0))?;
+    assert!(!encoder.subframe);
+    assert_eq!(initialized().0.enableEncodeAsync, 1);
     drop(encoder);
     assert_clean();
     Ok(())

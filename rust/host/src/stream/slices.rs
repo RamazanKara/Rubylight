@@ -1,7 +1,8 @@
 //! Slice delivery (`video_slice_delivery`) on the inline send path: where the
-//! units of an AMF frame go, and the state of the frame being streamed.
+//! units of an encoder's frame go, and the state of the frame being streamed.
 //!
-//! With slice delivery on, AMF returns a P-frame in units. A unit of a frame
+//! With slice delivery on, AMF (slice output mode) and NVENC (subframe
+//! readback) return a P-frame in units. A unit of a frame
 //! this path streams is packetized and sent as it arrives; the units of any
 //! other frame (one the plan cannot stream, or any frame once the sender has
 //! its own thread) are joined into the whole frame the send paths take.

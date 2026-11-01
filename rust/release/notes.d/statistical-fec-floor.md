@@ -1,0 +1,2 @@
+# Error correction floor
+- Nightjar's Automatic error correction now keeps at least 10 % recovery data. Before, it dropped to none after one clean second, and on real Wi-Fi (Retroid Pocket 6, 150 Mbps) any lost packet then cost a frame and a keyframe: 14 frames over six runs, against none with the PC's own setting. With the floor, four runs on the same link lost no frames under either choice. The PC's setting stays the default, because under steady loss Automatic still lost more frames.

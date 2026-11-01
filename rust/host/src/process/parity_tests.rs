@@ -138,7 +138,7 @@ fn close_on_disconnect_inherits_the_global_default_and_preserves_app_overrides()
 }
 
 #[test]
-fn stopping_an_app_cancels_running_and_queued_state_commands_before_undo() {
+fn stopping_an_app_ends_its_state_commands_and_runs_undo() {
     let fixture = Fixture::new();
     let trace = fixture.host.directory.join("trace.txt");
     let ready = fixture.host.directory.join("ready.txt");
@@ -164,10 +164,14 @@ fn stopping_an_app_cancels_running_and_queued_state_commands_before_undo() {
     running.connection_state(true);
     running.stop();
     let log = std::fs::read_to_string(trace).unwrap();
-    assert_eq!(
-        log.lines().map(str::trim).collect::<Vec<_>>(),
-        ["prepared", "state", "undone"]
-    );
+    // Pause and resume commands start detached as they come (c094b5c1c), so
+    // the pause sent before the stop may already have run, in either order
+    // with the undo; the running state command never gets to finish.
+    let mut lines = log.lines().map(str::trim).collect::<Vec<_>>();
+    let paused = lines.len();
+    lines.retain(|line| *line != "queued-pause");
+    assert!(paused - lines.len() <= 1, "{log}");
+    assert_eq!(lines, ["prepared", "state", "undone"], "{log}");
     assert!(running.state_events.is_none());
 }
 

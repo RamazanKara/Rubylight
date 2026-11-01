@@ -476,7 +476,11 @@ class ServiceInputs(unittest.TestCase):
             ''')
         result = subprocess.run([shell, '-NoProfile', '-NonInteractive', '-Command', command], cwd=self.root,
                                 capture_output=True, text=True, timeout=120)
-        self.assertEqual(result.stdout.strip(), f'-Clinker=lld|false|||{self.root}', result.stderr)
+        # The location may come back as the long or the 8.3 form of the temp
+        # folder (C:\Users\RUNNER~1 on GitHub's runners).
+        flags, _, location = result.stdout.strip().rpartition('|')
+        self.assertEqual(flags, '-Clinker=lld|false||', result.stderr)
+        self.assertEqual(os.path.realpath(location), os.path.realpath(self.root), result.stderr)
 
 
 def version_resource(version, padding=b''):

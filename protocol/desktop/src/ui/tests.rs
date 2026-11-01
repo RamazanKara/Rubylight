@@ -2841,6 +2841,9 @@ fn polish_screenshots() {
         shoot(&mut f, "home-focus-moved");
         f.scroll_to_end();
         shoot(&mut f, "home-end");
+        // Help as a returning user meets it, Home in the top bar (the README's shot).
+        f.l.go(Screen::Help);
+        shoot(&mut f, "help-returning");
         // All games with every game, then with a store's chip clicked.
         f.l.open(Screen::AllGames);
         shoot(&mut f, "all-games");

@@ -603,8 +603,9 @@ pub enum HostLine {
     NoLibrary,
 }
 
+/// Counts every game the PC lists, installed or not, as Home's rows and their "All N" do.
 pub fn host_line(source: &Source<'_>) -> HostLine {
-    let games = source.library.map(|l| l.games.iter().filter(|g| installed(g)).count());
+    let games = source.library.map(|l| l.games.len());
     match (source.online, games) {
         (true, Some(n)) => HostLine::Games(n),
         (false, Some(n)) if n > 0 => HostLine::SavedGames(n),
@@ -1060,9 +1061,12 @@ mod tests {
         assert_eq!(HostLine::Games(2).text(), "Games: 2");
         assert_eq!(HostLine::SavedGames(2).text(), "Offline. Saved games: 2");
         assert_eq!(HostLine::NoLibrary.text(), "Games not loaded yet");
+        // A game the PC has not installed counts, as it does in Home's rows and their "All N".
         let mut some_missing = library();
         some_missing.games[1].installed = Some(false);
-        assert_eq!(host_line(&source(1, "A", true, Some(&some_missing), None)), HostLine::Games(1));
+        assert_eq!(host_line(&source(1, "A", true, Some(&some_missing), None)), HostLine::Games(2));
+        let entries = merge_library(&[source(1, "A", true, Some(&some_missing), None)]);
+        assert_eq!(library_rows(&entries).iter().map(|r| r.games.len()).sum::<usize>(), 2);
     }
 
     #[test]

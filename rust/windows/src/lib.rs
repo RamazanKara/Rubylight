@@ -1,8 +1,8 @@
 //! Windows platform layer of the Rubylight host.
 //!
 //! Everything that calls Win32, Direct3D, Windows Graphics Capture or a GPU
-//! vendor SDK lives here: capture, Radeon compute colour conversion, the AMF
-//! and PyroWave encoders, display and virtual display control,
+//! vendor SDK lives here: capture, Radeon compute colour conversion, the AMF,
+//! NVENC and PyroWave encoders, display and virtual display control,
 //! input injection, audio, process and service management.
 //!
 //! The workspace is layered: `butterpollo-core` holds the portable protocol
@@ -51,6 +51,7 @@ pub mod lossless;
 pub mod mic;
 pub mod net;
 pub mod nucleus;
+pub mod nvenc;
 pub mod overlay;
 pub mod playnite;
 pub mod power;
@@ -83,6 +84,31 @@ pub mod window_placement;
 )]
 pub(crate) mod amf_abi {
     include!(concat!(env!("OUT_DIR"), "/amf.rs"));
+}
+#[allow(
+    non_camel_case_types,
+    non_snake_case,
+    non_upper_case_globals,
+    dead_code,
+    unused_imports,
+    clippy::all,
+    clippy::undocumented_unsafe_blocks
+)]
+pub(crate) mod nvenc_abi {
+    include!(concat!(env!("OUT_DIR"), "/nvenc.rs"));
+    include!(concat!(env!("OUT_DIR"), "/nvenc_guids.rs"));
+}
+#[allow(
+    non_camel_case_types,
+    non_snake_case,
+    non_upper_case_globals,
+    dead_code,
+    unused_imports,
+    clippy::all,
+    clippy::undocumented_unsafe_blocks
+)]
+pub(crate) mod cuda_abi {
+    include!(concat!(env!("OUT_DIR"), "/cuda.rs"));
 }
 #[allow(
     non_camel_case_types,

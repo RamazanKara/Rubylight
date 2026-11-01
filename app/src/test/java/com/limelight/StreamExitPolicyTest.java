@@ -83,6 +83,39 @@ public class StreamExitPolicyTest {
         return m.find() ? m.group(1) : null;
     }
 
+    @Test public void onlyTerminationsThePcSentAskItForTheReason() {
+        // 0x80004005 (the generic failure, passed through as is) and moonlight-common-c's codes
+        // for the PC's own reasons, including a stop before the first picture.
+        for (int code : new int[] {0x80004005, 0x80030020, 0xc0000005,
+                MoonBridge.ML_ERROR_UNEXPECTED_EARLY_TERMINATION, MoonBridge.ML_ERROR_PROTECTED_CONTENT,
+                MoonBridge.ML_ERROR_FRAME_CONVERSION}) {
+            assertTrue("code " + Integer.toHexString(code), StreamExitPolicy.hostEndedStream(code));
+        }
+        // The host closing normally, lost connections, socket errors, no video and this device's
+        // renderer or decoder: the PC has nothing to add, and an unreachable one would delay the error.
+        for (int code : new int[] {MoonBridge.ML_ERROR_GRACEFUL_TERMINATION, -1, 32, 110, 10054, 503,
+                MoonBridge.ML_ERROR_NO_VIDEO_TRAFFIC, MoonBridge.ML_ERROR_NO_VIDEO_FRAME,
+                MoonBridge.CLIENT_ERROR_VULKAN_RENDERER, MoonBridge.CLIENT_ERROR_DECODER}) {
+            assertFalse("code " + code, StreamExitPolicy.hostEndedStream(code));
+        }
+    }
+
+    @Test public void aStopBeforeTheFirstPictureNoLongerBlamesProtectedVideosInAnyLanguage() throws Exception {
+        File[] dirs = new File("src/main/res").listFiles((dir, name) ->
+                name.matches("values(-[a-z]{2}(-r[A-Z]{2})?)?") && new File(dir, name + "/strings.xml").exists());
+        assertNotNull(dirs);
+        assertEquals(15, dirs.length);
+        for (File dir : dirs) {
+            String strings = new String(Files.readAllBytes(new File(dir, "strings.xml").toPath()), StandardCharsets.UTF_8);
+            String early = string(strings, "early_stop_error");
+            String reason = string(strings, "host_failure_reason");
+            assertNotNull(dir.getName(), early);
+            assertNotEquals(dir.getName(), string(strings, "early_termination_error"), early);
+            assertNotNull(dir.getName(), reason);
+            assertTrue(dir.getName() + ": " + reason, reason.contains("%1$s"));
+        }
+    }
+
     @Test public void aBlockedPortTestKeepsTheDialogForAnyError() {
         assertTrue(StreamExitPolicy.terminationNeedsAction(-1, true, false, false));
         assertTrue(StreamExitPolicy.terminationNeedsAction(110, true, false, false));

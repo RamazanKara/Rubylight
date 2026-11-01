@@ -173,6 +173,17 @@ public class NvHTTPParityTest {
     }
 
     @Test
+    public void theHostsLastFailureIsReadAndClearedWhenItNoLongerSaysOne() throws Exception {
+        ComputerDetails details = capabilities("<root status_code=\"200\">" +
+                "<RustHostLastFailure> HDR is on, but the display is not in HDR &amp; mode </RustHostLastFailure></root>");
+        assertEquals("HDR is on, but the display is not in HDR & mode", details.hostLastFailure);
+        assertEquals(details.hostLastFailure, new ComputerDetails(details).hostLastFailure);
+        NvHTTP.readClientCapabilities(details, "<root status_code=\"200\"><RustHostLastFailure></RustHostLastFailure></root>");
+        assertEquals("", details.hostLastFailure);
+        assertEquals("", capabilities("<root status_code=\"200\" />").hostLastFailure);
+    }
+
+    @Test
     public void rubylightAdvertisesUnsignedPermissionsAndFractionalLimiter() throws Exception {
         ComputerDetails details = http().getComputerDetails(fixture("butterpollo-serverinfo.xml"));
         assertEquals(0xFFFFFFFFL, details.permission);

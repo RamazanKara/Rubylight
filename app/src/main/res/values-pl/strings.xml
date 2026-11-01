@@ -52,6 +52,8 @@
     <string name="no_video_received_error">Nie odebrano wideo od hosta.</string>
     <string name="no_frame_received_error">Zmniejsz szybkość transmisji lub użyj szybszej sieci.</string>
     <string name="early_termination_error">Nie udało się uruchomić strumienia.\nZamknij chronione filmy lub uruchom ponownie komputer.</string>
+    <string name="early_stop_error">Komputer zakończył strumień przed pierwszym obrazem.\nGra mogła zostać zamknięta. Uruchom ją ponownie.</string>
+    <string name="host_failure_reason">Komputer zgłasza: %1$s</string>
     <string name="frame_conversion_error">Kodowanie wideo na komputerze nie powiodło się.\nWyłącz HDR lub zmień rozdzielczość.</string>
     <string name="check_ports_msg">Sprawdź zaporę i przekierowanie portów:</string>
     <string name="conn_establishing_title">Łączenie</string>

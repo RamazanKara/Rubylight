@@ -49,6 +49,9 @@ pub struct ServerInfo {
     pub pyrowave_critical_fec_percentage: u32,
     pub pyrowave_min_parity_shards: u32,
     pub capabilities: HostCapabilities,
+    /// Why this device's latest stream on the host failed, in the host's words (Rubylight's
+    /// `RustHostLastFailure`); `None` when it does not say.
+    pub last_failure: Option<String>,
 }
 
 /// Long.parseLong without trimming, 0 when out of [0, max].
@@ -138,6 +141,9 @@ impl ServerInfo {
             pyrowave_min_parity_shards: unsigned(text("PyroWaveMinParityShards").as_deref(), 255)
                 as u32,
             capabilities,
+            last_failure: text("RustHostLastFailure")
+                .map(|reason| reason.trim().to_owned())
+                .filter(|reason| !reason.is_empty()),
             raw: raw.to_owned(),
         })
     }
@@ -239,6 +245,21 @@ pub(crate) mod tests {
         <VirtualDisplayDriverReady>false</VirtualDisplayDriverReady><ControllerPreparation>1</ControllerPreparation>\
         <VirtualDisplayHDRCapable>true</VirtualDisplayHDRCapable><ServerCommand>Sleep</ServerCommand>\
         <ServerCommand></ServerCommand></root>";
+
+    #[test]
+    fn the_hosts_last_failure_is_read_when_it_says_one() {
+        assert_eq!(ServerInfo::parse(RUBYLIGHT, 47989).unwrap().last_failure, None);
+        let reply = RUBYLIGHT.replace(
+            "<RustHostSessionCount>",
+            "<RustHostLastFailure> HDR is on, but the display is not in HDR &amp; mode </RustHostLastFailure><RustHostSessionCount>",
+        );
+        assert_eq!(
+            ServerInfo::parse(&reply, 47989).unwrap().last_failure.as_deref(),
+            Some("HDR is on, but the display is not in HDR & mode")
+        );
+        let empty = RUBYLIGHT.replace("<RustHostSessionCount>", "<RustHostLastFailure></RustHostLastFailure><RustHostSessionCount>");
+        assert_eq!(ServerInfo::parse(&empty, 47989).unwrap().last_failure, None);
+    }
 
     #[test]
     fn rubylight_reply() {

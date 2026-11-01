@@ -126,6 +126,18 @@ enum FolderPick {
     Upload { host: u64, at: folders_page::Place },
 }
 
+/// How long the message of a stream the PC failed waits for the PC's reason.
+const REASON_WAIT: Duration = Duration::from_secs(5);
+
+/// The end of a stream the PC failed, shown once the poll `seq` of PC `host` answered.
+struct PendingEnd {
+    host: u64,
+    seq: u64,
+    ended: Option<String>,
+    health: Option<String>,
+    until: Instant,
+}
+
 struct App {
     window: *mut SDL_Window,
     renderer: *mut SDL_Renderer,
@@ -145,6 +157,8 @@ struct App {
     pending_replace: Option<Box<LaunchPlan>>,
     /// The PC and game being quit because the player chose quit on leave for it.
     quitting_on_leave: Option<(u64, String)>,
+    /// The message for a stream the PC failed, until the PC said why (`show_pending_end`).
+    pending_end: Option<PendingEnd>,
     identity: Option<Receiver<Result<ClientIdentity, String>>>,
     shortcut_file: Option<(bool, sdl::FileChoice)>,
     /// A folder to download into, or a file to upload, being chosen for the shared folder browser.
@@ -543,6 +557,7 @@ fn run(launch: Option<cli::Launch>) -> Result<(), String> {
         pending_launch: None,
         pending_replace: None,
         quitting_on_leave: None,
+        pending_end: None,
         identity: None,
         shortcut_file: None,
         folder_pick: None,
@@ -920,6 +935,7 @@ impl App {
         if changed {
             self.save_hosts();
         }
+        self.show_pending_end();
         for (unique_id, library) in self.hosts.take_library_saves() {
             if let Err(e) = self.store.save_library(&unique_id, &library) {
                 eprintln!("nightjar: saving the library failed: {e}");
@@ -1816,6 +1832,20 @@ impl App {
         }
     }
 
+    /// Shows the message of a stream the PC failed once the poll after it answered, with the
+    /// PC's reason, or after `REASON_WAIT` without it.
+    fn show_pending_end(&mut self) {
+        let Some(pending) = &self.pending_end else { return };
+        let answered = self.hosts.failure_after(pending.host, pending.seq);
+        if answered.is_none() && Instant::now() < pending.until {
+            return;
+        }
+        let Some(pending) = self.pending_end.take() else { return };
+        if let Some((title, body)) = stream::doctor::after_stream(pending.ended, pending.health) {
+            self.launcher.message(title, stream::doctor::with_host_reason(body, answered.flatten().as_deref()));
+        }
+    }
+
     fn end_stream(&mut self, exit: Exit) {
         let Some((mut streaming, _timer)) = self.streaming.take() else {
             return;
@@ -1864,6 +1894,12 @@ impl App {
             self.cancelled = false;
             self.connecting = Some(Connecting::start(plan, self.waker.clone()));
         } else {
+        // A failure the PC ended the stream on: the message waits for the poll just started,
+        // which carries the PC's own words for it where it says them.
+        let reason_poll = match exit {
+            Exit::Terminated(code) if stream::host_ended_stream(code) => self.hosts.polling_seq(host),
+            _ => None,
+        };
         let ended = match exit {
             Exit::CloseWindow => { self.running = false; None }
             Exit::User | Exit::Reconnect | Exit::Ended(None) => None,
@@ -1872,8 +1908,15 @@ impl App {
             Exit::NetworkReturned => stream::termination_text(nightjar_core::session::error::FAILED),
             Exit::Ended(Some(message)) => Some(message),
         };
-        if let Some((title, body)) = stream::doctor::after_stream(ended, health).filter(|_| self.running) {
-            self.launcher.message(title, body);
+        match reason_poll {
+            Some(seq) if self.running => {
+                self.pending_end = Some(PendingEnd { host, seq, ended, health, until: Instant::now() + REASON_WAIT });
+            }
+            _ => {
+                if let Some((title, body)) = stream::doctor::after_stream(ended, health).filter(|_| self.running) {
+                    self.launcher.message(title, body);
+                }
+            }
         }
         }
         // egui forgets held modifiers from before the stream.

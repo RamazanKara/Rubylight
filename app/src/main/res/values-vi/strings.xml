@@ -52,6 +52,8 @@
     <string name="no_video_received_error">Không nhận được video từ máy chủ.</string>
     <string name="no_frame_received_error">Hãy giảm tốc độ bit hoặc dùng mạng nhanh hơn.</string>
     <string name="early_termination_error">Không thể bắt đầu stream.\nHãy đóng video được bảo vệ hoặc khởi động lại PC.</string>
+    <string name="early_stop_error">PC đã kết thúc stream trước hình ảnh đầu tiên.\nCó thể trò chơi đã đóng. Hãy khởi động lại.</string>
+    <string name="host_failure_reason">PC báo: %1$s</string>
     <string name="frame_conversion_error">Mã hóa video trên PC thất bại.\nHãy tắt HDR hoặc đổi độ phân giải.</string>
     <string name="check_ports_msg">Hãy kiểm tra tường lửa và chuyển tiếp cổng cho các cổng:</string>
     <string name="conn_establishing_title">Đang kết nối</string>

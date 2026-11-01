@@ -52,6 +52,8 @@
     <string name="no_video_received_error">Ana bilgisayardan video alınmadı.</string>
     <string name="no_frame_received_error">Bit hızını düşürün veya daha hızlı bir ağ kullanın.</string>
     <string name="early_termination_error">Yayın başlatılamadı.\nKorumalı videoları kapatın veya bilgisayarı yeniden başlatın.</string>
+    <string name="early_stop_error">Bilgisayar yayını ilk görüntüden önce sonlandırdı.\nOyun kapanmış olabilir. Yeniden başlatın.</string>
+    <string name="host_failure_reason">Bilgisayarın bildirdiği: %1$s</string>
     <string name="frame_conversion_error">Bilgisayarda video kodlama başarısız oldu.\nHDR’yi kapatın veya çözünürlüğü değiştirin.</string>
     <string name="check_ports_msg">Şu bağlantı noktaları için güvenlik duvarını ve yönlendirmeyi kontrol edin:</string>
     <string name="conn_establishing_title">Bağlanılıyor</string>

@@ -52,6 +52,8 @@
     <string name="no_video_received_error">没有接收到来自主机的视频。</string>
     <string name="no_frame_received_error">请降低码率或使用更快的网络。</string>
     <string name="early_termination_error">串流启动失败。\n请关闭受保护的视频或重启电脑。</string>
+    <string name="early_stop_error">电脑在第一帧画面之前结束了串流。\n游戏可能已关闭。请重新启动。</string>
+    <string name="host_failure_reason">电脑报告：%1$s</string>
     <string name="frame_conversion_error">电脑上的视频编码失败。\n请关闭 HDR 或更改分辨率。</string>
     <string name="check_ports_msg">请检查以下端口的防火墙和转发设置：</string>
     <string name="conn_establishing_title">正在连接</string>

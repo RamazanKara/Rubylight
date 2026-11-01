@@ -52,6 +52,8 @@
     <string name="no_video_received_error">ホストから映像を受信していません。</string>
     <string name="no_frame_received_error">ビットレートを下げるか、より高速なネットワークを使用してください。</string>
     <string name="early_termination_error">ストリームを開始できませんでした。\n保護された動画を閉じるか、PC を再起動してください。</string>
+    <string name="early_stop_error">最初の映像の前に PC がストリームを終了しました。\nゲームが終了した可能性があります。もう一度起動してください。</string>
+    <string name="host_failure_reason">PC からの報告: %1$s</string>
     <string name="frame_conversion_error">PC での映像のエンコードに失敗しました。\nHDR をオフにするか、解像度を変更してください。</string>
     <string name="check_ports_msg">ファイアウォールと次のポートの転送設定を確認してください:</string>
     <string name="conn_establishing_title">接続中</string>

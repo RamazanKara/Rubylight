@@ -174,6 +174,14 @@ pub fn after_stream(ended: Option<String>, health: Option<String>) -> Option<(&'
     }
 }
 
+/// The end-of-stream text with the PC's own reason for the failure, when it gave one.
+pub fn with_host_reason(body: String, reason: Option<&str>) -> String {
+    match reason {
+        Some(reason) => format!("{body}\n\n{}", trf("The PC reported: {}", &[&reason])),
+        None => body,
+    }
+}
+
 /// The report for the log: findings and evidence, without the advice.
 pub fn log_line(report: &Report) -> String {
     let findings: Vec<&str> = report.findings.iter().map(|finding| finding.name()).collect();

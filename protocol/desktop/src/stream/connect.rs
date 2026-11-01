@@ -22,12 +22,24 @@ pub fn termination_text(code: i32) -> Option<String> {
             en("No video arrived from the PC. A firewall may be blocking UDP ports 47998-48000.").into()
         }
         error::NO_VIDEO_FRAME => en("Video arrived but no complete picture could be assembled.").into(),
-        error::UNEXPECTED_EARLY => en("The PC ended the stream before it started.").into(),
+        // Often the game simply exited before its first picture.
+        error::UNEXPECTED_EARLY => {
+            en("The PC ended the stream before the first picture. The game may have closed; start it again.").into()
+        }
         error::PROTECTED_CONTENT => en("The PC stopped streaming protected content.").into(),
         error::FRAME_CONVERSION => en("The PC could not convert the picture for streaming.").into(),
         error::DISCONNECTED => en("The connection to the PC was lost.").into(),
         other => trf("The stream ended unexpectedly (error {}).", &[&other]),
     })
+}
+
+/// Whether the PC itself ended the stream with `code`, so its serverinfo may say why
+/// (`RustHostLastFailure`): its termination reasons, as moonlight-common-c maps them, and the
+/// HRESULTs passed through as they are (0x80004005, the generic failure). Lost connections,
+/// socket errors and this device's own failures are not.
+pub fn host_ended_stream(code: i32) -> bool {
+    use nightjar_core::session::error;
+    matches!(code, error::UNEXPECTED_EARLY | error::PROTECTED_CONTENT | error::FRAME_CONVERSION) || code < -0xFFFF
 }
 
 /// Why a launch ended without a stream.

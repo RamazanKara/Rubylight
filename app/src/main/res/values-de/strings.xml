@@ -52,6 +52,8 @@
     <string name="no_video_received_error">Kein Video vom PC empfangen.</string>
     <string name="no_frame_received_error">Senke die Bitrate oder nutze ein schnelleres Netzwerk.</string>
     <string name="early_termination_error">Stream konnte nicht starten.\nSchließe geschützte Videos oder starte den PC neu.</string>
+    <string name="early_stop_error">Der PC hat den Stream vor dem ersten Bild beendet.\nVielleicht wurde das Spiel geschlossen. Starte es erneut.</string>
+    <string name="host_failure_reason">Der PC meldet: %1$s</string>
     <string name="frame_conversion_error">Videofehler am PC.\nSchalte HDR aus oder ändere die Auflösung.</string>
     <string name="check_ports_msg">Prüfe Firewall und Weiterleitung für Ports:</string>
     <string name="conn_establishing_title">Verbindung wird aufgebaut</string>

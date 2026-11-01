@@ -1045,7 +1045,7 @@ fn ours_is_in_the_hosts_nucleus_and_leaves_the_copy_after_the_hosts_sweep() {
     let ice = Setup::new(r"D:\Ice\Ice.exe", "Ice", None);
     let first = write_own(host.path(), copy.path(), &puzzle, None).unwrap();
     // The host's Nucleus has it too, so its sweep knows the game.
-    let hosts = files::catalog(host.path(), true, None).unwrap();
+    let hosts = files::catalog(host.path(), true).unwrap();
     assert!(hosts.handlers.iter().any(|h| h.own && h.guid == first.guid));
     assert!(hosts.games.iter().any(|game| game.guid == first.guid));
     let theirs = copy.path().join("handlers");
@@ -1063,7 +1063,7 @@ fn ours_is_in_the_hosts_nucleus_and_leaves_the_copy_after_the_hosts_sweep() {
     remove_game(copy.path(), &first.guid, None).unwrap();
     write_own(host.path(), copy.path(), &ice, None).unwrap();
     assert_eq!(names(&theirs), [ice.file()]);
-    let copys = files::catalog(copy.path(), true, None).unwrap();
+    let copys = files::catalog(copy.path(), true).unwrap();
     assert!(copys.games.iter().all(|game| game.guid != first.guid));
 }
 

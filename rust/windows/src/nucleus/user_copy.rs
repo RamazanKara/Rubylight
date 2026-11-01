@@ -3,10 +3,11 @@
 //!
 //! It is never a folder an elevated Nucleus runs from, and never shares one
 //! with the host's copy: `<data>\nucleus-user\<SID>\<key>`, outside
-//! `C:\Users` (Nucleus refuses to run from there) and removed with the
-//! host's data. It is copied from the host's Nucleus folder (the release it
-//! installs, where alone Rubylight's own handler runs), program files only,
-//! and `<key>` changes with them.
+//! `C:\Users` (Nucleus warns against running from there) and removed with
+//! the host's data. It is copied from the host's Nucleus folder (the pinned
+//! release's folder the user chose, which only SYSTEM and Administrators
+//! may change, or an earlier Rubylight's install), program files only, and
+//! `<key>` changes with them.
 //! SYSTEM makes `nucleus-user` (only SYSTEM and Administrators may open
 //! it), `<SID>` (its user may list it, nothing more) and `<key>` (its user
 //! may add to it and change what is in it, never its permissions, nor

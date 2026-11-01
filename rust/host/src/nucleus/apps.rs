@@ -337,14 +337,8 @@ impl Chosen {
 
 /// Rubylight's own handler for a background stream of `app`, which has no
 /// hub handler. A game shipping anti-cheat is refused: Nucleus Co-op's
-/// hooks would look like cheating. So is a Nucleus Co-op at `nucleus_path`
-/// (`configured`) ([`own_list`]).
-pub(super) fn own_handler(
-    pc: &dyn Pc,
-    catalog: &Catalog,
-    app: &App,
-    configured: &str,
-) -> Result<Chosen, Refusal> {
+/// hooks would look like cheating.
+pub(super) fn own_handler(pc: &dyn Pc, catalog: &Catalog, app: &App) -> Result<Chosen, Refusal> {
     let setup = prepared(pc.one_player(app)?).map_err(|missing| Refusal::missing(&missing))?;
     // Found by another path than the app's command: the game the user added
     // at exactly that path keeps its hub handler. A file-name match is
@@ -352,20 +346,6 @@ pub(super) fn own_handler(
     if let Some(found) = catalog.added(&setup.exe_path) {
         return Ok(Chosen::Hub(found));
     }
-    own_list(configured).map_err(|missing| Refusal::missing(&missing))?;
     refuse_anti_cheat(&setup).map_err(|missing| Refusal::missing(&missing))?;
     Ok(Chosen::Own(setup))
-}
-
-/// Refuses Rubylight's own handler in a Nucleus Co-op at `nucleus_path`
-/// (`configured`): it adds its game to the list Nucleus Co-op 2.4.2 reads
-/// (`files::list`), and another release may read another, where the game
-/// would never show.
-pub(super) fn own_list(configured: &str) -> Result<(), Missing> {
-    if configured.trim().is_empty() {
-        return Ok(());
-    }
-    Err(Missing::Refused {
-        reason: "Rubylight adds a game without a hub handler only to the Nucleus Co-op it installs, and nucleus_path names another: add the game's handler from Nucleus Co-op's hub, or clear nucleus_path".into(),
-    })
 }

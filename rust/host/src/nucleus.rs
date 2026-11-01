@@ -11,7 +11,7 @@
 //! leave do nothing. [`Pc`] and [`Instance`] are the seams to
 //! `butterpollo_windows::nucleus`; the tests use the fakes in `fake`.
 use crate::state::{Host, Launch, Shared};
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context, Result};
 use butterpollo_core::config::Config;
 use butterpollo_core::input::Input;
 use butterpollo_core::input_policy::Policy;
@@ -19,6 +19,7 @@ use butterpollo_core::nucleus::coop::{self, Admit, End, Kind, Phase, Refused};
 use butterpollo_core::nucleus::elevation::{self, Account, Need, Run, Script};
 use butterpollo_core::nucleus::generic::{self, Setup};
 use butterpollo_core::nucleus::handler::{self, Catalog, Handler, Match, Missing};
+use butterpollo_core::nucleus::install::{Problem, Unusable};
 use butterpollo_core::nucleus::mode;
 use butterpollo_core::session::{Seat, Warnings};
 use butterpollo_core::state::{App, Client};
@@ -30,7 +31,7 @@ use butterpollo_windows::process::AudioProcess;
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError, RwLock, Weak};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError, RwLock, Weak};
 use std::time::{Duration, Instant};
 
 /// A co-op library entry's name: the app's name, then this, so the entry
@@ -108,11 +109,10 @@ impl std::error::Error for Refusal {}
 pub trait Pc: Send + Sync {
     /// Why this host cannot run Nucleus Co-op sessions, or None.
     fn unavailable(&self) -> Option<String>;
-    /// The Nucleus folder once it is there; `configured` is `nucleus_path`.
+    /// The Nucleus folder once it is there; `configured` is `nucleus_path`,
+    /// the folder the user chose, whose refusal is an
+    /// [`install::Unusable`](butterpollo_core::nucleus::install::Unusable).
     fn installed(&self, configured: &str) -> Result<Option<PathBuf>>;
-    /// The Nucleus folder, installing the pinned release first; `progress`
-    /// hears the bytes downloaded so far.
-    fn ensure(&self, configured: &str, progress: &(dyn Fn(u64) + Sync)) -> Result<PathBuf>;
     /// Open Nucleus Co-op's own window at `folder` on the PC's screen, as the
     /// signed-in user, so they can add a handler or a game.
     fn open(&self, folder: &Path) -> Result<Box<dyn Window>>;
@@ -223,27 +223,43 @@ fn ended(session: &coop::Session) -> Option<&End> {
     }
 }
 
-/// Where the host's copy of Nucleus Co-op stands, for the console.
+/// Where Nucleus Co-op stands on this PC, for the console.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Install {
+    /// No folder chosen, and no earlier install.
     Missing,
+    /// The copy an earlier Rubylight installed below the host's data.
     Installed(PathBuf),
-    /// `nucleus_path`, the user's own copy.
+    /// `nucleus_path`, the folder the user chose.
     Configured(PathBuf),
-    /// Downloading, with the bytes received so far; all of them while the
-    /// archive is checked and unpacked.
-    Installing(u64),
-    Failed(String),
+    /// Nucleus Co-op can't run from the folder chosen, and why: None when
+    /// it couldn't be checked.
+    Failed {
+        problem: Option<Problem>,
+        error: String,
+    },
+}
+impl Install {
+    /// `installed`'s answer for `configured`.
+    fn of(configured: &str, installed: Result<Option<PathBuf>>) -> Self {
+        match installed {
+            Ok(Some(folder)) if configured.trim().is_empty() => Self::Installed(folder),
+            Ok(Some(folder)) => Self::Configured(folder),
+            Ok(None) => Self::Missing,
+            Err(error) => Self::Failed {
+                problem: error.downcast_ref::<Unusable>().map(|u| u.problem),
+                error: format!("{error:#}"),
+            },
+        }
+    }
 }
 
-/// What the console's Set up co-op found.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum SetUp {
-    Installed,
-    /// Another call downloads it.
-    Installing,
-    /// This call marked it as installing: run [`Registry::install_now`].
-    Started,
+/// Why a launch finds no Nucleus Co-op to run.
+pub fn not_set_up() -> String {
+    format!(
+        "Nucleus Co-op is not set up: download Nucleus Co-op {} and choose its folder on a game's Play together panel in the Rubylight console",
+        butterpollo_core::nucleus::install::VERSION
+    )
 }
 
 /// Where one app stands for co-op, for the console's game page.

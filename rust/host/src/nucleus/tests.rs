@@ -1,5 +1,5 @@
 use super::*;
-use anyhow::anyhow;
+use anyhow::{anyhow, ensure};
 use butterpollo_core::nucleus::coop::{Phase, Refused};
 use butterpollo_core::nucleus::elevation::Why;
 use serde_json::json;
@@ -49,16 +49,6 @@ fn admit(
         warnings: Default::default(),
         release_parked: &|| Ok(()),
     })
-}
-
-#[test]
-fn a_download_stops_past_its_size() {
-    let mut body = Vec::new();
-    chunk(&mut body, &[1; 6], 10).unwrap();
-    chunk(&mut body, &[2; 4], 10).unwrap();
-    assert_eq!(body.len(), 10);
-    assert!(chunk(&mut body, &[3], 10).is_err());
-    assert_eq!(body.len(), 10);
 }
 
 #[test]
@@ -408,93 +398,72 @@ fn the_console_asks_again_when_it_could_not_tell() {
     std::fs::remove_dir_all(&dir).unwrap();
 }
 
+/// A chosen folder the fake PC refuses, as the PC would.
+fn refuse(pc: &fake::Pc, path: &str, problem: Problem, message: &str) {
+    pc.unusable.lock().unwrap().insert(
+        path.into(),
+        Unusable {
+            problem,
+            message: message.into(),
+        },
+    );
+}
+
 #[test]
-fn set_up_installs_once_and_reports_its_progress() {
+fn a_chosen_folder_is_checked_before_it_is_kept_and_an_old_install_still_counts() {
     let (registry, pc, _apps) = setup();
-    assert_eq!(registry.set_up("").unwrap(), SetUp::Installed);
-    *pc.installed.lock().unwrap() = None;
-    assert_eq!(registry.set_up("").unwrap(), SetUp::Started);
-    assert_eq!(registry.install(""), Install::Installing(0));
-    assert_eq!(registry.set_up("").unwrap(), SetUp::Installing);
-    registry.install_now("");
+    // An earlier Rubylight's install, with nothing chosen.
     assert_eq!(
-        registry.install(""),
+        registry.check_folder("").unwrap(),
         Install::Installed(PathBuf::from(r"C:\Nucleus"))
     );
-    assert_eq!(pc.installs.load(std::sync::atomic::Ordering::Relaxed), 1);
-}
-
-#[test]
-fn a_launch_during_set_up_waits_for_that_install_and_shares_its_result() {
-    use std::sync::atomic::Ordering::Relaxed;
-    // Where panics unwind (tests), a panicking install still ends the
-    // wait with its reason; a release build aborts the host instead.
-    for (error, panics) in [
-        (None, false),
-        (Some("the download failed"), false),
-        (Some("the install stopped: the unpacker broke"), true),
+    assert_eq!(
+        registry.check_folder(r" D:\Nucleus ").unwrap(),
+        Install::Configured(PathBuf::from(r"D:\Nucleus"))
+    );
+    for (problem, message) in [
+        (Problem::Missing, r"D:\Downloads holds no NucleusCoop.exe"),
+        (
+            Problem::Version,
+            r"The NucleusCoop.exe in D:\Old isn't Nucleus Co-op 2.4.2's",
+        ),
+        (
+            Problem::Untrusted,
+            r"Rubylight doesn't run Nucleus Co-op from D:\Mine",
+        ),
     ] {
-        let (registry, pc, apps) = setup();
-        let registry = Arc::new(registry);
-        let coop = registry.entries(&apps, "").remove(0);
-        *pc.installed.lock().unwrap() = None;
-        *pc.install_panics.lock().unwrap() = panics;
-        if !panics {
-            *pc.install_error.lock().unwrap() = error.map(String::from);
-        }
-        *pc.hold.lock().unwrap() = true;
-        assert_eq!(registry.set_up("").unwrap(), SetUp::Started);
-        let console = {
-            let registry = registry.clone();
-            std::thread::spawn(move || registry.install_now(""))
-        };
-        while pc.installs.load(Relaxed) == 0 {
-            std::thread::sleep(Duration::from_millis(5));
-        }
-        let launch = {
-            let registry = registry.clone();
-            std::thread::spawn(move || {
-                admit(&registry, &coop, "a", &client("A", false)).map(|_| ())
-            })
-        };
-        while registry.lock().install_waiters == 0 {
-            std::thread::sleep(Duration::from_millis(5));
-        }
-        // One download, one progress: the launch did not start its own.
-        assert_eq!(registry.install(""), Install::Installing(1));
-        *pc.hold.lock().unwrap() = false;
-        pc.release.notify_all();
-        console.join().unwrap();
-        let launched = launch.join().unwrap();
-        assert_eq!(pc.installs.load(Relaxed), 1, "{error:?}");
-        match error {
-            None => {
-                launched.unwrap();
-                assert_eq!(
-                    registry.install(""),
-                    Install::Installed(PathBuf::from(r"C:\Nucleus"))
-                );
+        refuse(&pc, r"D:\Chosen", problem, message);
+        let refused = registry.check_folder(r"D:\Chosen").unwrap_err();
+        assert_eq!((refused.status, refused.message.as_str()), (400, message));
+        assert_eq!(
+            registry.install(r"D:\Chosen"),
+            Install::Failed {
+                problem: Some(problem),
+                error: message.into()
             }
-            Some(error) => {
-                let refused = launched.unwrap_err();
-                let message = format!("Nucleus Co-op is not ready: {error}");
-                assert_eq!(
-                    (refused.status, refused.message.as_str()),
-                    (503, message.as_str())
-                );
-                assert_eq!(registry.install(""), Install::Failed(message));
-            }
-        }
+        );
     }
+    // One that couldn't be checked says so, with no reason of its own.
+    *pc.installed_error.lock().unwrap() = Some("access denied".into());
+    assert_eq!(
+        registry.install(r"D:\Chosen"),
+        Install::Failed {
+            problem: None,
+            error: "access denied".into()
+        }
+    );
+    *pc.installed_error.lock().unwrap() = None;
+    *pc.installed.lock().unwrap() = None;
+    assert_eq!(registry.check_folder("").unwrap(), Install::Missing);
 }
 
 #[test]
-fn set_up_and_open_are_refused_where_nucleus_cannot_run() {
+fn choosing_a_folder_and_open_are_refused_where_nucleus_cannot_run() {
     let (registry, _pc, _apps) = setup();
     let unavailable = Arc::new(fake::Pc::unavailable());
     *unavailable.installed.lock().unwrap() = None;
     registry.use_pc(unavailable.clone());
-    let refused = registry.set_up("").unwrap_err();
+    let refused = registry.check_folder(r"D:\Nucleus").unwrap_err();
     assert_eq!(
         (refused.status, refused.message.as_str()),
         (503, "not on this test PC")
@@ -518,8 +487,10 @@ fn open_needs_the_install_and_no_running_session() {
     let (registry, pc, apps) = setup();
     *pc.installed.lock().unwrap() = None;
     let refused = registry.open("").unwrap_err();
-    assert_eq!(refused.status, 409);
-    assert!(refused.message.contains("set up co-op first"), "{refused}");
+    assert_eq!(
+        (refused.status, refused.message.as_str()),
+        (409, not_set_up().as_str())
+    );
     *pc.installed.lock().unwrap() = Some(PathBuf::from(r"C:\Nucleus"));
     registry.open("").unwrap();
     assert_eq!(pc.opened.load(std::sync::atomic::Ordering::Relaxed), 1);
@@ -742,18 +713,16 @@ fn open_is_refused_while_a_launch_is_being_admitted() {
     let (registry, pc, apps) = setup();
     let registry = Arc::new(registry);
     let coop = registry.entries(&apps, "").remove(0);
-    *pc.installed.lock().unwrap() = None;
+    let reads = pc.reads.load(Relaxed);
     *pc.hold.lock().unwrap() = true;
     let launch = {
         let registry = registry.clone();
         std::thread::spawn(move || admit(&registry, &coop, "a", &client("A", false)).map(|_| ()))
     };
-    while pc.installs.load(Relaxed) == 0 {
+    while pc.reads.load(Relaxed) == reads {
         std::thread::sleep(Duration::from_millis(5));
     }
-    // The launch holds the admission while it installs; to Open, Nucleus
-    // Co-op is there already.
-    *pc.installed.lock().unwrap() = Some(PathBuf::from(r"C:\Nucleus"));
+    // The launch holds the admission while it reads the handlers.
     let refused = registry.open("").unwrap_err();
     assert_eq!(
         (refused.status, refused.message.as_str()),
@@ -1101,43 +1070,56 @@ fn a_one_player_game_without_a_hub_handler_streams_in_the_background_with_ours()
 }
 
 #[test]
-fn ours_runs_only_in_the_nucleus_rubylight_installs() {
-    // Another release at nucleus_path may read another game list, where
-    // our game would never show.
+fn ours_runs_in_the_folder_the_user_chose() {
+    // Every folder the host runs is the pinned release's, whose game list
+    // Rubylight knows: the one chosen as well as an earlier install.
     let (registry, pc, mut apps) = setup();
     let owner = client("A", false);
     let config = Config::parse("nucleus_path = D:\\Nucleus\n").unwrap();
     apps.push(app("Ice", r"C:\NoSuchGames\Ice\Ice.exe"));
-    let refused = background(&registry, &apps[3], "a", &owner, &config).unwrap_err();
-    assert_eq!(refused.status, 404);
+    let seat = background(&registry, &apps[3], "a", &owner, &config).unwrap();
+    assert_eq!(pc.own.lock().unwrap().len(), 1);
+    // Its user's copy is made from the chosen folder.
     assert_eq!(
-        refused.message,
-        "Ice can't stream in the background: Rubylight adds a game without a hub handler only to the Nucleus Co-op it installs, and nucleus_path names another: add the game's handler from Nucleus Co-op's hub, or clear nucleus_path"
+        *pc.copied_from.lock().unwrap(),
+        [PathBuf::from(r"D:\Nucleus")]
+    );
+    assert!(registry.end(seat.session));
+}
+
+#[test]
+fn a_launch_without_nucleus_is_refused_with_the_reason_and_installs_nothing() {
+    let (registry, pc, mut apps) = setup();
+    let owner = client("A", false);
+    apps.push(app("Ice", r"C:\NoSuchGames\Ice\Ice.exe"));
+    let coop = registry.entries(&apps, "").remove(0);
+    *pc.installed.lock().unwrap() = None;
+    let refused = admit(&registry, &coop, "a", &owner).unwrap_err();
+    assert_eq!((refused.status, refused.message), (503, not_set_up()));
+    let refused = background(&registry, &apps[3], "b", &owner, &Config::default()).unwrap_err();
+    assert_eq!(
+        (refused.status, refused.message),
+        (
+            503,
+            format!("Ice can't stream in the background: {}", not_set_up())
+        )
+    );
+    // A chosen folder that's another release, or one others can change,
+    // is refused with its reason: the earlier install never stands in.
+    *pc.installed.lock().unwrap() = Some(PathBuf::from(r"C:\Nucleus"));
+    let config = Config::parse("nucleus_path = D:\\Old\n").unwrap();
+    let why = r"The NucleusCoop.exe in D:\Old isn't Nucleus Co-op 2.4.2's: download 2.4.2 from its release page and choose its folder";
+    refuse(&pc, r"D:\Old", Problem::Version, why);
+    let refused = background(&registry, &apps[3], "c", &owner, &config).unwrap_err();
+    assert_eq!(
+        (refused.status, refused.message),
+        (
+            503,
+            format!("Ice can't stream in the background: Nucleus Co-op is not ready: {why}")
+        )
     );
     assert!(pc.own.lock().unwrap().is_empty());
     assert!(pc.started.lock().unwrap().is_empty());
-    // The game page says so before a launch, of a game on this PC: one
-    // that is not says that first, as the launch does.
-    let dir = std::env::temp_dir().join(format!("nucleus-own-{}", uuid::Uuid::new_v4()));
-    let exe = dir.join("Ice").join("Ice.exe");
-    std::fs::create_dir_all(exe.parent().unwrap()).unwrap();
-    std::fs::write(&exe, b"").unwrap();
-    let mut here = apps.clone();
-    here[3] = app("Ice", &format!("\"{}\"", exe.display()));
-    let statuses = registry.games(&here, &config).unwrap().unwrap();
-    std::fs::remove_dir_all(&dir).unwrap();
-    assert!(
-        matches!(&statuses[3], GameStatus::Missing(Missing::Refused { reason }) if reason.contains("nucleus_path")),
-        "{:?}",
-        statuses[3]
-    );
-    // A hub handler's game streams, without our list's diagnosis.
-    background(&registry, &apps[1], "b", &owner, &config).unwrap();
-    assert_eq!(*pc.known_lists.lock().unwrap(), [false]);
-    let first = registry.sessions()[0].session.id;
-    assert!(registry.end(first));
-    background(&registry, &apps[3], "c", &owner, &Config::default()).unwrap();
-    assert_eq!(*pc.known_lists.lock().unwrap(), [false, true]);
 }
 
 #[test]
@@ -1213,28 +1195,6 @@ fn ours_runs_as_the_user_for_a_game_that_needs_no_administrator_rights() {
             PathBuf::from(r"C:\Nucleus")
         ]
     );
-}
-
-#[test]
-fn no_users_copy_is_made_of_a_configured_nucleus() {
-    // Rubylight's own handler runs only in the Nucleus Co-op it installs.
-    let (registry, pc, _) = setup();
-    let config = Config::parse("nucleus_path = D:\\Games\\Nucleus\n").unwrap();
-    let refused = background(
-        &registry,
-        &app("Ice", r"C:\NoSuchGames\Ice\Ice.exe"),
-        "a",
-        &client("A", false),
-        &config,
-    )
-    .unwrap_err();
-    assert!(
-        refused.message.contains("nucleus_path"),
-        "{}",
-        refused.message
-    );
-    assert!(pc.copied_from.lock().unwrap().is_empty());
-    assert!(pc.user_copies.lock().unwrap().is_empty());
 }
 
 #[test]
@@ -1832,36 +1792,12 @@ fn refusals_carry_their_status() {
             executable: "portal2.exe".into()
         })
     );
-    // Unavailable here: 503 with the reason, before any install.
+    // Unavailable here: 503 with the reason, before Nucleus is looked for.
     *pc.unavailable.lock().unwrap() = Some("no service".into());
     *pc.installed.lock().unwrap() = None;
     assert_eq!(
         admit(&registry, &coop, "a", &a).unwrap_err(),
         Refusal::unavailable("no service")
-    );
-    assert_eq!(pc.installs.load(std::sync::atomic::Ordering::Relaxed), 0);
-}
-
-#[test]
-fn an_install_runs_at_the_first_launch_and_a_failure_shows() {
-    let (registry, pc, apps) = setup();
-    let coop = registry.entries(&apps, "").remove(0);
-    *pc.installed.lock().unwrap() = None;
-    *pc.install_error.lock().unwrap() = Some("hash mismatch".into());
-    let failed = admit(&registry, &coop, "a", &client("A", false)).unwrap_err();
-    assert_eq!(failed.status, 503);
-    assert_eq!(failed.message, "Nucleus Co-op is not ready: hash mismatch");
-    assert_eq!(registry.install(""), Install::Failed(failed.message));
-    *pc.install_error.lock().unwrap() = None;
-    admit(&registry, &coop, "a", &client("A", false)).unwrap();
-    assert_eq!(pc.installs.load(std::sync::atomic::Ordering::Relaxed), 2);
-    assert_eq!(
-        registry.install(""),
-        Install::Installed(PathBuf::from(r"C:\Nucleus"))
-    );
-    assert_eq!(
-        registry.install(r"D:\Nucleus"),
-        Install::Configured(PathBuf::from(r"D:\Nucleus"))
     );
 }
 
@@ -3254,9 +3190,11 @@ fn a_background_stream_without_a_hub_handler_on_this_pc() -> Result<()> {
     if let Some(why) = pc.unavailable() {
         anyhow::bail!(why);
     }
-    let folder = pc.installed("")?.context(
-        "Nucleus Co-op is not installed: set it up in the console's Play together panel",
-    )?;
+    // The folder chosen in the console, else an earlier install.
+    let chosen = std::env::var("RUBYLIGHT_NUCLEUS_PATH").unwrap_or_default();
+    let folder = pc
+        .installed(&chosen)?
+        .context("Nucleus Co-op is not set up: set RUBYLIGHT_NUCLEUS_PATH to its folder")?;
     if let Some(pid) = pc.running()? {
         anyhow::bail!("Nucleus Co-op runs (process {pid}): close it first");
     }

@@ -27,54 +27,35 @@ const SCREEN: Rect = Rect {
 #[test]
 fn the_catalog_reads_handlers_and_only_the_list_nucleus_reads() {
     let nucleus = tempfile::tempdir().unwrap();
-    let appdata = tempfile::tempdir().unwrap();
     let handlers = nucleus.path().join("handlers");
     std::fs::create_dir_all(&handlers).unwrap();
     std::fs::write(handlers.join("Borderlands 2.js"), HANDLER).unwrap();
     std::fs::write(handlers.join("broken.js"), "Game.GameName = 1;").unwrap();
     std::fs::write(handlers.join("notes.txt"), HANDLER).unwrap();
-    std::fs::create_dir_all(appdata.path().join("Nucleus Coop")).unwrap();
-    std::fs::write(
-        appdata.path().join("Nucleus Coop").join("userprofile.json"),
-        r#"{"Games":[{"GameGuid":"Borderlands 2","ExePath":"D:\\Games\\BL2\\Borderlands2.exe"}]}"#,
-    )
-    .unwrap();
     std::fs::create_dir_all(nucleus.path().join("content")).unwrap();
     std::fs::write(
             nucleus.path().join("content").join("userprofile.json"),
             "\u{feff}{\"Games\":[{\"GameGuid\":\"Borderlands 2\",\"ExePath\":\"E:\\\\BL2\\\\Borderlands2.exe\"}]}",
         )
         .unwrap();
-    let catalog = catalog(nucleus.path(), true, None).unwrap();
+    let catalog = catalog(nucleus.path(), true).unwrap();
     assert_eq!(catalog.handlers.len(), 1);
     assert_eq!(catalog.handlers[0].executable, "Borderlands2.exe");
-    // The AppData list's game is not one Nucleus Co-op shows.
     assert_eq!(catalog.games.len(), 1);
     let found = catalog
         .find("Borderlands 2", Some(r"E:\BL2\Borderlands2.exe"))
         .unwrap();
     assert_eq!(found.handler.guid, "Borderlands 2");
-    // Another release at nucleus_path may read the AppData list: both
-    // count.
-    let other = super::catalog(nucleus.path(), true, Some(appdata.path())).unwrap();
-    let exes: Vec<&str> = other.games.iter().map(|g| g.exe_path.as_str()).collect();
-    assert_eq!(
-        exes,
-        [r"E:\BL2\Borderlands2.exe", r"D:\Games\BL2\Borderlands2.exe"]
-    );
 
     // No list and no handlers: an empty catalog, not an error.
     let empty = tempfile::tempdir().unwrap();
-    let catalog = super::catalog(empty.path(), false, None).unwrap();
+    let catalog = super::catalog(empty.path(), false).unwrap();
     assert!(catalog.handlers.is_empty() && catalog.games.is_empty());
 
     // A game list Nucleus wrote but the host cannot read is an error.
     std::fs::create_dir_all(empty.path().join("content")).unwrap();
     std::fs::write(empty.path().join("content").join("userprofile.json"), "{").unwrap();
-    let error = format!(
-        "{:#}",
-        super::catalog(empty.path(), false, None).unwrap_err()
-    );
+    let error = format!("{:#}", super::catalog(empty.path(), false).unwrap_err());
     assert!(error.contains("userprofile.json"), "{error}");
 }
 
@@ -178,7 +159,7 @@ fn rubylights_handler_is_written_and_its_game_added_beside_the_users() {
     assert!(written.starts_with(&users[..end]), "{written}");
     assert!(written[end..].starts_with(",\r\n    {"), "{written}");
     // Nucleus reads both, and co-op still has only the hub's handler.
-    let catalog = catalog(nucleus.path(), true, None).unwrap();
+    let catalog = catalog(nucleus.path(), true).unwrap();
     assert_eq!(catalog.games.len(), 2);
     assert!(catalog.handlers.iter().any(|h| h.own));
     assert!(catalog.find("Puzzle", Some(&setup.exe_path)).is_err());
@@ -339,12 +320,12 @@ fn ours_goes_once_the_user_adds_the_game_with_a_hub_handler() {
             .unwrap(),
     )
     .unwrap();
-    let before = catalog(nucleus.path(), true, None).unwrap();
+    let before = catalog(nucleus.path(), true).unwrap();
     let superseded = before.superseded(None);
     assert_eq!(superseded.len(), 1);
     remove_own(nucleus.path(), superseded[0]).unwrap();
     assert!(!handlers.join(setup.file()).exists());
-    let after = catalog(nucleus.path(), true, None).unwrap();
+    let after = catalog(nucleus.path(), true).unwrap();
     assert!(after.handlers.iter().all(|h| !h.own));
     assert_eq!(
         after
@@ -371,7 +352,7 @@ fn a_handler_that_cannot_be_removed_keeps_its_game_and_is_found_again() {
     write_own(nucleus.path(), &setup).unwrap();
     let file = nucleus.path().join("handlers").join(setup.file());
     let ours = || {
-        catalog(nucleus.path(), true, None)
+        catalog(nucleus.path(), true)
             .unwrap()
             .handlers
             .into_iter()
@@ -388,11 +369,11 @@ fn a_handler_that_cannot_be_removed_keeps_its_game_and_is_found_again() {
     assert!(error.contains(&setup.file()), "{error}");
     drop(open);
     // The game stays listed with it, so the next start finds both again.
-    let left = catalog(nucleus.path(), true, None).unwrap();
+    let left = catalog(nucleus.path(), true).unwrap();
     assert!(left.games.iter().any(|g| g.guid == setup.guid()));
     assert!(ours().is_some());
     remove_own(nucleus.path(), &own).unwrap();
-    let after = catalog(nucleus.path(), true, None).unwrap();
+    let after = catalog(nucleus.path(), true).unwrap();
     assert!(!file.exists());
     assert!(after.games.is_empty());
 }
@@ -412,14 +393,14 @@ fn an_unused_handler_of_ours_is_swept_and_a_foreign_one_never() {
     .unwrap();
     let handlers = nucleus.path().join("handlers");
     std::fs::write(handlers.join("Other.js"), HANDLER).unwrap();
-    let before = catalog(nucleus.path(), true, None).unwrap();
+    let before = catalog(nucleus.path(), true).unwrap();
     let stale = before.stale(None);
     assert_eq!(stale.len(), 1);
     assert_eq!(stale[0].guid, setup.guid());
     remove_own(nucleus.path(), stale[0]).unwrap();
     assert!(!handlers.join(setup.file()).exists());
     assert!(handlers.join("Other.js").exists());
-    let after = catalog(nucleus.path(), true, None).unwrap();
+    let after = catalog(nucleus.path(), true).unwrap();
     assert!(after.stale(None).is_empty());
 }
 
@@ -448,7 +429,7 @@ fn ours_another_account_or_an_earlier_build_wrote_stays() {
         generic::remove_game(&text, &mine.guid()).unwrap().unwrap(),
     )
     .unwrap();
-    let catalog = catalog(nucleus.path(), true, None).unwrap();
+    let catalog = catalog(nucleus.path(), true).unwrap();
     assert_eq!(catalog.user, crate::process::user_sid());
     let stale: Vec<&str> = catalog
         .stale(None)
@@ -457,7 +438,7 @@ fn ours_another_account_or_an_earlier_build_wrote_stays() {
         .collect();
     assert_eq!(stale, [mine.guid()]);
     // Without a signed-in user's list, none.
-    let nobody = super::catalog(nucleus.path(), false, None).unwrap();
+    let nobody = super::catalog(nucleus.path(), false).unwrap();
     assert!(nobody.user.is_none());
     assert!(nobody.stale(None).is_empty());
 }
@@ -482,14 +463,14 @@ fn a_game_entry_left_after_its_handler_went_is_taken_over_again() {
         error.contains("leaves a game whose handler is gone out"),
         "{error}"
     );
-    let left = catalog(nucleus.path(), true, None).unwrap();
+    let left = catalog(nucleus.path(), true).unwrap();
     assert!(left.handlers.iter().all(|h| !h.own));
     assert!(left.stale(None).is_empty());
     assert!(left.playable().is_empty());
     // The game's next background stream writes the handler and keeps
     // the one entry.
     write_own(nucleus.path(), &setup).unwrap();
-    let again = catalog(nucleus.path(), true, None).unwrap();
+    let again = catalog(nucleus.path(), true).unwrap();
     assert_eq!(
         again
             .games
@@ -547,13 +528,13 @@ fn only_a_game_list_file_on_the_disk_of_sane_size_is_read_never_a_link() {
     let theirs = r#"{"Games":[{"GameGuid":"A","ExePath":"C:\\A.exe"}]}"#;
     // A list as Nucleus writes it still reads.
     std::fs::write(&list, theirs).unwrap();
-    let games = catalog(nucleus.path(), true, None).unwrap().games;
+    let games = catalog(nucleus.path(), true).unwrap().games;
     assert_eq!(games.len(), 1);
     check_list(nucleus.path(), Some(&setup), &[]).unwrap();
     // Every read of the list refuses it, naming it, and nothing is written.
     let refused = |why: &str| {
         let errors = [
-            catalog(nucleus.path(), true, None).map(|_| ()),
+            catalog(nucleus.path(), true).map(|_| ()),
             check_list(nucleus.path(), Some(&setup), &[]),
             write_own(nucleus.path(), &setup).map(|_| ()),
             remove_game(&list, "A"),
@@ -631,7 +612,7 @@ fn only_a_game_list_file_on_the_disk_of_sane_size_is_read_never_a_link() {
     std::fs::remove_dir(&list).unwrap();
     // And with none, it is.
     write_own(nucleus.path(), &setup).unwrap();
-    let games = catalog(nucleus.path(), true, None).unwrap().games;
+    let games = catalog(nucleus.path(), true).unwrap().games;
     assert_eq!(games.len(), 1);
     assert_eq!(games[0].guid, setup.guid());
 }

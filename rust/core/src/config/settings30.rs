@@ -146,8 +146,8 @@ impl Config {
             ],
         )
     }
-    /// The Nucleus Co-op folder: `nucleus_path`, or None for the host's own
-    /// copy, which it installs on first use.
+    /// The Nucleus Co-op folder: `nucleus_path`, or None for an earlier
+    /// Rubylight's install, if any.
     pub fn nucleus_path(&self) -> Option<PathBuf> {
         let value = self.text30("nucleus_path", "");
         (!value.is_empty()).then(|| PathBuf::from(value))

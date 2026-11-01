@@ -17,15 +17,6 @@ struct Entry {
 pub(super) struct State {
     sessions: BTreeMap<u32, Entry>,
     next: u32,
-    /// The bytes downloaded while an install runs, or is claimed to run.
-    installing: Option<u64>,
-    install_error: Option<String>,
-    /// Finished installs: a call waiting for one wakes when it moves.
-    installs: u64,
-    /// The last install's result, which its waiters share.
-    install_result: Option<Result<PathBuf, String>>,
-    /// Calls waiting for the install another one runs.
-    pub(super) install_waiters: usize,
 }
 
 struct Cached {
@@ -48,8 +39,6 @@ pub struct Registry {
     /// game start one session.
     admit: Mutex<()>,
     state: Mutex<State>,
-    /// Signalled when an install finishes.
-    install_done: Condvar,
     catalog: Mutex<Option<Cached>>,
     /// The console's [`own_status`] answers by .exe path; only the console
     /// reads them.
@@ -68,7 +57,6 @@ impl Registry {
             pc: RwLock::new(pc),
             admit: Mutex::new(()),
             state: Mutex::default(),
-            install_done: Condvar::new(),
             catalog: Mutex::new(None),
             own_statuses: Mutex::default(),
             account: Mutex::new(None),
@@ -167,126 +155,38 @@ impl Registry {
         catalog
     }
 
-    /// Where the host's copy of Nucleus Co-op stands.
+    /// Where Nucleus Co-op stands for `configured` (`nucleus_path`).
     pub fn install(&self, configured: &str) -> Install {
-        let installed = self.pc().installed(configured);
-        let state = self.lock();
-        match (installed, state.installing) {
-            (Ok(Some(folder)), _) if !configured.trim().is_empty() => Install::Configured(folder),
-            (Ok(Some(folder)), _) => Install::Installed(folder),
-            (_, Some(received)) => Install::Installing(received),
-            (Err(error), None) => Install::Failed(format!("{error:#}")),
-            (Ok(None), None) => state
-                .install_error
-                .clone()
-                .map_or(Install::Missing, Install::Failed),
+        Install::of(configured, self.pc().installed(configured))
+    }
+
+    /// The Nucleus folder a launch runs: refused with the reason when none
+    /// is set up, or the folder chosen is one Nucleus Co-op can't run from.
+    /// Rubylight installs nothing itself.
+    fn folder(&self, pc: &dyn Pc, configured: &str) -> Result<PathBuf, Refusal> {
+        match pc.installed(configured) {
+            Ok(Some(folder)) => Ok(folder),
+            Ok(None) => Err(Refusal::unavailable(not_set_up())),
+            Err(error) => Err(Refusal::unavailable(format!(
+                "Nucleus Co-op is not ready: {error:#}"
+            ))),
         }
     }
 
-    /// The Nucleus folder, installing it first. One install runs at a time:
-    /// a launch while the console's Set up co-op (or another launch) installs
-    /// waits for it and shares its result, so there is one download, one
-    /// progress and one result. A failure is kept for the console.
-    fn ensure(&self, pc: &dyn Pc, configured: &str) -> Result<PathBuf, Refusal> {
-        if let Ok(Some(folder)) = pc.installed(configured) {
-            return Ok(folder);
-        }
-        let mut state = self.lock();
-        if state.installing.is_some() {
-            let round = state.installs;
-            state.install_waiters += 1;
-            while state.installs == round {
-                state = self
-                    .install_done
-                    .wait(state)
-                    .unwrap_or_else(PoisonError::into_inner);
-            }
-            state.install_waiters -= 1;
-            return match state.install_result.clone() {
-                Some(Ok(folder)) => Ok(folder),
-                Some(Err(message)) => Err(Refusal::unavailable(message)),
-                None => Err(Refusal::unavailable("Nucleus Co-op is not ready")),
-            };
-        }
-        state.installing = Some(0);
-        drop(state);
-        self.run_install(pc, configured)
-    }
-
-    /// Run the install this caller claimed (`installing` set), keep its
-    /// result and wake the calls waiting for it.
-    /// The install path returns its errors instead of panicking, so every
-    /// waiter gets the reason. The release profile aborts on a panic
-    /// (`panic = "abort"`), which ends the host loudly; catching one here
-    /// only matters where panics unwind (test and debug builds).
-    fn run_install(&self, pc: &dyn Pc, configured: &str) -> Result<PathBuf, Refusal> {
-        let run = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            pc.ensure(configured, &|received| {
-                self.lock().installing = Some(received);
-            })
-        }));
-        let result = match run {
-            Ok(result) => result.map_err(|error| format!("Nucleus Co-op is not ready: {error:#}")),
-            Err(panic) => {
-                let why = panic
-                    .downcast_ref::<&str>()
-                    .map(|s| s.to_string())
-                    .or_else(|| panic.downcast_ref::<String>().cloned())
-                    .unwrap_or_else(|| "it panicked".into());
-                tracing::error!(why, "Nucleus Co-op: the install panicked");
-                Err(format!(
-                    "Nucleus Co-op is not ready: the install stopped: {why}"
-                ))
-            }
-        };
-        let mut state = self.lock();
-        state.installing = None;
-        state.installs += 1;
-        state.install_error = result.as_ref().err().cloned();
-        state.install_result = Some(result.clone());
-        self.install_done.notify_all();
-        result.map_err(Refusal::unavailable)
-    }
-
-    /// The console's Set up co-op: whether Nucleus Co-op is there, already
-    /// downloading, or now marked as installing, which the caller then runs
-    /// with [`Self::install_now`] off the async runtime. Refused where
-    /// Nucleus Co-op can't run, so nothing downloads that could never start.
-    pub fn set_up(&self, configured: &str) -> Result<SetUp, Refusal> {
+    /// The console's Choose folder: `path` checked as a launch would check
+    /// it, so a folder Nucleus Co-op can't run from is refused before it is
+    /// saved; an empty `path` goes back to an earlier install, if any.
+    pub fn check_folder(&self, path: &str) -> Result<Install, Refusal> {
         let pc = self.pc();
         if let Some(why) = pc.unavailable() {
             return Err(Refusal::unavailable(why));
         }
-        // A folder that can't be trusted (its owner or ACL) is refused, not
-        // downloaded over.
-        let installed = pc.installed(configured).map_err(|error| {
-            Refusal::unavailable(format!("Nucleus Co-op is not ready: {error:#}"))
-        })?;
-        let mut state = self.lock();
-        if installed.is_some() {
-            return Ok(SetUp::Installed);
-        }
-        if state.installing.is_some() {
-            return Ok(SetUp::Installing);
-        }
-        state.installing = Some(0);
-        state.install_error = None;
-        Ok(SetUp::Started)
-    }
-
-    /// Run the install [`Self::set_up`] started; a failure shows in
-    /// [`Self::install`], as a launch's does.
-    pub fn install_now(&self, configured: &str) {
-        let pc = self.pc();
-        // `set_up` claimed the install; `Pc::ensure` downloads nothing when
-        // it is there after all.
-        match self.run_install(pc.as_ref(), configured) {
-            Ok(folder) => {
-                tracing::info!(folder = %folder.display(), "Nucleus Co-op: set up from the console")
-            }
-            Err(refusal) => {
-                tracing::warn!(error = %refusal, "Nucleus Co-op: setting up from the console failed")
-            }
+        match Install::of(path, pc.installed(path)) {
+            Install::Failed { error, .. } => Err(Refusal {
+                status: 400,
+                message: error,
+            }),
+            install => Ok(install),
         }
     }
 
@@ -301,11 +201,7 @@ impl Registry {
         }
         let folder = match pc.installed(configured) {
             Ok(Some(folder)) => folder,
-            Ok(None) => {
-                return Err(Refusal::busy(
-                    "Nucleus Co-op is not set up yet: set up co-op first",
-                ));
-            }
+            Ok(None) => return Err(Refusal::busy(not_set_up())),
             Err(error) => {
                 return Err(Refusal::unavailable(format!(
                     "Nucleus Co-op is not ready: {error:#}"
@@ -479,11 +375,7 @@ impl Registry {
             Err(error) => return Some(Err(error)),
         };
         // What a background launch without the hub's handler answers.
-        let own = |app: &App| -> Result<Option<Run>, Missing> {
-            let run = self.own_status(app)?;
-            own_list(&configured)?;
-            Ok(run)
-        };
+        let own = |app: &App| self.own_status(app);
         let ready = |handler: Handler| GameStatus::Ready {
             players: coop::players(
                 handler.max_players,
@@ -520,9 +412,7 @@ impl Registry {
                         Err(refused @ (Missing::NoExecutable { .. } | Missing::Refused { .. })) => {
                             GameStatus::Missing(refused)
                         }
-                        Ok(Some(run)) if own_list(&configured).is_ok() => {
-                            GameStatus::Own { missing, run }
-                        }
+                        Ok(Some(run)) => GameStatus::Own { missing, run },
                         _ => GameStatus::Missing(missing),
                     }
                 }
@@ -632,8 +522,7 @@ impl Registry {
         let kind = request.game.kind();
         let _one = self.admit.lock().unwrap_or_else(PoisonError::into_inner);
         let configured = configured(request.config);
-        let folder = self.ensure(pc.as_ref(), &configured)?;
-        let known_list = own_list(&configured).is_ok();
+        let folder = self.folder(pc.as_ref(), &configured)?;
         let catalog = self.catalog(&folder, true).map_err(|error| {
             Refusal::unavailable(format!(
                 "Nucleus Co-op's handlers and games did not load: {error}"
@@ -652,10 +541,7 @@ impl Registry {
                 Some(found) => (Some(Chosen::Hub(found)), None),
                 None => match self.returning(request.game.app_id(), &client.uuid) {
                     Some(game) => (None, Some(game)),
-                    None => (
-                        Some(own_handler(pc.as_ref(), &catalog, app, &configured)?),
-                        None,
-                    ),
+                    None => (Some(own_handler(pc.as_ref(), &catalog, app)?), None),
                 },
             }
         } else {
@@ -818,7 +704,6 @@ impl Registry {
                     kind,
                     folder: &folder,
                     user_copy: copy.as_deref(),
-                    known_list,
                     handler: &handler,
                     exe_path: &exe_path,
                     steam_app,

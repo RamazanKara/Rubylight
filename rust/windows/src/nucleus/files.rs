@@ -15,21 +15,16 @@ use std::path::{Path, PathBuf};
 /// handler that cannot be read is left out with a log line; an unreadable
 /// game list is an error. With `signed_in`, [`Catalog::user`] is the
 /// signed-in user, whose sweep may remove the handlers written for them.
-/// `appdata`, the signed-in user's roaming folder, is for a Nucleus Co-op
-/// other than the host's install (`nucleus_path`): its release may read
-/// `%APPDATA%\Nucleus Coop\userprofile.json` instead, so that list counts
-/// too.
-pub fn catalog(folder: &Path, signed_in: bool, appdata: Option<&Path>) -> Result<Catalog> {
+/// Every folder the host runs is that release's, the chosen one as well as
+/// an earlier install, so its own list is the only one.
+pub fn catalog(folder: &Path, signed_in: bool) -> Result<Catalog> {
     let mut catalog = Catalog {
         user: signed_in.then(crate::process::user_sid).flatten(),
         ..Catalog::default()
     };
     catalog.handlers = handlers(folder)?;
-    let lists = [Some(list(folder)), appdata.map(appdata_list)];
-    for path in lists.into_iter().flatten() {
-        let Some(text) = read_list(&path)? else {
-            continue;
-        };
+    let path = list(folder);
+    if let Some(text) = read_list(&path)? {
         let games = handler::user_games(&text)
             .map_err(anyhow::Error::msg)
             .with_context(|| path.display().to_string())?;

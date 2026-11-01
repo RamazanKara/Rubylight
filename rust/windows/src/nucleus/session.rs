@@ -244,8 +244,7 @@ struct Runner {
     crashlog: Option<Crashlog>,
     /// The folder Nucleus Co-op runs from and the game's GUID, to tell
     /// whether Nucleus lists the game, read as `reader` (the user, for their
-    /// own copy). None for a runner tested alone, and for a Nucleus Co-op
-    /// whose game list Rubylight doesn't know.
+    /// own copy). None for a runner tested alone.
     game: Option<(PathBuf, String)>,
     reader: Option<OwnedHandle>,
     /// Clicked, instances found, windows found.
@@ -860,11 +859,6 @@ pub struct Start<'a> {
     /// session runs it as them without administrator rights; None runs
     /// `folder` elevated.
     pub user_copy: Option<&'a Path>,
-    /// Whether it is the release whose game list Rubylight knows
-    /// ([`files::list`]): the host's own install of 2.4.2 (or the user's
-    /// copy of it), not a `nucleus_path` copy. Only then does a start that
-    /// times out say whether the game is listed.
-    pub known_list: bool,
     pub handler: &'a Handler,
     /// The game's .exe as Nucleus starts it: the user's added game's, or the
     /// one Rubylight's handler is for.
@@ -1114,9 +1108,7 @@ fn begin(
         shown: false,
         unseen: None,
         crashlog: Some(crashlog),
-        game: start
-            .known_list
-            .then(|| (folder.to_path_buf(), start.handler.guid.clone())),
+        game: Some((folder.to_path_buf(), start.handler.guid.clone())),
         reader,
         progress: (false, 0, 0),
         windows: vec![None; start.players],

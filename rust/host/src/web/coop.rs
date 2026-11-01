@@ -1,8 +1,10 @@
 //! The console's co-op: the game page's Play together panel and the Nucleus
-//! Co-op panel. `GET /api/coop` shows the background mode and why, Nucleus
-//! Co-op's install with its download progress, each app's co-op status and
-//! every session the host has. `POST /api/coop/install` sets Nucleus Co-op
-//! up (the pinned, checked release) and `POST /api/coop/open` opens its
+//! Co-op panel. `GET /api/coop` shows the background mode and why, where
+//! Nucleus Co-op stands (the folder chosen, or why it can't run from it, and
+//! the release page the console links to), each app's co-op status and every
+//! session the host has. Rubylight downloads nothing: the user unpacks the
+//! release and `POST /api/coop/folder` checks the folder they chose and keeps
+//! it as `nucleus_path`. `POST /api/coop/open` opens Nucleus Co-op's
 //! window on the PC for adding a handler; `POST /api/coop/close` closes that
 //! window again, and a session closes it first. `POST /api/coop/kick` removes a
 //! player and `POST /api/coop/end` ends a session, and each ends the streams
@@ -10,7 +12,7 @@
 
 use super::error;
 use crate::{
-    nucleus::{GameStatus, Install, Refusal, SetUp},
+    nucleus::{GameStatus, Install, Refusal},
     state::Shared,
 };
 use axum::{
@@ -24,7 +26,7 @@ use butterpollo_core::{
         coop::Phase,
         elevation::{self, Account, Need, Run, Script},
         handler::Missing,
-        install::{SIZE, VERSION},
+        install::{RELEASE_PAGE, VERSION},
         mode::{Decision, KEY},
     },
 };
@@ -39,29 +41,16 @@ pub(super) async fn handle(h: &Shared, method: &Method, path: &str, data: &Value
         .and_then(|id| u32::try_from(id).ok());
     match (method.as_str(), path) {
         ("GET", "/api/coop") => blocking(move || Ok(status(&h))).await,
-        ("POST", "/api/coop/install") => {
-            let configured = configured(&h);
-            // One blocking task claims the install and runs it, so a dropped
-            // request can't leave it claimed with nothing running it.
-            let (answer, set_up) = tokio::sync::oneshot::channel();
-            tokio::task::spawn_blocking(move || {
-                let started = h.nucleus.set_up(&configured);
-                let run = matches!(started, Ok(SetUp::Started));
-                let _ = answer.send(started);
-                if run {
-                    h.nucleus.install_now(&configured);
-                }
-            });
-            match set_up.await {
-                Ok(Ok(SetUp::Started)) => {
-                    // The download runs on; `GET /api/coop` shows its progress
-                    // and, loudly, a refusal.
-                    (StatusCode::ACCEPTED, Json(json!({"state": "installing"}))).into_response()
-                }
-                Ok(Ok(SetUp::Installing)) => {
-                    (StatusCode::ACCEPTED, Json(json!({"state": "installing"}))).into_response()
-                }
-                Ok(Ok(SetUp::Installed)) => Json(json!({"state": "installed"})).into_response(),
+        ("POST", "/api/coop/folder") => {
+            let Some(path) = data.get("path").and_then(Value::as_str) else {
+                return error(
+                    StatusCode::BAD_REQUEST,
+                    "path must be the folder Nucleus Co-op was unpacked into",
+                );
+            };
+            let path = path.trim().to_string();
+            match tokio::task::spawn_blocking(move || choose(&h, &path)).await {
+                Ok(Ok(install)) => Json(install).into_response(),
                 Ok(Err(refusal)) => refused(&refusal),
                 Err(e) => error(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
             }
@@ -128,6 +117,49 @@ fn configured(h: &Shared) -> String {
     crate::nucleus::configured(&h.config.read().unwrap_or_else(PoisonError::into_inner))
 }
 
+/// The console's Choose folder: `path` checked as a launch checks it, then
+/// kept as `nucleus_path`; a refused folder saves nothing. An empty `path`
+/// goes back to an earlier Rubylight's install, if any.
+fn choose(h: &Shared, path: &str) -> Result<Value, Refusal> {
+    let install = h.nucleus.check_folder(path)?;
+    super::config::save_setting(h, "nucleus_path", |_| Ok(path.to_string())).map_err(|e| {
+        Refusal {
+            status: 500,
+            message: format!("Saving the Nucleus Co-op folder failed: {e:#}"),
+        }
+    })?;
+    tracing::info!(folder = path, "Nucleus Co-op: folder chosen in the console");
+    Ok(install_json(&install, path))
+}
+
+/// Where Nucleus Co-op stands, as the panels show it: `chosen` is
+/// `nucleus_path`, for the folder field.
+fn install_json(install: &Install, chosen: &str) -> Value {
+    let (state, path, version, problem, install_error) = match install {
+        Install::Missing => ("missing", None, None, None, None),
+        // An earlier Rubylight's install, which still runs.
+        Install::Installed(path) => ("installed", Some(path), Some(VERSION), None, None),
+        Install::Configured(path) => ("configured", Some(path), Some(VERSION), None, None),
+        Install::Failed { problem, error } => (
+            "failed",
+            None,
+            None,
+            problem.map(|p| p.as_str()),
+            Some(error.as_str()),
+        ),
+    };
+    json!({
+        "state": state,
+        "path": path,
+        "chosen": chosen,
+        "version": version,
+        "problem": problem,
+        "error": install_error,
+        // Where the user downloads it: Rubylight downloads nothing.
+        "release": {"version": VERSION, "page": RELEASE_PAGE},
+    })
+}
+
 /// A refused co-op action: its status and the host's text.
 fn refused(refusal: &Refusal) -> Response {
     error(
@@ -146,15 +178,8 @@ fn status(h: &Shared) -> Value {
         .clone();
     let setting = config.get(KEY, "");
     let decision = Decision::nucleus();
-    let (state, path, version, install_error, received) =
-        match h.nucleus.install(&crate::nucleus::configured(&config)) {
-            Install::Missing => ("missing", None, None, None, None),
-            Install::Installed(path) => ("installed", Some(path), Some(VERSION), None, None),
-            // The user's own copy: its version is theirs.
-            Install::Configured(path) => ("configured", Some(path), None, None, None),
-            Install::Installing(received) => ("installing", None, None, None, Some(received)),
-            Install::Failed(why) => ("failed", None, None, Some(why), None),
-        };
+    let chosen = crate::nucleus::configured(&config);
+    let install = install_json(&h.nucleus.install(&chosen), &chosen);
     let apps = h
         .apps
         .read()
@@ -284,15 +309,7 @@ fn status(h: &Shared) -> Value {
             "label": decision.label,
             "reason": decision.reason,
         },
-        "install": {
-            "state": state,
-            "path": path,
-            "version": version,
-            "error": install_error,
-            // What Set up co-op downloads, and how much of it has arrived.
-            "release": {"version": VERSION, "size": SIZE},
-            "received": received,
-        },
+        "install": install,
         "games": games,
         "catalog_error": catalog_error,
         "available": unavailable.is_none(),
@@ -334,7 +351,10 @@ mod tests {
     use axum::http::StatusCode;
     use butterpollo_core::{
         config::Config,
-        nucleus::elevation::{self, Account},
+        nucleus::{
+            elevation::{self, Account},
+            install::{Problem, Unusable},
+        },
         rtsp::Negotiated,
         session::Role,
         state::{App, Client},
@@ -427,9 +447,9 @@ mod tests {
         }
         assert_eq!(
             body["install"],
-            json!({"state": "installed", "path": r"C:\Nucleus", "version": butterpollo_core::nucleus::install::VERSION, "error": null,
-                   "release": {"version": butterpollo_core::nucleus::install::VERSION, "size": butterpollo_core::nucleus::install::SIZE},
-                   "received": null})
+            json!({"state": "installed", "path": r"C:\Nucleus", "chosen": "", "version": "2.4.2",
+                   "problem": null, "error": null,
+                   "release": {"version": "2.4.2", "page": "https://github.com/SplitScreen-Me/splitscreenme-nucleus/releases/tag/v2.4.2"}})
         );
         assert_eq!(
             (&body["available"], &body["reason"]),
@@ -601,151 +621,196 @@ mod tests {
         }
     }
 
-    /// `GET /api/coop` until the install is no longer downloading.
-    async fn settled(f: &Fixture) -> Value {
-        for _ in 0..500 {
-            let body = value(
-                request(f, "GET", "/api/coop", Value::Null).await,
-                StatusCode::OK,
-            )
-            .await;
-            if body["install"]["state"] != "installing" {
-                return body;
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-        }
-        panic!("the install never finished");
+    async fn panel(f: &Fixture) -> Value {
+        value(
+            request(f, "GET", "/api/coop", Value::Null).await,
+            StatusCode::OK,
+        )
+        .await
+    }
+
+    fn kept(f: &Fixture) -> String {
+        f.host
+            .config
+            .read()
+            .unwrap()
+            .get("nucleus_path", "")
+            .to_string()
     }
 
     #[tokio::test]
-    async fn set_up_refuses_a_download_with_another_hash_loudly() {
+    async fn a_chosen_folder_is_checked_kept_and_remembered_and_nothing_downloads() {
         let f = Fixture::new();
         let pc = Arc::new(fake::Pc::installed());
         *pc.installed.lock().unwrap() = None;
-        // The pinned size, another SHA-256.
-        let size = butterpollo_core::nucleus::install::SIZE;
-        *pc.archive.lock().unwrap() = Some(vec![0; size as usize]);
         f.host.nucleus.use_pc(pc.clone());
-        let before = value(
-            request(&f, "GET", "/api/coop", Value::Null).await,
-            StatusCode::OK,
-        )
-        .await;
+        let before = panel(&f).await;
         assert_eq!(before["install"]["state"], "missing");
+        // The console links to the release's page: Rubylight downloads nothing.
         assert_eq!(
             before["install"]["release"],
-            json!({"version": butterpollo_core::nucleus::install::VERSION, "size": size})
+            json!({"version": "2.4.2", "page": "https://github.com/SplitScreen-Me/splitscreenme-nucleus/releases/tag/v2.4.2"})
         );
-        let started = value(
-            request(&f, "POST", "/api/coop/install", json!({})).await,
-            StatusCode::ACCEPTED,
-        )
-        .await;
-        assert_eq!(started, json!({"state": "installing"}));
-        let body = settled(&f).await;
-        assert_eq!(body["install"]["state"], "failed");
-        let error = body["install"]["error"].as_str().unwrap();
-        assert!(
-            error.starts_with(
-                "Nucleus Co-op is not ready: The Nucleus Co-op download's SHA-256 is "
-            ),
-            "{error}"
-        );
-        assert!(error.ends_with("it was deleted."), "{error}");
-        assert_eq!(*pc.installed.lock().unwrap(), None);
-        // A good download next time installs it, once.
-        *pc.archive.lock().unwrap() = None;
-        value(
-            request(&f, "POST", "/api/coop/install", json!({})).await,
-            StatusCode::ACCEPTED,
-        )
-        .await;
-        assert_eq!(settled(&f).await["install"]["state"], "installed");
-        let again = value(
-            request(&f, "POST", "/api/coop/install", json!({})).await,
+        let chosen = value(
+            request(
+                &f,
+                "POST",
+                "/api/coop/folder",
+                json!({"path": r" D:\Nucleus "}),
+            )
+            .await,
             StatusCode::OK,
         )
         .await;
-        assert_eq!(again, json!({"state": "installed"}));
-        assert_eq!(pc.installs.load(std::sync::atomic::Ordering::Relaxed), 2);
-    }
-
-    #[tokio::test]
-    async fn a_set_up_request_dropped_after_its_first_poll_still_installs() {
-        let f = Fixture::new();
-        let pc = Arc::new(fake::Pc::installed());
-        *pc.installed.lock().unwrap() = None;
-        f.host.nucleus.use_pc(pc.clone());
-        // The client hangs up at once: the request is polled once and dropped.
-        let dropped = tokio::time::timeout(
-            std::time::Duration::ZERO,
-            request(&f, "POST", "/api/coop/install", json!({})),
+        assert_eq!(chosen["state"], "configured");
+        assert_eq!(chosen["path"], r"D:\Nucleus");
+        assert_eq!(kept(&f), r"D:\Nucleus");
+        // Saved with the host's settings, so it outlasts a restart.
+        let saved = Config::load(&f.host.config_path).unwrap();
+        assert_eq!(saved.get("nucleus_path", ""), r"D:\Nucleus");
+        let after = panel(&f).await;
+        assert_eq!(after["install"]["state"], "configured");
+        assert_eq!(after["install"]["chosen"], r"D:\Nucleus");
+        assert_eq!(after["install"]["version"], "2.4.2");
+        // An empty folder goes back to an earlier install, here none.
+        let cleared = value(
+            request(&f, "POST", "/api/coop/folder", json!({"path": ""})).await,
+            StatusCode::OK,
         )
         .await;
-        assert!(
-            dropped.is_err(),
-            "the request was answered before it was dropped"
-        );
-        // The install it claimed still runs, rather than staying "installing".
-        let mut state = Value::Null;
-        for _ in 0..500 {
-            state = settled(&f).await["install"]["state"].clone();
-            if state == "installed" || state == "failed" {
-                break;
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-        }
-        assert_eq!(state, "installed");
-        assert_eq!(pc.installs.load(std::sync::atomic::Ordering::Relaxed), 1);
+        assert_eq!(cleared["state"], "missing");
+        assert_eq!(kept(&f), "");
     }
 
     #[tokio::test]
-    async fn set_up_and_open_answer_503_when_the_install_folder_is_refused() {
+    async fn a_refused_folder_is_never_kept_and_says_why() {
         let f = Fixture::new();
         let pc = Arc::new(fake::Pc::installed());
-        let why = r"C:\Nucleus is not owned by Administrators or SYSTEM";
-        *pc.installed_error.lock().unwrap() = Some(why.into());
         f.host.nucleus.use_pc(pc.clone());
-        for path in ["/api/coop/open", "/api/coop/install"] {
+        for (problem, why) in [
+            (Problem::Missing, r"D:\Downloads holds no NucleusCoop.exe"),
+            (
+                Problem::Version,
+                r"The NucleusCoop.exe in D:\Downloads isn't Nucleus Co-op 2.4.2's",
+            ),
+            (
+                Problem::Untrusted,
+                r"Rubylight doesn't run Nucleus Co-op from D:\Downloads",
+            ),
+        ] {
+            pc.unusable.lock().unwrap().insert(
+                r"D:\Downloads".into(),
+                Unusable {
+                    problem,
+                    message: why.into(),
+                },
+            );
             let body = value(
-                request(&f, "POST", path, json!({})).await,
-                StatusCode::SERVICE_UNAVAILABLE,
+                request(
+                    &f,
+                    "POST",
+                    "/api/coop/folder",
+                    json!({"path": r"D:\Downloads"}),
+                )
+                .await,
+                StatusCode::BAD_REQUEST,
             )
             .await;
-            assert_eq!(
-                body["error"],
-                format!("Nucleus Co-op is not ready: {why}"),
-                "{path}"
-            );
+            assert_eq!(body["error"], why);
+            // The earlier install still runs; nothing was saved.
+            assert_eq!(kept(&f), "");
+            assert_eq!(panel(&f).await["install"]["state"], "installed");
         }
-        // Nothing opened, nothing downloaded over the refused folder.
-        assert_eq!(pc.opened.load(std::sync::atomic::Ordering::Relaxed), 0);
-        assert_eq!(pc.installs.load(std::sync::atomic::Ordering::Relaxed), 0);
-        let body = value(
-            request(&f, "GET", "/api/coop", Value::Null).await,
-            StatusCode::OK,
+        value(
+            request(&f, "POST", "/api/coop/folder", json!({})).await,
+            StatusCode::BAD_REQUEST,
         )
         .await;
-        assert_eq!(body["install"]["state"], "failed");
     }
 
     #[tokio::test]
-    async fn set_up_and_open_are_refused_without_the_service() {
+    async fn a_kept_folder_nucleus_cant_run_from_shows_and_refuses_open() {
+        let f = Fixture::new();
+        let pc = Arc::new(fake::Pc::installed());
+        let why = r"The NucleusCoop.exe in D:\Old isn't Nucleus Co-op 2.4.2's: download 2.4.2 from its release page and choose its folder";
+        pc.unusable.lock().unwrap().insert(
+            r"D:\Old".into(),
+            Unusable {
+                problem: Problem::Version,
+                message: why.into(),
+            },
+        );
+        f.host.nucleus.use_pc(pc.clone());
+        // Set where the console doesn't check it, or replaced since.
+        value(
+            request(
+                &f,
+                "PATCH",
+                "/api/config",
+                json!({"nucleus_path": r"D:\Old"}),
+            )
+            .await,
+            StatusCode::OK,
+        )
+        .await;
+        let body = panel(&f).await;
+        assert_eq!(body["install"]["state"], "failed");
+        assert_eq!(body["install"]["problem"], "version");
+        assert_eq!(body["install"]["error"], why);
+        assert_eq!(body["install"]["chosen"], r"D:\Old");
+        // The earlier install doesn't stand in for it.
+        assert_eq!(body["install"]["path"], Value::Null);
+        let refused = value(
+            request(&f, "POST", "/api/coop/open", json!({})).await,
+            StatusCode::SERVICE_UNAVAILABLE,
+        )
+        .await;
+        assert_eq!(
+            refused["error"],
+            format!("Nucleus Co-op is not ready: {why}")
+        );
+        assert_eq!(pc.opened.load(std::sync::atomic::Ordering::Relaxed), 0);
+    }
+
+    #[tokio::test]
+    async fn open_answers_503_when_the_folder_could_not_be_checked() {
+        let f = Fixture::new();
+        let pc = Arc::new(fake::Pc::installed());
+        let why = r"reading the owner of C:\Nucleus: access denied";
+        *pc.installed_error.lock().unwrap() = Some(why.into());
+        f.host.nucleus.use_pc(pc.clone());
+        let body = value(
+            request(&f, "POST", "/api/coop/open", json!({})).await,
+            StatusCode::SERVICE_UNAVAILABLE,
+        )
+        .await;
+        assert_eq!(body["error"], format!("Nucleus Co-op is not ready: {why}"));
+        assert_eq!(pc.opened.load(std::sync::atomic::Ordering::Relaxed), 0);
+        let body = panel(&f).await;
+        assert_eq!(body["install"]["state"], "failed");
+        assert_eq!(body["install"]["problem"], Value::Null);
+    }
+
+    #[tokio::test]
+    async fn choosing_a_folder_and_open_are_refused_without_the_service() {
         let f = Fixture::new();
         let pc = Arc::new(fake::Pc::installed());
         let why = "Nucleus Co-op sessions need the host to run as the Rubylight Windows service, which starts Nucleus Co-op as the signed-in user";
         *pc.unavailable.lock().unwrap() = Some(why.into());
         f.host.nucleus.use_pc(pc.clone());
-        for path in ["/api/coop/open", "/api/coop/install"] {
+        for (path, body) in [
+            ("/api/coop/open", json!({})),
+            ("/api/coop/folder", json!({"path": r"D:\Nucleus"})),
+        ] {
             let body = value(
-                request(&f, "POST", path, json!({})).await,
+                request(&f, "POST", path, body).await,
                 StatusCode::SERVICE_UNAVAILABLE,
             )
             .await;
             assert_eq!(body["error"], why, "{path}");
         }
         assert_eq!(pc.opened.load(std::sync::atomic::Ordering::Relaxed), 0);
-        assert_eq!(pc.installs.load(std::sync::atomic::Ordering::Relaxed), 0);
+        assert_eq!(kept(&f), "");
         // With the service it opens.
         *pc.unavailable.lock().unwrap() = None;
         value(
@@ -922,7 +987,7 @@ mod tests {
             body["games"][0]["reason"],
             "Nucleus Co-op needs administrator rights for a hub handler, and Windows' Administrator protection keeps them from Rubylight, so Nucleus Co-op can't run this game on this PC; games Rubylight adds itself still stream if they need no administrator rights"
         );
-        // Before the install nothing is known yet.
+        // Before Nucleus Co-op is set up nothing is known yet.
         *pc.installed.lock().unwrap() = None;
         let body = value(
             request(&f, "GET", "/api/coop", Value::Null).await,

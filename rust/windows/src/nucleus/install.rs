@@ -1,60 +1,142 @@
-//! Nucleus Co-op on this PC: the pinned release, installed at first use below
-//! the host's data folder, or the user's own copy (`nucleus_path`).
+//! Nucleus Co-op on this PC: the folder the user unpacked the pinned release
+//! into and chose in the console (`nucleus_path`), else the copy an earlier
+//! Rubylight installed below the host's data folder. Rubylight downloads and
+//! unpacks nothing: the console links to the release's page.
 //!
-//! The host's copy lives in `<data>\nucleus\<version>`, which only SYSTEM and
-//! Administrators can write: Nucleus runs elevated, so a folder its user could
-//! write without elevation would let any program of that user run elevated.
-//! The archive is checked before a byte of it reaches the disk (size and
-//! SHA-256 of the whole download, then each entry's CRC while unpacking), and
-//! a refused download is dropped.
+//! Nucleus runs elevated, and the host writes its handlers, game list and
+//! settings in its folder, so the folder must be one only SYSTEM and
+//! Administrators can change: a folder its user could write without
+//! elevation would let any program of that user run elevated. Its
+//! NucleusCoop.exe must be the pinned release's, by size and SHA-256.
 use anyhow::{Context, Result, bail, ensure};
-use butterpollo_core::nucleus::install as pinned;
-use std::io::Cursor;
+use butterpollo_core::nucleus::install::{self as pinned, Problem, Unusable};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-/// How the host downloads. The host passes its own HTTPS client (the
-/// updater's), so this crate carries no second HTTP stack.
-pub trait Fetch {
-    /// The body of `url`. A body longer than `limit` bytes is an error: the
-    /// pinned archive has a known size.
-    fn fetch(&mut self, url: &str, limit: u64) -> Result<Vec<u8>>;
-}
-
-/// The Nucleus folder streams use: `nucleus_path` when set, which must hold
-/// NucleusCoop.exe (it is never replaced by the host's copy) and which only
-/// SYSTEM and Administrators may change, else the host's copy below `data`
-/// once it is installed.
+/// The Nucleus folder streams use: `nucleus_path` when set, which must be a
+/// folder of the pinned release that only SYSTEM and Administrators may
+/// change ([`Unusable`] says why not; the host's earlier copy never stands
+/// in for it), else the host's earlier copy below `data` while it is there.
 pub fn installed(data: &Path, configured: &str) -> Result<Option<PathBuf>> {
-    installed_checked(data, configured, administrators_only)
+    installed_checked(data, configured, &Checks::PC)
 }
 
-fn installed_checked(
-    data: &Path,
-    configured: &str,
+/// The checks that differ in tests: a test can't hold the release's
+/// executable, and its process may not own files as Administrators.
+struct Checks {
+    release: fn(&Path) -> Result<bool>,
     trusted: fn(&Path) -> Result<()>,
-) -> Result<Option<PathBuf>> {
+}
+impl Checks {
+    const PC: Self = Self {
+        release: release_executable,
+        trusted: administrators_only,
+    };
+}
+
+fn installed_checked(data: &Path, configured: &str, checks: &Checks) -> Result<Option<PathBuf>> {
     let configured = configured.trim();
-    if !configured.is_empty() {
-        let folder = PathBuf::from(configured);
-        ensure!(
-            folder.join(pinned::EXECUTABLE).is_file(),
-            "nucleus_path is {}, which holds no {}: point it at a Nucleus Co-op folder or clear it to let Rubylight install Nucleus Co-op {}",
-            folder.display(),
-            pinned::EXECUTABLE,
-            pinned::VERSION
-        );
-        trusted(&folder).with_context(|| {
-            format!(
-                "nucleus_path is {}, which Rubylight does not run: Nucleus Co-op runs elevated, so only SYSTEM and Administrators may change its folder. Move it under Program Files or clear nucleus_path to let Rubylight install Nucleus Co-op {}",
-                folder.display(),
-                pinned::VERSION
-            )
-        })?;
-        return Ok(Some(folder));
+    if configured.is_empty() {
+        // Checked as it was unpacked: an earlier Rubylight downloaded it.
+        let folder = pinned::folder(data);
+        return Ok(folder.join(pinned::EXECUTABLE).is_file().then_some(folder));
     }
-    let folder = pinned::folder(data);
-    Ok(folder.join(pinned::EXECUTABLE).is_file().then_some(folder))
+    chosen(Path::new(configured), checks).map(Some)
+}
+
+fn refuse(problem: Problem, message: String) -> anyhow::Error {
+    anyhow::Error::new(Unusable { problem, message })
+}
+
+/// The folder the user chose, when Rubylight runs Nucleus Co-op from it: a
+/// folder, no link, holding the pinned release's NucleusCoop.exe (no link
+/// either), and one only SYSTEM and Administrators may change.
+fn chosen(folder: &Path, checks: &Checks) -> Result<PathBuf> {
+    let shown = folder.display();
+    let version = pinned::VERSION;
+    let exe_name = pinned::EXECUTABLE;
+    if !folder.is_absolute() {
+        return Err(refuse(
+            Problem::Missing,
+            format!("{shown} is no full folder path: choose the folder that holds {exe_name}"),
+        ));
+    }
+    // Never followed: a link would be checked here and run from elsewhere.
+    let Ok(metadata) = std::fs::symlink_metadata(folder) else {
+        return Err(refuse(
+            Problem::Missing,
+            format!(
+                "{shown} doesn't exist: choose the folder you unpacked Nucleus Co-op {version} into"
+            ),
+        ));
+    };
+    if is_link(&metadata) {
+        return Err(refuse(
+            Problem::Untrusted,
+            format!("{shown} is a link to elsewhere: choose the folder itself"),
+        ));
+    }
+    let exe = folder.join(exe_name);
+    let found = std::fs::symlink_metadata(&exe).ok();
+    if !metadata.is_dir()
+        || found
+            .as_ref()
+            .is_none_or(|exe| !exe.is_file() && !is_link(exe))
+    {
+        return Err(refuse(
+            Problem::Missing,
+            format!(
+                "{shown} holds no {exe_name}: choose the folder you unpacked Nucleus Co-op {version} into"
+            ),
+        ));
+    }
+    if found.as_ref().is_some_and(is_link) {
+        return Err(refuse(
+            Problem::Untrusted,
+            format!("{} is a link to elsewhere", exe.display()),
+        ));
+    }
+    let release = (checks.release)(&exe).with_context(|| format!("reading {}", exe.display()))?;
+    if !release {
+        return Err(refuse(
+            Problem::Version,
+            format!(
+                "The {exe_name} in {shown} isn't Nucleus Co-op {version}'s: download {version} from its release page and choose its folder"
+            ),
+        ));
+    }
+    (checks.trusted)(folder).map_err(|error| {
+        refuse(
+            Problem::Untrusted,
+            format!("Rubylight doesn't run Nucleus Co-op from {shown}: it runs elevated, so only administrators may change its folder ({error:#}). Unpack the release into a folder under C:\\Program Files and choose that one"),
+        )
+    })?;
+    Ok(folder.to_path_buf())
+}
+
+fn is_link(metadata: &std::fs::Metadata) -> bool {
+    use std::os::windows::fs::MetadataExt;
+    metadata.file_attributes() & 0x400 != 0
+}
+
+/// Whether `exe` is the pinned release's NucleusCoop.exe, read without
+/// following a link. The answer stands while its size and time do: the
+/// console asks every few seconds.
+fn release_executable(exe: &Path) -> Result<bool> {
+    static LAST: Mutex<Option<(PathBuf, u64, std::time::SystemTime, bool)>> = Mutex::new(None);
+    let mut file = crate::process::open_unfollowed(exe, false)?;
+    let metadata = file.metadata()?;
+    let (size, modified) = (metadata.len(), metadata.modified()?);
+    let mut last = LAST.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    if let Some((_, _, _, release)) = last
+        .as_ref()
+        .filter(|(path, s, m, _)| path == exe && *s == size && *m == modified)
+    {
+        return Ok(*release);
+    }
+    let release = pinned::is_executable(size, &mut file)?;
+    *last = Some((exe.to_path_buf(), size, modified, release));
+    Ok(release)
 }
 
 /// SYSTEM's, the Administrators group's and TrustedInstaller's (what Program
@@ -122,357 +204,186 @@ fn verdict(path: &Path, owner: &str, others: &[String]) -> Result<()> {
     Ok(())
 }
 
-/// The Nucleus folder, installing the pinned release first when there is
-/// none. Concurrent calls install once.
-pub fn ensure(data: &Path, configured: &str, fetch: &mut dyn Fetch) -> Result<PathBuf> {
-    static INSTALLING: Mutex<()> = Mutex::new(());
-    let _one = INSTALLING
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    if let Some(folder) = installed(data, configured)? {
-        return Ok(folder);
-    }
-    install(data, fetch, &Steps::PINNED)
-}
-
-/// The checks that differ in tests: the fake archive has another hash, and
-/// the test process may not own files as Administrators.
-struct Steps {
-    verify: fn(&[u8]) -> std::result::Result<(), String>,
-    secure: fn(&Path) -> Result<()>,
-}
-impl Steps {
-    const PINNED: Self = Self {
-        verify: pinned::verify,
-        secure: crate::process::restrict_to_administrators,
-    };
-}
-
-fn install(data: &Path, fetch: &mut dyn Fetch, steps: &Steps) -> Result<PathBuf> {
-    let root = data.join("nucleus");
-    std::fs::create_dir_all(&root).with_context(|| format!("creating {}", root.display()))?;
-    // Before anything is written: what is created inside inherits it.
-    (steps.secure)(&root)
-        .with_context(|| format!("limiting {} to Administrators", root.display()))?;
-    tracing::info!(
-        version = pinned::VERSION,
-        url = pinned::URL,
-        "Installing Nucleus Co-op"
-    );
-    let archive = fetch
-        .fetch(pinned::URL, pinned::SIZE)
-        .with_context(|| format!("downloading Nucleus Co-op {}", pinned::VERSION))?;
-    (steps.verify)(&archive).map_err(anyhow::Error::msg)?;
-    let staging = root.join(format!("{}.partial", pinned::VERSION));
-    remove_folder(&staging)?;
-    let unpacked = unpack(&archive, &staging).and_then(|files| {
-        ensure!(
-            staging.join(pinned::EXECUTABLE).is_file(),
-            "the Nucleus Co-op {} archive holds no {}",
-            pinned::VERSION,
-            pinned::EXECUTABLE
-        );
-        Ok(files)
-    });
-    let files = match unpacked {
-        Ok(files) => files,
-        Err(error) => {
-            let _ = std::fs::remove_dir_all(&staging);
-            return Err(error.context(format!("unpacking Nucleus Co-op {}", pinned::VERSION)));
-        }
-    };
-    let folder = pinned::folder(data);
-    // A folder without the executable is a broken copy (`installed` said none).
-    remove_folder(&folder)?;
-    std::fs::rename(&staging, &folder)
-        .with_context(|| format!("moving Nucleus Co-op into {}", folder.display()))?;
-    tracing::info!(folder = %folder.display(), files, "Nucleus Co-op installed");
-    Ok(folder)
-}
-
-fn remove_folder(folder: &Path) -> Result<()> {
-    match std::fs::remove_dir_all(folder) {
-        Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
-            Err(error).with_context(|| format!("removing {}", folder.display()))
-        }
-        _ => Ok(()),
-    }
-}
-
-/// Unpack the release archive into the new folder `to`; the number of files.
-fn unpack(archive: &[u8], to: &Path) -> Result<usize> {
-    let mut archive = zip::ZipArchive::new(Cursor::new(archive))?;
-    std::fs::create_dir(to).with_context(|| format!("creating {}", to.display()))?;
-    let mut files = 0;
-    for index in 0..archive.len() {
-        let mut entry = archive.by_index_decrypt(index, pinned::PASSWORD)?;
-        let name = entry.name().to_string();
-        let Some(relative) = pinned::entry_path(&name) else {
-            bail!("the archive entry {name:?} would leave the Nucleus Co-op folder");
-        };
-        ensure!(
-            !entry.is_symlink(),
-            "the archive entry {name:?} is a symbolic link"
-        );
-        let path = to.join(relative);
-        if entry.is_dir() {
-            std::fs::create_dir_all(&path)?;
-            continue;
-        }
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-        // A second entry of the same name is refused rather than overwriting the first.
-        let mut file = std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&path)
-            .with_context(|| format!("creating {}", path.display()))?;
-        // Reading to the end checks the entry's CRC (and the password).
-        std::io::copy(&mut entry, &mut file).with_context(|| format!("unpacking {name}"))?;
-        files += 1;
-    }
-    Ok(files)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::Write;
-    use zip::unstable::write::FileOptionsExt;
-    use zip::write::SimpleFileOptions;
 
-    struct Fake {
-        archive: Result<Vec<u8>, String>,
-        calls: Vec<(String, u64)>,
+    fn release(exe: &Path) -> Result<bool> {
+        Ok(std::fs::read(exe)? == b"MZ 2.4.2")
     }
-    impl Fake {
-        fn new(archive: Vec<u8>) -> Self {
-            Self {
-                archive: Ok(archive),
-                calls: Vec::new(),
-            }
-        }
-    }
-    impl Fetch for Fake {
-        fn fetch(&mut self, url: &str, limit: u64) -> Result<Vec<u8>> {
-            self.calls.push((url.to_string(), limit));
-            self.archive.clone().map_err(anyhow::Error::msg)
-        }
-    }
-
-    fn accept(_: &[u8]) -> std::result::Result<(), String> {
+    fn trusted(_: &Path) -> Result<()> {
         Ok(())
     }
-    fn refuse(_: &[u8]) -> std::result::Result<(), String> {
-        Err("The Nucleus Co-op download's SHA-256 is wrong; it was deleted.".into())
+    fn changeable(_: &Path) -> Result<()> {
+        bail!("C:\\x can be changed by S-1-5-11")
     }
-    fn secure(folder: &Path) -> Result<()> {
-        // Run before the unpack: nothing is staged yet.
-        ensure!(
-            !folder.join(format!("{}.partial", pinned::VERSION)).exists(),
-            "secured too late"
-        );
-        std::fs::write(folder.join("secured"), b"")?;
-        Ok(())
-    }
-    const TEST: Steps = Steps {
-        verify: accept,
-        secure,
-    };
+    const TEST: Checks = Checks { release, trusted };
 
-    /// A release-like archive: ZipCrypto entries with the published password,
-    /// deflated and stored ones, a folder, and one unencrypted entry.
-    fn archive(password: &[u8], extra: &[(&str, &[u8])]) -> Vec<u8> {
-        let mut writer = zip::ZipWriter::new(Cursor::new(Vec::new()));
-        let deflated = SimpleFileOptions::default()
-            .compression_method(zip::CompressionMethod::Deflated)
-            .with_deprecated_encryption(password);
-        let stored = SimpleFileOptions::default()
-            .compression_method(zip::CompressionMethod::Stored)
-            .with_deprecated_encryption(password);
-        writer.start_file("NucleusCoop.exe", deflated).unwrap();
-        writer.write_all(b"MZ nucleus").unwrap();
-        writer.start_file("Settings.ini", stored).unwrap();
-        writer.write_all(b"[Dev]\r\n").unwrap();
-        writer
-            .add_directory("handlers/", SimpleFileOptions::default())
-            .unwrap();
-        writer
-            .start_file("utils/readme.txt", SimpleFileOptions::default())
-            .unwrap();
-        writer.write_all(b"plain").unwrap();
-        for (name, data) in extra {
-            writer.start_file(*name, deflated).unwrap();
-            writer.write_all(data).unwrap();
-        }
-        writer.finish().unwrap().into_inner()
+    fn problem(error: &anyhow::Error) -> Option<Problem> {
+        error
+            .downcast_ref::<Unusable>()
+            .map(|unusable| unusable.problem)
+    }
+
+    /// A folder as the user unpacked the release into it, `exe` its
+    /// NucleusCoop.exe.
+    fn unpacked(exe: &[u8]) -> tempfile::TempDir {
+        let folder = tempfile::tempdir().unwrap();
+        std::fs::write(folder.path().join(pinned::EXECUTABLE), exe).unwrap();
+        std::fs::create_dir(folder.path().join("handlers")).unwrap();
+        folder
+    }
+
+    fn text(path: &Path) -> String {
+        path.to_str().unwrap().to_string()
     }
 
     #[test]
-    fn the_pinned_release_is_fetched_checked_and_unpacked() {
+    fn the_chosen_folder_of_the_release_is_used_and_remembered_over_the_old_install() {
         let data = tempfile::tempdir().unwrap();
-        let mut fake = Fake::new(archive(pinned::PASSWORD, &[]));
-        let folder = install(data.path(), &mut fake, &TEST).unwrap();
-        assert_eq!(folder, pinned::folder(data.path()));
-        assert_eq!(fake.calls, [(pinned::URL.to_string(), pinned::SIZE)]);
+        let old = pinned::folder(data.path());
+        std::fs::create_dir_all(&old).unwrap();
+        std::fs::write(old.join(pinned::EXECUTABLE), b"MZ").unwrap();
+        let own = unpacked(b"MZ 2.4.2");
+        // Spaces around a pasted path don't matter.
+        let configured = format!(" {} ", text(own.path()));
         assert_eq!(
-            std::fs::read(folder.join("NucleusCoop.exe")).unwrap(),
-            b"MZ nucleus"
-        );
-        assert_eq!(
-            std::fs::read(folder.join("Settings.ini")).unwrap(),
-            b"[Dev]\r\n"
-        );
-        assert!(folder.join("handlers").is_dir());
-        assert_eq!(
-            std::fs::read(folder.join("utils").join("readme.txt")).unwrap(),
-            b"plain"
-        );
-        let root = data.path().join("nucleus");
-        assert!(root.join("secured").is_file());
-        assert!(!root.join(format!("{}.partial", pinned::VERSION)).exists());
-        assert_eq!(installed(data.path(), "").unwrap(), Some(folder));
-    }
-
-    #[test]
-    fn a_refused_download_installs_nothing() {
-        let data = tempfile::tempdir().unwrap();
-        let mut fake = Fake::new(archive(pinned::PASSWORD, &[]));
-        let steps = Steps {
-            verify: refuse,
-            secure,
-        };
-        let error = install(data.path(), &mut fake, &steps).unwrap_err();
-        assert!(format!("{error:#}").contains("it was deleted"), "{error:#}");
-        let root = data.path().join("nucleus");
-        let left: Vec<_> = std::fs::read_dir(&root)
-            .unwrap()
-            .map(|entry| entry.unwrap().file_name())
-            .collect();
-        assert_eq!(left, ["secured"]);
-        assert_eq!(installed(data.path(), "").unwrap(), None);
-
-        let mut offline = Fake {
-            archive: Err("no network".into()),
-            calls: Vec::new(),
-        };
-        let error = install(data.path(), &mut offline, &TEST).unwrap_err();
-        assert_eq!(
-            format!("{error:#}"),
-            format!("downloading Nucleus Co-op {}: no network", pinned::VERSION)
-        );
-    }
-
-    #[test]
-    fn an_entry_outside_the_folder_or_a_wrong_password_unpacks_nothing() {
-        let outside: &[&str] = &["would leave the Nucleus Co-op folder"];
-        // ZipCrypto's check byte lets one wrong password in 256 through; the
-        // entry's CRC or its deflate stream then fails.
-        let password: &[&str] = &["assword", "checksum", "deflate", "corrupt"];
-        for (archive, expected) in [
-            (archive(pinned::PASSWORD, &[("../evil.txt", b"x")]), outside),
-            (archive(pinned::PASSWORD, &[("C:/evil.txt", b"x")]), outside),
-            (archive(b"not nucleus", &[]), password),
-        ] {
-            let data = tempfile::tempdir().unwrap();
-            let error = install(data.path(), &mut Fake::new(archive), &TEST).unwrap_err();
-            let text = format!("{error:#}");
-            assert!(text.starts_with("unpacking Nucleus Co-op"), "{text}");
-            assert!(expected.iter().any(|part| text.contains(part)), "{text}");
-            let root = data.path().join("nucleus");
-            assert!(!root.join(format!("{}.partial", pinned::VERSION)).exists());
-            assert!(!pinned::folder(data.path()).exists());
-        }
-    }
-
-    #[test]
-    fn an_archive_without_nucleus_is_refused() {
-        let mut writer = zip::ZipWriter::new(Cursor::new(Vec::new()));
-        writer
-            .start_file("readme.txt", SimpleFileOptions::default())
-            .unwrap();
-        let empty = writer.finish().unwrap().into_inner();
-        let data = tempfile::tempdir().unwrap();
-        let error = install(data.path(), &mut Fake::new(empty), &TEST).unwrap_err();
-        assert!(
-            format!("{error:#}").contains("holds no NucleusCoop.exe"),
-            "{error:#}"
-        );
-        assert!(!pinned::folder(data.path()).exists());
-    }
-
-    #[test]
-    fn a_broken_copy_is_replaced_and_a_working_one_kept() {
-        let data = tempfile::tempdir().unwrap();
-        let folder = pinned::folder(data.path());
-        std::fs::create_dir_all(folder.join("handlers")).unwrap();
-        std::fs::write(folder.join("stale.dll"), b"old").unwrap();
-        assert_eq!(installed(data.path(), "").unwrap(), None);
-        install(
-            data.path(),
-            &mut Fake::new(archive(pinned::PASSWORD, &[])),
-            &TEST,
-        )
-        .unwrap();
-        assert!(!folder.join("stale.dll").exists());
-        assert!(folder.join(pinned::EXECUTABLE).is_file());
-    }
-
-    #[test]
-    fn the_users_own_copy_must_hold_nucleus() {
-        let data = tempfile::tempdir().unwrap();
-        let own = tempfile::tempdir().unwrap();
-        let path = own.path().to_str().unwrap().to_string();
-        let error = installed(data.path(), &path).unwrap_err().to_string();
-        assert!(error.starts_with("nucleus_path is "), "{error}");
-        assert!(error.contains("holds no NucleusCoop.exe"), "{error}");
-        std::fs::write(own.path().join(pinned::EXECUTABLE), b"MZ").unwrap();
-        let trusted = |_: &Path| Ok(());
-        assert_eq!(
-            installed_checked(data.path(), &format!(" {path} "), trusted).unwrap(),
+            installed_checked(data.path(), &configured, &TEST).unwrap(),
             Some(own.path().to_path_buf())
         );
     }
 
     #[test]
-    fn the_users_own_copy_must_be_one_only_administrators_change() {
+    fn an_earlier_install_keeps_working_and_nothing_is_installed() {
+        let data = tempfile::tempdir().unwrap();
+        assert_eq!(installed_checked(data.path(), "", &TEST).unwrap(), None);
+        // Nothing was made below the host's data folder.
+        assert_eq!(std::fs::read_dir(data.path()).unwrap().count(), 0);
+        let old = pinned::folder(data.path());
+        std::fs::create_dir_all(old.join("handlers")).unwrap();
+        // A folder without the executable is a broken copy: none.
+        assert_eq!(installed_checked(data.path(), "", &TEST).unwrap(), None);
+        std::fs::write(old.join(pinned::EXECUTABLE), b"MZ").unwrap();
+        assert_eq!(installed(data.path(), "").unwrap(), Some(old));
+    }
+
+    #[test]
+    fn a_folder_without_nucleus_is_refused_never_replaced_by_the_old_install() {
+        let data = tempfile::tempdir().unwrap();
+        let old = pinned::folder(data.path());
+        std::fs::create_dir_all(&old).unwrap();
+        std::fs::write(old.join(pinned::EXECUTABLE), b"MZ").unwrap();
+        let empty = tempfile::tempdir().unwrap();
+        let gone = empty.path().join("Nucleus");
+        let file = empty.path().join("NucleusApp.zip");
+        std::fs::write(&file, b"PK").unwrap();
+        for (path, says) in [
+            (text(empty.path()), "holds no NucleusCoop.exe"),
+            (text(&gone), "doesn't exist"),
+            (text(&file), "holds no NucleusCoop.exe"),
+            ("Nucleus".to_string(), "is no full folder path"),
+        ] {
+            let error = installed_checked(data.path(), &path, &TEST).unwrap_err();
+            assert_eq!(problem(&error), Some(Problem::Missing), "{error:#}");
+            assert!(error.to_string().contains(says), "{error:#}");
+        }
+    }
+
+    #[test]
+    fn another_release_is_refused_with_the_version_it_needs() {
+        let data = tempfile::tempdir().unwrap();
+        let other = unpacked(b"MZ 2.3.1");
+        let error = installed_checked(data.path(), &text(other.path()), &TEST).unwrap_err();
+        assert_eq!(problem(&error), Some(Problem::Version));
+        assert_eq!(
+            error.to_string(),
+            format!(
+                "The NucleusCoop.exe in {} isn't Nucleus Co-op 2.4.2's: download 2.4.2 from its release page and choose its folder",
+                other.path().display()
+            )
+        );
+        // The release's executable is told by its bytes, read through the
+        // file itself.
+        assert!(!release_executable(&other.path().join(pinned::EXECUTABLE)).unwrap());
+    }
+
+    #[test]
+    fn a_link_is_refused_never_followed() {
+        let data = tempfile::tempdir().unwrap();
+        let own = unpacked(b"MZ 2.4.2");
+        let links = tempfile::tempdir().unwrap();
+        // A junction to the release's folder: checked here, it could point
+        // elsewhere by the time Nucleus runs.
+        let junction = links.path().join("Nucleus");
+        let made = std::process::Command::new("cmd")
+            .args(["/C", "mklink", "/J"])
+            .arg(&junction)
+            .arg(own.path())
+            .output()
+            .unwrap();
+        assert!(made.status.success(), "{made:?}");
+        let error = installed_checked(data.path(), &text(&junction), &TEST).unwrap_err();
+        assert_eq!(problem(&error), Some(Problem::Untrusted), "{error:#}");
+        assert!(
+            error.to_string().contains("is a link to elsewhere"),
+            "{error:#}"
+        );
+    }
+
+    #[test]
+    fn a_folder_its_user_can_change_is_refused_with_the_reason() {
         let data = tempfile::tempdir().unwrap();
         // A temporary folder is the user's, as an extracted download is.
-        let own = tempfile::tempdir().unwrap();
-        std::fs::write(own.path().join(pinned::EXECUTABLE), b"MZ").unwrap();
-        let path = own.path().to_str().unwrap().to_string();
-        let mut fake = Fake::new(Vec::new());
-        let error = format!("{:#}", ensure(data.path(), &path, &mut fake).unwrap_err());
-        assert!(error.starts_with("nucleus_path is "), "{error}");
+        let own = unpacked(b"MZ 2.4.2");
+        let checks = Checks {
+            release,
+            trusted: changeable,
+        };
+        let error = installed_checked(data.path(), &text(own.path()), &checks).unwrap_err();
+        assert_eq!(problem(&error), Some(Problem::Untrusted));
+        let error = error.to_string();
         assert!(
-            error.contains("only SYSTEM and Administrators may change its folder"),
+            error.contains("only administrators may change its folder"),
             "{error}"
         );
-        // Neither used nor replaced by the host's copy: nothing is fetched.
-        assert!(fake.calls.is_empty());
-        let folder = own.path().join("Nucleus");
+        assert!(error.contains("can be changed by S-1-5-11"), "{error}");
+        assert!(
+            error.contains("Unpack the release into a folder under C:\\Program Files"),
+            "{error}"
+        );
+        // And on this PC, with the release's executable taken as read.
+        let checks = Checks {
+            release,
+            trusted: administrators_only,
+        };
+        let error = installed_checked(data.path(), &text(own.path()), &checks).unwrap_err();
+        assert_eq!(problem(&error), Some(Problem::Untrusted), "{error:#}");
+    }
+
+    #[test]
+    fn only_system_and_administrators_may_change_a_folder_nucleus_runs_from() {
+        let folder = Path::new(r"C:\Program Files\Nucleus");
         let trusted = &["S-1-5-18".to_string(), "S-1-5-32-544".to_string()];
-        assert!(verdict(&folder, "S-1-5-32-544", trusted).is_ok());
+        assert!(verdict(folder, "S-1-5-32-544", trusted).is_ok());
         assert!(
             verdict(
-                &folder,
+                folder,
                 "S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464",
                 &[]
             )
             .is_ok()
         );
-        let user = verdict(&folder, "S-1-5-21-1-2-3-1001", &[]).unwrap_err();
+        let user = verdict(folder, "S-1-5-21-1-2-3-1001", &[]).unwrap_err();
         assert!(
             user.to_string().contains("is owned by S-1-5-21-1-2-3-1001"),
             "{user}"
         );
-        let writer = verdict(&folder, "S-1-5-18", &["S-1-5-11".into()]).unwrap_err();
+        let writer = verdict(folder, "S-1-5-18", &["S-1-5-11".into()]).unwrap_err();
         assert!(
             writer.to_string().contains("can be changed by S-1-5-11"),
             "{writer}"
         );
-        let entry = verdict(&folder, "S-1-5-18", &["ACE type 5".into()]).unwrap_err();
+        let entry = verdict(folder, "S-1-5-18", &["ACE type 5".into()]).unwrap_err();
         assert!(entry.to_string().contains("ACE type 5"), "{entry}");
     }
 }

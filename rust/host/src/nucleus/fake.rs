@@ -12,16 +12,11 @@ pub(crate) const USER: &str = "S-1-5-21-1-2-3-1001";
 pub(crate) struct Pc {
     pub unavailable: Mutex<Option<String>>,
     pub installed: Mutex<Option<PathBuf>>,
-    /// What reading the install fails with (a folder whose ACL is refused).
+    /// What reading the install fails with (it couldn't be checked).
     pub installed_error: Mutex<Option<String>>,
-    /// What an install fails with.
-    pub install_error: Mutex<Option<String>>,
-    /// Whether an install panics instead.
-    pub install_panics: Mutex<bool>,
-    /// What an install downloads, checked as the pinned release is;
-    /// None installs without a download.
-    pub archive: Mutex<Option<Vec<u8>>>,
-    /// While true an install waits in the download, until `release`.
+    /// Why a chosen folder (`nucleus_path`) is refused, by its path.
+    pub unusable: Mutex<BTreeMap<String, Unusable>>,
+    /// While true a read of the handlers and games waits, until `release`.
     pub hold: Mutex<bool>,
     pub release: std::sync::Condvar,
     /// How often Nucleus Co-op's window was opened.
@@ -36,7 +31,6 @@ pub(crate) struct Pc {
     pub started: Mutex<Vec<Arc<Instance>>>,
     /// The Steam app each started session's Nucleus got, in order.
     pub steam_apps: Mutex<Vec<Option<u32>>>,
-    pub installs: AtomicUsize,
     pub reads: AtomicUsize,
     /// The game each app's .exe is for Rubylight's own handler, by app
     /// name; an app not here starts its command's .exe, as on the PC.
@@ -54,8 +48,6 @@ pub(crate) struct Pc {
     pub ready_stale: Mutex<Vec<Vec<String>>>,
     /// The game's .exe each started session's Nucleus got, in order.
     pub exe_paths: Mutex<Vec<String>>,
-    /// Whether Rubylight knew each started session's game list.
-    pub known_lists: Mutex<Vec<bool>>,
     /// How often an app's game was looked up for Rubylight's handler.
     pub lookups: AtomicUsize,
     /// Whether the signed-in user has an elevated token, or why not.
@@ -100,9 +92,7 @@ impl Pc {
             unavailable: Mutex::new(None),
             installed: Mutex::new(Some(PathBuf::from(r"C:\Nucleus"))),
             installed_error: Mutex::new(None),
-            install_error: Mutex::new(None),
-            install_panics: Mutex::new(false),
-            archive: Mutex::new(None),
+            unusable: Mutex::new(BTreeMap::new()),
             hold: Mutex::new(false),
             release: std::sync::Condvar::new(),
             opened: AtomicUsize::new(0),
@@ -131,7 +121,6 @@ impl Pc {
             start_error: Mutex::new(None),
             started: Mutex::new(Vec::new()),
             steam_apps: Mutex::new(Vec::new()),
-            installs: AtomicUsize::new(0),
             reads: AtomicUsize::new(0),
             one_player: Mutex::new(BTreeMap::new()),
             own: Mutex::new(Vec::new()),
@@ -141,7 +130,6 @@ impl Pc {
             remove_error: Mutex::new(None),
             ready_stale: Mutex::new(Vec::new()),
             exe_paths: Mutex::new(Vec::new()),
-            known_lists: Mutex::new(Vec::new()),
             lookups: AtomicUsize::new(0),
             account: Mutex::new(Account::Elevates),
             account_error: Mutex::new(None),
@@ -172,35 +160,14 @@ impl super::Pc for Pc {
         if let Some(error) = self.installed_error.lock().unwrap().clone() {
             anyhow::bail!(error);
         }
+        let configured = configured.trim();
+        if let Some(unusable) = self.unusable.lock().unwrap().get(configured) {
+            return Err(anyhow::Error::new(unusable.clone()));
+        }
         if !configured.is_empty() {
             return Ok(Some(PathBuf::from(configured)));
         }
         Ok(self.installed.lock().unwrap().clone())
-    }
-    fn ensure(&self, configured: &str, progress: &(dyn Fn(u64) + Sync)) -> Result<PathBuf> {
-        if let Some(folder) = self.installed(configured)? {
-            return Ok(folder);
-        }
-        self.installs.fetch_add(1, Ordering::Relaxed);
-        progress(1);
-        let mut hold = self.hold.lock().unwrap();
-        while *hold {
-            hold = self.release.wait(hold).unwrap();
-        }
-        drop(hold);
-        if *self.install_panics.lock().unwrap() {
-            panic!("the unpacker broke");
-        }
-        if let Some(error) = self.install_error.lock().unwrap().clone() {
-            anyhow::bail!(error);
-        }
-        if let Some(archive) = self.archive.lock().unwrap().as_deref() {
-            progress(archive.len() as u64);
-            butterpollo_core::nucleus::install::verify(archive).map_err(anyhow::Error::msg)?;
-        }
-        let folder = PathBuf::from(r"C:\Nucleus");
-        *self.installed.lock().unwrap() = Some(folder.clone());
-        Ok(folder)
     }
     fn open(&self, _folder: &Path) -> Result<Box<dyn super::Window>> {
         let count = self.opened.fetch_add(1, Ordering::Relaxed);
@@ -229,6 +196,11 @@ impl super::Pc for Pc {
     }
     fn catalog(&self, _folder: &Path) -> Result<Catalog> {
         self.reads.fetch_add(1, Ordering::Relaxed);
+        let mut hold = self.hold.lock().unwrap();
+        while *hold {
+            hold = self.release.wait(hold).unwrap();
+        }
+        drop(hold);
         Ok(self.catalog.lock().unwrap().clone())
     }
     fn free_pads(&self) -> Result<usize> {
@@ -374,7 +346,6 @@ impl super::Pc for Pc {
             .lock()
             .unwrap()
             .push(start.exe_path.to_string());
-        self.known_lists.lock().unwrap().push(start.known_list);
         Ok(Box::new(instance))
     }
 }

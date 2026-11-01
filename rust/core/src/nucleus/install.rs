@@ -1,61 +1,72 @@
-//! The Nucleus Co-op release the host installs on first use. It is fetched,
-//! not bundled: the archive is 97 MB and carries third-party binaries of its
-//! own. Only this exact file is accepted.
+//! The Nucleus Co-op release the host runs. Rubylight neither bundles nor
+//! downloads it: the user downloads it from its release page in their
+//! browser, unpacks it and chooses its folder in the console
+//! (`nucleus_path`). Only this release's NucleusCoop.exe is accepted.
 use super::generic;
 use sha2::{Digest, Sha256};
 use std::collections::HashSet;
-use std::path::{Component, Path, PathBuf};
+use std::io::Read;
+use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 
 pub const VERSION: &str = "2.4.2";
-pub const URL: &str = "https://github.com/SplitScreen-Me/splitscreenme-nucleus/releases/download/v2.4.2/NucleusApp.zip";
-pub const SHA256: &str = "ed91880022600ae2980702e07b0fca589fa3c6f0c2925f1500570ca753006874";
-pub const SIZE: u64 = 97_396_862;
-/// The release archive's entries are encrypted with this published password.
-pub const PASSWORD: &[u8] = b"nucleus";
+/// The release's page, where the user downloads it (`NucleusApp.zip`).
+pub const RELEASE_PAGE: &str =
+    "https://github.com/SplitScreen-Me/splitscreenme-nucleus/releases/tag/v2.4.2";
 pub const EXECUTABLE: &str = "NucleusCoop.exe";
+/// The size and SHA-256 of the release's NucleusCoop.exe, which tell it from
+/// another release's: its file version still says 2.3.0.0.
+pub const EXECUTABLE_SIZE: u64 = 3_008_000;
+pub const EXECUTABLE_SHA256: &str =
+    "a6f65dbb80fcb0d846e8f7ea3e81ccc4bcb89411cb35126045a2d5312faf6178";
 
-/// Whether `bytes` is the pinned release.
-pub fn verify(bytes: &[u8]) -> Result<(), String> {
-    if bytes.len() as u64 != SIZE {
-        return Err(format!(
-            "The Nucleus Co-op download has {} bytes, not the {SIZE} of version {VERSION}; it was deleted.",
-            bytes.len()
-        ));
+/// Whether `file`, of `size` bytes, is the release's NucleusCoop.exe.
+pub fn is_executable(size: u64, file: &mut impl Read) -> std::io::Result<bool> {
+    if size != EXECUTABLE_SIZE {
+        return Ok(false);
     }
-    let digest = hex::encode(Sha256::digest(bytes));
-    if digest != SHA256 {
-        return Err(format!(
-            "The Nucleus Co-op download's SHA-256 is {digest}, not version {VERSION}'s {SHA256}; it was deleted."
-        ));
-    }
-    Ok(())
+    let mut digest = Sha256::new();
+    std::io::copy(&mut file.take(EXECUTABLE_SIZE + 1), &mut digest)?;
+    Ok(hex::encode(digest.finalize()) == EXECUTABLE_SHA256)
 }
 
-/// Where an archive entry goes below the install folder. None for an entry
-/// that would leave it (an absolute path, a drive, `..`).
-pub fn entry_path(name: &str) -> Option<PathBuf> {
-    let name = name.replace('\\', "/");
-    let path = Path::new(&name);
-    let mut out = PathBuf::new();
-    for part in path.components() {
-        match part {
-            Component::Normal(part) => {
-                let text = part.to_str()?;
-                // A drive or stream name (`C:`, `file:stream`) would leave the folder on Windows.
-                if text.contains(':') {
-                    return None;
-                }
-                out.push(part);
-            }
-            Component::CurDir => {}
-            _ => return None,
+/// Why Rubylight doesn't run Nucleus Co-op from a folder, for the console.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Problem {
+    /// No such folder, or no NucleusCoop.exe in it.
+    Missing,
+    /// Its NucleusCoop.exe is another release's.
+    Version,
+    /// A link, or a folder others than SYSTEM and Administrators can change.
+    Untrusted,
+}
+impl Problem {
+    /// The console's name for it.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Missing => "missing",
+            Self::Version => "version",
+            Self::Untrusted => "untrusted",
         }
     }
-    (!out.as_os_str().is_empty()).then_some(out)
 }
 
-/// The folder of the host's own copy below the host's data folder.
+/// A Nucleus Co-op folder Rubylight doesn't run, and why in the host's words.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Unusable {
+    pub problem: Problem,
+    pub message: String,
+}
+impl std::fmt::Display for Unusable {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.message)
+    }
+}
+impl std::error::Error for Unusable {}
+
+/// The folder an earlier Rubylight installed the release into, below the
+/// host's data folder. Still used while nothing else is chosen; nothing new
+/// is installed there.
 pub fn folder(data: &Path) -> PathBuf {
     data.join("nucleus").join(VERSION)
 }
@@ -223,42 +234,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn only_the_pinned_release_is_accepted() {
-        let short = verify(b"not nucleus").unwrap_err();
-        assert!(short.contains("11 bytes"), "{short}");
-        let same_size = vec![0u8; SIZE as usize];
-        let wrong = verify(&same_size).unwrap_err();
-        assert!(wrong.contains("SHA-256"), "{wrong}");
-        assert!(wrong.contains(SHA256), "{wrong}");
-    }
-
-    #[test]
-    fn archive_entries_stay_in_the_install_folder() {
-        assert_eq!(
-            entry_path("handlers/MasterHandler.js"),
-            Some(PathBuf::from("handlers").join("MasterHandler.js"))
-        );
-        assert_eq!(
-            entry_path("gui\\theme\\x.png"),
-            Some(PathBuf::from("gui").join("theme").join("x.png"))
-        );
-        assert_eq!(
-            entry_path("./NucleusCoop.exe"),
-            Some(PathBuf::from(EXECUTABLE))
-        );
-        for bad in [
-            "../evil.dll",
-            "gui/../../evil.dll",
-            "/etc/x",
-            "\\Windows\\x.dll",
-            "C:/Windows/x.dll",
-            "C:x.dll",
-            "a/b:stream",
-            "",
-            ".",
-        ] {
-            assert_eq!(entry_path(bad), None, "{bad}");
-        }
+    fn only_the_pinned_releases_executable_is_accepted() {
+        // Another file of the same size, and a size of another release.
+        let same_size = vec![0u8; EXECUTABLE_SIZE as usize];
+        assert!(!is_executable(EXECUTABLE_SIZE, &mut same_size.as_slice()).unwrap());
+        assert!(!is_executable(11, &mut b"not nucleus".as_slice()).unwrap());
+        assert_eq!(EXECUTABLE_SHA256.len(), 64);
+        assert!(RELEASE_PAGE.ends_with(&format!("/v{VERSION}")));
+        assert_eq!(Problem::Version.as_str(), "version");
     }
 
     #[test]

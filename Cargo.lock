@@ -493,7 +493,6 @@ dependencies = [
  "windows-core",
  "windows-service",
  "zeroize",
- "zip",
 ]
 
 [[package]]

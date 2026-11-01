@@ -6,7 +6,8 @@
 # frame that is not black, the first player's A reaches the session's XInput
 # index, and the compatibility settings are as before afterwards. The
 # handler, entry and settings are removed again, also on a failure. Nucleus
-# Co-op must be installed (the console's Set up co-op) and not running.
+# Co-op must be set up (-Nucleus, the folder chosen in the console, else an
+# earlier Rubylight's install) and not running.
 # -Run user (or elevated) asserts how the admission runs it: as the signed-in
 # user from their own copy, NucleusCoop.exe and the game unelevated at medium
 # integrity, or elevated from the host's.
@@ -27,6 +28,8 @@ param(
     [int] $Hold = 20,
     # How the session must run; empty takes whichever the admission chooses.
     [ValidateSet('user', 'elevated')] [string] $Run = '',
+    # The Nucleus Co-op folder chosen in the console (nucleus_path).
+    [string] $Nucleus = '',
     [switch] $Cold
 )
 $ErrorActionPreference = 'Stop'
@@ -38,8 +41,8 @@ $exe = ($built | ForEach-Object { try { $_ | ConvertFrom-Json } catch { $null } 
     Select-Object -Last 1).executable
 if (-not $exe) { throw 'the butterpollo test binary was not built' }
 
-# The folder the test runs Nucleus Co-op from (the host's own install).
-$nucleus = Join-Path $env:ProgramData 'Butterpollo\nucleus\2.4.2'
+# The folder the test runs Nucleus Co-op from.
+$nucleus = if ($Nucleus) { $Nucleus } else { Join-Path $env:ProgramData 'Butterpollo\nucleus\2.4.2' }
 $settings = Join-Path $nucleus 'Settings.ini'
 $journal = Join-Path $nucleus 'Rubylight-settings.json'
 $kept = Join-Path $Out 'Settings.ini.before'
@@ -62,6 +65,7 @@ $lines = @(
 if ($Game) { $lines += "set RUBYLIGHT_NUCLEUS_GAME=$Game" }
 if ($SteamApp) { $lines += "set RUBYLIGHT_NUCLEUS_STEAM_APP=$SteamApp" }
 if ($Run) { $lines += "set RUBYLIGHT_NUCLEUS_RUN=$Run" }
+if ($Nucleus) { $lines += "set RUBYLIGHT_NUCLEUS_PATH=$Nucleus" }
 if ($Cold) { $lines += 'set RUBYLIGHT_NUCLEUS_COLD=1' }
 $lines += "`"$exe`" --ignored --exact nucleus::tests::a_background_stream_without_a_hub_handler_on_this_pc --nocapture > `"$log`" 2>&1"
 $lines += "echo %ERRORLEVEL% > `"$done`""

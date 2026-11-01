@@ -835,7 +835,6 @@ fn a_game_started_without_the_hooks_it_refused_is_told() {
         kind: kind(1),
         folder: host.path(),
         user_copy: None,
-        known_list: true,
         handler,
         exe_path: exe,
         steam_app: None,
@@ -1683,7 +1682,6 @@ fn start_steam(
         kind: kind(players),
         folder,
         user_copy: None,
-        known_list: true,
         handler: &handler,
         exe_path,
         steam_app,
@@ -1914,7 +1912,6 @@ fn a_session_from_the_users_own_copy_writes_and_runs_there() {
         kind: kind(1),
         folder: host.path(),
         user_copy: Some(copy.path()),
-        known_list: true,
         handler: &handler,
         exe_path: r"D:\Games\Game\Game.exe",
         steam_app: None,
@@ -2148,21 +2145,6 @@ fn audio_is_refused_on_old_builds_and_before_the_instance_runs() {
     assert_eq!(error, "Player 1's game instance is not running");
 }
 
-/// The archive downloaded beforehand, for the install's own checks.
-struct Downloaded(std::path::PathBuf);
-impl super::super::install::Fetch for Downloaded {
-    fn fetch(&mut self, _url: &str, limit: u64) -> Result<Vec<u8>> {
-        let bytes =
-            std::fs::read(&self.0).with_context(|| format!("reading {}", self.0.display()))?;
-        ensure!(
-            bytes.len() as u64 <= limit,
-            "{} is too large",
-            self.0.display()
-        );
-        Ok(bytes)
-    }
-}
-
 fn env<T: std::str::FromStr>(name: &str, default: T) -> Result<T>
 where
     T::Err: std::error::Error + Send + Sync + 'static,
@@ -2173,8 +2155,8 @@ where
 }
 
 /// A real session on this PC (hw-queue.md, "Nucleus Co-op session"):
-/// Nucleus Co-op installed below `RUBYLIGHT_NUCLEUS_DATA` (from
-/// `RUBYLIGHT_NUCLEUS_ZIP`) or at `RUBYLIGHT_NUCLEUS_PATH`, the game of
+/// Nucleus Co-op 2.4.2 unpacked at `RUBYLIGHT_NUCLEUS_PATH`, as chosen in the
+/// console, or an earlier install below `RUBYLIGHT_NUCLEUS_DATA`, the game of
 /// handler `RUBYLIGHT_NUCLEUS_HANDLER` started for
 /// `RUBYLIGHT_NUCLEUS_PLAYERS`, held `RUBYLIGHT_NUCLEUS_HOLD` seconds and
 /// stopped; `RUBYLIGHT_NUCLEUS_STEAM_APP` is the Steam app a game was
@@ -2187,11 +2169,8 @@ fn a_session_on_this_pc() -> Result<()> {
         std::env::var("RUBYLIGHT_NUCLEUS_DATA").context("set RUBYLIGHT_NUCLEUS_DATA")?,
     );
     let configured = std::env::var("RUBYLIGHT_NUCLEUS_PATH").unwrap_or_default();
-    let folder = match std::env::var("RUBYLIGHT_NUCLEUS_ZIP") {
-        Ok(zip) => super::super::install::ensure(&data, &configured, &mut Downloaded(zip.into()))?,
-        Err(_) => super::super::install::installed(&data, &configured)?
-            .context("Nucleus Co-op is not installed: set RUBYLIGHT_NUCLEUS_ZIP")?,
-    };
+    let folder = super::super::install::installed(&data, &configured)?
+        .context("Nucleus Co-op is not set up: set RUBYLIGHT_NUCLEUS_PATH")?;
     let steam_app: Option<u32> = std::env::var("RUBYLIGHT_NUCLEUS_STEAM_APP")
         .ok()
         .map(|app| app.parse().context("RUBYLIGHT_NUCLEUS_STEAM_APP"))
@@ -2206,7 +2185,7 @@ fn a_session_on_this_pc() -> Result<()> {
         std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
     let handler =
         butterpollo_core::nucleus::handler::parse(&file, &text).map_err(anyhow::Error::msg)?;
-    let exe_path = files::catalog(&folder, true, None)?
+    let exe_path = files::catalog(&folder, true)?
         .games
         .into_iter()
         .find(|game| game.guid == handler.guid)
@@ -2223,7 +2202,6 @@ fn a_session_on_this_pc() -> Result<()> {
         kind: kind(players),
         folder: &folder,
         user_copy: None,
-        known_list: true,
         handler: &handler,
         exe_path: &exe_path,
         steam_app,

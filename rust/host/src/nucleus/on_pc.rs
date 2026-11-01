@@ -1,5 +1,4 @@
-//! This PC behind the [`Pc`] and [`Instance`] seams: `butterpollo_windows::nucleus`,
-//! and the download of the pinned release.
+//! This PC behind the [`Pc`] and [`Instance`] seams: `butterpollo_windows::nucleus`.
 use super::*;
 
 /// This PC.
@@ -18,18 +17,6 @@ impl Pc for OnPc {
     fn installed(&self, configured: &str) -> Result<Option<PathBuf>> {
         install::installed(&butterpollo_core::paths::data_root(), configured)
     }
-    fn ensure(&self, configured: &str, progress: &(dyn Fn(u64) + Sync)) -> Result<PathBuf> {
-        let mut download = Download(
-            tokio::runtime::Handle::try_current()
-                .context("downloading Nucleus Co-op needs the host's runtime")?,
-            progress,
-        );
-        install::ensure(
-            &butterpollo_core::paths::data_root(),
-            configured,
-            &mut download,
-        )
-    }
     fn open(&self, folder: &Path) -> Result<Box<dyn Window>> {
         Ok(Box::new(butterpollo_windows::nucleus::session::open(
             folder,
@@ -39,19 +26,7 @@ impl Pc for OnPc {
         butterpollo_windows::nucleus::session::running()
     }
     fn catalog(&self, folder: &Path) -> Result<Catalog> {
-        // A nucleus_path copy may be a release that reads the AppData list.
-        let installed =
-            butterpollo_core::nucleus::install::folder(&butterpollo_core::paths::data_root());
-        let appdata = if folder == installed {
-            None
-        } else {
-            Some(
-                butterpollo_windows::user_folder::roaming_app_data()
-                    .map_err(|error| anyhow::anyhow!("{error}"))
-                    .context("finding the signed-in user's AppData, whose Nucleus Co-op game list counts for nucleus_path")?,
-            )
-        };
-        files::catalog(folder, true, appdata.as_deref())
+        files::catalog(folder, true)
     }
     fn free_pads(&self) -> Result<usize> {
         pads::free(&mut pads::System::open()?)
@@ -229,36 +204,4 @@ impl Instance for OnPcInstance {
     fn stop(&self) {
         self.0.stop();
     }
-}
-
-/// Downloads with the updater's HTTPS client, which follows redirects to
-/// GitHub's asset hosts only. Blocks, so never on the async runtime.
-#[cfg_attr(test, allow(dead_code, reason = "tests never reach the real PC"))]
-struct Download<'a>(tokio::runtime::Handle, &'a (dyn Fn(u64) + Sync));
-impl install::Fetch for Download<'_> {
-    fn fetch(&mut self, url: &str, limit: u64) -> Result<Vec<u8>> {
-        self.0.block_on(async {
-            let mut response = crate::updater::client(Duration::from_secs(600))?
-                .get(url)
-                .send()
-                .await?
-                .error_for_status()?;
-            let mut body = Vec::new();
-            while let Some(part) = response.chunk().await? {
-                chunk(&mut body, &part, limit)?;
-                (self.1)(body.len() as u64);
-            }
-            Ok(body)
-        })
-    }
-}
-
-/// Add `part` to `body`, refusing a body longer than `limit` bytes.
-pub(super) fn chunk(body: &mut Vec<u8>, part: &[u8], limit: u64) -> Result<()> {
-    ensure!(
-        (body.len() as u64).saturating_add(part.len() as u64) <= limit,
-        "the download is larger than its {limit} bytes"
-    );
-    body.extend_from_slice(part);
-    Ok(())
 }

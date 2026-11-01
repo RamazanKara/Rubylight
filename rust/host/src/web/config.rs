@@ -89,8 +89,8 @@ fn restart_required<'a>(mut keys: impl Iterator<Item = &'a String>) -> bool {
 }
 
 /// Saves one setting that a page manages itself: `next` gets the stored text
-/// (None when unset) and returns the text to save, or an error that saves
-/// nothing. Serialized with the console's other saves.
+/// (None when unset) and returns the text to save, empty to unset it, or an
+/// error that saves nothing. Serialized with the console's other saves.
 pub(super) fn save_setting(
     h: &Shared,
     key: &str,
@@ -103,8 +103,13 @@ pub(super) fn save_setting(
         h.config.read().unwrap().clone()
     };
     let value = next(config.values.get(key).map(String::as_str))?;
-    config.values.insert(key.to_owned(), value);
-    config.check_saved([&key.to_owned()])?;
+    // The configuration file has no empty value: the key goes instead.
+    if value.trim().is_empty() {
+        config.values.remove(key);
+    } else {
+        config.values.insert(key.to_owned(), value);
+        config.check_saved([&key.to_owned()])?;
+    }
     state::atomic_write(&h.config_path, config.text().as_bytes())?;
     if let Some(port) = h.port_override {
         config.values.insert("port".into(), port.to_string());

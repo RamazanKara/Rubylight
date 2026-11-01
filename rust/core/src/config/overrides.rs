@@ -131,6 +131,7 @@ pub fn override_allowed(key: &str) -> bool {
         "nvenc_h264_cavlc",
         "nvenc_insert_filler_data",
         "nvenc_frame_budget_guard",
+        "nvenc_realtime_hags",
         "encoder_focus",
         "hdr_peak_brightness",
         // 3.0 extensions

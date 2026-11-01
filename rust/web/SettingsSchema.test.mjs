@@ -265,6 +265,19 @@ test('each encoder group shows for its encoder, and Automatic shows the one for 
   assert.equal(settings.get('nvenc_min_qp_hevc').visibleWhen(nv), false);
 });
 
+test('encoder focus shows in the Encoder group for AMF and for NVENC', () => {
+  const { NATIVE_ENCODERS } = types;
+  const focus = settings.get('encoder_focus');
+  assert.equal(focus.group, 'Encoder');
+  assert.match(focus.inactiveHint, /AMD AMF or NVIDIA NVENC/);
+  for (const encoder of ['amf', 'nvenc']) {
+    assert.equal(focus.visibleWhen({ encoder, [NATIVE_ENCODERS]: ['amf', 'nvenc'] }), true, encoder);
+  }
+  for (const native of [['amf'], ['nvenc']]) {
+    assert.equal(focus.visibleWhen({ encoder: 'auto', [NATIVE_ENCODERS]: native }), true, native[0]);
+  }
+});
+
 test('Automatic uses AMF on AMD and NVENC on NVIDIA GPUs, or on the chosen graphics card', () => {
   const gpu = (name, vendor, pnp_id = null) => ({ name, vendor, dedicated_memory: 0, luid: [1, 0], pnp_id });
   const radeon = gpu('AMD Radeon RX 7900 XT', 0x1002, 'PCI\\VEN_1002&DEV_744C\\1');
@@ -289,7 +302,9 @@ test('the encoders offered are Automatic, AMD AMF, NVIDIA NVENC and PyroWave', (
 
 test('the NVENC group holds exactly the settings the NVENC encoder reads, with its defaults', async () => {
   const { readFile } = await import('node:fs/promises');
-  const source = await readFile(new URL('../core/src/nvenc.rs', import.meta.url), 'utf8');
+  // The encoder's settings, and the GPU priority it runs at.
+  const source = (await Promise.all(['../core/src/nvenc.rs', '../windows/src/gpu_priority.rs']
+    .map(path => readFile(new URL(path, import.meta.url), 'utf8')))).join('\n');
   const read = [...new Set([...source.matchAll(/"(nvenc_[a-z0-9_]+)"/g)].map(match => match[1]))].sort();
   const shown = schema.settings.filter(setting => setting.key.startsWith('nvenc_'));
   assert.deepEqual(shown.map(setting => setting.key).sort(), read);
@@ -298,6 +313,7 @@ test('the NVENC group holds exactly the settings the NVENC encoder reads, with i
   for (const [key, value] of [
     ['nvenc_preset', '1'], ['nvenc_twopass', 'quarter_res'], ['nvenc_rate_control', 'cbr'], ['nvenc_target_quality', 0],
     ['nvenc_spatial_aq', true], ['nvenc_temporal_aq', false], ['nvenc_split_encode', 'auto'], ['nvenc_frame_budget_guard', true],
+    ['nvenc_realtime_hags', true],
     ['nvenc_vbv_increase', 0], ['nvenc_weighted_prediction', false], ['nvenc_h264_cavlc', false], ['nvenc_insert_filler_data', false],
     ['nvenc_enable_min_qp', false], ['nvenc_min_qp_h264', 19], ['nvenc_min_qp_hevc', 23], ['nvenc_min_qp_av1', 23],
   ]) {

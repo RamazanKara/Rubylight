@@ -394,6 +394,8 @@
     "nvenc_split_encode_desc": "Teilt jedes HEVC- oder AV1-Bild auf mehrere Encoder-Einheiten auf, bei GPUs, die mehrere haben. Automatisch überlässt die Entscheidung dem Treiber.",
     "nvenc_frame_budget_guard": "Bildzeit-Schutz",
     "nvenc_frame_budget_guard_desc": "Kodiert mit einer schnelleren Voreinstellung, wenn die gewählte ein Bild bei Auflösung und Bildrate des Streams nicht rechtzeitig fertigstellen würde.",
+    "nvenc_realtime_hags": "Echtzeit-GPU-Priorität bei Hardware-Planung",
+    "nvenc_realtime_hags_desc": "Hält den Host auf Echtzeit-GPU-Priorität, während die hardwarebeschleunigte GPU-Planung aktiv ist, damit NVENC mit einem Spiel mithält, das die GPU voll auslastet.",
     "nvenc_vbv_increase": "Bildgrößen-Spielraum",
     "nvenc_vbv_increase_desc": "Erlaubt einem einzelnen Bild, die durchschnittliche Bildgröße um diesen Prozentsatz zu überschreiten. Hilft bei aufwendigen Szenen, kann aber Paketverlust verursachen.",
     "nvenc_weighted_prediction": "Gewichtete Prädiktion",

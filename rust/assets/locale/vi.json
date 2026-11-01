@@ -394,6 +394,8 @@
     "nvenc_split_encode_desc": "Chia mỗi khung hình HEVC hoặc AV1 cho nhiều bộ máy mã hóa trên GPU có nhiều bộ. Tự động để trình điều khiển quyết định.",
     "nvenc_frame_budget_guard": "Bảo vệ thời gian khung hình",
     "nvenc_frame_budget_guard_desc": "Mã hóa bằng cấu hình sẵn nhanh hơn khi cấu hình đã chọn không kịp hoàn tất mỗi khung hình ở độ phân giải và tốc độ khung hình của luồng.",
+    "nvenc_realtime_hags": "Ưu tiên GPU thời gian thực khi lập lịch phần cứng",
+    "nvenc_realtime_hags_desc": "Giữ máy chủ ở mức ưu tiên GPU thời gian thực khi bật lập lịch GPU tăng tốc phần cứng, để NVENC theo kịp trò chơi dùng hết GPU.",
     "nvenc_vbv_increase": "Dư địa kích thước khung hình",
     "nvenc_vbv_increase_desc": "Cho phép một khung hình vượt kích thước trung bình theo tỷ lệ phần trăm này. Giúp cảnh phức tạp nhưng có thể gây mất gói.",
     "nvenc_weighted_prediction": "Dự đoán có trọng số",

@@ -394,6 +394,8 @@
     "nvenc_split_encode_desc": "複数のエンコード エンジンを持つ GPU で、HEVC や AV1 の各フレームをエンジン間で分割します。自動ではドライバーが判断します。",
     "nvenc_frame_budget_guard": "フレーム時間ガード",
     "nvenc_frame_budget_guard_desc": "選んだプリセットではストリームの解像度とフレームレートで各フレームが間に合わない場合、より速いプリセットでエンコードします。",
+    "nvenc_realtime_hags": "ハードウェア スケジューリング時のリアルタイム GPU 優先度",
+    "nvenc_realtime_hags_desc": "ハードウェア アクセラレータによる GPU スケジューリングが有効な間もホストをリアルタイム GPU 優先度に保ち、GPU を使い切るゲームでも NVENC が遅れないようにします。",
     "nvenc_vbv_increase": "フレーム サイズの余裕",
     "nvenc_vbv_increase_desc": "1 つのフレームが平均フレーム サイズをこの割合だけ超えることを許可します。複雑な場面に役立ちますが、パケット損失の原因になることがあります。",
     "nvenc_weighted_prediction": "重み付き予測",

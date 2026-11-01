@@ -394,6 +394,8 @@
     "nvenc_split_encode_desc": "Birden fazla kodlama motoru olan GPU'larda her HEVC veya AV1 karesini bu motorlar arasında böler. Otomatik, kararı sürücüye bırakır.",
     "nvenc_frame_budget_guard": "Kare süresi koruması",
     "nvenc_frame_budget_guard_desc": "Seçilen ön ayar, yayının çözünürlüğü ve kare hızında her kareyi zamanında bitiremeyecekse daha hızlı bir ön ayarla kodlar.",
+    "nvenc_realtime_hags": "Donanım zamanlamasında gerçek zamanlı GPU önceliği",
+    "nvenc_realtime_hags_desc": "Donanım hızlandırmalı GPU zamanlaması açıkken ana bilgisayarı gerçek zamanlı GPU önceliğinde tutar, böylece NVENC GPU'yu tamamen dolduran bir oyuna yetişir.",
     "nvenc_vbv_increase": "Kare boyutu payı",
     "nvenc_vbv_increase_desc": "Tek bir karenin ortalama kare boyutunu bu yüzde kadar aşmasına izin verir. Yoğun sahnelerde yardımcı olur ancak paket kaybına yol açabilir.",
     "nvenc_weighted_prediction": "Ağırlıklı tahmin",

@@ -394,6 +394,8 @@
     "nvenc_split_encode_desc": "在拥有多个编码引擎的 GPU 上，将每个 HEVC 或 AV1 帧分配给多个引擎。自动由驱动程序决定。",
     "nvenc_frame_budget_guard": "帧时间保护",
     "nvenc_frame_budget_guard_desc": "当所选预设无法在串流的分辨率和帧率下按时完成每帧时，改用更快的预设编码。",
+    "nvenc_realtime_hags": "硬件调度下的实时 GPU 优先级",
+    "nvenc_realtime_hags_desc": "在开启硬件加速 GPU 计划时让主机保持实时 GPU 优先级，使 NVENC 跟得上占满 GPU 的游戏。",
     "nvenc_vbv_increase": "帧大小余量",
     "nvenc_vbv_increase_desc": "允许单帧超出平均帧大小的百分比。有助于复杂场景，但可能导致丢包。",
     "nvenc_weighted_prediction": "加权预测",

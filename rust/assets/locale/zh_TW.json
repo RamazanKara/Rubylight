@@ -394,6 +394,8 @@
     "nvenc_split_encode_desc": "在擁有多個編碼引擎的 GPU 上，將每個 HEVC 或 AV1 畫面分配給多個引擎。自動由驅動程式決定。",
     "nvenc_frame_budget_guard": "畫面時間保護",
     "nvenc_frame_budget_guard_desc": "當所選預設集無法在串流的解析度與畫面更新率下及時完成每個畫面時，改用更快的預設集編碼。",
+    "nvenc_realtime_hags": "硬體排程下的即時 GPU 優先順序",
+    "nvenc_realtime_hags_desc": "在開啟硬體加速 GPU 排程時讓主機維持即時 GPU 優先順序，使 NVENC 跟得上佔滿 GPU 的遊戲。",
     "nvenc_vbv_increase": "畫面大小餘裕",
     "nvenc_vbv_increase_desc": "允許單一畫面超出平均畫面大小的百分比。有助於複雜場景，但可能造成封包遺失。",
     "nvenc_weighted_prediction": "加權預測",

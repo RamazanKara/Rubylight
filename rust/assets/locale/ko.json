@@ -394,6 +394,8 @@
     "nvenc_split_encode_desc": "인코딩 엔진이 여러 개인 GPU에서 각 HEVC 또는 AV1 프레임을 여러 엔진에 나눕니다. 자동은 드라이버가 결정합니다.",
     "nvenc_frame_budget_guard": "프레임 시간 보호",
     "nvenc_frame_budget_guard_desc": "선택한 프리셋이 스트림 해상도와 프레임 속도에서 각 프레임을 제때 끝내지 못할 경우 더 빠른 프리셋으로 인코딩합니다.",
+    "nvenc_realtime_hags": "하드웨어 스케줄링 시 실시간 GPU 우선순위",
+    "nvenc_realtime_hags_desc": "하드웨어 가속 GPU 예약이 켜져 있는 동안 호스트를 실시간 GPU 우선순위로 유지하여 GPU를 가득 채우는 게임에서도 NVENC가 뒤처지지 않게 합니다.",
     "nvenc_vbv_increase": "프레임 크기 여유",
     "nvenc_vbv_increase_desc": "한 프레임이 평균 프레임 크기를 이 비율만큼 넘을 수 있게 합니다. 복잡한 장면에 도움이 되지만 패킷 손실이 생길 수 있습니다.",
     "nvenc_weighted_prediction": "가중 예측",

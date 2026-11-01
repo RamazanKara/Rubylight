@@ -71,6 +71,7 @@ const amf = (values: Values) => encoder(values) === 'amf' || automatic(values, '
 const nvenc = (values: Values) => encoder(values) === 'nvenc' || automatic(values, 'nvenc', false);
 const amfHint = 'Applies when AMD AMF encodes, as Automatic does on AMD graphics cards.';
 const nvencHint = 'Applies when NVIDIA NVENC encodes, as Automatic does on NVIDIA graphics cards.';
+const nativeHint = 'Applies when AMD AMF or NVIDIA NVENC encodes, as Automatic does on AMD and NVIDIA graphics cards.';
 
 const video: Setting[] = [
   {
@@ -573,6 +574,28 @@ const encoders: Setting[] = [
     default: '',
     advanced: true,
   },
+  {
+    key: 'encoder_focus',
+    label: 'Encoder focus',
+    description:
+      'Gives more bits to parts of the picture that stay still, such as text and HUDs, and fewer to motion.',
+    details:
+      'Off unless you choose a mode. The stream stays a normal video stream for every client. Still areas and centre also favors the middle of the screen and the cursor. Runs on H.264, HEVC and AV1 when the startup encoder check verified it on this GPU; otherwise the stream shows a warning and focus stays off.',
+    category: 'encoders',
+    group: 'Encoder',
+    control: {
+      kind: 'select',
+      options: [
+        { value: 'off', label: 'Off' },
+        { value: 'static', label: 'Still areas' },
+        { value: 'centre', label: 'Still areas and centre' },
+      ],
+    },
+    aliases: { match: 'case', spellings: { center: 'centre' } },
+    default: 'off',
+    inactiveHint: nativeHint,
+    visibleWhen: (values) => amf(values) || nvenc(values),
+  },
 ];
 
 /** AMF properties the host can leave to the driver. */
@@ -902,28 +925,6 @@ const amd: Setting[] = [
     visibleWhen: amf,
   },
   {
-    key: 'encoder_focus',
-    label: 'Encoder focus',
-    description:
-      'Gives more bits to parts of the picture that stay still, such as text and HUDs, and fewer to motion.',
-    details:
-      'Off unless you choose a mode. The stream stays a normal video stream for every client. Still areas and centre also favors the middle of the screen and the cursor. Runs on H.264, HEVC and AV1 when the startup encoder check verified it on this GPU; otherwise the stream shows a warning and focus stays off.',
-    category: 'encoders',
-    group: 'AMD AMF',
-    control: {
-      kind: 'select',
-      options: [
-        { value: 'off', label: 'Off' },
-        { value: 'static', label: 'Still areas' },
-        { value: 'centre', label: 'Still areas and centre' },
-      ],
-    },
-    aliases: { match: 'case', spellings: { center: 'centre' } },
-    default: 'off',
-    inactiveHint: amfHint,
-    visibleWhen: amf,
-  },
-  {
     key: 'amd_av1_latency_mode',
     label: 'AV1 latency mode',
     description:
@@ -1117,6 +1118,21 @@ const nvidia: Setting[] = [
     description:
       'Encodes with a faster preset when the chosen one would not finish each frame in time at the stream resolution and frame rate.',
     details: 'The estimate counts the encoder engines the GPU has. The log says when the guard lowers the preset.',
+    category: 'encoders',
+    group: 'NVIDIA NVENC',
+    control: { kind: 'toggle' },
+    default: true,
+    inactiveHint: nvencHint,
+    visibleWhen: nvenc,
+    advanced: true,
+  },
+  {
+    key: 'nvenc_realtime_hags',
+    label: 'Realtime GPU priority with hardware scheduling',
+    description:
+      'Keeps the host at realtime GPU priority while hardware-accelerated GPU scheduling is on, so NVENC keeps up with a game that fills the GPU.',
+    details:
+      'Without hardware-accelerated GPU scheduling, NVIDIA always runs at realtime. Off uses high priority under it. Realtime needs administrator rights; without them the host runs at high and the log warns.',
     category: 'encoders',
     group: 'NVIDIA NVENC',
     control: { kind: 'toggle' },

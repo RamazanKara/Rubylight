@@ -394,6 +394,8 @@
     "nvenc_split_encode_desc": "Divide cada quadro HEVC ou AV1 entre vários mecanismos de codificação nas GPUs que os têm. Automático deixa o driver decidir.",
     "nvenc_frame_budget_guard": "Proteção do tempo de quadro",
     "nvenc_frame_budget_guard_desc": "Codifica com uma predefinição mais rápida quando a escolhida não terminaria cada quadro a tempo na resolução e taxa de quadros da transmissão.",
+    "nvenc_realtime_hags": "Prioridade de GPU em tempo real com agendamento por hardware",
+    "nvenc_realtime_hags_desc": "Mantém o host com prioridade de GPU em tempo real enquanto o agendamento de GPU acelerado por hardware está ativado, para que o NVENC acompanhe um jogo que ocupa toda a GPU.",
     "nvenc_vbv_increase": "Margem de tamanho do quadro",
     "nvenc_vbv_increase_desc": "Permite que um único quadro ultrapasse o tamanho médio nesta porcentagem. Ajuda em cenas complexas, mas pode causar perda de pacotes.",
     "nvenc_weighted_prediction": "Predição ponderada",

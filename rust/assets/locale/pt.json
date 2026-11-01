@@ -394,6 +394,8 @@
     "nvenc_split_encode_desc": "Divide cada fotograma HEVC ou AV1 por vários motores de codificação nas GPU que os têm. Automático deixa o controlador decidir.",
     "nvenc_frame_budget_guard": "Proteção do tempo de fotograma",
     "nvenc_frame_budget_guard_desc": "Codifica com uma predefinição mais rápida quando a escolhida não terminaria cada fotograma a tempo na resolução e taxa de fotogramas da transmissão.",
+    "nvenc_realtime_hags": "Prioridade de GPU em tempo real com agendamento por hardware",
+    "nvenc_realtime_hags_desc": "Mantém o anfitrião com prioridade de GPU em tempo real enquanto o agendamento de GPU acelerado por hardware está ativo, para que o NVENC acompanhe um jogo que ocupa toda a GPU.",
     "nvenc_vbv_increase": "Margem do tamanho do fotograma",
     "nvenc_vbv_increase_desc": "Permite que um único fotograma exceda o tamanho médio nesta percentagem. Ajuda em cenas complexas, mas pode causar perda de pacotes.",
     "nvenc_weighted_prediction": "Predição ponderada",

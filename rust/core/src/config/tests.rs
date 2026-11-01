@@ -1243,11 +1243,16 @@ fn retired_vigem_controllers_become_their_vhf_pads() {
     );
     assert!(!replace_retired_in_app(app.as_object_mut().unwrap()));
 }
-/// Every setting the NVENC encoder reads (nvenc.rs) stays in the
-/// configuration, and an app or a device may override it as the AMF ones.
+/// Every setting the NVENC encoder reads (nvenc.rs, and its GPU priority in
+/// gpu_priority.rs) stays in the configuration, and an app or a device may
+/// override it as the AMF ones.
 #[test]
 fn nvenc_settings_are_kept_and_overridable() {
-    let source = include_str!("../nvenc.rs");
+    let source = [
+        include_str!("../nvenc.rs"),
+        include_str!("../../../windows/src/gpu_priority.rs"),
+    ]
+    .concat();
     let keys: std::collections::BTreeSet<&str> = source
         .match_indices("\"nvenc_")
         .filter_map(|(at, _)| source[at + 1..].split('"').next())
@@ -1256,7 +1261,8 @@ fn nvenc_settings_are_kept_and_overridable() {
                 .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
         })
         .collect();
-    assert!(keys.len() >= 16, "{keys:?}");
+    assert!(keys.len() >= 17, "{keys:?}");
+    assert!(keys.contains("nvenc_realtime_hags"), "{keys:?}");
     for key in keys {
         assert!(super::override_allowed(key), "{key}");
         assert!(!super::removed(key), "{key}");

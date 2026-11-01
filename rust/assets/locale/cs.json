@@ -394,6 +394,8 @@
     "nvenc_split_encode_desc": "Rozdělí každý snímek HEVC nebo AV1 mezi několik kódovacích jednotek na GPU, které je mají. Automaticky nechá rozhodnutí na ovladači.",
     "nvenc_frame_budget_guard": "Hlídání času snímku",
     "nvenc_frame_budget_guard_desc": "Kóduje s rychlejší předvolbou, když by zvolená nestihla dokončit každý snímek včas při rozlišení a snímkové frekvenci streamu.",
+    "nvenc_realtime_hags": "Priorita GPU v reálném čase při hardwarovém plánování",
+    "nvenc_realtime_hags_desc": "Ponechá hostitele na prioritě GPU v reálném čase i se zapnutým hardwarově akcelerovaným plánováním GPU, aby NVENC stačil hře, která plně vytěžuje GPU.",
     "nvenc_vbv_increase": "Rezerva velikosti snímku",
     "nvenc_vbv_increase_desc": "Dovolí jednomu snímku překročit průměrnou velikost snímku o toto procento. Pomáhá v náročných scénách, ale může způsobit ztrátu paketů.",
     "nvenc_weighted_prediction": "Vážená predikce",

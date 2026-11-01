@@ -394,6 +394,8 @@
     "nvenc_split_encode_desc": "Dzieli każdą klatkę HEVC lub AV1 między kilka jednostek kodujących na GPU, które je mają. Automatycznie pozostawia decyzję sterownikowi.",
     "nvenc_frame_budget_guard": "Ochrona czasu klatki",
     "nvenc_frame_budget_guard_desc": "Koduje z szybszym ustawieniem, gdy wybrane nie zdążyłoby ukończyć każdej klatki na czas przy rozdzielczości i liczbie klatek strumienia.",
+    "nvenc_realtime_hags": "Priorytet GPU czasu rzeczywistego przy planowaniu sprzętowym",
+    "nvenc_realtime_hags_desc": "Utrzymuje hosta na priorytecie GPU czasu rzeczywistego, gdy włączone jest sprzętowo przyspieszone planowanie GPU, aby NVENC nadążał za grą, która w pełni obciąża GPU.",
     "nvenc_vbv_increase": "Zapas rozmiaru klatki",
     "nvenc_vbv_increase_desc": "Pozwala pojedynczej klatce przekroczyć średni rozmiar klatki o ten procent. Pomaga w złożonych scenach, ale może powodować utratę pakietów.",
     "nvenc_weighted_prediction": "Predykcja ważona",

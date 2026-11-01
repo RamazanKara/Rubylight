@@ -429,6 +429,8 @@
     "nvenc_split_encode_desc": "Splits each HEVC or AV1 frame across several encoder engines on GPUs that have them. Automatic lets the driver decide.",
     "nvenc_frame_budget_guard": "Frame Time Guard",
     "nvenc_frame_budget_guard_desc": "Encodes with a faster preset when the chosen one would not finish each frame in time at the stream resolution and frame rate.",
+    "nvenc_realtime_hags": "Realtime GPU Priority with Hardware Scheduling",
+    "nvenc_realtime_hags_desc": "Keeps the host at realtime GPU priority while hardware-accelerated GPU scheduling is on, so NVENC keeps up with a game that fills the GPU.",
     "nvenc_vbv_increase": "Frame Size Headroom",
     "nvenc_vbv_increase_desc": "Lets a single frame exceed the average frame size by this percentage. Helps busy scenes but can cause packet loss.",
     "nvenc_weighted_prediction": "Weighted Prediction",

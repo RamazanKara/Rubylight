@@ -91,6 +91,7 @@ pub const GLOBAL: &[Setting] = settings! {
         "stream_preset", "Stream preset", Choice(&["lowest_latency","balanced","reference"]);
         "adapter_name", "Encoding graphics adapter", Text;
         "adapter_pnp_id", "Encoding adapter device ID", Text;
+        "encoder_focus", "Encoder focus (more bits for still areas such as text and HUDs)", Choice(&["off","static","centre"]);
         "hevc_mode", "HEVC support (0 auto, 1 disabled, 2 SDR, 3 HDR)", Number;
         "av1_mode", "AV1 support (0 auto, 1 disabled, 2 SDR, 3 HDR)", Number;
         "experimental_packed_444", "Full chroma for Nightjar", Bool;
@@ -127,7 +128,6 @@ pub const GLOBAL: &[Setting] = settings! {
         "amd_lowlatency_mode", "Low-latency mode (H.264 and HEVC)", Bool;
         "amd_av1_latency_mode", "AV1 latency mode", Choice(&["none","power_saving","realtime","lowest"]);
         "amd_split_frame", "Split-frame encoding (HEVC and AV1)", Choice(&["auto","enabled","disabled"]);
-        "encoder_focus", "Encoder focus (more bits for still areas such as text and HUDs)", Choice(&["off","static","centre"]);
         "amd_input_queue_size", "AMF input queue size", Number;
         "amd_ltr_frames", "Long-term reference frames", Number;
     ]
@@ -140,6 +140,7 @@ pub const GLOBAL: &[Setting] = settings! {
         "nvenc_temporal_aq", "Temporal adaptive quantization", Bool;
         "nvenc_split_encode", "Split-frame encoding (HEVC and AV1)", Choice(&["auto","enabled","disabled","two_strips","three_strips","four_strips"]);
         "nvenc_frame_budget_guard", "Frame time guard (a faster preset when frames would be late)", Bool;
+        "nvenc_realtime_hags", "Realtime GPU priority under hardware-accelerated GPU scheduling", Bool;
         "nvenc_vbv_increase", "Frame size headroom (%)", Number;
         "nvenc_weighted_prediction", "Weighted prediction", Bool;
         "nvenc_h264_cavlc", "Use CAVLC for H.264", Bool;
@@ -576,7 +577,12 @@ mod tests {
     }
     #[test]
     fn the_nvidia_group_lists_every_setting_the_nvenc_encoder_reads() {
-        let source = include_str!("../../../core/src/nvenc.rs");
+        // The encoder's settings, and the GPU priority it runs at.
+        let source = [
+            include_str!("../../../core/src/nvenc.rs"),
+            include_str!("../../../windows/src/gpu_priority.rs"),
+        ]
+        .concat();
         let keys: std::collections::BTreeSet<&str> = source
             .match_indices("\"nvenc_")
             .filter_map(|(at, _)| source[at + 1..].split('"').next())

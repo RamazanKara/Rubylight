@@ -193,6 +193,18 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     private static final int CR_FLAG_ALL = CR_FLAG_INPUT_THREAD | CR_FLAG_RENDER_THREAD | CR_FLAG_CHOREOGRAPHER;
     private int codecRecoveryThreadQuiescedFlags = 0;
     private int codecRecoveryAttempts = 0;
+    // Frames out when the last recovery ran: CR_REFILL_FRAMES good frames since refill the attempts,
+    // so only a tight crash loop uses them up, not ten recoveries hours apart
+    private static final int CR_REFILL_FRAMES = 600;
+    private int framesOutAtLastRecovery;
+    // A decoder that stops taking input gets one reset (through the same attempts) before the
+    // stream ends; frames out when it was asked for, and whether it is still to finish
+    // Room for the quiesce and a back-off before the reset, not only the reset itself
+    private static final long HANG_RESET_TIMEOUT_MS = 10_000;
+    private long hangResetTimeoutMs = HANG_RESET_TIMEOUT_MS;
+    private int framesOutAtHangReset = -1;
+    private volatile boolean hangResetPending;
+    private final Object decoderFailureLock = new Object();
     // Recoveries in a row that bring no frame wait longer each time, then end the stream
     private DecoderRecoveryBackoff recoveryBackoff = new DecoderRecoveryBackoff();
     // The pending recovery follows a decoder failure; planned restarts (HDR, size, input buffer
@@ -434,7 +446,21 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     // cause: the exception for the crash report, or null to report the reason itself.
     private void failDecoder(String reason, Exception cause) {
         synchronized (codecRecoveryMonitor) {
-            if (decoderFailure != null) return;
+            reason = markDecoderFailed(reason);
+            if (reason == null) return;
+            // Wake any thread waiting for a recovery that will not come.
+            codecRecoveryThreadQuiescedFlags = 0;
+            codecRecoveryMonitor.notifyAll();
+        }
+        reportDecoderFailure(reason, cause);
+    }
+
+    // Records the failure once and stops every thread; the reason with any low memory note, or
+    // null when the decoder failed already. Under decoderFailureLock alone, so the hang reset's
+    // watchdog can end the stream while a reset that hangs holds codecRecoveryMonitor.
+    private String markDecoderFailed(String reason) {
+        synchronized (decoderFailureLock) {
+            if (decoderFailure != null) return null;
             ActivityManager.MemoryInfo memory = lowMemory();
             if (memory != null) {
                 reason += "; this device is low on memory (" + memory.availMem / (1024 * 1024) + " MB free)";
@@ -442,11 +468,13 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             decoderFailure = reason;
             decoderFailedWithVulkan = vulkanRenderer != null;
             stopping = true;
-            // Wake any thread waiting for a recovery that will not come.
+            // Threads waiting for a recovery leave once they see none is due.
             codecRecoveryType.set(CR_RECOVERY_TYPE_NONE);
-            codecRecoveryThreadQuiescedFlags = 0;
-            codecRecoveryMonitor.notifyAll();
+            return reason;
         }
+    }
+
+    private void reportDecoderFailure(String reason, Exception cause) {
         LimeLog.severe("Decoder failed, ending the stream: " + reason);
         // Counted before the stream is terminated (a stream already ending is not counted), so the
         // next stream runs without reference frame invalidation; the -107 dialog is the notice.
@@ -2040,7 +2068,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     // the stream on the first frame that does not fit. False when growing cannot help or the
     // recovery attempts are used up; the caller then fails the stream.
     boolean requestInputBufferGrowth(long requiredBytes, int capacity) {
-        int grown = codecRecoveryAttempts < CR_MAX_TRIES ?
+        int grown = recoveryAttemptsLeft() ?
                 grownInputSize(requiredBytes, capacity, requiredInputBufferSize) : 0;
         if (grown == 0) {
             return false;
@@ -2717,6 +2745,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                 // We don't count flushes as codec recovery attempts
                 if (codecRecoveryType.get() != CR_RECOVERY_TYPE_NONE) {
                     codecRecoveryAttempts++;
+                    framesOutAtLastRecovery = numFramesOut;
                     LimeLog.info("Codec recovery attempt: "+codecRecoveryAttempts);
 
                     // The codec is configured again, with the current metadata.
@@ -2734,6 +2763,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                         }
                         codecRecoveryType.set(CR_RECOVERY_TYPE_NONE);
                         recoveryAfterFailure = false;
+                        hangResetPending = false;
                     } catch (IllegalStateException e) {
                         // Not even a decoder set up from scratch works: end the stream.
                         e.printStackTrace();
@@ -2877,7 +2907,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             LimeLog.severe(codecExc.getDiagnosticInfo());
 
             // We can attempt a recovery or reset at this stage to try to start decoding again
-            if (codecRecoveryAttempts < CR_MAX_TRIES) {
+            if (recoveryAttemptsLeft()) {
                 // If the exception is non-recoverable or we already require a reset, perform a reset.
                 // If we have no prior unrecoverable failure, we will try a restart instead.
                 if (codecExc.isRecoverable()) {
@@ -2923,7 +2953,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             // Recovery from this requires a full decoder reset.
             //
             // NB: CodecException is an IllegalStateException, so we must check for it first.
-            if (codecRecoveryAttempts < CR_MAX_TRIES) {
+            if (recoveryAttemptsLeft()) {
                 if (codecRecoveryType.compareAndSet(CR_RECOVERY_TYPE_NONE, CR_RECOVERY_TYPE_RESET)) {
                     LimeLog.info("Decoder requires reset for IllegalStateException");
                     e.printStackTrace();
@@ -3646,13 +3676,67 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             if (deltaMs >= 5000 && (unresolvedInitialException() == null ||
                     SystemClock.uptimeMillis() - initialExceptionTimestamp >= EXCEPTION_REPORT_DELAY_MS)) {
                 // The engine drops an exception thrown here, which left the picture frozen.
-                failDecoder(decoderName() + " took no input for " + deltaMs + " ms", new DecoderHungException(deltaMs));
+                if (!resetHungDecoder(deltaMs)) {
+                    failDecoder(decoderName() + " took no input for " + deltaMs + " ms" +
+                            (framesOutAtHangReset == numFramesOut ? ", also after a reset" : ""),
+                            new DecoderHungException(deltaMs));
+                }
             }
 
             return false;
         }
 
         return true;
+    }
+
+    // Asks for a reset of a decoder that took no input for deltaMs, through the recovery attempts:
+    // false when they are used up, or the last such reset brought no frame (then the stream ends).
+    // A watchdog ends the stream if the reset itself hangs.
+    private boolean resetHungDecoder(int deltaMs) {
+        if (framesOutAtHangReset == numFramesOut || !recoveryAttemptsLeft()) {
+            return false;
+        }
+        synchronized (codecRecoveryMonitor) {
+            if (stopping) return true;
+            framesOutAtHangReset = numFramesOut;
+            recoveryAfterFailure = true;
+            hangResetPending = true;
+            codecRecoveryType.set(CR_RECOVERY_TYPE_RESET);
+        }
+        LimeLog.warning(decoderName() + " took no input for " + deltaMs + " ms; resetting it");
+        long timeoutMs = hangResetTimeoutMs;
+        Thread watchdog = new Thread(() -> {
+            long deadlineNs = System.nanoTime() + timeoutMs * 1_000_000L;
+            try {
+                for (long left = timeoutMs; left > 0 && hangResetPending && !stopping;
+                     left = (deadlineNs - System.nanoTime()) / 1_000_000L) {
+                    Thread.sleep(Math.min(left, 100));
+                }
+            } catch (InterruptedException e) {
+                return;
+            }
+            if (!hangResetPending || stopping) return;
+            // The reset may hang inside MediaCodec holding codecRecoveryMonitor: end the stream without it.
+            String reason = markDecoderFailed(decoderName() + " took no input for " + deltaMs +
+                    " ms, and its reset did not finish within " + timeoutMs + " ms");
+            if (reason != null) {
+                reportDecoderFailure(reason, new DecoderHungException(deltaMs));
+            }
+        }, "Decoder reset watchdog");
+        watchdog.setDaemon(true);
+        watchdog.start();
+        return true;
+    }
+
+    // The recovery attempts are refilled once the decoder put out CR_REFILL_FRAMES frames since the
+    // last recovery: only failures close together use them up.
+    private boolean recoveryAttemptsLeft() {
+        int framesSince = numFramesOut - framesOutAtLastRecovery;
+        if (codecRecoveryAttempts > 0 && framesSince >= CR_REFILL_FRAMES) {
+            LimeLog.info("Codec recovery attempts refilled after " + framesSince + " frames since the last");
+            codecRecoveryAttempts = 0;
+        }
+        return codecRecoveryAttempts < CR_MAX_TRIES;
     }
 
     @Override

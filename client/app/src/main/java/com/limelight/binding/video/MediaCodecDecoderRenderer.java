@@ -3273,6 +3273,10 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         long excessNs = debt.onOutput(frameLatencyStats.getInputToOutputNs(index), System.nanoTime(),
                 contentIntervalNs());
         frameLatencyStats.onQueueState(index, DecoderQueuePolicy.depth(numFramesIn, numFramesOut, decoderDepthBase), excessNs);
+        logDebtEvent();
+    }
+
+    private void logDebtEvent() {
         String event = debt.takeEvent();
         if (event != null) LimeLog.info(event);
     }
@@ -3442,7 +3446,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
 
     /**
      * Pacing other than balanced: drops outputs a newer one replaces (see wantsCatchUp) and
-     * releases the last, unless decoder debt drops it for the frame behind it (see
+     * releases the last, which sustained decoder debt may first replace with a newer output (see
      * DecoderQueuePolicy.Debt). Returns the last dequeue result, which may be a negative INFO_ code.
      */
     private int releaseNewestOutput(int outIndex, long ptsUs, BufferInfo info, long outputDrainStartNs) {
@@ -3455,8 +3459,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         int drained = 0;
         boolean scheduled = FramePacingPolicy.schedulesFrames(
                 hostFrameTimes, prefs.framePacing);
-        // Smoothest and the frame rate limit, which show every frame.
-        boolean smooth = !scheduled && !FramePacingPolicy.dropQueuedFrames(prefs.framePacing);
+        boolean smooth = FramePacingPolicy.recoversDecoderDebt(hostFrameTimes, prefs.framePacing);
         if (scheduled) noteResidency(lastIndex);
         else if (smooth) noteDebt(lastIndex);
         while (!stopping && codecRecoveryType.get() == CR_RECOVERY_TYPE_NONE &&
@@ -3487,30 +3490,30 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         if (smooth && outIndex != MediaCodec.INFO_OUTPUT_FORMAT_CHANGED && !stopping &&
                 codecRecoveryType.get() == CR_RECOVERY_TYPE_NONE &&
                 debt.shouldDrop(DecoderQueuePolicy.depth(numFramesIn, numFramesOut, decoderDepthBase))) {
-            // Sustained decoder debt with a newer frame already in the decoder: drop the held
-            // output for it. The newest frame is always shown, and no keyframe is requested.
-            int newer = videoDecoder.dequeueOutputBuffer(info, 0);
-            if (newer == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
-                // Show the held output; the renderer loop takes the format change first.
-                outIndex = newer;
-            }
-            else {
+            // Sustained decoder debt with a newer frame in the decoder: wait briefly for it to
+            // come out (only here, within the policy's budget) and drop the held output for it.
+            // Without a newer output the held one is shown; no keyframe is requested.
+            int newer = videoDecoder.dequeueOutputBuffer(info, DecoderQueuePolicy.Debt.WAIT_US);
+            if (newer >= 0) {
                 long nowNs = System.nanoTime();
-                if (newer >= 0) frameLatencyStats.onDecoderOutput(newer, info.presentationTimeUs, nowNs);
+                frameLatencyStats.onDecoderOutput(newer, info.presentationTimeUs, nowNs);
                 frameLatencyStats.onDropReason(lastIndex, "debt");
                 frameLatencyStats.onOutputReleased(lastIndex, nowNs, false, reportsRenderTimes());
                 videoDecoder.releaseOutputBuffer(lastIndex, false);
                 debt.onDropped();
-                if (newer < 0) {
-                    // The newer frame is not decoded yet. The buffer returned here is free for
-                    // it, and the renderer loop shows it when it comes out.
-                    return newer;
-                }
                 numFramesOut++;
                 lastIndex = newer;
                 lastPtsUs = info.presentationTimeUs;
                 outIndex = newer;
                 noteDebt(lastIndex);
+            }
+            else if (newer == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
+                // Show the held output; the renderer loop takes the format change first.
+                outIndex = newer;
+            }
+            else {
+                debt.onNoNewer();
+                logDebtEvent();
             }
         }
 

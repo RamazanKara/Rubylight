@@ -98,14 +98,22 @@ final class DecoderQueuePolicy {
      * input-to-output stays a frame or more above its floor while the frame behind is not decoded
      * yet, so the age rule in [FramePacingPolicy] has no newer output to swap in.
      *
-     * The floor is the smallest input-to-output time since the last flush. An output is over when
-     * it is at least three quarters of a content interval above the floor. Once [SHARE_PERCENT] of
-     * the outputs of the last [WINDOW_NS] were over, the held output is dropped while a newer frame
-     * is already in the decoder behind it, one at a time: after each drop the next [SETTLE] outputs
-     * are measured, and recovery stops once their median is under the threshold again. A drop
-     * that did not take half a frame off, or [MAX_DROPS] of them, pause it until a whole window is
-     * healthy. Sub-frame drift between the display's clock and the host's stays under the
-     * threshold, and a decoder whose floor is a frame long has no excess: both are left alone.
+     * The floor starts as the smallest input-to-output time since the last flush. An output is
+     * over when it is at least three quarters of a content interval above the floor. Once
+     * [SHARE_PERCENT] of the outputs of the last [WINDOW_NS] were over, the held output gives way to
+     * a newer one: while a newer frame is in the decoder behind it, the renderer waits up to
+     * [WAIT_US] for that frame to come out and drops the held output only if it does. One drop at
+     * a time: the next [SETTLE] outputs are measured after each, and recovery stops once their
+     * median is under the threshold again. Sub-frame drift between the display's clock and the
+     * host's stays under the threshold, and a decoder whose floor is a frame long has no excess:
+     * both are left alone.
+     *
+     * A drop that did not take half a frame off, or no newer output in [MAX_WAITS] waits or in a
+     * whole window, mean the excess is the decoder's own pipelining for this content (deeper in
+     * motion than in a still scene, say) or frames it will never output. Then the floor rises to
+     * the level measured and recovery pauses until a whole window is healthy, so the next scene
+     * change does not start it again; real debt still shrinks when a frame is dropped. [MAX_DROPS]
+     * drops pause it without moving the floor.
      */
     static final class Debt {
         static final long WINDOW_NS = 1_500_000_000L;
@@ -113,6 +121,8 @@ final class DecoderQueuePolicy {
         static final int MIN_OUTPUTS = 20;
         static final int SETTLE = 3;
         static final int MAX_DROPS = 8;
+        static final long WAIT_US = 2_000;
+        static final int MAX_WAITS = 60;
         private static final int CAPACITY = 1024;
         private static final int WATCH = 0;
         private static final int RECOVER = 1;
@@ -126,13 +136,16 @@ final class DecoderQueuePolicy {
         private int overCount;
         private long windowStartNs;
 
-        private long floorNs = Long.MAX_VALUE;
+        // The floor: the smallest input-to-output time, plus what recovery learned is the decoder's.
+        private long minNs = Long.MAX_VALUE;
+        private long learnedNs;
         private long intervalNs;
         private long excessNs;
         private boolean over;
         private final long[] recentNs = new long[3];
         private int state = WATCH;
         private int drops;
+        private int waits;
         private int settle;
         private final long[] settleNs = new long[SETTLE];
         private long droppedLevelNs;
@@ -151,8 +164,8 @@ final class DecoderQueuePolicy {
                 return 0;
             }
             intervalNs = contentIntervalNs;
-            floorNs = Math.min(floorNs, inputToOutputNs);
-            excessNs = inputToOutputNs - floorNs;
+            minNs = Math.min(minNs, inputToOutputNs);
+            excessNs = Math.max(0, inputToOutputNs - floorNs());
             over = isOver(excessNs);
             recentNs[0] = recentNs[1];
             recentNs[1] = recentNs[2];
@@ -162,6 +175,7 @@ final class DecoderQueuePolicy {
                 if (windowShare(nowNs, true)) {
                     state = RECOVER;
                     drops = 0;
+                    waits = 0;
                     settle = 0;
                     under = 0;
                     readySinceNs = nowNs;
@@ -179,15 +193,24 @@ final class DecoderQueuePolicy {
             return excessNs;
         }
 
-        /** framesBehind: frames in the decoder behind the held output. Call after [onOutput]. */
+        /**
+         * Whether the held output should give way to a newer one, if one comes out within
+         * [WAIT_US]. framesBehind: frames in the decoder behind it. Call after [onOutput].
+         */
         boolean shouldDrop(int framesBehind) {
             return state == RECOVER && settle == 0 && over && framesBehind >= 1 && drops < MAX_DROPS;
         }
 
+        /** A newer output came out and replaced the held one. */
         void onDropped() {
             drops++;
             settle = SETTLE;
             droppedLevelNs = median(recentNs[0], recentNs[1], recentNs[2]);
+        }
+
+        /** No newer output came out within [WAIT_US] after [shouldDrop]; the held one was shown. */
+        void onNoNewer() {
+            if (state == RECOVER && ++waits >= MAX_WAITS) learn("paused, no newer output came out");
         }
 
         /** The one-line summary of a recovery that ended since the last call, or null. */
@@ -199,12 +222,14 @@ final class DecoderQueuePolicy {
 
         void reset() {
             clear();
-            floorNs = Long.MAX_VALUE;
+            minNs = Long.MAX_VALUE;
+            learnedNs = 0;
             excessNs = 0;
             over = false;
             java.util.Arrays.fill(recentNs, 0);
             state = WATCH;
             drops = 0;
+            waits = 0;
             settle = 0;
             under = 0;
             event = null;
@@ -216,34 +241,51 @@ final class DecoderQueuePolicy {
                 if (--settle > 0) return;
                 long level = median(settleNs[0], settleNs[1], settleNs[2]);
                 if (!isOver(level)) {
-                    finish("recovered", level, WATCH);
+                    finish("recovered", level, WATCH, false);
                 } else if (level > droppedLevelNs - intervalNs / 2) {
-                    finish("paused, a drop did not shorten the queue", level, PAUSED);
+                    learn("paused, a drop did not shorten the queue");
                 } else if (drops >= MAX_DROPS) {
-                    finish("paused at the drop limit", level, PAUSED);
+                    finish("paused at the drop limit", level, PAUSED, false);
                 } else {
                     readySinceNs = nowNs;
+                    waits = 0;
                     under = 0;
                 }
                 return;
             }
             if (!over) {
-                if (++under >= 2) finish("recovered", excessNs, WATCH);
+                if (++under >= 2) finish("recovered", excessNs, WATCH, false);
                 return;
             }
             under = 0;
-            // Over for a whole window with nothing behind to drop: watch again from scratch.
-            if (nowNs - readySinceNs >= WINDOW_NS) finish("ended, nothing behind to drop", excessNs, WATCH);
+            if (nowNs - readySinceNs < WINDOW_NS) return;
+            // Over for a whole window without a drop. Newer frames that never came out: learn
+            // the level. Nothing behind to drop: watch again from scratch.
+            if (waits > 0) learn("paused, no newer output came out");
+            else finish("ended, nothing behind to drop", excessNs, WATCH, false);
         }
 
-        private void finish(String result, long levelNs, int next) {
-            if (drops > 0) {
+        /** The excess is the decoder's own: raise the floor to the level measured and pause. */
+        private void learn(String result) {
+            long level = median(recentNs[0], recentNs[1], recentNs[2]);
+            learnedNs += level;
+            finish(result, level, PAUSED, true);
+        }
+
+        private void finish(String result, long levelNs, int next, boolean learned) {
+            if (drops > 0 || next == PAUSED) {
                 event = String.format(java.util.Locale.ROOT,
-                        "Decoder debt %s: %d stale output%s dropped, excess %.1f -> %.1f ms over a %.1f ms floor",
-                        result, drops, drops == 1 ? "" : "s", startLevelNs / 1e6, levelNs / 1e6, floorNs / 1e6);
+                        "Decoder debt %s: %d stale output%s dropped, excess %.1f -> %.1f ms over a %.1f ms floor%s",
+                        result, drops, drops == 1 ? "" : "s", startLevelNs / 1e6, levelNs / 1e6,
+                        (floorNs() - (learned ? levelNs : 0)) / 1e6,
+                        learned ? String.format(java.util.Locale.ROOT, ", floor raised to %.1f ms", floorNs() / 1e6) : "");
             }
             state = next;
             clear();
+        }
+
+        private long floorNs() {
+            return minNs + learnedNs;
         }
 
         private boolean isOver(long excess) {

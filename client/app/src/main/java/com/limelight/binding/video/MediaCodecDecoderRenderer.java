@@ -198,12 +198,14 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     private static final int CR_REFILL_FRAMES = 600;
     private int framesOutAtLastRecovery;
     // A decoder that stops taking input gets one reset (through the same attempts) before the
-    // stream ends; frames out when it was asked for, and whether it is still to finish
-    // Room for the quiesce and a back-off before the reset, not only the reset itself
+    // stream ends; past this timeout, room for the quiesce and a back-off as well, a watchdog
+    // takes the reset for hung and ends the stream
     private static final long HANG_RESET_TIMEOUT_MS = 10_000;
     private long hangResetTimeoutMs = HANG_RESET_TIMEOUT_MS;
+    // Frames out when that reset was asked for, and whether it is still to finish
     private int framesOutAtHangReset = -1;
     private volatile boolean hangResetPending;
+    // Guards decoderFailure; never held while waiting for codecRecoveryMonitor
     private final Object decoderFailureLock = new Object();
     // Recoveries in a row that bring no frame wait longer each time, then end the stream
     private DecoderRecoveryBackoff recoveryBackoff = new DecoderRecoveryBackoff();

@@ -275,6 +275,21 @@ impl Shared {
         (self.waker)();
     }
 
+    /// Queues a picture holding a surface of the hardware decoder's fixed pool. The pacer keeps
+    /// every picture not due yet (up to its 50 ms hold with "PC's frame times", 12 at 240 FPS), and
+    /// with the presenter's queue that could take every spare surface, failing the next frame.
+    /// So past [`POOL_WAITING`] pictures waiting, the oldest goes first, as for PyroWave's planes.
+    fn queue_pooled(&self, decoded: Decoded) {
+        while self.waiting() >= POOL_WAITING && self.evict_oldest() {}
+        self.queue(decoded);
+    }
+
+    /// The pictures waiting for the presenter, in its queue and in the pacer.
+    fn waiting(&self) -> usize {
+        let queued = lock(&self.frames).len();
+        queued + lock(&self.pacer_backlog).len()
+    }
+
     /// Queues a picture for the presenter, which loses the oldest past the queue's limit, and wakes it.
     fn queue(&self, decoded: Decoded) {
         let mut frames = lock(&self.frames);
@@ -384,6 +399,10 @@ impl Failing {
         Escalation::GiveUp
     }
 }
+
+/// Pictures from a hardware decoder's pool that may wait for the presenter: two of the pool's
+/// spare surfaces stay for the picture on the screen and the one the presenter is drawing.
+const POOL_WAITING: usize = media::EXTRA_HW_FRAMES as usize - 2;
 
 /// How many real PyroWave envelopes `NIGHTJAR_PYROWAVE_DUMP` keeps.
 const PYROWAVE_DUMP_FRAMES: u32 = 120;
@@ -729,6 +748,7 @@ impl Decoder {
                     let budget_us = 2_000_000_000 / u64::from(self.shared.fps_millihz.load(Ordering::Relaxed).max(1));
                     timing.late += u32::from(ready.saturating_sub(frame.enqueue_time_us) >= budget_us);
                     drop(timing);
+                    let pooled = decoder.pooled();
                     let decoded = Decoded {
                         picture: Picture::Frame(picture),
                         setup: self.setup.expect("decoder setup precedes frames"),
@@ -745,7 +765,7 @@ impl Decoder {
                         bands: Vec::new(),
                         race_seq: 0,
                     };
-                    self.shared.queue(decoded);
+                    if pooled { self.shared.queue_pooled(decoded) } else { self.shared.queue(decoded) }
                 }
                 Received::None => break,
                 Received::Error => {
@@ -1259,6 +1279,25 @@ mod tests {
         assert_eq!(shared.counters.replaced.load(Ordering::Relaxed), 3);
         // Even the last queued picture is older than the frame being decoded, so it may go.
         assert!(shared.evict_oldest() && !shared.evict_oldest());
+    }
+
+    #[test]
+    fn pictures_from_a_hardware_pool_never_wait_in_more_surfaces_than_the_pool_spares() {
+        use super::super::present::{tests::decoded, Pending};
+        let (_, shared) = decoder();
+        let pending = |present_us| Pending { decoded: decoded(present_us), present_us, hold_us: 0, late: false };
+        // "PC's frame times" at 240 FPS: the pacer holds a dozen pictures that are not due yet.
+        lock(&shared.pacer_backlog).extend((1..=12).map(pending));
+        shared.queue_pooled(decoded(100));
+        assert_eq!(shared.waiting(), POOL_WAITING);
+        assert!(shared.waiting() + 2 <= media::EXTRA_HW_FRAMES as usize, "the shown and drawn pictures keep a surface");
+        let left: Vec<u64> = lock(&shared.pacer_backlog).iter().map(|p| p.present_us).collect();
+        assert_eq!(left, [10, 11, 12], "the oldest went, the newest stay");
+        assert_eq!(lock(&shared.frames).front().map(|d| d.ready_us), Some(100));
+        assert_eq!(shared.counters.replaced.load(Ordering::Relaxed), 9);
+        // Pictures that do not hold a pool surface queue as before.
+        shared.queue(decoded(101));
+        assert_eq!(shared.waiting(), POOL_WAITING + 1);
     }
 
     #[test]

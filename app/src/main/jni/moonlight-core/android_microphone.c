@@ -18,7 +18,9 @@
 
 #define MIC_SAMPLE_RATE 48000
 #define MIC_CHANNELS 1
-#define MIC_BITRATE 32000
+// 32 kb/s left too few bits once the in-band FEC took its share; 64 kb/s measured clearly better on
+// speech (issue 56). protocol/android/src/opus.rs checks that both Android encoders agree.
+#define MIC_BITRATE 64000
 #define MIC_PACKET_LOSS_PERCENT 10
 // Opus frame sizes at 48 kHz from 2.5 to 60 ms.
 #define MIC_MAX_FRAME_SAMPLES 2880

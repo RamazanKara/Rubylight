@@ -71,8 +71,9 @@ mod ffi {
     }
 }
 
-/// Microphone settings from `android_microphone.c`: speech at 32 kb/s with in-band FEC.
-const MIC_BITRATE: i32 = 32_000;
+/// Microphone settings from `android_microphone.c`: speech at 64 kb/s with in-band FEC (32 kb/s
+/// left too few bits once the FEC took its share, issue 56).
+const MIC_BITRATE: i32 = 64_000;
 const MIC_PACKET_LOSS_PERCENT: i32 = 10;
 
 impl Decoder {
@@ -203,5 +204,29 @@ impl Encoder {
 impl Drop for Encoder {
     fn drop(&mut self) {
         unsafe { ffi::opus_encoder_destroy(self.raw) }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The value of `#define name value` in `source`.
+    fn define(source: &str, name: &str) -> Option<i32> {
+        source.lines().find_map(|line| {
+            let mut words = line.split_whitespace();
+            (words.next() == Some("#define") && words.next() == Some(name))
+                .then(|| words.next()?.parse().ok())
+                .flatten()
+        })
+    }
+
+    #[test]
+    fn both_android_microphone_encoders_send_64_kbps_with_fec_for_10_percent_loss() {
+        // Issue 56: 32 kb/s with the FEC sounded far worse than the microphone itself.
+        let c = include_str!("../../../app/src/main/jni/moonlight-core/android_microphone.c");
+        assert_eq!(MIC_BITRATE, 64_000);
+        assert_eq!(define(c, "MIC_BITRATE"), Some(MIC_BITRATE));
+        assert_eq!(define(c, "MIC_PACKET_LOSS_PERCENT"), Some(MIC_PACKET_LOSS_PERCENT));
     }
 }

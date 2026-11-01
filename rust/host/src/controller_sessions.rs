@@ -20,8 +20,14 @@ struct Entry {
     policy: Policy,
     idle: Instant,
 }
+/// The controllers by client and role, and the released ones whose thread
+/// was stuck in the driver: kept apart, never handed to a client, until a
+/// later release finds them ended.
 #[derive(Default)]
-pub struct Pool(Mutex<BTreeMap<String, Entry>>);
+pub struct Pool(
+    Mutex<BTreeMap<String, Entry>>,
+    Mutex<Vec<Arc<GamepadThread>>>,
+);
 impl Pool {
     pub fn acquire(&self, launch: &Launch, config: &Config) -> Result<Arc<GamepadThread>> {
         let key = format!("{}:{:?}", launch.client.uuid, launch.role);
@@ -90,34 +96,44 @@ impl Pool {
     // lifecycle changes.
     #[allow(dead_code)]
     pub fn release_parked(&self, timeout: Duration) -> Result<u32> {
-        let parked: Vec<Entry> = {
+        let parked: Vec<Arc<GamepadThread>> = {
             let mut entries = self.0.lock().unwrap();
             let keys: Vec<String> = entries
                 .iter()
                 .filter(|(_, entry)| Arc::strong_count(&entry.pads) == 1)
                 .map(|(key, _)| key.clone())
                 .collect();
-            keys.iter().filter_map(|key| entries.remove(key)).collect()
+            keys.iter()
+                .filter_map(|key| entries.remove(key))
+                .map(|entry| entry.pads)
+                .collect()
         };
-        let plugged = parked.iter().map(|entry| entry.pads.plugged_pads()).sum();
-        for entry in &parked {
-            entry.pads.request_stop();
+        let stuck = std::mem::take(&mut *self.1.lock().unwrap());
+        let released = parked.len();
+        let all: Vec<Arc<GamepadThread>> = stuck.into_iter().chain(parked).collect();
+        let plugged = all.iter().map(|pads| pads.plugged_pads()).sum();
+        for pads in &all {
+            pads.request_stop();
         }
-        // Each is stopped, so none is waited for again when dropped here.
         let deadline = Instant::now() + timeout;
         let mut failed = None;
-        for entry in &parked {
+        let mut still = Vec::new();
+        for pads in all {
             let left = deadline.saturating_duration_since(Instant::now());
-            if let Err(error) = entry.pads.stop_within(left) {
+            if let Err(error) = pads.stop_within(left) {
                 failed.get_or_insert(error);
+                still.push(pads);
             }
+        }
+        if !still.is_empty() {
+            self.1.lock().unwrap().extend(still);
         }
         if let Some(error) = failed {
             return Err(error.context("a stream's parked controllers are still plugged in"));
         }
-        if !parked.is_empty() {
+        if released > 0 {
             tracing::info!(
-                streams = parked.len(),
+                streams = released,
                 pads = plugged,
                 "parked controllers released for Nucleus Co-op"
             );

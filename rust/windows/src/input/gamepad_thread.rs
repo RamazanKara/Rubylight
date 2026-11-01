@@ -429,28 +429,36 @@ impl GamepadThread {
     /// it is never waited for again: a later call fails at once while it
     /// still runs, and is Ok once it ended. Dropping it then doesn't wait.
     pub fn stop_within(&self, timeout: Duration) -> Result<()> {
-        let Some(thread) = self.stop() else {
-            return Ok(());
-        };
+        self.request_stop();
         let deadline = match self.abandoned.load(Ordering::Acquire) {
             true => Instant::now(),
             false => Instant::now() + timeout,
         };
-        while !thread.is_finished() {
+        loop {
+            // The handle stays put while it runs, so callers at the same
+            // time all wait for it and all see how it ends.
+            let mut slot = self.thread.lock().unwrap();
+            let Some(thread) = slot.as_ref() else {
+                return Ok(());
+            };
+            if thread.is_finished() {
+                let thread = slot.take().expect("checked above");
+                drop(slot);
+                if thread.join().is_err() {
+                    // Unwinding dropped the pads too.
+                    tracing::warn!("the virtual controllers' thread panicked");
+                }
+                return Ok(());
+            }
             if Instant::now() >= deadline {
                 self.abandoned.store(true, Ordering::Release);
-                *self.thread.lock().unwrap() = Some(thread);
                 anyhow::bail!(
                     "the virtual controllers did not unplug: the virtual gamepad driver isn't responding, so restart Rubylight and start again"
                 );
             }
+            drop(slot);
             std::thread::sleep(Duration::from_millis(5));
         }
-        if thread.join().is_err() {
-            // Unwinding dropped the pads too.
-            tracing::warn!("the virtual controllers' thread panicked");
-        }
-        Ok(())
     }
 }
 impl Drop for GamepadThread {
@@ -1184,8 +1192,8 @@ pub(crate) mod tests {
         assert!(started.elapsed() < Duration::from_secs(5));
         // Once it ended, it is done.
         gate.open();
-        gate.wait_until(|| log.lock().unwrap().iter().any(|e| e == "unplugged"));
-        pads.stop_within(Duration::from_secs(60)).unwrap();
+        gate.wait_until(|| pads.stop_within(Duration::ZERO).is_ok());
+        assert!(log.lock().unwrap().iter().any(|e| e == "unplugged"));
 
         // Dropping one still stuck returns at once.
         let (pads, gate, log) = fake();
@@ -1196,6 +1204,27 @@ pub(crate) mod tests {
         assert!(!log.lock().unwrap().iter().any(|e| e == "unplugged"));
         gate.open();
         gate.wait_until(|| log.lock().unwrap().iter().any(|e| e == "unplugged"));
+    }
+
+    /// What a Nucleus Co-op launch counts as plugged among the parked pads
+    /// it releases (#56).
+    #[test]
+    fn plugged_pads_count_parked_ones_until_the_client_releases_them() {
+        let (pads, gate, _) = fake();
+        gate.open();
+        assert_eq!(pads.plugged_pads(), 0);
+        pads.send(Event::Arrival {
+            id: 1,
+            kind: 2,
+            capabilities: 0,
+            buttons: 0,
+        });
+        assert!(pads.wait_ready(2, Duration::from_secs(1)));
+        assert_eq!(pads.plugged_pads(), 1);
+        pads.park();
+        assert_eq!(pads.plugged_pads(), 1);
+        pads.send(state(1, 0, 0, 0));
+        gate.wait_until(|| pads.plugged_pads() == 0);
     }
 
     #[test]

@@ -712,8 +712,8 @@ pub(crate) mod tests {
         assert_eq!(abandoned(), 1);
 
         gate.open();
-        gate.wait_until(|| log.lock().unwrap().iter().any(|e| e == "unplugged"));
-        next.retire_earlier().unwrap();
+        gate.wait_until(|| next.retire_earlier().is_ok());
+        assert!(log.lock().unwrap().iter().any(|e| e == "unplugged"));
         assert_eq!(abandoned(), 0);
     }
 

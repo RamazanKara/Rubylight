@@ -89,7 +89,7 @@ You can change a setting when the host marks it configurable, the device has **H
 - The first screen is Home when **Open on Home** is on and a library exists, otherwise PCs. Back from either of the other two returns to the first screen; Back there leaves the app.
 - Switching does not stack screens. A game's page belongs to Home and stays underneath when you open PCs or Settings from it; Back from PCs then returns to Home, not to the game page, and **Home** in the bar closes the game page.
 - Settings opened from a menu or with **Ctrl+,** closes on Back.
-- Help is under **Settings → App → Help**, on **F1**, and in the pairing guide. On Windows and Linux, **Help** is the fourth place in the bar, after Settings, and opens on **F1** or **?** from any page.
+- Help is under **Settings → App → Help**, on **F1**, and in the pairing guide. On Windows and Linux, **Help** is in the bar right after Settings, and opens on **F1** or **?** from any page.
 
 ### PC options on Android
 
@@ -108,7 +108,7 @@ The same **Rename**, **Unpair** and **Remove PC** actions are in the PC's settin
 
 The header lists **Home**, **PCs** and **Settings**; **Home** appears when a PC has a library. Back from PCs or Settings returns to Home, or to PCs when Home is off. **Start** on a controller opens Settings from a library or game page, and Back returns to that page. Settings has the sections **Video**, **Display & image**, **Controls**, **Audio**, **Streaming**, **App** and **Advanced**, with a chip for each at the top.
 
-A PC's options open with **F2** (the controller's West button), **Shift+F10**, a right-click or the three dots on its card: **Open library** or **Pair**, **Resume** and **Quit running app**, **Pair with one-time PIN**, **Wake up**, **PC settings**, **Rename**, **Unpair** or **Pairing help**, **Check again** and **Remove PC**. **Ctrl+N** adds a PC by address. Rename, Unpair and Remove behave as on Android; Unpair needs the PC online, and this device keeps its pairing until the PC confirms.
+A PC's options open with **F2** (the controller's West button), **Shift+F10**, a right-click or the three dots on its card: **Open library** or **Pair**, **Resume** and **Quit running app**, **Pair with one-time PIN**, **Wake up**, **PC settings**, **Rename**, **Unpair** or **Pairing help**, **Check again** and **Remove PC**. **Ctrl+N** on the PCs page adds a PC by address. Rename, Unpair and Remove behave as on Android; Unpair needs the PC online, and this device keeps its pairing until the PC confirms.
 
 ## Accessibility on Android
 

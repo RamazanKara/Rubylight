@@ -350,7 +350,7 @@ Quitting uses the standard Moonlight request, so it works with any compatible ho
 
 ### App navigation
 
-Outside a stream, use D-pad/Tab to navigate and Enter/A to select. Long-press Select or use Menu/Shift+F10 for PC and app actions. **Ctrl+N** adds a PC, **Ctrl+,** opens Settings, **Ctrl+F** searches Settings, **F1** opens Help, and **Esc/B** goes back.
+Outside a stream, use D-pad/Tab to navigate and Enter/A to select. Long-press Select or use Menu/Shift+F10 for PC and app actions. **Ctrl+N** on the PCs page adds a PC, **Ctrl+,** opens Settings, **Ctrl+F** searches Settings, **F1** opens Help, and **Esc/B** goes back.
 
 In Settings, Right opens the selected switch's help (Left in RTL). TV settings put Controls first; choose **Map a button** before capturing a controller mapping. Settings search includes every group, including Advanced; preset chips show the matching preset, Default before you change anything, or Custom.
 
@@ -383,9 +383,9 @@ The desktop client takes a keyboard, a mouse, a touchpad and controllers. It has
 | Input | What it does |
 | --- | --- |
 | Ctrl+Alt+Shift+Tab, or Start+Back on a controller | Open or close the stream controls. With **Back opens stream controls** on, the controller's Back button opens them alone. |
-| Ctrl+Alt+Shift+H | Show the stream's keyboard and controller shortcuts; again, or Esc, closes them. **Shortcuts & help** in the stream controls shows the same list. |
+| Ctrl+Alt+Shift+H | Show the stream's keyboard and controller shortcuts; again, or Esc, closes them. **Shortcuts & help** in the stream controls shows the same list, and Esc or B from there goes back to the stream controls; the chord on the **Session and graphics** page shows the list over the stream controls. |
 | Ctrl+Alt+Shift+V / Ctrl+Alt+Shift+C | Send this computer's clipboard to the PC / copy the PC's clipboard here. |
-| Ctrl+Alt+Shift+Q, or the controller quit combo | Leave the stream. The combo is Start+Select+LB+RB by default, and **Controller quit combo** offers five others. |
+| Ctrl+Alt+Shift+Q, or the controller quit combo | Leave the stream. The combo is Start+Select+LB+RB by default, and **Controller quit combo** offers five others. With **Back opens stream controls** on, a combo with Select works as long as Select isn't the first of its buttons pressed. |
 | Ctrl+Alt+Shift+Z | Release or capture input. |
 | Ctrl+Alt+Shift+S | Show or hide the performance overlay. |
 | Ctrl+Alt+Shift+M | Switch between **Captured** and **Desktop pointer** mouse modes. |
@@ -394,7 +394,7 @@ The desktop client takes a keyboard, a mouse, a touchpad and controllers. It has
 | F12 | Save a screenshot of the window to the `screenshots` folder in the configuration folder. |
 | Hold Start for 750 ms on a controller | Toggle controller mouse mode: the stick moves the pointer, A and B click and the D-pad scrolls. |
 
-Outside a stream, **F1** opens **Help** from any page, and so does **?** when no text field has focus; Help is also in the top bar next to Settings. It lists every shortcut above and those of the launcher (arrow keys or Tab to move, Enter to select, Esc to go back, F2 or Shift+F10 for a PC's or game's options, Ctrl+N to add a PC, Ctrl+Plus, Ctrl+Minus and Ctrl+0 to zoom, F11 for full screen), the controller's buttons in the layout of the controller you use, how to share the clipboard, files, folders and USB devices, and fixes for the most common problems. The stream controls show each action's shortcut at its right edge.
+Outside a stream, **F1** opens **Help** from any page, and so does **?** when no text field has focus; Help is also in the top bar next to Settings. It lists every shortcut above and those of the launcher (arrow keys or Tab to move, Enter to select, Esc to go back, F2 or Shift+F10 for a PC's or game's options, Ctrl+N on the PCs page to add a PC, Ctrl+Plus, Ctrl+Minus and Ctrl+0 to zoom, F11 for full screen), the controller's buttons in the layout of the controller you use, how to share the clipboard, files, folders and USB devices, and fixes for the most common problems. The stream controls show each action's shortcut at its right edge.
 
 - **Keyboard:** with **Send system keys** on, Alt+Tab, the Windows key and similar go to the PC while input is captured. **Right Alt as Windows key** helps on keyboards without one. Saved key chords are sent from the stream controls, and import and export in the Android app's shortcut format.
 - **Mouse:** **Captured** sends relative motion for games; **Desktop pointer** sends absolute positions for desktop work and, with **Local cursor** on, draws the PC's cursor shape on this computer from hosts that send it. High-resolution scrolling and the mouse's Back and Forward buttons are sent.

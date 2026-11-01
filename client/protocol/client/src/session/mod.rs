@@ -539,6 +539,17 @@ pub struct Session {
     parts: Parts,
 }
 
+/// [`Session::input`] from any thread ([`Session::input_handle`]); input sent after the
+/// session stopped is refused, as on the session itself.
+#[derive(Clone)]
+pub struct InputHandle(ControlHandle);
+
+impl InputHandle {
+    pub fn input<R>(&self, f: impl FnOnce(&mut InputQueue) -> R) -> R {
+        self.0.with_input(f)
+    }
+}
+
 impl Session {
     /// Connects and starts streaming; blocks until the stream runs or a stage fails. Every
     /// stage is reported to `listener` as it starts, completes or fails.
@@ -645,6 +656,11 @@ impl Session {
     /// motion and battery events.
     pub fn input<R>(&self, f: impl FnOnce(&mut InputQueue) -> R) -> R {
         self.control().with_input(f)
+    }
+
+    /// The input queue for another thread, such as the one reading the mouse.
+    pub fn input_handle(&self) -> InputHandle {
+        InputHandle(self.control().clone())
     }
 
     /// `LiRequestIdrFrame`: drops pending invalidations and asks for a key frame.

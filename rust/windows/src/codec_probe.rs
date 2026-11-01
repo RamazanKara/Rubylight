@@ -197,12 +197,7 @@ fn run(config: &Config, packed: Option<&Negotiated>, stop: &dyn Fn() -> bool) ->
         adapter_pnp_id: config.get("adapter_pnp_id", "").into(),
         packed: packed.cloned(),
         encoder_options: if packed.is_some() {
-            config
-                .values
-                .iter()
-                .filter(|(key, _)| key.starts_with("amd_") || key.as_str() == "encoder")
-                .map(|(key, value)| (key.clone(), value.clone()))
-                .collect()
+            encoder_options(config)
         } else {
             BTreeMap::new()
         },
@@ -245,6 +240,19 @@ fn run(config: &Config, packed: Option<&Negotiated>, stop: &dyn Fn() -> bool) ->
         }
         Reply::Error { message } => bail!("optional codec probe: {message}"),
     }
+}
+
+/// The settings the packed probe's encoder reads: the encoder choice and
+/// the AMF or NVENC tuning, so it tests what a stream would open.
+fn encoder_options(config: &Config) -> BTreeMap<String, String> {
+    config
+        .values
+        .iter()
+        .filter(|(key, _)| {
+            key.starts_with("amd_") || key.starts_with("nvenc_") || key.as_str() == "encoder"
+        })
+        .map(|(key, value)| (key.clone(), value.clone()))
+        .collect()
 }
 
 fn probe(request: &Request) -> Result<Reply> {
@@ -418,6 +426,19 @@ pub fn worker(name: &str, parent: u32) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn the_packed_probe_gets_the_encoder_settings_of_either_vendor() {
+        let config = Config::parse(
+            "encoder = nvenc\nnvenc_preset = 4\namd_quality = quality\nadapter_name = GPU\nport = 48123\n",
+        )
+        .unwrap();
+        let options = encoder_options(&config);
+        assert_eq!(
+            options.keys().map(String::as_str).collect::<Vec<_>>(),
+            ["amd_quality", "encoder", "nvenc_preset"]
+        );
+        assert_eq!(options["nvenc_preset"], "4");
+    }
     #[test]
     fn optional_codec_worker_exit_and_stall_end_the_probe_with_an_error() {
         let start = Instant::now();

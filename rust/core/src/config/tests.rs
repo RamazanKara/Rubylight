@@ -1243,15 +1243,38 @@ fn retired_vigem_controllers_become_their_vhf_pads() {
     );
     assert!(!replace_retired_in_app(app.as_object_mut().unwrap()));
 }
+/// Every setting the NVENC encoder reads (nvenc.rs) stays in the
+/// configuration, and an app or a device may override it as the AMF ones.
+#[test]
+fn nvenc_settings_are_kept_and_overridable() {
+    let source = include_str!("../nvenc.rs");
+    let keys: std::collections::BTreeSet<&str> = source
+        .match_indices("\"nvenc_")
+        .filter_map(|(at, _)| source[at + 1..].split('"').next())
+        .filter(|key| {
+            key.bytes()
+                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
+        })
+        .collect();
+    assert!(keys.len() >= 16, "{keys:?}");
+    for key in keys {
+        assert!(super::override_allowed(key), "{key}");
+        assert!(!super::removed(key), "{key}");
+        let (config, retired) = Config::parse_retiring(&format!("{key} = 1\n")).unwrap();
+        assert_eq!(config.get(key, ""), "1", "{key}");
+        assert!(retired.is_empty(), "{key}");
+    }
+}
 /// A Vibepollo or Rubylight 2.0 file with every setting under its
 /// earlier name, a setting this host does not know, and a comment.
-const EARLIER_NAMES: &str = "# Vibepollo\nrtss_path = D:\\Tools\\RTSS\ndd_vdd_static_monitor_count = \"2\"\nrtx_hdr_peak_brightness = 1400\nport = 48123\nfuture_setting = kept\n";
+const EARLIER_NAMES: &str = "# Vibepollo\nrtss_path = D:\\Tools\\RTSS\nnvenc_force_split_encode = driver_decides\ndd_vdd_static_monitor_count = \"2\"\nrtx_hdr_peak_brightness = 1400\nport = 48123\nfuture_setting = kept\n";
 #[test]
 fn settings_under_an_earlier_name_are_read_under_the_current_one() {
     let c = Config::parse(EARLIER_NAMES).unwrap();
     // What the host used before through its fallbacks, now under the
     // names the console shows.
     assert_eq!(c.get("rtss_install_path", ""), "D:\\Tools\\RTSS");
+    assert_eq!(c.get("nvenc_split_encode", "auto"), "driver_decides");
     assert_eq!(c.integer("dd_virtual_display_permanent_count", -1), 2);
     assert_eq!(c.integer("hdr_peak_brightness", 0), 1400);
     for (old, _) in RENAMED_KEYS {
@@ -1261,12 +1284,13 @@ fn settings_under_an_earlier_name_are_read_under_the_current_one() {
     assert_eq!(c.port().unwrap(), 48123);
     // With both names set the host read the current one; it stays.
     let both = Config::parse(
-            "rtss_install_path = C:\\RTSS\nrtss_path = D:\\RTSS\ndd_virtual_display_permanent_count = 0\ndd_vdd_static_monitor_count = 3\n",
+            "rtss_install_path = C:\\RTSS\nrtss_path = D:\\RTSS\nnvenc_split_encode = disabled\nnvenc_force_split_encode = forced\ndd_virtual_display_permanent_count = 0\ndd_vdd_static_monitor_count = 3\n",
         )
         .unwrap();
     assert_eq!(both.get("rtss_install_path", ""), "C:\\RTSS");
+    assert_eq!(both.get("nvenc_split_encode", ""), "disabled");
     assert_eq!(both.integer("dd_virtual_display_permanent_count", -1), 0);
-    assert_eq!(both.values.len(), 2);
+    assert_eq!(both.values.len(), 3);
     assert_eq!(current_name("rtss_path"), "rtss_install_path");
     assert_eq!(current_name("rtss_install_path"), "rtss_install_path");
     assert_eq!(current_name("port"), "port");

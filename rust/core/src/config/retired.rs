@@ -85,6 +85,7 @@ pub fn retired_warning(retired: &[Retired]) -> Option<String> {
 /// under both names.
 pub const RENAMED_KEYS: &[(&str, &str)] = &[
     ("rtss_path", "rtss_install_path"),
+    ("nvenc_force_split_encode", "nvenc_split_encode"),
     (
         "dd_vdd_static_monitor_count",
         "dd_virtual_display_permanent_count",

@@ -250,6 +250,10 @@ struct Format {
     /// D3D11VA: make the decoder's textures readable by shaders (`stream::direct`).
     #[cfg(windows)]
     bind_textures: bool,
+    /// Vulkan video: the pictures the device was checked for, whose two-plane format the frames
+    /// context is made in (`vulkan_video::frames_context`).
+    #[cfg(unix)]
+    vulkan: Option<Pictures>,
 }
 
 unsafe extern "C" fn select_format(
@@ -264,6 +268,14 @@ unsafe extern "C" fn select_format(
             if wanted.bind_textures && *next == AV_PIX_FMT_D3D11 {
                 if let Err(reason) = bind_frames(context, *next) {
                     eprintln!("nightjar: the decoder's textures cannot be made readable ({reason}); its pictures are copied instead");
+                }
+            }
+            #[cfg(unix)]
+            if let Some(pictures) = wanted.vulkan {
+                if let Err(reason) = crate::vulkan_video::frames_context(context, pictures) {
+                    // `receive` then names the software fallback on the overlay.
+                    eprintln!("nightjar: Vulkan video cannot decode into the presenter's format: {reason}");
+                    break;
                 }
             }
             return *next;
@@ -448,6 +460,8 @@ impl VideoDecoder {
                     required: require_hardware,
                     #[cfg(windows)]
                     bind_textures: false,
+                    #[cfg(unix)]
+                    vulkan: matches!(hardware, Hardware::Vulkan(_)).then_some(pictures),
                 }),
                 name: CStr::from_ptr((*found).name).to_string_lossy().into_owned(),
                 hardware,

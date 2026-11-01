@@ -297,6 +297,8 @@ fn running_here(source: &Source<'_>, game: &Game) -> bool {
 /// games show it, and the Installed chip leaves it out).
 pub fn merge_library(sources: &[Source<'_>]) -> Vec<Entry> {
     let mut entries: Vec<Entry> = Vec::new();
+    // Where each key's entry is, so a large library merges in one pass.
+    let mut index: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
     for source in sources {
         let Some(library) = source.library else { continue };
         for game in &library.games {
@@ -317,9 +319,12 @@ pub fn merge_library(sources: &[Source<'_>]) -> Vec<Entry> {
                 cover_version: game.artwork.version.clone(),
                 has_cover: game.artwork.cover.is_some(),
             };
-            match entries.iter_mut().find(|e| e.key == key) {
-                Some(entry) => entry.copies.push(copy),
-                None => entries.push(Entry { key, title: game.title.clone(), copies: vec![copy] }),
+            match index.get(&key) {
+                Some(&at) => entries[at].copies.push(copy),
+                None => {
+                    index.insert(key.clone(), entries.len());
+                    entries.push(Entry { key, title: game.title.clone(), copies: vec![copy] });
+                }
             }
         }
     }
@@ -794,6 +799,24 @@ mod tests {
         assert_eq!(store_name("microsoft", ""), "Xbox");
         assert_eq!(store_name("battlenet", " "), "Battle.net");
         assert_eq!(store_name("itch", ""), "itch");
+    }
+
+    /// The merge keeps its order: entries by title, equal titles in the order the PCs listed them,
+    /// and each game's copies by running, installed, online, then PC order.
+    #[test]
+    fn the_merged_library_keeps_title_then_listing_order() {
+        let a = store_library(&[("Same", "", "", true), ("beta", "steam", "", true), ("Alpha", "steam", "", true)]);
+        let mut b = store_library(&[("same", "", "", true), ("Beta", "steam", "", false)]);
+        // B's "Beta" is A's "beta" by its game id; its "same" has no store, so it stays its own.
+        b.games[1].game_id = a.games[1].game_id.clone();
+        let sources = [source(1, "A", true, Some(&a), None), source(2, "B", true, Some(&b), None)];
+        let merged = merge_library(&sources);
+        let got: Vec<(&str, Vec<u64>)> = merged.iter().map(|e| (e.title.as_str(), e.copies.iter().map(|c| c.host).collect())).collect();
+        assert_eq!(got, [("Alpha", vec![1]), ("beta", vec![1, 2]), ("Same", vec![1]), ("same", vec![2])]);
+        // B listed first: its not-installed copy still comes after A's installed one.
+        let sources = [source(2, "B", true, Some(&b), None), source(1, "A", true, Some(&a), None)];
+        let beta = merge_library(&sources).into_iter().find(|e| e.title == "Beta").unwrap();
+        assert_eq!(beta.copies.iter().map(|c| c.host).collect::<Vec<_>>(), [1, 2]);
     }
 
     #[test]

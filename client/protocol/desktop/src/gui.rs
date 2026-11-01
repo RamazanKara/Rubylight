@@ -166,7 +166,7 @@ pub fn follow_focus(ui: &mut egui::Ui, last: &mut Option<egui::Id>) {
 /// [`follow_focus`] for a scroll area without a place of its own for the last focus: egui's memory
 /// keeps it under the content's id. Call it first in the scroll area's content.
 pub fn follow_focus_here(ui: &mut egui::Ui) {
-    let key = ui.id().with("follow-focus");
+    let key = ui.scope_id().with("follow-focus");
     let mut last = ui.data(|d| d.get_temp::<Option<egui::Id>>(key)).flatten();
     follow_focus(ui, &mut last);
     ui.data_mut(|d| d.insert_temp(key, last));

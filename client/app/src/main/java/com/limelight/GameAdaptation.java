@@ -195,6 +195,7 @@ final class GameAdaptation {
         EditText input = new com.google.android.material.textfield.TextInputEditText(game);
         input.setMinHeight(Math.round(48 * game.getResources().getDisplayMetrics().density));
         input.setSingleLine(true);
+        BitrateSlider.moveFocusOnUpDown(input);
         field.addView(input);
         input.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_DECIMAL);
         int bitrateKbps = game.currentBitrate == 0 ? game.prefConfig.bitrate : game.currentBitrate;
@@ -331,6 +332,7 @@ final class GameAdaptation {
         EditText input = new com.google.android.material.textfield.TextInputEditText(game);
         input.setMinHeight(Math.round(48 * density));
         input.setSingleLine(true);
+        BitrateSlider.moveFocusOnUpDown(input);
         input.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_DECIMAL);
         input.setText(text);
         field.addView(input);

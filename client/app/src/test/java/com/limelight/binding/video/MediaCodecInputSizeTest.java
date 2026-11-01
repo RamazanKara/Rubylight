@@ -25,21 +25,30 @@ import static org.junit.Assert.assertTrue;
 public class MediaCodecInputSizeTest {
     @Test
     public void ordinaryBitratesKeepTheDecodersOwnSize() {
-        assertEquals(0, MediaCodecDecoderRenderer.maxInputSize(80000, 60));
-        assertEquals(0, MediaCodecDecoderRenderer.maxInputSize(250000, 120));
-        assertEquals(0, MediaCodecDecoderRenderer.maxInputSize(0, 60));
-        assertEquals(0, MediaCodecDecoderRenderer.maxInputSize(500000, 0));
+        assertEquals(0, MediaCodecDecoderRenderer.maxInputSize(80000, 60, 1920, 1080));
+        assertEquals(0, MediaCodecDecoderRenderer.maxInputSize(250000, 120, 1920, 1080));
+        assertEquals(0, MediaCodecDecoderRenderer.maxInputSize(0, 60, 3840, 2160));
+        assertEquals(0, MediaCodecDecoderRenderer.maxInputSize(500000, 0, 3840, 2160));
     }
 
     @Test
     public void highBitratesFitFourAverageFrames() {
         // 1 Gbps at 60 FPS averages 2083333 bytes a frame.
-        assertEquals(8333332, MediaCodecDecoderRenderer.maxInputSize(1000000, 60));
+        assertEquals(8333332, MediaCodecDecoderRenderer.maxInputSize(1000000, 60, 1920, 1080));
+    }
+
+    @Test
+    public void largeStreamsFitAKeyframeOfAByteAPixel() {
+        // Issue 56: a 4K keyframe at 160 Mbps was 4.4 MB and the MediaTek decoder gave 4 MB, so
+        // the buffer grew by restarting the decoder mid-stream.
+        assertEquals(3840 * 2160, MediaCodecDecoderRenderer.maxInputSize(158988, 60, 3840, 2160));
+        assertTrue(MediaCodecDecoderRenderer.maxInputSize(158988, 60, 3840, 2160) > 4462353);
+        assertEquals(2560 * 1440, MediaCodecDecoderRenderer.maxInputSize(80000, 60, 2560, 1440));
     }
 
     @Test
     public void inputSizeIsCapped() {
-        assertEquals(32 * 1024 * 1024, MediaCodecDecoderRenderer.maxInputSize(2000000, 24));
+        assertEquals(32 * 1024 * 1024, MediaCodecDecoderRenderer.maxInputSize(2000000, 24, 3840, 2160));
     }
 
     @Test

@@ -2008,12 +2008,14 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     }
 
     // Decoders size their input buffers for ordinary video, and a frame that doesn't fit ends the
-    // stream. Above about 125 Mbps at 60 FPS, ask for room for four average frames instead.
-    static int maxInputSize(int bitrateKbps, int fps) {
+    // stream. Above about 125 Mbps at 60 FPS, ask for room for four average frames instead, and
+    // above 1080p for a byte per pixel: a 4K keyframe at 160 Mbps came to 4.4 MB on a MediaTek TV
+    // whose decoder gave 4 MB, and growing the buffer restarts the decoder mid-stream (issue 56).
+    static int maxInputSize(int bitrateKbps, int fps, int width, int height) {
         if (bitrateKbps <= 0 || fps <= 0) {
             return 0;
         }
-        long bytes = (long) bitrateKbps * 1000 / 8 / fps * 4;
+        long bytes = Math.max((long) bitrateKbps * 1000 / 8 / fps * 4, (long) Math.max(width, 0) * Math.max(height, 0));
         if (bytes <= 2 * 1024 * 1024) {
             return 0;
         }
@@ -2073,7 +2075,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             videoFormat.setInteger(MediaFormat.KEY_FRAME_RATE, refreshRate);
         }
 
-        int maxInputSize = maxInputSize(prefs.bitrate, prefs.fps);
+        int maxInputSize = maxInputSize(prefs.bitrate, prefs.fps, initialWidth, initialHeight);
         if (maxInputSize > 0) {
             videoFormat.setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, maxInputSize);
         }

@@ -3,6 +3,8 @@ package com.limelight.utils;
 import android.app.Activity;
 import android.content.ActivityNotFoundException;
 import android.content.ClipData;
+import android.content.ComponentName;
+import android.content.Context;
 import android.content.Intent;
 import android.net.Uri;
 import android.os.Build;
@@ -13,6 +15,7 @@ import androidx.core.content.FileProvider;
 import com.limelight.BuildConfig;
 import com.limelight.LimeLog;
 import com.limelight.R;
+import com.limelight.files.FileTransferActivity;
 import com.limelight.nvstream.jni.StreamEngine;
 import com.limelight.ui.NavigationDialogBuilder;
 
@@ -45,35 +48,60 @@ public final class ProblemReport {
                 .setMessage(R.string.report_problem_details)
                 .setNegativeButton(android.R.string.cancel, null)
                 .setPositiveButton(R.string.report_problem_share, (dialog, which) -> share(activity))
+                // A TV's share sheet may offer no app that takes a file: the report goes to a PC directly.
+                .setNeutralButton(R.string.files_share_label, (dialog, which) -> sendToPc(activity))
                 .show();
     }
 
     static void share(Activity activity) {
         try {
-            File directory = new File(activity.getCacheDir(), "reports");
-            if (!directory.isDirectory() && !directory.mkdirs()) {
-                throw new IOException("Cannot create report directory");
-            }
-            File report = new File(directory, "nightjar-problem.txt");
-            String text = BuildConfig.BRAND_NAME + " " + BuildConfig.VERSION_NAME + " / Android API " + Build.VERSION.SDK_INT
-                    + "\nRedacted event log for this app process, oldest first (up to 200 entries)."
-                    + "\nAddresses, user-assigned device/host names, PINs, credentials and free-text diagnostic details are omitted.\n\n"
-                    + engineSection()
-                    + "Last decoder configuration:\n" + decoderDiagnostics + "\n\n"
-                    + "Last audio configuration:\n" + audioDiagnostics + "\n\n"
-                    + LimeLog.getRedactedLog() + "\n\nLast crash record:\n" + CrashCapture.lastReport(activity);
-            try (FileOutputStream output = new FileOutputStream(report)) {
-                output.write(text.getBytes(StandardCharsets.UTF_8));
-            }
-            Uri uri = FileProvider.getUriForFile(activity, BuildConfig.APPLICATION_ID + ".reports", report);
+            Uri uri = write(activity);
             Intent intent = new Intent(Intent.ACTION_SEND).setType("text/plain")
                     .putExtra(Intent.EXTRA_STREAM, uri)
                     .putExtra(Intent.EXTRA_SUBJECT, activity.getString(R.string.report_problem))
                     .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
             intent.setClipData(ClipData.newRawUri("Problem report", uri));
-            activity.startActivity(Intent.createChooser(intent, activity.getString(R.string.report_problem_share)));
+            Intent chooser = Intent.createChooser(intent, activity.getString(R.string.report_problem_share));
+            // Nightjar's own Send to PC takes no file from the share sheet that is Nightjar's: Send to PC above does.
+            chooser.putExtra(Intent.EXTRA_EXCLUDE_COMPONENTS,
+                    new ComponentName[] {new ComponentName(activity, FileTransferActivity.class)});
+            activity.startActivity(chooser);
         } catch (IOException | ActivityNotFoundException e) {
             Toast.makeText(activity, R.string.report_problem_failed, Toast.LENGTH_LONG).show();
         }
+    }
+
+    /** Opens the file screen with the report, through the alias that may send it; it asks which PC. */
+    static void sendToPc(Activity activity) {
+        try {
+            activity.startActivity(sendToPcIntent(activity, write(activity)));
+        } catch (IOException | ActivityNotFoundException e) {
+            Toast.makeText(activity, R.string.report_problem_failed, Toast.LENGTH_LONG).show();
+        }
+    }
+
+    public static Intent sendToPcIntent(Context context, Uri report) {
+        return new Intent(Intent.ACTION_SEND).setClassName(context, FileTransferActivity.REPORT_ALIAS)
+                .setType("text/plain").putExtra(Intent.EXTRA_STREAM, report);
+    }
+
+    /** Writes the report to the reports provider's folder and returns its content URI. */
+    private static Uri write(Activity activity) throws IOException {
+        File directory = new File(activity.getCacheDir(), "reports");
+        if (!directory.isDirectory() && !directory.mkdirs()) {
+            throw new IOException("Cannot create report directory");
+        }
+        File report = new File(directory, "nightjar-problem.txt");
+        String text = BuildConfig.BRAND_NAME + " " + BuildConfig.VERSION_NAME + " / Android API " + Build.VERSION.SDK_INT
+                + "\nRedacted event log for this app process, oldest first (up to 200 entries)."
+                + "\nAddresses, user-assigned device/host names, PINs, credentials and free-text diagnostic details are omitted.\n\n"
+                + engineSection()
+                + "Last decoder configuration:\n" + decoderDiagnostics + "\n\n"
+                + "Last audio configuration:\n" + audioDiagnostics + "\n\n"
+                + LimeLog.getRedactedLog() + "\n\nLast crash record:\n" + CrashCapture.lastReport(activity);
+        try (FileOutputStream output = new FileOutputStream(report)) {
+            output.write(text.getBytes(StandardCharsets.UTF_8));
+        }
+        return FileProvider.getUriForFile(activity, BuildConfig.APPLICATION_ID + ".reports", report);
     }
 }

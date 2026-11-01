@@ -90,6 +90,22 @@ public class FileTransferScreenTest {
     }
 
     @Test
+    public void onlyTheReportAliasSendsNightjarsReportAndNothingElseOfItsOwn() {
+        String own = "com.butterpollo.client";
+        Uri report = Uri.parse("content://com.butterpollo.client.reports/r/nightjar-problem.txt");
+        assertTrue(FileTransferActivity.sendable(report, own, own, true));
+        assertFalse(FileTransferActivity.sendable(report, own, own, false));
+        // Another of Nightjar's providers, or a user-prefixed authority, stays refused through the alias too.
+        assertFalse(FileTransferActivity.sendable(Uri.parse("content://com.butterpollo.client.files/x"), own, own, true));
+        assertFalse(FileTransferActivity.sendable(Uri.parse("content://0@com.butterpollo.client.reports/r/x"),
+                own, null, true));
+        assertFalse(FileTransferActivity.sendable(Uri.parse("file:///data/data/com.butterpollo.client/x"), own, null, true));
+        // Other apps' files go as before.
+        assertTrue(FileTransferActivity.sendable(Uri.parse("content://media/external/1"), own,
+                "com.android.providers.media", true));
+    }
+
+    @Test
     public void eachRowSaysWhereItIs() {
         String head = "\"direction\":\"upload\",\"name\":\"a_.txt\",\"local_name\":\"a?.txt\",\"size\":2048,";
         assertEquals(context.getString(R.string.files_queued),

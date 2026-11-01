@@ -175,6 +175,94 @@ public class FileTransferRecreationTest {
         screen.pause().stop().destroy();
     }
 
+    @Test
+    public void aPollThatChangesNothingKeepsThePcButtonsSoAPressLands() {
+        Intent share = new Intent(app, FileTransferActivity.class).setAction(Intent.ACTION_SEND)
+                .putExtra(Intent.EXTRA_STREAM, SHARED);
+        ActivityController<FileTransferActivity> screen = Robolectric.buildActivity(FileTransferActivity.class, share)
+                .setup();
+        FileTransferActivity activity = screen.get();
+        activity.work.engine = new Engine();
+        View root = activity.getWindow().getDecorView();
+        poll(activity, NativeApiFixtures.nativeHost("tower-uuid", "Tower", true));
+        View button = find(root, "Tower");
+        button.setFocusableInTouchMode(true);
+        assertTrue(button.requestFocus());
+        button.setPressed(true);
+        // Every PC is polled every 1.5 s: the buttons were made again each time, so a remote's OK or a tap that
+        // was pressed on one was let go on a button no longer on the screen, and nothing happened (issue 56).
+        poll(activity, NativeApiFixtures.nativeHost("tower-uuid", "Tower", true));
+        assertSame(button, find(root, "Tower"));
+        assertTrue(button.isAttachedToWindow());
+        assertTrue(button.isPressed());
+        assertTrue(button.isFocused());
+        // Another PC coming online makes the buttons again; the focus stays on the PC it was on.
+        poll(activity, NativeApiFixtures.nativeHost("desk-uuid", "Desk", true));
+        assertTrue(shows(root, "Desk"));
+        View again = find(root, "Tower");
+        assertTrue(again.isFocused());
+        again.performClick();
+        assertEquals("tower-uuid", activity.work.uuid);
+        screen.get().finish();
+        screen.pause().stop().destroy();
+    }
+
+    @Test
+    public void progressKeepsATransfersButtonsAndUpdatesItsText() {
+        ActivityController<FileTransferActivity> screen = Robolectric.buildActivity(FileTransferActivity.class,
+                FileTransferActivity.forPc(app, "tower")).setup();
+        FileTransferActivity activity = screen.get();
+        Engine engine = new Engine();
+        activity.work.engine = engine;
+        activity.work.controller = new FileTransferController(engine, HOST, activity.work.workers,
+                activity.work.handler::post, activity.work);
+        View root = activity.getWindow().getDecorView();
+        String cancelLabel = app.getString(android.R.string.cancel);
+        String head = "{\"id\":3,\"direction\":\"upload\",\"name\":\"log.txt\",\"local_name\":\"log.txt\",\"size\":100,";
+        activity.onTransfersChanged(FileRow.parse("[" + head + "\"state\":\"running\",\"done\":10,\"total\":100}]"));
+        View cancel = find(root, cancelLabel);
+        assertTrue(cancel != null);
+        // Progress comes many times a second; a Cancel made again each time could not be pressed.
+        FileRow half = FileRow.parse("[" + head + "\"state\":\"running\",\"done\":50,\"total\":100}]").get(0);
+        activity.onTransfersChanged(java.util.Collections.singletonList(half));
+        assertSame(cancel, find(root, cancelLabel));
+        assertTrue(cancel.isAttachedToWindow());
+        assertTrue(shows(root, FileTransferActivity.describe(app, half)));
+        // A finished transfer has no Cancel any more.
+        activity.onTransfersChanged(FileRow.parse("[" + head + "\"state\":\"done\",\"saved_name\":\"log.txt\"}]"));
+        assertEquals(null, find(root, cancelLabel));
+        assertTrue(shows(root, app.getString(R.string.files_sent)));
+        screen.get().finish();
+        screen.pause().stop().destroy();
+    }
+
+    @Test
+    public void theReportAliasTakesNightjarsOwnReportAndTheSharedScreenDoesNot() {
+        Uri report = Uri.parse("content://" + app.getPackageName() + ".reports/r/nightjar-problem.txt");
+        Intent intent = com.limelight.utils.ProblemReport.sendToPcIntent(app, report);
+        assertTrue(FileTransferActivity.forReport(intent));
+        ActivityController<FileTransferActivity> screen = Robolectric.buildActivity(FileTransferActivity.class, intent)
+                .setup();
+        assertEquals("the report waits for a PC", 1, screen.get().work.waiting.size());
+        assertEquals("a report also asks which PC", null, screen.get().work.uuid);
+        screen.get().finish();
+        screen.pause().stop().destroy();
+        // The same report shared to the exported screen is refused: another app could send Nightjar's files so.
+        Intent shared = new Intent(app, FileTransferActivity.class).setAction(Intent.ACTION_SEND)
+                .putExtra(Intent.EXTRA_STREAM, report);
+        assertFalse(FileTransferActivity.forReport(shared));
+        ActivityController<FileTransferActivity> other = Robolectric.buildActivity(FileTransferActivity.class, shared)
+                .setup();
+        assertTrue(other.get().work.waiting.isEmpty());
+        other.get().finish();
+        other.pause().stop().destroy();
+    }
+
+    private static void poll(FileTransferActivity activity, ComputerDetails details) {
+        ReflectionHelpers.callInstanceMethod(activity, "onComputer",
+                ReflectionHelpers.ClassParameter.from(ComputerDetails.class, details));
+    }
+
     private static boolean shows(View view, String text) {
         return find(view, text) != null;
     }

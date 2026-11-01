@@ -74,6 +74,11 @@ import java.util.concurrent.Executors;
  */
 public class FileTransferActivity extends NightjarActivity implements FileTransferController.Ui {
     public static final String EXTRA_PC_UUID = "files_pc_uuid";
+    /**
+     * The not exported alias of this screen that Report a problem opens with its report: only a share through
+     * it may send one of Nightjar's own files, the report (see {@link #sendable(Uri, String, String, boolean)}).
+     */
+    public static final String REPORT_ALIAS = "com.limelight.files.SendReportToPc";
 
     private final Handler handler = new Handler(Looper.getMainLooper());
 
@@ -96,6 +101,13 @@ public class FileTransferActivity extends NightjarActivity implements FileTransf
     private TextView filesHeading;
     private TextView folder;
     private LinearLayout files;
+    /**
+     * What {@link #pcs} and {@link #transfers} show, one key per button set: every PC is polled every 1.5 s and a
+     * transfer reports its progress many times a second, and buttons made again on each of those lost a press
+     * before it was let go (a remote's OK button, a tap) and the D-pad focus with it (issue 56).
+     */
+    private final List<String> shownPcs = new ArrayList<>();
+    private final List<String> shownRows = new ArrayList<>();
 
     private final ActivityResultLauncher<String[]> picker = registerForActivityResult(
             new ActivityResultContracts.OpenMultipleDocuments(), this::onPicked);
@@ -140,8 +152,9 @@ public class FileTransferActivity extends NightjarActivity implements FileTransf
             work.opened = true;
             work.uuid = chosenPc(getIntent());
             int refused = 0;
+            boolean report = forReport(getIntent());
             for (Uri uri : sharedUris(getIntent())) {
-                if (sendable(uri, getPackageName(), providerPackage(uri))) work.waiting.add(uri);
+                if (sendable(uri, getPackageName(), providerPackage(uri), report)) work.waiting.add(uri);
                 else refused++;
             }
             if (refused > 0) {
@@ -184,6 +197,24 @@ public class FileTransferActivity extends NightjarActivity implements FileTransf
         String authority = uri.getAuthority();
         return ContentResolver.SCHEME_CONTENT.equals(uri.getScheme()) && !TextUtils.isEmpty(authority)
                 && authority.indexOf('@') < 0 && providerPackage != null && !ownPackage.equals(providerPackage);
+    }
+
+    /**
+     * As above, except that a share through {@link #REPORT_ALIAS} may also send Nightjar's problem report, from its
+     * own reports provider. Only Nightjar can open that alias, so no other app gets a private file sent this way.
+     */
+    static boolean sendable(Uri uri, String ownPackage, String providerPackage, boolean report) {
+        if (report && ContentResolver.SCHEME_CONTENT.equals(uri.getScheme())
+                && (ownPackage + ".reports").equals(uri.getAuthority())) {
+            return true;
+        }
+        return sendable(uri, ownPackage, providerPackage);
+    }
+
+    /** Whether Report a problem opened the screen, through {@link #REPORT_ALIAS}. */
+    static boolean forReport(Intent intent) {
+        ComponentName component = intent.getComponent();
+        return component != null && REPORT_ALIAS.equals(component.getClassName());
     }
 
     /** The app whose provider serves {@code uri}, or null when none does (then the share is refused). */
@@ -479,7 +510,10 @@ public class FileTransferActivity extends NightjarActivity implements FileTransf
     private void render() {
         if (status == null) return;
         boolean picking = work.uuid == null;
-        pcs.removeAllViews();
+        if (!picking) {
+            pcs.removeAllViews();
+            shownPcs.clear();
+        }
         int note;
         if (work.engine == null) {
             note = R.string.files_no_library;
@@ -508,41 +542,113 @@ public class FileTransferActivity extends NightjarActivity implements FileTransf
         showTransfers(open ? work.controller.rows() : Collections.emptyList());
     }
 
-    /** The PCs a share can go to; false when there is none. */
+    /**
+     * The PCs a share can go to; false when there is none. The buttons are made again only when the PCs or their
+     * names change, and the PC that had the focus keeps it.
+     */
     private boolean showPcs() {
-        boolean any = false;
+        List<ComputerDetails> online = new ArrayList<>();
+        List<String> keys = new ArrayList<>();
         for (ComputerDetails details : work.computers.values()) {
             if (details.state != ComputerDetails.State.ONLINE || details.pairState != PairingManager.PairState.PAIRED
                     || !details.caps.has(HostCapabilities.Feature.NATIVE_API)) {
                 continue;
             }
-            any = true;
+            online.add(details);
+            keys.add(details.uuid + "\n" + details.displayName());
+        }
+        if (keys.equals(shownPcs)) return !keys.isEmpty();
+        Object focused = focusedTag(pcs);
+        pcs.removeAllViews();
+        shownPcs.clear();
+        shownPcs.addAll(keys);
+        for (ComputerDetails details : online) {
             // By name: the label used to be the string resource 0, which crashed every share.
             Button pick = button(pcs, details.displayName());
+            pick.setTag("pc:" + details.uuid);
+            String uuid = details.uuid;
             pick.setOnClickListener(v -> {
-                work.uuid = details.uuid;
+                ComputerDetails latest = work.computers.get(uuid);
+                work.uuid = uuid;
                 work.computer = null;
-                onComputer(details);
+                onComputer(latest != null ? latest : details);
                 render();
             });
         }
-        return any;
+        restoreFocus(pcs, focused);
+        return !keys.isEmpty();
     }
 
+    /**
+     * The transfers and the downloads left behind. While the same transfers keep the same buttons, a change only
+     * updates their texts and progress bars; otherwise the rows are made again, and a button that had the focus
+     * keeps it if it is still there.
+     */
     private void showTransfers(List<FileRow> rows) {
-        transfers.removeAllViews();
+        List<String> keys = new ArrayList<>();
         boolean finished = false;
         for (FileRow row : rows) {
-            transfers.addView(transferRow(row));
+            keys.add(rowKey(row));
             finished |= row.isFinished();
         }
-        for (String name : work.leftovers) {
-            text(transfers, android.R.style.TextAppearance_Material_Body1)
-                    .setText(getString(R.string.files_partial_left, name));
+        for (String name : work.leftovers) keys.add("left\n" + name);
+        if (keys.equals(shownRows)) {
+            for (int i = 0; i < rows.size(); i++) updateRow((RowViews) transfers.getChildAt(i).getTag(), rows.get(i));
+        } else {
+            Object focused = focusedTag(transfers);
+            transfers.removeAllViews();
+            shownRows.clear();
+            shownRows.addAll(keys);
+            for (FileRow row : rows) transfers.addView(transferRow(row));
+            for (String name : work.leftovers) {
+                text(transfers, android.R.style.TextAppearance_Material_Body1)
+                        .setText(getString(R.string.files_partial_left, name));
+            }
+            restoreFocus(transfers, focused);
         }
         boolean shown = !rows.isEmpty() || !work.leftovers.isEmpty();
         transfersHeading.setVisibility(shown ? View.VISIBLE : View.GONE);
         clearFinished.setVisibility(finished || !work.leftovers.isEmpty() ? View.VISIBLE : View.GONE);
+    }
+
+    /** What decides a transfer row's views: the transfer, whether it has a progress bar, and its buttons. */
+    static String rowKey(FileRow row) {
+        return row.id + "\n" + (row.state == FileRow.State.RUNNING) + "\n" + (!row.isFinished() && !row.cancelling)
+                + "\n" + row.canRetry;
+    }
+
+    /** The tag of the focused view in {@code group}, or null. */
+    private static Object focusedTag(LinearLayout group) {
+        View focused = group.findFocus();
+        return focused == null ? null : focused.getTag();
+    }
+
+    private static void restoreFocus(LinearLayout group, Object tag) {
+        if (tag == null) return;
+        View again = group.findViewWithTag(tag);
+        if (again != null) again.requestFocus();
+    }
+
+    /** A transfer row's views that change while it runs. */
+    private static final class RowViews {
+        TextView title;
+        TextView detail;
+        ProgressBar bar;
+    }
+
+    private String rowTitle(FileRow row) {
+        return row.upload && !row.name.equals(row.localName) ?
+                getString(R.string.files_upload_name, row.localName, row.name) : row.upload ? row.name : row.localName;
+    }
+
+    private void updateRow(RowViews views, FileRow row) {
+        views.title.setText(rowTitle(row));
+        views.detail.setText(describe(this, row));
+        if (views.bar != null) {
+            int percent = row.percent();
+            views.bar.setIndeterminate(percent < 0);
+            if (percent >= 0) views.bar.setProgress(percent);
+        }
     }
 
     /** A download's document that could not be deleted is named under the transfers. */
@@ -555,26 +661,27 @@ public class FileTransferActivity extends NightjarActivity implements FileTransf
         LinearLayout item = new LinearLayout(this);
         item.setOrientation(LinearLayout.VERTICAL);
         item.setPadding(0, dp(6), 0, dp(6));
-        TextView title = text(item, android.R.style.TextAppearance_Material_Subhead);
-        title.setText(row.upload && !row.name.equals(row.localName) ?
-                getString(R.string.files_upload_name, row.localName, row.name) : row.upload ? row.name : row.localName);
-        TextView detail = text(item, android.R.style.TextAppearance_Material_Body1);
-        detail.setText(describe(this, row));
+        RowViews views = new RowViews();
+        item.setTag(views);
+        views.title = text(item, android.R.style.TextAppearance_Material_Subhead);
+        views.detail = text(item, android.R.style.TextAppearance_Material_Body1);
         if (row.state == FileRow.State.RUNNING) {
-            ProgressBar bar = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
-            int percent = row.percent();
-            bar.setIndeterminate(percent < 0);
-            bar.setMax(100);
-            if (percent >= 0) bar.setProgress(percent);
-            item.addView(bar);
+            views.bar = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
+            views.bar.setMax(100);
+            item.addView(views.bar);
         }
+        updateRow(views, row);
         LinearLayout actions = new LinearLayout(this);
         item.addView(actions);
         if (!row.isFinished() && !row.cancelling) {
-            button(actions, android.R.string.cancel).setOnClickListener(v -> work.controller.cancel(row.id));
+            Button cancel = button(actions, android.R.string.cancel);
+            cancel.setTag("cancel:" + row.id);
+            cancel.setOnClickListener(v -> work.controller.cancel(row.id));
         }
         if (row.canRetry) {
-            button(actions, R.string.files_retry).setOnClickListener(v -> {
+            Button retry = button(actions, R.string.files_retry);
+            retry.setTag("retry:" + row.id);
+            retry.setOnClickListener(v -> {
                 if (work.controller.needsNewDocument(row.id)) {
                     work.pendingDownload = null;
                     work.pendingRetry = row.id;

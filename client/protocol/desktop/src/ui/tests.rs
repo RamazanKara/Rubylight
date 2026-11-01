@@ -3252,10 +3252,12 @@ fn at_one_column_a_long_row_is_its_all_tile() {
         f.time += 0.05;
         let input = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, column)), time: Some(f.time), events, focused: true, ..Default::default() };
         let mut commands = Vec::new();
-        let output = f.ctx.run_ui(input, |ui| {
+        let mut output = f.ctx.run_ui(input, |ui| {
             let view = View { hosts: &f.hosts, pads: &f.pads, connecting: None, waking: None };
             f.l.home(ui, &view, &mut commands, egui::TextureId::default());
         });
+        // Debug builds of epaint refuse to drop font textures nobody uploaded.
+        output.textures_delta.clear();
         drawn.clear();
         let mut placed = Vec::new();
         for clipped in &output.shapes {

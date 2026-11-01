@@ -453,8 +453,8 @@ fec_max_percentage = 40
     assert!(used);
     assert_eq!(
         session.video_fec_percent(false, 30_000),
-        0,
-        "no loss, no parity"
+        usize::from(butterpollo_core::statistical_fec::MINIMUM_PERCENT),
+        "no loss keeps the parity floor"
     );
     // Nightjar sends one a second; reports closer than this count without a
     // new estimate.

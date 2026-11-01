@@ -283,10 +283,11 @@ fn the_section_key_table_is_what_the_page_draws() {
 }
 
 /// The rarely needed settings sit in Debug, the last section, and in no other, on the main
-/// settings and a PC's own; the search still finds them there.
+/// settings and a PC's own; the search still finds them there. Align video to top stays in
+/// Display & image.
 #[test]
 fn the_rarely_needed_settings_are_in_the_debug_section_only() {
-    const DEBUG: [&str; 10] = ["decoder", "full_range", "align_video_top", "cursor_shapes", "unbatched_input", "error_correction",
+    const DEBUG: [&str; 9] = ["decoder", "full_range", "cursor_shapes", "unbatched_input", "error_correction",
         "network_priority", "client_hint_bitrate", "tell_host_wireless", "tell_host_link_speed"];
     assert_eq!(SETTINGS_SECTIONS.last(), Some(&"Debug"));
     // Prioritize stream traffic does something on Linux only, so only Linux draws it.
@@ -303,12 +304,13 @@ fn the_rarely_needed_settings_are_in_the_debug_section_only() {
             if section == "Debug" {
                 assert_eq!(drawn, wanted, "{screen:?}: Debug holds exactly these");
             } else {
+                assert_eq!(drawn.contains(&"align_video_top"), section == "Display & image", "{screen:?} {section}: {drawn:?}");
                 assert!(!drawn.iter().any(|k| DEBUG.contains(k)), "{screen:?} {section}: {drawn:?}");
             }
         }
     }
     f.l.go(Screen::Settings);
-    for (query, row) in [("full color range", "Full color range"), ("error correction", "Error correction"), ("align", "Align video to top")] {
+    for (query, row) in [("full color range", "Full color range"), ("error correction", "Error correction"), ("local cursor", "Local cursor")] {
         f.l.settings_view.query = query.into();
         f.settle();
         assert!(shows(&f, row) && shows(&f, "Debug"), "{query} finds {row}: {:?}", f.drawn);
@@ -524,6 +526,14 @@ fn settings_screenshots() {
             if high {
                 continue;
             }
+            // Every section, top and end.
+            for (at, section) in SETTINGS_SECTIONS.iter().enumerate() {
+                f.l.settings_view.section = section;
+                f.l.settings_view.to_top = true;
+                shoot(&mut f, &format!("settings-section-{at}"));
+                f.scroll_to_end();
+                shoot(&mut f, &format!("settings-section-{at}-end"));
+            }
             f.l.settings_view.query = "bitrate".into();
             shoot(&mut f, "settings-search");
             f.l.settings_view.query = "teleport".into();
@@ -545,6 +555,10 @@ fn settings_screenshots() {
             f.hosts.list[0].record.settings = Some(serde_json::from_str(r#"{"fps":120,"hdr":true}"#).unwrap());
             f.l.open_host_settings(pc, &f.hosts.list[0]);
             shoot(&mut f, "pc-settings");
+            f.l.settings_view.section = "Debug";
+            f.l.settings_view.to_top = true;
+            shoot(&mut f, "pc-settings-debug");
+            f.l.settings_view.section = "Video";
             // A game's settings: one of its own, the rest from the PC, the profile and the main settings.
             let app = nightjar_core::http::App { name: "Racing Game".into(), uuid: "install-0".into(), ..game(1000) };
             f.l.open_app_settings(pc, &f.hosts.list[0], app);

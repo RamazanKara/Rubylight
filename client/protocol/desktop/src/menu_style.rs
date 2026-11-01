@@ -599,7 +599,7 @@ mod tests {
         }
         // Why the PC offers no USB devices shows without opening a fold.
         assert!(!menu.contains("|ui| usb::show_refusal("), "the USB refusal is folded away");
-        // Align video to top lives in the settings' Debug section only.
+        // Align video to top lives in the settings only.
         assert!(!menu.contains("Align video to top"), "the stream menu has no Align video to top");
     }
 

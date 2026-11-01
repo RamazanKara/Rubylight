@@ -162,7 +162,12 @@ fn action_row(ui: &mut Ui, glyph: Icon, label: &str, trail: Trail<'_>, ink: Colo
 /// An action: its icon, its label and, right, the keys that do it in a stream.
 pub fn action(ui: &mut Ui, glyph: Icon, label: &str, shortcut: Option<Action>) -> Response {
     let keys = shortcut.and_then(|a| shortcuts::chord_for(Scope::Stream, a)).map(Chord::text);
-    let response = action_row(ui, glyph, label, keys.as_deref().map_or(Trail::None, Trail::Keys), *ON_SURFACE);
+    action_keys(ui, glyph, label, keys.as_deref())
+}
+
+/// An action with the keys it trails given as text (Esc for a page's way back).
+pub fn action_keys(ui: &mut Ui, glyph: Icon, label: &str, keys: Option<&str>) -> Response {
+    let response = action_row(ui, glyph, label, keys.map_or(Trail::None, Trail::Keys), *ON_SURFACE);
     let spoken = keys.map(|k| format!("{label}, {k}")).unwrap_or_else(|| label.to_owned());
     response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), &spoken));
     response
@@ -228,44 +233,56 @@ pub fn switch(ui: &mut Ui, glyph: Icon, label: &str, on: &mut bool) -> Response 
 }
 
 /// The menu's one main action, across its width in amber (Return to stream), with its key right.
+/// Disabled (Resume while End or Close game runs), it loses its amber for a smaller button's
+/// greyed look and takes no hover.
 pub fn primary(ui: &mut Ui, label: &str, keys: Option<&str>) -> Response {
     let (rect, response) = ui.allocate_exact_size(vec2(ui.available_width(), 44.0), Sense::click());
+    let enabled = ui.is_enabled();
     let base = *MOON;
-    let fill = if response.is_pointer_button_down_on() {
+    let fill = if !enabled {
+        *SURFACE_HIGH
+    } else if response.is_pointer_button_down_on() {
         base.lerp_to_gamma(Color32::BLACK, 0.12)
     } else if response.hovered() {
         base.lerp_to_gamma(Color32::WHITE, 0.12)
     } else {
         base
     };
+    let ink = if enabled { *ON_MOON } else { ON_SURFACE.gamma_multiply(0.4) };
     let painter = ui.painter();
     painter.rect_filled(rect, CornerRadius::same(radius::CONTROL), fill);
     let left = Rect::from_center_size(Pos2::new(rect.left() + PAD + ICON / 2.0, rect.center().y), vec2(ICON, ICON));
-    icon(painter, left, Icon::Play, *ON_MOON);
-    let galley = painter.layout_no_wrap(label.to_owned(), semibold(text::BODY), *ON_MOON);
-    painter.galley(Pos2::new(rect.left() + LABEL_X, rect.center().y - galley.size().y / 2.0), galley, *ON_MOON);
+    icon(painter, left, Icon::Play, ink);
+    let galley = painter.layout_no_wrap(label.to_owned(), semibold(text::BODY), ink);
+    painter.galley(Pos2::new(rect.left() + LABEL_X, rect.center().y - galley.size().y / 2.0), galley, ink);
     if let Some(keys) = keys {
-        let g = painter.layout_no_wrap(keys.to_owned(), semibold(text::CAPTION), *ON_MOON);
+        let g = painter.layout_no_wrap(keys.to_owned(), semibold(text::CAPTION), ink);
         let cap = Rect::from_min_size(Pos2::new(rect.right() - PAD - g.size().x - 14.0, rect.center().y - 12.0), vec2(g.size().x + 14.0, 24.0));
-        painter.rect_stroke(cap, CornerRadius::same(radius::SMALL), Stroke::new(1.0, ON_MOON.gamma_multiply(0.5)), StrokeKind::Inside);
-        painter.galley(cap.center() - g.size() / 2.0, g, *ON_MOON);
+        painter.rect_stroke(cap, CornerRadius::same(radius::SMALL), Stroke::new(1.0, ink.gamma_multiply(0.5)), StrokeKind::Inside);
+        painter.galley(cap.center() - g.size() / 2.0, g, ink);
     }
     // On amber an inside ring would vanish: the ring sits just outside, in the same amber.
     if response.has_focus() {
         painter.rect_stroke(rect.expand(3.0), CornerRadius::same(radius::CONTROL + 3), Stroke::new(focus_ring_width(), MOON), StrokeKind::Outside);
     }
     let spoken = keys.map(|k| format!("{label}, {k}")).unwrap_or_else(|| label.to_owned());
-    response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, &spoken));
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, enabled, &spoken));
     response
 }
 
-/// A smaller action inside a fold or a group (Copy report, Apply): a filled button.
+/// A smaller action inside a fold or a group (Copy report, Apply): a filled button. A label wider
+/// than the room (a PC command's name) ends in an ellipsis and shows whole on hover.
 pub fn button(ui: &mut Ui, label: &str) -> Response {
     let enabled = ui.is_enabled();
     let ink = if enabled { *ON_SURFACE } else { ON_SURFACE.gamma_multiply(0.4) };
-    let galley = ui.painter().layout_no_wrap(label.to_owned(), semibold(text::LABEL), ink);
+    let mut job = egui::text::LayoutJob::simple_singleline(label.to_owned(), semibold(text::LABEL), ink);
+    job.wrap = egui::text::TextWrapping::truncate_at_width((ui.available_width() - 2.0 * space::L).max(space::L));
+    let galley = ui.painter().layout_job(job);
     let size = vec2((galley.size().x + 2.0 * space::L).min(ui.available_width()), 36.0);
-    let (rect, response) = ui.allocate_exact_size(size, Sense::click());
+    let (rect, mut response) = ui.allocate_exact_size(size, Sense::click());
+    if galley.elided {
+        response = response.on_hover_text(label);
+    }
     let fill = if !enabled {
         *SURFACE_HIGH
     } else if response.is_pointer_button_down_on() {
@@ -296,6 +313,14 @@ pub fn note(ui: &mut Ui, text_: &str) {
     ui.horizontal_wrapped(|ui| {
         ui.add_space(LABEL_X);
         ui.label(RichText::new(text_).font(regular(text::CAPTION)).color(ON_SURFACE_VARIANT));
+    });
+}
+
+/// Why something is off, in the error colour, lined up with the labels.
+pub fn problem(ui: &mut Ui, text_: &str) {
+    ui.horizontal_wrapped(|ui| {
+        ui.add_space(LABEL_X);
+        ui.label(RichText::new(text_).font(regular(text::CAPTION)).color(*ERROR));
     });
 }
 
@@ -448,6 +473,59 @@ mod tests {
         assert!(ring, "focus is an amber ring inside the row");
     }
 
+    /// A disabled main action (Resume while End or Close game runs) loses its amber and says so to
+    /// a screen reader; enabled, it is amber.
+    #[test]
+    fn a_disabled_main_action_dims_and_says_so() {
+        crate::theme::own_palette();
+        let ctx = egui::Context::default();
+        crate::theme::apply(&ctx);
+        ctx.enable_accesskit();
+        for enabled in [true, false] {
+            let (mut rect, mut fill, mut disabled) = (Rect::NOTHING, None, None);
+            for _ in 0..4 {
+                let output = run(&ctx, Vec::new(), |ui| {
+                    rect = ui.add_enabled_ui(enabled, |ui| primary(ui, "Resume", None)).inner.rect;
+                });
+                fill = output.shapes.iter().find_map(|s| match &s.shape { egui::Shape::Rect(r) if r.rect == rect => Some(r.fill), _ => None }).or(fill);
+                let tree = output.platform_output.accesskit_update.expect("AccessKit is on");
+                disabled = tree.nodes.iter().find(|(_, n)| n.label() == Some("Resume")).map(|(_, n)| n.is_disabled()).or(disabled);
+            }
+            let fill = fill.expect("the action's fill");
+            // The window may still be fading in: compare without its opacity.
+            let want = if enabled { *MOON } else { *SURFACE_HIGH };
+            let want = want.gamma_multiply(f32::from(fill.a()) / f32::from(want.a()));
+            assert!(fill.to_array().iter().zip(want.to_array()).all(|(a, b)| a.abs_diff(b) <= 3), "enabled {enabled}: {fill:?}, want {want:?}");
+            assert_eq!(disabled, Some(!enabled), "a screen reader hears whether Resume works");
+        }
+    }
+
+    /// A PC command's long name stays inside the menu: it ends in an ellipsis, and the button is
+    /// no wider than the room.
+    #[test]
+    fn a_long_button_label_is_cut_with_an_ellipsis() {
+        crate::theme::own_palette();
+        let ctx = egui::Context::default();
+        crate::theme::apply(&ctx);
+        let long = "Restart the streaming service and reload every display profile on the living room PC";
+        let (mut rect, mut room, mut drawn) = (Rect::NOTHING, 0.0, None);
+        for _ in 0..3 {
+            let output = run(&ctx, Vec::new(), |ui| {
+                room = ui.available_width();
+                rect = button(ui, long).rect;
+            });
+            drawn = output.shapes.iter().find_map(|s| match &s.shape { egui::Shape::Text(t) if t.galley.text() == long => Some((t.galley.elided, t.visual_bounding_rect())), _ => None });
+        }
+        assert!(rect.width() <= room + 0.5 && room <= WIDTH, "{rect:?} in {room}");
+        let (elided, bounds) = drawn.expect("the label is drawn");
+        assert!(elided, "the long label ends in an ellipsis");
+        assert!(rect.contains_rect(bounds), "the label stays inside its button: {bounds:?} in {rect:?}");
+        let short = run(&ctx, Vec::new(), |ui| {
+            button(ui, "Run command");
+        });
+        assert!(short.shapes.iter().any(|s| matches!(&s.shape, egui::Shape::Text(t) if t.galley.text() == "Run command" && !t.galley.elided)), "a short label stays whole");
+    }
+
     /// With "Back opens stream controls" on, the sheet lists Select for the controls as the Help
     /// page does (both through `Style::stream_press`); with it off, it doesn't.
     #[test]
@@ -519,6 +597,8 @@ mod tests {
         ] {
             assert!(menu.contains(action), "the stream menu lost {action}");
         }
+        // Why the PC offers no USB devices shows without opening a fold.
+        assert!(!menu.contains("|ui| usb::show_refusal("), "the USB refusal is folded away");
     }
 
     fn shoot(dir: &std::path::Path, name: &str, width: f32, height: f32, ppp: f32, high_contrast: bool, sheet: bool) {

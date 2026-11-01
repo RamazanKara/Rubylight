@@ -2093,7 +2093,7 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
                     .show(&ctx, |ui| menu_style::body(ui, |ui| {
                         gui::follow_focus(ui, &mut s.menu_focus);
                         menu_style::header(ui, tr("Session and graphics"), &title);
-                        outcome = session_ui::show(ui, page, &title, &lines, hints);
+                        outcome = session_ui::show(ui, page, &lines, hints);
                     }));
             }
             match outcome {
@@ -2330,7 +2330,8 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
                     if let Some(panel) = s.usb.as_mut() {
                         menu_style::fold(ui, "usb", Icon::Usb, tr("USB devices"), |ui| usb::show(ui, panel));
                     } else if let Some(why) = s.usb_refused {
-                        menu_style::fold(ui, "usb", Icon::Usb, tr("USB devices"), |ui| usb::show_refusal(ui, why));
+                        // Why there are no devices shows without opening anything.
+                        usb::show_refusal(ui, why);
                     }
                     if !s.facts.server_commands.is_empty() {
                         menu_style::fold(ui, "pc-commands", Icon::Terminal, tr("PC commands"), |ui| {

@@ -56,7 +56,8 @@ fn describe(exit: HostExit) -> &'static str {
     }
 }
 
-pub fn show(ui: &mut egui::Ui, page: &mut Page, title: &str, lines: &[(&'static str, String)], hints: Hints) -> Outcome {
+/// The page under its header (the caller's, with the game's line).
+pub fn show(ui: &mut egui::Ui, page: &mut Page, lines: &[(&'static str, String)], hints: Hints) -> Outcome {
     let ctx = ui.ctx().clone();
     let state = page.state();
     let mut outcome = Outcome::Stay;
@@ -65,7 +66,6 @@ pub fn show(ui: &mut egui::Ui, page: &mut Page, title: &str, lines: &[(&'static 
         return Outcome::Leave;
     }
 
-    ui.label(RichText::new(title).font(theme::regular(theme::text::LABEL)).color(theme::ON_SURFACE_VARIANT));
     ui.label(RichText::new(session_text(&state)).font(theme::regular(theme::text::LABEL)).color(theme::ON_SURFACE_VARIANT));
     if let Some(error) = &state.setup_error {
         ui.label(RichText::new(error).font(theme::regular(theme::text::LABEL)).color(theme::ERROR));
@@ -89,7 +89,7 @@ pub fn show(ui: &mut egui::Ui, page: &mut Page, title: &str, lines: &[(&'static 
             }
         });
     } else {
-        let resume = ui.add_enabled_ui(!working, |ui| menu_style::primary(ui, tr("Resume"), Some(crate::shortcuts::Key::Escape.cap()))).inner;
+        let resume = ui.add_enabled_ui(!working, |ui| menu_style::primary(ui, tr("Resume"), None)).inner;
         if ctx.memory(|m| m.focused().is_none()) {
             resume.request_focus();
         }
@@ -148,7 +148,9 @@ pub fn show(ui: &mut egui::Ui, page: &mut Page, title: &str, lines: &[(&'static 
     }
 
     menu_style::divider(ui);
-    if ui.add_enabled_ui(!working, |ui| menu_style::action(ui, Icon::Sliders, tr("Back to stream controls"), None)).inner.clicked() && outcome == Outcome::Stay {
+    // Escape or B on this page goes back to the controls (main.rs), so the key sits here.
+    let back = ui.add_enabled_ui(!working, |ui| menu_style::action_keys(ui, Icon::Sliders, tr("Back to stream controls"), Some(crate::shortcuts::Key::Escape.cap())));
+    if back.inner.clicked() && outcome == Outcome::Stay {
         outcome = Outcome::Back;
     }
     outcome

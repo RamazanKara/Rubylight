@@ -24,7 +24,7 @@ Long-press a PC and use **PC settings… → Connection test** before increasing
 
 ### Hardware decoding on Windows and Linux
 
-Nightjar for Windows decodes with D3D11VA on the GPU that draws the window. Nightjar for Linux tries VA-API first, then Vulkan video, then the V4L2 decoders of ARM boards and handhelds, then NVDEC. Vulkan video is for GPUs without a VA-API driver, such as NVIDIA's: it decodes on the GPU that draws the window, and the picture stays on that GPU until it is shown. It needs the driver's Vulkan video support for the stream's codec and format. The overlay names the decoder in use, and a stream that ends up decoding in software says so. With **Video decoding** under **Settings → Video** on Software, for all PCs or in one PC's own settings, those streams decode in software.
+Nightjar for Windows decodes with D3D11VA on the GPU that draws the window. Nightjar for Linux tries VA-API first, then Vulkan video, then the V4L2 decoders of ARM boards and handhelds, then NVDEC. Vulkan video is for GPUs without a VA-API driver, such as NVIDIA's: it decodes on the GPU that draws the window, and the picture stays on that GPU until it is shown. It needs the driver's Vulkan video support for the stream's codec and format. The overlay names the decoder in use, and a stream that ends up decoding in software says so. With **Video decoding** under **Settings → Debug** on Software, for all PCs or in one PC's own settings, those streams decode in software.
 
 ## HDR and color
 

@@ -6,6 +6,7 @@
 // SHOT_CLICK=Select,"Select all" clicks those buttons, in order, before each shot.
 // SHOT_AUTH=signed-out shows the sign-in page, SHOT_AUTH=setup first-run setup
 // (the fixture is signed in otherwise); either one shoots that page by default.
+// SHOT_COOP=missing or failed sets Nucleus Co-op's folder state (Help, /library/steam-620).
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const path = require('node:path');
 const fs = require('node:fs');
@@ -81,12 +82,19 @@ const replies = {
     events: ['pairing.paired', 'pairing.unpaired', 'app.started', 'app.stopped', 'session.started', 'session.ended'],
     hooks: [{ url: 'https://home.example/hooks/rubylight', events: ['app.started', 'app.stopped'],
       last: { event: 'app.started', delivery: 'fixture', time_unix_ms: Date.now() - 12 * 60_000, ok: true, http_status: 200, error: null, attempts: 1 } }] },
-  // Nucleus Co-op as the host installs it (rust/core/src/nucleus/install.rs VERSION and SIZE).
+  // Nucleus Co-op in the folder the user chose (rust/core/src/nucleus/install.rs VERSION and RELEASE_PAGE);
+  // SHOT_COOP=missing shows it not set up yet, SHOT_COOP=failed a folder with another release.
   '/api/coop': { mode: { setting: 'nucleus', mode: 'nucleus', label: 'Nucleus Co-op', reason: '' },
-    install: { state: 'installed', path: 'C:\\ProgramData\\Butterpollo\\nucleus', version: '2.4.2', error: null,
-      release: { version: '2.4.2', size: 97_396_862 }, received: null },
+    install: { release: { version: '2.4.2', page: 'https://github.com/SplitScreen-Me/splitscreenme-nucleus/releases/tag/v2.4.2' }, ...{
+      configured: { state: 'configured', path: 'C:\\Program Files\\Nucleus Co-op', chosen: 'C:\\Program Files\\Nucleus Co-op',
+        version: '2.4.2', problem: null, error: null },
+      missing: { state: 'missing', path: null, chosen: '', version: null, problem: null, error: null },
+      failed: { state: 'failed', path: null, chosen: 'C:\\Program Files\\Nucleus Co-op', version: null, problem: 'version',
+        error: 'The NucleusCoop.exe in C:\\Program Files\\Nucleus Co-op isn\'t Nucleus Co-op 2.4.2\'s: download 2.4.2 from its release page and choose its folder' },
+    }[process.env.SHOT_COOP || 'configured'] },
     available: true, reason: null, elevates: true, admin_protection: false, open_refusal: null, opened: false,
-    games: [], catalog_error: null, sessions: [] },
+    games: [{ app: 'steam-620', name: 'Portal 2', status: 'unknown', reason: null, handler: null, players: null, entry: 'Portal 2 (Co-op)' }],
+    catalog_error: null, sessions: [] },
   '/api/logs/analysis': { status: true, findings: [], since: '2026-10-31T08:02:11Z', until: '2026-10-31T09:41:57Z', read_bytes: 812_544 },
   '/api/session/console': { status: true, recovery: { session_id: 1, console_session_id: 1, can_reattach: false,
     reason: 'This host is already attached to the physical console.' } },

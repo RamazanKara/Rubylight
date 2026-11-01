@@ -1,30 +1,27 @@
 <script lang="ts">
   import { onMount, untrack } from 'svelte';
   import Banner from '../Banner.svelte';
-  import Button from '../Button.svelte';
   import LoadState from '../LoadState.svelte';
   import Panel from '../Panel.svelte';
+  import NucleusFolder from '../library/NucleusFolder.svelte';
   import { api, type CoopStatus } from '../../lib/api';
-  import { downloadText, sentence } from '../../lib/coop-view';
-  import { failed } from '../../lib/feedback.svelte';
-  import { poll } from '../../lib/format';
+  import { folderTitle, sentence } from '../../lib/coop-view';
   import { link } from '../../lib/router.svelte';
   import StatusPill from '../StatusPill.svelte';
-  import { installStates } from './coop';
+  import { installPill } from './coop';
   import { statusLoader } from './status-loader';
   import { reason } from './util';
 
   /**
-   * Co-op troubleshooting on Help: the install, the download's check, the service and the
-   * Windows build. Setting co-op up lives on each game's page; live games on Home.
+   * Co-op troubleshooting on Help: Nucleus Co-op's folder, why it can't run from it, the service and
+   * the Windows build. Live games are on Home.
    */
   let { initial = null }: { initial?: CoopStatus | null } = $props();
 
   let status = $state<CoopStatus | null>(untrack(() => initial));
   let loadError = $state('');
-  let retrying = $state(false);
 
-  const install = $derived(status ? installStates[status.install.state] : null);
+  const install = $derived(status ? installPill(status.install) : null);
 
   const loader = statusLoader(
     () => api.coop.status(),
@@ -38,23 +35,8 @@
   );
   const load = loader.load;
 
-  async function retry() {
-    retrying = true;
-    try {
-      await api.coop.install();
-    } catch (error) {
-      failed('Setting up co-op failed', error);
-    } finally {
-      retrying = false;
-    }
-    await load();
-  }
-
   onMount(() => {
     if (!status) load();
-    return poll(() => {
-      if (status?.install.state === 'installing') return loader.tick();
-    }, 3000);
   });
 </script>
 
@@ -76,20 +58,21 @@
         <Banner tone="warn" title="Co-op can’t run on this PC">{sentence(status.reason)}</Banner>
       {/if}
       {#if status.install.state === 'failed' && status.install.error}
-        <Banner tone="danger" title="Setting up co-op failed" live>
-          {sentence(status.install.error)}
-          {#snippet actions()}<Button size="sm" busy={retrying} onclick={retry}>Try again</Button>{/snippet}
-        </Banner>
+        <Banner tone="danger" title={folderTitle(status.install.problem)} live>{sentence(status.install.error)}</Banner>
       {/if}
+      <NucleusFolder {status} onchosen={load} />
       {#if status.catalog_error}
         <Banner tone="danger" title="Nucleus Co-op’s handlers didn’t load">{sentence(status.catalog_error)}</Banner>
       {/if}
       <ul class="hint">
-        <li>{downloadText(status)} Its size and SHA-256 are checked; a download that doesn’t match is deleted and refused.</li>
+        <li>
+          Rubylight downloads nothing: it runs only Nucleus Co-op {status.install.release?.version ?? '2.4.2'}, checks its NucleusCoop.exe, and
+          refuses a folder anyone but administrators may change, since Nucleus Co-op runs elevated.
+        </li>
         <li>Co-op needs Rubylight running as its Windows service, which starts Nucleus Co-op as the signed-in user.</li>
         <li>
           Co-op needs a handler from Nucleus Co-op’s handler hub for each game; a background stream of one player works
-          without one. Set co-op up, and see what a game still needs, on its page under <a href="/library" use:link>Games</a>.
+          without one. See what a game still needs on its page under <a href="/library" use:link>Games</a>.
         </li>
         <li>Each player hears only their own game on Windows build 20348 or newer; older builds say so on the stream.</li>
       </ul>

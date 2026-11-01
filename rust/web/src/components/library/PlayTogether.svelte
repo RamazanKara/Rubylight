@@ -1,5 +1,5 @@
 <script lang="ts">
-  // The game page's co-op: set Nucleus Co-op up, get the game's handler, then play together.
+  // The game page's co-op: choose Nucleus Co-op's folder, get the game's handler, then play together.
   // States come from lib/coop-view.ts; this file only draws them and runs the two actions.
   import { onMount, untrack } from 'svelte';
   import Banner from '../Banner.svelte';
@@ -13,6 +13,7 @@
   import { poll } from '../../lib/format';
   import { statusLoader } from '../maintenance/status-loader';
   import { reason } from '../maintenance/util';
+  import NucleusFolder from './NucleusFolder.svelte';
   import type { AppDraft } from './draft.svelte';
 
   let {
@@ -30,7 +31,7 @@
 
   let status = $state<CoopStatus | null>(untrack(() => initial));
   let loadError = $state('');
-  /** 'install', 'open' or 'close' while its request is out. */
+  /** 'open' or 'close' while its request is out. */
   let busy = $state('');
 
   const view = $derived(status ? playTogether(status, uuid) : null);
@@ -46,18 +47,6 @@
     },
   );
   const load = loader.load;
-
-  async function setUp() {
-    busy = 'install';
-    try {
-      await api.coop.install();
-    } catch (error) {
-      failed('Setting up co-op failed', error);
-    } finally {
-      busy = '';
-    }
-    await load();
-  }
 
   async function open() {
     busy = 'open';
@@ -109,32 +98,12 @@
         <Banner tone="warn" title="Co-op can’t run on this PC">{view.reason}</Banner>
       {:else if view.kind === 'launcher'}
         <p class="muted">{view.text}</p>
-      {:else if view.kind === 'setup'}
+      {:else if view.kind === 'setup' && status}
         <p class="lead">{view.text}</p>
-        <div class="action">
-          <Button variant="primary" icon="download" busy={busy === 'install'} onclick={setUp}>Set up co-op</Button>
-          <span class="muted note">{view.download}</span>
-        </div>
-      {:else if view.kind === 'installing'}
-        <p class="lead" role="status">{view.label}</p>
-        <div
-          class="meter"
-          role="progressbar"
-          aria-label="Nucleus Co-op download"
-          aria-valuemin="0"
-          aria-valuemax="100"
-          aria-valuenow={view.percent ?? undefined}
-          class:indeterminate={view.percent === null}
-        >
-          <span class="fill" style:transform="scaleX({(view.percent ?? 30) / 100})"></span>
-        </div>
-      {:else if view.kind === 'failed'}
-        <Banner tone="danger" title="Setting up co-op failed" live>
-          {view.error}
-          {#snippet actions()}
-            <Button busy={busy === 'install'} onclick={setUp}>Try again</Button>
-          {/snippet}
-        </Banner>
+        <NucleusFolder {status} onchosen={load} />
+      {:else if view.kind === 'failed' && status}
+        <Banner tone="danger" title={view.title} live>{view.error}</Banner>
+        <NucleusFolder {status} onchosen={load} />
       {:else if view.kind === 'broken'}
         <Banner tone="danger" title="Nucleus Co-op’s handlers didn’t load">{view.error}</Banner>
       {:else if view.kind === 'taken'}
@@ -202,36 +171,6 @@
     align-items: center;
     flex-wrap: wrap;
     gap: var(--space-2) var(--space-4);
-  }
-  .meter {
-    position: relative;
-    height: 8px;
-    border-radius: var(--radius-pill);
-    background: var(--sunken);
-    overflow: hidden;
-  }
-  .fill {
-    position: absolute;
-    inset: 0;
-    background: var(--accent);
-    transform-origin: left center;
-    transition: transform var(--duration-base) var(--ease-standard);
-  }
-  .indeterminate .fill {
-    animation: sweep 1.4s var(--ease-standard) infinite;
-  }
-  @keyframes sweep {
-    from {
-      transform: translateX(-100%) scaleX(0.3);
-    }
-    to {
-      transform: translateX(100%) scaleX(0.3);
-    }
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .indeterminate .fill {
-      animation: none;
-    }
   }
   .away summary {
     cursor: pointer;

@@ -96,7 +96,7 @@ async function fixture(t, options = {}) {
     if (url.pathname === '/api/token/routes') return reply({ routes: [] });
     // Help's panels, so every page renders without a page error.
     if (url.pathname === '/api/coop') return reply({ mode: { setting: 'nucleus', mode: 'nucleus', label: 'Nucleus Co-op', reason: '' },
-      install: { state: 'missing', path: null, version: null, error: null }, available: true, reason: null, sessions: [] });
+      install: { state: 'missing', path: null, chosen: '', version: null, problem: null, error: null }, available: true, reason: null, sessions: [] });
     if (url.pathname === '/api/logs/analysis') return reply({ status: true, findings: [], since: null, until: null, read_bytes: 0 });
     if (url.pathname === '/api/session/console') return reply({ status: true, recovery: { session_id: 1, console_session_id: 1, can_reattach: false, reason: '' } });
     if (url.pathname === '/api/webhooks') return reply({ status: true, events: ['app.started', 'app.stopped'], max: 8, hooks: options.hooks || [], error: null });

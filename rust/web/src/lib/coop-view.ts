@@ -1,4 +1,4 @@
-import { PERM, type Client, type CoopEnd, type CoopGame, type CoopSession, type CoopStatus } from './api';
+import { PERM, type Client, type CoopEnd, type CoopGame, type CoopInstall, type CoopSession, type CoopStatus } from './api';
 
 /**
  * What the game page's Play together panel shows for one app, from `GET /api/coop`. Pure, so every
@@ -6,9 +6,9 @@ import { PERM, type Client, type CoopEnd, type CoopGame, type CoopSession, type 
  *
  * The three states of the brief: `setup` (co-op isn't set up), `handler` (no handler for this game, or
  * the game not added in Nucleus Co-op yet) and `ready`. Around them: `hidden` (the app starts nothing,
- * or the host is older), `unavailable` (this PC can't run co-op: setting it up would download for
- * nothing), `launcher` (a launcher's link starts the app, so no handler can match it), `installing`
- * and `failed` (the download), `broken` (the handlers didn't load), `taken` (another app of the same
+ * or the host is older), `unavailable` (this PC can't run co-op: setting it up would be for nothing),
+ * `launcher` (a launcher's link starts the app, so no handler can match it), `failed` (the folder chosen
+ * can't run Nucleus Co-op, and why), `broken` (the handlers didn't load), `taken` (another app of the same
  * name already lists the co-op entry, so the library shows this one's nowhere), `anti_cheat` (the game
  * ships anti-cheat, so neither co-op nor background streams hook it) and `refused` (Rubylight's own handler
  * never starts it: a game on a network share, Windows' own program, a missing .exe, a game that needs
@@ -22,9 +22,8 @@ export type PlayTogetherView =
   | { kind: 'hidden' }
   | { kind: 'unavailable'; reason: string }
   | { kind: 'launcher'; text: string }
-  | { kind: 'setup'; text: string; download: string }
-  | { kind: 'installing'; label: string; percent: number | null }
-  | { kind: 'failed'; error: string }
+  | { kind: 'setup'; text: string }
+  | { kind: 'failed'; title: string; error: string }
   | { kind: 'broken'; error: string }
   | { kind: 'checking' }
   | { kind: 'handler'; added: boolean; text: string; steps: string; runs: string | null; openRefusal: string | null }
@@ -42,23 +41,35 @@ export function sentence(text: string): string {
   return /[.!?…]$/.test(text) ? text : `${text}.`;
 }
 
-/** The download the Set up button starts, named before it runs. */
-export function downloadText(status: CoopStatus): string {
+/**
+ * The release the user downloads from its page and unpacks: Rubylight downloads nothing. The host names it
+ * (`nucleus::install::RELEASE_PAGE`); these are the same for a host that doesn't.
+ */
+export function nucleusRelease(status: CoopStatus): { version: string; page: string } {
   const release = status.install.release;
-  if (!release) return 'Downloads Nucleus Co-op from its GitHub release.';
-  return `Downloads Nucleus Co-op ${release.version} (${megabytes(release.size)}) from its GitHub release.`;
+  return release?.page
+    ? { version: release.version, page: release.page }
+    : { version: '2.4.2', page: 'https://github.com/SplitScreen-Me/splitscreenme-nucleus/releases/tag/v2.4.2' };
 }
 
-/** The download's progress line and bar; the last step checks the archive and unpacks it. */
-export function installProgress(status: CoopStatus): { label: string; percent: number | null } {
-  const size = status.install.release?.size ?? 0;
-  const received = status.install.received ?? 0;
-  if (!size) return { label: 'Downloading Nucleus Co-op…', percent: null };
-  if (received >= size) return { label: 'Checking the download and unpacking it…', percent: 100 };
-  return {
-    label: `Downloading Nucleus Co-op… ${megabytes(received)} of ${megabytes(size)}`,
-    percent: Math.min(99, Math.floor((100 * received) / size)),
-  };
+/**
+ * Where to unpack it: Nucleus Co-op runs elevated, so the host runs it only from a folder that just
+ * administrators may change, which a folder under Program Files is.
+ */
+export const UNPACK_WHERE = 'Unpack it into a folder under C:\\Program Files, then choose that folder.';
+
+/** Why the folder chosen can't run Nucleus Co-op, as a title; the host's reason says more. */
+export function folderTitle(problem: CoopInstall['problem']): string {
+  switch (problem) {
+    case 'missing':
+      return 'Nucleus Co-op isn’t in the folder chosen';
+    case 'version':
+      return 'The folder chosen holds another Nucleus Co-op';
+    case 'untrusted':
+      return 'Rubylight won’t run Nucleus Co-op from the folder chosen';
+    default:
+      return 'Nucleus Co-op can’t run';
+  }
 }
 
 /** A background stream run elevated: every hub handler, and Rubylight's own for a game that needs it. */
@@ -120,15 +131,13 @@ export function playTogether(status: CoopStatus, app: string): PlayTogetherView 
   }
   switch (status.install.state) {
     case 'missing':
-      return {
-        kind: 'setup',
-        text: 'Play this game together, or play it while someone uses this PC.',
-        download: downloadText(status),
-      };
-    case 'installing':
-      return { kind: 'installing', ...installProgress(status) };
+      return { kind: 'setup', text: 'Play this game together, or play it while someone uses this PC.' };
     case 'failed':
-      return { kind: 'failed', error: status.install.error ?? 'Nucleus Co-op could not be set up.' };
+      return {
+        kind: 'failed',
+        title: folderTitle(status.install.problem),
+        error: sentence(status.install.error ?? 'Nucleus Co-op’s folder could not be checked'),
+      };
   }
   if (status.catalog_error) return { kind: 'broken', error: status.catalog_error };
   const name = game.name;
@@ -184,9 +193,9 @@ export function playTogether(status: CoopStatus, app: string): PlayTogetherView 
   }
 }
 
-/** The panel polls while something changes on its own: the download, or a handler being added on the PC. */
+/** The panel polls while something changes on its own: a handler being added on the PC. */
 export function pollsView(view: PlayTogetherView): boolean {
-  return view.kind === 'installing' || view.kind === 'handler' || view.kind === 'checking';
+  return view.kind === 'handler' || view.kind === 'checking';
 }
 
 /** The limits, said where co-op is ready. */

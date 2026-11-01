@@ -691,6 +691,23 @@ export interface NeuralStatus {
   release: string | null;
   job: NeuralJob | null;
 }
+/**
+ * Where Nucleus Co-op stands: `installed` is an earlier Rubylight's own install, `configured` the folder the user
+ * chose. Rubylight downloads nothing; the user unpacks the release from its page and chooses its folder.
+ */
+export interface CoopInstall {
+  state: 'installed' | 'missing' | 'configured' | 'failed';
+  path: string | null;
+  /** The folder chosen (`nucleus_path`), empty when none is. */
+  chosen?: string;
+  version: string | null;
+  /** Why the chosen folder can't run: no NucleusCoop.exe, another release, or a folder others can change. */
+  problem?: 'missing' | 'version' | 'untrusted' | null;
+  error: string | null;
+  /** The release to unpack and the page it downloads from (older hosts leave it out). */
+  release?: { version: string; page: string };
+}
+
 /** `GET /api/coop`: background streaming and co-op through Nucleus Co-op. */
 export interface CoopStatus {
   mode: {
@@ -700,16 +717,7 @@ export interface CoopStatus {
     label: string;
     reason: string;
   };
-  install: {
-    state: 'installed' | 'missing' | 'configured' | 'installing' | 'failed';
-    path: string | null;
-    version: string | null;
-    error: string | null;
-    /** What Set up co-op downloads (older hosts leave it out). */
-    release?: { version: string; size: number };
-    /** Bytes downloaded while installing; all of them while the archive is checked and unpacked. */
-    received?: number | null;
-  };
+  install: CoopInstall;
   available: boolean;
   /** Why this host runs no Nucleus Co-op sessions; null when it does. */
   reason: string | null;
@@ -1085,8 +1093,8 @@ export const api = {
   },
   coop: {
     status: () => get<CoopStatus>('/api/coop'),
-    /** Starts the pinned, checked download; its progress and a refusal show in `status`. */
-    install: () => post<{ state: 'installing' | 'installed' }>('/api/coop/install', {}),
+    /** Checks the folder Nucleus Co-op was unpacked into and keeps it; refused with the reason. Empty forgets it. */
+    folder: (path: string) => post<CoopInstall>('/api/coop/folder', { path }),
     /** Opens Nucleus Co-op's window on the PC's screen, for adding a handler. */
     open: () => post<Record<string, never>>('/api/coop/open', {}, ACTION_TIMEOUT_MS),
     /** Closes the window `open` opened; `closed` is false when it was already gone. Never another Nucleus Co-op. */

@@ -6,17 +6,18 @@ import { createTestServer } from './test-server.mjs';
 globalThis.location = new URL('http://localhost/');
 globalThis.window = new EventTarget();
 const server = await createTestServer();
-const { installStates } = await server.ssrLoadModule('/src/components/maintenance/coop.ts');
+const { installStates, installPill } = await server.ssrLoadModule('/src/components/maintenance/coop.ts');
 const { render } = await server.ssrLoadModule('svelte/server');
 const Panel = (await server.ssrLoadModule('/src/components/maintenance/CoopHelpPanel.svelte')).default;
 const { toDraft, changes, savingEndsStream } = await server.ssrLoadModule('/src/components/devices/device.ts');
 const { PERM } = await server.ssrLoadModule('/src/lib/api.ts');
 const { ACCESS_CHOICES, ACCESS_PERM } = await server.ssrLoadModule('/src/components/devices/access.ts');
 
-const SIZE = 97_396_862;
+const PAGE = 'https://github.com/SplitScreen-Me/splitscreenme-nucleus/releases/tag/v2.4.2';
+const release = { version: '2.4.2', page: PAGE };
 const status = (overrides) => ({
   mode: { setting: '', mode: 'nucleus', label: 'Background streaming (Nucleus Co-op)', reason: 'Nucleus Co-op runs background streams' },
-  install: { state: 'installed', path: 'C:\\ProgramData\\Butterpollo\\nucleus\\2.4.2', version: '2.4.2', error: null, release: { version: '2.4.2', size: SIZE }, received: null },
+  install: { state: 'installed', path: 'C:\\ProgramData\\Butterpollo\\nucleus\\2.4.2', chosen: '', version: '2.4.2', problem: null, error: null, release },
   available: true,
   reason: null,
   games: [],
@@ -26,13 +27,18 @@ const status = (overrides) => ({
 });
 const html = (value) => render(Panel, { props: { initial: value } }).body;
 
-test('Help keeps co-op troubleshooting: the download and its check, the service, handlers and the build', () => {
+test('Help keeps co-op troubleshooting: the folder and its check, the service, handlers and the build', () => {
   const out = html(status({}));
   assert.match(out, /Nucleus Co-op/);
-  assert.match(out, /Installed/);
+  // An earlier Rubylight's install keeps working.
+  assert.match(out, /Earlier install/);
   assert.match(out, /2\.4\.2/);
   assert.match(out, /nucleus\\2\.4\.2/);
-  assert.match(out, /Downloads Nucleus Co-op 2\.4\.2 \(97\u00a0MB\) from its GitHub release\. Its size and SHA-256 are checked/);
+  // The release's page and the folder to choose; Rubylight downloads nothing.
+  assert.ok(out.includes(`href="${PAGE}" target="_blank" rel="noreferrer">Download Nucleus Co-op 2.4.2`), out);
+  assert.match(out, /Use this folder/);
+  assert.match(out, /Rubylight downloads nothing: it runs only Nucleus Co-op 2\.4\.2, checks its NucleusCoop\.exe/);
+  assert.doesNotMatch(out, /SHA-256|Try again|Downloading/);
   assert.match(out, /Windows service/);
   assert.match(out, /handler hub/);
   assert.match(out, /a background stream of one player works\s+without one/);
@@ -47,12 +53,13 @@ test('the panel loads with a skeleton', () => {
   assert.match(out, /Nucleus Co-op/);
 });
 
-test('a PC that can’t run co-op, a failed setup and handlers that didn’t load say why, loudly', () => {
+test('a PC that can’t run co-op, a folder it can’t run from and handlers that didn’t load say why, loudly', () => {
+  const why = 'Rubylight doesn\'t run Nucleus Co-op from D:\\Nucleus: it runs elevated, so only administrators may change its folder';
   const out = html(
     status({
       available: false,
       reason: 'the host does not run as the service',
-      install: { state: 'failed', path: null, version: null, error: 'The download has another SHA-256.', release: { version: '2.4.2', size: SIZE }, received: null },
+      install: { state: 'failed', path: null, chosen: 'D:\\Nucleus', version: null, problem: 'untrusted', error: `${why}.`, release },
       catalog_error: 'finding the signed-in user’s AppData folder failed',
     }),
   );
@@ -60,19 +67,27 @@ test('a PC that can’t run co-op, a failed setup and handlers that didn’t loa
   // The host's reasons are clauses: the panel ends them as sentences, once.
   assert.match(out, /the host does not run as the service\./);
   assert.match(out, /AppData folder failed\./);
-  assert.doesNotMatch(out, /SHA-256\.\./);
-  assert.match(out, /Setting up co-op failed/);
-  assert.match(out, /another SHA-256/);
-  assert.match(out, /Try again/);
+  assert.doesNotMatch(out, /its folder\.\./);
+  assert.match(out, /Rubylight won’t run Nucleus Co-op from the folder chosen/);
+  assert.match(out, /Folder refused/);
+  assert.match(out, /only administrators may change its folder/);
+  assert.match(out, /value="D:\\Nucleus"/);
   assert.match(out, /role="alert"/);
   assert.match(out, /handlers didn’t load/);
 });
 
-test('every install state is spelled out, with a failure in danger', () => {
-  for (const state of ['installed', 'missing', 'configured', 'installing', 'failed']) assert.ok(installStates[state]?.label, state);
+test('every install state is spelled out: found, wrong version and missing apart, a failure in danger', () => {
+  for (const state of ['installed', 'missing', 'configured', 'failed']) assert.ok(installStates[state]?.label, state);
+  assert.equal(installStates.installing, undefined);
   assert.equal(installStates.missing.label, 'Not set up yet');
   assert.equal(installStates.failed.status, 'error');
   assert.equal(installStates.missing.status, 'idle');
+  const pill = (fields) => installPill({ state: 'failed', path: null, version: null, error: 'why', ...fields });
+  assert.deepEqual(installPill({ state: 'configured', path: 'C:\\Program Files\\Nucleus', version: '2.4.2', error: null }), { label: 'Found', status: 'ready' });
+  assert.deepEqual(pill({ problem: 'version' }), { label: 'Wrong version', status: 'error' });
+  assert.deepEqual(pill({ problem: 'missing' }), { label: 'Not found', status: 'error' });
+  assert.deepEqual(pill({ problem: 'untrusted' }), { label: 'Folder refused', status: 'error' });
+  assert.deepEqual(pill({ problem: null }), { label: 'Can’t run', status: 'error' });
 });
 
 test('Help shows the co-op panel and no longer the sessions panel', async () => {

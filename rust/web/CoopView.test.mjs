@@ -6,7 +6,7 @@ import { createTestServer } from './test-server.mjs';
 globalThis.location = new URL('http://localhost/');
 globalThis.window = new EventTarget();
 const server = await createTestServer();
-const { playTogether, pollsView, installProgress, downloadText, megabytes, COOP_LIMITS, AWAY_FROM_PC } = await server.ssrLoadModule('/src/lib/coop-view.ts');
+const { playTogether, pollsView, nucleusRelease, folderTitle, megabytes, COOP_LIMITS, AWAY_FROM_PC } = await server.ssrLoadModule('/src/lib/coop-view.ts');
 const { render } = await server.ssrLoadModule('svelte/server');
 const PlayTogether = (await server.ssrLoadModule('/src/components/library/PlayTogether.svelte')).default;
 const { AppDraft } = await server.ssrLoadModule('/src/components/library/draft.svelte.ts');
@@ -19,17 +19,18 @@ const { dialog } = await server.ssrLoadModule('/src/lib/feedback.svelte.ts');
 const access = await server.ssrLoadModule('/src/components/devices/access.ts');
 const { ACCESS_PERM } = access;
 
-const SIZE = 97_396_862;
+const PAGE = 'https://github.com/SplitScreen-Me/splitscreenme-nucleus/releases/tag/v2.4.2';
 /** `GET /api/coop` as the host answers it: Nucleus Co-op available, set up, Portal 2 ready. */
 const status = (overrides = {}, game = {}) => ({
   mode: { setting: '', mode: 'nucleus', label: 'Background streaming (Nucleus Co-op)', reason: 'Nucleus Co-op runs background streams' },
   install: {
     state: 'installed',
     path: 'C:\\ProgramData\\Butterpollo\\nucleus\\2.4.2',
+    chosen: '',
     version: '2.4.2',
+    problem: null,
     error: null,
-    release: { version: '2.4.2', size: SIZE },
-    received: null,
+    release: { version: '2.4.2', page: PAGE },
   },
   available: true,
   reason: null,
@@ -46,9 +47,15 @@ const fixtures = {
   hidden: status({}, { app: 'elsewhere' }),
   unavailable: status({ available: false, reason: 'Nucleus Co-op sessions need the host to run as the Rubylight Windows service, which starts Nucleus Co-op as the signed-in user' }),
   setup: status({ install: install({ state: 'missing' }) }, { status: 'unknown', handler: null, players: null }),
-  installing: status({ install: install({ state: 'installing', received: 41_000_000 }) }, { status: 'unknown' }),
   failed: status(
-    { install: install({ state: 'failed', error: 'Nucleus Co-op is not ready: The Nucleus Co-op download\'s SHA-256 is 00ff, not version 2.4.2\'s ed91; it was deleted.' }) },
+    {
+      install: install({
+        state: 'failed',
+        chosen: 'D:\\Nucleus',
+        problem: 'version',
+        error: 'The NucleusCoop.exe in D:\\Nucleus isn\'t Nucleus Co-op 2.4.2\'s: download 2.4.2 from its release page and choose its folder',
+      }),
+    },
     { status: 'unknown' },
   ),
   broken: status({ catalog_error: 'finding the signed-in user\'s AppData folder failed' }, { status: 'unknown' }),
@@ -74,7 +81,6 @@ const expected = {
   hidden: 'hidden',
   unavailable: 'unavailable',
   setup: 'setup',
-  installing: 'installing',
   failed: 'failed',
   broken: 'broken',
   checking: 'checking',
@@ -91,36 +97,65 @@ test('each /api/coop fixture is one state of the Play together panel', () => {
   for (const [name, fixture] of Object.entries(fixtures)) assert.equal(playTogether(fixture, 'portal').kind, expected[name], name);
 });
 
-test('not set up: the offer, and the pinned download named before it runs', () => {
+test('not set up: a link to the release’s page and its folder to choose, nothing downloaded', () => {
   const view = playTogether(fixtures.setup, 'portal');
   assert.equal(view.text, 'Play this game together, or play it while someone uses this PC.');
-  assert.equal(view.download, 'Downloads Nucleus Co-op 2.4.2 (97\u00a0MB) from its GitHub release.');
   const out = html(fixtures.setup);
   assert.match(out, /Play together/);
-  assert.match(out, /Set up co-op/);
-  assert.match(out, /97\u00a0MB/);
-  // An older host without the release still names the source.
-  assert.equal(downloadText({ install: { state: 'missing' } }), 'Downloads Nucleus Co-op from its GitHub release.');
+  // The release page opens in a new tab; Rubylight downloads nothing itself.
+  assert.ok(out.includes(`href="${PAGE}" target="_blank" rel="noreferrer">Download Nucleus Co-op 2.4.2`), out);
+  assert.match(out, /Unpack it into a folder under C:\\Program Files, then choose that folder\./);
+  assert.match(out, /aria-label="Nucleus Co-op’s folder"/);
+  assert.match(out, /Use this folder/);
+  assert.doesNotMatch(out, /Set up co-op|progressbar|\u00a0MB/);
+  // A host that doesn't name the page links the same release.
+  assert.deepEqual(nucleusRelease({ install: { state: 'missing' } }), { version: '2.4.2', page: PAGE });
+  assert.equal(megabytes(97_396_862), '97\u00a0MB');
 });
 
-test('installing shows the progress, then the check and unpack', () => {
-  assert.deepEqual(installProgress(fixtures.installing), { label: 'Downloading Nucleus Co-op… 41\u00a0MB of 97\u00a0MB', percent: 42 });
-  const done = status({ install: install({ state: 'installing', received: SIZE }) });
-  assert.deepEqual(installProgress(done), { label: 'Checking the download and unpacking it…', percent: 100 });
-  assert.equal(installProgress(status({ install: install({ state: 'installing', release: undefined }) })).percent, null);
-  const out = html(fixtures.installing);
-  assert.match(out, /role="progressbar"/);
-  assert.match(out, /aria-valuenow="42"/);
-  assert.equal(megabytes(SIZE), '97\u00a0MB');
+test('a folder chosen earlier fills the field', () => {
+  const out = html(status({ install: install({ state: 'missing', chosen: 'D:\\Tools\\Nucleus' }) }, { status: 'unknown' }));
+  assert.match(out, /value="D:\\Tools\\Nucleus"/);
 });
 
-test('a refused download is loud, gives the host’s reason and can be tried again', () => {
+test('a folder Nucleus Co-op can’t run from is loud, says why, and another can be chosen', () => {
+  const view = playTogether(fixtures.failed, 'portal');
+  assert.equal(view.title, 'The folder chosen holds another Nucleus Co-op');
+  assert.match(view.error, /isn't Nucleus Co-op 2\.4\.2's: download 2\.4\.2 from its release page and choose its folder\.$/);
   const out = html(fixtures.failed);
-  assert.match(out, /Setting up co-op failed/);
-  assert.match(out, /SHA-256 is 00ff/);
-  assert.match(out, /it was deleted/);
-  assert.match(out, /Try again/);
+  assert.match(out, /The folder chosen holds another Nucleus Co-op/);
   assert.match(out, /role="alert"/);
+  assert.match(out, /value="D:\\Nucleus"/);
+  assert.match(out, /Use this folder/);
+  // Each reason has its title; one the host couldn't check still shows.
+  assert.equal(folderTitle('missing'), 'Nucleus Co-op isn’t in the folder chosen');
+  assert.equal(folderTitle('untrusted'), 'Rubylight won’t run Nucleus Co-op from the folder chosen');
+  assert.equal(folderTitle(null), 'Nucleus Co-op can’t run');
+  const unchecked = playTogether(status({ install: install({ state: 'failed', error: null }) }), 'portal');
+  assert.equal(unchecked.error, 'Nucleus Co-op’s folder could not be checked.');
+});
+
+test('choosing a folder posts it, and a refusal carries the host’s reason', async () => {
+  const sent = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    // The console fetches its CSRF token first.
+    if (String(url).endsWith('/api/csrf-token')) return new Response('{"csrf_token":"t"}', { status: 200 });
+    sent.push([String(url), init?.method, init?.body]);
+    return new Response(JSON.stringify({ error: 'D:\\Downloads holds no NucleusCoop.exe: choose the folder you unpacked Nucleus Co-op 2.4.2 into' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  };
+  try {
+    await assert.rejects(api.coop.folder('D:\\Downloads'), /holds no NucleusCoop\.exe/);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  assert.equal(sent.length, 1);
+  assert.match(sent[0][0], /\/api\/coop\/folder$/);
+  assert.equal(sent[0][1], 'POST');
+  assert.deepEqual(JSON.parse(sent[0][2]), { path: 'D:\\Downloads' });
 });
 
 test('no handler: what is missing, the button that opens Nucleus Co-op on the PC, and the steps from a phone', () => {
@@ -354,7 +389,7 @@ test('an app without an .exe, or an older host, shows no panel', () => {
 
 test('the panel polls only while something changes on its own', () => {
   const polling = Object.entries(fixtures).filter(([, fixture]) => pollsView(playTogether(fixture, 'portal'))).map(([name]) => name);
-  assert.deepEqual(polling, ['installing', 'checking', 'handler', 'added']);
+  assert.deepEqual(polling, ['checking', 'handler', 'added']);
 });
 
 test('no panel text says Experimental or names a child session', () => {

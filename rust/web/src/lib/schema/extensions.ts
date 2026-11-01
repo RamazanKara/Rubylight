@@ -137,10 +137,12 @@ export const settings: Setting[] = [
   {
     key: 'nucleus_path',
     label: 'Nucleus Co-op folder',
-    description: "The folder of your own Nucleus Co-op copy. Empty: the host's own copy, which it downloads on first use.",
+    description:
+      "The folder you unpacked Nucleus Co-op 2.4.2 into, under C:\\Program Files. Empty: an earlier Rubylight's install, if any.",
+    details: "A game's Play together panel checks the folder as you choose it; a folder Nucleus Co-op can't run from is refused with the reason.",
     category: 'general',
     group: 'Background streaming',
-    control: { kind: 'text', placeholder: 'C:\\Tools\\Nucleus Co-op', mono: true },
+    control: { kind: 'text', placeholder: 'C:\\Program Files\\Nucleus Co-op', mono: true, browse: 'directory' },
     default: '',
   },
   {

@@ -76,7 +76,7 @@ async function fixture(t, intercept = async () => false) {
       '/api/frame-limiter/status': { enabled: false, configured_provider: 'none', active_provider: 'none', resolved_path: '' },
       '/api/power': powerStatus(),
       '/api/coop': { mode: { setting: 'nucleus', mode: 'nucleus', label: 'Nucleus Co-op', reason: '' },
-        install: { state: 'missing', path: null, version: null, error: null }, available: true, reason: null, sessions: [] },
+        install: { state: 'missing', path: null, chosen: '', version: null, problem: null, error: null }, available: true, reason: null, sessions: [] },
       '/api/logs/analysis': { status: true, findings: [], since: null, until: null, read_bytes: 0 },
       '/api/usb': { status: true, devices: [] },
       '/api/tokens': { status: true, tokens: [] },

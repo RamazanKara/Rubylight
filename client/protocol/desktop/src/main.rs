@@ -170,6 +170,8 @@ struct App {
     pin_pending: Option<PinPending>,
     /// This launch's update check (Windows); command-line and test streams make none.
     updates: update_check::Updates,
+    /// The background the title bar was last given (High contrast turns it black).
+    title_bar: egui::Color32,
 }
 
 fn display_of(window: *mut SDL_Window) -> Display {
@@ -442,6 +444,8 @@ fn run(launch: Option<cli::Launch>) -> Result<(), String> {
     #[cfg(not(windows))]
     sdl::set_icon(window, &theme::logo_rgba(64), 64);
     sdl::exclude_from_capture_if_asked(window);
+    // Before the window shows, so its first frame already has the dark bar; again when the palette changes.
+    sdl::blend_title_bar(window, *theme::NIGHT, *theme::ON_SURFACE);
 
     let waker: hosts::Waker = Arc::new(move || {
         // SAFETY: SDL_PushEvent is thread-safe; the event is plain data.
@@ -558,6 +562,7 @@ fn run(launch: Option<cli::Launch>) -> Result<(), String> {
         cli,
         color_probed: None,
         pin_pending: None,
+        title_bar: *theme::NIGHT,
     };
     match identity {
         Some(identity) => {
@@ -1053,6 +1058,10 @@ impl App {
             );
         });
         self.gui.platform(self.window, &output.platform_output);
+        if self.title_bar != *theme::NIGHT {
+            self.title_bar = *theme::NIGHT;
+            sdl::blend_title_bar(self.window, self.title_bar, *theme::ON_SURFACE);
+        }
         // SAFETY: drawing on the live renderer.
         unsafe {
             SDL_SetRenderDrawColor(self.renderer, 0x14, 0x16, 0x1F, 255);

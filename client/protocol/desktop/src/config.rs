@@ -380,6 +380,10 @@ pub struct Settings {
     /// small ordinary stream whose video and audio are not shown or played (Android's
     /// `checkbox_input_only_any_host`). Not a per-PC or per-game override.
     pub input_only_any_host: bool,
+    /// Home's View: its library rows as lines or whole, by store or as one, and the cover size.
+    pub home_layout: HomeLayout,
+    pub home_group: HomeGroup,
+    pub home_card_size: CardSize,
     /// The launcher's size in percent: one of [`UI_ZOOM_STEPS`]. Not a per-PC or per-game override.
     pub ui_zoom: u32,
     /// Brighter text, black surfaces and thicker outlines and focus rings.
@@ -459,6 +463,87 @@ impl OverlayCorner {
             Self::TopRight => en("Top right"),
             Self::BottomLeft => en("Bottom left"),
             Self::BottomRight => en("Bottom right"),
+        }
+    }
+}
+
+/// How Home lays out its library rows (Android's `home_view_layout`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum HomeLayout {
+    /// Every game of a row, line under line.
+    Grid,
+    /// One line per row, as many covers as fit and an "All N" tile for the rest. Also what an
+    /// unknown value reads as; keep it last: serde wants the catch-all there.
+    #[default]
+    #[serde(other)]
+    Rows,
+}
+
+impl HomeLayout {
+    pub const ALL: [Self; 2] = [Self::Grid, Self::Rows];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Grid => en("Grid"),
+            Self::Rows => en("Rows"),
+        }
+    }
+}
+
+/// Whether Home splits its library by store (Android's `home_view_group`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum HomeGroup {
+    /// The whole library as one row.
+    None,
+    /// A row per store, then the apps of no store. Also what an unknown value reads as; keep it
+    /// last: serde wants the catch-all there.
+    #[default]
+    #[serde(other)]
+    Store,
+}
+
+impl HomeGroup {
+    pub const ALL: [Self; 2] = [Self::Store, Self::None];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Store => en("Store"),
+            Self::None => en("None"),
+        }
+    }
+}
+
+/// The size of Home's covers (Android's `home_view_size`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CardSize {
+    Small,
+    Large,
+    /// Also what an unknown value reads as; keep it last: serde wants the catch-all there.
+    #[default]
+    #[serde(other)]
+    Medium,
+}
+
+impl CardSize {
+    pub const ALL: [Self; 3] = [Self::Small, Self::Medium, Self::Large];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Small => en("Small"),
+            Self::Medium => en("Medium"),
+            Self::Large => en("Large"),
+        }
+    }
+
+    /// A cover's widest against the medium one's, as on Android.
+    pub fn scale(self) -> f32 {
+        match self {
+            Self::Small => 0.75,
+            Self::Medium => 1.0,
+            Self::Large => 1.3,
         }
     }
 }
@@ -642,6 +727,9 @@ impl Default for Settings {
             console_home: true,
             quick_resume: false,
             input_only_any_host: false,
+            home_layout: HomeLayout::Rows,
+            home_group: HomeGroup::Store,
+            home_card_size: CardSize::Medium,
             ui_zoom: 100,
             high_contrast: false,
             reduce_motion: ReduceMotion::System,
@@ -1926,6 +2014,25 @@ mod tests {
         assert!(!Settings::default().quick_resume && !Settings::default().input_only_any_host);
         let on: Settings = serde_json::from_str(r#"{"quick_resume":true,"input_only_any_host":true}"#).unwrap();
         assert!(on.quick_resume && on.input_only_any_host);
+    }
+
+    #[test]
+    fn home_view_keeps_the_rows_per_store_until_chosen_and_reads_back() {
+        let old: Settings = serde_json::from_str(r#"{"fps":60}"#).unwrap();
+        assert_eq!((old.home_layout, old.home_group, old.home_card_size), (HomeLayout::Rows, HomeGroup::Store, CardSize::Medium));
+        assert_eq!(Settings::default().home_layout, HomeLayout::Rows);
+        let set = Settings { home_layout: HomeLayout::Grid, home_group: HomeGroup::None, home_card_size: CardSize::Large, ..Default::default() };
+        let json = serde_json::to_value(&set).unwrap();
+        // The words Android stores for the same choices.
+        assert_eq!(
+            (&json["home_layout"], &json["home_group"], &json["home_card_size"]),
+            (&serde_json::json!("grid"), &serde_json::json!("none"), &serde_json::json!("large"))
+        );
+        assert_eq!(serde_json::from_value::<Settings>(json).unwrap(), set);
+        // A value from a newer Nightjar keeps the default instead of dropping every setting.
+        let newer: Settings = serde_json::from_str(r#"{"home_layout":"carousel","home_card_size":"huge","fps":90}"#).unwrap();
+        assert_eq!((newer.home_layout, newer.home_card_size, newer.fps), (HomeLayout::Rows, CardSize::Medium, 90));
+        assert!(CardSize::Small.scale() < CardSize::Medium.scale() && CardSize::Medium.scale() < CardSize::Large.scale());
     }
 
     #[test]

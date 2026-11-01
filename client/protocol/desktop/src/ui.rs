@@ -17,8 +17,8 @@ use egui::{
 };
 
 use crate::config::{
-    step_zoom, AudioChannels, CodecPreference, DecoderPreference, ErrorCorrection, HostDisplay, Language, MouseMode, Overrides, Profiles,
-    ReduceMotion, Settings, WindowMode, UI_ZOOM_STEPS,
+    step_zoom, AudioChannels, CardSize, CodecPreference, DecoderPreference, ErrorCorrection, HomeGroup, HomeLayout, HostDisplay, Language,
+    MouseMode, Overrides, Profiles, ReduceMotion, Settings, WindowMode, UI_ZOOM_STEPS,
 };
 use crate::console::{self, EndAction, GameState, Playing, Source};
 use crate::hosts::{Apps, Art, Handed, Host, Hosts, Reach, SleepStep};
@@ -205,6 +205,8 @@ pub enum Dialog {
     PairError { host: u64, body: String, one_time: bool },
     /// How to pair, for a PC that is not paired yet.
     PairingHelp,
+    /// Home's View, under its button: layout, grouping and card size, each changed in place.
+    HomeView,
     /// Home or PCs in the top bar would leave a page whose transfers still run, which cancels
     /// them: asked first.
     ConfirmLeave { to: Screen },
@@ -726,7 +728,7 @@ impl Launcher {
         let mut child = ui.new_child(egui::UiBuilder::new().max_rect(content).layout(Layout::top_down(Align::Min)));
         let ui = &mut child;
         // A menu by its card leaves the page as it is (it holds the input itself); a dialog dims it.
-        let menu = matches!(self.dialog, Dialog::HostOptions { .. } | Dialog::GameMenu { .. }) && self.menu_anchor != Anchor::Center;
+        let menu = matches!(self.dialog, Dialog::HostOptions { .. } | Dialog::GameMenu { .. } | Dialog::HomeView) && self.menu_anchor != Anchor::Center;
         let blocked = (!matches!(self.dialog, Dialog::None) && !menu) || view.connecting.is_some() || view.waking.is_some();
         // Screens take focus only when nothing covers them.
         let held_focus = self.focus_screen;
@@ -894,6 +896,13 @@ impl Launcher {
                         if self.home_ready && header_button(ui, "All games", Icon::Grid).clicked() {
                             self.library_filter = console::LibraryFilter::All;
                             self.open(Screen::AllGames);
+                        }
+                        if self.home_ready {
+                            let view = header_button(ui, "View", Icon::Sliders);
+                            self.focus_item(&view, "home-view", false);
+                            if view.clicked() {
+                                self.open_menu(Dialog::HomeView, Anchor::Below(view.rect), "home-view".into());
+                            }
                         }
                     }
                     Screen::Hosts => {

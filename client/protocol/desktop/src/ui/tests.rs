@@ -2847,6 +2847,25 @@ fn polish_screenshots() {
         shoot(&mut f, "home-focus-moved");
         f.scroll_to_end();
         shoot(&mut f, "home-end");
+        // Home's View: its menu, then each layout, grouping and card size.
+        f.l.go(Screen::Home);
+        f.settle();
+        if let Some(view) = f.placed.iter().find(|(t, r, _)| t == "View" && r.center().y < 80.0).map(|p| p.1) {
+            f.click_at(view.center(), egui::PointerButton::Primary);
+            shoot(&mut f, "home-view-menu");
+            f.press(Key::Escape);
+        }
+        for (layout, group, card) in [
+            (HomeLayout::Grid, HomeGroup::Store, CardSize::Medium),
+            (HomeLayout::Grid, HomeGroup::None, CardSize::Small),
+            (HomeLayout::Rows, HomeGroup::None, CardSize::Large),
+            (HomeLayout::Rows, HomeGroup::Store, CardSize::Small),
+        ] {
+            (f.l.settings.home_layout, f.l.settings.home_group, f.l.settings.home_card_size) = (layout, group, card);
+            let name = format!("home-view-{}-{}-{}", layout.label(), group.label(), card.label()).to_lowercase();
+            shoot(&mut f, &name);
+        }
+        (f.l.settings.home_layout, f.l.settings.home_group, f.l.settings.home_card_size) = (HomeLayout::Rows, HomeGroup::Store, CardSize::Medium);
         // Help as a returning user meets it, Home in the top bar (the README's shot).
         f.l.go(Screen::Help);
         shoot(&mut f, "help-returning");
@@ -3390,9 +3409,11 @@ fn home_opens_all_games_from_its_top_row_when_every_row_fits() {
     f.settle();
     assert!(!f.drawn.iter().any(|t| t.strip_prefix("All ").is_some_and(|n| n.parse::<usize>().is_ok())), "every row fits, no All tile: {:?}", f.drawn);
     let stops = header_stops(&mut f);
-    assert_eq!(stops.len(), 5, "Home, PCs, Settings, Help and All games: {stops:?}");
+    assert_eq!(stops.len(), 6, "Home, PCs, Settings, Help, All games and View: {stops:?}");
     let action = f.placed.iter().find(|(t, r, _)| t == "All games" && r.center().y < 80.0).map(|p| p.1).expect("All games in the top row");
-    assert!(stops[4].contains_rect(action) && 1280.0 - stops[4].right() < 80.0, "last for Tab, at the right edge: {stops:?}");
+    let view = f.placed.iter().find(|(t, r, _)| t == "View" && r.center().y < 80.0).map(|p| p.1).expect("View in the top row");
+    assert!(stops[4].contains_rect(action), "the page's first action for Tab: {stops:?}");
+    assert!(stops[5].contains_rect(view) && 1280.0 - stops[5].right() < 80.0, "View last, at the right edge: {stops:?}");
     // Right from the last destination, Help, lands on it.
     let settings = f.placed.iter().find(|(t, r, _)| t == "Help" && r.center().y < 80.0).map(|p| p.1).unwrap();
     let pill = (0..30).find_map(|_| {
@@ -3408,10 +3429,97 @@ fn home_opens_all_games_from_its_top_row_when_every_row_fits() {
     assert_eq!(f.l.screen, Screen::AllGames);
     assert_eq!(f.l.library_filter, console::LibraryFilter::All);
     assert!(shows(&f, "Portal") && shows(&f, "Fortnite"), "{:?}", f.drawn);
-    // An empty library offers no way to an empty page.
+    // An empty library offers no way to an empty page, and nothing to view.
     let mut f = home_with_stores(&[]);
     f.settle();
-    assert!(!f.placed.iter().any(|(t, r, _)| t == "All games" && r.center().y < 80.0), "{:?}", f.drawn);
+    assert!(!f.placed.iter().any(|(t, r, _)| (t == "All games" || t == "View") && r.center().y < 80.0), "{:?}", f.drawn);
+}
+
+/// Home's View: a menu under its button whose rows step through the layout, grouping and card
+/// size. Home changes behind it at once, the menu stays for the next try, and each choice is
+/// saved; Escape closes it and gives focus back to the button.
+#[test]
+fn home_view_changes_layout_grouping_and_card_size_in_place() {
+    let mut f = store_mix();
+    let view = f.placed.iter().find(|(t, r, _)| t == "View" && r.center().y < 80.0).map(|p| p.1).expect("View in the top row");
+    f.click_at(view.center(), egui::PointerButton::Primary);
+    assert!(matches!(f.l.dialog, Dialog::HomeView), "the menu opens");
+    for row in ["Layout", "Group by", "Card size", "Rows", "Store", "Medium"] {
+        assert!(shows(&f, row), "{row}: {:?}", f.drawn);
+    }
+    // Rows by store: Steam's twelve end in their All tile.
+    assert!(shows(&f, "All 12") && !shows(&f, "Steam 11"), "{:?}", f.drawn);
+    let row = |f: &Frames, label: &str| f.placed.iter().find(|(t, ..)| t == label).map(|p| p.1).expect(label);
+    let at = row(&f, "Layout");
+    let commands = f.click_at(at.center(), egui::PointerButton::Primary);
+    assert!(commands.iter().any(|c| matches!(c, Command::SaveSettings)), "the choice is saved");
+    assert_eq!(f.l.settings.home_layout, HomeLayout::Grid);
+    assert!(matches!(f.l.dialog, Dialog::HomeView), "the menu stays open");
+    assert!(shows(&f, "Grid"), "the row says the layout now: {:?}", f.drawn);
+    // The grid shows every game of each row: no All tile.
+    f.size = vec2(1280.0, 2400.0);
+    f.settle();
+    assert!(shows(&f, "Steam 11") && !shows(&f, "All 12"), "{:?}", f.drawn);
+    assert!(shows(&f, "Battle.net"), "still a part per store: {:?}", f.drawn);
+
+    // Group by: none. One Library part, no store's.
+    let at = row(&f, "Group by");
+    f.click_at(at.center(), egui::PointerButton::Primary);
+    assert_eq!(f.l.settings.home_group, HomeGroup::None);
+    let shelves = |f: &Frames| f.placed.iter().filter(|(t, r, _)| r.center().y > 80.0 && ["Steam", "Battle.net", "Epic Games", "Xbox", "Other apps", "Library"].contains(&t.as_str())).map(|p| p.0.clone()).collect::<Vec<_>>();
+    assert_eq!(shelves(&f), ["Library"], "{:?}", f.drawn);
+    assert!(shows(&f, "Desktop") && shows(&f, "Fortnite"), "every game in it: {:?}", f.drawn);
+
+    // Back to a part per store, where Steam's first line holds Steam's covers alone.
+    let at = row(&f, "Group by");
+    f.click_at(at.center(), egui::PointerButton::Primary);
+    assert_eq!(f.l.settings.home_group, HomeGroup::Store);
+    // Card size: Medium, then Large, then Small, fewer covers a line the larger they are.
+    let covers_in_line = |f: &Frames| {
+        let first = f.placed.iter().find(|(t, ..)| t == "Steam 00").map(|p| p.1).expect("Steam 00");
+        f.placed.iter().filter(|(t, r, _)| t.starts_with("Steam ") && (r.top() - first.top()).abs() < 1.0).count()
+    };
+    let medium = covers_in_line(&f);
+    let at = row(&f, "Card size");
+    f.click_at(at.center(), egui::PointerButton::Primary);
+    assert_eq!(f.l.settings.home_card_size, CardSize::Large);
+    let large = covers_in_line(&f);
+    let at = row(&f, "Card size");
+    f.click_at(at.center(), egui::PointerButton::Primary);
+    assert_eq!(f.l.settings.home_card_size, CardSize::Small);
+    let small = covers_in_line(&f);
+    assert!(large < medium && medium < small, "large {large}, medium {medium}, small {small}");
+
+    f.press(Key::Escape);
+    assert!(matches!(f.l.dialog, Dialog::None));
+    let focused = f.ctx.memory(|m| m.focused()).and_then(|id| f.ctx.read_response(id)).map(|r| r.rect).expect("focus");
+    assert!(focused.contains_rect(view), "back on View: {focused:?}");
+}
+
+/// Rows, not by store: one Library line of what fits, its All tile opening All games.
+#[test]
+fn home_rows_of_one_library_end_in_its_all_tile() {
+    let mut f = store_mix();
+    f.l.settings.home_group = HomeGroup::None;
+    f.settle();
+    assert!(shows(&f, "Library") && shows(&f, "All 19"), "{:?}", f.drawn);
+    let tile = f.placed.iter().find(|(t, ..)| t == "All 19").map(|p| p.1).unwrap();
+    f.click_at(tile.center(), egui::PointerButton::Primary);
+    assert_eq!(f.l.screen, Screen::AllGames);
+    assert_eq!(f.l.library_filter, console::LibraryFilter::All);
+}
+
+/// A focused cover's title that is cut short runs sideways after a pause, and only then.
+#[test]
+fn a_focused_cover_title_too_long_runs_sideways_after_a_pause() {
+    assert_eq!(caption_offset(200.0, 150.0, false, true, 5.0), None, "not focused");
+    assert_eq!(caption_offset(200.0, 150.0, true, false, 5.0), None, "reduced motion");
+    assert_eq!(caption_offset(120.0, 150.0, true, true, 5.0), None, "it fits");
+    let (start, span) = caption_offset(200.0, 150.0, true, true, 0.5).unwrap();
+    assert_eq!(start, 0.0, "the start stays a moment");
+    assert!(span > 200.0, "the next copy follows after a gap");
+    let (later, _) = caption_offset(200.0, 150.0, true, true, 3.0).unwrap();
+    assert!(later > 0.0 && later <= span);
 }
 
 /// While a PC's library is on its way, All games says so as Home does instead of calling the

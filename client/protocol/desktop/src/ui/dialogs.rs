@@ -268,6 +268,31 @@ impl Launcher {
                     None => close = true,
                 }
             }
+            Dialog::HomeView => {
+                // A row steps through its choices and Home changes behind the menu at once, so
+                // the menu stays open to try the next.
+                let s = &self.settings;
+                let rows = [
+                    MenuRow { icon: Icon::Grid, label: en("Layout"), hint: Some(s.home_layout.label()), destructive: false, blocked: None },
+                    MenuRow { icon: Icon::Folder, label: en("Group by"), hint: Some(s.home_group.label()), destructive: false, blocked: None },
+                    MenuRow { icon: Icon::Monitor, label: en("Card size"), hint: Some(s.home_card_size.label()), destructive: false, blocked: None },
+                ];
+                let (outcome, took) = popover(ctx, "home-view", self.menu_anchor, tr("View"), None, &rows, None, focus_first);
+                focused = took;
+                match outcome {
+                    MenuOutcome::Chosen(n) => {
+                        let s = &mut self.settings;
+                        match n {
+                            0 => s.home_layout = next_of(&HomeLayout::ALL, s.home_layout),
+                            1 => s.home_group = next_of(&HomeGroup::ALL, s.home_group),
+                            _ => s.home_card_size = next_of(&CardSize::ALL, s.home_card_size),
+                        }
+                        commands.push(Command::SaveSettings);
+                    }
+                    MenuOutcome::Dismissed => close = true,
+                    MenuOutcome::Open => {}
+                }
+            }
             Dialog::Rename { host, text } => {
                 let id = *host;
                 let own = view.hosts.get(id).map_or(String::new(), |h| h.record.name.clone());
@@ -932,6 +957,7 @@ impl Launcher {
                 | Dialog::ConfirmSleep { .. }
                 | Dialog::PairError { .. }
                 | Dialog::PairingHelp
+                | Dialog::HomeView
         );
         self.dialog = Dialog::None;
         match self.focused_key.clone().filter(|_| from_card) {
@@ -1248,6 +1274,12 @@ pub fn place(anchor: Anchor, size: Vec2, screen: Rect) -> Pos2 {
     let x = x.min(screen.right() - EDGE - size.x).max(screen.left() + EDGE);
     let y = y.min(screen.bottom() - EDGE - size.y).max(screen.top() + EDGE);
     Pos2::new(x, y)
+}
+
+/// The choice after `now` in `all`, back to the first after the last.
+fn next_of<T: Copy + PartialEq>(all: &[T], now: T) -> T {
+    let at = all.iter().position(|v| *v == now).map_or(0, |i| (i + 1) % all.len());
+    all[at]
 }
 
 /// One row of a popover menu.

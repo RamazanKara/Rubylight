@@ -261,11 +261,6 @@ impl LibraryRow<'_> {
 /// Home's library rows: one per store, largest first (ties by key), then the apps of no store.
 /// Within a row the installed games come first, each part by title. Android's TV Home rows.
 pub fn library_rows(entries: &[Entry]) -> Vec<LibraryRow<'_>> {
-    fn installed_first(mut games: Vec<&Entry>) -> Vec<&Entry> {
-        // Stable: the titles stay in order within each part.
-        games.sort_by_key(|e| !e.installed());
-        games
-    }
     let stores = stores_by_size(entries);
     let mut rows: Vec<LibraryRow<'_>> = stores
         .iter()
@@ -285,6 +280,24 @@ pub fn library_rows(entries: &[Entry]) -> Vec<LibraryRow<'_>> {
         });
     }
     rows
+}
+
+/// Home's library rows under its View: [`library_rows`] by store, or the whole library as one
+/// Library row (installed first, each part by title) that opens All games.
+pub fn home_rows(entries: &[Entry], by_store: bool) -> Vec<LibraryRow<'_>> {
+    if by_store {
+        return library_rows(entries);
+    }
+    if entries.is_empty() {
+        return Vec::new();
+    }
+    vec![LibraryRow { kind: RowKind::Library, filter: LibraryFilter::All, games: installed_first(entries.iter().collect()) }]
+}
+
+fn installed_first(mut games: Vec<&Entry>) -> Vec<&Entry> {
+    // Stable: the titles stay in order within each part.
+    games.sort_by_key(|e| !e.installed());
+    games
 }
 
 fn installed(game: &Game) -> bool {
@@ -919,6 +932,22 @@ mod tests {
         assert_eq!(rows.len(), 1);
         assert_eq!((rows[0].kind.clone(), rows[0].filter.clone()), (RowKind::Library, LibraryFilter::All));
         assert_eq!(library_filters(&entries).len(), 1, "only All: no Other chip without stores");
+    }
+
+    #[test]
+    fn home_rows_not_by_store_are_one_library_row_of_every_game_installed_first() {
+        let lib = mixed();
+        let sources = [source(1, "A", true, Some(&lib), None)];
+        let entries = merge_library(&sources);
+        assert_eq!(home_rows(&entries, true), library_rows(&entries));
+        let rows = home_rows(&entries, false);
+        assert_eq!(rows.len(), 1);
+        assert_eq!((rows[0].kind.clone(), rows[0].filter.clone(), rows[0].key()), (RowKind::Library, LibraryFilter::All, "row:library".to_owned()));
+        assert_eq!(rows[0].games.len(), entries.len(), "every game, whatever its store");
+        let installed: Vec<bool> = rows[0].games.iter().map(|e| e.installed()).collect();
+        assert!(installed.windows(2).all(|w| w[0] || !w[1]), "installed first: {installed:?}");
+        assert!(installed.contains(&false), "the fixture has a game that is not installed");
+        assert!(home_rows(&[], false).is_empty());
     }
 
     #[test]

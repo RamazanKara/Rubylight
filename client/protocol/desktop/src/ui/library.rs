@@ -166,7 +166,7 @@ impl Launcher {
         }
         let sources: Vec<Source> = view.hosts.list.iter().map(Source::of).collect();
         let entries = console::merge_library(&sources);
-        let rows = console::library_rows(&entries);
+        let rows = console::home_rows(&entries, self.settings.home_group == HomeGroup::Store);
         let playing = console::continue_playing(&sources);
         let recent = console::recently_played(&sources, &self.recents, &playing, 6);
         let starred = console::favourite_games(&sources, &self.favourites);
@@ -179,7 +179,7 @@ impl Launcher {
                 }
             }
             let width = ui.available_width();
-            let (columns, cover_w) = grid(width);
+            let (columns, cover_w) = grid_up_to(width, POSTER_MAX_W * self.settings.home_card_size.scale());
             let (_, card_w) = card_grid(width, CARD_GAP);
             let mut first = true;
             if !starred.is_empty() {
@@ -255,9 +255,9 @@ impl Launcher {
                     ui.label(RichText::new(tr("No games to show yet. They appear here once a PC that shares its game library is online.")).color(ON_SURFACE_VARIANT));
                 }
             }
-            // One row per store, as many covers as fit and an All tile for the rest. A library of
-            // one kind is shown whole.
-            let whole = rows.len() == 1;
+            // One row per store (or one for the library), as many covers as fit and an All tile for
+            // the rest. The Grid view shows each row whole, as does a library of one kind by store.
+            let whole = self.settings.home_layout == HomeLayout::Grid || (rows.len() == 1 && self.settings.home_group == HomeGroup::Store);
             for row in &rows {
                 let name = match &row.kind {
                     console::RowKind::Store { name, .. } => name.as_str(),

@@ -239,11 +239,15 @@ impl Queue {
 /// One client's virtual gamepads, driven on their own thread. The input
 /// thread only queues events and collects reports. Dropping it waits for
 /// the thread, which unplugs the pads and frees their slots first, so a
-/// later session never sees a stale pad.
+/// later session never sees a stale pad; one [`GamepadThread::stop_within`]
+/// gave up on is left running instead.
 pub struct GamepadThread {
     shared: Arc<Shared>,
     reports: Mutex<mpsc::Receiver<PadReport>>,
     thread: Mutex<Option<JoinHandle<()>>>,
+    /// [`GamepadThread::stop_within`] timed out: the thread is stuck in the
+    /// driver and nothing waits for it again.
+    abandoned: AtomicBool,
     /// The back grips no setting maps; pressing one shows a hint.
     unmapped_grips: u32,
 }
@@ -290,6 +294,7 @@ impl GamepadThread {
             shared,
             reports: Mutex::new(reports),
             thread: Mutex::new(Some(thread)),
+            abandoned: AtomicBool::new(false),
             unmapped_grips: 0,
         })
     }
@@ -403,27 +408,42 @@ impl GamepadThread {
         }
         true
     }
-    pub fn stop(&self) -> Option<JoinHandle<()>> {
+    /// How many of its pads are plugged in.
+    pub fn plugged_pads(&self) -> u32 {
+        self.shared.ready.load(Ordering::Acquire).count_ones()
+    }
+    /// Tell the thread to end, without waiting: several stopped at once
+    /// unplug at once.
+    pub fn request_stop(&self) {
         self.shared.stop.store(true, Ordering::Release);
         // Taking the lock orders the flag before a wait that checked it.
         drop(self.shared.queue.lock());
         self.shared.wake.notify_all();
+    }
+    pub fn stop(&self) -> Option<JoinHandle<()>> {
+        self.request_stop();
         self.thread.lock().unwrap().take()
     }
     /// Stop the thread and wait up to `timeout` for it to end, which unplugs
-    /// its pads. A thread stuck in the driver is an error and is never
-    /// waited for again, here or on drop.
+    /// its pads. A thread stuck in the driver is an error; once it timed out
+    /// it is never waited for again: a later call fails at once while it
+    /// still runs, and is Ok once it ended. Dropping it then doesn't wait.
     pub fn stop_within(&self, timeout: Duration) -> Result<()> {
         let Some(thread) = self.stop() else {
             return Ok(());
         };
-        let deadline = Instant::now() + timeout;
+        let deadline = match self.abandoned.load(Ordering::Acquire) {
+            true => Instant::now(),
+            false => Instant::now() + timeout,
+        };
         while !thread.is_finished() {
-            anyhow::ensure!(
-                Instant::now() < deadline,
-                "the virtual controllers did not unplug within {} s: the virtual gamepad driver isn't responding",
-                timeout.as_secs_f32()
-            );
+            if Instant::now() >= deadline {
+                self.abandoned.store(true, Ordering::Release);
+                *self.thread.lock().unwrap() = Some(thread);
+                anyhow::bail!(
+                    "the virtual controllers did not unplug: the virtual gamepad driver isn't responding, so restart Rubylight and start again"
+                );
+            }
             std::thread::sleep(Duration::from_millis(5));
         }
         if thread.join().is_err() {
@@ -436,6 +456,12 @@ impl GamepadThread {
 impl Drop for GamepadThread {
     fn drop(&mut self) {
         if let Some(thread) = self.stop() {
+            if self.abandoned.load(Ordering::Acquire) && !thread.is_finished() {
+                tracing::warn!(
+                    "the virtual controllers' thread is stuck in the driver; left running"
+                );
+                return;
+            }
             let _ = thread.join();
         }
     }
@@ -677,7 +703,7 @@ fn run<P: Pads>(
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     #[test]
@@ -731,7 +757,7 @@ mod tests {
 
     /// Holds every driver call until the test opens it.
     #[derive(Default)]
-    struct Gate {
+    pub(crate) struct Gate {
         open: Mutex<bool>,
         opened: Condvar,
         blocked: AtomicBool,
@@ -748,21 +774,21 @@ mod tests {
             }
             self.blocked.store(false, Ordering::SeqCst);
         }
-        fn open(&self) {
+        pub(crate) fn open(&self) {
             *self.open.lock().unwrap() = true;
             self.opened.notify_all();
         }
         fn close(&self) {
             *self.open.lock().unwrap() = false;
         }
-        fn wait_until(&self, mut done: impl FnMut() -> bool) {
+        pub(crate) fn wait_until(&self, mut done: impl FnMut() -> bool) {
             let deadline = Instant::now() + Duration::from_secs(10);
             while !done() {
                 assert!(Instant::now() < deadline, "the gamepad thread stopped");
                 std::thread::sleep(Duration::from_millis(1));
             }
         }
-        fn wait_entered(&self, calls: usize) {
+        pub(crate) fn wait_entered(&self, calls: usize) {
             self.wait_until(|| self.entered.load(Ordering::SeqCst) >= calls);
         }
     }
@@ -811,7 +837,8 @@ mod tests {
             self.log.lock().unwrap().push("unplugged".into());
         }
     }
-    fn fake() -> (GamepadThread, Arc<Gate>, Arc<Mutex<Vec<String>>>) {
+    /// Pads whose driver calls wait at the gate, which starts closed.
+    pub(crate) fn fake() -> (GamepadThread, Arc<Gate>, Arc<Mutex<Vec<String>>>) {
         let gate = Arc::new(Gate::default());
         let log = Arc::new(Mutex::new(Vec::new()));
         let pads = GamepadThread::spawn_reported(
@@ -1142,16 +1169,29 @@ mod tests {
         assert_eq!(log.lock().unwrap().last().unwrap(), "unplugged");
 
         let (pads, gate, log) = fake();
-        pads.send(arrival);
+        pads.send(arrival.clone());
         gate.wait_entered(1);
         let started = Instant::now();
         let error = pads
             .stop_within(Duration::from_millis(50))
             .unwrap_err()
             .to_string();
-        assert!(error.contains("did not unplug within 0.05 s"), "{error}");
+        assert!(error.contains("did not unplug"), "{error}");
         assert!(started.elapsed() < Duration::from_secs(5));
-        // Never waited for again: dropping it returns at once.
+        // Never waited for again: a later call fails at once.
+        let started = Instant::now();
+        assert!(pads.stop_within(Duration::from_secs(60)).is_err());
+        assert!(started.elapsed() < Duration::from_secs(5));
+        // Once it ended, it is done.
+        gate.open();
+        gate.wait_until(|| log.lock().unwrap().iter().any(|e| e == "unplugged"));
+        pads.stop_within(Duration::from_secs(60)).unwrap();
+
+        // Dropping one still stuck returns at once.
+        let (pads, gate, log) = fake();
+        pads.send(arrival);
+        gate.wait_entered(1);
+        assert!(pads.stop_within(Duration::from_millis(50)).is_err());
         drop(pads);
         assert!(!log.lock().unwrap().iter().any(|e| e == "unplugged"));
         gate.open();

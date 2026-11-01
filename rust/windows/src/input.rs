@@ -38,6 +38,9 @@ pub use desktop::{
     follow_input_desktop, input_desktop_name, keep_on_input_desktop, on_input_desktop,
     secure_desktop_shown,
 };
+/// Gated fake pads for other modules' tests.
+#[cfg(test)]
+pub(crate) use gamepad_thread::tests::fake as fake_pads;
 pub use gamepad_thread::{GamepadThread, PadReport};
 pub use gamepads::{Gamepads, open_interface};
 use keyboard_mouse::{

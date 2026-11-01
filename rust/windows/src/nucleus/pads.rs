@@ -64,11 +64,15 @@ pub struct SessionPads {
 struct Plugged {
     thread: Weak<GamepadThread>,
     indices: Vec<u8>,
+    /// Pads the host dropped while their thread was stuck in the driver:
+    /// kept until a later session finds them unplugged.
+    abandoned: Option<Arc<GamepadThread>>,
 }
 static PLUGGED: Mutex<Vec<Plugged>> = Mutex::new(Vec::new());
 
-/// A set stays listed until its pads are unplugged ([`SessionPads`]'s drop),
-/// so a set the host is dropping right now is still waited for.
+/// A set stays listed until its pads are unplugged ([`SessionPads`]'s drop,
+/// or a later session's [`Pads::retire_earlier`] for one whose thread was
+/// stuck), so a set the host is dropping right now is still waited for.
 fn plugged() -> std::sync::MutexGuard<'static, Vec<Plugged>> {
     PLUGGED.lock().unwrap_or_else(PoisonError::into_inner)
 }
@@ -76,11 +80,18 @@ fn plugged() -> std::sync::MutexGuard<'static, Vec<Plugged>> {
 impl Drop for SessionPads {
     fn drop(&mut self) {
         // The thread unplugs its pads as it ends.
-        if let Err(error) = self.thread.stop_within(RETIRE_TIMEOUT) {
-            tracing::warn!("Nucleus Co-op: {error:#}");
-        }
+        let stuck = self.thread.stop_within(RETIRE_TIMEOUT).err();
         let own = Arc::downgrade(&self.thread);
-        plugged().retain(|p| !p.thread.ptr_eq(&own));
+        let mut plugged = plugged();
+        match stuck {
+            Some(error) => {
+                tracing::warn!("Nucleus Co-op: {error:#}");
+                if let Some(set) = plugged.iter_mut().find(|p| p.thread.ptr_eq(&own)) {
+                    set.abandoned = Some(self.thread.clone());
+                }
+            }
+            None => plugged.retain(|p| !p.thread.ptr_eq(&own)),
+        }
     }
 }
 
@@ -111,16 +122,24 @@ impl Pads for SessionPads {
                 .map(|p| (p.thread.clone(), p.indices.clone()))
                 .collect()
         };
+        // Each thread unplugs its pads as it ends; all are told at once and
+        // share one deadline. A set the host is dropping meanwhile is waited
+        // for there; [`plug`] waits for its indices either way.
+        let threads: Vec<_> = earlier.iter().map(|(t, _)| t.upgrade()).collect();
+        for thread in threads.iter().flatten() {
+            thread.request_stop();
+        }
+        let deadline = Instant::now() + RETIRE_TIMEOUT;
         let mut indices = Vec::new();
-        for (thread, held) in earlier {
-            // The thread unplugs its pads as it ends. A set the host is
-            // dropping meanwhile, or that a launch before gave up on, is not
-            // waited for here; [`plug`] waits for its indices either way.
-            if let Some(thread) = thread.upgrade() {
+        for ((weak, held), thread) in earlier.into_iter().zip(threads) {
+            if let Some(thread) = thread {
                 thread
-                    .stop_within(RETIRE_TIMEOUT)
-                    .context("an earlier Nucleus Co-op session's controllers are still plugged in; restart Rubylight and start again")?;
+                    .stop_within(deadline.saturating_duration_since(Instant::now()))
+                    .context(
+                        "an earlier Nucleus Co-op session's controllers are still plugged in",
+                    )?;
             }
+            plugged().retain(|p| !(p.abandoned.is_some() && p.thread.ptr_eq(&weak)));
             tracing::info!(
                 xinput = ?held,
                 "Nucleus Co-op: an earlier session's controllers unplugged"
@@ -152,12 +171,18 @@ pub fn virtual_pads(
         warnings.clone(),
     )
     .context("start the virtual controllers for Nucleus Co-op")?;
+    Ok(session_pads(thread, warnings))
+}
+
+/// `thread` as a session's pads, listed for later sessions.
+fn session_pads(thread: GamepadThread, warnings: Arc<Warnings>) -> SessionPads {
     let thread = Arc::new(thread);
     plugged().push(Plugged {
         thread: Arc::downgrade(&thread),
         indices: Vec::new(),
+        abandoned: None,
     });
-    Ok(SessionPads { thread, warnings })
+    SessionPads { thread, warnings }
 }
 
 /// Which XInput user indices have a controller.
@@ -224,6 +249,41 @@ fn free_of(connected: [bool; MAX_PLAYERS], held: &[u8]) -> usize {
     (0..MAX_PLAYERS)
         .filter(|&i| !connected[i] || held.contains(&(i as u8)))
         .count()
+}
+
+/// How long XInput may take to show controllers [`released`] unplugged gone.
+const RELEASE_SETTLE: Duration = Duration::from_secs(1);
+
+/// Run `release`, which unplugs other streams' controllers and returns how
+/// many pads they had plugged in, then wait until XInput shows that many
+/// fewer controllers, so the session's [`free`] and [`plug`] don't see one
+/// still leaving. Pads that never reached XInput (PlayStation and Switch
+/// profiles) end the wait after [`RELEASE_SETTLE`].
+pub fn released(xinput: &mut dyn XInput, release: impl FnOnce() -> Result<u32>) -> Result<()> {
+    let count = |connected: [bool; MAX_PLAYERS]| connected.iter().filter(|c| **c).count();
+    let before = count(xinput.connected()?);
+    let plugged = release()? as usize;
+    if plugged == 0 {
+        return Ok(());
+    }
+    let wanted = before.saturating_sub(plugged);
+    let deadline = Instant::now() + RELEASE_SETTLE;
+    loop {
+        let now = count(xinput.connected()?);
+        if now <= wanted {
+            return Ok(());
+        }
+        if Instant::now() >= deadline {
+            tracing::info!(
+                before,
+                now,
+                plugged,
+                "Nucleus Co-op: some released controllers were not XInput controllers"
+            );
+            return Ok(());
+        }
+        std::thread::sleep(POLL);
+    }
 }
 
 /// Plug one pad per player, in slot order, and learn the XInput index each
@@ -570,9 +630,91 @@ pub(crate) mod tests {
             hidden: false,
             intruder: false,
         };
-        let error = plug(&hung, &mut xinput, 1, PLUG_TIMEOUT).unwrap_err();
-        assert!(error.to_string().contains("did not unplug"), "{error}");
+        assert!(plug(&hung, &mut xinput, 1, PLUG_TIMEOUT).is_err());
         assert!(hung.sent.lock().unwrap().is_empty());
+    }
+
+    /// XInput that shows `gone` controllers fewer after `reads` reads.
+    struct Leaving {
+        connected: [bool; MAX_PLAYERS],
+        reads: usize,
+    }
+    impl XInput for Leaving {
+        fn connected(&mut self) -> Result<[bool; MAX_PLAYERS]> {
+            self.reads = self.reads.saturating_sub(1);
+            if self.reads == 0 {
+                self.connected[0] = false;
+            }
+            Ok(self.connected)
+        }
+    }
+
+    /// #56: the desktop stream's parked pad held XInput 0; the session waits
+    /// until it is gone before counting and plugging.
+    #[test]
+    fn released_controllers_are_waited_for_until_xinput_shows_them_gone() {
+        let mut xinput = Leaving {
+            connected: [true, true, false, false],
+            reads: 4,
+        };
+        let started = Instant::now();
+        released(&mut xinput, || Ok(1)).unwrap();
+        assert_eq!(xinput.connected, [false, true, false, false]);
+        assert!(started.elapsed() < RELEASE_SETTLE);
+        // Nothing plugged in: no wait. One that never reached XInput: the
+        // wait ends after the bound.
+        let mut xinput = Leaving {
+            connected: [false, true, false, false],
+            reads: usize::MAX,
+        };
+        released(&mut xinput, || Ok(0)).unwrap();
+        let started = Instant::now();
+        released(&mut xinput, || Ok(1)).unwrap();
+        assert!(started.elapsed() >= RELEASE_SETTLE);
+        assert!(released(&mut xinput, || anyhow::bail!("stuck")).is_err());
+    }
+
+    /// The real sets: an earlier session's pad thread stuck in the driver
+    /// fails the next launch after [`RETIRE_TIMEOUT`], the launches after it
+    /// at once (never blocked by it), and none once it ended.
+    #[test]
+    fn a_stuck_earlier_set_is_waited_for_once_and_retired_once_it_ends() {
+        let abandoned = || plugged().iter().filter(|p| p.abandoned.is_some()).count();
+        let (stuck, gate, log) = crate::input::fake_pads();
+        let earlier = session_pads(stuck, Default::default());
+        earlier.send(Input::Arrival {
+            id: 0,
+            kind: XBOX,
+            capabilities: CAPABILITIES,
+            buttons: 0,
+        });
+        gate.wait_entered(1);
+        let (thread, next_gate, _) = crate::input::fake_pads();
+        next_gate.open();
+        let next = session_pads(thread, Default::default());
+
+        let started = Instant::now();
+        let error = format!("{:#}", next.retire_earlier().unwrap_err());
+        assert!(
+            error
+                .starts_with("an earlier Nucleus Co-op session's controllers are still plugged in")
+                && error.ends_with("restart Rubylight and start again"),
+            "{error}"
+        );
+        assert!(started.elapsed() >= RETIRE_TIMEOUT - Duration::from_millis(100));
+        let started = Instant::now();
+        assert!(next.retire_earlier().is_err());
+        // The host drops the earlier session meanwhile: not waited for, still
+        // listed.
+        drop(earlier);
+        assert!(next.retire_earlier().is_err());
+        assert!(started.elapsed() < Duration::from_secs(2));
+        assert_eq!(abandoned(), 1);
+
+        gate.open();
+        gate.wait_until(|| log.lock().unwrap().iter().any(|e| e == "unplugged"));
+        next.retire_earlier().unwrap();
+        assert_eq!(abandoned(), 0);
     }
 
     #[test]

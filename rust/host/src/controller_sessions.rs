@@ -80,15 +80,16 @@ impl Pool {
             .values()
             .any(|entry| Arc::strong_count(&entry.pads) > 1)
     }
-    /// Unplug the parked controllers no stream holds, waiting up to
-    /// `timeout` for each, and return how many: a Nucleus Co-op launch does
-    /// this before it plugs its players' pads, so a stream that ended no
-    /// longer holds the first XInput slot (#56). Their clients get new ones
-    /// when they reconnect.
-    // Its caller, the Nucleus Co-op launch in nvhttp.rs, lands with the
-    // session lifecycle changes.
+    /// Unplug the parked controllers no stream holds, all at once within
+    /// `timeout`, and return how many pads they had plugged in: a Nucleus
+    /// Co-op launch does this before it plugs its players' pads, so a stream
+    /// that ended no longer holds the first XInput slot (#56), and waits for
+    /// XInput to show them gone (`pads::released`). Their clients get new
+    /// ones when they reconnect.
+    // Its caller, the Nucleus Co-op launch, lands with the session
+    // lifecycle changes.
     #[allow(dead_code)]
-    pub fn release_parked(&self, timeout: Duration) -> Result<usize> {
+    pub fn release_parked(&self, timeout: Duration) -> Result<u32> {
         let parked: Vec<Entry> = {
             let mut entries = self.0.lock().unwrap();
             let keys: Vec<String> = entries
@@ -98,10 +99,16 @@ impl Pool {
                 .collect();
             keys.iter().filter_map(|key| entries.remove(key)).collect()
         };
+        let plugged = parked.iter().map(|entry| entry.pads.plugged_pads()).sum();
+        for entry in &parked {
+            entry.pads.request_stop();
+        }
         // Each is stopped, so none is waited for again when dropped here.
+        let deadline = Instant::now() + timeout;
         let mut failed = None;
         for entry in &parked {
-            if let Err(error) = entry.pads.stop_within(timeout) {
+            let left = deadline.saturating_duration_since(Instant::now());
+            if let Err(error) = entry.pads.stop_within(left) {
                 failed.get_or_insert(error);
             }
         }
@@ -110,11 +117,12 @@ impl Pool {
         }
         if !parked.is_empty() {
             tracing::info!(
-                controllers = parked.len(),
+                streams = parked.len(),
+                pads = plugged,
                 "parked controllers released for Nucleus Co-op"
             );
         }
-        Ok(parked.len())
+        Ok(plugged)
     }
     pub fn expire(&self, app_running: bool) {
         self.0.lock().unwrap().retain(|_, entry| {
@@ -260,13 +268,13 @@ mod tests {
         let tv = pool.acquire(&launch("tv"), &config).unwrap();
         drop(pool.acquire(&launch("phone"), &config).unwrap());
         assert_eq!(keys(&pool), ["phone:Stream", "tv:Stream"]);
-        assert_eq!(pool.release_parked(Duration::from_secs(5)).unwrap(), 1);
+        // No driver in the test: their threads never plugged a pad.
+        assert_eq!(pool.release_parked(Duration::from_secs(5)).unwrap(), 0);
         assert_eq!(keys(&pool), ["tv:Stream"]);
         assert!(pool.in_use());
         drop(tv);
-        assert_eq!(pool.release_parked(Duration::from_secs(5)).unwrap(), 1);
+        pool.release_parked(Duration::from_secs(5)).unwrap();
         assert!(keys(&pool).is_empty());
-        assert_eq!(pool.release_parked(Duration::from_secs(5)).unwrap(), 0);
     }
 
     #[test]

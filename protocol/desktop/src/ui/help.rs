@@ -159,7 +159,7 @@ impl Launcher {
                     let mut pieces = shortcuts::chord_for(Scope::Stream, Action::StreamControls).map(|c| glyphs::chord(c, false)).unwrap_or_default();
                     if let Some(pad) = shortcuts::pad_in(Scope::Stream).find(|b| b.action == Action::StreamControls) {
                         pieces.push(Piece::Or);
-                        pieces.extend(style.press(pad.press, quit));
+                        pieces.extend(style.stream_press(pad, quit, self.settings.back_opens_menu));
                     }
                     ui.horizontal_wrapped(|ui| {
                         glyphs::show(ui, &pieces);
@@ -255,14 +255,7 @@ impl Launcher {
             .collect();
         let stream: Vec<(Action, Vec<Piece>)> = shortcuts::pad_in(Scope::Stream)
             .filter(|b| b.action != Action::ControllerMouse || mouse)
-            .map(|b| {
-                let mut pieces = style.press(b.press, quit);
-                if b.action == Action::StreamControls && back_opens {
-                    pieces.push(Piece::Or);
-                    pieces.push(style.piece(Button::Back));
-                }
-                (b.action, pieces)
-            })
+            .map(|b| (b.action, style.stream_press(b, quit, back_opens)))
             .collect();
         let columns = if width >= TWO_UP { 2 } else { 1 };
         grid(ui, "help-pad", columns, 2, |ui, n| {

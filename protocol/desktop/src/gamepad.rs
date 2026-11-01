@@ -781,6 +781,11 @@ impl Gamepads {
         self.quit_combo
     }
 
+    /// Whether Back opens the stream controls, as the settings chose.
+    pub fn back_opens_menu(&self) -> bool {
+        self.back_opens_menu
+    }
+
     /// Any controller drives the mouse.
     pub fn mouse_active(&self) -> bool {
         self.pads.iter().any(|pad| pad.mouse.active)

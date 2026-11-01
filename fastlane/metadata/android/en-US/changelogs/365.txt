@@ -1,0 +1,4 @@
+• Home has a View button: grid or rows, by store or one library, small to large cards.
+• Long game names scroll on the focused tile.
+• Disconnect sits near the top of the stream menu.
+• TV Settings are more compact, with clearer focus and search.

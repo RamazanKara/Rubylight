@@ -141,6 +141,9 @@ pub(crate) fn button_with(ui: &mut Ui, id: Option<egui::Id>, icon: Option<Icon>,
         None => last_state(ui),
     };
     let enabled = ui.is_enabled();
+    // A switched-off primary action (Play for a game the PC lacks) goes grey, so faded amber
+    // never reads as something to press.
+    let tone = if enabled || tone != Tone::Primary { tone } else { Tone::Raised };
     let (fill, ink) = tone.colors(hovered && enabled, pressed && enabled);
     let galley = ui.painter().layout_no_wrap(words.to_owned(), semibold(size.font), ink);
     let count = count.map(|n| ui.painter().layout_no_wrap(n.to_string(), regular(size.font), ink.gamma_multiply(0.72)));

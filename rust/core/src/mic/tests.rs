@@ -527,3 +527,100 @@ fn the_device_is_kept_two_periods_ahead_and_never_runs_dry() {
     // A larger buffer is not filled past two periods.
     assert_eq!(render_plan(4800, 0, 480, 4000), (960, 0));
 }
+
+/// The playout with a concealer that continues the simulated tone from the
+/// last sample it was given, as Opus PLC continues the voice.
+#[derive(Default)]
+struct Concealing {
+    playout: Playout,
+    next: usize,
+}
+fn tone(n: usize) -> f32 {
+    ((n % 48) as f32 * std::f32::consts::TAU / 48.).sin() * 0.5
+}
+impl Queue for Concealing {
+    fn push_batch(&mut self, samples: &[f32], packet_frames: usize) {
+        self.next += samples.len();
+        self.playout.push_batch(samples, packet_frames);
+    }
+    fn pull(&mut self, buffer: usize, padding: usize, period: usize, out: &mut Vec<f32>) -> usize {
+        let Self { playout, next } = self;
+        playout.pull_concealing(buffer, padding, period, out, &mut |frame| {
+            frame.extend((*next..*next + 960).map(tone));
+            *next += 960;
+            960
+        })
+    }
+    fn len(&self) -> usize {
+        self.playout.len()
+    }
+}
+/// The largest step between neighbouring samples played after `from`
+/// samples: a hard edge to or from silence is a click.
+fn largest_step(played: &[f32], from: usize) -> f32 {
+    played[from..]
+        .windows(2)
+        .map(|pair| (pair[1] - pair[0]).abs())
+        .fold(0., f32::max)
+}
+
+#[test]
+fn a_dry_spell_plays_concealment_without_clicks_or_delay() {
+    // A 60 ms stall every two seconds, its packets then released at once
+    // (issue 56: a phone's Wi-Fi, 7 underruns in 51 s).
+    let deliveries = packets((0..500u64).map(|k| {
+        let at = 5_000 + k * 20_000;
+        let phase = at % 2_000_000;
+        if (1_000_000..1_060_000).contains(&phase) {
+            at - phase + 1_060_000
+        } else {
+            at
+        }
+    }));
+    let silent = simulate::<Playout>(&deliveries, 960, 480, 10_000_000, 1_000_000, |_, _| {});
+    let concealed = simulate::<Concealing>(&deliveries, 960, 480, 10_000_000, 1_000_000, |_, _| {});
+    // Before: each spell broke the voice off into silence.
+    let gaps = |played: &[f32]| played[ms(100)..].windows(2).any(|pair| pair == [0., 0.]);
+    assert!(silent.queue.underruns >= 4, "{}", silent.queue.underruns);
+    assert!(gaps(&silent.played));
+    // Now the same spells are counted, but the tone never breaks off.
+    let playout = &concealed.queue.playout;
+    assert_eq!(playout.underruns, silent.queue.underruns);
+    assert!(playout.underrun_samples > 0);
+    let step = largest_step(&concealed.played, ms(100));
+    assert!(step < 0.1, "{step}");
+    // No silence at all (the tone itself crosses zero one sample at a time).
+    assert!(!gaps(&concealed.played));
+    // And it plays no later than the silence did (within a fraction of a
+    // 2.5 ms trim slice: the trim waits while concealment is queued).
+    assert!(
+        concealed.delay <= silent.delay + 0.5,
+        "{:.1} ms, before {:.1} ms",
+        concealed.delay,
+        silent.delay
+    );
+}
+
+#[test]
+fn long_concealment_fades_out_and_the_voice_fades_back_in() {
+    // 300 ms without packets in the middle of speech, then speech again.
+    let deliveries = packets(
+        (0..200u64)
+            .filter(|k| !(100..115).contains(k))
+            .map(|k| 5_000 + k * 20_000),
+    );
+    let run = simulate::<Concealing>(&deliveries, 960, 480, 4_000_000, 0, |_, _| {});
+    let step = largest_step(&run.played, ms(100));
+    assert!(step < 0.1, "{step}");
+    // Concealment for at most 60 ms, then silence until the voice returns.
+    let longest_silence = run.played[ms(100)..]
+        .split(|sample| *sample != 0.)
+        .map(<[f32]>::len)
+        .max()
+        .unwrap();
+    assert!(longest_silence >= ms(200), "{longest_silence}");
+    assert_eq!(
+        run.queue.playout.underruns, 0,
+        "a pause longer than 250 ms is not an underrun"
+    );
+}

@@ -118,11 +118,26 @@ impl Render {
     /// only when it would otherwise run dry (which `playout` counts as an
     /// underrun). Returns the samples written.
     pub fn fill(&mut self, playout: &mut Playout) -> Result<usize> {
+        self.fill_concealing(playout, &mut |_| 0)
+    }
+    /// [`Self::fill`], with `conceal` filling a dry spell instead of silence
+    /// (`Playout::pull_concealing`).
+    pub fn fill_concealing(
+        &mut self,
+        playout: &mut Playout,
+        conceal: &mut dyn FnMut(&mut Vec<f32>) -> usize,
+    ) -> Result<usize> {
         // SAFETY: `self.client` and `self.render` are live and initialised, GetBuffer returns
         // room for `total` stereo float frames, and the buffer is released before returning.
         unsafe {
             let padding = self.client.GetCurrentPadding()? as usize;
-            let silence = playout.pull(self.buffer, padding, self.period, &mut self.scratch);
+            let silence = playout.pull_concealing(
+                self.buffer,
+                padding,
+                self.period,
+                &mut self.scratch,
+                conceal,
+            );
             let samples = self.scratch.len();
             let total = samples + silence;
             if total == 0 {

@@ -180,6 +180,13 @@ const FADE: usize = RATE * 25 / 10_000;
 /// A dry spell longer than this is the client pausing (it stops sending to
 /// mute), not an underrun.
 const PAUSE: usize = ms(250);
+/// A dry spell is filled with the decoder's concealment (Opus PLC) instead
+/// of silence: at full level for `CONCEAL_FULL`, then faded out over
+/// `CONCEAL_FADE`, and silence after that. Real audio that follows a spell
+/// replaces the concealment not yet played, crossfaded over `FADE`, or
+/// fades in over `FADE` after silence.
+const CONCEAL_FULL: usize = ms(40);
+const CONCEAL_FADE: usize = ms(20);
 
 #[derive(Clone, Copy, Default)]
 struct Window {
@@ -199,8 +206,10 @@ struct Window {
 /// time is not cut. A steady client, or one stall or loss burst, keeps the
 /// 60 ms bound: the oldest samples go, down to one packet (at least 20 ms),
 /// or to the gap for a bursty client. Standing delay goes in 2.5 ms slices,
-/// crossfaded. When the queue runs dry it counts the underrun and plays
-/// again once it has enough for a wake-up, adding no wait of its own.
+/// crossfaded. When the queue runs dry, [`Self::pull_concealing`] fills the
+/// gap with concealment, so the device hears no hard edge; it counts the
+/// underrun and plays real audio again once it has enough for a wake-up,
+/// adding no wait of its own.
 #[derive(Default)]
 pub struct Playout {
     queue: VecDeque<f32>,
@@ -225,6 +234,13 @@ pub struct Playout {
     windows: [Window; WINDOWS],
     window: usize,
     window_end: usize,
+    /// Concealment generated in the current dry spell, and how much of it
+    /// at the end of the queue is not played yet.
+    concealed: usize,
+    provisional: usize,
+    /// Whether the device last heard something other than real audio, so
+    /// the next packet fades in.
+    fade_in: bool,
 }
 impl Playout {
     pub fn push(&mut self, samples: &[f32]) {
@@ -245,7 +261,28 @@ impl Playout {
             }
         }
         self.packet = packet_frames;
-        self.queue.extend(samples.iter().map(|s| s.clamp(-1., 1.)));
+        let start = self.queue.len() - self.provisional;
+        let mut ahead: Vec<f32> = self.queue.drain(start..).collect();
+        let fade = if ahead.is_empty() && !self.fade_in {
+            0
+        } else {
+            FADE.min(samples.len())
+        };
+        self.concealed = 0;
+        self.provisional = 0;
+        self.fade_in = false;
+        // Concealment not yet played gives way to the real audio, which
+        // fades in from it (or from silence).
+        ahead.resize(fade, 0.);
+        self.queue.extend(samples.iter().enumerate().map(|(i, &s)| {
+            let s = s.clamp(-1., 1.);
+            if i < fade {
+                let weight = (i + 1) as f32 / (fade + 1) as f32;
+                ahead[i] + (s - ahead[i]) * weight
+            } else {
+                s
+            }
+        }));
         let limit = (2 * self.gap()).min(CAP).max(3 * packet_frames).max(ms(60));
         if self.queue.len() > limit {
             self.cut(self.queue.len().saturating_sub(self.depth()));
@@ -310,27 +347,57 @@ impl Playout {
         period: usize,
         out: &mut Vec<f32>,
     ) -> usize {
+        self.pull_concealing(buffer, padding, period, out, &mut |_| 0)
+    }
+    /// [`Self::pull`], filling a dry spell with what `conceal` appends to
+    /// its argument (one concealed frame a call, none to stop) instead of
+    /// silence.
+    pub fn pull_concealing(
+        &mut self,
+        buffer: usize,
+        padding: usize,
+        period: usize,
+        out: &mut Vec<f32>,
+        conceal: &mut dyn FnMut(&mut Vec<f32>) -> usize,
+    ) -> usize {
+        let real = self.queue.len() - self.provisional;
         // Refilled: enough that this wake-up needs no silence, so a queue of
         // small packets does not play a sliver every period.
-        if !self.playing && !self.queue.is_empty() && self.queue.len() + padding >= period {
+        if !self.playing && real > 0 && self.queue.len() + padding >= period {
             self.playing = true;
-            if let Some(dry) = self.dry.take().filter(|&dry| dry <= PAUSE) {
-                self.underruns += 1;
-                self.underrun_samples += dry as u64;
-            }
+        }
+        // Real audio plays again: the dry spell, concealed or silent, ends.
+        if self.playing
+            && real > 0
+            && let Some(dry) = self.dry.take().filter(|&dry| dry <= PAUSE)
+        {
+            self.underruns += 1;
+            self.underrun_samples += dry as u64;
+        }
+        if self.playing && self.queue.len() + padding < period {
+            self.conceal(period - padding - self.queue.len(), conceal);
         }
         let window = &mut self.windows[self.window];
         window.low = window
             .low
-            .min((self.queue.len() + padding).saturating_sub(period));
+            .min((self.queue.len() - self.provisional + padding).saturating_sub(period));
         let ready = if self.playing { self.queue.len() } else { 0 };
         let (samples, silence) = render_plan(buffer, padding, period, ready);
         out.clear();
         out.extend(self.queue.drain(..samples));
+        let real = (self.queue.len() + samples).saturating_sub(self.provisional);
+        let played_concealment = samples.saturating_sub(real);
+        self.provisional -= played_concealment;
+        if played_concealment > 0 {
+            *self.dry.get_or_insert(0) += played_concealment;
+        }
+        if played_concealment > 0 || silence > 0 {
+            self.fade_in = true;
+        }
         if self.playing && silence > 0 {
             // The device would run dry: an underrun, unless no audio follows.
             self.playing = false;
-            self.dry = Some(silence);
+            *self.dry.get_or_insert(0) += silence;
         } else if let Some(dry) = &mut self.dry {
             *dry += silence;
         }
@@ -349,6 +416,7 @@ impl Playout {
                 .unwrap_or(0);
             let needed = self.gap().saturating_sub(self.packet).max(STANDING);
             if self.playing
+                && self.provisional == 0
                 && low != usize::MAX
                 && low >= needed + SLICE
                 && self.queue.len() >= SLICE + FADE
@@ -357,6 +425,31 @@ impl Playout {
             }
         }
         silence
+    }
+    /// Appends concealment until the queue holds `needed` more samples,
+    /// within the spell's budget, faded out towards its end.
+    fn conceal(&mut self, needed: usize, conceal: &mut dyn FnMut(&mut Vec<f32>) -> usize) {
+        let budget = CONCEAL_FULL + CONCEAL_FADE;
+        let mut frame = Vec::new();
+        let mut added = 0;
+        while added < needed && self.concealed < budget {
+            frame.clear();
+            if conceal(&mut frame) == 0 {
+                break;
+            }
+            frame.truncate(budget - self.concealed);
+            for &sample in &frame {
+                let gain = if self.concealed < CONCEAL_FULL {
+                    1.
+                } else {
+                    (budget - self.concealed) as f32 / (CONCEAL_FADE + 1) as f32
+                };
+                self.queue.push_back((sample * gain).clamp(-1., 1.));
+                self.concealed += 1;
+            }
+            added += frame.len();
+            self.provisional += frame.len();
+        }
     }
     pub fn len(&self) -> usize {
         self.queue.len()

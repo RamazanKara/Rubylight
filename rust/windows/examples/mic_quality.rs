@@ -5,11 +5,19 @@
 //! Microphone)" as a game or chat app would. The recording is written as raw
 //! f32 (first channel) at the endpoint's rate, which is printed.
 //!
+//! With MIC_OPUS=DIR (a folder with libopus-0.dll) the audio goes through
+//! Opus as a client sends it (64 kb/s voice with in-band FEC) and the host's
+//! decoder, which also conceals dry spells as the host does
+//! (MIC_NO_CONCEAL=1 plays silence instead). MIC_BURSTS=SEED delivers the
+//! packets as a jittery network does: up to 3 ms late, and now and then held
+//! for 40-80 ms and released at once.
+//!
 //! usage: mic_quality IN.f32 OUT.f32
 #![allow(clippy::undocumented_unsafe_blocks)]
 use anyhow::{Context, Result, bail};
 use butterpollo_core::mic::Playout;
 use butterpollo_windows::{
+    audio::OpusDecoder,
     audio_route,
     capture::{ComGuard, Priority},
     mic::Render,
@@ -37,6 +45,85 @@ const FRIENDLY: PROPERTYKEY = PROPERTYKEY {
     pid: 14,
 };
 const PACKET: usize = 960;
+
+type EncoderCreate = unsafe extern "C" fn(i32, i32, i32, *mut i32) -> *mut c_void;
+type EncoderCtl = unsafe extern "C" fn(*mut c_void, i32, ...) -> i32;
+type Encode = unsafe extern "C" fn(*mut c_void, *const f32, i32, *mut u8, i32) -> i32;
+
+/// Nightjar's microphone encoder (client/app/src/main/jni/moonlight-core/android_microphone.c).
+struct ClientEncoder {
+    state: *mut c_void,
+    encode: Encode,
+    _library: libloading::Library,
+}
+impl ClientEncoder {
+    fn new(directory: &std::path::Path) -> Result<Self> {
+        unsafe {
+            let library = libloading::Library::new(directory.join("libopus-0.dll"))?;
+            let create = *library.get::<EncoderCreate>(b"opus_encoder_create\0")?;
+            let ctl = *library.get::<EncoderCtl>(b"opus_encoder_ctl\0")?;
+            let encode = *library.get::<Encode>(b"opus_encode_float\0")?;
+            let mut error = 0;
+            // OPUS_APPLICATION_VOIP, then bitrate, voice signal, FEC and expected loss.
+            let state = create(48000, 1, 2048, &mut error);
+            if state.is_null() || error != 0 {
+                bail!("Opus encoder creation failed: {error}");
+            }
+            for (request, value) in [(4002, 64_000), (4024, 3001), (4012, 1), (4014, 10)] {
+                if ctl(state, request, value) != 0 {
+                    bail!("Opus control {request} failed");
+                }
+            }
+            Ok(Self {
+                state,
+                encode,
+                _library: library,
+            })
+        }
+    }
+    fn encode(&mut self, pcm: &[f32]) -> Result<Vec<u8>> {
+        let mut out = vec![0; 1500];
+        let n = unsafe {
+            (self.encode)(
+                self.state,
+                pcm.as_ptr(),
+                pcm.len() as i32,
+                out.as_mut_ptr(),
+                1500,
+            )
+        };
+        if n <= 0 {
+            bail!("Opus encoding failed: {n}");
+        }
+        out.truncate(n as usize);
+        Ok(out)
+    }
+}
+
+/// When each of `count` 20 ms packets arrives, in ms from the start: on
+/// time, or (with a seed) up to 3 ms late and about once in 100 packets held
+/// for 40-80 ms, released together with the ones due meanwhile.
+fn schedule(count: usize, seed: Option<u32>) -> Vec<f64> {
+    let Some(mut seed) = seed else {
+        return (0..count).map(|n| 20. * n as f64).collect();
+    };
+    let mut next = move || {
+        seed ^= seed << 13;
+        seed ^= seed >> 17;
+        seed ^= seed << 5;
+        seed
+    };
+    let mut held_until = 0.;
+    (0..count)
+        .map(|n| {
+            let due = 20. * n as f64;
+            if due >= held_until && next() % 100 == 0 {
+                held_until = due + 40. + f64::from(next() % 41);
+            }
+            due.max(held_until) + f64::from(next() % 31) / 10.
+        })
+        .collect()
+}
 
 fn capture_endpoint() -> Result<IMMDevice> {
     unsafe {
@@ -159,8 +246,15 @@ fn main() -> Result<()> {
         std::thread::spawn(move || record(&stop, &ready))
     };
     let playout = Arc::new(Mutex::new(Playout::default()));
+    let opus = std::env::var_os("MIC_OPUS").map(std::path::PathBuf::from);
+    let mut encoder = opus.as_deref().map(ClientEncoder::new).transpose()?;
+    // Lock order as in the host: the decoder before the playout.
+    let decoder = Arc::new(Mutex::new(
+        opus.as_deref().map(OpusDecoder::new).transpose()?,
+    ));
+    let conceal = std::env::var_os("MIC_NO_CONCEAL").is_none();
     let renderer = {
-        let playout = playout.clone();
+        let (playout, decoder) = (playout.clone(), decoder.clone());
         let stop = stop.clone();
         std::thread::spawn(move || -> Result<()> {
             let _com = ComGuard::new()?;
@@ -168,7 +262,15 @@ fn main() -> Result<()> {
             let mut render = Render::open(&id)?;
             while !stop.load(Ordering::Acquire) {
                 render.wait(Duration::from_millis(50));
-                render.fill(&mut playout.lock().unwrap())?;
+                let mut decoder = decoder.lock().unwrap();
+                let mut playout = playout.lock().unwrap();
+                render.fill_concealing(&mut playout, &mut |out| {
+                    decoder
+                        .as_mut()
+                        .filter(|_| conceal)
+                        .and_then(|decoder| decoder.decode(None, false, out).ok())
+                        .unwrap_or(0)
+                })?;
             }
             Ok(())
         })
@@ -181,11 +283,41 @@ fn main() -> Result<()> {
         std::thread::sleep(Duration::from_millis(10));
     }
     std::thread::sleep(Duration::from_millis(300));
+    let packets: Vec<&[f32]> = pcm
+        .as_chunks::<PACKET>()
+        .0
+        .iter()
+        .map(|packet| &packet[..])
+        .collect();
+    let encoded = match &mut encoder {
+        Some(encoder) => Some(
+            packets
+                .iter()
+                .map(|packet| encoder.encode(packet))
+                .collect::<Result<Vec<_>>>()?,
+        ),
+        None => None,
+    };
+    let seed = std::env::var("MIC_BURSTS")
+        .ok()
+        .map(|s| s.parse())
+        .transpose()?;
+    let times = schedule(packets.len(), seed);
     let timer = Timer::new()?;
     let start = Instant::now();
-    for (n, packet) in pcm.chunks(PACKET).enumerate() {
-        timer.until(start + Duration::from_millis(20 * n as u64));
-        playout.lock().unwrap().push_batch(packet, packet.len());
+    let mut decoded = Vec::new();
+    for (n, packet) in packets.iter().enumerate() {
+        timer.until(start + Duration::from_secs_f64(times[n] / 1000.));
+        let mut decoder = decoder.lock().unwrap();
+        let samples = match (&encoded, decoder.as_mut()) {
+            (Some(encoded), Some(decoder)) => {
+                decoded.clear();
+                decoder.decode(Some(&encoded[n]), false, &mut decoded)?;
+                &decoded[..]
+            }
+            _ => packet,
+        };
+        playout.lock().unwrap().push_batch(samples, samples.len());
     }
     std::thread::sleep(Duration::from_millis(500));
     stop.store(true, Ordering::Release);

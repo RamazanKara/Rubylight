@@ -89,7 +89,9 @@ struct Receiver {
     native: bool,
     directory: PathBuf,
     speaker: Option<Speaker>,
-    decoder: Option<OpusDecoder>,
+    /// Shared with the render thread, which conceals dry spells with it.
+    /// Lock order: the decoder before the playout, on both threads.
+    decoder: Arc<Mutex<Option<OpusDecoder>>>,
     playout: Arc<Mutex<Playout>>,
     output: Output,
     pcm: Vec<f32>,
@@ -106,7 +108,7 @@ impl Receiver {
             native,
             directory,
             speaker: None,
-            decoder: None,
+            decoder: Default::default(),
             playout: Default::default(),
             output: Output::default(),
             pcm: Vec::new(),
@@ -202,9 +204,10 @@ impl Receiver {
         if !self.native {
             return;
         }
-        if self.decoder.is_none() {
+        let mut decoder = self.decoder.lock().unwrap();
+        if decoder.is_none() {
             match OpusDecoder::new(&self.directory) {
-                Ok(decoder) => self.decoder = Some(decoder),
+                Ok(opened) => *decoder = Some(opened),
                 Err(error) => {
                     speaker.session.launch.warnings.set(
                         WARNING,
@@ -214,16 +217,24 @@ impl Receiver {
                 }
             }
         }
-        let decoder = self.decoder.as_mut().unwrap();
         self.pcm.clear();
-        let packet_frames =
-            decode_packet(decoder, arrival, &opus, &mut self.pcm, &mut speaker.stats);
+        let packet_frames = decode_packet(
+            decoder.as_mut().unwrap(),
+            arrival,
+            &opus,
+            &mut self.pcm,
+            &mut speaker.stats,
+        );
+        // Still holding the decoder: no concealment runs between this
+        // packet's decoding and its audio reaching the queue.
         self.playout
             .lock()
             .unwrap()
             .push_batch(&self.pcm, packet_frames);
+        drop(decoder);
         let session = speaker.session.clone();
-        self.output.ensure(&self.h, &session, &self.playout);
+        self.output
+            .ensure(&self.h, &session, &self.decoder, &self.playout);
     }
     fn finish(&mut self) {
         let Some(speaker) = self.speaker.take() else {
@@ -307,7 +318,13 @@ struct Output {
     retry: Option<Instant>,
 }
 impl Output {
-    fn ensure(&mut self, h: &Shared, session: &Arc<Session>, playout: &Arc<Mutex<Playout>>) {
+    fn ensure(
+        &mut self,
+        h: &Shared,
+        session: &Arc<Session>,
+        decoder: &Arc<Mutex<Option<OpusDecoder>>>,
+        playout: &Arc<Mutex<Playout>>,
+    ) {
         if !self.stopped() {
             return;
         }
@@ -332,6 +349,7 @@ impl Output {
         let directory = h.directory.clone();
         let warnings = session.launch.warnings.clone();
         let stop = Arc::new(AtomicBool::new(false));
+        let decoder = decoder.clone();
         let playout = playout.clone();
         let thread_stop = stop.clone();
         let opened = self.opened.clone();
@@ -341,6 +359,7 @@ impl Output {
                 render(
                     &config,
                     &directory,
+                    &decoder,
                     &playout,
                     &thread_stop,
                     &opened,
@@ -418,6 +437,7 @@ impl Drop for Output {
 fn render(
     config: &Config,
     directory: &std::path::Path,
+    decoder: &Mutex<Option<OpusDecoder>>,
     playout: &Mutex<Playout>,
     stop: &AtomicBool,
     opened: &AtomicBool,
@@ -466,15 +486,47 @@ fn render(
         }
     };
     opened.store(true, Ordering::Release);
-    let mut gain = GainCap::open(warnings, stop);
-    while !stop.load(Ordering::Acquire) {
-        render.wait(Duration::from_millis(50));
-        render.fill(&mut playout.lock().unwrap())?;
-        gain.check(Instant::now(), warnings, stop);
-    }
-    Ok(())
+    // The level checks are calls into Windows' audio service, which can
+    // stall: they run beside the render loop, never in it.
+    let done = AtomicBool::new(false);
+    thread::scope(|scope| {
+        thread::Builder::new()
+            .name("microphone level".into())
+            .spawn_scoped(scope, || keep_gain(warnings, stop, &done))
+            .map_err(|error| tracing::warn!(%error, "microphone level thread could not start"))
+            .ok();
+        let played = (|| -> Result<()> {
+            while !stop.load(Ordering::Acquire) {
+                render.wait(Duration::from_millis(50));
+                let mut decoder = decoder.lock().unwrap();
+                let mut playout = playout.lock().unwrap();
+                // A dry spell plays the decoder's concealment, not silence.
+                render.fill_concealing(&mut playout, &mut |out| {
+                    decoder
+                        .as_mut()
+                        .and_then(|decoder| decoder.decode(None, false, out).ok())
+                        .unwrap_or(0)
+                })?;
+            }
+            Ok(())
+        })();
+        done.store(true, Ordering::Release);
+        played
+    })
 }
-/// How often the render thread checks that no app (an automatic gain, as in
+/// The level thread: `GainCap` until the render thread stops.
+fn keep_gain(warnings: &butterpollo_core::session::Warnings, stop: &AtomicBool, done: &AtomicBool) {
+    let _com = match ComGuard::new() {
+        Ok(com) => com,
+        Err(error) => return gain_failed(&error, warnings, stop),
+    };
+    let mut gain = GainCap::open(warnings, stop);
+    while !stop.load(Ordering::Acquire) && !done.load(Ordering::Acquire) {
+        gain.check(Instant::now(), warnings, stop);
+        thread::sleep(Duration::from_millis(50));
+    }
+}
+/// How often the level thread checks that no app (an automatic gain, as in
 /// Discord) raised Steam Streaming Microphone's recording level again.
 const GAIN_CHECK: Duration = Duration::from_secs(1);
 /// Keeps Steam Streaming Microphone's recording level at or below 0 dB

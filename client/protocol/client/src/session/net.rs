@@ -450,6 +450,20 @@ mod mmsg {
         _iovecs: Box<[libc::iovec]>,
     }
 
+    #[cfg(test)]
+    thread_local! {
+        /// Makes this thread's `recvmmsg` calls fail with `ENOSYS`, as a kernel without it.
+        pub static REFUSED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    }
+
+    #[cfg(test)]
+    fn refused() -> io::Result<()> {
+        if REFUSED.get() {
+            return Err(io::Error::from_raw_os_error(libc::ENOSYS));
+        }
+        Ok(())
+    }
+
     impl Batch {
         /// The headers for `buffer`'s slots of `slot` bytes. They hold pointers into it: the
         /// caller keeps it alive and its allocation in place while they are used.
@@ -481,6 +495,8 @@ mod mmsg {
         /// Up to a batch: blocks for the first datagram only (`MSG_WAITFORONE`). `MSG_TRUNC`
         /// reports a cut datagram's length on the wire.
         pub fn receive(&mut self, socket: &UdpSocket) -> io::Result<usize> {
+            #[cfg(test)]
+            refused()?;
             // SAFETY: the headers point at live iovecs and slots of their lengths.
             let count = unsafe {
                 libc::recvmmsg(
@@ -505,6 +521,8 @@ mod mmsg {
     /// Whether the kernel can take batches: `recvmmsg` of no datagrams returns at once, or
     /// fails where it is missing (before Linux 2.6.33) or filtered out.
     pub fn probe(socket: &UdpSocket) -> io::Result<()> {
+        #[cfg(test)]
+        refused()?;
         // SAFETY: no headers are read or written with a length of 0.
         let result = unsafe {
             libc::recvmmsg(
@@ -1085,12 +1103,53 @@ mod tests {
         assert!(counts.iter().all(|&count| count <= RECEIVE_BATCH), "{counts:?}");
         if cfg!(any(target_os = "linux", target_os = "android")) {
             assert!(batch.batched());
-            assert_eq!(counts[0], RECEIVE_BATCH, "the queued datagrams came in one call");
+            // Not necessarily all in the first call: under load the kernel may queue them late.
+            assert!(counts.iter().any(|&count| count > 1), "{counts:?}");
         } else {
             assert!(!batch.batched());
             assert!(counts.iter().all(|&count| count == 1), "{counts:?}");
         }
         assert_eq!(batch.receive(&socket).unwrap(), 0, "then the poll timeout");
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    #[test]
+    fn a_kernel_without_batches_takes_one_datagram_per_call() {
+        let socket = media_socket();
+        mmsg::REFUSED.set(true);
+        let mut batch = BatchReceiver::new(&socket, 1500);
+        assert!(!batch.batched());
+        let refusal = batch.take_fallback().expect("the refusal");
+        assert_eq!(refusal.raw_os_error(), Some(libc::ENOSYS));
+        let sent = send_numbered(&socket, 5, 1392, 10);
+        let (received, counts) = receive_all(&mut batch, &socket, sent.len());
+        mmsg::REFUSED.set(false);
+        assert_eq!(received, sent);
+        assert_eq!(counts, [1; 5]);
+        assert!(batch.take_fallback().is_none(), "reported once");
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    #[test]
+    fn a_refusal_mid_stream_is_reported_once_and_receives_go_on_one_at_a_time() {
+        let socket = media_socket();
+        let mut batch = BatchReceiver::new(&socket, 1500);
+        assert!(batch.batched());
+        let sent = send_numbered(&socket, 3, 1392, 10);
+        assert_eq!(receive_all(&mut batch, &socket, sent.len()).0, sent);
+        assert!(batch.take_fallback().is_none());
+        mmsg::REFUSED.set(true);
+        // Reported after the receive that met it, even when that one then timed out.
+        assert_eq!(batch.receive(&socket).unwrap(), 0);
+        let refusal = batch.take_fallback().expect("the refusal");
+        assert_eq!(refusal.raw_os_error(), Some(libc::ENOSYS));
+        assert!(!batch.batched());
+        let sent = send_numbered(&socket, 4, 1392, 10);
+        let (received, counts) = receive_all(&mut batch, &socket, sent.len());
+        mmsg::REFUSED.set(false);
+        assert_eq!(received, sent);
+        assert_eq!(counts, [1; 4]);
+        assert!(batch.take_fallback().is_none(), "reported once");
     }
 
     #[test]

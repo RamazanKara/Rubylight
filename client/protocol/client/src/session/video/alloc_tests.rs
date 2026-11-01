@@ -232,9 +232,11 @@ fn h264_streaming_allocates_nothing_per_packet_or_frame() {
 #[test]
 fn batched_socket_receives_allocate_nothing_per_datagram() {
     static ALLOCATIONS: AtomicU64 = AtomicU64::new(0);
+    // Smaller than a round, as where the system caps the buffer (Linux's default rmem_max
+    // grants 416 KiB): sent all at once, a round would overflow it.
     let socket = net::bind_udp(
         (std::net::Ipv4Addr::LOCALHOST, 0).into(),
-        1 << 20,
+        1 << 17,
         crate::priority::Qos::Video,
         false,
         |_| {},
@@ -243,18 +245,21 @@ fn batched_socket_receives_allocate_nothing_per_datagram() {
     let sender = UdpSocket::bind("127.0.0.1:0").unwrap();
     let datagram = [7u8; 1408];
     let mut batch = net::BatchReceiver::new(&socket, 1408);
+    // A batch at a time, which the buffer holds.
     let round = |batch: &mut net::BatchReceiver| {
-        for _ in 0..200 {
-            sender.send_to(&datagram, socket.local_addr().unwrap()).unwrap();
-        }
-        let mut received = 0;
-        while received < 200 {
-            let count = batch.receive(&socket).unwrap();
-            assert_ne!(count, 0, "timed out");
-            for i in 0..count {
-                assert_eq!(batch.datagram(i), datagram);
+        for _ in 0..8 {
+            for _ in 0..net::RECEIVE_BATCH {
+                sender.send_to(&datagram, socket.local_addr().unwrap()).unwrap();
             }
-            received += count;
+            let mut received = 0;
+            while received < net::RECEIVE_BATCH {
+                let count = batch.receive(&socket).unwrap();
+                assert_ne!(count, 0, "timed out");
+                for i in 0..count {
+                    assert_eq!(batch.datagram(i), datagram);
+                }
+                received += count;
+            }
         }
     };
     round(&mut batch);

@@ -460,7 +460,12 @@ fn receive_thread(
         if let Some(trace) = trace.as_mut() {
             trace.waiting();
         }
-        let count = match batch.receive(&socket) {
+        let received = batch.receive(&socket);
+        // Whatever that receive returned: a refusal followed by a timeout or a failure.
+        if let Some(e) = batch.take_fallback() {
+            session.log(&format!("Video receive takes one datagram per call from now on: {e}"));
+        }
+        let count = match received {
             Ok(0) => {
                 if let Some(next) = next_socket.take() {
                     session.log("Video moved to the roam's new socket");
@@ -495,9 +500,6 @@ fn receive_thread(
                 break;
             }
         };
-        if let Some(e) = batch.take_fallback() {
-            session.log(&format!("Video receive takes one datagram per call from now on: {e}"));
-        }
         session.received((0..count).map(|i| batch.length(i)).sum());
         let first = *first_data.get_or_insert_with(|| {
             session.log(&format!(

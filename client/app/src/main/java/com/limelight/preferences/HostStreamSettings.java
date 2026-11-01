@@ -828,7 +828,12 @@ public class HostStreamSettings extends NightjarActivity {
                     row(display, "dpi", R.string.title_virtual_display_dpi, this::showDisplayScale);
                 }
             }
-            // Last, as in Settings: rarely needed, kept for troubleshooting.
+            if (pc) {
+                connection = category(screen, R.string.pc_settings_connection);
+                host = category(screen, R.string.pc_settings_host);
+                showActions();
+            }
+            // Last, after the PC's own groups too, as in Settings: rarely needed, kept for troubleshooting.
             PreferenceCategory debug = category(screen, R.string.settings_section_debug);
             row(debug, "full_range", R.string.title_full_range, () -> showSwitch("full_range", R.string.title_full_range));
             Preference footer = new Preference(activity);
@@ -836,12 +841,6 @@ public class HostStreamSettings extends NightjarActivity {
             footer.setSummary(pc ? R.string.host_profile_footer : R.string.layers_footer);
             footer.setSelectable(false);
             screen.addPreference(footer);
-
-            if (pc) {
-                connection = category(screen, R.string.pc_settings_connection);
-                host = category(screen, R.string.pc_settings_host);
-                showActions();
-            }
             updateSummaries();
             // With a remote or a controller, the first row takes focus, not the help button in the bar above it.
             View root = getView();
@@ -875,7 +874,7 @@ public class HostStreamSettings extends NightjarActivity {
 
         /**
          * The connection and host rows, which depend on whether the PC answers. They act at once;
-         * Save only concerns the stream values above them.
+         * Save only concerns the stream values.
          */
         void showActions() {
             if (connection == null) return;

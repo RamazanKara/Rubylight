@@ -328,17 +328,21 @@ impl Launcher {
         }
         ui.horizontal_wrapped(|ui| {
             ui.spacing_mut().item_spacing = vec2(space::S, space::S);
-            for (n, chip) in chips.iter().enumerate() {
+            for chip in &chips {
                 let name = match &chip.filter {
-                    console::LibraryFilter::All => tr("All"),
-                    console::LibraryFilter::Installed => tr("Installed"),
-                    console::LibraryFilter::Store(key) => chip.store_name.as_deref().unwrap_or(key),
-                    console::LibraryFilter::Other => tr("Other apps"),
+                    console::LibraryFilter::All => tr("All").to_owned(),
+                    console::LibraryFilter::Installed => tr("Installed").to_owned(),
+                    console::LibraryFilter::Store(key) => chip.store_name.clone().unwrap_or_else(|| console::store_name(key, "")),
+                    console::LibraryFilter::Other => tr("Other apps").to_owned(),
                 };
                 let selected = chip.filter == self.library_filter;
-                let r = button_with(ui, None, name, Some(chip.count), if selected { Tone::Selected } else { Tone::Chip }, Size::CHIP);
+                // Known by the filter, not its place: the Installed chip coming or going moves the
+                // others, and the focus stays on the one it was on.
+                let key = chip.filter.key();
+                let tone = if selected { Tone::Selected } else { Tone::Chip };
+                let r = button_with(ui, Some(Id::unique(("all-games", &key))), None, &name, Some(chip.count), tone, Size::CHIP);
                 r.widget_info(|| egui::WidgetInfo::selected(egui::Role::Button, true, selected, format!("{name}, {}", chip.count)));
-                self.focus_item(&r, &format!("filter:{n}"), false);
+                self.focus_item(&r, &key, false);
                 if r.clicked() {
                     self.library_filter = chip.filter.clone();
                 }

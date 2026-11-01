@@ -129,12 +129,17 @@ impl Size {
 /// (high contrast keeps its own), the focus ring outside it, an optional icon before the words.
 /// The words are shown as given (translate them first).
 pub(crate) fn button(ui: &mut Ui, icon: Option<Icon>, words: &str, tone: Tone, size: Size) -> Response {
-    button_with(ui, icon, words, None, tone, size)
+    button_with(ui, None, icon, words, None, tone, size)
 }
 
-/// [`button`] with a count after the words, in a quieter colour (a filter chip's games).
-pub(crate) fn button_with(ui: &mut Ui, icon: Option<Icon>, words: &str, count: Option<usize>, tone: Tone, size: Size) -> Response {
-    let (hovered, pressed) = last_state(ui);
+/// [`button`] with a count after the words, in a quieter colour (a filter chip's games). With an
+/// `id` the button is that one wherever it lands in its row, so the focus stays on it when the
+/// buttons before it change; without, it is known by its place.
+pub(crate) fn button_with(ui: &mut Ui, id: Option<egui::Id>, icon: Option<Icon>, words: &str, count: Option<usize>, tone: Tone, size: Size) -> Response {
+    let (hovered, pressed) = match id {
+        Some(id) => ui.ctx().read_response(id).map_or((false, false), |r| (r.hovered() || r.has_focus(), r.is_pointer_button_down_on())),
+        None => last_state(ui),
+    };
     let enabled = ui.is_enabled();
     let (fill, ink) = tone.colors(hovered && enabled, pressed && enabled);
     let galley = ui.painter().layout_no_wrap(words.to_owned(), semibold(size.font), ink);
@@ -143,7 +148,13 @@ pub(crate) fn button_with(ui: &mut Ui, icon: Option<Icon>, words: &str, count: O
     let count_w = count.as_ref().map_or(0.0, |c| 6.0 + c.size().x);
     let pad = if words.is_empty() { (size.height - 18.0) / 2.0 } else { size.pad };
     let width = pad * 2.0 + icon_w + galley.size().x + count_w;
-    let (rect, response) = ui.allocate_exact_size(vec2(width, size.height), Sense::click());
+    let (rect, response) = match id {
+        Some(id) => {
+            let (_, rect) = ui.allocate_space(vec2(width, size.height));
+            (rect, ui.interact(rect, id, Sense::click()))
+        }
+        None => ui.allocate_exact_size(vec2(width, size.height), Sense::click()),
+    };
     let response = response.on_hover_cursor(egui::CursorIcon::PointingHand);
     response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, enabled, words));
     if ui.is_rect_visible(rect) {

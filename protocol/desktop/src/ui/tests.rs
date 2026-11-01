@@ -3256,6 +3256,36 @@ fn all_games_focuses_the_first_game_and_reaches_the_chips_above_it() {
     assert!(chip.bottom() < first.top() && chip.height() < 40.0, "Up reaches the chips: {chip:?}");
 }
 
+/// A chip keeps the focus when the Installed chip before it comes or goes, and a store Nightjar
+/// does not know is named with a capital, not by its bare key.
+#[test]
+fn a_filter_chip_keeps_the_focus_when_the_installed_chip_comes_or_goes() {
+    let mut f = home_with_stores(&[("Portal", "steam", true), ("Celeste", "steam", false), ("Fortnite", "epic", true), ("Lone", "itchio", true)]);
+    f.l.open(Screen::AllGames);
+    f.settle();
+    assert!(shows(&f, "Itchio") && !shows(&f, "itchio"), "{:?}", f.drawn);
+    let chip = |f: &Frames, name: &str| f.placed.iter().find(|(t, r, _)| t == name && r.center().y < 200.0).map(|p| p.1).expect(name);
+    let focused = |f: &Frames| f.ctx.memory(|m| m.focused()).and_then(|id| f.ctx.read_response(id)).map(|r| r.rect).expect("focus");
+    // Up from the first game reaches the chips; Right walks them to Epic Games.
+    f.press(Key::ArrowUp);
+    for _ in 0..8 {
+        if focused(&f).contains_rect(chip(&f, "Epic Games")) {
+            break;
+        }
+        f.press(Key::ArrowRight);
+    }
+    assert!(focused(&f).contains_rect(chip(&f, "Epic Games")), "the Epic Games chip has focus");
+    // Celeste gets installed: the Installed chip goes, the chips after it move left.
+    f.hosts.list[0].native.library.as_mut().unwrap().games[1].installed = Some(true);
+    f.settle();
+    assert!(!f.placed.iter().any(|(t, r, _)| t == "Installed" && r.center().y < 200.0), "{:?}", f.drawn);
+    assert!(focused(&f).contains_rect(chip(&f, "Epic Games")), "the focus stayed on Epic Games");
+    // And it comes back.
+    f.hosts.list[0].native.library.as_mut().unwrap().games[1].installed = Some(false);
+    f.settle();
+    assert!(focused(&f).contains_rect(chip(&f, "Epic Games")), "the focus stayed on Epic Games");
+}
+
 /// A cover's menu opens with F2 (X) beside it, with a right-click at the pointer, and from its ⋮
 /// under the dots; it lists the game's actions with Enter on what selecting the cover does, and
 /// Escape gives focus back to the cover.

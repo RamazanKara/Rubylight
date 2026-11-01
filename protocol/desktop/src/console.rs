@@ -117,12 +117,19 @@ const STORES: [(&str, &str); 7] = [
     ("microsoft", en("Xbox")),
 ];
 
-/// A store's name: the PC's when it sends one, else the known one, else the key itself.
+/// A store's name: the PC's when it sends one, else the known one, else the key with a capital
+/// ("itchio" reads "Itchio").
 pub fn store_name(key: &str, from_pc: &str) -> String {
     if !from_pc.trim().is_empty() {
         return from_pc.to_owned();
     }
-    STORES.iter().find(|(k, _)| *k == key).map_or_else(|| key.to_owned(), |(_, name)| (*name).to_owned())
+    STORES.iter().find(|(k, _)| *k == key).map_or_else(
+        || {
+            let mut chars = key.chars();
+            chars.next().map_or_else(String::new, |first| first.to_uppercase().chain(chars).collect())
+        },
+        |(_, name)| (*name).to_owned(),
+    )
 }
 
 /// A chip above All games: Android's `HomeModel.Filter` keys (all, installed, store:steam, other).
@@ -146,6 +153,16 @@ impl LibraryFilter {
             Self::Installed => entry.installed(),
             Self::Store(key) => entry.store() == Some(key.as_str()),
             Self::Other => entry.store().is_none(),
+        }
+    }
+
+    /// A key that names the filter itself, not its place among the chips, for focus.
+    pub fn key(&self) -> String {
+        match self {
+            Self::All => "filter:all".into(),
+            Self::Installed => "filter:installed".into(),
+            Self::Store(key) => format!("filter:store:{key}"),
+            Self::Other => "filter:other".into(),
         }
     }
 }
@@ -794,11 +811,19 @@ mod tests {
     }
 
     #[test]
-    fn store_names_are_the_pcs_else_the_known_product_name_else_the_key() {
+    fn store_names_are_the_pcs_else_the_known_product_name_else_the_key_with_a_capital() {
         assert_eq!(store_name("epic", "Epic Games Store"), "Epic Games Store");
         assert_eq!(store_name("microsoft", ""), "Xbox");
         assert_eq!(store_name("battlenet", " "), "Battle.net");
-        assert_eq!(store_name("itch", ""), "itch");
+        // A store Nightjar does not know, and the PC did not name, reads as a name, not a key.
+        assert_eq!(store_name("itchio", ""), "Itchio");
+        assert_eq!(store_name("itchio", "itch.io"), "itch.io");
+    }
+
+    #[test]
+    fn a_filters_focus_key_names_the_filter_not_its_place() {
+        let keys = [LibraryFilter::All, LibraryFilter::Installed, LibraryFilter::Store("steam".into()), LibraryFilter::Other].map(|f| f.key());
+        assert_eq!(keys, ["filter:all", "filter:installed", "filter:store:steam", "filter:other"]);
     }
 
     /// The merge keeps its order: entries by title, equal titles in the order the PCs listed them,

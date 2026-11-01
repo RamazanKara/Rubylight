@@ -65,6 +65,8 @@ pub enum Command {
     SaveHostSettings(u64),
     AppSettings { host: u64, app: nightjar_core::http::App },
     SaveAppSettings(u64),
+    /// Every PC and game follows its profile or the main settings again (`Dialog::KeptSettings`).
+    ResetKeptSettings,
     ProfileSettings(u64),
     SaveProfile(u64),
     SaveProfiles,
@@ -212,6 +214,31 @@ pub enum Dialog {
     ConfirmLeave { to: Screen },
     /// Back where Back ends (Home, or the PCs without Home): a controller's way to close Nightjar.
     ConfirmExit,
+    /// Shown once after updating: the PCs that keep settings of their own or for games, one
+    /// line each, and a reset of them all (`Launcher::show_kept_settings_once`).
+    KeptSettings { pcs: Vec<KeptPc> },
+}
+
+/// A PC in `Dialog::KeptSettings`: its name, whether it has settings of its own, and for how
+/// many games. Put into words as it is drawn, in the language chosen by then.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct KeptPc {
+    pub name: String,
+    pub own: bool,
+    pub games: usize,
+}
+
+impl KeptPc {
+    pub fn line(&self) -> String {
+        let mut kept = Vec::new();
+        if self.own { kept.push(tr("PC settings").to_string()); }
+        match self.games {
+            0 => {}
+            1 => kept.push(tr("1 game").to_string()),
+            n => kept.push(trf("{} games", &[&n])),
+        }
+        format!("{}: {}", self.name, kept.join(", "))
+    }
 }
 
 /// The header's top-level destinations, left to right.

@@ -957,6 +957,7 @@ fn at_150_percent_in_german_every_settings_page_fits_the_width() {
         Dialog::Shortcut { id: None, name: String::new(), chord: String::new(), error: Some("Use between 1 and 8 keys in each chord.".into()) },
         Dialog::DeleteProfile { id: 1, name: "Travel".into() },
         Dialog::DeleteShortcut { id: "a".into(), name: "Task manager".into() },
+        Dialog::KeptSettings { pcs: vec![KeptPc { name: "Gaming PC".into(), own: true, games: 12 }] },
     ] {
         let name = format!("{:?}", std::mem::discriminant(&dialog));
         f.l.dialog = dialog;
@@ -1344,6 +1345,55 @@ https://192.0.2.7:47990"));
 fn click_text(f: &mut Frames, text: &str) -> Vec<Command> {
     let at = f.placed.iter().find(|(t, ..)| t == text).unwrap_or_else(|| panic!("{text:?} is not drawn: {:?}", f.drawn)).1.center();
     f.click_at(at, egui::PointerButton::Primary)
+}
+
+#[test]
+fn settings_a_pc_kept_before_the_update_are_listed_once_and_reset_only_on_request() {
+    // As 4.1.0 could leave it: Frame rate pinned for the whole PC, and one game's own HDR.
+    let mut pinned = record("Gaming PC", true, false);
+    pinned.settings = Some(serde_json::from_str(r#"{"fps":120}"#).unwrap());
+    pinned.save_app_settings("a", 1, serde_json::from_str(r#"{"hdr":true}"#).unwrap());
+    let mut f = Frames::new(pinned, Reach::Online);
+    let line = "Gaming PC: PC settings, 1 game";
+
+    assert!(f.l.show_kept_settings_once(&f.hosts.list), "the look is saved as done");
+    assert!(matches!(&f.l.dialog, Dialog::KeptSettings { pcs } if pcs == &[KeptPc { name: "Gaming PC".into(), own: true, games: 1 }]));
+    f.settle();
+    assert!(f.drawn.iter().any(|t| t == line), "{:?}", f.drawn);
+    // Keep has focus, so A alone drops nothing.
+    let commands = f.press(Key::Enter);
+    assert!(!commands.iter().any(|c| matches!(c, Command::ResetKeptSettings)));
+    assert!(f.no_dialog());
+    assert!(!f.l.show_kept_settings_once(&f.hosts.list), "once");
+    assert!(f.no_dialog());
+
+    f.l.settings.kept_settings_checked = false;
+    f.l.show_kept_settings_once(&f.hosts.list);
+    f.settle();
+    assert!(matches!(click_text(&mut f, "Reset all")[..], [Command::ResetKeptSettings]));
+    assert!(f.no_dialog());
+
+    // German chosen: the look runs at start, before a frame applies the language, and the line
+    // still reads in German once drawn.
+    f.l.settings.kept_settings_checked = false;
+    f.l.settings.language = crate::config::Language::German;
+    f.l.show_kept_settings_once(&f.hosts.list);
+    f.settle();
+    assert!(f.drawn.iter().any(|t| t == "Gaming PC: PC-Einstellungen, 1 Spiel"), "{:?}", f.drawn);
+    f.l.close_dialog();
+    f.l.settings.language = crate::config::Language::default();
+    f.settle();
+
+    // Another dialog open at start: the look waits for the next start.
+    f.l.settings.kept_settings_checked = false;
+    f.l.dialog = Dialog::PairingHelp;
+    assert!(!f.l.show_kept_settings_once(&f.hosts.list));
+    assert!(!f.l.settings.kept_settings_checked);
+    // Nothing kept: no dialog, and the look is done all the same.
+    f.l.dialog = Dialog::None;
+    f.hosts.list[0].record.clear_own_settings();
+    assert!(f.l.show_kept_settings_once(&f.hosts.list));
+    assert!(f.no_dialog());
 }
 
 #[test]

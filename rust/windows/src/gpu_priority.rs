@@ -91,11 +91,7 @@ static PROCESS_PRIORITY: std::sync::Mutex<ProcessPriority> =
 /// the user's session lacks: a denied realtime falls back to high, the next
 /// best rather than the default, and warns once per process (`warned`) with
 /// the status. Returns the class set.
-fn apply_priority(
-    mut set: impl FnMut(i32) -> i32,
-    wanted: i32,
-    warned: &mut bool,
-) -> Result<i32> {
+fn apply_priority(mut set: impl FnMut(i32) -> i32, wanted: i32, warned: &mut bool) -> Result<i32> {
     let code = set(wanted);
     if code >= 0 {
         return Ok(wanted);

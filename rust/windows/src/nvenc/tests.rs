@@ -1971,13 +1971,21 @@ fn the_d3d12_structures_have_the_api_12_0_layout() {
     assert_eq!(offset_of!(NV_ENC_INPUT_RESOURCE_D3D12, inputFencePoint), 16);
     assert_eq!(size_of::<NV_ENC_INPUT_RESOURCE_D3D12>(), 272);
     assert_eq!(offset_of!(NV_ENC_OUTPUT_RESOURCE_D3D12, pOutputBuffer), 8);
-    assert_eq!(offset_of!(NV_ENC_OUTPUT_RESOURCE_D3D12, outputFencePoint), 16);
+    assert_eq!(
+        offset_of!(NV_ENC_OUTPUT_RESOURCE_D3D12, outputFencePoint),
+        16
+    );
     assert_eq!(size_of::<NV_ENC_OUTPUT_RESOURCE_D3D12>(), 272);
     let mut point = NV_ENC_FENCE_POINT_D3D12::default();
     point.set_bWait(1);
     point.set_bSignal(1);
     // SAFETY: The bit fields follow the three 8-byte fields as one `uint32_t`.
-    let bits = unsafe { *std::ptr::from_ref(&point).cast::<u8>().add(32).cast::<u32>() };
+    let bits = unsafe {
+        *std::ptr::from_ref(&point)
+            .cast::<u8>()
+            .add(32)
+            .cast::<u32>()
+    };
     assert_eq!(bits, 0b11);
 }
 #[test]

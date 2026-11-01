@@ -215,10 +215,13 @@ impl RtpQueue {
 
         if (self.pending.len() as u32) < needed {
             // Without recent reordering from this host, a block missing more packets than its
-            // parity can only be lost, so report it before the next frame arrives.
+            // parity can only be lost, so report it before the next frame arrives. A block
+            // without parity can't tell a late packet from a lost one: one packet overtaken on
+            // Wi-Fi would cost the frame and a keyframe, so its loss waits for the next block.
             if self.rfi
                 && !self.reported_lost_frame
                 && !self.received_oos_data
+                && self.buffer_parity_packets > 0
                 && self.missing_packets > total.wrapping_sub(needed)
             {
                 self.notify_frame_lost(depacketizer, io, self.current_frame, true);

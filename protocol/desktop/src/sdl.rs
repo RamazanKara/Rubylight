@@ -277,25 +277,27 @@ fn luminance_of(caps: &rubylight_protocol::control::DisplayCaps) -> Option<night
 }
 
 pub fn create_renderer(window: *mut SDL_Window, gpu: bool) -> *mut SDL_Renderer {
-    #[cfg(unix)]
-    let share = gpu && crate::stream::pyrowave_sdk::dll_path().is_some_and(|path| path.exists());
-    #[cfg(not(unix))]
-    let share = false;
-    create_renderer_for(window, gpu, share)
+    // On Linux a GPU renderer always shares: FFmpeg's Vulkan video decodes on its device too.
+    create_renderer_for(window, gpu, cfg!(unix))
 }
 
-/// `create_renderer`, on Linux with `share` (the PyroWave SDK is there) asking for the Vulkan
-/// features its GPU decoder needs to decode on the renderer's own device (`zero_copy.rs`). When
-/// the devices lack them, or the renderer cannot be made with them, it is made as without `share`,
-/// and the reason is logged.
+/// `create_renderer`, on Linux with `share` asking for the Vulkan features PyroWave's GPU decoder
+/// needs and the video extensions and decode queues FFmpeg's Vulkan video needs, to decode on the
+/// renderer's own device (`zero_copy.rs`, `vulkan_video.rs`). When the devices lack the features,
+/// or the renderer cannot be made with them, it is made as without `share`, and the reason is
+/// logged.
 pub fn create_renderer_for(window: *mut SDL_Window, gpu: bool, share: bool) -> *mut SDL_Renderer {
     #[cfg(unix)]
     if gpu && share {
         use crate::stream::pyrowave_sdk::zero_copy;
         match zero_copy::RendererRequest::new() {
             Ok(mut request) => {
+                let video = request.video();
+                if video.is_empty() {
+                    crate::vulkan_video::note("the GPU renderer is made without Vulkan video: the Vulkan devices SDL picks from lack its extensions");
+                }
                 // The request outlives the call, which copies what it needs of it.
-                let renderer = make_renderer(window, gpu, request.options());
+                let renderer = make_renderer(window, gpu, request.options(), !video.is_empty());
                 // SAFETY: A live renderer made with the request.
                 if !renderer.is_null() && unsafe { request.mark(renderer) } {
                     return renderer;
@@ -303,24 +305,32 @@ pub fn create_renderer_for(window: *mut SDL_Window, gpu: bool, share: bool) -> *
                 let why = if renderer.is_null() { error() } else { format!("it draws with {:?}", renderer_name(renderer)) };
                 // SAFETY: Made above, unused.
                 if !renderer.is_null() { unsafe { SDL_DestroyRenderer(renderer) }; }
-                zero_copy::note(&format!("the GPU renderer cannot be made with PyroWave's Vulkan features {:?} ({why}), so GPU decoding will read its planes back", request.features().names()));
+                let extensions: Vec<_> = video.names().iter().map(|name| name.to_string_lossy()).collect();
+                zero_copy::note(&format!("the GPU renderer cannot be made with PyroWave's Vulkan features {:?} and the video extensions {extensions:?} ({why}), so GPU decoding will read its planes back and Vulkan video is not used", request.features().names()));
             }
-            Err(why) => zero_copy::note(&format!("the GPU renderer is made without PyroWave's Vulkan features, so GPU decoding will read its planes back: {why}")),
+            Err(why) => zero_copy::note(&format!("the GPU renderer is made without PyroWave's Vulkan features, so GPU decoding will read its planes back and Vulkan video is not used: {why}")),
         }
     }
     let _ = share;
-    make_renderer(window, gpu, std::ptr::null_mut())
+    make_renderer(window, gpu, std::ptr::null_mut(), false)
 }
 
 /// `window` must be live and `vulkan` null or valid for the call. With `vulkan`, a GPU renderer
-/// that cannot be made is not replaced by another kind.
-fn make_renderer(window: *mut SDL_Window, gpu: bool, vulkan: *mut SDL_GPUVulkanOptions) -> *mut SDL_Renderer {
+/// that cannot be made is not replaced by another kind; `decode_queues` asks the patched SDL for
+/// its extra video decode queues (`vulkan_video::DECODE_QUEUES_PROPERTY`).
+fn make_renderer(window: *mut SDL_Window, gpu: bool, vulkan: *mut SDL_GPUVulkanOptions, decode_queues: bool) -> *mut SDL_Renderer {
     // SAFETY: The window is live, `vulkan` null or valid, and all property strings are static.
     unsafe {
         let props = SDL_CreateProperties();
         if !vulkan.is_null() {
             SDL_SetPointerProperty(props, SDL_PROP_GPU_DEVICE_CREATE_VULKAN_OPTIONS_POINTER, vulkan.cast());
         }
+        #[cfg(unix)]
+        if decode_queues {
+            SDL_SetBooleanProperty(props, crate::vulkan_video::DECODE_QUEUES_PROPERTY.as_ptr(), true);
+        }
+        #[cfg(not(unix))]
+        let _ = decode_queues;
         SDL_SetPointerProperty(
             props,
             SDL_PROP_RENDERER_CREATE_WINDOW_POINTER,

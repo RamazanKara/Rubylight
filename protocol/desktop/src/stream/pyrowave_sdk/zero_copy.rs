@@ -174,6 +174,8 @@ pub struct DeviceCaps {
     pub api: u32,
     pub subgroup_ops: vk::SubgroupFeatureFlags,
     pub supported: Features,
+    /// Its Vulkan video extensions, for FFmpeg's Vulkan video decoding (`crate::vulkan_video`).
+    pub video: crate::vulkan_video::Extensions,
 }
 
 /// SDL's order of preference among Vulkan devices (the GPU renderer asks for performance).
@@ -212,6 +214,13 @@ pub fn plan(devices: &[DeviceCaps]) -> Result<Features, String> {
     Ok(features)
 }
 
+/// The Vulkan video extensions the renderer should ask for: the ones every device SDL could pick
+/// (`plan`'s) has, so none is refused for them, and none unless they decode a codec.
+pub fn plan_video(devices: &[DeviceCaps]) -> crate::vulkan_video::Extensions {
+    let Some(best) = devices.iter().map(|device| rank(device.kind)).max() else { return Default::default() };
+    devices.iter().filter(|device| rank(device.kind) == best).fold(crate::vulkan_video::Extensions(u32::MAX), |video, device| video.and(device.video)).usable()
+}
+
 /// The Vulkan devices the loader lists, as `plan` reads them.
 fn query_devices() -> Result<Vec<DeviceCaps>, String> {
     // SAFETY: Plain Vulkan calls on handles made here; the instance is destroyed before returning.
@@ -245,32 +254,48 @@ unsafe fn caps_of(instance: &ash::Instance, device: vk::PhysicalDevice) -> Devic
         api: properties.api_version,
         subgroup_ops: subgroup.supported_operations,
         supported: chain.features(),
+        video: crate::vulkan_video::extensions_of(instance, device),
     }
 }
 
-/// The Vulkan options the renderer is created with so the decoder can share its device.
+/// The Vulkan options the renderer is created with so the decoders can share its device: PyroWave's
+/// features, and the Vulkan video extensions with SDL's extra decode queues for FFmpeg
+/// (`crate::vulkan_video`).
 pub struct RendererRequest {
     features: Features,
+    video: crate::vulkan_video::Extensions,
     chain: Box<Chain>,
+    extensions: Vec<*const std::ffi::c_char>,
     options: SDL_GPUVulkanOptions,
 }
 
 impl RendererRequest {
     /// The request for the devices the loader lists, or why the renderer should not make it.
     pub fn new() -> Result<Box<Self>, String> {
-        let features = plan(&query_devices()?)?;
+        let devices = query_devices()?;
+        let features = plan(&devices)?;
+        let video = plan_video(&devices);
         let mut chain = Chain::new();
         chain.enable(features);
-        let mut request = Box::new(Self { features, chain, options: SDL_GPUVulkanOptions::default() });
+        let extensions = video.names().iter().map(|name| name.as_ptr()).collect();
+        let mut request = Box::new(Self { features, video, chain, extensions, options: SDL_GPUVulkanOptions::default() });
         request.options.vulkan_api_version = vk::API_VERSION_1_3;
         // SDL reads the Vulkan 1.0 features from their own pointer and the 1.1 to 1.3 structs from the list.
         request.options.feature_list = (&raw mut request.chain.v11).cast();
         request.options.vulkan_10_physical_device_features = (&raw mut request.chain.pdf2.features).cast();
+        request.options.device_extension_count = request.extensions.len() as u32;
+        request.options.device_extension_names = request.extensions.as_mut_ptr();
         Ok(request)
     }
 
     pub fn features(&self) -> Features {
         self.features
+    }
+
+    /// The Vulkan video extensions asked for; with any, the renderer also asks SDL for its decode
+    /// queues (`crate::vulkan_video::DECODE_QUEUES_PROPERTY`).
+    pub fn video(&self) -> crate::vulkan_video::Extensions {
+        self.video
     }
 
     /// For `SDL_PROP_GPU_DEVICE_CREATE_VULKAN_OPTIONS_POINTER`; valid while the request lives.
@@ -288,7 +313,9 @@ impl RendererRequest {
         if device.is_null() || driver_of(device) != "vulkan" {
             return false;
         }
-        SDL_SetNumberProperty(SDL_GetGPUDeviceProperties(device), FEATURES_PROPERTY.as_ptr(), i64::from(self.features.0))
+        let props = SDL_GetGPUDeviceProperties(device);
+        SDL_SetNumberProperty(props, FEATURES_PROPERTY.as_ptr(), i64::from(self.features.0))
+            && SDL_SetNumberProperty(props, crate::vulkan_video::EXTENSIONS_PROPERTY.as_ptr(), i64::from(self.video.0))
     }
 }
 
@@ -635,7 +662,7 @@ mod tests {
     use super::*;
 
     fn caps(name: &str, kind: vk::PhysicalDeviceType, supported: Features) -> DeviceCaps {
-        DeviceCaps { name: name.into(), kind, api: vk::API_VERSION_1_3, subgroup_ops: SUBGROUP_OPS, supported }
+        DeviceCaps { name: name.into(), kind, api: vk::API_VERSION_1_3, subgroup_ops: SUBGROUP_OPS, supported, video: Default::default() }
     }
 
     fn with(names: &[&str]) -> Features {
@@ -659,6 +686,20 @@ mod tests {
         let b = Features::required().0 | with(&["shaderInt16", "storageBuffer8BitAccess"]).0;
         let planned = plan(&[caps("a", vk::PhysicalDeviceType::DISCRETE_GPU, Features(a)), caps("b", vk::PhysicalDeviceType::DISCRETE_GPU, Features(b))]).unwrap();
         assert_eq!(planned, Features(Features::required().0 | with(&["shaderInt16"]).0));
+    }
+
+    #[test]
+    fn the_video_extensions_asked_for_are_the_ones_every_candidate_has_and_only_ones_that_decode() {
+        use crate::vulkan_video::Extensions;
+        let discrete = vk::PhysicalDeviceType::DISCRETE_GPU;
+        let with_video = |name, kind, video| DeviceCaps { video: Extensions(video), ..caps(name, kind, Features::all()) };
+        let rtx = with_video("RTX 4070", discrete, 0b11111);
+        assert_eq!(plan_video(&[rtx.clone(), with_video("GTX 1660", discrete, 0b01111)]), Extensions(0b01111), "no AV1 for either");
+        // SDL picks the discrete GPU, so the integrated one's lack of video does not matter.
+        assert_eq!(plan_video(&[rtx, with_video("iGPU", vk::PhysicalDeviceType::INTEGRATED_GPU, 0)]), Extensions(0b11111));
+        assert!(plan_video(&[with_video("queues only", discrete, 0b00011)]).is_empty(), "queues without a codec");
+        assert!(plan_video(&[with_video("a", discrete, 0b11111), with_video("b", discrete, 0b11100)]).is_empty(), "b has no queues");
+        assert!(plan_video(&[]).is_empty());
     }
 
     #[test]

@@ -56,8 +56,9 @@ mod usb_winusb;
 #[cfg_attr(not(test), allow(dead_code))]
 mod version_name;
 mod update_check;
-// Only the renderer request uses it until the decoder order and the presenter take its pictures.
-#[cfg(unix)]
+// Linux only, and in tests everywhere with zero_copy, which plans its extensions. Only the renderer
+// request uses it until the decoder order and the presenter take its pictures.
+#[cfg(any(unix, test))]
 #[allow(dead_code)]
 mod vulkan_video;
 mod window_place;

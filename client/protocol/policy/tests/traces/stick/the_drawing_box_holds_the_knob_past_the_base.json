@@ -1,0 +1,19 @@
+{
+  "rust": "stick::Geometry",
+  "java": "com.limelight.binding.input.StickMath",
+  "new": null,
+  "calls": [
+    {"call": "travel", "args": [300.0], "expect": 90.0},
+    {"call": "knob_radius", "args": [300.0], "expect": 60.0},
+    {"call": "base_radius", "args": [300.0, 4.5], "expect": 145.5},
+    {"call": "overhang", "args": [300.0, 4.5, 9.0], "expect": 64.5},
+    {"call": "travel", "args": [264.0], "expect": 79.20000457763672},
+    {"call": "knob_radius", "args": [264.0], "expect": 52.79999923706055},
+    {"call": "base_radius", "args": [264.0, 3.0], "expect": 129.0},
+    {"call": "overhang", "args": [264.0, 3.0, 9.0], "expect": 58.80000305175781},
+    {"call": "travel", "args": [129.5], "expect": 38.85000228881836},
+    {"call": "knob_radius", "args": [129.5], "expect": 25.899999618530273},
+    {"call": "base_radius", "args": [129.5, 1.5], "expect": 63.25},
+    {"call": "overhang", "args": [129.5, 1.5, 9.0], "expect": 33.400001525878906}
+  ]
+}

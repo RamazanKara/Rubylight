@@ -94,6 +94,11 @@ public final class ModernController {
             views.put(control, view);
             frame.addView(view, new FrameLayout.LayoutParams(0, 0, Gravity.TOP | Gravity.START));
         }
+        // The sticks' knobs above every control, so a knob pushed past its base covers a neighbour.
+        for (PadControlView view : views.values()) {
+            View knob = view.knobLayer();
+            if (knob != null) frame.addView(knob, new FrameLayout.LayoutParams(0, 0, Gravity.TOP | Gravity.START));
+        }
         frame.addOnLayoutChangeListener(resize);
         place();
     }
@@ -116,6 +121,17 @@ public final class ModernController {
             params.leftMargin = Math.round(box[0]);
             params.topMargin = Math.round(box[1]);
             view.setLayoutParams(params);
+            View knob = view.knobLayer();
+            if (knob != null) {
+                // The control's box grown by the knob's overhang on every side; the control keeps the box.
+                int overhang = view.knobOverhang(params.width, params.height);
+                FrameLayout.LayoutParams knobParams = (FrameLayout.LayoutParams) knob.getLayoutParams();
+                knobParams.width = params.width + 2 * overhang;
+                knobParams.height = params.height + 2 * overhang;
+                knobParams.leftMargin = params.leftMargin - overhang;
+                knobParams.topMargin = params.topMargin - overhang;
+                knob.setLayoutParams(knobParams);
+            }
             view.setRestingAlpha(prefs.oscOpacity / 100f * layout.spec(control).opacity / 100f);
         }
     }
@@ -144,7 +160,10 @@ public final class ModernController {
 
     public void removeElements() {
         frame.removeOnLayoutChangeListener(resize);
-        for (PadControlView view : views.values()) frame.removeView(view);
+        for (PadControlView view : views.values()) {
+            frame.removeView(view);
+            if (view.knobLayer() != null) frame.removeView(view.knobLayer());
+        }
         views.clear();
     }
 

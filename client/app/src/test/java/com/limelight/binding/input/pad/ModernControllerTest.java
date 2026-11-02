@@ -2,10 +2,15 @@ package com.limelight.binding.input.pad;
 
 import android.app.Application;
 import android.content.Context;
+import android.graphics.Bitmap;
+import android.graphics.Canvas;
+import android.graphics.Color;
+import android.view.MotionEvent;
 import android.view.View;
 import android.widget.FrameLayout;
 
 import com.limelight.binding.input.HeldInputState;
+import com.limelight.binding.input.StickMath;
 import com.limelight.nvstream.input.ControllerPacket;
 import com.limelight.preferences.PreferenceConfiguration;
 import com.limelight.ui.UiNavigationTest;
@@ -17,6 +22,7 @@ import org.robolectric.Robolectric;
 import org.robolectric.RobolectricTestRunner;
 import org.robolectric.RuntimeEnvironment;
 import org.robolectric.annotation.Config;
+import org.robolectric.annotation.GraphicsMode;
 import org.robolectric.shadows.ShadowLooper;
 
 import java.util.ArrayList;
@@ -74,7 +80,8 @@ public class ModernControllerTest {
 
     @Test public void everyControlIsItsOwnViewInTheStreamFrame() {
         ModernController controller = controller(GAME);
-        assertEquals(PadLayout.Control.values().length, frame.getChildCount());
+        // Every control, plus each stick's knob layer above them.
+        assertEquals(PadLayout.Control.values().length + 2, frame.getChildCount());
         PadControlView face = controller.view(PadLayout.Control.FACE);
         assertEquals(View.VISIBLE, face.getVisibility());
         assertTrue(face.getWidth() > 0);
@@ -126,6 +133,62 @@ public class ModernControllerTest {
         stick.down(0, stick.getWidth() / 2f, stick.getHeight() / 2f - PadPainter.travel(size), 100);
         assertEquals(0, last()[3]);
         assertEquals(32766, last()[4]);
+    }
+
+    @Test @GraphicsMode(GraphicsMode.Mode.NATIVE)
+    public void aFullyPushedKnobSitsOnTheRimAndDrawsPastTheControlWithoutTakingTouches() {
+        prefs.oscFloatingSticks = false;
+        ModernController controller = controller(GAME);
+        PadControlView stick = controller.view(PadLayout.Control.LEFT_STICK);
+        View knob = stick.knobLayer();
+        assertNotNull(knob);
+        assertNull(controller.view(PadLayout.Control.FACE).knobLayer());
+
+        // The control keeps the layout's box, so saved layouts place and touch exactly as before.
+        float density = frame.getResources().getDisplayMetrics().density;
+        float[] box = new float[4];
+        controller.layout().bounds(PadLayout.Control.LEFT_STICK, 1600, 720, density, box);
+        assertEquals(Math.round(box[0]), stick.getLeft());
+        assertEquals(Math.round(box[1]), stick.getTop());
+        assertEquals(Math.round(box[2]), stick.getWidth());
+        assertEquals(Math.round(box[3]), stick.getHeight());
+
+        // The knob's layer is that box grown on every side by enough for a knob centred on the rim.
+        int w = stick.getWidth(), h = stick.getHeight();
+        float size = Math.min(w, h), stroke = 1.5f * density;
+        float base = StickMath.baseRadius(size, stroke), radius = StickMath.knobRadius(size);
+        int overhang = stick.knobOverhang(w, h);
+        assertTrue("overhang " + overhang, overhang >= base + radius - size / 2);
+        assertEquals(stick.getLeft() - overhang, knob.getLeft());
+        assertEquals(stick.getTop() - overhang, knob.getTop());
+        assertEquals(stick.getRight() + overhang, knob.getRight());
+        assertEquals(stick.getBottom() + overhang, knob.getBottom());
+
+        // Pushed fully right (and past the rim): the same full value as before, the knob's centre on the rim.
+        stick.down(0, w / 2f, h / 2f, 100);
+        stick.move(0, w / 2f + 3 * PadPainter.travel(size), h / 2f);
+        assertEquals(32766, last()[1]);
+        assertEquals(0, last()[2]);
+        PadPainter.State state = stick.state();
+        float kx = StickMath.knobX(w / 2f, h / 2f, w / 2f, h / 2f, state.stickX, state.stickY, base);
+        assertEquals(w / 2f + base, kx, .01f);
+
+        // Half the knob lies outside the control's box, and the layer paints it there.
+        Bitmap pixels = Bitmap.createBitmap(knob.getWidth(), knob.getHeight(), Bitmap.Config.ARGB_8888);
+        knob.draw(new Canvas(pixels));
+        int outside = Math.round(overhang + w / 2f + base + radius * .6f);
+        assertTrue(outside > overhang + w);
+        assertTrue("knob not drawn past the control", Color.alpha(pixels.getPixel(outside, Math.round(overhang + h / 2f))) > 0);
+        assertEquals(0, Color.alpha(pixels.getPixel(Math.round(overhang + w / 2f - base + radius), Math.round(overhang + h / 2f))));
+
+        // A finger landing on the knob's overhang, outside the control, never reaches the stick.
+        stick.up(0, 400);
+        MotionEvent down = MotionEvent.obtain(1000, 1000, MotionEvent.ACTION_DOWN, knob.getLeft() + overhang / 2f,
+                stick.getTop() + h / 2f, 0);
+        assertFalse(knob.dispatchTouchEvent(MotionEvent.obtain(down)));
+        frame.dispatchTouchEvent(down);
+        assertFalse(stick.state().stickActive);
+        down.recycle();
     }
 
     @Test public void tappingAStickThenTouchingItAgainHoldsItsClick() {

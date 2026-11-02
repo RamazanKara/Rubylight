@@ -34,6 +34,8 @@ final class PadControlView extends View {
     private float stickPush;
     private boolean stickClick, haptics = true;
     private float restingAlpha = 1;
+    /** A stick's knob, drawn in a larger view of its own; null for every other control. */
+    private final KnobLayer knobLayer;
 
     PadControlView(Context context, PadLayout.Control control, PadPainter painter, LayoutGamepad gamepad,
                    Runnable changed) {
@@ -46,6 +48,56 @@ final class PadControlView extends View {
         setHapticFeedbackEnabled(true);
         java.util.Arrays.fill(pointerIds, -1);
         configureStick(true, .08f);
+        knobLayer = control.shape == PadLayout.Shape.STICK ? new KnobLayer(context, this) : null;
+    }
+
+    /**
+     * Draws a stick's knob. At full deflection the knob's centre reaches the base's rim, so half of
+     * it leaves the control's box. Rather than growing the control (which would take touches meant
+     * for its neighbours or the stream), the knob draws in this view: the box plus the overhang on
+     * every side, above the controls, taking no touches at all.
+     */
+    @SuppressLint("ViewConstructor")
+    static final class KnobLayer extends View {
+        private final PadControlView owner;
+
+        KnobLayer(Context context, PadControlView owner) {
+            super(context);
+            this.owner = owner;
+            setFocusable(false);
+            setClickable(false);
+            setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);
+        }
+
+        @Override
+        protected void onDraw(Canvas canvas) {
+            // The control's box sits centred in this view.
+            int width = owner.getWidth(), height = owner.getHeight();
+            owner.painter.drawStickKnob(canvas, owner.control, (getWidth() - width) / 2f, (getHeight() - height) / 2f,
+                    width, height, owner.state);
+        }
+
+        @SuppressLint("ClickableViewAccessibility") // Draws only; touches fall through to what is below.
+        @Override
+        public boolean onTouchEvent(MotionEvent event) {
+            return false;
+        }
+    }
+
+    /** The knob's own view for a stick, to add above the controls; null for other controls. */
+    View knobLayer() {
+        return knobLayer;
+    }
+
+    /** How far past each edge the knob layer reaches for a stick of this box, in whole pixels. */
+    int knobOverhang(float width, float height) {
+        return (int) Math.ceil(painter.knobOverhang(width, height));
+    }
+
+    @Override
+    public void setVisibility(int visibility) {
+        super.setVisibility(visibility);
+        if (knobLayer != null) knobLayer.setVisibility(visibility);
     }
 
     void configureStick(boolean floating, float deadzone) {
@@ -64,7 +116,14 @@ final class PadControlView extends View {
 
     private void applyAlpha() {
         boolean active = state.flags != 0 || state.pressed || state.stickActive;
-        setAlpha(active ? Math.max(restingAlpha, .6f) : restingAlpha);
+        float alpha = active ? Math.max(restingAlpha, .6f) : restingAlpha;
+        setAlpha(alpha);
+        if (knobLayer != null) knobLayer.setAlpha(alpha);
+    }
+
+    private void redraw() {
+        invalidate();
+        if (knobLayer != null) knobLayer.invalidate();
     }
 
     private int slot() {
@@ -77,7 +136,11 @@ final class PadControlView extends View {
 
     @Override
     protected void onDraw(Canvas canvas) {
-        painter.draw(canvas, control, 0, 0, getWidth(), getHeight(), state);
+        if (knobLayer != null) {
+            painter.drawStickBase(canvas, 0, 0, getWidth(), getHeight(), state);
+        } else {
+            painter.draw(canvas, control, 0, 0, getWidth(), getHeight(), state);
+        }
     }
 
     @SuppressLint("ClickableViewAccessibility") // A gamepad control, not a click target.
@@ -223,7 +286,7 @@ final class PadControlView extends View {
             gamepad.setTrigger(slot(), control == PadLayout.Control.LT ? TouchLayout.LEFT : TouchLayout.RIGHT, 0);
         }
         if (was) changed();
-        else invalidate();
+        else redraw();
     }
 
     private void releaseButton() {
@@ -268,7 +331,7 @@ final class PadControlView extends View {
 
     private void changed() {
         applyAlpha();
-        invalidate();
+        redraw();
         changed.run();
     }
 

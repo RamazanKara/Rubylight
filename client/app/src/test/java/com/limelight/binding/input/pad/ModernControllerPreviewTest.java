@@ -106,7 +106,7 @@ public class ModernControllerPreviewTest {
         sane(controller, button, frame, metrics.density, problems);
         write(frame, width, height, new File(directory, name + "-1-idle.png"));
 
-        // Held: A on the face cluster, the left stick pushed up and right, RT pulled, the microphone muted.
+        // Held: A on the face cluster, the left stick pushed up and right, the right one left, RT pulled, the microphone muted.
         PadControlView face = controller.view(PadLayout.Control.FACE);
         float faceSize = Math.min(face.getWidth(), face.getHeight());
         face.down(0, .5f * faceSize, .78f * faceSize, 100);
@@ -114,6 +114,10 @@ public class ModernControllerPreviewTest {
         float stickSize = Math.min(stick.getWidth(), stick.getHeight());
         stick.down(1, stickSize * .45f, stickSize * .55f, 100);
         stick.move(1, stickSize * .45f + PadPainter.travel(stickSize) * .7f, stickSize * .55f - PadPainter.travel(stickSize) * .7f);
+        // The right stick pushed fully left: its knob's centre on the rim, half the knob past the base.
+        PadControlView right = controller.view(PadLayout.Control.RIGHT_STICK);
+        right.down(3, right.getWidth() / 2f, right.getHeight() / 2f, 100);
+        right.move(3, right.getWidth() / 2f - 2 * PadPainter.travel(stickSize), right.getHeight() / 2f);
         controller.view(PadLayout.Control.RT).down(2, 5, 5, 100);
         button.performClick();
         assertTrue(mic.muted);

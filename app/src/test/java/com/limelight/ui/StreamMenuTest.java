@@ -1119,22 +1119,150 @@ public class StreamMenuTest {
         }
     }
 
+    /**
+     * Without libnightjar_core (missing, or from another build) the stream still runs on the C engine. The menu kept
+     * only Return and the ways out, so Keyboard, Mouse, Overlay, Quality, the clipboard and the shortcuts were out of
+     * reach: every offered entry stays as a plain list, and More lists them all.
+     */
     @Test
-    public void aModelThatCannotAnswerSaysWhyAndKeepsTheWaysOut() {
+    public void aModelThatCannotAnswerSaysWhyAndKeepsEveryEntryReachable() {
         StreamMenuModel.use(request -> "{\"error\":\"unavailable\",\"detail\":\"libnightjar_core.so not found\"}");
         try (var controller = Robolectric.buildActivity(Activity.class).setup()) {
             Activity activity = controller.get();
             activity.setTheme(R.style.StreamTheme);
             List<StreamMenu.Item> chosen = new ArrayList<>();
-            StreamMenu menu = new StreamMenu(activity, () -> options("rubylight-serverinfo.xml", NvApp.Role.STREAM), chosen::add);
+            StreamMenu.Options state = options(nativeApiHost(), NvApp.Role.STREAM);
+            state.controllerMouseAvailable = true;
+            SavedShortcuts saved = new SavedShortcuts().add("Switch", "ALT+TAB");
+            StreamMenu menu = new StreamMenu(activity, () -> state, chosen::add, null, saved);
             menu.show();
             assertNotNull(menu.failure());
             assertTrue(menu.failure().getText().toString().contains("libnightjar_core.so not found"));
             assertNull(menu.grid());
-            assertTrue(menu.row(CLOSE).isFocusedByDefault());
+            List<StreamMenu.Item> offered = items(StreamMenu.mainPage(state));
+            offered.add(SHORTCUTS);
+            for (StreamMenu.Item item : offered) assertNotNull(item + " is reachable", menu.row(item));
+            for (StreamMenu.Item item : new StreamMenu.Item[] {KEYBOARD, CONTROLLER_MOUSE, OVERLAY, CLIPBOARD_SEND, CLIPBOARD_RECEIVE,
+                    NATIVE_PAGE, DISCONNECT, QUIT_GAME}) {
+                assertTrue(item + " offered here", offered.contains(item));
+            }
+            // Focus starts on the first entry that does not end the stream.
+            assertTrue(menu.row(KEYBOARD).isFocusedByDefault());
+            menu.row(CLIPBOARD_RECEIVE).performClick();
             menu.row(DISCONNECT).performClick();
-            assertEquals(Arrays.asList(DISCONNECT), chosen);
+            assertEquals(Arrays.asList(CLIPBOARD_RECEIVE, DISCONNECT), chosen);
+            // The shortcuts still open and send without the model.
+            menu.row(SHORTCUTS).performClick();
+            assertEquals(StreamMenu.Page.SHORTCUTS, menu.page());
+            TileGrid tiles = findGrid(menu.sheet().getWindow().getDecorView());
+            tiles.getChildAt(0).performClick();
+            assertArrayEquals(KeyboardShortcuts.parseChord("ALT+TAB"), saved.sent.get(0));
+            menu.sheet().dismiss();
         }
+    }
+
+    /** An old libnightjar_core without the call threw on the UI thread when the menu opened. */
+    @Test
+    public void aLibraryWithoutTheCallLeavesTheMenuUsable() {
+        StreamMenuModel.use(request -> { throw new UnsatisfiedLinkError("No implementation found for java.lang.String com.limelight.ui.StreamMenuModel.call"); });
+        try (var controller = Robolectric.buildActivity(Activity.class).setup()) {
+            Activity activity = controller.get();
+            activity.setTheme(R.style.StreamTheme);
+            StreamMenu.Options state = options("rubylight-serverinfo.xml", NvApp.Role.STREAM);
+            state.appName = "Open World";
+            state.streamWidth = 1920;
+            state.streamHeight = 1080;
+            state.streamFps = 60;
+            StreamMenu menu = new StreamMenu(activity, () -> state, item -> { }, null, null);
+            menu.show();
+            assertTrue(menu.failure().getText().toString().contains("No implementation found"));
+            assertNotNull(menu.row(KEYBOARD));
+            assertNotNull(menu.row(DISCONNECT));
+            menu.sheet().dismiss();
+        }
+    }
+
+    /** Tapped Esc, then Ctrl and Shift: the shortcut is saved as Ctrl + Shift + Esc, so it opens Task Manager. */
+    @Test
+    public void keysPickedEscFirstAreSavedModifiersFirst() {
+        try (var controller = Robolectric.buildActivity(Activity.class).setup()) {
+            Activity activity = controller.get();
+            activity.setTheme(R.style.StreamTheme);
+            StreamMenu.Options state = options("rubylight-serverinfo.xml", NvApp.Role.STREAM);
+            SavedShortcuts saved = new SavedShortcuts();
+            StreamMenu menu = new StreamMenu(activity, () -> state, item -> { }, null, saved);
+            menu.show();
+            menu.row(SHORTCUTS).performClick();
+            TileGrid tiles = findGrid(menu.sheet().getWindow().getDecorView());
+            tiles.getChildAt(tiles.getChildCount() - 1).performClick();
+            TileGrid caps = findGrid(menu.sheet().getWindow().getDecorView());
+            for (String key : new String[] {"Esc", "Ctrl", "Shift"}) capNamed(caps, key).performClick();
+            menu.saveDraft();
+            assertEquals(StreamMenu.Page.SHORTCUTS, menu.page());
+            assertArrayEquals(KeyboardShortcuts.parseChord("CTRL+SHIFT+ESC"), saved.list.get(0).keys());
+            menu.sheet().dismiss();
+        }
+    }
+
+    /**
+     * An older shortcut can hold a key the picker lacks (F13, or a key the model cannot save): it shows as a cap of its
+     * own, checked, the error names it, and taking it out lets the rest be saved.
+     */
+    @Test
+    public void anOldShortcutsKeyThePickerLacksIsARemovableCapAndTheErrorNamesIt() {
+        RustStreamMenuModel rust = new RustStreamMenuModel();
+        // As shortcuts::key_code refuses a key it has no portable name for.
+        StreamMenuModel.use(request -> request.contains("\"validate\"") && request.contains("F13")
+                ? "{\"error\":\"unsupported_key\",\"detail\":\"F13\"}" : rust.call(request));
+        try (var controller = Robolectric.buildActivity(Activity.class).setup()) {
+            Activity activity = controller.get();
+            activity.setTheme(R.style.StreamTheme);
+            StreamMenu.Options state = options("rubylight-serverinfo.xml", NvApp.Role.STREAM);
+            SavedShortcuts saved = new SavedShortcuts().add("Old", "CTRL+F13");
+            StreamMenu menu = new StreamMenu(activity, () -> state, item -> { }, null, saved);
+            menu.show();
+            menu.row(SHORTCUTS).performClick();
+            buttonStartingWith(menu.sheet().getWindow().getDecorView(), "Old", true).performClick();
+            assertEquals(StreamMenu.Page.EDITOR, menu.page());
+            TileGrid caps = findGrid(menu.sheet().getWindow().getDecorView());
+            assertEquals("F13", text(caps.getChildAt(0)));
+            assertTrue(capNamed(caps, "F13").isChecked());
+            assertTrue(capNamed(caps, "Ctrl").isChecked());
+            menu.saveDraft();
+            assertEquals(StreamMenu.Page.EDITOR, menu.page());
+            assertTrue(textShown(menu.sheet().getWindow().getDecorView(), activity.getString(R.string.stream_shortcut_key_unsupported, "F13")));
+            capNamed(caps, "F13").performClick();
+            capNamed(caps, "F1").performClick();
+            menu.saveDraft();
+            assertEquals(StreamMenu.Page.SHORTCUTS, menu.page());
+            assertEquals(1, saved.list.size());
+            assertArrayEquals(KeyboardShortcuts.parseChord("CTRL+F1"), saved.list.get(0).keys());
+            menu.sheet().dismiss();
+        }
+    }
+
+    // A button whose text starts with {@code start}; {@code outsideGrid} skips the tiles.
+    private static MaterialButton buttonStartingWith(View view, String start, boolean outsideGrid) {
+        if (outsideGrid && view instanceof TileGrid) return null;
+        if (view instanceof MaterialButton && text(view).startsWith(start)) return (MaterialButton) view;
+        if (view instanceof android.view.ViewGroup) {
+            for (int i = 0; i < ((android.view.ViewGroup) view).getChildCount(); i++) {
+                MaterialButton found = buttonStartingWith(((android.view.ViewGroup) view).getChildAt(i), start, outsideGrid);
+                if (found != null) return found;
+            }
+        }
+        return null;
+    }
+
+    private static boolean textShown(View view, String text) {
+        if (view instanceof android.widget.TextView && view.getVisibility() == View.VISIBLE
+                && ((android.widget.TextView) view).getText().toString().equals(text)) return true;
+        if (view instanceof android.view.ViewGroup) {
+            for (int i = 0; i < ((android.view.ViewGroup) view).getChildCount(); i++) {
+                if (textShown(((android.view.ViewGroup) view).getChildAt(i), text)) return true;
+            }
+        }
+        return false;
     }
 
     @Test

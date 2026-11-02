@@ -64,8 +64,11 @@ public final class ConnectionInfo {
         List<Line> lines = new ArrayList<>();
         lines.add(new Line(R.string.native_info_host, hostName));
         lines.add(new Line(R.string.native_info_codec, codec(videoFormat)));
-        lines.add(new Line(R.string.native_info_resolution,
-                context.getString(R.string.native_info_resolution_value, width, height, fps)));
+        // Unknown until the decoder is set up for the negotiated size.
+        if (width > 0 && height > 0) {
+            lines.add(new Line(R.string.native_info_resolution,
+                    context.getString(R.string.native_info_resolution_value, width, height, fps)));
+        }
         lines.add(new Line(R.string.native_info_bitrate, context.getString(R.string.native_info_bitrate_value,
                 String.format(Locale.getDefault(), bitrateKbps % 1000 == 0 ? "%.0f" : "%.1f", bitrateKbps / 1000.0))));
         lines.add(new Line(R.string.native_info_link, linkText(context)));

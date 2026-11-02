@@ -44,6 +44,11 @@ public class GameStreamMenuTest {
     }
 
     private static <T extends Game> T streamingGame(Class<T> type, String fixture) {
+        return streamingGame(type, fixture, null);
+    }
+
+    /** {@code keys} records each key sent to the PC, {key, direction}; null leaves the connection's own input path. */
+    private static <T extends Game> T streamingGame(Class<T> type, String fixture, java.util.List<int[]> keys) {
         T game = Robolectric.buildActivity(type).get();
         game.setTheme(R.style.StreamTheme);
         game.setContentView(R.layout.activity_game);
@@ -58,6 +63,11 @@ public class GameStreamMenuTest {
         NvConnection connection = new NvConnection(null, new ComputerDetails.AddressTuple("192.0.2.1", 47989), 47984,
                 "test", new StreamConfiguration.Builder().setApp(app).build(), null, null) {
             @Override public void stop() {}
+            @Override public boolean canSendInput() { return keys != null || super.canSendInput(); }
+            @Override public void sendKeyboardInput(short key, byte direction, byte modifiers, byte flags) {
+                if (keys != null) keys.add(new int[] {key & 0xffff, direction});
+                else super.sendKeyboardInput(key, direction, modifiers, flags);
+            }
         };
         ReflectionHelpers.setField(connection, "hostDetails", TestHosts.details(fixture));
         ReflectionHelpers.setField(game, "conn", connection);
@@ -240,6 +250,60 @@ public class GameStreamMenuTest {
             assertNotEquals(entry.toString(), StreamMenu.Section.QUALITY, entry.section);
         }
         menu.sheet().dismiss();
+    }
+
+    /**
+     * A shortcut tile ran nothing when input had been released before the menu opened: the shortcut waits for the menu
+     * to close, captures input and then reaches the PC.
+     */
+    @Test
+    public void aShortcutTileReachesThePcAfterTheMenuClosesEvenWithInputReleasedBefore() {
+        java.util.List<int[]> keys = new java.util.ArrayList<>();
+        Game game = streamingGame(Game.class, "rubylight-serverinfo.xml", keys);
+        ReflectionHelpers.setField(game, "keyboardTranslator", new com.limelight.binding.input.KeyboardTranslator());
+        ReflectionHelpers.setField(game, "inputCaptureProvider", new com.limelight.binding.input.capture.InputCaptureProvider() { });
+        ReflectionHelpers.setField(game, "grabbedInput", false);
+        com.limelight.binding.input.KeyboardShortcuts.save(game, java.util.Collections.singletonList(new com.limelight.binding.input.KeyboardShortcuts.Shortcut(
+                "a", "Switch", com.limelight.binding.input.KeyboardShortcuts.parseChord("ALT+TAB"))));
+        StreamMenu menu = open(game);
+        int at = -1;
+        for (int i = 0; i < menu.layout().grid.size(); i++) {
+            if (menu.layout().grid.get(i).kind == StreamMenuModel.Cell.Kind.SHORTCUT) at = i;
+        }
+        assertTrue("the saved shortcut is a tile", at >= 0);
+        menu.grid().getChildAt(at).performClick();
+        assertFalse(menu.sheet().isShowing());
+        assertTrue("nothing goes out while the menu is up", keys.isEmpty());
+        runMenuAction(game);
+        assertEquals(4, keys.size());
+        assertTrue(ReflectionHelpers.<Boolean>getField(game, "grabbedInput"));
+    }
+
+    /**
+     * The header named the size asked for in Settings: a host without 4K streams 1080p, native and host-chosen sizes
+     * differ from the setting, and a reconfigure changes it mid-stream. It names the size the decoder gets.
+     */
+    @Test
+    public void theHeaderNamesTheNegotiatedSizeNotTheOneAskedFor() {
+        Game game = streamingGame("rubylight-serverinfo.xml");
+        PreferenceConfiguration prefs = ReflectionHelpers.getField(game, "prefConfig");
+        prefs.width = 3840;
+        prefs.height = 2160;
+        StreamMenu.Options unknown = ReflectionHelpers.callInstanceMethod(game.menuActions, "streamMenuOptions");
+        assertEquals("unknown until the decoder is set up", 0, unknown.streamWidth);
+        // The decoder set up for what the host negotiated: 1080p.
+        ReflectionHelpers.setField(game, "streamWidth", 1920);
+        ReflectionHelpers.setField(game, "streamHeight", 1080);
+        StreamMenu.Options options = ReflectionHelpers.callInstanceMethod(game.menuActions, "streamMenuOptions");
+        assertEquals(1920, options.streamWidth);
+        assertEquals(1080, options.streamHeight);
+        // Every size the decoder reports is kept, also one the window already follows.
+        prefs.width = 2560;
+        prefs.height = 1440;
+        game.videoOutput.applyStreamSize(2560, 1440);
+        options = ReflectionHelpers.callInstanceMethod(game.menuActions, "streamMenuOptions");
+        assertEquals(2560, options.streamWidth);
+        assertEquals(1440, options.streamHeight);
     }
 
     // The chosen item runs once the menu is gone and the stream has focus: give it that focus.

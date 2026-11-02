@@ -79,4 +79,7 @@
     <string name="stream_tile_end_session">セッションを終了</string>
     <string name="stream_tile_close_game">ゲームを閉じる</string>
     <string name="stream_tile_quit_game">ゲームを終了</string>
+    <string name="stream_shortcut_key_unsupported">%1$s はショートカットに使えません。タップして外してください。</string>
+    <string name="stream_shortcut_no_keyboard">ショートカットを送信できません: このデバイスには PC へのキーボード入力の権限がありません。</string>
+    <string name="stream_shortcut_not_sent">ショートカットを送信できません: ストリームは今入力を受け付けていません。</string>
 </resources>

@@ -147,6 +147,56 @@ public class GameKeyboardOverlayTest {
         assertTrue(pressed.isEmpty());
     }
 
+    /** A shortcut saved with Esc before Ctrl and Shift (tap order, or typed so in Settings) still sends Ctrl + Shift + Esc. */
+    @Test
+    public void aShortcutSavedEscFirstPressesItsModifiersFirst() {
+        RecordingConnection connection = new RecordingConnection();
+        Game game = game(connection);
+        sendShortcut(game, KeyEvent.KEYCODE_ESCAPE, KeyEvent.KEYCODE_CTRL_LEFT, KeyEvent.KEYCODE_SHIFT_LEFT);
+        KeyboardTranslator translator = new KeyboardTranslator();
+        int ctrl = translator.translate(KeyEvent.KEYCODE_CTRL_LEFT, -1) & 0xffff;
+        int shift = translator.translate(KeyEvent.KEYCODE_SHIFT_LEFT, -1) & 0xffff;
+        int escape = translator.translate(KeyEvent.KEYCODE_ESCAPE, -1) & 0xffff;
+        int modifiers = KeyboardPacket.MODIFIER_CTRL | KeyboardPacket.MODIFIER_SHIFT;
+        assertEquals(6, connection.keys.size());
+        assertArrayEquals(new int[] {ctrl, KeyboardPacket.KEY_DOWN, KeyboardPacket.MODIFIER_CTRL}, connection.keys.get(0));
+        assertArrayEquals(new int[] {shift, KeyboardPacket.KEY_DOWN, modifiers}, connection.keys.get(1));
+        assertArrayEquals("Esc goes down with both modifiers held", new int[] {escape, KeyboardPacket.KEY_DOWN, modifiers}, connection.keys.get(2));
+        assertArrayEquals(new int[] {ctrl, KeyboardPacket.KEY_UP, 0}, connection.keys.get(5));
+    }
+
+    /**
+     * A shortcut tile in the stream menu runs once the menu is gone. With input released before the menu opened it
+     * was dropped without a word: now input is captured for it, and without the keyboard permission a toast says so.
+     */
+    @Test
+    public void aMenuShortcutCapturesInputForItselfOrSaysWhyItWasNotSent() {
+        RecordingConnection connection = new RecordingConnection();
+        Game game = game(connection);
+        ReflectionHelpers.setField(game, "inputCaptureProvider", new Capture());
+        ReflectionHelpers.setField(game, "grabbedInput", false);
+        ReflectionHelpers.callInstanceMethod(game.keyboardInput, "sendMenuShortcut",
+                ReflectionHelpers.ClassParameter.from(int[].class, new int[] {KeyEvent.KEYCODE_ALT_LEFT, KeyEvent.KEYCODE_TAB}));
+        assertEquals(4, connection.keys.size());
+        assertTrue(ReflectionHelpers.<Boolean>getField(game, "grabbedInput"));
+        assertNull(org.robolectric.shadows.ShadowToast.getLatestToast());
+
+        connection.keys.clear();
+        connection.inputAllowed = false;
+        ReflectionHelpers.callInstanceMethod(game.keyboardInput, "sendMenuShortcut",
+                ReflectionHelpers.ClassParameter.from(int[].class, new int[] {KeyEvent.KEYCODE_ALT_LEFT, KeyEvent.KEYCODE_TAB}));
+        assertTrue(connection.keys.isEmpty());
+        assertEquals(game.getString(R.string.stream_shortcut_no_keyboard), org.robolectric.shadows.ShadowToast.getTextOfLatestToast());
+
+        // Another dialog took the screen before the shortcut ran.
+        connection.inputAllowed = true;
+        ReflectionHelpers.setField(game, "streamMenu", new android.app.Dialog(game));
+        ReflectionHelpers.callInstanceMethod(game.keyboardInput, "sendMenuShortcut",
+                ReflectionHelpers.ClassParameter.from(int[].class, new int[] {KeyEvent.KEYCODE_ESCAPE}));
+        assertTrue(connection.keys.isEmpty());
+        assertEquals(game.getString(R.string.stream_shortcut_not_sent), org.robolectric.shadows.ShadowToast.getTextOfLatestToast());
+    }
+
     @Test
     public void aLocalChordKeepsItsModifierTapsFromBeingLoneTapsOnTheHost() {
         RecordingConnection connection = new RecordingConnection();

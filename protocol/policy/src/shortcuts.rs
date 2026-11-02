@@ -177,8 +177,9 @@ fn validate_name(name: &str) -> Result<(), ShortcutError> {
     }
 }
 
-/// The keys in their portable names, refused when empty, longer than [`MAX_KEYS`], unknown or
-/// repeated.
+/// The keys in their portable names, modifiers first and otherwise in the order given, refused
+/// when empty, longer than [`MAX_KEYS`], unknown or repeated. A chord is pressed in this order and
+/// released in reverse, so Esc picked before Ctrl and Shift still sends Ctrl + Shift + Esc.
 pub fn normalize_keys(keys: &[String]) -> Result<Vec<String>, ShortcutError> {
     if keys.is_empty() || keys.len() > MAX_KEYS {
         return Err(ShortcutError::ChordLength);
@@ -192,6 +193,8 @@ pub fn normalize_keys(keys: &[String]) -> Result<Vec<String>, ShortcutError> {
         }
         normalized.push(key_name(code));
     }
+    // Stable: modifiers keep their order among themselves, and so do the other keys.
+    normalized.sort_by_key(|name| !is_modifier(name));
     Ok(normalized)
 }
 
@@ -308,10 +311,11 @@ pub const BUILT_INS: &[BuiltIn] = &[
 ];
 
 /// The built-ins the user has not saved under a name of their own: a saved chord with the same
-/// keys, in any order, replaces the built-in instead of showing twice.
+/// keys, in any order, replaces the built-in instead of showing twice. A key without a portable
+/// name (an old Android shortcut's media key) still counts, so that chord matches no built-in.
 pub fn built_ins(saved: &[Shortcut]) -> Vec<BuiltIn> {
     let chord = |keys: &mut dyn Iterator<Item = &str>| {
-        let mut codes: Vec<u16> = keys.filter_map(key_code).collect();
+        let mut codes: Vec<Result<u16, String>> = keys.map(|key| key_code(key).ok_or_else(|| key.trim().to_uppercase())).collect();
         codes.sort_unstable();
         codes
     };
@@ -399,6 +403,33 @@ mod tests {
             let keys: Vec<String> = built_in.keys.iter().map(|k| k.to_string()).collect();
             assert_eq!(normalize_keys(&keys).unwrap(), keys, "{}", built_in.id);
         }
+    }
+
+    /// Android's editor hands over keys in the order they were tapped: Esc, Ctrl, Shift sent Esc alone,
+    /// then Ctrl + Shift. Both clients send what this returns.
+    #[test]
+    fn modifiers_go_first_whatever_order_the_keys_were_picked_in() {
+        let keys = |k: &[&str]| k.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert_eq!(normalize_keys(&keys(&["ESC", "CTRL", "SHIFT"])).unwrap(), ["CTRL", "SHIFT", "ESC"]);
+        assert_eq!(normalize_keys(&keys(&["F4", "ALT"])).unwrap(), ["ALT", "F4"]);
+        // Stable: modifiers keep their own order, and so do the other keys.
+        assert_eq!(normalize_keys(&keys(&["S", "SHIFT", "WIN"])).unwrap(), ["SHIFT", "WIN", "S"]);
+        assert_eq!(normalize_keys(&keys(&["A", "CTRL", "B"])).unwrap(), ["CTRL", "A", "B"]);
+        let mut shortcuts = Shortcuts::default();
+        shortcuts.save(None, "Task Manager", &keys(&["ESC", "CTRL", "SHIFT"]), "android").unwrap();
+        assert_eq!(shortcuts.data[0].keys, ["CTRL", "SHIFT", "ESC"]);
+        let file = r#"{"version":1,"data":[{"id":"a","name":"Old","keys":["ESC","SHIFT","CTRL"]}]}"#;
+        assert_eq!(Shortcuts::parse(file).unwrap().data[0].keys, ["SHIFT", "CTRL", "ESC"]);
+    }
+
+    /// An old Android shortcut can hold a key without a portable name (a media key); it is no built-in.
+    #[test]
+    fn a_saved_chord_with_an_unknown_key_does_not_hide_a_built_in() {
+        let saved = [Shortcut { id: "a".into(), name: "Old".into(), keys: vec!["CTRL".into(), "SHIFT".into(), "ESC".into(), "MEDIA_PLAY_PAUSE".into()] }];
+        assert_eq!(built_ins(&saved).len(), BUILT_INS.len());
+        let saved = [Shortcut { id: "a".into(), name: "Old".into(), keys: vec!["ANDROID_KEYCODE_300".into()] }];
+        assert_eq!(built_ins(&saved).len(), BUILT_INS.len());
+        assert_eq!(normalize_keys(&["CTRL".into(), "ANDROID_KEYCODE_300".into()]), Err(ShortcutError::UnsupportedKey("ANDROID_KEYCODE_300".into())));
     }
 
     #[test]

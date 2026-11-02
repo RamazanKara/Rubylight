@@ -442,6 +442,11 @@ pub enum Edited {
 /// Key caps in rows of this many.
 const PICKER_COLUMNS: usize = 8;
 
+/// The draft's keys the key picker has no cap for, in their order.
+fn extra_keys(keys: &[String]) -> Vec<String> {
+    keys.iter().filter(|key| !format::PICKER.contains(&key.as_str())).cloned().collect()
+}
+
 /// The editor: name, the chord so far, the key caps, then Save, Cancel and, for a saved
 /// shortcut, Delete.
 pub fn editor(ui: &mut Ui, draft: &mut Draft, saved: &mut Shortcuts, focus_first: bool) -> Edited {
@@ -455,24 +460,27 @@ pub fn editor(ui: &mut Ui, draft: &mut Draft, saved: &mut Shortcuts, focus_first
     ui.add_space(space::S);
     let width = ((ui.available_width() - 4.0 * (PICKER_COLUMNS as f32 - 1.0)) / PICKER_COLUMNS as f32).floor();
     let mut toggled = None;
-    for row in format::PICKER.chunks(PICKER_COLUMNS) {
+    // Keys of an imported or older shortcut that the caps lack (F13) come first, picked, so they show and can be taken out.
+    let extra = extra_keys(&draft.keys);
+    let caps: Vec<&str> = extra.iter().map(String::as_str).chain(format::PICKER.iter().copied()).collect();
+    for row in caps.chunks(PICKER_COLUMNS) {
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 4.0;
             for key in row {
                 let picked = draft.keys.iter().any(|k| k == key);
                 let cap = egui::Button::new(RichText::new(format::key_label(key)).font(regular(text::LABEL))).selected(picked).min_size(vec2(width, 32.0));
                 let response = ui.add(cap);
-                if focus_first && *key == format::PICKER[0] {
+                if focus_first && *key == caps[0] {
                     response.request_focus();
                 }
                 if response.clicked() {
-                    toggled = Some(*key);
+                    toggled = Some(key.to_string());
                 }
             }
         });
     }
     if let Some(key) = toggled {
-        draft.toggle(key);
+        draft.toggle(&key);
     }
     if let Some(error) = &draft.error {
         ui.add_space(space::S);
@@ -508,6 +516,20 @@ mod tests {
             mouse: Some(true), overlay: true, shortcuts: true, microphone: Some(false), quality: true, clipboard: true, image_clipboard: true,
             commands: true, session: true, host_audio: true, controller_audio: true, usb: true, exits: vec![HostExit::End, HostExit::CloseGame],
         }
+    }
+
+    /// A shortcut file from Android can hold keys the caps lack (F13, the right Ctrl): they get caps of their own,
+    /// and taking one out leaves the rest to save.
+    #[test]
+    fn keys_the_picker_lacks_get_caps_of_their_own_and_can_be_taken_out() {
+        let file = r#"{"version":1,"data":[{"id":"a","name":"Old","keys":["CTRL_RIGHT","F13","A"]}]}"#;
+        let mut saved = Shortcuts::parse(file).unwrap();
+        let mut draft = Draft::edit(&saved.data[0]);
+        assert_eq!(extra_keys(&draft.keys), ["CTRL_RIGHT", "F13"]);
+        draft.toggle("F13");
+        assert_eq!(extra_keys(&draft.keys), ["CTRL_RIGHT"]);
+        assert!(draft.save(&mut saved));
+        assert_eq!(saved.data[0].keys, ["CTRL_RIGHT", "A"]);
     }
 
     /// A shortcut named after its keys says them once: the menu showed "Caps Lock / Caps Lock".

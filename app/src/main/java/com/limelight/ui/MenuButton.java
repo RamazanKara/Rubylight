@@ -53,6 +53,16 @@ public final class MenuButton extends View {
         setVisibility(GONE);
     }
 
+    /**
+     * A touch device's button: a television opens the menu from its remote or controller, and Settings hides the
+     * button's switch where there is no touch screen.
+     */
+    public static boolean offered(Context context) {
+        return (context.getResources().getConfiguration().uiMode & android.content.res.Configuration.UI_MODE_TYPE_MASK)
+                != android.content.res.Configuration.UI_MODE_TYPE_TELEVISION &&
+                context.getPackageManager().hasSystemFeature(android.content.pm.PackageManager.FEATURE_TOUCHSCREEN);
+    }
+
     /** The frame layout parameters for the button: a fixed size at the frame's top left, moved by translation. */
     public FrameLayout.LayoutParams layoutParams() {
         int size = Math.round(MicButton.SIZE_DP * density);

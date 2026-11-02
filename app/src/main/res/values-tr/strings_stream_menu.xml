@@ -79,4 +79,7 @@ Kaydedilmemiş ilerleme kaybolur.</string>
     <string name="stream_tile_end_session">Oturumu sonlandır</string>
     <string name="stream_tile_close_game">Oyunu kapat</string>
     <string name="stream_tile_quit_game">Oyundan çık</string>
+    <string name="stream_shortcut_key_unsupported">%1$s bir kısayolda kullanılamaz: çıkarmak için dokunun.</string>
+    <string name="stream_shortcut_no_keyboard">Kısayol gönderilmedi: bu cihazın bilgisayara klavye girişi gönderme izni yok.</string>
+    <string name="stream_shortcut_not_sent">Kısayol gönderilmedi: yayın şu anda giriş kabul etmiyor.</string>
 </resources>

@@ -1634,9 +1634,9 @@ impl Streaming {
     }
 
     pub fn send_shortcut(&mut self, shortcut: &crate::shortcuts::Shortcut) {
-        if !self.focused || !self.captured || self.facts.role == AppRole::RemoteMonitor { return; }
-        if !self.settings.capture_system_keys && shortcut.keys.iter().any(|key| matches!(crate::shortcuts::key_code(key), Some(0x5B | 0x5C))) {
-            self.show_toast(tr("Enable Send system keys to use shortcuts with the Windows key."));
+        let ready = self.focused && self.captured && self.facts.role != AppRole::RemoteMonitor;
+        if let Some(why) = shortcut_refusal(ready, self.settings.capture_system_keys, &shortcut.keys) {
+            self.show_toast(tr(why));
             return;
         }
         let result = self.session.input(|q| crate::shortcuts::send(&shortcut.keys, &self.keys_down, q));
@@ -1761,10 +1761,32 @@ fn bitrate_automatic(adaptive_bitrate: bool, quality_mode: QualityMode, rate_cha
     adaptive_bitrate || quality_mode != QualityMode::Off || rate_change.is_some_and(|rates| rates.hint_active())
 }
 
+/// Why a shortcut cannot go to the PC now, as its toast says it; `None` sends it. A shortcut
+/// picked while the window had lost focus used to vanish without a word.
+fn shortcut_refusal(ready: bool, system_keys: bool, keys: &[String]) -> Option<&'static str> {
+    if !ready {
+        return Some(en("Shortcut was not sent: the stream isn't taking input right now."));
+    }
+    if !system_keys && keys.iter().any(|key| matches!(crate::shortcuts::key_code(key), Some(0x5B | 0x5C))) {
+        return Some(en("Enable Send system keys to use shortcuts with the Windows key."));
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use super::input::*;
+
+    #[test]
+    fn a_shortcut_that_cannot_be_sent_says_why() {
+        let keys = |list: &[&str]| list.iter().map(|k| k.to_string()).collect::<Vec<_>>();
+        assert_eq!(shortcut_refusal(true, false, &keys(&["ALT", "TAB"])), None);
+        assert_eq!(shortcut_refusal(false, true, &keys(&["ALT", "TAB"])),
+            Some("Shortcut was not sent: the stream isn't taking input right now."));
+        assert!(shortcut_refusal(true, false, &keys(&["WIN", "D"])).unwrap().contains("Send system keys"));
+        assert_eq!(shortcut_refusal(true, true, &keys(&["WIN", "D"])), None);
+    }
 
     /// Desktop never asked for an HDR format, so no host sent it Dolby Vision RPUs and the draw
     /// pass's RPU peak was unreachable. It asks as Android does, and stock hosts see nothing new.

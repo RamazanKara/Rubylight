@@ -590,15 +590,18 @@ final class GameConnection {
             ((FrameLayout) game.streamView.getParent()).addView(game.micButton, game.micButton.layoutParams());
             game.touchInput.updateMicButton();
         }
-        // Always there, so the stream menu's switch can show it; it shows only while its setting is on.
-        game.menuButton = new com.limelight.ui.MenuButton(game, new com.limelight.ui.MenuButton.Host() {
-            @Override public void open() { game.showStreamMenu(); }
-            @Override public float topRowBottom() {
-                return game.modernController != null && game.prefConfig.onscreenController ? game.modernController.topRowBottom() : Float.NaN;
-            }
-        });
-        ((FrameLayout) game.streamView.getParent()).addView(game.menuButton, game.menuButton.layoutParams());
-        game.touchInput.updateMenuButton();
+        // On every touch device, so the stream menu's switch can show it; it shows only while its setting is on. A TV
+        // gets neither the button nor the switch.
+        if (com.limelight.ui.MenuButton.offered(game)) {
+            game.menuButton = new com.limelight.ui.MenuButton(game, new com.limelight.ui.MenuButton.Host() {
+                @Override public void open() { game.showStreamMenu(); }
+                @Override public float topRowBottom() {
+                    return game.modernController != null && game.prefConfig.onscreenController ? game.modernController.topRowBottom() : Float.NaN;
+                }
+            });
+            ((FrameLayout) game.streamView.getParent()).addView(game.menuButton, game.menuButton.layoutParams());
+            game.touchInput.updateMenuButton();
+        }
 
         if ((game.prefConfig.usbDriver || game.prefConfig.usbDualSense || game.prefConfig.usbSwitchPro) && game.app.getRole() != NvApp.Role.REMOTE_MONITOR) {
             // Start the USB driver

@@ -584,7 +584,9 @@ public final class StreamMenu {
         try {
             model = StreamMenuModel.layout(offers(offered), null);
         } catch (StreamMenuModel.Refused e) {
-            return rest;
+            // Which entries sit behind More is the model's to say: without it, More lists them all.
+            LimeLog.warning("Stream menu: the model failed for More: " + e.getMessage());
+            return offered;
         }
         for (String id : model.more) {
             Entry entry = find(offered, id);
@@ -620,9 +622,17 @@ public final class StreamMenu {
             layout = StreamMenuModel.layout(offers(offered), saved == null ? null : saved.size());
             labels = StreamMenuModel.labels();
         } catch (StreamMenuModel.Refused e) {
+            // Without the model the stream still runs (the C engine needs no libnightjar_core): every entry stays
+            // reachable as a plain list, in this client's order and words, above the ways out.
+            LimeLog.warning("Stream menu: the model failed: " + e.getMessage());
             layout = null;
             failure = sheet.addNote(sheet.addGroup(), activity.getString(R.string.stream_menu_model_failed, e.getMessage()), true);
+            List<Entry> plain = new ArrayList<>();
+            for (Entry entry : offered) if (entry.section != Section.SESSION) plain.add(entry);
+            addRows(plain);
+            entries.addAll(plain);
             addFooter(offered, null, null);
+            sheet.setFirstAction(plain.isEmpty() ? rows.get(Item.CLOSE) : rows.get(firstFocus(plain)));
             return;
         }
         grid = sheet.addTileGrid();
@@ -881,30 +891,14 @@ public final class StreamMenu {
         TileGrid caps = new TileGrid(activity, spacing / 2, 6, 44);
         caps.setPadding(spacing, 0, spacing, spacing);
         group.addView(caps);
-        for (StreamMenuModel.Key key : picker) {
-            MaterialButton cap = new MaterialButton(activity, null, com.google.android.material.R.attr.materialButtonOutlinedStyle);
-            cap.setText(key.label);
-            cap.setAllCaps(false);
-            cap.setTextAppearance(activity, R.style.TextAppearance_Nightjar_Label);
-            cap.setSingleLine(true);
-            cap.setInsetTop(0);
-            cap.setInsetBottom(0);
-            cap.setMinWidth(0);
-            cap.setMinimumWidth(0);
-            cap.setPadding(0, 0, 0, 0);
-            cap.setCheckable(true);
-            int[][] states = {new int[] {android.R.attr.state_checked}, new int[] {}};
-            cap.setBackgroundTintList(new android.content.res.ColorStateList(states, new int[] {
-                    com.google.android.material.color.MaterialColors.getColor(activity, com.google.android.material.R.attr.colorPrimaryContainer, 0),
-                    android.graphics.Color.TRANSPARENT}));
-            cap.setTextColor(new android.content.res.ColorStateList(states, new int[] {
-                    com.google.android.material.color.MaterialColors.getColor(activity, com.google.android.material.R.attr.colorOnPrimaryContainer, 0),
-                    com.google.android.material.color.MaterialColors.getColor(activity, com.google.android.material.R.attr.colorOnSurface, 0)}));
-            caps.addView(cap);
-            keyCaps.put(key.name, cap);
-            cap.setOnClickListener(view -> toggleKey(key.name));
-            if (caps.getChildCount() == 1) sheet.setFirstAction(cap);
+        // Keys an older shortcut saved that the picker lacks (F13, a media key, an Android-only code): caps of their
+        // own first, so they show and can be taken out.
+        java.util.Set<String> offered = new java.util.HashSet<>();
+        for (StreamMenuModel.Key key : picker) offered.add(key.name);
+        for (String key : new ArrayList<>(draftKeys)) {
+            if (!offered.contains(key)) addCap(caps, key, keyText(key));
         }
+        for (StreamMenuModel.Key key : picker) addCap(caps, key.name, key.label);
         draftError = sheet.addNote(group, "", true);
         draftError.setVisibility(android.view.View.GONE);
         showDraft();
@@ -922,6 +916,40 @@ public final class StreamMenu {
                 render(Page.SHORTCUTS, options.get(), null);
             });
         }
+    }
+
+    // A key's cap text from the model; its saved name when the model cannot say.
+    private static String keyText(String key) {
+        try {
+            return StreamMenuModel.chordLabel(new String[] {key});
+        } catch (StreamMenuModel.Refused e) {
+            return key;
+        }
+    }
+
+    private void addCap(TileGrid caps, String name, String label) {
+        MaterialButton cap = new MaterialButton(activity, null, com.google.android.material.R.attr.materialButtonOutlinedStyle);
+        cap.setText(label);
+        cap.setAllCaps(false);
+        cap.setTextAppearance(activity, R.style.TextAppearance_Nightjar_Label);
+        cap.setSingleLine(true);
+        cap.setInsetTop(0);
+        cap.setInsetBottom(0);
+        cap.setMinWidth(0);
+        cap.setMinimumWidth(0);
+        cap.setPadding(0, 0, 0, 0);
+        cap.setCheckable(true);
+        int[][] states = {new int[] {android.R.attr.state_checked}, new int[] {}};
+        cap.setBackgroundTintList(new android.content.res.ColorStateList(states, new int[] {
+                com.google.android.material.color.MaterialColors.getColor(activity, com.google.android.material.R.attr.colorPrimaryContainer, 0),
+                android.graphics.Color.TRANSPARENT}));
+        cap.setTextColor(new android.content.res.ColorStateList(states, new int[] {
+                com.google.android.material.color.MaterialColors.getColor(activity, com.google.android.material.R.attr.colorOnPrimaryContainer, 0),
+                com.google.android.material.color.MaterialColors.getColor(activity, com.google.android.material.R.attr.colorOnSurface, 0)}));
+        caps.addView(cap);
+        keyCaps.put(name, cap);
+        cap.setOnClickListener(view -> toggleKey(name));
+        if (caps.getChildCount() == 1) sheet.setFirstAction(cap);
     }
 
     private void toggleKey(String key) {
@@ -961,8 +989,13 @@ public final class StreamMenu {
             shortcuts.save(list);
             render(Page.SHORTCUTS, options.get(), null);
         } catch (StreamMenuModel.Refused | IllegalArgumentException e) {
-            boolean noKeys = e instanceof StreamMenuModel.Refused && "chord_length".equals(((StreamMenuModel.Refused) e).code);
-            draftError.setText(noKeys ? R.string.stream_shortcut_pick_keys : R.string.keyboard_shortcuts_invalid);
+            String code = e instanceof StreamMenuModel.Refused ? ((StreamMenuModel.Refused) e).code : "";
+            String detail = e instanceof StreamMenuModel.Refused ? ((StreamMenuModel.Refused) e).detail : "";
+            if ("chord_length".equals(code)) draftError.setText(R.string.stream_shortcut_pick_keys);
+            // The key that cannot go in a shortcut, as its cap shows it, so it can be taken out.
+            else if ("unsupported_key".equals(code) && !detail.isEmpty()) {
+                draftError.setText(activity.getString(R.string.stream_shortcut_key_unsupported, keyText(detail)));
+            } else draftError.setText(R.string.keyboard_shortcuts_invalid);
             draftError.setVisibility(android.view.View.VISIBLE);
         }
     }
@@ -971,6 +1004,11 @@ public final class StreamMenu {
     private void renderList(List<Entry> list) {
         entries = list;
         offeredItems = items(list);
+        addRows(list);
+        sheet.setFirstAction(rows.get(firstFocus(list)));
+    }
+
+    private void addRows(List<Entry> list) {
         LinearLayout quickRow = null;
         Section section = null;
         for (Entry entry : list) {
@@ -993,7 +1031,6 @@ public final class StreamMenu {
             rows.put(entry.item, button);
             button.setOnClickListener(view -> choose(entry));
         }
-        sheet.setFirstAction(rows.get(firstFocus(list)));
     }
 
     private List<Entry> pageEntries(Page target, Options o) {

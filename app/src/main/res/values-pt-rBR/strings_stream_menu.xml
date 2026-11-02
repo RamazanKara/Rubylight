@@ -79,4 +79,7 @@ O progresso não salvo será perdido.</string>
     <string name="stream_tile_end_session">Encerrar sessão</string>
     <string name="stream_tile_close_game">Fechar jogo</string>
     <string name="stream_tile_quit_game">Encerrar jogo</string>
+    <string name="stream_shortcut_key_unsupported">%1$s não pode fazer parte de um atalho: toque para remover.</string>
+    <string name="stream_shortcut_no_keyboard">Atalho não enviado: este dispositivo não pode enviar teclado ao PC.</string>
+    <string name="stream_shortcut_not_sent">Atalho não enviado: o stream não está aceitando entrada agora.</string>
 </resources>

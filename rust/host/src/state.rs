@@ -2298,9 +2298,20 @@ mod tests {
         let saved = std::fs::read_to_string(&path).unwrap();
         assert!(saved.contains("encoder = auto"), "{saved}");
         assert!(!saved.contains("qsv"), "{saved}");
-        // The next start reads the migrated file without a warning.
-        let second = Fixture::load(directory);
-        assert!(second.host.warnings.snapshot().is_empty());
+        // The next start reads the migrated file; the notice stays until dismissed.
+        let second = Fixture::load(directory.clone());
+        let warnings = second.host.warnings.snapshot();
+        assert_eq!(warnings.len(), 1, "{warnings:?}");
+        assert_eq!(warnings[0].code, "settings_retired");
+        crate::host_warnings::dismiss(&directory, &second.host.warnings, "settings_retired")
+            .unwrap();
+        assert!(
+            Fixture::load(directory.clone())
+                .host
+                .warnings
+                .snapshot()
+                .is_empty()
+        );
         assert_eq!(
             second.host.config.read().unwrap().get("encoder", ""),
             "auto"
@@ -2321,7 +2332,13 @@ mod tests {
         assert_eq!(warnings.len(), 1, "{warnings:?}");
         assert_eq!(warnings[0].code, "nvidia_limiter_retired");
         assert!(warnings[0].message.contains("NVIDIA Control Panel"));
-        // Reported once.
+        // Shown at each start until dismissed.
+        let second = Fixture::load(directory.clone());
+        let warnings = second.host.warnings.snapshot();
+        assert_eq!(warnings.len(), 1, "{warnings:?}");
+        assert_eq!(warnings[0].code, "nvidia_limiter_retired");
+        crate::host_warnings::dismiss(&directory, &second.host.warnings, "nvidia_limiter_retired")
+            .unwrap();
         assert!(Fixture::load(directory).host.warnings.snapshot().is_empty());
     }
 

@@ -837,6 +837,7 @@ const SERVERINFO_FIELDS: &[(&str, Reading)] = &[
     ("RustHostVersion", Reading::Read),
     ("RustHostEncoderBitrateKbps", Reading::Read),
     ("RustHostInitialEncoderBitrateKbps", Reading::Read),
+    ("RustHostLastFailure", Reading::Read),
     ("NetworkPathVersion", Reading::Read),
     ("HardwareMetricsVersion", Reading::Read),
     ("NativeApiVersion", Reading::Read),

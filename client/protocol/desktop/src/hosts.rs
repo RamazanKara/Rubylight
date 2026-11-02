@@ -81,6 +81,13 @@ impl Native {
     pub fn host_control(&self) -> bool {
         self.capabilities.as_ref().is_some_and(|c| c.capabilities.permissions.host_control)
     }
+
+    /// This device's permissions for a stream as last read: the stream menu's ways out and the
+    /// Session and graphics page start from them. Unknown counts as no.
+    pub fn session_hints(&self) -> crate::session_page::Hints {
+        let permissions = self.capabilities.as_ref().map(|c| &c.capabilities.permissions);
+        crate::session_page::Hints { launch: permissions.is_some_and(|p| p.launch), host_control: self.host_control() }
+    }
 }
 
 /// Takes what the native API said into serverinfo's capabilities, so every gate on them

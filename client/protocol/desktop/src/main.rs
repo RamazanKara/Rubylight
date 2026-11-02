@@ -1885,7 +1885,8 @@ impl App {
         // up when it ends that way was connected.
         if matches!(exit, Exit::User) {
             let app = streaming.app();
-            let chosen = self.hosts.get(host).is_some_and(|h| h.record.quits_on_leave(&app.uuid, app.id));
+            // Quit game confirmed in the stream menu, or the launch's own choice to quit on leaving.
+            let chosen = streaming.quit_on_leave || self.hosts.get(host).is_some_and(|h| h.record.quits_on_leave(&app.uuid, app.id));
             if nightjar_policy::launch::quits_on_leave(chosen, ui::policy_role(streaming.facts.role), true) {
                 eprintln!("nightjar: quitting {} on the PC, as chosen for leaving its stream", app.name);
                 self.launcher.toast(trf("Quitting {} on the PC…", &[&app.name]));
@@ -2002,6 +2003,9 @@ impl App {
         #[cfg(windows)]
         streaming.pump_touchpad(window);
         streaming.pump();
+        if let Some(host) = self.hosts.get(streaming.host_id) {
+            streaming.hints = host.native.session_hints();
+        }
         if streaming.session_page_requested {
             let link = self.launcher.network.description(&self.launcher.profiles.home_wifi);
             streaming.open_session_page(self.waker.clone(), link);
@@ -2309,15 +2313,27 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
                 host_audio: !s.host_audio.switches().is_empty() || s.host_audio.problem().is_some(),
                 controller_audio: s.controller_audio_available(),
                 usb: s.usb.is_some() || s.usb_refused.is_some(),
+                exits: s.game_exits(),
             };
             let layout = stream_menu::layout(&available, shortcuts.data.len());
             let mut page = std::mem::take(&mut s.menu_page);
             let mut next = None;
+            let grid_page = page == stream_menu::Page::Grid;
+            let (heading, line) = if grid_page { s.menu_header() } else { (page.title().to_owned(), title.clone()) };
+            let mut leave = None;
             menu_style::window(tr("Stream controls"), "stream-controls")
-                .show(&ctx, |ui| menu_style::body(ui, |ui| {
+                .show(&ctx, |ui| {
+                // On the grid the header and the ways out stay in view; only the tiles scroll.
+                if grid_page {
+                    menu_style::header(ui, &heading, &line);
+                }
+                let reserve = if grid_page { menu_style::pinned_room(&ctx, "stream-menu-footer") } else { 0.0 };
+                menu_style::body_above(ui, reserve, |ui| {
                     use glyphs::Icon;
                     gui::follow_focus(ui, &mut s.menu_focus);
-                    menu_style::header(ui, page.title(), &title);
+                    if !grid_page {
+                        menu_style::header(ui, &heading, &line);
+                    }
                     // Nothing focused: the menu just opened or a page changed. The first tile takes
                     // the focus, so A right after opening never leaves the stream.
                     let focus_first = ctx.memory(|m| m.focused().is_none());
@@ -2344,12 +2360,15 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
                                 Some(stream_menu::Chosen::Add) => next = Some(stream_menu::Page::Editor(stream_menu::Draft::default())),
                                 None => {}
                             }
-                            match stream_menu::footer(ui, &layout) {
-                                Some(nightjar_policy::stream_menu::CLOSE) => s.toggle_menu(window, pads),
-                                Some(_) => s.exit = Some(Exit::User),
-                                None => {}
-                            }
                         }
+                        stream_menu::Page::Confirm(exit) => match stream_menu::confirm(ui, *exit, focus_first) {
+                            Some(true) => {
+                                s.end_on_host(*exit);
+                                next = Some(stream_menu::Page::Grid);
+                            }
+                            Some(false) => next = Some(stream_menu::Page::Grid),
+                            None => {}
+                        },
                         stream_menu::Page::Shortcuts => match stream_menu::shortcuts_page(ui, shortcuts, focus_first) {
                             Some(stream_menu::ShortcutChoice::Send(shortcut)) => {
                                 s.toggle_menu(window, pads);
@@ -2575,13 +2594,23 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
                             }
                         }
                     }
-                    if page != stream_menu::Page::Grid {
+                    if !matches!(page, stream_menu::Page::Grid | stream_menu::Page::Confirm(_)) {
                         ui.add_space(theme::space::M);
                         if menu_style::action_keys(ui, Icon::Back, tr("Back"), Some(crate::shortcuts::Key::Escape.cap())).clicked() {
                             next = Some(stream_menu::Page::Grid);
                         }
                     }
-                }));
+                });
+                if grid_page {
+                    leave = menu_style::pinned(ui, "stream-menu-footer", |ui| stream_menu::footer(ui, &layout));
+                }
+                });
+            match leave {
+                Some(stream_menu::Leave::Close) => s.toggle_menu(window, pads),
+                Some(stream_menu::Leave::Disconnect) => s.exit = Some(Exit::User),
+                Some(stream_menu::Leave::Exit(exit)) => next = Some(stream_menu::Page::Confirm(exit)),
+                None => {}
+            }
             if let Some(next) = next {
                 // The new page starts with nothing focused, so its first tile or row takes the focus.
                 ctx.memory_mut(|m| m.surrender_focus(m.focused().unwrap_or(egui::Id::NULL)));

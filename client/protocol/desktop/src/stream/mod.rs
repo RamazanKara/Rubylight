@@ -515,6 +515,13 @@ pub struct Streaming {
     session_link: String,
     /// The menu asked for the page; the main loop opens it (it owns the waker and the network).
     pub session_page_requested: bool,
+    /// A way out confirmed in the stream menu, run as the Session page opens.
+    pending_exit: Option<crate::session_page::HostExit>,
+    /// This device's permissions as the launcher last read them from the PC; the main loop keeps
+    /// them current.
+    pub hints: crate::session_page::Hints,
+    /// Quit game was confirmed on a PC without the native API: leaving quits the game too.
+    pub quit_on_leave: bool,
     /// The shortcut sheet over the stream controls, and how it was opened.
     pub shortcut_sheet: Option<Sheet>,
     /// The stream menu's page: the grid, or one of the pages its tiles open.
@@ -742,6 +749,9 @@ impl Streaming {
             session_page: None,
             session_link: String::new(),
             session_page_requested: false,
+            pending_exit: None,
+            hints: crate::session_page::Hints { launch: false, host_control: false },
+            quit_on_leave: false,
             shortcut_sheet: None,
             menu_page: crate::stream_menu::Page::Grid,
             menu_hotkey: None,
@@ -1496,11 +1506,53 @@ impl Streaming {
         let address = record.address.clone();
         self.session_link = link;
         self.session_page_requested = false;
-        self.session_page = Some(crate::session_page::Page::open(
-            move || crate::hosts::client_for(&identity, &record, &address),
-            waker,
-        ));
+        let page = crate::session_page::Page::open(move || crate::hosts::client_for(&identity, &record, &address), waker);
+        if let Some(exit) = self.pending_exit.take() {
+            // Confirmed in the stream menu already: the page shows it running, and why it failed.
+            page.exit(exit);
+        }
+        self.session_page = Some(page);
         self.needs_redraw = true;
+    }
+
+    /// The ways out beside Disconnect that end the PC's session or game: on a PC with the native
+    /// API the Session page's (End session, then Close game with Host control or Quit game), on
+    /// any other Quit game (`/cancel`). A remote monitor or input session has none here.
+    pub fn game_exits(&self) -> Vec<crate::session_page::HostExit> {
+        if self.facts.role != AppRole::Stream {
+            return Vec::new();
+        }
+        if !self.session_page_available() {
+            return vec![crate::session_page::HostExit::QuitApp];
+        }
+        crate::session_page::actions(self.hints.launch, self.hints.host_control, None).into_iter().map(|entry| entry.exit).collect()
+    }
+
+    /// Runs a way out the stream menu confirmed: through the Session page where the PC has one,
+    /// so it shows running and why it failed; otherwise by leaving the stream and quitting the
+    /// game as a launch set to quit on leaving does.
+    pub fn end_on_host(&mut self, exit: crate::session_page::HostExit) {
+        if self.session_page_available() {
+            self.pending_exit = Some(exit);
+            self.session_page_requested = true;
+        } else {
+            self.quit_on_leave = true;
+            self.exit = Some(Exit::User);
+        }
+    }
+
+    /// The stream menu's header on its first page: the game's name over the stream's mode
+    /// (`1440p · 144 FPS · HEVC HDR`, nightjar_policy::stream_menu::mode_line), the PC's name while
+    /// the mode is not known. A remote monitor or input session keeps the menu's title.
+    pub fn menu_header(&self) -> (String, String) {
+        let place = format!("{} · {}", self.facts.app_name, self.facts.host_name);
+        if self.facts.role != AppRole::Stream || self.facts.app_name.trim().is_empty() {
+            return (tr("Stream controls").to_owned(), place);
+        }
+        let size = |v: i32| u32::try_from(v).unwrap_or(0);
+        let hdr = present::hdr_negotiated(self.settings.hdr, self.facts.format);
+        let mode = nightjar_policy::stream_menu::mode_line(size(self.facts.width), size(self.facts.height), size(self.facts.fps), self.facts.format, hdr);
+        (self.facts.app_name.clone(), mode.unwrap_or_else(|| self.facts.host_name.clone()))
     }
 
     /// Closes Nightjar's menu first, so the stream (and the host's menu) gets the input again,
@@ -1562,10 +1614,10 @@ impl Streaming {
         self.needs_redraw = true;
     }
 
-    /// What is known about this device's permissions before the page has read them: nothing,
-    /// so nothing is offered until `/capabilities` has answered.
+    /// What is known about this device's permissions before the page has read them: what the
+    /// launcher last read from `/capabilities`, nothing before it answered.
     pub fn session_hints(&self) -> crate::session_page::Hints {
-        crate::session_page::Hints { launch: false, host_control: false }
+        self.hints
     }
 
     /// The connection facts under the Session page's actions.

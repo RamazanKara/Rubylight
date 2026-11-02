@@ -53,6 +53,8 @@ public class GameDesktopControlsTest {
         assertEquals(Arrays.asList(1), fixture.connection.vertical);
         assertEquals(Arrays.asList(2), fixture.connection.horizontal);
         assertEquals(Arrays.asList("1:down", "1:up"), fixture.connection.buttons);
+        assertEquals("held for a moment", 1, fixture.connection.keys.size());
+        org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(GameKeyboardInput.SHORTCUT_HOLD_MS));
         assertEquals(2, fixture.connection.keys.size());
     }
 

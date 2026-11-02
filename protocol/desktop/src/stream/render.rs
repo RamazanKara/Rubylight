@@ -26,6 +26,7 @@ impl Streaming {
     /// Moves decoded pictures into the pacer; sends a clock sync probe when due.
     pub fn pump(&mut self) {
         self.cursor.tick(Instant::now());
+        self.release_shortcut_when_due(Instant::now());
         if let Some(Err(error)) = self.microphone.as_mut().map(microphone::Microphone::poll) {
             self.shared.notify(Notice::MicrophoneFailed(error));
         }
@@ -101,9 +102,14 @@ impl Streaming {
             }
             None => Wait::For(Duration::from_millis(if self.controller_mouse_active || self.guide_waiting || self.audio_status.0.iter().any(|flags| *flags != 0) { 20 } else if self.overlay_visible { 250 } else { 500 })),
         };
-        // A hide from the PC waiting out its delay wakes the loop when due.
-        match (wait, self.cursor.hide_in(Instant::now())) {
-            (Wait::For(wait), Some(hide)) => Wait::For(wait.min(hide)),
+        // A hide from the PC waiting out its delay, and a held shortcut's release, wake the loop when due.
+        let now = Instant::now();
+        let wake = match (self.cursor.hide_in(now), self.shortcut_release_in(now)) {
+            (Some(hide), Some(release)) => Some(hide.min(release)),
+            (hide, release) => hide.or(release),
+        };
+        match (wait, wake) {
+            (Wait::For(wait), Some(wake)) => Wait::For(wait.min(wake)),
             (wait, _) => wait,
         }
     }

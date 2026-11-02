@@ -11,7 +11,7 @@ use nightjar_core::input::{InputError, InputQueue};
 use nightjar_core::input::packets::modifier;
 use sdl3_sys::everything::*;
 
-pub use nightjar_policy::shortcuts::{key_code, Shortcut, ShortcutError, Shortcuts, MAX_BYTES};
+pub use nightjar_policy::shortcuts::{key_code, Shortcut, ShortcutError, Shortcuts, HOLD_MS, MAX_BYTES};
 
 /// Why a shortcut file or chord was refused, in the user's language.
 pub fn error_text(error: &ShortcutError) -> String {
@@ -55,23 +55,40 @@ fn modifier(code: u16) -> u8 {
     }
 }
 
-pub fn send(keys: &[String], held: &HashSet<u16>, queue: &mut InputQueue) -> Result<(), InputError> {
+/// A chord pressed on the PC, its keys down until [`release`] lets go of them.
+#[derive(Debug, PartialEq, Eq)]
+pub struct Held {
+    /// The keys this chord pressed, in their order.
+    keys: Vec<u16>,
+    /// The modifiers the user held on the keyboard as it was pressed.
+    held_modifiers: u8,
+}
+
+/// Presses a chord's keys, modifiers first, leaving out keys the user holds; [`release`] lets go of
+/// them once it has been held for [`HOLD_MS`].
+pub fn press(keys: &[String], held: &HashSet<u16>, queue: &mut InputQueue) -> Result<Held, InputError> {
     let mut keys: Vec<_> = keys.iter().map(|name| key_code(name).ok_or(InputError::Invalid)).collect::<Result<_, _>>()?;
     keys.retain(|key| !held.contains(key));
     keys.sort_by_key(|code| modifier(*code) == 0);
     if queue.is_holding() { return Err(InputError::Stopped); }
-    // Reserve releases too: the session holds the queue lock throughout the chord.
+    // Reserve releases too, so a chord is never pressed without room to let go of it.
     if queue.len() + keys.len() * 2 > nightjar_core::input::queue::MAX_QUEUED { return Err(InputError::QueueFull); }
     let held_modifiers = held.iter().fold(0, |mask, code| mask | modifier(*code));
-    let mut pressed = Vec::new();
+    let mut pressed = Held { keys: Vec::new(), held_modifiers };
     for key in keys {
-        pressed.push(key);
-        let modifiers = pressed.iter().fold(held_modifiers, |mask, code| mask | modifier(*code));
+        let modifiers = pressed.keys.iter().fold(held_modifiers | modifier(key), |mask, code| mask | modifier(*code));
         queue.send_keyboard(0x8000 | key, true, modifiers, 0)?;
+        pressed.keys.push(key);
     }
-    while let Some(key) = pressed.pop() {
-        let modifiers = pressed.iter().fold(held_modifiers, |mask, code| mask | modifier(*code));
+    Ok(pressed)
+}
+
+/// Lets go of a held chord's keys in reverse. A key not taken stays in `chord` for another try.
+pub fn release(chord: &mut Held, queue: &mut InputQueue) -> Result<(), InputError> {
+    while let Some((&key, rest)) = chord.keys.split_last() {
+        let modifiers = rest.iter().fold(chord.held_modifiers, |mask, code| mask | modifier(*code));
         queue.send_keyboard(0x8000 | key, false, modifiers, 0)?;
+        chord.keys.pop();
     }
     Ok(())
 }
@@ -544,34 +561,42 @@ mod tests {
         assert_eq!((shortcuts.data[1].id.as_str(), &shortcuts.data[1].keys[..]), ("desktop-1", &["CTRL".to_owned(), "SYSRQ".into(), "F1".into()][..]));
     }
 
+    /// A chord is pressed, then let go of in reverse only by `release` (#63): pressed and released in
+    /// the same instant, the Steam overlay's Shift + Tab never saw it held.
     #[test]
     fn chords_keep_held_keys_and_reject_a_full_queue_before_pressing_anything() {
         use nightjar_core::input::InputEvent;
         let caps = nightjar_core::control::HostCapabilities { app_version: [7, 1, 0, -1], ..Default::default() };
         let mut queue = InputQueue::new(&caps);
         let mut packets = Vec::new();
+        let encoded = |events: &[(u16, bool, u8)]| events.iter().map(|&(key, down, modifiers)| {
+            InputEvent::Keyboard { key_code: 0x8000 | key, down, modifiers, flags: 0 }.encode(true)
+        }).collect::<Vec<_>>();
         queue.drain(std::time::Instant::now(), false, &mut packets);
         packets.clear();
         let held = HashSet::from([0xA2]);
-        send(&["C".into(), "CTRL".into()], &held, &mut queue).unwrap();
+        let mut chord = press(&["C".into(), "CTRL".into()], &held, &mut queue).unwrap();
         queue.drain(std::time::Instant::now(), false, &mut packets);
-        let keys: Vec<_> = packets.iter().map(|p| p.data.clone()).collect();
-        assert_eq!(keys, vec![
-            InputEvent::Keyboard { key_code: 0x8043, down: true, modifiers: modifier::CTRL, flags: 0 }.encode(true),
-            InputEvent::Keyboard { key_code: 0x8043, down: false, modifiers: modifier::CTRL, flags: 0 }.encode(true),
-        ]);
+        assert_eq!(packets.iter().map(|p| p.data.clone()).collect::<Vec<_>>(), encoded(&[(0x43, true, modifier::CTRL)]));
         packets.clear();
-        send(&["TAB".into(), "ALT".into(), "CTRL".into()], &HashSet::new(), &mut queue).unwrap();
+        release(&mut chord, &mut queue).unwrap();
         queue.drain(std::time::Instant::now(), false, &mut packets);
-        let expected = [(0xA4, true, 4), (0xA2, true, 6), (0x09, true, 6), (0x09, false, 6), (0xA2, false, 4), (0xA4, false, 0)];
-        assert_eq!(packets.iter().map(|p| p.data.clone()).collect::<Vec<_>>(), expected.iter().map(|&(key, down, modifiers)| {
-            InputEvent::Keyboard { key_code: 0x8000 | key, down, modifiers, flags: 0 }.encode(true)
-        }).collect::<Vec<_>>());
+        assert_eq!(packets.iter().map(|p| p.data.clone()).collect::<Vec<_>>(), encoded(&[(0x43, false, modifier::CTRL)]));
+        packets.clear();
+        let mut chord = press(&["TAB".into(), "ALT".into(), "CTRL".into()], &HashSet::new(), &mut queue).unwrap();
+        queue.drain(std::time::Instant::now(), false, &mut packets);
+        assert_eq!(packets.iter().map(|p| p.data.clone()).collect::<Vec<_>>(), encoded(&[(0xA4, true, 4), (0xA2, true, 6), (0x09, true, 6)]));
+        packets.clear();
+        release(&mut chord, &mut queue).unwrap();
+        release(&mut chord, &mut queue).unwrap();
+        queue.drain(std::time::Instant::now(), false, &mut packets);
+        assert_eq!(packets.iter().map(|p| p.data.clone()).collect::<Vec<_>>(), encoded(&[(0x09, false, 6), (0xA2, false, 4), (0xA4, false, 0)]),
+            "released in reverse, once");
         while queue.len() < nightjar_core::input::queue::MAX_QUEUED - 1 {
             queue.send_keyboard(0x8041, true, 0, 0).unwrap();
         }
         let before = queue.len();
-        assert_eq!(send(&["ALT".into(), "TAB".into()], &HashSet::new(), &mut queue), Err(InputError::QueueFull));
+        assert_eq!(press(&["ALT".into(), "TAB".into()], &HashSet::new(), &mut queue), Err(InputError::QueueFull));
         assert_eq!(queue.len(), before);
     }
 

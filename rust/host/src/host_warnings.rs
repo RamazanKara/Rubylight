@@ -97,7 +97,14 @@ pub fn dismiss(directory: &Path, warnings: &Warnings, code: &str) -> Result<()> 
 
 /// The warning for the Windows Firewall problems the host found, if any.
 pub fn firewall(problems: &[String]) -> Option<String> {
-    let found = problems.join("; ");
+    // Rules that share a name read the same: say each once.
+    let mut unique: Vec<&str> = Vec::new();
+    for problem in problems {
+        if !unique.contains(&problem.as_str()) {
+            unique.push(problem);
+        }
+    }
+    let found = unique.join("; ");
     let mut chars = found.chars();
     let first = chars.next()?;
     Some(format!(
@@ -211,6 +218,26 @@ mod tests {
         let error =
             dismiss(directory.path(), &Warnings::default(), "settings_retired").unwrap_err();
         assert!(error.to_string().contains("settings_retired"), "{error}");
+    }
+
+    #[test]
+    fn rules_with_the_same_name_are_named_once() {
+        let rule =
+            "Windows Firewall rule \"butterpollo.exe\" blocks incoming connections to the host"
+                .to_string();
+        let other = "Windows Firewall rule \"Rubylight\" blocks incoming connections to the host"
+            .to_string();
+        let warning = firewall(&[rule.clone(), rule.clone(), other.clone(), rule]).unwrap();
+        assert_eq!(
+            warning.matches("\"butterpollo.exe\" blocks").count(),
+            1,
+            "{warning}"
+        );
+        assert_eq!(
+            warning.matches("\"Rubylight\" blocks").count(),
+            1,
+            "{warning}"
+        );
     }
 
     #[test]

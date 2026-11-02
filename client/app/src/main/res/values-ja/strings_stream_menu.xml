@@ -56,4 +56,27 @@
     <string name="stream_menu_settings">ストリームメニュー</string>
     <string name="title_floating_menu_button">フローティングメニューボタン</string>
     <string name="summary_floating_menu_button">ストリームの上に表示され、メニューを開く丸いボタン</string>
+    <string name="stream_tile_keyboard">キーボード</string>
+    <string name="stream_tile_pc_keyboard">PCキーボード</string>
+    <string name="stream_tile_mouse">マウス</string>
+    <string name="stream_tile_overlay">オーバーレイ</string>
+    <string name="stream_tile_shortcuts">ショートカット</string>
+    <string name="stream_tile_microphone">マイク</string>
+    <string name="stream_tile_touch_mode">タッチモード</string>
+    <string name="stream_tile_onscreen_controls">画面コントロール</string>
+    <string name="stream_tile_quality">画質</string>
+    <string name="stream_tile_video_output">映像出力</string>
+    <string name="stream_tile_zoom">ズーム</string>
+    <string name="stream_tile_send_clipboard">クリップボード送信</string>
+    <string name="stream_tile_get_clipboard">クリップボード取得</string>
+    <string name="stream_tile_pc_commands">PCコマンド</string>
+    <string name="stream_tile_diagnostics">診断</string>
+    <string name="stream_tile_session_graphics">セッションとグラフィックス</string>
+    <string name="stream_tile_more">その他</string>
+    <string name="stream_tile_return">ストリームに戻る</string>
+    <string name="stream_tile_add_shortcut">ショートカットを追加</string>
+    <string name="stream_tile_disconnect">切断</string>
+    <string name="stream_tile_end_session">セッションを終了</string>
+    <string name="stream_tile_close_game">ゲームを閉じる</string>
+    <string name="stream_tile_quit_game">ゲームを終了</string>
 </resources>

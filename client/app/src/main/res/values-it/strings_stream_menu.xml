@@ -56,4 +56,27 @@ I progressi non salvati andranno persi.</string>
     <string name="stream_menu_settings">Menu dello stream</string>
     <string name="title_floating_menu_button">Pulsante menu mobile</string>
     <string name="summary_floating_menu_button">Un pulsante rotondo sopra lo stream che apre il menu</string>
+    <string name="stream_tile_keyboard">Tastiera</string>
+    <string name="stream_tile_pc_keyboard">Tastiera PC</string>
+    <string name="stream_tile_mouse">Mouse</string>
+    <string name="stream_tile_overlay">Overlay</string>
+    <string name="stream_tile_shortcuts">Scorciatoie</string>
+    <string name="stream_tile_microphone">Microfono</string>
+    <string name="stream_tile_touch_mode">Modalità touch</string>
+    <string name="stream_tile_onscreen_controls">Controlli a schermo</string>
+    <string name="stream_tile_quality">Qualità</string>
+    <string name="stream_tile_video_output">Uscita video</string>
+    <string name="stream_tile_zoom">Zoom</string>
+    <string name="stream_tile_send_clipboard">Invia appunti</string>
+    <string name="stream_tile_get_clipboard">Ricevi appunti</string>
+    <string name="stream_tile_pc_commands">Comandi PC</string>
+    <string name="stream_tile_diagnostics">Diagnostica</string>
+    <string name="stream_tile_session_graphics">Sessione e grafica</string>
+    <string name="stream_tile_more">Altro</string>
+    <string name="stream_tile_return">Torna allo stream</string>
+    <string name="stream_tile_add_shortcut">Aggiungi scorciatoia</string>
+    <string name="stream_tile_disconnect">Disconnetti</string>
+    <string name="stream_tile_end_session">Termina sessione</string>
+    <string name="stream_tile_close_game">Chiudi gioco</string>
+    <string name="stream_tile_quit_game">Esci dal gioco</string>
 </resources>

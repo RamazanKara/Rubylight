@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- A stream menu tile's label and the quieter line under it (a shortcut's keys), as desktop Nightjar's tiles. -->
+    <style name="TextAppearance.Nightjar.Tile" parent="TextAppearance.Material3.LabelMedium">
+        <item name="android:textSize">12sp</item>
+        <item name="lineHeight">14sp</item>
+        <item name="android:fontFamily">sans-serif</item>
+        <item name="fontFamily">sans-serif</item>
+        <item name="android:letterSpacing">0</item>
+    </style>
+
+    <style name="TextAppearance.Nightjar.TileDetail" parent="TextAppearance.Nightjar.Tile">
+        <item name="android:textSize">11sp</item>
+        <item name="lineHeight">13sp</item>
+    </style>
+</resources>

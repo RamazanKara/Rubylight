@@ -56,4 +56,27 @@ Tiến trình chưa lưu sẽ bị mất.</string>
     <string name="stream_menu_settings">Menu stream</string>
     <string name="title_floating_menu_button">Nút menu nổi</string>
     <string name="summary_floating_menu_button">Nút tròn trên stream để mở menu</string>
+    <string name="stream_tile_keyboard">Bàn phím</string>
+    <string name="stream_tile_pc_keyboard">Bàn phím PC</string>
+    <string name="stream_tile_mouse">Chuột</string>
+    <string name="stream_tile_overlay">Lớp phủ</string>
+    <string name="stream_tile_shortcuts">Phím tắt</string>
+    <string name="stream_tile_microphone">Micrô</string>
+    <string name="stream_tile_touch_mode">Chế độ cảm ứng</string>
+    <string name="stream_tile_onscreen_controls">Điều khiển màn hình</string>
+    <string name="stream_tile_quality">Chất lượng</string>
+    <string name="stream_tile_video_output">Đầu ra video</string>
+    <string name="stream_tile_zoom">Thu phóng</string>
+    <string name="stream_tile_send_clipboard">Gửi bảng nhớ</string>
+    <string name="stream_tile_get_clipboard">Nhận bảng nhớ</string>
+    <string name="stream_tile_pc_commands">Lệnh PC</string>
+    <string name="stream_tile_diagnostics">Chẩn đoán</string>
+    <string name="stream_tile_session_graphics">Phiên và đồ họa</string>
+    <string name="stream_tile_more">Thêm</string>
+    <string name="stream_tile_return">Quay lại stream</string>
+    <string name="stream_tile_add_shortcut">Thêm phím tắt</string>
+    <string name="stream_tile_disconnect">Ngắt kết nối</string>
+    <string name="stream_tile_end_session">Kết thúc phiên</string>
+    <string name="stream_tile_close_game">Đóng trò chơi</string>
+    <string name="stream_tile_quit_game">Thoát trò chơi</string>
 </resources>

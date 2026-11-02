@@ -56,4 +56,27 @@ Kaydedilmemiş ilerleme kaybolur.</string>
     <string name="stream_menu_settings">Yayın menüsü</string>
     <string name="title_floating_menu_button">Kayan menü düğmesi</string>
     <string name="summary_floating_menu_button">Yayının üzerinde menüyü açan yuvarlak düğme</string>
+    <string name="stream_tile_keyboard">Klavye</string>
+    <string name="stream_tile_pc_keyboard">PC klavyesi</string>
+    <string name="stream_tile_mouse">Fare</string>
+    <string name="stream_tile_overlay">Katman</string>
+    <string name="stream_tile_shortcuts">Kısayollar</string>
+    <string name="stream_tile_microphone">Mikrofon</string>
+    <string name="stream_tile_touch_mode">Dokunma modu</string>
+    <string name="stream_tile_onscreen_controls">Ekran kontrolleri</string>
+    <string name="stream_tile_quality">Kalite</string>
+    <string name="stream_tile_video_output">Video çıkışı</string>
+    <string name="stream_tile_zoom">Yakınlaştırma</string>
+    <string name="stream_tile_send_clipboard">Pano gönder</string>
+    <string name="stream_tile_get_clipboard">Pano al</string>
+    <string name="stream_tile_pc_commands">PC komutları</string>
+    <string name="stream_tile_diagnostics">Tanılama</string>
+    <string name="stream_tile_session_graphics">Oturum ve grafik</string>
+    <string name="stream_tile_more">Daha fazla</string>
+    <string name="stream_tile_return">Yayına dön</string>
+    <string name="stream_tile_add_shortcut">Kısayol ekle</string>
+    <string name="stream_tile_disconnect">Bağlantıyı kes</string>
+    <string name="stream_tile_end_session">Oturumu sonlandır</string>
+    <string name="stream_tile_close_game">Oyunu kapat</string>
+    <string name="stream_tile_quit_game">Oyundan çık</string>
 </resources>

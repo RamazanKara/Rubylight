@@ -666,7 +666,8 @@ public class StreamMenuTest {
         float[] large = textSizes(1.3f);
         for (int i = 0; i < normal.length; i++) {
             assertTrue("text " + i + " is drawn", normal[i] > 0);
-            assertEquals("text " + i + " grows with the font scale", 1.3f, large[i] / normal[i], 0.02f);
+            // A tile's 12sp lands on whole pixels, so its ratio is 16/12 rather than 1.3.
+            assertEquals("text " + i + " grows with the font scale", 1.3f, large[i] / normal[i], 0.04f);
         }
     }
 
@@ -686,7 +687,7 @@ public class StreamMenuTest {
                 assertNull(menu.row(item));
                 assertFalse(items(menu.entries()).contains(item));
             }
-            assertEquals("System keyboard", menu.row(KEYBOARD).getText().toString());
+            assertEquals("Keyboard", menu.row(KEYBOARD).getText().toString());
             assertNotNull(menu.row(DISCONNECT));
             menu.row(MORE).performClick();
             assertEquals(StreamMenu.Page.MORE, menu.page());
@@ -735,7 +736,7 @@ public class StreamMenuTest {
             });
             menu.show();
             assertFalse("Keyboard is an action, not a switch", menu.row(KEYBOARD).isCheckable());
-            assertEquals(activity.getString(R.string.desktop_controls_system_keyboard),
+            assertEquals("the model's short label, as desktop Nightjar's", activity.getString(R.string.stream_tile_keyboard),
                     menu.row(KEYBOARD).getText().toString());
             assertFalse("The PC keyboard is an action too", menu.row(PC_KEYBOARD).isCheckable());
             assertEquals(activity.getString(R.string.pc_keyboard_title), menu.row(PC_KEYBOARD).getText().toString());
@@ -1051,6 +1052,30 @@ public class StreamMenuTest {
             if (tile.id.equals("disconnect") || tile.id.endsWith("_game") || tile.id.startsWith("end_")) {
                 assertEquals(tile.id, "footer", tile.place);
             }
+        }
+    }
+
+    /** A shortcut named after its keys (Caps Lock, the editor's default name) says them once, not twice. */
+    @Test
+    public void aShortcutNamedAfterItsKeysShowsNoKeyLine() {
+        try (var controller = Robolectric.buildActivity(Activity.class).setup()) {
+            Activity activity = controller.get();
+            activity.setTheme(R.style.StreamTheme);
+            StreamMenu.Options state = options("rubylight-serverinfo.xml", NvApp.Role.STREAM);
+            SavedShortcuts saved = new SavedShortcuts().add("Caps Lock", "CAPS_LOCK").add("Snip", "WIN+SHIFT+S");
+            StreamMenu menu = new StreamMenu(activity, () -> state, item -> { }, null, saved);
+            menu.show();
+            TileGrid grid = menu.grid();
+            int more = grid.indexOfChild(menu.row(MORE));
+            assertEquals("Caps Lock", text(grid.getChildAt(more + 1)));
+            assertEquals("Snip\nWin + Shift + S", text(grid.getChildAt(more + 2)));
+            menu.row(SHORTCUTS).performClick();
+            TileGrid tiles = findGrid(menu.sheet().getWindow().getDecorView());
+            List<String> texts = new ArrayList<>();
+            for (int i = 0; i < tiles.getChildCount(); i++) texts.add(text(tiles.getChildAt(i)));
+            assertTrue(texts.toString(), texts.contains("Caps Lock"));
+            assertTrue(texts.toString(), texts.contains("Snip\nWin + Shift + S"));
+            menu.sheet().dismiss();
         }
     }
 

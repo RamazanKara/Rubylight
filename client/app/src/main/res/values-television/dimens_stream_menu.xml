@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The stream menu across the room: four tiles to a row, as desktop Nightjar's, with room for the focus ring. -->
+    <integer name="stream_tile_columns">4</integer>
+    <dimen name="stream_tile_min_width">92dp</dimen>
+    <dimen name="stream_tile_min_height">76dp</dimen>
+    <dimen name="stream_tile_gap">8dp</dimen>
+    <dimen name="stream_tile_icon">24dp</dimen>
+    <dimen name="stream_tile_icon_gap">4dp</dimen>
+    <dimen name="stream_tile_pad_top">12dp</dimen>
+    <dimen name="stream_tile_pad_bottom">8dp</dimen>
+    <dimen name="stream_tile_pad_side">6dp</dimen>
+    <dimen name="stream_tile_corner">12dp</dimen>
+    <dimen name="stream_tile_cap_text">11sp</dimen>
+    <dimen name="stream_tile_switch_width">22dp</dimen>
+    <dimen name="stream_tile_switch_height">12dp</dimen>
+    <dimen name="stream_tile_corner_inset">7dp</dimen>
+    <dimen name="stream_menu_return_height">48dp</dimen>
+    <dimen name="stream_menu_exit_height">44dp</dimen>
+    <dimen name="stream_menu_footer_icon">20dp</dimen>
+    <dimen name="stream_menu_edge">24dp</dimen>
+</resources>

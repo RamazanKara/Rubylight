@@ -31,11 +31,15 @@ public final class RustStreamMenuModel implements StreamMenuModel.Calls {
     /** A tile id, its place (grid, more, footer) and its button or null, in the model's order. */
     static final class Tile {
         final String id, place, hotkey;
+        /** The label's key and English text, or null for a More row. */
+        final String labelKey, labelEnglish;
 
-        Tile(String id, String place, String hotkey) {
+        Tile(String id, String place, String hotkey, String labelKey, String labelEnglish) {
             this.id = id;
             this.place = place;
             this.hotkey = hotkey;
+            this.labelKey = labelKey;
+            this.labelEnglish = labelEnglish;
         }
     }
 
@@ -64,16 +68,37 @@ public final class RustStreamMenuModel implements StreamMenuModel.Calls {
     public RustStreamMenuModel() {
         String menu = read("stream_menu.rs");
         String table = menu.substring(menu.indexOf("pub const TILES"), menu.indexOf("];", menu.indexOf("pub const TILES")));
-        Matcher tile = Pattern.compile("(grid|more|footer)\\(\"(\\w+)\"(?:, (?:Some\\(Hotkey::(\\w+)\\)|None))?\\)").matcher(table);
+        // grid("bitrate", None, l("quality", "Quality")), more("help"), footer("disconnect", Some(l("disconnect", "Disconnect")))
+        Matcher tile = Pattern.compile("(grid|more|footer)\\(\"(\\w+)\"(?:, (?:Some\\(Hotkey::(\\w+)\\)|None))?"
+                + "(?:, (?:Some\\()?l\\(\"(\\w+)\", \"([^\"]+)\"\\)\\)?|, None)?\\)").matcher(table);
         while (tile.find()) {
-            tiles.add(new Tile(tile.group(2), tile.group(1), tile.group(3) == null ? null : tile.group(3).toLowerCase(Locale.ROOT)));
+            tiles.add(new Tile(tile.group(2), tile.group(1), tile.group(3) == null ? null : tile.group(3).toLowerCase(Locale.ROOT),
+                    tile.group(4), tile.group(5)));
         }
+        // MORE => Some(l("more", "More")) in stream_menu::label: the labels of More, Return to stream and Add.
+        Matcher extra = Pattern.compile("(MORE|CLOSE|ADD) => Some\\(l\\(\"(\\w+)\", \"([^\"]+)\"\\)\\)").matcher(menu);
+        while (extra.find()) tiles.add(new Tile(extra.group(1).toLowerCase(Locale.ROOT), "label", null, extra.group(2), extra.group(3)));
         String shortcuts = read("shortcuts.rs");
         Matcher builtIn = Pattern.compile("BuiltIn \\{ id: \"(\\w+)\", keys: &\\[([^\\]]*)\\] \\}").matcher(shortcuts);
         while (builtIn.find()) builtIns.put(builtIn.group(1), names(builtIn.group(2)));
         int start = shortcuts.indexOf("pub const PICKER");
         picker.addAll(Arrays.asList(names(shortcuts.substring(shortcuts.indexOf("&[", start) + 2, shortcuts.indexOf("];", start)))));
-        if (tiles.isEmpty() || builtIns.isEmpty() || picker.isEmpty()) throw new AssertionError("the policy sources changed shape");
+        if (tiles.isEmpty() || builtIns.isEmpty() || picker.isEmpty() || labelled("grid") == 0 || labelled("label") != 3) {
+            throw new AssertionError("the policy sources changed shape");
+        }
+    }
+
+    private int labelled(String place) {
+        int count = 0;
+        for (Tile tile : tiles) if (tile.place.equals(place) && tile.labelKey != null) count++;
+        return count;
+    }
+
+    /** Every label key the model gives and its English text, as {@code stream_menu::labels}. */
+    Map<String, String> labelTexts() {
+        Map<String, String> texts = new LinkedHashMap<>();
+        for (Tile tile : tiles) if (tile.labelKey != null) texts.put(tile.labelKey, tile.labelEnglish);
+        return texts;
     }
 
     private static String[] names(String list) {
@@ -91,6 +116,7 @@ public final class RustStreamMenuModel implements StreamMenuModel.Calls {
             case "WIN": return "Win";
             case "ESC": return "Esc";
             case "TAB": return "Tab";
+            case "CAPS_LOCK": return "Caps Lock";
             default: return key;
         }
     }
@@ -130,6 +156,11 @@ public final class RustStreamMenuModel implements StreamMenuModel.Calls {
                     for (int i = 0; i < keys.length(); i++) labels.add(label(keys.getString(i)));
                     return ok(String.join(" + ", labels));
                 }
+                case "labels": {
+                    JSONObject labels = new JSONObject();
+                    for (Tile tile : tiles) if (tile.labelKey != null) labels.put(tile.id, tile.labelKey);
+                    return ok(labels);
+                }
                 case "mode_line": {
                     String line = modeLine(in.getInt("width"), in.getInt("height"), in.getInt("fps"), in.getInt("format"),
                             in.getBoolean("hdr"));
@@ -148,13 +179,13 @@ public final class RustStreamMenuModel implements StreamMenuModel.Calls {
         for (int i = 0; i < list.length(); i++) offers.put(list.getJSONObject(i).getString("id"), list.getJSONObject(i));
         for (String id : offers.keySet()) {
             boolean known = false;
-            for (Tile tile : tiles) known |= tile.id.equals(id);
+            for (Tile tile : tiles) known |= tile.id.equals(id) && !tile.place.equals("label");
             if (!known) return new Unknown(id);
         }
         JSONArray grid = new JSONArray(), more = new JSONArray(), footer = new JSONArray().put("close");
         for (Tile tile : tiles) {
             JSONObject offer = offers.get(tile.id);
-            if (offer == null) continue;
+            if (offer == null || tile.place.equals("label")) continue;
             if (tile.place.equals("grid")) {
                 JSONObject cell = new JSONObject().put("id", tile.id);
                 if (offer.has("on")) cell.put("on", offer.getBoolean("on"));

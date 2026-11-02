@@ -3385,7 +3385,7 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         if (context.pendingExit && context.inputMap == 0 && context.pressedButtons.isEmpty()) {
             context.pendingExit = false;
             if (activityContext instanceof Game) {
-                ((Game) activityContext).showStreamMenu();
+                ((Game) activityContext).showStreamMenuFromController();
             }
         }
 
@@ -3950,7 +3950,7 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         if (context.menuComboPending && buttons == 0) {
             context.menuComboPending = false;
             if (activityContext instanceof Game) {
-                ((Game) activityContext).showStreamMenu();
+                ((Game) activityContext).showStreamMenuFromController();
             }
         }
         releaseQuitCombo(context, buttonFlags);
@@ -4232,7 +4232,7 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         final GuideHold guideHold = new GuideHold();
         final Runnable guideHoldRunnable = () -> {
             if (!stopped && guideHold.expire() && activityContext instanceof Game) {
-                ((Game) activityContext).showStreamMenu();
+                ((Game) activityContext).showStreamMenuFromController();
             }
         };
         // A held-back Guide is being replayed to the host (a tap or a chord), not pressed again.

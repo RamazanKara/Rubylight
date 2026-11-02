@@ -270,6 +270,27 @@ public final class StreamMenuModel {
         }
     }
 
+    /** The model's id for the grid's Add tile, as {@link #labels} names it. */
+    public static final String ADD = "add";
+
+    /**
+     * Each tile id's label key ({@code bitrate} → {@code quality}), for the grid, More, Add, Return to stream
+     * ({@link #CLOSE}) and the ways out; the label is the {@code stream_tile_<key>} string, as desktop Nightjar's.
+     */
+    public static java.util.Map<String, String> labels() throws Refused {
+        try {
+            JSONObject answer = (JSONObject) ask(op("labels"));
+            java.util.Map<String, String> labels = new java.util.HashMap<>();
+            for (java.util.Iterator<String> ids = answer.keys(); ids.hasNext(); ) {
+                String id = ids.next();
+                labels.put(id, answer.getString(id));
+            }
+            return labels;
+        } catch (JSONException | ClassCastException e) {
+            throw new Refused("invalid", "unreadable labels: " + e.getMessage());
+        }
+    }
+
     /**
      * The menu header's line for the stream's mode, as desktop Nightjar shows it: {@code 1440p · 144 FPS · HEVC HDR}.
      * Null while the mode is not known (a size or rate of 0). {@code format} is Moonlight's video format bits.

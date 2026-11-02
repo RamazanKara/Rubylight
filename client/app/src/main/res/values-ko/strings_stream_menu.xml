@@ -56,4 +56,27 @@
     <string name="stream_menu_settings">스트림 메뉴</string>
     <string name="title_floating_menu_button">플로팅 메뉴 버튼</string>
     <string name="summary_floating_menu_button">스트림 위에 떠 있는 메뉴 열기용 둥근 버튼</string>
+    <string name="stream_tile_keyboard">키보드</string>
+    <string name="stream_tile_pc_keyboard">PC 키보드</string>
+    <string name="stream_tile_mouse">마우스</string>
+    <string name="stream_tile_overlay">오버레이</string>
+    <string name="stream_tile_shortcuts">단축키</string>
+    <string name="stream_tile_microphone">마이크</string>
+    <string name="stream_tile_touch_mode">터치 모드</string>
+    <string name="stream_tile_onscreen_controls">화면 컨트롤</string>
+    <string name="stream_tile_quality">품질</string>
+    <string name="stream_tile_video_output">영상 출력</string>
+    <string name="stream_tile_zoom">확대/축소</string>
+    <string name="stream_tile_send_clipboard">클립보드 보내기</string>
+    <string name="stream_tile_get_clipboard">클립보드 가져오기</string>
+    <string name="stream_tile_pc_commands">PC 명령</string>
+    <string name="stream_tile_diagnostics">진단</string>
+    <string name="stream_tile_session_graphics">세션 및 그래픽</string>
+    <string name="stream_tile_more">더보기</string>
+    <string name="stream_tile_return">스트림으로 돌아가기</string>
+    <string name="stream_tile_add_shortcut">단축키 추가</string>
+    <string name="stream_tile_disconnect">연결 끊기</string>
+    <string name="stream_tile_end_session">세션 종료</string>
+    <string name="stream_tile_close_game">게임 닫기</string>
+    <string name="stream_tile_quit_game">게임 종료</string>
 </resources>

@@ -209,8 +209,8 @@ public final class StreamMenu {
                 entries.add(entry(Section.INPUT, Item.CONTROLLER_MOUSE, R.string.stream_controller_mouse,
                         R.drawable.ic_gamepad, o.controllerMouseOn));
             }
-            entries.add(action(Section.INPUT, Item.ONSCREEN_CONTROLS, o.onscreenControls ?
-                    R.string.stream_controls_hide : R.string.stream_controls_show, R.drawable.ic_gamepad));
+            entries.add(entry(Section.INPUT, Item.ONSCREEN_CONTROLS, o.onscreenControls ?
+                    R.string.stream_controls_hide : R.string.stream_controls_show, R.drawable.ic_gamepad, o.onscreenControls));
             if (o.onscreenControls) {
                 entries.add(action(Section.INPUT, Item.CONTROLS_LAYOUT, R.string.stream_controls_layout, R.drawable.ic_edit));
             }
@@ -234,8 +234,8 @@ public final class StreamMenu {
                 entries.add(action(Section.DISPLAY, Item.VIDEO_SCALING, R.string.video_scaling_title, R.drawable.ic_stretch));
             }
             if (o.localOutput) {
-                entries.add(action(Section.DISPLAY, Item.ZOOM, o.zoomEnabled ?
-                        R.string.desktop_zoom_disable : R.string.desktop_zoom_enable, R.drawable.ic_zoom_in));
+                entries.add(entry(Section.DISPLAY, Item.ZOOM, o.zoomEnabled ?
+                        R.string.desktop_zoom_disable : R.string.desktop_zoom_enable, R.drawable.ic_zoom_in, o.zoomEnabled));
                 if (o.zoomEnabled) {
                     entries.add(action(Section.DISPLAY, Item.ZOOM_RESET, R.string.desktop_zoom_reset, R.drawable.ic_zoom_out));
                 }
@@ -615,11 +615,14 @@ public final class StreamMenu {
         offeredItems = items(offered);
         entries = new ArrayList<>();
         List<KeyboardShortcuts.Shortcut> saved = shortcuts != null && o.canSendInput ? shortcuts.saved() : null;
+        java.util.Map<String, String> labels;
         try {
             layout = StreamMenuModel.layout(offers(offered), saved == null ? null : saved.size());
+            labels = StreamMenuModel.labels();
         } catch (StreamMenuModel.Refused e) {
+            layout = null;
             failure = sheet.addNote(sheet.addGroup(), activity.getString(R.string.stream_menu_model_failed, e.getMessage()), true);
-            addFooter(offered, null);
+            addFooter(offered, null, null);
             return;
         }
         grid = sheet.addTileGrid();
@@ -628,23 +631,23 @@ public final class StreamMenu {
             switch (cell.kind) {
                 case SHORTCUT: {
                     KeyboardShortcuts.Shortcut shortcut = saved.get(cell.shortcut);
-                    tile = grid.addTile(R.drawable.ic_keyboard, shortcut.name, chordText(shortcut.keys()), null, null);
+                    tile = grid.addTile(R.drawable.ic_keyboard, shortcut.name, keysUnder(shortcut), null, null);
                     tile.setOnClickListener(view -> shortcuts.send(shortcut.keys()));
                     break;
                 }
                 case ADD:
-                    tile = grid.addTile(R.drawable.ic_plus, activity.getString(R.string.keyboard_shortcuts_add), null, null, null);
+                    tile = grid.addTile(R.drawable.ic_plus, label(labels, StreamMenuModel.ADD), null, null, null);
                     tile.setOnClickListener(view -> edit(null));
                     break;
                 default: {
                     if (StreamMenuModel.MORE.equals(cell.id)) {
-                        tile = grid.addTile(R.drawable.ic_more_horiz, activity.getString(R.string.stream_menu_more), null, null, null);
+                        tile = grid.addTile(R.drawable.ic_more_horiz, label(labels, StreamMenuModel.MORE), null, null, null);
                         rows.put(Item.MORE, tile);
                         tile.setOnClickListener(view -> render(Page.MORE, options.get(), null));
                         break;
                     }
                     Entry entry = find(offered, cell.id);
-                    tile = grid.addTile(entry.icon, activity.getString(entry.label), null, cell.on,
+                    tile = grid.addTile(entry.icon, label(labels, cell.id), null, cell.on,
                             cell.hotkey == null ? null : cell.hotkey.toUpperCase(Locale.ROOT));
                     rows.put(entry.item, tile);
                     entries.add(entry);
@@ -653,7 +656,48 @@ public final class StreamMenu {
             }
             if (grid.getChildCount() == 1) sheet.setFirstAction(tile);
         }
-        addFooter(offered, layout.footer);
+        addFooter(offered, layout.footer, labels);
+    }
+
+    /**
+     * A tile's short name, the same as desktop Nightjar's: the {@code stream_tile_<key>} string for the key the shared
+     * model gives its id. A tile the model names no label for is a disagreement between the two, which a test catches.
+     */
+    private String label(java.util.Map<String, String> labels, String id) {
+        String key = labels.get(id);
+        int label = key == null ? 0 : tileLabel(key);
+        if (label == 0) throw new IllegalStateException("the stream menu model names no label for " + id + " (" + key + ")");
+        return activity.getString(label);
+    }
+
+    /** The string for a label key of the shared model ({@code stream_menu::label}), or 0 for a key this client lacks. */
+    public static int tileLabel(String key) {
+        switch (key) {
+            case "keyboard": return R.string.stream_tile_keyboard;
+            case "pc_keyboard": return R.string.stream_tile_pc_keyboard;
+            case "mouse": return R.string.stream_tile_mouse;
+            case "overlay": return R.string.stream_tile_overlay;
+            case "shortcuts": return R.string.stream_tile_shortcuts;
+            case "microphone": return R.string.stream_tile_microphone;
+            case "touch_mode": return R.string.stream_tile_touch_mode;
+            case "onscreen_controls": return R.string.stream_tile_onscreen_controls;
+            case "quality": return R.string.stream_tile_quality;
+            case "video_output": return R.string.stream_tile_video_output;
+            case "zoom": return R.string.stream_tile_zoom;
+            case "send_clipboard": return R.string.stream_tile_send_clipboard;
+            case "get_clipboard": return R.string.stream_tile_get_clipboard;
+            case "pc_commands": return R.string.stream_tile_pc_commands;
+            case "diagnostics": return R.string.stream_tile_diagnostics;
+            case "session_graphics": return R.string.stream_tile_session_graphics;
+            case "more": return R.string.stream_tile_more;
+            case "return": return R.string.stream_tile_return;
+            case "add_shortcut": return R.string.stream_tile_add_shortcut;
+            case "disconnect": return R.string.stream_tile_disconnect;
+            case "end_session": return R.string.stream_tile_end_session;
+            case "close_game": return R.string.stream_tile_close_game;
+            case "quit_game": return R.string.stream_tile_quit_game;
+            default: return 0;
+        }
     }
 
     /**
@@ -683,15 +727,20 @@ public final class StreamMenu {
         return app.isEmpty() ? host : host.isEmpty() ? app : app + " · " + host;
     }
 
-    // Return to stream, wide and filled, then the ways out in the model's order (all of them when it failed).
-    private void addFooter(List<Entry> offered, List<String> footer) {
-        MaterialButton close = sheet.addPrimaryAction(R.drawable.ic_play, activity.getString(R.string.stream_menu_return), "B");
+    /**
+     * Return to stream, wide and filled, then the ways out in the model's order and in its words (all of them, in this
+     * client's words, when it failed). A way out only Android offers, a remote monitor's, keeps its own words.
+     */
+    private void addFooter(List<Entry> offered, List<String> footer, java.util.Map<String, String> labels) {
+        String back = labels != null ? label(labels, StreamMenuModel.CLOSE) : activity.getString(R.string.stream_menu_return);
+        MaterialButton close = sheet.addPrimaryAction(R.drawable.ic_play, back, "B");
         rows.put(Item.CLOSE, close);
         close.setOnClickListener(view -> sheet.dismiss());
         if (grid == null) sheet.setFirstAction(close);
         for (Entry entry : offered) {
             if (entry.section != Section.SESSION || (footer != null && !footer.contains(id(entry.item)))) continue;
-            MaterialButton button = sheet.addFooterAction(entry.icon, activity.getString(entry.label), entry.destructive);
+            String name = labels != null && labels.containsKey(id(entry.item)) ? label(labels, id(entry.item)) : activity.getString(entry.label);
+            MaterialButton button = sheet.addFooterAction(entry.icon, name, entry.destructive);
             rows.put(entry.item, button);
             entries.add(entry);
             button.setOnClickListener(view -> choose(entry));
@@ -705,6 +754,12 @@ public final class StreamMenu {
     }
 
     // The keys' text the model gives, as Ctrl + Shift + Esc; the saved names when it cannot.
+    /** The keys under a shortcut's name, or null when the name already says them (a shortcut saved unnamed). */
+    private static String keysUnder(KeyboardShortcuts.Shortcut shortcut) {
+        String keys = chordText(shortcut.keys());
+        return keys.equals(shortcut.name) ? null : keys;
+    }
+
     private static String chordText(int[] keys) {
         String[] names = names(keys);
         try {
@@ -756,7 +811,7 @@ public final class StreamMenu {
             if (tiles.getChildCount() == 1) sheet.setFirstAction(tile);
         }
         for (KeyboardShortcuts.Shortcut shortcut : saved) {
-            MaterialButton tile = tiles.addTile(R.drawable.ic_keyboard, shortcut.name, chordText(shortcut.keys()), null, null);
+            MaterialButton tile = tiles.addTile(R.drawable.ic_keyboard, shortcut.name, keysUnder(shortcut), null, null);
             tile.setOnClickListener(view -> shortcuts.send(shortcut.keys()));
             if (tiles.getChildCount() == 1) sheet.setFirstAction(tile);
         }

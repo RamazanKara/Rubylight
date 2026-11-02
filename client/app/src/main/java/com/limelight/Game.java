@@ -1092,7 +1092,12 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     }
 
     public void showStreamMenu() {
-        menuActions.showStreamMenu();
+        menuActions.showStreamMenu(false);
+    }
+
+    /** A controller, remote or key opened the menu: its first tile shows focus at once, so the next press moves it. */
+    public void showStreamMenuFromController() {
+        menuActions.showStreamMenu(true);
     }
 
     java.util.concurrent.ScheduledExecutorService nativeMenuThread;

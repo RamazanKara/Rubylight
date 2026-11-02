@@ -9,8 +9,12 @@ import com.limelight.nvstream.http.ComputerDetails;
 import com.limelight.nvstream.http.NvApp;
 import com.limelight.nvstream.http.TestHosts;
 import com.limelight.preferences.PreferenceConfiguration;
+import com.limelight.ui.RustStreamMenuModel;
 import com.limelight.ui.StreamMenu;
+import com.limelight.ui.StreamMenuModel;
 
+import org.junit.After;
+import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.robolectric.Robolectric;
@@ -25,6 +29,16 @@ import static org.junit.Assert.*;
         shadows = PcViewLifecycleTest.NoNativeMoonBridge.class,
         instrumentedPackages = "com.limelight.nvstream.jni")
 public class GameStreamMenuTest {
+    @Before
+    public void answerFromThePolicySources() {
+        StreamMenuModel.use(new RustStreamMenuModel());
+    }
+
+    @After
+    public void forgetTheModel() {
+        StreamMenuModel.use(null);
+    }
+
     private static Game streamingGame(String fixture) {
         Game game = Robolectric.buildActivity(Game.class).get();
         game.setTheme(R.style.StreamTheme);
@@ -68,6 +82,22 @@ public class GameStreamMenuTest {
         idle();
         assertNull(ReflectionHelpers.getField(game.menuActions, "streamMenuSheet"));
         assertNull(ReflectionHelpers.getField(game, "streamMenu"));
+    }
+
+    /** Hold Guide after a tap: the first tile shows focus at once, so the first D-pad press moves it. */
+    @Test
+    public void aControllerOpenedMenuShowsFocusOnItsFirstTile() {
+        Game game = streamingGame("rubylight-serverinfo.xml");
+        game.showStreamMenuFromController();
+        StreamMenu menu = ReflectionHelpers.getField(game.menuActions, "streamMenuSheet");
+        assertNotNull(menu);
+        idle();
+        View focused = menu.sheet().getWindow().getDecorView().findFocus();
+        assertNotNull("a tile has focus", focused);
+        assertSame(menu.grid().getChildAt(0), focused);
+        assertFalse(focused.isInTouchMode());
+        menu.sheet().dismiss();
+        idle();
     }
 
     @Test

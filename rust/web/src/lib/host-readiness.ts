@@ -173,3 +173,9 @@ export function hostWarnings(metadata: Metadata): HostWarning[] {
 export function hostChecks(metadata: Metadata): Check[] {
   return [encoder(metadata), virtualDisplay(metadata), audio(metadata), capture(metadata)];
 }
+
+/** Whether Home opens the checks on its own: a check that warns, or a host warning not yet dismissed. */
+export function needsAttention(metadata: Metadata): boolean {
+  return hostChecks(metadata).some((check) => check.tone === 'warn' || check.tone === 'danger')
+    || hostWarnings(metadata).length > 0;
+}

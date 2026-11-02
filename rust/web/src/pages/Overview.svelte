@@ -5,7 +5,7 @@
   import AppCover from '../components/library/AppCover.svelte';
   import CoopCard from '../components/overview/CoopCard.svelte';
   import { coverPath } from '../components/library/app';
-  import { hostChecks } from '../lib/host-readiness';
+  import { needsAttention } from '../lib/host-readiness';
   const landscape = new URL('../assets/home-landscape.webp', import.meta.url).href;
   import CopyButton from '../components/CopyButton.svelte';
   import PageHeader from '../components/PageHeader.svelte';
@@ -75,8 +75,8 @@
   const streams = $derived((sessions ?? []).filter((item) => item.role === 'stream'));
   const others = $derived((sessions ?? []).filter((item) => item.role !== 'stream'));
   const live = $derived(streams.filter((item) => item.state === 'RUNNING').length);
-  const checks = $derived(metadata ? hostChecks(metadata) : []);
-  const attention = $derived(checks.some(check => check.tone === 'warn' || check.tone === 'danger'));
+  // Host warnings count too: Home lists them without View checks.
+  const attention = $derived(metadata ? needsAttention(metadata) : false);
   const checking = $derived(!sessions || !status || !metadata || metadata.encoder_status.state === 'checking');
   const unavailable = $derived(Boolean(sessionsError || statusError || metadataError));
   const paired = $derived((metadata?.paired_devices ?? 0) > 0);

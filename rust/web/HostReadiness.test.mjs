@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { readFileSync } from 'node:fs';
 import { createTestServer } from './test-server.mjs';
 
 globalThis.location = new URL('http://localhost/');
@@ -7,6 +8,7 @@ globalThis.window = new EventTarget();
 const server = await createTestServer();
 const { default: HostReadiness } = await server.ssrLoadModule('/src/components/overview/HostReadiness.svelte');
 const { render } = await server.ssrLoadModule('svelte/server');
+const { needsAttention } = await server.ssrLoadModule('/src/lib/host-readiness.ts');
 const metadata = {
   encoder_status: { state: 'failed', h264: false, hevc: false, av1: false, pyrowave: false },
   warnings: [{ code: 'video_encoder', message: 'No video encoder available: AMF error 1. Retrying.' }],
@@ -17,6 +19,23 @@ const metadata = {
 const html = (changes = {}) => render(HostReadiness, {
   props: { metadata: { ...metadata, ...changes }, error: null, checking: false, onrecheck: () => {} },
 }).body;
+
+test('a host warning alone makes Home show the checks and the warning', () => {
+  const healthy = {
+    ...metadata,
+    warnings: [],
+    encoder_status: { ...metadata.encoder_status, state: 'ready', h264: true, hevc: true },
+    virtual_display: { capable: true, ready: true, reason: '' },
+    capture_status: { virtual_display_configured: true, displays: [{ name: 'Display 1' }], error: null },
+    audio_enabled: true,
+    audio_sinks: [{ name: 'Speakers', description: 'Speakers', default: true }],
+  };
+  assert.equal(needsAttention(healthy), false);
+  const firewall = { code: 'firewall_blocked', message: 'Windows Firewall rule "x" blocks incoming connections to the host.' };
+  assert.equal(needsAttention({ ...healthy, warnings: [firewall] }), true);
+  const overview = readFileSync(new URL('./src/pages/Overview.svelte', import.meta.url), 'utf8');
+  assert.match(overview, /attention = \$derived\(metadata \? needsAttention\(metadata\)/);
+});
 
 test('host readiness shows the probe error even while a retry is running', () => {
   for (const state of ['failed', 'checking']) {

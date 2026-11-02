@@ -73,6 +73,12 @@ fn size_failed(error: &anyhow::Error, encoder: &str, adapter: &str) -> Option<an
     ))
 }
 
+/// Whether an AMF encoder that failed with a compute queue is tried again on
+/// the graphics queue: not for a size the encoder cannot take on any queue.
+fn retries_on_graphics(error: &anyhow::Error) -> bool {
+    error.downcast_ref::<SizeTooLarge>().is_none()
+}
+
 /// What a stream reports when AMF does not start on `adapter`.
 fn amf_failed(error: anyhow::Error, adapter: &str) -> anyhow::Error {
     if let Some(size) = size_failed(&error, "AMF", adapter) {
@@ -350,7 +356,7 @@ impl Encoder {
             tuning,
             compute.clone(),
         ) {
-            Err(error) if compute.is_some() => {
+            Err(error) if compute.is_some() && retries_on_graphics(&error) => {
                 warnings.set("encoder_conversion", format!("AMF compute queue initialization failed ({error:#}); retrying conversion on the graphics queue. Lower game GPU load or update the AMD driver if frames are delayed."));
                 crate::amf::Encoder::new_gpu(config, image.gpu.clone(), tuning, None)
             }
@@ -717,6 +723,21 @@ mod tests {
         for advice in ["driver", "sign-in", "unlock"] {
             assert!(!message.contains(advice), "{message}");
         }
+    }
+    #[test]
+    fn a_size_the_encoder_cannot_take_is_not_retried_on_the_graphics_queue() {
+        let size = SizeTooLarge {
+            encoder: "AMF",
+            width: 8192,
+            height: 8192,
+            max: Some((8192, 4352)),
+        };
+        assert!(!retries_on_graphics(
+            &anyhow::Error::new(size).context("AMF encoder Init")
+        ));
+        assert!(retries_on_graphics(&anyhow::anyhow!(
+            "AMF error AMF_FAIL (1)"
+        )));
     }
     fn gpu(name: &str, vendor: u32) -> crate::capture::Gpu {
         crate::capture::Gpu {

@@ -96,7 +96,11 @@ public class StreamMenuTvFocusTest {
             assertSame("Right is the next tile", menu.grid().getChildAt(1), focused.focusSearch(View.FOCUS_RIGHT));
 
             View next = focused;
-            for (int row = 0; row < 10 && next != menu.row(CLOSE); row++) next = next.focusSearch(View.FOCUS_DOWN);
+            for (int row = 0; row < 10 && next != null && next != menu.row(CLOSE); row++) {
+                // As a remote's press does, the grid scrolls the focused tile into view before the next move.
+                assertTrue(next.requestFocus());
+                next = next.focusSearch(View.FOCUS_DOWN);
+            }
             assertSame("Down through the grid reaches Return to stream", menu.row(CLOSE), next);
             assertSame("then Disconnect", menu.row(DISCONNECT), next.focusSearch(View.FOCUS_DOWN));
             assertTrue(focused.requestFocus());

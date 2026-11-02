@@ -51,4 +51,9 @@ Tiến trình chưa lưu sẽ bị mất.</string>
     <string name="stream_menu_start_menu">Menu Start</string>
     <string name="stream_shortcut_pick_keys">Chọn từ 1 đến 8 phím.</string>
     <string name="stream_menu_model_failed">Không thể dựng menu stream: %1$s</string>
+    <string name="stream_menu_button_show">Hiện nút menu</string>
+    <string name="stream_menu_button_hide">Ẩn nút menu</string>
+    <string name="stream_menu_settings">Menu stream</string>
+    <string name="title_floating_menu_button">Nút menu nổi</string>
+    <string name="summary_floating_menu_button">Nút tròn trên stream để mở menu</string>
 </resources>

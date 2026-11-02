@@ -94,6 +94,7 @@ public final class TileGrid extends ViewGroup {
         private final float dp;
         private String hotkey;
         private boolean hotkeyAtEnd;
+        private boolean capInLabelColour;
 
         public Tile(Context context) {
             this(context, com.google.android.material.R.attr.materialButtonOutlinedStyle);
@@ -113,6 +114,12 @@ public final class TileGrid extends ViewGroup {
         /** The cap at the end of a wide row, centred on its height, instead of in the top corner. */
         void setHotkeyAtEnd(boolean atEnd) {
             hotkeyAtEnd = atEnd;
+            invalidate();
+        }
+
+        /** The cap in the top corner in the label's colour, as on a filled button, instead of the quiet one. */
+        void setCapInLabelColour(boolean labelColour) {
+            capInLabelColour = labelColour;
             invalidate();
         }
 
@@ -167,7 +174,7 @@ public final class TileGrid extends ViewGroup {
                 box.set(left, top, left + w, top + h);
                 paint.setStyle(Paint.Style.STROKE);
                 paint.setStrokeWidth(dp);
-                paint.setColor(hotkeyAtEnd ? getCurrentTextColor() : quiet);
+                paint.setColor(hotkeyAtEnd || capInLabelColour ? getCurrentTextColor() : quiet);
                 canvas.drawRoundRect(box, 4 * dp, 4 * dp, paint);
                 paint.setStyle(Paint.Style.FILL);
                 Paint.FontMetrics metrics = paint.getFontMetrics();

@@ -243,6 +243,144 @@ public class ActionSheetTest {
         }
     }
 
+    private static ActionSheet panel(android.app.Activity activity) {
+        ActionSheet sheet = new ActionSheet(activity, "Open World", true);
+        sheet.setSubtitle("1440p · 144 FPS");
+        TileGrid grid = sheet.addTileGrid();
+        for (int i = 0; i < 24; i++) grid.addTile(R.drawable.ic_settings, "Tile " + i, null, null, null);
+        sheet.addPrimaryAction(R.drawable.ic_play, "Return to stream", "B");
+        sheet.addFooterAction(R.drawable.ic_settings, "Disconnect", false);
+        sheet.addFooterAction(R.drawable.ic_stop, "Quit game", true);
+        sheet.show();
+        return sheet;
+    }
+
+    private static ActionSheet.PanelFrame layOut(ActionSheet sheet, int width, int height) {
+        View decor = sheet.getWindow().getDecorView();
+        decor.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(height, View.MeasureSpec.EXACTLY));
+        decor.layout(0, 0, width, height);
+        android.view.ViewGroup bottom = sheet.findViewById(com.google.android.material.R.id.design_bottom_sheet);
+        return (ActionSheet.PanelFrame) bottom.getChildAt(0);
+    }
+
+    private static boolean inScroll(View view) {
+        for (android.view.ViewParent parent = view.getParent(); parent != null; parent = parent.getParent()) {
+            if (parent instanceof androidx.core.widget.NestedScrollView) return true;
+        }
+        return false;
+    }
+
+    private static void tap(View view, float x, float y) {
+        long now = android.os.SystemClock.uptimeMillis();
+        for (int action : new int[] {android.view.MotionEvent.ACTION_DOWN, android.view.MotionEvent.ACTION_UP}) {
+            android.view.MotionEvent event = android.view.MotionEvent.obtain(now, now, action, x, y, 0);
+            view.dispatchTouchEvent(event);
+            event.recycle();
+        }
+    }
+
+    /** The desktop menu's 480 dp where there is room; two thirds of a landscape window at most, never under 360 dp. */
+    @Test public void aPanelIsAsWideAsTheDesktopMenuWhereThereIsRoom() {
+        assertEquals(960, ActionSheet.PanelFrame.panelWidth(1920, 1080, 16, 2f));
+        assertEquals(720, ActionSheet.PanelFrame.panelWidth(1600, 720, 16, 1.5f));
+        assertEquals(360, ActionSheet.PanelFrame.panelWidth(500, 400, 8, 1f));
+        assertEquals("upright, the window's width less its margins", 688, ActionSheet.PanelFrame.panelWidth(720, 1600, 16, 2f));
+    }
+
+    /**
+     * The stream menu was a sheet across the whole screen. As a panel it sits at the end edge in landscape with the
+     * stream beside it, only its grid scrolls, the ways out stay in view under it, and a tap beside it closes it.
+     */
+    @Test @Config(qualifiers = "w960dp-h540dp-land")
+    public void aPanelFloatsAtTheEndWithItsWaysOutAlwaysInView() {
+        try (var controller = Robolectric.buildActivity(ToolbarIconTintTest.Screen.class).setup().visible()) {
+            ActionSheet sheet = panel(controller.get());
+            ActionSheet.PanelFrame frame = layOut(sheet, 960, 540);
+            View body = frame.getChildAt(0);
+            assertEquals(480, body.getWidth());
+            assertEquals("docked at the end edge", frame.getWidth() - frame.getPaddingRight() - 8, body.getRight());
+            assertTrue("the stream shows beside it", body.getLeft() > 400);
+            assertTrue("it stays inside the window", body.getTop() >= 0 && body.getBottom() <= 540);
+            assertEquals(View.GONE, sheet.findViewById(R.id.action_sheet_close).getVisibility());
+            assertEquals(View.VISIBLE, sheet.subtitle().getVisibility());
+
+            ActionSheet.FooterBar footer = null;
+            TileGrid grid = null;
+            java.util.ArrayDeque<View> walk = new java.util.ArrayDeque<>(java.util.List.of(body));
+            while (!walk.isEmpty()) {
+                View view = walk.pop();
+                if (view instanceof ActionSheet.FooterBar) footer = (ActionSheet.FooterBar) view;
+                if (view instanceof TileGrid) grid = (TileGrid) view;
+                if (view instanceof android.view.ViewGroup) {
+                    for (int i = 0; i < ((android.view.ViewGroup) view).getChildCount(); i++) walk.push(((android.view.ViewGroup) view).getChildAt(i));
+                }
+            }
+            assertNotNull(footer);
+            assertTrue(inScroll(grid));
+            assertFalse(inScroll(footer));
+            assertFalse("a tall window keeps Return to stream across the width", footer.inline());
+            assertEquals(3, footer.getChildCount());
+            View exit = footer.getChildAt(2);
+            int[] where = new int[2];
+            exit.getLocationInWindow(where);
+            assertTrue("the last way out is on screen however long the grid is", where[1] + exit.getHeight() <= 540);
+
+            tap(frame, body.getLeft() + 40, body.getTop() + 4);
+            assertTrue("a tap on the panel's own surface keeps it", sheet.isShowing());
+            tap(frame, 20, 270);
+            assertFalse("a tap beside it closes it", sheet.isShowing());
+        }
+    }
+
+    @Test @Config(qualifiers = "w400dp-h800dp-port")
+    public void anUprightPanelIsCentred() {
+        try (var controller = Robolectric.buildActivity(ToolbarIconTintTest.Screen.class).setup().visible()) {
+            ActionSheet sheet = panel(controller.get());
+            View body = layOut(sheet, 400, 800).getChildAt(0);
+            assertEquals(384, body.getWidth());
+            assertEquals(8, body.getLeft());
+            sheet.dismiss();
+        }
+    }
+
+    /** A phone held sideways: Return to stream and the ways out share one line as tiles, so the grid keeps its room. */
+    @Test @Config(qualifiers = "w800dp-h360dp-land")
+    public void aShortWindowPutsTheWaysOutOnOneLine() {
+        try (var controller = Robolectric.buildActivity(ToolbarIconTintTest.Screen.class).setup().visible()) {
+            ActionSheet sheet = panel(controller.get());
+            View body = layOut(sheet, 800, 360).getChildAt(0);
+            android.view.ViewGroup footer = (android.view.ViewGroup) ((android.view.ViewGroup) body).getChildAt(2);
+            assertTrue(((ActionSheet.FooterBar) footer).inline());
+            assertEquals(footer.getChildAt(0).getTop(), footer.getChildAt(2).getTop());
+            assertEquals(com.google.android.material.button.MaterialButton.ICON_GRAVITY_TOP,
+                    ((com.google.android.material.button.MaterialButton) footer.getChildAt(1)).getIconGravity());
+            for (int i = 0; i < footer.getChildCount(); i++) {
+                android.widget.TextView tile = (android.widget.TextView) footer.getChildAt(i);
+                assertNotNull("the icon sits over the label", tile.getCompoundDrawablesRelative()[1]);
+                assertTrue("tile " + i + " has room for its label under the icon", tile.getHeight()
+                        >= tile.getCompoundPaddingTop() + tile.getLayout().getHeight() + tile.getCompoundPaddingBottom());
+            }
+            assertEquals("Return to stream is filled", com.google.android.material.color.MaterialColors.getColor(
+                    footer, androidx.appcompat.R.attr.colorPrimary),
+                    ((com.google.android.material.button.MaterialButton) footer.getChildAt(0)).getBackgroundTintList()
+                            .getDefaultColor());
+            sheet.dismiss();
+        }
+    }
+
+    @Test public void otherSheetsStaySheets() {
+        try (var controller = Robolectric.buildActivity(ToolbarIconTintTest.Screen.class).setup()) {
+            ActionSheet sheet = new ActionSheet(controller.get(), "PC actions");
+            var action = sheet.addFooterAction(R.drawable.ic_settings, "Disconnect", false);
+            sheet.show();
+            assertFalse(sheet.isPanel());
+            assertEquals(View.VISIBLE, sheet.findViewById(R.id.action_sheet_close).getVisibility());
+            assertTrue("a footer action is a plain row in a sheet", inScroll(action));
+            sheet.dismiss();
+        }
+    }
+
     @Test @Config(sdk = 30)
     public void sheetsHideTheSystemBarsOnlyOverAnImmersiveStream() {
         androidx.core.view.WindowInsetsCompat shown = new androidx.core.view.WindowInsetsCompat.Builder()

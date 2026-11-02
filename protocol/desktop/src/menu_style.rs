@@ -69,10 +69,14 @@ pub fn body<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> R {
 pub fn body_above<R>(ui: &mut Ui, reserve: f32, add: impl FnOnce(&mut Ui) -> R) -> R {
     let above = ui.cursor().top() - ui.max_rect().top();
     let room = (ui.ctx().content_rect().height() - 2.0 * (space::XL + MARGIN) - above - reserve).max(TILE);
-    ui.set_max_height(above + room + reserve);
-    egui::ScrollArea::vertical().max_height(room).show(ui, |ui| {
-        ui.spacing_mut().item_spacing.y = 2.0;
-        add(ui)
+    // A child as tall as the room rather than Ui::set_max_height, which puts the cursor back at the
+    // window's top, under what it drew already.
+    ui.allocate_ui(egui::vec2(ui.available_width(), room), |ui| {
+        egui::ScrollArea::vertical().max_height(room).show(ui, |ui| {
+            ui.spacing_mut().item_spacing.y = 2.0;
+            add(ui)
+        })
+        .inner
     })
     .inner
 }
@@ -809,7 +813,7 @@ fn ").unwrap_or(main.len() - start)];
                 }
                 let available = crate::stream_menu::Available {
                     mouse: Some(false), overlay: true, shortcuts: true, microphone: Some(true), quality: true, clipboard: true,
-                    commands: true, session: true, ..Default::default()
+                    commands: true, session: true, exits: vec![crate::session_page::HostExit::QuitApp], ..Default::default()
                 };
                 let layout = crate::stream_menu::layout(&available, saved.data.len());
                 let page = match what {
@@ -818,6 +822,14 @@ fn ").unwrap_or(main.len() - start)];
                     _ => crate::stream_menu::Page::Grid,
                 };
                 window(tr("Stream controls"), "stream-controls").show(ui.ctx(), |ui| {
+                    if what == "menu" {
+                        // As main.rs draws the grid page: the game over its mode, the grid scrolling, the ways out pinned.
+                        header(ui, "Open World", "1440p · 144 FPS · HEVC HDR");
+                        let reserve = pinned_room(ui.ctx(), "shot-footer");
+                        body_above(ui, reserve, |ui| crate::stream_menu::grid(ui, &layout, &saved, None, n == 0));
+                        pinned(ui, "shot-footer", |ui| crate::stream_menu::footer(ui, &layout));
+                        return;
+                    }
                     body(ui, |ui| {
                         header(ui, page.title(), "Open World · Living Room PC");
                         match what {

@@ -76,6 +76,7 @@ public class PreferenceConfiguration {
     static final String MIC_AUTO_GAIN_PREF_STRING = "checkbox_mic_auto_gain";
     static final String MIC_GAIN_PREF_STRING = "seekbar_mic_gain";
     public static final String MIC_BUTTON_PREF_STRING = "checkbox_mic_button";
+    public static final String FLOATING_MENU_BUTTON_PREF_STRING = "checkbox_floating_menu_button";
     public static final String OSC_STYLE_PREF_STRING = "list_osc_style";
     public static final String OSC_STICK_MODE_PREF_STRING = "list_osc_stick_mode";
     public static final String OSC_STICK_DEADZONE_PREF_STRING = "seekbar_osc_stick_deadzone";
@@ -288,6 +289,8 @@ public class PreferenceConfiguration {
     public int micGainPercent = MicGain.DEFAULT_PERCENT;
     // The on-screen microphone button, shown while the host takes the microphone.
     public boolean micButton = true;
+    // The floating button over the stream that opens the stream menu; off until the user turns it on.
+    public boolean floatingMenuButton;
     // Which on-screen controller draws (OSC_STYLE_*), and how the modern one's sticks follow a thumb.
     public String oscStyle = OSC_STYLE_CLASSIC;
     public boolean oscFloatingSticks = true;
@@ -1406,6 +1409,7 @@ public class PreferenceConfiguration {
         config.micAutoGain = prefs.getBoolean(MIC_AUTO_GAIN_PREF_STRING, false);
         config.micGainPercent = MicGain.clampPercent(prefs.getInt(MIC_GAIN_PREF_STRING, MicGain.DEFAULT_PERCENT));
         config.micButton = prefs.getBoolean(MIC_BUTTON_PREF_STRING, true);
+        config.floatingMenuButton = prefs.getBoolean(FLOATING_MENU_BUTTON_PREF_STRING, false);
         config.oscStyle = oscStyle(prefs.getString(OSC_STYLE_PREF_STRING, null));
         config.oscFloatingSticks = !OSC_STICK_FIXED.equals(prefs.getString(OSC_STICK_MODE_PREF_STRING, null));
         config.oscStickDeadzone = Math.max(0, Math.min(MAX_OSC_STICK_DEADZONE,

@@ -54,4 +54,9 @@ Nicht gespeicherter Fortschritt geht verloren.</string>
     <string name="stream_menu_start_menu">Startmenü</string>
     <string name="stream_shortcut_pick_keys">Wähle 1–8 Tasten.</string>
     <string name="stream_menu_model_failed">Das Streammenü konnte nicht aufgebaut werden: %1$s</string>
+    <string name="stream_menu_button_show">Menütaste einblenden</string>
+    <string name="stream_menu_button_hide">Menütaste ausblenden</string>
+    <string name="stream_menu_settings">Streammenü</string>
+    <string name="title_floating_menu_button">Schwebende Menütaste</string>
+    <string name="summary_floating_menu_button">Ein runder Knopf über dem Stream, der das Menü öffnet</string>
 </resources>

@@ -338,6 +338,7 @@ final class GameTouchInput {
         }
         // The microphone button's default place follows the modern controller's top row.
         if (game.micButton != null) game.micButton.place();
+        if (game.menuButton != null) game.menuButton.place();
         PreferenceManager.getDefaultSharedPreferences(game).edit()
                 .putBoolean("checkbox_show_onscreen_controls", enabled).apply();
         // Hiding controls changes no layout by itself; ask for one so the overlay can move back.
@@ -357,6 +358,21 @@ final class GameTouchInput {
         PreferenceManager.getDefaultSharedPreferences(game).edit()
                 .putBoolean(com.limelight.preferences.PreferenceConfiguration.MIC_BUTTON_PREF_STRING, shown).apply();
         updateMicButton();
+        game.performanceOverlayScroll.requestLayout();
+    }
+
+    // Shows the floating menu button while its setting is on and the overlays are not hidden (picture in picture).
+    void updateMenuButton() {
+        if (game.menuButton == null) return;
+        game.menuButton.setShown(game.prefConfig.floatingMenuButton && !game.isHidingOverlays);
+        game.menuButton.place();
+    }
+
+    void setMenuButtonShown(boolean shown) {
+        game.prefConfig.floatingMenuButton = shown;
+        PreferenceManager.getDefaultSharedPreferences(game).edit()
+                .putBoolean(com.limelight.preferences.PreferenceConfiguration.FLOATING_MENU_BUTTON_PREF_STRING, shown).apply();
+        updateMenuButton();
         game.performanceOverlayScroll.requestLayout();
     }
 

@@ -7,6 +7,7 @@ import android.widget.TextView;
 import androidx.core.view.ViewCompat;
 
 import com.google.android.material.button.MaterialButton;
+import com.limelight.LimeLog;
 import com.limelight.R;
 import com.limelight.binding.input.KeyboardShortcuts;
 import com.limelight.binding.video.PerformanceOverlay;
@@ -27,16 +28,17 @@ import java.util.Map;
 import java.util.function.Supplier;
 
 /**
- * The stream menu: the app and PC under its title, a grid of tiles four to a row that the shared model
- * (StreamMenuModel, the same one desktop Nightjar draws from) lays out with the user's shortcuts and Add at its
- * end, then Return to stream and the ways out of the session. The rarely used items sit on the More page; the
+ * The stream menu, a panel over the stream: the game over the stream's mode in its header, a grid of tiles four to
+ * a row that the shared model (StreamMenuModel, the same one desktop Nightjar draws from) lays out with the user's
+ * shortcuts and Add at its end, then Return to stream and the ways out of the session, always in view under the
+ * grid. The rarely used items sit on the More page; the
  * overlay, the host's page, the shortcuts and their editor open in the same sheet, and Back there returns to
  * the first page. Y, X, LB and RB run the tiles that show them. Items a host or this stream cannot use are left out.
  */
 public final class StreamMenu {
     public enum Item {
         KEYBOARD, PC_KEYBOARD, OVERLAY, MICROPHONE, NIGHT_MODE, HEADPHONE_SURROUND,
-        TOUCH_MODE, MOUSE_CURSOR, CONTROLLER_MOUSE, ONSCREEN_CONTROLS, CONTROLS_LAYOUT, MIC_BUTTON, GAME_CONTROLS, KEYBOARD_KEYS,
+        TOUCH_MODE, MOUSE_CURSOR, CONTROLLER_MOUSE, ONSCREEN_CONTROLS, CONTROLS_LAYOUT, MIC_BUTTON, MENU_BUTTON, GAME_CONTROLS, KEYBOARD_KEYS,
         VIDEO_SCALING, ZOOM, ZOOM_RESET, OVERLAY_PAGE, PICTURE_IN_PICTURE, VIDEO_OUTPUT,
         BITRATE, RATE_CHANGE, AUTOMATIC_QUALITY, AUTOMATIC_BITRATE,
         HOST_MENU, SERVER_COMMANDS, CLIPBOARD_SEND, CLIPBOARD_RECEIVE, IMAGE_CLIPBOARD_SEND, IMAGE_CLIPBOARD_RECEIVE,
@@ -71,6 +73,11 @@ public final class StreamMenu {
         public boolean microphoneOffered, microphoneMuted;
         /** The stream has a microphone button (not on a remote monitor), and whether it shows (its setting is on). */
         public boolean micButtonAvailable, micButtonShown;
+        /** The stream has a floating menu button, and whether it shows (its setting is on). */
+        public boolean menuButtonAvailable, menuButtonShown;
+        /** The stream's size, frame rate, Moonlight video format bits and HDR, for the header's mode line; 0 while unknown. */
+        public int streamWidth, streamHeight, streamFps, videoFormat;
+        public boolean hdr;
         public boolean overlayShown;
         public String overlayMode = PerformanceOverlay.MODE_COMPACT;
         /** The corner the overlay sits in, as stored under {@code performance_overlay_position}. */
@@ -210,6 +217,10 @@ public final class StreamMenu {
             if (o.microphoneOffered && o.micButtonAvailable) {
                 entries.add(action(Section.INPUT, Item.MIC_BUTTON, o.micButtonShown ?
                         R.string.stream_mic_button_hide : R.string.stream_mic_button_show, R.drawable.ic_mic_button));
+            }
+            if (o.menuButtonAvailable) {
+                entries.add(action(Section.INPUT, Item.MENU_BUTTON, o.menuButtonShown ?
+                        R.string.stream_menu_button_hide : R.string.stream_menu_button_show, R.drawable.ic_menu_button));
             }
             if (o.gameControls) {
                 entries.add(action(Section.INPUT, Item.GAME_CONTROLS, R.string.touch_layout_title, R.drawable.ic_touch_controls));
@@ -445,7 +456,8 @@ public final class StreamMenu {
         this.radeon = radeon;
         this.shortcuts = shortcuts;
         Options current = options.get();
-        sheet = new ActionSheet(activity, activity.getString(title(current.role)));
+        // A panel over the stream, as wide as desktop Nightjar's menu, the stream visible beside it.
+        sheet = new ActionSheet(activity, activity.getString(title(current.role)), true);
         sheet.setOnClosed(this::stopRadeon);
         sheet.setKeyHandler(this::hotkey);
         render(Page.MAIN, current, null);
@@ -530,9 +542,11 @@ public final class StreamMenu {
         audioNote = null;
         draftChord = null;
         draftError = null;
+        String[] header = target == Page.MAIN ? header(o) : null;
         sheet.setHeading(target == Page.EDITOR
                 ? activity.getString(editing == null ? R.string.keyboard_shortcuts_add : R.string.keyboard_shortcuts_edit)
-                : activity.getString(heading(target, o)));
+                : header != null ? header[0] : activity.getString(heading(target, o)));
+        sheet.setSubtitle(header == null ? null : header[1]);
         sheet.setBackHandler(target == Page.MAIN ? null : this::back);
         if (target == Page.MAIN) renderGrid(o);
         else if (target == Page.SHORTCUTS) renderShortcuts();
@@ -589,13 +603,11 @@ public final class StreamMenu {
     }
 
     /**
-     * The first page: the app and PC, the grid the shared model lays out (the user's shortcuts and Add at its end),
-     * then Return to stream and the ways out of the session. When the model cannot answer, the page says why and
+     * The first page: the grid the shared model lays out (the user's shortcuts and Add at its end), then Return to
+     * stream and the ways out of the session in the panel's footer. When the model cannot answer, the page says why and
      * keeps the ways out.
      */
     private void renderGrid(Options o) {
-        String subtitle = subtitle(o);
-        if (subtitle != null) sheet.addNote(sheet.addGroup(), subtitle, false);
         if (o.role == NvApp.Role.STREAM && o.hostAudioUnread) {
             audioNote = sheet.addNote(sheet.addGroup(), activity.getString(R.string.stream_audio_unread), false);
         }
@@ -644,6 +656,26 @@ public final class StreamMenu {
         addFooter(offered, layout.footer);
     }
 
+    /**
+     * The first page's title and the line under it, as desktop Nightjar's: the game over the stream's mode
+     * ({@code 1440p · 144 FPS · HEVC}), or over the PC while the mode is unknown; without a game, the menu's title
+     * over the app and PC.
+     */
+    String[] header(Options o) {
+        String app = o.appName == null ? "" : o.appName.trim();
+        if (o.role == NvApp.Role.STREAM && !app.isEmpty()) {
+            String mode = null;
+            try {
+                mode = StreamMenuModel.modeLine(o.streamWidth, o.streamHeight, o.streamFps, o.videoFormat, o.hdr);
+            } catch (StreamMenuModel.Refused e) {
+                LimeLog.warning("Stream menu: the mode line failed: " + e.getMessage());
+            }
+            String host = o.host.name == null ? "" : o.host.name.trim();
+            return new String[] {app, mode != null ? mode : host};
+        }
+        return new String[] {activity.getString(title(o.role)), subtitle(o)};
+    }
+
     private String subtitle(Options o) {
         String app = o.appName == null ? "" : o.appName.trim();
         String host = o.host.name == null ? "" : o.host.name.trim();
@@ -659,8 +691,7 @@ public final class StreamMenu {
         if (grid == null) sheet.setFirstAction(close);
         for (Entry entry : offered) {
             if (entry.section != Section.SESSION || (footer != null && !footer.contains(id(entry.item)))) continue;
-            MaterialButton button = entry.destructive ? sheet.addDestructiveAction(entry.icon, activity.getString(entry.label))
-                    : sheet.addAction(entry.icon, activity.getString(entry.label));
+            MaterialButton button = sheet.addFooterAction(entry.icon, activity.getString(entry.label), entry.destructive);
             rows.put(entry.item, button);
             entries.add(entry);
             button.setOnClickListener(view -> choose(entry));
@@ -915,7 +946,8 @@ public final class StreamMenu {
         if ((activity.getResources().getConfiguration().uiMode & android.content.res.Configuration.UI_MODE_TYPE_MASK)
                 == android.content.res.Configuration.UI_MODE_TYPE_TELEVISION) {
             list.removeIf(entry -> entry.item == Item.TOUCH_MODE || entry.item == Item.ONSCREEN_CONTROLS ||
-                    entry.item == Item.CONTROLS_LAYOUT || entry.item == Item.MIC_BUTTON || entry.item == Item.GAME_CONTROLS ||
+                    entry.item == Item.CONTROLS_LAYOUT || entry.item == Item.MIC_BUTTON || entry.item == Item.MENU_BUTTON ||
+                    entry.item == Item.GAME_CONTROLS ||
                     entry.item == Item.ZOOM);
         }
         return list;

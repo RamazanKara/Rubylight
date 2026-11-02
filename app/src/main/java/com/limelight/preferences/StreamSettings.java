@@ -110,7 +110,7 @@ public class StreamSettings extends NightjarActivity {
         SECTIONS.put("video", new String[] {"category_basic_settings", "category_more_video"});
         SECTIONS.put("display", new String[] {"category_display_refresh", "category_upscaling", "category_host_display",
                 "category_more_display"});
-        SECTIONS.put("input", new String[] {"category_gamepad_settings", "category_usb_controllers", "category_input_settings",
+        SECTIONS.put("input", new String[] {"category_gamepad_settings", "category_stream_menu", "category_usb_controllers", "category_input_settings",
                 "category_onscreen_controls", "category_keyboard_shortcuts", "category_more_input"});
         SECTIONS.put("audio", new String[] {"category_audio_settings", "category_more_audio"});
         SECTIONS.put("streaming", new String[] {"category_streaming", "category_more_streaming"});
@@ -2255,6 +2255,10 @@ public class StreamSettings extends NightjarActivity {
                 PreferenceCategory category =
                         (PreferenceCategory) findPreference("category_onscreen_controls");
                 screen.removePreference(category);
+                // The floating menu button is for touch; a TV opens the menu from the remote or controller.
+                PreferenceCategory menu = (PreferenceCategory) findPreference("category_stream_menu");
+                Preference floating = findPreference(PreferenceConfiguration.FLOATING_MENU_BUTTON_PREF_STRING);
+                if (menu != null && floating != null) menu.removePreference(floating);
             }
 
             // Hide remote desktop mouse mode on pre-Oreo (which doesn't have pointer capture)

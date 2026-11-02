@@ -51,4 +51,9 @@ Se perderá el progreso no guardado.</string>
     <string name="stream_menu_start_menu">Menú Inicio</string>
     <string name="stream_shortcut_pick_keys">Elige de 1 a 8 teclas.</string>
     <string name="stream_menu_model_failed">No se pudo montar el menú de la transmisión: %1$s</string>
+    <string name="stream_menu_button_show">Mostrar botón de menú</string>
+    <string name="stream_menu_button_hide">Ocultar botón de menú</string>
+    <string name="stream_menu_settings">Menú de transmisión</string>
+    <string name="title_floating_menu_button">Botón de menú flotante</string>
+    <string name="summary_floating_menu_button">Un botón redondo sobre la transmisión que abre el menú</string>
 </resources>

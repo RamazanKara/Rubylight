@@ -53,6 +53,57 @@ public class StreamMenuTest {
         return host;
     }
 
+    /** As desktop Nightjar's: the game over the stream's mode from the shared model, the PC while the mode is unknown. */
+    @Test
+    public void theHeaderNamesTheGameOverTheStreamsMode() {
+        try (var controller = Robolectric.buildActivity(Activity.class).setup()) {
+            Activity activity = controller.get();
+            activity.setTheme(R.style.StreamTheme);
+            StreamMenu.Options state = options("rubylight-serverinfo.xml", NvApp.Role.STREAM);
+            state.appName = "Open World";
+            state.host.name = "Gaming PC";
+            state.streamWidth = 2560;
+            state.streamHeight = 1440;
+            state.streamFps = 144;
+            state.videoFormat = 0x0200;
+            state.hdr = true;
+            StreamMenu menu = new StreamMenu(activity, () -> state, item -> { }, null, null);
+            assertArrayEquals(new String[] {"Open World", "1440p · 144 FPS · HEVC HDR"}, menu.header(state));
+            StreamMenu.Options starting = options("rubylight-serverinfo.xml", NvApp.Role.STREAM);
+            starting.appName = "Open World";
+            starting.host.name = "Gaming PC";
+            assertArrayEquals(new String[] {"Open World", "Gaming PC"}, menu.header(starting));
+            menu.show();
+            assertEquals("Open World", menu.sheet().heading().toString());
+            assertEquals("1440p · 144 FPS · HEVC HDR", menu.sheet().subtitle().getText().toString());
+            // Another page shows its own title and no mode.
+            menu.row(MORE).performClick();
+            assertEquals(View.GONE, menu.sheet().subtitle().getVisibility());
+            menu.sheet().dismiss();
+
+            StreamMenu.Options monitor = options("rubylight-serverinfo.xml", NvApp.Role.REMOTE_MONITOR);
+            monitor.appName = "Desktop";
+            assertEquals(activity.getString(R.string.stream_monitor_title), menu.header(monitor)[0]);
+        }
+    }
+
+    @Test
+    public void theFloatingMenuButtonIsASwitchOnTheMorePage() {
+        StreamMenu.Options options = options("rubylight-serverinfo.xml", NvApp.Role.STREAM);
+        assertFalse("A stream without the button has nothing to show", items(StreamMenu.mainPage(options)).contains(MENU_BUTTON));
+        options.menuButtonAvailable = true;
+        assertEquals(R.string.stream_menu_button_show, entry(StreamMenu.mainPage(options), MENU_BUTTON).label);
+        options.menuButtonShown = true;
+        assertEquals(R.string.stream_menu_button_hide, entry(StreamMenu.mainPage(options), MENU_BUTTON).label);
+    }
+
+    private static boolean inScroll(View view) {
+        for (android.view.ViewParent parent = view.getParent(); parent != null; parent = parent.getParent()) {
+            if (parent instanceof androidx.core.widget.NestedScrollView) return true;
+        }
+        return false;
+    }
+
     private static StreamMenu.Options options(String fixture, NvApp.Role role) {
         return options(TestHosts.details(fixture), role);
     }
@@ -477,7 +528,7 @@ public class StreamMenuTest {
             StreamMenu.Options options = options("rubylight-serverinfo.xml", role);
             options.automaticQuality = true;
             options.microphoneOffered = options.micButtonAvailable = options.mouseConnected = options.onscreenControls = options.gameControls = true;
-            options.controllerMouseAvailable = true;
+            options.controllerMouseAvailable = options.menuButtonAvailable = true;
             options.scalingAvailable = options.zoomEnabled = options.pictureInPicture = options.externalDisplays = true;
             reachable.addAll(items(StreamMenu.mainPage(options)));
             reachable.addAll(items(StreamMenu.overlayPage(options)));
@@ -943,11 +994,15 @@ public class StreamMenuTest {
             assertEquals(activity.getString(R.string.keyboard_shortcuts_add), text(grid.getChildAt(more + 3)));
             assertTrue(items(menu.entries()).containsAll(Arrays.asList(KEYBOARD, OVERLAY, DISCONNECT)));
             assertFalse("Rarely used items wait on the More page", items(menu.entries()).contains(RECONNECT));
-            // Return to stream right under the grid, then Disconnect.
+            // Return to stream under the grid, then Disconnect, in the panel's footer outside the part that scrolls.
+            assertTrue(menu.sheet().isPanel());
             assertEquals(activity.getString(R.string.stream_menu_return), text(menu.row(CLOSE)));
-            android.view.ViewGroup content = (android.view.ViewGroup) grid.getParent();
-            assertTrue(content.indexOfChild(grid) < content.indexOfChild(menu.row(CLOSE)));
-            assertTrue(content.indexOfChild(menu.row(CLOSE)) < content.indexOfChild(menu.row(DISCONNECT)));
+            android.view.ViewGroup footer = (android.view.ViewGroup) menu.row(CLOSE).getParent();
+            assertTrue(footer instanceof ActionSheet.FooterBar);
+            assertSame(footer, menu.row(DISCONNECT).getParent());
+            assertTrue(footer.indexOfChild(menu.row(CLOSE)) < footer.indexOfChild(menu.row(DISCONNECT)));
+            assertTrue("the grid scrolls", inScroll(grid));
+            assertFalse("the ways out do not", inScroll(footer));
 
             // RB flips the overlay in place, the release goes with it, and the menu stays.
             press(menu, KeyEvent.KEYCODE_BUTTON_R1);

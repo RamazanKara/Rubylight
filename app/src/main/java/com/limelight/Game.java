@@ -1070,13 +1070,19 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
 
     @Override
     public void onBackPressed() {
+        onBack(backByController);
+    }
+
+    /** Back: leaves the layout editor or the PC keyboard, else opens the menu, focused when a controller or remote sent it. */
+    void onBack(boolean byController) {
         if (modernController != null && modernController.isEditing()) {
             // Back leaves the layout editor without keeping its changes, as Cancel does.
             modernController.finishEditing(false);
         } else if (connected && keyboardInput.isPcKeyboardVisible()) {
             keyboardInput.hidePcKeyboard();
         } else if (connected) {
-            showStreamMenu();
+            if (byController) showStreamMenuFromController();
+            else showStreamMenu();
         } else {
             super.onBackPressed();
         }
@@ -1252,8 +1258,18 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
 
     @Override
     public boolean onKeyUp(int keyCode, KeyEvent event) {
-        return handleKeyUp(event) || super.onKeyUp(keyCode, event);
+        if (handleKeyUp(event)) return true;
+        // A Back from a controller, D-pad or remote opens the menu focused, as Guide does; the touch Back does not.
+        backByController = keyCode == KeyEvent.KEYCODE_BACK && (event.isFromSource(InputDevice.SOURCE_GAMEPAD)
+                || event.isFromSource(InputDevice.SOURCE_DPAD) || event.isFromSource(InputDevice.SOURCE_JOYSTICK));
+        try {
+            return super.onKeyUp(keyCode, event);
+        } finally {
+            backByController = false;
+        }
     }
+
+    private boolean backByController;
 
     @Override
     public boolean handleKeyUp(KeyEvent event) {

@@ -1555,6 +1555,41 @@ async fn an_unavailable_encoder_does_not_queue_a_launch_or_start_an_app() {
     assert!(f.host.app_display.lock().unwrap().is_empty());
 }
 
+/// A launch refused for want of an encoder names the encoder check's cause, as the
+/// host log does, and the device's `/serverinfo` keeps it.
+#[tokio::test]
+async fn an_unavailable_encoder_refuses_the_launch_with_the_checks_cause() {
+    let f = Fixture::new();
+    f.client(1 << 26);
+    f.host.codecs.store(0, Ordering::Release);
+    let cause = "NVENC is selected (encoder = nvenc), but this PC has no NVIDIA GPU";
+    *f.host.encoder_probe_error.lock().unwrap() = Some(cause.into());
+    let app_id = f.host.apps.read().unwrap()[0].id();
+    let root = document(
+        request(
+            &f,
+            true,
+            "GET",
+            &format!("/launch?appid={app_id}&rikey=00000000000000000000000000000000&rikeyid=1"),
+        )
+        .await,
+    )
+    .await;
+    assert_eq!(root.attributes["status_code"], "503");
+    let message = &root.attributes["status_message"];
+    assert!(
+        message.starts_with(&format!(
+            "The encoder check failed: {cause}: No video encoder is ready"
+        )),
+        "{message}"
+    );
+    assert_eq!(
+        f.host.last_failure("parity-device").as_deref(),
+        Some(format!("The encoder check failed: {cause}").as_str())
+    );
+    assert!(f.host.sessions.lock().unwrap().pending.is_empty());
+}
+
 #[tokio::test]
 async fn discovery_does_not_wait_for_a_stuck_encoder_probe() {
     let f = Fixture::new();

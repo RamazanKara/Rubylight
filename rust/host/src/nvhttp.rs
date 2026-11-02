@@ -1428,9 +1428,7 @@ fn start(h: Shared, connection: Connection, args: Args, resume: bool) -> Respons
         if role != Role::InputOnly
             && h.codecs.load(std::sync::atomic::Ordering::Acquire) & 0x0783_0301 == 0
         {
-            return Err(
-                LaunchFailure(503, butterpollo_core::encoder_gpu::NO_ENCODER_LAUNCH).into(),
-            );
+            return Err(no_encoder(&h, &client.uuid));
         }
         let mut launch =
             build_launch_session(&connection, &args, client, app_id, role, key, key_id);
@@ -1766,9 +1764,7 @@ pub(crate) fn launch_webrtc(
         }
         h.wait_for_startup_codecs_blocking(STARTUP_CODEC_WAIT);
         if h.codecs.load(std::sync::atomic::Ordering::Acquire) & 0x0783_0301 == 0 {
-            return Err(
-                LaunchFailure(503, butterpollo_core::encoder_gpu::NO_ENCODER_LAUNCH).into(),
-            );
+            return Err(no_encoder(h, &request.client.uuid));
         }
         // The stream key belongs to GameStream's RTSP; nothing on this launch uses it.
         let mut launch = build_launch(
@@ -1801,6 +1797,21 @@ pub(crate) fn launch_webrtc(
             _ => WebRtcLaunchError::Failed(format!("{error:#}")),
         },
     })
+}
+/// The launch refused for want of an encoder, with the encoder check's own cause
+/// first (the device's `/serverinfo` keeps it too), then what to do.
+fn no_encoder(h: &Shared, uuid: &str) -> anyhow::Error {
+    let refused = anyhow::Error::new(LaunchFailure(
+        503,
+        butterpollo_core::encoder_gpu::NO_ENCODER_LAUNCH,
+    ));
+    let Some(cause) = h.encoder_probe_error.lock().unwrap().clone() else {
+        h.record_launch_failure(uuid, butterpollo_core::encoder_gpu::NO_ENCODER_LAUNCH);
+        return refused;
+    };
+    let cause = format!("The encoder check failed: {cause}");
+    h.record_launch_failure(uuid, &cause);
+    refused.context(cause)
 }
 /// A failed app lookup keeps its own status: only an unknown app is a 404.
 fn launch_app_error(error: anyhow::Error) -> anyhow::Error {

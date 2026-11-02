@@ -284,6 +284,9 @@ pub struct Host {
     pub stop: std::sync::atomic::AtomicBool,
     pub restart: std::sync::atomic::AtomicBool,
     pub codecs: std::sync::atomic::AtomicU32,
+    /// Why the last encoder check found no codec, while it finds none: a launch
+    /// it refuses says this, not only that no encoder is ready.
+    pub encoder_probe_error: Mutex<Option<String>>,
     /// The macroblocks per second the H.264, HEVC and AV1 encoders take (AMF throughput caps), 0 until probed.
     pub encoder_mb_rates: [std::sync::atomic::AtomicU64; 3],
     pub packed_modes: std::sync::atomic::AtomicU8,
@@ -435,6 +438,16 @@ impl Host {
             LastFailure {
                 since: s.started,
                 reason: Some(reason),
+            },
+        );
+    }
+    /// Keeps why a launch of device `uuid` was refused, for its `/serverinfo`.
+    pub fn record_launch_failure(&self, uuid: &str, reason: &str) {
+        self.last_failures.lock().unwrap().insert(
+            uuid.to_owned(),
+            LastFailure {
+                since: Instant::now(),
+                reason: Some(butterpollo_core::session::failure_text(reason)),
             },
         );
     }
@@ -715,6 +728,7 @@ impl Host {
             stop: std::sync::atomic::AtomicBool::new(false),
             restart: std::sync::atomic::AtomicBool::new(false),
             codecs: std::sync::atomic::AtomicU32::new(0),
+            encoder_probe_error: Mutex::new(None),
             encoder_mb_rates: Default::default(),
             packed_modes: std::sync::atomic::AtomicU8::new(0),
             packed_publish: Mutex::new(()),
@@ -829,6 +843,11 @@ impl Host {
                     continue;
                 };
                 h.codecs.store(flags, Ordering::Release);
+                *h.encoder_probe_error.lock().unwrap() = (flags & !0x40000000 == 0).then(|| {
+                    error
+                        .clone()
+                        .unwrap_or_else(|| "the encoder produced no packets".into())
+                });
                 h.probing_codecs.store(false, Ordering::Release);
                 h.startup_codecs.send_replace(true);
                 if h.stop.load(Ordering::Acquire) {

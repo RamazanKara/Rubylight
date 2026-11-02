@@ -521,6 +521,45 @@ mod tests {
         }
     }
 
+    /// Android's `stream_tile_<key>` strings in one language's folder (`values`, `values-de`).
+    fn android_tile_labels(folder: &str) -> std::collections::HashMap<String, String> {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../app/src/main/res").join(folder).join("strings_stream_menu.xml");
+        let xml = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+        xml.lines()
+            .filter_map(|line| {
+                let rest = line.trim().strip_prefix("<string name=\"stream_tile_")?;
+                let (key, rest) = rest.split_once("\">")?;
+                let text = rest.strip_suffix("</string>")?.replace("\\'", "'").replace("&amp;", "&");
+                Some((key.to_owned(), text))
+            })
+            .collect()
+    }
+
+    /// nightjar#63: a tile has the same short name on the desktop and on Android, in English and in
+    /// German: the model's label, and Android's string for its key.
+    #[test]
+    fn the_desktop_names_each_tile_as_the_model_and_android_do() {
+        use crate::strings::{en, tests::with_lang, Lang};
+        let layout = layout(&everything(), 0);
+        let mut named: Vec<(&str, &str)> = layout.grid.iter().filter_map(|cell| match cell { Cell::Tile { id, .. } => Some(*id), _ => None })
+            .map(|id| (id, with_lang(Lang::En, || label(id)))).collect();
+        named.push((model::ADD, en("Add shortcut")));
+        named.push((model::CLOSE, en("Return to stream")));
+        named.push(("disconnect", en("Disconnect")));
+        named.extend([HostExit::End, HostExit::CloseGame, HostExit::QuitApp].map(|exit| (exit_id(exit), exit.label())));
+        let (english, german) = (android_tile_labels("values"), android_tile_labels("values-de"));
+        for (id, text) in named {
+            let model = model::label(id).unwrap_or_else(|| panic!("{id} has no label in the model"));
+            assert_eq!(text, model.en, "{id}: the desktop's English differs from the model's");
+            assert_eq!(english.get(model.key).map(String::as_str), Some(model.en), "{id}: Android's stream_tile_{}", model.key);
+            let desktop = with_lang(Lang::De, || tr(text).to_owned());
+            assert_eq!(german.get(model.key), Some(&desktop), "{id}: Android's German stream_tile_{}", model.key);
+        }
+        for label in model::labels() {
+            assert_eq!(english.get(label.key).map(String::as_str), Some(label.en), "Android has no stream_tile_{}", label.key);
+        }
+    }
+
     /// nightjar#63: every way out the model may put in the footer runs on the desktop (no footer ID
     /// it cannot draw), Disconnect first and the ways that end the PC's game after it.
     #[test]

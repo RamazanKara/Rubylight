@@ -116,7 +116,7 @@ final class GameMenuActions {
         }
     };
 
-    void showStreamMenu() {
+    void showStreamMenu(boolean byController) {
         if (!game.foreground || !game.connected || game.streamMenu != null) {
             return;
         }
@@ -129,6 +129,7 @@ final class GameMenuActions {
         streamMenuSheet = new com.limelight.ui.StreamMenu(game, this::streamMenuOptions, this::onStreamMenuItem,
                 nativeMenuController(), menuShortcuts);
         showStreamDialog(streamMenuSheet.sheet());
+        if (byController) streamMenuSheet.sheet().focusFirstActionFromController();
         refreshHostAudio();
     }
 
@@ -301,7 +302,7 @@ final class GameMenuActions {
         options.streamWidth = game.prefConfig.width;
         options.streamHeight = game.prefConfig.height;
         options.streamFps = game.streamFps;
-        options.videoFormat = game.decoderRenderer.getActiveVideoFormat();
+        options.videoFormat = game.decoderRenderer == null ? 0 : game.decoderRenderer.getActiveVideoFormat();
         options.hdr = game.streamHdr;
         options.overlayShown = game.prefConfig.enablePerfOverlay;
         options.overlayMode = game.overlayMode;

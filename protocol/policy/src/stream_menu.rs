@@ -2,7 +2,8 @@
 //! tiles at its end with Add after them, and under it Close and the ways out of the session.
 //! What a client cannot do here (a remote monitor has no keyboard, a desktop no on-screen
 //! controls) it leaves out of its offers; this decides where everything offered sits, in what
-//! order, and which controller button reaches a tile while the menu is open.
+//! order, which controller button reaches a tile while the menu is open, and the short name both
+//! clients give each tile ([`label`]).
 //!
 //! Android's `StreamMenu` asks through `StreamMenuModel` (protocol/android, [`json::call`]);
 //! desktop Nightjar's stream menu (main.rs) calls [`layout`] directly.
@@ -49,24 +50,40 @@ impl Hotkey {
     }
 }
 
+/// A tile's short name, the same on both clients: `key` names Android's `stream_tile_<key>` string
+/// and `en` is the English text desktop Nightjar translates with `tr`. Short enough for a compact
+/// tile: two lines at most, in English and German.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Label {
+    pub key: &'static str,
+    pub en: &'static str,
+}
+
+const fn l(key: &'static str, en: &'static str) -> Label {
+    Label { key, en }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Tile {
-    /// Stable: each client maps it to its label, icon and action.
+    /// Stable: each client maps it to its icon and action.
     pub id: &'static str,
     pub place: Place,
     pub hotkey: Option<Hotkey>,
+    /// Every tile in the grid or under it has one; a More page's rows say more and keep the
+    /// client's own words.
+    pub label: Option<Label>,
 }
 
-const fn grid(id: &'static str, hotkey: Option<Hotkey>) -> Tile {
-    Tile { id, place: Place::Grid, hotkey }
+const fn grid(id: &'static str, hotkey: Option<Hotkey>, label: Label) -> Tile {
+    Tile { id, place: Place::Grid, hotkey, label: Some(label) }
 }
 
 const fn more(id: &'static str) -> Tile {
-    Tile { id, place: Place::More, hotkey: None }
+    Tile { id, place: Place::More, hotkey: None, label: None }
 }
 
-const fn footer(id: &'static str) -> Tile {
-    Tile { id, place: Place::Footer, hotkey: None }
+const fn footer(id: &'static str, label: Option<Label>) -> Tile {
+    Tile { id, place: Place::Footer, hotkey: None, label }
 }
 
 /// The first page's own tile for what sits one level down.
@@ -78,23 +95,23 @@ pub const CLOSE: &str = "close";
 /// the overlay and the shortcuts come first, each with a button; the ways out of the session sit
 /// in the footer, leaving first, ending the PC's session or game after it.
 pub const TILES: &[Tile] = &[
-    grid("keyboard", Some(Hotkey::Y)),
-    grid("pc_keyboard", None),
-    grid("controller_mouse", Some(Hotkey::X)),
-    grid("overlay", Some(Hotkey::Rb)),
-    grid("shortcuts", Some(Hotkey::Lb)),
-    grid("microphone", None),
-    grid("touch_mode", None),
-    grid("onscreen_controls", None),
-    grid("bitrate", None),
-    grid("rate_change", None),
-    grid("video_output", None),
-    grid("zoom", None),
-    grid("clipboard_send", None),
-    grid("clipboard_receive", None),
-    grid("server_commands", None),
-    grid("overlay_page", None),
-    grid("native_page", None),
+    grid("keyboard", Some(Hotkey::Y), l("keyboard", "Keyboard")),
+    grid("pc_keyboard", None, l("pc_keyboard", "PC keyboard")),
+    grid("controller_mouse", Some(Hotkey::X), l("mouse", "Mouse")),
+    grid("overlay", Some(Hotkey::Rb), l("overlay", "Overlay")),
+    grid("shortcuts", Some(Hotkey::Lb), l("shortcuts", "Shortcuts")),
+    grid("microphone", None, l("microphone", "Microphone")),
+    grid("touch_mode", None, l("touch_mode", "Touch mode")),
+    grid("onscreen_controls", None, l("onscreen_controls", "On-screen controls")),
+    grid("bitrate", None, l("quality", "Quality")),
+    grid("rate_change", None, l("quality", "Quality")),
+    grid("video_output", None, l("video_output", "Video output")),
+    grid("zoom", None, l("zoom", "Zoom")),
+    grid("clipboard_send", None, l("send_clipboard", "Send clipboard")),
+    grid("clipboard_receive", None, l("get_clipboard", "Get clipboard")),
+    grid("server_commands", None, l("pc_commands", "PC commands")),
+    grid("overlay_page", None, l("diagnostics", "Diagnostics")),
+    grid("native_page", None, l("session_graphics", "Session and graphics")),
     more("mouse_cursor"),
     more("keyboard_keys"),
     more("controls_layout"),
@@ -122,15 +139,43 @@ pub const TILES: &[Tile] = &[
     more("export_statistics"),
     more("help"),
     more("reconnect"),
-    footer("disconnect"),
-    footer("end_host_session"),
-    footer("close_game"),
-    footer("quit_game"),
-    footer("end_session"),
+    footer("disconnect", Some(l("disconnect", "Disconnect"))),
+    footer("end_host_session", Some(l("end_session", "End session"))),
+    footer("close_game", Some(l("close_game", "Close game"))),
+    footer("quit_game", Some(l("quit_game", "Quit game"))),
+    footer("end_session", None),
 ];
 
 pub fn tile(id: &str) -> Option<&'static Tile> {
     TILES.iter().find(|t| t.id == id)
+}
+
+/// The grid's tile that saves a new shortcut, as [`label`] names it ([`Cell::Add`] in a layout).
+pub const ADD: &str = "add";
+
+/// The short name both clients give a tile in the grid or under it: every grid tile, More, Add,
+/// Return to stream ([`CLOSE`]) and the ways out. None for a More page's rows and for a way out
+/// only one client offers in words of its own.
+pub fn label(id: &str) -> Option<Label> {
+    match id {
+        MORE => Some(l("more", "More")),
+        CLOSE => Some(l("return", "Return to stream")),
+        ADD => Some(l("add_shortcut", "Add shortcut")),
+        _ => tile(id).and_then(|t| t.label),
+    }
+}
+
+/// Every label [`label`] gives, each key once, for the clients' tests.
+pub fn labels() -> Vec<Label> {
+    let mut all: Vec<Label> = Vec::new();
+    for id in [MORE, CLOSE, ADD].into_iter().chain(TILES.iter().map(|t| t.id)) {
+        if let Some(label) = label(id) {
+            if !all.iter().any(|known| known.key == label.key) {
+                all.push(label);
+            }
+        }
+    }
+    all
 }
 
 /// A tile the client can show now, and its state when it is a switch.
@@ -317,6 +362,8 @@ pub mod json {
         ChordLabel { keys: Vec<String> },
         /// The header's line for the stream's mode ([`mode_line`]); null while it is not known.
         ModeLine { width: u32, height: u32, fps: u32, format: u32, hdr: bool },
+        /// Each tile ID's label key ([`label`]), for the grid, More, Add, Return and the ways out.
+        Labels,
     }
 
     fn keys(keys: &[&str]) -> Vec<String> {
@@ -346,6 +393,10 @@ pub mod json {
             }
             Request::ChordLabel { keys } => json!(shortcuts::chord_label(&keys)),
             Request::ModeLine { width, height, fps, format, hdr } => json!(mode_line(width, height, fps, format, hdr)),
+            Request::Labels => {
+                let ids = [MORE, CLOSE, ADD].into_iter().chain(TILES.iter().map(|t| t.id));
+                Value::Object(ids.filter_map(|id| label(id).map(|l| (id.to_string(), json!(l.key)))).collect())
+            }
         })
     }
 
@@ -457,6 +508,50 @@ mod tests {
         assert_eq!(answer["ok"], "1440p · 144 FPS · HEVC HDR");
         let answer: serde_json::Value = serde_json::from_str(&json::call(r#"{"op":"mode_line","width":0,"height":0,"fps":0,"format":0,"hdr":false}"#)).unwrap();
         assert_eq!(answer, serde_json::json!({"ok": null}));
+    }
+
+    /// nightjar#63: a tile has one short name on both clients, so every tile the grid or its footer
+    /// can show has a label, one key always means the same words, and the words stay short.
+    #[test]
+    fn every_tile_in_the_grid_or_under_it_has_one_short_label() {
+        for tile in TILES {
+            match tile.place {
+                Place::Grid => assert!(tile.label.is_some(), "{} has no label", tile.id),
+                Place::More => assert_eq!(tile.label, None, "{}: a More row keeps the client's words", tile.id),
+                Place::Footer => {}
+            }
+        }
+        for id in ["disconnect", "end_host_session", "close_game", "quit_game", MORE, CLOSE, ADD] {
+            assert!(label(id).is_some(), "{id}");
+        }
+        assert_eq!(label("bitrate"), label("rate_change"), "both change the quality");
+        assert_eq!(label("controller_mouse").map(|l| l.en), Some("Mouse"));
+        assert_eq!(label("server_commands").map(|l| l.en), Some("PC commands"));
+        assert_eq!(label("clipboard_receive").map(|l| l.en), Some("Get clipboard"));
+        assert_eq!(label("reconnect"), None);
+        assert_eq!(label("teleport"), None);
+        let all = labels();
+        for label in &all {
+            let same: Vec<_> = TILES.iter().filter_map(|t| t.label).filter(|l| l.key == label.key).collect();
+            assert!(same.iter().all(|l| l == label), "{} names two texts", label.key);
+            assert!(label.key.chars().all(|c| c.is_ascii_lowercase() || c == '_'), "{} is not a resource name", label.key);
+            assert!(label.en.chars().count() <= 20, "{:?} is too long for a tile", label.en);
+            assert!(label.en.split(' ').count() <= 3, "{:?} takes more than two lines", label.en);
+        }
+        assert_eq!(all.len(), all.iter().map(|l| l.key).collect::<std::collections::HashSet<_>>().len());
+    }
+
+    #[test]
+    fn the_labels_call_names_each_tile_s_key() {
+        let answer: serde_json::Value = serde_json::from_str(&json::call(r#"{"op":"labels"}"#)).unwrap();
+        assert_eq!(answer["ok"]["bitrate"], "quality");
+        assert_eq!(answer["ok"]["rate_change"], "quality");
+        assert_eq!(answer["ok"]["close"], "return");
+        assert_eq!(answer["ok"]["add"], "add_shortcut");
+        assert_eq!(answer["ok"]["more"], "more");
+        assert_eq!(answer["ok"]["quit_game"], "quit_game");
+        assert!(answer["ok"].get("reconnect").is_none());
+        assert!(answer["ok"].get("end_session").is_none());
     }
 
     /// nightjar#63: the header says the mode the way players do, "1440p · 144 FPS", with the codec

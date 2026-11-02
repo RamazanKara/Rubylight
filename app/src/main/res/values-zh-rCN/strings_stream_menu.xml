@@ -56,4 +56,27 @@
     <string name="stream_menu_settings">串流菜单</string>
     <string name="title_floating_menu_button">悬浮菜单按钮</string>
     <string name="summary_floating_menu_button">串流画面上打开菜单的圆形按钮</string>
+    <string name="stream_tile_keyboard">键盘</string>
+    <string name="stream_tile_pc_keyboard">PC 键盘</string>
+    <string name="stream_tile_mouse">鼠标</string>
+    <string name="stream_tile_overlay">叠加层</string>
+    <string name="stream_tile_shortcuts">快捷键</string>
+    <string name="stream_tile_microphone">麦克风</string>
+    <string name="stream_tile_touch_mode">触控模式</string>
+    <string name="stream_tile_onscreen_controls">屏幕按键</string>
+    <string name="stream_tile_quality">画质</string>
+    <string name="stream_tile_video_output">视频输出</string>
+    <string name="stream_tile_zoom">缩放</string>
+    <string name="stream_tile_send_clipboard">发送剪贴板</string>
+    <string name="stream_tile_get_clipboard">获取剪贴板</string>
+    <string name="stream_tile_pc_commands">PC 命令</string>
+    <string name="stream_tile_diagnostics">诊断</string>
+    <string name="stream_tile_session_graphics">会话与图形</string>
+    <string name="stream_tile_more">更多</string>
+    <string name="stream_tile_return">返回串流</string>
+    <string name="stream_tile_add_shortcut">添加快捷键</string>
+    <string name="stream_tile_disconnect">断开连接</string>
+    <string name="stream_tile_end_session">结束会话</string>
+    <string name="stream_tile_close_game">关闭游戏</string>
+    <string name="stream_tile_quit_game">退出游戏</string>
 </resources>

@@ -56,4 +56,27 @@ Se perderá el progreso no guardado.</string>
     <string name="stream_menu_settings">Menú de transmisión</string>
     <string name="title_floating_menu_button">Botón de menú flotante</string>
     <string name="summary_floating_menu_button">Un botón redondo sobre la transmisión que abre el menú</string>
+    <string name="stream_tile_keyboard">Teclado</string>
+    <string name="stream_tile_pc_keyboard">Teclado de PC</string>
+    <string name="stream_tile_mouse">Ratón</string>
+    <string name="stream_tile_overlay">Superposición</string>
+    <string name="stream_tile_shortcuts">Atajos</string>
+    <string name="stream_tile_microphone">Micrófono</string>
+    <string name="stream_tile_touch_mode">Modo táctil</string>
+    <string name="stream_tile_onscreen_controls">Controles en pantalla</string>
+    <string name="stream_tile_quality">Calidad</string>
+    <string name="stream_tile_video_output">Salida de vídeo</string>
+    <string name="stream_tile_zoom">Zoom</string>
+    <string name="stream_tile_send_clipboard">Enviar portapapeles</string>
+    <string name="stream_tile_get_clipboard">Obtener portapapeles</string>
+    <string name="stream_tile_pc_commands">Comandos del PC</string>
+    <string name="stream_tile_diagnostics">Diagnóstico</string>
+    <string name="stream_tile_session_graphics">Sesión y gráficos</string>
+    <string name="stream_tile_more">Más</string>
+    <string name="stream_tile_return">Volver a la transmisión</string>
+    <string name="stream_tile_add_shortcut">Añadir atajo</string>
+    <string name="stream_tile_disconnect">Desconectar</string>
+    <string name="stream_tile_end_session">Finalizar sesión</string>
+    <string name="stream_tile_close_game">Cerrar juego</string>
+    <string name="stream_tile_quit_game">Salir del juego</string>
 </resources>

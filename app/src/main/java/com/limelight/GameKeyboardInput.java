@@ -331,7 +331,7 @@ final class GameKeyboardInput {
                         break;
 
                     case KeyEvent.KEYCODE_M:
-                        game.showStreamMenu();
+                        game.showStreamMenuFromController();
                         break;
 
                     case KeyEvent.KEYCODE_K:
@@ -465,7 +465,7 @@ final class GameKeyboardInput {
         // These are local navigation on a TV remote, even while PC input is captured.
         if (event.getAction() == KeyEvent.ACTION_UP && !event.isCanceled()) {
             if (key == KeyEvent.KEYCODE_BACK) game.onBackPressed();
-            else game.showStreamMenu();
+            else game.showStreamMenuFromController();
         }
         return true;
     }
@@ -475,7 +475,7 @@ final class GameKeyboardInput {
         // A handheld's dedicated Back can share its gamepad device. Reserve that physical key
         // before controller remapping, while keeping Select/Start and keyboard Windows-key mode.
         if (physicalKeyCode(event) != KeyEvent.KEYCODE_BACK) return false;
-        if (event.getAction() == KeyEvent.ACTION_UP && !event.isCanceled()) game.showStreamMenu();
+        if (event.getAction() == KeyEvent.ACTION_UP && !event.isCanceled()) game.showStreamMenuFromController();
         return true;
     }
 

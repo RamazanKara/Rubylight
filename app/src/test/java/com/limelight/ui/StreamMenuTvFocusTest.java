@@ -53,6 +53,11 @@ public class StreamMenuTvFocusTest {
         ComputerDetails host = TestHosts.details("rubylight-serverinfo.xml");
         StreamMenu.Options state = new StreamMenu.Options(NvApp.Role.STREAM, host);
         state.appName = "Open World";
+        state.streamWidth = 2560;
+        state.streamHeight = 1440;
+        state.streamFps = 144;
+        state.videoFormat = 0x200;
+        state.hdr = true;
         state.webUiAddress = true;
         state.hostMenu = true;
         state.overlayShown = true;
@@ -93,6 +98,8 @@ public class StreamMenuTvFocusTest {
             menu.sheet().focusFirstAction();
             View focused = menu.sheet().getWindow().getDecorView().findFocus();
             assertSame("focus starts on the first tile, not on Disconnect", menu.row(KEYBOARD), focused);
+            assertEquals("the header says the stream's mode, as desktop Nightjar's", "1440p · 144 FPS · HEVC HDR",
+                    menu.sheet().subtitle().getText().toString());
             assertSame("Right is the next tile", menu.grid().getChildAt(1), focused.focusSearch(View.FOCUS_RIGHT));
 
             View next = focused;
@@ -114,19 +121,72 @@ public class StreamMenuTvFocusTest {
         }
     }
 
-    /** A handheld such as the Retroid Pocket held sideways: four tiles to a row, the shortcuts page and the editor. */
+    /**
+     * A handheld such as the Retroid Pocket held sideways: compact tiles, five or more to a row, so a dozen or more
+     * show above Return to stream and the ways out; then the shortcuts page.
+     */
     @Test @Config(qualifiers = "w640dp-h360dp-land-xxhdpi")
-    public void aHandheldShowsFourTilesToARow() throws Exception {
+    public void aHandheldShowsCompactTilesFiveOrMoreToARow() throws Exception {
         try (var controller = Robolectric.buildActivity(Activity.class).setup().visible()) {
             Activity activity = controller.get();
             StreamMenu menu = open(activity, new ArrayList<>());
             layOut(menu);
-            assertEquals(TileGrid.COLUMNS, menu.grid().columns());
+            assertTrue("columns: " + menu.grid().columns(), menu.grid().columns() >= 5);
+            float density = activity.getResources().getDisplayMetrics().density;
+            View tile = menu.row(KEYBOARD);
+            assertTrue("a tile is compact: " + tile.getHeight() / density + "dp", tile.getHeight() <= 64 * density);
+            assertEquals("Keyboard", ((android.widget.TextView) tile).getText().toString());
+            assertNoLabelCut(menu);
             capture(activity, menu, "handheld-stream-menu.png");
             menu.row(SHORTCUTS).performClick();
             layOut(menu);
             capture(activity, menu, "handheld-stream-shortcuts.png");
             menu.sheet().dismiss();
+        }
+    }
+
+    /** German words run longest: every tile, Return to stream and the ways out keep their whole label. */
+    @Test @Config(qualifiers = "de-w640dp-h360dp-land-xxhdpi")
+    public void germanLabelsFitTheirTiles() throws Exception {
+        try (var controller = Robolectric.buildActivity(Activity.class).setup().visible()) {
+            Activity activity = controller.get();
+            StreamMenu menu = open(activity, new ArrayList<>());
+            layOut(menu);
+            assertEquals("Tastatur", ((android.widget.TextView) menu.row(KEYBOARD)).getText().toString());
+            assertNoLabelCut(menu);
+            capture(activity, menu, "handheld-stream-menu-de.png");
+            menu.sheet().dismiss();
+        }
+    }
+
+    /** Each label key of the shared model names the same English words here as on desktop Nightjar. */
+    @Test
+    public void everyModelLabelKeyHasItsEnglishString() {
+        try (var controller = Robolectric.buildActivity(Activity.class).setup()) {
+            java.util.Map<String, String> texts = new RustStreamMenuModel().labelTexts();
+            assertTrue(texts.size() > 20);
+            for (java.util.Map.Entry<String, String> text : texts.entrySet()) {
+                int id = StreamMenu.tileLabel(text.getKey());
+                assertNotEquals("no string for " + text.getKey(), 0, id);
+                assertEquals(text.getKey(), text.getValue(), controller.get().getString(id));
+            }
+        }
+    }
+
+    private static void assertNoLabelCut(StreamMenu menu) {
+        List<android.widget.TextView> labels = new ArrayList<>();
+        for (int i = 0; i < menu.grid().getChildCount(); i++) labels.add((android.widget.TextView) menu.grid().getChildAt(i));
+        View footer = (View) menu.row(CLOSE).getParent();
+        for (int i = 0; i < ((android.view.ViewGroup) footer).getChildCount(); i++) {
+            labels.add((android.widget.TextView) ((android.view.ViewGroup) footer).getChildAt(i));
+        }
+        for (android.widget.TextView label : labels) {
+            android.text.Layout layout = label.getLayout();
+            assertNotNull(label.getText().toString(), layout);
+            for (int line = 0; line < layout.getLineCount(); line++) {
+                assertEquals("\"" + label.getText() + "\" is cut", 0, layout.getEllipsisCount(line));
+            }
+            assertTrue("\"" + label.getText() + "\" runs past its lines", layout.getLineCount() <= label.getMaxLines());
         }
     }
 

@@ -319,8 +319,9 @@ public class ActionSheetTest {
             assertNotNull(footer);
             assertTrue(inScroll(grid));
             assertFalse(inScroll(footer));
-            assertFalse("a tall window keeps Return to stream across the width", footer.inline());
             assertEquals(3, footer.getChildCount());
+            assertEquals("Return to stream spans the panel", footer.getWidth() - footer.getPaddingLeft() - footer.getPaddingRight(),
+                    footer.getChildAt(0).getWidth());
             View exit = footer.getChildAt(2);
             int[] where = new int[2];
             exit.getLocationInWindow(where);
@@ -344,27 +345,34 @@ public class ActionSheetTest {
         }
     }
 
-    /** A phone held sideways: Return to stream and the ways out share one line as tiles, so the grid keeps its room. */
+    /**
+     * A phone held sideways, as desktop Nightjar's panel: Return to stream a slim bar across the width, the ways out a
+     * slim row under it, each on one line, so the grid keeps most of the height.
+     */
     @Test @Config(qualifiers = "w800dp-h360dp-land")
-    public void aShortWindowPutsTheWaysOutOnOneLine() {
+    @org.robolectric.annotation.GraphicsMode(org.robolectric.annotation.GraphicsMode.Mode.NATIVE)
+    public void aShortWindowKeepsTheFooterSlim() {
         try (var controller = Robolectric.buildActivity(ToolbarIconTintTest.Screen.class).setup().visible()) {
             ActionSheet sheet = panel(controller.get());
             View body = layOut(sheet, 800, 360).getChildAt(0);
             android.view.ViewGroup footer = (android.view.ViewGroup) ((android.view.ViewGroup) body).getChildAt(2);
-            assertTrue(((ActionSheet.FooterBar) footer).inline());
-            assertEquals(footer.getChildAt(0).getTop(), footer.getChildAt(2).getTop());
-            assertEquals(com.google.android.material.button.MaterialButton.ICON_GRAVITY_TOP,
-                    ((com.google.android.material.button.MaterialButton) footer.getChildAt(1)).getIconGravity());
+            assertTrue(footer instanceof ActionSheet.FooterBar);
+            View back = footer.getChildAt(0), disconnect = footer.getChildAt(1), quit = footer.getChildAt(2);
+            assertEquals("the ways out share a line", disconnect.getTop(), quit.getTop());
+            assertTrue("under Return to stream", disconnect.getTop() >= back.getBottom());
+            assertEquals("side by side, as wide as each other", disconnect.getWidth(), quit.getWidth());
+            float density = body.getResources().getDisplayMetrics().density;
+            assertTrue("Return to stream is slim: " + back.getHeight(), back.getHeight() <= 44 * density);
+            assertTrue("the ways out are slim: " + quit.getHeight(), quit.getHeight() <= 40 * density);
+            assertTrue("the footer leaves the grid most of the height: " + footer.getHeight(), footer.getHeight() <= 110 * density);
             for (int i = 0; i < footer.getChildCount(); i++) {
-                android.widget.TextView tile = (android.widget.TextView) footer.getChildAt(i);
-                assertNotNull("the icon sits over the label", tile.getCompoundDrawablesRelative()[1]);
-                assertTrue("tile " + i + " has room for its label under the icon", tile.getHeight()
-                        >= tile.getCompoundPaddingTop() + tile.getLayout().getHeight() + tile.getCompoundPaddingBottom());
+                android.widget.TextView button = (android.widget.TextView) footer.getChildAt(i);
+                assertNotNull("the icon sits beside the label", button.getCompoundDrawablesRelative()[0]);
+                assertEquals("button " + i + " keeps its label whole", 0, button.getLayout().getEllipsisCount(0));
             }
             assertEquals("Return to stream is filled", com.google.android.material.color.MaterialColors.getColor(
                     footer, androidx.appcompat.R.attr.colorPrimary),
-                    ((com.google.android.material.button.MaterialButton) footer.getChildAt(0)).getBackgroundTintList()
-                            .getDefaultColor());
+                    ((com.google.android.material.button.MaterialButton) back).getBackgroundTintList().getDefaultColor());
             sheet.dismiss();
         }
     }

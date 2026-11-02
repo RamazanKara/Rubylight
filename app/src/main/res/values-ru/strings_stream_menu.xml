@@ -56,4 +56,27 @@
     <string name="stream_menu_settings">Меню трансляции</string>
     <string name="title_floating_menu_button">Плавающая кнопка меню</string>
     <string name="summary_floating_menu_button">Круглая кнопка поверх трансляции, открывающая меню</string>
+    <string name="stream_tile_keyboard">Клавиатура</string>
+    <string name="stream_tile_pc_keyboard">Клавиатура ПК</string>
+    <string name="stream_tile_mouse">Мышь</string>
+    <string name="stream_tile_overlay">Оверлей</string>
+    <string name="stream_tile_shortcuts">Сочетания клавиш</string>
+    <string name="stream_tile_microphone">Микрофон</string>
+    <string name="stream_tile_touch_mode">Сенсорный режим</string>
+    <string name="stream_tile_onscreen_controls">Экранные кнопки</string>
+    <string name="stream_tile_quality">Качество</string>
+    <string name="stream_tile_video_output">Вывод видео</string>
+    <string name="stream_tile_zoom">Масштаб</string>
+    <string name="stream_tile_send_clipboard">Отправить буфер</string>
+    <string name="stream_tile_get_clipboard">Получить буфер</string>
+    <string name="stream_tile_pc_commands">Команды ПК</string>
+    <string name="stream_tile_diagnostics">Диагностика</string>
+    <string name="stream_tile_session_graphics">Сеанс и графика</string>
+    <string name="stream_tile_more">Ещё</string>
+    <string name="stream_tile_return">Вернуться к трансляции</string>
+    <string name="stream_tile_add_shortcut">Добавить сочетание</string>
+    <string name="stream_tile_disconnect">Отключиться</string>
+    <string name="stream_tile_end_session">Завершить сеанс</string>
+    <string name="stream_tile_close_game">Закрыть игру</string>
+    <string name="stream_tile_quit_game">Выйти из игры</string>
 </resources>

@@ -4114,7 +4114,12 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
                 {ControllerPacket.LEFT_FLAG, KeyEvent.KEYCODE_DPAD_LEFT},
                 {ControllerPacket.RIGHT_FLAG, KeyEvent.KEYCODE_DPAD_RIGHT},
                 {ControllerPacket.A_FLAG, KeyEvent.KEYCODE_DPAD_CENTER},
-                {ControllerPacket.B_FLAG, KeyEvent.KEYCODE_BUTTON_B}};
+                {ControllerPacket.B_FLAG, KeyEvent.KEYCODE_BUTTON_B},
+                // The stream menu's controller buttons: Y keyboard, X mouse, LB shortcuts, RB overlay.
+                {ControllerPacket.Y_FLAG, KeyEvent.KEYCODE_BUTTON_Y},
+                {ControllerPacket.X_FLAG, KeyEvent.KEYCODE_BUTTON_X},
+                {ControllerPacket.LB_FLAG, KeyEvent.KEYCODE_BUTTON_L1},
+                {ControllerPacket.RB_FLAG, KeyEvent.KEYCODE_BUTTON_R1}};
         for (int[] key : keys) {
             if ((pressed & key[0]) != 0) game.steerStreamMenu(key[1]);
         }

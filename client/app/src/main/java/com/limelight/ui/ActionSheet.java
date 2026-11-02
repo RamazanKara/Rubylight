@@ -29,6 +29,8 @@ public final class ActionSheet extends BottomSheetDialog {
     private MaterialButton firstAction;
     private Runnable backHandler;
     private Runnable onClosed;
+    private java.util.function.IntPredicate keyHandler;
+    private final java.util.Set<Integer> handledKeys = new java.util.HashSet<>();
     // Enabled only while a page is shown, so Back returns to the page before instead of closing.
     private final OnBackPressedCallback pageBack = new OnBackPressedCallback(false) {
         @Override public void handleOnBackPressed() {
@@ -112,8 +114,20 @@ public final class ActionSheet extends BottomSheetDialog {
                 LinearLayout.LayoutParams.WRAP_CONTENT, 1));
         setContentView(body);
         setOnKeyListener((dialog, key, event) -> {
-            if (!event.hasNoModifiers() || (key != android.view.KeyEvent.KEYCODE_ESCAPE &&
-                    key != android.view.KeyEvent.KEYCODE_BUTTON_B)) return false;
+            if (!event.hasNoModifiers()) return false;
+            if (key != android.view.KeyEvent.KEYCODE_ESCAPE && key != android.view.KeyEvent.KEYCODE_BUTTON_B) {
+                if (keyHandler == null) return false;
+                // The release of a key the handler took goes with it, so nothing below sees half a press.
+                if (event.getAction() == android.view.KeyEvent.ACTION_DOWN) {
+                    if (event.getRepeatCount() > 0) return handledKeys.contains(key);
+                    if (keyHandler.test(key)) {
+                        handledKeys.add(key);
+                        return true;
+                    }
+                    return false;
+                }
+                return event.getAction() == android.view.KeyEvent.ACTION_UP && handledKeys.remove(key);
+            }
             if (event.getAction() == android.view.KeyEvent.ACTION_UP && !event.isCanceled()) {
                 if (pageBack.isEnabled()) pageBack.handleOnBackPressed();
                 else dismiss();
@@ -321,6 +335,51 @@ public final class ActionSheet extends BottomSheetDialog {
             }
             return true;
         }
+    }
+
+    /** A grid of tiles, four to a row, for {@link TileGrid#addTile}. */
+    public TileGrid addTileGrid() {
+        TileGrid grid = new TileGrid(getContext(), spacing);
+        grid.setPadding(spacing, spacing, spacing, spacing);
+        if (television) {
+            grid.setClipToPadding(false);
+            grid.setClipChildren(false);
+        }
+        content.addView(grid, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT));
+        return grid;
+    }
+
+    /** The sheet's main way on, full width and filled, with the controller button that runs it at its end. */
+    public MaterialButton addPrimaryAction(int icon, CharSequence label, String hotkey) {
+        Context context = getContext();
+        TileGrid.Tile button = new TileGrid.Tile(context, com.google.android.material.R.attr.materialButtonStyle);
+        button.setText(label);
+        button.setAllCaps(false);
+        button.setTextAppearance(context, R.style.TextAppearance_Nightjar_Body);
+        button.setTextColor(MaterialColors.getColor(context, com.google.android.material.R.attr.colorOnPrimary, 0));
+        button.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
+        button.setIconResource(icon);
+        button.setIconTint(android.content.res.ColorStateList.valueOf(
+                MaterialColors.getColor(context, com.google.android.material.R.attr.colorOnPrimary, 0)));
+        button.setIconPadding(spacing * 2);
+        button.setIconSize(spacing * 3);
+        button.setMinHeight(spacing * 7);
+        button.setPaddingRelative(spacing * 2, spacing, spacing * 7, spacing);
+        button.setHotkey(hotkey);
+        button.setHotkeyAtEnd(true);
+        button.setContentDescription(label + ", " + hotkey);
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT);
+        params.setMargins(spacing, spacing, spacing, spacing / 2);
+        content.addView(button, params);
+        styleRow(button);
+        return button;
+    }
+
+    /** Keys other than Back, Escape and B: {@code handler} gets each key's code once, as it goes down, and takes it by answering true. */
+    public void setKeyHandler(java.util.function.IntPredicate handler) {
+        keyHandler = handler;
     }
 
     /** An action that opens another page of this sheet, marked with a chevron at its end. */

@@ -45,4 +45,10 @@
     <string name="perf_overlay_vrr">패널: %1$.2f Hz · 렌더링: %2$.2f Hz · VRR: %3$s</string>
     <string name="perf_overlay_vrr_max_hz">최대 Hz</string>
     <string name="sheet_back">뒤로</string>
+    <string name="stream_menu_return">스트림으로 돌아가기</string>
+    <string name="stream_menu_more">더보기</string>
+    <string name="stream_menu_shortcuts">단축키</string>
+    <string name="stream_menu_start_menu">시작 메뉴</string>
+    <string name="stream_shortcut_pick_keys">키를 1~8개 선택하세요.</string>
+    <string name="stream_menu_model_failed">스트림 메뉴를 표시할 수 없습니다: %1$s</string>
 </resources>

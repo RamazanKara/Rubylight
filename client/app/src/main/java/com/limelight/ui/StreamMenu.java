@@ -8,6 +8,7 @@ import androidx.core.view.ViewCompat;
 
 import com.google.android.material.button.MaterialButton;
 import com.limelight.R;
+import com.limelight.binding.input.KeyboardShortcuts;
 import com.limelight.binding.video.PerformanceOverlay;
 import com.limelight.console.ConnectionInfo;
 import com.limelight.console.NativeMenuController;
@@ -19,14 +20,18 @@ import com.limelight.nvstream.http.NvApp;
 
 import java.util.ArrayList;
 import java.util.EnumMap;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.function.Supplier;
 
 /**
- * The stream menu: one sheet with a row of quick toggles, the session actions right under it, then
- * Input, Display, Quality and Host sections. A page (overlay and diagnostics) opens in the same sheet, and
- * Back there returns to the first page. Items a host or this stream cannot use are left out.
+ * The stream menu: the app and PC under its title, a grid of tiles four to a row that the shared model
+ * (StreamMenuModel, the same one desktop Nightjar draws from) lays out with the user's shortcuts and Add at its
+ * end, then Return to stream and the ways out of the session. The rarely used items sit on the More page; the
+ * overlay, the host's page, the shortcuts and their editor open in the same sheet, and Back there returns to
+ * the first page. Y, X, LB and RB run the tiles that show them. Items a host or this stream cannot use are left out.
  */
 public final class StreamMenu {
     public enum Item {
@@ -37,7 +42,7 @@ public final class StreamMenu {
         HOST_MENU, SERVER_COMMANDS, CLIPBOARD_SEND, CLIPBOARD_RECEIVE, IMAGE_CLIPBOARD_SEND, IMAGE_CLIPBOARD_RECEIVE,
         USB_DEVICES, FILES, HOST_WEB_UI, HOST_STATUS,
         RECONNECT, DISCONNECT, QUIT_GAME, END_SESSION, END_HOST_SESSION, CLOSE_GAME,
-        NATIVE_PAGE, NATIVE_RESUME,
+        NATIVE_PAGE, NATIVE_RESUME, SHORTCUTS, MORE, CLOSE,
         OVERLAY_OFF, OVERLAY_COMPACT, OVERLAY_STATISTICS, OVERLAY_DEBUG,
         OVERLAY_TOP_LEFT, OVERLAY_TOP_RIGHT, OVERLAY_BOTTOM_LEFT, OVERLAY_BOTTOM_RIGHT, OVERLAY_COPY, STREAM_HEALTH, LATENCY_TEST
     }
@@ -54,12 +59,14 @@ public final class StreamMenu {
         }
     }
 
-    public enum Page { MAIN, OVERLAY, NATIVE }
+    public enum Page { MAIN, MORE, SHORTCUTS, EDITOR, OVERLAY, NATIVE }
 
     /** What this stream and its host offer right now; the stream activity fills it each time the menu opens. */
     public static final class Options {
         public final NvApp.Role role;
         public final ComputerDetails host;
+        /** The streamed app's name for the line under the title; null leaves only the PC's name. */
+        public String appName;
         public boolean canSendInput = true;
         public boolean microphoneOffered, microphoneMuted;
         /** The stream has a microphone button (not on a remote monitor), and whether it shows (its setting is on). */
@@ -140,7 +147,7 @@ public final class StreamMenu {
         }
 
         public boolean opensPage() {
-            return item == Item.OVERLAY_PAGE || item == Item.NATIVE_PAGE;
+            return item == Item.OVERLAY_PAGE || item == Item.NATIVE_PAGE || item == Item.SHORTCUTS;
         }
 
         @Override
@@ -292,8 +299,8 @@ public final class StreamMenu {
     }
 
     /**
-     * Leaving comes first, so a remote reaches Disconnect one step down from the quick toggles; Reconnect follows,
-     * and the actions that end the PC's game or session close the group in the error colour.
+     * Disconnect first, right under Return to stream; Reconnect waits on the More page, and the actions that end the
+     * PC's game or session close the group in the error colour.
      */
     private static void addSession(List<Entry> entries, Options o) {
         ComputerDetails host = o.host;
@@ -386,9 +393,20 @@ public final class StreamMenu {
         void onStreamMenuItem(Item item);
     }
 
+    /** The user's own shortcuts: kept by the app (KeyboardShortcuts), shown and edited in the menu. */
+    public interface Shortcuts {
+        List<KeyboardShortcuts.Shortcut> saved();
+
+        void save(List<KeyboardShortcuts.Shortcut> shortcuts);
+
+        /** Closes the menu and presses {@code keys} on the PC once the stream has focus again. */
+        void send(int[] keys);
+    }
+
     private final Activity activity;
     private final Supplier<Options> options;
     private final Listener listener;
+    private final Shortcuts shortcuts;
     private final ActionSheet sheet;
     private final Map<Item, MaterialButton> rows = new EnumMap<>(Item.class);
     private Page page = Page.MAIN;
@@ -396,20 +414,40 @@ public final class StreamMenu {
     private final NativeMenuController radeon;
     private RadeonPanelView radeonView;
     private TextView audioNote;
+    private StreamMenuModel.Layout layout;
+    // What the page was built from, so a refresh can tell a changed state from items that came or went.
+    private List<Item> offeredItems = new ArrayList<>();
+    private TileGrid grid;
+    private TextView failure;
+    // The shortcut being edited (null for a new one), and the editor's name and keys in their saved names.
+    private KeyboardShortcuts.Shortcut editing;
+    private String draftName = "";
+    private final List<String> draftKeys = new ArrayList<>();
+    private TextView draftChord, draftError;
+    private final Map<String, MaterialButton> keyCaps = new HashMap<>();
 
     public StreamMenu(Activity activity, Supplier<Options> options, Listener listener) {
-        this(activity, options, listener, null);
+        this(activity, options, listener, null, null);
     }
 
-    /** {@code radeon} reads and writes the host's Radeon settings for the native page; null leaves the panel out. */
     public StreamMenu(Activity activity, Supplier<Options> options, Listener listener, NativeMenuController radeon) {
+        this(activity, options, listener, radeon, null);
+    }
+
+    /**
+     * {@code radeon} reads and writes the host's Radeon settings for the native page; null leaves the panel out.
+     * {@code shortcuts} puts the user's shortcuts in the grid; null leaves them and the Shortcuts tile out.
+     */
+    public StreamMenu(Activity activity, Supplier<Options> options, Listener listener, NativeMenuController radeon, Shortcuts shortcuts) {
         this.activity = activity;
         this.options = options;
         this.listener = listener;
         this.radeon = radeon;
+        this.shortcuts = shortcuts;
         Options current = options.get();
         sheet = new ActionSheet(activity, activity.getString(title(current.role)));
         sheet.setOnClosed(this::stopRadeon);
+        sheet.setKeyHandler(this::hotkey);
         render(Page.MAIN, current, null);
     }
 
@@ -434,15 +472,50 @@ public final class StreamMenu {
         return entries;
     }
 
-    /** The row for an item on the current page, or null when the page leaves it out. */
+    /** The row or tile for an item on the current page, or null when the page leaves it out. */
     public MaterialButton row(Item item) {
         return rows.get(item);
     }
 
-    /** Back: from a page to the first page; the first page closes. */
+    /** The first page's grid as the shared model laid it out; null when the model failed or another page shows. */
+    public StreamMenuModel.Layout layout() {
+        return page == Page.MAIN ? layout : null;
+    }
+
+    /** The first page's tiles, in order; null on other pages. */
+    public TileGrid grid() {
+        return grid;
+    }
+
+    /** The line saying why the menu could not be laid out, or null when it could. */
+    public TextView failure() {
+        return failure;
+    }
+
+    /** Back: from the editor to the shortcuts, from any other page to the first page; the first page closes. */
     public void back() {
-        if (page != Page.MAIN) render(Page.MAIN, options.get(), page == Page.NATIVE ? Item.NATIVE_PAGE : Item.OVERLAY_PAGE);
-        else sheet.dismiss();
+        switch (page) {
+            case MAIN: sheet.dismiss(); return;
+            case EDITOR: render(Page.SHORTCUTS, options.get(), null); return;
+            case NATIVE: render(Page.MAIN, options.get(), Item.NATIVE_PAGE); return;
+            case OVERLAY: render(Page.MAIN, options.get(), Item.OVERLAY_PAGE); return;
+            case SHORTCUTS: render(Page.MAIN, options.get(), Item.SHORTCUTS); return;
+            default: render(Page.MAIN, options.get(), Item.MORE);
+        }
+    }
+
+    private static String id(Item item) {
+        return item.name().toLowerCase(Locale.ROOT);
+    }
+
+    private static int heading(Page target, Options o) {
+        switch (target) {
+            case NATIVE: return R.string.native_menu_row;
+            case OVERLAY: return R.string.stream_overlay_page;
+            case MORE: return R.string.stream_menu_more;
+            case SHORTCUTS: return R.string.stream_menu_shortcuts;
+            default: return title(o.role);
+        }
     }
 
     private void render(Page target, Options o, Item focus) {
@@ -450,28 +523,374 @@ public final class StreamMenu {
         stopRadeon();
         sheet.clearActions();
         rows.clear();
-        sheet.setHeading(activity.getString(target == Page.MAIN ? title(o.role) :
-                target == Page.NATIVE ? R.string.native_menu_row : R.string.stream_overlay_page));
-        sheet.setBackHandler(target == Page.MAIN ? null : this::back);
-        entries = pageEntries(target, o);
+        keyCaps.clear();
+        grid = null;
+        layout = null;
+        failure = null;
         audioNote = null;
-        // Under the quick toggles, where the audio switches would be; first when there are none.
-        boolean noteAudio = target == Page.MAIN && o.role == NvApp.Role.STREAM && o.hostAudioUnread;
-        if (noteAudio && (entries.isEmpty() || entries.get(0).section != Section.QUICK)) {
-            audioNote = sheet.addNote(sheet.addGroup(), activity.getString(R.string.stream_audio_unread), false);
-            noteAudio = false;
+        draftChord = null;
+        draftError = null;
+        sheet.setHeading(target == Page.EDITOR
+                ? activity.getString(editing == null ? R.string.keyboard_shortcuts_add : R.string.keyboard_shortcuts_edit)
+                : activity.getString(heading(target, o)));
+        sheet.setBackHandler(target == Page.MAIN ? null : this::back);
+        if (target == Page.MAIN) renderGrid(o);
+        else if (target == Page.SHORTCUTS) renderShortcuts();
+        else if (target == Page.EDITOR) renderEditor();
+        else if (target == Page.MORE) renderList(moreEntries(o));
+        else renderList(target == Page.NATIVE ? nativePage(o) : overlayPage(o));
+        if (target == Page.NATIVE) addNativeFacts(o);
+        sheet.focusFirstAction();
+        MaterialButton focused = focus == null ? null : rows.get(focus);
+        if (focused != null && !focused.isInTouchMode()) focused.requestFocus();
+    }
+
+    // What the first page offers: the entries this stream can use, and the shortcuts where they can be sent.
+    private List<Entry> offered(Options o) {
+        List<Entry> list = pageEntries(Page.MAIN, o);
+        if (shortcuts != null && o.canSendInput) {
+            list.add(action(Section.QUICK, Item.SHORTCUTS, R.string.stream_menu_shortcuts, R.drawable.ic_keyboard));
         }
+        return list;
+    }
+
+    private Entry find(List<Entry> list, String id) {
+        for (Entry entry : list) {
+            if (id(entry.item).equals(id)) return entry;
+        }
+        return null;
+    }
+
+    // The More page: its switches first, then the rest in the model's order.
+    private List<Entry> moreEntries(Options o) {
+        List<Entry> offered = offered(o);
+        List<Entry> switches = new ArrayList<>();
+        List<Entry> rest = new ArrayList<>();
+        StreamMenuModel.Layout model;
+        try {
+            model = StreamMenuModel.layout(offers(offered), null);
+        } catch (StreamMenuModel.Refused e) {
+            return rest;
+        }
+        for (String id : model.more) {
+            Entry entry = find(offered, id);
+            if (entry == null) continue;
+            if (entry.section == Section.QUICK) switches.add(entry);
+            else rest.add(entry);
+        }
+        switches.addAll(rest);
+        return switches;
+    }
+
+    private static List<StreamMenuModel.Offer> offers(List<Entry> list) {
+        List<StreamMenuModel.Offer> offers = new ArrayList<>();
+        for (Entry entry : list) offers.add(new StreamMenuModel.Offer(id(entry.item), entry.checked));
+        return offers;
+    }
+
+    /**
+     * The first page: the app and PC, the grid the shared model lays out (the user's shortcuts and Add at its end),
+     * then Return to stream and the ways out of the session. When the model cannot answer, the page says why and
+     * keeps the ways out.
+     */
+    private void renderGrid(Options o) {
+        String subtitle = subtitle(o);
+        if (subtitle != null) sheet.addNote(sheet.addGroup(), subtitle, false);
+        if (o.role == NvApp.Role.STREAM && o.hostAudioUnread) {
+            audioNote = sheet.addNote(sheet.addGroup(), activity.getString(R.string.stream_audio_unread), false);
+        }
+        List<Entry> offered = offered(o);
+        offeredItems = items(offered);
+        entries = new ArrayList<>();
+        List<KeyboardShortcuts.Shortcut> saved = shortcuts != null && o.canSendInput ? shortcuts.saved() : null;
+        try {
+            layout = StreamMenuModel.layout(offers(offered), saved == null ? null : saved.size());
+        } catch (StreamMenuModel.Refused e) {
+            failure = sheet.addNote(sheet.addGroup(), activity.getString(R.string.stream_menu_model_failed, e.getMessage()), true);
+            addFooter(offered, null);
+            return;
+        }
+        grid = sheet.addTileGrid();
+        for (StreamMenuModel.Cell cell : layout.grid) {
+            MaterialButton tile;
+            switch (cell.kind) {
+                case SHORTCUT: {
+                    KeyboardShortcuts.Shortcut shortcut = saved.get(cell.shortcut);
+                    tile = grid.addTile(R.drawable.ic_keyboard, shortcut.name, chordText(shortcut.keys()), null, null);
+                    tile.setOnClickListener(view -> shortcuts.send(shortcut.keys()));
+                    break;
+                }
+                case ADD:
+                    tile = grid.addTile(R.drawable.ic_plus, activity.getString(R.string.keyboard_shortcuts_add), null, null, null);
+                    tile.setOnClickListener(view -> edit(null));
+                    break;
+                default: {
+                    if (StreamMenuModel.MORE.equals(cell.id)) {
+                        tile = grid.addTile(R.drawable.ic_more_horiz, activity.getString(R.string.stream_menu_more), null, null, null);
+                        rows.put(Item.MORE, tile);
+                        tile.setOnClickListener(view -> render(Page.MORE, options.get(), null));
+                        break;
+                    }
+                    Entry entry = find(offered, cell.id);
+                    tile = grid.addTile(entry.icon, activity.getString(entry.label), null, cell.on,
+                            cell.hotkey == null ? null : cell.hotkey.toUpperCase(Locale.ROOT));
+                    rows.put(entry.item, tile);
+                    entries.add(entry);
+                    tile.setOnClickListener(view -> choose(entry));
+                }
+            }
+            if (grid.getChildCount() == 1) sheet.setFirstAction(tile);
+        }
+        addFooter(offered, layout.footer);
+    }
+
+    private String subtitle(Options o) {
+        String app = o.appName == null ? "" : o.appName.trim();
+        String host = o.host.name == null ? "" : o.host.name.trim();
+        if (app.isEmpty() && host.isEmpty()) return null;
+        return app.isEmpty() ? host : host.isEmpty() ? app : app + " · " + host;
+    }
+
+    // Return to stream, wide and filled, then the ways out in the model's order (all of them when it failed).
+    private void addFooter(List<Entry> offered, List<String> footer) {
+        MaterialButton close = sheet.addPrimaryAction(R.drawable.ic_play, activity.getString(R.string.stream_menu_return), "B");
+        rows.put(Item.CLOSE, close);
+        close.setOnClickListener(view -> sheet.dismiss());
+        if (grid == null) sheet.setFirstAction(close);
+        for (Entry entry : offered) {
+            if (entry.section != Section.SESSION || (footer != null && !footer.contains(id(entry.item)))) continue;
+            MaterialButton button = entry.destructive ? sheet.addDestructiveAction(entry.icon, activity.getString(entry.label))
+                    : sheet.addAction(entry.icon, activity.getString(entry.label));
+            rows.put(entry.item, button);
+            entries.add(entry);
+            button.setOnClickListener(view -> choose(entry));
+        }
+    }
+
+    private static List<Item> items(List<Entry> list) {
+        List<Item> items = new ArrayList<>();
+        for (Entry entry : list) items.add(entry.item);
+        return items;
+    }
+
+    // The keys' text the model gives, as Ctrl + Shift + Esc; the saved names when it cannot.
+    private static String chordText(int[] keys) {
+        String[] names = names(keys);
+        try {
+            return StreamMenuModel.chordLabel(names);
+        } catch (StreamMenuModel.Refused e) {
+            return String.join(" + ", names);
+        }
+    }
+
+    private static String[] names(int[] keys) {
+        return KeyboardShortcuts.format(keys).split(" \\+ ");
+    }
+
+    /** A controller button on the first page runs the tile that shows it: Y, X, LB or RB. */
+    public boolean hotkey(int keyCode) {
+        if (page != Page.MAIN || layout == null || grid == null) return false;
+        String key;
+        switch (keyCode) {
+            case android.view.KeyEvent.KEYCODE_BUTTON_Y: key = "y"; break;
+            case android.view.KeyEvent.KEYCODE_BUTTON_X: key = "x"; break;
+            case android.view.KeyEvent.KEYCODE_BUTTON_L1: key = "lb"; break;
+            case android.view.KeyEvent.KEYCODE_BUTTON_R1: key = "rb"; break;
+            default: return false;
+        }
+        int index = layout.hotkey(key);
+        if (index < 0) return false;
+        grid.getChildAt(index).performClick();
+        return true;
+    }
+
+    // The shortcuts page: the built-ins not saved under a name of their own, the user's, Add, then a row to edit each.
+    private void renderShortcuts() {
+        entries = new ArrayList<>();
+        List<KeyboardShortcuts.Shortcut> saved = shortcuts.saved();
+        List<String[]> keys = new ArrayList<>();
+        for (KeyboardShortcuts.Shortcut shortcut : saved) keys.add(names(shortcut.keys()));
+        List<StreamMenuModel.BuiltIn> builtIns;
+        try {
+            builtIns = StreamMenuModel.builtIns(keys);
+        } catch (StreamMenuModel.Refused e) {
+            failure = sheet.addNote(sheet.addGroup(), activity.getString(R.string.stream_menu_model_failed, e.getMessage()), true);
+            builtIns = new ArrayList<>();
+        }
+        TileGrid tiles = sheet.addTileGrid();
+        for (StreamMenuModel.BuiltIn builtIn : builtIns) {
+            int[] chord = KeyboardShortcuts.parseChord(String.join("+", builtIn.keys));
+            MaterialButton tile = tiles.addTile(R.drawable.ic_keyboard, activity.getString(builtInLabel(builtIn.id)), builtIn.label, null, null);
+            tile.setOnClickListener(view -> shortcuts.send(chord));
+            if (tiles.getChildCount() == 1) sheet.setFirstAction(tile);
+        }
+        for (KeyboardShortcuts.Shortcut shortcut : saved) {
+            MaterialButton tile = tiles.addTile(R.drawable.ic_keyboard, shortcut.name, chordText(shortcut.keys()), null, null);
+            tile.setOnClickListener(view -> shortcuts.send(shortcut.keys()));
+            if (tiles.getChildCount() == 1) sheet.setFirstAction(tile);
+        }
+        if (saved.size() < KeyboardShortcuts.MAX_SHORTCUTS) {
+            MaterialButton add = tiles.addTile(R.drawable.ic_plus, activity.getString(R.string.keyboard_shortcuts_add), null, null, null);
+            add.setOnClickListener(view -> edit(null));
+            if (tiles.getChildCount() == 1) sheet.setFirstAction(add);
+        }
+        if (saved.isEmpty()) return;
+        sheet.addSection(R.string.desktop_controls_edit_shortcuts);
+        for (KeyboardShortcuts.Shortcut shortcut : saved) {
+            MaterialButton row = sheet.addAction(R.drawable.ic_edit, shortcut.name, chordText(shortcut.keys()));
+            row.setOnClickListener(view -> edit(shortcut));
+        }
+    }
+
+    /** A built-in's name in this language. */
+    public static int builtInLabel(String id) {
+        switch (id) {
+            case "task_manager": return R.string.keyboard_task_manager;
+            case "switch_window": return R.string.keyboard_switch_window;
+            case "close_window": return R.string.keyboard_close_window;
+            case "start_menu": return R.string.stream_menu_start_menu;
+            case "show_desktop": return R.string.desktop_controls_shortcut_desktop;
+            default: throw new IllegalArgumentException("unknown built-in shortcut " + id);
+        }
+    }
+
+    private void edit(KeyboardShortcuts.Shortcut shortcut) {
+        editing = shortcut;
+        draftName = shortcut == null ? "" : shortcut.name;
+        draftKeys.clear();
+        if (shortcut != null) java.util.Collections.addAll(draftKeys, names(shortcut.keys()));
+        render(Page.EDITOR, options.get(), null);
+    }
+
+    // The editor: a name (the keys' text when left empty), the chord so far, the key picker, then Save, Cancel and Delete.
+    private void renderEditor() {
+        entries = new ArrayList<>();
+        android.widget.LinearLayout group = sheet.addGroup();
+        com.google.android.material.textfield.TextInputLayout box = new com.google.android.material.textfield.TextInputLayout(activity);
+        box.setHint(activity.getString(R.string.keyboard_shortcuts_name));
+        com.google.android.material.textfield.TextInputEditText name = new com.google.android.material.textfield.TextInputEditText(box.getContext());
+        name.setSingleLine(true);
+        name.setText(draftName);
+        name.setFilters(new android.text.InputFilter[] {new android.text.InputFilter.LengthFilter(80)});
+        name.addTextChangedListener(new android.text.TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) { }
+            @Override public void onTextChanged(CharSequence s, int start, int before, int count) { }
+            @Override public void afterTextChanged(android.text.Editable s) { draftName = s.toString(); }
+        });
+        box.addView(name);
+        int spacing = sheet.spacing();
+        box.setPadding(spacing, spacing, spacing, 0);
+        group.addView(box);
+        draftChord = new TextView(activity);
+        draftChord.setTextAppearance(activity, R.style.TextAppearance_Nightjar_ScreenTitle);
+        draftChord.setPadding(spacing, spacing * 2, spacing, spacing);
+        group.addView(draftChord);
+        List<StreamMenuModel.Key> picker;
+        try {
+            picker = StreamMenuModel.picker();
+        } catch (StreamMenuModel.Refused e) {
+            failure = sheet.addNote(group, activity.getString(R.string.stream_menu_model_failed, e.getMessage()), true);
+            picker = new ArrayList<>();
+        }
+        TileGrid caps = new TileGrid(activity, spacing / 2, 6, 44);
+        caps.setPadding(spacing, 0, spacing, spacing);
+        group.addView(caps);
+        for (StreamMenuModel.Key key : picker) {
+            MaterialButton cap = new MaterialButton(activity, null, com.google.android.material.R.attr.materialButtonOutlinedStyle);
+            cap.setText(key.label);
+            cap.setAllCaps(false);
+            cap.setTextAppearance(activity, R.style.TextAppearance_Nightjar_Label);
+            cap.setSingleLine(true);
+            cap.setInsetTop(0);
+            cap.setInsetBottom(0);
+            cap.setMinWidth(0);
+            cap.setMinimumWidth(0);
+            cap.setPadding(0, 0, 0, 0);
+            cap.setCheckable(true);
+            int[][] states = {new int[] {android.R.attr.state_checked}, new int[] {}};
+            cap.setBackgroundTintList(new android.content.res.ColorStateList(states, new int[] {
+                    com.google.android.material.color.MaterialColors.getColor(activity, com.google.android.material.R.attr.colorPrimaryContainer, 0),
+                    android.graphics.Color.TRANSPARENT}));
+            cap.setTextColor(new android.content.res.ColorStateList(states, new int[] {
+                    com.google.android.material.color.MaterialColors.getColor(activity, com.google.android.material.R.attr.colorOnPrimaryContainer, 0),
+                    com.google.android.material.color.MaterialColors.getColor(activity, com.google.android.material.R.attr.colorOnSurface, 0)}));
+            caps.addView(cap);
+            keyCaps.put(key.name, cap);
+            cap.setOnClickListener(view -> toggleKey(key.name));
+            if (caps.getChildCount() == 1) sheet.setFirstAction(cap);
+        }
+        draftError = sheet.addNote(group, "", true);
+        draftError.setVisibility(android.view.View.GONE);
+        showDraft();
+        MaterialButton save = sheet.addAction(R.drawable.ic_check, activity.getString(R.string.keyboard_shortcuts_save));
+        save.setOnClickListener(view -> saveDraft());
+        MaterialButton cancel = sheet.addAction(R.drawable.ic_close, activity.getString(R.string.applist_menu_cancel));
+        cancel.setOnClickListener(view -> back());
+        if (editing != null) {
+            KeyboardShortcuts.Shortcut target = editing;
+            MaterialButton delete = sheet.addDestructiveAction(R.drawable.ic_delete, activity.getString(R.string.keyboard_shortcuts_delete));
+            delete.setOnClickListener(view -> {
+                List<KeyboardShortcuts.Shortcut> list = new ArrayList<>(shortcuts.saved());
+                list.removeIf(s -> s.id.equals(target.id));
+                shortcuts.save(list);
+                render(Page.SHORTCUTS, options.get(), null);
+            });
+        }
+    }
+
+    private void toggleKey(String key) {
+        if (!draftKeys.remove(key) && draftKeys.size() < KeyboardShortcuts.MAX_KEYS) draftKeys.add(key);
+        showDraft();
+    }
+
+    private void showDraft() {
+        for (Map.Entry<String, MaterialButton> cap : keyCaps.entrySet()) cap.getValue().setChecked(draftKeys.contains(cap.getKey()));
+        String text = "—";
+        if (!draftKeys.isEmpty()) {
+            try {
+                text = StreamMenuModel.chordLabel(draftKeys.toArray(new String[0]));
+            } catch (StreamMenuModel.Refused e) {
+                text = String.join(" + ", draftKeys);
+            }
+        }
+        draftChord.setText(text);
+    }
+
+    /** The editor's Save: the model checks the chord, then the list is saved with it added or replaced. */
+    void saveDraft() {
+        String[] keys = draftKeys.toArray(new String[0]);
+        try {
+            if (keys.length == 0) throw new StreamMenuModel.Refused("chord_length", "");
+            String name = draftName.trim().isEmpty() ? StreamMenuModel.chordLabel(keys) : draftName.trim();
+            String[] checked = StreamMenuModel.validate(name, keys);
+            int[] codes = KeyboardShortcuts.parseChord(String.join("+", checked));
+            List<KeyboardShortcuts.Shortcut> list = new ArrayList<>(shortcuts.saved());
+            String id = editing != null ? editing.id : java.util.UUID.randomUUID().toString();
+            KeyboardShortcuts.Shortcut shortcut = new KeyboardShortcuts.Shortcut(id, name, codes);
+            int at = -1;
+            for (int i = 0; i < list.size(); i++) if (list.get(i).id.equals(id)) at = i;
+            if (at >= 0) list.set(at, shortcut);
+            else if (list.size() < KeyboardShortcuts.MAX_SHORTCUTS) list.add(shortcut);
+            else throw new StreamMenuModel.Refused("too_many", "");
+            shortcuts.save(list);
+            render(Page.SHORTCUTS, options.get(), null);
+        } catch (StreamMenuModel.Refused | IllegalArgumentException e) {
+            boolean noKeys = e instanceof StreamMenuModel.Refused && "chord_length".equals(((StreamMenuModel.Refused) e).code);
+            draftError.setText(noKeys ? R.string.stream_shortcut_pick_keys : R.string.keyboard_shortcuts_invalid);
+            draftError.setVisibility(android.view.View.VISIBLE);
+        }
+    }
+
+    // A page of rows: switches side by side at the top, then the rest under their sections.
+    private void renderList(List<Entry> list) {
+        entries = list;
+        offeredItems = items(list);
         LinearLayout quickRow = null;
         Section section = null;
-        for (Entry entry : entries) {
+        for (Entry entry : list) {
             MaterialButton button;
             if (entry.section == Section.QUICK) {
-                if (quickRow == null) {
-                    quickRow = sheet.addToggleRow();
-                    if (noteAudio) {
-                        audioNote = sheet.addNote(sheet.addGroup(), activity.getString(R.string.stream_audio_unread), false);
-                    }
-                }
+                if (quickRow == null) quickRow = sheet.addToggleRow();
                 button = sheet.addToggle(quickRow, entry.icon, activity.getString(entry.label), Boolean.TRUE.equals(entry.checked));
                 if (entry.checked == null) button.setCheckable(false);
             } else {
@@ -488,11 +907,7 @@ public final class StreamMenu {
             rows.put(entry.item, button);
             button.setOnClickListener(view -> choose(entry));
         }
-        if (target == Page.NATIVE) addNativeFacts(o);
-        sheet.setFirstAction(rows.get(firstFocus(entries)));
-        sheet.focusFirstAction();
-        MaterialButton focused = focus == null ? null : rows.get(focus);
-        if (focused != null && !focused.isInTouchMode()) focused.requestFocus();
+        sheet.setFirstAction(rows.get(firstFocus(list)));
     }
 
     private List<Entry> pageEntries(Page target, Options o) {
@@ -507,19 +922,16 @@ public final class StreamMenu {
     }
 
     /**
-     * Shows what changed while the menu is open, such as the host's answer about its audio: the quick toggles in
-     * place, or the first page again when items came or went.
+     * Shows what changed while the menu is open, such as the host's answer about its audio: the switches in
+     * place, or the page again when items came or went.
      */
     public void refresh() {
-        if (page != Page.MAIN || !sheet.isShowing()) return;
+        if ((page != Page.MAIN && page != Page.MORE) || !sheet.isShowing()) return;
         Options o = options.get();
-        List<Item> now = new ArrayList<>();
-        for (Entry entry : pageEntries(Page.MAIN, o)) now.add(entry.item);
-        List<Item> shown = new ArrayList<>();
-        for (Entry entry : entries) shown.add(entry.item);
-        boolean noted = o.role == NvApp.Role.STREAM && o.hostAudioUnread;
-        if (now.equals(shown) && noted == (audioNote != null)) refreshToggles();
-        else render(Page.MAIN, o, null);
+        List<Item> now = items(page == Page.MAIN ? offered(o) : moreEntries(o));
+        boolean noted = page == Page.MAIN && o.role == NvApp.Role.STREAM && o.hostAudioUnread;
+        if (now.equals(offeredItems) && noted == (audioNote != null)) refreshToggles();
+        else render(page, o, null);
     }
 
     /** The line saying the host's audio settings could not be read, or null when the page has none. */
@@ -552,7 +964,8 @@ public final class StreamMenu {
 
     private void choose(Entry entry) {
         if (entry.opensPage()) {
-            render(entry.item == Item.NATIVE_PAGE ? Page.NATIVE : Page.OVERLAY, options.get(), null);
+            render(entry.item == Item.NATIVE_PAGE ? Page.NATIVE : entry.item == Item.SHORTCUTS ? Page.SHORTCUTS : Page.OVERLAY,
+                    options.get(), null);
             return;
         }
         listener.onStreamMenuItem(entry.item);
@@ -561,12 +974,12 @@ public final class StreamMenu {
         }
     }
 
-    // A quick toggle changes in place: show its new state without rebuilding the page or moving focus.
+    // A switch changes in place: show its new state without rebuilding the page or moving focus.
     private void refreshToggles() {
         Options o = options.get();
         for (Entry entry : mainPage(o)) {
             MaterialButton button = rows.get(entry.item);
-            if (entry.section != Section.QUICK || entry.checked == null || button == null) continue;
+            if (entry.checked == null || button == null || !button.isCheckable()) continue;
             button.setChecked(Boolean.TRUE.equals(entry.checked));
             button.setIconResource(entry.icon);
         }

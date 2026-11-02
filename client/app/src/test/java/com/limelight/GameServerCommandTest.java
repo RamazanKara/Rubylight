@@ -12,8 +12,12 @@ import com.limelight.nvstream.http.NvApp;
 import com.limelight.nvstream.http.TestHosts;
 import com.limelight.nvstream.jni.MoonBridge;
 import com.limelight.preferences.PreferenceConfiguration;
+import com.limelight.ui.RustStreamMenuModel;
 import com.limelight.ui.StreamMenu;
+import com.limelight.ui.StreamMenuModel;
 
+import org.junit.After;
+import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.robolectric.Robolectric;
@@ -33,6 +37,17 @@ import static org.robolectric.Shadows.shadowOf;
 @Config(sdk = 29, application = Application.class, shadows = GameServerCommandTest.Commands.class,
         instrumentedPackages = "com.limelight.nvstream.jni")
 public class GameServerCommandTest {
+    // The menu's layout comes from the Rust model, which a JVM test cannot load: answer from its sources.
+    @Before
+    public void answerFromThePolicySources() {
+        StreamMenuModel.use(new RustStreamMenuModel());
+    }
+
+    @After
+    public void forgetTheModel() {
+        StreamMenuModel.use(null);
+    }
+
     @Implements(value = MoonBridge.class, isInAndroidSdk = false)
     public static class Commands {
         static volatile byte[] payload;

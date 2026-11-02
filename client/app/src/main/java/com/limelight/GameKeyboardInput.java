@@ -960,7 +960,7 @@ final class GameKeyboardInput {
         }
     }
 
-    private void sendKeyboardShortcut(int... keys) {
+    void sendKeyboardShortcut(int... keys) {
         if (!game.foreground || !game.connected || !game.grabbedInput || game.streamMenu != null || !game.conn.canSendInput()) {
             return;
         }

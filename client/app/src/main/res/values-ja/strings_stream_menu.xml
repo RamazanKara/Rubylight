@@ -45,4 +45,10 @@
     <string name="perf_overlay_vrr">パネル: %1$.2f Hz · レンダリング: %2$.2f Hz · VRR: %3$s</string>
     <string name="perf_overlay_vrr_max_hz">最大 Hz</string>
     <string name="sheet_back">戻る</string>
+    <string name="stream_menu_return">ストリームに戻る</string>
+    <string name="stream_menu_more">その他</string>
+    <string name="stream_menu_shortcuts">ショートカット</string>
+    <string name="stream_menu_start_menu">スタートメニュー</string>
+    <string name="stream_shortcut_pick_keys">キーを1～8個選んでください。</string>
+    <string name="stream_menu_model_failed">ストリームメニューを表示できませんでした: %1$s</string>
 </resources>

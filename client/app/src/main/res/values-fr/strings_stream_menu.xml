@@ -45,4 +45,10 @@ La progression non enregistrée sera perdue.</string>
     <string name="perf_overlay_vrr">Écran : %1$.2f Hz · rendu : %2$.2f Hz · VRR : %3$s</string>
     <string name="perf_overlay_vrr_max_hz">Hz max</string>
     <string name="sheet_back">Retour</string>
+    <string name="stream_menu_return">Retour au stream</string>
+    <string name="stream_menu_more">Plus</string>
+    <string name="stream_menu_shortcuts">Raccourcis</string>
+    <string name="stream_menu_start_menu">Menu Démarrer</string>
+    <string name="stream_shortcut_pick_keys">Choisissez 1 à 8 touches.</string>
+    <string name="stream_menu_model_failed">Impossible d’afficher le menu du stream : %1$s</string>
 </resources>

@@ -45,4 +45,10 @@ Tiến trình chưa lưu sẽ bị mất.</string>
     <string name="perf_overlay_vrr">Màn hình: %1$.2f Hz · kết xuất: %2$.2f Hz · VRR: %3$s</string>
     <string name="perf_overlay_vrr_max_hz">Hz tối đa</string>
     <string name="sheet_back">Quay lại</string>
+    <string name="stream_menu_return">Quay lại stream</string>
+    <string name="stream_menu_more">Thêm</string>
+    <string name="stream_menu_shortcuts">Phím tắt</string>
+    <string name="stream_menu_start_menu">Menu Start</string>
+    <string name="stream_shortcut_pick_keys">Chọn từ 1 đến 8 phím.</string>
+    <string name="stream_menu_model_failed">Không thể dựng menu stream: %1$s</string>
 </resources>

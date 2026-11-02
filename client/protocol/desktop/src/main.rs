@@ -42,6 +42,7 @@ mod session_page;
 mod session_ui;
 mod shortcuts;
 mod stream;
+mod stream_menu;
 mod strings;
 mod theme;
 mod timing_csv;
@@ -900,7 +901,7 @@ impl App {
                             Err(e) => self.launcher.message(tr("Could not export shortcuts"), e.to_string()),
                         }
                     }
-                    Ok(Some(path)) => match shortcuts::Shortcuts::read(&path) {
+                    Ok(Some(path)) => match shortcuts::read(&path) {
                         Ok(entries) => self.launcher.dialog = Dialog::ImportShortcuts(entries),
                         Err(e) => self.launcher.message(tr("Could not import shortcuts"), e),
                     },
@@ -2025,11 +2026,12 @@ impl App {
         let gui = &mut self.gui;
         // The input filter sends controller input while the present waits (direct_motion.rs).
         let pads = streaming.direct_motion.lend(std::mem::take(&mut self.pads));
-        let shortcuts = &self.launcher.shortcuts;
+        let shortcuts = &mut self.launcher.shortcuts;
         let screenshot = std::mem::take(&mut self.screenshot_requested);
         let dir = self.screenshot_dir.clone();
+        let mut shortcuts_changed = false;
         streaming.present(renderer, |s, renderer| {
-            draw_overlay(gui, window, renderer, s, &mut pads.pads(), shortcuts);
+            shortcuts_changed = draw_overlay(gui, window, renderer, s, &mut pads.pads(), shortcuts);
             if screenshot {
                 let stamp = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
@@ -2042,6 +2044,12 @@ impl App {
             }
         });
         self.pads = pads.take_back();
+        // A shortcut saved or deleted in the stream menu lands in the same file as the settings' list.
+        if shortcuts_changed {
+            if let Err(e) = self.store.save_shortcuts(&self.launcher.shortcuts) {
+                streaming.show_toast(trf("Could not save shortcuts: {}", &[&e]));
+            }
+        }
         // No picture for 12 s after the start means the stream never came up.
         if streaming.facts.role != nightjar_core::http::AppRole::InputOnly
             && !streaming.has_picture() && streaming.since_start() > Duration::from_secs(12) && streaming.exit.is_none() {
@@ -2119,13 +2127,29 @@ impl App {
                 || (kind == SDL_EVENT_GAMEPAD_BUTTON_DOWN && unsafe {
                     event.gbutton.button == back_button.0 as u8 || event.gbutton.button == SDL_GAMEPAD_BUTTON_BACK.0 as u8
                 });
-            match menu_step(key_action, back, repeat, streaming.shortcut_sheet.is_some(), streaming.session_page.is_some()) {
+            let page = streaming.menu_page != stream_menu::Page::Grid;
+            match menu_step(key_action, back, repeat, streaming.shortcut_sheet.is_some(), streaming.session_page.is_some(), page) {
                 MenuStep::Pass => {}
                 MenuStep::Swallow => return,
                 MenuStep::ToggleSheet => return streaming.toggle_shortcut_sheet(self.window, &mut self.pads),
                 MenuStep::CloseSessionPage => return streaming.close_session_page(),
                 MenuStep::CloseSheet => return streaming.close_shortcut_sheet(self.window, &mut self.pads),
+                MenuStep::ClosePage => {
+                    streaming.menu_page = stream_menu::Page::Grid;
+                    streaming.needs_redraw = true;
+                    return;
+                }
                 MenuStep::CloseMenu => return streaming.toggle_menu(self.window, &mut self.pads),
+            }
+            // Y, X and the shoulders run their tiles while the grid shows (nightjar_policy::stream_menu).
+            if kind == SDL_EVENT_GAMEPAD_BUTTON_DOWN && !page && streaming.session_page.is_none() && streaming.shortcut_sheet.is_none() {
+                // SAFETY: union member read by event type.
+                let button = SDL_GamepadButton(i32::from(unsafe { event.gbutton.button }));
+                if let Some(key) = stream_menu::hotkey(button) {
+                    streaming.menu_hotkey = Some(key);
+                    streaming.needs_redraw = true;
+                    return;
+                }
             }
             if matches!(kind, SDL_EVENT_GAMEPAD_BUTTON_DOWN | SDL_EVENT_GAMEPAD_AXIS_MOTION) {
                 streaming.needs_redraw = true;
@@ -2156,12 +2180,15 @@ enum MenuStep {
     ToggleSheet,
     CloseSessionPage,
     CloseSheet,
+    /// Back from a page a tile opened to the grid.
+    ClosePage,
     CloseMenu,
 }
 
 /// The step for a stream chord (`action`), Escape or B (`back`), with the menu's pages. Back acts
-/// on what is drawn: the Session page first (the sheet never draws over it), then the sheet.
-fn menu_step(action: Option<Action>, back: bool, repeat: bool, sheet: bool, session_page: bool) -> MenuStep {
+/// on what is drawn: the Session page first (the sheet never draws over it), then the sheet, then
+/// a page a tile opened (`page`).
+fn menu_step(action: Option<Action>, back: bool, repeat: bool, sheet: bool, session_page: bool, page: bool) -> MenuStep {
     let controls = action == Some(Action::StreamControls);
     if action != Some(Action::StreamShortcuts) && !back && !controls {
         return MenuStep::Pass;
@@ -2175,6 +2202,8 @@ fn menu_step(action: Option<Action>, back: bool, repeat: bool, sheet: bool, sess
         MenuStep::CloseSessionPage
     } else if back && sheet {
         MenuStep::CloseSheet
+    } else if back && page {
+        MenuStep::ClosePage
     } else {
         MenuStep::CloseMenu
     }
@@ -2196,12 +2225,14 @@ fn nav_key(action: Action) -> Option<egui::Key> {
 const MENU_LIST: f32 = 190.0;
 
 /// The overlay and toasts, drawn with egui over the picture.
-fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Renderer, s: &mut Streaming, pads: &mut Gamepads, shortcuts: &shortcuts::Shortcuts) {
+/// Returns whether the user's shortcuts changed (saved or deleted in the stream menu) and want writing.
+fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Renderer, s: &mut Streaming, pads: &mut Gamepads, shortcuts: &mut shortcuts::Shortcuts) -> bool {
+    let mut shortcuts_changed = false;
     let toast = s.toast.as_ref().map(|(t, _)| t.clone());
     let input_only = s.facts.role == nightjar_core::http::AppRole::InputOnly;
     let small_stream = s.small_stream_input_only();
     if !s.overlay_visible && toast.is_none() && !input_only && !s.menu_visible {
-        return;
+        return false;
     }
     let mode = s.overlay_mode;
     let lines = s.overlay.lines(mode).to_vec();
@@ -2264,227 +2295,83 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
                 s.close_shortcut_sheet(window, pads);
             }
         } else if s.menu_visible && s.session_page.is_none() {
+            let available = stream_menu::Available {
+                mouse: s.controller_mouse_offered(pads).then(|| pads.mouse_active()),
+                overlay: s.overlay_visible,
+                shortcuts: s.facts.role != nightjar_core::http::AppRole::RemoteMonitor,
+                microphone: s.microphone_available().then_some(!s.microphone_muted),
+                quality: s.facts.runtime_bitrate || s.rate_change.is_some() || s.menu_controls().size_editor
+                    || s.facts.role != nightjar_core::http::AppRole::InputOnly,
+                clipboard: s.facts.clipboard,
+                image_clipboard: s.facts.image_clipboard,
+                commands: !s.facts.server_commands.is_empty(),
+                session: s.session_page_available(),
+                host_audio: !s.host_audio.switches().is_empty() || s.host_audio.problem().is_some(),
+                controller_audio: s.controller_audio_available(),
+                usb: s.usb.is_some() || s.usb_refused.is_some(),
+            };
+            let layout = stream_menu::layout(&available, shortcuts.data.len());
+            let mut page = std::mem::take(&mut s.menu_page);
+            let mut next = None;
             menu_style::window(tr("Stream controls"), "stream-controls")
                 .show(&ctx, |ui| menu_style::body(ui, |ui| {
                     use glyphs::Icon;
                     gui::follow_focus(ui, &mut s.menu_focus);
-                    menu_style::header(ui, tr("Stream controls"), &title);
-                    let back = menu_style::primary(ui, tr("Return to stream"), Some(crate::shortcuts::Key::Escape.cap()));
-                    if ctx.memory(|m| m.focused().is_none()) { back.request_focus(); }
-                    if back.clicked() { s.toggle_menu(window, pads); }
-                    // Leaving sits right under Return to stream, one step down for a controller or remote (nightjar#52);
-                    // the focus stays on Return to stream, so Enter or A right after opening never leaves.
-                    if menu_style::danger(ui, Icon::Power, tr("Disconnect"), Some(shortcuts::Action::Disconnect)).clicked() { s.exit = Some(Exit::User); }
-                    if menu_style::action(ui, Icon::Reconnect, tr("Reconnect"), None).clicked() { s.exit = Some(Exit::Reconnect); }
-
-                    menu_style::caption(ui, tr("Picture"));
-                    menu_style::row(ui, Icon::Overlay, tr("Performance overlay"), |ui| {
-                        let shown = if s.overlay_visible { tr(s.overlay_mode.label()) } else { tr("Off") };
-                        egui::ComboBox::from_id_salt("stream-overlay").width(MENU_LIST).selected_text(shown).show_ui(ui, |ui| {
-                            if ui.selectable_label(!s.overlay_visible, tr("Off")).clicked() { s.overlay_visible = false; }
-                            for mode in config::OverlayMode::ALL {
-                                if ui.selectable_label(s.overlay_visible && s.overlay_mode == mode, tr(mode.label())).clicked() {
-                                    (s.overlay_visible, s.overlay_mode) = (true, mode);
-                                }
-                            }
-                        });
-                    });
-                    if s.overlay_visible {
-                        menu_style::row(ui, Icon::Corner, tr("Overlay position"), |ui| {
-                            egui::ComboBox::from_id_salt("stream-overlay-corner").width(MENU_LIST).selected_text(tr(s.overlay_corner.label())).show_ui(ui, |ui| {
-                                for corner in config::OverlayCorner::ALL {
-                                    ui.selectable_value(&mut s.overlay_corner, corner, tr(corner.label()));
-                                }
-                            });
-                        });
-                    }
-                    let current = s.video_scaling();
-                    let (mut scaling, top) = current;
-                    menu_style::row(ui, Icon::Screen, tr("Video size"), |ui| {
-                        egui::ComboBox::from_id_salt("stream-scaling").width(MENU_LIST).selected_text(tr(scaling.label())).show_ui(ui, |ui| {
-                            use config::VideoScaling;
-                            for mode in [VideoScaling::Fit, VideoScaling::Fill, VideoScaling::Stretch, VideoScaling::Native] {
-                                ui.selectable_value(&mut scaling, mode, tr(mode.label()));
-                            }
-                        });
-                    });
-                    if scaling != current.0 { s.set_video_scaling(scaling, top); }
-
-                    let microphone = s.microphone_available();
-                    let mouse_offered = s.controller_mouse_offered(pads);
-                    let audio_switches = s.host_audio.switches();
-                    if microphone || mouse_offered || !audio_switches.is_empty() || s.host_audio.problem().is_some() {
-                        menu_style::caption(ui, tr("Sound and input"));
-                    }
-                    if microphone {
-                        let mut muted = s.microphone_muted;
-                        if menu_style::switch(ui, Icon::Microphone, tr("Mute microphone"), &mut muted).changed() { s.mute_microphone(muted, pads); }
-                    }
-                    if mouse_offered {
-                        let mut mouse = pads.mouse_active();
-                        if menu_style::switch(ui, Icon::Mouse, tr("Controller mouse"), &mut mouse).changed() { s.toggle_controller_mouse(pads); }
-                    }
-                    // The PC's night mode and headphone surround, as it answered when the menu opened.
-                    for switch in audio_switches {
-                        let mut on = switch.on;
-                        let label = stream::menu_extras::audio_label(switch.id);
-                        if ui.add_enabled_ui(switch.enabled, |ui| menu_style::switch(ui, Icon::Speaker, label, &mut on)).inner.changed() { s.set_host_audio(switch.id, on); }
-                        if let Some(note) = &switch.note { menu_style::note(ui, note); }
-                    }
-                    if let Some(problem) = s.host_audio.problem() { menu_style::note(ui, problem); }
-
-                    menu_style::caption(ui, tr("Clipboard"));
-                    ui.add_enabled_ui(s.facts.clipboard, |ui| {
-                        if menu_style::action(ui, Icon::ClipboardUp, tr("Send clipboard to PC"), Some(shortcuts::Action::SendClipboard)).clicked() { s.clipboard(true); }
-                        if menu_style::action(ui, Icon::ClipboardDown, tr("Copy PC clipboard here"), Some(shortcuts::Action::FetchClipboard)).clicked() { s.clipboard(false); }
-                    });
-                    if s.facts.image_clipboard {
-                        if menu_style::action(ui, Icon::Image, tr("Send image to PC"), None).clicked() { s.clipboard_image(true); }
-                        if menu_style::action(ui, Icon::Image, tr("Copy PC image here"), None).clicked() { s.clipboard_image(false); }
-                    }
-                    if s.facts.role != nightjar_core::http::AppRole::RemoteMonitor && !shortcuts.data.is_empty() {
-                        menu_style::fold(ui, "keyboard-shortcuts", Icon::Keyboard, tr("Keyboard shortcuts"), |ui| {
-                            for shortcut in &shortcuts.data {
-                                if menu_style::button(ui, &format!("{} · {}", shortcut.name, shortcut.keys.join(" + "))).clicked() {
+                    menu_style::header(ui, page.title(), &title);
+                    // Nothing focused: the menu just opened or a page changed. The first tile takes
+                    // the focus, so A right after opening never leaves the stream.
+                    let focus_first = ctx.memory(|m| m.focused().is_none());
+                    match &mut page {
+                        stream_menu::Page::Grid => {
+                            match stream_menu::grid(ui, &layout, shortcuts, s.menu_hotkey.take(), focus_first) {
+                                Some(stream_menu::Chosen::Tile(id)) => match id {
+                                    "controller_mouse" => s.toggle_controller_mouse(pads),
+                                    "overlay" => s.overlay_visible = !s.overlay_visible,
+                                    "shortcuts" => next = Some(stream_menu::Page::Shortcuts),
+                                    "microphone" => s.mute_microphone(!s.microphone_muted, pads),
+                                    "bitrate" => next = Some(stream_menu::Page::Quality),
+                                    "clipboard_send" => s.clipboard(true),
+                                    "clipboard_receive" => s.clipboard(false),
+                                    "server_commands" => next = Some(stream_menu::Page::Commands),
+                                    "native_page" => s.session_page_requested = true,
+                                    _ => next = Some(stream_menu::Page::More),
+                                },
+                                Some(stream_menu::Chosen::Shortcut(index)) => {
+                                    let shortcut = shortcuts.data[index].clone();
                                     s.toggle_menu(window, pads);
-                                    s.send_shortcut(shortcut);
+                                    s.send_shortcut(&shortcut);
                                 }
+                                Some(stream_menu::Chosen::Add) => next = Some(stream_menu::Page::Editor(stream_menu::Draft::default())),
+                                None => {}
                             }
-                        });
-                    }
-
-                    menu_style::caption(ui, tr("Connection"));
-                    let controls = s.menu_controls();
-                    if s.facts.runtime_bitrate {
-                        if s.facts.role == nightjar_core::http::AppRole::Stream && !s.client_hint_active() {
-                            let mut enabled = s.adaptive_bitrate;
-                            if ui.add_enabled_ui(!s.bitrate_busy, |ui| menu_style::switch(ui, Icon::Gauge, tr("Device controls bitrate"), &mut enabled)).inner.changed() {
-                                s.enable_adaptive_bitrate(enabled);
+                            match stream_menu::footer(ui, &layout) {
+                                Some(nightjar_policy::stream_menu::CLOSE) => s.toggle_menu(window, pads),
+                                Some(_) => s.exit = Some(Exit::User),
+                                None => {}
                             }
                         }
-                        if controls.http_bitrate && stream::menu_extras::bitrate_slider(ui, &mut s.bitrate_kbps, !s.adaptive_bitrate && !s.bitrate_busy) {
-                            s.set_bitrate();
-                        }
-                    }
-                    if let Some(rates) = s.rate_change.as_mut().filter(|_| controls.rate_change) {
-                        let busy = rates.menu_busy();
-                        let mut apply = stream::menu_extras::bitrate_slider(ui, &mut rates.menu_kbps, !busy);
-                        menu_style::fold(ui, "rate-change", Icon::Gauge, tr("Change bitrate / frame rate"), |ui| {
-                            let busy = rates.menu_busy();
-                            ui.add_enabled_ui(!busy, |ui| {
-                                ui.horizontal(|ui| {
-                                    theme::step_value(ui, &mut rates.menu_kbps, 500..=800_000, 1000.0, |d| d.speed(100).suffix(" kbps"));
-                                    theme::step_value(ui, &mut rates.menu_fps, 10.0..=500.0, 1.0, |d| d.suffix(" fps").max_decimals(3));
-                                });
-                                apply |= menu_style::button(ui, tr("Apply bitrate and frame rate")).clicked();
-                            });
-                            if busy { menu_style::text_block(ui, tr("Waiting for the PC…")); }
-                        });
-                        if apply { s.change_rates(); }
-                    }
-                    if s.facts.role != nightjar_core::http::AppRole::InputOnly {
-                        menu_style::fold(ui, "stream-health", Icon::Pulse, tr("Why did my stream stutter?"), |ui| {
-                            let (text, offer) = s.health();
-                            menu_style::text_block(ui, &text);
-                            ui.add_space(theme::space::S);
-                            ui.horizontal(|ui| {
-                                if let Some(label) = stream::doctor::offer_label(offer) {
-                                    if ui.add_enabled_ui(!s.bitrate_busy, |ui| menu_style::button(ui, label)).inner.clicked() { s.health_trial(offer); }
-                                }
-                                if menu_style::button(ui, tr("Copy report")).clicked() { s.copy_health(); }
-                            });
-                        });
-                    }
-                    if controls.size_editor {
-                        menu_style::fold(ui, "stream-size", Icon::Screen, tr("Stream size"), |ui| {
-                            let mut quality = s.quality_mode;
-                            egui::ComboBox::from_id_salt("stream-quality").selected_text(tr(quality.label())).show_ui(ui, |ui| {
-                                for mode in [config::QualityMode::Off, config::QualityMode::Motion, config::QualityMode::Detail, config::QualityMode::Battery] {
-                                    ui.selectable_value(&mut quality, mode, tr(mode.label()));
-                                }
-                            });
-                            if quality != s.quality_mode { s.set_quality(quality); }
-                            ui.add_enabled_ui(s.quality_mode == config::QualityMode::Off, |ui| {
-                                ui.horizontal(|ui| {
-                                    theme::step_value(ui, &mut s.requested_mode.width, 256..=8192, 16.0, |d| d.speed(2));
-                                    ui.label("×");
-                                    theme::step_value(ui, &mut s.requested_mode.height, 256..=8192, 16.0, |d| d.speed(2));
-                                    // With 0x553C the rate is set above and the size keeps the current one.
-                                    if controls.size_editor_fps {
-                                        let mut fps = s.requested_mode.fps_millihz as f64 / 1000.0;
-                                        if theme::step_value(ui, &mut fps, 10.0..=500.0, 1.0, |d| d.suffix(" fps").max_decimals(3)).changed() {
-                                            s.requested_mode.fps_millihz = (fps * 1000.0).round() as u32;
-                                        }
-                                    }
-                                });
-                                let apply = if controls.size_editor_fps { tr("Apply stream size and rate") } else { tr("Apply stream size") };
-                                if menu_style::button(ui, apply).clicked() { s.set_mode(s.requested_mode); }
-                            });
-                        });
-                    }
-                    if menu_style::action(ui, Icon::Download, tr("Export statistics (last hour)"), None).clicked() { s.export_statistics = true; }
-                    if s.session_page_available() && menu_style::action(ui, Icon::Sliders, tr("Session and graphics"), None).clicked() {
-                        s.session_page_requested = true;
-                    }
-                    if s.controller_audio_available() {
-                        menu_style::fold(ui, "controller-audio", Icon::Controller, tr("DualSense USB audio and waveform haptics"), |ui| {
-                        let outputs = controller_audio::outputs();
-                        let inputs = controller_audio::inputs();
-                        let mut selections = Vec::new();
-                        let mut input_selections = Vec::new();
-                        for pad in &mut pads.pads {
-                            if !pad.supports_audio() { continue; }
-                            let current = pad.audio.as_ref().map(|a| a.device);
-                            let mut selected = current;
-                            let label = current.and_then(|id| outputs.iter().find(|(device, _)| *device == id)).map_or(tr("Off"), |(_, name)| name.as_str());
-                            egui::ComboBox::from_id_salt(("controller-audio", pad.index)).selected_text(trf("Controller {}: {}", &[&(pad.index + 1), &label])).show_ui(ui, |ui| {
-                                ui.selectable_value(&mut selected, None, tr("Off"));
-                                for (id, name) in &outputs { ui.selectable_value(&mut selected, Some(*id), name); }
-                            });
-                            if selected != current { selections.push((pad.index, selected)); }
-                            if let Some(audio) = &mut pad.audio {
-                                let mut input = audio.input;
-                                let label = input.and_then(|id| inputs.iter().find(|(device, _)| *device == id)).map_or(tr("Off"), |(_, name)| name.as_str());
-                                ui.add_enabled_ui(s.microphone_available(), |ui| {
-                                    egui::ComboBox::from_id_salt(("controller-microphone", pad.index)).selected_text(trf("Microphone: {}", &[&label])).show_ui(ui, |ui| {
-                                        ui.selectable_value(&mut input, None, tr("Off"));
-                                        for (id, name) in &inputs { ui.selectable_value(&mut input, Some(*id), name); }
-                                    });
-                                });
-                                if input != audio.input { input_selections.push((pad.index, input)); }
-                                egui::ComboBox::from_id_salt(("controller-headphones", pad.index))
-                                    .selected_text(match audio.headphone_override { None => tr("Automatic headset detection"), Some(true) => tr("Headset"), Some(false) => tr("Controller speaker") })
-                                    .show_ui(ui, |ui| {
-                                        ui.selectable_value(&mut audio.headphone_override, None, tr("Automatic headset detection"));
-                                        ui.selectable_value(&mut audio.headphone_override, Some(true), tr("Headset"));
-                                        ui.selectable_value(&mut audio.headphone_override, Some(false), tr("Controller speaker"));
-                                    });
-                                if audio.headphone_override.is_none() && audio.detected_headphones.is_none() {
-                                    ui.weak(tr("Headset detection unavailable. Select Headset when using the controller jack."));
-                                }
+                        stream_menu::Page::Shortcuts => match stream_menu::shortcuts_page(ui, shortcuts, focus_first) {
+                            Some(stream_menu::ShortcutChoice::Send(shortcut)) => {
+                                s.toggle_menu(window, pads);
+                                s.send_shortcut(&shortcut);
                             }
-                        }
-                        for (index, device) in selections {
-                            match pads.set_audio(index, device) {
-                                Ok(()) => s.session.input(|q| pads.announce_new(q)),
-                                Err(error) => s.show_toast(trf("Controller audio unavailable: {}", &[&error])),
+                            Some(stream_menu::ShortcutChoice::Edit(index)) => {
+                                next = Some(stream_menu::Page::Editor(stream_menu::Draft::edit(&shortcuts.data[index])));
                             }
-                        }
-                        for (index, device) in input_selections {
-                            if let Err(error) = pads.set_audio_input(index, device) { s.show_toast(error); }
-                        }
-                        });
-                    }
-                    if let Some(panel) = s.usb.as_mut() {
-                        menu_style::fold(ui, "usb", Icon::Usb, tr("USB devices"), |ui| usb::show(ui, panel));
-                    } else if let Some(why) = s.usb_refused {
-                        // Why there are no devices shows without opening anything.
-                        usb::show_refusal(ui, why);
-                    }
-                    if !s.facts.server_commands.is_empty() {
-                        menu_style::fold(ui, "pc-commands", Icon::Terminal, tr("PC commands"), |ui| {
+                            Some(stream_menu::ShortcutChoice::Add) => next = Some(stream_menu::Page::Editor(stream_menu::Draft::default())),
+                            None => {}
+                        },
+                        stream_menu::Page::Editor(draft) => match stream_menu::editor(ui, draft, shortcuts, focus_first) {
+                            stream_menu::Edited::Stay => {}
+                            stream_menu::Edited::Changed => {
+                                shortcuts_changed = true;
+                                next = Some(stream_menu::Page::Shortcuts);
+                            }
+                            stream_menu::Edited::Cancel => next = Some(stream_menu::Page::Shortcuts),
+                        },
+                        stream_menu::Page::Commands => {
                             for (index, name) in s.facts.server_commands.iter().enumerate() {
-                                if !name.is_empty() && menu_style::button(ui, name).clicked() {
+                                if !name.is_empty() && menu_style::action(ui, Icon::Terminal, name, None).clicked() {
                                     s.pending_command = Some(index);
                                 }
                             }
@@ -2498,13 +2385,212 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
                                     if menu_style::button(ui, tr("Cancel")).clicked() { s.pending_command = None; }
                                 });
                             }
-                        });
+                        }
+                        stream_menu::Page::Quality => {
+                            let controls = s.menu_controls();
+                            if s.facts.runtime_bitrate {
+                                if s.facts.role == nightjar_core::http::AppRole::Stream && !s.client_hint_active() {
+                                    let mut enabled = s.adaptive_bitrate;
+                                    if ui.add_enabled_ui(!s.bitrate_busy, |ui| menu_style::switch(ui, Icon::Gauge, tr("Device controls bitrate"), &mut enabled)).inner.changed() {
+                                        s.enable_adaptive_bitrate(enabled);
+                                    }
+                                }
+                                if controls.http_bitrate && stream::menu_extras::bitrate_slider(ui, &mut s.bitrate_kbps, !s.adaptive_bitrate && !s.bitrate_busy) {
+                                    s.set_bitrate();
+                                }
+                            }
+                            if let Some(rates) = s.rate_change.as_mut().filter(|_| controls.rate_change) {
+                                let busy = rates.menu_busy();
+                                let mut apply = stream::menu_extras::bitrate_slider(ui, &mut rates.menu_kbps, !busy);
+                                menu_style::fold(ui, "rate-change", Icon::Gauge, tr("Change bitrate / frame rate"), |ui| {
+                                    let busy = rates.menu_busy();
+                                    ui.add_enabled_ui(!busy, |ui| {
+                                        ui.horizontal(|ui| {
+                                            theme::step_value(ui, &mut rates.menu_kbps, 500..=800_000, 1000.0, |d| d.speed(100).suffix(" kbps"));
+                                            theme::step_value(ui, &mut rates.menu_fps, 10.0..=500.0, 1.0, |d| d.suffix(" fps").max_decimals(3));
+                                        });
+                                        apply |= menu_style::button(ui, tr("Apply bitrate and frame rate")).clicked();
+                                    });
+                                    if busy { menu_style::text_block(ui, tr("Waiting for the PC…")); }
+                                });
+                                if apply { s.change_rates(); }
+                            }
+                            if s.facts.role != nightjar_core::http::AppRole::InputOnly {
+                                menu_style::fold(ui, "stream-health", Icon::Pulse, tr("Why did my stream stutter?"), |ui| {
+                                    let (text, offer) = s.health();
+                                    menu_style::text_block(ui, &text);
+                                    ui.add_space(theme::space::S);
+                                    ui.horizontal(|ui| {
+                                        if let Some(label) = stream::doctor::offer_label(offer) {
+                                            if ui.add_enabled_ui(!s.bitrate_busy, |ui| menu_style::button(ui, label)).inner.clicked() { s.health_trial(offer); }
+                                        }
+                                        if menu_style::button(ui, tr("Copy report")).clicked() { s.copy_health(); }
+                                    });
+                                });
+                            }
+                            if controls.size_editor {
+                                menu_style::fold(ui, "stream-size", Icon::Screen, tr("Stream size"), |ui| {
+                                    let mut quality = s.quality_mode;
+                                    egui::ComboBox::from_id_salt("stream-quality").selected_text(tr(quality.label())).show_ui(ui, |ui| {
+                                        for mode in [config::QualityMode::Off, config::QualityMode::Motion, config::QualityMode::Detail, config::QualityMode::Battery] {
+                                            ui.selectable_value(&mut quality, mode, tr(mode.label()));
+                                        }
+                                    });
+                                    if quality != s.quality_mode { s.set_quality(quality); }
+                                    ui.add_enabled_ui(s.quality_mode == config::QualityMode::Off, |ui| {
+                                        ui.horizontal(|ui| {
+                                            theme::step_value(ui, &mut s.requested_mode.width, 256..=8192, 16.0, |d| d.speed(2));
+                                            ui.label("×");
+                                            theme::step_value(ui, &mut s.requested_mode.height, 256..=8192, 16.0, |d| d.speed(2));
+                                            // With 0x553C the rate is set above and the size keeps the current one.
+                                            if controls.size_editor_fps {
+                                                let mut fps = s.requested_mode.fps_millihz as f64 / 1000.0;
+                                                if theme::step_value(ui, &mut fps, 10.0..=500.0, 1.0, |d| d.suffix(" fps").max_decimals(3)).changed() {
+                                                    s.requested_mode.fps_millihz = (fps * 1000.0).round() as u32;
+                                                }
+                                            }
+                                        });
+                                        let apply = if controls.size_editor_fps { tr("Apply stream size and rate") } else { tr("Apply stream size") };
+                                        if menu_style::button(ui, apply).clicked() { s.set_mode(s.requested_mode); }
+                                    });
+                                });
+                            }
+                        }
+                        stream_menu::Page::More => {
+                            // The model's order (nightjar_policy::stream_menu::TILES), one row or group per ID.
+                            for id in &layout.more {
+                                match *id {
+                                    "picture" => {
+                                        menu_style::row(ui, Icon::Overlay, tr("Performance overlay"), |ui| {
+                                            let shown = if s.overlay_visible { tr(s.overlay_mode.label()) } else { tr("Off") };
+                                            egui::ComboBox::from_id_salt("stream-overlay").width(MENU_LIST).selected_text(shown).show_ui(ui, |ui| {
+                                                if ui.selectable_label(!s.overlay_visible, tr("Off")).clicked() { s.overlay_visible = false; }
+                                                for mode in config::OverlayMode::ALL {
+                                                    if ui.selectable_label(s.overlay_visible && s.overlay_mode == mode, tr(mode.label())).clicked() {
+                                                        (s.overlay_visible, s.overlay_mode) = (true, mode);
+                                                    }
+                                                }
+                                            });
+                                        });
+                                        if s.overlay_visible {
+                                            menu_style::row(ui, Icon::Corner, tr("Overlay position"), |ui| {
+                                                egui::ComboBox::from_id_salt("stream-overlay-corner").width(MENU_LIST).selected_text(tr(s.overlay_corner.label())).show_ui(ui, |ui| {
+                                                    for corner in config::OverlayCorner::ALL {
+                                                        ui.selectable_value(&mut s.overlay_corner, corner, tr(corner.label()));
+                                                    }
+                                                });
+                                            });
+                                        }
+                                        let current = s.video_scaling();
+                                        let (mut scaling, top) = current;
+                                        menu_style::row(ui, Icon::Screen, tr("Video size"), |ui| {
+                                            egui::ComboBox::from_id_salt("stream-scaling").width(MENU_LIST).selected_text(tr(scaling.label())).show_ui(ui, |ui| {
+                                                use config::VideoScaling;
+                                                for mode in [VideoScaling::Fit, VideoScaling::Fill, VideoScaling::Stretch, VideoScaling::Native] {
+                                                    ui.selectable_value(&mut scaling, mode, tr(mode.label()));
+                                                }
+                                            });
+                                        });
+                                        if scaling != current.0 { s.set_video_scaling(scaling, top); }
+                                    }
+                                    // The PC's night mode and headphone surround, as it answered when the menu opened.
+                                    "night_mode" => {
+                                        for switch in s.host_audio.switches() {
+                                            let mut on = switch.on;
+                                            let label = stream::menu_extras::audio_label(switch.id);
+                                            if ui.add_enabled_ui(switch.enabled, |ui| menu_style::switch(ui, Icon::Speaker, label, &mut on)).inner.changed() { s.set_host_audio(switch.id, on); }
+                                            if let Some(note) = &switch.note { menu_style::note(ui, note); }
+                                        }
+                                        if let Some(problem) = s.host_audio.problem() { menu_style::note(ui, problem); }
+                                    }
+                                    "image_clipboard_send" => if menu_style::action(ui, Icon::Image, tr("Send image to PC"), None).clicked() { s.clipboard_image(true); },
+                                    "image_clipboard_receive" => if menu_style::action(ui, Icon::Image, tr("Copy PC image here"), None).clicked() { s.clipboard_image(false); },
+                                    "controller_audio" => {
+                                        menu_style::fold(ui, "controller-audio", Icon::Controller, tr("DualSense USB audio and waveform haptics"), |ui| {
+                                        let outputs = controller_audio::outputs();
+                                        let inputs = controller_audio::inputs();
+                                        let mut selections = Vec::new();
+                                        let mut input_selections = Vec::new();
+                                        for pad in &mut pads.pads {
+                                            if !pad.supports_audio() { continue; }
+                                            let current = pad.audio.as_ref().map(|a| a.device);
+                                            let mut selected = current;
+                                            let label = current.and_then(|id| outputs.iter().find(|(device, _)| *device == id)).map_or(tr("Off"), |(_, name)| name.as_str());
+                                            egui::ComboBox::from_id_salt(("controller-audio", pad.index)).selected_text(trf("Controller {}: {}", &[&(pad.index + 1), &label])).show_ui(ui, |ui| {
+                                                ui.selectable_value(&mut selected, None, tr("Off"));
+                                                for (id, name) in &outputs { ui.selectable_value(&mut selected, Some(*id), name); }
+                                            });
+                                            if selected != current { selections.push((pad.index, selected)); }
+                                            if let Some(audio) = &mut pad.audio {
+                                                let mut input = audio.input;
+                                                let label = input.and_then(|id| inputs.iter().find(|(device, _)| *device == id)).map_or(tr("Off"), |(_, name)| name.as_str());
+                                                ui.add_enabled_ui(s.microphone_available(), |ui| {
+                                                    egui::ComboBox::from_id_salt(("controller-microphone", pad.index)).selected_text(trf("Microphone: {}", &[&label])).show_ui(ui, |ui| {
+                                                        ui.selectable_value(&mut input, None, tr("Off"));
+                                                        for (id, name) in &inputs { ui.selectable_value(&mut input, Some(*id), name); }
+                                                    });
+                                                });
+                                                if input != audio.input { input_selections.push((pad.index, input)); }
+                                                egui::ComboBox::from_id_salt(("controller-headphones", pad.index))
+                                                    .selected_text(match audio.headphone_override { None => tr("Automatic headset detection"), Some(true) => tr("Headset"), Some(false) => tr("Controller speaker") })
+                                                    .show_ui(ui, |ui| {
+                                                        ui.selectable_value(&mut audio.headphone_override, None, tr("Automatic headset detection"));
+                                                        ui.selectable_value(&mut audio.headphone_override, Some(true), tr("Headset"));
+                                                        ui.selectable_value(&mut audio.headphone_override, Some(false), tr("Controller speaker"));
+                                                    });
+                                                if audio.headphone_override.is_none() && audio.detected_headphones.is_none() {
+                                                    ui.weak(tr("Headset detection unavailable. Select Headset when using the controller jack."));
+                                                }
+                                            }
+                                        }
+                                        for (index, device) in selections {
+                                            match pads.set_audio(index, device) {
+                                                Ok(()) => s.session.input(|q| pads.announce_new(q)),
+                                                Err(error) => s.show_toast(trf("Controller audio unavailable: {}", &[&error])),
+                                            }
+                                        }
+                                        for (index, device) in input_selections {
+                                            if let Err(error) = pads.set_audio_input(index, device) { s.show_toast(error); }
+                                        }
+                                        });
+                                    }
+                                    "usb_devices" => {
+                                        if let Some(panel) = s.usb.as_mut() {
+                                            menu_style::fold(ui, "usb", Icon::Usb, tr("USB devices"), |ui| usb::show(ui, panel));
+                                        } else if let Some(why) = s.usb_refused {
+                                            // Why there are no devices shows without opening anything.
+                                            usb::show_refusal(ui, why);
+                                        }
+                                    }
+                                    "export_statistics" => if menu_style::action(ui, Icon::Download, tr("Export statistics (last hour)"), None).clicked() { s.export_statistics = true; },
+                                    "help" => {
+                                        if menu_style::action(ui, Icon::Help, tr("Shortcuts & help"), Some(shortcuts::Action::StreamShortcuts)).clicked() {
+                                            s.shortcut_sheet = Some(stream::Sheet::FromMenu);
+                                            ctx.memory_mut(|m| m.surrender_focus(m.focused().unwrap_or(egui::Id::NULL)));
+                                        }
+                                    }
+                                    "reconnect" => if menu_style::action(ui, Icon::Reconnect, tr("Reconnect"), None).clicked() { s.exit = Some(Exit::Reconnect); },
+                                    other => unreachable!("More has no row for {other}"),
+                                }
+                            }
+                        }
                     }
-                    if menu_style::action(ui, Icon::Help, tr("Shortcuts & help"), Some(shortcuts::Action::StreamShortcuts)).clicked() {
-                        s.shortcut_sheet = Some(stream::Sheet::FromMenu);
-                        ctx.memory_mut(|m| m.surrender_focus(m.focused().unwrap_or(egui::Id::NULL)));
+                    if page != stream_menu::Page::Grid {
+                        ui.add_space(theme::space::M);
+                        if menu_style::action_keys(ui, Icon::Back, tr("Back"), Some(crate::shortcuts::Key::Escape.cap())).clicked() {
+                            next = Some(stream_menu::Page::Grid);
+                        }
                     }
                 }));
+            if let Some(next) = next {
+                // The new page starts with nothing focused, so its first tile or row takes the focus.
+                ctx.memory_mut(|m| m.surrender_focus(m.focused().unwrap_or(egui::Id::NULL)));
+                page = next;
+            }
+            // Closing from a page (Disconnect, a shortcut) already reset it to the grid.
+            if s.menu_visible {
+                s.menu_page = page;
+            }
         } else {
             s.settle_bitrate_slider(&ctx);
         }
@@ -2564,6 +2650,7 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
         gui.platform(window, &output.platform_output);
     }
     gui.paint(renderer, output);
+    shortcuts_changed
 }
 
 /// Input-only on a PC without its own mode: the smallest stream every host takes, as on Android.
@@ -2794,17 +2881,22 @@ mod tests {
         use shortcuts::Action;
         let sheet = Some(Action::StreamShortcuts);
         let controls = Some(Action::StreamControls);
-        assert_eq!(menu_step(sheet, false, false, false, false), MenuStep::ToggleSheet);
-        assert_eq!(menu_step(sheet, false, true, true, false), MenuStep::Swallow);
-        assert_eq!(menu_step(controls, false, true, false, false), MenuStep::Swallow);
-        assert_eq!(menu_step(None, true, true, false, true), MenuStep::Swallow, "a held Escape");
-        assert_eq!(menu_step(None, true, false, true, true), MenuStep::CloseSessionPage);
-        assert_eq!(menu_step(controls, false, false, false, true), MenuStep::CloseSessionPage);
-        assert_eq!(menu_step(None, true, false, true, false), MenuStep::CloseSheet);
-        assert_eq!(menu_step(controls, false, false, true, false), MenuStep::CloseMenu);
-        assert_eq!(menu_step(None, true, false, false, false), MenuStep::CloseMenu);
-        assert_eq!(menu_step(Some(Action::SendClipboard), false, true, false, false), MenuStep::Pass);
-        assert_eq!(menu_step(None, false, false, false, false), MenuStep::Pass);
+        assert_eq!(menu_step(sheet, false, false, false, false, false), MenuStep::ToggleSheet);
+        assert_eq!(menu_step(sheet, false, true, true, false, false), MenuStep::Swallow);
+        assert_eq!(menu_step(controls, false, true, false, false, false), MenuStep::Swallow);
+        assert_eq!(menu_step(None, true, true, false, true, false), MenuStep::Swallow, "a held Escape");
+        assert_eq!(menu_step(None, true, false, true, true, false), MenuStep::CloseSessionPage);
+        assert_eq!(menu_step(controls, false, false, false, true, false), MenuStep::CloseSessionPage);
+        assert_eq!(menu_step(None, true, false, true, false, false), MenuStep::CloseSheet);
+        assert_eq!(menu_step(controls, false, false, true, false, false), MenuStep::CloseMenu);
+        assert_eq!(menu_step(None, true, false, false, false, false), MenuStep::CloseMenu);
+        assert_eq!(menu_step(Some(Action::SendClipboard), false, true, false, false, false), MenuStep::Pass);
+        assert_eq!(menu_step(None, false, false, false, false, false), MenuStep::Pass);
+        // Back from a page a tile opened goes to the grid; the sheet and the Session page draw over it first.
+        assert_eq!(menu_step(None, true, false, false, false, true), MenuStep::ClosePage);
+        assert_eq!(menu_step(None, true, false, true, false, true), MenuStep::CloseSheet);
+        assert_eq!(menu_step(None, true, false, false, true, true), MenuStep::CloseSessionPage);
+        assert_eq!(menu_step(controls, false, false, false, false, true), MenuStep::CloseMenu, "the controls chord closes from any page");
     }
 
     #[test]

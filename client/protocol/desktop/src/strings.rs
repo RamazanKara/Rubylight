@@ -204,7 +204,7 @@ pub(crate) mod tests {
     // ---- The table against the sources. ----
 
     /// The UI sources, up to their test modules.
-    const SOURCES: [(&str, &str); 27] = [
+    const SOURCES: [(&str, &str); 28] = [
         ("ui.rs", include_str!("ui.rs")),
         ("ui/files.rs", include_str!("ui/files.rs")),
         ("ui/widgets.rs", include_str!("ui/widgets.rs")),
@@ -232,6 +232,7 @@ pub(crate) mod tests {
         ("pin_ui.rs", include_str!("pin_ui.rs")),
         ("ui/help.rs", include_str!("ui/help.rs")),
         ("menu_style.rs", include_str!("menu_style.rs")),
+        ("stream_menu.rs", include_str!("stream_menu.rs")),
     ];
 
     /// Read for its marked texts and its toasts only: the stream code keeps its own overlay lines.

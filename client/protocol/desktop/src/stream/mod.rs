@@ -517,6 +517,10 @@ pub struct Streaming {
     pub session_page_requested: bool,
     /// The shortcut sheet over the stream controls, and how it was opened.
     pub shortcut_sheet: Option<Sheet>,
+    /// The stream menu's page: the grid, or one of the pages its tiles open.
+    pub menu_page: crate::stream_menu::Page,
+    /// A controller button pressed for a grid tile, run when the menu draws next.
+    pub menu_hotkey: Option<nightjar_policy::stream_menu::Hotkey>,
     keys_down: HashSet<u16>,
     mouse_down: HashSet<u8>,
     touch: touch::Touch,
@@ -739,6 +743,8 @@ impl Streaming {
             session_link: String::new(),
             session_page_requested: false,
             shortcut_sheet: None,
+            menu_page: crate::stream_menu::Page::Grid,
+            menu_hotkey: None,
             keys_down: HashSet::new(),
             mouse_down: HashSet::new(),
             touch: touch::Touch::default(),
@@ -1461,6 +1467,8 @@ impl Streaming {
         } else {
             self.session_page = None;
             self.shortcut_sheet = None;
+            self.menu_page = crate::stream_menu::Page::Grid;
+            self.menu_hotkey = None;
             // The menu's own text field takes no more text once it closes.
             // SAFETY: a live window on the main thread.
             unsafe {

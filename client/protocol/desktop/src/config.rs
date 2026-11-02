@@ -1223,7 +1223,7 @@ impl Store {
     pub fn shortcuts(&self) -> crate::shortcuts::Shortcuts {
         let path = self.dir.join("shortcuts.json");
         if !path.exists() { return crate::shortcuts::Shortcuts::default(); }
-        crate::shortcuts::Shortcuts::read(&path).unwrap_or_else(|e| {
+        crate::shortcuts::read(&path).unwrap_or_else(|e| {
             eprintln!("nightjar: ignoring {}: {e}", path.display());
             crate::shortcuts::Shortcuts::default()
         })
@@ -1716,7 +1716,7 @@ mod tests {
         store.save_profiles(&profiles).unwrap();
         assert_eq!(store.profiles(), profiles);
         let mut shortcuts = crate::shortcuts::Shortcuts::default();
-        shortcuts.save(None, "Task manager", "CTRL + SHIFT + ESC").unwrap();
+        crate::shortcuts::save(&mut shortcuts, None, "Task manager", "CTRL + SHIFT + ESC").unwrap();
         store.save_shortcuts(&shortcuts).unwrap();
         assert_eq!(store.shortcuts(), shortcuts);
         let mapping = crate::gamepad::Mapping { name: "Test pad".into(), deadzone: 12, ..Default::default() };

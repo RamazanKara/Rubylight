@@ -529,6 +529,8 @@ pub struct Streaming {
     /// A controller button pressed for a grid tile, run when the menu draws next.
     pub menu_hotkey: Option<nightjar_policy::stream_menu::Hotkey>,
     keys_down: HashSet<u16>,
+    /// A shortcut's chord held on the PC, and when it goes up.
+    shortcut_held: Option<(crate::shortcuts::Held, Instant)>,
     mouse_down: HashSet<u8>,
     touch: touch::Touch,
     #[cfg(windows)]
@@ -756,6 +758,7 @@ impl Streaming {
             menu_page: crate::stream_menu::Page::Grid,
             menu_hotkey: None,
             keys_down: HashSet::new(),
+            shortcut_held: None,
             mouse_down: HashSet::new(),
             touch: touch::Touch::default(),
             #[cfg(windows)]
@@ -1120,6 +1123,7 @@ impl Streaming {
     }
 
     pub fn raise_all_keys(&mut self) {
+        self.release_shortcut();
         let keys: Vec<u16> = self.keys_down.drain().collect();
         let buttons: Vec<u8> = self.mouse_down.drain().collect();
         self.session.input(|q| {
@@ -1639,8 +1643,38 @@ impl Streaming {
             self.show_toast(tr(why));
             return;
         }
-        let result = self.session.input(|q| crate::shortcuts::send(&shortcut.keys, &self.keys_down, q));
-        if let Err(error) = result { self.show_toast(trf("Shortcut was not sent: {}", &[&error])); }
+        // A shortcut still held goes up first, so this one is pressed in full.
+        self.release_shortcut();
+        if self.shortcut_held.is_some() {
+            self.show_toast(trf("Shortcut was not sent: {}", &[&nightjar_core::input::InputError::QueueFull]));
+            return;
+        }
+        match self.session.input(|q| crate::shortcuts::press(&shortcut.keys, &self.keys_down, q)) {
+            Ok(chord) => {
+                self.shortcut_held = Some((chord, Instant::now() + Duration::from_millis(crate::shortcuts::HOLD_MS)));
+            }
+            Err(error) => self.show_toast(trf("Shortcut was not sent: {}", &[&error])),
+        }
+    }
+
+    /// Lets go of the held shortcut's keys once its hold is over; `pump` calls this.
+    pub(super) fn release_shortcut_when_due(&mut self, now: Instant) {
+        if self.shortcut_held.as_ref().is_some_and(|(_, due)| now >= *due) { self.release_shortcut(); }
+    }
+
+    /// When the held shortcut's keys go up, for the loop's wait.
+    pub(super) fn shortcut_release_in(&self, now: Instant) -> Option<Duration> {
+        self.shortcut_held.as_ref().map(|(_, due)| due.saturating_duration_since(now))
+    }
+
+    fn release_shortcut(&mut self) {
+        let Some((mut chord, due)) = self.shortcut_held.take() else { return };
+        match self.session.input(|q| crate::shortcuts::release(&mut chord, q)) {
+            Ok(()) => {}
+            // Keys left down would stay down on the PC: the queue drains, so the next pump tries again.
+            Err(nightjar_core::input::InputError::QueueFull) => self.shortcut_held = Some((chord, due)),
+            Err(error) => eprintln!("nightjar: shortcut keys not released: {error}"),
+        }
     }
 
     /// The overlay as the user left it, once it differs from what the settings keep: the stream

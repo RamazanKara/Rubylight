@@ -275,6 +275,8 @@ public class GameStreamMenuTest {
         assertFalse(menu.sheet().isShowing());
         assertTrue("nothing goes out while the menu is up", keys.isEmpty());
         runMenuAction(game);
+        assertEquals("pressed, and held for a moment", 2, keys.size());
+        org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(GameKeyboardInput.SHORTCUT_HOLD_MS));
         assertEquals(4, keys.size());
         assertTrue(ReflectionHelpers.<Boolean>getField(game, "grabbedInput"));
     }

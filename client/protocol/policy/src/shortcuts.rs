@@ -326,6 +326,12 @@ pub fn built_ins(saved: &[Shortcut]) -> Vec<BuiltIn> {
     BUILT_INS.iter().copied().filter(|b| !saved.contains(&chord(&mut b.keys.iter().copied()))).collect()
 }
 
+/// How long a sent chord stays held before its keys go up, in milliseconds. Pressed and released in
+/// the same instant, a chord reaches the PC, but what reads the keys once a frame (the Steam
+/// overlay's Shift + Tab, many games) never sees it held. Android holds its chords as long
+/// (`GameKeyboardInput.SHORTCUT_HOLD_MS`).
+pub const HOLD_MS: u64 = 100;
+
 /// The keys the stream menu's key picker offers, in its order: modifiers first, then the keys
 /// chords use most, arrows, letters, digits and function keys. A controller reaches every one
 /// with the D-pad; nothing needs typing.

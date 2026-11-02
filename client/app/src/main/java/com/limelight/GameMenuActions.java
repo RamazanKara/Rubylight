@@ -296,6 +296,13 @@ final class GameMenuActions {
         options.hostAudioUnread = hostAudioUnread;
         options.micButtonAvailable = game.micButton != null;
         options.micButtonShown = game.micButton != null && game.prefConfig.micButton;
+        options.menuButtonAvailable = game.menuButton != null;
+        options.menuButtonShown = game.menuButton != null && game.prefConfig.floatingMenuButton;
+        options.streamWidth = game.prefConfig.width;
+        options.streamHeight = game.prefConfig.height;
+        options.streamFps = game.streamFps;
+        options.videoFormat = game.decoderRenderer.getActiveVideoFormat();
+        options.hdr = game.streamHdr;
         options.overlayShown = game.prefConfig.enablePerfOverlay;
         options.overlayMode = game.overlayMode;
         options.overlayPosition = game.overlayCorner.key;
@@ -350,6 +357,7 @@ final class GameMenuActions {
             case ONSCREEN_CONTROLS: action = () -> game.touchInput.setOnscreenControlsEnabled(!game.prefConfig.onscreenController); break;
             case CONTROLS_LAYOUT: action = game.touchInput::showControllerLayoutDialog; break;
             case MIC_BUTTON: action = () -> game.touchInput.setMicButtonShown(!game.prefConfig.micButton); break;
+            case MENU_BUTTON: action = () -> game.touchInput.setMenuButtonShown(!game.prefConfig.floatingMenuButton); break;
             case GAME_CONTROLS: action = game.gameTouchControls == null ? null : game.gameTouchControls::showMenu; break;
             case KEYBOARD_KEYS: action = game.keyboardInput::toggleKeyboardOverlay; break;
             case VIDEO_SCALING: action = game.videoOutput::showVideoScalingDialog; break;

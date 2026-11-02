@@ -51,4 +51,9 @@
     <string name="stream_menu_start_menu">开始菜单</string>
     <string name="stream_shortcut_pick_keys">请选择 1–8 个键。</string>
     <string name="stream_menu_model_failed">无法显示串流菜单：%1$s</string>
+    <string name="stream_menu_button_show">显示菜单按钮</string>
+    <string name="stream_menu_button_hide">隐藏菜单按钮</string>
+    <string name="stream_menu_settings">串流菜单</string>
+    <string name="title_floating_menu_button">悬浮菜单按钮</string>
+    <string name="summary_floating_menu_button">串流画面上打开菜单的圆形按钮</string>
 </resources>

@@ -51,4 +51,9 @@
     <string name="stream_menu_start_menu">시작 메뉴</string>
     <string name="stream_shortcut_pick_keys">키를 1~8개 선택하세요.</string>
     <string name="stream_menu_model_failed">스트림 메뉴를 표시할 수 없습니다: %1$s</string>
+    <string name="stream_menu_button_show">메뉴 버튼 표시</string>
+    <string name="stream_menu_button_hide">메뉴 버튼 숨기기</string>
+    <string name="stream_menu_settings">스트림 메뉴</string>
+    <string name="title_floating_menu_button">플로팅 메뉴 버튼</string>
+    <string name="summary_floating_menu_button">스트림 위에 떠 있는 메뉴 열기용 둥근 버튼</string>
 </resources>

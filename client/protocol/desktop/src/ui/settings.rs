@@ -31,9 +31,9 @@ pub(super) const SECTION_KEYS: [&[&[&str]]; 8] = [
     &[&["window_mode"], &["video_scaling"], &["vrr"],
         &["virtual_display"], &["host_display"], &["virtual_display_scale"], &["virtual_display_dpi"],
         &["align_video_top"], &["present_at_host_times"], &["frame_pacing"], &["vsync"]],
-    &[&["mouse_mode"], &["controllers"], &["swap_face_buttons"], &["clipboard_sync"],
+    &[&["mouse_mode"], &["controllers"], &["swap_face_buttons"], &["clipboard_sync"], &["guide_hold_ms"], &["back_opens_menu"],
         &["capture_system_keys"], &["mouse_speed"], &["mouse_nav_buttons"], &["native_touchpad"], &["right_alt_as_meta"],
-        &["back_opens_menu"], &["guide_hold_ms"], &["gamepad_quit_combo"], &["controller_mouse"], &["analog_scrolling"], &["mouse_fixed_step"],
+        &["gamepad_quit_combo"], &["controller_mouse"], &["analog_scrolling"], &["mouse_fixed_step"],
         &["gamepad_touchpad_as_mouse"], &["disable_rumble"], &["controller_motion"], &["controller_audio"], &["background_controllers"]],
     &[&["audio"], &["play_audio_on_host"], &["microphone"], &["mic_echo_cancel"], &["audio_passthrough"]],
     &[&["overlay", "overlay_mode"], &["overlay_position"], &["auto_reconnect"],
@@ -796,16 +796,32 @@ impl Launcher {
                 toggle(ui, &mut s.clipboard_sync)
             });
             if !layered {
-                setting_row(ui, s, &mut rows, &[], "Controller buttons and keyboard shortcuts", "Remap a controller's buttons, set its stick and trigger dead zones, and save keyboard shortcuts.", |ui, _| {
-                    ui.horizontal(|ui| {
-                        let controllers = quiet_button(ui, "Controllers");
-                        if controllers.clicked() { commands.push(Command::ControllerSettings); }
-                        let shortcuts = quiet_button(ui, "Shortcuts");
-                        if shortcuts.clicked() { commands.push(Command::Shortcuts); }
-                        links.push(("controllers-link", controllers));
-                        links.push(("shortcuts-link", shortcuts.clone()));
-                        shortcuts
-                    }).inner
+                setting_row(ui, s, &mut rows, &[], "Controller buttons", "Remap a controller's buttons and set its stick and trigger dead zones.", |ui, _| {
+                    let controllers = quiet_button(ui, "Controllers");
+                    if controllers.clicked() { commands.push(Command::ControllerSettings); }
+                    links.push(("controllers-link", controllers.clone()));
+                    controllers
+                });
+            }
+            // How the stream menu opens and what it holds, as Android's Stream menu group. Android's floating menu
+            // button has no desktop row: a window has a pointer and keys to open the menu.
+            rows.group(ui, "Stream menu", "");
+            rows.when(s.controllers, en("Turn on Controllers to use this."));
+            setting_row(ui, s, &mut rows, &["guide_hold_ms"], "Hold Guide to open the stream menu", "A short press still goes to the PC.", |ui, s| {
+                egui::ComboBox::from_id_salt("guide-hold").selected_text(guide_hold_name(s.guide_hold_ms)).show_ui(ui, |ui| {
+                    for ms in crate::config::GUIDE_HOLD_MS {
+                        ui.selectable_value(&mut s.guide_hold_ms, ms, guide_hold_name(ms));
+                    }
+                }).response
+            });
+            setting_row(ui, s, &mut rows, &["back_opens_menu"], "Back opens stream controls", "The controller's Back or Select button opens the stream menu.", |ui, s| toggle(ui, &mut s.back_opens_menu));
+            rows.always();
+            if !layered {
+                setting_row(ui, s, &mut rows, &[], "Shortcuts", "Key combinations as tiles in the stream menu.", |ui, _| {
+                    let shortcuts = quiet_button(ui, "Shortcuts");
+                    if shortcuts.clicked() { commands.push(Command::Shortcuts); }
+                    links.push(("shortcuts-link", shortcuts.clone()));
+                    shortcuts
                 });
             }
             rows.group(ui, "Mouse and keyboard", "");
@@ -821,14 +837,6 @@ impl Launcher {
             setting_row(ui, s, &mut rows, &["right_alt_as_meta"], "Right Alt as Windows key", "Use Right Alt for Windows-key shortcuts on the PC.", |ui, s| toggle(ui, &mut s.right_alt_as_meta));
             rows.group(ui, "Controllers", "");
             rows.when(s.controllers, en("Turn on Controllers to use this."));
-            setting_row(ui, s, &mut rows, &["back_opens_menu"], "Back opens stream controls", "The controller's Back or Select button opens the stream menu.", |ui, s| toggle(ui, &mut s.back_opens_menu));
-            setting_row(ui, s, &mut rows, &["guide_hold_ms"], "Hold Guide to open the stream menu", "A short press still goes to the PC.", |ui, s| {
-                egui::ComboBox::from_id_salt("guide-hold").selected_text(guide_hold_name(s.guide_hold_ms)).show_ui(ui, |ui| {
-                    for ms in crate::config::GUIDE_HOLD_MS {
-                        ui.selectable_value(&mut s.guide_hold_ms, ms, guide_hold_name(ms));
-                    }
-                }).response
-            });
             setting_row(ui, s, &mut rows, &["gamepad_quit_combo"], "Buttons to leave the stream", "Hold these buttons together to leave the stream. Pick others if a game or your controller needs these.", |ui, s| {
                 egui::ComboBox::from_id_salt("gamepad-quit-combo").selected_text(style.quit_combo(s.gamepad_quit_combo)).show_ui(ui, |ui| {
                     for combo in crate::config::GamepadQuitCombo::ALL {

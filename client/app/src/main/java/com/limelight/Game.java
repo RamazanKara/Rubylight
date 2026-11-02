@@ -122,6 +122,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     // The modern on-screen controller, used instead of the classic one when the settings ask for it.
     com.limelight.binding.input.pad.ModernController modernController;
     com.limelight.ui.MicButton micButton;
+    com.limelight.ui.MenuButton menuButton;
 
     PreferenceConfiguration prefConfig;
     SharedPreferences tombstonePrefs;
@@ -629,6 +630,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                     modernController.hide();
                 }
                 touchInput.updateMicButton();
+                touchInput.updateMenuButton();
                 if (keyboardOverlay != null) {
                     keyboardInput.hideKeyboardOverlay();
                 }
@@ -667,6 +669,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                     modernController.show();
                 }
                 touchInput.updateMicButton();
+                touchInput.updateMenuButton();
 
                 if (prefConfig.enablePerfOverlay && app.getRole() != NvApp.Role.INPUT_ONLY) {
                     performanceOverlayScroll.setVisibility(View.VISIBLE);
@@ -995,6 +998,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             modernController.hide();
         }
         if (micButton != null) micButton.setSuppressed(true);
+        if (menuButton != null) menuButton.setShown(false);
 
         if (conn != null) {
             int videoFormat = decoderRenderer.getActiveVideoFormat();
@@ -1150,7 +1154,10 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                                         leftX, leftY, rightX, rightY, leftTrigger, rightTrigger);
                             }
                         }, prefConfig, game);
-                modernController.setOnLayoutChanged(() -> { if (micButton != null) micButton.place(); });
+                modernController.setOnLayoutChanged(() -> {
+                    if (micButton != null) micButton.place();
+                    if (menuButton != null) menuButton.place();
+                });
                 modernController.refreshLayout();
             }
             modernController.show();

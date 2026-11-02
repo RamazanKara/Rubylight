@@ -130,6 +130,11 @@ public final class RustStreamMenuModel implements StreamMenuModel.Calls {
                     for (int i = 0; i < keys.length(); i++) labels.add(label(keys.getString(i)));
                     return ok(String.join(" + ", labels));
                 }
+                case "mode_line": {
+                    String line = modeLine(in.getInt("width"), in.getInt("height"), in.getInt("fps"), in.getInt("format"),
+                            in.getBoolean("hdr"));
+                    return ok(line == null ? JSONObject.NULL : line);
+                }
                 default: return error("invalid");
             }
         } catch (JSONException e) {
@@ -189,6 +194,23 @@ public final class RustStreamMenuModel implements StreamMenuModel.Calls {
             answer.put(new JSONObject().put("id", builtIn.getKey()).put("label", String.join(" + ", labels)).put("keys", keys));
         }
         return answer;
+    }
+
+    // stream_menu::mode_line, for tests: "1440p · 144 FPS · HEVC HDR", the codec dropped first when it runs long.
+    static String modeLine(int width, int height, int fps, int format, boolean hdr) {
+        if (width == 0 || height == 0 || fps == 0) return null;
+        int longSide = Math.max(width, height), shortSide = Math.min(width, height);
+        String size = (long) longSide * 900 > (long) shortSide * 1616 ? width + "×" + height
+                : shortSide == 2160 ? "4K" : shortSide == 4320 ? "8K" : shortSide + "p";
+        String mode = size + " · " + fps + " FPS";
+        String codec = (format & 0x0F_0000) != 0 ? "PyroWave" : (format & 0xF000) != 0 ? "AV1"
+                : (format & 0x0F00) != 0 ? "HEVC" : (format & 0x000F) != 0 ? "H.264" : null;
+        for (String tail : new String[] {codec == null ? null : hdr ? codec + " HDR" : codec, hdr ? "HDR" : null}) {
+            if (tail == null) continue;
+            String line = mode + " · " + tail;
+            if (line.codePointCount(0, line.length()) <= 28) return line;
+        }
+        return mode;
     }
 
     private static final class Unknown {

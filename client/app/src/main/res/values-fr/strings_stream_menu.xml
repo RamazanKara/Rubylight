@@ -51,4 +51,9 @@ La progression non enregistrée sera perdue.</string>
     <string name="stream_menu_start_menu">Menu Démarrer</string>
     <string name="stream_shortcut_pick_keys">Choisissez 1 à 8 touches.</string>
     <string name="stream_menu_model_failed">Impossible d’afficher le menu du stream : %1$s</string>
+    <string name="stream_menu_button_show">Afficher le bouton du menu</string>
+    <string name="stream_menu_button_hide">Masquer le bouton du menu</string>
+    <string name="stream_menu_settings">Menu du stream</string>
+    <string name="title_floating_menu_button">Bouton de menu flottant</string>
+    <string name="summary_floating_menu_button">Un bouton rond au-dessus du stream qui ouvre le menu</string>
 </resources>

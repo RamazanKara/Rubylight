@@ -51,4 +51,9 @@ I progressi non salvati andranno persi.</string>
     <string name="stream_menu_start_menu">Menu Start</string>
     <string name="stream_shortcut_pick_keys">Scegli da 1 a 8 tasti.</string>
     <string name="stream_menu_model_failed">Impossibile comporre il menu dello stream: %1$s</string>
+    <string name="stream_menu_button_show">Mostra pulsante del menu</string>
+    <string name="stream_menu_button_hide">Nascondi pulsante del menu</string>
+    <string name="stream_menu_settings">Menu dello stream</string>
+    <string name="title_floating_menu_button">Pulsante menu mobile</string>
+    <string name="summary_floating_menu_button">Un pulsante rotondo sopra lo stream che apre il menu</string>
 </resources>

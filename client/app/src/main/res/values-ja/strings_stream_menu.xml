@@ -51,4 +51,9 @@
     <string name="stream_menu_start_menu">スタートメニュー</string>
     <string name="stream_shortcut_pick_keys">キーを1～8個選んでください。</string>
     <string name="stream_menu_model_failed">ストリームメニューを表示できませんでした: %1$s</string>
+    <string name="stream_menu_button_show">メニューボタンを表示</string>
+    <string name="stream_menu_button_hide">メニューボタンを非表示</string>
+    <string name="stream_menu_settings">ストリームメニュー</string>
+    <string name="title_floating_menu_button">フローティングメニューボタン</string>
+    <string name="summary_floating_menu_button">ストリームの上に表示され、メニューを開く丸いボタン</string>
 </resources>

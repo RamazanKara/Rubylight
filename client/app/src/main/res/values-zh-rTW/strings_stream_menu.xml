@@ -51,4 +51,9 @@
     <string name="stream_menu_start_menu">開始功能表</string>
     <string name="stream_shortcut_pick_keys">請選擇 1–8 個按鍵。</string>
     <string name="stream_menu_model_failed">無法顯示串流選單：%1$s</string>
+    <string name="stream_menu_button_show">顯示選單按鈕</string>
+    <string name="stream_menu_button_hide">隱藏選單按鈕</string>
+    <string name="stream_menu_settings">串流選單</string>
+    <string name="title_floating_menu_button">浮動選單按鈕</string>
+    <string name="summary_floating_menu_button">串流畫面上開啟選單的圓形按鈕</string>
 </resources>

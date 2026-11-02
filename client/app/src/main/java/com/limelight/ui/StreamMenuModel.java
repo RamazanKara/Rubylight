@@ -269,4 +269,18 @@ public final class StreamMenuModel {
             throw new Refused("invalid", "unreadable label: " + e.getMessage());
         }
     }
+
+    /**
+     * The menu header's line for the stream's mode, as desktop Nightjar shows it: {@code 1440p · 144 FPS · HEVC HDR}.
+     * Null while the mode is not known (a size or rate of 0). {@code format} is Moonlight's video format bits.
+     */
+    public static String modeLine(int width, int height, int fps, int format, boolean hdr) throws Refused {
+        try {
+            Object line = ask(op("mode_line").put("width", width).put("height", height).put("fps", fps)
+                    .put("format", format).put("hdr", hdr));
+            return line == JSONObject.NULL ? null : (String) line;
+        } catch (JSONException | ClassCastException e) {
+            throw new Refused("invalid", "unreadable mode line: " + e.getMessage());
+        }
+    }
 }

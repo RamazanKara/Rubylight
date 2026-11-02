@@ -51,4 +51,9 @@
     <string name="stream_menu_start_menu">Меню «Пуск»</string>
     <string name="stream_shortcut_pick_keys">Выберите от 1 до 8 клавиш.</string>
     <string name="stream_menu_model_failed">Не удалось построить меню трансляции: %1$s</string>
+    <string name="stream_menu_button_show">Показать кнопку меню</string>
+    <string name="stream_menu_button_hide">Скрыть кнопку меню</string>
+    <string name="stream_menu_settings">Меню трансляции</string>
+    <string name="title_floating_menu_button">Плавающая кнопка меню</string>
+    <string name="summary_floating_menu_button">Круглая кнопка поверх трансляции, открывающая меню</string>
 </resources>

@@ -51,4 +51,9 @@ Kaydedilmemiş ilerleme kaybolur.</string>
     <string name="stream_menu_start_menu">Başlat menüsü</string>
     <string name="stream_shortcut_pick_keys">1–8 tuş seçin.</string>
     <string name="stream_menu_model_failed">Yayın menüsü oluşturulamadı: %1$s</string>
+    <string name="stream_menu_button_show">Menü düğmesini göster</string>
+    <string name="stream_menu_button_hide">Menü düğmesini gizle</string>
+    <string name="stream_menu_settings">Yayın menüsü</string>
+    <string name="title_floating_menu_button">Kayan menü düğmesi</string>
+    <string name="summary_floating_menu_button">Yayının üzerinde menüyü açan yuvarlak düğme</string>
 </resources>

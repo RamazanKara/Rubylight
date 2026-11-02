@@ -960,10 +960,31 @@ final class GameKeyboardInput {
         }
     }
 
-    void sendKeyboardShortcut(int... keys) {
-        if (!game.foreground || !game.connected || !game.grabbedInput || game.streamMenu != null || !game.conn.canSendInput()) {
+    /**
+     * A shortcut chosen in the stream menu, run once the menu has closed: input is captured again for it, and a shortcut
+     * that still cannot reach the PC says why instead of doing nothing.
+     */
+    void sendMenuShortcut(int... keys) {
+        if (!game.foreground || !game.connected) return;
+        if (!game.conn.canSendInput()) {
+            android.widget.Toast.makeText(game, R.string.stream_shortcut_no_keyboard, android.widget.Toast.LENGTH_SHORT).show();
             return;
         }
+        if (!game.grabbedInput) game.touchInput.setInputGrabState(true);
+        if (!sendKeyboardShortcut(keys)) {
+            android.widget.Toast.makeText(game, R.string.stream_shortcut_not_sent, android.widget.Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    /**
+     * Presses {@code keys} on the PC, modifiers first whatever order they were saved in (older saved shortcuts kept
+     * the typed order), and releases them in reverse; false when the stream cannot take keys now.
+     */
+    boolean sendKeyboardShortcut(int... keys) {
+        if (!game.foreground || !game.connected || !game.grabbedInput || game.streamMenu != null || !game.conn.canSendInput()) {
+            return false;
+        }
+        keys = modifiersFirst(keys);
         byte modifiers = getModifierState();
         boolean[] sent = new boolean[keys.length];
         for (int i = 0; i < keys.length; i++) {
@@ -983,6 +1004,16 @@ final class GameKeyboardInput {
                 sendKeyboardInput(game.keyboardTranslator.translate(keys[i], -1), KeyboardPacket.KEY_UP, modifiers, (byte) 0);
             }
         }
+        return true;
+    }
+
+    // A stable sort, as nightjar-policy's shortcuts::normalize_keys: modifiers keep their order, and so do the other keys.
+    static int[] modifiersFirst(int[] keys) {
+        int[] ordered = new int[keys.length];
+        int at = 0;
+        for (int key : keys) if (getModifierMask(key) != 0) ordered[at++] = key;
+        for (int key : keys) if (getModifierMask(key) == 0) ordered[at++] = key;
+        return ordered;
     }
 
     void keyboardEvent(boolean buttonDown, short keyCode) {

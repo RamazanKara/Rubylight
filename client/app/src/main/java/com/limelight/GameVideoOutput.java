@@ -990,6 +990,8 @@ final class GameVideoOutput {
     // Frames of a new size came out of the decoder: scale, letterbox, touch and picture-in-picture
     // now follow that size.
     void applyStreamSize(int width, int height) {
+        game.streamWidth = width;
+        game.streamHeight = height;
         if (game.isFinishing() || game.isDestroyed() || (width == game.prefConfig.width && height == game.prefConfig.height)) {
             return;
         }

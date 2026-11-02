@@ -309,6 +309,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     boolean nativeResolutionStream;
     boolean fpsFollowsDisplay;
     int streamFps;
+    // The size the decoder was set up for (the negotiated one) or a reconfigure changed it to; 0 until then.
+    int streamWidth, streamHeight;
     float streamPanelHz;
     // The Orientation setting, and whether the host draws this stream at the shape asked for (its
     // virtual display), so a turned window can ask for a turned stream.

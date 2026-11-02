@@ -82,4 +82,7 @@ Nicht gespeicherter Fortschritt geht verloren.</string>
     <string name="stream_tile_end_session">Sitzung beenden</string>
     <string name="stream_tile_close_game">Spiel schließen</string>
     <string name="stream_tile_quit_game">Spiel beenden</string>
+    <string name="stream_shortcut_key_unsupported">%1$s kann nicht Teil eines Tastenkürzels sein: Zum Entfernen antippen.</string>
+    <string name="stream_shortcut_no_keyboard">Tastenkürzel nicht gesendet: Dieses Gerät darf keine Tastatureingaben an den PC senden.</string>
+    <string name="stream_shortcut_not_sent">Tastenkürzel nicht gesendet: Der Stream nimmt gerade keine Eingaben an.</string>
 </resources>

@@ -69,11 +69,22 @@ public final class StreamMenuModel {
     }
 
     private static Object ask(JSONObject request) throws Refused {
-        String answer = calls().call(request.toString());
+        String answer;
         try {
-            JSONObject reply = new JSONObject(answer == null ? "" : answer);
+            answer = calls().call(request.toString());
+        } catch (UnsatisfiedLinkError e) {
+            // A library from another build that lacks the call: the menu says so instead of crashing the stream.
+            throw new Refused("unavailable", String.valueOf(e.getMessage()));
+        } catch (RuntimeException e) {
+            throw new Refused("unavailable", String.valueOf(e));
+        }
+        // JNI answers null when it could not make the answer's string.
+        if (answer == null) throw new Refused("unavailable", "no answer");
+        try {
+            JSONObject reply = new JSONObject(answer);
             if (reply.has("ok")) return reply.get("ok");
-            throw new Refused(reply.optString("error", "invalid"), reply.optString("detail", ""));
+            // The model sends a null detail for errors without one.
+            throw new Refused(reply.optString("error", "invalid"), reply.isNull("detail") ? "" : reply.optString("detail", ""));
         } catch (JSONException e) {
             throw new Refused("invalid", "unreadable answer: " + e.getMessage());
         }

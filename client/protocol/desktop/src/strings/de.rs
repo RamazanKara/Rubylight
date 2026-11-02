@@ -713,6 +713,7 @@ pub const TABLE: &[(&str, &str)] = &[
     ("Wait one second between PC commands.", "Warte eine Sekunde zwischen PC-Befehlen."),
     ("Enable Send system keys to use shortcuts with the Windows key.", "Aktiviere „Systemtasten senden“, um Kürzel mit der Windows-Taste zu verwenden."),
     ("Shortcut was not sent: {}", "Kürzel wurde nicht gesendet: {}"),
+    ("Shortcut was not sent: the stream isn't taking input right now.", "Kürzel nicht gesendet: Der Stream nimmt gerade keine Eingaben an."),
     ("The PC did not confirm the requested size. Automatic quality stopped.", "Der PC hat die gewünschte Größe nicht bestätigt. Die automatische Qualität wurde beendet."),
     ("Automatic quality stopped: the stream reported no size or frame rate.", "Die automatische Qualität wurde beendet: Der Stream hat keine Größe oder Bildrate gemeldet."),
     ("The PC did not start its automatic bitrate: {}", "Der PC hat seine automatische Bitrate nicht gestartet: {}"),

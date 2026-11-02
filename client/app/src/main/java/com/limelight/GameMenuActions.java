@@ -111,7 +111,7 @@ final class GameMenuActions {
         }
 
         @Override public void send(int[] keys) {
-            game.streamMenuAction = () -> game.keyboardInput.sendKeyboardShortcut(keys);
+            game.streamMenuAction = () -> game.keyboardInput.sendMenuShortcut(keys);
             if (streamMenuSheet != null) streamMenuSheet.sheet().dismiss();
         }
     };
@@ -299,8 +299,10 @@ final class GameMenuActions {
         options.micButtonShown = game.micButton != null && game.prefConfig.micButton;
         options.menuButtonAvailable = game.menuButton != null;
         options.menuButtonShown = game.menuButton != null && game.prefConfig.floatingMenuButton;
-        options.streamWidth = game.prefConfig.width;
-        options.streamHeight = game.prefConfig.height;
+        // The size the decoder was set up for or the host changed to, not the size asked for: the host may lower it
+        // (4K to a host without 4K), choose it (native) or change it mid-stream.
+        options.streamWidth = game.streamWidth;
+        options.streamHeight = game.streamHeight;
         options.streamFps = game.streamFps;
         options.videoFormat = game.decoderRenderer == null ? 0 : game.decoderRenderer.getActiveVideoFormat();
         options.hdr = game.streamHdr;
@@ -333,7 +335,7 @@ final class GameMenuActions {
         if (game.decoderRenderer == null || game.prefConfig == null) return null;
         ComputerDetails details = game.conn.getHostDetails();
         return new com.limelight.console.ConnectionInfo(details.name, game.decoderRenderer.getActiveVideoFormat(),
-                game.prefConfig.width, game.prefConfig.height, game.prefConfig.fps, game.currentBitrate == 0 ? game.prefConfig.bitrate : game.currentBitrate,
+                game.streamWidth, game.streamHeight, game.streamFps, game.currentBitrate == 0 ? game.prefConfig.bitrate : game.currentBitrate,
                 game.wifiDiagnostics != null ? game.wifiDiagnostics.latest() : null,
                 com.limelight.console.ConnectionInfo.rttMs(MoonBridge.getEstimatedRttInfo()));
     }

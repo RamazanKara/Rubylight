@@ -74,6 +74,22 @@ public class MenuButtonTest {
         }
     }
 
+    /** A TV got the button too, with no touch screen to tap it and no switch in Settings to turn it off. */
+    @Test public void onlyATouchDeviceThatIsNoTelevisionGetsTheButton() {
+        android.content.Context context = RuntimeEnvironment.getApplication();
+        org.robolectric.Shadows.shadowOf(context.getPackageManager()).setSystemFeature(android.content.pm.PackageManager.FEATURE_TOUCHSCREEN, true);
+        assertTrue(MenuButton.offered(context));
+        org.robolectric.Shadows.shadowOf(context.getPackageManager()).setSystemFeature(android.content.pm.PackageManager.FEATURE_TOUCHSCREEN, false);
+        assertFalse("no touch screen, no switch in Settings", MenuButton.offered(context));
+    }
+
+    @Test @Config(qualifiers = "television")
+    public void aTelevisionGetsNoButton() {
+        android.content.Context context = RuntimeEnvironment.getApplication();
+        org.robolectric.Shadows.shadowOf(context.getPackageManager()).setSystemFeature(android.content.pm.PackageManager.FEATURE_TOUCHSCREEN, true);
+        assertFalse(MenuButton.offered(context));
+    }
+
     @Test public void itIsOffUntilItsSettingTurnsItOn() {
         MenuButton fresh = new MenuButton(frame.getContext(), host);
         assertEquals(View.GONE, fresh.getVisibility());

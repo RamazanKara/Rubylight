@@ -43,6 +43,9 @@ public final class RustStreamMenuModel implements StreamMenuModel.Calls {
         }
     }
 
+    private static final Set<String> MODIFIERS = new HashSet<>(Arrays.asList("CTRL", "SHIFT", "ALT", "WIN",
+            "CTRL_RIGHT", "SHIFT_RIGHT", "ALT_RIGHT", "META_RIGHT"));
+
     final List<Tile> tiles = new ArrayList<>();
     final Map<String, String[]> builtIns = new LinkedHashMap<>();
     final List<String> picker = new ArrayList<>();
@@ -141,14 +144,20 @@ public final class RustStreamMenuModel implements StreamMenuModel.Calls {
                     JSONArray keys = in.getJSONArray("keys");
                     if (keys.length() == 0 || keys.length() > KeyboardShortcuts.MAX_KEYS) return error("chord_length");
                     if (in.getString("name").trim().isEmpty()) return error("bad_name");
-                    JSONArray normal = new JSONArray();
+                    List<String> modifiers = new ArrayList<>(), rest = new ArrayList<>();
                     Set<String> seen = new HashSet<>();
                     for (int i = 0; i < keys.length(); i++) {
                         String key = keys.getString(i).toUpperCase(Locale.ROOT);
                         if (!seen.add(key)) return error("repeated_key");
-                        normal.put(key);
+                        // shortcuts::key_code knows no Android-only names: those the tests use.
+                        if (key.startsWith("ANDROID_KEYCODE_") || key.startsWith("MEDIA_")) {
+                            return new JSONObject().put("error", "unsupported_key").put("detail", keys.getString(i)).toString();
+                        }
+                        (MODIFIERS.contains(key) ? modifiers : rest).add(key);
                     }
-                    return ok(normal);
+                    // shortcuts::normalize_keys: modifiers first, each group in the order given.
+                    modifiers.addAll(rest);
+                    return ok(new JSONArray(modifiers));
                 }
                 case "chord_label": {
                     JSONArray keys = in.getJSONArray("keys");

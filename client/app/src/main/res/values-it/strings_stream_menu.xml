@@ -79,4 +79,7 @@ I progressi non salvati andranno persi.</string>
     <string name="stream_tile_end_session">Termina sessione</string>
     <string name="stream_tile_close_game">Chiudi gioco</string>
     <string name="stream_tile_quit_game">Esci dal gioco</string>
+    <string name="stream_shortcut_key_unsupported">%1$s non può far parte di una scorciatoia: toccalo per toglierlo.</string>
+    <string name="stream_shortcut_no_keyboard">Scorciatoia non inviata: questo dispositivo non può inviare input da tastiera al PC.</string>
+    <string name="stream_shortcut_not_sent">Scorciatoia non inviata: lo stream ora non accetta input.</string>
 </resources>

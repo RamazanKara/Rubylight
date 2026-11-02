@@ -9,6 +9,12 @@ fn seeded_predictor(facts: &Facts) -> race::Predictor {
     race::Predictor::seeded(facts.race_slices, facts.height.max(1) as u32, frame_bytes, facts.pace_mbps)
 }
 
+/// The picture size a decoded frame's setup gives where the frame itself does not tell it (PyroWave,
+/// packed 4:4:4): the logical size, which a packed frame's coded size is twice as wide as.
+fn setup_size(setup: &session::VideoSetup) -> (i32, i32) {
+    if setup.logical_width > 0 && setup.logical_height > 0 { (setup.logical_width, setup.logical_height) } else { (setup.width, setup.height) }
+}
+
 /// A present of the texture: when the call was issued and returned (us), and the beam around it.
 struct Flipped {
     issued_us: u64,
@@ -46,6 +52,10 @@ impl Streaming {
                 if self.pending_mode.is_some_and(|(mode, _)| i32::from(mode.width) == info.width && i32::from(mode.height) == info.height) {
                     self.pending_mode = None;
                 }
+            } else if decoded.setup.chroma_packing != 0 || decoded.setup.format & VIDEO_FORMAT_MASK_PYROWAVE != 0 {
+                // The menu's header and the session page name the stream's size: PyroWave and packed
+                // 4:4:4 tell it in their setup, a reconfigure's new setup included.
+                (self.facts.width, self.facts.height) = setup_size(&decoded.setup);
             }
             if let Some((rtp, received)) = self.last_arrival {
                 let ticks = decoded.rtp.wrapping_sub(rtp) as i32;
@@ -495,5 +505,18 @@ impl Streaming {
             timeline.mid_row_age_ns = race::mid_row_age_ns(&scan, first, &decoded.bands);
         }
         timeline
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The header named a packed 4:4:4 stream by the setting asked for: its size is the logical one.
+    #[test]
+    fn a_packed_or_pyrowave_setup_gives_the_pictures_size() {
+        let packed = session::VideoSetup { format: nightjar_core::sdp::VIDEO_FORMAT_H264, width: 3840, height: 1080, fps: 60, chroma_packing: 1, logical_width: 1920, logical_height: 1080, color_space: 1, color_range: 0 };
+        assert_eq!(setup_size(&packed), (1920, 1080));
+        assert_eq!(setup_size(&session::VideoSetup { logical_width: 0, logical_height: 0, chroma_packing: 0, width: 2560, height: 1440, ..packed }), (2560, 1440));
     }
 }

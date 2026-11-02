@@ -79,4 +79,7 @@ La progression non enregistrée sera perdue.</string>
     <string name="stream_tile_end_session">Terminer la session</string>
     <string name="stream_tile_close_game">Fermer le jeu</string>
     <string name="stream_tile_quit_game">Quitter le jeu</string>
+    <string name="stream_shortcut_key_unsupported">%1$s ne peut pas faire partie d’un raccourci : touchez-la pour la retirer.</string>
+    <string name="stream_shortcut_no_keyboard">Raccourci non envoyé : cet appareil n’a pas le droit d’envoyer le clavier au PC.</string>
+    <string name="stream_shortcut_not_sent">Raccourci non envoyé : le stream n’accepte pas d’entrée pour l’instant.</string>
 </resources>

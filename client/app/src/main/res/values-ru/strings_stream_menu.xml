@@ -79,4 +79,7 @@
     <string name="stream_tile_end_session">Завершить сеанс</string>
     <string name="stream_tile_close_game">Закрыть игру</string>
     <string name="stream_tile_quit_game">Выйти из игры</string>
+    <string name="stream_shortcut_key_unsupported">%1$s нельзя использовать в сочетании: нажмите, чтобы убрать.</string>
+    <string name="stream_shortcut_no_keyboard">Сочетание не отправлено: этому устройству нельзя отправлять ввод с клавиатуры на ПК.</string>
+    <string name="stream_shortcut_not_sent">Сочетание не отправлено: трансляция сейчас не принимает ввод.</string>
 </resources>

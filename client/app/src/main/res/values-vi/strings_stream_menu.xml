@@ -79,4 +79,7 @@ Tiến trình chưa lưu sẽ bị mất.</string>
     <string name="stream_tile_end_session">Kết thúc phiên</string>
     <string name="stream_tile_close_game">Đóng trò chơi</string>
     <string name="stream_tile_quit_game">Thoát trò chơi</string>
+    <string name="stream_shortcut_key_unsupported">%1$s không thể dùng trong phím tắt: chạm để bỏ ra.</string>
+    <string name="stream_shortcut_no_keyboard">Chưa gửi phím tắt: thiết bị này không được phép gửi bàn phím đến PC.</string>
+    <string name="stream_shortcut_not_sent">Chưa gửi phím tắt: luồng hiện không nhận đầu vào.</string>
 </resources>

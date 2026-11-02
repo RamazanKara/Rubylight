@@ -569,6 +569,7 @@ impl Encoder {
             if e.config.chroma_packing != 0 {
                 e.validate_packed_capacity()?;
             }
+            e.validate_size()?;
             let initialized = check(timed("AMF Init", || {
                 ((*(*e.component).pVtbl).Init.unwrap())(
                     e.component,

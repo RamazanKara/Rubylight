@@ -39,8 +39,45 @@ pub struct Encoded {
     pub presentation: Option<std::time::Instant>,
 }
 
+/// A stream size the encoder cannot take: no driver update or sign in helps,
+/// a lower resolution on the device does.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SizeTooLarge {
+    pub encoder: &'static str,
+    pub width: u32,
+    pub height: u32,
+    /// The largest width and height, where the driver says them.
+    pub max: Option<(u32, u32)>,
+}
+impl std::fmt::Display for SizeTooLarge {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}x{} is larger than {} on this GPU can encode",
+            self.width, self.height, self.encoder
+        )?;
+        if let Some((width, height)) = self.max {
+            write!(f, " (at most {width}x{height})")?;
+        }
+        f.write_str("; choose a lower resolution on the device")
+    }
+}
+impl std::error::Error for SizeTooLarge {}
+
+/// The size error in `error`, said once with the adapter, in place of the
+/// driver and sign-in advice that does not apply to it.
+fn size_failed(error: &anyhow::Error, encoder: &str, adapter: &str) -> Option<anyhow::Error> {
+    let size = error.downcast_ref::<SizeTooLarge>()?;
+    Some(anyhow::anyhow!(
+        "{encoder} could not start on {adapter}: {size}"
+    ))
+}
+
 /// What a stream reports when AMF does not start on `adapter`.
 fn amf_failed(error: anyhow::Error, adapter: &str) -> anyhow::Error {
+    if let Some(size) = size_failed(&error, "AMF", adapter) {
+        return size;
+    }
     error.context(format!(
         "AMF could not start on {adapter}. If Windows is at the sign-in screen or an RDP session was disconnected, sign in to and unlock the console session, then retry. Otherwise update the AMD graphics driver or select another codec on the device"
     ))
@@ -48,6 +85,9 @@ fn amf_failed(error: anyhow::Error, adapter: &str) -> anyhow::Error {
 
 /// What a stream reports when NVENC does not start on `adapter`.
 fn nvenc_failed(error: anyhow::Error, adapter: &str) -> anyhow::Error {
+    if let Some(size) = size_failed(&error, "NVENC", adapter) {
+        return size;
+    }
     // The cause names the apps holding the sessions; a driver update or
     // signing in frees none.
     if crate::nvenc::session_limit(&error) {
@@ -639,6 +679,44 @@ mod tests {
             message.ends_with("AMD AMF runtime unavailable"),
             "{message}"
         );
+    }
+    #[test]
+    fn a_size_the_encoder_cannot_take_says_so_and_not_to_update_the_driver() {
+        let size = SizeTooLarge {
+            encoder: "AMF",
+            width: 8192,
+            height: 8192,
+            max: Some((4096, 2176)),
+        };
+        let message = format!(
+            "{:#}",
+            amf_failed(
+                anyhow::Error::new(size.clone()).context("AMF encoder Init"),
+                "AMD Radeon RX 7900 XT"
+            )
+        );
+        assert_eq!(
+            message,
+            "AMF could not start on AMD Radeon RX 7900 XT: 8192x8192 is larger than AMF on this GPU can encode (at most 4096x2176); choose a lower resolution on the device"
+        );
+        let message = format!(
+            "{:#}",
+            nvenc_failed(
+                anyhow::Error::new(SizeTooLarge {
+                    encoder: "NVENC",
+                    max: None,
+                    ..size
+                }),
+                "NVIDIA GeForce RTX 4070"
+            )
+        );
+        assert_eq!(
+            message,
+            "NVENC could not start on NVIDIA GeForce RTX 4070: 8192x8192 is larger than NVENC on this GPU can encode; choose a lower resolution on the device"
+        );
+        for advice in ["driver", "sign-in", "unlock"] {
+            assert!(!message.contains(advice), "{message}");
+        }
     }
     fn gpu(name: &str, vendor: u32) -> crate::capture::Gpu {
         crate::capture::Gpu {

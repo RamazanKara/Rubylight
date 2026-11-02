@@ -69,9 +69,38 @@ impl Encoder {
             "packed {width}x{height} at {} fps exceeds AMD encoder throughput",
             self.config.fps
         );
+        let (min_w, max_w, min_h, max_h) = self.input_limits()?;
+        anyhow::ensure!(
+            (min_w..=max_w).contains(&(width as i32)) && (min_h..=max_h).contains(&(height as i32)),
+            "packed {width}x{height} exceeds AMD input limits {min_w}..{max_w} by {min_h}..{max_h}"
+        );
+        Ok(())
+    }
+
+    /// A stream larger than the encoder's input limits fails here, in words,
+    /// rather than as an Init error. Without limits from the driver, Init decides.
+    pub(super) fn validate_size(&self) -> Result<()> {
+        let Ok((_, max_w, _, max_h)) = self.input_limits() else {
+            return Ok(());
+        };
+        let (width, height) = (self.config.width, self.config.height);
+        if max_w > 0 && max_h > 0 && (width as i32 > max_w || height as i32 > max_h) {
+            return Err(crate::encoder::SizeTooLarge {
+                encoder: "AMF",
+                width,
+                height,
+                max: Some((max_w as u32, max_h as u32)),
+            }
+            .into());
+        }
+        Ok(())
+    }
+
+    /// The encoder's input width and height ranges: min and max width, min and max height.
+    fn input_limits(&self) -> Result<(i32, i32, i32, i32)> {
         // SAFETY: The component owns its caps; both acquired interfaces are released
         // before inspecting the plain range values returned into local storage.
-        let (min_w, max_w, min_h, max_h) = unsafe {
+        let limits = unsafe {
             let mut caps = ptr::null_mut();
             check(((*(*self.component).pVtbl).GetCaps.unwrap())(
                 self.component,
@@ -89,11 +118,7 @@ impl Encoder {
             ((*(*input).pVtbl).Release.unwrap())(input);
             (min_w, max_w, min_h, max_h)
         };
-        anyhow::ensure!(
-            (min_w..=max_w).contains(&(width as i32)) && (min_h..=max_h).contains(&(height as i32)),
-            "packed {width}x{height} exceeds AMD input limits {min_w}..{max_w} by {min_h}..{max_h}"
-        );
-        Ok(())
+        Ok(limits)
     }
 
     /// An integer capability of this encoder, such as its engine count.

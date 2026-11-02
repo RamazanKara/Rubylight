@@ -839,10 +839,16 @@ impl Session {
         let _guard = self.guard()?;
         self.stream.validate()?;
         self.check_codec()?;
-        if self.stream.width > self.cap(_NV_ENC_CAPS_NV_ENC_CAPS_WIDTH_MAX)?.max(0) as u32
-            || self.stream.height > self.cap(_NV_ENC_CAPS_NV_ENC_CAPS_HEIGHT_MAX)?.max(0) as u32
-        {
-            bail!("stream dimensions exceed NVENC capability");
+        let max_width = self.cap(_NV_ENC_CAPS_NV_ENC_CAPS_WIDTH_MAX)?.max(0) as u32;
+        let max_height = self.cap(_NV_ENC_CAPS_NV_ENC_CAPS_HEIGHT_MAX)?.max(0) as u32;
+        if self.stream.width > max_width || self.stream.height > max_height {
+            return Err(crate::encoder::SizeTooLarge {
+                encoder: "NVENC",
+                width: self.stream.width,
+                height: self.stream.height,
+                max: Some((max_width, max_height)),
+            }
+            .into());
         }
         if self.stream.ten_bit()
             && (!self.optional_cap(_NV_ENC_CAPS_NV_ENC_CAPS_SUPPORT_10BIT_ENCODE)

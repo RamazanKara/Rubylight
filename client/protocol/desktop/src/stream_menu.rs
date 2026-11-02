@@ -715,4 +715,16 @@ mod tests {
         }
         assert_eq!(empty.keys.len(), format::MAX_KEYS, "a ninth key is not taken");
     }
+
+    /// Named in the order it is saved and pressed, not the order picked: a Caps Lock then Shift
+    /// draft was named "Caps Lock + Shift" though it sends Shift first.
+    #[test]
+    fn a_draft_is_named_modifiers_first_whatever_order_its_keys_were_picked_in() {
+        let mut saved = Shortcuts::default();
+        let mut draft = Draft::default();
+        draft.toggle("CAPS_LOCK");
+        draft.toggle("SHIFT");
+        assert!(draft.save(&mut saved));
+        assert_eq!((saved.data[0].name.as_str(), &saved.data[0].keys[..]), ("Shift + Caps Lock", &["SHIFT".to_owned(), "CAPS_LOCK".into()][..]));
+    }
 }

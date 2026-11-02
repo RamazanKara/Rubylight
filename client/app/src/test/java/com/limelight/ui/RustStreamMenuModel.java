@@ -162,7 +162,11 @@ public final class RustStreamMenuModel implements StreamMenuModel.Calls {
                 case "chord_label": {
                     JSONArray keys = in.getJSONArray("keys");
                     List<String> labels = new ArrayList<>();
-                    for (int i = 0; i < keys.length(); i++) labels.add(label(keys.getString(i)));
+                    List<String> rest = new ArrayList<>();
+                    for (int i = 0; i < keys.length(); i++) {
+                        (MODIFIERS.contains(keys.getString(i)) ? labels : rest).add(label(keys.getString(i)));
+                    }
+                    labels.addAll(rest);
                     return ok(String.join(" + ", labels));
                 }
                 case "labels": {

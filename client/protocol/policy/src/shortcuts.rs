@@ -288,9 +288,12 @@ pub fn key_label(name: &str) -> String {
     label.to_string()
 }
 
-/// A chord as people write it: `Ctrl + Shift + Esc`.
+/// A chord as people write it and as it is pressed, modifiers first: `Ctrl + Shift + Esc`. A
+/// draft picked Caps Lock then Shift was named `Caps Lock + Shift` though it is saved and sent
+/// as Shift + Caps Lock.
 pub fn chord_label(keys: &[String]) -> String {
-    keys.iter().map(|key| key_label(key)).collect::<Vec<_>>().join(" + ")
+    let (modifiers, others): (Vec<&String>, Vec<&String>) = keys.iter().partition(|key| is_modifier(key));
+    modifiers.into_iter().chain(others).map(|key| key_label(key)).collect::<Vec<_>>().join(" + ")
 }
 
 /// A chord the stream menu offers without the user saving it.
@@ -445,6 +448,8 @@ mod tests {
         assert!(!PICKER[4..].iter().any(|k| is_modifier(k)));
         assert_eq!(chord_label(&["CTRL".into(), "SHIFT".into(), "ESC".into()]), "Ctrl + Shift + Esc");
         assert_eq!(chord_label(&["WIN".into(), "DPAD_LEFT".into()]), "Win + ←");
+        assert_eq!(chord_label(&["CAPS_LOCK".into(), "SHIFT".into()]), "Shift + Caps Lock");
+        assert_eq!(chord_label(&["ESC".into(), "SHIFT".into(), "CTRL".into()]), "Shift + Ctrl + Esc");
         assert_eq!(key_label("NUMPAD_4"), "Num 4");
     }
 }

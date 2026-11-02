@@ -1200,6 +1200,8 @@ public class StreamMenuTest {
             menu.saveDraft();
             assertEquals(StreamMenu.Page.SHORTCUTS, menu.page());
             assertArrayEquals(KeyboardShortcuts.parseChord("CTRL+SHIFT+ESC"), saved.list.get(0).keys());
+            // Its name follows the saved order too: the Retroid named a Caps Lock then Shift draft "Caps Lock + Shift".
+            assertEquals("Ctrl + Shift + Esc", saved.list.get(0).name);
             menu.sheet().dismiss();
         }
     }

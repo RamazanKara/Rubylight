@@ -383,6 +383,9 @@ pub enum Icon {
     Controller,
     Folder,
     File,
+    Plus,
+    More,
+    Back,
 }
 
 /// Draws `icon` centred in `rect` in `color`.
@@ -519,6 +522,19 @@ pub fn icon(painter: &egui::Painter, rect: Rect, icon: Icon, color: Color32) {
         Icon::File => {
             painter.add(egui::Shape::line(vec![p(-5.5, -7.5), p(1.5, -7.5), p(5.5, -3.5), p(5.5, 7.5), p(-5.5, 7.5), p(-5.5, -7.5)], stroke));
             line(&[p(1.5, -7.5), p(1.5, -3.5), p(5.5, -3.5)]);
+        }
+        Icon::Plus => {
+            line(&[p(-6.5, 0.0), p(6.5, 0.0)]);
+            line(&[p(0.0, -6.5), p(0.0, 6.5)]);
+        }
+        Icon::Back => {
+            line(&[p(6.5, 0.0), p(-6.0, 0.0)]);
+            line(&[p(-1.0, -5.0), p(-6.0, 0.0), p(-1.0, 5.0)]);
+        }
+        Icon::More => {
+            for x in [-5.5, 0.0, 5.5] {
+                painter.circle_filled(p(x, 0.0), 1.6 * s, color);
+            }
         }
     }
 }

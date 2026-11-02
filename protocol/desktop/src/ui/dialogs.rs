@@ -565,7 +565,7 @@ impl Launcher {
                         if let Some(error) = error { ui.label(RichText::new(error.as_str()).color(ERROR)); }
                         dialog_buttons(ui, |ui| {
                             if primary_button(ui, "Save").clicked() {
-                                match self.shortcuts.save(id.as_deref(), name, chord) {
+                                match crate::shortcuts::save(&mut self.shortcuts, id.as_deref(), name, chord) {
                                     Ok(()) => { commands.push(Command::SaveShortcuts); close = true; }
                                     Err(message) => *error = Some(message),
                                 }

@@ -5,12 +5,15 @@ import android.graphics.Canvas;
 import android.graphics.DashPathEffect;
 import android.graphics.Paint;
 import android.graphics.Path;
+import android.graphics.RadialGradient;
 import android.graphics.RectF;
+import android.graphics.Shader;
 import android.graphics.Typeface;
 
 import androidx.core.content.ContextCompat;
 
 import com.limelight.R;
+import com.limelight.binding.input.StickMath;
 import com.limelight.nvstream.input.ControllerPacket;
 
 /**
@@ -41,6 +44,16 @@ final class PadPainter {
             text = new Paint(Paint.ANTI_ALIAS_FLAG), dashed = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final RectF rect = new RectF();
     private final Path path = new Path();
+    /** The held knob's shadow: a disc this much larger than the knob, dropped this share of its radius. */
+    private static final float SHADOW_SCALE = 1.2f, SHADOW_DROP = .12f;
+    // A fixed unit radial fade: the canvas is moved and scaled onto the knob instead of the shader,
+    // so a frame neither allocates nor rebuilds the native shader.
+    private final RadialGradient shadowShader = new RadialGradient(0, 0, 1,
+            new int[] {0x66000000, 0x4D000000, 0x00000000}, new float[] {0, .8f, 1}, Shader.TileMode.CLAMP);
+    private final Paint shadowPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    /** The stick geometry for the last size drawn, recomputed only when a stick's size changes. */
+    private float stickSize = Float.NaN, stickBase, stickKnob;
+    private final float[] knobAt = new float[2];
 
     PadPainter(Context context) {
         density = context.getResources().getDisplayMetrics().density;
@@ -55,6 +68,7 @@ final class PadPainter {
         dashed.setStyle(Paint.Style.STROKE);
         dashed.setStrokeWidth(1.5f * density);
         dashed.setPathEffect(new DashPathEffect(new float[] {6 * density, 5 * density}, 0));
+        shadowPaint.setShader(shadowShader);
     }
 
     int accent() {
@@ -110,16 +124,15 @@ final class PadPainter {
     }
 
     private void drawStick(Canvas canvas, PadLayout.Control control, float left, float top, float width, float height, State state) {
-        float size = Math.min(width, height);
-        float base = size / 2 - stroke.getStrokeWidth();
-        // The base stays put; a floating stick's knob starts where the thumb landed.
+        drawStickBase(canvas, left, top, width, height, state);
+        drawStickKnob(canvas, control, left, top, width, height, state);
+    }
+
+    /** A stick's base: the glass disc, its rim and, while pushed, the amber arc pointing where. */
+    void drawStickBase(Canvas canvas, float left, float top, float width, float height, State state) {
+        stickGeometry(Math.min(width, height));
+        float base = stickBase;
         float cx = left + width / 2, cy = top + height / 2;
-        float originX = cx, originY = cy;
-        if (state.stickActive && !Float.isNaN(state.centerX)) {
-            originX = left + state.centerX;
-            originY = top + state.centerY;
-        }
-        float travel = travel(size);
         fill.setColor(state.stickActive ? GLASS_STRONG : GLASS);
         canvas.drawCircle(cx, cy, base, fill);
         stroke.setColor(RIM);
@@ -136,16 +149,37 @@ final class PadPainter {
             canvas.drawArc(rect, angle - sweep / 2, sweep, false, stroke);
             stroke.setStrokeWidth(1.5f * density);
         }
-        boolean clicked = (state.flags & PadInput.buttonFlag(control)) != 0;
-        float knob = size * .2f;
-        float kx = originX + state.stickX * travel, ky = originY - state.stickY * travel;
-        // Kept inside the base so a thumb that landed near the rim never draws the knob off the control.
-        float reach = base - knob, ox = kx - cx, oy = ky - cy, off = (float) Math.hypot(ox, oy);
-        if (off > reach && off > 0) {
-            kx = cx + ox / off * reach;
-            ky = cy + oy / off * reach;
+    }
+
+    /**
+     * A stick's knob for the control in the box ({@code left}, {@code top}, {@code width},
+     * {@code height}). Its centre travels to the base's rim at full deflection, so the canvas must
+     * reach {@link #knobOverhang} past the box on every side; while held it lifts on a soft shadow.
+     */
+    void drawStickKnob(Canvas canvas, PadLayout.Control control, float left, float top, float width, float height, State state) {
+        stickGeometry(Math.min(width, height));
+        float base = stickBase, knob = stickKnob;
+        // The base stays put; a floating stick's knob starts where the thumb landed.
+        float cx = left + width / 2, cy = top + height / 2;
+        float originX = cx, originY = cy;
+        if (state.stickActive && !Float.isNaN(state.centerX)) {
+            originX = left + state.centerX;
+            originY = top + state.centerY;
         }
-        fill.setColor(clicked ? accent : state.stickActive ? 0xE6FFFFFF : 0x99FFFFFF);
+        StickMath.knob(cx, cy, originX, originY, state.stickX, state.stickY, base, knobAt);
+        float kx = knobAt[0], ky = knobAt[1];
+        if (state.stickActive) {
+            // Light from above: the shadow falls a little below the knob and fades out past its edge.
+            float shadow = knob * SHADOW_SCALE;
+            int saved = canvas.save();
+            canvas.translate(kx, ky + knob * SHADOW_DROP);
+            canvas.scale(shadow, shadow);
+            canvas.drawCircle(0, 0, 1, shadowPaint);
+            canvas.restoreToCount(saved);
+        }
+        boolean clicked = (state.flags & PadInput.buttonFlag(control)) != 0;
+        // Held, the knob is solid: it sits on top of the rim it rides over, not behind glass.
+        fill.setColor(clicked ? accent : state.stickActive ? 0xFFF2F2F2 : 0x99FFFFFF);
         canvas.drawCircle(kx, ky, knob, fill);
         if (clicked) {
             label(canvas, control == PadLayout.Control.LEFT_STICK ? "L3" : "R3", kx, ky, knob * .7f, true);
@@ -156,9 +190,23 @@ final class PadPainter {
         }
     }
 
-    /** How far the knob travels for a stick of this size; ModernController uses it as the stick radius too. */
+    private void stickGeometry(float size) {
+        if (size == stickSize) return;
+        stickSize = size;
+        stickBase = StickMath.baseRadius(size, stroke.getStrokeWidth());
+        stickKnob = StickMath.knobRadius(size);
+    }
+
+    /** How far past each edge of a stick of this box its knob and the knob's shadow can draw. */
+    float knobOverhang(float width, float height) {
+        float size = Math.min(width, height), knob = StickMath.knobRadius(size);
+        float shadowReach = knob * (SHADOW_SCALE - 1 + SHADOW_DROP);
+        return StickMath.overhang(size, stroke.getStrokeWidth(), shadowReach);
+    }
+
+    /** How far the finger travels for full deflection on a stick of this size; ModernController uses it as the stick radius. */
     static float travel(float size) {
-        return size * .3f;
+        return StickMath.travel(size);
     }
 
     private void drawDpad(Canvas canvas, float left, float top, float size, int flags) {

@@ -2,7 +2,8 @@ package com.limelight.binding.input;
 
 import com.limelight.nvstream.input.ControllerPacket;
 
-/** Turns one finger on a stick, D-pad or WASD control into a stick position. Plain math, no allocation. */
+/** Turns one finger on a stick, D-pad or WASD control into a stick position. Plain math, no allocation;
+ * the stick mapping is {@link StickMath}'s. */
 public final class LayoutStick {
     public static final int UP = 1, LEFT = 2, DOWN = 4, RIGHT = 8;
     /** A D-pad ignores a finger this close to its center and splits the rest into eight equal sectors. */
@@ -12,6 +13,7 @@ public final class LayoutStick {
     private final float deadzone;
     private float centerX, centerY, radius;
     private boolean active;
+    private final float[] deflection = new float[2];
     /** Position from -1 to 1, with up positive. */
     public float x, y;
 
@@ -37,16 +39,12 @@ public final class LayoutStick {
 
     public void move(float touchX, float touchY) {
         if (!active) return;
-        float dx = (touchX - centerX) / radius, dy = (centerY - touchY) / radius;
-        float length = (float) Math.sqrt(dx * dx + dy * dy);
-        if (length <= deadzone || length == 0) {
-            x = 0; y = 0;
-            return;
-        }
-        // Rescale past the deadzone so the stick still reaches every value from just above 0 to 1.
-        float scaled = (Math.min(length, 1) - deadzone) / (1 - deadzone);
-        x = dx / length * scaled;
-        y = dy / length * scaled;
+        // The shared crate's mapping (StickMath, its Java port): 0 inside the deadzone, rescaled past it so the stick still
+        // reaches every value from just above 0 to 1, full past the radius.
+        float dx = touchX - centerX, dy = centerY - touchY;
+        StickMath.deflection(dx, dy, radius, deadzone, deflection);
+        x = deflection[0];
+        y = deflection[1];
     }
 
     public void release() {

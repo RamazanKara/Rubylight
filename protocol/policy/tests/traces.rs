@@ -5,7 +5,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 /// Every module folder, each with at least one trace, so a renamed or emptied folder fails.
-const MODULES: [&str; 7] = [
+const MODULES: [&str; 8] = [
     "bitrate",
     "client_hint",
     "health",
@@ -13,6 +13,7 @@ const MODULES: [&str; 7] = [
     "pyrowave",
     "quality",
     "recovery",
+    "stick",
 ];
 
 fn sorted(dir: &Path) -> Vec<PathBuf> {

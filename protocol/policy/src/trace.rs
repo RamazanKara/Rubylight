@@ -32,6 +32,7 @@ fn subject(name: &str, args: &Value) -> Result<Box<dyn Subject>, String> {
         "health::PeriodicStalls" => crate::health::traced_stalls(args),
         "health::BitrateTrial" => crate::health::traced_trial(args),
         "stats::LateFrames" => crate::stats::traced_late(args),
+        "stick::Geometry" => crate::stick::traced(args),
         "launch::LaunchPolicy" => crate::launch::traced(crate::launch::Traced::Launch, args),
         "launch::StreamExitPolicy" => crate::launch::traced(crate::launch::Traced::Exit, args),
         "launch::InputOnlyPolicy" => crate::launch::traced(crate::launch::Traced::InputOnly, args),

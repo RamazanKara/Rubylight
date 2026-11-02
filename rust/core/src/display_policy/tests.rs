@@ -957,7 +957,7 @@ fn a_return_after_the_lock_screen_or_a_session_switch_is_not_counted() {
     let at = |s: u64| start + Duration::from_secs(s);
     let phys = vec!["phys".to_string()];
     let mut watch = LayoutWatch::default();
-    let mut back = |watch: &mut LayoutWatch, s: u64| {
+    let back = |watch: &mut LayoutWatch, s: u64| {
         watch.observe(&phys, at(s));
         let action = watch.observe(&phys, at(s) + LayoutWatch::SETTLE);
         watch.reapplied(&phys, at(s));

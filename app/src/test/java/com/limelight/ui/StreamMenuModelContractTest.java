@@ -182,6 +182,9 @@ public class StreamMenuModelContractTest {
                 case "chord_label":
                     assertEquals("Ctrl + Shift + Esc", StreamMenuModel.chordLabel(new String[] {"CTRL", "SHIFT", "ESC"}));
                     break;
+                case "chord_label_picked_modifier_last":
+                    assertEquals("Shift + Caps Lock", StreamMenuModel.chordLabel(new String[] {"CAPS_LOCK", "SHIFT"}));
+                    break;
                 case "mode_line":
                     assertEquals("1440p · 144 FPS · HEVC HDR", StreamMenuModel.modeLine(2560, 1440, 144, 0x0200, true));
                     break;

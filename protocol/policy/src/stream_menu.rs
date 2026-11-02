@@ -99,6 +99,7 @@ pub const TILES: &[Tile] = &[
     more("keyboard_keys"),
     more("controls_layout"),
     more("mic_button"),
+    more("menu_button"),
     more("game_controls"),
     more("picture"),
     more("video_scaling"),
@@ -231,6 +232,70 @@ impl Layout {
     }
 }
 
+// Moonlight's video format bits (moonlight-common-c's VIDEO_FORMAT_MASK_*), as both clients
+// report the negotiated format.
+const FORMAT_H264: u32 = 0x000F;
+const FORMAT_HEVC: u32 = 0x0F00;
+const FORMAT_AV1: u32 = 0xF000;
+const FORMAT_PYROWAVE: u32 = 0x0F_0000;
+
+/// The longest header line that still takes the codec or HDR after the mode.
+pub const MODE_LINE_MAX: usize = 28;
+
+/// The stream's size as players name it: `1440p` for 16:9 and narrower shapes (by the short
+/// side, so a portrait stream reads the same), `4K` and `8K`, and the full `3440×1440` for
+/// anything wider than 16:9.
+pub fn resolution_label(width: u32, height: u32) -> String {
+    let (long, short) = (width.max(height), width.min(height));
+    // 1% slack, so 1366×768 still counts as 16:9.
+    if u64::from(long) * 900 > u64::from(short) * 1616 {
+        return format!("{width}×{height}");
+    }
+    match short {
+        2160 => "4K".into(),
+        4320 => "8K".into(),
+        _ => format!("{short}p"),
+    }
+}
+
+fn codec_label(format: u32) -> Option<&'static str> {
+    if format & FORMAT_PYROWAVE != 0 {
+        Some("PyroWave")
+    } else if format & FORMAT_AV1 != 0 {
+        Some("AV1")
+    } else if format & FORMAT_HEVC != 0 {
+        Some("HEVC")
+    } else if format & FORMAT_H264 != 0 {
+        Some("H.264")
+    } else {
+        None
+    }
+}
+
+/// The stream menu's header line, as both clients show it under the game's name: `1440p · 144 FPS`,
+/// then the codec and HDR (`· HEVC HDR`) while the line stays within [`MODE_LINE_MAX`]
+/// characters; the codec goes first when it does not fit. `format` is the negotiated video format
+/// (0 while unknown). None while the stream's size or rate is not known yet.
+pub fn mode_line(width: u32, height: u32, fps: u32, format: u32, hdr: bool) -> Option<String> {
+    if width == 0 || height == 0 || fps == 0 {
+        return None;
+    }
+    let mode = format!("{} · {fps} FPS", resolution_label(width, height));
+    let hdr = hdr.then_some("HDR");
+    let tails = [[codec_label(format), hdr], [None, hdr]];
+    for tail in tails {
+        let tail: Vec<&str> = tail.into_iter().flatten().collect();
+        if tail.is_empty() {
+            continue;
+        }
+        let line = format!("{mode} · {}", tail.join(" "));
+        if line.chars().count() <= MODE_LINE_MAX {
+            return Some(line);
+        }
+    }
+    Some(mode)
+}
+
 /// The JSON calls Android makes through JNI (`StreamMenuModel.call`): one request in, one answer
 /// out, `{"ok": …}` or `{"error": code, "detail": …}`.
 pub mod json {
@@ -250,6 +315,8 @@ pub mod json {
         Validate { name: String, keys: Vec<String> },
         /// A chord's text, `Ctrl + Shift + Esc`.
         ChordLabel { keys: Vec<String> },
+        /// The header's line for the stream's mode ([`mode_line`]); null while it is not known.
+        ModeLine { width: u32, height: u32, fps: u32, format: u32, hdr: bool },
     }
 
     fn keys(keys: &[&str]) -> Vec<String> {
@@ -278,6 +345,7 @@ pub mod json {
                 json!(scratch.data[0].keys)
             }
             Request::ChordLabel { keys } => json!(shortcuts::chord_label(&keys)),
+            Request::ModeLine { width, height, fps, format, hdr } => json!(mode_line(width, height, fps, format, hdr)),
         })
     }
 
@@ -383,5 +451,35 @@ mod tests {
         assert_eq!(answer["ok"][0], serde_json::json!({"key": "CTRL", "label": "Ctrl", "modifier": true}));
         let answer: serde_json::Value = serde_json::from_str(&json::call(r#"{"op":"chord_label","keys":["ALT","F4"]}"#)).unwrap();
         assert_eq!(answer["ok"], "Alt + F4");
+
+        let answer: serde_json::Value =
+            serde_json::from_str(&json::call(r#"{"op":"mode_line","width":2560,"height":1440,"fps":144,"format":512,"hdr":true}"#)).unwrap();
+        assert_eq!(answer["ok"], "1440p · 144 FPS · HEVC HDR");
+        let answer: serde_json::Value = serde_json::from_str(&json::call(r#"{"op":"mode_line","width":0,"height":0,"fps":0,"format":0,"hdr":false}"#)).unwrap();
+        assert_eq!(answer, serde_json::json!({"ok": null}));
+    }
+
+    /// nightjar#63: the header says the mode the way players do, "1440p · 144 FPS", with the codec
+    /// and HDR after it only while the line stays short.
+    #[test]
+    fn the_header_line_names_the_mode_like_players_do() {
+        assert_eq!(mode_line(2560, 1440, 144, 0, false).as_deref(), Some("1440p · 144 FPS"));
+        assert_eq!(mode_line(2560, 1440, 144, 0x0100, false).as_deref(), Some("1440p · 144 FPS · HEVC"));
+        assert_eq!(mode_line(1920, 1080, 60, 0x0001, false).as_deref(), Some("1080p · 60 FPS · H.264"));
+        assert_eq!(mode_line(3840, 2160, 120, 0x2000, true).as_deref(), Some("4K · 120 FPS · AV1 HDR"));
+        assert_eq!(mode_line(2560, 1600, 120, 0x1000, false).as_deref(), Some("1600p · 120 FPS · AV1"), "16:10 is named by its height");
+        assert_eq!(mode_line(1080, 1920, 60, 0x0100, false).as_deref(), Some("1080p · 60 FPS · HEVC"), "portrait by its short side");
+        assert_eq!(mode_line(1366, 768, 60, 0, false).as_deref(), Some("768p · 60 FPS"));
+        assert_eq!(mode_line(1280, 720, 60, 0x01_0000, false).as_deref(), Some("720p · 60 FPS · PyroWave"));
+        // Wider than 16:9: the full size, and the codec gives way before HDR when the line runs long.
+        assert_eq!(mode_line(3440, 1440, 144, 0x1000, false).as_deref(), Some("3440×1440 · 144 FPS · AV1"));
+        assert_eq!(mode_line(3440, 1440, 100, 0x0200, true).as_deref(), Some("3440×1440 · 100 FPS · HDR"));
+        assert_eq!(mode_line(5120, 1440, 240, 0x01_0000, false).as_deref(), Some("5120×1440 · 240 FPS"));
+        for (w, h, fps) in [(0, 1080, 60), (1920, 0, 60), (1920, 1080, 0)] {
+            assert_eq!(mode_line(w, h, fps, 0x0100, true), None, "{w}x{h}@{fps} is not known yet");
+        }
+        for line in [mode_line(3440, 1440, 100, 0x0200, true), mode_line(3840, 2160, 120, 0x2000, true)] {
+            assert!(line.unwrap().chars().count() <= MODE_LINE_MAX);
+        }
     }
 }

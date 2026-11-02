@@ -358,7 +358,13 @@ impl Page {
         let worker = Worker { shared: shared.clone(), wake, gate: Gate::new(radeon_every, session_every) };
         let spawned = std::thread::Builder::new().name("session-page".into()).spawn(move || match make() {
             Ok(api) => worker.run(api, inbox),
-            Err(error) => worker.update(|s| s.setup_error = Some(error)),
+            Err(error) => worker.update(|s| {
+                // An exit asked for before the worker gave up would show as running for ever.
+                if let ExitState::Running(exit) = s.exit {
+                    s.exit = ExitState::Failed(exit, Failure::of(&Error::InvalidArgument(error.clone()), None));
+                }
+                s.setup_error = Some(error);
+            }),
         });
         if spawned.is_err() {
             lock(&shared).setup_error = Some(tr("The page could not start its worker.").into());
@@ -396,7 +402,14 @@ impl Page {
         }
         state.exit = ExitState::Running(exit);
         drop(state);
-        self.requests.send(Request::Exit(exit)).is_ok()
+        if self.requests.send(Request::Exit(exit)).is_err() {
+            // The worker is gone (it could not start): the exit fails with why, it never runs.
+            let mut state = lock(&self.shared);
+            let why = state.setup_error.clone().unwrap_or_else(|| tr("The page could not start its worker.").into());
+            state.exit = ExitState::Failed(exit, Failure::of(&Error::InvalidArgument(why), None));
+            return false;
+        }
+        true
     }
 }
 
@@ -910,6 +923,20 @@ mod tests {
         assert!(page.exit(HostExit::QuitApp));
         until("done", || matches!(page.state().exit, ExitState::Done(HostExit::QuitApp)));
         assert_eq!(counters.quits.load(Ordering::SeqCst), 1);
+    }
+
+    /// The stream menu runs a confirmed exit as the page opens: a page whose worker cannot start
+    /// fails it with the reason instead of showing it running for ever (and keeping the page open).
+    #[test]
+    fn an_exit_on_a_page_that_could_not_start_fails_with_the_reason() {
+        let page = Page::open_with(|| Err::<Fake, _>("no client for this PC".to_owned()), Arc::new(|| {}), Duration::from_secs(1), Duration::from_secs(1));
+        page.exit(HostExit::CloseGame);
+        until("the exit failed", || matches!(page.state().exit, ExitState::Failed(HostExit::CloseGame, _)));
+        let ExitState::Failed(_, failure) = page.state().exit else { unreachable!() };
+        assert_eq!(exit_failure_text(&failure), "no client for this PC");
+        assert!(!page.busy(), "the page can close again");
+        assert!(!page.exit(HostExit::CloseGame), "a second try fails at once, the worker is gone");
+        assert!(matches!(page.state().exit, ExitState::Failed(HostExit::CloseGame, _)));
     }
 
     #[test]

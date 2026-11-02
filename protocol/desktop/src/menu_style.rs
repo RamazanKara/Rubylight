@@ -61,13 +61,35 @@ pub fn scrim(ctx: &egui::Context) {
 /// A menu's content: as tall as the window allows less a margin, scrolling beyond that. egui
 /// lays a new window out in at most 400 points the first time, which cut the menu short.
 pub fn body<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> R {
-    let room = ui.ctx().content_rect().height() - 2.0 * (space::XL + MARGIN);
-    ui.set_max_height(room);
+    body_above(ui, 0.0, add)
+}
+
+/// [`body`] for a page that keeps something in view above and under the part that scrolls: what
+/// the window drew above it already, and `reserve` points under it (see [`pinned`]).
+pub fn body_above<R>(ui: &mut Ui, reserve: f32, add: impl FnOnce(&mut Ui) -> R) -> R {
+    let above = ui.cursor().top() - ui.max_rect().top();
+    let room = (ui.ctx().content_rect().height() - 2.0 * (space::XL + MARGIN) - above - reserve).max(TILE);
+    ui.set_max_height(above + room + reserve);
     egui::ScrollArea::vertical().max_height(room).show(ui, |ui| {
         ui.spacing_mut().item_spacing.y = 2.0;
         add(ui)
     })
     .inner
+}
+
+/// The room a [`pinned`] part took last frame, for [`body_above`] to leave under the scrolling
+/// part; before the first frame, about Return to stream and one row of exits.
+pub fn pinned_room(ctx: &egui::Context, id: &str) -> f32 {
+    ctx.data(|d| d.get_temp(egui::Id::unique(("pinned", id)))).unwrap_or(space::L + 44.0 + space::S + ROW)
+}
+
+/// A part that stays in view under the scrolling part (the stream menu's ways out); its height is
+/// kept for [`pinned_room`].
+pub fn pinned<R>(ui: &mut Ui, id: &str, add: impl FnOnce(&mut Ui) -> R) -> R {
+    let response = ui.scope(add);
+    let height = response.response.rect.height();
+    ui.ctx().data_mut(|d| d.insert_temp(egui::Id::unique(("pinned", id)), height));
+    response.inner
 }
 
 /// The menu's title and, under it, what streams from where.
@@ -179,6 +201,40 @@ pub fn danger(ui: &mut Ui, glyph: Icon, label: &str, shortcut: Option<Action>) -
     let response = action_row(ui, glyph, label, keys.as_deref().map_or(Trail::None, Trail::Keys), *ERROR);
     let spoken = keys.map(|k| format!("{label}, {k}")).unwrap_or_else(|| label.to_owned());
     response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), &spoken));
+    response
+}
+
+/// One of the ways out side by side under Return to stream (Disconnect, Quit game): its icon and
+/// label centred in the error colour on a tile's fill, `width` wide. The keys that do it show on
+/// hover and are read out with the label.
+pub fn exit_button(ui: &mut Ui, width: f32, glyph: Icon, label: &str, keys: Option<&str>) -> Response {
+    let enabled = ui.is_enabled();
+    let ink = if enabled { *ERROR } else { ERROR.gamma_multiply(0.4) };
+    let mut job = egui::text::LayoutJob::simple(label.to_owned(), regular(text::BODY), ink, (width - 2.0 * PAD - ICON - space::S).max(space::L));
+    job.wrap.max_rows = 2;
+    let galley = ui.painter().layout_job(job);
+    let height = (galley.size().y + 2.0 * 10.0).max(ROW);
+    let (rect, mut response) = ui.allocate_exact_size(vec2(width, height), Sense::click());
+    let fill = if !enabled {
+        *SURFACE
+    } else if response.is_pointer_button_down_on() {
+        SURFACE_HIGH.lerp_to_gamma(*ON_SURFACE, 0.12)
+    } else if response.hovered() {
+        SURFACE_HIGH.lerp_to_gamma(*ON_SURFACE, 0.06)
+    } else {
+        *SURFACE_HIGH
+    };
+    let painter = ui.painter();
+    painter.rect_filled(rect, CornerRadius::same(radius::CONTROL), fill);
+    let left = rect.center().x - (ICON + space::S + galley.size().x) / 2.0;
+    icon(painter, Rect::from_center_size(Pos2::new(left + ICON / 2.0, rect.center().y), vec2(ICON, ICON)), glyph, ink);
+    painter.galley(Pos2::new(left + ICON + space::S, rect.center().y - galley.size().y / 2.0), galley, ink);
+    ring(ui, rect, &response, radius::CONTROL);
+    if let Some(keys) = keys {
+        response = response.on_hover_text(keys);
+    }
+    let spoken = keys.map(|k| format!("{label}, {k}")).unwrap_or_else(|| label.to_owned());
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, enabled, &spoken));
     response
 }
 

@@ -258,7 +258,7 @@ pub fn grid(ui: &mut Ui, layout: &Layout, saved: &Shortcuts, hotkey: Option<Hotk
             Cell::Tile { id, on, hotkey } => menu_style::tile(ui, width, icon(id), label(id), None, *on, hotkey.map(Hotkey::cap)),
             Cell::Shortcut(n) => {
                 let shortcut = &saved.data[*n];
-                menu_style::tile(ui, width, Icon::Keyboard, &shortcut.name, Some(&format::chord_label(&shortcut.keys)), None, None)
+                menu_style::tile(ui, width, Icon::Keyboard, &shortcut.name, keys_under(&shortcut.name, &shortcut.keys).as_deref(), None, None)
             }
             Cell::Add => menu_style::tile(ui, width, Icon::Plus, tr("Add shortcut"), None, None, None),
         };
@@ -340,6 +340,13 @@ pub enum ShortcutChoice {
     Add,
 }
 
+/// A shortcut's keys under its name, left out when the name already says them (Caps Lock, the
+/// editor's default name), as on Android.
+fn keys_under(name: &str, keys: &[String]) -> Option<String> {
+    let chord = format::chord_label(keys);
+    (chord != name).then_some(chord)
+}
+
 /// The Shortcuts page: the built-ins not saved under a name of their own, the saved shortcuts
 /// and Add as tiles that send at once, then each saved one to edit.
 pub fn shortcuts_page(ui: &mut Ui, saved: &Shortcuts, focus_first: bool) -> Option<ShortcutChoice> {
@@ -351,7 +358,7 @@ pub fn shortcuts_page(ui: &mut Ui, saved: &Shortcuts, focus_first: bool) -> Opti
             let keys: Vec<String> = b.keys.iter().map(|k| k.to_string()).collect();
             menu_style::tile(ui, width, Icon::Keyboard, built_in_label(b.id), Some(&format::chord_label(&keys)), None, None)
         } else if let Some(s) = saved.data.get(index - built.len()) {
-            menu_style::tile(ui, width, Icon::Keyboard, &s.name, Some(&format::chord_label(&s.keys)), None, None)
+            menu_style::tile(ui, width, Icon::Keyboard, &s.name, keys_under(&s.name, &s.keys).as_deref(), None, None)
         } else {
             menu_style::tile(ui, width, Icon::Plus, tr("Add shortcut"), None, None, None)
         };
@@ -501,6 +508,13 @@ mod tests {
             mouse: Some(true), overlay: true, shortcuts: true, microphone: Some(false), quality: true, clipboard: true, image_clipboard: true,
             commands: true, session: true, host_audio: true, controller_audio: true, usb: true, exits: vec![HostExit::End, HostExit::CloseGame],
         }
+    }
+
+    /// A shortcut named after its keys says them once: the menu showed "Caps Lock / Caps Lock".
+    #[test]
+    fn a_shortcut_named_after_its_keys_shows_no_key_line() {
+        assert_eq!(keys_under("Caps Lock", &["CAPS_LOCK".into()]), None);
+        assert_eq!(keys_under("Snip", &["WIN".into(), "SHIFT".into(), "S".into()]).as_deref(), Some("Win + Shift + S"));
     }
 
     #[test]

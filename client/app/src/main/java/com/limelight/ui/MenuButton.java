@@ -150,6 +150,10 @@ public final class MenuButton extends View {
                     float half = getWidth() / 2f;
                     store.edit().putFloat(KEY_X, (getTranslationX() + half) / Math.max(1, parent.getWidth()))
                             .putFloat(KEY_Y, (getTranslationY() + half) / Math.max(1, parent.getHeight())).apply();
+                    // Over the stream's SurfaceView a moved button was left undrawn until the next layout (Retroid
+                    // Pocket); redraw the frame and lay it out, as showing the button does.
+                    parent.invalidate();
+                    requestLayout();
                 } else {
                     performClick();
                 }

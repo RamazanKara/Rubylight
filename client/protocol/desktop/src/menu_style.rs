@@ -360,9 +360,14 @@ pub fn tile(ui: &mut Ui, width: f32, glyph: Icon, label: &str, detail: Option<&s
     job.wrap.max_rows = 2;
     let galley = painter.layout_job(job);
     let quiet = detail.map(|detail| {
-        let mut job = egui::text::LayoutJob::simple_singleline(detail.to_owned(), regular(text::CAPTION), *ON_SURFACE_VARIANT);
+        // Keys too wide for the tile close up (Ctrl+Shift+Esc under the German Task-Manager)
+        // and then wrap, rather than end in an ellipsis.
+        let room = width - 2.0 * space::S;
+        let spaced = painter.layout_no_wrap(detail.to_owned(), regular(text::CAPTION), *ON_SURFACE_VARIANT).size().x <= room;
+        let keys = if spaced { detail.to_owned() } else { detail.replace(" + ", "+") };
+        let mut job = egui::text::LayoutJob::simple(keys, regular(text::CAPTION), *ON_SURFACE_VARIANT, room);
         job.halign = Align::Center;
-        job.wrap = egui::text::TextWrapping::truncate_at_width(width - 2.0 * space::S);
+        job.wrap.max_rows = 2;
         painter.layout_job(job)
     });
     // Icon, label and keys sit together in the middle of the tile, however many rows they take.
@@ -661,6 +666,30 @@ mod tests {
             button(ui, "Run command");
         });
         assert!(short.shapes.iter().any(|s| matches!(&s.shape, egui::Shape::Text(t) if t.galley.text() == "Run command" && !t.galley.elided)), "a short label stays whole");
+    }
+
+    /// A shortcut's keys wider than its tile close up and stay whole: the German shortcuts page
+    /// cut Task-Manager's to "Ctrl + Shift +…".
+    #[test]
+    fn keys_too_wide_for_a_tile_close_up_instead_of_being_cut() {
+        crate::theme::own_palette();
+        let ctx = egui::Context::default();
+        crate::theme::apply(&ctx);
+        let texts = |width: f32, detail: &str| {
+            let mut out = Vec::new();
+            for _ in 0..2 {
+                let output = run(&ctx, Vec::new(), |ui| {
+                    tile(ui, width, Icon::Keyboard, "Task-Manager", Some(detail), None, None);
+                });
+                out = output.shapes.iter().filter_map(|s| match &s.shape { egui::Shape::Text(t) => Some((t.galley.text().to_owned(), t.galley.elided)), _ => None }).collect();
+            }
+            out
+        };
+        let narrow = texts(100.0, "Ctrl + Shift + Esc");
+        assert!(narrow.iter().all(|(_, elided)| !elided), "{narrow:?}");
+        assert!(narrow.iter().any(|(text, _)| text == "Ctrl+Shift+Esc"), "{narrow:?}");
+        let wide = texts(220.0, "Ctrl + Shift + Esc");
+        assert!(wide.iter().any(|(text, _)| text == "Ctrl + Shift + Esc"), "room enough keeps the spaces: {wide:?}");
     }
 
     /// With "Back opens stream controls" on, the sheet lists Select for the controls as the Help

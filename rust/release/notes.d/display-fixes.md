@@ -1,3 +1,0 @@
-# Display fixes
-- **A monitor that keeps reconnecting no longer blanks the stream over and over.** With the exclusive layout, a monitor that drops its signal in standby or scans its inputs came back every 30-60 seconds, and each time the host switched it off again, which blanked the stream. After the same monitor comes back three times within five minutes, the host now leaves it on for the rest of the stream and says so on the stream card.
-- **Frame timing keeps working after a refresh change.** On WGC capture, a game or Windows changing the display's refresh during a stream left the host timing frames against the old refresh, which could turn the present-time correction off for the rest of the stream. The host now reads the refresh again and starts the correction over.

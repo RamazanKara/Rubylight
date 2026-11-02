@@ -1,0 +1,7 @@
+• The PC's reason for an ended stream shows in the error dialog.
+• Hold Guide opens the stream menu.
+• Opacity per control in the classic on-screen controls.
+• Audio moves to headphones, Bluetooth or USB plugged in mid-stream.
+• No slow audio latency creep on long streams.
+• Decoder errors late in long streams are recovered.
+• AV1 fixes on MediaTek TVs; 4K starts with a large enough input buffer.

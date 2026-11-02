@@ -2169,3 +2169,27 @@ fn native_an_oversize_scene_cut_goes_out_once_as_a_keyframe_at_its_own_index() -
     }
     Ok(())
 }
+
+#[test]
+#[ignore = "requires a live AMD D3D11 adapter and AMF runtime"]
+fn native_a_stream_larger_than_the_encoder_takes_fails_as_size_too_large() -> Result<()> {
+    let _com = crate::capture::ComGuard::new()?;
+    for codec in [0, 1, 2] {
+        let config = butterpollo_core::rtsp::Negotiated {
+            width: 8192,
+            height: 8192,
+            codec,
+            ..Default::default()
+        };
+        let Err(error) = Encoder::new_device(&config, Device::new("")?) else {
+            bail!("AMF took 8192x8192 for codec {codec}");
+        };
+        let size = error
+            .downcast_ref::<crate::encoder::SizeTooLarge>()
+            .with_context(|| format!("codec {codec}: {error:#}"))?;
+        assert_eq!((size.width, size.height), (8192, 8192), "codec {codec}");
+        let (max_w, max_h) = size.max.context("AMF gave no limit")?;
+        assert!(max_w < 8192 || max_h < 8192, "codec {codec}: {size}");
+    }
+    Ok(())
+}

@@ -408,6 +408,9 @@ impl Encoder {
                 unit_idr_reported: false,
                 focus: Default::default(),
             };
+            // Before any property: AMF refuses an oversize FrameSize with a bare
+            // AMF_OUT_OF_RANGE, which would read as a driver problem.
+            e.validate_size()?;
             let mut properties = butterpollo_core::encoder_policy::amf(options, config)?;
             properties.extend(intra_refresh::av1_forced_properties(config));
             guard_smart_access_video(&mut properties);
@@ -569,7 +572,6 @@ impl Encoder {
             if e.config.chroma_packing != 0 {
                 e.validate_packed_capacity()?;
             }
-            e.validate_size()?;
             let initialized = check(timed("AMF Init", || {
                 ((*(*e.component).pVtbl).Init.unwrap())(
                     e.component,

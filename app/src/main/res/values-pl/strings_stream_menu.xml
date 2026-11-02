@@ -45,4 +45,10 @@ Niezapisany postęp zostanie utracony.</string>
     <string name="perf_overlay_vrr">Panel: %1$.2f Hz · renderowanie: %2$.2f Hz · VRR: %3$s</string>
     <string name="perf_overlay_vrr_max_hz">maks. Hz</string>
     <string name="sheet_back">Wstecz</string>
+    <string name="stream_menu_return">Wróć do strumienia</string>
+    <string name="stream_menu_more">Więcej</string>
+    <string name="stream_menu_shortcuts">Skróty</string>
+    <string name="stream_menu_start_menu">Menu Start</string>
+    <string name="stream_shortcut_pick_keys">Wybierz od 1 do 8 klawiszy.</string>
+    <string name="stream_menu_model_failed">Nie udało się wyświetlić menu strumienia: %1$s</string>
 </resources>

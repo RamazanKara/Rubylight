@@ -1466,6 +1466,7 @@ dependencies = [
  "jni",
  "libc",
  "nightjar-core",
+ "nightjar-policy",
  "rubylight-protocol 0.1.0",
  "serde",
  "serde_json",

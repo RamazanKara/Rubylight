@@ -48,4 +48,10 @@ Nicht gespeicherter Fortschritt geht verloren.</string>
     <string name="perf_overlay_vrr">Panel: %1$.2f Hz · Ausgabe: %2$.2f Hz · VRR: %3$s</string>
     <string name="perf_overlay_vrr_max_hz">max. Hz</string>
     <string name="sheet_back">Zurück</string>
+    <string name="stream_menu_return">Zurück zum Stream</string>
+    <string name="stream_menu_more">Mehr</string>
+    <string name="stream_menu_shortcuts">Tastenkürzel</string>
+    <string name="stream_menu_start_menu">Startmenü</string>
+    <string name="stream_shortcut_pick_keys">Wähle 1–8 Tasten.</string>
+    <string name="stream_menu_model_failed">Das Streammenü konnte nicht aufgebaut werden: %1$s</string>
 </resources>

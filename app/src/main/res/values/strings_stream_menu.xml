@@ -52,4 +52,11 @@ Unsaved progress will be lost.</string>
     <string name="perf_overlay_vrr">Panel: %1$.2f Hz · render: %2$.2f Hz · VRR: %3$s</string>
     <string name="perf_overlay_vrr_max_hz">max Hz</string>
     <string name="sheet_back">Back</string>
+    <!-- The stream menu's grid, its shortcuts and their editor. -->
+    <string name="stream_menu_return">Return to stream</string>
+    <string name="stream_menu_more">More</string>
+    <string name="stream_menu_shortcuts">Shortcuts</string>
+    <string name="stream_menu_start_menu">Start menu</string>
+    <string name="stream_shortcut_pick_keys">Pick 1–8 keys.</string>
+    <string name="stream_menu_model_failed">The stream menu could not be laid out: %1$s</string>
 </resources>

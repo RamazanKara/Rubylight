@@ -45,4 +45,10 @@ I progressi non salvati andranno persi.</string>
     <string name="perf_overlay_vrr">Pannello: %1$.2f Hz · rendering: %2$.2f Hz · VRR: %3$s</string>
     <string name="perf_overlay_vrr_max_hz">Hz max</string>
     <string name="sheet_back">Indietro</string>
+    <string name="stream_menu_return">Torna allo stream</string>
+    <string name="stream_menu_more">Altro</string>
+    <string name="stream_menu_shortcuts">Scorciatoie</string>
+    <string name="stream_menu_start_menu">Menu Start</string>
+    <string name="stream_shortcut_pick_keys">Scegli da 1 a 8 tasti.</string>
+    <string name="stream_menu_model_failed">Impossibile comporre il menu dello stream: %1$s</string>
 </resources>

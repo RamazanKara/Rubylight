@@ -45,4 +45,10 @@
     <string name="perf_overlay_vrr">Панель: %1$.2f Гц · рендеринг: %2$.2f Гц · VRR: %3$s</string>
     <string name="perf_overlay_vrr_max_hz">макс. Гц</string>
     <string name="sheet_back">Назад</string>
+    <string name="stream_menu_return">Повернутися до трансляції</string>
+    <string name="stream_menu_more">Більше</string>
+    <string name="stream_menu_shortcuts">Сполучення клавіш</string>
+    <string name="stream_menu_start_menu">Меню «Пуск»</string>
+    <string name="stream_shortcut_pick_keys">Виберіть від 1 до 8 клавіш.</string>
+    <string name="stream_menu_model_failed">Не вдалося побудувати меню трансляції: %1$s</string>
 </resources>

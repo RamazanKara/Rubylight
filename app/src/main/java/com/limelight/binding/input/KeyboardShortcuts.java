@@ -159,6 +159,21 @@ public final class KeyboardShortcuts {
             case KeyEvent.KEYCODE_FORWARD_DEL: return "DELETE";
             case KeyEvent.KEYCODE_MOVE_HOME: return "HOME";
             case KeyEvent.KEYCODE_MOVE_END: return "END";
+            // Named here rather than by keyCodeToString, which older platforms answer with a number:
+            // the stream menu's key picker (protocol/policy) saves these names.
+            case KeyEvent.KEYCODE_TAB: return "TAB";
+            case KeyEvent.KEYCODE_ENTER: return "ENTER";
+            case KeyEvent.KEYCODE_SPACE: return "SPACE";
+            case KeyEvent.KEYCODE_SYSRQ: return "SYSRQ";
+            case KeyEvent.KEYCODE_MENU: return "MENU";
+            case KeyEvent.KEYCODE_DPAD_UP: return "DPAD_UP";
+            case KeyEvent.KEYCODE_DPAD_DOWN: return "DPAD_DOWN";
+            case KeyEvent.KEYCODE_DPAD_LEFT: return "DPAD_LEFT";
+            case KeyEvent.KEYCODE_DPAD_RIGHT: return "DPAD_RIGHT";
+            case KeyEvent.KEYCODE_PAGE_UP: return "PAGE_UP";
+            case KeyEvent.KEYCODE_PAGE_DOWN: return "PAGE_DOWN";
+            case KeyEvent.KEYCODE_INSERT: return "INSERT";
+            case KeyEvent.KEYCODE_CAPS_LOCK: return "CAPS_LOCK";
             default:
                 if (key >= KeyEvent.KEYCODE_A && key <= KeyEvent.KEYCODE_Z) return String.valueOf((char) ('A' + key - KeyEvent.KEYCODE_A));
                 if (key >= KeyEvent.KEYCODE_0 && key <= KeyEvent.KEYCODE_9) return String.valueOf(key - KeyEvent.KEYCODE_0);

@@ -45,4 +45,10 @@ Kaydedilmemiş ilerleme kaybolur.</string>
     <string name="perf_overlay_vrr">Panel: %1$.2f Hz · işleme: %2$.2f Hz · VRR: %3$s</string>
     <string name="perf_overlay_vrr_max_hz">maks. Hz</string>
     <string name="sheet_back">Geri</string>
+    <string name="stream_menu_return">Yayına dön</string>
+    <string name="stream_menu_more">Daha fazla</string>
+    <string name="stream_menu_shortcuts">Kısayollar</string>
+    <string name="stream_menu_start_menu">Başlat menüsü</string>
+    <string name="stream_shortcut_pick_keys">1–8 tuş seçin.</string>
+    <string name="stream_menu_model_failed">Yayın menüsü oluşturulamadı: %1$s</string>
 </resources>

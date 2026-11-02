@@ -99,6 +99,23 @@ final class GameMenuActions {
         leaveStream();
     }
 
+    // The user's shortcuts in the stream menu: kept with the app's other shortcuts, pressed on the PC once the
+    // menu has closed and the stream has focus again, like every menu action.
+    private final com.limelight.ui.StreamMenu.Shortcuts menuShortcuts = new com.limelight.ui.StreamMenu.Shortcuts() {
+        @Override public java.util.List<com.limelight.binding.input.KeyboardShortcuts.Shortcut> saved() {
+            return com.limelight.binding.input.KeyboardShortcuts.load(game);
+        }
+
+        @Override public void save(java.util.List<com.limelight.binding.input.KeyboardShortcuts.Shortcut> shortcuts) {
+            com.limelight.binding.input.KeyboardShortcuts.save(game, shortcuts);
+        }
+
+        @Override public void send(int[] keys) {
+            game.streamMenuAction = () -> game.keyboardInput.sendKeyboardShortcut(keys);
+            if (streamMenuSheet != null) streamMenuSheet.sheet().dismiss();
+        }
+    };
+
     void showStreamMenu() {
         if (!game.foreground || !game.connected || game.streamMenu != null) {
             return;
@@ -110,7 +127,7 @@ final class GameMenuActions {
         hostAudio = null;
         hostAudioUnread = false;
         streamMenuSheet = new com.limelight.ui.StreamMenu(game, this::streamMenuOptions, this::onStreamMenuItem,
-                nativeMenuController());
+                nativeMenuController(), menuShortcuts);
         showStreamDialog(streamMenuSheet.sheet());
         refreshHostAudio();
     }
@@ -265,6 +282,7 @@ final class GameMenuActions {
     // What the stream menu offers right now. Host features and permissions decide the rest.
     private com.limelight.ui.StreamMenu.Options streamMenuOptions() {
         com.limelight.ui.StreamMenu.Options options = new com.limelight.ui.StreamMenu.Options(game.app.getRole(), game.conn.getHostDetails());
+        options.appName = game.app.getAppName();
         options.canSendInput = game.conn.canSendInput();
         options.nativeHostControl = game.conn.hasNativeHostControl();
         options.hostMenu = game.conn.hasNativeCouchMenu();
@@ -391,6 +409,12 @@ final class GameMenuActions {
             dialog.onBackPressed();
             return;
         }
+        // Y, X, LB and RB run the tiles that show them, wherever the focus is.
+        if (streamMenuSheet != null && dialog == streamMenuSheet.sheet()) {
+            if (streamMenuSheet.hotkey(keyCode)) return;
+        }
+        if (keyCode == KeyEvent.KEYCODE_BUTTON_X || keyCode == KeyEvent.KEYCODE_BUTTON_Y ||
+                keyCode == KeyEvent.KEYCODE_BUTTON_L1 || keyCode == KeyEvent.KEYCODE_BUTTON_R1) return;
         View decor = dialog.getWindow().getDecorView();
         View focused = decor.findFocus();
         if (focused == null) {

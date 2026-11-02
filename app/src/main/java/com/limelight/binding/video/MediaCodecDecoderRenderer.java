@@ -3811,9 +3811,11 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         }
 
         // Stop any active codec recovery operations
-        if (decoderFailure != null) {
-            // A reset that hung may hold the monitor for good (the watchdog ended the stream); the
-            // UI must not wait for it. Waiting threads look at the type again within a second.
+        if (decoderFailure != null || Looper.myLooper() == Looper.getMainLooper()) {
+            // A reset holds the monitor inside MediaCodec: for seconds (the restart an HDR change
+            // asks for, a big AV1 decoder's) or for good (one that hung, which the watchdog ends the
+            // stream for). The UI must not wait for it (#69). Waiting threads look at the type again
+            // within a second, and stop() repeats this with the wake-up on the shutdown worker.
             codecRecoveryType.set(CR_RECOVERY_TYPE_NONE);
         } else {
             synchronized (codecRecoveryMonitor) {

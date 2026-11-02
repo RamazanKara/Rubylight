@@ -1,0 +1,2 @@
+• Shortcut tiles in the stream menu work in games again (Steam overlay's Shift + Tab included).
+• Disconnect and Quit no longer freeze or crash the app while the decoder restarts.

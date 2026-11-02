@@ -96,6 +96,18 @@ public class MenuButtonTest {
         assertEquals(1, host.opened);
     }
 
+    /** On the Retroid a dragged button stayed undrawn at its new place until it was hidden and shown again. */
+    @Test public void aDragEndLaysTheButtonOutAgainSoItIsDrawnWhereItWasLeft() {
+        touch(MotionEvent.ACTION_DOWN, centerX(), centerY());
+        touch(MotionEvent.ACTION_MOVE, 300, 500);
+        assertFalse(button.isLayoutRequested());
+        touch(MotionEvent.ACTION_UP, 300, 500);
+        assertTrue("the drag's end asks for a layout and a frame", button.isLayoutRequested());
+        layout();
+        assertEquals(300, centerX(), 1);
+        assertEquals(500, centerY(), 1);
+    }
+
     @Test public void draggingMovesItWithoutOpeningTheMenuAndTheNewPlaceIsSaved() {
         float x = centerX(), y = centerY();
         touch(MotionEvent.ACTION_DOWN, x, y);

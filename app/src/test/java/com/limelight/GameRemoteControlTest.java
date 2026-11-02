@@ -36,6 +36,7 @@ public class GameRemoteControlTest {
     public static class RemoteGame extends Game {
         int menus, backs;
         @Override public void showStreamMenu() { menus++; }
+        @Override public void showStreamMenuFromController() { menus++; }
         @Override public void onBackPressed() { backs++; }
     }
 

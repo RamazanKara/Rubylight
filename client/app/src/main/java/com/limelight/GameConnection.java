@@ -776,10 +776,28 @@ final class GameConnection {
             // thread to keep things smooth for the UI. Inside moonlight-common,
             // we prevent another thread from starting a connection before and
             // during the process of stopping this one.
-            game.connectionStopThread = new Thread(game.conn::stop, "Stop stream");
-            game.connectionStopThread.start();
+            Thread stopping = new Thread(game.conn::stop, "Stop stream");
+            game.connectionStopThread = stopping;
+            stopping.start();
             LimeLog.info("Stream stopping");
+            // Nothing waits for it on the UI thread. A stop stuck for good (a decoder hung inside
+            // MediaCodec) keeps the next stream from starting, so it says where it is stuck.
+            new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
+                String stuck = stuckStopReport(stopping);
+                if (stuck != null) LimeLog.severe(stuck);
+            }, STOP_REPORT_MS);
         }
+    }
+
+    // How long a stream's stop may run before it is reported as stuck.
+    static final long STOP_REPORT_MS = 10_000;
+
+    /** Where a stop still running is stuck, or null once it has ended. */
+    static String stuckStopReport(Thread stopping) {
+        if (!stopping.isAlive()) return null;
+        StringBuilder report = new StringBuilder("Stream stop still running after " + STOP_REPORT_MS / 1000 + " s:");
+        for (StackTraceElement frame : stopping.getStackTrace()) report.append("\n  at ").append(frame);
+        return report.toString();
     }
 
     void stageFailed(final String stage, final int portFlags, final int errorCode) {

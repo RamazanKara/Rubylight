@@ -409,6 +409,41 @@ public class DecoderFailureTest {
         assertEquals(Collections.emptyList(), uncaught);
     }
 
+    /**
+     * Leaving while a reset runs inside MediaCodec, which an HDR change asks for and a big AV1
+     * decoder takes seconds over (#69): the UI's stop waited for the reset's monitor though the
+     * decoder had not failed, an ANR. It no longer waits; the shutdown worker's stop wakes the
+     * decoder threads.
+     */
+    @Test
+    public void theUiStopDoesNotWaitForAResetStillRunning() throws Exception {
+        Object monitor = ReflectionHelpers.getField(renderer, "codecRecoveryMonitor");
+        java.util.concurrent.CountDownLatch holding = new java.util.concurrent.CountDownLatch(1);
+        Thread reset = new Thread(() -> {
+            synchronized (monitor) {
+                holding.countDown();
+                try {
+                    Thread.sleep(3000);
+                } catch (InterruptedException ignored) {
+                    // The test is done.
+                }
+            }
+        });
+        reset.setDaemon(true);
+        reset.start();
+        holding.await();
+        assertEquals("the stop runs on the UI thread", android.os.Looper.getMainLooper(), android.os.Looper.myLooper());
+        long startNs = System.nanoTime();
+        renderer.prepareForStop();
+        long tookMs = (System.nanoTime() - startNs) / 1_000_000;
+        reset.interrupt();
+        reset.join(5000);
+        assertTrue("The UI waited " + tookMs + " ms for the reset's monitor", tookMs < 1000);
+        assertTrue((boolean) ReflectionHelpers.getField(renderer, "stopping"));
+        assertNull(renderer.getDecoderFailure());
+        assertEquals(Collections.emptyList(), terminated);
+    }
+
     @Test
     public void aResetOfAHungDecoderThatFinishesLeavesTheStreamRunning() throws Exception {
         ReflectionHelpers.setField(renderer, "hangResetTimeoutMs", 50L);

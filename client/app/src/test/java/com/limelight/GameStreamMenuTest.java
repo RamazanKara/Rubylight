@@ -40,7 +40,11 @@ public class GameStreamMenuTest {
     }
 
     private static Game streamingGame(String fixture) {
-        Game game = Robolectric.buildActivity(Game.class).get();
+        return streamingGame(Game.class, fixture);
+    }
+
+    private static <T extends Game> T streamingGame(Class<T> type, String fixture) {
+        T game = Robolectric.buildActivity(type).get();
         game.setTheme(R.style.StreamTheme);
         game.setContentView(R.layout.activity_game);
         PreferenceConfiguration prefs = new PreferenceConfiguration();
@@ -98,6 +102,34 @@ public class GameStreamMenuTest {
         assertFalse(focused.isInTouchMode());
         menu.sheet().dismiss();
         idle();
+    }
+
+    /** Records how an unhandled Back opened the menu; the stream's own key handling is left out. */
+    public static class BackGame extends Game {
+        String opened;
+        @Override public boolean handleKeyUp(android.view.KeyEvent event) { return false; }
+        @Override public void showStreamMenu() { opened = "touch"; }
+        @Override public void showStreamMenuFromController() { opened = "controller"; }
+    }
+
+    private static String openedByBack(int source) {
+        BackGame game = streamingGame(BackGame.class, "rubylight-serverinfo.xml");
+        android.view.KeyEvent up = new android.view.KeyEvent(0, 0, android.view.KeyEvent.ACTION_UP,
+                android.view.KeyEvent.KEYCODE_BACK, 0, 0, 3, 0, android.view.KeyEvent.FLAG_TRACKING, source);
+        assertTrue(game.onKeyUp(android.view.KeyEvent.KEYCODE_BACK, up));
+        return game.opened;
+    }
+
+    /**
+     * On the Retroid a menu opened by the controller's Back showed no focus, unlike one opened by Guide: a Back from a
+     * controller, D-pad or remote opens it as a controller does (first tile focused), the touch Back as a touch does.
+     */
+    @Test
+    public void aControllerOrRemoteBackOpensTheMenuFocusedAndTheTouchBackDoesNot() {
+        assertEquals("gamepad Back", "controller",
+                openedByBack(android.view.InputDevice.SOURCE_GAMEPAD | android.view.InputDevice.SOURCE_KEYBOARD));
+        assertEquals("D-pad Back", "controller", openedByBack(android.view.InputDevice.SOURCE_DPAD));
+        assertEquals("navigation bar or gesture Back", "touch", openedByBack(android.view.InputDevice.SOURCE_KEYBOARD));
     }
 
     @Test

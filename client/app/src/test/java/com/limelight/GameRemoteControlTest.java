@@ -37,7 +37,7 @@ public class GameRemoteControlTest {
         int menus, backs;
         @Override public void showStreamMenu() { menus++; }
         @Override public void showStreamMenuFromController() { menus++; }
-        @Override public void onBackPressed() { backs++; }
+        @Override void onBack(boolean byController) { backs++; }
     }
 
     private InputDevice device(int sources, int keyboard) {

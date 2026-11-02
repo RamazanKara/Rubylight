@@ -464,7 +464,7 @@ final class GameKeyboardInput {
         if (key != KeyEvent.KEYCODE_BACK && key != KeyEvent.KEYCODE_MENU) return false;
         // These are local navigation on a TV remote, even while PC input is captured.
         if (event.getAction() == KeyEvent.ACTION_UP && !event.isCanceled()) {
-            if (key == KeyEvent.KEYCODE_BACK) game.onBackPressed();
+            if (key == KeyEvent.KEYCODE_BACK) game.onBack(true);
             else game.showStreamMenuFromController();
         }
         return true;

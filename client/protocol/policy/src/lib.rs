@@ -13,6 +13,8 @@ pub mod overlay;
 pub mod pyrowave;
 pub mod quality;
 pub mod recovery;
+pub mod shortcuts;
 pub mod stats;
 pub mod stick;
+pub mod stream_menu;
 pub mod trace;

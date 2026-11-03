@@ -63,7 +63,7 @@ public class AnrTraceTest {
         assertTrue(text, text.contains("native #02 pc 0000000000012340 [library omitted]\n"));
         assertTrue(text, text.contains("at com.limelight.binding.video.VulkanRendererBridge.nativeStop(native)"));
         // The lock holder follows the main thread; a thread without app code is left out.
-        assertTrue(text, text.indexOf("Thread tid=1 ") < text.indexOf("Thread tid=45 "));
+        assertTrue(text, text.indexOf("Thread tid=1 ") < text.indexOf("Thread tid=45 Native: Stop stream\n"));
         assertFalse(text, text.contains("tid=33"));
         for (String secret : new String[] {"MyGamingPC", "desktop.local", "secret", "okhttp", "Zx9_private",
                 "com.butterpollo.client-", "0x0a1b2c3d", "0xb400", "OPD2403", "8f1c2a3", "/data/", "/vendor/"}) {

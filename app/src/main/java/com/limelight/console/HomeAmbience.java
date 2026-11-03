@@ -99,7 +99,7 @@ final class HomeAmbience implements ShelfAdapter.FocusListener, Choreographer.Fr
         }
         HomeModel.GameCard card = item.game;
         CoverLoaders loaders = covers.get();
-        ComputerDetails host = hosts.apply(card.hostUuid);
+        ComputerDetails host = CoverLoaders.coverHost(hosts.apply(card.hostUuid), card.source);
         com.limelight.nvstream.http.NvApp app = CoverLoaders.appOf(card.title, card.appId, card.source);
         backdrop.focus(gameKey(card.hostUuid, card.appId, card.title), loaders == null ? null : loaders.peek(host, app),
                 loaders != null && loaders.lacksArt(host, app), fast.getAsBoolean());

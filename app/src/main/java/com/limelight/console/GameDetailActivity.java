@@ -213,8 +213,9 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
         GameDetailModel m = model;
         if (backdrop == null || covers == null || m == null) return;
         NvApp app = CoverLoaders.appOf(m.title, m.appId, m.source);
-        backdrop.focus(HomeAmbience.gameKey(hostUuid, appId, titleExtra), covers.peek(shownComputer, app),
-                covers.lacksArt(shownComputer, app), false);
+        ComputerDetails from = CoverLoaders.coverHost(shownComputer, m.source);
+        backdrop.focus(HomeAmbience.gameKey(hostUuid, appId, titleExtra), covers.peek(from, app),
+                covers.lacksArt(from, app), false);
     }
 
     @Override
@@ -374,7 +375,7 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
         title.setText(m.title);
         host.setText(m.hostName);
         setTitle(m.title);
-        covers.bind(computer, CoverLoaders.appOf(m.title, m.appId, m.source), cover, coverText);
+        covers.bind(CoverLoaders.coverHost(computer, m.source), CoverLoaders.appOf(m.title, m.appId, m.source), cover, coverText);
 
         CharSequence chip = null;
         if (m.state == GameDetailModel.State.RUNNING) {

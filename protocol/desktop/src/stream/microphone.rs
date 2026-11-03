@@ -193,10 +193,26 @@ fn without_echo_cancellation(shared: &Shared, text: String) {
     }
 }
 
+/// The echo cancellation a microphone runs with: none for Microphone only, where nothing plays on
+/// this device to echo (Windows' canceller would only add a way to fail), else the setting.
+pub fn echo_for(mic_only: bool, setting: MicEcho) -> MicEcho {
+    if mic_only { MicEcho::Off } else { setting }
+}
+
+/// The echo canceller failed while running: `poll` reopens the plain microphone. A microphone
+/// already gone has nothing to reopen.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn canceller_failed(fail: &std::sync::mpsc::Sender<String>, shared: &Shared, error: String) {
+    if fail.send(error).is_ok() {
+        shared.wake();
+    }
+}
+
 /// Windows: what opening the echo canceller came to, on its own thread.
 #[cfg(windows)]
 enum Opened {
-    Voice(super::voice_capture::VoiceCapture),
+    /// Running, with what says why if it fails later.
+    Voice(super::voice_capture::VoiceCapture, Receiver<String>),
     /// The plain microphone instead: echo cancellation not wanted (headphones), or, with the
     /// reason, it could not run.
     Plain(Option<String>),
@@ -207,8 +223,9 @@ enum Voice {
     None,
     /// Asking Windows about the speakers and opening the DSP take a moment; this answers.
     Opening(Receiver<Opened>),
-    /// Runs until dropped.
-    Running { _capture: super::voice_capture::VoiceCapture },
+    /// Runs until dropped, or until it fails while running: `failed` then says why and
+    /// [`Microphone::poll`] goes on with the plain microphone.
+    Running { _capture: super::voice_capture::VoiceCapture, failed: Receiver<String> },
 }
 
 pub struct Microphone {
@@ -271,7 +288,7 @@ impl Microphone {
         #[cfg(windows)]
         if let Voice::Opening(answer) = &self.voice {
             match answer.try_recv() {
-                Ok(Opened::Voice(voice)) => self.voice = Voice::Running { _capture: voice },
+                Ok(Opened::Voice(voice, failed)) => self.voice = Voice::Running { _capture: voice, failed },
                 Ok(Opened::Plain(why)) => {
                     self.voice = Voice::None;
                     if let Some(why) = why {
@@ -286,6 +303,17 @@ impl Microphone {
                 }
             }
         }
+        #[cfg(windows)]
+        if let Voice::Running { failed, .. } = &self.voice {
+            if let Ok(error) = failed.try_recv() {
+                // Windows' canceller can fail long after it opened (0x87CC000A): the plain
+                // microphone goes on, and the toast says the echo cancellation is gone.
+                eprintln!("nightjar: Windows' echo cancellation stopped ({error}); the microphone is sent without it");
+                self.voice = Voice::None;
+                self.shared.notify(Notice::EchoCancelOff(crate::strings::trf("Echo cancellation stopped: {}. The microphone is sent without it.", &[&error])));
+                self.start_sdl(SDL_AUDIO_DEVICE_DEFAULT_RECORDING)?;
+            }
+        }
         Ok(())
     }
 
@@ -298,7 +326,7 @@ impl Microphone {
             let wanted = echo.wanted(echo == MicEcho::Auto && super::voice_capture::private_output());
             let opened = if plan(wanted, true, &[]) == Source::VoiceCapture {
                 match Self::start_voice(shared.clone(), sender) {
-                    Ok(voice) => Opened::Voice(voice),
+                    Ok((voice, failed)) => Opened::Voice(voice, failed),
                     Err(error) => {
                         eprintln!("nightjar: Windows' echo cancellation cannot run ({error}); the microphone is sent without it");
                         Opened::Plain(Some(error))
@@ -324,7 +352,7 @@ impl Microphone {
     }
 
     #[cfg(windows)]
-    fn start_voice(shared: Arc<Shared>, sender: SyncSender<Vec<u8>>) -> Result<super::voice_capture::VoiceCapture, String> {
+    fn start_voice(shared: Arc<Shared>, sender: SyncSender<Vec<u8>>) -> Result<(super::voice_capture::VoiceCapture, Receiver<String>), String> {
         let mut encoder = Encoder::new(super::voice_capture::RATE as i32)?;
         let frames_shared = shared.clone();
         let frames = move |samples: &[f32]| match encoder.encode(samples) {
@@ -339,9 +367,10 @@ impl Microphone {
                 false
             }
         };
-        let voice = super::voice_capture::VoiceCapture::start(frames, move |error| shared.notify(Notice::MicrophoneFailed(error)))?;
+        let (fail, failed) = std::sync::mpsc::channel();
+        let voice = super::voice_capture::VoiceCapture::start(frames, move |error| canceller_failed(&fail, &shared, error))?;
         eprintln!("nightjar: the microphone runs through Windows' echo cancellation");
-        Ok(voice)
+        Ok((voice, failed))
     }
 
     /// Records `device` through SDL into `packets`.
@@ -475,6 +504,25 @@ mod tests {
         let next = Shared::new(Arc::new(|| {}), 2);
         without_echo_cancellation(&next, "next stream".into());
         assert_eq!(next.notices.lock().unwrap().len(), 1, "the next stream says it again");
+    }
+
+    #[test]
+    fn microphone_only_runs_without_echo_cancellation_whatever_the_setting() {
+        for setting in [MicEcho::Auto, MicEcho::On, MicEcho::Off] {
+            assert_eq!(echo_for(true, setting), MicEcho::Off, "{setting:?}");
+            assert_eq!(echo_for(false, setting), setting, "a stream keeps the setting");
+        }
+    }
+
+    #[test]
+    fn a_canceller_failing_while_it_runs_is_handed_to_poll_not_ended_as_a_microphone_failure() {
+        let shared = Shared::new(Arc::new(|| {}), 2);
+        let (fail, failed) = std::sync::mpsc::channel();
+        canceller_failed(&fail, &shared, "0x87CC000A".into());
+        assert_eq!(failed.try_recv().as_deref(), Ok("0x87CC000A"));
+        assert!(shared.notices.lock().unwrap().is_empty(), "no MicrophoneFailed: poll reopens the plain microphone");
+        drop(failed);
+        canceller_failed(&fail, &shared, "after the microphone went".into());
     }
 
     #[test]

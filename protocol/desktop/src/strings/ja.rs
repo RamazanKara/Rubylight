@@ -1066,6 +1066,7 @@ sudo sysctl -w net.core.rmem_max={}", "受信バッファー：システムは�
     ("The PIN lock file is damaged: {}. Delete this file to remove the PIN lock.", "PINロックファイルが破損しています：{}。PINロックを解除するにはこのファイルを削除してください。"),
     ("The PIN lock file cannot be read right now ({}): {}. Nightjar tries again; delete this file to remove the PIN lock.", "PINロックファイルを今は読み取れません（{0}）：{1}。Nightjarは再試行します。PINロックを解除するにはこのファイルを削除してください。"),
     ("Echo cancellation could not start: {}. The microphone is sent without it.", "エコーキャンセルを開始できませんでした：{}。マイクはエコーキャンセルなしで送信されます。"),
+    ("Echo cancellation stopped: {}. The microphone is sent without it.", "エコーキャンセルが停止しました：{}。マイクはエコーキャンセルなしで送信されます。"),
     ("No echo cancellation: this system has no echo-cancel source. Load PipeWire's or PulseAudio's echo-cancel module to have one.", "エコーキャンセルなし：このシステムにはecho-cancelソースがありません。PipeWireまたはPulseAudioのecho-cancelモジュールを読み込んでください。"),
     ("Help", "ヘルプ"),
     ("Getting started", "はじめに"),

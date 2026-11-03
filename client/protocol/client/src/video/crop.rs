@@ -13,18 +13,19 @@ pub const PADDING_COLUMNS: i32 = 64;
 /// The most rows an encoder's alignment adds (AMD AV1 and H.264 macroblocks: a multiple of 16).
 pub const PADDING_ROWS: i32 = 16;
 
-/// The size of `decoded` to show: the first of the `requested` stream sizes it is that size plus
-/// alignment padding of, or the whole picture. A picture that is one of the requested sizes, smaller
-/// than all of them or larger by more than padding (a stream at another size) is shown whole.
+/// The size of `decoded` to show: of the `requested` stream sizes it is that size plus alignment
+/// padding of, the one needing the least padding, or the whole picture. A picture that is one of
+/// the requested sizes, smaller than all of them or larger by more than padding (a stream at
+/// another size) is shown whole. Two sizes close together (a width stepped down by 16 while
+/// pictures of the old one still arrive) never cut real columns off: 1920x1082 is 1920x1080
+/// padded, not 1904x1080.
 pub fn visible_size(decoded: (i32, i32), requested: &[(i32, i32)]) -> (i32, i32) {
-    if requested.contains(&decoded) {
-        return decoded;
-    }
     let padded = |extent: i32, asked: i32, most: i32| asked > 0 && (asked..asked + most).contains(&extent);
     requested
         .iter()
         .copied()
-        .find(|&(width, height)| padded(decoded.0, width, PADDING_COLUMNS) && padded(decoded.1, height, PADDING_ROWS))
+        .filter(|&(width, height)| padded(decoded.0, width, PADDING_COLUMNS) && padded(decoded.1, height, PADDING_ROWS))
+        .min_by_key(|&(width, height)| (decoded.0 - width) + (decoded.1 - height))
         .unwrap_or(decoded)
 }
 
@@ -70,5 +71,15 @@ mod tests {
         assert_eq!(visible_size((1920, 1082), &sizes), (1920, 1080));
         assert_eq!(visible_size((2240, 1968), &sizes), (2184, 1968));
         assert_eq!(visible_size((1920, 1080), &[(1900, 1070), (1920, 1080)]), (1920, 1080));
+    }
+
+    #[test]
+    fn a_picture_fitting_two_sizes_takes_the_one_with_the_least_padding() {
+        // The width stepped down by 16 while 1920x1080 pictures (coded 1920x1082) still arrive.
+        assert_eq!(visible_size((1920, 1082), &[(1904, 1080), (1920, 1080)]), (1920, 1080));
+        assert_eq!(visible_size((1920, 1082), &[(1920, 1080), (1904, 1080)]), (1920, 1080));
+        // The new stream's pictures are then the new size, padded.
+        assert_eq!(visible_size((1920, 1082), &[(1904, 1080)]), (1904, 1080));
+        assert_eq!(visible_size((1904, 1080), &[(1904, 1080), (1920, 1080)]), (1904, 1080));
     }
 }

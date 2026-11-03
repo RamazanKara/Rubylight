@@ -504,6 +504,8 @@ pub struct Streaming {
     /// confirmed. Decoded pictures are cropped to it, or to the pending size, past an encoder's
     /// alignment padding.
     stream_size: (i32, i32),
+    /// The size the stream was at before `stream_size`, whose pictures may still be queued.
+    previous_size: (i32, i32),
     display_change: Option<Instant>,
     last_arrival: Option<(u32, u64)>,
     /// Emptied buffers `pump` swaps with the decoder's queues, so taking a frame allocates nothing
@@ -752,6 +754,7 @@ impl Streaming {
             requested_mode: mode,
             pending_mode: None,
             stream_size: (i32::from(mode.width), i32::from(mode.height)),
+            previous_size: (i32::from(mode.width), i32::from(mode.height)),
             display_change: None,
             last_arrival: None,
             taken_frames: VecDeque::new(),

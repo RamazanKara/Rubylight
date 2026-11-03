@@ -15,6 +15,25 @@ fn setup_size(setup: &session::VideoSetup) -> (i32, i32) {
     if setup.logical_width > 0 && setup.logical_height > 0 { (setup.logical_width, setup.logical_height) } else { (setup.width, setup.height) }
 }
 
+/// How long after a size change is asked for a picture that fits both the old and the new size
+/// plus alignment padding is still taken for the old one: AMD codes a 1920 and a 1904 wide AV1
+/// stream both 1920 wide, and the PC's old pictures are on their way for a while.
+const SWITCH_GRACE: Duration = Duration::from_secs(1);
+
+/// The stream's part of a decoded picture of `decoded` size (`crop::visible_size`), from the
+/// sizes it may be of: the last one asked for, the one the stream is at and the one before it.
+/// `settled` is a pending size asked for at least `SWITCH_GRACE` ago: a picture that is not one
+/// of the sizes exactly but fits its padding is taken for it, so the new stream's pictures
+/// confirm it.
+fn stream_part(decoded: (i32, i32), sizes: [(i32, i32); 3], settled: Option<(i32, i32)>) -> (i32, i32) {
+    use nightjar_core::video::crop::visible_size;
+    if let Some(pending) = settled.filter(|_| !sizes.contains(&decoded)) {
+        let visible = visible_size(decoded, &[pending]);
+        if visible != decoded { return visible; }
+    }
+    visible_size(decoded, &sizes)
+}
+
 /// A present of the texture: when the call was issued and returned (us), and the beam around it.
 struct Flipped {
     issued_us: u64,
@@ -23,11 +42,11 @@ struct Flipped {
 }
 
 impl Streaming {
-    /// The stream sizes a decoded picture is cropped to past its alignment padding: the pending
-    /// size first (its pictures may be on their way), then the one the stream is at.
-    fn crop_sizes(&self) -> [(i32, i32); 2] {
-        let pending = self.pending_mode.map_or(self.stream_size, |(mode, _)| (i32::from(mode.width), i32::from(mode.height)));
-        [pending, self.stream_size]
+    /// The stream's part of a decoded picture of `decoded` size (`stream_part`).
+    fn visible_of(&self, decoded: (i32, i32)) -> (i32, i32) {
+        let size = |mode: Reconfigure| (i32::from(mode.width), i32::from(mode.height));
+        let settled = self.pending_mode.filter(|(_, at)| at.elapsed() >= SWITCH_GRACE).map(|(mode, _)| size(mode));
+        stream_part(decoded, [size(self.requested_mode), self.stream_size, self.previous_size], settled)
     }
 
     /// Moves decoded pictures into the pacer; sends a clock sync probe when due.
@@ -53,16 +72,20 @@ impl Streaming {
         // With the race off nothing queues a slice, and nothing here takes the lock.
         let mut slices = std::mem::take(&mut self.taken_slices);
         if self.facts.beam_race { std::mem::swap(&mut *lock(&self.shared.slices), &mut slices); }
-        for decoded in frames.drain(..) {
+        for mut decoded in frames.drain(..) {
             if decoded.setup.format & VIDEO_FORMAT_MASK_PYROWAVE != 0 { self.race_setup = Some(decoded.setup); }
-            if let Some(frame) = decoded.picture.frame().filter(|_| decoded.setup.chroma_packing == 0 && decoded.setup.format & VIDEO_FORMAT_MASK_PYROWAVE == 0) {
-                let info = frame.info();
-                // The size without an encoder's alignment padding, as the presenter shows it.
-                let (width, height) = nightjar_core::video::crop::visible_size((info.width, info.height), &self.crop_sizes());
+            let coded = decoded.picture.frame().filter(|_| decoded.setup.chroma_packing == 0 && decoded.setup.format & VIDEO_FORMAT_MASK_PYROWAVE == 0)
+                .map(|frame| { let info = frame.info(); (info.width, info.height) });
+            if let Some(coded) = coded {
+                // The size without an encoder's alignment padding, worked out once on arrival: the
+                // presenter shows that part of this picture whatever was asked for since.
+                let (width, height) = self.visible_of(coded);
+                decoded.visible = Some((width, height));
                 self.facts.width = width;
                 self.facts.height = height;
                 if self.pending_mode.is_some_and(|(mode, _)| i32::from(mode.width) == width && i32::from(mode.height) == height) {
                     self.pending_mode = None;
+                    self.previous_size = self.stream_size;
                     self.stream_size = (width, height);
                 }
             } else if decoded.setup.chroma_packing != 0 || decoded.setup.format & VIDEO_FORMAT_MASK_PYROWAVE != 0 {
@@ -439,7 +462,6 @@ impl Streaming {
                     rows = race::scissor(first, end, p.decoded.setup.height as u32);
                 }
             }
-            self.texture.crop_to(self.crop_sizes());
             if !self.texture.upload(renderer, &p.decoded, rows) {
                 if p.decoded.setup.format & VIDEO_FORMAT_MASK_PYROWAVE != 0 {
                     let reason = self.texture.failure.take().unwrap_or_else(|| "PyroWave GPU reconstruction failed.".into());
@@ -541,6 +563,34 @@ impl Streaming {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn old_pictures_during_a_size_change_keep_their_columns_and_do_not_confirm_it() {
+        // An AV1 1920x1080 stream (coded 1920x1082) asked to step its width down to 1904, which AMD
+        // codes 1920x1082 as well.
+        let sizes = [(1904, 1080), (1920, 1080), (1920, 1080)];
+        assert_eq!(stream_part((1920, 1082), sizes, None), (1920, 1080), "the old size's picture, before SWITCH_GRACE");
+        assert_ne!(stream_part((1920, 1082), sizes, None), (1904, 1080), "the pending size is not confirmed");
+        // After SWITCH_GRACE the PC's new pictures confirm the new size.
+        assert_eq!(stream_part((1920, 1082), sizes, Some((1904, 1080))), (1904, 1080));
+        // A picture that is exactly an old size stays whole whatever is pending.
+        assert_eq!(stream_part((1920, 1080), sizes, Some((1904, 1080))), (1920, 1080));
+        // Sizes far apart need no grace: 2184x1968 (coded 2240x1968) after 1920x1080.
+        assert_eq!(stream_part((1920, 1082), [(2184, 1968), (1920, 1080), (1920, 1080)], None), (1920, 1080));
+        assert_eq!(stream_part((2240, 1968), [(2184, 1968), (1920, 1080), (1920, 1080)], None), (2184, 1968));
+    }
+
+    #[test]
+    fn a_size_the_pc_applies_after_the_timeout_is_still_cropped() {
+        // The 5 s timeout cleared the pending 2184x1968; the PC switches later.
+        assert_eq!(stream_part((2240, 1968), [(2184, 1968), (1920, 1080), (1920, 1080)], None), (2184, 1968));
+    }
+
+    #[test]
+    fn pictures_of_the_size_before_a_confirmed_change_are_still_cropped() {
+        // 2184x1968 confirmed while 1920x1080 pictures (coded 1920x1082) are still queued.
+        assert_eq!(stream_part((1920, 1082), [(2184, 1968), (2184, 1968), (1920, 1080)], None), (1920, 1080));
+    }
 
     /// The header named a packed 4:4:4 stream by the setting asked for: its size is the logical one.
     #[test]

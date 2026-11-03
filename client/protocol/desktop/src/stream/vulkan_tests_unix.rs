@@ -240,6 +240,7 @@ fn decoded(frame: media::Frame, case: &Case) -> Decoded {
         bands: Vec::new(),
         race: Default::default(),
         race_seq: 0,
+        visible: None,
     }
 }
 

@@ -346,10 +346,11 @@ impl Streaming {
                     let on = !self.captured;
                     self.raise_all_keys();
                     self.set_capture(window, on);
-                    self.show_toast(if on {
-                        tr("Input captured. Ctrl+Alt+Shift+Z releases it.")
-                    } else {
-                        tr("Input released. Click the stream to capture it.")
+                    let release = crate::shortcuts::chord_for(Scope::Stream, Action::Capture).map(crate::shortcuts::Chord::text);
+                    self.show_toast(match (on, release) {
+                        (true, Some(keys)) => trf("Input captured. {} releases it.", &[&keys]),
+                        (true, None) => tr("Input captured.").to_owned(),
+                        (false, _) => tr("Input released. Click the stream to capture it.").to_owned(),
                     });
                     return;
                 }

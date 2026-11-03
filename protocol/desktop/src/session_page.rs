@@ -1051,7 +1051,7 @@ mod tests {
         let esc = crate::shortcuts::Key::Escape.cap();
         assert!(names.iter().any(|n| *n == format!("{}, {esc}", tr("Back to stream controls"))), "{names:#?}");
         assert!(names.iter().any(|n| n == tr("Resume")), "Resume without a key: {names:#?}");
-        assert!(!names.iter().any(|n| n.starts_with(tr("Resume")) && n.contains(esc)), "{names:#?}");
+        assert!(!names.iter().any(|n| n.starts_with(tr("Resume")) && n.contains(esc.as_ref())), "{names:#?}");
     }
 
     /// Benchmark, not a check: `cargo test --release -p nightjar-desktop bench_menu_frame -- --ignored --nocapture`.

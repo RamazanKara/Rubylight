@@ -222,7 +222,7 @@ pub fn chord(chord: Chord, without_nightjar_keys: bool) -> Vec<Piece> {
     let mut pieces = Vec::new();
     for cap in &caps[skip..] {
         if !pieces.is_empty() { pieces.push(Piece::Plus); }
-        pieces.push(Piece::Key(tr(cap).to_owned()));
+        pieces.push(Piece::Key(tr(cap.as_ref()).to_owned()));
     }
     pieces
 }

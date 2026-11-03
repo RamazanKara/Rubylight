@@ -485,6 +485,7 @@ fn run(launch: Option<cli::Launch>) -> Result<(), String> {
     unsafe { SDL_ShowWindow(window) };
     theme::apply(&gui.ctx);
     let display = display_of(window);
+    shortcuts::set_hotkeys(store.hotkeys());
     let mut launcher = Launcher::new(settings.clone(), profiles, store.shortcuts(), display);
     launcher.recents = store.recents();
     launcher.pin = Some(pin_ui::PinLock::open(store.dir()));
@@ -1354,6 +1355,15 @@ impl App {
             }
             Command::SaveShortcuts => {
                 if let Err(e) = self.store.save_shortcuts(&self.launcher.shortcuts) {
+                    self.launcher.message(tr("Could not save shortcuts"), e.to_string());
+                }
+            }
+            Command::StreamHotkeys => {
+                self.command(Command::SaveSettings);
+                self.launcher.open(Screen::StreamHotkeys);
+            }
+            Command::SaveHotkeys => {
+                if let Err(e) = self.store.save_hotkeys(&shortcuts::hotkey_bindings()) {
                     self.launcher.message(tr("Could not save shortcuts"), e.to_string());
                 }
             }
@@ -2335,7 +2345,10 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
                 .show(&ctx, |ui| {
                     ui.label(egui::RichText::new(tr("Remote Input connected")).font(theme::semibold(theme::text::TITLE)).color(theme::MOON));
                     ui.label(&title);
-                    ui.label(tr("Keyboard, mouse and controllers control the PC. Ctrl+Alt+Shift+Q disconnects."));
+                    ui.label(tr("Keyboard, mouse and controllers control the PC."));
+                    if let Some(keys) = shortcuts::chord_for(Scope::Stream, Action::Disconnect) {
+                        ui.label(trf("{} disconnects", &[&keys.text()]));
+                    }
                     if small_stream {
                         let mbps = format!("{:.1}", f64::from(nightjar_policy::launch::estimated_kbps()) / 1000.0);
                         ui.label(trf("The PC still streams small video (about {} Mbit/s); it isn’t shown.", &[&mbps]));
@@ -2677,7 +2690,7 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
                     }
                     if !matches!(page, stream_menu::Page::Grid | stream_menu::Page::Confirm(_)) {
                         ui.add_space(theme::space::M);
-                        if menu_style::action_keys(ui, Icon::Back, tr("Back"), Some(crate::shortcuts::Key::Escape.cap())).clicked() {
+                        if menu_style::action_keys(ui, Icon::Back, tr("Back"), Some(crate::shortcuts::Key::Escape.cap().as_ref())).clicked() {
                             next = Some(stream_menu::Page::Grid);
                         }
                     }
@@ -2787,7 +2800,19 @@ fn probed_once(cache: &mut Option<(Hardware, (u32, String))>, hardware: Hardware
 /// 4:4:4 and 10-bit SDR, else the controls hint.
 fn start_toast(warning: Option<&str>, color: Option<&str>) -> String {
     let lines: Vec<&str> = warning.into_iter().chain(color).collect();
-    if lines.is_empty() { tr("Ctrl+Alt+Shift+Tab opens controls, +Q disconnects, +Z releases input").to_owned() } else { lines.join("\n") }
+    if lines.is_empty() { controls_hint() } else { lines.join("\n") }
+}
+
+/// The stream hotkeys that open the controls, disconnect and release input, as they are bound.
+fn controls_hint() -> String {
+    use shortcuts::{chord_for, Chord};
+    let keys = |action| chord_for(Scope::Stream, action).map(Chord::text);
+    let parts = [
+        keys(Action::StreamControls).map(|k| trf("{} opens controls", &[&k])),
+        keys(Action::Disconnect).map(|k| trf("{} disconnects", &[&k])),
+        keys(Action::Capture).map(|k| trf("{} releases input", &[&k])),
+    ];
+    parts.into_iter().flatten().collect::<Vec<_>>().join(", ")
 }
 
 /// Where the overlay sits: its corner, 16 points in from both edges.
@@ -3151,7 +3176,12 @@ mod tests {
 
     #[test]
     fn a_stream_starts_with_what_became_of_4_4_4_and_10_bit_next_to_the_warning() {
-        assert_eq!(start_toast(None, None), "Ctrl+Alt+Shift+Tab opens controls, +Q disconnects, +Z releases input");
+        assert_eq!(start_toast(None, None), "Ctrl+Alt+Shift+Tab opens controls, Ctrl+Alt+Shift+Q disconnects, Ctrl+Alt+Shift+Z releases input");
+        // The hint follows the hotkeys as bound.
+        shortcuts::record_hotkey("quit", &["CTRL".into(), "F9".into()]).unwrap();
+        shortcuts::turn_off_hotkey("capture");
+        assert_eq!(start_toast(None, None), "Ctrl+Alt+Shift+Tab opens controls, Ctrl+F9 disconnects");
+        shortcuts::set_hotkeys(Default::default());
         assert_eq!(start_toast(None, Some("Streaming in YUV 4:4:4.")), "Streaming in YUV 4:4:4.");
         assert_eq!(start_toast(Some("Wi-Fi name unavailable."), Some("Streaming in YUV 4:4:4.")), "Wi-Fi name unavailable.\nStreaming in YUV 4:4:4.");
         assert_eq!(start_toast(Some("Wi-Fi name unavailable."), None), "Wi-Fi name unavailable.");

@@ -87,6 +87,10 @@ pub enum Command {
     SaveControllerMapping,
     Shortcuts,
     SaveShortcuts,
+    /// Settings → Controls → Stream hotkeys.
+    StreamHotkeys,
+    /// Save the stream hotkeys as `shortcuts::hotkey_bindings` holds them now.
+    SaveHotkeys,
     ImportShortcuts,
     ExportShortcuts,
     /// Show the folder with Nightjar's log files in the file manager.
@@ -157,6 +161,7 @@ pub enum Screen {
     ProfileSettings(u64),
     Controllers,
     Shortcuts,
+    StreamHotkeys,
     /// Getting started, the keyboard and controller shortcuts, sharing and common problems.
     Help,
 }
@@ -167,7 +172,7 @@ impl Screen {
         match self {
             Self::Home | Self::AllGames | Self::Game { .. } => Self::Home,
             Self::Hosts | Self::Apps(_) | Self::HostDetails(_) | Self::Files(_) | Self::HostSettings(_) | Self::AppSettings(_) => Self::Hosts,
-            Self::Settings | Self::Profiles | Self::ProfileSettings(_) | Self::Controllers | Self::Shortcuts => Self::Settings,
+            Self::Settings | Self::Profiles | Self::ProfileSettings(_) | Self::Controllers | Self::Shortcuts | Self::StreamHotkeys => Self::Settings,
             Self::Help => Self::Help,
         }
     }
@@ -203,6 +208,8 @@ pub enum Dialog {
     DeleteProfile { id: u64, name: String },
     Shortcut { id: Option<String>, name: String, chord: String, error: Option<String> },
     DeleteShortcut { id: String, name: String },
+    /// Records the next chord pressed for the stream hotkey `id`; `error` says why the last was refused.
+    StreamHotkey { id: &'static str, error: Option<String> },
     ImportShortcuts(crate::shortcuts::Shortcuts),
     /// A PC's actions in one list, in the order of `host_options`.
     HostOptions { host: u64 },
@@ -486,7 +493,7 @@ impl Launcher {
     pub fn open_settings(&mut self) {
         match self.screen {
             Screen::Settings => {}
-            Screen::Profiles | Screen::Controllers | Screen::Shortcuts => self.leave_subpage(),
+            Screen::Profiles | Screen::Controllers | Screen::Shortcuts | Screen::StreamHotkeys => self.leave_subpage(),
             Screen::HostSettings(_) | Screen::AppSettings(_) | Screen::ProfileSettings(_) => self.go(Screen::Settings),
             // A library or game page is not a destination: Settings opens over it, and Back
             // returns to the page with its item focused.
@@ -726,7 +733,7 @@ impl Launcher {
                     commands.extend(self.screen.save_command());
                     self.go(self.settings_return);
                 }
-                Screen::Profiles | Screen::Shortcuts => self.leave_subpage(),
+                Screen::Profiles | Screen::Shortcuts | Screen::StreamHotkeys => self.leave_subpage(),
                 Screen::Controllers => {
                     commands.push(Command::SaveControllerMapping);
                     self.leave_subpage();
@@ -835,6 +842,7 @@ impl Launcher {
                 Screen::Profiles => self.profiles_page(ui, &mut commands),
                 Screen::Controllers => self.controllers_page(ui, view.pads, &mut commands),
                 Screen::Shortcuts => self.shortcuts_page(ui, &mut commands),
+                Screen::StreamHotkeys => self.stream_hotkeys_page(ui, &mut commands),
                 Screen::Help => self.help_page(ui, &view, &mut commands),
             }
         });
@@ -885,6 +893,7 @@ impl Launcher {
             Screen::Profiles => tr("Profiles").to_owned(),
             Screen::Controllers => tr("Controller mappings").to_owned(),
             Screen::Shortcuts => tr("Keyboard shortcuts").to_owned(),
+            Screen::StreamHotkeys => tr("Stream hotkeys").to_owned(),
         };
         ui.add_space(space::L);
         ui.horizontal(|ui| {
@@ -892,7 +901,7 @@ impl Launcher {
             // Back names where it leads when that is a destination's page.
             let (to, said) = match self.screen {
                 Screen::Apps(_) if self.trail.last().is_none_or(|(s, _)| *s == Screen::Hosts) => (en("PCs"), en("Back to PCs")),
-                Screen::Profiles | Screen::Controllers | Screen::Shortcuts => (en("Settings"), en("Back to Settings")),
+                Screen::Profiles | Screen::Controllers | Screen::Shortcuts | Screen::StreamHotkeys => (en("Settings"), en("Back to Settings")),
                 _ => (en("Back"), en("Back")),
             };
             let back = button(ui, Some(Icon::Back), tr(to), Tone::Plain, Size { pad: 12.0, ..Size::HEADER });

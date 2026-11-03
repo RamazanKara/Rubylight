@@ -211,8 +211,8 @@ fn every_bound_shortcut_is_listed() {
     let style = Style::of(&page.pads);
     let quit = page.l.settings.gamepad_quit_combo;
     let mut missing = Vec::new();
-    for binding in KEYS {
-        let spoken = glyphs::spoken(&glyphs::chords(binding.chords, false));
+    for binding in KEYS.iter().cloned().chain(shortcuts::keys_in(Scope::Stream)) {
+        let spoken = glyphs::spoken(&glyphs::chords(&binding.chords, false));
         let row = format!("{}: {spoken}", tr(binding.action.label()));
         if !names.contains(&row) {
             missing.push(row);
@@ -278,7 +278,7 @@ fn the_controller_labels_follow_a_pad_connected_later() {
 /// The launcher keys the list names, which egui's pages handle themselves, do what it says.
 #[test]
 fn the_launcher_keys_do_what_the_list_says() {
-    let binding = |action| KEYS.iter().find(|b| b.action == action && b.scope == Scope::Launcher).expect("listed").chords;
+    let binding = |action| -> &'static [Chord] { &KEYS.iter().find(|b| b.action == action && b.scope == Scope::Launcher).expect("listed").chords };
     let mut page = Page::new(vec![record("Desk")]);
     page.chord(binding(Action::AddPc)[0]);
     assert!(matches!(page.l.dialog, Dialog::AddHost { .. }), "{:?} adds a PC", binding(Action::AddPc));

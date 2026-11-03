@@ -39,6 +39,38 @@ impl Launcher {
         });
     }
 
+    /// Settings → Controls → Stream hotkeys: each of the desktop's stream hotkeys with its chord,
+    /// changed, turned off or reset here. A change applies at once, in a running stream too.
+    pub(super) fn stream_hotkeys_page(&mut self, ui: &mut Ui, commands: &mut Vec<Command>) {
+        use crate::shortcuts::{self, Action, Chord};
+        let mut focus = std::mem::take(&mut self.focus_screen);
+        scroll_column(ui, "stream-hotkeys", SETTINGS_W, |ui| {
+            for bound in shortcuts::hotkeys() {
+                let Some(action) = Action::from_hotkey(bound.id) else { continue };
+                let keys = bound.keys.as_deref().map_or_else(|| tr("Off").to_owned(), |keys| Chord::of_keys(keys).text());
+                row(ui, action.label(), &keys, |ui| {
+                    ui.horizontal(|ui| {
+                        let change = quiet_button(ui, "Change");
+                        if std::mem::take(&mut focus) { change.request_focus(); }
+                        if change.clicked() {
+                            self.dialog = Dialog::StreamHotkey { id: bound.id, error: None };
+                            self.focus_dialog = true;
+                        }
+                        if ui.add_enabled_ui(bound.keys.is_some(), |ui| quiet_button(ui, "Off")).inner.clicked() {
+                            shortcuts::turn_off_hotkey(bound.id);
+                            commands.push(Command::SaveHotkeys);
+                        }
+                        if ui.add_enabled_ui(bound.changed, |ui| quiet_button(ui, "Reset")).inner.clicked() {
+                            shortcuts::reset_hotkey(bound.id);
+                            commands.push(Command::SaveHotkeys);
+                        }
+                        change
+                    }).inner
+                });
+            }
+        });
+    }
+
     pub(super) fn controllers_page(&mut self, ui: &mut Ui, pads: &crate::gamepad::Gamepads, commands: &mut Vec<Command>) {
         use crate::gamepad::{AXIS_NAMES, BUTTON_MAP, BUTTON_NAMES, CONNECT_AS, MAX_TRIGGER_DEADZONE, Mapping};
         ui.label(tr("Mappings apply to controllers of the same model. Local menu and disconnect chords always use physical buttons."));

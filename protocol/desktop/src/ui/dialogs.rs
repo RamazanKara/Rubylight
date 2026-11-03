@@ -720,6 +720,36 @@ impl Launcher {
                         });
                     });
             }
+            Dialog::StreamHotkey { id, error } => {
+                let id = *id;
+                // The next key pressed, with the modifiers held; Escape alone cancels instead.
+                let pressed = ctx.input(|i| i.events.iter().find_map(|event| match event {
+                    egui::Event::Key { key, pressed: true, repeat: false, modifiers, .. } if !(*key == Key::Escape && modifiers.is_none()) => Some((*key, *modifiers)),
+                    _ => None,
+                }));
+                if let Some((key, modifiers)) = pressed {
+                    let recorded = crate::shortcuts::recorded_keys(key, modifiers).ok_or_else(|| trf("Unsupported key: {}", &[&key.name()]));
+                    match recorded.and_then(|keys| crate::shortcuts::record_hotkey(id, &keys)) {
+                        Ok(()) => { commands.push(Command::SaveHotkeys); close = true; }
+                        Err(message) => *error = Some(message),
+                    }
+                }
+                let title = crate::shortcuts::Action::from_hotkey(id).map_or(id, |action| tr(action.label()));
+                egui::Modal::new(Id::unique("stream-hotkey"))
+                    .frame(frame)
+                    .backdrop_color(Color32::from_black_alpha(150))
+                    .show(ctx, |ui| {
+                        ui.set_width(420.0);
+                        ui.label(RichText::new(title).font(semibold(text::SECTION)));
+                        ui.add_space(space::S);
+                        ui.label(RichText::new(tr("Press the new keys")).color(ON_SURFACE_VARIANT));
+                        if let Some(error) = error { ui.label(RichText::new(error.as_str()).color(ERROR)); }
+                        // Nothing takes focus: Enter or Space on a focused button would be recorded and click it.
+                        dialog_buttons(ui, |ui| {
+                            if quiet_button(ui, "Cancel").clicked() { close = true; }
+                        });
+                    });
+            }
             Dialog::DeleteShortcut { id, name } => {
                 egui::Modal::new(Id::unique("delete-shortcut"))
                     .frame(frame)

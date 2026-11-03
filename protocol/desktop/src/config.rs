@@ -1271,6 +1271,16 @@ impl Store {
         write_json(&self.dir.join("shortcuts.json"), shortcuts)
     }
 
+    /// The user's changes to the stream hotkeys, by action ID (nightjar-policy's `HotkeyBindings`);
+    /// none for a missing or unreadable file, which leaves every hotkey at its default.
+    pub fn hotkeys(&self) -> nightjar_policy::shortcuts::HotkeyBindings {
+        read_json(&self.dir.join("stream_hotkeys.json")).unwrap_or_default()
+    }
+
+    pub fn save_hotkeys(&self, bindings: &nightjar_policy::shortcuts::HotkeyBindings) -> std::io::Result<()> {
+        write_json(&self.dir.join("stream_hotkeys.json"), bindings)
+    }
+
     pub fn save_controller_mappings(&self, mappings: &BTreeMap<String, crate::gamepad::Mapping>) -> std::io::Result<()> {
         write_json(&self.dir.join("controllers.json"), mappings)
     }
@@ -1752,6 +1762,11 @@ mod tests {
         crate::shortcuts::save(&mut shortcuts, None, "Task manager", "CTRL + SHIFT + ESC").unwrap();
         store.save_shortcuts(&shortcuts).unwrap();
         assert_eq!(store.shortcuts(), shortcuts);
+        // Stream hotkeys hold across a restart.
+        assert!(store.hotkeys().is_empty());
+        let hotkeys = BTreeMap::from([("quit".to_string(), "CTRL+F9".to_string()), ("overlay".into(), "off".into())]);
+        store.save_hotkeys(&hotkeys).unwrap();
+        assert_eq!(store.hotkeys(), hotkeys);
         let mapping = crate::gamepad::Mapping { name: "Test pad".into(), deadzone: 12, ..Default::default() };
         let mut mappings = BTreeMap::from([("usb:1234:0001".into(), mapping)]);
         store.save_controller_mappings(&mappings).unwrap();

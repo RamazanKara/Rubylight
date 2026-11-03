@@ -490,7 +490,7 @@ fn shortcut(ui: &mut Ui, label: &str, pieces: &[Piece], spoken: &str) {
 /// Select for the controls as the Help page does. Returns true when the back row was chosen.
 pub fn sheet(ui: &mut Ui, style: Style, quit: GamepadQuitCombo, back_opens: bool, controller_mouse: bool, from_menu: bool) -> bool {
     let back_label = if from_menu { tr("Back to stream controls") } else { tr("Return to stream") };
-    let back = action_row(ui, if from_menu { Icon::Sliders } else { Icon::Play }, back_label, Trail::Keys(shortcuts::Key::Escape.cap()), *ON_SURFACE);
+    let back = action_row(ui, if from_menu { Icon::Sliders } else { Icon::Play }, back_label, Trail::Keys(shortcuts::Key::Escape.cap().as_ref()), *ON_SURFACE);
     back.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, back_label));
     if ui.ctx().memory(|m| m.focused().is_none()) {
         back.request_focus();
@@ -505,13 +505,13 @@ pub fn sheet(ui: &mut Ui, style: Style, quit: GamepadQuitCombo, back_opens: bool
         ui.label(RichText::new(tr("and press:")).font(regular(text::LABEL)).color(ON_SURFACE_VARIANT));
     });
     ui.add_space(space::XS);
-    let (chords, alone): (Vec<&shortcuts::KeyBinding>, Vec<_>) = shortcuts::keys_in(Scope::Stream).partition(|b| b.chords.iter().all(|c| c.is_nightjar()));
+    let (chords, alone): (Vec<shortcuts::KeyBinding>, Vec<_>) = shortcuts::keys_in(Scope::Stream).into_iter().partition(|b| b.chords.iter().all(|c| c.is_nightjar()));
     for binding in chords {
-        let spoken = glyphs::spoken(&glyphs::chords(binding.chords, false));
-        shortcut(ui, tr(binding.action.label()), &glyphs::chords(binding.chords, true), &spoken);
+        let spoken = glyphs::spoken(&glyphs::chords(&binding.chords, false));
+        shortcut(ui, tr(binding.action.label()), &glyphs::chords(&binding.chords, true), &spoken);
     }
     for binding in alone {
-        let pieces = glyphs::chords(binding.chords, false);
+        let pieces = glyphs::chords(&binding.chords, false);
         shortcut(ui, tr(binding.action.label()), &pieces, &glyphs::spoken(&pieces));
     }
     caption(ui, tr("Controllers"));

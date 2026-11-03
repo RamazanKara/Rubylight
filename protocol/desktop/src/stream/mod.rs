@@ -500,12 +500,8 @@ pub struct Streaming {
     decode_generation: i64,
     pub requested_mode: Reconfigure,
     pending_mode: Option<(Reconfigure, Instant)>,
-    /// The size the stream's pictures are at: the negotiated one, then each size the host
-    /// confirmed. Decoded pictures are cropped to it, or to the pending size, past an encoder's
-    /// alignment padding.
-    stream_size: (i32, i32),
-    /// The size the stream was at before `stream_size`, whose pictures may still be queued.
-    previous_size: (i32, i32),
+    /// The sizes decoded pictures are cropped to past an encoder's alignment padding.
+    stream_sizes: render::StreamSizes,
     display_change: Option<Instant>,
     last_arrival: Option<(u32, u64)>,
     /// Emptied buffers `pump` swaps with the decoder's queues, so taking a frame allocates nothing
@@ -753,8 +749,7 @@ impl Streaming {
             decode_generation: 0,
             requested_mode: mode,
             pending_mode: None,
-            stream_size: (i32::from(mode.width), i32::from(mode.height)),
-            previous_size: (i32::from(mode.width), i32::from(mode.height)),
+            stream_sizes: render::StreamSizes::new((i32::from(mode.width), i32::from(mode.height))),
             display_change: None,
             last_arrival: None,
             taken_frames: VecDeque::new(),
@@ -988,6 +983,7 @@ impl Streaming {
             return false;
         }
         self.requested_mode = request;
+        self.stream_sizes.ask((i32::from(request.width), i32::from(request.height)));
         self.pending_mode = Some((request, Instant::now()));
         self.facts.fps = request.fps_millihz.div_ceil(1000) as i32;
         self.shared.fps_millihz.store(request.fps_millihz, Ordering::Relaxed);

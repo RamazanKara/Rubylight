@@ -20,18 +20,47 @@ fn setup_size(setup: &session::VideoSetup) -> (i32, i32) {
 /// stream both 1920 wide, and the PC's old pictures are on their way for a while.
 const SWITCH_GRACE: Duration = Duration::from_secs(1);
 
-/// The stream's part of a decoded picture of `decoded` size (`crop::visible_size`), from the
-/// sizes it may be of: the last one asked for, the one the stream is at and the one before it.
-/// `settled` is a pending size asked for at least `SWITCH_GRACE` ago: a picture that is not one
-/// of the sizes exactly but fits its padding is taken for it, so the new stream's pictures
-/// confirm it.
-fn stream_part(decoded: (i32, i32), sizes: [(i32, i32); 3], settled: Option<(i32, i32)>) -> (i32, i32) {
-    use nightjar_core::video::crop::visible_size;
-    if let Some(pending) = settled.filter(|_| !sizes.contains(&decoded)) {
-        let visible = visible_size(decoded, &[pending]);
-        if visible != decoded { return visible; }
+/// The sizes a decoded picture may be of, to show it without an encoder's alignment padding
+/// (`crop::visible_size`): the size last asked of the PC, the one the stream is at, and for
+/// `SWITCH_GRACE` after a change the one before it.
+pub(super) struct StreamSizes {
+    /// The size last sent to the PC; the stream menu's unapplied edits are not.
+    asked: (i32, i32),
+    /// The negotiated size, then each size the PC confirmed.
+    current: (i32, i32),
+    /// The size before `current`, and when `current` was confirmed.
+    previous: Option<((i32, i32), Instant)>,
+}
+
+impl StreamSizes {
+    pub(super) fn new(size: (i32, i32)) -> Self { Self { asked: size, current: size, previous: None } }
+
+    /// A size sent to the PC.
+    pub(super) fn ask(&mut self, size: (i32, i32)) { self.asked = size; }
+
+    /// The stream's part of a picture of `coded` size arriving at `now`, and whether it confirms
+    /// `pending`, the size asked for and when, not confirmed yet.
+    pub(super) fn arrive(&mut self, coded: (i32, i32), pending: Option<((i32, i32), Instant)>, now: Instant) -> ((i32, i32), bool) {
+        use nightjar_core::video::crop::visible_size;
+        if self.previous.is_some_and(|(_, at)| now.saturating_duration_since(at) >= SWITCH_GRACE) { self.previous = None; }
+        let sizes = [self.asked, self.current];
+        let exact = sizes.contains(&coded) || self.previous.is_some_and(|(size, _)| size == coded);
+        // A pending size asked for SWITCH_GRACE ago takes a picture that fits its padding, so the
+        // new stream's pictures confirm it.
+        let settled = pending.filter(|&(_, at)| !exact && now.saturating_duration_since(at) >= SWITCH_GRACE)
+            .map(|(size, _)| visible_size(coded, &[size])).filter(|&visible| visible != coded);
+        let visible = settled.unwrap_or_else(|| {
+            let visible = visible_size(coded, &sizes);
+            // Pictures still queued from before a change, only when no current size fits them.
+            match self.previous { Some((size, _)) if visible == coded => visible_size(coded, &[size]), _ => visible }
+        });
+        let confirmed = pending.is_some_and(|(size, _)| size == visible);
+        if confirmed {
+            self.previous = Some((self.current, now));
+            self.current = visible;
+        }
+        (visible, confirmed)
     }
-    visible_size(decoded, &sizes)
 }
 
 /// A present of the texture: when the call was issued and returned (us), and the beam around it.
@@ -42,13 +71,6 @@ struct Flipped {
 }
 
 impl Streaming {
-    /// The stream's part of a decoded picture of `decoded` size (`stream_part`).
-    fn visible_of(&self, decoded: (i32, i32)) -> (i32, i32) {
-        let size = |mode: Reconfigure| (i32::from(mode.width), i32::from(mode.height));
-        let settled = self.pending_mode.filter(|(_, at)| at.elapsed() >= SWITCH_GRACE).map(|(mode, _)| size(mode));
-        stream_part(decoded, [size(self.requested_mode), self.stream_size, self.previous_size], settled)
-    }
-
     /// Moves decoded pictures into the pacer; sends a clock sync probe when due.
     pub fn pump(&mut self) {
         // The keyboard hook keeps the shell's keys only while this loop runs.
@@ -79,15 +101,12 @@ impl Streaming {
             if let Some(coded) = coded {
                 // The size without an encoder's alignment padding, worked out once on arrival: the
                 // presenter shows that part of this picture whatever was asked for since.
-                let (width, height) = self.visible_of(coded);
+                let pending = self.pending_mode.map(|(mode, at)| ((i32::from(mode.width), i32::from(mode.height)), at));
+                let ((width, height), confirmed) = self.stream_sizes.arrive(coded, pending, Instant::now());
                 decoded.visible = Some((width, height));
                 self.facts.width = width;
                 self.facts.height = height;
-                if self.pending_mode.is_some_and(|(mode, _)| i32::from(mode.width) == width && i32::from(mode.height) == height) {
-                    self.pending_mode = None;
-                    self.previous_size = self.stream_size;
-                    self.stream_size = (width, height);
-                }
+                if confirmed { self.pending_mode = None; }
             } else if decoded.setup.chroma_packing != 0 || decoded.setup.format & VIDEO_FORMAT_MASK_PYROWAVE != 0 {
                 // The menu's header and the session page name the stream's size: PyroWave and packed
                 // 4:4:4 tell it in their setup, a reconfigure's new setup included.
@@ -564,32 +583,71 @@ impl Streaming {
 mod tests {
     use super::*;
 
+    /// `pump`'s crop over a stream: pictures of `coded` size arriving at `t0 + ms`, with `asked`
+    /// pending since `asked_ms` until a picture confirms it, as `pump` clears it. Returns each
+    /// picture's visible size and whether it confirmed.
+    fn stream(start: (i32, i32), asked: Option<((i32, i32), u64)>, pictures: &[((i32, i32), u64)]) -> Vec<((i32, i32), bool)> {
+        let t0 = Instant::now();
+        let at = |ms: u64| t0 + Duration::from_millis(ms);
+        let mut sizes = StreamSizes::new(start);
+        let mut pending = asked.map(|(size, ms)| { sizes.ask(size); (size, at(ms)) });
+        pictures.iter().map(|&(coded, ms)| {
+            let (visible, confirmed) = sizes.arrive(coded, pending, at(ms));
+            if confirmed { pending = None; }
+            (visible, confirmed)
+        }).collect()
+    }
+
     #[test]
     fn old_pictures_during_a_size_change_keep_their_columns_and_do_not_confirm_it() {
         // An AV1 1920x1080 stream (coded 1920x1082) asked to step its width down to 1904, which AMD
         // codes 1920x1082 as well.
-        let sizes = [(1904, 1080), (1920, 1080), (1920, 1080)];
-        assert_eq!(stream_part((1920, 1082), sizes, None), (1920, 1080), "the old size's picture, before SWITCH_GRACE");
-        assert_ne!(stream_part((1920, 1082), sizes, None), (1904, 1080), "the pending size is not confirmed");
+        let shown = stream((1920, 1080), Some(((1904, 1080), 0)), &[((1920, 1082), 100), ((1920, 1082), 900)]);
+        assert_eq!(shown, [((1920, 1080), false); 2], "the old size's pictures, before SWITCH_GRACE");
         // After SWITCH_GRACE the PC's new pictures confirm the new size.
-        assert_eq!(stream_part((1920, 1082), sizes, Some((1904, 1080))), (1904, 1080));
+        let shown = stream((1920, 1080), Some(((1904, 1080), 0)), &[((1920, 1082), 100), ((1920, 1082), 1100)]);
+        assert_eq!(shown, [((1920, 1080), false), ((1904, 1080), true)]);
         // A picture that is exactly an old size stays whole whatever is pending.
-        assert_eq!(stream_part((1920, 1080), sizes, Some((1904, 1080))), (1920, 1080));
+        assert_eq!(stream((1920, 1080), Some(((1904, 1080), 0)), &[((1920, 1080), 1100)]), [((1920, 1080), false)]);
         // Sizes far apart need no grace: 2184x1968 (coded 2240x1968) after 1920x1080.
-        assert_eq!(stream_part((1920, 1082), [(2184, 1968), (1920, 1080), (1920, 1080)], None), (1920, 1080));
-        assert_eq!(stream_part((2240, 1968), [(2184, 1968), (1920, 1080), (1920, 1080)], None), (2184, 1968));
+        let shown = stream((1920, 1080), Some(((2184, 1968), 0)), &[((1920, 1082), 10), ((2240, 1968), 20)]);
+        assert_eq!(shown, [((1920, 1080), false), ((2184, 1968), true)]);
+    }
+
+    #[test]
+    fn pictures_after_a_confirmed_step_down_stay_cropped_to_the_new_size() {
+        // 1920x1080 changed to 1904x1080: both coded 1920x1082. Once confirmed, every later
+        // picture is the new stream's, cropped to 1904, during and after SWITCH_GRACE.
+        let shown = stream((1920, 1080), Some(((1904, 1080), 0)), &[((1920, 1082), 1100), ((1920, 1082), 1200), ((1920, 1082), 2500), ((1920, 1082), 60_000)]);
+        assert_eq!(shown, [((1904, 1080), true), ((1904, 1080), false), ((1904, 1080), false), ((1904, 1080), false)]);
     }
 
     #[test]
     fn a_size_the_pc_applies_after_the_timeout_is_still_cropped() {
-        // The 5 s timeout cleared the pending 2184x1968; the PC switches later.
-        assert_eq!(stream_part((2240, 1968), [(2184, 1968), (1920, 1080), (1920, 1080)], None), (2184, 1968));
+        // The 5 s timeout cleared the pending 2184x1968 (`pump` drops it); the PC switches later.
+        let t0 = Instant::now();
+        let mut sizes = StreamSizes::new((1920, 1080));
+        sizes.ask((2184, 1968));
+        assert_eq!(sizes.arrive((2240, 1968), None, t0 + Duration::from_secs(6)), ((2184, 1968), false));
     }
 
     #[test]
     fn pictures_of_the_size_before_a_confirmed_change_are_still_cropped() {
         // 2184x1968 confirmed while 1920x1080 pictures (coded 1920x1082) are still queued.
-        assert_eq!(stream_part((1920, 1082), [(2184, 1968), (2184, 1968), (1920, 1080)], None), (1920, 1080));
+        let shown = stream((1920, 1080), Some(((2184, 1968), 0)), &[((2240, 1968), 10), ((1920, 1082), 20), ((2240, 1968), 30), ((1920, 1082), 1500)]);
+        assert_eq!(shown, [((2184, 1968), true), ((1920, 1080), false), ((2184, 1968), false), ((1920, 1082), false)], "the old size expires after SWITCH_GRACE");
+    }
+
+    #[test]
+    fn a_size_edited_in_the_menu_but_not_applied_does_not_change_the_crop() {
+        // A 2184x1968 stream (coded 2240x1968); the menu's size editor writes `requested_mode`
+        // while the user steps to 2200, but only `request_mode` (Apply) asks `StreamSizes`.
+        let t0 = Instant::now();
+        let mut sizes = StreamSizes::new((2184, 1968));
+        assert_eq!(sizes.arrive((2240, 1968), None, t0), ((2184, 1968), false));
+        // Applied, the PC's new pictures are cropped to it.
+        sizes.ask((2200, 1968));
+        assert_eq!(sizes.arrive((2240, 1968), Some(((2200, 1968), t0)), t0 + Duration::from_millis(10)), ((2200, 1968), true));
     }
 
     /// The header named a packed 4:4:4 stream by the setting asked for: its size is the logical one.

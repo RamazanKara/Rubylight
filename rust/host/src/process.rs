@@ -292,13 +292,15 @@ impl RunningApp {
             &owned, &processes,
         )?)
     }
-    /// The verified game processes, whose devices game-only audio sets.
-    /// None for an app without one (Desktop, a detached command).
+    /// The verified game processes and every process they started, whose
+    /// devices game-only audio sets. None for an app without one (Desktop, a
+    /// detached command).
     pub fn game_pids(&self) -> Result<Vec<u32>> {
         if self.steam.is_none() && self.playnite.is_none() && self.child.is_none() {
             return Ok(Vec::new());
         }
-        Ok(self.game_processes()?.0.into_keys().collect())
+        let (owned, processes) = self.game_processes()?;
+        Ok(game_trees(&owned, &processes))
     }
     /// The processes whose windows a background stream keeps on its display,
     /// identified as for game-only audio.
@@ -966,6 +968,27 @@ impl ForegroundCheck {
 /// Whether explorer.exe, the desktop, started `pid`: a program the user
 /// opened themselves. A parent created after the child is an unrelated
 /// process that reused the parent's id.
+/// The `owned` game processes (pid and creation time) and every process
+/// each started, once each.
+fn game_trees(
+    owned: &BTreeMap<u32, u64>,
+    processes: &[butterpollo_core::steam::Process],
+) -> Vec<u32> {
+    let mut pids: Vec<u32> = owned
+        .iter()
+        .flat_map(|(&pid, &started)| {
+            butterpollo_core::audio_scope::tree(
+                butterpollo_core::audio_scope::Identity { pid, started },
+                processes,
+            )
+        })
+        .map(|identity| identity.pid)
+        .collect();
+    pids.sort_unstable();
+    pids.dedup();
+    pids
+}
+
 fn started_from_desktop(pid: u32, processes: &[butterpollo_core::steam::Process]) -> bool {
     let Some(child) = processes.iter().find(|p| p.pid == pid) else {
         return false;
@@ -1542,6 +1565,26 @@ impl Drop for RunningApp {
 #[cfg(test)]
 mod tests {
     use super::*;
+    /// A game's devices go back with every process it started, which game-only
+    /// audio routed too, and nothing older that only shares a pid.
+    #[test]
+    fn a_games_processes_are_the_game_and_its_children() {
+        let process = |pid, parent, started| butterpollo_core::steam::Process {
+            pid,
+            parent,
+            started,
+            name: "game.exe".into(),
+        };
+        let processes = [
+            process(10, 1, 100),
+            process(11, 10, 101),
+            process(12, 11, 102),
+            process(13, 10, 50),
+            process(20, 1, 100),
+        ];
+        let owned = BTreeMap::from([(10, 100), (12, 102)]);
+        assert_eq!(game_trees(&owned, &processes), [10, 11, 12]);
+    }
     #[test]
     fn swapped_settings_files_wait_for_the_game_not_for_its_launcher_or_shell() {
         assert!(watches_program("D:\\Games\\Racer\\Racer.exe"));

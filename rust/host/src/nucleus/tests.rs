@@ -906,7 +906,7 @@ fn a_started_session_tells_the_launchs_routes_its_instances() {
     let (registry, pc, apps) = setup();
     let routes = crate::stream::InstanceRoutes::start(
         |_| None::<anyhow::Result<butterpollo_windows::audio_app_route::AppRoute>>,
-        |_| {},
+        |_| None,
         false,
     );
     let routes = Arc::new(routes.unwrap());

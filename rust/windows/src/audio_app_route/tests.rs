@@ -21,6 +21,7 @@ struct Fake {
 /// The routes' lock a restore is checked against.
 static LISTED: Mutex<State> = Mutex::new(State {
     active: BTreeMap::new(),
+    closing: BTreeMap::new(),
     watching: false,
 });
 impl Fake {
@@ -142,7 +143,10 @@ fn an_unreadable_record_is_moved_aside() -> Result<()> {
     started(&fake, 7);
     route_with(&fake, &mut state, directory.path(), 7, GAME, SINK)?;
     assert_eq!(fake.device(GAME, eConsole), SINK);
-    assert!(std::fs::read_to_string(unreadable(directory.path()))?.contains("game.exe"));
+    assert!(
+        std::fs::read_to_string(directory.path().join("audio-app-recovery.unreadable.json"))?
+            .contains("game.exe")
+    );
     assert_eq!(load(directory.path())?.apps.len(), 1);
     Ok(())
 }
@@ -182,6 +186,52 @@ fn a_restore_lists_the_processes_without_the_lock() -> Result<()> {
     let state = LISTED.lock().unwrap();
     assert!(!restore_running(&fake, &state, directory.path(), &running)?);
     assert_eq!(fake.device(GAME, eConsole), SINK);
+    Ok(())
+}
+
+/// Between the put-back and the game's stop no stream routes it again (a
+/// child it starts as it quits); once stopped, it is routed as before.
+#[test]
+fn a_game_the_host_stops_is_not_routed_again_until_it_stopped() -> Result<()> {
+    let directory = tempfile::tempdir()?;
+    let (fake, mut state) = (Fake::default(), State::default());
+    started(&fake, 7);
+    let closing = Closing::mark(&mut state, vec![GAME.into()]);
+    assert_eq!(
+        route_with(&fake, &mut state, directory.path(), 7, GAME, SINK)?,
+        Routed::Closing
+    );
+    assert_eq!(fake.device(GAME, eConsole), "");
+    assert_eq!(load(directory.path())?, Journal::default());
+    closing.unmark(&mut state);
+    std::mem::forget(closing);
+    assert_eq!(
+        route_with(&fake, &mut state, directory.path(), 7, GAME, SINK)?,
+        Routed::Sink
+    );
+    Ok(())
+}
+
+/// A second unreadable record never replaces the first one's list.
+#[test]
+fn unreadable_records_are_all_kept() -> Result<()> {
+    let directory = tempfile::tempdir()?;
+    for _ in 0..2 {
+        std::fs::write(path(directory.path()), b"{")?;
+        load(directory.path())?;
+    }
+    assert!(
+        directory
+            .path()
+            .join("audio-app-recovery.unreadable.json")
+            .exists()
+    );
+    assert!(
+        directory
+            .path()
+            .join("audio-app-recovery.unreadable-2.json")
+            .exists()
+    );
     Ok(())
 }
 

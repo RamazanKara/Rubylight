@@ -154,9 +154,16 @@ struct Journal {
 fn path(directory: &Path) -> PathBuf {
     directory.join("audio-app-recovery.json")
 }
-/// Where an unreadable journal is moved, its program list kept.
+/// Where an unreadable journal is moved, its program list kept: a free
+/// name, so an earlier one stays.
 fn unreadable(directory: &Path) -> PathBuf {
-    directory.join("audio-app-recovery.unreadable.json")
+    (1..)
+        .map(|n| match n {
+            1 => directory.join("audio-app-recovery.unreadable.json"),
+            n => directory.join(format!("audio-app-recovery.unreadable-{n}.json")),
+        })
+        .find(|path| !path.exists())
+        .expect("a free name")
 }
 fn load(directory: &Path) -> Result<Journal> {
     let file = path(directory);
@@ -193,10 +200,14 @@ fn save(directory: &Path, journal: &Journal) -> Result<()> {
 struct State {
     /// Streams playing each program (by path) on the sink right now.
     active: BTreeMap<String, usize>,
+    /// Programs the host is stopping, put back already ([`put_back`]): not
+    /// routed again until they stopped, by how many stops.
+    closing: BTreeMap<String, usize>,
     watching: bool,
 }
 static STATE: Mutex<State> = Mutex::new(State {
     active: BTreeMap::new(),
+    closing: BTreeMap::new(),
     watching: false,
 });
 
@@ -207,6 +218,8 @@ enum Routed {
     Sink,
     /// On a device the user chose for the game during this stream: kept.
     Users(String),
+    /// Left alone: the host is stopping the program.
+    Closing,
 }
 
 /// Play process `pid` (program `exe`, lower case) on `sink`.
@@ -218,6 +231,13 @@ fn route_with(
     exe: &str,
     sink: &str,
 ) -> Result<Routed> {
+    if state
+        .closing
+        .keys()
+        .any(|closing| same_program(closing, exe))
+    {
+        return Ok(Routed::Closing);
+    }
     let mut journal = load(directory)?;
     let mut current: [String; 2] = Default::default();
     for (slot, role) in current.iter_mut().zip(ROLES) {
@@ -486,7 +506,8 @@ pub struct AppRoute {
     /// The sink's endpoint ID, and its name for messages.
     sink_id: String,
     pub sink: String,
-    /// Kept on a device the user chose for the game: nothing to put back.
+    /// Kept on a device the user chose for the game, or not moved as the
+    /// host stops the game (""): nothing to put back.
     users: Option<String>,
 }
 impl AppRoute {
@@ -527,6 +548,14 @@ impl AppRoute {
                 );
                 None
             }
+            Ok(Routed::Closing) => {
+                tracing::info!(
+                    exe,
+                    pid,
+                    "game audio not moved: the host is stopping the game"
+                );
+                Some(String::new())
+            }
             Ok(Routed::Users(device)) => {
                 tracing::info!(
                     exe,
@@ -556,7 +585,7 @@ impl AppRoute {
     }
     /// The device the user chose for the game, which it stays on.
     pub fn users_device(&self) -> Option<&str> {
-        self.users.as_deref()
+        self.users.as_deref().filter(|device| !device.is_empty())
     }
     /// Which of these routes' processes, and of the game's processes left
     /// `unrouted`, play on another device than the routes' sink
@@ -619,23 +648,53 @@ pub fn recover(directory: &Path) -> Result<()> {
 /// instances) and every stream playing them: their programs go back to
 /// their own devices now, while Windows can still set them. A stream's
 /// route that lets go later finds nothing left to put back. `pids` is
-/// asked only while a program waits to go back.
-pub fn put_back(directory: &Path, pids: impl FnOnce() -> Result<Vec<u32>>) -> Result<()> {
-    if load(directory)?.apps.is_empty() {
-        return Ok(());
-    }
+/// asked for the programs. Until the guard drops, once they stopped, no
+/// stream routes them again.
+pub fn put_back(directory: &Path, pids: impl FnOnce() -> Result<Vec<u32>>) -> Result<Closing> {
     let exes: Vec<String> = pids()?
         .iter()
         .filter_map(|&pid| crate::process::image_path(pid))
         .map(|exe| exe.to_lowercase())
         .collect();
-    forget(&mut STATE.lock().unwrap(), &exes);
+    let closing = Closing::mark(&mut STATE.lock().unwrap(), exes);
+    if load(directory)?.apps.is_empty() {
+        return Ok(closing);
+    }
+    forget(&mut STATE.lock().unwrap(), &closing.exes);
     let (state, result) = restore_now(directory);
     drop(state);
     if !matches!(result, Ok(false)) {
         watch(directory);
     }
-    result.map(|_| ())
+    result.map(|_| closing)
+}
+
+/// Programs the host stops: routed again once this drops.
+pub struct Closing {
+    exes: Vec<String>,
+}
+impl Closing {
+    fn mark(state: &mut State, exes: Vec<String>) -> Self {
+        for exe in &exes {
+            *state.closing.entry(exe.clone()).or_default() += 1;
+        }
+        Self { exes }
+    }
+    fn unmark(&self, state: &mut State) {
+        for exe in &self.exes {
+            if let Some(count) = state.closing.get_mut(exe) {
+                *count -= 1;
+                if *count == 0 {
+                    state.closing.remove(exe);
+                }
+            }
+        }
+    }
+}
+impl Drop for Closing {
+    fn drop(&mut self) {
+        self.unmark(&mut STATE.lock().unwrap());
+    }
 }
 
 /// One watcher per host: it ends once nothing waits.

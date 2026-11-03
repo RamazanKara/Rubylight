@@ -260,7 +260,7 @@ impl Routes {
         };
         match (&self.failed, elsewhere) {
             (Some(error), _) => s.launch.warnings.set("audio_game_host", format!("Game sound also plays on the PC: Rubylight could not move the game to a virtual playback device ({error}).")),
-            (None, Some(Elsewhere::Opened)) => s.launch.warnings.set("audio_game_host", "Game sound also plays on the PC: the game opened its sound before Rubylight moved it to the virtual playback device. Windows keeps that choice, so it moves when the game starts again."),
+            (None, Some(Elsewhere::Opened)) => s.launch.warnings.set("audio_game_host", "Game sound also plays on the PC: the game opened its sound before Rubylight moved it to the virtual playback device. Windows keeps that choice, so it moves when the game starts again, unless the game picks its own output device in its settings: set it to the default device there."),
             (None, Some(Elsewhere::Windows(pid))) => {
                 let program = butterpollo_windows::process::image_path(pid)
                     .and_then(|path| path.rsplit('\\').next().map(str::to_string))

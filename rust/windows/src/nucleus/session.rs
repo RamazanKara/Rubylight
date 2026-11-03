@@ -811,6 +811,9 @@ impl Runner {
             told.stopping(&instances.keys().copied().collect::<Vec<_>>());
         }
         self.nucleus.stop(&instances);
+        if let Some(told) = &self.instances {
+            told.stopped();
+        }
         // Nucleus sets them as it starts each instance: back once all stopped.
         if let Some(layers) = &mut self.layers {
             layers.restore();
@@ -866,6 +869,8 @@ pub trait Told: Send + Sync {
     /// The instances' processes `pids`, still running, are about to be
     /// stopped with the session.
     fn stopping(&self, pids: &[u32]);
+    /// ...and were stopped.
+    fn stopped(&self);
 }
 pub type Instances = Arc<dyn Told>;
 

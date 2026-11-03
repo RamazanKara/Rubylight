@@ -10,7 +10,10 @@ use super::game_audio::{moves_game_sound, routable};
 use crate::state::Shared;
 use anyhow::Result;
 use butterpollo_core::{audio_scope::Identity, config::Config};
-use butterpollo_windows::{audio_app_route::AppRoute, nucleus::session::Told};
+use butterpollo_windows::{
+    audio_app_route::{AppRoute, Closing},
+    nucleus::session::Told,
+};
 use std::{
     collections::{BTreeMap, BTreeSet},
     path::Path,
@@ -67,13 +70,19 @@ pub(crate) fn instance_routes(
 
 /// The host is about to stop `pids` and every stream playing them: they
 /// go back to their own devices while Windows can still set them.
-pub(crate) fn put_back(directory: &Path, pids: impl FnOnce() -> Result<Vec<u32>>) {
-    if let Err(error) = butterpollo_windows::audio_app_route::put_back(directory, pids) {
-        tracing::warn!(
-            error = format!("{error:#}"),
-            "the game's audio device was not put back before it stopped; it is when the game next runs"
-        );
-    }
+/// Until the guard drops, once they stopped, no stream routes them again.
+pub(crate) fn put_back(
+    directory: &Path,
+    pids: impl FnOnce() -> Result<Vec<u32>>,
+) -> Option<Closing> {
+    butterpollo_windows::audio_app_route::put_back(directory, pids)
+        .inspect_err(|error| {
+            tracing::warn!(
+                error = format!("{error:#}"),
+                "the game's audio device was not put back before it stopped; it is when the game next runs"
+            );
+        })
+        .ok()
 }
 
 enum Work {
@@ -82,6 +91,8 @@ enum Work {
     OnPc(usize, bool, mpsc::Sender<Option<&'static str>>),
     /// The instances' processes are about to stop: put back, then answer.
     Stopping(Vec<u32>, mpsc::Sender<()>),
+    /// ...and stopped: they may be routed again.
+    Stopped,
 }
 
 /// The session's side: what it tells goes to the worker, which routes.
@@ -89,7 +100,6 @@ pub(crate) struct InstanceRoutes {
     work: Mutex<Option<mpsc::Sender<Work>>>,
     /// The last instances sent: an unchanged pass wakes nobody.
     sent: Mutex<Vec<BTreeSet<Identity>>>,
-    worker: Mutex<Option<thread::JoinHandle<()>>>,
 }
 impl InstanceRoutes {
     /// `acquire` routes a process (None: never routed); `put_back` puts the
@@ -97,7 +107,7 @@ impl InstanceRoutes {
     /// `first_on_pc`.
     pub(crate) fn start<R: Program + Send + 'static>(
         mut acquire: impl FnMut(u32) -> Option<Result<R>> + Send + 'static,
-        mut put_back: impl FnMut(&[u32]) + Send + 'static,
+        mut put_back: impl FnMut(&[u32]) -> Option<Closing> + Send + 'static,
         first_on_pc: bool,
     ) -> Result<Self> {
         let (work, queue) = mpsc::channel::<Work>();
@@ -109,27 +119,37 @@ impl InstanceRoutes {
                     early.on_pc.insert(0);
                 }
                 let mut trees = Vec::new();
-                while let Ok(mut next) = queue.recv() {
+                // Held until the stop is over: no route between.
+                let mut _closing = None;
+                while let Ok(first) = queue.recv() {
                     // Only the latest instances matter: a pass that came
-                    // while Windows answered replaces the ones before.
-                    while let Work::Found(_) = next {
-                        match queue.try_recv() {
-                            Ok(newer) => next = newer,
-                            Err(_) => break,
+                    // while Windows answered replaces the ones before, and
+                    // is routed before the work behind it.
+                    let (mut next, mut other) = (Some(first), None);
+                    let mut found = None;
+                    while let Some(work) = next.take() {
+                        match work {
+                            Work::Found(trees) => {
+                                found = Some(trees);
+                                next = queue.try_recv().ok();
+                            }
+                            work => other = Some(work),
                         }
                     }
-                    match next {
-                        Work::Found(found) => {
-                            trees = found;
-                            early.update(&trees, &mut acquire);
-                        }
-                        Work::OnPc(slot, on_pc, said) => {
+                    if let Some(found) = found {
+                        trees = found;
+                        early.update(&trees, &mut acquire);
+                    }
+                    match other {
+                        None | Some(Work::Found(_)) => {}
+                        Some(Work::Stopped) => _closing = None,
+                        Some(Work::OnPc(slot, on_pc, said)) => {
                             let message = early.on_pc(slot, on_pc);
                             early.update(&trees, &mut acquire);
                             let _ = said.send(message);
                         }
-                        Work::Stopping(pids, done) => {
-                            put_back(&pids);
+                        Some(Work::Stopping(pids, done)) => {
+                            _closing = put_back(&pids);
                             early.routed.clear();
                             // A session that stopped waiting has nothing to hear.
                             let _ = done.send(());
@@ -137,10 +157,13 @@ impl InstanceRoutes {
                     }
                 }
             })?;
+        // Never joined: the last session's handle can drop under the
+        // registry's lock, and the worker ends on its own once every handle
+        // is gone, after the route it may be waiting for.
+        drop(worker);
         Ok(Self {
             work: Mutex::new(Some(work)),
             sent: Mutex::new(Vec::new()),
-            worker: Mutex::new(Some(worker)),
         })
     }
     fn send(&self, work: Work) -> bool {
@@ -177,6 +200,9 @@ impl Told for InstanceRoutes {
             self.send(Work::Found(trees.to_vec()));
         }
     }
+    fn stopped(&self) {
+        self.send(Work::Stopped);
+    }
     fn stopping(&self, pids: &[u32]) {
         let (done, answer) = mpsc::channel();
         if self.send(Work::Stopping(pids.to_vec(), done))
@@ -186,16 +212,6 @@ impl Told for InstanceRoutes {
                 "the Nucleus Co-op instances' audio devices were not put back within {} s; they are when the game next runs",
                 PUT_BACK_WAIT.as_secs()
             );
-        }
-    }
-}
-impl Drop for InstanceRoutes {
-    fn drop(&mut self) {
-        drop(self.work.lock().unwrap().take());
-        if let Some(worker) = self.worker.lock().unwrap().take()
-            && worker.join().is_err()
-        {
-            tracing::error!("the Nucleus Co-op audio routes' thread panicked");
         }
     }
 }
@@ -379,7 +395,10 @@ mod tests {
                 }
                 game(pid)
             },
-            move |pids| back_tx.send(pids.to_vec()).unwrap(),
+            move |pids| {
+                back_tx.send(pids.to_vec()).unwrap();
+                None
+            },
             false,
         )
         .unwrap();
@@ -442,7 +461,7 @@ mod tests {
                 asked_tx.send(pid).unwrap();
                 game(pid)
             },
-            |_| {},
+            |_| None,
             true,
         )
         .unwrap();
@@ -451,5 +470,60 @@ mod tests {
         assert_eq!(routes.on_pc(1, true), Some(FROM_NEXT_START));
         drop(routes);
         assert!(asked.try_recv().is_err());
+    }
+
+    /// A pass's instances that came just before a player's choice are
+    /// routed first, not skipped: the session never sends them again.
+    #[test]
+    fn instances_just_before_a_choice_are_routed() {
+        let (hold, held) = mpsc::channel::<()>();
+        let (asked_tx, asked) = mpsc::channel();
+        let routes = InstanceRoutes::start(
+            move |pid| {
+                asked_tx.send(pid).unwrap();
+                if pid == 20 {
+                    held.recv().unwrap();
+                }
+                game(pid)
+            },
+            |_| None,
+            false,
+        )
+        .unwrap();
+        routes.found(&[BTreeSet::from([id(20)])]);
+        assert_eq!(asked.recv_timeout(Duration::from_secs(5)).unwrap(), 20);
+        routes.found(&[BTreeSet::from([id(20)]), BTreeSet::from([id(21)])]);
+        let choice = std::thread::scope(|scope| {
+            let choice = scope.spawn(|| routes.on_pc(0, false));
+            // The choice is queued behind the pass before the route ends.
+            std::thread::sleep(Duration::from_millis(50));
+            hold.send(()).unwrap();
+            choice.join().unwrap()
+        });
+        assert_eq!(choice, None);
+        assert_eq!(asked.recv_timeout(Duration::from_secs(5)).unwrap(), 21);
+    }
+
+    /// Dropping the last handle never waits for a route in progress.
+    #[test]
+    fn dropping_the_routes_never_waits_for_windows() {
+        let (hold, held) = mpsc::channel::<()>();
+        let (asked_tx, asked) = mpsc::channel();
+        let routes = InstanceRoutes::start(
+            move |pid| {
+                asked_tx.send(pid).unwrap();
+                held.recv().unwrap();
+                game(pid)
+            },
+            |_| None,
+            false,
+        )
+        .unwrap();
+        routes.found(&[BTreeSet::from([id(20)])]);
+        asked.recv_timeout(Duration::from_secs(5)).unwrap();
+        let dropped = std::time::Instant::now();
+        drop(routes);
+        assert!(dropped.elapsed() < Duration::from_secs(1));
+        hold.send(()).unwrap();
     }
 }

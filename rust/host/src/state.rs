@@ -516,10 +516,14 @@ impl Host {
             );
             // A placeholder that never started raised no app.started.
             stopped = app.started_event();
-            // Its game-only audio goes back while the game still runs.
-            crate::stream::put_back(&self.directory, || app.game_pids());
         }
+        // Its game-only audio goes back while the game still runs, and is not
+        // routed again until it stopped.
+        let closing = app
+            .as_ref()
+            .and_then(|app| crate::stream::put_back(&self.directory, || app.game_pids()));
         drop(app);
+        drop(closing);
         if let Some((id, name, owner)) = stopped {
             self.webhook(
                 "app.stopped",

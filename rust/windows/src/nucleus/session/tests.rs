@@ -367,6 +367,7 @@ const HINT: &str = "open Nucleus Co-op and load the profile Rubylight once";
 struct Listener {
     found: Mutex<Vec<Vec<BTreeSet<Identity>>>>,
     stopping: Mutex<Option<(Vec<u32>, bool)>>,
+    stopped: Mutex<bool>,
     probe: Probe,
 }
 impl Told for Listener {
@@ -376,6 +377,10 @@ impl Told for Listener {
     fn stopping(&self, pids: &[u32]) {
         let stopped = self.probe.stopped.lock().unwrap().is_some();
         *self.stopping.lock().unwrap() = Some((pids.to_vec(), stopped));
+    }
+    fn stopped(&self) {
+        assert!(self.probe.stopped.lock().unwrap().is_some());
+        *self.stopped.lock().unwrap() = true;
     }
 }
 
@@ -419,6 +424,7 @@ fn the_instances_are_told_from_the_pass_that_finds_them() {
     assert_eq!(last(), vec![BTreeSet::from([game, helper])]);
     runner.finish(End::Ended);
     assert_eq!(*told.stopping.lock().unwrap(), Some((vec![20, 21], false)));
+    assert!(*told.stopped.lock().unwrap());
     assert!(probe.stopped.lock().unwrap().is_some());
 }
 

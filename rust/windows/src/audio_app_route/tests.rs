@@ -11,6 +11,10 @@ const GAME: &str = r"e:\games\lego batman\legobatmanlotdk-win64-shipping.exe";
 struct Fake {
     devices: RefCell<BTreeMap<(String, i32), String>>,
     running: RefCell<Vec<(u32, String)>>,
+    /// A device Windows refuses (unplugged).
+    gone: RefCell<Option<String>>,
+    /// Windows answers S_OK and keeps nothing.
+    ignores: std::cell::Cell<bool>,
 }
 impl Fake {
     fn exe(&self, pid: u32) -> Result<String> {
@@ -35,6 +39,13 @@ impl Apps for Fake {
     }
     fn set(&self, pid: u32, role: ERole, device: &str) -> Result<()> {
         let exe = self.exe(pid)?;
+        anyhow::ensure!(
+            self.gone.borrow().as_deref() != Some(device),
+            "element not found"
+        );
+        if self.ignores.get() {
+            return Ok(());
+        }
         self.devices
             .borrow_mut()
             .insert((exe, role.0), device.into());
@@ -45,7 +56,7 @@ impl Apps for Fake {
             .running
             .borrow()
             .iter()
-            .filter(|(_, exe)| exes.contains(&exe.as_str()))
+            .filter(|(_, exe)| exes.iter().any(|e| same_program(e, exe)))
             .cloned()
             .collect())
     }
@@ -174,6 +185,102 @@ fn the_last_of_two_streams_of_one_game_puts_it_back() -> Result<()> {
     assert!(!release_with(&fake, &mut state, directory.path(), GAME)?);
     assert_eq!(fake.device(GAME, eConsole), "");
     Ok(())
+}
+
+#[test]
+fn a_game_found_on_the_sink_without_a_record_goes_back_to_the_default() -> Result<()> {
+    let directory = tempfile::tempdir()?;
+    let (fake, mut state) = (Fake::default(), State::default());
+    started(&fake, 7);
+    // The record was lost while the game was routed.
+    fake.set(7, eConsole, &SINK.to_lowercase())?;
+    route_with(&fake, &mut state, directory.path(), 7, GAME, SINK)?;
+    assert!(!release_with(&fake, &mut state, directory.path(), GAME)?);
+    assert_eq!(fake.device(GAME, eConsole), "");
+    Ok(())
+}
+
+#[test]
+fn a_device_that_is_gone_does_not_block_the_restore() -> Result<()> {
+    let directory = tempfile::tempdir()?;
+    let (fake, mut state) = (Fake::default(), State::default());
+    started(&fake, 7);
+    fake.set(7, eConsole, HEADSET)?;
+    route_with(&fake, &mut state, directory.path(), 7, GAME, SINK)?;
+    *fake.gone.borrow_mut() = Some(HEADSET.into());
+    assert!(!release_with(&fake, &mut state, directory.path(), GAME)?);
+    assert_eq!(fake.device(GAME, eConsole), "", "it follows the default");
+    assert_eq!(load(directory.path())?, Journal::default());
+    Ok(())
+}
+
+#[test]
+fn a_device_the_user_chose_is_kept_when_the_game_starts_again() -> Result<()> {
+    let directory = tempfile::tempdir()?;
+    let (fake, mut state) = (Fake::default(), State::default());
+    started(&fake, 7);
+    route_with(&fake, &mut state, directory.path(), 7, GAME, SINK)?;
+    fake.set(7, eConsole, HEADSET)?;
+    exited(&fake);
+    assert!(release_with(&fake, &mut state, directory.path(), GAME)?);
+    started(&fake, 9);
+    assert_eq!(
+        route_with(&fake, &mut state, directory.path(), 9, GAME, SINK)?,
+        Routed::Users(HEADSET.into())
+    );
+    assert_eq!(fake.device(GAME, eConsole), HEADSET);
+    // The pending entry still puts the other role back.
+    assert!(!restore_with(&fake, &state, directory.path())?);
+    assert_eq!(fake.device(GAME, eMultimedia), "");
+    assert_eq!(fake.device(GAME, eConsole), HEADSET);
+    Ok(())
+}
+
+#[test]
+fn a_route_windows_does_not_keep_fails_loudly_and_leaves_nothing() -> Result<()> {
+    let directory = tempfile::tempdir()?;
+    let (fake, mut state) = (Fake::default(), State::default());
+    started(&fake, 7);
+    fake.ignores.set(true);
+    let error = route_with(&fake, &mut state, directory.path(), 7, GAME, SINK).unwrap_err();
+    assert!(
+        format!("{error:#}").contains("not the virtual sink"),
+        "{error:#}"
+    );
+    assert!(state.active.is_empty());
+    assert_eq!(load(directory.path())?, Journal::default());
+    Ok(())
+}
+
+#[test]
+fn a_store_game_is_the_same_program_after_an_update() {
+    let old = r"c:\program files\windowsapps\studio.game_1.0.2.0_x64__abc123\game\game.exe";
+    let new = r"c:\program files\windowsapps\studio.game_1.0.3.0_x64__abc123\game\game.exe";
+    let other = r"c:\program files\windowsapps\studio.other_1.0.3.0_x64__abc123\game\game.exe";
+    assert!(same_program(old, new));
+    assert!(!same_program(old, other));
+    assert!(!same_program(
+        GAME,
+        r"d:\games\lego batman\legobatmanlotdk-win64-shipping.exe"
+    ));
+}
+
+#[test]
+fn a_game_that_opened_its_sound_before_the_route_is_reported() {
+    let speakers = "{speakers}";
+    let sink = "{steam}";
+    let elsewhere = [(7, speakers.to_string())];
+    assert!(plays_elsewhere(&[7], &elsewhere, sink));
+    let both = [(7, speakers.to_string()), (8, sink.to_string())];
+    assert!(
+        !plays_elsewhere(&[7, 8], &both, sink),
+        "the game's sound process is on the sink"
+    );
+    assert!(
+        !plays_elsewhere(&[9], &elsewhere, sink),
+        "another app is not the game"
+    );
+    assert!(!plays_elsewhere(&[7], &[], sink), "silent so far");
 }
 
 #[test]

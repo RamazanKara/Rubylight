@@ -44,7 +44,7 @@ pub struct Endpoint {
     pub default: bool,
     pub virtual_sink: bool,
 }
-unsafe fn device_id(device: &IMMDevice) -> Result<String> {
+pub(crate) unsafe fn device_id(device: &IMMDevice) -> Result<String> {
     // SAFETY: `device` is a live IMMDevice borrowed for the call.
     let id = unsafe { device.GetId()? };
     // SAFETY: GetId returned a NUL-terminated string that is not freed until below.

@@ -70,7 +70,8 @@ trait Apps {
     fn get(&self, pid: u32, role: ERole) -> Result<String>;
     /// "" puts the process back on the default.
     fn set(&self, pid: u32, role: ERole, device: &str) -> Result<()>;
-    /// Running processes whose program path is one of `exes` (lower case).
+    /// Running processes of the programs `exes` ([`same_program`]), with
+    /// their program paths in lower case.
     fn running(&self, exes: &[&str]) -> Result<Vec<(u32, String)>>;
 }
 
@@ -112,12 +113,27 @@ impl Apps for Windows {
             .into_iter()
             .filter(|p| names.iter().any(|n| p.name.eq_ignore_ascii_case(n)))
             .filter_map(|p| Some((p.pid, crate::process::image_path(p.pid)?.to_lowercase())))
-            .filter(|(_, path)| exes.contains(&path.as_str()))
+            .filter(|(_, path)| exes.iter().any(|exe| same_program(exe, path)))
             .collect())
     }
 }
 fn file_name(path: &str) -> &str {
     path.rsplit(['\\', '/']).next().unwrap_or(path)
+}
+/// A Store game's package family (`Name_PublisherId` from
+/// `...\WindowsApps\Name_Version_Arch__PublisherId\...`) and the rest of
+/// its path: an update changes the version in the folder name.
+fn packaged(exe: &str) -> Option<(String, &str)> {
+    let (_, inside) = exe.split_once(r"\windowsapps\")?;
+    let (folder, rest) = inside.split_once('\\')?;
+    let parts: Vec<&str> = folder.split('_').collect();
+    let (name, publisher) = (parts.first()?, parts.last()?);
+    (parts.len() >= 3).then(|| (format!("{name}_{publisher}"), rest))
+}
+/// Whether two lower-case program paths are one program: the same path,
+/// or the same Store package's program in another version.
+fn same_program(a: &str, b: &str) -> bool {
+    a == b || matches!((packaged(a), packaged(b)), (Some(a), Some(b)) if a == b)
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -138,8 +154,12 @@ fn path(directory: &Path) -> PathBuf {
 fn load(directory: &Path) -> Result<Journal> {
     let file = path(directory);
     match std::fs::read(&file) {
-        Ok(bytes) => serde_json::from_slice(&bytes)
-            .with_context(|| format!("{} can't be read: delete it", file.display())),
+        Ok(bytes) => serde_json::from_slice(&bytes).with_context(|| {
+            format!(
+                "the record of the games' audio devices, {}, can't be read: delete it",
+                file.display()
+            )
+        }),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Journal::default()),
         Err(error) => Err(error).with_context(|| file.display().to_string()),
     }
@@ -159,6 +179,15 @@ static STATE: Mutex<State> = Mutex::new(State {
     watching: false,
 });
 
+/// How [`route_with`] left the process.
+#[derive(Debug, PartialEq)]
+enum Routed {
+    /// On the sink, read back from Windows.
+    Sink,
+    /// On a device the user chose for the game during this stream: kept.
+    Users(String),
+}
+
 /// Play process `pid` (program `exe`, lower case) on `sink`.
 fn route_with(
     apps: &dyn Apps,
@@ -167,34 +196,70 @@ fn route_with(
     pid: u32,
     exe: &str,
     sink: &str,
-) -> Result<()> {
+) -> Result<Routed> {
     let mut journal = load(directory)?;
-    // A pending entry keeps the user's device from before: the current one
-    // is the sink this host set.
-    match journal.apps.iter_mut().find(|app| app.exe == exe) {
-        Some(app) => app.applied = sink.into(),
-        None => {
-            let mut before: [String; 2] = Default::default();
-            for (slot, role) in before.iter_mut().zip(ROLES) {
-                *slot = apps.get(pid, role)?;
+    let mut current: [String; 2] = Default::default();
+    for (slot, role) in current.iter_mut().zip(ROLES) {
+        *slot = apps.get(pid, role)?;
+    }
+    let is_sink = |device: &str| device.eq_ignore_ascii_case(sink);
+    match journal
+        .apps
+        .iter_mut()
+        .find(|app| same_program(&app.exe, exe))
+    {
+        Some(app) => {
+            // The program waits for its restore, or another stream plays it:
+            // its journalled device stays the user's. One the user chose for
+            // it meanwhile (neither the sink nor that) is kept.
+            if let Some(chosen) = current
+                .iter()
+                .zip(&app.before)
+                .find(|(now, before)| !is_sink(now) && !now.eq_ignore_ascii_case(before))
+                .map(|(now, _)| now.clone())
+            {
+                return Ok(Routed::Users(chosen));
             }
-            journal.apps.push(App {
-                exe: exe.into(),
-                before,
-                applied: sink.into(),
-            });
+            app.applied = sink.into();
         }
+        None => journal.apps.push(App {
+            exe: exe.into(),
+            // Already on the sink with no record of it (the record was
+            // deleted): the game goes back to the default, never stays here.
+            before: current.map(|device| {
+                if is_sink(&device) {
+                    String::new()
+                } else {
+                    device
+                }
+            }),
+            applied: sink.into(),
+        }),
     }
     save(directory, &journal)?;
-    let applied = ROLES
-        .into_iter()
-        .try_for_each(|role| apps.set(pid, role, sink));
     *state.active.entry(exe.into()).or_default() += 1;
+    let applied = ROLES.into_iter().try_for_each(|role| {
+        apps.set(pid, role, sink)?;
+        let read = apps.get(pid, role)?;
+        anyhow::ensure!(
+            is_sink(&read),
+            "Windows kept {} for the game, not the virtual sink",
+            if read.is_empty() {
+                "the default device"
+            } else {
+                read.as_str()
+            }
+        );
+        Ok(())
+    });
     if let Err(error) = applied {
-        release_with(apps, state, directory, exe)?;
+        // Whatever this set goes back now, or when the program next runs.
+        if let Err(restore) = release_with(apps, state, directory, exe) {
+            tracing::warn!(exe, error = %format!("{restore:#}"), "game audio device could not be restored after a failed route");
+        }
         return Err(error);
     }
-    Ok(())
+    Ok(Routed::Sink)
 }
 
 /// One stream stopped playing `exe` on the sink; the last puts it back.
@@ -215,10 +280,11 @@ fn release_with(apps: &dyn Apps, state: &mut State, directory: &Path, exe: &str)
 /// back when it ends).
 fn restore_with(apps: &dyn Apps, state: &State, directory: &Path) -> Result<bool> {
     let mut journal = load(directory)?;
+    let idle = |app: &App| !state.active.keys().any(|exe| same_program(&app.exe, exe));
     let waiting: Vec<&str> = journal
         .apps
         .iter()
-        .filter(|app| !state.active.contains_key(&app.exe))
+        .filter(|app| idle(app))
         .map(|app| app.exe.as_str())
         .collect();
     if waiting.is_empty() {
@@ -226,28 +292,31 @@ fn restore_with(apps: &dyn Apps, state: &State, directory: &Path) -> Result<bool
     }
     let running = apps.running(&waiting)?;
     let mut failed = None;
-    let mut restored = vec![];
-    for app in &journal.apps {
-        if state.active.contains_key(&app.exe) {
-            continue;
-        }
-        let Some((pid, _)) = running.iter().find(|(_, exe)| *exe == app.exe) else {
+    let mut done = vec![];
+    for app in journal.apps.iter().filter(|app| idle(app)) {
+        let Some((pid, _)) = running.iter().find(|(_, exe)| same_program(&app.exe, exe)) else {
             continue;
         };
         let result = ROLES
             .into_iter()
             .zip(&app.before)
-            .try_for_each(|(role, before)| {
+            .try_for_each(|(role, before)| -> Result<()> {
                 // A device the user chose for the game meanwhile stays.
-                if apps.get(*pid, role)?.eq_ignore_ascii_case(&app.applied) {
-                    apps.set(*pid, role, before)?;
+                if !apps.get(*pid, role)?.eq_ignore_ascii_case(&app.applied) {
+                    return Ok(());
+                }
+                if let Err(error) = apps.set(*pid, role, before) {
+                    // The device it had is gone (unplugged, uninstalled): it
+                    // follows the default instead of waiting forever.
+                    tracing::warn!(exe = app.exe, device = before, error = %format!("{error:#}"), "the game's own audio device is unavailable; it follows the default device again");
+                    apps.set(*pid, role, "")?;
                 }
                 Ok(())
             });
         match result {
             Ok(()) => {
                 tracing::info!(exe = app.exe, "game audio device restored");
-                restored.push(app.exe.clone());
+                done.push(app.exe.clone());
             }
             Err(error) => {
                 tracing::warn!(exe = app.exe, error = %format!("{error:#}"), "game audio device could not be restored");
@@ -255,68 +324,151 @@ fn restore_with(apps: &dyn Apps, state: &State, directory: &Path) -> Result<bool
             }
         }
     }
-    journal.apps.retain(|app| !restored.contains(&app.exe));
-    if !restored.is_empty() {
+    journal.apps.retain(|app| !done.contains(&app.exe));
+    if !done.is_empty() {
         save(directory, &journal)?;
     }
     if let Some(error) = failed {
         return Err(error);
     }
-    Ok(journal
-        .apps
-        .iter()
-        .any(|app| !state.active.contains_key(&app.exe)))
+    Ok(journal.apps.iter().any(idle))
+}
+
+/// Whether the game plays elsewhere: one of the `routed` processes has an
+/// active session (`sessions`: pid and endpoint ID) on another endpoint and
+/// none on the sink. Windows moves no stream that is already open, so a game
+/// that opened its sound before it was routed keeps it on the PC's device
+/// until it opens it again.
+fn plays_elsewhere(routed: &[u32], sessions: &[(u32, String)], sink: &str) -> bool {
+    let mine = || sessions.iter().filter(|(pid, _)| routed.contains(pid));
+    mine().any(|(_, endpoint)| !endpoint.eq_ignore_ascii_case(sink))
+        && !mine().any(|(_, endpoint)| endpoint.eq_ignore_ascii_case(sink))
+}
+
+/// Active playback sessions: process ID and endpoint ID.
+fn active_sessions() -> Result<Vec<(u32, String)>> {
+    let _com = crate::capture::ComGuard::new()?;
+    // SAFETY: COM is initialised by `_com`; every interface used is live and owned here.
+    unsafe {
+        let enumerator: IMMDeviceEnumerator = windows::Win32::System::Com::CoCreateInstance(
+            &MMDeviceEnumerator,
+            None,
+            windows::Win32::System::Com::CLSCTX_ALL,
+        )?;
+        let list = enumerator.EnumAudioEndpoints(eRender, DEVICE_STATE_ACTIVE)?;
+        let mut sessions = vec![];
+        for index in 0..list.GetCount()? {
+            let device = list.Item(index)?;
+            let id = crate::audio_route::device_id(&device)?;
+            let manager: IAudioSessionManager2 =
+                device.Activate(windows::Win32::System::Com::CLSCTX_ALL, None)?;
+            let all = manager.GetSessionEnumerator()?;
+            for at in 0..all.GetCount()? {
+                let control: IAudioSessionControl2 = all.GetSession(at)?.cast()?;
+                if control.GetState()? == AudioSessionStateActive {
+                    sessions.push((control.GetProcessId().unwrap_or(0), id.clone()));
+                }
+            }
+        }
+        Ok(sessions)
+    }
 }
 
 /// The game's process played on a virtual sink while this lives.
 pub struct AppRoute {
     directory: PathBuf,
     exe: String,
-    /// The sink's name, for the log.
+    pid: u32,
+    /// The sink's endpoint ID, and its name for messages.
+    sink_id: String,
     pub sink: String,
+    /// Kept on a device the user chose for the game: nothing to put back.
+    users: Option<String>,
 }
 impl AppRoute {
     /// Play process `pid` on the configured `virtual_sink`, else on Steam
-    /// Streaming Speakers. Fails when there is neither.
+    /// Streaming Speakers. Fails when there is neither, or when Windows
+    /// does not keep the choice.
     pub fn acquire(config: &Config, directory: &Path, pid: u32) -> Result<Self> {
         let _com = crate::capture::ComGuard::new()?;
         let available = crate::audio_route::endpoints()?;
         let configured = config.get("virtual_sink", "");
-        let sink =
-            if configured.is_empty() {
-                available.iter().find(|endpoint| endpoint.virtual_sink).context(
-                "there is no virtual playback device (Steam Streaming Speakers) to play it on",
+        let sink = if configured.is_empty() {
+            available.iter().find(|endpoint| endpoint.virtual_sink).context(
+                "there is no virtual playback device: install Steam Streaming Speakers or set a virtual sink in Audio settings",
             )?
-            } else {
-                crate::audio_route::find(&available, configured)
-                    .context("the configured virtual audio sink is unavailable")?
-            };
+        } else {
+            crate::audio_route::find(&available, configured)
+                .context("the virtual sink set in Audio settings is unavailable")?
+        };
         let exe = crate::process::image_path(pid)
             .context("the game's program can't be read")?
             .to_lowercase();
         let apps = Windows::new()?;
-        route_with(
+        let routed = route_with(
             &apps,
             &mut STATE.lock().unwrap(),
             directory,
             pid,
             &exe,
             &format!("{MMDEVAPI}{}{RENDER_INTERFACE}", sink.id),
-        )?;
-        tracing::info!(
-            exe,
-            sink = sink.name,
-            "game audio plays on the virtual sink"
         );
+        let users = match routed {
+            Ok(Routed::Sink) => {
+                tracing::info!(
+                    exe,
+                    pid,
+                    sink = sink.name,
+                    "game audio plays on the virtual sink"
+                );
+                None
+            }
+            Ok(Routed::Users(device)) => {
+                tracing::info!(
+                    exe,
+                    pid,
+                    device,
+                    "game audio stays on the device the user chose for it"
+                );
+                Some(device)
+            }
+            Err(error) => {
+                watch(directory);
+                return Err(error);
+            }
+        };
         Ok(Self {
             directory: directory.into(),
             exe,
+            pid,
+            sink_id: sink.id.clone(),
             sink: sink.name.clone(),
+            users,
         })
+    }
+    /// The device the user chose for the game, which it stays on.
+    pub fn users_device(&self) -> Option<&str> {
+        self.users.as_deref()
+    }
+    /// Whether these processes play on another device than the sink they
+    /// were routed to ([`plays_elsewhere`]).
+    pub fn plays_elsewhere(routes: &[&AppRoute]) -> Result<bool> {
+        let Some(first) = routes.iter().find(|route| route.users.is_none()) else {
+            return Ok(false);
+        };
+        let pids: Vec<u32> = routes
+            .iter()
+            .filter(|r| r.users.is_none())
+            .map(|r| r.pid)
+            .collect();
+        Ok(plays_elsewhere(&pids, &active_sessions()?, &first.sink_id))
     }
 }
 impl Drop for AppRoute {
     fn drop(&mut self) {
+        if self.users.is_some() {
+            return;
+        }
         let result = crate::capture::ComGuard::new().and_then(|_com| {
             let apps = Windows::new()?;
             let mut state = STATE.lock().unwrap();
@@ -336,6 +488,9 @@ impl Drop for AppRoute {
 /// Restore what an interrupted stream left (host start), and keep looking
 /// for programs that are not running yet.
 pub fn recover(directory: &Path) -> Result<()> {
+    if load(directory)?.apps.is_empty() {
+        return Ok(());
+    }
     let result = crate::capture::ComGuard::new().and_then(|_com| {
         let apps = Windows::new()?;
         restore_with(&apps, &STATE.lock().unwrap(), directory)
@@ -362,12 +517,13 @@ fn watch(directory: &Path) {
             let mut reported = None;
             loop {
                 std::thread::sleep(WATCH);
+                // One lock from the restore to the decision to stop: a stream
+                // ending meanwhile finds the watcher either running or gone.
+                let mut state = STATE.lock().unwrap();
                 let result = crate::capture::ComGuard::new().and_then(|_com| {
                     let apps = Windows::new()?;
-                    let state = STATE.lock().unwrap();
                     restore_with(&apps, &state, &directory)
                 });
-                let mut state = STATE.lock().unwrap();
                 match result {
                     Ok(true) => {}
                     Ok(false) => {

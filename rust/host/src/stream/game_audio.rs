@@ -2,12 +2,16 @@
 //! once a second must not introduce a once-a-second audio dropout.
 use crate::state::{Session, Shared};
 use anyhow::Result;
-use butterpollo_core::{audio_scope::Identity, config::Config};
+use butterpollo_core::{
+    audio_scope::{Identity, tree},
+    config::Config,
+};
 use butterpollo_windows::{
     audio::{Loopback, ProcessActivation},
     audio_app_route::AppRoute,
     process::AudioProcess,
 };
+use std::collections::BTreeMap;
 use std::{
     sync::{
         Arc, Mutex,
@@ -44,7 +48,7 @@ impl GameAudio {
                 move || {
                     // The game's process plays on a virtual sink while it is
                     // captured, unless the stream also plays on the PC.
-                    let mut routed: Option<(Identity, Option<AppRoute>)> = None;
+                    let mut routes = Routes::default();
                     while !stop.load(Ordering::Acquire)
                         && !s.stopping()
                         && !h.stop.load(Ordering::Acquire)
@@ -67,16 +71,8 @@ impl GameAudio {
                                 .and_then(crate::process::RunningApp::audio_process),
                         }
                         .map_err(|error| format!("{error:#}"));
-                        if let Ok(selected) = &selected
-                            && !s.launch.host_audio
-                            && routed.as_ref().map(|(identity, _)| *identity)
-                                != Some(selected.identity)
-                        {
-                            // The new instance is routed before the old one lets
-                            // go: both are usually the same program, which must
-                            // not flip back to the PC's speakers in between.
-                            let new = route(&h, &s, &config, selected);
-                            routed = Some((selected.identity, new));
+                        if !s.launch.host_audio {
+                            routes.update(&h, &s, &config, selected.as_ref().ok());
                         }
                         *target.lock().unwrap() = selected;
                         thread::park_timeout(Duration::from_secs(1));
@@ -150,19 +146,86 @@ impl GameAudio {
         }
     }
 }
-/// Play the captured game process on a virtual sink nobody hears, so its
-/// sound reaches only the client (#59). Without one it plays on the PC too,
-/// and the stream says so.
-fn route(h: &Shared, s: &Session, config: &Config, target: &AudioProcess) -> Option<AppRoute> {
-    match AppRoute::acquire(config, &h.directory, target.identity.pid) {
-        Ok(route) => {
-            s.launch.warnings.clear("audio_game_host");
-            Some(route)
+/// Every process of the captured tree plays on a virtual sink nobody hears,
+/// so the game's sound reaches only the client (#59): a launcher's game
+/// child too. When that fails, or the game keeps playing on the PC's
+/// device, the stream says so.
+#[derive(Default)]
+struct Routes {
+    /// None: routing this process failed (said once, not retried).
+    routed: BTreeMap<Identity, Option<AppRoute>>,
+    /// Windows programs in the tree, never routed ([`windows_program`]).
+    windows: std::collections::BTreeSet<Identity>,
+    failed: Option<String>,
+    ticks: u32,
+}
+/// A program in the Windows folder.
+fn windows_program(path: &str) -> bool {
+    let root = std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".into());
+    let root = format!("{}\\", root.trim_end_matches('\\')).to_lowercase();
+    path.to_lowercase().starts_with(&root)
+}
+/// Seconds between the checks of where the game's sound plays.
+const PLACE_CHECK: u32 = 5;
+impl Routes {
+    fn update(&mut self, h: &Shared, s: &Session, config: &Config, target: Option<&AudioProcess>) {
+        let tree = match target
+            .map(|t| butterpollo_windows::process::processes().map(|all| tree(t.identity, &all)))
+        {
+            None => vec![],
+            Some(Ok(tree)) => tree,
+            // Keep what is routed until the next look.
+            Some(Err(_)) => return,
+        };
+        // New processes are routed before gone ones let go: they are often
+        // the same program, which must not flip back to the PC in between.
+        for identity in &tree {
+            if self.routed.contains_key(identity) || self.windows.contains(identity) {
+                continue;
+            }
+            // Windows' own programs a game starts (conhost, WerFault) share
+            // one setting with every other process of that program.
+            if butterpollo_windows::process::image_path(identity.pid)
+                .is_some_and(|path| windows_program(&path))
+            {
+                self.windows.insert(*identity);
+                continue;
+            }
+            let route = AppRoute::acquire(config, &h.directory, identity.pid)
+                .map_err(|error| format!("{error:#}"));
+            match route {
+                Ok(route) => {
+                    if let Some(device) = route.users_device() {
+                        s.launch.warnings.set("audio_game_device", format!("The game plays on the device chosen for it in Windows' Volume mixer ({device}), not only on the client."));
+                    }
+                    self.routed.insert(*identity, Some(route));
+                }
+                Err(error) => {
+                    tracing::warn!(
+                        pid = identity.pid,
+                        error,
+                        "game audio stays on the PC's playback device"
+                    );
+                    self.failed = Some(error);
+                    self.routed.insert(*identity, None);
+                }
+            }
         }
-        Err(error) => {
-            tracing::warn!(error = %format!("{error:#}"), "game audio stays on the PC's playback device");
-            s.launch.warnings.set("audio_game_host", format!("Game sound also plays on the PC: Rubylight could not move the game to a virtual playback device ({error:#}). Install Steam Streaming Speakers or set a virtual sink in Audio settings."));
-            None
+        self.routed.retain(|identity, _| tree.contains(identity));
+        self.windows.retain(|identity| tree.contains(identity));
+        if self.routed.values().all(Option::is_some) {
+            self.failed = None;
+        }
+        self.ticks += 1;
+        let elsewhere = self.ticks.is_multiple_of(PLACE_CHECK) && {
+            let live: Vec<&AppRoute> = self.routed.values().flatten().collect();
+            AppRoute::plays_elsewhere(&live).unwrap_or(false)
+        };
+        match &self.failed {
+            Some(error) => s.launch.warnings.set("audio_game_host", format!("Game sound also plays on the PC: Rubylight could not move the game to a virtual playback device ({error}).")),
+            None if elsewhere => s.launch.warnings.set("audio_game_host", "Game sound also plays on the PC: the game opened its sound before Rubylight moved it to the virtual playback device. Windows keeps that choice, so it moves when the game starts again."),
+            None if self.ticks.is_multiple_of(PLACE_CHECK) => s.launch.warnings.clear("audio_game_host"),
+            None => {}
         }
     }
 }
@@ -181,6 +244,20 @@ mod tests {
     use super::*;
     use crate::state::test_support::Fixture;
     use butterpollo_core::session::Role;
+
+    #[test]
+    fn windows_programs_a_game_starts_are_never_routed() {
+        let root = std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".into());
+        assert!(windows_program(&format!(r"{root}\System32\conhost.exe")));
+        assert!(windows_program(&format!(
+            r"{}\SYSTEM32\WerFault.exe",
+            root.to_uppercase()
+        )));
+        assert!(!windows_program(
+            r"E:\Games\LEGO Batman\LEGOBatmanLotDK-Win64-Shipping.exe"
+        ));
+        assert!(!windows_program(&format!(r"{root}Apps\game.exe")));
+    }
 
     #[test]
     fn discovery_does_not_follow_a_replacement_with_the_same_app_id() {

@@ -328,17 +328,19 @@ final class ShelfAdapter extends RecyclerView.Adapter<ShelfAdapter.CardHolder> {
             String where = whereOf(context, card);
             if (title != null) title.setText(card.title);
             if (subtitle != null) subtitle.setText(where);
-            CharSequence state = stateOf(context, card);
+            boolean away = OfflineLook.allAway(card.hostUuids, env.hosts);
+            // A PC that is away runs nothing now, whatever its last answer said.
+            CharSequence state = away ? null : stateOf(context, card);
             badge.setText(state);
             badge.setVisibility(state == null ? View.GONE : View.VISIBLE);
             if (star != null) {
                 badge.setCompoundDrawablesRelativeWithIntrinsicBounds(
-                        card.badge == HomeModel.Badge.RUNNING ? R.drawable.ic_live_dot : 0, 0, 0, 0);
+                        state != null && card.badge == HomeModel.Badge.RUNNING ? R.drawable.ic_live_dot : 0, 0, 0, 0);
                 star.setVisibility(card.favourite ? View.VISIBLE : View.GONE);
             }
             if (store != null) bindStore(context, card);
             itemView.setContentDescription(describe(context, card, where, state));
-            OfflineLook.bind(itemView, subtitle, badge, OfflineLook.allAway(card.hostUuids, env.hosts));
+            OfflineLook.bind(itemView, subtitle, badge, away);
             itemView.setOnClickListener(v -> env.listener.onGame(card));
             itemView.setOnLongClickListener(v -> {
                 env.listener.onGameMenu(card);

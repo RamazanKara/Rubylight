@@ -495,32 +495,50 @@ fn restore_running(
     let mut failed = None;
     let mut done = vec![];
     for app in journal.apps.iter().filter(|app| idle(state, app)) {
-        let Some((pid, _)) = running.iter().find(|(_, exe)| same_program(&app.exe, exe)) else {
+        let restore = |pid: u32| {
+            ROLES
+                .into_iter()
+                .zip(&app.before)
+                .try_for_each(|(role, before)| -> Result<()> {
+                    // A device the user chose for the game meanwhile stays.
+                    if !apps.get(pid, role)?.eq_ignore_ascii_case(&app.applied) {
+                        return Ok(());
+                    }
+                    if let Err(error) = apps.set(pid, role, before) {
+                        // The device it had is gone (unplugged, uninstalled): it
+                        // follows the default instead of waiting forever.
+                        tracing::warn!(exe = app.exe, device = before, error = %format!("{error:#}"), "the game's own audio device is unavailable; it follows the default device again");
+                        apps.set(pid, role, "")?;
+                    }
+                    Ok(())
+                })
+        };
+        // Windows keeps one device per program: any of its processes that
+        // opened its sound sets it, a helper that never does (a launcher
+        // stub, a crash reporter) doesn't hold it up.
+        let mut result = None;
+        for (pid, _) in running
+            .iter()
+            .filter(|(_, exe)| same_program(&app.exe, exe))
+        {
+            let tried = restore(*pid);
+            let more = matches!(&tried, Err(error) if no_sound_yet(error));
+            result = Some(tried);
+            if !more {
+                break;
+            }
+        }
+        let Some(result) = result else {
             continue;
         };
-        let result = ROLES
-            .into_iter()
-            .zip(&app.before)
-            .try_for_each(|(role, before)| -> Result<()> {
-                // A device the user chose for the game meanwhile stays.
-                if !apps.get(*pid, role)?.eq_ignore_ascii_case(&app.applied) {
-                    return Ok(());
-                }
-                if let Err(error) = apps.set(*pid, role, before) {
-                    // The device it had is gone (unplugged, uninstalled): it
-                    // follows the default instead of waiting forever.
-                    tracing::warn!(exe = app.exe, device = before, error = %format!("{error:#}"), "the game's own audio device is unavailable; it follows the default device again");
-                    apps.set(*pid, role, "")?;
-                }
-                Ok(())
-            });
         match result {
             Ok(()) => {
                 tracing::info!(exe = app.exe, "game audio device restored");
                 done.push(app.exe.clone());
             }
-            // Just started: put back once it opened its sound, which
-            // then moves at once ([`watch_starts`] looks again soon).
+            // Just started: put back once it opened its sound
+            // ([`watch_starts`] looks again soon); Windows moves no sound a
+            // program opened already, so that plays where it opened.
             Err(error) if no_sound_yet(&error) => {
                 failed.get_or_insert(error);
             }
@@ -920,18 +938,19 @@ fn watch_starts(
     directory: &Path,
     starts: &mut dyn Starts,
 ) -> Result<()> {
-    let mut reported = None;
+    let mut reported = Reported::default();
     // Starts are watched already: this first look finds a program that
     // started since the restore that left it waiting, the watch any later.
     let mut sweep = true;
     // A program that started but hasn't opened its sound is looked at
-    // again every [`WATCH`].
-    let mut soon = false;
+    // again [`WATCH`] after, whatever else starts meanwhile.
+    let mut soon: Option<Instant> = None;
     loop {
         let (mut guard, result) = if std::mem::take(&mut sweep) {
             restore_unlocked(apps, state, directory)
         } else {
-            match starts.next(if soon { WATCH } else { SWEEP })? {
+            let timeout = soon.map_or(SWEEP, |at| at.saturating_duration_since(Instant::now()));
+            match starts.next(timeout)? {
                 None => restore_unlocked(apps, state, directory),
                 Some((pid, exe)) => match load(directory) {
                     Err(error) => (state.lock().unwrap(), Err(error)),
@@ -951,7 +970,7 @@ fn watch_starts(
                 },
             }
         };
-        soon = matches!(&result, Err(error) if no_sound_yet(error));
+        soon = matches!(&result, Err(error) if no_sound_yet(error)).then(|| Instant::now() + WATCH);
         // One lock from the restore's device changes to the decision to
         // stop: a stream ending meanwhile finds the watcher either running
         // or gone.
@@ -963,7 +982,7 @@ fn watch_starts(
 
 /// [`watch`] without process starts: a look every [`WATCH`].
 fn poll(directory: &Path) {
-    let mut reported = None;
+    let mut reported = Reported::default();
     loop {
         std::thread::sleep(WATCH);
         let (mut state, result) = restore_now(directory);
@@ -973,9 +992,27 @@ fn poll(directory: &Path) {
     }
 }
 
+/// What a watcher told: an error once until it changes, and a game that
+/// runs without opening its sound once it did so for [`SILENT_FOR`].
+#[derive(Default)]
+struct Reported {
+    error: Option<String>,
+    silent_since: Option<Instant>,
+    said_silent: bool,
+}
+
+/// How long a running game may go without opening its sound before the
+/// watcher says its device waits for it.
+const SILENT_FOR: Duration = Duration::from_secs(30);
+
 /// After a watcher's restore: whether it watches on. It ends when nothing
 /// waits; an error is told once until it changes.
-fn waits_still(state: &mut State, result: Result<bool>, reported: &mut Option<String>) -> bool {
+fn waits_still(state: &mut State, result: Result<bool>, reported: &mut Reported) -> bool {
+    let silent = matches!(&result, Err(error) if no_sound_yet(error));
+    if !silent {
+        reported.silent_since = None;
+        reported.said_silent = false;
+    }
     match result {
         Ok(true) => true,
         Ok(false) => {
@@ -983,9 +1020,20 @@ fn waits_still(state: &mut State, result: Result<bool>, reported: &mut Option<St
             false
         }
         // Not a failure: it waits for the game's sound.
-        Err(error) if no_sound_yet(&error) => true,
+        Err(_) if silent => {
+            let since = *reported.silent_since.get_or_insert_with(Instant::now);
+            if !reported.said_silent && since.elapsed() >= SILENT_FOR {
+                reported.said_silent = true;
+                tracing::warn!(
+                    "a game runs without opening its sound for {} s: its own audio device is put back once it does",
+                    SILENT_FOR.as_secs()
+                );
+            }
+            true
+        }
         Err(error) => {
             let detail = format!("{error:#}");
+            let reported = &mut reported.error;
             if reported.as_ref() != Some(&detail) {
                 tracing::warn!(
                     error = detail,

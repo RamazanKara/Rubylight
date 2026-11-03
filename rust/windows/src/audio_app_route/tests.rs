@@ -658,10 +658,102 @@ fn a_game_that_starts_without_sound_is_put_back_once_it_opened_it() -> Result<()
     let mut starts = Launches::new(&fake, vec![Ok(Some((9, GAME.to_string()))), Ok(None)]);
     starts.silent = &[9];
     watch_starts(&fake, &state, directory.path(), &mut starts)?;
-    assert_eq!(starts.waited, [SWEEP, WATCH]);
+    assert_eq!(starts.waited[0], SWEEP);
+    assert!(starts.waited[1] <= WATCH && starts.waited[1] > WATCH / 2);
     assert_eq!(fake.device(GAME, eConsole), HEADSET);
     assert_eq!(load(directory.path())?, Journal::default());
     assert!(!state.lock().unwrap().watching);
+    Ok(())
+}
+
+/// Other programs starting meanwhile (a game's launch starts many) don't
+/// put off that look: it comes [`WATCH`] after the game's start.
+#[test]
+fn other_starts_dont_put_off_the_look_at_a_game_without_sound() -> Result<()> {
+    let directory = tempfile::tempdir()?;
+    let fake = Fake::default();
+    let state = quit_by_itself(&fake, directory.path())?;
+    let notepad = r"c:\windows\system32\notepad.exe".to_string();
+    let mut starts = Launches::new(
+        &fake,
+        vec![
+            Ok(Some((9, GAME.to_string()))),
+            Ok(Some((5, notepad))),
+            Ok(None),
+        ],
+    );
+    starts.silent = &[9];
+    // Each start comes a while after the last look.
+    struct Slow<'a, 'b>(&'b mut Launches<'a>);
+    impl Starts for Slow<'_, '_> {
+        fn next(&mut self, timeout: Duration) -> Result<Option<(u32, String)>> {
+            std::thread::sleep(Duration::from_millis(300));
+            self.0.next(timeout)
+        }
+    }
+    watch_starts(&fake, &state, directory.path(), &mut Slow(&mut starts))?;
+    let waits = starts.waited;
+    assert_eq!(waits[0], SWEEP);
+    assert!(waits[1] <= WATCH);
+    assert!(
+        waits[2] + Duration::from_millis(250) < waits[1],
+        "one deadline: {waits:?}"
+    );
+    assert_eq!(fake.device(GAME, eConsole), HEADSET);
+    Ok(())
+}
+
+/// A game that never opens its sound is waited for, and said once after
+/// [`SILENT_FOR`]; a look that isn't silent starts over.
+#[test]
+fn a_game_silent_for_long_is_said_once() {
+    let mut state = State::default();
+    let mut reported = Reported::default();
+    assert!(waits_still(
+        &mut state,
+        Err(NoSoundYet.into()),
+        &mut reported
+    ));
+    assert!(!reported.said_silent, "just started");
+    reported.silent_since = Some(Instant::now() - SILENT_FOR);
+    assert!(waits_still(
+        &mut state,
+        Err(NoSoundYet.into()),
+        &mut reported
+    ));
+    assert!(reported.said_silent);
+    assert!(waits_still(&mut state, Ok(true), &mut reported));
+    assert_eq!(reported.silent_since, None);
+    assert!(!reported.said_silent);
+}
+
+/// A program's helper that never opens its sound (a launcher stub, a crash
+/// reporter) doesn't hold up its put-back: another of its processes that
+/// opened its sound sets the program's device.
+#[test]
+fn a_helper_without_sound_doesnt_hold_up_the_put_back() -> Result<()> {
+    let directory = tempfile::tempdir()?;
+    let fake = Fake::default();
+    let state = quit_by_itself(&fake, directory.path())?;
+    started(&fake, 8);
+    started(&fake, 9);
+    fake.silent.borrow_mut().insert(8);
+    let state = state.into_inner().unwrap();
+    assert!(!restore_with(&fake, &state, directory.path())?);
+    assert_eq!(fake.device(GAME, eConsole), HEADSET);
+    assert_eq!(load(directory.path())?, Journal::default());
+    // Only silent ones: it waits for their sound.
+    let directory = tempfile::tempdir()?;
+    let fake = Fake::default();
+    let state = quit_by_itself(&fake, directory.path())?
+        .into_inner()
+        .unwrap();
+    started(&fake, 8);
+    started(&fake, 9);
+    fake.silent.borrow_mut().extend([8, 9]);
+    let error = restore_with(&fake, &state, directory.path()).unwrap_err();
+    assert!(no_sound_yet(&error), "{error:#}");
+    assert_eq!(load(directory.path())?.apps.len(), 1);
     Ok(())
 }
 

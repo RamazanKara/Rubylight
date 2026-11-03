@@ -2,7 +2,8 @@
 //! their start (#59): a stream routes its own instance only once the game's
 //! window shows, by then a game such as LEGO Batman opened its sound on the
 //! PC's speakers. Windows takes a device only for a process that opened its
-//! sound, so one that hasn't is routed again every [`RETRY`]. The session
+//! sound, so one that hasn't is routed again, less often over time
+//! ([`RETRY`]). The session
 //! tells each pass's instances; a worker of its own routes them, so neither
 //! the pass nor its timing waits for Windows. A player whose stream also
 //! plays on the PC gets their instance back on the PC's device.
@@ -19,15 +20,83 @@ use std::{
     path::Path,
     sync::{Arc, Mutex, mpsc},
     thread,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 /// How long the session's end waits for its instances to go back.
 const PUT_BACK_WAIT: Duration = Duration::from_secs(5);
-/// How often an instance that hasn't opened its sound is routed again: its
-/// sound moves at once when it is, so what it played on the PC is this long
-/// at most.
-const RETRY: Duration = Duration::from_millis(500);
+/// How long a process that hasn't opened its sound waits for each next
+/// route, the last one from then on: a game opens its sound early, a helper
+/// that never does is tried less often, as each try lists the PC's playback
+/// devices under the routes' lock.
+pub(super) const RETRY: [Duration; 4] = [
+    Duration::from_millis(500),
+    Duration::from_secs(1),
+    Duration::from_secs(2),
+    Duration::from_secs(5),
+];
+/// How long a process may go without opening its sound before that is said:
+/// the host may not see the sound of a game it can't move.
+pub(super) const SILENT_FOR: Duration = Duration::from_secs(30);
+
+/// A process that hasn't opened its sound yet.
+#[derive(Debug)]
+struct Wait {
+    first: Instant,
+    next: Instant,
+    tries: usize,
+    said: bool,
+}
+
+/// The processes that haven't opened their sound yet, and when each is
+/// routed again ([`RETRY`]).
+#[derive(Debug, Default)]
+pub(super) struct Waiting(BTreeMap<Identity, Wait>);
+impl Waiting {
+    /// Whether `identity` is due for a route at `now`: always, unless it
+    /// waits for its next try.
+    pub(super) fn due(&self, identity: &Identity, now: Instant) -> bool {
+        self.0.get(identity).is_none_or(|wait| now >= wait.next)
+    }
+    /// `identity` hadn't opened its sound at `now`. True once it has gone
+    /// [`SILENT_FOR`] without: time to say so.
+    pub(super) fn wait(&mut self, identity: Identity, now: Instant) -> bool {
+        let wait = self.0.entry(identity).or_insert(Wait {
+            first: now,
+            next: now,
+            tries: 0,
+            said: false,
+        });
+        wait.next = now + RETRY[wait.tries.min(RETRY.len() - 1)];
+        wait.tries += 1;
+        let say = !wait.said && now.saturating_duration_since(wait.first) >= SILENT_FOR;
+        wait.said |= say;
+        say
+    }
+    /// Whether a process has gone [`SILENT_FOR`] without its sound.
+    pub(super) fn said(&self) -> bool {
+        self.0.values().any(|wait| wait.said)
+    }
+    /// Routed, or failed for good: no more tries.
+    pub(super) fn done(&mut self, identity: &Identity) {
+        self.0.remove(identity);
+    }
+    /// Only these processes still run.
+    pub(super) fn retain(&mut self, running: impl Fn(&Identity) -> bool) {
+        self.0.retain(|identity, _| running(identity));
+    }
+    /// Nothing waits any more.
+    fn clear(&mut self) {
+        self.0.clear();
+    }
+    /// How long from `now` until the next try, when one waits.
+    pub(super) fn next(&self, now: Instant) -> Option<Duration> {
+        self.0
+            .values()
+            .map(|wait| wait.next.saturating_duration_since(now))
+            .min()
+    }
+}
 
 /// Whether a co-op player's stream of `config` plays the game on the PC
 /// too: with its slot's settings (game-only audio), which the launch's
@@ -126,8 +195,8 @@ impl InstanceRoutes {
                 // Held until the stop is over: no route between.
                 let mut _closing = None;
                 loop {
-                    let first = if early.waiting {
-                        match queue.recv_timeout(RETRY) {
+                    let first = if let Some(wait) = early.waiting.next(Instant::now()) {
+                        match queue.recv_timeout(wait) {
                             Ok(work) => work,
                             Err(mpsc::RecvTimeoutError::Timeout) => {
                                 early.update(&trees, &mut acquire);
@@ -169,7 +238,12 @@ impl InstanceRoutes {
                         }
                         Some(Work::Stopping(pids, done)) => {
                             _closing = put_back(&pids);
+                            // Nothing is routed again before the session
+                            // finds its instances anew: a stopped one's pid
+                            // may be another process's by then.
                             early.routed.clear();
+                            early.waiting.clear();
+                            trees.clear();
                             // A session that stopped waiting has nothing to hear.
                             let _ = done.send(());
                         }
@@ -220,6 +294,8 @@ impl Told for InstanceRoutes {
         }
     }
     fn stopped(&self) {
+        // The next pass is routed even when its instances are the same.
+        self.sent.lock().unwrap().clear();
         self.send(Work::Stopped);
     }
     fn stopping(&self, pids: &[u32]) {
@@ -258,16 +334,15 @@ struct Early<R = AppRoute> {
     routed: BTreeMap<Identity, (usize, Option<R>)>,
     /// The slots whose player plays on the PC: never routed.
     on_pc: BTreeSet<usize>,
-    /// A process the last update found hasn't opened its sound yet: it is
-    /// tried again every [`RETRY`].
-    waiting: bool,
+    /// The processes that haven't opened their sound yet, tried again.
+    waiting: Waiting,
 }
 impl<R> Default for Early<R> {
     fn default() -> Self {
         Self {
             routed: BTreeMap::new(),
             on_pc: BTreeSet::new(),
-            waiting: false,
+            waiting: Waiting::default(),
         }
     }
 }
@@ -306,6 +381,15 @@ impl<R> Early<R> {
         trees: &[BTreeSet<Identity>],
         acquire: &mut dyn FnMut(u32) -> Option<Result<R>>,
     ) {
+        self.update_at(trees, acquire, Instant::now());
+    }
+    /// [`update`](Self::update) at `now`.
+    fn update_at(
+        &mut self,
+        trees: &[BTreeSet<Identity>],
+        acquire: &mut dyn FnMut(u32) -> Option<Result<R>>,
+        now: Instant,
+    ) {
         let mut all: BTreeMap<Identity, usize> = BTreeMap::new();
         for (slot, tree) in trees.iter().enumerate() {
             if !self.on_pc.contains(&slot) {
@@ -314,19 +398,26 @@ impl<R> Early<R> {
                 }
             }
         }
-        self.waiting = false;
+        self.waiting.retain(|identity| all.contains_key(identity));
         for (identity, &slot) in &all {
-            if self.routed.contains_key(identity) {
+            if self.routed.contains_key(identity) || !self.waiting.due(identity, now) {
                 continue;
             }
             let route = match acquire(identity.pid) {
                 // Tried again until it opened its sound.
                 Some(Err(error)) if no_sound_yet(&error) => {
-                    self.waiting = true;
+                    if self.waiting.wait(*identity, now) {
+                        tracing::warn!(
+                            pid = identity.pid,
+                            "the Nucleus Co-op instance has opened no sound Rubylight can see for {} s: Windows takes its device only once it does",
+                            SILENT_FOR.as_secs()
+                        );
+                    }
                     continue;
                 }
                 route => route,
             };
+            self.waiting.done(identity);
             let route = route.and_then(|route| {
                 route
                     .inspect_err(|error| {
@@ -536,9 +627,13 @@ mod tests {
         assert_eq!(asked.recv_timeout(Duration::from_secs(5)).unwrap(), 21);
     }
 
+    fn silent() -> Option<Result<Route>> {
+        Some(Err(butterpollo_windows::audio_app_route::NoSoundYet.into()))
+    }
+
     /// #59: an instance routed as it starts hasn't opened its sound, which
     /// Windows refuses: it is routed again on its own, with no new pass and
-    /// no warning, until it has; a gone one stops being tried.
+    /// no warning, until it has.
     #[test]
     fn an_instance_without_sound_yet_is_routed_again_until_it_opened_it() {
         let (asked_tx, asked) = mpsc::channel();
@@ -546,30 +641,121 @@ mod tests {
         let open = opened.clone();
         let routes = InstanceRoutes::start(
             move |pid| {
+                let route = if *open.lock().unwrap() {
+                    game(pid)
+                } else {
+                    silent()
+                };
                 asked_tx.send(pid).unwrap();
-                match pid {
-                    20 if *open.lock().unwrap() => game(pid),
-                    _ => Some(Err(butterpollo_windows::audio_app_route::NoSoundYet.into())),
-                }
+                route
             },
             |_| None,
             false,
         )
         .unwrap();
         routes.found(&[BTreeSet::from([id(20)])]);
-        let wait = RETRY * 4;
+        let wait = RETRY[RETRY.len() - 1] + Duration::from_secs(1);
         assert_eq!(asked.recv_timeout(wait).unwrap(), 20);
         assert_eq!(asked.recv_timeout(wait).unwrap(), 20, "tried again");
         *opened.lock().unwrap() = true;
-        while asked.recv_timeout(wait).is_ok() {}
+        assert_eq!(asked.recv_timeout(wait).unwrap(), 20, "routed");
         let after = asked.recv_timeout(wait);
         assert!(after.is_err(), "routed: not tried again ({after:?})");
-        // Gone before it opened its sound: no more tries.
-        routes.found(&[BTreeSet::from([id(20), id(21)])]);
-        assert_eq!(asked.recv_timeout(wait).unwrap(), 21);
-        routes.found(&[BTreeSet::from([id(20)])]);
-        while asked.recv_timeout(wait).is_ok() {}
-        assert!(asked.recv_timeout(wait).is_err());
+    }
+
+    /// The session's stop ends the tries: a stopping instance is put back
+    /// and never routed again, nor after it stopped (its pid may be another
+    /// process's by then), until the session finds its instances anew; and
+    /// none once the handles dropped.
+    #[test]
+    fn the_session_stop_ends_the_tries() {
+        let (asked_tx, asked) = mpsc::channel();
+        let routes = InstanceRoutes::start(
+            move |pid| {
+                asked_tx.send(pid).unwrap();
+                silent()
+            },
+            |_| None,
+            false,
+        )
+        .unwrap();
+        let instances = [BTreeSet::from([id(20)])];
+        routes.found(&instances);
+        let wait = RETRY[2] + Duration::from_millis(500);
+        assert_eq!(asked.recv_timeout(wait).unwrap(), 20);
+        routes.stopping(&[20]);
+        // A try may have been under way as the stop came.
+        let _ = asked.try_recv();
+        assert!(asked.recv_timeout(wait).is_err(), "no try while stopping");
+        routes.stopped();
+        assert!(asked.recv_timeout(wait).is_err(), "no try once stopped");
+        routes.found(&instances);
+        assert_eq!(asked.recv_timeout(wait).unwrap(), 20, "found anew");
+        drop(routes);
+        let _ = asked.try_recv();
+        assert!(asked.recv_timeout(wait).is_err(), "no try once dropped");
+    }
+
+    /// A process that never opens its sound (a launcher's helper) is tried
+    /// less and less often ([`RETRY`]): each try lists the PC's playback
+    /// devices. After [`SILENT_FOR`] that is said, once. One that opens it
+    /// is routed at its next try, and a gone one waits for nothing.
+    #[test]
+    fn a_process_that_never_opens_its_sound_is_tried_less_often() {
+        let mut early = Early::<u32>::default();
+        let tree = [BTreeSet::from([id(20)])];
+        let t0 = Instant::now();
+        let mut tries = Vec::new();
+        let mut said = Vec::new();
+        let opened = false;
+        let mut at = Duration::ZERO;
+        while at < Duration::from_secs(60) {
+            let now = t0 + at;
+            early.update_at(
+                &tree,
+                &mut |pid| {
+                    tries.push(at.as_millis());
+                    if opened {
+                        Some(Ok(pid))
+                    } else {
+                        Some(Err(butterpollo_windows::audio_app_route::NoSoundYet.into()))
+                    }
+                },
+                now,
+            );
+            if early.waiting.said() && said.is_empty() {
+                said.push(at.as_millis());
+            }
+            at += Duration::from_millis(100);
+        }
+        let mut expected = vec![0, 500, 1500, 3500];
+        while *expected.last().unwrap() + 5000 < 60_000 {
+            expected.push(expected.last().unwrap() + 5000);
+        }
+        assert_eq!(tries, expected, "0.5, 1, 2, then every 5 s");
+        assert_eq!(said, [33_500], "the first try past 30 s says it");
+        let now = t0 + Duration::from_secs(70);
+        assert_eq!(early.waiting.next(now), Some(Duration::ZERO), "due");
+        let opened = true;
+        early.update_at(
+            &tree,
+            &mut |pid| {
+                assert!(opened);
+                Some(Ok(pid))
+            },
+            now,
+        );
+        assert_eq!(early.routed[&id(20)], (0, Some(20)));
+        assert_eq!(early.waiting.next(now), None);
+        let mut gone = Early::<u32>::default();
+        gone.update_at(
+            &tree,
+            &mut |_| Some(Err(butterpollo_windows::audio_app_route::NoSoundYet.into())),
+            t0,
+        );
+        assert!(gone.waiting.next(t0).is_some());
+        gone.update_at(&[BTreeSet::new()], &mut |_| unreachable!(), t0);
+        assert_eq!(gone.waiting.next(t0), None);
     }
 
     /// Dropping the last handle never waits for a route in progress.

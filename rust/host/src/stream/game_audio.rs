@@ -1,5 +1,6 @@
 //! Process discovery never runs on the packet sender: enumerating processes
 //! once a second must not introduce a once-a-second audio dropout.
+use super::instance_audio::{self, Waiting};
 use crate::state::{Session, Shared};
 use anyhow::Result;
 use butterpollo_core::{
@@ -156,6 +157,8 @@ struct Routes {
     routed: BTreeMap<Identity, Option<AppRoute>>,
     /// Windows programs in the tree, never routed ([`windows_program`]).
     windows: std::collections::BTreeSet<Identity>,
+    /// Processes that haven't opened their sound, tried again later.
+    waiting: Waiting,
     failed: Option<String>,
     ticks: u32,
 }
@@ -204,6 +207,9 @@ const OPENED_EARLY: &str = "Game sound also plays on the PC: the game opened its
 /// session there may be the game's voice chat, which stays on it, so the
 /// warning names both.
 const OPENED_EARLY_OR_VOICE: &str = "Sound of the game plays on the PC, on its communications device: either the game's voice chat, which stays there, or game sound the game opened before Rubylight moved it to the virtual playback device, which moves when the game starts again.";
+/// A process of the game has gone [`instance_audio::SILENT_FOR`] without
+/// sound Rubylight sees, and nothing of the game is moved.
+const UNSEEN: &str = "Game sound may also play on the PC: Rubylight sees no sound of the game yet, so it can't move it to the virtual playback device. It does once the game plays sound.";
 /// Seconds between the checks of where the game's sound plays.
 const PLACE_CHECK: u32 = 5;
 impl Routes {
@@ -218,8 +224,13 @@ impl Routes {
         };
         // New processes are routed before gone ones let go: they are often
         // the same program, which must not flip back to the PC in between.
+        let now = std::time::Instant::now();
+        self.waiting.retain(|identity| tree.contains(identity));
         for identity in &tree {
-            if self.routed.contains_key(identity) || self.windows.contains(identity) {
+            if self.routed.contains_key(identity)
+                || self.windows.contains(identity)
+                || !self.waiting.due(identity, now)
+            {
                 continue;
             }
             if !routable(identity.pid) {
@@ -228,10 +239,20 @@ impl Routes {
             }
             let route = match AppRoute::acquire(config, &h.directory, identity.pid) {
                 // Windows takes its device once it opened its sound (#59):
-                // tried again at the next look.
-                Err(error) if no_sound_yet(&error) => continue,
+                // tried again at a later look.
+                Err(error) if no_sound_yet(&error) => {
+                    if self.waiting.wait(*identity, now) {
+                        tracing::warn!(
+                            pid = identity.pid,
+                            "the game's process has opened no sound Rubylight can see for {} s: Windows takes its device only once it does",
+                            instance_audio::SILENT_FOR.as_secs()
+                        );
+                    }
+                    continue;
+                }
                 route => route.map_err(|error| format!("{error:#}")),
             };
+            self.waiting.done(identity);
             match route {
                 Ok(route) => {
                     if let Some(device) = route.users_device() {
@@ -271,8 +292,12 @@ impl Routes {
         } else {
             None
         };
+        // Nothing of the game routed while a process waits long for its
+        // sound: maybe the host can't see the game's sound at all.
+        let unseen = self.waiting.said() && self.routed.values().flatten().next().is_none();
         match (&self.failed, elsewhere) {
             (Some(error), _) => s.launch.warnings.set("audio_game_host", format!("Game sound also plays on the PC: Rubylight could not move the game to a virtual playback device ({error}).")),
+            (None, _) if unseen => s.launch.warnings.set("audio_game_host", UNSEEN),
             (None, Some(Elsewhere::Opened { voice: false })) => s.launch.warnings.set("audio_game_host", OPENED_EARLY),
             (None, Some(Elsewhere::Opened { voice: true })) => s.launch.warnings.set("audio_game_host", OPENED_EARLY_OR_VOICE),
             (None, Some(Elsewhere::Windows(pid))) => {

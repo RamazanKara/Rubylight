@@ -277,9 +277,10 @@ struct Runner {
     /// A one-player game without ProtoInput's hooks ([`unhooked`]): its
     /// window is brought to the front as it shows, since such a game takes
     /// its pad only there and nothing hides from it that it isn't (#59).
-    /// The last window brought there.
+    /// The windows brought there, each once, and only while nobody uses
+    /// the PC.
     to_front: bool,
-    fronted: Option<u64>,
+    fronted: BTreeSet<u64>,
 }
 
 impl Runner {
@@ -354,10 +355,12 @@ impl Runner {
         self.windows = pass.windows.clone();
         if self.to_front
             && let Some(&Some(window)) = pass.windows.first()
-            && self.fronted != Some(window)
+            && !self.fronted.contains(&window)
+            // Never from someone using the PC: it waits until they don't.
+            && self.desktop.pc_idle()
         {
             // Once per window: the person at the PC may take the focus back.
-            self.fronted = Some(window);
+            self.fronted.insert(window);
             if self.desktop.to_front(window) {
                 tracing::info!(
                     title = self.title,
@@ -951,9 +954,17 @@ fn unhooked(start: &Start) -> Result<Option<String>> {
         return Ok(None);
     }
     Ok(Some(format!(
-        "{} refused every way Nucleus Co-op injects its input hooks, so it runs without them: a keyboard, mouse or pad on the PC reaches it too, and it takes the controller only while its window is in front on the PC, where Rubylight puts it as it opens",
+        "{} refused every way Nucleus Co-op injects its input hooks, so it runs without them: a keyboard, mouse or pad on the PC reaches it too, and it takes the controller only while its window is in front on the PC, where Rubylight puts it as it opens unless someone uses the PC",
         start.title
     )))
+}
+
+/// Whether the game's window is brought to the front as it shows: a
+/// one-player game without ProtoInput's hooks ([`unhooked`]), which takes
+/// its pad only there. A co-op session's windows share the screen, and a
+/// hooked game takes its pad anywhere.
+fn brought_to_front(start: &Start) -> Result<bool> {
+    Ok(start.players == 1 && unhooked(start)?.is_some())
 }
 
 /// Start a session on the PC: virtual Xbox pads, XInput, the user's desktop
@@ -1175,8 +1186,8 @@ fn begin(
         settings,
         layers: Some(layers),
         instances: start.instances.clone(),
-        to_front: start.players == 1 && unhooked(start)?.is_some(),
-        fronted: None,
+        to_front: brought_to_front(start)?,
+        fronted: BTreeSet::new(),
     };
     let (stop, stopped) = mpsc::channel();
     // Should the thread not start, dropping the runner ends Nucleus' job.

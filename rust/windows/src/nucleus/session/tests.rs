@@ -156,6 +156,9 @@ impl Desktop for Screen {
     fn to_front(&mut self, window: u64) -> bool {
         self.0.lock().unwrap().to_front(window)
     }
+    fn pc_idle(&mut self) -> bool {
+        self.0.lock().unwrap().pc_idle()
+    }
     fn message_boxes(&mut self, processes: &BTreeSet<u32>) -> Result<Vec<MessageBox>> {
         self.0.lock().unwrap().message_boxes(processes)
     }
@@ -329,7 +332,7 @@ fn runner(players: usize, screen: &Screen, probe: &Probe, t0: Instant) -> Runner
         layers: None,
         instances: None,
         to_front: false,
-        fronted: None,
+        fronted: BTreeSet::new(),
     }
 }
 
@@ -422,7 +425,36 @@ fn an_unhooked_game_is_brought_to_the_front_once_as_it_shows() {
             assert_eq!(runner.step(t0), None);
         }
         assert_eq!(screen.0.lock().unwrap().fronted, [200, 201]);
+        // Back to the first window: it was brought there already.
+        {
+            let mut desktop = screen.0.lock().unwrap();
+            desktop.windows.clear();
+            desktop.windows.push(window(200, 20, ON_SCREEN));
+        }
+        assert_eq!(runner.step(t0), None);
+        assert_eq!(screen.0.lock().unwrap().fronted, [200, 201]);
     }
+}
+
+/// Someone using the PC keeps their focus: the game's window comes to the
+/// front only once nobody does.
+#[test]
+fn an_unhooked_game_waits_for_nobody_to_use_the_pc() {
+    let t0 = Instant::now();
+    let (screen, probe) = (screen(), Probe::default());
+    let mut runner = runner(1, &screen, &probe, t0);
+    runner.to_front = true;
+    screen.0.lock().unwrap().pc_busy = true;
+    label(&screen);
+    assert_eq!(runner.step(t0), None);
+    instance(&screen, 0);
+    for _ in 0..3 {
+        assert_eq!(runner.step(t0), None);
+    }
+    assert!(screen.0.lock().unwrap().fronted.is_empty());
+    screen.0.lock().unwrap().pc_busy = false;
+    assert_eq!(runner.step(t0), None);
+    assert_eq!(screen.0.lock().unwrap().fronted, [200]);
 }
 
 /// #59: each instance is told from the pass that finds it, before its
@@ -942,31 +974,38 @@ fn a_game_started_without_the_hooks_it_refused_is_told() {
         own: true,
         ..handler()
     };
-    let start = |handler| Start {
+    let start_of = |handler, players| Start {
         id: 1,
-        kind: kind(1),
+        kind: kind(players),
         folder: host.path(),
         user_copy: None,
         handler,
         exe_path: exe,
         steam_app: None,
         title: "Black Flag",
-        players: 1,
+        players,
         owner: ("phone", "Phone"),
         size: (1280, 720),
         instances: None,
     };
+    let start = |handler| start_of(handler, 1);
     for _ in [Inject::Runtime, Inject::Startup, Inject::Stealth] {
         assert_eq!(unhooked(&start(&own)).unwrap(), None);
+        assert!(!brought_to_front(&start(&own)).unwrap(), "hooked");
         files::refuse_inject(host.path(), exe).unwrap();
     }
     assert_eq!(
         unhooked(&start(&own)).unwrap().as_deref(),
         Some(
-            "Black Flag refused every way Nucleus Co-op injects its input hooks, so it runs without them: a keyboard, mouse or pad on the PC reaches it too, and it takes the controller only while its window is in front on the PC, where Rubylight puts it as it opens"
+            "Black Flag refused every way Nucleus Co-op injects its input hooks, so it runs without them: a keyboard, mouse or pad on the PC reaches it too, and it takes the controller only while its window is in front on the PC, where Rubylight puts it as it opens unless someone uses the PC"
         )
     );
     assert_eq!(unhooked(&start(&hub)).unwrap(), None);
+    // Only a one-player game comes to the front: co-op windows share the
+    // screen.
+    assert!(brought_to_front(&start(&own)).unwrap());
+    assert!(!brought_to_front(&start_of(&own, 2)).unwrap(), "co-op");
+    assert!(!brought_to_front(&start(&hub)).unwrap(), "hub handler");
 }
 
 /// A box Nucleus shows after the click (its End-key reminder) holds the

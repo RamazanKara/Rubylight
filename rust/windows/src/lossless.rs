@@ -168,6 +168,15 @@ pub fn focus(pid: u32) -> bool {
 }
 /// Bring `window` to the front, activated; true when it is in front.
 pub(crate) fn to_front(window: HWND) -> bool {
+    raise(window, 0x12)
+}
+/// [`to_front`] without an Alt tap, which an app that keeps the front would
+/// take for its menu: a key with no meaning (unassigned virtual-key 0xE8)
+/// gives this process the last input all the same.
+pub(crate) fn to_front_quietly(window: HWND) -> bool {
+    raise(window, 0xE8)
+}
+fn raise(window: HWND, tap: u16) -> bool {
     crate::input::follow_input_desktop();
     // SAFETY: these calls take window handles by value, and a stale handle just fails.
     unsafe {
@@ -175,8 +184,8 @@ pub(crate) fn to_front(window: HWND) -> bool {
             let _ = ShowWindow(window, SW_RESTORE);
         }
         // Windows lets the process that sent the last input take the
-        // foreground; an Alt tap makes that this one.
-        send(&[key(0x12, false), key(0x12, true)]);
+        // foreground; a key tap makes that this one.
+        send(&[key(tap, false), key(tap, true)]);
         let _ = SetForegroundWindow(window);
         let _ = BringWindowToTop(window);
         GetForegroundWindow() == window

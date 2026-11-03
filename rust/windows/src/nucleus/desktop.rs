@@ -190,6 +190,10 @@ fn text_of(window: HWND) -> Option<String> {
     Some(String::from_utf16_lossy(&buffer[..copied.min(length)]))
 }
 
+/// Seconds without local input after which nobody uses the PC
+/// ([`Desktop::pc_idle`]).
+const PC_IDLE_SECONDS: u32 = 10;
+
 /// The longest text read from a control, in characters.
 const TEXT_LIMIT: usize = 8192;
 
@@ -481,7 +485,17 @@ impl Desktop for Win32 {
         }
     }
     fn to_front(&mut self, window: u64) -> bool {
-        crate::lossless::to_front(hwnd(window))
+        crate::lossless::to_front_quietly(hwnd(window))
+    }
+    fn pc_idle(&mut self) -> bool {
+        crate::input::follow_input_desktop();
+        // SAFETY: GetForegroundWindow takes nothing; a null window is none.
+        let front = unsafe { GetForegroundWindow() };
+        let shell = front.is_invalid()
+            || class_of(front).is_some_and(|class| {
+                ["Progman", "WorkerW", "Shell_TrayWnd"].contains(&class.as_str())
+            });
+        shell || crate::wake::idle_seconds().is_ok_and(|idle| idle >= PC_IDLE_SECONDS)
     }
     fn click(&mut self, label: u64) -> Result<()> {
         let label = hwnd(label);

@@ -32,6 +32,10 @@ pub trait Desktop: Send {
     fn click(&mut self, label: u64) -> Result<()>;
     /// Bring a window to the front, activated: whether it is in front.
     fn to_front(&mut self, window: u64) -> bool;
+    /// Whether nobody uses the PC: no local input for a while, or only the
+    /// desktop or taskbar in front. A window taken to the front then takes
+    /// nobody's focus.
+    fn pc_idle(&mut self) -> bool;
     /// The visible message boxes (`#32770` dialogs) of `processes`, and those
     /// Windows shows for any program (hard errors): with no processes, those
     /// alone.
@@ -468,6 +472,8 @@ pub(crate) mod tests {
         pub obey: bool,
         /// The windows brought to the front, in order.
         pub fronted: Vec<u64>,
+        /// Someone uses the PC: no window is brought to the front.
+        pub pc_busy: bool,
     }
     impl Desktop for Fake {
         fn processes(&mut self) -> Result<Vec<Process>> {
@@ -525,6 +531,9 @@ pub(crate) mod tests {
         fn to_front(&mut self, window: u64) -> bool {
             self.fronted.push(window);
             true
+        }
+        fn pc_idle(&mut self) -> bool {
+            !self.pc_busy
         }
         fn message_boxes(&mut self, processes: &BTreeSet<u32>) -> Result<Vec<MessageBox>> {
             anyhow::ensure!(!self.unlisted, "access denied");

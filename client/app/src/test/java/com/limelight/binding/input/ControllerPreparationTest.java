@@ -726,6 +726,28 @@ public class ControllerPreparationTest {
         }
     }
 
+    @Test public void playerOnesTypeStaysForTheSessionWhenTheOnScreenControlsToggle() {
+        try (ActivityController<Activity> activity = Robolectric.buildActivity(Activity.class).create()) {
+            addInputDevice(activity.get(), 8, false, InputDevice.SOURCE_JOYSTICK | InputDevice.SOURCE_GAMEPAD);
+            PreferenceConfiguration prefs = new PreferenceConfiguration();
+            prefs.multiController = true;
+            // Off at launch, turned on from the stream menu later to press Touchpad.
+            prefs.onscreenController = false;
+            prefs.showTouchpadButton = true;
+            Connection connection = new Connection(73);
+            ControllerHandler handler = new ControllerHandler(activity.get(), connection, null, prefs);
+            try {
+                assertTrue(handler.prepareControllersForLaunch().startsWith("0:" + MoonBridge.LI_CTYPE_PS + ":"));
+                for (boolean shown : new boolean[] {true, false}) {
+                    prefs.onscreenController = shown;
+                    handler.resendControllerArrivals();
+                    assertEquals(MoonBridge.LI_CTYPE_PS, connection.arrivalType);
+                    assertTrue((connection.arrivalButtons & ControllerPacket.TOUCHPAD_FLAG) != 0);
+                }
+            } finally { handler.destroy(); }
+        }
+    }
+
     @Test public void anExternalPadKeepsItsTypeBesideTheTouchpadButton() {
         try (ActivityController<Activity> activity = Robolectric.buildActivity(Activity.class).create()) {
             addInputDevice(activity.get(), 2, true, InputDevice.SOURCE_JOYSTICK | InputDevice.SOURCE_GAMEPAD);

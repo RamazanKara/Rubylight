@@ -155,6 +155,12 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
     private volatile boolean inputEnabled = true;
 
     private final PreferenceConfiguration prefConfig;
+    /**
+     * Whether this session's player 1 arrives as a PlayStation pad for the on-screen Touchpad
+     * button. Fixed at launch: the stream menu turns the on-screen controls on and off mid-stream,
+     * and the pad's type must not flip mid-game.
+     */
+    private final boolean touchpadButtonSession;
     private final boolean rumbleAllowed;
     private short currentControllers, initialControllers;
 
@@ -163,6 +169,7 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         this.conn = conn;
         this.gestures = gestures;
         this.prefConfig = prefConfig;
+        this.touchpadButtonSession = prefConfig.showTouchpadButton && !prefConfig.onlyL3R3;
         this.rumbleAllowed = RumblePolicy.allows(prefConfig.disableRumble);
 		
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -1464,9 +1471,12 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
             ControllerPacket.RS_CLK_FLAG | ControllerPacket.BACK_FLAG | ControllerPacket.PLAY_FLAG |
             ControllerPacket.SPECIAL_BUTTON_FLAG | ControllerPacket.TOUCHPAD_FLAG;
 
-    /** Whether the on-screen controls show their Touchpad button. */
+    /**
+     * Whether the on-screen controls can show their Touchpad button this session: the setting was
+     * on at launch, whether or not the controls show right now (see {@link #touchpadButtonSession}).
+     */
     private boolean showsTouchpadButton() {
-        return prefConfig.onscreenController && prefConfig.showTouchpadButton && !prefConfig.onlyL3R3;
+        return touchpadButtonSession;
     }
 
     /**

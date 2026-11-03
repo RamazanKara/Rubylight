@@ -493,6 +493,18 @@ fn apply_game(app: &mut Value, game: &Game, artwork: &Artwork) {
         }
     }
     fields.insert("uuid".into(), json!(app_uuid(&game.id)));
+    // Earlier syncs wrote the 10 s exit timeout into every game; without it the game follows
+    // the host's `exit_timeout`, 10 s unless changed. An app the user saved is not the sync's.
+    drop_written_exit_timeout(fields);
+}
+/// Remove the `exit-timeout` of 10 that syncs before the host-wide default wrote into the apps
+/// they own, so they follow `exit_timeout`. True when one was removed.
+fn drop_written_exit_timeout(fields: &mut serde_json::Map<String, Value>) -> bool {
+    if fields.get("exit-timeout").and_then(Value::as_u64) == Some(10) {
+        fields.remove("exit-timeout");
+        return true;
+    }
+    false
 }
 fn excluded(
     game: &Game,
@@ -719,7 +731,6 @@ pub fn reconcile(
             app["playnite-managed"] = json!("auto");
             app[library::SYNCED_BY] = json!("playnite");
             app["playnite-added-at"] = json!(format_time(now));
-            app["exit-timeout"] = json!(10);
             apps.push(app);
         }
     }
@@ -750,9 +761,17 @@ pub fn fullscreen_entry(apps: &mut Vec<Value>, wanted: bool) -> bool {
             "playnite-fullscreen": true,
             "auto-detach": true,
             "wait-all": true,
-            "exit-timeout": 10,
         }));
         return true;
+    }
+    if wanted {
+        let mut changed = false;
+        for app in apps.iter_mut().filter(|app| made_here(app)) {
+            if let Some(fields) = app.as_object_mut() {
+                changed |= drop_written_exit_timeout(fields);
+            }
+        }
+        return changed;
     }
     if !wanted && apps.iter().any(made_here) {
         apps.retain(|app| !made_here(app));
@@ -961,6 +980,50 @@ mod tests {
             "every installed game, Dota 2 once"
         );
         assert_eq!(apps[0]["synced-by"], "steam");
+    }
+    #[test]
+    fn synced_games_follow_the_host_exit_timeout_and_a_users_own_value_stays() {
+        let settings = Settings::from_config(&Config::default());
+        let mut apps = vec![
+            // Synced before the host-wide default: the sync's 10 goes.
+            json!({"name":"Kart","playnite-id":"aa","playnite-managed":"auto","synced-by":"playnite","exit-timeout":10}),
+            // Saved by the user, so theirs, with the same value: it stays.
+            json!({"name":"Party","playnite-id":"bb","exit-timeout":10}),
+            json!({"name":"Playnite (Fullscreen)","playnite-fullscreen":true,"exit-timeout":10}),
+        ];
+        let games = [
+            game("aa", "Kart", None),
+            game("bb", "Party", None),
+            game("cc", "Racer", None),
+        ];
+        assert!(reconcile(
+            &mut apps,
+            &games,
+            &settings,
+            0,
+            &Artwork::new(),
+            true,
+            &[]
+        ));
+        let timeouts: Vec<_> = apps
+            .iter()
+            .map(|app| (field(app, "name").to_owned(), app.get("exit-timeout").cloned()))
+            .collect();
+        assert_eq!(
+            timeouts,
+            [
+                ("Kart".into(), None),
+                ("Party".into(), Some(json!(10))),
+                ("Playnite (Fullscreen)".into(), Some(json!(10))),
+                ("Racer".into(), None),
+            ]
+        );
+        assert!(fullscreen_entry(&mut apps, true));
+        assert!(apps[2].get("exit-timeout").is_none());
+        assert!(!fullscreen_entry(&mut apps, true));
+        apps.retain(|app| field(app, "name") != "Playnite (Fullscreen)");
+        assert!(fullscreen_entry(&mut apps, true));
+        assert!(apps.last().unwrap().get("exit-timeout").is_none());
     }
     #[test]
     fn sync_selects_recent_games_and_keeps_user_apps() {

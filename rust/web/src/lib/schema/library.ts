@@ -238,6 +238,17 @@ export const settings: Setting[] = [
     default: false,
   },
   {
+    key: 'exit_timeout',
+    label: 'Exit timeout',
+    description: 'How long to wait for an app to close before ending it. 0 ends it at once.',
+    details: 'Applies to every app without its own exit timeout under Behavior, including games added by the Steam and Playnite syncs. 0 to 300 seconds.',
+    category: 'library',
+    group: 'App behavior',
+    control: { kind: 'number', min: 0, max: 300, step: 1, unit: 's' },
+    default: 10,
+    advanced: true,
+  },
+  {
     key: 'steam_enabled',
     label: 'Steam library',
     description:

@@ -365,13 +365,7 @@ impl RunningApp {
             foreground_check: None,
             game_seen: false,
             launcher_only: only_opens_launchers(app),
-            exit_timeout: Duration::from_secs(
-                app.extra
-                    .get("exit-timeout")
-                    .and_then(serde_json::Value::as_u64)
-                    .unwrap_or(10)
-                    .min(300),
-            ),
+            exit_timeout: exit_timeout(app, &butterpollo_core::config::Config::default()),
         };
         let commands: Vec<PrepCommand> = serde_json::from_value(
             app.extra
@@ -960,6 +954,16 @@ fn foreign_game(program: &str, created: u64, launched_at: u64) -> bool {
             .iter()
             .any(|client| name.eq_ignore_ascii_case(client))
 }
+/// How long `app` gets to close before it is ended: its own `exit-timeout`, else the host's
+/// `exit_timeout` (issue #71), else 10 s; at most 300 s.
+pub fn exit_timeout(app: &App, config: &butterpollo_core::config::Config) -> Duration {
+    let seconds = app
+        .extra
+        .get("exit-timeout")
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or_else(|| config.integer("exit_timeout", 10).max(0) as u64);
+    Duration::from_secs(seconds.min(300))
+}
 pub fn app_bool(app: &App, name: &str, default: bool) -> bool {
     app.extra.get(name).map_or(default, |v| match v {
         serde_json::Value::Bool(b) => *b,
@@ -1062,6 +1066,7 @@ fn launch_with_environment(
             .unwrap()
             .boolean("terminate_on_pause", false),
     );
+    let exit_timeout = exit_timeout(app, &h.config.read().unwrap());
     let scale_factor = args
         .get("scaleFactor")
         .map(|v| v.parse::<u32>())
@@ -1113,6 +1118,7 @@ fn launch_with_environment(
             let mut running = RunningApp::with_environment(&placeholder, system)?;
             running.background = background;
             running.terminate_on_pause = terminate_on_pause;
+            running.exit_timeout = exit_timeout;
             if runs_commands(h, app) {
                 tracing::info!(app = %app.name, %error, "no signed-in user; the application starts after sign-in");
                 running.deferred = Some((app.clone(), args.clone()));
@@ -1342,6 +1348,7 @@ fn launch_with_environment(
     let mut running = RunningApp::with_environment(&app, environment)?;
     running.background = background;
     running.terminate_on_pause = terminate_on_pause;
+    running.exit_timeout = exit_timeout;
     if fullscreen || (playnite_id.is_some() && config.boolean("playnite_enabled", true)) {
         running.playnite = Some(crate::playnite::Launch::start(
             h,
@@ -1394,6 +1401,37 @@ impl Drop for RunningApp {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn an_apps_exit_timeout_overrides_the_hosts_and_the_hosts_overrides_ten_seconds() {
+        use butterpollo_core::config::Config;
+        let app = |extra: serde_json::Value| -> App {
+            let mut value = serde_json::json!({"name": "Game"});
+            value
+                .as_object_mut()
+                .unwrap()
+                .extend(extra.as_object().unwrap().clone());
+            serde_json::from_value(value).unwrap()
+        };
+        let plain = app(serde_json::json!({}));
+        let own = app(serde_json::json!({"exit-timeout": 3}));
+        let host = Config::parse("exit_timeout = 5\n").unwrap();
+        assert_eq!(exit_timeout(&plain, &Config::default()), Duration::from_secs(10));
+        assert_eq!(exit_timeout(&plain, &host), Duration::from_secs(5));
+        assert_eq!(exit_timeout(&own, &host), Duration::from_secs(3));
+        assert_eq!(
+            exit_timeout(&app(serde_json::json!({"exit-timeout": 0})), &host),
+            Duration::ZERO,
+            "0 ends the app at once"
+        );
+        assert_eq!(
+            exit_timeout(&plain, &Config::parse("exit_timeout = 900\n").unwrap()),
+            Duration::from_secs(300)
+        );
+        assert_eq!(
+            exit_timeout(&plain, &Config::parse("exit_timeout = -4\n").unwrap()),
+            Duration::ZERO
+        );
+    }
     #[test]
     fn state_commands_start_without_waiting_and_a_failed_start_does_not_stop_the_rest() {
         let command = |r#do: &str, undo: &str| PrepCommand {

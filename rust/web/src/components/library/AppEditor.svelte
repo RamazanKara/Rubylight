@@ -344,8 +344,8 @@
           {draft}
           key="exit-timeout"
           label="Exit timeout"
-          hint="How long to wait for the app to close before ending it. 0 to 300, default 10."
-          placeholder="10"
+          hint="How long to wait for the app to close before ending it, 0 to 300. Empty uses the default in Settings → Library."
+          placeholder="Default"
           unit="s"
         />
       </div>

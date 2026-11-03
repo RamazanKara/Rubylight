@@ -2041,6 +2041,24 @@ pub(crate) fn real_handle(events: Arc<Mutex<Vec<TransportEvent>>>) -> (MediaHand
 }
 
 #[test]
+fn a_control_sender_kept_after_close_lets_the_hooks_go() {
+    // A guest's hooks own its seat in the input worker, which keeps the control sender: the
+    // hooks must go with the transport, or the guest's Left never comes and its pads stay in.
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let (mut handle, _) = real_handle(events.clone());
+    let control = handle.control_sender();
+    assert!(control.send(b"{}".to_vec(), false));
+    handle.close();
+    drop(handle);
+    assert_eq!(
+        Arc::strong_count(&events),
+        1,
+        "the hooks outlived the transport"
+    );
+    assert!(!control.send(b"{}".to_vec(), false));
+}
+
+#[test]
 fn big_and_garbage_datagrams_on_the_real_socket_do_not_end_the_session() {
     let events = Arc::new(Mutex::new(Vec::new()));
     let (mut handle, local) = real_handle(events.clone());

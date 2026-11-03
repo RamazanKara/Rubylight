@@ -16,9 +16,9 @@ use butterpollo_windows::timing::{Signal, Timer};
 use socket2::{Domain, Protocol as SockProtocol, Socket, Type};
 use std::collections::VecDeque;
 use std::net::{SocketAddr, UdpSocket};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Sender};
+use std::sync::{Arc, Weak};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 use str0m::IceConnectionState;
@@ -1296,24 +1296,32 @@ fn queue_video(shared: &Shared, tx: &Sender<Command>, frame: VideoFrame) -> Subm
 }
 
 /// The `control` channel of a [`MediaHandle`], for the input worker. Like [`AudioSender`] it does
-/// not own the transport: a message sent after the handle closed is counted in `channel_dropped`.
+/// not own the transport: a message sent after the handle closed is counted in `channel_dropped`
+/// while the transport's state is still around. It holds that state weakly: the state owns the
+/// transport's hooks, and a guest's hooks own its seat in the input worker, which keeps this
+/// sender, so a strong one would keep the guest (and its pads) plugged in after it left.
 #[derive(Clone)]
 pub struct ControlSender {
     tx: Sender<Command>,
-    shared: Arc<Shared>,
+    shared: Weak<Shared>,
 }
 
 impl ControlSender {
     /// Never blocks. False when the transport is gone.
     pub fn send(&self, data: Vec<u8>, binary: bool) -> bool {
+        let shared = self.shared.upgrade();
         if self.tx.send(Command::Control { data, binary }).is_err() {
-            self.shared
-                .counters
-                .channel_dropped
-                .fetch_add(1, Ordering::Relaxed);
+            if let Some(shared) = shared {
+                shared
+                    .counters
+                    .channel_dropped
+                    .fetch_add(1, Ordering::Relaxed);
+            }
             return false;
         }
-        self.shared.notify();
+        if let Some(shared) = shared {
+            shared.notify();
+        }
         true
     }
 }
@@ -1522,7 +1530,7 @@ impl MediaHandle {
     pub fn control_sender(&self) -> ControlSender {
         ControlSender {
             tx: self.tx.clone(),
-            shared: self.shared.clone(),
+            shared: Arc::downgrade(&self.shared),
         }
     }
 

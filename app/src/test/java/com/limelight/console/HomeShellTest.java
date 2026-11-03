@@ -369,6 +369,11 @@ public class HomeShellTest {
             assertTrue(shoulder(screen, KeyEvent.KEYCODE_BUTTON_R1));
             Intent pcs = nextStarted(screen);
             assertEquals("R1 from Home", PcView.class.getName(), pcs.getComponent().getClassName());
+            // A quick second press, before PCs has taken the keys, does not open a tab again.
+            assertTrue(shoulder(screen, KeyEvent.KEYCODE_BUTTON_R1));
+            assertNull(nextStarted(screen));
+            // Back on Home, the shoulders step again.
+            controller.pause().resume();
             assertTrue(shoulder(screen, KeyEvent.KEYCODE_BUTTON_L1));
             Intent settings = nextStarted(screen);
             assertTrue("L1 from Home goes round to Settings", settings.getBooleanExtra(ShellBar.EXTRA_FROM_SHELL, false));

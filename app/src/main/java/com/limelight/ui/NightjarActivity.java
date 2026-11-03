@@ -70,6 +70,8 @@ public abstract class NightjarActivity extends AppCompatActivity {
     @Override
     protected void onResume() {
         super.onResume();
+        // Back on this screen: L1 and R1 may step again.
+        shoulderStepping = false;
         refreshAppearance();
         hideBarsOnForcedTelevision();
     }
@@ -95,9 +97,12 @@ public abstract class NightjarActivity extends AppCompatActivity {
 
     /** The shell bar's destination this screen belongs to, once {@link ShellBar#install} put the bar on it. */
     private ShellBar.Destination shellDestination;
+    /** L1 or R1 has opened another destination and this screen has not come back since: a second press waits. */
+    private boolean shoulderStepping;
 
     void setShellDestination(ShellBar.Destination destination) {
         shellDestination = destination;
+        shoulderStepping = false;
     }
 
     /** A pad that reports its D-pad as keys and as a hat must not move the focus twice. */
@@ -116,8 +121,9 @@ public abstract class NightjarActivity extends AppCompatActivity {
                 || getCurrentFocus() instanceof android.widget.EditText) {
             return false;
         }
-        if (event.getAction() == android.view.KeyEvent.ACTION_DOWN && event.getRepeatCount() == 0) {
-            ShellBar.step(this, shellDestination, code == android.view.KeyEvent.KEYCODE_BUTTON_R1);
+        // A quick second press lands before the opened screen takes the keys; it would open the same tab again.
+        if (event.getAction() == android.view.KeyEvent.ACTION_DOWN && event.getRepeatCount() == 0 && !shoulderStepping) {
+            shoulderStepping = ShellBar.step(this, shellDestination, code == android.view.KeyEvent.KEYCODE_BUTTON_R1);
         }
         return true;
     }

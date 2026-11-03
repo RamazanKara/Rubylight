@@ -8,8 +8,11 @@ import android.content.SharedPreferences;
  * phone or tablet, the shelves per store on a TV.
  */
 public final class HomeView {
-    /** Covers in a grid, shelves of covers, or a line per game with its store and when it was last played. */
-    public enum Layout { GRID, ROWS, LIST }
+    /**
+     * Covers in a grid, a line per game with its store and when it was last played, or shelves of covers. The View
+     * sheet offers them in this order; they are stored by name.
+     */
+    public enum Layout { GRID, LIST, ROWS }
 
     /** A part per store, the games apart from the apps of no store (launchers, the desktop), or one library. */
     public enum Group { STORE, TYPE, NONE }

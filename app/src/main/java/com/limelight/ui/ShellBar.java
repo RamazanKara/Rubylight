@@ -133,10 +133,11 @@ public final class ShellBar {
         return current;
     }
 
-    /** Opens the destination L1 or R1 leads to from {@code current}, as its tab would. */
-    public static void step(Activity activity, Destination current, boolean forward) {
+    /** Opens the destination L1 or R1 leads to from {@code current}, as its tab would; false when there is none. */
+    public static boolean step(Activity activity, Destination current, boolean forward) {
         Destination target = next(current, forward, current == Destination.HOME || homeAvailable(activity));
         open(activity, current, target);
+        return target != current;
     }
 
     /**

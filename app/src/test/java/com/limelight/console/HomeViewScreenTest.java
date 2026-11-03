@@ -332,9 +332,20 @@ public class HomeViewScreenTest {
         }
         MaterialButton grid = button(content, home.getString(R.string.home_view_layout_grid));
         MaterialButton rows = button(content, home.getString(R.string.home_view_layout_rows));
+        MaterialButton lines = button(content, home.getString(R.string.home_view_layout_list));
+        // Grid, List, Rows, as on the desktop.
+        android.view.ViewGroup layouts = (android.view.ViewGroup) grid.getParent();
+        assertEquals(java.util.Arrays.asList(0, 1, 2), java.util.Arrays.asList(layouts.indexOfChild(grid),
+                layouts.indexOfChild(lines), layouts.indexOfChild(rows)));
         assertTrue(grid.isChecked());
         assertFalse(rows.isChecked());
+        // A list's lines have one size: Size goes while List is chosen, and comes back with the covers.
+        View sizes = (View) button(content, home.getString(R.string.home_view_size_large)).getParent();
+        assertEquals(View.VISIBLE, sizes.getVisibility());
+        assertTrue(lines.performClick());
+        assertEquals(View.GONE, sizes.getVisibility());
         assertTrue(rows.performClick());
+        assertEquals(View.VISIBLE, sizes.getVisibility());
         // One choice per part.
         assertTrue(rows.isChecked());
         assertFalse(grid.isChecked());

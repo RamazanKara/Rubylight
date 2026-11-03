@@ -228,17 +228,23 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
         ActionSheet sheet = new ActionSheet(this, getString(R.string.home_view));
         viewSheet = sheet;
         sheet.addSection(R.string.home_view_layout);
-        addChoices(sheet, new int[] {R.drawable.ic_library, R.drawable.ic_view_rows, R.drawable.ic_view_list},
-                new int[] {R.string.home_view_layout_grid, R.string.home_view_layout_rows, R.string.home_view_layout_list},
-                view.layout.ordinal(), at -> view = view.with(HomeView.Layout.values()[at]));
+        // A list's lines have one size, so Size shows only for the covers' layouts.
+        View[] sizeSection = new View[2];
+        addChoices(sheet, new int[] {R.drawable.ic_library, R.drawable.ic_view_list, R.drawable.ic_view_rows},
+                new int[] {R.string.home_view_layout_grid, R.string.home_view_layout_list, R.string.home_view_layout_rows},
+                view.layout.ordinal(), at -> {
+                    view = view.with(HomeView.Layout.values()[at]);
+                    for (View part : sizeSection) part.setVisibility(view.layout == HomeView.Layout.LIST ? View.GONE : View.VISIBLE);
+                });
         sheet.addSection(R.string.home_view_group);
         addChoices(sheet, new int[] {R.drawable.ic_view_group_store, R.drawable.ic_view_group_type, R.drawable.ic_view_group_none},
                 new int[] {R.string.home_view_group_store, R.string.home_view_group_type, R.string.home_view_group_none},
                 view.group.ordinal(), at -> view = view.with(HomeView.Group.values()[at]));
-        sheet.addSection(R.string.home_view_size);
-        addChoices(sheet, new int[] {R.drawable.ic_view_size_small, R.drawable.ic_view_size_medium, R.drawable.ic_view_size_large},
+        sizeSection[0] = sheet.addSection(R.string.home_view_size);
+        sizeSection[1] = addChoices(sheet, new int[] {R.drawable.ic_view_size_small, R.drawable.ic_view_size_medium, R.drawable.ic_view_size_large},
                 new int[] {R.string.home_view_size_small, R.string.home_view_size_medium, R.string.home_view_size_large},
                 view.size.ordinal(), at -> view = view.with(HomeView.Size.values()[at]));
+        for (View part : sizeSection) part.setVisibility(view.layout == HomeView.Layout.LIST ? View.GONE : View.VISIBLE);
         sheet.setOnClosed(() -> {
             viewSheet = null;
             if (!view.equals(before) && !isFinishing() && !isDestroyed()) {
@@ -249,8 +255,8 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
         sheet.show();
     }
 
-    /** One choice of the View sheet: a row of toggles of which exactly one is on. */
-    private static void addChoices(ActionSheet sheet, int[] icons, int[] labels, int chosen, java.util.function.IntConsumer choose) {
+    /** One choice of the View sheet: a row of toggles of which exactly one is on; the row is returned. */
+    private static android.widget.LinearLayout addChoices(ActionSheet sheet, int[] icons, int[] labels, int chosen, java.util.function.IntConsumer choose) {
         android.widget.LinearLayout row = sheet.addToggleRow();
         com.google.android.material.button.MaterialButton[] toggles =
                 new com.google.android.material.button.MaterialButton[labels.length];
@@ -262,6 +268,7 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
                 choose.accept(at);
             });
         }
+        return row;
     }
 
     private void setUpGrid(ConsoleHomeAdapter.Listener listener) {

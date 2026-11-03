@@ -8,4 +8,6 @@
     <string name="mic_only_stopped">Microfone desligado</string>
     <string name="mic_only_failed">Conexão com %1$s encerrada</string>
     <string name="mic_only_denied">Sem acesso ao microfone</string>
+    <string name="mic_only_unavailable">Microfone indisponível</string>
+    <string name="mic_only_not_accepted">%1$s não aceitou o microfone</string>
 </resources>

@@ -8,4 +8,6 @@
     <string name="mic_only_stopped">マイク オフ</string>
     <string name="mic_only_failed">%1$s との接続が終了しました</string>
     <string name="mic_only_denied">マイクへのアクセスがありません</string>
+    <string name="mic_only_unavailable">マイクを使用できません</string>
+    <string name="mic_only_not_accepted">%1$s がマイクを受け付けませんでした</string>
 </resources>

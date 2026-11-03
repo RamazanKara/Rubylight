@@ -8,4 +8,6 @@
     <string name="mic_only_stopped">Micro désactivé</string>
     <string name="mic_only_failed">Connexion à %1$s terminée</string>
     <string name="mic_only_denied">Pas d’accès au micro</string>
+    <string name="mic_only_unavailable">Micro indisponible</string>
+    <string name="mic_only_not_accepted">%1$s n’a pas accepté le micro</string>
 </resources>

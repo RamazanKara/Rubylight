@@ -8,4 +8,6 @@
     <string name="mic_only_stopped">麥克風已關閉</string>
     <string name="mic_only_failed">與 %1$s 的連線已結束</string>
     <string name="mic_only_denied">無法使用麥克風</string>
+    <string name="mic_only_unavailable">麥克風無法使用</string>
+    <string name="mic_only_not_accepted">%1$s 未接受麥克風</string>
 </resources>

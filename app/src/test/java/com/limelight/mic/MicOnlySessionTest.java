@@ -46,6 +46,33 @@ public class MicOnlySessionTest {
     }
 
     @Test
+    public void anUnavailableMicrophoneSaysSoAndIsTriedAgainOutsideCalls() {
+        MicOnlySession session = new MicOnlySession();
+        session.connected();
+        assertTrue(session.unavailable());
+        assertFalse(session.unavailable());
+        assertEquals(MicOnlySession.Phase.UNAVAILABLE, session.phase());
+        assertTrue(session.retries());
+        assertTrue(session.available());
+        assertEquals(MicOnlySession.Phase.LIVE, session.phase());
+        assertFalse(session.retries());
+    }
+
+    @Test
+    public void aCallThatTookTheMicrophoneTriesItAgainWhenItEnds() {
+        MicOnlySession session = new MicOnlySession();
+        session.connected();
+        session.call(true);
+        // Paused already: the notification does not change.
+        assertFalse(session.unavailable());
+        assertFalse(session.retries());
+        assertEquals(MicOnlySession.Phase.PAUSED_FOR_CALL, session.phase());
+        assertTrue(session.call(false));
+        assertEquals(MicOnlySession.Phase.LIVE, session.phase());
+        assertFalse(session.retries());
+    }
+
+    @Test
     public void anEndedSessionStaysEnded() {
         MicOnlySession session = new MicOnlySession();
         session.connected();

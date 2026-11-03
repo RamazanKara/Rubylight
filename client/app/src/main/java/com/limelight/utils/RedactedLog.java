@@ -15,9 +15,11 @@ public final class RedactedLog {
     private static final int MAX_ENTRIES = 400;
     static final int MAX_TRACE_BYTES = 64 * 1024;
     static final int MAX_TRACE_CHARS = 4096;
-    private static final Set<String> NATIVE_LIBRARIES = Set.of("libc.so", "libart.so", "libandroid_runtime.so",
+    static final Set<String> NATIVE_LIBRARIES = Set.of("libc.so", "libart.so", "libandroid_runtime.so",
             "libmoonlight-core.so", "libnightjar_core.so", "libpyrowave-renderer.so", "libpyrowave-shared.so", "libbinder.so", "libutils.so", "libhwui.so",
-            "liblog.so", "libc++.so", "libc++_shared.so", "libbase.so", "libunwindstack.so", "base.apk");
+            "liblog.so", "libc++.so", "libc++_shared.so", "libbase.so", "libunwindstack.so", "base.apk",
+            "libvulkan_renderer.so", "libvulkan.so", "libnativewindow.so", "libgui.so", "libui.so", "libmediandk.so",
+            "libstagefright.so", "libaaudio.so", "libaudioclient.so", "libEGL.so", "libGLESv2.so");
     private static final Set<String> EVENTS = Set.of(
             "Stream starting", "Stream connected", "Stream stopping", "Stream failed",
             "Stream disconnected", "Stream activity destroyed", "Stream restored after process death",

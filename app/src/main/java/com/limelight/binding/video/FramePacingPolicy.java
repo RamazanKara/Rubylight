@@ -55,6 +55,11 @@ final class FramePacingPolicy {
                 framePacing != PreferenceConfiguration.FRAME_PACING_CAP_FPS;
     }
 
+    /** Whether decoder debt is recovered (DecoderQueuePolicy.Debt): Smoothest and the frame rate limit. */
+    static boolean recoversDecoderDebt(boolean hostFrameTimes, int framePacing) {
+        return !schedulesFrames(hostFrameTimes, framePacing) && !dropQueuedFrames(framePacing);
+    }
+
     static boolean shouldDrainOutput(int mode, long enqueueNs, long nowNs, int fpsMilliHz, int drained) {
         if (drained >= MAX_OUTPUT_DRAIN) return false;
         if (dropQueuedFrames(mode)) return true;

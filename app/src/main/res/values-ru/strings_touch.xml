@@ -39,4 +39,6 @@
     <string name="stream_cursor_shape_rejected">Nightjar не может нарисовать форму курсора ПК и показывает стандартную стрелку.</string>
     <string name="title_four_finger_tap">Касание четырьмя пальцами</string>
     <string name="summary_four_finger_tap">Действие при быстром касании четырьмя пальцами в режимах «Тачпад», «Прямая мышь» и «Локальный курсор».</string>
+    <string name="title_multi_touch_finger_taps">Касания несколькими пальцами в режиме «Мультитач»</string>
+    <string name="summary_multi_touch_finger_taps">Касания тремя и четырьмя пальцами выполняют своё действие и в режиме «Мультитач», а ПК эти касания не получает. Оставьте выключенным для игр, где нужны три или четыре пальца.</string>
 </resources>

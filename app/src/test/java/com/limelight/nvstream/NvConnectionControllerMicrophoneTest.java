@@ -198,6 +198,25 @@ public class NvConnectionControllerMicrophoneTest {
         assertEquals(MicrophoneStatus.OFF, connection.getMicrophoneStatus());
     }
 
+    @Test public void microphoneOnlySendsTheMicrophoneWithTheSettingOff() {
+        PreferenceConfiguration prefs = new PreferenceConfiguration();
+        prefs.enableMic = false;
+        assertTrue(NvConnection.microphoneWanted(prefs, NvApp.micOnly("Microphone only")));
+        // Nothing plays on the device in Microphone only: no echo to cancel, whatever the setting.
+        com.limelight.binding.audio.MicProcessing chosen = new com.limelight.binding.audio.MicProcessing(
+                com.limelight.binding.audio.MicProcessing.Echo.ON, false, true, 120);
+        com.limelight.binding.audio.MicProcessing micOnly =
+                NvConnection.microphoneProcessing(chosen, NvApp.micOnly("Microphone only"));
+        assertEquals(com.limelight.binding.audio.MicProcessing.Echo.OFF, micOnly.echo);
+        assertEquals(chosen.noiseSuppression, micOnly.noiseSuppression);
+        assertEquals(chosen.automaticGain, micOnly.automaticGain);
+        assertEquals(chosen.gainPercent, micOnly.gainPercent);
+        assertSame(chosen, NvConnection.microphoneProcessing(chosen, new NvApp("Test", 73, false)));
+        assertFalse(NvConnection.microphoneWanted(prefs, new NvApp("Test", 73, false)));
+        prefs.enableMic = true;
+        assertFalse(NvConnection.microphoneWanted(prefs, new NvApp("Monitor", 2147483505, false)));
+    }
+
     @Test public void keyboardOnlyAccessKeepsTheOrdinaryMicrophoneAvailable() {
         Connection connection = new Connection(73);
         ComputerDetails keyboardOnly = new ComputerDetails(); keyboardOnly.permission = 1 << 12;

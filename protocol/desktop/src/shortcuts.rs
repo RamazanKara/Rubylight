@@ -10,163 +10,41 @@ use std::path::Path;
 use nightjar_core::input::{InputError, InputQueue};
 use nightjar_core::input::packets::modifier;
 use sdl3_sys::everything::*;
-use serde::{Deserialize, Serialize};
 
-const MAX_BYTES: usize = 64 * 1024;
+pub use nightjar_policy::shortcuts::{key_code, Shortcut, ShortcutError, Shortcuts, HOLD_MS, MAX_BYTES};
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Shortcut {
-    pub id: String,
-    pub name: String,
-    pub keys: Vec<String>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Shortcuts {
-    #[serde(default = "version")]
-    version: u8,
-    pub data: Vec<Shortcut>,
-}
-
-fn version() -> u8 { 1 }
-
-impl Default for Shortcuts {
-    fn default() -> Self { Self { version: 1, data: Vec::new() } }
-}
-
-impl Shortcuts {
-    pub fn parse(text: &str) -> Result<Self, String> {
-        if text.len() > MAX_BYTES { return Err(tr("Shortcut file is larger than 64 KiB.").into()); }
-        let mut entries: Self = serde_json::from_str(text).map_err(|e| trf("Invalid shortcut file: {}", &[&e]))?;
-        if entries.version != 1 { return Err(tr("Unsupported shortcut file version.").into()); }
-        if entries.data.len() > 32 { return Err(tr("You can save up to 32 shortcuts.").into()); }
-        let mut ids = HashSet::new();
-        for entry in &mut entries.data {
-            if entry.id.is_empty() || entry.id.len() > 64 || !entry.id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
-                || !ids.insert(entry.id.clone()) {
-                return Err(tr("Invalid or repeated shortcut ID.").into());
-            }
-            validate_name(&entry.name)?;
-            entry.keys = normalize_keys(&entry.keys)?;
-            entry.name = entry.name.trim().into();
-        }
-        Ok(entries)
-    }
-
-    pub fn read(path: &Path) -> Result<Self, String> {
-        let file = std::fs::File::open(path).map_err(|e| e.to_string())?;
-        let mut text = String::new();
-        file.take((MAX_BYTES + 1) as u64).read_to_string(&mut text).map_err(|e| e.to_string())?;
-        Self::parse(&text)
-    }
-
-    pub fn encode(&self) -> String { serde_json::to_string_pretty(self).expect("shortcuts serialize") }
-
-    pub fn save(&mut self, id: Option<&str>, name: &str, chord: &str) -> Result<(), String> {
-        validate_name(name)?;
-        if chord.len() > 256 { return Err(tr("Use a chord of at most 256 characters.").into()); }
-        let keys: Vec<_> = chord.split('+').map(|key| key.trim().to_uppercase()).collect();
-        let keys = normalize_keys(&keys)?;
-        if let Some(id) = id {
-            let entry = self.data.iter_mut().find(|e| e.id == id).ok_or(tr("Shortcut no longer exists."))?;
-            entry.name = name.trim().into();
-            entry.keys = keys;
-        } else {
-            if self.data.len() >= 32 { return Err(tr("You can save up to 32 shortcuts.").into()); }
-            let id = (1..).map(|i| format!("desktop-{i}")).find(|id| !self.data.iter().any(|e| &e.id == id)).unwrap();
-            self.data.push(Shortcut { id, name: name.trim().into(), keys });
-        }
-        Ok(())
+/// Why a shortcut file or chord was refused, in the user's language.
+pub fn error_text(error: &ShortcutError) -> String {
+    match error {
+        ShortcutError::TooLarge => tr("Shortcut file is larger than 64 KiB.").into(),
+        ShortcutError::Invalid(detail) => trf("Invalid shortcut file: {}", &[detail]),
+        ShortcutError::Version => tr("Unsupported shortcut file version.").into(),
+        ShortcutError::TooMany => tr("You can save up to 32 shortcuts.").into(),
+        ShortcutError::BadId => tr("Invalid or repeated shortcut ID.").into(),
+        ShortcutError::BadName => tr("Use a name between 1 and 80 characters without control characters.").into(),
+        ShortcutError::ChordTooLong => tr("Use a chord of at most 256 characters.").into(),
+        ShortcutError::ChordLength => tr("Use between 1 and 8 keys in each chord.").into(),
+        ShortcutError::UnsupportedKey(key) => trf("Unsupported key: {}", &[key]),
+        ShortcutError::RepeatedKey(key) => trf("Repeated key: {}", &[key]),
+        ShortcutError::Gone => tr("Shortcut no longer exists.").into(),
     }
 }
 
-fn validate_name(name: &str) -> Result<(), String> {
-    if name.trim().is_empty() || name.chars().count() > 80 || name.chars().any(char::is_control) {
-        Err(tr("Use a name between 1 and 80 characters without control characters.").into())
-    } else { Ok(()) }
+pub fn parse(text: &str) -> Result<Shortcuts, String> {
+    Shortcuts::parse(text).map_err(|e| error_text(&e))
 }
 
-fn normalize_keys(keys: &[String]) -> Result<Vec<String>, String> {
-    if keys.is_empty() || keys.len() > 8 { return Err(tr("Use between 1 and 8 keys in each chord.").into()); }
-    let mut seen = HashSet::new();
-    let mut normalized = Vec::new();
-    for name in keys {
-        let code = key_code(name).ok_or_else(|| trf("Unsupported key: {}", &[&name]))?;
-        if !seen.insert(code) { return Err(trf("Repeated key: {}", &[&name])); }
-        normalized.push(key_name(code));
-    }
-    Ok(normalized)
+pub fn read(path: &Path) -> Result<Shortcuts, String> {
+    let file = std::fs::File::open(path).map_err(|e| e.to_string())?;
+    let mut text = String::new();
+    file.take((MAX_BYTES + 1) as u64).read_to_string(&mut text).map_err(|e| e.to_string())?;
+    parse(&text)
 }
 
-fn key_name(code: u16) -> String {
-    match code {
-        0x30..=0x39 | 0x41..=0x5A => char::from(code as u8).to_string(),
-        0x70..=0x87 => format!("F{}", code - 0x6F),
-        0x60..=0x69 => format!("NUMPAD_{}", code - 0x60),
-        _ => match code {
-            0xA2 => "CTRL", 0xA3 => "CTRL_RIGHT", 0xA0 => "SHIFT", 0xA1 => "SHIFT_RIGHT",
-            0xA4 => "ALT", 0xA5 => "ALT_RIGHT", 0x5B => "WIN", 0x5C => "META_RIGHT",
-            0x1B => "ESC", 0x08 => "BACKSPACE", 0x2E => "DELETE", 0x0D => "ENTER",
-            0x09 => "TAB", 0x20 => "SPACE", 0x0C => "CLEAR", 0x24 => "HOME", 0x23 => "END",
-            0x14 => "CAPS_LOCK", 0x90 => "NUM_LOCK", 0x91 => "SCROLL_LOCK", 0x2C => "SYSRQ",
-            0x2A => "PRINT", 0x13 => "BREAK", 0x21 => "PAGE_UP", 0x22 => "PAGE_DOWN",
-            0x25 => "DPAD_LEFT", 0x27 => "DPAD_RIGHT", 0x26 => "DPAD_UP", 0x28 => "DPAD_DOWN",
-            0x2D => "INSERT", 0x5D => "MENU", 0x6A => "NUMPAD_MULTIPLY", 0x6B => "NUMPAD_ADD",
-            0x6C => "NUMPAD_COMMA", 0x6D => "NUMPAD_SUBTRACT", 0x6E => "NUMPAD_DOT", 0x6F => "NUMPAD_DIVIDE",
-            0xBA => "SEMICOLON", 0xBB => "EQUALS", 0xBC => "COMMA", 0xBD => "MINUS",
-            0xBE => "PERIOD", 0xBF => "SLASH", 0xC0 => "GRAVE", 0xDB => "LEFT_BRACKET",
-            0xDC => "BACKSLASH", 0xDD => "RIGHT_BRACKET", 0xDE => "APOSTROPHE",
-            _ => unreachable!("validated shortcut key"),
-        }.into(),
-    }
-}
-
-// Android exports these portable names instead of platform key codes.
-pub fn key_code(name: &str) -> Option<u16> {
-    let name = name.trim().to_uppercase();
-    let name = name.strip_prefix("KEYCODE_").unwrap_or(&name);
-    let name = if name == "VK_MENU" { "ALT" } else { name.strip_prefix("VK_").unwrap_or(name) };
-    if name.len() == 1 {
-        let c = name.as_bytes()[0];
-        if c.is_ascii_uppercase() || c.is_ascii_digit() { return Some(u16::from(c)); }
-    }
-    if let Some(n) = name.strip_prefix('F').and_then(|n| n.parse::<u16>().ok()).filter(|n| (1..=24).contains(n)) {
-        return Some(0x6F + n);
-    }
-    if let Some(n) = name.strip_prefix("NUMPAD_").and_then(|n| n.parse::<u16>().ok()).filter(|n| *n < 10) {
-        return Some(0x60 + n);
-    }
-    Some(match name {
-        "CTRL" | "CONTROL" | "LCONTROL" | "CTRL_LEFT" => 0xA2,
-        "RCONTROL" | "CTRL_RIGHT" => 0xA3,
-        "SHIFT" | "LSHIFT" | "SHIFT_LEFT" => 0xA0,
-        "RSHIFT" | "SHIFT_RIGHT" => 0xA1,
-        "ALT" | "LMENU" | "ALT_LEFT" => 0xA4,
-        "RMENU" | "ALT_RIGHT" => 0xA5,
-        "WIN" | "LWIN" | "META_LEFT" => 0x5B,
-        "RWIN" | "META_RIGHT" => 0x5C,
-        "ESC" | "ESCAPE" => 0x1B,
-        "BACKSPACE" | "BACK" | "DEL" => 0x08,
-        "DELETE" | "FORWARD_DEL" => 0x2E,
-        "ENTER" | "RETURN" | "NUMPAD_ENTER" => 0x0D,
-        "TAB" => 0x09, "SPACE" => 0x20, "CLEAR" => 0x0C,
-        "HOME" | "MOVE_HOME" => 0x24, "END" | "MOVE_END" => 0x23,
-        "CAPITAL" | "CAPS_LOCK" => 0x14,
-        "NUMLOCK" | "NUM_LOCK" => 0x90, "SCROLL" | "SCROLL_LOCK" => 0x91,
-        "SNAPSHOT" | "SYSRQ" | "PRINTSCREEN" | "SCREENSHOT" => 0x2C,
-        "PRINT" => 0x2A,
-        "PAUSE" | "BREAK" => 0x13,
-        "PRIOR" | "PAGE_UP" => 0x21, "NEXT" | "PAGE_DOWN" => 0x22,
-        "LEFT" | "DPAD_LEFT" => 0x25, "RIGHT" | "DPAD_RIGHT" => 0x27,
-        "UP" | "DPAD_UP" => 0x26, "DOWN" | "DPAD_DOWN" => 0x28,
-        "INSERT" => 0x2D, "MENU" => 0x5D,
-        "NUMPAD_MULTIPLY" => 0x6A, "NUMPAD_ADD" => 0x6B, "NUMPAD_COMMA" => 0x6C,
-        "NUMPAD_SUBTRACT" => 0x6D, "NUMPAD_DOT" => 0x6E, "NUMPAD_DIVIDE" => 0x6F,
-        "SEMICOLON" => 0xBA, "EQUALS" | "PLUS" | "NUMPAD_EQUALS" => 0xBB, "COMMA" => 0xBC, "MINUS" => 0xBD,
-        "PERIOD" => 0xBE, "SLASH" => 0xBF, "GRAVE" => 0xC0,
-        "LEFT_BRACKET" => 0xDB, "BACKSLASH" => 0xDC, "RIGHT_BRACKET" => 0xDD, "APOSTROPHE" => 0xDE,
-        _ => return None,
-    })
+/// Saves a chord typed in the launcher's editor (`CTRL + SHIFT + ESC`) over `id`, or as a new
+/// shortcut.
+pub fn save(shortcuts: &mut Shortcuts, id: Option<&str>, name: &str, chord: &str) -> Result<(), String> {
+    shortcuts.save_chord(id, name, chord, "desktop").map(drop).map_err(|e| error_text(&e))
 }
 
 fn modifier(code: u16) -> u8 {
@@ -177,23 +55,40 @@ fn modifier(code: u16) -> u8 {
     }
 }
 
-pub fn send(keys: &[String], held: &HashSet<u16>, queue: &mut InputQueue) -> Result<(), InputError> {
+/// A chord pressed on the PC, its keys down until [`release`] lets go of them.
+#[derive(Debug, PartialEq, Eq)]
+pub struct Held {
+    /// The keys this chord pressed, in their order.
+    keys: Vec<u16>,
+    /// The modifiers the user held on the keyboard as it was pressed.
+    held_modifiers: u8,
+}
+
+/// Presses a chord's keys, modifiers first, leaving out keys the user holds; [`release`] lets go of
+/// them once it has been held for [`HOLD_MS`].
+pub fn press(keys: &[String], held: &HashSet<u16>, queue: &mut InputQueue) -> Result<Held, InputError> {
     let mut keys: Vec<_> = keys.iter().map(|name| key_code(name).ok_or(InputError::Invalid)).collect::<Result<_, _>>()?;
     keys.retain(|key| !held.contains(key));
     keys.sort_by_key(|code| modifier(*code) == 0);
     if queue.is_holding() { return Err(InputError::Stopped); }
-    // Reserve releases too: the session holds the queue lock throughout the chord.
+    // Reserve releases too, so a chord is never pressed without room to let go of it.
     if queue.len() + keys.len() * 2 > nightjar_core::input::queue::MAX_QUEUED { return Err(InputError::QueueFull); }
     let held_modifiers = held.iter().fold(0, |mask, code| mask | modifier(*code));
-    let mut pressed = Vec::new();
+    let mut pressed = Held { keys: Vec::new(), held_modifiers };
     for key in keys {
-        pressed.push(key);
-        let modifiers = pressed.iter().fold(held_modifiers, |mask, code| mask | modifier(*code));
+        let modifiers = pressed.keys.iter().fold(held_modifiers | modifier(key), |mask, code| mask | modifier(*code));
         queue.send_keyboard(0x8000 | key, true, modifiers, 0)?;
+        pressed.keys.push(key);
     }
-    while let Some(key) = pressed.pop() {
-        let modifiers = pressed.iter().fold(held_modifiers, |mask, code| mask | modifier(*code));
+    Ok(pressed)
+}
+
+/// Lets go of a held chord's keys in reverse. A key not taken stays in `chord` for another try.
+pub fn release(chord: &mut Held, queue: &mut InputQueue) -> Result<(), InputError> {
+    while let Some((&key, rest)) = chord.keys.split_last() {
+        let modifiers = rest.iter().fold(chord.held_modifiers, |mask, code| mask | modifier(*code));
         queue.send_keyboard(0x8000 | key, false, modifiers, 0)?;
+        chord.keys.pop();
     }
     Ok(())
 }
@@ -222,6 +117,8 @@ pub enum Action {
     ZoomReset,
     Fullscreen,
     OpenSettings,
+    PreviousTab,
+    NextTab,
     Screenshot,
     StreamControls,
     StreamShortcuts,
@@ -251,6 +148,8 @@ impl Action {
             Self::ZoomReset => en("Reset zoom"),
             Self::Fullscreen => en("Full screen"),
             Self::OpenSettings => en("Settings"),
+            Self::PreviousTab => en("Previous tab"),
+            Self::NextTab => en("Next tab"),
             Self::Screenshot => en("Save a screenshot"),
             Self::StreamControls => en("Stream controls"),
             Self::StreamShortcuts => en("Shortcuts & help"),
@@ -610,6 +509,8 @@ pub const PAD: &[PadBinding] = &[
     pad(Action::Options, Scope::Launcher, Press::Any(&[Button::West])),
     pad(Action::Unstar, Scope::Launcher, Press::Any(&[Button::North])),
     pad(Action::OpenSettings, Scope::Launcher, Press::Any(&[Button::Start])),
+    pad(Action::PreviousTab, Scope::Launcher, Press::Any(&[Button::LeftShoulder])),
+    pad(Action::NextTab, Scope::Launcher, Press::Any(&[Button::RightShoulder])),
     pad(Action::StreamControls, Scope::Stream, Press::Together(&[Button::Start, Button::Back])),
     pad(Action::Disconnect, Scope::Stream, Press::QuitCombo),
     pad(Action::ControllerMouse, Scope::Stream, Press::Hold(Button::Start)),
@@ -654,56 +555,54 @@ mod tests {
     use super::*;
 
     #[test]
-    fn android_document_round_trips_and_invalid_chords_do_not_replace_entries() {
+    fn android_document_round_trips_and_refusals_are_worded_without_replacing_entries() {
         let text = r#"{"version":1,"data":[{"id":"desktop","name":"Task view","keys":["WIN","TAB"]}]}"#;
-        let mut shortcuts = Shortcuts::parse(text).unwrap();
-        assert_eq!(Shortcuts::parse(&shortcuts.encode()).unwrap(), shortcuts);
+        let mut shortcuts = parse(text).unwrap();
+        assert_eq!(parse(&shortcuts.encode()).unwrap(), shortcuts);
         let before = shortcuts.clone();
-        assert!(shortcuts.save(Some("desktop"), "Bad", "CTRL + CTRL_LEFT").is_err());
+        assert_eq!(save(&mut shortcuts, Some("desktop"), "Bad", "CTRL + CTRL_LEFT"), Err(trf("Repeated key: {}", &[&"CTRL_LEFT"])));
         assert_eq!(shortcuts, before);
-        assert!(Shortcuts::parse(&text.replace("\"TAB\"", "\"UNKNOWN\"")).is_err());
-        assert!(Shortcuts::parse(&text.replace("\"version\":1", "\"version\":2")).is_err());
-        assert!(Shortcuts::parse(&format!(r#"{{"data":[{},{}]}}"#, serde_json::to_string(&shortcuts.data[0]).unwrap(), serde_json::to_string(&shortcuts.data[0]).unwrap())).is_err());
-        assert_eq!(key_code("KEYCODE_F24"), Some(0x87));
-        assert_eq!(key_code("VK_MENU"), Some(0xA4));
-        assert_eq!(key_code("NUMPAD_9"), Some(0x69));
-        assert_eq!(key_code("PRINT"), Some(0x2A));
-        assert_eq!(key_code("SCREENSHOT"), Some(0x2C));
-        shortcuts.save(None, "Portable aliases", "VK_LCONTROL + PRINTSCREEN + F01").unwrap();
-        assert_eq!(shortcuts.data[1].keys, ["CTRL", "SYSRQ", "F1"]);
-        for code in (0x30..=0x39).chain(0x41..=0x5A).chain(0x60..=0x87) {
-            assert_eq!(key_code(&key_name(code)), Some(code));
-        }
+        assert_eq!(parse(&text.replace("\"version\":1", "\"version\":2")), Err(tr("Unsupported shortcut file version.").to_owned()));
+        save(&mut shortcuts, None, "Portable aliases", "VK_LCONTROL + PRINTSCREEN + F01").unwrap();
+        assert_eq!((shortcuts.data[1].id.as_str(), &shortcuts.data[1].keys[..]), ("desktop-1", &["CTRL".to_owned(), "SYSRQ".into(), "F1".into()][..]));
     }
 
+    /// A chord is pressed, then let go of in reverse only by `release` (#63): pressed and released in
+    /// the same instant, the Steam overlay's Shift + Tab never saw it held.
     #[test]
     fn chords_keep_held_keys_and_reject_a_full_queue_before_pressing_anything() {
         use nightjar_core::input::InputEvent;
         let caps = nightjar_core::control::HostCapabilities { app_version: [7, 1, 0, -1], ..Default::default() };
         let mut queue = InputQueue::new(&caps);
         let mut packets = Vec::new();
+        let encoded = |events: &[(u16, bool, u8)]| events.iter().map(|&(key, down, modifiers)| {
+            InputEvent::Keyboard { key_code: 0x8000 | key, down, modifiers, flags: 0 }.encode(true)
+        }).collect::<Vec<_>>();
         queue.drain(std::time::Instant::now(), false, &mut packets);
         packets.clear();
         let held = HashSet::from([0xA2]);
-        send(&["C".into(), "CTRL".into()], &held, &mut queue).unwrap();
+        let mut chord = press(&["C".into(), "CTRL".into()], &held, &mut queue).unwrap();
         queue.drain(std::time::Instant::now(), false, &mut packets);
-        let keys: Vec<_> = packets.iter().map(|p| p.data.clone()).collect();
-        assert_eq!(keys, vec![
-            InputEvent::Keyboard { key_code: 0x8043, down: true, modifiers: modifier::CTRL, flags: 0 }.encode(true),
-            InputEvent::Keyboard { key_code: 0x8043, down: false, modifiers: modifier::CTRL, flags: 0 }.encode(true),
-        ]);
+        assert_eq!(packets.iter().map(|p| p.data.clone()).collect::<Vec<_>>(), encoded(&[(0x43, true, modifier::CTRL)]));
         packets.clear();
-        send(&["TAB".into(), "ALT".into(), "CTRL".into()], &HashSet::new(), &mut queue).unwrap();
+        release(&mut chord, &mut queue).unwrap();
         queue.drain(std::time::Instant::now(), false, &mut packets);
-        let expected = [(0xA4, true, 4), (0xA2, true, 6), (0x09, true, 6), (0x09, false, 6), (0xA2, false, 4), (0xA4, false, 0)];
-        assert_eq!(packets.iter().map(|p| p.data.clone()).collect::<Vec<_>>(), expected.iter().map(|&(key, down, modifiers)| {
-            InputEvent::Keyboard { key_code: 0x8000 | key, down, modifiers, flags: 0 }.encode(true)
-        }).collect::<Vec<_>>());
+        assert_eq!(packets.iter().map(|p| p.data.clone()).collect::<Vec<_>>(), encoded(&[(0x43, false, modifier::CTRL)]));
+        packets.clear();
+        let mut chord = press(&["TAB".into(), "ALT".into(), "CTRL".into()], &HashSet::new(), &mut queue).unwrap();
+        queue.drain(std::time::Instant::now(), false, &mut packets);
+        assert_eq!(packets.iter().map(|p| p.data.clone()).collect::<Vec<_>>(), encoded(&[(0xA4, true, 4), (0xA2, true, 6), (0x09, true, 6)]));
+        packets.clear();
+        release(&mut chord, &mut queue).unwrap();
+        release(&mut chord, &mut queue).unwrap();
+        queue.drain(std::time::Instant::now(), false, &mut packets);
+        assert_eq!(packets.iter().map(|p| p.data.clone()).collect::<Vec<_>>(), encoded(&[(0x09, false, 6), (0xA2, false, 4), (0xA4, false, 0)]),
+            "released in reverse, once");
         while queue.len() < nightjar_core::input::queue::MAX_QUEUED - 1 {
             queue.send_keyboard(0x8041, true, 0, 0).unwrap();
         }
         let before = queue.len();
-        assert_eq!(send(&["ALT".into(), "TAB".into()], &HashSet::new(), &mut queue), Err(InputError::QueueFull));
+        assert_eq!(press(&["ALT".into(), "TAB".into()], &HashSet::new(), &mut queue), Err(InputError::QueueFull));
         assert_eq!(queue.len(), before);
     }
 
@@ -789,7 +688,8 @@ mod tests {
         assert_eq!(pad_action(Button::West, false), Some(Action::Options));
         assert_eq!(pad_action(Button::North, false), Some(Action::Unstar));
         assert_eq!(pad_action(Button::Start, false), Some(Action::OpenSettings));
-        assert_eq!(pad_action(Button::LeftShoulder, false), None);
+        assert_eq!(pad_action(Button::LeftShoulder, false), Some(Action::PreviousTab));
+        assert_eq!(pad_action(Button::RightShoulder, true), Some(Action::NextTab));
         assert_eq!(stream_controls_mask(), 1 << SDL_GAMEPAD_BUTTON_START.0 | 1 << SDL_GAMEPAD_BUTTON_BACK.0);
         use crate::config::GamepadQuitCombo;
         assert_eq!(quit_buttons(GamepadQuitCombo::StartSelectLbRb), [Button::Start, Button::Back, Button::LeftShoulder, Button::RightShoulder]);

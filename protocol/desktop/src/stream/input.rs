@@ -30,7 +30,83 @@ pub(super) fn key_input(scancode: SDL_Scancode, held: SDL_Keymod, system_keys: b
     Some(KeyInput { code, modifiers, flags })
 }
 
+/// The PC's button for an SDL mouse button, or None for one it doesn't get.
+pub(super) fn mouse_button_code(button: u8, nav_buttons: bool) -> Option<u8> {
+    match i32::from(button) {
+        SDL_BUTTON_LEFT => Some(mouse_button::LEFT),
+        SDL_BUTTON_MIDDLE => Some(mouse_button::MIDDLE),
+        SDL_BUTTON_RIGHT => Some(mouse_button::RIGHT),
+        SDL_BUTTON_X1 if nav_buttons => Some(mouse_button::X1),
+        SDL_BUTTON_X2 if nav_buttons => Some(mouse_button::X2),
+        _ => None,
+    }
+}
+
+/// Whether pointer motion and the wheel go to the PC: captured and in front. A stream that opened
+/// behind another window is captured before it is focused (`capture_on_focus`), and a pointer
+/// passing over it then must not move or scroll the PC.
+/// The events a microphone-only session acts on: closing the window ends it, and the window's
+/// focus and the audio devices (a headset's microphone) still count. Keys, pointers and
+/// controllers stay on this device.
+pub(super) fn mic_only_handles(kind: SDL_EventType) -> bool {
+    matches!(
+        kind,
+        SDL_EVENT_QUIT
+            | SDL_EVENT_WINDOW_CLOSE_REQUESTED
+            | SDL_EVENT_RENDER_DEVICE_RESET
+            | SDL_EVENT_RENDER_DEVICE_LOST
+            | SDL_EVENT_WINDOW_FOCUS_LOST
+            | SDL_EVENT_WINDOW_FOCUS_GAINED
+            | SDL_EVENT_AUDIO_DEVICE_ADDED
+            | SDL_EVENT_AUDIO_DEVICE_REMOVED
+            // For Nightjar's own chords only (mic_only_chord); no key goes to the PC.
+            | SDL_EVENT_KEY_DOWN
+            | SDL_EVENT_KEY_UP
+    )
+}
+
+/// The chords Microphone only keeps: disconnect, full screen and minimize. The rest are about
+/// input, the picture or the clipboard, which it does not have.
+pub(super) fn mic_only_chord(action: Option<crate::shortcuts::Action>) -> bool {
+    use crate::shortcuts::Action;
+    matches!(action, Some(Action::Disconnect | Action::Fullscreen | Action::Minimize))
+}
+
+pub(super) fn pointer_goes_out(captured: bool, focused: bool) -> bool {
+    captured && focused
+}
+
+/// A wheel turn as the PC's high-resolution scroll.
+pub(super) fn send_wheel(w: &SDL_MouseWheelEvent, q: &mut nightjar_core::input::InputQueue) {
+    let flip = if w.direction == SDL_MOUSEWHEEL_FLIPPED { -1.0 } else { 1.0 };
+    let (x, y) = (w.x * flip, w.y * flip);
+    if y != 0.0 {
+        let _ = q.send_high_res_scroll((y * 120.0).clamp(-32000.0, 32000.0) as i16);
+    }
+    if x != 0.0 {
+        let _ = q.send_high_res_hscroll((x * 120.0).clamp(-32000.0, 32000.0) as i16);
+    }
+}
+
 impl Streaming {
+    /// What the input filter may send while the loop waits in the present: what this loop would
+    /// send itself, with nothing changing it meanwhile (`direct_motion::Rules`).
+    pub(super) fn direct_rules(&self, window: *mut SDL_Window) -> direct_motion::Rules {
+        // SAFETY: a live window.
+        let focused = unsafe { SDL_GetWindowFlags(window) & SDL_WINDOW_INPUT_FOCUS != 0 };
+        // A microphone-only session sends the PC no input at all.
+        let ours = self.captured && self.focused && !self.menu_visible && !self.plan.mic_only;
+        direct_motion::Rules {
+            keys: ours.then_some(direct_motion::KeyRules {
+                system_keys: self.settings.capture_system_keys,
+                right_alt_as_meta: self.settings.right_alt_as_meta,
+            }),
+            clicks: (ours && !self.absolute).then_some(direct_motion::ClickRules { nav_buttons: self.settings.mouse_nav_buttons }),
+            pads: !self.menu_visible && self.facts.role != AppRole::RemoteMonitor && self.settings.controllers && !self.plan.mic_only
+                && (focused || self.settings.background_controllers),
+        }
+    }
+
     /// Handles one SDL event while streaming.
     pub fn handle(
         &mut self,
@@ -46,7 +122,17 @@ impl Streaming {
             if self.touchpad_swallows(event) {
                 return;
             }
+            if self.plan.mic_only && !mic_only_handles(kind) {
+                return;
+            }
             match kind {
+                // Closing Microphone only's window goes back to the PCs; quitting still quits.
+                SDL_EVENT_WINDOW_CLOSE_REQUESTED if self.plan.mic_only => {
+                    self.exit = Some(Exit::User);
+                }
+                SDL_EVENT_QUIT if self.plan.mic_only => {
+                    self.exit.get_or_insert(Exit::CloseWindow);
+                }
                 SDL_EVENT_QUIT | SDL_EVENT_WINDOW_CLOSE_REQUESTED => {
                     self.exit = Some(Exit::CloseWindow);
                 }
@@ -55,7 +141,7 @@ impl Streaming {
                     eprintln!("nightjar: {reason}");
                     self.exit.get_or_insert(Exit::Ended(Some(reason.into())));
                 }
-                SDL_EVENT_KEY_DOWN | SDL_EVENT_KEY_UP => self.key(&event.key, window, pads),
+                SDL_EVENT_KEY_DOWN | SDL_EVENT_KEY_UP => self.key(&event.key, direct_motion::sent(event), window, pads),
                 SDL_EVENT_TEXT_INPUT if !event.text.text.is_null() => {
                     let text = std::ffi::CStr::from_ptr(event.text.text).to_string_lossy();
                     self.text(&text);
@@ -87,7 +173,7 @@ impl Streaming {
                 SDL_EVENT_MOUSE_MOTION => {
                     let m = event.motion;
                     if self.facts.touch && self.captured && matches!(m.which, SDL_TOUCH_MOUSEID | SDL_PEN_MOUSEID) { return; }
-                    if !self.captured {
+                    if !pointer_goes_out(self.captured, self.focused) {
                         return;
                     }
                     if self.absolute {
@@ -109,38 +195,25 @@ impl Streaming {
                         }
                         return;
                     }
-                    let button = match i32::from(b.button) {
-                        SDL_BUTTON_LEFT => mouse_button::LEFT,
-                        SDL_BUTTON_MIDDLE => mouse_button::MIDDLE,
-                        SDL_BUTTON_RIGHT => mouse_button::RIGHT,
-                        SDL_BUTTON_X1 if self.settings.mouse_nav_buttons => mouse_button::X1,
-                        SDL_BUTTON_X2 if self.settings.mouse_nav_buttons => mouse_button::X2,
-                        _ => return,
-                    };
+                    let Some(button) = mouse_button_code(b.button, self.settings.mouse_nav_buttons) else { return };
                     if b.down {
                         self.mouse_down.insert(button);
                     } else {
                         self.mouse_down.remove(&button);
+                    }
+                    // The input filter sent it while the loop waited in the present.
+                    if direct_motion::sent(event) {
+                        return;
                     }
                     self.session.input(|q| {
                         let _ = q.send_mouse_button(button, b.down);
                     });
                 }
                 SDL_EVENT_MOUSE_WHEEL => {
-                    if !self.captured {
+                    if !pointer_goes_out(self.captured, self.focused) || direct_motion::sent(event) {
                         return;
                     }
-                    let w = event.wheel;
-                    let flip = if w.direction == SDL_MOUSEWHEEL_FLIPPED { -1.0 } else { 1.0 };
-                    let (x, y) = (w.x * flip, w.y * flip);
-                    self.session.input(|q| {
-                        if y != 0.0 {
-                            let _ = q.send_high_res_scroll((y * 120.0).clamp(-32000.0, 32000.0) as i16);
-                        }
-                        if x != 0.0 {
-                            let _ = q.send_high_res_hscroll((x * 120.0).clamp(-32000.0, 32000.0) as i16);
-                        }
-                    });
+                    self.session.input(|q| send_wheel(&event.wheel, q));
                 }
                 SDL_EVENT_FINGER_DOWN | SDL_EVENT_FINGER_MOTION | SDL_EVENT_FINGER_UP | SDL_EVENT_FINGER_CANCELED
                 | SDL_EVENT_PEN_MOTION | SDL_EVENT_PEN_DOWN | SDL_EVENT_PEN_UP | SDL_EVENT_PEN_AXIS
@@ -183,12 +256,17 @@ impl Streaming {
                     }
                 }
                 _ => {
+                    // A controller event the input filter applied while the loop waited in the
+                    // present: only its action is left.
+                    let acted = direct_motion::acted(event);
                     let focused = SDL_GetWindowFlags(window) & SDL_WINDOW_INPUT_FOCUS != 0;
-                    if self.facts.role == AppRole::RemoteMonitor || !self.settings.controllers || (!focused && !self.settings.background_controllers) {
+                    if acted.is_none() && (self.facts.role == AppRole::RemoteMonitor || !self.settings.controllers || (!focused && !self.settings.background_controllers)) {
                         return;
                     }
-                    let mut action = None;
-                    self.session.input(|q| action = pads.handle(event, q));
+                    let mut action = acted;
+                    if acted.is_none() {
+                        self.session.input(|q| action = pads.handle(event, q));
+                    }
                     match action {
                         Some(Action::Quit) => self.exit = Some(Exit::User),
                         Some(Action::Menu) => self.toggle_menu(window, pads),
@@ -224,7 +302,8 @@ impl Streaming {
         });
     }
 
-    pub(super) fn key(&mut self, k: &SDL_KeyboardEvent, window: *mut SDL_Window, pads: &mut Gamepads) {
+    /// `sent`: the input filter sent it while the loop waited in the present.
+    pub(super) fn key(&mut self, k: &SDL_KeyboardEvent, sent: bool, window: *mut SDL_Window, pads: &mut Gamepads) {
         if k.repeat {
             // The PC repeats a held key itself; SDL's repeated text is that key's too.
             let held = key_input(k.scancode, k.r#mod, self.settings.capture_system_keys, self.settings.right_alt_as_meta)
@@ -232,6 +311,11 @@ impl Streaming {
             if k.down && held {
                 self.text_field.key_down(text_field::types(k.key, k.r#mod));
             }
+            return;
+        }
+        if self.plan.mic_only
+            && !(k.down && mic_only_chord(crate::shortcuts::key_action(crate::shortcuts::Scope::Stream, k.scancode, k.r#mod)))
+        {
             return;
         }
         // Nightjar's own chords (shortcuts.rs, the list the help shows); every other key goes to the PC.
@@ -319,6 +403,9 @@ impl Streaming {
         } else {
             self.keys_down.remove(&code);
         }
+        if sent {
+            return;
+        }
         self.session.input(|q| {
             let _ = q.send_keyboard(0x8000 | code, k.down, modifiers, flags);
         });
@@ -335,5 +422,23 @@ impl Streaming {
                 eprintln!("nightjar: text field: could not send text: {error}");
             }
         });
+    }
+}
+
+#[cfg(test)]
+mod mic_only_tests {
+    use super::*;
+
+    #[test]
+    fn microphone_only_keeps_only_the_chords_that_are_not_about_input() {
+        use crate::shortcuts::Action;
+        for kept in [Action::Disconnect, Action::Fullscreen, Action::Minimize] {
+            assert!(mic_only_chord(Some(kept)), "{kept:?}");
+        }
+        for dropped in [Action::Capture, Action::MouseMode, Action::SendClipboard, Action::StreamControls] {
+            assert!(!mic_only_chord(Some(dropped)), "{dropped:?}");
+        }
+        assert!(!mic_only_chord(None), "an ordinary key never goes");
+        assert!(mic_only_handles(SDL_EVENT_KEY_DOWN) && !mic_only_handles(SDL_EVENT_MOUSE_MOTION));
     }
 }

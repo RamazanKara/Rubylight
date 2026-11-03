@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="host_menu_coop">Приєднатися до кооперативу</string>
+    <string name="host_menu_coop_note">Зайняти вільне місце гравця</string>
+    <string name="coop_title">Кооператив на %1$s</string>
+    <string name="coop_loading">Запит кооперативних сеансів у %1$s…</string>
+    <string name="coop_none">Кооперативних сеансів немає. Запустіть «&lt;гра&gt; (Co-op)» з бібліотеки, і інші пристрої зможуть приєднатися тут.</string>
+    <string name="coop_status">Стан</string>
+    <string name="coop_phase_starting">Запуск</string>
+    <string name="coop_phase_running">Триває</string>
+    <string name="coop_phase_ended">Завершено</string>
+    <string name="coop_phase_unknown">Невідомо</string>
+    <string name="coop_player">Гравець %1$d</string>
+    <string name="coop_player_free">Вільне</string>
+    <string name="coop_player_unnamed">Пристрій</string>
+    <string name="coop_player_you">%1$s (цей пристрій)</string>
+    <string name="coop_player_away">%1$s, відійшов</string>
+    <string name="coop_end_ended">Сеанс завершено.</string>
+    <string name="coop_end_empty">Усі гравці вийшли.</string>
+    <string name="coop_end_crashed">Екземпляр гри аварійно завершився.</string>
+    <string name="coop_end_failed">Гра не запустилася.</string>
+    <string name="coop_end_unknown">Сеанс закінчився.</string>
+    <string name="coop_join">Приєднатися</string>
+    <plurals name="coop_free_slots">
+        <item quantity="one">%d вільне місце</item>
+        <item quantity="few">%d вільні місця</item>
+        <item quantity="many">%d вільних місць</item>
+        <item quantity="other">%d вільного місця</item>
+    </plurals>
+    <string name="coop_cannot_join">Цей пристрій зараз не може приєднатися до цього сеансу.</string>
+    <string name="coop_return">Повернутися на своє місце</string>
+    <string name="coop_return_note">Гравець %1$d</string>
+    <string name="coop_refresh">Перевірити знову</string>
+    <string name="coop_joining">Приєднання до %1$s…</string>
+    <string name="coop_unavailable_no_reason">ПК зараз не може запускати кооперативні сеанси.</string>
+    <string name="coop_problem_permission">«Can join co-op games» вимкнено для цього пристрою</string>
+    <string name="coop_problem_refused">%1$s відхилив приєднання</string>
+    <string name="coop_problem_gone">Кооперативного сеансу більше немає</string>
+    <string name="coop_problem_busy">Кооператив зайнятий на %1$s</string>
+    <string name="coop_problem_unavailable">Кооператив недоступний на %1$s</string>
+    <string name="coop_problem_unreachable">Не вдалося зв’язатися з %1$s</string>
+    <string name="coop_problem_other">Помилка кооперативу</string>
+    <string name="coop_problem_no_message">ПК не вказав причину (HTTP %1$d).</string>
+</resources>

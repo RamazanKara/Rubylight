@@ -155,6 +155,12 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
     private volatile boolean inputEnabled = true;
 
     private final PreferenceConfiguration prefConfig;
+    /**
+     * Whether this session's player 1 arrives as a PlayStation pad for the on-screen Touchpad
+     * button. Fixed at launch: the stream menu turns the on-screen controls on and off mid-stream,
+     * and the pad's type must not flip mid-game.
+     */
+    private final boolean touchpadButtonSession;
     private final boolean rumbleAllowed;
     private short currentControllers, initialControllers;
 
@@ -163,6 +169,7 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         this.conn = conn;
         this.gestures = gestures;
         this.prefConfig = prefConfig;
+        this.touchpadButtonSession = prefConfig.showTouchpadButton && !prefConfig.onlyL3R3;
         this.rumbleAllowed = RumblePolicy.allows(prefConfig.disableRumble);
 		
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -435,6 +442,11 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         // A quit combo held as input went away (focus lost, the menu opened) is no longer held.
         context.quitComboPending = false;
         context.quitButtons = 0;
+        // So is a Guide waiting to open the stream menu: no menu or tap follows, and like one that opened
+        // the menu it stays held back until let go.
+        if (context.guideHold.cancelPending()) {
+            mainThreadHandler.removeCallbacks(context.guideHoldRunnable);
+        }
         if (context instanceof InputDeviceContext) {
             InputDeviceContext inputContext = (InputDeviceContext) context;
             inputContext.pressedButtons.clear();
@@ -1039,9 +1051,25 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         }
 
         if (event.getAction() == KeyEvent.ACTION_DOWN) {
+            boolean repeat = event.getRepeatCount() > 0;
+            if (!repeat) {
+                endGuideTap(defaultContext);
+                // No key event to replay: a chord sends the flag itself (sendHeldGuideOn)
+                defaultContext.guideHeldDown = null;
+            }
+            if (holdGuide(defaultContext, repeat)) {
+                return true;
+            }
             defaultContext.inputMap |= ControllerPacket.SPECIAL_BUTTON_FLAG;
         }
         else if (event.getAction() == KeyEvent.ACTION_UP) {
+            GuideHold.Release release = releaseGuide(defaultContext);
+            if (release == GuideHold.Release.TAP) {
+                tapDefaultGuide();
+            }
+            if (release != GuideHold.Release.PASS) {
+                return true;
+            }
             // Firmware injects the press and release together; hold Guide long enough for games to see it
             holdForMinimumPress(event);
             defaultContext.inputMap &= ~ControllerPacket.SPECIAL_BUTTON_FLAG;
@@ -1433,6 +1461,81 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
             if (context.assignedControllerNumber && !context.external && context.controllerNumber == 0) return true;
         }
         return false;
+    }
+
+    /** The buttons the on-screen controller has, for its arrival. */
+    static final int ONSCREEN_PAD_BUTTONS = ControllerPacket.A_FLAG | ControllerPacket.B_FLAG |
+            ControllerPacket.X_FLAG | ControllerPacket.Y_FLAG | ControllerPacket.UP_FLAG |
+            ControllerPacket.DOWN_FLAG | ControllerPacket.LEFT_FLAG | ControllerPacket.RIGHT_FLAG |
+            ControllerPacket.LB_FLAG | ControllerPacket.RB_FLAG | ControllerPacket.LS_CLK_FLAG |
+            ControllerPacket.RS_CLK_FLAG | ControllerPacket.BACK_FLAG | ControllerPacket.PLAY_FLAG |
+            ControllerPacket.SPECIAL_BUTTON_FLAG | ControllerPacket.TOUCHPAD_FLAG;
+
+    /**
+     * Whether the on-screen controls can show their Touchpad button this session: the setting was
+     * on at launch, whether or not the controls show right now (see {@link #touchpadButtonSession}).
+     */
+    private boolean showsTouchpadButton() {
+        return touchpadButtonSession;
+    }
+
+    /**
+     * Whether built-in controls arrive as a PlayStation pad for the on-screen Touchpad button they
+     * share player 1 with: hosts make a DualShock 4 or DualSense for this type, the pads with a
+     * touchpad click. A type the user pinned for the pad wins.
+     */
+    private boolean carriesTouchpadButton(InputDeviceContext context) {
+        if (!showsTouchpadButton() || context.controllerNumber != 0 || context.buttonMap.isConnectAsPinned()) return false;
+        if (!context.external) return true;
+        // Decided once, so the pad's type does not flip when another pad joins later.
+        if (context.handheldControls == null) context.handheldControls = isHandheldControls(context.inputDevice);
+        return context.handheldControls;
+    }
+
+    /** Whether a gamepad Android lists as external is the handheld's own controls (see {@link #looksLikeHandheldControls}). */
+    private boolean isHandheldControls(InputDevice device) {
+        if (device == null) return false;
+        int gamepads = 0;
+        for (int id : InputDevice.getDeviceIds()) {
+            InputDevice other = InputDevice.getDevice(id);
+            if (other != null && !other.isVirtual() && hasJoystickAxes(other)) gamepads++;
+        }
+        boolean attachedUsb = false;
+        UsbManager usbManager = (UsbManager) activityContext.getSystemService(Context.USB_SERVICE);
+        if (usbManager != null) {
+            for (UsbDevice usb : usbManager.getDeviceList().values()) {
+                if (usb.getVendorId() == device.getVendorId() && usb.getProductId() == device.getProductId()) attachedUsb = true;
+            }
+        }
+        return looksLikeHandheldControls(device.getName(), device.getVendorId(), gamepads == 1, attachedUsb);
+    }
+
+    /**
+     * Whether a gamepad Android lists as external is a handheld's built-in controls. A Retroid
+     * Pocket's is "Xbox Wireless Controller" with its maker's vendor ID (0x2022:0x3002) on an
+     * internal bus. So: named Xbox without Microsoft's vendor ID, the only gamepad, and not an
+     * attached USB device. A real Xbox pad has Microsoft's ID, and a USB pad is in the USB list.
+     */
+    static boolean looksLikeHandheldControls(String name, int vendorId, boolean onlyGamepad, boolean attachedUsb) {
+        return name != null && name.toLowerCase(java.util.Locale.ROOT).contains("xbox") &&
+                vendorId != 0x045e && vendorId != 0 && onlyGamepad && !attachedUsb;
+    }
+
+    /**
+     * Whether the on-screen controller announces itself as a PlayStation pad. Only for its
+     * Touchpad button, as {@link #carriesTouchpadButton} does for built-in controls. Without the
+     * button it stays quiet and the host makes its default pad as before; a pad in player 1's
+     * slot announces player 1 instead.
+     */
+    private boolean announcesOnscreenPad() {
+        if (!showsTouchpadButton()) return false;
+        for (InputDeviceContext context : inputDeviceContexts.values()) {
+            if (context.assignedControllerNumber && context.controllerNumber == 0) return false;
+        }
+        for (UsbDeviceContext context : usbDeviceContexts.values()) {
+            if (context.assignedControllerNumber && context.controllerNumber == 0) return false;
+        }
+        return true;
     }
 
     private synchronized short getActiveControllerMask() {
@@ -2391,6 +2494,11 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
             hatY = event.getAxisValue(MotionEvent.AXIS_HAT_Y);
         }
 
+        if (hatX != 0 || hatY != 0) {
+            // A D-pad chord with a waiting Guide (Guide+D-pad) sends Guide first
+            sendHeldGuide(context);
+        }
+
         handleAxisSet(context, lsX, lsY, rsX, rsY, lt, rt, hatX, hatY);
 
         return true;
@@ -2744,6 +2852,9 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
                         context.arrivalType(), caps,
                         context.device.getSupportedButtonFlags() | context.buttonMap.targetButtonFlags());
             }
+            if (controllers[0] == null && announcesOnscreenPad()) {
+                controllers[0] = launchController((short) 0, MoonBridge.LI_CTYPE_PS, (short) 0, ONSCREEN_PAD_BUTTONS);
+            }
             StringBuilder result = new StringBuilder();
             for (String controller : controllers) {
                 if (controller == null) continue;
@@ -2827,6 +2938,10 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         }
         // Newly assigned pads announce themselves here.
         prepareInputDevices();
+        if (announcesOnscreenPad()) {
+            conn.sendControllerArrivalEvent((byte) 0, getActiveControllerMask(), MoonBridge.LI_CTYPE_PS,
+                    ONSCREEN_PAD_BUTTONS, (short) 0);
+        }
         for (InputDeviceContext context : inputDeviceContexts.values()) {
             if (context.assignedControllerNumber) sendControllerInputPacket(context);
         }
@@ -3121,6 +3236,16 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         context.quitButtons &= ~quitButton(keyCode);
         releaseQuitCombo(context, context.quitButtons);
 
+        if (keyCode == KeyEvent.KEYCODE_BUTTON_MODE && !context.guideTapping) {
+            GuideHold.Release release = releaseGuide(context);
+            if (release == GuideHold.Release.TAP) {
+                tapGuide(context, event);
+            }
+            if (release != GuideHold.Release.PASS) {
+                return true;
+            }
+        }
+
         // A user mapping is keyed by the physical key code and replaces face-button flipping
         int userTarget = context.buttonMap.map(event.getKeyCode());
         if (userTarget == ControllerButtonMap.DISABLED) {
@@ -3349,11 +3474,142 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         if (context.pendingExit && context.inputMap == 0 && context.pressedButtons.isEmpty()) {
             context.pendingExit = false;
             if (activityContext instanceof Game) {
-                ((Game) activityContext).showStreamMenu();
+                ((Game) activityContext).showStreamMenuFromController();
             }
         }
 
         return true;
+    }
+
+    /**
+     * Guide went down on this controller: returns whether Hold Guide to open the stream menu holds
+     * the press back, starting the hold time for a new press (not for a key repeat).
+     */
+    private boolean holdGuide(GenericControllerContext context, boolean repeat) {
+        boolean wasActive = context.guideHold.active();
+        if (!context.guideHold.down(prefConfig.guideMenuHoldMs, repeat)) {
+            mainThreadHandler.removeCallbacks(context.guideHoldRunnable);
+            return false;
+        }
+        if (!(repeat && wasActive)) {
+            mainThreadHandler.removeCallbacks(context.guideHoldRunnable);
+            mainThreadHandler.postDelayed(context.guideHoldRunnable, prefConfig.guideMenuHoldMs);
+        }
+        return true;
+    }
+
+    private GuideHold.Release releaseGuide(GenericControllerContext context) {
+        mainThreadHandler.removeCallbacks(context.guideHoldRunnable);
+        return context.guideHold.up();
+    }
+
+    // A held-back Guide let go before the hold time: the press goes out now through the usual
+    // mapping, and its release after the minimum press so the PC sees it.
+    private void tapGuide(InputDeviceContext context, KeyEvent up) {
+        KeyEvent release = new KeyEvent(up);
+        replayGuide(context, KeyEvent.changeAction(up, KeyEvent.ACTION_DOWN), true);
+        Runnable end = new Runnable() {
+            @Override
+            public void run() {
+                // Only this tap's own release: a newer tap has its own.
+                if (context.guideTapEnd != this) return;
+                context.guideTapEnd = null;
+                if (!stopped) replayGuide(context, release, false);
+            }
+        };
+        context.guideTapEnd = end;
+        mainThreadHandler.postDelayed(end, MINIMUM_BUTTON_DOWN_TIME_MS);
+    }
+
+    // Sends a held-back Guide press or release through the usual path without holding it back again.
+    private void replayGuide(InputDeviceContext context, KeyEvent event, boolean down) {
+        context.guideTapping = true;
+        try {
+            if (down) handleButtonDown(event);
+            else handleButtonUp(event);
+        } finally {
+            context.guideTapping = false;
+        }
+    }
+
+    // The same for a handheld's system Back as Guide, which has no mapping.
+    private void tapDefaultGuide() {
+        defaultContext.inputMap |= ControllerPacket.SPECIAL_BUTTON_FLAG;
+        sendControllerInputPacket(defaultContext);
+        Runnable end = new Runnable() {
+            @Override
+            public void run() {
+                if (defaultContext.guideTapEnd != this) return;
+                defaultContext.guideTapEnd = null;
+                if (stopped) return;
+                defaultContext.inputMap &= ~ControllerPacket.SPECIAL_BUTTON_FLAG;
+                sendControllerInputPacket(defaultContext);
+            }
+        };
+        defaultContext.guideTapEnd = end;
+        mainThreadHandler.postDelayed(end, MINIMUM_BUTTON_DOWN_TIME_MS);
+    }
+
+    // A new Guide press while the last tap is still going out: that tap's release goes first, so the
+    // new press is held back on its own and the old release cannot cut it short.
+    private void endGuideTap(GenericControllerContext context) {
+        Runnable end = context.guideTapEnd;
+        if (end != null) {
+            mainThreadHandler.removeCallbacks(end);
+            end.run();
+        }
+    }
+
+    /**
+     * Another button or the D-pad went down while Guide waits for the hold time: a chord such as
+     * Steam's Guide+RB. Guide goes to the host now, before that button, on this pad and on a
+     * handheld's system Back as Guide (controller 0).
+     */
+    private void sendHeldGuide(InputDeviceContext context) {
+        sendHeldGuideOn(context);
+        if (context != defaultContext) sendHeldGuideOn(defaultContext);
+    }
+
+    private void sendHeldGuideOn(InputDeviceContext context) {
+        if (!context.guideHold.chord()) return;
+        mainThreadHandler.removeCallbacks(context.guideHoldRunnable);
+        KeyEvent down = context.guideHeldDown;
+        context.guideHeldDown = null;
+        if (down != null) {
+            replayGuide(context, down, true);
+        }
+        else {
+            // A handheld's system Back as Guide, which has no mapping
+            context.inputMap |= ControllerPacket.SPECIAL_BUTTON_FLAG;
+            sendControllerInputPacket(context);
+        }
+    }
+
+    /**
+     * Hold Guide to open the stream menu on a pad the USB driver owns, whose reports carry Guide as
+     * a flag: Guide stays out of them while held back, and a short press goes out as a tap. Not while
+     * the stream menu or a capture has the pad: there Guide does what it always did.
+     */
+    private int guideHoldButtons(UsbDeviceContext context, int buttonFlags) {
+        boolean guide = (buttonFlags & ControllerPacket.SPECIAL_BUTTON_FLAG) != 0;
+        if (guide != context.guideDown) {
+            context.guideDown = guide;
+            if (guide) {
+                if (inputEnabled && padCapture == null) holdGuide(context, false);
+            }
+            else if (releaseGuide(context) == GuideHold.Release.TAP) {
+                // Ended by reportControllerState, on the driver's thread like every report
+                context.guideTapping = true;
+            }
+        }
+        // Guide pressed together with another button is a chord: both go out now. A button pressed
+        // after Guide was already waiting got Guide sent first, by reportControllerState.
+        if (guide && (buttonFlags & ~ControllerPacket.SPECIAL_BUTTON_FLAG) != 0 && context.guideHold.chord()) {
+            mainThreadHandler.removeCallbacks(context.guideHoldRunnable);
+        }
+        if (context.guideHold.active()) buttonFlags &= ~ControllerPacket.SPECIAL_BUTTON_FLAG;
+        if (context.guideTapping) buttonFlags |= ControllerPacket.SPECIAL_BUTTON_FLAG;
+        return buttonFlags;
     }
 
     // If the button hasn't been down long enough, sleep for a bit before sending the up event
@@ -3392,6 +3648,22 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         // Like the desktop's, the quit combo is the physical buttons, even remapped or disabled.
         context.quitButtons |= quitButton(keyCode);
         holdQuitCombo(context, context.quitButtons);
+
+        // Hold Guide to open the stream menu, on the physical Guide (or Back as Guide) like the quit combo
+        if (keyCode == KeyEvent.KEYCODE_BUTTON_MODE && !context.guideTapping) {
+            boolean repeat = event.getRepeatCount() > 0;
+            if (!repeat) endGuideTap(context);
+            boolean wasActive = context.guideHold.active();
+            if (holdGuide(context, repeat)) {
+                if (!(repeat && wasActive)) context.guideHeldDown = new KeyEvent(event);
+                context.hasMode = true;
+                return true;
+            }
+        }
+        else if (keyCode != KeyEvent.KEYCODE_BUTTON_MODE) {
+            // A chord with a waiting Guide sends Guide first
+            sendHeldGuide(context);
+        }
 
         // A user mapping is keyed by the physical key code and replaces face-button flipping
         int userTarget = context.buttonMap.map(event.getKeyCode());
@@ -3678,6 +3950,31 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
                                       float rightStickX, float rightStickY,
                                       float leftTrigger, float rightTrigger) {
         UsbDeviceContext context = usbDeviceContexts.get(controllerId);
+        if (context != null && context.guideDown && (buttonFlags & ControllerPacket.SPECIAL_BUTTON_FLAG) != 0 &&
+                (buttonFlags & ~ControllerPacket.SPECIAL_BUTTON_FLAG) != 0 && context.guideHold.chord()) {
+            // A button joined a waiting Guide (a chord such as Guide+RB): Guide goes out first, with
+            // the buttons held before, then this report.
+            mainThreadHandler.removeCallbacks(context.guideHoldRunnable);
+            reportUsbControllerState(controllerId, context.quitButtons, leftStickX, leftStickY, rightStickX, rightStickY,
+                    leftTrigger, rightTrigger);
+        }
+        reportUsbControllerState(controllerId, buttonFlags, leftStickX, leftStickY, rightStickX, rightStickY,
+                leftTrigger, rightTrigger);
+        if (context != null && context.guideTapping) {
+            // A short Guide tap went out with this report: its release follows after the minimum press,
+            // on the driver's thread like every report. Only after a Guide let go before the hold time.
+            android.os.SystemClock.sleep(MINIMUM_BUTTON_DOWN_TIME_MS);
+            context.guideTapping = false;
+            reportUsbControllerState(controllerId, buttonFlags, leftStickX, leftStickY, rightStickX, rightStickY,
+                    leftTrigger, rightTrigger);
+        }
+    }
+
+    private void reportUsbControllerState(int controllerId, int buttonFlags,
+                                          float leftStickX, float leftStickY,
+                                          float rightStickX, float rightStickY,
+                                          float leftTrigger, float rightTrigger) {
+        UsbDeviceContext context = usbDeviceContexts.get(controllerId);
         if (stopped || context == null) {
             return;
         }
@@ -3685,6 +3982,7 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         // the quit combo arms as it comes together, not again for a chord held from the menu.
         boolean quitChanged = buttonFlags != context.quitButtons;
         context.quitButtons = buttonFlags;
+        buttonFlags = guideHoldButtons(context, buttonFlags);
         int buttons = context.buttonMap.mapButtonFlags(buttonFlags, prefConfig.flipFaceButtons);
         if (!inputEnabled) {
             // Android sees no key events from a pad this driver owns: it steers the menu from here.
@@ -3741,7 +4039,7 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         if (context.menuComboPending && buttons == 0) {
             context.menuComboPending = false;
             if (activityContext instanceof Game) {
-                ((Game) activityContext).showStreamMenu();
+                ((Game) activityContext).showStreamMenuFromController();
             }
         }
         releaseQuitCombo(context, buttonFlags);
@@ -3905,7 +4203,12 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
                 {ControllerPacket.LEFT_FLAG, KeyEvent.KEYCODE_DPAD_LEFT},
                 {ControllerPacket.RIGHT_FLAG, KeyEvent.KEYCODE_DPAD_RIGHT},
                 {ControllerPacket.A_FLAG, KeyEvent.KEYCODE_DPAD_CENTER},
-                {ControllerPacket.B_FLAG, KeyEvent.KEYCODE_BUTTON_B}};
+                {ControllerPacket.B_FLAG, KeyEvent.KEYCODE_BUTTON_B},
+                // The stream menu's controller buttons: Y keyboard, X mouse, LB shortcuts, RB overlay.
+                {ControllerPacket.Y_FLAG, KeyEvent.KEYCODE_BUTTON_Y},
+                {ControllerPacket.X_FLAG, KeyEvent.KEYCODE_BUTTON_X},
+                {ControllerPacket.LB_FLAG, KeyEvent.KEYCODE_BUTTON_L1},
+                {ControllerPacket.RB_FLAG, KeyEvent.KEYCODE_BUTTON_R1}};
         for (int[] key : keys) {
             if ((pressed & key[0]) != 0) game.steerStreamMenu(key[1]);
         }
@@ -4014,6 +4317,19 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         // The physical buttons held, before user mapping, face-button flipping and the Select,
         // clickpad and guide emulation: the quit combo is matched against these.
         int quitButtons;
+        // Hold Guide to open the stream menu: the held-back press, and the timer that opens the menu.
+        final GuideHold guideHold = new GuideHold();
+        final Runnable guideHoldRunnable = () -> {
+            if (!stopped && guideHold.expire() && activityContext instanceof Game) {
+                ((Game) activityContext).showStreamMenuFromController();
+            }
+        };
+        // A held-back Guide is being replayed to the host (a tap or a chord), not pressed again.
+        boolean guideTapping;
+        // The release that ends a short Guide tap, until it has run; a new Guide press runs it first.
+        Runnable guideTapEnd;
+        // The held-back Guide press of an Android-mapped pad, replayed when a chord sends it.
+        KeyEvent guideHeldDown;
         public int mouseEmulationLastInputMap;
         public boolean mouseEmulationFixedStepHeld;
         public int mouseEmulationStep = FixedStepMouse.MIN_STEP;
@@ -4063,6 +4379,12 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
             releaseMouseButtons();
             mouseEmulationActive = false;
             mainThreadHandler.removeCallbacks(mouseEmulationRunnable);
+            mainThreadHandler.removeCallbacks(guideHoldRunnable);
+            guideHold.reset();
+            if (guideTapEnd != null) {
+                mainThreadHandler.removeCallbacks(guideTapEnd);
+                guideTapEnd = null;
+            }
         }
 
         private void releaseMouseButtons() {
@@ -4085,6 +4407,8 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         private short reportedCapabilities;
         private int supportedButtonFlags;
         public ControllerButtonMap buttonMap = new ControllerButtonMap();
+        /** Whether this external-listed pad is a handheld's own controls; null until first asked. */
+        Boolean handheldControls;
         public final Map<Integer, Integer> pressedButtons = new HashMap<>();
         public VibratorManager vibratorManager;
         public Vibrator vibrator;
@@ -4380,6 +4704,11 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
                 }
             }
 
+            if (carriesTouchpadButton(this)) {
+                reportedType = MoonBridge.LI_CTYPE_PS;
+                supportedButtonFlags |= ControllerPacket.TOUCHPAD_FLAG;
+            }
+
             capabilities = arrivalCapabilities(capabilities, buttonMap);
             reportedCapabilities = capabilities;
             // A built-in device sharing player 1 with an external pad stays quiet, so the host
@@ -4397,6 +4726,7 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
             reportedType = oldContext.reportedType;
             reportedCapabilities = oldContext.reportedCapabilities;
             supportedButtonFlags = oldContext.supportedButtonFlags;
+            handheldControls = oldContext.handheldControls;
             this.inputMap = oldContext.inputMap;
             this.leftTrigger = oldContext.leftTrigger;
             this.rightTrigger = oldContext.rightTrigger;
@@ -4504,6 +4834,8 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         private long arrivalRetryAt;
         // Start+Back+LB+RB was held; the stream menu opens once every button is up.
         boolean menuComboPending;
+        // Guide was down in the driver's last report (see guideHoldButtons).
+        boolean guideDown;
         // The pad steers the stream menu while the stream has no input focus.
         boolean steeringMenu;
         KeyboardFocus.Direction captureStick;

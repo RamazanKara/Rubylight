@@ -31,9 +31,9 @@ pub(super) const SECTION_KEYS: [&[&[&str]]; 8] = [
     &[&["window_mode"], &["video_scaling"], &["vrr"],
         &["virtual_display"], &["host_display"], &["virtual_display_scale"], &["virtual_display_dpi"],
         &["align_video_top"], &["present_at_host_times"], &["frame_pacing"], &["vsync"]],
-    &[&["mouse_mode"], &["controllers"], &["swap_face_buttons"], &["clipboard_sync"],
+    &[&["mouse_mode"], &["controllers"], &["swap_face_buttons"], &["clipboard_sync"], &["guide_hold_ms"], &["back_opens_menu"],
         &["capture_system_keys"], &["mouse_speed"], &["mouse_nav_buttons"], &["native_touchpad"], &["right_alt_as_meta"],
-        &["back_opens_menu"], &["gamepad_quit_combo"], &["controller_mouse"], &["analog_scrolling"], &["mouse_fixed_step"],
+        &["gamepad_quit_combo"], &["controller_mouse"], &["analog_scrolling"], &["mouse_fixed_step"],
         &["gamepad_touchpad_as_mouse"], &["disable_rumble"], &["controller_motion"], &["controller_audio"], &["background_controllers"]],
     &[&["audio"], &["play_audio_on_host"], &["microphone"], &["mic_echo_cancel"], &["audio_passthrough"]],
     &[&["overlay", "overlay_mode"], &["overlay_position"], &["auto_reconnect"],
@@ -337,11 +337,13 @@ impl Launcher {
             view.to_top = true;
             view.confirm_reset = false;
         }
-        // The shortcut, where the field is empty and waiting.
+        // The shortcut, where the field is empty and waiting, and only where the placeholder ends
+        // before it: a long one (French) in a narrow column keeps the field to itself.
         if view.query.is_empty() && !focused {
             let key = ui.painter().layout_no_wrap(tr("Ctrl+F").to_owned(), regular(text::CAPTION), *OUTLINE);
             let at = Pos2::new(rect.right() - 14.0 - key.size().x, rect.center().y - key.size().y / 2.0);
-            if at.x > field.left() + 120.0 {
+            let hint = ui.painter().layout_no_wrap(tr("Search settings").to_owned(), regular(text::BODY), *OUTLINE).size().x;
+            if at.x > field.left() + hint.max(120.0) + 16.0 {
                 ui.painter().galley(at, key, *OUTLINE);
             }
         }
@@ -456,6 +458,8 @@ impl Launcher {
         let rect = Rect::from_min_max(rect.min - vec2(6.0, 6.0), rect.max + vec2(6.0, 0.0));
         let (mut reset_all, mut clear_search) = (false, false);
         ui.scope_builder(UiBuilder::new().max_rect(rect), |ui| area.show(ui, |ui| {
+            // The D-pad walks the rows down past the window's edge: the row it reaches scrolls in.
+            crate::gui::follow_focus_here(ui, ("settings", open));
             if searching {
                 ui.label(RichText::new(trf("Results for “{}”", &[&self.settings_view.query.trim()])).font(semibold(text::SECTION)).color(PAPER));
             } else {
@@ -573,13 +577,9 @@ impl Launcher {
                 setting_row(ui, s, &mut rows, &["bitrate_kbps"], "Bitrate",
                     note,
                     |ui, s| {
-                        let r = ui.add(
-                            egui::Slider::new(&mut mbps, 0.5..=2000.0)
-                                .logarithmic(true)
-                                .suffix(" Mbps")
-                                .max_decimals(1)
-                                .step_by(0.5),
-                        );
+                        let r = slider(ui, &mut mbps, 0.5..=2000.0, 0.5,
+                            |rail| rail.logarithmic(true).step_by(0.5),
+                            |field| field.suffix(" Mbps").max_decimals(1).speed(0.5));
                         if r.changed() {
                             s.bitrate_kbps = (mbps * 1000.0) as u32;
                         }
@@ -660,7 +660,7 @@ impl Launcher {
             });
             if s.upscaling.is_shader() {
                 setting_row(ui, s, &mut rows, &["upscale_sharpness"], "Sharpness", "How much extra sharpening the upscaler adds.", |ui, s| {
-                    ui.add(egui::Slider::new(&mut s.upscale_sharpness, 0..=100).suffix("%"))
+                    slider(ui, &mut s.upscale_sharpness, 0..=100, 5.0, |rail| rail, |field| field.suffix("%"))
                 });
             }
             rows.when(!s.codec.is_pyrowave() && !s.experimental_packed_444, en("Not used with PyroWave or Full chroma."));
@@ -724,7 +724,7 @@ impl Launcher {
                     }).response
             });
             setting_row(ui, s, &mut rows, &["virtual_display_scale"], "PC render resolution", "The size the PC renders at, as a percent of the stream resolution. The video it sends keeps its size. To send fewer pixels and upscale here, lower Resolution instead.", |ui, s| {
-                ui.add(egui::Slider::new(&mut s.virtual_display_scale, crate::config::RENDER_SCALE).step_by(5.0).suffix("%"))
+                slider(ui, &mut s.virtual_display_scale, crate::config::RENDER_SCALE, 5.0, |rail| rail.step_by(5.0), |field| field.suffix("%"))
             });
             // A PC's own settings offer it only if its host reads rlDisplayScale (DisplayScale).
             let dpi_gate = display_scale_gate(test_host.and_then(|h| h.info.as_ref())
@@ -798,16 +798,32 @@ impl Launcher {
                 toggle(ui, &mut s.clipboard_sync)
             });
             if !layered {
-                setting_row(ui, s, &mut rows, &[], "Controller buttons and keyboard shortcuts", "Remap a controller's buttons, set its stick and trigger dead zones, and save keyboard shortcuts.", |ui, _| {
-                    ui.horizontal(|ui| {
-                        let controllers = quiet_button(ui, "Controllers");
-                        if controllers.clicked() { commands.push(Command::ControllerSettings); }
-                        let shortcuts = quiet_button(ui, "Shortcuts");
-                        if shortcuts.clicked() { commands.push(Command::Shortcuts); }
-                        links.push(("controllers-link", controllers));
-                        links.push(("shortcuts-link", shortcuts.clone()));
-                        shortcuts
-                    }).inner
+                setting_row(ui, s, &mut rows, &[], "Controller buttons", "Remap a controller's buttons and set its stick and trigger dead zones.", |ui, _| {
+                    let controllers = quiet_button(ui, "Controllers");
+                    if controllers.clicked() { commands.push(Command::ControllerSettings); }
+                    links.push(("controllers-link", controllers.clone()));
+                    controllers
+                });
+            }
+            // How the stream menu opens and what it holds, as Android's Stream menu group. Android's floating menu
+            // button has no desktop row: a window has a pointer and keys to open the menu.
+            rows.group(ui, "Stream menu", "");
+            rows.when(s.controllers, en("Turn on Controllers to use this."));
+            setting_row(ui, s, &mut rows, &["guide_hold_ms"], "Hold Guide to open the stream menu", "A short press still goes to the PC.", |ui, s| {
+                egui::ComboBox::from_id_salt("guide-hold").selected_text(guide_hold_name(s.guide_hold_ms)).show_ui(ui, |ui| {
+                    for ms in crate::config::GUIDE_HOLD_MS {
+                        ui.selectable_value(&mut s.guide_hold_ms, ms, guide_hold_name(ms));
+                    }
+                }).response
+            });
+            setting_row(ui, s, &mut rows, &["back_opens_menu"], "Back opens stream controls", "The controller's Back or Select button opens the stream menu.", |ui, s| toggle(ui, &mut s.back_opens_menu));
+            rows.always();
+            if !layered {
+                setting_row(ui, s, &mut rows, &[], "Shortcuts", "Key combinations as tiles in the stream menu.", |ui, _| {
+                    let shortcuts = quiet_button(ui, "Shortcuts");
+                    if shortcuts.clicked() { commands.push(Command::Shortcuts); }
+                    links.push(("shortcuts-link", shortcuts.clone()));
+                    shortcuts
                 });
             }
             rows.group(ui, "Mouse and keyboard", "");
@@ -815,7 +831,7 @@ impl Launcher {
                 "Alt+Tab, the Windows key and similar go to the PC while input is captured.",
                 |ui, s| toggle(ui, &mut s.capture_system_keys),
             );
-            setting_row(ui, s, &mut rows, &["mouse_speed"], "Mouse speed", "How fast the captured pointer moves.", |ui, s| ui.add(egui::Slider::new(&mut s.mouse_speed, 25..=400).suffix("%")));
+            setting_row(ui, s, &mut rows, &["mouse_speed"], "Mouse speed", "How fast the captured pointer moves.", |ui, s| slider(ui, &mut s.mouse_speed, 25..=400, 5.0, |rail| rail, |field| field.suffix("%")));
             setting_row(ui, s, &mut rows, &["mouse_nav_buttons"], "Mouse navigation buttons", "Sends the mouse's Back and Forward buttons to the PC.", |ui, s| toggle(ui, &mut s.mouse_nav_buttons));
             if cfg!(windows) {
                 setting_row(ui, s, &mut rows, &["native_touchpad"], "Touchpad gestures on the PC", "Sends your touchpad's fingers to a PC that accepts them, so its gestures work there. Other PCs get a normal pointer.", |ui, s| toggle(ui, &mut s.native_touchpad));
@@ -823,7 +839,6 @@ impl Launcher {
             setting_row(ui, s, &mut rows, &["right_alt_as_meta"], "Right Alt as Windows key", "Use Right Alt for Windows-key shortcuts on the PC.", |ui, s| toggle(ui, &mut s.right_alt_as_meta));
             rows.group(ui, "Controllers", "");
             rows.when(s.controllers, en("Turn on Controllers to use this."));
-            setting_row(ui, s, &mut rows, &["back_opens_menu"], "Back opens stream controls", "The controller's Back or Select button opens the stream menu.", |ui, s| toggle(ui, &mut s.back_opens_menu));
             setting_row(ui, s, &mut rows, &["gamepad_quit_combo"], "Buttons to leave the stream", "Hold these buttons together to leave the stream. Pick others if a game or your controller needs these.", |ui, s| {
                 egui::ComboBox::from_id_salt("gamepad-quit-combo").selected_text(style.quit_combo(s.gamepad_quit_combo)).show_ui(ui, |ui| {
                     for combo in crate::config::GamepadQuitCombo::ALL {
@@ -994,10 +1009,10 @@ impl Launcher {
                 });
                 setting_row(ui, s, &mut rows, &["language"], "Language", "The language of Nightjar's menus. System default follows the operating system.", |ui, s| {
                     egui::ComboBox::from_id_salt("language")
-                        .selected_text(language_name(s.language))
+                        .selected_text(drawable_language_name(ui, s.language))
                         .show_ui(ui, |ui| {
-                            for language in [Language::System, Language::English, Language::German] {
-                                ui.selectable_value(&mut s.language, language, language_name(language));
+                            for language in Language::ALL {
+                                ui.selectable_value(&mut s.language, language, drawable_language_name(ui, language));
                             }
                         })
                         .response
@@ -1261,6 +1276,16 @@ fn scrolling_name(stick: crate::config::AnalogScrolling) -> &'static str {
     }
 }
 
+/// How long Guide is held to open the stream menu, as the settings show it: Off, or "1.5 s".
+fn guide_hold_name(ms: u32) -> String {
+    if ms == 0 {
+        return tr("Off").to_owned();
+    }
+    let seconds = format!("{}", f64::from(ms) / 1000.0);
+    let seconds = if crate::strings::current().decimal_comma() { seconds.replace('.', ",") } else { seconds };
+    trf("{} s", &[&seconds])
+}
+
 fn audio_name(channels: AudioChannels) -> &'static str {
     match channels {
         AudioChannels::Stereo => tr("Stereo"),
@@ -1271,10 +1296,17 @@ fn audio_name(channels: AudioChannels) -> &'static str {
 }
 
 fn language_name(language: Language) -> &'static str {
-    match language {
-        Language::System => tr("System default"),
-        Language::English => "English",
-        Language::German => "Deutsch",
+    crate::strings::chosen(language).map_or_else(|| tr("System default"), crate::strings::Lang::name)
+}
+
+/// [`language_name`], or the English name where the loaded fonts lack its letters: they hold
+/// the system font of the language in use only, so a Russian menu cannot draw 日本語.
+fn drawable_language_name(ui: &egui::Ui, language: Language) -> &'static str {
+    let name = language_name(language);
+    let font = egui::FontId::proportional(crate::theme::text::BODY);
+    match crate::strings::chosen(language) {
+        Some(lang) if !ui.ctx().fonts_mut(|f| f.has_glyphs(&font, name)) => lang.english_name(),
+        _ => name,
     }
 }
 
@@ -1314,6 +1346,7 @@ pub(super) fn value_text(key: &str, s: &Settings, display: &Display, style: crat
         "mouse_speed" => format!("{}%", s.mouse_speed),
         "gamepad_quit_combo" => style.quit_combo(s.gamepad_quit_combo),
         "analog_scrolling" => scrolling_name(s.analog_scrolling).to_owned(),
+        "guide_hold_ms" => guide_hold_name(s.guide_hold_ms),
         "audio" => audio_name(s.audio).to_owned(),
         "mic_echo_cancel" => tr(s.mic_echo_cancel.label()).to_owned(),
         "overlay" | "overlay_mode" if s.overlay => tr(s.overlay_mode.label()).to_owned(),
@@ -1350,7 +1383,7 @@ pub(super) const MAIN_KEYS: [(&str, &[&str]); 8] = [
 
 /// Desktop rows and the Android preference each one matches. A row is main when its match is.
 #[cfg_attr(not(test), allow(dead_code))]
-pub(super) const ANDROID_KEYS: [(&str, &str); 36] = [
+pub(super) const ANDROID_KEYS: [(&str, &str); 37] = [
     ("width", "list_resolution"), ("fps", "list_fps"), ("bitrate_kbps", "seekbar_bitrate_kbps"),
     ("adaptive_bitrate", "checkbox_auto_bitrate"), ("codec", "video_format"), ("hdr", "checkbox_enable_hdr"),
     ("video_scaling", "checkbox_stretch_video"), ("controllers", "checkbox_multi_controller"),
@@ -1365,7 +1398,7 @@ pub(super) const ANDROID_KEYS: [(&str, &str); 36] = [
     ("audio_passthrough", "checkbox_audio_passthrough"), ("usb_forwarding", "checkbox_usb_forwarding"),
     ("unbatched_input", "checkbox_unbatched_input"), ("network_priority", "checkbox_network_priority"),
     ("input_only_any_host", "checkbox_input_only_any_host"),
-    ("gamepad_quit_combo", "list_gamepad_quit_combo"), ("check_updates", "checkbox_check_updates"),
+    ("gamepad_quit_combo", "list_gamepad_quit_combo"), ("guide_hold_ms", "list_guide_menu_hold"), ("check_updates", "checkbox_check_updates"),
     ("frame_pacing", "frame_pacing"), ("mic_echo_cancel", "list_mic_echo_cancel"),
     ("pin_lock", "pin_lock"),
 ];

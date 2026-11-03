@@ -1466,6 +1466,7 @@ dependencies = [
  "jni",
  "libc",
  "nightjar-core",
+ "nightjar-policy",
  "rubylight-protocol 0.1.0",
  "serde",
  "serde_json",
@@ -1530,6 +1531,7 @@ dependencies = [
  "sdl3-sys",
  "serde",
  "serde_json",
+ "skrifa",
  "windows",
  "windows-core",
  "zbus",
@@ -1550,6 +1552,7 @@ dependencies = [
 name = "nightjar-policy"
 version = "0.1.0"
 dependencies = [
+ "serde",
  "serde_json",
 ]
 

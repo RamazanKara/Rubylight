@@ -74,7 +74,8 @@ public final class ModernController {
     /** Whether the settings keep this control off whatever the layout says. */
     boolean forcedHidden(PadLayout.Control control) {
         if (prefs.onlyL3R3) return control != PadLayout.Control.L3 && control != PadLayout.Control.R3;
-        return control == PadLayout.Control.HOME && !prefs.showGuideButton;
+        return (control == PadLayout.Control.HOME && !prefs.showGuideButton) ||
+                (control == PadLayout.Control.TOUCHPAD && !prefs.showTouchpadButton);
     }
 
     boolean shows(PadLayout layout, PadLayout.Control control) {
@@ -93,6 +94,11 @@ public final class ModernController {
             view.setHaptics(prefs.vibrateOsc);
             views.put(control, view);
             frame.addView(view, new FrameLayout.LayoutParams(0, 0, Gravity.TOP | Gravity.START));
+        }
+        // The sticks' knobs above every control, so a knob pushed past its base covers a neighbour.
+        for (PadControlView view : views.values()) {
+            View knob = view.knobLayer();
+            if (knob != null) frame.addView(knob, new FrameLayout.LayoutParams(0, 0, Gravity.TOP | Gravity.START));
         }
         frame.addOnLayoutChangeListener(resize);
         place();
@@ -116,6 +122,17 @@ public final class ModernController {
             params.leftMargin = Math.round(box[0]);
             params.topMargin = Math.round(box[1]);
             view.setLayoutParams(params);
+            View knob = view.knobLayer();
+            if (knob != null) {
+                // The control's box grown by the knob's overhang on every side; the control keeps the box.
+                int overhang = view.knobOverhang(params.width, params.height);
+                FrameLayout.LayoutParams knobParams = (FrameLayout.LayoutParams) knob.getLayoutParams();
+                knobParams.width = params.width + 2 * overhang;
+                knobParams.height = params.height + 2 * overhang;
+                knobParams.leftMargin = params.leftMargin - overhang;
+                knobParams.topMargin = params.topMargin - overhang;
+                knob.setLayoutParams(knobParams);
+            }
             view.setRestingAlpha(prefs.oscOpacity / 100f * layout.spec(control).opacity / 100f);
         }
     }
@@ -144,7 +161,10 @@ public final class ModernController {
 
     public void removeElements() {
         frame.removeOnLayoutChangeListener(resize);
-        for (PadControlView view : views.values()) frame.removeView(view);
+        for (PadControlView view : views.values()) {
+            frame.removeView(view);
+            if (view.knobLayer() != null) frame.removeView(view.knobLayer());
+        }
         views.clear();
     }
 
@@ -163,7 +183,7 @@ public final class ModernController {
     }
 
     /**
-     * The bottom of the top row (View, Home, Menu) in the frame's pixels, so the microphone button can sit
+     * The bottom of the top row (View, Home, Menu, and the Touchpad below them) in the frame's pixels, so the microphone button can sit
      * below it; NaN when none of them shows.
      */
     public float topRowBottom() {
@@ -171,7 +191,7 @@ public final class ModernController {
         if (!shown || editor != null || width == 0 || height == 0) return Float.NaN;
         float density = context.getResources().getDisplayMetrics().density, bottom = Float.NaN;
         for (PadLayout.Control control : new PadLayout.Control[] {PadLayout.Control.SELECT, PadLayout.Control.HOME,
-                PadLayout.Control.START}) {
+                PadLayout.Control.START, PadLayout.Control.TOUCHPAD}) {
             if (!shows(layout, control)) continue;
             layout.bounds(control, width, height, density, box);
             // Only the middle of the top edge counts: a row moved elsewhere leaves the button its own place.

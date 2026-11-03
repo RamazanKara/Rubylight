@@ -103,6 +103,7 @@ fn feature_name(feature: Feature) -> &'static str {
         Feature::ImageClipboard => "image_clipboard",
         Feature::SharedFolders => "shared_folders",
         Feature::Coop => "coop",
+        Feature::MicOnly => "mic_only",
     }
 }
 

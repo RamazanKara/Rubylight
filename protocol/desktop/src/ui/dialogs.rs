@@ -28,6 +28,7 @@ pub enum HostOption {
     PairingHelp,
     CheckAgain,
     Remove,
+    MicOnly,
 }
 
 impl HostOption {
@@ -48,6 +49,7 @@ impl HostOption {
             Self::PairingHelp => Icon::Help,
             Self::CheckAgain => Icon::Refresh,
             Self::Remove => Icon::Trash,
+            Self::MicOnly => Icon::Mic,
         }
     }
 
@@ -73,6 +75,7 @@ impl HostOption {
             Self::PairingHelp => en("Pairing help"),
             Self::CheckAgain => en("Check again"),
             Self::Remove => en("Remove PC"),
+            Self::MicOnly => en("Microphone only"),
         }
     }
 }
@@ -105,6 +108,9 @@ pub fn host_options(host: &Host) -> Vec<HostOption> {
     if files::offers_files(host) {
         options.push(HostOption::Files);
     }
+    if offers_mic_only(host) {
+        options.push(HostOption::MicOnly);
+    }
     options.push(HostOption::Settings);
     options.push(HostOption::Rename);
     options.push(HostOption::Details);
@@ -118,6 +124,13 @@ pub fn host_options(host: &Host) -> Vec<HostOption> {
     }
     options.push(HostOption::Remove);
     options
+}
+
+/// Microphone only on a paired, online PC whose native capabilities offer it to this device.
+pub fn offers_mic_only(host: &Host) -> bool {
+    host.paired()
+        && host.reach == Reach::Online
+        && host.info.as_ref().is_some_and(|i| i.capabilities.has(nightjar_core::http::Feature::MicOnly))
 }
 
 /// The option that selecting the PC's card does ([`host_clicked`]): its row shows Enter.
@@ -268,6 +281,34 @@ impl Launcher {
                     None => close = true,
                 }
             }
+            Dialog::HomeView => {
+                // A row steps through its choices and Home changes behind the menu at once, so
+                // the menu stays open to try the next.
+                let s = &self.settings;
+                let mut rows = vec![
+                    MenuRow { icon: Icon::Grid, label: en("Layout"), hint: Some(s.home_layout.label()), destructive: false, blocked: None },
+                    MenuRow { icon: Icon::Folder, label: en("Group by"), hint: Some(s.home_group.label()), destructive: false, blocked: None },
+                ];
+                // A list's lines have one size, so Card size shows only for the covers' layouts.
+                if s.home_layout != HomeLayout::List {
+                    rows.push(MenuRow { icon: Icon::Monitor, label: en("Card size"), hint: Some(s.home_card_size.label()), destructive: false, blocked: None });
+                }
+                let (outcome, took) = popover(ctx, "home-view", self.menu_anchor, tr("View"), None, &rows, None, focus_first);
+                focused = took;
+                match outcome {
+                    MenuOutcome::Chosen(n) => {
+                        let s = &mut self.settings;
+                        match n {
+                            0 => s.home_layout = next_of(&HomeLayout::ALL, s.home_layout),
+                            1 => s.home_group = next_of(&HomeGroup::ALL, s.home_group),
+                            _ => s.home_card_size = next_of(&CardSize::ALL, s.home_card_size),
+                        }
+                        commands.push(Command::SaveSettings);
+                    }
+                    MenuOutcome::Dismissed => close = true,
+                    MenuOutcome::Open => {}
+                }
+            }
             Dialog::Rename { host, text } => {
                 let id = *host;
                 let own = view.hosts.get(id).map_or(String::new(), |h| h.record.name.clone());
@@ -384,6 +425,64 @@ impl Launcher {
                                 focused = true;
                             }
                             if stay.clicked() {
+                                close = true;
+                            }
+                        });
+                    });
+            }
+            Dialog::ConfirmExit => {
+                egui::Modal::new(Id::unique("confirm-exit"))
+                    .frame(frame)
+                    .backdrop_color(Color32::from_black_alpha(150))
+                    .show(ctx, |ui| {
+                        ui.set_width(if self.power.is_empty() { 440.0 } else { 640.0 });
+                        ui.label(RichText::new(tr("Close Nightjar?")).font(semibold(text::SECTION)));
+                        dialog_buttons(ui, |ui| {
+                            if primary_button(ui, "Close Nightjar").clicked() {
+                                commands.push(Command::Quit);
+                                close = true;
+                            }
+                            // This PC's power, for one run by controller alone, as far as the system
+                            // allows: each asked once more. Right to left, so Shut down ends up first
+                            // after Cancel.
+                            for offer in self.power.iter().rev() {
+                                if quiet_button(ui, offer.action.label()).clicked() {
+                                    next = Some(Dialog::ConfirmPower(*offer));
+                                }
+                            }
+                            // Focus starts on Cancel: a second B or a stray A never closes the app.
+                            let cancel = quiet_button(ui, "Cancel");
+                            if focus_first {
+                                cancel.request_focus();
+                                focused = true;
+                            }
+                            if cancel.clicked() {
+                                close = true;
+                            }
+                        });
+                    });
+            }
+            Dialog::ConfirmPower(offer) => {
+                let offer = *offer;
+                let action = offer.action;
+                egui::Modal::new(Id::unique("confirm-power"))
+                    .frame(frame)
+                    .backdrop_color(Color32::from_black_alpha(150))
+                    .show(ctx, |ui| {
+                        ui.set_width(440.0);
+                        ui.label(RichText::new(tr(action.question())).font(semibold(text::SECTION)));
+                        dialog_buttons(ui, |ui| {
+                            if primary_button(ui, action.label()).clicked() {
+                                commands.push(Command::Power(offer));
+                                close = true;
+                            }
+                            // Focus starts on Cancel, as on the question before.
+                            let cancel = quiet_button(ui, "Cancel");
+                            if focus_first {
+                                cancel.request_focus();
+                                focused = true;
+                            }
+                            if cancel.clicked() {
                                 close = true;
                             }
                         });
@@ -516,7 +615,7 @@ impl Launcher {
                         if let Some(error) = error { ui.label(RichText::new(error.as_str()).color(ERROR)); }
                         dialog_buttons(ui, |ui| {
                             if primary_button(ui, "Save").clicked() {
-                                match self.shortcuts.save(id.as_deref(), name, chord) {
+                                match crate::shortcuts::save(&mut self.shortcuts, id.as_deref(), name, chord) {
                                     Ok(()) => { commands.push(Command::SaveShortcuts); close = true; }
                                     Err(message) => *error = Some(message),
                                 }
@@ -822,6 +921,30 @@ impl Launcher {
                         });
                     });
             }
+            Dialog::KeptSettings { pcs } => {
+                egui::Modal::new(Id::unique("kept-settings"))
+                    .frame(frame)
+                    .backdrop_color(Color32::from_black_alpha(150))
+                    .show(ctx, |ui| {
+                        ui.set_width(440.0);
+                        ui.label(RichText::new(tr("Some PCs and games keep their own settings")).font(semibold(text::SECTION)));
+                        ui.label(RichText::new(tr("Older versions could keep a setting for a whole PC when it was only opened.")).color(ON_SURFACE_VARIANT));
+                        ui.add_space(space::S);
+                        for pc in pcs.iter() {
+                            ui.label(pc.line());
+                        }
+                        dialog_buttons(ui, |ui| {
+                            if primary_button(ui, "Reset all").clicked() {
+                                commands.push(Command::ResetKeptSettings);
+                                close = true;
+                            }
+                            // Keep has focus: some lines may be choices, which one A press must not drop.
+                            let keep = quiet_button(ui, "Keep");
+                            if focus_first { keep.request_focus(); focused = true; }
+                            if keep.clicked() { close = true; }
+                        });
+                    });
+            }
             Dialog::ConfirmClose { host, name } => {
                 let (host, name) = (*host, name.clone());
                 egui::Modal::new(Id::unique("confirm-close"))
@@ -932,6 +1055,9 @@ impl Launcher {
                 | Dialog::ConfirmSleep { .. }
                 | Dialog::PairError { .. }
                 | Dialog::PairingHelp
+                | Dialog::HomeView
+                | Dialog::ConfirmExit
+                | Dialog::ConfirmPower(_)
         );
         self.dialog = Dialog::None;
         match self.focused_key.clone().filter(|_| from_card) {
@@ -975,6 +1101,7 @@ impl Launcher {
             HostOption::PairingHelp => return Some(Dialog::PairingHelp),
             HostOption::CheckAgain => commands.push(Command::Refresh(id)),
             HostOption::Remove => return Some(Dialog::ConfirmRemove { host: id, name }),
+            HostOption::MicOnly => commands.push(Command::MicOnly { host: id }),
         }
         None
     }
@@ -1015,6 +1142,26 @@ impl Launcher {
         self.menu_anchor = anchor;
         self.dialog = dialog;
         self.focus_dialog = true;
+    }
+
+    /// Once per install: lists the PCs that keep settings of their own or for games, which
+    /// before 4.1.1 an A press on an inherited row could pin without a choice. Waits while
+    /// another dialog is open. True when `settings.kept_settings_checked` changed and needs saving.
+    pub fn show_kept_settings_once(&mut self, hosts: &[Host]) -> bool {
+        if self.settings.kept_settings_checked || !matches!(self.dialog, Dialog::None) {
+            return false;
+        }
+        self.settings.kept_settings_checked = true;
+        // Words come when drawn: at start the language setting isn't applied yet.
+        let pcs: Vec<KeptPc> = hosts.iter().filter_map(|host| {
+            let (own, games) = host.record.own_settings();
+            (own || games > 0).then(|| KeptPc { name: host.display_name().to_owned(), own, games })
+        }).collect();
+        if !pcs.is_empty() {
+            self.dialog = Dialog::KeptSettings { pcs };
+            self.focus_dialog = true;
+        }
+        true
     }
 
     /// The PC answered a pairing request. Returns true when this device is now paired and the
@@ -1248,6 +1395,12 @@ pub fn place(anchor: Anchor, size: Vec2, screen: Rect) -> Pos2 {
     let x = x.min(screen.right() - EDGE - size.x).max(screen.left() + EDGE);
     let y = y.min(screen.bottom() - EDGE - size.y).max(screen.top() + EDGE);
     Pos2::new(x, y)
+}
+
+/// The choice after `now` in `all`, back to the first after the last.
+fn next_of<T: Copy + PartialEq>(all: &[T], now: T) -> T {
+    let at = all.iter().position(|v| *v == now).map_or(0, |i| (i + 1) % all.len());
+    all[at]
 }
 
 /// One row of a popover menu.

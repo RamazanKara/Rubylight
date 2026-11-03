@@ -169,4 +169,13 @@ public class FramePacingPolicyTest {
         assertFalse(FramePacingPolicy.schedulesFrames(true, PreferenceConfiguration.FRAME_PACING_CAP_FPS));
         assertFalse(FramePacingPolicy.schedulesFrames(true, PreferenceConfiguration.FRAME_PACING_MAX_SMOOTHNESS));
     }
+
+    @Test public void onlySmoothestAndTheFrameRateLimitRecoverDecoderDebt() {
+        for (boolean hostFrameTimes : new boolean[] {false, true}) {
+            assertTrue(FramePacingPolicy.recoversDecoderDebt(hostFrameTimes, PreferenceConfiguration.FRAME_PACING_MAX_SMOOTHNESS));
+            assertTrue(FramePacingPolicy.recoversDecoderDebt(hostFrameTimes, PreferenceConfiguration.FRAME_PACING_CAP_FPS));
+            assertFalse(FramePacingPolicy.recoversDecoderDebt(hostFrameTimes, PreferenceConfiguration.FRAME_PACING_MIN_LATENCY));
+            assertFalse(FramePacingPolicy.recoversDecoderDebt(hostFrameTimes, PreferenceConfiguration.FRAME_PACING_BALANCED));
+        }
+    }
 }

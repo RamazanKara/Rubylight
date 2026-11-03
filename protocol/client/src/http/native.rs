@@ -19,7 +19,15 @@ use super::native_api::PREFIX;
 use super::transport::{self, Body, Request, Timeouts};
 use super::{Error, HostClient, LONG_CONNECT_TIMEOUT, READ_TIMEOUT};
 use serde::de::{DeserializeOwned, Error as _};
-use serde::{Deserialize, Deserializer};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use std::collections::BTreeMap;
+
+/// The part of `GET /session` Microphone only reads.
+#[derive(Deserialize)]
+struct MicrophoneBusy {
+    #[serde(default)]
+    microphone_busy: bool,
+}
 use std::time::Duration;
 
 /// A library of a few hundred games is well under this.
@@ -118,6 +126,57 @@ impl<'de> Deserialize<'de> for NativeCapabilities {
     }
 }
 
+/// `GET /library` with each game's `last_played`, read from the same body: the pinned `Game`
+/// predates it. Written back, the times sit in their games again, so Android's Java and a saved
+/// library read them as a host sends them.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NativeLibrary {
+    pub library: Library,
+    /// When each game was last played, by install id: seconds since the epoch, `0` when the
+    /// host says never played. A game the host says nothing about (an older host, a manual app)
+    /// is not in it.
+    pub last_played: BTreeMap<String, u64>,
+}
+
+impl From<Library> for NativeLibrary {
+    fn from(library: Library) -> Self {
+        Self { library, last_played: BTreeMap::new() }
+    }
+}
+
+impl<'de> Deserialize<'de> for NativeLibrary {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let value = serde_json::Value::deserialize(deserializer)?;
+        let mut last_played = BTreeMap::new();
+        for game in value["games"].as_array().into_iter().flatten() {
+            // Anything but a whole number of seconds reads as unknown.
+            if let (Some(id), Some(at)) = (game["install_id"].as_str(), game["last_played"].as_u64()) {
+                last_played.insert(id.to_owned(), at);
+            }
+        }
+        Ok(Self {
+            library: Library::deserialize(value).map_err(D::Error::custom)?,
+            last_played,
+        })
+    }
+}
+
+impl Serialize for NativeLibrary {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::Error as _;
+        let mut value = serde_json::to_value(&self.library).map_err(S::Error::custom)?;
+        if let Some(games) = value["games"].as_array_mut() {
+            for game in games {
+                let at = game["install_id"].as_str().and_then(|id| self.last_played.get(id)).copied();
+                if let (Some(at), Some(fields)) = (at, game.as_object_mut()) {
+                    fields.insert("last_played".into(), at.into());
+                }
+            }
+        }
+        value.serialize(serializer)
+    }
+}
+
 impl HostClient {
     fn native<T: DeserializeOwned>(
         &self,
@@ -156,13 +215,21 @@ impl HostClient {
 
     /// The host's games with their cover versions. Fetch covers with
     /// [`HostClient::box_art`] when an artwork `version` changes.
-    pub fn library(&self) -> Result<Library, Error> {
+    pub fn library(&self) -> Result<NativeLibrary, Error> {
         self.native("library", None, MAX_LIBRARY_BYTES, READ_TIMEOUT)
     }
 
     /// The session and the actions this device may run.
     pub fn session(&self) -> Result<Session, Error> {
         self.native("session", None, MAX_JSON_BYTES, READ_TIMEOUT)
+    }
+
+    /// Whether this device's microphone reaches the host while another device's plays: the
+    /// session's `microphone_busy`, false where the host does not say it. Only when the
+    /// capabilities list `session.mic_only`.
+    pub fn microphone_busy(&self) -> Result<bool, Error> {
+        let session: MicrophoneBusy = self.native("session", None, MAX_JSON_BYTES, READ_TIMEOUT)?;
+        Ok(session.microphone_busy)
     }
 
     /// Runs `Disconnect`, `End` or `CloseGame` and returns the session afterwards. `Resume`
@@ -273,6 +340,29 @@ mod tests {
             content_type: Some("application/json; charset=utf-8".into()),
             body: body.as_bytes().to_vec(),
         }
+    }
+
+    #[test]
+    fn a_library_keeps_last_played_through_a_write_back() {
+        let body = r#"{"revision":"r","games":[
+            {"install_id":"a","app_id":1,"title":"A","game_id":"steam:1","store":null,"installed":true,"running":false,"artwork":{"version":"1"},"last_played":1788025796},
+            {"install_id":"b","app_id":2,"title":"B","game_id":null,"store":null,"installed":null,"running":false,"artwork":{"version":"2"},"last_played":0},
+            {"install_id":"c","app_id":3,"title":"C","game_id":null,"store":null,"installed":null,"running":false,"artwork":{"version":"3"}},
+            {"install_id":"d","app_id":4,"title":"D","game_id":null,"store":null,"installed":null,"running":false,"artwork":{"version":"4"},"last_played":"soon"}]}"#;
+        let library: NativeLibrary = decode(response(200, body), "api/native/v1/library").unwrap();
+        assert_eq!(library.library.games.len(), 4);
+        assert_eq!(
+            library.last_played,
+            BTreeMap::from([("a".to_owned(), 1788025796), ("b".to_owned(), 0)]),
+            "0 is never played; absent and malformed are unknown"
+        );
+        let written = serde_json::to_value(&library).unwrap();
+        assert_eq!(written["games"][0]["last_played"], 1788025796);
+        assert_eq!(written["games"][1]["last_played"], 0);
+        assert!(written["games"][2].get("last_played").is_none());
+        assert_eq!(serde_json::from_value::<NativeLibrary>(written).unwrap(), library);
+        let old: NativeLibrary = serde_json::from_str(r#"{"revision":"r","games":[]}"#).unwrap();
+        assert!(old.last_played.is_empty());
     }
 
     #[test]

@@ -138,9 +138,11 @@ public class NvConnection {
     private long microphoneAccessAt;
     private boolean microphoneAccess;
     // Ordinary fallback shares Android microphone policy, but does not require
-    // permission to create or send input from a host controller.
+    // permission to create or send input from a host controller. A microphone-only session sends no input,
+    // so it needs no input permission either.
     synchronized boolean microphoneCapturePermitted() {
-        if (!micPermitted || !canSendInput()) return false;
+        if (!micPermitted || stopRequested ||
+                (!context.streamConfig.getApp().isMicOnly() && !canSendInput())) return false;
         long now = android.os.SystemClock.uptimeMillis();
         if (microphoneAccessAt != 0 && now - microphoneAccessAt < 100) return microphoneAccess;
         android.media.AudioManager audio = (android.media.AudioManager)appContext.getSystemService(Context.AUDIO_SERVICE);
@@ -242,6 +244,10 @@ public class NvConnection {
         inputPoll = inputPoller.scheduleWithFixedDelay(inputBatcher::flush, 0, inputIntervalNs, TimeUnit.NANOSECONDS);
     }
 
+    static boolean microphoneWanted(PreferenceConfiguration prefs, NvApp app) {
+        return (prefs.enableMic || app.isMicOnly()) && app.getRole() != NvApp.Role.REMOTE_MONITOR;
+    }
+
     private boolean hasMicrophonePermission() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
             return true;
@@ -250,11 +256,22 @@ public class NvConnection {
     }
 
     // A Remote Monitor session is view-only, so it never opens this device's microphone (and asks the host
-    // for no microphone stream), whatever the setting says.
+    // for no microphone stream), whatever the setting says. A microphone-only session always sends it.
     void readMicrophoneSettings(PreferenceConfiguration prefs) {
-        micEnabled = prefs.enableMic && context.streamConfig.getApp().getRole() != NvApp.Role.REMOTE_MONITOR;
+        micEnabled = microphoneWanted(prefs, context.streamConfig.getApp());
         micPermitted = micEnabled && hasMicrophonePermission();
-        micProcessing = prefs.micProcessing();
+        micProcessing = microphoneProcessing(prefs.micProcessing(), context.streamConfig.getApp());
+    }
+
+    // Microphone only plays nothing on this device, so there is no echo to cancel: the microphone runs without
+    // echo cancellation whatever the setting says, as on desktop. Noise suppression and gain stay as chosen.
+    static com.limelight.binding.audio.MicProcessing microphoneProcessing(
+            com.limelight.binding.audio.MicProcessing chosen, NvApp app) {
+        if (!app.isMicOnly() || chosen.echo == com.limelight.binding.audio.MicProcessing.Echo.OFF) {
+            return chosen;
+        }
+        return new com.limelight.binding.audio.MicProcessing(com.limelight.binding.audio.MicProcessing.Echo.OFF,
+                chosen.noiseSuppression, chosen.automaticGain, chosen.gainPercent, chosen.engine);
     }
 
     // Starts only once the native connection is ready; the final lock check also
@@ -365,6 +382,11 @@ public class NvConnection {
 
     public boolean isMicrophoneMuted() {
         return micMuted;
+    }
+
+    /** Whether this device's microphone is open and sending now. */
+    public synchronized boolean isMicrophoneCapturing() {
+        return microphone != null && microphone.isCapturing();
     }
 
     // Snapshot before teardown clears controller ownership. This must not query
@@ -984,7 +1006,7 @@ public class NvConnection {
             return false;
         }
 
-        if (app.getControl() != NvApp.Control.NONE) {
+        if (launchesBesideRunningGame(app)) {
             return launchNotRunningApp(h, context);
         }
 
@@ -1125,6 +1147,14 @@ public class NvConnection {
             LimeLog.warning("Bandwidth test failed, starting at " + configured + " kbps: " + e);
             return configured;
         }
+    }
+
+    /**
+     * Whether {@code app} launches whatever the PC runs: a control action, or Microphone only, which starts no app
+     * and so never resumes, replaces or quits the PC's game.
+     */
+    static boolean launchesBesideRunningGame(NvApp app) {
+        return app.getControl() != NvApp.Control.NONE || app.isMicOnly();
     }
 
     private boolean launchNotRunningApp(NvHTTP h, ConnectionContext context)
@@ -1536,6 +1566,26 @@ public class NvConnection {
                     details.sessionIdle && !details.hasRunningGame();
         } catch (IOException | XmlPullParserException e) {
             return false;
+        }
+    }
+
+    /**
+     * Why the host failed the stream, in its own words, or null when it does not say (a host
+     * without {@code RustHostLastFailure}) or cannot be asked. Same pinned, three-second request
+     * as {@link #hasEndedSession()}.
+     */
+    public String hostFailureReason() {
+        NvHTTP connection;
+        synchronized (this) {
+            if (stopRequested || http == null) return null;
+            connection = http;
+        }
+        try {
+            String reason = connection.probePairedComputer().hostLastFailure;
+            return reason == null || reason.isEmpty() ? null : reason;
+        } catch (IOException | XmlPullParserException e) {
+            LimeLog.warning("The host's failure reason could not be read: " + e);
+            return null;
         }
     }
 

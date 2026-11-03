@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="mic_only_action">マイクのみ</string>
+    <string name="mic_only_connecting">接続中…</string>
+    <string name="mic_only_on">マイク オン</string>
+    <string name="mic_only_paused_call">通話中のため一時停止</string>
+    <string name="mic_only_stop">停止</string>
+    <string name="mic_only_stopped">マイク オフ</string>
+    <string name="mic_only_failed">%1$s との接続が終了しました</string>
+    <string name="mic_only_denied">マイクへのアクセスがありません</string>
+    <string name="mic_only_unavailable">マイクを使用できません</string>
+    <string name="mic_only_not_accepted">%1$s がマイクを受け付けませんでした</string>
+    <string name="mic_only_busy">別のデバイスがマイクを使用中</string>
+</resources>

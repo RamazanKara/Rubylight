@@ -37,6 +37,7 @@ public abstract class VirtualControllerElement extends View {
     public static final int EID_LSB = 14;
     public static final int EID_RSB = 15;
     public static final int EID_GDB = 16;
+    public static final int EID_TOUCHPAD = 17;
 
     protected VirtualController virtualController;
     protected final int elementId;
@@ -48,6 +49,13 @@ public abstract class VirtualControllerElement extends View {
     private int configMoveColor = 0xF0FF0000;
     private int configResizeColor = 0xF0FF00FF;
     private int configSelectedColor = 0xF000FF00;
+
+    public static final int MIN_BUTTON_OPACITY = 10, MAX_BUTTON_OPACITY = 100;
+    // The resize preview never fades a control so far that it cannot be found (about 35 %).
+    private static final int MIN_EDIT_ALPHA = 0x59;
+    // The opacity setting for every control, and this control's own share of it in percent.
+    private int globalOpacity = 100;
+    private int buttonOpacity = MAX_BUTTON_OPACITY;
 
     protected int startSize_x;
     protected int startSize_y;
@@ -102,7 +110,7 @@ public abstract class VirtualControllerElement extends View {
     protected void onDraw(Canvas canvas) {
         onElementDraw(canvas);
 
-        if (currentMode != Mode.Normal) {
+        if (currentMode != Mode.Normal || virtualController.isSelectedForEditing(this)) {
             paint.setColor(configSelectedColor);
             paint.setStrokeWidth(getDefaultStrokeWidth());
             paint.setStyle(Paint.Style.STROKE);
@@ -164,7 +172,8 @@ public abstract class VirtualControllerElement extends View {
         if (virtualController.getControllerMode() == VirtualController.ControllerMode.MoveButtons)
             return configMoveColor;
         else if (virtualController.getControllerMode() == VirtualController.ControllerMode.ResizeButtons)
-            return configResizeColor;
+            // Size and opacity are set here, so the preview shows the control's opacity.
+            return (Math.max(normalColor >>> 24, MIN_EDIT_ALPHA) << 24) | (configResizeColor & 0x00FFFFFF);
         else
             return normalColor;
     }
@@ -287,8 +296,11 @@ public abstract class VirtualControllerElement extends View {
 
                 if (virtualController.getControllerMode() == VirtualController.ControllerMode.MoveButtons)
                     actionEnableMove();
-                else if (virtualController.getControllerMode() == VirtualController.ControllerMode.ResizeButtons)
+                else if (virtualController.getControllerMode() == VirtualController.ControllerMode.ResizeButtons) {
                     actionEnableResize();
+                    // The touched control is the one the opacity slider sets.
+                    virtualController.selectForEditing(this);
+                }
 
                 return true;
             }
@@ -345,8 +357,33 @@ public abstract class VirtualControllerElement extends View {
     }
 
 
+    /** The opacity setting for every control, in percent; this control's own opacity scales it. */
     public void setOpacity(int opacity) {
-        int hexOpacity = opacity * 255 / 100;
+        globalOpacity = opacity;
+        applyOpacity();
+    }
+
+    /** This control's own opacity, in percent of the opacity setting. */
+    public void setButtonOpacity(int opacity) {
+        buttonOpacity = Math.max(MIN_BUTTON_OPACITY, Math.min(MAX_BUTTON_OPACITY, opacity));
+        applyOpacity();
+    }
+
+    public int getButtonOpacity() {
+        return buttonOpacity;
+    }
+
+    /** The opacity a control draws with, in percent: the setting for all, times the control's own. */
+    static int effectiveOpacity(int globalOpacity, int buttonOpacity) {
+        return globalOpacity * buttonOpacity / 100;
+    }
+
+    int getNormalColor() {
+        return normalColor;
+    }
+
+    private void applyOpacity() {
+        int hexOpacity = effectiveOpacity(globalOpacity, buttonOpacity) * 255 / 100;
         this.normalColor = (hexOpacity << 24) | (normalColor & 0x00FFFFFF);
         this.pressedColor = (hexOpacity << 24) | (pressedColor & 0x00FFFFFF);
 
@@ -371,6 +408,7 @@ public abstract class VirtualControllerElement extends View {
         configuration.put("TOP", layoutParams.topMargin);
         configuration.put("WIDTH", layoutParams.width);
         configuration.put("HEIGHT", layoutParams.height);
+        configuration.put("OPACITY", buttonOpacity);
 
         return configuration;
     }
@@ -382,6 +420,8 @@ public abstract class VirtualControllerElement extends View {
         layoutParams.topMargin = configuration.getInt("TOP");
         layoutParams.width = configuration.getInt("WIDTH");
         layoutParams.height = configuration.getInt("HEIGHT");
+        // Layouts saved before per-control opacity follow the opacity setting alone.
+        setButtonOpacity(configuration.optInt("OPACITY", MAX_BUTTON_OPACITY));
 
         requestLayout();
     }

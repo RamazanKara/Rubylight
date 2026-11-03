@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="mic_only_action">Chỉ micrô</string>
+    <string name="mic_only_connecting">Đang kết nối…</string>
+    <string name="mic_only_on">Micrô đang bật</string>
+    <string name="mic_only_paused_call">Tạm dừng vì có cuộc gọi</string>
+    <string name="mic_only_stop">Dừng</string>
+    <string name="mic_only_stopped">Micrô đã tắt</string>
+    <string name="mic_only_failed">Đã ngắt kết nối với %1$s</string>
+    <string name="mic_only_denied">Không có quyền dùng micrô</string>
+    <string name="mic_only_unavailable">Micrô không khả dụng</string>
+    <string name="mic_only_not_accepted">%1$s không nhận micrô</string>
+    <string name="mic_only_busy">Micrô đang dùng trên thiết bị khác</string>
+</resources>

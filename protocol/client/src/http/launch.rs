@@ -66,6 +66,9 @@ pub struct LaunchRequest {
     pub role: AppRole,
     /// Input-only by streaming the game at a small size (hosts without an input-only mode).
     pub small_stream_input_only: bool,
+    /// An input-only session that carries only this device's microphone (`rlMicOnly=1`), for a
+    /// host that lists [`Feature::MicOnly`].
+    pub mic_only: bool,
     pub width: u32,
     pub height: u32,
     /// The integer launch rate.
@@ -124,6 +127,7 @@ impl Default for LaunchRequest {
             app_uuid: String::new(),
             role: AppRole::Stream,
             small_stream_input_only: false,
+            mic_only: false,
             width: 1920,
             height: 1080,
             fps: 60,
@@ -258,6 +262,9 @@ impl LaunchRequest {
             q.push_str("&remote_monitor=1");
         } else if input_only && !self.small_stream_input_only {
             q.push_str("&input_only=1");
+            if self.mic_only {
+                q.push_str("&rlMicOnly=1");
+            }
         }
         q.push_str(&format!("&mode={}x{}x{rate}", self.width, self.height));
         if virtual_display {
@@ -638,6 +645,14 @@ mod tests {
         };
         let q = input.query(&rubylight(), false);
         assert!(q.contains("&input_only=1") && !q.contains("hdrMode") && !q.contains("Vrr"));
+        assert!(!q.contains("rlMicOnly"));
+        let mic = LaunchRequest {
+            mic_only: true,
+            ..input.clone()
+        };
+        assert!(mic
+            .query(&rubylight(), false)
+            .contains("&input_only=1&rlMicOnly=1&mode="));
         let small = LaunchRequest {
             small_stream_input_only: true,
             ..input

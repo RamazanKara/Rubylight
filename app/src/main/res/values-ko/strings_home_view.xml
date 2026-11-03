@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="home_view">보기</string>
+    <string name="home_view_layout">레이아웃</string>
+    <string name="home_view_layout_grid">격자</string>
+    <string name="home_view_layout_rows">행</string>
+    <string name="home_view_layout_list">목록</string>
+    <string name="home_view_group">그룹화 기준</string>
+    <string name="home_view_group_store">스토어</string>
+    <string name="home_view_group_type">유형</string>
+    <string name="home_view_group_none">없음</string>
+    <string name="console_row_games">게임</string>
+    <string name="home_view_size">카드 크기</string>
+    <string name="home_view_size_small">작게</string>
+    <string name="home_view_size_medium">보통</string>
+    <string name="home_view_size_large">크게</string>
+    <string name="console_list_not_played">아직 플레이 안 함</string>
+    <string name="console_list_played_today">오늘 플레이</string>
+    <string name="console_list_played_yesterday">어제 플레이</string>
+    <plurals name="console_list_played_days">
+        <item quantity="other">%d일 전 플레이</item>
+    </plurals>
+</resources>

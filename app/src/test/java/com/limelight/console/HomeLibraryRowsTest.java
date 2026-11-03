@@ -158,12 +158,48 @@ public class HomeLibraryRowsTest {
         rig.close();
         rig = new ConsoleRig(temporary.newFolder());
         tower(Collections.emptyList(), game(1, "Portal", "steam", true, 1_700_000_000L),
-                game(2, "Hades", "epic", true, 1_760_000_000L), game(3, "Doom", "steam", true, null));
+                game(2, "Hades", "epic", true, 1_760_000_000L), game(3, "Doom", "steam", true, null),
+                game(4, "Quake", "steam", true, 0L));
         HomeModel model = model();
         assertEquals("shelf:recent", model.rows.get(0).key);
-        assertEquals(Arrays.asList("Hades", "Portal"), titles(model.row("shelf:recent").cards));
+        assertEquals("never played (0) is not recent", Arrays.asList("Hades", "Portal"), titles(model.row("shelf:recent").cards));
         assertFalse(model.row("shelf:recent").hasMore());
         assertEquals("recent:game:g2", model.row("shelf:recent").cards.get(0).key);
+    }
+
+    @Test
+    public void aLibraryCardTakesTheNewestLastPlayedAcrossItsPcs() throws Exception {
+        tower(Collections.emptyList(), game(1, "Portal", "steam", true, 1_700_000_000L), game(2, "Quake", "steam", true, 0L),
+                game(3, "Doom", "steam", true, null));
+        rig.transport.reply("den", "capabilities", ok("{\"api_version\":1,\"features\":[\"library\"],"
+                + "\"permissions\":{\"list\":true,\"view\":true,\"launch\":true}}"));
+        rig.transport.reply("den", "library", ok(library("d", game(1, "Portal", "steam", true, 1_760_000_000L),
+                game(2, "Quake", "steam", true, null))));
+        rig.transport.reply("den", "session", ok(NativeApiFixtures.IDLE));
+        List<ComputerDetails> hosts = java.util.Arrays.asList(nativeHost("tower", "Tower", true), nativeHost("den", "Den", true));
+        HomeModel model = HomeModel.of(rig.repository.refresh(hosts), new HashSet<>(java.util.Arrays.asList("tower", "den")));
+        HomeModel.GameCard portal = null, quake = null, doom = null;
+        for (HomeModel.GameCard card : model.allGames) {
+            if (card.title.equals("Portal")) portal = card;
+            if (card.title.equals("Quake")) quake = card;
+            if (card.title.equals("Doom")) doom = card;
+        }
+        assertEquals(2, portal.hostCount);
+        assertEquals("the newer of the two PCs", Long.valueOf(1_760_000_000L), portal.lastPlayed);
+        assertEquals("one PC says never, the other nothing", Long.valueOf(0L), quake.lastPlayed);
+        assertNull("no PC says", doom.lastPlayed);
+
+        // Only when no PC says: when this device last streamed it, as on desktop.
+        rig.recents.add(new com.limelight.nativeapi.RecentsStore.Recent("tower", "Tower", doom.appId, "Doom", 1_780_000_000_000L));
+        rig.recents.add(new com.limelight.nativeapi.RecentsStore.Recent("tower", "Tower", portal.appId, "Portal", 1_790_000_000_000L));
+        model = HomeModel.of(rig.repository.refresh(hosts), new HashSet<>(java.util.Arrays.asList("tower", "den")));
+        for (HomeModel.GameCard card : model.allGames) {
+            if (card.title.equals("Portal")) portal = card;
+            if (card.title.equals("Doom")) doom = card;
+        }
+        assertEquals("this device's recents", Long.valueOf(1_780_000_000L), doom.lastPlayed);
+        assertEquals("the PCs say, so they win", Long.valueOf(1_760_000_000L), portal.lastPlayed);
+        assertEquals("the Recently played row stays the PCs' own", Arrays.asList("Portal"), titles(model.row("shelf:recent").cards));
     }
 
     @Test
@@ -196,7 +232,7 @@ public class HomeLibraryRowsTest {
         HomeModel model = model();
         List<String> filters = new ArrayList<>();
         for (HomeModel.Filter filter : model.filters) filters.add(filter.key + "=" + filter.count);
-        assertEquals(Arrays.asList("all=4", "installed=3", "store:steam=2", "store:epic=1", "other=1", "unadded=1"),
+        assertEquals(Arrays.asList("all=4", "installed=3", "games=3", "store:steam=2", "store:epic=1", "other=1", "unadded=1"),
                 filters);
         List<String> steam = new ArrayList<>();
         for (HomeModel.GameCard card : model.allGames) {
@@ -206,7 +242,11 @@ public class HomeLibraryRowsTest {
         int installed = 0;
         for (HomeModel.GameCard card : model.allGames) if (HomeModel.matches("installed", card)) installed++;
         assertEquals(3, installed);
-        assertNotNull(model.filters.get(2).storeName);
+        assertNotNull(model.filters.get(3).storeName);
+        // Games is every store's games, without Desktop.
+        int games = 0;
+        for (HomeModel.GameCard card : model.allGames) if (HomeModel.matches(HomeModel.FILTER_GAMES, card)) games++;
+        assertEquals(3, games);
     }
 
     @Test
@@ -215,5 +255,97 @@ public class HomeLibraryRowsTest {
         List<String> filters = new ArrayList<>();
         for (HomeModel.Filter filter : model().filters) filters.add(filter.key);
         assertEquals(Arrays.asList("all", "store:epic", "store:steam"), filters);
+    }
+
+    @Test
+    public void ungroupedIsOneLibraryRowOfTheInstalledGames() throws Exception {
+        tower(Collections.emptyList(), game(1, "Portal", "steam", true, null), game(2, "Hades", "epic", true, null),
+                game(3, "Doom", "steam", false, null));
+        HomeModel model = model();
+        // Grouped stays the rows per store.
+        assertEquals(model.rows, model.rows(HomeView.Group.STORE));
+        List<HomeModel.Row> plain = model.rows(HomeView.Group.NONE);
+        assertEquals(1, plain.size());
+        assertEquals(HomeModel.LIBRARY_ROW, plain.get(0).key);
+        assertEquals(titles(model.library), titles(plain.get(0).cards));
+        assertFalse(titles(plain.get(0).cards).contains("Doom"));
+    }
+
+    @Test
+    public void ungroupedWithNothingInstalledHasNoRow() throws Exception {
+        tower(Collections.emptyList(), game(1, "Portal", "steam", false, null));
+        assertTrue(model().rows(HomeView.Group.NONE).isEmpty());
+    }
+
+    @Test
+    public void byTypeTheGamesOfEveryStoreAreOneRowAndTheAppsOfNoStoreTheirOwn() throws Exception {
+        tower(Collections.emptyList(), game(1, "Desktop", null, true, null), game(2, "Portal", "steam", true, null),
+                game(3, "Hades", "epic", true, null), game(4, "Playnite", null, true, null),
+                game(5, "Doom", "steam", false, null));
+        HomeModel model = model();
+        List<HomeModel.Row> parts = model.rows(HomeView.Group.TYPE);
+        assertEquals(2, parts.size());
+        assertEquals("shelf:games", parts.get(0).key);
+        assertEquals(HomeModel.RowKind.GAMES, parts.get(0).kind);
+        // As in the store rows: the installed games by name, then the one not installed.
+        assertEquals(Arrays.asList("Hades", "Portal", "Doom"), titles(parts.get(0).cards));
+        // Each row is exactly what its All N tile's chip shows.
+        assertEquals(HomeModel.FILTER_GAMES, parts.get(0).filter);
+        for (HomeModel.Row part : parts) {
+            assertEquals(part.key, new HashSet<>(titles(part.cards)),
+                    new HashSet<>(titles(AllGamesActivity.cardsOf(model, part.filter))));
+            HomeModel.Filter chip = AllGamesActivity.filterOf(model, part.filter);
+            assertNotNull(part.key + " has its chip", chip);
+            assertEquals(part.total, chip.count);
+        }
+        assertEquals("shelf:other", parts.get(1).key);
+        assertEquals(HomeModel.RowKind.OTHER, parts.get(1).kind);
+        assertEquals(HomeModel.FILTER_OTHER, parts.get(1).filter);
+        assertEquals(Arrays.asList("Desktop", "Playnite"), titles(parts.get(1).cards));
+    }
+
+    @Test
+    public void byTypeAPartPastTheCapIsWholeInTheGrid() throws Exception {
+        List<String> games = new ArrayList<>();
+        for (int i = 1; i <= 23; i++) games.add(game(i, String.format("Game %02d", i), i % 2 == 0 ? "steam" : "epic", true, null));
+        games.add(game(30, "Desktop", null, true, null));
+        tower(Collections.emptyList(), games.toArray(new String[0]));
+        HomeModel model = model();
+        HomeModel.Row part = model.rows(HomeView.Group.TYPE).get(0);
+        assertTrue(part.hasMore());
+        List<HomeModel.GameCard> whole = model.whole(part);
+        assertEquals(23, whole.size());
+        assertFalse("an app is not a game", titles(whole).contains("Desktop"));
+    }
+
+    @Test
+    public void byTypeALibraryOfNoGamesFromStoresIsOneLibraryRow() throws Exception {
+        tower(Collections.emptyList(), game(1, "Desktop", null, true, null), game(2, "Steam", null, true, null));
+        List<HomeModel.Row> parts = model().rows(HomeView.Group.TYPE);
+        assertEquals(1, parts.size());
+        assertEquals(HomeModel.LIBRARY_ROW, parts.get(0).key);
+
+        rig.close();
+        rig = new ConsoleRig(temporary.newFolder());
+        tower(Collections.emptyList(), game(1, "Portal", "steam", true, null));
+        parts = model().rows(HomeView.Group.TYPE);
+        assertEquals(Collections.singletonList("shelf:games"), Arrays.asList(parts.get(0).key));
+        assertEquals(1, parts.size());
+    }
+
+    @Test
+    public void aWholeRowHasEveryGamePastTheCap() throws Exception {
+        List<String> games = new ArrayList<>();
+        for (int i = 1; i <= 23; i++) games.add(game(i, String.format("Game %02d", i), "steam", true, null));
+        games.add(game(30, "Hades", "epic", true, null));
+        tower(Collections.emptyList(), games.toArray(new String[0]));
+        HomeModel model = model();
+        List<HomeModel.GameCard> steam = model.whole(model.row("shelf:store:steam"));
+        assertEquals(23, steam.size());
+        assertEquals("Game 23", steam.get(22).title);
+        assertFalse(titles(steam).contains("Hades"));
+        // A row that already holds all its games is itself.
+        HomeModel.Row epic = model.row("shelf:store:epic");
+        assertEquals(epic.cards, model.whole(epic));
     }
 }

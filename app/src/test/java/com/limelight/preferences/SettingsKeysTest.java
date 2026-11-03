@@ -280,6 +280,7 @@ public class SettingsKeysTest {
         reads.put("checkbox_back_opens_menu", new Read(false, true, c -> c.backOpensMenu));
         reads.put("list_gamepad_quit_combo", new Read("off", "lb_rb_a_b", c -> c.gamepadQuitCombo));
         reads.put("checkbox_back_as_guide", new Read(false, true, c -> c.backAsGuide));
+        reads.put("list_guide_menu_hold", new Read("0", "1500", c -> c.guideMenuHoldMs));
         reads.put("checkbox_capture_system_keys", new Read(true, false, c -> c.captureSystemKeys));
         reads.put("checkbox_right_alt_as_meta", new Read(false, true, c -> c.rightAltAsMeta));
         reads.put("checkbox_keyboard_follows_text_fields", new Read(true, false, c -> c.keyboardFollowsTextFields));
@@ -305,6 +306,7 @@ public class SettingsKeysTest {
         reads.put("list_trackpad_area", new Read("full", "right_half", c -> c.trackpadArea));
         reads.put("list_three_finger_tap", new Read("keyboard", "middle_click", c -> c.threeFingerTap));
         reads.put("list_four_finger_tap", new Read("none", "desktop_controls", c -> c.fourFingerTap));
+        reads.put("checkbox_multi_touch_finger_taps", new Read(false, true, c -> c.multiTouchFingerTaps));
         reads.put("list_pc_keyboard_layout", new Read("auto", "de", c -> c.pcKeyboardLayout));
         reads.put("seekbar_pc_keyboard_size", new Read(50, 60, c -> c.pcKeyboardSize));
         reads.put("seekbar_pc_keyboard_opacity", new Read(90, 60, c -> c.pcKeyboardOpacity));
@@ -316,6 +318,7 @@ public class SettingsKeysTest {
         reads.put("checkbox_vibrate_osc", new Read(true, false, c -> c.vibrateOsc));
         reads.put("checkbox_only_show_L3R3", new Read(false, true, c -> c.onlyL3R3));
         reads.put("checkbox_show_guide_button", new Read(true, false, c -> c.showGuideButton));
+        reads.put("checkbox_show_touchpad_button", new Read(false, true, c -> c.showTouchpadButton));
         reads.put("seekbar_osc_opacity", new Read(90, 50, c -> c.oscOpacity));
         // list_audio_config is checked by everyStoredSettingIsReadByTheStreamConfiguration only: the
         // MoonBridge audio constants it maps to are not created under the test shadow.
@@ -326,6 +329,7 @@ public class SettingsKeysTest {
         reads.put("checkbox_mic_auto_gain", new Read(false, true, c -> c.micAutoGain));
         reads.put("seekbar_mic_gain", new Read(100, 150, c -> c.micGainPercent));
         reads.put("checkbox_mic_button", new Read(true, false, c -> c.micButton));
+        reads.put("checkbox_floating_menu_button", new Read(false, true, c -> c.floatingMenuButton));
         reads.put("list_osc_style", new Read("classic", "modern", c -> c.oscStyle));
         reads.put("list_osc_stick_mode", new Read("floating", "fixed", c -> c.oscFloatingSticks ? "floating" : "fixed"));
         reads.put("seekbar_osc_stick_deadzone", new Read(8, 15, c -> c.oscStickDeadzone));

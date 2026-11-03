@@ -51,4 +51,16 @@
         <item name="lineHeight">20sp</item>
         <item name="android:letterSpacing">0</item>
     </style>
+    <style name="TextAppearance.Nightjar.Tile" parent="TextAppearance.Material3.LabelMedium">
+        <item name="android:textSize">14sp</item>
+        <item name="lineHeight">18sp</item>
+        <item name="android:fontFamily">sans-serif</item>
+        <item name="fontFamily">sans-serif</item>
+        <item name="android:letterSpacing">0</item>
+    </style>
+
+    <style name="TextAppearance.Nightjar.TileDetail" parent="TextAppearance.Nightjar.Tile">
+        <item name="android:textSize">13sp</item>
+        <item name="lineHeight">16sp</item>
+    </style>
 </resources>

@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="home_view">表示</string>
+    <string name="home_view_layout">レイアウト</string>
+    <string name="home_view_layout_grid">グリッド</string>
+    <string name="home_view_layout_rows">行</string>
+    <string name="home_view_layout_list">リスト</string>
+    <string name="home_view_group">グループ化</string>
+    <string name="home_view_group_store">ストア</string>
+    <string name="home_view_group_type">種類</string>
+    <string name="home_view_group_none">なし</string>
+    <string name="console_row_games">ゲーム</string>
+    <string name="home_view_size">カードのサイズ</string>
+    <string name="home_view_size_small">小</string>
+    <string name="home_view_size_medium">中</string>
+    <string name="home_view_size_large">大</string>
+    <string name="console_list_not_played">未プレイ</string>
+    <string name="console_list_played_today">今日プレイ</string>
+    <string name="console_list_played_yesterday">昨日プレイ</string>
+    <plurals name="console_list_played_days">
+        <item quantity="other">%d日前にプレイ</item>
+    </plurals>
+</resources>

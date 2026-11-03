@@ -1,0 +1,5 @@
+• Microphone only: use this device as the PC's microphone, even with the screen off.
+• Home: a List layout, group by type, and L1/R1 to switch tabs.
+• On-screen controller: a Touchpad button; finger taps in Multi-touch.
+• Co-op and Files in every language.
+• Windows/Linux: menus in 15 languages, shut down or restart the PC from Home, Alt+Tab reaches the PC, VRR stays on after a resume, no crackle when audio arrives in bursts.

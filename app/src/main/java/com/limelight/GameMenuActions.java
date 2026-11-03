@@ -99,7 +99,24 @@ final class GameMenuActions {
         leaveStream();
     }
 
-    void showStreamMenu() {
+    // The user's shortcuts in the stream menu: kept with the app's other shortcuts, pressed on the PC once the
+    // menu has closed and the stream has focus again, like every menu action.
+    private final com.limelight.ui.StreamMenu.Shortcuts menuShortcuts = new com.limelight.ui.StreamMenu.Shortcuts() {
+        @Override public java.util.List<com.limelight.binding.input.KeyboardShortcuts.Shortcut> saved() {
+            return com.limelight.binding.input.KeyboardShortcuts.load(game);
+        }
+
+        @Override public void save(java.util.List<com.limelight.binding.input.KeyboardShortcuts.Shortcut> shortcuts) {
+            com.limelight.binding.input.KeyboardShortcuts.save(game, shortcuts);
+        }
+
+        @Override public void send(int[] keys) {
+            game.streamMenuAction = () -> game.keyboardInput.sendMenuShortcut(keys);
+            if (streamMenuSheet != null) streamMenuSheet.sheet().dismiss();
+        }
+    };
+
+    void showStreamMenu(boolean byController) {
         if (!game.foreground || !game.connected || game.streamMenu != null) {
             return;
         }
@@ -110,8 +127,9 @@ final class GameMenuActions {
         hostAudio = null;
         hostAudioUnread = false;
         streamMenuSheet = new com.limelight.ui.StreamMenu(game, this::streamMenuOptions, this::onStreamMenuItem,
-                nativeMenuController());
+                nativeMenuController(), menuShortcuts);
         showStreamDialog(streamMenuSheet.sheet());
+        if (byController) streamMenuSheet.sheet().focusFirstActionFromController();
         refreshHostAudio();
     }
 
@@ -265,6 +283,7 @@ final class GameMenuActions {
     // What the stream menu offers right now. Host features and permissions decide the rest.
     private com.limelight.ui.StreamMenu.Options streamMenuOptions() {
         com.limelight.ui.StreamMenu.Options options = new com.limelight.ui.StreamMenu.Options(game.app.getRole(), game.conn.getHostDetails());
+        options.appName = game.app.getAppName();
         options.canSendInput = game.conn.canSendInput();
         options.nativeHostControl = game.conn.hasNativeHostControl();
         options.hostMenu = game.conn.hasNativeCouchMenu();
@@ -278,6 +297,15 @@ final class GameMenuActions {
         options.hostAudioUnread = hostAudioUnread;
         options.micButtonAvailable = game.micButton != null;
         options.micButtonShown = game.micButton != null && game.prefConfig.micButton;
+        options.menuButtonAvailable = game.menuButton != null;
+        options.menuButtonShown = game.menuButton != null && game.prefConfig.floatingMenuButton;
+        // The size the decoder was set up for or the host changed to, not the size asked for: the host may lower it
+        // (4K to a host without 4K), choose it (native) or change it mid-stream.
+        options.streamWidth = game.streamWidth;
+        options.streamHeight = game.streamHeight;
+        options.streamFps = game.streamFps;
+        options.videoFormat = game.decoderRenderer == null ? 0 : game.decoderRenderer.getActiveVideoFormat();
+        options.hdr = game.streamHdr;
         options.overlayShown = game.prefConfig.enablePerfOverlay;
         options.overlayMode = game.overlayMode;
         options.overlayPosition = game.overlayCorner.key;
@@ -307,7 +335,7 @@ final class GameMenuActions {
         if (game.decoderRenderer == null || game.prefConfig == null) return null;
         ComputerDetails details = game.conn.getHostDetails();
         return new com.limelight.console.ConnectionInfo(details.name, game.decoderRenderer.getActiveVideoFormat(),
-                game.prefConfig.width, game.prefConfig.height, game.prefConfig.fps, game.currentBitrate == 0 ? game.prefConfig.bitrate : game.currentBitrate,
+                game.streamWidth, game.streamHeight, game.streamFps, game.currentBitrate == 0 ? game.prefConfig.bitrate : game.currentBitrate,
                 game.wifiDiagnostics != null ? game.wifiDiagnostics.latest() : null,
                 com.limelight.console.ConnectionInfo.rttMs(MoonBridge.getEstimatedRttInfo()));
     }
@@ -332,6 +360,7 @@ final class GameMenuActions {
             case ONSCREEN_CONTROLS: action = () -> game.touchInput.setOnscreenControlsEnabled(!game.prefConfig.onscreenController); break;
             case CONTROLS_LAYOUT: action = game.touchInput::showControllerLayoutDialog; break;
             case MIC_BUTTON: action = () -> game.touchInput.setMicButtonShown(!game.prefConfig.micButton); break;
+            case MENU_BUTTON: action = () -> game.touchInput.setMenuButtonShown(!game.prefConfig.floatingMenuButton); break;
             case GAME_CONTROLS: action = game.gameTouchControls == null ? null : game.gameTouchControls::showMenu; break;
             case KEYBOARD_KEYS: action = game.keyboardInput::toggleKeyboardOverlay; break;
             case VIDEO_SCALING: action = game.videoOutput::showVideoScalingDialog; break;
@@ -391,6 +420,12 @@ final class GameMenuActions {
             dialog.onBackPressed();
             return;
         }
+        // Y, X, LB and RB run the tiles that show them, wherever the focus is.
+        if (streamMenuSheet != null && dialog == streamMenuSheet.sheet()) {
+            if (streamMenuSheet.hotkey(keyCode)) return;
+        }
+        if (keyCode == KeyEvent.KEYCODE_BUTTON_X || keyCode == KeyEvent.KEYCODE_BUTTON_Y ||
+                keyCode == KeyEvent.KEYCODE_BUTTON_L1 || keyCode == KeyEvent.KEYCODE_BUTTON_R1) return;
         View decor = dialog.getWindow().getDecorView();
         View focused = decor.findFocus();
         if (focused == null) {

@@ -120,7 +120,7 @@ public class TvScreensPreviewTest {
     }
 
     /** The screen with {@code dialog} drawn over it at its own size, centred. */
-    private static void captureDialog(Activity screen, android.app.Dialog dialog, File destination) throws IOException {
+    static void captureDialog(Activity screen, android.app.Dialog dialog, File destination) throws IOException {
         Shadows.shadowOf(Looper.getMainLooper()).idle();
         View root = screen.getWindow().getDecorView();
         root.measure(View.MeasureSpec.makeMeasureSpec(W, View.MeasureSpec.EXACTLY),

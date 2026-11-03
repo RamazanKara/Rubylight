@@ -126,6 +126,10 @@ public class GameKeyboardOverlayTest {
         assertEquals(View.VISIBLE, panel.getVisibility());
     }
 
+    /**
+     * A shortcut's keys stay down for a moment before they go up in reverse (#63): pressed and released in the same
+     * instant, the Steam overlay's Shift + Tab and games reading the keys once a frame never saw the chord held.
+     */
     @Test
     public void taskManagerShortcutReleasesKeysInReverseOrder() {
         RecordingConnection connection = new RecordingConnection();
@@ -136,6 +140,10 @@ public class GameKeyboardOverlayTest {
         int shift = translator.translate(KeyEvent.KEYCODE_SHIFT_LEFT, -1) & 0xffff;
         int escape = translator.translate(KeyEvent.KEYCODE_ESCAPE, -1) & 0xffff;
         int modifiers = KeyboardPacket.MODIFIER_CTRL | KeyboardPacket.MODIFIER_SHIFT;
+        assertEquals("the chord is pressed at once", 3, connection.keys.size());
+        holdShortcut(GameKeyboardInput.SHORTCUT_HOLD_MS - 1);
+        assertEquals("and still held just before the hold ends", 3, connection.keys.size());
+        holdShortcut(1);
         assertEquals(6, connection.keys.size());
         assertArrayEquals(new int[] {ctrl, KeyboardPacket.KEY_DOWN, KeyboardPacket.MODIFIER_CTRL}, connection.keys.get(0));
         assertArrayEquals(new int[] {shift, KeyboardPacket.KEY_DOWN, modifiers}, connection.keys.get(1));
@@ -145,6 +153,91 @@ public class GameKeyboardOverlayTest {
         assertArrayEquals(new int[] {ctrl, KeyboardPacket.KEY_UP, 0}, connection.keys.get(5));
         Map<Short, Byte> pressed = ReflectionHelpers.getField(game.keyboardInput, "pressedKeys");
         assertTrue(pressed.isEmpty());
+    }
+
+    /** A shortcut saved with Esc before Ctrl and Shift (tap order, or typed so in Settings) still sends Ctrl + Shift + Esc. */
+    @Test
+    public void aShortcutSavedEscFirstPressesItsModifiersFirst() {
+        RecordingConnection connection = new RecordingConnection();
+        Game game = game(connection);
+        sendShortcut(game, KeyEvent.KEYCODE_ESCAPE, KeyEvent.KEYCODE_CTRL_LEFT, KeyEvent.KEYCODE_SHIFT_LEFT);
+        holdShortcut(GameKeyboardInput.SHORTCUT_HOLD_MS);
+        KeyboardTranslator translator = new KeyboardTranslator();
+        int ctrl = translator.translate(KeyEvent.KEYCODE_CTRL_LEFT, -1) & 0xffff;
+        int shift = translator.translate(KeyEvent.KEYCODE_SHIFT_LEFT, -1) & 0xffff;
+        int escape = translator.translate(KeyEvent.KEYCODE_ESCAPE, -1) & 0xffff;
+        int modifiers = KeyboardPacket.MODIFIER_CTRL | KeyboardPacket.MODIFIER_SHIFT;
+        assertEquals(6, connection.keys.size());
+        assertArrayEquals(new int[] {ctrl, KeyboardPacket.KEY_DOWN, KeyboardPacket.MODIFIER_CTRL}, connection.keys.get(0));
+        assertArrayEquals(new int[] {shift, KeyboardPacket.KEY_DOWN, modifiers}, connection.keys.get(1));
+        assertArrayEquals("Esc goes down with both modifiers held", new int[] {escape, KeyboardPacket.KEY_DOWN, modifiers}, connection.keys.get(2));
+        assertArrayEquals(new int[] {ctrl, KeyboardPacket.KEY_UP, 0}, connection.keys.get(5));
+    }
+
+    /** A held shortcut goes up once: with the rest when input is let go, or before the next shortcut is pressed. */
+    @Test
+    public void aHeldShortcutGoesUpOnceWhenInputIsLetGoOrTheNextOneIsPressed() {
+        RecordingConnection connection = new RecordingConnection();
+        Game game = game(connection);
+        ReflectionHelpers.setField(game, "inputCaptureProvider", new Capture());
+        KeyboardTranslator translator = new KeyboardTranslator();
+        int alt = translator.translate(KeyEvent.KEYCODE_ALT_LEFT, -1) & 0xffff;
+        int tab = translator.translate(KeyEvent.KEYCODE_TAB, -1) & 0xffff;
+        int escape = translator.translate(KeyEvent.KEYCODE_ESCAPE, -1) & 0xffff;
+        Map<Short, Byte> pressed = ReflectionHelpers.getField(game.keyboardInput, "pressedKeys");
+
+        sendShortcut(game, KeyEvent.KEYCODE_ALT_LEFT, KeyEvent.KEYCODE_TAB);
+        game.touchInput.setInputGrabState(false);
+        assertEquals("both keys went up with the rest", 4, connection.keys.size());
+        holdShortcut(GameKeyboardInput.SHORTCUT_HOLD_MS);
+        assertEquals("and the hold's end sends nothing more", 4, connection.keys.size());
+        assertTrue(pressed.isEmpty());
+
+        connection.keys.clear();
+        game.touchInput.setInputGrabState(true);
+        sendShortcut(game, KeyEvent.KEYCODE_ALT_LEFT, KeyEvent.KEYCODE_TAB);
+        sendShortcut(game, KeyEvent.KEYCODE_ESCAPE);
+        assertEquals(5, connection.keys.size());
+        assertArrayEquals(new int[] {tab, KeyboardPacket.KEY_UP, KeyboardPacket.MODIFIER_ALT}, connection.keys.get(2));
+        assertArrayEquals(new int[] {alt, KeyboardPacket.KEY_UP, 0}, connection.keys.get(3));
+        assertArrayEquals("the next shortcut is pressed in full", new int[] {escape, KeyboardPacket.KEY_DOWN, 0}, connection.keys.get(4));
+        holdShortcut(GameKeyboardInput.SHORTCUT_HOLD_MS);
+        assertEquals(6, connection.keys.size());
+        assertArrayEquals(new int[] {escape, KeyboardPacket.KEY_UP, 0}, connection.keys.get(5));
+        assertTrue(pressed.isEmpty());
+    }
+
+    /**
+     * A shortcut tile in the stream menu runs once the menu is gone. With input released before the menu opened it
+     * was dropped without a word: now input is captured for it, and without the keyboard permission a toast says so.
+     */
+    @Test
+    public void aMenuShortcutCapturesInputForItselfOrSaysWhyItWasNotSent() {
+        RecordingConnection connection = new RecordingConnection();
+        Game game = game(connection);
+        ReflectionHelpers.setField(game, "inputCaptureProvider", new Capture());
+        ReflectionHelpers.setField(game, "grabbedInput", false);
+        ReflectionHelpers.callInstanceMethod(game.keyboardInput, "sendMenuShortcut",
+                ReflectionHelpers.ClassParameter.from(int[].class, new int[] {KeyEvent.KEYCODE_ALT_LEFT, KeyEvent.KEYCODE_TAB}));
+        holdShortcut(GameKeyboardInput.SHORTCUT_HOLD_MS);
+        assertEquals(4, connection.keys.size());
+        assertTrue(ReflectionHelpers.<Boolean>getField(game, "grabbedInput"));
+        assertNull(org.robolectric.shadows.ShadowToast.getLatestToast());
+
+        connection.keys.clear();
+        connection.inputAllowed = false;
+        ReflectionHelpers.callInstanceMethod(game.keyboardInput, "sendMenuShortcut",
+                ReflectionHelpers.ClassParameter.from(int[].class, new int[] {KeyEvent.KEYCODE_ALT_LEFT, KeyEvent.KEYCODE_TAB}));
+        assertTrue(connection.keys.isEmpty());
+        assertEquals(game.getString(R.string.stream_shortcut_no_keyboard), org.robolectric.shadows.ShadowToast.getTextOfLatestToast());
+
+        // Another dialog took the screen before the shortcut ran.
+        connection.inputAllowed = true;
+        ReflectionHelpers.setField(game, "streamMenu", new android.app.Dialog(game));
+        ReflectionHelpers.callInstanceMethod(game.keyboardInput, "sendMenuShortcut",
+                ReflectionHelpers.ClassParameter.from(int[].class, new int[] {KeyEvent.KEYCODE_ESCAPE}));
+        assertTrue(connection.keys.isEmpty());
+        assertEquals(game.getString(R.string.stream_shortcut_not_sent), org.robolectric.shadows.ShadowToast.getTextOfLatestToast());
     }
 
     @Test
@@ -187,6 +280,7 @@ public class GameKeyboardOverlayTest {
         pressed.put(ctrl, (byte) 0);
         ReflectionHelpers.setField(game, "modifierFlags", (int) KeyboardPacket.MODIFIER_CTRL);
         sendShortcut(game, KeyEvent.KEYCODE_CTRL_LEFT, KeyEvent.KEYCODE_SHIFT_LEFT, KeyEvent.KEYCODE_ESCAPE);
+        holdShortcut(GameKeyboardInput.SHORTCUT_HOLD_MS);
         assertEquals(4, connection.keys.size());
         assertEquals(1, pressed.size());
         assertTrue(pressed.containsKey(ctrl));
@@ -570,6 +664,11 @@ public class GameKeyboardOverlayTest {
     private static void sendShortcut(Game game, int... keys) {
         ReflectionHelpers.callInstanceMethod(game.keyboardInput, "sendKeyboardShortcut",
                 ReflectionHelpers.ClassParameter.from(int[].class, keys));
+    }
+
+    /** Lets a sent shortcut's hold run on for {@code ms}. */
+    private static void holdShortcut(long ms) {
+        shadowOf(android.os.Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(ms));
     }
 
     static class RecordingConnection extends NvConnection {

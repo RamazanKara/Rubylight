@@ -245,11 +245,6 @@
             android:key="controller_test"
             android:title="@string/controller_test_title"
             android:summary="@string/controller_test_summary" />
-        <com.limelight.preferences.MaterialSwitchPreference
-            android:key="checkbox_back_opens_menu"
-            android:title="@string/title_checkbox_back_opens_menu"
-            android:dialogMessage="@string/summary_checkbox_back_opens_menu"
-            android:defaultValue="false" />
         <com.limelight.preferences.MaterialListPreference
             android:key="list_gamepad_quit_combo"
             android:title="@string/title_list_gamepad_quit_combo"
@@ -257,11 +252,6 @@
             android:entries="@array/gamepad_quit_combo_names"
             android:entryValues="@array/gamepad_quit_combo_values"
             android:defaultValue="off" />
-        <com.limelight.preferences.MaterialSwitchPreference
-            android:key="checkbox_back_as_guide"
-            android:title="@string/title_checkbox_back_as_guide"
-            android:dialogMessage="@string/summary_checkbox_back_as_guide"
-            android:defaultValue="false" />
         <com.limelight.preferences.SeekBarPreference
             android:key="seekbar_deadzone"
             android:defaultValue="7"
@@ -335,6 +325,34 @@
             android:dialogMessage="@string/summary_seekbar_vibrate_fallback_strength"
             android:text="@string/suffix_seekbar_vibrate_fallback_strength"
             android:title="@string/title_seekbar_vibrate_fallback_strength"/>
+    </PreferenceCategory>
+    <!-- How the stream menu opens and what it holds; desktop Nightjar's Stream menu section matches it. -->
+    <PreferenceCategory android:key="category_stream_menu" android:title="@string/stream_menu_settings">
+        <com.limelight.preferences.MaterialListPreference
+            android:key="list_guide_menu_hold"
+            android:title="@string/title_list_guide_menu_hold"
+            android:dialogMessage="@string/summary_list_guide_menu_hold"
+            android:entries="@array/guide_menu_hold_names"
+            android:entryValues="@array/guide_menu_hold_values"
+            android:defaultValue="1000" />
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_back_opens_menu"
+            android:title="@string/title_checkbox_back_opens_menu"
+            android:dialogMessage="@string/summary_checkbox_back_opens_menu"
+            android:defaultValue="false" />
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_back_as_guide"
+            android:title="@string/title_checkbox_back_as_guide"
+            android:dialogMessage="@string/summary_checkbox_back_as_guide"
+            android:defaultValue="false" />
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_floating_menu_button"
+            android:title="@string/title_floating_menu_button"
+            android:dialogMessage="@string/summary_floating_menu_button"
+            android:defaultValue="false" />
+        <Preference android:key="keyboard_shortcuts_editor"
+            android:title="@string/keyboard_shortcuts_title"
+            android:summary="@string/keyboard_shortcuts_summary" />
     </PreferenceCategory>
     <PreferenceCategory android:key="category_usb_controllers" android:title="@string/settings_category_usb">
         <com.limelight.preferences.MaterialSwitchPreference
@@ -434,6 +452,11 @@
             android:entries="@array/three_finger_tap_names"
             android:entryValues="@array/three_finger_tap_values"
             android:defaultValue="none" />
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_multi_touch_finger_taps"
+            android:title="@string/title_multi_touch_finger_taps"
+            android:dialogMessage="@string/summary_multi_touch_finger_taps"
+            android:defaultValue="false" />
         <com.limelight.preferences.SeekBarPreference
             android:key="seekbar_mouse_speed"
             android:title="@string/title_mouse_speed"
@@ -499,6 +522,12 @@
             android:dependency="checkbox_show_onscreen_controls"
             android:title="@string/title_show_guide_button"
             android:defaultValue="true" />
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_show_touchpad_button"
+            android:dependency="checkbox_show_onscreen_controls"
+            android:title="@string/title_show_touchpad_button"
+            android:dialogMessage="@string/summary_show_touchpad_button"
+            android:defaultValue="false" />
         <com.limelight.preferences.SeekBarPreference
             android:key="seekbar_osc_opacity"
             android:dependency="checkbox_show_onscreen_controls"
@@ -518,9 +547,6 @@
             android:negativeButtonText="@android:string/cancel" />
     </PreferenceCategory>
     <PreferenceCategory android:key="category_keyboard_shortcuts" android:title="@string/settings_category_keyboard">
-        <Preference android:key="keyboard_shortcuts_editor"
-            android:title="@string/keyboard_shortcuts_title"
-            android:summary="@string/keyboard_shortcuts_summary" />
         <com.limelight.preferences.MaterialSwitchPreference
             android:key="checkbox_capture_system_keys"
             android:title="@string/title_checkbox_capture_system_keys"

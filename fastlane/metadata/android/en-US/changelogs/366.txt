@@ -1,0 +1,8 @@
+• New stream menu: compact tiles, your shortcuts as tiles, Hold Guide opens it.
+• Modern on-screen sticks move like real ones.
+• The PC's reason for an ended stream shows in the error dialog.
+• Opacity per control in the classic on-screen controls.
+• Audio moves to headphones, Bluetooth or USB plugged in mid-stream.
+• No slow audio latency creep on long streams.
+• Decoder errors late in long streams are recovered.
+• AV1 fixes on MediaTek TVs.

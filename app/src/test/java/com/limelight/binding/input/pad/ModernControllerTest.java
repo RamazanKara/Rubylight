@@ -2,10 +2,15 @@ package com.limelight.binding.input.pad;
 
 import android.app.Application;
 import android.content.Context;
+import android.graphics.Bitmap;
+import android.graphics.Canvas;
+import android.graphics.Color;
+import android.view.MotionEvent;
 import android.view.View;
 import android.widget.FrameLayout;
 
 import com.limelight.binding.input.HeldInputState;
+import com.limelight.binding.input.StickMath;
 import com.limelight.nvstream.input.ControllerPacket;
 import com.limelight.preferences.PreferenceConfiguration;
 import com.limelight.ui.UiNavigationTest;
@@ -17,6 +22,7 @@ import org.robolectric.Robolectric;
 import org.robolectric.RobolectricTestRunner;
 import org.robolectric.RuntimeEnvironment;
 import org.robolectric.annotation.Config;
+import org.robolectric.annotation.GraphicsMode;
 import org.robolectric.shadows.ShadowLooper;
 
 import java.util.ArrayList;
@@ -51,6 +57,7 @@ public class ModernControllerTest {
         prefs.oscOpacity = 90;
         // HOME follows the guide button setting; on here so every control is covered.
         prefs.showGuideButton = true;
+        prefs.showTouchpadButton = true;
         layout();
     }
 
@@ -74,7 +81,8 @@ public class ModernControllerTest {
 
     @Test public void everyControlIsItsOwnViewInTheStreamFrame() {
         ModernController controller = controller(GAME);
-        assertEquals(PadLayout.Control.values().length, frame.getChildCount());
+        // Every control, plus each stick's knob layer above them.
+        assertEquals(PadLayout.Control.values().length + 2, frame.getChildCount());
         PadControlView face = controller.view(PadLayout.Control.FACE);
         assertEquals(View.VISIBLE, face.getVisibility());
         assertTrue(face.getWidth() > 0);
@@ -128,6 +136,62 @@ public class ModernControllerTest {
         assertEquals(32766, last()[4]);
     }
 
+    @Test @GraphicsMode(GraphicsMode.Mode.NATIVE)
+    public void aFullyPushedKnobSitsOnTheRimAndDrawsPastTheControlWithoutTakingTouches() {
+        prefs.oscFloatingSticks = false;
+        ModernController controller = controller(GAME);
+        PadControlView stick = controller.view(PadLayout.Control.LEFT_STICK);
+        View knob = stick.knobLayer();
+        assertNotNull(knob);
+        assertNull(controller.view(PadLayout.Control.FACE).knobLayer());
+
+        // The control keeps the layout's box, so saved layouts place and touch exactly as before.
+        float density = frame.getResources().getDisplayMetrics().density;
+        float[] box = new float[4];
+        controller.layout().bounds(PadLayout.Control.LEFT_STICK, 1600, 720, density, box);
+        assertEquals(Math.round(box[0]), stick.getLeft());
+        assertEquals(Math.round(box[1]), stick.getTop());
+        assertEquals(Math.round(box[2]), stick.getWidth());
+        assertEquals(Math.round(box[3]), stick.getHeight());
+
+        // The knob's layer is that box grown on every side by enough for a knob centred on the rim.
+        int w = stick.getWidth(), h = stick.getHeight();
+        float size = Math.min(w, h), stroke = 1.5f * density;
+        float base = StickMath.baseRadius(size, stroke), radius = StickMath.knobRadius(size);
+        int overhang = stick.knobOverhang(w, h);
+        assertTrue("overhang " + overhang, overhang >= base + radius - size / 2);
+        assertEquals(stick.getLeft() - overhang, knob.getLeft());
+        assertEquals(stick.getTop() - overhang, knob.getTop());
+        assertEquals(stick.getRight() + overhang, knob.getRight());
+        assertEquals(stick.getBottom() + overhang, knob.getBottom());
+
+        // Pushed fully right (and past the rim): the same full value as before, the knob's centre on the rim.
+        stick.down(0, w / 2f, h / 2f, 100);
+        stick.move(0, w / 2f + 3 * PadPainter.travel(size), h / 2f);
+        assertEquals(32766, last()[1]);
+        assertEquals(0, last()[2]);
+        PadPainter.State state = stick.state();
+        float kx = StickMath.knobX(w / 2f, h / 2f, w / 2f, h / 2f, state.stickX, state.stickY, base);
+        assertEquals(w / 2f + base, kx, .01f);
+
+        // Half the knob lies outside the control's box, and the layer paints it there.
+        Bitmap pixels = Bitmap.createBitmap(knob.getWidth(), knob.getHeight(), Bitmap.Config.ARGB_8888);
+        knob.draw(new Canvas(pixels));
+        int outside = Math.round(overhang + w / 2f + base + radius * .6f);
+        assertTrue(outside > overhang + w);
+        assertTrue("knob not drawn past the control", Color.alpha(pixels.getPixel(outside, Math.round(overhang + h / 2f))) > 0);
+        assertEquals(0, Color.alpha(pixels.getPixel(Math.round(overhang + w / 2f - base + radius), Math.round(overhang + h / 2f))));
+
+        // A finger landing on the knob's overhang, outside the control, never reaches the stick.
+        stick.up(0, 400);
+        MotionEvent down = MotionEvent.obtain(1000, 1000, MotionEvent.ACTION_DOWN, knob.getLeft() + overhang / 2f,
+                stick.getTop() + h / 2f, 0);
+        assertFalse(knob.dispatchTouchEvent(MotionEvent.obtain(down)));
+        frame.dispatchTouchEvent(down);
+        assertFalse(stick.state().stickActive);
+        down.recycle();
+    }
+
     @Test public void tappingAStickThenTouchingItAgainHoldsItsClick() {
         PadControlView stick = controller(GAME).view(PadLayout.Control.LEFT_STICK);
         float c = stick.getWidth() / 2f;
@@ -173,6 +237,19 @@ public class ModernControllerTest {
     @Test public void homeShowsOnlyWithTheGuideButtonSetting() {
         prefs.showGuideButton = false;
         assertNull(controller(GAME).view(PadLayout.Control.HOME));
+    }
+
+    @Test public void theTouchpadClicksThePadsTouchpadAndShowsOnlyWithItsSetting() {
+        PadControlView touchpad = controller(GAME).view(PadLayout.Control.TOUCHPAD);
+        assertEquals(View.VISIBLE, touchpad.getVisibility());
+        touchpad.down(0, touchpad.getWidth() / 2f, touchpad.getHeight() / 2f, 100);
+        assertEquals(ControllerPacket.TOUCHPAD_FLAG, last()[0]);
+        touchpad.up(0, 200);
+        assertEquals(0, last()[0]);
+        frame.removeAllViews();
+        prefs.showTouchpadButton = false;
+        assertNull("Off by default, so the default layout stays as it was", controller(GAME).view(PadLayout.Control.TOUCHPAD));
+        assertFalse(new PreferenceConfiguration().showTouchpadButton);
     }
 
     @Test public void aLayoutSavedForOneGameStaysWithThatGame() {
@@ -254,9 +331,22 @@ public class ModernControllerTest {
     @Test public void theTopRowLeavesRoomForTheMicrophoneButton() {
         ModernController controller = controller(GAME);
         float bottom = controller.topRowBottom();
-        float[] box = controller.layout().bounds(PadLayout.Control.START, 1600, 720,
-                frame.getResources().getDisplayMetrics().density, new float[4]);
+        float density = frame.getResources().getDisplayMetrics().density;
+        // The Touchpad sits below View, Home and Menu, so the microphone goes below it.
+        float[] box = controller.layout().bounds(PadLayout.Control.TOUCHPAD, 1600, 720, density, new float[4]);
         assertEquals(box[1] + box[3], bottom, 1);
+        float[] menu = controller.layout().bounds(PadLayout.Control.START, 1600, 720, density, new float[4]);
+        assertTrue(menu[1] + menu[3] < box[1]);
+        // The microphone's default place clears the Touchpad pill, in landscape and in portrait.
+        float size = com.limelight.ui.MicButton.SIZE_DP * density;
+        float[] mic = com.limelight.ui.MicButton.Placement.center(Float.NaN, Float.NaN, 1600, 720, size,
+                12 * density, bottom);
+        assertTrue(mic[1] - size / 2 >= box[1] + box[3]);
+        float[] portrait = controller.layout().bounds(PadLayout.Control.TOUCHPAD, 720, 1600, density, new float[4]);
+        assertTrue("Counted as the top row", portrait[1] <= 1600 / 3f);
+        mic = com.limelight.ui.MicButton.Placement.center(Float.NaN, Float.NaN, 720, 1600, size,
+                12 * density, portrait[1] + portrait[3]);
+        assertTrue(mic[1] - size / 2 >= portrait[1] + portrait[3]);
         controller.hide();
         assertTrue(Float.isNaN(controller.topRowBottom()));
     }

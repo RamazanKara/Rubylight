@@ -80,6 +80,12 @@ import java.util.Objects;
  * a value not set there comes from the layers below it ({@link StreamLayers}).
  */
 public class HostStreamSettings extends NightjarActivity {
+    /** A TV lays out Settings' screens at {@link com.limelight.ui.AppTheme#TV_COMPACT_PERCENT} of the interface size. */
+    @Override
+    protected boolean compactOnTelevision() {
+        return true;
+    }
+
     private static final int PICK_ROMS_REQUEST = 1;
     private static final int PICK_ESDE_REQUEST = 2;
     static final String EXTRA_MODE = "mode";

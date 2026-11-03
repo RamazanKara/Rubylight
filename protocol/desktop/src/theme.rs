@@ -2,10 +2,12 @@
 //! the amber of the brand moon), Figtree type, and the brand mark drawn from its vector path.
 
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 use std::time::Instant;
 
 use egui::{Color32, FontData, FontDefinitions, FontFamily, FontId, Stroke, TextStyle};
+
+use crate::strings::Lang;
 
 /// A colour role. The palette behind it is the normal night one or the high-contrast one, chosen
 /// by [`set_high_contrast`], so drawing code names a role and never a colour. It derefs to the
@@ -239,32 +241,314 @@ pub fn regular(size: f32) -> FontId {
     FontId::new(size, FontFamily::Proportional)
 }
 
+const FIGTREE: &[u8] = include_bytes!("../assets/Figtree-400.ttf");
+const FIGTREE_SEMIBOLD: &[u8] = include_bytes!("../assets/Figtree-600.ttf");
+
+/// The language whose system faces the context's fonts hold ([`fonts_for`]).
+fn fonts_key() -> egui::Id {
+    egui::Id::unique("nightjar-fonts-for")
+}
+
+/// Figtree and egui's fonts, and the style. [`fonts_for`] adds the system faces a language needs.
 pub fn apply(ctx: &egui::Context) {
+    ctx.set_fonts(definitions(SystemFonts::default()));
+    ctx.data_mut(|d| d.remove::<Lang>(fonts_key()));
+    set_look(ctx, high_contrast(), false);
+}
+
+/// Puts the system faces that draw `lang`'s letters beside Figtree. Cheap unless the language
+/// changed since the last call, so it runs every frame. The faces load on a thread the first
+/// time (a CJK file is 12-36 MB, Linux asks fc-match); until then the fonts in use stay.
+pub fn fonts_for(ctx: &egui::Context, lang: Lang) {
+    if ctx.data(|d| d.get_temp::<Lang>(fonts_key())) == Some(lang) {
+        return;
+    }
+    let Some(system) = loaded(ctx, lang) else {
+        // The loader requests a repaint too, but the launcher's loop sleeps until an SDL event.
+        ctx.request_repaint_after(std::time::Duration::from_millis(100));
+        return;
+    };
+    ctx.data_mut(|d| d.insert_temp(fonts_key(), lang));
+    ctx.set_fonts(definitions(system));
+    // egui holds the faces in use now; another language's files (up to 38 MB each) go.
+    LOADED.lock().unwrap_or_else(PoisonError::into_inner).retain(|e| e.0 == lang);
+}
+
+/// The system faces loaded for a language and not yet replaced by another's.
+static LOADED: Mutex<Vec<(Lang, SystemFonts)>> = Mutex::new(Vec::new());
+/// The languages a thread loads faces for.
+static LOADING: Mutex<Vec<Lang>> = Mutex::new(Vec::new());
+
+/// Takes a language off `LOADING` when its loader ends, panicking or not. A loader that panicked
+/// leaves the language without system faces, so the UI stops waiting instead of retrying.
+struct Loading(Lang);
+
+impl Drop for Loading {
+    fn drop(&mut self) {
+        if std::thread::panicking() {
+            eprintln!("nightjar: loading the {} fonts failed; drawing without them", self.0.name());
+            LOADED.lock().unwrap_or_else(PoisonError::into_inner).push((self.0, SystemFonts::default()));
+        }
+        LOADING.lock().unwrap_or_else(PoisonError::into_inner).retain(|l| *l != self.0);
+    }
+}
+
+/// `lang`'s system faces when they are loaded; else starts loading them and returns None.
+fn loaded(ctx: &egui::Context, lang: Lang) -> Option<SystemFonts> {
+    if fallback(lang).is_none() {
+        return Some(SystemFonts::default());
+    }
+    if let Some((_, system)) = LOADED.lock().unwrap_or_else(PoisonError::into_inner).iter().find(|e| e.0 == lang) {
+        return Some(system.clone());
+    }
+    let mut loading = LOADING.lock().unwrap_or_else(PoisonError::into_inner);
+    if !loading.contains(&lang) {
+        loading.push(lang);
+        let ctx = ctx.clone();
+        let spawned = std::thread::Builder::new().name("nightjar-fonts".into()).spawn(move || {
+            let _loading = Loading(lang);
+            let system = system_fonts(lang);
+            LOADED.lock().unwrap_or_else(PoisonError::into_inner).push((lang, system));
+            ctx.request_repaint();
+        });
+        if let Err(e) = spawned {
+            eprintln!("nightjar: could not start the font loader ({e}); loading the {} fonts here", lang.name());
+            loading.retain(|l| *l != lang);
+            let system = system_fonts(lang);
+            LOADED.lock().unwrap_or_else(PoisonError::into_inner).push((lang, system.clone()));
+            return Some(system);
+        }
+    }
+    None
+}
+
+/// Figtree has Latin-1 only: no Cyrillic, no Polish, Turkish or Vietnamese letters, no CJK.
+/// egui's own Ubuntu-Light draws some of them in a lighter weight, and none of CJK.
+#[derive(Clone, Default)]
+struct SystemFonts {
+    /// Ahead of Figtree, so each word comes from one face: the language's words mix Figtree's
+    /// letters with ones it lacks (Polish, Turkish, Vietnamese) or are Cyrillic, whose digits
+    /// and punctuation would otherwise be Figtree's.
+    ahead: bool,
+    regular: Option<FontData>,
+    semibold: Option<FontData>,
+}
+
+fn definitions(system: SystemFonts) -> FontDefinitions {
     let mut fonts = FontDefinitions::default();
-    fonts.font_data.insert(
-        "figtree".into(),
-        Arc::new(FontData::from_static(include_bytes!("../assets/Figtree-400.ttf"))),
-    );
-    fonts.font_data.insert(
-        "figtree-semibold".into(),
-        Arc::new(FontData::from_static(include_bytes!("../assets/Figtree-600.ttf"))),
-    );
-    let fallback = fonts
+    fonts.font_data.insert("figtree".into(), Arc::new(FontData::from_static(FIGTREE)));
+    fonts.font_data.insert("figtree-semibold".into(), Arc::new(FontData::from_static(FIGTREE_SEMIBOLD)));
+    let egui_fonts = fonts
         .families
         .get(&FontFamily::Proportional)
         .cloned()
         .unwrap_or_default();
-    // Hack, egui's monospace font, comes last for the PlayStation button symbols (glyphs.rs)
-    // that neither Figtree nor egui's proportional fonts draw.
-    let proportional = fonts.families.entry(FontFamily::Proportional).or_default();
-    proportional.insert(0, "figtree".into());
-    proportional.push("Hack".into());
-    let mut bold = vec!["figtree-semibold".to_owned()];
-    bold.extend(fallback);
-    bold.push("Hack".into());
+    // egui panics on a face it cannot parse, so one that slipped through is dropped here.
+    let usable = |data: Option<FontData>| {
+        data.filter(|data| {
+            let ok = skrifa::FontRef::from_index((*data.font).as_ref(), data.index).is_ok();
+            if !ok {
+                eprintln!("nightjar: a system font (face {}) cannot be read; drawing without it", data.index);
+            }
+            ok
+        })
+    };
+    let (regular, semibold) = (usable(system.regular), usable(system.semibold));
+    // A language without a semibold system face draws its bold text with the regular one.
+    let semibold = semibold.or_else(|| regular.clone());
+    let regular = regular.map(|data| {
+        fonts.font_data.insert("system".into(), Arc::new(data));
+        "system"
+    });
+    let semibold = semibold.map(|data| {
+        fonts.font_data.insert("system-semibold".into(), Arc::new(data));
+        "system-semibold"
+    });
+    let family = |figtree: &str, system_face: Option<&str>| {
+        let mut list: Vec<String> = Vec::new();
+        let system_face = system_face.map(str::to_owned);
+        if system.ahead {
+            list.extend(system_face.clone());
+        }
+        list.push(figtree.to_owned());
+        if !system.ahead {
+            list.extend(system_face);
+        }
+        list.extend(egui_fonts.iter().cloned());
+        // Hack, egui's monospace font, comes last for the PlayStation button symbols (glyphs.rs)
+        // that neither Figtree nor egui's proportional fonts draw.
+        list.push("Hack".into());
+        list
+    };
+    let proportional = family("figtree", regular);
+    let bold = family("figtree-semibold", semibold);
+    fonts.families.insert(FontFamily::Proportional, proportional);
     fonts.families.insert(FontFamily::Name("semibold".into()), bold);
-    ctx.set_fonts(fonts);
-    set_look(ctx, high_contrast(), false);
+    fonts
+}
+
+/// The system faces for `lang`'s letters, the first found of each list. Says so in the log when
+/// a language that needs one finds none: its text then shows in boxes or in a mix of weights.
+fn system_fonts(lang: Lang) -> SystemFonts {
+    let Some(fallback) = fallback(lang) else {
+        return SystemFonts::default();
+    };
+    let regular = fallback.regular.iter().find_map(load);
+    let semibold = fallback.semibold.iter().find_map(load);
+    if regular.is_none() {
+        eprintln!(
+            "nightjar: no system font draws {}; its text will show as boxes or in mixed weights. Install {}",
+            lang.name(),
+            faces::INSTALL[fallback.install]
+        );
+    }
+    SystemFonts { ahead: fallback.ahead, regular, semibold }
+}
+
+/// Where a language's letters come from when Figtree has not got them.
+struct Fallback {
+    ahead: bool,
+    regular: &'static [Face],
+    semibold: &'static [Face],
+    /// What to install, in [`faces::INSTALL`], when none is found.
+    install: usize,
+}
+
+fn fallback(lang: Lang) -> Option<Fallback> {
+    let (ahead, regular, semibold, install) = match lang {
+        Lang::En | Lang::De | Lang::Es | Lang::Fr | Lang::It | Lang::PtBr => return None,
+        Lang::Pl | Lang::Ru | Lang::Tr | Lang::Uk | Lang::Vi => (true, faces::SANS, faces::SANS_SEMIBOLD, 0),
+        Lang::Ja => (false, faces::JA, faces::JA_SEMIBOLD, 1),
+        Lang::Ko => (false, faces::KO, faces::KO_SEMIBOLD, 1),
+        Lang::ZhHans => (false, faces::ZH_HANS, faces::ZH_HANS_SEMIBOLD, 1),
+        Lang::ZhHant => (false, faces::ZH_HANT, faces::ZH_HANT_SEMIBOLD, 1),
+    };
+    Some(Fallback { ahead, regular, semibold, install })
+}
+
+/// A face in Windows' font folder: its file, and the family and style in its name table, which
+/// pick it out of a collection (.ttc).
+#[cfg(windows)]
+type Face = (&'static str, &'static str, &'static str);
+
+/// A fontconfig pattern and the family the match must have: fc-match answers every pattern with
+/// some font.
+#[cfg(not(windows))]
+type Face = (&'static str, &'static str);
+
+/// Windows 10 and 11 ship Segoe UI, Yu Gothic, Malgun Gothic, YaHei and JhengHei; Meiryo
+/// comes with the optional Japanese Supplemental Fonts, so it is only the second choice. The UI cuts (Yu Gothic UI, YaHei UI, JhengHei UI) have
+/// the tighter line height menus want.
+#[cfg(windows)]
+mod faces {
+    use super::Face;
+    pub const SANS: &[Face] = &[("segoeui.ttf", "Segoe UI", "Regular")];
+    pub const SANS_SEMIBOLD: &[Face] = &[("seguisb.ttf", "Segoe UI Semibold", "Regular")];
+    pub const JA: &[Face] = &[("YuGothM.ttc", "Yu Gothic UI", "Regular"), ("meiryo.ttc", "Meiryo UI", "Regular"), ("meiryo.ttc", "Meiryo", "Regular")];
+    pub const JA_SEMIBOLD: &[Face] = &[("YuGothB.ttc", "Yu Gothic UI Semibold", "Regular"), ("meiryob.ttc", "Meiryo UI", "Bold"), ("meiryob.ttc", "Meiryo", "Bold")];
+    pub const KO: &[Face] = &[("malgun.ttf", "Malgun Gothic", "Regular")];
+    pub const KO_SEMIBOLD: &[Face] = &[("malgunbd.ttf", "Malgun Gothic", "Bold")];
+    pub const ZH_HANS: &[Face] = &[("msyh.ttc", "Microsoft YaHei UI", "Regular"), ("msyh.ttc", "Microsoft YaHei", "Regular")];
+    pub const ZH_HANS_SEMIBOLD: &[Face] = &[("msyhbd.ttc", "Microsoft YaHei UI", "Bold"), ("msyhbd.ttc", "Microsoft YaHei", "Bold")];
+    pub const ZH_HANT: &[Face] = &[("msjh.ttc", "Microsoft JhengHei UI", "Regular"), ("msjh.ttc", "Microsoft JhengHei", "Regular")];
+    pub const ZH_HANT_SEMIBOLD: &[Face] = &[("msjhbd.ttc", "Microsoft JhengHei UI", "Bold"), ("msjhbd.ttc", "Microsoft JhengHei", "Bold")];
+    pub const INSTALL: [&str; 2] = ["Segoe UI (Windows' own font).", "the language's supplemental fonts (Settings > Apps > Optional features)."];
+}
+
+/// Noto ships in most distributions (fonts-noto-core, fonts-noto-cjk); DejaVu is the older default.
+#[cfg(not(windows))]
+mod faces {
+    use super::Face;
+    pub const SANS: &[Face] = &[("Noto Sans:style=Regular", "Noto Sans"), ("DejaVu Sans:style=Book", "DejaVu Sans")];
+    pub const SANS_SEMIBOLD: &[Face] = &[("Noto Sans:style=SemiBold", "Noto Sans"), ("DejaVu Sans:style=Bold", "DejaVu Sans")];
+    pub const JA: &[Face] = &[("Noto Sans CJK JP:style=Regular", "Noto Sans CJK JP"), ("Source Han Sans JP:style=Regular", "Source Han Sans JP")];
+    pub const JA_SEMIBOLD: &[Face] = &[("Noto Sans CJK JP:style=Bold", "Noto Sans CJK JP"), ("Source Han Sans JP:style=Bold", "Source Han Sans JP")];
+    pub const KO: &[Face] = &[("Noto Sans CJK KR:style=Regular", "Noto Sans CJK KR"), ("Source Han Sans KR:style=Regular", "Source Han Sans KR")];
+    pub const KO_SEMIBOLD: &[Face] = &[("Noto Sans CJK KR:style=Bold", "Noto Sans CJK KR"), ("Source Han Sans KR:style=Bold", "Source Han Sans KR")];
+    pub const ZH_HANS: &[Face] = &[("Noto Sans CJK SC:style=Regular", "Noto Sans CJK SC"), ("Source Han Sans SC:style=Regular", "Source Han Sans SC")];
+    pub const ZH_HANS_SEMIBOLD: &[Face] = &[("Noto Sans CJK SC:style=Bold", "Noto Sans CJK SC"), ("Source Han Sans SC:style=Bold", "Source Han Sans SC")];
+    pub const ZH_HANT: &[Face] = &[("Noto Sans CJK TC:style=Regular", "Noto Sans CJK TC"), ("Source Han Sans TC:style=Regular", "Source Han Sans TC")];
+    pub const ZH_HANT_SEMIBOLD: &[Face] = &[("Noto Sans CJK TC:style=Bold", "Noto Sans CJK TC"), ("Source Han Sans TC:style=Bold", "Source Han Sans TC")];
+    pub const INSTALL: [&str; 2] = ["Noto Sans or DejaVu Sans (fonts-noto-core, fonts-dejavu-core).", "Noto Sans CJK (fonts-noto-cjk, noto-fonts-cjk, google-noto-sans-cjk-fonts)."];
+}
+
+#[cfg(windows)]
+fn load(&(file, family, style): &Face) -> Option<FontData> {
+    use skrifa::string::StringId;
+    use skrifa::MetadataProvider;
+    let windows = std::env::var_os("SystemRoot").unwrap_or_else(|| "C:\\Windows".into());
+    let bytes = std::fs::read(std::path::Path::new(&windows).join("Fonts").join(file)).ok()?;
+    let name = |font: &skrifa::FontRef, id| font.localized_strings(id).english_or_first().map(|s| s.to_string());
+    let index = skrifa::raw::FileRef::new(&bytes)
+        .ok()?
+        .fonts()
+        .position(|font| {
+            font.is_ok_and(|font| {
+                name(&font, StringId::FAMILY_NAME).as_deref() == Some(family) && name(&font, StringId::SUBFAMILY_NAME).as_deref() == Some(style)
+            })
+        })?;
+    face_data(bytes, u32::try_from(index).ok()?)
+}
+
+#[cfg(not(windows))]
+fn load(&(pattern, family): &Face) -> Option<FontData> {
+    let out = fc_match(pattern)?;
+    let mut lines = out.lines();
+    let (file, index, families) = (lines.next()?, lines.next()?, lines.next()?);
+    if !families.split(',').any(|f| f == family) {
+        return None;
+    }
+    face_data(std::fs::read(file).ok()?, index.parse().ok()?)
+}
+
+/// fc-match's answer for `pattern`, or None when it fails or takes over two seconds (a cold
+/// font cache on a slow disk): the language then shows without its face rather than waiting.
+#[cfg(not(windows))]
+fn fc_match(pattern: &str) -> Option<String> {
+    use std::io::Read;
+    let mut child = std::process::Command::new("fc-match")
+        .args(["--format=%{file}\n%{index}\n%{family}\n", pattern])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .ok()?;
+    let deadline = Instant::now() + std::time::Duration::from_secs(2);
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) if status.success() => break,
+            Ok(None) if Instant::now() < deadline => std::thread::sleep(std::time::Duration::from_millis(10)),
+            Ok(None) => {
+                eprintln!("nightjar: fc-match did not answer for {pattern:?} within 2 s");
+                let _ = child.kill();
+                let _ = child.wait();
+                return None;
+            }
+            _ => return None,
+        }
+    }
+    // Three short lines: they fit the pipe, so the exit did not wait on this read.
+    let mut out = String::new();
+    child.stdout.take()?.read_to_string(&mut out).ok()?;
+    Some(out)
+}
+
+/// `bytes` as egui's font, or None when egui could not parse face `index` (it panics on one).
+/// fontconfig gives a variable font's named instance in the upper 16 bits of the index,
+/// `(instance + 1) << 16 | face`: the instance becomes the face's axis coordinates.
+fn face_data(bytes: Vec<u8>, index: u32) -> Option<FontData> {
+    use skrifa::MetadataProvider;
+    let (face, instance) = (index & 0xFFFF, index >> 16);
+    let font = skrifa::FontRef::from_index(&bytes, face).ok()?;
+    let coords = instance.checked_sub(1).and_then(|i| font.named_instances().get(usize::try_from(i).ok()?)).map(|named| {
+        egui::epaint::text::VariationCoords::new(font.axes().iter().map(|axis| axis.tag()).zip(named.user_coords()))
+    });
+    let mut data = FontData::from_owned(bytes);
+    data.index = face;
+    if let Some(coords) = coords {
+        data.tweak.coords = coords;
+    }
+    Some(data)
 }
 
 /// Sets the palette and the style that goes with it. `still` turns egui's animations off
@@ -407,7 +691,7 @@ fn inside(polygon: &[(f32, f32)], x: f32, y: f32) -> bool {
 /// A number field a controller or the arrow keys can leave. egui's `DragValue` edits as soon as it has
 /// focus and steps on Up and Down, so those keys changed the value and the user was stuck on the row.
 /// Here Up and Down stay with focus navigation like every other row, and Left and Right step the value
-/// by `step` (the caret does not move; typing replaces the whole number).
+/// by `step`. Once the user types into the field, Left and Right move the caret again until focus leaves.
 pub fn step_value<N: egui::emath::Numeric>(
     ui: &mut egui::Ui,
     value: &mut N,
@@ -416,12 +700,21 @@ pub fn step_value<N: egui::emath::Numeric>(
     style: impl FnOnce(egui::DragValue<'_>) -> egui::DragValue<'_>,
 ) -> egui::Response {
     let id = ui.next_auto_id();
+    let typing = id.with("typing");
     let mut stepped = false;
     if ui.is_enabled() && ui.memory(|m| m.has_focus(id)) {
+        let typed = ui.data(|d| d.get_temp::<bool>(typing).unwrap_or(false))
+            || ui.input(|i| i.events.iter().any(|e| match e {
+                egui::Event::Text(_) | egui::Event::Paste(_) => true,
+                egui::Event::Key { key, pressed: true, .. } => matches!(key, egui::Key::Backspace | egui::Key::Delete),
+                _ => false,
+            }));
+        if typed { ui.data_mut(|d| d.insert_temp(typing, true)); }
         let steps = ui.input_mut(|i| {
             // Focus has already moved on these (egui reads them before the frame); the field must not step too.
             i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowUp);
             i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowDown);
+            if typed { return 0; }
             i.count_and_consume_key(egui::Modifiers::NONE, egui::Key::ArrowRight) as i64
                 - i.count_and_consume_key(egui::Modifiers::NONE, egui::Key::ArrowLeft) as i64
         });
@@ -431,6 +724,8 @@ pub fn step_value<N: egui::emath::Numeric>(
             *value = N::from_f64((before + steps as f64 * step).clamp(low, high));
             stepped = value.to_f64() != before;
         }
+    } else {
+        ui.data_mut(|d| d.remove::<bool>(typing));
     }
     let mut response = ui.add(style(egui::DragValue::new(value).range(range)));
     // The value changed before the DragValue saw it, so the response would not say so; callers that
@@ -442,6 +737,25 @@ pub fn step_value<N: egui::emath::Numeric>(
         ui.memory_mut(|m| m.set_focus_lock_filter(id, filter));
     }
     response
+}
+
+/// A slider a controller or the arrow keys can leave. egui's slider shows its value in a `DragValue`
+/// of its own, which steps on Up and Down once it has focus: Up from the row below landed there and
+/// only raised the value (the stream menu's bitrate). Here the value is a [`step_value`] beside the
+/// rail, so Up and Down move focus on both, and Left and Right step on both.
+pub fn slider<N: egui::emath::Numeric>(
+    ui: &mut egui::Ui,
+    value: &mut N,
+    range: std::ops::RangeInclusive<N>,
+    step: f64,
+    rail: impl FnOnce(egui::Slider<'_>) -> egui::Slider<'_>,
+    field: impl FnOnce(egui::DragValue<'_>) -> egui::DragValue<'_>,
+) -> egui::Response {
+    ui.horizontal(|ui| {
+        let slid = ui.add(rail(egui::Slider::new(value, range.clone()).show_value(false)));
+        slid | step_value(ui, value, range, step, field)
+    })
+    .inner
 }
 
 /// The mark as straight RGBA pixels, `size` square: the amber moon with the night bird cut
@@ -590,6 +904,28 @@ mod tests {
         assert_eq!(column.focused(), Some(column.ids[1]), "Left keeps the field focused");
         for _ in 0..10 { column.press(egui::Key::ArrowLeft); }
         assert_eq!(column.value, 1000, "the bottom of the range holds");
+    }
+
+    /// Typing into the field gives Left and Right back to the caret, so they neither step the value
+    /// nor clobber the typed text; once focus leaves and comes back they step again.
+    #[test]
+    fn left_and_right_move_the_caret_once_the_user_types() {
+        let mut column = Column::new(2000);
+        column.focus_field();
+        column.frame(vec![egui::Event::Text("5".into())]);
+        column.frame(Vec::new());
+        let typed = column.value;
+        assert!(typed >= 2000, "room for Left to step: {typed}");
+        column.press(egui::Key::ArrowLeft);
+        column.press(egui::Key::ArrowLeft);
+        assert_eq!(column.value, typed, "Left does not step while typing");
+        assert_eq!(column.focused(), Some(column.ids[1]));
+        column.press(egui::Key::ArrowDown);
+        assert_eq!(column.focused(), Some(column.ids[2]), "Down still leaves the field");
+        column.focus_field();
+        let before = column.value;
+        column.press(egui::Key::ArrowLeft);
+        assert_eq!(column.value, (before - 500).max(1000), "back on the field, Left steps again");
     }
 
     fn luminance(c: Color32) -> f64 {
@@ -827,5 +1163,136 @@ mod tests {
         for size in [16, 20, 24, 32, 40, 48, 64, 128, 256] {
             assert!(sizes.contains(&size), "{size} px missing from {sizes:?}");
         }
+    }
+
+    /// Whether the face at `index` in `bytes` maps `c` to a glyph.
+    fn covers(bytes: &[u8], index: u32, c: char) -> bool {
+        use skrifa::MetadataProvider;
+        skrifa::FontRef::from_index(bytes, index).is_ok_and(|font| font.charmap().map(c).is_some())
+    }
+
+    fn figtree_covers(c: char) -> bool {
+        covers(FIGTREE, 0, c) && covers(FIGTREE_SEMIBOLD, 0, c)
+    }
+
+    /// Scripts written with spaces between words, where one word may not mix two faces.
+    fn alphabetic_script(c: char) -> bool {
+        matches!(u32::from(c), 0x0041..=0x024F | 0x0370..=0x052F | 0x1E00..=0x1EFF)
+    }
+
+    #[test]
+    fn a_language_drawn_with_figtree_first_has_no_letter_figtree_lacks() {
+        // Otherwise a word mixes Figtree with a lighter face. CJK may add its own scripts behind it.
+        for lang in Lang::all() {
+            let ahead = fallback(lang).is_some_and(|f| f.ahead);
+            let lacking: std::collections::BTreeSet<char> =
+                lang.texts().flat_map(str::chars).filter(|c| alphabetic_script(*c) && !figtree_covers(*c)).collect();
+            if ahead {
+                assert!(!lacking.is_empty(), "{lang:?} puts a system face ahead of Figtree without needing one");
+            } else {
+                assert!(lacking.is_empty(), "{lang:?} needs a system face ahead of Figtree for {lacking:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn every_text_of_every_language_has_its_glyphs() {
+        // System fonts differ per machine: a language whose face is not installed here is skipped
+        // with a note (Linux CI without Noto CJK), its selection is covered above.
+        let mut checked = 0;
+        for lang in Lang::all() {
+            let system = system_fonts(lang);
+            if fallback(lang).is_some() && system.regular.is_none() {
+                eprintln!("skipped {lang:?}: its system font is not installed here");
+                continue;
+            }
+            // Each letter of a language drawn ahead of Figtree comes from its system face.
+            if let Some(face) = system.regular.as_ref().filter(|_| system.ahead) {
+                let bytes = (*face.font).as_ref();
+                let lacking: std::collections::BTreeSet<char> = lang
+                    .texts()
+                    .flat_map(str::chars)
+                    .filter(|c| c.is_alphabetic() && !covers(bytes, face.index, *c))
+                    .collect();
+                assert!(lacking.is_empty(), "{lang:?}'s system face lacks {lacking:?}");
+            }
+            let ctx = egui::Context::default();
+            ctx.set_fonts(definitions(system));
+            ctx.run_ui(egui::RawInput::default(), |_| {}).textures_delta.clear();
+            for font in [regular(text::BODY), semibold(text::BODY)] {
+                let missing: std::collections::BTreeSet<char> = lang
+                    .texts()
+                    .chain([lang.name()])
+                    .flat_map(str::chars)
+                    .filter(|c| !c.is_control() && !ctx.fonts_mut(|f| f.has_glyph(&font, *c)))
+                    .collect();
+                assert!(missing.is_empty(), "{lang:?} draws {missing:?} as boxes in {font:?}");
+            }
+            checked += 1;
+        }
+        // A machine without any of the fonts still checks the languages Figtree draws alone.
+        assert!(checked >= Lang::all().filter(|l| fallback(*l).is_none()).count());
+    }
+
+    #[test]
+    fn a_face_egui_cannot_read_is_dropped_instead_of_panicking() {
+        // A WOFF2 or broken file, and a collection index past its faces.
+        let mut bad_index = FontData::from_static(FIGTREE);
+        bad_index.index = 7;
+        let system = SystemFonts { ahead: true, regular: Some(FontData::from_owned(b"not a font".to_vec())), semibold: Some(bad_index) };
+        let ctx = egui::Context::default();
+        ctx.set_fonts(definitions(system));
+        ctx.run_ui(egui::RawInput::default(), |_| {}).textures_delta.clear();
+        assert!(ctx.fonts_mut(|f| f.has_glyph(&regular(text::BODY), 'A') && f.has_glyph(&semibold(text::BODY), 'A')));
+    }
+
+    #[test]
+    fn fontconfig_s_named_instance_index_picks_the_face_and_its_axes() {
+        assert_eq!(face_data(FIGTREE.to_vec(), 0).map(|d| d.index), Some(0));
+        // Figtree is static: its "first named instance" index still names face 0, without coordinates.
+        assert_eq!(face_data(FIGTREE.to_vec(), 1 << 16).map(|d| d.index), Some(0));
+        assert!(face_data(FIGTREE.to_vec(), 3).is_none());
+        assert!(face_data(b"wOF2 not really".to_vec(), 0).is_none());
+    }
+
+    #[test]
+    fn a_language_s_faces_load_off_the_ui_thread() {
+        let ctx = egui::Context::default();
+        apply(&ctx);
+        let started = Instant::now();
+        fonts_for(&ctx, Lang::Ja);
+        // The first call only starts the loader, however long the files take.
+        while ctx.data(|d| d.get_temp::<Lang>(fonts_key())) != Some(Lang::Ja) {
+            assert!(started.elapsed().as_secs() < 30, "the Japanese fonts never loaded");
+            std::thread::sleep(std::time::Duration::from_millis(10));
+            fonts_for(&ctx, Lang::Ja);
+        }
+        // Another language lets the Japanese files go, and the loader is done.
+        fonts_for(&ctx, Lang::En);
+        assert!(!LOADED.lock().unwrap().iter().any(|e| e.0 == Lang::Ja));
+        assert!(!LOADING.lock().unwrap().contains(&Lang::Ja));
+    }
+
+    #[test]
+    fn a_loader_that_panics_lets_its_language_go() {
+        LOADING.lock().unwrap().push(Lang::Vi);
+        let ended = std::thread::spawn(|| {
+            let _loading = Loading(Lang::Vi);
+            panic!("a font file that breaks the loader");
+        })
+        .join();
+        assert!(ended.is_err());
+        assert!(!LOADING.lock().unwrap_or_else(PoisonError::into_inner).contains(&Lang::Vi));
+    }
+
+    #[test]
+    fn the_fonts_follow_the_language_once_per_change() {
+        let ctx = egui::Context::default();
+        apply(&ctx);
+        fonts_for(&ctx, Lang::De);
+        assert_eq!(ctx.data(|d| d.get_temp::<Lang>(fonts_key())), Some(Lang::De));
+        // A new palette or test rebuilds the fonts, and the next frame loads the language's again.
+        apply(&ctx);
+        assert_eq!(ctx.data(|d| d.get_temp::<Lang>(fonts_key())), None);
     }
 }

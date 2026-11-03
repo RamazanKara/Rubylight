@@ -74,6 +74,14 @@ public class AndroidAudioRenderer implements AudioRenderer {
     private int encodedCodec, encodedBufferBytes;
     // A passthrough output that cannot be rebuilt says so once per stream, not once a second.
     private boolean encodedFailureShown;
+    // Clock drift: packets trimmed, and the last one's start, which the next written packet fades in from.
+    private final AudioBufferPolicy.DriftTrim driftTrim = new AudioBufferPolicy.DriftTrim();
+    private long driftTrimmed;
+    private short[] trimHead = new short[0];
+    private int trimHeadSamples;
+    // AAudio reopens after a disconnect: when the last one was, and how many came right after the one before.
+    private long lastReopenAt = Long.MIN_VALUE / 2;
+    private int quickReopens;
 
     private static native long nativeOpenAudio(int sampleRate, long concealer);
     private static native boolean nativeWriteAudio(long handle, short[] samples, int length);
@@ -177,28 +185,72 @@ public class AndroidAudioRenderer implements AudioRenderer {
 
         LimeLog.info("Audio channel config: "+String.format("0x%X", channelConfig));
 
-        if (AudioBufferPolicy.useAAudio(Build.VERSION.SDK_INT, channels, enableAudioFx, sampleRate, nativeRate)) {
-            nativeAudio = nativeOpenAudio(sampleRate, MoonBridge.audioConcealer());
-            if (nativeAudio != 0) {
-                int[] stats = nativeAudioStats(nativeAudio);
-                long now = SystemClock.uptimeMillis();
-                bufferPolicy = new AudioBufferPolicy(stats[0], stats[8], stats[4], stats[5], now);
-                // Before the first packet: the ring has not primed, so the larger start only delays that.
-                int start = nativeAudioReserve(nativeAudio, AudioBufferPolicy.reserveStartFrames(stats[0], sampleRate));
-                reservePolicy = AudioBufferPolicy.forReserve(stats[0], stats[1], start,
-                        reserveStarvations(stats), now, sampleRate);
-                nativeAudioReserveLimit(nativeAudio, reservePolicy.limit());
-                stallWatch = new AudioBufferPolicy.StallWatch(stats[STAT_STALLS]);
-                stats = nativeAudioStats(nativeAudio);
-                setReserve(stats[2]);
-                LimeLog.info("Audio output: AAudio low latency, burst " + stats[0] + ", reserve " + stats[2] +
-                        " frames (limit " + reservePolicy.limit() + "), device buffer " + stats[4] + " of " + stats[8]);
-                refreshRoute(stats[7]);
-                reportNativeAudio(stats);
-                return 0;
-            }
-        }
+        driftTrim.reset();
+        trimHeadSamples = 0;
+        quickReopens = 0;
+        lastReopenAt = Long.MIN_VALUE / 2;
+        if (openAAudio()) return 0;
         return buildAudioTrack();
+    }
+
+    // AAudio at the stream's rate where useAAudio allows it, with fresh buffer policies; false leaves none open.
+    private boolean openAAudio() {
+        if (!AudioBufferPolicy.useAAudio(Build.VERSION.SDK_INT, channels, enableAudioFx, sampleRate, nativeRate)) {
+            return false;
+        }
+        nativeAudio = nativeOpenAudio(sampleRate, MoonBridge.audioConcealer());
+        if (nativeAudio == 0) return false;
+        int[] stats = nativeAudioStats(nativeAudio);
+        long now = SystemClock.uptimeMillis();
+        lastBufferCheckMs = 0;
+        loggedUnderruns = 0;
+        bufferPolicy = new AudioBufferPolicy(stats[0], stats[8], stats[4], stats[5], now);
+        // Before the first packet: the ring has not primed, so the larger start only delays that.
+        int start = nativeAudioReserve(nativeAudio, AudioBufferPolicy.reserveStartFrames(stats[0], sampleRate));
+        reservePolicy = AudioBufferPolicy.forReserve(stats[0], stats[1], start,
+                reserveStarvations(stats), now, sampleRate);
+        nativeAudioReserveLimit(nativeAudio, reservePolicy.limit());
+        stallWatch = new AudioBufferPolicy.StallWatch(stats[STAT_STALLS]);
+        stats = nativeAudioStats(nativeAudio);
+        setReserve(stats[2]);
+        LimeLog.info("Audio output: AAudio low latency, burst " + stats[0] + ", reserve " + stats[2] +
+                " frames (limit " + reservePolicy.limit() + "), device buffer " + stats[4] + " of " + stats[8]);
+        refreshRoute(stats[7]);
+        reportNativeAudio(stats);
+        return true;
+    }
+
+    /**
+     * AAudio again on the route the output moved to, re-reading its native rate. Package-visible so the
+     * reopen decision is testable without an audio device.
+     */
+    boolean openNativeAudio() {
+        nativeRate = nativeOutputRate();
+        return openAAudio();
+    }
+
+    void closeNativeAudio() {
+        if (nativeAudio != 0) nativeCloseAudio(nativeAudio);
+        nativeAudio = 0;
+    }
+
+    /**
+     * AAudio disconnected, as a route change (headphones, Bluetooth, a USB DAC) does: AAudio again on the
+     * new route, keeping low latency, stall concealment and late skips. AudioTrack only when it does not
+     * reopen, or keeps dying right after reopening (AudioBufferPolicy.reopenAAudio).
+     */
+    boolean reopenAudio(String reason) {
+        long now = uptimeMillis();
+        quickReopens = now - lastReopenAt < AudioBufferPolicy.REOPEN_SETTLE_MS ? quickReopens + 1 : 0;
+        lastReopenAt = now;
+        if (!AudioBufferPolicy.reopenAAudio(quickReopens)) {
+            return fallbackToAudioTrack(reason + " " + quickReopens + " times right after reopening");
+        }
+        LimeLog.warning(reason + "; reopening AAudio on the current route");
+        closeNativeAudio();
+        driftTrim.reset();
+        if (openNativeAudio()) return true;
+        return fallbackToAudioTrack(reason + " and AAudio did not reopen");
     }
 
     // For recreation and fallback: the output may have changed since setup(), so read the native rate again.
@@ -360,7 +412,11 @@ public class AndroidAudioRenderer implements AudioRenderer {
                 downmixStereo(audioData, length, channels, stereo);
                 sound = stereo;
             }
-            if (headphoneSink.write(sound, count, streamVolume)) return;
+            if (headphoneSink.write(sound, count, streamVolume)) {
+                // The output this would fade into is not playing.
+                trimHeadSamples = 0;
+                return;
+            }
         }
         // Only queue up to 40 ms of audio beyond the output's reserve. The output's own level counts: after a
         // network stall drained it, the burst that follows refills it instead of being dropped.
@@ -371,6 +427,18 @@ public class AndroidAudioRenderer implements AudioRenderer {
                 skipLateNativeAudio(length / channels, (int)((long)Math.max(0, pendingMs) * sampleRate / 1000))) return;
         int queuedFrames = outputQueuedFrames();
         if (!AudioBufferPolicy.dropLate(pendingMs, queuedFrames, reserveFrames, sampleRate)) {
+            if (channels > 0 && driftTrim.trim((int)((long)Math.max(0, pendingMs) * sampleRate / 1000), queuedFrames,
+                    reserveFrames, length / channels, sampleRate)) {
+                keepTrimHead(audioData, length);
+                driftTrimmed++;
+                LimeLog.info("Audio clock drift: trimmed a packet, pending " + pendingMs + " ms, output " +
+                        framesToMs(queuedFrames) + " of " + framesToMs(reserveFrames) + " ms (" + driftTrimmed + " trimmed)");
+                return;
+            }
+            if (trimHeadSamples > 0) {
+                crossfade(trimHead, trimHeadSamples, audioData, length, channels);
+                trimHeadSamples = 0;
+            }
             if (nativeAudio != 0 && bufferPolicy.needsFallback() &&
                     !fallbackToAudioTrack("AAudio hardware keeps underrunning at its largest device buffer")) {
                 droppedWrites++;
@@ -382,9 +450,19 @@ public class AndroidAudioRenderer implements AudioRenderer {
                     tuneBuffer();
                     return;
                 }
-                if (!fallbackToAudioTrack("AAudio disconnected")) {
+                if (!reopenAudio("AAudio disconnected")) {
                     // Later buffers retry the AudioTrack like any other dead output.
                     droppedWrites++;
+                    return;
+                }
+                if (nativeAudio != 0) {
+                    if (writeNativeAudio(audioData, length)) {
+                        echoReference(audioData, length, outputQueuedFrames());
+                        tuneBuffer();
+                    } else {
+                        // The next buffer reopens again, or falls back if it keeps dying.
+                        droppedWrites++;
+                    }
                     return;
                 }
             }
@@ -405,6 +483,24 @@ public class AndroidAudioRenderer implements AudioRenderer {
             LimeLog.info("Too much pending audio data: " + pendingMs + " ms, output " +
                     framesToMs(queuedFrames) + " of " + framesToMs(reserveFrames) + " ms");
             reportDrops();
+        }
+    }
+
+    // The trimmed packet's first 5 ms: it continues what already played, so the next packet fades in from it.
+    private void keepTrimHead(short[] audioData, int length) {
+        int samples = Math.min(length, sampleRate / 200 * channels);
+        if (trimHead.length < samples) trimHead = new short[samples];
+        System.arraycopy(audioData, 0, trimHead, 0, samples);
+        trimHeadSamples = samples;
+    }
+
+    /** Fades pcm in from head over the samples both have, whole frames, as the AAudio stall fade-in does. */
+    static void crossfade(short[] head, int headSamples, short[] pcm, int length, int channels) {
+        if (channels <= 0) return;
+        int frames = Math.min(headSamples, length) / channels;
+        for (int i = 0; i < frames * channels; i++) {
+            int step = i / channels;
+            pcm[i] = (short)((pcm[i] * step + head[i] * (frames - step)) / frames);
         }
     }
 
@@ -435,7 +531,8 @@ public class AndroidAudioRenderer implements AudioRenderer {
             return;
         }
         LimeLog.info("Audio summary: " + output + ", reserve " + framesToMs(reserveFrames) + " ms (largest " +
-                framesToMs(largestReserveFrames) + " ms), " + AudioDiagnostics.drops(lateDropped, droppedWrites));
+                framesToMs(largestReserveFrames) + " ms), " + AudioDiagnostics.drops(lateDropped, droppedWrites) +
+                ", drift trims " + driftTrimmed);
     }
 
     private void setReserve(int frames) {
@@ -570,9 +667,9 @@ public class AndroidAudioRenderer implements AudioRenderer {
     }
 
     boolean fallbackToAudioTrack(String reason) {
-        LimeLog.warning(reason + "; falling back to AudioTrack");
-        nativeCloseAudio(nativeAudio);
-        nativeAudio = 0;
+        LimeLog.severe(reason + "; falling back to AudioTrack");
+        closeNativeAudio();
+        driftTrim.reset();
         nextTrackRecreateAt = uptimeMillis() + TRACK_RECREATE_INTERVAL_MS;
         return setupAudioTrack() == 0;
     }

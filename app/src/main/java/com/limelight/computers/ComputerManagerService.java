@@ -6,6 +6,7 @@ import java.io.StringReader;
 import java.net.Inet4Address;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
+import java.security.cert.X509Certificate;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedList;
@@ -127,6 +128,8 @@ public class ComputerManagerService extends Service {
                     INITIAL_POLL_TRIES : OFFLINE_POLL_TRIES;
 
             activePolls.incrementAndGet();
+            // The certificate this poll asks with; a pairing that ends meanwhile pins another one.
+            final X509Certificate pinned = details.serverCert;
 
             // Poll the machine
             try {
@@ -174,6 +177,16 @@ public class ComputerManagerService extends Service {
                 }
 
                 if (details.state == ComputerDetails.State.ONLINE) {
+                    if (details.pairState == PairingManager.PairState.NOT_PAIRED) {
+                        // The PC no longer takes this device's pairing (unpaired there, or a new certificate): the
+                        // saved one goes, so Home never shows the PC as a paired one that is away.
+                        if (details.serverCert == pinned) {
+                            details.serverCert = null;
+                        }
+                        if (existingComputer != null && details.serverCert == null) {
+                            existingComputer.serverCert = null;
+                        }
+                    }
                     // If we already have an entry for this computer in the DB, we must
                     // combine the existing data with this new data (which may be partially available
                     // due to detecting the PC via mDNS) without the saved external address. If we
@@ -333,6 +346,11 @@ public class ComputerManagerService extends Service {
 
         public void pinAddress(String uuid, ComputerDetails.AddressTuple address) {
             ComputerManagerService.this.pinAddress(uuid, address);
+        }
+
+        /** The PC was unpaired from this device: its pinned certificate goes, in memory and saved. */
+        public void forgetCertificate(String uuid) {
+            ComputerManagerService.this.forgetCertificate(uuid);
         }
 
         public void stopPolling() {
@@ -619,6 +637,31 @@ public class ComputerManagerService extends Service {
                     }
                 }
             }
+        }
+    }
+
+    public void forgetCertificate(String uuid) {
+        synchronized (pollingTuples) {
+            for (PollingTuple tuple : pollingTuples) {
+                if (uuid.equals(tuple.computer.uuid)) {
+                    tuple.computer.serverCert = null;
+                }
+            }
+        }
+        if (!getLocalDatabaseReference()) {
+            return;
+        }
+        try {
+            // A poll that read the PC before this and saves it back answers "not paired", which clears it again.
+            synchronized (removalLock) {
+                ComputerDetails saved = dbManager.getComputerByUUID(uuid);
+                if (saved != null && saved.serverCert != null) {
+                    saved.serverCert = null;
+                    dbManager.updateComputer(saved);
+                }
+            }
+        } finally {
+            releaseLocalDatabaseReference();
         }
     }
 

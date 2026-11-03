@@ -2,7 +2,8 @@
 <com.limelight.ui.ContentFrame xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent" android:layout_height="match_parent" android:maxWidth="4096dp">
-    <LinearLayout
+    <!-- StreamSettings.keepShellFullSize gives the overscan margin and the shell bar the full size again on a TV. -->
+    <LinearLayout android:id="@+id/settings_frame"
         android:layout_width="match_parent" android:layout_height="match_parent" android:orientation="vertical"
         android:paddingStart="@dimen/shell_overscan_horizontal" android:paddingEnd="@dimen/shell_overscan_horizontal"
         android:paddingTop="@dimen/shell_overscan_vertical" android:paddingBottom="@dimen/shell_overscan_vertical">

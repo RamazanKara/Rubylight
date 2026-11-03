@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="mic_only_action">Только микрофон</string>
+    <string name="mic_only_connecting">Подключение…</string>
+    <string name="mic_only_on">Микрофон включён</string>
+    <string name="mic_only_paused_call">Пауза на время звонка</string>
+    <string name="mic_only_stop">Остановить</string>
+    <string name="mic_only_stopped">Микрофон выключен</string>
+    <string name="mic_only_failed">Соединение с %1$s завершено</string>
+    <string name="mic_only_denied">Нет доступа к микрофону</string>
+    <string name="mic_only_unavailable">Микрофон недоступен</string>
+    <string name="mic_only_not_accepted">%1$s не принял микрофон</string>
+    <string name="mic_only_busy">Микрофон используется на другом устройстве</string>
+</resources>

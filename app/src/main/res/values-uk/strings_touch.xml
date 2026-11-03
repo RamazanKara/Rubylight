@@ -39,4 +39,6 @@
     <string name="stream_cursor_shape_rejected">Nightjar не може намалювати форму курсора ПК і показує стандартну стрілку.</string>
     <string name="title_four_finger_tap">Дотик чотирма пальцями</string>
     <string name="summary_four_finger_tap">Дія швидкого дотику чотирма пальцями в режимах «Тачпад», «Пряма миша» та «Локальний курсор».</string>
+    <string name="title_multi_touch_finger_taps">Дотики кількома пальцями в режимі «Мультитач»</string>
+    <string name="summary_multi_touch_finger_taps">Дотики трьома й чотирма пальцями виконують свою дію і в режимі «Мультитач», а ПК ці дотики не отримує. Залиште вимкненим для ігор, де потрібні три або чотири пальці.</string>
 </resources>

@@ -52,6 +52,8 @@
     <string name="no_video_received_error">Nie odebrano wideo od hosta.</string>
     <string name="no_frame_received_error">Zmniejsz szybkość transmisji lub użyj szybszej sieci.</string>
     <string name="early_termination_error">Nie udało się uruchomić strumienia.\nZamknij chronione filmy lub uruchom ponownie komputer.</string>
+    <string name="early_stop_error">Komputer zakończył strumień przed pierwszym obrazem.\nGra mogła zostać zamknięta. Uruchom ją ponownie.</string>
+    <string name="host_failure_reason">Komputer zgłasza: %1$s</string>
     <string name="frame_conversion_error">Kodowanie wideo na komputerze nie powiodło się.\nWyłącz HDR lub zmień rozdzielczość.</string>
     <string name="check_ports_msg">Sprawdź zaporę i przekierowanie portów:</string>
     <string name="conn_establishing_title">Łączenie</string>
@@ -180,6 +182,8 @@
     <string name="title_only_l3r3">Pokaż tylko L3 i R3</string>
     <string name="summary_only_l3r3">Ukryj wszystkie wirtualne przyciski oprócz L3 i R3</string>
     <string name="title_show_guide_button">Pokaż przycisk Guide</string>
+    <string name="title_show_touchpad_button">Pokaż przycisk Touchpad</string>
+    <string name="summary_show_touchpad_button">Klika touchpad kontrolera PlayStation na PC: gdy jest włączony, gracz 1 łączy się jako taki kontroler. W stylu nowoczesnym przesuniesz go lub ukryjesz w edytorze układu.</string>
     <string name="title_reset_osc">Resetuj układ sterowania</string>
     <string name="dialog_title_reset_osc">Resetuj układ</string>
     <string name="dialog_text_reset_osc">Przywrócić domyślny rozmiar i położenie wszystkich przycisków ekranowych?</string>

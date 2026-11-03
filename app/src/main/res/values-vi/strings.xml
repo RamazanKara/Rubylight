@@ -52,6 +52,8 @@
     <string name="no_video_received_error">Không nhận được video từ máy chủ.</string>
     <string name="no_frame_received_error">Hãy giảm tốc độ bit hoặc dùng mạng nhanh hơn.</string>
     <string name="early_termination_error">Không thể bắt đầu stream.\nHãy đóng video được bảo vệ hoặc khởi động lại PC.</string>
+    <string name="early_stop_error">PC đã kết thúc stream trước hình ảnh đầu tiên.\nCó thể trò chơi đã đóng. Hãy khởi động lại.</string>
+    <string name="host_failure_reason">PC báo: %1$s</string>
     <string name="frame_conversion_error">Mã hóa video trên PC thất bại.\nHãy tắt HDR hoặc đổi độ phân giải.</string>
     <string name="check_ports_msg">Hãy kiểm tra tường lửa và chuyển tiếp cổng cho các cổng:</string>
     <string name="conn_establishing_title">Đang kết nối</string>
@@ -180,6 +182,8 @@
     <string name="title_only_l3r3">Chỉ hiện L3 và R3</string>
     <string name="summary_only_l3r3">Ẩn tất cả nút ảo ngoại trừ L3 và R3</string>
     <string name="title_show_guide_button">Hiện nút Guide</string>
+    <string name="title_show_touchpad_button">Hiện nút Bàn cảm ứng</string>
+    <string name="summary_show_touchpad_button">Nhấn bàn cảm ứng của tay cầm PlayStation trên PC: khi bật, người chơi 1 kết nối như một tay cầm PlayStation. Ở kiểu hiện đại, bạn có thể di chuyển hoặc ẩn nút trong trình chỉnh bố cục.</string>
     <string name="title_reset_osc">Đặt lại bố cục điều khiển</string>
     <string name="dialog_title_reset_osc">Đặt lại bố cục</string>
     <string name="dialog_text_reset_osc">Đưa mọi nút trên màn hình về kích thước và vị trí mặc định?</string>

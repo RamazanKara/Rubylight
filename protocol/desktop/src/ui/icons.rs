@@ -32,6 +32,7 @@ pub enum Icon {
     Plus,
     Dots,
     Back,
+    Mic,
 }
 
 /// Draws `icon` into the square `rect` in `color`.
@@ -171,6 +172,12 @@ pub fn shapes(icon: Icon, rect: Rect, color: Color32) -> Vec<Shape> {
             }
         }
         Icon::Back => line(vec![p(15.0, 5.0), p(8.0, 12.0), p(15.0, 19.0)]),
+        Icon::Mic => {
+            // A capsule on a stand.
+            closed(stadium(&p, 12.0, 9.0, 3.2, 3.2, PI / 2.0));
+            line(arc(12.0, 10.5, 6.5, 0.0, PI));
+            line(vec![p(12.0, 17.0), p(12.0, 20.5)]);
+        }
     };
     out.into_inner()
 }

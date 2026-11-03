@@ -52,6 +52,8 @@
     <string name="no_video_received_error">Ana bilgisayardan video alınmadı.</string>
     <string name="no_frame_received_error">Bit hızını düşürün veya daha hızlı bir ağ kullanın.</string>
     <string name="early_termination_error">Yayın başlatılamadı.\nKorumalı videoları kapatın veya bilgisayarı yeniden başlatın.</string>
+    <string name="early_stop_error">Bilgisayar yayını ilk görüntüden önce sonlandırdı.\nOyun kapanmış olabilir. Yeniden başlatın.</string>
+    <string name="host_failure_reason">Bilgisayarın bildirdiği: %1$s</string>
     <string name="frame_conversion_error">Bilgisayarda video kodlama başarısız oldu.\nHDR’yi kapatın veya çözünürlüğü değiştirin.</string>
     <string name="check_ports_msg">Şu bağlantı noktaları için güvenlik duvarını ve yönlendirmeyi kontrol edin:</string>
     <string name="conn_establishing_title">Bağlanılıyor</string>
@@ -180,6 +182,8 @@
     <string name="title_only_l3r3">Yalnızca L3 ve R3’ü göster</string>
     <string name="summary_only_l3r3">L3 ve R3 dışındaki tüm sanal düğmeleri gizle</string>
     <string name="title_show_guide_button">Guide düğmesini göster</string>
+    <string name="title_show_touchpad_button">Dokunmatik yüzey düğmesini göster</string>
+    <string name="summary_show_touchpad_button">PC’deki bir PlayStation kumandasının dokunmatik yüzeyine tıklar: açıkken oyuncu 1 böyle bir kumanda olarak bağlanır. Modern stilde düzen düzenleyicisinde taşıyabilir veya gizleyebilirsiniz.</string>
     <string name="title_reset_osc">Kontrol düzenini sıfırla</string>
     <string name="dialog_title_reset_osc">Düzeni sıfırla</string>
     <string name="dialog_text_reset_osc">Tüm ekran düğmeleri varsayılan boyut ve konumlarına döndürülsün mü?</string>

@@ -48,6 +48,7 @@ public final class HostMenu {
     public static final int FILES = 18;
     public static final int COOP = 19;
     public static final int CONNECTION_ADDRESS = 20;
+    public static final int MIC_ONLY = 21;
 
     private HostMenu() {
     }
@@ -79,6 +80,9 @@ public final class HostMenu {
                         sheet.dismiss();
                         onAction.accept(COOP);
                     });
+        }
+        if (offersMicOnly(details, state)) {
+            add(sheet, onAction, MIC_ONLY, R.drawable.ic_mic, activity.getString(R.string.mic_only_action));
         }
         if (hasSharedFolders(details, state)) {
             add(sheet, onAction, SHARED_FOLDERS, R.drawable.ic_folder, activity.getString(R.string.folders_title));
@@ -163,6 +167,24 @@ public final class HostMenu {
         }
         try {
             return details.caps.withNativeCapabilities(known).has(HostCapabilities.Feature.COOP);
+        } catch (JSONException e) {
+            LimeLog.warning("Unreadable native capabilities of " + details.uuid + ": " + e.getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * Microphone only on a paired PC whose host listed {@code session.mic_only} the last time its native capabilities
+     * were read in this process, and lets this device start sessions. Hidden on every other host, stock ones too.
+     */
+    static boolean offersMicOnly(ComputerDetails details, PcGridAdapter.RowState state) {
+        boolean ready = state == PcGridAdapter.RowState.RUNNING || state == PcGridAdapter.RowState.READY;
+        String known = ready ? KnownCapabilities.of(details.uuid) : null;
+        if (known == null) {
+            return false;
+        }
+        try {
+            return details.caps.withNativeCapabilities(known).has(HostCapabilities.Feature.MIC_ONLY);
         } catch (JSONException e) {
             LimeLog.warning("Unreadable native capabilities of " + details.uuid + ": " + e.getMessage());
             return false;

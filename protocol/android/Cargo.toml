@@ -17,6 +17,8 @@ doctest = false
 
 [dependencies]
 nightjar-core = { path = "../client" }
+# The stream menu's model (src/stream_menu.rs), shared with desktop Nightjar.
+nightjar-policy = { path = "../policy" }
 rubylight-protocol = { path = "../core" }
 jni = "0.21"
 libc = "0.2"

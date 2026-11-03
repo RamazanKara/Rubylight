@@ -22,6 +22,11 @@ public final class ShellFocus {
      * Call it from {@code dispatchKeyEvent}; true when it moved focus and the press is used up.
      */
     public static boolean upToCurrentTab(Activity activity, KeyEvent event, View content) {
+        return upToCurrentTab(activity, event, content, null);
+    }
+
+    /** The same where {@code beside}, a control next to the bar (Home's View), counts as the bar too. */
+    public static boolean upToCurrentTab(Activity activity, KeyEvent event, View content, View beside) {
         if (event.getAction() != KeyEvent.ACTION_DOWN || event.getKeyCode() != KeyEvent.KEYCODE_DPAD_UP
                 || !event.hasNoModifiers()) {
             return false;
@@ -33,7 +38,7 @@ public final class ShellFocus {
             return false;
         }
         View next = focused.focusSearch(View.FOCUS_UP);
-        if (next == null || !isInside(bar, next)) {
+        if (next == null || !(isInside(bar, next) || (beside != null && isInside(beside, next)))) {
             return false;
         }
         View current = currentTab(bar);

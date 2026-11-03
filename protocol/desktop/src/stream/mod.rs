@@ -17,6 +17,7 @@ mod microphone;
 mod voice_capture;
 mod cursor;
 pub mod direct_motion;
+mod system_keys;
 mod bitrate;
 pub mod host_abr;
 pub mod doctor;
@@ -98,7 +99,7 @@ use present::{viewport, PacingMode, Pacer, VideoTexture};
 use connect::*;
 use negotiate::*;
 use stats::*;
-pub use connect::{end_before, offers_714, termination_text, ConnectFailed, Connecting, LEAVE_WAIT};
+pub use connect::{end_before, host_ended_stream, offers_714, termination_text, ConnectFailed, Connecting, LEAVE_WAIT};
 pub use negotiate::{codec_name, probes_color, pyrowave_bitrate_warning, pyrowave_notice, stream_mode};
 
 /// What the display offers, for "native" resolution and "display" refresh.
@@ -133,6 +134,9 @@ pub struct LaunchPlan {
     pub resume: bool,
     /// Input-only on a PC without its own mode: an ordinary small stream, shown and played nowhere.
     pub small_stream_input_only: bool,
+    /// An input-only session that carries only this device's microphone (`Feature::MicOnly`):
+    /// nothing is shown or played, and no input goes to the PC.
+    pub mic_only: bool,
     pub settings: Settings,
     pub identity: Arc<ClientIdentity>,
     pub display: Display,
@@ -467,6 +471,10 @@ pub struct Streaming {
     last_command: Option<Instant>,
     audio_status: ([u8; 16], Instant),
     controller_mouse_active: bool,
+    /// A Guide held for the setting's time asks for the stream menu; main opens it with the window.
+    guide_menu: bool,
+    /// A Guide press waits on the loop's tick, so the loop wakes often.
+    guide_waiting: bool,
     /// The PC's night mode and headphone surround switches in the stream controls.
     pub host_audio: menu_extras::HostAudio,
     pub pending_command: Option<usize>,
@@ -501,6 +509,10 @@ pub struct Streaming {
     jitter_ms: f64,
     focused: bool,
     pub microphone_muted: bool,
+    /// Microphone only: the microphone could not be opened or stopped working, so nothing goes.
+    pub microphone_unavailable: bool,
+    /// Microphone only: asks the PC whether another device's microphone plays instead.
+    microphone_busy: Option<MicrophoneBusyWatch>,
     pub export_statistics: bool,
     statistics: VecDeque<String>,
     pub menu_visible: bool,
@@ -511,9 +523,22 @@ pub struct Streaming {
     session_link: String,
     /// The menu asked for the page; the main loop opens it (it owns the waker and the network).
     pub session_page_requested: bool,
+    /// A way out confirmed in the stream menu, run as the Session page opens.
+    pending_exit: Option<crate::session_page::HostExit>,
+    /// This device's permissions as the launcher last read them from the PC; the main loop keeps
+    /// them current.
+    pub hints: crate::session_page::Hints,
+    /// Quit game was confirmed on a PC without the native API: leaving quits the game too.
+    pub quit_on_leave: bool,
     /// The shortcut sheet over the stream controls, and how it was opened.
     pub shortcut_sheet: Option<Sheet>,
+    /// The stream menu's page: the grid, or one of the pages its tiles open.
+    pub menu_page: crate::stream_menu::Page,
+    /// A controller button pressed for a grid tile, run when the menu draws next.
+    pub menu_hotkey: Option<nightjar_policy::stream_menu::Hotkey>,
     keys_down: HashSet<u16>,
+    /// A shortcut's chord held on the PC, and when it goes up.
+    shortcut_held: Option<(crate::shortcuts::Held, Instant)>,
     mouse_down: HashSet<u8>,
     touch: touch::Touch,
     #[cfg(windows)]
@@ -592,16 +617,18 @@ impl Streaming {
             }
         }
         let settings = connecting.settings.clone();
+        let mic_refused = connecting.plan.mic_only && !session.microphone_available();
+        let facts_host = facts.host_name.clone();
         let microphone = if settings.microphone && !connecting.plan.microphone_muted && facts.role != AppRole::RemoteMonitor {
             if session.microphone_available() {
-                match microphone::Microphone::open(connecting.shared.clone(), settings.mic_echo_cancel) {
+                match microphone::Microphone::open(connecting.shared.clone(), microphone::echo_for(connecting.plan.mic_only, settings.mic_echo_cancel)) {
                     Ok(microphone) => Some(microphone),
                     Err(error) => {
                         connecting.shared.notify(Notice::MicrophoneFailed(error));
                         None
                     }
                 }
-            } else if !settings.controller_audio {
+            } else if !settings.controller_audio && !mic_refused {
                 connecting.shared.notify(Notice::MicrophoneFailed("The PC did not offer an encrypted microphone stream.".into()));
                 None
             } else { None }
@@ -681,7 +708,8 @@ impl Streaming {
             hardware: None,
             link_notice: None,
             pipeline_rates: None,
-            exit: None,
+            // A PC that set up no microphone gives Microphone only nothing to do.
+            exit: mic_refused.then(|| Exit::Ended(Some(trf("{} did not accept the microphone", &[&facts_host])))),
             toast: None,
             network_lost: false,
             retry_now: false,
@@ -699,6 +727,8 @@ impl Streaming {
             last_command: None,
             audio_status: ([0; 16], Instant::now() - Duration::from_secs(1)),
             controller_mouse_active: false,
+            guide_menu: false,
+            guide_waiting: false,
             host_audio: Default::default(),
             pending_command: None,
             bitrate_busy: false,
@@ -724,6 +754,8 @@ impl Streaming {
             jitter_ms: -1.0,
             focused: false,
             microphone_muted: connecting.plan.microphone_muted,
+            microphone_unavailable: false,
+            microphone_busy: None,
             plan: connecting.plan,
             export_statistics: false,
             statistics: VecDeque::new(),
@@ -732,8 +764,14 @@ impl Streaming {
             session_page: None,
             session_link: String::new(),
             session_page_requested: false,
+            pending_exit: None,
+            hints: crate::session_page::Hints { launch: false, host_control: false },
+            quit_on_leave: false,
             shortcut_sheet: None,
+            menu_page: crate::stream_menu::Page::Grid,
+            menu_hotkey: None,
             keys_down: HashSet::new(),
+            shortcut_held: None,
             mouse_down: HashSet::new(),
             touch: touch::Touch::default(),
             #[cfg(windows)]
@@ -1038,9 +1076,16 @@ impl Streaming {
         if !permitted || self.microphone_muted || controller_route {
             self.microphone = None;
         } else if self.microphone.is_none() && self.session.microphone_available() {
-            match microphone::Microphone::open(self.shared.clone(), self.settings.mic_echo_cancel) {
-                Ok(microphone) => self.microphone = Some(microphone),
-                Err(error) => { self.microphone_muted = true; self.show_toast(error); }
+            match microphone::Microphone::open(self.shared.clone(), microphone::echo_for(self.plan.mic_only, self.settings.mic_echo_cancel)) {
+                Ok(microphone) => {
+                    self.microphone = Some(microphone);
+                    self.microphone_unavailable = false;
+                }
+                Err(error) => {
+                    self.microphone_muted = true;
+                    self.microphone_unavailable = self.plan.mic_only;
+                    self.show_toast(error);
+                }
             }
         }
         for pad in &mut pads.pads {
@@ -1067,10 +1112,22 @@ impl Streaming {
         }
     }
 
+    /// A stream that opened behind another window captures input (and with it the keyboard
+    /// grab) once it comes to the front, as after a focus loss, not only at the first click.
+    pub fn capture_on_focus(&mut self) {
+        self.captured = self.takes_input();
+    }
+
+    /// Whether this stream captures the mouse and keyboard: not a view-only remote monitor, and
+    /// not Microphone only, which sends nothing but the microphone.
+    fn takes_input(&self) -> bool {
+        self.facts.role != AppRole::RemoteMonitor && !self.plan.mic_only
+    }
+
     /// Mouse capture: relative motion with a hidden, confined pointer.
     pub fn set_capture(&mut self, window: *mut SDL_Window, on: bool) {
         self.focused = unsafe { SDL_GetWindowFlags(window) & SDL_WINDOW_INPUT_FOCUS != 0 };
-        let on = on && self.facts.role != AppRole::RemoteMonitor;
+        let on = on && self.takes_input();
         self.captured = on;
         let cursor_shapes = on && self.absolute && self.settings.cursor_shapes && self.facts.cursor_shapes;
         if cursor_shapes != self.cursor.enabled
@@ -1090,13 +1147,15 @@ impl Streaming {
             } else {
                 SDL_SetWindowRelativeMouseMode(window, on);
             }
-            let grab = on && self.settings.capture_system_keys;
-            SDL_SetWindowKeyboardGrab(window, grab);
+            let grab = system_keys::keyboard_grab(on, self.settings.capture_system_keys);
+            let sdl_grab = self.direct_motion.keyboard_grab(window, grab);
+            SDL_SetWindowKeyboardGrab(window, sdl_grab);
         }
         self.direct_motion.set_active(on && !self.absolute && self.focused, self.settings.mouse_speed);
     }
 
     pub fn raise_all_keys(&mut self) {
+        self.release_shortcut();
         let keys: Vec<u16> = self.keys_down.drain().collect();
         let buttons: Vec<u8> = self.mouse_down.drain().collect();
         self.session.input(|q| {
@@ -1436,6 +1495,13 @@ impl Streaming {
         })
     }
 
+    /// Opens the stream menu when a held Guide asked for it on the last tick.
+    pub fn open_guide_menu(&mut self, window: *mut SDL_Window, pads: &mut Gamepads) {
+        if std::mem::take(&mut self.guide_menu) && !self.menu_visible {
+            self.toggle_menu(window, pads);
+        }
+    }
+
     pub fn toggle_menu(&mut self, window: *mut SDL_Window, pads: &mut Gamepads) {
         // While End or Close game runs, the Session page stays so its answer (or failure) shows.
         if self.menu_visible && self.session_page.as_ref().is_some_and(|p| p.busy()) {
@@ -1447,6 +1513,8 @@ impl Streaming {
         } else {
             self.session_page = None;
             self.shortcut_sheet = None;
+            self.menu_page = crate::stream_menu::Page::Grid;
+            self.menu_hotkey = None;
             // The menu's own text field takes no more text once it closes.
             // SAFETY: a live window on the main thread.
             unsafe {
@@ -1474,11 +1542,53 @@ impl Streaming {
         let address = record.address.clone();
         self.session_link = link;
         self.session_page_requested = false;
-        self.session_page = Some(crate::session_page::Page::open(
-            move || crate::hosts::client_for(&identity, &record, &address),
-            waker,
-        ));
+        let page = crate::session_page::Page::open(move || crate::hosts::client_for(&identity, &record, &address), waker);
+        if let Some(exit) = self.pending_exit.take() {
+            // Confirmed in the stream menu already: the page shows it running, and why it failed.
+            page.exit(exit);
+        }
+        self.session_page = Some(page);
         self.needs_redraw = true;
+    }
+
+    /// The ways out beside Disconnect that end the PC's session or game: on a PC with the native
+    /// API the Session page's (End session, then Close game with Host control or Quit game), on
+    /// any other Quit game (`/cancel`). A remote monitor or input session has none here.
+    pub fn game_exits(&self) -> Vec<crate::session_page::HostExit> {
+        if self.facts.role != AppRole::Stream {
+            return Vec::new();
+        }
+        if !self.session_page_available() {
+            return vec![crate::session_page::HostExit::QuitApp];
+        }
+        crate::session_page::actions(self.hints.launch, self.hints.host_control, None).into_iter().map(|entry| entry.exit).collect()
+    }
+
+    /// Runs a way out the stream menu confirmed: through the Session page where the PC has one,
+    /// so it shows running and why it failed; otherwise by leaving the stream and quitting the
+    /// game as a launch set to quit on leaving does.
+    pub fn end_on_host(&mut self, exit: crate::session_page::HostExit) {
+        if self.session_page_available() {
+            self.pending_exit = Some(exit);
+            self.session_page_requested = true;
+        } else {
+            self.quit_on_leave = true;
+            self.exit = Some(Exit::User);
+        }
+    }
+
+    /// The stream menu's header on its first page: the game's name over the stream's mode
+    /// (`1440p · 144 FPS · HEVC HDR`, nightjar_policy::stream_menu::mode_line), the PC's name while
+    /// the mode is not known. A remote monitor or input session keeps the menu's title.
+    pub fn menu_header(&self) -> (String, String) {
+        let place = format!("{} · {}", self.facts.app_name, self.facts.host_name);
+        if self.facts.role != AppRole::Stream || self.facts.app_name.trim().is_empty() {
+            return (tr("Stream controls").to_owned(), place);
+        }
+        let size = |v: i32| u32::try_from(v).unwrap_or(0);
+        let hdr = present::hdr_negotiated(self.settings.hdr, self.facts.format);
+        let mode = nightjar_policy::stream_menu::mode_line(size(self.facts.width), size(self.facts.height), size(self.facts.fps), self.facts.format, hdr);
+        (self.facts.app_name.clone(), mode.unwrap_or_else(|| self.facts.host_name.clone()))
     }
 
     /// Closes Nightjar's menu first, so the stream (and the host's menu) gets the input again,
@@ -1540,10 +1650,10 @@ impl Streaming {
         self.needs_redraw = true;
     }
 
-    /// What is known about this device's permissions before the page has read them: nothing,
-    /// so nothing is offered until `/capabilities` has answered.
+    /// What is known about this device's permissions before the page has read them: what the
+    /// launcher last read from `/capabilities`, nothing before it answered.
     pub fn session_hints(&self) -> crate::session_page::Hints {
-        crate::session_page::Hints { launch: false, host_control: false }
+        self.hints
     }
 
     /// The connection facts under the Session page's actions.
@@ -1560,13 +1670,43 @@ impl Streaming {
     }
 
     pub fn send_shortcut(&mut self, shortcut: &crate::shortcuts::Shortcut) {
-        if !self.focused || !self.captured || self.facts.role == AppRole::RemoteMonitor { return; }
-        if !self.settings.capture_system_keys && shortcut.keys.iter().any(|key| matches!(crate::shortcuts::key_code(key), Some(0x5B | 0x5C))) {
-            self.show_toast(tr("Enable Send system keys to use shortcuts with the Windows key."));
+        let ready = self.focused && self.captured && self.facts.role != AppRole::RemoteMonitor;
+        if let Some(why) = shortcut_refusal(ready, self.settings.capture_system_keys, &shortcut.keys) {
+            self.show_toast(tr(why));
             return;
         }
-        let result = self.session.input(|q| crate::shortcuts::send(&shortcut.keys, &self.keys_down, q));
-        if let Err(error) = result { self.show_toast(trf("Shortcut was not sent: {}", &[&error])); }
+        // A shortcut still held goes up first, so this one is pressed in full.
+        self.release_shortcut();
+        if self.shortcut_held.is_some() {
+            self.show_toast(trf("Shortcut was not sent: {}", &[&nightjar_core::input::InputError::QueueFull]));
+            return;
+        }
+        match self.session.input(|q| crate::shortcuts::press(&shortcut.keys, &self.keys_down, q)) {
+            Ok(chord) => {
+                self.shortcut_held = Some((chord, Instant::now() + Duration::from_millis(crate::shortcuts::HOLD_MS)));
+            }
+            Err(error) => self.show_toast(trf("Shortcut was not sent: {}", &[&error])),
+        }
+    }
+
+    /// Lets go of the held shortcut's keys once its hold is over; `pump` calls this.
+    pub(super) fn release_shortcut_when_due(&mut self, now: Instant) {
+        if self.shortcut_held.as_ref().is_some_and(|(_, due)| now >= *due) { self.release_shortcut(); }
+    }
+
+    /// When the held shortcut's keys go up, for the loop's wait.
+    pub(super) fn shortcut_release_in(&self, now: Instant) -> Option<Duration> {
+        self.shortcut_held.as_ref().map(|(_, due)| due.saturating_duration_since(now))
+    }
+
+    fn release_shortcut(&mut self) {
+        let Some((mut chord, due)) = self.shortcut_held.take() else { return };
+        match self.session.input(|q| crate::shortcuts::release(&mut chord, q)) {
+            Ok(()) => {}
+            // Keys left down would stay down on the PC: the queue drains, so the next pump tries again.
+            Err(nightjar_core::input::InputError::QueueFull) => self.shortcut_held = Some((chord, due)),
+            Err(error) => eprintln!("nightjar: shortcut keys not released: {error}"),
+        }
     }
 
     /// The overlay as the user left it, once it differs from what the settings keep: the stream
@@ -1591,6 +1731,31 @@ impl Streaming {
         self.plan.small_stream_input_only
     }
 
+    /// Only this device's microphone goes to the PC.
+    pub fn mic_only(&self) -> bool {
+        self.plan.mic_only
+    }
+
+    /// Microphone only: starts asking the PC every few seconds whether another device's
+    /// microphone plays (`GET /session`); `wake` redraws when that changes.
+    pub fn watch_microphone_busy(&mut self, wake: Waker) {
+        if !self.plan.mic_only || !self.plan.info.capabilities.has(Feature::MicOnly) {
+            return;
+        }
+        let identity = self.plan.identity.clone();
+        let record = self.plan.record.clone();
+        self.microphone_busy = MicrophoneBusyWatch::start(
+            move || crate::hosts::client_for(&identity, &record, &record.address).map(|c| move || c.microphone_busy().map_err(|e| e.to_string())),
+            wake,
+            MICROPHONE_BUSY_EVERY,
+        );
+    }
+
+    /// Whether the PC said, last time it was asked, that another device's microphone plays.
+    pub fn microphone_busy(&self) -> bool {
+        self.microphone_busy.as_ref().is_some_and(MicrophoneBusyWatch::busy)
+    }
+
     pub fn since_start(&self) -> Duration {
         self.started.elapsed()
     }
@@ -1610,6 +1775,10 @@ impl Streaming {
         let (direct, queued) = self.direct_motion.counts();
         if direct + queued > 0 {
             eprintln!("nightjar: mouse moves: {direct} sent as they arrived, {queued} through the main loop");
+        }
+        let input = self.direct_motion.input_count();
+        if input > 0 {
+            eprintln!("nightjar: keys, clicks and controller events: {input} sent during the present");
         }
         self.cursor.clear();
         crate::sdl::alt_f4_to_host(false);
@@ -1683,10 +1852,32 @@ fn bitrate_automatic(adaptive_bitrate: bool, quality_mode: QualityMode, rate_cha
     adaptive_bitrate || quality_mode != QualityMode::Off || rate_change.is_some_and(|rates| rates.hint_active())
 }
 
+/// Why a shortcut cannot go to the PC now, as its toast says it; `None` sends it. A shortcut
+/// picked while the window had lost focus used to vanish without a word.
+fn shortcut_refusal(ready: bool, system_keys: bool, keys: &[String]) -> Option<&'static str> {
+    if !ready {
+        return Some(en("Shortcut was not sent: the stream isn't taking input right now."));
+    }
+    if !system_keys && keys.iter().any(|key| matches!(crate::shortcuts::key_code(key), Some(0x5B | 0x5C))) {
+        return Some(en("Enable Send system keys to use shortcuts with the Windows key."));
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use super::input::*;
+
+    #[test]
+    fn a_shortcut_that_cannot_be_sent_says_why() {
+        let keys = |list: &[&str]| list.iter().map(|k| k.to_string()).collect::<Vec<_>>();
+        assert_eq!(shortcut_refusal(true, false, &keys(&["ALT", "TAB"])), None);
+        assert_eq!(shortcut_refusal(false, true, &keys(&["ALT", "TAB"])),
+            Some("Shortcut was not sent: the stream isn't taking input right now."));
+        assert!(shortcut_refusal(true, false, &keys(&["WIN", "D"])).unwrap().contains("Send system keys"));
+        assert_eq!(shortcut_refusal(true, true, &keys(&["WIN", "D"])), None);
+    }
 
     /// Desktop never asked for an HDR format, so no host sent it Dolby Vision RPUs and the draw
     /// pass's RPU peak was unreachable. It asks as Android does, and stock hosts see nothing new.
@@ -1757,6 +1948,14 @@ mod tests {
         // controls, so Escape from it goes back to them.
         assert_eq!(sheet_chord(true, None, Some(false)), SheetChord::Open(Sheet::FromMenu));
         assert_eq!(sheet_chord(true, None, Some(true)), SheetChord::Stay, "a running End or Close game keeps its page");
+    }
+
+    #[test]
+    fn a_stream_behind_another_window_leaves_the_pointer_and_wheel_alone() {
+        // capture_on_focus: captured before it comes to the front.
+        assert!(!pointer_goes_out(true, false), "a pointer over the background window stays the local PC's");
+        assert!(pointer_goes_out(true, true));
+        assert!(!pointer_goes_out(false, true), "released");
     }
 
     #[test]
@@ -2352,5 +2551,148 @@ mod tests {
     fn terminations_read_well() {
         assert!(termination_text(0).is_none());
         assert!(termination_text(-100).unwrap().contains("UDP"));
+        // A stop before the first picture is usually the game closing, not protected content.
+        let early = termination_text(nightjar_core::session::error::UNEXPECTED_EARLY).unwrap();
+        assert!(early.contains("The game may have closed"), "{early}");
+    }
+
+    #[test]
+    fn only_terminations_the_pc_sent_ask_it_for_the_reason() {
+        use nightjar_core::session::error;
+        for code in [
+            0x8000_4005_u32 as i32,
+            0xc000_0005_u32 as i32,
+            error::UNEXPECTED_EARLY,
+            error::PROTECTED_CONTENT,
+            error::FRAME_CONVERSION,
+        ] {
+            assert!(host_ended_stream(code), "{code:#x}");
+        }
+        for code in [error::GRACEFUL, error::DISCONNECTED, error::NO_VIDEO_TRAFFIC, error::NO_VIDEO_FRAME, 110, 10054, 503] {
+            assert!(!host_ended_stream(code), "{code}");
+        }
+        let body = doctor::with_host_reason(
+            "The PC could not convert the picture for streaming.".into(),
+            Some("HDR is on, but the display is not in HDR"),
+        );
+        assert_eq!(
+            body,
+            "The PC could not convert the picture for streaming.\n\nThe PC reported: HDR is on, but the display is not in HDR"
+        );
+        assert_eq!(doctor::with_host_reason("Ended.".into(), None), "Ended.");
+    }
+}
+
+/// How often Microphone only asks the PC whether another device's microphone plays.
+const MICROPHONE_BUSY_EVERY: Duration = Duration::from_secs(3);
+
+/// A thread that asks the PC whether this device's microphone waits for another's, until
+/// dropped with the stream.
+struct MicrophoneBusyWatch {
+    busy: Arc<std::sync::atomic::AtomicBool>,
+    stop: Arc<std::sync::atomic::AtomicBool>,
+}
+
+impl MicrophoneBusyWatch {
+    /// `connect` makes the question; `wake` runs when the answer changes.
+    fn start<Q, F>(connect: F, wake: Waker, every: Duration) -> Option<Self>
+    where
+        F: FnOnce() -> Result<Q, String> + Send + 'static,
+        Q: Fn() -> Result<bool, String>,
+    {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        let busy = Arc::new(AtomicBool::new(false));
+        let stop = Arc::new(AtomicBool::new(false));
+        let (seen, stopped) = (busy.clone(), stop.clone());
+        let spawned = std::thread::Builder::new().name("microphone-busy".into()).spawn(move || {
+            let ask = match connect() {
+                Ok(ask) => ask,
+                Err(error) => {
+                    eprintln!("nightjar: microphone only: the PC's session cannot be read: {error}");
+                    return;
+                }
+            };
+            let mut last_error = None;
+            while !stopped.load(Ordering::Acquire) {
+                match ask() {
+                    Ok(now) => {
+                        last_error = None;
+                        if seen.swap(now, Ordering::AcqRel) != now {
+                            eprintln!("nightjar: microphone only: {}", if now { "another device's microphone plays on the PC" } else { "the PC plays this microphone again" });
+                            wake();
+                        }
+                    }
+                    // Said once per kind of failure; the next answer counts again.
+                    Err(error) if last_error.as_ref() != Some(&error) => {
+                        eprintln!("nightjar: microphone only: the PC's session could not be read: {error}");
+                        last_error = Some(error);
+                    }
+                    Err(_) => {}
+                }
+                let until = Instant::now() + every;
+                while !stopped.load(Ordering::Acquire) && Instant::now() < until {
+                    std::thread::sleep(Duration::from_millis(100).min(every));
+                }
+            }
+        });
+        match spawned {
+            Ok(_) => Some(Self { busy, stop }),
+            Err(error) => {
+                eprintln!("nightjar: microphone only: no thread to ask the PC about the microphone: {error}");
+                None
+            }
+        }
+    }
+
+    fn busy(&self) -> bool {
+        self.busy.load(std::sync::atomic::Ordering::Acquire)
+    }
+}
+
+impl Drop for MicrophoneBusyWatch {
+    fn drop(&mut self) {
+        self.stop.store(true, std::sync::atomic::Ordering::Release);
+    }
+}
+
+#[cfg(test)]
+mod microphone_busy_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Mutex;
+
+    #[test]
+    fn the_watch_follows_the_pcs_answer_and_wakes_on_each_change() {
+        let answers = Arc::new(Mutex::new(vec![Ok(true), Err("offline".to_owned()), Ok(true), Ok(false)]));
+        let wakes = Arc::new(AtomicUsize::new(0));
+        let woke = wakes.clone();
+        let queue = answers.clone();
+        let watch = MicrophoneBusyWatch::start(
+            move || Ok(move || queue.lock().unwrap().pop().unwrap_or(Ok(false))),
+            Arc::new(move || { woke.fetch_add(1, Ordering::SeqCst); }),
+            Duration::from_millis(5),
+        )
+        .expect("a watch");
+        // Answers pop from the end: false, true, an error, true; then false for good.
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !answers.lock().unwrap().is_empty() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        std::thread::sleep(Duration::from_millis(50));
+        assert!(!watch.busy());
+        // false (no change), true (wake), error (none), true (none), false (wake).
+        assert_eq!(wakes.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn a_pc_that_cannot_be_reached_leaves_it_not_busy() {
+        let watch = MicrophoneBusyWatch::start(
+            || Err::<fn() -> Result<bool, String>, _>("no address".to_owned()),
+            Arc::new(|| {}),
+            Duration::from_millis(5),
+        )
+        .expect("a watch");
+        std::thread::sleep(Duration::from_millis(30));
+        assert!(!watch.busy());
     }
 }

@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="home_view">Вигляд</string>
+    <string name="home_view_layout">Розкладка</string>
+    <string name="home_view_layout_grid">Сітка</string>
+    <string name="home_view_layout_rows">Ряди</string>
+    <string name="home_view_layout_list">Список</string>
+    <string name="home_view_group">Групувати за</string>
+    <string name="home_view_group_store">Магазин</string>
+    <string name="home_view_group_type">Тип</string>
+    <string name="home_view_group_none">Немає</string>
+    <string name="console_row_games">Ігри</string>
+    <string name="home_view_size">Розмір карток</string>
+    <string name="home_view_size_small">Малі</string>
+    <string name="home_view_size_medium">Середні</string>
+    <string name="home_view_size_large">Великі</string>
+    <string name="console_list_not_played">Ще не грали</string>
+    <string name="console_list_played_today">Грали сьогодні</string>
+    <string name="console_list_played_yesterday">Грали вчора</string>
+    <plurals name="console_list_played_days">
+        <item quantity="one">Грали %d день тому</item>
+        <item quantity="few">Грали %d дні тому</item>
+        <item quantity="many">Грали %d днів тому</item>
+        <item quantity="other">Грали %d дня тому</item>
+    </plurals>
+</resources>

@@ -5,7 +5,7 @@
 use std::path::{Path, PathBuf};
 use std::collections::{BTreeMap, BTreeSet};
 
-use nightjar_core::http::native_api::library::Library;
+use nightjar_core::http::NativeLibrary;
 use serde::{Deserialize, Serialize};
 
 use crate::strings::en;
@@ -86,6 +86,9 @@ pub enum GamepadQuitCombo {
     LbRbXY,
     LbRbAB,
 }
+
+/// The choices for holding Guide to open the stream menu, in milliseconds; 0 is off.
+pub const GUIDE_HOLD_MS: [u32; 5] = [0, 500, 1000, 1500, 2000];
 
 impl GamepadQuitCombo {
     /// Their names follow the connected controller (`glyphs::Style::quit_combo`).
@@ -284,6 +287,9 @@ pub struct Settings {
     pub controller_motion: bool,
     pub controller_audio: bool,
     pub back_opens_menu: bool,
+    /// Holding the controller's Guide (Home) button this long opens the stream menu; a shorter
+    /// press still goes to the PC. 0 is off (one of [`GUIDE_HOLD_MS`], Android's stored values).
+    pub guide_hold_ms: u32,
     pub gamepad_quit_combo: GamepadQuitCombo,
     pub controller_mouse: bool,
     pub analog_scrolling: AnalogScrolling,
@@ -349,6 +355,11 @@ pub struct Settings {
     /// once; a choice made after that is kept.
     #[serde(default)]
     pub auto_reconnect_default_on: bool,
+    /// The once-only look at the PCs' and games' own settings has run: before 4.1.1, pressing A
+    /// on an inherited row pinned its value for the whole PC, and a pin can't be told apart from
+    /// a choice (`Launcher::show_kept_settings_once`). Missing from files written before it.
+    #[serde(default)]
+    pub kept_settings_checked: bool,
     pub virtual_display: bool,
     /// "PC render resolution": the percent of the stream resolution the PC renders its virtual
     /// display at (`scaleFactor`), as on Android. Kept in `RENDER_SCALE` when read: older versions
@@ -380,6 +391,10 @@ pub struct Settings {
     /// small ordinary stream whose video and audio are not shown or played (Android's
     /// `checkbox_input_only_any_host`). Not a per-PC or per-game override.
     pub input_only_any_host: bool,
+    /// Home's View: its library rows as lines or whole, by store or as one, and the cover size.
+    pub home_layout: HomeLayout,
+    pub home_group: HomeGroup,
+    pub home_card_size: CardSize,
     /// The launcher's size in percent: one of [`UI_ZOOM_STEPS`]. Not a per-PC or per-game override.
     pub ui_zoom: u32,
     /// Brighter text, black surfaces and thicker outlines and focus rings.
@@ -463,6 +478,95 @@ impl OverlayCorner {
     }
 }
 
+/// How Home lays out its library rows (Android's `home_view_layout`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum HomeLayout {
+    /// Every game of a row, line under line.
+    Grid,
+    /// Every game of a row as a line of its own: a small cover, the title, its store and when it
+    /// was last played.
+    List,
+    /// One line per row, as many covers as fit and an "All N" tile for the rest. Also what an
+    /// unknown value reads as; keep it last: serde wants the catch-all there.
+    #[default]
+    #[serde(other)]
+    Rows,
+}
+
+impl HomeLayout {
+    pub const ALL: [Self; 3] = [Self::Grid, Self::List, Self::Rows];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Grid => en("Grid"),
+            Self::List => en("List"),
+            Self::Rows => en("Rows"),
+        }
+    }
+}
+
+/// Whether Home splits its library by store or by type (Android's `home_view_group`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum HomeGroup {
+    /// The whole library as one row.
+    None,
+    /// The games of every store in one row, the apps of no store (launchers, the desktop) in
+    /// their own.
+    Type,
+    /// A row per store, then the apps of no store. Also what an unknown value reads as; keep it
+    /// last: serde wants the catch-all there.
+    #[default]
+    #[serde(other)]
+    Store,
+}
+
+impl HomeGroup {
+    pub const ALL: [Self; 3] = [Self::Store, Self::Type, Self::None];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Store => en("Store"),
+            Self::Type => en("Type"),
+            Self::None => en("None"),
+        }
+    }
+}
+
+/// The size of Home's covers (Android's `home_view_size`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CardSize {
+    Small,
+    Large,
+    /// Also what an unknown value reads as; keep it last: serde wants the catch-all there.
+    #[default]
+    #[serde(other)]
+    Medium,
+}
+
+impl CardSize {
+    pub const ALL: [Self; 3] = [Self::Small, Self::Medium, Self::Large];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Small => en("Small"),
+            Self::Medium => en("Medium"),
+            Self::Large => en("Large"),
+        }
+    }
+
+    /// A cover's widest against the medium one's, as on Android.
+    pub fn scale(self) -> f32 {
+        match self {
+            Self::Small => 0.75,
+            Self::Medium => 1.0,
+            Self::Large => 1.3,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ReduceMotion {
     Reduce,
@@ -479,11 +583,29 @@ pub enum ReduceMotion {
 pub enum Language {
     English,
     German,
+    Spanish,
+    French,
+    Italian,
+    Japanese,
+    Korean,
+    Polish,
+    PortugueseBrazil,
+    Russian,
+    Turkish,
+    Ukrainian,
+    Vietnamese,
+    ChineseSimplified,
+    ChineseTraditional,
     /// The system's language when Nightjar has it, else English; also what an unknown value
     /// from a newer Nightjar reads as. Keep it last: serde wants the catch-all there.
     #[default]
     #[serde(other)]
     System,
+}
+
+impl Language {
+    /// The choices in the settings, System default first.
+    pub const ALL: [Language; 16] = [Language::System, Language::English, Language::German, Language::Spanish, Language::French, Language::Italian, Language::Japanese, Language::Korean, Language::Polish, Language::PortugueseBrazil, Language::Russian, Language::Turkish, Language::Ukrainian, Language::Vietnamese, Language::ChineseSimplified, Language::ChineseTraditional];
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -604,6 +726,8 @@ impl Default for Settings {
             controller_motion: true,
             controller_audio: false,
             back_opens_menu: false,
+            // 1 s, Android's default (`list_guide_menu_hold`); a lone press reaches the PC on release.
+            guide_hold_ms: 1000,
             gamepad_quit_combo: GamepadQuitCombo::StartSelectLbRb,
             controller_mouse: true,
             analog_scrolling: AnalogScrolling::Right,
@@ -630,6 +754,7 @@ impl Default for Settings {
             network_priority: true,
             auto_reconnect: true,
             auto_reconnect_default_on: true,
+            kept_settings_checked: false,
             virtual_display: false,
             virtual_display_scale: 100,
             virtual_display_dpi: 0,
@@ -642,6 +767,9 @@ impl Default for Settings {
             console_home: true,
             quick_resume: false,
             input_only_any_host: false,
+            home_layout: HomeLayout::Rows,
+            home_group: HomeGroup::Store,
+            home_card_size: CardSize::Medium,
             ui_zoom: 100,
             high_contrast: false,
             reduce_motion: ReduceMotion::System,
@@ -764,6 +892,19 @@ impl HostRecord {
     /// The PC has the feature again: if it loses it later, the notice is shown again. True when it was shown.
     pub fn reset_notice(&mut self, notice: &str) -> bool {
         self.notices.remove(notice)
+    }
+
+    /// What this PC keeps over the main settings and profiles: whether it has settings of its
+    /// own, and for how many games (each saved under `id:`, and `uuid:` when it has one).
+    pub fn own_settings(&self) -> (bool, usize) {
+        let count = |prefix: &str| self.app_settings.iter().filter(|(key, own)| key.starts_with(prefix) && !own.is_empty()).count();
+        (self.settings.as_ref().is_some_and(|own| !own.is_empty()), count("id:").max(count("uuid:")))
+    }
+
+    /// Drops the PC's and its games' own settings, so they follow the profile or main settings.
+    pub fn clear_own_settings(&mut self) {
+        self.settings = None;
+        self.app_settings.clear();
     }
 
     pub fn app_settings(&self, uuid: &str, id: i32) -> Option<&Overrides> {
@@ -1108,7 +1249,7 @@ impl Store {
     pub fn shortcuts(&self) -> crate::shortcuts::Shortcuts {
         let path = self.dir.join("shortcuts.json");
         if !path.exists() { return crate::shortcuts::Shortcuts::default(); }
-        crate::shortcuts::Shortcuts::read(&path).unwrap_or_else(|e| {
+        crate::shortcuts::read(&path).unwrap_or_else(|e| {
             eprintln!("nightjar: ignoring {}: {e}", path.display());
             crate::shortcuts::Shortcuts::default()
         })
@@ -1181,11 +1322,11 @@ impl Store {
     }
 
     /// The last native library a PC sent, for Home while the PC is away or not polled yet.
-    pub fn library(&self, host: &str) -> Option<Library> {
+    pub fn library(&self, host: &str) -> Option<NativeLibrary> {
         read_json(&self.library_path(host))
     }
 
-    pub fn save_library(&self, host: &str, library: &Library) -> std::io::Result<()> {
+    pub fn save_library(&self, host: &str, library: &NativeLibrary) -> std::io::Result<()> {
         let path = self.library_path(host);
         if let Some(dir) = path.parent() {
             std::fs::create_dir_all(dir)?;
@@ -1451,14 +1592,17 @@ mod tests {
 
     #[test]
     fn saved_libraries_and_versioned_covers() {
-        let library: Library = serde_json::from_str(include_str!("../../client/tests/fixtures/native-api/library.json")).unwrap();
+        let library: nightjar_core::http::native_api::library::Library = serde_json::from_str(include_str!("../../client/tests/fixtures/native-api/library.json")).unwrap();
         let dir = std::env::temp_dir().join(format!("nightjar-library-{}", std::process::id()));
         let store = Store::at(dir.clone()).unwrap();
         let host = "5E0F4B1C-7A3D-4C52-9E10-0B6F2D8A4C11";
         assert!(store.library(host).is_none());
+        let mut library = NativeLibrary::from(library);
+        library.last_played.insert(library.library.games[0].install_id.clone(), 1788025796);
         store.save_library(host, &library).unwrap();
         let back = store.library(host).unwrap();
-        assert_eq!((back.revision.as_str(), back.games.len()), ("9f2c41d0", 2));
+        assert_eq!((back.library.revision.as_str(), back.library.games.len()), ("9f2c41d0", 2));
+        assert_eq!(back, library, "with when its games were last played");
         // Another PC does not see it, and a path-like id cannot leave the folder.
         assert!(store.library("other").is_none());
         assert!(store.library_path("../../x").starts_with(dir.join("library")));
@@ -1514,7 +1658,7 @@ mod tests {
 
     #[test]
     fn a_value_from_a_newer_version_does_not_reset_the_other_settings() {
-        let set: Settings = serde_json::from_str("{\"fps\":90,\"reduce_motion\":\"Sometimes\",\"language\":\"French\",\"ui_zoom\":130}").unwrap();
+        let set: Settings = serde_json::from_str("{\"fps\":90,\"reduce_motion\":\"Sometimes\",\"language\":\"Klingon\",\"ui_zoom\":130}").unwrap();
         assert_eq!((set.fps, set.ui_zoom), (90, 130));
         assert_eq!((set.reduce_motion, set.language), (ReduceMotion::System, Language::System));
     }
@@ -1601,7 +1745,7 @@ mod tests {
         store.save_profiles(&profiles).unwrap();
         assert_eq!(store.profiles(), profiles);
         let mut shortcuts = crate::shortcuts::Shortcuts::default();
-        shortcuts.save(None, "Task manager", "CTRL + SHIFT + ESC").unwrap();
+        crate::shortcuts::save(&mut shortcuts, None, "Task manager", "CTRL + SHIFT + ESC").unwrap();
         store.save_shortcuts(&shortcuts).unwrap();
         assert_eq!(store.shortcuts(), shortcuts);
         let mapping = crate::gamepad::Mapping { name: "Test pad".into(), deadzone: 12, ..Default::default() };
@@ -1641,6 +1785,31 @@ mod tests {
         assert!(saved.settings(&global).microphone);
         host.settings = None;
         assert_eq!(host.settings(&global).fps, 144);
+    }
+
+    #[test]
+    fn a_pcs_own_settings_count_each_game_once_and_clear_to_the_layers_below() {
+        // As 4.1.0 wrote it: Frame rate pinned for the PC, one game with a UUID (saved under both
+        // keys) and one without.
+        let mut host: HostRecord = serde_json::from_value(serde_json::json!({
+            "address": "pc.local",
+            "settings": { "fps": 120 },
+            "app_settings": { "uuid:a": { "hdr": true }, "id:1": { "hdr": true }, "id:2": { "fps": 30 } },
+        })).unwrap();
+        assert_eq!(host.own_settings(), (true, 2));
+        host.clear_own_settings();
+        assert_eq!(host.own_settings(), (false, 0));
+        let main = Settings { fps: 60, ..Default::default() };
+        assert_eq!(host.settings(&main).fps, 60);
+        assert!(host.app_settings("a", 1).is_none());
+
+        let untouched: HostRecord = serde_json::from_str(r#"{"address":"pc.local","settings":{}}"#).unwrap();
+        assert_eq!(untouched.own_settings(), (false, 0));
+        // Settings saved before the look at kept settings have it still to run; after, it stays done.
+        let old: Settings = serde_json::from_str(r#"{"fps":60}"#).unwrap();
+        assert!(!old.kept_settings_checked);
+        let done = Settings { kept_settings_checked: true, ..old };
+        assert!(serde_json::from_str::<Settings>(&serde_json::to_string(&done).unwrap()).unwrap().kept_settings_checked);
     }
 
     #[test]
@@ -1926,6 +2095,29 @@ mod tests {
         assert!(!Settings::default().quick_resume && !Settings::default().input_only_any_host);
         let on: Settings = serde_json::from_str(r#"{"quick_resume":true,"input_only_any_host":true}"#).unwrap();
         assert!(on.quick_resume && on.input_only_any_host);
+    }
+
+    #[test]
+    fn home_view_keeps_the_rows_per_store_until_chosen_and_reads_back() {
+        let old: Settings = serde_json::from_str(r#"{"fps":60}"#).unwrap();
+        assert_eq!((old.home_layout, old.home_group, old.home_card_size), (HomeLayout::Rows, HomeGroup::Store, CardSize::Medium));
+        assert_eq!(Settings::default().home_layout, HomeLayout::Rows);
+        let set = Settings { home_layout: HomeLayout::Grid, home_group: HomeGroup::None, home_card_size: CardSize::Large, ..Default::default() };
+        let json = serde_json::to_value(&set).unwrap();
+        // The words Android stores for the same choices.
+        assert_eq!(
+            (&json["home_layout"], &json["home_group"], &json["home_card_size"]),
+            (&serde_json::json!("grid"), &serde_json::json!("none"), &serde_json::json!("large"))
+        );
+        assert_eq!(serde_json::from_value::<Settings>(json).unwrap(), set);
+        // By type is Android's "type" too.
+        let by_type: Settings = serde_json::from_str(r#"{"home_group":"type"}"#).unwrap();
+        assert_eq!(by_type.home_group, HomeGroup::Type);
+        assert_eq!(serde_json::to_value(by_type).unwrap()["home_group"], serde_json::json!("type"));
+        // A value from a newer Nightjar keeps the default instead of dropping every setting.
+        let newer: Settings = serde_json::from_str(r#"{"home_layout":"carousel","home_card_size":"huge","fps":90}"#).unwrap();
+        assert_eq!((newer.home_layout, newer.home_card_size, newer.fps), (HomeLayout::Rows, CardSize::Medium, 90));
+        assert!(CardSize::Small.scale() < CardSize::Medium.scale() && CardSize::Medium.scale() < CardSize::Large.scale());
     }
 
     #[test]

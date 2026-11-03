@@ -108,7 +108,9 @@ public class NativeLibraryFieldsTest {
         assertNull(game.coverPath);
         assertNull(game.heroPath);
         assertNull(parse("{\"install_id\":\"i1\",\"app_id\":5,\"title\":\"P\",\"last_played\":\"soon\"}").lastPlayed);
-        assertNull(parse("{\"install_id\":\"i1\",\"app_id\":5,\"title\":\"P\",\"last_played\":0}").lastPlayed);
+        assertEquals("never played", Long.valueOf(0L),
+                parse("{\"install_id\":\"i1\",\"app_id\":5,\"title\":\"P\",\"last_played\":0}").lastPlayed);
+        assertNull(parse("{\"install_id\":\"i1\",\"app_id\":5,\"title\":\"P\",\"last_played\":-1}").lastPlayed);
     }
 
     @Test

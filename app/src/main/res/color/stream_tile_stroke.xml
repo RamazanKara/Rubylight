@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- A stream menu tile has no outline, as desktop Nightjar's; the D-pad selection, hover and a press ring it amber. -->
+    <item android:state_focused="true" android:color="?attr/colorPrimary" />
+    <item android:state_hovered="true" android:color="?attr/colorPrimary" />
+    <item android:state_pressed="true" android:color="?attr/colorPrimary" />
+    <item android:color="@android:color/transparent" />
+</selector>

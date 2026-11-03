@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="mic_only_action">Nur Mikrofon</string>
+    <string name="mic_only_connecting">Verbinden…</string>
+    <string name="mic_only_on">Mikrofon an</string>
+    <string name="mic_only_paused_call">Pause wegen Anruf</string>
+    <string name="mic_only_stop">Beenden</string>
+    <string name="mic_only_stopped">Mikrofon aus</string>
+    <string name="mic_only_failed">Verbindung zu %1$s beendet</string>
+    <string name="mic_only_denied">Kein Zugriff aufs Mikrofon</string>
+    <string name="mic_only_unavailable">Mikrofon nicht verfügbar</string>
+    <string name="mic_only_not_accepted">%1$s hat das Mikrofon nicht angenommen</string>
+    <string name="mic_only_busy">Mikrofon wird auf einem anderen Gerät verwendet</string>
+</resources>

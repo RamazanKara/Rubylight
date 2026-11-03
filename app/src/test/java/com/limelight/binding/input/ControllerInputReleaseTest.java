@@ -288,6 +288,7 @@ public class ControllerInputReleaseTest {
         @Override public void leaveStreamFromController() { leaves++; }
         final List<Integer> steered = new ArrayList<>();
         @Override public void showStreamMenu() { menuCount++; }
+        @Override public void showStreamMenuFromController() { menuCount++; }
         @Override public void steerStreamMenu(int keyCode) { steered.add(keyCode); }
     }
 

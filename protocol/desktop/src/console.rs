@@ -6,7 +6,7 @@ use nightjar_core::http::native_api::library::{Game, Library};
 use nightjar_core::http::native_api::session::{ActionId, Session, State};
 
 use crate::strings::{en, tr, trf};
-use crate::config::{Favourite, Recent};
+use crate::config::{Favourite, HomeGroup, Recent};
 use crate::hosts::{Host, Reach};
 
 /// One PC as the console sees it.
@@ -18,6 +18,8 @@ pub struct Source<'a> {
     pub online: bool,
     pub paired: bool,
     pub library: Option<&'a Library>,
+    /// When the library's games were last played, by install id (`Native::last_played`).
+    pub last_played: Option<&'a std::collections::BTreeMap<String, u64>>,
     /// The session, only while the PC is reachable (an old one is not shown for a PC that is away).
     pub session: Option<&'a Session>,
     /// This device may end games on the PC.
@@ -34,6 +36,7 @@ impl<'a> Source<'a> {
             online,
             paired: host.paired(),
             library: host.native.library.as_ref().filter(|_| host.paired()),
+            last_played: host.paired().then_some(&host.native.last_played),
             session: host.native.session.as_ref().filter(|_| online),
             host_control: host.native.host_control(),
         }
@@ -68,6 +71,9 @@ pub struct Copy {
     /// The cover's version, empty when the PC has no cover for it.
     pub cover_version: String,
     pub has_cover: bool,
+    /// When the PC says the game was last played (seconds since the epoch, `0` for never), None
+    /// when it says nothing.
+    pub last_played: Option<u64>,
 }
 
 /// A game in the merged library: the same game on several PCs is one entry.
@@ -141,6 +147,9 @@ pub enum LibraryFilter {
     Installed,
     /// One store's games, by its key.
     Store(String),
+    /// Every store's games, without the apps of no store: the Games row's chip; offered only
+    /// when the library has both.
+    Games,
     /// The apps of no store; offered only beside stores.
     Other,
 }
@@ -152,6 +161,7 @@ impl LibraryFilter {
             Self::All => true,
             Self::Installed => entry.installed(),
             Self::Store(key) => entry.store() == Some(key.as_str()),
+            Self::Games => entry.store().is_some(),
             Self::Other => entry.store().is_none(),
         }
     }
@@ -162,6 +172,7 @@ impl LibraryFilter {
             Self::All => "filter:all".into(),
             Self::Installed => "filter:installed".into(),
             Self::Store(key) => format!("filter:store:{key}"),
+            Self::Games => "filter:games".into(),
             Self::Other => "filter:other".into(),
         }
     }
@@ -190,7 +201,8 @@ fn stores_by_size(entries: &[Entry]) -> Vec<(String, String, usize)> {
 }
 
 /// The chips above All games for what the library has: All, Installed (only when something is
-/// not), each store largest first, Other apps (only beside stores). None for an empty library.
+/// not), Games, each store largest first, Other apps (Games and Other apps only when the library
+/// has both). None for an empty library.
 pub fn library_filters(entries: &[Entry]) -> Vec<FilterChip> {
     if entries.is_empty() {
         return Vec::new();
@@ -203,6 +215,9 @@ pub fn library_filters(entries: &[Entry]) -> Vec<FilterChip> {
     let stores = stores_by_size(entries);
     let other = entries.iter().filter(|e| e.store().is_none()).count();
     let any_store = !stores.is_empty();
+    if other > 0 && any_store {
+        chips.push(FilterChip { filter: LibraryFilter::Games, store_name: None, count: entries.len() - other });
+    }
     for (key, name, count) in stores {
         chips.push(FilterChip { filter: LibraryFilter::Store(key), store_name: Some(name), count });
     }
@@ -217,10 +232,12 @@ pub fn filtered<'a>(entries: &'a [Entry], filter: &LibraryFilter) -> Vec<&'a Ent
     entries.iter().filter(|e| filter.matches(e)).collect()
 }
 
-/// Which of Home's library rows: one per store, or the apps of no store.
+/// Which of Home's library rows: one per store, every store's games in one, or the apps of no store.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum RowKind {
     Store { key: String, name: String },
+    /// The games of every store, apart from the apps of no store (Home grouped by type).
+    Games,
     /// The apps of no store beside stores ("Other apps").
     Other,
     /// A library with no stores at all (a classic host): one plain row.
@@ -241,6 +258,7 @@ impl LibraryRow<'_> {
     pub fn key(&self) -> String {
         match &self.kind {
             RowKind::Store { key, .. } => format!("row:store:{key}"),
+            RowKind::Games => "row:games".into(),
             RowKind::Other => "row:other".into(),
             RowKind::Library => "row:library".into(),
         }
@@ -261,11 +279,6 @@ impl LibraryRow<'_> {
 /// Home's library rows: one per store, largest first (ties by key), then the apps of no store.
 /// Within a row the installed games come first, each part by title. Android's TV Home rows.
 pub fn library_rows(entries: &[Entry]) -> Vec<LibraryRow<'_>> {
-    fn installed_first(mut games: Vec<&Entry>) -> Vec<&Entry> {
-        // Stable: the titles stay in order within each part.
-        games.sort_by_key(|e| !e.installed());
-        games
-    }
     let stores = stores_by_size(entries);
     let mut rows: Vec<LibraryRow<'_>> = stores
         .iter()
@@ -285,6 +298,42 @@ pub fn library_rows(entries: &[Entry]) -> Vec<LibraryRow<'_>> {
         });
     }
     rows
+}
+
+/// Home's library rows under its View: [`library_rows`] by store; by type, the games of every
+/// store in one Games row and the apps of no store (launchers, the desktop) in Other apps; or the
+/// whole library as one Library row that opens All games. Installed first, each part by title;
+/// every entry, installed or not, as by store (Android's ungrouped grid alone keeps to installed
+/// games). A title is a game when its PC says which store it is from: PCs send nothing else that
+/// tells games from apps. A library with no stores at all is one Library row by type too.
+pub fn home_rows(entries: &[Entry], group: HomeGroup) -> Vec<LibraryRow<'_>> {
+    if group == HomeGroup::Store {
+        return library_rows(entries);
+    }
+    if entries.is_empty() {
+        return Vec::new();
+    }
+    let whole = || LibraryRow { kind: RowKind::Library, filter: LibraryFilter::All, games: installed_first(entries.iter().collect()) };
+    if group == HomeGroup::None {
+        return vec![whole()];
+    }
+    let (games, apps): (Vec<&Entry>, Vec<&Entry>) = entries.iter().partition(|e| e.store().is_some());
+    if games.is_empty() {
+        return vec![whole()];
+    }
+    // Its All tile opens the Games chip, which is there only beside apps; without them All is the same.
+    let filter = if apps.is_empty() { LibraryFilter::All } else { LibraryFilter::Games };
+    let mut rows = vec![LibraryRow { kind: RowKind::Games, filter, games: installed_first(games) }];
+    if !apps.is_empty() {
+        rows.push(LibraryRow { kind: RowKind::Other, filter: LibraryFilter::Other, games: installed_first(apps) });
+    }
+    rows
+}
+
+fn installed_first(mut games: Vec<&Entry>) -> Vec<&Entry> {
+    // Stable: the titles stay in order within each part.
+    games.sort_by_key(|e| !e.installed());
+    games
 }
 
 fn installed(game: &Game) -> bool {
@@ -335,6 +384,7 @@ pub fn merge_library(sources: &[Source<'_>]) -> Vec<Entry> {
                 store_name: game.store.as_ref().filter(|s| !s.source.is_empty()).map(|s| store_name(&s.source, &s.name)),
                 cover_version: game.artwork.version.clone(),
                 has_cover: game.artwork.cover.is_some(),
+                last_played: source.last_played.and_then(|played| played.get(&game.install_id).copied()),
             };
             match index.get(&key) {
                 Some(&at) => entries[at].copies.push(copy),
@@ -444,6 +494,50 @@ pub fn recently_played(sources: &[Source<'_>], recents: &[Recent], playing: &[Co
         }
     }
     out
+}
+
+/// When the entry was last played, in seconds since the epoch (`0` for never): the newest of what
+/// its copies' PCs say, as on Android. Only when no PC says, this device's own recent games (they
+/// keep the last few only), matched as "Recently played" matches them (install id, else app id).
+pub fn last_played(entry: &Entry, sources: &[Source<'_>], recents: &[Recent]) -> Option<u64> {
+    if let Some(at) = entry.copies.iter().filter_map(|copy| copy.last_played).max() {
+        return Some(at);
+    }
+    recents
+        .iter()
+        .filter(|recent| {
+            entry.copies.iter().any(|copy| {
+                let pc = sources.iter().any(|s| s.id == copy.host && !s.unique_id.is_empty() && s.unique_id == recent.host);
+                let game = if !recent.install_id.is_empty() && !copy.install_id.is_empty() {
+                    copy.install_id.eq_ignore_ascii_case(&recent.install_id)
+                } else {
+                    copy.app_id == recent.app_id
+                };
+                pc && game
+            })
+        })
+        .map(|recent| recent.at)
+        .max()
+}
+
+/// A List line's second line: the store (none for an app no store owns) and when the game was
+/// last played (seconds since the epoch, `0` for never), by whole days before `now`. Nothing
+/// about playing when `played` is unknown.
+pub fn list_line(entry: &Entry, played: Option<u64>, now: u64) -> String {
+    let when = match played {
+        None => None,
+        Some(0) => Some(tr("Not played yet").to_owned()),
+        Some(at) => Some(match now.saturating_sub(at) / 86_400 {
+            0 => tr("Played today").to_owned(),
+            1 => tr("Played yesterday").to_owned(),
+            days => trf("Played {} days ago", &[&days]),
+        }),
+    };
+    match (&entry.best().store_name, when) {
+        (Some(store), Some(when)) => format!("{store} · {when}"),
+        (Some(store), None) => store.clone(),
+        (None, when) => when.unwrap_or_default(),
+    }
 }
 
 /// A starred game as Home shows it.
@@ -695,7 +789,7 @@ mod tests {
     }
 
     fn source<'a>(id: u64, name: &'a str, online: bool, library: Option<&'a Library>, session: Option<&'a Session>) -> Source<'a> {
-        Source { id, unique_id: "", name, online, paired: true, library, session, host_control: false }
+        Source { id, unique_id: "", name, online, paired: true, library, last_played: None, session, host_control: false }
     }
 
     const DOTA: u32 = 1093052211;
@@ -858,6 +952,7 @@ mod tests {
             [
                 (LibraryFilter::All, None, 8),
                 (LibraryFilter::Installed, None, 6),
+                (LibraryFilter::Games, None, 7),
                 (store("steam"), Some("Steam"), 3),
                 (store("microsoft"), Some("Xbox"), 2),
                 // Ties by key: battlenet before epic.
@@ -919,6 +1014,59 @@ mod tests {
         assert_eq!(rows.len(), 1);
         assert_eq!((rows[0].kind.clone(), rows[0].filter.clone()), (RowKind::Library, LibraryFilter::All));
         assert_eq!(library_filters(&entries).len(), 1, "only All: no Other chip without stores");
+    }
+
+    #[test]
+    fn home_rows_not_by_store_are_one_library_row_of_every_game_installed_first() {
+        let lib = mixed();
+        let sources = [source(1, "A", true, Some(&lib), None)];
+        let entries = merge_library(&sources);
+        assert_eq!(home_rows(&entries, HomeGroup::Store), library_rows(&entries));
+        let rows = home_rows(&entries, HomeGroup::None);
+        assert_eq!(rows.len(), 1);
+        assert_eq!((rows[0].kind.clone(), rows[0].filter.clone(), rows[0].key()), (RowKind::Library, LibraryFilter::All, "row:library".to_owned()));
+        assert_eq!(rows[0].games.len(), entries.len(), "every game, whatever its store");
+        let installed: Vec<bool> = rows[0].games.iter().map(|e| e.installed()).collect();
+        assert!(installed.windows(2).all(|w| w[0] || !w[1]), "installed first: {installed:?}");
+        assert!(installed.contains(&false), "the fixture has a game that is not installed");
+        assert!(home_rows(&[], HomeGroup::None).is_empty());
+    }
+
+    #[test]
+    fn home_rows_by_type_are_every_stores_games_then_the_apps_of_no_store() {
+        let lib = mixed();
+        let sources = [source(1, "A", true, Some(&lib), None)];
+        let entries = merge_library(&sources);
+        let rows = home_rows(&entries, HomeGroup::Type);
+        let got: Vec<(String, LibraryFilter)> = rows.iter().map(|r| (r.key(), r.filter.clone())).collect();
+        assert_eq!(got, [("row:games".to_owned(), LibraryFilter::Games), ("row:other".to_owned(), LibraryFilter::Other)]);
+        // Each row is exactly its All tile's chip: the same games, the same count.
+        let chips = library_filters(&entries);
+        for row in &rows {
+            let chip = chips.iter().find(|c| c.filter == row.filter).expect("the row's chip");
+            assert_eq!(chip.count, row.games.len(), "{:?}", row.filter);
+            let mut shown: Vec<&str> = filtered(&entries, &row.filter).iter().map(|e| e.title.as_str()).collect();
+            let mut held: Vec<&str> = row.games.iter().map(|e| e.title.as_str()).collect();
+            shown.sort_unstable();
+            held.sort_unstable();
+            assert_eq!(shown, held, "{:?}", row.filter);
+        }
+        assert_eq!(rows[0].games.len() + rows[1].games.len(), entries.len(), "every game in one of them");
+        assert!(rows[0].games.iter().all(|e| e.store().is_some()), "no app among the games");
+        assert_eq!(rows[1].games.iter().map(|e| e.title.as_str()).collect::<Vec<_>>(), ["Notepad"]);
+        let installed: Vec<bool> = rows[0].games.iter().map(|e| e.installed()).collect();
+        assert!(installed.windows(2).all(|w| w[0] || !w[1]), "installed first: {installed:?}");
+        // No stores at all: games and apps cannot be told apart, one Library row as ungrouped.
+        let plain = store_library(&[("B", "", "", true), ("A", "", "", true)]);
+        let sources = [source(1, "A", true, Some(&plain), None)];
+        let entries = merge_library(&sources);
+        assert_eq!(home_rows(&entries, HomeGroup::Type), home_rows(&entries, HomeGroup::None));
+        // Only games: just the Games row.
+        let games = store_library(&[("Portal", "steam", "", true)]);
+        let sources = [source(1, "A", true, Some(&games), None)];
+        let entries = merge_library(&sources);
+        assert_eq!(home_rows(&entries, HomeGroup::Type).iter().map(LibraryRow::key).collect::<Vec<_>>(), ["row:games"]);
+        assert!(home_rows(&[], HomeGroup::Type).is_empty());
     }
 
     #[test]
@@ -1126,6 +1274,58 @@ mod tests {
         assert_eq!(list.iter().map(|r| r.title.as_str()).collect::<Vec<_>>(), ["Desktop", "Dota 2"]);
         assert_eq!((list[0].host, list[0].host_name.as_str(), list[0].online), (1, "Desk", true));
         assert_eq!(recently_played(&sources, &recents, &[], 1).len(), 1, "capped");
+    }
+
+    #[test]
+    fn a_list_line_names_the_store_and_when_the_game_was_last_played() {
+        let lib = library();
+        let mut a = source(1, "Desk", true, Some(&lib), None);
+        a.unique_id = "uid-a";
+        let sources = [a];
+        let entries = merge_library(&sources);
+        let dota = entries.iter().find(|e| e.title == "Dota 2").expect("Dota 2");
+        let at = |r: Recent, at: u64| Recent { at, ..r };
+        let recents = [
+            at(recent("uid-a", "", 1093052211, "Dota 2"), 1_000),
+            at(recent("uid-a", "C6F1A9A4-4B51-5F43-9D0B-7A2B1C2D3E4F", 0, "Dota 2"), 5_000),
+            // Another PC's copy of the same game is not this one.
+            at(recent("uid-z", "", 1093052211, "Dota 2"), 9_000),
+        ];
+        assert_eq!(last_played(dota, &sources, &recents), Some(5_000), "the latest, by install id without case");
+        assert_eq!(last_played(dota, &sources, &[]), None);
+        // What the PCs say comes first: the newest across the copies, then never (0) over the
+        // recents, which keep only the last few.
+        let mut b = source(2, "Den", false, Some(&lib), None);
+        b.unique_id = "uid-b";
+        let install = &lib.games.iter().find(|g| g.title == "Dota 2").unwrap().install_id;
+        let (older, newer) = (std::collections::BTreeMap::from([(install.clone(), 6_000)]), std::collections::BTreeMap::from([(install.clone(), 8_000)]));
+        let mut a2 = source(1, "Desk", true, Some(&lib), None);
+        a2.unique_id = "uid-a";
+        let mut b2 = b;
+        a2.last_played = Some(&older);
+        b2.last_played = Some(&newer);
+        let both = [a2, b2];
+        let merged = merge_library(&both);
+        let dota2 = merged.iter().find(|e| e.title == "Dota 2").expect("Dota 2");
+        assert_eq!(dota2.copies.len(), 2);
+        assert_eq!(last_played(dota2, &both, &recents), Some(8_000), "the newest a PC says, not the recents");
+        let never = std::collections::BTreeMap::from([(install.clone(), 0)]);
+        let mut a3 = source(1, "Desk", true, Some(&lib), None);
+        a3.unique_id = "uid-a";
+        a3.last_played = Some(&never);
+        let one = [a3];
+        let merged = merge_library(&one);
+        let dota3 = merged.iter().find(|e| e.title == "Dota 2").expect("Dota 2");
+        assert_eq!(last_played(dota3, &one, &recents), Some(0), "the PC says never played");
+        let store = dota.best().store_name.clone();
+        let line = |played, now| list_line(dota, played, now);
+        let with_store = |when: &str| match &store { Some(s) => format!("{s} · {when}"), None => when.to_owned() };
+        assert_eq!(line(Some(0), 9_000), with_store("Not played yet"), "0 is the host's never played");
+        assert_eq!(line(None, 9_000), store.clone().unwrap_or_default(), "unknown says nothing about playing");
+        assert_eq!(line(Some(5_000), 5_000 + 3_600), with_store("Played today"));
+        assert_eq!(line(Some(5_000), 5_000 + 86_400 + 60), with_store("Played yesterday"));
+        assert_eq!(line(Some(5_000), 5_000 + 9 * 86_400), with_store("Played 9 days ago"));
+        assert_eq!(line(Some(9_000), 5_000), with_store("Played today"), "a clock that went back reads as today");
     }
 
     #[test]

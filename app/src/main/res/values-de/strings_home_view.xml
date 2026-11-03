@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="home_view">Ansicht</string>
+    <string name="home_view_layout">Anordnung</string>
+    <string name="home_view_layout_grid">Raster</string>
+    <string name="home_view_layout_rows">Reihen</string>
+    <string name="home_view_layout_list">Liste</string>
+    <string name="home_view_group">Gruppieren nach</string>
+    <string name="home_view_group_store">Store</string>
+    <string name="home_view_group_type">Typ</string>
+    <string name="home_view_group_none">Keine</string>
+    <string name="console_row_games">Spiele</string>
+    <string name="home_view_size">Kartengröße</string>
+    <string name="home_view_size_small">Klein</string>
+    <string name="home_view_size_medium">Mittel</string>
+    <string name="home_view_size_large">Groß</string>
+    <string name="console_list_not_played">Noch nicht gespielt</string>
+    <string name="console_list_played_today">Heute gespielt</string>
+    <string name="console_list_played_yesterday">Gestern gespielt</string>
+    <plurals name="console_list_played_days">
+        <item quantity="one">Vor %d Tag gespielt</item>
+        <item quantity="other">Vor %d Tagen gespielt</item>
+    </plurals>
+</resources>

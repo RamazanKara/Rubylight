@@ -9,22 +9,27 @@ import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
 import android.util.DisplayMetrics;
+import android.view.Gravity;
+import android.view.LayoutInflater;
 import android.view.MotionEvent;
 import android.view.View;
 import android.widget.Button;
 import android.widget.FrameLayout;
+import android.widget.TextView;
 import android.widget.Toast;
 
+import com.google.android.material.slider.Slider;
 import com.limelight.LimeLog;
 import com.limelight.R;
 import com.limelight.binding.input.ControllerHandler;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
 public class VirtualController {
     public static class ControllerInputContext {
-        public short inputMap = 0x0000;
+        public int inputMap = 0;
         public byte leftTrigger = 0x00;
         public byte rightTrigger = 0x00;
         public short rightStickX = 0x0000;
@@ -60,6 +65,13 @@ public class VirtualController {
     private Button buttonConfigure = null;
 
     private List<VirtualControllerElement> elements = new ArrayList<>();
+
+    // While resizing: the panel with the opacity slider, and the control it sets (null until one is touched).
+    private View opacityPanel;
+    private Slider opacitySlider;
+    private TextView opacityValue;
+    private VirtualControllerElement editing;
+    private boolean settingOpacity;
 
     public VirtualController(final ControllerHandler controllerHandler, FrameLayout layout, final Context context) {
         this.controllerHandler = controllerHandler;
@@ -98,6 +110,7 @@ public class VirtualController {
         }
 
         buttonConfigure.setVisibility(View.INVISIBLE);
+        if (opacityPanel != null) opacityPanel.setVisibility(View.INVISIBLE);
     }
 
     public void show() {
@@ -106,6 +119,7 @@ public class VirtualController {
         }
 
         buttonConfigure.setVisibility(View.VISIBLE);
+        if (opacityPanel != null) opacityPanel.setVisibility(View.VISIBLE);
     }
 
     public void removeElements() {
@@ -113,8 +127,10 @@ public class VirtualController {
             frame_layout.removeView(element);
         }
         elements.clear();
+        editing = null;
 
         frame_layout.removeView(buttonConfigure);
+        if (opacityPanel != null) frame_layout.removeView(opacityPanel);
     }
 
     public void setOpacity(int opacity) {
@@ -142,6 +158,9 @@ public class VirtualController {
             com.limelight.ui.OverlayPlacement.addVisible(element, frame_layout, out);
         }
         com.limelight.ui.OverlayPlacement.addVisible(buttonConfigure, frame_layout, out);
+        if (opacityPanel != null && opacityPanel.getParent() != null) {
+            com.limelight.ui.OverlayPlacement.addVisible(opacityPanel, frame_layout, out);
+        }
     }
 
     private static final void _DBG(String text) {
@@ -167,6 +186,10 @@ public class VirtualController {
 
         // Apply user preferences onto the default layout
         VirtualControllerConfigurationLoader.loadFromPreferences(this, context);
+
+        if (currentMode == ControllerMode.ResizeButtons) {
+            showOpacityPanel();
+        }
     }
 
     public ControllerMode getControllerMode() {
@@ -182,6 +205,12 @@ public class VirtualController {
         if (mode == ControllerMode.Active) {
             VirtualControllerConfigurationLoader.saveProfile(this, context);
         }
+        editing = null;
+        if (mode == ControllerMode.ResizeButtons) {
+            showOpacityPanel();
+        } else if (opacityPanel != null) {
+            frame_layout.removeView(opacityPanel);
+        }
         Toast.makeText(context, mode == ControllerMode.MoveButtons ? R.string.stream_controls_move_help :
                 mode == ControllerMode.ResizeButtons ? R.string.stream_controls_resize_help :
                         R.string.stream_controls_saved, Toast.LENGTH_SHORT).show();
@@ -189,6 +218,63 @@ public class VirtualController {
         for (VirtualControllerElement element : elements) {
             element.invalidate();
         }
+    }
+
+    /** Picks the control the opacity slider sets while resizing. */
+    void selectForEditing(VirtualControllerElement element) {
+        VirtualControllerElement previous = editing;
+        editing = element;
+        if (previous != null && previous != element) previous.invalidate();
+        element.invalidate();
+        updateOpacityPanel();
+    }
+
+    boolean isSelectedForEditing(VirtualControllerElement element) {
+        return currentMode == ControllerMode.ResizeButtons && editing == element;
+    }
+
+    /** Sets the picked control's own opacity, in percent; nothing when no control is picked. */
+    void setEditingOpacity(int opacity) {
+        if (editing == null) return;
+        editing.setButtonOpacity(opacity);
+        updateOpacityPanel();
+    }
+
+    View getOpacityPanel() {
+        return opacityPanel;
+    }
+
+    private void showOpacityPanel() {
+        if (opacityPanel == null) {
+            // The stream's dark surfaces, like the modern controller's editor panel.
+            Context themed = new androidx.appcompat.view.ContextThemeWrapper(context, R.style.StreamTheme);
+            opacityPanel = LayoutInflater.from(themed).inflate(R.layout.osc_opacity_panel, frame_layout, false);
+            opacitySlider = opacityPanel.findViewById(R.id.osc_opacity_slider);
+            opacityValue = opacityPanel.findViewById(R.id.osc_opacity_value);
+            opacitySlider.addOnChangeListener((slider, value, fromUser) -> {
+                if (fromUser && !settingOpacity) setEditingOpacity(Math.round(value));
+            });
+        }
+        if (opacityPanel.getParent() == null) {
+            FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(
+                    opacityPanel.getLayoutParams().width, FrameLayout.LayoutParams.WRAP_CONTENT,
+                    Gravity.TOP | Gravity.CENTER_HORIZONTAL);
+            params.topMargin = 15;
+            frame_layout.addView(opacityPanel, params);
+        }
+        updateOpacityPanel();
+    }
+
+    private void updateOpacityPanel() {
+        if (opacityPanel == null) return;
+        int opacity = editing != null ? editing.getButtonOpacity() : VirtualControllerElement.MAX_BUTTON_OPACITY;
+        settingOpacity = true;
+        // The slider moves in 5 % steps; a stored value between them shows at the nearest one.
+        opacitySlider.setValue(Math.max(VirtualControllerElement.MIN_BUTTON_OPACITY,
+                Math.min(VirtualControllerElement.MAX_BUTTON_OPACITY, Math.round(opacity / 5f) * 5)));
+        settingOpacity = false;
+        opacitySlider.setEnabled(editing != null);
+        opacityValue.setText(editing != null ? String.format(Locale.getDefault(), "%d %%", opacity) : "");
     }
 
     public void releaseInput() {

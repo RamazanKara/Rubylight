@@ -28,7 +28,12 @@ pub(super) const LIFT: f32 = 4.0;
 /// How many covers fit a row `width` wide, and how wide each is: as many as fit at
 /// [`POSTER_MAX_W`] or less, filling the row exactly.
 pub(super) fn grid(width: f32) -> (usize, f32) {
-    let columns = ((width + POSTER_GAP) / (POSTER_MAX_W + POSTER_GAP)).ceil().max(1.0);
+    grid_up_to(width, POSTER_MAX_W)
+}
+
+/// [`grid`] with covers at most `widest` wide: Home's covers at its View's card size.
+pub(super) fn grid_up_to(width: f32, widest: f32) -> (usize, f32) {
+    let columns = ((width + POSTER_GAP) / (widest + POSTER_GAP)).ceil().max(1.0);
     (columns as usize, ((width - POSTER_GAP * (columns - 1.0)) / columns).floor())
 }
 
@@ -346,13 +351,44 @@ pub(super) fn poster(ui: &mut Ui, name: &str, art: Option<&Art>, badge: Badge, w
     }
     if poster_caption(art) {
         let color = if active { ON_SURFACE } else { ON_SURFACE_VARIANT };
-        let mut job = egui::text::LayoutJob::simple_singleline(name.to_owned(), semibold(text::LABEL), *color);
-        job.wrap = egui::text::TextWrapping::truncate_at_width(width - 4.0);
-        let galley = ui.painter().layout_job(job);
-        ui.painter().galley(Pos2::new(rect.left() + 2.0, rect.top() + height + space::S), galley, *color);
+        let at = Pos2::new(rect.left() + 2.0, rect.top() + height + space::S);
+        let room = width - 4.0;
+        let full = ui.painter().layout_no_wrap(name.to_owned(), semibold(text::LABEL), *color);
+        match caption_offset(full.size().x, room, response.has_focus(), ui.style().animation_time > 0.0, ui.input(|i| i.time)) {
+            // A focused cover's title that does not fit runs sideways on its line, the art kept.
+            Some((offset, span)) => {
+                let painter = ui.painter_at(Rect::from_min_size(at, vec2(room, full.size().y)));
+                painter.galley(at - vec2(offset, 0.0), full.clone(), *color);
+                painter.galley(at + vec2(span - offset, 0.0), full, *color);
+                ui.ctx().request_repaint();
+            }
+            None => {
+                let mut job = egui::text::LayoutJob::simple_singleline(name.to_owned(), semibold(text::LABEL), *color);
+                job.wrap = egui::text::TextWrapping::truncate_at_width(room);
+                let galley = ui.painter().layout_job(job);
+                ui.painter().galley(at, galley, *color);
+            }
+        }
     }
     focus_ring(ui, image, &response, 10);
     response
+}
+
+/// How far a cover's title has run sideways `time` seconds in, and the distance from one copy of
+/// it to the next: only while the cover has focus, motion is on and the title is wider than its
+/// `room`. Each pass waits a moment at the start so the beginning can be read. None draws the
+/// title cut short as usual.
+pub(super) fn caption_offset(text_w: f32, room: f32, focused: bool, motion: bool, time: f64) -> Option<(f32, f32)> {
+    const SPEED: f32 = 36.0;
+    const PAUSE: f32 = 1.2;
+    const GAP: f32 = 32.0;
+    if !focused || !motion || text_w <= room {
+        return None;
+    }
+    let span = text_w + GAP;
+    let pass = PAUSE + span / SPEED;
+    let phase = (time as f32).rem_euclid(pass);
+    Some((((phase - PAUSE).max(0.0) * SPEED).min(span), span))
 }
 
 /// The last tile of a Home row with more games than fit: how many there are, and the way to see
@@ -372,6 +408,39 @@ pub(super) fn all_tile(ui: &mut Ui, count: usize, said: &str, width: f32) -> Res
     let words = ui.painter().layout_no_wrap(label, semibold(text::CARD_TITLE), *ink);
     ui.painter().galley(Pos2::new(tile.center().x - words.size().x / 2.0, tile.center().y + 10.0), words, *ink);
     focus_ring(ui, tile, &response, 10);
+    response
+}
+
+/// A line of Home's List layout.
+pub(super) const LIST_ROW_H: f32 = 88.0;
+
+/// A game as a line of Home's List layout: a small cover, the title, and under it `line` (its
+/// store and when it was last played).
+pub(super) fn list_row(ui: &mut Ui, name: &str, line: &str, art: Option<&Art>, badge: Badge, width: f32) -> Response {
+    let (rect, response) = ui.allocate_exact_size(vec2(width, LIST_ROW_H), Sense::click());
+    let said = match badge {
+        Badge::Running => trf("{}, running", &[&name]),
+        Badge::NotInstalled => trf("{}, not installed", &[&name]),
+        Badge::None => name.to_owned(),
+    };
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, format!("{said}, {line}")));
+    if !ui.is_rect_visible(rect.expand(6.0)) {
+        return response;
+    }
+    let painter = ui.painter_at(rect.expand(6.0));
+    card_fill(&painter, rect, &response);
+    let cover_h = LIST_ROW_H - 2.0 * space::S;
+    let image = Rect::from_min_size(rect.min + vec2(space::S, space::S), vec2((cover_h * 3.0 / 4.0).round(), cover_h));
+    paint_cover(ui, image, name, art, badge == Badge::Running);
+    if badge == Badge::NotInstalled {
+        ui.painter_at(image).rect_filled(image, CornerRadius::same(6), Color32::from_black_alpha(120));
+    }
+    let words = Rect::from_min_max(Pos2::new(image.right() + space::M - CARD_PAD, rect.top()), rect.max);
+    let inside = ui.painter_at(rect);
+    card_line(&inside, words, LIST_ROW_H / 2.0 - 12.0, name, semibold(text::CARD_TITLE), *ON_SURFACE);
+    let below = if badge == Badge::NotInstalled { format!("{line} · {}", tr("Not installed")) } else { line.to_owned() };
+    card_line(&inside, words, LIST_ROW_H / 2.0 + 14.0, &below, regular(text::LABEL), *ON_SURFACE_VARIANT);
+    focus_ring(ui, rect, &response, radius::PANEL);
     response
 }
 

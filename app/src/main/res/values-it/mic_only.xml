@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="mic_only_action">Solo microfono</string>
+    <string name="mic_only_connecting">Connessione…</string>
+    <string name="mic_only_on">Microfono attivo</string>
+    <string name="mic_only_paused_call">In pausa per una chiamata</string>
+    <string name="mic_only_stop">Interrompi</string>
+    <string name="mic_only_stopped">Microfono spento</string>
+    <string name="mic_only_failed">Connessione a %1$s terminata</string>
+    <string name="mic_only_denied">Nessun accesso al microfono</string>
+    <string name="mic_only_unavailable">Microfono non disponibile</string>
+    <string name="mic_only_not_accepted">%1$s non ha accettato il microfono</string>
+    <string name="mic_only_busy">Microfono in uso su un altro dispositivo</string>
+</resources>

@@ -25,6 +25,7 @@ public class NvApp {
     private boolean controlTiles = true;
     private boolean apolloApps = true;
     private boolean smallStreamInputOnly;
+    private boolean micOnly;
     
     public NvApp() {}
     
@@ -105,7 +106,7 @@ public class NvApp {
 
     public Role getRole() {
         Control control = getControl();
-        if (smallStreamInputOnly && control == Control.NONE) {
+        if (micOnly || (smallStreamInputOnly && control == Control.NONE)) {
             return Role.INPUT_ONLY;
         }
         switch (control) {
@@ -131,7 +132,21 @@ public class NvApp {
     }
 
     public boolean isSmallStreamInputOnly() {
-        return smallStreamInputOnly && getControl() == Control.NONE;
+        return smallStreamInputOnly && !micOnly && getControl() == Control.NONE;
+    }
+
+    /**
+     * An input-only session that carries only this device's microphone (rlMicOnly=1), for a host that offers
+     * {@link HostCapabilities.Feature#MIC_ONLY}. It names no app, and the host starts none.
+     */
+    public static NvApp micOnly(String name) {
+        NvApp app = new NvApp(name, 0, false);
+        app.micOnly = true;
+        return app;
+    }
+
+    public boolean isMicOnly() {
+        return micOnly;
     }
 
     public void setMonitorResume(boolean monitorResume) {

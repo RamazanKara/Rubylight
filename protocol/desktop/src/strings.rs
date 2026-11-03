@@ -1,16 +1,15 @@
 //! The launcher's words. English is the source: the literal at the call site is the key, and
-//! [`tr`] returns it unchanged for English. German comes from a table written by hand
-//! (`strings/de.rs`). Other languages fall back to English; this is a preview, like the desktop
-//! client itself.
+//! [`tr`] returns it unchanged for English. Every other language has a table keyed by the English
+//! literal (`strings/<code>.rs`), worded like the Android app's translations of the same text.
 //!
 //! - `tr("Add PC")` is the text of a button, label or message.
-//! - `trf("Remove {}?", &[&name])` fills `{}` (or `{0}`, `{1}` when German needs another order).
+//! - `trf("Remove {}?", &[&name])` fills `{}` (or `{0}`, `{1}` when a language needs another order).
 //! - `en("Offline")` marks a literal in a table or constant whose text is translated where it is
 //!   used, with `tr(value)`.
 //!
-//! A test reads the UI sources, collects the literals inside these three calls and requires a
-//! German entry for each; another one finds UI calls that still take a bare literal. Nothing here
-//! allocates except `trf`, which is for text that is formatted anyway.
+//! A test reads the UI sources, collects the literals inside these three calls and requires an
+//! entry for each in every table; another one finds UI calls that still take a bare literal.
+//! Nothing here allocates except `trf`, which is for text that is formatted anyway.
 
 use std::collections::HashMap;
 use std::fmt::{Display, Write};
@@ -20,11 +19,115 @@ use std::sync::OnceLock;
 use crate::config::Language;
 
 mod de;
+mod es;
+mod fr;
+mod it;
+mod ja;
+mod ko;
+mod pl;
+mod pt_br;
+mod ru;
+mod tr;
+mod uk;
+mod vi;
+mod zh_hans;
+mod zh_hant;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// A language Nightjar has. The order is [`LANGS`]'s.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Lang {
     En,
     De,
+    Es,
+    Fr,
+    It,
+    Ja,
+    Ko,
+    Pl,
+    PtBr,
+    Ru,
+    Tr,
+    Uk,
+    Vi,
+    ZhHans,
+    ZhHant,
+}
+
+/// Each language: the system language code it answers to, its own name and its table.
+/// A language's entries: (English, its text).
+type Table = &'static [(&'static str, &'static str)];
+
+const LANGS: [(Lang, &str, &str, Table); 15] = [
+    (Lang::En, "en", "English", &[]),
+    (Lang::De, "de", "Deutsch", de::TABLE),
+    (Lang::Es, "es", "Español", es::TABLE),
+    (Lang::Fr, "fr", "Français", fr::TABLE),
+    (Lang::It, "it", "Italiano", it::TABLE),
+    (Lang::Ja, "ja", "日本語", ja::TABLE),
+    (Lang::Ko, "ko", "한국어", ko::TABLE),
+    (Lang::Pl, "pl", "Polski", pl::TABLE),
+    (Lang::PtBr, "pt", "Português (Brasil)", pt_br::TABLE),
+    (Lang::Ru, "ru", "Русский", ru::TABLE),
+    (Lang::Tr, "tr", "Türkçe", tr::TABLE),
+    (Lang::Uk, "uk", "Українська", uk::TABLE),
+    (Lang::Vi, "vi", "Tiếng Việt", vi::TABLE),
+    (Lang::ZhHans, "zh-hans", "简体中文", zh_hans::TABLE),
+    (Lang::ZhHant, "zh-hant", "繁體中文", zh_hant::TABLE),
+];
+
+impl Lang {
+    fn index(self) -> usize {
+        LANGS.iter().position(|l| l.0 == self).unwrap_or(0)
+    }
+
+    /// Its name in itself ("Deutsch").
+    pub fn name(self) -> &'static str {
+        LANGS[self.index()].2
+    }
+
+    /// Its English name, for a list whose fonts cannot draw [`Lang::name`] (Japanese in a
+    /// Russian menu: each language loads only its own system font).
+    pub fn english_name(self) -> &'static str {
+        match self {
+            Lang::En => "English",
+            Lang::De => "German",
+            Lang::Es => "Spanish",
+            Lang::Fr => "French",
+            Lang::It => "Italian",
+            Lang::Ja => "Japanese",
+            Lang::Ko => "Korean",
+            Lang::Pl => "Polish",
+            Lang::PtBr => "Portuguese (Brazil)",
+            Lang::Ru => "Russian",
+            Lang::Tr => "Turkish",
+            Lang::Uk => "Ukrainian",
+            Lang::Vi => "Vietnamese",
+            Lang::ZhHans => "Chinese (Simplified)",
+            Lang::ZhHant => "Chinese (Traditional)",
+        }
+    }
+
+    /// Whether numbers take a decimal comma ("1,5 ms"). English, Japanese, Korean and Chinese
+    /// write a point.
+    pub fn decimal_comma(self) -> bool {
+        !matches!(self, Lang::En | Lang::Ja | Lang::Ko | Lang::ZhHans | Lang::ZhHant)
+    }
+
+    /// Every language, in the settings' order.
+    #[cfg(test)]
+    pub fn all() -> impl Iterator<Item = Lang> {
+        LANGS.iter().map(|l| l.0)
+    }
+
+    /// The text of its table: what the fonts have to draw.
+    #[cfg(test)]
+    pub fn texts(self) -> impl Iterator<Item = &'static str> {
+        self.table().iter().map(|e| e.1)
+    }
+
+    fn table(self) -> Table {
+        LANGS[self.index()].3
+    }
 }
 
 static CURRENT: AtomicU8 = AtomicU8::new(0);
@@ -41,7 +144,7 @@ pub fn current() -> Lang {
     if let Some(lang) = TEST_LANG.with(std::cell::Cell::get) {
         return lang;
     }
-    if CURRENT.load(Ordering::Relaxed) == 1 { Lang::De } else { Lang::En }
+    LANGS.get(usize::from(CURRENT.load(Ordering::Relaxed))).map_or(Lang::En, |l| l.0)
 }
 
 pub fn set(lang: Lang) {
@@ -49,36 +152,63 @@ pub fn set(lang: Lang) {
     #[cfg(test)]
     TEST_LANG.with(|l| l.set(Some(lang)));
     #[cfg(not(test))]
-    CURRENT.store(u8::from(lang == Lang::De), Ordering::Relaxed);
+    CURRENT.store(u8::try_from(lang.index()).unwrap_or(0), Ordering::Relaxed);
+}
+
+/// The language a system locale code names: "de", "de-at", "pt-br", "zh-tw". Chinese is
+/// Traditional for Taiwan, Hong Kong and Macao (or a "hant" script), else Simplified.
+pub fn from_code(code: &str) -> Option<Lang> {
+    let code = code.to_ascii_lowercase().replace('_', "-");
+    let mut parts = code.split('-');
+    let language = parts.next()?;
+    if language == "zh" {
+        // A script ("zh-Hans-HK") says it; else the region does.
+        let rest: Vec<&str> = parts.collect();
+        let traditional = rest.contains(&"hant") || (!rest.contains(&"hans") && rest.iter().any(|p| matches!(*p, "tw" | "hk" | "mo")));
+        let code = if traditional { "zh-hant" } else { "zh-hans" };
+        return LANGS.iter().find(|l| l.1 == code).map(|l| l.0);
+    }
+    LANGS.iter().find(|l| l.1 == language).map(|l| l.0)
 }
 
 /// What the Language setting means on this system: Auto picks the first of the system's
 /// preferred languages that Nightjar has.
 pub fn resolve(setting: Language, system: &[String]) -> Lang {
+    chosen(setting).unwrap_or_else(|| system.iter().find_map(|code| from_code(code)).unwrap_or(Lang::En))
+}
+
+/// The language a setting names, or None for System default.
+pub fn chosen(setting: Language) -> Option<Lang> {
     match setting {
-        Language::English => Lang::En,
-        Language::German => Lang::De,
-        Language::System => system
-            .iter()
-            .find_map(|code| match code.as_str() {
-                "de" => Some(Lang::De),
-                "en" => Some(Lang::En),
-                _ => None,
-            })
-            .unwrap_or(Lang::En),
+        Language::System => None,
+        Language::English => Some(Lang::En),
+        Language::German => Some(Lang::De),
+        Language::Spanish => Some(Lang::Es),
+        Language::French => Some(Lang::Fr),
+        Language::Italian => Some(Lang::It),
+        Language::Japanese => Some(Lang::Ja),
+        Language::Korean => Some(Lang::Ko),
+        Language::Polish => Some(Lang::Pl),
+        Language::PortugueseBrazil => Some(Lang::PtBr),
+        Language::Russian => Some(Lang::Ru),
+        Language::Turkish => Some(Lang::Tr),
+        Language::Ukrainian => Some(Lang::Uk),
+        Language::Vietnamese => Some(Lang::Vi),
+        Language::ChineseSimplified => Some(Lang::ZhHans),
+        Language::ChineseTraditional => Some(Lang::ZhHant),
     }
 }
 
-fn german() -> &'static HashMap<&'static str, &'static str> {
-    static TABLE: OnceLock<HashMap<&'static str, &'static str>> = OnceLock::new();
-    TABLE.get_or_init(|| de::TABLE.iter().copied().collect())
+fn lookup(lang: Lang) -> &'static HashMap<&'static str, &'static str> {
+    static TABLES: [OnceLock<HashMap<&'static str, &'static str>>; LANGS.len()] = [const { OnceLock::new() }; LANGS.len()];
+    TABLES[lang.index()].get_or_init(|| lang.table().iter().copied().collect())
 }
 
-/// `text` in `lang`: the German entry when there is one, else `text` itself.
+/// `text` in `lang`: its entry when there is one, else `text` itself.
 pub fn translate(lang: Lang, text: &str) -> &str {
     match lang {
         Lang::En => text,
-        Lang::De => german().get(text).copied().unwrap_or(text),
+        lang => lookup(lang).get(text).copied().unwrap_or(text),
     }
 }
 
@@ -193,9 +323,9 @@ pub(crate) mod tests {
 
     #[test]
     fn the_language_setting_follows_the_system_only_on_auto() {
-        let system = vec!["fr".to_owned(), "de".to_owned(), "en".to_owned()];
+        let system = vec!["nl-nl".to_owned(), "de-at".to_owned(), "en".to_owned()];
         assert_eq!(resolve(Language::System, &system), Lang::De, "the first language Nightjar has");
-        assert_eq!(resolve(Language::System, &["fr".to_owned()]), Lang::En, "else English");
+        assert_eq!(resolve(Language::System, &["nl".to_owned()]), Lang::En, "else English");
         assert_eq!(resolve(Language::System, &[]), Lang::En);
         assert_eq!(resolve(Language::English, &system), Lang::En);
         assert_eq!(resolve(Language::German, &[]), Lang::De);
@@ -204,7 +334,7 @@ pub(crate) mod tests {
     // ---- The table against the sources. ----
 
     /// The UI sources, up to their test modules.
-    const SOURCES: [(&str, &str); 27] = [
+    const SOURCES: [(&str, &str); 28] = [
         ("ui.rs", include_str!("ui.rs")),
         ("ui/files.rs", include_str!("ui/files.rs")),
         ("ui/widgets.rs", include_str!("ui/widgets.rs")),
@@ -232,11 +362,13 @@ pub(crate) mod tests {
         ("pin_ui.rs", include_str!("pin_ui.rs")),
         ("ui/help.rs", include_str!("ui/help.rs")),
         ("menu_style.rs", include_str!("menu_style.rs")),
+        ("stream_menu.rs", include_str!("stream_menu.rs")),
     ];
 
     /// Read for its marked texts and its toasts only: the stream code keeps its own overlay lines.
-    const MARKED_ONLY: [(&str, &str); 12] = [
+    const MARKED_ONLY: [(&str, &str); 13] = [
         ("glyphs.rs", include_str!("glyphs.rs")),
+        ("power.rs", include_str!("power.rs")),
         ("stream/mod.rs", include_str!("stream/mod.rs")),
         ("stream/negotiate.rs", include_str!("stream/negotiate.rs")),
         ("stream/connect.rs", include_str!("stream/connect.rs")),
@@ -523,51 +655,109 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn every_marked_text_has_a_german_entry() {
-        let table = german();
-        let missing: Vec<String> = marked()
-            .into_iter()
-            .filter(|m| !table.contains_key(m.text.as_str()))
-            .map(|m| format!("{}:{}: {:?}", m.file, m.line, m.text))
-            .collect();
-        assert!(missing.is_empty(), "no German for:\n{}", missing.join("\n"));
-    }
-
-    #[test]
-    fn the_german_table_is_clean() {
-        let mut seen = std::collections::HashSet::new();
-        for (english, german) in de::TABLE {
-            assert!(seen.insert(*english), "{english:?} is in the table twice");
-            assert!(!english.trim().is_empty() && !german.trim().is_empty(), "{english:?} has an empty side");
-            let (e, g) = (placeholders(english), placeholders(german));
-            let sorted = |p: &[(usize, bool)]| {
-                let mut indexes: Vec<usize> = p.iter().map(|p| p.0).collect();
-                indexes.sort_unstable();
-                indexes
-            };
-            assert_eq!(sorted(&e), sorted(&g), "{{}} differ in {english:?}");
-            // With several placeholders the German sentence may need another order, so it names
-            // the English argument each one shows: {0}, {1}, ...
-            if e.len() > 1 {
-                assert!(g.iter().all(|p| p.1), "several placeholders need {{0}}, {{1}}, ... in German: {english:?}");
-            }
-            assert_eq!(english.starts_with(' '), german.starts_with(' '), "leading space differs in {english:?}");
-            assert_eq!(english.ends_with('\n'), german.ends_with('\n'), "trailing newline differs in {english:?}");
-            assert_eq!(english.matches('\n').count(), german.matches('\n').count(), "line breaks differ in {english:?}");
+    fn every_marked_text_has_an_entry_in_every_language() {
+        let marked = marked();
+        for (lang, ..) in &LANGS[1..] {
+            let table = lookup(*lang);
+            let missing: Vec<String> = marked
+                .iter()
+                .filter(|m| !table.contains_key(m.text.as_str()))
+                .map(|m| format!("{}:{}: {:?}", m.file, m.line, m.text))
+                .collect();
+            assert!(missing.is_empty(), "no {lang:?} for:\n{}", missing.join("\n"));
         }
-        let used: std::collections::HashSet<String> = marked().into_iter().map(|m| m.text).collect();
-        let unused: Vec<&str> = de::TABLE.iter().map(|(e, _)| *e).filter(|e| !used.contains(*e)).collect();
-        assert!(unused.is_empty(), "German entries no source uses (renamed English text?):\n{}", unused.join("\n"));
+    }
+
+    /// Texts a language may leave in English: names, key caps, units and loanwords. Any other
+    /// entry that equals its English is a label nobody translated ("Back" shipped that way).
+    const SAME_IN_ENGLISH: &[&str] = &[
+        "Xbox", "PlayStation", "Nintendo", "HDR", "CPU", "GPU", "Guide", "Start", "Radeon Anti-Lag", "Radeon Chill", "Radeon Boost",
+        "Radeon Image Sharpening", "Enhanced Sync", "Frame Rate Target Control", "AMD Fluid Motion Frames", "Radeon Super Resolution",
+        "Rubylight {}", "NVIDIA GameStream", "Nightjar {}", "{} %", "Ctrl", "Shift", "Ctrl+F", "V-Sync", "{} ms", "{} fps", "OK",
+        "Share / Misc", "PIN", "Co-op", "Enter", "Del", "{} s", "{} min", "Stereo", "Codec", "Back / Select", "Software", "Video", "Audio",
+        "Host", "Jitter", "Offline", "PCs", "Streaming", "App", "Relay (DERP)", "Store", "Bitrate", "Debug", "Headset", "Overlay",
+        "Frame pacing", "Input-only", "Mouse", "Display ({} Hz)", "X / West", "Paddle 1", "Paddle 2", "Paddle 3", "Paddle 4", "Type",
+        "Options", "Axes", "Compact", "Direct", "{} minutes", "Passphrase", "Home", "Upscaling", "Folder", "Layout", "Logs", "Link",
+        "5.1 surround", "7.1 surround", "7.1.4 surround",
+    ];
+
+    #[test]
+    fn no_table_leaves_a_label_in_english() {
+        for (lang, _, _, table) in &LANGS[1..] {
+            let untranslated: Vec<&str> = table.iter().filter(|(english, text)| english == text && !SAME_IN_ENGLISH.contains(english)).map(|e| e.0).collect();
+            assert!(untranslated.is_empty(), "the {lang:?} table leaves these in English: {untranslated:?}");
+        }
     }
 
     #[test]
-    fn no_shown_text_says_experimental_in_either_language() {
+    fn every_table_is_clean() {
+        let used: std::collections::HashSet<String> = marked().into_iter().map(|m| m.text).collect();
+        for (lang, _, _, table) in &LANGS[1..] {
+            let mut seen = std::collections::HashSet::new();
+            for (english, text) in *table {
+                assert!(seen.insert(*english), "{english:?} is in the {lang:?} table twice");
+                assert!(!english.trim().is_empty() && !text.trim().is_empty(), "{english:?} has an empty side in {lang:?}");
+                let (e, t) = (placeholders(english), placeholders(text));
+                let sorted = |p: &[(usize, bool)]| {
+                    let mut indexes: Vec<usize> = p.iter().map(|p| p.0).collect();
+                    indexes.sort_unstable();
+                    indexes
+                };
+                assert_eq!(sorted(&e), sorted(&t), "{{}} differ in {lang:?} {english:?}");
+                // With several placeholders a translation may need another order, so it names
+                // the English argument each one shows: {0}, {1}, ...
+                if e.len() > 1 {
+                    assert!(t.iter().all(|p| p.1), "several placeholders need {{0}}, {{1}}, ... in {lang:?}: {english:?}");
+                }
+                assert_eq!(english.starts_with(' '), text.starts_with(' '), "leading space differs in {lang:?} {english:?}");
+                assert_eq!(english.ends_with('\n'), text.ends_with('\n'), "trailing newline differs in {lang:?} {english:?}");
+                assert_eq!(english.matches('\n').count(), text.matches('\n').count(), "line breaks differ in {lang:?} {english:?}");
+            }
+            let unused: Vec<&str> = table.iter().map(|(e, _)| *e).filter(|e| !used.contains(*e)).collect();
+            assert!(unused.is_empty(), "{lang:?} entries no source uses (renamed English text?):\n{}", unused.join("\n"));
+        }
+    }
+
+    #[test]
+    fn every_language_can_be_chosen_in_the_settings() {
+        assert_eq!(Language::ALL[0], Language::System);
+        let offered: Vec<Lang> = Language::ALL.iter().filter_map(|l| chosen(*l)).collect();
+        assert_eq!(offered, LANGS.map(|l| l.0), "the settings list every language once, in order");
+    }
+
+    #[test]
+    fn the_system_code_picks_the_language_and_script() {
+        for code in ["zh-CN", "zh_CN", "zh-Hans", "zh-Hans-CN", "zh-SG", "zh", "zh-Hans-HK"] {
+            assert_eq!(from_code(code), Some(Lang::ZhHans), "{code}");
+        }
+        for code in ["zh-TW", "zh_TW", "zh-Hant", "zh-Hant-TW", "zh-HK", "zh-MO", "zh-Hant-CN"] {
+            assert_eq!(from_code(code), Some(Lang::ZhHant), "{code}");
+        }
+        assert_eq!(from_code("pt-BR"), Some(Lang::PtBr));
+        assert_eq!(from_code("pt_br"), Some(Lang::PtBr));
+        assert_eq!(from_code("vi-VN"), Some(Lang::Vi));
+        assert_eq!(resolve(Language::System, &["zh-tw".to_owned(), "en-us".to_owned()]), Lang::ZhHant);
+        assert_eq!(from_code("de-AT"), Some(Lang::De));
+        assert_eq!(from_code("en_US"), Some(Lang::En));
+        assert_eq!(from_code("nl"), None);
+        assert_eq!(from_code(""), None);
+        for lang in LANGS.map(|l| l.0) {
+            assert_eq!(from_code(LANGS[lang.index()].1), Some(lang), "{lang:?} answers to its own code");
+        }
+    }
+
+    #[test]
+    fn no_shown_text_says_experimental_in_any_language() {
         // Features ship plainly (ux/labels.md); setting keys such as experimental_packed_444 are not text.
         let says = |text: &str| text.to_lowercase().contains("experiment");
         let labelled: Vec<String> = marked().into_iter().map(|m| m.text).filter(|t| says(t)).collect();
         assert!(labelled.is_empty(), "English text says Experimental:\n{}", labelled.join("\n"));
-        let german: Vec<&str> = de::TABLE.iter().map(|(_, g)| *g).filter(|g| says(g)).collect();
-        assert!(german.is_empty(), "German text says Experimentell:\n{}", german.join("\n"));
+        // The word in each language, as its Android translation would say it.
+        let words = ["experiment", "expérimental", "sperimental", "eksperyment", "эксперимент", "експеримент", "deneysel", "実験", "실험", "实验", "實驗"];
+        for (lang, _, _, table) in &LANGS[1..] {
+            let found: Vec<&str> = table.iter().map(|(_, t)| *t).filter(|t| words.iter().any(|w| t.to_lowercase().contains(w))).collect();
+            assert!(found.is_empty(), "{lang:?} text says Experimental:\n{}", found.join("\n"));
+        }
         let shown = |file: &str, text: &str| marked().iter().any(|m| m.file == file && m.text == text);
         for (file, text) in [("main.rs", "Send image to PC"), ("main.rs", "Copy PC image here"), ("ui/pages.rs", "Shared folders"),
             ("ui/settings.rs", "Full chroma"), ("ui/pages.rs", "Co-op"), ("ui/settings.rs", "Keep streaming when the network changes"), ("ui/settings.rs", "USB forwarding")]
@@ -785,7 +975,7 @@ pub(crate) mod tests {
         // The catch-all: whatever call it is in, a literal that has a German entry and is not in
         // tr(), trf(), en() or a helper's text argument would show in English. The stream
         // overlay's labels stay English and are not read here.
-        let table = german();
+        let table = lookup(Lang::De);
         let at: std::collections::HashSet<(&str, usize)> = marked().iter().map(|m| (m.file, m.at)).collect();
         let mut found = Vec::new();
         for (file, source) in SOURCES {

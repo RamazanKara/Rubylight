@@ -89,8 +89,9 @@ public final class ShellBar {
 
         Menu menu = new PopupMenu(activity, bar).getMenu();
         activity.getMenuInflater().inflate(R.menu.shell, menu);
-        LayoutInflater inflater = LayoutInflater.from(activity);
-        int gap = activity.getResources().getDimensionPixelSize(R.dimen.space_s);
+        // The bar's own context: on a screen that is compact on a TV the bar keeps the full size (NightjarActivity.fullSizeContext).
+        LayoutInflater inflater = LayoutInflater.from(bar.getContext());
+        int gap = bar.getResources().getDimensionPixelSize(R.dimen.space_s);
         for (int i = 0; i < menu.size(); i++) {
             MenuItem item = menu.getItem(i);
             MaterialButton button = (MaterialButton) inflater.inflate(R.layout.view_shell_item, items, false);
@@ -114,7 +115,29 @@ public final class ShellBar {
             // The bar's end is a wall there, as on a TV launcher's tab row; Down still reaches the content.
             if (i == menu.size() - 1 && isTelevision(activity)) button.setNextFocusRightId(button.getId());
         }
+        if (activity instanceof NightjarActivity) ((NightjarActivity) activity).setShellDestination(current);
         refresh(activity);
+    }
+
+    /**
+     * The destination L1 ({@code forward} false) or R1 leads to from {@code current}: the bar's next tab, round from
+     * the last to the first. Home counts only while the bar shows it.
+     */
+    public static Destination next(Destination current, boolean forward, boolean homeShown) {
+        Destination[] all = Destination.values();
+        int at = current.ordinal();
+        for (int i = 1; i < all.length; i++) {
+            Destination candidate = all[Math.floorMod(at + (forward ? i : -i), all.length)];
+            if (candidate != Destination.HOME || homeShown) return candidate;
+        }
+        return current;
+    }
+
+    /** Opens the destination L1 or R1 leads to from {@code current}, as its tab would; false when there is none. */
+    public static boolean step(Activity activity, Destination current, boolean forward) {
+        Destination target = next(current, forward, current == Destination.HOME || homeAvailable(activity));
+        open(activity, current, target);
+        return target != current;
     }
 
     /**

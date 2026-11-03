@@ -1,10 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- The TV settings rail's selector: the amber ring around the D-pad's row, on the pill's shape. No scale.
+<!-- The TV settings rail's selector: the D-pad's row is filled and ringed in amber, the same focus as the right pane's
+     (tv_settings_row_focus), on the pill's shape. No scale, and no fade: the ring leaves a row at once, so two rows never
+     look focused (nightjar#7). The current section is not filled (tv_settings_rail_row).
      The <inset> is for the list, which pads its rows by the selector's padding and widens the selector by it again: alone
-     it leaves the ring on the row's edge, 4dp left of the pill (tv_settings_rail_row) and of the TV edge. The layer's
-     insets then put the ring on the pill. -->
-<selector xmlns:android="http://schemas.android.com/apk/res/android"
-    android:exitFadeDuration="@android:integer/config_shortAnimTime">
+     it leaves the ring on the row's edge, 4dp left of the pill and of the TV edge. The layer's insets then put the ring
+     on the pill. -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
     <item android:state_pressed="true">
         <inset android:insetLeft="4dp" android:insetRight="4dp" android:insetTop="2dp" android:insetBottom="2dp">
             <layer-list>
@@ -12,6 +13,7 @@
                     <shape android:shape="rectangle">
                         <corners android:radius="16dp" />
                         <solid android:color="?attr/colorControlHighlight" />
+                        <stroke android:width="?attr/nightjarFocusRingWidth" android:color="?attr/colorPrimary" />
                     </shape>
                 </item>
             </layer-list>
@@ -23,6 +25,7 @@
                 <item android:left="4dp" android:right="4dp" android:top="2dp" android:bottom="2dp">
                     <shape android:shape="rectangle">
                         <corners android:radius="16dp" />
+                        <solid android:color="@color/tv_rail_fill" />
                         <stroke android:width="?attr/nightjarFocusRingWidth" android:color="?attr/colorPrimary" />
                     </shape>
                 </item>

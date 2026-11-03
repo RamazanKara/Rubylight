@@ -30,13 +30,19 @@ fn back_returns_to_the_screen_and_the_item_it_left() {
     assert_eq!(l.screen, Screen::Game { host: 1, app: 5 });
     l.focused_key = Some("play".into());
     let mut commands = Vec::new();
-    l.back(&mut commands);
+    l.back(&mut commands, true);
     assert_eq!(l.screen, Screen::Home);
     assert_eq!(l.restore_key.as_deref(), Some("game:steam:570"));
     assert!(l.focus_screen, "the first item takes focus if the remembered one is gone");
-    // Home is the end of the line.
-    l.back(&mut commands);
+    // Home is the end of the line: the keyboard's Escape does nothing there, a controller's B
+    // asks to close Nightjar.
+    l.back(&mut commands, false);
+    assert!(matches!(l.dialog, Dialog::None) && l.screen == Screen::Home, "Escape on Home stays harmless");
+    l.back(&mut commands, true);
     assert_eq!(l.screen, Screen::Home);
+    assert!(matches!(l.dialog, Dialog::ConfirmExit));
+    l.back(&mut commands, true);
+    assert!(matches!(l.dialog, Dialog::None) && commands.is_empty(), "a second Back keeps Nightjar open");
 }
 
 #[test]
@@ -45,21 +51,21 @@ fn back_ends_on_home_when_it_is_on_and_on_the_pcs_when_it_is_not() {
     on.go(Screen::Hosts);
     on.open(Screen::Apps(1));
     let mut commands = Vec::new();
-    on.back(&mut commands);
+    on.back(&mut commands, true);
     assert_eq!(on.screen, Screen::Hosts);
-    on.back(&mut commands);
+    on.back(&mut commands, true);
     assert_eq!(on.screen, Screen::Home, "the PCs list goes back to Home");
 
     let mut off = launcher(false, true);
     off.go(Screen::Hosts);
     off.open(Screen::Apps(1));
-    off.back(&mut commands);
-    off.back(&mut commands);
+    off.back(&mut commands, true);
+    off.back(&mut commands, true);
     assert_eq!(off.screen, Screen::Hosts, "Open on Home is off: the PCs are the root");
 
     let mut empty = launcher(true, false);
     empty.go(Screen::Hosts);
-    empty.back(&mut commands);
+    empty.back(&mut commands, true);
     assert_eq!(empty.screen, Screen::Hosts, "no library, no Home to go back to");
 }
 
@@ -74,7 +80,7 @@ fn settings_open_once_and_back_leaves_them_where_they_were_opened() {
     assert_eq!(l.screen, Screen::Settings);
     assert_eq!(l.trail.len(), 1, "Start inside Settings does not stack screens");
     let mut commands = Vec::new();
-    l.back(&mut commands);
+    l.back(&mut commands, true);
     assert_eq!(l.screen, Screen::Home);
     assert!(commands.iter().any(|c| matches!(c, Command::SaveSettings)), "leaving Settings saves them");
 }
@@ -89,10 +95,10 @@ fn start_from_a_library_or_game_page_returns_to_it() {
         l.open_settings();
         assert_eq!(l.screen, Screen::Settings);
         let mut commands = Vec::new();
-        l.back(&mut commands);
+        l.back(&mut commands, true);
         assert_eq!(l.screen, page, "B returns to where Start was pressed");
         assert_eq!(l.restore_key.as_deref(), Some("play"));
-        l.back(&mut commands);
+        l.back(&mut commands, true);
         assert_eq!(l.screen, Screen::Home, "and the page still goes back to the root");
     }
     // From a destination, Settings replaces it as before.
@@ -100,7 +106,7 @@ fn start_from_a_library_or_game_page_returns_to_it() {
     l.go(Screen::Hosts);
     l.open_settings();
     let mut commands = Vec::new();
-    l.back(&mut commands);
+    l.back(&mut commands, true);
     assert_eq!(l.screen, Screen::Hosts);
 }
 
@@ -111,7 +117,7 @@ fn a_game_page_for_another_copy_replaces_the_page() {
     l.open(Screen::Game { host: 1, app: 5 });
     l.go(Screen::Game { host: 2, app: 9 });
     let mut commands = Vec::new();
-    l.back(&mut commands);
+    l.back(&mut commands, true);
     assert_eq!(l.screen, Screen::Home, "one Back, not one per copy");
 }
 
@@ -386,7 +392,19 @@ fn every_state() -> Vec<State> {
         state("sleep not allowed", record("Guarded", true, false), Reach::Online, Some(sleep_answer(false)), Vec::new()),
         // Has Files.
         state("native api", record("Native", true, false), Reach::Online, Some(files::tests::native_answer()), Vec::new()),
+        // Has Microphone only.
+        state("microphone only", record("Mic", true, false), Reach::Online, Some(mic_only_answer(true)), Vec::new()),
     ]
+}
+
+/// A native PC's answer with its native read merged in: `session.mic_only` listed, with or
+/// without this device's launch permission.
+fn mic_only_answer(launch: bool) -> nightjar_core::http::ServerInfo {
+    let mut info = files::tests::native_answer();
+    let mut native = files::tests::native("\"session.mic_only\"", false, false);
+    native.capabilities.permissions.launch = launch;
+    crate::hosts::merge_native(&mut info, Some(&native));
+    info
 }
 
 /// A paired PC's answer with the power-action fields, sleep allowed for this device or not.
@@ -410,6 +428,54 @@ fn the_destinations_read_home_pcs_settings_help() {
     assert_eq!(screens, [Screen::Home, Screen::Hosts, Screen::Settings, Screen::Help]);
 }
 
+/// L1 and R1 step through the destinations, round at the ends, and leave a dialog alone.
+#[test]
+fn the_shoulders_step_through_the_destinations() {
+    let mut f = Frames::new(record("Desk", true, false), Reach::Online);
+    // Home is offered once a library is there to show.
+    use nightjar_core::http::native_api::library::{Artwork, Game, Library};
+    let game = Game {
+        install_id: "install-0".into(),
+        app_id: 1000,
+        title: "Game 00".into(),
+        game_id: None,
+        store: None,
+        installed: Some(true),
+        running: false,
+        artwork: Artwork { cover: None, version: String::new() },
+    };
+    f.hosts.list[0].native.library = Some(Library { revision: "r1".into(), games: vec![game] });
+    f.l.go(Screen::Home);
+    f.settle();
+    let step = |f: &mut Frames, forward: bool| {
+        let mut commands = Vec::new();
+        f.l.step_destination(&f.ctx, forward, &mut commands);
+        f.settle();
+        commands
+    };
+    step(&mut f, true);
+    assert_eq!(f.l.screen, Screen::Hosts, "R1 from Home");
+    step(&mut f, false);
+    assert_eq!(f.l.screen, Screen::Home, "L1 back");
+    step(&mut f, false);
+    assert_eq!(f.l.screen, Screen::Help, "L1 from Home goes round to Help");
+    step(&mut f, true);
+    assert_eq!(f.l.screen, Screen::Home, "R1 from Help goes round to Home");
+    // Settings is left saved, as its button leaves it.
+    step(&mut f, true);
+    step(&mut f, true);
+    assert_eq!(f.l.screen, Screen::Settings);
+    assert!(step(&mut f, true).iter().any(|c| matches!(c, Command::SaveSettings)));
+    assert_eq!(f.l.screen, Screen::Help);
+    // Over a dialog nothing moves.
+    f.l.go(Screen::Home);
+    pad_press(&mut f, Key::Escape);
+    assert!(matches!(f.l.dialog, Dialog::ConfirmExit));
+    assert!(step(&mut f, true).is_empty());
+    assert_eq!(f.l.screen, Screen::Home);
+    assert!(matches!(f.l.dialog, Dialog::ConfirmExit));
+}
+
 #[test]
 fn destinations_replace_each_other_and_back_ends_at_the_root() {
     let mut l = launcher(true, true);
@@ -423,7 +489,7 @@ fn destinations_replace_each_other_and_back_ends_at_the_root() {
     assert_eq!((l.screen, l.trail.len()), (Screen::Home, 0), "Home is the root again");
     l.switch(Screen::Hosts);
     let mut commands = Vec::new();
-    l.back(&mut commands);
+    l.back(&mut commands, true);
     assert_eq!(l.screen, Screen::Home);
 }
 
@@ -435,13 +501,13 @@ fn profiles_and_shortcuts_pop_back_to_settings() {
     l.focused_key = Some("profiles-link".into());
     l.open(Screen::Profiles);
     let mut commands = Vec::new();
-    l.back(&mut commands);
+    l.back(&mut commands, true);
     assert_eq!(l.screen, Screen::Settings);
     assert_eq!(l.restore_key.as_deref(), Some("profiles-link"), "the row that opened it takes focus");
     assert_eq!(l.trail.len(), 1, "Settings still goes back to Home in one step");
     l.open(Screen::Shortcuts);
-    l.back(&mut commands);
-    l.back(&mut commands);
+    l.back(&mut commands, true);
+    l.back(&mut commands, true);
     assert_eq!(l.screen, Screen::Home);
 }
 
@@ -951,6 +1017,7 @@ fn at_150_percent_in_german_every_settings_page_fits_the_width() {
         Dialog::Shortcut { id: None, name: String::new(), chord: String::new(), error: Some("Use between 1 and 8 keys in each chord.".into()) },
         Dialog::DeleteProfile { id: 1, name: "Travel".into() },
         Dialog::DeleteShortcut { id: "a".into(), name: "Task manager".into() },
+        Dialog::KeptSettings { pcs: vec![KeptPc { name: "Gaming PC".into(), own: true, games: 12 }] },
     ] {
         let name = format!("{:?}", std::mem::discriminant(&dialog));
         f.l.dialog = dialog;
@@ -1253,14 +1320,29 @@ fn every_option_is_reachable_with_the_keyboard() {
                 HostOption::Remove => matches!(f.l.dialog, Dialog::ConfirmRemove { .. }),
                 HostOption::PairOtp => matches!(f.l.dialog, Dialog::Otp { .. }),
                 HostOption::QuitApp => matches!(f.l.dialog, Dialog::ConfirmQuit { .. }),
+                HostOption::MicOnly => said(|c| matches!(c, Command::MicOnly { .. })) && f.no_dialog(),
             };
             assert!(ok, "{state}: {} by keys (entry {n})", option.label());
         }
     }
     use HostOption::*;
-    for option in [OpenLibrary, Resume, QuitApp, Pair, PairOtp, Wake, Sleep, Files, Settings, Details, Rename, Unpair, PairingHelp, CheckAgain, Remove] {
+    for option in [OpenLibrary, Resume, QuitApp, Pair, PairOtp, Wake, Sleep, Files, Settings, Details, Rename, Unpair, PairingHelp, CheckAgain, Remove, MicOnly] {
         assert!(seen.contains(&option), "no state reaches {}", option.label());
     }
+}
+
+#[test]
+fn microphone_only_is_offered_only_where_the_pc_lets_this_device_start_it() {
+    let offered = |reach, info| {
+        let frames = Frames::with(record("Mic", true, false), reach, Some(info), Vec::new());
+        host_options(&frames.hosts.list[0]).contains(&HostOption::MicOnly)
+    };
+    assert!(offered(Reach::Online, mic_only_answer(true)));
+    // Without Launch apps, offline, or before the native read (and on stock hosts) it stays hidden.
+    assert!(!offered(Reach::Online, mic_only_answer(false)));
+    assert!(!offered(Reach::Offline, mic_only_answer(true)));
+    assert!(!offered(Reach::Online, files::tests::native_answer()));
+    assert!(!offered(Reach::Online, sleep_answer(true)));
 }
 
 // ---- A PC's details page. ----
@@ -1338,6 +1420,55 @@ https://192.0.2.7:47990"));
 fn click_text(f: &mut Frames, text: &str) -> Vec<Command> {
     let at = f.placed.iter().find(|(t, ..)| t == text).unwrap_or_else(|| panic!("{text:?} is not drawn: {:?}", f.drawn)).1.center();
     f.click_at(at, egui::PointerButton::Primary)
+}
+
+#[test]
+fn settings_a_pc_kept_before_the_update_are_listed_once_and_reset_only_on_request() {
+    // As 4.1.0 could leave it: Frame rate pinned for the whole PC, and one game's own HDR.
+    let mut pinned = record("Gaming PC", true, false);
+    pinned.settings = Some(serde_json::from_str(r#"{"fps":120}"#).unwrap());
+    pinned.save_app_settings("a", 1, serde_json::from_str(r#"{"hdr":true}"#).unwrap());
+    let mut f = Frames::new(pinned, Reach::Online);
+    let line = "Gaming PC: PC settings, 1 game";
+
+    assert!(f.l.show_kept_settings_once(&f.hosts.list), "the look is saved as done");
+    assert!(matches!(&f.l.dialog, Dialog::KeptSettings { pcs } if pcs == &[KeptPc { name: "Gaming PC".into(), own: true, games: 1 }]));
+    f.settle();
+    assert!(f.drawn.iter().any(|t| t == line), "{:?}", f.drawn);
+    // Keep has focus, so A alone drops nothing.
+    let commands = f.press(Key::Enter);
+    assert!(!commands.iter().any(|c| matches!(c, Command::ResetKeptSettings)));
+    assert!(f.no_dialog());
+    assert!(!f.l.show_kept_settings_once(&f.hosts.list), "once");
+    assert!(f.no_dialog());
+
+    f.l.settings.kept_settings_checked = false;
+    f.l.show_kept_settings_once(&f.hosts.list);
+    f.settle();
+    assert!(matches!(click_text(&mut f, "Reset all")[..], [Command::ResetKeptSettings]));
+    assert!(f.no_dialog());
+
+    // German chosen: the look runs at start, before a frame applies the language, and the line
+    // still reads in German once drawn.
+    f.l.settings.kept_settings_checked = false;
+    f.l.settings.language = crate::config::Language::German;
+    f.l.show_kept_settings_once(&f.hosts.list);
+    f.settle();
+    assert!(f.drawn.iter().any(|t| t == "Gaming PC: PC-Einstellungen, 1 Spiel"), "{:?}", f.drawn);
+    f.l.close_dialog();
+    f.l.settings.language = crate::config::Language::default();
+    f.settle();
+
+    // Another dialog open at start: the look waits for the next start.
+    f.l.settings.kept_settings_checked = false;
+    f.l.dialog = Dialog::PairingHelp;
+    assert!(!f.l.show_kept_settings_once(&f.hosts.list));
+    assert!(!f.l.settings.kept_settings_checked);
+    // Nothing kept: no dialog, and the look is done all the same.
+    f.l.dialog = Dialog::None;
+    f.hosts.list[0].record.clear_own_settings();
+    assert!(f.l.show_kept_settings_once(&f.hosts.list));
+    assert!(f.no_dialog());
 }
 
 #[test]
@@ -2377,6 +2508,31 @@ fn home_without_pcs_speaks_of_pcs() {
     assert!(!f.drawn.iter().any(|t| t.to_lowercase().contains("host")), "{:?}", f.drawn);
 }
 
+/// A saved PC is on Home from the first frame, before it has answered: "No PCs yet" never flashes on a start.
+#[test]
+fn a_saved_pc_that_has_not_answered_yet_is_not_no_pcs() {
+    crate::theme::own_palette();
+    let ctx = egui::Context::default();
+    crate::theme::apply(&ctx);
+    let mut l = launcher(true, false);
+    l.identity_ready = true;
+    let mut f = Frames::over(ctx, l, Hosts::without_discovery(vec![record("Desk", true, false)], Arc::new(|| {})));
+    f.l.go(Screen::Home);
+    f.settle();
+    assert!(!shows(&f, "No PCs yet"), "{:?}", f.drawn);
+}
+
+/// A saved PC that answers as offline with no library saved is still its card on Home, with Wake in its options.
+#[test]
+fn an_offline_pc_with_nothing_saved_is_a_card_not_no_pcs() {
+    let mut f = Frames::new(record("Den", true, true), Reach::Offline);
+    f.l.go(Screen::Home);
+    f.settle();
+    assert!(!shows(&f, "No PCs yet"), "{:?}", f.drawn);
+    assert!(shows(&f, "PCs") && shows(&f, "Den"), "{:?}", f.drawn);
+    assert!(host_options(&f.hosts.list[0]).contains(&HostOption::Wake));
+}
+
 /// A settings row stays a readable width on a wide window instead of stretching across it.
 #[test]
 fn rows_keep_a_readable_width_on_a_wide_window() {
@@ -2847,6 +3003,25 @@ fn polish_screenshots() {
         shoot(&mut f, "home-focus-moved");
         f.scroll_to_end();
         shoot(&mut f, "home-end");
+        // Home's View: its menu, then each layout, grouping and card size.
+        f.l.go(Screen::Home);
+        f.settle();
+        if let Some(view) = f.placed.iter().find(|(t, r, _)| t == "View" && r.center().y < 80.0).map(|p| p.1) {
+            f.click_at(view.center(), egui::PointerButton::Primary);
+            shoot(&mut f, "home-view-menu");
+            f.press(Key::Escape);
+        }
+        for (layout, group, card) in [
+            (HomeLayout::Grid, HomeGroup::Store, CardSize::Medium),
+            (HomeLayout::Grid, HomeGroup::None, CardSize::Small),
+            (HomeLayout::Rows, HomeGroup::None, CardSize::Large),
+            (HomeLayout::Rows, HomeGroup::Store, CardSize::Small),
+        ] {
+            (f.l.settings.home_layout, f.l.settings.home_group, f.l.settings.home_card_size) = (layout, group, card);
+            let name = format!("home-view-{}-{}-{}", layout.label(), group.label(), card.label()).to_lowercase();
+            shoot(&mut f, &name);
+        }
+        (f.l.settings.home_layout, f.l.settings.home_group, f.l.settings.home_card_size) = (HomeLayout::Rows, HomeGroup::Store, CardSize::Medium);
         // Help as a returning user meets it, Home in the top bar (the README's shot).
         f.l.go(Screen::Help);
         shoot(&mut f, "help-returning");
@@ -3390,9 +3565,11 @@ fn home_opens_all_games_from_its_top_row_when_every_row_fits() {
     f.settle();
     assert!(!f.drawn.iter().any(|t| t.strip_prefix("All ").is_some_and(|n| n.parse::<usize>().is_ok())), "every row fits, no All tile: {:?}", f.drawn);
     let stops = header_stops(&mut f);
-    assert_eq!(stops.len(), 5, "Home, PCs, Settings, Help and All games: {stops:?}");
+    assert_eq!(stops.len(), 6, "Home, PCs, Settings, Help, All games and View: {stops:?}");
     let action = f.placed.iter().find(|(t, r, _)| t == "All games" && r.center().y < 80.0).map(|p| p.1).expect("All games in the top row");
-    assert!(stops[4].contains_rect(action) && 1280.0 - stops[4].right() < 80.0, "last for Tab, at the right edge: {stops:?}");
+    let view = f.placed.iter().find(|(t, r, _)| t == "View" && r.center().y < 80.0).map(|p| p.1).expect("View in the top row");
+    assert!(stops[4].contains_rect(action), "the page's first action for Tab: {stops:?}");
+    assert!(stops[5].contains_rect(view) && 1280.0 - stops[5].right() < 80.0, "View last, at the right edge: {stops:?}");
     // Right from the last destination, Help, lands on it.
     let settings = f.placed.iter().find(|(t, r, _)| t == "Help" && r.center().y < 80.0).map(|p| p.1).unwrap();
     let pill = (0..30).find_map(|_| {
@@ -3408,10 +3585,156 @@ fn home_opens_all_games_from_its_top_row_when_every_row_fits() {
     assert_eq!(f.l.screen, Screen::AllGames);
     assert_eq!(f.l.library_filter, console::LibraryFilter::All);
     assert!(shows(&f, "Portal") && shows(&f, "Fortnite"), "{:?}", f.drawn);
-    // An empty library offers no way to an empty page.
+    // An empty library offers no way to an empty page, and nothing to view.
     let mut f = home_with_stores(&[]);
     f.settle();
-    assert!(!f.placed.iter().any(|(t, r, _)| t == "All games" && r.center().y < 80.0), "{:?}", f.drawn);
+    assert!(!f.placed.iter().any(|(t, r, _)| (t == "All games" || t == "View") && r.center().y < 80.0), "{:?}", f.drawn);
+}
+
+/// Home's View: a menu under its button whose rows step through the layout, grouping and card
+/// size. Home changes behind it at once, the menu stays for the next try, and each choice is
+/// saved; Escape closes it and gives focus back to the button.
+#[test]
+fn home_view_changes_layout_grouping_and_card_size_in_place() {
+    let mut f = store_mix();
+    let view = f.placed.iter().find(|(t, r, _)| t == "View" && r.center().y < 80.0).map(|p| p.1).expect("View in the top row");
+    f.click_at(view.center(), egui::PointerButton::Primary);
+    assert!(matches!(f.l.dialog, Dialog::HomeView), "the menu opens");
+    for row in ["Layout", "Group by", "Card size", "Rows", "Store", "Medium"] {
+        assert!(shows(&f, row), "{row}: {:?}", f.drawn);
+    }
+    // Rows by store: Steam's twelve end in their All tile.
+    assert!(shows(&f, "All 12") && !shows(&f, "Steam 11"), "{:?}", f.drawn);
+    let row = |f: &Frames, label: &str| f.placed.iter().find(|(t, ..)| t == label).map(|p| p.1).expect(label);
+    let at = row(&f, "Layout");
+    let commands = f.click_at(at.center(), egui::PointerButton::Primary);
+    assert!(commands.iter().any(|c| matches!(c, Command::SaveSettings)), "the choice is saved");
+    assert_eq!(f.l.settings.home_layout, HomeLayout::Grid);
+    assert!(matches!(f.l.dialog, Dialog::HomeView), "the menu stays open");
+    assert!(shows(&f, "Grid"), "the row says the layout now: {:?}", f.drawn);
+    // The grid shows every game of each row: no All tile.
+    f.size = vec2(1280.0, 2400.0);
+    f.settle();
+    assert!(shows(&f, "Steam 11") && !shows(&f, "All 12"), "{:?}", f.drawn);
+    assert!(shows(&f, "Battle.net"), "still a part per store: {:?}", f.drawn);
+
+    // Group by: type. The games of every store in one part, the apps of no store in their own.
+    let shelves = |f: &Frames| f.placed.iter().filter(|(t, r, _)| r.center().y > 80.0 && ["Steam", "Battle.net", "Epic Games", "Xbox", "Other apps", "Library", "Games"].contains(&t.as_str())).map(|p| p.0.clone()).collect::<Vec<_>>();
+    let at = row(&f, "Group by");
+    f.click_at(at.center(), egui::PointerButton::Primary);
+    assert_eq!(f.l.settings.home_group, HomeGroup::Type);
+    assert!(shows(&f, "Type"), "the row says the grouping now: {:?}", f.drawn);
+    assert_eq!(shelves(&f), ["Games", "Other apps"], "{:?}", f.drawn);
+
+    // Group by: none. One Library part, no store's.
+    let at = row(&f, "Group by");
+    f.click_at(at.center(), egui::PointerButton::Primary);
+    assert_eq!(f.l.settings.home_group, HomeGroup::None);
+    assert_eq!(shelves(&f), ["Library"], "{:?}", f.drawn);
+    assert!(shows(&f, "Desktop") && shows(&f, "Fortnite"), "every game in it: {:?}", f.drawn);
+
+    // Back to a part per store, where Steam's first line holds Steam's covers alone.
+    let at = row(&f, "Group by");
+    f.click_at(at.center(), egui::PointerButton::Primary);
+    assert_eq!(f.l.settings.home_group, HomeGroup::Store);
+    // Card size: Medium, then Large, then Small, fewer covers a line the larger they are.
+    let covers_in_line = |f: &Frames| {
+        let first = f.placed.iter().find(|(t, ..)| t == "Steam 00").map(|p| p.1).expect("Steam 00");
+        f.placed.iter().filter(|(t, r, _)| t.starts_with("Steam ") && (r.top() - first.top()).abs() < 1.0).count()
+    };
+    let medium = covers_in_line(&f);
+    let at = row(&f, "Card size");
+    f.click_at(at.center(), egui::PointerButton::Primary);
+    assert_eq!(f.l.settings.home_card_size, CardSize::Large);
+    let large = covers_in_line(&f);
+    let at = row(&f, "Card size");
+    f.click_at(at.center(), egui::PointerButton::Primary);
+    assert_eq!(f.l.settings.home_card_size, CardSize::Small);
+    let small = covers_in_line(&f);
+    assert!(large < medium && medium < small, "large {large}, medium {medium}, small {small}");
+
+    // List: every game a line of its own, its store and when it was last played under the title.
+    let at = row(&f, "Layout");
+    f.click_at(at.center(), egui::PointerButton::Primary);
+    assert_eq!(f.l.settings.home_layout, HomeLayout::List);
+    assert!(shows(&f, "List"), "{:?}", f.drawn);
+    assert!(!shows(&f, "Card size"), "a list's lines have one size: {:?}", f.drawn);
+    assert!(shows(&f, "Steam 11") && !shows(&f, "All 12"), "{:?}", f.drawn);
+    assert!(!f.drawn.iter().any(|t| t.to_lowercase().contains("played")), "no PC says when: nothing about playing {:?}", f.drawn);
+    // What the PC says: Steam 00 played just now, Steam 01 never.
+    let install = |f: &Frames, title: &str| {
+        let library = f.hosts.list[0].native.library.as_ref().expect("a library");
+        library.games.iter().find(|g| g.title == title).map(|g| g.install_id.clone()).expect(title)
+    };
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+    let (played, never) = (install(&f, "Steam 00"), install(&f, "Steam 01"));
+    f.hosts.list[0].native.last_played = std::collections::BTreeMap::from([(played, now), (never, 0)]);
+    f.settle();
+    assert!(shows(&f, "Steam · Played today") && shows(&f, "Steam · Not played yet"), "{:?}", f.drawn);
+    // The title beside the cover (the last of the two the line draws), each line under the one before.
+    let title = |f: &Frames, name: &str| f.placed.iter().rev().find(|(t, ..)| t == name).map(|p| p.1).expect(name);
+    let (first, second) = (title(&f, "Steam 00"), title(&f, "Steam 01"));
+    assert!(second.top() > first.bottom() && (second.left() - first.left()).abs() < 1.0, "one under the other: {first:?} {second:?}");
+    // And round to Rows.
+    let at = row(&f, "Layout");
+    f.click_at(at.center(), egui::PointerButton::Primary);
+    assert_eq!(f.l.settings.home_layout, HomeLayout::Rows);
+    assert!(shows(&f, "Card size"), "back with the covers: {:?}", f.drawn);
+    let at = row(&f, "Layout");
+    f.click_at(at.center(), egui::PointerButton::Primary);
+    assert_eq!(f.l.settings.home_layout, HomeLayout::Grid);
+
+    f.press(Key::Escape);
+    assert!(matches!(f.l.dialog, Dialog::None));
+    let focused = f.ctx.memory(|m| m.focused()).and_then(|id| f.ctx.read_response(id)).map(|r| r.rect).expect("focus");
+    assert!(focused.contains_rect(view), "back on View: {focused:?}");
+}
+
+/// List: the pad's Down walks from line to line, and A on a line opens its game.
+#[test]
+fn home_list_lines_walk_with_the_pad_and_open_their_game() {
+    let mut f = store_mix();
+    f.l.settings.home_layout = HomeLayout::List;
+    f.settle();
+    let focused = |f: &Frames| {
+        let rect = f.ctx.memory(|m| m.focused()).and_then(|id| f.ctx.read_response(id)).map(|r| r.rect)?;
+        f.placed.iter().rev().find(|(t, at, _)| t.starts_with("Steam ") && !t.contains('·') && rect.contains(at.center())).map(|p| p.0.clone())
+    };
+    for _ in 0..8 {
+        if focused(&f).as_deref() == Some("Steam 00") { break; }
+        pad_press(&mut f, Key::ArrowDown);
+    }
+    assert_eq!(focused(&f).as_deref(), Some("Steam 00"), "{:?}", f.drawn);
+    pad_press(&mut f, Key::ArrowDown);
+    assert_eq!(focused(&f).as_deref(), Some("Steam 01"));
+    pad_press(&mut f, Key::Enter);
+    assert!(matches!(f.l.screen, Screen::Game { .. }), "{:?}", f.l.screen);
+}
+
+/// Rows, not by store: one Library line of what fits, its All tile opening All games.
+#[test]
+fn home_rows_of_one_library_end_in_its_all_tile() {
+    let mut f = store_mix();
+    f.l.settings.home_group = HomeGroup::None;
+    f.settle();
+    assert!(shows(&f, "Library") && shows(&f, "All 19"), "{:?}", f.drawn);
+    let tile = f.placed.iter().find(|(t, ..)| t == "All 19").map(|p| p.1).unwrap();
+    f.click_at(tile.center(), egui::PointerButton::Primary);
+    assert_eq!(f.l.screen, Screen::AllGames);
+    assert_eq!(f.l.library_filter, console::LibraryFilter::All);
+}
+
+/// A focused cover's title that is cut short runs sideways after a pause, and only then.
+#[test]
+fn a_focused_cover_title_too_long_runs_sideways_after_a_pause() {
+    assert_eq!(caption_offset(200.0, 150.0, false, true, 5.0), None, "not focused");
+    assert_eq!(caption_offset(200.0, 150.0, true, false, 5.0), None, "reduced motion");
+    assert_eq!(caption_offset(120.0, 150.0, true, true, 5.0), None, "it fits");
+    let (start, span) = caption_offset(200.0, 150.0, true, true, 0.5).unwrap();
+    assert_eq!(start, 0.0, "the start stays a moment");
+    assert!(span > 200.0, "the next copy follows after a gap");
+    let (later, _) = caption_offset(200.0, 150.0, true, true, 3.0).unwrap();
+    assert!(later > 0.0 && later <= span);
 }
 
 /// While a PC's library is on its way, All games says so as Home does instead of calling the
@@ -3744,6 +4067,153 @@ fn hover_lightens_a_card_and_focus_adds_one_ring_without_resizing() {
     assert!(strokes(&f).iter().all(|(r, _)| !r.intersects(card)), "no outline on hover: {:?}", strokes(&f));
     assert!(rects_filled(&f, *SURFACE_HIGH).contains(&card), "the hovered card is one step lighter");
     assert_eq!(f.ctx.read_response(card_id).unwrap().rect, card, "the card did not move or grow");
+}
+
+/// Drops egui's focus, as a click on blank space or Escape does.
+fn drop_focus(f: &mut Frames) {
+    f.ctx.memory_mut(|m| if let Some(id) = m.focused() { m.surrender_focus(id) });
+    f.settle();
+    assert_eq!(f.ctx.memory(|m| m.focused()), None);
+}
+
+/// A controller press as `main.rs` hands it to egui.
+fn pad_press(f: &mut Frames, key: Key) {
+    let events = f.l.controller_key(&f.ctx, key);
+    f.frame(events);
+    f.settle();
+}
+
+#[test]
+fn a_controller_press_with_nothing_focused_focuses_the_first_item() {
+    let mut f = Frames::new(record("Desk", true, false), Reach::Online);
+    let first = f.ctx.memory(|m| m.focused()).expect("the first card has focus on arrival");
+    for key in [Key::ArrowDown, Key::ArrowUp, Key::ArrowRight, Key::Enter] {
+        drop_focus(&mut f);
+        // egui alone moves nowhere from no focus: the press was lost.
+        f.press(Key::ArrowDown);
+        assert_eq!(f.ctx.memory(|m| m.focused()), None);
+        pad_press(&mut f, key);
+        assert_eq!(f.ctx.memory(|m| m.focused()), Some(first), "{key:?} focuses the first card");
+        assert!(f.no_dialog(), "{key:?}: A only focuses, it does not open the card");
+    }
+    // With focus, the D-pad moves it as before.
+    pad_press(&mut f, Key::ArrowRight);
+    assert_ne!(f.ctx.memory(|m| m.focused()), Some(first), "Right moves on to the card's options");
+
+    // Settings: the first row.
+    let mut s = Frames::new(record("Desk", true, false), Reach::Online);
+    s.l.go(Screen::Settings);
+    s.settle();
+    let row = s.ctx.memory(|m| m.focused()).expect("the first row has focus on arrival");
+    drop_focus(&mut s);
+    pad_press(&mut s, Key::ArrowDown);
+    assert_eq!(s.ctx.memory(|m| m.focused()), Some(row));
+
+    // A dialog: its first control (Cancel on a confirmation).
+    let id = f.hosts.list[0].id;
+    f.l.ask(Dialog::ConfirmRemove { host: id, name: "Desk".into() });
+    f.settle();
+    let cancel = f.ctx.memory(|m| m.focused()).expect("Cancel has focus");
+    drop_focus(&mut f);
+    pad_press(&mut f, Key::ArrowUp);
+    assert_eq!(f.ctx.memory(|m| m.focused()), Some(cancel));
+    assert!(matches!(f.l.dialog, Dialog::ConfirmRemove { .. }));
+}
+
+#[test]
+fn b_where_back_ends_asks_to_close_nightjar_with_focus_on_cancel() {
+    // The PCs are the root here (no Home): B there asks.
+    let mut f = Frames::new(record("Desk", true, false), Reach::Online);
+    let focused_text = |f: &Frames| {
+        let rect = f.ctx.memory(|m| m.focused()).and_then(|id| f.ctx.read_response(id)).map(|r| r.rect);
+        f.placed.iter().find(|(_, at, _)| rect.is_some_and(|r| r.contains(at.center()))).map(|p| p.0.clone())
+    };
+    // The keyboard's Escape does not ask: a keyboard has Alt+F4.
+    assert!(f.press(Key::Escape).is_empty());
+    assert!(f.no_dialog(), "Escape on the root stays harmless");
+    pad_press(&mut f, Key::Escape);
+    assert!(matches!(f.l.dialog, Dialog::ConfirmExit) && shows(&f, "Close Nightjar?"), "{:?}", f.drawn);
+    assert_eq!(focused_text(&f).as_deref(), Some("Cancel"));
+    // A right away keeps Nightjar open, and so does B.
+    assert!(f.press(Key::Enter).iter().all(|c| !matches!(c, Command::Quit)));
+    assert!(f.no_dialog());
+    pad_press(&mut f, Key::Escape);
+    assert!(f.press(Key::Escape).iter().all(|c| !matches!(c, Command::Quit)));
+    assert!(f.no_dialog(), "B closes the question");
+    // Over to Close Nightjar and A: it closes.
+    pad_press(&mut f, Key::Escape);
+    // Past Shut down, Restart and Sleep.
+    for _ in 0..6 {
+        if focused_text(&f).as_deref() != Some("Close Nightjar") { pad_press(&mut f, Key::ArrowRight); }
+    }
+    assert_eq!(focused_text(&f).as_deref(), Some("Close Nightjar"));
+    assert!(f.press(Key::Enter).iter().any(|c| matches!(c, Command::Quit)));
+}
+
+#[test]
+fn b_offers_this_pcs_power_each_asked_once_more_with_focus_on_cancel() {
+    use crate::power::{windows_offers, PowerAction};
+    let mut f = Frames::new(record("Desk", true, false), Reach::Online);
+    f.l.power = windows_offers(true);
+    let focused_text = |f: &Frames| {
+        let rect = f.ctx.memory(|m| m.focused()).and_then(|id| f.ctx.read_response(id)).map(|r| r.rect);
+        f.placed.iter().find(|(_, at, _)| rect.is_some_and(|r| r.contains(at.center()))).map(|p| p.0.clone())
+    };
+    // To `label` by the pad's right, from Cancel at the left.
+    let walk_to = |f: &mut Frames, label: &str| {
+        for _ in 0..6 {
+            if focused_text(f).as_deref() == Some(label) { break; }
+            pad_press(f, Key::ArrowRight);
+        }
+        assert_eq!(focused_text(f).as_deref(), Some(label), "{:?}", f.drawn);
+    };
+    pad_press(&mut f, Key::Escape);
+    assert!(matches!(f.l.dialog, Dialog::ConfirmExit));
+    for label in ["Shut down", "Restart", "Sleep", "Close Nightjar", "Cancel"] {
+        assert!(shows(&f, label), "{label}: {:?}", f.drawn);
+    }
+    for (label, action) in [("Shut down", PowerAction::ShutDown), ("Restart", PowerAction::Restart), ("Sleep", PowerAction::Sleep)] {
+        if !matches!(f.l.dialog, Dialog::ConfirmExit) { pad_press(&mut f, Key::Escape); }
+        assert_eq!(focused_text(&f).as_deref(), Some("Cancel"));
+        walk_to(&mut f, label);
+        // Choosing it only asks.
+        assert!(f.press(Key::Enter).iter().all(|c| !matches!(c, Command::Power(_))), "{label}");
+        assert!(matches!(f.l.dialog, Dialog::ConfirmPower(o) if o.action == action), "{label}");
+        assert!(shows(&f, action.question()), "{:?}", f.drawn);
+        assert_eq!(focused_text(&f).as_deref(), Some("Cancel"), "{label}: focus starts on Cancel");
+        // A right away, or B, does nothing.
+        assert!(f.press(Key::Enter).iter().all(|c| !matches!(c, Command::Power(_))));
+        assert!(f.no_dialog());
+    }
+    // Over to the action itself and A: now it is asked for.
+    pad_press(&mut f, Key::Escape);
+    walk_to(&mut f, "Restart");
+    f.press(Key::Enter);
+    assert!(matches!(f.l.dialog, Dialog::ConfirmPower(o) if o.action == PowerAction::Restart));
+    pad_press(&mut f, Key::Escape);
+    assert!(f.no_dialog(), "B cancels the second question");
+    pad_press(&mut f, Key::Escape);
+    walk_to(&mut f, "Restart");
+    f.press(Key::Enter);
+    walk_to(&mut f, "Restart");
+    let commands = f.press(Key::Enter);
+    assert!(commands.iter().any(|c| matches!(c, Command::Power(o) if o.action == PowerAction::Restart)));
+    assert!(commands.iter().all(|c| !matches!(c, Command::Quit)), "Nightjar is left to the system to close");
+    assert!(f.no_dialog());
+}
+
+#[test]
+fn the_close_question_offers_only_what_this_pcs_power_allows() {
+    let mut f = Frames::new(record("Desk", true, false), Reach::Online);
+    // Not known yet (or nothing allowed): the question is as before.
+    pad_press(&mut f, Key::Escape);
+    assert!(matches!(f.l.dialog, Dialog::ConfirmExit));
+    assert!(["Shut down", "Restart", "Sleep"].iter().all(|l| !shows(&f, l)), "{:?}", f.drawn);
+    f.press(Key::Escape);
+    // A Modern Standby PC: no Sleep.
+    f.l.power = crate::power::windows_offers(false);
+    pad_press(&mut f, Key::Escape);
+    assert!(shows(&f, "Shut down") && shows(&f, "Restart") && !shows(&f, "Sleep"), "{:?}", f.drawn);
 }
 
 #[path = "settings_tests.rs"]

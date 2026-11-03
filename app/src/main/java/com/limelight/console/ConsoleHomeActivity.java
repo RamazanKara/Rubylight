@@ -6,6 +6,7 @@ import android.graphics.drawable.ColorDrawable;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.preference.PreferenceManager;
 import android.view.View;
 import android.view.ViewGroup;
 
@@ -53,6 +54,8 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
     /** How long after coming to the front "no hosts" waits for the first host to answer. */
     private static final long SETTLE_MS = 1500;
     private static final long DEBOUNCE_MS = 250;
+    /** How long Home waits for saved PCs to answer before it shows them offline: a poll that gets no answer is done by then. */
+    private static final long WAIT_LIMIT_MS = 10_000;
     private static final int COVER_WIDTH_DP = 140;
 
     private final Handler handler = new Handler(Looper.getMainLooper());
@@ -112,6 +115,9 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
     /** A "which PC?" question is pending; further taps on games wait for its answer. */
     private boolean choosing;
     private ActionSheet hostMenu;
+    private ActionSheet viewSheet;
+    /** Grid or rows, by store or not, the card size: the stored choice, else this device's look. */
+    private HomeView view;
     private HomeModel model = HomeModel.empty();
 
     private final Runnable reload = this::reloadNow;
@@ -119,6 +125,7 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
         settled = true;
         reloadNow();
     };
+    private final Runnable stopWaiting = () -> feed.stopWaiting();
 
     /** The data behind the screen; the debug demo overrides this with canned hosts. */
     protected ConsoleRepository createRepository(String uniqueId) {
@@ -173,17 +180,95 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
                         .putExtra(AllGamesActivity.EXTRA_FILTER, filter));
             }
         };
-        if (isTelevision()) {
+        view = HomeView.read(PreferenceManager.getDefaultSharedPreferences(this), isTelevision());
+        if (view.layout == HomeView.Layout.ROWS) {
             setUpShelves(listener);
         } else {
             setUpGrid(listener);
         }
+        if (isTelevision()) {
+            setUpAmbience();
+        }
+        setUpViewButton();
         feed.bind();
     }
 
     /** The TV layout has the backdrop behind the shelves; the phone layout is the plain grid. */
     private boolean isTelevision() {
         return findViewById(R.id.home_backdrop) != null;
+    }
+
+    /**
+     * View, at the end of the shell bar: grid or rows, by store, by type or not, and the card size. The choice applies once the
+     * sheet closes, so trying several costs one rebuild.
+     */
+    private void setUpViewButton() {
+        View button = findViewById(R.id.console_view);
+        button.setOnClickListener(v -> showViewSheet());
+        // A TV's bar ends in a wall after its last tab; on Home, View is past it.
+        ViewGroup tabs = findViewById(R.id.shell_bar_items);
+        if (tabs != null && tabs.getChildCount() > 0) {
+            View last = tabs.getChildAt(tabs.getChildCount() - 1);
+            last.setNextFocusRightId(R.id.console_view);
+            button.setNextFocusLeftId(last.getId());
+        }
+        button.setNextFocusRightId(R.id.console_view);
+    }
+
+    /** For tests and the demo's captures: the view Home shows. */
+    HomeView view() {
+        return view;
+    }
+
+    private void showViewSheet() {
+        if (viewSheet != null) {
+            return;
+        }
+        final HomeView before = view;
+        ActionSheet sheet = new ActionSheet(this, getString(R.string.home_view));
+        viewSheet = sheet;
+        sheet.addSection(R.string.home_view_layout);
+        // A list's lines have one size, so Size shows only for the covers' layouts.
+        View[] sizeSection = new View[2];
+        addChoices(sheet, new int[] {R.drawable.ic_library, R.drawable.ic_view_list, R.drawable.ic_view_rows},
+                new int[] {R.string.home_view_layout_grid, R.string.home_view_layout_list, R.string.home_view_layout_rows},
+                view.layout.ordinal(), at -> {
+                    view = view.with(HomeView.Layout.values()[at]);
+                    for (View part : sizeSection) part.setVisibility(view.layout == HomeView.Layout.LIST ? View.GONE : View.VISIBLE);
+                });
+        sheet.addSection(R.string.home_view_group);
+        addChoices(sheet, new int[] {R.drawable.ic_view_group_store, R.drawable.ic_view_group_type, R.drawable.ic_view_group_none},
+                new int[] {R.string.home_view_group_store, R.string.home_view_group_type, R.string.home_view_group_none},
+                view.group.ordinal(), at -> view = view.with(HomeView.Group.values()[at]));
+        sizeSection[0] = sheet.addSection(R.string.home_view_size);
+        sizeSection[1] = addChoices(sheet, new int[] {R.drawable.ic_view_size_small, R.drawable.ic_view_size_medium, R.drawable.ic_view_size_large},
+                new int[] {R.string.home_view_size_small, R.string.home_view_size_medium, R.string.home_view_size_large},
+                view.size.ordinal(), at -> view = view.with(HomeView.Size.values()[at]));
+        for (View part : sizeSection) part.setVisibility(view.layout == HomeView.Layout.LIST ? View.GONE : View.VISIBLE);
+        sheet.setOnClosed(() -> {
+            viewSheet = null;
+            if (!view.equals(before) && !isFinishing() && !isDestroyed()) {
+                view.save(PreferenceManager.getDefaultSharedPreferences(this));
+                recreate();
+            }
+        });
+        sheet.show();
+    }
+
+    /** One choice of the View sheet: a row of toggles of which exactly one is on; the row is returned. */
+    private static android.widget.LinearLayout addChoices(ActionSheet sheet, int[] icons, int[] labels, int chosen, java.util.function.IntConsumer choose) {
+        android.widget.LinearLayout row = sheet.addToggleRow();
+        com.google.android.material.button.MaterialButton[] toggles =
+                new com.google.android.material.button.MaterialButton[labels.length];
+        for (int i = 0; i < labels.length; i++) {
+            final int at = i;
+            toggles[i] = sheet.addToggle(row, icons[i], sheet.getContext().getString(labels[i]), i == chosen);
+            toggles[i].setOnClickListener(v -> {
+                for (int j = 0; j < toggles.length; j++) toggles[j].setChecked(j == at);
+                choose.accept(at);
+            });
+        }
+        return row;
     }
 
     private void setUpGrid(ConsoleHomeAdapter.Listener listener) {
@@ -209,7 +294,8 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
                 ConsoleHomeListAdapter.fadeHeaders(view);
             }
         });
-        adapter = new ConsoleHomeListAdapter(this, null, feed::host, listener);
+        adapter = new ConsoleHomeListAdapter(this, null, feed::host, listener, isTelevision());
+        adapter.setListLayout(view.layout == HomeView.Layout.LIST);
         list.setAdapter(adapter);
     }
 
@@ -217,6 +303,7 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
     static int spanOf(int viewType, int columns) {
         switch (viewType) {
             case ConsoleHomeListAdapter.HEADER:
+            case ConsoleHomeListAdapter.LIST_GAME:
                 return columns;
             case ConsoleHomeListAdapter.COVER_GAME:
                 return 1;
@@ -227,8 +314,18 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
 
     /** Columns for a list this wide: about 130 dp each, and an even number from four on so wide cards pair up. */
     static int columnsFor(int widthDp) {
-        int columns = Math.max(2, widthDp / 130);
+        return columnsFor(widthDp, HomeView.Size.MEDIUM);
+    }
+
+    /** The same for cards of the chosen size: about 130 dp each at the medium size. */
+    static int columnsFor(int widthDp, HomeView.Size size) {
+        int columns = Math.max(2, widthDp / Math.round(130 * size.scale));
         return columns >= 4 && columns % 2 == 1 ? columns - 1 : columns;
+    }
+
+    /** TV posters across a grid this wide: as many as fit at the shelves' width times the size, at least two. */
+    static int tvColumnsFor(int contentPx, int cardPx) {
+        return Math.max(2, contentPx / Math.max(1, cardPx));
     }
 
     private void fitColumns(int widthPx) {
@@ -236,11 +333,27 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
             return;
         }
         lastWidthPx = widthPx;
+        int content = widthPx - list.getPaddingLeft() - list.getPaddingRight();
+        if (isTelevision()) {
+            int card = Math.round(getResources().getDimensionPixelSize(R.dimen.shelf_card_width) * view.size.scale);
+            int count = tvColumnsFor(content, card);
+            // Each poster fills its column, so the grid spans the screen.
+            int columnWidth = content / count;
+            list.post(() -> {
+                if (count != columns) {
+                    columns = count;
+                    grid.setSpanCount(count);
+                }
+                adapter.setCardWidth(columnWidth);
+                adapter.setCoverHeight(ShelfAdapter.coverHeight(this, true, columnWidth));
+            });
+            return;
+        }
         float density = getResources().getDisplayMetrics().density;
-        int count = columnsFor(Math.round(widthPx / density));
+        int count = columnsFor(Math.round(widthPx / density), view.size);
         // A card keeps its margin around it.
         int margin = getResources().getDimensionPixelSize(R.dimen.cover_inset);
-        int columnWidth = (widthPx - list.getPaddingLeft() - list.getPaddingRight()) / count - 2 * margin;
+        int columnWidth = content / count - 2 * margin;
         list.post(() -> {
             if (count != columns) {
                 columns = count;
@@ -259,9 +372,10 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
         list.setLayoutManager(rows);
         list.setItemAnimator(null);
         list.setItemViewCacheSize(2);
-        shelves.setTelevision(true);
+        shelves.setGroup(view.group);
+        shelves.setCardScale(view.size.scale);
+        shelves.setTelevision(isTelevision());
         list.setAdapter(shelves);
-        setUpAmbience();
     }
 
     private void setUpAmbience() {
@@ -275,9 +389,14 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
         backdrop.setCanvasColor(canvas);
         backdrop.setDim(AppTheme.isHighContrast(this) ? 0.85f : 1f);
         backdrop.setOnCovered(() -> getWindow().setBackgroundDrawable(null));
-        ambience = new HomeAmbience(this, backdrop, hero, feed::host, () -> covers, shelves::isFastTravel);
+        java.util.function.BooleanSupplier fast = shelves != null ? shelves::isFastTravel : adapter::isFastTravel;
+        ambience = new HomeAmbience(this, backdrop, hero, feed::host, () -> covers, fast);
         ambience.setGamepad(com.limelight.ui.StreamMenuHint.hasGamepad());
-        shelves.setFocusListener(ambience);
+        if (shelves != null) {
+            shelves.setFocusListener(ambience);
+        } else {
+            adapter.setFocusListener(ambience);
+        }
     }
 
     /** The hero's key hints follow the last key: a gamepad's A and X, or a remote's OK and Menu. */
@@ -286,8 +405,9 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
         if (ambience != null && event.getAction() == android.view.KeyEvent.ACTION_DOWN) {
             ambience.setGamepad(fromGamepad(event));
         }
-        // Up from the top of the list goes to the current tab of the shell bar, whatever the focus search would pick.
-        if (com.limelight.ui.ShellFocus.upToCurrentTab(this, event, list)) {
+        // Up from the top of the list goes to the current tab of the shell bar, whatever the focus search would pick
+        // (View, at the bar's end, included).
+        if (com.limelight.ui.ShellFocus.upToCurrentTab(this, event, list, findViewById(R.id.console_view))) {
             return true;
         }
         return super.dispatchKeyEvent(event);
@@ -311,6 +431,10 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
         refreshedSignature = null;
         handler.removeCallbacks(settle);
         handler.postDelayed(settle, SETTLE_MS);
+        handler.removeCallbacks(stopWaiting);
+        if (feed.waiting()) {
+            handler.postDelayed(stopWaiting, WAIT_LIMIT_MS);
+        }
         scheduleReload();
     }
 
@@ -321,6 +445,7 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
         feed.pause();
         handler.removeCallbacks(reload);
         handler.removeCallbacks(settle);
+        handler.removeCallbacks(stopWaiting);
         super.onPause();
     }
 
@@ -374,6 +499,10 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
         }
         String uniqueId = feed.uniqueId();
         if (uniqueId == null) {
+            // No manager to read the PCs from; once Home stops waiting for it, it says there are none.
+            if (!feed.waiting() && feed.binder() == null) {
+                show(++generation, HomeModel.empty(), true, true);
+            }
             return;
         }
         if (repository == null) {
@@ -430,11 +559,13 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
             }
             this.model = model;
             submitKeepingFocus(model);
-            if (done) {
+            // While a saved PC has yet to answer, an empty Home is still loading, not "No PCs yet".
+            boolean waiting = model.isEmpty() && noHosts && feed.waiting();
+            if (done && !waiting) {
                 loading.setVisibility(View.GONE);
             }
             // "No hosts" waits until the hosts had time to answer, so it does not flash on every start.
-            boolean showEmpty = model.isEmpty() && noHosts && settled;
+            boolean showEmpty = model.isEmpty() && noHosts && settled && !waiting;
             empty.setVisibility(showEmpty ? View.VISIBLE : View.GONE);
             list.setVisibility(showEmpty ? View.INVISIBLE : View.VISIBLE);
             focusFirstCard(showEmpty);
@@ -453,7 +584,12 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
         }
         if (shelves == null) {
             int first = adapter.initialFocus();
+            if (ambience != null && first < 0) {
+                ambience.clear();
+            }
             if (first < 0 || list.isInTouchMode()) {
+                // TV: no card takes focus until a key is pressed, but the hero shows the one focus would start on.
+                if (ambience != null && first >= 0 && list.getFocusedChild() == null) ambience.refresh(adapter.itemAt(first));
                 return;
             }
             focusPending = false;
@@ -604,7 +740,7 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
         View focused = list.getFocusedChild();
         int at = focused == null ? -1 : list.getChildAdapterPosition(focused);
         String key = at < 0 ? null : adapter.keyAt(at);
-        adapter.submit(model);
+        adapter.submit(model, view.group);
         if (key == null) {
             return;
         }
@@ -759,6 +895,9 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
                 break;
             case HostMenu.COOP:
                 hostActions.joinCoop(details);
+                break;
+            case HostMenu.MIC_ONLY:
+                hostActions.micOnly(details);
                 break;
             case HostMenu.FILES:
                 startActivity(FileTransferActivity.forPc(this, details.uuid));

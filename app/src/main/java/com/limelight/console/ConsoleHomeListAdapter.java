@@ -12,7 +12,6 @@ import android.widget.ImageView;
 import android.widget.TextView;
 
 import androidx.annotation.NonNull;
-import androidx.annotation.StringRes;
 import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
@@ -38,6 +37,10 @@ final class ConsoleHomeListAdapter extends RecyclerView.Adapter<RecyclerView.Vie
     static final int WIDE_GAME = 1;
     static final int COVER_GAME = 2;
     static final int HOST = 3;
+    /** A library game as a line of the List layout: a small cover, the title, its store and when it was last played. */
+    static final int LIST_GAME = 4;
+    /** The shelf a TV card tells the focus listener it is on: the grid is one. */
+    private static final String TV_SHELF = "home-grid";
 
     /**
      * How visible a section header is as it scrolls under the top of the list: opaque while most of it is in view,
@@ -64,11 +67,11 @@ final class ConsoleHomeListAdapter extends RecyclerView.Adapter<RecyclerView.Vie
     private static final class Row {
         final int type;
         final String key;
-        @StringRes final int title;
+        final CharSequence title;
         final HomeModel.GameCard game;
         final HomeModel.HostCard host;
 
-        Row(int type, String key, int title, HomeModel.GameCard game, HomeModel.HostCard host) {
+        Row(int type, String key, CharSequence title, HomeModel.GameCard game, HomeModel.HostCard host) {
             this.type = type;
             this.key = key;
             this.title = title;
@@ -86,18 +89,38 @@ final class ConsoleHomeListAdapter extends RecyclerView.Adapter<RecyclerView.Vie
     private int coverHeightPx;
     /** Tells a held D-pad key from a press, so a run across the covers does not queue a focus tween per card. */
     private final FastTravel travel = new FastTravel();
+    /** On TV the cards are the shelves' posters and PC cards, sharing this; null on a phone. */
+    private final ShelfAdapter.Env tv;
+    /** The List layout: library games are lines instead of covers. */
+    private boolean listLayout;
 
     ConsoleHomeListAdapter(Context context, CoverLoaders covers, Function<String, ComputerDetails> hosts, ConsoleHomeAdapter.Listener listener) {
+        this(context, covers, hosts, listener, false);
+    }
+
+    /** {@code television}: the cards are TV posters, which the hero names, instead of the phone's captioned covers. */
+    ConsoleHomeListAdapter(Context context, CoverLoaders covers, Function<String, ComputerDetails> hosts, ConsoleHomeAdapter.Listener listener,
+                           boolean television) {
         this.context = context;
         this.covers = covers;
         this.hosts = hosts;
         this.listener = listener;
+        this.tv = television ? new ShelfAdapter.Env(context, covers, hosts, listener) : null;
         setHasStableIds(true);
+    }
+
+    /** Library games as lines (the List layout) or as covers. */
+    void setListLayout(boolean lines) {
+        if (lines != listLayout) {
+            listLayout = lines;
+            notifyDataSetChanged();
+        }
     }
 
     /** The cover loaders exist once the app's client identity is known. */
     void setCovers(CoverLoaders covers) {
         this.covers = covers;
+        if (tv != null) tv.covers = covers;
         notifyDataSetChanged();
     }
 
@@ -105,37 +128,85 @@ final class ConsoleHomeListAdapter extends RecyclerView.Adapter<RecyclerView.Vie
     void setCoverHeight(int px) {
         if (px != coverHeightPx) {
             coverHeightPx = px;
+            if (tv != null) tv.coverHeightPx = px;
             notifyDataSetChanged();
         }
     }
 
+    /** A TV poster's width: its column's. */
+    void setCardWidth(int px) {
+        if (tv != null && px != tv.cardWidthPx) {
+            tv.cardWidthPx = px;
+            notifyDataSetChanged();
+        }
+    }
+
+    /** Who hears of every card that takes focus (TV Home's hero and backdrop). */
+    void setFocusListener(ShelfAdapter.FocusListener listener) {
+        if (tv != null) tv.focus = listener;
+    }
+
+    /** True while a key is held down along the cards, or the next one is a moment away from the last. */
+    boolean isFastTravel() {
+        return (tv != null ? tv.travel : travel).isActive(SystemClock.uptimeMillis());
+    }
+
+    /** The item a TV card binds, or null for a header or out of range. */
+    ShelfAdapter.Item itemAt(int position) {
+        if (position < 0 || position >= rows.size() || rows.get(position).type == HEADER) return null;
+        Row row = rows.get(position);
+        return new ShelfAdapter.Item(row.key, row.game, row.host);
+    }
+
     void submit(HomeModel model) {
+        submit(model, HomeView.Group.NONE);
+    }
+
+    /**
+     * By store or type: the library under a heading per part, each part whole (a grid has no "All N" tile), as the
+     * shelves have it; otherwise one Library part.
+     */
+    void submit(HomeModel model, HomeView.Group group) {
         rows.clear();
         if (!model.favourites.isEmpty()) {
-            rows.add(new Row(HEADER, "header:favourites", R.string.console_section_favourites, null, null));
+            rows.add(new Row(HEADER, "header:favourites", context.getString(R.string.console_section_favourites), null, null));
             for (HomeModel.GameCard card : model.favourites) {
-                rows.add(new Row(COVER_GAME, card.key, 0, card, null));
+                rows.add(new Row(COVER_GAME, card.key, null, card, null));
             }
         }
         if (!model.continuePlaying.isEmpty()) {
-            rows.add(new Row(HEADER, "header:continue", R.string.console_section_continue, null, null));
+            rows.add(new Row(HEADER, "header:continue", context.getString(R.string.console_section_continue), null, null));
             for (HomeModel.GameCard card : model.continuePlaying) {
-                rows.add(new Row(WIDE_GAME, card.key, 0, card, null));
+                // A TV has no wide card: the hero says where the game runs.
+                rows.add(new Row(tv != null ? COVER_GAME : WIDE_GAME, card.key, null, card, null));
             }
         }
-        if (!model.library.isEmpty()) {
-            rows.add(new Row(HEADER, "header:library", R.string.console_section_library, null, null));
+        if (group != HomeView.Group.NONE) {
+            for (HomeModel.Row part : model.rows(group)) {
+                List<HomeModel.GameCard> cards = model.whole(part);
+                if (cards.isEmpty()) continue;
+                rows.add(new Row(HEADER, "header:" + part.key, ShelfAdapter.CardHolder.rowTitle(context, part), null, null));
+                for (HomeModel.GameCard card : cards) {
+                    rows.add(new Row(libraryType(), card.key, null, card, null));
+                }
+            }
+        } else if (!model.library.isEmpty()) {
+            rows.add(new Row(HEADER, "header:library", context.getString(R.string.console_section_library), null, null));
             for (HomeModel.GameCard card : model.library) {
-                rows.add(new Row(COVER_GAME, card.key, 0, card, null));
+                rows.add(new Row(libraryType(), card.key, null, card, null));
             }
         }
         if (!model.hosts.isEmpty()) {
-            rows.add(new Row(HEADER, "header:hosts", R.string.console_section_hosts, null, null));
+            rows.add(new Row(HEADER, "header:hosts", context.getString(R.string.console_section_hosts), null, null));
             for (HomeModel.HostCard card : model.hosts) {
-                rows.add(new Row(HOST, "host:" + card.uuid, 0, null, card));
+                rows.add(new Row(HOST, "host:" + card.uuid, null, null, card));
             }
         }
         notifyDataSetChanged();
+    }
+
+    private int libraryType() {
+        return listLayout ? LIST_GAME : COVER_GAME;
     }
 
     int viewTypeAt(int position) {
@@ -230,6 +301,19 @@ final class ConsoleHomeListAdapter extends RecyclerView.Adapter<RecyclerView.Vie
     @Override
     public RecyclerView.ViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int type) {
         LayoutInflater inflater = LayoutInflater.from(parent.getContext());
+        if (type == LIST_GAME) {
+            // The continue card's shape on a phone and a TV alike: a small cover beside two lines.
+            return new CardHolder(inflater.inflate(R.layout.console_card_wide, parent, false), false);
+        }
+        if (tv != null && type != HEADER) {
+            boolean cover = type != HOST;
+            View view = inflater.inflate(cover ? R.layout.console_card_cover : R.layout.console_card_host, parent, false);
+            // A card fills its cell: one column for a poster, the span of a PC's card.
+            ViewGroup.LayoutParams params = view.getLayoutParams();
+            params.width = ViewGroup.LayoutParams.MATCH_PARENT;
+            view.setLayoutParams(params);
+            return new ShelfAdapter.CardHolder(tv, view, cover);
+        }
         switch (type) {
             case HEADER:
                 return new RecyclerView.ViewHolder(inflater.inflate(R.layout.console_section_header, parent, false)) { };
@@ -247,11 +331,38 @@ final class ConsoleHomeListAdapter extends RecyclerView.Adapter<RecyclerView.Vie
         Row row = rows.get(position);
         if (row.type == HEADER) {
             ((TextView) holder.itemView).setText(row.title);
+        } else if (row.type == LIST_GAME) {
+            ((CardHolder) holder).bindLine(row.key, row.game);
+        } else if (holder instanceof ShelfAdapter.CardHolder) {
+            ShelfAdapter.Item item = new ShelfAdapter.Item(row.key, row.game, row.host);
+            if (row.game != null) ((ShelfAdapter.CardHolder) holder).bindGame(TV_SHELF, item);
+            else ((ShelfAdapter.CardHolder) holder).bindHost(TV_SHELF, item);
         } else if (row.game != null) {
             ((CardHolder) holder).bindGame(row.game, row.type == COVER_GAME);
         } else {
             ((CardHolder) holder).bindHost(row.host);
         }
+    }
+
+    /**
+     * A List line under the title: the store, then when the game was last played ({@code lastPlayed} and {@code now}
+     * in epoch seconds; 0 is the host's never played). Nothing about playing when no host says (null).
+     */
+    static String listLine(Context context, String store, Long lastPlayed, long now) {
+        String played;
+        if (lastPlayed == null || lastPlayed < 0) {
+            played = null;
+        } else if (lastPlayed == 0) {
+            played = context.getString(R.string.console_list_not_played);
+        } else {
+            // Whole days since, as on the desktop.
+            long days = Math.max(0, now - lastPlayed) / 86_400;
+            played = days == 0 ? context.getString(R.string.console_list_played_today)
+                    : days == 1 ? context.getString(R.string.console_list_played_yesterday)
+                    : context.getResources().getQuantityString(R.plurals.console_list_played_days, (int) Math.min(days, Integer.MAX_VALUE), (int) Math.min(days, Integer.MAX_VALUE));
+        }
+        if (store == null || store.isEmpty()) return played == null ? "" : played;
+        return played == null ? store : store + " · " + played;
     }
 
     private final class CardHolder extends RecyclerView.ViewHolder {
@@ -283,6 +394,11 @@ final class ConsoleHomeListAdapter extends RecyclerView.Adapter<RecyclerView.Vie
         }
 
         void bindGame(HomeModel.GameCard card, boolean libraryCover) {
+            bindGame(card, libraryCover, null);
+        }
+
+        /** {@code line} replaces the "on host" line (the List layout's store and last played); null keeps it. */
+        void bindGame(HomeModel.GameCard card, boolean libraryCover, String line) {
             if (libraryCover && coverHeightPx > 0) {
                 ViewGroup.LayoutParams params = frame.getLayoutParams();
                 if (params.height != coverHeightPx) {
@@ -291,26 +407,40 @@ final class ConsoleHomeListAdapter extends RecyclerView.Adapter<RecyclerView.Vie
                 }
             }
             image.setImageTintList(null);
+            // A store's part, shown when the library is grouped, has the games not installed too: in grey, as on TV.
+            image.setColorFilter((libraryCover || line != null) && card.notInstalled() ? ShelfAdapter.NOT_INSTALLED : null);
             // Every cover crops to fill its card, whatever its shape (ArtFit).
             ArtFit.reset(image);
-            if (covers != null) covers.bind(hosts.apply(card.hostUuid), CoverLoaders.appOf(card.title, card.appId, card.source), image,
+            if (card.appId == 0) {
+                // A game not added has no app id, so no cover the host can send: its title on the cover's surface.
+                image.setImageDrawable(null);
+                imageText.setText(card.title);
+                imageText.setVisibility(View.VISIBLE);
+            } else if (covers != null) covers.bind(CoverLoaders.coverHost(hosts.apply(card.hostUuid), card.source), CoverLoaders.appOf(card.title, card.appId, card.source), image,
                     imageText);
             title.setText(card.title);
-            String where = card.hostCount > 1 ? context.getString(R.string.console_card_on_hosts, card.hostCount)
+            String where = line != null ? line : card.hostCount > 1 ? context.getString(R.string.console_card_on_hosts, card.hostCount)
                     : context.getString(R.string.console_card_on_host, card.hostName);
             subtitle.setText(where);
+            boolean away = OfflineLook.allAway(card.hostUuids, hosts);
+            // A PC that is away runs nothing now, whatever its last answer said.
             CharSequence state = null;
-            if (card.badge == HomeModel.Badge.RUNNING) {
+            if (away) {
+                state = null;
+            } else if (card.badge == HomeModel.Badge.RUNNING) {
                 state = context.getString(R.string.console_badge_running);
             } else if (card.badge == HomeModel.Badge.SUSPENDED) {
                 state = context.getString(R.string.console_badge_suspended);
             }
             badge.setText(state);
             badge.setVisibility(state == null ? View.GONE : View.VISIBLE);
-            String description = state == null ? card.title + ", " + where : card.title + ", " + state + ", " + where;
+            String description = card.title;
+            if (state != null) description += ", " + state;
+            // A List line of an app no store owns, never played, has no second line.
+            if (!where.isEmpty()) description += ", " + where;
             itemView.setContentDescription(card.favourite
                     ? description + ", " + context.getString(R.string.console_favourite_description) : description);
-            OfflineLook.bind(itemView, subtitle, badge, OfflineLook.allAway(card.hostUuids, hosts));
+            OfflineLook.bind(itemView, subtitle, badge, away);
             itemView.setOnClickListener(v -> listener.onGame(card));
             itemView.setOnLongClickListener(v -> {
                 listener.onGameMenu(card);
@@ -337,6 +467,36 @@ final class ConsoleHomeListAdapter extends RecyclerView.Adapter<RecyclerView.Vie
                     listener.onGameToggleFavourite(card);
                 }
                 return true;
+            });
+        }
+
+        /** A line of the List layout: the game as its card is, with its store and when it was last played under the title. */
+        void bindLine(String key, HomeModel.GameCard card) {
+            // The newest any of the game's PCs says, as Recently played takes it.
+            bindGame(card, false, listLine(context, card.storeName(), card.lastPlayed, System.currentTimeMillis() / 1000));
+            if (tv == null) {
+                return;
+            }
+            // On a TV a line is a poster in all but shape: the shelves' held D-pad, the hero, and X and Menu.
+            itemView.setOnFocusChangeListener((v, hasFocus) -> {
+                // The line's own focus tween is skipped while a key is held, and the backdrop takes its quick path.
+                if (tv.travel.isActive(SystemClock.uptimeMillis())) {
+                    v.refreshDrawableState();
+                    FastTravel.settle(v);
+                }
+                // The hero names the focused game, as for a poster.
+                if (hasFocus && tv.focus != null) tv.focus.onCardFocus(TV_SHELF, new ShelfAdapter.Item(key, card, null), v);
+            });
+            itemView.setOnKeyListener((v, keyCode, event) -> {
+                if (event.getAction() == KeyEvent.ACTION_DOWN && movesFocus(keyCode)) {
+                    tv.travel.onMove(event.getRepeatCount(), SystemClock.uptimeMillis());
+                }
+                if (keyCode == KeyEvent.KEYCODE_BUTTON_X || keyCode == KeyEvent.KEYCODE_MENU) {
+                    // X and Menu open the game's options (where it is starred), as on a poster.
+                    if (event.getAction() == KeyEvent.ACTION_UP && !event.isCanceled()) listener.onGameMenu(card);
+                    return true;
+                }
+                return false;
             });
         }
 

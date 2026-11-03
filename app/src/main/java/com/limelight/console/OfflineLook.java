@@ -35,8 +35,9 @@ final class OfflineLook {
         return true;
     }
 
-    /** "On Tower" becomes "On Tower, PC asleep". */
+    /** "On Tower" becomes "On Tower, PC asleep"; an empty line becomes "PC asleep". */
     static String withLabel(Context context, CharSequence line) {
+        if (line == null || line.length() == 0) return context.getString(R.string.console_badge_asleep);
         return context.getString(R.string.console_card_asleep, line);
     }
 

@@ -36,7 +36,7 @@ Which Nightjar features each client provides: Android (phones, handhelds, tablet
 | Host software in the PC's details, host web UI button | Yes | Yes | Yes | |
 | Interface size, high contrast, reduced motion | Yes | Yes | Yes | On Linux, **Follow system** leaves motion on, since there is no system setting to read. |
 | Screen reader | Yes | Yes | Yes | Android: TalkBack. Desktop: the platform accessibility API (UI Automation on Windows, AT-SPI on Linux). |
-| Languages | Yes | Partial | Partial | Android: 15 languages. Desktop: English and German. |
+| Languages | Yes | Yes | Yes | The same 15 languages everywhere. Desktop CJK, Cyrillic, Polish, Turkish and Vietnamese text uses a system font ([Translations](TRANSLATIONS.md#desktop)). |
 | Update check | Yes | Yes | N/A | Android outside Google Play; Windows once per launch. Linux installs updates through its package manager. |
 | Problem reports and crash records | Yes | Partial | Partial | The desktop writes redacted logs to its logs folder, and on Windows a minidump for each crash; it has no problem-report export. |
 

@@ -512,6 +512,7 @@ public class NvHTTP {
         boolean encoderBitratePresent = false;
         boolean initialEncoderBitratePresent = false;
         details.serverCommands.clear();
+        details.hostLastFailure = "";
         for (int event = parser.getEventType(); event != XmlPullParser.END_DOCUMENT; event = parser.next()) {
             if (event == XmlPullParser.START_TAG && parser.getDepth() == 2) {
                 if ("Permission".equals(parser.getName())) {
@@ -522,6 +523,8 @@ public class NvHTTP {
                 } else if ("RustHostInitialEncoderBitrateKbps".equals(parser.getName())) {
                     initialEncoderBitratePresent = true;
                     details.initialEncoderBitrateKbps = (int) readUnsignedValue(parser.nextText().trim(), 2000000);
+                } else if ("RustHostLastFailure".equals(parser.getName())) {
+                    details.hostLastFailure = parser.nextText().trim();
                 } else if ("ServerCommand".equals(parser.getName())) {
                     // Empty names still occupy a wire index.
                     details.serverCommands.add(parser.nextText());
@@ -1550,7 +1553,8 @@ public class NvHTTP {
                             .addQueryParameter("appuuid", context.streamConfig.getApp().getAppUuid())
                             .build().encodedQuery()) +
             (role == NvApp.Role.REMOTE_MONITOR ? "&remote_monitor=1" :
-                    inputOnly && !context.streamConfig.getApp().isSmallStreamInputOnly() ? "&input_only=1" : "") +
+                    inputOnly && !context.streamConfig.getApp().isSmallStreamInputOnly() ?
+                            "&input_only=1" + (context.streamConfig.getApp().isMicOnly() ? "&rlMicOnly=1" : "") : "") +
             "&mode=" + context.negotiatedWidth + "x" + context.negotiatedHeight + "x" + launchRate +
             (virtualDisplay ? "&virtualDisplay=1&scaleFactor=" + context.streamConfig.getVirtualDisplayScale() : "") +
             // Also without virtualDisplay=1: the host makes a virtual display of its own by default

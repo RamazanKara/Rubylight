@@ -22,13 +22,21 @@ public final class ActionSheet extends BottomSheetDialog {
     private final LinearLayout body;
     private final LinearLayout content;
     private final TextView heading;
+    private final TextView subtitle;
     private final ImageButton back;
     private final NestedScrollView scroll;
     private final int spacing;
+    // Where a panel's title, tiles and footer start, from its edge.
+    private final int edge;
     private final boolean television;
+    // A floating panel over the stream instead of a sheet across the bottom; its footer stays out of the scroll.
+    private final boolean panel;
+    private final FooterBar footer;
     private MaterialButton firstAction;
     private Runnable backHandler;
     private Runnable onClosed;
+    private java.util.function.IntPredicate keyHandler;
+    private final java.util.Set<Integer> handledKeys = new java.util.HashSet<>();
     // Enabled only while a page is shown, so Back returns to the page before instead of closing.
     private final OnBackPressedCallback pageBack = new OnBackPressedCallback(false) {
         @Override public void handleOnBackPressed() {
@@ -51,31 +59,53 @@ public final class ActionSheet extends BottomSheetDialog {
     }
 
     public ActionSheet(Context context, CharSequence title) {
+        this(context, title, false);
+    }
+
+    /**
+     * With {@code panel}, a bounded panel floating over the stream instead of a sheet across the bottom: docked to the
+     * end edge in landscape and centred in portrait, at most the desktop menu's width, the stream visible around it and
+     * a tap beside it closing it. Its header shows {@link #setSubtitle}, and {@link #addPrimaryAction} and
+     * {@link #addFooterAction} sit in a footer outside the part that scrolls, so they are always in view.
+     */
+    public ActionSheet(Context context, CharSequence title, boolean panel) {
         super(context);
+        this.panel = panel;
         if (context instanceof android.app.Activity) setOwnerActivity((android.app.Activity) context);
         context = getContext();
         television = (context.getResources().getConfiguration().uiMode &
                 android.content.res.Configuration.UI_MODE_TYPE_MASK) == android.content.res.Configuration.UI_MODE_TYPE_TELEVISION;
-        if (television && !Motion.reduced(context)) getWindow().setWindowAnimations(R.style.TvSheetAnimation);
+        // The sheet's slide from the bottom edge does not fit a panel docked at the side: it fades in as on a TV.
+        if ((television || panel) && !Motion.reduced(context)) getWindow().setWindowAnimations(R.style.TvSheetAnimation);
         spacing = Math.round(8 * context.getResources().getDisplayMetrics().density);
+        // A panel lines its title, tiles and footer up on one edge, as desktop Nightjar's menu does.
+        edge = panel ? context.getResources().getDimensionPixelSize(R.dimen.stream_menu_edge) : spacing * 3;
         body = new LinearLayout(context);
         body.setOrientation(LinearLayout.VERTICAL);
         ViewCompat.setAccessibilityPaneTitle(body, title);
         LinearLayout header = new LinearLayout(context);
         header.setGravity(Gravity.CENTER_VERTICAL);
-        header.setPadding(spacing * 3, spacing, spacing, spacing);
+        header.setPadding(edge, panel ? spacing * 3 / 2 : spacing, spacing, panel ? spacing / 2 : spacing);
         content = new LinearLayout(context);
         content.setOrientation(LinearLayout.VERTICAL);
-        content.setPadding(spacing * 2, 0, spacing * 2, spacing * 2);
+        content.setPadding(edge - spacing, 0, edge - spacing, panel ? spacing / 2 : spacing * 2);
         if (television) content.setClipToPadding(false);
         heading = new TextView(context);
-        heading.setTextAppearance(context, R.style.TextAppearance_Nightjar_ScreenTitle);
+        // A panel's title is the game's name over a compact grid: a size down from a sheet's, on one line.
+        heading.setTextAppearance(context, panel ? R.style.TextAppearance_Nightjar_Title : R.style.TextAppearance_Nightjar_ScreenTitle);
         heading.setText(title);
-        heading.setMaxLines(2);
+        heading.setMaxLines(panel ? 1 : 2);
         heading.setEllipsize(android.text.TextUtils.TruncateAt.END);
         heading.setTextColor(MaterialColors.getColor(context, com.google.android.material.R.attr.colorOnSurface, 0));
-        heading.setPadding(0, spacing, spacing, spacing);
+        heading.setPadding(0, panel ? 0 : spacing, spacing, panel ? 0 : spacing);
         ViewCompat.setAccessibilityHeading(heading, true);
+        subtitle = new TextView(context);
+        subtitle.setTextAppearance(context, panel ? R.style.TextAppearance_Nightjar_Caption : R.style.TextAppearance_Nightjar_Supporting);
+        subtitle.setTextColor(MaterialColors.getColor(context, com.google.android.material.R.attr.colorOnSurfaceVariant, 0));
+        subtitle.setSingleLine(true);
+        subtitle.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        subtitle.setPadding(0, panel ? spacing / 4 : 0, spacing, panel ? 0 : spacing);
+        subtitle.setVisibility(android.view.View.GONE);
         // Shown on a page: touch gets the same way back to the first page as Back, Escape and B.
         back = new androidx.appcompat.widget.AppCompatImageButton(context, null, 0);
         back.setId(R.id.action_sheet_back);
@@ -92,7 +122,11 @@ public final class ActionSheet extends BottomSheetDialog {
         LinearLayout.LayoutParams backParams = new LinearLayout.LayoutParams(spacing * 6, spacing * 6);
         backParams.setMarginEnd(spacing);
         header.addView(back, backParams);
-        header.addView(heading, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+        LinearLayout titles = new LinearLayout(context);
+        titles.setOrientation(LinearLayout.VERTICAL);
+        titles.addView(heading);
+        titles.addView(subtitle);
+        header.addView(titles, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
         ImageButton close = new androidx.appcompat.widget.AppCompatImageButton(context, null, 0);
         close.setId(R.id.action_sheet_close);
         close.setImageResource(R.drawable.ic_close);
@@ -104,16 +138,51 @@ public final class ActionSheet extends BottomSheetDialog {
         close.setContentDescription(context.getString(R.string.sheet_close));
         close.setOnClickListener(view -> dismiss());
         header.addView(close, new LinearLayout.LayoutParams(spacing * 6, spacing * 6));
+        // A panel's Return to stream is always in view and a tap beside it closes it: no second close button.
+        if (panel) close.setVisibility(android.view.View.GONE);
         body.addView(header);
         scroll = new NestedScrollView(context);
         scroll.setClipToPadding(false);
         scroll.addView(content);
         body.addView(scroll, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT, 1));
-        setContentView(body);
+        if (panel) {
+            footer = new FooterBar(context, context.getResources().getDimensionPixelSize(R.dimen.stream_tile_gap));
+            footer.setPadding(edge, spacing, edge, television ? spacing * 2 : spacing * 3 / 2);
+            if (television) footer.setClipChildren(false);
+            body.addView(footer, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT));
+            com.google.android.material.shape.MaterialShapeDrawable surface = new com.google.android.material.shape.MaterialShapeDrawable(
+                    com.google.android.material.shape.ShapeAppearanceModel.builder().setAllCornerSizes(spacing * 3).build());
+            surface.setFillColor(android.content.res.ColorStateList.valueOf(MaterialColors.getColor(context,
+                    com.google.android.material.R.attr.colorSurfaceContainerLow, 0)));
+            surface.initializeElevationOverlay(context);
+            AppTheme.outlineOnBlack(context, surface);
+            body.setBackground(surface);
+            body.setClipToOutline(true);
+            body.setElevation(spacing);
+            PanelFrame frame = new PanelFrame(context, body, spacing);
+            frame.setOnOutsideTap(this::cancel);
+            setContentView(frame);
+        } else {
+            footer = null;
+            setContentView(body);
+        }
         setOnKeyListener((dialog, key, event) -> {
-            if (!event.hasNoModifiers() || (key != android.view.KeyEvent.KEYCODE_ESCAPE &&
-                    key != android.view.KeyEvent.KEYCODE_BUTTON_B)) return false;
+            if (!event.hasNoModifiers()) return false;
+            if (key != android.view.KeyEvent.KEYCODE_ESCAPE && key != android.view.KeyEvent.KEYCODE_BUTTON_B) {
+                if (keyHandler == null) return false;
+                // The release of a key the handler took goes with it, so nothing below sees half a press.
+                if (event.getAction() == android.view.KeyEvent.ACTION_DOWN) {
+                    if (event.getRepeatCount() > 0) return handledKeys.contains(key);
+                    if (keyHandler.test(key)) {
+                        handledKeys.add(key);
+                        return true;
+                    }
+                    return false;
+                }
+                return event.getAction() == android.view.KeyEvent.ACTION_UP && handledKeys.remove(key);
+            }
             if (event.getAction() == android.view.KeyEvent.ACTION_UP && !event.isCanceled()) {
                 if (pageBack.isEnabled()) pageBack.handleOnBackPressed();
                 else dismiss();
@@ -139,9 +208,32 @@ public final class ActionSheet extends BottomSheetDialog {
         ViewCompat.setAccessibilityPaneTitle(body, title);
     }
 
+    /** A quieter line under the title, such as the stream's mode; null or empty for none. */
+    public void setSubtitle(CharSequence text) {
+        boolean shown = text != null && text.length() > 0;
+        subtitle.setText(text);
+        subtitle.setVisibility(shown ? android.view.View.VISIBLE : android.view.View.GONE);
+        if (!panel) heading.setPadding(0, spacing, spacing, shown ? 0 : spacing);
+    }
+
+    CharSequence heading() {
+        return heading.getText();
+    }
+
+    /** The line under the title; gone while there is none. */
+    public TextView subtitle() {
+        return subtitle;
+    }
+
+    /** True for a floating panel ({@link #ActionSheet(Context, CharSequence, boolean)}). */
+    public boolean isPanel() {
+        return panel;
+    }
+
     /** Removes every row so another page can be shown in the same sheet, scrolled back to its top. */
     public void clearActions() {
         content.removeAllViews();
+        if (footer != null) footer.removeAllViews();
         firstAction = null;
         scroll.scrollTo(0, 0);
         if (television && isShowing()) {
@@ -154,8 +246,28 @@ public final class ActionSheet extends BottomSheetDialog {
     }
 
     /** Moves D-pad and keyboard focus to the first row, as when the sheet opens. */
+    /**
+     * Opened by a controller after a touch: the window leaves touch mode and the first action shows focus at once, as
+     * after a D-pad press, instead of the first press only revealing it.
+     */
+    public void focusFirstActionFromController() {
+        content.post(() -> {
+            if (firstAction != null && isShowing()) firstAction.requestFocusFromTouch();
+        });
+    }
+
     public void focusFirstAction() {
         if (!content.isInTouchMode() && firstAction != null) firstAction.requestFocus();
+    }
+
+    /** Makes another row the one D-pad focus starts on, such as one that doesn't end the stream. */
+    public void setFirstAction(MaterialButton button) {
+        if (button == null || button == firstAction) return;
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            if (firstAction != null) firstAction.setFocusedByDefault(false);
+            button.setFocusedByDefault(true);
+        }
+        firstAction = button;
     }
 
     /** A row of equal toggle buttons above the actions, for settings changed without leaving the sheet. */
@@ -313,6 +425,281 @@ public final class ActionSheet extends BottomSheetDialog {
         }
     }
 
+    /** A grid of compact tiles, as many to a row as fit, for {@link TileGrid#addTile}. */
+    public TileGrid addTileGrid() {
+        TileGrid grid = new TileGrid(getContext());
+        // Room around the tiles for a TV's focus ring, which grows a tile; elsewhere the ring sits inside it.
+        int vertical = television ? spacing : spacing / 2;
+        grid.setPadding(spacing, vertical, spacing, vertical);
+        if (television) {
+            grid.setClipToPadding(false);
+            grid.setClipChildren(false);
+        }
+        content.addView(grid, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT));
+        return grid;
+    }
+
+    /** The sheet's main way on, full width and filled, with the controller button that runs it at its end. */
+    public MaterialButton addPrimaryAction(int icon, CharSequence label, String hotkey) {
+        Context context = getContext();
+        TileGrid.Tile button = new TileGrid.Tile(context, com.google.android.material.R.attr.materialButtonStyle);
+        button.setText(label);
+        button.setAllCaps(false);
+        button.setTextAppearance(context, R.style.TextAppearance_Nightjar_Body);
+        button.setTextColor(MaterialColors.getColor(context, com.google.android.material.R.attr.colorOnPrimary, 0));
+        button.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
+        button.setIconResource(icon);
+        button.setIconTint(android.content.res.ColorStateList.valueOf(
+                MaterialColors.getColor(context, com.google.android.material.R.attr.colorOnPrimary, 0)));
+        button.setIconPadding(spacing * 2);
+        button.setIconSize(spacing * 3);
+        button.setMinHeight(spacing * 7);
+        button.setPaddingRelative(spacing * 2, spacing, spacing * 7, spacing);
+        button.setHotkey(hotkey);
+        button.setHotkeyAtEnd(true);
+        button.setContentDescription(label + ", " + hotkey);
+        button.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
+                MaterialColors.getColor(context, androidx.appcompat.R.attr.colorPrimary, 0)));
+        button.setCapInLabelColour(true);
+        styleRow(button);
+        if (footer != null) {
+            // A slim bar across the panel, as desktop Nightjar's: rounded like the tiles, the label beside its icon.
+            android.content.res.Resources res = context.getResources();
+            button.setTextAppearance(context, R.style.TextAppearance_Nightjar_Label);
+            button.setTextColor(MaterialColors.getColor(context, com.google.android.material.R.attr.colorOnPrimary, 0));
+            button.setSingleLine(true);
+            button.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            button.setIconSize(res.getDimensionPixelSize(R.dimen.stream_menu_footer_icon));
+            button.setIconPadding(spacing * 3 / 2);
+            int height = res.getDimensionPixelSize(R.dimen.stream_menu_return_height);
+            button.setMinHeight(height);
+            button.setMinimumHeight(height);
+            button.setCornerRadius(res.getDimensionPixelSize(R.dimen.stream_tile_corner));
+            button.setInsetTop(0);
+            button.setInsetBottom(0);
+            button.setPaddingRelative(spacing * 3 / 2, 0, spacing * 6, 0);
+            footer.setPrimary(button);
+            return button;
+        }
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT);
+        params.setMargins(spacing, spacing, spacing, spacing / 2);
+        content.addView(button, params);
+        return button;
+    }
+
+    /**
+     * A way out under the main action. In a panel it sits in the footer beside the others, in equal widths and in the
+     * error colour when {@code destructive}; in a sheet it is a row like {@link #addAction} or {@link #addDestructiveAction}.
+     */
+    public MaterialButton addFooterAction(int icon, CharSequence label, boolean destructive) {
+        if (footer == null) return destructive ? addDestructiveAction(icon, label) : addAction(icon, label);
+        Context context = getContext();
+        android.content.res.Resources res = context.getResources();
+        MaterialButton button = new MaterialButton(context, null, com.google.android.material.R.attr.materialButtonStyle);
+        int ink = MaterialColors.getColor(context, destructive ? androidx.appcompat.R.attr.colorError
+                : com.google.android.material.R.attr.colorOnSurface, 0);
+        button.setText(label);
+        button.setAllCaps(false);
+        button.setTextAppearance(context, R.style.TextAppearance_Nightjar_Supporting);
+        button.setTextColor(ink);
+        button.setSingleLine(true);
+        button.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        button.setIconResource(icon);
+        button.setIconTint(android.content.res.ColorStateList.valueOf(ink));
+        button.setIconSize(res.getDimensionPixelSize(R.dimen.stream_menu_footer_icon));
+        button.setIconPadding(spacing);
+        button.setIconGravity(MaterialButton.ICON_GRAVITY_TEXT_START);
+        int height = res.getDimensionPixelSize(R.dimen.stream_menu_exit_height);
+        button.setMinHeight(height);
+        button.setMinimumHeight(height);
+        button.setMinWidth(0);
+        button.setMinimumWidth(0);
+        button.setCornerRadius(res.getDimensionPixelSize(R.dimen.stream_tile_corner));
+        button.setInsetTop(0);
+        button.setInsetBottom(0);
+        button.setPaddingRelative(spacing, 0, spacing, 0);
+        button.setBackgroundTintList(android.content.res.ColorStateList.valueOf(MaterialColors.getColor(context,
+                com.google.android.material.R.attr.colorSurfaceContainerHigh, 0)));
+        styleRow(button);
+        footer.addView(button);
+        return button;
+    }
+
+    /**
+     * A panel's window: the panel docked to the end edge in landscape and centred in portrait, the stream around it,
+     * and a tap beside the panel closing it. The panel is as wide as the desktop menu, 480 dp, where there is room; in
+     * landscape it takes at most two thirds of the width but never less than 360 dp.
+     */
+    static final class PanelFrame extends android.widget.FrameLayout {
+        static final int WIDTH_DP = 480, MIN_WIDTH_DP = 360;
+        static final float LANDSCAPE_SHARE = 0.66f;
+        private final android.view.View panel;
+        private final int margin;
+        private Runnable onOutsideTap;
+        private boolean pressedOutside;
+
+        PanelFrame(Context context, android.view.View panel, int margin) {
+            super(context);
+            this.panel = panel;
+            this.margin = margin;
+            addView(panel, new LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT));
+            // Over an immersive stream only a display cutout is left to keep clear of; elsewhere the bars too.
+            ViewCompat.setOnApplyWindowInsetsListener(this, (view, insets) -> {
+                androidx.core.graphics.Insets bars = insets.getInsets(
+                        WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.displayCutout());
+                view.setPadding(bars.left, bars.top, bars.right, bars.bottom);
+                return insets;
+            });
+        }
+
+        void setOnOutsideTap(Runnable onOutsideTap) {
+            this.onOutsideTap = onOutsideTap;
+        }
+
+        /** The panel's width in pixels in a window {@code width} × {@code height} pixels big. */
+        static int panelWidth(int width, int height, int margin, float density) {
+            int wide = Math.round(WIDTH_DP * density);
+            int target = width > height
+                    ? Math.max(Math.round(MIN_WIDTH_DP * density), Math.min(wide, Math.round(width * LANDSCAPE_SHARE)))
+                    : wide;
+            return Math.max(0, Math.min(target, width - 2 * margin));
+        }
+
+        @Override
+        protected void onMeasure(int widthSpec, int heightSpec) {
+            int width = MeasureSpec.getSize(widthSpec) - getPaddingLeft() - getPaddingRight();
+            int height = MeasureSpec.getSize(heightSpec) - getPaddingTop() - getPaddingBottom();
+            LayoutParams params = (LayoutParams) panel.getLayoutParams();
+            params.width = panelWidth(width, height, margin, getResources().getDisplayMetrics().density);
+            params.gravity = width > height ? Gravity.END | Gravity.CENTER_VERTICAL : Gravity.CENTER;
+            params.setMargins(margin, margin, margin, margin);
+            super.onMeasure(widthSpec, heightSpec);
+        }
+
+        private boolean outside(android.view.MotionEvent event) {
+            return event.getX() < panel.getLeft() || event.getX() >= panel.getRight()
+                    || event.getY() < panel.getTop() || event.getY() >= panel.getBottom();
+        }
+
+        // Touches the panel's rows leave fall through to here: beside the panel they close it, on it they do nothing.
+        @Override
+        public boolean onTouchEvent(android.view.MotionEvent event) {
+            switch (event.getActionMasked()) {
+                case android.view.MotionEvent.ACTION_DOWN:
+                    pressedOutside = outside(event);
+                    break;
+                case android.view.MotionEvent.ACTION_UP:
+                    if (pressedOutside && outside(event)) performClick();
+                    pressedOutside = false;
+                    break;
+                case android.view.MotionEvent.ACTION_CANCEL:
+                    pressedOutside = false;
+                    break;
+                default:
+                    break;
+            }
+            return true;
+        }
+
+        @Override
+        public boolean performClick() {
+            super.performClick();
+            if (onOutsideTap != null) onOutsideTap.run();
+            return true;
+        }
+    }
+
+    /**
+     * A panel's footer, as desktop Nightjar's: the main action as a slim bar across the width, the ways out side by side
+     * in a slim row under it.
+     */
+    static final class FooterBar extends android.view.ViewGroup {
+        private final int gap;
+        private android.view.View primary;
+
+        FooterBar(Context context, int gap) {
+            super(context);
+            this.gap = gap;
+        }
+
+        void setPrimary(android.view.View view) {
+            if (primary != null) removeView(primary);
+            primary = view;
+            addView(view, 0);
+        }
+
+        @Override
+        public void onViewRemoved(android.view.View child) {
+            super.onViewRemoved(child);
+            if (child == primary) primary = null;
+        }
+
+        @Override
+        protected void onMeasure(int widthSpec, int heightSpec) {
+            int width = MeasureSpec.getSize(widthSpec);
+            int room = width - getPaddingLeft() - getPaddingRight();
+            int count = getChildCount();
+            if (count == 0) {
+                setMeasuredDimension(width, 0);
+                return;
+            }
+            int exits = primary == null ? count : count - 1;
+            int height = getPaddingTop() + getPaddingBottom();
+            if (primary != null) {
+                primary.measure(MeasureSpec.makeMeasureSpec(room, MeasureSpec.EXACTLY),
+                        MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED));
+                height += primary.getMeasuredHeight();
+            }
+            if (exits > 0) {
+                int cell = (room - gap * (exits - 1)) / exits;
+                height += (primary == null ? 0 : gap) + measureLine(primary == null ? 0 : 1, count, cell);
+            }
+            setMeasuredDimension(width, height);
+        }
+
+        // Children [from, to) on one line, each as tall as the tallest; answers the line's height.
+        private int measureLine(int from, int to, int cell) {
+            int tallest = 0;
+            for (int i = from; i < to; i++) {
+                android.view.View child = getChildAt(i);
+                child.measure(MeasureSpec.makeMeasureSpec(cell, MeasureSpec.EXACTLY),
+                        MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED));
+                tallest = Math.max(tallest, child.getMeasuredHeight());
+            }
+            for (int i = from; i < to; i++) {
+                android.view.View child = getChildAt(i);
+                child.measure(MeasureSpec.makeMeasureSpec(child.getMeasuredWidth(), MeasureSpec.EXACTLY),
+                        MeasureSpec.makeMeasureSpec(tallest, MeasureSpec.EXACTLY));
+            }
+            return tallest;
+        }
+
+        @Override
+        protected void onLayout(boolean changed, int left, int top, int right, int bottom) {
+            boolean rtl = getLayoutDirection() == LAYOUT_DIRECTION_RTL;
+            int width = right - left;
+            int y = getPaddingTop();
+            int x = 0;
+            for (int i = 0; i < getChildCount(); i++) {
+                android.view.View child = getChildAt(i);
+                int childLeft = rtl ? width - getPaddingRight() - x - child.getMeasuredWidth() : getPaddingLeft() + x;
+                child.layout(childLeft, y, childLeft + child.getMeasuredWidth(), y + child.getMeasuredHeight());
+                if (child == primary) {
+                    y += child.getMeasuredHeight() + gap;
+                } else {
+                    x += child.getMeasuredWidth() + gap;
+                }
+            }
+        }
+    }
+
+    /** Keys other than Back, Escape and B: {@code handler} gets each key's code once, as it goes down, and takes it by answering true. */
+    public void setKeyHandler(java.util.function.IntPredicate handler) {
+        keyHandler = handler;
+    }
+
     /** An action that opens another page of this sheet, marked with a chevron at its end. */
     public MaterialButton addPageAction(int icon, CharSequence label) {
         MaterialButton button = addAction(icon, label);
@@ -341,8 +728,11 @@ public final class ActionSheet extends BottomSheetDialog {
         }
     }
 
-    public void addSection(int title) {
-        content.addView(sectionHeading(getContext().getText(title)));
+    /** A heading; returned so a sheet can hide it with what it heads. */
+    public TextView addSection(int title) {
+        TextView heading = sectionHeading(getContext().getText(title));
+        content.addView(heading);
+        return heading;
     }
 
     /** A heading from the host's words, such as a session's game. */
@@ -534,6 +924,10 @@ public final class ActionSheet extends BottomSheetDialog {
     @Override
     protected void onStart() {
         super.onStart();
+        if (panel) {
+            startPanel();
+            return;
+        }
         getBehavior().setState(BottomSheetBehavior.STATE_EXPANDED);
         getBehavior().setSkipCollapsed(true);
         // Material's sheet behavior owns system-bar insets. Consuming them on the dialog's
@@ -548,6 +942,28 @@ public final class ActionSheet extends BottomSheetDialog {
             // Material installs its surface during the first layout, replacing the XML background.
             sheet.addOnLayoutChangeListener((view, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) ->
                     AppTheme.outlineOnBlack(getContext(), view.getBackground()));
+        }
+        if (!content.isInTouchMode() && firstAction != null) firstAction.requestFocus();
+    }
+
+    // The bottom sheet becomes a still, see-through layer over the whole window: the panel frame in it places the panel
+    // and closes it on a tap beside it. Back, Escape and B close it as they close a sheet.
+    private void startPanel() {
+        if (getOwnerActivity() != null) keepSystemBarsHidden(this, getOwnerActivity());
+        BottomSheetBehavior<?> behavior = getBehavior();
+        behavior.setDraggable(false);
+        behavior.setSkipCollapsed(true);
+        behavior.setMaxWidth(Integer.MAX_VALUE);
+        behavior.setState(BottomSheetBehavior.STATE_EXPANDED);
+        android.view.View sheet = findViewById(com.google.android.material.R.id.design_bottom_sheet);
+        if (sheet != null) {
+            sheet.getLayoutParams().height = android.view.ViewGroup.LayoutParams.MATCH_PARENT;
+            sheet.setBackground(null);
+            // Material installs its surface during the first layout, replacing the empty one.
+            sheet.addOnLayoutChangeListener((view, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> {
+                if (view.getBackground() != null) view.setBackground(null);
+            });
+            sheet.requestLayout();
         }
         if (!content.isInTouchMode() && firstAction != null) firstAction.requestFocus();
     }

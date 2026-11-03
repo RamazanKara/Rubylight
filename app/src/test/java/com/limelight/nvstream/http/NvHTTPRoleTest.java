@@ -143,6 +143,22 @@ public class NvHTTPRoleTest {
     }
 
     @Test
+    public void microphoneOnlyLaunchesInputOnlyWithoutAnApp() throws Exception {
+        NvApp app = NvApp.micOnly("Microphone only");
+        assertEquals(NvApp.Role.INPUT_ONLY, app.getRole());
+        assertFalse(app.isSmallStreamInputOnly());
+        assertFalse(app.isControlAction());
+        HttpUrl query = query(context(app), "launch");
+        assertEquals("0", query.queryParameter("appid"));
+        assertEquals("1", query.queryParameter("input_only"));
+        assertEquals("1", query.queryParameter("rlMicOnly"));
+        assertNull(query.queryParameter("virtualDisplay"));
+        assertNull(query.queryParameter("hdrMode"));
+        // An ordinary Input-only launch does not ask for it.
+        assertNull(query(context(apps("remote-applist").get(1)), "launch").queryParameter("rlMicOnly"));
+    }
+
+    @Test
     public void ordinaryNamesAndUnknownXmlFieldsDoNotAssignARole() throws Exception {
         NvApp app = NvHTTP.getAppListByReader(new StringReader(
                 "<root status_code=\"200\"><App><ID>42</ID><AppTitle>Remote Monitor</AppTitle>" +

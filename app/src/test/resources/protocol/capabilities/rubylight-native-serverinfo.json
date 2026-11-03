@@ -45,6 +45,7 @@
     "pipeline_rates": "unsupported",
     "image_clipboard": "unknown",
     "shared_folders": "unknown",
-    "coop": "unknown"
+    "coop": "unknown",
+    "mic_only": "unknown"
   }
 }

@@ -252,7 +252,10 @@ pub(super) fn scroll(ui: &mut Ui, id: &str, add: impl FnOnce(&mut Ui)) {
             .id_salt(id)
             .auto_shrink(false)
             .content_margin(Margin::same(6))
-            .show(ui, add);
+            .show(ui, |ui| {
+                crate::gui::follow_focus_here(ui, id);
+                add(ui);
+            });
     });
 }
 
@@ -273,7 +276,10 @@ pub(super) fn scroll_column(ui: &mut Ui, id: &str, width: f32, add: impl FnOnce(
             area = area.vertical_scroll_offset((offset - wheel).clamp(0.0, end));
         }
     }
-    let list = ui.scope_builder(egui::UiBuilder::new().max_rect(rect), |ui| area.show(ui, add)).inner;
+    let list = ui.scope_builder(egui::UiBuilder::new().max_rect(rect), |ui| area.show(ui, |ui| {
+        crate::gui::follow_focus_here(ui, id);
+        add(ui);
+    })).inner;
     let end = (list.content_size.y - list.inner_rect.height()).max(0.0);
     ui.ctx().data_mut(|d| d.insert_temp(memory, (list.state.clamped_offset().y, end)));
 }

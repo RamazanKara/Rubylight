@@ -1,0 +1,23 @@
+{
+  "rust": "stick::Geometry",
+  "java": "com.limelight.binding.input.StickMath",
+  "new": null,
+  "calls": [
+    {"call": "deflection_x", "args": [0.0, 0.0, 90.0, 0.07999999821186066], "expect": 0.0},
+    {"call": "deflection_y", "args": [0.0, 0.0, 90.0, 0.07999999821186066], "expect": 0.0},
+    {"call": "deflection_x", "args": [5.0, -3.0, 90.0, 0.07999999821186066], "expect": 0.0},
+    {"call": "deflection_y", "args": [5.0, -3.0, 90.0, 0.07999999821186066], "expect": 0.0},
+    {"call": "deflection_x", "args": [54.0, 0.0, 90.0, 0.07999999821186066], "expect": 0.5652174353599548},
+    {"call": "deflection_y", "args": [54.0, 0.0, 90.0, 0.07999999821186066], "expect": 0.0},
+    {"call": "deflection_x", "args": [-31.5, 47.25, 90.0, 0.07999999821186066], "expect": -0.33219996094703674},
+    {"call": "deflection_y", "args": [-31.5, 47.25, 90.0, 0.07999999821186066], "expect": 0.4982999861240387},
+    {"call": "deflection_x", "args": [63.0, 84.0, 90.0, 0.0], "expect": 0.6000000238418579},
+    {"call": "deflection_y", "args": [63.0, 84.0, 90.0, 0.0], "expect": 0.800000011920929},
+    {"call": "deflection_x", "args": [300.0, -400.0, 90.0, 0.07999999821186066], "expect": 0.5999999642372131},
+    {"call": "deflection_y", "args": [300.0, -400.0, 90.0, 0.07999999821186066], "expect": -0.800000011920929},
+    {"call": "deflection_x", "args": [-90.0, 0.0, 90.0, 0.25], "expect": -1.0},
+    {"call": "deflection_y", "args": [-90.0, 0.0, 90.0, 0.25], "expect": 0.0},
+    {"call": "deflection_x", "args": [20.0, 20.0, 90.0, 0.8999999761581421], "expect": 0.0},
+    {"call": "deflection_y", "args": [20.0, 20.0, 90.0, 0.8999999761581421], "expect": 0.0}
+  ]
+}

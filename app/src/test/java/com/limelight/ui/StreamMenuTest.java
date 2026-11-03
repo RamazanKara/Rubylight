@@ -7,11 +7,14 @@ import android.view.View;
 
 import com.google.android.material.button.MaterialButton;
 import com.limelight.R;
+import com.limelight.binding.input.KeyboardShortcuts;
 import com.limelight.nativeapi.NativeApiFixtures;
 import com.limelight.nvstream.http.ComputerDetails;
 import com.limelight.nvstream.http.NvApp;
 import com.limelight.nvstream.http.TestHosts;
 
+import org.junit.After;
+import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.robolectric.Robolectric;
@@ -32,12 +35,73 @@ import static org.junit.Assert.*;
 @RunWith(RobolectricTestRunner.class)
 @Config(sdk = 29, application = Application.class)
 public class StreamMenuTest {
+    @Before
+    public void answerFromThePolicySources() {
+        StreamMenuModel.use(new RustStreamMenuModel());
+    }
+
+    @After
+    public void forgetTheModel() {
+        StreamMenuModel.use(null);
+    }
+
     /** The Rubylight fixture on a 3.0 host that also speaks the native API. */
     private static ComputerDetails nativeApiHost() {
         ComputerDetails host = TestHosts.details("rubylight-serverinfo.xml");
         host.caps = TestHosts.caps("<root status_code=\"200\"><RustHostVersion>3.0.0</RustHostVersion>"
                 + "<PairStatus>1</PairStatus><NativeApiVersion>1</NativeApiVersion></root>");
         return host;
+    }
+
+    /** As desktop Nightjar's: the game over the stream's mode from the shared model, the PC while the mode is unknown. */
+    @Test
+    public void theHeaderNamesTheGameOverTheStreamsMode() {
+        try (var controller = Robolectric.buildActivity(Activity.class).setup()) {
+            Activity activity = controller.get();
+            activity.setTheme(R.style.StreamTheme);
+            StreamMenu.Options state = options("rubylight-serverinfo.xml", NvApp.Role.STREAM);
+            state.appName = "Open World";
+            state.host.name = "Gaming PC";
+            state.streamWidth = 2560;
+            state.streamHeight = 1440;
+            state.streamFps = 144;
+            state.videoFormat = 0x0200;
+            state.hdr = true;
+            StreamMenu menu = new StreamMenu(activity, () -> state, item -> { }, null, null);
+            assertArrayEquals(new String[] {"Open World", "1440p · 144 FPS · HEVC HDR"}, menu.header(state));
+            StreamMenu.Options starting = options("rubylight-serverinfo.xml", NvApp.Role.STREAM);
+            starting.appName = "Open World";
+            starting.host.name = "Gaming PC";
+            assertArrayEquals(new String[] {"Open World", "Gaming PC"}, menu.header(starting));
+            menu.show();
+            assertEquals("Open World", menu.sheet().heading().toString());
+            assertEquals("1440p · 144 FPS · HEVC HDR", menu.sheet().subtitle().getText().toString());
+            // Another page shows its own title and no mode.
+            menu.row(MORE).performClick();
+            assertEquals(View.GONE, menu.sheet().subtitle().getVisibility());
+            menu.sheet().dismiss();
+
+            StreamMenu.Options monitor = options("rubylight-serverinfo.xml", NvApp.Role.REMOTE_MONITOR);
+            monitor.appName = "Desktop";
+            assertEquals(activity.getString(R.string.stream_monitor_title), menu.header(monitor)[0]);
+        }
+    }
+
+    @Test
+    public void theFloatingMenuButtonIsASwitchOnTheMorePage() {
+        StreamMenu.Options options = options("rubylight-serverinfo.xml", NvApp.Role.STREAM);
+        assertFalse("A stream without the button has nothing to show", items(StreamMenu.mainPage(options)).contains(MENU_BUTTON));
+        options.menuButtonAvailable = true;
+        assertEquals(R.string.stream_menu_button_show, entry(StreamMenu.mainPage(options), MENU_BUTTON).label);
+        options.menuButtonShown = true;
+        assertEquals(R.string.stream_menu_button_hide, entry(StreamMenu.mainPage(options), MENU_BUTTON).label);
+    }
+
+    private static boolean inScroll(View view) {
+        for (android.view.ViewParent parent = view.getParent(); parent != null; parent = parent.getParent()) {
+            if (parent instanceof androidx.core.widget.NestedScrollView) return true;
+        }
+        return false;
     }
 
     private static StreamMenu.Options options(String fixture, NvApp.Role role) {
@@ -63,11 +127,11 @@ public class StreamMenuTest {
     }
 
     @Test
-    public void rubylightGetsTheQuickRowThenEverySectionThenTheSessionActions() {
+    public void rubylightGetsTheQuickRowThenTheSessionActionsThenEverySection() {
         Map<StreamMenu.Section, List<StreamMenu.Item>> menu = sections(StreamMenu.mainPage(
                 options("rubylight-serverinfo.xml", NvApp.Role.STREAM)));
-        assertEquals(Arrays.asList(StreamMenu.Section.QUICK, StreamMenu.Section.INPUT, StreamMenu.Section.DISPLAY,
-                StreamMenu.Section.QUALITY, StreamMenu.Section.HOST, StreamMenu.Section.SESSION), new ArrayList<>(menu.keySet()));
+        assertEquals(Arrays.asList(StreamMenu.Section.QUICK, StreamMenu.Section.SESSION, StreamMenu.Section.INPUT,
+                StreamMenu.Section.DISPLAY, StreamMenu.Section.QUALITY, StreamMenu.Section.HOST), new ArrayList<>(menu.keySet()));
         assertEquals(Arrays.asList(KEYBOARD, PC_KEYBOARD, OVERLAY), menu.get(StreamMenu.Section.QUICK));
         assertEquals(Arrays.asList(TOUCH_MODE, ONSCREEN_CONTROLS, KEYBOARD_KEYS), menu.get(StreamMenu.Section.INPUT));
         assertEquals(Arrays.asList(ZOOM, OVERLAY_PAGE), menu.get(StreamMenu.Section.DISPLAY));
@@ -75,12 +139,60 @@ public class StreamMenuTest {
         assertEquals(Arrays.asList(BITRATE, AUTOMATIC_QUALITY, AUTOMATIC_BITRATE), menu.get(StreamMenu.Section.QUALITY));
         assertEquals(Arrays.asList(SERVER_COMMANDS, CLIPBOARD_SEND, CLIPBOARD_RECEIVE, HOST_WEB_UI, HOST_STATUS),
                 menu.get(StreamMenu.Section.HOST));
-        // Reconnect is a stream action, not a host command; quitting comes last, in the error colour.
-        assertEquals(Arrays.asList(RECONNECT, DISCONNECT, QUIT_GAME), menu.get(StreamMenu.Section.SESSION));
-        List<StreamMenu.Entry> entries = StreamMenu.mainPage(options("rubylight-serverinfo.xml", NvApp.Role.STREAM));
-        StreamMenu.Entry last = entries.get(entries.size() - 1);
+        // Disconnect first (nightjar#52), Reconnect is a stream action, not a host command; quitting closes the
+        // group, in the error colour.
+        assertEquals(Arrays.asList(DISCONNECT, RECONNECT, QUIT_GAME), menu.get(StreamMenu.Section.SESSION));
+        StreamMenu.Entry last = lastSession(StreamMenu.mainPage(options("rubylight-serverinfo.xml", NvApp.Role.STREAM)));
         assertTrue(last.destructive);
         assertEquals(R.string.stream_quit_game, last.label);
+    }
+
+    /**
+     * nightjar#52: with a TV remote, Disconnect is one step down from the quick toggles in every role and on every
+     * host, the whole session group comes before Input, Display, Quality and Host, and focus never starts on a row
+     * that ends the stream.
+     */
+    @Test
+    public void theSessionActionsSitRightUnderTheQuickTogglesWithDisconnectFirst() {
+        List<StreamMenu.Options> menus = new ArrayList<>();
+        for (NvApp.Role role : NvApp.Role.values()) {
+            for (String fixture : new String[] {"gamestream-serverinfo.xml", "sunshine-serverinfo.xml", "apollo-serverinfo.xml",
+                    "vibepollo-serverinfo.xml", "rubylight-serverinfo.xml", "butterpollo-viewer-serverinfo.xml"}) {
+                menus.add(options(fixture, role));
+            }
+            StreamMenu.Options withControl = options(nativeApiHost(), role);
+            withControl.nativeHostControl = true;
+            withControl.hostMenu = true;
+            menus.add(withControl);
+            menus.add(options(nativeApiHost(), role));
+        }
+        for (StreamMenu.Options o : menus) {
+            String name = o.role + " on " + o.host.name;
+            List<StreamMenu.Entry> entries = StreamMenu.mainPage(o);
+            int at = 0;
+            while (entries.get(at).section == StreamMenu.Section.QUICK) at++;
+            assertEquals(name, DISCONNECT, entries.get(at).item);
+            while (at < entries.size() && entries.get(at).section == StreamMenu.Section.SESSION) at++;
+            for (StreamMenu.Entry entry : entries.subList(at, entries.size())) {
+                assertNotEquals(name + ": " + entry, StreamMenu.Section.SESSION, entry.section);
+            }
+            StreamMenu.Entry first = entry(entries, StreamMenu.firstFocus(entries));
+            assertNotEquals(name, DISCONNECT, first.item);
+            assertFalse(name, first.destructive);
+        }
+    }
+
+    @Test
+    public void focusStartsOnTheFirstToggleOrOnReconnectWhenThereAreNoToggles() {
+        assertEquals(KEYBOARD, StreamMenu.firstFocus(StreamMenu.mainPage(options("rubylight-serverinfo.xml", NvApp.Role.STREAM))));
+        // Input-only on a view-only device has no toggles: Disconnect is the first row, so focus skips it.
+        List<StreamMenu.Entry> bare = StreamMenu.mainPage(options("butterpollo-viewer-serverinfo.xml", NvApp.Role.INPUT_ONLY));
+        assertEquals(DISCONNECT, bare.get(0).item);
+        assertEquals(RECONNECT, StreamMenu.firstFocus(bare));
+        // The pages keep their first row.
+        StreamMenu.Options native_ = options(nativeApiHost(), NvApp.Role.STREAM);
+        assertEquals(NATIVE_RESUME, StreamMenu.firstFocus(StreamMenu.nativePage(native_)));
+        assertEquals(OVERLAY_OFF, StreamMenu.firstFocus(StreamMenu.overlayPage(native_)));
     }
 
     @Test
@@ -199,7 +311,7 @@ public class StreamMenuTest {
         // Disconnect leaves the game, then End session, then the destructive Close game last.
         assertTrue(items.indexOf(DISCONNECT) < items.indexOf(END_HOST_SESSION));
         assertTrue(items.indexOf(END_HOST_SESSION) < items.indexOf(CLOSE_GAME));
-        StreamMenu.Entry last = entries.get(entries.size() - 1);
+        StreamMenu.Entry last = lastSession(entries);
         assertEquals(CLOSE_GAME, last.item);
         assertTrue(last.destructive);
         assertEquals(R.string.stream_close_game, last.label);
@@ -218,7 +330,7 @@ public class StreamMenuTest {
         assertFalse(items.contains(CLOSE_GAME));
         assertTrue(items.contains(DISCONNECT));
         assertTrue(items.contains(END_HOST_SESSION));
-        StreamMenu.Entry last = entries.get(entries.size() - 1);
+        StreamMenu.Entry last = lastSession(entries);
         assertEquals(QUIT_GAME, last.item);
         assertTrue(last.destructive);
         assertEquals(R.string.stream_quit_game, last.label);
@@ -262,8 +374,8 @@ public class StreamMenuTest {
         assertFalse(items.contains(CLIPBOARD_SEND));
         assertTrue(items.contains(CLIPBOARD_RECEIVE));
         assertFalse(items.contains(QUIT_GAME));
-        assertEquals(END_SESSION, monitor.get(monitor.size() - 1).item);
-        assertEquals(R.string.stream_end_monitor, monitor.get(monitor.size() - 1).label);
+        assertEquals(END_SESSION, lastSession(monitor).item);
+        assertEquals(R.string.stream_end_monitor, lastSession(monitor).label);
         assertEquals(R.string.stream_monitor_title, StreamMenu.title(NvApp.Role.REMOTE_MONITOR));
 
         List<StreamMenu.Entry> input = StreamMenu.mainPage(options("rubylight-serverinfo.xml", NvApp.Role.INPUT_ONLY));
@@ -271,7 +383,7 @@ public class StreamMenuTest {
         assertNull("Input-only has no video to show or tune", sections.get(StreamMenu.Section.DISPLAY));
         assertNull(sections.get(StreamMenu.Section.QUALITY));
         assertEquals(Arrays.asList(KEYBOARD, PC_KEYBOARD), sections.get(StreamMenu.Section.QUICK));
-        assertEquals(R.string.stream_end_input, input.get(input.size() - 1).label);
+        assertEquals(R.string.stream_end_input, lastSession(input).label);
         assertEquals(R.string.stream_input_title, StreamMenu.title(NvApp.Role.INPUT_ONLY));
     }
 
@@ -305,6 +417,16 @@ public class StreamMenuTest {
         options.canSendInput = false;
         assertFalse(items(StreamMenu.mainPage(options)).contains(MIC_BUTTON));
         assertTrue(items(StreamMenu.mainPage(options)).contains(MICROPHONE));
+    }
+
+    /** The last of the session actions, which now sit under the quick toggles rather than at the end. */
+    private static StreamMenu.Entry lastSession(List<StreamMenu.Entry> entries) {
+        StreamMenu.Entry last = null;
+        for (StreamMenu.Entry entry : entries) {
+            if (entry.section == StreamMenu.Section.SESSION) last = entry;
+        }
+        assertNotNull("the page has session actions", last);
+        return last;
     }
 
     private static StreamMenu.Entry entry(List<StreamMenu.Entry> entries, StreamMenu.Item item) {
@@ -406,13 +528,15 @@ public class StreamMenuTest {
             StreamMenu.Options options = options("rubylight-serverinfo.xml", role);
             options.automaticQuality = true;
             options.microphoneOffered = options.micButtonAvailable = options.mouseConnected = options.onscreenControls = options.gameControls = true;
-            options.controllerMouseAvailable = true;
+            options.controllerMouseAvailable = options.menuButtonAvailable = true;
             options.scalingAvailable = options.zoomEnabled = options.pictureInPicture = options.externalDisplays = true;
             reachable.addAll(items(StreamMenu.mainPage(options)));
             reachable.addAll(items(StreamMenu.overlayPage(options)));
             options.rateChange = true;
             reachable.addAll(items(StreamMenu.mainPage(options)));
         }
+        // The menu adds the Shortcuts and More tiles and Return to stream itself (see the grid test).
+        reachable.addAll(EnumSet.of(SHORTCUTS, MORE, CLOSE));
         assertEquals(EnumSet.allOf(StreamMenu.Item.class), reachable);
     }
 
@@ -542,7 +666,8 @@ public class StreamMenuTest {
         float[] large = textSizes(1.3f);
         for (int i = 0; i < normal.length; i++) {
             assertTrue("text " + i + " is drawn", normal[i] > 0);
-            assertEquals("text " + i + " grows with the font scale", 1.3f, large[i] / normal[i], 0.02f);
+            // A tile's 12sp lands on whole pixels, so its ratio is 16/12 rather than 1.3.
+            assertEquals("text " + i + " grows with the font scale", 1.3f, large[i] / normal[i], 0.04f);
         }
     }
 
@@ -562,12 +687,16 @@ public class StreamMenuTest {
                 assertNull(menu.row(item));
                 assertFalse(items(menu.entries()).contains(item));
             }
-            assertEquals("System keyboard", menu.row(KEYBOARD).getText().toString());
-            assertNotNull(menu.row(KEYBOARD_KEYS));
+            assertEquals("Keyboard", menu.row(KEYBOARD).getText().toString());
             assertNotNull(menu.row(DISCONNECT));
+            menu.row(MORE).performClick();
+            assertEquals(StreamMenu.Page.MORE, menu.page());
+            assertNotNull(menu.row(KEYBOARD_KEYS));
             assertEquals("Open host menu", menu.row(HOST_MENU).getText().toString());
             menu.row(HOST_MENU).performClick();
             assertEquals(Arrays.asList(HOST_MENU), chosen);
+            menu.back();
+            assertEquals(StreamMenu.Page.MAIN, menu.page());
             menu.row(OVERLAY_PAGE).performClick();
             assertEquals(StreamMenu.Page.OVERLAY, menu.page());
             menu.back();
@@ -607,12 +736,10 @@ public class StreamMenuTest {
             });
             menu.show();
             assertFalse("Keyboard is an action, not a switch", menu.row(KEYBOARD).isCheckable());
-            assertEquals(activity.getString(R.string.desktop_controls_system_keyboard),
+            assertEquals("the model's short label, as desktop Nightjar's", activity.getString(R.string.stream_tile_keyboard),
                     menu.row(KEYBOARD).getText().toString());
             assertFalse("The PC keyboard is an action too", menu.row(PC_KEYBOARD).isCheckable());
             assertEquals(activity.getString(R.string.pc_keyboard_title), menu.row(PC_KEYBOARD).getText().toString());
-            assertEquals(activity.getString(R.string.desktop_controls_open),
-                    menu.row(KEYBOARD_KEYS).getText().toString());
             MaterialButton overlay = menu.row(OVERLAY);
             assertTrue(overlay.isCheckable());
             assertFalse(overlay.isChecked());
@@ -683,11 +810,12 @@ public class StreamMenuTest {
             assertEquals(activity.getString(R.string.stream_audio_unread), menu.audioNote().getText().toString());
             assertTrue(menu.audioNote().isShown());
 
-            // The next answer that works replaces the line with the switches.
+            // The next answer that works replaces the line with the switches, on the More page.
             state.hostAudioUnread = false;
             state.hostAudio = NativeApiFixtures.audio(NativeApiFixtures.audioJson(false, false));
             menu.refresh();
             assertNull(menu.audioNote());
+            menu.row(MORE).performClick();
             assertNotNull(menu.row(NIGHT_MODE));
 
             // Remote Monitor changes nothing on the PC, so it has nothing to say about it either.
@@ -714,9 +842,11 @@ public class StreamMenuTest {
             menu.show();
             assertNull(menu.row(NIGHT_MODE));
 
-            // GET /audio answers after the menu opened.
+            // GET /audio answers after the menu opened; the switches sit on the More page.
             state.hostAudio = NativeApiFixtures.audio(NativeApiFixtures.audioJson(false, false));
             menu.refresh();
+            assertNull(menu.row(NIGHT_MODE));
+            menu.row(MORE).performClick();
             MaterialButton night = menu.row(NIGHT_MODE);
             assertEquals(activity.getString(R.string.stream_night_mode), night.getText().toString());
             assertTrue(night.isCheckable());
@@ -749,8 +879,27 @@ public class StreamMenuTest {
                 assertTrue(entry.item + " is clickable", row.isClickable());
             }
             assertTrue(menu.row(KEYBOARD).isFocusedByDefault());
+            assertFalse(menu.row(DISCONNECT).isFocusedByDefault());
             menu.row(OVERLAY_PAGE).performClick();
             assertTrue("The page's first row takes the focus", menu.row(OVERLAY_OFF).isFocusedByDefault());
+        }
+    }
+
+    @Test
+    public void withoutTogglesFocusStartsPastDisconnectAndBackClosesWithoutLeaving() {
+        try (var controller = Robolectric.buildActivity(Activity.class).setup()) {
+            Activity activity = controller.get();
+            activity.setTheme(R.style.StreamTheme);
+            List<StreamMenu.Item> chosen = new ArrayList<>();
+            StreamMenu menu = new StreamMenu(activity,
+                    () -> options("butterpollo-viewer-serverinfo.xml", NvApp.Role.INPUT_ONLY), chosen::add);
+            menu.show();
+            assertFalse("OK right after opening must not disconnect", menu.row(DISCONNECT).isFocusedByDefault());
+            assertTrue("The first tile has the focus", menu.grid().getChildAt(0).isFocusedByDefault());
+            // Back opened the menu; Back again only closes it.
+            menu.sheet().onBackPressed();
+            assertFalse(menu.sheet().isShowing());
+            assertTrue(chosen.isEmpty());
         }
     }
 
@@ -780,5 +929,376 @@ public class StreamMenuTest {
             assertEquals(java.util.Collections.emptyList(), TvAudit.findings(menu.sheet()));
             menu.sheet().dismiss();
         }
+    }
+
+    /** The user's shortcuts in memory, and what the menu sent. */
+    private static final class SavedShortcuts implements StreamMenu.Shortcuts {
+        final List<KeyboardShortcuts.Shortcut> list = new ArrayList<>();
+        final List<int[]> sent = new ArrayList<>();
+
+        SavedShortcuts add(String name, String chord) {
+            list.add(new KeyboardShortcuts.Shortcut("s" + list.size(), name, KeyboardShortcuts.parseChord(chord)));
+            return this;
+        }
+
+        @Override public List<KeyboardShortcuts.Shortcut> saved() {
+            return new ArrayList<>(list);
+        }
+
+        @Override public void save(List<KeyboardShortcuts.Shortcut> shortcuts) {
+            list.clear();
+            list.addAll(shortcuts);
+        }
+
+        @Override public void send(int[] keys) {
+            sent.add(keys);
+        }
+    }
+
+    private static String text(View tile) {
+        return ((MaterialButton) tile).getText().toString();
+    }
+
+    @Test
+    public void theGridIsTheSharedModelsWithItsButtonsTheUsersShortcutsAndAddThenReturnAndTheWaysOut() {
+        try (var controller = Robolectric.buildActivity(Activity.class).setup()) {
+            Activity activity = controller.get();
+            activity.setTheme(R.style.StreamTheme);
+            StreamMenu.Options state = options("rubylight-serverinfo.xml", NvApp.Role.STREAM);
+            state.appName = "Open World";
+            state.controllerMouseAvailable = true;
+            SavedShortcuts saved = new SavedShortcuts().add("Snip", "WIN+SHIFT+S").add("Steam overlay", "SHIFT+TAB");
+            List<StreamMenu.Item> chosen = new ArrayList<>();
+            StreamMenu menu = new StreamMenu(activity, () -> state, item -> {
+                chosen.add(item);
+                if (item == OVERLAY) state.overlayShown = !state.overlayShown;
+            }, null, saved);
+            menu.show();
+
+            // The tiles in the model's order, each the row of its item; the buttons on the model's tiles.
+            StreamMenuModel.Layout layout = menu.layout();
+            TileGrid grid = menu.grid();
+            assertEquals(layout.grid.size(), grid.getChildCount());
+            assertSame(menu.row(KEYBOARD), grid.getChildAt(0));
+            assertEquals("Y", ((TileGrid.Tile) menu.row(KEYBOARD)).hotkey());
+            assertEquals("X", ((TileGrid.Tile) menu.row(CONTROLLER_MOUSE)).hotkey());
+            assertEquals("RB", ((TileGrid.Tile) menu.row(OVERLAY)).hotkey());
+            assertEquals("LB", ((TileGrid.Tile) menu.row(SHORTCUTS)).hotkey());
+            assertNull(((TileGrid.Tile) menu.row(PC_KEYBOARD)).hotkey());
+            assertTrue("A switch carries its state", menu.row(CONTROLLER_MOUSE).isCheckable());
+            assertFalse("An action does not", menu.row(KEYBOARD).isCheckable());
+            // More, then the user's shortcuts with their keys, then Add.
+            int more = grid.indexOfChild(menu.row(MORE));
+            assertEquals(more + 3, grid.getChildCount() - 1);
+            assertEquals("Snip\nWin + Shift + S", text(grid.getChildAt(more + 1)));
+            assertEquals("Steam overlay\nShift + Tab", text(grid.getChildAt(more + 2)));
+            assertEquals(activity.getString(R.string.keyboard_shortcuts_add), text(grid.getChildAt(more + 3)));
+            assertTrue(items(menu.entries()).containsAll(Arrays.asList(KEYBOARD, OVERLAY, DISCONNECT)));
+            assertFalse("Rarely used items wait on the More page", items(menu.entries()).contains(RECONNECT));
+            // Return to stream under the grid, then Disconnect, in the panel's footer outside the part that scrolls.
+            assertTrue(menu.sheet().isPanel());
+            assertEquals(activity.getString(R.string.stream_menu_return), text(menu.row(CLOSE)));
+            android.view.ViewGroup footer = (android.view.ViewGroup) menu.row(CLOSE).getParent();
+            assertTrue(footer instanceof ActionSheet.FooterBar);
+            assertSame(footer, menu.row(DISCONNECT).getParent());
+            assertTrue(footer.indexOfChild(menu.row(CLOSE)) < footer.indexOfChild(menu.row(DISCONNECT)));
+            assertTrue("the grid scrolls", inScroll(grid));
+            assertFalse("the ways out do not", inScroll(footer));
+
+            // RB flips the overlay in place, the release goes with it, and the menu stays.
+            press(menu, KeyEvent.KEYCODE_BUTTON_R1);
+            assertEquals(Arrays.asList(OVERLAY), chosen);
+            assertTrue(menu.row(OVERLAY).isChecked());
+            assertTrue(menu.sheet().isShowing());
+            // A shortcut tile sends its keys.
+            grid.getChildAt(more + 1).performClick();
+            assertArrayEquals(KeyboardShortcuts.parseChord("WIN+SHIFT+S"), saved.sent.get(0));
+            // LB opens the shortcuts, where the buttons do nothing; B returns; Y runs the keyboard.
+            press(menu, KeyEvent.KEYCODE_BUTTON_L1);
+            assertEquals(StreamMenu.Page.SHORTCUTS, menu.page());
+            press(menu, KeyEvent.KEYCODE_BUTTON_Y);
+            assertEquals(StreamMenu.Page.SHORTCUTS, menu.page());
+            press(menu, KeyEvent.KEYCODE_BUTTON_B);
+            assertEquals(StreamMenu.Page.MAIN, menu.page());
+            press(menu, KeyEvent.KEYCODE_BUTTON_Y);
+            assertEquals(Arrays.asList(OVERLAY, KEYBOARD), chosen);
+            // Return to stream closes without choosing anything.
+            menu.row(CLOSE).performClick();
+            assertFalse(menu.sheet().isShowing());
+            assertEquals(Arrays.asList(OVERLAY, KEYBOARD), chosen);
+        }
+    }
+
+    @Test
+    public void everyItemTheFirstPageCanOfferIsATileOfTheSharedModel() throws Exception {
+        RustStreamMenuModel model = new RustStreamMenuModel();
+        Set<String> ids = new java.util.HashSet<>();
+        for (RustStreamMenuModel.Tile tile : model.tiles) ids.add(tile.id);
+        StreamMenu.Options o = options(nativeApiHost(), NvApp.Role.STREAM);
+        o.microphoneOffered = o.micButtonAvailable = o.mouseConnected = o.controllerMouseAvailable = true;
+        o.onscreenControls = o.gameControls = o.scalingAvailable = o.zoomEnabled = o.pictureInPicture = true;
+        o.externalDisplays = o.hostMenu = o.usbForwarding = o.imageClipboard = o.nightModeOffered = o.headphoneSurroundOffered = true;
+        o.hostAudio = NativeApiFixtures.audio(NativeApiFixtures.audioJson(true, true));
+        List<StreamMenu.Entry> entries = StreamMenu.mainPage(o);
+        entries.addAll(StreamMenu.mainPage(options("rubylight-serverinfo.xml", NvApp.Role.REMOTE_MONITOR)));
+        assertTrue(entries.size() > 30);
+        for (StreamMenu.Entry entry : entries) {
+            assertTrue(entry.item + " has a tile in protocol/policy/src/stream_menu.rs",
+                    ids.contains(entry.item.name().toLowerCase(java.util.Locale.ROOT)));
+        }
+        assertTrue(ids.contains("shortcuts"));
+        // The ways out sit in the footer.
+        for (RustStreamMenuModel.Tile tile : model.tiles) {
+            if (tile.id.equals("disconnect") || tile.id.endsWith("_game") || tile.id.startsWith("end_")) {
+                assertEquals(tile.id, "footer", tile.place);
+            }
+        }
+    }
+
+    /** A shortcut named after its keys (Caps Lock, the editor's default name) says them once, not twice. */
+    @Test
+    public void aShortcutNamedAfterItsKeysShowsNoKeyLine() {
+        try (var controller = Robolectric.buildActivity(Activity.class).setup()) {
+            Activity activity = controller.get();
+            activity.setTheme(R.style.StreamTheme);
+            StreamMenu.Options state = options("rubylight-serverinfo.xml", NvApp.Role.STREAM);
+            SavedShortcuts saved = new SavedShortcuts().add("Caps Lock", "CAPS_LOCK").add("Snip", "WIN+SHIFT+S");
+            StreamMenu menu = new StreamMenu(activity, () -> state, item -> { }, null, saved);
+            menu.show();
+            TileGrid grid = menu.grid();
+            int more = grid.indexOfChild(menu.row(MORE));
+            assertEquals("Caps Lock", text(grid.getChildAt(more + 1)));
+            assertEquals("Snip\nWin + Shift + S", text(grid.getChildAt(more + 2)));
+            menu.row(SHORTCUTS).performClick();
+            TileGrid tiles = findGrid(menu.sheet().getWindow().getDecorView());
+            List<String> texts = new ArrayList<>();
+            for (int i = 0; i < tiles.getChildCount(); i++) texts.add(text(tiles.getChildAt(i)));
+            assertTrue(texts.toString(), texts.contains("Caps Lock"));
+            assertTrue(texts.toString(), texts.contains("Snip\nWin + Shift + S"));
+            menu.sheet().dismiss();
+        }
+    }
+
+    @Test
+    public void aShortcutSavedInTheStreamTakesTheKeysPickedAndItsBuiltInStepsAside() {
+        try (var controller = Robolectric.buildActivity(Activity.class).setup()) {
+            Activity activity = controller.get();
+            activity.setTheme(R.style.StreamTheme);
+            StreamMenu.Options state = options("rubylight-serverinfo.xml", NvApp.Role.STREAM);
+            SavedShortcuts saved = new SavedShortcuts().add("Switch", "ALT+TAB");
+            StreamMenu menu = new StreamMenu(activity, () -> state, item -> { }, null, saved);
+            menu.show();
+            menu.row(SHORTCUTS).performClick();
+            // Alt + Tab is saved under the user's name, so its built-in steps aside.
+            TileGrid tiles = findGrid(menu.sheet().getWindow().getDecorView());
+            List<String> labels = new ArrayList<>();
+            for (int i = 0; i < tiles.getChildCount(); i++) labels.add(text(tiles.getChildAt(i)).split("\n")[0]);
+            assertEquals(Arrays.asList(activity.getString(R.string.keyboard_task_manager), activity.getString(R.string.keyboard_close_window),
+                    activity.getString(R.string.stream_menu_start_menu), activity.getString(R.string.desktop_controls_shortcut_desktop),
+                    "Switch", activity.getString(R.string.keyboard_shortcuts_add)), labels);
+            tiles.getChildAt(0).performClick();
+            assertArrayEquals(KeyboardShortcuts.parseChord("CTRL+SHIFT+ESC"), saved.sent.get(0));
+
+            // Add: no keys is refused and says so; Ctrl, Shift and S without a name save as their keys.
+            tiles.getChildAt(tiles.getChildCount() - 1).performClick();
+            assertEquals(StreamMenu.Page.EDITOR, menu.page());
+            menu.saveDraft();
+            assertEquals(StreamMenu.Page.EDITOR, menu.page());
+            assertEquals(1, saved.list.size());
+            TileGrid caps = findGrid(menu.sheet().getWindow().getDecorView());
+            for (String key : new String[] {"Ctrl", "Shift", "S"}) capNamed(caps, key).performClick();
+            assertTrue(capNamed(caps, "Ctrl").isChecked());
+            menu.saveDraft();
+            assertEquals(StreamMenu.Page.SHORTCUTS, menu.page());
+            assertEquals(2, saved.list.size());
+            assertEquals("Ctrl + Shift + S", saved.list.get(1).name);
+            assertArrayEquals(KeyboardShortcuts.parseChord("CTRL+SHIFT+S"), saved.list.get(1).keys());
+            menu.sheet().onBackPressed();
+            assertEquals(StreamMenu.Page.MAIN, menu.page());
+            menu.sheet().dismiss();
+        }
+    }
+
+    /**
+     * Without libnightjar_core (missing, or from another build) the stream still runs on the C engine. The menu kept
+     * only Return and the ways out, so Keyboard, Mouse, Overlay, Quality, the clipboard and the shortcuts were out of
+     * reach: every offered entry stays as a plain list, and More lists them all.
+     */
+    @Test
+    public void aModelThatCannotAnswerSaysWhyAndKeepsEveryEntryReachable() {
+        StreamMenuModel.use(request -> "{\"error\":\"unavailable\",\"detail\":\"libnightjar_core.so not found\"}");
+        try (var controller = Robolectric.buildActivity(Activity.class).setup()) {
+            Activity activity = controller.get();
+            activity.setTheme(R.style.StreamTheme);
+            List<StreamMenu.Item> chosen = new ArrayList<>();
+            StreamMenu.Options state = options(nativeApiHost(), NvApp.Role.STREAM);
+            state.controllerMouseAvailable = true;
+            SavedShortcuts saved = new SavedShortcuts().add("Switch", "ALT+TAB");
+            StreamMenu menu = new StreamMenu(activity, () -> state, chosen::add, null, saved);
+            menu.show();
+            assertNotNull(menu.failure());
+            assertTrue(menu.failure().getText().toString().contains("libnightjar_core.so not found"));
+            assertNull(menu.grid());
+            List<StreamMenu.Item> offered = items(StreamMenu.mainPage(state));
+            offered.add(SHORTCUTS);
+            for (StreamMenu.Item item : offered) assertNotNull(item + " is reachable", menu.row(item));
+            for (StreamMenu.Item item : new StreamMenu.Item[] {KEYBOARD, CONTROLLER_MOUSE, OVERLAY, CLIPBOARD_SEND, CLIPBOARD_RECEIVE,
+                    NATIVE_PAGE, DISCONNECT, QUIT_GAME}) {
+                assertTrue(item + " offered here", offered.contains(item));
+            }
+            // Focus starts on the first entry that does not end the stream.
+            assertTrue(menu.row(KEYBOARD).isFocusedByDefault());
+            menu.row(CLIPBOARD_RECEIVE).performClick();
+            menu.row(DISCONNECT).performClick();
+            assertEquals(Arrays.asList(CLIPBOARD_RECEIVE, DISCONNECT), chosen);
+            // The shortcuts still open and send without the model.
+            menu.row(SHORTCUTS).performClick();
+            assertEquals(StreamMenu.Page.SHORTCUTS, menu.page());
+            TileGrid tiles = findGrid(menu.sheet().getWindow().getDecorView());
+            tiles.getChildAt(0).performClick();
+            assertArrayEquals(KeyboardShortcuts.parseChord("ALT+TAB"), saved.sent.get(0));
+            menu.sheet().dismiss();
+        }
+    }
+
+    /** An old libnightjar_core without the call threw on the UI thread when the menu opened. */
+    @Test
+    public void aLibraryWithoutTheCallLeavesTheMenuUsable() {
+        StreamMenuModel.use(request -> { throw new UnsatisfiedLinkError("No implementation found for java.lang.String com.limelight.ui.StreamMenuModel.call"); });
+        try (var controller = Robolectric.buildActivity(Activity.class).setup()) {
+            Activity activity = controller.get();
+            activity.setTheme(R.style.StreamTheme);
+            StreamMenu.Options state = options("rubylight-serverinfo.xml", NvApp.Role.STREAM);
+            state.appName = "Open World";
+            state.streamWidth = 1920;
+            state.streamHeight = 1080;
+            state.streamFps = 60;
+            StreamMenu menu = new StreamMenu(activity, () -> state, item -> { }, null, null);
+            menu.show();
+            assertTrue(menu.failure().getText().toString().contains("No implementation found"));
+            assertNotNull(menu.row(KEYBOARD));
+            assertNotNull(menu.row(DISCONNECT));
+            menu.sheet().dismiss();
+        }
+    }
+
+    /** Tapped Esc, then Ctrl and Shift: the shortcut is saved as Ctrl + Shift + Esc, so it opens Task Manager. */
+    @Test
+    public void keysPickedEscFirstAreSavedModifiersFirst() {
+        try (var controller = Robolectric.buildActivity(Activity.class).setup()) {
+            Activity activity = controller.get();
+            activity.setTheme(R.style.StreamTheme);
+            StreamMenu.Options state = options("rubylight-serverinfo.xml", NvApp.Role.STREAM);
+            SavedShortcuts saved = new SavedShortcuts();
+            StreamMenu menu = new StreamMenu(activity, () -> state, item -> { }, null, saved);
+            menu.show();
+            menu.row(SHORTCUTS).performClick();
+            TileGrid tiles = findGrid(menu.sheet().getWindow().getDecorView());
+            tiles.getChildAt(tiles.getChildCount() - 1).performClick();
+            TileGrid caps = findGrid(menu.sheet().getWindow().getDecorView());
+            for (String key : new String[] {"Esc", "Ctrl", "Shift"}) capNamed(caps, key).performClick();
+            menu.saveDraft();
+            assertEquals(StreamMenu.Page.SHORTCUTS, menu.page());
+            assertArrayEquals(KeyboardShortcuts.parseChord("CTRL+SHIFT+ESC"), saved.list.get(0).keys());
+            // Its name follows the saved order too: the Retroid named a Caps Lock then Shift draft "Caps Lock + Shift".
+            assertEquals("Ctrl + Shift + Esc", saved.list.get(0).name);
+            menu.sheet().dismiss();
+        }
+    }
+
+    /**
+     * An older shortcut can hold a key the picker lacks (F13, or a key the model cannot save): it shows as a cap of its
+     * own, checked, the error names it, and taking it out lets the rest be saved.
+     */
+    @Test
+    public void anOldShortcutsKeyThePickerLacksIsARemovableCapAndTheErrorNamesIt() {
+        RustStreamMenuModel rust = new RustStreamMenuModel();
+        // As shortcuts::key_code refuses a key it has no portable name for.
+        StreamMenuModel.use(request -> request.contains("\"validate\"") && request.contains("F13")
+                ? "{\"error\":\"unsupported_key\",\"detail\":\"F13\"}" : rust.call(request));
+        try (var controller = Robolectric.buildActivity(Activity.class).setup()) {
+            Activity activity = controller.get();
+            activity.setTheme(R.style.StreamTheme);
+            StreamMenu.Options state = options("rubylight-serverinfo.xml", NvApp.Role.STREAM);
+            SavedShortcuts saved = new SavedShortcuts().add("Old", "CTRL+F13");
+            StreamMenu menu = new StreamMenu(activity, () -> state, item -> { }, null, saved);
+            menu.show();
+            menu.row(SHORTCUTS).performClick();
+            buttonStartingWith(menu.sheet().getWindow().getDecorView(), "Old", true).performClick();
+            assertEquals(StreamMenu.Page.EDITOR, menu.page());
+            TileGrid caps = findGrid(menu.sheet().getWindow().getDecorView());
+            assertEquals("F13", text(caps.getChildAt(0)));
+            assertTrue(capNamed(caps, "F13").isChecked());
+            assertTrue(capNamed(caps, "Ctrl").isChecked());
+            menu.saveDraft();
+            assertEquals(StreamMenu.Page.EDITOR, menu.page());
+            assertTrue(textShown(menu.sheet().getWindow().getDecorView(), activity.getString(R.string.stream_shortcut_key_unsupported, "F13")));
+            capNamed(caps, "F13").performClick();
+            capNamed(caps, "F1").performClick();
+            menu.saveDraft();
+            assertEquals(StreamMenu.Page.SHORTCUTS, menu.page());
+            assertEquals(1, saved.list.size());
+            assertArrayEquals(KeyboardShortcuts.parseChord("CTRL+F1"), saved.list.get(0).keys());
+            menu.sheet().dismiss();
+        }
+    }
+
+    // A button whose text starts with {@code start}; {@code outsideGrid} skips the tiles.
+    private static MaterialButton buttonStartingWith(View view, String start, boolean outsideGrid) {
+        if (outsideGrid && view instanceof TileGrid) return null;
+        if (view instanceof MaterialButton && text(view).startsWith(start)) return (MaterialButton) view;
+        if (view instanceof android.view.ViewGroup) {
+            for (int i = 0; i < ((android.view.ViewGroup) view).getChildCount(); i++) {
+                MaterialButton found = buttonStartingWith(((android.view.ViewGroup) view).getChildAt(i), start, outsideGrid);
+                if (found != null) return found;
+            }
+        }
+        return null;
+    }
+
+    private static boolean textShown(View view, String text) {
+        if (view instanceof android.widget.TextView && view.getVisibility() == View.VISIBLE
+                && ((android.widget.TextView) view).getText().toString().equals(text)) return true;
+        if (view instanceof android.view.ViewGroup) {
+            for (int i = 0; i < ((android.view.ViewGroup) view).getChildCount(); i++) {
+                if (textShown(((android.view.ViewGroup) view).getChildAt(i), text)) return true;
+            }
+        }
+        return false;
+    }
+
+    @Test
+    public void theAndroidCallReachesTheRustExportAndEveryPickerKeyIsOneTheAppCanSave() throws Exception {
+        String rust = RustStreamMenuModel.read("../../android/src/stream_menu.rs");
+        assertTrue(rust.contains("fn Java_com_limelight_ui_StreamMenuModel_call("));
+        assertTrue(rust.matches("(?s).*request: JString,\\s*\\) -> jstring.*"));
+        java.lang.reflect.Method call = StreamMenuModel.class.getDeclaredMethod("call", String.class);
+        assertTrue(java.lang.reflect.Modifier.isNative(call.getModifiers()));
+        assertTrue(java.lang.reflect.Modifier.isStatic(call.getModifiers()));
+        assertEquals(String.class, call.getReturnType());
+        for (StreamMenuModel.Key key : StreamMenuModel.picker()) {
+            assertEquals(key.name, 1, KeyboardShortcuts.parseChord(key.name).length);
+            // Saved under the picker's own name, so the model can label it and match it against a built-in.
+            assertEquals(key.name, KeyboardShortcuts.format(KeyboardShortcuts.parseChord(key.name)));
+        }
+        for (String id : new RustStreamMenuModel().builtIns.keySet()) assertNotEquals(0, StreamMenu.builtInLabel(id));
+    }
+
+    private static TileGrid findGrid(View view) {
+        if (view instanceof TileGrid) return (TileGrid) view;
+        if (view instanceof android.view.ViewGroup) {
+            for (int i = 0; i < ((android.view.ViewGroup) view).getChildCount(); i++) {
+                TileGrid found = findGrid(((android.view.ViewGroup) view).getChildAt(i));
+                if (found != null) return found;
+            }
+        }
+        return null;
+    }
+
+    private static MaterialButton capNamed(TileGrid caps, String label) {
+        for (int i = 0; i < caps.getChildCount(); i++) {
+            if (text(caps.getChildAt(i)).equals(label)) return (MaterialButton) caps.getChildAt(i);
+        }
+        throw new AssertionError("no key " + label);
     }
 }

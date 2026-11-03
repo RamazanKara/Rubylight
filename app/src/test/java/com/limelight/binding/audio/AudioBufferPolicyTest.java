@@ -4,6 +4,122 @@ import org.junit.Test;
 import static org.junit.Assert.*;
 
 public class AudioBufferPolicyTest {
+    /** What a simulated stream did: drops by kind, and the audio waiting late in the run. */
+    private static final class DriftRun {
+        int trims, lateDrops, underruns;
+        // The most and least audio waiting (network queue, writer, ring) over the last quarter of the run,
+        // in frames: the least is the latency that stays.
+        int lateMaxFrames, lateMinFrames = Integer.MAX_VALUE;
+    }
+
+    /**
+     * An AAudio stream as aaudio_output.c plays it: 5 ms packets in pairs every 10 ms from the host, a
+     * blocking writer into a ring capped at the reserve, a device taking 4 ms bursts on its own clock,
+     * slower by ppm (negative: faster). heldMs(pair) holds a pair back (a jitter burst); the network
+     * hands packets over in order, so those behind it wait too.
+     */
+    private static DriftRun simulate(int seconds, double ppm, java.util.function.IntUnaryOperator heldMs, boolean trim) {
+        final int rate = 48000, packet = 240, burst = 192;
+        int reserve = AudioBufferPolicy.reserveStartFrames(burst, rate);
+        AudioBufferPolicy.DriftTrim drift = new AudioBufferPolicy.DriftTrim();
+        DriftRun run = new DriftRun();
+        java.util.ArrayDeque<Long> network = new java.util.ArrayDeque<>();
+        long endUs = seconds * 1000000L;
+        double burstUs = 4000 * (1 + ppm / 1e6), nextBurstUs = 0;
+        long nextPairUs = 0, releasedUs = 0;
+        int pair = 0, ring = 0, writing = 0;
+        boolean primed = false;
+        for (long now = 0; now < endUs; now += 100) {
+            while (nextPairUs <= now) {
+                releasedUs = Math.max(releasedUs, nextPairUs + heldMs.applyAsInt(pair++) * 1000L);
+                network.add(releasedUs);
+                network.add(releasedUs);
+                nextPairUs += 10000;
+            }
+            while (writing == 0 && !network.isEmpty() && network.peek() <= now) {
+                network.poll();
+                int pendingMs = 0;
+                for (long at : network) if (at <= now) pendingMs += 5;
+                if (AudioBufferPolicy.dropLate(pendingMs, ring, reserve, rate)) run.lateDrops++;
+                else if (trim && drift.trim(pendingMs * rate / 1000, ring, reserve, packet, rate)) run.trims++;
+                else writing = packet;
+            }
+            int room = Math.min(writing, reserve - ring);
+            ring += room;
+            writing -= room;
+            if (!primed && ring >= reserve) primed = true;
+            if (now >= nextBurstUs) {
+                nextBurstUs += burstUs;
+                if (primed) {
+                    if (ring < burst) {
+                        run.underruns++;
+                        primed = false;
+                    }
+                    ring -= Math.min(ring, burst);
+                }
+            }
+            if (now >= endUs * 3 / 4) {
+                int waiting = ring + writing;
+                for (long at : network) if (at <= now) waiting += packet;
+                run.lateMaxFrames = Math.max(run.lateMaxFrames, waiting);
+                run.lateMinFrames = Math.min(run.lateMinFrames, waiting);
+            }
+        }
+        return run;
+    }
+
+    @Test public void aSlowDeviceClockIsTrimmedAPacketAtATimeInsteadOfCreepingToTheLateBound() {
+        // 35 ppm measured: 42 ms of surplus in 20 minutes. Without the trim it reaches the 40 ms late bound within 30.
+        DriftRun untrimmed = simulate(1800, 35, pair -> 0, false);
+        assertTrue("untrimmed: " + untrimmed.lateDrops + " late drops", untrimmed.lateDrops > 0);
+        DriftRun steady = simulate(60, 0, pair -> 0, true);
+        for (double ppm : new double[] {35, 300}) {
+            DriftRun run = simulate(ppm > 100 ? 120 : 1200, ppm, pair -> 0, true);
+            assertEquals(ppm + " ppm", 0, run.lateDrops);
+            // 42 ms or 36 ms of surplus, 5 ms a trim, less what stays below the trim line.
+            assertTrue(ppm + " ppm: " + run.trims + " trims", run.trims >= 4 && run.trims <= 10);
+            // What stays is at most a packet or two over steady state, never the 40 ms the late bound allows.
+            assertTrue(ppm + " ppm: at least " + run.lateMinFrames + " frames waiting, " + steady.lateMinFrames +
+                    " steady", run.lateMinFrames <= steady.lateMinFrames + 2 * 240);
+            assertTrue(ppm + " ppm: at most " + run.lateMaxFrames + " frames waiting, " + steady.lateMaxFrames +
+                    " steady", run.lateMaxFrames <= steady.lateMaxFrames + 4 * 240);
+        }
+    }
+
+    @Test public void steadyStateFastDevicesAndJitterBurstsAreNeverTrimmed() {
+        // A 30 ms hold every 3 s, and every 0.5 s a 12 ms one: the burst after it refills, nothing is surplus.
+        java.util.function.IntUnaryOperator jitter = pair -> pair % 300 == 7 ? 30 : pair % 50 == 3 ? 12 : 0;
+        for (double ppm : new double[] {0, -35, -300}) {
+            for (boolean bursts : new boolean[] {false, true}) {
+                DriftRun run = simulate(300, ppm, bursts ? jitter : pair -> 0, true);
+                assertEquals(ppm + " ppm, bursts " + bursts, 0, run.trims);
+                assertEquals(ppm + " ppm, bursts " + bursts, 0, run.lateDrops);
+            }
+        }
+        // Jitter on top of drift still trims only the drift.
+        DriftRun run = simulate(1200, 35, jitter, true);
+        assertEquals(0, run.lateDrops);
+        assertTrue(run.trims + " trims", run.trims >= 6 && run.trims <= 10);
+    }
+
+    @Test public void theTrimNeedsTwoSecondsAboveTheLineInARow() {
+        AudioBufferPolicy.DriftTrim trim = new AudioBufferPolicy.DriftTrim();
+        // 400 packets of 5 ms are 2 s: the 400th trims, a dip on the way starts over.
+        for (int i = 1; i < 400; i++) assertFalse(trim.trim(481, 672, 672, 240, 48000));
+        assertFalse("one packet above the reserve is not surplus", trim.trim(240, 672, 672, 240, 48000));
+        for (int i = 1; i < 400; i++) assertFalse(trim.trim(481, 672, 672, 240, 48000));
+        assertTrue(trim.trim(481, 672, 672, 240, 48000));
+        assertFalse("starts over after a trim", trim.trim(481, 672, 672, 240, 48000));
+        trim.reset();
+        assertFalse(trim.trim(481, 672, 672, 0, 48000));
+        assertFalse(trim.trim(481, 672, 672, 240, 0));
+    }
+
+    @Test public void aaudioIsReopenedUntilItKeepsDyingRightAfterReopening() {
+        assertTrue(AudioBufferPolicy.reopenAAudio(0));
+        assertTrue(AudioBufferPolicy.reopenAAudio(AudioBufferPolicy.MAX_QUICK_REOPENS - 1));
+        assertFalse(AudioBufferPolicy.reopenAAudio(AudioBufferPolicy.MAX_QUICK_REOPENS));
+    }
     @Test public void underrunsGrowOneBurstAndCleanPlaybackRecoversSlowly() {
         AudioBufferPolicy policy = new AudioBufferPolicy(192, 1920, 384, 0, 0);
         assertEquals(384, policy.sample(10, 999));

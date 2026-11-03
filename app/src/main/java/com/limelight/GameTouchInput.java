@@ -214,6 +214,8 @@ final class GameTouchInput {
         if (action == MotionEvent.ACTION_DOWN) fingerTap.reset();
         if (!fingerTap.isStarted() && action == MotionEvent.ACTION_POINTER_DOWN &&
                 event.getPointerCount() == 3 &&
+                // Only fingers landing together tap: a third one beside two held thumbs is play.
+                event.getEventTime() - event.getDownTime() < FingerTapGesture.TIME_LIMIT_MS &&
                 (!FingerTapGesture.NONE.equals(game.prefConfig.threeFingerTap) ||
                         !FingerTapGesture.NONE.equals(game.prefConfig.fourFingerTap))) {
             fingerTap.start(event.getEventTime(), event.getPointerId(0), event.getX(0), event.getY(0));
@@ -338,6 +340,7 @@ final class GameTouchInput {
         }
         // The microphone button's default place follows the modern controller's top row.
         if (game.micButton != null) game.micButton.place();
+        if (game.menuButton != null) game.menuButton.place();
         PreferenceManager.getDefaultSharedPreferences(game).edit()
                 .putBoolean("checkbox_show_onscreen_controls", enabled).apply();
         // Hiding controls changes no layout by itself; ask for one so the overlay can move back.
@@ -357,6 +360,21 @@ final class GameTouchInput {
         PreferenceManager.getDefaultSharedPreferences(game).edit()
                 .putBoolean(com.limelight.preferences.PreferenceConfiguration.MIC_BUTTON_PREF_STRING, shown).apply();
         updateMicButton();
+        game.performanceOverlayScroll.requestLayout();
+    }
+
+    // Shows the floating menu button while its setting is on and the overlays are not hidden (picture in picture).
+    void updateMenuButton() {
+        if (game.menuButton == null) return;
+        game.menuButton.setShown(game.prefConfig.floatingMenuButton && !game.isHidingOverlays);
+        game.menuButton.place();
+    }
+
+    void setMenuButtonShown(boolean shown) {
+        game.prefConfig.floatingMenuButton = shown;
+        PreferenceManager.getDefaultSharedPreferences(game).edit()
+                .putBoolean(com.limelight.preferences.PreferenceConfiguration.FLOATING_MENU_BUTTON_PREF_STRING, shown).apply();
+        updateMenuButton();
         game.performanceOverlayScroll.requestLayout();
     }
 
@@ -1026,6 +1044,22 @@ final class GameTouchInput {
                     }
                     if (!nativeTouchGestureActive) {
                         return true;
+                    }
+                    if (game.prefConfig.multiTouchFingerTaps) {
+                        boolean tapBefore = fingerTap.isStarted();
+                        if (handleFingerTapGesture(event)) {
+                            // The third finger starts a tap: the PC lets go of the two it already has,
+                            // and the rest of the sequence stays here.
+                            if (!tapBefore) {
+                                game.conn.sendTouchEvent(MoonBridge.LI_TOUCH_EVENT_CANCEL_ALL, 0, 0, 0, 0, 0, 0,
+                                        MoonBridge.LI_ROT_UNKNOWN);
+                            }
+                            if (event.getActionMasked() == MotionEvent.ACTION_UP ||
+                                    event.getActionMasked() == MotionEvent.ACTION_CANCEL) {
+                                nativeTouchGestureActive = false;
+                            }
+                            return true;
+                        }
                     }
                     if (trySendTouchEvent(view, event)) {
                         if (event.getActionMasked() == MotionEvent.ACTION_UP ||

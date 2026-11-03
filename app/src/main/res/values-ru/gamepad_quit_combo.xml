@@ -4,4 +4,6 @@
     <string name="summary_list_gamepad_quit_combo">Удерживайте эти кнопки, чтобы выйти из трансляции; она завершится, когда все будут отпущены. «Выкл.» оставляет это меню трансляции, которое открывает Start+Select+LB+RB. Со следующей трансляции.</string>
     <string name="gamepad_quit_combo_off">Выкл.</string>
     <string name="stream_controller_mouse">Мышь с контроллера</string>
+    <string name="title_list_guide_menu_hold">Удержание Guide открывает меню трансляции</string>
+    <string name="summary_list_guide_menu_hold">Короткое нажатие по-прежнему уходит на ПК как Guide. Со следующей трансляции.</string>
 </resources>

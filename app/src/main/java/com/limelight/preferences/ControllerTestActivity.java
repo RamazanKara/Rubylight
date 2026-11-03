@@ -62,6 +62,12 @@ import java.util.TreeSet;
  */
 public class ControllerTestActivity extends NightjarActivity implements UsbDriverListener,
         SensorEventListener, InputManager.InputDeviceListener {
+    /** A TV lays out Settings' screens at {@link com.limelight.ui.AppTheme#TV_COMPACT_PERCENT} of the interface size. */
+    @Override
+    protected boolean compactOnTelevision() {
+        return true;
+    }
+
     private static final long HOLD_TO_LEAVE_MS = 1000;
     private static final int RUMBLE_MS = 600;
     private static final int[] LIGHT_COLORS = {0xFFFF0000, 0xFF00FF00, 0xFF0000FF};

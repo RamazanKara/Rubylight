@@ -17,8 +17,8 @@ use egui::{
 };
 
 use crate::config::{
-    step_zoom, AudioChannels, CodecPreference, DecoderPreference, ErrorCorrection, HostDisplay, Language, MouseMode, Overrides, Profiles,
-    ReduceMotion, Settings, WindowMode, UI_ZOOM_STEPS,
+    step_zoom, AudioChannels, CardSize, CodecPreference, DecoderPreference, ErrorCorrection, HomeGroup, HomeLayout, HostDisplay, Language,
+    MouseMode, Overrides, Profiles, ReduceMotion, Settings, WindowMode, UI_ZOOM_STEPS,
 };
 use crate::console::{self, EndAction, GameState, Playing, Source};
 use crate::hosts::{Apps, Art, Handed, Host, Hosts, Reach, SleepStep};
@@ -40,6 +40,8 @@ pub enum Command {
     Launch { host: u64, app: i32, resume: bool },
     /// Input-only through a small ordinary stream, on a PC without its own Input-only mode.
     LaunchInputOnly { host: u64, app: i32, resume: bool },
+    /// Only this device's microphone, on a PC that offers it (`Feature::MicOnly`).
+    MicOnly { host: u64 },
     SetQuitOnLeave { host: u64, uuid: String, id: i32, enabled: bool },
     QuitApp(u64),
     ControlAction { host: u64, app: i32 },
@@ -65,6 +67,8 @@ pub enum Command {
     SaveHostSettings(u64),
     AppSettings { host: u64, app: nightjar_core::http::App },
     SaveAppSettings(u64),
+    /// Every PC and game follows its profile or the main settings again (`Dialog::KeptSettings`).
+    ResetKeptSettings,
     ProfileSettings(u64),
     SaveProfile(u64),
     SaveProfiles,
@@ -121,6 +125,8 @@ pub enum Command {
     PinCancelled,
     /// Close Nightjar (the app lock's way out).
     Quit,
+    /// Shut down, restart or sleep this PC, once confirmed (`Dialog::ConfirmPower`).
+    Power(crate::power::Offer),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -205,9 +211,41 @@ pub enum Dialog {
     PairError { host: u64, body: String, one_time: bool },
     /// How to pair, for a PC that is not paired yet.
     PairingHelp,
+    /// Home's View, under its button: layout, grouping and card size, each changed in place.
+    HomeView,
     /// Home or PCs in the top bar would leave a page whose transfers still run, which cancels
     /// them: asked first.
     ConfirmLeave { to: Screen },
+    /// Back where Back ends (Home, or the PCs without Home): a controller's way to close Nightjar,
+    /// or to shut down, restart or sleep this PC.
+    ConfirmExit,
+    /// Shut down, restart or sleep this PC? Asked once more from `ConfirmExit`.
+    ConfirmPower(crate::power::Offer),
+    /// Shown once after updating: the PCs that keep settings of their own or for games, one
+    /// line each, and a reset of them all (`Launcher::show_kept_settings_once`).
+    KeptSettings { pcs: Vec<KeptPc> },
+}
+
+/// A PC in `Dialog::KeptSettings`: its name, whether it has settings of its own, and for how
+/// many games. Put into words as it is drawn, in the language chosen by then.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct KeptPc {
+    pub name: String,
+    pub own: bool,
+    pub games: usize,
+}
+
+impl KeptPc {
+    pub fn line(&self) -> String {
+        let mut kept = Vec::new();
+        if self.own { kept.push(tr("PC settings").to_string()); }
+        match self.games {
+            0 => {}
+            1 => kept.push(tr("1 game").to_string()),
+            n => kept.push(trf("{} games", &[&n])),
+        }
+        format!("{}: {}", self.name, kept.join(", "))
+    }
 }
 
 /// The header's top-level destinations, left to right.
@@ -255,6 +293,8 @@ pub struct Launcher {
     logo: Option<TextureHandle>,
     focus_screen: bool,
     focus_dialog: bool,
+    /// This frame's Escape came from a controller's B, which alone asks to close Nightjar where Back ends.
+    pad_back: bool,
     /// The last Sleep PC token request's number.
     sleep_asks: u64,
     /// Messages that came while the user was busy with another dialog, shown once it closes.
@@ -280,6 +320,9 @@ pub struct Launcher {
     pub gpu_device: Option<crate::stream::pipeline::GpuDevice>,
     pub display: Display,
     pub identity_ready: bool,
+    /// What this PC's power allows (`power::probe`): the Close Nightjar question offers these.
+    /// Empty until known.
+    pub power: Vec<crate::power::Offer>,
     /// The system's preferred languages, for the Language setting's default.
     pub system_languages: Vec<String>,
     /// The palette and motion egui's style was last built for.
@@ -339,6 +382,7 @@ impl Launcher {
             logo: None,
             focus_screen: true,
             focus_dialog: false,
+            pad_back: false,
             sleep_asks: 0,
             queued: Default::default(),
             settings_return: Screen::Hosts,
@@ -353,6 +397,7 @@ impl Launcher {
             gpu_device: None,
             display,
             identity_ready: false,
+            power: Vec::new(),
             system_languages: Vec::new(),
             look: None,
             remote: Default::default(),
@@ -381,7 +426,9 @@ impl Launcher {
         if (ctx.zoom_factor() - zoom).abs() > f32::EPSILON {
             ctx.set_zoom_factor(zoom);
         }
-        crate::strings::set(crate::strings::resolve(s.language, &self.system_languages));
+        let lang = crate::strings::resolve(s.language, &self.system_languages);
+        crate::strings::set(lang);
+        crate::theme::fonts_for(ctx, lang);
     }
 
     /// Ctrl+= and Ctrl+- step the zoom, Ctrl+0 resets it. Returns whether it changed.
@@ -541,6 +588,29 @@ impl Launcher {
         self.focus_screen = true;
     }
 
+    /// The events a controller's D-pad, stick or A (as `key`) gives egui. With nothing focused (the
+    /// window just opened, a click on blank space, B, which drops egui's focus), egui moves nowhere
+    /// and the press was lost: it puts focus on the open dialog's or the page's first item instead,
+    /// with Tab for a page that names none (egui then focuses its first widget).
+    pub fn controller_key(&mut self, ctx: &egui::Context, key: Key) -> Vec<egui::Event> {
+        if key == Key::Escape {
+            self.pad_back = true;
+        }
+        let lost = matches!(key, Key::ArrowUp | Key::ArrowDown | Key::ArrowLeft | Key::ArrowRight | Key::Enter)
+            && ctx.memory(|m| m.focused().is_none())
+            && !egui::Popup::is_any_open(ctx);
+        if !lost {
+            return crate::gui::tap(key).to_vec();
+        }
+        if matches!(self.dialog, Dialog::None) {
+            self.focus_screen = true;
+        } else {
+            self.focus_dialog = true;
+        }
+        ctx.request_repaint();
+        crate::gui::tap(Key::Tab).to_vec()
+    }
+
     /// Opens `dialog` with focus on its first control.
     pub fn ask(&mut self, dialog: Dialog) {
         self.dialog = dialog;
@@ -616,15 +686,19 @@ impl Launcher {
             .id()
     }
 
-    /// Back: Escape or the controller's B button.
-    fn back(&mut self, commands: &mut Vec<Command>) {
+    /// Back: Escape, the Back button or the controller's B button (`pad`).
+    fn back(&mut self, commands: &mut Vec<Command>, pad: bool) {
         match &self.dialog {
             Dialog::None => match self.screen {
-                Screen::Home => {}
+                // The end of the line: B asks to close Nightjar, so a controller alone can. A
+                // keyboard has Alt+F4 and Escape stays harmless.
+                Screen::Home => if pad { self.ask(Dialog::ConfirmExit) },
                 Screen::Hosts => {
                     if !self.trail.is_empty() || self.root() == Screen::Home {
                         let root = self.root();
                         self.pop(root);
+                    } else if pad {
+                        self.ask(Dialog::ConfirmExit);
                     }
                 }
                 Screen::Apps(_) | Screen::Game { .. } | Screen::AllGames | Screen::HostDetails(_) | Screen::Files(_) | Screen::Help => {
@@ -693,9 +767,10 @@ impl Launcher {
         // With a menu open, Escape (B) only closes it: the menu closes itself as it is drawn.
         let menu_open = egui::Popup::is_any_open(&ctx);
         let escape = ctx.input(|i| i.key_pressed(Key::Escape)) && !menu_open;
+        let pad = std::mem::take(&mut self.pad_back);
         // On a settings page, Escape leaves the search before the page.
         if escape && view.connecting.is_none() && view.waking.is_none() && !(matches!(self.dialog, Dialog::None) && self.escape_search()) {
-            self.back(&mut commands);
+            self.back(&mut commands, pad);
         } else if view.connecting.is_none() && view.waking.is_none() {
             self.help_keys(&ctx, &mut commands);
         }
@@ -726,7 +801,7 @@ impl Launcher {
         let mut child = ui.new_child(egui::UiBuilder::new().max_rect(content).layout(Layout::top_down(Align::Min)));
         let ui = &mut child;
         // A menu by its card leaves the page as it is (it holds the input itself); a dialog dims it.
-        let menu = matches!(self.dialog, Dialog::HostOptions { .. } | Dialog::GameMenu { .. }) && self.menu_anchor != Anchor::Center;
+        let menu = matches!(self.dialog, Dialog::HostOptions { .. } | Dialog::GameMenu { .. } | Dialog::HomeView) && self.menu_anchor != Anchor::Center;
         let blocked = (!matches!(self.dialog, Dialog::None) && !menu) || view.connecting.is_some() || view.waking.is_some();
         // Screens take focus only when nothing covers them.
         let held_focus = self.focus_screen;
@@ -812,7 +887,7 @@ impl Launcher {
             // A screen reader tells it from the destination of the same name in the row above.
             back.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, tr(said)));
             if back.clicked() {
-                self.back(commands);
+                self.back(commands, false);
             }
             if !title.is_empty() {
                 ui.add_space(space::S);
@@ -846,22 +921,48 @@ impl Launcher {
         // The marked one reads as selected, as the chosen filter chip does.
         response.widget_info(|| egui::WidgetInfo::selected(egui::Role::Button, true, marked, tr(name)));
         if response.clicked() && self.screen != screen {
-            match screen {
-                // As Start does: over a library, game or PC page, so Back returns to it and the
-                // page keeps its check or transfers.
-                Screen::Settings => {
-                    if let Some(save) = self.screen.save_command() {
-                        commands.push(save);
-                    }
-                    self.open_settings();
+            self.go_destination(screen, commands);
+        }
+    }
+
+    /// The destinations the top bar offers now: Home waits for a library, unless it is shown.
+    fn offered_destinations(&self) -> Vec<Screen> {
+        let marked = self.screen.destination();
+        DESTINATIONS.iter().map(|(_, s)| *s).filter(|s| *s != Screen::Home || self.home_ready || marked == Screen::Home).collect()
+    }
+
+    /// L1 and R1: to the destination left or right of the current one, round from the last to the
+    /// first. Not over a dialog or while a text field takes the keys.
+    pub fn step_destination(&mut self, ctx: &egui::Context, forward: bool, commands: &mut Vec<Command>) {
+        if !matches!(self.dialog, Dialog::None) || ctx.text_edit_focused() {
+            return;
+        }
+        let offered = self.offered_destinations();
+        let Some(at) = offered.iter().position(|s| *s == self.screen.destination()) else { return };
+        let to = offered[if forward { (at + 1) % offered.len() } else { (at + offered.len() - 1) % offered.len() }];
+        if to != self.screen {
+            self.go_destination(to, commands);
+            self.focus_screen = true;
+        }
+    }
+
+    /// Opens destination `screen` as its top-bar button does.
+    fn go_destination(&mut self, screen: Screen, commands: &mut Vec<Command>) {
+        match screen {
+            // As Start does: over a library, game or PC page, so Back returns to it and the
+            // page keeps its check or transfers.
+            Screen::Settings => {
+                if let Some(save) = self.screen.save_command() {
+                    commands.push(save);
                 }
-                // Home and PCs drop the trail, and with it a Files or PC page and its transfers.
-                _ if self.transferring() => {
-                    self.dialog = Dialog::ConfirmLeave { to: screen };
-                    self.focus_dialog = true;
-                }
-                _ => self.leave_for(screen, commands),
+                self.open_settings();
             }
+            // Home and PCs drop the trail, and with it a Files or PC page and its transfers.
+            _ if self.transferring() => {
+                self.dialog = Dialog::ConfirmLeave { to: screen };
+                self.focus_dialog = true;
+            }
+            _ => self.leave_for(screen, commands),
         }
     }
 
@@ -894,6 +995,13 @@ impl Launcher {
                         if self.home_ready && header_button(ui, "All games", Icon::Grid).clicked() {
                             self.library_filter = console::LibraryFilter::All;
                             self.open(Screen::AllGames);
+                        }
+                        if self.home_ready {
+                            let view = header_button(ui, "View", Icon::Sliders);
+                            self.focus_item(&view, "home-view", false);
+                            if view.clicked() {
+                                self.open_menu(Dialog::HomeView, Anchor::Below(view.rect), "home-view".into());
+                            }
                         }
                     }
                     Screen::Hosts => {

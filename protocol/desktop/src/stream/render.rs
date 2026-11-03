@@ -9,6 +9,12 @@ fn seeded_predictor(facts: &Facts) -> race::Predictor {
     race::Predictor::seeded(facts.race_slices, facts.height.max(1) as u32, frame_bytes, facts.pace_mbps)
 }
 
+/// The picture size a decoded frame's setup gives where the frame itself does not tell it (PyroWave,
+/// packed 4:4:4): the logical size, which a packed frame's coded size is twice as wide as.
+fn setup_size(setup: &session::VideoSetup) -> (i32, i32) {
+    if setup.logical_width > 0 && setup.logical_height > 0 { (setup.logical_width, setup.logical_height) } else { (setup.width, setup.height) }
+}
+
 /// A present of the texture: when the call was issued and returned (us), and the beam around it.
 struct Flipped {
     issued_us: u64,
@@ -19,7 +25,10 @@ struct Flipped {
 impl Streaming {
     /// Moves decoded pictures into the pacer; sends a clock sync probe when due.
     pub fn pump(&mut self) {
+        // The keyboard hook keeps the shell's keys only while this loop runs.
+        system_keys::alive();
         self.cursor.tick(Instant::now());
+        self.release_shortcut_when_due(Instant::now());
         if let Some(Err(error)) = self.microphone.as_mut().map(microphone::Microphone::poll) {
             self.shared.notify(Notice::MicrophoneFailed(error));
         }
@@ -46,6 +55,10 @@ impl Streaming {
                 if self.pending_mode.is_some_and(|(mode, _)| i32::from(mode.width) == info.width && i32::from(mode.height) == info.height) {
                     self.pending_mode = None;
                 }
+            } else if decoded.setup.chroma_packing != 0 || decoded.setup.format & VIDEO_FORMAT_MASK_PYROWAVE != 0 {
+                // The menu's header and the session page name the stream's size: PyroWave and packed
+                // 4:4:4 tell it in their setup, a reconfigure's new setup included.
+                (self.facts.width, self.facts.height) = setup_size(&decoded.setup);
             }
             if let Some((rtp, received)) = self.last_arrival {
                 let ticks = decoded.rtp.wrapping_sub(rtp) as i32;
@@ -89,11 +102,16 @@ impl Streaming {
                     Wait::For(Duration::from_micros(due - now))
                 }
             }
-            None => Wait::For(Duration::from_millis(if self.controller_mouse_active || self.audio_status.0.iter().any(|flags| *flags != 0) { 20 } else if self.overlay_visible { 250 } else { 500 })),
+            None => Wait::For(Duration::from_millis(if self.controller_mouse_active || self.guide_waiting || self.audio_status.0.iter().any(|flags| *flags != 0) { 20 } else if self.overlay_visible { 250 } else { 500 })),
         };
-        // A hide from the PC waiting out its delay wakes the loop when due.
-        match (wait, self.cursor.hide_in(Instant::now())) {
-            (Wait::For(wait), Some(hide)) => Wait::For(wait.min(hide)),
+        // A hide from the PC waiting out its delay, and a held shortcut's release, wake the loop when due.
+        let now = Instant::now();
+        let wake = match (self.cursor.hide_in(now), self.shortcut_release_in(now)) {
+            (Some(hide), Some(release)) => Some(hide.min(release)),
+            (hide, release) => hide.or(release),
+        };
+        match (wait, wake) {
+            (Wait::For(wait), Some(wake)) => Wait::For(wait.min(wake)),
             (wait, _) => wait,
         }
     }
@@ -131,11 +149,19 @@ impl Streaming {
     /// interval the pacing and `NIGHTJAR_VRR_SYNC` ask for.
     pub(super) fn sync_vrr(&mut self, renderer: *mut SDL_Renderer) {
         let before = self.pacer.mode;
+        let now = session::now_us();
         let probe = self.race_probe.as_ref();
-        let interval = self.vrr.step(&mut self.pacer.mode, probe.map(race_probe::RaceProbe::verdict));
+        let interval = self.vrr.step(&mut self.pacer.mode, probe.map(race_probe::RaceProbe::verdict), now);
         if self.pacer.mode != before {
-            eprintln!("nightjar: pacing: {}, this display does not refresh on present (display check: {})",
-                self.pacer.mode.label(), probe.map_or(String::new(), race_probe::RaceProbe::line));
+            let line = probe.map_or(String::new(), race_probe::RaceProbe::line);
+            if self.vrr.fell_back {
+                eprintln!("nightjar: pacing: {}, this display does not refresh on present (display check: {line})", self.pacer.mode.label());
+            } else {
+                eprintln!("nightjar: pacing: {}, the display refreshes on present again (display check: {line})", self.pacer.mode.label());
+            }
+        }
+        if self.vrr.recheck_due(now) {
+            if let Some(probe) = self.race_probe.as_mut() { probe.recheck(); }
         }
         if let Some(interval) = interval {
             // SAFETY: the live renderer belongs to the presenting thread.
@@ -332,14 +358,23 @@ impl Streaming {
         }
         if probe { self.wait_out_scan(); }
         let beam_before = self.race_probe.as_ref().filter(|_| probe).and_then(race_probe::RaceProbe::before);
+        // Keys, clicks and controllers leave from their own threads while V-Sync holds the present.
+        let mode_tears = self.pacer.mode != PacingMode::Vsync;
+        if !mode_tears {
+            // SAFETY: a live renderer.
+            self.direct_motion.presenting(Some(self.direct_rules(unsafe { SDL_GetRenderWindow(renderer) })));
+        }
         let issued_us = session::now_us();
         // SAFETY: a live renderer.
         unsafe { SDL_RenderPresent(renderer) };
         let returned_us = session::now_us();
-        let mode_tears = self.pacer.mode != PacingMode::Vsync;
+        if !mode_tears {
+            self.direct_motion.presenting(None);
+        }
         let fps = f64::from(self.facts.fps);
+        let probe_tears = self.vrr.probe_tears(self.pacer.mode);
         let scan = self.race_probe.as_mut().filter(|_| probe).map(|probe| {
-            probe.after_present(renderer, beam_before, mode_tears, fps);
+            probe.after_present(renderer, beam_before, probe_tears, fps);
             probe.report(beam_before)
         });
         Flipped { issued_us, returned_us, scan }
@@ -487,5 +522,18 @@ impl Streaming {
             timeline.mid_row_age_ns = race::mid_row_age_ns(&scan, first, &decoded.bands);
         }
         timeline
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The header named a packed 4:4:4 stream by the setting asked for: its size is the logical one.
+    #[test]
+    fn a_packed_or_pyrowave_setup_gives_the_pictures_size() {
+        let packed = session::VideoSetup { format: nightjar_core::sdp::VIDEO_FORMAT_H264, width: 3840, height: 1080, fps: 60, chroma_packing: 1, logical_width: 1920, logical_height: 1080, color_space: 1, color_range: 0 };
+        assert_eq!(setup_size(&packed), (1920, 1080));
+        assert_eq!(setup_size(&session::VideoSetup { logical_width: 0, logical_height: 0, chroma_packing: 0, width: 2560, height: 1440, ..packed }), (2560, 1440));
     }
 }

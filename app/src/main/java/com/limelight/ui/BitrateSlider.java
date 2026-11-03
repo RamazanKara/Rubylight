@@ -3,6 +3,8 @@ package com.limelight.ui;
 import android.content.Context;
 import android.os.Handler;
 import android.os.Looper;
+import android.view.KeyEvent;
+import android.view.View;
 import android.widget.EditText;
 import android.widget.SeekBar;
 
@@ -75,6 +77,23 @@ public final class BitrateSlider {
         bar.setKeyProgressIncrement(1);
         bar.setOnSeekBarChangeListener(new Settle(field, commit, new Handler(Looper.getMainLooper())));
         return bar;
+    }
+
+    /**
+     * D-pad Up and Down on a one-line number field move the focus to the row above or below, like on
+     * the slider, rather than first moving the text cursor to an end of the field (nightjar #65).
+     */
+    public static void moveFocusOnUpDown(EditText field) {
+        field.setOnKeyListener((view, keyCode, event) -> {
+            if ((keyCode != KeyEvent.KEYCODE_DPAD_UP && keyCode != KeyEvent.KEYCODE_DPAD_DOWN) ||
+                    !event.hasNoModifiers()) return false;
+            if (event.getAction() == KeyEvent.ACTION_DOWN) {
+                View next = keyCode == KeyEvent.KEYCODE_DPAD_UP ? view.focusSearch(View.FOCUS_UP) :
+                        view.focusSearch(View.FOCUS_DOWN);
+                if (next != null) next.requestFocus();
+            }
+            return true;
+        });
     }
 
     static final class Settle implements SeekBar.OnSeekBarChangeListener {

@@ -1,9 +1,13 @@
 //! What the audio device plays between packets. A lost packet, and a device that asks for more
 //! than is queued, are both filled with Opus packet loss concealment, one packet's length at a
 //! time, instead of silence. A packet whose time concealment already played is skipped when it
-//! arrives, so riding out a late burst never adds latency. Silence is played only before the
+//! arrives, so riding out a late burst never adds latency. Bursts that keep coming (packets
+//! bunched every 20 ms for a minute) would starve the device on each one, though: a burst within
+//! a second of the last keeps its late packets instead, growing the cushion to what the bursts
+//! need, and the drift trim takes it back once they stop. Silence is played only before the
 //! first packet and after an outage longer than concealment covers. PCM has no concealment: what
-//! it lacks is filled with silence on the same terms.
+//! it lacks is filled with silence on the same terms. A device clock slower than the host's
+//! builds up a surplus; it is trimmed a packet at a time, faded, long before the queue's limit.
 
 use super::pipeline::AudioDecoder;
 
@@ -17,6 +21,15 @@ const CONCEAL_MS: usize = 100;
 /// Most audio queued before packets are dropped, in ms (plus one packet): enough to ride out
 /// scheduling jitter, short enough to stay in sync.
 const QUEUE_MS: usize = 40;
+/// A queue more than a packet above the lead for this long, in ms of packets, is surplus a slow
+/// device clock built up (35 ppm measured: about 2 ms a minute), and one packet goes. Steady
+/// state never stays there: any packet within a packet of the lead starts the count again.
+const TRIM_AFTER_MS: usize = 2000;
+/// The fade from a trimmed packet into the next, in ms.
+const FADE_MS: usize = 5;
+/// A starved device this soon after the last time, in ms of packets, is in a run of late bursts:
+/// the packets concealment stood in for are kept, not skipped, so the queue grows by them.
+const BURSTS_MS: usize = 1000;
 
 /// What one packet did.
 #[derive(Debug, PartialEq, Eq)]
@@ -26,6 +39,8 @@ pub enum Fed {
     Play { lead: usize, underrun: bool },
     /// Dropped to stay in sync: the queue was full, or concealment already played its time.
     Dropped,
+    /// Dropped as clock drift surplus; the next packet fades in from it.
+    Trimmed,
     /// The decoder refused it.
     Failed,
 }
@@ -52,6 +67,18 @@ pub struct Playout {
     /// dry.
     asks: bool,
     concealed: u64,
+    /// Samples per channel of packets seen above the trim line in a row.
+    above: usize,
+    /// Samples per channel of packets seen since the device last started to starve on a late
+    /// burst.
+    since_starved: usize,
+    /// The device starved twice within `BURSTS_MS`: late packets are kept.
+    bursts: bool,
+    /// A run of bursts started since the last `take_bursts_started`, for the log.
+    bursts_started: bool,
+    /// The start of the packet trimmed last (interleaved), which the next one fades in from: it
+    /// continues what already played.
+    trim_head: Vec<f32>,
 }
 
 impl Playout {
@@ -64,7 +91,9 @@ impl Playout {
             decoder,
             len: 0,
             frame,
-            max_queued: (48 * QUEUE_MS).max(lead + frame) + frame,
+            // Above the trim line (`drift`) by the device's own take at least: a queue that sits
+            // just over the line peaks a device period higher between its requests.
+            max_queued: (48 * QUEUE_MS).max(2 * lead + frame) + frame,
             lead,
             owed: 0,
             run: 0,
@@ -72,6 +101,11 @@ impl Playout {
             dry: false,
             asks: true,
             concealed: 0,
+            above: 0,
+            since_starved: usize::MAX,
+            bursts: false,
+            bursts_started: false,
+            trim_head: Vec::new(),
         }
     }
 
@@ -91,9 +125,18 @@ impl Playout {
         if queued > self.max_queued {
             return Fed::Dropped;
         }
+        self.since_starved = self.since_starved.saturating_add(self.frame);
+        if self.owed > 0 && packet.is_none() {
+            // The device starved on a loss the receiver waited for, not a late burst: concealed
+            // as ever, and not counted towards a run of bursts.
+            self.bursts = false;
+            self.since_starved = usize::MAX;
+        }
         if self.owed > 0 {
             self.owed -= 1;
-            return Fed::Dropped;
+            if !self.bursts {
+                return Fed::Dropped;
+            }
         }
         self.dry |= !self.asks && self.primed && queued == 0;
         let lead = if queued == 0 && (!self.primed || self.dry) {
@@ -114,6 +157,18 @@ impl Playout {
         if samples <= 0 {
             return Fed::Failed;
         }
+        // Decoded all the same: the decoder goes on from it without a gap.
+        if packet.is_some() && self.drift(queued) {
+            self.run = 0;
+            let head = (samples as usize).min(48 * FADE_MS) * channels;
+            self.trim_head.clear();
+            self.trim_head.extend_from_slice(&self.pcm[..head]);
+            return Fed::Trimmed;
+        }
+        if lead == 0 && !self.trim_head.is_empty() {
+            crossfade(&self.trim_head, &mut self.pcm[..samples as usize * channels], channels);
+        }
+        self.trim_head.clear();
         self.pcm[..lead * channels].fill(0.0);
         self.len = lead + samples as usize;
         if packet.is_some() {
@@ -124,6 +179,21 @@ impl Playout {
         }
         let underrun = std::mem::take(&mut self.dry) && lead > 0;
         Fed::Play { lead, underrun }
+    }
+
+    /// Whether this packet is clock drift surplus: the queue stayed more than a packet above the
+    /// lead for `TRIM_AFTER_MS` of packets.
+    fn drift(&mut self, queued: usize) -> bool {
+        if queued <= self.lead + self.frame {
+            self.above = 0;
+            return false;
+        }
+        self.above += self.frame;
+        if self.above < 48 * TRIM_AFTER_MS {
+            return false;
+        }
+        self.above = 0;
+        true
     }
 
     /// The device needs `needed` samples per channel beyond what is queued. Returns the
@@ -141,6 +211,13 @@ impl Playout {
             self.owed = 0;
             self.dry = true;
             return &[];
+        }
+        if self.run == 0 {
+            // A packet played since the last time: this is a new late burst.
+            let bursts = self.since_starved < 48 * BURSTS_MS;
+            self.bursts_started |= bursts && !self.bursts;
+            self.bursts = bursts;
+            self.since_starved = 0;
         }
         let channels = self.decoder.channels();
         let samples = self
@@ -165,6 +242,10 @@ impl Playout {
         self.dry = false;
         self.owed = 0;
         self.run = 0;
+        self.above = 0;
+        self.since_starved = usize::MAX;
+        self.bursts = false;
+        self.trim_head.clear();
     }
 
     /// The device never calls `starve`: only lost packets are concealed.
@@ -172,9 +253,23 @@ impl Playout {
         self.asks = false;
     }
 
+    /// Whether a run of late bursts started since the last call.
+    pub fn take_bursts_started(&mut self) -> bool {
+        std::mem::take(&mut self.bursts_started)
+    }
+
     /// Packets concealed since the last call.
     pub fn take_concealed(&mut self) -> u64 {
         std::mem::take(&mut self.concealed)
+    }
+}
+
+/// Fades `pcm` in from `head` over the frames both have, as Android's trim and stall fade-in do.
+fn crossfade(head: &[f32], pcm: &mut [f32], channels: usize) {
+    let frames = head.len().min(pcm.len()) / channels;
+    for (i, (sample, from)) in pcm.iter_mut().zip(head).take(frames * channels).enumerate() {
+        let step = (i / channels) as f32 / frames as f32;
+        *sample = *sample * step + from * (1.0 - step);
     }
 }
 
@@ -285,6 +380,7 @@ mod tests {
                         result.underruns += usize::from(underrun);
                     }
                     Fed::Dropped => result.dropped += 1,
+                    Fed::Trimmed => panic!("no clock drift here, nothing to trim"),
                     Fed::Failed => panic!("a packet failed to decode"),
                 }
             }
@@ -476,6 +572,176 @@ mod tests {
                 underrun: true
             }
         );
+    }
+
+    /// 5 ms stereo PCM packets of a 440 Hz tone: no Opus state, so long runs stay quick.
+    fn pcm_tone(n: usize) -> Vec<u8> {
+        (0..240)
+            .flat_map(|i| {
+                let t = (n * 240 + i) as f32 / 48000.0;
+                let v = ((t * 440.0 * std::f32::consts::TAU).sin() * 16384.0) as i16;
+                [v.to_le_bytes(), v.to_le_bytes()].concat()
+            })
+            .collect()
+    }
+
+    #[derive(Default)]
+    struct Drift {
+        trims: usize,
+        /// Dropped at the queue's limit, unfaded: what the trim keeps from happening.
+        full: usize,
+        /// The least queued over the last quarter of the run, in samples: the latency that stays.
+        late_min: usize,
+        /// When the device ran short and concealment stood in, in ms.
+        starved: Vec<u64>,
+    }
+
+    /// `seconds` of packets in pairs every 10 ms, as hosts send them, to a device taking `request`
+    /// samples at a time on its own clock, slower by `ppm` (negative: faster). `held(pair)` holds
+    /// a pair back in ms; the receiver hands packets over in order. `trim` off plays as before.
+    fn drift(seconds: u64, ppm: f64, request: usize, held: impl Fn(usize) -> u64, trim: bool) -> Drift {
+        let source: Vec<Vec<u8>> = (0..200).map(pcm_tone).collect();
+        let mut playout = Playout::new(AudioDecoder::Pcm { channels: 2 }, 5, request);
+        let mut result = Drift { late_min: usize::MAX, ..Drift::default() };
+        let (end, period) = (seconds * 1_000_000, request as f64 * 1000.0 / 48.0 * (1.0 + ppm / 1e6));
+        let mut network = std::collections::VecDeque::new();
+        let (mut queued, mut started, mut pair, mut next_pair, mut released, mut sent) = (0, false, 0, 0, 0, 0);
+        let mut pulls = 0f64;
+        let mut at = 0;
+        while at < end {
+            while next_pair <= at {
+                released = released.max(next_pair + held(pair) * 1000);
+                network.extend([released, released]);
+                pair += 1;
+                next_pair += 10_000;
+            }
+            while network.front().is_some_and(|&t| t <= at) {
+                network.pop_front();
+                if !trim {
+                    playout.above = 0;
+                }
+                match playout.packet(Some(&source[sent % source.len()]), queued) {
+                    Fed::Play { .. } => {
+                        queued += playout.pcm().len() / 2;
+                        started = true;
+                    }
+                    Fed::Trimmed => result.trims += 1,
+                    Fed::Dropped => result.full += usize::from(queued > playout.max_queued),
+                    Fed::Failed => panic!("a packet failed to decode"),
+                }
+                sent += 1;
+            }
+            if started && at as f64 >= pulls * period {
+                pulls += 1.0;
+                if queued < request {
+                    let filled = playout.starve(request - queued).len() / 2;
+                    if filled > 0 {
+                        result.starved.push(at / 1000);
+                    }
+                    queued += filled;
+                }
+                queued -= queued.min(request);
+            }
+            if at >= end / 4 * 3 {
+                result.late_min = result.late_min.min(queued);
+            }
+            at += 100;
+        }
+        result
+    }
+
+    #[test]
+    fn a_slow_device_clock_is_trimmed_a_packet_at_a_time_before_the_queue_limit() {
+        for request in [480, 1024] {
+            // 35 ppm measured: 42 ms of surplus in 20 minutes, which ran into the queue's limit.
+            let untrimmed = drift(1200, 35.0, request, |_| 0, false);
+            assert!(untrimmed.full > 0, "{request}: untrimmed, the limit drops");
+            // The lead led with on an empty queue; trims start a packet above it.
+            let lead = request.max(480);
+            for (seconds, ppm) in [(1200, 35.0), (300, 300.0)] {
+                let run = drift(seconds, ppm, request, |_| 0, true);
+                assert_eq!(run.full, 0, "{request}, {ppm} ppm");
+                // A trim a packet of surplus, less what the queue held below the trim line first
+                // (up to the lead and a packet, depending on the device's phase).
+                let surplus = (seconds as f64 * ppm / 1e6 * 1000.0 / 5.0) as usize;
+                assert!(
+                    (surplus.saturating_sub(lead / 240 + 2)..=surplus + 1).contains(&run.trims),
+                    "{request}, {ppm} ppm: {} trims for {surplus} packets of drift",
+                    run.trims
+                );
+                // What stays is at most two packets over the lead (`full` above: the peaks never
+                // reach the limit).
+                assert!(run.late_min <= lead + 2 * 240, "{request}, {ppm} ppm: at least {} queued", run.late_min);
+            }
+        }
+    }
+
+    #[test]
+    fn steady_state_fast_devices_and_jitter_bursts_are_never_trimmed() {
+        // A 30 ms hold every 3 s, and a 12 ms one every 0.5 s.
+        let jitter = |pair: usize| match pair {
+            p if p % 300 == 7 => 30,
+            p if p % 50 == 3 => 12,
+            _ => 0,
+        };
+        for request in [480, 1024] {
+            for ppm in [0.0, -35.0, -300.0] {
+                for bursts in [false, true] {
+                    let run = drift(300, ppm, request, |p| if bursts { jitter(p) } else { 0 }, true);
+                    assert_eq!(run.trims, 0, "{request}, {ppm} ppm, bursts {bursts}");
+                    if ppm == 0.0 {
+                        assert_eq!(run.full, 0, "{request}, bursts {bursts}");
+                    }
+                }
+            }
+            // Jitter on top of drift still trims only the drift. A queue that dips below the trim
+            // line every 0.5 s is never trimmed, so the drift case has only the 3 s holds: with a
+            // 1024-sample device period on top, the 12 ms ones leave the limit to drop as before.
+            let run = drift(1200, 35.0, request, |p| if p % 300 == 7 { 30 } else { 0 }, true);
+            assert_eq!(run.full, 0, "{request}");
+            assert!((4..=10).contains(&run.trims), "{request}: {} trims", run.trims);
+        }
+    }
+
+    #[test]
+    fn a_minute_of_late_bursts_grows_the_cushion_once_and_trims_it_back_after() {
+        // #68: for a minute the packets arrived late p50 10 p99 16 max 18 ms, as four at a time
+        // every 20 ms do (here from 10 s to 70 s); each burst used to starve the device, its packets were skipped, and
+        // the next burst starved it again for the whole minute.
+        let held = |pair: usize| match pair {
+            p if (1000..7000).contains(&p) && p % 2 == 0 => 10 + if p % 26 == 0 { 3 } else { 0 },
+            _ => 0,
+        };
+        for request in [480, 1024] {
+            let run = drift(100, 0.0, request, held, true);
+            let during = run.starved.iter().filter(|&&ms| (11_000..70_000).contains(&ms)).count();
+            assert!(during <= 2, "{request}: starved {during} times once the bursts settled");
+            assert!(run.starved.iter().filter(|&&ms| ms >= 70_000).count() == 0, "{request}: clean after");
+            assert_eq!(run.full, 0, "{request}");
+            // The cushion the bursts needed is trimmed away once they stop.
+            let lead = request.max(480);
+            assert!(run.late_min <= lead + 2 * 240, "{request}: {} queued at the end", run.late_min);
+        }
+    }
+
+    #[test]
+    fn a_trimmed_packet_fades_into_the_next_without_a_click() {
+        let mut playout = Playout::new(AudioDecoder::Pcm { channels: 2 }, 5, 480);
+        let mut out: Vec<f32> = Vec::new();
+        let mut trimmed = None;
+        // The queue sits 15 ms above the lead: the 400th packet, 2 s on, is trimmed.
+        for n in 0..402 {
+            match playout.packet(Some(&pcm_tone(n)), 480 + 720) {
+                Fed::Play { lead, .. } => out.extend(playout.pcm()[lead * 2..].iter().step_by(2)),
+                Fed::Trimmed => trimmed = Some(n),
+                other => panic!("{other:?}"),
+            }
+        }
+        assert_eq!(trimmed, Some(399));
+        // The tone moves at most this much a sample; the splice without the fade jumps ~0.3.
+        let natural = 0.5 * std::f32::consts::TAU * 440.0 / 48000.0;
+        let worst = out.windows(2).map(|w| (w[1] - w[0]).abs()).fold(0.0, f32::max);
+        assert!(worst <= natural * 1.5, "a step of {worst}, the tone's own {natural}");
     }
 
     #[test]

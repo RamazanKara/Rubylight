@@ -171,7 +171,7 @@ final class ShelfAdapter extends RecyclerView.Adapter<ShelfAdapter.CardHolder> {
     }
 
     /** A poster in grey: a game the host lists but has not installed. One filter for every such card, set at bind. */
-    private static final ColorMatrixColorFilter NOT_INSTALLED;
+    static final ColorMatrixColorFilter NOT_INSTALLED;
 
     static {
         ColorMatrix grey = new ColorMatrix();
@@ -322,23 +322,25 @@ final class ShelfAdapter extends RecyclerView.Adapter<ShelfAdapter.CardHolder> {
                 imageText.setText(card.title);
                 imageText.setVisibility(View.VISIBLE);
             } else if (env.covers != null) {
-                env.covers.bind(env.hosts.apply(card.hostUuid), CoverLoaders.appOf(card.title, card.appId, card.source), image,
+                env.covers.bind(CoverLoaders.coverHost(env.hosts.apply(card.hostUuid), card.source), CoverLoaders.appOf(card.title, card.appId, card.source), image,
                         imageText);
             }
             String where = whereOf(context, card);
             if (title != null) title.setText(card.title);
             if (subtitle != null) subtitle.setText(where);
-            CharSequence state = stateOf(context, card);
+            boolean away = OfflineLook.allAway(card.hostUuids, env.hosts);
+            // A PC that is away runs nothing now, whatever its last answer said.
+            CharSequence state = away ? null : stateOf(context, card);
             badge.setText(state);
             badge.setVisibility(state == null ? View.GONE : View.VISIBLE);
             if (star != null) {
                 badge.setCompoundDrawablesRelativeWithIntrinsicBounds(
-                        card.badge == HomeModel.Badge.RUNNING ? R.drawable.ic_live_dot : 0, 0, 0, 0);
+                        state != null && card.badge == HomeModel.Badge.RUNNING ? R.drawable.ic_live_dot : 0, 0, 0, 0);
                 star.setVisibility(card.favourite ? View.VISIBLE : View.GONE);
             }
             if (store != null) bindStore(context, card);
             itemView.setContentDescription(describe(context, card, where, state));
-            OfflineLook.bind(itemView, subtitle, badge, OfflineLook.allAway(card.hostUuids, env.hosts));
+            OfflineLook.bind(itemView, subtitle, badge, away);
             itemView.setOnClickListener(v -> env.listener.onGame(card));
             itemView.setOnLongClickListener(v -> {
                 env.listener.onGameMenu(card);
@@ -427,8 +429,10 @@ final class ShelfAdapter extends RecyclerView.Adapter<ShelfAdapter.CardHolder> {
                     return context.getString(R.string.console_row_recent);
                 case UNADDED:
                     return context.getString(R.string.console_row_unadded);
+                case GAMES:
+                    return context.getString(R.string.console_row_games);
                 default:
-                    return context.getString(HomeModel.FILTER_ALL.equals(row.filter)
+                    return context.getString(HomeModel.FILTER_ALL.equals(row.filter) || HomeModel.LIBRARY_ROW.equals(row.key)
                             ? R.string.console_section_library : R.string.console_row_other);
             }
         }

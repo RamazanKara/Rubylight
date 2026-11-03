@@ -22,6 +22,11 @@ public final class AppTheme {
     /** The steps of the Interface size setting; arrays.xml lists the same values. */
     static final int[] UI_SCALES = {85, 100, 115, 130, 150};
     /**
+     * Settings' screens on a TV, in percent of the interface size: at the size of Home's and the library's tiles they
+     * looked oversized (nightjar#7, a Shield TV). The shell bar stays at the full size; see NightjarActivity.
+     */
+    public static final int TV_COMPACT_PERCENT = 85;
+    /**
      * Which interface the app lays out: the device's own, or the TV or handheld one whatever the device is. A handheld
      * docked to a TV wants the TV layouts; every TV check in the app reads the Configuration's uiMode type.
      */
@@ -102,19 +107,29 @@ public final class AppTheme {
      * the TV checks) and keeps the night bits.
      */
     public static Context scaled(Context context) {
+        return scaled(context, false);
+    }
+
+    /**
+     * {@link #scaled(Context)}, and with {@code compactOnTelevision} a screen that lays out as a TV is
+     * {@link #TV_COMPACT_PERCENT} of the interface size on top (Settings' screens).
+     */
+    public static Context scaled(Context context, boolean compactOnTelevision) {
         int percent = uiScalePercent(context);
         String mode = uiMode(context);
-        int type = UI_MODE_TV.equals(mode) ? Configuration.UI_MODE_TYPE_TELEVISION : Configuration.UI_MODE_TYPE_NORMAL;
-        boolean retype = !UI_MODE_AUTO.equals(mode) &&
-                (context.getResources().getConfiguration().uiMode & Configuration.UI_MODE_TYPE_MASK) != type;
-        if (percent == DEFAULT_UI_SCALE && !retype) return context;
+        int own = context.getResources().getConfiguration().uiMode & Configuration.UI_MODE_TYPE_MASK;
+        int type = UI_MODE_TV.equals(mode) ? Configuration.UI_MODE_TYPE_TELEVISION :
+                UI_MODE_HANDHELD.equals(mode) ? Configuration.UI_MODE_TYPE_NORMAL : own;
+        boolean retype = type != own;
+        float factor = percent / 100f;
+        if (compactOnTelevision && type == Configuration.UI_MODE_TYPE_TELEVISION) factor *= TV_COMPACT_PERCENT / 100f;
+        if (factor == 1f && !retype) return context;
         Configuration config = new Configuration(context.getResources().getConfiguration());
         if (retype) config.uiMode = (config.uiMode & ~Configuration.UI_MODE_TYPE_MASK) | type;
-        if (percent != DEFAULT_UI_SCALE) {
+        if (factor != 1f) {
             if (config.densityDpi == Configuration.DENSITY_DPI_UNDEFINED) {
                 config.densityDpi = context.getResources().getDisplayMetrics().densityDpi;
             }
-            float factor = percent / 100f;
             config.densityDpi = Math.round(config.densityDpi * factor);
             if (config.screenWidthDp != Configuration.SCREEN_WIDTH_DP_UNDEFINED) config.screenWidthDp = Math.round(config.screenWidthDp / factor);
             if (config.screenHeightDp != Configuration.SCREEN_HEIGHT_DP_UNDEFINED) config.screenHeightDp = Math.round(config.screenHeightDp / factor);
@@ -158,15 +173,28 @@ public final class AppTheme {
         else if (isDark(activity) && !(activity instanceof StreamWindow)) activity.setTheme(R.style.DarkTheme);
         // The stream and its menu keep their own look; the overlays are for the app's screens.
         if (activity instanceof StreamWindow) return;
+        applyOverlays(activity, activity.getTheme());
+    }
+
+    /** The overlays {@link #apply} puts on an app screen's theme. */
+    static void applyOverlays(Context context, android.content.res.Resources.Theme theme) {
         // OledBlackTheme is the stream's too, so it names no window animation: the app's screens get theirs here.
-        if (isOledBlack(activity)) activity.getTheme().applyStyle(R.style.ThemeOverlay_Nightjar_WindowAnimation, true);
-        boolean highContrast = isHighContrast(activity);
-        boolean reduced = Motion.reduced(activity);
-        if (highContrast) activity.getTheme().applyStyle(R.style.ThemeOverlay_Nightjar_HighContrast, true);
+        if (isOledBlack(context)) theme.applyStyle(R.style.ThemeOverlay_Nightjar_WindowAnimation, true);
+        boolean highContrast = isHighContrast(context);
+        boolean reduced = Motion.reduced(context);
+        if (highContrast) theme.applyStyle(R.style.ThemeOverlay_Nightjar_HighContrast, true);
         if (reduced) {
-            activity.getTheme().applyStyle(highContrast ? R.style.ThemeOverlay_Nightjar_HighContrast_ReducedMotion :
+            theme.applyStyle(highContrast ? R.style.ThemeOverlay_Nightjar_HighContrast_ReducedMotion :
                     R.style.ThemeOverlay_Nightjar_ReducedMotion, true);
         }
+    }
+
+    /**
+     * The theme {@link #apply} gives a TV's app screen, for views of a screen that keep their own context
+     * (NightjarActivity.fullSizeContext): a TV is always dark ({@link #isDark}).
+     */
+    static int televisionTheme(Context context) {
+        return isOledBlack(context) ? R.style.OledBlackTheme : R.style.DarkTheme;
     }
 
     /**

@@ -110,6 +110,9 @@ pub struct RaceProbe {
     /// The highest rate the stream presented at while the check ran: a check that saw a busy rate
     /// is measured again when the rate falls (`apply_surroundings`).
     check_hz: f64,
+    /// The lowest and highest presents a second measured while the check ran: the quick rule
+    /// waits for a rate that settled (`scanline::STEADY`).
+    check_rates: Option<(f64, f64)>,
     /// Whether the last present went straight to a fullscreen window nothing covers, None before
     /// the first. Only those feed the check: a composed present never restarts a scan.
     direct: Option<bool>,
@@ -130,6 +133,8 @@ pub struct RaceProbe {
     longest_idle_ns: u64,
     /// The median of `delays` (ns), 0 with none.
     delay_ns: u64,
+    /// `recheck` asked for the display to be measured again at the next present.
+    recheck_asked: bool,
     #[cfg(windows)]
     scan: Option<super::scanline::Scanline>,
     #[cfg(windows)]
@@ -145,6 +150,7 @@ impl RaceProbe {
             rate: PresentRate::default(),
             check: RestartCheck::default(),
             check_hz: 0.0,
+            check_rates: None,
             direct: None,
             had_focus: false,
             covered: false,
@@ -157,6 +163,7 @@ impl RaceProbe {
             delays: Vec::new(),
             longest_idle_ns: 0,
             delay_ns: 0,
+            recheck_asked: false,
             #[cfg(windows)]
             scan: None,
             #[cfg(windows)]
@@ -222,11 +229,26 @@ impl RaceProbe {
         }
     }
 
+    /// Measures the display again from the next present: a stream that a "no VRR" verdict turned
+    /// to V-Sync looks again now and then (`present::VrrPacing::recheck_due`). The calibration and
+    /// the scan line readings run off the render thread as at the start.
+    pub fn recheck(&mut self) { self.recheck_asked = true; }
+
+    /// What `recheck` asked for: drops what was measured, a "no VRR" verdict too. Returns whether
+    /// the display has to be calibrated again.
+    fn apply_recheck(&mut self) -> bool {
+        if !std::mem::take(&mut self.recheck_asked) { return false; }
+        eprintln!("nightjar: {}: measuring the display again", self.topic);
+        self.forget();
+        true
+    }
+
     /// Drops the calibration, the check and the verdict, to measure the display again.
     fn forget(&mut self) {
         self.generation += 1;
         self.check = RestartCheck::default();
         self.check_hz = 0.0;
+        self.check_rates = None;
         self.check_said = false;
         self.delays.clear();
         self.delay_ns = 0;
@@ -267,7 +289,12 @@ impl RaceProbe {
             self.forget();
             return true;
         }
-        if self.checking() { self.check_hz = self.check_hz.max(content_hz); }
+        if self.checking() {
+            self.check_hz = self.check_hz.max(content_hz);
+            if let Some(hz) = self.rate.hz {
+                self.check_rates = Some(self.check_rates.map_or((hz, hz), |(low, high)| (low.min(hz), high.max(hz))));
+            }
+        }
         false
     }
 
@@ -277,12 +304,13 @@ impl RaceProbe {
     #[cfg(any(windows, test))]
     fn fold(&mut self, around: Surroundings, follow: Follow, test: impl FnOnce(&mut Self)) -> bool {
         let moved = self.apply_follow(follow);
+        let rechecked = self.apply_recheck();
         let again = self.apply_surroundings(around);
         #[cfg(windows)]
         self.collect_outcomes();
         if self.checking() { test(self); }
         self.decide(around);
-        moved || again
+        moved || rechecked || again
     }
 
     /// Folds what the calibration thread found and the check so far into the verdict.
@@ -306,8 +334,9 @@ impl RaceProbe {
                 self.topic, self.check.frames, self.check.tested, self.check.missed, super::scanline::RESTART_WINDOW_NS / 1_000_000, delays(&self.delays)
             );
         }
-        // A display found to scan at its own rate stays so until the window moves to another one:
-        // the V-Sync it gets then presents without tearing, which would otherwise become the reason.
+        // A display found to scan at its own rate stays so until the window moves to another one or
+        // a `recheck`: the V-Sync it gets presents without tearing, which would otherwise become the
+        // reason (a recheck is given the tearing the stream had before it).
         if self.fixed_refresh() { return; }
         let display_hz = match &self.beam { Some(Ok(beam)) => beam.refresh_hz, _ => 0.0 };
         self.verdict = decide(&Evidence {
@@ -318,6 +347,7 @@ impl RaceProbe {
             check: self.check,
             content_hz: self.rate.content_hz(around.content_hz),
             display_hz,
+            check_rates: self.check_rates,
             check_hz: self.check_hz,
         });
         self.log_change();
@@ -532,6 +562,7 @@ impl RaceProbe {
 
     fn after_unavailable(&mut self, around: Surroundings) {
         self.presents += 1;
+        self.apply_recheck();
         self.apply_surroundings(around);
         self.decide(around);
     }
@@ -592,7 +623,7 @@ mod tests {
     use super::*;
 
     fn beam() -> Beam {
-        Beam { rows: 1440, blank_rows: 200, total_rows: 1640, scan_ns: 4_100_000, refresh_hz: 243.9, lines_per_ms: 400.0, vblank_fraction: 0.75, scans: 50, idle_from: 1840, longest_idle_ns: 17_000_000 }
+        Beam { rows: 1440, blank_rows: 200, total_rows: 1640, scan_ns: 4_100_000, refresh_hz: 243.9, lines_per_ms: 400.0, vblank_fraction: 0.75, scans: 50, idle_from: 1840, longest_idle_ns: 4_100_000, idle_scans: 0 }
     }
 
     fn around() -> Surroundings { Surroundings { tearing: true, fullscreen: true, focused: true, content_hz: 60.0 } }
@@ -638,7 +669,7 @@ mod tests {
         probe.decide(around());
         assert!(!probe.apply_follow(Follow::Same));
         assert!(probe.beam.is_some());
-        assert_eq!(probe.longest_idle_ns, 17_000_000);
+        assert_eq!(probe.longest_idle_ns, 4_100_000);
     }
 
     #[test]
@@ -787,6 +818,33 @@ mod tests {
         assert!(!present_with(&mut slow, around(), CHECK_MISSES + 1, Restart::Missed));
         assert!(!present(&mut slow, Surroundings { content_hz: 20.0, ..around() }, 1));
         assert!(slow.check.failed());
+    }
+
+    #[test]
+    fn a_recheck_measures_a_no_vrr_display_again_and_finds_it_following_presents() {
+        let mut probe = RaceProbe::new(true, "display check");
+        *probe.calibration.lock().unwrap() = Some((0, Ok(Beam { vblank_fraction: 0.01, ..beam() })));
+        assert!(!present(&mut probe, around(), FIXED_FRAMES + 1));
+        assert!(probe.fixed_refresh(), "{}", probe.line());
+        probe.recheck();
+        assert!(probe.fixed_refresh(), "until the next present");
+        assert!(present(&mut probe, around(), 1), "calibrated again");
+        assert_eq!(*probe.verdict(), Verdict::Checking);
+        assert!(probe.beam().is_none() && probe.check == RestartCheck::default());
+        assert!(!present(&mut probe, around(), 1), "asked once");
+        // The display waits for presents now (nightjar#72 after its resume settled) and they restart its scan.
+        *probe.calibration.lock().unwrap() = Some((1, Ok(Beam { vblank_fraction: 0.45, longest_idle_ns: 17_000_000, idle_scans: 30, ..beam() })));
+        assert!(!present_with(&mut probe, around(), super::super::scanline::CHECK_TESTED + 1, Restart::Began));
+        assert!(probe.verdict().refreshes_on_present(), "{}", probe.line());
+        // A display that still scans at its own rate is found so again.
+        let mut fixed = RaceProbe::new(true, "display check");
+        *fixed.calibration.lock().unwrap() = Some((0, Ok(Beam { vblank_fraction: 0.01, ..beam() })));
+        assert!(!present(&mut fixed, around(), FIXED_FRAMES + 1));
+        fixed.recheck();
+        assert!(present(&mut fixed, around(), 1));
+        *fixed.calibration.lock().unwrap() = Some((1, Ok(Beam { vblank_fraction: 0.01, ..beam() })));
+        assert!(!present(&mut fixed, around(), FIXED_FRAMES + 1));
+        assert!(fixed.fixed_refresh(), "{}", fixed.line());
     }
 
     #[test]

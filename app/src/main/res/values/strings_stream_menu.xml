@@ -52,4 +52,43 @@ Unsaved progress will be lost.</string>
     <string name="perf_overlay_vrr">Panel: %1$.2f Hz · render: %2$.2f Hz · VRR: %3$s</string>
     <string name="perf_overlay_vrr_max_hz">max Hz</string>
     <string name="sheet_back">Back</string>
+    <!-- The stream menu's grid, its shortcuts and their editor. -->
+    <string name="stream_menu_return">Return to stream</string>
+    <string name="stream_menu_more">More</string>
+    <string name="stream_menu_shortcuts">Shortcuts</string>
+    <string name="stream_menu_start_menu">Start menu</string>
+    <string name="stream_shortcut_pick_keys">Pick 1–8 keys.</string>
+    <string name="stream_menu_model_failed">The stream menu could not be laid out: %1$s</string>
+    <string name="stream_menu_button_show">Show menu button</string>
+    <string name="stream_menu_button_hide">Hide menu button</string>
+    <string name="stream_menu_settings">Stream menu</string>
+    <string name="title_floating_menu_button">Floating menu button</string>
+    <string name="summary_floating_menu_button">A round button over the stream that opens the menu</string>
+    <!-- A stream menu tile's short name, the same on desktop Nightjar (nightjar-policy's stream_menu::label); two lines at most in a compact tile. -->
+    <string name="stream_tile_keyboard">Keyboard</string>
+    <string name="stream_tile_pc_keyboard">PC keyboard</string>
+    <string name="stream_tile_mouse">Mouse</string>
+    <string name="stream_tile_overlay">Overlay</string>
+    <string name="stream_tile_shortcuts">Shortcuts</string>
+    <string name="stream_tile_microphone">Microphone</string>
+    <string name="stream_tile_touch_mode">Touch mode</string>
+    <string name="stream_tile_onscreen_controls">On-screen controls</string>
+    <string name="stream_tile_quality">Quality</string>
+    <string name="stream_tile_video_output">Video output</string>
+    <string name="stream_tile_zoom">Zoom</string>
+    <string name="stream_tile_send_clipboard">Send clipboard</string>
+    <string name="stream_tile_get_clipboard">Get clipboard</string>
+    <string name="stream_tile_pc_commands">PC commands</string>
+    <string name="stream_tile_diagnostics">Diagnostics</string>
+    <string name="stream_tile_session_graphics">Session and graphics</string>
+    <string name="stream_tile_more">More</string>
+    <string name="stream_tile_return">Return to stream</string>
+    <string name="stream_tile_add_shortcut">Add shortcut</string>
+    <string name="stream_tile_disconnect">Disconnect</string>
+    <string name="stream_tile_end_session">End session</string>
+    <string name="stream_tile_close_game">Close game</string>
+    <string name="stream_tile_quit_game">Quit game</string>
+    <string name="stream_shortcut_key_unsupported">%1$s can’t be part of a shortcut: tap it to take it out.</string>
+    <string name="stream_shortcut_no_keyboard">Shortcut not sent: this device may not send keyboard input to the PC.</string>
+    <string name="stream_shortcut_not_sent">Shortcut not sent: the stream isn’t taking input right now.</string>
 </resources>

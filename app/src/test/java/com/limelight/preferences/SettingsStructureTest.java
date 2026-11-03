@@ -174,11 +174,15 @@ public class SettingsStructureTest {
         try (ActivityController<StreamSettings> controller = Robolectric.buildActivity(StreamSettings.class).setup()) {
             StreamSettings screen = controller.get();
             PreferenceScreen controls = open(screen, "input").getPreferenceScreen();
-            assertEquals(Arrays.asList("category_gamepad_settings", "category_usb_controllers", "category_input_settings",
-                    "category_onscreen_controls", "category_keyboard_shortcuts", "category_more_input"), keys(controls));
+            assertEquals(Arrays.asList("category_gamepad_settings", "category_stream_menu", "category_usb_controllers",
+                    "category_input_settings", "category_onscreen_controls", "category_keyboard_shortcuts", "category_more_input"),
+                    keys(controls));
+            // How the menu opens and what it holds, in one place.
+            assertEquals(Arrays.asList("list_guide_menu_hold", "checkbox_back_opens_menu", "checkbox_back_as_guide",
+                    "checkbox_floating_menu_button", "keyboard_shortcuts_editor"), keys((PreferenceGroup) controls.getPreference(1)));
             assertEquals(Arrays.asList("checkbox_usb_driver", "checkbox_usb_bind_all", "checkbox_usb_dualsense",
                     "checkbox_usb_dualsense_haptics", "checkbox_usb_switch_pro", "checkbox_usb_forwarding"),
-                    keys((PreferenceGroup) controls.getPreference(1)));
+                    keys((PreferenceGroup) controls.getPreference(2)));
             PreferenceGroup image = (PreferenceGroup) open(screen, "display").getPreferenceScreen().findPreference("category_upscaling");
             assertTrue(keys(image).contains("checkbox_yuv444"));
             PreferenceScreen advanced = open(screen, "advanced").getPreferenceScreen();

@@ -168,6 +168,7 @@ public class PcView extends NightjarActivity implements AdapterFragmentCallbacks
     private final static int SHARED_FOLDERS_ID = HostMenu.SHARED_FOLDERS;
     private final static int FILES_ID = HostMenu.FILES;
     private final static int COOP_ID = HostMenu.COOP;
+    private final static int MIC_ONLY_ID = HostMenu.MIC_ONLY;
     private final static int CONNECTION_ADDRESS_ID = HostMenu.CONNECTION_ADDRESS;
 
     /** How long a row says "Waking…" after a wake signal while the PC has not answered. */
@@ -644,6 +645,10 @@ public class PcView extends NightjarActivity implements AdapterFragmentCallbacks
 
             case COOP_ID:
                 hostActions.joinCoop(computer.details);
+                return true;
+
+            case MIC_ONLY_ID:
+                hostActions.micOnly(computer.details);
                 return true;
 
             case FILES_ID:

@@ -20,6 +20,7 @@ import com.limelight.LimeLog;
 import com.limelight.R;
 import com.limelight.binding.PlatformBinding;
 import com.limelight.console.HostWaker;
+import com.limelight.mic.MicOnlyActivity;
 import com.limelight.nativeapi.ConsoleRepository;
 import com.limelight.nativeapi.HostEndpoint;
 import com.limelight.nativeapi.JniNativeApiTransport;
@@ -707,6 +708,21 @@ public final class HostActions {
         }
     }
 
+    // Microphone only
+
+    /** Microphone only: this device's microphone on the PC, with no picture, until Stop in its notification. */
+    public void micOnly(final ComputerDetails computer) {
+        ComputerManagerService.ComputerManagerBinder binder = callbacks.binder();
+        if (binder == null) {
+            showError(R.string.mic_only_action, activity.getString(R.string.error_manager_not_running), null);
+            return;
+        }
+        if (computer.state != ComputerDetails.State.ONLINE
+                || !MicOnlyActivity.start(activity, computer, binder.getUniqueId())) {
+            showError(R.string.mic_only_action, activity.getString(R.string.error_pc_offline), null);
+        }
+    }
+
     // Join co-op
 
     /**
@@ -809,6 +825,8 @@ public final class HostActions {
                     httpConn.unpair();
                     if (httpConn.getPairState() == PairingManager.PairState.NOT_PAIRED) {
                         unpaired = true;
+                        // Its certificate goes too, so Home does not show it as a paired PC while it is away.
+                        binder.forgetCertificate(computer.uuid);
                         // Drop the cached pair state so the next poll reads it afresh.
                         binder.invalidateStateForComputer(computer.uuid);
                     } else {

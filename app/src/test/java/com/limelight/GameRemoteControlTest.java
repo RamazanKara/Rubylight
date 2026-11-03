@@ -36,7 +36,8 @@ public class GameRemoteControlTest {
     public static class RemoteGame extends Game {
         int menus, backs;
         @Override public void showStreamMenu() { menus++; }
-        @Override public void onBackPressed() { backs++; }
+        @Override public void showStreamMenuFromController() { menus++; }
+        @Override void onBack(boolean byController) { backs++; }
     }
 
     private InputDevice device(int sources, int keyboard) {
@@ -233,6 +234,10 @@ public class GameRemoteControlTest {
             assertTrue(connection.buttons.isEmpty());
 
             prefs.backAsGuide = true;
+
+            // Guide at once, not held back for Hold Guide to open the stream menu
+
+            prefs.guideMenuHoldMs = 0;
             assertTrue(game.handleKeyDown(event(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_BACK, -1, InputDevice.SOURCE_KEYBOARD)));
             assertEquals(com.limelight.nvstream.input.ControllerPacket.SPECIAL_BUTTON_FLAG,
                     (int) connection.buttons.get(connection.buttons.size() - 1));
@@ -260,6 +265,8 @@ public class GameRemoteControlTest {
         RemoteGame game = game(connection);
         PreferenceConfiguration prefs = ReflectionHelpers.getField(game, "prefConfig");
         prefs.backAsGuide = true;
+        // Guide at once, not held back for Hold Guide to open the stream menu
+        prefs.guideMenuHoldMs = 0;
         ReflectionHelpers.setField(game, "connected", true);
         HandheldController controller = new HandheldController(game, connection, prefs);
         ReflectionHelpers.setField(ReflectionHelpers.getField(controller, "defaultContext"), "assignedControllerNumber", true);
@@ -301,6 +308,8 @@ public class GameRemoteControlTest {
         RemoteGame game = game(connection);
         PreferenceConfiguration prefs = ReflectionHelpers.getField(game, "prefConfig");
         prefs.backAsGuide = true;
+        // Guide at once, not held back for Hold Guide to open the stream menu
+        prefs.guideMenuHoldMs = 0;
         ReflectionHelpers.setField(game, "connected", true);
         HandheldController controller = new HandheldController(game, connection, prefs, false);
         ReflectionHelpers.setField(ReflectionHelpers.getField(controller, "defaultContext"), "assignedControllerNumber", true);

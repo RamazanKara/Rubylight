@@ -390,4 +390,11 @@ public class NvConnectionRoleTest {
         assertEquals(unsupported, connection.sendControllerTouchEvent((byte) 0, (byte) 0, 0, 0, 0, 0));
         assertEquals(unsupported, connection.sendControllerMotionEvent((byte) 0, (byte) 0, 0, 0, 0));
     }
+
+    @Test
+    public void microphoneOnlyNeverResumesOrQuitsTheRunningGame() {
+        assertTrue(NvConnection.launchesBesideRunningGame(NvApp.micOnly("Microphone only")));
+        assertFalse(NvConnection.launchesBesideRunningGame(new NvApp("Game", 0, false)));
+        assertFalse(NvConnection.launchesBesideRunningGame(new NvApp("Game", 73, false)));
+    }
 }

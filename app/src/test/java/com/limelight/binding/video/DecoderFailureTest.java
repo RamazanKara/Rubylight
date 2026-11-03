@@ -31,6 +31,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -337,14 +338,151 @@ public class DecoderFailureTest {
     }
 
     @Test
-    public void aDecoderThatTakesNoInputEndsTheStream() {
+    public void aDecoderThatTakesNoInputIsResetOnceThenEndsTheStream() {
         // The TV's HDR10 stream: 5000 ms dequeues, and the engine dropped the exception thrown for
-        // it, so the picture stayed frozen.
+        // it, so the picture stayed frozen. It ended the stream with no reset at all.
         FailingCodec.released = false;
         assertFalse((boolean) ReflectionHelpers.callInstanceMethod(renderer, "fetchNextInputBuffer"));
+        assertTrue(terminated.isEmpty());
+        assertEquals(3, ((AtomicInteger)
+                ReflectionHelpers.getField(renderer, "codecRecoveryType")).get());
+        recoverOnTheInputThread();
+        assertEquals(1, (int) ReflectionHelpers.getField(renderer, "codecRecoveryAttempts"));
+        assertFalse((boolean) ReflectionHelpers.getField(renderer, "hangResetPending"));
+
+        // Still no input and no frame after the reset: the stream ends.
+        assertFalse((boolean) ReflectionHelpers.callInstanceMethod(renderer, "fetchNextInputBuffer"));
         assertEquals(Collections.singletonList(MoonBridge.CLIENT_ERROR_DECODER), terminated);
-        assertTrue(renderer.getDecoderFailure(),
-                renderer.getDecoderFailure().startsWith("c2.mtk.hevc.decoder took no input for 5000 ms"));
+        assertTrue(renderer.getDecoderFailure(), renderer.getDecoderFailure().startsWith(
+                "c2.mtk.hevc.decoder took no input for 5000 ms, also after a reset"));
+    }
+
+    @Test
+    public void aDecoderThatHangsAgainAfterFramesFlowedIsResetAgain() {
+        FailingCodec.released = false;
+        assertFalse((boolean) ReflectionHelpers.callInstanceMethod(renderer, "fetchNextInputBuffer"));
+        recoverOnTheInputThread();
+        ReflectionHelpers.setField(renderer, "numFramesOut", 1);
+        assertFalse((boolean) ReflectionHelpers.callInstanceMethod(renderer, "fetchNextInputBuffer"));
+        recoverOnTheInputThread();
+        assertEquals(2, (int) ReflectionHelpers.getField(renderer, "codecRecoveryAttempts"));
+        assertTrue(terminated.isEmpty());
+
+        // With the attempts used up, a hang ends the stream without a reset.
+        ReflectionHelpers.setField(renderer, "numFramesOut", 2);
+        ReflectionHelpers.setField(renderer, "codecRecoveryAttempts", 10);
+        assertFalse((boolean) ReflectionHelpers.callInstanceMethod(renderer, "fetchNextInputBuffer"));
+        assertEquals(Collections.singletonList(MoonBridge.CLIENT_ERROR_DECODER), terminated);
+        assertEquals("c2.mtk.hevc.decoder took no input for 5000 ms", renderer.getDecoderFailure());
+    }
+
+    @Test
+    public void aResetOfAHungDecoderThatHangsItselfEndsTheStream() throws Exception {
+        ReflectionHelpers.setField(renderer, "hangResetTimeoutMs", 50L);
+        FailingCodec.released = false;
+        assertFalse((boolean) ReflectionHelpers.callInstanceMethod(renderer, "fetchNextInputBuffer"));
+        // The thread running the reset hangs inside MediaCodec, holding the recovery monitor.
+        Object monitor = ReflectionHelpers.getField(renderer, "codecRecoveryMonitor");
+        Thread ui;
+        synchronized (monitor) {
+            long deadline = System.nanoTime() + 10_000_000_000L;
+            while (terminated.isEmpty() && System.nanoTime() < deadline) Thread.sleep(5);
+            // Leaving after the -107 dialog, with the reset still hung: the UI's calls into the
+            // renderer took the same monitor and waited for good (an ANR).
+            ui = new Thread(() -> {
+                renderer.setStreamFrameRateMilliHz(120_000);
+                assertNull(renderer.getReconfigureLimits());
+                assertFalse(renderer.prepareForReconfigure(1920, 1080));
+                renderer.setHdrMode(true, null);
+                renderer.prepareForStop();
+            });
+            ui.setDaemon(true);
+            ui.start();
+            ui.join(5000);
+            assertFalse("The UI waited for the hung reset's monitor", ui.isAlive());
+        }
+        assertEquals(Collections.singletonList(MoonBridge.CLIENT_ERROR_DECODER), terminated);
+        assertEquals("c2.mtk.hevc.decoder took no input for 5000 ms, and its reset did not finish within 50 ms",
+                renderer.getDecoderFailure());
+        assertTrue((boolean) ReflectionHelpers.getField(renderer, "stopping"));
+        assertEquals(1, crashes.size());
+        assertEquals(Collections.emptyList(), uncaught);
+    }
+
+    /**
+     * Leaving while a reset runs inside MediaCodec, which an HDR change asks for and a big AV1
+     * decoder takes seconds over (#69): the UI's stop waited for the reset's monitor though the
+     * decoder had not failed, an ANR. It no longer waits; the shutdown worker's stop wakes the
+     * decoder threads.
+     */
+    @Test
+    public void theUiStopDoesNotWaitForAResetStillRunning() throws Exception {
+        Object monitor = ReflectionHelpers.getField(renderer, "codecRecoveryMonitor");
+        java.util.concurrent.CountDownLatch holding = new java.util.concurrent.CountDownLatch(1);
+        Thread reset = new Thread(() -> {
+            synchronized (monitor) {
+                holding.countDown();
+                try {
+                    Thread.sleep(3000);
+                } catch (InterruptedException ignored) {
+                    // The test is done.
+                }
+            }
+        });
+        reset.setDaemon(true);
+        reset.start();
+        holding.await();
+        assertEquals("the stop runs on the UI thread", android.os.Looper.getMainLooper(), android.os.Looper.myLooper());
+        long startNs = System.nanoTime();
+        renderer.prepareForStop();
+        long tookMs = (System.nanoTime() - startNs) / 1_000_000;
+        reset.interrupt();
+        reset.join(5000);
+        assertTrue("The UI waited " + tookMs + " ms for the reset's monitor", tookMs < 1000);
+        assertTrue((boolean) ReflectionHelpers.getField(renderer, "stopping"));
+        assertNull(renderer.getDecoderFailure());
+        assertEquals(Collections.emptyList(), terminated);
+    }
+
+    @Test
+    public void aResetOfAHungDecoderThatFinishesLeavesTheStreamRunning() throws Exception {
+        ReflectionHelpers.setField(renderer, "hangResetTimeoutMs", 50L);
+        FailingCodec.released = false;
+        assertFalse((boolean) ReflectionHelpers.callInstanceMethod(renderer, "fetchNextInputBuffer"));
+        recoverOnTheInputThread();
+        Thread.sleep(300);
+        assertTrue(terminated.isEmpty());
+        assertNull(renderer.getDecoderFailure());
+    }
+
+    @Test
+    public void recoveryAttemptsRefillAfterGoodFramesButNotInACrashLoop() {
+        // Ten recoveries 100 frames apart: a crash loop, the next failure is not recovered.
+        for (int i = 0; i < 10; i++) {
+            ReflectionHelpers.setField(renderer, "numFramesOut", i * 100);
+            failOnce();
+            recoverOnTheInputThread();
+        }
+        assertEquals(10, (int) ReflectionHelpers.getField(renderer, "codecRecoveryAttempts"));
+        ReflectionHelpers.setField(renderer, "numFramesOut", 900 + 599);
+        failOnce();
+        assertEquals(0, ((AtomicInteger)
+                ReflectionHelpers.getField(renderer, "codecRecoveryType")).get());
+
+        // 600 frames within a few seconds (240 FPS) is still a crash loop.
+        ReflectionHelpers.setField(renderer, "numFramesOut", 900 + 600);
+        ShadowSystemClock.advanceBy(Duration.ofMillis(9_999));
+        failOnce();
+        assertEquals(0, ((AtomicInteger) ReflectionHelpers.getField(renderer, "codecRecoveryType")).get());
+
+        // 600 good frames and 10 s since the last recovery: hours later, it is recovered again.
+        ShadowSystemClock.advanceBy(Duration.ofMillis(1));
+        failOnce();
+        assertEquals(3, ((AtomicInteger)
+                ReflectionHelpers.getField(renderer, "codecRecoveryType")).get());
+        recoverOnTheInputThread();
+        assertEquals(1, (int) ReflectionHelpers.getField(renderer, "codecRecoveryAttempts"));
+        assertTrue(terminated.isEmpty());
     }
 
     private static final class NoOpRecovery implements CodecRecoverySteps.Codec {

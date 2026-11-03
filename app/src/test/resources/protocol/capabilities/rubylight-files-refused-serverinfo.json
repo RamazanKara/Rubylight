@@ -51,6 +51,7 @@
     "pipeline_rates": "unsupported",
     "image_clipboard": "unsupported",
     "shared_folders": "unsupported",
-    "coop": "unsupported"
+    "coop": "unsupported",
+    "mic_only": "unsupported"
   }
 }

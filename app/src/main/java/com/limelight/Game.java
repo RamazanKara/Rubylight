@@ -122,6 +122,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     // The modern on-screen controller, used instead of the classic one when the settings ask for it.
     com.limelight.binding.input.pad.ModernController modernController;
     com.limelight.ui.MicButton micButton;
+    com.limelight.ui.MenuButton menuButton;
 
     PreferenceConfiguration prefConfig;
     SharedPreferences tombstonePrefs;
@@ -308,6 +309,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     boolean nativeResolutionStream;
     boolean fpsFollowsDisplay;
     int streamFps;
+    // The size the decoder was set up for (the negotiated one) or a reconfigure changed it to; 0 until then.
+    int streamWidth, streamHeight;
     float streamPanelHz;
     // The Orientation setting, and whether the host draws this stream at the shape asked for (its
     // virtual display), so a turned window can ask for a turned stream.
@@ -575,6 +578,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     protected void onCreate(Bundle savedInstanceState) {
         com.limelight.ui.AppTheme.apply(this);
         super.onCreate(savedInstanceState);
+        // One connection to a PC at a time: a stream ends Microphone only, whose close it then waits for.
+        com.limelight.mic.MicOnlyService.stop(this);
         streamConnection.onCreate(savedInstanceState);
     }
 
@@ -629,6 +634,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                     modernController.hide();
                 }
                 touchInput.updateMicButton();
+                touchInput.updateMenuButton();
                 if (keyboardOverlay != null) {
                     keyboardInput.hideKeyboardOverlay();
                 }
@@ -667,6 +673,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                     modernController.show();
                 }
                 touchInput.updateMicButton();
+                touchInput.updateMenuButton();
 
                 if (prefConfig.enablePerfOverlay && app.getRole() != NvApp.Role.INPUT_ONLY) {
                     performanceOverlayScroll.setVisibility(View.VISIBLE);
@@ -995,6 +1002,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
             modernController.hide();
         }
         if (micButton != null) micButton.setSuppressed(true);
+        if (menuButton != null) menuButton.setShown(false);
 
         if (conn != null) {
             int videoFormat = decoderRenderer.getActiveVideoFormat();
@@ -1066,13 +1074,19 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
 
     @Override
     public void onBackPressed() {
+        onBack(backByController);
+    }
+
+    /** Back: leaves the layout editor or the PC keyboard, else opens the menu, focused when a controller or remote sent it. */
+    void onBack(boolean byController) {
         if (modernController != null && modernController.isEditing()) {
             // Back leaves the layout editor without keeping its changes, as Cancel does.
             modernController.finishEditing(false);
         } else if (connected && keyboardInput.isPcKeyboardVisible()) {
             keyboardInput.hidePcKeyboard();
         } else if (connected) {
-            showStreamMenu();
+            if (byController) showStreamMenuFromController();
+            else showStreamMenu();
         } else {
             super.onBackPressed();
         }
@@ -1088,7 +1102,12 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     }
 
     public void showStreamMenu() {
-        menuActions.showStreamMenu();
+        menuActions.showStreamMenu(false);
+    }
+
+    /** A controller, remote or key opened the menu: its first tile shows focus at once, so the next press moves it. */
+    public void showStreamMenuFromController() {
+        menuActions.showStreamMenu(true);
     }
 
     java.util.concurrent.ScheduledExecutorService nativeMenuThread;
@@ -1150,7 +1169,10 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                                         leftX, leftY, rightX, rightY, leftTrigger, rightTrigger);
                             }
                         }, prefConfig, game);
-                modernController.setOnLayoutChanged(() -> { if (micButton != null) micButton.place(); });
+                modernController.setOnLayoutChanged(() -> {
+                    if (micButton != null) micButton.place();
+                    if (menuButton != null) menuButton.place();
+                });
                 modernController.refreshLayout();
             }
             modernController.show();
@@ -1240,8 +1262,18 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
 
     @Override
     public boolean onKeyUp(int keyCode, KeyEvent event) {
-        return handleKeyUp(event) || super.onKeyUp(keyCode, event);
+        if (handleKeyUp(event)) return true;
+        // A Back from a controller, D-pad or remote opens the menu focused, as Guide does; the touch Back does not.
+        backByController = keyCode == KeyEvent.KEYCODE_BACK && (event.isFromSource(InputDevice.SOURCE_GAMEPAD)
+                || event.isFromSource(InputDevice.SOURCE_DPAD) || event.isFromSource(InputDevice.SOURCE_JOYSTICK));
+        try {
+            return super.onKeyUp(keyCode, event);
+        } finally {
+            backByController = false;
+        }
     }
+
+    private boolean backByController;
 
     @Override
     public boolean handleKeyUp(KeyEvent event) {

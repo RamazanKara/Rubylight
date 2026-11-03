@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="mic_only_action">僅麥克風</string>
+    <string name="mic_only_connecting">正在連線…</string>
+    <string name="mic_only_on">麥克風已開啟</string>
+    <string name="mic_only_paused_call">因通話暫停</string>
+    <string name="mic_only_stop">停止</string>
+    <string name="mic_only_stopped">麥克風已關閉</string>
+    <string name="mic_only_failed">與 %1$s 的連線已結束</string>
+    <string name="mic_only_denied">無法使用麥克風</string>
+    <string name="mic_only_unavailable">麥克風無法使用</string>
+    <string name="mic_only_not_accepted">%1$s 未接受麥克風</string>
+    <string name="mic_only_busy">其他裝置正在使用麥克風</string>
+</resources>

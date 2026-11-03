@@ -29,4 +29,5 @@
     <string name="pad_view">View</string>
     <string name="pad_menu">Menu</string>
     <string name="pad_home">Home</string>
+    <string name="pad_touchpad">タッチパッド</string>
 </resources>

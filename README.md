@@ -38,7 +38,7 @@ Nightjar streams games from your PC to Android phones, tablets and handhelds, An
 <td width="50%" valign="top">
 
 ### Feels local
-**7 ms** median picture age, from the PC's capture to the frame on a Retroid Pocket 6 over Wi-Fi, and about **120 fps** on the same handheld ([our measurements](#measured-performance)). Low-latency settings per decoder family, adaptive refresh and VRR, and phase-locked frame timing with hosts that support it.
+**7 ms** median picture age, from the PC's capture to the frame on a Retroid Pocket 6 over Wi-Fi, about **120 fps** on the same handheld, and **3.0 ms** from a PyroWave frame's last packet to its decoded picture ([our measurements](#measured-performance)). Low-latency settings per decoder family, adaptive refresh and VRR, and phase-locked frame timing with hosts that support it.
 
 </td>
 <td width="50%" valign="top">
@@ -134,7 +134,10 @@ Our own measurements, against a Rubylight PC with a Radeon RX 7900 XT:
 | --- | --- | --- |
 | Retroid Pocket 6, Wi-Fi | HEVC 1080p60, 40 Mbps | 7 ms median picture age, from the PC's capture timestamp to the frame rendered on the device, with either streaming engine (6.92 and 7.04 ms; clock join error about ±0.5 ms; [method and runs](https://github.com/RamazanKara/Rubylight/blob/main/rust/PERFORMANCE.md#october-23-rust-engine-against-the-c-engine-on-android-b8)) |
 | Retroid Pocket 6, Wi-Fi | HEVC 1080p120, 28 Mbps | About 120 fps ([4.0.0 release notes](https://github.com/RamazanKara/nightjar/releases/tag/v4.0.0)) |
-| Retroid Pocket 6, Wi-Fi | PyroWave 1080p120, default bitrate | 119.6 to 120 fps, about 1.7 ms per frame for the decode steps ([4.0.0 release notes](https://github.com/RamazanKara/nightjar/releases/tag/v4.0.0)) |
+| Retroid Pocket 6, Wi-Fi | PyroWave 1080p120, default bitrate | 119.6 to 120 fps ([4.0.0 release notes](https://github.com/RamazanKara/nightjar/releases/tag/v4.0.0)) |
+| Retroid Pocket 6, Wi-Fi | PyroWave 1080p60, 400 Mbps | 3.0 ms median from a frame's last packet to its decoded picture, p95 3.4 ms (was 6.0 ms; [4.2.0 release notes](https://github.com/RamazanKara/nightjar/releases/tag/v4.2.0)) |
+| Retroid Pocket 6, Wi-Fi | HEVC 1080p60, 150 Mbps | No frames lost in four 60 s runs with Automatic error correction, against 14 over six runs before its floor ([method and runs](https://github.com/RamazanKara/Rubylight/blob/main/rust/PERFORMANCE.md#november-1-client-error-correction-on-real-wi-fi-retroid)) |
+| Desktop PC, 5 % packet loss | HEVC 1080p60, 150 Mbps | 3.39 ms median from a frame's arrival to the screen (was 3.66 ms), 17 % less CPU ([4.2.0 release notes](https://github.com/RamazanKara/nightjar/releases/tag/v4.2.0)) |
 
 Decoder benchmark results for other devices are in [device results](docs/devices.md#devices); the built-in benchmark measures yours.
 
@@ -207,7 +210,7 @@ The Android app builds with Gradle and JDK 21; its native code needs the Android
 
 ## Contributing
 
-Report bugs and request features in the [issue tracker](https://github.com/RamazanKara/nightjar/issues/new/choose). [Device results](docs/devices.md) explains how to submit your device's benchmark, and [translations](docs/TRANSLATIONS.md#help-translate) explains how to correct or add a language. The Android app ships in 15 languages; the desktop app in English and German.
+Report bugs and request features in the [issue tracker](https://github.com/RamazanKara/nightjar/issues/new/choose). [Device results](docs/devices.md) explains how to submit your device's benchmark, and [translations](docs/TRANSLATIONS.md#help-translate) explains how to correct or add a language. Nightjar ships in 15 languages on Android, Windows and Linux.
 
 ## Privacy
 
@@ -215,7 +218,7 @@ Video, audio, input, clipboard contents and files travel only between your devic
 
 ## License and credits
 
-Nightjar is licensed under the [GNU General Public License v3.0](LICENSE.txt).
+Nightjar is licensed under the [GNU General Public License v3.0](LICENSE.txt). Everyone who helped, with their GitHub names, is in [CONTRIBUTORS.md](CONTRIBUTORS.md).
 
 Nightjar is a fork of [Moonlight Android](https://github.com/moonlight-stream/moonlight-android) by Cameron Gutman, Diego Waxemberg, Aaron Neyer, Andrew Hennessy and contributors, and was previously published as Butterpollo and as Rubylight Android ([rename history](docs/RENAME.md)). It incorporates work from these GPL-3.0 projects:
 

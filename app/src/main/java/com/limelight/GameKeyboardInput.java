@@ -220,6 +220,14 @@ final class GameKeyboardInput {
 
     private final Map<Short, Byte> pressedKeys = new HashMap<>();
 
+    // How long a shortcut's keys stay down on the PC, as nightjar-policy's shortcuts::HOLD_MS: a chord pressed and
+    // released in the same instant reaches the PC, but what reads the keys once a frame (the Steam overlay's
+    // Shift + Tab, many games) never sees it held.
+    static final long SHORTCUT_HOLD_MS = 100;
+    private final Handler shortcutRelease = new Handler(Looper.getMainLooper());
+    // The held shortcut's release, until it runs.
+    private Runnable pendingShortcutRelease;
+
     private boolean waitingForAllModifiersUp = false;
     private int specialKeyCode = KeyEvent.KEYCODE_UNKNOWN;
 
@@ -331,7 +339,7 @@ final class GameKeyboardInput {
                         break;
 
                     case KeyEvent.KEYCODE_M:
-                        game.showStreamMenu();
+                        game.showStreamMenuFromController();
                         break;
 
                     case KeyEvent.KEYCODE_K:
@@ -464,8 +472,8 @@ final class GameKeyboardInput {
         if (key != KeyEvent.KEYCODE_BACK && key != KeyEvent.KEYCODE_MENU) return false;
         // These are local navigation on a TV remote, even while PC input is captured.
         if (event.getAction() == KeyEvent.ACTION_UP && !event.isCanceled()) {
-            if (key == KeyEvent.KEYCODE_BACK) game.onBackPressed();
-            else game.showStreamMenu();
+            if (key == KeyEvent.KEYCODE_BACK) game.onBack(true);
+            else game.showStreamMenuFromController();
         }
         return true;
     }
@@ -475,7 +483,7 @@ final class GameKeyboardInput {
         // A handheld's dedicated Back can share its gamepad device. Reserve that physical key
         // before controller remapping, while keeping Select/Start and keyboard Windows-key mode.
         if (physicalKeyCode(event) != KeyEvent.KEYCODE_BACK) return false;
-        if (event.getAction() == KeyEvent.ACTION_UP && !event.isCanceled()) game.showStreamMenu();
+        if (event.getAction() == KeyEvent.ACTION_UP && !event.isCanceled()) game.showStreamMenuFromController();
         return true;
     }
 
@@ -960,29 +968,82 @@ final class GameKeyboardInput {
         }
     }
 
-    private void sendKeyboardShortcut(int... keys) {
-        if (!game.foreground || !game.connected || !game.grabbedInput || game.streamMenu != null || !game.conn.canSendInput()) {
+    /**
+     * A shortcut chosen in the stream menu, run once the menu has closed: input is captured again for it, and a shortcut
+     * that still cannot reach the PC says why instead of doing nothing.
+     */
+    void sendMenuShortcut(int... keys) {
+        if (!game.foreground || !game.connected) return;
+        if (!game.conn.canSendInput()) {
+            android.widget.Toast.makeText(game, R.string.stream_shortcut_no_keyboard, android.widget.Toast.LENGTH_SHORT).show();
             return;
         }
+        if (!game.grabbedInput) game.touchInput.setInputGrabState(true);
+        if (!sendKeyboardShortcut(keys)) {
+            android.widget.Toast.makeText(game, R.string.stream_shortcut_not_sent, android.widget.Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    /**
+     * Presses {@code keys} on the PC, modifiers first whatever order they were saved in (older saved shortcuts kept
+     * the typed order), holds them for {@link #SHORTCUT_HOLD_MS} and releases them in reverse; false when the stream
+     * cannot take keys now.
+     */
+    boolean sendKeyboardShortcut(int... keys) {
+        if (!game.foreground || !game.connected || !game.grabbedInput || game.streamMenu != null || !game.conn.canSendInput()) {
+            return false;
+        }
+        // A shortcut still held goes up first, so this one is pressed in full.
+        releaseShortcutNow();
+        keys = modifiersFirst(keys);
         byte modifiers = getModifierState();
-        boolean[] sent = new boolean[keys.length];
-        for (int i = 0; i < keys.length; i++) {
-            short key = game.keyboardTranslator.translate(keys[i], -1);
-            int mask = getModifierMask(keys[i]);
+        int[] sent = new int[keys.length];
+        int count = 0;
+        for (int key : keys) {
+            short code = game.keyboardTranslator.translate(key, -1);
+            int mask = getModifierMask(key);
             modifiers |= (byte) (mask | (mask >> 8));
-            if (!pressedKeys.containsKey(key)) {
-                sendKeyboardInput(key, KeyboardPacket.KEY_DOWN, modifiers, (byte) 0);
-                sent[i] = true;
+            if (!pressedKeys.containsKey(code)) {
+                sendKeyboardInput(code, KeyboardPacket.KEY_DOWN, modifiers, (byte) 0);
+                sent[count++] = key;
             }
         }
+        int[] held = java.util.Arrays.copyOf(sent, count);
+        pendingShortcutRelease = () -> {
+            pendingShortcutRelease = null;
+            releaseShortcut(held);
+        };
+        shortcutRelease.postDelayed(pendingShortcutRelease, SHORTCUT_HOLD_MS);
+        return true;
+    }
+
+    private void releaseShortcutNow() {
+        Runnable release = pendingShortcutRelease;
+        if (release == null) return;
+        shortcutRelease.removeCallbacks(release);
+        release.run();
+    }
+
+    // Lets go of a shortcut's keys in reverse, each with the modifiers still held then: the chord's own pressed before
+    // it, and the physical ones.
+    private void releaseShortcut(int[] keys) {
         for (int i = keys.length - 1; i >= 0; i--) {
-            if (sent[i]) {
-                int mask = getModifierMask(keys[i]);
-                modifiers &= ~(mask | (mask >> 8));
-                modifiers |= getModifierState();
-                sendKeyboardInput(game.keyboardTranslator.translate(keys[i], -1), KeyboardPacket.KEY_UP, modifiers, (byte) 0);
+            byte modifiers = getModifierState();
+            for (int j = 0; j < i; j++) {
+                int mask = getModifierMask(keys[j]);
+                modifiers |= (byte) (mask | (mask >> 8));
             }
+            sendKeyboardInput(game.keyboardTranslator.translate(keys[i], -1), KeyboardPacket.KEY_UP, modifiers, (byte) 0);
         }
+    }
+
+    // A stable sort, as nightjar-policy's shortcuts::normalize_keys: modifiers keep their order, and so do the other keys.
+    static int[] modifiersFirst(int[] keys) {
+        int[] ordered = new int[keys.length];
+        int at = 0;
+        for (int key : keys) if (getModifierMask(key) != 0) ordered[at++] = key;
+        for (int key : keys) if (getModifierMask(key) == 0) ordered[at++] = key;
+        return ordered;
     }
 
     void keyboardEvent(boolean buttonDown, short keyCode) {
@@ -1048,6 +1109,11 @@ final class GameKeyboardInput {
         if (game.pcKeyboard != null) game.pcKeyboard.releaseInputs();
         pcKeyboardKeys.clear();
         pcKeyboardAxisDevice = -1;
+        // A shortcut still held goes up below with the other keys, once.
+        if (pendingShortcutRelease != null) {
+            shortcutRelease.removeCallbacks(pendingShortcutRelease);
+            pendingShortcutRelease = null;
+        }
         synchronized (pressedKeys) {
             for (Map.Entry<Short, Byte> key : pressedKeys.entrySet()) {
                 game.conn.sendKeyboardInput(key.getKey(), KeyboardPacket.KEY_UP, (byte) 0, key.getValue());

@@ -52,6 +52,8 @@
     <string name="no_video_received_error">Kein Video vom PC empfangen.</string>
     <string name="no_frame_received_error">Senke die Bitrate oder nutze ein schnelleres Netzwerk.</string>
     <string name="early_termination_error">Stream konnte nicht starten.\nSchließe geschützte Videos oder starte den PC neu.</string>
+    <string name="early_stop_error">Der PC hat den Stream vor dem ersten Bild beendet.\nVielleicht wurde das Spiel geschlossen. Starte es erneut.</string>
+    <string name="host_failure_reason">Der PC meldet: %1$s</string>
     <string name="frame_conversion_error">Videofehler am PC.\nSchalte HDR aus oder ändere die Auflösung.</string>
     <string name="check_ports_msg">Prüfe Firewall und Weiterleitung für Ports:</string>
     <string name="conn_establishing_title">Verbindung wird aufgebaut</string>
@@ -180,6 +182,8 @@
     <string name="title_only_l3r3">Nur L3 und R3 anzeigen</string>
     <string name="summary_only_l3r3">Blende alle Bildschirmtasten außer L3 und R3 aus.</string>
     <string name="title_show_guide_button">Guide-Taste anzeigen</string>
+    <string name="title_show_touchpad_button">Touchpad-Taste anzeigen</string>
+    <string name="summary_show_touchpad_button">Klickt das Touchpad eines PlayStation-Controllers am PC: Solange sie an ist, verbindet sich Spieler 1 als solcher. Im modernen Stil kannst du sie im Layout-Editor verschieben oder ausblenden.</string>
     <string name="title_reset_osc">Tastenlayout zurücksetzen</string>
     <string name="dialog_title_reset_osc">Layout zurücksetzen</string>
     <string name="dialog_text_reset_osc">Alle Bildschirmtasten auf Standardgröße und -position zurücksetzen?</string>

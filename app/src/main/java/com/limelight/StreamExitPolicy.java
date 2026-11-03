@@ -45,6 +45,25 @@ final class StreamExitPolicy {
     }
 
     /**
+     * Whether the PC itself ended the stream with {@code errorCode}, so it may say why
+     * ({@code RustHostLastFailure} in its serverinfo): moonlight-common-c's codes for the PC's
+     * termination reasons, and the HRESULTs it passes through unchanged (0x80004005, the generic
+     * failure). Lost connections, timeouts, socket errors and this device's own failures are not.
+     */
+    static boolean hostEndedStream(int errorCode) {
+        switch (errorCode) {
+            case MoonBridge.ML_ERROR_UNEXPECTED_EARLY_TERMINATION:
+            case MoonBridge.ML_ERROR_PROTECTED_CONTENT:
+            case MoonBridge.ML_ERROR_FRAME_CONVERSION:
+                return true;
+            default:
+                // A failure HRESULT (0x8xxxxxxx and up) as a signed int, beyond the small
+                // negative codes moonlight-common-c and ENet use (-1, -100 to -107).
+                return errorCode < -0xFFFF;
+        }
+    }
+
+    /**
      * The text of the dialog for a decoder that was given up: with "Render through Vulkan" on, it
      * names that setting, as the Vulkan path is what a decoder short of memory may not manage.
      */

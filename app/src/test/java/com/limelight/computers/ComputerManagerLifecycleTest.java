@@ -398,6 +398,75 @@ public class ComputerManagerLifecycleTest {
     }
 
     /** Holds every poll until the test releases it; it answers or not as the test says. */
+    /** A PC that answers and says this device is not paired (unpaired there, or a new certificate). */
+    public static class NotPairedManager extends Manager {
+        @Override boolean pollComputer(ComputerDetails details) {
+            details.state = ComputerDetails.State.ONLINE;
+            details.pairState = com.limelight.nvstream.http.PairingManager.PairState.NOT_PAIRED;
+            return true;
+        }
+    }
+
+    private static ComputerDetails savedWithCertificate(android.content.Context context, String uuid) {
+        ComputerDetails stored = new ComputerDetails();
+        stored.uuid = uuid;
+        stored.name = "PC";
+        stored.activeAddress = new ComputerDetails.AddressTuple("192.168.1.9", 47989);
+        stored.remoteAddress = stored.activeAddress;
+        stored.serverCert = NativeApiFixtures.certificate();
+        ComputerDatabaseManager database = new ComputerDatabaseManager(context);
+        database.updateComputer(stored);
+        database.close();
+        return stored;
+    }
+
+    private static ComputerDetails savedCopy(android.content.Context context, String uuid) {
+        ComputerDatabaseManager database = new ComputerDatabaseManager(context);
+        try {
+            return database.getComputerByUUID(uuid);
+        } finally {
+            database.close();
+        }
+    }
+
+    @Test
+    public void aPollThatSaysNotPairedForgetsTheSavedCertificate() {
+        android.content.Context context = org.robolectric.RuntimeEnvironment.getApplication();
+        savedWithCertificate(context, "unpaired-host");
+        ServiceController<NotPairedManager> controller = Robolectric.buildService(NotPairedManager.class).create();
+        NotPairedManager service = controller.get();
+        try {
+            List<PollingTuple> tuples = ReflectionHelpers.getField(service, "pollingTuples");
+            PollingTuple tuple = tuples.get(0);
+            assertNotNull(tuple.computer.serverCert);
+            ReflectionHelpers.callInstanceMethod(service, "runPoll",
+                    ReflectionHelpers.ClassParameter.from(ComputerDetails.class, tuple.computer),
+                    ReflectionHelpers.ClassParameter.from(PollingTuple.class, tuple),
+                    ReflectionHelpers.ClassParameter.from(int.class, 0));
+            assertNull(tuple.computer.serverCert);
+            assertNull("and saved so, for the next start", savedCopy(context, "unpaired-host").serverCert);
+        } finally {
+            controller.destroy();
+        }
+    }
+
+    @Test
+    public void unpairingForgetsTheCertificateInMemoryAndSaved() {
+        android.content.Context context = org.robolectric.RuntimeEnvironment.getApplication();
+        savedWithCertificate(context, "unpaired-host");
+        ServiceController<Manager> controller = Robolectric.buildService(Manager.class).create();
+        Manager service = controller.get();
+        try {
+            service.forgetCertificate("unpaired-host");
+            assertNull(tupleOf(service, "unpaired-host").serverCert);
+            ComputerDetails saved = savedCopy(context, "unpaired-host");
+            assertNull(saved.serverCert);
+            assertEquals("the rest of the PC stays", "PC", saved.name);
+        } finally {
+            controller.destroy();
+        }
+    }
+
     public static class HeldPollManager extends Manager {
         final CountDownLatch polling = new CountDownLatch(1);
         final CountDownLatch release = new CountDownLatch(1);

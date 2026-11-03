@@ -8,5 +8,12 @@ rust-version.workspace = true
 publish = false
 
 [dependencies]
+# The shortcut file and the stream menu's JSON calls (src/shortcuts.rs, src/stream_menu.rs).
+serde = { version = "1", features = ["derive"] }
 # Trace replay only (src/trace.rs); the policies themselves take plain values.
 serde_json = "1"
+
+[dev-dependencies]
+# Exact float parsing, so a trace's expected f32 values (written shortest, as ryu prints them)
+# read back to the same number the policy returns.
+serde_json = { version = "1", features = ["float_roundtrip"] }

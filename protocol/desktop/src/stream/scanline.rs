@@ -49,6 +49,9 @@ pub struct Beam {
     /// The longest the display idled in the calibration (ns): the lower bound of the panel's own
     /// refresh period, which the restart check keeps out of its tests.
     pub longest_idle_ns: u64,
+    /// Scans in the calibration after which the display idled for half a scan or more before the
+    /// next began (the counter past one and a half refreshes' lines): it waited for a present.
+    pub idle_scans: u32,
 }
 
 impl Beam {
@@ -73,6 +76,12 @@ impl Beam {
         let row = self.row_of(sample)?;
         Some((((f64::from(self.rows - row)) * 1e6 / self.lines_per_ms) as u64).min(self.scan_ns))
     }
+
+    /// The calibration saw the display wait for presents, on two scans or more (`idle_scans`): a
+    /// fixed refresh wraps its counter at every scan's end and never does, and one reading past it
+    /// (a mode switch while the calibration ran) is not enough. On a resume a 120 Hz VRR monitor
+    /// read a 17.0 ms idle on an 8.31 ms scan.
+    pub fn idled(&self) -> bool { self.idle_scans >= 2 }
 
     /// How long after a scan began the beam reaches picture row `row` (ns).
     #[cfg_attr(not(test), allow(dead_code))] // only the tests read it; the probe and the race do not
@@ -192,6 +201,10 @@ pub fn calibrate(samples: &[Sample], picture_rows: u32) -> Result<Beam, Calibrat
     let margin = blank_rows.max((rate * 1e6) as u32);
     let idle_from = (total_rows + margin).max(straight + 1);
     let longest_idle_ns = (f64::from(samples.iter().filter(|s| s.vblank).map(|s| s.line).max().unwrap_or(0)) / rate) as u64;
+    let idle_line = f64::from(total_rows) * 1.5;
+    let idle_scans = rising_runs(samples).iter()
+        .filter(|run| run.iter().any(|s| s.vblank && f64::from(s.line) >= idle_line))
+        .count() as u32;
     Ok(Beam {
         rows, blank_rows, total_rows, scan_ns,
         refresh_hz: 1e9 / scan_ns as f64,
@@ -200,6 +213,7 @@ pub fn calibrate(samples: &[Sample], picture_rows: u32) -> Result<Beam, Calibrat
         scans: edges.len() as u32,
         idle_from,
         longest_idle_ns,
+        idle_scans,
     })
 }
 
@@ -280,6 +294,11 @@ pub const CHECK_FRAMES: u32 = 300;
 /// tested 30 of its first 84 presents, so one that idles starts a scan well within them.
 pub const FIXED_FRAMES: u32 = 60;
 
+/// How far the presents a second may fall below the highest the check saw for `FIXED_FRAMES` to
+/// tell a fixed refresh: a rate still settling (a resume) says too little, and the whole check
+/// decides. A steady rate below the stream's (a 60 fps game, a still desktop) is fine.
+pub const STEADY: f64 = 0.8;
+
 /// Whether the stream presents about as often as the display scans (70% of its top rate or more),
 /// so a VRR display never idles between its scans either: its presents tell a fixed refresh
 /// from a variable one no better than a still screen does.
@@ -346,6 +365,9 @@ pub struct Evidence {
     /// variable one.
     pub content_hz: f64,
     pub display_hz: f64,
+    /// The lowest and highest presents a second measured while the check took its presents, None
+    /// before a second was measured.
+    pub check_rates: Option<(f64, f64)>,
     /// The highest rate the stream presented at while the check took its presents, 0 before it
     /// took any: a check is judged at the rate it ran at, not at a later one.
     pub check_hz: f64,
@@ -404,6 +426,10 @@ impl Verdict {
     /// The display scans at its own rate whatever is presented ("no VRR"): a tearing present tears.
     pub fn fixed_refresh(&self) -> bool { matches!(self, Self::Off(Reason::NoVrr, _)) }
 
+    /// Presents restarted the display's scan: the check passed. The only verdict a stream turned
+    /// to V-Sync by a "no VRR" one returns from; an idle seen in the calibration alone is not enough.
+    pub fn refreshes_on_present(&self) -> bool { matches!(self, Self::On(_, capability) if capability.vrr) }
+
     /// The timing CSV's `race_reason`: "on" or the reason, empty while it is not known.
     pub fn code(&self) -> &'static str {
         match self {
@@ -435,10 +461,14 @@ pub fn decide(e: &Evidence) -> Verdict {
     // laptop panel at 60 fps, 65-76% on a 240 Hz VRR panel). One calibration in eight on the VRR
     // panel read 12%, taken while it still scanned at its top rate, so the share alone decides
     // nothing: with `FIXED_FRAMES` presents after it and none of them starting a scan, the check
-    // is not waited for.
+    // is not waited for. Nor is it after a calibration that saw the display wait for presents
+    // (`idled`), or while the rate still settles (`STEADY`): on a resume the quick rule called a
+    // 120 Hz VRR monitor "no VRR" from 66 presents a second. Tested presents that missed still do.
     let check_hz = if e.check_hz > 0.0 { e.check_hz } else { e.content_hz };
+    let idled = beam.idled();
     let fixed = check_hz > 0.0 && e.display_hz > 0.0 && !busy(check_hz, e.display_hz) && beam.vblank_fraction < 0.3;
-    if fixed && e.check.running() && e.check.frames >= FIXED_FRAMES && e.check.tested == e.check.missed {
+    let steady = e.check_rates.is_none_or(|(low, high)| low >= high * STEADY);
+    if fixed && !idled && steady && e.check.running() && e.check.frames >= FIXED_FRAMES && e.check.tested == e.check.missed {
         return Verdict::Off(Reason::NoVrr, capability);
     }
     if e.check.failed() {
@@ -449,9 +479,10 @@ pub fn decide(e: &Evidence) -> Verdict {
         // Enough presents went by without the display ever idling after a scan. At a rate near
         // the display's own that is the stream's doing; below it, the display scans all the time.
         // The rate is the one it starved at: a check that starved at a busy rate is measured again
-        // when the stream slows well below it (the probe's `apply_surroundings`).
+        // when the stream slows well below it (the probe's `apply_surroundings`). A display the
+        // calibration saw idle does wait for presents; these just never came while it idled.
         let busy = busy(check_hz, e.display_hz);
-        return Verdict::Off(if busy { Reason::NoIdle } else { Reason::NoVrr }, capability);
+        return Verdict::Off(if busy || idled { Reason::NoIdle } else { Reason::NoVrr }, capability);
     }
     capability.vrr = true;
     capability.flip_inferred = true;
@@ -664,7 +695,7 @@ mod tests {
     }
 
     fn measured() -> Beam {
-        Beam { rows: 1440, blank_rows: 200, total_rows: 1640, scan_ns: 4_100_000, refresh_hz: 243.9, lines_per_ms: 400.0, vblank_fraction: 0.75, scans: 50, idle_from: 2040, longest_idle_ns: 0 }
+        Beam { rows: 1440, blank_rows: 200, total_rows: 1640, scan_ns: 4_100_000, refresh_hz: 243.9, lines_per_ms: 400.0, vblank_fraction: 0.75, scans: 50, idle_from: 2040, longest_idle_ns: 0, idle_scans: 0 }
     }
 
     #[test]
@@ -763,7 +794,7 @@ mod tests {
     fn evidence() -> Evidence {
         let mut check = RestartCheck::default();
         for _ in 0..CHECK_TESTED { check.push(Restart::Began); }
-        Evidence { tearing: true, scanline: true, fullscreen: true, beam: Some(Ok(beam(0.75))), check, content_hz: 60.0, display_hz: 240.0, check_hz: 0.0 }
+        Evidence { tearing: true, scanline: true, fullscreen: true, beam: Some(Ok(beam(0.75))), check, content_hz: 60.0, display_hz: 240.0, check_rates: None, check_hz: 0.0 }
     }
 
     fn missed() -> RestartCheck {
@@ -950,6 +981,75 @@ mod tests {
         assert_eq!(decide(&Evidence { content_hz: 119.5, ..laptop }), Verdict::Checking);
         // A check that passed is not overruled by the blanking share.
         assert!(matches!(decide(&Evidence { beam: Some(Ok(beam(0.12))), ..evidence() }), Verdict::On(..)));
+    }
+
+    /// The 120 Hz 4K VRR monitor of nightjar#72 calibrated on a resume: scan 8.31 ms over 2160
+    /// rows, 23% of the readings in the blanking, longest idle 17.0 ms, 115 scans, while the 120 fps
+    /// stream presented 64-66 times a second.
+    fn resumed() -> Evidence {
+        let beam = Beam { rows: 2160, blank_rows: 90, total_rows: 2250, scan_ns: 8_310_000, refresh_hz: 120.3, lines_per_ms: 270.8,
+            vblank_fraction: 0.23, scans: 115, idle_from: 2521, longest_idle_ns: 17_000_000, idle_scans: 30 };
+        let mut check = RestartCheck::default();
+        for _ in 0..FIXED_FRAMES { check.push(Restart::NotTested); }
+        Evidence { beam: Some(Ok(beam)), check, content_hz: 66.0, display_hz: 120.3, check_rates: Some((64.0, 66.0)), ..evidence() }
+    }
+
+    fn starved() -> RestartCheck {
+        let mut check = RestartCheck::default();
+        for _ in 0..CHECK_FRAMES { check.push(Restart::NotTested); }
+        check
+    }
+
+    #[test]
+    fn a_resumed_stream_on_a_display_seen_waiting_for_presents_is_not_called_no_vrr_untested() {
+        let resumed = resumed();
+        assert_eq!(decide(&resumed), Verdict::Checking, "was off (no VRR) half a second after the calibration");
+        // The whole check, starved: the display idles, the presents just never came while it did.
+        let verdict = decide(&Evidence { check: starved(), ..resumed });
+        assert_eq!(verdict.line(), "off (no idle at this frame rate)");
+        assert!(!verdict.fixed_refresh());
+        assert!(!verdict.refreshes_on_present(), "no present restarted a scan: nothing to return to tearing on");
+        // Presents tested while it idled that did not restart it: it tears, V-Sync it is.
+        assert!(decide(&Evidence { check: missed(), ..resumed }).fixed_refresh());
+        // At the stream's rate the check passes as on the fresh launch.
+        assert!(decide(&Evidence { check: evidence().check, ..resumed }).refreshes_on_present());
+        // A single reading past a scan (a mode switch during the calibration) proves no waiting.
+        let once = match resumed.beam { Some(Ok(beam)) => Beam { idle_scans: 1, ..beam }, _ => unreachable!() };
+        assert!(decide(&Evidence { beam: Some(Ok(once)), ..resumed }).fixed_refresh());
+    }
+
+    #[test]
+    fn the_quick_rule_waits_for_a_settled_rate_not_for_the_streams() {
+        // The same monitor scanning at its own 120 Hz: it never idles.
+        let fixed = match resumed().beam { Some(Ok(beam)) => Beam { vblank_fraction: 0.04, longest_idle_ns: beam.scan_ns, idle_scans: 0, ..beam }, _ => unreachable!() };
+        let steady = Evidence { beam: Some(Ok(fixed)), ..resumed() };
+        assert!(decide(&steady).fixed_refresh(), "a steady 66 of 120: a game at its own rate on a fixed display");
+        assert!(decide(&Evidence { check_rates: Some((20.0, 20.0)), content_hz: 20.0, ..steady }).fixed_refresh(), "a still desktop");
+        assert!(decide(&Evidence { check_rates: None, ..steady }).fixed_refresh(), "no second measured yet");
+        // Still settling (66 to 120 presents a second while the check ran): the whole check decides.
+        let settling = Evidence { check_rates: Some((66.0, 120.0)), ..steady };
+        assert_eq!(decide(&settling), Verdict::Checking);
+        assert!(decide(&Evidence { check: starved(), ..settling }).fixed_refresh(), "and still tells it");
+    }
+
+    #[test]
+    fn a_calibration_tells_a_display_that_waited_from_one_that_scans_at_its_own_rate() {
+        // 4K at 120 Hz: 2250 lines in 8.31 ms. Scans straight through, the counter wrapping each time.
+        const LINES: f64 = 270.8;
+        let straight: Vec<u64> = (0..150).map(|i| 1_000_000 + i * 8_310_000).collect();
+        let calibrated = |starts: &[u64]| calibrate(&counting(starts, 90, 2160, LINES, 250_000, 1_200_000_000), 2160).unwrap();
+        let fixed = calibrated(&straight);
+        assert!(!fixed.idled() && fixed.idle_scans == 0, "{fixed:?}");
+        // Waiting once, 17 ms: a mode switch could do that, so it is not enough.
+        let mut once = straight.clone();
+        for start in once.iter_mut().skip(40) { *start += 8_700_000; }
+        let switched = calibrated(&once);
+        assert!(switched.idle_scans == 1 && !switched.idled(), "{switched:?}");
+        // Waiting for presents now and then.
+        let mut waited = once.clone();
+        for start in waited.iter_mut().skip(80) { *start += 8_700_000; }
+        let variable = calibrated(&waited);
+        assert!(variable.idle_scans == 2 && variable.idled(), "{variable:?}");
     }
 
     /// Manual: `cargo test -p nightjar-desktop scanline_dump -- --ignored --nocapture` while a

@@ -146,7 +146,8 @@ pub fn alt_f4_to_host(streaming: bool) {
     set_hint(SDL_HINT_WINDOWS_CLOSE_ON_ALT_F4, if streaming { c"0" } else { c"1" });
 }
 
-/// The system's preferred languages, most preferred first, as lower-case codes ("de", "en").
+/// The system's preferred languages, most preferred first, as lower-case codes with the country
+/// when the system names one ("de", "pt-br", "zh-tw").
 pub fn preferred_languages() -> Vec<String> {
     let mut count = 0;
     let mut out = Vec::new();
@@ -159,7 +160,14 @@ pub fn preferred_languages() -> Vec<String> {
         for i in 0..usize::try_from(count).unwrap_or(0) {
             let locale = *list.add(i);
             if !locale.is_null() && !(*locale).language.is_null() {
-                out.push(CStr::from_ptr((*locale).language).to_string_lossy().to_ascii_lowercase());
+                let mut code = CStr::from_ptr((*locale).language).to_string_lossy().to_ascii_lowercase();
+                if !(*locale).country.is_null() {
+                    let country = CStr::from_ptr((*locale).country).to_string_lossy().to_ascii_lowercase();
+                    if !country.is_empty() {
+                        code = format!("{code}-{country}");
+                    }
+                }
+                out.push(code);
             }
         }
         SDL_free(list.cast());
@@ -227,6 +235,62 @@ pub fn exclude_from_capture_if_asked(window: *mut SDL_Window) {
     }
     #[cfg(not(windows))]
     let _ = window;
+}
+
+/// The title bar's DWM attributes, in the order they are set: dark mode first, which Windows 10
+/// has (20H1 and later as 20, earlier as [`title_bar_fallback`]), then the caption, border and title colours, which only Windows 11 has.
+/// Colours are COLORREFs (0x00BBGGRR). The border takes the background too, so a maximized or
+/// snapped window shows one dark surface from the caption down.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn title_bar_attributes(background: egui::Color32, text: egui::Color32) -> [(i32, u32); 4] {
+    let colorref = |c: egui::Color32| u32::from(c.r()) | u32::from(c.g()) << 8 | u32::from(c.b()) << 16;
+    // DWMWA_USE_IMMERSIVE_DARK_MODE, DWMWA_BORDER_COLOR, DWMWA_CAPTION_COLOR, DWMWA_TEXT_COLOR.
+    [(20, 1), (34, colorref(background)), (35, colorref(background)), (36, colorref(text))]
+}
+
+/// The number an older Windows knows a refused title bar attribute by: Windows 10 1809 to 1909
+/// take immersive dark mode only as 19, before it became 20.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn title_bar_fallback(attribute: i32) -> Option<i32> {
+    (attribute == 20).then_some(19)
+}
+
+/// What a refused title bar attribute needs, for the log.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn title_bar_needs(attribute: i32) -> &'static str {
+    if attribute == 20 { "Windows 10 1809 or later" } else { "Windows 11" }
+}
+
+/// Gives the Windows title bar the launcher's colours: dark mode and the page's background as the
+/// caption, so a maximized window does not wear a white or accent-coloured bar over the dark page.
+/// The page stays opaque: Mica would only show where the caption colour is not set, and the
+/// caption matching the page is the point. Windows 10 takes dark mode only; each attribute it
+/// refuses is logged once per call (calls come only when the palette changes). Elsewhere a no-op.
+pub fn blend_title_bar(window: *mut SDL_Window, background: egui::Color32, text: egui::Color32) {
+    #[cfg(windows)]
+    {
+        use windows::Win32::Foundation::HWND;
+        use windows::Win32::Graphics::Dwm::{DwmSetWindowAttribute, DWMWINDOWATTRIBUTE};
+        // SAFETY: a live window; the property is its HWND.
+        let hwnd = unsafe { SDL_GetPointerProperty(SDL_GetWindowProperties(window), SDL_PROP_WINDOW_WIN32_HWND_POINTER, std::ptr::null_mut()) };
+        if hwnd.is_null() {
+            eprintln!("nightjar: title bar colours: the window has no HWND");
+            return;
+        }
+        // SAFETY: the window belongs to this process; the value is a 4-byte BOOL or COLORREF.
+        let apply = |attribute: i32, value: u32| unsafe { DwmSetWindowAttribute(HWND(hwnd), DWMWINDOWATTRIBUTE(attribute), (&raw const value).cast(), 4) };
+        for (attribute, value) in title_bar_attributes(background, text) {
+            let set = apply(attribute, value).or_else(|error| match title_bar_fallback(attribute) {
+                Some(older) => apply(older, value).map_err(|_| error),
+                None => Err(error),
+            });
+            if let Err(error) = set {
+                eprintln!("nightjar: title bar attribute {attribute} not set (needs {}): {error}", title_bar_needs(attribute));
+            }
+        }
+    }
+    #[cfg(not(windows))]
+    let _ = (window, background, text);
 }
 
 pub fn display_caps(renderer: *mut SDL_Renderer) -> rubylight_protocol::control::DisplayCaps {
@@ -454,6 +518,21 @@ mod tests {
         assert_eq!(hint(SDL_HINT_WINDOWS_CLOSE_ON_ALT_F4), "0");
         alt_f4_to_host(false);
         assert_eq!(hint(SDL_HINT_WINDOWS_CLOSE_ON_ALT_F4), "1");
+    }
+
+    #[test]
+    fn the_title_bar_takes_dark_mode_first_and_the_page_colours_as_colorrefs() {
+        let night = egui::Color32::from_rgb(0x14, 0x16, 0x1F);
+        let text = egui::Color32::from_rgb(0xE3, 0xE4, 0xEE);
+        let attributes = title_bar_attributes(night, text);
+        // Dark mode first: Windows 10 refuses the colours but still takes it.
+        assert_eq!(attributes[0], (20, 1));
+        assert_eq!(attributes[1..], [(34, 0x001F_1614), (35, 0x001F_1614), (36, 0x00EE_E4E3)]);
+        // Windows 10 1809 to 1909 know dark mode as 19; the colours have no older number.
+        assert_eq!(title_bar_fallback(20), Some(19));
+        assert!(attributes[1..].iter().all(|(attribute, _)| title_bar_fallback(*attribute).is_none()));
+        assert_eq!(title_bar_needs(20), "Windows 10 1809 or later");
+        assert_eq!(title_bar_needs(35), "Windows 11");
     }
 }
 

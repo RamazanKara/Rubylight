@@ -590,6 +590,18 @@ final class GameConnection {
             ((FrameLayout) game.streamView.getParent()).addView(game.micButton, game.micButton.layoutParams());
             game.touchInput.updateMicButton();
         }
+        // On every touch device, so the stream menu's switch can show it; it shows only while its setting is on. A TV
+        // gets neither the button nor the switch.
+        if (com.limelight.ui.MenuButton.offered(game)) {
+            game.menuButton = new com.limelight.ui.MenuButton(game, new com.limelight.ui.MenuButton.Host() {
+                @Override public void open() { game.showStreamMenu(); }
+                @Override public float topRowBottom() {
+                    return game.modernController != null && game.prefConfig.onscreenController ? game.modernController.topRowBottom() : Float.NaN;
+                }
+            });
+            ((FrameLayout) game.streamView.getParent()).addView(game.menuButton, game.menuButton.layoutParams());
+            game.touchInput.updateMenuButton();
+        }
 
         if ((game.prefConfig.usbDriver || game.prefConfig.usbDualSense || game.prefConfig.usbSwitchPro) && game.app.getRole() != NvApp.Role.REMOTE_MONITOR) {
             // Start the USB driver
@@ -764,10 +776,28 @@ final class GameConnection {
             // thread to keep things smooth for the UI. Inside moonlight-common,
             // we prevent another thread from starting a connection before and
             // during the process of stopping this one.
-            game.connectionStopThread = new Thread(game.conn::stop, "Stop stream");
-            game.connectionStopThread.start();
+            Thread stopping = new Thread(game.conn::stop, "Stop stream");
+            game.connectionStopThread = stopping;
+            stopping.start();
             LimeLog.info("Stream stopping");
+            // Nothing waits for it on the UI thread. A stop stuck for good (a decoder hung inside
+            // MediaCodec) keeps the next stream from starting, so it says where it is stuck.
+            new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
+                String stuck = stuckStopReport(stopping);
+                if (stuck != null) LimeLog.severe(stuck);
+            }, STOP_REPORT_MS);
         }
+    }
+
+    // How long a stream's stop may run before it is reported as stuck.
+    static final long STOP_REPORT_MS = 10_000;
+
+    /** Where a stop still running is stuck, or null once it has ended. */
+    static String stuckStopReport(Thread stopping) {
+        if (!stopping.isAlive()) return null;
+        StringBuilder report = new StringBuilder("Stream stop still running after " + STOP_REPORT_MS / 1000 + " s:");
+        for (StackTraceElement frame : stopping.getStackTrace()) report.append("\n  at ").append(frame);
+        return report.toString();
     }
 
     void stageFailed(final String stage, final int portFlags, final int errorCode) {
@@ -860,6 +890,10 @@ final class GameConnection {
         final int errorCode = exitRequested || endedSession ?
                 MoonBridge.ML_ERROR_GRACEFUL_TERMINATION : reportedErrorCode;
         if (endedSession) LimeLog.info("Connection terminated: the PC ended the previous session");
+        // The PC's own words for a failure it ended the stream on, where it says them.
+        final String hostFailure = !exitRequested && StreamExitPolicy.hostEndedStream(errorCode) &&
+                game.conn != null ? game.conn.hostFailureReason() : null;
+        if (hostFailure != null) LimeLog.severe("The PC reported: " + hostFailure);
         final int portFlags = MoonBridge.getPortFlagsFromTerminationErrorCode(errorCode);
         // A stream that never had video does not reconnect: its error (and the port test) shows at once.
         final boolean transientFailure = StreamRecoveryPolicy.recoversTermination(errorCode, game.streamRecovery.videoStarted());
@@ -926,6 +960,11 @@ final class GameConnection {
                                     break;
 
                                 case MoonBridge.ML_ERROR_UNEXPECTED_EARLY_TERMINATION:
+                                    // The PC closed the stream before its first picture: often the
+                                    // game simply exited, not protected content.
+                                    message = game.getResources().getString(R.string.early_stop_error);
+                                    break;
+
                                 case MoonBridge.ML_ERROR_PROTECTED_CONTENT:
                                     message = game.getResources().getString(R.string.early_termination_error);
                                     break;
@@ -961,6 +1000,10 @@ final class GameConnection {
                             }
                         }
 
+                        if (hostFailure != null) {
+                            message += "\n\n" + game.getResources().getString(R.string.host_failure_reason, hostFailure);
+                        }
+
                         if (portFlags != 0) {
                             message += "\n\n" + game.getResources().getString(R.string.check_ports_msg) + "\n" +
                                     MoonBridge.stringifyPortFlags(portFlags, "\n");
@@ -970,7 +1013,8 @@ final class GameConnection {
                                 portTestResult != 0;
                         boolean graceGaveUp = game.prefConfig != null &&
                                 NetworkGrace.mayHaveGivenUp(game.prefConfig.networkGraceSeconds, errorCode);
-                        if (game.foreground && (game.stoppedStreamResumeIntent != null ||
+                        // The PC's reason is worth reading: it often says what to change.
+                        if (game.foreground && (game.stoppedStreamResumeIntent != null || hostFailure != null ||
                                 StreamExitPolicy.terminationNeedsAction(errorCode, portTestBlocked,
                                         graceGaveUp, recoveryExhausted))) {
                             game.streamRecovery.showReconnectDialog(R.string.conn_terminated_title, message);

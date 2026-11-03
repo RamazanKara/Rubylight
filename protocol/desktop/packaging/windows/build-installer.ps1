@@ -216,6 +216,9 @@ try {
     New-TestFile $settings
     Invoke-Silent $dataSetup @("/DIR=`"$dir`"")
     Remove-Install @('/REMOVESETTINGS')
+    # The %TEMP% copy can remove the settings folder after the install folder is gone.
+    $deadline = (Get-Date).AddSeconds(30)
+    while ((Test-Path $data) -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 250 }
     if (Test-Path $data) { throw "/REMOVESETTINGS left $data behind" }
     Write-Host 'smoke: the settings stay on uninstall; /REMOVESETTINGS removes them and keeps screenshots and statistics'
 } catch {

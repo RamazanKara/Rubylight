@@ -27,6 +27,32 @@ fn focus_to(f: &mut Frames, key: Key, text: &str) -> bool {
 }
 
 #[test]
+fn the_d_pad_scrolls_each_row_it_reaches_into_view() {
+    // The main settings and a PC's own, on a window too short for a section.
+    let mut f = Frames::new(record("PC", true, false), Reach::Online);
+    let id = f.hosts.list[0].id;
+    for page in [Screen::Settings, Screen::HostSettings(id)] {
+        if page == Screen::Settings { f.l.go(page) } else { f.l.open_host_settings(id, &f.hosts.list[0]) }
+        f.settle();
+        let first = f.ctx.memory(|m| m.focused()).expect("the first row has focus");
+        let top = f.ctx.read_response(first).expect("laid out").rect.top();
+        let mut reached = std::collections::HashSet::new();
+        for _ in 0..24 {
+            f.press(Key::ArrowDown);
+            // The scroll animates.
+            f.settle();
+            f.settle();
+            let focused = f.ctx.memory(|m| m.focused()).expect("a row has focus");
+            reached.insert(focused);
+            let rect = f.ctx.read_response(focused).expect("laid out").rect;
+            assert!(rect.top() >= 0.0 && rect.bottom() <= f.size.y, "{page:?}: the focused row {rect:?} is in the window");
+        }
+        let moved = top - f.ctx.read_response(first).expect("laid out").rect.top();
+        assert!(reached.len() > 6 && moved > 100.0, "{page:?}: Down went past the window's edge and the page scrolled ({} rows, {moved})", reached.len());
+    }
+}
+
+#[test]
 fn the_search_finds_rows_in_every_section_and_says_when_nothing_matches() {
     let mut f = settings_with(Settings::default());
     f.l.settings_view.query = "microphone".into();
@@ -44,6 +70,24 @@ fn the_search_finds_rows_in_every_section_and_says_when_nothing_matches() {
     assert!(shows(&f, "No settings match “zzzz”") && !shows(&f, "Channels"), "{:?}", f.drawn);
     click_text(&mut f, "Clear search");
     assert!(f.l.settings_view.query.is_empty() && shows(&f, "Resolution"), "Clear search goes back to the section: {:?}", f.drawn);
+}
+
+/// The Ctrl+F hint shows only where the empty field's placeholder leaves it room, in every language.
+#[test]
+fn the_ctrl_f_hint_never_covers_the_search_placeholder() {
+    let mut f = settings_with(Settings::default());
+    for language in crate::config::Language::ALL.into_iter().filter(|l| *l != crate::config::Language::System) {
+        f.l.settings.language = language;
+        for width in [640.0, 800.0, 1024.0, 1280.0] {
+            f.size = vec2(width, 4000.0);
+            f.settle();
+            let at = |text: &str| f.placed.iter().find(|(t, ..)| t == text).map(|(_, r, _)| *r);
+            let hint = at(tr("Search settings")).unwrap_or_else(|| panic!("{language:?} at {width}: no placeholder in {:?}", f.drawn));
+            if let Some(key) = at(tr("Ctrl+F")) {
+                assert!(hint.right() + 8.0 <= key.left(), "{language:?} at {width}: the placeholder {hint:?} runs into Ctrl+F {key:?}");
+            }
+        }
+    }
 }
 
 #[test]

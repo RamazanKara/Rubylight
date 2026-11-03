@@ -188,11 +188,17 @@ public class VirtualControllerConfigurationLoader {
     // Make the Guide Menu be in the center of START and BACK menu
     private static final int GUIDE_X = START_X-BACK_X;
     private static final int GUIDE_Y = START_BACK_Y;
+    // Between Guide and Start, where nothing else sits.
+    private static final int TOUCHPAD_X = 66;
 
     public static void createDefaultLayout(final VirtualController controller, final Context context) {
+        createDefaultLayout(controller, context, PreferenceConfiguration.readPreferences(context));
+    }
+
+    static void createDefaultLayout(final VirtualController controller, final Context context,
+                                    final PreferenceConfiguration config) {
 
         DisplayMetrics screen = context.getResources().getDisplayMetrics();
-        PreferenceConfiguration config = PreferenceConfiguration.readPreferences(context);
 
         // Displace controls on the right by this amount of pixels to account for different aspect ratios
         int rightDisplacement = screen.widthPixels - screen.heightPixels * 16 / 9;
@@ -342,6 +348,16 @@ public class VirtualControllerConfigurationLoader {
                             ControllerPacket.SPECIAL_BUTTON_FLAG, 0, 1, "GUIDE", -1, controller, context),
                     screenScale(GUIDE_X, height)+ rightDisplacement,
                     screenScale(GUIDE_Y, height),
+                    screenScale(START_BACK_WIDTH, height),
+                    screenScale(START_BACK_HEIGHT, height)
+            );
+        }
+
+        if (config.showTouchpadButton && !config.onlyL3R3) {
+            controller.addElement(createDigitalButton(VirtualControllerElement.EID_TOUCHPAD,
+                            ControllerPacket.TOUCHPAD_FLAG, 0, 1, "TOUCH", -1, controller, context),
+                    screenScale(TOUCHPAD_X, height) + rightDisplacement,
+                    screenScale(START_BACK_Y, height),
                     screenScale(START_BACK_WIDTH, height),
                     screenScale(START_BACK_HEIGHT, height)
             );

@@ -193,6 +193,23 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     private static final int CR_FLAG_ALL = CR_FLAG_INPUT_THREAD | CR_FLAG_RENDER_THREAD | CR_FLAG_CHOREOGRAPHER;
     private int codecRecoveryThreadQuiescedFlags = 0;
     private int codecRecoveryAttempts = 0;
+    // Frames out and uptime when the last recovery ran: CR_REFILL_FRAMES good frames and
+    // CR_REFILL_MS since refill the attempts, so only a crash loop uses them up (one every few
+    // seconds at 240 FPS included), not ten recoveries hours apart
+    private static final int CR_REFILL_FRAMES = 600;
+    private static final long CR_REFILL_MS = 10_000;
+    private int framesOutAtLastRecovery;
+    private long uptimeAtLastRecoveryMs;
+    // A decoder that stops taking input gets one reset (through the same attempts) before the
+    // stream ends; past this timeout, room for the quiesce and a back-off as well, a watchdog
+    // takes the reset for hung and ends the stream
+    private static final long HANG_RESET_TIMEOUT_MS = 10_000;
+    private long hangResetTimeoutMs = HANG_RESET_TIMEOUT_MS;
+    // Frames out when that reset was asked for, and whether it is still to finish
+    private int framesOutAtHangReset = -1;
+    private volatile boolean hangResetPending;
+    // Guards decoderFailure; never held while waiting for codecRecoveryMonitor
+    private final Object decoderFailureLock = new Object();
     // Recoveries in a row that bring no frame wait longer each time, then end the stream
     private DecoderRecoveryBackoff recoveryBackoff = new DecoderRecoveryBackoff();
     // The pending recovery follows a decoder failure; planned restarts (HDR, size, input buffer
@@ -290,6 +307,10 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     private final PresentScheduler presentScheduler = new PresentScheduler(hostFrameClock);
     private final DecoderQueuePolicy.Residency residency = new DecoderQueuePolicy.Residency();
     private final DecoderQueuePolicy.InFlight inFlight = new DecoderQueuePolicy.InFlight();
+    // Smoothest and the frame rate limit: a frame the decoder keeps queued gives way to the one
+    // behind it (DecoderQueuePolicy.Debt). Renderer thread only, reset where codec recovery has
+    // quiesced it.
+    private final DecoderQueuePolicy.Debt debt = new DecoderQueuePolicy.Debt();
     private volatile boolean frameRenderedListenerSet;
     // Why the catch-up loop wants to drop the output it holds; see wantsCatchUp.
     private String catchUpReason;
@@ -430,7 +451,21 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     // cause: the exception for the crash report, or null to report the reason itself.
     private void failDecoder(String reason, Exception cause) {
         synchronized (codecRecoveryMonitor) {
-            if (decoderFailure != null) return;
+            reason = markDecoderFailed(reason);
+            if (reason == null) return;
+            // Wake any thread waiting for a recovery that will not come.
+            codecRecoveryThreadQuiescedFlags = 0;
+            codecRecoveryMonitor.notifyAll();
+        }
+        reportDecoderFailure(reason, cause);
+    }
+
+    // Records the failure once and stops every thread; the reason with any low memory note, or
+    // null when the decoder failed already. Under decoderFailureLock alone, so the hang reset's
+    // watchdog can end the stream while a reset that hangs holds codecRecoveryMonitor.
+    private String markDecoderFailed(String reason) {
+        synchronized (decoderFailureLock) {
+            if (decoderFailure != null) return null;
             ActivityManager.MemoryInfo memory = lowMemory();
             if (memory != null) {
                 reason += "; this device is low on memory (" + memory.availMem / (1024 * 1024) + " MB free)";
@@ -438,11 +473,13 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             decoderFailure = reason;
             decoderFailedWithVulkan = vulkanRenderer != null;
             stopping = true;
-            // Wake any thread waiting for a recovery that will not come.
+            // Threads waiting for a recovery leave once they see none is due.
             codecRecoveryType.set(CR_RECOVERY_TYPE_NONE);
-            codecRecoveryThreadQuiescedFlags = 0;
-            codecRecoveryMonitor.notifyAll();
+            return reason;
         }
+    }
+
+    private void reportDecoderFailure(String reason, Exception cause) {
         LimeLog.severe("Decoder failed, ending the stream: " + reason);
         // Counted before the stream is terminated (a stream already ending is not counted), so the
         // next stream runs without reference frame invalidation; the -107 dialog is the notice.
@@ -780,6 +817,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     // {max width, max height, width alignment, height alignment} this stream's decoder can switch
     // to mid-stream, or null when it cannot change size in place.
     public int[] getReconfigureLimits() {
+        // A failed decoder's monitor may be held by a reset that hung (see prepareForStop).
+        if (decoderFailure != null) return null;
         synchronized (codecRecoveryMonitor) {
             MediaCodecInfo.VideoCapabilities caps = reconfigureCapabilities();
             if (caps == null) {
@@ -801,6 +840,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     // raises the maximum to cover both sizes, which restarts the decoder once and asks for an IDR;
     // either size can then arrive first. False when this decoder cannot take the size.
     public boolean prepareForReconfigure(int width, int height) {
+        if (decoderFailure != null) return false;
         synchronized (codecRecoveryMonitor) {
             if (packing != null) {
                 MoonBridge.bridgeClDisplayMessage("Reconnect to change the logical size of a packed full-chroma stream.");
@@ -851,6 +891,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     @Override
     public void setStreamFrameRateMilliHz(int fpsMilliHz) {
         FramePacingPolicy.frameIntervalNs(fpsMilliHz); // Validate before publishing to the render threads.
+        if (decoderFailure != null) return;
         synchronized (codecRecoveryMonitor) {
             if (stopping || fpsMilliHz == streamFrameRateMilliHz) return;
             streamFrameRateMilliHz = fpsMilliHz;
@@ -889,6 +930,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     }
 
     private void updateUpscalingFrameRate(float panelHz) {
+        if (decoderFailure != null) return;
         synchronized (codecRecoveryMonitor) {
             GlesUpscaler current = upscaler;
             if (current != null) current.setFrameRate(Math.max(1, Math.min(refreshRate, Math.round(panelHz))));
@@ -2008,12 +2050,14 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     }
 
     // Decoders size their input buffers for ordinary video, and a frame that doesn't fit ends the
-    // stream. Above about 125 Mbps at 60 FPS, ask for room for four average frames instead.
-    static int maxInputSize(int bitrateKbps, int fps) {
+    // stream. Above about 125 Mbps at 60 FPS, ask for room for four average frames instead, and
+    // above 1080p for a byte per pixel: a 4K keyframe at 160 Mbps came to 4.4 MB on a MediaTek TV
+    // whose decoder gave 4 MB, and growing the buffer restarts the decoder mid-stream (issue 56).
+    static int maxInputSize(int bitrateKbps, int fps, int width, int height) {
         if (bitrateKbps <= 0 || fps <= 0) {
             return 0;
         }
-        long bytes = (long) bitrateKbps * 1000 / 8 / fps * 4;
+        long bytes = Math.max((long) bitrateKbps * 1000 / 8 / fps * 4, (long) Math.max(width, 0) * Math.max(height, 0));
         if (bytes <= 2 * 1024 * 1024) {
             return 0;
         }
@@ -2034,7 +2078,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     // the stream on the first frame that does not fit. False when growing cannot help or the
     // recovery attempts are used up; the caller then fails the stream.
     boolean requestInputBufferGrowth(long requiredBytes, int capacity) {
-        int grown = codecRecoveryAttempts < CR_MAX_TRIES ?
+        int grown = recoveryAttemptsLeft() ?
                 grownInputSize(requiredBytes, capacity, requiredInputBufferSize) : 0;
         if (grown == 0) {
             return false;
@@ -2073,7 +2117,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             videoFormat.setInteger(MediaFormat.KEY_FRAME_RATE, refreshRate);
         }
 
-        int maxInputSize = maxInputSize(prefs.bitrate, prefs.fps);
+        int maxInputSize = maxInputSize(prefs.bitrate, prefs.fps, initialWidth, initialHeight);
         if (maxInputSize > 0) {
             videoFormat.setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, maxInputSize);
         }
@@ -2677,6 +2721,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                 frameLatencyStats.discardPending("codec_reset");
                 // Frames inside the codec are gone; the scheduler counts from here.
                 decoderDepthBase = numFramesIn - numFramesOut;
+                debt.reset();
                 if (hostFrameTimes) {
                     hostFrameClock.reset();
                     presentScheduler.reset();
@@ -2710,6 +2755,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                 // We don't count flushes as codec recovery attempts
                 if (codecRecoveryType.get() != CR_RECOVERY_TYPE_NONE) {
                     codecRecoveryAttempts++;
+                    framesOutAtLastRecovery = numFramesOut;
+                    uptimeAtLastRecoveryMs = SystemClock.uptimeMillis();
                     LimeLog.info("Codec recovery attempt: "+codecRecoveryAttempts);
 
                     // The codec is configured again, with the current metadata.
@@ -2727,6 +2774,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                         }
                         codecRecoveryType.set(CR_RECOVERY_TYPE_NONE);
                         recoveryAfterFailure = false;
+                        hangResetPending = false;
                     } catch (IllegalStateException e) {
                         // Not even a decoder set up from scratch works: end the stream.
                         e.printStackTrace();
@@ -2870,7 +2918,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             LimeLog.severe(codecExc.getDiagnosticInfo());
 
             // We can attempt a recovery or reset at this stage to try to start decoding again
-            if (codecRecoveryAttempts < CR_MAX_TRIES) {
+            if (recoveryAttemptsLeft()) {
                 // If the exception is non-recoverable or we already require a reset, perform a reset.
                 // If we have no prior unrecoverable failure, we will try a restart instead.
                 if (codecExc.isRecoverable()) {
@@ -2916,7 +2964,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             // Recovery from this requires a full decoder reset.
             //
             // NB: CodecException is an IllegalStateException, so we must check for it first.
-            if (codecRecoveryAttempts < CR_MAX_TRIES) {
+            if (recoveryAttemptsLeft()) {
                 if (codecRecoveryType.compareAndSet(CR_RECOVERY_TYPE_NONE, CR_RECOVERY_TYPE_RESET)) {
                     LimeLog.info("Decoder requires reset for IllegalStateException");
                     e.printStackTrace();
@@ -3261,6 +3309,19 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         frameLatencyStats.onQueueState(index, DecoderQueuePolicy.depth(numFramesIn, numFramesOut, decoderDepthBase), excessNs);
     }
 
+    /** Feeds the debt policy with the output at index, logs the queue it saw and an ended recovery. */
+    private void noteDebt(int index) {
+        long excessNs = debt.onOutput(frameLatencyStats.getInputToOutputNs(index), System.nanoTime(),
+                contentIntervalNs());
+        frameLatencyStats.onQueueState(index, DecoderQueuePolicy.depth(numFramesIn, numFramesOut, decoderDepthBase), excessNs);
+        logDebtEvent();
+    }
+
+    private void logDebtEvent() {
+        String event = debt.takeEvent();
+        if (event != null) LimeLog.info(event);
+    }
+
     /**
      * Whether the output at index, held while a newer one may be waiting, should be dropped for it,
      * and why (catchUpReason): older than the age budget, or the decoder holds a surplus.
@@ -3426,18 +3487,22 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
 
     /**
      * Pacing other than balanced: drops outputs a newer one replaces (see wantsCatchUp) and
-     * releases the last. Returns the last dequeue result, which may be a negative INFO_ code.
+     * releases the last, which sustained decoder debt may first replace with a newer output (see
+     * DecoderQueuePolicy.Debt). Returns the last dequeue result, which may be a negative INFO_ code.
      */
     private int releaseNewestOutput(int outIndex, long ptsUs, BufferInfo info, long outputDrainStartNs) {
         int lastIndex = outIndex;
         long lastPtsUs = ptsUs;
         // Latency mode takes the newest output. Smooth modes only catch up
-        // after a backlog exceeds the age budget, then resume normal order.
+        // after a backlog exceeds the age budget or a sustained debt, then
+        // resume normal order.
         // All frames have already been decoded, preserving codec references.
         int drained = 0;
         boolean scheduled = FramePacingPolicy.schedulesFrames(
                 hostFrameTimes, prefs.framePacing);
+        boolean smooth = FramePacingPolicy.recoversDecoderDebt(hostFrameTimes, prefs.framePacing);
         if (scheduled) noteResidency(lastIndex);
+        else if (smooth) noteDebt(lastIndex);
         while (!stopping && codecRecoveryType.get() == CR_RECOVERY_TYPE_NONE &&
                 FramePacingPolicy.hasOutputDrainTimeRemaining(
                         SystemClock.elapsedRealtimeNanos() - outputDrainStartNs,
@@ -3460,6 +3525,37 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             lastPtsUs = info.presentationTimeUs;
             drained++;
             if (scheduled) noteResidency(lastIndex);
+            else if (smooth) noteDebt(lastIndex);
+        }
+
+        if (smooth && outIndex != MediaCodec.INFO_OUTPUT_FORMAT_CHANGED && !stopping &&
+                codecRecoveryType.get() == CR_RECOVERY_TYPE_NONE &&
+                debt.shouldDrop(DecoderQueuePolicy.depth(numFramesIn, numFramesOut, decoderDepthBase))) {
+            // Sustained decoder debt with a newer frame in the decoder: wait briefly for it to
+            // come out (only here, within the policy's budget) and drop the held output for it.
+            // Without a newer output the held one is shown; no keyframe is requested.
+            int newer = videoDecoder.dequeueOutputBuffer(info, DecoderQueuePolicy.Debt.WAIT_US);
+            if (newer >= 0) {
+                long nowNs = System.nanoTime();
+                frameLatencyStats.onDecoderOutput(newer, info.presentationTimeUs, nowNs);
+                frameLatencyStats.onDropReason(lastIndex, "debt");
+                frameLatencyStats.onOutputReleased(lastIndex, nowNs, false, reportsRenderTimes());
+                videoDecoder.releaseOutputBuffer(lastIndex, false);
+                debt.onDropped();
+                numFramesOut++;
+                lastIndex = newer;
+                lastPtsUs = info.presentationTimeUs;
+                outIndex = newer;
+                noteDebt(lastIndex);
+            }
+            else if (newer == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
+                // Show the held output; the renderer loop takes the format change first.
+                outIndex = newer;
+            }
+            else {
+                debt.onNoNewer();
+                logDebtEvent();
+            }
         }
 
         if (scheduled) {
@@ -3591,13 +3687,68 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             if (deltaMs >= 5000 && (unresolvedInitialException() == null ||
                     SystemClock.uptimeMillis() - initialExceptionTimestamp >= EXCEPTION_REPORT_DELAY_MS)) {
                 // The engine drops an exception thrown here, which left the picture frozen.
-                failDecoder(decoderName() + " took no input for " + deltaMs + " ms", new DecoderHungException(deltaMs));
+                if (!resetHungDecoder(deltaMs)) {
+                    failDecoder(decoderName() + " took no input for " + deltaMs + " ms" +
+                            (framesOutAtHangReset == numFramesOut ? ", also after a reset" : ""),
+                            new DecoderHungException(deltaMs));
+                }
             }
 
             return false;
         }
 
         return true;
+    }
+
+    // Asks for a reset of a decoder that took no input for deltaMs, through the recovery attempts:
+    // false when they are used up, or the last such reset brought no frame (then the stream ends).
+    // A watchdog ends the stream if the reset itself hangs.
+    private boolean resetHungDecoder(int deltaMs) {
+        if (framesOutAtHangReset == numFramesOut || !recoveryAttemptsLeft()) {
+            return false;
+        }
+        synchronized (codecRecoveryMonitor) {
+            if (stopping) return true;
+            framesOutAtHangReset = numFramesOut;
+            recoveryAfterFailure = true;
+            hangResetPending = true;
+            codecRecoveryType.set(CR_RECOVERY_TYPE_RESET);
+        }
+        LimeLog.warning(decoderName() + " took no input for " + deltaMs + " ms; resetting it");
+        long timeoutMs = hangResetTimeoutMs;
+        Thread watchdog = new Thread(() -> {
+            long deadlineNs = System.nanoTime() + timeoutMs * 1_000_000L;
+            try {
+                for (long left = timeoutMs; left > 0 && hangResetPending && !stopping;
+                     left = (deadlineNs - System.nanoTime()) / 1_000_000L) {
+                    Thread.sleep(Math.min(left, 100));
+                }
+            } catch (InterruptedException e) {
+                return;
+            }
+            if (!hangResetPending || stopping) return;
+            // The reset may hang inside MediaCodec holding codecRecoveryMonitor: end the stream without it.
+            String reason = markDecoderFailed(decoderName() + " took no input for " + deltaMs +
+                    " ms, and its reset did not finish within " + timeoutMs + " ms");
+            if (reason != null) {
+                reportDecoderFailure(reason, new DecoderHungException(deltaMs));
+            }
+        }, "Decoder reset watchdog");
+        watchdog.setDaemon(true);
+        watchdog.start();
+        return true;
+    }
+
+    // The recovery attempts are refilled once the decoder put out CR_REFILL_FRAMES frames over at
+    // least CR_REFILL_MS since the last recovery: only failures close together use them up.
+    private boolean recoveryAttemptsLeft() {
+        int framesSince = numFramesOut - framesOutAtLastRecovery;
+        if (codecRecoveryAttempts > 0 && framesSince >= CR_REFILL_FRAMES &&
+                SystemClock.uptimeMillis() - uptimeAtLastRecoveryMs >= CR_REFILL_MS) {
+            LimeLog.info("Codec recovery attempts refilled after " + framesSince + " frames since the last");
+            codecRecoveryAttempts = 0;
+        }
+        return codecRecoveryAttempts < CR_MAX_TRIES;
     }
 
     @Override
@@ -3660,9 +3811,17 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         }
 
         // Stop any active codec recovery operations
-        synchronized (codecRecoveryMonitor) {
+        if (decoderFailure != null || Looper.myLooper() == Looper.getMainLooper()) {
+            // A reset holds the monitor inside MediaCodec: for seconds (the restart an HDR change
+            // asks for, a big AV1 decoder's) or for good (one that hung, which the watchdog ends the
+            // stream for). The UI must not wait for it (#69). Waiting threads look at the type again
+            // within a second, and stop() repeats this with the wake-up on the shutdown worker.
             codecRecoveryType.set(CR_RECOVERY_TYPE_NONE);
-            codecRecoveryMonitor.notifyAll();
+        } else {
+            synchronized (codecRecoveryMonitor) {
+                codecRecoveryType.set(CR_RECOVERY_TYPE_NONE);
+                codecRecoveryMonitor.notifyAll();
+            }
         }
 
         // The output surface may be about to go away, so stop presenting to it now
@@ -3781,6 +3940,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     @Override
     public void setHdrMode(boolean enabled, byte[] hdrMetadata) {
         // A callback during recovery must not have its new metadata or restart request overwritten.
+        if (decoderFailure != null) return;
         synchronized (codecRecoveryMonitor) {
             if (stopping) {
                 return;

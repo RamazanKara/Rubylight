@@ -29,13 +29,13 @@
             <LinearLayout android:id="@+id/grid_badges" android:layout_width="wrap_content" android:layout_height="wrap_content"
                 android:layout_gravity="top|start" android:layout_marginStart="@dimen/space_xs" android:layout_marginTop="@dimen/touch_target"
                 android:layout_marginEnd="@dimen/space_xs" android:orientation="vertical">
-                <TextView android:id="@+id/grid_status" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                <com.limelight.ui.MarqueeLabel android:id="@+id/grid_status" android:layout_width="wrap_content" android:layout_height="wrap_content"
                     android:layout_marginBottom="@dimen/space_xs" android:maxLines="1" android:ellipsize="end"
                     android:paddingStart="@dimen/space_s" android:paddingEnd="@dimen/space_s"
                     android:paddingTop="@dimen/space_xs" android:paddingBottom="@dimen/space_xs" android:background="@drawable/bg_chip"
                     android:textAppearance="@style/TextAppearance.Nightjar.Caption" android:textColor="?attr/colorOnSurface"
                     android:visibility="gone" android:importantForAccessibility="no" />
-                <TextView android:id="@+id/grid_role" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                <com.limelight.ui.MarqueeLabel android:id="@+id/grid_role" android:layout_width="wrap_content" android:layout_height="wrap_content"
                     android:paddingStart="@dimen/space_s" android:paddingEnd="@dimen/space_s"
                     android:paddingTop="@dimen/space_xs" android:paddingBottom="@dimen/space_xs"
                     android:maxLines="1" android:ellipsize="end" android:background="@drawable/bg_chip" android:drawablePadding="@dimen/space_xs"

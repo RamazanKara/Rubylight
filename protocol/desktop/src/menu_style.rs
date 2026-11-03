@@ -61,13 +61,39 @@ pub fn scrim(ctx: &egui::Context) {
 /// A menu's content: as tall as the window allows less a margin, scrolling beyond that. egui
 /// lays a new window out in at most 400 points the first time, which cut the menu short.
 pub fn body<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> R {
-    let room = ui.ctx().content_rect().height() - 2.0 * (space::XL + MARGIN);
-    ui.set_max_height(room);
-    egui::ScrollArea::vertical().max_height(room).show(ui, |ui| {
-        ui.spacing_mut().item_spacing.y = 2.0;
-        add(ui)
+    body_above(ui, 0.0, add)
+}
+
+/// [`body`] for a page that keeps something in view above and under the part that scrolls: what
+/// the window drew above it already, and `reserve` points under it (see [`pinned`]).
+pub fn body_above<R>(ui: &mut Ui, reserve: f32, add: impl FnOnce(&mut Ui) -> R) -> R {
+    let above = ui.cursor().top() - ui.max_rect().top();
+    let room = (ui.ctx().content_rect().height() - 2.0 * (space::XL + MARGIN) - above - reserve).max(TILE);
+    // A child as tall as the room rather than Ui::set_max_height, which puts the cursor back at the
+    // window's top, under what it drew already.
+    ui.allocate_ui(egui::vec2(ui.available_width(), room), |ui| {
+        egui::ScrollArea::vertical().max_height(room).show(ui, |ui| {
+            ui.spacing_mut().item_spacing.y = 2.0;
+            add(ui)
+        })
+        .inner
     })
     .inner
+}
+
+/// The room a [`pinned`] part took last frame, for [`body_above`] to leave under the scrolling
+/// part; before the first frame, about Return to stream and one row of exits.
+pub fn pinned_room(ctx: &egui::Context, id: &str) -> f32 {
+    ctx.data(|d| d.get_temp(egui::Id::unique(("pinned", id)))).unwrap_or(space::L + 44.0 + space::S + ROW)
+}
+
+/// A part that stays in view under the scrolling part (the stream menu's ways out); its height is
+/// kept for [`pinned_room`].
+pub fn pinned<R>(ui: &mut Ui, id: &str, add: impl FnOnce(&mut Ui) -> R) -> R {
+    let response = ui.scope(add);
+    let height = response.response.rect.height();
+    ui.ctx().data_mut(|d| d.insert_temp(egui::Id::unique(("pinned", id)), height));
+    response.inner
 }
 
 /// The menu's title and, under it, what streams from where.
@@ -182,6 +208,40 @@ pub fn danger(ui: &mut Ui, glyph: Icon, label: &str, shortcut: Option<Action>) -
     response
 }
 
+/// One of the ways out side by side under Return to stream (Disconnect, Quit game): its icon and
+/// label centred in the error colour on a tile's fill, `width` wide. The keys that do it show on
+/// hover and are read out with the label.
+pub fn exit_button(ui: &mut Ui, width: f32, glyph: Icon, label: &str, keys: Option<&str>) -> Response {
+    let enabled = ui.is_enabled();
+    let ink = if enabled { *ERROR } else { ERROR.gamma_multiply(0.4) };
+    let mut job = egui::text::LayoutJob::simple(label.to_owned(), regular(text::BODY), ink, (width - 2.0 * PAD - ICON - space::S).max(space::L));
+    job.wrap.max_rows = 2;
+    let galley = ui.painter().layout_job(job);
+    let height = (galley.size().y + 2.0 * 10.0).max(ROW);
+    let (rect, mut response) = ui.allocate_exact_size(vec2(width, height), Sense::click());
+    let fill = if !enabled {
+        *SURFACE
+    } else if response.is_pointer_button_down_on() {
+        SURFACE_HIGH.lerp_to_gamma(*ON_SURFACE, 0.12)
+    } else if response.hovered() {
+        SURFACE_HIGH.lerp_to_gamma(*ON_SURFACE, 0.06)
+    } else {
+        *SURFACE_HIGH
+    };
+    let painter = ui.painter();
+    painter.rect_filled(rect, CornerRadius::same(radius::CONTROL), fill);
+    let left = rect.center().x - (ICON + space::S + galley.size().x) / 2.0;
+    icon(painter, Rect::from_center_size(Pos2::new(left + ICON / 2.0, rect.center().y), vec2(ICON, ICON)), glyph, ink);
+    painter.galley(Pos2::new(left + ICON + space::S, rect.center().y - galley.size().y / 2.0), galley, ink);
+    ring(ui, rect, &response, radius::CONTROL);
+    if let Some(keys) = keys {
+        response = response.on_hover_text(keys);
+    }
+    let spoken = keys.map(|k| format!("{label}, {k}")).unwrap_or_else(|| label.to_owned());
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, enabled, &spoken));
+    response
+}
+
 /// A fold: a row that opens what is under it (a slider, a report, a list), its body lined up with
 /// the label. Returns what the body returned, while open.
 pub fn fold<R>(ui: &mut Ui, id: &str, glyph: Icon, label: &str, add: impl FnOnce(&mut Ui) -> R) -> Option<R> {
@@ -267,6 +327,88 @@ pub fn primary(ui: &mut Ui, label: &str, keys: Option<&str>) -> Response {
     }
     let spoken = keys.map(|k| format!("{label}, {k}")).unwrap_or_else(|| label.to_owned());
     response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, enabled, &spoken));
+    response
+}
+
+/// A tile's height in the stream menu's grid.
+pub const TILE: f32 = 96.0;
+/// The gap between tiles.
+pub const TILE_GAP: f32 = 8.0;
+
+/// A tile of the stream menu's grid: its icon over its label, a quieter line under that (a
+/// shortcut's keys), a small switch in the top right corner while it has a state, and the
+/// controller button that runs it in the top left. On, the tile takes an amber tint.
+pub fn tile(ui: &mut Ui, width: f32, glyph: Icon, label: &str, detail: Option<&str>, on: Option<bool>, hotkey: Option<&str>) -> Response {
+    let (rect, response) = ui.allocate_exact_size(vec2(width, TILE), Sense::click());
+    let enabled = ui.is_enabled();
+    let lit = on == Some(true);
+    let base = if lit { SURFACE_HIGH.lerp_to_gamma(*MOON, 0.22) } else { *SURFACE_HIGH };
+    let fill = if !enabled {
+        *SURFACE
+    } else if response.is_pointer_button_down_on() {
+        base.lerp_to_gamma(*ON_SURFACE, 0.12)
+    } else if response.hovered() {
+        base.lerp_to_gamma(*ON_SURFACE, 0.06)
+    } else {
+        base
+    };
+    let ink = if enabled { *ON_SURFACE } else { ON_SURFACE.gamma_multiply(0.4) };
+    let painter = ui.painter();
+    painter.rect_filled(rect, CornerRadius::same(radius::CONTROL), fill);
+    let mut job = egui::text::LayoutJob::simple(label.to_owned(), regular(text::LABEL), ink, width - 2.0 * space::S);
+    job.halign = Align::Center;
+    job.wrap.max_rows = 2;
+    let galley = painter.layout_job(job);
+    let quiet = detail.map(|detail| {
+        // Keys too wide for the tile close up (Ctrl+Shift+Esc under the German Task-Manager)
+        // and then wrap, rather than end in an ellipsis.
+        let room = width - 2.0 * space::S;
+        let spaced = painter.layout_no_wrap(detail.to_owned(), regular(text::CAPTION), *ON_SURFACE_VARIANT).size().x <= room;
+        let keys = if spaced { detail.to_owned() } else { detail.replace(" + ", "+") };
+        let mut job = egui::text::LayoutJob::simple(keys, regular(text::CAPTION), *ON_SURFACE_VARIANT, room);
+        job.halign = Align::Center;
+        job.wrap.max_rows = 2;
+        painter.layout_job(job)
+    });
+    // Icon, label and keys sit together in the middle of the tile, however many rows they take.
+    let block = 22.0 + 6.0 + galley.size().y + quiet.as_ref().map_or(0.0, |g| g.size().y + 1.0);
+    let top = rect.top() + ((TILE - block) / 2.0).max(space::XS);
+    let icon_rect = Rect::from_min_size(Pos2::new(rect.center().x - 11.0, top), vec2(22.0, 22.0));
+    icon(painter, icon_rect, glyph, if lit { *MOON } else { ink });
+    let label_top = top + 28.0;
+    painter.galley(Pos2::new(rect.center().x, label_top), galley.clone(), ink);
+    if let Some(g) = quiet {
+        painter.galley(Pos2::new(rect.center().x, label_top + galley.size().y + 1.0), g, *ON_SURFACE_VARIANT);
+    }
+    if let Some(on) = on {
+        // A small switch: amber track with the knob right while on, a grey outline with it left while off.
+        let track = Rect::from_min_size(Pos2::new(rect.right() - 8.0 - 22.0, rect.top() + 8.0), vec2(22.0, 12.0));
+        if on {
+            painter.rect_filled(track, CornerRadius::same(6), *MOON);
+            painter.circle_filled(Pos2::new(track.right() - 6.0, track.center().y), 4.0, *ON_MOON);
+        } else {
+            painter.rect_stroke(track, CornerRadius::same(6), Stroke::new(1.2, *ON_SURFACE_VARIANT), StrokeKind::Inside);
+            painter.circle_filled(Pos2::new(track.left() + 6.0, track.center().y), 3.5, *ON_SURFACE_VARIANT);
+        }
+    }
+    if let Some(keys) = hotkey {
+        let g = painter.layout_no_wrap(keys.to_owned(), semibold(text::CAPTION), *ON_SURFACE_VARIANT);
+        let cap = Rect::from_min_size(Pos2::new(rect.left() + 8.0, rect.top() + 6.0), vec2(g.size().x + 10.0, 16.0));
+        painter.rect_stroke(cap, CornerRadius::same(radius::SMALL), Stroke::new(1.0, ON_SURFACE_VARIANT.gamma_multiply(0.6)), StrokeKind::Inside);
+        painter.galley(cap.center() - g.size() / 2.0, g, *ON_SURFACE_VARIANT);
+    }
+    ring(ui, rect, &response, radius::CONTROL);
+    let mut spoken = label.to_owned();
+    if let Some(detail) = detail {
+        spoken = format!("{spoken}, {detail}");
+    }
+    if let Some(keys) = hotkey {
+        spoken = format!("{spoken}, {keys}");
+    }
+    response.widget_info(|| match on {
+        Some(on) => egui::WidgetInfo::selected(egui::Role::Switch, enabled, on, &spoken),
+        None => egui::WidgetInfo::labeled(egui::Role::Button, enabled, &spoken),
+    });
     response
 }
 
@@ -526,6 +668,30 @@ mod tests {
         assert!(short.shapes.iter().any(|s| matches!(&s.shape, egui::Shape::Text(t) if t.galley.text() == "Run command" && !t.galley.elided)), "a short label stays whole");
     }
 
+    /// A shortcut's keys wider than its tile close up and stay whole: the German shortcuts page
+    /// cut Task-Manager's to "Ctrl + Shift +…".
+    #[test]
+    fn keys_too_wide_for_a_tile_close_up_instead_of_being_cut() {
+        crate::theme::own_palette();
+        let ctx = egui::Context::default();
+        crate::theme::apply(&ctx);
+        let texts = |width: f32, detail: &str| {
+            let mut out = Vec::new();
+            for _ in 0..2 {
+                let output = run(&ctx, Vec::new(), |ui| {
+                    tile(ui, width, Icon::Keyboard, "Task-Manager", Some(detail), None, None);
+                });
+                out = output.shapes.iter().filter_map(|s| match &s.shape { egui::Shape::Text(t) => Some((t.galley.text().to_owned(), t.galley.elided)), _ => None }).collect();
+            }
+            out
+        };
+        let narrow = texts(100.0, "Ctrl + Shift + Esc");
+        assert!(narrow.iter().all(|(_, elided)| !elided), "{narrow:?}");
+        assert!(narrow.iter().any(|(text, _)| text == "Ctrl+Shift+Esc"), "{narrow:?}");
+        let wide = texts(220.0, "Ctrl + Shift + Esc");
+        assert!(wide.iter().any(|(text, _)| text == "Ctrl + Shift + Esc"), "room enough keeps the spaces: {wide:?}");
+    }
+
     /// With "Back opens stream controls" on, the sheet lists Select for the controls as the Help
     /// page does (both through `Style::stream_press`); with it off, it doesn't.
     #[test]
@@ -603,7 +769,40 @@ mod tests {
         assert!(!menu.contains("Align video to top"), "the stream menu has no Align video to top");
     }
 
-    fn shoot(dir: &std::path::Path, name: &str, width: f32, height: f32, ppp: f32, high_contrast: bool, sheet: bool) {
+    /// nightjar#52 and #63: the grid comes first with the focus on its first tile, so A right after
+    /// opening never leaves; Return to stream and then Disconnect sit right under it, a step or two
+    /// down for a controller or remote. Reconnect is one level down, behind More.
+    #[test]
+    fn leaving_sits_right_under_the_grid() {
+        let main = include_str!("main.rs");
+        let start = main.find("fn draw_overlay(").expect("draw_overlay");
+        let overlay = &main[start..start + main[start..].find("
+fn ").unwrap_or(main.len() - start)];
+        let at = |needle: &str| overlay.find(needle).unwrap_or_else(|| panic!("{needle} in the stream controls"));
+        assert!(at("stream_menu::grid(") < at("stream_menu::footer("), "the grid, then the footer");
+        assert_eq!(overlay.matches("Exit::Reconnect").count(), 1, "Reconnect is drawn once");
+        let menu = include_str!("stream_menu.rs");
+        let footer = &menu[menu.find("pub fn footer(").expect("the footer")..];
+        let at = |needle: &str| footer.find(needle).unwrap_or_else(|| panic!("{needle} in the footer"));
+        assert!(at("tr(\"Return to stream\")") < at("tr(\"Disconnect\")"), "Return to stream, then Disconnect");
+        assert_eq!(menu.matches("tr(\"Disconnect\")").count(), 1, "Disconnect is drawn once");
+        assert!(!overlay.contains("tr(\"Disconnect\")"), "Disconnect is the footer's");
+        let grid = &menu[menu.find("pub fn grid(").expect("the grid")..];
+        assert!(grid[..grid.find("
+}
+").unwrap()].contains("focus_first && index == 0"), "the first tile takes the focus");
+    }
+
+    fn shoot(dir: &std::path::Path, name: &str, width: f32, height: f32, ppp: f32, high_contrast: bool, what: &str) {
+        let sheet = what == "sheet";
+        let mut saved = crate::shortcuts::Shortcuts::default();
+        for (name, keys) in [("Task view", &["WIN", "TAB"][..]), ("Snip", &["WIN", "SHIFT", "S"][..]), ("Steam overlay", &["SHIFT", "TAB"][..])] {
+            saved.save(None, name, &keys.iter().map(|k| k.to_string()).collect::<Vec<_>>(), "desktop").unwrap();
+        }
+        let mut draft = crate::stream_menu::Draft::default();
+        for key in ["CTRL", "ALT", "TAB"] {
+            draft.toggle(key);
+        }
         use crate::strings::tr;
         crate::theme::own_palette();
         crate::theme::set_high_contrast(high_contrast);
@@ -616,7 +815,6 @@ mod tests {
             egui::ColorImage::from_rgba_unmultiplied([art.width() as usize, art.height() as usize], &art),
             egui::TextureOptions::LINEAR,
         );
-        let (mut overlay, mut mouse, mut muted) = (0usize, false, false);
         let mut textures = egui::TexturesDelta::default();
         let mut shapes = Vec::new();
         for n in 0..6 {
@@ -642,34 +840,39 @@ mod tests {
                     });
                     return;
                 }
+                let available = crate::stream_menu::Available {
+                    mouse: Some(false), overlay: true, shortcuts: true, microphone: Some(true), quality: true, clipboard: true,
+                    commands: true, session: true, exits: vec![crate::session_page::HostExit::QuitApp], ..Default::default()
+                };
+                let layout = crate::stream_menu::layout(&available, saved.data.len());
+                let page = match what {
+                    "shortcuts" => crate::stream_menu::Page::Shortcuts,
+                    "editor" => crate::stream_menu::Page::Editor(draft.clone()),
+                    _ => crate::stream_menu::Page::Grid,
+                };
                 window(tr("Stream controls"), "stream-controls").show(ui.ctx(), |ui| {
+                    if what == "menu" {
+                        // As main.rs draws the grid page: the game over its mode, the grid scrolling, the ways out pinned.
+                        header(ui, "Open World", "1440p · 144 FPS · HEVC HDR");
+                        let reserve = pinned_room(ui.ctx(), "shot-footer");
+                        body_above(ui, reserve, |ui| crate::stream_menu::grid(ui, &layout, &saved, None, n == 0));
+                        pinned(ui, "shot-footer", |ui| crate::stream_menu::footer(ui, &layout));
+                        return;
+                    }
                     body(ui, |ui| {
-                        header(ui, tr("Stream controls"), "Open World · Living Room PC");
-                        let back = primary(ui, tr("Return to stream"), Some(crate::shortcuts::Key::Escape.cap()));
-                        if n == 0 {
-                            back.request_focus();
+                        header(ui, page.title(), "Open World · Living Room PC");
+                        match what {
+                            "shortcuts" => {
+                                crate::stream_menu::shortcuts_page(ui, &saved, n == 0);
+                            }
+                            "editor" => {
+                                crate::stream_menu::editor(ui, &mut draft, &mut saved.clone(), false);
+                            }
+                            _ => {
+                                crate::stream_menu::grid(ui, &layout, &saved, None, n == 0);
+                                crate::stream_menu::footer(ui, &layout);
+                            }
                         }
-                        caption(ui, tr("Picture"));
-                        row(ui, Icon::Overlay, tr("Performance overlay"), |ui| {
-                            egui::ComboBox::from_id_salt("o").width(170.0).selected_text(tr("Off")).show_index(ui, &mut overlay, 1, |_| tr("Off"));
-                        });
-                        row(ui, Icon::Screen, tr("Video size"), |ui| {
-                            egui::ComboBox::from_id_salt("s").width(170.0).selected_text(tr("Fit")).show_index(ui, &mut overlay, 1, |_| tr("Fit"));
-                        });
-                        caption(ui, tr("Sound and input"));
-                        switch(ui, Icon::Microphone, tr("Mute microphone"), &mut muted);
-                        switch(ui, Icon::Mouse, tr("Controller mouse"), &mut mouse);
-                        caption(ui, tr("Clipboard"));
-                        action(ui, Icon::ClipboardUp, tr("Send clipboard to PC"), Some(Action::SendClipboard));
-                        action(ui, Icon::ClipboardDown, tr("Copy PC clipboard here"), Some(Action::FetchClipboard));
-                        caption(ui, tr("Connection"));
-                        fold(ui, "health", Icon::Pulse, tr("Why did my stream stutter?"), |ui| text_block(ui, "No stutter in the last minute."));
-                        action(ui, Icon::Download, tr("Export statistics (last hour)"), None);
-                        action(ui, Icon::Sliders, tr("Session and graphics"), None);
-                        action(ui, Icon::Help, tr("Shortcuts & help"), Some(Action::StreamShortcuts));
-                        action(ui, Icon::Reconnect, tr("Reconnect"), None);
-                        divider(ui);
-                        danger(ui, Icon::Power, tr("Disconnect"), Some(Action::Disconnect));
                     })
                 });
             });
@@ -689,7 +892,7 @@ mod tests {
         sheet(ui, Style::Xbox, GamepadQuitCombo::StartSelectLbRb, false, true, true);
     }
 
-    /// The stream menu and its sheet of shortcuts as they open over a game, normal and high
+    /// The stream menu's grid, its Shortcuts page, the shortcut editor and the help sheet as they open over a game, normal and high
     /// contrast: `NIGHTJAR_SHOTS=<dir> cargo test -p nightjar-desktop stream_menu_screenshot -- --ignored`.
     #[test]
     #[ignore = "writes PNGs; set NIGHTJAR_SHOTS"]
@@ -698,10 +901,11 @@ mod tests {
         std::fs::create_dir_all(&dir).expect("the folder for the screenshots");
         for (width, height, ppp) in [(1280.0, 800.0, 1.5), (1920.0, 1080.0, 1.0)] {
             let size = format!("{}x{}", width as u32, height as u32);
-            shoot(&dir, &format!("stream-menu-{size}"), width, height, ppp, false, false);
-            shoot(&dir, &format!("stream-shortcuts-{size}"), width, height, ppp, false, true);
-            shoot(&dir, &format!("stream-menu-{size}-high-contrast"), width, height, ppp, true, false);
-            shoot(&dir, &format!("stream-shortcuts-{size}-high-contrast"), width, height, ppp, true, true);
+            shoot(&dir, &format!("stream-menu-{size}"), width, height, ppp, false, "menu");
+            shoot(&dir, &format!("stream-help-{size}"), width, height, ppp, false, "sheet");
+            shoot(&dir, &format!("stream-shortcuts-{size}"), width, height, ppp, false, "shortcuts");
+            shoot(&dir, &format!("stream-shortcut-editor-{size}"), width, height, ppp, false, "editor");
+            shoot(&dir, &format!("stream-menu-{size}-high-contrast"), width, height, ppp, true, "menu");
         }
     }
 }

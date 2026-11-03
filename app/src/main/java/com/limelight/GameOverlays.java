@@ -171,6 +171,7 @@ final class GameOverlays {
         if (game.virtualController != null && game.prefConfig.onscreenController) game.virtualController.collectVisibleBounds(out);
         if (game.modernController != null && game.prefConfig.onscreenController) game.modernController.collectVisibleBounds(out);
         if (game.micButton != null) com.limelight.ui.OverlayPlacement.addVisible(game.micButton, parent, out);
+        if (game.menuButton != null) com.limelight.ui.OverlayPlacement.addVisible(game.menuButton, parent, out);
         if (game.gameTouchControls != null) game.gameTouchControls.collectVisibleBounds(parent, out);
         if (game.keyboardInput.isKeyboardOverlayVisible()) com.limelight.ui.OverlayPlacement.addVisible(game.keyboardOverlay, parent, out);
         if (game.keyboardInput.isPcKeyboardVisible()) com.limelight.ui.OverlayPlacement.addVisible(game.pcKeyboard, parent, out);

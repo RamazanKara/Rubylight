@@ -4,4 +4,6 @@
     <string name="summary_list_gamepad_quit_combo">これらのボタンを押し続けるとストリームを終了します。すべて離した時点で終了します。オフの場合はストリームメニュー（Start+Select+LB+RBで開く）を使います。次のストリームから適用されます。</string>
     <string name="gamepad_quit_combo_off">オフ</string>
     <string name="stream_controller_mouse">コントローラーマウス</string>
+    <string name="title_list_guide_menu_hold">Guide長押しでストリームメニューを開く</string>
+    <string name="summary_list_guide_menu_hold">短く押した場合は Guide として PC に送られます。次のストリームから適用されます。</string>
 </resources>

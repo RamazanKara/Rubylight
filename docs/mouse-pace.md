@@ -1,10 +1,15 @@
-# Mouse motion at the mouse's pace (Windows desktop)
+# Mouse motion at the mouse's pace, input during the present (desktop)
 
 A captured mouse (relative mode) sends its motion from SDL's raw input thread as each report
 arrives (`protocol/desktop/src/stream/direct_motion.rs`), and streams on Wi-Fi put the adapter in
 Windows' media streaming mode (`stream/wlan.rs`). Android already does both: it asks for unbuffered
 input dispatch and holds a low-latency Wi-Fi lock. On Linux, SDL's X11 and Wayland backends push
 mouse events on the main thread while it pumps events, so the filter runs there at the old pace.
+
+Keys, clicks, wheel turns and controllers leave the same filter while V-Sync holds the main loop
+in the present ([below](#keys-clicks-and-controllers)): on Windows clicks, wheel turns,
+controllers and, with "Capture system keys", keys; on Linux controllers (keys and clicks come from
+the main thread there too).
 
 ## Why
 
@@ -20,8 +25,8 @@ the laptop measurement below is the check for the real path).
 
 An SDL event filter runs on the thread that pushes the event. For captured, relative, focused
 motion it scales the move (mouse speed, fractions carried over), queues it on the session's input
-queue (`Session::input_handle`) and drops the event. Clicks and wheel turns still go through the
-main loop; while one waits there, later motion waits behind it, so motion never overtakes a click.
+queue (`Session::input_handle`) and drops the event. A click or wheel turn the main loop sends
+holds later motion back while it waits there, so motion never overtakes a click.
 Touch and pen (with touch on) and the touchpad's pointer moves while touchpad contacts go to the PC
 stay on the main loop, which already handles them.
 
@@ -33,9 +38,48 @@ worse at 1 kHz: the floor counts from the send, which jitters, and Windows round
 thread's wait up to a whole millisecond, so a report a little early waited a millisecond (959
 packets/s, gap p90 1.6 ms against about 1100/s and 1.04 ms).
 
-`NIGHTJAR_DIRECT_MOTION=0` keeps all motion on the main loop and `NIGHTJAR_WLAN_STREAMING=0` leaves
-the Wi-Fi mode alone, for measurements only. The log ends each stream with
-`mouse moves: N sent as they arrived, M through the main loop`.
+`NIGHTJAR_DIRECT_MOTION=0` keeps all input on the main loop, `NIGHTJAR_DIRECT_INPUT=0` keeps keys,
+clicks and controllers there (motion still leaves from the filter), and `NIGHTJAR_WLAN_STREAMING=0`
+leaves the Wi-Fi mode alone, for measurements only. The log ends each stream with
+`mouse moves: N sent as they arrived, M through the main loop` and
+`keys, clicks and controller events: N sent during the present`.
+
+## Keys, clicks and controllers
+
+The main loop reads keys, clicks and controllers between presents. With V-Sync (the default on a
+fixed-refresh display) the present waits for most of a refresh, so a key press or button could wait
+up to a refresh before the loop read it, and SDL read the controllers only when the loop pumped
+events, once per refresh.
+
+While V-Sync holds the loop in the present it changes nothing, so it lends the filter what it
+decides with for that time (`DirectMotion::presenting`, `DirectMotion::lend`): whether keys are the
+PC's (captured, focused, menu hidden) and the settings that map them, whether clicks are (the same
+with a relative pointer), whether controllers send, and its controllers themselves. Meanwhile a
+thread calls `SDL_UpdateJoysticks` every millisecond, as SDL does while the loop waits for events,
+so controller events go through the filter on that thread; `Gamepads::handle` turns them into what
+the PC gets, the same code the loop runs. Clicks of a captured mouse already come from SDL's raw
+input thread. Keys come from there only while "Capture system keys" grabs the keyboard
+(`SDL_HINT_WINDOWS_RAW_KEYBOARD`, set by `DirectMotion::keyboard_grab`): without the grab Windows
+keeps the second key of its own shortcuts (Tab of Alt+Tab, D of Win+D) from the window, but raw
+input still reports it, so the PC would get it too. Without the grab keys stay on the loop.
+
+- No double sends: a key, click or wheel turn the filter sent still reaches the loop, marked, so the
+  loop keeps track of held keys and buttons (to let them go when focus leaves) and sends nothing. A
+  controller event the filter applied goes no further, unless it asks for something (a quit or menu
+  chord, the controller mouse switch): then the loop does that and nothing else.
+- Order: whatever the loop sends or decides on itself holds back the keys, clicks and controller
+  events after it (a stream shortcut, a key from before the present, a new controller, a chord's
+  action), so Shift held before the present still reaches the PC before a click during it, and a
+  button after a menu chord goes to the menu. Motion only waits for clicks, as before.
+- The UI is unchanged: outside the present, and with the menu open, everything goes through the
+  loop; stream shortcuts, F12, Escape and B in the menu, holding Guide and the quit combo work as
+  they did.
+- Locks: the filter may run under SDL's joystick lock, so it only tries the lent state's lock and
+  leaves the event to the loop when it is taken (while the loop draws with its controllers).
+
+Not measured yet (the laptop's input-to-wire A/B in the hardware queue decides): with the grab,
+SDL's low-level keyboard hook runs on the main loop's thread, which takes no messages while the
+present waits, so keys may still reach the raw input thread only after the present.
 
 ## Measured
 

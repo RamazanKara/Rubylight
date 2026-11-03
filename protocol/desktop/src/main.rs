@@ -36,12 +36,14 @@ mod network;
 mod network_test;
 mod pin_lock;
 mod pin_ui;
+mod power;
 mod radeon;
 mod sdl;
 mod session_page;
 mod session_ui;
 mod shortcuts;
 mod stream;
+mod stream_menu;
 mod strings;
 mod theme;
 mod timing_csv;
@@ -126,6 +128,18 @@ enum FolderPick {
     Upload { host: u64, at: folders_page::Place },
 }
 
+/// How long the message of a stream the PC failed waits for the PC's reason.
+const REASON_WAIT: Duration = Duration::from_secs(5);
+
+/// The end of a stream the PC failed, shown once the poll `seq` of PC `host` answered.
+struct PendingEnd {
+    host: u64,
+    seq: u64,
+    ended: Option<String>,
+    health: Option<String>,
+    until: Instant,
+}
+
 struct App {
     window: *mut SDL_Window,
     renderer: *mut SDL_Renderer,
@@ -145,14 +159,20 @@ struct App {
     pending_replace: Option<Box<LaunchPlan>>,
     /// The PC and game being quit because the player chose quit on leave for it.
     quitting_on_leave: Option<(u64, String)>,
+    /// The message for a stream the PC failed, until the PC said why (`show_pending_end`).
+    pending_end: Option<PendingEnd>,
     identity: Option<Receiver<Result<ClientIdentity, String>>>,
     shortcut_file: Option<(bool, sdl::FileChoice)>,
     /// A folder to download into, or a file to upload, being chosen for the shared folder browser.
     folder_pick: Option<(FolderPick, sdl::FileChoice)>,
     network_query: Option<Receiver<network::Network>>,
+    /// What this PC's power allows, being asked once at start.
+    power_probe: Option<Receiver<Vec<power::Offer>>>,
+    /// A shut down, restart or sleep under way, and the system's answer to it.
+    power_request: Option<(power::Offer, Receiver<Result<(), String>>)>,
     network_test: Option<network_test::Test>,
     /// Host, app, resume, and Input-only through a small stream.
-    network_launch: Option<(u64, i32, bool, bool)>,
+    network_launch: Option<(u64, i32, bool, LaunchKind)>,
     next_network_check: Instant,
     waker: hosts::Waker,
     wake_event: u32,
@@ -170,6 +190,8 @@ struct App {
     pin_pending: Option<PinPending>,
     /// This launch's update check (Windows); command-line and test streams make none.
     updates: update_check::Updates,
+    /// The background the title bar was last given (High contrast turns it black).
+    title_bar: egui::Color32,
 }
 
 fn display_of(window: *mut SDL_Window) -> Display {
@@ -442,6 +464,8 @@ fn run(launch: Option<cli::Launch>) -> Result<(), String> {
     #[cfg(not(windows))]
     sdl::set_icon(window, &theme::logo_rgba(64), 64);
     sdl::exclude_from_capture_if_asked(window);
+    // Before the window shows, so its first frame already has the dark bar; again when the palette changes.
+    sdl::blend_title_bar(window, *theme::NIGHT, *theme::ON_SURFACE);
 
     let waker: hosts::Waker = Arc::new(move || {
         // SAFETY: SDL_PushEvent is thread-safe; the event is plain data.
@@ -501,6 +525,12 @@ fn run(launch: Option<cli::Launch>) -> Result<(), String> {
             launcher.go(Screen::Home);
         }
     }
+    // A stream started from the command line waits for the next ordinary start.
+    if cli.is_none() && std::env::var_os("NIGHTJAR_AUTOSTREAM").is_none() && launcher.show_kept_settings_once(&hosts.list) {
+        if let Err(e) = store.save_settings(&launcher.settings) {
+            eprintln!("nightjar: saving settings failed: {e}");
+        }
+    }
     let identity = match store.identity() {
         Some(saved) => match ClientIdentity::from_pem(saved.unique_id, &saved.certificate_pem, &saved.private_key_pem) {
             Ok(identity) => {
@@ -539,10 +569,13 @@ fn run(launch: Option<cli::Launch>) -> Result<(), String> {
         pending_launch: None,
         pending_replace: None,
         quitting_on_leave: None,
+        pending_end: None,
         identity: None,
         shortcut_file: None,
         folder_pick: None,
         network_query: Some(network::query(waker.clone())),
+        power_probe: Some(power::probe(waker.clone())),
+        power_request: None,
         network_test: None,
         network_launch: None,
         next_network_check: Instant::now(),
@@ -558,6 +591,7 @@ fn run(launch: Option<cli::Launch>) -> Result<(), String> {
         cli,
         color_probed: None,
         pin_pending: None,
+        title_bar: *theme::NIGHT,
     };
     match identity {
         Some(identity) => {
@@ -684,14 +718,20 @@ impl App {
                                 }
                                 None
                             }
+                            Some(action @ (Action::PreviousTab | Action::NextTab)) => {
+                                if self.streaming.is_none() && self.connecting.is_none() {
+                                    let mut commands = Vec::new();
+                                    self.launcher.step_destination(&self.gui.ctx, action == Action::NextTab, &mut commands);
+                                    for command in commands { self.command(command); }
+                                }
+                                None
+                            }
                             Some(action) => nav_key(action),
                             None => None,
                         },
                     };
                     if let Some(key) = key {
-                        for e in gui::tap(key) {
-                            self.gui.push(e);
-                        }
+                        self.push_nav(key);
                         if matches!(key, egui::Key::ArrowUp | egui::Key::ArrowDown | egui::Key::ArrowLeft | egui::Key::ArrowRight) {
                             self.nav_repeat.hold(event.gbutton.which.0, nav_repeat::Input::Button(event.gbutton.button), key, Instant::now());
                         }
@@ -710,9 +750,7 @@ impl App {
                     let held = i32::from(a.value).abs() > 24000;
                     if held && !self.stick_held[slot] {
                         let key = if a.value < 0 { key_neg } else { key_pos };
-                        for e in gui::tap(key) {
-                            self.gui.push(e);
-                        }
+                        self.push_nav(key);
                         self.nav_repeat.hold(a.which.0, nav_repeat::Input::Axis(a.axis, a.value > 0), key, Instant::now());
                     }
                     self.stick_held[slot] = i32::from(a.value).abs() > 12000 && (held || self.stick_held[slot]);
@@ -750,11 +788,19 @@ impl App {
             }
         });
         for key in &keys {
-            for e in gui::tap(*key) {
-                self.gui.push(e);
-            }
+            self.push_nav(*key);
         }
         !keys.is_empty()
+    }
+
+    /// A controller's navigation key for egui. In the launcher a press with nothing focused
+    /// focuses the page's first item (`Launcher::controller_key`); the stream menu focuses Return
+    /// to stream itself.
+    fn push_nav(&mut self, key: egui::Key) {
+        let events = if self.streaming.is_none() { self.launcher.controller_key(&self.gui.ctx, key) } else { gui::tap(key).to_vec() };
+        for e in events {
+            self.gui.push(e);
+        }
     }
 
     /// Minimizing or hiding the window is leaving Nightjar for the PIN lock's grace time.
@@ -854,7 +900,7 @@ impl App {
                 self.launcher.network = network;
                 self.network_query = None;
                 self.next_network_check = Instant::now() + Duration::from_secs(5);
-                if let Some((host, app, resume, small)) = self.network_launch.take() { self.launch_ready(host, app, resume, small); }
+                if let Some((host, app, resume, kind)) = self.network_launch.take() { self.launch_ready(host, app, resume, kind); }
             }
         } else if Instant::now() >= self.next_network_check {
             self.network_query = Some(network::query(self.waker.clone()));
@@ -870,13 +916,24 @@ impl App {
                             Err(e) => self.launcher.message(tr("Could not export shortcuts"), e.to_string()),
                         }
                     }
-                    Ok(Some(path)) => match shortcuts::Shortcuts::read(&path) {
+                    Ok(Some(path)) => match shortcuts::read(&path) {
                         Ok(entries) => self.launcher.dialog = Dialog::ImportShortcuts(entries),
                         Err(e) => self.launcher.message(tr("Could not import shortcuts"), e),
                     },
                     Ok(None) => {}
                     Err(e) => self.launcher.message(tr("File dialog unavailable"), e),
                 }
+            }
+        }
+        if let Some(offers) = self.power_probe.as_ref().and_then(|receiver| receiver.try_recv().ok()) {
+            self.launcher.power = offers;
+            self.power_probe = None;
+        }
+        if let Some((offer, result)) = self.power_request.as_ref().and_then(|(offer, receiver)| receiver.try_recv().ok().map(|r| (*offer, r))) {
+            self.power_request = None;
+            if let Err(why) = result {
+                eprintln!("nightjar: {:?} failed: {why}", offer.action);
+                self.launcher.message(tr(offer.action.failed()), why);
             }
         }
         if let Some(result) = self.folder_pick.as_ref().and_then(|(_, receiver)| receiver.try_recv().ok()) {
@@ -911,6 +968,7 @@ impl App {
         if changed {
             self.save_hosts();
         }
+        self.show_pending_end();
         for (unique_id, library) in self.hosts.take_library_saves() {
             if let Err(e) = self.store.save_library(&unique_id, &library) {
                 eprintln!("nightjar: saving the library failed: {e}");
@@ -934,7 +992,7 @@ impl App {
                         if self.quitting_on_leave.as_ref().is_some_and(|(host, _)| *host == id) { self.quitting_on_leave = None; }
                         if let Some((host, app)) = self.pending_launch.take() {
                             if host == id {
-                                self.launch(host, app, false, false, LaunchFrom::Replace);
+                                self.launch(host, app, false, LaunchKind::Stream, LaunchFrom::Replace);
                             }
                         }
                     }
@@ -984,10 +1042,10 @@ impl App {
         // A launch without a network query in flight is waiting for its app list (see
         // `launch_ready`); it goes on once the list is no longer loading.
         if self.network_query.is_none() {
-            if let Some((host, app, resume, small)) = self.network_launch {
+            if let Some((host, app, resume, kind)) = self.network_launch {
                 if !matches!(self.hosts.get(host).map(|h| &h.apps), Some(Apps::Loading)) {
                     self.network_launch = None;
-                    self.launch_ready(host, app, resume, small);
+                    self.launch_ready(host, app, resume, kind);
                 }
             }
         }
@@ -1053,6 +1111,10 @@ impl App {
             );
         });
         self.gui.platform(self.window, &output.platform_output);
+        if self.title_bar != *theme::NIGHT {
+            self.title_bar = *theme::NIGHT;
+            sdl::blend_title_bar(self.window, self.title_bar, *theme::ON_SURFACE);
+        }
         // SAFETY: drawing on the live renderer.
         unsafe {
             SDL_SetRenderDrawColor(self.renderer, 0x14, 0x16, 0x1F, 255);
@@ -1084,7 +1146,7 @@ impl App {
     fn command(&mut self, command: Command) {
         match command {
             Command::PinPassed => match self.pin_pending.take() {
-                Some(PinPending::Launch { host, app, resume, small, from }) => self.launch(host, app, resume, small, from),
+                Some(PinPending::Launch { host, app, resume, kind, from }) => self.launch(host, app, resume, kind, from),
                 Some(PinPending::QuitAndLaunch { host, app, named }) => self.command(Command::QuitAndLaunch { host, app, named }),
                 None => {}
             },
@@ -1095,8 +1157,16 @@ impl App {
                 }
             }
             Command::Quit => self.running = false,
-            Command::Launch { host, app, resume } => self.launch(host, app, resume, false, LaunchFrom::Launcher),
-            Command::LaunchInputOnly { host, app, resume } => self.launch(host, app, resume, true, LaunchFrom::Launcher),
+            Command::Power(offer) => {
+                // One at a time: a second confirm while logind waits on its password is dropped.
+                if self.power_request.is_none() {
+                    eprintln!("nightjar: {:?} this PC", offer.action);
+                    self.power_request = Some((offer, power::request(offer, self.waker.clone())));
+                }
+            }
+            Command::Launch { host, app, resume } => self.launch(host, app, resume, LaunchKind::Stream, LaunchFrom::Launcher),
+            Command::LaunchInputOnly { host, app, resume } => self.launch(host, app, resume, LaunchKind::SmallInputOnly, LaunchFrom::Launcher),
+            Command::MicOnly { host } => self.launch(host, MIC_ONLY_APP_ID, false, LaunchKind::MicOnly, LaunchFrom::Launcher),
             Command::ToggleFavourite(entry) => {
                 config::toggle_favourite(&mut self.launcher.favourites, entry);
                 if let Err(e) = self.store.save_favourites(&self.launcher.favourites) {
@@ -1123,7 +1193,7 @@ impl App {
                         tr("The running app changed"),
                         tr("The PC runs another app now. Check the screen and try again."),
                     ),
-                    console::Running::Gone => self.launch(host, app, false, false, LaunchFrom::Replace),
+                    console::Running::Gone => self.launch(host, app, false, LaunchKind::Stream, LaunchFrom::Replace),
                     console::Running::Same => {
                         self.pending_launch = Some((host, app));
                         self.hosts.quit_app(host);
@@ -1199,6 +1269,10 @@ impl App {
                     host.record.save_app_settings(&app.uuid, app.id, self.launcher.edit_overrides.clone());
                     self.save_hosts();
                 }
+            }
+            Command::ResetKeptSettings => {
+                self.hosts.list.iter_mut().for_each(|host| host.record.clear_own_settings());
+                self.save_hosts();
             }
             Command::ProfileSettings(id) => {
                 if let Some(profile) = self.launcher.profiles.entries.iter().find(|p| p.id == id) {
@@ -1472,7 +1546,7 @@ impl App {
                 self.hosts.pair(id, auto.pin.clone(), None);
             }
             autostream::Step::LoadApps(id) => self.hosts.load_apps(id),
-            autostream::Step::Launch(host, app) => self.launch(host, app, false, false, LaunchFrom::Autostream),
+            autostream::Step::Launch(host, app) => self.launch(host, app, false, LaunchKind::Stream, LaunchFrom::Autostream),
             autostream::Step::Fail(why) => {
                 auto.fail(&why);
                 self.running = false;
@@ -1531,7 +1605,7 @@ impl App {
             cli::Step::Wait => {}
             cli::Step::OpenApps(id) => self.command(Command::OpenApps(id)),
             cli::Step::LoadApps(id) => self.hosts.load_apps(id),
-            cli::Step::Launch(host, app, resume) => self.launch(host, app, resume, false, LaunchFrom::CommandLine),
+            cli::Step::Launch(host, app, resume) => self.launch(host, app, resume, LaunchKind::Stream, LaunchFrom::CommandLine),
             cli::Step::Fail(why) => {
                 cli.fail(&why);
                 self.running = false;
@@ -1543,16 +1617,15 @@ impl App {
         }
     }
 
-    /// `small`: Input-only through a small ordinary stream, on a PC without its own mode.
-    fn launch(&mut self, host_id: u64, app_id: i32, resume: bool, small: bool, from: LaunchFrom) {
+    fn launch(&mut self, host_id: u64, app_id: i32, resume: bool, kind: LaunchKind, from: LaunchFrom) {
         let busy = self.connecting.is_some() || self.network_launch.is_some();
-        eprintln!("nightjar: {}{}", launch_line(from, app_id, resume, busy), if small { ", input only through a small stream" } else { "" });
+        eprintln!("nightjar: {}{}", launch_line(from, app_id, resume, busy), kind.log_suffix());
         if busy { return; }
         // The quit-and-start prompt's start was let through with its quit.
-        if from != LaunchFrom::Replace && self.pin_holds(host_id, PinPending::Launch { host: host_id, app: app_id, resume, small, from }) {
+        if from != LaunchFrom::Replace && self.pin_holds(host_id, PinPending::Launch { host: host_id, app: app_id, resume, kind, from }) {
             return;
         }
-        self.network_launch = Some((host_id, app_id, resume, small));
+        self.network_launch = Some((host_id, app_id, resume, kind));
         self.network_query = Some(network::query(self.waker.clone()));
     }
 
@@ -1571,19 +1644,22 @@ impl App {
         true
     }
 
-    fn launch_ready(&mut self, host_id: u64, app_id: i32, resume: bool, small: bool) {
+    fn launch_ready(&mut self, host_id: u64, app_id: i32, resume: bool, kind: LaunchKind) {
+        let small = kind == LaunchKind::SmallInputOnly;
+        let mic_only = kind == LaunchKind::MicOnly;
         if self.connecting.is_some() {
             return;
         }
         let Some(host) = self.hosts.get(host_id) else {
             return;
         };
-        let app = match launch_app(&host.apps, app_id) {
+        // A microphone-only session names no app of the PC's list.
+        let app = if mic_only { mic_only_app() } else { match launch_app(&host.apps, app_id) {
             LaunchApp::Ready(app) => app,
             LaunchApp::Wait => {
                 // The list is being read again (the first native read of a run reloads it).
                 // Starting over once it lands keeps the launch instead of dropping it unseen.
-                self.network_launch = Some((host_id, app_id, resume, small));
+                self.network_launch = Some((host_id, app_id, resume, kind));
                 return;
             }
             LaunchApp::Gone => return,
@@ -1595,7 +1671,7 @@ impl App {
                 self.launcher.message(tr("The stream could not start"), tr("The PC's app list has no entry for this game.").to_owned());
                 return;
             }
-        };
+        } };
         if app.is_control_action() {
             self.hosts.control_action(host_id, app_id);
             return;
@@ -1603,7 +1679,7 @@ impl App {
         let mut settings = host.record.settings(&self.launcher.profiles.settings(&self.launcher.settings, self.launcher.network.kind(&self.launcher.profiles.home_wifi)));
         if let Some(overrides) = host.record.app_settings(&app.uuid, app.id) { settings = overrides.apply(&settings); }
         if settings.codec.is_pyrowave() { settings.experimental_packed_444 = false; }
-        if app.role(small) == nightjar_core::http::AppRole::InputOnly {
+        if mic_only || app.role(small) == nightjar_core::http::AppRole::InputOnly {
             settings.hdr = false;
             settings.experimental_packed_444 = false;
             (settings.prefer_yuv444, settings.sdr_10bit) = (false, false);
@@ -1614,6 +1690,9 @@ impl App {
         }
         if small {
             small_stream(&mut settings);
+        }
+        if mic_only {
+            mic_only_settings(&mut settings);
         }
         if settings.hdr && !sdl::hdr_available(self.renderer) {
             self.launcher.message(tr("HDR output unavailable"), tr("Enable HDR on this display and restart Nightjar. The current compositor or swapchain does not support HDR output."));
@@ -1685,6 +1764,7 @@ impl App {
             app,
             resume,
             small_stream_input_only: small,
+            mic_only,
             settings: settings.clone(),
             identity,
             display,
@@ -1758,6 +1838,7 @@ impl App {
         }
         self.remember_recent(&connecting);
         let mut streaming = Streaming::new(connecting, session, facts, display);
+        streaming.watch_microphone_busy(self.waker.clone());
         self.pads.prepare_audio(settings.controllers && settings.controller_audio && streaming.facts.role != nightjar_core::http::AppRole::RemoteMonitor);
         streaming.display_changed(self.renderer);
         if settings.adaptive_bitrate || streaming.quality_mode != config::QualityMode::Off { streaming.enable_adaptive_bitrate(true); }
@@ -1768,6 +1849,8 @@ impl App {
         let focused = unsafe { SDL_GetWindowFlags(self.window) & SDL_WINDOW_INPUT_FOCUS != 0 };
         if focused {
             streaming.set_capture(self.window, true);
+        } else {
+            streaming.capture_on_focus();
         }
         let (pyrowave, notices_changed) = match self.hosts.get_mut(streaming.host_id) {
             Some(host) => stream::pyrowave_notice(&mut host.record, settings.codec.is_pyrowave(),
@@ -1803,12 +1886,27 @@ impl App {
         }
     }
 
+    /// Shows the message of a stream the PC failed once the poll after it answered, with the
+    /// PC's reason, or after `REASON_WAIT` without it.
+    fn show_pending_end(&mut self) {
+        let Some(pending) = &self.pending_end else { return };
+        let answered = self.hosts.failure_after(pending.host, pending.seq);
+        if answered.is_none() && Instant::now() < pending.until {
+            return;
+        }
+        let Some(pending) = self.pending_end.take() else { return };
+        if let Some((title, body)) = stream::doctor::after_stream(pending.ended, pending.health) {
+            self.launcher.message(title, stream::doctor::with_host_reason(body, answered.flatten().as_deref()));
+        }
+    }
+
     fn end_stream(&mut self, exit: Exit) {
         let Some((mut streaming, _timer)) = self.streaming.take() else {
             return;
         };
         let host = streaming.host_id;
-        let reconnect = if matches!(exit, Exit::Reconnect) || exit.retryable(streaming.video_started()) {
+        // Microphone only has no video; it is going once connected.
+        let reconnect = if matches!(exit, Exit::Reconnect) || exit.retryable(streaming.video_started() || streaming.mic_only()) {
             // SAFETY: the window lives as long as the app.
             let away = unsafe { SDL_GetWindowFlags(self.window) & (SDL_WINDOW_MINIMIZED | SDL_WINDOW_HIDDEN) != 0 };
             streaming.reconnect_plan(!matches!(exit, Exit::Reconnect), away)
@@ -1831,7 +1929,8 @@ impl App {
         // up when it ends that way was connected.
         if matches!(exit, Exit::User) {
             let app = streaming.app();
-            let chosen = self.hosts.get(host).is_some_and(|h| h.record.quits_on_leave(&app.uuid, app.id));
+            // Quit game confirmed in the stream menu, or the launch's own choice to quit on leaving.
+            let chosen = streaming.quit_on_leave || self.hosts.get(host).is_some_and(|h| h.record.quits_on_leave(&app.uuid, app.id));
             if nightjar_policy::launch::quits_on_leave(chosen, ui::policy_role(streaming.facts.role), true) {
                 eprintln!("nightjar: quitting {} on the PC, as chosen for leaving its stream", app.name);
                 self.launcher.toast(trf("Quitting {} on the PC…", &[&app.name]));
@@ -1851,6 +1950,12 @@ impl App {
             self.cancelled = false;
             self.connecting = Some(Connecting::start(plan, self.waker.clone()));
         } else {
+        // A failure the PC ended the stream on: the message waits for the poll just started,
+        // which carries the PC's own words for it where it says them.
+        let reason_poll = match exit {
+            Exit::Terminated(code) if stream::host_ended_stream(code) => self.hosts.polling_seq(host),
+            _ => None,
+        };
         let ended = match exit {
             Exit::CloseWindow => { self.running = false; None }
             Exit::User | Exit::Reconnect | Exit::Ended(None) => None,
@@ -1859,8 +1964,15 @@ impl App {
             Exit::NetworkReturned => stream::termination_text(nightjar_core::session::error::FAILED),
             Exit::Ended(Some(message)) => Some(message),
         };
-        if let Some((title, body)) = stream::doctor::after_stream(ended, health).filter(|_| self.running) {
-            self.launcher.message(title, body);
+        match reason_poll {
+            Some(seq) if self.running => {
+                self.pending_end = Some(PendingEnd { host, seq, ended, health, until: Instant::now() + REASON_WAIT });
+            }
+            _ => {
+                if let Some((title, body)) = stream::doctor::after_stream(ended, health).filter(|_| self.running) {
+                    self.launcher.message(title, body);
+                }
+            }
         }
         }
         // egui forgets held modifiers from before the stream.
@@ -1880,6 +1992,7 @@ impl App {
         // SAFETY: the window lives as long as the app.
         let away = unsafe { SDL_GetWindowFlags(window) & (SDL_WINDOW_MINIMIZED | SDL_WINDOW_HIDDEN) != 0 };
         streaming.drain_notices(&mut self.pads, away);
+        streaming.open_guide_menu(window, &mut self.pads);
         streaming.follow_text_field(window);
         streaming.pump();
         streaming.follow_display(display);
@@ -1934,6 +2047,9 @@ impl App {
         #[cfg(windows)]
         streaming.pump_touchpad(window);
         streaming.pump();
+        if let Some(host) = self.hosts.get(streaming.host_id) {
+            streaming.hints = host.native.session_hints();
+        }
         if streaming.session_page_requested {
             let link = self.launcher.network.description(&self.launcher.profiles.home_wifi);
             streaming.open_session_page(self.waker.clone(), link);
@@ -1956,12 +2072,14 @@ impl App {
             }
         }
         let gui = &mut self.gui;
-        let pads = &mut self.pads;
-        let shortcuts = &self.launcher.shortcuts;
+        // The input filter sends controller input while the present waits (direct_motion.rs).
+        let pads = streaming.direct_motion.lend(std::mem::take(&mut self.pads));
+        let shortcuts = &mut self.launcher.shortcuts;
         let screenshot = std::mem::take(&mut self.screenshot_requested);
         let dir = self.screenshot_dir.clone();
+        let mut shortcuts_changed = false;
         streaming.present(renderer, |s, renderer| {
-            draw_overlay(gui, window, renderer, s, pads, shortcuts);
+            shortcuts_changed = draw_overlay(gui, window, renderer, s, &mut pads.pads(), shortcuts);
             if screenshot {
                 let stamp = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
@@ -1973,6 +2091,13 @@ impl App {
                 }
             }
         });
+        self.pads = pads.take_back();
+        // A shortcut saved or deleted in the stream menu lands in the same file as the settings' list.
+        if shortcuts_changed {
+            if let Err(e) = self.store.save_shortcuts(&self.launcher.shortcuts) {
+                streaming.show_toast(trf("Could not save shortcuts: {}", &[&e]));
+            }
+        }
         // No picture for 12 s after the start means the stream never came up.
         if streaming.facts.role != nightjar_core::http::AppRole::InputOnly
             && !streaming.has_picture() && streaming.since_start() > Duration::from_secs(12) && streaming.exit.is_none() {
@@ -2050,13 +2175,29 @@ impl App {
                 || (kind == SDL_EVENT_GAMEPAD_BUTTON_DOWN && unsafe {
                     event.gbutton.button == back_button.0 as u8 || event.gbutton.button == SDL_GAMEPAD_BUTTON_BACK.0 as u8
                 });
-            match menu_step(key_action, back, repeat, streaming.shortcut_sheet.is_some(), streaming.session_page.is_some()) {
+            let page = streaming.menu_page != stream_menu::Page::Grid;
+            match menu_step(key_action, back, repeat, streaming.shortcut_sheet.is_some(), streaming.session_page.is_some(), page) {
                 MenuStep::Pass => {}
                 MenuStep::Swallow => return,
                 MenuStep::ToggleSheet => return streaming.toggle_shortcut_sheet(self.window, &mut self.pads),
                 MenuStep::CloseSessionPage => return streaming.close_session_page(),
                 MenuStep::CloseSheet => return streaming.close_shortcut_sheet(self.window, &mut self.pads),
+                MenuStep::ClosePage => {
+                    streaming.menu_page = stream_menu::Page::Grid;
+                    streaming.needs_redraw = true;
+                    return;
+                }
                 MenuStep::CloseMenu => return streaming.toggle_menu(self.window, &mut self.pads),
+            }
+            // Y, X and the shoulders run their tiles while the grid shows (nightjar_policy::stream_menu).
+            if kind == SDL_EVENT_GAMEPAD_BUTTON_DOWN && !page && streaming.session_page.is_none() && streaming.shortcut_sheet.is_none() {
+                // SAFETY: union member read by event type.
+                let button = SDL_GamepadButton(i32::from(unsafe { event.gbutton.button }));
+                if let Some(key) = stream_menu::hotkey(button) {
+                    streaming.menu_hotkey = Some(key);
+                    streaming.needs_redraw = true;
+                    return;
+                }
             }
             if matches!(kind, SDL_EVENT_GAMEPAD_BUTTON_DOWN | SDL_EVENT_GAMEPAD_AXIS_MOTION) {
                 streaming.needs_redraw = true;
@@ -2073,6 +2214,14 @@ impl App {
                 return;
             }
         }
+        // Microphone only's window has its own buttons; its chords still reach the stream.
+        if streaming.mic_only() && !matches!(kind, SDL_EVENT_QUIT | SDL_EVENT_WINDOW_CLOSE_REQUESTED
+            | SDL_EVENT_WINDOW_FOCUS_LOST | SDL_EVENT_WINDOW_FOCUS_GAINED
+            | SDL_EVENT_AUDIO_DEVICE_ADDED | SDL_EVENT_AUDIO_DEVICE_REMOVED
+            | SDL_EVENT_RENDER_DEVICE_RESET | SDL_EVENT_RENDER_DEVICE_LOST) {
+            self.gui.handle(event, Scale::of(self.window));
+            streaming.needs_redraw = true;
+        }
         streaming.handle(event, self.window, self.renderer, &mut self.pads);
     }
 }
@@ -2087,12 +2236,15 @@ enum MenuStep {
     ToggleSheet,
     CloseSessionPage,
     CloseSheet,
+    /// Back from a page a tile opened to the grid.
+    ClosePage,
     CloseMenu,
 }
 
 /// The step for a stream chord (`action`), Escape or B (`back`), with the menu's pages. Back acts
-/// on what is drawn: the Session page first (the sheet never draws over it), then the sheet.
-fn menu_step(action: Option<Action>, back: bool, repeat: bool, sheet: bool, session_page: bool) -> MenuStep {
+/// on what is drawn: the Session page first (the sheet never draws over it), then the sheet, then
+/// a page a tile opened (`page`).
+fn menu_step(action: Option<Action>, back: bool, repeat: bool, sheet: bool, session_page: bool, page: bool) -> MenuStep {
     let controls = action == Some(Action::StreamControls);
     if action != Some(Action::StreamShortcuts) && !back && !controls {
         return MenuStep::Pass;
@@ -2106,6 +2258,8 @@ fn menu_step(action: Option<Action>, back: bool, repeat: bool, sheet: bool, sess
         MenuStep::CloseSessionPage
     } else if back && sheet {
         MenuStep::CloseSheet
+    } else if back && page {
+        MenuStep::ClosePage
     } else {
         MenuStep::CloseMenu
     }
@@ -2127,12 +2281,17 @@ fn nav_key(action: Action) -> Option<egui::Key> {
 const MENU_LIST: f32 = 190.0;
 
 /// The overlay and toasts, drawn with egui over the picture.
-fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Renderer, s: &mut Streaming, pads: &mut Gamepads, shortcuts: &shortcuts::Shortcuts) {
+/// Returns whether the user's shortcuts changed (saved or deleted in the stream menu) and want writing.
+fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Renderer, s: &mut Streaming, pads: &mut Gamepads, shortcuts: &mut shortcuts::Shortcuts) -> bool {
+    // A stream started from the command line never drew the launcher, which loads these too.
+    theme::fonts_for(&gui.ctx, strings::current());
+    let mut shortcuts_changed = false;
     let toast = s.toast.as_ref().map(|(t, _)| t.clone());
     let input_only = s.facts.role == nightjar_core::http::AppRole::InputOnly;
     let small_stream = s.small_stream_input_only();
+    let mic_only = s.mic_only();
     if !s.overlay_visible && toast.is_none() && !input_only && !s.menu_visible {
-        return;
+        return false;
     }
     let mode = s.overlay_mode;
     let lines = s.overlay.lines(mode).to_vec();
@@ -2144,7 +2303,26 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
     gui.set_readable(s.menu_visible || input_only);
     let output = gui.run(window, renderer, |ui| {
         let ctx = ui.ctx().clone();
-        if input_only {
+        if mic_only {
+            egui::Area::new(egui::Id::unique("mic-only"))
+                .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
+                .show(&ctx, |ui| {
+                    ui.label(egui::RichText::new(tr(mic_only_title(s.microphone_muted, s.microphone_unavailable, s.microphone_busy()))).font(theme::semibold(theme::text::TITLE)).color(theme::MOON));
+                    ui.label(&s.facts.host_name);
+                    ui.horizontal(|ui| {
+                        // Unmuting also tries an unavailable microphone again.
+                        let mute = if s.microphone_muted { tr("Unmute") } else { tr("Mute") };
+                        if ui.button(mute).clicked() {
+                            let muted = !s.microphone_muted;
+                            s.mute_microphone(muted, pads);
+                            s.needs_redraw = true;
+                        }
+                        if ui.button(tr("Stop")).clicked() {
+                            s.exit = Some(Exit::User);
+                        }
+                    });
+                });
+        } else if input_only {
             egui::Area::new(egui::Id::unique("input-only"))
                 .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
                 .show(&ctx, |ui| {
@@ -2195,223 +2373,98 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
                 s.close_shortcut_sheet(window, pads);
             }
         } else if s.menu_visible && s.session_page.is_none() {
+            let available = stream_menu::Available {
+                mouse: s.controller_mouse_offered(pads).then(|| pads.mouse_active()),
+                overlay: s.overlay_visible,
+                shortcuts: s.facts.role != nightjar_core::http::AppRole::RemoteMonitor,
+                microphone: s.microphone_available().then_some(!s.microphone_muted),
+                quality: s.facts.runtime_bitrate || s.rate_change.is_some() || s.menu_controls().size_editor
+                    || s.facts.role != nightjar_core::http::AppRole::InputOnly,
+                clipboard: s.facts.clipboard,
+                image_clipboard: s.facts.image_clipboard,
+                commands: !s.facts.server_commands.is_empty(),
+                session: s.session_page_available(),
+                host_audio: !s.host_audio.switches().is_empty() || s.host_audio.problem().is_some(),
+                controller_audio: s.controller_audio_available(),
+                usb: s.usb.is_some() || s.usb_refused.is_some(),
+                exits: s.game_exits(),
+            };
+            let layout = stream_menu::layout(&available, shortcuts.data.len());
+            let mut page = std::mem::take(&mut s.menu_page);
+            let mut next = None;
+            let grid_page = page == stream_menu::Page::Grid;
+            let (heading, line) = if grid_page { s.menu_header() } else { (page.title().to_owned(), title.clone()) };
+            let mut leave = None;
             menu_style::window(tr("Stream controls"), "stream-controls")
-                .show(&ctx, |ui| menu_style::body(ui, |ui| {
+                .show(&ctx, |ui| {
+                // On the grid the header and the ways out stay in view; only the tiles scroll.
+                if grid_page {
+                    menu_style::header(ui, &heading, &line);
+                }
+                let reserve = if grid_page { menu_style::pinned_room(&ctx, "stream-menu-footer") } else { 0.0 };
+                menu_style::body_above(ui, reserve, |ui| {
                     use glyphs::Icon;
                     gui::follow_focus(ui, &mut s.menu_focus);
-                    menu_style::header(ui, tr("Stream controls"), &title);
-                    let back = menu_style::primary(ui, tr("Return to stream"), Some(crate::shortcuts::Key::Escape.cap()));
-                    if ctx.memory(|m| m.focused().is_none()) { back.request_focus(); }
-                    if back.clicked() { s.toggle_menu(window, pads); }
-
-                    menu_style::caption(ui, tr("Picture"));
-                    menu_style::row(ui, Icon::Overlay, tr("Performance overlay"), |ui| {
-                        let shown = if s.overlay_visible { tr(s.overlay_mode.label()) } else { tr("Off") };
-                        egui::ComboBox::from_id_salt("stream-overlay").width(MENU_LIST).selected_text(shown).show_ui(ui, |ui| {
-                            if ui.selectable_label(!s.overlay_visible, tr("Off")).clicked() { s.overlay_visible = false; }
-                            for mode in config::OverlayMode::ALL {
-                                if ui.selectable_label(s.overlay_visible && s.overlay_mode == mode, tr(mode.label())).clicked() {
-                                    (s.overlay_visible, s.overlay_mode) = (true, mode);
-                                }
-                            }
-                        });
-                    });
-                    if s.overlay_visible {
-                        menu_style::row(ui, Icon::Corner, tr("Overlay position"), |ui| {
-                            egui::ComboBox::from_id_salt("stream-overlay-corner").width(MENU_LIST).selected_text(tr(s.overlay_corner.label())).show_ui(ui, |ui| {
-                                for corner in config::OverlayCorner::ALL {
-                                    ui.selectable_value(&mut s.overlay_corner, corner, tr(corner.label()));
-                                }
-                            });
-                        });
+                    if !grid_page {
+                        menu_style::header(ui, &heading, &line);
                     }
-                    let current = s.video_scaling();
-                    let (mut scaling, top) = current;
-                    menu_style::row(ui, Icon::Screen, tr("Video size"), |ui| {
-                        egui::ComboBox::from_id_salt("stream-scaling").width(MENU_LIST).selected_text(tr(scaling.label())).show_ui(ui, |ui| {
-                            use config::VideoScaling;
-                            for mode in [VideoScaling::Fit, VideoScaling::Fill, VideoScaling::Stretch, VideoScaling::Native] {
-                                ui.selectable_value(&mut scaling, mode, tr(mode.label()));
-                            }
-                        });
-                    });
-                    if scaling != current.0 { s.set_video_scaling(scaling, top); }
-
-                    let microphone = s.microphone_available();
-                    let mouse_offered = s.controller_mouse_offered(pads);
-                    let audio_switches = s.host_audio.switches();
-                    if microphone || mouse_offered || !audio_switches.is_empty() || s.host_audio.problem().is_some() {
-                        menu_style::caption(ui, tr("Sound and input"));
-                    }
-                    if microphone {
-                        let mut muted = s.microphone_muted;
-                        if menu_style::switch(ui, Icon::Microphone, tr("Mute microphone"), &mut muted).changed() { s.mute_microphone(muted, pads); }
-                    }
-                    if mouse_offered {
-                        let mut mouse = pads.mouse_active();
-                        if menu_style::switch(ui, Icon::Mouse, tr("Controller mouse"), &mut mouse).changed() { s.toggle_controller_mouse(pads); }
-                    }
-                    // The PC's night mode and headphone surround, as it answered when the menu opened.
-                    for switch in audio_switches {
-                        let mut on = switch.on;
-                        let label = stream::menu_extras::audio_label(switch.id);
-                        if ui.add_enabled_ui(switch.enabled, |ui| menu_style::switch(ui, Icon::Speaker, label, &mut on)).inner.changed() { s.set_host_audio(switch.id, on); }
-                        if let Some(note) = &switch.note { menu_style::note(ui, note); }
-                    }
-                    if let Some(problem) = s.host_audio.problem() { menu_style::note(ui, problem); }
-
-                    menu_style::caption(ui, tr("Clipboard"));
-                    ui.add_enabled_ui(s.facts.clipboard, |ui| {
-                        if menu_style::action(ui, Icon::ClipboardUp, tr("Send clipboard to PC"), Some(shortcuts::Action::SendClipboard)).clicked() { s.clipboard(true); }
-                        if menu_style::action(ui, Icon::ClipboardDown, tr("Copy PC clipboard here"), Some(shortcuts::Action::FetchClipboard)).clicked() { s.clipboard(false); }
-                    });
-                    if s.facts.image_clipboard {
-                        if menu_style::action(ui, Icon::Image, tr("Send image to PC"), None).clicked() { s.clipboard_image(true); }
-                        if menu_style::action(ui, Icon::Image, tr("Copy PC image here"), None).clicked() { s.clipboard_image(false); }
-                    }
-                    if s.facts.role != nightjar_core::http::AppRole::RemoteMonitor && !shortcuts.data.is_empty() {
-                        menu_style::fold(ui, "keyboard-shortcuts", Icon::Keyboard, tr("Keyboard shortcuts"), |ui| {
-                            for shortcut in &shortcuts.data {
-                                if menu_style::button(ui, &format!("{} · {}", shortcut.name, shortcut.keys.join(" + "))).clicked() {
+                    // Nothing focused: the menu just opened or a page changed. The first tile takes
+                    // the focus, so A right after opening never leaves the stream.
+                    let focus_first = ctx.memory(|m| m.focused().is_none());
+                    match &mut page {
+                        stream_menu::Page::Grid => {
+                            match stream_menu::grid(ui, &layout, shortcuts, s.menu_hotkey.take(), focus_first) {
+                                Some(stream_menu::Chosen::Tile(id)) => match id {
+                                    "controller_mouse" => s.toggle_controller_mouse(pads),
+                                    "overlay" => s.overlay_visible = !s.overlay_visible,
+                                    "shortcuts" => next = Some(stream_menu::Page::Shortcuts),
+                                    "microphone" => s.mute_microphone(!s.microphone_muted, pads),
+                                    "bitrate" => next = Some(stream_menu::Page::Quality),
+                                    "clipboard_send" => s.clipboard(true),
+                                    "clipboard_receive" => s.clipboard(false),
+                                    "server_commands" => next = Some(stream_menu::Page::Commands),
+                                    "native_page" => s.session_page_requested = true,
+                                    _ => next = Some(stream_menu::Page::More),
+                                },
+                                Some(stream_menu::Chosen::Shortcut(index)) => {
+                                    let shortcut = shortcuts.data[index].clone();
                                     s.toggle_menu(window, pads);
-                                    s.send_shortcut(shortcut);
+                                    s.send_shortcut(&shortcut);
                                 }
-                            }
-                        });
-                    }
-
-                    menu_style::caption(ui, tr("Connection"));
-                    let controls = s.menu_controls();
-                    if s.facts.runtime_bitrate {
-                        if s.facts.role == nightjar_core::http::AppRole::Stream && !s.client_hint_active() {
-                            let mut enabled = s.adaptive_bitrate;
-                            if ui.add_enabled_ui(!s.bitrate_busy, |ui| menu_style::switch(ui, Icon::Gauge, tr("Device controls bitrate"), &mut enabled)).inner.changed() {
-                                s.enable_adaptive_bitrate(enabled);
+                                Some(stream_menu::Chosen::Add) => next = Some(stream_menu::Page::Editor(stream_menu::Draft::default())),
+                                None => {}
                             }
                         }
-                        if controls.http_bitrate && stream::menu_extras::bitrate_slider(ui, &mut s.bitrate_kbps, !s.adaptive_bitrate && !s.bitrate_busy) {
-                            s.set_bitrate();
-                        }
-                    }
-                    if let Some(rates) = s.rate_change.as_mut().filter(|_| controls.rate_change) {
-                        let busy = rates.menu_busy();
-                        let mut apply = stream::menu_extras::bitrate_slider(ui, &mut rates.menu_kbps, !busy);
-                        menu_style::fold(ui, "rate-change", Icon::Gauge, tr("Change bitrate / frame rate"), |ui| {
-                            let busy = rates.menu_busy();
-                            ui.add_enabled_ui(!busy, |ui| {
-                                ui.horizontal(|ui| {
-                                    theme::step_value(ui, &mut rates.menu_kbps, 500..=800_000, 1000.0, |d| d.speed(100).suffix(" kbps"));
-                                    theme::step_value(ui, &mut rates.menu_fps, 10.0..=500.0, 1.0, |d| d.suffix(" fps").max_decimals(3));
-                                });
-                                apply |= menu_style::button(ui, tr("Apply bitrate and frame rate")).clicked();
-                            });
-                            if busy { menu_style::text_block(ui, tr("Waiting for the PC…")); }
-                        });
-                        if apply { s.change_rates(); }
-                    }
-                    if s.facts.role != nightjar_core::http::AppRole::InputOnly {
-                        menu_style::fold(ui, "stream-health", Icon::Pulse, tr("Why did my stream stutter?"), |ui| {
-                            let (text, offer) = s.health();
-                            menu_style::text_block(ui, &text);
-                            ui.add_space(theme::space::S);
-                            ui.horizontal(|ui| {
-                                if let Some(label) = stream::doctor::offer_label(offer) {
-                                    if ui.add_enabled_ui(!s.bitrate_busy, |ui| menu_style::button(ui, label)).inner.clicked() { s.health_trial(offer); }
-                                }
-                                if menu_style::button(ui, tr("Copy report")).clicked() { s.copy_health(); }
-                            });
-                        });
-                    }
-                    if controls.size_editor {
-                        menu_style::fold(ui, "stream-size", Icon::Screen, tr("Stream size"), |ui| {
-                            let mut quality = s.quality_mode;
-                            egui::ComboBox::from_id_salt("stream-quality").selected_text(tr(quality.label())).show_ui(ui, |ui| {
-                                for mode in [config::QualityMode::Off, config::QualityMode::Motion, config::QualityMode::Detail, config::QualityMode::Battery] {
-                                    ui.selectable_value(&mut quality, mode, tr(mode.label()));
-                                }
-                            });
-                            if quality != s.quality_mode { s.set_quality(quality); }
-                            ui.add_enabled_ui(s.quality_mode == config::QualityMode::Off, |ui| {
-                                ui.horizontal(|ui| {
-                                    theme::step_value(ui, &mut s.requested_mode.width, 256..=8192, 16.0, |d| d.speed(2));
-                                    ui.label("×");
-                                    theme::step_value(ui, &mut s.requested_mode.height, 256..=8192, 16.0, |d| d.speed(2));
-                                    // With 0x553C the rate is set above and the size keeps the current one.
-                                    if controls.size_editor_fps {
-                                        let mut fps = s.requested_mode.fps_millihz as f64 / 1000.0;
-                                        if theme::step_value(ui, &mut fps, 10.0..=500.0, 1.0, |d| d.suffix(" fps").max_decimals(3)).changed() {
-                                            s.requested_mode.fps_millihz = (fps * 1000.0).round() as u32;
-                                        }
-                                    }
-                                });
-                                let apply = if controls.size_editor_fps { tr("Apply stream size and rate") } else { tr("Apply stream size") };
-                                if menu_style::button(ui, apply).clicked() { s.set_mode(s.requested_mode); }
-                            });
-                        });
-                    }
-                    if menu_style::action(ui, Icon::Download, tr("Export statistics (last hour)"), None).clicked() { s.export_statistics = true; }
-                    if s.session_page_available() && menu_style::action(ui, Icon::Sliders, tr("Session and graphics"), None).clicked() {
-                        s.session_page_requested = true;
-                    }
-                    if s.controller_audio_available() {
-                        menu_style::fold(ui, "controller-audio", Icon::Controller, tr("DualSense USB audio and waveform haptics"), |ui| {
-                        let outputs = controller_audio::outputs();
-                        let inputs = controller_audio::inputs();
-                        let mut selections = Vec::new();
-                        let mut input_selections = Vec::new();
-                        for pad in &mut pads.pads {
-                            if !pad.supports_audio() { continue; }
-                            let current = pad.audio.as_ref().map(|a| a.device);
-                            let mut selected = current;
-                            let label = current.and_then(|id| outputs.iter().find(|(device, _)| *device == id)).map_or(tr("Off"), |(_, name)| name.as_str());
-                            egui::ComboBox::from_id_salt(("controller-audio", pad.index)).selected_text(trf("Controller {}: {}", &[&(pad.index + 1), &label])).show_ui(ui, |ui| {
-                                ui.selectable_value(&mut selected, None, tr("Off"));
-                                for (id, name) in &outputs { ui.selectable_value(&mut selected, Some(*id), name); }
-                            });
-                            if selected != current { selections.push((pad.index, selected)); }
-                            if let Some(audio) = &mut pad.audio {
-                                let mut input = audio.input;
-                                let label = input.and_then(|id| inputs.iter().find(|(device, _)| *device == id)).map_or(tr("Off"), |(_, name)| name.as_str());
-                                ui.add_enabled_ui(s.microphone_available(), |ui| {
-                                    egui::ComboBox::from_id_salt(("controller-microphone", pad.index)).selected_text(trf("Microphone: {}", &[&label])).show_ui(ui, |ui| {
-                                        ui.selectable_value(&mut input, None, tr("Off"));
-                                        for (id, name) in &inputs { ui.selectable_value(&mut input, Some(*id), name); }
-                                    });
-                                });
-                                if input != audio.input { input_selections.push((pad.index, input)); }
-                                egui::ComboBox::from_id_salt(("controller-headphones", pad.index))
-                                    .selected_text(match audio.headphone_override { None => tr("Automatic headset detection"), Some(true) => tr("Headset"), Some(false) => tr("Controller speaker") })
-                                    .show_ui(ui, |ui| {
-                                        ui.selectable_value(&mut audio.headphone_override, None, tr("Automatic headset detection"));
-                                        ui.selectable_value(&mut audio.headphone_override, Some(true), tr("Headset"));
-                                        ui.selectable_value(&mut audio.headphone_override, Some(false), tr("Controller speaker"));
-                                    });
-                                if audio.headphone_override.is_none() && audio.detected_headphones.is_none() {
-                                    ui.weak(tr("Headset detection unavailable. Select Headset when using the controller jack."));
-                                }
+                        stream_menu::Page::Confirm(exit) => match stream_menu::confirm(ui, *exit, focus_first) {
+                            Some(true) => {
+                                s.end_on_host(*exit);
+                                next = Some(stream_menu::Page::Grid);
                             }
-                        }
-                        for (index, device) in selections {
-                            match pads.set_audio(index, device) {
-                                Ok(()) => s.session.input(|q| pads.announce_new(q)),
-                                Err(error) => s.show_toast(trf("Controller audio unavailable: {}", &[&error])),
+                            Some(false) => next = Some(stream_menu::Page::Grid),
+                            None => {}
+                        },
+                        stream_menu::Page::Shortcuts => match stream_menu::shortcuts_page(ui, shortcuts, focus_first) {
+                            Some(stream_menu::ShortcutChoice::Send(shortcut)) => {
+                                s.toggle_menu(window, pads);
+                                s.send_shortcut(&shortcut);
                             }
-                        }
-                        for (index, device) in input_selections {
-                            if let Err(error) = pads.set_audio_input(index, device) { s.show_toast(error); }
-                        }
-                        });
-                    }
-                    if let Some(panel) = s.usb.as_mut() {
-                        menu_style::fold(ui, "usb", Icon::Usb, tr("USB devices"), |ui| usb::show(ui, panel));
-                    } else if let Some(why) = s.usb_refused {
-                        // Why there are no devices shows without opening anything.
-                        usb::show_refusal(ui, why);
-                    }
-                    if !s.facts.server_commands.is_empty() {
-                        menu_style::fold(ui, "pc-commands", Icon::Terminal, tr("PC commands"), |ui| {
+                            Some(stream_menu::ShortcutChoice::Edit(index)) => {
+                                next = Some(stream_menu::Page::Editor(stream_menu::Draft::edit(&shortcuts.data[index])));
+                            }
+                            Some(stream_menu::ShortcutChoice::Add) => next = Some(stream_menu::Page::Editor(stream_menu::Draft::default())),
+                            None => {}
+                        },
+                        stream_menu::Page::Editor(draft) => match stream_menu::editor(ui, draft, shortcuts, focus_first) {
+                            stream_menu::Edited::Stay => {}
+                            stream_menu::Edited::Changed => {
+                                shortcuts_changed = true;
+                                next = Some(stream_menu::Page::Shortcuts);
+                            }
+                            stream_menu::Edited::Cancel => next = Some(stream_menu::Page::Shortcuts),
+                        },
+                        stream_menu::Page::Commands => {
                             for (index, name) in s.facts.server_commands.iter().enumerate() {
-                                if !name.is_empty() && menu_style::button(ui, name).clicked() {
+                                if !name.is_empty() && menu_style::action(ui, Icon::Terminal, name, None).clicked() {
                                     s.pending_command = Some(index);
                                 }
                             }
@@ -2425,16 +2478,222 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
                                     if menu_style::button(ui, tr("Cancel")).clicked() { s.pending_command = None; }
                                 });
                             }
-                        });
+                        }
+                        stream_menu::Page::Quality => {
+                            let controls = s.menu_controls();
+                            if s.facts.runtime_bitrate {
+                                if s.facts.role == nightjar_core::http::AppRole::Stream && !s.client_hint_active() {
+                                    let mut enabled = s.adaptive_bitrate;
+                                    if ui.add_enabled_ui(!s.bitrate_busy, |ui| menu_style::switch(ui, Icon::Gauge, tr("Device controls bitrate"), &mut enabled)).inner.changed() {
+                                        s.enable_adaptive_bitrate(enabled);
+                                    }
+                                }
+                                if controls.http_bitrate && stream::menu_extras::bitrate_slider(ui, &mut s.bitrate_kbps, !s.adaptive_bitrate && !s.bitrate_busy) {
+                                    s.set_bitrate();
+                                }
+                            }
+                            if let Some(rates) = s.rate_change.as_mut().filter(|_| controls.rate_change) {
+                                let busy = rates.menu_busy();
+                                let mut apply = stream::menu_extras::bitrate_slider(ui, &mut rates.menu_kbps, !busy);
+                                menu_style::fold(ui, "rate-change", Icon::Gauge, tr("Change bitrate / frame rate"), |ui| {
+                                    let busy = rates.menu_busy();
+                                    ui.add_enabled_ui(!busy, |ui| {
+                                        ui.horizontal(|ui| {
+                                            theme::step_value(ui, &mut rates.menu_kbps, 500..=800_000, 1000.0, |d| d.speed(100).suffix(" kbps"));
+                                            theme::step_value(ui, &mut rates.menu_fps, 10.0..=500.0, 1.0, |d| d.suffix(" fps").max_decimals(3));
+                                        });
+                                        apply |= menu_style::button(ui, tr("Apply bitrate and frame rate")).clicked();
+                                    });
+                                    if busy { menu_style::text_block(ui, tr("Waiting for the PC…")); }
+                                });
+                                if apply { s.change_rates(); }
+                            }
+                            if s.facts.role != nightjar_core::http::AppRole::InputOnly {
+                                menu_style::fold(ui, "stream-health", Icon::Pulse, tr("Why did my stream stutter?"), |ui| {
+                                    let (text, offer) = s.health();
+                                    menu_style::text_block(ui, &text);
+                                    ui.add_space(theme::space::S);
+                                    ui.horizontal(|ui| {
+                                        if let Some(label) = stream::doctor::offer_label(offer) {
+                                            if ui.add_enabled_ui(!s.bitrate_busy, |ui| menu_style::button(ui, label)).inner.clicked() { s.health_trial(offer); }
+                                        }
+                                        if menu_style::button(ui, tr("Copy report")).clicked() { s.copy_health(); }
+                                    });
+                                });
+                            }
+                            if controls.size_editor {
+                                menu_style::fold(ui, "stream-size", Icon::Screen, tr("Stream size"), |ui| {
+                                    let mut quality = s.quality_mode;
+                                    egui::ComboBox::from_id_salt("stream-quality").selected_text(tr(quality.label())).show_ui(ui, |ui| {
+                                        for mode in [config::QualityMode::Off, config::QualityMode::Motion, config::QualityMode::Detail, config::QualityMode::Battery] {
+                                            ui.selectable_value(&mut quality, mode, tr(mode.label()));
+                                        }
+                                    });
+                                    if quality != s.quality_mode { s.set_quality(quality); }
+                                    ui.add_enabled_ui(s.quality_mode == config::QualityMode::Off, |ui| {
+                                        ui.horizontal(|ui| {
+                                            theme::step_value(ui, &mut s.requested_mode.width, 256..=8192, 16.0, |d| d.speed(2));
+                                            ui.label("×");
+                                            theme::step_value(ui, &mut s.requested_mode.height, 256..=8192, 16.0, |d| d.speed(2));
+                                            // With 0x553C the rate is set above and the size keeps the current one.
+                                            if controls.size_editor_fps {
+                                                let mut fps = s.requested_mode.fps_millihz as f64 / 1000.0;
+                                                if theme::step_value(ui, &mut fps, 10.0..=500.0, 1.0, |d| d.suffix(" fps").max_decimals(3)).changed() {
+                                                    s.requested_mode.fps_millihz = (fps * 1000.0).round() as u32;
+                                                }
+                                            }
+                                        });
+                                        let apply = if controls.size_editor_fps { tr("Apply stream size and rate") } else { tr("Apply stream size") };
+                                        if menu_style::button(ui, apply).clicked() { s.set_mode(s.requested_mode); }
+                                    });
+                                });
+                            }
+                        }
+                        stream_menu::Page::More => {
+                            // The model's order (nightjar_policy::stream_menu::TILES), one row or group per ID.
+                            for id in &layout.more {
+                                match *id {
+                                    "picture" => {
+                                        menu_style::row(ui, Icon::Overlay, tr("Performance overlay"), |ui| {
+                                            let shown = if s.overlay_visible { tr(s.overlay_mode.label()) } else { tr("Off") };
+                                            egui::ComboBox::from_id_salt("stream-overlay").width(MENU_LIST).selected_text(shown).show_ui(ui, |ui| {
+                                                if ui.selectable_label(!s.overlay_visible, tr("Off")).clicked() { s.overlay_visible = false; }
+                                                for mode in config::OverlayMode::ALL {
+                                                    if ui.selectable_label(s.overlay_visible && s.overlay_mode == mode, tr(mode.label())).clicked() {
+                                                        (s.overlay_visible, s.overlay_mode) = (true, mode);
+                                                    }
+                                                }
+                                            });
+                                        });
+                                        if s.overlay_visible {
+                                            menu_style::row(ui, Icon::Corner, tr("Overlay position"), |ui| {
+                                                egui::ComboBox::from_id_salt("stream-overlay-corner").width(MENU_LIST).selected_text(tr(s.overlay_corner.label())).show_ui(ui, |ui| {
+                                                    for corner in config::OverlayCorner::ALL {
+                                                        ui.selectable_value(&mut s.overlay_corner, corner, tr(corner.label()));
+                                                    }
+                                                });
+                                            });
+                                        }
+                                        let current = s.video_scaling();
+                                        let (mut scaling, top) = current;
+                                        menu_style::row(ui, Icon::Screen, tr("Video size"), |ui| {
+                                            egui::ComboBox::from_id_salt("stream-scaling").width(MENU_LIST).selected_text(tr(scaling.label())).show_ui(ui, |ui| {
+                                                use config::VideoScaling;
+                                                for mode in [VideoScaling::Fit, VideoScaling::Fill, VideoScaling::Stretch, VideoScaling::Native] {
+                                                    ui.selectable_value(&mut scaling, mode, tr(mode.label()));
+                                                }
+                                            });
+                                        });
+                                        if scaling != current.0 { s.set_video_scaling(scaling, top); }
+                                    }
+                                    // The PC's night mode and headphone surround, as it answered when the menu opened.
+                                    "night_mode" => {
+                                        for switch in s.host_audio.switches() {
+                                            let mut on = switch.on;
+                                            let label = stream::menu_extras::audio_label(switch.id);
+                                            if ui.add_enabled_ui(switch.enabled, |ui| menu_style::switch(ui, Icon::Speaker, label, &mut on)).inner.changed() { s.set_host_audio(switch.id, on); }
+                                            if let Some(note) = &switch.note { menu_style::note(ui, note); }
+                                        }
+                                        if let Some(problem) = s.host_audio.problem() { menu_style::note(ui, problem); }
+                                    }
+                                    "image_clipboard_send" => if menu_style::action(ui, Icon::Image, tr("Send image to PC"), None).clicked() { s.clipboard_image(true); },
+                                    "image_clipboard_receive" => if menu_style::action(ui, Icon::Image, tr("Copy PC image here"), None).clicked() { s.clipboard_image(false); },
+                                    "controller_audio" => {
+                                        menu_style::fold(ui, "controller-audio", Icon::Controller, tr("DualSense USB audio and waveform haptics"), |ui| {
+                                        let outputs = controller_audio::outputs();
+                                        let inputs = controller_audio::inputs();
+                                        let mut selections = Vec::new();
+                                        let mut input_selections = Vec::new();
+                                        for pad in &mut pads.pads {
+                                            if !pad.supports_audio() { continue; }
+                                            let current = pad.audio.as_ref().map(|a| a.device);
+                                            let mut selected = current;
+                                            let label = current.and_then(|id| outputs.iter().find(|(device, _)| *device == id)).map_or(tr("Off"), |(_, name)| name.as_str());
+                                            egui::ComboBox::from_id_salt(("controller-audio", pad.index)).selected_text(trf("Controller {}: {}", &[&(pad.index + 1), &label])).show_ui(ui, |ui| {
+                                                ui.selectable_value(&mut selected, None, tr("Off"));
+                                                for (id, name) in &outputs { ui.selectable_value(&mut selected, Some(*id), name); }
+                                            });
+                                            if selected != current { selections.push((pad.index, selected)); }
+                                            if let Some(audio) = &mut pad.audio {
+                                                let mut input = audio.input;
+                                                let label = input.and_then(|id| inputs.iter().find(|(device, _)| *device == id)).map_or(tr("Off"), |(_, name)| name.as_str());
+                                                ui.add_enabled_ui(s.microphone_available(), |ui| {
+                                                    egui::ComboBox::from_id_salt(("controller-microphone", pad.index)).selected_text(trf("Microphone: {}", &[&label])).show_ui(ui, |ui| {
+                                                        ui.selectable_value(&mut input, None, tr("Off"));
+                                                        for (id, name) in &inputs { ui.selectable_value(&mut input, Some(*id), name); }
+                                                    });
+                                                });
+                                                if input != audio.input { input_selections.push((pad.index, input)); }
+                                                egui::ComboBox::from_id_salt(("controller-headphones", pad.index))
+                                                    .selected_text(match audio.headphone_override { None => tr("Automatic headset detection"), Some(true) => tr("Headset"), Some(false) => tr("Controller speaker") })
+                                                    .show_ui(ui, |ui| {
+                                                        ui.selectable_value(&mut audio.headphone_override, None, tr("Automatic headset detection"));
+                                                        ui.selectable_value(&mut audio.headphone_override, Some(true), tr("Headset"));
+                                                        ui.selectable_value(&mut audio.headphone_override, Some(false), tr("Controller speaker"));
+                                                    });
+                                                if audio.headphone_override.is_none() && audio.detected_headphones.is_none() {
+                                                    ui.weak(tr("Headset detection unavailable. Select Headset when using the controller jack."));
+                                                }
+                                            }
+                                        }
+                                        for (index, device) in selections {
+                                            match pads.set_audio(index, device) {
+                                                Ok(()) => s.session.input(|q| pads.announce_new(q)),
+                                                Err(error) => s.show_toast(trf("Controller audio unavailable: {}", &[&error])),
+                                            }
+                                        }
+                                        for (index, device) in input_selections {
+                                            if let Err(error) = pads.set_audio_input(index, device) { s.show_toast(error); }
+                                        }
+                                        });
+                                    }
+                                    "usb_devices" => {
+                                        if let Some(panel) = s.usb.as_mut() {
+                                            menu_style::fold(ui, "usb", Icon::Usb, tr("USB devices"), |ui| usb::show(ui, panel));
+                                        } else if let Some(why) = s.usb_refused {
+                                            // Why there are no devices shows without opening anything.
+                                            usb::show_refusal(ui, why);
+                                        }
+                                    }
+                                    "export_statistics" => if menu_style::action(ui, Icon::Download, tr("Export statistics (last hour)"), None).clicked() { s.export_statistics = true; },
+                                    "help" => {
+                                        if menu_style::action(ui, Icon::Help, tr("Shortcuts & help"), Some(shortcuts::Action::StreamShortcuts)).clicked() {
+                                            s.shortcut_sheet = Some(stream::Sheet::FromMenu);
+                                            ctx.memory_mut(|m| m.surrender_focus(m.focused().unwrap_or(egui::Id::NULL)));
+                                        }
+                                    }
+                                    "reconnect" => if menu_style::action(ui, Icon::Reconnect, tr("Reconnect"), None).clicked() { s.exit = Some(Exit::Reconnect); },
+                                    other => unreachable!("More has no row for {other}"),
+                                }
+                            }
+                        }
                     }
-                    if menu_style::action(ui, Icon::Help, tr("Shortcuts & help"), Some(shortcuts::Action::StreamShortcuts)).clicked() {
-                        s.shortcut_sheet = Some(stream::Sheet::FromMenu);
-                        ctx.memory_mut(|m| m.surrender_focus(m.focused().unwrap_or(egui::Id::NULL)));
+                    if !matches!(page, stream_menu::Page::Grid | stream_menu::Page::Confirm(_)) {
+                        ui.add_space(theme::space::M);
+                        if menu_style::action_keys(ui, Icon::Back, tr("Back"), Some(crate::shortcuts::Key::Escape.cap())).clicked() {
+                            next = Some(stream_menu::Page::Grid);
+                        }
                     }
-                    if menu_style::action(ui, Icon::Reconnect, tr("Reconnect"), None).clicked() { s.exit = Some(Exit::Reconnect); }
-                    menu_style::divider(ui);
-                    if menu_style::danger(ui, Icon::Power, tr("Disconnect"), Some(shortcuts::Action::Disconnect)).clicked() { s.exit = Some(Exit::User); }
-                }));
+                });
+                if grid_page {
+                    leave = menu_style::pinned(ui, "stream-menu-footer", |ui| stream_menu::footer(ui, &layout));
+                }
+                });
+            match leave {
+                Some(stream_menu::Leave::Close) => s.toggle_menu(window, pads),
+                Some(stream_menu::Leave::Disconnect) => s.exit = Some(Exit::User),
+                Some(stream_menu::Leave::Exit(exit)) => next = Some(stream_menu::Page::Confirm(exit)),
+                None => {}
+            }
+            if let Some(next) = next {
+                // The new page starts with nothing focused, so its first tile or row takes the focus.
+                ctx.memory_mut(|m| m.surrender_focus(m.focused().unwrap_or(egui::Id::NULL)));
+                page = next;
+            }
+            // Closing from a page (Disconnect, a shortcut) already reset it to the grid.
+            if s.menu_visible {
+                s.menu_page = page;
+            }
         } else {
             s.settle_bitrate_slider(&ctx);
         }
@@ -2494,6 +2753,7 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
         gui.platform(window, &output.platform_output);
     }
     gui.paint(renderer, output);
+    shortcuts_changed
 }
 
 /// Input-only on a PC without its own mode: the smallest stream every host takes, as on Android.
@@ -2564,7 +2824,7 @@ fn remove_host(
 
 /// A stream start the PIN lock holds until the PIN is entered.
 enum PinPending {
-    Launch { host: u64, app: i32, resume: bool, small: bool, from: LaunchFrom },
+    Launch { host: u64, app: i32, resume: bool, kind: LaunchKind, from: LaunchFrom },
     QuitAndLaunch { host: u64, app: i32, named: Option<i32> },
 }
 
@@ -2589,6 +2849,67 @@ impl LaunchFrom {
             LaunchFrom::Autostream => "autostream",
             LaunchFrom::CommandLine => "command line",
         }
+    }
+}
+
+/// What a launch starts besides an ordinary stream.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum LaunchKind {
+    Stream,
+    /// Input-only through a small ordinary stream, on a PC without its own mode.
+    SmallInputOnly,
+    /// Only this device's microphone, on a PC that lists `Feature::MicOnly`.
+    MicOnly,
+}
+
+impl LaunchKind {
+    fn log_suffix(self) -> &'static str {
+        match self {
+            LaunchKind::Stream => "",
+            LaunchKind::SmallInputOnly => ", input only through a small stream",
+            LaunchKind::MicOnly => ", microphone only",
+        }
+    }
+}
+
+/// A microphone-only session's settings: the microphone on, no controllers, and the PC keeps
+/// its own sound.
+fn mic_only_settings(settings: &mut config::Settings) {
+    settings.microphone = true;
+    settings.controllers = false;
+    settings.play_audio_on_host = true;
+    settings.clipboard_sync = false;
+    settings.usb_forwarding = false;
+}
+
+/// The microphone-only screen's title. An unavailable microphone says so rather than "muted";
+/// `busy`: the PC plays another device's microphone for now.
+fn mic_only_title(muted: bool, unavailable: bool, busy: bool) -> &'static str {
+    if unavailable {
+        strings::en("Microphone unavailable")
+    } else if muted {
+        strings::en("Microphone muted")
+    } else if busy {
+        strings::en("Microphone in use on another device")
+    } else {
+        strings::en("Microphone on")
+    }
+}
+
+/// The app id a microphone-only launch sends: it names no app, and the PC starts none.
+const MIC_ONLY_APP_ID: i32 = 0;
+
+/// The app a microphone-only session stands for in the stream's title and logs.
+fn mic_only_app() -> nightjar_core::http::App {
+    nightjar_core::http::App {
+        name: tr("Microphone only").to_owned(),
+        id: MIC_ONLY_APP_ID,
+        hdr_supported: false,
+        uuid: String::new(),
+        host_index: None,
+        art_version: String::new(),
+        control: nightjar_core::http::AppControl::None,
+        monitor_resume: false,
     }
 }
 
@@ -2716,6 +3037,26 @@ mod tests {
         assert!(!settings.virtual_display && !settings.vrr && settings.play_audio_on_host, "the PC's display and speakers stay as they are");
     }
 
+    #[test]
+    fn microphone_only_sends_the_microphone_and_names_no_app() {
+        let mut settings = config::Settings { microphone: false, controllers: true, clipboard_sync: true, ..Default::default() };
+        super::mic_only_settings(&mut settings);
+        assert!(settings.microphone, "the microphone goes, whatever the stream setting says");
+        assert!(!settings.controllers && !settings.clipboard_sync && !settings.usb_forwarding);
+        assert!(settings.play_audio_on_host, "the PC keeps its sound");
+        let app = super::mic_only_app();
+        assert_eq!(app.id, super::MIC_ONLY_APP_ID);
+        assert!(!app.is_control_action());
+        assert_eq!(super::LaunchKind::MicOnly.log_suffix(), ", microphone only");
+        assert_eq!(super::mic_only_title(false, false, false), "Microphone on");
+        assert_eq!(super::mic_only_title(true, false, false), "Microphone muted");
+        // A failed microphone is not called muted, also once it was muted for the failure.
+        assert_eq!(super::mic_only_title(true, true, false), "Microphone unavailable");
+        // The PC plays another device's microphone; muted says more.
+        assert_eq!(super::mic_only_title(false, false, true), "Microphone in use on another device");
+        assert_eq!(super::mic_only_title(true, false, true), "Microphone muted");
+    }
+
     /// Holding Ctrl+Alt+Shift+H or Escape doesn't flip the sheet or the menu with each repeat,
     /// and Back acts on the page that is drawn: the Session page before a sheet it hides.
     #[test]
@@ -2724,17 +3065,22 @@ mod tests {
         use shortcuts::Action;
         let sheet = Some(Action::StreamShortcuts);
         let controls = Some(Action::StreamControls);
-        assert_eq!(menu_step(sheet, false, false, false, false), MenuStep::ToggleSheet);
-        assert_eq!(menu_step(sheet, false, true, true, false), MenuStep::Swallow);
-        assert_eq!(menu_step(controls, false, true, false, false), MenuStep::Swallow);
-        assert_eq!(menu_step(None, true, true, false, true), MenuStep::Swallow, "a held Escape");
-        assert_eq!(menu_step(None, true, false, true, true), MenuStep::CloseSessionPage);
-        assert_eq!(menu_step(controls, false, false, false, true), MenuStep::CloseSessionPage);
-        assert_eq!(menu_step(None, true, false, true, false), MenuStep::CloseSheet);
-        assert_eq!(menu_step(controls, false, false, true, false), MenuStep::CloseMenu);
-        assert_eq!(menu_step(None, true, false, false, false), MenuStep::CloseMenu);
-        assert_eq!(menu_step(Some(Action::SendClipboard), false, true, false, false), MenuStep::Pass);
-        assert_eq!(menu_step(None, false, false, false, false), MenuStep::Pass);
+        assert_eq!(menu_step(sheet, false, false, false, false, false), MenuStep::ToggleSheet);
+        assert_eq!(menu_step(sheet, false, true, true, false, false), MenuStep::Swallow);
+        assert_eq!(menu_step(controls, false, true, false, false, false), MenuStep::Swallow);
+        assert_eq!(menu_step(None, true, true, false, true, false), MenuStep::Swallow, "a held Escape");
+        assert_eq!(menu_step(None, true, false, true, true, false), MenuStep::CloseSessionPage);
+        assert_eq!(menu_step(controls, false, false, false, true, false), MenuStep::CloseSessionPage);
+        assert_eq!(menu_step(None, true, false, true, false, false), MenuStep::CloseSheet);
+        assert_eq!(menu_step(controls, false, false, true, false, false), MenuStep::CloseMenu);
+        assert_eq!(menu_step(None, true, false, false, false, false), MenuStep::CloseMenu);
+        assert_eq!(menu_step(Some(Action::SendClipboard), false, true, false, false, false), MenuStep::Pass);
+        assert_eq!(menu_step(None, false, false, false, false, false), MenuStep::Pass);
+        // Back from a page a tile opened goes to the grid; the sheet and the Session page draw over it first.
+        assert_eq!(menu_step(None, true, false, false, false, true), MenuStep::ClosePage);
+        assert_eq!(menu_step(None, true, false, true, false, true), MenuStep::CloseSheet);
+        assert_eq!(menu_step(None, true, false, false, true, true), MenuStep::CloseSessionPage);
+        assert_eq!(menu_step(controls, false, false, false, false, true), MenuStep::CloseMenu, "the controls chord closes from any page");
     }
 
     #[test]

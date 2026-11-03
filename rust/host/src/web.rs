@@ -308,6 +308,9 @@ pub fn router(h: Shared) -> Router {
 pub fn guest_router(h: Shared) -> Router {
     Router::new()
         .route("/guest/signal", get(guest_signal))
+        // The app icon, as the console's: the guest page's tab shows it.
+        .route("/guest/favicon.svg", get(crate::console::favicon))
+        .route("/favicon.ico", get(crate::console::favicon))
         .route("/guest", get(guest_page))
         .route("/guest/", get(guest_page))
         .route("/guest/{*path}", get(guest_page))

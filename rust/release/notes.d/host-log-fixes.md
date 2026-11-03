@@ -1,0 +1,7 @@
+# Host log fixes
+- **Nucleus Co-op runs from its folder again on PCs where Windows gave an app capability rights on `C:\`.** Rubylight counted that entry as someone who could move the folder, refused Nucleus Co-op and logged it every few seconds. Such an entry grants nothing its user isn't allowed already, so it no longer counts. A refusal that stays is logged once until its reason changes.
+- **Game and Nucleus Co-op settings an earlier session changed always come back.** Putting them back no longer depends on Rubylight still running Nucleus Co-op from that folder: they come back from the chosen folder and from the copy an earlier Rubylight installed, as long as only administrators can change it.
+- **The frame limiter no longer stays stuck after a stream.** When RTSS reported the restored cap in another form (the same rate with another denominator, or any denominator with no limit), Rubylight kept the limiter as pending and warned at every stream. The same cap now counts as restored. A setting this RTSS doesn't report is named once, and a different cap is still an error.
+- **Xbox PC games in Add games.** A game that starts through `GameLaunchHelper.exe`, and a config saved as UTF-16, are found. A package with no application is skipped quietly. A launcher scan error now says why, not only which package.
+- The missing Windows HDR Calibration warning (`virtual_display_hdr_calibration`) shows once per host start instead of at every stream.
+- The browser guest page has the Rubylight icon instead of a missing one.

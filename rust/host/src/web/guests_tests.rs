@@ -403,11 +403,25 @@ async fn the_guest_port_answers_only_while_a_link_is_live() {
         guest(&f, WAN, "GET", "/guest/", &[]).await.text(),
         "<p>guest page</p>"
     );
+    // The page's tab icon, and the one a browser asks for itself (404 in 3.4.0).
+    for path in ["/guest/favicon.svg", "/favicon.ico"] {
+        let icon = guest(&f, WAN, "GET", path, &[]).await;
+        assert_eq!(icon.status, StatusCode::OK, "{path}");
+        assert_eq!(
+            icon.headers[header::CONTENT_TYPE],
+            "image/svg+xml",
+            "{path}"
+        );
+        assert!(icon.text().starts_with("<svg"), "{path}");
+    }
     f.host.guests.revoke(&id);
-    assert_eq!(
-        guest(&f, WAN, "GET", "/guest/", &[]).await.status,
-        StatusCode::NOT_FOUND
-    );
+    for path in ["/guest/", "/guest/favicon.svg"] {
+        assert_eq!(
+            guest(&f, WAN, "GET", path, &[]).await.status,
+            StatusCode::NOT_FOUND,
+            "{path}"
+        );
+    }
 }
 
 #[tokio::test]

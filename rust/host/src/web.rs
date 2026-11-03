@@ -8,6 +8,9 @@ pub(crate) use clients::handle as update_clients;
 pub(crate) use clients::pairing_qr;
 mod config;
 mod displays;
+mod guests;
+#[cfg(test)]
+mod guests_tests;
 mod logs;
 mod maintenance;
 mod neural;
@@ -300,8 +303,19 @@ pub fn router(h: Shared) -> Router {
     router_with(h, crate::webrtc::server::Console::default())
 }
 /// The console. `console` is what its stream page needs from the WebRTC server.
+///
+/// The guest page and its socket (docs/browser-guests.md) sit beside the console, outside its
+/// guard: a guest has no sign-in, and its reach is the invite's, not `origin_web_ui_allowed`.
+/// Nothing else is served there.
 pub fn router_with(h: Shared, console: crate::webrtc::server::Console) -> Router {
-    Router::new()
+    let guests = Router::new()
+        .route("/guest/signal", get(guest_signal))
+        .route("/guest", get(guest_page))
+        .route("/guest/", get(guest_page))
+        .route("/guest/{*path}", get(guest_page))
+        .layer(middleware::from_fn(guest_headers))
+        .with_state(h.clone());
+    let console = Router::new()
         .route("/api/webrtc/signal", get(webrtc_signal))
         .route(
             "/api/{*path}",
@@ -318,7 +332,8 @@ pub fn router_with(h: Shared, console: crate::webrtc::server::Console) -> Router
         .layer(axum::extract::DefaultBodyLimit::max(16 * 1024 * 1024))
         .layer(middleware::from_fn_with_state(h.clone(), guard))
         .layer(Extension(console))
-        .with_state(h)
+        .with_state(h);
+    console.merge(guests)
 }
 /// A state-changing request with Basic credentials needs no CSRF token
 /// (docs/api.md), and a browser that cached those credentials attaches them
@@ -487,9 +502,90 @@ async fn webrtc_signal(
         },
     )
 }
+/// `GET /guest/signal`: the guest page's socket (docs/browser-guests.md). It needs the page's
+/// own origin and the `rubylight.guest.v1` subprotocol; the invite token is its first message,
+/// never part of a URL.
+async fn guest_signal(
+    State(h): State<Shared>,
+    Extension(connection): Extension<Connection>,
+    headers: HeaderMap,
+    upgrade: Result<
+        axum::extract::WebSocketUpgrade,
+        axum::extract::ws::rejection::WebSocketUpgradeRejection,
+    >,
+) -> Response {
+    use crate::webrtc::guests;
+    if !headers
+        .get(header::ORIGIN)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|origin| origin_allowed(&h, &headers, origin))
+    {
+        return error(StatusCode::FORBIDDEN, "request origin is not allowed");
+    }
+    let wanted = headers
+        .get_all(header::SEC_WEBSOCKET_PROTOCOL)
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .flat_map(|v| v.split(','))
+        .any(|p| p.trim() == guests::PROTOCOL);
+    if !wanted {
+        return error(
+            StatusCode::BAD_REQUEST,
+            "the rubylight.guest.v1 subprotocol is required",
+        );
+    }
+    if !h.config.read().unwrap().webrtc_server() {
+        return error(
+            StatusCode::CONFLICT,
+            "streaming in the browser is off on this host",
+        );
+    }
+    let upgrade = match upgrade {
+        Ok(upgrade) => upgrade,
+        Err(rejection) => return rejection.into_response(),
+    };
+    let advertised = headers
+        .get(header::HOST)
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_owned);
+    guests::upgrade(
+        h.clone(),
+        upgrade,
+        connection.peer,
+        connection.local,
+        advertised,
+    )
+}
+/// The guest page: its own build of the web app (`dist/guest`), and nothing of the console's.
+async fn guest_page(State(h): State<Shared>, method: Method, uri: axum::http::Uri) -> Response {
+    let root = h.assets.join("guest");
+    if !root.join("index.html").is_file() {
+        return error(
+            StatusCode::NOT_FOUND,
+            "the guest page is not installed on this host",
+        );
+    }
+    let path = uri.path().strip_prefix("/guest").unwrap_or_default();
+    app_file(&root, &method, path, GUEST_POLICY)
+}
+/// The console's own response headers (`guard`), for the guest routes, which it does not
+/// guard; and no referrer, so a link the page opens learns nothing of the invite's.
+async fn guest_headers(request: Request, next: Next) -> Response {
+    let mut response = next.run(request).await;
+    let headers = response.headers_mut();
+    headers.insert("X-Content-Type-Options", "nosniff".parse().unwrap());
+    headers.insert("X-Frame-Options", "DENY".parse().unwrap());
+    headers.insert(header::REFERRER_POLICY, "no-referrer".parse().unwrap());
+    headers
+        .entry(header::CACHE_CONTROL)
+        .or_insert("no-store".parse().unwrap());
+    response
+}
 /// Allowed sources for the web app: covers come from IGDB and the cover
 /// search reads LizardByte's game database.
 const APP_POLICY: &str = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://images.igdb.com; connect-src 'self' https://raw.githubusercontent.com; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
+/// The guest page loads nothing but its own files and talks to nothing but this host.
+const GUEST_POLICY: &str = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'";
 /// The console: the web app when it is installed, else the server-rendered
 /// pages.
 async fn site(
@@ -501,12 +597,12 @@ async fn site(
 ) -> Response {
     let root = state.0.assets.clone();
     if root.join("index.html").is_file() {
-        return app_file(&root, &method, uri.path());
+        return app_file(&root, &method, uri.path(), APP_POLICY);
     }
     crate::console::page(state, connection, method, uri, headers).await
 }
-/// A file of the web app; the app's own page paths get index.html.
-fn app_file(root: &std::path::Path, method: &Method, path: &str) -> Response {
+/// A file of the web app; the app's own page paths get index.html, with `policy` as its CSP.
+fn app_file(root: &std::path::Path, method: &Method, path: &str, policy: &str) -> Response {
     if !matches!(*method, Method::GET | Method::HEAD) {
         return StatusCode::METHOD_NOT_ALLOWED.into_response();
     }
@@ -549,7 +645,7 @@ fn app_file(root: &std::path::Path, method: &Method, path: &str) -> Response {
         );
     }
     if kind.starts_with("text/html") {
-        headers.insert(header::CONTENT_SECURITY_POLICY, APP_POLICY.parse().unwrap());
+        headers.insert(header::CONTENT_SECURITY_POLICY, policy.parse().unwrap());
     }
     response
 }
@@ -833,6 +929,9 @@ pub(crate) async fn api(
     let text = |k: &str| data.get(k).and_then(Value::as_str).unwrap_or("");
     if path == "/api/coop" || path.starts_with("/api/coop/") {
         return coop::handle(&h, &method, path, &data).await;
+    }
+    if path == "/api/guests" || path.starts_with("/api/guests/") {
+        return guests::handle(&h, &method, path, &data);
     }
     if path == "/api/neural" || path.starts_with("/api/neural/") {
         return neural::handle(&h, &method, path, &uri, &data).await;
@@ -1399,7 +1498,7 @@ mod tests {
         std::fs::write(root.join("index.html"), "<html></html>").unwrap();
         std::fs::write(root.join("assets/index-1.js"), "export {}").unwrap();
         std::fs::write(base.join("outside.txt"), "x").unwrap();
-        let get = |path: &str| app_file(&root, &Method::GET, path);
+        let get = |path: &str| app_file(&root, &Method::GET, path, APP_POLICY);
         let header = |response: &Response, name: header::HeaderName| {
             response
                 .headers()
@@ -1443,7 +1542,7 @@ mod tests {
         }
         assert_eq!(get("/assets/index-0.js").status(), StatusCode::NOT_FOUND);
         assert_eq!(
-            app_file(&root, &Method::POST, "/devices").status(),
+            app_file(&root, &Method::POST, "/devices", APP_POLICY).status(),
             StatusCode::METHOD_NOT_ALLOWED
         );
         std::fs::remove_dir_all(&base).ok();

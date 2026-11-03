@@ -186,6 +186,17 @@ pub struct InviteInfo {
     pub expires: u64,
 }
 
+impl From<&Invite> for InviteInfo {
+    fn from(invite: &Invite) -> Self {
+        Self {
+            id: invite.id.clone(),
+            permission: invite.permission,
+            created: invite.created,
+            expires: invite.expires,
+        }
+    }
+}
+
 #[derive(Serialize)]
 pub struct GuestInfo {
     pub id: u64,
@@ -226,16 +237,7 @@ impl Guests {
         Status {
             streaming: inner.owner.is_some(),
             max_guests: MAX_GUESTS,
-            invites: inner
-                .invites
-                .live(now)
-                .map(|invite| InviteInfo {
-                    id: invite.id.clone(),
-                    permission: invite.permission,
-                    created: invite.created,
-                    expires: invite.expires,
-                })
-                .collect(),
+            invites: inner.invites.live(now).map(InviteInfo::from).collect(),
             guests: inner
                 .joined
                 .iter()

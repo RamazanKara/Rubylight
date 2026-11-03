@@ -77,12 +77,14 @@ impl Rig {
         self.core.input(text, self.at(0));
     }
 
-    /// An `input` message as the worker handles it: received, then taken off the queue, then
-    /// handled, so the wait and queue delays are measured.
-    fn deliver(&mut self, text: &str) {
+    /// An `input` message as the worker handles it: received, taken off the queue at once, then
+    /// handled, so the wait and queue delays are measured. Returns how long that took from
+    /// receipt, which bounds every delay it recorded however long the machine held this thread.
+    fn deliver(&mut self, text: &str) -> Duration {
         let received = Instant::now();
-        self.core.dequeued = Some(Instant::now());
+        self.core.dequeued = Some(received);
         self.core.input(text, received);
+        received.elapsed()
     }
 
     fn events(&self) -> Vec<Input> {
@@ -561,9 +563,10 @@ fn a_stopping_session_ends_the_worker_without_waiting_for_the_transport() {
     drop(handle);
 }
 
-/// Poll `condition` for up to five seconds.
+/// Poll `condition` for up to thirty seconds: long enough for a machine under a parallel build,
+/// and it returns as soon as the condition holds.
 fn wait_for(what: &str, condition: impl Fn() -> bool) {
-    let deadline = Instant::now() + Duration::from_secs(5);
+    let deadline = Instant::now() + Duration::from_secs(30);
     while !condition() {
         assert!(Instant::now() < deadline, "timed out: {what}");
         std::thread::sleep(Duration::from_millis(5));
@@ -600,16 +603,21 @@ fn the_queue_delay_is_measured_from_receipt_to_the_injector() {
         r#"{"v":1,"type":"key","code":"KeyA","down":true}"#,
         received,
     );
+    // However long the machine held this thread, no delay exceeds this.
+    let bound_us = received.elapsed().as_micros() as u64;
     r.core.input(
         r#"{"v":1,"type":"key","code":"KeyA","down":false}"#,
         Instant::now(),
     );
     let summary = r.core.summary();
     assert_eq!(summary.queued, 2);
-    assert!(summary.queue_max_us >= 40_000, "{summary:?}");
-    // Two samples: the 99th percentile is the slower one, to within a bucket.
     assert!(
-        (40_000..=80_000).contains(&summary.queue_p99_us),
+        (40_000..=bound_us).contains(&summary.queue_max_us),
+        "{summary:?}"
+    );
+    // Two samples: the 99th percentile is the slower one, to within a bucket and never above it.
+    assert!(
+        (40_000..=summary.queue_max_us).contains(&summary.queue_p99_us),
         "{summary:?}"
     );
     // A message that injected nothing is not a sample.
@@ -624,18 +632,25 @@ fn a_slow_injector_call_is_not_the_hosts_queue_delay() {
     // reported as the injector's time, not as the queue's.
     let mut r = rig(u32::MAX);
     r.rec.slow_apply(Duration::from_millis(15));
+    let mut took = Duration::ZERO;
     for i in 0..4 {
-        r.deliver(&format!(
+        took = took.max(r.deliver(&format!(
             r#"{{"v":1,"type":"mouse-button","button":0,"down":{}}}"#,
             i % 2 == 0
-        ));
+        )));
     }
     let summary = r.core.summary();
     assert_eq!(summary.queued, 4);
     assert!(summary.apply_max_us >= 15_000, "{summary:?}");
-    // If the injector call were counted as queue time these would be at least 15 ms.
-    assert!(summary.queue_max_us < 15_000, "{summary:?}");
-    assert!(summary.wait_max_us < 15_000, "{summary:?}");
+    // Each delivery took its queue delay plus a call of at least 15 ms: a queue delay that
+    // counted the call would leave no room for it, however long the machine held this thread.
+    let took_us = took.as_micros() as u64;
+    assert!(
+        summary.queue_max_us + 15_000 <= took_us,
+        "{summary:?} {took_us}"
+    );
+    // The message was taken off the queue as it arrived.
+    assert_eq!(summary.wait_max_us, 0, "{summary:?}");
     assert_eq!(summary.slow_calls, 4);
 }
 
@@ -674,9 +689,21 @@ fn a_burst_through_the_worker_reaches_the_injector_without_a_timer_in_the_way() 
         false,
     );
     wait_for("the first move", || rec.events().len() == 1);
+    // A thread that only waits on a channel, woken beside the worker each time: how long this
+    // machine takes to wake a thread right now, which a parallel build stretches to milliseconds.
+    let (ping, pings) = mpsc::channel::<Instant>();
+    let (woke, wakes) = mpsc::channel::<Duration>();
+    let control = std::thread::spawn(move || {
+        for sent in pings {
+            let _ = woke.send(sent.elapsed());
+        }
+    });
+    let mut baseline = Delays::default();
     std::thread::sleep(Duration::from_millis(50));
     // Single messages to an idle worker, spread so they meet every phase of a timer tick.
-    for i in 0..10 {
+    for i in 0..20 {
+        ping.send(Instant::now()).unwrap();
+        baseline.record(wakes.recv().unwrap());
         handle.input(
             format!(r#"{{"v":1,"type":"mouse-move","dx":{},"dy":1}}"#, i % 5 + 1).into_bytes(),
             false,
@@ -684,15 +711,19 @@ fn a_burst_through_the_worker_reaches_the_injector_without_a_timer_in_the_way() 
         wait_for("the message", || rec.events().len() == 2 + i);
         std::thread::sleep(Duration::from_millis(20));
     }
+    drop(ping);
+    control.join().unwrap();
     handle.closed();
     let summary = worker.join().unwrap().expect("the worker ran");
-    assert_eq!(summary.queued, 11);
-    // The median, not a tail: a loaded machine can hold a thread for milliseconds now and then, but
-    // a worker that wakes on a timer tick instead of on the channel holds most messages for 8 to
-    // 25 ms.
+    assert_eq!(summary.queued, 21);
+    // The median, not a tail, and over the machine's own wake-up time: a loaded machine can hold
+    // a thread for milliseconds now and then, but a worker that wakes on a timer tick instead of
+    // on the channel holds most messages for 8 to 25 ms more than a thread blocked on a channel.
+    let limit = baseline.median_us() + 2_000;
     assert!(
-        summary.queue_p50_us < 2_000 && summary.wait_p50_us < 2_000,
-        "{summary:?}"
+        summary.queue_p50_us < limit && summary.wait_p50_us < limit,
+        "{summary:?} baseline_p50_us={}",
+        baseline.median_us()
     );
 }
 

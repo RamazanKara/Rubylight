@@ -497,6 +497,7 @@ The Controllers group can be changed while **Controllers** is on. On-screen cont
 | Play audio on the PC too | Off | On, Off | |
 | Microphone | Off | On, Off | Sends the default microphone to a host that accepts one. |
 | *Fine-tuning:* Echo cancellation | Automatic | Automatic, On, Off | With Microphone on. Automatic turns it off on Windows when sound plays through headphones or a headset. On Linux it needs PipeWire's or PulseAudio's echo-cancel module. |
+| Mute audio | Off | On, Off | Plays no sound from the stream on this computer; the audio is still received. Play audio on the PC too and Microphone are unaffected. |
 | Uncompressed audio | Off | On, Off | Asks a Rubylight PC for uncompressed PCM instead of Opus: about 1.5 Mbps for stereo, up to 6 Mbps for 7.1. Other PCs keep Opus. The desktop client does not pass through Dolby. |
 
 ### Streaming

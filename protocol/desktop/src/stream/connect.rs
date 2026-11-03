@@ -902,7 +902,7 @@ pub(super) fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &In
         &host,
         session_config(settings, role, stream, location, watch.is_some() && settings.client_roaming),
         Box::new(pipeline::Decoder::new(shared.clone(), plan.hardware).with_early_decode(early).with_beam_race(slices).with_gpu_decoder(plan.gpu_decoder).with_dmabuf(plan.dmabuf)),
-        Box::new(pipeline::Audio::new(shared.clone(), passthrough)),
+        pipeline::audio_renderer(shared.clone(), passthrough, settings.mute_audio),
         Arc::new(pipeline::Events::new(shared)),
         interrupt,
     )

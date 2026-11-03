@@ -849,6 +849,16 @@ pub fn passthrough_codecs(enabled: bool) -> u8 {
     if enabled { rubylight_protocol::audio_ext::CODEC_PCM } else { 0 }
 }
 
+/// The stream's audio renderer: [`Audio`] on this device's output, or with Mute audio one that
+/// opens none and plays nothing (`session::SilentAudio`). The audio is received either way.
+pub fn audio_renderer(shared: Arc<Shared>, passthrough: u8, mute: bool) -> Box<dyn AudioRenderer> {
+    if mute {
+        Box::new(session::SilentAudio)
+    } else {
+        Box::new(Audio::new(shared, passthrough))
+    }
+}
+
 /// Opus or PCM to an SDL audio stream, with the queue kept short. What runs dry between packets
 /// is concealed from SDL's request callback (see [`Playout`]).
 pub struct Audio {
@@ -1208,6 +1218,36 @@ mod tests {
 
     fn notices(shared: &Shared) -> Vec<Notice> {
         std::mem::take(&mut *lock(&shared.notices))
+    }
+
+    fn audio_setup(codec: u8) -> AudioSetup {
+        AudioSetup {
+            configuration: nightjar_core::sdp::AudioConfiguration::STEREO,
+            opus: nightjar_core::rtsp::OpusConfig::default(),
+            codec,
+            packet_duration_ms: 5,
+            samples_per_frame: 240,
+        }
+    }
+
+    #[test]
+    fn a_muted_stream_opens_no_audio_output() {
+        use rubylight_protocol::audio_ext::{CODEC_AC3, CODEC_OPUS, CODEC_PCM};
+        let shared = Shared::new(Arc::new(|| {}), 8);
+        // This device's output refuses Dolby before it opens anything, so a muted renderer that
+        // takes it is not that output.
+        assert_eq!(audio_renderer(shared.clone(), 0, false).init(&audio_setup(CODEC_AC3)), Err(-1));
+        for codec in [CODEC_OPUS, CODEC_PCM, CODEC_AC3] {
+            let mut muted = audio_renderer(shared.clone(), passthrough_codecs(true), true);
+            assert_eq!(muted.init(&audio_setup(codec)), Ok(()), "codec {codec}");
+            muted.start();
+            muted.play(Some(&[0; 8]));
+            muted.play(None);
+            muted.stop();
+            muted.cleanup();
+        }
+        assert_eq!(shared.counters.audio_channels.load(Ordering::Relaxed), 0, "no output was opened");
+        assert!(notices(&shared).is_empty(), "a muted stream says nothing about its audio");
     }
 
     #[test]

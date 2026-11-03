@@ -67,6 +67,21 @@ This is the dated measurement record. For a guided comparison, start with the [p
 | CPU error correction | [C++ FEC comparison](#controlled-comparison-with-the-original-c-fec) |
 | Reproduction and scope | [Probes](#reproduce-on-another-machine) · [Hardware covered](#hardware-covered) |
 
+## November 3: browser guests share the owner's encode
+
+Release build on the dev PC (`webrtc_bench_guest_fan_out`, `cargo test -p butterpollo --release -- --ignored`), the owner's frame from the encoder's hand-off to "ready to packetize":
+
+| Codec | Guests | Owner median | Owner p99 | Encoder hand-off |
+|---|---|---|---|---|
+| H.264 | 0 | 7.1 µs | 64.2 µs | 0.7 µs |
+| H.264 | 1 | 5.9 µs | 54.5 µs | 8.0 µs |
+| H.264 | 4 | 6.8 µs | 11.5 µs | 7.2 µs |
+| AV1 | 0 | 8.6 µs | 13.5 µs | 0.7 µs |
+| AV1 | 1 | 8.8 µs | 12.7 µs | 8.9 µs |
+| AV1 | 4 | 9.7 µs | 13.8 µs | 9.8 µs |
+
+The owner's own frames stay within about 1 µs of no guests. With guests the encoder's hand-off adds the copy into the shared buffer (and AV1's delimiter strip), 7-10 µs, so it stays on the encoder's thread. The H.264 p99 at 0 and 1 guests is scheduling noise in a 2 s run.
+
 ## November 1: fixed-rate pacing after review (final build)
 
 Two reviews of the change in the next two sections found cases its A/B had not covered. The final build fixes them:

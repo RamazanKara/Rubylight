@@ -94,7 +94,7 @@ ADVICE = {
     "seekbar_osc_stick_deadzone": "Raise if a resting thumb drifts the camera or character; lower for finer aim. 8% suits most phones. Shown only with Controller style Modern.",
     "checkbox_vibrate_osc": "Enable feedback when pressing virtual buttons.",
     "checkbox_only_show_L3R3": "Enable when another controller supplies everything except stick clicks.",
-    "checkbox_show_touchpad_button": "Off by default. Adds a Touchpad button to the on-screen controller (below Home in Modern, between Guide and Start in Classic) that clicks the touchpad of a PlayStation controller on the PC. While it is on, the on-screen controller connects as a PlayStation controller, so the PC gets a DualSense or DualShock 4.",
+    "checkbox_show_touchpad_button": "Off by default. Adds a Touchpad button to the on-screen controller (below Home in Modern, between Guide and Start in Classic) that clicks the touchpad of a PlayStation controller on the PC. While it is on, player 1 (the on-screen controller, or a handheld's built-in controls) connects as a PlayStation controller, so the PC gets a DualSense or DualShock 4 with the host on Automatic.",
     "checkbox_multi_touch_finger_taps": "Off by default. In Multi-touch, three- and four-finger taps normally reach the PC as touches. Turn on to use them for the finger-tap actions instead; a tap counts only when all fingers land together, and the touches the PC already had are cancelled when it starts.",
     "checkbox_show_guide_button": "Enable to expose the virtual Guide/Home button.",
     "seekbar_osc_opacity": "Lower to see more of the game beneath the controls.",

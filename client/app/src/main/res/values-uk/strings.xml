@@ -183,7 +183,7 @@
     <string name="summary_only_l3r3">Сховати всі віртуальні кнопки, крім L3 і R3</string>
     <string name="title_show_guide_button">Показувати кнопку Guide</string>
     <string name="title_show_touchpad_button">Показувати кнопку тачпада</string>
-    <string name="summary_show_touchpad_button">Натискає тачпад, коли віртуальний контролер на ПК — DualShock 4 або DualSense. У сучасному стилі її можна перемістити або сховати в редакторі розкладки.</string>
+    <string name="summary_show_touchpad_button">Натискає тачпад контролера PlayStation на ПК: поки кнопку ввімкнено, гравець 1 підключається як такий контролер. У сучасному стилі її можна перемістити або сховати в редакторі розкладки.</string>
     <string name="title_reset_osc">Скинути розкладку елементів</string>
     <string name="dialog_title_reset_osc">Скинути розкладку</string>
     <string name="dialog_text_reset_osc">Повернути всім екранним кнопкам стандартний розмір і положення?</string>

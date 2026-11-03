@@ -183,7 +183,7 @@
     <string name="summary_only_l3r3">Masque tous les boutons virtuels sauf L3 et R3</string>
     <string name="title_show_guide_button">Afficher le bouton Guide</string>
     <string name="title_show_touchpad_button">Afficher le bouton Pavé tactile</string>
-    <string name="summary_show_touchpad_button">Clique sur le pavé tactile quand la manette virtuelle du PC est une DualShock 4 ou une DualSense. En style moderne, déplacez-le ou masquez-le dans l’éditeur de disposition.</string>
+    <string name="summary_show_touchpad_button">Clique sur le pavé tactile d’une manette PlayStation sur le PC : tant qu’il est activé, le joueur 1 se connecte comme telle. En style moderne, déplacez-le ou masquez-le dans l’éditeur de disposition.</string>
     <string name="title_reset_osc">Réinitialiser la disposition</string>
     <string name="dialog_title_reset_osc">Réinitialiser la disposition</string>
     <string name="dialog_text_reset_osc">Rétablir la taille et la position par défaut de tous les boutons à l’écran ?</string>

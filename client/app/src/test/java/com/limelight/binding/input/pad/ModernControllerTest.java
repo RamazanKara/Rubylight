@@ -337,6 +337,16 @@ public class ModernControllerTest {
         assertEquals(box[1] + box[3], bottom, 1);
         float[] menu = controller.layout().bounds(PadLayout.Control.START, 1600, 720, density, new float[4]);
         assertTrue(menu[1] + menu[3] < box[1]);
+        // The microphone's default place clears the Touchpad pill, in landscape and in portrait.
+        float size = com.limelight.ui.MicButton.SIZE_DP * density;
+        float[] mic = com.limelight.ui.MicButton.Placement.center(Float.NaN, Float.NaN, 1600, 720, size,
+                12 * density, bottom);
+        assertTrue(mic[1] - size / 2 >= box[1] + box[3]);
+        float[] portrait = controller.layout().bounds(PadLayout.Control.TOUCHPAD, 720, 1600, density, new float[4]);
+        assertTrue("Counted as the top row", portrait[1] <= 1600 / 3f);
+        mic = com.limelight.ui.MicButton.Placement.center(Float.NaN, Float.NaN, 720, 1600, size,
+                12 * density, portrait[1] + portrait[3]);
+        assertTrue(mic[1] - size / 2 >= portrait[1] + portrait[3]);
         controller.hide();
         assertTrue(Float.isNaN(controller.topRowBottom()));
     }

@@ -845,8 +845,9 @@ impl AudioDecoder {
 
 /// The passthrough codecs SDL plays here: PCM, which it mixes like decoded Opus to any output.
 /// AC3 and E-AC3 need a bitstream output, which SDL has not, so they are never asked for.
-pub fn passthrough_codecs(enabled: bool) -> u8 {
-    if enabled { rubylight_protocol::audio_ext::CODEC_PCM } else { 0 }
+/// Mute audio asks for none: Opus is the least to receive for sound nobody hears.
+pub fn passthrough_codecs(enabled: bool, mute: bool) -> u8 {
+    if enabled && !mute { rubylight_protocol::audio_ext::CODEC_PCM } else { 0 }
 }
 
 /// The stream's audio renderer: [`Audio`] on this device's output, or with Mute audio one that
@@ -1238,7 +1239,7 @@ mod tests {
         // takes it is not that output.
         assert_eq!(audio_renderer(shared.clone(), 0, false).init(&audio_setup(CODEC_AC3)), Err(-1));
         for codec in [CODEC_OPUS, CODEC_PCM, CODEC_AC3] {
-            let mut muted = audio_renderer(shared.clone(), passthrough_codecs(true), true);
+            let mut muted = audio_renderer(shared.clone(), 0, true);
             assert_eq!(muted.init(&audio_setup(codec)), Ok(()), "codec {codec}");
             muted.start();
             muted.play(Some(&[0; 8]));
@@ -1248,6 +1249,15 @@ mod tests {
         }
         assert_eq!(shared.counters.audio_channels.load(Ordering::Relaxed), 0, "no output was opened");
         assert!(notices(&shared).is_empty(), "a muted stream says nothing about its audio");
+    }
+
+    #[test]
+    fn a_muted_stream_asks_for_no_uncompressed_audio() {
+        use rubylight_protocol::audio_ext::CODEC_PCM;
+        assert_eq!(passthrough_codecs(true, true), 0);
+        assert_eq!(passthrough_codecs(false, true), 0);
+        assert_eq!(passthrough_codecs(true, false), CODEC_PCM);
+        assert_eq!(passthrough_codecs(false, false), 0);
     }
 
     #[test]

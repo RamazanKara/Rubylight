@@ -859,7 +859,7 @@ pub(super) fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &In
         color_space: if settings.hdr { COLORSPACE_REC_2020 } else { COLORSPACE_REC_709 },
         color_range: if settings.full_range { COLOR_RANGE_FULL } else { COLOR_RANGE_LIMITED },
         microphone: settings.microphone && role != AppRole::RemoteMonitor,
-        audio_passthrough: pipeline::passthrough_codecs(settings.audio_passthrough),
+        audio_passthrough: pipeline::passthrough_codecs(settings.audio_passthrough, settings.mute_audio),
         haptics_pcm: settings.controllers && settings.controller_audio && role != AppRole::RemoteMonitor,
         pyrowave_link_mbps: sent_link_mbps as i32,
         pyrowave_pace_mbps: pace_mbps as i32,

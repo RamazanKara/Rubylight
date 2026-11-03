@@ -685,3 +685,303 @@ async fn the_guest_socket_speaks_only_its_own_messages_even_with_a_console_sign_
     let mut ws = guest_socket(address, "").await;
     assert_eq!(refused(&mut ws).await, "rate-limited");
 }
+
+/// The play page's build beside the console's and the guest page's.
+fn install_play(f: &Fixture) {
+    install_pages(f);
+    let root = &f.host.assets;
+    std::fs::create_dir_all(root.join("play/assets")).unwrap();
+    std::fs::write(root.join("play/index.html"), "<p>play page</p>").unwrap();
+    std::fs::write(root.join("play/assets/play-1.js"), "export {}").unwrap();
+}
+
+/// The headers the play page sends with its socket's upgrade.
+fn play_upgrade() -> Vec<(&'static str, String)> {
+    without("sec-websocket-protocol", Some("rubylight.play.v2"))
+}
+
+/// Peers of the local network: the LAN, Tailscale, a unique-local IPv6 address and this PC.
+const LOCAL: [&str; 4] = [
+    LAN,
+    "100.101.102.103:50000",
+    "[fd00::5]:50000",
+    "127.0.0.1:50000",
+];
+
+#[tokio::test]
+async fn the_play_page_is_its_own_build_for_the_local_network_and_the_guest_gate_stays() {
+    let f = Fixture::new();
+    install_play(&f);
+    // Off with the WebRTC server.
+    for path in ["/play/", "/play/signal"] {
+        let off = guest(&f, LAN, "GET", path, &play_upgrade()).await;
+        assert_eq!(off.status, StatusCode::NOT_FOUND, "{path}");
+        assert!(!off.text().contains("play page"));
+    }
+    configure(&f, json!({"webrtc_server": true}));
+    for peer in LOCAL {
+        for path in [
+            "/play",
+            "/play/",
+            "/play/index.html",
+            "/play/library",
+            "/play/../index.html",
+            "/play/%2e%2e/index.html",
+            "/play/..%5cindex.html",
+            "/play/api/config",
+            "/play/guest/",
+        ] {
+            let page = guest(&f, peer, "GET", path, &[]).await;
+            assert_eq!(page.status, StatusCode::OK, "{peer} {path}");
+            assert_eq!(page.text(), "<p>play page</p>", "{peer} {path}");
+            assert_eq!(page.headers[header::CONTENT_SECURITY_POLICY], GUEST_POLICY);
+            assert_eq!(page.headers["x-frame-options"], "DENY");
+            assert_eq!(page.headers[header::REFERRER_POLICY], "no-referrer");
+        }
+        let script = guest(&f, peer, "GET", "/play/assets/play-1.js", &[]).await;
+        assert_eq!(script.status, StatusCode::OK);
+        for path in [
+            "/play/assets/guest-1.js",
+            "/play/assets/console-1.js",
+            "/play/assets/../../index.html",
+            "/play/assets/..%5c..%5cguest%5cassets%5cguest-1.js",
+        ] {
+            let gone = guest(&f, peer, "GET", path, &[]).await;
+            assert_eq!(gone.status, StatusCode::NOT_FOUND, "{peer} {path}");
+        }
+        let posted = guest(&f, peer, "POST", "/play/", &[]).await;
+        assert_eq!(posted.status, StatusCode::METHOD_NOT_ALLOWED);
+        // The guest gate is as before: with no link, nothing else answers, the console least.
+        for path in [
+            "/",
+            "/index.html",
+            "/guest/",
+            "/guest/signal",
+            "/api/config",
+            "/playground",
+            "/stream",
+        ] {
+            let closed = guest(&f, peer, "GET", path, &[]).await;
+            assert_eq!(closed.status, StatusCode::NOT_FOUND, "{peer} {path}");
+            assert!(!closed.text().contains("page"), "{peer} {path}");
+        }
+    }
+    // Once a link is live, the guest routes are the guest page's alone.
+    open_guests(&f);
+    assert_eq!(
+        guest(&f, LAN, "GET", "/guest/", &[]).await.text(),
+        "<p>guest page</p>"
+    );
+    assert_eq!(
+        guest(&f, LAN, "GET", "/play/", &[]).await.text(),
+        "<p>play page</p>"
+    );
+}
+
+#[tokio::test]
+async fn an_internet_peer_gets_no_play_page_or_socket_whatever_its_headers_say() {
+    let f = Fixture::new();
+    configure(&f, json!({"webrtc_server": true}));
+    install_play(&f);
+    // A live link opens the guest port to the internet, never /play.
+    open_guests(&f);
+    let spoofed: [Vec<(&str, String)>; 5] = [
+        vec![],
+        vec![("x-forwarded-for", "192.168.4.20".into())],
+        vec![("x-real-ip", "127.0.0.1".into())],
+        vec![("forwarded", "for=192.168.4.20;proto=https".into())],
+        vec![
+            ("x-forwarded-for", "127.0.0.1, 192.168.4.20".into()),
+            ("x-client-ip", "192.168.4.20".into()),
+            ("true-client-ip", "192.168.4.20".into()),
+        ],
+    ];
+    // A router forwarding TCP 47991 hands the internet peer's address to the LAN socket as it is.
+    for peer in [WAN, "[2001:db8::7]:50000", "8.8.8.8:443"] {
+        for headers in &spoofed {
+            for (method, path) in [
+                ("GET", "/play"),
+                ("GET", "/play/"),
+                ("GET", "/play/index.html"),
+                ("GET", "/play/assets/play-1.js"),
+                ("POST", "/play/signal"),
+            ] {
+                let refused = guest(&f, peer, method, path, headers).await;
+                assert_eq!(
+                    refused.status,
+                    StatusCode::FORBIDDEN,
+                    "{peer} {path} {headers:?}"
+                );
+                assert!(!refused.text().contains("play page"));
+            }
+            let mut upgrade = play_upgrade();
+            upgrade.extend(headers.iter().cloned());
+            let socket = guest(&f, peer, "GET", "/play/signal", &upgrade).await;
+            assert_eq!(socket.status, StatusCode::FORBIDDEN, "{peer} {headers:?}");
+        }
+    }
+    // A LAN peer is not refused for a header naming the internet either.
+    let page = guest(
+        &f,
+        LAN,
+        "GET",
+        "/play/",
+        &[("x-forwarded-for", "203.0.113.7".into())],
+    )
+    .await;
+    assert_eq!(page.text(), "<p>play page</p>");
+    // The guest page still answers the internet with its link.
+    assert_eq!(
+        guest(&f, WAN, "GET", "/guest/", &[]).await.text(),
+        "<p>guest page</p>"
+    );
+}
+
+#[tokio::test]
+async fn the_play_socket_needs_its_page_origin_and_subprotocol() {
+    let f = Fixture::new();
+    configure(&f, json!({"webrtc_server": true}));
+    let with = |name: &'static str, value: Option<&str>| {
+        let mut headers = play_upgrade();
+        headers.retain(|(n, _)| *n != name);
+        if let Some(value) = value {
+            headers.push((name, value.to_owned()));
+        }
+        headers
+    };
+    for (headers, status) in [
+        (with("origin", None), StatusCode::FORBIDDEN),
+        (
+            with("origin", Some("https://evil.example")),
+            StatusCode::FORBIDDEN,
+        ),
+        (with("origin", Some("http://test")), StatusCode::FORBIDDEN),
+        (
+            with("sec-websocket-protocol", None),
+            StatusCode::BAD_REQUEST,
+        ),
+        (
+            with("sec-websocket-protocol", Some("rubylight.guest.v1")),
+            StatusCode::BAD_REQUEST,
+        ),
+        (
+            with(
+                "sec-websocket-protocol",
+                Some("rubylight.signal.v2, csrf.x"),
+            ),
+            StatusCode::BAD_REQUEST,
+        ),
+        (play_upgrade(), StatusCode::UPGRADE_REQUIRED),
+    ] {
+        let reply = guest(&f, LAN, "GET", "/play/signal", &headers).await;
+        assert_eq!(reply.status, status, "{headers:?}: {}", reply.text());
+    }
+}
+
+async fn play_socket(address: SocketAddr, extra: &str) -> (Ws, String) {
+    let mut ws = Ws::connect_with(
+        address,
+        "/play/signal",
+        &format!("Origin: https://test\r\nSec-WebSocket-Protocol: rubylight.play.v2\r\n{extra}"),
+    )
+    .await;
+    assert!(
+        ws.head
+            .to_ascii_lowercase()
+            .contains("\r\nsec-websocket-protocol: rubylight.play.v2\r\n"),
+        "{}",
+        ws.head
+    );
+    let nonce = ws.expect("auth-required").await["nonce"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    (ws, nonce)
+}
+
+fn proof(secret: &str, nonce: &str) -> String {
+    butterpollo_core::webrtc::auth::proof_hex(secret, nonce).unwrap()
+}
+
+#[tokio::test]
+async fn an_unpaired_play_socket_can_only_pair_and_unpairing_ends_its_access_at_once() {
+    let f = Fixture::new();
+    configure(&f, json!({"webrtc_server": true}));
+    let address = serve(&f).await;
+    let (cookie, _) = sign_in(&f);
+    // Before pairing, even with a console sign-in in the request, nothing but pairing works.
+    let (mut ws, nonce) = play_socket(address, &format!("Cookie: {cookie}\r\n")).await;
+    for message in [
+        json!({"version": 2, "type": "get-apps"}),
+        json!({"version": 2, "type": "get-app-artwork", "appId": "1"}),
+        json!({"version": 2, "type": "start-session", "appId": "1", "video": {"width": 1920, "height": 1080, "fps": 60, "codec": "h264", "bitrateKbps": 20000, "hdr": false}, "audio": {"channels": 2}}),
+        json!({"version": 2, "type": "stop-host-session"}),
+        json!({"version": 2, "type": "answer", "sessionId": 1, "sdp": "v=0"}),
+    ] {
+        ws.send(message.clone()).await;
+        let refused = ws.expect("error").await;
+        assert_eq!(refused["code"], "not-authenticated", "{message}");
+    }
+    // A guest's join is no message here.
+    ws.send(json!({"type": "join", "token": "0".repeat(32)}))
+        .await;
+    assert_ne!(ws.expect("error").await["code"], "not-authenticated");
+    ws.send(json!({"version": 2, "type": "authenticate", "clientId": "ab".repeat(16), "proof": proof(&"cd".repeat(32), &nonce)}))
+        .await;
+    assert_eq!(ws.expect("error").await["code"], "authentication-failed");
+    // The console confirms the PIN the page shows.
+    ws.send(json!({"version": 2, "type": "request-pairing", "pin": "2468", "clientName": "Xbox browser"}))
+        .await;
+    let mut request = Value::Null;
+    for _ in 0..200 {
+        let pending =
+            crate::web::update_clients(&f.host, "GET", "/api/clients/pending", &Value::Null)
+                .unwrap();
+        if let Some(first) = pending["requests"].as_array().and_then(|r| r.first()) {
+            request = first.clone();
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    assert_eq!(request["webrtc"], true, "{request}");
+    assert_eq!(request["name"], "Xbox browser");
+    crate::web::update_clients(
+        &f.host,
+        "POST",
+        "/api/pin",
+        &json!({"pin": "2468", "uniqueid": request["uniqueid"]}),
+    )
+    .unwrap();
+    let paired = ws.expect("paired").await;
+    ws.expect("gateway-status").await;
+    ws.expect("capabilities").await;
+    let client_id = paired["clientId"].as_str().unwrap().to_owned();
+    let secret = paired["clientSecret"].as_str().unwrap().to_owned();
+    // Paired, it gets what a TV gets: the library (this test host has no stream pipeline).
+    ws.send(json!({"version": 2, "type": "get-apps"})).await;
+    ws.expect("apps").await;
+    drop(ws);
+    // It signs in again with its secret; unpaired in the console, it is dropped at once.
+    let (mut ws, nonce) = play_socket(address, "").await;
+    ws.send(json!({"version": 2, "type": "authenticate", "clientId": client_id, "proof": proof(&secret, &nonce)}))
+        .await;
+    ws.expect("authenticated").await;
+    ws.expect("gateway-status").await;
+    ws.expect("capabilities").await;
+    let uuid = f.host.paired.read().unwrap().clients[0].uuid.clone();
+    crate::web::update_clients(
+        &f.host,
+        "POST",
+        "/api/clients/unpair",
+        &json!({"uuid": uuid}),
+    )
+    .unwrap();
+    assert_eq!(ws.expect("error").await["code"], "authentication-failed");
+    ws.closed().await;
+    let (mut ws, nonce) = play_socket(address, "").await;
+    ws.send(json!({"version": 2, "type": "authenticate", "clientId": client_id, "proof": proof(&secret, &nonce)}))
+        .await;
+    assert_eq!(ws.expect("error").await["code"], "authentication-failed");
+    ws.send(json!({"version": 2, "type": "get-apps"})).await;
+    assert_eq!(ws.expect("error").await["code"], "not-authenticated");
+}

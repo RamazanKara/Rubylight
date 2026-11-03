@@ -80,6 +80,50 @@ public class RendererGateTest {
         assertFalse(gate.enter());
     }
 
+    @Test(timeout = 5000)
+    public void anInterruptedThreadStillGetsItsCallsAndKeepsItsFlag() throws Exception {
+        RendererGate gate = new RendererGate();
+        Thread.currentThread().interrupt();
+        try {
+            assertTrue(gate.enter());
+            gate.exit();
+            assertTrue(Thread.currentThread().isInterrupted());
+
+            // Also while another call holds the lock and the wait would throw
+            CountDownLatch held = new CountDownLatch(1);
+            CountDownLatch release = new CountDownLatch(1);
+            Thread other = new Thread(() -> {
+                if (gate.enter()) {
+                    held.countDown();
+                    await(release);
+                    gate.exit();
+                }
+            });
+            other.start();
+            Thread.interrupted();
+            assertTrue(held.await(1, TimeUnit.SECONDS));
+            Thread.currentThread().interrupt();
+            new Thread(() -> {
+                try {
+                    Thread.sleep(100);
+                } catch (InterruptedException ignored) {
+                }
+                release.countDown();
+            }).start();
+            assertTrue(gate.enter());
+            gate.exit();
+            assertTrue(Thread.currentThread().isInterrupted());
+            other.join();
+
+            AtomicInteger stops = new AtomicInteger();
+            assertTrue(gate.stop(stops::incrementAndGet));
+            assertEquals(1, stops.get());
+            assertTrue(Thread.currentThread().isInterrupted());
+        } finally {
+            Thread.interrupted();
+        }
+    }
+
     private static void await(CountDownLatch latch) {
         try {
             latch.await();

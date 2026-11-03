@@ -347,13 +347,17 @@ public class VulkanRendererBridge {
     /**
      * Stops presenting and lets go of the output surface. Must be called before the output
      * surface is destroyed. The UI calls it as the surface goes, so it waits for the GPU only
-     * {@link RendererGate#STOP_WAIT_MS}: a stop still running then finishes on its own, and
-     * {@link #destroy()} waits for it (#73).
+     * {@link RendererGate#STOP_WAIT_MS} (#73). A stop still running then finishes on its own thread
+     * after the UI has let the surface go: the renderer holds its own reference to the window, so
+     * the swapchain and surface it releases then belong to an abandoned window rather than a freed
+     * one, and {@link #destroy()} waits for that stop. Calls made meanwhile return their defaults.
      */
     public void stop() {
         if (!gate.stop(() -> {
             if (handle != 0) {
+                long startNs = System.nanoTime();
                 nativeStop(handle);
+                LimeLog.info("Vulkan renderer stopped in " + (System.nanoTime() - startNs) / 1000000 + " ms");
             }
         })) {
             LimeLog.warning("Vulkan renderer still stopping after " + RendererGate.STOP_WAIT_MS + " ms; not waiting for it");
@@ -371,8 +375,10 @@ public class VulkanRendererBridge {
                 decoderSurface = null;
             }
             if (handle != 0) {
+                long startNs = System.nanoTime();
                 nativeDestroy(handle);
                 handle = 0;
+                LimeLog.info("Vulkan renderer freed in " + (System.nanoTime() - startNs) / 1000000 + " ms");
             }
         });
     }

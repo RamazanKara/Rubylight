@@ -13,8 +13,9 @@
 //! the present it changes nothing, so for that time it lends the filter what it decides with
 //! (whether keys and clicks are the PC's, the settings that map them, its controllers) and a
 //! thread reads the controllers every millisecond, as SDL does while the loop waits for events.
-//! A key or click from SDL's raw input thread (Windows reads the keyboard there while "Capture
-//! system keys" grabs it) and a controller event from that thread then leave at once; the loop still gets the keys and
+//! A key from the system keys hook's thread (it takes the keyboard while "Send system keys"
+//! grabs it, system_keys.rs), a click from SDL's raw input thread and a controller event from
+//! that thread then leave at once; the loop still gets the keys and
 //! clicks, marked, and keeps its state without sending them again. Anything the loop sends or
 //! decides on itself (a stream shortcut, an event from before the present, a new controller, a
 //! controller chord's action) holds the keys, clicks and controller events after it back, so
@@ -462,38 +463,12 @@ fn poll_controllers(state: &(Mutex<PollState>, Condvar)) {
     }
 }
 
-/// Whether Windows reads the keyboard on SDL's raw input thread, where keys can leave during the
-/// present: only while the keyboard is grabbed. Without the grab Windows keeps the second key of
-/// its own shortcuts from the window (Tab of Alt+Tab, D of Win+D, Esc of Ctrl+Shift+Esc), but raw
-/// input still reports it, so the PC would get Alt+Tab or a typed "d" as well.
-#[cfg_attr(not(windows), allow(dead_code))]
-fn raw_keyboard(direct_input: bool, grab: bool) -> bool {
-    direct_input && grab
-}
-
 /// Whether SDL's keyboard grab is on while this stream's hook runs: only when the grab is wanted
-/// but the hook does not take it (no raw keyboard). SDL's hook beside it would be the first one
-/// Windows asks, and it answers only between the main loop's waits in the present.
+/// but the hook could not start. SDL's hook beside it would be the first one Windows asks, and it
+/// answers only between the main loop's waits in the present.
 #[cfg_attr(not(windows), allow(dead_code))]
 fn sdl_grab(grab: bool, hooked: bool) -> bool {
     grab && !hooked
-}
-
-/// Turns Windows' raw keyboard on or off. SDL reports a raw input thread it could not set up only
-/// through its error, not the hint's result. Returns whether it worked.
-#[cfg(windows)]
-fn set_raw_keyboard(on: bool) -> bool {
-    // SAFETY: SDL applies the hint at once on this thread; the error is this thread's.
-    let failed = unsafe {
-        SDL_ClearError();
-        let set = if on { SDL_SetHint(SDL_HINT_WINDOWS_RAW_KEYBOARD, c"1".as_ptr()) } else { SDL_ResetHint(SDL_HINT_WINDOWS_RAW_KEYBOARD) };
-        !set || !crate::sdl::error().is_empty()
-    };
-    if failed {
-        let state = if on { "keys wait for the main loop" } else { "the keyboard stays on raw input" };
-        eprintln!("nightjar: {state}: raw keyboard input: {}", crate::sdl::error());
-    }
-    !failed
 }
 
 /// The filter for one stream; removed when dropped.
@@ -503,13 +478,7 @@ pub struct DirectMotion {
     /// Keys, clicks and controllers may leave from the filter during the present.
     direct_input: bool,
     poller: Option<Poller>,
-    /// This stream turned Windows' raw keyboard on.
-    #[cfg_attr(not(windows), allow(dead_code))]
-    raw_keyboard: bool,
-    /// Windows reads the keyboard as raw input (SDL could set it up).
-    #[cfg(windows)]
-    raw_reads: bool,
-    /// The shell's shortcuts stay the stream's while the raw keyboard reads the keys.
+    /// Takes the keyboard from Windows while it is grabbed, the shell's shortcuts included.
     #[cfg(windows)]
     shell_keys: Option<super::system_keys::ShellKeyHook>,
 }
@@ -550,35 +519,32 @@ impl DirectMotion {
         } else if installed {
             eprintln!("nightjar: keys, clicks and controllers through the main loop (NIGHTJAR_DIRECT_INPUT=0)");
         }
-        Self { shared, installed, direct_input, poller, raw_keyboard: false, #[cfg(windows)] raw_reads: false, #[cfg(windows)] shell_keys: None }
+        Self { shared, installed, direct_input, poller, #[cfg(windows)] shell_keys: None }
     }
 
-    /// The keyboard grab ("Send system keys" while captured) changed: Windows reads the
-    /// keyboard on SDL's raw input thread only while it is on ([`raw_keyboard`]), and then this
-    /// stream's own hook keeps the shell's shortcuts from Windows (`system_keys`). Returns whether
-    /// SDL's grab should do that instead: on Linux, without the raw keyboard, or without the hook.
+    /// The keyboard grab ("Send system keys" while captured) changed: this stream's own hook
+    /// takes the keyboard from Windows while it is on and hands the keys to SDL (`system_keys`).
+    /// Returns whether SDL's grab should do that instead: on Linux, or without the hook.
     #[cfg_attr(not(windows), allow(unused_variables))]
     pub fn keyboard_grab(&mut self, window: *mut SDL_Window, grab: bool) -> bool {
         #[cfg(windows)]
         {
-            let on = raw_keyboard(self.direct_input, grab);
-            if on != self.raw_keyboard {
-                self.raw_keyboard = on;
-                self.raw_reads = set_raw_keyboard(on) && on;
-            }
-            // Without raw input the keys the hook keeps would reach nobody: SDL's hook sends them.
-            let on = on && self.raw_reads;
-            if on && self.shell_keys.is_none() {
+            if grab && self.shell_keys.is_none() {
                 match super::system_keys::ShellKeyHook::start() {
-                    Ok(hook) => self.shell_keys = Some(hook),
+                    Ok(hook) => {
+                        eprintln!("nightjar: system keys: the keyboard hook takes the keyboard while grabbed");
+                        self.shell_keys = Some(hook);
+                    }
                     Err(error) => eprintln!("nightjar: system keys through SDL's grab: keyboard hook: {error}"),
                 }
             }
             if let Some(hook) = &self.shell_keys {
                 // SAFETY: a live window.
-                let hwnd = unsafe { SDL_GetPointerProperty(SDL_GetWindowProperties(window), SDL_PROP_WINDOW_WIN32_HWND_POINTER, std::ptr::null_mut()) };
-                hook.set(on, hwnd as isize);
-                return sdl_grab(grab, on);
+                let (hwnd, id) = unsafe {
+                    (SDL_GetPointerProperty(SDL_GetWindowProperties(window), SDL_PROP_WINDOW_WIN32_HWND_POINTER, std::ptr::null_mut()), SDL_GetWindowID(window))
+                };
+                hook.set(grab, hwnd as isize, id);
+                return sdl_grab(grab, true);
             }
         }
         grab
@@ -649,10 +615,6 @@ impl Drop for DirectMotion {
         #[cfg(windows)]
         {
             self.shell_keys = None;
-        }
-        #[cfg(windows)]
-        if self.raw_keyboard {
-            set_raw_keyboard(false);
         }
     }
 }
@@ -811,19 +773,10 @@ mod tests {
     }
 
     #[test]
-    fn the_raw_keyboard_is_on_only_while_the_keyboard_is_grabbed() {
-        // "Capture system keys" off, or not captured: Windows keeps the keys of its shortcuts
-        // (Tab of Alt+Tab, D of Win+D) from the window, and raw input must not hand them over.
-        assert!(!raw_keyboard(true, false));
-        assert!(raw_keyboard(true, true), "grabbed: SDL's hook keeps them from Windows");
-        assert!(!raw_keyboard(false, true), "NIGHTJAR_DIRECT_INPUT=0 leaves the keyboard alone");
-    }
-
-    #[test]
     fn sdls_grab_steps_aside_while_the_hook_takes_the_shells_keys() {
-        // nightjar#71: SDL's hook on the main thread answered late, and Windows took Alt+Tab.
+        // SDL's hook on the main thread answers only between the present's waits.
         assert!(!sdl_grab(true, true), "the hook's thread answers Windows instead");
-        assert!(sdl_grab(true, false), "no raw keyboard or no hook: SDL's grab as before");
+        assert!(sdl_grab(true, false), "no hook: SDL's grab as before");
         assert!(!sdl_grab(false, false));
     }
 

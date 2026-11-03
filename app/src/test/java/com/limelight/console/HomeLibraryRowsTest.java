@@ -158,10 +158,11 @@ public class HomeLibraryRowsTest {
         rig.close();
         rig = new ConsoleRig(temporary.newFolder());
         tower(Collections.emptyList(), game(1, "Portal", "steam", true, 1_700_000_000L),
-                game(2, "Hades", "epic", true, 1_760_000_000L), game(3, "Doom", "steam", true, null));
+                game(2, "Hades", "epic", true, 1_760_000_000L), game(3, "Doom", "steam", true, null),
+                game(4, "Quake", "steam", true, 0L));
         HomeModel model = model();
         assertEquals("shelf:recent", model.rows.get(0).key);
-        assertEquals(Arrays.asList("Hades", "Portal"), titles(model.row("shelf:recent").cards));
+        assertEquals("never played (0) is not recent", Arrays.asList("Hades", "Portal"), titles(model.row("shelf:recent").cards));
         assertFalse(model.row("shelf:recent").hasMore());
         assertEquals("recent:game:g2", model.row("shelf:recent").cards.get(0).key);
     }

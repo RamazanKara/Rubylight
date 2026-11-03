@@ -64,7 +64,7 @@ pub use launch::{
     CONFIRM_REPLACE, CORE_LAUNCH_PARAMETERS,
 };
 pub use luminance::DisplayLuminance;
-pub use native::{FilePermissions, NativeCapabilities};
+pub use native::{FilePermissions, NativeCapabilities, NativeLibrary};
 pub use network_path::{NetworkPath, MAX_NETWORK_PATH_BYTES};
 pub use pairing::{PairFailure, PairResult, PairStep};
 pub use power::{PowerError, PowerReply, Refusal};

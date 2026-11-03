@@ -344,10 +344,15 @@ final class ConsoleHomeListAdapter extends RecyclerView.Adapter<RecyclerView.Vie
         }
     }
 
-    /** A List line under the title: the store, then when the game was last played ({@code lastPlayed} and {@code now} in epoch seconds). */
+    /**
+     * A List line under the title: the store, then when the game was last played ({@code lastPlayed} and {@code now}
+     * in epoch seconds; 0 is the host's never played). Nothing about playing when no host says (null).
+     */
     static String listLine(Context context, String store, Long lastPlayed, long now) {
         String played;
-        if (lastPlayed == null || lastPlayed <= 0) {
+        if (lastPlayed == null || lastPlayed < 0) {
+            played = null;
+        } else if (lastPlayed == 0) {
             played = context.getString(R.string.console_list_not_played);
         } else {
             // Whole days since, as on the desktop.
@@ -356,7 +361,8 @@ final class ConsoleHomeListAdapter extends RecyclerView.Adapter<RecyclerView.Vie
                     : days == 1 ? context.getString(R.string.console_list_played_yesterday)
                     : context.getResources().getQuantityString(R.plurals.console_list_played_days, (int) Math.min(days, Integer.MAX_VALUE), (int) Math.min(days, Integer.MAX_VALUE));
         }
-        return store == null || store.isEmpty() ? played : store + " · " + played;
+        if (store == null || store.isEmpty()) return played == null ? "" : played;
+        return played == null ? store : store + " · " + played;
     }
 
     private final class CardHolder extends RecyclerView.ViewHolder {

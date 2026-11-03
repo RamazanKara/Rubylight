@@ -477,11 +477,12 @@ public final class HomeModel {
         return rows;
     }
 
-    /** The newest last-played time of a title's added copies, or null when no host says. */
+    /** The newest last-played time of a title's added copies, or null when no host says or all say never (0). */
     private static Long lastPlayed(ConsoleSnapshot.Title title) {
         Long newest = null;
         for (ConsoleSnapshot.Source source : title.sources) {
-            if (source.added && source.lastPlayed != null && (newest == null || source.lastPlayed > newest)) {
+            if (source.added && source.lastPlayed != null && source.lastPlayed > 0
+                    && (newest == null || source.lastPlayed > newest)) {
                 newest = source.lastPlayed;
             }
         }

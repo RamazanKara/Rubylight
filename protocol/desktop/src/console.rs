@@ -510,17 +510,22 @@ pub fn last_played(entry: &Entry, sources: &[Source<'_>], recents: &[Recent]) ->
 }
 
 /// A List line's second line: the store (none for an app no store owns) and when the game was
-/// last played, by whole days before `now` (seconds since the epoch).
+/// last played (seconds since the epoch, `0` for never), by whole days before `now`. Nothing
+/// about playing when `played` is unknown.
 pub fn list_line(entry: &Entry, played: Option<u64>, now: u64) -> String {
-    let when = match played.map(|at| now.saturating_sub(at) / 86_400) {
-        None => tr("Not played yet").to_owned(),
-        Some(0) => tr("Played today").to_owned(),
-        Some(1) => tr("Played yesterday").to_owned(),
-        Some(days) => trf("Played {} days ago", &[&days]),
+    let when = match played {
+        None => None,
+        Some(0) => Some(tr("Not played yet").to_owned()),
+        Some(at) => Some(match now.saturating_sub(at) / 86_400 {
+            0 => tr("Played today").to_owned(),
+            1 => tr("Played yesterday").to_owned(),
+            days => trf("Played {} days ago", &[&days]),
+        }),
     };
-    match &entry.best().store_name {
-        Some(store) => format!("{store} · {when}"),
-        None => when,
+    match (&entry.best().store_name, when) {
+        (Some(store), Some(when)) => format!("{store} · {when}"),
+        (Some(store), None) => store.clone(),
+        (None, when) => when.unwrap_or_default(),
     }
 }
 
@@ -1280,7 +1285,8 @@ mod tests {
         let store = dota.best().store_name.clone();
         let line = |played, now| list_line(dota, played, now);
         let with_store = |when: &str| match &store { Some(s) => format!("{s} · {when}"), None => when.to_owned() };
-        assert_eq!(line(None, 0), with_store("Not played yet"));
+        assert_eq!(line(Some(0), 9_000), with_store("Not played yet"), "0 is the host's never played");
+        assert_eq!(line(None, 9_000), store.clone().unwrap_or_default(), "unknown says nothing about playing");
         assert_eq!(line(Some(5_000), 5_000 + 3_600), with_store("Played today"));
         assert_eq!(line(Some(5_000), 5_000 + 86_400 + 60), with_store("Played yesterday"));
         assert_eq!(line(Some(5_000), 5_000 + 9 * 86_400), with_store("Played 9 days ago"));

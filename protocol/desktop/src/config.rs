@@ -589,6 +589,10 @@ pub enum Language {
     Japanese,
     Korean,
     Polish,
+    PortugueseBrazil,
+    Russian,
+    Turkish,
+    Ukrainian,
     /// The system's language when Nightjar has it, else English; also what an unknown value
     /// from a newer Nightjar reads as. Keep it last: serde wants the catch-all there.
     #[default]
@@ -598,7 +602,7 @@ pub enum Language {
 
 impl Language {
     /// The choices in the settings, System default first.
-    pub const ALL: [Language; 9] = [Language::System, Language::English, Language::German, Language::Spanish, Language::French, Language::Italian, Language::Japanese, Language::Korean, Language::Polish];
+    pub const ALL: [Language; 13] = [Language::System, Language::English, Language::German, Language::Spanish, Language::French, Language::Italian, Language::Japanese, Language::Korean, Language::Polish, Language::PortugueseBrazil, Language::Russian, Language::Turkish, Language::Ukrainian];
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]

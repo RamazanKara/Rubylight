@@ -668,6 +668,27 @@ pub(crate) mod tests {
         }
     }
 
+    /// Texts a language may leave in English: names, key caps, units and loanwords. Any other
+    /// entry that equals its English is a label nobody translated ("Back" shipped that way).
+    const SAME_IN_ENGLISH: &[&str] = &[
+        "Xbox", "PlayStation", "Nintendo", "HDR", "CPU", "GPU", "Guide", "Start", "Radeon Anti-Lag", "Radeon Chill", "Radeon Boost",
+        "Radeon Image Sharpening", "Enhanced Sync", "Frame Rate Target Control", "AMD Fluid Motion Frames", "Radeon Super Resolution",
+        "Rubylight {}", "NVIDIA GameStream", "Nightjar {}", "{} %", "Ctrl", "Shift", "Ctrl+F", "V-Sync", "{} ms", "{} fps", "OK",
+        "Share / Misc", "PIN", "Co-op", "Enter", "Del", "{} s", "{} min", "Stereo", "Codec", "Back / Select", "Software", "Video", "Audio",
+        "Host", "Jitter", "Offline", "PCs", "Streaming", "App", "Relay (DERP)", "Store", "Bitrate", "Debug", "Headset", "Overlay",
+        "Frame pacing", "Input-only", "Mouse", "Display ({} Hz)", "X / West", "Paddle 1", "Paddle 2", "Paddle 3", "Paddle 4", "Type",
+        "Options", "Axes", "Compact", "Direct", "{} minutes", "Passphrase", "Home", "Upscaling", "Folder", "Layout", "Logs", "Link",
+        "5.1 surround", "7.1 surround", "7.1.4 surround",
+    ];
+
+    #[test]
+    fn no_table_leaves_a_label_in_english() {
+        for (lang, _, _, table) in &LANGS[1..] {
+            let untranslated: Vec<&str> = table.iter().filter(|(english, text)| english == text && !SAME_IN_ENGLISH.contains(english)).map(|e| e.0).collect();
+            assert!(untranslated.is_empty(), "the {lang:?} table leaves these in English: {untranslated:?}");
+        }
+    }
+
     #[test]
     fn every_table_is_clean() {
         let used: std::collections::HashSet<String> = marked().into_iter().map(|m| m.text).collect();

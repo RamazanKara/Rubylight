@@ -1,0 +1,6 @@
+• On-screen controller: a Touchpad button, and finger taps in Multi-touch mode.
+• Home: group your library by type, with games apart from other apps.
+• Windows/Linux: shut down, restart or sleep the PC from Home.
+• Windows: Alt+Tab and Windows-key shortcuts reach the PC again.
+• Windows: resumed streams keep VRR.
+• Windows/Linux: no more crackling when audio arrives in bursts.

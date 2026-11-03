@@ -1838,6 +1838,7 @@ impl App {
         }
         self.remember_recent(&connecting);
         let mut streaming = Streaming::new(connecting, session, facts, display);
+        streaming.watch_microphone_busy(self.waker.clone());
         self.pads.prepare_audio(settings.controllers && settings.controller_audio && streaming.facts.role != nightjar_core::http::AppRole::RemoteMonitor);
         streaming.display_changed(self.renderer);
         if settings.adaptive_bitrate || streaming.quality_mode != config::QualityMode::Off { streaming.enable_adaptive_bitrate(true); }
@@ -2306,7 +2307,7 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
             egui::Area::new(egui::Id::unique("mic-only"))
                 .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
                 .show(&ctx, |ui| {
-                    ui.label(egui::RichText::new(tr(mic_only_title(s.microphone_muted, s.microphone_unavailable))).font(theme::semibold(theme::text::TITLE)).color(theme::MOON));
+                    ui.label(egui::RichText::new(tr(mic_only_title(s.microphone_muted, s.microphone_unavailable, s.microphone_busy()))).font(theme::semibold(theme::text::TITLE)).color(theme::MOON));
                     ui.label(&s.facts.host_name);
                     ui.horizontal(|ui| {
                         // Unmuting also tries an unavailable microphone again.
@@ -2881,12 +2882,15 @@ fn mic_only_settings(settings: &mut config::Settings) {
     settings.usb_forwarding = false;
 }
 
-/// The microphone-only screen's title. An unavailable microphone says so rather than "muted".
-fn mic_only_title(muted: bool, unavailable: bool) -> &'static str {
+/// The microphone-only screen's title. An unavailable microphone says so rather than "muted";
+/// `busy`: the PC plays another device's microphone for now.
+fn mic_only_title(muted: bool, unavailable: bool, busy: bool) -> &'static str {
     if unavailable {
         strings::en("Microphone unavailable")
     } else if muted {
         strings::en("Microphone muted")
+    } else if busy {
+        strings::en("Microphone in use on another device")
     } else {
         strings::en("Microphone on")
     }
@@ -3044,10 +3048,13 @@ mod tests {
         assert_eq!(app.id, super::MIC_ONLY_APP_ID);
         assert!(!app.is_control_action());
         assert_eq!(super::LaunchKind::MicOnly.log_suffix(), ", microphone only");
-        assert_eq!(super::mic_only_title(false, false), "Microphone on");
-        assert_eq!(super::mic_only_title(true, false), "Microphone muted");
+        assert_eq!(super::mic_only_title(false, false, false), "Microphone on");
+        assert_eq!(super::mic_only_title(true, false, false), "Microphone muted");
         // A failed microphone is not called muted, also once it was muted for the failure.
-        assert_eq!(super::mic_only_title(true, true), "Microphone unavailable");
+        assert_eq!(super::mic_only_title(true, true, false), "Microphone unavailable");
+        // The PC plays another device's microphone; muted says more.
+        assert_eq!(super::mic_only_title(false, false, true), "Microphone in use on another device");
+        assert_eq!(super::mic_only_title(true, false, true), "Microphone muted");
     }
 
     /// Holding Ctrl+Alt+Shift+H or Escape doesn't flip the sheet or the menu with each repeat,

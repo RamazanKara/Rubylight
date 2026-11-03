@@ -21,6 +21,13 @@ use super::{Error, HostClient, LONG_CONNECT_TIMEOUT, READ_TIMEOUT};
 use serde::de::{DeserializeOwned, Error as _};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::collections::BTreeMap;
+
+/// The part of `GET /session` Microphone only reads.
+#[derive(Deserialize)]
+struct MicrophoneBusy {
+    #[serde(default)]
+    microphone_busy: bool,
+}
 use std::time::Duration;
 
 /// A library of a few hundred games is well under this.
@@ -215,6 +222,14 @@ impl HostClient {
     /// The session and the actions this device may run.
     pub fn session(&self) -> Result<Session, Error> {
         self.native("session", None, MAX_JSON_BYTES, READ_TIMEOUT)
+    }
+
+    /// Whether this device's microphone reaches the host while another device's plays: the
+    /// session's `microphone_busy`, false where the host does not say it. Only when the
+    /// capabilities list `session.mic_only`.
+    pub fn microphone_busy(&self) -> Result<bool, Error> {
+        let session: MicrophoneBusy = self.native("session", None, MAX_JSON_BYTES, READ_TIMEOUT)?;
+        Ok(session.microphone_busy)
     }
 
     /// Runs `Disconnect`, `End` or `CloseGame` and returns the session afterwards. `Resume`

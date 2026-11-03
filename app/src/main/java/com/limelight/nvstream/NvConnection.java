@@ -260,7 +260,18 @@ public class NvConnection {
     void readMicrophoneSettings(PreferenceConfiguration prefs) {
         micEnabled = microphoneWanted(prefs, context.streamConfig.getApp());
         micPermitted = micEnabled && hasMicrophonePermission();
-        micProcessing = prefs.micProcessing();
+        micProcessing = microphoneProcessing(prefs.micProcessing(), context.streamConfig.getApp());
+    }
+
+    // Microphone only plays nothing on this device, so there is no echo to cancel: the microphone runs without
+    // echo cancellation whatever the setting says, as on desktop. Noise suppression and gain stay as chosen.
+    static com.limelight.binding.audio.MicProcessing microphoneProcessing(
+            com.limelight.binding.audio.MicProcessing chosen, NvApp app) {
+        if (!app.isMicOnly() || chosen.echo == com.limelight.binding.audio.MicProcessing.Echo.OFF) {
+            return chosen;
+        }
+        return new com.limelight.binding.audio.MicProcessing(com.limelight.binding.audio.MicProcessing.Echo.OFF,
+                chosen.noiseSuppression, chosen.automaticGain, chosen.gainPercent, chosen.engine);
     }
 
     // Starts only once the native connection is ready; the final lock check also

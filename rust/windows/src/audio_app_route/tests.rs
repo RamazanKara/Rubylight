@@ -17,6 +17,8 @@ struct Fake {
     ignores: std::cell::Cell<bool>,
     /// For each process listing, whether [`LISTED`] was free.
     listed: RefCell<Vec<bool>>,
+    /// Processes that haven't opened their sound: Windows refuses both calls.
+    silent: RefCell<std::collections::BTreeSet<u32>>,
 }
 /// The routes' lock a restore is checked against.
 static LISTED: Mutex<State> = Mutex::new(State {
@@ -43,10 +45,17 @@ impl Fake {
 }
 impl Apps for Fake {
     fn get(&self, pid: u32, role: ERole) -> Result<String> {
-        Ok(self.device(&self.exe(pid)?, role))
+        let exe = self.exe(pid)?;
+        if self.silent.borrow().contains(&pid) {
+            return Err(NoSoundYet.into());
+        }
+        Ok(self.device(&exe, role))
     }
     fn set(&self, pid: u32, role: ERole, device: &str) -> Result<()> {
         let exe = self.exe(pid)?;
+        if self.silent.borrow().contains(&pid) {
+            return Err(NoSoundYet.into());
+        }
         anyhow::ensure!(
             self.gone.borrow().as_deref() != Some(device),
             "element not found"
@@ -515,18 +524,39 @@ fn a_per_app_device_names_its_endpoint() {
 
 /// Programs starting, as WMI tells them: each start also runs the program
 /// in `fake`. `Err` ends the watch, as a broken subscription does.
+/// A start of a process in `silent` leaves it without sound until the next
+/// look that finds no start. Each look's timeout goes to `waited`.
 struct Launches<'a> {
     fake: &'a Fake,
     events: std::collections::VecDeque<Result<Option<(u32, String)>>>,
+    silent: &'a [u32],
+    waited: Vec<Duration>,
+}
+impl<'a> Launches<'a> {
+    fn new(fake: &'a Fake, events: Vec<Result<Option<(u32, String)>>>) -> Self {
+        Self {
+            fake,
+            events: events.into(),
+            silent: &[],
+            waited: vec![],
+        }
+    }
 }
 impl Starts for Launches<'_> {
-    fn next(&mut self, _: Duration) -> Result<Option<(u32, String)>> {
+    fn next(&mut self, timeout: Duration) -> Result<Option<(u32, String)>> {
+        self.waited.push(timeout);
         let event = self
             .events
             .pop_front()
             .unwrap_or_else(|| Err(anyhow::anyhow!("no more starts")))?;
-        if let Some((pid, exe)) = &event {
-            self.fake.running.borrow_mut().push((*pid, exe.clone()));
+        match &event {
+            Some((pid, exe)) => {
+                self.fake.running.borrow_mut().push((*pid, exe.clone()));
+                if self.silent.contains(pid) {
+                    self.fake.silent.borrow_mut().insert(*pid);
+                }
+            }
+            None => self.fake.silent.borrow_mut().clear(),
         }
         Ok(event)
     }
@@ -548,14 +578,13 @@ fn a_game_that_quit_by_itself_is_put_back_as_it_starts() -> Result<()> {
     let directory = tempfile::tempdir()?;
     let fake = Fake::default();
     let state = quit_by_itself(&fake, directory.path())?;
-    let mut starts = Launches {
-        fake: &fake,
-        events: [
+    let mut starts = Launches::new(
+        &fake,
+        vec![
             Ok(Some((5, r"c:\windows\system32\notepad.exe".to_string()))),
             Ok(Some((9, GAME.to_string()))),
-        ]
-        .into(),
-    };
+        ],
+    );
     let listed = fake.listed.borrow().len();
     watch_starts(&fake, &state, directory.path(), &mut starts)?;
     assert_eq!(fake.device(GAME, eConsole), HEADSET);
@@ -576,10 +605,7 @@ fn a_game_that_started_before_the_watch_is_found_by_its_first_look() -> Result<(
     let fake = Fake::default();
     let state = quit_by_itself(&fake, directory.path())?;
     started(&fake, 9);
-    let mut starts = Launches {
-        fake: &fake,
-        events: [].into(),
-    };
+    let mut starts = Launches::new(&fake, vec![]);
     watch_starts(&fake, &state, directory.path(), &mut starts)?;
     assert_eq!(fake.device(GAME, eConsole), HEADSET);
     assert!(!state.lock().unwrap().watching);
@@ -591,16 +617,72 @@ fn a_broken_watch_of_starts_leaves_the_watcher_on_for_its_fallback() -> Result<(
     let directory = tempfile::tempdir()?;
     let fake = Fake::default();
     let state = quit_by_itself(&fake, directory.path())?;
-    let mut starts = Launches {
-        fake: &fake,
-        events: [Ok(None), Err(anyhow::anyhow!("WMI stopped"))].into(),
-    };
+    let mut starts = Launches::new(&fake, vec![Ok(None), Err(anyhow::anyhow!("WMI stopped"))]);
     let error = watch_starts(&fake, &state, directory.path(), &mut starts).unwrap_err();
     assert_eq!(error.to_string(), "WMI stopped");
     assert!(state.lock().unwrap().watching, "the poll goes on from here");
     assert_eq!(load(directory.path())?.apps.len(), 1, "still waiting");
     assert_eq!(fake.device(GAME, eConsole), SINK);
     Ok(())
+}
+
+/// #59: Windows has no device for a process that hasn't opened its sound
+/// (every game as it starts): the route changes and journals nothing, says
+/// so, and works once the game opened it.
+#[test]
+fn a_game_without_sound_yet_is_routed_once_it_opened_it() -> Result<()> {
+    let directory = tempfile::tempdir()?;
+    let (fake, mut state) = (Fake::default(), State::default());
+    started(&fake, 7);
+    fake.silent.borrow_mut().insert(7);
+    let error = route_with(&fake, &mut state, directory.path(), 7, GAME, SINK).unwrap_err();
+    assert!(no_sound_yet(&error), "{error:#}");
+    assert_eq!(load(directory.path())?, Journal::default());
+    assert!(state.active.is_empty());
+    fake.silent.borrow_mut().clear();
+    assert_eq!(
+        route_with(&fake, &mut state, directory.path(), 7, GAME, SINK)?,
+        Routed::Sink
+    );
+    assert_eq!(fake.device(GAME, eConsole), SINK);
+    Ok(())
+}
+
+/// A game put back as it starts has no sound yet: it is looked at again
+/// within [`WATCH`], not at the next sweep, and nothing is reported.
+#[test]
+fn a_game_that_starts_without_sound_is_put_back_once_it_opened_it() -> Result<()> {
+    let directory = tempfile::tempdir()?;
+    let fake = Fake::default();
+    let state = quit_by_itself(&fake, directory.path())?;
+    let mut starts = Launches::new(&fake, vec![Ok(Some((9, GAME.to_string()))), Ok(None)]);
+    starts.silent = &[9];
+    watch_starts(&fake, &state, directory.path(), &mut starts)?;
+    assert_eq!(starts.waited, [SWEEP, WATCH]);
+    assert_eq!(fake.device(GAME, eConsole), HEADSET);
+    assert_eq!(load(directory.path())?, Journal::default());
+    assert!(!state.lock().unwrap().watching);
+    Ok(())
+}
+
+/// E_INVALIDARG is "no sound yet" only for a process Windows lists no
+/// sound of; otherwise it is a failure that says so. Sessions are listed
+/// only then.
+#[test]
+fn windows_refusing_a_process_without_sound_waits_for_it() {
+    use windows::Win32::Foundation::{E_ACCESSDENIED, E_INVALIDARG, S_OK};
+    let unasked = || -> Result<Vec<u32>> { panic!("sessions listed") };
+    assert!(refusal(S_OK, 7, unasked).is_ok());
+    let denied = refusal(E_ACCESSDENIED, 7, unasked).unwrap_err();
+    assert!(!no_sound_yet(&denied));
+    assert!(no_sound_yet(
+        &refusal(E_INVALIDARG, 7, || Ok(vec![3, 9])).unwrap_err()
+    ));
+    let playing = refusal(E_INVALIDARG, 7, || Ok(vec![7])).unwrap_err();
+    assert!(!no_sound_yet(&playing));
+    assert!(format!("{playing:#}").contains("although the game opened its sound"));
+    let unlisted = refusal(E_INVALIDARG, 7, || anyhow::bail!("no audio service")).unwrap_err();
+    assert!(!no_sound_yet(&unlisted));
 }
 
 #[test]
@@ -611,13 +693,31 @@ fn policy_factory_abi_matches_windows() {
     assert_eq!(size_of::<FactoryVtbl>(), (6 + 22) * pointer);
 }
 
-/// The real factory on this PC, with no change: Windows reads the test's
-/// own device back.
+/// The real factory on this PC, with no change: Windows has no device for
+/// the test before it opens its sound (#59), and reads its own device back
+/// after.
 #[test]
 #[ignore = "needs the Windows audio service"]
 fn windows_reads_a_process_device() -> Result<()> {
     let _com = crate::capture::ComGuard::new()?;
     let apps = Windows::new()?;
+    let error = apps.get(std::process::id(), eMultimedia).unwrap_err();
+    assert!(no_sound_yet(&error), "{error:#}");
+    // A shared stream, opened and never started: silent.
+    // SAFETY: COM is initialised by `_com`; every interface is owned here.
+    let _client = unsafe {
+        let enumerator: IMMDeviceEnumerator = windows::Win32::System::Com::CoCreateInstance(
+            &MMDeviceEnumerator,
+            None,
+            windows::Win32::System::Com::CLSCTX_ALL,
+        )?;
+        let device = enumerator.GetDefaultAudioEndpoint(eRender, eConsole)?;
+        let client: IAudioClient =
+            device.Activate(windows::Win32::System::Com::CLSCTX_ALL, None)?;
+        let format = client.GetMixFormat()?;
+        client.Initialize(AUDCLNT_SHAREMODE_SHARED, 0, 10_000_000, 0, format, None)?;
+        client
+    };
     let device = apps.get(std::process::id(), eMultimedia)?;
     assert!(
         device.is_empty() || device.starts_with(MMDEVAPI),

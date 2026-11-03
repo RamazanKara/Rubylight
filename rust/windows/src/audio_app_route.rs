@@ -14,6 +14,10 @@
 //! Windows sets a device only for a running process, so a host that stops
 //! the game itself puts it back first ([`put_back`]); an uninstall can't put
 //! back a game that isn't running (Volume mixer's Reset does).
+//! Windows has no device for a process that hasn't opened its sound yet: it
+//! refuses both calls with E_INVALIDARG ([`NoSoundYet`], #59: every game
+//! routed as it started). Once the process opened it, a change moves the
+//! sound it plays at once, so a route is tried again until then.
 
 use anyhow::{Context, Result};
 use butterpollo_core::config::Config;
@@ -72,6 +76,35 @@ unsafe impl Interface for EarlierFactory {
     const IID: GUID = GUID::from_u128(0x2a59116d_6c4f_45e0_a74f_707e3fef9258);
 }
 
+/// The process hasn't opened its sound yet, so Windows has no device for it:
+/// try again once it has ([`no_sound_yet`]).
+#[derive(Debug)]
+pub struct NoSoundYet;
+impl std::fmt::Display for NoSoundYet {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("the game has not opened its sound yet")
+    }
+}
+impl std::error::Error for NoSoundYet {}
+/// Whether `error` is [`NoSoundYet`]: the route is tried again later.
+pub fn no_sound_yet(error: &anyhow::Error) -> bool {
+    error.is::<NoSoundYet>()
+}
+/// Windows' answer `result` for process `pid`: E_INVALIDARG is
+/// [`NoSoundYet`] when `sessions` (asked only then) lists no sound of it.
+fn refusal(result: HRESULT, pid: u32, sessions: impl FnOnce() -> Result<Vec<u32>>) -> Result<()> {
+    if result != windows::Win32::Foundation::E_INVALIDARG {
+        return Ok(result.ok()?);
+    }
+    match sessions() {
+        Ok(pids) if !pids.contains(&pid) => Err(NoSoundYet.into()),
+        Ok(_) => Err(windows::core::Error::from(result))
+            .context("Windows refuses the game's audio device although the game opened its sound"),
+        Err(error) => Err(windows::core::Error::from(result))
+            .context(format!("its sound can't be listed: {error:#}")),
+    }
+}
+
 /// The calls the routing needs, so the journal logic runs against a fake.
 trait Apps {
     /// The process's own playback device for `role`: "" when it follows
@@ -103,18 +136,20 @@ impl Apps for Windows {
         let mut device = HSTRING::new();
         // SAFETY: `self.0` is a live factory whose slots match FactoryVtbl; `device` receives an
         // owned HSTRING.
-        unsafe { (self.0.vtable().get)(self.0.as_raw(), pid, eRender, role, &mut device).ok()? };
+        let result =
+            unsafe { (self.0.vtable().get)(self.0.as_raw(), pid, eRender, role, &mut device) };
+        refusal(result, pid, sound_pids)?;
         Ok(device.to_string_lossy())
     }
     fn set(&self, pid: u32, role: ERole, device: &str) -> Result<()> {
         let device = HSTRING::from(device);
         // SAFETY: the HSTRING is borrowed for the call (an empty one is null, which clears) and
         // outlives it; the callee does not take ownership.
-        unsafe {
+        let result = unsafe {
             let raw: *mut c_void = std::mem::transmute_copy(&device);
-            (self.0.vtable().set)(self.0.as_raw(), pid, eRender, role, raw).ok()?;
-        }
-        Ok(())
+            (self.0.vtable().set)(self.0.as_raw(), pid, eRender, role, raw)
+        };
+        refusal(result, pid, sound_pids)
     }
     fn running(&self, exes: &[&str]) -> Result<Vec<(u32, String)>> {
         let names: Vec<&str> = exes.iter().map(|exe| file_name(exe)).collect();
@@ -339,6 +374,12 @@ fn route_with(
         if let Err(restore) = release_with(apps, state, directory, exe) {
             tracing::warn!(exe, error = %format!("{restore:#}"), "game audio device could not be restored after a failed route");
         }
+        // Not tried again as if nothing changed: it was journalled.
+        if no_sound_yet(&error) {
+            return Err(anyhow::anyhow!(
+                "Windows lost the game's sound while moving it"
+            ));
+        }
         return Err(error);
     }
     Ok(Routed::Sink)
@@ -478,9 +519,16 @@ fn restore_running(
                 tracing::info!(exe = app.exe, "game audio device restored");
                 done.push(app.exe.clone());
             }
+            // Just started: put back once it opened its sound, which
+            // then moves at once ([`watch_starts`] looks again soon).
+            Err(error) if no_sound_yet(&error) => {
+                failed.get_or_insert(error);
+            }
             Err(error) => {
                 tracing::warn!(exe = app.exe, error = %format!("{error:#}"), "game audio device could not be restored");
-                failed.get_or_insert(error);
+                if failed.as_ref().is_none_or(no_sound_yet) {
+                    failed = Some(error);
+                }
             }
         }
     }
@@ -561,6 +609,16 @@ fn endpoint_id(device: &str) -> &str {
 
 /// Active playback sessions: process ID and endpoint ID.
 fn active_sessions() -> Result<Vec<(u32, String)>> {
+    sessions(true)
+}
+/// The processes with a playback session, active or not: those that opened
+/// their sound.
+fn sound_pids() -> Result<Vec<u32>> {
+    Ok(sessions(false)?.into_iter().map(|(pid, _)| pid).collect())
+}
+/// Playback sessions (only active ones when `active`): process ID and
+/// endpoint ID.
+fn sessions(active: bool) -> Result<Vec<(u32, String)>> {
     let _com = crate::capture::ComGuard::new()?;
     // SAFETY: COM is initialised by `_com`; every interface used is live and owned here.
     unsafe {
@@ -579,7 +637,7 @@ fn active_sessions() -> Result<Vec<(u32, String)>> {
             let all = manager.GetSessionEnumerator()?;
             for at in 0..all.GetCount()? {
                 let control: IAudioSessionControl2 = all.GetSession(at)?.cast()?;
-                if control.GetState()? == AudioSessionStateActive {
+                if !active || control.GetState()? == AudioSessionStateActive {
                     sessions.push((control.GetProcessId().unwrap_or(0), id.clone()));
                 }
             }
@@ -603,7 +661,8 @@ pub struct AppRoute {
 impl AppRoute {
     /// Play process `pid` on the configured `virtual_sink`, else on Steam
     /// Streaming Speakers. Fails when there is neither, or when Windows
-    /// does not keep the choice.
+    /// does not keep the choice; with [`NoSoundYet`], changing nothing, when
+    /// the process hasn't opened its sound yet.
     pub fn acquire(config: &Config, directory: &Path, pid: u32) -> Result<Self> {
         let _com = crate::capture::ComGuard::new()?;
         let available = crate::audio_route::endpoints()?;
@@ -655,6 +714,8 @@ impl AppRoute {
                 );
                 Some(device)
             }
+            // Nothing changed or journalled yet: the caller tries again.
+            Err(error) if no_sound_yet(&error) => return Err(error),
             Err(error) => {
                 watch(directory);
                 return Err(error);
@@ -723,6 +784,7 @@ impl Drop for AppRoute {
         match result {
             Ok(false) => {}
             Ok(true) => watch(&self.directory),
+            Err(error) if no_sound_yet(&error) => watch(&self.directory),
             Err(error) => {
                 tracing::warn!(exe = self.exe, error = %format!("{error:#}"), "game audio device could not be restored; retrying while the host runs");
                 watch(&self.directory);
@@ -748,7 +810,11 @@ pub fn recover(directory: &Path) -> Result<()> {
     if !matches!(result, Ok(false)) {
         watch(directory);
     }
-    result.map(|_| ())
+    match result {
+        // The watcher puts it back once it opened its sound.
+        Err(error) if !no_sound_yet(&error) => Err(error),
+        _ => Ok(()),
+    }
 }
 
 /// The host is about to stop processes `pids` (a game, a session's
@@ -773,7 +839,10 @@ pub fn put_back(directory: &Path, pids: impl FnOnce() -> Result<Vec<u32>>) -> Re
     if !matches!(result, Ok(false)) {
         watch(directory);
     }
-    result.map(|_| closing)
+    match result {
+        Err(error) if !no_sound_yet(&error) => Err(error),
+        _ => Ok(closing),
+    }
 }
 
 /// Programs the host stops: routed again once this drops.
@@ -855,11 +924,14 @@ fn watch_starts(
     // Starts are watched already: this first look finds a program that
     // started since the restore that left it waiting, the watch any later.
     let mut sweep = true;
+    // A program that started but hasn't opened its sound is looked at
+    // again every [`WATCH`].
+    let mut soon = false;
     loop {
         let (mut guard, result) = if std::mem::take(&mut sweep) {
             restore_unlocked(apps, state, directory)
         } else {
-            match starts.next(SWEEP)? {
+            match starts.next(if soon { WATCH } else { SWEEP })? {
                 None => restore_unlocked(apps, state, directory),
                 Some((pid, exe)) => match load(directory) {
                     Err(error) => (state.lock().unwrap(), Err(error)),
@@ -879,6 +951,7 @@ fn watch_starts(
                 },
             }
         };
+        soon = matches!(&result, Err(error) if no_sound_yet(error));
         // One lock from the restore's device changes to the decision to
         // stop: a stream ending meanwhile finds the watcher either running
         // or gone.
@@ -909,6 +982,8 @@ fn waits_still(state: &mut State, result: Result<bool>, reported: &mut Option<St
             state.watching = false;
             false
         }
+        // Not a failure: it waits for the game's sound.
+        Err(error) if no_sound_yet(&error) => true,
         Err(error) => {
             let detail = format!("{error:#}");
             if reported.as_ref() != Some(&detail) {

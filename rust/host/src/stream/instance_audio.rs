@@ -1,17 +1,17 @@
 //! A Nucleus Co-op session's game instances play on a virtual sink from
-//! their start (#59). Windows never moves sound a process already opened,
-//! and a stream routes its own instance only once the game's window shows:
-//! by then a game such as LEGO Batman opened its sound on the PC's
-//! speakers. The session tells each pass's instances; a worker of its own
-//! routes them, so neither the pass nor its timing waits for Windows. A
-//! player whose stream also plays on the PC gets their instance back on the
-//! PC's device.
+//! their start (#59): a stream routes its own instance only once the game's
+//! window shows, by then a game such as LEGO Batman opened its sound on the
+//! PC's speakers. Windows takes a device only for a process that opened its
+//! sound, so one that hasn't is routed again every [`RETRY`]. The session
+//! tells each pass's instances; a worker of its own routes them, so neither
+//! the pass nor its timing waits for Windows. A player whose stream also
+//! plays on the PC gets their instance back on the PC's device.
 use super::game_audio::{moves_game_sound, routable};
 use crate::state::Shared;
 use anyhow::Result;
 use butterpollo_core::{audio_scope::Identity, config::Config};
 use butterpollo_windows::{
-    audio_app_route::{AppRoute, Closing},
+    audio_app_route::{AppRoute, Closing, no_sound_yet},
     nucleus::session::Told,
 };
 use std::{
@@ -24,6 +24,10 @@ use std::{
 
 /// How long the session's end waits for its instances to go back.
 const PUT_BACK_WAIT: Duration = Duration::from_secs(5);
+/// How often an instance that hasn't opened its sound is routed again: its
+/// sound moves at once when it is, so what it played on the PC is this long
+/// at most.
+const RETRY: Duration = Duration::from_millis(500);
 
 /// Whether a co-op player's stream of `config` plays the game on the PC
 /// too: with its slot's settings (game-only audio), which the launch's
@@ -121,7 +125,22 @@ impl InstanceRoutes {
                 let mut trees = Vec::new();
                 // Held until the stop is over: no route between.
                 let mut _closing = None;
-                while let Ok(first) = queue.recv() {
+                loop {
+                    let first = if early.waiting {
+                        match queue.recv_timeout(RETRY) {
+                            Ok(work) => work,
+                            Err(mpsc::RecvTimeoutError::Timeout) => {
+                                early.update(&trees, &mut acquire);
+                                continue;
+                            }
+                            Err(mpsc::RecvTimeoutError::Disconnected) => break,
+                        }
+                    } else {
+                        match queue.recv() {
+                            Ok(work) => work,
+                            Err(_) => break,
+                        }
+                    };
                     // Only the latest instances matter: a pass that came
                     // while Windows answered replaces the ones before, and
                     // is routed before the work behind it.
@@ -239,12 +258,16 @@ struct Early<R = AppRoute> {
     routed: BTreeMap<Identity, (usize, Option<R>)>,
     /// The slots whose player plays on the PC: never routed.
     on_pc: BTreeSet<usize>,
+    /// A process the last update found hasn't opened its sound yet: it is
+    /// tried again every [`RETRY`].
+    waiting: bool,
 }
 impl<R> Default for Early<R> {
     fn default() -> Self {
         Self {
             routed: BTreeMap::new(),
             on_pc: BTreeSet::new(),
+            waiting: false,
         }
     }
 }
@@ -291,11 +314,20 @@ impl<R> Early<R> {
                 }
             }
         }
+        self.waiting = false;
         for (identity, &slot) in &all {
             if self.routed.contains_key(identity) {
                 continue;
             }
-            let route = acquire(identity.pid).and_then(|route| {
+            let route = match acquire(identity.pid) {
+                // Tried again until it opened its sound.
+                Some(Err(error)) if no_sound_yet(&error) => {
+                    self.waiting = true;
+                    continue;
+                }
+                route => route,
+            };
+            let route = route.and_then(|route| {
                 route
                     .inspect_err(|error| {
                         tracing::warn!(
@@ -502,6 +534,42 @@ mod tests {
         });
         assert_eq!(choice, None);
         assert_eq!(asked.recv_timeout(Duration::from_secs(5)).unwrap(), 21);
+    }
+
+    /// #59: an instance routed as it starts hasn't opened its sound, which
+    /// Windows refuses: it is routed again on its own, with no new pass and
+    /// no warning, until it has; a gone one stops being tried.
+    #[test]
+    fn an_instance_without_sound_yet_is_routed_again_until_it_opened_it() {
+        let (asked_tx, asked) = mpsc::channel();
+        let opened = Arc::new(Mutex::new(false));
+        let open = opened.clone();
+        let routes = InstanceRoutes::start(
+            move |pid| {
+                asked_tx.send(pid).unwrap();
+                match pid {
+                    20 if *open.lock().unwrap() => game(pid),
+                    _ => Some(Err(butterpollo_windows::audio_app_route::NoSoundYet.into())),
+                }
+            },
+            |_| None,
+            false,
+        )
+        .unwrap();
+        routes.found(&[BTreeSet::from([id(20)])]);
+        let wait = RETRY * 4;
+        assert_eq!(asked.recv_timeout(wait).unwrap(), 20);
+        assert_eq!(asked.recv_timeout(wait).unwrap(), 20, "tried again");
+        *opened.lock().unwrap() = true;
+        while asked.recv_timeout(wait).is_ok() {}
+        let after = asked.recv_timeout(wait);
+        assert!(after.is_err(), "routed: not tried again ({after:?})");
+        // Gone before it opened its sound: no more tries.
+        routes.found(&[BTreeSet::from([id(20), id(21)])]);
+        assert_eq!(asked.recv_timeout(wait).unwrap(), 21);
+        routes.found(&[BTreeSet::from([id(20)])]);
+        while asked.recv_timeout(wait).is_ok() {}
+        assert!(asked.recv_timeout(wait).is_err());
     }
 
     /// Dropping the last handle never waits for a route in progress.

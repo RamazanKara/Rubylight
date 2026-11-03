@@ -8,7 +8,7 @@ use butterpollo_core::{
 };
 use butterpollo_windows::{
     audio::{Loopback, ProcessActivation},
-    audio_app_route::{AppRoute, OnThePc},
+    audio_app_route::{AppRoute, OnThePc, no_sound_yet},
     process::AudioProcess,
 };
 use std::collections::BTreeMap;
@@ -226,8 +226,12 @@ impl Routes {
                 self.windows.insert(*identity);
                 continue;
             }
-            let route = AppRoute::acquire(config, &h.directory, identity.pid)
-                .map_err(|error| format!("{error:#}"));
+            let route = match AppRoute::acquire(config, &h.directory, identity.pid) {
+                // Windows takes its device once it opened its sound (#59):
+                // tried again at the next look.
+                Err(error) if no_sound_yet(&error) => continue,
+                route => route.map_err(|error| format!("{error:#}")),
+            };
             match route {
                 Ok(route) => {
                     if let Some(device) = route.users_device() {

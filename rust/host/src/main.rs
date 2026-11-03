@@ -517,12 +517,14 @@ async fn run(args: Args, assets: PathBuf) -> Result<()> {
         h.clone(),
         media.clone(),
     ));
-    // The guest page's own port: a port that is taken costs the guests alone, and says so.
+    // The guest page's own port, which serves the play page too: a port that is taken costs the
+    // guests and the play page alone, and says so.
     let guest_listener = {
         let address: std::net::SocketAddr = (bind, ports.guest).into();
         let h = h.clone();
         let acceptor = tls::console_acceptor(&h.console)?;
-        let router = web::guest_router(h.clone());
+        let router =
+            web::guest_router_with(h.clone(), webrtc::server::Console::new(Some(media.clone())));
         tokio::spawn(async move {
             if let Err(error) = tls::serve(address, router, Some(acceptor)).await {
                 let error = format!("{error:#}");

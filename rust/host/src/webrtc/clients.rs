@@ -43,6 +43,11 @@ pub enum Close {
 pub const MAX_UNAUTHENTICATED_PER_IP: usize = 4;
 /// A pairing notification for one peer comes at most this often.
 const NOTIFY_EVERY: Duration = Duration::from_secs(30);
+/// Pairing requests one peer may make in [`PAIRING_WINDOW`], counted from its first: a TV asks
+/// once, and again after a mistyped PIN. More are refused until the window passes, so a page
+/// cannot fill the console's PIN list.
+pub const MAX_PAIRING_REQUESTS: u32 = 5;
+const PAIRING_WINDOW: Duration = Duration::from_secs(60);
 
 /// What the console shows of the server.
 #[derive(Debug, Clone, Default)]
@@ -68,6 +73,8 @@ struct Inner {
     /// When each peer last raised a pairing notification.
     notified: HashMap<IpAddr, Instant>,
     notify_every: Duration,
+    /// Each peer's pairing requests in the current window, and when that window opened.
+    pairing_requests: HashMap<IpAddr, (Instant, u32)>,
     /// Notifications granted so far.
     #[cfg(test)]
     notices: usize,
@@ -106,6 +113,7 @@ impl Registry {
                 peers: Vec::new(),
                 notified: HashMap::new(),
                 notify_every: NOTIFY_EVERY,
+                pairing_requests: HashMap::new(),
                 #[cfg(test)]
                 notices: 0,
                 next: 1,
@@ -220,6 +228,27 @@ impl Registry {
                 true
             }
         }
+    }
+
+    /// Whether `peer` may ask to pair now: [`MAX_PAIRING_REQUESTS`] a minute per peer.
+    pub fn may_pair(&self, peer: IpAddr) -> bool {
+        self.may_pair_at(peer, Instant::now())
+    }
+
+    fn may_pair_at(&self, peer: IpAddr, now: Instant) -> bool {
+        let mut inner = self.inner.lock().unwrap();
+        inner
+            .pairing_requests
+            .retain(|_, (since, _)| now.saturating_duration_since(*since) < PAIRING_WINDOW);
+        let (_, count) = inner
+            .pairing_requests
+            .entry(peer_group(peer.to_canonical()))
+            .or_insert((now, 0));
+        if *count >= MAX_PAIRING_REQUESTS {
+            return false;
+        }
+        *count += 1;
+        true
     }
 
     /// Shorten (or end) the window between notices.
@@ -534,6 +563,30 @@ mod tests {
         assert!(registry.may_notify_at(ip(1), at(40)));
         assert!(!registry.may_notify_at(ip(1), at(60)));
         assert!(registry.may_notify_at(ip(1), at(70)));
+    }
+
+    #[test]
+    fn a_peer_may_ask_to_pair_five_times_a_minute() {
+        let registry = Registry::new();
+        let start = Instant::now();
+        let at = |secs: u64| start + Duration::from_secs(secs);
+        for n in 0..MAX_PAIRING_REQUESTS {
+            assert!(registry.may_pair_at(ip(1), at(u64::from(n))), "request {n}");
+        }
+        assert!(!registry.may_pair_at(ip(1), at(10)));
+        assert!(!registry.may_pair_at(ip(1), at(59)));
+        // Another peer has its own count, also as an IPv4-mapped address.
+        assert!(registry.may_pair_at(ip(2), at(10)));
+        assert!(registry.may_pair_at("::ffff:192.168.1.3".parse().unwrap(), at(10)));
+        assert!(!registry.may_pair_at("::ffff:192.168.1.1".parse().unwrap(), at(30)));
+        // A minute after its first request the peer starts over.
+        assert!(registry.may_pair_at(ip(1), at(60)));
+        // One /64 is one peer.
+        for n in 1..=MAX_PAIRING_REQUESTS {
+            assert!(registry.may_pair_at(v6(&format!("2001:db8:1:2::{n}")), at(0)));
+        }
+        assert!(!registry.may_pair_at(v6("2001:db8:1:2:a:b:c:d"), at(1)));
+        assert!(registry.may_pair_at(v6("2001:db8:1:3::1"), at(1)));
     }
 
     fn v6(text: &str) -> IpAddr {

@@ -25,7 +25,7 @@ use axum::{
         State, WebSocketUpgrade,
         ws::{CloseFrame, Message, WebSocket, close_code},
     },
-    response::Response,
+    response::{IntoResponse, Response},
     routing::get,
 };
 use butterpollo_core::{
@@ -312,6 +312,8 @@ async fn upgrade(
 pub const REPLACED: u16 = 4000;
 /// The WebSocket subprotocol of the console's signalling route.
 pub const CONSOLE_PROTOCOL: &str = "rubylight.signal.v2";
+/// The WebSocket subprotocol of the play page's signalling route on the guest port.
+pub const PLAY_PROTOCOL: &str = "rubylight.play.v2";
 /// How often a console connection checks that its console sign-in still holds and the WebRTC
 /// server is on.
 const SIGNED_IN_CHECK: Duration = Duration::from_secs(5);
@@ -384,6 +386,32 @@ impl Console {
                     socket,
                 )
             })
+    }
+
+    /// Answer the play page's upgrade on the guest port with [`PLAY_PROTOCOL`] and run the
+    /// connection exactly as one on `webrtc_port`: it starts with `auth-required`, and pairs or
+    /// authenticates before anything else. A peer outside the local network is refused here too.
+    pub fn play(
+        &self,
+        h: Shared,
+        socket: WebSocketUpgrade,
+        peer: SocketAddr,
+        local: SocketAddr,
+    ) -> Response {
+        if !local_network(peer.ip()) {
+            tracing::warn!(%peer, "play socket refused: the browser is outside the local network");
+            return (axum::http::StatusCode::FORBIDDEN, "local network only").into_response();
+        }
+        let media = self.media.clone();
+        let peer = Peer {
+            address: SocketAddr::new(peer.ip().to_canonical(), peer.port()),
+            local: SocketAddr::new(local.ip().to_canonical(), local.port()),
+        };
+        socket
+            .protocols([PLAY_PROTOCOL])
+            .max_message_size(MAX_MESSAGE)
+            .max_frame_size(MAX_MESSAGE)
+            .on_upgrade(move |socket| connection(h, Limits::default(), media, peer, None, socket))
     }
 }
 
@@ -882,6 +910,19 @@ impl Connection {
         }
         if !self
             .h
+            .webrtc
+            .may_pair(self.peer.address.ip().to_canonical())
+        {
+            tracing::warn!(peer = %self.peer.address, "WebRTC pairing refused: too many pairing requests from this device in the last minute");
+            out.push(Self::error(
+                ErrorCode::PairingFailed,
+                "request-pairing",
+                "Too many pairing requests from this device; wait a minute and try again",
+            ));
+            return;
+        }
+        if !self
+            .h
             .config
             .read()
             .unwrap()
@@ -986,7 +1027,11 @@ impl Connection {
                             ErrorCode::PairingExpired => "The pairing request expired",
                             _ => "Pairing failed",
                         };
-                        tracing::info!(peer = %self.peer.address, %code, "WebRTC pairing did not complete");
+                        if code == ErrorCode::IncorrectPin {
+                            tracing::warn!(peer = %self.peer.address, "WebRTC pairing failed: the PIN entered in the console is not the one the device shows");
+                        } else {
+                            tracing::info!(peer = %self.peer.address, %code, "WebRTC pairing did not complete");
+                        }
                         out.push(failure(code, text));
                     }
                     Ok(credentials) => {
@@ -1637,6 +1682,53 @@ pub(crate) mod tests {
         assert_eq!(ws.expect("error").await["code"], "not-authenticated");
         assert_eq!(server.f.host.pins.lock().unwrap().len(), 1);
         assert_eq!(server.f.host.webrtc.notices(), 1);
+    }
+
+    #[tokio::test]
+    async fn a_sixth_pairing_request_in_a_minute_is_refused_with_no_console_entry() {
+        let server = Server::start();
+        let (mut ws, _) = server.connect().await;
+        for n in 0..crate::webrtc::clients::MAX_PAIRING_REQUESTS {
+            ws.send(json!({"version":2,"type":"request-pairing","pin":format!("{:04}", 1000 + n),"clientName":"TV"}))
+                .await;
+        }
+        ws.send(json!({"version":2,"type":"request-pairing","pin":"9999","clientName":"TV"}))
+            .await;
+        let refused = ws.expect("error").await;
+        assert_eq!(refused["code"], "pairing-failed");
+        assert_eq!(refused["requestType"], "request-pairing");
+        assert!(
+            refused["message"]
+                .as_str()
+                .unwrap()
+                .contains("wait a minute")
+        );
+        // Each request replaced the one before: the fifth waits.
+        let request = server.pending_request().await;
+        // A new socket of the same peer is refused too; the request already waiting still works.
+        let (mut again, _) = server.connect().await;
+        again
+            .send(json!({"version":2,"type":"request-pairing","pin":"4321","clientName":"TV"}))
+            .await;
+        assert_eq!(again.expect("error").await["code"], "pairing-failed");
+        let pins = server
+            .f
+            .host
+            .pins
+            .lock()
+            .unwrap()
+            .keys()
+            .cloned()
+            .collect::<Vec<_>>();
+        assert_eq!(pins, std::slice::from_ref(&request));
+        crate::web::update_clients(
+            &server.f.host,
+            "POST",
+            "/api/pin",
+            &json!({"pin":"1004","uniqueid":request}),
+        )
+        .unwrap();
+        ws.expect("paired").await;
     }
 
     #[tokio::test]

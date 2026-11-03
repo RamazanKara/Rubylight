@@ -302,11 +302,23 @@ fn token_catalog() -> Vec<auth::Scope> {
 pub fn router(h: Shared) -> Router {
     router_with(h, crate::webrtc::server::Console::default())
 }
-/// The guest port's router (docs/browser-guests.md): the guest page and its socket, and nothing
-/// of the console's. A guest has no sign-in: its reach is the invite's. Until the owner makes a
-/// link, and once no link is live and nobody watches, it answers nothing but 404.
+/// The guest port without a stream pipeline: its play page pairs but cannot stream.
+#[cfg(test)]
 pub fn guest_router(h: Shared) -> Router {
+    guest_router_with(h, crate::webrtc::server::Console::default())
+}
+/// The guest port's router: the guest page and its socket (docs/browser-guests.md), the play
+/// page and its socket (docs/webrtc.md, "Play in a TV browser"), and nothing of the console's.
+/// A guest has no sign-in: its reach is the invite's. Until the owner makes a link, and once no
+/// link is live and nobody watches, everything but `/play` answers 404. `/play` answers only the
+/// local network and Tailscale, while the WebRTC server is on; its socket pairs or authenticates
+/// as a TV does on `webrtc_port`, with `console`'s stream pipeline.
+pub fn guest_router_with(h: Shared, console: crate::webrtc::server::Console) -> Router {
     Router::new()
+        .route("/play/signal", get(play_signal))
+        .route("/play", get(play_page))
+        .route("/play/", get(play_page))
+        .route("/play/{*path}", get(play_page))
         .route("/guest/signal", get(guest_signal))
         // The app icon, as the console's: the guest page's tab shows it.
         .route("/guest/favicon.svg", get(crate::console::favicon))
@@ -317,6 +329,7 @@ pub fn guest_router(h: Shared) -> Router {
         .fallback(|| async { StatusCode::NOT_FOUND })
         .layer(middleware::from_fn_with_state(h.clone(), guest_gate))
         .layer(middleware::from_fn(guest_headers))
+        .layer(Extension(console))
         .with_state(h)
 }
 /// The console. `console` is what its stream page needs from the WebRTC server. The guest page
@@ -552,12 +565,95 @@ async fn guest_signal(
     };
     guests::upgrade(h.clone(), upgrade, connection.peer, connection.local)
 }
-/// The guest port answers only while a link is live or a guest watches.
-async fn guest_gate(State(h): State<Shared>, request: Request, next: Next) -> Response {
-    if !h.guests.open() {
+/// The guest port answers only while a link is live or a guest watches; `/play` only the local
+/// network while the WebRTC server is on, whatever the links.
+async fn guest_gate(
+    State(h): State<Shared>,
+    Extension(connection): Extension<Connection>,
+    request: Request,
+    next: Next,
+) -> Response {
+    let path = request.uri().path();
+    if path == "/play" || path.starts_with("/play/") {
+        if let Some(refused) = play_refused(&h, &connection, path) {
+            return refused;
+        }
+    } else if !h.guests.open() {
         return error(StatusCode::NOT_FOUND, "no invite link is open on this host");
     }
     next.run(request).await
+}
+/// Why the play page or its socket is refused to this connection, if it is. Only the TCP peer
+/// counts: `X-Forwarded-For` and its kind are the client's to write, and a router that forwards
+/// the guest port keeps the internet peer's address. Loopback counts as the local network, as for
+/// the console's Stream page.
+fn play_refused(h: &Shared, connection: &Connection, path: &str) -> Option<Response> {
+    if !crate::webrtc::server::local_network(connection.peer.ip()) {
+        tracing::info!(peer = %connection.peer, path, "play page refused: the browser is outside the local network");
+        return Some(error(
+            StatusCode::FORBIDDEN,
+            "playing in the browser works on the local network and Tailscale only",
+        ));
+    }
+    if !h.config.read().unwrap().webrtc_server() {
+        return Some(error(
+            StatusCode::NOT_FOUND,
+            "turn on the WebRTC server in the Rubylight console to play in the browser",
+        ));
+    }
+    None
+}
+/// The play page (docs/webrtc.md, "Play in a TV browser"): its own build of the web app
+/// (`dist/play`), and nothing of the console's.
+async fn play_page(State(h): State<Shared>, method: Method, uri: axum::http::Uri) -> Response {
+    let root = h.assets.join("play");
+    if !root.join("index.html").is_file() {
+        return error(
+            StatusCode::NOT_FOUND,
+            "the play page is not installed on this host",
+        );
+    }
+    let path = uri.path().strip_prefix("/play").unwrap_or_default();
+    app_file(&root, &method, path, GUEST_POLICY)
+}
+/// `GET /play/signal`: the play page's socket, protocol v2 as on `webrtc_port`. It needs the
+/// page's own origin and the `rubylight.play.v2` subprotocol; [`guest_gate`] let in only the
+/// local network. It pairs or authenticates first, with no console sign-in.
+async fn play_signal(
+    State(h): State<Shared>,
+    Extension(connection): Extension<Connection>,
+    Extension(console): Extension<crate::webrtc::server::Console>,
+    headers: HeaderMap,
+    upgrade: Result<
+        axum::extract::WebSocketUpgrade,
+        axum::extract::ws::rejection::WebSocketUpgradeRejection,
+    >,
+) -> Response {
+    use crate::webrtc::server::PLAY_PROTOCOL;
+    if !headers
+        .get(header::ORIGIN)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|origin| origin_allowed(&h, &headers, origin))
+    {
+        return error(StatusCode::FORBIDDEN, "request origin is not allowed");
+    }
+    let wanted = headers
+        .get_all(header::SEC_WEBSOCKET_PROTOCOL)
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .flat_map(|v| v.split(','))
+        .any(|p| p.trim() == PLAY_PROTOCOL);
+    if !wanted {
+        return error(
+            StatusCode::BAD_REQUEST,
+            "the rubylight.play.v2 subprotocol is required",
+        );
+    }
+    let upgrade = match upgrade {
+        Ok(upgrade) => upgrade,
+        Err(rejection) => return rejection.into_response(),
+    };
+    console.play(h.clone(), upgrade, connection.peer, connection.local)
 }
 /// The guest page: its own build of the web app (`dist/guest`), and nothing of the console's.
 async fn guest_page(State(h): State<Shared>, method: Method, uri: axum::http::Uri) -> Response {

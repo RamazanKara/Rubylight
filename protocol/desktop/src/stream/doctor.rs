@@ -91,10 +91,10 @@ fn measurement(value: f32) -> String {
     }
 }
 
-/// `value` with `decimals`, with a decimal comma in German.
+/// `value` with `decimals`, with a decimal comma where the language writes one.
 fn number(value: f64, decimals: usize) -> String {
     let text = format!("{value:.decimals$}");
-    if crate::strings::current() == crate::strings::Lang::De { text.replace('.', ",") } else { text }
+    if crate::strings::current().decimal_comma() { text.replace('.', ",") } else { text }
 }
 
 /// A stall rhythm as Android words it: seconds below 90 s, else minutes to the half minute.

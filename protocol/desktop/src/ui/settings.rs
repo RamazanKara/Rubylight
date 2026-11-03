@@ -1009,7 +1009,7 @@ impl Launcher {
                     egui::ComboBox::from_id_salt("language")
                         .selected_text(language_name(s.language))
                         .show_ui(ui, |ui| {
-                            for language in [Language::System, Language::English, Language::German] {
+                            for language in Language::ALL {
                                 ui.selectable_value(&mut s.language, language, language_name(language));
                             }
                         })
@@ -1294,11 +1294,7 @@ fn audio_name(channels: AudioChannels) -> &'static str {
 }
 
 fn language_name(language: Language) -> &'static str {
-    match language {
-        Language::System => tr("System default"),
-        Language::English => "English",
-        Language::German => "Deutsch",
-    }
+    crate::strings::chosen(language).map_or_else(|| tr("System default"), crate::strings::Lang::name)
 }
 
 fn reduce_motion_name(mode: ReduceMotion) -> &'static str {

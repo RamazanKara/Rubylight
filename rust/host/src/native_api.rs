@@ -11,6 +11,7 @@ mod audio;
 pub(crate) mod coop;
 pub(crate) mod files;
 mod folders;
+mod power;
 pub(crate) mod radeon;
 pub(crate) mod wake;
 
@@ -199,6 +200,20 @@ pub fn router() -> Router<Shared> {
             &path("/audio/settings"),
             post(audio::write).fallback(unknown),
         )
+        .route(&path("/power"), get(power::read).fallback(unknown))
+        .route(
+            &path("/power/restart"),
+            post(power::restart).fallback(unknown),
+        )
+        .route(
+            &path("/power/shutdown"),
+            post(power::shutdown).fallback(unknown),
+        )
+        .route(&path("/update"), get(power::update).fallback(unknown))
+        .route(
+            &path("/update/install"),
+            post(power::install).fallback(unknown),
+        )
         .route(&path("/coop"), get(coop::list).fallback(unknown))
         .route(&path("/coop/join"), post(coop::join).fallback(unknown))
         .route(
@@ -323,6 +338,7 @@ async fn capabilities(State(h): State<Shared>, Extension(c): Extension<Connectio
         )
     };
     let coop = h.nucleus.unavailable().is_none();
+    let update = crate::updater::install_supported(&h);
     Ok(json(
         StatusCode::OK,
         &Capabilities {
@@ -348,6 +364,9 @@ async fn capabilities(State(h): State<Shared>, Extension(c): Extension<Connectio
                 feature::AUDIO_HEADPHONE_SURROUND,
                 // Microphone-only sessions; launching one needs Launch apps.
                 feature::MIC_ONLY,
+                // Each device needs its own Restart and shut down PC grant.
+                feature::POWER_RESTART,
+                feature::POWER_SHUTDOWN,
             ]
             .into_iter()
             // The Radeon endpoints answer only where the host started its Radeon worker.
@@ -377,6 +396,8 @@ async fn capabilities(State(h): State<Shared>, Extension(c): Extension<Connectio
             )
             // While this host can run Nucleus Co-op sessions.
             .chain(coop.then_some(feature::COOP))
+            // Where the host installs its own updates; installing needs Host control.
+            .chain(update.then_some(feature::UPDATE))
             .chain(extension_features)
             .map(String::from)
             .collect(),
@@ -390,6 +411,7 @@ async fn capabilities(State(h): State<Shared>, Extension(c): Extension<Connectio
                 usb: client.allows_usb(),
                 shared_folders: client.has_folders(),
                 coop_join: client.allows_coop_join(),
+                restart_shutdown: client.allows_restart_shutdown(),
             },
         },
     ))

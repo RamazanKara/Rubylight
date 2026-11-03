@@ -14,6 +14,7 @@ pub mod error;
 pub mod files;
 pub mod folders;
 pub mod library;
+pub mod power;
 pub mod radeon;
 pub mod session;
 pub mod usb;
@@ -73,4 +74,11 @@ pub mod feature {
     /// [`crate::coop`]: `GET /coop` and `POST /coop/join` answer, while the
     /// host can run Nucleus Co-op sessions.
     pub const COOP: &str = "coop";
+    /// [`crate::power`]: `GET /power` and `POST /power/restart` answer.
+    pub const POWER_RESTART: &str = "power.restart";
+    /// `GET /power` and `POST /power/shutdown` answer.
+    pub const POWER_SHUTDOWN: &str = "power.shutdown";
+    /// `GET /update` and `POST /update/install` answer: the host installs
+    /// its own updates.
+    pub const UPDATE: &str = "update";
 }

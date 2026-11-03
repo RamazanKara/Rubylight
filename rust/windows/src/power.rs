@@ -162,6 +162,49 @@ pub fn suspend() -> Result<()> {
     Ok(())
 }
 
+/// `InitiateShutdownW`'s flags: a full shutdown or a restart, never forced
+/// and never hybrid, so apps with unsaved work can still say no and a wired
+/// adapter's wake from off stays armed.
+pub fn shutdown_flags(restart: bool) -> u32 {
+    use windows::Win32::System::Shutdown::{SHUTDOWN_POWEROFF, SHUTDOWN_RESTART};
+    if restart {
+        SHUTDOWN_RESTART.0
+    } else {
+        SHUTDOWN_POWEROFF.0
+    }
+}
+
+/// Restart or shut down this PC (Restart and shut down PC). Returns once
+/// Windows took the request; its refusal (another user signed in, a
+/// shutdown already under way) is the error.
+pub fn power_off(restart: bool) -> Result<()> {
+    use windows::Win32::System::Shutdown::{
+        InitiateShutdownW, SHTDN_REASON_FLAG_PLANNED, SHTDN_REASON_MAJOR_OTHER,
+        SHTDN_REASON_MINOR_OTHER, SHUTDOWN_FLAGS,
+    };
+    let _privilege = shutdown_privilege()?;
+    let what = if restart { "restart" } else { "shut down" };
+    tracing::warn!("asking Windows to {what} the PC");
+    let reason = SHTDN_REASON_MAJOR_OTHER | SHTDN_REASON_MINOR_OTHER | SHTDN_REASON_FLAG_PLANNED;
+    // SAFETY: no machine name (this PC) and no message; plain values otherwise.
+    let error = unsafe {
+        InitiateShutdownW(
+            None,
+            None,
+            0,
+            SHUTDOWN_FLAGS(shutdown_flags(restart)),
+            reason,
+        )
+    };
+    if error != 0 {
+        bail!(
+            "Windows refused to {what} the PC: {}",
+            windows::core::Error::from_hresult(HRESULT::from_win32(error))
+        );
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -204,5 +247,18 @@ mod tests {
                 hibernate: true,
             }
         );
+    }
+
+    #[test]
+    fn power_off_is_never_forced_or_hybrid() {
+        use windows::Win32::System::Shutdown::{
+            SHUTDOWN_FORCE_OTHERS, SHUTDOWN_FORCE_SELF, SHUTDOWN_HYBRID,
+        };
+        // SHUTDOWN_RESTART and SHUTDOWN_POWEROFF.
+        assert_eq!((shutdown_flags(true), shutdown_flags(false)), (0x4, 0x8));
+        for restart in [true, false] {
+            let forbidden = SHUTDOWN_FORCE_OTHERS.0 | SHUTDOWN_FORCE_SELF.0 | SHUTDOWN_HYBRID.0;
+            assert_eq!(shutdown_flags(restart) & forbidden, 0);
+        }
     }
 }

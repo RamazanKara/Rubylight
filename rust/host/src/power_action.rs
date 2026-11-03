@@ -18,7 +18,7 @@ use axum::{
     http::{HeaderMap, Method, Uri, header},
     response::{IntoResponse, Response},
 };
-use butterpollo_core::power_action::{self, Authority, Request, SleepStates, Tokens};
+use butterpollo_core::power_action::{self, Action, Authority, Busy, Request, SleepStates, Tokens};
 use std::{
     sync::{Arc, Mutex, MutexGuard, RwLock, mpsc},
     time::{Duration, Instant},
@@ -30,10 +30,17 @@ const DELIVERY_WAIT: Duration = Duration::from_secs(2);
 /// A sleep request has an empty body; reading stops past this many bytes.
 const BODY_LIMIT: usize = 1024;
 
-/// The sleep states this PC reports, and the suspend itself.
+/// The sleep states this PC reports, the suspend, and Restart and Shut down.
 pub trait Backend: Send + Sync {
     fn states(&self) -> Result<SleepStates>;
     fn suspend(&self) -> Result<()>;
+    /// Asks Windows to restart or shut down, without closing apps by force.
+    /// Returns once Windows took the request or refused it.
+    fn power_off(&self, action: Action) -> Result<()>;
+    /// Whether this backend reaches Windows; only the one outside tests does.
+    fn native(&self) -> bool {
+        false
+    }
 }
 #[cfg(not(test))]
 struct Native;
@@ -44,6 +51,12 @@ impl Backend for Native {
     }
     fn suspend(&self) -> Result<()> {
         butterpollo_windows::power::suspend()
+    }
+    fn power_off(&self, action: Action) -> Result<()> {
+        butterpollo_windows::power::power_off(action == Action::Restart)
+    }
+    fn native(&self) -> bool {
+        true
     }
 }
 /// Tests never put the PC running them to sleep: without a fake backend
@@ -58,6 +71,9 @@ impl Backend for Native {
     fn suspend(&self) -> Result<()> {
         panic!("a test reached the native suspend")
     }
+    fn power_off(&self, action: Action) -> Result<()> {
+        panic!("a test reached the native {}", action.name())
+    }
 }
 /// A PC with these sleep states, for tests that never suspend.
 #[cfg(test)]
@@ -70,6 +86,9 @@ impl Backend for FixedStates {
     fn suspend(&self) -> Result<()> {
         panic!("a test reached the suspend of a fixed backend")
     }
+    fn power_off(&self, action: Action) -> Result<()> {
+        panic!("a test reached the {} of a fixed backend", action.name())
+    }
 }
 /// Why Sleep PC is unavailable, `None` on a PC with S1, S2 or S3.
 fn unavailable(states: &Result<SleepStates>) -> Option<String> {
@@ -81,18 +100,24 @@ fn unavailable(states: &Result<SleepStates>) -> Option<String> {
 
 pub struct PowerActions {
     tokens: Mutex<Tokens>,
+    /// Restart and Shut down's own tokens.
+    pub(crate) power_tokens: Mutex<Tokens>,
+    /// Why Windows refused the last accepted restart or shutdown.
+    last_refusal: Mutex<Option<String>>,
     backend: RwLock<Arc<dyn Backend>>,
 }
 impl Default for PowerActions {
     fn default() -> Self {
         Self {
             tokens: Mutex::default(),
+            power_tokens: Mutex::default(),
+            last_refusal: Mutex::default(),
             backend: RwLock::new(Arc::new(Native)),
         }
     }
 }
 impl PowerActions {
-    fn backend(&self) -> Arc<dyn Backend> {
+    pub(crate) fn backend(&self) -> Arc<dyn Backend> {
         self.backend.read().unwrap().clone()
     }
     /// `SleepSupported` in serverinfo: only a PC with S1, S2 or S3.
@@ -115,6 +140,12 @@ impl PowerActions {
             },
         }
     }
+    pub(crate) fn last_refusal(&self) -> Option<String> {
+        self.last_refusal.lock().unwrap().clone()
+    }
+    pub(crate) fn set_last_refusal(&self, refusal: Option<String>) {
+        *self.last_refusal.lock().unwrap() = refusal;
+    }
     #[cfg(test)]
     pub fn set_backend(&self, backend: Arc<dyn Backend>) {
         *self.backend.write().unwrap() = backend;
@@ -132,18 +163,58 @@ fn authority(h: &Shared, connection: &Connection) -> Option<Authority> {
     Some(Authority {
         uuid: client.uuid.clone(),
         allow_sleep: client.allows_sleep(),
+        allow_restart_shutdown: client.allows_restart_shutdown(),
     })
 }
 /// The lifecycle gate, taken without waiting, while nothing runs: no app,
 /// stream, pending launch, teardown, display monitor, WebRTC link or
 /// controller session in use. Also gates resetting display persistence.
 pub(crate) fn idle(h: &Shared) -> Option<MutexGuard<'_, ()>> {
-    let gate = h.launch_transition.try_lock().ok()?;
-    let busy = crate::updater::busy(h)
-        || !h.sessions.lock().unwrap().teardown.is_empty()
-        || h.webrtc_links.len() != 0
-        || h.controller_sessions.in_use();
-    (!busy).then_some(gate)
+    idle_or_busy(h).ok()
+}
+/// [`idle`], or what keeps the PC busy, naming the devices that stream.
+pub(crate) fn idle_or_busy(h: &Shared) -> Result<MutexGuard<'_, ()>, Busy> {
+    let gate = h
+        .launch_transition
+        .try_lock()
+        .map_err(|_| Busy::Transition)?;
+    if let Some(busy) = streaming(h, None) {
+        return Err(busy);
+    }
+    let ending = !h.sessions.lock().unwrap().teardown.is_empty();
+    if let Some(app) = h.current_app.lock().unwrap().as_ref() {
+        return Err(Busy::App(app.name.clone()));
+    }
+    if ending || !h.monitors.lock().unwrap().is_empty() {
+        return Err(Busy::Ending);
+    }
+    if h.webrtc_links.len() != 0 {
+        return Err(Busy::Guest);
+    }
+    if h.controller_sessions.in_use() {
+        return Err(Busy::Controller);
+    }
+    Ok(gate)
+}
+/// The devices that stream or start a stream, but `except`.
+pub(crate) fn streaming(h: &Shared, except: Option<&str>) -> Option<Busy> {
+    let sessions = h.sessions.lock().unwrap();
+    let names = |clients: Vec<&butterpollo_core::state::Client>| {
+        let mut names: Vec<String> = clients
+            .into_iter()
+            .filter(|c| except != Some(c.uuid.as_str()))
+            .map(|c| c.name.clone())
+            .collect();
+        names.sort();
+        names.dedup();
+        names
+    };
+    let active = names(sessions.active.values().map(|s| &s.launch.client).collect());
+    if !active.is_empty() {
+        return Some(Busy::Streaming(active));
+    }
+    let pending = names(sessions.pending.values().map(|l| &l.client).collect());
+    (!pending.is_empty()).then_some(Busy::Starting(pending))
 }
 fn reply(answer: &power_action::Response, body: Body) -> Response {
     let status = axum::http::StatusCode::from_u16(answer.status).unwrap();

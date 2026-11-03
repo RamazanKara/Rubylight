@@ -45,4 +45,9 @@ pub struct Permissions {
     /// reads as not granted.
     #[serde(default)]
     pub coop_join: bool,
+    /// The device may restart and shut down the PC: its own
+    /// `allow_restart_shutdown` flag, never a permission bit. Missing from
+    /// older hosts, which then reads as not granted.
+    #[serde(default)]
+    pub restart_shutdown: bool,
 }

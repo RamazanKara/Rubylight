@@ -34,6 +34,9 @@ impl Backend for Fake {
         }
         Ok(())
     }
+    fn power_off(&self, action: Action) -> Result<()> {
+        panic!("a Sleep PC test reached the {}", action.name())
+    }
 }
 fn fake(f: &Fixture) -> Arc<Fake> {
     let fake = Arc::new(Fake {
@@ -591,6 +594,9 @@ fn unreadable_power_capabilities_make_sleep_unavailable() {
             anyhow::bail!("could not read this PC's power capabilities: denied")
         }
         fn suspend(&self) -> Result<()> {
+            unreachable!()
+        }
+        fn power_off(&self, _: Action) -> Result<()> {
             unreachable!()
         }
     }

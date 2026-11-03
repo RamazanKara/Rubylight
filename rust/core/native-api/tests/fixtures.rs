@@ -5,6 +5,7 @@ use rubylight_native_api::error::{ErrorBody, ErrorCode};
 use rubylight_native_api::files::{FileList, Uploaded};
 use rubylight_native_api::folders::{EntryKind, FolderAccess, FolderEntries, FolderList};
 use rubylight_native_api::library::Library;
+use rubylight_native_api::power::{Power, PowerRequest, Update};
 use rubylight_native_api::radeon::{Change, ControlState, Kind, Radeon, SettingsWrite, Value};
 use rubylight_native_api::session::{ActionId, LauncherKind, Owner, ProfileState, Session, State};
 use rubylight_native_api::{feature, folders, usb, API_VERSION, PREFIX, SERVERINFO_FIELD};
@@ -470,4 +471,27 @@ fn choice_settings_carry_options() {
         .unwrap()
         .get("options")
         .is_none());
+}
+
+#[test]
+fn power_and_update_round_trip() {
+    let power: Power = round_trip("power");
+    assert!(!power.restart.available && power.token.is_none());
+    assert_eq!(power.restart, power.shutdown);
+    let update: Update = round_trip("update");
+    assert_eq!(update.latest_version.as_deref(), Some("v3.4.0"));
+    // A request carries the token and nothing else.
+    assert!(serde_json::from_value::<PowerRequest>(json!({"token": "ab", "force": true})).is_err());
+    assert_eq!(
+        (
+            feature::POWER_RESTART,
+            feature::POWER_SHUTDOWN,
+            feature::UPDATE
+        ),
+        ("power.restart", "power.shutdown", "update")
+    );
+    let refused: ErrorCode = serde_json::from_value(json!("host_in_use")).unwrap();
+    assert_eq!((refused, refused.status()), (ErrorCode::HostInUse, 409));
+    assert_eq!(ErrorCode::TokenExpired.status(), 409);
+    assert_eq!(ErrorCode::UpdateUnavailable.status(), 409);
 }

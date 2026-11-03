@@ -80,6 +80,39 @@ fn sleep_is_off_by_default_and_reads_only_a_json_true() {
     assert!(!disabled.allows_sleep());
 }
 #[test]
+fn restart_and_shutdown_are_off_by_default_and_no_other_grant_or_role_implies_them() {
+    // The pairing roles, Everything included, set permission bits only.
+    for access in ["play", "view", "all"] {
+        let perm = pairing_access(access).unwrap().unwrap();
+        assert!(
+            !client_with(perm, json!({})).allows_restart_shutdown(),
+            "{access}"
+        );
+    }
+    assert!(!client_with(FIRST_DEVICE_PERMISSION, json!({})).allows_restart_shutdown());
+    assert!(
+        !client_with(
+            u32::MAX,
+            json!({"host_control":true,"allow_sleep":true,"allow_usb":true})
+        )
+        .allows_restart_shutdown()
+    );
+    let granted = client_with(0, json!({"allow_restart_shutdown":true}));
+    assert!(granted.allows_restart_shutdown());
+    // Nor does it widen Sleep PC.
+    assert!(!granted.allows_sleep());
+    for value in [json!("true"), json!(1), json!(false), json!(null)] {
+        assert!(
+            !client_with(u32::MAX, json!({"allow_restart_shutdown":value}))
+                .allows_restart_shutdown(),
+            "{value}"
+        );
+    }
+    let mut disabled = granted;
+    disabled.enabled = false;
+    assert!(!disabled.allows_restart_shutdown());
+}
+#[test]
 fn usb_is_off_by_default_and_reads_only_a_json_true() {
     assert!(!client_with(0x071f1f00, json!({})).allows_usb());
     assert!(!client_with(u32::MAX, json!({})).allows_usb());

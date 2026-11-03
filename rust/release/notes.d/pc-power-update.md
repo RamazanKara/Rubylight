@@ -1,0 +1,4 @@
+# Restart, shut down and update from a client
+- **Restart and shut down the PC from Nightjar.** A new per-device permission, "Restart and shut down PC", off by default and separate from Sleep PC, lets a device restart or shut down the PC while nothing runs on it. The host refuses while a stream, a game, a browser guest or a controller session is active and says which (naming the device that streams); each request needs a fresh confirmation that expires after 30 seconds, and apps with unsaved work are never forced closed.
+- **Update the host from a client.** A device with Host control can install the host's pending update; it is refused while another device streams, naming it.
+- New webhooks: `power.restart`, `power.shutdown` and `update.started`. Native API: `GET /power`, `POST /power/restart`, `POST /power/shutdown`, `GET /update`, `POST /update/install` (see `docs/native-api.md`).

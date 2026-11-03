@@ -253,7 +253,7 @@ mod tests {
             json!([{"url": url, "events": ["app.started", "app.stopped"], "last": null}])
         );
         assert_eq!(listed["max"], crate::webhooks::MAX_HOOKS);
-        assert_eq!(listed["events"].as_array().unwrap().len(), 6);
+        assert_eq!(listed["events"].as_array().unwrap().len(), 9);
         assert!(!listed.to_string().contains(&secret));
         // Nor through the settings API, which would show it as a custom key.
         let config = value(

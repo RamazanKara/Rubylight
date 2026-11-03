@@ -31,6 +31,7 @@ mod couch_menu;
 mod files;
 mod folders;
 mod launcher;
+mod power;
 mod radeon;
 mod usb;
 mod wake;
@@ -96,6 +97,7 @@ async fn send(
     }
     let response = router(f.host.clone(), https)
         .layer(Extension(connection.clone()))
+        .layer(Extension(crate::tls::ConnectionEnd::default()))
         .oneshot(request.body(Body::from(body.into())).unwrap())
         .await
         .unwrap();
@@ -243,6 +245,11 @@ async fn an_unpaired_request_gets_403_not_paired_on_every_endpoint() {
         ("POST", "/audio/settings"),
         ("GET", "/coop"),
         ("POST", "/coop/join"),
+        ("GET", "/power"),
+        ("POST", "/power/restart"),
+        ("POST", "/power/shutdown"),
+        ("GET", "/update"),
+        ("POST", "/update/install"),
         ("GET", "/folders"),
         ("GET", "/folders/games/entries?path="),
         ("GET", "/folders/games/content?path=a"),
@@ -391,6 +398,8 @@ async fn capabilities_list_the_features_and_the_callers_permissions() {
             "audio.night_mode",
             "audio.headphone_surround",
             "session.mic_only",
+            "power.restart",
+            "power.shutdown",
             "session.couch_menu",
             "clipboard.image"
         ]
@@ -418,6 +427,8 @@ async fn capabilities_list_the_features_and_the_callers_permissions() {
             "audio.night_mode",
             "audio.headphone_surround",
             "session.mic_only",
+            "power.restart",
+            "power.shutdown",
             "session.couch_menu",
             "coop",
             "clipboard.image"

@@ -127,6 +127,11 @@ pub fn client(timeout: Duration) -> Result<reqwest::Client> {
         .build()?)
 }
 
+/// The host installs its own updates: an installed Windows service.
+pub fn install_supported(h: &Shared) -> bool {
+    supported(h)
+}
+
 fn supported(h: &Shared) -> bool {
     let profile = butterpollo_core::paths::installed_profile();
     butterpollo_windows::process::is_system()

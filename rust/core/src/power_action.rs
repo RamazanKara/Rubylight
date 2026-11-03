@@ -1,5 +1,7 @@
 //! Sleep PC: a paired client asks the host to suspend, as Vibepollo serves
 //! it (`src/power_action.cpp`), so one client code path covers both hosts.
+//! Restart and Shut down ([`Action`]) reuse its tokens and idle gate from
+//! the native API, behind a grant of their own.
 //!
 //! `GET /power-actions/v1` hands an idle host's opted-in client a single-use
 //! token valid for 30 s; `POST /power-actions/v1/sleep?token=` spends it.
@@ -74,6 +76,8 @@ impl SleepStates {
 pub struct Authority {
     pub uuid: String,
     pub allow_sleep: bool,
+    /// Restart and shut down PC, a grant of its own.
+    pub allow_restart_shutdown: bool,
 }
 
 /// A sleep request: its method, its token, and whether it has exactly one
@@ -303,6 +307,148 @@ impl Tokens {
         }
     }
 }
+/// Restart and Shut down, from the native API (`/api/native/v1/power`).
+/// Their own grant, the same idle gate as Sleep PC, and tokens of their own
+/// [`Tokens`]: a sleep token never restarts the PC.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Action {
+    Restart,
+    Shutdown,
+}
+impl Action {
+    /// `restart` or `shutdown`, as the routes and the log name it.
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Restart => "restart",
+            Self::Shutdown => "shutdown",
+        }
+    }
+    /// The webhook event of an accepted request.
+    pub fn event(self) -> &'static str {
+        match self {
+            Self::Restart => "power.restart",
+            Self::Shutdown => "power.shutdown",
+        }
+    }
+}
+
+/// What keeps the PC from being idle, for a refusal that says so.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Busy {
+    /// These devices stream.
+    Streaming(Vec<String>),
+    /// These devices start a stream.
+    Starting(Vec<String>),
+    /// This app still runs, without a stream.
+    App(String),
+    /// A launch or a stop holds the lifecycle gate.
+    Transition,
+    /// A stream is being torn down, or a virtual display is still kept.
+    Ending,
+    /// A browser guest is connected.
+    Guest,
+    /// A controller session is in use.
+    Controller,
+}
+impl Busy {
+    pub fn message(&self) -> String {
+        let names = |names: &[String]| match names {
+            [] => "A device is".to_owned(),
+            [one] => format!("{one} is"),
+            [rest @ .., last] => format!("{} and {last} are", rest.join(", ")),
+        };
+        match self {
+            Self::Streaming(devices) => format!("{} streaming from this PC.", names(devices)),
+            Self::Starting(devices) => format!("{} starting a stream.", names(devices)),
+            Self::App(app) => format!("{app} is still running on this PC."),
+            Self::Transition => "A stream is starting or stopping.".to_owned(),
+            Self::Ending => "A stream is still ending.".to_owned(),
+            Self::Guest => "A browser guest is connected.".to_owned(),
+            Self::Controller => "A controller session is in use.".to_owned(),
+        }
+    }
+}
+
+/// Why a restart or shutdown was refused, in the order the host checks.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Refused {
+    /// The device lacks Restart and shut down PC.
+    NotAllowed,
+    Busy(Busy),
+    /// No live token of this device matches.
+    Token,
+}
+pub const RESTART_SHUTDOWN_OFF: &str = "Restart and shut down PC is off for this device.";
+const NO_TOKEN: &str = "The host could not create a confirmation token.";
+
+/// `GET /power`'s offer: the same for both actions.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Offer {
+    /// Why neither action can run, `None` when both can.
+    pub reason: Option<String>,
+    pub token: Option<String>,
+}
+
+impl Tokens {
+    /// `GET /power`: a token for an allowed device of an idle host. A new
+    /// offer replaces the device's earlier token.
+    pub fn offer<G>(
+        &mut self,
+        caller: &Authority,
+        idle: impl FnOnce() -> Result<G, Busy>,
+        now: Instant,
+        random: impl FnOnce() -> Option<[u8; 32]>,
+    ) -> Offer {
+        let refuse = |reason: String| Offer {
+            reason: Some(reason),
+            token: None,
+        };
+        if !caller.allow_restart_shutdown {
+            return refuse(RESTART_SHUTDOWN_OFF.to_owned());
+        }
+        let _gate = match idle() {
+            Ok(gate) => gate,
+            Err(busy) => return refuse(busy.message()),
+        };
+        self.tokens.retain(|_, (_, expires)| *expires > now);
+        if !self.tokens.contains_key(&caller.uuid) && self.tokens.len() >= MAX_TOKENS {
+            return refuse(NO_TOKEN.to_owned());
+        }
+        let Some(bytes) = random() else {
+            return refuse(NO_TOKEN.to_owned());
+        };
+        let token: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
+        self.tokens
+            .insert(caller.uuid.clone(), (token.clone(), now + TOKEN_LIFETIME));
+        Offer {
+            reason: None,
+            token: Some(token),
+        }
+    }
+    /// `POST /power/restart` or `/shutdown`: the grant, then the idle gate,
+    /// then the token, which only an accepted request spends. The gate comes
+    /// back held, for the host to keep through the call to Windows.
+    pub fn power<G>(
+        &mut self,
+        caller: &Authority,
+        token: &str,
+        idle: impl FnOnce() -> Result<G, Busy>,
+        now: Instant,
+    ) -> Result<G, Refused> {
+        if !caller.allow_restart_shutdown {
+            return Err(Refused::NotAllowed);
+        }
+        let gate = idle().map_err(Refused::Busy)?;
+        match self.tokens.get(&caller.uuid) {
+            Some((live, expires)) if *expires > now && valid_token(token) && live == token => {
+                self.tokens.remove(&caller.uuid);
+                Ok(gate)
+            }
+            _ => Err(Refused::Token),
+        }
+    }
+}
+
 fn valid_token(token: &str) -> bool {
     token.len() == 64
         && token
@@ -325,6 +471,7 @@ mod tests {
         Authority {
             uuid: "phone".into(),
             allow_sleep,
+            allow_restart_shutdown: false,
         }
     }
     fn bytes(b: u8) -> Option<[u8; 32]> {
@@ -519,6 +666,7 @@ mod tests {
         let other = Authority {
             uuid: "tablet".into(),
             allow_sleep: true,
+            allow_restart_shutdown: false,
         };
         let theirs = token(&mut tokens, &other, now);
         assert_eq!(
@@ -539,12 +687,14 @@ mod tests {
             let caller = Authority {
                 uuid: format!("c{i}"),
                 allow_sleep: true,
+                allow_restart_shutdown: false,
             };
             token(&mut tokens, &caller, now);
         }
         let late = Authority {
             uuid: "late".into(),
             allow_sleep: true,
+            allow_restart_shutdown: false,
         };
         let full = tokens.capabilities(Some(&late), true, idle, now, || bytes(1));
         assert_eq!(
@@ -555,6 +705,7 @@ mod tests {
         let first = Authority {
             uuid: "c0".into(),
             allow_sleep: true,
+            allow_restart_shutdown: false,
         };
         assert!(
             tokens
@@ -643,6 +794,132 @@ mod tests {
         assert_eq!(
             all.describe(),
             "S1, S2, S3, Modern Standby available, hibernate on"
+        );
+    }
+
+    fn granted(allow_restart_shutdown: bool) -> Authority {
+        Authority {
+            uuid: "phone".into(),
+            allow_sleep: false,
+            allow_restart_shutdown,
+        }
+    }
+    fn free() -> Result<(), Busy> {
+        Ok(())
+    }
+
+    #[test]
+    fn restart_and_shutdown_need_their_own_grant_not_sleeps() {
+        let mut tokens = Tokens::default();
+        let now = Instant::now();
+        let sleeper = phone(true);
+        let offer = tokens.offer(&sleeper, free, now, || bytes(1));
+        assert_eq!(
+            offer,
+            Offer {
+                reason: Some(RESTART_SHUTDOWN_OFF.into()),
+                token: None
+            }
+        );
+        // Sleep PC's token does not restart the PC.
+        let sleep_token = token(&mut tokens, &sleeper, now);
+        assert_eq!(
+            tokens.power(&sleeper, &sleep_token, free, now),
+            Err(Refused::NotAllowed)
+        );
+        // Nor does the grant open Sleep PC.
+        let restarter = granted(true);
+        let r = tokens.capabilities(Some(&restarter), true, idle, now, || bytes(2));
+        assert!(!r.allowed && r.token.is_empty());
+    }
+
+    #[test]
+    fn a_busy_pc_is_refused_with_what_keeps_it_busy_and_the_token_survives() {
+        let mut tokens = Tokens::default();
+        let now = Instant::now();
+        let caller = granted(true);
+        let streaming =
+            || -> Result<(), Busy> { Err(Busy::Streaming(vec!["Living room TV".into()])) };
+        let offer = tokens.offer(&caller, streaming, now, || bytes(1));
+        assert_eq!(
+            offer.reason.as_deref(),
+            Some("Living room TV is streaming from this PC.")
+        );
+        assert_eq!(offer.token, None);
+        let t = tokens.offer(&caller, free, now, || bytes(3)).token.unwrap();
+        assert_eq!(t, "03".repeat(32));
+        assert_eq!(
+            tokens.power(&caller, &t, streaming, now),
+            Err(Refused::Busy(Busy::Streaming(vec![
+                "Living room TV".into()
+            ])))
+        );
+        assert_eq!(tokens.power(&caller, &t, free, now), Ok(()));
+    }
+
+    #[test]
+    fn power_tokens_are_single_use_expire_and_belong_to_one_device() {
+        let now = Instant::now();
+        let caller = granted(true);
+        let mut tokens = Tokens::default();
+        let t = tokens.offer(&caller, free, now, || bytes(1)).token.unwrap();
+        assert_eq!(tokens.power(&caller, &t, free, now), Ok(()));
+        assert_eq!(tokens.power(&caller, &t, free, now), Err(Refused::Token));
+        let t = tokens.offer(&caller, free, now, || bytes(1)).token.unwrap();
+        assert_eq!(
+            tokens.power(&caller, &t, free, now + TOKEN_LIFETIME),
+            Err(Refused::Token)
+        );
+        let t = tokens
+            .offer(&caller, free, now, || bytes(0xab))
+            .token
+            .unwrap();
+        assert_eq!(
+            tokens.power(&caller, &t.to_uppercase(), free, now),
+            Err(Refused::Token)
+        );
+        let other = Authority {
+            uuid: "tablet".into(),
+            ..granted(true)
+        };
+        assert_eq!(tokens.power(&other, &t, free, now), Err(Refused::Token));
+        assert_eq!(tokens.power(&caller, &t, free, now), Ok(()));
+        // No random bytes, no token.
+        let failed = tokens.offer(&caller, free, now, || None);
+        assert_eq!(failed.reason.as_deref(), Some(NO_TOKEN));
+    }
+
+    #[test]
+    fn every_busy_state_says_what_it_is() {
+        let messages: Vec<_> = [
+            Busy::Streaming(vec!["TV".into()]),
+            Busy::Streaming(vec!["TV".into(), "Phone".into(), "Deck".into()]),
+            Busy::Starting(vec!["Phone".into()]),
+            Busy::App("Steam".into()),
+            Busy::Transition,
+            Busy::Ending,
+            Busy::Guest,
+            Busy::Controller,
+        ]
+        .iter()
+        .map(Busy::message)
+        .collect();
+        assert_eq!(
+            messages,
+            [
+                "TV is streaming from this PC.",
+                "TV, Phone and Deck are streaming from this PC.",
+                "Phone is starting a stream.",
+                "Steam is still running on this PC.",
+                "A stream is starting or stopping.",
+                "A stream is still ending.",
+                "A browser guest is connected.",
+                "A controller session is in use.",
+            ]
+        );
+        assert_eq!(
+            (Action::Restart.name(), Action::Shutdown.event()),
+            ("restart", "power.shutdown")
         );
     }
 

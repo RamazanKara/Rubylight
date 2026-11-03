@@ -124,6 +124,12 @@ impl Client {
     pub fn allows_sleep(&self) -> bool {
         self.enabled && self.extra.get("allow_sleep") == Some(&Value::Bool(true))
     }
+    /// Whether the administrator let this device restart and shut down the
+    /// PC (`allow_restart_shutdown`). Only a JSON `true` counts: Sleep PC, Host
+    /// control, a permission value and the pairing roles never grant it.
+    pub fn allows_restart_shutdown(&self) -> bool {
+        self.enabled && self.extra.get("allow_restart_shutdown") == Some(&Value::Bool(true))
+    }
     /// Whether the administrator let this device attach USB devices to the
     /// host (`allow_usb`). Only a JSON `true` counts: no permission bit or Host
     /// control implies it.

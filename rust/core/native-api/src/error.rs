@@ -51,6 +51,13 @@ pub enum ErrorCode {
     /// A co-op session the device cannot join: full, ended, private or the
     /// device was removed. The message says which.
     CoopRefused,
+    /// Restart, shut down or update while the PC is in use; the message names
+    /// the device streaming or what else runs.
+    HostInUse,
+    /// A power token that expired or was already used: confirm again.
+    TokenExpired,
+    /// No update to install, or the host can't install it; the message says why.
+    UpdateUnavailable,
     /// A code from a newer host. Clients treat it by its HTTP status.
     #[serde(other)]
     Unknown,
@@ -83,7 +90,10 @@ impl ErrorCode {
             | Self::NoConsoleUser
             | Self::TransferBusy
             | Self::UsbLimit
-            | Self::CoopRefused => 409,
+            | Self::CoopRefused
+            | Self::HostInUse
+            | Self::TokenExpired
+            | Self::UpdateUnavailable => 409,
             Self::InsufficientStorage => 507,
             Self::TemporarilyUnavailable => 503,
             Self::Internal | Self::Unknown => 500,

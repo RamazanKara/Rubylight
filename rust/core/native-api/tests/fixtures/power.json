@@ -1,0 +1,8 @@
+{
+  "restart": { "available": false, "reason": "Living room TV is streaming from this PC." },
+  "shutdown": { "available": false, "reason": "Living room TV is streaming from this PC." },
+  "token": null,
+  "token_lifetime_s": 30,
+  "wake_from_off": true,
+  "last_refusal": null
+}

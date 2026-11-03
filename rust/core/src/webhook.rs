@@ -20,6 +20,9 @@ pub const EVENTS: &[&str] = &[
     "app.stopped",
     "session.started",
     "session.ended",
+    "power.restart",
+    "power.shutdown",
+    "update.started",
 ];
 pub const HEADER_EVENT: &str = "X-Rubylight-Event";
 /// A UUID per delivery, the same as [`Delivery::delivery`].

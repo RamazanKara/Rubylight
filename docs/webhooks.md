@@ -22,6 +22,9 @@ Scripts can manage hooks through the same API (`GET`/`POST /api/webhooks`, `POST
 | `app.stopped` | The running app ended or was closed | `app`, `device`, `reason`, `by` (the device that closed it, or null) |
 | `session.started` | A stream session started | `session`, `device`, `app_id`, `role` (`stream`, `remote_monitor`, `input_only`), `transport` |
 | `session.ended` | A stream session ended | as `session.started`, plus `failed` |
+| `power.restart` | A device restarted the PC (`POST /api/native/v1/power/restart`), raised just before the host asks Windows, so a slow receiver may miss it | `device` |
+| `power.shutdown` | A device shut down the PC, raised as `power.restart` is | `device` |
+| `update.started` | A device asked the host to install its pending update | `device`, `version` |
 | `webhook.test` | **Send test** in the console | `{}` |
 
 A `device` is `{"uuid": "...", "name": "..."}`.

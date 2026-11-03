@@ -41,7 +41,7 @@ GET /api/native/v1/capabilities
 ```
 
 - `features` says what the host implements and has turned on, the same for every client. `radeon.read`, `radeon.write` and `radeon.profile` appear only where the host started its Radeon worker; `files.upload` and `files.download` only while the host's File transfer setting is on. Clients ignore feature strings they don't know.
-- `permissions` belongs to the calling device. `file_upload` and `file_download` (bits `1 << 18` and `1 << 19`) are missing from hosts before file transfer and decode as `false`. `coop_join` is whether the device may join co-op games (Launch apps and its **Can join co-op games** setting, which follows Launch apps until set), never a permission bit; hosts before 3.0 leave it out, which decodes as `false`. With a feature listed but its permission off, the client shows the control disabled, with the sentence from the matching error (for example "Turn on Host control for this device in the Rubylight console").
+- `permissions` belongs to the calling device. `file_upload` and `file_download` (bits `1 << 18` and `1 << 19`) are missing from hosts before file transfer and decode as `false`. `coop_join` is whether the device may join co-op games (Launch apps and its **Can join co-op games** setting, which follows Launch apps until set), never a permission bit; hosts before 3.0 leave it out, which decodes as `false`. `restart_shutdown` is the device's **Restart and shut down PC** grant (see Power and update); older hosts leave it out. With a feature listed but its permission off, the client shows the control disabled, with the sentence from the matching error (for example "Turn on Host control for this device in the Rubylight console").
 
 ## Endpoints
 
@@ -72,6 +72,10 @@ All paths start with `/api/native/v1`. "Owner" means the caller owns the current
 | GET | `/folders/{id}/content?path=` | a grant for `id` | The file's bytes |
 | PUT | `/folders/{id}/content?path=` | a `write` grant for `id` | 201 Uploaded |
 | GET | `/coop` | List apps | Coop: the co-op games and the co-op sessions, with this device's seat, `joinable` and `refusal`; player names only for a device that may join co-op games or holds a seat (feature `coop`; 503 with the reason while Nucleus Co-op cannot run) |
+| GET | `/power` | paired | Power: Restart and Shut down, each with `available` and the `reason` when not, a single-use `token`, `wake_from_off` and `last_refusal` (features `power.restart`, `power.shutdown`) |
+| POST | `/power/restart`, `/power/shutdown` `{"token": "..."}` | **Restart and shut down PC**, nothing running | 202 `{"action"}`, then the host asks Windows. 403 `permission_required`, 409 `host_in_use` or `token_expired` |
+| GET | `/update` | paired | Update: `current_version`, `latest_version`, `phase`, `install_supported`, `error` (feature `update`) |
+| POST | `/update/install` | **host control**, no other device streaming | 202 Update. 409 `host_in_use` or `update_unavailable` |
 | POST | `/coop/join` `{"session": N}` | Launch; **Can join co-op games** to take another device's free slot | Joined `{"session", "slot", "app_id"}`: the slot is held until this device launches `app_id`. 403 `permission_required`, 409 `no_session` or `coop_refused` |
 
 Permission bits are the existing ones: List `1 << 24`, View `1 << 25`, Launch `1 << 26`, Upload files `1 << 18`, Download files `1 << 19`. Host control is a separate per-device flag (see below).
@@ -467,6 +471,24 @@ A device sees a folder only with a grant for it: `"shared_folders": {"<folder id
 - It is required for every `POST /radeon/*` and for `close_game`. Reads never need it.
 - Revoking it takes effect on the next request and doesn't stop the stream (unlike removing `perm` bits). Pending Radeon changes are still restored at session end.
 
+## Power and update (`power.restart`, `power.shutdown`, `update`)
+
+Restart and Shut down work as Sleep PC does on `/power-actions/v1` (Vibepollo's format, unchanged and not covered here), with their own grant and tokens:
+
+- **Restart and shut down PC** is its own per-device key, `"allow_restart_shutdown": true` in `extra`; only a JSON `true` counts. It is off for every device, including the first one and every pairing role (the roles set permission bits only), and only the console grants it (Devices → device → Other). Sleep PC and Host control don't imply it, nor it them. `permissions.restart_shutdown` in Capabilities reports it.
+- `GET /power` hands an allowed device a token for the next 30 s (`token_lifetime_s`) while the PC is idle: no stream or pending launch from any device, the caller included, no app left running, no stream ending, no browser guest and no controller session. Otherwise both actions say why, naming the devices that stream: `"Living room TV is streaming from this PC."`. A new `GET` replaces the device's earlier token. Unlike Sleep PC, both are offered on Modern Standby PCs.
+- `POST /power/restart` or `/power/shutdown` with `{"token": "..."}` checks the grant, the same idle gate and then the token, which only an accepted request spends. The 202 says `Connection: close`; the host asks Windows only once that answer left, and only if the grant is still on. It calls `InitiateShutdownW` with `SHUTDOWN_RESTART` or `SHUTDOWN_POWEROFF`, never forced and never hybrid, so an app with unsaved work can still stop it and the PC really powers off. If Windows refuses, the next `GET /power` says why in `last_refusal`.
+- `wake_from_off` is true when a wired wake target (`GET /wake`) is `ready`. Wi-Fi can't wake a PC that is off, and firmware settings Windows can't read may still stop it; a client warns before a shutdown without it.
+- `GET /update` reads the host's updater for any paired device. `POST /update/install` is the console's **Install now**: it needs Host control, is refused with `host_in_use` naming the device while another device streams or starts a stream, ends the caller's own stream, and answers 202 with the phase. `update_unavailable` carries the updater's reason (no newer release, not an installed service, a check that failed). The client follows `phase` until the host goes away, then waits for `/serverinfo` to answer with the new version.
+- Each accepted request is logged and raises the webhook `power.restart`, `power.shutdown` or `update.started`; each refusal is logged with its code and message.
+
+```json
+{ "restart": { "available": true, "reason": null },
+  "shutdown": { "available": true, "reason": null },
+  "token": "3f9c...64 hex digits", "token_lifetime_s": 30,
+  "wake_from_off": true, "last_refusal": null }
+```
+
 ## USB forwarding
 
 Feature `usb` is listed while the host's USB forwarding setting (`usb_forwarding`, off by default) is on and its USB/IP driver (usbip-win2) is installed. The device needs the `usb` permission.
@@ -523,6 +545,7 @@ Every non-2xx answer has the same body:
 | 413 | `too_large` | An upload over `max_file_bytes` |
 | 507 | `insufficient_storage` | The PC has no room for the upload |
 | 409 | `no_console_user` / `transfer_busy` | Files: nobody is signed in to Windows / the device already has an upload or two downloads running, the PC eight downloads, or another program holds the file |
+| 409 | `host_in_use` / `token_expired` / `update_unavailable` | Power and update: the PC is in use, and `message` names the device or what runs / the power token expired or was used, so confirm again / no update to install, `message` says why |
 | 503 | `temporarily_unavailable` | ADLX is busy or reinitialising, with `retry_after_ms` |
 | 500 | `internal` | A bug. The message is logged on the host too |
 

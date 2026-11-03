@@ -142,6 +142,16 @@ cases:
     status: pending
     note: needs a reboot-safe window (nothing in flight); the laptop has Modern Standby only and cannot be the sleeper
 
+  - id: pc-power-update
+    device: laptop
+    title: Restart PC, Shut down PC and Update the PC's host from Nightjar against the laptop's host (never this PC)
+    command: 'Write-Error "not scripted yet: see note"; exit 1'
+    preconditions: []
+    pass: with the grant off both are refused with "Restart and shut down PC is off for this device."; with it on, the laptop restarts (System log User32 1074, planned), comes back and serves serverinfo; Update installs the next release and Nightjar shows it back on the new version; tap-to-answer median of three for restart and update
+    output: '{{out}}\pc-power.txt (wevtutil qe System /q:"*[System[EventID=1074]]", timings)'
+    status: pending
+    note: Experimental until run. Laptop host 3.3.0 from the GitHub release, Retroid client under RETROID-LOCK with a debug build under its own applicationId suffix. Shutdown needs someone to power the laptop on again; wake-from-off over Ethernet is untested here (the laptop has no wired wake target)
+
   - id: couch-audio-71
     device: desktop
     title: Couch audio 7.1 tone test (headphone surround on and off, night mode on and off)

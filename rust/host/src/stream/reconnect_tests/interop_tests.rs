@@ -1558,6 +1558,9 @@ impl crate::power_action::Backend for Suspends {
         self.0.fetch_add(1, Ordering::SeqCst);
         Ok(())
     }
+    fn power_off(&self, action: butterpollo_core::power_action::Action) -> Result<()> {
+        panic!("an interop test reached the {}", action.name())
+    }
 }
 
 fn power_refusal<T: std::fmt::Debug>(result: Result<T, PowerError>) -> (Refusal, u16) {

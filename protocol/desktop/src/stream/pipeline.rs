@@ -54,6 +54,9 @@ pub struct Decoded {
     pub bands: Vec<super::pyrowave::BandReady>,
     /// The sequence number the frame's slices came with (`SliceReady::seq`), 0 when it had none.
     pub race_seq: u64,
+    /// The part of the picture that is the stream, without an encoder's alignment padding, as
+    /// `Streaming::pump` works it out when the picture arrives; None for the whole picture.
+    pub visible: Option<(i32, i32)>,
 }
 
 /// Something the UI should know about.
@@ -749,7 +752,7 @@ impl Decoder {
             self.shared.count_race(&output.race);
             let decoded = Decoded { picture: output.picture, setup, rtp: frame.rtp_timestamp, number: frame.number, receive_us: frame.receive_time_us,
                 enqueue_us: frame.enqueue_time_us, input_us: start, ready_us, host_latency: frame.host_processing_latency,
-                early, first_block_us: output.first_block_us, race: output.race, bands: output.bands, race_seq: output.race_seq };
+                early, first_block_us: output.first_block_us, race: output.race, bands: output.bands, race_seq: output.race_seq, visible: None };
             self.shared.queue(decoded);
             return DecodeStatus::Ok;
         }
@@ -801,6 +804,7 @@ impl Decoder {
                         race: Default::default(),
                         bands: Vec::new(),
                         race_seq: 0,
+                        visible: None,
                     };
                     if pooled { self.shared.queue_pooled(decoded, self.pool_waiting) } else { self.shared.queue(decoded) }
                 }

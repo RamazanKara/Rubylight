@@ -78,7 +78,7 @@ public final class CrashCapture implements Application.ActivityLifecycleCallback
     }
 
     @RequiresApi(Build.VERSION_CODES.R)
-    private void collectExitReason() {
+    void collectExitReason() {
         ActivityManager manager = (ActivityManager) context.getSystemService(Context.ACTIVITY_SERVICE);
         try {
             CrashRecord last = CrashRecord.read(directory);
@@ -102,6 +102,16 @@ public final class CrashCapture implements Application.ActivityLifecycleCallback
                         } catch (IOException | RuntimeException ignored) {
                             // Tombstones can be evicted independently of the exit history.
                         }
+                    }
+                } else if (exit.getReason() == ApplicationExitInfo.REASON_ANR) {
+                    // Where the main thread hung, which the record otherwise lacks (#73).
+                    trace = "ANR trace unavailable.\n";
+                    try (InputStream input = exit.getTraceInputStream()) {
+                        if (input != null) {
+                            trace = AnrTrace.redact(input);
+                        }
+                    } catch (IOException | RuntimeException ignored) {
+                        // The trace can be evicted independently of the exit history.
                     }
                 }
                 CrashRecord.create(exit.getTimestamp(), exit.getPid(), reason,

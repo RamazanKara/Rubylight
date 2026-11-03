@@ -49,10 +49,7 @@ final class CrashRecord {
         for (int i = 0; i < Math.min(frames.length, MAX_FRAMES) && text.length() < MAX_BYTES / 4; i++) {
             StackTraceElement frame = frames[i];
             String name = frame.getClassName();
-            if (name.startsWith("com.limelight.") ||
-                    name.startsWith("android.") || name.startsWith("com.android.") ||
-                    name.startsWith("androidx.") || name.startsWith("java.") ||
-                    name.startsWith("javax.") || name.startsWith("dalvik.") || name.startsWith("libcore.")) {
+            if (keepsClass(name)) {
                 text.append("  at ").append(name).append('.').append(frame.getMethodName())
                         .append(frame.isNativeMethod() ? "(native)" : "(line " + frame.getLineNumber() + ")").append('\n');
             }
@@ -64,6 +61,14 @@ final class CrashRecord {
             appendException(text, suppressed, "Suppressed: ", seen);
         }
         appendException(text, exception.getCause(), "Caused by: ", seen);
+    }
+
+    // Frames of the app and the platform; other libraries' class names are left out.
+    static boolean keepsClass(String name) {
+        return name.startsWith("com.limelight.") ||
+                name.startsWith("android.") || name.startsWith("com.android.") ||
+                name.startsWith("androidx.") || name.startsWith("java.") ||
+                name.startsWith("javax.") || name.startsWith("dalvik.") || name.startsWith("libcore.");
     }
 
     static String exitReason(int reason) {

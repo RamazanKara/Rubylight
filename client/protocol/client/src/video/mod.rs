@@ -9,6 +9,7 @@
 //! [`VideoReceiver`] has no sockets or threads. Feed it each datagram with its receive time;
 //! it hands completed frames and control-stream signals to a [`VideoSink`].
 
+pub mod crop;
 mod decrypt;
 mod depacketizer;
 mod queue;

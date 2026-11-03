@@ -804,14 +804,28 @@ pub fn microsoft(
         .or_else(|| package.and_then(|p| shown_name(p.display_name)))
         .unwrap_or(&id)
         .to_owned();
-    let launch = package
-        .map(|package| -> Result<Launch> {
+    let apps = match package {
+        Some(package) => {
             let manifest: AppxManifest =
                 quick_xml::de::from_str(package.manifest.trim_start_matches('\u{feff}'))
                     .context("AppxManifest.xml is not readable.")?;
             let apps = manifest.applications.map(|a| a.list).unwrap_or_default();
+            // A package with no application (a DLC or content pack beside its game) starts
+            // nothing: no game of its own.
+            if apps.is_empty() {
+                return Ok(None);
+            }
+            Some(apps)
+        }
+        None => None,
+    };
+    let launch = package
+        .zip(apps)
+        .map(|(package, apps)| -> Result<Launch> {
             // The config's Id is the manifest's application Id; the program's file name is
-            // the second way to find it.
+            // the second way to find it, and the package's one GameLaunchHelper.exe
+            // application the third: an Xbox PC game starts through it, and it starts the
+            // program.
             let app = apps
                 .iter()
                 .find(|app| !program.id.is_empty() && app.id == program.id)
@@ -820,6 +834,12 @@ pub fn microsoft(
                         file_name_of(&app.executable)
                             .eq_ignore_ascii_case(file_name_of(&program.name))
                     })
+                })
+                .or_else(|| {
+                    let mut helpers = apps.iter().filter(|app| {
+                        file_name_of(&app.executable).eq_ignore_ascii_case("GameLaunchHelper.exe")
+                    });
+                    helpers.next().filter(|_| helpers.next().is_none())
                 })
                 .with_context(|| {
                     format!(

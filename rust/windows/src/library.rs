@@ -205,7 +205,8 @@ fn add(result: Result<Option<Game>>, games: &mut Vec<Game>, errors: &mut Vec<Str
             games.push(game);
         }
         Ok(None) => {}
-        Err(error) => errors.push(error.to_string()),
+        // With its causes: the outermost context alone names only the record or package.
+        Err(error) => errors.push(format!("{error:#}")),
     }
 }
 fn program_folders() -> Vec<PathBuf> {

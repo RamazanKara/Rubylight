@@ -368,8 +368,29 @@ fn a_microsoft_game_nothing_in_the_package_starts_is_an_error_not_a_guess() {
     );
     let error = racing(&installed, "").err().unwrap().to_string();
     assert!(error.contains("Racing_Shipping.exe"), "{error}");
-    let none = manifest("");
-    assert!(racing(&none, "").is_err());
+    // Two launch helpers: neither is known to be the game's.
+    let helpers = manifest(
+        r#"<Application Id="A" Executable="GameLaunchHelper.exe" />
+           <Application Id="B" Executable="GameLaunchHelper.exe" />"#,
+    );
+    assert!(racing(&helpers, "").is_err());
+}
+
+/// j-scrizz's 3.4.0 scan: Xbox PC games and their packages listed as errors.
+#[test]
+fn an_xbox_pc_game_starts_through_its_launch_helper_and_a_package_without_applications_is_none() {
+    let installed = manifest(
+        r#"<Application Id="Racing" Executable="GameLaunchHelper.exe" EntryPoint="Windows.FullTrustApplication" />"#,
+    );
+    let game = racing(&installed, "").unwrap().unwrap();
+    assert_eq!(
+        game.launch.unwrap().command(),
+        r"shell:AppsFolder\Contoso.Racing_8wekyb3d8bbwe!Racing"
+    );
+    // Nothing to start, as a DLC's package: not a game, not an error.
+    assert!(racing(&manifest(""), "").unwrap().is_none());
+    let bare = r#"<Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"><Identity Name="Contoso.Racing" /></Package>"#;
+    assert!(racing(bare, "").unwrap().is_none());
 }
 
 #[test]

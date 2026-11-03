@@ -93,8 +93,24 @@ fn config_in(root: &Path) -> Option<(PathBuf, PathBuf)> {
         .find(|(config, _)| config.is_file())
 }
 
+/// A config or manifest as text: UTF-8, or UTF-16 with its byte order mark, as an editor may
+/// save a `MicrosoftGame.config`.
 fn text(path: &Path) -> Result<String> {
-    String::from_utf8(bytes(path)?).with_context(|| format!("{} is not UTF-8", path.display()))
+    decode(bytes(path)?).with_context(|| format!("{} is not UTF-8 or UTF-16", path.display()))
+}
+
+fn decode(bytes: Vec<u8>) -> Result<String> {
+    let utf16 = |rest: &[u8], unit: fn([u8; 2]) -> u16| -> Result<String> {
+        let (pairs, odd) = rest.as_chunks::<2>();
+        anyhow::ensure!(odd.is_empty(), "an odd number of bytes");
+        let units: Vec<u16> = pairs.iter().map(|pair| unit(*pair)).collect();
+        Ok(String::from_utf16(&units)?)
+    };
+    match bytes.as_slice() {
+        [0xff, 0xfe, rest @ ..] => utf16(rest, u16::from_le_bytes),
+        [0xfe, 0xff, rest @ ..] => utf16(rest, u16::from_be_bytes),
+        _ => Ok(String::from_utf8(bytes)?),
+    }
 }
 
 /// The game of a registered package, if it is one.
@@ -290,6 +306,34 @@ mod tests {
         // It reaches the scan's errors, which the console shows.
         let scan = discover_from(package_user(None).map(|_| vec![]), &[]);
         assert_eq!(scan.errors.len(), 1, "{:?}", scan.errors);
+    }
+
+    #[test]
+    fn a_config_saved_as_utf16_is_read_and_a_failure_names_its_cause() {
+        let temp = tempfile::tempdir().unwrap();
+        fixture(temp.path(), true);
+        let config = temp.path().join("Content").join(CONFIG);
+        let utf8 = std::fs::read_to_string(&config).unwrap();
+        let mut utf16 = vec![0xff, 0xfe];
+        utf16.extend(utf8.encode_utf16().flat_map(u16::to_le_bytes));
+        std::fs::write(&config, utf16).unwrap();
+        let game = game_in(&installed(temp.path())).unwrap().unwrap();
+        assert_eq!(game.id, "Contoso.Racing");
+        // The scan's error says why, not only which package (j-scrizz's 3.4.0 log).
+        std::fs::write(&config, "<Game><broken").unwrap();
+        let scan = discover_from(Ok(vec![installed(temp.path())]), &[]);
+        assert_eq!(scan.errors.len(), 1, "{:?}", scan.errors);
+        assert!(
+            scan.errors[0].starts_with("Contoso.Racing_8wekyb3d8bbwe: "),
+            "{:?}",
+            scan.errors
+        );
+        assert!(
+            scan.errors[0].contains("MicrosoftGame.config is not readable"),
+            "{:?}",
+            scan.errors
+        );
+        assert!(decode(vec![0xff, 0xfe, 0x41]).is_err());
     }
 
     /// Reads this PC's real package list. Run by hand: `cargo test -p butterpollo-windows

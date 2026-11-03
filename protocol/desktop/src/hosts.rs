@@ -13,8 +13,8 @@ use nightjar_core::http::native_api::feature;
 use nightjar_core::http::native_api::library::Library;
 use nightjar_core::http::native_api::session::{ActionId, Session};
 use nightjar_core::http::{
-    App, AppControl, Availability, ClientIdentity, Feature, HostClient, NativeCapabilities, NativeLibrary, PairResult, PowerError,
-    PowerReply, Reason, ServerInfo, DEFAULT_HTTP_PORT,
+    App, AppControl, Availability, ClientIdentity, Feature, HostClient, HostUpdate, NativeCapabilities, NativeLibrary, PairResult,
+    PcPower, PcPowerOffer, PowerError, PowerReply, Reason, ServerInfo, DEFAULT_HTTP_PORT,
 };
 
 use rubylight_protocol::pairing_uri::{PairingUri, PREFIX};
@@ -71,6 +71,8 @@ pub struct Native {
     pub session: Option<Session>,
     /// Why the last read failed; the data above is then the last good one.
     pub error: Option<String>,
+    /// The PC's host update, where it lists `update`.
+    pub update: Option<HostUpdate>,
     /// A session action (Close game) is running.
     pub acting: bool,
     loading: bool,
@@ -110,6 +112,8 @@ pub struct NativeRead {
     /// PC without `wake`; None when they were not read, or the read failed (those adapters
     /// still belong to the PC).
     wake: Option<(Vec<String>, Vec<String>)>,
+    /// `GET /update` where the PC lists `update`; None when it does not, or the read failed.
+    update: Option<HostUpdate>,
 }
 
 pub struct Host {
@@ -256,6 +260,28 @@ impl Host {
             _ => None,
         }
     }
+
+    /// Restart PC or Shut down PC for a paired PC that answers: None when the PC does not offer
+    /// it, `Some(Err(why))` when it does but not for this device.
+    pub fn pc_power_option(&self, action: PcPower) -> Option<Result<(), &'static str>> {
+        if self.reach != Reach::Online || !self.paired() {
+            return None;
+        }
+        let native = self.native.capabilities.as_ref()?;
+        if !native.capabilities.features.iter().any(|f| f == action.feature()) {
+            return None;
+        }
+        Some(if native.files.restart_shutdown { Ok(()) } else { Err(PC_POWER_NOT_ALLOWED) })
+    }
+
+    /// The version "Update the PC's host" installs: only where the PC lists `update`, has one
+    /// to install, and lets this device control it.
+    pub fn update_offer(&self) -> Option<&str> {
+        if self.reach != Reach::Online || !self.paired() || !self.native.host_control() {
+            return None;
+        }
+        self.native.update.as_ref()?.offered()
+    }
 }
 
 // The pairing and unpairing errors, worded like Nightjar Android's.
@@ -279,6 +305,9 @@ pub const UNPAIR_NOT_PAIRED: &str = en("Device was not paired.");
 pub const SLEEP_NOT_ALLOWED: &str = en("The PC does not let this device put it to sleep. Allow it in the host's device settings.");
 pub const SLEEP_UNSUPPORTED: &str = en("The PC cannot sleep.");
 pub const SLEEP_BUSY: &str = en("The PC cannot sleep right now. Close games and streams on it, then try again.");
+// Restart and shut down. A refusal shows the host's own words instead.
+pub const PC_POWER_NOT_ALLOWED: &str = en("The PC does not let this device restart or shut it down. Allow it in the host's device settings.");
+pub const PC_POWER_BUSY: &str = en("The PC cannot do this right now. Close games and streams on it, then try again.");
 
 pub enum Event {
     Info {
@@ -348,6 +377,22 @@ pub enum Event {
         name: String,
         confirmed: bool,
         result: Result<SleepStep, String>,
+    },
+    /// A Restart PC or Shut down PC step, as [`Event::Sleep`].
+    PcPower {
+        id: u64,
+        ask: u64,
+        name: String,
+        action: PcPower,
+        confirmed: bool,
+        result: Result<PcPowerStep, String>,
+    },
+    /// The PC's host update: `Started` once the PC took the request, then `Back` once it
+    /// answers with the new version, or why either failed.
+    HostUpdate {
+        id: u64,
+        name: String,
+        result: Result<UpdateStep, String>,
     },
     /// The PC answered (or not) to being asked to drop this device. The pin is gone either way.
     Unpaired {
@@ -526,6 +571,70 @@ pub enum SleepStep {
     Offer { token: String, at: Handed },
     /// The PC took the request (202). It does not confirm that the PC suspended.
     Accepted,
+}
+
+pub enum PcPowerStep {
+    /// The PC offers it: confirm, then spend `token`. `wake_from_off`: a wired wake target is
+    /// ready, so the PC can likely be woken after a shutdown.
+    Offer { token: String, at: Handed, wake_from_off: bool },
+    /// The PC took the request (202).
+    Accepted,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum UpdateStep {
+    /// The host is installing `version`.
+    Started(String),
+    /// The PC answers with `version` again.
+    Back(String),
+}
+
+/// How long an update may take before Nightjar stops waiting for the PC to come back.
+const UPDATE_WAIT: Duration = Duration::from_secs(15 * 60);
+const UPDATE_POLL: Duration = Duration::from_secs(5);
+
+/// The native calls Restart PC and Shut down PC make; a fake PC in the tests.
+trait PcPowerHost {
+    fn pc_power(&self) -> Result<PcPowerOffer, nightjar_core::http::Error>;
+    fn power_pc(&self, action: PcPower, token: &str) -> Result<(), nightjar_core::http::Error>;
+}
+
+impl PcPowerHost for HostClient {
+    fn pc_power(&self) -> Result<PcPowerOffer, nightjar_core::http::Error> {
+        HostClient::pc_power(self)
+    }
+    fn power_pc(&self, action: PcPower, token: &str) -> Result<(), nightjar_core::http::Error> {
+        HostClient::power_pc(self, action, token)
+    }
+}
+
+/// A refusal in the host's own words; anything else said like the other host errors.
+fn native_error(error: &nightjar_core::http::Error) -> String {
+    nightjar_core::http::host_words(error).unwrap_or_else(|| describe(error))
+}
+
+/// Asks the PC for a token for `action`, timed as [`sleep_token`].
+fn pc_power_token(host: &impl PcPowerHost, action: PcPower) -> Result<PcPowerStep, String> {
+    let at = Handed::now();
+    let offer = host.pc_power().map_err(|e| native_error(&e))?;
+    match offer.token_for(action) {
+        Ok(token) => Ok(PcPowerStep::Offer { token: token.to_owned(), at, wake_from_off: offer.wake_from_off }),
+        Err(reason) if reason.is_empty() => Err(PC_POWER_BUSY.into()),
+        Err(reason) => Err(reason),
+    }
+}
+
+/// Spends the confirmed token, asking for a new one first when it is about to expire.
+fn pc_power_confirmed(host: &impl PcPowerHost, action: PcPower, token: String, at: Handed) -> Result<PcPowerStep, String> {
+    let token = match at.age() >= nightjar_core::http::POWER_TOKEN_REFRESH {
+        true => match pc_power_token(host, action)? {
+            PcPowerStep::Offer { token, .. } => token,
+            PcPowerStep::Accepted => token,
+        },
+        false => token,
+    };
+    host.power_pc(action, &token).map_err(|e| native_error(&e))?;
+    Ok(PcPowerStep::Accepted)
 }
 
 /// When the PC handed out a sleep token, on two clocks: `Instant` stops while a Linux client is
@@ -988,6 +1097,71 @@ impl Hosts {
         });
     }
 
+    /// Restart PC or Shut down PC, first step: asks the PC for the token the confirmation spends.
+    pub fn pc_power_offer(&self, id: u64, ask: u64, action: PcPower) {
+        self.pc_power_step(id, ask, action, false, move |client| pc_power_token(client, action));
+    }
+
+    /// Restart PC or Shut down PC, confirmed: spends `token`, or a fresh one when it is old.
+    pub fn pc_power(&self, id: u64, ask: u64, action: PcPower, token: String, at: Handed) {
+        self.pc_power_step(id, ask, action, true, move |client| pc_power_confirmed(client, action, token, at));
+    }
+
+    fn pc_power_step(
+        &self,
+        id: u64,
+        ask: u64,
+        action: PcPower,
+        confirmed: bool,
+        work: impl FnOnce(&HostClient) -> Result<PcPowerStep, String> + Send + 'static,
+    ) {
+        let Some(host) = self.get(id) else { return };
+        let record = host.connect_record();
+        let name = host.display_name().to_owned();
+        let identity = self.identity.clone();
+        self.spawn("pc-power", move || {
+            let result = identity
+                .ok_or_else(|| en("Nightjar has no client identity yet. Restart Nightjar and try again.").to_owned())
+                .and_then(|identity| client_for(&identity, &record, &record.address))
+                .and_then(|client| work(&client));
+            Some(Event::PcPower { id, ask, name, action, confirmed, result })
+        });
+    }
+
+    /// Installs the PC's host update, then waits for the PC to answer with the new version.
+    pub fn install_update(&self, id: u64) {
+        let Some(host) = self.get(id) else { return };
+        let record = host.connect_record();
+        let name = host.display_name().to_owned();
+        let identity = self.identity.clone();
+        let sender = self.sender.clone();
+        let waker = self.waker.clone();
+        self.spawn("host-update", move || {
+            let client = match identity
+                .ok_or_else(|| en("Nightjar has no client identity yet. Restart Nightjar and try again.").to_owned())
+                .and_then(|identity| client_for(&identity, &record, &record.address))
+            {
+                Ok(client) => client,
+                Err(e) => return Some(Event::HostUpdate { id, name, result: Err(e) }),
+            };
+            let target = match client.install_host_update() {
+                Ok(update) => update.offered().unwrap_or_default().to_owned(),
+                Err(e) => return Some(Event::HostUpdate { id, name, result: Err(native_error(&e)) }),
+            };
+            let _ = sender.send(Event::HostUpdate { id, name: name.clone(), result: Ok(UpdateStep::Started(target.clone())) });
+            waker();
+            let started = Instant::now();
+            while started.elapsed() < UPDATE_WAIT {
+                std::thread::sleep(UPDATE_POLL);
+                let running = client.server_info(false).ok().and_then(|info| info.capabilities.host_version().map(str::to_owned));
+                if running.as_deref().is_some_and(|v| nightjar_core::http::update_arrived(v, &target)) {
+                    return Some(Event::HostUpdate { id, name, result: Ok(UpdateStep::Back(target)) });
+                }
+            }
+            Some(Event::HostUpdate { id, name, result: Err(trf("The PC did not come back with version {} in time.", &[&target])) })
+        });
+    }
+
     /// Asks the PC to forget this device. The local certificate stays until the PC has
     /// answered (see `drain`), so a failed or unreachable request leaves the PC paired here.
     pub fn unpair(&mut self, id: u64) -> Result<(), String> {
@@ -1091,12 +1265,18 @@ impl Hosts {
                         }
                     }
                 });
+                let update = capabilities.as_ref().and_then(|c| {
+                    if !c.capabilities.features.iter().any(|f| f == nightjar_core::http::FEATURE_UPDATE) {
+                        return None;
+                    }
+                    client.host_update().map_err(|e| eprintln!("nightjar: host update not read: {}", describe(&e))).ok()
+                });
                 let session = client.session().map_err(|e| describe(&e));
                 // Without a library in this read, a failed session is the whole failure; with
                 // one, Home still has the games and shows the session error beside them.
                 match (&session, full) {
                     (Err(e), false) => Err(e.clone()),
-                    _ => Ok(Box::new(NativeRead { capabilities, library, session, wake })),
+                    _ => Ok(Box::new(NativeRead { capabilities, library, session, wake, update })),
                 }
             });
             Some(Event::Native { id, epoch, seq, result })
@@ -1347,6 +1527,7 @@ impl Hosts {
                                 let read = *read;
                                 host.native.error = None;
                                 if let Some(capabilities) = read.capabilities {
+                                    host.native.update = read.update;
                                     if let Some(info) = host.info.as_mut() {
                                         merge_native(info, Some(&capabilities));
                                     }
@@ -1406,6 +1587,13 @@ impl Hosts {
                     out.push(Event::Wake { id, run, result });
                 }
                 event @ Event::Sleep { .. } => out.push(event),
+                event @ Event::PcPower { .. } => out.push(event),
+                Event::HostUpdate { id, name, result } => {
+                    if matches!(result, Ok(UpdateStep::Back(_))) {
+                        self.poll_one(id);
+                    }
+                    out.push(Event::HostUpdate { id, name, result });
+                }
                 Event::Action { id, result } => {
                     self.refresh_after_exit(id);
                     self.load_apps(id);
@@ -1740,7 +1928,7 @@ pub(crate) mod tests {
     /// A full native read of `id` with these capabilities lands, as the worker would send it.
     pub(crate) fn native_lands(hosts: &mut Hosts, id: u64, capabilities: NativeCapabilities) {
         let epoch = hosts.get(id).unwrap().native_epoch;
-        let read = NativeRead { capabilities: Some(capabilities), library: Some(library().into()), session: Ok(session("idle")), wake: None };
+        let read = NativeRead { capabilities: Some(capabilities), library: Some(library().into()), session: Ok(session("idle")), wake: None, update: None };
         send(hosts, Event::Native { id, epoch, seq: 1, result: Ok(Box::new(read)) });
     }
 
@@ -1786,7 +1974,7 @@ pub(crate) mod tests {
             assert_eq!(gated(&hosts), [false; 4], "{why}: no old grant opens a row or a gate");
             assert!(hosts.list[0].native.capabilities.is_none() && hosts.list[0].native.library.is_none(), "{why}");
             // A read that started before lands now: dropped.
-            let read = NativeRead { capabilities: Some(granted.clone()), library: Some(library().into()), session: Ok(session("idle")), wake: None };
+            let read = NativeRead { capabilities: Some(granted.clone()), library: Some(library().into()), session: Ok(session("idle")), wake: None, update: None };
             hosts.list[0].record.server_certificate = Some("pem".into());
             send(&mut hosts, Event::Native { id, epoch: in_flight, seq: 9, result: Ok(Box::new(read)) });
             assert!(hosts.list[0].native.capabilities.is_none(), "{why}: the old read is not taken in");
@@ -1991,7 +2179,7 @@ pub(crate) mod tests {
     }
 
     fn full_read(session: Session) -> Box<NativeRead> {
-        Box::new(NativeRead { capabilities: None, library: Some(library().into()), session: Ok(session), wake: None })
+        Box::new(NativeRead { capabilities: None, library: Some(library().into()), session: Ok(session), wake: None, update: None })
     }
 
     #[test]
@@ -2423,6 +2611,69 @@ pub(crate) mod tests {
         assert_eq!(
             sleep_confirmed(&FakePc::new(&[], timeout), TOKEN_A.into(), Handed::now()).err().as_deref(),
             Some("The PC did not answer.")
+        );
+    }
+
+    /// A PC offering Restart and Shut down: hands out `tokens` in turn, answers a request with `post`.
+    struct FakePowerPc {
+        tokens: std::cell::RefCell<Vec<&'static str>>,
+        reason: Option<&'static str>,
+        post: fn() -> Result<(), nightjar_core::http::Error>,
+        calls: std::cell::RefCell<Vec<String>>,
+    }
+
+    impl PcPowerHost for FakePowerPc {
+        fn pc_power(&self) -> Result<PcPowerOffer, nightjar_core::http::Error> {
+            use nightjar_core::http::PowerAvailability;
+            self.calls.borrow_mut().push("GET".into());
+            let mut tokens = self.tokens.borrow_mut();
+            let token = (!tokens.is_empty()).then(|| tokens.remove(0).to_owned());
+            let available = PowerAvailability { available: token.is_some(), reason: self.reason.map(Into::into) };
+            Ok(PcPowerOffer { restart: available.clone(), shutdown: available, token, token_lifetime_s: 30, ..Default::default() })
+        }
+        fn power_pc(&self, action: PcPower, token: &str) -> Result<(), nightjar_core::http::Error> {
+            self.calls.borrow_mut().push(format!("POST {} {token}", action.path()));
+            (self.post)()
+        }
+    }
+
+    fn power_pc(tokens: &[&'static str], reason: Option<&'static str>, post: fn() -> Result<(), nightjar_core::http::Error>) -> FakePowerPc {
+        FakePowerPc { tokens: std::cell::RefCell::new(tokens.to_vec()), reason, post, calls: Default::default() }
+    }
+
+    #[test]
+    fn restart_and_shut_down_spend_a_fresh_token_and_show_the_hosts_refusal() {
+        use nightjar_core::http::{native_api::error::ApiError, Error};
+        let ok = || Ok(());
+        let pc = power_pc(&[TOKEN_A], None, ok);
+        let Ok(PcPowerStep::Offer { token, at, wake_from_off: false }) = pc_power_token(&pc, PcPower::Restart) else { panic!("an offer") };
+        assert!(matches!(pc_power_confirmed(&pc, PcPower::Restart, token, at), Ok(PcPowerStep::Accepted)));
+        assert_eq!(*pc.calls.borrow(), ["GET".to_owned(), format!("POST power/restart {TOKEN_A}")]);
+
+        // An old token is replaced before it is spent, as Sleep PC does.
+        let now = Handed::now();
+        let old = Handed { at: now.at.checked_sub(Duration::from_secs(26)).unwrap(), wall: now.wall - Duration::from_secs(26) };
+        let pc = power_pc(&[TOKEN_B], None, ok);
+        assert!(pc_power_confirmed(&pc, PcPower::ShutDown, TOKEN_A.into(), old).is_ok());
+        assert_eq!(*pc.calls.borrow(), ["GET".to_owned(), format!("POST power/shutdown {TOKEN_B}")]);
+
+        // A busy PC: its reason as it is, or ours when it gives none; nothing is spent.
+        let pc = power_pc(&[], Some("TV is streaming from this PC."), ok);
+        assert_eq!(pc_power_token(&pc, PcPower::ShutDown).err().as_deref(), Some("TV is streaming from this PC."));
+        assert_eq!(pc_power_token(&power_pc(&[], None, ok), PcPower::Restart).err().as_deref(), Some(PC_POWER_BUSY));
+
+        // A refused request shows the host's words.
+        let refused = || {
+            let error: ApiError = serde_json::from_str(
+                r#"{"code":"host_in_use","message":"Desk is streaming from this PC.","setting":null,"retry_after_ms":null}"#,
+            )
+            .unwrap();
+            Err(Error::Api { status: 409, error })
+        };
+        let pc = power_pc(&[TOKEN_A], None, refused);
+        assert_eq!(
+            pc_power_confirmed(&pc, PcPower::Restart, TOKEN_A.into(), Handed::now()).err().as_deref(),
+            Some("Desk is streaming from this PC.")
         );
     }
 

@@ -20,6 +20,9 @@ pub enum HostOption {
     PairOtp,
     Wake,
     Sleep,
+    RestartPc,
+    ShutDownPc,
+    UpdateHost,
     Files,
     Settings,
     Details,
@@ -41,6 +44,9 @@ impl HostOption {
             Self::PairOtp => Icon::Key,
             Self::Wake => Icon::Power,
             Self::Sleep => Icon::Moon,
+            Self::RestartPc => Icon::Refresh,
+            Self::ShutDownPc => Icon::Power,
+            Self::UpdateHost => Icon::Gear,
             Self::Files => Icon::Folder,
             Self::Settings => Icon::Sliders,
             Self::Details => Icon::Info,
@@ -67,6 +73,9 @@ impl HostOption {
             Self::PairOtp => en("Pair with one-time PIN"),
             Self::Wake => en("Wake up"),
             Self::Sleep => en("Sleep PC"),
+            Self::RestartPc => en("Restart PC"),
+            Self::ShutDownPc => en("Shut down PC"),
+            Self::UpdateHost => en("Update the PC's host"),
             Self::Files => en("Files"),
             Self::Settings => en("PC settings"),
             Self::Details => en("View details"),
@@ -104,6 +113,16 @@ pub fn host_options(host: &Host) -> Vec<HostOption> {
     // Only where the PC offers it; listed but not selectable when it does not allow this device.
     if host.sleep_option().is_some() {
         options.push(HostOption::Sleep);
+    }
+    if host.pc_power_option(PcPower::Restart).is_some() {
+        options.push(HostOption::RestartPc);
+    }
+    // Not allowed for this device: Restart PC alone is listed off, its reason naming both.
+    if host.pc_power_option(PcPower::ShutDown).is_some_and(|o| o.is_ok() || host.pc_power_option(PcPower::Restart).is_none()) {
+        options.push(HostOption::ShutDownPc);
+    }
+    if host.update_offer().is_some() {
+        options.push(HostOption::UpdateHost);
     }
     if files::offers_files(host) {
         options.push(HostOption::Files);
@@ -227,6 +246,8 @@ impl Launcher {
                             destructive: o.destructive(),
                             blocked: match o {
                                 HostOption::Sleep => host.sleep_option().and_then(Result::err),
+                                HostOption::RestartPc => host.pc_power_option(PcPower::Restart).and_then(Result::err),
+                                HostOption::ShutDownPc => host.pc_power_option(PcPower::ShutDown).and_then(Result::err),
                                 _ => None,
                             },
                         })
@@ -520,6 +541,81 @@ impl Launcher {
                                 close = true;
                             }
                             // Cancel has the focus: putting the PC to sleep is never one stray press away.
+                            let cancel = quiet_button(ui, "Cancel");
+                            if focus_first {
+                                cancel.request_focus();
+                                focused = true;
+                            }
+                            if cancel.clicked() {
+                                close = true;
+                            }
+                        });
+                    });
+            }
+            Dialog::ConfirmPcPower { host, ask, name, action, offer } => {
+                let (id, ask, action) = (*host, *ask, *action);
+                egui::Modal::new(Id::unique("confirm-pc-power"))
+                    .frame(frame)
+                    .backdrop_color(Color32::from_black_alpha(150))
+                    .show(ctx, |ui| {
+                        ui.set_width(440.0);
+                        let title = match action {
+                            PcPower::Restart => trf("Restart {}?", &[&name]),
+                            PcPower::ShutDown => trf("Shut down {}?", &[&name]),
+                        };
+                        ui.label(RichText::new(title).font(semibold(text::SECTION)));
+                        ui.label(RichText::new(tr("Apps with unsaved work on the PC can block this.")).color(ON_SURFACE_VARIANT));
+                        // As Sleep PC: the asking line keeps its room and the action button is there
+                        // from the start, only off, so nothing moves under the pointer or the focus.
+                        let waiting = offer.is_none();
+                        let no_wake = action == PcPower::ShutDown && matches!(offer, Some((_, _, false)));
+                        ui.add_space(space::M);
+                        ui.horizontal(|ui| {
+                            if waiting {
+                                spinner(ui, 9.0);
+                            } else {
+                                ui.allocate_exact_size(Vec2::splat(18.0), Sense::hover());
+                            }
+                            let line = if no_wake { tr("Once off, this PC may only start with its power button.") } else { tr("Asking the PC…") };
+                            let color = if no_wake { ERROR } else { ON_SURFACE_VARIANT };
+                            ui.add_visible(waiting || no_wake, egui::Label::new(RichText::new(line).color(color)));
+                        });
+                        dialog_buttons(ui, |ui| {
+                            let label = match action {
+                                PcPower::Restart => en("Restart"),
+                                PcPower::ShutDown => en("Shut down"),
+                            };
+                            let go = ui.add_enabled_ui(!waiting, |ui| primary_button(ui, label)).inner;
+                            if let (true, Some((token, at, _))) = (go.clicked(), offer) {
+                                commands.push(Command::PcPower { host: id, ask, action, token: token.clone(), at: *at });
+                                close = true;
+                            }
+                            // Cancel has the focus: the PC never goes down from one stray press.
+                            let cancel = quiet_button(ui, "Cancel");
+                            if focus_first {
+                                cancel.request_focus();
+                                focused = true;
+                            }
+                            if cancel.clicked() {
+                                close = true;
+                            }
+                        });
+                    });
+            }
+            Dialog::ConfirmUpdate { host, name, version } => {
+                let id = *host;
+                egui::Modal::new(Id::unique("confirm-update"))
+                    .frame(frame)
+                    .backdrop_color(Color32::from_black_alpha(150))
+                    .show(ctx, |ui| {
+                        ui.set_width(440.0);
+                        ui.label(RichText::new(trf("Update the host on {} to {}?", &[&name, &version])).font(semibold(text::SECTION)));
+                        ui.label(RichText::new(tr("The host restarts to install it, and a stream from this device ends.")).color(ON_SURFACE_VARIANT));
+                        dialog_buttons(ui, |ui| {
+                            if primary_button(ui, "Update").clicked() {
+                                commands.push(Command::InstallUpdate { host: id });
+                                close = true;
+                            }
                             let cancel = quiet_button(ui, "Cancel");
                             if focus_first {
                                 cancel.request_focus();
@@ -1053,6 +1149,8 @@ impl Launcher {
                 | Dialog::ConfirmRemove { .. }
                 | Dialog::ConfirmUnpair { .. }
                 | Dialog::ConfirmSleep { .. }
+                | Dialog::ConfirmPcPower { .. }
+                | Dialog::ConfirmUpdate { .. }
                 | Dialog::PairError { .. }
                 | Dialog::PairingHelp
                 | Dialog::HomeView
@@ -1091,6 +1189,20 @@ impl Launcher {
                     let ask = self.sleep_asks;
                     commands.push(Command::SleepOffer { host: id, ask });
                     return Some(Dialog::ConfirmSleep { host: id, ask, name, offer: None });
+                }
+            }
+            HostOption::RestartPc | HostOption::ShutDownPc => {
+                let action = if option == HostOption::RestartPc { PcPower::Restart } else { PcPower::ShutDown };
+                if host.pc_power_option(action) == Some(Ok(())) {
+                    self.sleep_asks += 1;
+                    let ask = self.sleep_asks;
+                    commands.push(Command::PcPowerOffer { host: id, ask, action });
+                    return Some(Dialog::ConfirmPcPower { host: id, ask, name, action, offer: None });
+                }
+            }
+            HostOption::UpdateHost => {
+                if let Some(version) = host.update_offer() {
+                    return Some(Dialog::ConfirmUpdate { host: id, name, version: version.to_owned() });
                 }
             }
             HostOption::Files => commands.push(Command::OpenFiles(id)),
@@ -1211,12 +1323,48 @@ impl Launcher {
         }
     }
 
+    /// A Restart PC or Shut down PC step came back; matched and shown as [`Self::sleep_answered`].
+    pub fn pc_power_answered(&mut self, host: u64, ask: u64, name: &str, action: PcPower, confirmed: bool, result: Result<PcPowerStep, String>) {
+        let waiting = matches!(&self.dialog, Dialog::ConfirmPcPower { host: h, ask: a, offer: None, .. } if *h == host && *a == ask);
+        if !confirmed && !waiting {
+            return;
+        }
+        match (result, action) {
+            (Ok(PcPowerStep::Offer { token, at, wake_from_off }), _) => {
+                if let Dialog::ConfirmPcPower { offer, .. } = &mut self.dialog {
+                    *offer = Some((token, at, wake_from_off));
+                    self.focus_dialog = true;
+                }
+            }
+            (Ok(PcPowerStep::Accepted), PcPower::Restart) => {
+                self.sleep_message(host, trf("{} is restarting", &[&name]), tr("The PC took the request. It shows as online again once it is back.").to_owned())
+            }
+            (Ok(PcPowerStep::Accepted), PcPower::ShutDown) => {
+                self.sleep_message(host, trf("{} is shutting down", &[&name]), tr("The PC took the request. It shows as offline once it is off.").to_owned())
+            }
+            (Err(e), PcPower::Restart) => self.sleep_message(host, trf("Could not restart {}", &[&name]), e),
+            (Err(e), PcPower::ShutDown) => self.sleep_message(host, trf("Could not shut down {}", &[&name]), e),
+        }
+    }
+
+    /// The PC's host update: started, back on the new version, or why not.
+    pub fn update_answered(&mut self, host: u64, name: &str, result: Result<UpdateStep, String>) {
+        let (title, body) = match result {
+            Ok(UpdateStep::Started(version)) => {
+                (trf("Updating {}", &[&name]), trf("The host installs version {} and comes back on its own.", &[&version]))
+            }
+            Ok(UpdateStep::Back(version)) => (trf("{} is back", &[&name]), trf("The host now runs version {}.", &[&version])),
+            Err(e) => (trf("Could not update {}", &[&name]), e),
+        };
+        self.sleep_message(host, title, body);
+    }
+
     /// Shows a Sleep PC answer now when it replaces nothing but its own dialog, else after the
     /// dialog the user is in.
     pub(super) fn sleep_message(&mut self, host: u64, title: String, body: String) {
         match &self.dialog {
             Dialog::None => self.message(title, body),
-            Dialog::ConfirmSleep { host: asked, .. } if *asked == host => self.message(title, body),
+            Dialog::ConfirmSleep { host: asked, .. } | Dialog::ConfirmPcPower { host: asked, .. } if *asked == host => self.message(title, body),
             _ => self.queued.push_back((title, body)),
         }
     }

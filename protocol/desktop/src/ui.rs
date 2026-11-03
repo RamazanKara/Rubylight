@@ -21,7 +21,8 @@ use crate::config::{
     MouseMode, Overrides, Profiles, ReduceMotion, Settings, WindowMode, UI_ZOOM_STEPS,
 };
 use crate::console::{self, EndAction, GameState, Playing, Source};
-use crate::hosts::{Apps, Art, Handed, Host, Hosts, Reach, SleepStep};
+use crate::hosts::{Apps, Art, Handed, Host, Hosts, PcPowerStep, Reach, SleepStep, UpdateStep};
+use nightjar_core::http::PcPower;
 use crate::strings::{en, tr, trf};
 use crate::stream::{pyrowave_bitrate_warning, stream_mode, Display};
 use crate::theme::*;
@@ -59,6 +60,12 @@ pub enum Command {
     SleepOffer { host: u64, ask: u64 },
     /// Put the PC to sleep with the token it handed out at `at`.
     Sleep { host: u64, ask: u64, token: String, at: Handed },
+    /// Ask the PC for a Restart PC or Shut down PC token, as `SleepOffer`.
+    PcPowerOffer { host: u64, ask: u64, action: PcPower },
+    /// Restart or shut down the PC with the token it handed out at `at`.
+    PcPower { host: u64, ask: u64, action: PcPower, token: String, at: Handed },
+    /// Install the PC's host update and wait for it to come back.
+    InstallUpdate { host: u64 },
     /// Name a PC on this device only; empty brings back the PC's own name.
     Rename { host: u64, alias: String },
     /// Always connect to the PC through this known address; None brings back the automatic pick.
@@ -207,6 +214,11 @@ pub enum Dialog {
     /// Sleep PC: waiting for the PC's token (`offer` None), then asking to confirm. `ask` is
     /// the number of the token request this dialog waits for.
     ConfirmSleep { host: u64, ask: u64, name: String, offer: Option<(String, Handed)> },
+    /// Restart PC or Shut down PC, as `ConfirmSleep`; the offer also says whether the PC can
+    /// be woken from off.
+    ConfirmPcPower { host: u64, ask: u64, name: String, action: PcPower, offer: Option<(String, Handed, bool)> },
+    /// Update the PC's host to `version`.
+    ConfirmUpdate { host: u64, name: String, version: String },
     /// Pairing did not work: what to do about it, and a way to try again.
     PairError { host: u64, body: String, one_time: bool },
     /// How to pair, for a PC that is not paired yet.

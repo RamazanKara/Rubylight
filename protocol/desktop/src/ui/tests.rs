@@ -369,16 +369,24 @@ struct State {
     reach: Reach,
     info: Option<nightjar_core::http::ServerInfo>,
     apps: Vec<nightjar_core::http::App>,
+    /// The native read, for the options only it offers (Restart PC, Shut down PC, Update).
+    native: Option<(nightjar_core::http::NativeCapabilities, Option<nightjar_core::http::HostUpdate>)>,
 }
 
 impl State {
     fn frames(&self) -> Frames {
-        Frames::with(self.record.clone(), self.reach, self.info.clone(), self.apps.clone())
+        let mut frames = Frames::with(self.record.clone(), self.reach, self.info.clone(), self.apps.clone());
+        if let Some((capabilities, update)) = &self.native {
+            frames.hosts.list[0].native.capabilities = Some(capabilities.clone());
+            frames.hosts.list[0].native.update = update.clone();
+            frames.settle();
+        }
+        frames
     }
 }
 
 fn every_state() -> Vec<State> {
-    let state = |name, record, reach, info, apps| State { name, record, reach, info, apps };
+    let state = |name, record, reach, info, apps| State { name, record, reach, info, apps, native: None };
     vec![
         // Has the one-time PIN and the pairing help.
         state("unpaired", record("Unpaired", false, false), Reach::Online, Some(answer(false, 0)), Vec::new()),
@@ -394,7 +402,33 @@ fn every_state() -> Vec<State> {
         state("native api", record("Native", true, false), Reach::Online, Some(files::tests::native_answer()), Vec::new()),
         // Has Microphone only.
         state("microphone only", record("Mic", true, false), Reach::Online, Some(mic_only_answer(true)), Vec::new()),
+        // Has Restart PC, Shut down PC and Update the PC's host.
+        State { native: Some(power_native(true, true)), ..state("power", record("Power", true, false), Reach::Online, Some(answer(true, 0)), Vec::new()) },
+        // Lists Restart PC and Shut down PC, not selectable, with the reason; no update without Host control.
+        State {
+            native: Some(power_native(false, false)),
+            ..state("power not allowed", record("Locked", true, false), Reach::Online, Some(answer(true, 0)), Vec::new())
+        },
     ]
+}
+
+/// A native PC listing Restart, Shut down and Update, with 3.4.0 waiting; the grant and Host
+/// control for this device or not.
+fn power_native(allowed: bool, host_control: bool) -> (nightjar_core::http::NativeCapabilities, Option<nightjar_core::http::HostUpdate>) {
+    let capabilities = serde_json::from_str(&format!(
+        "{{\"api_version\":1,\"host\":{{\"name\":\"PC\",\"version\":\"3.3.0\",\"unique_id\":\"uid\"}},\
+         \"features\":[\"power.restart\",\"power.shutdown\",\"update\"],\
+         \"permissions\":{{\"list\":true,\"view\":true,\"launch\":true,\"host_control\":{host_control},\"restart_shutdown\":{allowed}}}}}"
+    ))
+    .expect("the answer parses");
+    let update = nightjar_core::http::HostUpdate {
+        current_version: "3.3.0".into(),
+        latest_version: Some("v3.4.0".into()),
+        phase: "idle".into(),
+        install_supported: true,
+        error: None,
+    };
+    (capabilities, Some(update))
 }
 
 /// A native PC's answer with its native read merged in: `session.mic_only` listed, with or
@@ -830,6 +864,15 @@ fn at_150_percent_in_german_a_1280x720_window_clips_no_button() {
             Dialog::Message { title: "Network test failed".into(), body: "The PC did not answer.".into() },
             Dialog::ConfirmSleep { host: id, ask: 1, name: "A long name for a gaming PC".into(), offer: None },
             Dialog::ConfirmSleep { host: id, ask: 1, name: "A long name for a gaming PC".into(), offer: Some(("t".into(), Handed::now())) },
+            Dialog::ConfirmPcPower { host: id, ask: 1, name: "A long name for a gaming PC".into(), action: PcPower::ShutDown, offer: None },
+            Dialog::ConfirmPcPower {
+                host: id,
+                ask: 1,
+                name: "A long name for a gaming PC".into(),
+                action: PcPower::ShutDown,
+                offer: Some(("t".into(), Handed::now(), false)),
+            },
+            Dialog::ConfirmUpdate { host: id, name: "A long name for a gaming PC".into(), version: "3.4.0".into() },
         ];
         for dialog in dialogs {
             let name = format!("{:?}", std::mem::discriminant(&dialog));
@@ -1292,7 +1335,12 @@ fn every_option_is_reachable_with_the_keyboard() {
         let options = host_options(host);
         seen.extend(&options);
         // Sleep PC listed for a device the PC does not allow cannot take focus.
-        let reachable = options.iter().filter(|o| **o != HostOption::Sleep || host.sleep_option() == Some(Ok(())));
+        let reachable = options.iter().filter(|o| match o {
+            HostOption::Sleep => host.sleep_option() == Some(Ok(())),
+            HostOption::RestartPc => host.pc_power_option(PcPower::Restart) == Some(Ok(())),
+            HostOption::ShutDownPc => host.pc_power_option(PcPower::ShutDown) == Some(Ok(())),
+            _ => true,
+        });
         for (n, option) in reachable.enumerate() {
             let mut f = scenario.frames();
             f.press(Key::F2);
@@ -1311,6 +1359,15 @@ fn every_option_is_reachable_with_the_keyboard() {
                 HostOption::Sleep => {
                     said(|c| matches!(c, Command::SleepOffer { .. })) && matches!(f.l.dialog, Dialog::ConfirmSleep { offer: None, .. })
                 }
+                HostOption::RestartPc => {
+                    said(|c| matches!(c, Command::PcPowerOffer { action: PcPower::Restart, .. }))
+                        && matches!(f.l.dialog, Dialog::ConfirmPcPower { action: PcPower::Restart, offer: None, .. })
+                }
+                HostOption::ShutDownPc => {
+                    said(|c| matches!(c, Command::PcPowerOffer { action: PcPower::ShutDown, .. }))
+                        && matches!(f.l.dialog, Dialog::ConfirmPcPower { action: PcPower::ShutDown, offer: None, .. })
+                }
+                HostOption::UpdateHost => matches!(&f.l.dialog, Dialog::ConfirmUpdate { version, .. } if version == "3.4.0"),
                 HostOption::Files => said(|c| matches!(c, Command::OpenFiles(_))) && f.no_dialog(),
                 HostOption::Settings => said(|c| matches!(c, Command::HostSettings(_))),
                 HostOption::Details => matches!(f.l.screen, Screen::HostDetails(_)) && f.no_dialog(),
@@ -1326,7 +1383,10 @@ fn every_option_is_reachable_with_the_keyboard() {
         }
     }
     use HostOption::*;
-    for option in [OpenLibrary, Resume, QuitApp, Pair, PairOtp, Wake, Sleep, Files, Settings, Details, Rename, Unpair, PairingHelp, CheckAgain, Remove, MicOnly] {
+    for option in [
+        OpenLibrary, Resume, QuitApp, Pair, PairOtp, Wake, Sleep, RestartPc, ShutDownPc, UpdateHost, Files, Settings, Details, Rename, Unpair,
+        PairingHelp, CheckAgain, Remove, MicOnly,
+    ] {
         assert!(seen.contains(&option), "no state reaches {}", option.label());
     }
 }
@@ -1777,6 +1837,75 @@ fn the_sleep_offer_arriving_moves_nothing_under_cancel() {
     f.frame(vec![egui::Event::PointerMoved(cancel.center())]);
     let commands = f.click_at(cancel.center(), egui::PointerButton::Primary);
     assert!(!commands.iter().any(|c| matches!(c, Command::Sleep { .. })) && f.no_dialog(), "the click cancels");
+}
+
+/// Restart PC and Shut down PC confirm as Sleep PC does: Cancel has the focus and keeps its
+/// place when the offer arrives; a shutdown warns when the PC may not wake from off; only the
+/// confirm button spends the token.
+#[test]
+fn restart_and_shut_down_wait_for_the_offer_keep_cancel_focused_and_warn_before_an_unwakeable_shutdown() {
+    const NO_WAKE: &str = "Once off, this PC may only start with its power button.";
+    for (action, label, wake_from_off) in [(PcPower::Restart, "Restart", false), (PcPower::ShutDown, "Shut down", true), (PcPower::ShutDown, "Shut down", false)] {
+        let mut f = every_state().into_iter().find(|s| s.name == "power").unwrap().frames();
+        let id = f.hosts.list[0].id;
+        f.l.dialog = Dialog::ConfirmPcPower { host: id, ask: 1, name: "PC".into(), action, offer: None };
+        f.l.focus_dialog = true;
+        f.settle();
+        let place = |f: &Frames, text: &str| f.placed.iter().find(|(t, ..)| t == text).map(|p| p.1).unwrap_or_else(|| panic!("{text}"));
+        let cancel = place(&f, "Cancel");
+        let go = place(&f, label);
+        let focus = f.ctx.memory(|m| m.focused()).and_then(|id| f.ctx.read_response(id)).map(|r| r.rect).expect("a focus");
+        assert!(focus.contains(cancel.center()), "{label}: Cancel has the focus");
+        // Waiting: the button is off and a click on it does nothing.
+        let commands = f.click_at(go.center(), egui::PointerButton::Primary);
+        assert!(!commands.iter().any(|c| matches!(c, Command::PcPower { .. })), "{label}: nothing to spend yet");
+
+        f.l.pc_power_answered(id, 1, "PC", action, false, Ok(PcPowerStep::Offer { token: "tok".into(), at: Handed::now(), wake_from_off }));
+        f.settle();
+        assert_eq!((place(&f, "Cancel"), place(&f, label)), (cancel, go), "{label}: nothing moves");
+        let warned = f.drawn.iter().any(|t| t == tr(NO_WAKE));
+        assert_eq!(warned, action == PcPower::ShutDown && !wake_from_off, "{label}, wake from off {wake_from_off}");
+        let commands = f.click_at(go.center(), egui::PointerButton::Primary);
+        assert!(
+            commands.iter().any(|c| matches!(c, Command::PcPower { action: a, token, .. } if *a == action && token == "tok")) && f.no_dialog(),
+            "{label}: confirmed spends the token"
+        );
+    }
+    // A refusal arriving for the dialog shows the host's words.
+    let mut f = every_state().into_iter().find(|s| s.name == "power").unwrap().frames();
+    let id = f.hosts.list[0].id;
+    f.l.dialog = Dialog::ConfirmPcPower { host: id, ask: 1, name: "PC".into(), action: PcPower::Restart, offer: None };
+    f.l.pc_power_answered(id, 1, "PC", PcPower::Restart, false, Err("TV is streaming from this PC.".into()));
+    assert!(matches!(&f.l.dialog, Dialog::Message { body, .. } if body == "TV is streaming from this PC."));
+}
+
+#[test]
+fn update_the_pcs_host_is_offered_with_host_control_and_confirmed_with_cancel_focused() {
+    let offered = |name| {
+        let f = every_state().into_iter().find(|s| s.name == name).unwrap().frames();
+        host_options(&f.hosts.list[0]).contains(&HostOption::UpdateHost)
+    };
+    assert!(offered("power"));
+    assert!(!offered("power not allowed"), "not without Host control");
+    assert!(!offered("paired"), "not where the PC does not list it");
+    // Not allowed: one row says so for both.
+    let locked = every_state().into_iter().find(|s| s.name == "power not allowed").unwrap().frames();
+    let options = host_options(&locked.hosts.list[0]);
+    assert!(options.contains(&HostOption::RestartPc) && !options.contains(&HostOption::ShutDownPc), "{options:?}");
+    let mut f = every_state().into_iter().find(|s| s.name == "power").unwrap().frames();
+    let id = f.hosts.list[0].id;
+    f.l.dialog = Dialog::ConfirmUpdate { host: id, name: "PC".into(), version: "3.4.0".into() };
+    f.l.focus_dialog = true;
+    f.settle();
+    let commands = f.press(Key::Enter);
+    assert!(!commands.iter().any(|c| matches!(c, Command::InstallUpdate { .. })) && f.no_dialog(), "Enter on the focused Cancel");
+    f.l.dialog = Dialog::ConfirmUpdate { host: id, name: "PC".into(), version: "3.4.0".into() };
+    f.settle();
+    let update = f.placed.iter().find(|(t, ..)| t == "Update").map(|p| p.1).expect("Update");
+    let commands = f.click_at(update.center(), egui::PointerButton::Primary);
+    assert!(commands.iter().any(|c| matches!(c, Command::InstallUpdate { host } if *host == id)));
+    f.l.update_answered(id, "PC", Ok(UpdateStep::Back("3.4.0".into())));
+    assert!(matches!(&f.l.dialog, Dialog::Message { body, .. } if body.contains("3.4.0")));
 }
 
 #[test]

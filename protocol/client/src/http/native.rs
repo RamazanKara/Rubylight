@@ -8,6 +8,7 @@
 //! host has no native API at all (an older Rubylight, Sunshine, Apollo).
 
 use super::coop::{Coop, CoopJoined, JoinRequest};
+use super::pc_power::{HostUpdate, PcPower, PcPowerOffer, PowerRequest};
 use super::native_api::audio::{Audio, AudioWrite};
 use super::native_api::capabilities::Capabilities;
 use super::native_api::error::{ApiError, ErrorBody};
@@ -98,6 +99,9 @@ pub struct FilePermissions {
     /// The device has at least one folder grant.
     #[serde(default, deserialize_with = "bool_or_false")]
     pub shared_folders: bool,
+    /// The device may restart and shut down the PC (its own grant on the host).
+    #[serde(default, deserialize_with = "bool_or_false")]
+    pub restart_shutdown: bool,
 }
 
 fn bool_or_false<'de, D: Deserializer<'de>>(deserializer: D) -> Result<bool, D::Error> {
@@ -270,6 +274,33 @@ impl HostClient {
         self.native("wake", None, MAX_JSON_BYTES, READ_TIMEOUT)
     }
 
+    /// Restart and Shut down: whether each can run now, and the token to confirm with. Only
+    /// when the capabilities list `power.restart` or `power.shutdown`.
+    pub fn pc_power(&self) -> Result<PcPowerOffer, Error> {
+        self.native("power", None, MAX_JSON_BYTES, READ_TIMEOUT)
+    }
+
+    /// Restarts or shuts down the PC with a token from [`HostClient::pc_power`]. Ok means the
+    /// PC took the request (202); [`host_words`](super::host_words) gives a refusal's reason.
+    pub fn power_pc(&self, action: PcPower, token: &str) -> Result<(), Error> {
+        let body = serde_json::to_vec(&PowerRequest { token })
+            .map_err(|e| Error::InvalidArgument(format!("power request: {e}")))?;
+        self.native::<serde_json::Value>(action.path(), Some(&body), MAX_JSON_BYTES, ACTION_READ_TIMEOUT)
+            .map(drop)
+    }
+
+    /// The host's version, its pending update and the updater's phase. Only when the
+    /// capabilities list `update`.
+    pub fn host_update(&self) -> Result<HostUpdate, Error> {
+        self.native("update", None, MAX_JSON_BYTES, READ_TIMEOUT)
+    }
+
+    /// Installs the host's pending update, ending this device's own stream. Needs Host control;
+    /// refused while another device streams.
+    pub fn install_host_update(&self) -> Result<HostUpdate, Error> {
+        self.native("update/install", Some(EMPTY_BODY), MAX_JSON_BYTES, ACTION_READ_TIMEOUT)
+    }
+
     /// The Nucleus Co-op sessions this device could join. Only when the capabilities list
     /// `coop`; without it the host answers 503 `temporarily_unavailable` with the reason.
     pub fn coop(&self) -> Result<Coop, Error> {
@@ -433,14 +464,15 @@ mod tests {
                 file_download: false,
                 usb: false,
                 shared_folders: false,
+                restart_shutdown: false,
             }
         );
         let read = decode::<NativeCapabilities>(
-            response(200, &body(r#","usb":true,"shared_folders":true"#)),
+            response(200, &body(r#","usb":true,"shared_folders":true,"restart_shutdown":true"#)),
             path,
         )
         .unwrap();
-        assert!(read.files.usb && read.files.shared_folders);
+        assert!(read.files.usb && read.files.shared_folders && read.files.restart_shutdown);
         assert!(!read.files.file_upload && !read.files.file_download);
         assert_eq!(read.capabilities.features, ["library", "files.upload"]);
         assert_eq!(

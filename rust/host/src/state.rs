@@ -296,8 +296,11 @@ pub struct Host {
     /// time: a probe's result is narrowed to the settings saved by then.
     packed_publish: Mutex<()>,
     /// The packed 4:4:4 modes a save newly allowed, or a probe a stream
-    /// stopped left, which wait to be probed.
+    /// stopped left, or one that needed a signed-in user's session left,
+    /// which wait to be probed.
     packed_probe_pending: std::sync::atomic::AtomicU8,
+    /// Probes in a row that found the signed-in user's session not ready.
+    packed_session_waits: std::sync::atomic::AtomicU8,
     /// Packed 4:4:4 modes whose codec the startup probe did not find, warned
     /// about once each.
     packed_codec_missing: std::sync::atomic::AtomicU8,
@@ -736,6 +739,7 @@ impl Host {
             packed_modes: std::sync::atomic::AtomicU8::new(0),
             packed_publish: Mutex::new(()),
             packed_probe_pending: std::sync::atomic::AtomicU8::new(0),
+            packed_session_waits: std::sync::atomic::AtomicU8::new(0),
             packed_codec_missing: std::sync::atomic::AtomicU8::new(0),
             packed_reprobing: std::sync::atomic::AtomicBool::new(false),
             optional_probe: Mutex::new(()),
@@ -1056,26 +1060,12 @@ impl Host {
             .store(flags | pyrowave, std::sync::atomic::Ordering::Release);
         // The standard codecs are probed: a stream that starts from here on
         // leaves the optional probes for after it, and the pass completes.
-        {
-            let _probe = self.optional_probe.lock().unwrap();
-            let all = butterpollo_core::packed444::ALL_MODES;
-            let live = || packed_modes_allowed(&self.config.read().unwrap());
-            match probe_packed_modes(
-                config,
-                flags,
-                all,
-                &busy,
-                &live,
-                butterpollo_windows::codec_probe::packed,
-            ) {
-                Some(packed_modes) => self.publish_packed_modes(packed_modes, all),
-                None => {
-                    self.packed_probe_pending
-                        .fetch_or(all, std::sync::atomic::Ordering::AcqRel);
-                    self.publish_packed_modes(0, 0)
-                }
-            };
-        }
+        self.pass_packed_probe(
+            config,
+            flags,
+            &busy,
+            butterpollo_windows::codec_probe::packed,
+        );
         self.startup_codecs.send_replace(true);
         let mut retry_pyrowave = None;
         if config.boolean("pyrowave", true) && !self.stop.load(std::sync::atomic::Ordering::Acquire)
@@ -1090,6 +1080,61 @@ impl Host {
             retry_pyrowave = retry;
         }
         Ok(Some((flags, first_error, retry_pyrowave)))
+    }
+    /// A codec pass's packed 4:4:4 probe of every mode `flags` allows. The
+    /// modes a stream stopped, or that need a signed-in user's session, as
+    /// when the host starts with Windows, stay pending: the pass probes them
+    /// again once no stream runs and a user is signed in.
+    fn pass_packed_probe(
+        &self,
+        config: &Config,
+        flags: u32,
+        busy: &dyn Fn() -> bool,
+        probe: PackedProbe,
+    ) {
+        use std::sync::atomic::Ordering;
+        let _probe = self.optional_probe.lock().unwrap();
+        let all = butterpollo_core::packed444::ALL_MODES;
+        let live = || packed_modes_allowed(&self.config.read().unwrap());
+        match probe_packed_modes(config, flags, all, busy, &live, probe) {
+            Some((found, waiting)) => {
+                self.publish_packed_modes(found, all & !waiting);
+                self.wait_for_packed_session(waiting);
+            }
+            None => {
+                self.packed_probe_pending.fetch_or(all, Ordering::AcqRel);
+                self.publish_packed_modes(0, 0);
+            }
+        }
+    }
+    /// Leave the packed 4:4:4 modes in `waiting`, whose probe found the
+    /// signed-in user's session not ready, pending for a probe once it is.
+    /// After `PACKED_SESSION_TRIES` such probes in a row they fail like any
+    /// other error, so a helper that never starts is not started forever.
+    fn wait_for_packed_session(&self, waiting: u8) {
+        use std::sync::atomic::Ordering;
+        if waiting == 0 {
+            self.packed_session_waits.store(0, Ordering::Release);
+            return;
+        }
+        let waits = self.packed_session_waits.fetch_add(1, Ordering::AcqRel) + 1;
+        if waits < PACKED_SESSION_TRIES {
+            tracing::info!(
+                modes = packed_mode_names(waiting),
+                tries = waits,
+                "packed 4:4:4 probe waits for a signed-in user; it runs again then"
+            );
+            self.packed_probe_pending
+                .fetch_or(waiting, Ordering::AcqRel);
+            return;
+        }
+        self.packed_session_waits.store(0, Ordering::Release);
+        tracing::warn!(
+            modes = packed_mode_names(waiting),
+            tries = waits,
+            "packed 4:4:4 probe failed; clients are not offered this mode: the signed-in user's session never became ready"
+        );
+        self.publish_packed_modes(0, waiting);
     }
     /// Say why each missing codec is missing, once per pass: a log line per
     /// codec, the reason kept for a refused launch, and a console warning when
@@ -1199,7 +1244,14 @@ impl Host {
         std::thread::spawn(move || {
             loop {
                 while h.packed_probe_pending.load(Ordering::Acquire) != 0 {
-                    if !h.wait_until_idle("packed 4:4:4") {
+                    // A session not ready yet after sign-in gets longer each try.
+                    let waits = h.packed_session_waits.load(Ordering::Acquire);
+                    let delay = match waits {
+                        0 => Duration::ZERO,
+                        n => (PACKED_SESSION_RETRY * (1 << (n - 1).min(4)))
+                            .min(PACKED_SESSION_RETRY * 12),
+                    };
+                    if !h.wait_for_session(delay, "packed 4:4:4") {
                         h.packed_reprobing.store(false, Ordering::Release);
                         return;
                     }
@@ -1279,8 +1331,9 @@ impl Host {
             return true;
         }
         match probe_packed_modes(&config, codecs, modes, &busy, &live, probe) {
-            Some(found) => {
-                self.publish_packed_modes(found, modes);
+            Some((found, waiting)) => {
+                self.publish_packed_modes(found, modes & !waiting);
+                self.wait_for_packed_session(waiting);
                 true
             }
             None => {
@@ -1321,7 +1374,7 @@ impl Host {
     }
     /// Wait `delay`, then until a user is signed in and no stream has run or
     /// started for `PROBE_IDLE`. False when the host is stopping.
-    fn wait_for_session(&self, delay: Duration) -> bool {
+    fn wait_for_session(&self, delay: Duration, probe: &str) -> bool {
         use std::sync::atomic::Ordering;
         let until = Instant::now() + delay;
         while Instant::now() < until {
@@ -1331,7 +1384,7 @@ impl Host {
             std::thread::sleep(PROBE_POLL);
         }
         // Wait for a sign-in, and leave the GPU to a running stream.
-        self.wait_until_idle("PyroWave")
+        self.wait_until_idle(probe)
     }
     /// Probe PyroWave again when the first probe ran before the signed-in
     /// user's session was ready, as when the host starts with Windows, or
@@ -1345,7 +1398,7 @@ impl Host {
         let mut delay = delay;
         let mut attempts = 0;
         while attempts < 6 {
-            if !self.wait_for_session(delay) {
+            if !self.wait_for_session(delay, "PyroWave") {
                 return attempts;
             }
             let result = {
@@ -1610,6 +1663,11 @@ const PROBE_IDLE: Duration = if cfg!(test) {
     Duration::from_secs(5)
 };
 const PROBE_POLL: Duration = Duration::from_millis(if cfg!(test) { 25 } else { 250 });
+/// The first wait before a packed 4:4:4 probe that found the signed-in
+/// user's session not ready runs again; each further one doubles, to 12x.
+const PACKED_SESSION_RETRY: Duration = Duration::from_millis(if cfg!(test) { 20 } else { 5000 });
+/// Packed 4:4:4 probes in a row that may find the session not ready.
+const PACKED_SESSION_TRIES: u8 = 6;
 /// When the startup PyroWave probe is worth trying again, and after how
 /// long: it ran before the user's session was ready, or it timed out, as
 /// under a busy CPU, which a game that keeps running would busy again soon
@@ -1686,9 +1744,11 @@ fn packed_modes_offerable(config: &Config, codecs: u32) -> u8 {
         & packed_modes_allowed(config)
 }
 /// Probe each packed 4:4:4 mode in `modes` the settings and `codecs` allow,
-/// warning about each that fails. None once `busy` says a stream wants the
-/// encoder, which also stops a probe that runs. A mode the settings saved by
-/// now (`live`) no longer allow is skipped, or stopped while it is probed.
+/// warning about each that fails. Returns the modes that passed and those
+/// whose probe found the signed-in user's session not ready, which are worth
+/// probing again. None once `busy` says a stream wants the encoder, which
+/// also stops a probe that runs. A mode the settings saved by now (`live`) no
+/// longer allow is skipped, or stopped while it is probed.
 fn probe_packed_modes(
     config: &Config,
     codecs: u32,
@@ -1696,9 +1756,10 @@ fn probe_packed_modes(
     busy: &dyn Fn() -> bool,
     live: &dyn Fn() -> u8,
     probe: PackedProbe,
-) -> Option<u8> {
+) -> Option<(u8, u8)> {
     let allowed = modes & packed_modes_offerable(config, codecs);
     let mut packed_modes = 0;
+    let mut waiting = 0;
     for (codec, ten_bit) in PACKED_MODES {
         let bit = butterpollo_core::packed444::mode_bit(codec, ten_bit);
         if allowed & bit == 0 || live() & bit == 0 {
@@ -1729,6 +1790,14 @@ fn probe_packed_modes(
                     "packed 4:4:4 probe stopped: the mode was turned off"
                 );
             }
+            Err(error) if error.is::<butterpollo_windows::codec_probe::SessionNotReady>() => {
+                tracing::debug!(
+                    error = %format!("{error:#}"),
+                    mode = packed_mode_names(bit),
+                    "packed 4:4:4 probe needs a signed-in user"
+                );
+                waiting |= bit;
+            }
             // Packed 4:4:4 is opt-in: a mode the user turned on but clients
             // are not offered must show in the log.
             Err(error) => tracing::warn!(
@@ -1739,7 +1808,7 @@ fn probe_packed_modes(
             ),
         }
     }
-    Some(packed_modes)
+    Some((packed_modes, waiting))
 }
 /// Names of the packed 4:4:4 modes in a `packed444Modes` mask.
 fn packed_mode_names(modes: u8) -> String {
@@ -1988,7 +2057,7 @@ mod tests {
     mod packed_reprobe {
         use crate::state::test_support::Fixture;
         use butterpollo_core::{config::Config, packed444::mode_bit, rtsp::Negotiated};
-        use butterpollo_windows::codec_probe::Interrupted;
+        use butterpollo_windows::codec_probe::{Interrupted, SessionNotReady};
         use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
         use std::time::{Duration, Instant};
 
@@ -2273,6 +2342,97 @@ mod tests {
             assert_eq!(CALLS.load(Ordering::Acquire), 1);
             assert_eq!(f.host.packed_probe_pending.load(Ordering::Acquire), 0);
             assert_eq!(offered(&f), 0);
+        }
+
+        fn packed_on(f: &Fixture) -> Config {
+            let mut config = f.host.config.write().unwrap();
+            config
+                .values
+                .insert("experimental_packed_444".into(), "true".into());
+            config.clone()
+        }
+
+        /// A codec pass before anyone signs in, as when the host starts with
+        /// Windows, leaves the packed modes pending instead of failing them,
+        /// and they are probed and offered once a user is signed in. Other
+        /// errors stay final.
+        #[test]
+        fn a_probe_that_needs_a_signed_in_user_runs_again_after_sign_in() {
+            static SIGNED_IN: AtomicBool = AtomicBool::new(false);
+            fn probe(_: &Config, stream: &Negotiated, _: &dyn Fn() -> bool) -> anyhow::Result<()> {
+                if !SIGNED_IN.load(Ordering::Acquire) {
+                    return Err(SessionNotReady::new("helper needs a signed-in user").into());
+                }
+                anyhow::ensure!(!(stream.codec == 2 && stream.sdr_10bit), "driver refused");
+                Ok(())
+            }
+            let f = Fixture::new();
+            f.host.codecs.store(CODECS, Ordering::Release);
+            let config = packed_on(&f);
+            f.host.pass_packed_probe(&config, CODECS, &|| false, probe);
+            let all = butterpollo_core::packed444::ALL_MODES;
+            assert_eq!(f.host.packed_probe_pending.load(Ordering::Acquire), all);
+            assert_eq!(offered(&f), 0);
+            SIGNED_IN.store(true, Ordering::Release);
+            f.host.start_packed_probe(probe);
+            until("the modes are probed after sign-in", || {
+                !f.host.packed_reprobing.load(Ordering::Acquire)
+                    && f.host.packed_probe_pending.load(Ordering::Acquire) == 0
+            });
+            assert_eq!(offered(&f), all & !mode_bit(2, true));
+            assert_eq!(f.host.packed_session_waits.load(Ordering::Acquire), 0);
+        }
+
+        /// Only the modes that need a session wait: a mode that fails
+        /// otherwise is final at once, and one that passes is offered.
+        #[test]
+        fn only_modes_that_need_a_session_stay_pending() {
+            fn probe(_: &Config, stream: &Negotiated, _: &dyn Fn() -> bool) -> anyhow::Result<()> {
+                match (stream.codec, stream.sdr_10bit) {
+                    (1, false) => Err(SessionNotReady::new("helper needs a signed-in user").into()),
+                    (1, true) => anyhow::bail!("driver refused"),
+                    _ => Ok(()),
+                }
+            }
+            let f = Fixture::new();
+            f.host.codecs.store(CODECS, Ordering::Release);
+            let config = packed_on(&f);
+            f.host.pass_packed_probe(&config, CODECS, &|| false, probe);
+            assert_eq!(
+                f.host.packed_probe_pending.load(Ordering::Acquire),
+                mode_bit(1, false)
+            );
+            assert_eq!(offered(&f), mode_bit(2, false) | mode_bit(2, true));
+        }
+
+        /// A session that never becomes ready fails the modes after
+        /// `PACKED_SESSION_TRIES` probes, loudly, instead of probing forever.
+        #[test]
+        fn a_session_that_never_becomes_ready_fails_after_its_tries() {
+            static CALLS: AtomicU32 = AtomicU32::new(0);
+            fn probe(_: &Config, _: &Negotiated, _: &dyn Fn() -> bool) -> anyhow::Result<()> {
+                CALLS.fetch_add(1, Ordering::AcqRel);
+                Err(SessionNotReady::new("start optional codec probe: no pipe").into())
+            }
+            let f = Fixture::new();
+            f.host.codecs.store(CODECS, Ordering::Release);
+            let config = packed_on(&f);
+            let path = f.host.directory.join("never-ready.log");
+            // On this thread, which the log capture covers.
+            let log = logged(&path, || {
+                f.host.pass_packed_probe(&config, CODECS, &|| false, probe);
+                for _ in 0..20 {
+                    if f.host.packed_probe_pending.load(Ordering::Acquire) == 0 {
+                        break;
+                    }
+                    f.host.reprobe_packed_modes(probe);
+                }
+            });
+            assert_eq!(f.host.packed_probe_pending.load(Ordering::Acquire), 0);
+            let tries = u32::from(crate::state::PACKED_SESSION_TRIES);
+            assert_eq!(CALLS.load(Ordering::Acquire), tries * 4);
+            assert_eq!(offered(&f), 0);
+            assert_eq!(log.matches("never became ready").count(), 1, "{log}");
         }
     }
     #[test]

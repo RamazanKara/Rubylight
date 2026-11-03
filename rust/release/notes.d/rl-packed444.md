@@ -1,0 +1,1 @@
+- **Full chroma survives a start with Windows.** When the host started before anyone signed in, its packed 4:4:4 check failed and clients were not offered full chroma until the host restarted. The check now waits for the sign-in and runs then.

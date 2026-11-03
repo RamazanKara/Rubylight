@@ -72,6 +72,24 @@ fn the_search_finds_rows_in_every_section_and_says_when_nothing_matches() {
     assert!(f.l.settings_view.query.is_empty() && shows(&f, "Resolution"), "Clear search goes back to the section: {:?}", f.drawn);
 }
 
+/// The Ctrl+F hint shows only where the empty field's placeholder leaves it room, in every language.
+#[test]
+fn the_ctrl_f_hint_never_covers_the_search_placeholder() {
+    let mut f = settings_with(Settings::default());
+    for language in crate::config::Language::ALL.into_iter().filter(|l| *l != crate::config::Language::System) {
+        f.l.settings.language = language;
+        for width in [640.0, 800.0, 1024.0, 1280.0] {
+            f.size = vec2(width, 4000.0);
+            f.settle();
+            let at = |text: &str| f.placed.iter().find(|(t, ..)| t == text).map(|(_, r, _)| *r);
+            let hint = at(tr("Search settings")).unwrap_or_else(|| panic!("{language:?} at {width}: no placeholder in {:?}", f.drawn));
+            if let Some(key) = at(tr("Ctrl+F")) {
+                assert!(hint.right() + 8.0 <= key.left(), "{language:?} at {width}: the placeholder {hint:?} runs into Ctrl+F {key:?}");
+            }
+        }
+    }
+}
+
 #[test]
 fn ctrl_f_reaches_the_search_and_escape_leaves_it_before_the_page() {
     let mut f = settings_with(Settings::default());

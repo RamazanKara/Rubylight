@@ -20,7 +20,7 @@ use std::{
     collections::BTreeMap,
     ffi::c_void,
     path::{Path, PathBuf},
-    sync::Mutex,
+    sync::{Mutex, MutexGuard},
     time::Duration,
 };
 use windows::{
@@ -286,50 +286,113 @@ fn route_with(
 /// One stream stopped playing `exe` on the sink; the last puts it back.
 /// Returns whether a restore still waits for the program to run.
 fn release_with(apps: &dyn Apps, state: &mut State, directory: &Path, exe: &str) -> Result<bool> {
+    if !release(state, exe) {
+        return Ok(false);
+    }
+    restore_with(apps, state, directory)
+}
+/// One stream stopped playing `exe`: whether it was the last.
+fn release(state: &mut State, exe: &str) -> bool {
     if let Some(users) = state.active.get_mut(exe) {
         *users -= 1;
         if *users > 0 {
-            return Ok(false);
+            return false;
         }
         state.active.remove(exe);
     }
-    restore_with(apps, state, directory)
+    true
 }
 
 /// Programs `exes` are about to be stopped with every stream that plays
 /// them: put back now, while they run, whatever the streams' count.
 /// Returns whether a restore still waits for a program to run.
+#[cfg(test)]
 fn put_back_with(
     apps: &dyn Apps,
     state: &mut State,
     directory: &Path,
     exes: &[String],
 ) -> Result<bool> {
+    forget(state, exes);
+    restore_with(apps, state, directory)
+}
+/// No stream plays programs `exes` any more.
+fn forget(state: &mut State, exes: &[String]) {
     state
         .active
         .retain(|active, _| !exes.iter().any(|exe| same_program(active, exe)));
-    restore_with(apps, state, directory)
 }
 
 /// Put back every journalled program no stream plays that runs now.
 /// Returns whether one still waits to run (a stream's own program is put
 /// back when it ends).
 fn restore_with(apps: &dyn Apps, state: &State, directory: &Path) -> Result<bool> {
-    let mut journal = load(directory)?;
-    let idle = |app: &App| !state.active.keys().any(|exe| same_program(&app.exe, exe));
-    let waiting: Vec<&str> = journal
-        .apps
-        .iter()
-        .filter(|app| idle(app))
-        .map(|app| app.exe.as_str())
-        .collect();
+    let waiting = waiting(state, &load(directory)?);
     if waiting.is_empty() {
         return Ok(false);
     }
-    let running = apps.running(&waiting)?;
+    let running = apps.running(&waiting.iter().map(String::as_str).collect::<Vec<_>>())?;
+    restore_running(apps, state, directory, &running)
+}
+
+/// The journalled programs no stream plays.
+fn waiting(state: &State, journal: &Journal) -> Vec<String> {
+    journal
+        .apps
+        .iter()
+        .filter(|app| idle(state, app))
+        .map(|app| app.exe.clone())
+        .collect()
+}
+fn idle(state: &State, app: &App) -> bool {
+    !state.active.keys().any(|exe| same_program(&app.exe, exe))
+}
+
+/// [`restore_with`] holding `state` only to change devices: the process
+/// listing, its slow part, runs without it, so a stream's route never waits
+/// behind it. A program a stream routed meanwhile is left to that stream.
+/// The lock comes back for a decision that must follow the restore.
+fn restore_unlocked<'a>(
+    apps: &dyn Apps,
+    state: &'a Mutex<State>,
+    directory: &Path,
+) -> (MutexGuard<'a, State>, Result<bool>) {
+    let waiting = {
+        let state = state.lock().unwrap();
+        match load(directory) {
+            Ok(journal) => waiting(&state, &journal),
+            Err(error) => return (state, Err(error)),
+        }
+    };
+    let running = if waiting.is_empty() {
+        Ok(vec![])
+    } else {
+        apps.running(&waiting.iter().map(String::as_str).collect::<Vec<_>>())
+    };
+    let state = state.lock().unwrap();
+    let result = running.and_then(|running| restore_running(apps, &state, directory, &running));
+    (state, result)
+}
+
+/// [`restore_unlocked`] for this host's streams, on Windows.
+fn restore_now(directory: &Path) -> (MutexGuard<'static, State>, Result<bool>) {
+    match crate::capture::ComGuard::new().and_then(|com| Ok((com, Windows::new()?))) {
+        Ok((_com, apps)) => restore_unlocked(&apps, &STATE, directory),
+        Err(error) => (STATE.lock().unwrap(), Err(error)),
+    }
+}
+
+/// Put back the journalled programs no stream plays that are `running`.
+fn restore_running(
+    apps: &dyn Apps,
+    state: &State,
+    directory: &Path,
+    running: &[(u32, String)],
+) -> Result<bool> {
+    let mut journal = load(directory)?;
     let mut failed = None;
     let mut done = vec![];
-    for app in journal.apps.iter().filter(|app| idle(app)) {
+    for app in journal.apps.iter().filter(|app| idle(state, app)) {
         let Some((pid, _)) = running.iter().find(|(_, exe)| same_program(&app.exe, exe)) else {
             continue;
         };
@@ -367,7 +430,7 @@ fn restore_with(apps: &dyn Apps, state: &State, directory: &Path) -> Result<bool
     if let Some(error) = failed {
         return Err(error);
     }
-    Ok(journal.apps.iter().any(idle))
+    Ok(journal.apps.iter().any(|app| idle(state, app)))
 }
 
 /// Whether the game plays elsewhere: one of the `routed` processes has an
@@ -505,11 +568,11 @@ impl Drop for AppRoute {
         if self.users.is_some() {
             return;
         }
-        let result = crate::capture::ComGuard::new().and_then(|_com| {
-            let apps = Windows::new()?;
-            let mut state = STATE.lock().unwrap();
-            release_with(&apps, &mut state, &self.directory, &self.exe)
-        });
+        if !release(&mut STATE.lock().unwrap(), &self.exe) {
+            return;
+        }
+        let (state, result) = restore_now(&self.directory);
+        drop(state);
         match result {
             Ok(false) => {}
             Ok(true) => watch(&self.directory),
@@ -533,10 +596,8 @@ pub fn recover(directory: &Path) -> Result<()> {
             return Err(error);
         }
     }
-    let result = crate::capture::ComGuard::new().and_then(|_com| {
-        let apps = Windows::new()?;
-        restore_with(&apps, &STATE.lock().unwrap(), directory)
-    });
+    let (state, result) = restore_now(directory);
+    drop(state);
     if !matches!(result, Ok(false)) {
         watch(directory);
     }
@@ -557,10 +618,9 @@ pub fn put_back(directory: &Path, pids: impl FnOnce() -> Result<Vec<u32>>) -> Re
         .filter_map(|&pid| crate::process::image_path(pid))
         .map(|exe| exe.to_lowercase())
         .collect();
-    let result = crate::capture::ComGuard::new().and_then(|_com| {
-        let apps = Windows::new()?;
-        put_back_with(&apps, &mut STATE.lock().unwrap(), directory, &exes)
-    });
+    forget(&mut STATE.lock().unwrap(), &exes);
+    let (state, result) = restore_now(directory);
+    drop(state);
     if !matches!(result, Ok(false)) {
         watch(directory);
     }
@@ -583,13 +643,10 @@ fn watch(directory: &Path) {
             let mut reported = None;
             loop {
                 std::thread::sleep(WATCH);
-                // One lock from the restore to the decision to stop: a stream
-                // ending meanwhile finds the watcher either running or gone.
-                let mut state = STATE.lock().unwrap();
-                let result = crate::capture::ComGuard::new().and_then(|_com| {
-                    let apps = Windows::new()?;
-                    restore_with(&apps, &state, &directory)
-                });
+                // One lock from the restore's device changes to the decision
+                // to stop: a stream ending meanwhile finds the watcher either
+                // running or gone.
+                let (mut state, result) = restore_now(&directory);
                 match result {
                     Ok(true) => {}
                     Ok(false) => {

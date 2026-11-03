@@ -15,7 +15,14 @@ struct Fake {
     gone: RefCell<Option<String>>,
     /// Windows answers S_OK and keeps nothing.
     ignores: std::cell::Cell<bool>,
+    /// For each process listing, whether [`LISTED`] was free.
+    listed: RefCell<Vec<bool>>,
 }
+/// The routes' lock a restore is checked against.
+static LISTED: Mutex<State> = Mutex::new(State {
+    active: BTreeMap::new(),
+    watching: false,
+});
 impl Fake {
     fn exe(&self, pid: u32) -> Result<String> {
         self.running
@@ -52,6 +59,7 @@ impl Apps for Fake {
         Ok(())
     }
     fn running(&self, exes: &[&str]) -> Result<Vec<(u32, String)>> {
+        self.listed.borrow_mut().push(LISTED.try_lock().is_ok());
         Ok(self
             .running
             .borrow()
@@ -136,6 +144,44 @@ fn an_unreadable_record_is_moved_aside() -> Result<()> {
     assert_eq!(fake.device(GAME, eConsole), SINK);
     assert!(std::fs::read_to_string(unreadable(directory.path()))?.contains("game.exe"));
     assert_eq!(load(directory.path())?.apps.len(), 1);
+    Ok(())
+}
+
+/// A restore lists the processes, its slow part, without the routes' lock:
+/// a stream's route never waits behind it, and a program a stream routed
+/// meanwhile stays that stream's.
+#[test]
+fn a_restore_lists_the_processes_without_the_lock() -> Result<()> {
+    let directory = tempfile::tempdir()?;
+    let fake = Fake::default();
+    started(&fake, 7);
+    route_with(
+        &fake,
+        &mut LISTED.lock().unwrap(),
+        directory.path(),
+        7,
+        GAME,
+        SINK,
+    )?;
+    assert!(release(&mut LISTED.lock().unwrap(), GAME));
+    let (state, restored) = restore_unlocked(&fake, &LISTED, directory.path());
+    assert!(!restored?);
+    assert_eq!(*fake.listed.borrow(), [true]);
+    assert_eq!(fake.device(GAME, eConsole), "");
+    drop(state);
+    let running = fake.running(&[GAME])?;
+    // Routed again between the listing and the restore: left alone.
+    route_with(
+        &fake,
+        &mut LISTED.lock().unwrap(),
+        directory.path(),
+        7,
+        GAME,
+        SINK,
+    )?;
+    let state = LISTED.lock().unwrap();
+    assert!(!restore_running(&fake, &state, directory.path(), &running)?);
+    assert_eq!(fake.device(GAME, eConsole), SINK);
     Ok(())
 }
 

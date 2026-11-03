@@ -6,13 +6,12 @@ use butterpollo_core::{
     audio_scope::{Identity, tree},
     config::Config,
 };
-use butterpollo_windows::nucleus::session::{Instances, Told};
 use butterpollo_windows::{
     audio::{Loopback, ProcessActivation},
     audio_app_route::AppRoute,
     process::AudioProcess,
 };
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::{
     sync::{
         Arc, Mutex,
@@ -169,100 +168,15 @@ fn windows_program(path: &str) -> bool {
 /// Whether process `pid` may be moved: Windows' own programs a game starts
 /// (conhost, WerFault) share one setting with every other process of that
 /// program.
-fn routable(pid: u32) -> bool {
+pub(super) fn routable(pid: u32) -> bool {
     !butterpollo_windows::process::image_path(pid).is_some_and(|path| windows_program(&path))
 }
 /// Whether a stream of `config` moves its game's sound off the PC: game-only
 /// audio it streams, and doesn't also play on the PC.
-fn moves_game_sound(config: &Config, host_audio: bool) -> bool {
+pub(super) fn moves_game_sound(config: &Config, host_audio: bool) -> bool {
     config.get("audio_capture_mode", "system") == "game"
         && config.boolean("stream_audio", true)
         && !host_audio
-}
-/// For a Nucleus Co-op session a launch of `config` starts: every instance's
-/// processes move to the virtual sink in the session's pass that finds them,
-/// before the game's window shows and its stream starts looking (#59). A
-/// game routed only then often opened its sound already, and Windows never
-/// moves an open sound. Each stream still routes its own instance, and says
-/// when that fails. As the session stops its instances, they go back first.
-pub(crate) fn instance_routes(h: &Shared, config: &Config, host_audio: bool) -> Option<Instances> {
-    // As the session's streams play: with a co-op slot's settings, which
-    // the launch's config doesn't have yet.
-    let mut config = config.clone();
-    crate::nucleus::isolate(&mut config);
-    moves_game_sound(&config, host_audio).then(|| {
-        Arc::new(InstanceRoutes {
-            config,
-            directory: h.directory.clone(),
-            early: Mutex::new(Early::default()),
-        }) as Instances
-    })
-}
-struct InstanceRoutes {
-    config: Config,
-    directory: std::path::PathBuf,
-    early: Mutex<Early>,
-}
-impl Told for InstanceRoutes {
-    fn found(&self, trees: &[BTreeSet<Identity>]) {
-        self.early.lock().unwrap().update(trees, &mut |pid| {
-            routable(pid).then(|| AppRoute::acquire(&self.config, &self.directory, pid))
-        });
-    }
-    fn stopping(&self, pids: &[u32]) {
-        put_back(&self.directory, || Ok(pids.to_vec()));
-        self.early.lock().unwrap().routed.clear();
-    }
-}
-/// The host is about to stop `pids` and every stream playing them: they
-/// go back to their own devices while Windows can still set them.
-pub(crate) fn put_back(directory: &std::path::Path, pids: impl FnOnce() -> Result<Vec<u32>>) {
-    if let Err(error) = butterpollo_windows::audio_app_route::put_back(directory, pids) {
-        tracing::warn!(
-            error = format!("{error:#}"),
-            "the game's audio device was not put back before it stopped; it is when the game next runs"
-        );
-    }
-}
-/// The routes of a session's instances; any route type, for tests.
-struct Early<R = AppRoute> {
-    /// None: not routed (Windows' own program, or the route failed).
-    routed: BTreeMap<Identity, Option<R>>,
-}
-impl<R> Default for Early<R> {
-    fn default() -> Self {
-        Self {
-            routed: BTreeMap::new(),
-        }
-    }
-}
-impl<R> Early<R> {
-    /// `acquire`: None for a process never routed.
-    fn update(
-        &mut self,
-        trees: &[BTreeSet<Identity>],
-        acquire: &mut dyn FnMut(u32) -> Option<Result<R>>,
-    ) {
-        let all: BTreeSet<Identity> = trees.iter().flatten().copied().collect();
-        for identity in &all {
-            if self.routed.contains_key(identity) {
-                continue;
-            }
-            let route = acquire(identity.pid).and_then(|route| {
-                route
-                    .inspect_err(|error| {
-                        tracing::warn!(
-                            pid = identity.pid,
-                            error = format!("{error:#}"),
-                            "the Nucleus Co-op instance's sound stays on the PC's playback device until its stream moves it"
-                        );
-                    })
-                    .ok()
-            });
-            self.routed.insert(*identity, route);
-        }
-        self.routed.retain(|identity, _| all.contains(identity));
-    }
 }
 /// Seconds between the checks of where the game's sound plays.
 const PLACE_CHECK: u32 = 5;
@@ -340,15 +254,6 @@ mod tests {
     use crate::state::test_support::Fixture;
     use butterpollo_core::session::Role;
 
-    /// A co-op launch plays game-only audio whatever the host's default:
-    /// its session moves the instances unless the stream plays on the PC.
-    #[test]
-    fn a_coop_session_moves_its_instances_with_the_hosts_defaults() {
-        let fixture = Fixture::new();
-        assert!(instance_routes(&fixture.host, &Config::default(), false).is_some());
-        assert!(instance_routes(&fixture.host, &Config::default(), true).is_none());
-    }
-
     #[test]
     fn only_game_only_audio_off_the_pc_moves_the_game() {
         let game = Config::parse("audio_capture_mode = game\n").unwrap();
@@ -357,40 +262,6 @@ mod tests {
         assert!(!moves_game_sound(&Config::default(), false));
         let muted = Config::parse("audio_capture_mode = game\nstream_audio = false\n").unwrap();
         assert!(!moves_game_sound(&muted, false));
-    }
-
-    /// #59: an instance moves in the pass that finds it, before its stream
-    /// looks for it; a process it starts moves with it, a failed route is
-    /// not retried each pass, and a gone process lets go.
-    #[test]
-    fn a_session_moves_its_instances_as_it_finds_them() {
-        let id = |pid| Identity { pid, started: 1 };
-        let mut early = Early::<u32>::default();
-        let mut asked = Vec::new();
-        fn pass(early: &mut Early<u32>, trees: &[BTreeSet<Identity>], asked: &mut Vec<u32>) {
-            early.update(trees, &mut |pid| {
-                asked.push(pid);
-                match pid {
-                    // Windows' own program.
-                    30 => None,
-                    31 => Some(Err(anyhow::anyhow!("no virtual playback device"))),
-                    pid => Some(Ok(pid)),
-                }
-            })
-        }
-        pass(&mut early, &[BTreeSet::new()], &mut asked);
-        assert!(early.routed.is_empty());
-        pass(&mut early, &[BTreeSet::from([id(20)])], &mut asked);
-        assert_eq!(early.routed[&id(20)], Some(20));
-        let tree = BTreeSet::from([id(20), id(21), id(30), id(31)]);
-        pass(&mut early, std::slice::from_ref(&tree), &mut asked);
-        pass(&mut early, &[tree], &mut asked);
-        assert_eq!(asked, [20, 21, 30, 31]);
-        assert_eq!(early.routed[&id(21)], Some(21));
-        assert_eq!(early.routed[&id(30)], None);
-        assert_eq!(early.routed[&id(31)], None);
-        pass(&mut early, &[BTreeSet::from([id(21)])], &mut asked);
-        assert_eq!(early.routed.keys().copied().collect::<Vec<_>>(), [id(21)]);
     }
 
     #[test]

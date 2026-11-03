@@ -130,8 +130,13 @@ pub(super) fn stream_profile(
 /// The Windows HDR Calibration of a physical HDR display, for the virtual
 /// display that stands in for it. A stream without one says so.
 pub(super) fn physical_calibration() -> Option<String> {
+    // The user turned the setting on, so a missing calibration warns, once
+    // until one is found again: every HDR stream asks, and nothing changes
+    // until they calibrate.
+    static WARNED: AtomicBool = AtomicBool::new(false);
     match hdr_profile::calibration() {
         Ok(Some(calibration)) => {
+            warn_again(&WARNED);
             tracing::info!(
                 display = %calibration.display,
                 profile = %calibration.profile,
@@ -141,9 +146,6 @@ pub(super) fn physical_calibration() -> Option<String> {
             Some(calibration.profile)
         }
         Ok(None) => {
-            // The user turned the setting on, so it warns, once per host start: every HDR
-            // stream asks again, and nothing changes until they calibrate.
-            static WARNED: AtomicBool = AtomicBool::new(false);
             if first_time(&WARNED) {
                 tracing::warn!(
                     "virtual_display_hdr_calibration is on, but no physical HDR display has a Windows HDR Calibration profile, so the virtual display streams uncalibrated. Run the Windows HDR Calibration app on the HDR display, or choose a profile for the device"
@@ -166,6 +168,11 @@ pub(super) fn physical_calibration() -> Option<String> {
 /// Whether `flag` was not set yet; it is now.
 pub(super) fn first_time(flag: &AtomicBool) -> bool {
     !flag.swap(true, Ordering::Relaxed)
+}
+
+/// What [`first_time`] warned of is fixed: should it come back, it warns again.
+pub(super) fn warn_again(flag: &AtomicBool) {
+    flag.store(false, Ordering::Relaxed);
 }
 
 /// The scale a device kept from Windows, in percent, when it keeps one (`remember`).

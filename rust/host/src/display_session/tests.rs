@@ -516,6 +516,11 @@ fn a_missing_calibration_is_warned_about_once() {
     assert!(first_time(&flag));
     assert!(!first_time(&flag));
     assert!(!first_time(&flag));
+    // A calibration found, then lost again (the profile deleted, the
+    // display swapped): warned again, once.
+    warn_again(&flag);
+    assert!(first_time(&flag));
+    assert!(!first_time(&flag));
 }
 
 #[test]

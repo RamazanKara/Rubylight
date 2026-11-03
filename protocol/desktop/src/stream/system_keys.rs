@@ -13,7 +13,7 @@
 //! hook on the hung thread did.
 
 #[cfg(windows)]
-use std::sync::atomic::{AtomicBool, AtomicIsize, AtomicU64, AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicIsize, AtomicU32, AtomicU64, AtomicU8, Ordering};
 
 /// The keys SDL's grab takes from Windows, by virtual key: the Windows keys, Alt, Ctrl, Print
 /// Screen, and Tab and Esc (the second key of Alt+Tab, Alt+Esc, Ctrl+Esc and Ctrl+Shift+Esc).
@@ -63,6 +63,17 @@ pub fn step(grab: bool, vk: u32, down: bool, key: Key) -> (bool, Key) {
     }
 }
 
+/// Corrects a key's state at a press before [`step`]. `held`: Windows already holds it (a low-
+/// level hook runs before Windows applies the event), so a press the table missed, between the
+/// seed and the hook going in, is a repeat of Windows' and not a new one to keep. `idle_ms`: since
+/// the key's last event; a kept key whose release the hook never saw (Ctrl+Alt+Del took it to the
+/// secure desktop) is pressed afresh once the grab is off and it has been quiet a while.
+#[cfg_attr(not(windows), allow(dead_code))]
+pub fn settle(grab: bool, key: Key, held: bool, idle_ms: u64) -> Key {
+    let key = if key == Key::Kept && !grab && idle_ms > ALIVE_MS { Key::Up } else { key };
+    if key == Key::Up && held { Key::Passed } else { key }
+}
+
 /// How long the main loop may go without a beat before the hook lets every key through: above
 /// its longest wait (500 ms with no picture due) plus a slow frame.
 #[cfg_attr(not(windows), allow(dead_code))]
@@ -92,6 +103,9 @@ static BEAT: AtomicU64 = AtomicU64::new(0);
 /// [`Key`] by virtual key; only the hook's thread writes it.
 #[cfg(windows)]
 static KEYS: [AtomicU8; 256] = [const { AtomicU8::new(Key::Up as u8) }; 256];
+/// Each key's last event, in the hook's event time (milliseconds).
+#[cfg(windows)]
+static LAST: [AtomicU32; 256] = [const { AtomicU32::new(0) }; 256];
 /// The thread message that reinstalls the hook.
 #[cfg(windows)]
 const REHOOK: u32 = windows::Win32::UI::WindowsAndMessaging::WM_APP;
@@ -136,8 +150,17 @@ unsafe extern "system" fn hook(code: i32, wparam: windows::Win32::Foundation::WP
             // SAFETY: no arguments.
             let grab = GRAB.load(Ordering::Acquire) && unsafe { GetForegroundWindow() }.0 as isize == WINDOW.load(Ordering::Acquire)
                 && beating(now_ms(), BEAT.load(Ordering::Acquire));
-            let (swallow, next) = step(grab, info.vkCode, down, Key::from_u8(key.load(Ordering::Relaxed)));
+            let last = &LAST[info.vkCode as usize];
+            let mut state = Key::from_u8(key.load(Ordering::Relaxed));
+            if down {
+                use windows::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState;
+                // SAFETY: a virtual key from Windows.
+                let held = unsafe { GetAsyncKeyState(info.vkCode as i32) } < 0;
+                state = settle(grab, state, held, u64::from(info.time.wrapping_sub(last.load(Ordering::Relaxed))));
+            }
+            let (swallow, next) = step(grab, info.vkCode, down, state);
             key.store(next as u8, Ordering::Relaxed);
+            last.store(info.time, Ordering::Relaxed);
             if swallow {
                 return LRESULT(1);
             }
@@ -315,6 +338,25 @@ mod tests {
         let mut keys = [Key::Up; 256];
         assert!(windows_sees(true, &[(LWIN, true), (LWIN, true)], &mut keys).is_empty());
         assert!(windows_sees(false, &[(LWIN, true), (LWIN, false)], &mut keys).is_empty());
+    }
+
+    #[test]
+    fn a_press_the_table_missed_is_windows_until_its_release() {
+        // Win went down between the seed and the hook going in: the table says Up, Windows holds it.
+        let state = settle(true, Key::Up, true, 30);
+        assert_eq!(state, Key::Passed);
+        assert_eq!(step(true, LWIN, true, state), (false, Key::Passed), "its repeat reaches Windows");
+        assert_eq!(step(true, LWIN, false, Key::Passed), (false, Key::Up), "and so does its release");
+        assert_eq!(settle(true, Key::Up, false, 30), Key::Up, "a new press is still kept");
+    }
+
+    #[test]
+    fn a_kept_key_whose_release_was_lost_is_pressed_afresh_later() {
+        // Ctrl+Alt+Del took Ctrl's release to the secure desktop; Nightjar is behind another window.
+        assert_eq!(settle(false, Key::Kept, false, ALIVE_MS + 1), Key::Up);
+        assert_eq!(step(false, LCTRL, true, Key::Up), (false, Key::Passed));
+        assert_eq!(settle(false, Key::Kept, false, 30), Key::Kept, "auto-repeat after the grab ends stays kept");
+        assert_eq!(settle(true, Key::Kept, false, ALIVE_MS + 1), Key::Kept, "a held key while grabbed stays kept");
     }
 
     #[test]

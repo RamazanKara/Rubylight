@@ -1007,14 +1007,13 @@ fn left_in_checked(data: &Path, configured: &str, checks: &Checks) -> Vec<Result
     let mut seen: Vec<String> = Vec::new();
     let mut folders = Vec::new();
     for folder in candidates {
-        // Nothing there, under any name: nothing to put back.
-        if std::fs::symlink_metadata(&folder).is_err() {
-            continue;
-        }
         let checked = (|| -> Result<Option<Left>> {
+            // Before anything touches it: SYSTEM never reaches out to a
+            // share, or a drive that could be swapped.
             placed(&folder, checks)?;
             let handle = match crate::process::open_unfollowed(&folder, true) {
                 Ok(handle) => handle,
+                // Nothing there: nothing to put back. Any other error is one.
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
                 Err(error) => {
                     return Err(error).with_context(|| format!("opening {}", folder.display()));
@@ -1048,6 +1047,7 @@ fn left_in_checked(data: &Path, configured: &str, checks: &Checks) -> Vec<Result
             verdict(&resolved, &owner, &writers, |sid| {
                 checks.trusts(&resolved, sid)
             })?;
+            kept_trusted(&resolved, checks)?;
             Ok(Some(Left {
                 folder: resolved,
                 _handle: handle,
@@ -1072,6 +1072,55 @@ fn left_in_checked(data: &Path, configured: &str, checks: &Checks) -> Vec<Result
         }
     }
     folders
+}
+
+/// Whether `name` is one a restore from a [`Left`] folder reads or writes:
+/// the journals of [`super::files`] and [`super::layers`], and the
+/// `Settings.ini` it puts back with its temporary file.
+fn kept(name: &str) -> bool {
+    let name = name.to_ascii_lowercase();
+    matches!(
+        name.as_str(),
+        "rubylight-settings.json" | "settings.ini" | "settings.ini.rubylight"
+    ) || (name.starts_with("rubylight-layers-") && name.ends_with(".json"))
+}
+
+/// Each file a restore reads or writes in `folder` ([`kept`]), checked as
+/// [`walk`] checks the folder Nucleus runs from, never following a link: no
+/// link, owned and changed only by those `checks` trusts. The folder is
+/// held open and only they may change it, so none of these is replaced or
+/// changed by anyone else before the restore is done.
+fn kept_trusted(folder: &Path, checks: &Checks) -> Result<()> {
+    let entries =
+        std::fs::read_dir(folder).with_context(|| format!("listing {}", folder.display()))?;
+    for entry in entries {
+        let entry = entry.with_context(|| format!("listing {}", folder.display()))?;
+        if !kept(&entry.file_name().to_string_lossy()) {
+            continue;
+        }
+        let path = folder.join(entry.file_name());
+        let listed = entry
+            .metadata()
+            .with_context(|| format!("reading {}", path.display()))?
+            .file_attributes();
+        let file = match open_checked(&path, listed & DIRECTORY != 0) {
+            Ok(file) => file,
+            // Gone since it was listed: a session's restore removed it.
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error) => {
+                return Err(error).with_context(|| format!("opening {}", path.display()));
+            }
+        };
+        if (listed | attributes_of(&file, &path)?) & REPARSE_POINT != 0 {
+            bail!("{} is a link to elsewhere", path.display());
+        }
+        let owner = crate::process::open_file_owner(&file)
+            .with_context(|| format!("reading the owner of {}", path.display()))?;
+        let writers = crate::process::open_file_writers(&file)
+            .with_context(|| format!("reading the permissions of {}", path.display()))?;
+        verdict(&path, &owner, &writers, |sid| checks.trusts(&path, sid))?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]

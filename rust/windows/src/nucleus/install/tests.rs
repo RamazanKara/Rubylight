@@ -369,6 +369,54 @@ fn settings_are_put_back_from_a_folder_nucleus_no_longer_runs_from() {
 }
 
 #[test]
+fn settings_are_never_put_back_from_a_file_others_can_change() {
+    let tree = tree();
+    let release = manifest();
+    let checks = checks(&release, &tree.top);
+    let data = tree.top.join("none");
+    let configured = tree.folder.to_string_lossy().into_owned();
+    // A journal others could have written: its values would go to the hive.
+    for name in [
+        "Rubylight-settings.json",
+        "Rubylight-layers-S-1-5-21-7.json",
+        "Settings.ini",
+        "Settings.ini.rubylight",
+    ] {
+        let file = tree.folder.join(name);
+        std::fs::write(&file, b"{}").unwrap();
+        assert_eq!(left(&data, &configured, &checks), [Ok(tree.folder.clone())]);
+        crate::process::restrict(&file, &sddl("(A;;0x1301bf;;;AU)")).unwrap();
+        let error = left(&data, &configured, &checks).remove(0).unwrap_err();
+        assert!(
+            error.contains(name) && error.contains("can be changed by S-1-5-11"),
+            "{error}"
+        );
+        std::fs::remove_file(&file).unwrap();
+    }
+    // Nucleus' own files there are no matter: a restore never reads them.
+    let other = tree.folder.join("Rubylight-notes.txt");
+    std::fs::write(&other, b"").unwrap();
+    crate::process::restrict(&other, &sddl("(A;;0x1301bf;;;AU)")).unwrap();
+    assert_eq!(left(&data, &configured, &checks), [Ok(tree.folder.clone())]);
+}
+
+#[test]
+fn a_network_folder_is_refused_before_it_is_reached() {
+    let tree = tree();
+    let release = manifest();
+    let checks = checks(&release, &tree.top);
+    let data = tree.top.join("none");
+    // A network path is refused before anything reaches out to it.
+    let error = left(&data, r"\\nowhere.invalid\share\Nucleus", &checks)
+        .remove(0)
+        .unwrap_err();
+    assert!(error.contains("doesn't put back"), "{error}");
+    // Not there: skipped quietly.
+    let gone = tree.top.join("Programs").join("Gone");
+    assert!(left(&data, &gone.to_string_lossy(), &checks).is_empty());
+}
+
+#[test]
 fn settings_are_never_put_back_from_a_folder_that_can_be_swapped() {
     let tree = tree();
     let release = manifest();

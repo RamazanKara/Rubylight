@@ -2,6 +2,7 @@
   import Button from '../Button.svelte';
   import Icon from '../Icon.svelte';
   import { api, type GameSettingsStatus } from '../../lib/api';
+  import { confirm } from '../../lib/feedback.svelte';
   import { textRow, type AppDraft } from './draft.svelte';
   import { settingsFileError, settingsFilePaths } from './settingsfiles';
 
@@ -21,6 +22,12 @@
   );
 
   async function release(swap: string) {
+    const ok = await confirm({
+      title: 'Put the PC’s files back now?',
+      message: 'Close the game first: if it still runs, it writes its settings over the PC’s files when it exits.',
+      confirm: 'Put back now',
+    });
+    if (!ok) return;
     releasing = swap;
     releaseError = '';
     try {

@@ -42,6 +42,8 @@ use std::{
 const WARNING: &str = "game_settings";
 /// The console warning for a launch the files could not be swapped for.
 const LAUNCH_WARNING: &str = "game_settings_launch";
+/// The console warning for a swapped game the host cannot wait for.
+pub const UNWATCHED_WARNING: &str = "game_settings_unwatched";
 /// How often what is left is tried again.
 const RETRY: Duration = Duration::from_secs(30);
 
@@ -119,14 +121,34 @@ fn still_running(processes: &[Watched]) -> Option<String> {
     }
     #[cfg(not(test))]
     {
+        use butterpollo_windows::process;
+        // Read once, only when a process cannot be opened (anti-cheat denies the query).
+        let mut listed: Option<Option<BTreeSet<u32>>> = None;
         processes
             .iter()
-            .find(|process| {
-                process.started != 0
-                    && butterpollo_windows::process::creation_time(process.pid) == process.started
+            .find(|watched| {
+                let started = process::creation_time(watched.pid);
+                alive(watched, started, || {
+                    listed
+                        .get_or_insert_with(|| {
+                            process::processes()
+                                .ok()
+                                .map(|list| list.iter().map(|p| p.pid).collect())
+                        })
+                        .as_ref()
+                        .is_none_or(|pids| pids.contains(&watched.pid))
+                })
             })
-            .map(|process| format!("{} (process {})", process.program, process.pid))
+            .map(|watched| format!("{} (process {})", watched.program, watched.pid))
     }
+}
+
+/// Whether `watched` still runs, its id's creation time now being `started` (0: the process
+/// cannot be opened, or is gone). One that cannot be opened but is still `listed` (by id in
+/// the process list, or the list cannot be read) counts as running: a game guarded by
+/// anti-cheat denies the query.
+fn alive(watched: &Watched, started: u64, listed: impl FnOnce() -> bool) -> bool {
+    watched.started != 0 && (started == watched.started || (started == 0 && listed()))
 }
 
 /// A running app's swap: finished when it drops.
@@ -179,7 +201,20 @@ impl Drop for Swap {
         };
         locked(&LIVE).remove(&self.id);
         match result {
-            Ok(report) => log_finished(&self.app, &report),
+            Ok(report) => {
+                log_finished(&self.app, &report);
+                if !self.cancelled
+                    && let Some(h) = self.host.upgrade()
+                {
+                    match &report.unwatched {
+                        Some(why) => h.warnings.set(
+                            UNWATCHED_WARNING,
+                            format!("{}: game settings files: {why}.", self.app),
+                        ),
+                        None => h.warnings.clear(UNWATCHED_WARNING),
+                    }
+                }
+            }
             Err(error) => {
                 let waiting = game_settings::still_running(&error);
                 let error = format!("{error:#}");
@@ -627,6 +662,46 @@ mod tests {
                 .unwrap()
                 .is_empty()
         );
+    }
+
+    #[test]
+    fn a_game_guarded_against_process_queries_counts_as_running_while_listed() {
+        let game = Watched {
+            pid: 7,
+            started: 100,
+            program: "Game.exe".into(),
+        };
+        assert!(alive(&game, 100, || unreachable!()));
+        assert!(!alive(&game, 101, || unreachable!()), "a later process");
+        assert!(alive(&game, 0, || true), "access denied, still listed");
+        assert!(!alive(&game, 0, || false), "gone");
+    }
+
+    #[test]
+    fn a_swap_that_never_saw_its_game_warns_in_the_console() {
+        let f = Fixture::new();
+        let (app, _, environment) = game(&f);
+        let swap = launching(&f.host, &app, &args("tv"), &environment)
+            .unwrap()
+            .unwrap();
+        drop(swap);
+        let warned = |h: &Host| {
+            h.warnings
+                .snapshot()
+                .iter()
+                .any(|warning| warning.code == UNWATCHED_WARNING)
+        };
+        assert!(warned(&f.host));
+        let mut swap = launching(&f.host, &app, &args("tv"), &environment)
+            .unwrap()
+            .unwrap();
+        swap.watch([Watched {
+            pid: 6161,
+            started: 5,
+            program: "Game.exe".into(),
+        }]);
+        drop(swap);
+        assert!(!warned(&f.host), "cleared once the game was seen");
     }
 
     #[test]

@@ -1462,7 +1462,12 @@ fn launch_with_environment(
         }
     };
     if running_settings_unwatched(&app) && settings_swap.is_some() {
-        tracing::warn!(app = %app.name, "this app starts its game through detached commands or a launcher, whose game the host may not see: its settings files go back when the stream ends, even if the game still runs; the PC's last files stay as backups");
+        let warning = format!(
+            "{}: game settings files: this app starts its game through detached commands or a launcher, whose game the host may not see, so its settings files go back when the stream ends even if the game still runs. The PC's last three files stay as backups.",
+            app.name
+        );
+        h.warnings
+            .set(crate::game_settings::UNWATCHED_WARNING, warning);
     }
     running.settings_swap = settings_swap;
     // Recorded at once: a host crash in the first seconds still waits for the game.

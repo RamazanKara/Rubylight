@@ -332,6 +332,8 @@ pub struct Report {
     pub restored: Vec<String>,
     /// Done, but worth saying loudly (a file the game removed).
     pub warnings: Vec<String>,
+    /// The game was never seen, so its close could not be waited for: why, for the console.
+    pub unwatched: Option<String>,
 }
 
 /// A launch's swap, begun.
@@ -678,10 +680,12 @@ impl Store {
         let originals = self.swap_folder(&app, id);
         let mut report = Report::default();
         if mode == Mode::Finish && journal.swaps[index].processes.is_empty() {
-            report.warnings.push(format!(
+            let warning = format!(
                 "no process of {who} was seen, so the host could not wait for the game to close; if it still runs, it may write its settings over the PC's files. The last {BACKUPS} PC files put back are kept in {}",
                 self.app_folder(&app).join("original").display()
-            ));
+            );
+            report.warnings.push(warning.clone());
+            report.unwatched = Some(warning);
         }
         let mut failures = Vec::new();
         for file in 0..journal.swaps[index].files.len() {
@@ -747,11 +751,20 @@ impl Store {
                     continue;
                 }
                 let backup = self.original(&app, &file.key);
-                let moved = backup
-                    .parent()
-                    .map_or(Ok(()), std::fs::create_dir_all)
-                    .and_then(|()| rotate(&backup))
-                    .and_then(|()| std::fs::rename(&kept, &backup));
+                // The same file as the newest backup is not a new one: the older stay.
+                let same = matches!(
+                    (std::fs::read(&kept), std::fs::read(&backup)),
+                    (Ok(a), Ok(b)) if a == b
+                );
+                let moved = if same {
+                    std::fs::remove_file(&kept)
+                } else {
+                    backup
+                        .parent()
+                        .map_or(Ok(()), std::fs::create_dir_all)
+                        .and_then(|()| rotate(&backup))
+                        .and_then(|()| std::fs::rename(&kept, &backup))
+                };
                 if let Err(error) = moved {
                     all_moved = false;
                     report.warnings.push(format!(

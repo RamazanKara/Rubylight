@@ -699,4 +699,14 @@ fn the_last_three_pc_files_put_back_stay_as_backups() {
     assert_eq!(text(&numbered(1)), "pc-3");
     assert_eq!(text(&numbered(2)), "pc-2");
     assert!(!numbered(3).exists());
+    // Sessions that put back the same file again do not push the older backups out.
+    for _ in 0..3 {
+        let begun = store
+            .start("app", "Game", "tv", "TV", &files, NONE)
+            .unwrap();
+        store.cancel(&begun.id).unwrap();
+    }
+    assert_eq!(text(&newest), "pc-4");
+    assert_eq!(text(&numbered(1)), "pc-3");
+    assert_eq!(text(&numbered(2)), "pc-2");
 }

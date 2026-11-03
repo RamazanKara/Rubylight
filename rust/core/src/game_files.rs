@@ -297,7 +297,7 @@ pub fn as_host(work: &mut dyn FnMut()) -> std::io::Result<()> {
 }
 
 /// Run `work` through `access`.
-fn reach<T>(access: Access, work: impl FnOnce() -> T) -> std::io::Result<T> {
+pub(crate) fn reach<T>(access: Access, work: impl FnOnce() -> T) -> std::io::Result<T> {
     let mut work = Some(work);
     let mut done = None;
     access(&mut || done = work.take().map(|work| work()))?;
@@ -621,7 +621,7 @@ fn read(file: &Path) -> std::io::Result<Vec<u8>> {
 
 /// Write `bytes` over `file` in one step: a temporary file beside it, then a swap that keeps
 /// the file's permissions and attributes. A read-only file is not overwritten.
-fn replace(file: &Path, bytes: &[u8]) -> std::io::Result<()> {
+pub(crate) fn replace(file: &Path, bytes: &[u8]) -> std::io::Result<()> {
     let (Some(parent), Some(name)) = (file.parent(), file.file_name()) else {
         return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,

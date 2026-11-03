@@ -60,6 +60,7 @@ pub mod framegen;
 #[cfg(test)]
 mod fuzz;
 pub mod game_files;
+pub mod game_settings;
 pub mod haptics;
 pub mod hdr;
 pub mod hdr_dynamic;

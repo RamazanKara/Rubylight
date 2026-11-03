@@ -5,6 +5,7 @@ mod couch_menu;
 mod display_session;
 mod extensions;
 mod game_files;
+mod game_settings;
 mod host_warnings;
 mod launcher_watch;
 mod library;
@@ -420,6 +421,9 @@ async fn run(args: Args, assets: PathBuf) -> Result<()> {
     // run left changed, as the Windows user once someone is signed in. A stream that writes one
     // of them first puts the PC's own value back itself.
     game_files::start(&h);
+    // Game settings files a crashed run left swapped for a device are saved as that device's
+    // copies and the PC's own put back, as the Windows user once someone is signed in.
+    game_settings::start(&h);
     // What a Nucleus Co-op session left for the user at the console when an
     // earlier host stopped mid-session is put back before a stream can start
     // a new one.

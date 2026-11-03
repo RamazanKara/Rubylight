@@ -364,17 +364,43 @@ pub mod json {
         ModeLine { width: u32, height: u32, fps: u32, format: u32, hdr: bool },
         /// Each tile ID's label key ([`label`]), for the grid, More, Add, Return and the ways out.
         Labels,
+        /// Android's stream hotkeys with the user's `bindings` ([`shortcuts::bound`]).
+        Hotkeys { bindings: shortcuts::HotkeyBindings },
+        /// A hotkey's new chord: its saved keys, or why it is refused ([`shortcuts::check_hotkey`]).
+        CheckHotkey { id: String, keys: Vec<String>, bindings: shortcuts::HotkeyBindings },
+    }
+
+    /// Why a request was refused: a code and what it names.
+    struct Refusal(&'static str, Option<String>);
+
+    impl From<ShortcutError> for Refusal {
+        fn from(error: ShortcutError) -> Self {
+            Refusal(error.code(), error.detail().map(str::to_string))
+        }
+    }
+
+    impl From<shortcuts::HotkeyError> for Refusal {
+        fn from(error: shortcuts::HotkeyError) -> Self {
+            Refusal(error.code(), error.detail().map(str::to_string))
+        }
+    }
+
+    /// A chord as the app matches it: the keys, their text, the modifiers in the input packets' bits
+    /// and the other key's Windows virtual-key code.
+    fn chord(keys: &[String]) -> Value {
+        let (modifiers, vk) = shortcuts::hotkey_code(keys);
+        json!({"keys": keys, "label": shortcuts::chord_label(keys), "modifiers": modifiers, "vk": vk})
     }
 
     fn keys(keys: &[&str]) -> Vec<String> {
         keys.iter().map(|k| k.to_string()).collect()
     }
 
-    fn answer(request: Request) -> Result<Value, ShortcutError> {
+    fn answer(request: Request) -> Result<Value, Refusal> {
         Ok(match request {
             Request::Layout { offers, shortcuts } => match layout(&offers, shortcuts) {
                 Ok(layout) => serde_json::to_value(layout).expect("layout serializes"),
-                Err(UnknownTile(id)) => return Err(ShortcutError::Invalid(format!("unknown tile {id}"))),
+                Err(UnknownTile(id)) => return Err(ShortcutError::Invalid(format!("unknown tile {id}")).into()),
             },
             Request::BuiltIns { saved } => {
                 let saved: Vec<_> = saved.into_iter().map(|keys| shortcuts::Shortcut { id: String::new(), name: String::new(), keys }).collect();
@@ -397,17 +423,33 @@ pub mod json {
                 let ids = [MORE, CLOSE, ADD].into_iter().chain(TILES.iter().map(|t| t.id));
                 Value::Object(ids.filter_map(|id| label(id).map(|l| (id.to_string(), json!(l.key)))).collect())
             }
+            Request::Hotkeys { bindings } => {
+                let client = shortcuts::Client::Android;
+                Value::Array(shortcuts::bound(client, &bindings).iter().map(|b| {
+                    let default = keys(shortcuts::find_hotkey(b.id).expect("listed").keys);
+                    json!({
+                        "id": b.id,
+                        "chord": b.keys.as_deref().map(chord),
+                        "default": chord(&default),
+                        "changed": b.changed,
+                        "old": b.old.iter().map(|k| chord(k)).collect::<Vec<_>>(),
+                    })
+                }).collect())
+            }
+            Request::CheckHotkey { id, keys, bindings } => {
+                json!(shortcuts::check_hotkey(shortcuts::Client::Android, &id, &keys, &bindings)?)
+            }
         })
     }
 
     /// Answers one request; a malformed one is an error answer, never a panic across JNI.
     pub fn call(request: &str) -> String {
         let result = serde_json::from_str::<Request>(request)
-            .map_err(|e| ShortcutError::Invalid(e.to_string()))
+            .map_err(|e| ShortcutError::Invalid(e.to_string()).into())
             .and_then(answer);
         match result {
             Ok(value) => json!({"ok": value}).to_string(),
-            Err(error) => json!({"error": error.code(), "detail": error.detail()}).to_string(),
+            Err(Refusal(code, detail)) => json!({"error": code, "detail": detail}).to_string(),
         }
     }
 }

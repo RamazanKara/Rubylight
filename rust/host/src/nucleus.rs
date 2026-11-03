@@ -338,6 +338,9 @@ pub struct Admission<'a> {
     /// new session's players take the first XInput slots (#56): called only
     /// once the launch starts one, before its free slots are counted.
     pub release_parked: &'a (dyn Fn() -> anyhow::Result<()> + Sync),
+    /// Told the instances of a session the launch starts, as Nucleus starts
+    /// them ([`crate::stream::instance_routes`]).
+    pub instances: Option<butterpollo_windows::nucleus::session::Instances>,
 }
 
 /// Why a device's join from its session list failed.

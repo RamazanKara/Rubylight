@@ -434,6 +434,7 @@ mod tests {
                     config: &Config::default(),
                     warnings: Default::default(),
                     release_parked: &|| Ok(()),
+                    instances: None,
                 })
                 .unwrap();
             launch.nucleus = Some(seat);

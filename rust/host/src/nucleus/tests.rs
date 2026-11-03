@@ -48,6 +48,7 @@ fn admit(
         config: &Config::default(),
         warnings: Default::default(),
         release_parked: &|| Ok(()),
+        instances: None,
     })
 }
 
@@ -533,6 +534,7 @@ fn a_session_closes_the_window_the_console_opened_first() {
             config: &Config::default(),
             warnings: Default::default(),
             release_parked: &|| Ok(()),
+            instances: None,
         })
         .unwrap();
     assert!(!pc.window().open.load(Relaxed));
@@ -562,6 +564,7 @@ fn only_a_starting_session_releases_parked_controllers() {
             config: &Config::default(),
             warnings: Default::default(),
             release_parked: &release,
+            instances: None,
         })
     };
     join("a", &client("A", true)).unwrap();
@@ -577,6 +580,7 @@ fn only_a_starting_session_releases_parked_controllers() {
         config: &Config::default(),
         warnings: Default::default(),
         release_parked: &release,
+        instances: None,
     });
     assert!(busy.is_err());
     assert_eq!(released.load(Relaxed), 1);
@@ -591,6 +595,7 @@ fn only_a_starting_session_releases_parked_controllers() {
             config: &Config::default(),
             warnings: Default::default(),
             release_parked,
+            instances: None,
         })
     };
     let stuck = background(&|| anyhow::bail!("the driver did not answer")).unwrap_err();
@@ -890,7 +895,39 @@ fn background(
         config,
         warnings: Default::default(),
         release_parked: &|| Ok(()),
+        instances: None,
     })
+}
+
+/// #59: the session a launch starts tells the launch's routes the instances
+/// it finds, from its start on: no stream has looked for their sound yet.
+#[test]
+fn a_started_session_tells_the_launchs_routes_its_instances() {
+    let (registry, pc, apps) = setup();
+    let told = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let instances: butterpollo_windows::nucleus::session::Instances = {
+        let told = told.clone();
+        Arc::new(move |_: &[std::collections::BTreeSet<_>]| {
+            told.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        })
+    };
+    registry
+        .admit(Admission {
+            launch: "a",
+            client: &client("A", false),
+            game: Game::Background(&apps[1]),
+            size: (1280, 720),
+            config: &Config::default(),
+            warnings: Default::default(),
+            release_parked: &|| Ok(()),
+            instances: Some(instances.clone()),
+        })
+        .unwrap();
+    let started = pc.instances.lock().unwrap();
+    let given = started[0].as_ref().unwrap();
+    assert!(Arc::ptr_eq(given, &instances));
+    given(&[]);
+    assert_eq!(told.load(std::sync::atomic::Ordering::Relaxed), 1);
 }
 
 #[test]
@@ -1595,6 +1632,7 @@ fn ours_goes_as_soon_as_a_hub_handler_for_its_exe_is_installed() {
             config: &config,
             warnings: warnings.clone(),
             release_parked: &|| Ok(()),
+            instances: None,
         })
         .unwrap();
     let shown = warnings.snapshot();
@@ -3321,6 +3359,7 @@ fn a_background_stream_without_a_hub_handler_on_this_pc() -> Result<()> {
             config: &config,
             warnings: warnings.clone(),
             release_parked: &|| Ok(()),
+            instances: None,
         })
         .map_err(|refused| anyhow!("refused ({}): {}", refused.status, refused.message))?;
     let instance = registry

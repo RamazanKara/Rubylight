@@ -912,6 +912,7 @@ fn a_co_op_players_input_drives_only_its_slots_pad() {
             config: &Config::default(),
             warnings: Default::default(),
             release_parked: &|| Ok(()),
+            instances: None,
         })
         .unwrap();
     launch.nucleus = Some(seat);

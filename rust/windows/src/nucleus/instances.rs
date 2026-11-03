@@ -143,6 +143,8 @@ pub struct Pass {
     pub windows: Vec<Option<u64>>,
     /// Each slot's instance root.
     pub roots: Vec<Option<Identity>>,
+    /// Each slot's instance: its root and every process it started.
+    pub trees: Vec<BTreeSet<Identity>>,
     /// Slots whose instance exited in this pass.
     pub gone: Vec<usize>,
     /// Slots whose window keeps its own place or size off the PC's monitors,
@@ -329,6 +331,7 @@ impl Keeper {
             let Some(root) = slot.root.filter(|_| !slot.gone) else {
                 pass.windows.push(None);
                 pass.roots.push(None);
+                pass.trees.push(BTreeSet::new());
                 continue;
             };
             slot.tree = tree(&processes, root);
@@ -357,6 +360,7 @@ impl Keeper {
             }
             pass.windows.push(slot.window);
             pass.roots.push(Some(root));
+            pass.trees.push(slot.tree.clone());
             let Some(window) = slot
                 .window
                 .and_then(|id| windows.iter().find(|w| w.id == id))

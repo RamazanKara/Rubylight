@@ -272,6 +272,8 @@ struct Runner {
     /// for a runner tested alone.
     settings: Option<files::SettingsGuard>,
     layers: Option<Guard>,
+    /// Told each slot's instance after every pass ([`Instances`]).
+    instances: Option<Instances>,
 }
 
 impl Runner {
@@ -334,6 +336,9 @@ impl Runner {
             return Some(self.exited(slot));
         }
         *self.shared.roots.lock().unwrap() = pass.roots.clone();
+        if let Some(instances) = &self.instances {
+            instances(&pass.trees);
+        }
         let roots = pass.roots.iter().flatten().count();
         let progress = (self.clicked, roots, windows);
         if progress != self.progress {
@@ -848,6 +853,11 @@ pub fn audio_limit(build: Option<u32>) -> Option<String> {
     })
 }
 
+/// Told each slot's instance processes (its root and every process it
+/// started) after every pass, from the pass that finds the instance on:
+/// before its window shows, and often before the game opens its sound.
+pub type Instances = Arc<dyn Fn(&[BTreeSet<Identity>]) + Send + Sync>;
+
 /// What starts a session.
 pub struct Start<'a> {
     pub id: u32,
@@ -873,6 +883,8 @@ pub struct Start<'a> {
     pub owner: (&'a str, &'a str),
     /// The first player's stream size.
     pub size: (u32, u32),
+    /// Told the instances as the session finds them.
+    pub instances: Option<Instances>,
 }
 
 /// A session that runs until [`stop`](Running::stop) or drop. Its calls
@@ -1122,6 +1134,7 @@ fn begin(
         exited_at: None,
         settings,
         layers: Some(layers),
+        instances: start.instances.clone(),
     };
     let (stop, stopped) = mpsc::channel();
     // Should the thread not start, dropping the runner ends Nucleus' job.

@@ -794,6 +794,7 @@ impl Registry {
                     players,
                     owner: (&client.uuid, &client.name),
                     size: request.size,
+                    instances: request.instances.clone(),
                 };
                 let instance: Arc<dyn Instance> = pc
                     .start(&start, policy, request.warnings)

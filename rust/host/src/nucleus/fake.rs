@@ -55,6 +55,8 @@ pub(crate) struct Pc {
     pub ready_stale: Mutex<Vec<Vec<String>>>,
     /// The game's .exe each started session's Nucleus got, in order.
     pub exe_paths: Mutex<Vec<String>>,
+    /// What each started session tells the instances it finds, in order.
+    pub instances: Mutex<Vec<Option<butterpollo_windows::nucleus::session::Instances>>>,
     /// How often an app's game was looked up for Rubylight's handler.
     pub lookups: AtomicUsize,
     /// Whether the signed-in user has an elevated token, or why not.
@@ -144,6 +146,7 @@ impl Pc {
             remove_error: Mutex::new(None),
             ready_stale: Mutex::new(Vec::new()),
             exe_paths: Mutex::new(Vec::new()),
+            instances: Mutex::new(Vec::new()),
             lookups: AtomicUsize::new(0),
             account: Mutex::new(Account::Elevates),
             account_error: Mutex::new(None),
@@ -382,6 +385,7 @@ impl super::Pc for Pc {
             .lock()
             .unwrap()
             .push(start.exe_path.to_string());
+        self.instances.lock().unwrap().push(start.instances.clone());
         Ok(Box::new(instance))
     }
 }

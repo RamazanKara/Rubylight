@@ -36,6 +36,7 @@ use control::{
     pad_reports, queue_input, server_command,
 };
 pub(crate) use control::{RUMBLE_DATA, RUMBLE_TRIGGER_DATA, feedback_packets};
+pub(crate) use game_audio::instance_routes;
 use qos::Tagged;
 #[cfg(test)]
 use video::{

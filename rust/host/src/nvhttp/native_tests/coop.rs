@@ -75,6 +75,7 @@ fn launch(s: &Setup, index: usize, launch: &str) -> butterpollo_core::session::S
             config: &Default::default(),
             warnings: Default::default(),
             release_parked: &|| Ok(()),
+            instances: None,
         })
         .unwrap()
 }

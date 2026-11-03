@@ -324,6 +324,7 @@ fn runner(players: usize, screen: &Screen, probe: &Probe, t0: Instant) -> Runner
         exited_at: None,
         settings: None,
         layers: None,
+        instances: None,
     }
 }
 
@@ -359,6 +360,45 @@ fn label(screen: &Screen) {
 }
 
 const HINT: &str = "open Nucleus Co-op and load the profile Rubylight once";
+
+/// #59: each instance is told from the pass that finds it, before its
+/// window shows and before a stream looks for its sound, so its sound can
+/// leave the PC's device before the game opens it; a process it starts is
+/// told with it.
+#[test]
+fn the_instances_are_told_from_the_pass_that_finds_them() {
+    let t0 = Instant::now();
+    let (screen, probe) = (screen(), Probe::default());
+    let mut runner = runner(1, &screen, &probe, t0);
+    let told = Arc::new(Mutex::new(Vec::new()));
+    runner.instances = Some({
+        let told = told.clone();
+        Arc::new(move |trees: &[BTreeSet<Identity>]| told.lock().unwrap().push(trees.to_vec()))
+    });
+    let last = || told.lock().unwrap().last().cloned().unwrap();
+    label(&screen);
+    assert_eq!(runner.step(t0), None);
+    assert_eq!(last(), vec![BTreeSet::new()]);
+    let add = |pid, parent, started, name| {
+        let mut desktop = screen.0.lock().unwrap();
+        desktop.processes.push(process(pid, parent, started, name));
+    };
+    add(20, NUCLEUS, SINCE + 1, "Game.exe");
+    assert_eq!(runner.step(t0), None);
+    let game = Identity {
+        pid: 20,
+        started: SINCE + 1,
+    };
+    assert!(screen.0.lock().unwrap().windows.is_empty());
+    assert_eq!(last(), vec![BTreeSet::from([game])]);
+    add(21, 20, SINCE + 2, "GameHelper.exe");
+    assert_eq!(runner.step(t0), None);
+    let helper = Identity {
+        pid: 21,
+        started: SINCE + 2,
+    };
+    assert_eq!(last(), vec![BTreeSet::from([game, helper])]);
+}
 
 #[test]
 fn the_profile_is_clicked_and_the_session_runs_with_every_window() {
@@ -845,6 +885,7 @@ fn a_game_started_without_the_hooks_it_refused_is_told() {
         players: 1,
         owner: ("phone", "Phone"),
         size: (1280, 720),
+        instances: None,
     };
     for _ in [Inject::Runtime, Inject::Startup, Inject::Stealth] {
         assert_eq!(unhooked(&start(&own)).unwrap(), None);
@@ -1692,6 +1733,7 @@ fn start_steam(
         players,
         owner: ("phone", "Phone"),
         size: (1280, 720),
+        instances: None,
     };
     let running = start(
         &request,
@@ -1922,6 +1964,7 @@ fn a_session_from_the_users_own_copy_writes_and_runs_there() {
         players: 1,
         owner: ("phone", "Phone"),
         size: (1280, 720),
+        instances: None,
     };
     let running = start(
         &request,
@@ -2212,6 +2255,7 @@ fn a_session_on_this_pc() -> Result<()> {
         players,
         owner: ("hw-queue", "hw-queue"),
         size: (1280, 720),
+        instances: None,
     };
     let policy = butterpollo_core::input_policy::Policy::resolve(&Default::default())?;
     let running = start_on_pc(&request, policy, warnings.clone())?;

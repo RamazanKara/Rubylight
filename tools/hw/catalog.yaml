@@ -412,6 +412,16 @@ cases:
     status: pending
     note: user-tests.md usb-forward-gamepad; needs WinUSB on the laptop for that gamepad only (Zadig), restored afterwards
 
+  - id: nj-smoothest-debt-shield
+    device: user
+    title: Smoothest debt drop with nothing behind (Shield) (Experimental), nightjar#7
+    command: 'a Shield owner streams 1080p60 HEVC in Smoothest video on a 60 Hz TV for 3 minutes with the frame-timing CSV on and sends the CSV'
+    preconditions: [idle]
+    pass: when input_to_output_ms rises half a frame over its floor with queue_depth 0 for 1.5 s, one drop_reason=debt row follows and input-to-output returns to its floor within 3 outputs; a healthy stream has no debt rows
+    output: the reporter's latency CSV (attach to nightjar#7)
+    status: pending
+    note: 'no Shield here. The rule replays the 4.4.0 captures (DecoderQueuePolicyTest.debtReplaysTheRecordedShieldStreams: sm1 recovers at 65-75 s, sm2 and sm1 after 110 s never drop); that a held drop frees the display buffer is inferred from sm1''s catch-up at 109.7 s (12 to 1 ms). Retroid and TCL TV runs check only that healthy streams never drop'
+
   - id: clipboard-image-desktop
     device: desktop
     title: Images through this PC's real clipboard (PNG and CF_DIBV5 in, PNG out)

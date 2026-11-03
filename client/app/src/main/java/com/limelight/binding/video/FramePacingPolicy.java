@@ -32,11 +32,17 @@ final class FramePacingPolicy {
      * fast as the panel, or faster, every refresh is due anyway: outputs then land next to the
      * callback, jitter puts two between one pair of callbacks and none between the next, and one
      * of the two was dropped (6% at 120 fps on a 120 Hz Retroid, 10% at 60 on a 60 Hz Shield).
-     * Those streams are released as they come out, as in Lowest latency. Without a vsync interval
-     * the callback keeps pacing.
+     * Those streams are released as they come out, as in Lowest latency, but only to a host that
+     * takes phase lock reports: their slack moves the host's capture so outputs land ahead of the
+     * latch. Any other host keeps the vsync callback and its queue, and so does Drop late frames
+     * off, which asks for that queue. Without a known refresh interval the callback keeps pacing.
      */
-    static boolean balancedPacesOnVsync(int fpsMilliHz, long vsyncIntervalNs) {
-        return vsyncIntervalNs <= 0 || frameIntervalNs(fpsMilliHz) * 20 > vsyncIntervalNs * 21;
+    static boolean balancedPacesOnVsync(boolean hostPhaseLock, boolean dropLateFrames, int fpsMilliHz,
+                                        long vsyncIntervalNs) {
+        if (!hostPhaseLock || !dropLateFrames) return true;
+        // A refresh rate of 0 gives no interval or an unbounded one; nothing refreshes slower than 1 Hz.
+        if (vsyncIntervalNs <= 0 || vsyncIntervalNs > 1_000_000_000L) return true;
+        return frameIntervalNs(fpsMilliHz) * 20 > vsyncIntervalNs * 21;
     }
 
     static long nextFrameTimeNs(long dueNs, long vsyncNs, int fps) {

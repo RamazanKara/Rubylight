@@ -182,13 +182,27 @@ public class FramePacingPolicyTest {
     @Test public void balancedPacesOnVsyncOnlyStreamsSlowerThanThePanel() {
         long hz120 = 1_000_000_000L / 120, hz60 = 1_000_000_000L / 60;
         // Issue 7: about as fast as the panel lost 6% (Retroid 120/120) and 10% (Shield 60/60).
-        assertFalse(FramePacingPolicy.balancedPacesOnVsync(120_000, hz120));
-        assertFalse(FramePacingPolicy.balancedPacesOnVsync(60_000, hz60));
-        assertFalse(FramePacingPolicy.balancedPacesOnVsync(59_940, hz60));
-        assertFalse(FramePacingPolicy.balancedPacesOnVsync(120_000, hz60));
-        assertTrue(FramePacingPolicy.balancedPacesOnVsync(60_000, hz120));
-        assertTrue(FramePacingPolicy.balancedPacesOnVsync(50_000, hz60));
-        assertTrue(FramePacingPolicy.balancedPacesOnVsync(90_000, hz120));
-        assertTrue("without a vsync interval the callback keeps pacing", FramePacingPolicy.balancedPacesOnVsync(120_000, 0));
+        assertFalse(paces(120_000, hz120));
+        assertFalse(paces(60_000, hz60));
+        assertFalse(paces(59_940, hz60));
+        assertFalse(paces(120_000, hz60));
+        assertTrue(paces(60_000, hz120));
+        assertTrue(paces(50_000, hz60));
+        assertTrue(paces(90_000, hz120));
+        assertTrue("without a vsync interval the callback keeps pacing", paces(120_000, 0));
+        assertTrue("a refresh rate of 0 keeps the callback", paces(120_000, Long.MAX_VALUE));
+        assertTrue(paces(120_000, (long) (1e9 / 0.0f)));
+    }
+
+    @Test public void balancedKeepsTheVsyncQueueWithoutPhaseLockOrWithLateFramesKept() {
+        long hz60 = 1_000_000_000L / 60;
+        assertTrue("another Moonlight host keeps its queue",
+                FramePacingPolicy.balancedPacesOnVsync(false, true, 60_000, hz60));
+        assertTrue("Drop late frames off keeps its queue",
+                FramePacingPolicy.balancedPacesOnVsync(true, false, 60_000, hz60));
+    }
+
+    private static boolean paces(int fpsMilliHz, long vsyncIntervalNs) {
+        return FramePacingPolicy.balancedPacesOnVsync(true, true, fpsMilliHz, vsyncIntervalNs);
     }
 }

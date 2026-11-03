@@ -409,6 +409,8 @@ pub const TABLE: &[(&str, &str)] = &[
     ("Microphone on", "Micrô đang bật"),
     ("Microphone muted", "Micrô đã tắt tiếng"),
     ("Microphone unavailable", "Micrô không khả dụng"),
+    ("Microphone in use on another device", "Micrô đang dùng trên thiết bị khác"),
+    ("{} did not accept the microphone", "{} không nhận micrô"),
     ("Mute", "Tắt micrô"),
     ("Unmute", "Bật lại micrô"),
     ("Stop", "Dừng"),

@@ -409,6 +409,8 @@ pub const TABLE: &[(&str, &str)] = &[
     ("Microphone on", "Микрофон включён"),
     ("Microphone muted", "Звук микрофона выключен"),
     ("Microphone unavailable", "Микрофон недоступен"),
+    ("Microphone in use on another device", "Микрофон используется на другом устройстве"),
+    ("{} did not accept the microphone", "{} не принял микрофон"),
     ("Mute", "Выключить микрофон"),
     ("Unmute", "Включить микрофон"),
     ("Stop", "Остановить"),

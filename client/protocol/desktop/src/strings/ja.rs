@@ -409,6 +409,8 @@ pub const TABLE: &[(&str, &str)] = &[
     ("Microphone on", "マイク オン"),
     ("Microphone muted", "マイク ミュート中"),
     ("Microphone unavailable", "マイクを使用できません"),
+    ("Microphone in use on another device", "別のデバイスがマイクを使用中"),
+    ("{} did not accept the microphone", "{} がマイクを受け付けませんでした"),
     ("Mute", "マイクをミュート"),
     ("Unmute", "マイクのミュートを解除"),
     ("Stop", "停止"),

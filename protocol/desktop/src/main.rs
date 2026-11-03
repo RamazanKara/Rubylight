@@ -2266,6 +2266,8 @@ const MENU_LIST: f32 = 190.0;
 /// The overlay and toasts, drawn with egui over the picture.
 /// Returns whether the user's shortcuts changed (saved or deleted in the stream menu) and want writing.
 fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Renderer, s: &mut Streaming, pads: &mut Gamepads, shortcuts: &mut shortcuts::Shortcuts) -> bool {
+    // A stream started from the command line never drew the launcher, which loads these too.
+    theme::fonts_for(&gui.ctx, strings::current());
     let mut shortcuts_changed = false;
     let toast = s.toast.as_ref().map(|(t, _)| t.clone());
     let input_only = s.facts.role == nightjar_core::http::AppRole::InputOnly;

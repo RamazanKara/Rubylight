@@ -270,12 +270,28 @@ pub fn fonts_for(ctx: &egui::Context, lang: Lang) {
     };
     ctx.data_mut(|d| d.insert_temp(fonts_key(), lang));
     ctx.set_fonts(definitions(system));
+    // egui holds the faces in use now; another language's files (up to 38 MB each) go.
+    LOADED.lock().unwrap_or_else(PoisonError::into_inner).retain(|e| e.0 == lang);
 }
 
-/// Each language's system faces once loaded, kept for a later switch back.
+/// The system faces loaded for a language and not yet replaced by another's.
 static LOADED: Mutex<Vec<(Lang, SystemFonts)>> = Mutex::new(Vec::new());
 /// The languages a thread loads faces for.
 static LOADING: Mutex<Vec<Lang>> = Mutex::new(Vec::new());
+
+/// Takes a language off `LOADING` when its loader ends, panicking or not. A loader that panicked
+/// leaves the language without system faces, so the UI stops waiting instead of retrying.
+struct Loading(Lang);
+
+impl Drop for Loading {
+    fn drop(&mut self) {
+        if std::thread::panicking() {
+            eprintln!("nightjar: loading the {} fonts failed; drawing without them", self.0.name());
+            LOADED.lock().unwrap_or_else(PoisonError::into_inner).push((self.0, SystemFonts::default()));
+        }
+        LOADING.lock().unwrap_or_else(PoisonError::into_inner).retain(|l| *l != self.0);
+    }
+}
 
 /// `lang`'s system faces when they are loaded; else starts loading them and returns None.
 fn loaded(ctx: &egui::Context, lang: Lang) -> Option<SystemFonts> {
@@ -290,12 +306,14 @@ fn loaded(ctx: &egui::Context, lang: Lang) -> Option<SystemFonts> {
         loading.push(lang);
         let ctx = ctx.clone();
         let spawned = std::thread::Builder::new().name("nightjar-fonts".into()).spawn(move || {
+            let _loading = Loading(lang);
             let system = system_fonts(lang);
             LOADED.lock().unwrap_or_else(PoisonError::into_inner).push((lang, system));
             ctx.request_repaint();
         });
         if let Err(e) = spawned {
             eprintln!("nightjar: could not start the font loader ({e}); loading the {} fonts here", lang.name());
+            loading.retain(|l| *l != lang);
             let system = system_fonts(lang);
             LOADED.lock().unwrap_or_else(PoisonError::into_inner).push((lang, system.clone()));
             return Some(system);
@@ -1249,10 +1267,22 @@ mod tests {
             std::thread::sleep(std::time::Duration::from_millis(10));
             fonts_for(&ctx, Lang::Ja);
         }
-        // Switching back finds them loaded.
-        apply(&ctx);
-        fonts_for(&ctx, Lang::Ja);
-        assert_eq!(ctx.data(|d| d.get_temp::<Lang>(fonts_key())), Some(Lang::Ja));
+        // Another language lets the Japanese files go, and the loader is done.
+        fonts_for(&ctx, Lang::En);
+        assert!(!LOADED.lock().unwrap().iter().any(|e| e.0 == Lang::Ja));
+        assert!(!LOADING.lock().unwrap().contains(&Lang::Ja));
+    }
+
+    #[test]
+    fn a_loader_that_panics_lets_its_language_go() {
+        LOADING.lock().unwrap().push(Lang::Vi);
+        let ended = std::thread::spawn(|| {
+            let _loading = Loading(Lang::Vi);
+            panic!("a font file that breaks the loader");
+        })
+        .join();
+        assert!(ended.is_err());
+        assert!(!LOADING.lock().unwrap_or_else(PoisonError::into_inner).contains(&Lang::Vi));
     }
 
     #[test]

@@ -229,11 +229,15 @@ public class CachedAppAssetLoaderTest {
         try {
             java.nio.file.Files.write(file.toPath(), placeholder);
             assertTrue(PlaceholderArt.matches(file));
+            assertFalse(PlaceholderArt.isCover(file));
+            assertFalse(PlaceholderArt.isCover(null));
+            assertFalse(PlaceholderArt.isCover(new java.io.File(file.getPath() + ".missing")));
             // A cover of the same size with other bytes is a cover.
             byte[] other = placeholder.clone();
             other[other.length - 20] ^= 1;
             java.nio.file.Files.write(file.toPath(), other);
             assertFalse(PlaceholderArt.matches(file));
+            assertTrue(PlaceholderArt.isCover(file));
         } finally {
             file.delete();
         }

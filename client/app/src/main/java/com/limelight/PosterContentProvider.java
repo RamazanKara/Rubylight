@@ -9,6 +9,7 @@ import android.net.Uri;
 import android.os.ParcelFileDescriptor;
 
 import com.limelight.grid.assets.DiskAssetLoader;
+import com.limelight.grid.assets.PlaceholderArt;
 
 import java.io.File;
 import java.io.FileNotFoundException;
@@ -58,7 +59,8 @@ public class PosterContentProvider extends ContentProvider {
             throw new FileNotFoundException();
         }
         File file = mDiskAssetLoader.getFile(uuid, appId);
-        if (file.exists()) {
+        // The host's grey stand-in is no poster: the TV home screen shows the title instead.
+        if (PlaceholderArt.isCover(file)) {
             return ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY);
         }
         throw new FileNotFoundException();

@@ -152,13 +152,9 @@ fn restore(directory: &Path, owned: &mut Option<(PathBuf, crate::process::Proces
             };
             let restored = rtss::apply(&change.root, &restore, disabled)
                 .context("give RTSS its original frame limit")?;
-            for (key, value) in &restore {
-                if let Some(value) = value
-                    && restored.values.get(key) != Some(&Some(*value))
-                {
-                    bail!("RTSS did not confirm restoration of {key}");
-                }
-            }
+            let unsupported = confirmed(&restore, &restored.values)
+                .map_err(|key| anyhow::anyhow!("RTSS did not confirm restoration of {key}"))?;
+            warn_unsupported(&unsupported);
             if disabled.is_some() && (restored.flags & 4 != 0) != change.disabled {
                 bail!("RTSS did not restore its original enable state");
             }
@@ -171,6 +167,62 @@ fn restore(directory: &Path, owned: &mut Option<(PathBuf, crate::process::Proces
         write_json(&path(directory), &journal)?;
     }
     Ok(())
+}
+/// Whether RTSS's reply (`reported`) holds each value of `wanted`: the
+/// key it holds another value for, or the keys it doesn't report at all,
+/// which this RTSS doesn't support (its profile file still has them, from
+/// [`rtss::write_profile`]). A key originally left out (None) is RTSS's
+/// default and can't be told apart. A limit RTSS states another way is the
+/// same cap: 2997/25 as 11988/100, a denominator of 0 as 1, and any
+/// denominator without a limit (Limit 0 is no cap). Otherwise such a
+/// restoration stayed pending forever, holding the limiter at every stream.
+fn confirmed(
+    wanted: &BTreeMap<String, Option<u32>>,
+    reported: &BTreeMap<String, Option<u32>>,
+) -> std::result::Result<Vec<String>, String> {
+    let value = |map: &BTreeMap<String, Option<u32>>, key: &str| map.get(key).copied().flatten();
+    let cap = |limit: u32, denominator: u32| (u64::from(limit), u64::from(denominator.max(1)));
+    let same_cap = || {
+        let (Some(limit), Some(denominator)) = (
+            value(reported, "Limit"),
+            value(reported, "LimitDenominator"),
+        ) else {
+            return false;
+        };
+        let wanted_limit = match wanted.get("Limit") {
+            Some(wanted) => wanted.unwrap_or(0),
+            None => limit,
+        };
+        let wanted_denominator = match wanted.get("LimitDenominator") {
+            Some(wanted) => wanted.unwrap_or(1),
+            None => denominator,
+        };
+        let (have, have_by) = cap(limit, denominator);
+        let (want, want_by) = cap(wanted_limit, wanted_denominator);
+        (have == 0 && want == 0) || have * want_by == want * have_by
+    };
+    let mut unsupported = Vec::new();
+    for (key, want) in wanted {
+        let Some(want) = *want else { continue };
+        match value(reported, key) {
+            None => unsupported.push(key.clone()),
+            Some(got) if got == want => {}
+            Some(_) if matches!(key.as_str(), "Limit" | "LimitDenominator") && same_cap() => {}
+            Some(_) => return Err(key.clone()),
+        }
+    }
+    Ok(unsupported)
+}
+/// Says once per host start which keys this RTSS doesn't report
+/// ([`confirmed`]).
+fn warn_unsupported(keys: &[String]) {
+    static WARNED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    if !keys.is_empty() && !WARNED.swap(true, std::sync::atomic::Ordering::Relaxed) {
+        tracing::warn!(
+            keys = keys.join(", "),
+            "this RTSS does not report these frame limiter settings, so Rubylight sets them in its Global profile but cannot confirm them live; RTSS 7.3.7 or newer reports them"
+        );
+    }
 }
 /// Whether a stream that ends up with no limiter provider is a fault worth a
 /// warning in the host log: the user asked for a cap (`frame_limiter_enable`,
@@ -293,9 +345,13 @@ impl Lease {
                 journal.rtss = Some(change.clone());
                 persist(directory, &journal)?;
                 let reply = rtss::apply(&root, &change.applied, Some(false))?;
-                if reply.flags & 4 != 0 || reply.values != change.applied {
+                if reply.flags & 4 != 0 {
                     bail!("RTSS did not confirm the requested rational frame limit");
                 }
+                let unsupported = confirmed(&change.applied, &reply.values).map_err(|_| {
+                    anyhow::anyhow!("RTSS did not confirm the requested rational frame limit")
+                })?;
+                warn_unsupported(&unsupported);
                 Ok(())
             })();
             match applied {
@@ -464,6 +520,77 @@ mod tests {
                 (Some(Rate(60_000)), Some(Rate(60_000)))
             )
             .is_none()
+        );
+    }
+
+    /// RL56's 3.4.0: "RTSS did not confirm restoration of LimitDenominator"
+    /// at every stream end and start, the limiter held for good.
+    #[test]
+    fn a_restoration_rtss_states_otherwise_or_cannot_report_is_confirmed() {
+        let map = |values: &[(&str, Option<u32>)]| -> BTreeMap<String, Option<u32>> {
+            values.iter().map(|(k, v)| (k.to_string(), *v)).collect()
+        };
+        let all = |limit, denominator, sync| {
+            map(&[
+                ("Limit", limit),
+                ("LimitDenominator", denominator),
+                ("SyncLimiter", sync),
+            ])
+        };
+        let wanted = all(Some(0), Some(1000), Some(0));
+        // No limit: any denominator is no cap.
+        assert_eq!(
+            confirmed(&wanted, &all(Some(0), Some(1), Some(0))),
+            Ok(vec![])
+        );
+        // The same cap stated another way, a zero denominator as 1.
+        let wanted = all(Some(2997), Some(25), Some(1));
+        assert_eq!(
+            confirmed(&wanted, &all(Some(11988), Some(100), Some(1))),
+            Ok(vec![])
+        );
+        assert_eq!(
+            confirmed(
+                &all(Some(60), Some(0), None),
+                &all(Some(60), Some(1), Some(1))
+            ),
+            Ok(vec![])
+        );
+        // A key this RTSS doesn't report is named, not pending.
+        assert_eq!(
+            confirmed(&wanted, &all(Some(2997), None, Some(1))),
+            Ok(vec!["LimitDenominator".to_string()])
+        );
+        // Another cap, or another sync mode, is a failed restoration.
+        assert_eq!(
+            confirmed(&wanted, &all(Some(2997), Some(1), Some(1))),
+            Err("LimitDenominator".to_string())
+        );
+        assert_eq!(
+            confirmed(
+                &all(Some(0), Some(1), Some(1)),
+                &all(Some(120), Some(1), Some(1))
+            ),
+            Err("Limit".to_string())
+        );
+        assert_eq!(
+            confirmed(&wanted, &all(Some(2997), Some(25), Some(0))),
+            Err("SyncLimiter".to_string())
+        );
+        // Only the denominator to restore: the user's later limit stays.
+        assert_eq!(
+            confirmed(
+                &map(&[("LimitDenominator", Some(1))]),
+                &all(Some(0), Some(1000), Some(1))
+            ),
+            Ok(vec![])
+        );
+        assert_eq!(
+            confirmed(
+                &map(&[("LimitDenominator", Some(1))]),
+                &all(Some(90), Some(1000), Some(1))
+            ),
+            Err("LimitDenominator".to_string())
         );
     }
 }

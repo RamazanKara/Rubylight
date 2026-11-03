@@ -1,7 +1,10 @@
 //! What the audio device plays between packets. A lost packet, and a device that asks for more
 //! than is queued, are both filled with Opus packet loss concealment, one packet's length at a
 //! time, instead of silence. A packet whose time concealment already played is skipped when it
-//! arrives, so riding out a late burst never adds latency. Silence is played only before the
+//! arrives, so riding out a late burst never adds latency. Bursts that keep coming (packets
+//! bunched every 20 ms for a minute) would starve the device on each one, though: a burst within
+//! a second of the last keeps its late packets instead, growing the cushion to what the bursts
+//! need, and the drift trim takes it back once they stop. Silence is played only before the
 //! first packet and after an outage longer than concealment covers. PCM has no concealment: what
 //! it lacks is filled with silence on the same terms. A device clock slower than the host's
 //! builds up a surplus; it is trimmed a packet at a time, faded, long before the queue's limit.
@@ -24,6 +27,9 @@ const QUEUE_MS: usize = 40;
 const TRIM_AFTER_MS: usize = 2000;
 /// The fade from a trimmed packet into the next, in ms.
 const FADE_MS: usize = 5;
+/// A starved device this soon after the last time, in ms of packets, is in a run of late bursts:
+/// the packets concealment stood in for are kept, not skipped, so the queue grows by them.
+const BURSTS_MS: usize = 1000;
 
 /// What one packet did.
 #[derive(Debug, PartialEq, Eq)]
@@ -63,6 +69,13 @@ pub struct Playout {
     concealed: u64,
     /// Samples per channel of packets seen above the trim line in a row.
     above: usize,
+    /// Samples per channel of packets seen since the device last started to starve on a late
+    /// burst.
+    since_starved: usize,
+    /// The device starved twice within `BURSTS_MS`: late packets are kept.
+    bursts: bool,
+    /// A run of bursts started since the last `take_bursts_started`, for the log.
+    bursts_started: bool,
     /// The start of the packet trimmed last (interleaved), which the next one fades in from: it
     /// continues what already played.
     trim_head: Vec<f32>,
@@ -89,6 +102,9 @@ impl Playout {
             asks: true,
             concealed: 0,
             above: 0,
+            since_starved: usize::MAX,
+            bursts: false,
+            bursts_started: false,
             trim_head: Vec::new(),
         }
     }
@@ -109,9 +125,18 @@ impl Playout {
         if queued > self.max_queued {
             return Fed::Dropped;
         }
+        self.since_starved = self.since_starved.saturating_add(self.frame);
+        if self.owed > 0 && packet.is_none() {
+            // The device starved on a loss the receiver waited for, not a late burst: concealed
+            // as ever, and not counted towards a run of bursts.
+            self.bursts = false;
+            self.since_starved = usize::MAX;
+        }
         if self.owed > 0 {
             self.owed -= 1;
-            return Fed::Dropped;
+            if !self.bursts {
+                return Fed::Dropped;
+            }
         }
         self.dry |= !self.asks && self.primed && queued == 0;
         let lead = if queued == 0 && (!self.primed || self.dry) {
@@ -187,6 +212,13 @@ impl Playout {
             self.dry = true;
             return &[];
         }
+        if self.run == 0 {
+            // A packet played since the last time: this is a new late burst.
+            let bursts = self.since_starved < 48 * BURSTS_MS;
+            self.bursts_started |= bursts && !self.bursts;
+            self.bursts = bursts;
+            self.since_starved = 0;
+        }
         let channels = self.decoder.channels();
         let samples = self
             .decoder
@@ -211,12 +243,19 @@ impl Playout {
         self.owed = 0;
         self.run = 0;
         self.above = 0;
+        self.since_starved = usize::MAX;
+        self.bursts = false;
         self.trim_head.clear();
     }
 
     /// The device never calls `starve`: only lost packets are concealed.
     pub fn without_requests(&mut self) {
         self.asks = false;
+    }
+
+    /// Whether a run of late bursts started since the last call.
+    pub fn take_bursts_started(&mut self) -> bool {
+        std::mem::take(&mut self.bursts_started)
     }
 
     /// Packets concealed since the last call.
@@ -553,6 +592,8 @@ mod tests {
         full: usize,
         /// The least queued over the last quarter of the run, in samples: the latency that stays.
         late_min: usize,
+        /// When the device ran short and concealment stood in, in ms.
+        starved: Vec<u64>,
     }
 
     /// `seconds` of packets in pairs every 10 ms, as hosts send them, to a device taking `request`
@@ -593,7 +634,11 @@ mod tests {
             if started && at as f64 >= pulls * period {
                 pulls += 1.0;
                 if queued < request {
-                    queued += playout.starve(request - queued).len() / 2;
+                    let filled = playout.starve(request - queued).len() / 2;
+                    if filled > 0 {
+                        result.starved.push(at / 1000);
+                    }
+                    queued += filled;
                 }
                 queued -= queued.min(request);
             }
@@ -655,6 +700,27 @@ mod tests {
             let run = drift(1200, 35.0, request, |p| if p % 300 == 7 { 30 } else { 0 }, true);
             assert_eq!(run.full, 0, "{request}");
             assert!((4..=10).contains(&run.trims), "{request}: {} trims", run.trims);
+        }
+    }
+
+    #[test]
+    fn a_minute_of_late_bursts_grows_the_cushion_once_and_trims_it_back_after() {
+        // #68: for a minute the packets arrived late p50 10 p99 16 max 18 ms, as four at a time
+        // every 20 ms do (here from 10 s to 70 s); each burst used to starve the device, its packets were skipped, and
+        // the next burst starved it again for the whole minute.
+        let held = |pair: usize| match pair {
+            p if (1000..7000).contains(&p) && p % 2 == 0 => 10 + if p % 26 == 0 { 3 } else { 0 },
+            _ => 0,
+        };
+        for request in [480, 1024] {
+            let run = drift(100, 0.0, request, held, true);
+            let during = run.starved.iter().filter(|&&ms| (11_000..70_000).contains(&ms)).count();
+            assert!(during <= 2, "{request}: starved {during} times once the bursts settled");
+            assert!(run.starved.iter().filter(|&&ms| ms >= 70_000).count() == 0, "{request}: clean after");
+            assert_eq!(run.full, 0, "{request}");
+            // The cushion the bursts needed is trimmed away once they stop.
+            let lead = request.max(480);
+            assert!(run.late_min <= lead + 2 * 240, "{request}: {} queued at the end", run.late_min);
         }
     }
 

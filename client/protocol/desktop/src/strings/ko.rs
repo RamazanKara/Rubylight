@@ -1066,6 +1066,7 @@ sudo sysctl -w net.core.rmem_max={}", "수신 버퍼: 시스템이 요청한 {1}
     ("The PIN lock file is damaged: {}. Delete this file to remove the PIN lock.", "PIN 잠금 파일이 손상되었습니다: {}. PIN 잠금을 없애려면 이 파일을 삭제하세요."),
     ("The PIN lock file cannot be read right now ({}): {}. Nightjar tries again; delete this file to remove the PIN lock.", "지금은 PIN 잠금 파일을 읽을 수 없습니다({0}): {1}. Nightjar가 다시 시도합니다. PIN 잠금을 없애려면 이 파일을 삭제하세요."),
     ("Echo cancellation could not start: {}. The microphone is sent without it.", "에코 제거를 시작할 수 없습니다: {}. 마이크는 에코 제거 없이 전송됩니다."),
+    ("Echo cancellation stopped: {}. The microphone is sent without it.", "에코 제거가 중지되었습니다: {}. 마이크는 에코 제거 없이 전송됩니다."),
     ("No echo cancellation: this system has no echo-cancel source. Load PipeWire's or PulseAudio's echo-cancel module to have one.", "에코 제거 없음: 이 시스템에 echo-cancel 소스가 없습니다. PipeWire 또는 PulseAudio의 echo-cancel 모듈을 불러오세요."),
     ("Help", "도움말"),
     ("Getting started", "시작하기"),

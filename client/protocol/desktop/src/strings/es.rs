@@ -1066,6 +1066,7 @@ sudo sysctl -w net.core.rmem_max={}", "Búfer de recepción: el sistema concedi�
     ("The PIN lock file is damaged: {}. Delete this file to remove the PIN lock.", "El archivo del bloqueo con PIN está dañado: {}. Elimina este archivo para quitar el bloqueo con PIN."),
     ("The PIN lock file cannot be read right now ({}): {}. Nightjar tries again; delete this file to remove the PIN lock.", "El archivo del bloqueo con PIN no se puede leer ahora ({0}): {1}. Nightjar lo vuelve a intentar; elimina este archivo para quitar el bloqueo con PIN."),
     ("Echo cancellation could not start: {}. The microphone is sent without it.", "No se pudo iniciar la cancelación de eco: {}. El micrófono se envía sin ella."),
+    ("Echo cancellation stopped: {}. The microphone is sent without it.", "La cancelación de eco se detuvo: {}. El micrófono se envía sin ella."),
     ("No echo cancellation: this system has no echo-cancel source. Load PipeWire's or PulseAudio's echo-cancel module to have one.", "Sin cancelación de eco: este sistema no tiene fuente de cancelación de eco. Carga el módulo echo-cancel de PipeWire o PulseAudio para tener una."),
     ("Help", "Ayuda"),
     ("Getting started", "Primeros pasos"),

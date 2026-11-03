@@ -1066,6 +1066,7 @@ sudo sysctl -w net.core.rmem_max={}", "Bufor odbioru: system przydzielił {0} Ki
     ("The PIN lock file is damaged: {}. Delete this file to remove the PIN lock.", "Plik blokady PIN jest uszkodzony: {}. Usuń ten plik, aby usunąć blokadę PIN."),
     ("The PIN lock file cannot be read right now ({}): {}. Nightjar tries again; delete this file to remove the PIN lock.", "Pliku blokady PIN nie można teraz odczytać ({0}): {1}. Nightjar spróbuje ponownie; usuń ten plik, aby usunąć blokadę PIN."),
     ("Echo cancellation could not start: {}. The microphone is sent without it.", "Nie udało się uruchomić usuwania echa: {}. Mikrofon jest wysyłany bez niego."),
+    ("Echo cancellation stopped: {}. The microphone is sent without it.", "Usuwanie echa przestało działać: {}. Mikrofon jest wysyłany bez niego."),
     ("No echo cancellation: this system has no echo-cancel source. Load PipeWire's or PulseAudio's echo-cancel module to have one.", "Brak usuwania echa: ten system nie ma źródła echo-cancel. Wczytaj moduł echo-cancel PipeWire lub PulseAudio, aby je mieć."),
     ("Help", "Pomoc"),
     ("Getting started", "Pierwsze kroki"),

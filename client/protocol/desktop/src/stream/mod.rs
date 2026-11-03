@@ -621,7 +621,7 @@ impl Streaming {
         let facts_host = facts.host_name.clone();
         let microphone = if settings.microphone && !connecting.plan.microphone_muted && facts.role != AppRole::RemoteMonitor {
             if session.microphone_available() {
-                match microphone::Microphone::open(connecting.shared.clone(), settings.mic_echo_cancel) {
+                match microphone::Microphone::open(connecting.shared.clone(), microphone::echo_for(connecting.plan.mic_only, settings.mic_echo_cancel)) {
                     Ok(microphone) => Some(microphone),
                     Err(error) => {
                         connecting.shared.notify(Notice::MicrophoneFailed(error));
@@ -1076,7 +1076,7 @@ impl Streaming {
         if !permitted || self.microphone_muted || controller_route {
             self.microphone = None;
         } else if self.microphone.is_none() && self.session.microphone_available() {
-            match microphone::Microphone::open(self.shared.clone(), self.settings.mic_echo_cancel) {
+            match microphone::Microphone::open(self.shared.clone(), microphone::echo_for(self.plan.mic_only, self.settings.mic_echo_cancel)) {
                 Ok(microphone) => {
                     self.microphone = Some(microphone);
                     self.microphone_unavailable = false;

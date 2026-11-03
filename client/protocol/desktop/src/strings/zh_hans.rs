@@ -1066,6 +1066,7 @@ sudo sysctl -w net.core.rmem_max={}", "接收缓冲区：系统只分配了所�
     ("The PIN lock file is damaged: {}. Delete this file to remove the PIN lock.", "PIN 锁文件已损坏：{}。删除此文件即可移除 PIN 锁。"),
     ("The PIN lock file cannot be read right now ({}): {}. Nightjar tries again; delete this file to remove the PIN lock.", "目前无法读取 PIN 锁文件（{0}）：{1}。Nightjar 会重试；删除此文件即可移除 PIN 锁。"),
     ("Echo cancellation could not start: {}. The microphone is sent without it.", "回声消除无法启动：{}。麦克风将不经回声消除发送。"),
+    ("Echo cancellation stopped: {}. The microphone is sent without it.", "回声消除已停止：{}。麦克风将不经回声消除发送。"),
     ("No echo cancellation: this system has no echo-cancel source. Load PipeWire's or PulseAudio's echo-cancel module to have one.", "没有回声消除：此系统没有回声消除源。加载 PipeWire 或 PulseAudio 的 echo-cancel 模块即可获得。"),
     ("Help", "帮助"),
     ("Getting started", "入门"),

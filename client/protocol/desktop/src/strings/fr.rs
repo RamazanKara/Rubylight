@@ -1066,6 +1066,7 @@ sudo sysctl -w net.core.rmem_max={}", "Tampon de réception : le système a acco
     ("The PIN lock file is damaged: {}. Delete this file to remove the PIN lock.", "Le fichier de verrouillage par PIN est endommagé : {}. Supprimez ce fichier pour retirer le verrouillage par PIN."),
     ("The PIN lock file cannot be read right now ({}): {}. Nightjar tries again; delete this file to remove the PIN lock.", "Le fichier de verrouillage par PIN est illisible pour le moment ({0}) : {1}. Nightjar réessaie ; supprimez ce fichier pour retirer le verrouillage par PIN."),
     ("Echo cancellation could not start: {}. The microphone is sent without it.", "L’annulation d’écho n’a pas pu démarrer : {}. Le micro est envoyé sans elle."),
+    ("Echo cancellation stopped: {}. The microphone is sent without it.", "L’annulation d’écho s’est arrêtée : {}. Le micro est envoyé sans elle."),
     ("No echo cancellation: this system has no echo-cancel source. Load PipeWire's or PulseAudio's echo-cancel module to have one.", "Pas d’annulation d’écho : ce système n’a aucune source echo-cancel. Chargez le module echo-cancel de PipeWire ou de PulseAudio pour en avoir une."),
     ("Help", "Aide"),
     ("Getting started", "Premiers pas"),

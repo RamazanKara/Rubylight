@@ -1066,6 +1066,7 @@ sudo sysctl -w net.core.rmem_max={}", "Alma arabelleği: sistem istenen {1} KiB'
     ("The PIN lock file is damaged: {}. Delete this file to remove the PIN lock.", "PIN kilidi dosyası bozuk: {}. PIN kilidini kaldırmak için bu dosyayı silin."),
     ("The PIN lock file cannot be read right now ({}): {}. Nightjar tries again; delete this file to remove the PIN lock.", "PIN kilidi dosyası şu anda okunamıyor ({0}): {1}. Nightjar yeniden dener; PIN kilidini kaldırmak için bu dosyayı silin."),
     ("Echo cancellation could not start: {}. The microphone is sent without it.", "Yankı giderme başlatılamadı: {}. Mikrofon onsuz gönderiliyor."),
+    ("Echo cancellation stopped: {}. The microphone is sent without it.", "Yankı giderme durdu: {}. Mikrofon onsuz gönderiliyor."),
     ("No echo cancellation: this system has no echo-cancel source. Load PipeWire's or PulseAudio's echo-cancel module to have one.", "Yankı giderme yok: bu sistemde echo-cancel kaynağı yok. Bir tane için PipeWire veya PulseAudio'nun echo-cancel modülünü yükleyin."),
     ("Help", "Yardım"),
     ("Getting started", "Başlarken"),

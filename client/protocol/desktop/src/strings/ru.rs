@@ -1066,6 +1066,7 @@ sudo sysctl -w net.core.rmem_max={}", "Буфер приёма: система �
     ("The PIN lock file is damaged: {}. Delete this file to remove the PIN lock.", "Файл блокировки PIN-кодом повреждён: {}. Удалите этот файл, чтобы снять блокировку PIN-кодом."),
     ("The PIN lock file cannot be read right now ({}): {}. Nightjar tries again; delete this file to remove the PIN lock.", "Файл блокировки PIN-кодом сейчас не читается ({0}): {1}. Nightjar попробует снова; удалите этот файл, чтобы снять блокировку PIN-кодом."),
     ("Echo cancellation could not start: {}. The microphone is sent without it.", "Не удалось запустить эхоподавление: {}. Микрофон передаётся без него."),
+    ("Echo cancellation stopped: {}. The microphone is sent without it.", "Эхоподавление остановилось: {}. Микрофон передаётся без него."),
     ("No echo cancellation: this system has no echo-cancel source. Load PipeWire's or PulseAudio's echo-cancel module to have one.", "Нет эхоподавления: в этой системе нет источника echo-cancel. Загрузите модуль echo-cancel PipeWire или PulseAudio."),
     ("Help", "Справка"),
     ("Getting started", "Начало работы"),

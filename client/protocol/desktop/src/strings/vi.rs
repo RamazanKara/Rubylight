@@ -1066,6 +1066,7 @@ sudo sysctl -w net.core.rmem_max={}", "Bộ đệm nhận: hệ thống chỉ c�
     ("The PIN lock file is damaged: {}. Delete this file to remove the PIN lock.", "Tệp khóa PIN bị hỏng: {}. Xóa tệp này để gỡ khóa PIN."),
     ("The PIN lock file cannot be read right now ({}): {}. Nightjar tries again; delete this file to remove the PIN lock.", "Hiện không đọc được tệp khóa PIN ({0}): {1}. Nightjar sẽ thử lại; xóa tệp này để gỡ khóa PIN."),
     ("Echo cancellation could not start: {}. The microphone is sent without it.", "Không thể bắt đầu khử tiếng vọng: {}. Micrô được gửi đi mà không khử."),
+    ("Echo cancellation stopped: {}. The microphone is sent without it.", "Khử tiếng vọng đã dừng: {}. Micrô được gửi đi mà không khử."),
     ("No echo cancellation: this system has no echo-cancel source. Load PipeWire's or PulseAudio's echo-cancel module to have one.", "Không có khử tiếng vọng: hệ thống này không có nguồn echo-cancel. Hãy tải mô-đun echo-cancel của PipeWire hoặc PulseAudio để có."),
     ("Help", "Trợ giúp"),
     ("Getting started", "Bắt đầu"),

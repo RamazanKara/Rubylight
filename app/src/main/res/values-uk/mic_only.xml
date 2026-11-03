@@ -10,4 +10,5 @@
     <string name="mic_only_denied">Немає доступу до мікрофона</string>
     <string name="mic_only_unavailable">Мікрофон недоступний</string>
     <string name="mic_only_not_accepted">%1$s не прийняв мікрофон</string>
+    <string name="mic_only_busy">Мікрофон використовується на іншому пристрої</string>
 </resources>

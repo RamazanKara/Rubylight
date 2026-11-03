@@ -82,9 +82,11 @@ public final class NativeSession {
     public final long sinceUnixMs;
     public final long suspendedUntilUnixMs;
     public final List<Action> actions;
+    /** This device's microphone reaches the PC, but another device's plays (one at a time). */
+    public final boolean microphoneBusy;
 
     NativeSession(long revision, State state, Owner owner, App app, boolean gameRunning, long sinceUnixMs,
-                  long suspendedUntilUnixMs, List<Action> actions) {
+                  long suspendedUntilUnixMs, List<Action> actions, boolean microphoneBusy) {
         this.revision = revision;
         this.state = state;
         this.owner = owner;
@@ -93,6 +95,7 @@ public final class NativeSession {
         this.sinceUnixMs = sinceUnixMs;
         this.suspendedUntilUnixMs = suspendedUntilUnixMs;
         this.actions = Collections.unmodifiableList(actions);
+        this.microphoneBusy = microphoneBusy;
     }
 
     public static NativeSession parse(JSONObject json) throws JSONException {
@@ -109,7 +112,7 @@ public final class NativeSession {
                 app == null ? null : new App(app.getString("install_id"), app.getInt("app_id"),
                         app.getString("title")),
                 json.optBoolean("game_running"), json.optLong("since_unix_ms"),
-                json.optLong("suspended_until_unix_ms"), actions);
+                json.optLong("suspended_until_unix_ms"), actions, json.optBoolean("microphone_busy"));
     }
 
     /** The action as the host offers it, or null when the host does not list it. */

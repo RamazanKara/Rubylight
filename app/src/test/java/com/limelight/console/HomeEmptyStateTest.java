@@ -21,6 +21,7 @@ import com.limelight.computers.ComputerManagerListener;
 import com.limelight.computers.ComputerManagerService;
 import com.limelight.nativeapi.ConsoleRepository;
 import com.limelight.nvstream.http.ComputerDetails;
+import com.limelight.nvstream.http.PairingManager;
 import com.limelight.preferences.GlPreferences;
 
 import org.junit.After;
@@ -37,8 +38,6 @@ import org.robolectric.annotation.Config;
 import org.robolectric.util.ReflectionHelpers;
 
 import java.time.Duration;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
 
@@ -50,12 +49,16 @@ public class HomeEmptyStateTest {
     @Rule public TemporaryFolder temporary = new TemporaryFolder();
 
     static ConsoleRepository repository;
+    /** The bind "works" but the manager never connects, as when it hangs on its start. */
+    static boolean managerHangs;
 
     /** Home without the computer manager service, over the test's repository. */
     public static class Home extends ConsoleHomeActivity {
         @Override public boolean bindService(Intent intent, ServiceConnection connection, int flags) {
-            return false;
+            return managerHangs;
         }
+
+        @Override public void unbindService(ServiceConnection connection) { }
 
         @Override protected ConsoleRepository createRepository(String uniqueId) {
             return repository;
@@ -83,6 +86,7 @@ public class HomeEmptyStateTest {
         if (controller != null) controller.pause().stop().destroy();
         rig.close();
         repository = null;
+        managerHangs = false;
         PreferenceManager.getDefaultSharedPreferences(context).edit().clear().commit();
     }
 
@@ -169,15 +173,87 @@ public class HomeEmptyStateTest {
     }
 
     @Test
-    public void theFeedWaitsUntilTheManagerReportedAndEverySavedPcAnswered() throws Exception {
-        List<ComputerDetails> none = new ArrayList<>();
+    public void theFeedWaitsUntilEverySavedPcAnsweredAndAnOfflineOneStaysPaired() throws Exception {
         Home home = open(savedTower());
         HostFeed feed = ReflectionHelpers.getField(home, "feed");
         assertTrue(feed.waiting());
+        assertTrue(feed.hosts().isEmpty());
         ComputerDetails offline = savedTower();
         offline.state = ComputerDetails.State.OFFLINE;
         feed.update(offline);
-        assertFalse("it answered, though not as paired", feed.waiting());
-        assertEquals(none, feed.hosts());
+        assertFalse("it answered", feed.waiting());
+        assertEquals(1, feed.hosts().size());
+        ComputerDetails shown = feed.hosts().get(0);
+        assertEquals(ComputerDetails.State.OFFLINE, shown.state);
+        assertEquals("paired as far as anyone knows", PairingManager.PairState.PAIRED, shown.pairState);
+        // A PC that answers as not paired leaves Home.
+        ComputerDetails unpaired = nativeHost("tower", "Tower", true);
+        unpaired.pairState = PairingManager.PairState.NOT_PAIRED;
+        feed.update(unpaired);
+        assertTrue(feed.hosts().isEmpty());
+    }
+
+    /** Whether Home has a card for the host: on a TV's shelves, or a phone's list. */
+    private static boolean hasHostCard(Home home, String uuid) {
+        ConsoleHomeAdapter shelves = ReflectionHelpers.getField(home, "shelves");
+        if (shelves != null) return shelves.positionOfKey("host:" + uuid) != null;
+        ConsoleHomeListAdapter adapter = ReflectionHelpers.getField(home, "adapter");
+        return adapter.positionOfKey("host:" + uuid) >= 0;
+    }
+
+    @Test
+    public void aSavedPcThatAnswersOfflineWithNothingSavedIsAnOfflineCardWithWake() throws Exception {
+        offlineCardWithWake();
+    }
+
+    @Test
+    @Config(qualifiers = "w411dp-h891dp-port-xxhdpi")
+    public void onAPhoneTooASavedOfflinePcIsACardWithWake() throws Exception {
+        offlineCardWithWake();
+    }
+
+    private void offlineCardWithWake() throws Exception {
+        ComputerDetails saved = savedTower();
+        saved.macAddress = "aa:bb:cc:dd:ee:ff";
+        Home home = open(saved);
+        settle(home);
+        HostFeed feed = ReflectionHelpers.getField(home, "feed");
+        ComputerDetails offline = new ComputerDetails(saved);
+        offline.state = ComputerDetails.State.OFFLINE;
+        feed.update(offline);
+        settle(home);
+        assertFalse("a paired PC is known", shows(home, R.id.console_empty));
+        assertFalse(shows(home, R.id.console_loading));
+        assertTrue("its card", hasHostCard(home, "tower"));
+        assertTrue("and Wake", HostWaker.canWake(home, feed.host("tower")));
+    }
+
+    @Test
+    public void aSavedPcThatNeverAnswersShowsOfflineAfterTheLimitNotAnEndlessBar() throws Exception {
+        Home home = open(savedTower());
+        settle(home);
+        assertTrue(shows(home, R.id.console_loading));
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(10));
+        settle(home);
+        HostFeed feed = ReflectionHelpers.getField(home, "feed");
+        assertFalse(feed.waiting());
+        assertFalse("the bar stops", shows(home, R.id.console_loading));
+        assertFalse(shows(home, R.id.console_empty));
+        assertTrue("the PC shows offline", hasHostCard(home, "tower"));
+        assertEquals(ComputerDetails.State.OFFLINE, feed.host("tower").state);
+    }
+
+    @Test
+    public void aManagerThatNeverBecomesReadyEndsInNoPcsNotAnEndlessBar() throws Exception {
+        managerHangs = true;
+        controller = Robolectric.buildActivity(Home.class).setup().visible();
+        Home home = controller.get();
+        settle(home);
+        assertTrue("still waiting for the manager", shows(home, R.id.console_loading));
+        assertFalse(shows(home, R.id.console_empty));
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(10));
+        settle(home);
+        assertFalse("the bar stops", shows(home, R.id.console_loading));
+        assertTrue("Home says what it knows, with its way to the PCs", shows(home, R.id.console_empty));
     }
 }

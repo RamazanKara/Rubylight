@@ -13,12 +13,10 @@ import com.limelight.nvstream.http.ComputerDetails;
 import com.limelight.nvstream.http.PairingManager;
 
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 /**
  * The paired hosts the app knows, for Home and the game detail. It binds the computer manager service as
@@ -35,12 +33,14 @@ final class HostFeed {
     private final Listener listener;
     private final Map<String, ComputerDetails> hosts = new LinkedHashMap<>();
     /** Saved PCs paired before that have not answered yet; on a start each one is like that until its first poll. */
-    private final Set<String> unanswered = new HashSet<>();
+    private final Map<String, ComputerDetails> unanswered = new LinkedHashMap<>();
     private volatile ComputerManagerService.ComputerManagerBinder binder;
     private boolean bound;
     private boolean polling;
     /** The manager has reported the PCs it saved. */
     private boolean reported;
+    /** The wait is over: a saved PC that has not answered yet shows as offline from now on. */
+    private boolean doneWaiting;
     private boolean foreground;
     private Thread waiter;
 
@@ -140,15 +140,43 @@ final class HostFeed {
     }
 
     void update(ComputerDetails details) {
-        boolean changed = waitsForFirstAnswer(details) ? unanswered.add(details.uuid) : unanswered.remove(details.uuid);
-        if (details.pairState != PairingManager.PairState.PAIRED) {
-            if (hosts.remove(details.uuid) != null || changed) {
+        if (waitsForFirstAnswer(details) && !doneWaiting) {
+            boolean added = unanswered.put(details.uuid, details) == null;
+            if (hosts.remove(details.uuid) != null || added) {
                 listener.onHostsChanged();
             }
             return;
         }
-        hosts.put(details.uuid, details);
+        boolean answered = unanswered.remove(details.uuid) != null;
+        ComputerDetails shown = asPaired(details);
+        if (shown == null) {
+            if (hosts.remove(details.uuid) != null || answered) {
+                listener.onHostsChanged();
+            }
+            return;
+        }
+        hosts.put(details.uuid, shown);
         listener.onHostsChanged();
+    }
+
+    /**
+     * The PC as Home shows it, or null when it is not paired. A poll that reached the PC says; one that did not
+     * leaves no pair state, and a PC paired before (its certificate is saved) is then an offline paired PC,
+     * with its card and Wake, not gone.
+     */
+    static ComputerDetails asPaired(ComputerDetails details) {
+        if (details.pairState == PairingManager.PairState.PAIRED) {
+            return details;
+        }
+        if (details.pairState != null || details.serverCert == null) {
+            return null;
+        }
+        ComputerDetails offline = new ComputerDetails(details);
+        offline.pairState = PairingManager.PairState.PAIRED;
+        if (offline.state != ComputerDetails.State.ONLINE) {
+            offline.state = ComputerDetails.State.OFFLINE;
+        }
+        return offline;
     }
 
     /**
@@ -166,12 +194,34 @@ final class HostFeed {
      * paired PC is left to hear from.
      */
     boolean waiting() {
-        return !reported || !unanswered.isEmpty();
+        return !doneWaiting && (!reported || !unanswered.isEmpty());
+    }
+
+    /**
+     * Ends the wait after a while: the saved PCs that have not answered show as offline, and a manager that
+     * never became ready leaves Home to say there are no PCs, instead of loading on forever.
+     */
+    void stopWaiting() {
+        if (doneWaiting) {
+            return;
+        }
+        doneWaiting = true;
+        if (!reported) {
+            com.limelight.LimeLog.warning("Home stopped waiting for the computer manager");
+        }
+        for (ComputerDetails details : unanswered.values()) {
+            ComputerDetails shown = asPaired(details);
+            if (shown != null) {
+                hosts.put(details.uuid, shown);
+            }
+        }
+        unanswered.clear();
+        listener.onHostsChanged();
     }
 
     /** A host was removed from this device; it leaves the feed at once instead of at the next poll. */
     void forget(String uuid) {
-        boolean waitedFor = unanswered.remove(uuid);
+        boolean waitedFor = unanswered.remove(uuid) != null;
         if (hosts.remove(uuid) != null || waitedFor) {
             listener.onHostsChanged();
         }
@@ -183,7 +233,7 @@ final class HostFeed {
         if (current == null) {
             return;
         }
-        boolean changed = unanswered.removeIf(uuid -> current.getComputer(uuid) == null);
+        boolean changed = unanswered.keySet().removeIf(uuid -> current.getComputer(uuid) == null);
         for (Iterator<String> it = hosts.keySet().iterator(); it.hasNext(); ) {
             if (current.getComputer(it.next()) == null) {
                 it.remove();

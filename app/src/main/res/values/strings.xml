@@ -209,6 +209,8 @@
     <string name="title_only_l3r3">Only show L3 and R3</string>
     <string name="summary_only_l3r3">Hide all virtual buttons except L3 and R3</string>
     <string name="title_show_guide_button">Show Guide button</string>
+    <string name="title_show_touchpad_button">Show Touchpad button</string>
+    <string name="summary_show_touchpad_button">Clicks the touchpad when the PC’s virtual controller is a DualShock 4 or DualSense. In the modern style, move or hide it in the layout editor.</string>
     <string name="title_reset_osc">Reset controls layout</string>
     <string name="dialog_title_reset_osc">Reset layout</string>
     <string name="dialog_text_reset_osc">Put every on-screen button back to its default size and position?</string>

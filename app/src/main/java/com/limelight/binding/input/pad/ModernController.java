@@ -74,7 +74,8 @@ public final class ModernController {
     /** Whether the settings keep this control off whatever the layout says. */
     boolean forcedHidden(PadLayout.Control control) {
         if (prefs.onlyL3R3) return control != PadLayout.Control.L3 && control != PadLayout.Control.R3;
-        return control == PadLayout.Control.HOME && !prefs.showGuideButton;
+        return (control == PadLayout.Control.HOME && !prefs.showGuideButton) ||
+                (control == PadLayout.Control.TOUCHPAD && !prefs.showTouchpadButton);
     }
 
     boolean shows(PadLayout layout, PadLayout.Control control) {
@@ -182,7 +183,7 @@ public final class ModernController {
     }
 
     /**
-     * The bottom of the top row (View, Home, Menu) in the frame's pixels, so the microphone button can sit
+     * The bottom of the top row (View, Home, Menu, and the Touchpad below them) in the frame's pixels, so the microphone button can sit
      * below it; NaN when none of them shows.
      */
     public float topRowBottom() {
@@ -190,7 +191,7 @@ public final class ModernController {
         if (!shown || editor != null || width == 0 || height == 0) return Float.NaN;
         float density = context.getResources().getDisplayMetrics().density, bottom = Float.NaN;
         for (PadLayout.Control control : new PadLayout.Control[] {PadLayout.Control.SELECT, PadLayout.Control.HOME,
-                PadLayout.Control.START}) {
+                PadLayout.Control.START, PadLayout.Control.TOUCHPAD}) {
             if (!shows(layout, control)) continue;
             layout.bounds(control, width, height, density, box);
             // Only the middle of the top edge counts: a row moved elsewhere leaves the button its own place.

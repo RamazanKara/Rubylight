@@ -217,6 +217,7 @@ final class PadEditor extends FrameLayout {
             case SELECT: return context.getString(R.string.pad_view);
             case START: return context.getString(R.string.pad_menu);
             case HOME: return context.getString(R.string.pad_home);
+            case TOUCHPAD: return context.getString(R.string.pad_touchpad);
             default: return control.name();
         }
     }

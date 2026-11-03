@@ -39,4 +39,6 @@
     <string name="stream_cursor_shape_rejected">Nightjar 无法绘制电脑的光标形状，因此显示默认箭头。</string>
     <string name="title_four_finger_tap">四指轻点</string>
     <string name="summary_four_finger_tap">在触控板、直接鼠标和本地光标模式下，四指快速轻点时执行的操作。</string>
+    <string name="title_multi_touch_finger_taps">多点触控中的多指轻点</string>
+    <string name="summary_multi_touch_finger_taps">在多点触控模式下，三指和四指轻点也会执行对应操作，这些触摸不会发送到电脑。对于需要三指或四指的游戏，请保持关闭。</string>
 </resources>

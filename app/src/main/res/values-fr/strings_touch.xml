@@ -39,4 +39,6 @@
     <string name="stream_cursor_shape_rejected">Nightjar ne peut pas dessiner la forme du curseur du PC et affiche la flèche par défaut.</string>
     <string name="title_four_finger_tap">Appui à quatre doigts</string>
     <string name="summary_four_finger_tap">Action lors d’un appui bref à quatre doigts en mode Pavé tactile, Souris directe ou Curseur local.</string>
+    <string name="title_multi_touch_finger_taps">Appuis à plusieurs doigts en Multitouch</string>
+    <string name="summary_multi_touch_finger_taps">Les appuis à trois et quatre doigts lancent aussi leur action en Multitouch, et le PC ne reçoit pas ces touchers. Laissez désactivé pour les jeux qui utilisent trois ou quatre doigts.</string>
 </resources>

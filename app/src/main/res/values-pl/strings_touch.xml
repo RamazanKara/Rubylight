@@ -39,4 +39,6 @@
     <string name="stream_cursor_shape_rejected">Nightjar nie może narysować kształtu kursora z komputera, więc pokazuje domyślną strzałkę.</string>
     <string name="title_four_finger_tap">Stuknięcie czterema palcami</string>
     <string name="summary_four_finger_tap">Działanie szybkiego stuknięcia czterema palcami w trybach Gładzik, Mysz bezpośrednia i Kursor lokalny.</string>
+    <string name="title_multi_touch_finger_taps">Stuknięcia wieloma palcami w trybie Wielodotyk</string>
+    <string name="summary_multi_touch_finger_taps">Stuknięcia trzema i czterema palcami wykonują swoją akcję także w trybie Wielodotyk, a PC nie dostaje tych dotknięć. Zostaw wyłączone w grach, które używają trzech lub czterech palców.</string>
 </resources>

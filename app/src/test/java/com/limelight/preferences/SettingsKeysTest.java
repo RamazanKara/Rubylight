@@ -306,6 +306,7 @@ public class SettingsKeysTest {
         reads.put("list_trackpad_area", new Read("full", "right_half", c -> c.trackpadArea));
         reads.put("list_three_finger_tap", new Read("keyboard", "middle_click", c -> c.threeFingerTap));
         reads.put("list_four_finger_tap", new Read("none", "desktop_controls", c -> c.fourFingerTap));
+        reads.put("checkbox_multi_touch_finger_taps", new Read(false, true, c -> c.multiTouchFingerTaps));
         reads.put("list_pc_keyboard_layout", new Read("auto", "de", c -> c.pcKeyboardLayout));
         reads.put("seekbar_pc_keyboard_size", new Read(50, 60, c -> c.pcKeyboardSize));
         reads.put("seekbar_pc_keyboard_opacity", new Read(90, 60, c -> c.pcKeyboardOpacity));
@@ -317,6 +318,7 @@ public class SettingsKeysTest {
         reads.put("checkbox_vibrate_osc", new Read(true, false, c -> c.vibrateOsc));
         reads.put("checkbox_only_show_L3R3", new Read(false, true, c -> c.onlyL3R3));
         reads.put("checkbox_show_guide_button", new Read(true, false, c -> c.showGuideButton));
+        reads.put("checkbox_show_touchpad_button", new Read(false, true, c -> c.showTouchpadButton));
         reads.put("seekbar_osc_opacity", new Read(90, 50, c -> c.oscOpacity));
         // list_audio_config is checked by everyStoredSettingIsReadByTheStreamConfiguration only: the
         // MoonBridge audio constants it maps to are not created under the test shadow.

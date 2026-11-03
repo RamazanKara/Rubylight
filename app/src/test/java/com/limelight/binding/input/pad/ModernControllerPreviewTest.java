@@ -92,6 +92,7 @@ public class ModernControllerPreviewTest {
         prefs.oscStyle = PreferenceConfiguration.OSC_STYLE_MODERN;
         prefs.oscOpacity = 90;
         prefs.showGuideButton = true;
+        prefs.showTouchpadButton = true;
         ModernController controller = new ModernController(screen, frame, SINK, prefs, "pc/app");
         controller.refreshLayout();
         FakeMic mic = new FakeMic();

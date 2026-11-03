@@ -29,7 +29,7 @@ import java.util.Locale;
 
 public class VirtualController {
     public static class ControllerInputContext {
-        public short inputMap = 0x0000;
+        public int inputMap = 0;
         public byte leftTrigger = 0x00;
         public byte rightTrigger = 0x00;
         public short rightStickX = 0x0000;

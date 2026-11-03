@@ -301,6 +301,16 @@ final class PadPainter {
             stroke.setColor(RIM);
             canvas.drawRoundRect(rect, radius, radius, stroke);
         }
+        if (control == PadLayout.Control.TOUCHPAD) {
+            // Touchpad: a small pad with its click line, like the one on a PlayStation pad.
+            float h = rect.height() * .4f, w = Math.min(rect.width() * .5f, h * 1.8f);
+            float l = rect.centerX() - w / 2, t = rect.centerY() - h / 2;
+            stroke.setColor(pressed ? onAccent : LABEL);
+            rect.set(l, t, l + w, t + h);
+            canvas.drawRoundRect(rect, h * .25f, h * .25f, stroke);
+            canvas.drawLine(rect.centerX(), t + h * .3f, rect.centerX(), t + h * .7f, stroke);
+            return;
+        }
         label(canvas, control.name(), rect.centerX(), rect.centerY(), rect.height() * .42f, pressed);
     }
 

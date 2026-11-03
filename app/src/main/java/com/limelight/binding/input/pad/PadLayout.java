@@ -13,7 +13,9 @@ public final class PadLayout {
     public enum Control {
         LEFT_STICK(Shape.STICK), RIGHT_STICK(Shape.STICK), DPAD(Shape.DPAD), FACE(Shape.FACE),
         LB(Shape.PILL), RB(Shape.PILL), LT(Shape.PILL), RT(Shape.PILL),
-        L3(Shape.ROUND), R3(Shape.ROUND), SELECT(Shape.ROUND), START(Shape.ROUND), HOME(Shape.ROUND);
+        L3(Shape.ROUND), R3(Shape.ROUND), SELECT(Shape.ROUND), START(Shape.ROUND), HOME(Shape.ROUND),
+        /** A PlayStation pad's touchpad click, below the top row as on the pad itself. */
+        TOUCHPAD(Shape.PILL);
 
         public final Shape shape;
 
@@ -174,6 +176,7 @@ public final class PadLayout {
             case R3: x = width - .035f * u - click / 2; y = height - .035f * u - click / 2; break;
             case SELECT: x = width / 2 - rowStep; y = .035f * u + round / 2; break;
             case START: x = width / 2 + rowStep; y = .035f * u + round / 2; break;
+            case TOUCHPAD: x = width / 2; y = .035f * u + round + Math.max(.02f * u, 8 * density) + pillH / 2; break;
             default: x = width / 2; y = .035f * u + round / 2; break; // HOME
         }
         out[0] = x;

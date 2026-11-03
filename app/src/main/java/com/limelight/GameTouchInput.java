@@ -1043,6 +1043,22 @@ final class GameTouchInput {
                     if (!nativeTouchGestureActive) {
                         return true;
                     }
+                    if (game.prefConfig.multiTouchFingerTaps) {
+                        boolean tapBefore = fingerTap.isStarted();
+                        if (handleFingerTapGesture(event)) {
+                            // The third finger starts a tap: the PC lets go of the two it already has,
+                            // and the rest of the sequence stays here.
+                            if (!tapBefore) {
+                                game.conn.sendTouchEvent(MoonBridge.LI_TOUCH_EVENT_CANCEL_ALL, 0, 0, 0, 0, 0, 0,
+                                        MoonBridge.LI_ROT_UNKNOWN);
+                            }
+                            if (event.getActionMasked() == MotionEvent.ACTION_UP ||
+                                    event.getActionMasked() == MotionEvent.ACTION_CANCEL) {
+                                nativeTouchGestureActive = false;
+                            }
+                            return true;
+                        }
+                    }
                     if (trySendTouchEvent(view, event)) {
                         if (event.getActionMasked() == MotionEvent.ACTION_UP ||
                                 event.getActionMasked() == MotionEvent.ACTION_CANCEL) {

@@ -39,4 +39,6 @@
     <string name="stream_cursor_shape_rejected">Nightjar kann die Mauszeigerform des PCs nicht zeichnen und zeigt den Standardpfeil.</string>
     <string name="title_four_finger_tap">Vier-Finger-Tippen</string>
     <string name="summary_four_finger_tap">Aktion beim kurzen Tippen mit vier Fingern in den Modi Trackpad, Direkte Maus und Lokaler Zeiger.</string>
+    <string name="title_multi_touch_finger_taps">Fingertipps bei Multitouch</string>
+    <string name="summary_multi_touch_finger_taps">Tippen mit drei und vier Fingern löst seine Aktion auch bei Multitouch aus, und der PC bekommt diese Berührungen nicht. Für Spiele, die drei oder vier Finger nutzen, ausgeschaltet lassen.</string>
 </resources>

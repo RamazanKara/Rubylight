@@ -182,6 +182,8 @@
     <string name="title_only_l3r3">僅顯示 L3 和 R3</string>
     <string name="summary_only_l3r3">隱藏 L3 和 R3 以外的所有虛擬按鈕</string>
     <string name="title_show_guide_button">顯示 Guide 按鈕</string>
+    <string name="title_show_touchpad_button">顯示觸控板按鈕</string>
+    <string name="summary_show_touchpad_button">當電腦上的虛擬控制器為 DualShock 4 或 DualSense 時，按下觸控板。在現代樣式中，可在版面編輯器中移動或隱藏它。</string>
     <string name="title_reset_osc">重設控制按鈕版面配置</string>
     <string name="dialog_title_reset_osc">重設版面配置</string>
     <string name="dialog_text_reset_osc">要將所有螢幕按鈕恢復為預設大小和位置嗎？</string>

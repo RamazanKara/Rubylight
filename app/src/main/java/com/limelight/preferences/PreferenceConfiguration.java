@@ -101,6 +101,7 @@ public class PreferenceConfiguration {
     private static final String ONSCREEN_CONTROLLER_PREF_STRING = "checkbox_show_onscreen_controls";
     private static final String ONLY_L3_R3_PREF_STRING = "checkbox_only_show_L3R3";
     private static final String SHOW_GUIDE_BUTTON_PREF_STRING = "checkbox_show_guide_button";
+    private static final String SHOW_TOUCHPAD_BUTTON_PREF_STRING = "checkbox_show_touchpad_button";
     private static final String LEGACY_DISABLE_FRAME_DROP_PREF_STRING = "checkbox_disable_frame_drop";
     private static final String ENABLE_HDR_PREF_STRING = "checkbox_enable_hdr";
     static final String THERMAL_PROTECTION_PREF_STRING = "checkbox_thermal_protection";
@@ -146,6 +147,7 @@ public class PreferenceConfiguration {
     private static final String TRACKPAD_AREA_PREF_STRING = "list_trackpad_area";
     private static final String THREE_FINGER_TAP_PREF_STRING = "list_three_finger_tap";
     private static final String FOUR_FINGER_TAP_PREF_STRING = "list_four_finger_tap";
+    private static final String MULTI_TOUCH_FINGER_TAPS_PREF_STRING = "checkbox_multi_touch_finger_taps";
     private static final String PC_KEYBOARD_LAYOUT_PREF_STRING = "list_pc_keyboard_layout";
     private static final String PC_KEYBOARD_SIZE_PREF_STRING = "seekbar_pc_keyboard_size";
     private static final String PC_KEYBOARD_OPACITY_PREF_STRING = "seekbar_pc_keyboard_opacity";
@@ -225,6 +227,7 @@ public class PreferenceConfiguration {
     private static final boolean ONSCREEN_CONTROLLER_DEFAULT = false;
     private static final boolean ONLY_L3_R3_DEFAULT = false;
     private static final boolean SHOW_GUIDE_BUTTON_DEFAULT = true;
+    private static final boolean SHOW_TOUCHPAD_BUTTON_DEFAULT = false;
     private static final boolean DEFAULT_ENABLE_HDR = false;
     private static final boolean DEFAULT_ENABLE_SDR10 = false;
     private static final boolean DEFAULT_ENABLE_PIP = false;
@@ -302,6 +305,8 @@ public class PreferenceConfiguration {
     public boolean onscreenController;
     public boolean onlyL3R3;
     public boolean showGuideButton;
+    /** The on-screen controller's Touchpad button: a PlayStation pad's touchpad click. */
+    public boolean showTouchpadButton;
     public boolean enableHdr;
     /** Ask for 10-bit SDR when HDR is not streamed (see Sdr10Policy). Global only: not part of a PC's profile. */
     public boolean enableSdr10Bit;
@@ -385,6 +390,8 @@ public class PreferenceConfiguration {
     public String pcKeyboardLayout;
     public int pcKeyboardSize, pcKeyboardOpacity;
     public String fourFingerTap = FingerTapGesture.NONE;
+    /** Three- and four-finger taps run their actions in Multi-touch too, instead of reaching the PC. */
+    public boolean multiTouchFingerTaps;
     public MoonBridge.AudioConfiguration audioConfiguration;
     public int framePacing;
     public boolean absoluteMouseMode;
@@ -1424,6 +1431,7 @@ public class PreferenceConfiguration {
         config.onscreenController = prefs.getBoolean(ONSCREEN_CONTROLLER_PREF_STRING, ONSCREEN_CONTROLLER_DEFAULT);
         config.onlyL3R3 = prefs.getBoolean(ONLY_L3_R3_PREF_STRING, ONLY_L3_R3_DEFAULT);
         config.showGuideButton = prefs.getBoolean(SHOW_GUIDE_BUTTON_PREF_STRING, SHOW_GUIDE_BUTTON_DEFAULT);
+        config.showTouchpadButton = prefs.getBoolean(SHOW_TOUCHPAD_BUTTON_PREF_STRING, SHOW_TOUCHPAD_BUTTON_DEFAULT);
         config.enableHdr = prefs.getBoolean(ENABLE_HDR_PREF_STRING, DEFAULT_ENABLE_HDR) && !isShieldAtvFirmwareWithBrokenHdr();
         config.enableSdr10Bit = prefs.getBoolean(ENABLE_SDR10_PREF_STRING, DEFAULT_ENABLE_SDR10);
         config.enablePip = prefs.getBoolean(ENABLE_PIP_PREF_STRING, DEFAULT_ENABLE_PIP);
@@ -1487,6 +1495,7 @@ public class PreferenceConfiguration {
                 FingerTapGesture.KEYBOARD);
         config.fourFingerTap = prefs.getString(FOUR_FINGER_TAP_PREF_STRING,
                 FingerTapGesture.NONE);
+        config.multiTouchFingerTaps = prefs.getBoolean(MULTI_TOUCH_FINGER_TAPS_PREF_STRING, false);
         config.pcKeyboardLayout = prefs.getString(PC_KEYBOARD_LAYOUT_PREF_STRING, "auto");
         config.pcKeyboardSize = Math.max(30, Math.min(70, prefs.getInt(PC_KEYBOARD_SIZE_PREF_STRING, 50)));
         config.pcKeyboardOpacity = Math.max(30, Math.min(100, prefs.getInt(PC_KEYBOARD_OPACITY_PREF_STRING, 90)));

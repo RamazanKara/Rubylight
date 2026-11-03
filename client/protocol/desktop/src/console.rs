@@ -18,6 +18,8 @@ pub struct Source<'a> {
     pub online: bool,
     pub paired: bool,
     pub library: Option<&'a Library>,
+    /// When the library's games were last played, by install id (`Native::last_played`).
+    pub last_played: Option<&'a std::collections::BTreeMap<String, u64>>,
     /// The session, only while the PC is reachable (an old one is not shown for a PC that is away).
     pub session: Option<&'a Session>,
     /// This device may end games on the PC.
@@ -34,6 +36,7 @@ impl<'a> Source<'a> {
             online,
             paired: host.paired(),
             library: host.native.library.as_ref().filter(|_| host.paired()),
+            last_played: host.paired().then_some(&host.native.last_played),
             session: host.native.session.as_ref().filter(|_| online),
             host_control: host.native.host_control(),
         }
@@ -68,6 +71,9 @@ pub struct Copy {
     /// The cover's version, empty when the PC has no cover for it.
     pub cover_version: String,
     pub has_cover: bool,
+    /// When the PC says the game was last played (seconds since the epoch, `0` for never), None
+    /// when it says nothing.
+    pub last_played: Option<u64>,
 }
 
 /// A game in the merged library: the same game on several PCs is one entry.
@@ -378,6 +384,7 @@ pub fn merge_library(sources: &[Source<'_>]) -> Vec<Entry> {
                 store_name: game.store.as_ref().filter(|s| !s.source.is_empty()).map(|s| store_name(&s.source, &s.name)),
                 cover_version: game.artwork.version.clone(),
                 has_cover: game.artwork.cover.is_some(),
+                last_played: source.last_played.and_then(|played| played.get(&game.install_id).copied()),
             };
             match index.get(&key) {
                 Some(&at) => entries[at].copies.push(copy),
@@ -489,9 +496,13 @@ pub fn recently_played(sources: &[Source<'_>], recents: &[Recent], playing: &[Co
     out
 }
 
-/// When the entry was last streamed, in seconds since the epoch: the latest recent game of any of
-/// its copies, matched as "Recently played" matches them (install id, else app id).
+/// When the entry was last played, in seconds since the epoch (`0` for never): the newest of what
+/// its copies' PCs say, as on Android. Only when no PC says, this device's own recent games (they
+/// keep the last few only), matched as "Recently played" matches them (install id, else app id).
 pub fn last_played(entry: &Entry, sources: &[Source<'_>], recents: &[Recent]) -> Option<u64> {
+    if let Some(at) = entry.copies.iter().filter_map(|copy| copy.last_played).max() {
+        return Some(at);
+    }
     recents
         .iter()
         .filter(|recent| {
@@ -778,7 +789,7 @@ mod tests {
     }
 
     fn source<'a>(id: u64, name: &'a str, online: bool, library: Option<&'a Library>, session: Option<&'a Session>) -> Source<'a> {
-        Source { id, unique_id: "", name, online, paired: true, library, session, host_control: false }
+        Source { id, unique_id: "", name, online, paired: true, library, last_played: None, session, host_control: false }
     }
 
     const DOTA: u32 = 1093052211;
@@ -1282,6 +1293,30 @@ mod tests {
         ];
         assert_eq!(last_played(dota, &sources, &recents), Some(5_000), "the latest, by install id without case");
         assert_eq!(last_played(dota, &sources, &[]), None);
+        // What the PCs say comes first: the newest across the copies, then never (0) over the
+        // recents, which keep only the last few.
+        let mut b = source(2, "Den", false, Some(&lib), None);
+        b.unique_id = "uid-b";
+        let install = &lib.games.iter().find(|g| g.title == "Dota 2").unwrap().install_id;
+        let (older, newer) = (std::collections::BTreeMap::from([(install.clone(), 6_000)]), std::collections::BTreeMap::from([(install.clone(), 8_000)]));
+        let mut a2 = source(1, "Desk", true, Some(&lib), None);
+        a2.unique_id = "uid-a";
+        let mut b2 = b;
+        a2.last_played = Some(&older);
+        b2.last_played = Some(&newer);
+        let both = [a2, b2];
+        let merged = merge_library(&both);
+        let dota2 = merged.iter().find(|e| e.title == "Dota 2").expect("Dota 2");
+        assert_eq!(dota2.copies.len(), 2);
+        assert_eq!(last_played(dota2, &both, &recents), Some(8_000), "the newest a PC says, not the recents");
+        let never = std::collections::BTreeMap::from([(install.clone(), 0)]);
+        let mut a3 = source(1, "Desk", true, Some(&lib), None);
+        a3.unique_id = "uid-a";
+        a3.last_played = Some(&never);
+        let one = [a3];
+        let merged = merge_library(&one);
+        let dota3 = merged.iter().find(|e| e.title == "Dota 2").expect("Dota 2");
+        assert_eq!(last_played(dota3, &one, &recents), Some(0), "the PC says never played");
         let store = dota.best().store_name.clone();
         let line = |played, now| list_line(dota, played, now);
         let with_store = |when: &str| match &store { Some(s) => format!("{s} · {when}"), None => when.to_owned() };

@@ -22,6 +22,7 @@ mod luminance;
 mod native;
 mod network_path;
 mod pairing;
+mod pc_power;
 pub mod pace;
 mod power;
 mod probe;
@@ -67,6 +68,10 @@ pub use luminance::DisplayLuminance;
 pub use native::{FilePermissions, NativeCapabilities, NativeLibrary};
 pub use network_path::{NetworkPath, MAX_NETWORK_PATH_BYTES};
 pub use pairing::{PairFailure, PairResult, PairStep};
+pub use pc_power::{
+    host_words, update_arrived, HostUpdate, PcPower, PcPowerOffer, PowerAvailability, FEATURE_RESTART, FEATURE_SHUTDOWN,
+    FEATURE_UPDATE, POWER_TOKEN_REFRESH,
+};
 pub use power::{PowerError, PowerReply, Refusal};
 pub use probe::{probe_start_kbps, LINK_PROBE_BYTES, PROBE_FLOOR_KBPS, PROBE_START_SHARE};
 pub use remote_check::{ConnectionTestStats, RemoteCheck, RemoteOutcome, REMOTE_CHECK_PROBES};

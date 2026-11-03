@@ -1009,6 +1009,10 @@ impl App {
                     }
                 }
                 HostEvent::Sleep { id, ask, name, confirmed, result } => self.launcher.sleep_answered(id, ask, &name, confirmed, result),
+                HostEvent::PcPower { id, ask, name, action, confirmed, result } => {
+                    self.launcher.pc_power_answered(id, ask, &name, action, confirmed, result)
+                }
+                HostEvent::HostUpdate { id, name, result } => self.launcher.update_answered(id, &name, result),
                 HostEvent::Unpaired { id, result } => {
                     if crate::hosts::now_unpaired(&result) {
                         self.forget_library(id);
@@ -1241,6 +1245,9 @@ impl App {
             Command::CancelWake => self.waking.end(),
             Command::SleepOffer { host, ask } => self.hosts.sleep_offer(host, ask),
             Command::Sleep { host, ask, token, at } => self.hosts.sleep(host, ask, token, at),
+            Command::PcPowerOffer { host, ask, action } => self.hosts.pc_power_offer(host, ask, action),
+            Command::PcPower { host, ask, action, token, at } => self.hosts.pc_power(host, ask, action, token, at),
+            Command::InstallUpdate { host } => self.hosts.install_update(host),
             Command::Rename { host, alias } => rename_host(&mut self.hosts, &self.store, host, &alias),
             Command::PinAddress { host, address } => {
                 if self.hosts.pin_address(host, address.as_deref()) {

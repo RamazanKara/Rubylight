@@ -427,8 +427,13 @@ fn library_of(h: &Shared) -> native_api::library::Library {
     })
 }
 /// What identifies a cover image file: its path, size and modification time.
-fn cover_fingerprint(app: &App, assets: &Path) -> String {
+/// `None` when the app has none of its own and `/appasset` would send the
+/// placeholder.
+fn cover_fingerprint(app: &App, assets: &Path) -> Option<String> {
     let path = butterpollo_core::catalog::artwork(app, assets);
+    if path == assets.join("box.png") {
+        return None;
+    }
     let (size, modified) = std::fs::metadata(&path).map_or((0, 0), |meta| {
         let modified = meta
             .modified()
@@ -437,7 +442,7 @@ fn cover_fingerprint(app: &App, assets: &Path) -> String {
             .map_or(0, |elapsed| elapsed.as_nanos());
         (meta.len(), modified)
     });
-    format!("{}|{size}|{modified}", path.display())
+    Some(format!("{}|{size}|{modified}", path.display()))
 }
 
 async fn session(State(h): State<Shared>, Extension(c): Extension<Connection>) -> Reply {
@@ -635,4 +640,29 @@ fn usb_token(hex: &str) -> Option<[u8; native_api::usb::TOKEN_BYTES]> {
         *byte = u8::from_str_radix(std::str::from_utf8(pair).ok()?, 16).ok()?;
     }
     Some(token)
+}
+
+#[cfg(test)]
+mod cover_tests {
+    use super::*;
+
+    #[test]
+    fn an_app_without_a_cover_of_its_own_has_no_fingerprint() {
+        let assets = std::env::temp_dir().join(format!("rubylight-cover-{}", std::process::id()));
+        std::fs::create_dir_all(&assets).unwrap();
+        let png = b"\x89PNG\r\n\x1a\n0000";
+        std::fs::write(assets.join("box.png"), png).unwrap();
+        std::fs::write(assets.join("dota.png"), png).unwrap();
+        let app = |image: &str| -> App {
+            serde_json::from_value(serde_json::json!({"name": "Dota 2", "image-path": image}))
+                .unwrap()
+        };
+        let own = cover_fingerprint(&app("dota.png"), &assets);
+        // None, a missing file and a file that isn't an image all end at the placeholder.
+        let none = [app(""), app("gone.png"), app("notes.txt")]
+            .map(|app| cover_fingerprint(&app, &assets));
+        let _ = std::fs::remove_dir_all(&assets);
+        assert!(own.unwrap().contains("dota.png"));
+        assert_eq!(none, [None, None, None]);
+    }
 }

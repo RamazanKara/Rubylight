@@ -49,6 +49,15 @@ final class CoverLoaders {
         return app;
     }
 
+    /**
+     * The host to load {@code source}'s cover from, or null when a native host says the game has no cover of its own:
+     * {@code /appasset} would send the host's grey placeholder, so the title stands in, as with no host.
+     */
+    static ComputerDetails coverHost(ComputerDetails host, ConsoleSnapshot.Source source) {
+        // A classic host's source has no install id and no cover path, and its covers load as before.
+        return source != null && source.installId != null && source.coverPath == null ? null : host;
+    }
+
     /** Shows the cover in {@code image}, or the title in {@code text} until there is one. */
     void bind(ComputerDetails host, NvApp app, ImageView image, TextView text) {
         if (host == null) {

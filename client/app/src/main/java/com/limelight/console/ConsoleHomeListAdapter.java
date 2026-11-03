@@ -416,7 +416,7 @@ final class ConsoleHomeListAdapter extends RecyclerView.Adapter<RecyclerView.Vie
                 image.setImageDrawable(null);
                 imageText.setText(card.title);
                 imageText.setVisibility(View.VISIBLE);
-            } else if (covers != null) covers.bind(hosts.apply(card.hostUuid), CoverLoaders.appOf(card.title, card.appId, card.source), image,
+            } else if (covers != null) covers.bind(CoverLoaders.coverHost(hosts.apply(card.hostUuid), card.source), CoverLoaders.appOf(card.title, card.appId, card.source), image,
                     imageText);
             title.setText(card.title);
             String where = line != null ? line : card.hostCount > 1 ? context.getString(R.string.console_card_on_hosts, card.hostCount)

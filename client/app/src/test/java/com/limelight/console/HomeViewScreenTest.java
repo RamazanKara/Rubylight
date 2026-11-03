@@ -379,6 +379,55 @@ public class HomeViewScreenTest {
     }
 
     @Test
+    public void aGameWithoutACoverShowsItsTitleNotTheHostsPlaceholder() throws Exception {
+        ConsoleRig rig = new ConsoleRig(temporary.newFolder());
+        HomeModel model;
+        try {
+            rig.transport.reply("tower", "capabilities", ok("{\"api_version\":1,\"features\":[\"library\"],"
+                    + "\"permissions\":{\"list\":true,\"view\":true,\"launch\":true}}"));
+            // Portal has a cover; the host sends none for Notes.
+            rig.transport.reply("tower", "library", ok(library("t", NativeApiFixtures.game("t-portal", 11, "Portal", null, false),
+                    HomeLibraryRowsTest.game(12, "Notes", null, true, null))));
+            rig.transport.reply("tower", "session", ok(NativeApiFixtures.IDLE));
+            List<ComputerDetails> hosts = Collections.singletonList(nativeHost("tower", "Tower", true));
+            model = HomeModel.of(rig.repository.refresh(hosts), new HashSet<>(Collections.singletonList("tower")));
+        } finally {
+            rig.close();
+        }
+        prefs.edit().putString(HomeView.KEY_LAYOUT, "grid").putString(HomeView.KEY_GROUP, "none").commit();
+        HomeShellTest.Home home = home().get();
+        RecyclerView list = home.findViewById(R.id.console_list);
+        ComputerDetails tower = nativeHost("tower", "Tower", true);
+        ConsoleHomeAdapter.Listener none = (ConsoleHomeAdapter.Listener) java.lang.reflect.Proxy.newProxyInstance(
+                getClass().getClassLoader(), new Class<?>[] {ConsoleHomeAdapter.Listener.class},
+                (proxy, method, args) -> method.getReturnType() == boolean.class ? false : null);
+        ConsoleHomeListAdapter adapter = new ConsoleHomeListAdapter(home, null, uuid -> tower, none);
+        CoverLoaders covers = new CoverLoaders(home, "unique", 120);
+        try {
+            adapter.setCovers(covers);
+            ReflectionHelpers.setField(home, "adapter", adapter);
+            list.setAdapter(adapter);
+            adapter.submit(model, HomeView.Group.NONE);
+            layout(list, 1080, 2200);
+            View portal = null, notes = null;
+            for (int i = 0; i < list.getChildCount(); i++) {
+                View child = list.getChildAt(i);
+                if (list.getChildViewHolder(child).getItemViewType() != ConsoleHomeListAdapter.COVER_GAME) continue;
+                String title = ((TextView) child.findViewById(R.id.console_title)).getText().toString();
+                if (title.equals("Portal")) portal = child;
+                if (title.equals("Notes")) notes = child;
+            }
+            TextView notesText = notes.findViewById(R.id.console_cover_text);
+            assertEquals("its title on the cover's surface", View.VISIBLE, notesText.getVisibility());
+            assertEquals("Notes", notesText.getText().toString());
+            assertNull("nothing loads", ((android.widget.ImageView) notes.findViewById(R.id.console_cover)).getDrawable());
+            assertNotNull("a cover loads as before", ((android.widget.ImageView) portal.findViewById(R.id.console_cover)).getDrawable());
+        } finally {
+            covers.release();
+        }
+    }
+
+    @Test
     public void aListLineSaysWhenTheGameWasLastPlayed() {
         long now = 1_800_000_000L;
         assertEquals("0 is the host's never played", "Steam · Not played yet", ConsoleHomeListAdapter.listLine(context, "Steam", 0L, now));

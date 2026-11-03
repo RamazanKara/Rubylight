@@ -322,7 +322,7 @@ final class ShelfAdapter extends RecyclerView.Adapter<ShelfAdapter.CardHolder> {
                 imageText.setText(card.title);
                 imageText.setVisibility(View.VISIBLE);
             } else if (env.covers != null) {
-                env.covers.bind(env.hosts.apply(card.hostUuid), CoverLoaders.appOf(card.title, card.appId, card.source), image,
+                env.covers.bind(CoverLoaders.coverHost(env.hosts.apply(card.hostUuid), card.source), CoverLoaders.appOf(card.title, card.appId, card.source), image,
                         imageText);
             }
             String where = whereOf(context, card);

@@ -178,14 +178,15 @@ fn hash(bytes: &[u8]) -> String {
     format!("{:08x}", crc32fast::hash(bytes))
 }
 
-/// [`library_with`] with the app's `image-path` as the cover fingerprint.
+/// [`library_with`] with the app's `image-path` as the cover fingerprint (no
+/// cover without one).
 pub fn library(apps: &[App], scan: Option<&Scan>, current: Option<u32>) -> Library {
     library_with(apps, scan, current, |app| {
         app.extra
             .get("image-path")
             .and_then(Value::as_str)
-            .unwrap_or("")
-            .to_owned()
+            .filter(|path| !path.is_empty())
+            .map(str::to_owned)
     })
 }
 
@@ -193,12 +194,14 @@ pub fn library(apps: &[App], scan: Option<&Scan>, current: Option<u32>) -> Libra
 /// session tiles. `scan` is the cached launcher scan (`None` before the first
 /// one), `current` the id of the host's current game. `cover` returns what
 /// identifies the cover image file, such as its path, size and mtime: the
-/// artwork `version` changes when it does.
+/// artwork `version` changes when it does. `None` is an app without a cover of
+/// its own (the host would send its placeholder): `cover` is left out, so
+/// clients show the title instead.
 pub fn library_with(
     apps: &[App],
     scan: Option<&Scan>,
     current: Option<u32>,
-    cover: impl Fn(&App) -> String,
+    cover: impl Fn(&App) -> Option<String>,
 ) -> Library {
     let mut games = Vec::with_capacity(apps.len());
     let mut played = Vec::with_capacity(apps.len());
@@ -224,9 +227,15 @@ pub fn library_with(
             store,
             installed,
             running: false,
-            artwork: Artwork {
-                cover: Some(format!("/appasset?appid={id}&AssetType=2&AssetIdx=0")),
-                version: hash(cover(app).as_bytes()),
+            artwork: match cover(app) {
+                Some(file) => Artwork {
+                    cover: Some(format!("/appasset?appid={id}&AssetType=2&AssetIdx=0")),
+                    version: hash(file.as_bytes()),
+                },
+                None => Artwork {
+                    cover: None,
+                    version: String::new(),
+                },
             },
             last_played: None,
         });

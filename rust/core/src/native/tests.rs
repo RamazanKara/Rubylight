@@ -72,6 +72,11 @@ fn library_ids_and_store() {
     );
     assert_eq!(game.installed, None);
     assert!(!game.running);
+    // Without a cover of its own: none, so clients show the title, not the placeholder.
+    let bare = app(json!({"name": "Notes", "uuid": "a6f1a9a4-4b51-5f43-9d0b-7a2b1c2d3e4f"}));
+    let bare = super::library(&[bare], None, None);
+    assert_eq!(bare.games[0].artwork.cover, None);
+    assert_eq!(bare.games[0].artwork.version, "");
 }
 
 #[test]
@@ -265,8 +270,8 @@ fn revision_ignores_running_and_follows_everything_else() {
 #[test]
 fn artwork_version_follows_the_cover_fingerprint() {
     let apps = [dota()];
-    let a = library_with(&apps, None, None, |_| "dota.png|10|1".into());
-    let b = library_with(&apps, None, None, |_| "dota.png|11|1".into());
+    let a = library_with(&apps, None, None, |_| Some("dota.png|10|1".into()));
+    let b = library_with(&apps, None, None, |_| Some("dota.png|11|1".into()));
     assert_ne!(a.games[0].artwork.version, b.games[0].artwork.version);
     assert_ne!(a.revision, b.revision);
 }

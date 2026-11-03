@@ -3,7 +3,7 @@
 // sound come as in the console's Stream page; what the guest may send follows the invite: a
 // view-only guest sends nothing, a controller guest its pads, and with keyboard and mouse also the
 // `input` channel. The host checks all of it again.
-import { Pads, type PadMessage, type PadSnapshot } from './gamepad';
+import { Pads, rumble, type PadMessage, type PadSnapshot } from './gamepad';
 import { browserOffer, stereoAnswer } from './client';
 import { Held, INPUT_LABEL, INPUT_OPTIONS, type InputMessage } from './input';
 
@@ -156,7 +156,7 @@ export class GuestStream {
     pc.ondatachannel = (event) => {
       if (event.channel.label === 'control') {
         this.control = event.channel;
-        event.channel.onmessage = (message) => this.fromHost(String(message.data));
+        event.channel.onmessage = (message) => rumble(String(message.data));
       } else if (event.channel.label === 'gamepad') this.pad = event.channel;
     };
     pc.onconnectionstatechange = () => {
@@ -179,24 +179,6 @@ export class GuestStream {
     });
     input.onclose = () => this.end({ code: 'input', message: 'The host closed the input channel.', wait: false, final: false });
     this.input = input;
-  }
-
-  /** Rumble for a pad of this page's. */
-  private fromHost(text: string) {
-    let message: { type?: string; controllerId?: number; strongMagnitude?: number; weakMagnitude?: number };
-    try {
-      message = JSON.parse(text);
-    } catch {
-      return;
-    }
-    if (message.type !== 'rumble') return;
-    const pad = navigator.getGamepads?.()[message.controllerId ?? -1] as (Gamepad & { vibrationActuator?: GamepadHapticActuator | null }) | null | undefined;
-    const actuator = pad?.vibrationActuator;
-    if (!actuator) return;
-    const strongMagnitude = Math.min(1, Math.max(0, Number(message.strongMagnitude) || 0));
-    const weakMagnitude = Math.min(1, Math.max(0, Number(message.weakMagnitude) || 0));
-    if (!strongMagnitude && !weakMagnitude) void actuator.reset?.().catch(() => {});
-    else void actuator.playEffect('dual-rumble', { duration: 1000, strongMagnitude, weakMagnitude }).catch(() => {});
   }
 
   /** Keyboard and mouse, when the invite allows them; dropped otherwise. */

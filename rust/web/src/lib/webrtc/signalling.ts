@@ -56,8 +56,14 @@ export class Signalling {
 
   /** Opens the socket; rejects with a RefusedError when the host refuses it. */
   static open(url: string, csrf: string, timeout = 15000): Promise<Signalling> {
+    return Signalling.openWith(url, subprotocols(csrf), timeout);
+  }
+
+  /** Opens the socket with `protocols`; the host must answer with the first. */
+  static openWith(url: string, protocols: string[], timeout = 15000): Promise<Signalling> {
+    const PROTOCOL = protocols[0];
     return new Promise((resolve, reject) => {
-      const ws = new WebSocket(url, subprotocols(csrf));
+      const ws = new WebSocket(url, protocols);
       const signalling = new Signalling(ws);
       let settled = false;
       const fail = (error: Error) => {

@@ -1,4 +1,4 @@
-// Gamepads for the guest page, on the `control` and `gamepad` channels of the host's offer
+// Gamepads for the guest and play pages, on the `control` and `gamepad` channels of the host's offer
 // (docs/webrtc.md, "Gamepads"): the Gamepad API's standard buttons in the TV app's bit order, as
 // rust/core/src/webrtc/gamepad.rs reads them. The mapping is pure, so it is tested in Node
 // (Guests.test.mjs).
@@ -67,6 +67,24 @@ export function stateMessage(pad: PadSnapshot, seq: number): PadMessage {
     rightStickX: axis(2),
     rightStickY: axis(3),
   };
+}
+
+/** Plays a `rumble` message from the host's `control` channel on this browser's pad. */
+export function rumble(text: string) {
+  let message: { type?: string; controllerId?: number; strongMagnitude?: number; weakMagnitude?: number };
+  try {
+    message = JSON.parse(text);
+  } catch {
+    return;
+  }
+  if (message.type !== 'rumble') return;
+  const pad = navigator.getGamepads?.()[message.controllerId ?? -1] as (Gamepad & { vibrationActuator?: GamepadHapticActuator | null }) | null | undefined;
+  const actuator = pad?.vibrationActuator;
+  if (!actuator) return;
+  const strongMagnitude = Math.min(1, Math.max(0, Number(message.strongMagnitude) || 0));
+  const weakMagnitude = Math.min(1, Math.max(0, Number(message.weakMagnitude) || 0));
+  if (!strongMagnitude && !weakMagnitude) void actuator.reset?.().catch(() => {});
+  else void actuator.playEffect('dual-rumble', { duration: 1000, strongMagnitude, weakMagnitude }).catch(() => {});
 }
 
 /**

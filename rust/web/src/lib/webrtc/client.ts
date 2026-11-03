@@ -178,9 +178,12 @@ export class ConsoleStream {
    */
   onended: ((reason: string, closed: boolean) => void) | null = null;
 
-  private constructor(private sig: Signalling) {
+  protected constructor(protected sig: Signalling) {
     sig.onclose = () => this.end(closedMessage(sig.closeReason), false);
   }
+
+  /** The stream's peer connection exists; the play page takes the host's gamepad channels here. */
+  protected opened(_pc: RTCPeerConnection) {}
 
   /** Opens the console's socket, which the host has signed in already. */
   static async connect(csrf: string, url = signalUrl(location)): Promise<ConsoleStream> {
@@ -271,6 +274,7 @@ export class ConsoleStream {
     const offer = await Promise.race([this.sig.request('start-session', { appId, video, audio: { channels: CHANNELS } }, 'offer', CONNECT_TIMEOUT_MS), failed]);
     const sessionId = offer.sessionId;
     const pc = (this.pc = new RTCPeerConnection({ iceServers: [] }));
+    this.opened(pc);
     pc.ontrack = (event) => {
       noPlayoutDelay(event.receiver);
       media.addTrack(event.track);

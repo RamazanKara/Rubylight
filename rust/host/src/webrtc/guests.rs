@@ -35,7 +35,10 @@ use serde_json::json;
 use std::{
     collections::{BTreeMap, HashMap},
     net::{IpAddr, SocketAddr, UdpSocket},
-    sync::{Arc, Mutex, Weak, atomic::AtomicBool},
+    sync::{
+        Arc, Mutex, Weak,
+        atomic::{AtomicBool, AtomicU64, Ordering},
+    },
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
@@ -44,11 +47,13 @@ use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 pub const PROTOCOL: &str = "rubylight.guest.v1";
 /// Guests at once. Guest `n` (0-based) gets UDP port `webrtc_media_port + 1 + n`.
 pub const MAX_GUESTS: u16 = 4;
-/// Guest sockets open at once, joined or not, in all and from one address (an IPv6 /64).
+/// Guest sockets that have not joined yet, in all and from one address (an IPv6 /64). A joined
+/// guest's socket no longer counts: the guests already watching are never locked out.
 const MAX_SOCKETS: usize = 16;
 const MAX_SOCKETS_PER_PEER: usize = 4;
-/// How long a page has to send its token, and to answer the offer.
-const JOIN_TIMEOUT: Duration = Duration::from_secs(10);
+/// How long a page has to send its token, and to answer the offer. A page sends its token as
+/// soon as the socket opens; one that does not counts as a wrong token.
+const JOIN_TIMEOUT: Duration = Duration::from_secs(5);
 const ANSWER_TIMEOUT: Duration = Duration::from_secs(15);
 /// How long an answered guest may take to connect its media.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(20);
@@ -114,6 +119,8 @@ pub enum JoinError {
     InvalidLink,
     NotStreaming,
     Full,
+    /// Too many pages are opening sockets.
+    Busy,
 }
 
 impl JoinError {
@@ -135,6 +142,10 @@ impl JoinError {
                 "full",
                 format!("{MAX_GUESTS} guests are watching already; try again when one leaves."),
             ),
+            Self::Busy => (
+                "busy",
+                "Too many guest pages are open on this host; try again shortly.".into(),
+            ),
         }
     }
 }
@@ -148,13 +159,16 @@ pub struct Admission {
     pub permission: Permission,
     pub owner: Owner,
     pub leave: UnboundedReceiver<Leave>,
+    /// The address the owner put in the link, which the guest's media is offered at too.
+    pub address: Option<String>,
 }
 
 struct Joined {
     slot: u16,
     name: String,
     permission: Permission,
-    invite: String,
+    /// The link it joined with, listed while the guest watches even after the link expired.
+    link: InviteInfo,
     since: u64,
     leave: UnboundedSender<Leave>,
 }
@@ -162,23 +176,38 @@ struct Joined {
 #[derive(Default)]
 struct Inner {
     invites: Invites,
+    /// The address the owner put in each live link, by invite id.
+    addresses: HashMap<String, String>,
     lookups: Lookups,
     /// The owner's stream and the number it was registered under.
     owner: Option<(u64, Owner)>,
     generation: u64,
     joined: BTreeMap<u64, Joined>,
     next_guest: u64,
-    keyframe_at: Option<Instant>,
-    sockets: HashMap<IpAddr, usize>,
+    /// Sockets that have not joined, by address ([`MAX_SOCKETS`]); no entry for none.
+    pending: HashMap<IpAddr, usize>,
 }
 
 /// The invites and guests of the host. Invites live in memory only: a restart revokes them all.
-#[derive(Default)]
 pub struct Guests {
     inner: Mutex<Inner>,
+    /// When a guest last had a keyframe asked for, in milliseconds after `epoch`; 0 for never.
+    /// Outside the lock: the owner's frame thread asks when a guest's queue drops a frame.
+    keyframe_at: AtomicU64,
+    epoch: Instant,
 }
 
-#[derive(Serialize)]
+impl Default for Guests {
+    fn default() -> Self {
+        Self {
+            inner: Mutex::default(),
+            keyframe_at: AtomicU64::new(0),
+            epoch: Instant::now(),
+        }
+    }
+}
+
+#[derive(Clone, Serialize)]
 pub struct InviteInfo {
     pub id: String,
     pub permission: Permission,
@@ -215,29 +244,62 @@ pub struct Status {
     pub guests: Vec<GuestInfo>,
 }
 
+impl Inner {
+    /// Forget expired invites and the addresses of links that are gone.
+    fn prune(&mut self, now: u64) {
+        self.invites.prune(now);
+        let Self {
+            invites, addresses, ..
+        } = self;
+        addresses.retain(|id, _| invites.live(now).any(|invite| invite.id == *id));
+    }
+}
+
 impl Guests {
-    /// A new invite and its token, which only the caller ever sees.
+    /// A new invite and its token, which only the caller ever sees. `address` is the one the
+    /// owner puts in the link.
     pub fn create(
         &self,
         permission: Permission,
         lifetime: Duration,
+        address: Option<String>,
     ) -> Result<(Invite, String), InviteError> {
-        self.inner.lock().unwrap().invites.create(
-            &mut rand::rngs::OsRng,
-            permission,
-            lifetime,
-            unix_now(),
-        )
+        let now = unix_now();
+        let mut inner = self.inner.lock().unwrap();
+        inner.prune(now);
+        let (invite, token) =
+            inner
+                .invites
+                .create(&mut rand::rngs::OsRng, permission, lifetime, now)?;
+        if let Some(address) = address {
+            inner.addresses.insert(invite.id.clone(), address);
+        }
+        Ok((invite, token))
+    }
+
+    /// Whether a guest page may load: a link is live or a guest is watching. Until the owner
+    /// makes a link, the guest port answers nothing.
+    pub fn open(&self) -> bool {
+        let inner = self.inner.lock().unwrap();
+        !inner.joined.is_empty() || inner.invites.live(unix_now()).next().is_some()
     }
 
     pub fn status(&self) -> Status {
         let now = unix_now();
         let mut inner = self.inner.lock().unwrap();
-        inner.invites.prune(now);
+        inner.prune(now);
+        let mut invites: Vec<InviteInfo> = inner.invites.live(now).map(InviteInfo::from).collect();
+        // An expired link lets nobody new in, but whoever joined with it is still watching: it
+        // stays listed, so it can be revoked.
+        for joined in inner.joined.values() {
+            if invites.iter().all(|i| i.id != joined.link.id) {
+                invites.push(joined.link.clone());
+            }
+        }
         Status {
             streaming: inner.owner.is_some(),
             max_guests: MAX_GUESTS,
-            invites: inner.invites.live(now).map(InviteInfo::from).collect(),
+            invites,
             guests: inner
                 .joined
                 .iter()
@@ -245,7 +307,7 @@ impl Guests {
                     id: *id,
                     name: joined.name.clone(),
                     permission: joined.permission,
-                    invite: joined.invite.clone(),
+                    invite: joined.link.id.clone(),
                     since: joined.since,
                 })
                 .collect(),
@@ -253,12 +315,15 @@ impl Guests {
     }
 
     /// Withdraw an invite: it opens nothing from now on, and whoever joined with it is
-    /// disconnected. False when there was no such invite.
+    /// disconnected, also after it expired. False when there was no such invite and nobody
+    /// watches with it.
     pub fn revoke(&self, id: &str) -> bool {
         let mut inner = self.inner.lock().unwrap();
-        let found = inner.invites.revoke(id);
-        for joined in inner.joined.values().filter(|j| j.invite == id) {
+        let mut found = inner.invites.revoke(id);
+        inner.addresses.remove(id);
+        for joined in inner.joined.values().filter(|j| j.link.id == id) {
             let _ = joined.leave.send(Leave::Revoked);
+            found = true;
         }
         found
     }
@@ -283,7 +348,7 @@ impl Guests {
             let _ = joined.leave.send(Leave::OwnerEnded);
         }
         inner.owner = Some((generation, owner));
-        inner.keyframe_at = None;
+        self.keyframe_at.store(0, Ordering::Release);
         generation
     }
 
@@ -324,10 +389,10 @@ impl Guests {
         if !inner.lookups.allowed(peer, now) {
             return Err(JoinError::RateLimited);
         }
-        let Some((invite, permission)) = inner
+        let Some((link, permission)) = inner
             .invites
             .find(token, unix)
-            .map(|invite| (invite.id.clone(), invite.permission))
+            .map(|invite| (InviteInfo::from(invite), invite.permission))
         else {
             inner.lookups.failed(peer, now);
             return Err(JoinError::InvalidLink);
@@ -343,13 +408,14 @@ impl Guests {
         let id = inner.next_guest;
         let name = guest_name(name);
         let (leave, receiver) = unbounded_channel();
+        let address = inner.addresses.get(&link.id).cloned();
         inner.joined.insert(
             id,
             Joined {
                 slot,
                 name: name.clone(),
                 permission,
-                invite,
+                link,
                 since: unix,
                 leave,
             },
@@ -361,6 +427,7 @@ impl Guests {
             permission,
             owner,
             leave: receiver,
+            address,
         })
     }
 
@@ -369,53 +436,62 @@ impl Guests {
         self.inner.lock().unwrap().joined.remove(&id);
     }
 
-    /// Ask the owner's encoder for a keyframe for a guest that lost its picture, unless a guest
-    /// had one less than [`KEYFRAME_INTERVAL`] ago. False when it was not asked.
-    pub fn keyframe(&self, now: Instant) -> bool {
-        let session = {
-            let mut inner = self.inner.lock().unwrap();
-            if inner
-                .keyframe_at
-                .is_some_and(|at| now.saturating_duration_since(at) < KEYFRAME_INTERVAL)
-            {
-                return false;
-            }
-            let Some(session) = inner
-                .owner
-                .as_ref()
-                .and_then(|(_, owner)| owner.session.upgrade())
-            else {
-                return false;
-            };
-            inner.keyframe_at = Some(now);
-            session
+    /// Ask the owner's encoder (`session`, the owner's) for a keyframe for a guest that lost its
+    /// picture, unless a guest had one less than [`KEYFRAME_INTERVAL`] ago. False when it was
+    /// not asked. Takes no lock: the owner's frame thread calls it.
+    pub fn keyframe(&self, session: &Weak<Session>, now: Instant) -> bool {
+        let at = now.saturating_duration_since(self.epoch).as_millis() as u64 + 1;
+        let last = self.keyframe_at.load(Ordering::Acquire);
+        if last != 0 && at.saturating_sub(last) < KEYFRAME_INTERVAL.as_millis() as u64 {
+            return false;
+        }
+        let Some(session) = session.upgrade() else {
+            return false;
         };
+        if self
+            .keyframe_at
+            .compare_exchange(last, at, Ordering::AcqRel, Ordering::Acquire)
+            .is_err()
+        {
+            return false;
+        }
         // The host's own request, not the client's: it is no evidence about the owner's network.
         session.request_host_keyframe();
         true
     }
 
-    /// Count a guest socket from `peer`; false when there are too many already.
-    fn open_socket(&self, peer: IpAddr) -> bool {
+    /// Count a socket from `peer` that has not joined yet. Refused while the address is waiting
+    /// out wrong tokens, or too many sockets wait already.
+    fn open_socket(&self, peer: IpAddr, now: Instant) -> Result<(), JoinError> {
         let mut inner = self.inner.lock().unwrap();
-        let total: usize = inner.sockets.values().sum();
-        let count = inner.sockets.entry(peer_key(peer)).or_default();
-        if total >= MAX_SOCKETS || *count >= MAX_SOCKETS_PER_PEER {
-            return false;
+        if !inner.lookups.allowed(peer, now) {
+            return Err(JoinError::RateLimited);
         }
-        *count += 1;
-        true
+        let key = peer_key(peer);
+        let total: usize = inner.pending.values().sum();
+        let count = inner.pending.get(&key).copied().unwrap_or(0);
+        if total >= MAX_SOCKETS || count >= MAX_SOCKETS_PER_PEER {
+            return Err(JoinError::Busy);
+        }
+        inner.pending.insert(key, count + 1);
+        Ok(())
     }
 
+    /// A socket from `peer` joined, or closed before it did.
     fn close_socket(&self, peer: IpAddr) {
         let mut inner = self.inner.lock().unwrap();
         let key = peer_key(peer);
-        if let Some(count) = inner.sockets.get_mut(&key) {
+        if let Some(count) = inner.pending.get_mut(&key) {
             *count -= 1;
             if *count == 0 {
-                inner.sockets.remove(&key);
+                inner.pending.remove(&key);
             }
         }
+    }
+
+    /// A page from `peer` sent no token in time, or something else first: as a wrong token.
+    fn unanswered(&self, peer: IpAddr, now: Instant) {
+        self.inner.lock().unwrap().lookups.failed(peer, now);
     }
 }
 
@@ -440,15 +516,24 @@ impl Drop for OwnerGuard {
     }
 }
 
-/// A counted guest socket.
+/// A guest socket counted until it joins ([`MAX_SOCKETS`]).
 struct SocketSlot {
     h: Shared,
     peer: IpAddr,
+    counted: bool,
+}
+
+impl SocketSlot {
+    fn joined(&mut self) {
+        if std::mem::replace(&mut self.counted, false) {
+            self.h.guests.close_socket(self.peer);
+        }
+    }
 }
 
 impl Drop for SocketSlot {
     fn drop(&mut self) {
-        self.h.guests.close_socket(self.peer);
+        self.joined();
     }
 }
 
@@ -518,16 +603,24 @@ enum Link {
 /// lost picture asks for a keyframe within the guests' allowance.
 struct Bridge {
     h: Shared,
-    input: GuestHandle,
+    /// None for a view-only guest, whose input goes nowhere.
+    input: Option<GuestHandle>,
+    /// The owner's session, whose encoder makes the keyframes.
+    session: Weak<Session>,
     link: UnboundedSender<Link>,
 }
 
 impl Bridge {
+    fn keyframe(&self) {
+        self.h.guests.keyframe(&self.session, Instant::now());
+    }
+
     fn event(&self, event: TransportEvent) {
+        let input = self.input.as_ref();
         match event {
             TransportEvent::Connected => {
                 let _ = self.link.send(Link::Connected);
-                self.h.guests.keyframe(Instant::now());
+                self.keyframe();
             }
             TransportEvent::Closed => {
                 let _ = self.link.send(Link::Closed);
@@ -536,19 +629,29 @@ impl Bridge {
                 data,
                 binary: false,
             } => match std::str::from_utf8(&data).map(classify_control) {
-                Ok(ControlMessage::KeyframeRequest) => {
-                    self.h.guests.keyframe(Instant::now());
-                }
+                Ok(ControlMessage::KeyframeRequest) => self.keyframe(),
                 Ok(ControlMessage::GamepadAnnouncement) => {
-                    self.input.gamepad(data, false, Instant::now());
+                    if let Some(input) = input {
+                        input.gamepad(data, false, Instant::now());
+                    }
                 }
                 _ => {}
             },
             TransportEvent::Gamepad { data, binary } => {
-                self.input.gamepad(data, binary, Instant::now())
+                if let Some(input) = input {
+                    input.gamepad(data, binary, Instant::now());
+                }
             }
-            TransportEvent::Input { data, binary } => self.input.input(data, binary),
-            TransportEvent::ChannelClosed { label } => self.input.channel_closed(&label),
+            TransportEvent::Input { data, binary } => {
+                if let Some(input) = input {
+                    input.input(data, binary);
+                }
+            }
+            TransportEvent::ChannelClosed { label } => {
+                if let Some(input) = input {
+                    input.channel_closed(&label);
+                }
+            }
             TransportEvent::Disconnected
             | TransportEvent::Reconnected
             | TransportEvent::ChannelOpen(_)
@@ -559,30 +662,23 @@ impl Bridge {
 
     fn hooks(self: &Arc<Self>) -> Hooks {
         let (idr, event) = (self.clone(), self.clone());
-        Hooks::new(
-            move |_| {
-                idr.h.guests.keyframe(Instant::now());
-            },
-            move |e| event.event(e),
-        )
+        Hooks::new(move |_| idr.keyframe(), move |e| event.event(e))
     }
 }
 
 /// Answer a guest page's upgrade. The caller checked its origin and that the WebRTC server is
-/// on. `advertised` is the address the page was opened at (its `Host`), which a guest across a
-/// port forward also reaches the media at.
+/// on.
 pub fn upgrade(
     h: Shared,
     socket: WebSocketUpgrade,
     peer: SocketAddr,
     local: SocketAddr,
-    advertised: Option<String>,
 ) -> Response {
     socket
         .protocols([PROTOCOL])
         .max_message_size(MAX_MESSAGE)
         .max_frame_size(MAX_MESSAGE)
-        .on_upgrade(move |socket| connection(h, socket, peer, local, advertised))
+        .on_upgrade(move |socket| connection(h, socket, peer, local))
 }
 
 async fn send(socket: &mut WebSocket, message: serde_json::Value) -> bool {
@@ -606,33 +702,29 @@ async fn receive(socket: &mut WebSocket) -> Option<Result<In, ()>> {
     }
 }
 
-async fn connection(
-    h: Shared,
-    mut socket: WebSocket,
-    peer: SocketAddr,
-    local: SocketAddr,
-    advertised: Option<String>,
-) {
+async fn connection(h: Shared, mut socket: WebSocket, peer: SocketAddr, local: SocketAddr) {
     let ip = peer.ip().to_canonical();
-    let end = if h.guests.open_socket(ip) {
-        let _slot = SocketSlot {
-            h: h.clone(),
-            peer: ip,
-        };
-        guest(
-            &h,
-            &mut socket,
-            SocketAddr::new(ip, peer.port()),
-            local,
-            advertised,
-        )
-        .await
-    } else {
-        tracing::info!(%peer, "guest socket refused: too many are open");
-        End::Refused(
-            "busy",
-            "Too many guest pages are open on this host; try again shortly.".into(),
-        )
+    let end = match h.guests.open_socket(ip, Instant::now()) {
+        Ok(()) => {
+            let mut slot = SocketSlot {
+                h: h.clone(),
+                peer: ip,
+                counted: true,
+            };
+            guest(
+                &h,
+                &mut socket,
+                SocketAddr::new(ip, peer.port()),
+                local,
+                &mut slot,
+            )
+            .await
+        }
+        Err(error) => {
+            tracing::info!(%peer, ?error, "guest socket refused");
+            let (code, message) = error.said();
+            End::Refused(code, message)
+        }
     };
     let said = match &end {
         End::Left(leave) => {
@@ -650,28 +742,38 @@ async fn connection(
     let _ = socket.send(Message::Close(None)).await;
 }
 
+/// The page's end of a failure whose detail stays in the host's log.
+const COULD_NOT_START: &str = "The host could not start your stream.";
+
 /// One guest, from its token to the end of its stream.
 async fn guest(
     h: &Shared,
     socket: &mut WebSocket,
     peer: SocketAddr,
     local: SocketAddr,
-    advertised: Option<String>,
+    slot: &mut SocketSlot,
 ) -> End {
     let refused = |code, message: &str| End::Refused(code, message.into());
     let (token, name) = match tokio::time::timeout(JOIN_TIMEOUT, receive(socket)).await {
         Ok(Some(Ok(In::Join { token, name }))) => (token, name),
-        Ok(Some(_)) => return refused("invalid-message", "Send the invite token first."),
+        Ok(Some(_)) => {
+            h.guests.unanswered(peer.ip(), Instant::now());
+            return refused("invalid-message", "Send the invite token first.");
+        }
         Ok(None) => return End::Gone,
-        Err(_) => return refused("timeout", "The page did not send its invite in time."),
+        Err(_) => {
+            h.guests.unanswered(peer.ip(), Instant::now());
+            return refused("timeout", "The page did not send its invite in time.");
+        }
     };
     let Admission {
         id,
-        slot,
+        slot: seat,
         name,
         permission,
         owner,
         mut leave,
+        address,
     } = match h.guests.join(peer.ip(), &token, &name, Instant::now()) {
         Ok(admission) => admission,
         Err(error) => {
@@ -680,14 +782,15 @@ async fn guest(
             return End::Refused(code, message);
         }
     };
+    slot.joined();
     let _seat = Seat { h: h.clone(), id };
     tracing::info!(guest = id, %name, permission = permission.as_str(), %peer, "guest joined the console stream");
 
-    let prepared = match prepare(h, &owner.spec, local.ip(), slot, advertised.as_deref()).await {
+    let prepared = match prepare(h, &owner.spec, local.ip(), seat, address.as_deref()).await {
         Ok(prepared) => prepared,
         Err(error) => {
             tracing::error!(guest = id, error = %format!("{error:#}"), "guest stream could not be prepared");
-            return End::Refused("internal", format!("{error:#}"));
+            return refused("internal", COULD_NOT_START);
         }
     };
     let video = &owner.spec.video;
@@ -723,6 +826,7 @@ async fn guest(
     let bridge = Arc::new(Bridge {
         h: h.clone(),
         input: owner.input.guest(id, permission),
+        session: owner.session.clone(),
         link,
     });
     let started = {
@@ -732,10 +836,8 @@ async fn guest(
         })
         .await
         .unwrap_or_else(|error| {
-            Err(End::Refused(
-                "internal",
-                format!("starting the guest's stream panicked: {error}"),
-            ))
+            tracing::error!(guest = id, %error, "starting a guest's stream panicked");
+            Err(End::Refused("internal", COULD_NOT_START.into()))
         })
     };
     drop(bridge);
@@ -749,7 +851,7 @@ async fn guest(
         id,
         handle: Some(handle),
     };
-    h.guests.keyframe(Instant::now());
+    h.guests.keyframe(&owner.session, Instant::now());
 
     let connect = tokio::time::sleep(CONNECT_TIMEOUT);
     tokio::pin!(connect);
@@ -776,7 +878,7 @@ async fn guest(
             },
             _ = &mut connect, if !connected => {
                 tracing::warn!(guest = id, "guest stream did not connect in time");
-                return End::Refused("timeout", format!("The stream did not connect. The host's UDP port {} must reach this device.", prepared_port(h, slot)));
+                return End::Refused("timeout", format!("The stream did not connect. The host's UDP port {} must reach this device.", prepared_port(h, seat)));
             }
             message = receive(socket) => match message {
                 Some(Ok(In::Leave)) | None => return End::Gone,
@@ -798,7 +900,7 @@ struct Prepared {
     offer: sdp::Offer,
 }
 
-/// The address in a `Host` header, without the port.
+/// The host in an address the owner typed (`name`, `name:port`, `[v6]:port`), without the port.
 fn host_name(host: &str) -> &str {
     if let Some(rest) = host.strip_prefix('[') {
         return rest.split(']').next().unwrap_or_default();
@@ -811,8 +913,9 @@ fn host_name(host: &str) -> &str {
     }
 }
 
-/// The address the page was opened at, when it is another than the socket's: a router's that
+/// The address the owner put in the link, when it is another than the socket's: a router's that
 /// forwards to it. None for the socket's own, another family, or a name that does not resolve.
+/// Only the owner's address is looked up, never one a guest sent.
 async fn advertised_address(host: &str, local: IpAddr) -> Option<IpAddr> {
     let name = host_name(host);
     let address = match name.parse::<IpAddr>() {
@@ -834,7 +937,7 @@ async fn advertised_address(host: &str, local: IpAddr) -> Option<IpAddr> {
 }
 
 /// Bind the guest's media port on the address its page reached and build its offer for the
-/// owner's stream.
+/// owner's stream, offered at `advertised` too, the owner's address in the link.
 async fn prepare(
     h: &Shared,
     spec: &OfferSpec,
@@ -901,9 +1004,10 @@ fn start(
     } = prepared;
     let (ids, answered) =
         sdp::accept_answer(&mut rtc, offer, answer, &owner.spec).map_err(|error| {
+            tracing::info!(%peer, error = %format!("{error:#}"), "a guest's answer was refused");
             End::Refused(
                 "unsupported",
-                format!("This browser cannot play the host's stream: {error:#}"),
+                "This browser cannot play the host's stream.".into(),
             )
         })?;
     if answered.audio_layout != owner.audio_layout {
@@ -947,8 +1051,13 @@ fn start(
         options,
         bridge.hooks(),
     )
-    .map_err(|error| End::Refused("internal", format!("{error:#}")))?;
-    bridge.input.control(handle.control_sender());
+    .map_err(|error| {
+        tracing::error!(%peer, error = %format!("{error:#}"), "a guest's transport did not start");
+        End::Refused("internal", COULD_NOT_START.into())
+    })?;
+    if let Some(input) = &bridge.input {
+        input.control(handle.control_sender());
+    }
     Ok(handle)
 }
 

@@ -510,6 +510,26 @@ async fn run(args: Args, assets: PathBuf) -> Result<()> {
         h.clone(),
         media.clone(),
     ));
+    // The guest page's own port: a port that is taken costs the guests alone, and says so.
+    let guest_listener = {
+        let address: std::net::SocketAddr = (bind, ports.guest).into();
+        let h = h.clone();
+        let acceptor = tls::console_acceptor(&h.console)?;
+        let router = web::guest_router(h.clone());
+        tokio::spawn(async move {
+            if let Err(error) = tls::serve(address, router, Some(acceptor)).await {
+                let error = format!("{error:#}");
+                tracing::error!(%error, %address, "the guest page's listener failed");
+                h.warnings.set(
+                    host_warnings::GUEST_PORT,
+                    format!(
+                        "Guests can't open their links: TCP port {} could not be opened ({error}).",
+                        address.port()
+                    ),
+                );
+            }
+        })
+    };
     // None when the setting is off or the port is taken; the console says which.
     let webrtc = webrtc::server::start(h.clone(), bind, Some(media));
     tracing::info!(
@@ -557,6 +577,7 @@ async fn run(args: Args, assets: PathBuf) -> Result<()> {
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
     drop(webrtc);
+    guest_listener.abort();
     tasks.abort_all();
     while tasks.join_next().await.is_some() {}
     h.stop_app(state::AppStop::Shutdown);

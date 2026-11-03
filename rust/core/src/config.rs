@@ -895,6 +895,9 @@ pub struct Ports {
     pub http: u16,
     pub https: u16,
     pub web: u16,
+    /// The guest page and its socket (docs/browser-guests.md), the one port guests on the
+    /// internet need forwarded besides their media; nothing of the console's answers on it.
+    pub guest: u16,
     pub video: u16,
     pub control: u16,
     pub audio: u16,
@@ -907,6 +910,7 @@ impl Ports {
             http: n,
             https: n - 5,
             web: n + 1,
+            guest: n + 2,
             video: n + 9,
             control: n + 10,
             audio: n + 11,

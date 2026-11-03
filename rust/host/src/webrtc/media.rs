@@ -332,6 +332,8 @@ pub struct Engine {
     input: Option<ChannelId>,
     control_open: bool,
     gamepad_open: bool,
+    /// A refused channel was logged loudly once; a peer opening more must not flood the log.
+    refused_channel: bool,
     outgoing: VecDeque<Outgoing>,
     events: Vec<TransportEvent>,
     idr: Vec<IdrReason>,
@@ -369,6 +371,7 @@ impl Engine {
             input: None,
             control_open: false,
             gamepad_open: false,
+            refused_channel: false,
             outgoing: VecDeque::new(),
             events: Vec::new(),
             idr: Vec::new(),
@@ -616,7 +619,11 @@ impl Engine {
                 self.events.push(TransportEvent::ChannelOpen(label));
             }
             _ => {
-                tracing::warn!("webrtc: refusing the client's {label:?} channel");
+                if std::mem::replace(&mut self.refused_channel, true) {
+                    tracing::debug!("webrtc: refusing the client's {label:?} channel");
+                } else {
+                    tracing::warn!("webrtc: refusing the client's {label:?} channel");
+                }
                 self.rtc.direct_api().close_data_channel(id);
                 self.events.push(TransportEvent::ChannelRejected(label));
             }
@@ -1089,6 +1096,8 @@ impl Feed {
 #[derive(Default)]
 pub struct Followers {
     feeds: std::sync::Mutex<Arc<[(u64, Feed)]>>,
+    /// `feeds`' length, read without the lock: with nobody following, a frame takes no lock.
+    count: AtomicUsize,
 }
 
 impl Followers {
@@ -1097,6 +1106,7 @@ impl Followers {
         let mut list: Vec<(u64, Feed)> = feeds.iter().filter(|(i, _)| *i != id).cloned().collect();
         list.push((id, feed));
         *feeds = list.into();
+        self.count.store(feeds.len(), Ordering::Release);
     }
 
     /// False when `id` was not following.
@@ -1104,20 +1114,25 @@ impl Followers {
         let mut feeds = self.feeds.lock().unwrap();
         let before = feeds.len();
         *feeds = feeds.iter().filter(|(i, _)| *i != id).cloned().collect();
+        self.count.store(feeds.len(), Ordering::Release);
         feeds.len() != before
     }
 
     pub fn len(&self) -> usize {
-        self.feeds.lock().unwrap().len()
+        self.count.load(Ordering::Acquire)
     }
 
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
 
-    /// The followers now; a list taken under the lock and read outside it.
-    fn snapshot(&self) -> Arc<[(u64, Feed)]> {
-        self.feeds.lock().unwrap().clone()
+    /// The followers now; a list taken under the lock and read outside it. None, without the
+    /// lock, while nobody follows.
+    fn snapshot(&self) -> Option<Arc<[(u64, Feed)]>> {
+        if self.is_empty() {
+            return None;
+        }
+        Some(self.feeds.lock().unwrap().clone()).filter(|feeds| !feeds.is_empty())
     }
 }
 
@@ -1218,10 +1233,9 @@ fn queue_audio_followed(
     followers: &Followers,
     packet: AudioPacket,
 ) -> Submit {
-    let followers = followers.snapshot();
-    if followers.is_empty() {
+    let Some(followers) = followers.snapshot() else {
         return queue_audio(shared, tx, packet);
-    }
+    };
     let AudioPacket {
         data,
         capture,
@@ -1432,10 +1446,9 @@ impl MediaHandle {
     /// With followers the frame is queued here first, then for each of them from the same
     /// buffer; what one of them cannot take is dropped for it alone.
     pub fn submit_video(&self, frame: VideoFrame) -> Submit {
-        let followers = self.followers.snapshot();
-        if followers.is_empty() {
+        let Some(followers) = self.followers.snapshot() else {
             return queue_video(&self.shared, &self.tx, frame);
-        }
+        };
         let VideoFrame {
             data,
             capture,

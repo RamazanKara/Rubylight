@@ -32,15 +32,19 @@ use butterpollo_core::{
     input::Input,
     session::EVENT_PERIOD,
     webrtc::{
-        gamepad::{self, Action, Control, GamepadMessage, Gamepads},
+        gamepad::{self, Action, Control, GamepadMessage, Gamepads, MAX_GAMEPADS, Outcome},
         guests::Permission,
         input::InputChannel,
     },
 };
 use butterpollo_windows::input::{Injector, PadReport};
 use std::{
-    collections::{BTreeMap, VecDeque},
-    sync::{Arc, mpsc},
+    collections::{BTreeMap, HashMap, VecDeque, hash_map::Entry},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+        mpsc,
+    },
     time::{Duration, Instant},
 };
 
@@ -64,6 +68,12 @@ const RETRY: Duration = Duration::from_millis(500);
 const GUEST_IDS: u32 = 1 << 31;
 const GUEST_ID_BITS: u32 = 16;
 const MAX_GUEST_TAG: u16 = 0x7fff;
+/// Pads one guest may plug in, and the slots the guests together leave to the owner's.
+const GUEST_PADS: usize = 4;
+const OWNER_PADS: usize = 4;
+/// A guest's gamepad and input messages waiting for the worker; more are dropped, so a page
+/// that sends faster than the desktop takes them cannot fill the host's memory.
+const GUEST_QUEUE: usize = 64;
 
 /// The id in the shared table of a guest's controller; None for an id out of range.
 fn guest_controller(tag: u16, controller_id: u32) -> Option<u32> {
@@ -91,20 +101,111 @@ enum Message {
     Control(ControlSender),
     /// The transport is gone.
     Closed,
+    /// The guests' queue has messages ([`GuestInbox`]).
+    Guests,
+}
+
+/// What a guest's transport tells the worker, by guest id.
+enum GuestMessage {
     /// A guest of the stream joined, with what it may send.
-    GuestJoined(u64, Permission),
-    GuestGamepad(u64, String, Instant),
-    GuestInput(u64, String, Instant),
-    GuestControl(u64, ControlSender),
-    GuestGamepadClosed(u64),
-    GuestInputClosed(u64),
+    Joined(u64, Permission),
+    Gamepad(u64, String, Instant),
+    Input(u64, String, Instant),
+    Control(u64, ControlSender),
+    GamepadClosed(u64),
+    InputClosed(u64),
     /// A guest left: its pads are unplugged and what it held is released.
-    GuestLeft(u64),
+    Left(u64),
+}
+
+impl GuestMessage {
+    fn guest(&self) -> u64 {
+        match *self {
+            Self::Joined(id, _)
+            | Self::Gamepad(id, ..)
+            | Self::Input(id, ..)
+            | Self::Control(id, _)
+            | Self::GamepadClosed(id)
+            | Self::InputClosed(id)
+            | Self::Left(id) => id,
+        }
+    }
+
+    /// What the page sends, as opposed to the guest's comings and goings, which always queue.
+    fn data(&self) -> bool {
+        matches!(self, Self::Gamepad(..) | Self::Input(..))
+    }
+}
+
+/// The guests' messages, beside the owner's queue: the worker takes one only while the owner's
+/// queue is empty, so no guest delays the owner's input, and each guest has at most
+/// [`GUEST_QUEUE`] waiting.
+#[derive(Default)]
+struct GuestInbox {
+    state: Mutex<Inbox>,
+    /// A [`Message::Guests`] is in the owner's queue and the worker has not taken it yet.
+    woken: AtomicBool,
+}
+
+#[derive(Default)]
+struct Inbox {
+    queue: VecDeque<GuestMessage>,
+    /// Data messages queued per guest; no entry for none.
+    waiting: HashMap<u64, usize>,
+}
+
+impl GuestInbox {
+    /// Queue `message` and wake the worker. False when it is data and its guest has
+    /// [`GUEST_QUEUE`] waiting already: it was dropped.
+    fn push(&self, tx: &mpsc::Sender<Message>, message: GuestMessage) -> bool {
+        {
+            let mut inbox = self.state.lock().unwrap();
+            if message.data() {
+                let waiting = inbox.waiting.entry(message.guest()).or_default();
+                if *waiting >= GUEST_QUEUE {
+                    return false;
+                }
+                *waiting += 1;
+            }
+            inbox.queue.push_back(message);
+        }
+        if !self.woken.swap(true, Ordering::AcqRel) {
+            let _ = tx.send(Message::Guests);
+        }
+        true
+    }
+
+    fn pop(&self) -> Option<GuestMessage> {
+        let mut inbox = self.state.lock().unwrap();
+        let message = inbox.queue.pop_front()?;
+        if message.data()
+            && let Entry::Occupied(mut waiting) = inbox.waiting.entry(message.guest())
+        {
+            *waiting.get_mut() -= 1;
+            if *waiting.get() == 0 {
+                waiting.remove();
+            }
+        }
+        Some(message)
+    }
+}
+
+/// The worker's end of an [`InputHandle`].
+pub(crate) struct Queues {
+    rx: mpsc::Receiver<Message>,
+    guests: Arc<GuestInbox>,
+}
+
+/// A worker's handle and the queues it reads.
+pub(crate) fn channel() -> (InputHandle, Queues) {
+    let (tx, rx) = mpsc::channel();
+    let guests = Arc::new(GuestInbox::default());
+    (InputHandle(tx, guests.clone()), Queues { rx, guests })
 }
 
 /// The transport's end of a session's input worker. Every call only queues; none blocks.
 #[derive(Clone)]
-pub struct InputHandle(mpsc::Sender<Message>);
+pub struct InputHandle(mpsc::Sender<Message>, Arc<GuestInbox>);
 
 impl InputHandle {
     /// A handle with no worker behind it, and the texts it was given for the `gamepad` channel.
@@ -119,20 +220,20 @@ impl InputHandle {
                 })
                 .collect()
         };
-        (Self(tx), drain)
+        (Self(tx, Arc::default()), drain)
     }
 
     /// A text frame from the `gamepad` channel, received at `now`. A binary or non-UTF-8 frame is
     /// not part of the protocol and is dropped with a warning.
     pub fn gamepad(&self, data: Vec<u8>, binary: bool, now: Instant) {
-        if let Some(text) = text(data, binary, "gamepad") {
+        if let Some(text) = text(data, binary, "gamepad", None) {
             let _ = self.0.send(Message::Gamepad(text, now));
         }
     }
 
     /// A text frame from the `input` channel.
     pub fn input(&self, data: Vec<u8>, binary: bool) {
-        if let Some(text) = text(data, binary, "input") {
+        if let Some(text) = text(data, binary, "input", None) {
             let _ = self.0.send(Message::Input(text, Instant::now()));
         }
     }
@@ -166,56 +267,82 @@ impl InputHandle {
         let _ = self.0.send(Message::Closed);
     }
 
-    /// A guest of this session's stream, sending through this worker with `permission`.
-    pub fn guest(&self, id: u64, permission: Permission) -> GuestHandle {
-        let _ = self.0.send(Message::GuestJoined(id, permission));
-        GuestHandle {
-            tx: self.0.clone(),
-            id,
+    /// A guest of this session's stream, sending through this worker with `permission`. None
+    /// for a view-only guest: nothing it sends reaches the worker.
+    pub fn guest(&self, id: u64, permission: Permission) -> Option<GuestHandle> {
+        if !permission.gamepads() {
+            return None;
         }
+        let guest = GuestHandle {
+            tx: self.0.clone(),
+            inbox: self.1.clone(),
+            id,
+            permission,
+            warned: AtomicBool::new(false),
+            flooded: AtomicBool::new(false),
+        };
+        guest.push(GuestMessage::Joined(id, permission));
+        Some(guest)
     }
 }
 
 /// A guest's end of the owner's input worker, for the guest transport's hooks. Every call only
-/// queues. Dropping it is the guest leaving: its pads are unplugged and its keys let go.
+/// queues, and only what `permission` allows. Dropping it is the guest leaving: its pads are
+/// unplugged and its keys let go.
 pub struct GuestHandle {
     tx: mpsc::Sender<Message>,
+    inbox: Arc<GuestInbox>,
     id: u64,
+    permission: Permission,
+    /// A frame that is not text was logged once; a page sending more must not flood the log.
+    warned: AtomicBool,
+    /// Dropping messages over [`GUEST_QUEUE`] was logged once.
+    flooded: AtomicBool,
 }
 
 impl GuestHandle {
+    fn push(&self, message: GuestMessage) {
+        if !self.inbox.push(&self.tx, message) && !self.flooded.swap(true, Ordering::Relaxed) {
+            tracing::warn!(
+                guest = self.id,
+                "WebRTC input: a guest sends faster than the desktop takes it; dropping the excess"
+            );
+        }
+    }
+
     pub fn gamepad(&self, data: Vec<u8>, binary: bool, now: Instant) {
-        if let Some(text) = text(data, binary, "gamepad") {
-            let _ = self.tx.send(Message::GuestGamepad(self.id, text, now));
+        if let Some(text) = text(data, binary, "gamepad", Some(&self.warned)) {
+            self.push(GuestMessage::Gamepad(self.id, text, now));
         }
     }
 
     pub fn input(&self, data: Vec<u8>, binary: bool) {
-        if let Some(text) = text(data, binary, "input") {
-            let _ = self
-                .tx
-                .send(Message::GuestInput(self.id, text, Instant::now()));
+        if !self.permission.keyboard_mouse() {
+            return;
+        }
+        if let Some(text) = text(data, binary, "input", Some(&self.warned)) {
+            self.push(GuestMessage::Input(self.id, text, Instant::now()));
         }
     }
 
     pub fn channel_closed(&self, label: &str) {
         let message = match label {
-            "input" => Message::GuestInputClosed(self.id),
-            "gamepad" => Message::GuestGamepadClosed(self.id),
+            "input" => GuestMessage::InputClosed(self.id),
+            "gamepad" => GuestMessage::GamepadClosed(self.id),
             _ => return,
         };
-        let _ = self.tx.send(message);
+        self.push(message);
     }
 
     /// The guest's `control` channel, for its pads' rumble and mouse mode.
     pub fn control(&self, sender: ControlSender) {
-        let _ = self.tx.send(Message::GuestControl(self.id, sender));
+        self.push(GuestMessage::Control(self.id, sender));
     }
 }
 
 impl Drop for GuestHandle {
     fn drop(&mut self) {
-        let _ = self.tx.send(Message::GuestLeft(self.id));
+        self.push(GuestMessage::Left(self.id));
     }
 }
 
@@ -231,21 +358,23 @@ fn controller_event() -> Input {
     }
 }
 
-fn text(data: Vec<u8>, binary: bool, channel: &str) -> Option<String> {
-    if binary {
-        tracing::warn!(
-            channel,
-            "WebRTC input: a binary frame is not part of the protocol; dropped"
-        );
-        return None;
-    }
-    match String::from_utf8(data) {
-        Ok(text) => Some(text),
-        Err(_) => {
-            tracing::warn!(channel, "WebRTC input: a frame that is not UTF-8; dropped");
-            None
+/// The frame's text. A guest's frames that are not text are logged loudly once (`warned`), then
+/// quietly.
+fn text(data: Vec<u8>, binary: bool, channel: &str, warned: Option<&AtomicBool>) -> Option<String> {
+    let why = if binary {
+        "WebRTC input: a binary frame is not part of the protocol; dropped"
+    } else {
+        match String::from_utf8(data) {
+            Ok(text) => return Some(text),
+            Err(_) => "WebRTC input: a frame that is not UTF-8; dropped",
         }
+    };
+    if warned.is_some_and(|warned| warned.swap(true, Ordering::Relaxed)) {
+        tracing::debug!(channel, "{why}");
+    } else {
+        tracing::warn!(channel, "{why}");
     }
+    None
 }
 
 /// Where input events go, which is the injector except in tests.
@@ -954,6 +1083,13 @@ impl Core {
             GamepadMessage::Connected(mut connected) => {
                 remap(connected.controller_id).map(|controller_id| {
                     connected.controller_id = controller_id;
+                    if self.pads.slot(controller_id).is_none() && !self.guest_pad_free(tag) {
+                        tracing::debug!(guest = id, "WebRTC input: a guest's pad over its share");
+                        return Outcome {
+                            accepted: false,
+                            actions: Vec::new(),
+                        };
+                    }
                     self.pads
                         .connect_with(&connected, permission.keyboard_mouse())
                 })
@@ -975,6 +1111,32 @@ impl Core {
         self.received = Some(now);
         self.actions(outcome.actions, now);
         self.received = None;
+    }
+
+    /// Whether the guest tagged `tag` may plug in one more pad: [`GUEST_PADS`] each, and the
+    /// guests together leave [`OWNER_PADS`] of the slots to the owner.
+    fn guest_pad_free(&self, tag: u16) -> bool {
+        let guests: Vec<u16> = self
+            .pads
+            .controller_ids()
+            .into_iter()
+            .filter_map(|c| guest_of(c).map(|(t, _)| t))
+            .collect();
+        guests.iter().filter(|&&t| t == tag).count() < GUEST_PADS
+            && guests.len() < MAX_GAMEPADS - OWNER_PADS
+    }
+
+    /// A guest's message, in the order its transport sent them.
+    fn guest(&mut self, message: GuestMessage, now: Instant) {
+        match message {
+            GuestMessage::Joined(id, permission) => self.guest_joined(id, permission),
+            GuestMessage::Gamepad(id, text, received) => self.guest_gamepad(id, &text, received),
+            GuestMessage::Input(id, text, received) => self.guest_input(id, &text, received),
+            GuestMessage::Control(id, sender) => self.guest_control(id, sender),
+            GuestMessage::GamepadClosed(id) => self.guest_unplug(id, now),
+            GuestMessage::InputClosed(id) => self.guest_release(id, now),
+            GuestMessage::Left(id) => self.guest_left(id, now),
+        }
     }
 
     /// One `input` message of a guest: only with the keyboard and mouse permission, and only
@@ -1093,7 +1255,7 @@ impl Core {
 /// Start the input worker of a session. It idles until [`InputHandle::bind`] gives it the
 /// session; anything the client sends before that waits in its queue.
 pub fn spawn(h: Shared) -> Result<InputHandle> {
-    let (tx, rx) = mpsc::channel();
+    let (handle, queues) = channel();
     let make: Make = Box::new(move |session| {
         if session.launch.nucleus.is_some() {
             return CoopSink::create(&h, session);
@@ -1106,17 +1268,17 @@ pub fn spawn(h: Shared) -> Result<InputHandle> {
     });
     std::thread::Builder::new()
         .name("webrtc-input".into())
-        .spawn(move || run(rx, make))
+        .spawn(move || run(queues, make))
         .context("starting the WebRTC input worker")?;
-    Ok(InputHandle(tx))
+    Ok(handle)
 }
 
 /// The summary is for the tests; the spawned worker logs it and drops it.
-fn run(rx: mpsc::Receiver<Message>, make: Make) -> Option<Summary> {
+fn run(queues: Queues, make: Make) -> Option<Summary> {
     let mut early = VecDeque::new();
     let mut control = None;
     let session = loop {
-        match rx.recv() {
+        match queues.rx.recv() {
             Ok(Message::Bind(session)) => break session,
             Ok(Message::Control(sender)) => control = Some(sender),
             Ok(Message::Closed) | Err(_) => return None,
@@ -1130,7 +1292,7 @@ fn run(rx: mpsc::Receiver<Message>, make: Make) -> Option<Summary> {
     // A panic must not leave a key or a button down on the desktop: whatever happened, release
     // what the client held and unplug its pads, and say so loudly.
     let served = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        serve(&mut core, &rx, early)
+        serve(&mut core, &queues, early)
     }));
     if let Err(panic) = served {
         let what = panic_text(panic.as_ref());
@@ -1158,25 +1320,42 @@ fn panic_text(panic: &(dyn std::any::Any + Send)) -> String {
 }
 
 /// The worker's loop, until the transport closes, every handle is gone or the session stops.
-fn serve(core: &mut Core, rx: &mpsc::Receiver<Message>, mut early: VecDeque<Message>) {
+fn serve(core: &mut Core, queues: &Queues, mut early: VecDeque<Message>) {
+    let rx = &queues.rx;
     loop {
+        // The owner's messages first; a guest's is taken only while the owner's queue is empty.
+        let mut guest = None;
         let message = if let Some(message) = early.pop_front() {
             Some(message)
         } else {
-            match core.wait(Instant::now()) {
-                None => match rx.recv() {
-                    Ok(message) => Some(message),
-                    Err(_) => break,
-                },
-                Some(timeout) => match rx.recv_timeout(timeout) {
-                    Ok(message) => Some(message),
-                    Err(mpsc::RecvTimeoutError::Timeout) => None,
-                    Err(mpsc::RecvTimeoutError::Disconnected) => break,
-                },
+            match rx.try_recv() {
+                Ok(message) => Some(message),
+                Err(mpsc::TryRecvError::Disconnected) => break,
+                Err(mpsc::TryRecvError::Empty) => {
+                    guest = queues.guests.pop();
+                    if guest.is_some() {
+                        None
+                    } else {
+                        match core.wait(Instant::now()) {
+                            None => match rx.recv() {
+                                Ok(message) => Some(message),
+                                Err(_) => break,
+                            },
+                            Some(timeout) => match rx.recv_timeout(timeout) {
+                                Ok(message) => Some(message),
+                                Err(mpsc::RecvTimeoutError::Timeout) => None,
+                                Err(mpsc::RecvTimeoutError::Disconnected) => break,
+                            },
+                        }
+                    }
+                }
             }
         };
         let now = Instant::now();
         core.dequeued = Some(now);
+        if let Some(guest) = guest {
+            core.guest(guest, now);
+        }
         match message {
             Some(Message::Gamepad(text, received)) => core.gamepad(&text, received),
             Some(Message::Input(text, received)) => core.input(&text, received),
@@ -1186,15 +1365,9 @@ fn serve(core: &mut Core, rx: &mpsc::Receiver<Message>, mut early: VecDeque<Mess
                 core.control = Some(Box::new(move |data| sender.send(data, false)));
             }
             Some(Message::Closed) => break,
-            Some(Message::GuestJoined(id, permission)) => core.guest_joined(id, permission),
-            Some(Message::GuestGamepad(id, text, received)) => {
-                core.guest_gamepad(id, &text, received)
-            }
-            Some(Message::GuestInput(id, text, received)) => core.guest_input(id, &text, received),
-            Some(Message::GuestControl(id, sender)) => core.guest_control(id, sender),
-            Some(Message::GuestGamepadClosed(id)) => core.guest_unplug(id, now),
-            Some(Message::GuestInputClosed(id)) => core.guest_release(id, now),
-            Some(Message::GuestLeft(id)) => core.guest_left(id, now),
+            // Cleared before the queue is read: a guest's message queued after this wakes the
+            // worker again.
+            Some(Message::Guests) => queues.guests.woken.store(false, Ordering::Release),
             Some(Message::Bind(_)) | None => {}
         }
         if !core.poll(now) {

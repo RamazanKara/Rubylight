@@ -302,20 +302,24 @@ fn token_catalog() -> Vec<auth::Scope> {
 pub fn router(h: Shared) -> Router {
     router_with(h, crate::webrtc::server::Console::default())
 }
-/// The console. `console` is what its stream page needs from the WebRTC server.
-///
-/// The guest page and its socket (docs/browser-guests.md) sit beside the console, outside its
-/// guard: a guest has no sign-in, and its reach is the invite's, not `origin_web_ui_allowed`.
-/// Nothing else is served there.
-pub fn router_with(h: Shared, console: crate::webrtc::server::Console) -> Router {
-    let guests = Router::new()
+/// The guest port's router (docs/browser-guests.md): the guest page and its socket, and nothing
+/// of the console's. A guest has no sign-in: its reach is the invite's. Until the owner makes a
+/// link, and once no link is live and nobody watches, it answers nothing but 404.
+pub fn guest_router(h: Shared) -> Router {
+    Router::new()
         .route("/guest/signal", get(guest_signal))
         .route("/guest", get(guest_page))
         .route("/guest/", get(guest_page))
         .route("/guest/{*path}", get(guest_page))
+        .fallback(|| async { StatusCode::NOT_FOUND })
+        .layer(middleware::from_fn_with_state(h.clone(), guest_gate))
         .layer(middleware::from_fn(guest_headers))
-        .with_state(h.clone());
-    let console = Router::new()
+        .with_state(h)
+}
+/// The console. `console` is what its stream page needs from the WebRTC server. The guest page
+/// has a port of its own ([`guest_router`]): forwarding it never opens the console.
+pub fn router_with(h: Shared, console: crate::webrtc::server::Console) -> Router {
+    Router::new()
         .route("/api/webrtc/signal", get(webrtc_signal))
         .route(
             "/api/{*path}",
@@ -332,8 +336,7 @@ pub fn router_with(h: Shared, console: crate::webrtc::server::Console) -> Router
         .layer(axum::extract::DefaultBodyLimit::max(16 * 1024 * 1024))
         .layer(middleware::from_fn_with_state(h.clone(), guard))
         .layer(Extension(console))
-        .with_state(h);
-    console.merge(guests)
+        .with_state(h)
 }
 /// A state-changing request with Basic credentials needs no CSRF token
 /// (docs/api.md), and a browser that cached those credentials attaches them
@@ -544,17 +547,14 @@ async fn guest_signal(
         Ok(upgrade) => upgrade,
         Err(rejection) => return rejection.into_response(),
     };
-    let advertised = headers
-        .get(header::HOST)
-        .and_then(|v| v.to_str().ok())
-        .map(str::to_owned);
-    guests::upgrade(
-        h.clone(),
-        upgrade,
-        connection.peer,
-        connection.local,
-        advertised,
-    )
+    guests::upgrade(h.clone(), upgrade, connection.peer, connection.local)
+}
+/// The guest port answers only while a link is live or a guest watches.
+async fn guest_gate(State(h): State<Shared>, request: Request, next: Next) -> Response {
+    if !h.guests.open() {
+        return error(StatusCode::NOT_FOUND, "no invite link is open on this host");
+    }
+    next.run(request).await
 }
 /// The guest page: its own build of the web app (`dist/guest`), and nothing of the console's.
 async fn guest_page(State(h): State<Shared>, method: Method, uri: axum::http::Uri) -> Response {

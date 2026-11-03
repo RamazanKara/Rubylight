@@ -549,8 +549,7 @@ fn a_stopping_session_ends_the_worker_without_waiting_for_the_transport() {
     let f = Fixture::new();
     let rec = Recorder::default();
     let make = rec.clone();
-    let (tx, rx) = mpsc::channel();
-    let handle = InputHandle(tx);
+    let (handle, rx) = channel();
     let s = session(&f, u32::MAX);
     let worker = std::thread::spawn(move || run(rx, Box::new(move |_| make.make())));
     handle.bind(s.clone());
@@ -666,8 +665,7 @@ fn a_burst_through_the_worker_reaches_the_injector_without_a_timer_in_the_way() 
     let f = Fixture::new();
     let rec = Recorder::default();
     let make = rec.clone();
-    let (tx, rx) = mpsc::channel();
-    let handle = InputHandle(tx);
+    let (handle, rx) = channel();
     let worker = std::thread::spawn(move || run(rx, Box::new(move |_| make.make())));
     handle.bind(session(&f, u32::MAX));
     // The worker is up and has its injector before the messages, and idle.
@@ -723,8 +721,7 @@ fn a_worker_that_panics_still_releases_held_keys_and_buttons() {
     let f = Fixture::new();
     let rec = Recorder::default();
     let make = rec.clone();
-    let (tx, rx) = mpsc::channel();
-    let handle = InputHandle(tx);
+    let (handle, rx) = channel();
     let s = session(&f, u32::MAX);
     let worker = std::thread::spawn(move || run(rx, Box::new(move |_| make.make())));
     handle.bind(s.clone());
@@ -789,8 +786,7 @@ fn the_worker_thread_buffers_early_frames_and_releases_when_the_transport_closes
     let f = Fixture::new();
     let rec = Recorder::default();
     let make = rec.clone();
-    let (tx, rx) = mpsc::channel();
-    let handle = InputHandle(tx);
+    let (handle, rx) = channel();
     let worker = std::thread::spawn(move || run(rx, Box::new(move |_| make.make())));
     // A frame that arrives before the session is bound waits for it.
     handle.input(
@@ -818,8 +814,7 @@ fn the_input_channel_closing_releases_and_dropping_every_handle_ends_the_worker(
     let f = Fixture::new();
     let rec = Recorder::default();
     let make = rec.clone();
-    let (tx, rx) = mpsc::channel();
-    let handle = InputHandle(tx);
+    let (handle, rx) = channel();
     let worker = std::thread::spawn(move || run(rx, Box::new(move |_| make.make())));
     handle.bind(session(&f, u32::MAX));
     handle.input(
@@ -1149,11 +1144,11 @@ fn guests_share_the_owners_sixteen_slots() {
     for id in 0..10 {
         guest_pad(&mut r, 2, id, 0);
     }
-    assert_eq!(r.core.pads.active_mask(), u16::MAX);
+    assert_eq!(r.core.pads.active_mask(), 0xff);
     assert_eq!(
         r.core.summary().gamepad_ignored,
-        4,
-        "the last four get no slot"
+        12,
+        "each guest's pads past its fourth get no slot"
     );
     // An id beyond the guest's range is refused, not folded onto another pad.
     guest_pad(&mut r, 1, 1 << 16, 0);
@@ -1168,4 +1163,154 @@ fn guest_controller_ids_round_trip_and_never_look_like_the_owners() {
     }
     assert_eq!(guest_of(3), None);
     assert_eq!(guest_controller(1, 1 << 16), None);
+}
+
+#[test]
+fn a_guest_plugs_in_four_pads_at_most_and_the_owner_keeps_four_slots() {
+    let mut r = rig(u32::MAX);
+    for guest in 1..=4 {
+        r.core.guest_joined(guest, Permission::Controller);
+    }
+    // One guest's browser numbering pads up to 65535 gets four of them.
+    for id in [0, 1, 2, 3, 4, 900, 65_535] {
+        guest_pad(&mut r, 1, id, 0);
+    }
+    assert_eq!(r.core.pads.controller_ids().len(), 4);
+    // Announcing a pad it has already plugged in again changes nothing.
+    guest_pad(&mut r, 1, 0, 5);
+    assert_eq!(r.core.pads.controller_ids().len(), 4);
+    for guest in 2..=4 {
+        for id in 0..4 {
+            guest_pad(&mut r, guest, id, 10);
+        }
+    }
+    // The guests together stop at twelve: the fourth guest got none.
+    assert_eq!(r.core.pads.controller_ids().len(), 12);
+    assert!(
+        r.core
+            .pads
+            .controller_ids()
+            .into_iter()
+            .all(|c| guest_of(c).is_none_or(|(tag, _)| tag != r.core.guests[&4].tag))
+    );
+    // The owner's four still plug in, into every slot left.
+    for id in 0..4 {
+        r.pad(id, 20);
+    }
+    assert_eq!(r.core.pads.active_mask(), u16::MAX);
+    // A guest that left frees its share for the next.
+    r.core.guest_left(1, r.at(30));
+    guest_pad(&mut r, 4, 0, 40);
+    assert_eq!(r.core.pads.controller_ids().len(), 13);
+}
+
+#[test]
+fn a_guest_handle_queues_only_what_its_permission_allows_and_a_bounded_amount() {
+    let (handle, queues) = channel();
+    assert!(
+        handle.guest(1, Permission::View).is_none(),
+        "view only sends nothing"
+    );
+    let guest = handle.guest(2, Permission::Controller).unwrap();
+    let now = Instant::now();
+    for _ in 0..GUEST_QUEUE * 4 {
+        guest.gamepad(b"{}".to_vec(), false, now);
+    }
+    // A controller guest's keys and mice never reach the queue.
+    guest.input(
+        br#"{"v":1,"type":"key","code":"KeyA","down":true}"#.to_vec(),
+        false,
+    );
+    {
+        let inbox = queues.guests.state.lock().unwrap();
+        assert_eq!(
+            inbox.queue.len(),
+            1 + GUEST_QUEUE,
+            "its join, then the bound"
+        );
+        assert_eq!(inbox.waiting[&2], GUEST_QUEUE);
+        assert!(
+            inbox
+                .queue
+                .iter()
+                .all(|m| matches!(m, GuestMessage::Joined(2, _) | GuestMessage::Gamepad(2, ..)))
+        );
+    }
+    // However much it sent, the owner's queue got one wake.
+    handle.gamepad(b"{}".to_vec(), false, now);
+    let owner: Vec<Message> = queues.rx.try_iter().collect();
+    assert_eq!(owner.len(), 2);
+    assert!(matches!(owner[0], Message::Guests));
+    assert!(matches!(owner[1], Message::Gamepad(..)));
+    // Leaving always queues, even at the bound, and taking the queue frees the guest's share.
+    drop(guest);
+    let mut taken = 0;
+    while let Some(message) = queues.guests.pop() {
+        taken += 1;
+        if taken == 2 + GUEST_QUEUE {
+            assert!(matches!(message, GuestMessage::Left(2)));
+        }
+    }
+    assert_eq!(taken, 2 + GUEST_QUEUE);
+    assert!(queues.guests.state.lock().unwrap().waiting.is_empty());
+    // A wake already queued covers what comes after it; once the worker took it, the next
+    // message wakes it again.
+    assert!(queues.rx.try_recv().is_err());
+    queues.guests.woken.store(false, Ordering::Release);
+    let again = handle
+        .guest(3, Permission::ControllerKeyboardMouse)
+        .unwrap();
+    again.input(
+        br#"{"v":1,"type":"key","code":"KeyA","down":true}"#.to_vec(),
+        false,
+    );
+    let owner: Vec<Message> = queues.rx.try_iter().collect();
+    assert_eq!(owner.len(), 1);
+    assert!(matches!(owner[0], Message::Guests));
+}
+
+#[test]
+fn the_worker_takes_the_owners_input_before_a_guests() {
+    let f = Fixture::new();
+    let rec = Recorder::default();
+    let make = rec.clone();
+    let (handle, queues) = channel();
+    let s = session(&f, u32::MAX);
+    let worker = std::thread::spawn(move || run(queues, Box::new(move |_| make.make())));
+    // The guest's pad is announced first; the owner's after it, before the worker runs.
+    let guest = handle.guest(1, Permission::Controller).unwrap();
+    // The owner's pad has no motors, so its arrival tells the two apart.
+    let announce = |id: u32, rumble: bool| {
+        format!(
+            r#"{{"v":2,"type":"gamepad-connected","controllerId":{id},"id":"Pad","mapping":"standard","buttons":17,"axes":4,"dualRumble":{rumble},"triggerRumble":false}}"#
+        )
+        .into_bytes()
+    };
+    guest.gamepad(announce(0, true), false, Instant::now());
+    handle.gamepad(announce(5, false), false, Instant::now());
+    handle.bind(s.clone());
+    wait_for("both pads arrived", || {
+        rec.events()
+            .iter()
+            .filter(|e| matches!(e, Input::Arrival { .. }))
+            .count()
+            == 2
+    });
+    // The owner's pad arrived first, in the first slot.
+    let arrivals: Vec<(u8, u16)> = rec
+        .events()
+        .iter()
+        .filter_map(|e| match e {
+            Input::Arrival {
+                id, capabilities, ..
+            } => Some((*id, *capabilities)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!((arrivals[0].0, arrivals[1].0), (0, 1));
+    assert!(arrivals[0].1 < arrivals[1].1, "{arrivals:?}");
+    drop(guest);
+    s.stop();
+    worker.join().unwrap();
+    drop(handle);
 }

@@ -10,6 +10,8 @@ use std::{collections::BTreeMap, path::Path, sync::Mutex};
 const FILE: &str = "host-warnings.json";
 /// Raised by the Windows Firewall check at start.
 pub const FIREWALL: &str = "firewall_blocked";
+/// The guest page's port could not be opened.
+pub const GUEST_PORT: &str = "guest_port";
 
 #[derive(Default, Serialize, Deserialize)]
 struct Saved {

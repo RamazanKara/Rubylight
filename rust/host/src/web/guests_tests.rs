@@ -1,16 +1,18 @@
-//! The guest routes beside the console, and the Stream page's guest panel: a guest reaches its
-//! page and its socket and nothing of the console's, and only a signed-in console tab makes,
-//! lists or withdraws links.
+//! The guest port and the Stream page's guest panel: a guest reaches its page and its socket
+//! and nothing of the console's, the guest port answers only while a link is live, and only a
+//! signed-in console tab makes, lists or withdraws links.
 use super::*;
 use crate::state::test_support::Fixture;
 use crate::webrtc::server::tests::Ws;
 use axum::body::{Body, to_bytes};
+use butterpollo_core::webrtc::guests::Permission;
 use hyper_util::{
     rt::{TokioExecutor, TokioIo},
     server::conn::auto::Builder,
     service::TowerToHyperService,
 };
 use std::net::SocketAddr;
+use std::time::Duration;
 use tower::ServiceExt;
 
 /// A peer on the LAN and one on the internet.
@@ -71,8 +73,49 @@ impl Reply {
     }
 }
 
+/// A request to the console's port.
 async fn call(
     f: &Fixture,
+    peer: &str,
+    method: &str,
+    path: &str,
+    headers: &[(&str, String)],
+    body: Option<Value>,
+) -> Reply {
+    send(router(f.host.clone()), peer, method, path, headers, body).await
+}
+
+/// A request to the guest port.
+async fn guest(
+    f: &Fixture,
+    peer: &str,
+    method: &str,
+    path: &str,
+    headers: &[(&str, String)],
+) -> Reply {
+    send(
+        guest_router(f.host.clone()),
+        peer,
+        method,
+        path,
+        headers,
+        None,
+    )
+    .await
+}
+
+/// A live link, so the guest port answers.
+fn open_guests(f: &Fixture) -> String {
+    let (invite, _) = f
+        .host
+        .guests
+        .create(Permission::View, Duration::from_secs(300), None)
+        .unwrap();
+    invite.id
+}
+
+async fn send(
+    router: Router,
     peer: &str,
     method: &str,
     path: &str,
@@ -93,7 +136,7 @@ async fn call(
         }
         None => Body::empty(),
     };
-    let response = router(f.host.clone())
+    let response = router
         .layer(Extension(connection(peer)))
         .oneshot(request.body(body).unwrap())
         .await
@@ -200,7 +243,6 @@ async fn only_a_signed_in_console_tab_reaches_the_guest_panel() {
     assert_eq!(made.status, StatusCode::OK, "{}", made.text());
     let token = made.json()["token"].as_str().unwrap().to_owned();
     assert_eq!(token.len(), 32);
-    assert!(made.json()["addresses"].is_array());
     let listed = call(&f, LAN, "GET", "/api/guests", &[("cookie", cookie)], None).await;
     assert_eq!(listed.status, StatusCode::OK);
     assert_eq!(listed.json()["invites"][0]["permission"], "controller");
@@ -222,6 +264,18 @@ async fn the_panel_makes_and_revokes_links_and_says_what_it_refuses() {
         ),
         (json!({"seconds": 3600}), StatusCode::BAD_REQUEST),
         (json!({"permission": "view"}), StatusCode::BAD_REQUEST),
+        (
+            json!({"permission": "view", "seconds": 3600, "address": "https://home"}),
+            StatusCode::BAD_REQUEST,
+        ),
+        (
+            json!({"permission": "view", "seconds": 3600, "address": "home/x:1"}),
+            StatusCode::BAD_REQUEST,
+        ),
+        (
+            json!({"permission": "view", "seconds": 3600, "address": 7}),
+            StatusCode::BAD_REQUEST,
+        ),
         // Five minutes to seven days.
         (
             json!({"permission": "view", "seconds": 60}),
@@ -237,12 +291,18 @@ async fn the_panel_makes_and_revokes_links_and_says_what_it_refuses() {
         assert!(!refused.error().is_empty(), "{body}");
     }
     let mut ids = Vec::new();
-    for _ in 0..butterpollo_core::webrtc::guests::MAX_INVITES {
+    let addresses = [
+        json!(null),
+        json!("home.example.org"),
+        json!("203.0.113.9:47991"),
+        json!("[2001:db8::1]:47991"),
+    ];
+    for n in 0..butterpollo_core::webrtc::guests::MAX_INVITES {
         let made = invite(
             &f,
             &cookie,
             &csrf,
-            json!({"permission": "view", "seconds": 300}),
+            json!({"permission": "view", "seconds": 300, "address": addresses[n % 4]}),
         )
         .await;
         assert_eq!(made.status, StatusCode::OK, "{}", made.text());
@@ -280,6 +340,27 @@ async fn the_panel_makes_and_revokes_links_and_says_what_it_refuses() {
     );
     let again = post("/api/guests/revoke", json!({"id": ids[0]})).await;
     assert_eq!(again.status, StatusCode::NOT_FOUND);
+    // The panel builds links on the guest port, never the console's.
+    let listed = call(
+        &f,
+        LAN,
+        "GET",
+        "/api/guests",
+        &console(&cookie, &csrf),
+        None,
+    )
+    .await;
+    assert_eq!(listed.json()["port"], 47991, "{}", listed.text());
+    let lan = call(
+        &f,
+        LAN,
+        "GET",
+        "/api/guests/addresses",
+        &console(&cookie, &csrf),
+        None,
+    )
+    .await;
+    assert!(lan.json()["addresses"].is_array(), "{}", lan.text());
     assert_eq!(
         post("/api/guests/revoke", json!({})).await.status,
         StatusCode::BAD_REQUEST
@@ -308,9 +389,32 @@ fn install_pages(f: &Fixture) {
 }
 
 #[tokio::test]
+async fn the_guest_port_answers_only_while_a_link_is_live() {
+    let f = Fixture::new();
+    configure(&f, json!({"webrtc_server": true}));
+    install_pages(&f);
+    for path in ["/guest/", "/guest/index.html", "/guest/signal", "/"] {
+        let closed = guest(&f, WAN, "GET", path, &guest_upgrade()).await;
+        assert_eq!(closed.status, StatusCode::NOT_FOUND, "{path}");
+        assert!(!closed.text().contains("guest page"), "{path}");
+    }
+    let id = open_guests(&f);
+    assert_eq!(
+        guest(&f, WAN, "GET", "/guest/", &[]).await.text(),
+        "<p>guest page</p>"
+    );
+    f.host.guests.revoke(&id);
+    assert_eq!(
+        guest(&f, WAN, "GET", "/guest/", &[]).await.status,
+        StatusCode::NOT_FOUND
+    );
+}
+
+#[tokio::test]
 async fn the_guest_page_is_its_own_build_and_never_the_consoles() {
     let f = Fixture::new();
-    let missing = call(&f, WAN, "GET", "/guest/", &[], None).await;
+    open_guests(&f);
+    let missing = guest(&f, WAN, "GET", "/guest/", &[]).await;
     assert_eq!(missing.status, StatusCode::NOT_FOUND);
     install_pages(&f);
     for path in [
@@ -323,7 +427,7 @@ async fn the_guest_page_is_its_own_build_and_never_the_consoles() {
         "/guest/api/config",
         "/guest/..%5cindex.html",
     ] {
-        let page = call(&f, WAN, "GET", path, &[], None).await;
+        let page = guest(&f, WAN, "GET", path, &[]).await;
         assert_eq!(page.status, StatusCode::OK, "{path}");
         assert_eq!(page.text(), "<p>guest page</p>", "{path}");
         assert_eq!(page.headers[header::CONTENT_SECURITY_POLICY], GUEST_POLICY);
@@ -332,7 +436,7 @@ async fn the_guest_page_is_its_own_build_and_never_the_consoles() {
         assert_eq!(page.headers[header::REFERRER_POLICY], "no-referrer");
         assert_eq!(page.headers[header::CACHE_CONTROL], "no-store");
     }
-    let script = call(&f, WAN, "GET", "/guest/assets/guest-1.js", &[], None).await;
+    let script = guest(&f, WAN, "GET", "/guest/assets/guest-1.js", &[]).await;
     assert_eq!(script.status, StatusCode::OK);
     assert!(
         script.headers[header::CONTENT_TYPE]
@@ -340,10 +444,29 @@ async fn the_guest_page_is_its_own_build_and_never_the_consoles() {
             .unwrap()
             .starts_with("text/javascript")
     );
-    let gone = call(&f, WAN, "GET", "/guest/assets/console-1.js", &[], None).await;
+    let gone = guest(&f, WAN, "GET", "/guest/assets/console-1.js", &[]).await;
     assert_eq!(gone.status, StatusCode::NOT_FOUND);
-    let posted = call(&f, LAN, "POST", "/guest/", &[], Some(json!({}))).await;
+    let posted = guest(&f, LAN, "POST", "/guest/", &[]).await;
     assert_eq!(posted.status, StatusCode::METHOD_NOT_ALLOWED);
+    // Nothing but the guest routes, even from this PC: no console page, file or API.
+    for path in [
+        "/",
+        "/index.html",
+        "/stream",
+        "/api/config",
+        "/api/guests",
+        "/pin",
+        "/serverinfo",
+    ] {
+        for peer in [WAN, LAN, "127.0.0.1:50000"] {
+            let other = guest(&f, peer, "GET", path, &[]).await;
+            assert_eq!(other.status, StatusCode::NOT_FOUND, "{peer} {path}");
+            assert!(other.text().is_empty(), "{peer} {path}: {}", other.text());
+        }
+    }
+    // And the console's port no longer serves the guest page or its socket.
+    let console_page = call(&f, LAN, "GET", "/guest/", &[], None).await;
+    assert_ne!(console_page.text(), "<p>guest page</p>");
     // The guest page loads its own files and talks to this host only.
     assert!(GUEST_POLICY.contains("connect-src 'self';"));
     assert!(GUEST_POLICY.contains("script-src 'self';"));
@@ -390,10 +513,14 @@ async fn an_internet_guest_reaches_the_guest_routes_and_no_console_route() {
         let refused = call(&f, WAN, method, path, &console(&cookie, &csrf), None).await;
         assert_eq!(refused.status, StatusCode::FORBIDDEN, "{method} {path}");
     }
-    let page = call(&f, WAN, "GET", "/guest/", &[], None).await;
+    open_guests(&f);
+    let page = guest(&f, WAN, "GET", "/guest/", &[]).await;
     assert_eq!(page.text(), "<p>guest page</p>");
+    // On the console's port a guest's upgrade is a console request, refused from the internet.
+    let console_socket = call(&f, WAN, "GET", "/guest/signal", &guest_upgrade(), None).await;
+    assert_eq!(console_socket.status, StatusCode::FORBIDDEN);
     // A oneshot request cannot be upgraded: one that passes every check ends in 426.
-    let socket = call(&f, WAN, "GET", "/guest/signal", &guest_upgrade(), None).await;
+    let socket = guest(&f, WAN, "GET", "/guest/signal", &guest_upgrade()).await;
     assert_eq!(
         socket.status,
         StatusCode::UPGRADE_REQUIRED,
@@ -405,9 +532,10 @@ async fn an_internet_guest_reaches_the_guest_routes_and_no_console_route() {
 #[tokio::test]
 async fn the_guest_socket_needs_its_page_origin_its_subprotocol_and_the_server_on() {
     let f = Fixture::new();
+    open_guests(&f);
     let host = &f;
     let socket = move |headers: Vec<(&'static str, String)>| async move {
-        call(host, WAN, "GET", "/guest/signal", &headers, None).await
+        guest(host, WAN, "GET", "/guest/signal", &headers).await
     };
     let off = socket(guest_upgrade()).await;
     assert_eq!(off.status, StatusCode::CONFLICT);
@@ -441,11 +569,11 @@ async fn the_guest_socket_needs_its_page_origin_its_subprotocol_and_the_server_o
     }
 }
 
-/// The console and the guest routes on a real socket, as `tls::serve` runs them (without TLS).
+/// The guest port on a real socket, as `tls::serve` runs it (without TLS).
 async fn serve(f: &Fixture) -> SocketAddr {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let local = listener.local_addr().unwrap();
-    let router = router(f.host.clone());
+    let router = guest_router(f.host.clone());
     tokio::spawn(async move {
         while let Ok((socket, peer)) = listener.accept().await {
             let service = TowerToHyperService::new(router.clone().layer(Extension(Connection {
@@ -494,25 +622,9 @@ async fn refused(ws: &mut Ws) -> String {
 async fn the_guest_socket_speaks_only_its_own_messages_even_with_a_console_sign_in() {
     let f = Fixture::new();
     configure(&f, json!({"webrtc_server": true}));
+    open_guests(&f);
     let address = serve(&f).await;
     let (cookie, csrf) = sign_in(&f);
-    let signed_in = format!("Cookie: {cookie}\r\n");
-    // The console's messages, from a tab that is signed in to it, get nothing.
-    for message in [
-        json!({"version": 2, "type": "get-apps"}),
-        json!({"version": 2, "type": "start-session", "appId": "1"}),
-        json!({"type": "answer", "sdp": "v=0"}),
-        json!({"type": "join"}),
-    ] {
-        let mut ws = guest_socket(address, &signed_in).await;
-        ws.send(message.clone()).await;
-        assert_eq!(refused(&mut ws).await, "invalid-message", "{message}");
-    }
-    let mut ws = guest_socket(address, "").await;
-    ws.send(json!({"type": "join", "token": "0".repeat(32), "name": "Sam"}))
-        .await;
-    assert_eq!(refused(&mut ws).await, "invalid-link");
-
     // A right link while the owner is not streaming: the page is told to wait.
     let made = invite(
         &f,
@@ -541,4 +653,21 @@ async fn the_guest_socket_speaks_only_its_own_messages_even_with_a_console_sign_
     let mut ws = guest_socket(address, "").await;
     ws.send(json!({"type": "join", "token": token})).await;
     assert_eq!(refused(&mut ws).await, "invalid-link");
+
+    // The console's messages, from a tab that is signed in to it, get nothing.
+    let signed_in = format!("Cookie: {cookie}\r\n");
+    for message in [
+        json!({"version": 2, "type": "get-apps"}),
+        json!({"version": 2, "type": "start-session", "appId": "1"}),
+        json!({"type": "answer", "sdp": "v=0"}),
+        json!({"type": "join"}),
+    ] {
+        let mut ws = guest_socket(address, &signed_in).await;
+        ws.send(message.clone()).await;
+        assert_eq!(refused(&mut ws).await, "invalid-message", "{message}");
+    }
+    // Each counted as a wrong token, and with the withdrawn link's that is five from this
+    // address: its next socket waits out the limit before anything is looked at.
+    let mut ws = guest_socket(address, "").await;
+    assert_eq!(refused(&mut ws).await, "rate-limited");
 }

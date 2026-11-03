@@ -48,6 +48,24 @@ public class AppViewLifecycleTest {
         }
     }
 
+    /** A restored grid fragment can come back before the service connects and the adapter exists (Fire TV crash). */
+    @Test
+    @Config(qualifiers = "television")
+    public void aGridFragmentRestoredBeforeTheAdapterExistsDoesNotCrash() {
+        Intent intent = new Intent(RuntimeEnvironment.getApplication(), Library.class)
+                .putExtra(AppView.UUID_EXTRA, "test-host").putExtra(AppView.NAME_EXTRA, "PC");
+        ActivityController<Library> controller = Robolectric.buildActivity(Library.class, intent).setup();
+        try {
+            Library screen = controller.get();
+            screen.getFragmentManager().beginTransaction()
+                    .replace(R.id.appFragmentContainer, new com.limelight.ui.AdapterFragment())
+                    .commitNow();
+            assertFalse(screen.isFinishing());
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
     @Test
     public void failedOrDeniedAppListsOfferRetryWithoutBlockingNavigation() {
         Intent intent = new Intent(RuntimeEnvironment.getApplication(), Library.class)

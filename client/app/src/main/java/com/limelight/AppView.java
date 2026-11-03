@@ -1070,6 +1070,9 @@ public class AppView extends NightjarActivity implements AdapterFragmentCallback
 
     @Override
     public void receiveAbsListView(AbsListView listView) {
+        // A recreated activity gets its grid fragment back before the service connects and the adapter exists;
+        // the connection adds a fresh fragment once it does.
+        if (appGridAdapter == null) return;
         int columnDp = PreferenceConfiguration.readPreferences(this).smallIconMode ? 104 : 160;
         float fontScale = Math.max(1, getResources().getConfiguration().fontScale);
         ((android.widget.GridView) listView).setColumnWidth(Math.round(columnDp * fontScale *

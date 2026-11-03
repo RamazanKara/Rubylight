@@ -321,6 +321,13 @@ impl Setup {
         let unhooked = [
             "// The game refused ProtoInput's input hooks every way Nucleus Co-op injects them, so none are injected: Nucleus Co-op only tells it it has focus, and a keyboard, mouse or pad on the PC can reach it too.",
             "Game.FakeFocus = true;",
+            // Nucleus 2.4.2 lists XInput pads on its setup screen only for a
+            // handler with ProtoInput's XInput hook or this switch
+            // (`DevicesFunctions.UpdateDevices`). Without either it never
+            // sees the profile's pad and stays on that screen (#59). The
+            // switch alone injects nothing: Nucleus copies its XInput DLLs
+            // only with Hook.CustomDllEnabled or XInputPlusDll, both off.
+            "Game.Hook.XInputEnabled = true;",
         ];
         let options: Vec<&&str> = match self.inject {
             Inject::None => options.iter().chain(&unhooked).collect(),
@@ -1021,6 +1028,10 @@ mod tests {
                 Inject::None => {
                     assert!(!text.contains("Game.ProtoInput"), "{text}");
                     assert!(!text.contains("Inject"), "{text}");
+                    // Else the setup screen lists no pad and the profile never
+                    // starts the game (#59).
+                    assert!(says("Game.Hook.XInputEnabled = true;"), "{text}");
+                    assert!(says("Game.Hook.CustomDllEnabled = false;"), "{text}");
                 }
             }
             if way != Inject::None {

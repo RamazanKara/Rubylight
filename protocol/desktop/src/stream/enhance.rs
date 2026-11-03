@@ -263,6 +263,14 @@ mod windows_impl {
         Ok(result)
     }
 
+    /// The part of a `texture`-sized video texture AMD's HQ Scaler reads: the picture, rounded up
+    /// to the even size SDL makes NV12 and P010 textures at and never past the texture, so a
+    /// decoded picture's alignment padding stays out.
+    pub fn amf_input(picture: (i32, i32), texture: (u32, u32)) -> (i32, i32) {
+        let even = |extent: i32, whole: u32| ((extent + 1) & !1).min(whole as i32);
+        (even(picture.0, texture.0), even(picture.1, texture.1))
+    }
+
     /// The video texture an enhancement reads: a hardware-decoded NV12 or P010 picture.
     #[derive(Clone, Copy, PartialEq)]
     pub struct Source {
@@ -456,7 +464,8 @@ mod windows_impl {
                     let built = (|| {
                         let mut desc = D3D11_TEXTURE2D_DESC::default();
                         input.GetDesc(&mut desc);
-                        let scaler = HqScaler::new(device, amf_scaler::Parameters { width: desc.Width as i32, height: desc.Height as i32,
+                        let (width, height) = amf_input(source.picture, (desc.Width, desc.Height));
+                        let scaler = HqScaler::new(device, amf_scaler::Parameters { width, height,
                             output_width: size.0, output_height: size.1, frame_rate: frame_rate.max(1) as i32, ten_bit: source.ten_bit,
                             sharpness: amf_scaler::sharpness(key.output != source.picture, source.hdr()) })?;
                         let mut state = None;
@@ -712,6 +721,41 @@ mod gpu_tests {
             let got = at(band * 64 + 32, 32);
             assert!(near(got, want), "band {band}: {got:?}, expected about {want:?}");
         }
+    }
+
+    #[test]
+    fn amd_scales_the_picture_without_its_alignment_padding() {
+        // A 2184x1968 stream's AV1 picture in its 2240x1968 texture.
+        assert_eq!(amf_input((2184, 1968), (2240, 1968)), (2184, 1968));
+        assert_eq!(amf_input((1920, 1080), (1920, 1082)), (1920, 1080));
+        // As before: a picture of the texture's size, and an odd one in SDL's even texture.
+        assert_eq!(amf_input((1920, 1080), (1920, 1080)), (1920, 1080));
+        assert_eq!(amf_input((1365, 767), (1366, 768)), (1366, 768));
+    }
+
+    #[test]
+    #[ignore = "needs an AMD GPU with the AMF runtime"]
+    fn amfs_hq_scaler_leaves_a_padded_textures_padding_out() {
+        let (device, context, vendor) = device();
+        if vendor != VENDOR_AMD { eprintln!("not an AMD GPU ({vendor:#06x}): skipped"); return; }
+        // A 320x180 picture in a 384x192 texture whose padding is white.
+        let input = nv12(&device, 384, 192, |x, y| if x < 320 && y < 180 { [128, 128, 128] } else { [235, 128, 128] });
+        let output = target(&device, 640, 360, DXGI_FORMAT_NV12, D3D11_BIND_SHADER_RESOURCE.0 as u32);
+        let (width, height) = amf_input((320, 180), (384, 192));
+        let parameters = amf_scaler::Parameters { width, height, output_width: 640, output_height: 360, frame_rate: 60, ten_bit: false,
+            sharpness: amf_scaler::sharpness(true, false) };
+        // SAFETY: Textures and contexts of the test's device, used on this thread.
+        unsafe {
+            let mut scaler = HqScaler::new(&device, parameters).unwrap();
+            for _ in 0..3 { scaler.render(&input, &output, &context).unwrap(); }
+        }
+        let pixels = read(&device, &context, &output, 640, 360 * 3 / 2);
+        // The scaler's sharpening may darken the edges a little; the white padding would brighten them.
+        for (what, x, y) in [("right edge", 638, 180), ("bottom edge", 320, 358), ("corner", 638, 358)] {
+            let luma = pixels[y * 640 + x];
+            assert!(luma <= 136, "{what} came out {luma}: the padding (235) is in the picture");
+        }
+        assert!(pixels[180 * 640 + 320].abs_diff(128) <= 3, "the middle came out {}", pixels[180 * 640 + 320]);
     }
 
     #[test]

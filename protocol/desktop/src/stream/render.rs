@@ -23,6 +23,13 @@ struct Flipped {
 }
 
 impl Streaming {
+    /// The stream sizes a decoded picture is cropped to past its alignment padding: the pending
+    /// size first (its pictures may be on their way), then the one the stream is at.
+    fn crop_sizes(&self) -> [(i32, i32); 2] {
+        let pending = self.pending_mode.map_or(self.stream_size, |(mode, _)| (i32::from(mode.width), i32::from(mode.height)));
+        [pending, self.stream_size]
+    }
+
     /// Moves decoded pictures into the pacer; sends a clock sync probe when due.
     pub fn pump(&mut self) {
         // The keyboard hook keeps the shell's keys only while this loop runs.
@@ -50,10 +57,13 @@ impl Streaming {
             if decoded.setup.format & VIDEO_FORMAT_MASK_PYROWAVE != 0 { self.race_setup = Some(decoded.setup); }
             if let Some(frame) = decoded.picture.frame().filter(|_| decoded.setup.chroma_packing == 0 && decoded.setup.format & VIDEO_FORMAT_MASK_PYROWAVE == 0) {
                 let info = frame.info();
-                self.facts.width = info.width;
-                self.facts.height = info.height;
-                if self.pending_mode.is_some_and(|(mode, _)| i32::from(mode.width) == info.width && i32::from(mode.height) == info.height) {
+                // The size without an encoder's alignment padding, as the presenter shows it.
+                let (width, height) = nightjar_core::video::crop::visible_size((info.width, info.height), &self.crop_sizes());
+                self.facts.width = width;
+                self.facts.height = height;
+                if self.pending_mode.is_some_and(|(mode, _)| i32::from(mode.width) == width && i32::from(mode.height) == height) {
                     self.pending_mode = None;
+                    self.stream_size = (width, height);
                 }
             } else if decoded.setup.chroma_packing != 0 || decoded.setup.format & VIDEO_FORMAT_MASK_PYROWAVE != 0 {
                 // The menu's header and the session page name the stream's size: PyroWave and packed
@@ -344,7 +354,9 @@ impl Streaming {
                 } else { self.upscaler = None; }
                 if !self.draw_direct(renderer, &dst, texture) {
                     if texture == self.texture.texture { texture = self.texture.sdl_texture(renderer); }
-                    SDL_RenderTexture(renderer, texture, std::ptr::null(), &dst);
+                    // The video texture's alignment padding stays out of the picture.
+                    let source = self.texture.source_rect(texture);
+                    SDL_RenderTexture(renderer, texture, source.as_ref().map_or(std::ptr::null(), |rect| rect as *const _), &dst);
                 }
             } else if !self.texture.draw(renderer, &dst) {
                 self.exit = Some(Exit::Ended(Some("Packed full-chroma presentation failed.".into())));
@@ -427,6 +439,7 @@ impl Streaming {
                     rows = race::scissor(first, end, p.decoded.setup.height as u32);
                 }
             }
+            self.texture.crop_to(self.crop_sizes());
             if !self.texture.upload(renderer, &p.decoded, rows) {
                 if p.decoded.setup.format & VIDEO_FORMAT_MASK_PYROWAVE != 0 {
                     let reason = self.texture.failure.take().unwrap_or_else(|| "PyroWave GPU reconstruction failed.".into());

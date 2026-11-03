@@ -94,11 +94,14 @@ impl Upscaler {
         self.input == input && self.output == output && self.mode == mode
     }
 
+    /// Upscales the picture in the top left `input` of `source` (a video texture may be larger by
+    /// its alignment padding, which stays out).
     pub fn draw(&self, renderer: *mut SDL_Renderer, source: *mut SDL_Texture, sharpness: u32) -> Option<*mut SDL_Texture> {
         unsafe {
             let previous = SDL_GetRenderTarget(renderer);
             if !SDL_SetRenderTarget(renderer, self.textures[0]) { return None; }
-            let ok = SDL_RenderTexture(renderer, source, ptr::null(), ptr::null()) && SDL_FlushRenderer(renderer);
+            let picture = source_rect(self.input);
+            let ok = SDL_RenderTexture(renderer, source, &picture, ptr::null()) && SDL_FlushRenderer(renderer);
             SDL_SetRenderTarget(renderer, previous);
             if !ok { return None; }
             for (i, pass) in self.passes.iter().enumerate() {
@@ -117,6 +120,11 @@ impl Upscaler {
     }
 }
 
+/// The part of a source texture an upscaler reads: the picture's `input` size from the top left.
+fn source_rect(input: (i32, i32)) -> SDL_FRect {
+    SDL_FRect { x: 0.0, y: 0.0, w: input.0 as f32, h: input.1 as f32 }
+}
+
 impl Drop for Upscaler {
     fn drop(&mut self) {
         self.passes.clear();
@@ -129,6 +137,13 @@ impl Drop for Upscaler {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_upscalers_read_only_the_picture_of_a_padded_texture() {
+        // A 2184x1968 stream's AV1 picture in its 2240x1968 texture.
+        let rect = source_rect((2184, 1968));
+        assert_eq!((rect.x, rect.y, rect.w, rect.h), (0.0, 0.0, 2184.0, 1968.0));
+    }
 
     #[test]
     #[ignore = "requires a D3D11 or Vulkan display"]

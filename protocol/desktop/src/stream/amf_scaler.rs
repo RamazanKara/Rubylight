@@ -40,6 +40,7 @@ mod slot {
     pub const COMPONENT_GET_CAPS: usize = 26;
     pub const CAPS_ACCELERATION_TYPE: usize = 13;
     pub const SURFACE_PLANE_AT: usize = 25;
+    pub const SURFACE_SET_CROP: usize = 29;
     pub const PLANE_NATIVE: usize = 4;
 }
 
@@ -188,7 +189,8 @@ impl HqScaler {
         check(self.scaler.method::<unsafe extern "system" fn(*mut c_void, i32, i32, i32) -> i32>(slot::COMPONENT_INIT)(self.scaler.0, self.format(), p.width, p.height), "Init")
     }
 
-    /// Scales `input` (the input size, NV12 or P010) and copies the result into the top left of
+    /// Scales the top left input size of `input` (NV12 or P010, at least that size: a larger one
+    /// is cropped, its alignment padding left out) and copies the result into the top left of
     /// `output` (at least the output size, same format) on `context`.
     pub unsafe fn render(&mut self, input: &ID3D11Texture2D, output: &ID3D11Texture2D, context: &ID3D11DeviceContext) -> Result<(), String> {
         let mut surface = ptr::null_mut();
@@ -196,6 +198,12 @@ impl HqScaler {
             self.context.0, input.as_raw(), &mut surface, ptr::null_mut()), "CreateSurfaceFromDX11Native")?;
         let surface = Object(surface);
         if surface.0.is_null() { return Err("AMF made no surface of the picture".into()); }
+        let mut desc = D3D11_TEXTURE2D_DESC::default();
+        input.GetDesc(&mut desc);
+        let p = &self.parameters;
+        if let Some((width, height)) = crop(p, (desc.Width, desc.Height))? {
+            check(surface.method::<unsafe extern "system" fn(*mut c_void, i32, i32, i32, i32) -> i32>(slot::SURFACE_SET_CROP)(surface.0, 0, 0, width, height), "SetCrop")?;
+        }
         check(self.scaler.method::<unsafe extern "system" fn(*mut c_void, *mut c_void) -> i32>(slot::COMPONENT_SUBMIT_INPUT)(self.scaler.0, surface.0), "SubmitInput")?;
         let mut data = ptr::null_mut();
         let queried = self.scaler.method::<unsafe extern "system" fn(*mut c_void, *mut *mut c_void) -> i32>(slot::COMPONENT_QUERY_OUTPUT)(self.scaler.0, &mut data);
@@ -215,11 +223,21 @@ impl HqScaler {
         let native = plane.method::<unsafe extern "system" fn(*mut c_void) -> *mut c_void>(slot::PLANE_NATIVE)(plane.0);
         let texture = ID3D11Texture2D::from_raw_borrowed(&native).ok_or("AMF's scaled surface is not a Direct3D 11 texture")?;
         // A box, not CopyResource: AMF may allocate its surfaces larger than the picture.
-        let p = &self.parameters;
         context.CopySubresourceRegion(output, 0, 0, 0, 0, texture, 0,
             Some(&D3D11_BOX { left: 0, top: 0, front: 0, right: p.output_width as u32, bottom: p.output_height as u32, back: 1 }));
         Ok(())
     }
+}
+
+/// The part of an input texture of `texture` size the scaler reads when it is larger than the
+/// parameters' input (a decoded picture's alignment padding); None for the whole texture. A
+/// smaller texture cannot hold the picture.
+fn crop(p: &Parameters, texture: (u32, u32)) -> Result<Option<(i32, i32)>, String> {
+    let (width, height) = (texture.0 as i32, texture.1 as i32);
+    if width < p.width || height < p.height {
+        return Err(format!("the {width}x{height} picture texture is smaller than the scaler's {}x{} input", p.width, p.height));
+    }
+    Ok(((width, height) != (p.width, p.height)).then_some((p.width, p.height)))
 }
 
 impl Drop for HqScaler {
@@ -235,6 +253,14 @@ impl Drop for HqScaler {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_padded_input_texture_is_cropped_to_the_picture() {
+        let p = Parameters { width: 2184, height: 1968, output_width: 2560, output_height: 2307, frame_rate: 60, ten_bit: false, sharpness: 0.3 };
+        assert_eq!(crop(&p, (2240, 1968)), Ok(Some((2184, 1968))));
+        assert_eq!(crop(&p, (2184, 1968)), Ok(None), "a texture of the picture's size is read whole");
+        assert!(crop(&p, (2176, 1968)).is_err(), "a smaller texture is never cropped up");
+    }
 
     #[test]
     fn variants_have_amfs_layout() {

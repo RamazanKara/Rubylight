@@ -357,6 +357,11 @@ pub struct VideoTexture {
     pub texture: *mut SDL_Texture,
     width: i32,
     height: i32,
+    /// The part of the current decoded picture that is the stream, without an encoder's alignment
+    /// padding (`crop::visible_size`); None when the whole texture is the picture.
+    visible: Option<(i32, i32)>,
+    /// The stream sizes asked of the host that a picture may be padded from (`crop_to`).
+    stream_sizes: [(i32, i32); 2],
     format: SDL_PixelFormat,
     colorspace: SDL_Colorspace,
     d3d11: *mut c_void,
@@ -447,6 +452,8 @@ impl Default for VideoTexture {
             texture: std::ptr::null_mut(),
             width: 0,
             height: 0,
+            visible: None,
+            stream_sizes: [(0, 0); 2],
             format: SDL_PIXELFORMAT_UNKNOWN,
             colorspace: SDL_COLORSPACE_UNKNOWN,
             d3d11: std::ptr::null_mut(),
@@ -733,8 +740,23 @@ impl VideoTexture {
         self.is_hdr() && !self.hlg_frame
     }
 
+    /// The picture's size: the texture's, less the alignment padding of a decoded picture.
     pub fn size(&self) -> (i32, i32) {
-        (self.width, self.height)
+        self.visible.unwrap_or((self.width, self.height))
+    }
+
+    /// The stream sizes the next pictures are cropped to when they are one of them plus alignment
+    /// padding: the size the stream is at and the one asked for last.
+    pub fn crop_to(&mut self, sizes: [(i32, i32); 2]) {
+        self.stream_sizes = sizes;
+    }
+
+    /// The part of `texture` that holds the picture when it is the video texture with alignment
+    /// padding, for SDL to draw; None for the whole texture.
+    pub fn source_rect(&self, texture: *mut SDL_Texture) -> Option<SDL_FRect> {
+        let (w, h) = self.size();
+        (!texture.is_null() && texture == self.texture && (w, h) != (self.width, self.height))
+            .then_some(SDL_FRect { x: 0.0, y: 0.0, w: w as f32, h: h as f32 })
     }
 
     /// The picture AI enhancement can read: a hardware-decoded NV12 or P010 Direct3D 11 texture.
@@ -746,7 +768,7 @@ impl VideoTexture {
             _ => return None,
         };
         (!self.texture.is_null() && !self.d3d11.is_null()).then_some(super::enhance::Source {
-            texture: self.texture, d3d11: self.d3d11, picture: (self.width, self.height), ten_bit, colorspace: self.colorspace, transfer: self.transfer(),
+            texture: self.texture, d3d11: self.d3d11, picture: self.size(), ten_bit, colorspace: self.colorspace, transfer: self.transfer(),
         })
     }
 
@@ -859,8 +881,16 @@ impl VideoTexture {
     }
 
     /// Puts a decoded picture into the texture; `rows` are the only rows of a GPU-decoded picture
-    /// to draw when the rows above them are there already (the raced presenter).
+    /// to draw when the rows above them are there already (the raced presenter). A decoded H.264,
+    /// HEVC or AV1 picture is shown without its alignment padding (`crop_to`): the texture keeps
+    /// the whole picture and what draws it samples only the stream's part, so nothing is copied.
     pub fn upload(&mut self, renderer: *mut SDL_Renderer, decoded: &Decoded, rows: Option<(u32, u32)>) -> bool {
+        let uploaded = self.upload_picture(renderer, decoded, rows);
+        self.visible = decoded_size(decoded).filter(|_| uploaded).and_then(|size| visible_part(size, &self.stream_sizes, (self.width, self.height)));
+        uploaded
+    }
+
+    fn upload_picture(&mut self, renderer: *mut SDL_Renderer, decoded: &Decoded, rows: Option<(u32, u32)>) -> bool {
         #[cfg(windows)]
         if let media::Picture::GpuPlanes { lease, fence_value } = &decoded.picture {
             return self.upload_planes(renderer, decoded, lease, *fence_value, rows);
@@ -1255,7 +1285,9 @@ impl VideoTexture {
         // HLG becomes linear light relative to SDR white in a float texture, as the PyroWave and
         // packed pictures SDL draws; 10-bit SDR gamma-coded RGB.
         let linear = picture.transfer == super::direct::Transfer::Hlg;
-        if !self.converted.is_null() && self.converted_linear != linear {
+        // SAFETY: A live texture of this renderer.
+        let made_for = (!self.converted.is_null()).then(|| unsafe { ((*self.converted).w, (*self.converted).h) });
+        if !self.converted.is_null() && (self.converted_linear != linear || made_for != Some(self.size())) {
             self.converted_view = None;
             // SAFETY: a texture we created.
             unsafe { SDL_DestroyTexture(self.converted) };
@@ -1268,8 +1300,8 @@ impl VideoTexture {
                 let props = SDL_CreateProperties();
                 SDL_SetNumberProperty(props, SDL_PROP_TEXTURE_CREATE_FORMAT_NUMBER, i64::from(format.0));
                 SDL_SetNumberProperty(props, SDL_PROP_TEXTURE_CREATE_ACCESS_NUMBER, i64::from(SDL_TEXTUREACCESS_TARGET.0));
-                SDL_SetNumberProperty(props, SDL_PROP_TEXTURE_CREATE_WIDTH_NUMBER, i64::from(self.width));
-                SDL_SetNumberProperty(props, SDL_PROP_TEXTURE_CREATE_HEIGHT_NUMBER, i64::from(self.height));
+                SDL_SetNumberProperty(props, SDL_PROP_TEXTURE_CREATE_WIDTH_NUMBER, i64::from(self.size().0));
+                SDL_SetNumberProperty(props, SDL_PROP_TEXTURE_CREATE_HEIGHT_NUMBER, i64::from(self.size().1));
                 SDL_SetNumberProperty(props, SDL_PROP_TEXTURE_CREATE_COLORSPACE_NUMBER, i64::from(space.0));
                 self.converted = SDL_CreateTextureWithProperties(renderer, props);
                 self.converted_linear = linear;
@@ -1285,7 +1317,7 @@ impl VideoTexture {
             }
         }
         let view = self.converted_view.clone().ok_or("the RGB texture has no view")?;
-        let size = (self.width as u32, self.height as u32);
+        let size = (self.size().0 as u32, self.size().1 as u32);
         // SAFETY: The live renderer belongs to the presenting thread.
         let headroom = unsafe { SDL_GetFloatProperty(SDL_GetRendererProperties(renderer), SDL_PROP_RENDERER_HDR_HEADROOM_FLOAT, 1.0) };
         let white_nits = 80.0 * self.white_level;
@@ -1313,7 +1345,7 @@ impl VideoTexture {
         };
         let (matrix, full_range) = direct_matrix(self.colorspace);
         Some(super::direct::Picture {
-            texture, slice, size: (self.width as u32, self.height as u32), ten_bit, full_range, matrix, transfer: self.transfer(),
+            texture, slice, size: (self.size().0 as u32, self.size().1 as u32), ten_bit, full_range, matrix, transfer: self.transfer(),
         })
     }
 
@@ -1388,8 +1420,9 @@ impl VideoTexture {
             }
         }
         if !self.texture.is_null() {
+            let source = self.source_rect(self.texture);
             // SAFETY: The renderer and its video texture are live on this thread.
-            unsafe { SDL_RenderTexture(renderer, self.texture, std::ptr::null(), destination) };
+            unsafe { SDL_RenderTexture(renderer, self.texture, source.as_ref().map_or(std::ptr::null(), |rect| rect as *const _), destination) };
         }
         true
     }
@@ -1616,6 +1649,7 @@ impl VideoTexture {
             hdr_mode: self.hdr_mode,
             hdr_metadata: self.hdr_metadata,
             hdr_stream: self.hdr_stream,
+            stream_sizes: self.stream_sizes,
             // Facts about the stream, not the texture: `ensure` calls `destroy` before it reads them.
             hdr_frame: self.hdr_frame,
             hlg_frame: self.hlg_frame,
@@ -1633,6 +1667,20 @@ impl VideoTexture {
             ..Self::default()
         };
     }
+}
+
+/// The size of a decoded H.264, HEVC or AV1 picture, which may carry an encoder's alignment
+/// padding; None for PyroWave and packed 4:4:4 pictures, whose size the setup gives.
+fn decoded_size(decoded: &Decoded) -> Option<(i32, i32)> {
+    let plain = decoded.setup.chroma_packing == 0 && decoded.setup.format & nightjar_core::sdp::VIDEO_FORMAT_MASK_PYROWAVE == 0;
+    decoded.picture.frame().filter(|_| plain).map(|frame| { let info = frame.info(); (info.width, info.height) })
+}
+
+/// The part of a `texture`-sized texture holding a `decoded` picture that is the stream, when it
+/// is one of the stream `sizes` plus alignment padding; None when the whole texture is.
+fn visible_part(decoded: (i32, i32), sizes: &[(i32, i32)], texture: (i32, i32)) -> Option<(i32, i32)> {
+    let visible = nightjar_core::video::crop::visible_size(decoded, sizes);
+    (visible != texture && visible.0 <= texture.0 && visible.1 <= texture.1).then_some(visible)
 }
 
 /// The largest rectangle of the picture's aspect ratio inside `area`, centred.
@@ -2119,6 +2167,71 @@ pub(crate) mod tests {
         assert_eq!(pacing(&settings, true), (PacingMode::Vsync, false));
         settings.vsync = false;
         assert_eq!(pacing(&settings, true), (PacingMode::Immediate, false));
+    }
+
+    /// A video texture of `texture` size holding a decoded picture of that size, cropped to the
+    /// stream sizes as `upload` crops it. The texture pointer is never dereferenced.
+    fn holding(texture: (i32, i32), sizes: [(i32, i32); 2]) -> VideoTexture {
+        let mut video = VideoTexture::new(true, false);
+        video.texture = std::ptr::NonNull::dangling().as_ptr();
+        (video.width, video.height) = texture;
+        video.format = SDL_PIXELFORMAT_NV12;
+        video.crop_to(sizes);
+        video.visible = visible_part(texture, &video.stream_sizes, texture);
+        video
+    }
+
+    #[test]
+    fn a_padded_av1_picture_is_drawn_without_its_padding() {
+        // AMD's AV1 encoder codes a 2184x1968 stream as 2240x1968 (rust/PERFORMANCE_WORK.md).
+        let video = holding((2240, 1968), [(2184, 1968); 2]);
+        assert_eq!(video.size(), (2184, 1968));
+        let source = video.source_rect(video.texture).expect("SDL draws part of the texture");
+        assert_eq!((source.x, source.y, source.w, source.h), (0.0, 0.0, 2184.0, 1968.0), "the 56 padding columns stay out");
+        assert!(video.source_rect(std::ptr::NonNull::<SDL_Texture>::dangling().as_ptr().wrapping_add(1)).is_none(), "an upscaled or enhanced texture is all picture");
+        // Every scaling mode places the stream's size: Fit fills a window of its aspect ratio.
+        let fit = viewport(video.size(), (1092, 984), crate::config::VideoScaling::Fit, false);
+        assert_eq!((fit.x, fit.y, fit.w, fit.h), (0.0, 0.0, 1092.0, 984.0));
+        let fill = viewport(video.size(), (1092, 984), crate::config::VideoScaling::Fill, false);
+        assert_eq!((fill.w, fill.h), (1092.0, 984.0));
+        // 1920x1080 is coded as 1920x1082.
+        let video = holding((1920, 1082), [(1920, 1080); 2]);
+        assert_eq!(video.size(), (1920, 1080));
+        assert_eq!(video.source_rect(video.texture).map(|rect| (rect.w, rect.h)), Some((1920.0, 1080.0)));
+    }
+
+    #[test]
+    fn a_picture_of_the_stream_size_or_smaller_is_drawn_whole() {
+        for (texture, stream) in [((1920, 1080), (1920, 1080)), ((2184, 1968), (2184, 1968)), ((1280, 720), (1920, 1080)), ((2560, 1440), (1920, 1080))] {
+            let video = holding(texture, [stream; 2]);
+            assert_eq!(video.size(), texture, "{texture:?} for a {stream:?} stream");
+            assert!(video.source_rect(video.texture).is_none(), "SDL draws the whole texture, as before");
+        }
+        // No stream size known (tests, a texture made before the first picture): no crop.
+        assert_eq!(holding((2240, 1968), [(0, 0); 2]).size(), (2240, 1968));
+        // A visible part never reaches past the texture.
+        assert_eq!(visible_part((2240, 1968), &[(2184, 1968)], (2184, 1968)), None);
+    }
+
+    #[test]
+    fn a_new_texture_keeps_the_stream_sizes_and_drops_the_crop() {
+        let mut video = holding((2240, 1968), [(2184, 1968); 2]);
+        video.texture = std::ptr::null_mut();
+        video.destroy();
+        assert_eq!(video.stream_sizes, [(2184, 1968); 2]);
+        assert_eq!(video.visible, None);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn the_direct_pass_reads_only_the_stream_part_of_a_padded_picture() {
+        let mut video = holding((2240, 1968), [(2184, 1968); 2]);
+        video.d3d11_picture = true;
+        video.copied = true;
+        video.d3d11 = std::ptr::NonNull::<c_void>::dangling().as_ptr();
+        // The pass's shader samples `picture / textureSize` of the 2240-wide texture.
+        assert_eq!(video.picture().map(|picture| picture.size), Some((2184, 1968)));
+        assert_eq!(video.enhance_source().map(|source| source.picture), Some((2184, 1968)));
     }
 
     pub(crate) fn decoded(ready_us: u64) -> Decoded {

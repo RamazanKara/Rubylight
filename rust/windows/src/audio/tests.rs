@@ -59,6 +59,21 @@ fn captured(samples: &mut CaptureSamples, values: &[f32], flags: u32) {
 }
 
 #[test]
+fn a_10_ms_endpoint_period_gives_two_5_ms_packets_per_wake_and_carries_nothing_over() {
+    // The Steam Streaming Speakers cadence: 480 frames every 10 ms. Each wake reads both
+    // packets at once, and nothing waits behind them for the next wake.
+    let mut samples = capture_samples(48_000);
+    for wake in 0..100 {
+        captured(&mut samples, &vec![0.25; 480 * 2], 0);
+        assert!(samples.read(240).is_some(), "wake {wake}, first packet");
+        assert!(samples.read(240).is_some(), "wake {wake}, second packet");
+        assert!(samples.read(240).is_none(), "wake {wake}, nothing more");
+        assert_eq!(samples.queued(48_000), 0, "wake {wake} carried audio over");
+    }
+    assert_eq!(samples.take_trimmed(48_000), 0);
+}
+
+#[test]
 fn capture_discontinuity_preserves_valid_packets_from_the_same_drain() {
     let discontinuity = AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY.0 as u32;
     for packet_ms in [5, 10, 20] {

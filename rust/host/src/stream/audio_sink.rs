@@ -752,6 +752,25 @@ mod tests {
     }
 
     #[test]
+    fn an_endpoint_delivering_10_ms_per_wake_sends_two_contiguous_packets_each_wake() {
+        let mut audio = Thread::new();
+        let mut capture = Some(Fake::default());
+        for wake in 0..50u64 {
+            let card = capture.as_mut().unwrap();
+            card.reads.extend(Fake::playing(2).reads);
+            card.waited = (wake > 0).then_some(Duration::from_millis(10));
+            card.delivered = Some(Duration::ZERO);
+            assert_eq!(
+                audio.pass(&mut capture, wake * 10),
+                [wake * 480, wake * 480 + 240],
+                "wake {wake}"
+            );
+            assert!(capture.as_ref().unwrap().reads.is_empty());
+        }
+        assert!(audio.errors.is_empty());
+    }
+
+    #[test]
     fn the_audio_loop_counts_a_windows_skip_and_the_hosts_trim_before_numbering() {
         let mut audio = Thread::new();
         let mut capture = Some(Fake::playing(1));

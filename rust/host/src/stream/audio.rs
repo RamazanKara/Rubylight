@@ -30,6 +30,40 @@ pub(crate) fn open_audio_encoder(
 
 type Route = butterpollo_windows::audio_route::Route;
 
+/// The `audio_cadence_trace` ring, written to `logs\audio-cadence-<unix seconds>.csv` when the
+/// audio thread ends, however it ends.
+struct CadenceDump {
+    trace: butterpollo_core::audio_cadence::Trace,
+    directory: std::path::PathBuf,
+}
+
+impl Drop for CadenceDump {
+    fn drop(&mut self) {
+        let seconds = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |since| since.as_secs());
+        let path = self
+            .directory
+            .join("logs")
+            .join(format!("audio-cadence-{seconds}.csv"));
+        let written = std::fs::create_dir_all(path.parent().unwrap())
+            .and_then(|()| std::fs::File::create(&path))
+            .and_then(|file| {
+                let mut out = std::io::BufWriter::new(file);
+                self.trace.write_csv(&mut out)?;
+                std::io::Write::flush(&mut out)
+            });
+        match written {
+            Ok(()) => {
+                tracing::info!(path = %path.display(), captured = self.trace.captured.len(), sent = self.trace.sent.len(), "audio cadence trace written")
+            }
+            Err(error) => {
+                tracing::warn!(path = %path.display(), "audio cadence trace not written: {error}")
+            }
+        }
+    }
+}
+
 /// Keep the streaming speakers the Windows default and find the device to
 /// capture; the previous sink when Windows cannot say.
 fn route_upkeep(
@@ -187,6 +221,13 @@ impl Media {
             None
         };
         let mut capture: Option<Loopback> = None;
+        // Hidden switches for measuring the capture cadence; the defaults open it as always.
+        let capture_options =
+            butterpollo_core::audio_cadence::CaptureOptions::from_config(&config)?;
+        let mut cadence = capture_options.trace.then(|| CadenceDump {
+            trace: butterpollo_core::audio_cadence::Trace::new(),
+            directory: h.directory.clone(),
+        });
         let mut sink = String::new();
         let mut audio_check = Instant::now();
         let mut audio_error: Option<String> = None;
@@ -338,7 +379,7 @@ impl Media {
                             Ok(()) => s.launch.warnings.clear("audio_surround"),
                             Err(error) => s.launch.warnings.set("audio_surround", format!("Virtual surround format could not be applied ({error:#}); channels may be downmixed. Select stereo or check the virtual audio driver.")),
                         }
-                        match Loopback::new_sink(capture_channels, &sink) {
+                        match Loopback::new_sink_with(capture_channels, &sink, &capture_options) {
                             Ok(value) => {
                                 tracing::info!(
                                     channels = capture_channels,
@@ -399,12 +440,21 @@ impl Media {
                     );
                 },
             );
+            if let (Some(cadence), Some(capturing)) = (&mut cadence, &mut capture) {
+                capturing.drain_trace(&mut cadence.trace);
+            }
             let now = Instant::now();
             if ready {
                 for (samples, at) in packets.iter_mut().zip(positions) {
                     couch.process(&s.audio, &s.launch.warnings, samples);
                     for _ in 0..encoder.send(output.as_mut(), samples, now, at)? {
                         loss.unsent();
+                    }
+                    if let Some(cadence) = &mut cadence {
+                        cadence.trace.send(butterpollo_core::audio_cadence::Sent {
+                            send_ms: butterpollo_windows::timing::qpc_ms(),
+                            position: at,
+                        });
                     }
                     // Haptics from game audio analyse a copy of what went out,
                     // on the control thread; one atomic load while unused.

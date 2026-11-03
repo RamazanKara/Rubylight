@@ -173,6 +173,7 @@ Tier: Main rows show when a section opens; More rows fold behind the section's l
 | --- | --- | --- | --- | --- |
 | Surround sound<br>`list_audio_config` | Main | Stereo | Stereo; 5.1 Surround Sound; 7.1 Surround Sound; 7.1.4 Surround Sound | Choose 5.1, 7.1 or 7.1.4 for a matching audio output and host configuration; use stereo for headphones or two speakers. 7.1.4 needs Android 12L or newer, a 12-channel output and a Rubylight 3.0 PC; it is hidden for an output with fewer channels, and other PCs and outputs get 7.1. |
 | Play audio on the host PC<br>`checkbox_host_audio` | Main | Off | On; Off | Enable to hear audio on the PC as well as Android. |
+| Mute audio<br>`checkbox_mute_audio` | More | Off | On; Off | Enable to stream without sound on this device, for example while the PC plays it (see Play audio on the host PC) or the device sits in a quiet place. Audio passthrough is not asked for. Applies to the next stream. |
 | Send microphone to the PC<br>`checkbox_enable_mic` | Main | Off | On; Off | Enable to talk in games and chat apps on the PC. Asks for microphone access; if it is not allowed, the setting stays off. The PC hears it as its streaming microphone. Mute it from the stream menu; the overlay shows whether it is sending. |
 | Microphone button<br>`checkbox_mic_button` | Main | On | On; Off | Leave on for a round button on the stream that mutes and unmutes with one tap; drag it anywhere and it stays there. Shown only while the PC takes the microphone. Turn off to mute from the stream menu only; the menu's Input section can show or hide it during a stream. Requires Send microphone to the PC On. |
 | Echo cancellation<br>`list_mic_echo_cancel` | More | Automatic | Automatic; On; Off | Leave on Automatic: it cancels echo with the speaker and turns off with headphones or a Bluetooth headset, following a switch during the stream. Pick On if the PC hears its own game sound through a headset. Requires Send microphone to the PC On. |
@@ -496,6 +497,7 @@ The Controllers group can be changed while **Controllers** is on. On-screen cont
 | Play audio on the PC too | Off | On, Off | |
 | Microphone | Off | On, Off | Sends the default microphone to a host that accepts one. |
 | *Fine-tuning:* Echo cancellation | Automatic | Automatic, On, Off | With Microphone on. Automatic turns it off on Windows when sound plays through headphones or a headset. On Linux it needs PipeWire's or PulseAudio's echo-cancel module. |
+| Mute audio | Off | On, Off | Plays no sound from the stream on this computer; the audio is still received. Play audio on the PC too and Microphone are unaffected, and Uncompressed audio is not asked for. |
 | Uncompressed audio | Off | On, Off | Asks a Rubylight PC for uncompressed PCM instead of Opus: about 1.5 Mbps for stereo, up to 6 Mbps for 7.1. Other PCs keep Opus. The desktop client does not pass through Dolby. |
 
 ### Streaming

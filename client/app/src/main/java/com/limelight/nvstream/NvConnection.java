@@ -606,9 +606,10 @@ public class NvConnection {
     /**
      * The passthrough codecs to ask for: those the audio output plays for the stream's channel
      * count, or 0 for Opus. Switched on with nothing to ask for, the stream says why it plays Opus.
+     * Mute audio asks for none: Opus is the least to receive for sound nobody hears.
      */
-    static int audioPassthroughCodecs(boolean enabled, int channels) {
-        if (!enabled) return 0;
+    static int audioPassthroughCodecs(boolean enabled, boolean muted, int channels) {
+        if (!enabled || muted) return 0;
         int codecs = AudioPassthrough.playableCodecs(channels);
         if (codecs != 0) {
             LimeLog.info("Audio passthrough: the audio output plays " + AudioPassthrough.names(codecs) +
@@ -1356,7 +1357,7 @@ public class NvConnection {
                                 hostDetails.caps.has(HostCapabilities.Feature.PYROWAVE_RECORDS),
                                 PyroWaveDecoderRenderer.earlyRecordsAllowed()));
                         MoonBridge.requestRoaming(prefs.clientRoaming, prefs.roamingMetered);
-                        MoonBridge.requestAudioPassthrough(audioPassthroughCodecs(prefs.audioPassthrough,
+                        MoonBridge.requestAudioPassthrough(audioPassthroughCodecs(prefs.audioPassthrough, prefs.muteAudio,
                                 context.streamConfig.getAudioConfiguration().channelCount));
                         // Before the start, so a change during the handshake is still reported.
                         Network streamNetwork = RoamingNetworkWatch.defaultNetwork(appContext);

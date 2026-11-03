@@ -718,6 +718,14 @@ impl App {
                                 }
                                 None
                             }
+                            Some(action @ (Action::PreviousTab | Action::NextTab)) => {
+                                if self.streaming.is_none() && self.connecting.is_none() {
+                                    let mut commands = Vec::new();
+                                    self.launcher.step_destination(&self.gui.ctx, action == Action::NextTab, &mut commands);
+                                    for command in commands { self.command(command); }
+                                }
+                                None
+                            }
                             Some(action) => nav_key(action),
                             None => None,
                         },

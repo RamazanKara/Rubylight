@@ -416,6 +416,54 @@ fn the_destinations_read_home_pcs_settings_help() {
     assert_eq!(screens, [Screen::Home, Screen::Hosts, Screen::Settings, Screen::Help]);
 }
 
+/// L1 and R1 step through the destinations, round at the ends, and leave a dialog alone.
+#[test]
+fn the_shoulders_step_through_the_destinations() {
+    let mut f = Frames::new(record("Desk", true, false), Reach::Online);
+    // Home is offered once a library is there to show.
+    use nightjar_core::http::native_api::library::{Artwork, Game, Library};
+    let game = Game {
+        install_id: "install-0".into(),
+        app_id: 1000,
+        title: "Game 00".into(),
+        game_id: None,
+        store: None,
+        installed: Some(true),
+        running: false,
+        artwork: Artwork { cover: None, version: String::new() },
+    };
+    f.hosts.list[0].native.library = Some(Library { revision: "r1".into(), games: vec![game] });
+    f.l.go(Screen::Home);
+    f.settle();
+    let step = |f: &mut Frames, forward: bool| {
+        let mut commands = Vec::new();
+        f.l.step_destination(&f.ctx, forward, &mut commands);
+        f.settle();
+        commands
+    };
+    step(&mut f, true);
+    assert_eq!(f.l.screen, Screen::Hosts, "R1 from Home");
+    step(&mut f, false);
+    assert_eq!(f.l.screen, Screen::Home, "L1 back");
+    step(&mut f, false);
+    assert_eq!(f.l.screen, Screen::Help, "L1 from Home goes round to Help");
+    step(&mut f, true);
+    assert_eq!(f.l.screen, Screen::Home, "R1 from Help goes round to Home");
+    // Settings is left saved, as its button leaves it.
+    step(&mut f, true);
+    step(&mut f, true);
+    assert_eq!(f.l.screen, Screen::Settings);
+    assert!(step(&mut f, true).iter().any(|c| matches!(c, Command::SaveSettings)));
+    assert_eq!(f.l.screen, Screen::Help);
+    // Over a dialog nothing moves.
+    f.l.go(Screen::Home);
+    pad_press(&mut f, Key::Escape);
+    assert!(matches!(f.l.dialog, Dialog::ConfirmExit));
+    assert!(step(&mut f, true).is_empty());
+    assert_eq!(f.l.screen, Screen::Home);
+    assert!(matches!(f.l.dialog, Dialog::ConfirmExit));
+}
+
 #[test]
 fn destinations_replace_each_other_and_back_ends_at_the_root() {
     let mut l = launcher(true, true);

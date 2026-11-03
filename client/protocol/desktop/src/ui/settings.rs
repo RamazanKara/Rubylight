@@ -827,6 +827,14 @@ impl Launcher {
                 });
             }
             rows.group(ui, "Mouse and keyboard", "");
+            if !layered {
+                setting_row(ui, s, &mut rows, &[], "Stream hotkeys", "Nightjar's own key combinations in a stream.", |ui, _| {
+                    let hotkeys = quiet_button(ui, "Change");
+                    if hotkeys.clicked() { commands.push(Command::StreamHotkeys); }
+                    links.push(("stream-hotkeys-link", hotkeys.clone()));
+                    hotkeys
+                });
+            }
             setting_row(ui, s, &mut rows, &["capture_system_keys"], "Send system keys",
                 "Alt+Tab, the Windows key and similar go to the PC while input is captured.",
                 |ui, s| toggle(ui, &mut s.capture_system_keys),

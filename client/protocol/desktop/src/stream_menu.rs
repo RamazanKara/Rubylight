@@ -277,7 +277,7 @@ pub fn grid(ui: &mut Ui, layout: &Layout, saved: &Shortcuts, hotkey: Option<Hotk
 pub fn footer(ui: &mut Ui, layout: &Layout) -> Option<Leave> {
     ui.add_space(space::L);
     let mut picked = None;
-    if menu_style::primary(ui, tr("Return to stream"), Some(crate::shortcuts::Key::Escape.cap())).clicked() {
+    if menu_style::primary(ui, tr("Return to stream"), Some(crate::shortcuts::Key::Escape.cap().as_ref())).clicked() {
         picked = Some(Leave::Close);
     }
     let exits: Vec<Leave> = layout.footer.iter().filter_map(|id| {

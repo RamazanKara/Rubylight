@@ -178,14 +178,14 @@ impl Launcher {
     }
 
     fn help_keyboard(&mut self, ui: &mut Ui, width: f32) {
-        let launcher: Vec<_> = shortcuts::keys_in(Scope::Launcher).collect();
-        let stream: Vec<_> = shortcuts::keys_in(Scope::Stream).collect();
+        let launcher = shortcuts::keys_in(Scope::Launcher);
+        let stream = shortcuts::keys_in(Scope::Stream);
         let columns = if width >= TWO_UP { 2 } else { 1 };
         grid(ui, "help-keys", columns, 2, |ui, n| {
             if n == 0 {
                 card_title(ui, Icon::Keyboard, tr("In the launcher"));
                 for (i, binding) in launcher.iter().enumerate() {
-                    let pieces = glyphs::chords(binding.chords, false);
+                    let pieces = glyphs::chords(&binding.chords, false);
                     self.keys_line(ui, &format!("help-key-{i}"), tr(binding.action.label()), &pieces, i + 1 == launcher.len());
                 }
             } else {
@@ -200,17 +200,17 @@ impl Launcher {
                     ui.label(RichText::new(tr("and press:")).font(regular(text::LABEL)).color(ON_SURFACE_VARIANT));
                 });
                 ui.add_space(space::XS);
-                let (chords, alone): (Vec<&shortcuts::KeyBinding>, Vec<_>) = stream.iter().copied().partition(|b| b.chords.iter().all(|c| c.is_nightjar()));
+                let (chords, alone): (Vec<&shortcuts::KeyBinding>, Vec<_>) = stream.iter().partition(|b| b.chords.iter().all(|c| c.is_nightjar()));
                 for (i, binding) in chords.iter().enumerate() {
-                    let pieces = glyphs::chords(binding.chords, true);
-                    let spoken = glyphs::spoken(&glyphs::chords(binding.chords, false));
+                    let pieces = glyphs::chords(&binding.chords, true);
+                    let spoken = glyphs::spoken(&glyphs::chords(&binding.chords, false));
                     self.keys_line_spoken(ui, &format!("help-stream-key-{i}"), tr(binding.action.label()), &pieces, &spoken, i + 1 == chords.len() && alone.is_empty());
                 }
                 if !alone.is_empty() {
                     ui.add_space(space::S);
                     ui.label(RichText::new(tr("Without Ctrl+Alt+Shift")).font(semibold(text::CAPTION)).color(ON_SURFACE_VARIANT));
                     for (i, binding) in alone.iter().enumerate() {
-                        let pieces = glyphs::chords(binding.chords, false);
+                        let pieces = glyphs::chords(&binding.chords, false);
                         self.keys_line(ui, &format!("help-stream-alone-{i}"), tr(binding.action.label()), &pieces, i + 1 == alone.len());
                     }
                 }

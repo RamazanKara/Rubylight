@@ -188,6 +188,18 @@ public class HomeLibraryRowsTest {
         assertEquals("the newer of the two PCs", Long.valueOf(1_760_000_000L), portal.lastPlayed);
         assertEquals("one PC says never, the other nothing", Long.valueOf(0L), quake.lastPlayed);
         assertNull("no PC says", doom.lastPlayed);
+
+        // Only when no PC says: when this device last streamed it, as on desktop.
+        rig.recents.add(new com.limelight.nativeapi.RecentsStore.Recent("tower", "Tower", doom.appId, "Doom", 1_780_000_000_000L));
+        rig.recents.add(new com.limelight.nativeapi.RecentsStore.Recent("tower", "Tower", portal.appId, "Portal", 1_790_000_000_000L));
+        model = HomeModel.of(rig.repository.refresh(hosts), new HashSet<>(java.util.Arrays.asList("tower", "den")));
+        for (HomeModel.GameCard card : model.allGames) {
+            if (card.title.equals("Portal")) portal = card;
+            if (card.title.equals("Doom")) doom = card;
+        }
+        assertEquals("this device's recents", Long.valueOf(1_780_000_000L), doom.lastPlayed);
+        assertEquals("the PCs say, so they win", Long.valueOf(1_760_000_000L), portal.lastPlayed);
+        assertEquals("the Recently played row stays the PCs' own", Arrays.asList("Portal"), titles(model.row("shelf:recent").cards));
     }
 
     @Test

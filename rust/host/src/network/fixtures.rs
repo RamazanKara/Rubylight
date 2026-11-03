@@ -5,6 +5,7 @@ use std::sync::{Arc, Mutex};
 #[derive(Clone)]
 struct Row {
     port: u16,
+    protocol: Protocol,
     owner: String,
 }
 #[derive(Default)]
@@ -23,6 +24,12 @@ fn text<'a>(body: &'a str, tag: &str) -> &'a str {
         .split_once(&format!("</{tag}>"))
         .unwrap()
         .0
+}
+fn protocol(body: &str) -> Protocol {
+    match text(body, "NewProtocol") {
+        "UDP" => Protocol::UDP,
+        _ => Protocol::TCP,
+    }
 }
 fn response(action: &str, value: &str) -> String {
     format!(
@@ -59,8 +66,8 @@ async fn soap(
             response(
                 action,
                 &format!(
-                    "<NewRemoteHost></NewRemoteHost><NewExternalPort>{}</NewExternalPort><NewProtocol>TCP</NewProtocol><NewInternalPort>{}</NewInternalPort><NewInternalClient>192.0.2.10</NewInternalClient><NewEnabled>1</NewEnabled><NewPortMappingDescription>{}</NewPortMappingDescription><NewLeaseDuration>0</NewLeaseDuration>",
-                    row.port, row.port, row.owner
+                    "<NewRemoteHost></NewRemoteHost><NewExternalPort>{}</NewExternalPort><NewProtocol>{}</NewProtocol><NewInternalPort>{}</NewInternalPort><NewInternalClient>192.0.2.10</NewInternalClient><NewEnabled>1</NewEnabled><NewPortMappingDescription>{}</NewPortMappingDescription><NewLeaseDuration>0</NewLeaseDuration>",
+                    row.port, row.protocol, row.port, row.owner
                 ),
             )
         }
@@ -74,15 +81,25 @@ async fn soap(
                 return fault(725);
             }
             let port = text(&body, "NewExternalPort").parse().unwrap();
+            let protocol = protocol(&body);
             let owner = text(&body, "NewPortMappingDescription").into();
-            state.rows.retain(|row| row.port != port);
-            state.rows.push(Row { port, owner });
+            state
+                .rows
+                .retain(|row| (row.port, row.protocol) != (port, protocol));
+            state.rows.push(Row {
+                port,
+                protocol,
+                owner,
+            });
             response(action, "")
         }
         "DeletePortMapping" => {
             let port = text(&body, "NewExternalPort").parse().unwrap();
+            let protocol = protocol(&body);
             state.deleted.push(port);
-            state.rows.retain(|row| row.port != port);
+            state
+                .rows
+                .retain(|row| (row.port, row.protocol) != (port, protocol));
             response(action, "")
         }
         _ => panic!("unexpected SOAP action {action}"),
@@ -136,10 +153,12 @@ async fn permanent_only_router_reclaims_old_own_ports_and_preserves_other_owners
         rows: vec![
             Row {
                 port: 48124,
+                protocol: Protocol::TCP,
                 owner: "Other application".into(),
             },
             Row {
                 port: 48125,
+                protocol: Protocol::TCP,
                 owner: owner.into(),
             },
         ],
@@ -265,4 +284,45 @@ async fn hidden_table_conflicts_remain_reported_until_the_mapping_succeeds() {
     );
     assert!(reported.is_empty());
     server.abort();
+}
+
+#[tokio::test]
+async fn browser_guest_ports_are_forwarded_and_removed_with_the_webrtc_server_on() {
+    let owner = "Butterpollo Rust fixture-host";
+    let local = "192.0.2.10".parse().unwrap();
+    let guest = |rows: &[Row]| {
+        let mut ports: Vec<_> = rows
+            .iter()
+            .filter(|r| r.port == 48125 || (8002..=8005).contains(&r.port))
+            .map(|r| (r.protocol, r.port))
+            .collect();
+        ports.sort_by_key(|&(_, port)| port);
+        ports
+    };
+    for (config, expected) in [
+        ("upnp=true\n", vec![]),
+        (
+            "upnp=true\nwebrtc_server=true\n",
+            vec![
+                (Protocol::UDP, 8002),
+                (Protocol::UDP, 8003),
+                (Protocol::UDP, 8004),
+                (Protocol::UDP, 8005),
+                (Protocol::TCP, 48125),
+            ],
+        ),
+    ] {
+        let state = Arc::new(Mutex::new(RouterState::default()));
+        let (gateway, server) = serve(state.clone()).await;
+        let config = Config::parse(config).unwrap();
+        let wanted = mappings(&config, Ports::from_base(48123));
+        let applied = apply(&gateway, local, &wanted, owner, &mut Vec::new())
+            .await
+            .unwrap();
+        assert_eq!(applied, wanted);
+        assert_eq!(guest(&state.lock().unwrap().rows), expected);
+        remove(&gateway, local, &applied, owner).await.unwrap();
+        assert!(state.lock().unwrap().rows.is_empty());
+        server.abort();
+    }
 }

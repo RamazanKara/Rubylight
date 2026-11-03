@@ -27,7 +27,7 @@ Guests see your stream exactly as you do: the same codec, resolution and frame r
 
 On the local network, Tailscale or a VPN, nothing needs setting up: guests open the link at your PC's address.
 
-From the internet, forward these on your router to the PC:
+From the internet, these must reach the PC. With UPnP on (`upnp`) and a router that allows it, the PC forwards them itself, and removes them when it stops; otherwise forward them on your router:
 
 | What | Port | Notes |
 | --- | --- | --- |

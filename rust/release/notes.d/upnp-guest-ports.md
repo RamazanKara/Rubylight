@@ -1,0 +1,2 @@
+# UPnP forwards the browser guest ports
+- **UPnP forwards the browser guest ports.** With UPnP and the WebRTC server on, the PC asks the router to forward the guest page (TCP, the base port + 2, 47991 by default) and one media port per guest (UDP `webrtc_media_port` + 1 to + 4, 8002-8005 by default), and removes them when the host stops. Guests from the internet no longer need ports forwarded by hand on a router that allows UPnP.

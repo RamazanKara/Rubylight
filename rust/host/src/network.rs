@@ -257,6 +257,22 @@ fn mappings(config: &Config, ports: Ports) -> Vec<Mapping> {
             port: ports.web,
         });
     }
+    // Browser guests: the guest page on its own port, and one media port per guest seat.
+    if config.webrtc_server() {
+        mappings.push(Mapping {
+            protocol: Protocol::TCP,
+            port: ports.guest,
+        });
+        let media = config.webrtc_media_port();
+        mappings.extend(
+            (0..crate::webrtc::guests::MAX_GUESTS)
+                .filter_map(|slot| media.checked_add(1 + slot))
+                .map(|port| Mapping {
+                    protocol: Protocol::UDP,
+                    port,
+                }),
+        );
+    }
     mappings
 }
 /// The router's mapping table, and whether it was read to the end. Routers
@@ -542,6 +558,33 @@ mod tests {
         );
         let no_mic = Config::parse("stream_mic=false\n").unwrap();
         assert_eq!(mappings(&no_mic, Ports::from_base(48123)).len(), 6);
+    }
+    #[test]
+    fn browser_guest_ports_are_mapped_only_with_the_webrtc_server_on() {
+        let guest_ports = |config: &Config| {
+            mappings(config, Ports::from_base(48123))
+                .into_iter()
+                .filter(|m| m.port == 48125 || (9000..9010).contains(&m.port))
+                .collect::<Vec<_>>()
+        };
+        let off = Config::parse("webrtc_media_port=9001\n").unwrap();
+        assert!(guest_ports(&off).is_empty());
+        let on = Config::parse("webrtc_server=true\nwebrtc_media_port=9001\n").unwrap();
+        let mut expected = vec![Mapping {
+            protocol: Protocol::TCP,
+            port: 48125,
+        }];
+        expected.extend((9002..=9005).map(|port| Mapping {
+            protocol: Protocol::UDP,
+            port,
+        }));
+        assert_eq!(guest_ports(&on), expected);
+        // The signalling and own-stream media ports stay closed.
+        assert!(
+            !mappings(&on, Ports::from_base(48123))
+                .iter()
+                .any(|m| m.port == 9001 || m.port == 8000)
+        );
     }
     #[test]
     fn a_mapping_left_by_another_host_on_this_pc_is_not_a_conflict() {

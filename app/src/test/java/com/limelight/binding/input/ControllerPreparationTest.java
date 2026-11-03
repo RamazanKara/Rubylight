@@ -695,6 +695,59 @@ public class ControllerPreparationTest {
         }
     }
 
+    @Test public void builtInControlsCarryTheTouchpadButtonAsAPlayStationPad() {
+        try (ActivityController<Activity> activity = Robolectric.buildActivity(Activity.class).create()) {
+            addInputDevice(activity.get(), 8, false, InputDevice.SOURCE_JOYSTICK | InputDevice.SOURCE_GAMEPAD);
+            PreferenceConfiguration prefs = new PreferenceConfiguration();
+            prefs.multiController = true;
+            prefs.onscreenController = true;
+            // Without the Touchpad button the handheld's controls keep their own type.
+            Connection quiet = new Connection(73);
+            ControllerHandler handler = new ControllerHandler(activity.get(), quiet, null, prefs);
+            try {
+                assertTrue(handler.prepareControllersForLaunch().startsWith("0:1:"));
+                assertTrue(quiet.arrivalType != MoonBridge.LI_CTYPE_PS);
+                assertEquals(0, quiet.arrivalButtons & ControllerPacket.TOUCHPAD_FLAG);
+            } finally { handler.destroy(); }
+
+            prefs.showTouchpadButton = true;
+            Connection connection = new Connection(73);
+            handler = new ControllerHandler(activity.get(), connection, null, prefs);
+            try {
+                String prepared = handler.prepareControllersForLaunch();
+                assertTrue(prepared, prepared.startsWith("0:" + MoonBridge.LI_CTYPE_PS + ":"));
+                assertTrue((Integer.parseUnsignedInt(prepared.split(":")[3]) & ControllerPacket.TOUCHPAD_FLAG) != 0);
+                handler.resendControllerArrivals();
+                assertEquals(0, connection.arrivalSlot);
+                assertEquals(MoonBridge.LI_CTYPE_PS, connection.arrivalType);
+                assertTrue((connection.arrivalButtons & ControllerPacket.TOUCHPAD_FLAG) != 0);
+                assertEquals("One pad for player 1, not a second on-screen one", 1, connection.typeBySlot.size());
+            } finally { handler.destroy(); }
+        }
+    }
+
+    @Test public void anExternalPadKeepsItsTypeBesideTheTouchpadButton() {
+        try (ActivityController<Activity> activity = Robolectric.buildActivity(Activity.class).create()) {
+            addInputDevice(activity.get(), 2, true, InputDevice.SOURCE_JOYSTICK | InputDevice.SOURCE_GAMEPAD);
+            addInputDevice(activity.get(), 4, true, InputDevice.SOURCE_JOYSTICK | InputDevice.SOURCE_GAMEPAD);
+            addInputDevice(activity.get(), 8, false, InputDevice.SOURCE_JOYSTICK | InputDevice.SOURCE_GAMEPAD);
+            PreferenceConfiguration prefs = new PreferenceConfiguration();
+            prefs.multiController = true;
+            prefs.onscreenController = true;
+            prefs.showTouchpadButton = true;
+            Connection connection = new Connection(73);
+            ControllerHandler handler = new ControllerHandler(activity.get(), connection, null, prefs);
+            try {
+                String[] prepared = handler.prepareControllersForLaunch().split(",");
+                assertEquals(2, prepared.length);
+                assertTrue(prepared[0].startsWith("0:1:"));
+                assertTrue(prepared[1].startsWith("1:1:"));
+                handler.resendControllerArrivals();
+                for (byte type : connection.typeBySlot.values()) assertTrue(type != MoonBridge.LI_CTYPE_PS);
+            } finally { handler.destroy(); }
+        }
+    }
+
     private static ControllerHandler handler(Activity activity, Connection connection) {
         PreferenceConfiguration prefs = new PreferenceConfiguration(); prefs.usbDualSenseHaptics = true;
         return new ControllerHandler(activity, connection, null, prefs);
@@ -706,12 +759,14 @@ public class ControllerPreparationTest {
         short arrivalCaps;
         byte arrivalSlot;
         int arrivalButtons;
+        final java.util.Map<Byte, Byte> typeBySlot = new java.util.HashMap<>();
         Connection(int appId) {
             super(null, new ComputerDetails.AddressTuple("127.0.0.1", 47989), 47984, "test",
                     new StreamConfiguration.Builder().setApp(new NvApp("Test", appId, false)).build(), null, null);
         }
         @Override public int sendControllerArrivalEvent(byte slot, short mask, byte type, int buttons, short caps) {
-            arrivals++; arrivalType = type; arrivalCaps = caps; arrivalSlot = slot; arrivalButtons = buttons; return 0;
+            arrivals++; arrivalType = type; arrivalCaps = caps; arrivalSlot = slot; arrivalButtons = buttons;
+            typeBySlot.put(slot, type); return 0;
         }
         @Override public void sendControllerInput(short slot, short mask, int buttons, byte leftTrigger,
                                                  byte rightTrigger, short leftX, short leftY, short rightX, short rightY) {

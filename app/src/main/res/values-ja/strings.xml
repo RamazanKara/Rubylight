@@ -183,7 +183,7 @@
     <string name="summary_only_l3r3">L3 と R3 以外の仮想ボタンをすべて非表示にします</string>
     <string name="title_show_guide_button">Guide ボタンを表示</string>
     <string name="title_show_touchpad_button">タッチパッドボタンを表示</string>
-    <string name="summary_show_touchpad_button">PC の仮想コントローラーが DualShock 4 または DualSense のとき、タッチパッドをクリックします。モダンスタイルではレイアウトエディターで移動や非表示ができます。</string>
+    <string name="summary_show_touchpad_button">PC 上の PlayStation コントローラーのタッチパッドをクリックします。オンの間、プレイヤー 1 は PlayStation コントローラーとして接続します。モダンスタイルではレイアウトエディターで移動や非表示ができます。</string>
     <string name="title_reset_osc">コントロールのレイアウトをリセット</string>
     <string name="dialog_title_reset_osc">レイアウトをリセット</string>
     <string name="dialog_text_reset_osc">すべてのオンスクリーン ボタンをデフォルトのサイズと位置に戻しますか？</string>

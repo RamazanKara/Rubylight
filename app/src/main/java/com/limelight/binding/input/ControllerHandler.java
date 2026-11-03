@@ -1464,14 +1464,29 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
             ControllerPacket.RS_CLK_FLAG | ControllerPacket.BACK_FLAG | ControllerPacket.PLAY_FLAG |
             ControllerPacket.SPECIAL_BUTTON_FLAG | ControllerPacket.TOUCHPAD_FLAG;
 
+    /** Whether the on-screen controls show their Touchpad button. */
+    private boolean showsTouchpadButton() {
+        return prefConfig.onscreenController && prefConfig.showTouchpadButton && !prefConfig.onlyL3R3;
+    }
+
+    /**
+     * Whether built-in controls arrive as a PlayStation pad for the on-screen Touchpad button they
+     * share player 1 with: hosts make a DualShock 4 or DualSense for this type, the pads with a
+     * touchpad click. A type the user pinned for the pad wins.
+     */
+    private boolean carriesTouchpadButton(InputDeviceContext context) {
+        return showsTouchpadButton() && !context.external && context.controllerNumber == 0 &&
+                !context.buttonMap.isConnectAsPinned();
+    }
+
     /**
      * Whether the on-screen controller announces itself as a PlayStation pad. Only for its
-     * Touchpad button: hosts make a DualShock 4 or DualSense for this type, the pads with a
-     * touchpad click. Without the button it stays quiet and the host makes its default pad as
-     * before; a pad in player 1's slot keeps its own type.
+     * Touchpad button, as {@link #carriesTouchpadButton} does for built-in controls. Without the
+     * button it stays quiet and the host makes its default pad as before; a pad in player 1's
+     * slot announces player 1 instead.
      */
     private boolean announcesOnscreenPad() {
-        if (!prefConfig.onscreenController || !prefConfig.showTouchpadButton || prefConfig.onlyL3R3) return false;
+        if (!showsTouchpadButton()) return false;
         for (InputDeviceContext context : inputDeviceContexts.values()) {
             if (context.assignedControllerNumber && context.controllerNumber == 0) return false;
         }
@@ -4643,6 +4658,11 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
                 if (hasButtonUnderTouchpad(inputDevice, type)) {
                     supportedButtonFlags |= ControllerPacket.TOUCHPAD_FLAG;
                 }
+            }
+
+            if (carriesTouchpadButton(this)) {
+                reportedType = MoonBridge.LI_CTYPE_PS;
+                supportedButtonFlags |= ControllerPacket.TOUCHPAD_FLAG;
             }
 
             capabilities = arrivalCapabilities(capabilities, buttonMap);

@@ -183,7 +183,7 @@
     <string name="summary_only_l3r3">Oculta todos os botões virtuais, exceto L3 e R3</string>
     <string name="title_show_guide_button">Mostrar botão Guide</string>
     <string name="title_show_touchpad_button">Mostrar botão Touchpad</string>
-    <string name="summary_show_touchpad_button">Clica no touchpad quando o controle virtual do PC é um DualShock 4 ou DualSense. No estilo moderno, mova ou oculte no editor de layout.</string>
+    <string name="summary_show_touchpad_button">Clica no touchpad de um controle PlayStation no PC: enquanto estiver ativado, o jogador 1 se conecta como um. No estilo moderno, mova ou oculte no editor de layout.</string>
     <string name="title_reset_osc">Redefinir layout dos controles</string>
     <string name="dialog_title_reset_osc">Redefinir layout</string>
     <string name="dialog_text_reset_osc">Retornar todos os botões na tela ao tamanho e posição padrão?</string>

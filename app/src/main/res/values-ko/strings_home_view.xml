@@ -6,7 +6,9 @@
     <string name="home_view_layout_rows">행</string>
     <string name="home_view_group">그룹화 기준</string>
     <string name="home_view_group_store">스토어</string>
+    <string name="home_view_group_type">유형</string>
     <string name="home_view_group_none">없음</string>
+    <string name="console_row_games">게임</string>
     <string name="home_view_size">카드 크기</string>
     <string name="home_view_size_small">작게</string>
     <string name="home_view_size_medium">보통</string>

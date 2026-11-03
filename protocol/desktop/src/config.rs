@@ -502,12 +502,15 @@ impl HomeLayout {
     }
 }
 
-/// Whether Home splits its library by store (Android's `home_view_group`).
+/// Whether Home splits its library by store or by type (Android's `home_view_group`).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum HomeGroup {
     /// The whole library as one row.
     None,
+    /// The games of every store in one row, the apps of no store (launchers, the desktop) in
+    /// their own.
+    Type,
     /// A row per store, then the apps of no store. Also what an unknown value reads as; keep it
     /// last: serde wants the catch-all there.
     #[default]
@@ -516,11 +519,12 @@ pub enum HomeGroup {
 }
 
 impl HomeGroup {
-    pub const ALL: [Self; 2] = [Self::Store, Self::None];
+    pub const ALL: [Self; 3] = [Self::Store, Self::Type, Self::None];
 
     pub fn label(self) -> &'static str {
         match self {
             Self::Store => en("Store"),
+            Self::Type => en("Type"),
             Self::None => en("None"),
         }
     }
@@ -2081,6 +2085,10 @@ mod tests {
             (&serde_json::json!("grid"), &serde_json::json!("none"), &serde_json::json!("large"))
         );
         assert_eq!(serde_json::from_value::<Settings>(json).unwrap(), set);
+        // By type is Android's "type" too.
+        let by_type: Settings = serde_json::from_str(r#"{"home_group":"type"}"#).unwrap();
+        assert_eq!(by_type.home_group, HomeGroup::Type);
+        assert_eq!(serde_json::to_value(by_type).unwrap()["home_group"], serde_json::json!("type"));
         // A value from a newer Nightjar keeps the default instead of dropping every setting.
         let newer: Settings = serde_json::from_str(r#"{"home_layout":"carousel","home_card_size":"huge","fps":90}"#).unwrap();
         assert_eq!((newer.home_layout, newer.home_card_size, newer.fps), (HomeLayout::Rows, CardSize::Medium, 90));

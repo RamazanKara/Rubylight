@@ -28,6 +28,8 @@ pub const TABLE: &[(&str, &str)] = &[
     ("Group by", "Gruppieren nach"),
     ("Store", "Store"),
     ("None", "Keine"),
+    ("Type", "Typ"),
+    ("Games", "Spiele"),
     ("Card size", "Kartengröße"),
     ("Small", "Klein"),
     ("Medium", "Mittel"),

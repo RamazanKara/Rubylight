@@ -6,7 +6,9 @@
     <string name="home_view_layout_rows">Ряды</string>
     <string name="home_view_group">Группировать по</string>
     <string name="home_view_group_store">Магазин</string>
+    <string name="home_view_group_type">Тип</string>
     <string name="home_view_group_none">Нет</string>
+    <string name="console_row_games">Игры</string>
     <string name="home_view_size">Размер карточек</string>
     <string name="home_view_size_small">Маленькие</string>
     <string name="home_view_size_medium">Средние</string>

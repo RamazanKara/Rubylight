@@ -3518,11 +3518,18 @@ fn home_view_changes_layout_grouping_and_card_size_in_place() {
     assert!(shows(&f, "Steam 11") && !shows(&f, "All 12"), "{:?}", f.drawn);
     assert!(shows(&f, "Battle.net"), "still a part per store: {:?}", f.drawn);
 
+    // Group by: type. The games of every store in one part, the apps of no store in their own.
+    let shelves = |f: &Frames| f.placed.iter().filter(|(t, r, _)| r.center().y > 80.0 && ["Steam", "Battle.net", "Epic Games", "Xbox", "Other apps", "Library", "Games"].contains(&t.as_str())).map(|p| p.0.clone()).collect::<Vec<_>>();
+    let at = row(&f, "Group by");
+    f.click_at(at.center(), egui::PointerButton::Primary);
+    assert_eq!(f.l.settings.home_group, HomeGroup::Type);
+    assert!(shows(&f, "Type"), "the row says the grouping now: {:?}", f.drawn);
+    assert_eq!(shelves(&f), ["Games", "Other apps"], "{:?}", f.drawn);
+
     // Group by: none. One Library part, no store's.
     let at = row(&f, "Group by");
     f.click_at(at.center(), egui::PointerButton::Primary);
     assert_eq!(f.l.settings.home_group, HomeGroup::None);
-    let shelves = |f: &Frames| f.placed.iter().filter(|(t, r, _)| r.center().y > 80.0 && ["Steam", "Battle.net", "Epic Games", "Xbox", "Other apps", "Library"].contains(&t.as_str())).map(|p| p.0.clone()).collect::<Vec<_>>();
     assert_eq!(shelves(&f), ["Library"], "{:?}", f.drawn);
     assert!(shows(&f, "Desktop") && shows(&f, "Fortnite"), "every game in it: {:?}", f.drawn);
 

@@ -147,14 +147,14 @@ final class ConsoleHomeListAdapter extends RecyclerView.Adapter<RecyclerView.Vie
     }
 
     void submit(HomeModel model) {
-        submit(model, false);
+        submit(model, HomeView.Group.NONE);
     }
 
     /**
-     * {@code grouped}: the library under a heading per store, each part whole (a grid has no "All N" tile), as the
+     * By store or type: the library under a heading per part, each part whole (a grid has no "All N" tile), as the
      * shelves have it; otherwise one Library part.
      */
-    void submit(HomeModel model, boolean grouped) {
+    void submit(HomeModel model, HomeView.Group group) {
         rows.clear();
         if (!model.favourites.isEmpty()) {
             rows.add(new Row(HEADER, "header:favourites", context.getString(R.string.console_section_favourites), null, null));
@@ -169,8 +169,8 @@ final class ConsoleHomeListAdapter extends RecyclerView.Adapter<RecyclerView.Vie
                 rows.add(new Row(tv != null ? COVER_GAME : WIDE_GAME, card.key, null, card, null));
             }
         }
-        if (grouped) {
-            for (HomeModel.Row part : model.rows) {
+        if (group != HomeView.Group.NONE) {
+            for (HomeModel.Row part : model.rows(group)) {
                 List<HomeModel.GameCard> cards = model.whole(part);
                 if (cards.isEmpty()) continue;
                 rows.add(new Row(HEADER, "header:" + part.key, ShelfAdapter.CardHolder.rowTitle(context, part), null, null));

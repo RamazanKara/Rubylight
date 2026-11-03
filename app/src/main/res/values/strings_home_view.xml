@@ -7,7 +7,10 @@
     <string name="home_view_layout_rows">Rows</string>
     <string name="home_view_group">Group by</string>
     <string name="home_view_group_store">Store</string>
+    <string name="home_view_group_type">Type</string>
     <string name="home_view_group_none">None</string>
+    <!-- The row of every store's games when Home is grouped by type. -->
+    <string name="console_row_games">Games</string>
     <string name="home_view_size">Card size</string>
     <string name="home_view_size_small">Small</string>
     <string name="home_view_size_medium">Medium</string>

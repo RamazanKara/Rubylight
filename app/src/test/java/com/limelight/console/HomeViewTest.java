@@ -39,8 +39,16 @@ public class HomeViewTest {
                 HomeView.read(prefs, false));
         assertEquals(new HomeView(HomeView.Layout.ROWS, HomeView.Group.STORE, HomeView.Size.MEDIUM),
                 HomeView.read(prefs, true));
-        assertFalse(HomeView.defaults(false).grouped());
-        assertTrue(HomeView.defaults(true).grouped());
+    }
+
+    @Test
+    public void byTypeIsStoredAndReadBack() {
+        new HomeView(HomeView.Layout.GRID, HomeView.Group.TYPE, HomeView.Size.SMALL).save(prefs);
+        assertEquals("type", prefs.getString("home_view_group", null));
+        assertEquals(HomeView.Group.TYPE, HomeView.read(prefs, true).group);
+        // What earlier versions stored still reads as before.
+        prefs.edit().putString("home_view_group", "none").commit();
+        assertEquals(HomeView.Group.NONE, HomeView.read(prefs, true).group);
     }
 
     @Test

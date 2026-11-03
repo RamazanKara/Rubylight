@@ -107,8 +107,11 @@ public final class HomeModel {
         }
     }
 
-    /** Which of the library's rows: one per store, the apps of no store, the host's last played, the games not added. */
-    public enum RowKind { RECENT, STORE, OTHER, UNADDED }
+    /**
+     * Which of the library's rows: one per store, the apps of no store, the host's last played, the games not added,
+     * or every store's games in one (grouped by type).
+     */
+    public enum RowKind { RECENT, STORE, OTHER, UNADDED, GAMES }
 
     /** A library row on TV Home: at most {@link #ROW_CAP} cards, then an "All N" tile when there are more. */
     public static final class Row {
@@ -124,12 +127,15 @@ public final class HomeModel {
         public final int total;
         /** The All games filter the "All N" tile opens. */
         public final String filter;
+        /** The row's cards before the cap: a grid shows them all. */
+        final List<GameCard> all;
 
         Row(String key, RowKind kind, String store, String storeName, List<GameCard> all, String filter, boolean capped) {
             this.key = key;
             this.kind = kind;
             this.store = store;
             this.storeName = storeName;
+            this.all = Collections.unmodifiableList(all);
             this.total = all.size();
             this.cards = Collections.unmodifiableList(capped && all.size() > ROW_CAP
                     ? new ArrayList<>(all.subList(0, ROW_CAP)) : all);
@@ -163,6 +169,8 @@ public final class HomeModel {
     public static final String FILTER_ALL = "all";
     public static final String FILTER_INSTALLED = "installed";
     public static final String FILTER_OTHER = "other";
+    /** Every store's games, without the apps of no store: the Games row's chip. */
+    public static final String FILTER_GAMES = "games";
     public static final String FILTER_UNADDED = "unadded";
     static final String STORE_FILTER = "store:";
 
@@ -172,6 +180,7 @@ public final class HomeModel {
         if (card.notAdded()) return false;
         if (filter == null || FILTER_ALL.equals(filter)) return true;
         if (FILTER_INSTALLED.equals(filter)) return !card.notInstalled();
+        if (FILTER_GAMES.equals(filter)) return card.store() != null;
         if (FILTER_OTHER.equals(filter)) return card.store() == null;
         if (filter.startsWith(STORE_FILTER)) return filter.substring(STORE_FILTER.length()).equals(card.store());
         return true;
@@ -233,23 +242,40 @@ public final class HomeModel {
     }
 
     /**
-     * The library's rows under {@link HomeView.Group}: by store as {@link #rows} has them, or the whole library as one
-     * row, the installed games by name as the phone's grid lists them.
+     * The library's rows under {@link HomeView.Group}: by store as {@link #rows} has them; by type, the store rows
+     * merged: every store's games in one row and the apps of no store (launchers, the desktop) in their own, each with
+     * the games not installed after the installed ones as in the store rows, so each row is exactly its chip; or the
+     * whole library as one row, the installed games by name as the phone's grid lists them. A library with no stores
+     * at all cannot tell games from apps and keeps its one plain row by type too. A title is a game when its host says
+     * which store it is from: hosts send nothing else that tells games from apps.
      */
-    public List<Row> rows(boolean grouped) {
-        if (grouped) return rows;
-        if (library.isEmpty()) return Collections.emptyList();
-        return Collections.singletonList(new Row(LIBRARY_ROW, RowKind.OTHER, null, null, library, FILTER_INSTALLED, true));
+    public List<Row> rows(HomeView.Group group) {
+        if (group == HomeView.Group.STORE) return rows;
+        if (group == HomeView.Group.NONE) {
+            if (library.isEmpty()) return Collections.emptyList();
+            return Collections.singletonList(new Row(LIBRARY_ROW, RowKind.OTHER, null, null, library, FILTER_INSTALLED, true));
+        }
+        List<GameCard> games = new ArrayList<>();
+        List<GameCard> apps = new ArrayList<>();
+        for (GameCard card : allGames) {
+            if (card.notAdded()) continue;
+            (card.store() == null ? apps : games).add(card);
+        }
+        List<Row> parts = new ArrayList<>();
+        if (games.isEmpty()) {
+            if (!apps.isEmpty()) parts.add(new Row(LIBRARY_ROW, RowKind.OTHER, null, null, installedFirst(apps), FILTER_ALL, true));
+            return parts;
+        }
+        parts.add(new Row("shelf:games", RowKind.GAMES, null, null, installedFirst(games), FILTER_GAMES, true));
+        if (!apps.isEmpty()) {
+            parts.add(new Row("shelf:other", RowKind.OTHER, null, null, installedFirst(apps), FILTER_OTHER, true));
+        }
+        return parts;
     }
 
     /** Every game of a row, not only those before its "All N" tile: a grid shows each row whole. */
     public List<GameCard> whole(Row row) {
-        if (!row.hasMore()) return row.cards;
-        List<GameCard> cards = new ArrayList<>();
-        for (GameCard card : allGames) {
-            if (matches(row.filter, card)) cards.add(card);
-        }
-        return installedFirst(cards);
+        return row.all;
     }
 
     /** The row with this key, or null. */
@@ -497,6 +523,8 @@ public final class HomeModel {
         filters.add(new Filter(FILTER_ALL, null, added));
         // Installed narrows only when something is not.
         if (installed < added) filters.add(new Filter(FILTER_INSTALLED, null, installed));
+        // Games, the Games row's chip, narrows only when the library has apps of no store beside stores.
+        if (other > 0 && !stores.isEmpty()) filters.add(new Filter(FILTER_GAMES, null, added - other));
         List<String> order = new ArrayList<>(stores.keySet());
         Collections.sort(order, (a, b) -> {
             int bySize = Integer.compare(stores.get(b), stores.get(a));

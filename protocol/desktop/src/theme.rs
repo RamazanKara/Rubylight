@@ -7,6 +7,8 @@ use std::time::Instant;
 
 use egui::{Color32, FontData, FontDefinitions, FontFamily, FontId, Stroke, TextStyle};
 
+use crate::strings::Lang;
+
 /// A colour role. The palette behind it is the normal night one or the high-contrast one, chosen
 /// by [`set_high_contrast`], so drawing code names a role and never a colour. It derefs to the
 /// current `Color32` (`*MOON`) and converts into one where egui takes `impl Into<Color32>`.
@@ -239,32 +241,204 @@ pub fn regular(size: f32) -> FontId {
     FontId::new(size, FontFamily::Proportional)
 }
 
+const FIGTREE: &[u8] = include_bytes!("../assets/Figtree-400.ttf");
+const FIGTREE_SEMIBOLD: &[u8] = include_bytes!("../assets/Figtree-600.ttf");
+
+/// The language whose system faces the context's fonts hold ([`fonts_for`]).
+fn fonts_key() -> egui::Id {
+    egui::Id::unique("nightjar-fonts-for")
+}
+
+/// Figtree and egui's fonts, and the style. [`fonts_for`] adds the system faces a language needs.
 pub fn apply(ctx: &egui::Context) {
+    ctx.set_fonts(definitions(SystemFonts::default()));
+    ctx.data_mut(|d| d.remove::<Lang>(fonts_key()));
+    set_look(ctx, high_contrast(), false);
+}
+
+/// Loads the system faces that draw `lang`'s letters beside Figtree. Cheap unless the language
+/// changed since the last call, so it runs every frame.
+pub fn fonts_for(ctx: &egui::Context, lang: Lang) {
+    if ctx.data(|d| d.get_temp::<Lang>(fonts_key())) == Some(lang) {
+        return;
+    }
+    ctx.data_mut(|d| d.insert_temp(fonts_key(), lang));
+    ctx.set_fonts(definitions(system_fonts(lang)));
+}
+
+/// Figtree has Latin-1 only: no Cyrillic, no Polish, Turkish or Vietnamese letters, no CJK.
+/// egui's own Ubuntu-Light draws some of them in a lighter weight, and none of CJK.
+#[derive(Default)]
+struct SystemFonts {
+    /// Ahead of Figtree, so each word comes from one face: the language's words mix Figtree's
+    /// letters with ones it lacks (Polish, Turkish, Vietnamese) or are Cyrillic, whose digits
+    /// and punctuation would otherwise be Figtree's.
+    ahead: bool,
+    regular: Option<FontData>,
+    semibold: Option<FontData>,
+}
+
+fn definitions(system: SystemFonts) -> FontDefinitions {
     let mut fonts = FontDefinitions::default();
-    fonts.font_data.insert(
-        "figtree".into(),
-        Arc::new(FontData::from_static(include_bytes!("../assets/Figtree-400.ttf"))),
-    );
-    fonts.font_data.insert(
-        "figtree-semibold".into(),
-        Arc::new(FontData::from_static(include_bytes!("../assets/Figtree-600.ttf"))),
-    );
-    let fallback = fonts
+    fonts.font_data.insert("figtree".into(), Arc::new(FontData::from_static(FIGTREE)));
+    fonts.font_data.insert("figtree-semibold".into(), Arc::new(FontData::from_static(FIGTREE_SEMIBOLD)));
+    let egui_fonts = fonts
         .families
         .get(&FontFamily::Proportional)
         .cloned()
         .unwrap_or_default();
-    // Hack, egui's monospace font, comes last for the PlayStation button symbols (glyphs.rs)
-    // that neither Figtree nor egui's proportional fonts draw.
-    let proportional = fonts.families.entry(FontFamily::Proportional).or_default();
-    proportional.insert(0, "figtree".into());
-    proportional.push("Hack".into());
-    let mut bold = vec!["figtree-semibold".to_owned()];
-    bold.extend(fallback);
-    bold.push("Hack".into());
+    // A language without a semibold system face draws its bold text with the regular one.
+    let semibold = system.semibold.or_else(|| system.regular.clone());
+    let regular = system.regular.map(|data| {
+        fonts.font_data.insert("system".into(), Arc::new(data));
+        "system"
+    });
+    let semibold = semibold.map(|data| {
+        fonts.font_data.insert("system-semibold".into(), Arc::new(data));
+        "system-semibold"
+    });
+    let family = |figtree: &str, system_face: Option<&str>| {
+        let mut list: Vec<String> = Vec::new();
+        let system_face = system_face.map(str::to_owned);
+        if system.ahead {
+            list.extend(system_face.clone());
+        }
+        list.push(figtree.to_owned());
+        if !system.ahead {
+            list.extend(system_face);
+        }
+        list.extend(egui_fonts.iter().cloned());
+        // Hack, egui's monospace font, comes last for the PlayStation button symbols (glyphs.rs)
+        // that neither Figtree nor egui's proportional fonts draw.
+        list.push("Hack".into());
+        list
+    };
+    let proportional = family("figtree", regular);
+    let bold = family("figtree-semibold", semibold);
+    fonts.families.insert(FontFamily::Proportional, proportional);
     fonts.families.insert(FontFamily::Name("semibold".into()), bold);
-    ctx.set_fonts(fonts);
-    set_look(ctx, high_contrast(), false);
+    fonts
+}
+
+/// The system faces for `lang`'s letters, the first found of each list. Says so in the log when
+/// a language that needs one finds none: its text then shows in boxes or in a mix of weights.
+fn system_fonts(lang: Lang) -> SystemFonts {
+    let Some(fallback) = fallback(lang) else {
+        return SystemFonts::default();
+    };
+    let regular = fallback.regular.iter().find_map(load);
+    let semibold = fallback.semibold.iter().find_map(load);
+    if regular.is_none() {
+        eprintln!(
+            "nightjar: no system font draws {}; its text will show as boxes or in mixed weights. Install {}",
+            lang.name(),
+            faces::INSTALL[fallback.install]
+        );
+    }
+    SystemFonts { ahead: fallback.ahead, regular, semibold }
+}
+
+/// Where a language's letters come from when Figtree has not got them.
+struct Fallback {
+    ahead: bool,
+    regular: &'static [Face],
+    semibold: &'static [Face],
+    /// What to install, in [`faces::INSTALL`], when none is found.
+    install: usize,
+}
+
+fn fallback(lang: Lang) -> Option<Fallback> {
+    let (ahead, regular, semibold, install) = match lang {
+        Lang::En | Lang::De | Lang::Es | Lang::Fr | Lang::It | Lang::PtBr => return None,
+        Lang::Pl | Lang::Ru | Lang::Tr | Lang::Uk | Lang::Vi => (true, faces::SANS, faces::SANS_SEMIBOLD, 0),
+        Lang::Ja => (false, faces::JA, faces::JA_SEMIBOLD, 1),
+        Lang::Ko => (false, faces::KO, faces::KO_SEMIBOLD, 1),
+        Lang::ZhHans => (false, faces::ZH_HANS, faces::ZH_HANS_SEMIBOLD, 1),
+        Lang::ZhHant => (false, faces::ZH_HANT, faces::ZH_HANT_SEMIBOLD, 1),
+    };
+    Some(Fallback { ahead, regular, semibold, install })
+}
+
+/// A face in Windows' font folder: its file, and the family and style in its name table, which
+/// pick it out of a collection (.ttc).
+#[cfg(windows)]
+type Face = (&'static str, &'static str, &'static str);
+
+/// A fontconfig pattern and the family the match must have: fc-match answers every pattern with
+/// some font.
+#[cfg(not(windows))]
+type Face = (&'static str, &'static str);
+
+/// Windows 10 and 11 ship all of these. The UI cuts (Yu Gothic UI, YaHei UI, JhengHei UI) have
+/// the tighter line height menus want.
+#[cfg(windows)]
+mod faces {
+    use super::Face;
+    pub const SANS: &[Face] = &[("segoeui.ttf", "Segoe UI", "Regular")];
+    pub const SANS_SEMIBOLD: &[Face] = &[("seguisb.ttf", "Segoe UI Semibold", "Regular")];
+    pub const JA: &[Face] = &[("YuGothM.ttc", "Yu Gothic UI", "Regular"), ("meiryo.ttc", "Meiryo UI", "Regular"), ("meiryo.ttc", "Meiryo", "Regular")];
+    pub const JA_SEMIBOLD: &[Face] = &[("YuGothB.ttc", "Yu Gothic UI Semibold", "Regular"), ("meiryob.ttc", "Meiryo UI", "Bold"), ("meiryob.ttc", "Meiryo", "Bold")];
+    pub const KO: &[Face] = &[("malgun.ttf", "Malgun Gothic", "Regular")];
+    pub const KO_SEMIBOLD: &[Face] = &[("malgunbd.ttf", "Malgun Gothic", "Bold")];
+    pub const ZH_HANS: &[Face] = &[("msyh.ttc", "Microsoft YaHei UI", "Regular"), ("msyh.ttc", "Microsoft YaHei", "Regular")];
+    pub const ZH_HANS_SEMIBOLD: &[Face] = &[("msyhbd.ttc", "Microsoft YaHei UI", "Bold"), ("msyhbd.ttc", "Microsoft YaHei", "Bold")];
+    pub const ZH_HANT: &[Face] = &[("msjh.ttc", "Microsoft JhengHei UI", "Regular"), ("msjh.ttc", "Microsoft JhengHei", "Regular")];
+    pub const ZH_HANT_SEMIBOLD: &[Face] = &[("msjhbd.ttc", "Microsoft JhengHei UI", "Bold"), ("msjhbd.ttc", "Microsoft JhengHei", "Bold")];
+    pub const INSTALL: [&str; 2] = ["Segoe UI (Windows' own font).", "the language's supplemental fonts (Settings > Apps > Optional features)."];
+}
+
+/// Noto ships in most distributions (fonts-noto-core, fonts-noto-cjk); DejaVu is the older default.
+#[cfg(not(windows))]
+mod faces {
+    use super::Face;
+    pub const SANS: &[Face] = &[("Noto Sans:style=Regular", "Noto Sans"), ("DejaVu Sans:style=Book", "DejaVu Sans")];
+    pub const SANS_SEMIBOLD: &[Face] = &[("Noto Sans:style=SemiBold", "Noto Sans"), ("DejaVu Sans:style=Bold", "DejaVu Sans")];
+    pub const JA: &[Face] = &[("Noto Sans CJK JP:style=Regular", "Noto Sans CJK JP"), ("Source Han Sans JP:style=Regular", "Source Han Sans JP")];
+    pub const JA_SEMIBOLD: &[Face] = &[("Noto Sans CJK JP:style=Bold", "Noto Sans CJK JP"), ("Source Han Sans JP:style=Bold", "Source Han Sans JP")];
+    pub const KO: &[Face] = &[("Noto Sans CJK KR:style=Regular", "Noto Sans CJK KR"), ("Source Han Sans KR:style=Regular", "Source Han Sans KR")];
+    pub const KO_SEMIBOLD: &[Face] = &[("Noto Sans CJK KR:style=Bold", "Noto Sans CJK KR"), ("Source Han Sans KR:style=Bold", "Source Han Sans KR")];
+    pub const ZH_HANS: &[Face] = &[("Noto Sans CJK SC:style=Regular", "Noto Sans CJK SC"), ("Source Han Sans SC:style=Regular", "Source Han Sans SC")];
+    pub const ZH_HANS_SEMIBOLD: &[Face] = &[("Noto Sans CJK SC:style=Bold", "Noto Sans CJK SC"), ("Source Han Sans SC:style=Bold", "Source Han Sans SC")];
+    pub const ZH_HANT: &[Face] = &[("Noto Sans CJK TC:style=Regular", "Noto Sans CJK TC"), ("Source Han Sans TC:style=Regular", "Source Han Sans TC")];
+    pub const ZH_HANT_SEMIBOLD: &[Face] = &[("Noto Sans CJK TC:style=Bold", "Noto Sans CJK TC"), ("Source Han Sans TC:style=Bold", "Source Han Sans TC")];
+    pub const INSTALL: [&str; 2] = ["Noto Sans or DejaVu Sans (fonts-noto-core, fonts-dejavu-core).", "Noto Sans CJK (fonts-noto-cjk, noto-fonts-cjk, google-noto-sans-cjk-fonts)."];
+}
+
+#[cfg(windows)]
+fn load(&(file, family, style): &Face) -> Option<FontData> {
+    use skrifa::string::StringId;
+    use skrifa::MetadataProvider;
+    let windows = std::env::var_os("SystemRoot").unwrap_or_else(|| "C:\\Windows".into());
+    let bytes = std::fs::read(std::path::Path::new(&windows).join("Fonts").join(file)).ok()?;
+    let name = |font: &skrifa::FontRef, id| font.localized_strings(id).english_or_first().map(|s| s.to_string());
+    let index = skrifa::raw::FileRef::new(&bytes)
+        .ok()?
+        .fonts()
+        .position(|font| {
+            font.is_ok_and(|font| {
+                name(&font, StringId::FAMILY_NAME).as_deref() == Some(family) && name(&font, StringId::SUBFAMILY_NAME).as_deref() == Some(style)
+            })
+        })?;
+    let mut data = FontData::from_owned(bytes);
+    data.index = u32::try_from(index).ok()?;
+    Some(data)
+}
+
+#[cfg(not(windows))]
+fn load(&(pattern, family): &Face) -> Option<FontData> {
+    let out = std::process::Command::new("fc-match")
+        .args(["--format=%{file}\n%{index}\n%{family}\n", pattern])
+        .output()
+        .ok()?;
+    let out = String::from_utf8_lossy(&out.stdout);
+    let mut lines = out.lines();
+    let (file, index, families) = (lines.next()?, lines.next()?, lines.next()?);
+    if !families.split(',').any(|f| f == family) {
+        return None;
+    }
+    let mut data = FontData::from_owned(std::fs::read(file).ok()?);
+    data.index = index.parse().ok()?;
+    Some(data)
 }
 
 /// Sets the palette and the style that goes with it. `still` turns egui's animations off
@@ -879,5 +1053,84 @@ mod tests {
         for size in [16, 20, 24, 32, 40, 48, 64, 128, 256] {
             assert!(sizes.contains(&size), "{size} px missing from {sizes:?}");
         }
+    }
+
+    /// Whether the face at `index` in `bytes` maps `c` to a glyph.
+    fn covers(bytes: &[u8], index: u32, c: char) -> bool {
+        use skrifa::MetadataProvider;
+        skrifa::FontRef::from_index(bytes, index).is_ok_and(|font| font.charmap().map(c).is_some())
+    }
+
+    fn figtree_covers(c: char) -> bool {
+        covers(FIGTREE, 0, c) && covers(FIGTREE_SEMIBOLD, 0, c)
+    }
+
+    /// Scripts written with spaces between words, where one word may not mix two faces.
+    fn alphabetic_script(c: char) -> bool {
+        matches!(u32::from(c), 0x0041..=0x024F | 0x0370..=0x052F | 0x1E00..=0x1EFF)
+    }
+
+    #[test]
+    fn a_language_drawn_with_figtree_first_has_no_letter_figtree_lacks() {
+        // Otherwise a word mixes Figtree with a lighter face. CJK may add its own scripts behind it.
+        for lang in Lang::all() {
+            let ahead = fallback(lang).is_some_and(|f| f.ahead);
+            let lacking: std::collections::BTreeSet<char> =
+                lang.texts().flat_map(str::chars).filter(|c| alphabetic_script(*c) && !figtree_covers(*c)).collect();
+            if ahead {
+                assert!(!lacking.is_empty(), "{lang:?} puts a system face ahead of Figtree without needing one");
+            } else {
+                assert!(lacking.is_empty(), "{lang:?} needs a system face ahead of Figtree for {lacking:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn every_text_of_every_language_has_its_glyphs() {
+        // System fonts differ per machine: a language whose face is not installed here is skipped
+        // with a note (Linux CI without Noto CJK), its selection is covered above.
+        let mut checked = 0;
+        for lang in Lang::all() {
+            let system = system_fonts(lang);
+            if fallback(lang).is_some() && system.regular.is_none() {
+                eprintln!("skipped {lang:?}: its system font is not installed here");
+                continue;
+            }
+            // Each letter of a language drawn ahead of Figtree comes from its system face.
+            if let Some(face) = system.regular.as_ref().filter(|_| system.ahead) {
+                let bytes = (*face.font).as_ref();
+                let lacking: std::collections::BTreeSet<char> = lang
+                    .texts()
+                    .flat_map(str::chars)
+                    .filter(|c| c.is_alphabetic() && !covers(bytes, face.index, *c))
+                    .collect();
+                assert!(lacking.is_empty(), "{lang:?}'s system face lacks {lacking:?}");
+            }
+            let ctx = egui::Context::default();
+            ctx.set_fonts(definitions(system));
+            ctx.run_ui(egui::RawInput::default(), |_| {}).textures_delta.clear();
+            for font in [regular(text::BODY), semibold(text::BODY)] {
+                let missing: std::collections::BTreeSet<char> = lang
+                    .texts()
+                    .chain([lang.name()])
+                    .flat_map(str::chars)
+                    .filter(|c| !c.is_control() && !ctx.fonts_mut(|f| f.has_glyph(&font, *c)))
+                    .collect();
+                assert!(missing.is_empty(), "{lang:?} draws {missing:?} as boxes in {font:?}");
+            }
+            checked += 1;
+        }
+        assert!(checked >= 7, "English and the Latin-1 languages need no system font");
+    }
+
+    #[test]
+    fn the_fonts_follow_the_language_once_per_change() {
+        let ctx = egui::Context::default();
+        apply(&ctx);
+        fonts_for(&ctx, Lang::De);
+        assert_eq!(ctx.data(|d| d.get_temp::<Lang>(fonts_key())), Some(Lang::De));
+        // A new palette or test rebuilds the fonts, and the next frame loads the language's again.
+        apply(&ctx);
+        assert_eq!(ctx.data(|d| d.get_temp::<Lang>(fonts_key())), None);
     }
 }

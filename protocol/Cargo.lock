@@ -1531,6 +1531,7 @@ dependencies = [
  "sdl3-sys",
  "serde",
  "serde_json",
+ "skrifa",
  "windows",
  "windows-core",
  "zbus",

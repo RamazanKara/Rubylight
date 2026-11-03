@@ -424,7 +424,9 @@ impl Launcher {
         if (ctx.zoom_factor() - zoom).abs() > f32::EPSILON {
             ctx.set_zoom_factor(zoom);
         }
-        crate::strings::set(crate::strings::resolve(s.language, &self.system_languages));
+        let lang = crate::strings::resolve(s.language, &self.system_languages);
+        crate::strings::set(lang);
+        crate::theme::fonts_for(ctx, lang);
     }
 
     /// Ctrl+= and Ctrl+- step the zoom, Ctrl+0 resets it. Returns whether it changed.

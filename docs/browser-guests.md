@@ -1,0 +1,71 @@
+# Guests in the browser
+
+[Documentation](README.md) · [WebRTC server](webrtc.md) · [Configuration](configuration.md)
+
+While you stream a game in the console's **Stream** page, up to four friends can watch it in their own browsers, and play along with a controller or a keyboard and mouse if you let them. They get a link, open it, type a name and see and hear your stream. They need no app, no account and no pairing. There are no relay servers in between: every guest connects straight to your PC.
+
+## Invite someone
+
+1. Turn on the WebRTC server and stream from the console's **Stream** page ([Stream in the console](webrtc.md#stream-in-the-console)).
+2. Under **Guests**, click **Invite**. Pick what guests can do and how long the link works, then **Create link**:
+   - **View only**: picture and sound. Whatever their browser sends is dropped on the PC.
+   - **Controller** (the default): their gamepads, each on a virtual pad of its own.
+   - **Controller, keyboard and mouse**: also their keys and mouse, which control this PC as yours do.
+   - The link expires after 1 hour, 24 hours (the default) or a time you set, from 5 minutes to 7 days.
+3. Copy the link and send it. The **Address** in it is the one you opened the console at (your PC's LAN address when you opened it on the PC itself). For a guest on the internet, put your router's public address or a DNS name for it there; the console remembers what you type.
+
+A guest who opens the link while you are not streaming sees "Waiting for the host" and joins when your stream starts. When your stream ends, every guest's ends with it; their pages wait for your next stream and join it while the link works.
+
+**Guests** lists who is watching and every link that still works. **Kick** disconnects a guest; the link still works, so they can come back. **Revoke** withdraws a link: it opens nothing from then on, and whoever joined with it is disconnected. An expired link lets nobody new in; guests already watching stay until you kick them, revoke the link or stop streaming. Rubylight keeps links in memory only, so restarting it (or the PC) revokes them all. It keeps at most 16 links at once.
+
+Guests see your stream exactly as you do: the same codec, resolution and frame rate, picked on your Picture panel. A guest's browser has to receive that codec over WebRTC: in the project's tests Chromium and Firefox receive AV1 and H.264, and HEVC only where the browser has an H.265 receiver ([Browser support for video](webrtc.md#browser-support-for-video)). A guest whose browser can't play it gets a message saying so.
+
+## What must be reachable
+
+On the local network, Tailscale or a VPN, nothing needs setting up: guests open the link at your PC's address.
+
+From the internet, forward these on your router to the PC:
+
+| What | Port | Notes |
+| --- | --- | --- |
+| The guest page and its socket | TCP 47990 | The console's HTTPS port (base port + 1). |
+| Each guest's picture, sound and input | UDP 8002-8005 | `webrtc_media_port` + 1 to + 4: one port per guest. |
+
+Do not forward UDP 8000 or 8001 (the TV protocol and your own stream). Forwarding TCP 47990 opens only the guest page to the internet: the console's pages and API still answer only on your local network, because **Console access** (`origin_web_ui_allowed`) stays at **Local network** unless you change it. When the link's address is your router's, the PC also offers that address to each guest's browser, so the forwarded UDP port is found.
+
+Rubylight uses no STUN or TURN server and no relay. Each guest's browser connects to the PC's UDP port; the PC learns the guest's address from that connection. A guest behind its own router needs no setup. A PC that can't take incoming connections (behind carrier-grade NAT, or a router you can't configure) can't have guests from the internet; Tailscale gets around that.
+
+## The certificate warning
+
+The console uses its own certificate, which browsers on the PC trust and other devices don't ([Getting started](getting-started.md)). A guest therefore sees a certificate warning the first time they open the link. They can continue: the link and its token only go to the address in the link, and the stream itself is encrypted with keys exchanged over that connection (DTLS-SRTP). Tell your guests to expect it.
+
+## Threat model
+
+What a link gives: the guest page and its socket, and through them one seat in your running stream with the link's permission. Nothing else.
+
+- **No way into the console.** The guest page is its own small build served under `/guest/`; no path under it serves a page or file of the console's, and its Content-Security-Policy lets it load only its own files and talk only to this PC. Its socket takes three messages (join with the token, the answer to the stream offer, leave) and nothing of the console's: no app list, no starting or stopping apps, no settings. A signed-in console session in the same browser grants a guest socket nothing. Making, listing, revoking and kicking take the console's sign-in and its CSRF token like every other console action, and API tokens cannot reach them.
+- **The token.** 128 random bits, in the link's fragment (after `#`), which browsers never send in a request, so no server log, proxy or referrer sees it. The page sends it once, as its socket's first message. The host keeps only its SHA-256 hash, compares it against every link's in constant time, and never shows it again after the dialog that made it. Anyone who has the link can use it until it expires or you revoke it: send it only to the people you mean.
+- **Guessing.** Five wrong tokens per minute from one address (one /64 for IPv6) and that address waits, before any token is looked at; a right token waits too. At most 16 guest sockets are open at a time, 4 from one address, and 4 guests watch at once.
+- **Permissions.** The host checks every input message against the link's permission, whatever the page sends. View only: everything is dropped. Controller: gamepads only, no keyboard, mouse or gamepad mouse mode. Keyboard and mouse also need your console device's own permission on **Devices**. Guests' pads share your stream's 16 controller slots.
+- **What it can't protect.** A guest with keyboard and mouse controls this PC as you do, outside the game too: give that only to people you would hand your keyboard. Any guest can record what they watch. A guest's browser sees your stream's picture, which shows whatever is on your screen.
+- **Your stream comes first.** The PC encodes once for everyone. Each guest has its own connection, packetizing, encryption and pacing, so a guest on a poor link drops frames alone and never delays yours. A guest who lost its picture asks for a keyframe; the guests between them get at most one every 2 seconds, and each is a keyframe in your stream too.
+
+Text and voice chat are not part of this; use a voice app beside it.
+
+## For developers
+
+The owner's API, behind the console sign-in (`rust/host/src/web/guests.rs`):
+
+| Request | Body | Answer |
+| --- | --- | --- |
+| `GET /api/guests` | | `{"streaming", "max_guests", "invites": [{"id", "permission", "created", "expires"}], "guests": [{"id", "name", "permission", "invite", "since"}]}` |
+| `POST /api/guests/invite` | `{"permission": "view" \| "controller" \| "controller-keyboard-mouse", "seconds": 300..604800}` | `{"invite": {...}, "token", "addresses"}`; 409 with 16 links open |
+| `POST /api/guests/revoke` | `{"id": "<invite id>"}` | `{}`; 404 when there is no such link |
+| `POST /api/guests/kick` | `{"id": <guest id>}` | `{}`; 404 when that guest is not watching |
+
+The guest socket, `wss://<host>:47990/guest/signal` with subprotocol `rubylight.guest.v1` and the page's own origin (`rust/host/src/webrtc/guests.rs`), takes JSON text messages:
+
+- Page to host: `{"type":"join","token","name"}` first (within 10 s), then `{"type":"answer","sdp"}` (within 15 s), and `{"type":"leave"}`.
+- Host to page: `{"type":"offer","sdp","name","permission","codec","width","height","fps"}`, `{"type":"streaming"}` once the media connected, and as the last message either `{"type":"ended","reason":"kicked"|"revoked"|"ended","message"}` or `{"type":"error","code","message"}` with `code` one of `rate-limited`, `invalid-link`, `not-streaming`, `full`, `busy`, `timeout`, `invalid-message`, `unsupported`, `connection-lost`, `internal`.
+
+The offer is the owner's stream's: the same codec and Opus layout, with the `control` and `gamepad` DataChannels of [The host's offer](webrtc.md#the-hosts-offer). A guest with keyboard and mouse opens the `input` channel ([The input channel](webrtc.md#the-input-channel)); the host accepts it only for that permission. The guest page is built by `rust/web/vite.guest.config.ts` into `dist/guest`.

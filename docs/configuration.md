@@ -848,7 +848,7 @@ Off by default. With **WebRTC server** (`webrtc_server`) on, Rubylight listens f
 | --- | --- | --- |
 | `webrtc_server` | `false` | Turns the server on. Needs a restart. |
 | `webrtc_port` | `8000` | TCP port of the WebSocket, announced in the discovery reply. 1024 to 65535. Discovery itself always listens on UDP 8000, where TVs send their broadcast. |
-| `webrtc_media_port` | `8001` | UDP port for WebRTC video, audio and input. 1024 to 65535. |
+| `webrtc_media_port` | `8001` | UDP port for WebRTC video, audio and input. 1024 to 65535. Guests of the console's stream use the next four ports ([guests](browser-guests.md#what-must-be-reachable)). |
 
 - Pairing: the TV shows a four-digit PIN and the request appears on the console's PIN page next to Moonlight's. Enter the PIN there. The TV then holds a client ID and a secret; the secret is stored in `sunshine_state.json` and is never shown in the console. Paired TVs are listed on **Devices** with a WebRTC badge, where you can disable or unpair them. A disabled or unpaired TV is disconnected at once. At most 32 TVs stay paired; the oldest go first.
 - Signalling is plain `ws://`, not encrypted. Signing in keeps other devices from using or interrupting a stream; it does not hide what is sent on the network. Only peers on the local network are served: loopback, private (RFC 1918), link-local, unique-local IPv6 and carrier-grade NAT (100.64.0.0/10) addresses. Anything else is closed before its first message and logged. Do not forward these ports on your router.

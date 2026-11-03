@@ -23,6 +23,7 @@ If another program already holds a port, the console shows a `webrtc_server` war
 | Discovery | UDP 8000, always | none |
 | Signalling (WebSocket) | TCP 8000 | `webrtc_port` |
 | Media, audio and input | UDP 8001 | `webrtc_media_port` |
+| Guests of the console's stream | UDP 8002-8005 | `webrtc_media_port` + 1 to + 4 |
 
 TVs send their discovery broadcast to UDP 8000, so discovery stays there even when you move the signalling port. The reply tells the TV which signalling port to use. The installer's Windows Firewall rule allows `butterpollo.exe` inbound on every port, so an installed host needs nothing more. On a portable host, allow these three ports. The full list of settings is in [Configuration](configuration.md#webrtc-server).
 
@@ -49,6 +50,10 @@ The page signals over the console's own HTTPS port (`wss://`, at `/api/webrtc/si
 
 The browser does not say why the host refused the connection, so the page lists the causes (it asks you to sign in again when the tab's sign-in has lapsed): the tab is not signed in or opened the console from an address the host does not list as its own (`csrf_allowed_origins`), the device is not on the local network or Tailscale, the WebRTC server is off or was turned on without a restart, or the console device is disabled.
 
+### Guests
+
+While you stream on the Stream page, **Guests → Invite** makes a link for up to four friends to watch in their own browsers, view only or with their controller, keyboard and mouse, for 1 hour, 24 hours or a time you set. Guests need no app, account or pairing, and connect straight to your PC with no relay: on the local network nothing needs setting up, from the internet forward TCP 47990 and UDP 8002-8005. The PC encodes once for everyone, and a slow guest drops frames alone. Setup, ports, the certificate warning and the threat model: [Guests in the browser](browser-guests.md).
+
 ### The Devices page
 
 Paired TVs and browsers are listed on **Devices** with a **WebRTC** badge. Disable a device to keep it paired but refuse it. Unpair it to remove it. Either one disconnects the device at once, and ends its stream. At most 32 are kept; the oldest go first.
@@ -74,7 +79,7 @@ One stream runs at a time. A WebRTC stream and a Moonlight stream exclude each o
 
 Signalling is plain `ws://`, so it is not encrypted. Signing in keeps other devices from using or interrupting the stream; it does not hide what the app and the PC say to each other. The media itself is encrypted (DTLS-SRTP). Use it on a trusted LAN only.
 
-Rubylight serves only peers on the local network: loopback, private (RFC 1918), link-local, unique-local IPv6 and carrier-grade NAT (100.64.0.0/10) addresses. Anything else is closed before its first message and logged. Do not forward these ports on your router.
+Rubylight serves only peers on the local network: loopback, private (RFC 1918), link-local, unique-local IPv6 and carrier-grade NAT (100.64.0.0/10) addresses. Anything else is closed before its first message and logged. Do not forward these ports on your router. The one exception is guests of the console's stream, who may come from anywhere with a link: their media ports (UDP 8002-8005) and the console's HTTPS port may be forwarded, and only the guest page answers there from outside the local network ([Guests in the browser](browser-guests.md#what-must-be-reachable)).
 
 ## For client authors
 
@@ -188,7 +193,7 @@ Send each message as a text frame of JSON with `"v":1`. Binary frames are droppe
 | Button | `{"v":1,"type":"mouse-button","button":0,"down":true}` | DOM button numbers 0 to 4: left, middle, right, back, forward. |
 | Wheel | `{"v":1,"type":"wheel","dx":0,"dy":120}` | 120 units per notch, with DOM signs: a positive `dy` scrolls down. |
 
-The device's permissions on the Devices page gate keyboard and mouse input as they do for Moonlight. When the channel closes, the stream stops or the session switches, the host releases every key and button it holds for you, so nothing stays pressed. The cursor comes from the captured picture.
+The device's permissions on the Devices page gate keyboard and mouse input as they do for Moonlight. A guest of the console's stream gets the `input` channel only with an invite for keyboard and mouse, and its input is checked against both the invite and the console device's permissions ([Guests in the browser](browser-guests.md#threat-model)). When the channel closes, the stream stops or the session switches, the host releases every key and button it holds for you, so nothing stays pressed. The cursor comes from the captured picture.
 
 ### Gamepads
 

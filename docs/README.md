@@ -18,7 +18,7 @@ Rubylight is a Moonlight-compatible game-streaming host for Windows 10 and 11 PC
 | [Hardware matrix](hardware-matrix.md) | What has been tested on each GPU generation, Windows version, feature and client, with the evidence. |
 | [Privacy](privacy.md) | Every connection the host makes, what it sends, and how to turn it off. |
 
-Feature guides: [Co-op and background streaming](nucleus-coop.md) · [WebRTC server](webrtc.md) · [USB forwarding](usb-forwarding.md) · [Microphone](microphone.md) · [DualSense USB audio and haptics](dualsense-haptics.md) · [Remote connection route](network-path.md)
+Feature guides: [Co-op and background streaming](nucleus-coop.md) · [WebRTC server](webrtc.md) · [Guests in the browser](browser-guests.md) · [USB forwarding](usb-forwarding.md) · [Microphone](microphone.md) · [DualSense USB audio and haptics](dualsense-haptics.md) · [Remote connection route](network-path.md)
 
 ## By task
 

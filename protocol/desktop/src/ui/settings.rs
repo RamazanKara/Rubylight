@@ -1280,7 +1280,7 @@ fn guide_hold_name(ms: u32) -> String {
         return tr("Off").to_owned();
     }
     let seconds = format!("{}", f64::from(ms) / 1000.0);
-    let seconds = if crate::strings::current() == crate::strings::Lang::De { seconds.replace('.', ",") } else { seconds };
+    let seconds = if crate::strings::current().decimal_comma() { seconds.replace('.', ",") } else { seconds };
     trf("{} s", &[&seconds])
 }
 

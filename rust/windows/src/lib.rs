@@ -16,6 +16,7 @@
 pub(crate) mod adlx_system;
 pub mod amf;
 pub mod audio;
+pub mod audio_app_route;
 pub mod audio_route;
 pub mod capture;
 pub mod child_session;

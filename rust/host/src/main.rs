@@ -394,6 +394,12 @@ async fn run(args: Args, assets: PathBuf) -> Result<()> {
             "display settings from an interrupted stream were not all restored"
         );
     }
+    if let Err(error) = butterpollo_windows::audio_app_route::recover(&h.directory) {
+        tracing::warn!(
+            error = format!("{error:#}"),
+            "game audio devices from an interrupted stream were not all restored; retrying"
+        );
+    }
     if let Some(journal) = h.recover_session() {
         tracing::warn!(
             state = ?journal.state,

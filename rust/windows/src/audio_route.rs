@@ -432,7 +432,7 @@ pub fn recover(directory: &Path) -> Result<()> {
 }
 /// An endpoint by ID, friendly name, description or adapter name, in that
 /// order, as Vibepollo matches audio_sink and virtual_sink.
-fn find<'a>(endpoints: &'a [Endpoint], requested: &str) -> Option<&'a Endpoint> {
+pub(crate) fn find<'a>(endpoints: &'a [Endpoint], requested: &str) -> Option<&'a Endpoint> {
     let requested = requested.trim();
     let fields: [fn(&Endpoint) -> &str; 4] =
         [|e| &e.id, |e| &e.name, |e| &e.description, |e| &e.adapter];

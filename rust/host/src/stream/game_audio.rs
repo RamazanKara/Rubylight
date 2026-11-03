@@ -2,8 +2,10 @@
 //! once a second must not introduce a once-a-second audio dropout.
 use crate::state::{Session, Shared};
 use anyhow::Result;
+use butterpollo_core::{audio_scope::Identity, config::Config};
 use butterpollo_windows::{
     audio::{Loopback, ProcessActivation},
+    audio_app_route::AppRoute,
     process::AudioProcess,
 };
 use std::{
@@ -23,7 +25,7 @@ pub(super) struct GameAudio {
     check: Instant,
 }
 impl GameAudio {
-    pub fn start(h: Shared, s: Arc<Session>) -> Result<Self> {
+    pub fn start(h: Shared, s: Arc<Session>, config: Config) -> Result<Self> {
         let generation = h
             .current_app
             .lock()
@@ -40,6 +42,9 @@ impl GameAudio {
             .spawn({
                 let (target, stop) = (target.clone(), stop.clone());
                 move || {
+                    // The game's process plays on a virtual sink while it is
+                    // captured, unless the stream also plays on the PC.
+                    let mut routed: Option<(Identity, Option<AppRoute>)> = None;
                     while !stop.load(Ordering::Acquire)
                         && !s.stopping()
                         && !h.stop.load(Ordering::Acquire)
@@ -62,6 +67,17 @@ impl GameAudio {
                                 .and_then(crate::process::RunningApp::audio_process),
                         }
                         .map_err(|error| format!("{error:#}"));
+                        if let Ok(selected) = &selected
+                            && !s.launch.host_audio
+                            && routed.as_ref().map(|(identity, _)| *identity)
+                                != Some(selected.identity)
+                        {
+                            // The new instance is routed before the old one lets
+                            // go: both are usually the same program, which must
+                            // not flip back to the PC's speakers in between.
+                            let new = route(&h, &s, &config, selected);
+                            routed = Some((selected.identity, new));
+                        }
                         *target.lock().unwrap() = selected;
                         thread::park_timeout(Duration::from_secs(1));
                     }
@@ -127,13 +143,26 @@ impl GameAudio {
                     if s.config.audio_channels > 2 {
                         s.launch.warnings.set("audio_surround", "Game-only audio currently captures stereo and maps it into the negotiated surround layout. Choose stereo for this mode.");
                     }
-                    if !s.launch.host_audio {
-                        s.launch.warnings.set("audio_game_host", "Game-only audio leaves the PC playback devices unchanged, so game sound remains audible on the host. Set the game to a virtual playback device if you need local silence.");
-                    }
                 }
                 Ok(None) => {}
                 Err(error) => self.failed(s, &format!("{error:#}")),
             }
+        }
+    }
+}
+/// Play the captured game process on a virtual sink nobody hears, so its
+/// sound reaches only the client (#59). Without one it plays on the PC too,
+/// and the stream says so.
+fn route(h: &Shared, s: &Session, config: &Config, target: &AudioProcess) -> Option<AppRoute> {
+    match AppRoute::acquire(config, &h.directory, target.identity.pid) {
+        Ok(route) => {
+            s.launch.warnings.clear("audio_game_host");
+            Some(route)
+        }
+        Err(error) => {
+            tracing::warn!(error = %format!("{error:#}"), "game audio stays on the PC's playback device");
+            s.launch.warnings.set("audio_game_host", format!("Game sound also plays on the PC: Rubylight could not move the game to a virtual playback device ({error:#}). Install Steam Streaming Speakers or set a virtual sink in Audio settings."));
+            None
         }
     }
 }
@@ -160,7 +189,7 @@ mod tests {
         *fixture.host.current_app.lock().unwrap() =
             Some(crate::process::RunningApp::with_environment(&app, Default::default()).unwrap());
         let session = fixture.session(fixture.client(u32::MAX), Role::Stream);
-        let audio = GameAudio::start(fixture.host.clone(), session).unwrap();
+        let audio = GameAudio::start(fixture.host.clone(), session, Config::default()).unwrap();
         let wait_for = |message: &str| {
             let deadline = Instant::now() + Duration::from_secs(3);
             loop {

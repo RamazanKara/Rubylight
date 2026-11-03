@@ -178,7 +178,11 @@ impl Media {
             .as_ref()
             .map(|route| route.route());
         let mut game_capture = if game_audio && !muted {
-            Some(game_audio::GameAudio::start(h.clone(), s.clone())?)
+            Some(game_audio::GameAudio::start(
+                h.clone(),
+                s.clone(),
+                config.clone(),
+            )?)
         } else {
             None
         };

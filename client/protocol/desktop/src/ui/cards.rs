@@ -411,6 +411,39 @@ pub(super) fn all_tile(ui: &mut Ui, count: usize, said: &str, width: f32) -> Res
     response
 }
 
+/// A line of Home's List layout.
+pub(super) const LIST_ROW_H: f32 = 88.0;
+
+/// A game as a line of Home's List layout: a small cover, the title, and under it `line` (its
+/// store and when it was last played).
+pub(super) fn list_row(ui: &mut Ui, name: &str, line: &str, art: Option<&Art>, badge: Badge, width: f32) -> Response {
+    let (rect, response) = ui.allocate_exact_size(vec2(width, LIST_ROW_H), Sense::click());
+    let said = match badge {
+        Badge::Running => trf("{}, running", &[&name]),
+        Badge::NotInstalled => trf("{}, not installed", &[&name]),
+        Badge::None => name.to_owned(),
+    };
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, format!("{said}, {line}")));
+    if !ui.is_rect_visible(rect.expand(6.0)) {
+        return response;
+    }
+    let painter = ui.painter_at(rect.expand(6.0));
+    card_fill(&painter, rect, &response);
+    let cover_h = LIST_ROW_H - 2.0 * space::S;
+    let image = Rect::from_min_size(rect.min + vec2(space::S, space::S), vec2((cover_h * 3.0 / 4.0).round(), cover_h));
+    paint_cover(ui, image, name, art, badge == Badge::Running);
+    if badge == Badge::NotInstalled {
+        ui.painter_at(image).rect_filled(image, CornerRadius::same(6), Color32::from_black_alpha(120));
+    }
+    let words = Rect::from_min_max(Pos2::new(image.right() + space::M - CARD_PAD, rect.top()), rect.max);
+    let inside = ui.painter_at(rect);
+    card_line(&inside, words, LIST_ROW_H / 2.0 - 12.0, name, semibold(text::CARD_TITLE), *ON_SURFACE);
+    let below = if badge == Badge::NotInstalled { format!("{line} · {}", tr("Not installed")) } else { line.to_owned() };
+    card_line(&inside, words, LIST_ROW_H / 2.0 + 14.0, &below, regular(text::LABEL), *ON_SURFACE_VARIANT);
+    focus_ring(ui, rect, &response, radius::PANEL);
+    response
+}
+
 /// Whether a cover names its game underneath: only over art, as a cover without art shows the
 /// full title inside already.
 pub(super) fn poster_caption(art: Option<&Art>) -> bool {

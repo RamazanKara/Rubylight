@@ -52,6 +52,14 @@ public class HomeViewTest {
     }
 
     @Test
+    public void theListIsStoredAndReadBack() {
+        new HomeView(HomeView.Layout.LIST, HomeView.Group.STORE, HomeView.Size.MEDIUM).save(prefs);
+        assertEquals("list", prefs.getString("home_view_layout", null));
+        assertEquals(HomeView.Layout.LIST, HomeView.read(prefs, true).layout);
+        assertEquals(HomeView.Layout.LIST, HomeView.read(prefs, false).layout);
+    }
+
+    @Test
     public void aSavedViewReadsBackOnEitherDevice() {
         HomeView chosen = new HomeView(HomeView.Layout.GRID, HomeView.Group.STORE, HomeView.Size.LARGE);
         chosen.save(prefs);

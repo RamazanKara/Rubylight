@@ -489,6 +489,41 @@ pub fn recently_played(sources: &[Source<'_>], recents: &[Recent], playing: &[Co
     out
 }
 
+/// When the entry was last streamed, in seconds since the epoch: the latest recent game of any of
+/// its copies, matched as "Recently played" matches them (install id, else app id).
+pub fn last_played(entry: &Entry, sources: &[Source<'_>], recents: &[Recent]) -> Option<u64> {
+    recents
+        .iter()
+        .filter(|recent| {
+            entry.copies.iter().any(|copy| {
+                let pc = sources.iter().any(|s| s.id == copy.host && !s.unique_id.is_empty() && s.unique_id == recent.host);
+                let game = if !recent.install_id.is_empty() && !copy.install_id.is_empty() {
+                    copy.install_id.eq_ignore_ascii_case(&recent.install_id)
+                } else {
+                    copy.app_id == recent.app_id
+                };
+                pc && game
+            })
+        })
+        .map(|recent| recent.at)
+        .max()
+}
+
+/// A List line's second line: the store (none for an app no store owns) and when the game was
+/// last played, by whole days before `now` (seconds since the epoch).
+pub fn list_line(entry: &Entry, played: Option<u64>, now: u64) -> String {
+    let when = match played.map(|at| now.saturating_sub(at) / 86_400) {
+        None => tr("Not played yet").to_owned(),
+        Some(0) => tr("Played today").to_owned(),
+        Some(1) => tr("Played yesterday").to_owned(),
+        Some(days) => trf("Played {} days ago", &[&days]),
+    };
+    match &entry.best().store_name {
+        Some(store) => format!("{store} · {when}"),
+        None => when,
+    }
+}
+
 /// A starred game as Home shows it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Starred {
@@ -1223,6 +1258,33 @@ mod tests {
         assert_eq!(list.iter().map(|r| r.title.as_str()).collect::<Vec<_>>(), ["Desktop", "Dota 2"]);
         assert_eq!((list[0].host, list[0].host_name.as_str(), list[0].online), (1, "Desk", true));
         assert_eq!(recently_played(&sources, &recents, &[], 1).len(), 1, "capped");
+    }
+
+    #[test]
+    fn a_list_line_names_the_store_and_when_the_game_was_last_played() {
+        let lib = library();
+        let mut a = source(1, "Desk", true, Some(&lib), None);
+        a.unique_id = "uid-a";
+        let sources = [a];
+        let entries = merge_library(&sources);
+        let dota = entries.iter().find(|e| e.title == "Dota 2").expect("Dota 2");
+        let at = |r: Recent, at: u64| Recent { at, ..r };
+        let recents = [
+            at(recent("uid-a", "", 1093052211, "Dota 2"), 1_000),
+            at(recent("uid-a", "C6F1A9A4-4B51-5F43-9D0B-7A2B1C2D3E4F", 0, "Dota 2"), 5_000),
+            // Another PC's copy of the same game is not this one.
+            at(recent("uid-z", "", 1093052211, "Dota 2"), 9_000),
+        ];
+        assert_eq!(last_played(dota, &sources, &recents), Some(5_000), "the latest, by install id without case");
+        assert_eq!(last_played(dota, &sources, &[]), None);
+        let store = dota.best().store_name.clone();
+        let line = |played, now| list_line(dota, played, now);
+        let with_store = |when: &str| match &store { Some(s) => format!("{s} · {when}"), None => when.to_owned() };
+        assert_eq!(line(None, 0), with_store("Not played yet"));
+        assert_eq!(line(Some(5_000), 5_000 + 3_600), with_store("Played today"));
+        assert_eq!(line(Some(5_000), 5_000 + 86_400 + 60), with_store("Played yesterday"));
+        assert_eq!(line(Some(5_000), 5_000 + 9 * 86_400), with_store("Played 9 days ago"));
+        assert_eq!(line(Some(9_000), 5_000), with_store("Played today"), "a clock that went back reads as today");
     }
 
     #[test]

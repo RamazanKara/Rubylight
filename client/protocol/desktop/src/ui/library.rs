@@ -3,6 +3,9 @@
 
 use super::*;
 
+/// How wide a List line grows: past it, the store and the date sit too far from the title.
+const LIST_MAX_W: f32 = 760.0;
+
 impl Launcher {
     pub(super) fn add_host_dialog(&mut self) {
         self.dialog = Dialog::AddHost {
@@ -266,6 +269,16 @@ impl Launcher {
                     console::RowKind::Library => tr("Library"),
                 };
                 shelf(ui, name, Some(row.games.len()));
+                // The List layout: every game of the row as a line, under each other.
+                if self.settings.home_layout == HomeLayout::List {
+                    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
+                    for entry in &row.games {
+                        let line = console::list_line(entry, console::last_played(entry, &sources, &self.recents), now);
+                        self.library_line(ui, view, entry, &line, width.min(LIST_MAX_W), std::mem::take(&mut first), commands);
+                        ui.add_space(space::XS);
+                    }
+                    continue;
+                }
                 let (shown, more) = if whole { (row.games.len(), false) } else { row.fit(columns) };
                 // What a screen reader says for the tile: whose games it opens, and how many.
                 let said = match &row.kind {
@@ -381,6 +394,33 @@ impl Launcher {
             }
             ui.add_space(space::L);
         });
+    }
+
+    /// A game of the merged library as a line of the List layout; it opens and offers as its cover does.
+    #[allow(clippy::too_many_arguments)]
+    fn library_line(&mut self, ui: &mut Ui, view: &View<'_>, entry: &console::Entry, line: &str, width: f32, first: bool, commands: &mut Vec<Command>) {
+        let cover = entry.cover();
+        let art = cover.and_then(|c| view.hosts.get(c.host).and_then(|h| h.art.get(&(c.app_id as i32))));
+        let badge = if entry.running() {
+            Badge::Running
+        } else if !entry.installed() {
+            Badge::NotInstalled
+        } else {
+            Badge::None
+        };
+        let response = list_row(ui, &entry.title, line, art, badge, width);
+        if let Some(c) = cover {
+            request_cover(ui, view, c.host, c.app_id, &c.cover_version, &response, commands);
+        }
+        let key = format!("game:{}", entry.key);
+        self.focus_item(&response, &key, first);
+        let best = entry.best();
+        if response.clicked() {
+            self.open(Screen::Game { host: best.host, app: best.app_id });
+        }
+        if let Some(anchor) = menu_request(ui, &response, None) {
+            self.open_menu(Dialog::GameMenu { host: best.host, game: GameTarget::Library { app: best.app_id, favourite: false } }, anchor, key);
+        }
     }
 
     /// A game of the merged library as a cover: selecting it opens its page, its menu offers the rest.

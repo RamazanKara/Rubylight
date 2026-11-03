@@ -5,6 +5,7 @@
     <string name="home_view_layout">Layout</string>
     <string name="home_view_layout_grid">Grid</string>
     <string name="home_view_layout_rows">Rows</string>
+    <string name="home_view_layout_list">List</string>
     <string name="home_view_group">Group by</string>
     <string name="home_view_group_store">Store</string>
     <string name="home_view_group_type">Type</string>
@@ -15,4 +16,12 @@
     <string name="home_view_size_small">Small</string>
     <string name="home_view_size_medium">Medium</string>
     <string name="home_view_size_large">Large</string>
+    <!-- A line of Home's List layout: when the game was last played, after its store. -->
+    <string name="console_list_not_played">Not played yet</string>
+    <string name="console_list_played_today">Played today</string>
+    <string name="console_list_played_yesterday">Played yesterday</string>
+    <plurals name="console_list_played_days">
+        <item quantity="one">Played %d day ago</item>
+        <item quantity="other">Played %d days ago</item>
+    </plurals>
 </resources>

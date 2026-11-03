@@ -228,8 +228,8 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
         ActionSheet sheet = new ActionSheet(this, getString(R.string.home_view));
         viewSheet = sheet;
         sheet.addSection(R.string.home_view_layout);
-        addChoices(sheet, new int[] {R.drawable.ic_library, R.drawable.ic_view_rows},
-                new int[] {R.string.home_view_layout_grid, R.string.home_view_layout_rows},
+        addChoices(sheet, new int[] {R.drawable.ic_library, R.drawable.ic_view_rows, R.drawable.ic_view_list},
+                new int[] {R.string.home_view_layout_grid, R.string.home_view_layout_rows, R.string.home_view_layout_list},
                 view.layout.ordinal(), at -> view = view.with(HomeView.Layout.values()[at]));
         sheet.addSection(R.string.home_view_group);
         addChoices(sheet, new int[] {R.drawable.ic_view_group_store, R.drawable.ic_view_group_type, R.drawable.ic_view_group_none},
@@ -288,6 +288,7 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
             }
         });
         adapter = new ConsoleHomeListAdapter(this, null, feed::host, listener, isTelevision());
+        adapter.setListLayout(view.layout == HomeView.Layout.LIST);
         list.setAdapter(adapter);
     }
 
@@ -295,6 +296,7 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
     static int spanOf(int viewType, int columns) {
         switch (viewType) {
             case ConsoleHomeListAdapter.HEADER:
+            case ConsoleHomeListAdapter.LIST_GAME:
                 return columns;
             case ConsoleHomeListAdapter.COVER_GAME:
                 return 1;

@@ -6,6 +6,13 @@
 
 pub const TABLE: &[(&str, &str)] = &[
     ("Settings", "Cài đặt"),
+    ("List", "Danh sách"),
+    ("Not played yet", "Chưa chơi"),
+    ("Played today", "Đã chơi hôm nay"),
+    ("Played yesterday", "Đã chơi hôm qua"),
+    ("Played {} days ago", "Đã chơi {} ngày trước"),
+    ("Previous tab", "Thẻ trước"),
+    ("Next tab", "Thẻ tiếp theo"),
     ("Profiles", "Hồ sơ"),
     ("Controller mappings", "Gán nút tay cầm"),
     ("Keyboard shortcuts", "Phím tắt"),

@@ -6,6 +6,13 @@
 
 pub const TABLE: &[(&str, &str)] = &[
     ("Settings", "Ustawienia"),
+    ("List", "Lista"),
+    ("Not played yet", "Jeszcze nie grano"),
+    ("Played today", "Grano dzisiaj"),
+    ("Played yesterday", "Grano wczoraj"),
+    ("Played {} days ago", "Grano {} dni temu"),
+    ("Previous tab", "Poprzednia karta"),
+    ("Next tab", "Następna karta"),
     ("Profiles", "Profile"),
     ("Controller mappings", "Mapowania kontrolerów"),
     ("Keyboard shortcuts", "Skróty klawiszowe"),

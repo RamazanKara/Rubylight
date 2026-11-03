@@ -809,6 +809,8 @@ public final class HostActions {
                     httpConn.unpair();
                     if (httpConn.getPairState() == PairingManager.PairState.NOT_PAIRED) {
                         unpaired = true;
+                        // Its certificate goes too, so Home does not show it as a paired PC while it is away.
+                        binder.forgetCertificate(computer.uuid);
                         // Drop the cached pair state so the next poll reads it afresh.
                         binder.invalidateStateForComputer(computer.uuid);
                     } else {

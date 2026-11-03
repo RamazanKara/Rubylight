@@ -11,8 +11,11 @@ import java.util.concurrent.locks.ReentrantLock;
  * other calls give up instead of waiting for it, and stop() waits for the native stop only so long.
  */
 final class RendererGate {
-    /** How long stop() waits for the native stop before leaving it to finish on its own. */
-    static final long STOP_WAIT_MS = 1000;
+    /**
+     * How long stop() waits for the native stop before leaving it to finish on its own: well over
+     * a normal stop, and under the 5 s after which Android reports an app whose UI waits.
+     */
+    static final long STOP_WAIT_MS = 2500;
     private static final long POLL_MS = 5;
 
     private final ReentrantLock lock = new ReentrantLock();
@@ -23,14 +26,18 @@ final class RendererGate {
      * false, without the lock, once stop() or free() has begun. Release it with {@link #exit()}.
      */
     boolean enter() {
-        try {
-            while (!lock.tryLock(POLL_MS, TimeUnit.MILLISECONDS)) {
-                if (stopping.get()) return false;
+        // An interrupted caller still gets its call, as with synchronized; its flag is kept for it.
+        boolean interrupted = false;
+        boolean locked = lock.tryLock();
+        while (!locked && !stopping.get()) {
+            try {
+                locked = lock.tryLock(POLL_MS, TimeUnit.MILLISECONDS);
+            } catch (InterruptedException e) {
+                interrupted = true;
             }
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            return false;
         }
+        if (interrupted) Thread.currentThread().interrupt();
+        if (!locked) return false;
         if (stopping.get()) {
             lock.unlock();
             return false;
@@ -58,11 +65,17 @@ final class RendererGate {
             }
         }, "Vulkan stop");
         worker.start();
-        try {
-            worker.join(STOP_WAIT_MS);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
+        long deadlineNs = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(STOP_WAIT_MS);
+        boolean interrupted = false;
+        for (long leftMs = STOP_WAIT_MS; leftMs > 0 && worker.isAlive();
+             leftMs = TimeUnit.NANOSECONDS.toMillis(deadlineNs - System.nanoTime())) {
+            try {
+                worker.join(leftMs);
+            } catch (InterruptedException e) {
+                interrupted = true;
+            }
         }
+        if (interrupted) Thread.currentThread().interrupt();
         return !worker.isAlive();
     }
 

@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="host_menu_coop">Co-op に参加</string>
+    <string name="host_menu_coop_note">空いているプレイヤー枠に入る</string>
+    <string name="coop_title">%1$s の Co-op</string>
+    <string name="coop_loading">%1$s に Co-op セッションを問い合わせています…</string>
+    <string name="coop_none">実行中の Co-op セッションはありません。ライブラリから「&lt;ゲーム&gt; (Co-op)」を起動すると、他のデバイスがここから参加できます。</string>
+    <string name="coop_status">ステータス</string>
+    <string name="coop_phase_starting">起動中</string>
+    <string name="coop_phase_running">実行中</string>
+    <string name="coop_phase_ended">終了</string>
+    <string name="coop_phase_unknown">不明</string>
+    <string name="coop_player">プレイヤー %1$d</string>
+    <string name="coop_player_free">空き</string>
+    <string name="coop_player_unnamed">デバイス</string>
+    <string name="coop_player_you">%1$s (このデバイス)</string>
+    <string name="coop_player_away">%1$s、離席中</string>
+    <string name="coop_end_ended">セッションは終了されました。</string>
+    <string name="coop_end_empty">全プレイヤーが退出しました。</string>
+    <string name="coop_end_crashed">ゲームのインスタンスがクラッシュしました。</string>
+    <string name="coop_end_failed">ゲームが起動しませんでした。</string>
+    <string name="coop_end_unknown">セッションは終わりました。</string>
+    <string name="coop_join">参加</string>
+    <plurals name="coop_free_slots">
+        <item quantity="other">空き枠 %d</item>
+    </plurals>
+    <string name="coop_cannot_join">このデバイスは今このセッションに参加できません。</string>
+    <string name="coop_return">自分の枠に戻る</string>
+    <string name="coop_return_note">プレイヤー %1$d</string>
+    <string name="coop_refresh">再確認</string>
+    <string name="coop_joining">%1$s に参加しています…</string>
+    <string name="coop_unavailable_no_reason">PC は今 Co-op セッションを実行できません。</string>
+    <string name="coop_problem_permission">このデバイスでは「Can join co-op games」がオフです</string>
+    <string name="coop_problem_refused">%1$s が参加を拒否しました</string>
+    <string name="coop_problem_gone">Co-op セッションはもうありません</string>
+    <string name="coop_problem_busy">%1$s の Co-op は使用中です</string>
+    <string name="coop_problem_unavailable">%1$s では Co-op を利用できません</string>
+    <string name="coop_problem_unreachable">%1$s に接続できませんでした</string>
+    <string name="coop_problem_other">Co-op に失敗しました</string>
+    <string name="coop_problem_no_message">PC は理由を返しませんでした (HTTP %1$d)。</string>
+</resources>

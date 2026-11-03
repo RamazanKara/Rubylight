@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="files_title">Tệp trên PC</string>
+    <string name="files_menu">Tệp</string>
+    <string name="files_share_label">Gửi tới PC</string>
+    <string name="files_open">Mở</string>
+    <string name="files_stream_leaves">Tệp mở màn hình riêng và rời khỏi luồng; trò chơi vẫn tiếp tục chạy trên PC.</string>
+    <string name="files_send">Gửi tệp</string>
+    <string name="files_refresh">Kiểm tra lại</string>
+    <string name="files_clear_finished">Xóa mục đã xong</string>
+    <string name="files_transfers">Truyền tệp</string>
+    <string name="files_on_pc">Trên PC</string>
+    <string name="files_folder">%1$s · còn trống %2$s</string>
+    <string name="files_empty">Chưa có tệp nào trong thư mục của PC.</string>
+    <string name="files_entry">%1$s · %2$s</string>
+    <string name="files_download">Tải xuống</string>
+    <string name="files_retry">Thử lại</string>
+    <string name="files_queued">Đang chờ</string>
+    <string name="files_sending">Đang gửi · %1$d%% (%2$s / %3$s)</string>
+    <string name="files_receiving">Đang tải xuống · %1$d%% (%2$s / %3$s)</string>
+    <string name="files_receiving_unknown">Đang tải xuống · %1$s</string>
+    <string name="files_cancelling">Đang hủy…</string>
+    <string name="files_sent">Đã gửi</string>
+    <string name="files_sent_as">Đã gửi với tên %1$s</string>
+    <string name="files_saved">Đã lưu</string>
+    <string name="files_cancelled">Đã hủy</string>
+    <string name="files_upload_name">%1$s → %2$s</string>
+    <string name="files_checking">Đang hỏi PC…</string>
+    <string name="files_check_failed">Không thể hỏi PC: %1$s</string>
+    <string name="files_no_upload_permission">Thiết bị này không được gửi tệp tới PC này. Trên PC, mở trang “Devices” của giao diện web và cho phép “Upload files” cho thiết bị.</string>
+    <string name="files_no_download_permission">Thiết bị này không được tải xuống tệp của PC này. Trên PC, mở trang “Devices” của giao diện web và cho phép “Download files” cho thiết bị.</string>
+    <string name="files_off">Truyền tệp đang tắt trên PC này. Hãy bật trong giao diện web của PC, mục “File transfer”.</string>
+    <string name="files_unavailable">Host của PC này không có tính năng truyền tệp.</string>
+    <string name="files_no_library">Bản dựng Nightjar này không thể truyền tệp.</string>
+    <string name="files_offline">PC không trực tuyến.</string>
+    <string name="files_pick_pc">Gửi tới PC nào?</string>
+    <string name="files_no_pc">Không có PC đã ghép đôi nào trực tuyến. Hãy đánh thức hoặc ghép đôi một PC trong danh sách PC trước.</string>
+    <string name="files_waiting_to_send">Tệp đang chờ gửi: %1$d. Chúng sẽ được gửi khi thiết bị này được phép gửi tệp.</string>
+    <plurals name="files_share_refused">
+        <item quantity="other">%1$d mục được chia sẻ không được gửi: chỉ có thể gửi tệp của ứng dụng khác.</item>
+    </plurals>
+    <string name="files_size_unknown">%1$s không được gửi: không rõ kích thước.</string>
+    <string name="files_problem_no_permission">Thiết bị này thiếu quyền; hãy cho phép trong giao diện web của PC, mục “Devices”.</string>
+    <string name="files_problem_transfer_off">Truyền tệp đang tắt trên PC; hãy bật trong giao diện web của nó.</string>
+    <string name="files_problem_invalid_name">PC đã từ chối tên tệp.</string>
+    <string name="files_problem_interrupted">Quá trình tải lên dừng trước khi xong.</string>
+    <string name="files_problem_too_large">Tệp lớn hơn mức PC cho phép.</string>
+    <string name="files_problem_no_space">PC không đủ dung lượng trống.</string>
+    <string name="files_problem_no_console_user">Không có ai đăng nhập trên PC.</string>
+    <string name="files_problem_busy">PC đang bận với các lần truyền khác; hãy thử lại sau ít phút.</string>
+    <string name="files_problem_not_found">Tệp không còn trên PC.</string>
+    <string name="files_problem_network">Kết nối tới PC thất bại.</string>
+    <string name="files_problem_local">Không thể đọc hoặc ghi tệp trên thiết bị này.</string>
+    <string name="files_problem_host">PC đã trả lời bằng một lỗi.</string>
+    <string name="files_save_lost">Bản tải xuống bị mất khi hộp thoại lưu đang mở, nên không có gì được lưu. Hãy chạm Tải xuống lần nữa.</string>
+    <string name="files_partial_left">Không thể xóa một bản tải xuống chưa xong: %1$s vẫn nằm ở nơi bạn đã lưu và không phải là tệp hoàn chỉnh. Hãy xóa nó ở đó.</string>
+</resources>

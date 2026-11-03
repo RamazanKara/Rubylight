@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="host_menu_coop">Co-op’a katıl</string>
+    <string name="host_menu_coop_note">Boş bir oyuncu yeri al</string>
+    <string name="coop_title">%1$s üzerinde co-op</string>
+    <string name="coop_loading">%1$s cihazından co-op oturumları isteniyor…</string>
+    <string name="coop_none">Çalışan co-op oturumu yok. Kitaplıktan “&lt;oyun&gt; (Co-op)” başlatın, diğer cihazlar buradan katılabilir.</string>
+    <string name="coop_status">Durum</string>
+    <string name="coop_phase_starting">Başlatılıyor</string>
+    <string name="coop_phase_running">Çalışıyor</string>
+    <string name="coop_phase_ended">Sona erdi</string>
+    <string name="coop_phase_unknown">Bilinmiyor</string>
+    <string name="coop_player">Oyuncu %1$d</string>
+    <string name="coop_player_free">Boş</string>
+    <string name="coop_player_unnamed">Bir cihaz</string>
+    <string name="coop_player_you">%1$s (bu cihaz)</string>
+    <string name="coop_player_away">%1$s, uzakta</string>
+    <string name="coop_end_ended">Oturum sonlandırıldı.</string>
+    <string name="coop_end_empty">Tüm oyuncular ayrıldı.</string>
+    <string name="coop_end_crashed">Bir oyun örneği çöktü.</string>
+    <string name="coop_end_failed">Oyun başlamadı.</string>
+    <string name="coop_end_unknown">Oturum bitti.</string>
+    <string name="coop_join">Katıl</string>
+    <plurals name="coop_free_slots">
+        <item quantity="one">%d boş yer</item>
+        <item quantity="other">%d boş yer</item>
+    </plurals>
+    <string name="coop_cannot_join">Bu cihaz şu anda bu oturuma katılamaz.</string>
+    <string name="coop_return">Yerine dön</string>
+    <string name="coop_return_note">Oyuncu %1$d</string>
+    <string name="coop_refresh">Yeniden denetle</string>
+    <string name="coop_joining">%1$s oturumuna katılınıyor…</string>
+    <string name="coop_unavailable_no_reason">Bilgisayar şu anda co-op oturumu çalıştıramaz.</string>
+    <string name="coop_problem_permission">“Can join co-op games” bu cihaz için kapalı</string>
+    <string name="coop_problem_refused">%1$s katılmayı reddetti</string>
+    <string name="coop_problem_gone">Co-op oturumu artık yok</string>
+    <string name="coop_problem_busy">%1$s üzerinde co-op meşgul</string>
+    <string name="coop_problem_unavailable">%1$s üzerinde co-op kullanılamıyor</string>
+    <string name="coop_problem_unreachable">%1$s cihazına ulaşılamadı</string>
+    <string name="coop_problem_other">Co-op başarısız oldu</string>
+    <string name="coop_problem_no_message">Bilgisayar bir neden belirtmedi (HTTP %1$d).</string>
+</resources>

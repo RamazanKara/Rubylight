@@ -1,7 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- File transfer (Experimental): FileTransferActivity, the PC menu and the stream menu. English and German;
-     the other languages show English until they are translated. -->
-<resources xmlns:tools="http://schemas.android.com/tools" tools:ignore="MissingTranslation">
+<!-- File transfer: FileTransferActivity, the PC menu and the stream menu. -->
+<resources>
     <string name="files_title">Files on PC</string>
     <string name="files_menu">Files</string>
     <string name="files_share_label">Send to PC</string>

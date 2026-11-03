@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="files_title">電腦上的檔案</string>
+    <string name="files_menu">檔案</string>
+    <string name="files_share_label">傳送到電腦</string>
+    <string name="files_open">開啟</string>
+    <string name="files_stream_leaves">檔案會開啟獨立的畫面並離開串流；遊戲會在電腦上繼續執行。</string>
+    <string name="files_send">傳送檔案</string>
+    <string name="files_refresh">重新檢查</string>
+    <string name="files_clear_finished">清除已完成</string>
+    <string name="files_transfers">傳輸</string>
+    <string name="files_on_pc">在電腦上</string>
+    <string name="files_folder">%1$s · 可用 %2$s</string>
+    <string name="files_empty">電腦的資料夾中還沒有檔案。</string>
+    <string name="files_entry">%1$s · %2$s</string>
+    <string name="files_download">下載</string>
+    <string name="files_retry">再試一次</string>
+    <string name="files_queued">等待中</string>
+    <string name="files_sending">正在傳送 · %1$d%%（%2$s / %3$s）</string>
+    <string name="files_receiving">正在下載 · %1$d%%（%2$s / %3$s）</string>
+    <string name="files_receiving_unknown">正在下載 · %1$s</string>
+    <string name="files_cancelling">正在取消…</string>
+    <string name="files_sent">已傳送</string>
+    <string name="files_sent_as">已以 %1$s 傳送</string>
+    <string name="files_saved">已儲存</string>
+    <string name="files_cancelled">已取消</string>
+    <string name="files_upload_name">%1$s → %2$s</string>
+    <string name="files_checking">正在詢問電腦…</string>
+    <string name="files_check_failed">無法詢問電腦：%1$s</string>
+    <string name="files_no_upload_permission">本裝置不能傳送檔案到這台電腦。請在電腦上開啟網頁 UI 的「Devices」頁面，為本裝置允許「Upload files」。</string>
+    <string name="files_no_download_permission">本裝置不能下載這台電腦的檔案。請在電腦上開啟網頁 UI 的「Devices」頁面，為本裝置允許「Download files」。</string>
+    <string name="files_off">這台電腦已關閉檔案傳輸。請在電腦的網頁 UI 中「File transfer」下開啟。</string>
+    <string name="files_unavailable">這台電腦的主機不支援檔案傳輸。</string>
+    <string name="files_no_library">此版本的 Nightjar 無法傳輸檔案。</string>
+    <string name="files_offline">電腦不在線上。</string>
+    <string name="files_pick_pc">要傳送到哪台電腦？</string>
+    <string name="files_no_pc">沒有在線上的已配對電腦。請先在電腦清單中喚醒或配對一台。</string>
+    <string name="files_waiting_to_send">等待傳送的檔案：%1$d。本裝置獲准傳送檔案後就會傳送。</string>
+    <plurals name="files_share_refused">
+        <item quantity="other">%1$d 個分享項目未傳送：只能傳送其他應用程式的檔案。</item>
+    </plurals>
+    <string name="files_size_unknown">%1$s 未傳送：大小不明。</string>
+    <string name="files_problem_no_permission">本裝置缺少權限；請在電腦的網頁 UI「Devices」下允許。</string>
+    <string name="files_problem_transfer_off">電腦已關閉檔案傳輸；請在其網頁 UI 中開啟。</string>
+    <string name="files_problem_invalid_name">電腦拒絕了該檔案名稱。</string>
+    <string name="files_problem_interrupted">上傳在完成前中斷了。</string>
+    <string name="files_problem_too_large">檔案超過電腦允許的大小。</string>
+    <string name="files_problem_no_space">電腦的可用空間不足。</string>
+    <string name="files_problem_no_console_user">電腦上沒有人登入。</string>
+    <string name="files_problem_busy">電腦正忙於其他傳輸；請稍後再試。</string>
+    <string name="files_problem_not_found">該檔案已不在電腦上。</string>
+    <string name="files_problem_network">與電腦的連線失敗。</string>
+    <string name="files_problem_local">無法讀取或寫入本裝置上的檔案。</string>
+    <string name="files_problem_host">電腦回應了錯誤。</string>
+    <string name="files_save_lost">儲存對話方塊開啟期間下載遺失，因此沒有儲存任何內容。請再次輕觸下載。</string>
+    <string name="files_partial_left">無法刪除未完成的下載：%1$s 仍在你儲存的位置，且不是完整的檔案。請在那裡刪除它。</string>
+</resources>

@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="host_menu_coop">Unisciti al co-op</string>
+    <string name="host_menu_coop_note">Prendi un posto giocatore libero</string>
+    <string name="coop_title">Co-op su %1$s</string>
+    <string name="coop_loading">Richiesta delle sessioni co-op a %1$s…</string>
+    <string name="coop_none">Nessuna sessione co-op è in corso. Avvia «&lt;gioco&gt; (Co-op)» dalla libreria e gli altri dispositivi potranno unirsi qui.</string>
+    <string name="coop_status">Stato</string>
+    <string name="coop_phase_starting">Avvio</string>
+    <string name="coop_phase_running">In corso</string>
+    <string name="coop_phase_ended">Terminata</string>
+    <string name="coop_phase_unknown">Sconosciuto</string>
+    <string name="coop_player">Giocatore %1$d</string>
+    <string name="coop_player_free">Libero</string>
+    <string name="coop_player_unnamed">Un dispositivo</string>
+    <string name="coop_player_you">%1$s (questo dispositivo)</string>
+    <string name="coop_player_away">%1$s, assente</string>
+    <string name="coop_end_ended">La sessione è stata terminata.</string>
+    <string name="coop_end_empty">Tutti i giocatori sono usciti.</string>
+    <string name="coop_end_crashed">Un’istanza del gioco si è arrestata.</string>
+    <string name="coop_end_failed">Il gioco non si è avviato.</string>
+    <string name="coop_end_unknown">La sessione è finita.</string>
+    <string name="coop_join">Unisciti</string>
+    <plurals name="coop_free_slots">
+        <item quantity="one">%d posto libero</item>
+        <item quantity="many">%d posti liberi</item>
+        <item quantity="other">%d posti liberi</item>
+    </plurals>
+    <string name="coop_cannot_join">Questo dispositivo non può unirsi a questa sessione ora.</string>
+    <string name="coop_return">Torna al tuo posto</string>
+    <string name="coop_return_note">Giocatore %1$d</string>
+    <string name="coop_refresh">Controlla di nuovo</string>
+    <string name="coop_joining">Accesso a %1$s…</string>
+    <string name="coop_unavailable_no_reason">Il PC non può eseguire sessioni co-op ora.</string>
+    <string name="coop_problem_permission">«Can join co-op games» è disattivato per questo dispositivo</string>
+    <string name="coop_problem_refused">%1$s ha rifiutato l’accesso</string>
+    <string name="coop_problem_gone">La sessione co-op non esiste più</string>
+    <string name="coop_problem_busy">Il co-op è occupato su %1$s</string>
+    <string name="coop_problem_unavailable">Il co-op non è disponibile su %1$s</string>
+    <string name="coop_problem_unreachable">Impossibile raggiungere %1$s</string>
+    <string name="coop_problem_other">Co-op non riuscito</string>
+    <string name="coop_problem_no_message">Il PC non ha dato alcun motivo (HTTP %1$d).</string>
+</resources>

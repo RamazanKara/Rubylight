@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="host_menu_coop">加入合作</string>
+    <string name="host_menu_coop_note">佔用一個空的玩家位置</string>
+    <string name="coop_title">%1$s 上的合作</string>
+    <string name="coop_loading">正在向 %1$s 查詢合作工作階段…</string>
+    <string name="coop_none">沒有進行中的合作工作階段。從遊戲庫啟動「&lt;遊戲&gt; (Co-op)」，其他裝置就能在這裡加入。</string>
+    <string name="coop_status">狀態</string>
+    <string name="coop_phase_starting">啟動中</string>
+    <string name="coop_phase_running">進行中</string>
+    <string name="coop_phase_ended">已結束</string>
+    <string name="coop_phase_unknown">未知</string>
+    <string name="coop_player">玩家 %1$d</string>
+    <string name="coop_player_free">空位</string>
+    <string name="coop_player_unnamed">某台裝置</string>
+    <string name="coop_player_you">%1$s（本裝置）</string>
+    <string name="coop_player_away">%1$s，已離開</string>
+    <string name="coop_end_ended">工作階段已被結束。</string>
+    <string name="coop_end_empty">所有玩家都已離開。</string>
+    <string name="coop_end_crashed">一個遊戲執行個體當機了。</string>
+    <string name="coop_end_failed">遊戲未能啟動。</string>
+    <string name="coop_end_unknown">工作階段已結束。</string>
+    <string name="coop_join">加入</string>
+    <plurals name="coop_free_slots">
+        <item quantity="other">%d 個空位</item>
+    </plurals>
+    <string name="coop_cannot_join">本裝置目前無法加入此工作階段。</string>
+    <string name="coop_return">回到你的位置</string>
+    <string name="coop_return_note">玩家 %1$d</string>
+    <string name="coop_refresh">重新檢查</string>
+    <string name="coop_joining">正在加入 %1$s…</string>
+    <string name="coop_unavailable_no_reason">這台電腦目前無法執行合作工作階段。</string>
+    <string name="coop_problem_permission">本裝置的「Can join co-op games」已關閉</string>
+    <string name="coop_problem_refused">%1$s 拒絕了加入</string>
+    <string name="coop_problem_gone">該合作工作階段已不存在</string>
+    <string name="coop_problem_busy">%1$s 上的合作正忙碌</string>
+    <string name="coop_problem_unavailable">%1$s 上無法使用合作</string>
+    <string name="coop_problem_unreachable">無法連線到 %1$s</string>
+    <string name="coop_problem_other">合作失敗</string>
+    <string name="coop_problem_no_message">電腦未提供原因（HTTP %1$d）。</string>
+</resources>

@@ -1,5 +1,4 @@
-<!-- Only English and German are packaged; both translations are provided. -->
-<resources xmlns:tools="http://schemas.android.com/tools" tools:ignore="MissingTranslation">
+<resources>
     <string name="latency_benchmark_title">Latency benchmark</string>
     <string name="latency_benchmark_description">Run a 10-second local timing test without a host. Touch the screen, move a mouse or use a controller to collect input samples.</string>
     <string name="latency_benchmark_start">Start 10-second test</string>

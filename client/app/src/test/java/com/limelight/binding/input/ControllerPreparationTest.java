@@ -340,7 +340,14 @@ public class ControllerPreparationTest {
     }
 
     private static void addInputDevice(Activity activity, int id, boolean external, int sources) {
-        InputDevice device = ShadowInputDevice.makeInputDeviceNamed("Controller " + id);
+        addInputDevice(activity, id, external, sources, "Controller " + id, 0, 0);
+    }
+
+    private static void addInputDevice(Activity activity, int id, boolean external, int sources,
+                                       String name, int vendor, int product) {
+        InputDevice device = ShadowInputDevice.makeInputDeviceNamed(name);
+        ReflectionHelpers.setField(device, "mVendorId", vendor);
+        ReflectionHelpers.setField(device, "mProductId", product);
         ReflectionHelpers.setField(device, "mId", id);
         ReflectionHelpers.setField(device, "mDescriptor", "controller-" + id);
         ReflectionHelpers.setField(device, "mIsExternal", external);
@@ -744,6 +751,48 @@ public class ControllerPreparationTest {
                     assertEquals(MoonBridge.LI_CTYPE_PS, connection.arrivalType);
                     assertTrue((connection.arrivalButtons & ControllerPacket.TOUCHPAD_FLAG) != 0);
                 }
+            } finally { handler.destroy(); }
+        }
+    }
+
+    @Test public void aHandheldsOwnPadListedAsExternalIsToldApartFromARealXboxPad() {
+        // Retroid Pocket 6: "Xbox Wireless Controller", 0x2022:0x3002, external, on an internal bus.
+        assertTrue(ControllerHandler.looksLikeHandheldControls("Xbox Wireless Controller", 0x2022, true, false));
+        assertFalse("A real Xbox pad", ControllerHandler.looksLikeHandheldControls("Xbox Wireless Controller", 0x045e, true, false));
+        assertFalse("Beside another pad", ControllerHandler.looksLikeHandheldControls("Xbox Wireless Controller", 0x2022, false, false));
+        assertFalse("Attached by USB", ControllerHandler.looksLikeHandheldControls("Xbox Wireless Controller", 0x2022, true, true));
+        assertFalse("Another kind of pad", ControllerHandler.looksLikeHandheldControls("8BitDo Pro 2", 0x2dc8, true, false));
+    }
+
+    @Test public void aHandheldsOwnPadCarriesTheTouchpadButton() {
+        Connection connection = arrivalOfXboxNamedPad(0x2022);
+        assertEquals(MoonBridge.LI_CTYPE_PS, connection.arrivalType);
+        assertTrue((connection.arrivalButtons & ControllerPacket.TOUCHPAD_FLAG) != 0);
+    }
+
+    @Test public void aRealXboxPadKeepsItsTypeBesideTheTouchpadButton() {
+        Connection connection = arrivalOfXboxNamedPad(0x045e);
+        assertEquals(MoonBridge.LI_CTYPE_XBOX, connection.arrivalType);
+        assertEquals(0, connection.arrivalButtons & ControllerPacket.TOUCHPAD_FLAG);
+    }
+
+    /** The only gamepad, listed as external and named like a Retroid Pocket's, with the Touchpad button on. */
+    private static Connection arrivalOfXboxNamedPad(int vendor) {
+        try (ActivityController<Activity> activity = Robolectric.buildActivity(Activity.class).create()) {
+            addInputDevice(activity.get(), 7, true, InputDevice.SOURCE_JOYSTICK | InputDevice.SOURCE_GAMEPAD,
+                    "Xbox Wireless Controller", vendor, 0x3002);
+            PreferenceConfiguration prefs = new PreferenceConfiguration();
+            prefs.multiController = true;
+            prefs.onscreenController = true;
+            prefs.showTouchpadButton = true;
+            Connection connection = new Connection(73);
+            ControllerHandler handler = new ControllerHandler(activity.get(), connection, null, prefs);
+            try {
+                String prepared = handler.prepareControllersForLaunch();
+                handler.resendControllerArrivals();
+                assertTrue(prepared, prepared.startsWith("0:" + connection.arrivalType + ":"));
+                assertEquals(0, connection.arrivalSlot);
+                return connection;
             } finally { handler.destroy(); }
         }
     }

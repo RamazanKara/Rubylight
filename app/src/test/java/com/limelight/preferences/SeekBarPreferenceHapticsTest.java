@@ -11,9 +11,9 @@ import android.view.HapticFeedbackConstants;
 import android.view.KeyEvent;
 import android.view.View;
 import android.view.ViewGroup;
-import android.widget.SeekBar;
 
 import com.limelight.R;
+import com.limelight.ui.StepSlider;
 
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -83,7 +83,7 @@ public class SeekBarPreferenceHapticsTest {
     @Test
     public void movingTheSliderTicks() {
         View dialog = dialog();
-        SeekBar slider = find(dialog, SeekBar.class, null);
+        StepSlider slider = find(dialog, StepSlider.class, null);
         assertNotNull(slider);
         slider.onKeyDown(KeyEvent.KEYCODE_DPAD_RIGHT, new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_RIGHT));
         assertEquals(STEP, shadowOf(slider).lastHapticFeedbackPerformed());
@@ -97,7 +97,7 @@ public class SeekBarPreferenceHapticsTest {
                 .addAttribute(android.R.attr.max, "100000")
                 .build());
         bitrate.setPersistent(false);
-        SeekBar slider = find(bitrate.onCreateDialogView(), SeekBar.class, null);
+        StepSlider slider = find(bitrate.onCreateDialogView(), StepSlider.class, null);
         assertNotNull(slider);
         bitrate.slideTo(slider, 5000, 1000);
         assertEquals(STEP, shadowOf(slider).lastHapticFeedbackPerformed());

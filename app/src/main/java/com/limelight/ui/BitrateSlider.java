@@ -6,7 +6,8 @@ import android.os.Looper;
 import android.view.KeyEvent;
 import android.view.View;
 import android.widget.EditText;
-import android.widget.SeekBar;
+
+import com.google.android.material.slider.Slider;
 
 import java.math.BigDecimal;
 
@@ -70,12 +71,16 @@ public final class BitrateSlider {
     }
 
     /** A slider at {@code kbps} that fills {@code field} and runs {@code commit} when it settles. */
-    public static SeekBar create(Context context, EditText field, int kbps, Runnable commit) {
-        SeekBar bar = new SeekBar(context);
+    public static StepSlider create(Context context, EditText field, int kbps, Runnable commit) {
+        StepSlider bar = new StepSlider(context);
         bar.setMax(MAX_PROGRESS);
-        bar.setProgress(progress(kbps));
-        bar.setKeyProgressIncrement(1);
-        bar.setOnSeekBarChangeListener(new Settle(field, commit, new Handler(Looper.getMainLooper())));
+        bar.setPosition(progress(kbps));
+        bar.setKeyStep(1);
+        String mbps = context.getString(com.limelight.R.string.suffix_seekbar_bitrate_mbps);
+        bar.setPositionText(progress -> mbpsText(kbps(progress)) + " " + mbps);
+        Settle settle = new Settle(field, commit, new Handler(Looper.getMainLooper()));
+        bar.setOnPositionChangeListener(settle);
+        bar.addOnSliderTouchListener(settle);
         return bar;
     }
 
@@ -96,7 +101,7 @@ public final class BitrateSlider {
         });
     }
 
-    static final class Settle implements SeekBar.OnSeekBarChangeListener {
+    static final class Settle implements StepSlider.OnPositionChangeListener, Slider.OnSliderTouchListener {
         private final EditText field;
         private final Handler handler;
         private final Runnable settled;
@@ -112,9 +117,9 @@ public final class BitrateSlider {
             };
         }
 
+        // Only the user's own changes arrive here.
         @Override
-        public void onProgressChanged(SeekBar bar, int progress, boolean fromUser) {
-            if (!fromUser) return;
+        public void onPositionChanged(StepSlider bar, int progress) {
             field.setText(mbpsText(kbps(progress)));
             pending = true;
             handler.removeCallbacks(settled);
@@ -122,13 +127,13 @@ public final class BitrateSlider {
         }
 
         @Override
-        public void onStartTrackingTouch(SeekBar bar) {
+        public void onStartTrackingTouch(Slider bar) {
             tracking = true;
             handler.removeCallbacks(settled);
         }
 
         @Override
-        public void onStopTrackingTouch(SeekBar bar) {
+        public void onStopTrackingTouch(Slider bar) {
             tracking = false;
             handler.removeCallbacks(settled);
             settled.run();

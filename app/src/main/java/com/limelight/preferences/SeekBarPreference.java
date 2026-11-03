@@ -13,11 +13,11 @@ import android.view.Gravity;
 import android.view.View;
 import android.widget.Button;
 import android.widget.LinearLayout;
-import android.widget.SeekBar;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
 import com.limelight.R;
+import com.limelight.ui.StepSlider;
 import com.limelight.utils.UiHelper;
 
 import java.util.Locale;
@@ -31,7 +31,7 @@ public class SeekBarPreference extends DialogPreference
     // Slider resolution in logarithmic mode
     static final int LOG_POSITIONS = 1000;
 
-    private SeekBar seekBar;
+    private StepSlider seekBar;
     private TextView valueText;
     private final Context context;
 
@@ -153,8 +153,8 @@ public class SeekBarPreference extends DialogPreference
         dialogValue = value;
         valueText.setText(formatValue(value));
         int position = valueToPosition(value);
-        if (seekBar.getProgress() != position) {
-            seekBar.setProgress(position);
+        if (seekBar.getPosition() != position) {
+            seekBar.setPosition(position);
         }
     }
 
@@ -218,23 +218,12 @@ public class SeekBarPreference extends DialogPreference
         plus.setContentDescription(context.getString(R.string.seekbar_increase));
         plus.setOnClickListener(v -> stepTo(v, nudge(dialogValue, true, logScale, stepSize, minValue, maxValue)));
 
-        seekBar = new SeekBar(context);
+        seekBar = new StepSlider(context);
         seekBar.setMinimumHeight(dp(48));
         seekBar.setContentDescription(getTitle());
-        seekBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
-            @Override
-            public void onProgressChanged(SeekBar seekBar, int position, boolean fromUser) {
-                if (fromUser) {
-                    slideTo(seekBar, positionToValue(position), SystemClock.uptimeMillis());
-                }
-            }
-
-            @Override
-            public void onStartTrackingTouch(SeekBar seekBar) {}
-
-            @Override
-            public void onStopTrackingTouch(SeekBar seekBar) {}
-        });
+        seekBar.setPositionText(position -> formatValue(positionToValue(position)));
+        seekBar.setOnPositionChangeListener((slider, position) ->
+                slideTo(slider, positionToValue(position), SystemClock.uptimeMillis()));
         sliderRow.addView(minus);
         sliderRow.addView(seekBar, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
         sliderRow.addView(plus);
@@ -270,10 +259,10 @@ public class SeekBarPreference extends DialogPreference
 
         seekBar.setMax(logScale ? LOG_POSITIONS : maxValue - minValue);
         if (logScale) {
-            seekBar.setKeyProgressIncrement(LOG_POSITIONS / 100);
+            seekBar.setKeyStep(LOG_POSITIONS / 100);
         }
         else if (keyStepSize != 0) {
-            seekBar.setKeyProgressIncrement(keyStepSize);
+            seekBar.setKeyStep(keyStepSize);
         }
         showDialogValue(clamp(currentValue, minValue, maxValue));
 

@@ -8,7 +8,6 @@ import android.app.Application;
 import android.os.Handler;
 import android.os.Looper;
 import android.widget.EditText;
-import android.widget.SeekBar;
 
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -34,7 +33,7 @@ public class BitrateSliderTest {
         field.setSingleLine(true);
         field.setText("20");
         BitrateSlider.moveFocusOnUpDown(field);
-        SeekBar bar = BitrateSlider.create(themed, field, 20_000, () -> { });
+        StepSlider bar = BitrateSlider.create(themed, field, 20_000, () -> { });
         EditText fps = new EditText(themed);
         fps.setSingleLine(true);
         fps.setText("60");
@@ -52,7 +51,7 @@ public class BitrateSliderTest {
         column.measure(android.view.View.MeasureSpec.makeMeasureSpec(400, android.view.View.MeasureSpec.EXACTLY),
                 android.view.View.MeasureSpec.makeMeasureSpec(400, android.view.View.MeasureSpec.EXACTLY));
         column.layout(0, 0, 400, 400);
-        int progress = bar.getProgress();
+        int progress = bar.getPosition();
 
         field.requestFocus();
         field.selectAll();
@@ -63,7 +62,7 @@ public class BitrateSliderTest {
                 new android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_DPAD_UP)));
         assertEquals(false, bar.onKeyDown(android.view.KeyEvent.KEYCODE_DPAD_DOWN,
                 new android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_DPAD_DOWN)));
-        assertEquals("Up and Down never change the bitrate", progress, bar.getProgress());
+        assertEquals("Up and Down never change the bitrate", progress, bar.getPosition());
         assertEquals("20", field.getText().toString());
         field.requestFocus();
         field.setSelection(1);
@@ -72,7 +71,7 @@ public class BitrateSliderTest {
 
         bar.requestFocus();
         dpad(bar, android.view.KeyEvent.KEYCODE_DPAD_RIGHT);
-        assertEquals(progress + 1, bar.getProgress());
+        assertEquals(progress + 1, bar.getPosition());
 
         radeon.requestFocus();
         assertEquals(false, radeon.onKeyDown(android.view.KeyEvent.KEYCODE_DPAD_UP,
@@ -116,18 +115,21 @@ public class BitrateSliderTest {
     @Test
     public void keyStepsSendOnceTheyStopAndADragWhenItEnds() {
         EditText field = new EditText(RuntimeEnvironment.getApplication());
-        SeekBar bar = new SeekBar(RuntimeEnvironment.getApplication());
+        StepSlider bar = new StepSlider(new androidx.appcompat.view.ContextThemeWrapper(
+                RuntimeEnvironment.getApplication(), com.limelight.R.style.StreamTheme));
+        bar.setMax(BitrateSlider.MAX_PROGRESS);
         AtomicInteger sent = new AtomicInteger();
         BitrateSlider.Settle settle = new BitrateSlider.Settle(field, sent::incrementAndGet,
                 new Handler(Looper.getMainLooper()));
+        bar.setOnPositionChangeListener(settle);
 
-        settle.onProgressChanged(bar, 24, false);
+        bar.setPosition(24);
         shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(1));
         assertEquals("a change not made by the user sends nothing", 0, sent.get());
 
-        settle.onProgressChanged(bar, 24, true);
+        settle.onPositionChanged(bar, 24);
         shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(300));
-        settle.onProgressChanged(bar, 25, true);
+        settle.onPositionChanged(bar, 25);
         shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(300));
         assertEquals("each step restarts the wait", 0, sent.get());
         assertEquals("22", field.getText().toString());
@@ -135,7 +137,7 @@ public class BitrateSliderTest {
         assertEquals(1, sent.get());
 
         settle.onStartTrackingTouch(bar);
-        settle.onProgressChanged(bar, 49, true);
+        settle.onPositionChanged(bar, 49);
         shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(1));
         assertEquals("nothing goes out mid-drag", 1, sent.get());
         settle.onStopTrackingTouch(bar);

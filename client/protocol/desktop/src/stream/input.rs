@@ -42,6 +42,13 @@ pub(super) fn mouse_button_code(button: u8, nav_buttons: bool) -> Option<u8> {
     }
 }
 
+/// Whether pointer motion and the wheel go to the PC: captured and in front. A stream that opened
+/// behind another window is captured before it is focused (`capture_on_focus`), and a pointer
+/// passing over it then must not move or scroll the PC.
+pub(super) fn pointer_goes_out(captured: bool, focused: bool) -> bool {
+    captured && focused
+}
+
 /// A wheel turn as the PC's high-resolution scroll.
 pub(super) fn send_wheel(w: &SDL_MouseWheelEvent, q: &mut nightjar_core::input::InputQueue) {
     let flip = if w.direction == SDL_MOUSEWHEEL_FLIPPED { -1.0 } else { 1.0 };
@@ -128,7 +135,7 @@ impl Streaming {
                 SDL_EVENT_MOUSE_MOTION => {
                     let m = event.motion;
                     if self.facts.touch && self.captured && matches!(m.which, SDL_TOUCH_MOUSEID | SDL_PEN_MOUSEID) { return; }
-                    if !self.captured {
+                    if !pointer_goes_out(self.captured, self.focused) {
                         return;
                     }
                     if self.absolute {
@@ -165,7 +172,7 @@ impl Streaming {
                     });
                 }
                 SDL_EVENT_MOUSE_WHEEL => {
-                    if !self.captured || direct_motion::sent(event) {
+                    if !pointer_goes_out(self.captured, self.focused) || direct_motion::sent(event) {
                         return;
                     }
                     self.session.input(|q| send_wheel(&event.wheel, q));

@@ -172,7 +172,7 @@ struct App {
     power_request: Option<(power::Offer, Receiver<Result<(), String>>)>,
     network_test: Option<network_test::Test>,
     /// Host, app, resume, and Input-only through a small stream.
-    network_launch: Option<(u64, i32, bool, bool)>,
+    network_launch: Option<(u64, i32, bool, LaunchKind)>,
     next_network_check: Instant,
     waker: hosts::Waker,
     wake_event: u32,
@@ -900,7 +900,7 @@ impl App {
                 self.launcher.network = network;
                 self.network_query = None;
                 self.next_network_check = Instant::now() + Duration::from_secs(5);
-                if let Some((host, app, resume, small)) = self.network_launch.take() { self.launch_ready(host, app, resume, small); }
+                if let Some((host, app, resume, kind)) = self.network_launch.take() { self.launch_ready(host, app, resume, kind); }
             }
         } else if Instant::now() >= self.next_network_check {
             self.network_query = Some(network::query(self.waker.clone()));
@@ -992,7 +992,7 @@ impl App {
                         if self.quitting_on_leave.as_ref().is_some_and(|(host, _)| *host == id) { self.quitting_on_leave = None; }
                         if let Some((host, app)) = self.pending_launch.take() {
                             if host == id {
-                                self.launch(host, app, false, false, LaunchFrom::Replace);
+                                self.launch(host, app, false, LaunchKind::Stream, LaunchFrom::Replace);
                             }
                         }
                     }
@@ -1042,10 +1042,10 @@ impl App {
         // A launch without a network query in flight is waiting for its app list (see
         // `launch_ready`); it goes on once the list is no longer loading.
         if self.network_query.is_none() {
-            if let Some((host, app, resume, small)) = self.network_launch {
+            if let Some((host, app, resume, kind)) = self.network_launch {
                 if !matches!(self.hosts.get(host).map(|h| &h.apps), Some(Apps::Loading)) {
                     self.network_launch = None;
-                    self.launch_ready(host, app, resume, small);
+                    self.launch_ready(host, app, resume, kind);
                 }
             }
         }
@@ -1146,7 +1146,7 @@ impl App {
     fn command(&mut self, command: Command) {
         match command {
             Command::PinPassed => match self.pin_pending.take() {
-                Some(PinPending::Launch { host, app, resume, small, from }) => self.launch(host, app, resume, small, from),
+                Some(PinPending::Launch { host, app, resume, kind, from }) => self.launch(host, app, resume, kind, from),
                 Some(PinPending::QuitAndLaunch { host, app, named }) => self.command(Command::QuitAndLaunch { host, app, named }),
                 None => {}
             },
@@ -1164,8 +1164,9 @@ impl App {
                     self.power_request = Some((offer, power::request(offer, self.waker.clone())));
                 }
             }
-            Command::Launch { host, app, resume } => self.launch(host, app, resume, false, LaunchFrom::Launcher),
-            Command::LaunchInputOnly { host, app, resume } => self.launch(host, app, resume, true, LaunchFrom::Launcher),
+            Command::Launch { host, app, resume } => self.launch(host, app, resume, LaunchKind::Stream, LaunchFrom::Launcher),
+            Command::LaunchInputOnly { host, app, resume } => self.launch(host, app, resume, LaunchKind::SmallInputOnly, LaunchFrom::Launcher),
+            Command::MicOnly { host } => self.launch(host, MIC_ONLY_APP_ID, false, LaunchKind::MicOnly, LaunchFrom::Launcher),
             Command::ToggleFavourite(entry) => {
                 config::toggle_favourite(&mut self.launcher.favourites, entry);
                 if let Err(e) = self.store.save_favourites(&self.launcher.favourites) {
@@ -1192,7 +1193,7 @@ impl App {
                         tr("The running app changed"),
                         tr("The PC runs another app now. Check the screen and try again."),
                     ),
-                    console::Running::Gone => self.launch(host, app, false, false, LaunchFrom::Replace),
+                    console::Running::Gone => self.launch(host, app, false, LaunchKind::Stream, LaunchFrom::Replace),
                     console::Running::Same => {
                         self.pending_launch = Some((host, app));
                         self.hosts.quit_app(host);
@@ -1545,7 +1546,7 @@ impl App {
                 self.hosts.pair(id, auto.pin.clone(), None);
             }
             autostream::Step::LoadApps(id) => self.hosts.load_apps(id),
-            autostream::Step::Launch(host, app) => self.launch(host, app, false, false, LaunchFrom::Autostream),
+            autostream::Step::Launch(host, app) => self.launch(host, app, false, LaunchKind::Stream, LaunchFrom::Autostream),
             autostream::Step::Fail(why) => {
                 auto.fail(&why);
                 self.running = false;
@@ -1604,7 +1605,7 @@ impl App {
             cli::Step::Wait => {}
             cli::Step::OpenApps(id) => self.command(Command::OpenApps(id)),
             cli::Step::LoadApps(id) => self.hosts.load_apps(id),
-            cli::Step::Launch(host, app, resume) => self.launch(host, app, resume, false, LaunchFrom::CommandLine),
+            cli::Step::Launch(host, app, resume) => self.launch(host, app, resume, LaunchKind::Stream, LaunchFrom::CommandLine),
             cli::Step::Fail(why) => {
                 cli.fail(&why);
                 self.running = false;
@@ -1616,16 +1617,15 @@ impl App {
         }
     }
 
-    /// `small`: Input-only through a small ordinary stream, on a PC without its own mode.
-    fn launch(&mut self, host_id: u64, app_id: i32, resume: bool, small: bool, from: LaunchFrom) {
+    fn launch(&mut self, host_id: u64, app_id: i32, resume: bool, kind: LaunchKind, from: LaunchFrom) {
         let busy = self.connecting.is_some() || self.network_launch.is_some();
-        eprintln!("nightjar: {}{}", launch_line(from, app_id, resume, busy), if small { ", input only through a small stream" } else { "" });
+        eprintln!("nightjar: {}{}", launch_line(from, app_id, resume, busy), kind.log_suffix());
         if busy { return; }
         // The quit-and-start prompt's start was let through with its quit.
-        if from != LaunchFrom::Replace && self.pin_holds(host_id, PinPending::Launch { host: host_id, app: app_id, resume, small, from }) {
+        if from != LaunchFrom::Replace && self.pin_holds(host_id, PinPending::Launch { host: host_id, app: app_id, resume, kind, from }) {
             return;
         }
-        self.network_launch = Some((host_id, app_id, resume, small));
+        self.network_launch = Some((host_id, app_id, resume, kind));
         self.network_query = Some(network::query(self.waker.clone()));
     }
 
@@ -1644,19 +1644,22 @@ impl App {
         true
     }
 
-    fn launch_ready(&mut self, host_id: u64, app_id: i32, resume: bool, small: bool) {
+    fn launch_ready(&mut self, host_id: u64, app_id: i32, resume: bool, kind: LaunchKind) {
+        let small = kind == LaunchKind::SmallInputOnly;
+        let mic_only = kind == LaunchKind::MicOnly;
         if self.connecting.is_some() {
             return;
         }
         let Some(host) = self.hosts.get(host_id) else {
             return;
         };
-        let app = match launch_app(&host.apps, app_id) {
+        // A microphone-only session names no app of the PC's list.
+        let app = if mic_only { mic_only_app() } else { match launch_app(&host.apps, app_id) {
             LaunchApp::Ready(app) => app,
             LaunchApp::Wait => {
                 // The list is being read again (the first native read of a run reloads it).
                 // Starting over once it lands keeps the launch instead of dropping it unseen.
-                self.network_launch = Some((host_id, app_id, resume, small));
+                self.network_launch = Some((host_id, app_id, resume, kind));
                 return;
             }
             LaunchApp::Gone => return,
@@ -1668,7 +1671,7 @@ impl App {
                 self.launcher.message(tr("The stream could not start"), tr("The PC's app list has no entry for this game.").to_owned());
                 return;
             }
-        };
+        } };
         if app.is_control_action() {
             self.hosts.control_action(host_id, app_id);
             return;
@@ -1676,7 +1679,7 @@ impl App {
         let mut settings = host.record.settings(&self.launcher.profiles.settings(&self.launcher.settings, self.launcher.network.kind(&self.launcher.profiles.home_wifi)));
         if let Some(overrides) = host.record.app_settings(&app.uuid, app.id) { settings = overrides.apply(&settings); }
         if settings.codec.is_pyrowave() { settings.experimental_packed_444 = false; }
-        if app.role(small) == nightjar_core::http::AppRole::InputOnly {
+        if mic_only || app.role(small) == nightjar_core::http::AppRole::InputOnly {
             settings.hdr = false;
             settings.experimental_packed_444 = false;
             (settings.prefer_yuv444, settings.sdr_10bit) = (false, false);
@@ -1687,6 +1690,9 @@ impl App {
         }
         if small {
             small_stream(&mut settings);
+        }
+        if mic_only {
+            mic_only_settings(&mut settings);
         }
         if settings.hdr && !sdl::hdr_available(self.renderer) {
             self.launcher.message(tr("HDR output unavailable"), tr("Enable HDR on this display and restart Nightjar. The current compositor or swapchain does not support HDR output."));
@@ -1758,6 +1764,7 @@ impl App {
             app,
             resume,
             small_stream_input_only: small,
+            mic_only,
             settings: settings.clone(),
             identity,
             display,
@@ -2272,6 +2279,7 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
     let toast = s.toast.as_ref().map(|(t, _)| t.clone());
     let input_only = s.facts.role == nightjar_core::http::AppRole::InputOnly;
     let small_stream = s.small_stream_input_only();
+    let mic_only = s.mic_only();
     if !s.overlay_visible && toast.is_none() && !input_only && !s.menu_visible {
         return false;
     }
@@ -2285,7 +2293,14 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
     gui.set_readable(s.menu_visible || input_only);
     let output = gui.run(window, renderer, |ui| {
         let ctx = ui.ctx().clone();
-        if input_only {
+        if mic_only {
+            egui::Area::new(egui::Id::unique("mic-only"))
+                .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
+                .show(&ctx, |ui| {
+                    ui.label(egui::RichText::new(tr(mic_only_title(s.microphone_muted))).font(theme::semibold(theme::text::TITLE)).color(theme::MOON));
+                    ui.label(&s.facts.host_name);
+                });
+        } else if input_only {
             egui::Area::new(egui::Id::unique("input-only"))
                 .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
                 .show(&ctx, |ui| {
@@ -2787,7 +2802,7 @@ fn remove_host(
 
 /// A stream start the PIN lock holds until the PIN is entered.
 enum PinPending {
-    Launch { host: u64, app: i32, resume: bool, small: bool, from: LaunchFrom },
+    Launch { host: u64, app: i32, resume: bool, kind: LaunchKind, from: LaunchFrom },
     QuitAndLaunch { host: u64, app: i32, named: Option<i32> },
 }
 
@@ -2812,6 +2827,58 @@ impl LaunchFrom {
             LaunchFrom::Autostream => "autostream",
             LaunchFrom::CommandLine => "command line",
         }
+    }
+}
+
+/// What a launch starts besides an ordinary stream.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum LaunchKind {
+    Stream,
+    /// Input-only through a small ordinary stream, on a PC without its own mode.
+    SmallInputOnly,
+    /// Only this device's microphone, on a PC that lists `Feature::MicOnly`.
+    MicOnly,
+}
+
+impl LaunchKind {
+    fn log_suffix(self) -> &'static str {
+        match self {
+            LaunchKind::Stream => "",
+            LaunchKind::SmallInputOnly => ", input only through a small stream",
+            LaunchKind::MicOnly => ", microphone only",
+        }
+    }
+}
+
+/// A microphone-only session's settings: the microphone on, no controllers, and the PC keeps
+/// its own sound.
+fn mic_only_settings(settings: &mut config::Settings) {
+    settings.microphone = true;
+    settings.controllers = false;
+    settings.play_audio_on_host = true;
+    settings.clipboard_sync = false;
+    settings.usb_forwarding = false;
+}
+
+/// The microphone-only screen's title.
+fn mic_only_title(muted: bool) -> &'static str {
+    if muted { strings::en("Microphone muted") } else { strings::en("Microphone on") }
+}
+
+/// The app id a microphone-only launch sends: it names no app, and the PC starts none.
+const MIC_ONLY_APP_ID: i32 = 0;
+
+/// The app a microphone-only session stands for in the stream's title and logs.
+fn mic_only_app() -> nightjar_core::http::App {
+    nightjar_core::http::App {
+        name: tr("Microphone only").to_owned(),
+        id: MIC_ONLY_APP_ID,
+        hdr_supported: false,
+        uuid: String::new(),
+        host_index: None,
+        art_version: String::new(),
+        control: nightjar_core::http::AppControl::None,
+        monitor_resume: false,
     }
 }
 
@@ -2937,6 +3004,20 @@ mod tests {
         assert_eq!((settings.width, settings.height, settings.fps, settings.bitrate_kbps), (640, 360, 30, 500));
         assert_eq!(settings.audio, config::AudioChannels::Stereo);
         assert!(!settings.virtual_display && !settings.vrr && settings.play_audio_on_host, "the PC's display and speakers stay as they are");
+    }
+
+    #[test]
+    fn microphone_only_sends_the_microphone_and_names_no_app() {
+        let mut settings = config::Settings { microphone: false, controllers: true, clipboard_sync: true, ..Default::default() };
+        super::mic_only_settings(&mut settings);
+        assert!(settings.microphone, "the microphone goes, whatever the stream setting says");
+        assert!(!settings.controllers && !settings.clipboard_sync && !settings.usb_forwarding);
+        assert!(settings.play_audio_on_host, "the PC keeps its sound");
+        let app = super::mic_only_app();
+        assert_eq!(app.id, super::MIC_ONLY_APP_ID);
+        assert!(!app.is_control_action());
+        assert_eq!(super::LaunchKind::MicOnly.log_suffix(), ", microphone only");
+        assert_ne!(super::mic_only_title(false), super::mic_only_title(true));
     }
 
     /// Holding Ctrl+Alt+Shift+H or Escape doesn't flip the sheet or the menu with each repeat,

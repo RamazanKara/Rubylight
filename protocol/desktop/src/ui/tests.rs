@@ -392,7 +392,19 @@ fn every_state() -> Vec<State> {
         state("sleep not allowed", record("Guarded", true, false), Reach::Online, Some(sleep_answer(false)), Vec::new()),
         // Has Files.
         state("native api", record("Native", true, false), Reach::Online, Some(files::tests::native_answer()), Vec::new()),
+        // Has Microphone only.
+        state("microphone only", record("Mic", true, false), Reach::Online, Some(mic_only_answer(true)), Vec::new()),
     ]
+}
+
+/// A native PC's answer with its native read merged in: `session.mic_only` listed, with or
+/// without this device's launch permission.
+fn mic_only_answer(launch: bool) -> nightjar_core::http::ServerInfo {
+    let mut info = files::tests::native_answer();
+    let mut native = files::tests::native("\"session.mic_only\"", false, false);
+    native.capabilities.permissions.launch = launch;
+    crate::hosts::merge_native(&mut info, Some(&native));
+    info
 }
 
 /// A paired PC's answer with the power-action fields, sleep allowed for this device or not.
@@ -1308,14 +1320,29 @@ fn every_option_is_reachable_with_the_keyboard() {
                 HostOption::Remove => matches!(f.l.dialog, Dialog::ConfirmRemove { .. }),
                 HostOption::PairOtp => matches!(f.l.dialog, Dialog::Otp { .. }),
                 HostOption::QuitApp => matches!(f.l.dialog, Dialog::ConfirmQuit { .. }),
+                HostOption::MicOnly => said(|c| matches!(c, Command::MicOnly { .. })) && f.no_dialog(),
             };
             assert!(ok, "{state}: {} by keys (entry {n})", option.label());
         }
     }
     use HostOption::*;
-    for option in [OpenLibrary, Resume, QuitApp, Pair, PairOtp, Wake, Sleep, Files, Settings, Details, Rename, Unpair, PairingHelp, CheckAgain, Remove] {
+    for option in [OpenLibrary, Resume, QuitApp, Pair, PairOtp, Wake, Sleep, Files, Settings, Details, Rename, Unpair, PairingHelp, CheckAgain, Remove, MicOnly] {
         assert!(seen.contains(&option), "no state reaches {}", option.label());
     }
+}
+
+#[test]
+fn microphone_only_is_offered_only_where_the_pc_lets_this_device_start_it() {
+    let offered = |reach, info| {
+        let frames = Frames::with(record("Mic", true, false), reach, Some(info), Vec::new());
+        host_options(&frames.hosts.list[0]).contains(&HostOption::MicOnly)
+    };
+    assert!(offered(Reach::Online, mic_only_answer(true)));
+    // Without Launch apps, offline, or before the native read (and on stock hosts) it stays hidden.
+    assert!(!offered(Reach::Online, mic_only_answer(false)));
+    assert!(!offered(Reach::Offline, mic_only_answer(true)));
+    assert!(!offered(Reach::Online, files::tests::native_answer()));
+    assert!(!offered(Reach::Online, sleep_answer(true)));
 }
 
 // ---- A PC's details page. ----

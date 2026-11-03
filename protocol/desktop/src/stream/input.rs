@@ -45,6 +45,23 @@ pub(super) fn mouse_button_code(button: u8, nav_buttons: bool) -> Option<u8> {
 /// Whether pointer motion and the wheel go to the PC: captured and in front. A stream that opened
 /// behind another window is captured before it is focused (`capture_on_focus`), and a pointer
 /// passing over it then must not move or scroll the PC.
+/// The events a microphone-only session acts on: closing the window ends it, and the window's
+/// focus and the audio devices (a headset's microphone) still count. Keys, pointers and
+/// controllers stay on this device.
+pub(super) fn mic_only_handles(kind: SDL_EventType) -> bool {
+    matches!(
+        kind,
+        SDL_EVENT_QUIT
+            | SDL_EVENT_WINDOW_CLOSE_REQUESTED
+            | SDL_EVENT_RENDER_DEVICE_RESET
+            | SDL_EVENT_RENDER_DEVICE_LOST
+            | SDL_EVENT_WINDOW_FOCUS_LOST
+            | SDL_EVENT_WINDOW_FOCUS_GAINED
+            | SDL_EVENT_AUDIO_DEVICE_ADDED
+            | SDL_EVENT_AUDIO_DEVICE_REMOVED
+    )
+}
+
 pub(super) fn pointer_goes_out(captured: bool, focused: bool) -> bool {
     captured && focused
 }
@@ -67,14 +84,15 @@ impl Streaming {
     pub(super) fn direct_rules(&self, window: *mut SDL_Window) -> direct_motion::Rules {
         // SAFETY: a live window.
         let focused = unsafe { SDL_GetWindowFlags(window) & SDL_WINDOW_INPUT_FOCUS != 0 };
-        let ours = self.captured && self.focused && !self.menu_visible;
+        // A microphone-only session sends the PC no input at all.
+        let ours = self.captured && self.focused && !self.menu_visible && !self.plan.mic_only;
         direct_motion::Rules {
             keys: ours.then_some(direct_motion::KeyRules {
                 system_keys: self.settings.capture_system_keys,
                 right_alt_as_meta: self.settings.right_alt_as_meta,
             }),
             clicks: (ours && !self.absolute).then_some(direct_motion::ClickRules { nav_buttons: self.settings.mouse_nav_buttons }),
-            pads: !self.menu_visible && self.facts.role != AppRole::RemoteMonitor && self.settings.controllers
+            pads: !self.menu_visible && self.facts.role != AppRole::RemoteMonitor && self.settings.controllers && !self.plan.mic_only
                 && (focused || self.settings.background_controllers),
         }
     }
@@ -92,6 +110,9 @@ impl Streaming {
             let kind = SDL_EventType(event.r#type);
             #[cfg(windows)]
             if self.touchpad_swallows(event) {
+                return;
+            }
+            if self.plan.mic_only && !mic_only_handles(kind) {
                 return;
             }
             match kind {

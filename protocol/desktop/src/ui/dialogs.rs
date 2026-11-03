@@ -28,6 +28,7 @@ pub enum HostOption {
     PairingHelp,
     CheckAgain,
     Remove,
+    MicOnly,
 }
 
 impl HostOption {
@@ -48,6 +49,7 @@ impl HostOption {
             Self::PairingHelp => Icon::Help,
             Self::CheckAgain => Icon::Refresh,
             Self::Remove => Icon::Trash,
+            Self::MicOnly => Icon::Mic,
         }
     }
 
@@ -73,6 +75,7 @@ impl HostOption {
             Self::PairingHelp => en("Pairing help"),
             Self::CheckAgain => en("Check again"),
             Self::Remove => en("Remove PC"),
+            Self::MicOnly => en("Microphone only"),
         }
     }
 }
@@ -105,6 +108,9 @@ pub fn host_options(host: &Host) -> Vec<HostOption> {
     if files::offers_files(host) {
         options.push(HostOption::Files);
     }
+    if offers_mic_only(host) {
+        options.push(HostOption::MicOnly);
+    }
     options.push(HostOption::Settings);
     options.push(HostOption::Rename);
     options.push(HostOption::Details);
@@ -118,6 +124,13 @@ pub fn host_options(host: &Host) -> Vec<HostOption> {
     }
     options.push(HostOption::Remove);
     options
+}
+
+/// Microphone only on a paired, online PC whose native capabilities offer it to this device.
+pub fn offers_mic_only(host: &Host) -> bool {
+    host.paired()
+        && host.reach == Reach::Online
+        && host.info.as_ref().is_some_and(|i| i.capabilities.has(nightjar_core::http::Feature::MicOnly))
 }
 
 /// The option that selecting the PC's card does ([`host_clicked`]): its row shows Enter.
@@ -1088,6 +1101,7 @@ impl Launcher {
             HostOption::PairingHelp => return Some(Dialog::PairingHelp),
             HostOption::CheckAgain => commands.push(Command::Refresh(id)),
             HostOption::Remove => return Some(Dialog::ConfirmRemove { host: id, name }),
+            HostOption::MicOnly => commands.push(Command::MicOnly { host: id }),
         }
         None
     }

@@ -1485,8 +1485,40 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
      * touchpad click. A type the user pinned for the pad wins.
      */
     private boolean carriesTouchpadButton(InputDeviceContext context) {
-        return showsTouchpadButton() && !context.external && context.controllerNumber == 0 &&
-                !context.buttonMap.isConnectAsPinned();
+        if (!showsTouchpadButton() || context.controllerNumber != 0 || context.buttonMap.isConnectAsPinned()) return false;
+        if (!context.external) return true;
+        // Decided once, so the pad's type does not flip when another pad joins later.
+        if (context.handheldControls == null) context.handheldControls = isHandheldControls(context.inputDevice);
+        return context.handheldControls;
+    }
+
+    /** Whether a gamepad Android lists as external is the handheld's own controls (see {@link #looksLikeHandheldControls}). */
+    private boolean isHandheldControls(InputDevice device) {
+        if (device == null) return false;
+        int gamepads = 0;
+        for (int id : InputDevice.getDeviceIds()) {
+            InputDevice other = InputDevice.getDevice(id);
+            if (other != null && !other.isVirtual() && hasJoystickAxes(other)) gamepads++;
+        }
+        boolean attachedUsb = false;
+        UsbManager usbManager = (UsbManager) activityContext.getSystemService(Context.USB_SERVICE);
+        if (usbManager != null) {
+            for (UsbDevice usb : usbManager.getDeviceList().values()) {
+                if (usb.getVendorId() == device.getVendorId() && usb.getProductId() == device.getProductId()) attachedUsb = true;
+            }
+        }
+        return looksLikeHandheldControls(device.getName(), device.getVendorId(), gamepads == 1, attachedUsb);
+    }
+
+    /**
+     * Whether a gamepad Android lists as external is a handheld's built-in controls. A Retroid
+     * Pocket's is "Xbox Wireless Controller" with its maker's vendor ID (0x2022:0x3002) on an
+     * internal bus. So: named Xbox without Microsoft's vendor ID, the only gamepad, and not an
+     * attached USB device. A real Xbox pad has Microsoft's ID, and a USB pad is in the USB list.
+     */
+    static boolean looksLikeHandheldControls(String name, int vendorId, boolean onlyGamepad, boolean attachedUsb) {
+        return name != null && name.toLowerCase(java.util.Locale.ROOT).contains("xbox") &&
+                vendorId != 0x045e && vendorId != 0 && onlyGamepad && !attachedUsb;
     }
 
     /**
@@ -4375,6 +4407,8 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         private short reportedCapabilities;
         private int supportedButtonFlags;
         public ControllerButtonMap buttonMap = new ControllerButtonMap();
+        /** Whether this external-listed pad is a handheld's own controls; null until first asked. */
+        Boolean handheldControls;
         public final Map<Integer, Integer> pressedButtons = new HashMap<>();
         public VibratorManager vibratorManager;
         public Vibrator vibrator;
@@ -4692,6 +4726,7 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
             reportedType = oldContext.reportedType;
             reportedCapabilities = oldContext.reportedCapabilities;
             supportedButtonFlags = oldContext.supportedButtonFlags;
+            handheldControls = oldContext.handheldControls;
             this.inputMap = oldContext.inputMap;
             this.leftTrigger = oldContext.leftTrigger;
             this.rightTrigger = oldContext.rightTrigger;

@@ -40,6 +40,8 @@ pub enum Command {
     Launch { host: u64, app: i32, resume: bool },
     /// Input-only through a small ordinary stream, on a PC without its own Input-only mode.
     LaunchInputOnly { host: u64, app: i32, resume: bool },
+    /// Only this device's microphone, on a PC that offers it (`Feature::MicOnly`).
+    MicOnly { host: u64 },
     SetQuitOnLeave { host: u64, uuid: String, id: i32, enabled: bool },
     QuitApp(u64),
     ControlAction { host: u64, app: i32 },

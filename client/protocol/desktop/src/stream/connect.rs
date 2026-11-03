@@ -681,7 +681,7 @@ pub(super) fn audio_configuration(choice: AudioChannels, host_714: bool, output_
 
 pub(super) fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &Interrupt) -> Result<(Session, Facts), ConnectError> {
     let settings = &plan.settings;
-    let role = plan.app.role(plan.small_stream_input_only);
+    let role = if plan.mic_only { AppRole::InputOnly } else { plan.app.role(plan.small_stream_input_only) };
     let (width, height, fps, _) = stream_mode(settings, plan.display);
     let audio = audio_configuration(
         settings.audio,
@@ -717,6 +717,7 @@ pub(super) fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &In
         host_display: settings.host_display.into(),
         fec: Some(settings.error_correction.into()),
         small_stream_input_only: plan.small_stream_input_only,
+        mic_only: plan.mic_only,
         // The host lists 0x553C in DESCRIBE only when asked.
         rate_change: rate_change::asked_at_launch(role),
         clipboard_sync: settings.clipboard_sync && role != AppRole::RemoteMonitor,
@@ -1012,6 +1013,7 @@ mod replace_tests {
             },
             resume: false,
             small_stream_input_only: false,
+            mic_only: false,
             settings: Settings::default(),
             identity: Arc::new(ClientIdentity::generate().expect("an identity")),
             display: Display { width: 1920, height: 1080, refresh_hz: 60.0, refresh_reported: true },

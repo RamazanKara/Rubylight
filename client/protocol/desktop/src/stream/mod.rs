@@ -134,6 +134,9 @@ pub struct LaunchPlan {
     pub resume: bool,
     /// Input-only on a PC without its own mode: an ordinary small stream, shown and played nowhere.
     pub small_stream_input_only: bool,
+    /// An input-only session that carries only this device's microphone (`Feature::MicOnly`):
+    /// nothing is shown or played, and no input goes to the PC.
+    pub mic_only: bool,
     pub settings: Settings,
     pub identity: Arc<ClientIdentity>,
     pub display: Display,
@@ -1704,6 +1707,11 @@ impl Streaming {
     /// Input-only through a small ordinary stream: video and audio arrive and are discarded.
     pub fn small_stream_input_only(&self) -> bool {
         self.plan.small_stream_input_only
+    }
+
+    /// Only this device's microphone goes to the PC.
+    pub fn mic_only(&self) -> bool {
+        self.plan.mic_only
     }
 
     pub fn since_start(&self) -> Duration {

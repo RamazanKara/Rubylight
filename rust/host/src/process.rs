@@ -292,6 +292,14 @@ impl RunningApp {
             &owned, &processes,
         )?)
     }
+    /// The verified game processes, whose devices game-only audio sets.
+    /// None for an app without one (Desktop, a detached command).
+    pub fn game_pids(&self) -> Result<Vec<u32>> {
+        if self.steam.is_none() && self.playnite.is_none() && self.child.is_none() {
+            return Ok(Vec::new());
+        }
+        Ok(self.game_processes()?.0.into_keys().collect())
+    }
     /// The processes whose windows a background stream keeps on its display,
     /// identified as for game-only audio.
     pub fn window_processes(&self) -> Result<std::collections::BTreeSet<u32>> {

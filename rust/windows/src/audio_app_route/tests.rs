@@ -90,6 +90,55 @@ fn the_game_plays_on_the_sink_and_goes_back_to_the_default_when_the_stream_ends(
     Ok(())
 }
 
+/// A session's end stops its game after every stream that plays it: the
+/// game is put back while it runs, not left on the sink until it next
+/// starts, and the streams letting go later change nothing.
+#[test]
+fn a_game_the_host_stops_is_put_back_before_it_stops() -> Result<()> {
+    let directory = tempfile::tempdir()?;
+    let (fake, mut state) = (Fake::default(), State::default());
+    started(&fake, 7);
+    fake.set(7, eConsole, HEADSET)?;
+    // The session's route and its stream's.
+    route_with(&fake, &mut state, directory.path(), 7, GAME, SINK)?;
+    route_with(&fake, &mut state, directory.path(), 7, GAME, SINK)?;
+    assert!(!put_back_with(
+        &fake,
+        &mut state,
+        directory.path(),
+        &[GAME.into()]
+    )?);
+    assert_eq!(fake.device(GAME, eConsole), HEADSET);
+    assert_eq!(fake.device(GAME, eMultimedia), "");
+    assert_eq!(load(directory.path())?, Journal::default());
+    exited(&fake);
+    started(&fake, 9);
+    fake.set(9, eMultimedia, HEADSET)?;
+    for _ in 0..2 {
+        assert!(!release_with(&fake, &mut state, directory.path(), GAME)?);
+    }
+    assert_eq!(fake.device(GAME, eMultimedia), HEADSET);
+    Ok(())
+}
+
+/// A journal that can't be read is moved aside, its games kept for a
+/// reset by hand, and never stops the next stream's route.
+#[test]
+fn an_unreadable_record_is_moved_aside() -> Result<()> {
+    let directory = tempfile::tempdir()?;
+    std::fs::write(
+        path(directory.path()),
+        b"{\"apps\": [{\"exe\": \"e:\\\\game.exe\"",
+    )?;
+    let (fake, mut state) = (Fake::default(), State::default());
+    started(&fake, 7);
+    route_with(&fake, &mut state, directory.path(), 7, GAME, SINK)?;
+    assert_eq!(fake.device(GAME, eConsole), SINK);
+    assert!(std::fs::read_to_string(unreadable(directory.path()))?.contains("game.exe"));
+    assert_eq!(load(directory.path())?.apps.len(), 1);
+    Ok(())
+}
+
 #[test]
 fn a_game_that_exited_is_put_back_when_it_next_runs() -> Result<()> {
     let directory = tempfile::tempdir()?;

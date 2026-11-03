@@ -9,6 +9,9 @@
 //! when it exited mid-stream or the host crashed: right away when a process
 //! of it still runs, else when it next starts (a watcher looks every
 //! [`WATCH`]). A device the user picked for the game during the stream stays.
+//! Windows sets a device only for a running process, so a host that stops
+//! the game itself puts it back first ([`put_back`]); an uninstall can't put
+//! back a game that isn't running (Volume mixer's Reset does).
 
 use anyhow::{Context, Result};
 use butterpollo_core::config::Config;
@@ -151,15 +154,33 @@ struct Journal {
 fn path(directory: &Path) -> PathBuf {
     directory.join("audio-app-recovery.json")
 }
+/// Where an unreadable journal is moved, its program list kept.
+fn unreadable(directory: &Path) -> PathBuf {
+    directory.join("audio-app-recovery.unreadable.json")
+}
 fn load(directory: &Path) -> Result<Journal> {
     let file = path(directory);
     match std::fs::read(&file) {
-        Ok(bytes) => serde_json::from_slice(&bytes).with_context(|| {
-            format!(
-                "the record of the games' audio devices, {}, can't be read: delete it",
-                file.display()
-            )
-        }),
+        Ok(bytes) => match serde_json::from_slice(&bytes) {
+            Ok(journal) => Ok(journal),
+            // Never in the way of the next stream: moved aside, and the games
+            // it lists are named for a reset by hand.
+            Err(error) => {
+                let aside = unreadable(directory);
+                std::fs::rename(&file, &aside).with_context(|| {
+                    format!(
+                        "the record of the games' audio devices, {}, can't be read ({error}) or moved aside",
+                        file.display()
+                    )
+                })?;
+                tracing::warn!(
+                    error = %error,
+                    kept = %aside.display(),
+                    "the record of the games' audio devices can't be read: the games it lists may still play on the virtual playback device; reset them in Settings > System > Sound > Volume mixer"
+                );
+                Ok(Journal::default())
+            }
+        },
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Journal::default()),
         Err(error) => Err(error).with_context(|| file.display().to_string()),
     }
@@ -272,6 +293,21 @@ fn release_with(apps: &dyn Apps, state: &mut State, directory: &Path, exe: &str)
         }
         state.active.remove(exe);
     }
+    restore_with(apps, state, directory)
+}
+
+/// Programs `exes` are about to be stopped with every stream that plays
+/// them: put back now, while they run, whatever the streams' count.
+/// Returns whether a restore still waits for a program to run.
+fn put_back_with(
+    apps: &dyn Apps,
+    state: &mut State,
+    directory: &Path,
+    exes: &[String],
+) -> Result<bool> {
+    state
+        .active
+        .retain(|active, _| !exes.iter().any(|exe| same_program(active, exe)));
     restore_with(apps, state, directory)
 }
 
@@ -487,13 +523,43 @@ impl Drop for AppRoute {
 
 /// Restore what an interrupted stream left (host start), and keep looking
 /// for programs that are not running yet.
+/// An error leaves the watcher retrying.
 pub fn recover(directory: &Path) -> Result<()> {
-    if load(directory)?.apps.is_empty() {
-        return Ok(());
+    match load(directory) {
+        Ok(journal) if journal.apps.is_empty() => return Ok(()),
+        Ok(_) => {}
+        Err(error) => {
+            watch(directory);
+            return Err(error);
+        }
     }
     let result = crate::capture::ComGuard::new().and_then(|_com| {
         let apps = Windows::new()?;
         restore_with(&apps, &STATE.lock().unwrap(), directory)
+    });
+    if !matches!(result, Ok(false)) {
+        watch(directory);
+    }
+    result.map(|_| ())
+}
+
+/// The host is about to stop processes `pids` (a game, a session's
+/// instances) and every stream playing them: their programs go back to
+/// their own devices now, while Windows can still set them. A stream's
+/// route that lets go later finds nothing left to put back. `pids` is
+/// asked only while a program waits to go back.
+pub fn put_back(directory: &Path, pids: impl FnOnce() -> Result<Vec<u32>>) -> Result<()> {
+    if load(directory)?.apps.is_empty() {
+        return Ok(());
+    }
+    let exes: Vec<String> = pids()?
+        .iter()
+        .filter_map(|&pid| crate::process::image_path(pid))
+        .map(|exe| exe.to_lowercase())
+        .collect();
+    let result = crate::capture::ComGuard::new().and_then(|_com| {
+        let apps = Windows::new()?;
+        put_back_with(&apps, &mut STATE.lock().unwrap(), directory, &exes)
     });
     if !matches!(result, Ok(false)) {
         watch(directory);

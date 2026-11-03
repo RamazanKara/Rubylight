@@ -361,21 +361,40 @@ fn label(screen: &Screen) {
 
 const HINT: &str = "open Nucleus Co-op and load the profile Rubylight once";
 
+/// What a session told about its instances; whether Nucleus had stopped
+/// them when it told they stop.
+#[derive(Default)]
+struct Listener {
+    found: Mutex<Vec<Vec<BTreeSet<Identity>>>>,
+    stopping: Mutex<Option<(Vec<u32>, bool)>>,
+    probe: Probe,
+}
+impl Told for Listener {
+    fn found(&self, trees: &[BTreeSet<Identity>]) {
+        self.found.lock().unwrap().push(trees.to_vec());
+    }
+    fn stopping(&self, pids: &[u32]) {
+        let stopped = self.probe.stopped.lock().unwrap().is_some();
+        *self.stopping.lock().unwrap() = Some((pids.to_vec(), stopped));
+    }
+}
+
 /// #59: each instance is told from the pass that finds it, before its
 /// window shows and before a stream looks for its sound, so its sound can
 /// leave the PC's device before the game opens it; a process it starts is
-/// told with it.
+/// told with it. Their end is told before Nucleus stops them, so their
+/// devices can be put back while they run.
 #[test]
 fn the_instances_are_told_from_the_pass_that_finds_them() {
     let t0 = Instant::now();
     let (screen, probe) = (screen(), Probe::default());
     let mut runner = runner(1, &screen, &probe, t0);
-    let told = Arc::new(Mutex::new(Vec::new()));
-    runner.instances = Some({
-        let told = told.clone();
-        Arc::new(move |trees: &[BTreeSet<Identity>]| told.lock().unwrap().push(trees.to_vec()))
+    let told = Arc::new(Listener {
+        probe: probe.clone(),
+        ..Default::default()
     });
-    let last = || told.lock().unwrap().last().cloned().unwrap();
+    runner.instances = Some(told.clone());
+    let last = || told.found.lock().unwrap().last().cloned().unwrap();
     label(&screen);
     assert_eq!(runner.step(t0), None);
     assert_eq!(last(), vec![BTreeSet::new()]);
@@ -398,6 +417,9 @@ fn the_instances_are_told_from_the_pass_that_finds_them() {
         started: SINCE + 2,
     };
     assert_eq!(last(), vec![BTreeSet::from([game, helper])]);
+    runner.finish(End::Ended);
+    assert_eq!(*told.stopping.lock().unwrap(), Some((vec![20, 21], false)));
+    assert!(probe.stopped.lock().unwrap().is_some());
 }
 
 #[test]

@@ -1540,6 +1540,7 @@ fn launch_back_half(
     match game {
         Some(game) => {
             let config = crate::stream::effective_config(h, &launch)?;
+            let instances = crate::stream::instance_routes(h, &config, launch.host_audio);
             let seat = h.nucleus.admit(crate::nucleus::Admission {
                 launch: &id,
                 client: &launch.client,
@@ -1548,7 +1549,7 @@ fn launch_back_half(
                 config: &config,
                 warnings: launch.warnings.clone(),
                 release_parked: &|| release_parked_pads(h),
-                instances: crate::stream::instance_routes(h, &config, launch.host_audio),
+                instances,
             })?;
             tracing::info!(client = %launch.client.name, session = seat.session, slot = seat.slot, "Nucleus Co-op seat taken");
             launch.nucleus = Some(seat);

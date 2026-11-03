@@ -374,9 +374,20 @@ reuse from selecting another application. If a launcher exits, its remaining
 verified game child becomes the capture root.
 
 Game-only audio currently captures stereo, mapped to the negotiated layout.
-It leaves the host's playback devices and volume unchanged, so local game sound
-can still be audible even when the client requests local muting. Route the game
-to a virtual device yourself if local silence is needed. Other independent
+Unless the client asks to play sound on the PC too, the game's processes play
+on a virtual playback device nobody hears (Steam Streaming Speakers, or
+`virtual_sink`), as Windows' Volume mixer would set it per app; nothing else
+changes device or volume. Without a virtual device the game stays audible on
+the PC and the stream warns. A Nucleus Co-op game moves as its instance starts.
+Windows doesn't move sound a game already opened, so a game that opened it
+before the move plays on the PC until it next starts (the stream says so).
+The game goes back to its own device when Rubylight closes it or the stream
+ends; one that quit or outlived a host crash goes back the next time it runs.
+Windows sets a game's device only while it runs, so uninstalling Rubylight
+while a game still waits leaves it on the virtual device: pick its device in
+Volume mixer, or use its **Reset**. The host keeps that list in
+`audio-app-recovery.json` in its config folder (an unreadable one is moved to
+`audio-app-recovery.unreadable.json`). Other independent
 applications and system notifications are excluded; audio from children the
 game itself launches is included by Windows' process-tree capture.
 

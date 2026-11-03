@@ -516,6 +516,8 @@ impl Host {
             );
             // A placeholder that never started raised no app.started.
             stopped = app.started_event();
+            // Its game-only audio goes back while the game still runs.
+            crate::stream::put_back(&self.directory, || app.game_pids());
         }
         drop(app);
         if let Some((id, name, owner)) = stopped {

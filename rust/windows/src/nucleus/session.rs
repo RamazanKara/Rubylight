@@ -337,7 +337,7 @@ impl Runner {
         }
         *self.shared.roots.lock().unwrap() = pass.roots.clone();
         if let Some(instances) = &self.instances {
-            instances(&pass.trees);
+            instances.found(&pass.trees);
         }
         let roots = pass.roots.iter().flatten().count();
         let progress = (self.clicked, roots, windows);
@@ -806,6 +806,10 @@ impl Runner {
             _ => {}
         }
         let instances = self.keeper.processes();
+        // While they run: Windows sets a program's devices only then.
+        if let Some(told) = &self.instances {
+            told.stopping(&instances.keys().copied().collect::<Vec<_>>());
+        }
         self.nucleus.stop(&instances);
         // Nucleus sets them as it starts each instance: back once all stopped.
         if let Some(layers) = &mut self.layers {
@@ -853,10 +857,17 @@ pub fn audio_limit(build: Option<u32>) -> Option<String> {
     })
 }
 
-/// Told each slot's instance processes (its root and every process it
-/// started) after every pass, from the pass that finds the instance on:
-/// before its window shows, and often before the game opens its sound.
-pub type Instances = Arc<dyn Fn(&[BTreeSet<Identity>]) + Send + Sync>;
+/// What a session tells about its instances as it runs.
+pub trait Told: Send + Sync {
+    /// Each slot's instance processes (its root and every process it
+    /// started) after every pass, from the pass that finds the instance on:
+    /// before its window shows, and often before the game opens its sound.
+    fn found(&self, trees: &[BTreeSet<Identity>]);
+    /// The instances' processes `pids`, still running, are about to be
+    /// stopped with the session.
+    fn stopping(&self, pids: &[u32]);
+}
+pub type Instances = Arc<dyn Told>;
 
 /// What starts a session.
 pub struct Start<'a> {

@@ -904,13 +904,13 @@ fn background(
 #[test]
 fn a_started_session_tells_the_launchs_routes_its_instances() {
     let (registry, pc, apps) = setup();
-    let told = Arc::new(std::sync::atomic::AtomicUsize::new(0));
-    let instances: butterpollo_windows::nucleus::session::Instances = {
-        let told = told.clone();
-        Arc::new(move |_: &[std::collections::BTreeSet<_>]| {
-            told.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        })
-    };
+    struct Listener;
+    impl butterpollo_windows::nucleus::session::Told for Listener {
+        fn found(&self, _: &[std::collections::BTreeSet<butterpollo_core::audio_scope::Identity>]) {
+        }
+        fn stopping(&self, _: &[u32]) {}
+    }
+    let instances: butterpollo_windows::nucleus::session::Instances = Arc::new(Listener);
     registry
         .admit(Admission {
             launch: "a",
@@ -926,8 +926,6 @@ fn a_started_session_tells_the_launchs_routes_its_instances() {
     let started = pc.instances.lock().unwrap();
     let given = started[0].as_ref().unwrap();
     assert!(Arc::ptr_eq(given, &instances));
-    given(&[]);
-    assert_eq!(told.load(std::sync::atomic::Ordering::Relaxed), 1);
 }
 
 #[test]

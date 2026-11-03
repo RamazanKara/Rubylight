@@ -557,15 +557,12 @@ pub enum AtConsole {
 }
 
 /// For the service, in session 0: restore what a session left for the user
-/// signed in at the console, in the Nucleus Co-op `configured` names
-/// (`nucleus_path`) or the host's own copy below `data`. A session of
-/// theirs that runs keeps its values.
-pub fn restore_at_console(data: &Path, configured: &str) -> Result<AtConsole> {
-    let Some(folder) = super::install::installed(data, configured)? else {
-        return Ok(AtConsole::Done);
-    };
+/// signed in at the console, in the Nucleus Co-op at `folder`
+/// ([`super::install::left_in`]). A session of theirs that runs keeps its
+/// values.
+pub fn restore_at_console(folder: &Path) -> Result<AtConsole> {
     restore_console_with(
-        &folder,
+        folder,
         crate::process::console_session(),
         crate::process::session_user_sid,
         |sid| Box::new(UserHive::of(sid)),

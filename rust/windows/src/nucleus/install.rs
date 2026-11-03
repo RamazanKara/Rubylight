@@ -645,7 +645,10 @@ fn above(folder: &Path, checks: &Checks) -> Result<()> {
                 path.display()
             )));
         }
-        if let Some(other) = movers.iter().find(|sid| !checks.trusts(path, sid)) {
+        if let Some(other) = movers
+            .iter()
+            .find(|sid| grants_alone(sid) && !checks.trusts(path, sid))
+        {
             return Err(refused(format!(
                 "{} can be moved or renamed by {other}",
                 path.display()
@@ -939,10 +942,92 @@ fn verdict(
             path.display()
         );
     }
-    if let Some(other) = others.iter().find(|sid| !trusts(sid)) {
+    if let Some(other) = others.iter().find(|sid| grants_alone(sid) && !trusts(sid)) {
         bail!("{} can be changed by {other}", path.display());
     }
     Ok(())
+}
+
+/// Whether an entry for `sid` lets anyone do what it allows. One for an app
+/// package or a capability (`S-1-15-2-…`, `S-1-15-3-…`) never does by
+/// itself: Windows grants a process in an app container only what its
+/// user's own SIDs are allowed too, and a process outside one holds no such
+/// SID. Windows 11 puts a capability's entry on `C:\`.
+fn grants_alone(sid: &str) -> bool {
+    !(sid.starts_with("S-1-15-2-") || sid.starts_with("S-1-15-3-"))
+}
+
+/// The Nucleus folders an earlier session may have left settings in to put
+/// back: the one `configured` names (`nucleus_path`) and the copy an earlier
+/// Rubylight installed below `data`, each that is there, by the path Windows
+/// resolved. Unlike [`installed`], neither need hold the pinned release nor
+/// pass the checks for running Nucleus elevated: putting back runs nothing
+/// and never writes through a link ([`super::unfollowed`]), so the user's
+/// settings come back from a folder Rubylight no longer runs Nucleus from.
+/// Each must still be no link, and owned and changed only by SYSTEM,
+/// Administrators and TrustedInstaller, as Rubylight left it: nobody else
+/// could have put a file there for SYSTEM to apply. An error per folder
+/// refused.
+pub fn left_in(data: &Path, configured: &str) -> Vec<Result<PathBuf>> {
+    left_in_checked(data, configured, &Checks::pc())
+}
+
+fn left_in_checked(data: &Path, configured: &str, checks: &Checks) -> Vec<Result<PathBuf>> {
+    let configured = configured.trim();
+    let mut candidates = Vec::new();
+    if !configured.is_empty() && Path::new(configured).is_absolute() {
+        candidates.push(PathBuf::from(configured));
+    }
+    candidates.push(pinned::folder(data));
+    let mut seen: Vec<String> = Vec::new();
+    let mut folders = Vec::new();
+    for folder in candidates {
+        let checked = (|| -> Result<Option<PathBuf>> {
+            let handle = match crate::process::open_unfollowed(&folder, true) {
+                Ok(handle) => handle,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+                Err(error) => {
+                    return Err(error).with_context(|| format!("opening {}", folder.display()));
+                }
+            };
+            let attributes = attributes_of(&handle, &folder)?;
+            if attributes & DIRECTORY == 0 {
+                return Ok(None);
+            }
+            if attributes & REPARSE_POINT != 0 {
+                bail!("{} is a link to elsewhere", folder.display());
+            }
+            let resolved = PathBuf::from(normal(
+                &crate::user_folder::final_path(&handle).context("reading the folder's path")?,
+            ));
+            let owner = crate::process::open_file_owner(&handle)
+                .with_context(|| format!("reading the owner of {}", resolved.display()))?;
+            let writers = crate::process::open_file_writers(&handle)
+                .with_context(|| format!("reading the permissions of {}", resolved.display()))?;
+            verdict(&resolved, &owner, &writers, |sid| {
+                checks.trusts(&resolved, sid)
+            })?;
+            Ok(Some(resolved))
+        })()
+        .with_context(|| {
+            format!(
+                "Rubylight doesn't put back the settings a Nucleus Co-op session left in {}",
+                folder.display()
+            )
+        });
+        match checked {
+            Ok(None) => {}
+            Ok(Some(resolved)) => {
+                let key = resolved.to_string_lossy().to_lowercase();
+                if !seen.contains(&key) {
+                    seen.push(key);
+                    folders.push(Ok(resolved));
+                }
+            }
+            Err(error) => folders.push(Err(error)),
+        }
+    }
+    folders
 }
 
 #[cfg(test)]

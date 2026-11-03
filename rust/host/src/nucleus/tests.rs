@@ -459,6 +459,21 @@ fn a_chosen_folder_is_checked_before_it_is_kept_and_an_old_install_still_counts(
 }
 
 #[test]
+fn the_same_refusal_of_co_op_entries_is_logged_once_until_it_changes() {
+    let (registry, pc, apps) = setup();
+    let refused = "C:\\ can be moved or renamed";
+    *pc.installed_error.lock().unwrap() = Some(refused.into());
+    // The app list asks every few seconds: only the first refusal is new.
+    assert!(registry.entries(&apps, "").is_empty());
+    assert!(!registry.newly_refused(Some(refused)));
+    assert!(registry.newly_refused(Some("another reason")));
+    // Accepted in between, the same refusal logs again.
+    *pc.installed_error.lock().unwrap() = None;
+    registry.entries(&apps, "");
+    assert!(registry.newly_refused(Some(refused)));
+}
+
+#[test]
 fn choosing_a_folder_and_open_are_refused_where_nucleus_cannot_run() {
     let (registry, _pc, _apps) = setup();
     let unavailable = Arc::new(fake::Pc::unavailable());

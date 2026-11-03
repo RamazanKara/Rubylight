@@ -19,7 +19,6 @@ pub const RESTART_EXIT_CODE: u32 = 75;
 /// runs keeps its own.
 /// Whether nothing failed; each failure is logged.
 pub fn restore_nucleus_layers(config: &std::path::Path) -> bool {
-    use crate::nucleus::layers::AtConsole;
     // The host's settings file, for nucleus_path.
     let configured = match butterpollo_core::config::Config::load(&config.join("sunshine.conf")) {
         Ok(config) => config
@@ -31,11 +30,31 @@ pub fn restore_nucleus_layers(config: &std::path::Path) -> bool {
             return false;
         }
     };
-    let settings = restore_nucleus_settings(&configured);
-    match crate::nucleus::layers::restore_at_console(
-        &butterpollo_core::paths::data_root(),
-        &configured,
-    ) {
+    // From every folder a session may have used, whether or not Nucleus
+    // still runs from it: a user is never left with changed settings.
+    let mut restored = true;
+    for folder in
+        crate::nucleus::install::left_in(&butterpollo_core::paths::data_root(), &configured)
+    {
+        let folder = match folder {
+            Ok(folder) => folder,
+            Err(error) => {
+                tracing::error!(error = %format!("{error:#}"), "Nucleus Co-op: the settings an earlier session changed were not put back");
+                restored = false;
+                continue;
+            }
+        };
+        restored &= restore_nucleus_settings(&folder);
+        restored &= restore_layers_at_console(&folder);
+    }
+    restored
+}
+
+/// [`crate::nucleus::layers::restore_at_console`] in `folder`, logged.
+/// Whether nothing failed.
+fn restore_layers_at_console(folder: &std::path::Path) -> bool {
+    use crate::nucleus::layers::AtConsole;
+    match crate::nucleus::layers::restore_at_console(folder) {
         Ok(AtConsole::Done) => {}
         Ok(AtConsole::Busy) => tracing::info!(
             "Nucleus Co-op: a session runs for the user at the console and puts its compatibility settings back itself"
@@ -59,22 +78,14 @@ pub fn restore_nucleus_layers(config: &std::path::Path) -> bool {
             return false;
         }
     }
-    settings
+    true
 }
 
-/// Put back the user's Nucleus Co-op settings a session changed when its
-/// host stopped mid-session ([`nucleus_settings_left`]). Whether nothing
-/// failed.
-fn restore_nucleus_settings(configured: &str) -> bool {
-    let restored = (|| -> Result<Option<usize>> {
-        let Some(folder) =
-            crate::nucleus::install::installed(&butterpollo_core::paths::data_root(), configured)?
-        else {
-            return Ok(Some(0));
-        };
-        nucleus_settings_left(&folder, crate::nucleus::session::running)
-    })();
-    match restored {
+/// Put back the user's Nucleus Co-op settings a session changed in `folder`
+/// when its host stopped mid-session ([`nucleus_settings_left`]). Whether
+/// nothing failed.
+fn restore_nucleus_settings(folder: &std::path::Path) -> bool {
+    match nucleus_settings_left(folder, crate::nucleus::session::running) {
         Ok(Some(0)) => {}
         Ok(None) => tracing::info!(
             "Nucleus Co-op runs or a session holds its settings; they are put back when it ends or before the next"

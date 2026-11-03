@@ -51,6 +51,9 @@ pub struct Registry {
     /// The Nucleus Co-op the console opened: the only one the host closes,
     /// for a session or the user.
     opened: Mutex<Option<Box<dyn Window>>>,
+    /// Why the install was last refused for co-op entries, logged once until
+    /// the reason changes ([`Self::newly_refused`]).
+    refused: Mutex<Option<String>>,
 }
 
 impl Registry {
@@ -63,6 +66,7 @@ impl Registry {
             own_statuses: Mutex::default(),
             account: Mutex::new(None),
             opened: Mutex::new(None),
+            refused: Mutex::new(None),
         }
     }
     /// This PC; in tests a PC without Nucleus Co-op, so no test reads the
@@ -96,6 +100,16 @@ impl Registry {
         self.pc().unavailable()
     }
 
+    /// Whether `why` the install is refused differs from the last refusal,
+    /// remembered: the app list asks every few seconds, and the same refusal
+    /// is logged once. None when it was accepted, so a refusal again logs.
+    pub(super) fn newly_refused(&self, why: Option<&str>) -> bool {
+        let mut last = self.refused.lock().unwrap_or_else(PoisonError::into_inner);
+        let new = why.is_some() && last.as_deref() != why;
+        *last = why.map(str::to_string);
+        new
+    }
+
     /// The co-op entries of `apps`: none while Nucleus Co-op is unavailable
     /// or not installed. Each failure still shows: the console's panel names
     /// a broken install, and [`Self::catalog`] logs an unreadable one.
@@ -105,10 +119,19 @@ impl Registry {
             return Vec::new();
         }
         let folder = match pc.installed(configured) {
-            Ok(Some(folder)) => folder,
-            Ok(None) => return Vec::new(),
+            Ok(Some(folder)) => {
+                self.newly_refused(None);
+                folder
+            }
+            Ok(None) => {
+                self.newly_refused(None);
+                return Vec::new();
+            }
             Err(error) => {
-                tracing::warn!(error = %format!("{error:#}"), "Nucleus Co-op: no co-op entries");
+                let error = format!("{error:#}");
+                if self.newly_refused(Some(&error)) {
+                    tracing::warn!(error, "Nucleus Co-op: no co-op entries");
+                }
                 return Vec::new();
             }
         };

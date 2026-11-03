@@ -284,6 +284,76 @@ fn a_folder_whose_parent_or_grandparent_others_can_move_is_refused() {
     }
 }
 
+/// The capability Windows 11 gives an entry on `C:\` (RL56's PC and ours).
+const C_CAPABILITY: &str = "S-1-15-3-65536-1888954469-739942743-1668119174-2468466756-4239452838-1296943325-355587736-700089176";
+
+#[test]
+fn an_app_package_or_capability_entry_above_or_in_the_folder_is_no_refusal() {
+    // Such an entry grants nothing its user's own SIDs aren't allowed too,
+    // here even delete children on the folder above and writing a program.
+    let tree = tree();
+    crate::process::restrict(
+        &tree.top,
+        &sddl(&format!("(A;;0x1f01ff;;;{C_CAPABILITY})(A;;0x40;;;AC)")),
+    )
+    .unwrap();
+    crate::process::restrict(&tree.top.join("Programs"), &sddl("")).unwrap();
+    crate::process::restrict(
+        &tree.folder.join("Nucleus.Gaming.dll"),
+        &sddl(&format!("(A;;0x1301bf;;;{C_CAPABILITY})")),
+    )
+    .unwrap();
+    assert_eq!(check(&tree, &tree.folder).unwrap(), tree.folder);
+    // A user's entry beside them still is.
+    crate::process::restrict(
+        &tree.top,
+        &sddl(&format!("(A;;0x1f01ff;;;{C_CAPABILITY})(A;;0x40;;;AU)")),
+    )
+    .unwrap();
+    let (problem, error) = refused(&tree, &tree.folder);
+    assert_eq!(problem, Some(Problem::Untrusted), "{error}");
+    assert!(
+        error.contains("can be moved or renamed by S-1-5-11"),
+        "{error}"
+    );
+}
+
+#[test]
+fn settings_are_put_back_from_a_folder_nucleus_no_longer_runs_from() {
+    let tree = tree();
+    let release = manifest();
+    let checks = checks(&release, &tree.top);
+    let data = earlier(&tree);
+    // Another release, below a folder others can move: no longer run from.
+    std::fs::write(tree.folder.join(pinned::EXECUTABLE), b"MZ 2.3.1").unwrap();
+    crate::process::restrict(&tree.top.join("Programs"), &sddl("(A;;0x40;;;AU)")).unwrap();
+    crate::process::restrict(&tree.folder, &sddl("")).unwrap();
+    assert!(check(&tree, &tree.folder).is_err());
+    let configured = tree.folder.to_string_lossy().into_owned();
+    let folders: Vec<PathBuf> = left_in_checked(&data, &configured, &checks)
+        .into_iter()
+        .map(Result::unwrap)
+        .collect();
+    assert_eq!(folders, [tree.folder.clone(), pinned::folder(&data)]);
+    // Named twice, listed once; one not there is skipped.
+    let earlier_folder = pinned::folder(&data).to_string_lossy().to_uppercase();
+    let folders = left_in_checked(&data, &earlier_folder, &checks);
+    assert_eq!(folders.len(), 1);
+    let gone = tree.top.join("Gone");
+    let folders = left_in_checked(&gone, "", &checks);
+    assert!(folders.is_empty());
+    // A folder others can change could hold a file nobody trusted wrote.
+    crate::process::restrict(&tree.folder, &sddl("(A;;0x1301bf;;;AU)")).unwrap();
+    let folders = left_in_checked(&data, &configured, &checks);
+    let error = format!("{:#}", folders[0].as_ref().unwrap_err());
+    assert!(
+        error.contains("doesn't put back the settings a Nucleus Co-op session left in"),
+        "{error}"
+    );
+    assert!(error.contains("can be changed by S-1-5-11"), "{error}");
+    assert_eq!(folders[1].as_ref().unwrap(), &pinned::folder(&data));
+}
+
 #[test]
 fn dots_network_paths_and_drives_other_than_fixed_ones_are_refused() {
     let tree = tree();

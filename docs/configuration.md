@@ -378,7 +378,9 @@ Unless the client asks to play sound on the PC too, the game's processes play
 on a virtual playback device nobody hears (Steam Streaming Speakers, or
 `virtual_sink`), as Windows' Volume mixer would set it per app; nothing else
 changes device or volume. Without a virtual device the game stays audible on
-the PC and the stream warns. A Nucleus Co-op game moves as its instance starts.
+the PC and the stream warns. A Nucleus Co-op game moves as its instance starts;
+each co-op player's choice holds for their own instance, unless the instances
+run one program (Windows keeps one device per program), which the stream says.
 Windows doesn't move sound a game already opened, so a game that opened it
 before the move plays on the PC until it next starts (the stream says so).
 The game goes back to its own device when Rubylight closes it or the stream

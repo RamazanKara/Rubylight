@@ -904,14 +904,13 @@ fn background(
 #[test]
 fn a_started_session_tells_the_launchs_routes_its_instances() {
     let (registry, pc, apps) = setup();
-    struct Listener;
-    impl butterpollo_windows::nucleus::session::Told for Listener {
-        fn found(&self, _: &[std::collections::BTreeSet<butterpollo_core::audio_scope::Identity>]) {
-        }
-        fn stopping(&self, _: &[u32]) {}
-    }
-    let instances: butterpollo_windows::nucleus::session::Instances = Arc::new(Listener);
-    registry
+    let routes = crate::stream::InstanceRoutes::start(
+        |_| None::<anyhow::Result<butterpollo_windows::audio_app_route::AppRoute>>,
+        |_| {},
+        false,
+    );
+    let routes = Arc::new(routes.unwrap());
+    let seat = registry
         .admit(Admission {
             launch: "a",
             client: &client("A", false),
@@ -920,12 +919,16 @@ fn a_started_session_tells_the_launchs_routes_its_instances() {
             config: &Config::default(),
             warnings: Default::default(),
             release_parked: &|| Ok(()),
-            instances: Some(instances.clone()),
+            instances: Some(routes.clone()),
         })
         .unwrap();
     let started = pc.instances.lock().unwrap();
     let given = started[0].as_ref().unwrap();
-    assert!(Arc::ptr_eq(given, &instances));
+    let routes_told: butterpollo_windows::nucleus::session::Instances = routes.clone();
+    assert!(Arc::ptr_eq(given, &routes_told));
+    // Each player's choice reaches its session's routes: nothing started
+    // yet, so nothing to tell.
+    assert_eq!(registry.plays_on_pc(seat, true), None);
 }
 
 #[test]

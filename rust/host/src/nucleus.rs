@@ -340,7 +340,7 @@ pub struct Admission<'a> {
     pub release_parked: &'a (dyn Fn() -> anyhow::Result<()> + Sync),
     /// Told the instances of a session the launch starts, as Nucleus starts
     /// them ([`crate::stream::instance_routes`]).
-    pub instances: Option<butterpollo_windows::nucleus::session::Instances>,
+    pub instances: Option<Arc<crate::stream::InstanceRoutes>>,
 }
 
 /// Why a device's join from its session list failed.

@@ -1540,7 +1540,8 @@ fn launch_back_half(
     match game {
         Some(game) => {
             let config = crate::stream::effective_config(h, &launch)?;
-            let instances = crate::stream::instance_routes(h, &config, launch.host_audio);
+            let on_pc = crate::stream::plays_on_pc(&config, launch.host_audio);
+            let instances = crate::stream::instance_routes(h, &config, on_pc);
             let seat = h.nucleus.admit(crate::nucleus::Admission {
                 launch: &id,
                 client: &launch.client,
@@ -1552,6 +1553,11 @@ fn launch_back_half(
                 instances,
             })?;
             tracing::info!(client = %launch.client.name, session = seat.session, slot = seat.slot, "Nucleus Co-op seat taken");
+            // A slot another player held, or whose instance started before
+            // its player was known, follows this player's choice.
+            if let Some(message) = h.nucleus.plays_on_pc(seat, on_pc) {
+                launch.warnings.set("audio_game_pc", message);
+            }
             launch.nucleus = Some(seat);
             // Every copy holds the slot: a failure here, the launch's expiry
             // or replacement, or the end of its stream gives it back.

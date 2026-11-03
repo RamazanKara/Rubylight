@@ -545,6 +545,10 @@ impl AppRoute {
             users,
         })
     }
+    /// The routed program's path, in lower case.
+    pub fn program(&self) -> &str {
+        &self.exe
+    }
     /// The device the user chose for the game, which it stays on.
     pub fn users_device(&self) -> Option<&str> {
         self.users.as_deref()

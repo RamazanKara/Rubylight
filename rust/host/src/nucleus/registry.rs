@@ -11,6 +11,8 @@ struct Entry {
     feedback: Vec<Vec<PadReport>>,
     /// When the registry first saw the session ended.
     ended: Option<Instant>,
+    /// Where its instances play ([`Registry::plays_on_pc`]).
+    audio: Option<Arc<crate::stream::InstanceRoutes>>,
 }
 
 #[derive(Default)]
@@ -794,7 +796,10 @@ impl Registry {
                     players,
                     owner: (&client.uuid, &client.name),
                     size: request.size,
-                    instances: request.instances.clone(),
+                    instances: request
+                        .instances
+                        .clone()
+                        .map(|routes| routes as butterpollo_windows::nucleus::session::Instances),
                 };
                 let instance: Arc<dyn Instance> = pc
                     .start(&start, policy, request.warnings)
@@ -810,6 +815,7 @@ impl Registry {
                         holders,
                         feedback: (0..players).map(|_| Vec::new()).collect(),
                         ended: None,
+                        audio: request.instances.clone(),
                     },
                 );
                 tracing::info!(session = id, ?kind, players, game = %handler.guid, own = handler.own, ?run, client = %client.name, title = %app.name, "Nucleus Co-op: session started");
@@ -819,6 +825,13 @@ impl Registry {
                 })
             }
         }
+    }
+
+    /// `seat`'s player plays the game on the PC too, or only on the client:
+    /// their instance's device follows. What they should know, if anything.
+    pub fn plays_on_pc(&self, seat: Seat, on_pc: bool) -> Option<&'static str> {
+        let audio = self.lock().sessions.get(&seat.session)?.audio.clone()?;
+        audio.on_pc(seat.slot, on_pc)
     }
 
     /// The session's instance while the registry has it.

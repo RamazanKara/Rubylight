@@ -214,6 +214,8 @@ final class GameTouchInput {
         if (action == MotionEvent.ACTION_DOWN) fingerTap.reset();
         if (!fingerTap.isStarted() && action == MotionEvent.ACTION_POINTER_DOWN &&
                 event.getPointerCount() == 3 &&
+                // Only fingers landing together tap: a third one beside two held thumbs is play.
+                event.getEventTime() - event.getDownTime() < FingerTapGesture.TIME_LIMIT_MS &&
                 (!FingerTapGesture.NONE.equals(game.prefConfig.threeFingerTap) ||
                         !FingerTapGesture.NONE.equals(game.prefConfig.fourFingerTap))) {
             fingerTap.start(event.getEventTime(), event.getPointerId(0), event.getX(0), event.getY(0));

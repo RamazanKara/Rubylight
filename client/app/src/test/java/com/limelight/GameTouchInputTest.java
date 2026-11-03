@@ -633,6 +633,27 @@ public class GameTouchInputTest {
         }
     }
 
+    @Test public void aThirdFingerBesideHeldThumbsStaysATouchInMultiTouch() {
+        RecordingConnection connection = new RecordingConnection();
+        Game game = game(connection);
+        PreferenceConfiguration config = touchConfig(game, TouchMode.MULTI_TOUCH);
+        config.threeFingerTap = "desktop_controls";
+        config.multiTouchFingerTaps = true;
+        FrameLayout container = gestureContainer(game);
+        ReflectionHelpers.setField(game, "nativeTouchEnabled", true);
+        beginTap(container, 2);
+        // A second later, a brief third finger: play, not a tap.
+        int[] three = {0, 1, 2};
+        dispatchAt(container, MotionEvent.ACTION_POINTER_DOWN, 2, three, 2000, 0, point(0), point(1), point(2));
+        assertEquals("No cancel: the thumbs stay held", 3, connection.heldTouches.size());
+        dispatchAt(container, MotionEvent.ACTION_POINTER_UP, 2, three, 2050, 0, point(0), point(1), point(2));
+        assertEquals(2, connection.heldTouches.size());
+        View panel = ReflectionHelpers.getField(game, "keyboardOverlay");
+        assertTrue(panel == null || panel.getVisibility() != View.VISIBLE);
+        finishTap(container, 2, 2100, 0);
+        assertTrue(connection.heldTouches.isEmpty());
+    }
+
     private static FrameLayout gestureContainer(Game game) {
         game.setTheme(R.style.AppTheme);
         FrameLayout container = streamContainer(game, null);

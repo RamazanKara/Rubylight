@@ -55,6 +55,8 @@ public class MediaCodecBalancedQueueTest {
         // Issue 7: at 120 fps on 120 Hz, waiting for the vsync callback dropped 6% of the frames.
         try (Fixture fixture = new Fixture(1, new LinkedBlockingQueue<>())) {
             fixture.renderer.setStreamFrameRateMilliHz(120_000);
+            ReflectionHelpers.setField(fixture.renderer, "hostPhaseLock", true);
+            fixture.dropLateFrames();
             fixture.state.allowDiscard.countDown();
             fixture.seed(OLD);
             fixture.start();
@@ -62,6 +64,23 @@ public class MediaCodecBalancedQueueTest {
             assertEquals("queued before the switch, older than the new output", Collections.singletonList(OLD), fixture.state.dropped);
             assertEquals(Collections.singletonList(NEW), fixture.state.rendered);
             assertTrue(fixture.queue.isEmpty());
+        }
+    }
+
+    @Test public void withoutPhaseLockAStreamAsFastAsThePanelStillWaitsForVsync() throws Exception {
+        // A host without phase lock reports cannot move its capture off the latch: keep the queue.
+        try (Fixture fixture = new Fixture(2, new LinkedBlockingQueue<>())) {
+            fixture.renderer.setStreamFrameRateMilliHz(120_000);
+            ReflectionHelpers.setField(fixture.renderer, "hostPhaseLock", false);
+            fixture.dropLateFrames();
+            fixture.state.allowDiscard.countDown();
+            fixture.seed(OLD);
+            fixture.start();
+            fixture.join();
+            // The old Balanced queue: the newest output waits for the callback, a late one goes.
+            assertTrue(fixture.state.rendered.isEmpty());
+            assertEquals(Collections.singletonList(OLD), fixture.state.dropped);
+            assertEquals(Collections.singletonList(NEW), new ArrayList<>(fixture.queue));
         }
     }
 
@@ -165,6 +184,12 @@ public class MediaCodecBalancedQueueTest {
             QueuedCodec.state = state;
             codec = MediaCodec.createDecoderByType("video/hevc");
             ReflectionHelpers.setField(renderer, "videoDecoder", codec);
+        }
+
+        /** The setting's default; the fixture's queue tests run with it off for their capacity. */
+        void dropLateFrames() {
+            PreferenceConfiguration prefs = ReflectionHelpers.getField(renderer, "prefs");
+            prefs.dropLateFrames = true;
         }
 
         void seed(int index) {

@@ -300,6 +300,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     private volatile boolean hostFrameTimes;
     // Follow the content rate for Game's frame rate vote (host frame times, scheduled or not).
     private volatile boolean trackContentRate;
+    // The host takes phase lock reports (a=x-rl-control 0x5530), so it can time frames to the latch.
+    private volatile boolean hostPhaseLock;
     // With host frame times, frames go onto the panel's vsync grid, late ones give way to newer
     // ones, and the decoder queue and the compositor's queue are kept short (PresentScheduler,
     // DecoderQueuePolicy.Residency and InFlight). All of it runs on the renderer thread, except
@@ -3624,7 +3626,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             if (!outputVsyncAvailable) return true;
             intervalNs = vsyncIntervalNs;
         }
-        return FramePacingPolicy.balancedPacesOnVsync(streamFrameRateMilliHz, intervalNs);
+        return FramePacingPolicy.balancedPacesOnVsync(hostPhaseLock, prefs.dropLateFrames,
+                streamFrameRateMilliHz, intervalNs);
     }
 
     /**
@@ -3810,6 +3813,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         // A host that announced clock sync is probed for the timing CSV; frames are scheduled by
         // the clock only with host frame times on.
         trackContentRate = prefs.contentRateFrameRate && hostAnnouncesClockSync();
+        hostPhaseLock = MoonBridge.hostSupportsControlMessage(MoonBridge.CONTROL_MESSAGE_PHASE_LOCK);
         // The content rate also sizes the scheduler's late and residency thresholds.
         hostFrameClock.start(hostFrameTimes ? maxDisplayRefreshRate() : 0, hostFrameTimes,
                 hostAnnouncesClockSync(), trackContentRate || hostFrameTimes);

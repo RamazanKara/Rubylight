@@ -902,6 +902,9 @@ public class MoonBridge {
     }
     private static native boolean cHostSupportsControlMessage(int messageType);
 
+    // Phase lock reports (reportFrameSlack), client to host (protocol/core/src/phase_lock.rs).
+    public static final int CONTROL_MESSAGE_PHASE_LOCK = 0x5530;
+
     // Display HDR luminance, client to host (protocol/core/src/control.rs DisplayCaps).
     public static final int CONTROL_MESSAGE_DISPLAY_CAPS = 0x5531;
 

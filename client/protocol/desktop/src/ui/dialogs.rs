@@ -419,14 +419,48 @@ impl Launcher {
                     .frame(frame)
                     .backdrop_color(Color32::from_black_alpha(150))
                     .show(ctx, |ui| {
-                        ui.set_width(440.0);
+                        ui.set_width(if self.power.is_empty() { 440.0 } else { 640.0 });
                         ui.label(RichText::new(tr("Close Nightjar?")).font(semibold(text::SECTION)));
                         dialog_buttons(ui, |ui| {
                             if primary_button(ui, "Close Nightjar").clicked() {
                                 commands.push(Command::Quit);
                                 close = true;
                             }
+                            // This PC's power, for one run by controller alone, as far as the system
+                            // allows: each asked once more. Right to left, so Shut down ends up first
+                            // after Cancel.
+                            for offer in self.power.iter().rev() {
+                                if quiet_button(ui, offer.action.label()).clicked() {
+                                    next = Some(Dialog::ConfirmPower(*offer));
+                                }
+                            }
                             // Focus starts on Cancel: a second B or a stray A never closes the app.
+                            let cancel = quiet_button(ui, "Cancel");
+                            if focus_first {
+                                cancel.request_focus();
+                                focused = true;
+                            }
+                            if cancel.clicked() {
+                                close = true;
+                            }
+                        });
+                    });
+            }
+            Dialog::ConfirmPower(offer) => {
+                let offer = *offer;
+                let action = offer.action;
+                egui::Modal::new(Id::unique("confirm-power"))
+                    .frame(frame)
+                    .backdrop_color(Color32::from_black_alpha(150))
+                    .show(ctx, |ui| {
+                        ui.set_width(440.0);
+                        ui.label(RichText::new(tr(action.question())).font(semibold(text::SECTION)));
+                        dialog_buttons(ui, |ui| {
+                            if primary_button(ui, action.label()).clicked() {
+                                commands.push(Command::Power(offer));
+                                close = true;
+                            }
+                            // Focus starts on Cancel, as on the question before.
                             let cancel = quiet_button(ui, "Cancel");
                             if focus_first {
                                 cancel.request_focus();
@@ -1007,6 +1041,7 @@ impl Launcher {
                 | Dialog::PairingHelp
                 | Dialog::HomeView
                 | Dialog::ConfirmExit
+                | Dialog::ConfirmPower(_)
         );
         self.dialog = Dialog::None;
         match self.focused_key.clone().filter(|_| from_card) {

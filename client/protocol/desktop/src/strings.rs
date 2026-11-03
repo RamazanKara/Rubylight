@@ -236,8 +236,9 @@ pub(crate) mod tests {
     ];
 
     /// Read for its marked texts and its toasts only: the stream code keeps its own overlay lines.
-    const MARKED_ONLY: [(&str, &str); 12] = [
+    const MARKED_ONLY: [(&str, &str); 13] = [
         ("glyphs.rs", include_str!("glyphs.rs")),
+        ("power.rs", include_str!("power.rs")),
         ("stream/mod.rs", include_str!("stream/mod.rs")),
         ("stream/negotiate.rs", include_str!("stream/negotiate.rs")),
         ("stream/connect.rs", include_str!("stream/connect.rs")),

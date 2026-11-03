@@ -25,6 +25,11 @@ public final class PlaceholderArt {
     private PlaceholderArt() {
     }
 
+    /** True when {@code file} is a cover of the game's own: on disk and not the host's stand-in. */
+    public static boolean isCover(File file) {
+        return file != null && file.isFile() && !matches(file);
+    }
+
     public static boolean matches(File file) {
         long length = file.length();
         for (int i = 0; i < LENGTHS.length; i++) {

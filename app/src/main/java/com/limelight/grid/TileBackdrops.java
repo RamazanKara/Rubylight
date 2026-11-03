@@ -13,6 +13,7 @@ import androidx.core.content.ContextCompat;
 
 import com.limelight.R;
 import com.limelight.grid.assets.DiskAssetLoader;
+import com.limelight.grid.assets.PlaceholderArt;
 import com.limelight.nvstream.http.NvApp;
 import com.limelight.ui.BackdropBlur;
 
@@ -125,7 +126,8 @@ final class TileBackdrops {
 
     /** The cover, decoded at about 4x the thumbnail's width so BackdropBlur's halving has something to work on. */
     private static Bitmap decode(File file, int canvas) {
-        if (file == null || !file.isFile()) return null;
+        // The host's grey stand-in is no cover: the tile keeps its gradient.
+        if (!PlaceholderArt.isCover(file)) return null;
         BitmapFactory.Options bounds = new BitmapFactory.Options();
         bounds.inJustDecodeBounds = true;
         BitmapFactory.decodeFile(file.getPath(), bounds);

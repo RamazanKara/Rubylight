@@ -198,6 +198,23 @@ public class TvPcTilesTest {
         assertNotNull(backdrop.getBackground());
     }
 
+    @Test
+    public void aRunningGameWhoseCoverIsTheHostsPlaceholderKeepsTheGradient() throws Exception {
+        MotionTest.Screen screen = screen();
+        NvApp game = new NvApp("Coverless Game", 6, false);
+        File file = new DiskAssetLoader(screen).getFile("grey", game.getAssetCacheKey());
+        assertTrue(file.getParentFile().isDirectory() || file.getParentFile().mkdirs());
+        java.nio.file.Files.copy(new File("../protocol/client/tests/fixtures/box-placeholder.png").toPath(), file.toPath(),
+                java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+        PcGridAdapter adapter = new PcGridAdapter(screen, PreferenceConfiguration.readPreferences(screen));
+        adapter.addComputer(pc("grey", ComputerDetails.State.ONLINE, PairingManager.PairState.PAIRED, game));
+        View tile = bind(screen, adapter, 0);
+        ShadowLooper.idleMainLooper();
+        ImageView backdrop = tile.findViewById(R.id.grid_backdrop);
+        assertNull("no blurred grey box", backdrop.getDrawable());
+        assertNotNull(backdrop.getBackground());
+    }
+
     private static void writeCover(MotionTest.Screen screen, String uuid, NvApp game, int color) throws Exception {
         File file = new DiskAssetLoader(screen).getFile(uuid, game.getAssetCacheKey());
         assertTrue(file.getParentFile().isDirectory() || file.getParentFile().mkdirs());

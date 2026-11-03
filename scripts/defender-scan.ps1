@@ -12,7 +12,7 @@
 # already flagged. What it cannot: the cloud's verdict on a first launch (Block at First Sight).
 # Nightjar 4.4.0's first build scanned clean until it was started once; the cloud then called
 # it Trojan:Win32/Bearfoos.A!ml and sent a signature for that exact file (FastPath), and a copy
-# with one byte changed scanned clean again.
+# with one byte changed scanned clean again, and started clean (a new hash, the same code).
 param([Parameter(Mandatory, ValueFromRemainingArguments)][string[]]$Path)
 $ErrorActionPreference = 'Stop'
 

@@ -29,6 +29,9 @@ mod pt_br;
 mod ru;
 mod tr;
 mod uk;
+mod vi;
+mod zh_hans;
+mod zh_hant;
 
 /// A language Nightjar has. The order is [`LANGS`]'s.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -45,10 +48,16 @@ pub enum Lang {
     Ru,
     Tr,
     Uk,
+    Vi,
+    ZhHans,
+    ZhHant,
 }
 
 /// Each language: the system language code it answers to, its own name and its table.
-const LANGS: [(Lang, &str, &str, &[(&str, &str)]); 12] = [
+/// A language's entries: (English, its text).
+type Table = &'static [(&'static str, &'static str)];
+
+const LANGS: [(Lang, &str, &str, Table); 15] = [
     (Lang::En, "en", "English", &[]),
     (Lang::De, "de", "Deutsch", de::TABLE),
     (Lang::Es, "es", "Español", es::TABLE),
@@ -61,6 +70,9 @@ const LANGS: [(Lang, &str, &str, &[(&str, &str)]); 12] = [
     (Lang::Ru, "ru", "Русский", ru::TABLE),
     (Lang::Tr, "tr", "Türkçe", tr::TABLE),
     (Lang::Uk, "uk", "Українська", uk::TABLE),
+    (Lang::Vi, "vi", "Tiếng Việt", vi::TABLE),
+    (Lang::ZhHans, "zh-hans", "简体中文", zh_hans::TABLE),
+    (Lang::ZhHant, "zh-hant", "繁體中文", zh_hant::TABLE),
 ];
 
 impl Lang {
@@ -73,12 +85,47 @@ impl Lang {
         LANGS[self.index()].2
     }
 
-    /// Whether numbers take a decimal comma ("1,5 ms").
-    pub fn decimal_comma(self) -> bool {
-        !matches!(self, Lang::En)
+    /// Its English name, for a list whose fonts cannot draw [`Lang::name`] (Japanese in a
+    /// Russian menu: each language loads only its own system font).
+    pub fn english_name(self) -> &'static str {
+        match self {
+            Lang::En => "English",
+            Lang::De => "German",
+            Lang::Es => "Spanish",
+            Lang::Fr => "French",
+            Lang::It => "Italian",
+            Lang::Ja => "Japanese",
+            Lang::Ko => "Korean",
+            Lang::Pl => "Polish",
+            Lang::PtBr => "Portuguese (Brazil)",
+            Lang::Ru => "Russian",
+            Lang::Tr => "Turkish",
+            Lang::Uk => "Ukrainian",
+            Lang::Vi => "Vietnamese",
+            Lang::ZhHans => "Chinese (Simplified)",
+            Lang::ZhHant => "Chinese (Traditional)",
+        }
     }
 
-    fn table(self) -> &'static [(&'static str, &'static str)] {
+    /// Whether numbers take a decimal comma ("1,5 ms"). English, Japanese, Korean and Chinese
+    /// write a point.
+    pub fn decimal_comma(self) -> bool {
+        !matches!(self, Lang::En | Lang::Ja | Lang::Ko | Lang::ZhHans | Lang::ZhHant)
+    }
+
+    /// Every language, in the settings' order.
+    #[cfg(test)]
+    pub fn all() -> impl Iterator<Item = Lang> {
+        LANGS.iter().map(|l| l.0)
+    }
+
+    /// The text of its table: what the fonts have to draw.
+    #[cfg(test)]
+    pub fn texts(self) -> impl Iterator<Item = &'static str> {
+        self.table().iter().map(|e| e.1)
+    }
+
+    fn table(self) -> Table {
         LANGS[self.index()].3
     }
 }
@@ -115,8 +162,9 @@ pub fn from_code(code: &str) -> Option<Lang> {
     let mut parts = code.split('-');
     let language = parts.next()?;
     if language == "zh" {
+        // A script ("zh-Hans-HK") says it; else the region does.
         let rest: Vec<&str> = parts.collect();
-        let traditional = rest.iter().any(|p| matches!(*p, "hant" | "tw" | "hk" | "mo"));
+        let traditional = rest.contains(&"hant") || (!rest.contains(&"hans") && rest.iter().any(|p| matches!(*p, "tw" | "hk" | "mo")));
         let code = if traditional { "zh-hant" } else { "zh-hans" };
         return LANGS.iter().find(|l| l.1 == code).map(|l| l.0);
     }
@@ -145,6 +193,9 @@ pub fn chosen(setting: Language) -> Option<Lang> {
         Language::Russian => Some(Lang::Ru),
         Language::Turkish => Some(Lang::Tr),
         Language::Ukrainian => Some(Lang::Uk),
+        Language::Vietnamese => Some(Lang::Vi),
+        Language::ChineseSimplified => Some(Lang::ZhHans),
+        Language::ChineseTraditional => Some(Lang::ZhHant),
     }
 }
 
@@ -655,6 +706,16 @@ pub(crate) mod tests {
 
     #[test]
     fn the_system_code_picks_the_language_and_script() {
+        for code in ["zh-CN", "zh_CN", "zh-Hans", "zh-Hans-CN", "zh-SG", "zh", "zh-Hans-HK"] {
+            assert_eq!(from_code(code), Some(Lang::ZhHans), "{code}");
+        }
+        for code in ["zh-TW", "zh_TW", "zh-Hant", "zh-Hant-TW", "zh-HK", "zh-MO", "zh-Hant-CN"] {
+            assert_eq!(from_code(code), Some(Lang::ZhHant), "{code}");
+        }
+        assert_eq!(from_code("pt-BR"), Some(Lang::PtBr));
+        assert_eq!(from_code("pt_br"), Some(Lang::PtBr));
+        assert_eq!(from_code("vi-VN"), Some(Lang::Vi));
+        assert_eq!(resolve(Language::System, &["zh-tw".to_owned(), "en-us".to_owned()]), Lang::ZhHant);
         assert_eq!(from_code("de-AT"), Some(Lang::De));
         assert_eq!(from_code("en_US"), Some(Lang::En));
         assert_eq!(from_code("nl"), None);

@@ -1007,10 +1007,10 @@ impl Launcher {
                 });
                 setting_row(ui, s, &mut rows, &["language"], "Language", "The language of Nightjar's menus. System default follows the operating system.", |ui, s| {
                     egui::ComboBox::from_id_salt("language")
-                        .selected_text(language_name(s.language))
+                        .selected_text(drawable_language_name(ui, s.language))
                         .show_ui(ui, |ui| {
                             for language in Language::ALL {
-                                ui.selectable_value(&mut s.language, language, language_name(language));
+                                ui.selectable_value(&mut s.language, language, drawable_language_name(ui, language));
                             }
                         })
                         .response
@@ -1295,6 +1295,17 @@ fn audio_name(channels: AudioChannels) -> &'static str {
 
 fn language_name(language: Language) -> &'static str {
     crate::strings::chosen(language).map_or_else(|| tr("System default"), crate::strings::Lang::name)
+}
+
+/// [`language_name`], or the English name where the loaded fonts lack its letters: they hold
+/// the system font of the language in use only, so a Russian menu cannot draw 日本語.
+fn drawable_language_name(ui: &egui::Ui, language: Language) -> &'static str {
+    let name = language_name(language);
+    let font = egui::FontId::proportional(crate::theme::text::BODY);
+    match crate::strings::chosen(language) {
+        Some(lang) if !ui.ctx().fonts_mut(|f| f.has_glyphs(&font, name)) => lang.english_name(),
+        _ => name,
+    }
 }
 
 fn reduce_motion_name(mode: ReduceMotion) -> &'static str {

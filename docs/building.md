@@ -182,6 +182,8 @@ The workflow passes them to Gradle as the `BP_*` variables above, so local build
 
 **Dry run first.** Before the first real tag (and after changing the secrets or the workflow), start the workflow by hand from main: `gh workflow run release.yml -R RamazanKara/nightjar -f dry_run=true`, or Actions, Release, Run workflow. It checks the secrets, decodes the keystore, builds, verifies the signatures and app IDs and deletes the keystore, but publishes nothing. Only a tag push (or a manual run on a tag with `dry_run` off) publishes.
 
+**Defender scan before the tag.** Download the dry run's `desktop-windows` artifact as one zip (`gh api repos/RamazanKara/nightjar/actions/artifacts/<artifact id>/zip > desktop-windows.zip` from cmd; `gh run download` unpacks it and writes the setup exe to disk) and run `scripts\defender-scan.ps1 <zip>` on a Windows PC with Microsoft Defender. It scans report-only and exits 2 on a threat; don't tag until it is clean. It sees the PC's signatures and already-flagged files, not the cloud's verdict on a first launch (Nightjar 4.4.0's first build passed it and was flagged when started), so a build that is flagged on first launch goes to Microsoft as a false positive.
+
 ## Documentation checks
 
 Use Python 3.10+ and Node.js 18+; these scripts use only standard libraries and do not install packages or contact the network.

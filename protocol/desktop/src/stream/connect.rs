@@ -86,20 +86,9 @@ pub fn end_before(connecting: Option<Connecting>, wait: Duration, teardown: impl
 
 impl Connecting {
     /// The game this stream plays, for the recent list; None when the PC has no unique id yet
-    /// or the stream is not a game (a remote monitor, input only).
+    /// or the stream is not a game (a remote monitor, input only, Microphone only).
     pub fn recent_game(&self) -> Option<config::Recent> {
-        let record = &self.plan.record;
-        if record.unique_id.is_empty() || self.plan.app.id < 0 || self.plan.app.control != nightjar_core::http::AppControl::None {
-            return None;
-        }
-        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
-        Some(config::Recent {
-            host: record.unique_id.clone(),
-            install_id: self.plan.app.uuid.clone(),
-            app_id: self.plan.app.id as u32,
-            title: self.plan.app.name.clone(),
-            at: now,
-        })
+        recent_game(&self.plan)
     }
 
     pub fn start(mut plan: LaunchPlan, waker: Waker) -> Self {
@@ -614,7 +603,9 @@ pub(super) fn reconnects_automatically(auto_reconnect: bool, away: bool, role: A
 /// without its delay (it still spends one). `had_video`: the dropped stream or an earlier one of its
 /// chain showed video, which the next connection carries.
 pub(super) fn automatic_rejoin(plan: &LaunchPlan, role: AppRole, auto_reconnect: bool, away: bool, connected_ms: u64, retry_now: bool, had_video: bool) -> Option<LaunchPlan> {
-    if !reconnects_automatically(auto_reconnect, away, role) { return None; }
+    // Microphone only runs minimized or behind other windows by design, so it reconnects there too.
+    let on_its_own = if plan.mic_only { auto_reconnect } else { reconnects_automatically(auto_reconnect, away, role) };
+    if !on_its_own { return None; }
     let mut plan = rejoin(plan.clone(), role)?;
     plan.video_shown |= had_video;
     let recovery = plan.recovery.get_or_insert_with(Default::default);
@@ -989,6 +980,23 @@ pub(super) fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &In
     Ok((session, facts))
 }
 
+/// [`Connecting::recent_game`] of `plan`.
+fn recent_game(plan: &LaunchPlan) -> Option<config::Recent> {
+    let record = &plan.record;
+    if record.unique_id.is_empty() || plan.mic_only || plan.app.id < 0
+        || plan.app.control != nightjar_core::http::AppControl::None {
+        return None;
+    }
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
+    Some(config::Recent {
+        host: record.unique_id.clone(),
+        install_id: plan.app.uuid.clone(),
+        app_id: plan.app.id as u32,
+        title: plan.app.name.clone(),
+        at: now,
+    })
+}
+
 #[cfg(test)]
 mod replace_tests {
     use super::*;
@@ -1161,6 +1169,19 @@ mod replace_tests {
         assert!(!asks_replace(&rejoined, AppRole::Stream, &prompt));
         let monitor = rejoin(plan, AppRole::RemoteMonitor).expect("a plan");
         assert!(!monitor.resume && !monitor.confirm_replace);
+    }
+
+    #[test]
+    fn microphone_only_reconnects_minimized_and_is_no_recent_game() {
+        let mut plan = launch_plan();
+        plan.record.unique_id = "uid".into();
+        assert!(recent_game(&plan).is_some());
+        plan.mic_only = true;
+        assert!(recent_game(&plan).is_none(), "Microphone only is no game to continue");
+        // It runs minimized or behind other windows by design.
+        let rejoined = automatic_rejoin(&plan, AppRole::InputOnly, true, true, 60_000, false, false).expect("a plan");
+        assert!(rejoined.mic_only && !rejoined.resume);
+        assert!(automatic_rejoin(&plan, AppRole::InputOnly, false, false, 60_000, false, false).is_none(), "the setting is off");
     }
 
     #[test]

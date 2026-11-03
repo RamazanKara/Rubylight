@@ -1904,7 +1904,8 @@ impl App {
             return;
         };
         let host = streaming.host_id;
-        let reconnect = if matches!(exit, Exit::Reconnect) || exit.retryable(streaming.video_started()) {
+        // Microphone only has no video; it is going once connected.
+        let reconnect = if matches!(exit, Exit::Reconnect) || exit.retryable(streaming.video_started() || streaming.mic_only()) {
             // SAFETY: the window lives as long as the app.
             let away = unsafe { SDL_GetWindowFlags(self.window) & (SDL_WINDOW_MINIMIZED | SDL_WINDOW_HIDDEN) != 0 };
             streaming.reconnect_plan(!matches!(exit, Exit::Reconnect), away)
@@ -2212,6 +2213,14 @@ impl App {
                 return;
             }
         }
+        // Microphone only's window has its own buttons; its chords still reach the stream.
+        if streaming.mic_only() && !matches!(kind, SDL_EVENT_QUIT | SDL_EVENT_WINDOW_CLOSE_REQUESTED
+            | SDL_EVENT_WINDOW_FOCUS_LOST | SDL_EVENT_WINDOW_FOCUS_GAINED
+            | SDL_EVENT_AUDIO_DEVICE_ADDED | SDL_EVENT_AUDIO_DEVICE_REMOVED
+            | SDL_EVENT_RENDER_DEVICE_RESET | SDL_EVENT_RENDER_DEVICE_LOST) {
+            self.gui.handle(event, Scale::of(self.window));
+            streaming.needs_redraw = true;
+        }
         streaming.handle(event, self.window, self.renderer, &mut self.pads);
     }
 }
@@ -2297,8 +2306,20 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
             egui::Area::new(egui::Id::unique("mic-only"))
                 .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
                 .show(&ctx, |ui| {
-                    ui.label(egui::RichText::new(tr(mic_only_title(s.microphone_muted))).font(theme::semibold(theme::text::TITLE)).color(theme::MOON));
+                    ui.label(egui::RichText::new(tr(mic_only_title(s.microphone_muted, s.microphone_unavailable))).font(theme::semibold(theme::text::TITLE)).color(theme::MOON));
                     ui.label(&s.facts.host_name);
+                    ui.horizontal(|ui| {
+                        // Unmuting also tries an unavailable microphone again.
+                        let mute = if s.microphone_muted { tr("Unmute") } else { tr("Mute") };
+                        if ui.button(mute).clicked() {
+                            let muted = !s.microphone_muted;
+                            s.mute_microphone(muted, pads);
+                            s.needs_redraw = true;
+                        }
+                        if ui.button(tr("Stop")).clicked() {
+                            s.exit = Some(Exit::User);
+                        }
+                    });
                 });
         } else if input_only {
             egui::Area::new(egui::Id::unique("input-only"))
@@ -2860,9 +2881,15 @@ fn mic_only_settings(settings: &mut config::Settings) {
     settings.usb_forwarding = false;
 }
 
-/// The microphone-only screen's title.
-fn mic_only_title(muted: bool) -> &'static str {
-    if muted { strings::en("Microphone muted") } else { strings::en("Microphone on") }
+/// The microphone-only screen's title. An unavailable microphone says so rather than "muted".
+fn mic_only_title(muted: bool, unavailable: bool) -> &'static str {
+    if unavailable {
+        strings::en("Microphone unavailable")
+    } else if muted {
+        strings::en("Microphone muted")
+    } else {
+        strings::en("Microphone on")
+    }
 }
 
 /// The app id a microphone-only launch sends: it names no app, and the PC starts none.
@@ -3017,7 +3044,10 @@ mod tests {
         assert_eq!(app.id, super::MIC_ONLY_APP_ID);
         assert!(!app.is_control_action());
         assert_eq!(super::LaunchKind::MicOnly.log_suffix(), ", microphone only");
-        assert_ne!(super::mic_only_title(false), super::mic_only_title(true));
+        assert_eq!(super::mic_only_title(false, false), "Microphone on");
+        assert_eq!(super::mic_only_title(true, false), "Microphone muted");
+        // A failed microphone is not called muted, also once it was muted for the failure.
+        assert_eq!(super::mic_only_title(true, true), "Microphone unavailable");
     }
 
     /// Holding Ctrl+Alt+Shift+H or Escape doesn't flip the sheet or the menu with each repeat,

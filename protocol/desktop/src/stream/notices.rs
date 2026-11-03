@@ -22,6 +22,8 @@ impl Streaming {
                 Notice::MicrophoneFailed(text) => {
                     self.microphone = None;
                     self.microphone_muted = true;
+                    // Microphone only says so where it says "Microphone on", not as muted.
+                    self.microphone_unavailable = self.plan.mic_only;
                     self.show_toast(text);
                 }
                 Notice::Clipboard(result) => {

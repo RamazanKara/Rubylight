@@ -1025,3 +1025,30 @@ fn launcher_handoff_never_owns_shared_launchers_even_inside_the_game_folder() {
     assert_eq!(tracker.update(&launchers, image), Tracked::Exited);
     assert!(tracker.tracked.is_empty());
 }
+#[test]
+fn played_times_count_only_once_a_local_config_was_read() {
+    let steam = tempfile::tempdir().unwrap();
+    let apps = steam.path().join("steamapps");
+    std::fs::create_dir_all(apps.join("common").join("Portal 2")).unwrap();
+    std::fs::write(
+        apps.join("appmanifest_620.acf"),
+        "\"AppState\" { \"appid\" \"620\" \"name\" \"Portal 2\" \"installdir\" \"Portal 2\" }",
+    )
+    .unwrap();
+    let config = steam.path().join("userdata").join("7").join("config");
+    std::fs::create_dir_all(&config).unwrap();
+    let roots = [steam.path().to_path_buf()];
+    // A user folder whose local config can't be read: when is unknown, not never.
+    let unread = discover(&roots);
+    assert_eq!(unread.len(), 1);
+    assert!(!unread[0].history);
+    std::fs::write(
+        config.join("localconfig.vdf"),
+        "\"UserLocalConfigStore\" { \"Software\" { \"Valve\" { \"Steam\" { \"apps\" { \"10\" { \"LastPlayed\" \"5\" } } } } } }",
+    )
+    .unwrap();
+    // Read, without a time for Portal 2: never played.
+    let read = discover(&roots);
+    assert!(read[0].history);
+    assert_eq!(read[0].last_played, 0);
+}

@@ -28,8 +28,12 @@ pub struct Game {
     pub install_dir: PathBuf,
     pub library_path: PathBuf,
     pub installed: bool,
-    /// Unix seconds; 0 when never played.
+    /// Unix seconds; 0 when never played (or `history` is false).
     pub last_played: u64,
+    /// A user's `localconfig.vdf` was read, so `last_played` 0 is never played,
+    /// not unknown.
+    #[serde(skip)]
+    pub history: bool,
     pub playtime_minutes: u64,
     pub portrait_path: Option<PathBuf>,
     pub header_path: Option<PathBuf>,
@@ -568,6 +572,9 @@ fn apply_history(root: &Path, games: &mut BTreeMap<u32, Game>) {
         else {
             continue;
         };
+        for game in games.values_mut() {
+            game.history = true;
+        }
         for (id, app) in apps.entries() {
             let Some(game) = id.parse().ok().and_then(|id: u32| games.get_mut(&id)) else {
                 continue;

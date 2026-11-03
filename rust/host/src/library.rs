@@ -57,10 +57,11 @@ fn scan_installed(settings: library::Settings) -> Scan {
         )
         .skipping(discovery.skipped())
         .reading(settings)
-        // `0` is Steam's never played.
+        // `0` is Steam's never played; without a read history the time is unknown.
         .playing(
             steam
                 .iter()
+                .filter(|game| game.history)
                 .map(|game| (format!("steam:{}", game.appid), game.last_played)),
         )
         .playing(crate::playnite::last_played())

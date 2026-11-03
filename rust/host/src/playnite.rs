@@ -208,7 +208,7 @@ fn snapshot() -> Result<()> {
         match pipe.lines.recv_timeout(Duration::from_millis(250)) {
             Ok(line) => {
                 last = Instant::now();
-                match playnite::parse(&line) {
+                match playnite::parse_with(&line, &butterpollo_windows::playnite::local_to_utc) {
                     Message::SnapshotStart => {
                         started = true;
                         games.clear();
@@ -544,12 +544,13 @@ pub fn games() -> Result<Value> {
 }
 /// When Playnite says each game it last reported was played, `0` for never, for the
 /// native library's `last_played` (`native::Scan::playing`). Nothing before the plugin's
-/// first snapshot.
+/// first snapshot, nor for a time that didn't parse.
 pub fn last_played() -> Vec<(String, u64)> {
     let catalog = CATALOG.lock().unwrap();
     catalog
         .games
         .iter()
+        .filter(|game| !game.last_played_unknown)
         .map(|game| {
             let at = game
                 .last_played
@@ -1212,7 +1213,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn last_played_is_per_game_and_zero_for_never() {
+    fn last_played_is_per_game_zero_for_never_and_absent_when_unknown() {
         let game = |id: &str, at: Option<i64>| Game {
             id: id.into(),
             last_played: at,
@@ -1222,6 +1223,10 @@ mod tests {
             game("AA-bb", Some(1_788_025_796)),
             game("cc", None),
             game("dd", Some(-5)),
+            Game {
+                last_played_unknown: true,
+                ..game("ee", None)
+            },
         ];
         let played = last_played();
         CATALOG.lock().unwrap().games.clear();

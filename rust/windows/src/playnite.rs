@@ -130,6 +130,36 @@ pub fn install_dir() -> Option<PathBuf> {
 fn find_install(candidates: impl IntoIterator<Item = PathBuf>) -> Option<PathBuf> {
     candidates.into_iter().find(|dir| executable(dir).is_some())
 }
+/// A wall-clock time on this PC (Unix seconds as if it were UTC) as Unix seconds,
+/// by the time zone's rule on that date: Playnite's times without an offset.
+pub fn local_to_utc(wall: i64) -> Option<i64> {
+    use windows::Win32::{
+        Foundation::{FILETIME, SYSTEMTIME},
+        System::Time::{
+            FileTimeToSystemTime, SystemTimeToFileTime, TzSpecificLocalTimeToSystemTime,
+        },
+    };
+    // FILETIME counts 100 ns from 1601.
+    const EPOCH: i64 = 11_644_473_600;
+    let ticks = u64::try_from(wall.checked_add(EPOCH)?.checked_mul(10_000_000)?).ok()?;
+    let file = FILETIME {
+        dwLowDateTime: ticks as u32,
+        dwHighDateTime: (ticks >> 32) as u32,
+    };
+    let (mut local, mut utc, mut out) = (
+        SYSTEMTIME::default(),
+        SYSTEMTIME::default(),
+        FILETIME::default(),
+    );
+    // SAFETY: every pointer is to a local that outlives the call.
+    unsafe {
+        FileTimeToSystemTime(&file, &mut local).ok()?;
+        TzSpecificLocalTimeToSystemTime(None, &local, &mut utc).ok()?;
+        SystemTimeToFileTime(&utc, &mut out).ok()?;
+    }
+    let ticks = (u64::from(out.dwHighDateTime) << 32) | u64::from(out.dwLowDateTime);
+    Some(i64::try_from(ticks / 10_000_000).ok()? - EPOCH)
+}
 pub fn executable(dir: &Path) -> Option<PathBuf> {
     PROCESSES
         .iter()
@@ -363,6 +393,15 @@ impl Drop for Pipe {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_wall_clock_time_moves_by_this_pcs_offset() {
+        let wall = 1_788_025_796;
+        let utc = local_to_utc(wall).unwrap();
+        // Whatever this PC's zone, the shift is whole quarter hours within a day.
+        assert!((wall - utc).abs() <= 14 * 3600);
+        assert_eq!((wall - utc) % 900, 0);
+    }
     use std::os::windows::io::FromRawHandle;
     use windows::{
         Win32::{

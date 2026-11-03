@@ -29,6 +29,8 @@ pub struct Game {
     pub playtime_minutes: u64,
     /// Unix seconds, if Playnite has a valid last played time.
     pub last_played: Option<i64>,
+    /// Playnite sent a last played time that doesn't parse: when is unknown, not never.
+    pub last_played_unknown: bool,
     pub box_art_path: String,
     pub icon_path: String,
     pub installed: bool,
@@ -75,8 +77,14 @@ fn pairs(value: Option<&Value>) -> Vec<(String, String)> {
         })
         .unwrap_or_default()
 }
-/// One line from the plugin (a UTF-8 BOM is allowed).
+/// One line from the plugin (a UTF-8 BOM is allowed), reading times without an
+/// offset as UTC.
 pub fn parse(line: &str) -> Message {
+    parse_with(line, &Some)
+}
+/// [`parse`], with `local` turning a time without an offset (this PC's wall clock,
+/// read as if UTC) into Unix seconds; `None` when it can't.
+pub fn parse_with(line: &str, local: &dyn Fn(i64) -> Option<i64>) -> Message {
     let Ok(message) = serde_json::from_str::<Value>(line.trim_start_matches('\u{feff}').trim())
     else {
         return Message::Other;
@@ -90,7 +98,7 @@ pub fn parse(line: &str) -> Message {
             message
                 .get("payload")
                 .and_then(Value::as_array)
-                .map(|games| games.iter().filter_map(game).collect())
+                .map(|games| games.iter().filter_map(|g| game(g, local)).collect())
                 .unwrap_or_default(),
         ),
         "status" => {
@@ -111,7 +119,7 @@ pub fn parse(line: &str) -> Message {
         _ => Message::Other,
     }
 }
-fn game(value: &Value) -> Option<Game> {
+fn game(value: &Value, local: &dyn Fn(i64) -> Option<i64>) -> Option<Game> {
     let id = text(value, "id");
     if uuid::Uuid::parse_str(&id).is_err() {
         return None;
@@ -122,6 +130,9 @@ fn game(value: &Value) -> Option<Game> {
         (None, None) => true,
         (a, b) => a.unwrap_or(false) || b.unwrap_or(false),
     };
+    // The plugin sends "" for never played.
+    let played = text(value, "lastPlayed");
+    let last_played = parse_time_with(&played, local);
     Some(Game {
         name: text(value, "name"),
         exe: text(value, "exe"),
@@ -141,16 +152,22 @@ fn game(value: &Value) -> Option<Game> {
         plugin_id: text(value, "pluginId"),
         plugin_name: text(value, "pluginName"),
         playtime_minutes: text(value, "playtimeMinutes").parse().unwrap_or(0),
-        last_played: parse_time(&text(value, "lastPlayed")),
+        last_played,
+        last_played_unknown: !played.trim().is_empty() && last_played.is_none(),
         box_art_path: text(value, "boxArtPath"),
         icon_path: text(value, "iconPath"),
         installed,
         id,
     })
 }
-/// An ISO 8601 time (`2026-08-29T17:49:56.1234567+02:00`, `...Z`) as Unix
-/// seconds.
+/// An ISO 8601 time (`2026-08-29T17:49:56.1234567+02:00`, `+0200`, `+02`, `...Z`)
+/// as Unix seconds; one without an offset is read as UTC.
 pub fn parse_time(value: &str) -> Option<i64> {
+    parse_time_with(value, &Some)
+}
+/// [`parse_time`], with `local` for a time without an offset: .NET's round-trip
+/// format, which the plugin sends, leaves the offset out of a wall-clock time.
+pub fn parse_time_with(value: &str, local: &dyn Fn(i64) -> Option<i64>) -> Option<i64> {
     let value = value.trim();
     let number = |range: std::ops::Range<usize>| -> Option<i64> {
         let part = value.get(range)?;
@@ -183,12 +200,25 @@ pub fn parse_time(value: &str) -> Option<i64> {
         rest = fraction.trim_start_matches(|c: char| c.is_ascii_digit());
     }
     let offset = match rest.as_bytes().first() {
-        None | Some(b'Z' | b'z') => 0,
+        None => None,
+        Some(b'Z' | b'z') if rest.len() == 1 => Some(0),
         Some(sign @ (b'+' | b'-')) => {
             let zone = &rest[1..];
-            let (h, m) = zone.split_once(':')?;
+            // `+02:00`, `+0200` or `+02`.
+            let (h, m) = match zone.split_once(':') {
+                Some(parts) => parts,
+                None if zone.len() == 4 => zone.split_at(2),
+                None if zone.len() == 2 => (zone, "00"),
+                None => return None,
+            };
+            if h.len() != 2
+                || m.len() != 2
+                || !(h.bytes().chain(m.bytes())).all(|b| b.is_ascii_digit())
+            {
+                return None;
+            }
             let minutes = h.parse::<i64>().ok()? * 60 + m.parse::<i64>().ok()?;
-            if *sign == b'+' { minutes } else { -minutes }
+            Some(if *sign == b'+' { minutes } else { -minutes })
         }
         _ => return None,
     };
@@ -203,7 +233,11 @@ pub fn parse_time(value: &str) -> Option<i64> {
     let doy = (153 * m + 2) / 5 + day - 1;
     let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
     let days = era * 146097 + doe - 719468;
-    Some(days * 86400 + hour * 3600 + minute * 60 + second - offset * 60)
+    let wall = days * 86400 + hour * 3600 + minute * 60 + second;
+    match offset {
+        Some(offset) => Some(wall - offset * 60),
+        None => local(wall),
+    }
 }
 /// Unix seconds as `YYYY-MM-DDTHH:MM:SSZ`.
 pub fn format_time(seconds: i64) -> String {
@@ -811,6 +845,47 @@ mod tests {
             Some(1788025796)
         );
         assert_eq!(parse_time("2026-08-29"), None);
+        assert_eq!(parse_time("2026-08-29T19:49:56+0200"), Some(1788025796));
+        assert_eq!(parse_time("2026-08-29T19:49:56+02"), Some(1788025796));
+        assert_eq!(parse_time("2026-08-29T15:49:56.5-02:00"), Some(1788025796));
+        assert_eq!(parse_time("2026-08-29T17:49:56+2"), None);
+        assert_eq!(parse_time("2026-08-29T17:49:56Zulu"), None);
+        // Without an offset: the PC's wall clock, through `local`.
+        assert_eq!(parse_time("2026-08-29T17:49:56"), Some(1788025796));
+        let in_berlin = |wall: i64| Some(wall - 7200);
+        assert_eq!(
+            parse_time_with("2026-08-29T19:49:56.1234567", &in_berlin),
+            Some(1788025796)
+        );
+        assert_eq!(
+            parse_time_with("2026-08-29T19:49:56+00:00", &in_berlin),
+            Some(1788025796 + 7200)
+        );
+        assert_eq!(parse_time_with("2026-08-29T19:49:56", &|_| None), None);
+        // A missing or empty time is never played; one that doesn't parse is unknown.
+        let Message::Games(games) = parse_with(
+            r#"{"type":"games","payload":[
+                {"id":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","lastPlayed":""},
+                {"id":"bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"},
+                {"id":"cccccccc-cccc-cccc-cccc-cccccccccccc","lastPlayed":"last Tuesday"},
+                {"id":"dddddddd-dddd-dddd-dddd-dddddddddddd","lastPlayed":"2026-08-29T19:49:56"}]}"#,
+            &in_berlin,
+        ) else {
+            panic!()
+        };
+        let played: Vec<_> = games
+            .iter()
+            .map(|g| (g.last_played, g.last_played_unknown))
+            .collect();
+        assert_eq!(
+            played,
+            [
+                (None, false),
+                (None, false),
+                (None, true),
+                (Some(1788025796), false)
+            ]
+        );
         assert_eq!(format_time(1788025796), "2026-08-29T17:49:56Z");
         assert_eq!(
             parse(

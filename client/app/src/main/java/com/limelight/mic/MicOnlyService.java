@@ -398,7 +398,7 @@ public class MicOnlyService extends Service {
         notifications();
         Intent open = new Intent(this, PcView.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         return new NotificationCompat.Builder(this, CHANNEL)
-                .setSmallIcon(R.drawable.ic_mic)
+                .setSmallIcon(R.drawable.ic_stat_mic)
                 .setContentIntent(PendingIntent.getActivity(this, 0, open, PendingIntent.FLAG_IMMUTABLE))
                 .setCategory(NotificationCompat.CATEGORY_SERVICE);
     }

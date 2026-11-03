@@ -35,6 +35,13 @@ export const gamepads = (permission: Permission) => permission !== 'view';
 export const keyboardMouse = (permission: Permission) => permission === 'controller-keyboard-mouse';
 
 const LOST = 'The connection to the host was lost.';
+const REFUSED = 'The host refused this page’s connection.';
+/** What the host says of a link that opens nothing; its guest port answers 404 once no link works. */
+const INVALID_LINK = 'This invite link does not work: it expired, the host withdrew it, or it was copied incompletely.';
+
+/** The status the guest page's own address answers with now. */
+type Probe = () => Promise<number>;
+const pageStatus: Probe = () => fetch(location.pathname, { method: 'HEAD', cache: 'no-store' }).then((response) => response.status);
 
 /** The host's `error` or `ended` message as the page shows it. */
 export function ending(message: { type?: unknown; code?: unknown; reason?: unknown; message?: unknown }): Ending {
@@ -68,7 +75,8 @@ export class GuestStream {
 
   /**
    * Opens the socket and joins with `token`; plays the stream in `media` once the host offers
-   * it. `onstreaming` runs when the picture connected.
+   * it. `onstreaming` runs when the picture connected. A socket that never opened asks `probe`
+   * why, since a browser does not say: a 404 means no link works on the host any more.
    */
   static join(
     token: string,
@@ -77,6 +85,7 @@ export class GuestStream {
     onstreaming: (stream: GuestStream) => void,
     url = guestSignalUrl(location),
     open: SocketFactory = (u, p) => new WebSocket(u, p),
+    probe: Probe = pageStatus,
   ): GuestStream {
     const stream = new GuestStream(open(url, [GUEST_PROTOCOL]));
     const ws = stream.ws;
@@ -89,10 +98,22 @@ export class GuestStream {
       }
       ws.send(JSON.stringify({ type: 'join', token, name }));
     };
-    ws.onerror = () => {
-      if (!opened) stream.end({ code: 'refused', message: 'The host refused this page’s connection.', wait: false, final: false });
+    let refused = false;
+    const notOpened = () => {
+      if (refused) return;
+      refused = true;
+      const end = (status?: number) =>
+        stream.end(
+          status === 404
+            ? { code: 'invalid-link', message: INVALID_LINK, wait: false, final: true }
+            : { code: 'refused', message: REFUSED, wait: false, final: false },
+        );
+      probe().then(end, () => end());
     };
-    ws.onclose = () => stream.end(ending({}));
+    ws.onerror = () => {
+      if (!opened) notOpened();
+    };
+    ws.onclose = () => (opened ? stream.end(ending({})) : notOpened());
     ws.onmessage = (event) => {
       let message: Record<string, unknown>;
       try {

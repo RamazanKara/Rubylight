@@ -110,10 +110,10 @@ class FakeSocket {
   }
 }
 
-function joining() {
+function joining(probe = async () => 200) {
   let socket;
   const endings = [];
-  const stream = guest.GuestStream.join(TOKEN, 'Sam', {}, () => assert.fail('no stream'), 'wss://pc/guest/signal', (url, protocols) => (socket = new FakeSocket(url, protocols)));
+  const stream = guest.GuestStream.join(TOKEN, 'Sam', {}, () => assert.fail('no stream'), 'wss://pc/guest/signal', (url, protocols) => (socket = new FakeSocket(url, protocols)), probe);
   stream.onended = (why) => endings.push(why);
   return { stream, socket, endings };
 }
@@ -140,11 +140,14 @@ test('a host that answers with another subprotocol gets no token', () => {
   assert.equal(endings[0].code, 'protocol');
 });
 
-test('a refused socket, a revoked link and a lost connection each say so once', () => {
-  let run = joining();
+test('a refused socket, a revoked link and a lost connection each say so once', async () => {
+  let probes = 0;
+  let run = joining(async () => (probes++, 200));
   run.socket.onerror?.({});
   run.socket.onclose?.({});
+  await new Promise((resolve) => setTimeout(resolve));
   assert.deepEqual(run.endings.map((e) => e.code), ['refused']);
+  assert.equal(probes, 1);
   run = joining();
   run.socket.open();
   run.socket.say({ type: 'ended', reason: 'revoked', message: 'The host withdrew this invite link.' });
@@ -286,4 +289,20 @@ test('the guest build is its own: base /guest/, its own entry, nothing of the co
   assert.doesNotMatch(page, /lib\/api|lib\/session|router/);
   const scripts = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')).scripts;
   assert.match(scripts.build, /vite build && vite build --config vite\.guest\.config\.ts/);
+});
+
+test('a waiting page whose link expired says the link does not work, not that it was refused', async () => {
+  // The guest port answers 404 once no link works: the socket fails, and so does the page's own address.
+  let run = joining(async () => 404);
+  run.socket.onclose?.({});
+  await new Promise((resolve) => setTimeout(resolve));
+  assert.deepEqual(run.endings.map((e) => [e.code, e.final]), [['invalid-link', true]]);
+  assert.match(run.endings[0].message, /does not work/);
+  // A host that cannot be reached at all is still a refusal.
+  run = joining(async () => {
+    throw new TypeError('Failed to fetch');
+  });
+  run.socket.onerror?.({});
+  await new Promise((resolve) => setTimeout(resolve));
+  assert.deepEqual(run.endings.map((e) => [e.code, e.final]), [['refused', false]]);
 });

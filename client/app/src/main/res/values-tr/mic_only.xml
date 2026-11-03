@@ -8,4 +8,6 @@
     <string name="mic_only_stopped">Mikrofon kapalı</string>
     <string name="mic_only_failed">%1$s bağlantısı sona erdi</string>
     <string name="mic_only_denied">Mikrofon erişimi yok</string>
+    <string name="mic_only_unavailable">Mikrofon kullanılamıyor</string>
+    <string name="mic_only_not_accepted">%1$s mikrofonu kabul etmedi</string>
 </resources>

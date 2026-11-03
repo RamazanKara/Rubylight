@@ -9,4 +9,6 @@
     <string name="mic_only_stopped">Microphone off</string>
     <string name="mic_only_failed">Connection to %1$s ended</string>
     <string name="mic_only_denied">No microphone access</string>
+    <string name="mic_only_unavailable">Microphone unavailable</string>
+    <string name="mic_only_not_accepted">%1$s did not accept the microphone</string>
 </resources>

@@ -61,6 +61,9 @@ public class MicOnlyService extends Service {
     private static final int ENDED_NOTIFICATION = 0x4d4a;
     // Below Android 12, which has no mode listener: how often the call state is looked at.
     private static final long CALL_POLL_MS = 1000;
+    // How often an unavailable microphone (another app holds it) is tried again, and how long a try has to fail.
+    private static final long MIC_RETRY_MS = 5000;
+    private static final long MIC_CONFIRM_MS = 2000;
 
     // Whether a session runs in this process; a stream start asks it to end only then.
     private static volatile boolean running;
@@ -78,7 +81,12 @@ public class MicOnlyService extends Service {
             main.postDelayed(this, CALL_POLL_MS);
         }
     };
+    private final Runnable micRetry = this::retryMicrophone;
+    private final Runnable micConfirm = this::confirmMicrophone;
+    // A retry that has not failed yet.
+    private boolean micRetrying;
     private WifiManager.WifiLock wifiLock;
+    private WifiManager.WifiLock lowLatencyLock;
     private PowerManager.WakeLock wakeLock;
     // What the connection said last, shown when it fails.
     private volatile String lastMessage;
@@ -113,24 +121,23 @@ public class MicOnlyService extends Service {
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        // A restart by the system has no session to go back to.
+        // Stop, or a restart by the system, which has no session to go back to. Neither came from
+        // startForegroundService, so the service may stop without having been in the foreground.
         if (intent == null || !ACTION_START.equals(intent.getAction())) {
             end(null);
             return START_NOT_STICKY;
         }
-        if (connection != null) end(null);
+        // Another PC, or the same again: the old session closes, the service stays.
+        teardown(null);
         pcName = intent.getStringExtra(EXTRA_PC_NAME);
         if (pcName == null) pcName = "";
         session = new MicOnlySession();
-        try {
-            ServiceCompat.startForeground(this, NOTIFICATION, notification(session.phase()),
-                    Build.VERSION.SDK_INT >= Build.VERSION_CODES.R ? ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE : 0);
-        } catch (RuntimeException e) {
-            // Android 12 and later refuse it from the background, Android 14 without the microphone permission.
-            LimeLog.warning("Microphone only: the foreground service was refused: " + e);
+        if (!enterForeground()) {
             Toast.makeText(this, getString(R.string.mic_only_failed, pcName), Toast.LENGTH_LONG).show();
             session.end();
-            stopSelf();
+            // Stopping before startForeground succeeded would crash the app after startForegroundService;
+            // enterForeground has put a short service in the foreground for this stop.
+            main.post(this::stopSelf);
             return START_NOT_STICKY;
         }
         running = true;
@@ -166,19 +173,61 @@ public class MicOnlyService extends Service {
         acquireLocks();
         watchCalls();
         LimeLog.info("Microphone only: connecting to " + pcName);
-        connection.start(new SilentAudioRenderer(), new DiscardingDecoderRenderer(), new Listener(connection));
+        NvConnection started = connection;
+        started.setMicrophoneNoticeListener(() -> microphoneNotice(started));
+        started.start(new SilentAudioRenderer(), new DiscardingDecoderRenderer(), new Listener(started));
         return START_NOT_STICKY;
+    }
+
+    /**
+     * Puts the service in the foreground as a microphone service. Android 14 and later refuse that without the
+     * microphone permission; the service then goes to the foreground as a short service instead, only so it can stop.
+     */
+    private boolean enterForeground() {
+        try {
+            ServiceCompat.startForeground(this, NOTIFICATION, notification(session.phase()),
+                    Build.VERSION.SDK_INT >= Build.VERSION_CODES.R ? ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE : 0);
+            return true;
+        } catch (RuntimeException e) {
+            LimeLog.warning("Microphone only: the foreground service was refused: " + e);
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            try {
+                ServiceCompat.startForeground(this, NOTIFICATION, notification(session.phase()),
+                        ServiceInfo.FOREGROUND_SERVICE_TYPE_SHORT_SERVICE);
+            } catch (RuntimeException e) {
+                LimeLog.warning("Microphone only: the short foreground service was refused too: " + e);
+            }
+        }
+        return false;
     }
 
     @Override
     public void onDestroy() {
-        end(null);
+        teardown(null);
         super.onDestroy();
     }
 
     /** Ends the session: the connection closes and the service goes; {@code reason} non-null stays as a notification. */
     private void end(String reason) {
+        teardown(reason);
+        ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE);
+        if (reason != null) {
+            notifications().notify(ENDED_NOTIFICATION, builder()
+                    .setContentTitle(getString(R.string.mic_only_stopped))
+                    .setContentText(reason)
+                    .setAutoCancel(true)
+                    .build());
+        }
+        stopSelf();
+    }
+
+    /** Closes the session's connection and lets go of what it held; the service and its notification stay. */
+    private void teardown(String reason) {
         main.removeCallbacks(callPoll);
+        main.removeCallbacks(micRetry);
+        main.removeCallbacks(micConfirm);
+        micRetrying = false;
         if (modeListener != null && audio != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             audio.removeOnModeChangedListener(modeListener);
         }
@@ -191,17 +240,9 @@ public class MicOnlyService extends Service {
         if (closing != null) {
             LimeLog.info("Microphone only: ending" + (reason != null ? " (" + reason + ")" : ""));
             // Stopping waits for the native connection to close.
+            closing.setMicrophoneNoticeListener(null);
             new Thread(closing::stop, "Microphone only stop").start();
         }
-        ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE);
-        if (reason != null) {
-            notifications().notify(ENDED_NOTIFICATION, builder()
-                    .setContentTitle(getString(R.string.mic_only_stopped))
-                    .setContentText(reason)
-                    .setAutoCancel(true)
-                    .build());
-        }
-        stopSelf();
     }
 
     private void watchCalls() {
@@ -222,6 +263,37 @@ public class MicOnlyService extends Service {
         LimeLog.info("Microphone only: " + (session.muted() ? "paused for a call" : "the call ended, sending again"));
         applyMute();
         showPhase();
+    }
+
+    // On the capture thread: the microphone failed (another app holds it, or it stopped working).
+    private void microphoneNotice(NvConnection owner) {
+        if (!owner.takeMicrophoneFailure()) return;
+        main.post(() -> {
+            if (connection != owner) return;
+            LimeLog.warning("Microphone only: the microphone is unavailable");
+            micRetrying = false;
+            main.removeCallbacks(micConfirm);
+            if (session.unavailable()) showPhase();
+            main.removeCallbacks(micRetry);
+            main.postDelayed(micRetry, MIC_RETRY_MS);
+        });
+    }
+
+    private void retryMicrophone() {
+        if (connection == null || !session.retries()) return;
+        micRetrying = true;
+        connection.setMicrophoneMuted(false);
+        main.postDelayed(micConfirm, MIC_CONFIRM_MS);
+    }
+
+    // A retry that did not fail within MIC_CONFIRM_MS has the microphone back.
+    private void confirmMicrophone() {
+        if (!micRetrying) return;
+        micRetrying = false;
+        if (session.available()) {
+            LimeLog.info("Microphone only: the microphone is back");
+            showPhase();
+        }
     }
 
     private void applyMute() {
@@ -262,6 +334,9 @@ public class MicOnlyService extends Service {
             case PAUSED_FOR_CALL:
                 title = R.string.mic_only_paused_call;
                 break;
+            case UNAVAILABLE:
+                title = R.string.mic_only_unavailable;
+                break;
             default:
                 title = R.string.mic_only_connecting;
                 break;
@@ -278,16 +353,22 @@ public class MicOnlyService extends Service {
                 .build();
     }
 
-    // Wi-Fi at full power and the CPU awake while the screen is off, as a stream keeps them.
+    // Wi-Fi at full power and the CPU awake while the screen is off. The low-latency lock works only with the
+    // screen on and the app in front, so the high-performance one holds Wi-Fi up the rest of the time.
     private void acquireLocks() {
         try {
             WifiManager wifi = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
             if (wifi != null) {
-                wifiLock = wifi.createWifiLock(Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
-                        ? WifiManager.WIFI_MODE_FULL_LOW_LATENCY : WifiManager.WIFI_MODE_FULL_HIGH_PERF,
+                wifiLock = wifi.createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF,
                         BuildConfig.BRAND_NAME + " Microphone only");
                 wifiLock.setReferenceCounted(false);
                 wifiLock.acquire();
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    lowLatencyLock = wifi.createWifiLock(WifiManager.WIFI_MODE_FULL_LOW_LATENCY,
+                            BuildConfig.BRAND_NAME + " Microphone only low latency");
+                    lowLatencyLock.setReferenceCounted(false);
+                    lowLatencyLock.acquire();
+                }
             }
             PowerManager power = (PowerManager) getSystemService(Context.POWER_SERVICE);
             if (power != null) {
@@ -303,8 +384,10 @@ public class MicOnlyService extends Service {
 
     private void releaseLocks() {
         if (wifiLock != null) wifiLock.release();
+        if (lowLatencyLock != null) lowLatencyLock.release();
         if (wakeLock != null) wakeLock.release();
         wifiLock = null;
+        lowLatencyLock = null;
         wakeLock = null;
     }
 
@@ -340,6 +423,13 @@ public class MicOnlyService extends Service {
         public void connectionStarted() {
             onMain(() -> {
                 if (!session.connected()) return;
+                // The PC took the session but not the microphone: nothing would reach it.
+                int mic = MoonBridge.getMicrophoneState();
+                if (mic != MoonBridge.MIC_STATE_READY) {
+                    LimeLog.warning("Microphone only: the PC set up no microphone (" + mic + ")");
+                    end(getString(R.string.mic_only_not_accepted, pcName));
+                    return;
+                }
                 LimeLog.info("Microphone only: sending to " + pcName);
                 applyMute();
                 showPhase();

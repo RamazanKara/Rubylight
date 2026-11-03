@@ -8,4 +8,6 @@
     <string name="mic_only_stopped">Микрофон выключен</string>
     <string name="mic_only_failed">Соединение с %1$s завершено</string>
     <string name="mic_only_denied">Нет доступа к микрофону</string>
+    <string name="mic_only_unavailable">Микрофон недоступен</string>
+    <string name="mic_only_not_accepted">%1$s не принял микрофон</string>
 </resources>

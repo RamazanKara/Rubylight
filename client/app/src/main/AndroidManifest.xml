@@ -332,7 +332,7 @@
         <service
             android:name=".mic.MicOnlyService"
             android:exported="false"
-            android:foregroundServiceType="microphone" />
+            android:foregroundServiceType="microphone|shortService" />
         <activity
             android:name=".mic.MicOnlyActivity"
             android:exported="false"

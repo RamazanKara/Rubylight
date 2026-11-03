@@ -101,23 +101,57 @@ pub struct VrrPacing {
     pub sync: VrrSync,
     /// The sync interval the renderer was last given.
     pub interval: i32,
+    /// The pacing the check turned from, which a recheck that sees the display refresh on present
+    /// returns to.
+    restore: Option<PacingMode>,
+    /// When the display is measured again while fallen back (µs on the session clock): None while
+    /// a check runs, and for good once a stream that returned falls back again (it never flaps).
+    recheck_us: Option<u64>,
+    recheck_every_us: u64,
+    rechecks: bool,
+    /// The stream returned from a fall back once.
+    pub recovered: bool,
 }
+
+/// The first recheck after a "no VRR" fall back, and the longest between two: each one doubles
+/// the wait. A recheck costs the render thread a scan line reading per present for a second or two.
+pub const RECHECK_FIRST_US: u64 = 10_000_000;
+pub const RECHECK_MAX_US: u64 = 160_000_000;
 
 impl VrrPacing {
     /// `mode`: the pacing the stream starts with, whose sync interval the renderer has.
     pub fn new(check: bool, fallback: PacingMode, sync: VrrSync, mode: PacingMode) -> Self {
-        Self { check, fallback, fell_back: false, sync, interval: i32::from(mode == PacingMode::Vsync) }
+        Self {
+            check, fallback, fell_back: false, sync, interval: i32::from(mode == PacingMode::Vsync),
+            restore: None, recheck_us: None, recheck_every_us: RECHECK_FIRST_US, rechecks: true, recovered: false,
+        }
     }
 
     /// Folds the display check's verdict (`verdict`, None before the probe runs) into `mode`, and
     /// returns the sync interval to give the renderer when it is not the last one given. It is
-    /// given once: a renderer that refuses it refuses it every frame.
-    pub fn step(&mut self, mode: &mut PacingMode, verdict: Option<&super::scanline::Verdict>) -> Option<i32> {
+    /// given once: a renderer that refuses it refuses it every frame. A stream that fell back
+    /// returns to its pacing once a recheck finds the display refreshing on present, and plans the
+    /// next recheck when one ends without (`now_us`, `recheck_due`).
+    pub fn step(&mut self, mode: &mut PacingMode, verdict: Option<&super::scanline::Verdict>, now_us: u64) -> Option<i32> {
         if let (true, Some(verdict)) = (self.check, verdict) {
             let after = after_display_check(*mode, verdict, self.fallback);
             if after != *mode {
+                self.restore = Some(*mode);
                 *mode = after;
                 self.fell_back = true;
+                // Back once and no VRR again: the display stays on the fall back.
+                self.rechecks &= !self.recovered;
+                self.recheck_us = None;
+            } else if let (true, Some(restore)) = (self.fell_back, self.restore) {
+                if verdict.refreshes_on_present() {
+                    *mode = restore;
+                    (self.fell_back, self.recovered, self.recheck_us) = (false, true, None);
+                } else if *verdict == super::scanline::Verdict::Checking {
+                    // A recheck under way: the next is planned from its verdict.
+                    self.recheck_us = None;
+                } else if self.rechecks && self.recheck_us.is_none() {
+                    self.recheck_us = Some(now_us + self.recheck_every_us);
+                }
             }
         }
         let interval = sync_interval(*mode, self.sync);
@@ -125,6 +159,15 @@ impl VrrPacing {
             self.interval = interval;
             interval
         })
+    }
+
+    /// Whether the display check is to measure the display again now (`RaceProbe::recheck`): a
+    /// stream on its fall back whose recheck time has come. The next one waits twice as long.
+    pub fn recheck_due(&mut self, now_us: u64) -> bool {
+        if !self.recheck_us.is_some_and(|at| now_us >= at) { return false; }
+        self.recheck_us = None;
+        self.recheck_every_us = (self.recheck_every_us * 2).min(RECHECK_MAX_US);
+        true
     }
 }
 
@@ -1972,28 +2015,87 @@ pub(crate) mod tests {
         assert_eq!(start, PacingMode::Immediate);
         let mut vrr = VrrPacing::new(true, without_vrr(&settings), VrrSync::Off, start);
         let mut mode = start;
-        assert_eq!(vrr.step(&mut mode, None), None, "no probe yet: the renderer keeps interval 0");
-        assert_eq!(vrr.step(&mut mode, Some(&Verdict::Checking)), None);
-        assert_eq!(vrr.step(&mut mode, Some(&fixed)), Some(1), "V-Sync waits for the refresh");
+        assert_eq!(vrr.step(&mut mode, None, 0), None, "no probe yet: the renderer keeps interval 0");
+        assert_eq!(vrr.step(&mut mode, Some(&Verdict::Checking), 0), None);
+        assert_eq!(vrr.step(&mut mode, Some(&fixed), 0), Some(1), "V-Sync waits for the refresh");
         assert_eq!((mode, vrr.fell_back), (PacingMode::Vsync, true));
-        assert_eq!(vrr.step(&mut mode, Some(&fixed)), None, "given once");
+        assert_eq!(vrr.step(&mut mode, Some(&fixed), 0), None, "given once");
         // V-Sync off in the settings: immediate stays, with nothing for the renderer.
         let no_vsync = crate::config::Settings { vsync: false, present_at_host_times: true, ..Default::default() };
         let (start, _) = pacing(&no_vsync, true);
         assert_eq!(start, PacingMode::HostTimes);
         let mut vrr = VrrPacing::new(true, without_vrr(&no_vsync), VrrSync::Off, start);
         let mut mode = start;
-        assert_eq!(vrr.step(&mut mode, Some(&fixed)), None);
+        assert_eq!(vrr.step(&mut mode, Some(&fixed), 0), None);
         assert_eq!((mode, vrr.fell_back), (PacingMode::Immediate, true));
         // NIGHTJAR_VRR_CHECK=0: the verdict is not applied; present1 still sets interval 1.
         let mut vrr = VrrPacing::new(false, PacingMode::Vsync, VrrSync::Present1, PacingMode::Immediate);
         let mut mode = PacingMode::Immediate;
-        assert_eq!(vrr.step(&mut mode, Some(&fixed)), Some(1));
+        assert_eq!(vrr.step(&mut mode, Some(&fixed), 0), Some(1));
         assert_eq!((mode, vrr.fell_back), (PacingMode::Immediate, false));
         // A stream that starts on V-Sync has interval 1 already.
         let mut vrr = VrrPacing::new(false, PacingMode::Vsync, VrrSync::Off, PacingMode::Vsync);
         let mut mode = PacingMode::Vsync;
-        assert_eq!(vrr.step(&mut mode, None), None);
+        assert_eq!(vrr.step(&mut mode, None, 0), None);
+    }
+
+    #[test]
+    fn a_v_sync_fall_back_is_rechecked_and_returns_once_the_display_refreshes_on_present() {
+        use super::super::scanline::{Beam, RaceCapability, Reason, Verdict};
+        let capability = RaceCapability { tearing: true, vrr: false, flip_inferred: false, scanline: true };
+        let fixed = Verdict::Off(Reason::NoVrr, capability);
+        let beam = Beam { rows: 2160, blank_rows: 90, total_rows: 2250, scan_ns: 8_310_000, refresh_hz: 120.3, lines_per_ms: 270.8,
+            vblank_fraction: 0.45, scans: 80, idle_from: 2521, longest_idle_ns: 17_000_000 };
+        let on = Verdict::On(beam, RaceCapability { vrr: true, flip_inferred: true, ..capability });
+        let idles = Verdict::Off(Reason::NoIdle, RaceCapability { vrr: true, ..capability });
+        let busy = Verdict::Off(Reason::NoIdle, capability);
+        let second = 1_000_000;
+        let mut vrr = VrrPacing::new(true, PacingMode::Vsync, VrrSync::Off, PacingMode::Immediate);
+        let mut mode = PacingMode::Immediate;
+        // nightjar#72's resume: no VRR, V-Sync.
+        assert_eq!(vrr.step(&mut mode, Some(&fixed), 0), Some(1));
+        assert!(!vrr.recheck_due(0));
+        assert_eq!(vrr.step(&mut mode, Some(&fixed), 0), None);
+        assert!(!vrr.recheck_due(RECHECK_FIRST_US - 1), "nothing until the first recheck");
+        assert!(vrr.recheck_due(RECHECK_FIRST_US));
+        assert!(!vrr.recheck_due(RECHECK_FIRST_US), "asked once");
+        // The probe measures again; the old verdict until its next present plans nothing.
+        assert_eq!(vrr.step(&mut mode, Some(&fixed), RECHECK_FIRST_US), None);
+        assert_eq!(vrr.step(&mut mode, Some(&Verdict::Checking), RECHECK_FIRST_US + second), None);
+        assert!(!vrr.recheck_due(100 * RECHECK_MAX_US), "none while one runs");
+        // At 120 fps on the 120 Hz display the presents never let it idle, and the calibration
+        // saw no idle either: nothing says it refreshes on present, V-Sync stays and waits twice as long.
+        let ended = RECHECK_FIRST_US + 2 * second;
+        assert_eq!(vrr.step(&mut mode, Some(&busy), ended), None);
+        assert_eq!(mode, PacingMode::Vsync);
+        assert!(!vrr.recheck_due(ended + 2 * RECHECK_FIRST_US - 1));
+        assert!(vrr.recheck_due(ended + 2 * RECHECK_FIRST_US));
+        // Now the presents restart the scan: Immediate again, interval 0.
+        assert_eq!(vrr.step(&mut mode, Some(&Verdict::Checking), 0), None);
+        assert_eq!(vrr.step(&mut mode, Some(&on), 0), Some(0));
+        assert_eq!((mode, vrr.fell_back, vrr.recovered), (PacingMode::Immediate, false, true));
+        assert_eq!(vrr.step(&mut mode, Some(&on), 0), None);
+        assert!(!vrr.recheck_due(u64::MAX), "nothing to recheck on Immediate");
+        // No VRR once more after returning: V-Sync for good, no flapping.
+        assert_eq!(vrr.step(&mut mode, Some(&fixed), 0), Some(1));
+        for at in [0, RECHECK_MAX_US, u64::MAX] {
+            assert_eq!(vrr.step(&mut mode, Some(&fixed), at), None);
+            assert!(!vrr.recheck_due(at));
+        }
+        assert_eq!(vrr.step(&mut mode, Some(&on), 0), Some(0), "the probe's own later verdict still counts");
+        // A recheck with no idle to test on a display the calibration saw idle returns too; the
+        // waits never grow past the longest.
+        let mut vrr = VrrPacing::new(true, PacingMode::Vsync, VrrSync::Off, PacingMode::HostTimes);
+        let mut mode = PacingMode::HostTimes;
+        vrr.step(&mut mode, Some(&fixed), 0);
+        let mut at = 0;
+        for _ in 0..10 {
+            vrr.step(&mut mode, Some(&fixed), at);
+            at += RECHECK_MAX_US;
+            assert!(vrr.recheck_due(at));
+        }
+        assert_eq!(vrr.step(&mut mode, Some(&idles), at), Some(0));
+        assert_eq!(mode, PacingMode::HostTimes, "the pacing it had before");
     }
 
     #[test]

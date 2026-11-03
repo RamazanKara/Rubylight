@@ -147,11 +147,19 @@ impl Streaming {
     /// interval the pacing and `NIGHTJAR_VRR_SYNC` ask for.
     pub(super) fn sync_vrr(&mut self, renderer: *mut SDL_Renderer) {
         let before = self.pacer.mode;
+        let now = session::now_us();
         let probe = self.race_probe.as_ref();
-        let interval = self.vrr.step(&mut self.pacer.mode, probe.map(race_probe::RaceProbe::verdict));
+        let interval = self.vrr.step(&mut self.pacer.mode, probe.map(race_probe::RaceProbe::verdict), now);
         if self.pacer.mode != before {
-            eprintln!("nightjar: pacing: {}, this display does not refresh on present (display check: {})",
-                self.pacer.mode.label(), probe.map_or(String::new(), race_probe::RaceProbe::line));
+            let line = probe.map_or(String::new(), race_probe::RaceProbe::line);
+            if self.vrr.fell_back {
+                eprintln!("nightjar: pacing: {}, this display does not refresh on present (display check: {line})", self.pacer.mode.label());
+            } else {
+                eprintln!("nightjar: pacing: {}, the display refreshes on present again (display check: {line})", self.pacer.mode.label());
+            }
+        }
+        if self.vrr.recheck_due(now) {
+            if let Some(probe) = self.race_probe.as_mut() { probe.recheck(); }
         }
         if let Some(interval) = interval {
             // SAFETY: the live renderer belongs to the presenting thread.
@@ -362,8 +370,10 @@ impl Streaming {
             self.direct_motion.presenting(None);
         }
         let fps = f64::from(self.facts.fps);
+        // A stream the check turned to V-Sync is rechecked with the tearing it had before.
+        let probe_tears = mode_tears || self.vrr.fell_back;
         let scan = self.race_probe.as_mut().filter(|_| probe).map(|probe| {
-            probe.after_present(renderer, beam_before, mode_tears, fps);
+            probe.after_present(renderer, beam_before, probe_tears, fps);
             probe.report(beam_before)
         });
         Flipped { issued_us, returned_us, scan }

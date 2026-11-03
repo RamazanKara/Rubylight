@@ -25,6 +25,8 @@ struct Flipped {
 impl Streaming {
     /// Moves decoded pictures into the pacer; sends a clock sync probe when due.
     pub fn pump(&mut self) {
+        // The keyboard hook keeps the shell's keys only while this loop runs.
+        system_keys::alive();
         self.cursor.tick(Instant::now());
         self.release_shortcut_when_due(Instant::now());
         if let Some(Err(error)) = self.microphone.as_mut().map(microphone::Microphone::poll) {

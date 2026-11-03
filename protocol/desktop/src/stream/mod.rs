@@ -1901,6 +1901,14 @@ mod tests {
     }
 
     #[test]
+    fn a_stream_behind_another_window_leaves_the_pointer_and_wheel_alone() {
+        // capture_on_focus: captured before it comes to the front.
+        assert!(!pointer_goes_out(true, false), "a pointer over the background window stays the local PC's");
+        assert!(pointer_goes_out(true, true));
+        assert!(!pointer_goes_out(false, true), "released");
+    }
+
+    #[test]
     fn ctrl_alt_backspace_goes_to_the_pc_and_only_ctrl_alt_shift_stays_local() {
         // Ctrl+Alt+Shift is Nightjar's own chord; every other one goes to the PC like any key.
         let local_chord = |mods| crate::shortcuts::Chord::nightjar(crate::shortcuts::Key::Tab).held(mods);

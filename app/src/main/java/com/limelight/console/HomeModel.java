@@ -357,7 +357,7 @@ public final class HomeModel {
             }
             library.add(new GameCard("game:" + title.key, title.title, best.hostUuid, best.hostName, best.appId,
                     badgeOf(snapshot, best), best, hosts, starred.contains(best.hostUuid + ":" + best.appId), false, listing,
-                    lastPlayed(title)));
+                    lineLastPlayed(snapshot, title)));
         }
         List<GameCard> allGames = new ArrayList<>();
         List<Row> rows = libraryRows(snapshot, starred, allGames, launchDenied);
@@ -436,7 +436,7 @@ public final class HomeModel {
             }
             boolean star = starred.contains(best.hostUuid + ":" + best.appId);
             GameCard card = new GameCard("game:" + title.key, title.title, best.hostUuid, best.hostName, best.appId,
-                    badgeOf(snapshot, best), best, hosts, star, false, listing, lastPlayed(title));
+                    badgeOf(snapshot, best), best, hosts, star, false, listing, lineLastPlayed(snapshot, title));
             allGames.add(card);
             if (best.storeSource == null) {
                 other.add(card);
@@ -489,6 +489,30 @@ public final class HomeModel {
             rows.add(new Row("shelf:unadded", RowKind.UNADDED, null, null, unadded, FILTER_UNADDED, true));
         }
         return rows;
+    }
+
+    /**
+     * A List line's last-played time, in seconds: what the title's hosts say, and only when none says, when this
+     * device last streamed one of its added copies (its recents keep the last few only), as on desktop.
+     */
+    private static Long lineLastPlayed(ConsoleSnapshot snapshot, ConsoleSnapshot.Title title) {
+        Long hosts = lastPlayed(title);
+        if (hosts != null) {
+            return hosts;
+        }
+        Long newest = null;
+        for (ConsoleSnapshot.Continue recent : snapshot.continuePlaying) {
+            if (recent.kind != ConsoleSnapshot.ContinueKind.RECENT || recent.playedAtMs <= 0) {
+                continue;
+            }
+            for (ConsoleSnapshot.Source source : title.sources) {
+                if (source.added && source.hostUuid.equals(recent.hostUuid) && source.appId == recent.appId) {
+                    long at = recent.playedAtMs / 1000;
+                    if (newest == null || at > newest) newest = at;
+                }
+            }
+        }
+        return newest;
     }
 
     /** The newest last-played time of a title's added copies (0 when all say never), or null when no host says. */

@@ -4,23 +4,26 @@ import android.media.AudioManager;
 
 /**
  * Where a Microphone only session is: connecting to the PC, sending the microphone, paused while this device is in a
- * call, unavailable (another app took the microphone), or ended. A call that starts while connecting pauses the
+ * call, unavailable (another app took the microphone), waiting while another device's microphone plays on the PC,
+ * or ended. A call that starts while connecting pauses the
  * microphone as soon as it would start. Once ended, nothing brings it back: a new session starts over. The service
  * ({@link MicOnlyService}) feeds it and shows it.
  */
 public final class MicOnlySession {
-    public enum Phase { CONNECTING, LIVE, PAUSED_FOR_CALL, UNAVAILABLE, ENDED }
+    public enum Phase { CONNECTING, LIVE, PAUSED_FOR_CALL, UNAVAILABLE, BUSY, ENDED }
 
     private boolean connected;
     private boolean inCall;
     private boolean unavailable;
+    private boolean busy;
     private boolean ended;
 
     public synchronized Phase phase() {
         if (ended) return Phase.ENDED;
         if (!connected) return Phase.CONNECTING;
         if (inCall) return Phase.PAUSED_FOR_CALL;
-        return unavailable ? Phase.UNAVAILABLE : Phase.LIVE;
+        if (unavailable) return Phase.UNAVAILABLE;
+        return busy ? Phase.BUSY : Phase.LIVE;
     }
 
     /** Whether the microphone should be muted now: during a call, so the PC never hears it. */
@@ -56,6 +59,14 @@ public final class MicOnlySession {
         if (ended || !unavailable) return false;
         unavailable = false;
         return !inCall;
+    }
+
+    /** The PC says another device's microphone plays, or no longer. Returns whether the phase changed. */
+    public synchronized boolean busy(boolean busy) {
+        if (ended || this.busy == busy) return false;
+        Phase before = phase();
+        this.busy = busy;
+        return phase() != before;
     }
 
     /** Whether to try opening the microphone again: it is unavailable, outside a call. */

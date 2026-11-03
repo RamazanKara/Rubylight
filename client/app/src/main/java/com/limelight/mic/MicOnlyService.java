@@ -28,6 +28,10 @@ import com.limelight.R;
 import com.limelight.binding.PlatformBinding;
 import com.limelight.binding.audio.SilentAudioRenderer;
 import com.limelight.binding.video.DiscardingDecoderRenderer;
+import com.limelight.nativeapi.HostEndpoint;
+import com.limelight.nativeapi.JniNativeApiTransport;
+import com.limelight.nativeapi.NativeApiClient;
+import com.limelight.nativeapi.NativeApiException;
 import com.limelight.nvstream.NvConnection;
 import com.limelight.nvstream.NvConnectionListener;
 import com.limelight.nvstream.StreamConfiguration;
@@ -39,6 +43,9 @@ import java.security.cert.CertificateEncodingException;
 import java.security.cert.CertificateException;
 import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Microphone only: this device's microphone on the PC, with no picture or sound, while the screen is off or another
@@ -55,6 +62,7 @@ public class MicOnlyService extends Service {
     private static final String EXTRA_HTTPS_PORT = "httpsPort";
     private static final String EXTRA_UNIQUE_ID = "uniqueId";
     private static final String EXTRA_PC_NAME = "pcName";
+    private static final String EXTRA_PC_UUID = "pcUuid";
     private static final String EXTRA_SERVER_CERT = "serverCert";
     private static final String CHANNEL = "mic_only";
     private static final int NOTIFICATION = 0x4d49;
@@ -64,6 +72,8 @@ public class MicOnlyService extends Service {
     // How often an unavailable microphone (another app holds it) is tried again, and how long a try has to fail.
     private static final long MIC_RETRY_MS = 5000;
     private static final long MIC_CONFIRM_MS = 2000;
+    // How often the PC is asked whether another device's microphone plays (GET /session).
+    private static final long BUSY_POLL_MS = 3000;
 
     // Whether a session runs in this process; a stream start asks it to end only then.
     private static volatile boolean running;
@@ -71,6 +81,8 @@ public class MicOnlyService extends Service {
     private final Handler main = new Handler(Looper.getMainLooper());
     private MicOnlySession session;
     private NvConnection connection;
+    // Where GET /session goes; null without the PC's pinned certificate.
+    private HostEndpoint endpoint;
     private String pcName = "";
     private AudioManager audio;
     private AudioManager.OnModeChangedListener modeListener;
@@ -87,6 +99,8 @@ public class MicOnlyService extends Service {
     private boolean micRetrying;
     private WifiManager.WifiLock wifiLock;
     private WifiManager.WifiLock lowLatencyLock;
+    // Asks the PC about the microphone; one per session, shut down with it.
+    private ScheduledExecutorService busyPoll;
     private PowerManager.WakeLock wakeLock;
     // What the connection said last, shown when it fails.
     private volatile String lastMessage;
@@ -100,6 +114,7 @@ public class MicOnlyService extends Service {
         intent.putExtra(EXTRA_HTTPS_PORT, computer.httpsPort);
         intent.putExtra(EXTRA_UNIQUE_ID, uniqueId);
         intent.putExtra(EXTRA_PC_NAME, computer.displayName());
+        intent.putExtra(EXTRA_PC_UUID, computer.uuid);
         try {
             if (computer.serverCert != null) intent.putExtra(EXTRA_SERVER_CERT, computer.serverCert.getEncoded());
         } catch (CertificateEncodingException e) {
@@ -136,8 +151,9 @@ public class MicOnlyService extends Service {
             Toast.makeText(this, getString(R.string.mic_only_failed, pcName), Toast.LENGTH_LONG).show();
             session.end();
             // Stopping before startForeground succeeded would crash the app after startForegroundService;
-            // enterForeground has put a short service in the foreground for this stop.
-            main.post(this::stopSelf);
+            // enterForeground has put a short service in the foreground for this stop. Only this start's stop:
+            // a newer start keeps the service.
+            main.post(() -> stopSelf(startId));
             return START_NOT_STICKY;
         }
         running = true;
@@ -175,6 +191,10 @@ public class MicOnlyService extends Service {
         LimeLog.info("Microphone only: connecting to " + pcName);
         NvConnection started = connection;
         started.setMicrophoneNoticeListener(() -> microphoneNotice(started));
+        endpoint = HostEndpoint.of(intent.getStringExtra(EXTRA_PC_UUID),
+                new ComputerDetails.AddressTuple(intent.getStringExtra(EXTRA_HOST), intent.getIntExtra(EXTRA_PORT, 0)),
+                intent.getIntExtra(EXTRA_HTTPS_PORT, 0), cert, intent.getStringExtra(EXTRA_UNIQUE_ID),
+                PlatformBinding.getCryptoProvider(this));
         started.start(new SilentAudioRenderer(), new DiscardingDecoderRenderer(), new Listener(started));
         return START_NOT_STICKY;
     }
@@ -200,6 +220,20 @@ public class MicOnlyService extends Service {
             }
         }
         return false;
+    }
+
+    // Android 14: a short service (the failed-start fallback) that outlives its time.
+    @Override
+    public void onTimeout(int startId) {
+        LimeLog.warning("Microphone only: the short foreground service timed out");
+        stopSelf();
+    }
+
+    // Android 15 and later.
+    @Override
+    public void onTimeout(int startId, int fgsType) {
+        LimeLog.warning("Microphone only: the foreground service timed out (" + fgsType + ")");
+        end(null);
     }
 
     @Override
@@ -228,6 +262,8 @@ public class MicOnlyService extends Service {
         main.removeCallbacks(micRetry);
         main.removeCallbacks(micConfirm);
         micRetrying = false;
+        if (busyPoll != null) busyPoll.shutdownNow();
+        busyPoll = null;
         if (modeListener != null && audio != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             audio.removeOnModeChangedListener(modeListener);
         }
@@ -286,14 +322,56 @@ public class MicOnlyService extends Service {
         main.postDelayed(micConfirm, MIC_CONFIRM_MS);
     }
 
-    // A retry that did not fail within MIC_CONFIRM_MS has the microphone back.
+    // A retry that did not fail within MIC_CONFIRM_MS has the microphone back if it is really capturing: the
+    // capture may not have started at all (the system microphone switch, an app-op), which fires no failure.
     private void confirmMicrophone() {
-        if (!micRetrying) return;
+        if (!micRetrying || connection == null) return;
         micRetrying = false;
+        if (!connection.isMicrophoneCapturing()) {
+            main.removeCallbacks(micRetry);
+            main.postDelayed(micRetry, MIC_RETRY_MS);
+            return;
+        }
         if (session.available()) {
             LimeLog.info("Microphone only: the microphone is back");
             showPhase();
         }
+    }
+
+    // From connectionStarted: asks the PC every BUSY_POLL_MS whether another device's microphone plays instead.
+    private void pollBusy() {
+        if (endpoint == null) {
+            LimeLog.warning("Microphone only: no pinned certificate, so the PC is not asked about the microphone");
+            return;
+        }
+        NvConnection owner = connection;
+        NativeApiClient client = new NativeApiClient(new JniNativeApiTransport(), endpoint);
+        busyPoll = Executors.newSingleThreadScheduledExecutor(r -> new Thread(r, "Microphone only busy"));
+        busyPoll.scheduleWithFixedDelay(new Runnable() {
+            private String lastError;
+
+            @Override
+            public void run() {
+                boolean busy;
+                try {
+                    busy = client.session().microphoneBusy;
+                    lastError = null;
+                } catch (NativeApiException | RuntimeException e) {
+                    // Said once per kind of failure; the next answer counts again.
+                    if (!String.valueOf(e.getMessage()).equals(lastError)) {
+                        LimeLog.warning("Microphone only: the PC's session could not be read: " + e.getMessage());
+                    }
+                    lastError = String.valueOf(e.getMessage());
+                    return;
+                }
+                main.post(() -> {
+                    if (connection != owner || !session.busy(busy)) return;
+                    LimeLog.info("Microphone only: " + (busy ? "another device's microphone plays on the PC"
+                            : "the PC plays this microphone again"));
+                    showPhase();
+                });
+            }
+        }, BUSY_POLL_MS, BUSY_POLL_MS, TimeUnit.MILLISECONDS);
     }
 
     private void applyMute() {
@@ -336,6 +414,9 @@ public class MicOnlyService extends Service {
                 break;
             case UNAVAILABLE:
                 title = R.string.mic_only_unavailable;
+                break;
+            case BUSY:
+                title = R.string.mic_only_busy;
                 break;
             default:
                 title = R.string.mic_only_connecting;
@@ -431,6 +512,7 @@ public class MicOnlyService extends Service {
                     return;
                 }
                 LimeLog.info("Microphone only: sending to " + pcName);
+                pollBusy();
                 applyMute();
                 showPhase();
             });

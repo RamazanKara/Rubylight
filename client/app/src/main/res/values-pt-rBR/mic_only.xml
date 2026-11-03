@@ -10,4 +10,5 @@
     <string name="mic_only_denied">Sem acesso ao microfone</string>
     <string name="mic_only_unavailable">Microfone indisponível</string>
     <string name="mic_only_not_accepted">%1$s não aceitou o microfone</string>
+    <string name="mic_only_busy">Microfone em uso em outro dispositivo</string>
 </resources>

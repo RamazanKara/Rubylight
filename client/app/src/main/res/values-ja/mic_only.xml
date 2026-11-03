@@ -10,4 +10,5 @@
     <string name="mic_only_denied">マイクへのアクセスがありません</string>
     <string name="mic_only_unavailable">マイクを使用できません</string>
     <string name="mic_only_not_accepted">%1$s がマイクを受け付けませんでした</string>
+    <string name="mic_only_busy">別のデバイスがマイクを使用中</string>
 </resources>

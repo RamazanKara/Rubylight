@@ -10,4 +10,5 @@
     <string name="mic_only_denied">Không có quyền dùng micrô</string>
     <string name="mic_only_unavailable">Micrô không khả dụng</string>
     <string name="mic_only_not_accepted">%1$s không nhận micrô</string>
+    <string name="mic_only_busy">Micrô đang dùng trên thiết bị khác</string>
 </resources>

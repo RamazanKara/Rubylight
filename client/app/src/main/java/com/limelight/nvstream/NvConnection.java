@@ -373,6 +373,11 @@ public class NvConnection {
         return micMuted;
     }
 
+    /** Whether this device's microphone is open and sending now. */
+    public synchronized boolean isMicrophoneCapturing() {
+        return microphone != null && microphone.isCapturing();
+    }
+
     // Snapshot before teardown clears controller ownership. This must not query
     // native state, which may already belong to a different connection.
     public synchronized boolean isMicrophoneMutedForReconnect() {

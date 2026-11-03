@@ -73,6 +73,22 @@ public class MicOnlySessionTest {
     }
 
     @Test
+    public void anotherDevicesMicrophoneOnThePcSaysSoUntilItIsThisOnesTurn() {
+        MicOnlySession session = new MicOnlySession();
+        session.connected();
+        assertTrue(session.busy(true));
+        assertFalse(session.busy(true));
+        assertEquals(MicOnlySession.Phase.BUSY, session.phase());
+        // A call or a failed microphone says more than the PC's choice.
+        session.call(true);
+        assertEquals(MicOnlySession.Phase.PAUSED_FOR_CALL, session.phase());
+        session.call(false);
+        assertEquals(MicOnlySession.Phase.BUSY, session.phase());
+        assertTrue(session.busy(false));
+        assertEquals(MicOnlySession.Phase.LIVE, session.phase());
+    }
+
+    @Test
     public void anEndedSessionStaysEnded() {
         MicOnlySession session = new MicOnlySession();
         session.connected();

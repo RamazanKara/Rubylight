@@ -1228,12 +1228,12 @@ fn a_guest_handle_queues_only_what_its_permission_allows_and_a_bounded_amount() 
             1 + GUEST_QUEUE,
             "its join, then the bound"
         );
-        assert_eq!(inbox.waiting[&2], GUEST_QUEUE);
+        assert_eq!(inbox.waiting[&2].data, GUEST_QUEUE);
         assert!(
-            inbox
-                .queue
-                .iter()
-                .all(|m| matches!(m, GuestMessage::Joined(2, _) | GuestMessage::Gamepad(2, ..)))
+            inbox.queue.iter().all(|(m, _)| matches!(
+                m,
+                GuestMessage::Joined(2, _) | GuestMessage::Gamepad(2, ..)
+            ))
         );
     }
     // However much it sent, the owner's queue got one wake.
@@ -1313,4 +1313,146 @@ fn the_worker_takes_the_owners_input_before_a_guests() {
     s.stop();
     worker.join().unwrap();
     drop(handle);
+}
+
+/// Feed what the guests' queue holds to the rig's worker, in order.
+fn drain(r: &mut Rig, queues: &Queues) {
+    while let Some(message) = queues.guests.pop() {
+        let now = r.at(1);
+        r.core.guest(message, now);
+    }
+}
+
+fn keyboard(events: &[Input]) -> Vec<bool> {
+    events
+        .iter()
+        .filter_map(|e| match e {
+            Input::Keyboard { down, .. } => Some(*down),
+            _ => None,
+        })
+        .collect()
+}
+
+const SHIFT_DOWN: &[u8] = br#"{"v":1,"type":"key","code":"ShiftLeft","down":true}"#;
+const SHIFT_UP: &[u8] = br#"{"v":1,"type":"key","code":"ShiftLeft","down":false}"#;
+
+fn pad_state(id: u32, seq: u64, buttons: u32) -> Vec<u8> {
+    format!(
+        r#"{{"v":2,"type":"gamepad-state","controllerId":{id},"seq":{seq},"buttons":{buttons},"leftTrigger":0,"rightTrigger":0,"leftStickX":0,"leftStickY":0,"rightStickX":0,"rightStickY":0}}"#
+    )
+    .into_bytes()
+}
+
+fn pad_connected(id: u32) -> Vec<u8> {
+    format!(
+        r#"{{"v":2,"type":"gamepad-connected","controllerId":{id},"id":"Pad","mapping":"standard","buttons":17,"axes":4,"dualRumble":true,"triggerRumble":true}}"#
+    )
+    .into_bytes()
+}
+
+#[test]
+fn a_guests_key_release_queues_past_the_bound_while_motion_gives_way() {
+    let mut r = rig(u32::MAX);
+    let (handle, queues) = channel();
+    let guest = handle
+        .guest(1, Permission::ControllerKeyboardMouse)
+        .unwrap();
+    let now = Instant::now();
+    guest.input(SHIFT_DOWN.to_vec(), false);
+    // The worker stalls while the guest moves the mouse: past the bound the motion is dropped.
+    for _ in 0..GUEST_QUEUE * 2 {
+        guest.input(
+            br#"{"v":1,"type":"mouse-move","dx":1,"dy":0}"#.to_vec(),
+            false,
+        );
+    }
+    // A pad plugs in and changes state three times: only its latest state waits.
+    guest.gamepad(pad_connected(0), false, now);
+    guest.gamepad(pad_state(0, 1, A), false, now);
+    guest.gamepad(pad_state(0, 2, 0), false, now);
+    guest.gamepad(pad_state(0, 3, A), false, now);
+    // The guest lets go of Shift while the queue is full.
+    guest.input(SHIFT_UP.to_vec(), false);
+    {
+        let inbox = queues.guests.state.lock().unwrap();
+        // Its join, the bound (Shift and 63 moves), the pad, one state and Shift's release.
+        assert_eq!(inbox.queue.len(), 1 + GUEST_QUEUE + 3);
+        let states: Vec<&GuestMessage> = inbox
+            .queue
+            .iter()
+            .map(|(m, _)| m)
+            .filter(|m| matches!(m, GuestMessage::Gamepad(_, text, _) if text.contains("gamepad-state")))
+            .collect();
+        assert_eq!(states.len(), 1);
+        assert!(
+            matches!(states[0], GuestMessage::Gamepad(_, text, _) if text.contains(r#""seq":3"#))
+        );
+    }
+    drain(&mut r, &queues);
+    let events = r.events();
+    assert_eq!(keyboard(&events), [true, false], "Shift ends up released");
+    assert!(
+        events.iter().any(|e| matches!(
+            e,
+            Input::Controller {
+                buttons: 0x1000,
+                ..
+            }
+        )),
+        "the pad's latest state arrived: {events:?}"
+    );
+    assert!(queues.guests.state.lock().unwrap().waiting.is_empty());
+}
+
+#[test]
+fn a_guest_past_its_backlog_has_everything_it_held_released() {
+    let mut r = rig(u32::MAX);
+    let (handle, queues) = channel();
+    let guest = handle
+        .guest(1, Permission::ControllerKeyboardMouse)
+        .unwrap();
+    let now = Instant::now();
+    guest.gamepad(pad_connected(0), false, now);
+    guest.input(SHIFT_DOWN.to_vec(), false);
+    // A page that clicks faster than a stalled desktop takes it fills its whole backlog.
+    for i in 0..GUEST_BACKLOG - 2 {
+        let down = i % 2 == 0;
+        guest.input(
+            format!(r#"{{"v":1,"type":"mouse-button","button":0,"down":{down}}}"#).into_bytes(),
+            false,
+        );
+    }
+    // Shift's release and the pad's unplugging no longer fit.
+    guest.input(SHIFT_UP.to_vec(), false);
+    guest.gamepad(
+        br#"{"v":2,"type":"gamepad-disconnected","controllerId":0}"#.to_vec(),
+        false,
+        now,
+    );
+    {
+        let inbox = queues.guests.state.lock().unwrap();
+        assert_eq!(inbox.queue.len(), 1 + GUEST_BACKLOG + 1);
+        assert!(matches!(
+            inbox.queue.back(),
+            Some((GuestMessage::Lost(1), _))
+        ));
+        assert_eq!(
+            inbox
+                .queue
+                .iter()
+                .filter(|(m, _)| matches!(m, GuestMessage::Lost(_)))
+                .count(),
+            1,
+            "one release covers every message dropped in a row"
+        );
+    }
+    drain(&mut r, &queues);
+    let events = r.events();
+    assert_eq!(keyboard(&events), [true, false], "Shift ends up released");
+    assert_eq!(r.core.pads.active_mask(), 0, "no pad is left plugged in");
+    // The guest still plays: what it sends next goes through.
+    guest.input(SHIFT_DOWN.to_vec(), false);
+    drain(&mut r, &queues);
+    assert_eq!(keyboard(&r.events()), [true, false, true]);
+    assert!(queues.guests.state.lock().unwrap().waiting.is_empty());
 }

@@ -71,9 +71,13 @@ const MAX_GUEST_TAG: u16 = 0x7fff;
 /// Pads one guest may plug in, and the slots the guests together leave to the owner's.
 const GUEST_PADS: usize = 4;
 const OWNER_PADS: usize = 4;
-/// A guest's gamepad and input messages waiting for the worker; more are dropped, so a page
-/// that sends faster than the desktop takes them cannot fill the host's memory.
+/// A guest's gamepad and input messages waiting for the worker before they give way: past this,
+/// motion is dropped and a snapshot replaces the guest's last one still waiting ([`Yields`]).
 const GUEST_QUEUE: usize = 64;
+/// A guest's messages waiting in all, so a page that sends faster than the desktop takes them
+/// cannot fill the host's memory. Past this even keys, buttons and pads coming and going are
+/// dropped, and the worker lets go of everything the guest holds when it gets there.
+const GUEST_BACKLOG: usize = 256;
 
 /// The id in the shared table of a guest's controller; None for an id out of range.
 fn guest_controller(tag: u16, controller_id: u32) -> Option<u32> {
@@ -116,6 +120,10 @@ enum GuestMessage {
     InputClosed(u64),
     /// A guest left: its pads are unplugged and what it held is released.
     Left(u64),
+    /// Some of a guest's keys, buttons or pads' comings and goings were dropped
+    /// ([`GUEST_BACKLOG`]): what it holds is released and its pads are unplugged, as if it had
+    /// let go of everything.
+    Lost(u64),
 }
 
 impl GuestMessage {
@@ -127,7 +135,8 @@ impl GuestMessage {
             | Self::Control(id, _)
             | Self::GamepadClosed(id)
             | Self::InputClosed(id)
-            | Self::Left(id) => id,
+            | Self::Left(id)
+            | Self::Lost(id) => id,
         }
     }
 
@@ -137,9 +146,58 @@ impl GuestMessage {
     }
 }
 
+/// How a guest's message gives way once its guest has [`GUEST_QUEUE`] waiting.
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum Yields {
+    /// Motion, scrolling and what the worker could not read anyway: dropped, which leaves
+    /// nothing held.
+    Drop,
+    /// A whole state (a pad's buttons and sticks, the pointer's position): replaces the guest's
+    /// last one of the same kind still waiting, unless something that must keep its order came
+    /// after it.
+    Replace(Snapshot),
+    /// Keys, buttons, text, pads coming and going, the guest's comings and goings: queued until
+    /// [`GUEST_BACKLOG`].
+    Keep,
+}
+
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum Snapshot {
+    Pad(u32),
+    Pointer,
+}
+
+impl Yields {
+    /// What a page's `gamepad` or `input` message is, from its `type` and `controllerId` alone.
+    fn of(message: &GuestMessage) -> Self {
+        #[derive(serde::Deserialize)]
+        struct Peek<'a> {
+            #[serde(rename = "type", borrow)]
+            kind: std::borrow::Cow<'a, str>,
+            #[serde(rename = "controllerId")]
+            controller_id: Option<u32>,
+        }
+        let (text, gamepad) = match message {
+            GuestMessage::Gamepad(_, text, _) => (text, true),
+            GuestMessage::Input(_, text, _) => (text, false),
+            _ => return Self::Keep,
+        };
+        let Ok(peek) = serde_json::from_str::<Peek>(text) else {
+            return Self::Drop;
+        };
+        match (gamepad, &*peek.kind, peek.controller_id) {
+            (true, "gamepad-state", Some(id)) => Self::Replace(Snapshot::Pad(id)),
+            (true, "gamepad-connected" | "gamepad-disconnected", _) => Self::Keep,
+            (false, "mouse-position", _) => Self::Replace(Snapshot::Pointer),
+            (false, "key" | "mouse-button" | "text", _) => Self::Keep,
+            _ => Self::Drop,
+        }
+    }
+}
+
 /// The guests' messages, beside the owner's queue: the worker takes one only while the owner's
-/// queue is empty, so no guest delays the owner's input, and each guest has at most
-/// [`GUEST_QUEUE`] waiting.
+/// queue is empty, so no guest delays the owner's input. A guest's messages give way past
+/// [`GUEST_QUEUE`] ([`Yields`]) and stop at [`GUEST_BACKLOG`].
 #[derive(Default)]
 struct GuestInbox {
     state: Mutex<Inbox>,
@@ -149,44 +207,106 @@ struct GuestInbox {
 
 #[derive(Default)]
 struct Inbox {
-    queue: VecDeque<GuestMessage>,
-    /// Data messages queued per guest; no entry for none.
-    waiting: HashMap<u64, usize>,
+    queue: VecDeque<(GuestMessage, Yields)>,
+    /// Per guest with data waiting or a [`GuestMessage::Lost`] last in the queue; no entry for
+    /// none.
+    waiting: HashMap<u64, Backlog>,
 }
 
-impl GuestInbox {
-    /// Queue `message` and wake the worker. False when it is data and its guest has
-    /// [`GUEST_QUEUE`] waiting already: it was dropped.
-    fn push(&self, tx: &mpsc::Sender<Message>, message: GuestMessage) -> bool {
-        {
-            let mut inbox = self.state.lock().unwrap();
-            if message.data() {
-                let waiting = inbox.waiting.entry(message.guest()).or_default();
-                if *waiting >= GUEST_QUEUE {
-                    return false;
-                }
-                *waiting += 1;
+#[derive(Default, Debug)]
+struct Backlog {
+    /// Data messages queued.
+    data: usize,
+    /// The guest's last message queued is a [`GuestMessage::Lost`], which covers what is
+    /// dropped until another queues behind it.
+    lost: bool,
+}
+
+impl Inbox {
+    /// The guest's last snapshot of `kind` still waiting, with nothing that keeps its order
+    /// queued for the guest after it.
+    fn snapshot(&mut self, guest: u64, kind: Snapshot) -> Option<&mut GuestMessage> {
+        for (message, yields) in self.queue.iter_mut().rev() {
+            if message.guest() != guest {
+                continue;
             }
-            inbox.queue.push_back(message);
+            match *yields {
+                Yields::Replace(k) if k == kind => return Some(message),
+                Yields::Keep => return None,
+                _ => {}
+            }
         }
-        if !self.woken.swap(true, Ordering::AcqRel) {
-            let _ = tx.send(Message::Guests);
-        }
-        true
+        None
     }
 
-    fn pop(&self) -> Option<GuestMessage> {
-        let mut inbox = self.state.lock().unwrap();
-        let message = inbox.queue.pop_front()?;
-        if message.data()
-            && let Entry::Occupied(mut waiting) = inbox.waiting.entry(message.guest())
-        {
-            *waiting.get_mut() -= 1;
-            if *waiting.get() == 0 {
-                waiting.remove();
+    /// Queue `message`, or say why not: false when it was dropped. `wake`: the worker needs
+    /// waking for what was queued.
+    fn push(&mut self, message: GuestMessage) -> (bool, bool) {
+        let guest = message.guest();
+        let yields = Yields::of(&message);
+        let data = self.waiting.get(&guest).map_or(0, |b| b.data);
+        if message.data() && data >= GUEST_QUEUE {
+            match yields {
+                Yields::Drop => return (false, false),
+                // The worker takes the guest's waiting messages before it sleeps: no wake.
+                Yields::Replace(kind) => {
+                    if let Some(older) = self.snapshot(guest, kind) {
+                        *older = message;
+                        return (true, false);
+                    }
+                }
+                Yields::Keep => {}
+            }
+            if data >= GUEST_BACKLOG {
+                let backlog = self.waiting.entry(guest).or_default();
+                if std::mem::replace(&mut backlog.lost, true) {
+                    return (false, false);
+                }
+                self.queue
+                    .push_back((GuestMessage::Lost(guest), Yields::Keep));
+                return (false, true);
+            }
+        }
+        let backlog = self.waiting.entry(guest).or_default();
+        backlog.lost = false;
+        if message.data() {
+            backlog.data += 1;
+        } else if backlog.data == 0 {
+            self.waiting.remove(&guest);
+        }
+        self.queue.push_back((message, yields));
+        (true, true)
+    }
+
+    fn pop(&mut self) -> Option<GuestMessage> {
+        let (message, _) = self.queue.pop_front()?;
+        let guest = message.guest();
+        if let Entry::Occupied(mut backlog) = self.waiting.entry(guest) {
+            match message {
+                GuestMessage::Lost(_) => backlog.get_mut().lost = false,
+                _ if message.data() => backlog.get_mut().data -= 1,
+                _ => {}
+            }
+            if backlog.get().data == 0 && !backlog.get().lost {
+                backlog.remove();
             }
         }
         Some(message)
+    }
+}
+
+impl GuestInbox {
+    /// Queue `message` and wake the worker. False when it was dropped ([`Yields`]).
+    fn push(&self, tx: &mpsc::Sender<Message>, message: GuestMessage) -> bool {
+        let (queued, wake) = self.state.lock().unwrap().push(message);
+        if wake && !self.woken.swap(true, Ordering::AcqRel) {
+            let _ = tx.send(Message::Guests);
+        }
+        queued
+    }
+
+    fn pop(&self) -> Option<GuestMessage> {
+        self.state.lock().unwrap().pop()
     }
 }
 
@@ -1136,6 +1256,7 @@ impl Core {
             GuestMessage::GamepadClosed(id) => self.guest_unplug(id, now),
             GuestMessage::InputClosed(id) => self.guest_release(id, now),
             GuestMessage::Left(id) => self.guest_left(id, now),
+            GuestMessage::Lost(id) => self.guest_lost(id, now),
         }
     }
 
@@ -1211,6 +1332,19 @@ impl Core {
         self.guest_unplug(id, now);
         self.guest_release(id, now);
         self.guests.remove(&id);
+    }
+
+    /// Some of a guest's keys, buttons or pads' comings and goings were dropped: rather than
+    /// guess what it still holds, let go of all of it and unplug its pads (a pad comes back when
+    /// the guest plugs it in again or reloads the page). Only a page that floods the host, or a
+    /// desktop that stalls for seconds, gets here.
+    fn guest_lost(&mut self, id: u64, now: Instant) {
+        tracing::debug!(
+            guest = id,
+            "WebRTC input: a guest's input was dropped; releasing what it holds"
+        );
+        self.guest_unplug(id, now);
+        self.guest_release(id, now);
     }
 
     /// Release everything and report. Safe to call twice.

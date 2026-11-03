@@ -410,29 +410,197 @@ fn a_store_game_is_the_same_program_after_an_update() {
     ));
 }
 
+/// The PC's default devices: speakers for the game, a headset for voice.
+fn speakers_and_headset() -> [Option<String>; 3] {
+    [
+        Some("{speakers}".into()),
+        Some("{speakers}".into()),
+        Some("{headset}".into()),
+    ]
+}
+
 #[test]
 fn a_game_that_opened_its_sound_before_the_route_is_reported() {
     let speakers = "{speakers}";
     let sink = "{steam}";
+    let defaults = speakers_and_headset();
+    let found = |pids: &[u32], sessions: &[(u32, String)]| {
+        plays_elsewhere(pids, sessions, sink, &defaults, &[]).pids
+    };
     let elsewhere = [(7, speakers.to_string())];
-    assert_eq!(plays_elsewhere(&[7], &elsewhere, sink), [7]);
+    assert_eq!(found(&[7], &elsewhere), [7]);
     let both = [
         (7, speakers.to_string()),
         (7, sink.to_string()),
         (8, sink.to_string()),
     ];
     assert_eq!(
-        plays_elsewhere(&[7, 8], &both, sink),
+        found(&[7, 8], &both),
         [7],
         "a second sound of the game still on the PC is reported beside one on the sink"
     );
     let on_sink = [(7, sink.to_string()), (8, sink.to_string())];
-    assert!(plays_elsewhere(&[7, 8], &on_sink, sink).is_empty());
+    assert!(found(&[7, 8], &on_sink).is_empty());
     assert!(
-        plays_elsewhere(&[9], &elsewhere, sink).is_empty(),
+        found(&[9], &elsewhere).is_empty(),
         "another app is not the game"
     );
-    assert!(plays_elsewhere(&[7], &[], sink).is_empty(), "silent so far");
+    assert!(found(&[7], &[]).is_empty(), "silent so far");
+}
+
+#[test]
+fn voice_chat_on_its_own_communications_device_is_no_warning() {
+    let sink = "{steam}";
+    let voice = [(7, "{headset}".to_string()), (7, sink.to_string())];
+    let found = plays_elsewhere(&[7], &voice, sink, &speakers_and_headset(), &[]);
+    assert_eq!(found, OnThePc::default());
+    let other = [(7, "{hdmi}".to_string())];
+    assert_eq!(
+        plays_elsewhere(&[7], &other, sink, &speakers_and_headset(), &[]),
+        OnThePc::default(),
+        "a device the PC doesn't play the game on is no one's"
+    );
+}
+
+#[test]
+fn the_games_own_device_counts_and_a_shared_communications_device_may_be_voice() {
+    let sink = "{steam}";
+    let own = [(7, "{hdmi}".to_string())];
+    assert_eq!(
+        plays_elsewhere(&[7], &own, sink, &speakers_and_headset(), &["{HDMI}", ""]),
+        OnThePc {
+            pids: vec![7],
+            maybe_voice: false
+        },
+        "the game's own device from before the stream"
+    );
+    let shared = [
+        Some("{speakers}".to_string()),
+        Some("{speakers}".to_string()),
+        Some("{speakers}".to_string()),
+    ];
+    let session = [(7, "{speakers}".to_string())];
+    assert_eq!(
+        plays_elsewhere(&[7], &session, sink, &shared, &[]),
+        OnThePc {
+            pids: vec![7],
+            maybe_voice: true
+        },
+        "one device for both: the warning must allow for voice chat"
+    );
+    let on_default_sink = [Some(sink.to_string()), Some(sink.to_string()), None];
+    assert_eq!(
+        plays_elsewhere(
+            &[7],
+            &[(7, sink.to_string())],
+            sink,
+            &on_default_sink,
+            &[sink]
+        ),
+        OnThePc::default(),
+        "the sink is never the PC's"
+    );
+}
+
+#[test]
+fn a_per_app_device_names_its_endpoint() {
+    assert_eq!(endpoint_id(HEADSET), "{headset}");
+    assert_eq!(
+        endpoint_id(&HEADSET.to_uppercase()),
+        "{HEADSET}",
+        "Windows' casing"
+    );
+    assert_eq!(endpoint_id(""), "");
+}
+
+/// Programs starting, as WMI tells them: each start also runs the program
+/// in `fake`. `Err` ends the watch, as a broken subscription does.
+struct Launches<'a> {
+    fake: &'a Fake,
+    events: std::collections::VecDeque<Result<Option<(u32, String)>>>,
+}
+impl Starts for Launches<'_> {
+    fn next(&mut self, _: Duration) -> Result<Option<(u32, String)>> {
+        let event = self
+            .events
+            .pop_front()
+            .unwrap_or_else(|| Err(anyhow::anyhow!("no more starts")))?;
+        if let Some((pid, exe)) = &event {
+            self.fake.running.borrow_mut().push((*pid, exe.clone()));
+        }
+        Ok(event)
+    }
+}
+/// A game routed to the sink that exited by itself: its restore waits.
+fn quit_by_itself(fake: &Fake, directory: &Path) -> Result<Mutex<State>> {
+    let mut state = State::default();
+    started(fake, 7);
+    fake.set(7, eConsole, HEADSET)?;
+    route_with(fake, &mut state, directory, 7, GAME, SINK)?;
+    exited(fake);
+    assert!(release_with(fake, &mut state, directory, GAME)?);
+    state.watching = true;
+    Ok(Mutex::new(state))
+}
+
+#[test]
+fn a_game_that_quit_by_itself_is_put_back_as_it_starts() -> Result<()> {
+    let directory = tempfile::tempdir()?;
+    let fake = Fake::default();
+    let state = quit_by_itself(&fake, directory.path())?;
+    let mut starts = Launches {
+        fake: &fake,
+        events: [
+            Ok(Some((5, r"c:\windows\system32\notepad.exe".to_string()))),
+            Ok(Some((9, GAME.to_string()))),
+        ]
+        .into(),
+    };
+    let listed = fake.listed.borrow().len();
+    watch_starts(&fake, &state, directory.path(), &mut starts)?;
+    assert_eq!(fake.device(GAME, eConsole), HEADSET);
+    assert_eq!(fake.device(GAME, eMultimedia), "");
+    assert_eq!(load(directory.path())?, Journal::default());
+    assert!(!state.lock().unwrap().watching, "nothing waits: it ends");
+    assert_eq!(
+        fake.listed.borrow().len(),
+        listed + 1,
+        "only the first look lists processes: the start alone found the game"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_game_that_started_before_the_watch_is_found_by_its_first_look() -> Result<()> {
+    let directory = tempfile::tempdir()?;
+    let fake = Fake::default();
+    let state = quit_by_itself(&fake, directory.path())?;
+    started(&fake, 9);
+    let mut starts = Launches {
+        fake: &fake,
+        events: [].into(),
+    };
+    watch_starts(&fake, &state, directory.path(), &mut starts)?;
+    assert_eq!(fake.device(GAME, eConsole), HEADSET);
+    assert!(!state.lock().unwrap().watching);
+    Ok(())
+}
+
+#[test]
+fn a_broken_watch_of_starts_leaves_the_watcher_on_for_its_fallback() -> Result<()> {
+    let directory = tempfile::tempdir()?;
+    let fake = Fake::default();
+    let state = quit_by_itself(&fake, directory.path())?;
+    let mut starts = Launches {
+        fake: &fake,
+        events: [Ok(None), Err(anyhow::anyhow!("WMI stopped"))].into(),
+    };
+    let error = watch_starts(&fake, &state, directory.path(), &mut starts).unwrap_err();
+    assert_eq!(error.to_string(), "WMI stopped");
+    assert!(state.lock().unwrap().watching, "the poll goes on from here");
+    assert_eq!(load(directory.path())?.apps.len(), 1, "still waiting");
+    assert_eq!(fake.device(GAME, eConsole), SINK);
+    Ok(())
 }
 
 #[test]

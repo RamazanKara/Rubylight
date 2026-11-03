@@ -8,7 +8,7 @@ use butterpollo_core::{
 };
 use butterpollo_windows::{
     audio::{Loopback, ProcessActivation},
-    audio_app_route::AppRoute,
+    audio_app_route::{AppRoute, OnThePc},
     process::AudioProcess,
 };
 use std::collections::BTreeMap;
@@ -181,20 +181,29 @@ pub(super) fn moves_game_sound(config: &Config, host_audio: bool) -> bool {
 /// Where the game's sound reaches the PC.
 #[derive(Debug, PartialEq)]
 enum Elsewhere {
-    /// A routed process opened it before its route.
-    Opened,
+    /// A routed process opened it before its route; or, with `voice`, on
+    /// the communications device the PC also plays on, it may be the
+    /// game's voice chat.
+    Opened { voice: bool },
     /// A Windows program in the game's tree, never routed, plays it.
     Windows(u32),
 }
 /// Of the game's processes `found` on the PC's device, the one to tell:
 /// a routed one first, as the next start fixes it.
-fn place(found: &[u32], windows: &std::collections::BTreeSet<Identity>) -> Option<Elsewhere> {
+fn place(found: &OnThePc, windows: &std::collections::BTreeSet<Identity>) -> Option<Elsewhere> {
     let windows_program = |pid: &u32| windows.iter().any(|id| id.pid == *pid);
-    if found.iter().any(|pid| !windows_program(pid)) {
-        return Some(Elsewhere::Opened);
+    if found.pids.iter().any(|pid| !windows_program(pid)) {
+        return Some(Elsewhere::Opened {
+            voice: found.maybe_voice,
+        });
     }
-    found.first().map(|&pid| Elsewhere::Windows(pid))
+    found.pids.first().map(|&pid| Elsewhere::Windows(pid))
 }
+const OPENED_EARLY: &str = "Game sound also plays on the PC: the game opened its sound before Rubylight moved it to the virtual playback device. Windows keeps that choice, so it moves when the game starts again, unless the game picks its own output device in its settings: set it to the default device there.";
+/// The PC's communications device is also where it plays the game: a
+/// session there may be the game's voice chat, which stays on it, so the
+/// warning names both.
+const OPENED_EARLY_OR_VOICE: &str = "Sound of the game plays on the PC, on its communications device: either the game's voice chat, which stays there, or game sound the game opened before Rubylight moved it to the virtual playback device, which moves when the game starts again.";
 /// Seconds between the checks of where the game's sound plays.
 const PLACE_CHECK: u32 = 5;
 impl Routes {
@@ -252,7 +261,7 @@ impl Routes {
                     error = format!("{error:#}"),
                     "where the game's sound plays can't be read"
                 );
-                vec![]
+                OnThePc::default()
             });
             place(&found, &self.windows)
         } else {
@@ -260,7 +269,8 @@ impl Routes {
         };
         match (&self.failed, elsewhere) {
             (Some(error), _) => s.launch.warnings.set("audio_game_host", format!("Game sound also plays on the PC: Rubylight could not move the game to a virtual playback device ({error}).")),
-            (None, Some(Elsewhere::Opened)) => s.launch.warnings.set("audio_game_host", "Game sound also plays on the PC: the game opened its sound before Rubylight moved it to the virtual playback device. Windows keeps that choice, so it moves when the game starts again, unless the game picks its own output device in its settings: set it to the default device there."),
+            (None, Some(Elsewhere::Opened { voice: false })) => s.launch.warnings.set("audio_game_host", OPENED_EARLY),
+            (None, Some(Elsewhere::Opened { voice: true })) => s.launch.warnings.set("audio_game_host", OPENED_EARLY_OR_VOICE),
             (None, Some(Elsewhere::Windows(pid))) => {
                 let program = butterpollo_windows::process::image_path(pid)
                     .and_then(|path| path.rsplit('\\').next().map(str::to_string))
@@ -307,10 +317,23 @@ mod tests {
             pid: 30,
             started: 1,
         }]);
-        assert_eq!(place(&[], &windows), None);
-        assert_eq!(place(&[7], &windows), Some(Elsewhere::Opened));
-        assert_eq!(place(&[7, 30], &windows), Some(Elsewhere::Opened));
-        assert_eq!(place(&[30], &windows), Some(Elsewhere::Windows(30)));
+        let found = |pids: &[u32], maybe_voice| OnThePc {
+            pids: pids.to_vec(),
+            maybe_voice,
+        };
+        let opened = Some(Elsewhere::Opened { voice: false });
+        assert_eq!(place(&found(&[], false), &windows), None);
+        assert_eq!(place(&found(&[7], false), &windows), opened);
+        assert_eq!(place(&found(&[7, 30], false), &windows), opened);
+        assert_eq!(
+            place(&found(&[7], true), &windows),
+            Some(Elsewhere::Opened { voice: true }),
+            "on a communications device that is also the PC's default it may be voice chat"
+        );
+        assert_eq!(
+            place(&found(&[30], false), &windows),
+            Some(Elsewhere::Windows(30))
+        );
     }
 
     #[test]

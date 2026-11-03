@@ -384,7 +384,12 @@ run one program (Windows keeps one device per program), which the stream says.
 Windows doesn't move sound a game already opened, so a game that opened it
 before the move plays on the PC until it next starts (the stream says so).
 The game goes back to its own device when Rubylight closes it or the stream
-ends; one that quit or outlived a host crash goes back the next time it runs.
+ends; one that quit or outlived a host crash goes back as soon as it next
+starts (the host watches programs start; if Windows can't tell it, the host
+logs an error and looks every 2 s instead). The game's voice chat stays on the
+PC's communications device; the stream's warning counts only sound on the
+PC's default device or the game's own, and names voice chat as a cause when
+the communications device is one of those.
 Windows sets a game's device only while it runs, so uninstalling Rubylight
 while a game still waits leaves it on the virtual device: pick its device in
 Volume mixer, or use its **Reset**. The host keeps that list in

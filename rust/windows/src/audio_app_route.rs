@@ -7,8 +7,10 @@
 //! Windows keeps an app's output device for its program, after it exits, so
 //! the choice is journalled first and put back once the program runs again
 //! when it exited mid-stream or the host crashed: right away when a process
-//! of it still runs, else when it next starts (a watcher looks every
-//! [`WATCH`]). A device the user picked for the game during the stream stays.
+//! of it still runs, else as soon as it next starts (a watcher sees
+//! processes start through WMI, [`Starts`]; without it, it
+//! looks every [`WATCH`]). A device the user picked for the game during the
+//! stream stays.
 //! Windows sets a device only for a running process, so a host that stops
 //! the game itself puts it back first ([`put_back`]); an uninstall can't put
 //! back a game that isn't running (Volume mixer's Reset does).
@@ -21,7 +23,7 @@ use std::{
     ffi::c_void,
     path::{Path, PathBuf},
     sync::{Mutex, MutexGuard},
-    time::Duration,
+    time::{Duration, Instant},
 };
 use windows::{
     Win32::{Media::Audio::*, System::WinRT::RoGetActivationFactory},
@@ -30,8 +32,12 @@ use windows::{
 
 /// The roles a game's stream opens on; communications stays the user's.
 const ROLES: [ERole; 2] = [eConsole, eMultimedia];
-/// How often a pending restore looks for the program it waits for.
+/// How often a pending restore looks for the program it waits for when
+/// process starts can't be watched.
 const WATCH: Duration = Duration::from_secs(2);
+/// How often a watcher that sees process starts still looks for every
+/// program: for a restore that failed, or one a stream did meanwhile.
+const SWEEP: Duration = Duration::from_secs(30);
 const RENDER_INTERFACE: &str = "#{e6327cad-dcec-4949-ae8a-991e976a79d2}";
 const MMDEVAPI: &str = r"\\?\SWD#MMDEVAPI#";
 
@@ -120,6 +126,41 @@ impl Apps for Windows {
             .collect())
     }
 }
+/// Processes as they start, so a pending restore runs before the program
+/// is likely to open its sound; a fake in the tests.
+trait Starts {
+    /// The next process to start within `timeout`, with its program path in
+    /// lower case; `None` when none did.
+    fn next(&mut self, timeout: Duration) -> Result<Option<(u32, String)>>;
+}
+
+/// [`Starts`] from WMI's process start trace, which needs an administrator,
+/// as the host runs. On the thread that made it, which has COM initialised.
+struct WindowsStarts(crate::wmi::Events);
+impl WindowsStarts {
+    fn subscribe() -> Result<Self> {
+        let wmi = crate::wmi::Wmi::connect(r"root\cimv2")?;
+        Ok(Self(wmi.events("SELECT * FROM Win32_ProcessStartTrace")?))
+    }
+}
+impl Starts for WindowsStarts {
+    fn next(&mut self, timeout: Duration) -> Result<Option<(u32, String)>> {
+        let deadline = Instant::now() + timeout;
+        loop {
+            let left = deadline.saturating_duration_since(Instant::now());
+            let Some(event) = self.0.next(left)? else {
+                return Ok(None);
+            };
+            // One that already ended has no device to put back.
+            if let Some(pid) = crate::wmi::number(&event, "ProcessID")?
+                && let Some(exe) = crate::process::image_path(pid)
+            {
+                return Ok(Some((pid, exe.to_lowercase())));
+            }
+        }
+    }
+}
+
 fn file_name(path: &str) -> &str {
     path.rsplit(['\\', '/']).next().unwrap_or(path)
 }
@@ -453,20 +494,69 @@ fn restore_running(
     Ok(journal.apps.iter().any(|app| idle(state, app)))
 }
 
+/// Where the game's sound reaches the PC ([`plays_elsewhere`]).
+#[derive(Debug, Default, PartialEq)]
+pub struct OnThePc {
+    /// The game's processes playing there.
+    pub pids: Vec<u32>,
+    /// One plays on the PC's default communications device, which is also
+    /// its default or the game's own device: that may be the game's voice
+    /// chat, which stays on it ([`ROLES`]).
+    pub maybe_voice: bool,
+}
+
 /// The game's processes (`pids`) with an active session (`sessions`: pid
-/// and endpoint ID) on another endpoint than the sink, even beside one on
-/// the sink: that sound reaches the PC. Windows moves no stream that is
-/// already open, so a game that opened its sound before it was routed keeps
-/// it on the PC's device until it opens it again.
-fn plays_elsewhere(pids: &[u32], sessions: &[(u32, String)], sink: &str) -> Vec<u32> {
-    let mut found: Vec<u32> = sessions
-        .iter()
-        .filter(|(pid, endpoint)| pids.contains(pid) && !endpoint.eq_ignore_ascii_case(sink))
-        .map(|(pid, _)| *pid)
+/// and endpoint ID) where the PC plays the game: its default device for
+/// [`ROLES`] (`defaults`: console, multimedia, communications) or the
+/// game's own device (`own`), not the sink, even beside a session on the
+/// sink. Windows moves no stream that is already open, so a game that
+/// opened its sound before it was routed keeps it on the PC's device until
+/// it opens it again. Another communications device is voice chat's, never
+/// counted.
+fn plays_elsewhere(
+    pids: &[u32],
+    sessions: &[(u32, String)],
+    sink: &str,
+    defaults: &[Option<String>; 3],
+    own: &[&str],
+) -> OnThePc {
+    let [console, multimedia, communications] = defaults;
+    let same = |a: &str, b: &str| a.eq_ignore_ascii_case(b);
+    let watched: Vec<&str> = [console.as_deref(), multimedia.as_deref()]
+        .into_iter()
+        .flatten()
+        .chain(own.iter().copied().filter(|device| !device.is_empty()))
+        .filter(|device| !same(device, sink))
         .collect();
-    found.sort_unstable();
-    found.dedup();
+    let mut found = OnThePc::default();
+    for (pid, endpoint) in sessions {
+        if !pids.contains(pid) || !watched.iter().any(|device| same(device, endpoint)) {
+            continue;
+        }
+        found.pids.push(*pid);
+        found.maybe_voice |= communications
+            .as_deref()
+            .is_some_and(|device| same(device, endpoint));
+    }
+    found.pids.sort_unstable();
+    found.pids.dedup();
     found
+}
+
+/// The endpoint ID in a per-app device (`\\?\SWD#MMDEVAPI#{id}#{interface}`).
+fn endpoint_id(device: &str) -> &str {
+    let lower = device.to_ascii_lowercase();
+    let start = if lower.starts_with(&MMDEVAPI.to_ascii_lowercase()) {
+        MMDEVAPI.len()
+    } else {
+        0
+    };
+    let end = if lower.ends_with(RENDER_INTERFACE) {
+        device.len() - RENDER_INTERFACE.len()
+    } else {
+        device.len()
+    };
+    device.get(start..end.max(start)).unwrap_or(device)
 }
 
 /// Active playback sessions: process ID and endpoint ID.
@@ -588,11 +678,11 @@ impl AppRoute {
         self.users.as_deref().filter(|device| !device.is_empty())
     }
     /// Which of these routes' processes, and of the game's processes left
-    /// `unrouted`, play on another device than the routes' sink
+    /// `unrouted`, play where the PC plays the game, not on the routes' sink
     /// ([`plays_elsewhere`]).
-    pub fn plays_elsewhere(routes: &[&AppRoute], unrouted: &[u32]) -> Result<Vec<u32>> {
+    pub fn plays_elsewhere(routes: &[&AppRoute], unrouted: &[u32]) -> Result<OnThePc> {
         let Some(first) = routes.iter().find(|route| route.users.is_none()) else {
-            return Ok(vec![]);
+            return Ok(OnThePc::default());
         };
         let pids: Vec<u32> = routes
             .iter()
@@ -600,7 +690,24 @@ impl AppRoute {
             .map(|r| r.pid)
             .chain(unrouted.iter().copied())
             .collect();
-        Ok(plays_elsewhere(&pids, &active_sessions()?, &first.sink_id))
+        let journal = load(&first.directory)?;
+        let own: Vec<&str> = journal
+            .apps
+            .iter()
+            .filter(|app| routes.iter().any(|r| same_program(&app.exe, &r.exe)))
+            .flat_map(|app| app.before.iter().map(|device| endpoint_id(device)))
+            .collect();
+        let defaults = {
+            let _com = crate::capture::ComGuard::new()?;
+            crate::audio_route::defaults()?
+        };
+        Ok(plays_elsewhere(
+            &pids,
+            &active_sessions()?,
+            &first.sink_id,
+            &defaults,
+            &own,
+        ))
     }
 }
 impl Drop for AppRoute {
@@ -697,7 +804,9 @@ impl Drop for Closing {
     }
 }
 
-/// One watcher per host: it ends once nothing waits.
+/// One watcher per host: it ends once nothing waits. It puts a program back
+/// as it starts ([`watch_starts`]); when Windows can't tell it starts, it
+/// looks every [`WATCH`], which can be after the game opened its sound.
 fn watch(directory: &Path) {
     {
         let mut state = STATE.lock().unwrap();
@@ -710,35 +819,107 @@ fn watch(directory: &Path) {
     let spawned = std::thread::Builder::new()
         .name("game audio restore".into())
         .spawn(move || {
-            let mut reported = None;
-            loop {
-                std::thread::sleep(WATCH);
-                // One lock from the restore's device changes to the decision
-                // to stop: a stream ending meanwhile finds the watcher either
-                // running or gone.
-                let (mut state, result) = restore_now(&directory);
-                match result {
-                    Ok(true) => {}
-                    Ok(false) => {
-                        state.watching = false;
-                        return;
-                    }
-                    Err(error) => {
-                        let detail = format!("{error:#}");
-                        if reported.as_ref() != Some(&detail) {
-                            tracing::warn!(
-                                error = detail,
-                                "game audio devices could not be restored; retrying"
-                            );
-                            reported = Some(detail);
-                        }
-                    }
-                }
+            let watched = crate::capture::ComGuard::new().and_then(|com| {
+                let apps = Windows::new()?;
+                let mut starts = WindowsStarts::subscribe()
+                    .context("watching programs start (WMI's Win32_ProcessStartTrace)")?;
+                let watched = watch_starts(&apps, &STATE, &directory, &mut starts);
+                drop((starts, apps, com));
+                watched
+            });
+            if let Err(error) = watched {
+                tracing::error!(
+                    error = %format!("{error:#}"),
+                    "game audio restore can't see games start: a game that quit by itself goes back to its own device up to 2 s after it next starts, and may play that run on the virtual playback device"
+                );
+                poll(&directory);
             }
         });
     if let Err(error) = spawned {
         STATE.lock().unwrap().watching = false;
         tracing::warn!(error = %error, "game audio devices are restored at the next host start");
+    }
+}
+
+/// Watches `starts` until nothing waits: a waiting program is put back as
+/// it starts, and every program every [`SWEEP`]. Returns the error that
+/// ended the watch of starts, with the watcher still on; a failed restore is
+/// told and tried again.
+fn watch_starts(
+    apps: &dyn Apps,
+    state: &Mutex<State>,
+    directory: &Path,
+    starts: &mut dyn Starts,
+) -> Result<()> {
+    let mut reported = None;
+    // Starts are watched already: this first look finds a program that
+    // started since the restore that left it waiting, the watch any later.
+    let mut sweep = true;
+    loop {
+        let (mut guard, result) = if std::mem::take(&mut sweep) {
+            restore_unlocked(apps, state, directory)
+        } else {
+            match starts.next(SWEEP)? {
+                None => restore_unlocked(apps, state, directory),
+                Some((pid, exe)) => match load(directory) {
+                    Err(error) => (state.lock().unwrap(), Err(error)),
+                    Ok(journal) => {
+                        let guard = state.lock().unwrap();
+                        // Any other program starting costs no device call.
+                        if !journal
+                            .apps
+                            .iter()
+                            .any(|app| idle(&guard, app) && same_program(&app.exe, &exe))
+                        {
+                            continue;
+                        }
+                        let result = restore_running(apps, &guard, directory, &[(pid, exe)]);
+                        (guard, result)
+                    }
+                },
+            }
+        };
+        // One lock from the restore's device changes to the decision to
+        // stop: a stream ending meanwhile finds the watcher either running
+        // or gone.
+        if !waits_still(&mut guard, result, &mut reported) {
+            return Ok(());
+        }
+    }
+}
+
+/// [`watch`] without process starts: a look every [`WATCH`].
+fn poll(directory: &Path) {
+    let mut reported = None;
+    loop {
+        std::thread::sleep(WATCH);
+        let (mut state, result) = restore_now(directory);
+        if !waits_still(&mut state, result, &mut reported) {
+            return;
+        }
+    }
+}
+
+/// After a watcher's restore: whether it watches on. It ends when nothing
+/// waits; an error is told once until it changes.
+fn waits_still(state: &mut State, result: Result<bool>, reported: &mut Option<String>) -> bool {
+    match result {
+        Ok(true) => true,
+        Ok(false) => {
+            state.watching = false;
+            false
+        }
+        Err(error) => {
+            let detail = format!("{error:#}");
+            if reported.as_ref() != Some(&detail) {
+                tracing::warn!(
+                    error = detail,
+                    "game audio devices could not be restored; retrying"
+                );
+                *reported = Some(detail);
+            }
+            true
+        }
     }
 }
 

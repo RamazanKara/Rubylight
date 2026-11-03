@@ -1,6 +1,7 @@
 //! WMI through COM, for what Windows offers only there: the network adapters
 //! as `Get-NetAdapter` lists them (`root\StandardCimv2`), their drivers' wake
-//! settings (`root\wmi`) and firewall rules by their ID. Setup shares this
+//! settings (`root\wmi`), firewall rules by their ID and processes as they
+//! start ([`Wmi::events`]). Setup shares this
 //! file (`#[path]` in rust/setup/src/main.rs), so it uses only `windows` and
 //! `anyhow`.
 //!
@@ -36,7 +37,7 @@ use windows::{
                 IEnumWbemClassObject, IWbemClassObject, IWbemContext, IWbemLocator, IWbemServices,
                 IWbemStatusCodeText, WBEM_FLAG_FORWARD_ONLY, WBEM_FLAG_RETURN_IMMEDIATELY,
                 WBEM_FLAG_RETURN_WBEM_COMPLETE, WBEM_FLAG_UPDATE_ONLY, WBEM_GENERIC_FLAG_TYPE,
-                WBEM_INFINITE, WbemContext, WbemLocator, WbemStatusCodeText,
+                WBEM_INFINITE, WBEM_S_TIMEDOUT, WbemContext, WbemLocator, WbemStatusCodeText,
             },
         },
     },
@@ -231,6 +232,54 @@ impl Wmi {
             bail!("{method} on {path} returned {code}");
         }
         Ok(())
+    }
+
+    /// The events `wql` selects from now on, such as
+    /// `SELECT * FROM Win32_ProcessStartTrace` (which needs an
+    /// administrator).
+    pub fn events(&self, wql: &str) -> Result<Events> {
+        // SAFETY: The services are a live COM object; the strings outlive the call.
+        let items: IEnumWbemClassObject = unsafe {
+            self.services.ExecNotificationQuery(
+                &BSTR::from("WQL"),
+                &BSTR::from(wql),
+                WBEM_FLAG_FORWARD_ONLY | WBEM_FLAG_RETURN_IMMEDIATELY,
+                None::<&IWbemContext>,
+            )
+        }
+        .map_err(failure)
+        .with_context(|| format!("WMI event query {wql}"))?;
+        impersonate(&items)?;
+        Ok(Events {
+            items,
+            wql: wql.to_owned(),
+        })
+    }
+}
+
+/// A subscription to WMI events ([`Wmi::events`]), read on the thread that
+/// made it.
+pub struct Events {
+    items: IEnumWbemClassObject,
+    wql: String,
+}
+
+impl Events {
+    /// The next event within `timeout`; `None` when none came.
+    pub fn next(&self, timeout: Duration) -> Result<Option<IWbemClassObject>> {
+        let mut row = [None];
+        let mut returned = 0;
+        let wait = i32::try_from(timeout.as_millis()).unwrap_or(i32::MAX);
+        // SAFETY: `row` holds one slot and `returned` is a live local.
+        let code = unsafe { self.items.Next(wait, &mut row, &mut returned) };
+        code.ok()
+            .map_err(failure)
+            .with_context(|| format!("WMI events {}", self.wql))?;
+        match row[0].take() {
+            Some(object) if returned == 1 => Ok(Some(object)),
+            _ if code.0 == WBEM_S_TIMEDOUT.0 => Ok(None),
+            _ => bail!("WMI ended the events {}", self.wql),
+        }
     }
 }
 
@@ -514,6 +563,31 @@ mod tests {
             on_com_thread(what, Duration::from_secs(30), || Ok(2)).unwrap(),
             2
         );
+    }
+
+    /// Needs an administrator, as the host runs: a process this starts is
+    /// seen starting.
+    #[test]
+    #[ignore = "needs an administrator"]
+    fn a_process_is_seen_as_it_starts() -> Result<()> {
+        let (pid, waited) = on_com_thread("watching starts", Duration::from_secs(60), || {
+            let wmi = Wmi::connect(r"root\cimv2")?;
+            let events = wmi.events("SELECT * FROM Win32_ProcessStartTrace")?;
+            let child = std::process::Command::new("cmd.exe")
+                .args(["/c", "exit"])
+                .spawn()?;
+            let started = std::time::Instant::now();
+            loop {
+                let event = events
+                    .next(Duration::from_secs(10))?
+                    .context("no start seen")?;
+                if number(&event, "ProcessID")? == Some(child.id()) {
+                    return Ok((child.id(), started.elapsed()));
+                }
+            }
+        })?;
+        println!("process {pid} seen {waited:?} after its start");
+        Ok(())
     }
 
     #[test]

@@ -204,7 +204,9 @@ impl Policy {
         Ok(())
     }
 }
-fn defaults() -> Result<[Option<String>; 3]> {
+/// The default playback endpoints for console, multimedia and
+/// communications.
+pub(crate) fn defaults() -> Result<[Option<String>; 3]> {
     defaults_for(eRender)
 }
 fn defaults_for(flow: EDataFlow) -> Result<[Option<String>; 3]> {

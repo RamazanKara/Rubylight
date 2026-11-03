@@ -353,6 +353,251 @@ pub fn is_modifier(name: &str) -> bool {
     matches!(key_code(name), Some(0xA0..=0xA5 | 0x5B | 0x5C))
 }
 
+// Nightjar's own stream hotkeys: one table for both clients. Desktop Nightjar reads it directly
+// (desktop/src/shortcuts.rs), the Android app through `StreamMenuModel` ([`crate::stream_menu::json`]).
+// Each action has a default chord, may be changed to another of 2 to 4 keys or turned off, and a
+// chord another action has is refused with that action named. A bound chord never reaches the PC.
+
+/// A Nightjar client.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Client {
+    Desktop,
+    Android,
+}
+
+/// Which clients have an action.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum On {
+    Both,
+    /// What only one client can do (a desktop window's full screen, Android's on-screen PC keyboard).
+    Only(Client),
+}
+
+impl On {
+    pub fn covers(self, client: Client) -> bool {
+        self == On::Both || self == On::Only(client)
+    }
+}
+
+/// One of Nightjar's own stream actions and its default chord.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Hotkey {
+    /// Stable: the saved bindings' and Android's preference key's name, and each client's label.
+    pub id: &'static str,
+    pub on: On,
+    pub keys: &'static [&'static str],
+    /// A client's earlier chord for the action, which still does it there while the action keeps
+    /// its default. Kept for one release, with a notice the first time it is used.
+    pub old: &'static [(Client, &'static [&'static str])],
+}
+
+const fn hotkey(id: &'static str, on: On, keys: &'static [&'static str]) -> Hotkey {
+    Hotkey { id, on, keys, old: &[] }
+}
+
+const NIGHTJAR: [&str; 3] = ["CTRL", "ALT", "SHIFT"];
+
+/// Every stream hotkey in the order the clients list them. Moonlight's meanings for Z, Q, M, S, X
+/// and D; Tab opens the stream menu on both clients. Android's M (menu) and C (cursor) of earlier
+/// releases stay there as old chords for one release.
+pub const HOTKEYS: &[Hotkey] = &[
+    Hotkey { old: &[(Client::Android, &["CTRL", "ALT", "SHIFT", "M"])], ..hotkey("stream_menu", On::Both, &["CTRL", "ALT", "SHIFT", "TAB"]) },
+    hotkey("help", On::Only(Client::Desktop), &["CTRL", "ALT", "SHIFT", "H"]),
+    hotkey("quit", On::Both, &["CTRL", "ALT", "SHIFT", "Q"]),
+    hotkey("capture", On::Both, &["CTRL", "ALT", "SHIFT", "Z"]),
+    hotkey("mouse_mode", On::Only(Client::Desktop), &["CTRL", "ALT", "SHIFT", "M"]),
+    hotkey("overlay", On::Both, &["CTRL", "ALT", "SHIFT", "S"]),
+    hotkey("send_clipboard", On::Only(Client::Desktop), &["CTRL", "ALT", "SHIFT", "V"]),
+    hotkey("fetch_clipboard", On::Only(Client::Desktop), &["CTRL", "ALT", "SHIFT", "C"]),
+    hotkey("fullscreen", On::Only(Client::Desktop), &["CTRL", "ALT", "SHIFT", "X"]),
+    hotkey("minimize", On::Only(Client::Desktop), &["CTRL", "ALT", "SHIFT", "D"]),
+    hotkey("pc_keyboard", On::Only(Client::Android), &["CTRL", "ALT", "SHIFT", "K"]),
+    Hotkey { old: &[(Client::Android, &["CTRL", "ALT", "SHIFT", "C"])], ..hotkey("cursor", On::Only(Client::Android), &["CTRL", "ALT", "SHIFT", "P"]) },
+];
+
+/// The saved text of an action turned off.
+pub const OFF: &str = "off";
+
+/// Shortest and longest chord a hotkey may be changed to.
+pub const HOTKEY_KEYS: std::ops::RangeInclusive<usize> = 2..=4;
+
+/// The user's changes, by action ID: a chord's keys joined by `+` ([`binding_text`]) or [`OFF`].
+/// An action without an entry has its default.
+pub type HotkeyBindings = std::collections::BTreeMap<String, String>;
+
+/// Why a hotkey's new chord was refused. Each client words it in its own language.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum HotkeyError {
+    UnknownAction(String),
+    /// Not one of this client's actions.
+    NotHere,
+    /// Fewer than 2 or more than 4 keys.
+    Length,
+    /// Without Ctrl, Alt or Shift, or with the Windows key, which Windows keeps for itself.
+    Modifier,
+    /// Not exactly one key besides the modifiers.
+    OneKey,
+    UnsupportedKey(String),
+    RepeatedKey(String),
+    /// Ctrl+Alt+Del, which never reaches an app.
+    Reserved,
+    /// Another action's chord: its ID.
+    Taken(&'static str),
+}
+
+impl HotkeyError {
+    pub fn code(&self) -> &'static str {
+        match self {
+            Self::UnknownAction(_) => "unknown_action",
+            Self::NotHere => "not_here",
+            Self::Length => "hotkey_length",
+            Self::Modifier => "hotkey_modifier",
+            Self::OneKey => "hotkey_one_key",
+            Self::UnsupportedKey(_) => "unsupported_key",
+            Self::RepeatedKey(_) => "repeated_key",
+            Self::Reserved => "reserved",
+            Self::Taken(_) => "taken",
+        }
+    }
+
+    /// The key or action ID the error names, if any.
+    pub fn detail(&self) -> Option<&str> {
+        match self {
+            Self::UnknownAction(detail) | Self::UnsupportedKey(detail) | Self::RepeatedKey(detail) => Some(detail),
+            Self::Taken(id) => Some(id),
+            _ => None,
+        }
+    }
+}
+
+/// The hotkeys a client has, in list order.
+pub fn hotkeys(client: Client) -> impl Iterator<Item = &'static Hotkey> {
+    HOTKEYS.iter().filter(move |h| h.on.covers(client))
+}
+
+pub fn find_hotkey(id: &str) -> Option<&'static Hotkey> {
+    HOTKEYS.iter().find(|h| h.id == id)
+}
+
+fn owned(keys: &[&str]) -> Vec<String> {
+    keys.iter().map(|k| k.to_string()).collect()
+}
+
+/// A hotkey chord in its saved form: Ctrl, Alt and Shift first in that order (a right-hand one
+/// counts as the left), then the one other key. Refused unless it has 2 to 4 keys, at least one of
+/// Ctrl, Alt and Shift, no Windows key and exactly one other key.
+pub fn hotkey_keys(keys: &[String]) -> Result<Vec<String>, HotkeyError> {
+    if !HOTKEY_KEYS.contains(&keys.len()) {
+        return Err(HotkeyError::Length);
+    }
+    let mut modifiers = [false; 3];
+    let mut other: Option<u16> = None;
+    for name in keys {
+        let code = key_code(name).ok_or_else(|| HotkeyError::UnsupportedKey(name.clone()))?;
+        let slot = match code {
+            0xA2 | 0xA3 => Some(0),
+            0xA4 | 0xA5 => Some(1),
+            0xA0 | 0xA1 => Some(2),
+            0x5B | 0x5C => return Err(HotkeyError::Modifier),
+            _ => None,
+        };
+        match slot {
+            Some(slot) if modifiers[slot] => return Err(HotkeyError::RepeatedKey(name.clone())),
+            Some(slot) => modifiers[slot] = true,
+            None if other == Some(code) => return Err(HotkeyError::RepeatedKey(name.clone())),
+            None if other.is_some() => return Err(HotkeyError::OneKey),
+            None => other = Some(code),
+        }
+    }
+    let other = other.ok_or(HotkeyError::OneKey)?;
+    if !modifiers.contains(&true) {
+        return Err(HotkeyError::Modifier);
+    }
+    if modifiers[0] && modifiers[1] && other == 0x2E {
+        return Err(HotkeyError::Reserved);
+    }
+    let mut saved: Vec<String> = NIGHTJAR.iter().zip(modifiers).filter(|(_, held)| *held).map(|(name, _)| name.to_string()).collect();
+    saved.push(key_name(other));
+    Ok(saved)
+}
+
+/// How a binding is saved: the keys joined by `+`, or [`OFF`] for none.
+pub fn binding_text(keys: Option<&[String]>) -> String {
+    keys.map_or_else(|| OFF.to_string(), |keys| keys.join("+"))
+}
+
+/// What one action does on a client now.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct Bound {
+    pub id: &'static str,
+    /// Its chord in saved form; none while it is off.
+    pub keys: Option<Vec<String>>,
+    /// The user changed it: another chord, or off.
+    pub changed: bool,
+    /// Earlier chords that still do it ([`Hotkey::old`]).
+    pub old: Vec<Vec<String>>,
+}
+
+/// Each of `client`'s hotkeys with the user's `bindings`, in list order. A saved binding that no
+/// longer reads (a hand-edited file) leaves its action at the default. An old chord stays only
+/// while its action has its default and no action's chord is the same.
+pub fn bound(client: Client, bindings: &HotkeyBindings) -> Vec<Bound> {
+    let default = |h: &Hotkey| Some(owned(h.keys));
+    let mut list: Vec<Bound> = hotkeys(client)
+        .map(|h| {
+            let saved = bindings.get(h.id).and_then(|text| match text.trim() {
+                OFF => Some(None),
+                text => hotkey_keys(&text.split('+').map(|k| k.trim().to_string()).collect::<Vec<_>>()).ok().map(Some),
+            });
+            let changed = saved.as_ref().is_some_and(|keys| *keys != default(h));
+            Bound { id: h.id, keys: saved.unwrap_or_else(|| default(h)), changed, old: Vec::new() }
+        })
+        .collect();
+    let taken: Vec<Vec<String>> = list.iter().filter_map(|b| b.keys.clone()).collect();
+    for b in list.iter_mut().filter(|b| !b.changed) {
+        let hotkey = find_hotkey(b.id).expect("listed");
+        b.old = hotkey.old.iter().filter(|(on, _)| *on == client).map(|(_, keys)| owned(keys)).filter(|keys| !taken.contains(keys)).collect();
+    }
+    list
+}
+
+/// Checks `keys` as `id`'s new chord on `client`: its saved form, or why it is refused. A chord
+/// another action has now is refused with that action named; an old chord ([`Hotkey::old`]) gives
+/// way instead.
+pub fn check_hotkey(client: Client, id: &str, keys: &[String], bindings: &HotkeyBindings) -> Result<Vec<String>, HotkeyError> {
+    let hotkey = find_hotkey(id).ok_or_else(|| HotkeyError::UnknownAction(id.to_string()))?;
+    if !hotkey.on.covers(client) {
+        return Err(HotkeyError::NotHere);
+    }
+    let keys = hotkey_keys(keys)?;
+    match bound(client, bindings).into_iter().find(|b| b.id != id && b.keys.as_ref() == Some(&keys)) {
+        Some(other) => Err(HotkeyError::Taken(other.id)),
+        None => Ok(keys),
+    }
+}
+
+/// The modifiers of a chord in saved form, in the input packets' bits (Shift 1, Ctrl 2, Alt 4),
+/// and its other key's Windows virtual-key code.
+pub fn hotkey_code(keys: &[String]) -> (u8, u16) {
+    keys.iter().fold((0, 0), |(modifiers, vk), key| match key_code(key) {
+        Some(0xA0 | 0xA1) => (modifiers | 0x01, vk),
+        Some(0xA2 | 0xA3) => (modifiers | 0x02, vk),
+        Some(0xA4 | 0xA5) => (modifiers | 0x04, vk),
+        Some(code) => (modifiers, code),
+        None => (modifiers, vk),
+    })
+}
+
+/// The action a key press does, and whether it was an old chord: `modifiers` held in the input
+/// packets' bits (Shift 1, Ctrl 2, Alt 4, Windows 8) and exactly those, `vk` the pressed key's
+/// Windows virtual-key code.
+pub fn hotkey_at(bound: &[Bound], modifiers: u8, vk: u16) -> Option<(&'static str, bool)> {
+    let hit = |keys: &Vec<String>| hotkey_code(keys) == (modifiers & 0x0F, vk);
+    bound.iter().find(|b| b.keys.as_ref().is_some_and(hit)).map(|b| (b.id, false))
+        .or_else(|| bound.iter().find(|b| b.old.iter().any(hit)).map(|b| (b.id, true)))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -466,5 +711,113 @@ mod tests {
         assert_eq!(chord_label(&["CAPS_LOCK".into(), "SHIFT".into()]), "Shift + Caps Lock");
         assert_eq!(chord_label(&["ESC".into(), "SHIFT".into(), "CTRL".into()]), "Shift + Ctrl + Esc");
         assert_eq!(key_label("NUMPAD_4"), "Num 4");
+    }
+
+    fn keys(k: &[&str]) -> Vec<String> {
+        k.iter().map(|s| s.to_string()).collect()
+    }
+
+    const CTRL_ALT_SHIFT: u8 = 0x07;
+
+    /// Every action has a default in saved form, IDs are unique, and no client has a chord twice,
+    /// old chords included.
+    #[test]
+    fn every_hotkey_has_a_default_and_no_client_binds_a_chord_twice() {
+        let mut ids = HashSet::new();
+        for hotkey in HOTKEYS {
+            assert!(ids.insert(hotkey.id), "{} twice", hotkey.id);
+            assert_eq!(hotkey_keys(&keys(hotkey.keys)).unwrap(), keys(hotkey.keys), "{}", hotkey.id);
+            for (_, old) in hotkey.old {
+                assert_eq!(hotkey_keys(&keys(old)).unwrap(), keys(old), "{}", hotkey.id);
+            }
+        }
+        for client in [Client::Desktop, Client::Android] {
+            let list = bound(client, &HotkeyBindings::new());
+            let chords: Vec<(u8, u16)> = list.iter().flat_map(|b| b.keys.iter().chain(&b.old)).map(|k| hotkey_code(k)).collect();
+            for (n, chord) in chords.iter().enumerate() {
+                assert!(!chords[n + 1..].contains(chord), "{chord:?} twice on {client:?}");
+            }
+            assert!(list.iter().all(|b| !b.changed && b.keys.is_some()));
+        }
+        // The shared actions exist on both clients, each platform's own on its client only.
+        let ids = |client| hotkeys(client).map(|h| h.id).collect::<Vec<_>>();
+        assert_eq!(ids(Client::Desktop), ["stream_menu", "help", "quit", "capture", "mouse_mode", "overlay", "send_clipboard", "fetch_clipboard", "fullscreen", "minimize"]);
+        assert_eq!(ids(Client::Android), ["stream_menu", "quit", "capture", "overlay", "pc_keyboard", "cursor"]);
+    }
+
+    /// Moonlight's meanings win: M switches the mouse on the desktop; Android's old M still opens
+    /// its stream menu, and its old C still shows the cursor, with Tab and P the new defaults.
+    #[test]
+    fn old_android_chords_still_work_there_and_give_way_to_a_new_chord() {
+        let none = HotkeyBindings::new();
+        let android = bound(Client::Android, &none);
+        assert_eq!(hotkey_at(&android, CTRL_ALT_SHIFT, 0x09), Some(("stream_menu", false)));
+        assert_eq!(hotkey_at(&android, CTRL_ALT_SHIFT, u16::from(b'M')), Some(("stream_menu", true)));
+        assert_eq!(hotkey_at(&android, CTRL_ALT_SHIFT, u16::from(b'C')), Some(("cursor", true)));
+        assert_eq!(hotkey_at(&android, CTRL_ALT_SHIFT, u16::from(b'P')), Some(("cursor", false)));
+        let desktop = bound(Client::Desktop, &none);
+        assert_eq!(hotkey_at(&desktop, CTRL_ALT_SHIFT, u16::from(b'M')), Some(("mouse_mode", false)));
+        assert_eq!(hotkey_at(&desktop, CTRL_ALT_SHIFT, u16::from(b'C')), Some(("fetch_clipboard", false)));
+        // Exactly the chord's modifiers: Ctrl+Alt alone, or with Windows held too, reaches the PC.
+        assert_eq!(hotkey_at(&desktop, 0x06, u16::from(b'Q')), None);
+        assert_eq!(hotkey_at(&desktop, 0x0F, u16::from(b'Q')), None);
+        // A chord of the user's takes an old one; the old one then stops.
+        let m = keys(&["CTRL", "ALT", "SHIFT", "M"]);
+        assert_eq!(check_hotkey(Client::Android, "overlay", &m, &none), Ok(m.clone()));
+        let bindings = HotkeyBindings::from([("overlay".to_string(), binding_text(Some(&m)))]);
+        let android = bound(Client::Android, &bindings);
+        assert_eq!(hotkey_at(&android, CTRL_ALT_SHIFT, u16::from(b'M')), Some(("overlay", false)));
+        assert!(android.iter().find(|b| b.id == "stream_menu").unwrap().old.is_empty());
+        // A changed action has no old chord.
+        let bindings = HotkeyBindings::from([("cursor".to_string(), "CTRL+ALT+SHIFT+L".to_string())]);
+        assert_eq!(hotkey_at(&bound(Client::Android, &bindings), CTRL_ALT_SHIFT, u16::from(b'C')), None);
+    }
+
+    /// A changed chord does the action and the default stops; Off does nothing; a taken chord is
+    /// refused naming the action that has it.
+    #[test]
+    fn a_rebind_moves_the_action_off_stops_it_and_a_taken_chord_is_refused() {
+        let mut bindings = HotkeyBindings::new();
+        let f1 = check_hotkey(Client::Desktop, "quit", &keys(&["F1", "CTRL_RIGHT"]), &bindings).unwrap();
+        assert_eq!(f1, ["CTRL", "F1"]);
+        bindings.insert("quit".into(), binding_text(Some(&f1)));
+        bindings.insert("overlay".into(), binding_text(None));
+        let desktop = bound(Client::Desktop, &bindings);
+        assert_eq!(hotkey_at(&desktop, 0x02, 0x70), Some(("quit", false)));
+        assert_eq!(hotkey_at(&desktop, CTRL_ALT_SHIFT, u16::from(b'Q')), None);
+        assert_eq!(hotkey_at(&desktop, CTRL_ALT_SHIFT, u16::from(b'S')), None, "off");
+        let overlay = desktop.iter().find(|b| b.id == "overlay").unwrap();
+        assert_eq!((overlay.keys.clone(), overlay.changed), (None, true));
+        assert_eq!(check_hotkey(Client::Desktop, "capture", &keys(&["CTRL", "F1"]), &bindings), Err(HotkeyError::Taken("quit")));
+        assert_eq!(check_hotkey(Client::Desktop, "quit", &keys(&["CTRL", "F1"]), &bindings), Ok(f1.clone()), "its own chord again");
+        // The freed default can go to another action.
+        let q = keys(&["SHIFT", "CTRL", "ALT", "Q"]);
+        assert_eq!(check_hotkey(Client::Desktop, "capture", &q, &bindings), Ok(keys(&["CTRL", "ALT", "SHIFT", "Q"])));
+        // The default again counts as unchanged.
+        bindings.insert("quit".into(), "CTRL+ALT+SHIFT+Q".into());
+        assert!(!bound(Client::Desktop, &bindings).iter().find(|b| b.id == "quit").unwrap().changed);
+        // A hand-edited binding that does not read is the default.
+        bindings.insert("quit".into(), "CTRL+NOPE".into());
+        assert_eq!(hotkey_at(&bound(Client::Desktop, &bindings), CTRL_ALT_SHIFT, u16::from(b'Q')), Some(("quit", false)));
+    }
+
+    #[test]
+    fn a_hotkey_chord_has_two_to_four_keys_a_modifier_and_one_other_key() {
+        let none = HotkeyBindings::new();
+        let check = |k: &[&str]| check_hotkey(Client::Desktop, "quit", &keys(k), &none);
+        assert_eq!(check(&["Q"]), Err(HotkeyError::Length));
+        assert_eq!(check(&["CTRL", "ALT", "SHIFT", "Q", "W"]), Err(HotkeyError::Length));
+        assert_eq!(check(&["Q", "W"]), Err(HotkeyError::OneKey));
+        assert_eq!(check(&["CTRL", "SHIFT"]), Err(HotkeyError::OneKey));
+        assert_eq!(check(&["CTRL", "Q", "W"]), Err(HotkeyError::OneKey));
+        assert_eq!(check(&["WIN", "Q"]), Err(HotkeyError::Modifier));
+        assert_eq!(check(&["CTRL", "CTRL_RIGHT", "Q"]), Err(HotkeyError::RepeatedKey("CTRL_RIGHT".into())));
+        assert_eq!(check(&["CTRL", "ALT", "DELETE"]), Err(HotkeyError::Reserved));
+        assert_eq!(check(&["CTRL", "BOGUS"]), Err(HotkeyError::UnsupportedKey("BOGUS".into())));
+        assert_eq!(check(&["ALT", "F4"]), Ok(keys(&["ALT", "F4"])));
+        assert_eq!(check_hotkey(Client::Desktop, "cursor", &keys(&["CTRL", "Q"]), &none), Err(HotkeyError::NotHere));
+        assert_eq!(check_hotkey(Client::Android, "teleport", &keys(&["CTRL", "Q"]), &none), Err(HotkeyError::UnknownAction("teleport".into())));
+        assert_eq!(HotkeyError::Taken("quit").detail(), Some("quit"));
+        assert_eq!(binding_text(Some(&keys(&["CTRL", "F1"]))), "CTRL+F1");
     }
 }

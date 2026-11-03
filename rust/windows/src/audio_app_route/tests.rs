@@ -365,17 +365,24 @@ fn a_game_that_opened_its_sound_before_the_route_is_reported() {
     let speakers = "{speakers}";
     let sink = "{steam}";
     let elsewhere = [(7, speakers.to_string())];
-    assert!(plays_elsewhere(&[7], &elsewhere, sink));
-    let both = [(7, speakers.to_string()), (8, sink.to_string())];
-    assert!(
-        !plays_elsewhere(&[7, 8], &both, sink),
-        "the game's sound process is on the sink"
+    assert_eq!(plays_elsewhere(&[7], &elsewhere, sink), [7]);
+    let both = [
+        (7, speakers.to_string()),
+        (7, sink.to_string()),
+        (8, sink.to_string()),
+    ];
+    assert_eq!(
+        plays_elsewhere(&[7, 8], &both, sink),
+        [7],
+        "a second sound of the game still on the PC is reported beside one on the sink"
     );
+    let on_sink = [(7, sink.to_string()), (8, sink.to_string())];
+    assert!(plays_elsewhere(&[7, 8], &on_sink, sink).is_empty());
     assert!(
-        !plays_elsewhere(&[9], &elsewhere, sink),
+        plays_elsewhere(&[9], &elsewhere, sink).is_empty(),
         "another app is not the game"
     );
-    assert!(!plays_elsewhere(&[7], &[], sink), "silent so far");
+    assert!(plays_elsewhere(&[7], &[], sink).is_empty(), "silent so far");
 }
 
 #[test]

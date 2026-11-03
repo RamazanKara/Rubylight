@@ -178,6 +178,23 @@ pub(super) fn moves_game_sound(config: &Config, host_audio: bool) -> bool {
         && config.boolean("stream_audio", true)
         && !host_audio
 }
+/// Where the game's sound reaches the PC.
+#[derive(Debug, PartialEq)]
+enum Elsewhere {
+    /// A routed process opened it before its route.
+    Opened,
+    /// A Windows program in the game's tree, never routed, plays it.
+    Windows(u32),
+}
+/// Of the game's processes `found` on the PC's device, the one to tell:
+/// a routed one first, as the next start fixes it.
+fn place(found: &[u32], windows: &std::collections::BTreeSet<Identity>) -> Option<Elsewhere> {
+    let windows_program = |pid: &u32| windows.iter().any(|id| id.pid == *pid);
+    if found.iter().any(|pid| !windows_program(pid)) {
+        return Some(Elsewhere::Opened);
+    }
+    found.first().map(|&pid| Elsewhere::Windows(pid))
+}
 /// Seconds between the checks of where the game's sound plays.
 const PLACE_CHECK: u32 = 5;
 impl Routes {
@@ -226,15 +243,32 @@ impl Routes {
             self.failed = None;
         }
         self.ticks += 1;
-        let elsewhere = self.ticks.is_multiple_of(PLACE_CHECK) && {
+        let check = self.ticks.is_multiple_of(PLACE_CHECK);
+        let elsewhere = if check {
             let live: Vec<&AppRoute> = self.routed.values().flatten().collect();
-            AppRoute::plays_elsewhere(&live).unwrap_or(false)
+            let unrouted: Vec<u32> = self.windows.iter().map(|id| id.pid).collect();
+            let found = AppRoute::plays_elsewhere(&live, &unrouted).unwrap_or_else(|error| {
+                tracing::debug!(
+                    error = format!("{error:#}"),
+                    "where the game's sound plays can't be read"
+                );
+                vec![]
+            });
+            place(&found, &self.windows)
+        } else {
+            None
         };
-        match &self.failed {
-            Some(error) => s.launch.warnings.set("audio_game_host", format!("Game sound also plays on the PC: Rubylight could not move the game to a virtual playback device ({error}).")),
-            None if elsewhere => s.launch.warnings.set("audio_game_host", "Game sound also plays on the PC: the game opened its sound before Rubylight moved it to the virtual playback device. Windows keeps that choice, so it moves when the game starts again."),
-            None if self.ticks.is_multiple_of(PLACE_CHECK) => s.launch.warnings.clear("audio_game_host"),
-            None => {}
+        match (&self.failed, elsewhere) {
+            (Some(error), _) => s.launch.warnings.set("audio_game_host", format!("Game sound also plays on the PC: Rubylight could not move the game to a virtual playback device ({error}).")),
+            (None, Some(Elsewhere::Opened)) => s.launch.warnings.set("audio_game_host", "Game sound also plays on the PC: the game opened its sound before Rubylight moved it to the virtual playback device. Windows keeps that choice, so it moves when the game starts again."),
+            (None, Some(Elsewhere::Windows(pid))) => {
+                let program = butterpollo_windows::process::image_path(pid)
+                    .and_then(|path| path.rsplit('\\').next().map(str::to_string))
+                    .unwrap_or_else(|| format!("process {pid}"));
+                s.launch.warnings.set("audio_game_host", format!("Game sound also plays on the PC: the game plays it through {program}, a Windows program Rubylight doesn't move, as that would move every program of it."));
+            }
+            (None, None) if check => s.launch.warnings.clear("audio_game_host"),
+            (None, None) => {}
         }
     }
 }
@@ -262,6 +296,21 @@ mod tests {
         assert!(!moves_game_sound(&Config::default(), false));
         let muted = Config::parse("audio_capture_mode = game\nstream_audio = false\n").unwrap();
         assert!(!moves_game_sound(&muted, false));
+    }
+
+    /// A routed process still on the PC's device is the game's own sound
+    /// opened before its route; a Windows program the game plays through is
+    /// named, since it is never routed.
+    #[test]
+    fn sound_on_the_pc_is_told_by_who_plays_it() {
+        let windows = std::collections::BTreeSet::from([Identity {
+            pid: 30,
+            started: 1,
+        }]);
+        assert_eq!(place(&[], &windows), None);
+        assert_eq!(place(&[7], &windows), Some(Elsewhere::Opened));
+        assert_eq!(place(&[7, 30], &windows), Some(Elsewhere::Opened));
+        assert_eq!(place(&[30], &windows), Some(Elsewhere::Windows(30)));
     }
 
     #[test]

@@ -433,15 +433,20 @@ fn restore_running(
     Ok(journal.apps.iter().any(|app| idle(state, app)))
 }
 
-/// Whether the game plays elsewhere: one of the `routed` processes has an
-/// active session (`sessions`: pid and endpoint ID) on another endpoint and
-/// none on the sink. Windows moves no stream that is already open, so a game
-/// that opened its sound before it was routed keeps it on the PC's device
-/// until it opens it again.
-fn plays_elsewhere(routed: &[u32], sessions: &[(u32, String)], sink: &str) -> bool {
-    let mine = || sessions.iter().filter(|(pid, _)| routed.contains(pid));
-    mine().any(|(_, endpoint)| !endpoint.eq_ignore_ascii_case(sink))
-        && !mine().any(|(_, endpoint)| endpoint.eq_ignore_ascii_case(sink))
+/// The game's processes (`pids`) with an active session (`sessions`: pid
+/// and endpoint ID) on another endpoint than the sink, even beside one on
+/// the sink: that sound reaches the PC. Windows moves no stream that is
+/// already open, so a game that opened its sound before it was routed keeps
+/// it on the PC's device until it opens it again.
+fn plays_elsewhere(pids: &[u32], sessions: &[(u32, String)], sink: &str) -> Vec<u32> {
+    let mut found: Vec<u32> = sessions
+        .iter()
+        .filter(|(pid, endpoint)| pids.contains(pid) && !endpoint.eq_ignore_ascii_case(sink))
+        .map(|(pid, _)| *pid)
+        .collect();
+    found.sort_unstable();
+    found.dedup();
+    found
 }
 
 /// Active playback sessions: process ID and endpoint ID.
@@ -553,16 +558,18 @@ impl AppRoute {
     pub fn users_device(&self) -> Option<&str> {
         self.users.as_deref()
     }
-    /// Whether these processes play on another device than the sink they
-    /// were routed to ([`plays_elsewhere`]).
-    pub fn plays_elsewhere(routes: &[&AppRoute]) -> Result<bool> {
+    /// Which of these routes' processes, and of the game's processes left
+    /// `unrouted`, play on another device than the routes' sink
+    /// ([`plays_elsewhere`]).
+    pub fn plays_elsewhere(routes: &[&AppRoute], unrouted: &[u32]) -> Result<Vec<u32>> {
         let Some(first) = routes.iter().find(|route| route.users.is_none()) else {
-            return Ok(false);
+            return Ok(vec![]);
         };
         let pids: Vec<u32> = routes
             .iter()
             .filter(|r| r.users.is_none())
             .map(|r| r.pid)
+            .chain(unrouted.iter().copied())
             .collect();
         Ok(plays_elsewhere(&pids, &active_sessions()?, &first.sink_id))
     }

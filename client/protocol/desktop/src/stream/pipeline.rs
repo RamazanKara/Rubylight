@@ -1099,6 +1099,12 @@ impl AudioRenderer for Audio {
         let bytes_per_us = 48.0 * f64::from(bytes_per_sample) / 1000.0;
         counters.audio_queued_us.store((f64::from(queued) / bytes_per_us) as u64, Ordering::Relaxed);
         counters.audio_concealed.fetch_add(playout.take_concealed(), Ordering::Relaxed);
+        if playout.take_bursts_started() {
+            eprintln!(
+                "nightjar: audio: packets arrive in late bursts, keeping them to grow the cushion ({:.1} ms queued)",
+                f64::from(queued) / bytes_per_us / 1000.0
+            );
+        }
         let lead = match fed {
             Fed::Play { lead, underrun } => {
                 if underrun {

@@ -45,6 +45,12 @@ public class DiskAssetLoader {
         return CacheHelper.cacheFileExists(cacheDir, "boxart", tuple.computer.uuid, tuple.cacheKey + ".png");
     }
 
+    /** True when the cached art is the placeholder a host sends for a game with no cover of its own. */
+    public boolean isPlaceholder(CachedAppAssetLoader.LoaderTuple tuple) {
+        File file = getFile(tuple.computer.uuid, tuple.cacheKey);
+        return file.isFile() && PlaceholderArt.matches(file);
+    }
+
     /**
      * The decoded size of a cover: just large enough to cover the standard box, never larger than the file, and in
      * the file's own shape. A cover is cropped to fill its frame, so a banner or a square keeps the resolution its
@@ -103,6 +109,11 @@ public class DiskAssetLoader {
         if (file.length() > MAX_ASSET_SIZE) {
             LimeLog.warning("Removing cached tuple exceeding size threshold: "+tuple);
             file.delete();
+            return null;
+        }
+
+        // The host's grey stand-in for a game without a cover is no cover
+        if (PlaceholderArt.matches(file)) {
             return null;
         }
 

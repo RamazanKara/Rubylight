@@ -132,6 +132,12 @@ public class CachedAppAssetLoader {
                     in.close();
                 } catch (IOException ignored) {}
 
+                // The host's placeholder: it has no cover for this game, and asking again sends the same
+                if (diskLoader.isPlaceholder(tuple)) {
+                    if (task != null) task.placeholder = true;
+                    return null;
+                }
+
                 // If there's a task associated with this load, we should return the bitmap
                 if (task != null) {
                     // If the cached bitmap is valid, return it. Otherwise, we'll try the load again
@@ -168,6 +174,8 @@ public class CachedAppAssetLoader {
         private final WeakReference<ImageView> imageViewRef;
         private final WeakReference<TextView> textViewRef;
         private final boolean diskOnly;
+        // The host sent its placeholder for this game: there is no art, and the title stands in for it.
+        volatile boolean placeholder;
 
         private LoaderTuple tuple;
 
@@ -183,6 +191,11 @@ public class CachedAppAssetLoader {
 
             // Check whether it has been cancelled or the views are gone
             if (isCancelled() || imageViewRef.get() == null || textViewRef.get() == null) {
+                return null;
+            }
+
+            if (diskLoader.isPlaceholder(tuple)) {
+                placeholder = true;
                 return null;
             }
 
@@ -237,16 +250,23 @@ public class CachedAppAssetLoader {
                 return;
             }
 
+            boolean settled = bitmap != null || !diskOnly || placeholder;
             if (bitmap != null) {
                 withoutArt.remove(tuple.app.getAppId());
-            } else if (!diskOnly) {
+            } else if (settled) {
                 withoutArt.add(tuple.app.getAppId());
             }
             // Art that has arrived, or is known not to exist, settles what the library's backdrop shows.
-            if ((bitmap != null || !diskOnly) && artListener != null) artListener.accept(tuple.app);
+            if (settled && artListener != null) artListener.accept(tuple.app);
 
             final ImageView imageView = imageViewRef.get();
             final TextView textView = textViewRef.get();
+            if (getLoaderTask(imageView) == this && textView != null && bitmap == null && placeholder) {
+                // The cached placeholder: the title on the cover's own surface, as for a game without art
+                imageView.setImageDrawable(new AsyncDrawable(imageView.getResources(), noAppImageBitmap, this));
+                imageView.setVisibility(View.VISIBLE);
+                textView.setVisibility(View.VISIBLE);
+            }
             if (getLoaderTask(imageView) == this && textView != null) {
                 // Fade in the box art, which shows the title itself
                 if (bitmap != null) {

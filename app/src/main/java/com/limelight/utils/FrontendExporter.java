@@ -393,7 +393,8 @@ public final class FrontendExporter {
     /** Writes the cover into {@code existing} when given (one of ours whose art changed), else a new file. */
     private Uri copyCover(NvApp app, Uri coversDir, String name, Uri existing) {
         File cached = covers.cover(app);
-        if (cached == null || !cached.isFile()) {
+        // The host's grey placeholder is no cover: the frontend shows its own title card instead.
+        if (cached == null || !cached.isFile() || com.limelight.grid.assets.PlaceholderArt.matches(cached)) {
             return null;
         }
         Uri created = null;

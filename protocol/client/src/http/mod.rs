@@ -94,6 +94,28 @@ const MAX_APP_LIST_BYTES: usize = 4 * 1024 * 1024;
 const MAX_BOX_ART_BYTES: usize = 16 * 1024 * 1024;
 const MAX_CLIPBOARD_BYTES: usize = 1024 * 1024;
 
+/// The `box.png` hosts send from `/appasset` for an app with no cover of its own, by length and SHA-256:
+/// Rubylight's and Sunshine-family hosts' since Sunshine 0.21, and Sunshine 0.20 and older. Android's
+/// `PlaceholderArt` knows the same two.
+const PLACEHOLDER_BOX_ART: [(usize, &str); 2] = [
+    (680, "d9164ebd069b5f735eb8efc557801778498da37f572ef70e3d35604739e6c613"),
+    (998, "f5992b68a72ef6f74c6e4970d0eb081fd7c51e8b5556c6a3f87dc414fda0473b"),
+];
+
+/// True when box art is a host's grey placeholder rather than the app's own cover: hosts answer
+/// `/appasset` with it instead of a 404, and the app's title stands in for it.
+pub fn is_placeholder_box_art(bytes: &[u8]) -> bool {
+    PLACEHOLDER_BOX_ART.iter().any(|(len, sha256)| {
+        bytes.len() == *len
+            && ring::digest::digest(&ring::digest::SHA256, bytes)
+                .as_ref()
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect::<String>()
+                == *sha256
+    })
+}
+
 /// Why a host request failed.
 #[derive(Debug)]
 pub enum Error {
@@ -796,5 +818,20 @@ mod tests {
         assert_eq!(detached.state.lock().unwrap().https_port, 47984);
         assert!(!matches!(detached.server_info_http(true), Err(Error::Cancelled)));
         host.join().unwrap();
+    }
+
+    #[test]
+    fn the_hosts_placeholder_box_art_is_no_cover() {
+        let placeholder = include_bytes!("../../tests/fixtures/box-placeholder.png");
+        assert!(is_placeholder_box_art(placeholder));
+        let mut other = placeholder.to_vec();
+        other[600] ^= 1;
+        assert!(!is_placeholder_box_art(&other), "a cover of the same size is a cover");
+        assert!(!is_placeholder_box_art(&[]));
+        // In the monorepo the fixture is the host's own placeholder.
+        let host = concat!(env!("CARGO_MANIFEST_DIR"), "/../../../rust/assets/package/box.png");
+        if let Ok(host) = std::fs::read(host) {
+            assert_eq!(host, placeholder.to_vec());
+        }
     }
 }

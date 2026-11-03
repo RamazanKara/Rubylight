@@ -1192,7 +1192,7 @@ impl Hosts {
                 }
                 Some(bytes)
             });
-            let image = bytes.and_then(|b| decode_image(&b));
+            let image = art_image(bytes);
             Some(Event::Art { id, app, version, image })
         });
     }
@@ -1712,6 +1712,11 @@ fn completed_action(control: AppControl, error: &nightjar_core::http::Error) -> 
     known.iter().any(|known| message.eq_ignore_ascii_case(known))
 }
 
+/// An app's cover from its box art bytes. A host's grey placeholder is no cover, so the card shows the title.
+fn art_image(bytes: Option<Vec<u8>>) -> Option<egui::ColorImage> {
+    bytes.filter(|b| !nightjar_core::http::is_placeholder_box_art(b)).and_then(|b| decode_image(&b))
+}
+
 fn decode_image(bytes: &[u8]) -> Option<egui::ColorImage> {
     let image = image::load_from_memory(bytes).ok()?.to_rgba8();
     let size = [image.width() as usize, image.height() as usize];
@@ -2010,6 +2015,17 @@ pub(crate) mod tests {
     fn send(hosts: &mut Hosts, event: Event) {
         hosts.sender.send(event).unwrap();
         hosts.drain(&egui::Context::default());
+    }
+
+    #[test]
+    fn the_hosts_placeholder_box_art_shows_the_title() {
+        let placeholder = include_bytes!("../../client/tests/fixtures/box-placeholder.png").to_vec();
+        assert!(decode_image(&placeholder).is_some(), "the placeholder is a real PNG");
+        assert!(art_image(Some(placeholder)).is_none(), "and no cover: the card shows the title");
+        let mut cover = Vec::new();
+        image::RgbaImage::new(30, 40).write_to(&mut std::io::Cursor::new(&mut cover), image::ImageFormat::Png).unwrap();
+        assert!(art_image(Some(cover)).is_some());
+        assert!(art_image(None).is_none());
     }
 
     #[test]

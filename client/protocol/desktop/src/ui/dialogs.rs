@@ -272,11 +272,14 @@ impl Launcher {
                 // A row steps through its choices and Home changes behind the menu at once, so
                 // the menu stays open to try the next.
                 let s = &self.settings;
-                let rows = [
+                let mut rows = vec![
                     MenuRow { icon: Icon::Grid, label: en("Layout"), hint: Some(s.home_layout.label()), destructive: false, blocked: None },
                     MenuRow { icon: Icon::Folder, label: en("Group by"), hint: Some(s.home_group.label()), destructive: false, blocked: None },
-                    MenuRow { icon: Icon::Monitor, label: en("Card size"), hint: Some(s.home_card_size.label()), destructive: false, blocked: None },
                 ];
+                // A list's lines have one size, so Card size shows only for the covers' layouts.
+                if s.home_layout != HomeLayout::List {
+                    rows.push(MenuRow { icon: Icon::Monitor, label: en("Card size"), hint: Some(s.home_card_size.label()), destructive: false, blocked: None });
+                }
                 let (outcome, took) = popover(ctx, "home-view", self.menu_anchor, tr("View"), None, &rows, None, focus_first);
                 focused = took;
                 match outcome {

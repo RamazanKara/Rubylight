@@ -728,8 +728,11 @@ public final class ActionSheet extends BottomSheetDialog {
         }
     }
 
-    public void addSection(int title) {
-        content.addView(sectionHeading(getContext().getText(title)));
+    /** A heading; returned so a sheet can hide it with what it heads. */
+    public TextView addSection(int title) {
+        TextView heading = sectionHeading(getContext().getText(title));
+        content.addView(heading);
+        return heading;
     }
 
     /** A heading from the host's words, such as a session's game. */

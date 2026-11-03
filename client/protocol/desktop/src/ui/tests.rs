@@ -3631,6 +3631,7 @@ fn home_view_changes_layout_grouping_and_card_size_in_place() {
     f.click_at(at.center(), egui::PointerButton::Primary);
     assert_eq!(f.l.settings.home_layout, HomeLayout::List);
     assert!(shows(&f, "List"), "{:?}", f.drawn);
+    assert!(!shows(&f, "Card size"), "a list's lines have one size: {:?}", f.drawn);
     assert!(shows(&f, "Steam 11") && !shows(&f, "All 12"), "{:?}", f.drawn);
     assert!(!f.drawn.iter().any(|t| t.to_lowercase().contains("played")), "no PC says when: nothing about playing {:?}", f.drawn);
     // The title beside the cover (the last of the two the line draws), each line under the one before.
@@ -3641,6 +3642,7 @@ fn home_view_changes_layout_grouping_and_card_size_in_place() {
     let at = row(&f, "Layout");
     f.click_at(at.center(), egui::PointerButton::Primary);
     assert_eq!(f.l.settings.home_layout, HomeLayout::Rows);
+    assert!(shows(&f, "Card size"), "back with the covers: {:?}", f.drawn);
     let at = row(&f, "Layout");
     f.click_at(at.center(), egui::PointerButton::Primary);
     assert_eq!(f.l.settings.home_layout, HomeLayout::Grid);

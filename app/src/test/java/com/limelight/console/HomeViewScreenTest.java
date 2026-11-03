@@ -16,6 +16,7 @@ import android.content.SharedPreferences;
 import android.os.Build;
 import android.os.Looper;
 import android.preference.PreferenceManager;
+import android.view.KeyEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.TextView;
@@ -291,6 +292,39 @@ public class HomeViewScreenTest {
     @Config(qualifiers = "w960dp-h540dp-land-television-xhdpi")
     public void aTvListShowsALinePerGame() throws Exception {
         showsTheLibraryAsLines(1920, 1080);
+    }
+
+    @Test
+    @Config(qualifiers = "w960dp-h540dp-land-television-xhdpi")
+    public void onATvAListLineTakesXMenuAndTheHeldDpadLikeAPoster() throws Exception {
+        prefs.edit().putString(HomeView.KEY_LAYOUT, "list").putString(HomeView.KEY_GROUP, "none").commit();
+        HomeShellTest.Home home = home().get();
+        RecyclerView list = home.findViewById(R.id.console_list);
+        List<String> menus = new ArrayList<>();
+        ConsoleHomeAdapter.Listener recorder = (ConsoleHomeAdapter.Listener) java.lang.reflect.Proxy.newProxyInstance(
+                getClass().getClassLoader(), new Class<?>[] {ConsoleHomeAdapter.Listener.class}, (proxy, method, args) -> {
+                    if (method.getName().equals("onGameMenu")) menus.add(((HomeModel.GameCard) args[0]).title);
+                    return method.getReturnType() == boolean.class ? false : null;
+                });
+        ConsoleHomeListAdapter adapter = new ConsoleHomeListAdapter(home, null, uuid -> null, recorder, true);
+        adapter.setListLayout(true);
+        // Home's span lookup reads its adapter field: this one, with a listener that records.
+        ReflectionHelpers.setField(home, "adapter", adapter);
+        list.setAdapter(adapter);
+        adapter.submit(storeModel(), home.view().group);
+        layout(list, 1920, 1080);
+        View line = list.findViewHolderForAdapterPosition(adapter.firstCard()).itemView;
+        line.requestFocus();
+        for (int key : new int[] {KeyEvent.KEYCODE_BUTTON_X, KeyEvent.KEYCODE_MENU}) {
+            assertTrue(line.dispatchKeyEvent(new KeyEvent(KeyEvent.ACTION_DOWN, key)));
+            assertTrue(line.dispatchKeyEvent(new KeyEvent(KeyEvent.ACTION_UP, key)));
+        }
+        assertEquals("X and Menu open the game's menu", 2, menus.size());
+        // A tap moves one line; a held D-pad is fast travel, as on the shelves.
+        line.dispatchKeyEvent(new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_DOWN));
+        assertFalse(adapter.isFastTravel());
+        line.dispatchKeyEvent(new KeyEvent(0, 0, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_DOWN, 3));
+        assertTrue(adapter.isFastTravel());
     }
 
     @Test

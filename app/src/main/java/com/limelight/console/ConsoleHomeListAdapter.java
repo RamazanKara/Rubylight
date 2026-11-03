@@ -467,9 +467,29 @@ final class ConsoleHomeListAdapter extends RecyclerView.Adapter<RecyclerView.Vie
         void bindLine(String key, HomeModel.GameCard card) {
             // The newest any of the game's PCs says, as Recently played takes it.
             bindGame(card, false, listLine(context, card.storeName(), card.lastPlayed, System.currentTimeMillis() / 1000));
+            if (tv == null) {
+                return;
+            }
+            // On a TV a line is a poster in all but shape: the shelves' held D-pad, the hero, and X and Menu.
             itemView.setOnFocusChangeListener((v, hasFocus) -> {
-                // On a TV the hero names the focused game, as for a poster.
-                if (hasFocus && tv != null && tv.focus != null) tv.focus.onCardFocus(TV_SHELF, new ShelfAdapter.Item(key, card, null), v);
+                // The line's own focus tween is skipped while a key is held, and the backdrop takes its quick path.
+                if (tv.travel.isActive(SystemClock.uptimeMillis())) {
+                    v.refreshDrawableState();
+                    FastTravel.settle(v);
+                }
+                // The hero names the focused game, as for a poster.
+                if (hasFocus && tv.focus != null) tv.focus.onCardFocus(TV_SHELF, new ShelfAdapter.Item(key, card, null), v);
+            });
+            itemView.setOnKeyListener((v, keyCode, event) -> {
+                if (event.getAction() == KeyEvent.ACTION_DOWN && movesFocus(keyCode)) {
+                    tv.travel.onMove(event.getRepeatCount(), SystemClock.uptimeMillis());
+                }
+                if (keyCode == KeyEvent.KEYCODE_BUTTON_X || keyCode == KeyEvent.KEYCODE_MENU) {
+                    // X and Menu open the game's options (where it is starred), as on a poster.
+                    if (event.getAction() == KeyEvent.ACTION_UP && !event.isCanceled()) listener.onGameMenu(card);
+                    return true;
+                }
+                return false;
             });
         }
 

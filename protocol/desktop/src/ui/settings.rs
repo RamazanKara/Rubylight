@@ -337,11 +337,13 @@ impl Launcher {
             view.to_top = true;
             view.confirm_reset = false;
         }
-        // The shortcut, where the field is empty and waiting.
+        // The shortcut, where the field is empty and waiting, and only where the placeholder ends
+        // before it: a long one (French) in a narrow column keeps the field to itself.
         if view.query.is_empty() && !focused {
             let key = ui.painter().layout_no_wrap(tr("Ctrl+F").to_owned(), regular(text::CAPTION), *OUTLINE);
             let at = Pos2::new(rect.right() - 14.0 - key.size().x, rect.center().y - key.size().y / 2.0);
-            if at.x > field.left() + 120.0 {
+            let hint = ui.painter().layout_no_wrap(tr("Search settings").to_owned(), regular(text::BODY), *OUTLINE).size().x;
+            if at.x > field.left() + hint.max(120.0) + 16.0 {
                 ui.painter().galley(at, key, *OUTLINE);
             }
         }

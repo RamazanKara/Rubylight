@@ -129,10 +129,16 @@ public final class RedactedLog {
         return String.join("\n", entries);
     }
 
+    // The app's and the runtime's own fixed thread names; ANR traces show which of them held the main thread.
+    private static final Set<String> FIXED_THREADS = Set.of("Crash history", "Stop stream", "Vulkan stop",
+            "Microphone", "Microphone only stop", "Microphone only busy", "Input - Poll", "ControllerHandler",
+            "Stream health", "Host metrics", "Video - clock sync", "Video - Renderer (MediaCodec)", "RenderThread",
+            "Signal Catcher", "HeapTaskDaemon", "Jit thread pool");
+
     static String crashThread(String name) {
         // Networking libraries sometimes put the remote URL in the thread name.
         return name != null && name.length() <= 80 &&
-                (name.equals("main") || name.equals("Crash history") || name.equals("FinalizerDaemon") ||
+                (name.equals("main") || FIXED_THREADS.contains(name) || name.equals("FinalizerDaemon") ||
                         name.equals("FinalizerWatchdogDaemon") || name.equals("ReferenceQueueDaemon") ||
                         name.matches("(?:Thread-\\d+|pool-\\d+-thread-\\d+|AsyncTask #\\d+|GLThread \\d+)"))
                 ? name : "[name omitted]";

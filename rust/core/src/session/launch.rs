@@ -124,6 +124,15 @@ impl<P, A> Launch<P, A> {
     pub fn ten_bit_sdr_requested(&self) -> bool {
         self.options.get("hdrMode").is_some_and(|v| v == "0")
     }
+    /// A session that only carries the device's microphone (`rlMicOnly=1`,
+    /// [`crate::mic::ONLY_OPTION`]): input-only, without input or sound.
+    pub fn mic_only(&self) -> bool {
+        self.role == Role::InputOnly
+            && self
+                .options
+                .get(crate::mic::ONLY_OPTION)
+                .is_some_and(|v| v == "1")
+    }
     /// RTSP may wait for network input after authorization. Its identity
     /// snapshot must not keep a canceled launch's display, limiter or audio
     /// route alive while a replacement launch prepares new resources.

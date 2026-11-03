@@ -990,6 +990,49 @@ mod tests {
     }
 
     #[test]
+    fn a_microphone_only_session_plays_its_microphone() {
+        use butterpollo_core::session::Role;
+        let f = Fixture::new();
+        let mut launch = f.launch(f.client(u32::MAX), Role::InputOnly);
+        launch
+            .options
+            .insert(butterpollo_core::mic::ONLY_OPTION.into(), "1".into());
+        assert!(launch.mic_only());
+        let negotiated = butterpollo_core::rtsp::Negotiated {
+            mic: true,
+            ..Default::default()
+        };
+        let session = Session::new(launch, negotiated);
+        f.host
+            .sessions
+            .lock()
+            .unwrap()
+            .active
+            .insert(session.launch.id.clone(), session.clone());
+        let counters = Arc::new(Counters::default());
+        let mut receiver = Receiver::new(f.host.clone(), counters.clone(), PathBuf::new());
+        receiver.native = false;
+        let packet = mic::seal(
+            &session.launch.key,
+            session.launch.key_id,
+            7,
+            140,
+            &[1, 2, 3],
+        );
+        receiver.receive(&packet, "127.0.0.2".parse().unwrap());
+        assert_eq!(counters.refused.load(Ordering::Relaxed), 1);
+        assert!(receiver.speaker.is_none());
+        receiver.receive(&packet, session.client_ip());
+        assert_eq!(counters.accepted.load(Ordering::Relaxed), 1);
+        let speaker = receiver
+            .speaker
+            .as_ref()
+            .expect("the session's microphone plays");
+        assert!(Arc::ptr_eq(&speaker.session, &session));
+        assert_eq!(speaker.stats.packets, 1);
+    }
+
+    #[test]
     fn idle_microphone_socket_waits_for_the_receive_timeout() -> Result<()> {
         let f = Fixture::new();
         // Inspect the worker's shared socket without competing for its packets.

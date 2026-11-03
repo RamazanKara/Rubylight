@@ -94,6 +94,14 @@ impl SessionThread<'_> {
             .and_then(serde_json::Value::as_str)
             .filter(|s| !s.is_empty())
             .unwrap_or(c.get("output_name", ""));
+        if s.launch.mic_only() {
+            // No input to map to a display and no device commands to run:
+            // the microphone plays while the session lasts, even on a locked desktop.
+            while !s.stopping() && !h.stop.load(Ordering::Acquire) {
+                thread::sleep(Duration::from_millis(10));
+            }
+            return Ok(None);
+        }
         if s.launch.role == Role::InputOnly {
             let monitors = butterpollo_windows::input::on_input_desktop(
                 butterpollo_windows::display::monitors,

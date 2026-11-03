@@ -506,6 +506,7 @@ async fn capabilities_list_the_radeon_features_only_with_a_worker() {
             "wake",
             "audio.night_mode",
             "audio.headphone_surround",
+            "session.mic_only",
             "radeon.read",
             "radeon.write",
             "radeon.profile",

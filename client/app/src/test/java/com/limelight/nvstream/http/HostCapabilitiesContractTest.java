@@ -85,6 +85,7 @@ public class HostCapabilitiesContractTest {
             case IMAGE_CLIPBOARD: return "image_clipboard";
             case SHARED_FOLDERS: return "shared_folders";
             case COOP: return "coop";
+            case MIC_ONLY: return "mic_only";
             default: return null;
         }
     }

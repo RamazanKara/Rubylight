@@ -87,10 +87,14 @@ pub enum Feature {
     /// Nucleus Co-op sessions to list and join (native `coop`). Known only after
     /// [`HostCapabilities::with_native`]. Whether this device may take a free slot is per session.
     Coop,
+    /// Microphone-only sessions (native `session.mic_only`): the PC hears this device's
+    /// microphone and nothing else. Known only after [`HostCapabilities::with_native`], and
+    /// only for a device with the launch permission.
+    MicOnly,
 }
 
 impl Feature {
-    pub const ALL: [Feature; 43] = [
+    pub const ALL: [Feature; 44] = [
         Feature::Permissions,
         Feature::OtpPairing,
         Feature::Clipboard,
@@ -134,6 +138,7 @@ impl Feature {
         Feature::ImageClipboard,
         Feature::SharedFolders,
         Feature::Coop,
+        Feature::MicOnly,
     ];
 }
 
@@ -262,6 +267,8 @@ pub struct Evidence {
     pub folder_permission: bool,
     /// `coop` in the native features.
     pub coop_offered: bool,
+    /// `session.mic_only` in the native features, with the launch permission.
+    pub mic_only_offered: bool,
 }
 
 /// A host's capabilities. [`HostCapabilities::UNKNOWN`] is a host never reached.
@@ -825,6 +832,7 @@ impl Evidence {
             // No permission reason: a device without Join co-op still sees the sessions and
             // returns to its own slot; each session says why it cannot take a free one.
             Feature::Coop => self.native_feature(self.coop_offered, None),
+            Feature::MicOnly => self.native_feature(self.mic_only_offered, None),
         }
     }
 
@@ -899,6 +907,8 @@ impl HostCapabilities {
         evidence.folders_offered = listed("folders");
         evidence.folder_permission = native.files.shared_folders;
         evidence.coop_offered = listed("coop");
+        // Starting one takes the launch permission, so it is offered only with that.
+        evidence.mic_only_offered = listed("session.mic_only") && native.capabilities.permissions.launch;
         Self::from_evidence(evidence)
     }
 
@@ -1074,6 +1084,7 @@ mod tests {
             Feature::ImageClipboard,
             Feature::SharedFolders,
             Feature::Coop,
+            Feature::MicOnly,
         ] {
             assert_eq!(caps.availability(feature), Availability::Unknown, "{feature:?}");
         }

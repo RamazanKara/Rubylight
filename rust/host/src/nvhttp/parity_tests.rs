@@ -2305,6 +2305,69 @@ async fn image_clipboard_requests_take_turns_one_per_device() {
 }
 
 #[test]
+fn a_microphone_only_launch_needs_no_input_only_mode_and_keeps_no_input() {
+    let f = Fixture::new();
+    let client = f.client(u32::MAX);
+    let app_id = f.host.apps.read().unwrap()[0].id();
+    let mut args = Args::new();
+    args.insert("input_only".into(), "1".into());
+    let resolve = |args: &Args| {
+        resolve_launch_app(
+            &f.host,
+            args,
+            &client,
+            app_id,
+            None,
+            remote::Owner::None,
+            false,
+        )
+    };
+    // Plain input-only stays the administrator's choice.
+    assert!(resolve(&args).is_err());
+    args.insert(butterpollo_core::mic::ONLY_OPTION.into(), "1".into());
+    let (role, app, _, coop) = resolve(&args).unwrap();
+    assert_eq!(role, Role::InputOnly);
+    // Naming an app does not start it.
+    assert!(app.is_none() && coop.is_none());
+    let mut stream = args.clone();
+    stream.remove("input_only");
+    assert!(resolve(&stream).is_err());
+    let launch = build_launch(
+        "127.0.0.1".parse().unwrap(),
+        &args,
+        client.clone(),
+        0,
+        role,
+        [0; 16],
+        1,
+    );
+    assert!(launch.mic_only());
+    assert!(
+        !launch
+            .client
+            .allows(butterpollo_core::input::KEYBOARD_PERMISSION)
+    );
+    assert_eq!(launch.client.perm & butterpollo_core::state::ALL_INPUT, 0);
+    assert!(launch.client.allows(butterpollo_core::state::LAUNCH_APPS));
+    // Without the option an input-only launch keeps the device's input.
+    args.remove(butterpollo_core::mic::ONLY_OPTION);
+    let input = build_launch(
+        "127.0.0.1".parse().unwrap(),
+        &args,
+        client,
+        0,
+        Role::InputOnly,
+        [0; 16],
+        1,
+    );
+    assert!(!input.mic_only());
+    assert_eq!(
+        input.client.perm & butterpollo_core::state::ALL_INPUT,
+        butterpollo_core::state::ALL_INPUT
+    );
+}
+
+#[test]
 fn input_and_monitor_roles_resolve_without_starting_an_app_or_preparing_hardware() {
     let f = Fixture::new();
     let client = f.client(u32::MAX);

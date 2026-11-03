@@ -1014,6 +1014,8 @@ fn expected(feature: Feature) -> Availability {
         Feature::Coop => Unsupported(None),
         // clipboard_image is on by default.
         Feature::ImageClipboard => Supported,
+        // Always listed; the device has every permission, Launch apps among them.
+        Feature::MicOnly => Supported,
     }
 }
 

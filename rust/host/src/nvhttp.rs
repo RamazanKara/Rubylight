@@ -2124,7 +2124,14 @@ fn resolve_launch_app(
     if args.get("remote_monitor").is_some_and(|v| v == "1") {
         role = Role::RemoteMonitor;
     }
+    // A microphone-only session sends no input, so the administrator's
+    // input-only switch does not apply; it needs the launch permission alone.
+    let mic_only = mic_only_requested(args);
+    if mic_only && role != Role::InputOnly {
+        bail!("a microphone-only session must be input-only");
+    }
     if role == Role::InputOnly
+        && !mic_only
         && !h
             .config
             .read()
@@ -2132,6 +2139,10 @@ fn resolve_launch_app(
             .boolean("enable_input_only_mode", false)
     {
         bail!("remote input is disabled by the administrator");
+    }
+    if mic_only {
+        // Whatever it names, it starts no app.
+        return Ok((role, None, requested, None));
     }
     let app_id = if resume {
         let game = h.current_app.lock().unwrap().as_ref().map(|a| a.id);
@@ -2199,15 +2210,24 @@ fn build_launch_session(
         key_id,
     )
 }
+/// `rlMicOnly=1` on /launch ([`butterpollo_core::mic::ONLY_OPTION`]).
+fn mic_only_requested(args: &Args) -> bool {
+    args.get(butterpollo_core::mic::ONLY_OPTION)
+        .is_some_and(|v| v == "1")
+}
 fn build_launch(
     peer: std::net::IpAddr,
     args: &Args,
-    client: Client,
+    mut client: Client,
     app_id: u32,
     role: Role,
     key: [u8; 16],
     key_id: u32,
 ) -> Launch {
+    if role == Role::InputOnly && mic_only_requested(args) {
+        // Its input is refused like a device's without the permission.
+        client.perm &= butterpollo_core::mic::ONLY_PERMISSION;
+    }
     Launch {
         id: uuid::Uuid::new_v4().to_string(),
         client,

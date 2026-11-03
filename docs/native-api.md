@@ -132,6 +132,8 @@ The entries are the host's configured apps (`h.apps`), in console order. The syn
 
 ## Session
 
+With the feature `session.mic_only`, `/launch` takes `input_only=1&rlMicOnly=1` (any `appid`; `0` names no app): a microphone-only session. It needs Launch apps but not the host's input-only mode (`enable_input_only_mode`), runs no app or device commands, sends silence for sound and refuses all input; the device's microphone plays on Steam Streaming Microphone as in a stream. It is an input-only session otherwise (`/session` and the couch menu treat it as one), and a new one from the same device replaces it.
+
 States: `idle → preparing → launching → streaming → suspended → stopping → idle`.
 
 ```http

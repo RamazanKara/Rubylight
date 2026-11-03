@@ -49,6 +49,10 @@ pub mod feature {
     /// `GET /audio` and its writes carry `audio.headphone_surround`, and
     /// launches take `audioHeadphoneSurround`.
     pub const AUDIO_HEADPHONE_SURROUND: &str = "audio.headphone_surround";
+    /// Launches take `input_only=1&rlMicOnly=1`: a session that only plays
+    /// the device's microphone on the host, without picture, sound or input.
+    /// It needs the launch permission, but not the host's input-only mode.
+    pub const MIC_ONLY: &str = "session.mic_only";
     /// `POST /files` answers: the host's File transfer setting is on.
     pub const FILES_UPLOAD: &str = "files.upload";
     /// `GET /files` and `GET /files/content` answer, as above.

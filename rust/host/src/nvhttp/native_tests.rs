@@ -390,6 +390,7 @@ async fn capabilities_list_the_features_and_the_callers_permissions() {
             "wake",
             "audio.night_mode",
             "audio.headphone_surround",
+            "session.mic_only",
             "session.couch_menu",
             "clipboard.image"
         ]
@@ -416,6 +417,7 @@ async fn capabilities_list_the_features_and_the_callers_permissions() {
             "wake",
             "audio.night_mode",
             "audio.headphone_surround",
+            "session.mic_only",
             "session.couch_menu",
             "coop",
             "clipboard.image"

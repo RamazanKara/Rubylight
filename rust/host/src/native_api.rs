@@ -346,6 +346,8 @@ async fn capabilities(State(h): State<Shared>, Extension(c): Extension<Connectio
                 // Night mode and headphone surround of the caller's own stream.
                 feature::AUDIO_NIGHT_MODE,
                 feature::AUDIO_HEADPHONE_SURROUND,
+                // Microphone-only sessions; launching one needs Launch apps.
+                feature::MIC_ONLY,
             ]
             .into_iter()
             // The Radeon endpoints answer only where the host started its Radeon worker.

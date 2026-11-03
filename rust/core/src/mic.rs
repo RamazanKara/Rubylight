@@ -30,6 +30,14 @@ use crate::crypto;
 use anyhow::{Result, bail};
 use std::collections::VecDeque;
 
+/// The launch option of a microphone-only session (`rlMicOnly=1`, with
+/// `input_only=1`): the device's microphone plays on the host and nothing
+/// else goes either way, no picture, sound or input.
+pub const ONLY_OPTION: &str = "rlMicOnly";
+/// The device permissions a microphone-only session keeps: none of its input.
+pub const ONLY_PERMISSION: u32 =
+    crate::state::LIST_APPS | crate::state::VIEW_STREAMS | crate::state::LAUNCH_APPS;
+
 /// `x-ss-general.encryption*` bit for microphone packets (`SS_ENC_MICROPHONE`).
 pub const ENCRYPTION: u32 = 0x08;
 pub const PACKET_TYPE_OPUS: u8 = 0x61;

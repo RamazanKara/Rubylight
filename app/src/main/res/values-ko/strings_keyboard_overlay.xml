@@ -5,6 +5,7 @@
     <string name="keyboard_task_manager">작업 관리자</string>
     <string name="keyboard_switch_window">창 전환</string>
     <string name="keyboard_close_window">창 닫기</string>
+    <string name="keyboard_record_that">방금 장면 녹화</string>
     <string name="keyboard_arrow_left">왼쪽 화살표</string>
     <string name="keyboard_arrow_up">위쪽 화살표</string>
     <string name="keyboard_arrow_down">아래쪽 화살표</string>

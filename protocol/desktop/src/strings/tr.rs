@@ -1298,6 +1298,8 @@ sudo sysctl -w net.core.rmem_max={}", "Alma arabelleği: sistem istenen {1} KiB'
     ("Close window", "Pencereyi kapat"),
     ("Start menu", "Başlat menüsü"),
     ("Show desktop", "Masaüstünü göster"),
+    ("Game Bar", "Game Bar"),
+    ("Record that", "Bunu kaydet"),
     ("Add shortcut", "Kısayol ekle"),
     ("Edit shortcuts", "Kısayolları düzenle"),
     ("Could not save shortcuts: {}", "Kısayollar kaydedilemedi: {}"),

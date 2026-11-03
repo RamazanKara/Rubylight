@@ -1298,6 +1298,8 @@ sudo sysctl -w net.core.rmem_max={}", "수신 버퍼: 시스템이 요청한 {1}
     ("Close window", "창 닫기"),
     ("Start menu", "시작 메뉴"),
     ("Show desktop", "바탕 화면 표시"),
+    ("Game Bar", "Game Bar"),
+    ("Record that", "방금 장면 녹화"),
     ("Add shortcut", "단축키 추가"),
     ("Edit shortcuts", "단축키 편집"),
     ("Could not save shortcuts: {}", "단축키를 저장할 수 없습니다: {}"),

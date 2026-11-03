@@ -1298,6 +1298,8 @@ sudo sysctl -w net.core.rmem_max={}", "Buffer de recepção: o sistema concedeu 
     ("Close window", "Fechar janela"),
     ("Start menu", "Menu Iniciar"),
     ("Show desktop", "Mostrar área de trabalho"),
+    ("Game Bar", "Game Bar"),
+    ("Record that", "Gravar isso"),
     ("Add shortcut", "Adicionar atalho"),
     ("Edit shortcuts", "Editar atalhos"),
     ("Could not save shortcuts: {}", "Não foi possível salvar os atalhos: {}"),

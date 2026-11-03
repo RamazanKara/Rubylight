@@ -606,6 +606,34 @@ mod tests {
         assert_eq!(queue.len(), before);
     }
 
+    /// The Game Bar tiles send Windows' own chords: Win down, Alt down for Record that, G down, then
+    /// up in reverse.
+    #[test]
+    fn the_game_bar_tiles_press_win_g_and_win_alt_g() {
+        use nightjar_core::input::InputEvent;
+        let caps = nightjar_core::control::HostCapabilities { app_version: [7, 1, 0, -1], ..Default::default() };
+        let mut queue = InputQueue::new(&caps);
+        let mut packets = Vec::new();
+        queue.drain(std::time::Instant::now(), false, &mut packets);
+        let built_in = |id: &str| nightjar_policy::shortcuts::BUILT_INS.iter().find(|b| b.id == id).unwrap().keys;
+        let (win, alt) = (modifier::META, modifier::ALT);
+        for (id, events) in [
+            ("game_bar", vec![(0x5B, true, win), (0x47, true, win), (0x47, false, win), (0x5B, false, 0)]),
+            ("record_that", vec![(0x5B, true, win), (0xA4, true, win | alt), (0x47, true, win | alt),
+                (0x47, false, win | alt), (0xA4, false, win), (0x5B, false, 0)]),
+        ] {
+            packets.clear();
+            let keys: Vec<String> = built_in(id).iter().map(|k| k.to_string()).collect();
+            let mut chord = press(&keys, &HashSet::new(), &mut queue).unwrap();
+            release(&mut chord, &mut queue).unwrap();
+            queue.drain(std::time::Instant::now(), false, &mut packets);
+            let expected: Vec<_> = events.iter().map(|&(key, down, modifiers)| {
+                InputEvent::Keyboard { key_code: 0x8000 | key, down, modifiers, flags: 0 }.encode(true)
+            }).collect();
+            assert_eq!(packets.iter().map(|p| p.data.clone()).collect::<Vec<_>>(), expected, "{id}");
+        }
+    }
+
     /// The source of a handler, without its comments, for the checks below.
     fn code(source: &str) -> String {
         source.lines().map(|line| line.split("//").next().unwrap_or("")).collect::<Vec<_>>().join("

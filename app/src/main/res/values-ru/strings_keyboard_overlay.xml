@@ -5,6 +5,7 @@
     <string name="keyboard_task_manager">Диспетчер задач</string>
     <string name="keyboard_switch_window">Переключить окно</string>
     <string name="keyboard_close_window">Закрыть окно</string>
+    <string name="keyboard_record_that">Записать это</string>
     <string name="keyboard_arrow_left">Стрелка влево</string>
     <string name="keyboard_arrow_up">Стрелка вверх</string>
     <string name="keyboard_arrow_down">Стрелка вниз</string>

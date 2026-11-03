@@ -311,6 +311,9 @@ pub const BUILT_INS: &[BuiltIn] = &[
     BuiltIn { id: "close_window", keys: &["ALT", "F4"] },
     BuiltIn { id: "start_menu", keys: &["WIN"] },
     BuiltIn { id: "show_desktop", keys: &["WIN", "D"] },
+    BuiltIn { id: "game_bar", keys: &["WIN", "G"] },
+    // Windows' own Win + Alt + G: Win first, as Windows names it.
+    BuiltIn { id: "record_that", keys: &["WIN", "ALT", "G"] },
 ];
 
 /// The built-ins the user has not saved under a name of their own: a saved chord with the same
@@ -407,11 +410,17 @@ mod tests {
         assert_eq!(built_ins(&[]).len(), BUILT_INS.len());
         let saved = [Shortcut { id: "a".into(), name: "Taskmgr".into(), keys: vec!["ESC".into(), "SHIFT".into(), "CTRL".into()] }];
         let ids: Vec<_> = built_ins(&saved).iter().map(|b| b.id).collect();
-        assert_eq!(ids, ["switch_window", "close_window", "start_menu", "show_desktop"]);
+        assert_eq!(ids, ["switch_window", "close_window", "start_menu", "show_desktop", "game_bar", "record_that"]);
         for built_in in BUILT_INS {
             let keys: Vec<String> = built_in.keys.iter().map(|k| k.to_string()).collect();
             assert_eq!(normalize_keys(&keys).unwrap(), keys, "{}", built_in.id);
         }
+        let ids: Vec<_> = BUILT_INS.iter().map(|b| b.id).collect();
+        assert_eq!(ids, ["task_manager", "switch_window", "close_window", "start_menu", "show_desktop", "game_bar", "record_that"]);
+        let keys = |id: &str| BUILT_INS.iter().find(|b| b.id == id).unwrap().keys;
+        assert_eq!(keys("game_bar"), ["WIN", "G"]);
+        assert_eq!(keys("record_that"), ["WIN", "ALT", "G"]);
+        assert_eq!(chord_label(&keys("record_that").iter().map(|k| k.to_string()).collect::<Vec<_>>()), "Win + Alt + G");
     }
 
     /// Android's editor hands over keys in the order they were tapped: Esc, Ctrl, Shift sent Esc alone,

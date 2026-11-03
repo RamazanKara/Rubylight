@@ -5,6 +5,7 @@
     <string name="keyboard_task_manager">Gestionnaire des tâches</string>
     <string name="keyboard_switch_window">Changer de fenêtre</string>
     <string name="keyboard_close_window">Fermer la fenêtre</string>
+    <string name="keyboard_record_that">Enregistrer ça</string>
     <string name="keyboard_arrow_left">Flèche gauche</string>
     <string name="keyboard_arrow_up">Flèche haut</string>
     <string name="keyboard_arrow_down">Flèche bas</string>

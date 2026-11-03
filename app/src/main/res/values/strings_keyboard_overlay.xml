@@ -4,6 +4,8 @@
     <string name="keyboard_task_manager">Task Manager</string>
     <string name="keyboard_switch_window">Switch window</string>
     <string name="keyboard_close_window">Close window</string>
+    <string name="keyboard_game_bar" translatable="false">Game Bar</string>
+    <string name="keyboard_record_that">Record that</string>
     <string name="keyboard_arrow_left">Left arrow</string>
     <string name="keyboard_arrow_up">Up arrow</string>
     <string name="keyboard_arrow_down">Down arrow</string>

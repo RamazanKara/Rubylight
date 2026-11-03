@@ -1298,6 +1298,8 @@ sudo sysctl -w net.core.rmem_max={}", "Buffer di ricezione: il sistema ha conces
     ("Close window", "Chiudi finestra"),
     ("Start menu", "Menu Start"),
     ("Show desktop", "Mostra desktop"),
+    ("Game Bar", "Game Bar"),
+    ("Record that", "Registra quello"),
     ("Add shortcut", "Aggiungi scorciatoia"),
     ("Edit shortcuts", "Modifica scorciatoie"),
     ("Could not save shortcuts: {}", "Impossibile salvare le scorciatoie: {}"),

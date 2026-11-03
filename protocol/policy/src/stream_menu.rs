@@ -494,7 +494,7 @@ mod tests {
 
         let answer: serde_json::Value = serde_json::from_str(&json::call(r#"{"op":"built_ins","saved":[["ALT","TAB"],["NOPE"]]}"#)).unwrap();
         let built: Vec<_> = answer["ok"].as_array().unwrap().iter().map(|b| b["id"].as_str().unwrap().to_string()).collect();
-        assert_eq!(built, ["task_manager", "close_window", "start_menu", "show_desktop"]);
+        assert_eq!(built, ["task_manager", "close_window", "start_menu", "show_desktop", "game_bar", "record_that"]);
         assert_eq!(answer["ok"][0]["label"], "Ctrl + Shift + Esc");
 
         let answer: serde_json::Value = serde_json::from_str(&json::call(r#"{"op":"picker"}"#)).unwrap();

@@ -171,4 +171,96 @@ public class CachedAppAssetLoaderTest {
             close(loader);
         }
     }
+
+    // The grey box.png a Rubylight or Sunshine-family host sends from /appasset for a game with no cover.
+    private static byte[] hostPlaceholder() throws java.io.IOException {
+        return java.nio.file.Files.readAllBytes(
+                new java.io.File("../protocol/client/tests/fixtures/box-placeholder.png").toPath());
+    }
+
+    /** A game without a cover of its own: the host answers with its placeholder, and the tile shows the title. */
+    @Config(sdk = 25)
+    @Test public void theHostsPlaceholderShowsTheTitleNotAGreyTile() throws Exception {
+        byte[] placeholder = hostPlaceholder();
+        java.util.concurrent.atomic.AtomicInteger asked = new java.util.concurrent.atomic.AtomicInteger();
+        CachedAppAssetLoader loader = placeholderLoader("placeholder-host", () -> {
+            asked.incrementAndGet();
+            return new java.io.ByteArrayInputStream(placeholder);
+        });
+        try {
+            ImageView image = new ImageView(RuntimeEnvironment.getApplication());
+            TextView name = new TextView(RuntimeEnvironment.getApplication());
+            NvApp app = new NvApp("Game without art", 50, false);
+            loader.populateImageView(app, image, name);
+            drain(loader);
+            assertEquals(android.view.View.VISIBLE, name.getVisibility());
+            assertEquals("Game without art", name.getText().toString());
+            assertFalse("The placeholder is not shown as the game's art", CachedAppAssetLoader.hasArtwork(image));
+            assertTrue(loader.hasNoArt(app));
+            assertEquals("The placeholder is not asked for again", 1, asked.get());
+
+            // Next time it comes from the disk cache, and still shows the title without asking the host.
+            loader.freeCacheMemory();
+            ImageView again = new ImageView(RuntimeEnvironment.getApplication());
+            TextView againName = new TextView(RuntimeEnvironment.getApplication());
+            CachedAppAssetLoader next = placeholderLoader("placeholder-host", () -> {
+                asked.incrementAndGet();
+                return null;
+            });
+            try {
+                next.populateImageView(app, again, againName);
+                drain(next);
+                assertEquals(android.view.View.VISIBLE, againName.getVisibility());
+                assertFalse(CachedAppAssetLoader.hasArtwork(again));
+                assertTrue(next.hasNoArt(app));
+                assertEquals(1, asked.get());
+            } finally {
+                close(next);
+            }
+        } finally {
+            close(loader);
+        }
+    }
+
+    @Test public void onlyTheHostsOwnPlaceholderIsTakenForOne() throws Exception {
+        byte[] placeholder = hostPlaceholder();
+        assertEquals("d9164ebd069b5f735eb8efc557801778498da37f572ef70e3d35604739e6c613", PlaceholderArt.sha256(placeholder));
+        java.io.File file = java.io.File.createTempFile("cover", ".png");
+        try {
+            java.nio.file.Files.write(file.toPath(), placeholder);
+            assertTrue(PlaceholderArt.matches(file));
+            // A cover of the same size with other bytes is a cover.
+            byte[] other = placeholder.clone();
+            other[other.length - 20] ^= 1;
+            java.nio.file.Files.write(file.toPath(), other);
+            assertFalse(PlaceholderArt.matches(file));
+        } finally {
+            file.delete();
+        }
+    }
+
+    private static CachedAppAssetLoader placeholderLoader(String uuid, java.util.function.Supplier<java.io.InputStream> host) {
+        Application context = RuntimeEnvironment.getApplication();
+        ComputerDetails computer = new ComputerDetails();
+        computer.uuid = uuid;
+        NetworkAssetLoader network = new NetworkAssetLoader(context, "unique") {
+            @Override public java.io.InputStream getBitmapStream(CachedAppAssetLoader.LoaderTuple tuple) {
+                return host.get();
+            }
+        };
+        MemoryAssetLoader memory = new MemoryAssetLoader();
+        memory.clearCache();
+        return new CachedAppAssetLoader(computer, 1, network, memory, new DiskAssetLoader(context),
+                Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888));
+    }
+
+    // Runs the disk load, the network load it hands over to on the main thread, and their results.
+    private static void drain(CachedAppAssetLoader loader) throws InterruptedException {
+        for (String executorName : new String[] {"foregroundExecutor", "networkExecutor"}) {
+            ThreadPoolExecutor executor = ReflectionHelpers.getField(loader, executorName);
+            executor.shutdown();
+            assertTrue(executor.awaitTermination(5, TimeUnit.SECONDS));
+            org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle();
+        }
+    }
 }

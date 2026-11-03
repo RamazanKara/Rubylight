@@ -9,6 +9,29 @@
 
   let status = $state<GameSettingsStatus | null>(null);
   let failure = $state('');
+  /** Bumped after Put back now, to read the state again. */
+  let reload = $state(0);
+  let releasing = $state('');
+  let releaseError = $state('');
+
+  /** Detached commands start the game where the host may not see it close. */
+  const detached = $derived(
+    settingsFilePaths(draft.settingsFiles.map((row) => row.value)).length > 0 &&
+      draft.detached.some((row) => row.value.trim()),
+  );
+
+  async function release(swap: string) {
+    releasing = swap;
+    releaseError = '';
+    try {
+      await api.gameSettings.release(swap);
+      reload += 1;
+    } catch (error) {
+      releaseError = error instanceof Error ? error.message : String(error);
+    } finally {
+      releasing = '';
+    }
+  }
 
   /** The saved list: the host's copies follow it, not unsaved edits. */
   const savedKey = $derived(JSON.stringify(draft.saved['game-settings-files'] ?? []));
@@ -16,6 +39,7 @@
   $effect(() => {
     const uuid = draft.saved.uuid;
     void savedKey;
+    void reload;
     status = null;
     failure = '';
     if (!uuid || !settingsFilePaths(draft.settingsFiles.map((row) => row.value)).length) return;
@@ -79,16 +103,28 @@
     <div>
       <Button size="sm" icon="plus" onclick={() => draft.settingsFiles.push(textRow())}>Add settings file</Button>
     </div>
+    {#if detached}
+      <p class="note">
+        This app starts its game with detached commands, so the host may not see the game close: the PC’s files
+        come back when the stream ends, even if the game still runs. The last three PC files are kept as backups.
+      </p>
+    {/if}
   </fieldset>
 
   {#if failure}
     <p class="error" role="alert">Could not read the saved copies: {failure}</p>
   {:else if status && status.files.length}
     {#each status.pending.filter((swap) => !swap.running && swap.error) as swap (swap.id)}
-      <p class="error" role="alert">
-        The files are not back from {swap.deviceName || swap.device} yet: {swap.error}
-      </p>
+      <div class="stuck">
+        <p class="error" role="alert">
+          The files are not back from {swap.deviceName || swap.device} yet: {swap.error}
+        </p>
+        <Button size="sm" disabled={releasing !== ''} onclick={() => release(swap.id)}>
+          {releasing === swap.id ? 'Putting back…' : 'Put back now'}
+        </Button>
+      </div>
     {/each}
+    {#if releaseError}<p class="error" role="alert">{releaseError}</p>{/if}
     {#if status.devices.length}
       <ul class="devices" aria-label="Saved copies by device">
         {#each status.devices as device (device.uuid)}
@@ -128,6 +164,16 @@
     font-size: var(--text-xs);
     color: var(--muted);
     line-height: 1.45;
+  }
+  .note {
+    font-size: var(--text-xs);
+    color: var(--warning, var(--muted));
+    line-height: 1.45;
+  }
+  .stuck {
+    display: grid;
+    gap: var(--space-2);
+    justify-items: start;
   }
   .error {
     font-size: var(--text-xs);

@@ -852,6 +852,20 @@ pub(crate) async fn api(
             Err(e) => error(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
         };
     }
+    // Put back now: a swap waiting for a process that is not the game.
+    if method == Method::POST && path == "/api/game-settings/release" {
+        let Some(id) = data.get("id").and_then(Value::as_str).map(str::to_owned) else {
+            return error(StatusCode::BAD_REQUEST, "id is required");
+        };
+        let host = h.clone();
+        return match tokio::task::spawn_blocking(move || crate::game_settings::release(&host, &id))
+            .await
+        {
+            Ok(Ok(_)) => Json(json!({"ok": true})).into_response(),
+            Ok(Err(e)) => error(StatusCode::CONFLICT, &format!("{e:#}")),
+            Err(e) => error(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
+        };
+    }
     if method == Method::POST && path == "/api/covers/upload" {
         return apps::upload_cover(&h, &data).await;
     }

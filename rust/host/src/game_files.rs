@@ -352,14 +352,35 @@ pub fn check(app: &App) -> anyhow::Result<()> {
     if folders.is_empty() {
         return Ok(());
     }
+    // As at launch: a managed file must not be one of the game settings files swapped per
+    // device. Those the Windows user's paths cannot be told for now are checked at launch.
+    let swapped = crate::game_settings::expanded(app);
     for entry in &entries {
-        if let Err(Unusable::Refused(why)) =
-            game_files::resolve(&entry.path, base.as_deref(), &folders, ACCESS)
-        {
-            anyhow::bail!("{}: {why}", game_files::SETTING);
+        match game_files::resolve(&entry.path, base.as_deref(), &folders, ACCESS) {
+            Err(Unusable::Refused(why)) => anyhow::bail!("{}: {why}", game_files::SETTING),
+            Ok(file) if swapped.iter().any(|other| same_file(other, &file)) => anyhow::bail!(
+                "{} is both a managed game file and a game settings file swapped per device; remove it from one of the two lists",
+                file.display()
+            ),
+            _ => {}
         }
     }
     Ok(())
+}
+
+/// Whether two paths name one file: targets are resolved to verbatim (`\\?\`) paths, swapped
+/// files are written plainly, maybe with short or linked folder names.
+fn same_file(a: &Path, b: &Path) -> bool {
+    let normal = |path: &Path| {
+        let path = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_owned());
+        let path = path
+            .to_string_lossy()
+            .replace('/', "\\")
+            .to_ascii_lowercase();
+        path.strip_prefix(r"\\?\")
+            .map_or(path.clone(), str::to_owned)
+    };
+    normal(a) == normal(b)
 }
 
 #[cfg(test)]
@@ -420,22 +441,10 @@ pub fn launching_beside(
             );
         }
     }
-    // Targets are resolved to verbatim (`\\?\`) paths; swapped files are written plainly, maybe
-    // with short or linked folder names.
-    let normal = |path: &Path| {
-        let path = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_owned());
-        let path = path
-            .to_string_lossy()
-            .replace('/', "\\")
-            .to_ascii_lowercase();
-        path.strip_prefix(r"\\?\")
-            .map_or(path.clone(), str::to_owned)
-    };
-    if let Some(target) = targets.iter().find(|target| {
-        swapped
-            .iter()
-            .any(|file| normal(file) == normal(&target.file))
-    }) {
+    if let Some(target) = targets
+        .iter()
+        .find(|target| swapped.iter().any(|file| same_file(file, &target.file)))
+    {
         anyhow::bail!(
             "{} did not start: {} is both a managed game file and a game settings file swapped per device; remove it from one of the two lists",
             app.name,
@@ -623,6 +632,26 @@ mod tests {
         app.extra.insert(
             "device-overrides".into(),
             json!({"tv": {"game-files": [{"path": "later.ini", "section": "A", "key": "B", "value": 60}]}}),
+        );
+        check(&app).unwrap();
+    }
+
+    #[test]
+    fn saving_refuses_a_managed_file_that_is_also_a_swapped_settings_file() {
+        let f = Fixture::new();
+        let (mut app, file) = game(&f);
+        app.extra.insert(
+            "game-settings-files".into(),
+            json!([file.display().to_string().to_uppercase()]),
+        );
+        let error = check(&app).unwrap_err();
+        assert!(
+            format!("{error:#}").contains("both a managed game file"),
+            "{error:#}"
+        );
+        app.extra.insert(
+            "game-settings-files".into(),
+            json!([f.host.directory.join("other.ini").display().to_string()]),
         );
         check(&app).unwrap();
     }

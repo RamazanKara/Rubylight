@@ -224,7 +224,15 @@ fn a_file_the_game_removed_is_put_back_and_said_loudly() {
         .unwrap();
     std::fs::remove_file(&path).unwrap();
     let report = store.finish(&begun.id).unwrap();
-    assert_eq!(report.warnings.len(), 1, "{report:?}");
+    assert_eq!(
+        report
+            .warnings
+            .iter()
+            .filter(|warning| warning.contains("was gone"))
+            .count(),
+        1,
+        "{report:?}"
+    );
     assert!(report.saved.is_empty());
     assert_eq!(text(&path), "pc");
     assert!(!store.saved("app", "tv", &written));
@@ -424,16 +432,27 @@ fn store_names_stay_inside_the_store() {
     );
 }
 
-/// A store whose recorded programs run while `running` holds them.
-fn watching(s: &Scratch, running: &std::sync::Arc<Mutex<BTreeSet<String>>>) -> Store {
+/// Processes (id, creation time) that run.
+type Alive = std::sync::Arc<Mutex<BTreeSet<(u32, u64)>>>;
+
+/// A store whose recorded processes run while `running` holds them, by id and creation time.
+fn watching(s: &Scratch, running: &Alive) -> Store {
     let running = running.clone();
-    s.store().running(Box::new(move |programs| {
+    s.store().running(Box::new(move |processes| {
         let running = running.lock().unwrap();
-        programs
+        processes
             .iter()
-            .find(|program| running.contains(*program))
-            .cloned()
+            .find(|process| running.contains(&(process.pid, process.started)))
+            .map(|process| process.program.clone())
     }))
+}
+
+fn game_process(pid: u32, started: u64) -> Watched {
+    Watched {
+        pid,
+        started,
+        program: "C:\\Games\\Game\\Game.exe".into(),
+    }
 }
 
 #[test]
@@ -446,9 +465,17 @@ fn nothing_goes_back_while_the_game_still_runs_and_its_original_survives_a_relau
     let begun = store
         .start("app", "Game", "tv", "TV", &files, NONE)
         .unwrap();
-    let game = "C:\\Games\\Game\\Game.exe".to_owned();
-    store.watch(&begun.id, std::slice::from_ref(&game)).unwrap();
-    running.lock().unwrap().insert(game.clone());
+    store.watch(&begun.id, &[game_process(42, 7)]).unwrap();
+    // The same program started again (or its id reused) is not the game.
+    running.lock().unwrap().insert((42, 8));
+    std::fs::write(&path, "x").unwrap();
+    assert!(store.recover_except(NONE).unwrap()[0].1.is_ok());
+    assert_eq!(text(&path), "pc");
+    let begun = store
+        .start("app", "Game", "tv", "TV", &files, NONE)
+        .unwrap();
+    store.watch(&begun.id, &[game_process(42, 7)]).unwrap();
+    running.lock().unwrap().insert((42, 7));
     std::fs::write(&path, "tv").unwrap();
     // The host lost the game (a detached launcher, a crash): it still runs.
     let error = store.finish(&begun.id).unwrap_err();
@@ -458,9 +485,14 @@ fn nothing_goes_back_while_the_game_still_runs_and_its_original_survives_a_relau
         "tv",
         "the PC's file is not put back under the running game"
     );
+    assert_eq!(
+        text(&store.device_copy("app", "tv", &file_key(&written))),
+        "x",
+        "the copy is still the earlier session's: none is saved mid-session"
+    );
     assert!(
-        !store.saved("app", "tv", &written),
-        "nor is a copy saved mid-session"
+        store.saved("app", "tv", &written),
+        "the earlier session's copy is kept"
     );
     assert!(store.recover_except(NONE).unwrap()[0].1.is_err());
     // A second launch of the same file must not overwrite the kept original.
@@ -608,4 +640,63 @@ fn two_listed_paths_naming_one_file_are_refused() {
         format!("{error:#}").contains("are the same file"),
         "{error:#}"
     );
+}
+
+#[test]
+fn a_swap_waiting_for_its_game_can_be_put_back_by_hand() {
+    let s = Scratch::new();
+    let running: Alive = Default::default();
+    let store = watching(&s, &running);
+    let (written, path) = s.file("Settings.ini", "pc");
+    let begun = store
+        .start(
+            "app",
+            "Game",
+            "tv",
+            "TV",
+            &[(written.clone(), path.clone())],
+            NONE,
+        )
+        .unwrap();
+    store.watch(&begun.id, &[game_process(9, 1)]).unwrap();
+    running.lock().unwrap().insert((9, 1));
+    std::fs::write(&path, "tv").unwrap();
+    assert!(store.finish(&begun.id).is_err());
+    let report = store.release(&begun.id).unwrap();
+    assert_eq!(report.restored, std::slice::from_ref(&written));
+    assert_eq!(text(&path), "pc");
+    assert!(store.journal().unwrap().swaps.is_empty());
+}
+
+#[test]
+fn the_last_three_pc_files_put_back_stay_as_backups() {
+    let s = Scratch::new();
+    let store = s.store();
+    let (written, path) = s.file("Settings.ini", "pc-0");
+    let files = [(written.clone(), path.clone())];
+    for n in 1..=4 {
+        std::fs::write(&path, format!("pc-{n}")).unwrap();
+        let begun = store
+            .start("app", "Game", "tv", "TV", &files, NONE)
+            .unwrap();
+        let report = store.finish(&begun.id).unwrap();
+        assert!(
+            report
+                .warnings
+                .iter()
+                .any(|warning| warning.contains("no process")),
+            "a swap that never saw its game says so: {:?}",
+            report.warnings
+        );
+    }
+    let newest = store.original("app", &file_key(&written));
+    let numbered = |n: usize| {
+        let mut name = newest.clone().into_os_string();
+        name.push(format!(".{n}"));
+        PathBuf::from(name)
+    };
+    assert_eq!(text(&newest), "pc-4");
+    assert_eq!(text(&numbered(1)), "pc-3");
+    assert_eq!(text(&numbered(2)), "pc-2");
+    assert!(!numbered(3).exists());
 }

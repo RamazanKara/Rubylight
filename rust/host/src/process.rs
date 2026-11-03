@@ -561,13 +561,24 @@ impl RunningApp {
         }
         pids.extend(self.foreign.keys());
         pids.remove(&std::process::id());
-        let programs: Vec<String> = pids
+        // By id and creation time: a shared helper or the same game started later at the desk
+        // is a process of its own, and never holds the files.
+        let processes: Vec<butterpollo_core::game_settings::Watched> = pids
             .into_iter()
-            .filter_map(butterpollo_windows::process::image_path)
-            .filter(|program| watches_program(program))
+            .filter_map(|pid| {
+                let program = butterpollo_windows::process::image_path(pid)?;
+                let started = butterpollo_windows::process::creation_time(pid);
+                (started != 0 && watches_program(&program)).then_some(
+                    butterpollo_core::game_settings::Watched {
+                        pid,
+                        started,
+                        program,
+                    },
+                )
+            })
             .collect();
         if let Some(swap) = &mut self.settings_swap {
-            swap.watch(programs);
+            swap.watch(processes);
         }
     }
     pub fn stop(&mut self) {
@@ -975,7 +986,22 @@ fn only_opens_launchers(app: &App) -> bool {
             .iter()
             .all(|command| butterpollo_core::launcher_prompt::opens_launcher_itself(command))
 }
-/// How often a swapped game's programs are recorded while it runs.
+/// Whether `app` starts its game where the host may not see it (detached commands, a
+/// launcher only), so its swapped settings files cannot wait for the game to close.
+fn running_settings_unwatched(app: &App) -> bool {
+    only_opens_launchers(app)
+        || app
+            .extra
+            .get("detached")
+            .and_then(serde_json::Value::as_array)
+            .is_some_and(|commands| {
+                commands
+                    .iter()
+                    .filter_map(serde_json::Value::as_str)
+                    .any(|command| !command.trim().is_empty())
+            })
+}
+/// How often a swapped game's processes are recorded while it runs.
 const SETTINGS_WATCH: Duration = Duration::from_secs(5);
 /// Whether a game's settings files wait for `program`: not for a store client, a launcher or
 /// a shell, which stay open after the game.
@@ -1435,7 +1461,12 @@ fn launch_with_environment(
             return Err(error);
         }
     };
+    if running_settings_unwatched(&app) && settings_swap.is_some() {
+        tracing::warn!(app = %app.name, "this app starts its game through detached commands or a launcher, whose game the host may not see: its settings files go back when the stream ends, even if the game still runs; the PC's last files stay as backups");
+    }
     running.settings_swap = settings_swap;
+    // Recorded at once: a host crash in the first seconds still waits for the game.
+    running.watch_game();
     running.background = background;
     running.terminate_on_pause = terminate_on_pause;
     running.exit_timeout = exit_timeout;

@@ -1136,6 +1136,8 @@ export const api = {
   },
   gameSettings: {
     status: (uuid: string) => get<GameSettingsStatus>(`/api/game-settings?uuid=${encodeURIComponent(uuid)}`),
+    /** Puts a waiting swap's files back without waiting for the process it waits for. */
+    release: (id: string) => post<Ok>('/api/game-settings/release', { id }, ACTION_TIMEOUT_MS),
   },
   health: {
     limiter: () => get<LimiterStatus>('/api/frame-limiter/status'),

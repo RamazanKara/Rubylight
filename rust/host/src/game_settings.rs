@@ -27,7 +27,7 @@
 use crate::state::{Host, Shared};
 use butterpollo_core::{
     game_files,
-    game_settings::{self, Report, Store},
+    game_settings::{self, Report, Store, Watched},
     state::App,
 };
 use serde_json::{Value, json};
@@ -77,46 +77,55 @@ fn store(directory: &Path) -> Store {
     Store::new(directory, ACCESS).running(Box::new(still_running))
 }
 
-/// The tests' running programs.
+/// The tests' running processes (id, creation time).
 #[cfg(test)]
-static RUNNING: Mutex<BTreeSet<String>> = Mutex::new(BTreeSet::new());
+static RUNNING: Mutex<BTreeSet<(u32, u64)>> = Mutex::new(BTreeSet::new());
 
-/// The first of `programs` that still runs, by full path; when the process list cannot be
-/// read, that is said instead, so nothing goes back under a game that might still run.
-fn still_running(programs: &[String]) -> Option<String> {
-    if programs.is_empty() {
-        return None;
+/// Processes recorded for a swap, not journaled yet: [`Swap::watch`] runs on the stream's
+/// thread with the app held, so the journal is written off it ([`flush`]).
+static PENDING: Mutex<Vec<(PathBuf, String, Vec<Watched>)>> = Mutex::new(Vec::new());
+
+/// Journal what [`Swap::watch`] recorded, for swap `only` or all.
+fn flush(only: Option<&str>) {
+    let pending: Vec<_> = {
+        let mut pending = locked(&PENDING);
+        let (taken, kept) = std::mem::take(&mut *pending)
+            .into_iter()
+            .partition(|(_, id, _)| only.is_none_or(|only| only == id));
+        *pending = kept;
+        taken
+    };
+    for (directory, id, processes) in pending {
+        if let Err(error) = store(&directory).watch(&id, &processes) {
+            tracing::warn!(
+                error = format!("{error:#}"),
+                "the game's processes could not be recorded for its settings files; the files may go back before it closes"
+            );
+        }
     }
+}
+
+/// The first of `processes` that still runs: the same id with the same creation time, so a
+/// later process of the same program is not taken for the game. When that cannot be told,
+/// it is said instead, so nothing goes back under a game that might still run.
+fn still_running(processes: &[Watched]) -> Option<String> {
     #[cfg(test)]
     {
         let running = locked(&RUNNING);
-        programs
+        processes
             .iter()
-            .find(|program| running.contains(*program))
-            .cloned()
+            .find(|process| running.contains(&(process.pid, process.started)))
+            .map(|process| process.program.clone())
     }
     #[cfg(not(test))]
     {
-        use butterpollo_windows::process;
-        let normal = |path: &str| path.replace('/', "\\").to_ascii_lowercase();
-        let watched: BTreeSet<String> = programs.iter().map(|program| normal(program)).collect();
-        let names: BTreeSet<String> = watched
-            .iter()
-            .filter_map(|program| program.rsplit('\\').next().map(str::to_owned))
-            .collect();
-        let processes = match process::processes() {
-            Ok(processes) => processes,
-            Err(error) => {
-                return Some(format!(
-                    "the game (the process list could not be read: {error:#})"
-                ));
-            }
-        };
         processes
             .iter()
-            .filter(|p| names.contains(&p.name.to_ascii_lowercase()))
-            .filter_map(|p| process::image_path(p.pid))
-            .find(|path| watched.contains(&normal(path)))
+            .find(|process| {
+                process.started != 0
+                    && butterpollo_windows::process::creation_time(process.pid) == process.started
+            })
+            .map(|process| format!("{} (process {})", process.program, process.pid))
     }
 }
 
@@ -128,29 +137,26 @@ pub struct Swap {
     host: Weak<Host>,
     /// The files swapped, expanded.
     files: Vec<PathBuf>,
-    /// The game's programs recorded so far.
-    watched: BTreeSet<String>,
+    /// The game's processes recorded so far.
+    watched: BTreeSet<(u32, u64)>,
     /// The launch failed before the game ran: only the originals go back.
     cancelled: bool,
 }
 
 impl Swap {
-    /// Record the game's programs (full paths): the files stay while one runs, also after a
-    /// crash of the host.
-    pub fn watch(&mut self, programs: impl IntoIterator<Item = String>) {
-        let new: Vec<String> = programs
+    /// Record the game's processes: the files stay while one runs, also after a crash of the
+    /// host. Journaled off the caller's thread, at once.
+    pub fn watch(&mut self, processes: impl IntoIterator<Item = Watched>) {
+        let new: Vec<Watched> = processes
             .into_iter()
-            .filter(|program| self.watched.insert(program.to_ascii_lowercase()))
+            .filter(|process| process.started != 0)
+            .filter(|process| self.watched.insert((process.pid, process.started)))
             .collect();
         if new.is_empty() {
             return;
         }
-        if let Err(error) = store(&self.directory).watch(&self.id, &new) {
-            tracing::warn!(app = %self.app, error = format!("{error:#}"), "the game's programs could not be recorded for its settings files");
-            for program in &new {
-                self.watched.remove(&program.to_ascii_lowercase());
-            }
-        }
+        locked(&PENDING).push((self.directory.clone(), self.id.clone(), new));
+        nudge();
     }
     /// The files swapped, expanded.
     pub fn files(&self) -> &[PathBuf] {
@@ -164,6 +170,7 @@ impl Swap {
 
 impl Drop for Swap {
     fn drop(&mut self) {
+        flush(Some(&self.id));
         let store = store(&self.directory);
         let result = if self.cancelled {
             store.cancel(&self.id)
@@ -336,6 +343,7 @@ fn retrier(host: &Weak<Host>) {
         let Some(h) = host.upgrade() else {
             return;
         };
+        flush(None);
         let journal = h
             .directory
             .join(game_settings::FOLDER)
@@ -351,6 +359,47 @@ fn retrier(host: &Weak<Host>) {
             .unwrap_or_else(PoisonError::into_inner);
         *nudged = false;
     }
+}
+
+/// The console's Put back now for swap `id`, which waits for a game that may not be its own:
+/// the files are saved for the device and the PC's put back without waiting. Refused while
+/// the swap's app runs in this host.
+pub fn release(h: &Host, id: &str) -> anyhow::Result<Report> {
+    if locked(&LIVE).contains(id) {
+        anyhow::bail!("the game is still streaming; end its session first");
+    }
+    flush(Some(id));
+    let report = store(&h.directory).release(id)?;
+    log_finished("(put back from the console)", &report);
+    retry(h);
+    Ok(report)
+}
+
+/// The paths of `app`'s game settings files for the signed-in Windows user, as far as they can
+/// be told (nobody signed in, a %NAME% not set: left out). For the checks at save.
+pub fn expanded(app: &App) -> Vec<PathBuf> {
+    let Ok(written) = game_settings::paths(&app.extra) else {
+        return Vec::new();
+    };
+    if written.is_empty() {
+        return Vec::new();
+    }
+    #[cfg(test)]
+    let environment: BTreeMap<String, String> = std::env::vars().collect();
+    #[cfg(not(test))]
+    let environment = butterpollo_windows::process::user_environment().unwrap_or_default();
+    written
+        .iter()
+        .filter_map(|path| {
+            game_settings::expand(path, |name| {
+                environment
+                    .iter()
+                    .find(|(key, _)| key.eq_ignore_ascii_case(name))
+                    .map(|(_, value)| value.clone())
+            })
+            .ok()
+        })
+        .collect()
 }
 
 /// The console's view of an app's game settings files (`GET /api/game-settings?uuid=`): each
@@ -510,9 +559,13 @@ mod tests {
             .unwrap()
             .unwrap();
         let program = f.host.directory.join("game").join("Outlives.exe");
-        let program = program.to_string_lossy().into_owned();
+        let program = Watched {
+            pid: 4242,
+            started: 99,
+            program: program.to_string_lossy().into_owned(),
+        };
         swap.watch([program.clone()]);
-        locked(&RUNNING).insert(program.clone());
+        locked(&RUNNING).insert((4242, 99));
         std::fs::write(&file, "tv").unwrap();
         // The app stopped, but the game it started still runs.
         drop(swap);
@@ -524,7 +577,7 @@ mod tests {
         assert!(retry(&f.host), "still left");
         assert_eq!(read(&file), "tv");
         std::fs::write(&file, "tv-exit").unwrap();
-        locked(&RUNNING).remove(&program);
+        locked(&RUNNING).remove(&(4242, 99));
         assert!(!retry(&f.host));
         assert_eq!(read(&file), "pc");
         let key = game_settings::app_key(&app);
@@ -534,6 +587,46 @@ mod tests {
             &game_settings::file_key("%GameDir%\\Settings.ini"),
         );
         assert_eq!(read(&copy), "tv-exit");
+    }
+
+    #[test]
+    fn a_swap_stuck_on_a_process_is_put_back_from_the_console() {
+        let f = Fixture::new();
+        let (app, file, environment) = game(&f);
+        let mut swap = launching(&f.host, &app, &args("tv"), &environment)
+            .unwrap()
+            .unwrap();
+        let id = swap.id.clone();
+        swap.watch([Watched {
+            pid: 5151,
+            started: 3,
+            program: "C:\\Windows\\SystemApps\\msedgewebview2.exe".into(),
+        }]);
+        locked(&RUNNING).insert((5151, 3));
+        std::fs::write(&file, "tv").unwrap();
+        assert!(
+            release(&f.host, &id).is_err(),
+            "not while the app still streams"
+        );
+        drop(swap);
+        assert_eq!(read(&file), "tv");
+        let shown = status(&f.host, "game-1").unwrap();
+        assert_eq!(shown["pending"][0]["id"], id.as_str());
+        assert!(
+            shown["pending"][0]["error"]
+                .as_str()
+                .unwrap()
+                .contains("still running")
+        );
+        release(&f.host, &id).unwrap();
+        locked(&RUNNING).remove(&(5151, 3));
+        assert_eq!(read(&file), "pc");
+        assert!(
+            status(&f.host, "game-1").unwrap()["pending"]
+                .as_array()
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[test]

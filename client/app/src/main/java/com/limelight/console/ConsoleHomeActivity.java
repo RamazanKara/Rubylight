@@ -54,6 +54,8 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
     /** How long after coming to the front "no hosts" waits for the first host to answer. */
     private static final long SETTLE_MS = 1500;
     private static final long DEBOUNCE_MS = 250;
+    /** How long Home waits for saved PCs to answer before it shows them offline: a poll that gets no answer is done by then. */
+    private static final long WAIT_LIMIT_MS = 10_000;
     private static final int COVER_WIDTH_DP = 140;
 
     private final Handler handler = new Handler(Looper.getMainLooper());
@@ -123,6 +125,7 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
         settled = true;
         reloadNow();
     };
+    private final Runnable stopWaiting = () -> feed.stopWaiting();
 
     /** The data behind the screen; the debug demo overrides this with canned hosts. */
     protected ConsoleRepository createRepository(String uniqueId) {
@@ -419,6 +422,10 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
         refreshedSignature = null;
         handler.removeCallbacks(settle);
         handler.postDelayed(settle, SETTLE_MS);
+        handler.removeCallbacks(stopWaiting);
+        if (feed.waiting()) {
+            handler.postDelayed(stopWaiting, WAIT_LIMIT_MS);
+        }
         scheduleReload();
     }
 
@@ -429,6 +436,7 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
         feed.pause();
         handler.removeCallbacks(reload);
         handler.removeCallbacks(settle);
+        handler.removeCallbacks(stopWaiting);
         super.onPause();
     }
 
@@ -482,6 +490,10 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
         }
         String uniqueId = feed.uniqueId();
         if (uniqueId == null) {
+            // No manager to read the PCs from; once Home stops waiting for it, it says there are none.
+            if (!feed.waiting() && feed.binder() == null) {
+                show(++generation, HomeModel.empty(), true, true);
+            }
             return;
         }
         if (repository == null) {

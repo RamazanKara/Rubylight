@@ -2447,6 +2447,17 @@ fn a_saved_pc_that_has_not_answered_yet_is_not_no_pcs() {
     assert!(!shows(&f, "No PCs yet"), "{:?}", f.drawn);
 }
 
+/// A saved PC that answers as offline with no library saved is still its card on Home, with Wake in its options.
+#[test]
+fn an_offline_pc_with_nothing_saved_is_a_card_not_no_pcs() {
+    let mut f = Frames::new(record("Den", true, true), Reach::Offline);
+    f.l.go(Screen::Home);
+    f.settle();
+    assert!(!shows(&f, "No PCs yet"), "{:?}", f.drawn);
+    assert!(shows(&f, "PCs") && shows(&f, "Den"), "{:?}", f.drawn);
+    assert!(host_options(&f.hosts.list[0]).contains(&HostOption::Wake));
+}
+
 /// A settings row stays a readable width on a wide window instead of stretching across it.
 #[test]
 fn rows_keep_a_readable_width_on_a_wide_window() {

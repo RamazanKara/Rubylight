@@ -511,6 +511,8 @@ pub struct Streaming {
     pub microphone_muted: bool,
     /// Microphone only: the microphone could not be opened or stopped working, so nothing goes.
     pub microphone_unavailable: bool,
+    /// Microphone only: asks the PC whether another device's microphone plays instead.
+    microphone_busy: Option<MicrophoneBusyWatch>,
     pub export_statistics: bool,
     statistics: VecDeque<String>,
     pub menu_visible: bool,
@@ -615,6 +617,8 @@ impl Streaming {
             }
         }
         let settings = connecting.settings.clone();
+        let mic_refused = connecting.plan.mic_only && !session.microphone_available();
+        let facts_host = facts.host_name.clone();
         let microphone = if settings.microphone && !connecting.plan.microphone_muted && facts.role != AppRole::RemoteMonitor {
             if session.microphone_available() {
                 match microphone::Microphone::open(connecting.shared.clone(), settings.mic_echo_cancel) {
@@ -624,7 +628,7 @@ impl Streaming {
                         None
                     }
                 }
-            } else if !settings.controller_audio {
+            } else if !settings.controller_audio && !mic_refused {
                 connecting.shared.notify(Notice::MicrophoneFailed("The PC did not offer an encrypted microphone stream.".into()));
                 None
             } else { None }
@@ -704,7 +708,8 @@ impl Streaming {
             hardware: None,
             link_notice: None,
             pipeline_rates: None,
-            exit: None,
+            // A PC that set up no microphone gives Microphone only nothing to do.
+            exit: mic_refused.then(|| Exit::Ended(Some(trf("{} did not accept the microphone", &[&facts_host])))),
             toast: None,
             network_lost: false,
             retry_now: false,
@@ -750,6 +755,7 @@ impl Streaming {
             focused: false,
             microphone_muted: connecting.plan.microphone_muted,
             microphone_unavailable: false,
+            microphone_busy: None,
             plan: connecting.plan,
             export_statistics: false,
             statistics: VecDeque::new(),
@@ -1730,6 +1736,26 @@ impl Streaming {
         self.plan.mic_only
     }
 
+    /// Microphone only: starts asking the PC every few seconds whether another device's
+    /// microphone plays (`GET /session`); `wake` redraws when that changes.
+    pub fn watch_microphone_busy(&mut self, wake: Waker) {
+        if !self.plan.mic_only || !self.plan.info.capabilities.has(Feature::MicOnly) {
+            return;
+        }
+        let identity = self.plan.identity.clone();
+        let record = self.plan.record.clone();
+        self.microphone_busy = MicrophoneBusyWatch::start(
+            move || crate::hosts::client_for(&identity, &record, &record.address).map(|c| move || c.microphone_busy().map_err(|e| e.to_string())),
+            wake,
+            MICROPHONE_BUSY_EVERY,
+        );
+    }
+
+    /// Whether the PC said, last time it was asked, that another device's microphone plays.
+    pub fn microphone_busy(&self) -> bool {
+        self.microphone_busy.as_ref().is_some_and(MicrophoneBusyWatch::busy)
+    }
+
     pub fn since_start(&self) -> Duration {
         self.started.elapsed()
     }
@@ -2554,5 +2580,119 @@ mod tests {
             "The PC could not convert the picture for streaming.\n\nThe PC reported: HDR is on, but the display is not in HDR"
         );
         assert_eq!(doctor::with_host_reason("Ended.".into(), None), "Ended.");
+    }
+}
+
+/// How often Microphone only asks the PC whether another device's microphone plays.
+const MICROPHONE_BUSY_EVERY: Duration = Duration::from_secs(3);
+
+/// A thread that asks the PC whether this device's microphone waits for another's, until
+/// dropped with the stream.
+struct MicrophoneBusyWatch {
+    busy: Arc<std::sync::atomic::AtomicBool>,
+    stop: Arc<std::sync::atomic::AtomicBool>,
+}
+
+impl MicrophoneBusyWatch {
+    /// `connect` makes the question; `wake` runs when the answer changes.
+    fn start<Q, F>(connect: F, wake: Waker, every: Duration) -> Option<Self>
+    where
+        F: FnOnce() -> Result<Q, String> + Send + 'static,
+        Q: Fn() -> Result<bool, String>,
+    {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        let busy = Arc::new(AtomicBool::new(false));
+        let stop = Arc::new(AtomicBool::new(false));
+        let (seen, stopped) = (busy.clone(), stop.clone());
+        let spawned = std::thread::Builder::new().name("microphone-busy".into()).spawn(move || {
+            let ask = match connect() {
+                Ok(ask) => ask,
+                Err(error) => {
+                    eprintln!("nightjar: microphone only: the PC's session cannot be read: {error}");
+                    return;
+                }
+            };
+            let mut last_error = None;
+            while !stopped.load(Ordering::Acquire) {
+                match ask() {
+                    Ok(now) => {
+                        last_error = None;
+                        if seen.swap(now, Ordering::AcqRel) != now {
+                            eprintln!("nightjar: microphone only: {}", if now { "another device's microphone plays on the PC" } else { "the PC plays this microphone again" });
+                            wake();
+                        }
+                    }
+                    // Said once per kind of failure; the next answer counts again.
+                    Err(error) if last_error.as_ref() != Some(&error) => {
+                        eprintln!("nightjar: microphone only: the PC's session could not be read: {error}");
+                        last_error = Some(error);
+                    }
+                    Err(_) => {}
+                }
+                let until = Instant::now() + every;
+                while !stopped.load(Ordering::Acquire) && Instant::now() < until {
+                    std::thread::sleep(Duration::from_millis(100).min(every));
+                }
+            }
+        });
+        match spawned {
+            Ok(_) => Some(Self { busy, stop }),
+            Err(error) => {
+                eprintln!("nightjar: microphone only: no thread to ask the PC about the microphone: {error}");
+                None
+            }
+        }
+    }
+
+    fn busy(&self) -> bool {
+        self.busy.load(std::sync::atomic::Ordering::Acquire)
+    }
+}
+
+impl Drop for MicrophoneBusyWatch {
+    fn drop(&mut self) {
+        self.stop.store(true, std::sync::atomic::Ordering::Release);
+    }
+}
+
+#[cfg(test)]
+mod microphone_busy_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Mutex;
+
+    #[test]
+    fn the_watch_follows_the_pcs_answer_and_wakes_on_each_change() {
+        let answers = Arc::new(Mutex::new(vec![Ok(true), Err("offline".to_owned()), Ok(true), Ok(false)]));
+        let wakes = Arc::new(AtomicUsize::new(0));
+        let woke = wakes.clone();
+        let queue = answers.clone();
+        let watch = MicrophoneBusyWatch::start(
+            move || Ok(move || queue.lock().unwrap().pop().unwrap_or(Ok(false))),
+            Arc::new(move || { woke.fetch_add(1, Ordering::SeqCst); }),
+            Duration::from_millis(5),
+        )
+        .expect("a watch");
+        // Answers pop from the end: false, true, an error, true; then false for good.
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !answers.lock().unwrap().is_empty() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        std::thread::sleep(Duration::from_millis(50));
+        assert!(!watch.busy());
+        // false (no change), true (wake), error (none), true (none), false (wake).
+        assert_eq!(wakes.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn a_pc_that_cannot_be_reached_leaves_it_not_busy() {
+        let watch = MicrophoneBusyWatch::start(
+            || Err::<fn() -> Result<bool, String>, _>("no address".to_owned()),
+            Arc::new(|| {}),
+            Duration::from_millis(5),
+        )
+        .expect("a watch");
+        std::thread::sleep(Duration::from_millis(30));
+        assert!(!watch.busy());
     }
 }

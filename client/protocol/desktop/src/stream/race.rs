@@ -668,7 +668,7 @@ mod tests {
     fn a_scaled_or_letterboxed_picture_gets_its_share_of_the_beam() {
         let beam = Beam {
             rows: 1440, blank_rows: 60, total_rows: 1500, scan_ns: 4_166_667, refresh_hz: 240.0, lines_per_ms: 360.0,
-            vblank_fraction: 0.04, scans: 20, idle_from: 1000, longest_idle_ns: 9_000_000,
+            vblank_fraction: 0.04, scans: 20, idle_from: 1000, longest_idle_ns: 9_000_000, idle_scans: 0,
         };
         // 1080 rows shown over 1440 display rows: 4/3 of the beam's 2.78 us per row for each.
         let fit = Scan::for_picture(&beam, 800_000, 1080, 0, 1440);

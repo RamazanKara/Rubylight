@@ -110,6 +110,9 @@ pub struct RaceProbe {
     /// The highest rate the stream presented at while the check ran: a check that saw a busy rate
     /// is measured again when the rate falls (`apply_surroundings`).
     check_hz: f64,
+    /// The lowest and highest presents a second measured while the check ran: the quick rule
+    /// waits for a rate that settled (`scanline::STEADY`).
+    check_rates: Option<(f64, f64)>,
     /// Whether the last present went straight to a fullscreen window nothing covers, None before
     /// the first. Only those feed the check: a composed present never restarts a scan.
     direct: Option<bool>,
@@ -147,6 +150,7 @@ impl RaceProbe {
             rate: PresentRate::default(),
             check: RestartCheck::default(),
             check_hz: 0.0,
+            check_rates: None,
             direct: None,
             had_focus: false,
             covered: false,
@@ -244,6 +248,7 @@ impl RaceProbe {
         self.generation += 1;
         self.check = RestartCheck::default();
         self.check_hz = 0.0;
+        self.check_rates = None;
         self.check_said = false;
         self.delays.clear();
         self.delay_ns = 0;
@@ -284,7 +289,12 @@ impl RaceProbe {
             self.forget();
             return true;
         }
-        if self.checking() { self.check_hz = self.check_hz.max(content_hz); }
+        if self.checking() {
+            self.check_hz = self.check_hz.max(content_hz);
+            if let Some(hz) = self.rate.hz {
+                self.check_rates = Some(self.check_rates.map_or((hz, hz), |(low, high)| (low.min(hz), high.max(hz))));
+            }
+        }
         false
     }
 
@@ -337,7 +347,7 @@ impl RaceProbe {
             check: self.check,
             content_hz: self.rate.content_hz(around.content_hz),
             display_hz,
-            stream_hz: around.content_hz,
+            check_rates: self.check_rates,
             check_hz: self.check_hz,
         });
         self.log_change();
@@ -613,7 +623,7 @@ mod tests {
     use super::*;
 
     fn beam() -> Beam {
-        Beam { rows: 1440, blank_rows: 200, total_rows: 1640, scan_ns: 4_100_000, refresh_hz: 243.9, lines_per_ms: 400.0, vblank_fraction: 0.75, scans: 50, idle_from: 1840, longest_idle_ns: 4_100_000 }
+        Beam { rows: 1440, blank_rows: 200, total_rows: 1640, scan_ns: 4_100_000, refresh_hz: 243.9, lines_per_ms: 400.0, vblank_fraction: 0.75, scans: 50, idle_from: 1840, longest_idle_ns: 4_100_000, idle_scans: 0 }
     }
 
     fn around() -> Surroundings { Surroundings { tearing: true, fullscreen: true, focused: true, content_hz: 60.0 } }
@@ -823,7 +833,7 @@ mod tests {
         assert!(probe.beam().is_none() && probe.check == RestartCheck::default());
         assert!(!present(&mut probe, around(), 1), "asked once");
         // The display waits for presents now (nightjar#72 after its resume settled) and they restart its scan.
-        *probe.calibration.lock().unwrap() = Some((1, Ok(Beam { vblank_fraction: 0.45, longest_idle_ns: 17_000_000, ..beam() })));
+        *probe.calibration.lock().unwrap() = Some((1, Ok(Beam { vblank_fraction: 0.45, longest_idle_ns: 17_000_000, idle_scans: 30, ..beam() })));
         assert!(!present_with(&mut probe, around(), super::super::scanline::CHECK_TESTED + 1, Restart::Began));
         assert!(probe.verdict().refreshes_on_present(), "{}", probe.line());
         // A display that still scans at its own rate is found so again.

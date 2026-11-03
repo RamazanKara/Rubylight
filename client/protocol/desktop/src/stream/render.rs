@@ -370,8 +370,7 @@ impl Streaming {
             self.direct_motion.presenting(None);
         }
         let fps = f64::from(self.facts.fps);
-        // A stream the check turned to V-Sync is rechecked with the tearing it had before.
-        let probe_tears = mode_tears || self.vrr.fell_back;
+        let probe_tears = self.vrr.probe_tears(self.pacer.mode);
         let scan = self.race_probe.as_mut().filter(|_| probe).map(|probe| {
             probe.after_present(renderer, beam_before, probe_tears, fps);
             probe.report(beam_before)

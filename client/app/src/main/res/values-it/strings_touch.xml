@@ -39,4 +39,6 @@
     <string name="stream_cursor_shape_rejected">Nightjar non può disegnare la forma del cursore del PC e mostra la freccia predefinita.</string>
     <string name="title_four_finger_tap">Tocco con quattro dita</string>
     <string name="summary_four_finger_tap">Azione di un tocco rapido con quattro dita nelle modalità Trackpad, Mouse diretto e Cursore locale.</string>
+    <string name="title_multi_touch_finger_taps">Tocchi con più dita in Multi-touch</string>
+    <string name="summary_multi_touch_finger_taps">I tocchi con tre e quattro dita eseguono la loro azione anche in Multi-touch, e il PC non riceve quei tocchi. Lascialo disattivato per i giochi che usano tre o quattro dita.</string>
 </resources>

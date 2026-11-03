@@ -39,4 +39,6 @@
     <string name="stream_cursor_shape_rejected">Nightjar は PC のカーソル形状を描画できないため、標準の矢印を表示します。</string>
     <string name="title_four_finger_tap">4本指タップ</string>
     <string name="summary_four_finger_tap">トラックパッド、直接マウス、ローカルカーソルモードで4本指で素早くタップしたときの動作。</string>
+    <string name="title_multi_touch_finger_taps">マルチタッチでの複数本指タップ</string>
+    <string name="summary_multi_touch_finger_taps">マルチタッチでも 3 本指と 4 本指のタップで設定した動作を実行し、そのタッチは PC に送りません。3 本や 4 本の指を使うゲームではオフのままにしてください。</string>
 </resources>

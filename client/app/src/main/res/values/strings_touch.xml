@@ -64,4 +64,6 @@
     <string name="stream_cursor_shape_rejected">Nightjar can’t draw the PC’s cursor shape, so it shows the default arrow.</string>
     <string name="title_four_finger_tap">Four-finger tap</string>
     <string name="summary_four_finger_tap">What a quick tap with four fingers does in Trackpad, Direct mouse and Local cursor modes.</string>
+    <string name="title_multi_touch_finger_taps">Finger taps in Multi-touch</string>
+    <string name="summary_multi_touch_finger_taps">Three- and four-finger taps run their actions in Multi-touch too, and the PC doesn’t get those touches. Leave it off for games that use three or four fingers.</string>
 </resources>

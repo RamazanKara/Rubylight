@@ -39,4 +39,6 @@
     <string name="stream_cursor_shape_rejected">Nightjar bilgisayarın imleç şeklini çizemiyor, bu yüzden varsayılan oku gösteriyor.</string>
     <string name="title_four_finger_tap">Dört parmakla dokunma</string>
     <string name="summary_four_finger_tap">İzleme Dörtgeni, Doğrudan Fare ve Yerel İmleç modlarında dört parmakla hızlı dokunmanın eylemi.</string>
+    <string name="title_multi_touch_finger_taps">Çoklu dokunmada parmak dokunuşları</string>
+    <string name="summary_multi_touch_finger_taps">Üç ve dört parmakla dokunuşlar Çoklu dokunma modunda da eylemlerini çalıştırır ve bu dokunuşlar PC’ye gitmez. Üç veya dört parmak kullanan oyunlarda kapalı bırakın.</string>
 </resources>

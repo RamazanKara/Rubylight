@@ -74,6 +74,7 @@ public final class PadInput {
             case SELECT: return ControllerPacket.BACK_FLAG;
             case START: return ControllerPacket.PLAY_FLAG;
             case HOME: return ControllerPacket.SPECIAL_BUTTON_FLAG;
+            case TOUCHPAD: return ControllerPacket.TOUCHPAD_FLAG;
             default: return 0;
         }
     }

@@ -39,4 +39,6 @@
     <string name="stream_cursor_shape_rejected">Nightjar가 PC의 커서 모양을 그릴 수 없어 기본 화살표를 표시합니다.</string>
     <string name="title_four_finger_tap">네 손가락 탭</string>
     <string name="summary_four_finger_tap">트랙패드, 직접 마우스 및 로컬 커서 모드에서 네 손가락으로 빠르게 탭할 때의 동작입니다.</string>
+    <string name="title_multi_touch_finger_taps">멀티 터치에서 여러 손가락 탭</string>
+    <string name="summary_multi_touch_finger_taps">멀티 터치에서도 세 손가락과 네 손가락 탭이 설정한 동작을 실행하며, 해당 터치는 PC로 전달되지 않습니다. 세 손가락이나 네 손가락을 쓰는 게임에서는 꺼 두세요.</string>
 </resources>

@@ -605,6 +605,34 @@ public class GameTouchInputTest {
         }
     }
 
+    @Test public void multiTouchRunsFingerTapsOnlyWhenTheSettingIsOn() {
+        for (int fingers : new int[] {3, 4}) {
+            RecordingConnection connection = new RecordingConnection();
+            Game game = game(connection);
+            PreferenceConfiguration config = touchConfig(game, TouchMode.MULTI_TOUCH);
+            config.threeFingerTap = fingers == 3 ? "desktop_controls" : "none";
+            config.fourFingerTap = fingers == 4 ? "desktop_controls" : "none";
+            config.multiTouchFingerTaps = true;
+            FrameLayout container = gestureContainer(game);
+            ReflectionHelpers.setField(game, "nativeTouchEnabled", true);
+            beginTap(container, fingers);
+            // The first two fingers reached the PC at once; the third took them back.
+            assertEquals("Two downs and the cancel", 3, connection.touches.size());
+            assertTrue(connection.heldTouches.isEmpty());
+            finishTap(container, fingers);
+            View panel = ReflectionHelpers.getField(game, "keyboardOverlay");
+            assertNotNull(panel);
+            assertEquals(View.VISIBLE, panel.getVisibility());
+            assertEquals("Nothing after the cancel reaches the PC", 3, connection.touches.size());
+
+            // One finger afterwards is a touch on the PC again.
+            dispatch(container, MotionEvent.ACTION_DOWN, 0, new int[] {0}, point(0));
+            assertEquals(1, connection.heldTouches.size());
+            dispatch(container, MotionEvent.ACTION_UP, 0, new int[] {0}, point(0));
+            assertTrue(connection.heldTouches.isEmpty());
+        }
+    }
+
     private static FrameLayout gestureContainer(Game game) {
         game.setTheme(R.style.AppTheme);
         FrameLayout container = streamContainer(game, null);

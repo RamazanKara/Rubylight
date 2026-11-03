@@ -58,6 +58,7 @@ public class PadInputTest {
         assertEquals(ControllerPacket.BACK_FLAG, PadInput.buttonFlag(PadLayout.Control.SELECT));
         assertEquals(ControllerPacket.PLAY_FLAG, PadInput.buttonFlag(PadLayout.Control.START));
         assertEquals(ControllerPacket.SPECIAL_BUTTON_FLAG, PadInput.buttonFlag(PadLayout.Control.HOME));
+        assertEquals(ControllerPacket.TOUCHPAD_FLAG, PadInput.buttonFlag(PadLayout.Control.TOUCHPAD));
         assertEquals(0, PadInput.buttonFlag(PadLayout.Control.LT));
         assertTrue(PadInput.isTrigger(PadLayout.Control.RT));
         assertFalse(PadInput.isTrigger(PadLayout.Control.RB));

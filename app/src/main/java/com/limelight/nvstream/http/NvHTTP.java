@@ -1553,7 +1553,8 @@ public class NvHTTP {
                             .addQueryParameter("appuuid", context.streamConfig.getApp().getAppUuid())
                             .build().encodedQuery()) +
             (role == NvApp.Role.REMOTE_MONITOR ? "&remote_monitor=1" :
-                    inputOnly && !context.streamConfig.getApp().isSmallStreamInputOnly() ? "&input_only=1" : "") +
+                    inputOnly && !context.streamConfig.getApp().isSmallStreamInputOnly() ?
+                            "&input_only=1" + (context.streamConfig.getApp().isMicOnly() ? "&rlMicOnly=1" : "") : "") +
             "&mode=" + context.negotiatedWidth + "x" + context.negotiatedHeight + "x" + launchRate +
             (virtualDisplay ? "&virtualDisplay=1&scaleFactor=" + context.streamConfig.getVirtualDisplayScale() : "") +
             // Also without virtualDisplay=1: the host makes a virtual display of its own by default

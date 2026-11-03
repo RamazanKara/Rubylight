@@ -896,6 +896,9 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
             case HostMenu.COOP:
                 hostActions.joinCoop(details);
                 break;
+            case HostMenu.MIC_ONLY:
+                hostActions.micOnly(details);
+                break;
             case HostMenu.FILES:
                 startActivity(FileTransferActivity.forPc(this, details.uuid));
                 break;

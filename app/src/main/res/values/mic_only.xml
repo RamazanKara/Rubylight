@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Microphone only: the PC menu entry and its notification (mic/MicOnlyService). -->
+<resources>
+    <string name="mic_only_action">Microphone only</string>
+    <string name="mic_only_connecting">Connecting…</string>
+    <string name="mic_only_on">Microphone on</string>
+    <string name="mic_only_paused_call">Paused for a call</string>
+    <string name="mic_only_stop">Stop</string>
+    <string name="mic_only_stopped">Microphone off</string>
+    <string name="mic_only_failed">Connection to %1$s ended</string>
+    <string name="mic_only_denied">No microphone access</string>
+</resources>

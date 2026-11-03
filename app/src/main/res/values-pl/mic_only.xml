@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="mic_only_action">Tylko mikrofon</string>
+    <string name="mic_only_connecting">Łączenie…</string>
+    <string name="mic_only_on">Mikrofon włączony</string>
+    <string name="mic_only_paused_call">Wstrzymano na czas rozmowy</string>
+    <string name="mic_only_stop">Zatrzymaj</string>
+    <string name="mic_only_stopped">Mikrofon wyłączony</string>
+    <string name="mic_only_failed">Połączenie z %1$s zakończone</string>
+    <string name="mic_only_denied">Brak dostępu do mikrofonu</string>
+</resources>

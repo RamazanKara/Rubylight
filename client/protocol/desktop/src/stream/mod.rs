@@ -17,6 +17,7 @@ mod microphone;
 mod voice_capture;
 mod cursor;
 pub mod direct_motion;
+mod system_keys;
 mod bitrate;
 pub mod host_abr;
 pub mod doctor;
@@ -1092,6 +1093,12 @@ impl Streaming {
         }
     }
 
+    /// A stream that opened behind another window captures input (and with it the keyboard
+    /// grab) once it comes to the front, as after a focus loss, not only at the first click.
+    pub fn capture_on_focus(&mut self) {
+        self.captured = self.facts.role != AppRole::RemoteMonitor;
+    }
+
     /// Mouse capture: relative motion with a hidden, confined pointer.
     pub fn set_capture(&mut self, window: *mut SDL_Window, on: bool) {
         self.focused = unsafe { SDL_GetWindowFlags(window) & SDL_WINDOW_INPUT_FOCUS != 0 };
@@ -1115,9 +1122,9 @@ impl Streaming {
             } else {
                 SDL_SetWindowRelativeMouseMode(window, on);
             }
-            let grab = on && self.settings.capture_system_keys;
-            SDL_SetWindowKeyboardGrab(window, grab);
-            self.direct_motion.keyboard_grab(grab);
+            let grab = system_keys::keyboard_grab(on, self.settings.capture_system_keys);
+            let sdl_grab = self.direct_motion.keyboard_grab(window, grab);
+            SDL_SetWindowKeyboardGrab(window, sdl_grab);
         }
         self.direct_motion.set_active(on && !self.absolute && self.focused, self.settings.mouse_speed);
     }

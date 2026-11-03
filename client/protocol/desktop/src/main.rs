@@ -1808,6 +1808,8 @@ impl App {
         let focused = unsafe { SDL_GetWindowFlags(self.window) & SDL_WINDOW_INPUT_FOCUS != 0 };
         if focused {
             streaming.set_capture(self.window, true);
+        } else {
+            streaming.capture_on_focus();
         }
         let (pyrowave, notices_changed) = match self.hosts.get_mut(streaming.host_id) {
             Some(host) => stream::pyrowave_notice(&mut host.record, settings.codec.is_pyrowave(),

@@ -509,6 +509,8 @@ pub struct Streaming {
     jitter_ms: f64,
     focused: bool,
     pub microphone_muted: bool,
+    /// Microphone only: the microphone could not be opened or stopped working, so nothing goes.
+    pub microphone_unavailable: bool,
     pub export_statistics: bool,
     statistics: VecDeque<String>,
     pub menu_visible: bool,
@@ -747,6 +749,7 @@ impl Streaming {
             jitter_ms: -1.0,
             focused: false,
             microphone_muted: connecting.plan.microphone_muted,
+            microphone_unavailable: false,
             plan: connecting.plan,
             export_statistics: false,
             statistics: VecDeque::new(),
@@ -1068,8 +1071,15 @@ impl Streaming {
             self.microphone = None;
         } else if self.microphone.is_none() && self.session.microphone_available() {
             match microphone::Microphone::open(self.shared.clone(), self.settings.mic_echo_cancel) {
-                Ok(microphone) => self.microphone = Some(microphone),
-                Err(error) => { self.microphone_muted = true; self.show_toast(error); }
+                Ok(microphone) => {
+                    self.microphone = Some(microphone);
+                    self.microphone_unavailable = false;
+                }
+                Err(error) => {
+                    self.microphone_muted = true;
+                    self.microphone_unavailable = self.plan.mic_only;
+                    self.show_toast(error);
+                }
             }
         }
         for pad in &mut pads.pads {
@@ -1099,13 +1109,19 @@ impl Streaming {
     /// A stream that opened behind another window captures input (and with it the keyboard
     /// grab) once it comes to the front, as after a focus loss, not only at the first click.
     pub fn capture_on_focus(&mut self) {
-        self.captured = self.facts.role != AppRole::RemoteMonitor;
+        self.captured = self.takes_input();
+    }
+
+    /// Whether this stream captures the mouse and keyboard: not a view-only remote monitor, and
+    /// not Microphone only, which sends nothing but the microphone.
+    fn takes_input(&self) -> bool {
+        self.facts.role != AppRole::RemoteMonitor && !self.plan.mic_only
     }
 
     /// Mouse capture: relative motion with a hidden, confined pointer.
     pub fn set_capture(&mut self, window: *mut SDL_Window, on: bool) {
         self.focused = unsafe { SDL_GetWindowFlags(window) & SDL_WINDOW_INPUT_FOCUS != 0 };
-        let on = on && self.facts.role != AppRole::RemoteMonitor;
+        let on = on && self.takes_input();
         self.captured = on;
         let cursor_shapes = on && self.absolute && self.settings.cursor_shapes && self.facts.cursor_shapes;
         if cursor_shapes != self.cursor.enabled

@@ -59,7 +59,17 @@ pub(super) fn mic_only_handles(kind: SDL_EventType) -> bool {
             | SDL_EVENT_WINDOW_FOCUS_GAINED
             | SDL_EVENT_AUDIO_DEVICE_ADDED
             | SDL_EVENT_AUDIO_DEVICE_REMOVED
+            // For Nightjar's own chords only (mic_only_chord); no key goes to the PC.
+            | SDL_EVENT_KEY_DOWN
+            | SDL_EVENT_KEY_UP
     )
+}
+
+/// The chords Microphone only keeps: disconnect, full screen and minimize. The rest are about
+/// input, the picture or the clipboard, which it does not have.
+pub(super) fn mic_only_chord(action: Option<crate::shortcuts::Action>) -> bool {
+    use crate::shortcuts::Action;
+    matches!(action, Some(Action::Disconnect | Action::Fullscreen | Action::Minimize))
 }
 
 pub(super) fn pointer_goes_out(captured: bool, focused: bool) -> bool {
@@ -116,6 +126,13 @@ impl Streaming {
                 return;
             }
             match kind {
+                // Closing Microphone only's window goes back to the PCs; quitting still quits.
+                SDL_EVENT_WINDOW_CLOSE_REQUESTED if self.plan.mic_only => {
+                    self.exit = Some(Exit::User);
+                }
+                SDL_EVENT_QUIT if self.plan.mic_only => {
+                    self.exit.get_or_insert(Exit::CloseWindow);
+                }
                 SDL_EVENT_QUIT | SDL_EVENT_WINDOW_CLOSE_REQUESTED => {
                     self.exit = Some(Exit::CloseWindow);
                 }
@@ -296,6 +313,11 @@ impl Streaming {
             }
             return;
         }
+        if self.plan.mic_only
+            && !(k.down && mic_only_chord(crate::shortcuts::key_action(crate::shortcuts::Scope::Stream, k.scancode, k.r#mod)))
+        {
+            return;
+        }
         // Nightjar's own chords (shortcuts.rs, the list the help shows); every other key goes to the PC.
         if k.down {
             use crate::shortcuts::{key_action, Action, Scope};
@@ -400,5 +422,23 @@ impl Streaming {
                 eprintln!("nightjar: text field: could not send text: {error}");
             }
         });
+    }
+}
+
+#[cfg(test)]
+mod mic_only_tests {
+    use super::*;
+
+    #[test]
+    fn microphone_only_keeps_only_the_chords_that_are_not_about_input() {
+        use crate::shortcuts::Action;
+        for kept in [Action::Disconnect, Action::Fullscreen, Action::Minimize] {
+            assert!(mic_only_chord(Some(kept)), "{kept:?}");
+        }
+        for dropped in [Action::Capture, Action::MouseMode, Action::SendClipboard, Action::StreamControls] {
+            assert!(!mic_only_chord(Some(dropped)), "{dropped:?}");
+        }
+        assert!(!mic_only_chord(None), "an ordinary key never goes");
+        assert!(mic_only_handles(SDL_EVENT_KEY_DOWN) && !mic_only_handles(SDL_EVENT_MOUSE_MOTION));
     }
 }

@@ -117,6 +117,8 @@ pub enum Action {
     ZoomReset,
     Fullscreen,
     OpenSettings,
+    PreviousTab,
+    NextTab,
     Screenshot,
     StreamControls,
     StreamShortcuts,
@@ -146,6 +148,8 @@ impl Action {
             Self::ZoomReset => en("Reset zoom"),
             Self::Fullscreen => en("Full screen"),
             Self::OpenSettings => en("Settings"),
+            Self::PreviousTab => en("Previous tab"),
+            Self::NextTab => en("Next tab"),
             Self::Screenshot => en("Save a screenshot"),
             Self::StreamControls => en("Stream controls"),
             Self::StreamShortcuts => en("Shortcuts & help"),
@@ -505,6 +509,8 @@ pub const PAD: &[PadBinding] = &[
     pad(Action::Options, Scope::Launcher, Press::Any(&[Button::West])),
     pad(Action::Unstar, Scope::Launcher, Press::Any(&[Button::North])),
     pad(Action::OpenSettings, Scope::Launcher, Press::Any(&[Button::Start])),
+    pad(Action::PreviousTab, Scope::Launcher, Press::Any(&[Button::LeftShoulder])),
+    pad(Action::NextTab, Scope::Launcher, Press::Any(&[Button::RightShoulder])),
     pad(Action::StreamControls, Scope::Stream, Press::Together(&[Button::Start, Button::Back])),
     pad(Action::Disconnect, Scope::Stream, Press::QuitCombo),
     pad(Action::ControllerMouse, Scope::Stream, Press::Hold(Button::Start)),
@@ -682,7 +688,8 @@ mod tests {
         assert_eq!(pad_action(Button::West, false), Some(Action::Options));
         assert_eq!(pad_action(Button::North, false), Some(Action::Unstar));
         assert_eq!(pad_action(Button::Start, false), Some(Action::OpenSettings));
-        assert_eq!(pad_action(Button::LeftShoulder, false), None);
+        assert_eq!(pad_action(Button::LeftShoulder, false), Some(Action::PreviousTab));
+        assert_eq!(pad_action(Button::RightShoulder, true), Some(Action::NextTab));
         assert_eq!(stream_controls_mask(), 1 << SDL_GAMEPAD_BUTTON_START.0 | 1 << SDL_GAMEPAD_BUTTON_BACK.0);
         use crate::config::GamepadQuitCombo;
         assert_eq!(quit_buttons(GamepadQuitCombo::StartSelectLbRb), [Button::Start, Button::Back, Button::LeftShoulder, Button::RightShoulder]);

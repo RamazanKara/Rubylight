@@ -93,10 +93,33 @@ public abstract class NightjarActivity extends AppCompatActivity {
 
     private final DpadEchoFilter dpadEchoes = new DpadEchoFilter();
 
+    /** The shell bar's destination this screen belongs to, once {@link ShellBar#install} put the bar on it. */
+    private ShellBar.Destination shellDestination;
+
+    void setShellDestination(ShellBar.Destination destination) {
+        shellDestination = destination;
+    }
+
     /** A pad that reports its D-pad as keys and as a hat must not move the focus twice. */
     @Override
     public boolean dispatchKeyEvent(android.view.KeyEvent event) {
-        return dpadEchoes.drop(event) || super.dispatchKeyEvent(event);
+        return dpadEchoes.drop(event) || shoulderStep(event) || super.dispatchKeyEvent(event);
+    }
+
+    /**
+     * L1 and R1 switch to the shell bar's destination left or right of this one, round at the ends. A dialog has
+     * its own window, so its keys never come here; a text field keeps them for itself.
+     */
+    private boolean shoulderStep(android.view.KeyEvent event) {
+        int code = event.getKeyCode();
+        if (shellDestination == null || (code != android.view.KeyEvent.KEYCODE_BUTTON_L1 && code != android.view.KeyEvent.KEYCODE_BUTTON_R1)
+                || getCurrentFocus() instanceof android.widget.EditText) {
+            return false;
+        }
+        if (event.getAction() == android.view.KeyEvent.ACTION_DOWN && event.getRepeatCount() == 0) {
+            ShellBar.step(this, shellDestination, code == android.view.KeyEvent.KEYCODE_BUTTON_R1);
+        }
+        return true;
     }
 
     /** Releases that arrive while another window has focus never reach this one. */

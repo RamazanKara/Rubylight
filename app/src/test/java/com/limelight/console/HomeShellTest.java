@@ -350,6 +350,54 @@ public class HomeShellTest {
         }
     }
 
+    /** L1 and R1 open the tab left or right of Home, round at the ends, as the tab's own button would. */
+    @Test
+    public void theShouldersOpenTheNeighbouringTabs() {
+        shouldersOpenTheNeighbouringTabs();
+    }
+
+    @Test
+    @Config(qualifiers = "television")
+    public void onTelevisionTheShouldersOpenTheNeighbouringTabs() {
+        shouldersOpenTheNeighbouringTabs();
+    }
+
+    private void shouldersOpenTheNeighbouringTabs() {
+        ActivityController<Home> controller = home();
+        try {
+            Home screen = controller.get();
+            assertTrue(shoulder(screen, KeyEvent.KEYCODE_BUTTON_R1));
+            Intent pcs = nextStarted(screen);
+            assertEquals("R1 from Home", PcView.class.getName(), pcs.getComponent().getClassName());
+            assertTrue(shoulder(screen, KeyEvent.KEYCODE_BUTTON_L1));
+            Intent settings = nextStarted(screen);
+            assertTrue("L1 from Home goes round to Settings", settings.getBooleanExtra(ShellBar.EXTRA_FROM_SHELL, false));
+            assertEquals(com.limelight.preferences.StreamSettings.class.getName(), settings.getComponent().getClassName());
+            // A held shoulder opens one tab, not one per repeat.
+            screen.dispatchKeyEvent(KeyEvent.changeTimeRepeat(new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_BUTTON_R1), 0, 1));
+            assertNull(nextStarted(screen));
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    @Test
+    public void theShoulderOrderIsTheBarsAndHomeCountsOnlyWhileShown() {
+        assertEquals(ShellBar.Destination.PCS, ShellBar.next(ShellBar.Destination.HOME, true, true));
+        assertEquals(ShellBar.Destination.SETTINGS, ShellBar.next(ShellBar.Destination.HOME, false, true));
+        assertEquals(ShellBar.Destination.HOME, ShellBar.next(ShellBar.Destination.SETTINGS, true, true));
+        assertEquals(ShellBar.Destination.HOME, ShellBar.next(ShellBar.Destination.PCS, false, true));
+        assertEquals("no Home in the bar", ShellBar.Destination.SETTINGS, ShellBar.next(ShellBar.Destination.PCS, false, false));
+        assertEquals(ShellBar.Destination.PCS, ShellBar.next(ShellBar.Destination.SETTINGS, true, false));
+    }
+
+    private static boolean shoulder(android.app.Activity screen, int keyCode) {
+        boolean down = screen.dispatchKeyEvent(new KeyEvent(KeyEvent.ACTION_DOWN, keyCode));
+        boolean up = screen.dispatchKeyEvent(new KeyEvent(KeyEvent.ACTION_UP, keyCode));
+        shadowOf(Looper.getMainLooper()).idle();
+        return down && up;
+    }
+
     @Test
     public void backFromHomeThatIsNotTheRootReturnsToTheListWithoutStacking() {
         PreferenceManager.getDefaultSharedPreferences(context).edit().putBoolean(HomeSettings.PREF_KEY, false).commit();

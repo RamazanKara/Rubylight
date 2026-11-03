@@ -5,6 +5,8 @@
 
 pub const TABLE: &[(&str, &str)] = &[
     ("Settings", "Einstellungen"),
+    ("Previous tab", "Vorheriger Tab"),
+    ("Next tab", "Nächster Tab"),
     ("Profiles", "Profile"),
     ("Controller mappings", "Controller-Belegungen"),
     ("Keyboard shortcuts", "Tastenkürzel"),

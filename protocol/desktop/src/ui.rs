@@ -917,22 +917,48 @@ impl Launcher {
         // The marked one reads as selected, as the chosen filter chip does.
         response.widget_info(|| egui::WidgetInfo::selected(egui::Role::Button, true, marked, tr(name)));
         if response.clicked() && self.screen != screen {
-            match screen {
-                // As Start does: over a library, game or PC page, so Back returns to it and the
-                // page keeps its check or transfers.
-                Screen::Settings => {
-                    if let Some(save) = self.screen.save_command() {
-                        commands.push(save);
-                    }
-                    self.open_settings();
+            self.go_destination(screen, commands);
+        }
+    }
+
+    /// The destinations the top bar offers now: Home waits for a library, unless it is shown.
+    fn offered_destinations(&self) -> Vec<Screen> {
+        let marked = self.screen.destination();
+        DESTINATIONS.iter().map(|(_, s)| *s).filter(|s| *s != Screen::Home || self.home_ready || marked == Screen::Home).collect()
+    }
+
+    /// L1 and R1: to the destination left or right of the current one, round from the last to the
+    /// first. Not over a dialog or while a text field takes the keys.
+    pub fn step_destination(&mut self, ctx: &egui::Context, forward: bool, commands: &mut Vec<Command>) {
+        if !matches!(self.dialog, Dialog::None) || ctx.text_edit_focused() {
+            return;
+        }
+        let offered = self.offered_destinations();
+        let Some(at) = offered.iter().position(|s| *s == self.screen.destination()) else { return };
+        let to = offered[if forward { (at + 1) % offered.len() } else { (at + offered.len() - 1) % offered.len() }];
+        if to != self.screen {
+            self.go_destination(to, commands);
+            self.focus_screen = true;
+        }
+    }
+
+    /// Opens destination `screen` as its top-bar button does.
+    fn go_destination(&mut self, screen: Screen, commands: &mut Vec<Command>) {
+        match screen {
+            // As Start does: over a library, game or PC page, so Back returns to it and the
+            // page keeps its check or transfers.
+            Screen::Settings => {
+                if let Some(save) = self.screen.save_command() {
+                    commands.push(save);
                 }
-                // Home and PCs drop the trail, and with it a Files or PC page and its transfers.
-                _ if self.transferring() => {
-                    self.dialog = Dialog::ConfirmLeave { to: screen };
-                    self.focus_dialog = true;
-                }
-                _ => self.leave_for(screen, commands),
+                self.open_settings();
             }
+            // Home and PCs drop the trail, and with it a Files or PC page and its transfers.
+            _ if self.transferring() => {
+                self.dialog = Dialog::ConfirmLeave { to: screen };
+                self.focus_dialog = true;
+            }
+            _ => self.leave_for(screen, commands),
         }
     }
 

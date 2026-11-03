@@ -172,9 +172,47 @@ impl Hooks {
 
 pub struct VideoFrame {
     /// One access unit: Annex B for H.264 and HEVC, low-overhead OBUs for AV1.
-    pub data: Vec<u8>,
+    pub data: FrameData,
     pub capture: Instant,
     pub keyframe: bool,
+}
+
+/// An access unit's bytes. str0m packetizes from an `Arc<[u8]>`, so a frame several transports
+/// send needs no copy per transport.
+pub enum FrameData {
+    /// Only this transport sends it: moved here, and copied into str0m once, by the media thread.
+    Owned(Vec<u8>),
+    /// Every transport of a session with guests sends it ([`Followers`]): copied once, before any
+    /// of them. AV1's temporal delimiters are out already.
+    Shared(Arc<[u8]>),
+}
+
+impl FrameData {
+    pub fn len(&self) -> usize {
+        match self {
+            Self::Owned(data) => data.len(),
+            Self::Shared(data) => data.len(),
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// The buffer every transport sends from, ready for `codec`.
+    fn share(self, codec: VideoCodec) -> Result<Arc<[u8]>> {
+        Ok(match (self, codec) {
+            (Self::Owned(data), VideoCodec::Av1) => strip_av1_temporal_delimiters(data)?.into(),
+            (Self::Owned(data), _) => data.into(),
+            (Self::Shared(data), _) => data,
+        })
+    }
+}
+
+impl From<Vec<u8>> for FrameData {
+    fn from(data: Vec<u8>) -> Self {
+        Self::Owned(data)
+    }
 }
 
 pub struct AudioPacket {
@@ -624,10 +662,8 @@ impl Engine {
             return Ok(false);
         }
         let packets = frame.data.len().div_ceil(RTP_PAYLOAD_TARGET).max(1);
-        let data = match self.codec {
-            VideoCodec::Av1 => strip_av1_temporal_delimiters(frame.data)?,
-            _ => frame.data,
-        };
+        // The conversion str0m's writer makes of a `Vec` anyway; a shared frame has it done.
+        let data = frame.data.share(self.codec)?;
         let time = MediaTime::new(
             ticks(frame.capture.saturating_duration_since(self.start), 90_000),
             Frequency::NINETY_KHZ,
@@ -1009,6 +1045,80 @@ impl Shared {
             tracing::error!("webrtc: waking the media thread failed: {e:#}");
         }
     }
+
+    fn drop_video(&self, reason: IdrReason) -> Submit {
+        self.counters.video_dropped.fetch_add(1, Ordering::Relaxed);
+        self.need_keyframe.store(true, Ordering::Release);
+        self.last_idr_ms
+            .store(self.epoch.elapsed().as_millis() as u64, Ordering::Relaxed);
+        self.request_idr(reason);
+        Submit::Dropped
+    }
+}
+
+/// The queues of a running transport, for a session that sends it media it was given itself: a
+/// guest's transport, fed by the owner's ([`Followers`]). Like [`AudioSender`] it does not own
+/// the transport.
+#[derive(Clone)]
+pub struct Feed {
+    tx: Sender<Command>,
+    shared: Arc<Shared>,
+}
+
+impl Feed {
+    /// As [`MediaHandle::submit_video`]: never blocks, and a frame this transport cannot take is
+    /// dropped here alone, with its own keyframe request.
+    pub fn submit_video(&self, frame: VideoFrame) -> Submit {
+        queue_video(&self.shared, &self.tx, frame)
+    }
+
+    pub fn submit_audio(&self, packet: AudioPacket) -> Submit {
+        queue_audio(&self.shared, &self.tx, packet)
+    }
+
+    /// Nothing this transport holds can be decoded without a keyframe.
+    fn missed_frame(&self) {
+        self.shared.drop_video(IdrReason::WriteFailed);
+    }
+}
+
+/// The transports that are sent whatever a session's own transport is given, after it: the
+/// guests watching the owner's stream (docs/browser-guests.md). Each has its own queues, pacer
+/// and keyframe state, so a slow one drops frames alone. Empty for every other session, whose
+/// media then takes exactly the path it took before guests existed.
+#[derive(Default)]
+pub struct Followers {
+    feeds: std::sync::Mutex<Arc<[(u64, Feed)]>>,
+}
+
+impl Followers {
+    pub fn add(&self, id: u64, feed: Feed) {
+        let mut feeds = self.feeds.lock().unwrap();
+        let mut list: Vec<(u64, Feed)> = feeds.iter().filter(|(i, _)| *i != id).cloned().collect();
+        list.push((id, feed));
+        *feeds = list.into();
+    }
+
+    /// False when `id` was not following.
+    pub fn remove(&self, id: u64) -> bool {
+        let mut feeds = self.feeds.lock().unwrap();
+        let before = feeds.len();
+        *feeds = feeds.iter().filter(|(i, _)| *i != id).cloned().collect();
+        feeds.len() != before
+    }
+
+    pub fn len(&self) -> usize {
+        self.feeds.lock().unwrap().len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// The followers now; a list taken under the lock and read outside it.
+    fn snapshot(&self) -> Arc<[(u64, Feed)]> {
+        self.feeds.lock().unwrap().clone()
+    }
 }
 
 enum Command {
@@ -1073,6 +1183,8 @@ pub struct MediaHandle {
     threads: Vec<JoinHandle<()>>,
     local: SocketAddr,
     audio_layout: Option<OpusLayout>,
+    codec: VideoCodec,
+    followers: Arc<Followers>,
 }
 
 /// The audio side of a [`MediaHandle`], for the thread that encodes the host's sound. It does not
@@ -1083,6 +1195,7 @@ pub struct AudioSender {
     tx: Sender<Command>,
     shared: Arc<Shared>,
     layout: OpusLayout,
+    followers: Arc<Followers>,
 }
 
 impl AudioSender {
@@ -1093,8 +1206,79 @@ impl AudioSender {
 
     /// Never blocks; a full queue drops the packet (Opus conceals one).
     pub fn submit(&self, packet: AudioPacket) -> Submit {
-        queue_audio(&self.shared, &self.tx, packet)
+        queue_audio_followed(&self.shared, &self.tx, &self.followers, packet)
     }
+}
+
+/// The packet for this transport first, then a copy for each follower; an Opus packet is a few
+/// hundred bytes.
+fn queue_audio_followed(
+    shared: &Shared,
+    tx: &Sender<Command>,
+    followers: &Followers,
+    packet: AudioPacket,
+) -> Submit {
+    let followers = followers.snapshot();
+    if followers.is_empty() {
+        return queue_audio(shared, tx, packet);
+    }
+    let AudioPacket {
+        data,
+        capture,
+        position,
+    } = packet;
+    let copy = |data: Vec<u8>| AudioPacket {
+        data,
+        capture,
+        position,
+    };
+    let submitted = queue_audio(shared, tx, copy(data.clone()));
+    for (_, feed) in followers.iter() {
+        feed.submit_audio(copy(data.clone()));
+    }
+    submitted
+}
+
+/// Never blocks. A full queue drops the frame and requests an IDR, and until a keyframe goes
+/// through nothing else is queued: it would reference the dropped frame.
+fn queue_video(shared: &Shared, tx: &Sender<Command>, frame: VideoFrame) -> Submit {
+    if shared.need_keyframe.load(Ordering::Acquire) && !frame.keyframe {
+        shared
+            .counters
+            .video_dropped
+            .fetch_add(1, Ordering::Relaxed);
+        let now_ms = shared.epoch.elapsed().as_millis() as u64;
+        let last = shared.last_idr_ms.load(Ordering::Relaxed);
+        if now_ms.saturating_sub(last) >= IDR_REQUEST_INTERVAL.as_millis() as u64
+            && shared
+                .last_idr_ms
+                .compare_exchange(last, now_ms, Ordering::Relaxed, Ordering::Relaxed)
+                .is_ok()
+        {
+            shared.request_idr(IdrReason::WaitingForKeyframe);
+        }
+        return Submit::Dropped;
+    }
+    if shared.pending_video.fetch_add(1, Ordering::AcqRel) >= shared.options.video_queue {
+        shared.pending_video.fetch_sub(1, Ordering::AcqRel);
+        return shared.drop_video(IdrReason::QueueFull);
+    }
+    // Cleared before the send: the media thread may drop this very keyframe at once and set
+    // the flag again, and that must win over this store.
+    if frame.keyframe {
+        shared.need_keyframe.store(false, Ordering::Release);
+    }
+    if tx.send(Command::Video(frame)).is_err() {
+        shared.pending_video.fetch_sub(1, Ordering::AcqRel);
+        shared.need_keyframe.store(true, Ordering::Release);
+        shared
+            .counters
+            .video_dropped
+            .fetch_add(1, Ordering::Relaxed);
+        return Submit::Dropped;
+    }
+    shared.notify();
+    Submit::Queued
 }
 
 /// The `control` channel of a [`MediaHandle`], for the input worker. Like [`AudioSender`] it does
@@ -1201,7 +1385,22 @@ impl MediaHandle {
             threads,
             local,
             audio_layout: None,
+            codec: spec.video.codec,
+            followers: Arc::default(),
         })
+    }
+
+    /// The transports that get this one's media after it (the guests of the owner's stream).
+    pub fn followers(&self) -> Arc<Followers> {
+        self.followers.clone()
+    }
+
+    /// This transport's queues, for a session that follows another ([`Followers::add`]).
+    pub fn feed(&self) -> Feed {
+        Feed {
+            tx: self.tx.clone(),
+            shared: self.shared.clone(),
+        }
     }
 
     pub fn local_addr(&self) -> SocketAddr {
@@ -1229,63 +1428,45 @@ impl MediaHandle {
 
     /// Never blocks. A full queue drops the frame and requests an IDR, and until a keyframe goes
     /// through nothing else is queued: it would reference the dropped frame.
+    ///
+    /// With followers the frame is queued here first, then for each of them from the same
+    /// buffer; what one of them cannot take is dropped for it alone.
     pub fn submit_video(&self, frame: VideoFrame) -> Submit {
-        let shared = &self.shared;
-        if shared.need_keyframe.load(Ordering::Acquire) && !frame.keyframe {
-            shared
-                .counters
-                .video_dropped
-                .fetch_add(1, Ordering::Relaxed);
-            let now_ms = shared.epoch.elapsed().as_millis() as u64;
-            let last = shared.last_idr_ms.load(Ordering::Relaxed);
-            if now_ms.saturating_sub(last) >= IDR_REQUEST_INTERVAL.as_millis() as u64
-                && shared
-                    .last_idr_ms
-                    .compare_exchange(last, now_ms, Ordering::Relaxed, Ordering::Relaxed)
-                    .is_ok()
-            {
-                shared.request_idr(IdrReason::WaitingForKeyframe);
+        let followers = self.followers.snapshot();
+        if followers.is_empty() {
+            return queue_video(&self.shared, &self.tx, frame);
+        }
+        let VideoFrame {
+            data,
+            capture,
+            keyframe,
+        } = frame;
+        let data = match data.share(self.codec) {
+            Ok(data) => data,
+            Err(e) => {
+                // What the media thread does with a frame it cannot write, for every peer.
+                tracing::error!("webrtc: {e:#}");
+                for (_, feed) in followers.iter() {
+                    feed.missed_frame();
+                }
+                return self.shared.drop_video(IdrReason::WriteFailed);
             }
-            return Submit::Dropped;
+        };
+        let shared = |data: &Arc<[u8]>| VideoFrame {
+            data: FrameData::Shared(data.clone()),
+            capture,
+            keyframe,
+        };
+        let submitted = queue_video(&self.shared, &self.tx, shared(&data));
+        for (_, feed) in followers.iter() {
+            feed.submit_video(shared(&data));
         }
-        if shared.pending_video.fetch_add(1, Ordering::AcqRel) >= shared.options.video_queue {
-            shared.pending_video.fetch_sub(1, Ordering::AcqRel);
-            return self.drop_video(IdrReason::QueueFull);
-        }
-        // Cleared before the send: the media thread may drop this very keyframe at once and set
-        // the flag again, and that must win over this store.
-        if frame.keyframe {
-            shared.need_keyframe.store(false, Ordering::Release);
-        }
-        if !self.queue(Command::Video(frame)) {
-            shared.pending_video.fetch_sub(1, Ordering::AcqRel);
-            shared.need_keyframe.store(true, Ordering::Release);
-            shared
-                .counters
-                .video_dropped
-                .fetch_add(1, Ordering::Relaxed);
-            return Submit::Dropped;
-        }
-        Submit::Queued
-    }
-
-    fn drop_video(&self, reason: IdrReason) -> Submit {
-        let shared = &self.shared;
-        shared
-            .counters
-            .video_dropped
-            .fetch_add(1, Ordering::Relaxed);
-        shared.need_keyframe.store(true, Ordering::Release);
-        shared
-            .last_idr_ms
-            .store(shared.epoch.elapsed().as_millis() as u64, Ordering::Relaxed);
-        shared.request_idr(reason);
-        Submit::Dropped
+        submitted
     }
 
     /// Never blocks; a full queue drops the packet (Opus conceals one).
     pub fn submit_audio(&self, packet: AudioPacket) -> Submit {
-        queue_audio(&self.shared, &self.tx, packet)
+        queue_audio_followed(&self.shared, &self.tx, &self.followers, packet)
     }
 
     /// Record the Opus layout the answer agreed to, which [`AudioSender::layout`] hands the audio
@@ -1302,6 +1483,7 @@ impl MediaHandle {
             tx: self.tx.clone(),
             shared: self.shared.clone(),
             layout: self.audio_layout.clone()?,
+            followers: self.followers.clone(),
         })
     }
 

@@ -238,7 +238,7 @@ impl Link {
 
     fn video(&mut self, data: Vec<u8>, at_ms: u64, keyframe: bool) {
         let frame = VideoFrame {
-            data,
+            data: data.into(),
             capture: self.at(at_ms),
             keyframe,
         };
@@ -509,7 +509,7 @@ fn hdr_colour_space_is_never_sent() {
 fn nothing_is_written_before_the_peer_is_connected() {
     let mut link = Link::new(spec(VideoCodec::H264, false));
     let frame = VideoFrame {
-        data: h264_frame(true, 1_000),
+        data: h264_frame(true, 1_000).into(),
         capture: link.at(0),
         keyframe: true,
     };
@@ -1229,6 +1229,8 @@ fn detached(
             threads: Vec::new(),
             local: HOST.parse().unwrap(),
             audio_layout: None,
+            codec: VideoCodec::H264,
+            followers: Arc::default(),
         },
         rx,
         idr,
@@ -1237,7 +1239,7 @@ fn detached(
 
 fn frame(keyframe: bool) -> VideoFrame {
     VideoFrame {
-        data: vec![0; 10],
+        data: vec![0; 10].into(),
         capture: Instant::now(),
         keyframe,
     }
@@ -1324,6 +1326,153 @@ fn the_audio_sender_shares_the_handles_queue_and_counters() {
     handle.shared.pending_audio.store(0, Ordering::Release);
     assert_eq!(sender.submit(packet()), Submit::Dropped);
     assert_eq!(handle.stats().audio_dropped, 2);
+}
+
+fn queued_video(rx: &mpsc::Receiver<Command>) -> Vec<VideoFrame> {
+    let mut frames = Vec::new();
+    while let Ok(command) = rx.try_recv() {
+        if let Command::Video(frame) = command {
+            frames.push(frame);
+        }
+    }
+    frames
+}
+
+#[test]
+fn without_guests_a_frame_keeps_its_own_buffer() {
+    let (owner, rx, _idr) = detached(TransportOptions::default());
+    assert_eq!(owner.submit_video(frame(true)), Submit::Queued);
+    let frames = queued_video(&rx);
+    assert!(
+        matches!(
+            frames.as_slice(),
+            [VideoFrame {
+                data: FrameData::Owned(_),
+                ..
+            }]
+        ),
+        "no guests, no shared copy: the owner's path is the one it had before guests"
+    );
+}
+
+#[test]
+fn a_slow_guest_drops_frames_alone_and_the_owner_keeps_every_one() {
+    let (owner, owner_rx, owner_idr) = detached(TransportOptions {
+        video_queue: 8,
+        ..TransportOptions::default()
+    });
+    let (slow, slow_rx, slow_idr) = detached(TransportOptions {
+        video_queue: 1,
+        ..TransportOptions::default()
+    });
+    let (fast, fast_rx, _fast_idr) = detached(TransportOptions {
+        video_queue: 8,
+        ..TransportOptions::default()
+    });
+    owner.followers().add(1, slow.feed());
+    owner.followers().add(2, fast.feed());
+    assert_eq!(owner.submit_video(frame(true)), Submit::Queued);
+    for _ in 0..4 {
+        assert_eq!(
+            owner.submit_video(frame(false)),
+            Submit::Queued,
+            "a guest that cannot keep up never costs the owner a frame"
+        );
+    }
+    assert_eq!(owner.stats().video_dropped, 0);
+    assert!(owner_idr.lock().unwrap().is_empty(), "nor a keyframe");
+    assert_eq!(slow.stats().video_dropped, 4);
+    assert_eq!(
+        slow_idr.lock().unwrap().first(),
+        Some(&IdrReason::QueueFull),
+        "the slow guest asks for its own"
+    );
+
+    let owner_frames = queued_video(&owner_rx);
+    let slow_frames = queued_video(&slow_rx);
+    let fast_frames = queued_video(&fast_rx);
+    assert_eq!(owner_frames.len(), 5);
+    assert_eq!(
+        slow_frames.len(),
+        1,
+        "the keyframe, then its queue was full"
+    );
+    assert_eq!(
+        fast_frames.len(),
+        5,
+        "one slow guest does not hold back another"
+    );
+    let (FrameData::Shared(a), FrameData::Shared(b)) =
+        (&owner_frames[0].data, &slow_frames[0].data)
+    else {
+        panic!("a frame with guests is shared");
+    };
+    assert!(
+        Arc::ptr_eq(a, b),
+        "one buffer for every transport, not a copy each"
+    );
+}
+
+#[test]
+fn a_guest_that_left_gets_nothing_more() {
+    let (owner, _owner_rx, _owner_idr) = detached(TransportOptions::default());
+    let (guest, guest_rx, _guest_idr) = detached(TransportOptions::default());
+    let followers = owner.followers();
+    followers.add(7, guest.feed());
+    followers.add(7, guest.feed());
+    assert_eq!(followers.len(), 1, "joining twice is one follower");
+    owner.submit_video(frame(true));
+    assert!(followers.remove(7));
+    assert!(!followers.remove(7));
+    owner.submit_video(frame(true));
+    assert_eq!(queued_video(&guest_rx).len(), 1);
+}
+
+#[test]
+fn audio_reaches_every_guest_and_a_full_guest_queue_drops_only_there() {
+    let (owner, owner_rx, _) = detached(TransportOptions::default());
+    let (guest, guest_rx, _) = detached(TransportOptions {
+        audio_queue: 1,
+        ..TransportOptions::default()
+    });
+    let owner = owner.with_audio_layout(OpusLayout::select(2, false, None).unwrap());
+    owner.followers().add(1, guest.feed());
+    let sender = owner.audio_sender().unwrap();
+    let packet = |n: u8| AudioPacket {
+        data: vec![n],
+        capture: Instant::now(),
+        position: 0,
+    };
+    assert_eq!(sender.submit(packet(1)), Submit::Queued);
+    assert_eq!(owner.submit_audio(packet(2)), Submit::Queued);
+    assert_eq!(owner.stats().audio_dropped, 0);
+    assert_eq!(guest.stats().audio_dropped, 1);
+    let audio = |rx: &mpsc::Receiver<Command>| -> Vec<Vec<u8>> {
+        rx.try_iter()
+            .filter_map(|c| match c {
+                Command::Audio(p) => Some(p.data),
+                _ => None,
+            })
+            .collect()
+    };
+    assert_eq!(audio(&owner_rx), [vec![1], vec![2]]);
+    assert_eq!(audio(&guest_rx), [vec![1]]);
+}
+
+#[test]
+fn a_shared_av1_frame_loses_its_temporal_delimiters_once() {
+    let frame = av1_frame(true, 3000);
+    let shared = FrameData::Owned(frame.clone())
+        .share(VideoCodec::Av1)
+        .unwrap();
+    assert_eq!(&shared[..], without_td(&frame).as_slice());
+    let again = FrameData::Shared(shared.clone())
+        .share(VideoCodec::Av1)
+        .unwrap();
+    assert!(
+        Arc::ptr_eq(&shared, &again),
+        "a shared frame is ready as it is"
+    );
 }
 
 #[test]
@@ -1515,7 +1664,7 @@ fn an_ice_outage_is_surfaced_and_ends_the_session_after_the_timeout() {
     assert!(!link.host.is_connected() && !link.host.is_closed());
     // While down, nothing is written, so the next frames wait for a keyframe.
     let frame = VideoFrame {
-        data: h264_frame(true, 1_000),
+        data: h264_frame(true, 1_000).into(),
         capture: link.at(0),
         keyframe: true,
     };
@@ -1663,7 +1812,7 @@ fn no_frame_but_a_keyframe_leaves_before_the_first_one() {
 
 fn frame_of(data: Vec<u8>, keyframe: bool) -> VideoFrame {
     VideoFrame {
-        data,
+        data: data.into(),
         capture: Instant::now(),
         keyframe,
     }
@@ -2020,4 +2169,49 @@ fn webrtc_bench_keyframe_and_srtp_cost() {
         spent.as_secs_f64() / mbit * 1000.,
         spent.as_secs_f64() / mbit * 100. * 100.
     );
+}
+
+/// What guests cost the owner: from the encoder handing a 250 KB frame over to the owner's media
+/// thread holding the buffer str0m packetizes, with 0, 1 and 4 guests following.
+/// `cargo test -p butterpollo --release -- --ignored --nocapture webrtc_bench_guest_fan_out`
+#[test]
+#[ignore = "measurement"]
+fn webrtc_bench_guest_fan_out() {
+    let frames = 2000;
+    for guests in [0, 1, 4] {
+        let (owner, owner_rx, _) = detached(TransportOptions::default());
+        let followers: Vec<_> = (0..guests)
+            .map(|_| detached(TransportOptions::default()))
+            .collect();
+        for (i, (guest, _, _)) in followers.iter().enumerate() {
+            owner.followers().add(i as u64, guest.feed());
+        }
+        let mut ready = Vec::with_capacity(frames);
+        let mut submit = Duration::ZERO;
+        for i in 0..frames {
+            let data = h264_frame(i == 0, 250_000);
+            let started = Instant::now();
+            owner.submit_video(frame_of(data, i == 0));
+            submit += started.elapsed();
+            let Ok(Command::Video(frame)) = owner_rx.try_recv() else {
+                panic!("the owner's frame was not queued");
+            };
+            owner.shared.pending_video.fetch_sub(1, Ordering::AcqRel);
+            let data = frame.data.share(VideoCodec::H264).unwrap();
+            ready.push(started.elapsed());
+            drop(data);
+            for (guest, rx, _) in &followers {
+                while rx.try_recv().is_ok() {
+                    guest.shared.pending_video.fetch_sub(1, Ordering::AcqRel);
+                }
+            }
+        }
+        ready.sort();
+        println!(
+            "webrtc_bench: {guests} guests: owner's frame ready to packetize after {:.1} us median, {:.1} us p99; the encoder's hand-off takes {:.1} us",
+            ready[frames / 2].as_secs_f64() * 1e6,
+            ready[frames * 99 / 100].as_secs_f64() * 1e6,
+            submit.as_secs_f64() * 1e6 / frames as f64
+        );
+    }
 }

@@ -197,7 +197,7 @@ impl Sender {
             let capture = monotonic(&self.last, frame.presentation.unwrap_or(claimed));
             let bytes = frame.bytes.len() as u64;
             let submitted = self.media.submit_video(VideoFrame {
-                data: frame.bytes,
+                data: frame.bytes.into(),
                 capture,
                 keyframe: frame.idr,
             });

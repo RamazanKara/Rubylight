@@ -161,6 +161,10 @@ impl VrrPacing {
         })
     }
 
+    /// Whether the display check takes the presents as tearing ones: the pacing tears, or the
+    /// check itself turned it to V-Sync and a recheck has to see what the stream had before.
+    pub fn probe_tears(&self, mode: PacingMode) -> bool { mode != PacingMode::Vsync || self.fell_back }
+
     /// Whether the display check is to measure the display again now (`RaceProbe::recheck`): a
     /// stream on its fall back whose recheck time has come. The next one waits twice as long.
     pub fn recheck_due(&mut self, now_us: u64) -> bool {
@@ -1977,7 +1981,7 @@ pub(crate) mod tests {
         assert_eq!(after_display_check(PacingMode::HostTimes, &fixed, immediate), PacingMode::Immediate);
         // Still checking, VRR seen, and every reason that says nothing about the refresh keep the mode.
         let beam = Beam { rows: 1440, blank_rows: 200, total_rows: 1640, scan_ns: 4_100_000, refresh_hz: 243.9, lines_per_ms: 400.0,
-            vblank_fraction: 0.7, scans: 50, idle_from: 2040, longest_idle_ns: 0 };
+            vblank_fraction: 0.7, scans: 50, idle_from: 2040, longest_idle_ns: 0, idle_scans: 0 };
         let mut kept = vec![Verdict::Checking, Verdict::On(beam, RaceCapability { vrr: true, flip_inferred: true, ..capability })];
         kept.extend([Reason::NoTearing, Reason::NoScanline, Reason::NoScan, Reason::NoRestart, Reason::Windowed, Reason::NoIdle, Reason::RowsDiffer].map(off));
         for verdict in &kept {
@@ -2045,7 +2049,7 @@ pub(crate) mod tests {
         let capability = RaceCapability { tearing: true, vrr: false, flip_inferred: false, scanline: true };
         let fixed = Verdict::Off(Reason::NoVrr, capability);
         let beam = Beam { rows: 2160, blank_rows: 90, total_rows: 2250, scan_ns: 8_310_000, refresh_hz: 120.3, lines_per_ms: 270.8,
-            vblank_fraction: 0.45, scans: 80, idle_from: 2521, longest_idle_ns: 17_000_000 };
+            vblank_fraction: 0.45, scans: 80, idle_from: 2521, longest_idle_ns: 17_000_000, idle_scans: 30 };
         let on = Verdict::On(beam, RaceCapability { vrr: true, flip_inferred: true, ..capability });
         let idles = Verdict::Off(Reason::NoIdle, RaceCapability { vrr: true, ..capability });
         let busy = Verdict::Off(Reason::NoIdle, capability);
@@ -2053,7 +2057,10 @@ pub(crate) mod tests {
         let mut vrr = VrrPacing::new(true, PacingMode::Vsync, VrrSync::Off, PacingMode::Immediate);
         let mut mode = PacingMode::Immediate;
         // nightjar#72's resume: no VRR, V-Sync.
+        assert!(vrr.probe_tears(mode));
         assert_eq!(vrr.step(&mut mode, Some(&fixed), 0), Some(1));
+        assert!(vrr.probe_tears(mode), "rechecked with the tearing it had");
+        assert!(!VrrPacing::new(true, PacingMode::Vsync, VrrSync::Off, PacingMode::Vsync).probe_tears(PacingMode::Vsync), "V-Sync from the settings");
         assert!(!vrr.recheck_due(0));
         assert_eq!(vrr.step(&mut mode, Some(&fixed), 0), None);
         assert!(!vrr.recheck_due(RECHECK_FIRST_US - 1), "nothing until the first recheck");
@@ -2074,6 +2081,7 @@ pub(crate) mod tests {
         assert_eq!(vrr.step(&mut mode, Some(&Verdict::Checking), 0), None);
         assert_eq!(vrr.step(&mut mode, Some(&on), 0), Some(0));
         assert_eq!((mode, vrr.fell_back, vrr.recovered), (PacingMode::Immediate, false, true));
+        assert!(vrr.probe_tears(mode));
         assert_eq!(vrr.step(&mut mode, Some(&on), 0), None);
         assert!(!vrr.recheck_due(u64::MAX), "nothing to recheck on Immediate");
         // No VRR once more after returning: V-Sync for good, no flapping.
@@ -2083,8 +2091,8 @@ pub(crate) mod tests {
             assert!(!vrr.recheck_due(at));
         }
         assert_eq!(vrr.step(&mut mode, Some(&on), 0), Some(0), "the probe's own later verdict still counts");
-        // A recheck with no idle to test on a display the calibration saw idle returns too; the
-        // waits never grow past the longest.
+        // A recheck with no idle to test, on a display the calibration saw idle, is no restart seen:
+        // V-Sync stays; the waits never grow past the longest, and a passed check returns.
         let mut vrr = VrrPacing::new(true, PacingMode::Vsync, VrrSync::Off, PacingMode::HostTimes);
         let mut mode = PacingMode::HostTimes;
         vrr.step(&mut mode, Some(&fixed), 0);
@@ -2094,7 +2102,9 @@ pub(crate) mod tests {
             at += RECHECK_MAX_US;
             assert!(vrr.recheck_due(at));
         }
-        assert_eq!(vrr.step(&mut mode, Some(&idles), at), Some(0));
+        assert_eq!(vrr.step(&mut mode, Some(&idles), at), None);
+        assert_eq!(mode, PacingMode::Vsync);
+        assert_eq!(vrr.step(&mut mode, Some(&on), at), Some(0));
         assert_eq!(mode, PacingMode::HostTimes, "the pacing it had before");
     }
 

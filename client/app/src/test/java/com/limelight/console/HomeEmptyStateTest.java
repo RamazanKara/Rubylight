@@ -3,6 +3,7 @@ package com.limelight.console;
 import static com.limelight.nativeapi.NativeApiFixtures.nativeHost;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.robolectric.Shadows.shadowOf;
 
@@ -226,6 +227,24 @@ public class HomeEmptyStateTest {
         assertFalse(shows(home, R.id.console_loading));
         assertTrue("its card", hasHostCard(home, "tower"));
         assertTrue("and Wake", HostWaker.canWake(home, feed.host("tower")));
+    }
+
+    @Test
+    public void anUnpairedPcThatIsAwayIsNotACard() throws Exception {
+        // Unpairing (or a poll that answered "not paired") forgot its certificate; then it went away.
+        ComputerDetails unpaired = savedTower();
+        unpaired.serverCert = null;
+        Home home = open(unpaired);
+        settle(home);
+        HostFeed feed = ReflectionHelpers.getField(home, "feed");
+        ComputerDetails offline = new ComputerDetails(unpaired);
+        offline.state = ComputerDetails.State.OFFLINE;
+        feed.update(offline);
+        settle(home);
+        assertFalse("not paired: no card", hasHostCard(home, "tower"));
+        assertNull(feed.host("tower"));
+        assertFalse(feed.waiting());
+        assertTrue(shows(home, R.id.console_empty));
     }
 
     @Test

@@ -39,6 +39,7 @@ mod state;
 mod steam;
 mod stream;
 mod stream_focus;
+mod stream_notice;
 mod telemetry;
 #[cfg(test)]
 mod test_log;

@@ -1,0 +1,2 @@
+# A notice when a device starts a background or co-op stream
+- **The PC says when a device starts a background or co-op stream.** These streams play in a window of their own, so the person at the PC could not tell that someone started playing. A Windows notification now names the device and the game, once per stream: reconnecting does not show it again, and the main stream, which takes over the screen, never shows one.

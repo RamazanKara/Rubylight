@@ -1537,6 +1537,12 @@ fn launch_back_half(
         )),
         (None, false) => None,
     };
+    // The game a Nucleus stream's notice on the PC names (`stream_notice`).
+    let announced = match &game {
+        Some(crate::nucleus::Game::Coop(coop)) => Some(coop.app.name.clone()),
+        Some(crate::nucleus::Game::Background(app)) => Some(app.name.clone()),
+        None => None,
+    };
     match game {
         Some(game) => {
             let config = crate::stream::effective_config(h, &launch)?;
@@ -1676,6 +1682,15 @@ fn launch_back_half(
             app.as_ref(),
             args.get("mode")
                 .and_then(|mode| crate::radeon_profile::stream_fps(mode)),
+        );
+    }
+    if let Some(app) = &announced {
+        crate::stream_notice::started(
+            &launch.client.uuid,
+            &launch.client.name,
+            app,
+            launch.background == Some(true),
+            launch.nucleus,
         );
     }
     Ok(launch)

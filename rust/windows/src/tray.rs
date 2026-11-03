@@ -471,7 +471,11 @@ static SHOWN: std::sync::Mutex<Option<isize>> = std::sync::Mutex::new(None);
 static NOTICE_ACTION: Mutex<Option<Action>> = Mutex::new(None);
 /// Show a notification from the tray icon, if there is one.
 pub fn notify(title: &str, text: &str) {
-    notify_with_action(title, text, None);
+    let _ = notify_with_action(title, text, None);
+}
+/// Show a notification from the tray icon, or say why it could not be shown.
+pub fn try_notify(title: &str, text: &str) -> Result<()> {
+    notify_with_action(title, text, None)
 }
 fn launch_error_notice(app: &str, code: u32) -> butterpollo_core::tray::Notice {
     (
@@ -485,11 +489,11 @@ fn launch_error_notice(app: &str, code: u32) -> butterpollo_core::tray::Notice {
 /// Keep the detached stream open until the user chooses to end it.
 pub fn launch_error(app: &str, code: u32) {
     let (title, text) = launch_error_notice(app, code);
-    notify_with_action(title, &text, Some(Action::QuitApp));
+    let _ = notify_with_action(title, &text, Some(Action::QuitApp));
 }
-fn notify_with_action(title: &str, text: &str, action: Option<Action>) {
+fn notify_with_action(title: &str, text: &str, action: Option<Action>) -> Result<()> {
     let Some(window) = *SHOWN.lock().unwrap() else {
-        return;
+        bail!("the tray icon is not shown");
     };
     let mut icon = NOTIFYICONDATAW {
         cbSize: size_of::<NOTIFYICONDATAW>() as u32,
@@ -508,8 +512,10 @@ fn notify_with_action(title: &str, text: &str, action: Option<Action>) {
     *NOTICE_ACTION.lock().unwrap() = action;
     // SAFETY: icon is initialized with its exact size and terminated text buffers,
     // and Shell_NotifyIconW consumes it synchronously; hWnd is only an opaque identifier.
-    unsafe {
-        let _ = Shell_NotifyIconW(NIM_MODIFY, &icon);
+    if unsafe { Shell_NotifyIconW(NIM_MODIFY, &icon) }.as_bool() {
+        Ok(())
+    } else {
+        bail!("Windows did not show the notification")
     }
 }
 

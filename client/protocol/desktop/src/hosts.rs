@@ -3,7 +3,7 @@
 //! the running app. Every host request runs on a worker thread and comes back as an
 //! [`Event`]; the UI thread owns the list.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::net::{IpAddr, Ipv4Addr};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::Arc;
@@ -13,7 +13,7 @@ use nightjar_core::http::native_api::feature;
 use nightjar_core::http::native_api::library::Library;
 use nightjar_core::http::native_api::session::{ActionId, Session};
 use nightjar_core::http::{
-    App, AppControl, Availability, ClientIdentity, Feature, HostClient, NativeCapabilities, PairResult, PowerError,
+    App, AppControl, Availability, ClientIdentity, Feature, HostClient, NativeCapabilities, NativeLibrary, PairResult, PowerError,
     PowerReply, Reason, ServerInfo, DEFAULT_HTTP_PORT,
 };
 
@@ -64,6 +64,8 @@ pub struct Native {
     /// Its features and this device's permissions; `Host::info` carries them merged in.
     pub capabilities: Option<NativeCapabilities>,
     pub library: Option<Library>,
+    /// When the library's games were last played, by install id (`NativeLibrary::last_played`).
+    pub last_played: BTreeMap<String, u64>,
     /// The library was read from the PC in this run (not loaded from disk).
     pub library_live: bool,
     pub session: Option<Session>,
@@ -102,7 +104,7 @@ pub fn merge_native(info: &mut ServerInfo, native: Option<&NativeCapabilities>) 
 /// One successful native read.
 pub struct NativeRead {
     capabilities: Option<NativeCapabilities>,
-    library: Option<Library>,
+    library: Option<NativeLibrary>,
     session: Result<Session, String>,
     /// The PC's wake targets (`wol::targets`) to keep in place of the stored ones: empty for a
     /// PC without `wake`; None when they were not read, or the read failed (those adapters
@@ -1126,20 +1128,23 @@ impl Hosts {
     pub fn load_cached_libraries(&mut self, store: &Store) {
         for host in &mut self.list {
             if host.record.server_certificate.is_some() && !host.record.unique_id.is_empty() {
-                host.native.library = store.library(&host.record.unique_id);
+                let saved = store.library(&host.record.unique_id);
+                host.native.last_played = saved.as_ref().map(|l| l.last_played.clone()).unwrap_or_default();
+                host.native.library = saved.map(|l| l.library);
             }
         }
     }
 
     /// The libraries read since the last call, by the PC's `uniqueid`, to be saved.
-    pub fn take_library_saves(&mut self) -> Vec<(String, Library)> {
+    pub fn take_library_saves(&mut self) -> Vec<(String, NativeLibrary)> {
         std::mem::take(&mut self.library_saves)
             .into_iter()
             .filter_map(|id| {
                 let host = self.get(id)?;
                 // A PC unpaired while its read was in flight must not get its library back.
                 host.record.server_certificate.as_ref()?;
-                Some((host.record.unique_id.clone(), host.native.library.clone()?))
+                let library = NativeLibrary { library: host.native.library.clone()?, last_played: host.native.last_played.clone() };
+                Some((host.record.unique_id.clone(), library))
             })
             .filter(|(unique_id, _)| !unique_id.is_empty())
             .collect()
@@ -1354,12 +1359,13 @@ impl Hosts {
                                         changed = true;
                                     }
                                 }
-                                if let Some(library) = read.library {
+                                if let Some(NativeLibrary { library, last_played }) = read.library {
                                     // The classic list a launch goes through follows the library.
                                     reload_apps = !host.native.library_live
                                         || host.native.library.as_ref().is_none_or(|old| old.revision != library.revision);
-                                    save = host.native.library.as_ref() != Some(&library);
+                                    save = host.native.library.as_ref() != Some(&library) || host.native.last_played != last_played;
                                     host.native.library = Some(library);
+                                    host.native.last_played = last_played;
                                     host.native.library_live = true;
                                 }
                                 match read.session {
@@ -1729,7 +1735,7 @@ pub(crate) mod tests {
     /// A full native read of `id` with these capabilities lands, as the worker would send it.
     pub(crate) fn native_lands(hosts: &mut Hosts, id: u64, capabilities: NativeCapabilities) {
         let epoch = hosts.get(id).unwrap().native_epoch;
-        let read = NativeRead { capabilities: Some(capabilities), library: Some(library()), session: Ok(session("idle")), wake: None };
+        let read = NativeRead { capabilities: Some(capabilities), library: Some(library().into()), session: Ok(session("idle")), wake: None };
         send(hosts, Event::Native { id, epoch, seq: 1, result: Ok(Box::new(read)) });
     }
 
@@ -1775,7 +1781,7 @@ pub(crate) mod tests {
             assert_eq!(gated(&hosts), [false; 4], "{why}: no old grant opens a row or a gate");
             assert!(hosts.list[0].native.capabilities.is_none() && hosts.list[0].native.library.is_none(), "{why}");
             // A read that started before lands now: dropped.
-            let read = NativeRead { capabilities: Some(granted.clone()), library: Some(library()), session: Ok(session("idle")), wake: None };
+            let read = NativeRead { capabilities: Some(granted.clone()), library: Some(library().into()), session: Ok(session("idle")), wake: None };
             hosts.list[0].record.server_certificate = Some("pem".into());
             send(&mut hosts, Event::Native { id, epoch: in_flight, seq: 9, result: Ok(Box::new(read)) });
             assert!(hosts.list[0].native.capabilities.is_none(), "{why}: the old read is not taken in");
@@ -1980,7 +1986,7 @@ pub(crate) mod tests {
     }
 
     fn full_read(session: Session) -> Box<NativeRead> {
-        Box::new(NativeRead { capabilities: None, library: Some(library()), session: Ok(session), wake: None })
+        Box::new(NativeRead { capabilities: None, library: Some(library().into()), session: Ok(session), wake: None })
     }
 
     #[test]

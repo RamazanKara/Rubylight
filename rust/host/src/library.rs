@@ -57,6 +57,13 @@ fn scan_installed(settings: library::Settings) -> Scan {
         )
         .skipping(discovery.skipped())
         .reading(settings)
+        // `0` is Steam's never played.
+        .playing(
+            steam
+                .iter()
+                .map(|game| (format!("steam:{}", game.appid), game.last_played)),
+        )
+        .playing(crate::playnite::last_played())
 }
 /// Tests never read the registry and the launchers' folders.
 #[cfg(test)]

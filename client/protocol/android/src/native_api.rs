@@ -17,12 +17,11 @@ use serde::Serialize;
 use serde_json::{json, Value};
 
 use nightjar_core::http::native_api::audio::{Audio, AudioWrite};
-use nightjar_core::http::native_api::library::Library;
 use nightjar_core::http::native_api::radeon::{Radeon, SettingsWrite};
 use nightjar_core::http::native_api::session::{ActionId, CouchMenu, CouchMenuRequest, Session};
 use nightjar_core::http::native_api::wake::Wake;
 use nightjar_core::http::{
-    ClientIdentity, Coop, CoopJoined, Error, HostClient, NativeCapabilities, PowerError,
+    ClientIdentity, Coop, CoopJoined, Error, HostClient, NativeCapabilities, NativeLibrary, PowerError,
     PowerReply, Refusal,
 };
 
@@ -41,7 +40,7 @@ pub struct Endpoint {
 /// The calls of `HostClient` this module makes, so the dispatch is testable without a host.
 pub trait Host {
     fn capabilities_with_files(&self) -> Result<NativeCapabilities, Error>;
-    fn library(&self) -> Result<Library, Error>;
+    fn library(&self) -> Result<NativeLibrary, Error>;
     fn session(&self) -> Result<Session, Error>;
     fn session_action(&self, action: ActionId) -> Result<Session, Error>;
     fn couch_menu(&self, open: bool) -> Result<CouchMenu, Error>;
@@ -61,7 +60,7 @@ impl Host for HostClient {
     fn capabilities_with_files(&self) -> Result<NativeCapabilities, Error> {
         self.native_capabilities_with_files()
     }
-    fn library(&self) -> Result<Library, Error> {
+    fn library(&self) -> Result<NativeLibrary, Error> {
         HostClient::library(self)
     }
     fn session(&self) -> Result<Session, Error> {
@@ -408,7 +407,7 @@ mod tests {
             ))
             .unwrap())
         }
-        fn library(&self) -> Result<Library, Error> {
+        fn library(&self) -> Result<NativeLibrary, Error> {
             self.note("library");
             Err(Error::NotFound("/api/native/v1/library".into()))
         }

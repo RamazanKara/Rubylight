@@ -26,6 +26,11 @@ pub struct Game {
     /// The app is the host's current game, whoever owns it.
     pub running: bool,
     pub artwork: Artwork,
+    /// When the game was last played, in seconds since the epoch, from its
+    /// store (Steam, Playnite); `0` when the store says never played. Absent
+    /// when no store says, and from hosts older than the field.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_played: Option<u64>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

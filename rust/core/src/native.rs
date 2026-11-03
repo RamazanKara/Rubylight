@@ -3,7 +3,7 @@
 //!
 //! Pure functions over plain inputs, so the rules are tested here and the
 //! host's handlers only gather the facts. See `docs/native-api.md`.
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde_json::Value;
 
@@ -34,6 +34,9 @@ pub struct Scan {
     /// The game folders the scan read, when it read any: a game folder outside them
     /// (a folder since removed or left out) has an unknown state.
     folders: Option<crate::library::Settings>,
+    /// When the stores say each game was last played, in seconds since the epoch, `0` for
+    /// never: by `game_id` (`steam:570`) and by Playnite game ([`playnite_key`]).
+    played: BTreeMap<String, u64>,
 }
 impl Scan {
     pub fn new(game_ids: impl IntoIterator<Item = String>) -> Self {
@@ -41,7 +44,29 @@ impl Scan {
             installed: game_ids.into_iter().collect(),
             skipped: BTreeSet::new(),
             folders: None,
+            played: BTreeMap::new(),
         }
+    }
+    /// When the stores say these games were last played (`0` for never), by `game_id` or
+    /// [`playnite_key`]. A key seen twice keeps the later time.
+    pub fn playing(mut self, played: impl IntoIterator<Item = (String, u64)>) -> Self {
+        for (key, at) in played {
+            let kept = self.played.entry(key).or_insert(at);
+            *kept = (*kept).max(at);
+        }
+        self
+    }
+    /// When the app's game was last played (`0` for never), the later of its store's and its
+    /// Playnite game's; `None` when no store says.
+    pub fn last_played(&self, app: &App) -> Option<u64> {
+        let store = store_of(app).and_then(|(_, game_id)| self.played.get(&game_id).copied());
+        let playnite = app
+            .extra
+            .get("playnite-id")
+            .and_then(Value::as_str)
+            .filter(|id| !id.is_empty())
+            .and_then(|id| self.played.get(&playnite_key(id)).copied());
+        store.max(playnite)
     }
     /// The scan did not read these sources, so it says nothing about their games.
     pub fn skipping(mut self, sources: impl IntoIterator<Item = Source>) -> Self {
@@ -81,6 +106,11 @@ impl Scan {
         self.installed.extend(game_ids);
         self
     }
+}
+
+/// The key [`Scan::playing`] takes a Playnite game's last played time by.
+pub fn playnite_key(id: &str) -> String {
+    format!("playnite:{}", id.to_ascii_lowercase())
 }
 
 /// The read-time app field the console shows as "Not installed". Never stored.
@@ -171,6 +201,7 @@ pub fn library_with(
     cover: impl Fn(&App) -> String,
 ) -> Library {
     let mut games = Vec::with_capacity(apps.len());
+    let mut played = Vec::with_capacity(apps.len());
     for app in apps {
         let install_id = install_id(app);
         let id = app.id();
@@ -197,13 +228,16 @@ pub fn library_with(
                 cover: Some(format!("/appasset?appid={id}&AssetType=2&AssetIdx=0")),
                 version: hash(cover(app).as_bytes()),
             },
+            last_played: None,
         });
+        played.push(scan.and_then(|scan| scan.last_played(app)));
     }
-    // The revision leaves `running` out, so starting a game doesn't make
-    // every client refetch the covers.
+    // The revision leaves `running` and `last_played` out, so starting a game
+    // doesn't make every client refetch the covers.
     let revision = hash(&serde_json::to_vec(&games).unwrap_or_default());
-    for game in &mut games {
+    for (game, last_played) in games.iter_mut().zip(played) {
         game.running = current == Some(game.app_id);
+        game.last_played = last_played;
     }
     Library { revision, games }
 }

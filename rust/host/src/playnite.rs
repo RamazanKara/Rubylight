@@ -542,6 +542,22 @@ pub fn games() -> Result<Value> {
             .collect(),
     ))
 }
+/// When Playnite says each game it last reported was played, `0` for never, for the
+/// native library's `last_played` (`native::Scan::playing`). Nothing before the plugin's
+/// first snapshot.
+pub fn last_played() -> Vec<(String, u64)> {
+    let catalog = CATALOG.lock().unwrap();
+    catalog
+        .games
+        .iter()
+        .map(|game| {
+            let at = game
+                .last_played
+                .map_or(0, |at| u64::try_from(at).unwrap_or(0));
+            (butterpollo_core::native::playnite_key(&game.id), at)
+        })
+        .collect()
+}
 /// `/api/playnite/categories` (and the plugins seen, for the console).
 pub fn categories() -> Result<Value> {
     catalog_ready()?;
@@ -1194,6 +1210,30 @@ pub fn close_fullscreen(timeout: Duration) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn last_played_is_per_game_and_zero_for_never() {
+        let game = |id: &str, at: Option<i64>| Game {
+            id: id.into(),
+            last_played: at,
+            ..Game::default()
+        };
+        CATALOG.lock().unwrap().games = vec![
+            game("AA-bb", Some(1_788_025_796)),
+            game("cc", None),
+            game("dd", Some(-5)),
+        ];
+        let played = last_played();
+        CATALOG.lock().unwrap().games.clear();
+        assert_eq!(
+            played,
+            [
+                ("playnite:aa-bb".to_owned(), 1_788_025_796),
+                ("playnite:cc".to_owned(), 0),
+                ("playnite:dd".to_owned(), 0),
+            ]
+        );
+    }
 
     fn launch_state() -> LaunchState {
         LaunchState::default()

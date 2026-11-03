@@ -97,6 +97,36 @@ fn installed_comes_from_the_scan() {
 }
 
 #[test]
+fn last_played_comes_from_the_stores_and_stays_out_of_the_revision() {
+    let never = app(json!({"name": "Never", "uuid": "n", "steam-id": 440}));
+    let kart =
+        app(json!({"name": "My Kart", "uuid": "k", "playnite-id": "AA-bb", "cmd": "kart.exe"}));
+    let manual = app(json!({"name": "Desktop", "uuid": "d"}));
+    let apps = [dota(), never, kart, manual];
+    let scan = Scan::new(["steam:570".into()]).playing([
+        ("steam:570".into(), 1_700_000_000),
+        ("steam:440".into(), 0),
+        (playnite_key("aa-BB"), 1_600_000_000),
+        ("steam:570".into(), 1_650_000_000),
+    ]);
+    let library = library(&apps, Some(&scan), None);
+    let played: Vec<_> = library.games.iter().map(|g| g.last_played).collect();
+    assert_eq!(
+        played,
+        [Some(1_700_000_000), Some(0), Some(1_600_000_000), None],
+        "the later time of a key seen twice, 0 for never played, none when no store says"
+    );
+    let text = serde_json::to_string(&library.games[3]).unwrap();
+    assert!(!text.contains("last_played"), "absent, not null: {text}");
+    let unplayed = super::library(&apps, Some(&Scan::new(["steam:570".into()])), None);
+    assert_eq!(
+        unplayed.revision, library.revision,
+        "playing a game does not change the revision"
+    );
+    assert!(unplayed.games.iter().all(|g| g.last_played.is_none()));
+}
+
+#[test]
 fn not_installed_is_only_for_a_known_launcher_id_the_scan_did_not_find() {
     let steam = |name: &str, id: u32| app(json!({"name": name, "uuid": name, "steam-id": id}));
     let epic = app(

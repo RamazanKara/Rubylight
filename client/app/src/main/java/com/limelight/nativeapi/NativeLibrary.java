@@ -122,11 +122,15 @@ public final class NativeLibrary {
             return value == null || value.isEmpty() ? null : value;
         }
 
-        /** A positive whole number, or null when missing, null, not a number or not positive. */
+        /**
+         * A whole number of zero or more (a last played of 0 is the host's never played), or null when missing,
+         * null, not a number or negative.
+         */
         private static Long number(JSONObject json, String key) {
-            if (json.isNull(key)) return null;
-            long value = json.optLong(key, 0);
-            return value > 0 ? value : null;
+            Object value = json.opt(key);
+            if (!(value instanceof Number)) return null;
+            long whole = ((Number) value).longValue();
+            return whole >= 0 ? whole : null;
         }
     }
 

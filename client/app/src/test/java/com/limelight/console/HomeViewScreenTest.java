@@ -268,10 +268,9 @@ public class HomeViewScreenTest {
         layout(list, width, height);
         List<String> lines = lines(list);
         assertTrue(lines.toString(), lines.size() >= 3);
-        // Not played yet: the fixture's games have no last played.
-        String never = home.getString(R.string.console_list_not_played);
-        assertTrue(lines.toString(), lines.contains("Celeste / Steam · " + never));
-        assertTrue(lines.toString(), lines.contains("Hades / Epic Games · " + never));
+        // The fixture's host says nothing about playing: the store alone.
+        assertTrue(lines.toString(), lines.contains("Celeste / Steam"));
+        assertTrue(lines.toString(), lines.contains("Hades / Epic Games"));
         // A line spans the width, so each is under the one before it and the D-pad walks down them.
         int first = adapter.positionOfKey(adapter.keyAt(adapter.firstCard()));
         View top = list.findViewHolderForAdapterPosition(first).itemView;
@@ -297,7 +296,9 @@ public class HomeViewScreenTest {
     @Test
     public void aListLineSaysWhenTheGameWasLastPlayed() {
         long now = 1_800_000_000L;
-        assertEquals("Steam · Not played yet", ConsoleHomeListAdapter.listLine(context, "Steam", null, now));
+        assertEquals("0 is the host's never played", "Steam · Not played yet", ConsoleHomeListAdapter.listLine(context, "Steam", 0L, now));
+        assertEquals("no host says: nothing about playing", "Steam", ConsoleHomeListAdapter.listLine(context, "Steam", null, now));
+        assertEquals("", ConsoleHomeListAdapter.listLine(context, null, null, now));
         assertEquals("Steam · Played today", ConsoleHomeListAdapter.listLine(context, "Steam", now - 3_600, now));
         assertEquals("Steam · Played yesterday", ConsoleHomeListAdapter.listLine(context, "Steam", now - 86_400 - 60, now));
         assertEquals("Steam · Played 9 days ago", ConsoleHomeListAdapter.listLine(context, "Steam", now - 9 * 86_400, now));

@@ -5,7 +5,7 @@
 use std::path::{Path, PathBuf};
 use std::collections::{BTreeMap, BTreeSet};
 
-use nightjar_core::http::native_api::library::Library;
+use nightjar_core::http::NativeLibrary;
 use serde::{Deserialize, Serialize};
 
 use crate::strings::en;
@@ -1304,11 +1304,11 @@ impl Store {
     }
 
     /// The last native library a PC sent, for Home while the PC is away or not polled yet.
-    pub fn library(&self, host: &str) -> Option<Library> {
+    pub fn library(&self, host: &str) -> Option<NativeLibrary> {
         read_json(&self.library_path(host))
     }
 
-    pub fn save_library(&self, host: &str, library: &Library) -> std::io::Result<()> {
+    pub fn save_library(&self, host: &str, library: &NativeLibrary) -> std::io::Result<()> {
         let path = self.library_path(host);
         if let Some(dir) = path.parent() {
             std::fs::create_dir_all(dir)?;
@@ -1574,14 +1574,17 @@ mod tests {
 
     #[test]
     fn saved_libraries_and_versioned_covers() {
-        let library: Library = serde_json::from_str(include_str!("../../client/tests/fixtures/native-api/library.json")).unwrap();
+        let library: nightjar_core::http::native_api::library::Library = serde_json::from_str(include_str!("../../client/tests/fixtures/native-api/library.json")).unwrap();
         let dir = std::env::temp_dir().join(format!("nightjar-library-{}", std::process::id()));
         let store = Store::at(dir.clone()).unwrap();
         let host = "5E0F4B1C-7A3D-4C52-9E10-0B6F2D8A4C11";
         assert!(store.library(host).is_none());
+        let mut library = NativeLibrary::from(library);
+        library.last_played.insert(library.library.games[0].install_id.clone(), 1788025796);
         store.save_library(host, &library).unwrap();
         let back = store.library(host).unwrap();
-        assert_eq!((back.revision.as_str(), back.games.len()), ("9f2c41d0", 2));
+        assert_eq!((back.library.revision.as_str(), back.library.games.len()), ("9f2c41d0", 2));
+        assert_eq!(back, library, "with when its games were last played");
         // Another PC does not see it, and a path-like id cannot leave the folder.
         assert!(store.library("other").is_none());
         assert!(store.library_path("../../x").starts_with(dir.join("library")));

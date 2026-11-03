@@ -121,6 +121,8 @@ fn library_round_trip_keeps_nulls_on_purpose() {
     let manual = &library.games[1];
     assert!(manual.game_id.is_none() && manual.store.is_none() && manual.installed.is_none());
     assert!(manual.running);
+    assert_eq!(library.games[0].last_played, Some(1788025796));
+    assert_eq!(manual.last_played, None, "absent: no store says");
     let text = serde_json::to_string(&library).unwrap();
     assert!(text.contains("\"game_id\":null"));
     assert!(text.contains("\"store\":null"));

@@ -459,7 +459,7 @@ fn every_call_reaches_its_path_with_the_certificate_and_the_content_type() {
             "radeon.write"
         ]
     );
-    assert_eq!(client.library().unwrap().games[0].title, "Dota 2");
+    assert_eq!(client.library().unwrap().library.games[0].title, "Dota 2");
     let session = client.session().unwrap();
     assert_eq!(
         (session.state, session.owner),

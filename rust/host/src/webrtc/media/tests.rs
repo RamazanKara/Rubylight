@@ -2172,46 +2172,55 @@ fn webrtc_bench_keyframe_and_srtp_cost() {
 }
 
 /// What guests cost the owner: from the encoder handing a 250 KB frame over to the owner's media
-/// thread holding the buffer str0m packetizes, with 0, 1 and 4 guests following.
+/// thread holding the buffer str0m packetizes, with 0, 1 and 4 guests following. With guests the
+/// copy into the shared buffer (and AV1's delimiter strip) moves into the encoder's hand-off.
 /// `cargo test -p butterpollo --release -- --ignored --nocapture webrtc_bench_guest_fan_out`
 #[test]
 #[ignore = "measurement"]
 fn webrtc_bench_guest_fan_out() {
     let frames = 2000;
-    for guests in [0, 1, 4] {
-        let (owner, owner_rx, _) = detached(TransportOptions::default());
-        let followers: Vec<_> = (0..guests)
-            .map(|_| detached(TransportOptions::default()))
-            .collect();
-        for (i, (guest, _, _)) in followers.iter().enumerate() {
-            owner.followers().add(i as u64, guest.feed());
-        }
-        let mut ready = Vec::with_capacity(frames);
-        let mut submit = Duration::ZERO;
-        for i in 0..frames {
-            let data = h264_frame(i == 0, 250_000);
-            let started = Instant::now();
-            owner.submit_video(frame_of(data, i == 0));
-            submit += started.elapsed();
-            let Ok(Command::Video(frame)) = owner_rx.try_recv() else {
-                panic!("the owner's frame was not queued");
-            };
-            owner.shared.pending_video.fetch_sub(1, Ordering::AcqRel);
-            let data = frame.data.share(VideoCodec::H264).unwrap();
-            ready.push(started.elapsed());
-            drop(data);
-            for (guest, rx, _) in &followers {
-                while rx.try_recv().is_ok() {
-                    guest.shared.pending_video.fetch_sub(1, Ordering::AcqRel);
+    for codec in [VideoCodec::H264, VideoCodec::Av1] {
+        let make = if codec == VideoCodec::Av1 {
+            av1_frame
+        } else {
+            h264_frame
+        };
+        for guests in [0, 1, 4] {
+            let (mut owner, owner_rx, _) = detached(TransportOptions::default());
+            owner.codec = codec;
+            let followers: Vec<_> = (0..guests)
+                .map(|_| detached(TransportOptions::default()))
+                .collect();
+            for (i, (guest, _, _)) in followers.iter().enumerate() {
+                owner.followers().add(i as u64, guest.feed());
+            }
+            let mut ready = Vec::with_capacity(frames);
+            let mut submit = Duration::ZERO;
+            for i in 0..frames {
+                let data = make(i == 0, 250_000);
+                let started = Instant::now();
+                owner.submit_video(frame_of(data, i == 0));
+                submit += started.elapsed();
+                let Ok(Command::Video(frame)) = owner_rx.try_recv() else {
+                    panic!("the owner's frame was not queued");
+                };
+                owner.shared.pending_video.fetch_sub(1, Ordering::AcqRel);
+                let data = frame.data.share(codec).unwrap();
+                ready.push(started.elapsed());
+                drop(data);
+                for (guest, rx, _) in &followers {
+                    while rx.try_recv().is_ok() {
+                        guest.shared.pending_video.fetch_sub(1, Ordering::AcqRel);
+                    }
                 }
             }
+            ready.sort();
+            println!(
+                "webrtc_bench: {codec:?}, {guests} guests: owner's frame ready to packetize after {:.1} us median, {:.1} us p99; the encoder's hand-off takes {:.1} us",
+                ready[frames / 2].as_secs_f64() * 1e6,
+                ready[frames * 99 / 100].as_secs_f64() * 1e6,
+                submit.as_secs_f64() * 1e6 / frames as f64
+            );
         }
-        ready.sort();
-        println!(
-            "webrtc_bench: {guests} guests: owner's frame ready to packetize after {:.1} us median, {:.1} us p99; the encoder's hand-off takes {:.1} us",
-            ready[frames / 2].as_secs_f64() * 1e6,
-            ready[frames * 99 / 100].as_secs_f64() * 1e6,
-            submit.as_secs_f64() * 1e6 / frames as f64
-        );
     }
 }

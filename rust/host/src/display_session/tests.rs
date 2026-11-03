@@ -509,6 +509,15 @@ fn only_an_auto_rotation_with_a_lease_follows_a_turned_stream() -> Result<()> {
     Ok(())
 }
 
+/// RL56's 3.4.0 log warned of the missing calibration at every stream.
+#[test]
+fn a_missing_calibration_is_warned_about_once() {
+    let flag = AtomicBool::new(false);
+    assert!(first_time(&flag));
+    assert!(!first_time(&flag));
+    assert!(!first_time(&flag));
+}
+
 #[test]
 fn a_virtual_hdr_display_gets_the_physical_calibration_only_when_nothing_else_is_chosen() {
     let looked = Cell::new(0);

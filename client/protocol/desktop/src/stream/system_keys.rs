@@ -36,7 +36,7 @@ pub fn kept_key(vk: u32) -> bool {
 
 /// SDL's scancode for a key's scan code and extended flag, as SDL reads a window's key messages
 /// (scancodes_windows.h), plus Alt+Print Screen (0x54); None for a key it has none for: a media
-/// key, which Windows keeps and SDL hands over, or an added one ([`added`]).
+/// key, which Windows keeps and SDL hands over, or an added one ([`route`]).
 #[cfg_attr(not(windows), allow(dead_code))]
 pub fn sdl_scancode(scan: u32, extended: bool) -> Option<SDL_Scancode> {
     use sdl3_sys::everything::*;
@@ -228,29 +228,66 @@ pub fn step(grab: bool, vk: u32, down: bool, key: Key) -> (bool, Key) {
 /// secure desktop) is pressed afresh once the grab is off and it has been quiet a while.
 #[cfg_attr(not(windows), allow(dead_code))]
 pub fn settle(grab: bool, key: Key, held: bool, idle_ms: u64) -> Key {
-    let key = if key == Key::Kept && !grab && idle_ms > ALIVE_MS { Key::Up } else { key };
+    let key = if key == Key::Kept && !grab && idle_ms > REPEAT_MS { Key::Up } else { key };
     if key == Key::Up && held { Key::Passed } else { key }
 }
 
-/// Whether an event without an SDL scancode is kept from Windows. Such an event is not a key of
-/// its own but one Windows or the keyboard adds: the left Ctrl of AltGr (scan 0x21D), the Shifts
-/// a laptop keyboard wraps around the arrows (extended 0x2A and 0x36). It never changes the
-/// state of its virtual key, which belongs to the real key, so a real Ctrl or Shift held around
-/// it stays down for the PC; it is kept while that real key is, and AltGr's Ctrl while grabbed,
-/// as SDL's grab drops it: Windows would hold a Ctrl the stream had (AltGr+Shift+Z as Nightjar's
-/// Ctrl+Alt+Shift+Z).
-#[cfg_attr(not(windows), allow(dead_code))]
-pub fn added(grab: bool, scan: u32, key: Key) -> bool {
-    key == Key::Kept || (grab && scan == 0x21D)
-}
-
-/// Whether a kept key's event is an auto-repeat: a press while it is kept, unless it has been
-/// quiet longer than any repeat waits (Windows' longest delay is a second). A release the hook
-/// never saw (Ctrl+Alt+Del, Win+L: the secure desktop took it) leaves the key kept, and the
+/// Whether a kept key's event is an auto-repeat: a press while it is kept and the last key
+/// pressed (Windows repeats only that one), within [`REPEAT_MS`] of its last event. A release the
+/// hook never saw (Ctrl+Alt+Del, Win+L: the secure desktop took it) leaves the key kept, and the
 /// next press is a new one, or the stream would drop it as a repeat (the first Ctrl+C after).
 #[cfg_attr(not(windows), allow(dead_code))]
-pub fn repeats(key: Key, down: bool, idle_ms: u64) -> bool {
-    down && key == Key::Kept && idle_ms <= ALIVE_MS
+pub fn repeats(key: Key, down: bool, idle_ms: u64, last_pressed: bool) -> bool {
+    down && key == Key::Kept && last_pressed && idle_ms <= REPEAT_MS
+}
+
+/// Longer than any first auto-repeat takes: Windows' longest delay is a second, a PS/2
+/// keyboard's own timing is 20 % off either way, and the hook's clock ticks in 15.6 ms steps.
+#[cfg_attr(not(windows), allow(dead_code))]
+pub const REPEAT_MS: u64 = 2000;
+
+const _: () = assert!(REPEAT_MS > 1000 * 6 / 5 + 16);
+
+/// The scan code of the left Ctrl Windows adds to AltGr.
+#[cfg_attr(not(windows), allow(dead_code))]
+pub const ALTGR_CTRL: u32 = 0x21D;
+
+/// What the hook does with one key event.
+#[cfg_attr(not(windows), allow(dead_code))]
+pub struct Routed {
+    /// Kept from Windows.
+    pub swallow: bool,
+    /// The state of the event's slot after it; None leaves the slot and its time as they were.
+    pub next: Option<Key>,
+    /// The key for SDL's queue: its scancode and whether it repeats.
+    pub hand_over: Option<(SDL_Scancode, bool)>,
+}
+
+/// Routes one key event: `key` is the state of its slot (its virtual key's, or AltGr's added
+/// Ctrl's own), `idle_ms` the time since that slot's last event, `held` whether Windows holds the
+/// virtual key, `last_pressed` whether it was the last key pressed.
+///
+/// An event without an SDL scancode is no key of its own but one Windows or the keyboard adds,
+/// and never changes its virtual key's state, which belongs to the real key, so a real Ctrl or
+/// Shift held around it stays down for the PC. The Shifts a laptop keyboard wraps around the
+/// arrows (extended 0x2A) are kept while the real Shift is. AltGr's Ctrl has a slot of its own and
+/// goes as its press went, never to SDL: kept while grabbed, as SDL's grab drops it (Windows would
+/// hold a Ctrl the stream had: AltGr+Shift+Z as Nightjar's Ctrl+Alt+Shift+Z), and its release
+/// reaches Windows when its press did.
+#[cfg_attr(not(windows), allow(dead_code))]
+#[allow(clippy::too_many_arguments)]
+pub fn route(grab: bool, vk: u32, scan: u32, extended: bool, down: bool, key: Key, held: bool, idle_ms: u64, last_pressed: bool) -> Routed {
+    if scan == ALTGR_CTRL {
+        let key = if down { settle(grab, key, false, idle_ms) } else { key };
+        let (swallow, next) = step(grab, vk, down, key);
+        return Routed { swallow, next: Some(next), hand_over: None };
+    }
+    let Some(scancode) = sdl_scancode(scan, extended) else {
+        return Routed { swallow: key == Key::Kept, next: None, hand_over: None };
+    };
+    let key = if down { settle(grab, key, held, idle_ms) } else { key };
+    let (swallow, next) = step(grab, vk, down, key);
+    Routed { swallow, next: Some(next), hand_over: swallow.then(|| (scancode, repeats(key, down, idle_ms, last_pressed))) }
 }
 
 /// How long the main loop may go without a beat before the hook lets every key through: above
@@ -288,6 +325,15 @@ static KEYS: [AtomicU8; 256] = [const { AtomicU8::new(Key::Up as u8) }; 256];
 /// Each key's last event, in the hook's event time (milliseconds).
 #[cfg(windows)]
 static LAST: [AtomicU32; 256] = [const { AtomicU32::new(0) }; 256];
+/// AltGr's added Ctrl ([`ALTGR_CTRL`]) as the hook last left it, and its last event's time: a
+/// slot of its own beside the real left Ctrl's.
+#[cfg(windows)]
+static ALTGR_CTRL_KEY: AtomicU8 = AtomicU8::new(Key::Up as u8);
+#[cfg(windows)]
+static ALTGR_CTRL_LAST: AtomicU32 = AtomicU32::new(0);
+/// The virtual key last pressed: Windows repeats only that one.
+#[cfg(windows)]
+static LAST_PRESSED: AtomicU32 = AtomicU32::new(u32::MAX);
 /// The thread message that reinstalls the hook.
 #[cfg(windows)]
 const REHOOK: u32 = windows::Win32::UI::WindowsAndMessaging::WM_APP;
@@ -310,6 +356,10 @@ pub fn alive() {
 #[cfg(windows)]
 fn seed(fresh: bool) {
     use windows::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState;
+    if fresh {
+        ALTGR_CTRL_KEY.store(Key::Up as u8, Ordering::Relaxed);
+        LAST_PRESSED.store(u32::MAX, Ordering::Relaxed);
+    }
     for (vk, key) in KEYS.iter().enumerate() {
         if !fresh && Key::from_u8(key.load(Ordering::Relaxed)) == Key::Kept {
             continue;
@@ -374,28 +424,30 @@ unsafe extern "system" fn hook(code: i32, wparam: windows::Win32::Foundation::WP
             // SAFETY: no arguments.
             let grab = GRAB.load(Ordering::Acquire) && unsafe { GetForegroundWindow() }.0 as isize == WINDOW.load(Ordering::Acquire)
                 && beating(now_ms(), BEAT.load(Ordering::Acquire));
-            let mut state = Key::from_u8(key.load(Ordering::Relaxed));
-            let Some(scancode) = sdl_scancode(scan, extended) else {
-                if added(grab, scan, state) {
-                    return LRESULT(1);
-                }
-                // SAFETY: the arguments Windows passed.
-                return unsafe { CallNextHookEx(None, code, wparam, lparam) };
-            };
-            let last = &LAST[info.vkCode as usize];
+            let altgr = scan == ALTGR_CTRL;
+            let (slot, last) = if altgr { (&ALTGR_CTRL_KEY, &ALTGR_CTRL_LAST) } else { (key, &LAST[info.vkCode as usize]) };
+            let state = Key::from_u8(slot.load(Ordering::Relaxed));
             let idle_ms = u64::from(info.time.wrapping_sub(last.load(Ordering::Relaxed)));
-            if down {
+            let held = down && !altgr && {
                 use windows::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState;
                 // SAFETY: a virtual key from Windows.
-                let held = unsafe { GetAsyncKeyState(info.vkCode as i32) } < 0;
-                state = settle(grab, state, held, idle_ms);
+                let state = unsafe { GetAsyncKeyState(info.vkCode as i32) };
+                state < 0
+            };
+            let last_pressed = LAST_PRESSED.load(Ordering::Relaxed) == info.vkCode;
+            let routed = route(grab, info.vkCode, scan, extended, down, state, held, idle_ms, last_pressed);
+            if let Some(next) = routed.next {
+                slot.store(next as u8, Ordering::Relaxed);
+                last.store(info.time, Ordering::Relaxed);
+                if down && !altgr {
+                    LAST_PRESSED.store(info.vkCode, Ordering::Relaxed);
+                }
             }
-            let (swallow, next) = step(grab, info.vkCode, down, state);
-            key.store(next as u8, Ordering::Relaxed);
-            last.store(info.time, Ordering::Relaxed);
-            if swallow {
+            if let Some((scancode, repeat)) = routed.hand_over {
                 let raw = scan as u16 | if extended { 0xE000 } else { 0 };
-                hand_over(scancode, raw, down, repeats(state, down, idle_ms));
+                hand_over(scancode, raw, down, repeat);
+            }
+            if routed.swallow {
                 return LRESULT(1);
             }
         }
@@ -588,10 +640,10 @@ mod tests {
     #[test]
     fn a_kept_key_whose_release_was_lost_is_pressed_afresh_later() {
         // Ctrl+Alt+Del took Ctrl's release to the secure desktop; Nightjar is behind another window.
-        assert_eq!(settle(false, Key::Kept, false, ALIVE_MS + 1), Key::Up);
+        assert_eq!(settle(false, Key::Kept, false, REPEAT_MS + 1), Key::Up);
         assert_eq!(step(false, LCTRL, true, Key::Up), (false, Key::Passed));
         assert_eq!(settle(false, Key::Kept, false, 30), Key::Kept, "auto-repeat after the grab ends stays kept");
-        assert_eq!(settle(true, Key::Kept, false, ALIVE_MS + 1), Key::Kept, "a held key while grabbed stays kept");
+        assert_eq!(settle(true, Key::Kept, false, REPEAT_MS + 1), Key::Kept, "a held key while grabbed stays kept");
     }
 
     #[test]
@@ -662,52 +714,88 @@ mod tests {
     }
 
     /// What Windows got (virtual key, down) and what the stream got (SDL scancode, down, repeat).
-    type Routed = (Vec<(u32, bool)>, Vec<(i32, bool, bool)>);
+    type Seen = (Vec<(u32, bool)>, Vec<(i32, bool, bool)>);
 
-    /// Plays key events through the hook as it routes them: (virtual key, scan, extended, down).
-    fn route(grab: bool, events: &[(u32, u32, bool, bool)], keys: &mut [Key; 256]) -> Routed {
-        let (mut windows, mut stream) = (Vec::new(), Vec::new());
-        for &(vk, scan, extended, down) in events {
-            let state = keys[vk as usize];
-            let Some(code) = sdl_scancode(scan, extended) else {
-                if !added(grab, scan, state) {
+    /// The hook's state: every key's, AltGr's added Ctrl's and the key last pressed.
+    struct Board {
+        keys: [Key; 256],
+        altgr_ctrl: Key,
+        last_pressed: u32,
+    }
+
+    impl Board {
+        fn new() -> Self {
+            Self { keys: [Key::Up; 256], altgr_ctrl: Key::Up, last_pressed: u32::MAX }
+        }
+
+        /// Plays key events (virtual key, scan, extended, down) through [`route`] as the hook
+        /// keeps its slots, each `idle_ms` after its slot's last; Windows holds none of them.
+        fn play_after(&mut self, grab: bool, idle_ms: u64, events: &[(u32, u32, bool, bool)]) -> Seen {
+            let (mut windows, mut stream) = (Vec::new(), Vec::new());
+            for &(vk, scan, extended, down) in events {
+                let altgr = scan == ALTGR_CTRL;
+                let state = if altgr { self.altgr_ctrl } else { self.keys[vk as usize] };
+                let routed = super::route(grab, vk, scan, extended, down, state, false, idle_ms, self.last_pressed == vk);
+                if let Some(next) = routed.next {
+                    if altgr {
+                        self.altgr_ctrl = next;
+                    } else {
+                        self.keys[vk as usize] = next;
+                        if down {
+                            self.last_pressed = vk;
+                        }
+                    }
+                }
+                if let Some((code, repeat)) = routed.hand_over {
+                    stream.push((code.0, down, repeat));
+                }
+                if !routed.swallow {
                     windows.push((vk, down));
                 }
-                continue;
-            };
-            let (swallow, next) = step(grab, vk, down, state);
-            keys[vk as usize] = next;
-            if swallow {
-                stream.push((code.0, down, repeats(state, down, 30)));
-            } else {
-                windows.push((vk, down));
             }
+            (windows, stream)
         }
-        (windows, stream)
+
+        fn play(&mut self, grab: bool, events: &[(u32, u32, bool, bool)]) -> Seen {
+            self.play_after(grab, 30, events)
+        }
     }
+
+    const RALT: u32 = 0xA5;
+    const ALTGR: [(u32, u32, bool, bool); 4] = [(LCTRL, ALTGR_CTRL, false, true), (RALT, 0x38, true, true), (LCTRL, ALTGR_CTRL, false, false), (RALT, 0x38, true, false)];
 
     #[test]
     fn altgrs_added_ctrl_reaches_neither_windows_nor_the_stream() {
         use sdl3_sys::everything::*;
-        const RALT: u32 = 0xA5;
-        let (altgr_ctrl, ralt) = ((LCTRL, 0x21D, false), (RALT, 0x38, true));
-        let press = |(vk, scan, extended): (u32, u32, bool), down| (vk, scan, extended, down);
         // Polish AltGr+Shift+Z (Ż) was Nightjar's Ctrl+Alt+Shift+Z, which releases the capture.
-        let mut keys = [Key::Up; 256];
-        let (windows, stream) = route(true, &[press(altgr_ctrl, true), press(ralt, true), press(altgr_ctrl, false), press(ralt, false)], &mut keys);
+        let mut board = Board::new();
+        let (windows, stream) = board.play(true, &ALTGR);
         assert!(windows.is_empty(), "Windows got {windows:x?}");
         assert_eq!(stream, [(SDL_SCANCODE_RALT.0, true, false), (SDL_SCANCODE_RALT.0, false, false)]);
-        assert_eq!(keys[LCTRL as usize], Key::Up);
+        assert_eq!((board.keys[LCTRL as usize], board.altgr_ctrl), (Key::Up, Key::Up));
         // The real left Ctrl held across an AltGr tap stays down for the PC.
-        let real_ctrl = (LCTRL, 0x1D, false);
-        let mut keys = [Key::Up; 256];
-        let (windows, stream) = route(true, &[press(real_ctrl, true), press(altgr_ctrl, true), press(ralt, true), press(altgr_ctrl, false), press(ralt, false)], &mut keys);
+        let mut board = Board::new();
+        let (windows, stream) = board.play(true, &[&[(LCTRL, 0x1D, false, true)][..], &ALTGR].concat());
         assert!(windows.is_empty(), "Windows got {windows:x?}");
-        assert_eq!(keys[LCTRL as usize], Key::Kept, "Ctrl is still held");
+        assert_eq!(board.keys[LCTRL as usize], Key::Kept, "Ctrl is still held");
         assert_eq!(stream.iter().filter(|&&(code, _, _)| code == SDL_SCANCODE_LCTRL.0).count(), 1, "{stream:?}");
         // Not grabbed: Windows gets AltGr whole.
-        let (windows, _) = route(false, &[press(altgr_ctrl, true), press(ralt, true)], &mut [Key::Up; 256]);
-        assert_eq!(windows, [(LCTRL, true), (RALT, true)]);
+        let (windows, _) = Board::new().play(false, &ALTGR);
+        assert_eq!(windows, ALTGR.map(|(vk, _, _, down)| (vk, down)));
+    }
+
+    #[test]
+    fn altgrs_added_ctrl_is_released_where_it_was_pressed() {
+        // AltGr pressed before the grab (or while the main loop stalled), released during it:
+        // Windows got the added Ctrl's press, so it gets its release, or it holds Ctrl for ever.
+        let mut board = Board::new();
+        assert_eq!(board.play(false, &ALTGR[..2]).0, [(LCTRL, true), (RALT, true)]);
+        assert_eq!(board.play(true, &ALTGR[2..]).0, [(LCTRL, false), (RALT, false)]);
+        assert_eq!(board.altgr_ctrl, Key::Up);
+        // And the other way round: pressed while grabbed, its release stays kept.
+        let mut board = Board::new();
+        assert!(board.play(true, &ALTGR[..2]).0.is_empty());
+        assert!(board.play(false, &ALTGR[2..]).0.is_empty());
     }
 
     #[test]
@@ -717,36 +805,57 @@ mod tests {
         // 0x2A) before Home and presses it again after.
         let (shift, added_shift, home) = ((LSHIFT, 0x2A, false), (LSHIFT, 0x2A, true), (0x24, 0x47, true));
         let press = |(vk, scan, extended): (u32, u32, bool), down| (vk, scan, extended, down);
-        let mut keys = [Key::Up; 256];
+        let mut board = Board::new();
         let events = [press(shift, true), press(added_shift, false), press(home, true), press(home, false), press(added_shift, true), press(shift, false)];
-        let (windows, stream) = route(true, &events, &mut keys);
+        let (windows, stream) = board.play(true, &events);
         assert!(windows.is_empty(), "Windows got {windows:x?}");
         assert_eq!(stream, [
             (SDL_SCANCODE_LSHIFT.0, true, false), (SDL_SCANCODE_HOME.0, true, false), (SDL_SCANCODE_HOME.0, false, false), (SDL_SCANCODE_LSHIFT.0, false, false),
         ]);
-        assert_eq!(keys[LSHIFT as usize], Key::Up);
+        assert_eq!(board.keys[LSHIFT as usize], Key::Up);
         // Home is handed over with Shift held.
-        let mut keys = [Key::Up; 256];
-        route(true, &events[..3], &mut keys);
-        assert_eq!(modifiers(|vk| keys[vk as usize] == Key::Kept, SDL_KMOD_NONE).0, SDL_KMOD_LSHIFT.0);
+        let mut board = Board::new();
+        board.play(true, &events[..3]);
+        assert_eq!(modifiers(|vk| board.keys[vk as usize] == Key::Kept, SDL_KMOD_NONE).0, SDL_KMOD_LSHIFT.0);
     }
 
     #[test]
     fn alt_print_screen_stays_with_the_stream() {
         use sdl3_sys::everything::*;
         // Alt+Print Screen comes as scan 0x54 (SysRq); it reached Windows' Snipping Tool.
-        let (windows, stream) = route(true, &[(LALT, 0x38, false, true), (0x2C, 0x54, false, true), (0x2C, 0x54, false, false), (LALT, 0x38, false, false)], &mut [Key::Up; 256]);
+        let (windows, stream) = Board::new().play(true, &[(LALT, 0x38, false, true), (0x2C, 0x54, false, true), (0x2C, 0x54, false, false), (LALT, 0x38, false, false)]);
         assert!(windows.is_empty(), "Windows got {windows:x?}");
         assert_eq!(stream[1], (SDL_SCANCODE_PRINTSCREEN.0, true, false));
     }
 
     #[test]
     fn a_kept_key_pressed_after_the_secure_desktop_is_a_new_press() {
-        // Ctrl+Alt+Del took Ctrl's release; the stream got the grab back with Ctrl still kept.
-        assert!(!repeats(Key::Kept, true, ALIVE_MS + 1), "the first Ctrl+C after is not dropped as a repeat");
-        assert!(repeats(Key::Kept, true, 33), "auto-repeat");
-        assert!(!repeats(Key::Up, true, 33), "a new press");
-        assert!(!repeats(Key::Kept, false, 33), "a release");
+        // Win+L took Win's and L's releases; the stream got the grab back with both still kept.
+        use sdl3_sys::everything::*;
+        const L: u32 = 0x4C;
+        let mut board = Board::new();
+        board.play(true, &[(LWIN, 0x5B, true, true), (L, 0x26, false, true)]);
+        let (_, stream) = board.play_after(true, 5000, &[(LWIN, 0x5B, true, true)]);
+        assert_eq!(stream, [(SDL_SCANCODE_LGUI.0, true, false)], "not the last key pressed");
+        let (_, stream) = board.play_after(true, 300, &[(LCTRL, 0x1D, false, true), (L, 0x26, false, true)]);
+        assert_eq!(stream[1], (SDL_SCANCODE_L.0, true, false), "the last key pressed, but another came between");
+        let (_, stream) = board.play_after(true, REPEAT_MS + 1, &[(L, 0x26, false, true)]);
+        assert_eq!(stream, [(SDL_SCANCODE_L.0, true, false)], "the last key pressed, quiet too long to repeat");
+        assert!(!repeats(Key::Up, true, 33, true), "a new press");
+        assert!(!repeats(Key::Kept, false, 33, true), "a release");
+    }
+
+    #[test]
+    fn a_slow_first_auto_repeat_is_still_a_repeat() {
+        // Windows' longest delay (a second), 20 % late on a PS/2 keyboard and a clock tick on top:
+        // a second press would type the character twice.
+        use sdl3_sys::everything::*;
+        let mut board = Board::new();
+        board.play(true, &[(D, 0x20, false, true)]);
+        let (_, stream) = board.play_after(true, 1216, &[(D, 0x20, false, true), (D, 0x20, false, true)]);
+        assert_eq!(stream, [(SDL_SCANCODE_D.0, true, true), (SDL_SCANCODE_D.0, true, true)]);
+        // A kept key keeps repeating after the grab ends, too.
+        assert_eq!(settle(false, Key::Kept, false, 1216), Key::Kept);
     }
 
     #[test]

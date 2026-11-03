@@ -727,6 +727,42 @@ export interface CoopInstall {
   release?: { version: string; page: string };
 }
 
+/** What a guest of the Stream page may do besides watching and listening. */
+export type GuestPermission = 'view' | 'controller' | 'controller-keyboard-mouse';
+
+/** An invite link, by its public id; the host never has the token again. Times in Unix seconds. */
+export interface GuestInvite {
+  id: string;
+  permission: GuestPermission;
+  created: number;
+  expires: number;
+}
+
+export interface GuestEntry {
+  id: number;
+  name: string;
+  permission: GuestPermission;
+  /** The invite it joined with. */
+  invite: string;
+  since: number;
+}
+
+/** `GET /api/guests`: the Stream page's invite links and the guests watching. */
+export interface GuestsStatus {
+  /** Whether the console's stream runs, which guests join. */
+  streaming: boolean;
+  max_guests: number;
+  invites: GuestInvite[];
+  guests: GuestEntry[];
+}
+
+/** `POST /api/guests/invite`: the new link's token, shown once, and this PC's LAN addresses. */
+export interface CreatedInvite {
+  invite: GuestInvite;
+  token: string;
+  addresses: string[];
+}
+
 /** `GET /api/coop`: background streaming and co-op through Nucleus Co-op. */
 export interface CoopStatus {
   mode: {
@@ -1111,6 +1147,15 @@ export const api = {
     status: () => get<ChildSessionStatus>('/api/child-session'),
     /** Runs the host's start-up restore again; the answer is the new status. */
     restore: () => post<ChildSessionStatus>('/api/child-session/restore', {}, ACTION_TIMEOUT_MS),
+  },
+  guests: {
+    status: () => get<GuestsStatus>('/api/guests'),
+    /** A link lasting `seconds` (five minutes to seven days). */
+    invite: (permission: GuestPermission, seconds: number) => post<CreatedInvite>('/api/guests/invite', { permission, seconds }),
+    /** The link opens nothing any more; whoever joined with it is disconnected. */
+    revoke: (id: string) => post<Record<string, never>>('/api/guests/revoke', { id }),
+    /** Disconnects the guest; its link still works. */
+    kick: (id: number) => post<Record<string, never>>('/api/guests/kick', { id }),
   },
   coop: {
     status: () => get<CoopStatus>('/api/coop'),

@@ -7,6 +7,7 @@
   import PageHeader from '../components/PageHeader.svelte';
   import Panel from '../components/Panel.svelte';
   import Select from '../components/Select.svelte';
+  import GuestPanel from '../components/stream/GuestPanel.svelte';
   import { api, sessionCsrfToken } from '../lib/api';
   import { link } from '../lib/router.svelte';
   import { on } from '../lib/schema/basics';
@@ -400,6 +401,10 @@
     </div>
     <p class="muted hint">Click the picture to play. Keys and the mouse go to the host while it has the focus; click outside it or press Ctrl+Alt+Shift+Z to get them back.</p>
   </section>
+
+  {#if phase !== 'checking' && phase !== 'off' && phase !== 'failed'}
+    <GuestPanel />
+  {/if}
 </div>
 
 <style>

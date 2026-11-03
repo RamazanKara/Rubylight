@@ -583,11 +583,22 @@ pub enum ReduceMotion {
 pub enum Language {
     English,
     German,
+    Spanish,
+    French,
+    Italian,
+    Japanese,
+    Korean,
+    Polish,
     /// The system's language when Nightjar has it, else English; also what an unknown value
     /// from a newer Nightjar reads as. Keep it last: serde wants the catch-all there.
     #[default]
     #[serde(other)]
     System,
+}
+
+impl Language {
+    /// The choices in the settings, System default first.
+    pub const ALL: [Language; 9] = [Language::System, Language::English, Language::German, Language::Spanish, Language::French, Language::Italian, Language::Japanese, Language::Korean, Language::Polish];
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -1640,7 +1651,7 @@ mod tests {
 
     #[test]
     fn a_value_from_a_newer_version_does_not_reset_the_other_settings() {
-        let set: Settings = serde_json::from_str("{\"fps\":90,\"reduce_motion\":\"Sometimes\",\"language\":\"French\",\"ui_zoom\":130}").unwrap();
+        let set: Settings = serde_json::from_str("{\"fps\":90,\"reduce_motion\":\"Sometimes\",\"language\":\"Klingon\",\"ui_zoom\":130}").unwrap();
         assert_eq!((set.fps, set.ui_zoom), (90, 130));
         assert_eq!((set.reduce_motion, set.language), (ReduceMotion::System, Language::System));
     }

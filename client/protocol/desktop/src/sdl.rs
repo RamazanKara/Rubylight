@@ -146,7 +146,8 @@ pub fn alt_f4_to_host(streaming: bool) {
     set_hint(SDL_HINT_WINDOWS_CLOSE_ON_ALT_F4, if streaming { c"0" } else { c"1" });
 }
 
-/// The system's preferred languages, most preferred first, as lower-case codes ("de", "en").
+/// The system's preferred languages, most preferred first, as lower-case codes with the country
+/// when the system names one ("de", "pt-br", "zh-tw").
 pub fn preferred_languages() -> Vec<String> {
     let mut count = 0;
     let mut out = Vec::new();
@@ -159,7 +160,14 @@ pub fn preferred_languages() -> Vec<String> {
         for i in 0..usize::try_from(count).unwrap_or(0) {
             let locale = *list.add(i);
             if !locale.is_null() && !(*locale).language.is_null() {
-                out.push(CStr::from_ptr((*locale).language).to_string_lossy().to_ascii_lowercase());
+                let mut code = CStr::from_ptr((*locale).language).to_string_lossy().to_ascii_lowercase();
+                if !(*locale).country.is_null() {
+                    let country = CStr::from_ptr((*locale).country).to_string_lossy().to_ascii_lowercase();
+                    if !country.is_empty() {
+                        code = format!("{code}-{country}");
+                    }
+                }
+                out.push(code);
             }
         }
         SDL_free(list.cast());

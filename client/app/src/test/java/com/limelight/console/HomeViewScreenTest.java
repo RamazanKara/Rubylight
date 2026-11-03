@@ -328,6 +328,57 @@ public class HomeViewScreenTest {
     }
 
     @Test
+    public void aListLineOfAPcThatIsAwaySaysSoAloneAndRunsNothing() throws Exception {
+        ConsoleRig rig = new ConsoleRig(temporary.newFolder());
+        HomeModel model;
+        try {
+            rig.transport.reply("tower", "capabilities", ok("{\"api_version\":1,\"features\":[\"library\"],"
+                    + "\"permissions\":{\"list\":true,\"view\":true,\"launch\":true}}"));
+            rig.transport.reply("tower", "library", ok(library("t", HomeLibraryRowsTest.game(6, "Desktop", null, true, null))));
+            // Its last answer: Desktop running.
+            rig.transport.reply("tower", "session", ok(NativeApiFixtures.session("streaming", "you",
+                    "{\"install_id\":\"i6\",\"app_id\":6,\"title\":\"Desktop\"}", "[]")));
+            List<ComputerDetails> hosts = Collections.singletonList(nativeHost("tower", "Tower", true));
+            model = HomeModel.of(rig.repository.refresh(hosts), new HashSet<>(Collections.singletonList("tower")));
+        } finally {
+            rig.close();
+        }
+        prefs.edit().putString(HomeView.KEY_LAYOUT, "list").putString(HomeView.KEY_GROUP, "none").commit();
+        HomeShellTest.Home home = home().get();
+        RecyclerView list = home.findViewById(R.id.console_list);
+        for (boolean away : new boolean[] {false, true}) {
+            ComputerDetails tower = nativeHost("tower", "Tower", true);
+            if (away) tower.state = ComputerDetails.State.OFFLINE;
+            ConsoleHomeAdapter.Listener none = (ConsoleHomeAdapter.Listener) java.lang.reflect.Proxy.newProxyInstance(
+                    getClass().getClassLoader(), new Class<?>[] {ConsoleHomeAdapter.Listener.class},
+                    (proxy, method, args) -> method.getReturnType() == boolean.class ? false : null);
+            ConsoleHomeListAdapter adapter = new ConsoleHomeListAdapter(home, null, uuid -> tower, none);
+            adapter.setListLayout(true);
+            ReflectionHelpers.setField(home, "adapter", adapter);
+            list.setAdapter(adapter);
+            adapter.submit(model, HomeView.Group.NONE);
+            layout(list, 1080, 2200);
+            View line = null;
+            for (int i = 0; i < list.getChildCount(); i++) {
+                View child = list.getChildAt(i);
+                if (list.getChildViewHolder(child).getItemViewType() == ConsoleHomeListAdapter.LIST_GAME) line = child;
+            }
+            assertNotNull("the library's line", line);
+            TextView badge = line.findViewById(R.id.console_badge);
+            TextView subtitle = line.findViewById(R.id.console_subtitle);
+            if (away) {
+                assertEquals("no separator before it", home.getString(R.string.console_badge_asleep), subtitle.getText().toString());
+                assertEquals("nothing runs on a PC that is away", View.GONE, badge.getVisibility());
+                assertEquals("Desktop, " + home.getString(R.string.console_badge_asleep), line.getContentDescription().toString());
+            } else {
+                assertEquals("", subtitle.getText().toString());
+                assertEquals(home.getString(R.string.console_badge_running), badge.getText().toString());
+                assertEquals("Desktop, " + home.getString(R.string.console_badge_running), line.getContentDescription().toString());
+            }
+        }
+    }
+
+    @Test
     public void aListLineSaysWhenTheGameWasLastPlayed() {
         long now = 1_800_000_000L;
         assertEquals("0 is the host's never played", "Steam · Not played yet", ConsoleHomeListAdapter.listLine(context, "Steam", 0L, now));

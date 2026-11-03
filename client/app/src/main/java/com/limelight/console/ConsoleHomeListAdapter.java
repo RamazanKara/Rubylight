@@ -422,18 +422,25 @@ final class ConsoleHomeListAdapter extends RecyclerView.Adapter<RecyclerView.Vie
             String where = line != null ? line : card.hostCount > 1 ? context.getString(R.string.console_card_on_hosts, card.hostCount)
                     : context.getString(R.string.console_card_on_host, card.hostName);
             subtitle.setText(where);
+            boolean away = OfflineLook.allAway(card.hostUuids, hosts);
+            // A PC that is away runs nothing now, whatever its last answer said.
             CharSequence state = null;
-            if (card.badge == HomeModel.Badge.RUNNING) {
+            if (away) {
+                state = null;
+            } else if (card.badge == HomeModel.Badge.RUNNING) {
                 state = context.getString(R.string.console_badge_running);
             } else if (card.badge == HomeModel.Badge.SUSPENDED) {
                 state = context.getString(R.string.console_badge_suspended);
             }
             badge.setText(state);
             badge.setVisibility(state == null ? View.GONE : View.VISIBLE);
-            String description = state == null ? card.title + ", " + where : card.title + ", " + state + ", " + where;
+            String description = card.title;
+            if (state != null) description += ", " + state;
+            // A List line of an app no store owns, never played, has no second line.
+            if (!where.isEmpty()) description += ", " + where;
             itemView.setContentDescription(card.favourite
                     ? description + ", " + context.getString(R.string.console_favourite_description) : description);
-            OfflineLook.bind(itemView, subtitle, badge, OfflineLook.allAway(card.hostUuids, hosts));
+            OfflineLook.bind(itemView, subtitle, badge, away);
             itemView.setOnClickListener(v -> listener.onGame(card));
             itemView.setOnLongClickListener(v -> {
                 listener.onGameMenu(card);

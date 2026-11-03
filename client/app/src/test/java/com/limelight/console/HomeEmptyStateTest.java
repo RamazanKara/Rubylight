@@ -213,6 +213,19 @@ public class HomeEmptyStateTest {
         offlineCardWithWake();
     }
 
+    @Test
+    public void inTheListLayoutTooASavedOfflinePcIsACardWithWake() throws Exception {
+        PreferenceManager.getDefaultSharedPreferences(context).edit().putString(HomeView.KEY_LAYOUT, "list").commit();
+        offlineCardWithWake();
+    }
+
+    @Test
+    @Config(qualifiers = "w411dp-h891dp-port-xxhdpi")
+    public void inAPhonesListLayoutTooASavedOfflinePcIsACardWithWake() throws Exception {
+        PreferenceManager.getDefaultSharedPreferences(context).edit().putString(HomeView.KEY_LAYOUT, "list").commit();
+        offlineCardWithWake();
+    }
+
     private void offlineCardWithWake() throws Exception {
         ComputerDetails saved = savedTower();
         saved.macAddress = "aa:bb:cc:dd:ee:ff";

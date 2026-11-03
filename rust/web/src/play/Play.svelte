@@ -582,7 +582,7 @@
     display: grid;
     gap: 0.5em;
     width: 100%;
-    padding: 0;
+    padding: 0.4em;
     border: 2px solid transparent;
     border-radius: var(--radius);
     background: none;

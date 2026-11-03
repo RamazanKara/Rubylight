@@ -24,7 +24,7 @@ If another program already holds a port, the console shows a `webrtc_server` war
 | Signalling (WebSocket) | TCP 8000 | `webrtc_port` |
 | Media, audio and input | UDP 8001 | `webrtc_media_port` |
 | Guests of the console's stream | UDP 8002-8005 | `webrtc_media_port` + 1 to + 4 |
-| The guest page and its socket | TCP 47991 | Base port + 2; answers only while an invite link works |
+| The guest and play pages and their sockets | TCP 47991 | Base port + 2; the guest page answers only while an invite link works, the play page only the local network and Tailscale |
 
 TVs send their discovery broadcast to UDP 8000, so discovery stays there even when you move the signalling port. The reply tells the TV which signalling port to use. The installer's Windows Firewall rule allows `butterpollo.exe` inbound on every port, so an installed host needs nothing more. On a portable host, allow these three ports. The full list of settings is in [Configuration](configuration.md#webrtc-server).
 
@@ -50,6 +50,19 @@ The console's **Stream** page plays a game from this PC in the browser tab, with
 The page signals over the console's own HTTPS port (`wss://`, at `/api/webrtc/signal`), so the WebRTC signalling port is not used, and it signs in with the console session. The browser streams as the device "Console (*your user name*)" on **Devices**; disable it there to stop the console from streaming. Signing out ends the stream within 5 seconds. One tab or browser holds the connection at a time: connecting from another one ends the stream in the first, which says so. The **Picture** panel lists only the codecs this browser receives over WebRTC (`RTCRtpReceiver.getCapabilities`) that the host also offers, with the resolutions and frame rates the host's encoder takes for each. The first time, the page picks a codec the browser decodes in hardware (Media Capabilities), AV1 first, then HEVC, then H.264, at 1080p and 60 fps or the nearest offered; it remembers your choice in the browser. In the project's tests Chromium and Firefox 159 offer AV1 and H.264; HEVC appears only where the browser has an H.265 receiver (see below). The page drops the host's `a=imageattr` line, which is there for Samsung's TVs, before handing the offer to the browser: Firefox refuses it ("Min is not smaller than max").
 
 The browser does not say why the host refused the connection, so the page lists the causes (it asks you to sign in again when the tab's sign-in has lapsed): the tab is not signed in or opened the console from an address the host does not list as its own (`csrf_allowed_origins`), the device is not on the local network or Tailscale, the WebRTC server is off or was turned on without a restart, or the console device is disabled.
+
+### Play in a TV browser
+
+A TV, console or car browser plays games from this PC with no app: it pairs once like a TV, then lists the PC's games and plays one full screen.
+
+1. Turn on the WebRTC server (see above) and restart Rubylight.
+2. In the browser, open `https://<PC address>:47991/play` (the guest port, base port + 2). The browser warns that the connection is not private: the page uses the console's own self-signed certificate. Accept it once; the browser remembers it for this address.
+3. The page shows a four-digit PIN and the name it pairs as, such as "Xbox" or "Edge on Windows". In the console, open **Devices**, enter the PIN there and confirm.
+4. Pick a game with the remote, the arrow keys or a controller (D-pad or left stick, A to start).
+
+Hold Back, Escape or the controller's View (Select) button for a second for the menu: **Back to game**, **Disconnect** (the game keeps running) and **Quit game**. The chip at the top of the games picks the codec; the first time the page picks one as the Stream page does. Browsers allow sound and full screen only after a key press or a click, and a controller press does not count: if the game starts silent, press a key or click once.
+
+The browser keeps its device ID and secret in its site data (`localStorage`), never in the address: clearing the site's data pairs it anew. It is a paired WebRTC device like a TV and gets what a TV gets: the first device paired with the PC may do everything, later ones only watch until you allow more on **Devices**. Unpairing or disabling it there ends its access at once. The page answers only devices on the local network and Tailscale, even when the guest port is forwarded for guests; addresses in headers such as `X-Forwarded-For` do not count. Each device may ask to pair five times a minute, and a PIN that does not match is a warning in the host log.
 
 ### Guests
 
@@ -80,7 +93,7 @@ One stream runs at a time. A WebRTC stream and a Moonlight stream exclude each o
 
 Signalling is plain `ws://`, so it is not encrypted. Signing in keeps other devices from using or interrupting the stream; it does not hide what the app and the PC say to each other. The media itself is encrypted (DTLS-SRTP). Use it on a trusted LAN only.
 
-Rubylight serves only peers on the local network: loopback, private (RFC 1918), link-local, unique-local IPv6 and carrier-grade NAT (100.64.0.0/10) addresses. Anything else is closed before its first message and logged. Do not forward these ports on your router. The one exception is guests of the console's stream, who may come from anywhere with a link: their media ports (UDP 8002-8005) and the guest port (TCP 47991, which serves nothing of the console's) may be forwarded. Never forward the console's port, TCP 47990 ([Guests in the browser](browser-guests.md#what-must-be-reachable)).
+Rubylight serves only peers on the local network: loopback, private (RFC 1918), link-local, unique-local IPv6 and carrier-grade NAT (100.64.0.0/10) addresses. Anything else is closed before its first message and logged. Do not forward these ports on your router. The one exception is guests of the console's stream, who may come from anywhere with a link: their media ports (UDP 8002-8005) and the guest port (TCP 47991, which serves nothing of the console's) may be forwarded; the play page on that port still refuses every address outside the local network and Tailscale. Never forward the console's port, TCP 47990 ([Guests in the browser](browser-guests.md#what-must-be-reachable)).
 
 ## For client authors
 

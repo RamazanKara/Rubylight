@@ -26,6 +26,8 @@ public class VulkanRendererBridge {
     private static boolean hdrColorSpaces;
     private static String unsupportedReason;
 
+    // handle and decoderSurface are used under the gate's lock once the renderer is running
+    private final RendererGate gate = new RendererGate();
     private long handle;
     private Surface decoderSurface;
 
@@ -131,9 +133,14 @@ public class VulkanRendererBridge {
      * All times in microseconds; receive and enqueue times are moonlight-common-c's. hostProcessingLatency is
      * the host's, in tenths of a millisecond (0 if the host doesn't report it).
      */
-    public synchronized void noteFrameReceived(long hostPtsUs, long receiveTimeUs, long enqueueTimeUs, char hostProcessingLatency) {
-        if (handle != 0) {
-            nativeNoteReceived(handle, hostPtsUs, receiveTimeUs, enqueueTimeUs, hostProcessingLatency);
+    public void noteFrameReceived(long hostPtsUs, long receiveTimeUs, long enqueueTimeUs, char hostProcessingLatency) {
+        if (!gate.enter()) return;
+        try {
+            if (handle != 0) {
+                nativeNoteReceived(handle, hostPtsUs, receiveTimeUs, enqueueTimeUs, hostProcessingLatency);
+            }
+        } finally {
+            gate.exit();
         }
     }
 
@@ -142,24 +149,39 @@ public class VulkanRendererBridge {
      * it, until the next call: the T.35 payload from the country code on (Hdr10PlusSei). Call it only
      * when the metadata changes, in decode order.
      */
-    public synchronized void noteHdr10Plus(long hostPtsUs, byte[] t35) {
-        if (handle != 0) {
-            nativeNoteHdr10Plus(handle, hostPtsUs, t35);
+    public void noteHdr10Plus(long hostPtsUs, byte[] t35) {
+        if (!gate.enter()) return;
+        try {
+            if (handle != 0) {
+                nativeNoteHdr10Plus(handle, hostPtsUs, t35);
+            }
+        } finally {
+            gate.exit();
         }
     }
 
     /** One of HDR10_PLUS_NONE, HDR10_PLUS_PASSED and HDR10_PLUS_REFUSED. */
-    public synchronized int getHdr10PlusState() {
-        return handle != 0 ? nativeHdr10PlusState(handle) : HDR10_PLUS_NONE;
+    public int getHdr10PlusState() {
+        if (!gate.enter()) return HDR10_PLUS_NONE;
+        try {
+            return handle != 0 ? nativeHdr10PlusState(handle) : HDR10_PLUS_NONE;
+        } finally {
+            gate.exit();
+        }
     }
 
     /**
      * Switches the jitter buffer for the rest of the stream.
      * @param jitterBuffer one of PreferenceConfiguration.JITTER_BUFFER_*
      */
-    public synchronized void setJitterBuffer(int jitterBuffer) {
-        if (handle != 0) {
-            nativeSetJitterBuffer(handle, jitterBuffer);
+    public void setJitterBuffer(int jitterBuffer) {
+        if (!gate.enter()) return;
+        try {
+            if (handle != 0) {
+                nativeSetJitterBuffer(handle, jitterBuffer);
+            }
+        } finally {
+            gate.exit();
         }
     }
 
@@ -167,42 +189,72 @@ public class VulkanRendererBridge {
      * How long after the display's vsync Choreographer's frame times are
      * ({@link android.view.Display#getAppVsyncOffsetNanos()}), which changes with the display mode
      */
-    public synchronized void setVsyncOffset(long offsetNs) {
-        if (handle != 0) {
-            nativeSetVsyncOffset(handle, offsetNs);
+    public void setVsyncOffset(long offsetNs) {
+        if (!gate.enter()) return;
+        try {
+            if (handle != 0) {
+                nativeSetVsyncOffset(handle, offsetNs);
+            }
+        } finally {
+            gate.exit();
         }
     }
 
-    public synchronized void setHdrMode(boolean enabled, byte[] hdrMetadata) {
-        if (handle != 0) {
-            nativeSetHdrMode(handle, enabled, hdrMetadata);
+    public void setHdrMode(boolean enabled, byte[] hdrMetadata) {
+        if (!gate.enter()) return;
+        try {
+            if (handle != 0) {
+                nativeSetHdrMode(handle, enabled, hdrMetadata);
+            }
+        } finally {
+            gate.exit();
         }
     }
 
     /** Frames presented since the last call */
-    public synchronized int takePresentedFrames() {
-        return handle != 0 ? nativeTakePresentedFrames(handle) : 0;
+    public int takePresentedFrames() {
+        if (!gate.enter()) return 0;
+        try {
+            return handle != 0 ? nativeTakePresentedFrames(handle) : 0;
+        } finally {
+            gate.exit();
+        }
     }
 
     /**
      * Whether a front buffer was asked for but the device couldn't give one, so frames go
      * through the compositor's queue as usual. Known once the first frame is drawn.
      */
-    public synchronized boolean isFrontBufferUnavailable() {
-        return handle != 0 && nativeIsFrontBufferUnavailable(handle);
+    public boolean isFrontBufferUnavailable() {
+        if (!gate.enter()) return false;
+        try {
+            return handle != 0 && nativeIsFrontBufferUnavailable(handle);
+        } finally {
+            gate.exit();
+        }
     }
 
     /** Whether frames are drawn into a front buffer. Known once the first frame is drawn. */
-    public synchronized boolean isFrontBufferActive() {
-        return handle != 0 && nativeIsFrontBufferActive(handle);
+    public boolean isFrontBufferActive() {
+        if (!gate.enter()) return false;
+        try {
+            return handle != 0 && nativeIsFrontBufferActive(handle);
+        } finally {
+            gate.exit();
+        }
     }
 
     /**
      * Whether the PC sends HDR but the surface took neither an HDR format nor the HDR window
      * dataspace, so the picture is tone mapped to SDR. Known once the HDR swapchain is made.
      */
-    public synchronized boolean isHdrToneMapped() {
-        return handle != 0 && nativeIsHdrToneMapped(handle);
+    public boolean isHdrToneMapped() {
+        if (!gate.enter()) return false;
+        try {
+            return handle != 0 && nativeIsHdrToneMapped(handle);
+        } finally {
+            gate.exit();
+        }
     }
 
     /**
@@ -211,9 +263,14 @@ public class VulkanRendererBridge {
      * measured without clock sync (and so without the network transit), then the same three
      * for until they reached the screen.
      */
-    public synchronized void takeCaptureLatency(long[] out) {
-        if (handle != 0) {
-            nativeTakeCaptureLatency(handle, out);
+    public void takeCaptureLatency(long[] out) {
+        if (!gate.enter()) return;
+        try {
+            if (handle != 0) {
+                nativeTakeCaptureLatency(handle, out);
+            }
+        } finally {
+            gate.exit();
         }
     }
 
@@ -221,8 +278,13 @@ public class VulkanRendererBridge {
      * Whether the screen reports when frames are shown, so {@link #takePresentReports(long[])} has
      * something to say. Without it there is no honest time to the screen.
      */
-    public synchronized boolean reportsPresentTimes() {
-        return handle != 0 && nativeReportsPresentTimes(handle);
+    public boolean reportsPresentTimes() {
+        if (!gate.enter()) return false;
+        try {
+            return handle != 0 && nativeReportsPresentTimes(handle);
+        } finally {
+            gate.exit();
+        }
     }
 
     /**
@@ -232,56 +294,87 @@ public class VulkanRendererBridge {
      * triples. A screen time of 0 means the frame never reached the screen (the queue time is 0
      * too), and {@link #NO_SCANOUT} that the screen could not tell.
      */
-    public synchronized int takePresentReports(long[] out) {
-        if (handle == 0) return 0;
-        int n = nativeTakePresentReports(handle, out);
-        for (int i = 0; i < n; i++) {
-            out[3 * i] /= 1000;
+    public int takePresentReports(long[] out) {
+        if (!gate.enter()) return 0;
+        try {
+            if (handle == 0) return 0;
+            int n = nativeTakePresentReports(handle, out);
+            for (int i = 0; i < n; i++) {
+                out[3 * i] /= 1000;
+            }
+            return n;
+        } finally {
+            gate.exit();
         }
-        return n;
     }
 
     /**
      * Why the renderer gave up (device lost, or submits, imports or the swapchain kept failing),
      * or null while it is healthy. Once set, no further frames are presented.
      */
-    public synchronized String getFatalReason() {
-        return handle != 0 ? nativeFatalReason(handle) : null;
+    public String getFatalReason() {
+        if (!gate.enter()) return null;
+        try {
+            return handle != 0 ? nativeFatalReason(handle) : null;
+        } finally {
+            gate.exit();
+        }
     }
 
     /** One line for the performance overlay */
-    public synchronized String getRendererText() {
-        return handle != 0 ? nativeGetRendererText(handle) : null;
+    public String getRendererText() {
+        if (!gate.enter()) return null;
+        try {
+            return handle != 0 ? nativeGetRendererText(handle) : null;
+        } finally {
+            gate.exit();
+        }
     }
 
     /**
      * Pacing numbers for the performance overlay: a headline and details, separated by a
      * newline. Either may be empty.
      */
-    public synchronized String getPacingText() {
-        return handle != 0 ? nativeGetPacingText(handle) : null;
+    public String getPacingText() {
+        if (!gate.enter()) return null;
+        try {
+            return handle != 0 ? nativeGetPacingText(handle) : null;
+        } finally {
+            gate.exit();
+        }
     }
 
     /**
      * Stops presenting and lets go of the output surface. Must be called before the output
-     * surface is destroyed.
+     * surface is destroyed. The UI calls it as the surface goes, so it waits for the GPU only
+     * {@link RendererGate#STOP_WAIT_MS}: a stop still running then finishes on its own, and
+     * {@link #destroy()} waits for it (#73).
      */
-    public synchronized void stop() {
-        if (handle != 0) {
-            nativeStop(handle);
+    public void stop() {
+        if (!gate.stop(() -> {
+            if (handle != 0) {
+                nativeStop(handle);
+            }
+        })) {
+            LimeLog.warning("Vulkan renderer still stopping after " + RendererGate.STOP_WAIT_MS + " ms; not waiting for it");
         }
     }
 
-    /** Frees the renderer. The decoder must be released first. */
-    public synchronized void destroy() {
-        if (decoderSurface != null) {
-            decoderSurface.release();
-            decoderSurface = null;
-        }
-        if (handle != 0) {
-            nativeDestroy(handle);
-            handle = 0;
-        }
+    /**
+     * Frees the renderer, waiting for the GPU as long as that takes, so never on the UI thread.
+     * The decoder must be released first.
+     */
+    public void destroy() {
+        gate.free(() -> {
+            if (decoderSurface != null) {
+                decoderSurface.release();
+                decoderSurface = null;
+            }
+            if (handle != 0) {
+                nativeDestroy(handle);
+                handle = 0;
+            }
+        });
     }
 
     private static native boolean nativeProbe();

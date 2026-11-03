@@ -36,6 +36,7 @@ mod network;
 mod network_test;
 mod pin_lock;
 mod pin_ui;
+mod power;
 mod radeon;
 mod sdl;
 mod session_page;
@@ -165,6 +166,10 @@ struct App {
     /// A folder to download into, or a file to upload, being chosen for the shared folder browser.
     folder_pick: Option<(FolderPick, sdl::FileChoice)>,
     network_query: Option<Receiver<network::Network>>,
+    /// What this PC's power allows, being asked once at start.
+    power_probe: Option<Receiver<Vec<power::Offer>>>,
+    /// A shut down, restart or sleep under way, and the system's answer to it.
+    power_request: Option<(power::Offer, Receiver<Result<(), String>>)>,
     network_test: Option<network_test::Test>,
     /// Host, app, resume, and Input-only through a small stream.
     network_launch: Option<(u64, i32, bool, bool)>,
@@ -569,6 +574,8 @@ fn run(launch: Option<cli::Launch>) -> Result<(), String> {
         shortcut_file: None,
         folder_pick: None,
         network_query: Some(network::query(waker.clone())),
+        power_probe: Some(power::probe(waker.clone())),
+        power_request: None,
         network_test: None,
         network_launch: None,
         next_network_check: Instant::now(),
@@ -910,6 +917,17 @@ impl App {
                 }
             }
         }
+        if let Some(offers) = self.power_probe.as_ref().and_then(|receiver| receiver.try_recv().ok()) {
+            self.launcher.power = offers;
+            self.power_probe = None;
+        }
+        if let Some((offer, result)) = self.power_request.as_ref().and_then(|(offer, receiver)| receiver.try_recv().ok().map(|r| (*offer, r))) {
+            self.power_request = None;
+            if let Err(why) = result {
+                eprintln!("nightjar: {:?} failed: {why}", offer.action);
+                self.launcher.message(tr(offer.action.failed()), why);
+            }
+        }
         if let Some(result) = self.folder_pick.as_ref().and_then(|(_, receiver)| receiver.try_recv().ok()) {
             if let Some((pick, _)) = self.folder_pick.take() {
                 if let Some((title, body)) = finish_folder_pick(&mut self.launcher.folders, pick, result) {
@@ -1131,6 +1149,13 @@ impl App {
                 }
             }
             Command::Quit => self.running = false,
+            Command::Power(offer) => {
+                // One at a time: a second confirm while logind waits on its password is dropped.
+                if self.power_request.is_none() {
+                    eprintln!("nightjar: {:?} this PC", offer.action);
+                    self.power_request = Some((offer, power::request(offer, self.waker.clone())));
+                }
+            }
             Command::Launch { host, app, resume } => self.launch(host, app, resume, false, LaunchFrom::Launcher),
             Command::LaunchInputOnly { host, app, resume } => self.launch(host, app, resume, true, LaunchFrom::Launcher),
             Command::ToggleFavourite(entry) => {

@@ -123,6 +123,8 @@ pub enum Command {
     PinCancelled,
     /// Close Nightjar (the app lock's way out).
     Quit,
+    /// Shut down, restart or sleep this PC, once confirmed (`Dialog::ConfirmPower`).
+    Power(crate::power::Offer),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -212,8 +214,11 @@ pub enum Dialog {
     /// Home or PCs in the top bar would leave a page whose transfers still run, which cancels
     /// them: asked first.
     ConfirmLeave { to: Screen },
-    /// Back where Back ends (Home, or the PCs without Home): a controller's way to close Nightjar.
+    /// Back where Back ends (Home, or the PCs without Home): a controller's way to close Nightjar,
+    /// or to shut down, restart or sleep this PC.
     ConfirmExit,
+    /// Shut down, restart or sleep this PC? Asked once more from `ConfirmExit`.
+    ConfirmPower(crate::power::Offer),
     /// Shown once after updating: the PCs that keep settings of their own or for games, one
     /// line each, and a reset of them all (`Launcher::show_kept_settings_once`).
     KeptSettings { pcs: Vec<KeptPc> },
@@ -313,6 +318,9 @@ pub struct Launcher {
     pub gpu_device: Option<crate::stream::pipeline::GpuDevice>,
     pub display: Display,
     pub identity_ready: bool,
+    /// What this PC's power allows (`power::probe`): the Close Nightjar question offers these.
+    /// Empty until known.
+    pub power: Vec<crate::power::Offer>,
     /// The system's preferred languages, for the Language setting's default.
     pub system_languages: Vec<String>,
     /// The palette and motion egui's style was last built for.
@@ -387,6 +395,7 @@ impl Launcher {
             gpu_device: None,
             display,
             identity_ready: false,
+            power: Vec::new(),
             system_languages: Vec::new(),
             look: None,
             remote: Default::default(),

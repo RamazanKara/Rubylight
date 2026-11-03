@@ -3990,11 +3990,78 @@ fn b_where_back_ends_asks_to_close_nightjar_with_focus_on_cancel() {
     assert!(f.no_dialog(), "B closes the question");
     // Over to Close Nightjar and A: it closes.
     pad_press(&mut f, Key::Escape);
-    for key in [Key::ArrowRight, Key::ArrowLeft, Key::ArrowLeft] {
-        if focused_text(&f).as_deref() != Some("Close Nightjar") { pad_press(&mut f, key); }
+    // Past Shut down, Restart and Sleep.
+    for _ in 0..6 {
+        if focused_text(&f).as_deref() != Some("Close Nightjar") { pad_press(&mut f, Key::ArrowRight); }
     }
     assert_eq!(focused_text(&f).as_deref(), Some("Close Nightjar"));
     assert!(f.press(Key::Enter).iter().any(|c| matches!(c, Command::Quit)));
+}
+
+#[test]
+fn b_offers_this_pcs_power_each_asked_once_more_with_focus_on_cancel() {
+    use crate::power::{windows_offers, PowerAction};
+    let mut f = Frames::new(record("Desk", true, false), Reach::Online);
+    f.l.power = windows_offers(true);
+    let focused_text = |f: &Frames| {
+        let rect = f.ctx.memory(|m| m.focused()).and_then(|id| f.ctx.read_response(id)).map(|r| r.rect);
+        f.placed.iter().find(|(_, at, _)| rect.is_some_and(|r| r.contains(at.center()))).map(|p| p.0.clone())
+    };
+    // To `label` by the pad's right, from Cancel at the left.
+    let walk_to = |f: &mut Frames, label: &str| {
+        for _ in 0..6 {
+            if focused_text(f).as_deref() == Some(label) { break; }
+            pad_press(f, Key::ArrowRight);
+        }
+        assert_eq!(focused_text(f).as_deref(), Some(label), "{:?}", f.drawn);
+    };
+    pad_press(&mut f, Key::Escape);
+    assert!(matches!(f.l.dialog, Dialog::ConfirmExit));
+    for label in ["Shut down", "Restart", "Sleep", "Close Nightjar", "Cancel"] {
+        assert!(shows(&f, label), "{label}: {:?}", f.drawn);
+    }
+    for (label, action) in [("Shut down", PowerAction::ShutDown), ("Restart", PowerAction::Restart), ("Sleep", PowerAction::Sleep)] {
+        if !matches!(f.l.dialog, Dialog::ConfirmExit) { pad_press(&mut f, Key::Escape); }
+        assert_eq!(focused_text(&f).as_deref(), Some("Cancel"));
+        walk_to(&mut f, label);
+        // Choosing it only asks.
+        assert!(f.press(Key::Enter).iter().all(|c| !matches!(c, Command::Power(_))), "{label}");
+        assert!(matches!(f.l.dialog, Dialog::ConfirmPower(o) if o.action == action), "{label}");
+        assert!(shows(&f, action.question()), "{:?}", f.drawn);
+        assert_eq!(focused_text(&f).as_deref(), Some("Cancel"), "{label}: focus starts on Cancel");
+        // A right away, or B, does nothing.
+        assert!(f.press(Key::Enter).iter().all(|c| !matches!(c, Command::Power(_))));
+        assert!(f.no_dialog());
+    }
+    // Over to the action itself and A: now it is asked for.
+    pad_press(&mut f, Key::Escape);
+    walk_to(&mut f, "Restart");
+    f.press(Key::Enter);
+    assert!(matches!(f.l.dialog, Dialog::ConfirmPower(o) if o.action == PowerAction::Restart));
+    pad_press(&mut f, Key::Escape);
+    assert!(f.no_dialog(), "B cancels the second question");
+    pad_press(&mut f, Key::Escape);
+    walk_to(&mut f, "Restart");
+    f.press(Key::Enter);
+    walk_to(&mut f, "Restart");
+    let commands = f.press(Key::Enter);
+    assert!(commands.iter().any(|c| matches!(c, Command::Power(o) if o.action == PowerAction::Restart)));
+    assert!(commands.iter().all(|c| !matches!(c, Command::Quit)), "Nightjar is left to the system to close");
+    assert!(f.no_dialog());
+}
+
+#[test]
+fn the_close_question_offers_only_what_this_pcs_power_allows() {
+    let mut f = Frames::new(record("Desk", true, false), Reach::Online);
+    // Not known yet (or nothing allowed): the question is as before.
+    pad_press(&mut f, Key::Escape);
+    assert!(matches!(f.l.dialog, Dialog::ConfirmExit));
+    assert!(["Shut down", "Restart", "Sleep"].iter().all(|l| !shows(&f, l)), "{:?}", f.drawn);
+    f.press(Key::Escape);
+    // A Modern Standby PC: no Sleep.
+    f.l.power = crate::power::windows_offers(false);
+    pad_press(&mut f, Key::Escape);
+    assert!(shows(&f, "Shut down") && shows(&f, "Restart") && !shows(&f, "Sleep"), "{:?}", f.drawn);
 }
 
 #[path = "settings_tests.rs"]

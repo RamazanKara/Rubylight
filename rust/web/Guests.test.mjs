@@ -42,6 +42,10 @@ test('the link carries the token in its fragment, at an address a guest can open
   assert.equal(guests.linkAddress(page('localhost:47990'), []), 'localhost:47990');
   for (const good of ['192.168.4.69:47990', 'home.example.org', '[2001:db8::1]:47990']) assert.ok(guests.validAddress(good), good);
   for (const bad of ['', 'a b', 'host/path', 'https://host', 'host:port', 'host#x']) assert.ok(!guests.validAddress(bad), bad);
+  assert.equal(guests.addressProblem('192.168.4.69:47990'), undefined);
+  assert.equal(guests.addressProblem('host/path'), 'A host name or IP address, with an optional port');
+  for (const local of ['localhost:47990', '127.0.0.1', '[::1]:47990', 'pc.localhost'])
+    assert.equal(guests.addressProblem(local), 'Only this PC opens this address', local);
 });
 
 test('expiry reads in minutes, hours or days', () => {

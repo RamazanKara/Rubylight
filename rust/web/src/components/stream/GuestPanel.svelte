@@ -22,7 +22,7 @@
     lifetime,
     linkAddress,
     permissionLabel,
-    validAddress,
+    addressProblem,
     type Expiry,
   } from '../../lib/guests';
 
@@ -43,7 +43,8 @@
   let suggested = '';
 
   const seconds = $derived(lifetime(expiry as Expiry, Number(amount), Number(unit)));
-  const addressValid = $derived(validAddress(address));
+  const addressError = $derived(addressProblem(address));
+  const addressValid = $derived(!addressError);
   const link = $derived(created && addressValid ? guestLink(address, created.token) : '');
   const guests = $derived(status?.guests ?? []);
   const invites = $derived(status?.invites ?? []);
@@ -161,13 +162,13 @@
 <Dialog bind:open title={created ? 'Invite link' : 'Invite a guest'} dismissible={!creating} onclose={() => created && rememberAddress()}>
   {#if created}
     <div class="form">
-      <Field label="Address" id="guest-address" error={addressValid ? undefined : 'A host name or IP address, with an optional port'}>
+      <Field label="Address" id="guest-address" error={addressError}>
         <Input id="guest-address" bind:value={address} mono invalid={!addressValid} spellcheck="false" autocomplete="off" />
       </Field>
       <Field label="Link" id="guest-link">
         <div class="copy">
           <Input id="guest-link" value={link} mono readonly />
-          <CopyButton value={link} label="Copy link" what="the invite link" showLabel />
+          {#if link}<CopyButton value={link} label="Copy link" what="the invite link" showLabel />{/if}
         </div>
       </Field>
       <p class="muted when">{permissionLabel(created.invite.permission)} · expires {expiresIn(created.invite.expires)}</p>

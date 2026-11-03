@@ -53,6 +53,13 @@ export function validAddress(address: string): boolean {
   return /^(\[[0-9a-f:.]+\]|[a-z0-9.-]+)(:\d{1,5})?$/i.test(address.trim());
 }
 
+/** Why a guest couldn't open a link at `address`, or undefined when one can. */
+export function addressProblem(address: string): string | undefined {
+  if (!validAddress(address)) return 'A host name or IP address, with an optional port';
+  if (loopback(address.trim().replace(/:\d{1,5}$/, ''))) return 'Only this PC opens this address';
+  return undefined;
+}
+
 /** The token goes in the fragment: browsers never send it, so no log or proxy sees it. */
 export function guestLink(address: string, token: string): string {
   return `https://${address.trim()}/guest/#${token}`;

@@ -51,6 +51,20 @@ public class MediaCodecBalancedQueueTest {
         }
     }
 
+    @Test public void aStreamAsFastAsThePanelIsReleasedAtOnceAndDropsWhatWaitedForVsync() throws Exception {
+        // Issue 7: at 120 fps on 120 Hz, waiting for the vsync callback dropped 6% of the frames.
+        try (Fixture fixture = new Fixture(1, new LinkedBlockingQueue<>())) {
+            fixture.renderer.setStreamFrameRateMilliHz(120_000);
+            fixture.state.allowDiscard.countDown();
+            fixture.seed(OLD);
+            fixture.start();
+            fixture.join();
+            assertEquals("queued before the switch, older than the new output", Collections.singletonList(OLD), fixture.state.dropped);
+            assertEquals(Collections.singletonList(NEW), fixture.state.rendered);
+            assertTrue(fixture.queue.isEmpty());
+        }
+    }
+
     @Test public void fullQueueDecisionCannotBecomeStaleAfterTheConsumerRemovesAFrame() throws Exception {
         SizeBarrierQueue queue = new SizeBarrierQueue();
         try (Fixture fixture = new Fixture(2, queue)) {
@@ -137,7 +151,8 @@ public class MediaCodecBalancedQueueTest {
             prefs.videoFormat = PreferenceConfiguration.FormatOption.AUTO;
             prefs.framePacing = FRAME_PACING_BALANCED;
             renderer = new MediaCodecDecoderRenderer(activity.get(), prefs, null, 0, false, false, "", null);
-            renderer.setStreamFrameRateMilliHz(120_000);
+            // Slower than the panel, so Balanced paces on vsync (FramePacingPolicy.balancedPacesOnVsync).
+            renderer.setStreamFrameRateMilliHz(60_000);
             this.queue = queue;
             ReflectionHelpers.setField(renderer, "outputBufferQueue", queue);
             ReflectionHelpers.setField(renderer, "outputBufferQueueLimit", capacity);
@@ -159,8 +174,9 @@ public class MediaCodecBalancedQueueTest {
             queue.add(index);
         }
 
+        /** The vsync callback once per stream frame (two refreshes at 60 fps on 120 Hz). */
         void frame(int tick) {
-            renderer.doFrame(firstVsync + tick * FRAME_NS);
+            renderer.doFrame(firstVsync + tick * 2 * FRAME_NS);
         }
 
         void start() {

@@ -96,17 +96,22 @@ final class DecoderQueuePolicy {
      * Decoder debt in Smoothest and the frame rate limit, which show every frame (issue 7). After a
      * start or a stall the decoder can keep one or two frames waiting inside it for a minute:
      * input-to-output stays a frame or more above its floor while the frame behind is not decoded
-     * yet, so the age rule in [FramePacingPolicy] has no newer output to swap in.
+     * yet, so the age rule in [FramePacingPolicy] has no newer output to swap in. The display's
+     * queue can also hold one buffer too many with nothing behind it: the decoder then waits for a
+     * free buffer, and input-to-output sits most of a frame above the floor (10-12 ms at 60 fps
+     * for 45 s on a Shield, until one dropped frame brought it back to 1 ms).
      *
      * The floor starts as the smallest input-to-output time since the last flush. An output is
-     * over when it is at least three quarters of a content interval above the floor. Once
-     * [SHARE_PERCENT] of the outputs of the last [WINDOW_NS] were over, the held output gives way to
-     * a newer one: while a newer frame is in the decoder behind it, the renderer waits up to
-     * [WAIT_US] for that frame to come out and drops the held output only if it does. One drop at
-     * a time: the next [SETTLE] outputs are measured after each, and recovery stops once their
-     * median is under the threshold again. Sub-frame drift between the display's clock and the
-     * host's stays under the threshold, and a decoder whose floor is a frame long has no excess:
-     * both are left alone.
+     * over when it is at least half a content interval above the floor. Once [SHARE_PERCENT] of
+     * the outputs of the last [WINDOW_NS] were over, the held output gives way: while a newer frame
+     * is in the decoder behind it, the renderer waits up to [WAIT_US] for that frame to come out and
+     * drops the held output only if it does; with nothing behind it, the held output is dropped
+     * and the screen keeps the previous frame one refresh longer, which frees the extra buffer.
+     * One drop at a time: the next [SETTLE] outputs are measured after each, and recovery stops
+     * once their median is under the threshold again. Healthy streams stay under the threshold
+     * (in the Shield captures 1-4 ms above the floor, and never half a frame for 80% of a window);
+     * sub-frame drift between the display's clock and the host's costs one drop each time it has
+     * added half a frame, and a decoder whose floor is a frame long has no excess.
      *
      * A drop that did not take half a frame off, or no newer output in [MAX_WAITS] waits or in a
      * whole window, mean the excess is the decoder's own pipelining for this content (deeper in
@@ -194,14 +199,15 @@ final class DecoderQueuePolicy {
         }
 
         /**
-         * Whether the held output should give way to a newer one, if one comes out within
-         * [WAIT_US]. framesBehind: frames in the decoder behind it. Call after [onOutput].
+         * Whether the held output should give way: to a newer one if a frame is in the decoder
+         * behind it and comes out within [WAIT_US], else to the previous frame on screen. Call
+         * after [onOutput], then [onDropped] or [onNoNewer].
          */
-        boolean shouldDrop(int framesBehind) {
-            return state == RECOVER && settle == 0 && over && framesBehind >= 1 && drops < MAX_DROPS;
+        boolean shouldDrop() {
+            return state == RECOVER && settle == 0 && over && drops < MAX_DROPS;
         }
 
-        /** A newer output came out and replaced the held one. */
+        /** The held output was dropped, for a newer one or with nothing behind it. */
         void onDropped() {
             drops++;
             settle = SETTLE;
@@ -260,9 +266,9 @@ final class DecoderQueuePolicy {
             under = 0;
             if (nowNs - readySinceNs < WINDOW_NS) return;
             // Over for a whole window without a drop. Newer frames that never came out: learn
-            // the level. Nothing behind to drop: watch again from scratch.
+            // the level. Never asked to drop (format changes): watch again from scratch.
             if (waits > 0) learn("paused, no newer output came out");
-            else finish("ended, nothing behind to drop", excessNs, WATCH, false);
+            else finish("ended without a drop", excessNs, WATCH, false);
         }
 
         /** The excess is the decoder's own: raise the floor to the level measured and pause. */
@@ -289,7 +295,7 @@ final class DecoderQueuePolicy {
         }
 
         private boolean isOver(long excess) {
-            return excess * 4 >= intervalNs * 3;
+            return excess * 2 >= intervalNs;
         }
 
         private void add(long nowNs, boolean isOver) {

@@ -26,6 +26,19 @@ final class FramePacingPolicy {
         return vsyncNs + vsyncIntervalNs / 2 >= dueNs;
     }
 
+    /**
+     * Whether Balanced holds decoded frames for the display's vsync callback (issue 7). That aligns
+     * a stream slower than the panel to its cadence (60 fps on 120 Hz). When the stream is about as
+     * fast as the panel, or faster, every refresh is due anyway: outputs then land next to the
+     * callback, jitter puts two between one pair of callbacks and none between the next, and one
+     * of the two was dropped (6% at 120 fps on a 120 Hz Retroid, 10% at 60 on a 60 Hz Shield).
+     * Those streams are released as they come out, as in Lowest latency. Without a vsync interval
+     * the callback keeps pacing.
+     */
+    static boolean balancedPacesOnVsync(int fpsMilliHz, long vsyncIntervalNs) {
+        return vsyncIntervalNs <= 0 || frameIntervalNs(fpsMilliHz) * 20 > vsyncIntervalNs * 21;
+    }
+
     static long nextFrameTimeNs(long dueNs, long vsyncNs, int fps) {
         return nextFrameTimeNsMilliHz(dueNs, vsyncNs, fps * 1000);
     }

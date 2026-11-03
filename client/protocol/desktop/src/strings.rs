@@ -25,6 +25,10 @@ mod it;
 mod ja;
 mod ko;
 mod pl;
+mod pt_br;
+mod ru;
+mod tr;
+mod uk;
 
 /// A language Nightjar has. The order is [`LANGS`]'s.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -37,10 +41,14 @@ pub enum Lang {
     Ja,
     Ko,
     Pl,
+    PtBr,
+    Ru,
+    Tr,
+    Uk,
 }
 
 /// Each language: the system language code it answers to, its own name and its table.
-const LANGS: [(Lang, &str, &str, &[(&str, &str)]); 8] = [
+const LANGS: [(Lang, &str, &str, &[(&str, &str)]); 12] = [
     (Lang::En, "en", "English", &[]),
     (Lang::De, "de", "Deutsch", de::TABLE),
     (Lang::Es, "es", "Español", es::TABLE),
@@ -49,6 +57,10 @@ const LANGS: [(Lang, &str, &str, &[(&str, &str)]); 8] = [
     (Lang::Ja, "ja", "日本語", ja::TABLE),
     (Lang::Ko, "ko", "한국어", ko::TABLE),
     (Lang::Pl, "pl", "Polski", pl::TABLE),
+    (Lang::PtBr, "pt", "Português (Brasil)", pt_br::TABLE),
+    (Lang::Ru, "ru", "Русский", ru::TABLE),
+    (Lang::Tr, "tr", "Türkçe", tr::TABLE),
+    (Lang::Uk, "uk", "Українська", uk::TABLE),
 ];
 
 impl Lang {
@@ -129,6 +141,10 @@ pub fn chosen(setting: Language) -> Option<Lang> {
         Language::Japanese => Some(Lang::Ja),
         Language::Korean => Some(Lang::Ko),
         Language::Polish => Some(Lang::Pl),
+        Language::PortugueseBrazil => Some(Lang::PtBr),
+        Language::Russian => Some(Lang::Ru),
+        Language::Turkish => Some(Lang::Tr),
+        Language::Ukrainian => Some(Lang::Uk),
     }
 }
 

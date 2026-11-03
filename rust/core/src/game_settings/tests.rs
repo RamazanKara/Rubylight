@@ -202,7 +202,16 @@ fn a_missing_file_fails_the_launch_and_changes_nothing() {
             NONE,
         )
         .unwrap_err();
-    assert!(format!("{error:#}").contains("does not exist"), "{error:#}");
+    let message = format!("{error:#}");
+    assert!(message.contains("does not exist"), "{message}");
+    // A path written with a variable also names the file it expands to.
+    assert!(
+        message.contains(&format!(
+            "%GAME%\\Missing.ini ({})",
+            s.0.join("game").join("Missing.ini").display()
+        )),
+        "{message}"
+    );
     assert!(store.journal().unwrap().swaps.is_empty());
     assert_eq!(text(&present_path), "pc");
 }
@@ -324,7 +333,14 @@ fn a_locked_file_fails_loudly_and_stays_journaled_until_it_can_go_back() {
     let error = store
         .start("app", "Game", "tv", "TV", &files, NONE)
         .unwrap_err();
-    assert!(format!("{error:#}").contains("in use"), "{error:#}");
+    let message = format!("{error:#}");
+    assert!(message.contains("in use"), "{message}");
+    // The path is named once when it is written as it is, and nothing trails the reason.
+    assert_eq!(message.matches(&written).count(), 1, "{message}");
+    assert!(
+        message.ends_with("(is the game still running?)"),
+        "{message}"
+    );
     drop(held);
     let begun = store
         .start("app", "Game", "tv", "TV", &files, NONE)

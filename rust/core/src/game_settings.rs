@@ -810,7 +810,13 @@ impl Store {
             } else {
                 format!("could not be read as the Windows user: {error}")
             };
-            anyhow!(Missing(missing)).context(format!("{written} ({}) {why}", path.display()))
+            let shown = path.display().to_string();
+            let message = if shown == written {
+                format!("{written} {why}")
+            } else {
+                format!("{written} ({shown}) {why}")
+            };
+            anyhow!(Unread { missing, message })
         })
     }
 
@@ -885,19 +891,22 @@ pub fn still_running(error: &anyhow::Error) -> bool {
     error.downcast_ref::<StillRunning>().is_some()
 }
 
-/// Marks a [`Store::read_game`] error for a file that does not exist.
+/// A [`Store::read_game`] error: the message, and whether the file does not exist.
 #[derive(Debug)]
-struct Missing(bool);
-impl std::fmt::Display for Missing {
+struct Unread {
+    missing: bool,
+    message: String,
+}
+impl std::fmt::Display for Unread {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(if self.0 { "missing" } else { "unreadable" })
+        f.write_str(&self.message)
     }
 }
-impl std::error::Error for Missing {}
+impl std::error::Error for Unread {}
 fn is_missing(error: &anyhow::Error) -> bool {
     error
-        .downcast_ref::<Missing>()
-        .is_some_and(|missing| missing.0)
+        .downcast_ref::<Unread>()
+        .is_some_and(|unread| unread.missing)
 }
 
 /// A settings file: a file of at most [`MAX_FILE_BYTES`].

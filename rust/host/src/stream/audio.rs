@@ -221,10 +221,9 @@ impl Media {
             None
         };
         let mut capture: Option<Loopback> = None;
-        // Hidden switches for measuring the capture cadence; the defaults open it as always.
-        let capture_options =
-            butterpollo_core::audio_cadence::CaptureOptions::from_config(&config)?;
-        let mut cadence = capture_options.trace.then(|| CadenceDump {
+        // Hidden: when each captured packet arrived and each went out, for support.
+        let trace = config.boolean("audio_cadence_trace", false);
+        let mut cadence = trace.then(|| CadenceDump {
             trace: butterpollo_core::audio_cadence::Trace::new(),
             directory: h.directory.clone(),
         });
@@ -379,7 +378,7 @@ impl Media {
                             Ok(()) => s.launch.warnings.clear("audio_surround"),
                             Err(error) => s.launch.warnings.set("audio_surround", format!("Virtual surround format could not be applied ({error:#}); channels may be downmixed. Select stereo or check the virtual audio driver.")),
                         }
-                        match Loopback::new_sink_with(capture_channels, &sink, &capture_options) {
+                        match Loopback::new_sink_traced(capture_channels, &sink, trace) {
                             Ok(value) => {
                                 tracing::info!(
                                     channels = capture_channels,

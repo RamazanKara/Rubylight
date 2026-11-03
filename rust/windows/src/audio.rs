@@ -52,52 +52,11 @@ struct KeepAlive(IAudioClient);
 impl KeepAlive {
     /// # Safety
     /// COM is initialized on this thread and `format` is the endpoint's mix format.
-    unsafe fn new(
-        device: &IMMDevice,
-        format: *const WAVEFORMATEX,
-        period: butterpollo_core::audio_cadence::KeepAlivePeriod,
-    ) -> Result<Self> {
-        use windows::core::Interface;
+    unsafe fn new(device: &IMMDevice, format: *const WAVEFORMATEX) -> Result<Self> {
         // SAFETY: as the caller promises; the buffer is released before Start.
         unsafe {
-            let client: IAudioClient = if period
-                == butterpollo_core::audio_cadence::KeepAlivePeriod::Default
-            {
-                let client: IAudioClient = device.Activate(CLSCTX_ALL, None)?;
-                client.Initialize(AUDCLNT_SHAREMODE_SHARED, 0, 100_000, 0, format, None)?;
-                client
-            } else {
-                // Shared mode runs the endpoint at the smallest period a stream asked for; the
-                // loopback tap then delivers once per that shorter pass.
-                let client: IAudioClient3 = device
-                    .Activate(CLSCTX_ALL, None)
-                    .context("IAudioClient3 for the minimum keep-alive period")?;
-                let (mut default, mut fundamental, mut min, mut max) = (0, 0, 0, 0);
-                client
-                    .GetSharedModeEnginePeriod(
-                        format,
-                        &mut default,
-                        &mut fundamental,
-                        &mut min,
-                        &mut max,
-                    )
-                    .context("reading the endpoint's shared-mode engine periods")?;
-                let frames = period.frames(fundamental, min).unwrap_or(default);
-                client
-                    .InitializeSharedAudioStream(0, frames, format, None)
-                    .with_context(|| {
-                        format!("opening the keep-alive at the minimum period ({frames} frames)")
-                    })?;
-                tracing::info!(
-                    default,
-                    fundamental,
-                    min,
-                    max,
-                    frames,
-                    "audio keep-alive at the endpoint's minimum engine period"
-                );
-                client.cast()?
-            };
+            let client: IAudioClient = device.Activate(CLSCTX_ALL, None)?;
+            client.Initialize(AUDCLNT_SHAREMODE_SHARED, 0, 100_000, 0, format, None)?;
             let frames = client.GetBufferSize()?;
             let render: IAudioRenderClient = client.GetService()?;
             render.GetBuffer(frames)?;
@@ -120,13 +79,10 @@ impl Loopback {
         Self::new_sink(output_channels, "")
     }
     pub fn new_sink(output_channels: usize, sink: &str) -> Result<Self> {
-        Self::new_sink_with(output_channels, sink, &Default::default())
+        Self::new_sink_traced(output_channels, sink, false)
     }
-    pub fn new_sink_with(
-        output_channels: usize,
-        sink: &str,
-        options: &butterpollo_core::audio_cadence::CaptureOptions,
-    ) -> Result<Self> {
+    /// [`Self::new_sink`], recording every captured packet for `drain_trace` when `trace` is set.
+    pub fn new_sink_traced(output_channels: usize, sink: &str, trace: bool) -> Result<Self> {
         // SAFETY: COM calls only fail if the thread lacks COM, `id` outlives GetDevice, and the mix
         // format is read within its header plus cbSize bytes and freed once.
         unsafe {
@@ -159,27 +115,22 @@ impl Loopback {
                 butterpollo_core::audio::Resampler::new(f.nSamplesPerSec, output_channels);
             // Event mode wakes the sender the moment audio is captured, as the
             // C++ host does; a 1 ms poll cost 0.6 ms on average. Where Windows
-            // refuses it for loopback, a fresh client polls as before; so does
-            // `audio_capture_event = false`.
-            let ready = if options.event {
-                windows::Win32::System::Threading::CreateEventW(
-                    None,
-                    false,
-                    false,
-                    windows::core::PCWSTR::null(),
-                )
-                .ok()
-                .map(|handle| OwnedHandle::from_raw_handle(handle.0))
-            } else {
-                None
-            };
+            // refuses it for loopback, a fresh client polls as before.
+            let ready = windows::Win32::System::Threading::CreateEventW(
+                None,
+                false,
+                false,
+                windows::core::PCWSTR::null(),
+            )
+            .ok()
+            .map(|handle| OwnedHandle::from_raw_handle(handle.0));
             let mut result = Err(windows::core::Error::empty());
             if let Some(event) = &ready {
                 result = client
                     .Initialize(
                         AUDCLNT_SHAREMODE_SHARED,
                         AUDCLNT_STREAMFLAGS_LOOPBACK | AUDCLNT_STREAMFLAGS_EVENTCALLBACK,
-                        options.buffer_hns(),
+                        100000,
                         0,
                         format.0,
                         None,
@@ -198,7 +149,7 @@ impl Loopback {
                 result = client.Initialize(
                     AUDCLNT_SHAREMODE_SHARED,
                     AUDCLNT_STREAMFLAGS_LOOPBACK,
-                    options.buffer_hns(),
+                    100000,
                     0,
                     format.0,
                     None,
@@ -221,14 +172,14 @@ impl Loopback {
             let capture = client.GetService()?;
             client.Start()?;
             // Without it the capture still works and goes quiet through silence, as before.
-            let keepalive = KeepAlive::new(&device, format.0, options.keepalive)
+            let keepalive = KeepAlive::new(&device, format.0)
                 .inspect_err(|error| {
                     tracing::warn!(
                         "audio keep-alive render stream failed, silence will start late: {error:#}"
                     )
                 })
                 .ok();
-            if options.trace {
+            if trace {
                 let (mut default, mut minimum) = (0, 0);
                 let _ = client.GetDevicePeriod(Some(&mut default), Some(&mut minimum));
                 tracing::info!(
@@ -236,7 +187,6 @@ impl Loopback {
                     default_period_hns = default,
                     minimum_period_hns = minimum,
                     event_driven = ready.is_some(),
-                    keepalive = ?options.keepalive,
                     "audio cadence trace on"
                 );
             }
@@ -262,7 +212,7 @@ impl Loopback {
                 process: None,
                 source: (f.nChannels as usize, mask),
                 _keepalive: keepalive,
-                trace: options.trace.then(Vec::new),
+                trace: trace.then(Vec::new),
             })
         }
     }

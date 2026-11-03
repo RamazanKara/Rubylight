@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_checkbox_mute_audio">音声をミュート</string>
+    <string name="summary_checkbox_mute_audio">このデバイスではストリームの音声を再生しません。マイクと PC の音声はそのままです。</string>
+</resources>

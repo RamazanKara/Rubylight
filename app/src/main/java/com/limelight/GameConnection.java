@@ -22,6 +22,8 @@ import com.limelight.computers.HostCapabilityCache;
 import com.limelight.computers.HostNotices;
 import com.limelight.nvstream.NvConnection;
 import com.limelight.nvstream.StreamConfiguration;
+import com.limelight.nvstream.av.audio.AudioRenderer;
+import com.limelight.nvstream.av.video.VideoDecoderRenderer;
 import com.limelight.nvstream.http.ComputerDetails;
 import com.limelight.nvstream.http.HostCapabilities;
 import com.limelight.nvstream.http.LaunchConfirmation;
@@ -1334,16 +1336,31 @@ final class GameConnection {
             UiHelper.notifyStreamConnecting(game);
 
             game.decoderRenderer.setRenderTarget(game.videoSurface, game.renderView.getWidth(), game.renderView.getHeight());
-            if (game.app.isSmallStreamInputOnly()) {
-                game.conn.start(new SilentAudioRenderer(), new DiscardingDecoderRenderer(), game);
-            } else if (game.prefConfig.muteAudio) {
-                game.conn.start(new SilentAudioRenderer(), game.decoderRenderer, game);
-            } else {
-                game.conn.start(new AndroidAudioRenderer(game, game.prefConfig.enableAudioFx,
-                                game.prefConfig.usbDualSenseHaptics ? game.controllerHandler.headphoneAudioSink() : null),
-                        game.decoderRenderer, game);
-            }
+            Renderers renderers = renderers(game.app.isSmallStreamInputOnly(), game.prefConfig.muteAudio,
+                    game.decoderRenderer, game, game.prefConfig.enableAudioFx,
+                    game.prefConfig.usbDualSenseHaptics ? game.controllerHandler.headphoneAudioSink() : null);
+            game.conn.start(renderers.audio, renderers.video, game);
         }
+    }
+
+    /** The audio renderer and decoder a stream starts with. */
+    static final class Renderers {
+        final AudioRenderer audio;
+        final VideoDecoderRenderer video;
+
+        Renderers(AudioRenderer audio, VideoDecoderRenderer video) {
+            this.audio = audio;
+            this.video = video;
+        }
+    }
+
+    /** Input-only shows and plays nothing; Mute audio shows the stream and plays nothing. Both
+     *  still receive the audio, so the PC streams as it would. */
+    static Renderers renderers(boolean inputOnly, boolean muteAudio, VideoDecoderRenderer decoder, Context context,
+                               boolean audioFx, AndroidAudioRenderer.HeadphoneSink headphones) {
+        if (inputOnly) return new Renderers(new SilentAudioRenderer(), new DiscardingDecoderRenderer());
+        if (muteAudio) return new Renderers(new SilentAudioRenderer(), decoder);
+        return new Renderers(new AndroidAudioRenderer(context, audioFx, headphones), decoder);
     }
 
     void configureVideoSurface(Surface surface) {

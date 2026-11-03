@@ -16,7 +16,6 @@ import android.widget.EditText;
 import android.widget.HorizontalScrollView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
-import android.widget.SeekBar;
 import android.widget.TextView;
 
 import androidx.appcompat.app.AlertDialog;
@@ -677,19 +676,16 @@ public class DesktopControlsPanel extends LinearLayout {
         title.setText(getContext().getString(label, initial));
         title.setPadding(dp(4), dp(8), 0, 0);
         fields.addView(title);
-        SeekBar slider = new SeekBar(getContext());
+        StepSlider slider = new StepSlider(getContext());
         slider.setMax(maximum - minimum);
-        slider.setProgress(initial - minimum);
+        slider.setPosition(initial - minimum);
         slider.setContentDescription(title.getText());
-        slider.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
-            @Override public void onProgressChanged(SeekBar bar, int progress, boolean fromUser) {
-                int value = minimum + progress;
-                changed.accept(value);
-                title.setText(getContext().getString(label, value));
-                bar.setContentDescription(title.getText());
-            }
-            @Override public void onStartTrackingTouch(SeekBar bar) { }
-            @Override public void onStopTrackingTouch(SeekBar bar) { }
+        slider.setPositionText(progress -> String.valueOf(minimum + progress));
+        slider.setOnPositionChangeListener((bar, progress) -> {
+            int value = minimum + progress;
+            changed.accept(value);
+            title.setText(getContext().getString(label, value));
+            bar.setContentDescription(title.getText());
         });
         fields.addView(slider, new LayoutParams(LayoutParams.MATCH_PARENT, dp(48)));
     }

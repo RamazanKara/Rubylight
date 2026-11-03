@@ -153,6 +153,9 @@ impl Desktop for Screen {
     fn click(&mut self, label: u64) -> Result<()> {
         self.0.lock().unwrap().click(label)
     }
+    fn to_front(&mut self, window: u64) -> bool {
+        self.0.lock().unwrap().to_front(window)
+    }
     fn message_boxes(&mut self, processes: &BTreeSet<u32>) -> Result<Vec<MessageBox>> {
         self.0.lock().unwrap().message_boxes(processes)
     }
@@ -325,6 +328,8 @@ fn runner(players: usize, screen: &Screen, probe: &Probe, t0: Instant) -> Runner
         settings: None,
         layers: None,
         instances: None,
+        to_front: false,
+        fronted: None,
     }
 }
 
@@ -381,6 +386,42 @@ impl Told for Listener {
     fn stopped(&self) {
         assert!(self.probe.stopped.lock().unwrap().is_some());
         *self.stopped.lock().unwrap() = true;
+    }
+}
+
+/// #59: a one-player game without ProtoInput's hooks takes its pad only in
+/// front (Black Flag waited for a click on its taskbar icon): its window is
+/// brought there as it shows, once per window, so the person at the PC can
+/// take the focus back. A hooked game's never is.
+#[test]
+fn an_unhooked_game_is_brought_to_the_front_once_as_it_shows() {
+    for to_front in [true, false] {
+        let t0 = Instant::now();
+        let (screen, probe) = (screen(), Probe::default());
+        let mut runner = runner(1, &screen, &probe, t0);
+        runner.to_front = to_front;
+        label(&screen);
+        assert_eq!(runner.step(t0), None);
+        instance(&screen, 0);
+        for _ in 0..3 {
+            assert_eq!(runner.step(t0), None);
+        }
+        let fronted = screen.0.lock().unwrap().fronted.clone();
+        if !to_front {
+            assert!(fronted.is_empty());
+            continue;
+        }
+        assert_eq!(fronted, [200]);
+        // The game's next window, after its splash screen.
+        {
+            let mut desktop = screen.0.lock().unwrap();
+            desktop.windows.clear();
+            desktop.windows.push(window(201, 20, ON_SCREEN));
+        }
+        for _ in 0..3 {
+            assert_eq!(runner.step(t0), None);
+        }
+        assert_eq!(screen.0.lock().unwrap().fronted, [200, 201]);
     }
 }
 
@@ -922,7 +963,7 @@ fn a_game_started_without_the_hooks_it_refused_is_told() {
     assert_eq!(
         unhooked(&start(&own)).unwrap().as_deref(),
         Some(
-            "Black Flag refused every way Nucleus Co-op injects its input hooks, so it runs without them: a keyboard, mouse or pad on the PC reaches it too"
+            "Black Flag refused every way Nucleus Co-op injects its input hooks, so it runs without them: a keyboard, mouse or pad on the PC reaches it too, and it takes the controller only while its window is in front on the PC, where Rubylight puts it as it opens"
         )
     );
     assert_eq!(unhooked(&start(&hub)).unwrap(), None);

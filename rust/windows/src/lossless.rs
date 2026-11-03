@@ -164,6 +164,10 @@ pub fn focus(pid: u32) -> bool {
     let Some(window) = windows_of(pid).into_iter().next() else {
         return false;
     };
+    to_front(window)
+}
+/// Bring `window` to the front, activated; true when it is in front.
+pub(crate) fn to_front(window: HWND) -> bool {
     crate::input::follow_input_desktop();
     // SAFETY: these calls take window handles by value, and a stale handle just fails.
     unsafe {

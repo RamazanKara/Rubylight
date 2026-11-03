@@ -30,6 +30,8 @@ pub trait Desktop: Send {
     fn label(&mut self, processes: &BTreeSet<u32>, text: &str) -> Result<Option<u64>>;
     /// Click it as the mouse would; refused while another window covers it.
     fn click(&mut self, label: u64) -> Result<()>;
+    /// Bring a window to the front, activated: whether it is in front.
+    fn to_front(&mut self, window: u64) -> bool;
     /// The visible message boxes (`#32770` dialogs) of `processes`, and those
     /// Windows shows for any program (hard errors): with no processes, those
     /// alone.
@@ -464,6 +466,8 @@ pub(crate) mod tests {
         pub aslr: BTreeMap<u32, bool>,
         /// Placing a window moves it there, as a cooperative game does.
         pub obey: bool,
+        /// The windows brought to the front, in order.
+        pub fronted: Vec<u64>,
     }
     impl Desktop for Fake {
         fn processes(&mut self) -> Result<Vec<Process>> {
@@ -517,6 +521,10 @@ pub(crate) mod tests {
             anyhow::ensure!(!self.covered, "covered");
             self.clicks.push(label);
             Ok(())
+        }
+        fn to_front(&mut self, window: u64) -> bool {
+            self.fronted.push(window);
+            true
         }
         fn message_boxes(&mut self, processes: &BTreeSet<u32>) -> Result<Vec<MessageBox>> {
             anyhow::ensure!(!self.unlisted, "access denied");

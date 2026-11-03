@@ -480,6 +480,9 @@ impl Desktop for Win32 {
             ),
         }
     }
+    fn to_front(&mut self, window: u64) -> bool {
+        crate::lossless::to_front(hwnd(window))
+    }
     fn click(&mut self, label: u64) -> Result<()> {
         let label = hwnd(label);
         let mut client = RECT::default();

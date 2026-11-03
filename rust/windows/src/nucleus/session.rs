@@ -274,6 +274,12 @@ struct Runner {
     layers: Option<Guard>,
     /// Told each slot's instance after every pass ([`Instances`]).
     instances: Option<Instances>,
+    /// A one-player game without ProtoInput's hooks ([`unhooked`]): its
+    /// window is brought to the front as it shows, since such a game takes
+    /// its pad only there and nothing hides from it that it isn't (#59).
+    /// The last window brought there.
+    to_front: bool,
+    fronted: Option<u64>,
 }
 
 impl Runner {
@@ -346,6 +352,24 @@ impl Runner {
             self.deadline = now + START_TIMEOUT;
         }
         self.windows = pass.windows.clone();
+        if self.to_front
+            && let Some(&Some(window)) = pass.windows.first()
+            && self.fronted != Some(window)
+        {
+            // Once per window: the person at the PC may take the focus back.
+            self.fronted = Some(window);
+            if self.desktop.to_front(window) {
+                tracing::info!(
+                    title = self.title,
+                    "Nucleus Co-op: the game runs without ProtoInput's hooks, so its window was brought to the front, where it takes the stream's controller"
+                );
+            } else {
+                tracing::warn!(
+                    title = self.title,
+                    "Nucleus Co-op: the game runs without ProtoInput's hooks and Windows kept its window from the front: it takes the stream's controller only once it is clicked on the PC"
+                );
+            }
+        }
         let running = {
             let mut session = self.shared.session.lock().unwrap();
             let running = session.phase == Phase::Running;
@@ -927,7 +951,7 @@ fn unhooked(start: &Start) -> Result<Option<String>> {
         return Ok(None);
     }
     Ok(Some(format!(
-        "{} refused every way Nucleus Co-op injects its input hooks, so it runs without them: a keyboard, mouse or pad on the PC reaches it too",
+        "{} refused every way Nucleus Co-op injects its input hooks, so it runs without them: a keyboard, mouse or pad on the PC reaches it too, and it takes the controller only while its window is in front on the PC, where Rubylight puts it as it opens",
         start.title
     )))
 }
@@ -1151,6 +1175,8 @@ fn begin(
         settings,
         layers: Some(layers),
         instances: start.instances.clone(),
+        to_front: start.players == 1 && unhooked(start)?.is_some(),
+        fronted: None,
     };
     let (stop, stopped) = mpsc::channel();
     // Should the thread not start, dropping the runner ends Nucleus' job.

@@ -3824,7 +3824,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             }
         }
 
-        // The output surface may be about to go away, so stop presenting to it now
+        // The output surface may be about to go away, so stop presenting to it now. From the UI this
+        // waits for the GPU at most a second; destroy() on the shutdown worker waits for the rest (#73).
         VulkanRendererBridge vulkan = vulkanRenderer;
         if (vulkan != null) {
             vulkan.stop();

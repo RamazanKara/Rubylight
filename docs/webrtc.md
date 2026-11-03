@@ -24,6 +24,7 @@ If another program already holds a port, the console shows a `webrtc_server` war
 | Signalling (WebSocket) | TCP 8000 | `webrtc_port` |
 | Media, audio and input | UDP 8001 | `webrtc_media_port` |
 | Guests of the console's stream | UDP 8002-8005 | `webrtc_media_port` + 1 to + 4 |
+| The guest page and its socket | TCP 47991 | Base port + 2; answers only while an invite link works |
 
 TVs send their discovery broadcast to UDP 8000, so discovery stays there even when you move the signalling port. The reply tells the TV which signalling port to use. The installer's Windows Firewall rule allows `butterpollo.exe` inbound on every port, so an installed host needs nothing more. On a portable host, allow these three ports. The full list of settings is in [Configuration](configuration.md#webrtc-server).
 
@@ -52,7 +53,7 @@ The browser does not say why the host refused the connection, so the page lists 
 
 ### Guests
 
-While you stream on the Stream page, **Guests → Invite** makes a link for up to four friends to watch in their own browsers, view only or with their controller, keyboard and mouse, for 1 hour, 24 hours or a time you set. Guests need no app, account or pairing, and connect straight to your PC with no relay: on the local network nothing needs setting up, from the internet forward TCP 47990 and UDP 8002-8005. The PC encodes once for everyone, and a slow guest drops frames alone. Setup, ports, the certificate warning and the threat model: [Guests in the browser](browser-guests.md).
+While you stream on the Stream page, **Guests → Invite** makes a link for up to four friends to watch in their own browsers, view only or with their controller, keyboard and mouse, for 1 hour, 24 hours or a time you set. Guests need no app, account or pairing, and connect straight to your PC with no relay: on the local network nothing needs setting up, from the internet forward the guest port, TCP 47991, and UDP 8002-8005 (Tailscale or WireGuard is safer: the guest page's certificate is the console's own). The PC encodes once for everyone, and a slow guest drops frames alone. Setup, ports, the certificate warning and the threat model: [Guests in the browser](browser-guests.md).
 
 ### The Devices page
 
@@ -79,7 +80,7 @@ One stream runs at a time. A WebRTC stream and a Moonlight stream exclude each o
 
 Signalling is plain `ws://`, so it is not encrypted. Signing in keeps other devices from using or interrupting the stream; it does not hide what the app and the PC say to each other. The media itself is encrypted (DTLS-SRTP). Use it on a trusted LAN only.
 
-Rubylight serves only peers on the local network: loopback, private (RFC 1918), link-local, unique-local IPv6 and carrier-grade NAT (100.64.0.0/10) addresses. Anything else is closed before its first message and logged. Do not forward these ports on your router. The one exception is guests of the console's stream, who may come from anywhere with a link: their media ports (UDP 8002-8005) and the console's HTTPS port may be forwarded, and only the guest page answers there from outside the local network ([Guests in the browser](browser-guests.md#what-must-be-reachable)).
+Rubylight serves only peers on the local network: loopback, private (RFC 1918), link-local, unique-local IPv6 and carrier-grade NAT (100.64.0.0/10) addresses. Anything else is closed before its first message and logged. Do not forward these ports on your router. The one exception is guests of the console's stream, who may come from anywhere with a link: their media ports (UDP 8002-8005) and the guest port (TCP 47991, which serves nothing of the console's) may be forwarded. Never forward the console's port, TCP 47990 ([Guests in the browser](browser-guests.md#what-must-be-reachable)).
 
 ## For client authors
 

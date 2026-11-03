@@ -615,6 +615,11 @@
             android:title="@string/title_checkbox_host_audio"
             android:defaultValue="false" />
         <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_mute_audio"
+            android:title="@string/title_checkbox_mute_audio"
+            android:dialogMessage="@string/summary_checkbox_mute_audio"
+            android:defaultValue="false" />
+        <com.limelight.preferences.MaterialSwitchPreference
             android:key="checkbox_enable_mic"
             android:title="@string/title_checkbox_enable_mic"
             android:summary="@string/settings_needs_host_support"

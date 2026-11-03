@@ -225,6 +225,18 @@ pub trait AudioRenderer: Send {
     fn cleanup(&mut self) {}
 }
 
+/// Audio received and never played (Mute audio): the PC streams as it would, and no output is
+/// opened. Takes every codec, passthrough ones too, so the stream starts whatever it negotiated.
+pub struct SilentAudio;
+
+impl AudioRenderer for SilentAudio {
+    fn init(&mut self, _setup: &AudioSetup) -> Result<(), i32> {
+        Ok(())
+    }
+
+    fn play(&mut self, _packet: Option<&[u8]>) {}
+}
+
 /// Connection callbacks (`CONNECTION_LISTENER_CALLBACKS`), called from session threads.
 pub trait Listener: Send + Sync {
     fn stage_starting(&self, _stage: Stage) {}
@@ -1334,6 +1346,24 @@ fn start(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn silent_audio_starts_on_every_codec() {
+        use rubylight_protocol::audio_ext::{CODEC_AC3, CODEC_EAC3, CODEC_OPUS, CODEC_PCM};
+        for codec in [CODEC_OPUS, CODEC_PCM, CODEC_AC3, CODEC_EAC3] {
+            let setup = AudioSetup {
+                configuration: AudioConfiguration::STEREO,
+                opus: OpusConfig::default(),
+                codec,
+                packet_duration_ms: 5,
+                samples_per_frame: 240,
+            };
+            let mut silent = SilentAudio;
+            assert_eq!(silent.init(&setup), Ok(()), "codec {codec}");
+            silent.play(Some(&[1, 2, 3]));
+            silent.play(None);
+        }
+    }
 
     #[test]
     fn a_packed_refusal_has_its_own_start_code_and_keeps_its_text() {

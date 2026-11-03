@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_checkbox_mute_audio">Ton stummschalten</string>
+    <string name="summary_checkbox_mute_audio">Spielt den Ton des Streams auf diesem Gerät nicht ab. Mikrofon und Ton am PC bleiben unverändert.</string>
+</resources>

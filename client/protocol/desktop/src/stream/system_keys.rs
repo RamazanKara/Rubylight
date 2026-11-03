@@ -1,12 +1,17 @@
-//! "Send system keys" on Windows: a low-level keyboard hook on a thread of its own keeps the
-//! shell's shortcuts (Alt+Tab, Alt+Shift+Tab, the Windows key and Win+key, Alt+Esc, Ctrl+Esc)
-//! from Windows while the stream has the keyboard; raw input still hands every key to the PC.
+//! "Send system keys" on Windows: while the stream has the keyboard, a low-level keyboard hook on
+//! a thread of its own takes the keys from Windows, the shell's shortcuts (Alt+Tab, Alt+Shift+Tab,
+//! the Windows key and Win+key, Alt+Esc, Ctrl+Esc) included, and puts them in SDL's queue itself,
+//! where the input filter sends them to the PC at once.
 //!
-//! SDL's keyboard grab installs the same kind of hook, but on the main thread, which answers it
-//! only between its waits in the present. Windows gives a hook that answers late a short time,
-//! passes the key on when it runs out and, from Windows 7 on, silently removes the hook: Alt+Tab
-//! then left the stream (nightjar#71) while Moonlight-qt kept it. This thread does nothing but
-//! answer the hook, so no key waits for a refresh either. Ctrl+Alt+Del is never a hook's.
+//! nightjar#71: 4.4.0 kept only the shell's keys from Windows and read the others through SDL's
+//! raw keyboard input, but with a raw keyboard registered in the process the hook never saw a
+//! press, so Alt+Tab still switched away (in a test window as well: Alt+Tab, Ctrl+Alt+Shift+Tab
+//! and Alt+Esc all left it, and none did without the raw keyboard). Raw input does not report a
+//! key a hook kept either, so the raw keyboard stays off and the hook hands over every key it
+//! keeps. SDL's grab installs the same kind of hook, but on the main thread, which answers it only
+//! between its waits in the present; Windows passes on a key whose hook answers late and may
+//! remove the hook without a word. This thread does nothing but answer the hook, so no key waits
+//! for a refresh either. Ctrl+Alt+Del is never a hook's.
 //!
 //! A main loop that stopped beating ([`alive`]) for [`ALIVE_MS`] gets no keys kept: a frozen
 //! fullscreen stream lets Alt+Tab, the Windows key and Ctrl+Shift+Esc reach Windows, as SDL's
@@ -15,13 +20,160 @@
 #[cfg(windows)]
 use std::sync::atomic::{AtomicBool, AtomicIsize, AtomicU32, AtomicU64, AtomicU8, Ordering};
 
-/// The keys SDL's grab takes from Windows, by virtual key: the Windows keys, Alt, Ctrl, Print
-/// Screen, and Tab and Esc (the second key of Alt+Tab, Alt+Esc, Ctrl+Esc and Ctrl+Shift+Esc).
-/// Windows sees no shortcut without its first key; Nightjar's own (Ctrl+Alt+Shift+letter) come
-/// through raw input like every other key.
+use sdl3_sys::everything::{SDL_Keymod, SDL_Scancode};
+
+/// The keys the hook takes while grabbed, by virtual key: all but the lock keys (Caps, Num and
+/// Scroll Lock), whose state and lights stay Windows' and which SDL reads from the window as
+/// before, and VK_PACKET, a touch keyboard's characters.
 #[cfg_attr(not(windows), allow(dead_code))]
-pub fn shell_key(vk: u32) -> bool {
-    matches!(vk, 0x5B | 0x5C | 0xA4 | 0xA5 | 0xA2 | 0xA3 | 0x2C | 0x09 | 0x1B)
+pub fn kept_key(vk: u32) -> bool {
+    !matches!(vk, 0x14 | 0x90 | 0x91 | 0xE7)
+}
+
+/// SDL's scancode for a key's scan code and extended flag, as SDL reads a window's key messages
+/// (scancodes_windows.h); None for a key it has none for, such as the Ctrl that Windows adds to
+/// AltGr (0x21D), which SDL skips: Windows keeps those, and SDL sends what it makes of them.
+#[cfg_attr(not(windows), allow(dead_code))]
+pub fn sdl_scancode(scan: u32, extended: bool) -> Option<SDL_Scancode> {
+    use sdl3_sys::everything::*;
+    if scan == 0 || scan > 0xFF {
+        return None;
+    }
+    let s = scan & 0x7F;
+    let code = if extended {
+        match s {
+            0x1C => SDL_SCANCODE_KP_ENTER,
+            0x1D => SDL_SCANCODE_RCTRL,
+            0x35 => SDL_SCANCODE_KP_DIVIDE,
+            0x36 => SDL_SCANCODE_RSHIFT,
+            0x37 => SDL_SCANCODE_PRINTSCREEN,
+            0x38 => SDL_SCANCODE_RALT,
+            0x45 => SDL_SCANCODE_NUMLOCKCLEAR,
+            0x46 => SDL_SCANCODE_PAUSE,
+            0x47 => SDL_SCANCODE_HOME,
+            0x48 => SDL_SCANCODE_UP,
+            0x49 => SDL_SCANCODE_PAGEUP,
+            0x4B => SDL_SCANCODE_LEFT,
+            0x4D => SDL_SCANCODE_RIGHT,
+            0x4F => SDL_SCANCODE_END,
+            0x50 => SDL_SCANCODE_DOWN,
+            0x51 => SDL_SCANCODE_PAGEDOWN,
+            0x52 => SDL_SCANCODE_INSERT,
+            0x53 => SDL_SCANCODE_DELETE,
+            0x5B => SDL_SCANCODE_LGUI,
+            0x5C => SDL_SCANCODE_RGUI,
+            0x5D => SDL_SCANCODE_APPLICATION,
+            // Media and browser keys: Windows acts on them, SDL hands them over.
+            _ => return None,
+        }
+    } else {
+        match s {
+            0x01 => SDL_SCANCODE_ESCAPE,
+            0x02..=0x0B => SDL_Scancode(SDL_SCANCODE_1.0 + (s - 0x02) as i32),
+            0x0C => SDL_SCANCODE_MINUS,
+            0x0D => SDL_SCANCODE_EQUALS,
+            0x0E => SDL_SCANCODE_BACKSPACE,
+            0x0F => SDL_SCANCODE_TAB,
+            0x10 => SDL_SCANCODE_Q,
+            0x11 => SDL_SCANCODE_W,
+            0x12 => SDL_SCANCODE_E,
+            0x13 => SDL_SCANCODE_R,
+            0x14 => SDL_SCANCODE_T,
+            0x15 => SDL_SCANCODE_Y,
+            0x16 => SDL_SCANCODE_U,
+            0x17 => SDL_SCANCODE_I,
+            0x18 => SDL_SCANCODE_O,
+            0x19 => SDL_SCANCODE_P,
+            0x1A => SDL_SCANCODE_LEFTBRACKET,
+            0x1B => SDL_SCANCODE_RIGHTBRACKET,
+            0x1C => SDL_SCANCODE_RETURN,
+            0x1D => SDL_SCANCODE_LCTRL,
+            0x1E => SDL_SCANCODE_A,
+            0x1F => SDL_SCANCODE_S,
+            0x20 => SDL_SCANCODE_D,
+            0x21 => SDL_SCANCODE_F,
+            0x22 => SDL_SCANCODE_G,
+            0x23 => SDL_SCANCODE_H,
+            0x24 => SDL_SCANCODE_J,
+            0x25 => SDL_SCANCODE_K,
+            0x26 => SDL_SCANCODE_L,
+            0x27 => SDL_SCANCODE_SEMICOLON,
+            0x28 => SDL_SCANCODE_APOSTROPHE,
+            0x29 => SDL_SCANCODE_GRAVE,
+            0x2A => SDL_SCANCODE_LSHIFT,
+            0x2B => SDL_SCANCODE_BACKSLASH,
+            0x2C => SDL_SCANCODE_Z,
+            0x2D => SDL_SCANCODE_X,
+            0x2E => SDL_SCANCODE_C,
+            0x2F => SDL_SCANCODE_V,
+            0x30 => SDL_SCANCODE_B,
+            0x31 => SDL_SCANCODE_N,
+            0x32 => SDL_SCANCODE_M,
+            0x33 => SDL_SCANCODE_COMMA,
+            0x34 => SDL_SCANCODE_PERIOD,
+            0x35 => SDL_SCANCODE_SLASH,
+            0x36 => SDL_SCANCODE_RSHIFT,
+            0x37 => SDL_SCANCODE_KP_MULTIPLY,
+            0x38 => SDL_SCANCODE_LALT,
+            0x39 => SDL_SCANCODE_SPACE,
+            0x3A => SDL_SCANCODE_CAPSLOCK,
+            0x3B..=0x44 => SDL_Scancode(SDL_SCANCODE_F1.0 + (s - 0x3B) as i32),
+            // Pause comes as 0x45 without the extended flag (Num Lock has it).
+            0x45 => SDL_SCANCODE_PAUSE,
+            0x46 => SDL_SCANCODE_SCROLLLOCK,
+            0x47 => SDL_SCANCODE_KP_7,
+            0x48 => SDL_SCANCODE_KP_8,
+            0x49 => SDL_SCANCODE_KP_9,
+            0x4A => SDL_SCANCODE_KP_MINUS,
+            0x4B => SDL_SCANCODE_KP_4,
+            0x4C => SDL_SCANCODE_KP_5,
+            0x4D => SDL_SCANCODE_KP_6,
+            0x4E => SDL_SCANCODE_KP_PLUS,
+            0x4F => SDL_SCANCODE_KP_1,
+            0x50 => SDL_SCANCODE_KP_2,
+            0x51 => SDL_SCANCODE_KP_3,
+            0x52 => SDL_SCANCODE_KP_0,
+            0x53 => SDL_SCANCODE_KP_PERIOD,
+            0x56 => SDL_SCANCODE_NONUSBACKSLASH,
+            0x57 => SDL_SCANCODE_F11,
+            0x58 => SDL_SCANCODE_F12,
+            0x59 => SDL_SCANCODE_KP_EQUALS,
+            0x5C => SDL_SCANCODE_INTERNATIONAL6,
+            0x64..=0x6E => SDL_Scancode(SDL_SCANCODE_F13.0 + (s - 0x64) as i32),
+            0x70 => SDL_SCANCODE_INTERNATIONAL2,
+            0x71 => SDL_SCANCODE_LANG2,
+            0x72 => SDL_SCANCODE_LANG1,
+            0x73 => SDL_SCANCODE_INTERNATIONAL1,
+            0x76 => SDL_SCANCODE_F24,
+            0x77 => SDL_SCANCODE_LANG4,
+            0x78 => SDL_SCANCODE_LANG3,
+            0x79 => SDL_SCANCODE_INTERNATIONAL4,
+            0x7B => SDL_SCANCODE_INTERNATIONAL5,
+            0x7D => SDL_SCANCODE_INTERNATIONAL3,
+            0x7E => SDL_SCANCODE_KP_COMMA,
+            _ => return None,
+        }
+    };
+    Some(code)
+}
+
+/// The modifiers held for a key the hook hands over: SDL never sees the ones it keeps, so they
+/// come from `kept` (by virtual key), and `windows` adds the ones SDL got from the window (the
+/// lock keys, a modifier held from before the grab).
+#[cfg_attr(not(windows), allow(dead_code))]
+pub fn modifiers(kept: impl Fn(u32) -> bool, windows: SDL_Keymod) -> SDL_Keymod {
+    use sdl3_sys::everything::*;
+    let held = [
+        (0xA0, SDL_KMOD_LSHIFT),
+        (0xA1, SDL_KMOD_RSHIFT),
+        (0xA2, SDL_KMOD_LCTRL),
+        (0xA3, SDL_KMOD_RCTRL),
+        (0xA4, SDL_KMOD_LALT),
+        (0xA5, SDL_KMOD_RALT),
+        (0x5B, SDL_KMOD_LGUI),
+        (0x5C, SDL_KMOD_RGUI),
+    ];
+    SDL_Keymod(held.iter().filter(|(vk, _)| kept(*vk)).fold(windows.0, |mods, (_, flag)| mods | flag.0))
 }
 
 /// A key as the hook last left it.
@@ -46,16 +198,16 @@ impl Key {
     }
 }
 
-/// One key event through the hook: whether it is kept from Windows, and the key's state after.
-/// `grab`: the keyboard is the stream's, its window is in front and the main loop beats. A key
-/// goes one way from its press to its release, auto-repeats included: one Windows already holds
-/// (Win of the Win+number that brought the stream to the front) stays Windows' until released,
-/// or Windows would keep it down; one kept stays kept after the grab ends, so Windows never sees
-/// half of it.
+/// One key event through the hook: whether it is kept from Windows (and handed to SDL), and the
+/// key's state after. `grab`: the keyboard is the stream's, its window is in front, the main loop
+/// beats and SDL has a scancode for the key. A key goes one way from its press to its release,
+/// auto-repeats included: one Windows already holds (Win of the Win+number that brought the
+/// stream to the front) stays Windows' until released, or Windows would keep it down; one kept
+/// stays kept after the grab ends, so Windows never sees half of it.
 #[cfg_attr(not(windows), allow(dead_code))]
 pub fn step(grab: bool, vk: u32, down: bool, key: Key) -> (bool, Key) {
     match (down, key) {
-        (true, Key::Up) if grab && shell_key(vk) => (true, Key::Kept),
+        (true, Key::Up) if grab && kept_key(vk) => (true, Key::Kept),
         (true, Key::Kept) => (true, Key::Kept),
         (true, _) => (false, Key::Passed),
         (false, Key::Kept) => (true, Key::Up),
@@ -97,6 +249,9 @@ static GRAB: AtomicBool = AtomicBool::new(false);
 /// The stream window's HWND: the hook takes keys only while it is in front.
 #[cfg(windows)]
 static WINDOW: AtomicIsize = AtomicIsize::new(0);
+/// The stream window's SDL id, for the key events the hook hands over.
+#[cfg(windows)]
+static WINDOW_ID: AtomicU32 = AtomicU32::new(0);
 /// The main loop's last beat, in GetTickCount64 milliseconds.
 #[cfg(windows)]
 static BEAT: AtomicU64 = AtomicU64::new(0);
@@ -138,6 +293,34 @@ fn seed(fresh: bool) {
     }
 }
 
+/// Hands a key the hook kept to SDL's queue as the window would have: SDL's filter runs on this
+/// thread and sends it to the PC at once, and the main loop gets it marked, as it got the raw
+/// keyboard's. `raw`: Windows' scan code, as SDL reports it.
+#[cfg(windows)]
+fn hand_over(scancode: SDL_Scancode, raw: u16, down: bool, repeat: bool) {
+    use sdl3_sys::everything::*;
+    let kept = |vk: u32| Key::from_u8(KEYS[vk as usize].load(Ordering::Relaxed)) == Key::Kept;
+    // SAFETY: SDL takes events and reads its modifier state from any thread; a key event's fields.
+    let pushed = unsafe {
+        let mods = modifiers(kept, SDL_GetModState());
+        let mut event: SDL_Event = std::mem::zeroed();
+        event.key.r#type = if down { SDL_EVENT_KEY_DOWN } else { SDL_EVENT_KEY_UP };
+        event.key.windowID = SDL_WindowID(WINDOW_ID.load(Ordering::Acquire));
+        // SDL_GLOBAL_KEYBOARD_ID, as SDL sends a window's keys.
+        event.key.which = SDL_KeyboardID(0);
+        event.key.scancode = scancode;
+        event.key.key = SDL_GetKeyFromScancode(scancode, mods, true);
+        event.key.r#mod = mods;
+        event.key.raw = raw;
+        event.key.down = down;
+        event.key.repeat = repeat;
+        SDL_PushEvent(&mut event)
+    };
+    if !pushed {
+        eprintln!("nightjar: a key kept from Windows was lost: {}", crate::sdl::error());
+    }
+}
+
 #[cfg(windows)]
 unsafe extern "system" fn hook(code: i32, wparam: windows::Win32::Foundation::WPARAM, lparam: windows::Win32::Foundation::LPARAM) -> windows::Win32::Foundation::LRESULT {
     use windows::Win32::Foundation::LRESULT;
@@ -147,6 +330,18 @@ unsafe extern "system" fn hook(code: i32, wparam: windows::Win32::Foundation::WP
         let info = unsafe { &*(lparam.0 as *const KBDLLHOOKSTRUCT) };
         if let Some(key) = KEYS.get(info.vkCode as usize) {
             let down = matches!(wparam.0 as u32, WM_KEYDOWN | WM_SYSKEYDOWN);
+            let (scan, extended) = if info.scanCode != 0 {
+                (info.scanCode, info.flags.0 & LLKHF_EXTENDED.0 != 0)
+            } else {
+                // A key injected by virtual key alone: its scan code, as SDL looks it up.
+                use windows::Win32::UI::Input::KeyboardAndMouse::{MapVirtualKeyW, MAPVK_VK_TO_VSC_EX};
+                // SAFETY: a virtual key from Windows.
+                match unsafe { MapVirtualKeyW(info.vkCode, MAPVK_VK_TO_VSC_EX) } {
+                    0xE11D => (0x45, false),
+                    scan => (scan & 0xFF, scan >> 8 == 0xE0),
+                }
+            };
+            let scancode = sdl_scancode(scan, extended);
             // SAFETY: no arguments.
             let grab = GRAB.load(Ordering::Acquire) && unsafe { GetForegroundWindow() }.0 as isize == WINDOW.load(Ordering::Acquire)
                 && beating(now_ms(), BEAT.load(Ordering::Acquire));
@@ -158,10 +353,15 @@ unsafe extern "system" fn hook(code: i32, wparam: windows::Win32::Foundation::WP
                 let held = unsafe { GetAsyncKeyState(info.vkCode as i32) } < 0;
                 state = settle(grab, state, held, u64::from(info.time.wrapping_sub(last.load(Ordering::Relaxed))));
             }
-            let (swallow, next) = step(grab, info.vkCode, down, state);
+            let (swallow, next) = step(grab && scancode.is_some(), info.vkCode, down, state);
             key.store(next as u8, Ordering::Relaxed);
             last.store(info.time, Ordering::Relaxed);
             if swallow {
+                // A kept key's scancode: its press had one.
+                if let Some(scancode) = scancode {
+                    let raw = scan as u16 | if extended { 0xE000 } else { 0 };
+                    hand_over(scancode, raw, down, down && state == Key::Kept);
+                }
                 return LRESULT(1);
             }
         }
@@ -238,12 +438,13 @@ impl ShellKeyHook {
         }
     }
 
-    /// Whether the hook takes the shell's keys, and from which window (`hwnd`). Turning the grab
-    /// on reinstalls the hook.
-    pub fn set(&self, grab: bool, hwnd: isize) {
+    /// Whether the hook takes the keyboard, from which window (`hwnd`) and for which SDL window
+    /// (`window_id`). Turning the grab on reinstalls the hook.
+    pub fn set(&self, grab: bool, hwnd: isize, window_id: sdl3_sys::everything::SDL_WindowID) {
         use windows::Win32::Foundation::{LPARAM, WPARAM};
         use windows::Win32::UI::WindowsAndMessaging::PostThreadMessageW;
         alive();
+        WINDOW_ID.store(window_id.0, Ordering::Release);
         WINDOW.store(hwnd, Ordering::Release);
         if grab && !GRAB.swap(grab, Ordering::AcqRel) {
             // SAFETY: the hook thread's id.
@@ -303,7 +504,7 @@ mod tests {
             let mut keys: Vec<(u32, bool)> = chord.iter().map(|&vk| (vk, true)).collect();
             keys.extend(chord.iter().rev().map(|&vk| (vk, false)));
             let seen = windows_sees(true, &keys, &mut [Key::Up; 256]);
-            assert!(seen.iter().all(|&(vk, _)| !shell_key(vk)), "{chord:x?}: Windows got {seen:x?}");
+            assert!(seen.is_empty(), "{chord:x?}: Windows got {seen:x?}");
             let seen = windows_sees(false, &keys, &mut [Key::Up; 256]);
             assert_eq!(seen, keys, "{chord:x?}: not grabbed, Windows gets every key");
         }
@@ -370,13 +571,182 @@ mod tests {
     const _: () = assert!(ALIVE_MS > 500);
 
     #[test]
-    fn other_keys_and_ctrl_alt_del_reach_windows() {
-        // Letters still reach the window (Nightjar's own Ctrl+Alt+Shift+letter shortcuts come
-        // through raw input anyway); Ctrl+Alt+Del is Windows' however a hook answers.
-        for vk in [D, DELETE, LSHIFT, 0x5A] {
-            assert!(!shell_key(vk), "{vk:#x}");
+    fn every_key_but_the_locks_stays_with_the_stream_and_ctrl_alt_del_is_windows() {
+        // Kept keys reach the PC only through the hook: nightjar#71's raw keyboard never saw them.
+        for vk in [D, DELETE, LSHIFT, 0x5A, 0x73] {
+            assert!(kept_key(vk), "{vk:#x}");
+            assert_eq!(step(true, vk, true, Key::Up), (true, Key::Kept), "{vk:#x}");
+        }
+        // Caps, Num and Scroll Lock toggle in Windows (SDL reads them from the window), and so
+        // do a touch keyboard's characters; Ctrl+Alt+Del is Windows' however a hook answers.
+        for vk in [0x14, 0x90, 0x91, 0xE7] {
+            assert!(!kept_key(vk), "{vk:#x}");
             assert_eq!(step(true, vk, true, Key::Up), (false, Key::Passed), "{vk:#x}");
         }
+    }
+
+    #[test]
+    fn kept_keys_reach_sdl_with_the_scancodes_the_window_would_give() {
+        use sdl3_sys::everything::*;
+        let cases = [
+            (0x0F, false, SDL_SCANCODE_TAB),
+            (0x01, false, SDL_SCANCODE_ESCAPE),
+            (0x38, false, SDL_SCANCODE_LALT),
+            (0x38, true, SDL_SCANCODE_RALT),
+            (0x1D, false, SDL_SCANCODE_LCTRL),
+            (0x1D, true, SDL_SCANCODE_RCTRL),
+            (0x2A, false, SDL_SCANCODE_LSHIFT),
+            (0x5B, true, SDL_SCANCODE_LGUI),
+            (0x5C, true, SDL_SCANCODE_RGUI),
+            (0x1E, false, SDL_SCANCODE_A),
+            (0x2C, false, SDL_SCANCODE_Z),
+            (0x02, false, SDL_SCANCODE_1),
+            (0x0B, false, SDL_SCANCODE_0),
+            (0x3B, false, SDL_SCANCODE_F1),
+            (0x44, false, SDL_SCANCODE_F10),
+            (0x57, false, SDL_SCANCODE_F11),
+            (0x64, false, SDL_SCANCODE_F13),
+            (0x6E, false, SDL_SCANCODE_F23),
+            (0x76, false, SDL_SCANCODE_F24),
+            (0x45, false, SDL_SCANCODE_PAUSE),
+            (0x45, true, SDL_SCANCODE_NUMLOCKCLEAR),
+            (0x1C, true, SDL_SCANCODE_KP_ENTER),
+            (0x48, true, SDL_SCANCODE_UP),
+            (0x48, false, SDL_SCANCODE_KP_8),
+            (0x53, true, SDL_SCANCODE_DELETE),
+            (0x37, true, SDL_SCANCODE_PRINTSCREEN),
+            (0x56, false, SDL_SCANCODE_NONUSBACKSLASH),
+        ];
+        for (scan, extended, code) in cases {
+            assert_eq!(sdl_scancode(scan, extended).map(|c| c.0), Some(code.0), "{scan:#x} extended {extended}");
+        }
+        // AltGr's added Ctrl, a key without a scan code and media keys stay Windows'.
+        for (scan, extended) in [(0x21D, false), (0, false), (0x30, true), (0x22, true)] {
+            assert_eq!(sdl_scancode(scan, extended).map(|c| c.0), None, "{scan:#x} extended {extended}");
+        }
+    }
+
+    #[test]
+    fn a_kept_key_carries_the_modifiers_held_in_the_hook_and_in_windows() {
+        use sdl3_sys::everything::*;
+        // Ctrl+Alt+Shift+Tab, Nightjar's stream controls: SDL never saw the three kept modifiers.
+        let kept = |vk: u32| matches!(vk, LCTRL | LALT | LSHIFT);
+        let mods = modifiers(kept, SDL_KMOD_NONE);
+        assert_eq!(mods.0, SDL_KMOD_LCTRL.0 | SDL_KMOD_LALT.0 | SDL_KMOD_LSHIFT.0);
+        assert_eq!(crate::shortcuts::key_action(crate::shortcuts::Scope::Stream, SDL_SCANCODE_TAB, mods), Some(crate::shortcuts::Action::StreamControls));
+        // Caps Lock on, Win held from before the grab: SDL's own state.
+        let mods = modifiers(|vk| vk == LALT, SDL_Keymod(SDL_KMOD_CAPS.0 | SDL_KMOD_LGUI.0));
+        assert_eq!(mods.0, SDL_KMOD_LALT.0 | SDL_KMOD_CAPS.0 | SDL_KMOD_LGUI.0);
+        assert_eq!(modifiers(|_| false, SDL_KMOD_NONE).0, 0);
+    }
+
+    /// The hook against Windows itself: an SDL window in front, Alt+Tab, Ctrl+Alt+Shift+Tab,
+    /// Alt+Esc and a typed "d" injected with SendInput, by scan code as a keyboard sends them.
+    /// Injected keys pass the low-level hook like typed ones (flagged LLKHF_INJECTED), so this
+    /// covers the hook, Windows' shortcuts and SDL's queue, not the keyboard driver. It moves the
+    /// foreground and types: run it alone, on an idle desktop.
+    #[cfg(windows)]
+    #[test]
+    #[ignore = "takes the foreground and injects keys"]
+    fn the_hook_keeps_alt_tab_and_hands_every_key_to_the_stream() {
+        use sdl3_sys::everything::*;
+        use windows::Win32::Foundation::HWND;
+        use windows::Win32::UI::Input::KeyboardAndMouse::*;
+        use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, SetForegroundWindow};
+        /// The key events SDL got: scancode, down, modifiers.
+        fn pump(ms: u64, got: &mut Vec<(i32, bool, u16)>) {
+            let end = std::time::Instant::now() + std::time::Duration::from_millis(ms);
+            while std::time::Instant::now() < end {
+                alive();
+                // SAFETY: SDL's event queue on the thread that set up video.
+                unsafe {
+                    let mut event: SDL_Event = std::mem::zeroed();
+                    while SDL_PollEvent(&mut event) {
+                        if matches!(SDL_EventType(event.r#type), SDL_EVENT_KEY_DOWN | SDL_EVENT_KEY_UP) && !event.key.repeat {
+                            // Without the lock keys' state, which is this PC's.
+                            let locks = SDL_KMOD_NUM.0 | SDL_KMOD_CAPS.0 | SDL_KMOD_SCROLL.0;
+                            got.push((event.key.scancode.0, event.key.down, event.key.r#mod.0 & !locks));
+                        }
+                    }
+                }
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+        }
+        fn key(vk: u32, down: bool, got: &mut Vec<(i32, bool, u16)>) {
+            // SAFETY: any virtual key.
+            let scan = unsafe { MapVirtualKeyW(vk, MAPVK_VK_TO_VSC_EX) };
+            let mut flags = KEYEVENTF_SCANCODE;
+            if !down {
+                flags |= KEYEVENTF_KEYUP;
+            }
+            if scan >> 8 == 0xE0 {
+                flags |= KEYEVENTF_EXTENDEDKEY;
+            }
+            let ki = KEYBDINPUT { wVk: VIRTUAL_KEY(vk as u16), wScan: (scan & 0xFF) as u16, dwFlags: flags, ..Default::default() };
+            let input = INPUT { r#type: INPUT_KEYBOARD, Anonymous: INPUT_0 { ki } };
+            // SAFETY: one keyboard input.
+            assert_eq!(unsafe { SendInput(&[input], size_of::<INPUT>() as i32) }, 1);
+            pump(40, got);
+        }
+        let mut got = Vec::new();
+        // SAFETY: SDL video on this thread, one window of this test's.
+        let (window, hwnd, id) = unsafe {
+            assert!(SDL_Init(SDL_INIT_VIDEO));
+            let window = SDL_CreateWindow(c"nightjar system keys test".as_ptr(), 400, 300, SDL_WindowFlags(0));
+            assert!(!window.is_null());
+            let hwnd = SDL_GetPointerProperty(SDL_GetWindowProperties(window), SDL_PROP_WINDOW_WIN32_HWND_POINTER, std::ptr::null_mut());
+            (window, HWND(hwnd), SDL_GetWindowID(window))
+        };
+        let in_front = || unsafe { GetForegroundWindow() } == hwnd;
+        // An Alt tap lets this process take the foreground.
+        key(LALT, true, &mut got);
+        key(LALT, false, &mut got);
+        // SAFETY: this test's window.
+        let _ = unsafe { SetForegroundWindow(hwnd) };
+        pump(500, &mut got);
+        assert!(in_front(), "the test window did not come to the front");
+        let hook = ShellKeyHook::start().unwrap();
+        hook.set(true, hwnd.0 as isize, id);
+        pump(300, &mut got);
+        got.clear();
+        let mut leaked = Vec::new();
+        let mut stream = Vec::new();
+        for chord in [&[LALT, TAB][..], &[LCTRL, LALT, LSHIFT, TAB], &[LALT, ESC], &[D]] {
+            for &vk in chord {
+                key(vk, true, &mut got);
+            }
+            for &vk in chord.iter().rev() {
+                key(vk, false, &mut got);
+            }
+            pump(700, &mut got);
+            stream.push(std::mem::take(&mut got));
+            if !in_front() {
+                leaked.push(chord);
+                // SAFETY: this test's window, which had the last input.
+                let _ = unsafe { SetForegroundWindow(hwnd) };
+                pump(500, &mut got);
+                got.clear();
+            }
+        }
+        drop(hook);
+        // SAFETY: this test's window and SDL.
+        unsafe {
+            SDL_DestroyWindow(window);
+            SDL_Quit();
+        }
+        assert!(leaked.is_empty(), "{leaked:x?} took the foreground from the stream");
+        let (tab, esc, d) = (SDL_SCANCODE_TAB.0, SDL_SCANCODE_ESCAPE.0, SDL_SCANCODE_D.0);
+        let (lctrl, lalt, lshift) = (SDL_SCANCODE_LCTRL.0, SDL_SCANCODE_LALT.0, SDL_SCANCODE_LSHIFT.0);
+        let (ctrl, alt, shift) = (SDL_KMOD_LCTRL.0, SDL_KMOD_LALT.0, SDL_KMOD_LSHIFT.0);
+        // Each key once, in order, with the modifiers held: what the PC and Nightjar's shortcuts get.
+        assert_eq!(stream[0], [(lalt, true, alt), (tab, true, alt), (tab, false, alt), (lalt, false, 0)]);
+        let all = ctrl | alt | shift;
+        assert_eq!(stream[1], [
+            (lctrl, true, ctrl), (lalt, true, ctrl | alt), (lshift, true, all), (tab, true, all),
+            (tab, false, all), (lshift, false, ctrl | alt), (lalt, false, ctrl), (lctrl, false, 0),
+        ]);
+        assert_eq!(stream[2], [(lalt, true, alt), (esc, true, alt), (esc, false, alt), (lalt, false, 0)]);
+        assert_eq!(stream[3], [(d, true, 0), (d, false, 0)]);
     }
 
     #[test]

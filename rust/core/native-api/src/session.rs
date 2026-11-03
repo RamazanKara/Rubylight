@@ -129,6 +129,11 @@ pub struct Session {
     /// the host lists `radeon.profile` in its features.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub radeon_profile: Option<RadeonProfile>,
+    /// True while the caller's microphone reaches the host but another device's plays: one
+    /// microphone plays at a time. Absent otherwise. Only when the host lists
+    /// `session.mic_only` in its features.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub microphone_busy: bool,
     pub actions: Vec<Action>,
 }
 

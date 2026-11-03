@@ -37,8 +37,24 @@ pub struct Counters {
 const IDLE: Duration = Duration::from_secs(3);
 /// Another client takes the microphone once the speaker has been quiet this long.
 const HANDOVER: Duration = Duration::from_secs(1);
-/// The stream warning of a device whose microphone waits for another's.
+/// The stream warning of a device whose microphone waits for another's; `/session` tells
+/// that device too ([`busy_for`]).
 const MIC_BUSY_WARNING: &str = "microphone_busy";
+
+/// Whether `client`'s microphone waits for another device's: one of its live sessions has
+/// the busy warning. It clears once its microphone plays, or a few seconds after it last
+/// waited.
+pub fn busy_for(h: &Shared, client: &str) -> bool {
+    h.sessions.lock().unwrap().active.values().any(|s| {
+        !s.stopping()
+            && s.launch.client.uuid == client
+            && s.launch
+                .warnings
+                .snapshot()
+                .iter()
+                .any(|w| w.code == MIC_BUSY_WARNING)
+    })
+}
 /// Wait before opening Steam Streaming Microphone again after a failure.
 const RETRY: Duration = Duration::from_secs(5);
 const WARNING: &str = "microphone";
@@ -1093,6 +1109,16 @@ mod tests {
             "{warnings:?}"
         );
         assert!(phone.launch.warnings.snapshot().is_empty());
+        // `/session` tells the waiting device, and only it.
+        assert!(busy_for(&f.host, "tablet") && !busy_for(&f.host, "phone"));
+        // The phone goes quiet: the tablet's microphone plays and is no longer busy.
+        receiver.speaker.as_mut().unwrap().heard -= HANDOVER;
+        receiver.receive(&packet(&tablet), tablet.client_ip());
+        assert!(Arc::ptr_eq(
+            &receiver.speaker.as_ref().unwrap().session,
+            &tablet
+        ));
+        assert!(!busy_for(&f.host, "tablet"));
     }
 
     #[test]

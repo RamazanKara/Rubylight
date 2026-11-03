@@ -443,10 +443,9 @@ fn cover_fingerprint(app: &App, assets: &Path) -> String {
 async fn session(State(h): State<Shared>, Extension(c): Extension<Connection>) -> Reply {
     let client = caller(&h, &c)?;
     let snapshot = h.session_snapshot();
-    Ok(json(
-        StatusCode::OK,
-        &native::session_view(&snapshot, &client),
-    ))
+    let mut view = native::session_view(&snapshot, &client);
+    view.microphone_busy = crate::mic::busy_for(&h, &client.uuid);
+    Ok(json(StatusCode::OK, &view))
 }
 
 #[derive(Clone, Copy, Debug)]

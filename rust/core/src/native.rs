@@ -398,6 +398,8 @@ pub fn session_view(snapshot: &SessionSnapshot, caller: &Client) -> Session {
         // What the host noticed about the owner's own game is the owner's to see.
         launcher: snapshot.launcher.clone().filter(|_| details),
         radeon_profile: snapshot.radeon_profile.clone().filter(|_| details),
+        // The host's microphone receiver knows this, not the snapshot; it sets it.
+        microphone_busy: false,
         actions,
     }
 }

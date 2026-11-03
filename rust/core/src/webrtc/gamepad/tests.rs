@@ -491,6 +491,27 @@ fn mouse_mode_needs_a_750_ms_hold() {
 }
 
 #[test]
+fn a_controller_without_mouse_mode_stays_a_pad_after_a_long_start_hold() {
+    let t0 = Instant::now();
+    let mut pads = Gamepads::new();
+    pads.connect_with(&connected(3), false);
+    pads.connect(&connected(4));
+    assert_eq!(pads.controller_ids(), [3, 4]);
+    let mut seq = 0;
+    let out = toggle(&mut pads, 3, &mut seq, t0, Duration::from_secs(2), 0);
+    assert!(!pads.mouse_mode(3));
+    assert!(controls(&out).is_empty(), "no mouse-mode message");
+    assert!(matches!(
+        inputs(&out)[..],
+        [Input::Controller { buttons: 0, .. }]
+    ));
+    assert_eq!(pads.next_tick(), None);
+    let mut seq = 0;
+    toggle(&mut pads, 4, &mut seq, t0, Duration::from_secs(2), 0);
+    assert!(pads.mouse_mode(4), "the other controller keeps it");
+}
+
+#[test]
 fn a_held_start_does_not_toggle_until_it_is_released() {
     let t0 = Instant::now();
     let mut pads = Gamepads::new();

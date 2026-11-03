@@ -383,6 +383,8 @@ struct Controller {
     /// Protocol button mask of the previous accepted snapshot.
     previous_buttons: u32,
     start_pressed_at: Option<Instant>,
+    /// Holding Start may turn mouse mode on: not for a guest that may not move the mouse.
+    mouse_mode_allowed: bool,
     mouse_mode: bool,
     /// Mouse-mode buttons held when the mode turned on, ignored until released.
     suppressed: u32,
@@ -409,6 +411,11 @@ impl Gamepads {
     /// Moonlight's active gamepad mask.
     pub fn active_mask(&self) -> u16 {
         self.active_mask
+    }
+
+    /// The controllers plugged in, by id.
+    pub fn controller_ids(&self) -> Vec<u32> {
+        self.controllers.keys().copied().collect()
     }
 
     pub fn slot(&self, controller_id: u32) -> Option<u8> {
@@ -455,6 +462,12 @@ impl Gamepads {
     /// description is replaced. The same announcement again changes nothing: a
     /// client that announces on both channels must not replug the pad.
     pub fn connect(&mut self, connected: &Connected) -> Outcome {
+        self.connect_with(connected, true)
+    }
+
+    /// [`connect`](Self::connect), for a controller that holding Start must not turn into a
+    /// mouse when `mouse_mode` is false.
+    pub fn connect_with(&mut self, connected: &Connected, mouse_mode: bool) -> Outcome {
         if self
             .controllers
             .get(&connected.controller_id)
@@ -498,6 +511,7 @@ impl Gamepads {
                 last_sent: None,
                 previous_buttons: 0,
                 start_pressed_at: None,
+                mouse_mode_allowed: mouse_mode,
                 mouse_mode: false,
                 suppressed: 0,
                 simulated: 0,
@@ -577,6 +591,7 @@ impl Gamepads {
         let mut toggled = false;
         if !start
             && was_start
+            && c.mouse_mode_allowed
             && c.start_pressed_at
                 .is_some_and(|at| now.saturating_duration_since(at) >= MOUSE_MODE_HOLD)
         {

@@ -15,6 +15,12 @@
 //!
 //! The injector sits behind [`Sink`] so the tests never reach `SendInput` or a virtual pad on
 //! the desktop they run on.
+//!
+//! Guests of a console stream (docs/browser-guests.md) send through the owner's worker: their
+//! pads take slots in the owner's table, under ids of their own, so the injector's one active
+//! mask covers everyone's and the slot limit holds for all of them. Each guest's input is checked
+//! against its own permission here, on top of the owner device's: a view-only guest's input never
+//! reaches the injector, whatever its page sends.
 
 use super::media::ControlSender;
 use crate::{
@@ -26,13 +32,14 @@ use butterpollo_core::{
     input::Input,
     session::EVENT_PERIOD,
     webrtc::{
-        gamepad::{Action, Control, Gamepads},
+        gamepad::{self, Action, Control, GamepadMessage, Gamepads},
+        guests::Permission,
         input::InputChannel,
     },
 };
 use butterpollo_windows::input::{Injector, PadReport};
 use std::{
-    collections::VecDeque,
+    collections::{BTreeMap, VecDeque},
     sync::{Arc, mpsc},
     time::{Duration, Instant},
 };
@@ -52,6 +59,26 @@ const FEEDBACK_POLL: Duration = Duration::from_millis(8);
 const STOP_POLL: Duration = Duration::from_millis(100);
 /// A failed injector is made again no sooner than this.
 const RETRY: Duration = Duration::from_millis(500);
+/// A guest's controllers are numbered above every id an owner's browser uses (the Gamepad API
+/// counts from 0): this bit, the guest's tag, then the id its own browser gave.
+const GUEST_IDS: u32 = 1 << 31;
+const GUEST_ID_BITS: u32 = 16;
+const MAX_GUEST_TAG: u16 = 0x7fff;
+
+/// The id in the shared table of a guest's controller; None for an id out of range.
+fn guest_controller(tag: u16, controller_id: u32) -> Option<u32> {
+    (controller_id < 1 << GUEST_ID_BITS)
+        .then_some(GUEST_IDS | u32::from(tag) << GUEST_ID_BITS | controller_id)
+}
+
+/// The guest tag and the guest's own id of a controller in the shared table; None for the
+/// owner's.
+fn guest_of(controller_id: u32) -> Option<(u16, u32)> {
+    (controller_id & GUEST_IDS != 0).then_some((
+        ((controller_id & !GUEST_IDS) >> GUEST_ID_BITS) as u16,
+        controller_id & ((1 << GUEST_ID_BITS) - 1),
+    ))
+}
 
 /// What the worker is told. Text frames only: the channels carry JSON.
 enum Message {
@@ -64,6 +91,15 @@ enum Message {
     Control(ControlSender),
     /// The transport is gone.
     Closed,
+    /// A guest of the stream joined, with what it may send.
+    GuestJoined(u64, Permission),
+    GuestGamepad(u64, String, Instant),
+    GuestInput(u64, String, Instant),
+    GuestControl(u64, ControlSender),
+    GuestGamepadClosed(u64),
+    GuestInputClosed(u64),
+    /// A guest left: its pads are unplugged and what it held is released.
+    GuestLeft(u64),
 }
 
 /// The transport's end of a session's input worker. Every call only queues; none blocks.
@@ -128,6 +164,58 @@ impl InputHandle {
     /// The transport closed: release everything and end.
     pub fn closed(&self) {
         let _ = self.0.send(Message::Closed);
+    }
+
+    /// A guest of this session's stream, sending through this worker with `permission`.
+    pub fn guest(&self, id: u64, permission: Permission) -> GuestHandle {
+        let _ = self.0.send(Message::GuestJoined(id, permission));
+        GuestHandle {
+            tx: self.0.clone(),
+            id,
+        }
+    }
+}
+
+/// A guest's end of the owner's input worker, for the guest transport's hooks. Every call only
+/// queues. Dropping it is the guest leaving: its pads are unplugged and its keys let go.
+pub struct GuestHandle {
+    tx: mpsc::Sender<Message>,
+    id: u64,
+}
+
+impl GuestHandle {
+    pub fn gamepad(&self, data: Vec<u8>, binary: bool, now: Instant) {
+        if let Some(text) = text(data, binary, "gamepad") {
+            let _ = self.tx.send(Message::GuestGamepad(self.id, text, now));
+        }
+    }
+
+    pub fn input(&self, data: Vec<u8>, binary: bool) {
+        if let Some(text) = text(data, binary, "input") {
+            let _ = self
+                .tx
+                .send(Message::GuestInput(self.id, text, Instant::now()));
+        }
+    }
+
+    pub fn channel_closed(&self, label: &str) {
+        let message = match label {
+            "input" => Message::GuestInputClosed(self.id),
+            "gamepad" => Message::GuestGamepadClosed(self.id),
+            _ => return,
+        };
+        let _ = self.tx.send(message);
+    }
+
+    /// The guest's `control` channel, for its pads' rumble and mouse mode.
+    pub fn control(&self, sender: ControlSender) {
+        let _ = self.tx.send(Message::GuestControl(self.id, sender));
+    }
+}
+
+impl Drop for GuestHandle {
+    fn drop(&mut self) {
+        let _ = self.tx.send(Message::GuestLeft(self.id));
     }
 }
 
@@ -440,6 +528,16 @@ impl Delays {
     }
 }
 
+/// A guest sending through the owner's worker.
+struct Guest {
+    /// The tag in its controllers' ids ([`guest_controller`]).
+    tag: u16,
+    permission: Permission,
+    /// Its own keys and buttons, released when it leaves.
+    channel: InputChannel,
+    control: Option<Reply>,
+}
+
 /// The state of one session's input, driven by [`run`] and by the tests with a clock of their own.
 struct Core {
     session: Arc<Session>,
@@ -464,6 +562,8 @@ struct Core {
     /// When the frame being handled reached the transport, for the delay it waited in the queue.
     received: Option<Instant>,
     warned_invalid: bool,
+    /// The stream's guests by id, whose pads share `pads`.
+    guests: BTreeMap<u64, Guest>,
 }
 
 impl Core {
@@ -489,6 +589,7 @@ impl Core {
             slow_logged: 0,
             received: None,
             warned_invalid: false,
+            guests: BTreeMap::new(),
         };
         // Made before input comes, as the GameStream control loop does: making it with the
         // first input held that input up.
@@ -608,6 +709,29 @@ impl Core {
     }
 
     fn send(&mut self, control: &Control) {
+        let (Control::MouseMode { controller_id, .. } | Control::Rumble { controller_id, .. }) =
+            control;
+        if let Some((tag, own)) = guest_of(*controller_id) {
+            // A guest's pad answers on the guest's channel, under the id its browser knows; a
+            // guest that left gets nothing, and nothing goes to the owner instead.
+            let Some(send) = self
+                .guests
+                .values_mut()
+                .find(|g| g.tag == tag)
+                .and_then(|g| g.control.as_mut())
+            else {
+                return;
+            };
+            let mut control = control.clone();
+            let (Control::MouseMode { controller_id, .. } | Control::Rumble { controller_id, .. }) =
+                &mut control;
+            *controller_id = own;
+            if matches!(control, Control::Rumble { .. }) {
+                self.summary.rumble_sent += 1;
+            }
+            send(control.to_json().into_bytes());
+            return;
+        }
         let Some(send) = &mut self.control else {
             tracing::debug!("WebRTC input: no control channel to answer on");
             return;
@@ -736,8 +860,10 @@ impl Core {
     fn wait(&self, now: Instant) -> Option<Duration> {
         // An injector, a plugged pad or a held key is something to give up when the session
         // stops, even if the transport is slow to say so.
-        let busy =
-            self.sink.is_some() || self.pads.active_mask() != 0 || !self.channel.held().is_empty();
+        let busy = self.sink.is_some()
+            || self.pads.active_mask() != 0
+            || !self.channel.held().is_empty()
+            || self.guests.values().any(|g| !g.channel.held().is_empty());
         let deadlines = [
             self.pads.next_tick(),
             self.sink.as_ref().and_then(|sink| sink.next_due()),
@@ -764,14 +890,175 @@ impl Core {
     }
 
     /// The `gamepad` channel closed: unplug every controller, which also releases its mouse mode.
+    /// The guests' stay.
     fn unplug(&mut self, now: Instant) {
-        let actions = self.pads.close();
+        let ids = self.pads.controller_ids();
+        if !ids.iter().any(|&id| guest_of(id).is_some()) {
+            let actions = self.pads.close();
+            self.actions(actions, now);
+            return;
+        }
+        self.disconnect(ids.into_iter().filter(|&id| guest_of(id).is_none()), now);
+    }
+
+    fn disconnect(&mut self, ids: impl IntoIterator<Item = u32>, now: Instant) {
+        let mut actions = Vec::new();
+        for id in ids {
+            actions.extend(self.pads.disconnect(id).actions);
+        }
         self.actions(actions, now);
+    }
+
+    fn guest_joined(&mut self, id: u64, permission: Permission) {
+        if self.guests.contains_key(&id) {
+            return;
+        }
+        let Some(tag) = (1..=MAX_GUEST_TAG).find(|t| self.guests.values().all(|g| g.tag != *t))
+        else {
+            tracing::warn!(guest = id, "WebRTC input: no tag left for a guest");
+            return;
+        };
+        let mode = self.session.stream_mode();
+        self.guests.insert(
+            id,
+            Guest {
+                tag,
+                permission,
+                channel: InputChannel::new(mode.width, mode.height),
+                control: None,
+            },
+        );
+    }
+
+    /// One `gamepad` message of a guest, received at `now`. A view-only guest's are dropped
+    /// here; a controller-only guest's pads never turn into a mouse.
+    fn guest_gamepad(&mut self, id: u64, text: &str, now: Instant) {
+        self.summary.gamepad_messages += 1;
+        let Some(&Guest {
+            tag, permission, ..
+        }) = self.guests.get(&id)
+        else {
+            self.summary.dropped += 1;
+            return;
+        };
+        if !permission.gamepads() || !self.allowed(&controller_event()) {
+            self.summary.dropped += 1;
+            return;
+        }
+        let message = match gamepad::parse(text) {
+            Ok(message) => message,
+            Err(error) => return self.invalid("gamepad", &error),
+        };
+        let remap = |controller_id| guest_controller(tag, controller_id);
+        let outcome = match message {
+            GamepadMessage::Connected(mut connected) => {
+                remap(connected.controller_id).map(|controller_id| {
+                    connected.controller_id = controller_id;
+                    self.pads
+                        .connect_with(&connected, permission.keyboard_mouse())
+                })
+            }
+            GamepadMessage::Disconnected { controller_id } => {
+                remap(controller_id).map(|controller_id| self.pads.disconnect(controller_id))
+            }
+            GamepadMessage::State(mut state) => remap(state.controller_id).map(|controller_id| {
+                state.controller_id = controller_id;
+                self.pads.state(&state, now)
+            }),
+        };
+        let Some(outcome) = outcome else {
+            return self.invalid("gamepad", &"a guest's controller id is out of range");
+        };
+        if !outcome.accepted && outcome.actions.is_empty() {
+            self.summary.gamepad_ignored += 1;
+        }
+        self.received = Some(now);
+        self.actions(outcome.actions, now);
+        self.received = None;
+    }
+
+    /// One `input` message of a guest: only with the keyboard and mouse permission, and only
+    /// the kinds of event that covers.
+    fn guest_input(&mut self, id: u64, text: &str, now: Instant) {
+        self.summary.input_messages += 1;
+        let Some(guest) = self.guests.get_mut(&id) else {
+            self.summary.dropped += 1;
+            return;
+        };
+        if !guest.permission.keyboard_mouse() {
+            self.summary.dropped += 1;
+            return;
+        }
+        let mask = guest.permission.input_mask();
+        let events = match butterpollo_core::webrtc::input::parse(text) {
+            Ok(message) => guest.channel.translate(message),
+            Err(error) => return self.invalid("input", &error),
+        };
+        let mut allowed = Vec::with_capacity(events.len());
+        for event in events {
+            if event.required_permission() & mask == 0 || !self.allowed(&event) {
+                self.summary.dropped += 1;
+                continue;
+            }
+            if let Some(guest) = self.guests.get_mut(&id) {
+                guest.channel.observe(&event);
+            }
+            allowed.push(event);
+        }
+        self.received = Some(now);
+        self.inject(allowed, now);
+        self.received = None;
+    }
+
+    fn guest_control(&mut self, id: u64, sender: ControlSender) {
+        if let Some(guest) = self.guests.get_mut(&id) {
+            guest.control = Some(Box::new(move |data| sender.send(data, false)));
+        }
+    }
+
+    /// A guest's `gamepad` channel closed, or it left: unplug its controllers.
+    fn guest_unplug(&mut self, id: u64, now: Instant) {
+        let Some(tag) = self.guests.get(&id).map(|g| g.tag) else {
+            return;
+        };
+        let ids = self.pads.controller_ids();
+        self.disconnect(
+            ids.into_iter()
+                .filter(|&c| guest_of(c).is_some_and(|(t, _)| t == tag)),
+            now,
+        );
+    }
+
+    /// A guest's `input` channel closed, or it left: let go of what it holds.
+    fn guest_release(&mut self, id: u64, now: Instant) {
+        let Some(guest) = self.guests.get_mut(&id) else {
+            return;
+        };
+        let events = guest.channel.release_all();
+        if !events.is_empty() {
+            tracing::info!(
+                guest = id,
+                count = events.len(),
+                "WebRTC input: releasing what a guest held"
+            );
+            self.inject(events, now);
+        }
+    }
+
+    fn guest_left(&mut self, id: u64, now: Instant) {
+        self.guest_unplug(id, now);
+        self.guest_release(id, now);
+        self.guests.remove(&id);
     }
 
     /// Release everything and report. Safe to call twice.
     fn finish(&mut self, now: Instant) {
-        self.unplug(now);
+        let actions = self.pads.close();
+        self.actions(actions, now);
+        let guests: Vec<u64> = self.guests.keys().copied().collect();
+        for id in guests {
+            self.guest_release(id, now);
+        }
         self.release_held(now);
         // Drops the injector, which unplugs the virtual pads.
         self.sink = None;
@@ -899,6 +1186,15 @@ fn serve(core: &mut Core, rx: &mpsc::Receiver<Message>, mut early: VecDeque<Mess
                 core.control = Some(Box::new(move |data| sender.send(data, false)));
             }
             Some(Message::Closed) => break,
+            Some(Message::GuestJoined(id, permission)) => core.guest_joined(id, permission),
+            Some(Message::GuestGamepad(id, text, received)) => {
+                core.guest_gamepad(id, &text, received)
+            }
+            Some(Message::GuestInput(id, text, received)) => core.guest_input(id, &text, received),
+            Some(Message::GuestControl(id, sender)) => core.guest_control(id, sender),
+            Some(Message::GuestGamepadClosed(id)) => core.guest_unplug(id, now),
+            Some(Message::GuestInputClosed(id)) => core.guest_release(id, now),
+            Some(Message::GuestLeft(id)) => core.guest_left(id, now),
             Some(Message::Bind(_)) | None => {}
         }
         if !core.poll(now) {

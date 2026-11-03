@@ -971,3 +971,201 @@ fn a_co_op_players_input_drives_only_its_slots_pad() {
         "{error:#}"
     );
 }
+
+/// A guest's pad announcement and snapshots, as its page sends them.
+fn guest_pad(r: &mut Rig, guest: u64, id: u32, ms: u64) {
+    let text = format!(
+        r#"{{"v":2,"type":"gamepad-connected","controllerId":{id},"id":"Pad","mapping":"standard","buttons":17,"axes":4,"dualRumble":true,"triggerRumble":true}}"#
+    );
+    r.core.guest_gamepad(guest, &text, r.at(ms));
+}
+
+fn guest_state(r: &mut Rig, guest: u64, id: u32, seq: u64, buttons: u32, ms: u64) {
+    let text = format!(
+        r#"{{"v":2,"type":"gamepad-state","controllerId":{id},"seq":{seq},"buttons":{buttons},"leftTrigger":0,"rightTrigger":0,"leftStickX":0,"leftStickY":0,"rightStickX":0,"rightStickY":0}}"#
+    );
+    r.core.guest_gamepad(guest, &text, r.at(ms));
+}
+
+/// What a guest's control channel got.
+fn guest_control(r: &mut Rig, guest: u64) -> Arc<Mutex<Vec<Value>>> {
+    let sent = Arc::new(Mutex::new(Vec::new()));
+    let log = sent.clone();
+    r.core.guests.get_mut(&guest).unwrap().control = Some(Box::new(move |data| {
+        log.lock()
+            .unwrap()
+            .push(serde_json::from_slice(&data).unwrap());
+        true
+    }));
+    sent
+}
+
+#[test]
+fn a_view_only_guests_input_is_dropped_by_the_host() {
+    let mut r = rig(u32::MAX);
+    r.core.guest_joined(1, Permission::View);
+    guest_pad(&mut r, 1, 0, 0);
+    guest_state(&mut r, 1, 0, 1, A, 10);
+    r.core.guest_input(
+        1,
+        r#"{"v":1,"type":"key","code":"KeyA","down":true}"#,
+        r.at(20),
+    );
+    r.core
+        .guest_input(1, r#"{"v":1,"type":"mouse-move","dx":3,"dy":0}"#, r.at(30));
+    assert!(r.events().is_empty(), "{:?}", r.events());
+    assert_eq!(r.core.pads.active_mask(), 0, "no slot either");
+    assert_eq!(r.core.summary().dropped, 4);
+    // Nor does a guest the worker never heard of get anything through.
+    guest_pad(&mut r, 9, 0, 40);
+    assert!(r.events().is_empty());
+}
+
+#[test]
+fn a_controller_guest_gets_its_own_pad_but_no_keyboard_mouse_or_mouse_mode() {
+    let mut r = rig(u32::MAX);
+    r.pad(0, 0);
+    r.core.guest_joined(1, Permission::Controller);
+    let sent = guest_control(&mut r, 1);
+    // The guest's browser numbers its pad 0 too: it is a second pad, in the next slot.
+    guest_pad(&mut r, 1, 0, 0);
+    guest_state(&mut r, 1, 0, 1, A, 10);
+    assert_eq!(r.core.pads.active_mask(), 0b11);
+    let events = r.events();
+    assert!(
+        matches!(events[1], Input::Arrival { id: 1, .. }),
+        "{events:?}"
+    );
+    assert!(matches!(
+        events[2],
+        Input::Controller {
+            id: 1,
+            active: 0b11,
+            buttons: 0x1000,
+            ..
+        }
+    ));
+    r.rec.clear();
+    r.core.guest_input(
+        1,
+        r#"{"v":1,"type":"key","code":"KeyA","down":true}"#,
+        r.at(20),
+    );
+    // Holding Start would make the pad a mouse; for this guest it stays a pad.
+    guest_state(&mut r, 1, 0, 2, START, 30);
+    guest_state(&mut r, 1, 0, 3, 0, 900);
+    guest_state(&mut r, 1, 0, 4, A, 950);
+    assert!(!r.core.pads.mouse_mode(GUEST_IDS | 1 << GUEST_ID_BITS));
+    assert!(
+        r.events()
+            .iter()
+            .all(|e| matches!(e, Input::Controller { id: 1, .. })),
+        "{:?}",
+        r.events()
+    );
+    assert!(sent.lock().unwrap().is_empty());
+    assert!(r.sent("mouse-mode").is_empty());
+}
+
+#[test]
+fn a_guests_rumble_and_mouse_mode_go_to_the_guest_under_its_own_id() {
+    let mut r = rig(u32::MAX);
+    r.core.guest_joined(4, Permission::ControllerKeyboardMouse);
+    let sent = guest_control(&mut r, 4);
+    guest_pad(&mut r, 4, 2, 0);
+    r.rec
+        .post_feedback(0, RUMBLE_DATA, &[0xff, 0xff, 0x00, 0x00]);
+    assert!(r.core.poll(r.at(8)));
+    guest_state(&mut r, 4, 2, 1, START, 10);
+    guest_state(&mut r, 4, 2, 2, 0, 800);
+    let sent = sent.lock().unwrap().clone();
+    let kinds: Vec<_> = sent.iter().map(|m| m["type"].as_str().unwrap()).collect();
+    assert_eq!(kinds, ["rumble", "mouse-mode"]);
+    assert!(sent.iter().all(|m| m["controllerId"] == 2));
+    assert!(r.sent("rumble").is_empty(), "nothing reaches the owner");
+    assert!(r.sent("mouse-mode").is_empty());
+}
+
+#[test]
+fn a_keyboard_guest_types_and_what_it_holds_is_let_go_when_it_leaves() {
+    let mut r = rig(u32::MAX);
+    r.core.guest_joined(2, Permission::ControllerKeyboardMouse);
+    r.input(r#"{"v":1,"type":"key","code":"KeyW","down":true}"#);
+    for text in [
+        r#"{"v":1,"type":"key","code":"KeyA","down":true}"#,
+        r#"{"v":1,"type":"mouse-button","button":0,"down":true}"#,
+        r#"{"v":1,"type":"text","text":"hi"}"#,
+    ] {
+        r.core.guest_input(2, text, r.at(1));
+    }
+    guest_pad(&mut r, 2, 0, 2);
+    assert_eq!(
+        r.events()[..4],
+        [
+            key_down(0x57),
+            key_down(0x41),
+            button(1, true),
+            Input::Text("hi".into())
+        ]
+    );
+    r.rec.clear();
+    r.core.guest_left(2, r.at(3));
+    let events = r.events();
+    assert!(events.contains(&key_up(0x41)) && events.contains(&button(1, false)));
+    assert!(
+        !events.contains(&key_up(0x57)),
+        "the owner's key stays down"
+    );
+    assert_eq!(r.core.pads.active_mask(), 0, "its pad is unplugged");
+    assert!(r.core.guests.is_empty());
+}
+
+#[test]
+fn the_owners_gamepad_channel_closing_leaves_the_guests_pads_plugged() {
+    let mut r = rig(u32::MAX);
+    r.pad(0, 0);
+    r.core.guest_joined(1, Permission::Controller);
+    r.core.guest_joined(2, Permission::Controller);
+    guest_pad(&mut r, 1, 0, 0);
+    guest_pad(&mut r, 2, 0, 0);
+    assert_eq!(r.core.pads.active_mask(), 0b111);
+    r.core.unplug(r.at(1));
+    assert_eq!(r.core.pads.active_mask(), 0b110);
+    r.core.guest_unplug(1, r.at(2));
+    assert_eq!(r.core.pads.active_mask(), 0b100, "one guest's pads only");
+    // The end of the stream unplugs everyone's.
+    r.core.finish(r.at(3));
+    assert_eq!(r.core.pads.active_mask(), 0);
+}
+
+#[test]
+fn guests_share_the_owners_sixteen_slots() {
+    let mut r = rig(u32::MAX);
+    r.core.guest_joined(1, Permission::Controller);
+    r.core.guest_joined(2, Permission::Controller);
+    for id in 0..10 {
+        guest_pad(&mut r, 1, id, 0);
+    }
+    for id in 0..10 {
+        guest_pad(&mut r, 2, id, 0);
+    }
+    assert_eq!(r.core.pads.active_mask(), u16::MAX);
+    assert_eq!(
+        r.core.summary().gamepad_ignored,
+        4,
+        "the last four get no slot"
+    );
+    // An id beyond the guest's range is refused, not folded onto another pad.
+    guest_pad(&mut r, 1, 1 << 16, 0);
+    assert_eq!(r.core.summary().invalid, 1);
+}
+
+#[test]
+fn guest_controller_ids_round_trip_and_never_look_like_the_owners() {
+    for (tag, id) in [(1, 0), (2, 0), (MAX_GUEST_TAG, 0xffff)] {
+        let shared = guest_controller(tag, id).unwrap();
+        assert_eq!(guest_of(shared), Some((tag, id)));
+    }
+    assert_eq!(guest_of(3), None);
+    assert_eq!(guest_controller(1, 1 << 16), None);
+}

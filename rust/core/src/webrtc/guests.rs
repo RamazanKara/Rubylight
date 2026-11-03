@@ -36,6 +36,10 @@ pub enum Permission {
     ControllerKeyboardMouse,
 }
 
+/// The permission bits of controller and mouse input (`Input::required_permission`).
+const CONTROLLER: u32 = 1 << 8;
+const MOUSE: u32 = 1 << 11;
+
 impl Permission {
     pub fn gamepads(self) -> bool {
         !matches!(self, Self::View)
@@ -43,6 +47,17 @@ impl Permission {
 
     pub fn keyboard_mouse(self) -> bool {
         matches!(self, Self::ControllerKeyboardMouse)
+    }
+
+    /// The [`Input::required_permission`](crate::input::Input::required_permission) bits a
+    /// guest's input may carry, on top of what the owner's device allows: controllers, and the
+    /// keyboard and mouse only with that permission. Never touch, pen or anything else.
+    pub fn input_mask(self) -> u32 {
+        match self {
+            Self::View => 0,
+            Self::Controller => CONTROLLER,
+            Self::ControllerKeyboardMouse => CONTROLLER | MOUSE | crate::input::KEYBOARD_PERMISSION,
+        }
     }
 
     pub fn parse(text: &str) -> Option<Self> {
@@ -468,5 +483,34 @@ mod tests {
             assert_eq!(Permission::parse(permission.as_str()), Some(permission));
         }
         assert_eq!(Permission::parse("admin"), None);
+    }
+
+    #[test]
+    fn a_guests_input_mask_follows_the_events_it_may_send() {
+        use crate::input::Input;
+        let pad = Input::Controller {
+            id: 0,
+            active: 1,
+            buttons: 0,
+            left_trigger: 0,
+            right_trigger: 0,
+            sticks: [0; 4],
+        };
+        let key = Input::Keyboard {
+            key: 0x41,
+            modifiers: 0,
+            flags: 0,
+            down: true,
+        };
+        let mouse = Input::Relative { x: 1, y: 1 };
+        let allows =
+            |p: Permission, event: &Input| p.input_mask() & event.required_permission() != 0;
+        for event in [&pad, &key, &mouse] {
+            assert!(!allows(Permission::View, event));
+            assert!(allows(Permission::ControllerKeyboardMouse, event));
+        }
+        assert!(allows(Permission::Controller, &pad));
+        assert!(!allows(Permission::Controller, &key));
+        assert!(!allows(Permission::Controller, &mouse));
     }
 }

@@ -250,6 +250,9 @@ pub struct Settings {
     pub sdr_10bit: bool,
     pub audio: AudioChannels,
     pub play_audio_on_host: bool,
+    /// "Mute audio": the stream's audio is received and never opened on an output
+    /// (`pipeline::audio_renderer`).
+    pub mute_audio: bool,
     /// Ask the PC for PCM audio instead of Opus (`pipeline::passthrough_codecs`).
     pub audio_passthrough: bool,
     pub window_mode: WindowMode,
@@ -704,6 +707,7 @@ impl Default for Settings {
             sdr_10bit: false,
             audio: AudioChannels::Stereo,
             play_audio_on_host: false,
+            mute_audio: false,
             audio_passthrough: false,
             window_mode: WindowMode::Borderless,
             video_scaling: VideoScaling::Fit,

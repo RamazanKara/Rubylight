@@ -859,7 +859,7 @@ pub(super) fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &In
         color_space: if settings.hdr { COLORSPACE_REC_2020 } else { COLORSPACE_REC_709 },
         color_range: if settings.full_range { COLOR_RANGE_FULL } else { COLOR_RANGE_LIMITED },
         microphone: settings.microphone && role != AppRole::RemoteMonitor,
-        audio_passthrough: pipeline::passthrough_codecs(settings.audio_passthrough),
+        audio_passthrough: pipeline::passthrough_codecs(settings.audio_passthrough, settings.mute_audio),
         haptics_pcm: settings.controllers && settings.controller_audio && role != AppRole::RemoteMonitor,
         pyrowave_link_mbps: sent_link_mbps as i32,
         pyrowave_pace_mbps: pace_mbps as i32,
@@ -902,7 +902,7 @@ pub(super) fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &In
         &host,
         session_config(settings, role, stream, location, watch.is_some() && settings.client_roaming),
         Box::new(pipeline::Decoder::new(shared.clone(), plan.hardware).with_early_decode(early).with_beam_race(slices).with_gpu_decoder(plan.gpu_decoder).with_dmabuf(plan.dmabuf)),
-        Box::new(pipeline::Audio::new(shared.clone(), passthrough)),
+        pipeline::audio_renderer(shared.clone(), passthrough, settings.mute_audio),
         Arc::new(pipeline::Events::new(shared)),
         interrupt,
     )

@@ -35,7 +35,7 @@ pub(super) const SECTION_KEYS: [&[&[&str]]; 8] = [
         &["capture_system_keys"], &["mouse_speed"], &["mouse_nav_buttons"], &["native_touchpad"], &["right_alt_as_meta"],
         &["gamepad_quit_combo"], &["controller_mouse"], &["analog_scrolling"], &["mouse_fixed_step"],
         &["gamepad_touchpad_as_mouse"], &["disable_rumble"], &["controller_motion"], &["controller_audio"], &["background_controllers"]],
-    &[&["audio"], &["play_audio_on_host"], &["microphone"], &["mic_echo_cancel"], &["audio_passthrough"]],
+    &[&["audio"], &["play_audio_on_host"], &["microphone"], &["mic_echo_cancel"], &["mute_audio"], &["audio_passthrough"]],
     &[&["overlay", "overlay_mode"], &["overlay_position"], &["auto_reconnect"],
         &["client_roaming"], &["roaming_metered"], &["network_grace_ms"], &["usb_forwarding"]],
     &[&["console_home"], &["quick_resume"], &["language"], &["ui_zoom"], &["high_contrast"], &["reduce_motion"],
@@ -908,6 +908,9 @@ impl Launcher {
                     }).response
                 });
             rows.always();
+            setting_row(ui, s, &mut rows, &["mute_audio"], "Mute audio", "Plays no sound from the stream on this device. The microphone and the PC's sound are unaffected.", |ui, s| {
+                toggle(ui, &mut s.mute_audio)
+            });
             setting_row(ui, s, &mut rows, &["audio_passthrough"], "Uncompressed audio", "Asks the PC for lossless sound instead of compressed audio. Uses 1.5 Mbps for stereo, up to 6 Mbps for 7.1. PCs that don't support it keep sending compressed audio.", |ui, s| {
                 toggle(ui, &mut s.audio_passthrough)
             });
@@ -1383,12 +1386,13 @@ pub(super) const MAIN_KEYS: [(&str, &[&str]); 8] = [
 
 /// Desktop rows and the Android preference each one matches. A row is main when its match is.
 #[cfg_attr(not(test), allow(dead_code))]
-pub(super) const ANDROID_KEYS: [(&str, &str); 37] = [
+pub(super) const ANDROID_KEYS: [(&str, &str); 38] = [
     ("width", "list_resolution"), ("fps", "list_fps"), ("bitrate_kbps", "seekbar_bitrate_kbps"),
     ("adaptive_bitrate", "checkbox_auto_bitrate"), ("codec", "video_format"), ("hdr", "checkbox_enable_hdr"),
     ("video_scaling", "checkbox_stretch_video"), ("controllers", "checkbox_multi_controller"),
     ("swap_face_buttons", "checkbox_flip_face_buttons"), ("clipboard_sync", "checkbox_clipboard_sync"),
-    ("audio", "list_audio_config"), ("play_audio_on_host", "checkbox_host_audio"), ("microphone", "checkbox_enable_mic"),
+    ("audio", "list_audio_config"), ("play_audio_on_host", "checkbox_host_audio"), ("mute_audio", "checkbox_mute_audio"),
+    ("microphone", "checkbox_enable_mic"),
     ("overlay", "checkbox_enable_perf_overlay"), ("auto_reconnect", "checkbox_auto_reconnect"),
     ("console_home", "checkbox_console_home"), ("quick_resume", "checkbox_quick_resume"), ("language", "list_languages"),
     ("full_range", "checkbox_full_range"), ("error_correction", "list_fec_choice"),

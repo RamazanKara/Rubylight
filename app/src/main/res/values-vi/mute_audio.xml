@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_checkbox_mute_audio">Tắt âm thanh</string>
+    <string name="summary_checkbox_mute_audio">Không phát âm thanh của stream trên thiết bị này. Micrô và âm thanh trên PC không thay đổi.</string>
+</resources>

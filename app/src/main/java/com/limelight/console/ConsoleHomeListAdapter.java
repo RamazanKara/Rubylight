@@ -465,8 +465,8 @@ final class ConsoleHomeListAdapter extends RecyclerView.Adapter<RecyclerView.Vie
 
         /** A line of the List layout: the game as its card is, with its store and when it was last played under the title. */
         void bindLine(String key, HomeModel.GameCard card) {
-            bindGame(card, false, listLine(context, card.storeName(), card.source == null ? null : card.source.lastPlayed,
-                    System.currentTimeMillis() / 1000));
+            // The newest any of the game's PCs says, as Recently played takes it.
+            bindGame(card, false, listLine(context, card.storeName(), card.lastPlayed, System.currentTimeMillis() / 1000));
             itemView.setOnFocusChangeListener((v, hasFocus) -> {
                 // On a TV the hero names the focused game, as for a poster.
                 if (hasFocus && tv != null && tv.focus != null) tv.focus.onCardFocus(TV_SHELF, new ShelfAdapter.Item(key, card, null), v);

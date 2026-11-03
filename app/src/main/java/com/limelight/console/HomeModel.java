@@ -52,6 +52,11 @@ public final class HomeModel {
         public final boolean addable;
         /** Every PC the card stands for: its own, and in the library all that list the game. */
         public final List<String> hostUuids;
+        /**
+         * When the game was last played (epoch seconds, 0 for never): in the library the newest any of its PCs says,
+         * else its own host's; null when none says.
+         */
+        public final Long lastPlayed;
 
         GameCard(String key, String title, String hostUuid, String hostName, int appId, Badge badge,
                  ConsoleSnapshot.Source source, int hostCount, boolean favourite) {
@@ -73,6 +78,13 @@ public final class HomeModel {
         GameCard(String key, String title, String hostUuid, String hostName, int appId, Badge badge,
                  ConsoleSnapshot.Source source, int hostCount, boolean favourite, boolean addable,
                  List<String> hostUuids) {
+            this(key, title, hostUuid, hostName, appId, badge, source, hostCount, favourite, addable, hostUuids,
+                    source == null ? null : source.lastPlayed);
+        }
+
+        GameCard(String key, String title, String hostUuid, String hostName, int appId, Badge badge,
+                 ConsoleSnapshot.Source source, int hostCount, boolean favourite, boolean addable,
+                 List<String> hostUuids, Long lastPlayed) {
             this.key = key;
             this.title = title;
             this.hostUuid = hostUuid;
@@ -84,6 +96,7 @@ public final class HomeModel {
             this.favourite = favourite;
             this.addable = addable;
             this.hostUuids = hostUuids;
+            this.lastPlayed = lastPlayed;
         }
 
         /** The store's key ("steam", ...); null for an app no store owns and for a classic app. */
@@ -343,7 +356,8 @@ public final class HomeModel {
                 continue;
             }
             library.add(new GameCard("game:" + title.key, title.title, best.hostUuid, best.hostName, best.appId,
-                    badgeOf(snapshot, best), best, hosts, starred.contains(best.hostUuid + ":" + best.appId), listing));
+                    badgeOf(snapshot, best), best, hosts, starred.contains(best.hostUuid + ":" + best.appId), false, listing,
+                    lastPlayed(title)));
         }
         List<GameCard> allGames = new ArrayList<>();
         List<Row> rows = libraryRows(snapshot, starred, allGames, launchDenied);
@@ -422,7 +436,7 @@ public final class HomeModel {
             }
             boolean star = starred.contains(best.hostUuid + ":" + best.appId);
             GameCard card = new GameCard("game:" + title.key, title.title, best.hostUuid, best.hostName, best.appId,
-                    badgeOf(snapshot, best), best, hosts, star, listing);
+                    badgeOf(snapshot, best), best, hosts, star, false, listing, lastPlayed(title));
             allGames.add(card);
             if (best.storeSource == null) {
                 other.add(card);
@@ -438,7 +452,7 @@ public final class HomeModel {
                 }
             }
             Long last = lastPlayed(title);
-            if (last != null) {
+            if (last != null && last > 0) {
                 played.add(new GameCard("recent:" + title.key, title.title, best.hostUuid, best.hostName, best.appId,
                         card.badge, best, hosts, star, listing));
             }
@@ -448,7 +462,7 @@ public final class HomeModel {
             Map<String, Long> at = new HashMap<>();
             for (ConsoleSnapshot.Title title : snapshot.titles) {
                 Long last = lastPlayed(title);
-                if (last != null) at.put("recent:" + title.key, last);
+                if (last != null && last > 0) at.put("recent:" + title.key, last);
             }
             // Newest first; the sort is stable, so a tie keeps the order of the names.
             Collections.sort(played, (a, b) -> Long.compare(at.get(b.key), at.get(a.key)));
@@ -477,12 +491,11 @@ public final class HomeModel {
         return rows;
     }
 
-    /** The newest last-played time of a title's added copies, or null when no host says or all say never (0). */
+    /** The newest last-played time of a title's added copies (0 when all say never), or null when no host says. */
     private static Long lastPlayed(ConsoleSnapshot.Title title) {
         Long newest = null;
         for (ConsoleSnapshot.Source source : title.sources) {
-            if (source.added && source.lastPlayed != null && source.lastPlayed > 0
-                    && (newest == null || source.lastPlayed > newest)) {
+            if (source.added && source.lastPlayed != null && (newest == null || source.lastPlayed > newest)) {
                 newest = source.lastPlayed;
             }
         }

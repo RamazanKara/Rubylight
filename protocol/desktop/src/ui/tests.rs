@@ -3634,6 +3634,16 @@ fn home_view_changes_layout_grouping_and_card_size_in_place() {
     assert!(!shows(&f, "Card size"), "a list's lines have one size: {:?}", f.drawn);
     assert!(shows(&f, "Steam 11") && !shows(&f, "All 12"), "{:?}", f.drawn);
     assert!(!f.drawn.iter().any(|t| t.to_lowercase().contains("played")), "no PC says when: nothing about playing {:?}", f.drawn);
+    // What the PC says: Steam 00 played just now, Steam 01 never.
+    let install = |f: &Frames, title: &str| {
+        let library = f.hosts.list[0].native.library.as_ref().expect("a library");
+        library.games.iter().find(|g| g.title == title).map(|g| g.install_id.clone()).expect(title)
+    };
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+    let (played, never) = (install(&f, "Steam 00"), install(&f, "Steam 01"));
+    f.hosts.list[0].native.last_played = std::collections::BTreeMap::from([(played, now), (never, 0)]);
+    f.settle();
+    assert!(shows(&f, "Steam · Played today") && shows(&f, "Steam · Not played yet"), "{:?}", f.drawn);
     // The title beside the cover (the last of the two the line draws), each line under the one before.
     let title = |f: &Frames, name: &str| f.placed.iter().rev().find(|(t, ..)| t == name).map(|p| p.1).expect(name);
     let (first, second) = (title(&f, "Steam 00"), title(&f, "Steam 01"));

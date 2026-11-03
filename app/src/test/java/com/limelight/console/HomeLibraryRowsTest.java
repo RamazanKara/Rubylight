@@ -168,6 +168,29 @@ public class HomeLibraryRowsTest {
     }
 
     @Test
+    public void aLibraryCardTakesTheNewestLastPlayedAcrossItsPcs() throws Exception {
+        tower(Collections.emptyList(), game(1, "Portal", "steam", true, 1_700_000_000L), game(2, "Quake", "steam", true, 0L),
+                game(3, "Doom", "steam", true, null));
+        rig.transport.reply("den", "capabilities", ok("{\"api_version\":1,\"features\":[\"library\"],"
+                + "\"permissions\":{\"list\":true,\"view\":true,\"launch\":true}}"));
+        rig.transport.reply("den", "library", ok(library("d", game(1, "Portal", "steam", true, 1_760_000_000L),
+                game(2, "Quake", "steam", true, null))));
+        rig.transport.reply("den", "session", ok(NativeApiFixtures.IDLE));
+        List<ComputerDetails> hosts = java.util.Arrays.asList(nativeHost("tower", "Tower", true), nativeHost("den", "Den", true));
+        HomeModel model = HomeModel.of(rig.repository.refresh(hosts), new HashSet<>(java.util.Arrays.asList("tower", "den")));
+        HomeModel.GameCard portal = null, quake = null, doom = null;
+        for (HomeModel.GameCard card : model.allGames) {
+            if (card.title.equals("Portal")) portal = card;
+            if (card.title.equals("Quake")) quake = card;
+            if (card.title.equals("Doom")) doom = card;
+        }
+        assertEquals(2, portal.hostCount);
+        assertEquals("the newer of the two PCs", Long.valueOf(1_760_000_000L), portal.lastPlayed);
+        assertEquals("one PC says never, the other nothing", Long.valueOf(0L), quake.lastPlayed);
+        assertNull("no PC says", doom.lastPlayed);
+    }
+
+    @Test
     public void gamesNotAddedAreARowOnlyWhenTheHostListsThem() throws Exception {
         tower(Collections.emptyList(), game(1, "Portal", "steam", true, null), found("Celeste", "gog"));
         HomeModel without = model();

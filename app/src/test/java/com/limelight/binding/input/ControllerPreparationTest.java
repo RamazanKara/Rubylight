@@ -645,6 +645,56 @@ public class ControllerPreparationTest {
         }
     }
 
+    @Test public void theOnScreenTouchpadButtonAsksTheHostForAPlayStationPad() {
+        try (ActivityController<Activity> activity = Robolectric.buildActivity(Activity.class).create()) {
+            PreferenceConfiguration prefs = new PreferenceConfiguration();
+            prefs.multiController = true;
+            prefs.onscreenController = true;
+            // Without the Touchpad button the on-screen pad stays quiet, as before: the host's default pad.
+            Connection quiet = new Connection(73);
+            ControllerHandler handler = new ControllerHandler(activity.get(), quiet, null, prefs);
+            try {
+                assertEquals("", handler.prepareControllersForLaunch());
+                handler.resendControllerArrivals();
+                assertEquals(0, quiet.arrivals);
+            } finally { handler.destroy(); }
+
+            prefs.showTouchpadButton = true;
+            Connection connection = new Connection(73);
+            handler = new ControllerHandler(activity.get(), connection, null, prefs);
+            try {
+                assertEquals("0:" + MoonBridge.LI_CTYPE_PS + ":0:" + ControllerHandler.ONSCREEN_PAD_BUTTONS,
+                        handler.prepareControllersForLaunch());
+                handler.resendControllerArrivals();
+                assertEquals(1, connection.arrivals);
+                assertEquals(0, connection.arrivalSlot);
+                assertEquals(MoonBridge.LI_CTYPE_PS, connection.arrivalType);
+                assertTrue((connection.arrivalButtons & ControllerPacket.TOUCHPAD_FLAG) != 0);
+            } finally { handler.destroy(); }
+        }
+    }
+
+    @Test public void aPadInPlayerOnesSlotKeepsItsTypeWithTheTouchpadButton() {
+        try (ActivityController<Activity> activity = Robolectric.buildActivity(Activity.class).create()) {
+            addInputDevice(activity.get(), 2, true, InputDevice.SOURCE_JOYSTICK | InputDevice.SOURCE_GAMEPAD);
+            PreferenceConfiguration prefs = new PreferenceConfiguration();
+            prefs.multiController = true;
+            prefs.onscreenController = true;
+            prefs.showTouchpadButton = true;
+            Connection connection = new Connection(73);
+            ControllerHandler handler = new ControllerHandler(activity.get(), connection, null, prefs);
+            try {
+                String[] prepared = handler.prepareControllersForLaunch().split(",");
+                assertEquals(1, prepared.length);
+                assertTrue(prepared[0].startsWith("0:1:"));
+                int before = connection.arrivals;
+                handler.resendControllerArrivals();
+                assertEquals(before + 1, connection.arrivals);
+                assertTrue(connection.arrivalType != MoonBridge.LI_CTYPE_PS);
+            } finally { handler.destroy(); }
+        }
+    }
+
     private static ControllerHandler handler(Activity activity, Connection connection) {
         PreferenceConfiguration prefs = new PreferenceConfiguration(); prefs.usbDualSenseHaptics = true;
         return new ControllerHandler(activity, connection, null, prefs);
@@ -654,12 +704,14 @@ public class ControllerPreparationTest {
         short activeMask;
         byte arrivalType;
         short arrivalCaps;
+        byte arrivalSlot;
+        int arrivalButtons;
         Connection(int appId) {
             super(null, new ComputerDetails.AddressTuple("127.0.0.1", 47989), 47984, "test",
                     new StreamConfiguration.Builder().setApp(new NvApp("Test", appId, false)).build(), null, null);
         }
         @Override public int sendControllerArrivalEvent(byte slot, short mask, byte type, int buttons, short caps) {
-            arrivals++; arrivalType = type; arrivalCaps = caps; return 0;
+            arrivals++; arrivalType = type; arrivalCaps = caps; arrivalSlot = slot; arrivalButtons = buttons; return 0;
         }
         @Override public void sendControllerInput(short slot, short mask, int buttons, byte leftTrigger,
                                                  byte rightTrigger, short leftX, short leftY, short rightX, short rightY) {

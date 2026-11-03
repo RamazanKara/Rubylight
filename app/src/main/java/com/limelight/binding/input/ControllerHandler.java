@@ -1456,6 +1456,31 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         return false;
     }
 
+    /** The buttons the on-screen controller has, for its arrival. */
+    static final int ONSCREEN_PAD_BUTTONS = ControllerPacket.A_FLAG | ControllerPacket.B_FLAG |
+            ControllerPacket.X_FLAG | ControllerPacket.Y_FLAG | ControllerPacket.UP_FLAG |
+            ControllerPacket.DOWN_FLAG | ControllerPacket.LEFT_FLAG | ControllerPacket.RIGHT_FLAG |
+            ControllerPacket.LB_FLAG | ControllerPacket.RB_FLAG | ControllerPacket.LS_CLK_FLAG |
+            ControllerPacket.RS_CLK_FLAG | ControllerPacket.BACK_FLAG | ControllerPacket.PLAY_FLAG |
+            ControllerPacket.SPECIAL_BUTTON_FLAG | ControllerPacket.TOUCHPAD_FLAG;
+
+    /**
+     * Whether the on-screen controller announces itself as a PlayStation pad. Only for its
+     * Touchpad button: hosts make a DualShock 4 or DualSense for this type, the pads with a
+     * touchpad click. Without the button it stays quiet and the host makes its default pad as
+     * before; a pad in player 1's slot keeps its own type.
+     */
+    private boolean announcesOnscreenPad() {
+        if (!prefConfig.onscreenController || !prefConfig.showTouchpadButton || prefConfig.onlyL3R3) return false;
+        for (InputDeviceContext context : inputDeviceContexts.values()) {
+            if (context.assignedControllerNumber && context.controllerNumber == 0) return false;
+        }
+        for (UsbDeviceContext context : usbDeviceContexts.values()) {
+            if (context.assignedControllerNumber && context.controllerNumber == 0) return false;
+        }
+        return true;
+    }
+
     private synchronized short getActiveControllerMask() {
         if (prefConfig.multiController) {
             return (short)(currentControllers | initialControllers |
@@ -2770,6 +2795,9 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
                         context.arrivalType(), caps,
                         context.device.getSupportedButtonFlags() | context.buttonMap.targetButtonFlags());
             }
+            if (controllers[0] == null && announcesOnscreenPad()) {
+                controllers[0] = launchController((short) 0, MoonBridge.LI_CTYPE_PS, (short) 0, ONSCREEN_PAD_BUTTONS);
+            }
             StringBuilder result = new StringBuilder();
             for (String controller : controllers) {
                 if (controller == null) continue;
@@ -2853,6 +2881,10 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         }
         // Newly assigned pads announce themselves here.
         prepareInputDevices();
+        if (announcesOnscreenPad()) {
+            conn.sendControllerArrivalEvent((byte) 0, getActiveControllerMask(), MoonBridge.LI_CTYPE_PS,
+                    ONSCREEN_PAD_BUTTONS, (short) 0);
+        }
         for (InputDeviceContext context : inputDeviceContexts.values()) {
             if (context.assignedControllerNumber) sendControllerInputPacket(context);
         }

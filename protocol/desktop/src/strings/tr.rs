@@ -6,6 +6,13 @@
 
 pub const TABLE: &[(&str, &str)] = &[
     ("Settings", "Ayarlar"),
+    ("List", "Liste"),
+    ("Not played yet", "Henüz oynanmadı"),
+    ("Played today", "Bugün oynandı"),
+    ("Played yesterday", "Dün oynandı"),
+    ("Played {} days ago", "{} gün önce oynandı"),
+    ("Previous tab", "Önceki sekme"),
+    ("Next tab", "Sonraki sekme"),
     ("Profiles", "Profiller"),
     ("Controller mappings", "Kumanda eşlemeleri"),
     ("Keyboard shortcuts", "Klavye kısayolları"),

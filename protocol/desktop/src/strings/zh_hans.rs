@@ -6,6 +6,13 @@
 
 pub const TABLE: &[(&str, &str)] = &[
     ("Settings", "设置"),
+    ("List", "列表"),
+    ("Not played yet", "尚未玩过"),
+    ("Played today", "今天玩过"),
+    ("Played yesterday", "昨天玩过"),
+    ("Played {} days ago", "{} 天前玩过"),
+    ("Previous tab", "上一个标签页"),
+    ("Next tab", "下一个标签页"),
     ("Profiles", "配置"),
     ("Controller mappings", "手柄映射"),
     ("Keyboard shortcuts", "键盘快捷键"),

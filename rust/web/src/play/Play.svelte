@@ -32,6 +32,7 @@
   let video = $state<HTMLVideoElement>();
   let surface = $state<HTMLDivElement>();
   let screen = $state<HTMLElement>();
+  let page = $state<HTMLElement>();
   let menuBox = $state<HTMLElement>();
   let stream: PlayStream | null = null;
   let cancelPairing: (() => void) | null = null;
@@ -288,8 +289,9 @@
     (menuBox ?? screen)?.querySelector<HTMLElement>('[data-nav]')?.focus();
   }
 
+  /** The focus moves over the menu while it is open, else over the page with its header. */
   function move(direction: Move) {
-    const items = [...((menu ? menuBox : screen)?.querySelectorAll<HTMLElement>('[data-nav]') ?? [])];
+    const items = [...((menu ? menuBox : page)?.querySelectorAll<HTMLElement>('[data-nav]') ?? [])];
     const index = items.indexOf(document.activeElement as HTMLElement);
     if (index < 0) return items[0]?.focus();
     const boxes = items.map((item) => item.getBoundingClientRect());
@@ -398,7 +400,7 @@
 
 <svelte:window onkeydown={windowKey} onpagehide={() => stream?.close()} />
 
-<main class:live>
+<main class:live bind:this={page}>
   {#if !live}
     <header>
       <BrandMark size={44} />

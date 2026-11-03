@@ -105,7 +105,12 @@ public final class HostCapabilities {
          * Nucleus Co-op sessions to list and join (native "coop"). Known only after {@link #withNativeCapabilities}.
          * Whether this device may take a free slot is per session.
          */
-        COOP(0);
+        COOP(0),
+        /**
+         * Microphone-only sessions (native "session.mic_only"): the PC hears this device's microphone and nothing
+         * else. Known only after {@link #withNativeCapabilities}, and only for a device with the launch permission.
+         */
+        MIC_ONLY(0);
 
         @StringRes public final int label;
 
@@ -360,6 +365,7 @@ public final class HostCapabilities {
         boolean imageClipboard = false;
         boolean folders = false;
         boolean coop = false;
+        boolean micOnly = false;
         for (int i = 0; i < features.length(); i++) {
             Object feature = features.get(i);
             if (!(feature instanceof String)) {
@@ -371,6 +377,7 @@ public final class HostCapabilities {
             imageClipboard |= "clipboard.image".equals(feature);
             folders |= "folders".equals(feature);
             coop |= "coop".equals(feature);
+            micOnly |= "session.mic_only".equals(feature);
         }
         boolean uploadPermission = permission(permissions, "file_upload");
         boolean downloadPermission = permission(permissions, "file_download");
@@ -392,6 +399,8 @@ public final class HostCapabilities {
         native_.foldersOffered = folders;
         native_.folderPermission = folderPermission;
         native_.coopOffered = coop;
+        // Starting one takes the launch permission, so it is offered only with that.
+        native_.micOnlyOffered = micOnly && typed(permissions, "launch", Boolean.class);
         return new HostCapabilities(native_);
     }
 
@@ -584,6 +593,8 @@ public final class HostCapabilities {
         boolean folderPermission;
         /** coop in the native features. */
         boolean coopOffered;
+        /** session.mic_only in the native features, with the launch permission. */
+        boolean micOnlyOffered;
 
         static Evidence parse(String serverInfo) throws XmlPullParserException, IOException {
             Evidence evidence = new Evidence();
@@ -935,6 +946,8 @@ public final class HostCapabilities {
                     // No permission reason: a device without Join co-op still sees the sessions and returns to its
                     // own slot; each session says why it cannot take a free one.
                     return nativeFeature(coopOffered, null);
+                case MIC_ONLY:
+                    return nativeFeature(micOnlyOffered, null);
                 default:
                     throw new IllegalArgumentException(feature.name());
             }
@@ -992,7 +1005,7 @@ public final class HostCapabilities {
                     .put("displayScaleVersion", displayScaleVersion).put("usbOffered", usbOffered)
                     .put("usbPermission", usbPermission).put("imageClipboardOffered", imageClipboardOffered)
                     .put("foldersOffered", foldersOffered).put("folderPermission", folderPermission)
-                    .put("coopOffered", coopOffered);
+                    .put("coopOffered", coopOffered).put("micOnlyOffered", micOnlyOffered);
             if (rustHostVersion != null) object.put("rustHostVersion", rustHostVersion);
             if (frameLimiter != null) object.put("frameLimiter", frameLimiter);
             if (virtualDisplayCapable != null) object.put("virtualDisplayCapable", virtualDisplayCapable);
@@ -1049,6 +1062,7 @@ public final class HostCapabilities {
             evidence.foldersOffered = object.optBoolean("foldersOffered", false);
             evidence.folderPermission = object.optBoolean("folderPermission", false);
             evidence.coopOffered = object.optBoolean("coopOffered", false);
+            evidence.micOnlyOffered = object.optBoolean("micOnlyOffered", false);
             if (evidence.permission < -1 || evidence.permission > 0xFFFFFFFFL || evidence.serverCommands < 0 ||
                     (evidence.rustHostVersion != null && evidence.rustHostVersion.isEmpty())) {
                 throw new JSONException("Invalid stored capabilities");
@@ -1094,7 +1108,7 @@ public final class HostCapabilities {
                     usbOffered == that.usbOffered &&
                     usbPermission == that.usbPermission && imageClipboardOffered == that.imageClipboardOffered &&
                     foldersOffered == that.foldersOffered && folderPermission == that.folderPermission &&
-                    coopOffered == that.coopOffered;
+                    coopOffered == that.coopOffered && micOnlyOffered == that.micOnlyOffered;
         }
 
         @Override
@@ -1107,7 +1121,7 @@ public final class HostCapabilities {
                     filesDownload, fileUploadPermission, fileDownloadPermission, hdrFormats, fecControlVersion,
                     bandwidthProbeVersion, audioCodecs, audioLayouts, textInputVersion, keyboardLayoutVersion,
                     penBarrelRollVersion, pipelineRatesVersion, displayScaleVersion, usbOffered, usbPermission,
-                    imageClipboardOffered, foldersOffered, folderPermission, coopOffered);
+                    imageClipboardOffered, foldersOffered, folderPermission, coopOffered, micOnlyOffered);
         }
     }
 }

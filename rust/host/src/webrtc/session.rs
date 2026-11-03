@@ -12,6 +12,7 @@
 //! transport closes, or the stream fails; the actor says `idle` (or `error`) when it notices.
 
 use super::{
+    guests::{self, OwnerGuard},
     input::{self, InputHandle},
     media::{
         self, AudioSender, Hooks, IdrReason, MediaHandle, Pacing, Submit, TransportEvent,
@@ -429,6 +430,8 @@ struct Live {
     events: UnboundedReceiver<Event>,
     /// Keeps the event channel open for as long as the session is live.
     _bridge: Arc<Bridge>,
+    /// A console stream's guests watch it while it is live (docs/browser-guests.md).
+    _owner: Option<OwnerGuard>,
     connected: bool,
     /// The transport connected before the worker vouched for an HDR source: "streaming" waits.
     streaming_held: bool,
@@ -1022,13 +1025,14 @@ impl Actor {
             )))
         });
         match started {
-            Ok(session) => {
+            Ok((session, owner)) => {
                 self.live = Some(Live {
                     id: session_id,
                     session,
                     settings,
                     events: receiver,
                     _bridge: bridge,
+                    _owner: owner,
                     connected: false,
                     streaming_held: false,
                     since: Instant::now(),
@@ -1120,7 +1124,7 @@ fn go_live(
     mut prepared: Prepared,
     answer: &str,
     bridge: &Arc<Bridge>,
-) -> Result<Arc<Session>, Rejected> {
+) -> Result<(Arc<Session>, Option<OwnerGuard>), Rejected> {
     let started = start_live(
         h,
         media,
@@ -1161,7 +1165,7 @@ fn start_live(
     prepared: &mut Prepared,
     answer: &str,
     bridge: &Arc<Bridge>,
-) -> Result<Arc<Session>, Rejected> {
+) -> Result<(Arc<Session>, Option<OwnerGuard>), Rejected> {
     let (Some(socket), Some(mut rtc), Some(offer)) = (
         prepared.socket.take(),
         prepared.rtc.take(),
@@ -1177,6 +1181,7 @@ fn start_live(
         tier = ?answered.video_tier,
         "WebRTC answer accepted"
     );
+    let answered_layout = answered.audio_layout.clone();
     let audio_layout = audio_layout(settings.audio_channels as u8, answered.audio_layout)
         .map_err(Rejected::Answer)?;
     let link = butterpollo_windows::net::routed_link(peer);
@@ -1219,6 +1224,7 @@ fn start_live(
     )
     .map_err(Rejected::Host)?;
     input.control(handle.control_sender());
+    let followers = handle.followers();
     h.webrtc_links
         .put(launch.id.clone(), handle.with_audio_layout(audio_layout));
     let negotiated = Negotiated::webrtc(
@@ -1234,7 +1240,20 @@ fn start_live(
     let session = started.map_err(|error| Rejected::Host(error.context("starting the session")))?;
     bridge.bind(&session);
     media.start(h.clone(), session.clone());
-    Ok(session)
+    // Only the console's own stream page streams for an owner who can invite guests.
+    let owner = launch.client.console().is_some().then(|| {
+        OwnerGuard::new(
+            h,
+            guests::Owner {
+                spec: prepared.spec.clone(),
+                audio_layout: answered_layout,
+                followers,
+                input,
+                session: Arc::downgrade(&session),
+            },
+        )
+    });
+    Ok((session, owner))
 }
 
 /// Why an answered session did not start.

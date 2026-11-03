@@ -415,7 +415,7 @@ async fn the_guest_port_answers_only_while_a_link_is_live() {
         assert!(icon.text().starts_with("<svg"), "{path}");
     }
     f.host.guests.revoke(&id);
-    for path in ["/guest/", "/guest/favicon.svg"] {
+    for path in ["/guest/", "/guest/favicon.svg", "/favicon.ico"] {
         assert_eq!(
             guest(&f, WAN, "GET", path, &[]).await.status,
             StatusCode::NOT_FOUND,

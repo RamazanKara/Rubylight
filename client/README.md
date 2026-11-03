@@ -210,7 +210,7 @@ The Android app builds with Gradle and JDK 21; its native code needs the Android
 
 ## Contributing
 
-Report bugs and request features in the [issue tracker](https://github.com/RamazanKara/nightjar/issues/new/choose). [Device results](docs/devices.md) explains how to submit your device's benchmark, and [translations](docs/TRANSLATIONS.md#help-translate) explains how to correct or add a language. The Android app ships in 15 languages; the desktop app in English and German.
+Report bugs and request features in the [issue tracker](https://github.com/RamazanKara/nightjar/issues/new/choose). [Device results](docs/devices.md) explains how to submit your device's benchmark, and [translations](docs/TRANSLATIONS.md#help-translate) explains how to correct or add a language. Nightjar ships in 15 languages on Android, Windows and Linux.
 
 ## Privacy
 

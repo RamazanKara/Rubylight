@@ -2,7 +2,7 @@
 
 [Documentation](index.md)
 
-The Android app ships in 15 languages; Nightjar for Windows and Linux in English and German. English (`values`) is the source text. Lint treats a missing translation as an error.
+Nightjar ships in 15 languages on Android, Windows and Linux. English (`values`) is the source text. Lint treats a missing translation as an error.
 
 ## Languages
 
@@ -49,6 +49,22 @@ Run `python scripts/translation-status.py` to list missing or stale keys per lan
 - Keep every placeholder: `%1$s`, `%2$d`, `%d`, `%1$.1f`, `%%`. Positional placeholders may move; plural items keep the number.
 - Escape apostrophes as `\'` or use the typographic ’; escape double quotes as `\"` or use your language's quotation marks. Keep `\n`, `&amp;` and inline tags such as `<b>` intact.
 - Give plurals every quantity your language needs (for example `one`, `few`, `many` and `other` in Russian, Ukrainian and Polish; only `other` in Chinese, Japanese, Korean and Vietnamese).
+
+## Desktop
+
+Nightjar for Windows and Linux has the same 15 languages. Its text lives in `protocol/desktop/src/strings/<language>.rs`, one table per language keyed by the English literal, worded like the Android strings of the same sentence. It follows the system language, or the Language setting under Settings → App. A test in `strings.rs` requires an entry for every English text in every table, with the same placeholders, and another checks that zh-CN and zh-Hans pick Simplified Chinese, zh-TW, zh-Hant and zh-HK Traditional, and pt-BR Portuguese (Brazil).
+
+The desktop's own font, Figtree, has Latin-1 letters only. For the other languages Nightjar loads a system font when the language is chosen, and logs a line naming the font to install when there is none:
+
+| Languages | Windows | Linux (through fontconfig) |
+| --- | --- | --- |
+| Japanese | Yu Gothic UI, else Meiryo | Noto Sans CJK JP, else Source Han Sans JP |
+| Korean | Malgun Gothic | Noto Sans CJK KR, else Source Han Sans KR |
+| Chinese, Simplified | Microsoft YaHei UI | Noto Sans CJK SC, else Source Han Sans SC |
+| Chinese, Traditional | Microsoft JhengHei UI | Noto Sans CJK TC, else Source Han Sans TC |
+| Polish, Russian, Turkish, Ukrainian, Vietnamese | Segoe UI | Noto Sans, else DejaVu Sans |
+
+For the last row the system font draws the whole interface, so no word mixes two typefaces. `theme.rs` tests that every text of every table has its glyphs in the loaded fonts; a language whose font is not installed on the test machine is skipped there.
 
 `TranslationResourcesTest` (a JVM unit test run in CI) enforces these checks for every `values-*` folder:
 

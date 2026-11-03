@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="host_menu_coop">Tham gia co-op</string>
+    <string name="host_menu_coop_note">Nhận một chỗ người chơi còn trống</string>
+    <string name="coop_title">Co-op trên %1$s</string>
+    <string name="coop_loading">Đang hỏi %1$s về các phiên co-op…</string>
+    <string name="coop_none">Không có phiên co-op nào đang chạy. Hãy khởi động “&lt;trò chơi&gt; (Co-op)” từ thư viện, các thiết bị khác có thể tham gia tại đây.</string>
+    <string name="coop_status">Trạng thái</string>
+    <string name="coop_phase_starting">Đang khởi động</string>
+    <string name="coop_phase_running">Đang chạy</string>
+    <string name="coop_phase_ended">Đã kết thúc</string>
+    <string name="coop_phase_unknown">Không rõ</string>
+    <string name="coop_player">Người chơi %1$d</string>
+    <string name="coop_player_free">Trống</string>
+    <string name="coop_player_unnamed">Một thiết bị</string>
+    <string name="coop_player_you">%1$s (thiết bị này)</string>
+    <string name="coop_player_away">%1$s, vắng mặt</string>
+    <string name="coop_end_ended">Phiên đã bị kết thúc.</string>
+    <string name="coop_end_empty">Mọi người chơi đã rời đi.</string>
+    <string name="coop_end_crashed">Một phiên bản trò chơi bị lỗi.</string>
+    <string name="coop_end_failed">Trò chơi không khởi động.</string>
+    <string name="coop_end_unknown">Phiên đã kết thúc.</string>
+    <string name="coop_join">Tham gia</string>
+    <plurals name="coop_free_slots">
+        <item quantity="other">%d chỗ trống</item>
+    </plurals>
+    <string name="coop_cannot_join">Thiết bị này hiện không thể tham gia phiên này.</string>
+    <string name="coop_return">Trở về chỗ của bạn</string>
+    <string name="coop_return_note">Người chơi %1$d</string>
+    <string name="coop_refresh">Kiểm tra lại</string>
+    <string name="coop_joining">Đang tham gia %1$s…</string>
+    <string name="coop_unavailable_no_reason">PC hiện không thể chạy phiên co-op.</string>
+    <string name="coop_problem_permission">“Can join co-op games” đang tắt cho thiết bị này</string>
+    <string name="coop_problem_refused">%1$s đã từ chối tham gia</string>
+    <string name="coop_problem_gone">Phiên co-op không còn nữa</string>
+    <string name="coop_problem_busy">Co-op đang bận trên %1$s</string>
+    <string name="coop_problem_unavailable">Co-op không khả dụng trên %1$s</string>
+    <string name="coop_problem_unreachable">Không thể kết nối tới %1$s</string>
+    <string name="coop_problem_other">Co-op thất bại</string>
+    <string name="coop_problem_no_message">PC không đưa ra lý do (HTTP %1$d).</string>
+</resources>

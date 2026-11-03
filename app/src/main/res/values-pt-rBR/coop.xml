@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="host_menu_coop">Entrar no co-op</string>
+    <string name="host_menu_coop_note">Ocupar uma vaga de jogador livre</string>
+    <string name="coop_title">Co-op em %1$s</string>
+    <string name="coop_loading">Perguntando a %1$s pelas sessões co-op…</string>
+    <string name="coop_none">Nenhuma sessão co-op em andamento. Inicie “&lt;jogo&gt; (Co-op)” pela biblioteca, e outros dispositivos poderão entrar aqui.</string>
+    <string name="coop_status">Status</string>
+    <string name="coop_phase_starting">Iniciando</string>
+    <string name="coop_phase_running">Em andamento</string>
+    <string name="coop_phase_ended">Encerrada</string>
+    <string name="coop_phase_unknown">Desconhecido</string>
+    <string name="coop_player">Jogador %1$d</string>
+    <string name="coop_player_free">Livre</string>
+    <string name="coop_player_unnamed">Um dispositivo</string>
+    <string name="coop_player_you">%1$s (este dispositivo)</string>
+    <string name="coop_player_away">%1$s, ausente</string>
+    <string name="coop_end_ended">A sessão foi encerrada.</string>
+    <string name="coop_end_empty">Todos os jogadores saíram.</string>
+    <string name="coop_end_crashed">Uma instância do jogo travou.</string>
+    <string name="coop_end_failed">O jogo não iniciou.</string>
+    <string name="coop_end_unknown">A sessão acabou.</string>
+    <string name="coop_join">Entrar</string>
+    <plurals name="coop_free_slots">
+        <item quantity="one">%d vaga livre</item>
+        <item quantity="many">%d vagas livres</item>
+        <item quantity="other">%d vagas livres</item>
+    </plurals>
+    <string name="coop_cannot_join">Este dispositivo não pode entrar nesta sessão agora.</string>
+    <string name="coop_return">Voltar ao seu lugar</string>
+    <string name="coop_return_note">Jogador %1$d</string>
+    <string name="coop_refresh">Verificar de novo</string>
+    <string name="coop_joining">Entrando em %1$s…</string>
+    <string name="coop_unavailable_no_reason">O PC não pode executar sessões co-op agora.</string>
+    <string name="coop_problem_permission">“Can join co-op games” está desativado para este dispositivo</string>
+    <string name="coop_problem_refused">%1$s recusou a entrada</string>
+    <string name="coop_problem_gone">A sessão co-op não existe mais</string>
+    <string name="coop_problem_busy">O co-op está ocupado em %1$s</string>
+    <string name="coop_problem_unavailable">O co-op não está disponível em %1$s</string>
+    <string name="coop_problem_unreachable">Não foi possível acessar %1$s</string>
+    <string name="coop_problem_other">O co-op falhou</string>
+    <string name="coop_problem_no_message">O PC não informou o motivo (HTTP %1$d).</string>
+</resources>

@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="host_menu_coop">Co-op 참여</string>
+    <string name="host_menu_coop_note">빈 플레이어 자리 차지하기</string>
+    <string name="coop_title">%1$s의 Co-op</string>
+    <string name="coop_loading">%1$s에 Co-op 세션을 묻는 중…</string>
+    <string name="coop_none">실행 중인 Co-op 세션이 없습니다. 라이브러리에서 “&lt;게임&gt; (Co-op)”을 시작하면 다른 기기가 여기서 참여할 수 있습니다.</string>
+    <string name="coop_status">상태</string>
+    <string name="coop_phase_starting">시작 중</string>
+    <string name="coop_phase_running">실행 중</string>
+    <string name="coop_phase_ended">종료됨</string>
+    <string name="coop_phase_unknown">알 수 없음</string>
+    <string name="coop_player">플레이어 %1$d</string>
+    <string name="coop_player_free">비어 있음</string>
+    <string name="coop_player_unnamed">기기</string>
+    <string name="coop_player_you">%1$s (이 기기)</string>
+    <string name="coop_player_away">%1$s, 자리 비움</string>
+    <string name="coop_end_ended">세션이 종료되었습니다.</string>
+    <string name="coop_end_empty">모든 플레이어가 나갔습니다.</string>
+    <string name="coop_end_crashed">게임 인스턴스가 충돌했습니다.</string>
+    <string name="coop_end_failed">게임이 시작되지 않았습니다.</string>
+    <string name="coop_end_unknown">세션이 끝났습니다.</string>
+    <string name="coop_join">참여</string>
+    <plurals name="coop_free_slots">
+        <item quantity="other">빈 자리 %d개</item>
+    </plurals>
+    <string name="coop_cannot_join">이 기기는 지금 이 세션에 참여할 수 없습니다.</string>
+    <string name="coop_return">내 자리로 돌아가기</string>
+    <string name="coop_return_note">플레이어 %1$d</string>
+    <string name="coop_refresh">다시 확인</string>
+    <string name="coop_joining">%1$s에 참여하는 중…</string>
+    <string name="coop_unavailable_no_reason">PC가 지금은 Co-op 세션을 실행할 수 없습니다.</string>
+    <string name="coop_problem_permission">이 기기에서 “Can join co-op games”가 꺼져 있습니다</string>
+    <string name="coop_problem_refused">%1$s이(가) 참여를 거부했습니다</string>
+    <string name="coop_problem_gone">Co-op 세션이 더 이상 없습니다</string>
+    <string name="coop_problem_busy">%1$s의 Co-op이 사용 중입니다</string>
+    <string name="coop_problem_unavailable">%1$s에서 Co-op을 사용할 수 없습니다</string>
+    <string name="coop_problem_unreachable">%1$s에 연결할 수 없습니다</string>
+    <string name="coop_problem_other">Co-op 실패</string>
+    <string name="coop_problem_no_message">PC가 이유를 알려 주지 않았습니다(HTTP %1$d).</string>
+</resources>

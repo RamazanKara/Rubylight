@@ -318,40 +318,97 @@ fn an_app_package_or_capability_entry_above_or_in_the_folder_is_no_refusal() {
     );
 }
 
+/// What [`left_in_checked`] accepts, by path, or the first refusal.
+fn left(data: &Path, configured: &str, checks: &Checks) -> Vec<Result<PathBuf, String>> {
+    left_in_checked(data, configured, checks)
+        .into_iter()
+        .map(|left| {
+            left.map(|left| left.folder().to_path_buf())
+                .map_err(|error| format!("{error:#}"))
+        })
+        .collect()
+}
+
 #[test]
 fn settings_are_put_back_from_a_folder_nucleus_no_longer_runs_from() {
     let tree = tree();
     let release = manifest();
     let checks = checks(&release, &tree.top);
     let data = earlier(&tree);
-    // Another release, below a folder others can move: no longer run from.
+    // Another release, with a handler others can change: no longer run from.
     std::fs::write(tree.folder.join(pinned::EXECUTABLE), b"MZ 2.3.1").unwrap();
-    crate::process::restrict(&tree.top.join("Programs"), &sddl("(A;;0x40;;;AU)")).unwrap();
-    crate::process::restrict(&tree.folder, &sddl("")).unwrap();
+    crate::process::restrict(&tree.folder.join("handlers"), &sddl("(A;;0x1301bf;;;AU)")).unwrap();
     assert!(check(&tree, &tree.folder).is_err());
     let configured = tree.folder.to_string_lossy().into_owned();
-    let folders: Vec<PathBuf> = left_in_checked(&data, &configured, &checks)
-        .into_iter()
-        .map(Result::unwrap)
-        .collect();
-    assert_eq!(folders, [tree.folder.clone(), pinned::folder(&data)]);
+    assert_eq!(
+        left(&data, &configured, &checks),
+        [Ok(tree.folder.clone()), Ok(pinned::folder(&data))]
+    );
     // Named twice, listed once; one not there is skipped.
     let earlier_folder = pinned::folder(&data).to_string_lossy().to_uppercase();
-    let folders = left_in_checked(&data, &earlier_folder, &checks);
-    assert_eq!(folders.len(), 1);
+    assert_eq!(left(&data, &earlier_folder, &checks).len(), 1);
     let gone = tree.top.join("Gone");
-    let folders = left_in_checked(&gone, "", &checks);
-    assert!(folders.is_empty());
+    assert!(left(&gone, "", &checks).is_empty());
+    // Held open until the restore is done: it can't be moved aside meanwhile.
+    let held = left_in_checked(&data, &configured, &checks);
+    let aside = tree.top.join("Programs").join("Aside");
+    assert!(std::fs::rename(&tree.folder, &aside).is_err());
+    drop(held);
+    std::fs::rename(&tree.folder, &aside).unwrap();
+    std::fs::rename(&aside, &tree.folder).unwrap();
     // A folder others can change could hold a file nobody trusted wrote.
     crate::process::restrict(&tree.folder, &sddl("(A;;0x1301bf;;;AU)")).unwrap();
-    let folders = left_in_checked(&data, &configured, &checks);
-    let error = format!("{:#}", folders[0].as_ref().unwrap_err());
+    let folders = left(&data, &configured, &checks);
+    let error = folders[0].as_ref().unwrap_err();
     assert!(
         error.contains("doesn't put back the settings a Nucleus Co-op session left in"),
         "{error}"
     );
     assert!(error.contains("can be changed by S-1-5-11"), "{error}");
-    assert_eq!(folders[1].as_ref().unwrap(), &pinned::folder(&data));
+    assert_eq!(folders[1], Ok(pinned::folder(&data)));
+}
+
+#[test]
+fn settings_are_never_put_back_from_a_folder_that_can_be_swapped() {
+    let tree = tree();
+    let release = manifest();
+    let checks = checks(&release, &tree.top);
+    let data = tree.top.join("none");
+    let configured = tree.folder.to_string_lossy().into_owned();
+    // Its parent others can move: the folder could be moved aside and another
+    // put in its place after the check.
+    crate::process::restrict(&tree.top.join("Programs"), &sddl("(A;;0x40;;;AU)")).unwrap();
+    crate::process::restrict(&tree.folder, &sddl("")).unwrap();
+    let folders = left(&data, &configured, &checks);
+    let error = folders[0].as_ref().unwrap_err();
+    assert!(
+        error.contains("can be moved or renamed by S-1-5-11"),
+        "{error}"
+    );
+    crate::process::restrict(&tree.top.join("Programs"), &sddl("")).unwrap();
+    assert_eq!(left(&data, &configured, &checks), [Ok(tree.folder.clone())]);
+    // A link, to a folder that would pass, or on the way to it.
+    let link = tree.top.join("Link");
+    junction(&link, &tree.folder);
+    let error = left(&data, &link.to_string_lossy(), &checks)
+        .remove(0)
+        .unwrap_err();
+    assert!(error.contains("is a link to elsewhere"), "{error}");
+    let through = tree.top.join("Through");
+    junction(&through, &tree.top.join("Programs"));
+    let below = through.join("Nucleus Co-op");
+    let error = left(&data, &below.to_string_lossy(), &checks)
+        .remove(0)
+        .unwrap_err();
+    assert!(error.contains("through a link or a short name"), "{error}");
+    // A device path, or one through `..`.
+    for path in [
+        format!(r"\\?\{}", tree.folder.display()),
+        format!(r"{}\..\Nucleus Co-op", tree.folder.display()),
+    ] {
+        assert!(std::fs::symlink_metadata(&path).is_ok(), "{path}");
+        assert!(left(&data, &path, &checks)[0].is_err(), "{path}");
+    }
 }
 
 #[test]

@@ -234,15 +234,11 @@ struct Checked {
     program: std::fs::File,
 }
 
-/// The folder at `folder`, when Rubylight runs Nucleus Co-op from it: a
-/// folder on a fixed drive of this PC named by its own full path, holding
-/// the pinned release whole and unblocked, owned and changed only by those
-/// `checks` trusts, as is every file and folder in it, with no link in it or
-/// on its way, below folders only they may move, on a drive inside this PC
-/// and the one it was on when it was first checked.
-fn chosen(folder: &Path, checks: &Checks) -> Result<Checked> {
+/// Where `folder` is, unless that alone refuses it: no device or network
+/// path, no relative one, none through `.` or `..`, and on a fixed drive
+/// inside this PC. Its drive's root (`C:\`) and the drive.
+fn placed(folder: &Path, checks: &Checks) -> Result<(String, Volume)> {
     let shown = folder.display();
-    let version = pinned::VERSION;
     let exe_name = pinned::EXECUTABLE;
     let text = folder.to_string_lossy();
     let device = [r"\\?\", r"\\.\", "//?/", "//./"]
@@ -298,6 +294,20 @@ fn chosen(folder: &Path, checks: &Checks) -> Result<Checked> {
             ),
         ));
     }
+    Ok((root, volume))
+}
+
+/// The folder at `folder`, when Rubylight runs Nucleus Co-op from it: a
+/// folder on a fixed drive of this PC named by its own full path, holding
+/// the pinned release whole and unblocked, owned and changed only by those
+/// `checks` trusts, as is every file and folder in it, with no link in it or
+/// on its way, below folders only they may move, on a drive inside this PC
+/// and the one it was on when it was first checked.
+fn chosen(folder: &Path, checks: &Checks) -> Result<Checked> {
+    let shown = folder.display();
+    let version = pinned::VERSION;
+    let exe_name = pinned::EXECUTABLE;
+    let (root, volume) = placed(folder, checks)?;
     // Never followed: a link would be checked here and run from elsewhere.
     let handle = match crate::process::open_unfollowed(folder, true) {
         Ok(handle) => handle,
@@ -960,29 +970,49 @@ fn grants_alone(sid: &str) -> bool {
 /// The Nucleus folders an earlier session may have left settings in to put
 /// back: the one `configured` names (`nucleus_path`) and the copy an earlier
 /// Rubylight installed below `data`, each that is there, by the path Windows
-/// resolved. Unlike [`installed`], neither need hold the pinned release nor
-/// pass the checks for running Nucleus elevated: putting back runs nothing
-/// and never writes through a link ([`super::unfollowed`]), so the user's
-/// settings come back from a folder Rubylight no longer runs Nucleus from.
-/// Each must still be no link, and owned and changed only by SYSTEM,
-/// Administrators and TrustedInstaller, as Rubylight left it: nobody else
-/// could have put a file there for SYSTEM to apply. An error per folder
-/// refused.
-pub fn left_in(data: &Path, configured: &str) -> Vec<Result<PathBuf>> {
+/// resolved. Unlike [`installed`], neither need hold the pinned release:
+/// putting back runs nothing, so the user's settings come back from a folder
+/// Rubylight no longer runs Nucleus from. Each is otherwise checked as
+/// [`chosen`] checks one, since SYSTEM writes there and applies what it
+/// holds to the user's hive: on a fixed drive inside this PC, named by its
+/// own full path, no link in it or on its way, below folders only SYSTEM,
+/// Administrators and TrustedInstaller may move, and owned and changed only
+/// by them, so nobody else could have put a file there or swap the folder.
+/// Each stays open ([`Left`]) until its restore is done. An error per
+/// folder refused.
+pub fn left_in(data: &Path, configured: &str) -> Vec<Result<Left>> {
     left_in_checked(data, configured, &Checks::pc())
 }
 
-fn left_in_checked(data: &Path, configured: &str, checks: &Checks) -> Vec<Result<PathBuf>> {
+/// A Nucleus folder [`left_in`] accepted, held open: it can't be renamed,
+/// deleted or replaced while this lives. Restore from [`Left::folder`].
+pub struct Left {
+    folder: PathBuf,
+    _handle: std::fs::File,
+}
+impl Left {
+    /// The folder by the path Windows resolved it to.
+    pub fn folder(&self) -> &Path {
+        &self.folder
+    }
+}
+
+fn left_in_checked(data: &Path, configured: &str, checks: &Checks) -> Vec<Result<Left>> {
     let configured = configured.trim();
     let mut candidates = Vec::new();
-    if !configured.is_empty() && Path::new(configured).is_absolute() {
+    if !configured.is_empty() {
         candidates.push(PathBuf::from(configured));
     }
     candidates.push(pinned::folder(data));
     let mut seen: Vec<String> = Vec::new();
     let mut folders = Vec::new();
     for folder in candidates {
-        let checked = (|| -> Result<Option<PathBuf>> {
+        // Nothing there, under any name: nothing to put back.
+        if std::fs::symlink_metadata(&folder).is_err() {
+            continue;
+        }
+        let checked = (|| -> Result<Option<Left>> {
+            placed(&folder, checks)?;
             let handle = match crate::process::open_unfollowed(&folder, true) {
                 Ok(handle) => handle,
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
@@ -991,15 +1021,26 @@ fn left_in_checked(data: &Path, configured: &str, checks: &Checks) -> Vec<Result
                 }
             };
             let attributes = attributes_of(&handle, &folder)?;
-            if attributes & DIRECTORY == 0 {
-                return Ok(None);
-            }
             if attributes & REPARSE_POINT != 0 {
                 bail!("{} is a link to elsewhere", folder.display());
             }
-            let resolved = PathBuf::from(normal(
+            if attributes & DIRECTORY == 0 {
+                return Ok(None);
+            }
+            let resolved = normal(
                 &crate::user_folder::final_path(&handle).context("reading the folder's path")?,
-            ));
+            );
+            if !crate::user_folder::same_name(
+                std::ffi::OsStr::new(&resolved),
+                std::ffi::OsStr::new(&normal(folder.as_os_str())),
+            ) {
+                bail!(
+                    "{} leads to {resolved} through a link or a short name",
+                    folder.display()
+                );
+            }
+            let resolved = PathBuf::from(resolved);
+            above(&resolved, checks)?;
             let owner = crate::process::open_file_owner(&handle)
                 .with_context(|| format!("reading the owner of {}", resolved.display()))?;
             let writers = crate::process::open_file_writers(&handle)
@@ -1007,7 +1048,10 @@ fn left_in_checked(data: &Path, configured: &str, checks: &Checks) -> Vec<Result
             verdict(&resolved, &owner, &writers, |sid| {
                 checks.trusts(&resolved, sid)
             })?;
-            Ok(Some(resolved))
+            Ok(Some(Left {
+                folder: resolved,
+                _handle: handle,
+            }))
         })()
         .with_context(|| {
             format!(
@@ -1017,11 +1061,11 @@ fn left_in_checked(data: &Path, configured: &str, checks: &Checks) -> Vec<Result
         });
         match checked {
             Ok(None) => {}
-            Ok(Some(resolved)) => {
-                let key = resolved.to_string_lossy().to_lowercase();
+            Ok(Some(left)) => {
+                let key = left.folder.to_string_lossy().to_lowercase();
                 if !seen.contains(&key) {
                     seen.push(key);
-                    folders.push(Ok(resolved));
+                    folders.push(Ok(left));
                 }
             }
             Err(error) => folders.push(Err(error)),

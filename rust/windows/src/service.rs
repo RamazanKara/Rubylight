@@ -52,9 +52,9 @@ pub fn restore_nucleus_layers(config: &std::path::Path) -> bool {
 
 /// [`crate::nucleus::layers::restore_at_console`] in `folder`, logged.
 /// Whether nothing failed.
-fn restore_layers_at_console(folder: &std::path::Path) -> bool {
+fn restore_layers_at_console(folder: &crate::nucleus::install::Left) -> bool {
     use crate::nucleus::layers::AtConsole;
-    match crate::nucleus::layers::restore_at_console(folder) {
+    match crate::nucleus::layers::restore_at_console(folder.folder()) {
         Ok(AtConsole::Done) => {}
         Ok(AtConsole::Busy) => tracing::info!(
             "Nucleus Co-op: a session runs for the user at the console and puts its compatibility settings back itself"
@@ -84,8 +84,8 @@ fn restore_layers_at_console(folder: &std::path::Path) -> bool {
 /// Put back the user's Nucleus Co-op settings a session changed in `folder`
 /// when its host stopped mid-session ([`nucleus_settings_left`]). Whether
 /// nothing failed.
-fn restore_nucleus_settings(folder: &std::path::Path) -> bool {
-    match nucleus_settings_left(folder, crate::nucleus::session::running) {
+fn restore_nucleus_settings(folder: &crate::nucleus::install::Left) -> bool {
+    match nucleus_settings_left(folder.folder(), crate::nucleus::session::running) {
         Ok(Some(0)) => {}
         Ok(None) => tracing::info!(
             "Nucleus Co-op runs or a session holds its settings; they are put back when it ends or before the next"

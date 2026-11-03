@@ -55,7 +55,9 @@ impl StreamSizes {
             match self.previous { Some((size, _)) if visible == coded => visible_size(coded, &[size]), _ => visible }
         });
         let confirmed = pending.is_some_and(|(size, _)| size == visible);
-        if confirmed {
+        // A size the PC applied after the timeout dropped it from pending is the stream's too.
+        let late = pending.is_none() && visible == self.asked && visible != self.current;
+        if confirmed || late {
             self.previous = Some((self.current, now));
             self.current = visible;
         }
@@ -629,6 +631,11 @@ mod tests {
         let mut sizes = StreamSizes::new((1920, 1080));
         sizes.ask((2184, 1968));
         assert_eq!(sizes.arrive((2240, 1968), None, t0 + Duration::from_secs(6)), ((2184, 1968), false));
+        // Another request the PC never answers: the late size stays the stream's.
+        sizes.ask((2560, 1440));
+        let pending = Some(((2560, 1440), t0 + Duration::from_secs(7)));
+        assert_eq!(sizes.arrive((2240, 1968), pending, t0 + Duration::from_secs(8)), ((2184, 1968), false));
+        assert_eq!(sizes.arrive((2240, 1968), None, t0 + Duration::from_secs(13)), ((2184, 1968), false), "after the second timeout");
     }
 
     #[test]

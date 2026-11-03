@@ -138,9 +138,11 @@ public class NvConnection {
     private long microphoneAccessAt;
     private boolean microphoneAccess;
     // Ordinary fallback shares Android microphone policy, but does not require
-    // permission to create or send input from a host controller.
+    // permission to create or send input from a host controller. A microphone-only session sends no input,
+    // so it needs no input permission either.
     synchronized boolean microphoneCapturePermitted() {
-        if (!micPermitted || !canSendInput()) return false;
+        if (!micPermitted || stopRequested ||
+                (!context.streamConfig.getApp().isMicOnly() && !canSendInput())) return false;
         long now = android.os.SystemClock.uptimeMillis();
         if (microphoneAccessAt != 0 && now - microphoneAccessAt < 100) return microphoneAccess;
         android.media.AudioManager audio = (android.media.AudioManager)appContext.getSystemService(Context.AUDIO_SERVICE);
@@ -242,6 +244,10 @@ public class NvConnection {
         inputPoll = inputPoller.scheduleWithFixedDelay(inputBatcher::flush, 0, inputIntervalNs, TimeUnit.NANOSECONDS);
     }
 
+    static boolean microphoneWanted(PreferenceConfiguration prefs, NvApp app) {
+        return (prefs.enableMic || app.isMicOnly()) && app.getRole() != NvApp.Role.REMOTE_MONITOR;
+    }
+
     private boolean hasMicrophonePermission() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
             return true;
@@ -250,9 +256,9 @@ public class NvConnection {
     }
 
     // A Remote Monitor session is view-only, so it never opens this device's microphone (and asks the host
-    // for no microphone stream), whatever the setting says.
+    // for no microphone stream), whatever the setting says. A microphone-only session always sends it.
     void readMicrophoneSettings(PreferenceConfiguration prefs) {
-        micEnabled = prefs.enableMic && context.streamConfig.getApp().getRole() != NvApp.Role.REMOTE_MONITOR;
+        micEnabled = microphoneWanted(prefs, context.streamConfig.getApp());
         micPermitted = micEnabled && hasMicrophonePermission();
         micProcessing = prefs.micProcessing();
     }
@@ -984,7 +990,7 @@ public class NvConnection {
             return false;
         }
 
-        if (app.getControl() != NvApp.Control.NONE) {
+        if (launchesBesideRunningGame(app)) {
             return launchNotRunningApp(h, context);
         }
 
@@ -1125,6 +1131,14 @@ public class NvConnection {
             LimeLog.warning("Bandwidth test failed, starting at " + configured + " kbps: " + e);
             return configured;
         }
+    }
+
+    /**
+     * Whether {@code app} launches whatever the PC runs: a control action, or Microphone only, which starts no app
+     * and so never resumes, replaces or quits the PC's game.
+     */
+    static boolean launchesBesideRunningGame(NvApp app) {
+        return app.getControl() != NvApp.Control.NONE || app.isMicOnly();
     }
 
     private boolean launchNotRunningApp(NvHTTP h, ConnectionContext context)

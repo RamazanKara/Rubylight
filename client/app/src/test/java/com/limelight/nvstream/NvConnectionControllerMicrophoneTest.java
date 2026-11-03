@@ -198,6 +198,15 @@ public class NvConnectionControllerMicrophoneTest {
         assertEquals(MicrophoneStatus.OFF, connection.getMicrophoneStatus());
     }
 
+    @Test public void microphoneOnlySendsTheMicrophoneWithTheSettingOff() {
+        PreferenceConfiguration prefs = new PreferenceConfiguration();
+        prefs.enableMic = false;
+        assertTrue(NvConnection.microphoneWanted(prefs, NvApp.micOnly("Microphone only")));
+        assertFalse(NvConnection.microphoneWanted(prefs, new NvApp("Test", 73, false)));
+        prefs.enableMic = true;
+        assertFalse(NvConnection.microphoneWanted(prefs, new NvApp("Monitor", 2147483505, false)));
+    }
+
     @Test public void keyboardOnlyAccessKeepsTheOrdinaryMicrophoneAvailable() {
         Connection connection = new Connection(73);
         ComputerDetails keyboardOnly = new ComputerDetails(); keyboardOnly.permission = 1 << 12;

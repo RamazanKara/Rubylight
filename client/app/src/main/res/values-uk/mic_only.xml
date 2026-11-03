@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="mic_only_action">Лише мікрофон</string>
+    <string name="mic_only_connecting">Підключення…</string>
+    <string name="mic_only_on">Мікрофон увімкнено</string>
+    <string name="mic_only_paused_call">Пауза на час дзвінка</string>
+    <string name="mic_only_stop">Зупинити</string>
+    <string name="mic_only_stopped">Мікрофон вимкнено</string>
+    <string name="mic_only_failed">З’єднання з %1$s завершено</string>
+    <string name="mic_only_denied">Немає доступу до мікрофона</string>
+</resources>

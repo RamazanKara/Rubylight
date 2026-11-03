@@ -578,6 +578,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     protected void onCreate(Bundle savedInstanceState) {
         com.limelight.ui.AppTheme.apply(this);
         super.onCreate(savedInstanceState);
+        // One connection to a PC at a time: a stream ends Microphone only, whose close it then waits for.
+        com.limelight.mic.MicOnlyService.stop(this);
         streamConnection.onCreate(savedInstanceState);
     }
 

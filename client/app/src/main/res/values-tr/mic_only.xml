@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="mic_only_action">Yalnızca mikrofon</string>
+    <string name="mic_only_connecting">Bağlanıyor…</string>
+    <string name="mic_only_on">Mikrofon açık</string>
+    <string name="mic_only_paused_call">Arama nedeniyle duraklatıldı</string>
+    <string name="mic_only_stop">Durdur</string>
+    <string name="mic_only_stopped">Mikrofon kapalı</string>
+    <string name="mic_only_failed">%1$s bağlantısı sona erdi</string>
+    <string name="mic_only_denied">Mikrofon erişimi yok</string>
+</resources>

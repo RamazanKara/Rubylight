@@ -95,7 +95,8 @@ public class HomeViewScreenTest {
                     HomeLibraryRowsTest.game(2, "Hades", "epic", true, null),
                     HomeLibraryRowsTest.game(3, "Celeste", "steam", true, null),
                     HomeLibraryRowsTest.game(4, "Alan Wake", "epic", true, null),
-                    HomeLibraryRowsTest.game(5, "Doom", "steam", true, null))));
+                    HomeLibraryRowsTest.game(5, "Doom", "steam", true, null),
+                    HomeLibraryRowsTest.game(6, "Desktop", null, true, null))));
             rig.transport.reply("tower", "session", ok(NativeApiFixtures.IDLE));
             List<ComputerDetails> hosts = Collections.singletonList(nativeHost("tower", "Tower", true));
             return HomeModel.of(rig.repository.refresh(hosts), new HashSet<>(Collections.singletonList("tower")));
@@ -168,7 +169,7 @@ public class HomeViewScreenTest {
         assertEquals(RecyclerView.VERTICAL, ((GridLayoutManager) list.getLayoutManager()).getOrientation());
         assertNull(ReflectionHelpers.getField(home, "shelves"));
         ConsoleHomeListAdapter adapter = ReflectionHelpers.getField(home, "adapter");
-        adapter.submit(storeModel(), home.view().grouped());
+        adapter.submit(storeModel(), home.view().group);
         layout(list, 1920, 1080);
         List<String> headers = headers(list);
         assertEquals(java.util.Arrays.asList("Steam", "Epic Games"), headers.subList(0, 2));
@@ -187,12 +188,41 @@ public class HomeViewScreenTest {
         prefs.edit().putString(HomeView.KEY_LAYOUT, "grid").putString(HomeView.KEY_GROUP, "none").commit();
         HomeShellTest.Home home = home().get();
         ConsoleHomeListAdapter adapter = ReflectionHelpers.getField(home, "adapter");
-        adapter.submit(storeModel(), home.view().grouped());
+        adapter.submit(storeModel(), home.view().group);
         RecyclerView list = home.findViewById(R.id.console_list);
         layout(list, 1920, 1080);
         // The library under one heading, then the PCs: no store's.
         assertEquals(java.util.Arrays.asList(home.getString(R.string.console_section_library),
                 home.getString(R.string.console_section_hosts)), headers(list));
+    }
+
+    @Test
+    @Config(qualifiers = "w960dp-h540dp-land-television-xhdpi")
+    public void aTvGridByTypeKeepsTheAppsApartFromTheGames() throws Exception {
+        prefs.edit().putString(HomeView.KEY_LAYOUT, "grid").putString(HomeView.KEY_GROUP, "type").commit();
+        HomeShellTest.Home home = home().get();
+        ConsoleHomeListAdapter adapter = ReflectionHelpers.getField(home, "adapter");
+        adapter.submit(storeModel(), home.view().group);
+        RecyclerView list = home.findViewById(R.id.console_list);
+        layout(list, 1920, 1080);
+        // The PCs follow below the fold.
+        assertEquals(java.util.Arrays.asList(home.getString(R.string.console_row_games),
+                home.getString(R.string.console_row_other)), headers(list).subList(0, 2));
+        assertFalse(headers(list).contains(home.getString(R.string.console_section_library)));
+    }
+
+    @Test
+    @Config(qualifiers = "w960dp-h540dp-land-television-xhdpi")
+    public void tvShelvesByTypeAreGamesThenOtherApps() throws Exception {
+        prefs.edit().putString(HomeView.KEY_GROUP, "type").commit();
+        HomeShellTest.Home home = home().get();
+        ConsoleHomeAdapter shelves = ReflectionHelpers.getField(home, "shelves");
+        shelves.submit(storeModel());
+        List<String> keys = new java.util.ArrayList<>();
+        for (int i = 0; i < shelves.rowCount(); i++) keys.add(shelves.rowKey(i));
+        assertEquals(java.util.Arrays.asList("shelf:games", "shelf:other", "shelf:hosts"), keys);
+        assertEquals(5, shelves.cardCount(0));
+        assertEquals(1, shelves.cardCount(1));
     }
 
     @Test
@@ -234,7 +264,8 @@ public class HomeViewScreenTest {
         assertNotNull(sheet);
         View content = sheet.findViewById(android.R.id.content);
         for (int label : new int[] {R.string.home_view_layout_grid, R.string.home_view_layout_rows,
-                R.string.home_view_group_store, R.string.home_view_group_none, R.string.home_view_size_small,
+                R.string.home_view_group_store, R.string.home_view_group_type, R.string.home_view_group_none,
+                R.string.home_view_size_small,
                 R.string.home_view_size_medium, R.string.home_view_size_large}) {
             assertNotNull(home.getString(label), button(content, home.getString(label)));
         }

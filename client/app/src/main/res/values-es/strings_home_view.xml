@@ -6,7 +6,9 @@
     <string name="home_view_layout_rows">Filas</string>
     <string name="home_view_group">Agrupar por</string>
     <string name="home_view_group_store">Tienda</string>
+    <string name="home_view_group_type">Tipo</string>
     <string name="home_view_group_none">Ninguno</string>
+    <string name="console_row_games">Juegos</string>
     <string name="home_view_size">Tamaño de tarjeta</string>
     <string name="home_view_size_small">Pequeño</string>
     <string name="home_view_size_medium">Mediano</string>

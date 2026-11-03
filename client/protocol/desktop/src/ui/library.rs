@@ -166,7 +166,7 @@ impl Launcher {
         }
         let sources: Vec<Source> = view.hosts.list.iter().map(Source::of).collect();
         let entries = console::merge_library(&sources);
-        let rows = console::home_rows(&entries, self.settings.home_group == HomeGroup::Store);
+        let rows = console::home_rows(&entries, self.settings.home_group);
         let playing = console::continue_playing(&sources);
         let recent = console::recently_played(&sources, &self.recents, &playing, 6);
         let starred = console::favourite_games(&sources, &self.favourites);
@@ -261,6 +261,7 @@ impl Launcher {
             for row in &rows {
                 let name = match &row.kind {
                     console::RowKind::Store { name, .. } => name.as_str(),
+                    console::RowKind::Games => tr("Games"),
                     console::RowKind::Other => tr("Other apps"),
                     console::RowKind::Library => tr("Library"),
                 };
@@ -270,7 +271,7 @@ impl Launcher {
                 let said = match &row.kind {
                     console::RowKind::Store { name, .. } => trf("All {} games, {}", &[name, &row.games.len()]),
                     console::RowKind::Other => trf("All other apps, {}", &[&row.games.len()]),
-                    console::RowKind::Library => trf("All games, {}", &[&row.games.len()]),
+                    console::RowKind::Games | console::RowKind::Library => trf("All games, {}", &[&row.games.len()]),
                 };
                 let games = &row.games[..shown];
                 // At one column no cover fits beside the tile: the tile is the row.
@@ -340,6 +341,7 @@ impl Launcher {
                     console::LibraryFilter::All => tr("All").to_owned(),
                     console::LibraryFilter::Installed => tr("Installed").to_owned(),
                     console::LibraryFilter::Store(key) => chip.store_name.clone().unwrap_or_else(|| console::store_name(key, "")),
+                    console::LibraryFilter::Games => tr("Games").to_owned(),
                     console::LibraryFilter::Other => tr("Other apps").to_owned(),
                 };
                 let selected = chip.filter == self.library_filter;

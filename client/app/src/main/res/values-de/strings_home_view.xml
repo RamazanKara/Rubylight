@@ -6,7 +6,9 @@
     <string name="home_view_layout_rows">Reihen</string>
     <string name="home_view_group">Gruppieren nach</string>
     <string name="home_view_group_store">Store</string>
+    <string name="home_view_group_type">Typ</string>
     <string name="home_view_group_none">Keine</string>
+    <string name="console_row_games">Spiele</string>
     <string name="home_view_size">Kartengröße</string>
     <string name="home_view_size_small">Klein</string>
     <string name="home_view_size_medium">Mittel</string>

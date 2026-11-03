@@ -6,7 +6,7 @@ use nightjar_core::http::native_api::library::{Game, Library};
 use nightjar_core::http::native_api::session::{ActionId, Session, State};
 
 use crate::strings::{en, tr, trf};
-use crate::config::{Favourite, Recent};
+use crate::config::{Favourite, HomeGroup, Recent};
 use crate::hosts::{Host, Reach};
 
 /// One PC as the console sees it.
@@ -141,6 +141,9 @@ pub enum LibraryFilter {
     Installed,
     /// One store's games, by its key.
     Store(String),
+    /// Every store's games, without the apps of no store: the Games row's chip; offered only
+    /// when the library has both.
+    Games,
     /// The apps of no store; offered only beside stores.
     Other,
 }
@@ -152,6 +155,7 @@ impl LibraryFilter {
             Self::All => true,
             Self::Installed => entry.installed(),
             Self::Store(key) => entry.store() == Some(key.as_str()),
+            Self::Games => entry.store().is_some(),
             Self::Other => entry.store().is_none(),
         }
     }
@@ -162,6 +166,7 @@ impl LibraryFilter {
             Self::All => "filter:all".into(),
             Self::Installed => "filter:installed".into(),
             Self::Store(key) => format!("filter:store:{key}"),
+            Self::Games => "filter:games".into(),
             Self::Other => "filter:other".into(),
         }
     }
@@ -190,7 +195,8 @@ fn stores_by_size(entries: &[Entry]) -> Vec<(String, String, usize)> {
 }
 
 /// The chips above All games for what the library has: All, Installed (only when something is
-/// not), each store largest first, Other apps (only beside stores). None for an empty library.
+/// not), Games, each store largest first, Other apps (Games and Other apps only when the library
+/// has both). None for an empty library.
 pub fn library_filters(entries: &[Entry]) -> Vec<FilterChip> {
     if entries.is_empty() {
         return Vec::new();
@@ -203,6 +209,9 @@ pub fn library_filters(entries: &[Entry]) -> Vec<FilterChip> {
     let stores = stores_by_size(entries);
     let other = entries.iter().filter(|e| e.store().is_none()).count();
     let any_store = !stores.is_empty();
+    if other > 0 && any_store {
+        chips.push(FilterChip { filter: LibraryFilter::Games, store_name: None, count: entries.len() - other });
+    }
     for (key, name, count) in stores {
         chips.push(FilterChip { filter: LibraryFilter::Store(key), store_name: Some(name), count });
     }
@@ -217,10 +226,12 @@ pub fn filtered<'a>(entries: &'a [Entry], filter: &LibraryFilter) -> Vec<&'a Ent
     entries.iter().filter(|e| filter.matches(e)).collect()
 }
 
-/// Which of Home's library rows: one per store, or the apps of no store.
+/// Which of Home's library rows: one per store, every store's games in one, or the apps of no store.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum RowKind {
     Store { key: String, name: String },
+    /// The games of every store, apart from the apps of no store (Home grouped by type).
+    Games,
     /// The apps of no store beside stores ("Other apps").
     Other,
     /// A library with no stores at all (a classic host): one plain row.
@@ -241,6 +252,7 @@ impl LibraryRow<'_> {
     pub fn key(&self) -> String {
         match &self.kind {
             RowKind::Store { key, .. } => format!("row:store:{key}"),
+            RowKind::Games => "row:games".into(),
             RowKind::Other => "row:other".into(),
             RowKind::Library => "row:library".into(),
         }
@@ -282,16 +294,34 @@ pub fn library_rows(entries: &[Entry]) -> Vec<LibraryRow<'_>> {
     rows
 }
 
-/// Home's library rows under its View: [`library_rows`] by store, or the whole library as one
-/// Library row (installed first, each part by title) that opens All games.
-pub fn home_rows(entries: &[Entry], by_store: bool) -> Vec<LibraryRow<'_>> {
-    if by_store {
+/// Home's library rows under its View: [`library_rows`] by store; by type, the games of every
+/// store in one Games row and the apps of no store (launchers, the desktop) in Other apps; or the
+/// whole library as one Library row that opens All games. Installed first, each part by title;
+/// every entry, installed or not, as by store (Android's ungrouped grid alone keeps to installed
+/// games). A title is a game when its PC says which store it is from: PCs send nothing else that
+/// tells games from apps. A library with no stores at all is one Library row by type too.
+pub fn home_rows(entries: &[Entry], group: HomeGroup) -> Vec<LibraryRow<'_>> {
+    if group == HomeGroup::Store {
         return library_rows(entries);
     }
     if entries.is_empty() {
         return Vec::new();
     }
-    vec![LibraryRow { kind: RowKind::Library, filter: LibraryFilter::All, games: installed_first(entries.iter().collect()) }]
+    let whole = || LibraryRow { kind: RowKind::Library, filter: LibraryFilter::All, games: installed_first(entries.iter().collect()) };
+    if group == HomeGroup::None {
+        return vec![whole()];
+    }
+    let (games, apps): (Vec<&Entry>, Vec<&Entry>) = entries.iter().partition(|e| e.store().is_some());
+    if games.is_empty() {
+        return vec![whole()];
+    }
+    // Its All tile opens the Games chip, which is there only beside apps; without them All is the same.
+    let filter = if apps.is_empty() { LibraryFilter::All } else { LibraryFilter::Games };
+    let mut rows = vec![LibraryRow { kind: RowKind::Games, filter, games: installed_first(games) }];
+    if !apps.is_empty() {
+        rows.push(LibraryRow { kind: RowKind::Other, filter: LibraryFilter::Other, games: installed_first(apps) });
+    }
+    rows
 }
 
 fn installed_first(mut games: Vec<&Entry>) -> Vec<&Entry> {
@@ -871,6 +901,7 @@ mod tests {
             [
                 (LibraryFilter::All, None, 8),
                 (LibraryFilter::Installed, None, 6),
+                (LibraryFilter::Games, None, 7),
                 (store("steam"), Some("Steam"), 3),
                 (store("microsoft"), Some("Xbox"), 2),
                 // Ties by key: battlenet before epic.
@@ -939,15 +970,52 @@ mod tests {
         let lib = mixed();
         let sources = [source(1, "A", true, Some(&lib), None)];
         let entries = merge_library(&sources);
-        assert_eq!(home_rows(&entries, true), library_rows(&entries));
-        let rows = home_rows(&entries, false);
+        assert_eq!(home_rows(&entries, HomeGroup::Store), library_rows(&entries));
+        let rows = home_rows(&entries, HomeGroup::None);
         assert_eq!(rows.len(), 1);
         assert_eq!((rows[0].kind.clone(), rows[0].filter.clone(), rows[0].key()), (RowKind::Library, LibraryFilter::All, "row:library".to_owned()));
         assert_eq!(rows[0].games.len(), entries.len(), "every game, whatever its store");
         let installed: Vec<bool> = rows[0].games.iter().map(|e| e.installed()).collect();
         assert!(installed.windows(2).all(|w| w[0] || !w[1]), "installed first: {installed:?}");
         assert!(installed.contains(&false), "the fixture has a game that is not installed");
-        assert!(home_rows(&[], false).is_empty());
+        assert!(home_rows(&[], HomeGroup::None).is_empty());
+    }
+
+    #[test]
+    fn home_rows_by_type_are_every_stores_games_then_the_apps_of_no_store() {
+        let lib = mixed();
+        let sources = [source(1, "A", true, Some(&lib), None)];
+        let entries = merge_library(&sources);
+        let rows = home_rows(&entries, HomeGroup::Type);
+        let got: Vec<(String, LibraryFilter)> = rows.iter().map(|r| (r.key(), r.filter.clone())).collect();
+        assert_eq!(got, [("row:games".to_owned(), LibraryFilter::Games), ("row:other".to_owned(), LibraryFilter::Other)]);
+        // Each row is exactly its All tile's chip: the same games, the same count.
+        let chips = library_filters(&entries);
+        for row in &rows {
+            let chip = chips.iter().find(|c| c.filter == row.filter).expect("the row's chip");
+            assert_eq!(chip.count, row.games.len(), "{:?}", row.filter);
+            let mut shown: Vec<&str> = filtered(&entries, &row.filter).iter().map(|e| e.title.as_str()).collect();
+            let mut held: Vec<&str> = row.games.iter().map(|e| e.title.as_str()).collect();
+            shown.sort_unstable();
+            held.sort_unstable();
+            assert_eq!(shown, held, "{:?}", row.filter);
+        }
+        assert_eq!(rows[0].games.len() + rows[1].games.len(), entries.len(), "every game in one of them");
+        assert!(rows[0].games.iter().all(|e| e.store().is_some()), "no app among the games");
+        assert_eq!(rows[1].games.iter().map(|e| e.title.as_str()).collect::<Vec<_>>(), ["Notepad"]);
+        let installed: Vec<bool> = rows[0].games.iter().map(|e| e.installed()).collect();
+        assert!(installed.windows(2).all(|w| w[0] || !w[1]), "installed first: {installed:?}");
+        // No stores at all: games and apps cannot be told apart, one Library row as ungrouped.
+        let plain = store_library(&[("B", "", "", true), ("A", "", "", true)]);
+        let sources = [source(1, "A", true, Some(&plain), None)];
+        let entries = merge_library(&sources);
+        assert_eq!(home_rows(&entries, HomeGroup::Type), home_rows(&entries, HomeGroup::None));
+        // Only games: just the Games row.
+        let games = store_library(&[("Portal", "steam", "", true)]);
+        let sources = [source(1, "A", true, Some(&games), None)];
+        let entries = merge_library(&sources);
+        assert_eq!(home_rows(&entries, HomeGroup::Type).iter().map(LibraryRow::key).collect::<Vec<_>>(), ["row:games"]);
+        assert!(home_rows(&[], HomeGroup::Type).is_empty());
     }
 
     #[test]

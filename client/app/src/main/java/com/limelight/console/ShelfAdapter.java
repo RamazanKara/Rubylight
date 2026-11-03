@@ -427,6 +427,8 @@ final class ShelfAdapter extends RecyclerView.Adapter<ShelfAdapter.CardHolder> {
                     return context.getString(R.string.console_row_recent);
                 case UNADDED:
                     return context.getString(R.string.console_row_unadded);
+                case GAMES:
+                    return context.getString(R.string.console_row_games);
                 default:
                     return context.getString(HomeModel.FILTER_ALL.equals(row.filter) || HomeModel.LIBRARY_ROW.equals(row.key)
                             ? R.string.console_section_library : R.string.console_row_other);

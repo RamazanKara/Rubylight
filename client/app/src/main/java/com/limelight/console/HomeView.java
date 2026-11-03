@@ -10,7 +10,8 @@ import android.content.SharedPreferences;
 public final class HomeView {
     public enum Layout { GRID, ROWS }
 
-    public enum Group { STORE, NONE }
+    /** A part per store, the games apart from the apps of no store (launchers, the desktop), or one library. */
+    public enum Group { STORE, TYPE, NONE }
 
     public enum Size {
         SMALL(0.75f), MEDIUM(1f), LARGE(1.3f);
@@ -67,10 +68,6 @@ public final class HomeView {
 
     public HomeView with(Size next) {
         return new HomeView(layout, group, next);
-    }
-
-    public boolean grouped() {
-        return group == Group.STORE;
     }
 
     private static <E extends Enum<E>> E parse(Class<E> type, String stored, E fallback) {

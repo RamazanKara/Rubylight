@@ -289,7 +289,7 @@ public class LibraryCardsTest {
         HomeModel model = model();
         List<String> chips = new ArrayList<>();
         for (HomeModel.Filter f : model.filters) chips.add(f.key + "=" + f.count);
-        assertEquals(Arrays.asList("all=4", "installed=3", "store:steam=2", "store:epic=1", "other=1", "unadded=1"), chips);
+        assertEquals(Arrays.asList("all=4", "installed=3", "games=3", "store:steam=2", "store:epic=1", "other=1", "unadded=1"), chips);
         assertEquals(Arrays.asList("Doom", "Portal"), titles(AllGamesActivity.cardsOf(model, "store:steam")));
         assertEquals(Arrays.asList("Desktop", "Hades", "Portal"), titles(AllGamesActivity.cardsOf(model, "installed")));
         assertEquals(Arrays.asList("Celeste"), titles(AllGamesActivity.cardsOf(model, "unadded")));

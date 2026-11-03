@@ -94,7 +94,7 @@ final class ConsoleHomeAdapter extends RecyclerView.Adapter<ConsoleHomeAdapter.S
     private final RecyclerView.RecycledViewPool pool = new RecyclerView.RecycledViewPool();
     private ShelfAdapter.FocusListener focusListener;
     private boolean television;
-    private boolean grouped = true;
+    private HomeView.Group group = HomeView.Group.STORE;
     private float cardScale = 1f;
 
     ConsoleHomeAdapter(Context context, CoverLoaders covers, Function<String, ComputerDetails> hosts, Listener listener) {
@@ -129,9 +129,9 @@ final class ConsoleHomeAdapter extends RecyclerView.Adapter<ConsoleHomeAdapter.S
         setCoverHeight(ShelfAdapter.coverHeight(env.context, television, env.cardWidthPx > 0 ? env.cardWidthPx : usual));
     }
 
-    /** False shows the library as one row instead of a row per store ({@link HomeModel#rows(boolean)}). */
-    void setGrouped(boolean grouped) {
-        this.grouped = grouped;
+    /** A row per store, the games apart from the apps, or the library as one row ({@link HomeModel#rows(HomeView.Group)}). */
+    void setGroup(HomeView.Group group) {
+        this.group = group;
     }
 
     /** The cover loaders exist once the app's client identity is known. */
@@ -158,9 +158,9 @@ final class ConsoleHomeAdapter extends RecyclerView.Adapter<ConsoleHomeAdapter.S
         shelves.clear();
         addGames("continue", R.string.console_section_continue, model.continuePlaying);
         addGames("favourites", R.string.console_section_favourites, model.favourites);
-        // The library's rows: Recently played, one per store (largest first), Other apps, the games not added; or,
-        // ungrouped, the library in one row.
-        for (HomeModel.Row row : model.rows(grouped)) {
+        // The library's rows: Recently played, one per store (largest first), Other apps, the games not added; by
+        // type, Games and Other apps; or, ungrouped, the library in one row.
+        for (HomeModel.Row row : model.rows(group)) {
             List<ShelfAdapter.Item> items = items(row.cards);
             if (row.hasMore()) items.add(ShelfAdapter.Item.allOf(row));
             shelves.add(new Shelf(row.key, ShelfAdapter.CardHolder.rowTitle(env.context, row), items));

@@ -318,12 +318,14 @@ public class AllGamesActivity extends NightjarActivity implements HostFeed.Liste
         return cards;
     }
 
-    /** A chip's name: All, Installed, the store's, Other apps or Not added. */
+    /** A chip's name: All, Installed, Games, the store's, Other apps or Not added. */
     static CharSequence labelOf(android.content.Context context, HomeModel.Filter f) {
         if (f.storeName != null) return f.storeName;
         switch (f.key) {
             case HomeModel.FILTER_INSTALLED:
                 return context.getString(R.string.console_filter_installed);
+            case HomeModel.FILTER_GAMES:
+                return context.getString(R.string.console_row_games);
             case HomeModel.FILTER_OTHER:
                 return context.getString(R.string.console_row_other);
             case HomeModel.FILTER_UNADDED:

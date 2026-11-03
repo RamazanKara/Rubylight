@@ -1,0 +1,2 @@
+## en
+- Home's View has a new Group by choice, Type: the games of every store in one part and your other apps (launchers like Steam or Playnite, the desktop) in their own. All games gets a matching Games filter.

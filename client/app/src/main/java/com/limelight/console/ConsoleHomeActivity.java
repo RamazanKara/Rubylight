@@ -196,7 +196,7 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
     }
 
     /**
-     * View, at the end of the shell bar: grid or rows, by store or not, and the card size. The choice applies once the
+     * View, at the end of the shell bar: grid or rows, by store, by type or not, and the card size. The choice applies once the
      * sheet closes, so trying several costs one rebuild.
      */
     private void setUpViewButton() {
@@ -229,8 +229,8 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
                 new int[] {R.string.home_view_layout_grid, R.string.home_view_layout_rows},
                 view.layout.ordinal(), at -> view = view.with(HomeView.Layout.values()[at]));
         sheet.addSection(R.string.home_view_group);
-        addChoices(sheet, new int[] {R.drawable.ic_view_group_store, R.drawable.ic_view_group_none},
-                new int[] {R.string.home_view_group_store, R.string.home_view_group_none},
+        addChoices(sheet, new int[] {R.drawable.ic_view_group_store, R.drawable.ic_view_group_type, R.drawable.ic_view_group_none},
+                new int[] {R.string.home_view_group_store, R.string.home_view_group_type, R.string.home_view_group_none},
                 view.group.ordinal(), at -> view = view.with(HomeView.Group.values()[at]));
         sheet.addSection(R.string.home_view_size);
         addChoices(sheet, new int[] {R.drawable.ic_view_size_small, R.drawable.ic_view_size_medium, R.drawable.ic_view_size_large},
@@ -360,7 +360,7 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
         list.setLayoutManager(rows);
         list.setItemAnimator(null);
         list.setItemViewCacheSize(2);
-        shelves.setGrouped(view.grouped());
+        shelves.setGroup(view.group);
         shelves.setCardScale(view.size.scale);
         shelves.setTelevision(isTelevision());
         list.setAdapter(shelves);
@@ -717,7 +717,7 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
         View focused = list.getFocusedChild();
         int at = focused == null ? -1 : list.getChildAdapterPosition(focused);
         String key = at < 0 ? null : adapter.keyAt(at);
-        adapter.submit(model, view.grouped());
+        adapter.submit(model, view.group);
         if (key == null) {
             return;
         }

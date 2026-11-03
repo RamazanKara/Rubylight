@@ -6,7 +6,9 @@
     <string name="home_view_layout_rows">Rzędy</string>
     <string name="home_view_group">Grupuj według</string>
     <string name="home_view_group_store">Sklep</string>
+    <string name="home_view_group_type">Typ</string>
     <string name="home_view_group_none">Brak</string>
+    <string name="console_row_games">Gry</string>
     <string name="home_view_size">Rozmiar kart</string>
     <string name="home_view_size_small">Małe</string>
     <string name="home_view_size_medium">Średnie</string>

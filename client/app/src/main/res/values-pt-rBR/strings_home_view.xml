@@ -6,7 +6,9 @@
     <string name="home_view_layout_rows">Linhas</string>
     <string name="home_view_group">Agrupar por</string>
     <string name="home_view_group_store">Loja</string>
+    <string name="home_view_group_type">Tipo</string>
     <string name="home_view_group_none">Nenhum</string>
+    <string name="console_row_games">Jogos</string>
     <string name="home_view_size">Tamanho dos cartões</string>
     <string name="home_view_size_small">Pequeno</string>
     <string name="home_view_size_medium">Médio</string>

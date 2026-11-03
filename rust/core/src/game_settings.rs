@@ -21,6 +21,13 @@
 //! One swap holds a file at a time. A launch whose file another swap still holds finishes that
 //! swap first; while that swap's app runs, or when it cannot be finished, the launch fails.
 //!
+//! Each swap keeps its own originals (`apps/<app>/swaps/<id>/`): a later launch never
+//! overwrites an original that is not back yet. Once every file is back, they move to
+//! `apps/<app>/original/` as the backup of the PC's last own files. A swap also records the
+//! game's programs as the host sees them ([`Store::watch`]); while one of them still runs, no
+//! file is saved or put back (the game would write over the PC's file as it exits), and the
+//! swap stays journaled until it has closed.
+//!
 //! The host runs as SYSTEM: the game's files are read and written through an
 //! [`Access`] (as the signed-in Windows user, as for managed game files), so a link in the
 //! user's folders leads nowhere the user could not write anyway. The store is the host's own.
@@ -276,6 +283,9 @@ pub struct Swap {
     #[serde(default)]
     pub device_name: String,
     pub files: Vec<FileSwap>,
+    /// The game's programs (full paths) seen while it ran: the files stay while one runs.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub programs: Vec<String>,
     /// Why the last try to finish it failed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
@@ -328,18 +338,29 @@ pub struct Begun {
     pub report: Report,
 }
 
+/// Which of a swap's programs still runs, if one does: its path, or why that is not known.
+pub type Running = Box<dyn Fn(&[String]) -> Option<String> + Send + Sync>;
+
 /// The copies and the journal under a config folder.
 pub struct Store {
     root: PathBuf,
     access: Access,
+    running: Running,
 }
 
 impl Store {
+    /// A store that takes every recorded program as closed; see [`Self::running`].
     pub fn new(directory: &Path, access: Access) -> Self {
         Self {
             root: directory.join(FOLDER),
             access,
+            running: Box::new(|_| None),
         }
+    }
+    /// Tell the store which recorded programs still run.
+    pub fn running(mut self, running: Running) -> Self {
+        self.running = running;
+        self
     }
     fn journal_path(&self) -> PathBuf {
         self.root.join(JOURNAL_FILE)
@@ -354,9 +375,13 @@ impl Store {
             .join(store_name(device))
             .join(key)
     }
-    /// The original of a file, kept at each launch (and left after the swap, as a backup).
+    /// The PC's last own file put back, kept as a backup.
     pub fn original(&self, app: &str, key: &str) -> PathBuf {
         self.app_folder(app).join("original").join(key)
+    }
+    /// The folder of swap `id`'s originals, until all are back.
+    fn swap_folder(&self, app: &str, id: &str) -> PathBuf {
+        self.app_folder(app).join("swaps").join(store_name(id))
     }
     /// Whether `device` has a saved copy of the file the app lists as `written`.
     pub fn saved(&self, app: &str, device: &str, written: &str) -> bool {
@@ -388,20 +413,37 @@ impl Store {
     }
 
     /// `device` (its name for messages) starts `app`: keep the originals of `files` (as listed,
-    /// expanded) and put the device's copies in. A swap that still holds one of the files and
-    /// is not in `live` (running apps' swaps) is finished first. Fails, with every file as it
-    /// was, when a file is missing or cannot be read or written, or another swap holds it.
+    /// expanded) and put the device's copies in, as swap `id`. A swap that still holds one of
+    /// the files and is not in `live` (running apps' swaps, read under the store's lock, so a
+    /// swap registered before its `begin` is never taken for a stale one) is finished first.
+    /// Fails, with every file as it was, when a file is missing or cannot be read or written,
+    /// or another swap holds it.
+    #[allow(clippy::too_many_arguments)]
     pub fn begin(
         &self,
+        id: &str,
         app: &str,
         app_name: &str,
         device: &str,
         device_name: &str,
         files: &[(String, PathBuf)],
-        live: &BTreeSet<String>,
+        live: &dyn Fn() -> BTreeSet<String>,
     ) -> Result<Begun> {
+        let mut seen: BTreeMap<String, &str> = BTreeMap::new();
+        for (written, path) in files {
+            if let Some(other) = seen.insert(normal(&path.to_string_lossy()), written) {
+                bail!(
+                    "{other} and {written} are the same file ({})",
+                    path.display()
+                );
+            }
+        }
         let _lock = lock();
+        let live = live();
         let mut journal = self.journal()?;
+        if journal.swaps.iter().any(|swap| swap.id == id) {
+            bail!("game settings swap {id} exists already");
+        }
         let stale: Vec<String> = journal
             .swaps
             .iter()
@@ -418,14 +460,20 @@ impl Store {
                 format!("the settings files {who} used could not be put back first")
             })?;
         }
-        // The originals are kept first: from here a crash only ever puts them back.
+        // The originals are kept first, in this swap's own folder: from here a crash only ever
+        // puts them back, and no other swap's are touched.
+        let originals = self.swap_folder(app, id);
         let mut swapped = Vec::new();
         for (written, path) in files {
             let key = file_key(written);
-            let bytes = self.read_game(written, path)?;
-            let original = self.original(app, &key);
-            state::atomic_write(&original, &bytes)
-                .with_context(|| format!("keeping the original of {written}"))?;
+            let kept = self.read_game(written, path).and_then(|bytes| {
+                state::atomic_write(&originals.join(&key), &bytes)
+                    .with_context(|| format!("keeping the original of {written}"))
+            });
+            if let Err(error) = kept {
+                let _ = std::fs::remove_dir_all(&originals);
+                return Err(error);
+            }
             swapped.push(FileSwap {
                 written: written.clone(),
                 path: path.clone(),
@@ -433,7 +481,7 @@ impl Store {
                 step: Step::Placing,
             });
         }
-        let id = uuid::Uuid::new_v4().to_string();
+        let id = id.to_owned();
         journal.swaps.push(Swap {
             id: id.clone(),
             app: app.to_owned(),
@@ -441,6 +489,7 @@ impl Store {
             device: device.to_owned(),
             device_name: device_name.to_owned(),
             files: swapped,
+            programs: Vec::new(),
             error: None,
         });
         self.save(&journal)?;
@@ -506,9 +555,59 @@ impl Store {
         self.finish_in(&mut journal, id)
     }
 
-    /// Finish every journaled swap not in `live`: at host start, and again while one fails.
-    pub fn recover(&self, live: &BTreeSet<String>) -> Result<Vec<(Swap, Result<Report>)>> {
+    /// The launch of swap `id` failed after its files went in, before the game ran: only the
+    /// originals go back; the device's copies stay as they were.
+    pub fn cancel(&self, id: &str) -> Result<Report> {
         let _lock = lock();
+        let mut journal = self.journal()?;
+        let swap = journal
+            .swaps
+            .iter_mut()
+            .find(|swap| swap.id == id)
+            .with_context(|| format!("no game settings swap {id}"))?;
+        for file in &mut swap.files {
+            if file.step == Step::Playing {
+                file.step = Step::Saved;
+            }
+        }
+        self.save(&journal)?;
+        self.finish_in(&mut journal, id)
+    }
+
+    /// Record `programs` (full paths) as swap `id`'s game: its files stay while one runs.
+    pub fn watch(&self, id: &str, programs: &[String]) -> Result<()> {
+        let _lock = lock();
+        let mut journal = self.journal()?;
+        let Some(swap) = journal.swaps.iter_mut().find(|swap| swap.id == id) else {
+            return Ok(());
+        };
+        let mut changed = false;
+        for program in programs {
+            let program = program.trim();
+            if !program.is_empty()
+                && !swap
+                    .programs
+                    .iter()
+                    .any(|known| normal(known) == normal(program))
+            {
+                swap.programs.push(program.to_owned());
+                changed = true;
+            }
+        }
+        if changed {
+            self.save(&journal)?;
+        }
+        Ok(())
+    }
+
+    /// Finish every journaled swap not in `live` (read under the store's lock): at host start,
+    /// and again while one fails or its game still runs.
+    pub fn recover(
+        &self,
+        live: &dyn Fn() -> BTreeSet<String>,
+    ) -> Result<Vec<(Swap, Result<Report>)>> {
+        let _lock = lock();
+        let live = live();
         let mut journal = self.journal()?;
         let ids: Vec<String> = journal
             .swaps
@@ -540,6 +639,15 @@ impl Store {
             let swap = &journal.swaps[index];
             (swap.app.clone(), swap.device.clone(), swap.who())
         };
+        // A game still running writes its settings as it exits: over the PC's file, were it
+        // back, and past the device's copy. Nothing moves until it has closed.
+        if let Some(program) = (self.running)(&journal.swaps[index].programs) {
+            let text = format!("{program} is still running; the files go back once it closes");
+            journal.swaps[index].error = Some(text.clone());
+            self.save(journal)?;
+            return Err(anyhow!(StillRunning).context(format!("{who}: {text}")));
+        }
+        let originals = self.swap_folder(&app, id);
         let mut report = Report::default();
         let mut failures = Vec::new();
         for file in 0..journal.swaps[index].files.len() {
@@ -572,7 +680,7 @@ impl Store {
                 self.save(journal)?;
             }
             if matches!(step, Step::Playing | Step::Saved | Step::Placing) {
-                let original = self.original(&app, &key);
+                let original = originals.join(&key);
                 let restored = match read_store(&original) {
                     Ok(Some(bytes)) => self.write_game(&path, &bytes).with_context(|| {
                         format!("{written} ({}) could not be put back", path.display())
@@ -595,8 +703,33 @@ impl Store {
             }
         }
         if failures.is_empty() {
-            journal.swaps.remove(index);
+            let swap = journal.swaps.remove(index);
             self.save(journal)?;
+            // Every file is back: its original becomes the backup of the PC's last own file.
+            let mut all_moved = true;
+            for file in &swap.files {
+                let kept = originals.join(&file.key);
+                if !kept.is_file() {
+                    continue;
+                }
+                let backup = self.original(&app, &file.key);
+                let moved = backup
+                    .parent()
+                    .map_or(Ok(()), std::fs::create_dir_all)
+                    .and_then(|()| std::fs::rename(&kept, &backup));
+                if let Err(error) = moved {
+                    all_moved = false;
+                    report.warnings.push(format!(
+                        "{}: the original stays in {}, as it could not become the backup {}: {error}",
+                        file.written,
+                        kept.display(),
+                        backup.display()
+                    ));
+                }
+            }
+            if all_moved {
+                let _ = std::fs::remove_dir_all(&originals);
+            }
             return Ok(report);
         }
         let text = failures.join("; ");
@@ -657,6 +790,20 @@ impl Store {
             }
         })
     }
+}
+
+/// Marks a finish refused because the swap's game still runs.
+#[derive(Debug)]
+pub struct StillRunning;
+impl std::fmt::Display for StillRunning {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("the game still runs")
+    }
+}
+impl std::error::Error for StillRunning {}
+/// Whether a finish was refused because the swap's game still runs.
+pub fn still_running(error: &anyhow::Error) -> bool {
+    error.downcast_ref::<StillRunning>().is_some()
 }
 
 /// Marks a [`Store::read_game`] error for a file that does not exist.

@@ -218,6 +218,8 @@ pub struct RunningApp {
     /// The launching device's game settings files, swapped in; they go back once the app's
     /// processes are closed.
     settings_swap: Option<crate::game_settings::Swap>,
+    /// When the game's programs were last recorded for [`Self::settings_swap`].
+    settings_watch: std::time::Instant,
     /// An app launched before anyone signed in, started once a user does.
     pub deferred: Option<(App, HashMap<String, String>)>,
     deferred_check: std::time::Instant,
@@ -370,6 +372,7 @@ impl RunningApp {
             launcher_only: only_opens_launchers(app),
             exit_timeout: exit_timeout(app, &butterpollo_core::config::Config::default()),
             settings_swap: None,
+            settings_watch: std::time::Instant::now(),
         };
         let commands: Vec<PrepCommand> = serde_json::from_value(
             app.extra
@@ -537,7 +540,39 @@ impl RunningApp {
         running.started = std::time::Instant::now();
         Ok(running)
     }
+    /// Record the programs of the game as the host sees it (the app's processes, the Steam
+    /// game, a store game it noticed) for its settings files: they stay while one of these
+    /// still runs, also after a host crash. Launchers and store clients are left out; they
+    /// stay open after a game.
+    fn watch_game(&mut self) {
+        if self.settings_swap.is_none() {
+            return;
+        }
+        self.settings_watch = std::time::Instant::now();
+        let mut pids: std::collections::BTreeSet<u32> = self
+            .child
+            .as_ref()
+            .and_then(|child| child.process_ids().ok())
+            .unwrap_or_default()
+            .into_iter()
+            .collect();
+        if let Some(tracker) = &self.steam {
+            pids.extend(tracker.tracked.keys());
+        }
+        pids.extend(self.foreign.keys());
+        pids.remove(&std::process::id());
+        let programs: Vec<String> = pids
+            .into_iter()
+            .filter_map(butterpollo_windows::process::image_path)
+            .filter(|program| watches_program(program))
+            .collect();
+        if let Some(swap) = &mut self.settings_swap {
+            swap.watch(programs);
+        }
+    }
     pub fn stop(&mut self) {
+        // What runs now is what the files wait for, should it outlive the stop below.
+        self.watch_game();
         self.state_events.take();
         if let Some(lossless) = self.lossless.take() {
             lossless.stop();
@@ -616,6 +651,9 @@ impl RunningApp {
     /// `scan` is read for a [`Self::wants_processes`] that said yes; without
     /// one, a Steam game is looked for next time.
     pub fn exited(&mut self, scan: Option<&ProcessScan>) -> Result<bool> {
+        if self.settings_swap.is_some() && self.settings_watch.elapsed() >= SETTINGS_WATCH {
+            self.watch_game();
+        }
         if let Some(launch) = &self.playnite {
             return Ok(launch.finished());
         }
@@ -937,7 +975,30 @@ fn only_opens_launchers(app: &App) -> bool {
             .iter()
             .all(|command| butterpollo_core::launcher_prompt::opens_launcher_itself(command))
 }
+/// How often a swapped game's programs are recorded while it runs.
+const SETTINGS_WATCH: Duration = Duration::from_secs(5);
+/// Whether a game's settings files wait for `program`: not for a store client, a launcher or
+/// a shell, which stay open after the game.
+fn watches_program(program: &str) -> bool {
+    const SHELLS: [&str; 6] = [
+        "cmd.exe",
+        "conhost.exe",
+        "powershell.exe",
+        "pwsh.exe",
+        "explorer.exe",
+        "rundll32.exe",
+    ];
+    let name = program.rsplit(['\\', '/']).next().unwrap_or(program);
+    !store_client(name)
+        && !SHELLS.iter().any(|shell| name.eq_ignore_ascii_case(shell))
+        && butterpollo_core::launcher_prompt::launcher_of(program).is_none()
+}
 fn foreign_game(program: &str, created: u64, launched_at: u64) -> bool {
+    let name = program.rsplit(['/', '\\']).next().unwrap_or(program);
+    created != 0 && created >= launched_at && !store_client(name)
+}
+/// Whether the program named `name` (its file name) is a store client, Playnite or the host.
+fn store_client(name: &str) -> bool {
     const CLIENTS: [&str; 14] = [
         "steam.exe",
         "steamwebhelper.exe",
@@ -954,12 +1015,9 @@ fn foreign_game(program: &str, created: u64, launched_at: u64) -> bool {
         "playnite.desktopapp.exe",
         "butterpollo.exe",
     ];
-    let name = program.rsplit(['/', '\\']).next().unwrap_or(program);
-    created != 0
-        && created >= launched_at
-        && !CLIENTS
-            .iter()
-            .any(|client| name.eq_ignore_ascii_case(client))
+    CLIENTS
+        .iter()
+        .any(|client| name.eq_ignore_ascii_case(client))
 }
 /// How long `app` gets to close before it is ended: its own `exit-timeout`, else the host's
 /// `exit_timeout` (issue #71), else 10 s; at most 300 s.
@@ -969,6 +1027,9 @@ pub fn exit_timeout(app: &App, config: &butterpollo_core::config::Config) -> Dur
         .get("exit-timeout")
         .and_then(serde_json::Value::as_u64)
         .unwrap_or_else(|| config.integer("exit_timeout", 10).max(0) as u64);
+    if seconds > 300 {
+        tracing::warn!(app = %app.name, seconds, "exit timeout above 300 s; the app gets 300 s to close");
+    }
     Duration::from_secs(seconds.min(300))
 }
 pub fn app_bool(app: &App, name: &str, default: bool) -> bool {
@@ -1350,17 +1411,36 @@ fn launch_with_environment(
     let baseline = lossless
         .as_ref()
         .map(|_| butterpollo_windows::process::processes().unwrap_or_default());
-    // The game reads its own settings files as it starts: the stream's keys go in first.
-    crate::game_files::launching(h, &app, args);
-    // So are the device's own settings files; a launch they cannot be swapped for fails.
+    // The game reads its own settings files as it starts: the device's own go in first (a
+    // launch they cannot be swapped for fails), then the stream's keys.
     let settings_swap = crate::game_settings::launching(h, &app, args, &environment)?;
-    let mut running = RunningApp::with_environment(&app, environment)?;
+    // Until the game runs, a failed launch puts back only the PC's files: the device's copies
+    // stay as they were.
+    let cancel = |swap: Option<crate::game_settings::Swap>| {
+        if let Some(swap) = swap {
+            swap.cancel();
+        }
+    };
+    let swapped = settings_swap
+        .as_ref()
+        .map_or_else(Vec::new, |swap| swap.files().to_vec());
+    if let Err(error) = crate::game_files::launching_beside(h, &app, args, &swapped) {
+        cancel(settings_swap);
+        return Err(error);
+    }
+    let mut running = match RunningApp::with_environment(&app, environment) {
+        Ok(running) => running,
+        Err(error) => {
+            cancel(settings_swap);
+            return Err(error);
+        }
+    };
     running.settings_swap = settings_swap;
     running.background = background;
     running.terminate_on_pause = terminate_on_pause;
     running.exit_timeout = exit_timeout;
     if fullscreen || (playnite_id.is_some() && config.boolean("playnite_enabled", true)) {
-        running.playnite = Some(crate::playnite::Launch::start(
+        let launch = crate::playnite::Launch::start(
             h,
             if fullscreen {
                 None
@@ -1369,7 +1449,14 @@ fn launch_with_environment(
             },
             &running.environment,
             background,
-        )?);
+        );
+        match launch {
+            Ok(launch) => running.playnite = Some(launch),
+            Err(error) => {
+                cancel(running.settings_swap.take());
+                return Err(error);
+            }
+        }
     }
     running.playnite_fullscreen = fullscreen;
     if let (Some(options), Some(baseline)) = (lossless, baseline) {
@@ -1411,6 +1498,18 @@ impl Drop for RunningApp {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn swapped_settings_files_wait_for_the_game_not_for_its_launcher_or_shell() {
+        assert!(watches_program("D:\\Games\\Racer\\Racer.exe"));
+        for program in [
+            "C:\\Windows\\System32\\cmd.exe",
+            "C:\\Program Files (x86)\\Steam\\steam.exe",
+            "C:\\Program Files (x86)\\Epic Games\\Launcher\\Portal\\Binaries\\Win64\\EpicGamesLauncher.exe",
+            "C:\\Windows\\explorer.exe",
+        ] {
+            assert!(!watches_program(program), "{program}");
+        }
+    }
     #[test]
     fn an_apps_exit_timeout_overrides_the_hosts_and_the_hosts_overrides_ten_seconds() {
         use butterpollo_core::config::Config;

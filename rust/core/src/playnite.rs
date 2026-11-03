@@ -765,6 +765,9 @@ pub fn fullscreen_entry(apps: &mut Vec<Value>, wanted: bool) -> bool {
         return true;
     }
     if wanted {
+        // The 10 earlier syncs wrote goes, so the entry follows the host's exit timeout. A 10
+        // set by hand on this entry cannot be told apart from it and goes too; any other value
+        // stays.
         let mut changed = false;
         for app in apps.iter_mut().filter(|app| made_here(app)) {
             if let Some(fields) = app.as_object_mut() {

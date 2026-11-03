@@ -683,7 +683,7 @@ export interface GameSettingsStatus {
   /** Each paired device and the files it has a saved copy of. */
   devices: { uuid: string; name: string; saved: string[] }[];
   /** Swaps still in place: the running game's, or one the host could not put back yet. */
-  pending: { device: string; deviceName: string; running: boolean; error: string | null }[];
+  pending: { id: string; device: string; deviceName: string; running: boolean; error: string | null }[];
   /** Where the host keeps the copies and the PC's originals. */
   folder: string;
 }

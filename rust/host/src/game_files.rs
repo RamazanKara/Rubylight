@@ -362,23 +362,37 @@ pub fn check(app: &App) -> anyhow::Result<()> {
     Ok(())
 }
 
+#[cfg(test)]
+pub fn launching(h: &Shared, app: &App, args: &HashMap<String, String>) {
+    launching_beside(h, app, args, &[]).unwrap();
+}
+
 /// The stream's app (expanded, with its device's block on top) is about to start: write the
 /// keys it lists. A key that cannot be written is skipped with a warning and the game starts.
 /// `args` are the launch's: the device (`clientUuid`), the mode with the stream's rate and the
 /// frame limiter's rate ([`FRAME_LIMIT_ARG`]). A launch without a device writes nothing.
-pub fn launching(h: &Shared, app: &App, args: &HashMap<String, String>) {
+///
+/// `swapped` are the game settings files the launch swapped in: a managed file that is one of
+/// them fails the launch, before any key is written, since its keys would stay in the device's
+/// copy for good.
+pub fn launching_beside(
+    h: &Shared,
+    app: &App,
+    args: &HashMap<String, String>,
+    swapped: &[PathBuf],
+) -> anyhow::Result<()> {
     let entries = match game_files::entries(&app.extra) {
-        Ok(entries) if entries.is_empty() => return,
+        Ok(entries) if entries.is_empty() => return Ok(()),
         Ok(entries) => entries,
         Err(error) => {
             // Saved apps are checked; this is a hand-edited apps file.
             tracing::warn!(app = %app.name, error = format!("{error:#}"), "the app's managed game files are not usable; the game starts without them");
-            return;
+            return Ok(());
         }
     };
     let Some(device) = args.get("clientUuid").filter(|device| !device.is_empty()) else {
         tracing::info!(app = %app.name, "managed game files apply to streams; this launch has no device, so none is changed");
-        return;
+        return Ok(());
     };
     let fps = args
         .get("mode")
@@ -406,8 +420,30 @@ pub fn launching(h: &Shared, app: &App, args: &HashMap<String, String>) {
             );
         }
     }
+    // Targets are resolved to verbatim (`\\?\`) paths; swapped files are written plainly, maybe
+    // with short or linked folder names.
+    let normal = |path: &Path| {
+        let path = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_owned());
+        let path = path
+            .to_string_lossy()
+            .replace('/', "\\")
+            .to_ascii_lowercase();
+        path.strip_prefix(r"\\?\")
+            .map_or(path.clone(), str::to_owned)
+    };
+    if let Some(target) = targets.iter().find(|target| {
+        swapped
+            .iter()
+            .any(|file| normal(file) == normal(&target.file))
+    }) {
+        anyhow::bail!(
+            "{} did not start: {} is both a managed game file and a game settings file swapped per device; remove it from one of the two lists",
+            app.name,
+            target.file.display()
+        );
+    }
     if targets.is_empty() {
-        return;
+        return Ok(());
     }
     if let Some(report) = h.game_files.apply(&h.directory, device, &targets) {
         if !report.written.is_empty() {
@@ -415,6 +451,7 @@ pub fn launching(h: &Shared, app: &App, args: &HashMap<String, String>) {
         }
         log_restore(&report);
     }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -465,6 +502,25 @@ mod tests {
         assert!(std::fs::read_to_string(&file).unwrap().contains("=120"));
         h.game_files.sync(&h.directory, || Some(BTreeSet::new()));
         assert_eq!(std::fs::read_to_string(&file).unwrap(), INI);
+    }
+
+    #[test]
+    fn a_managed_file_that_is_also_a_swapped_settings_file_fails_the_launch_unwritten() {
+        let f = Fixture::new();
+        let h = &f.host;
+        let (app, file) = game(&f);
+        let swapped = PathBuf::from(file.to_string_lossy().to_uppercase());
+        let error =
+            launching_beside(h, &app, &args("phone", "1920x1080x119.88"), &[swapped]).unwrap_err();
+        assert!(
+            format!("{error:#}").contains("both a managed game file"),
+            "{error:#}"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&file).unwrap(),
+            INI,
+            "no key went in"
+        );
     }
 
     #[test]

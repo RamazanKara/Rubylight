@@ -84,7 +84,7 @@
   {#if failure}
     <p class="error" role="alert">Could not read the saved copies: {failure}</p>
   {:else if status && status.files.length}
-    {#each status.pending.filter((swap) => !swap.running && swap.error) as swap (swap.device)}
+    {#each status.pending.filter((swap) => !swap.running && swap.error) as swap (swap.id)}
       <p class="error" role="alert">
         The files are not back from {swap.deviceName || swap.device} yet: {swap.error}
       </p>

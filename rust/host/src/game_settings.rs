@@ -12,9 +12,18 @@
 //! launching device's settings; a device starting another app ends the first app, and with it
 //! its swap, before its own begins.
 //!
+//! While the game runs, its programs are recorded in the journal (the app's processes, the
+//! Steam game, a store game the host noticed; not launchers or shells). When the app stops but
+//! one of them still runs (a detached launcher's game, a game the host lost track of, a host
+//! that crashed), nothing is saved or put back until it closes. A game the host never saw at
+//! all is not waited for.
+//!
 //! What a crash or a failure left is finished by a thread of its own: at host start, then every
 //! 30 seconds while something is left, as the Windows user once someone is signed in. While
 //! anything is left, the console shows a warning with the reason.
+//!
+//! The devices' copies stay in the host's config folder when a device is unpaired or the app
+//! is removed; pairing the device again, or adding the app back with the same uuid, finds them.
 use crate::state::{Host, Shared};
 use butterpollo_core::{
     game_files,
@@ -65,7 +74,50 @@ fn nudge() {
 }
 
 fn store(directory: &Path) -> Store {
-    Store::new(directory, ACCESS)
+    Store::new(directory, ACCESS).running(Box::new(still_running))
+}
+
+/// The tests' running programs.
+#[cfg(test)]
+static RUNNING: Mutex<BTreeSet<String>> = Mutex::new(BTreeSet::new());
+
+/// The first of `programs` that still runs, by full path; when the process list cannot be
+/// read, that is said instead, so nothing goes back under a game that might still run.
+fn still_running(programs: &[String]) -> Option<String> {
+    if programs.is_empty() {
+        return None;
+    }
+    #[cfg(test)]
+    {
+        let running = locked(&RUNNING);
+        programs
+            .iter()
+            .find(|program| running.contains(*program))
+            .cloned()
+    }
+    #[cfg(not(test))]
+    {
+        use butterpollo_windows::process;
+        let normal = |path: &str| path.replace('/', "\\").to_ascii_lowercase();
+        let watched: BTreeSet<String> = programs.iter().map(|program| normal(program)).collect();
+        let names: BTreeSet<String> = watched
+            .iter()
+            .filter_map(|program| program.rsplit('\\').next().map(str::to_owned))
+            .collect();
+        let processes = match process::processes() {
+            Ok(processes) => processes,
+            Err(error) => {
+                return Some(format!(
+                    "the game (the process list could not be read: {error:#})"
+                ));
+            }
+        };
+        processes
+            .iter()
+            .filter(|p| names.contains(&p.name.to_ascii_lowercase()))
+            .filter_map(|p| process::image_path(p.pid))
+            .find(|path| watched.contains(&normal(path)))
+    }
 }
 
 /// A running app's swap: finished when it drops.
@@ -74,17 +126,61 @@ pub struct Swap {
     app: String,
     directory: PathBuf,
     host: Weak<Host>,
+    /// The files swapped, expanded.
+    files: Vec<PathBuf>,
+    /// The game's programs recorded so far.
+    watched: BTreeSet<String>,
+    /// The launch failed before the game ran: only the originals go back.
+    cancelled: bool,
+}
+
+impl Swap {
+    /// Record the game's programs (full paths): the files stay while one runs, also after a
+    /// crash of the host.
+    pub fn watch(&mut self, programs: impl IntoIterator<Item = String>) {
+        let new: Vec<String> = programs
+            .into_iter()
+            .filter(|program| self.watched.insert(program.to_ascii_lowercase()))
+            .collect();
+        if new.is_empty() {
+            return;
+        }
+        if let Err(error) = store(&self.directory).watch(&self.id, &new) {
+            tracing::warn!(app = %self.app, error = format!("{error:#}"), "the game's programs could not be recorded for its settings files");
+            for program in &new {
+                self.watched.remove(&program.to_ascii_lowercase());
+            }
+        }
+    }
+    /// The files swapped, expanded.
+    pub fn files(&self) -> &[PathBuf] {
+        &self.files
+    }
+    /// The launch failed after the files went in, before the game ran.
+    pub fn cancel(mut self) {
+        self.cancelled = true;
+    }
 }
 
 impl Drop for Swap {
     fn drop(&mut self) {
-        let result = store(&self.directory).finish(&self.id);
+        let store = store(&self.directory);
+        let result = if self.cancelled {
+            store.cancel(&self.id)
+        } else {
+            store.finish(&self.id)
+        };
         locked(&LIVE).remove(&self.id);
         match result {
             Ok(report) => log_finished(&self.app, &report),
             Err(error) => {
+                let waiting = game_settings::still_running(&error);
                 let error = format!("{error:#}");
-                tracing::error!(app = %self.app, %error, "the game settings files could not all be saved and put back; they stay as they are and the host tries again");
+                if waiting {
+                    tracing::warn!(app = %self.app, %error, "the game still runs after the app stopped; its settings files stay until it closes");
+                } else {
+                    tracing::error!(app = %self.app, %error, "the game settings files could not all be saved and put back; they stay as they are and the host tries again");
+                }
                 if let Some(h) = self.host.upgrade() {
                     raise(&h, &error);
                 }
@@ -129,6 +225,7 @@ pub fn launching(
         .get("clientName")
         .filter(|name| !name.is_empty())
         .unwrap_or(device);
+    let id = uuid::Uuid::new_v4().to_string();
     let result = (|| {
         let files = written
             .iter()
@@ -142,19 +239,22 @@ pub fn launching(
                 Ok((path.clone(), expanded))
             })
             .collect::<anyhow::Result<Vec<_>>>()?;
-        let live = locked(&LIVE).clone();
-        store(&h.directory).begin(
-            &game_settings::app_key(app),
-            &app.name,
-            device,
-            device_name,
-            &files,
-            &live,
-        )
+        // Live before it is journaled: the retry thread never takes it for a crash's.
+        locked(&LIVE).insert(id.clone());
+        store(&h.directory)
+            .begin(
+                &id,
+                &game_settings::app_key(app),
+                &app.name,
+                device,
+                device_name,
+                &files,
+                &|| locked(&LIVE).clone(),
+            )
+            .map(|begun| (begun, files.into_iter().map(|(_, path)| path).collect()))
     })();
     match result {
-        Ok(begun) => {
-            locked(&LIVE).insert(begun.id.clone());
+        Ok((begun, files)) => {
             h.warnings.clear(LAUNCH_WARNING);
             tracing::info!(app = %app.name, device = %device_name, placed = ?begun.report.placed, first = ?begun.report.first, "game settings files swapped in for the device (first: kept as they are, saved for it when the game ends)");
             Ok(Some(Swap {
@@ -162,9 +262,13 @@ pub fn launching(
                 app: app.name.clone(),
                 directory: h.directory.clone(),
                 host: std::sync::Arc::downgrade(h),
+                files,
+                watched: BTreeSet::new(),
+                cancelled: false,
             }))
         }
         Err(error) => {
+            locked(&LIVE).remove(&id);
             let error = error.context(format!(
                 "{} did not start: its game settings files could not be swapped for {device_name}",
                 app.name
@@ -186,8 +290,7 @@ fn nobody_signed_in() -> bool {
 /// something is.
 fn retry(h: &Host) -> bool {
     let store = store(&h.directory);
-    let live = locked(&LIVE).clone();
-    let results = match store.recover(&live) {
+    let results = match store.recover(&|| locked(&LIVE).clone()) {
         Ok(results) => results,
         Err(error) => {
             let error = format!("{error:#}");
@@ -290,6 +393,7 @@ pub fn status(h: &Host, uuid: &str) -> anyhow::Result<Value> {
         .filter(|swap| swap.app == key)
         .map(|swap| {
             json!({
+                "id": swap.id,
                 "device": swap.device,
                 "deviceName": swap.device_name,
                 "running": live.contains(&swap.id),
@@ -396,6 +500,55 @@ mod tests {
             .err()
             .unwrap();
         assert!(format!("{unset:#}").contains("not set"), "{unset:#}");
+    }
+
+    #[test]
+    fn a_game_that_outlives_its_app_keeps_the_files_until_it_closes() {
+        let f = Fixture::new();
+        let (app, file, environment) = game(&f);
+        let mut swap = launching(&f.host, &app, &args("tv"), &environment)
+            .unwrap()
+            .unwrap();
+        let program = f.host.directory.join("game").join("Outlives.exe");
+        let program = program.to_string_lossy().into_owned();
+        swap.watch([program.clone()]);
+        locked(&RUNNING).insert(program.clone());
+        std::fs::write(&file, "tv").unwrap();
+        // The app stopped, but the game it started still runs.
+        drop(swap);
+        assert_eq!(
+            read(&file),
+            "tv",
+            "the PC's file waits for the game to close"
+        );
+        assert!(retry(&f.host), "still left");
+        assert_eq!(read(&file), "tv");
+        std::fs::write(&file, "tv-exit").unwrap();
+        locked(&RUNNING).remove(&program);
+        assert!(!retry(&f.host));
+        assert_eq!(read(&file), "pc");
+        let key = game_settings::app_key(&app);
+        let copy = store(&f.host.directory).device_copy(
+            &key,
+            "tv",
+            &game_settings::file_key("%GameDir%\\Settings.ini"),
+        );
+        assert_eq!(read(&copy), "tv-exit");
+    }
+
+    #[test]
+    fn a_cancelled_launch_saves_no_copy_for_the_device() {
+        let f = Fixture::new();
+        let (app, file, environment) = game(&f);
+        let swap = launching(&f.host, &app, &args("tv"), &environment)
+            .unwrap()
+            .unwrap();
+        assert_eq!(swap.files(), std::slice::from_ref(&file));
+        std::fs::write(&file, "half").unwrap();
+        swap.cancel();
+        assert_eq!(read(&file), "pc");
+        let key = game_settings::app_key(&app);
+        assert!(!store(&f.host.directory).saved(&key, "tv", "%GameDir%\\Settings.ini"));
     }
 
     #[test]

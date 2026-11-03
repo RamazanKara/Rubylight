@@ -4,6 +4,7 @@
     <string name="home_view_layout">Układ</string>
     <string name="home_view_layout_grid">Siatka</string>
     <string name="home_view_layout_rows">Rzędy</string>
+    <string name="home_view_layout_list">Lista</string>
     <string name="home_view_group">Grupuj według</string>
     <string name="home_view_group_store">Sklep</string>
     <string name="home_view_group_type">Typ</string>
@@ -13,4 +14,13 @@
     <string name="home_view_size_small">Małe</string>
     <string name="home_view_size_medium">Średnie</string>
     <string name="home_view_size_large">Duże</string>
+    <string name="console_list_not_played">Jeszcze nie grano</string>
+    <string name="console_list_played_today">Grano dzisiaj</string>
+    <string name="console_list_played_yesterday">Grano wczoraj</string>
+    <plurals name="console_list_played_days">
+        <item quantity="one">Grano %d dzień temu</item>
+        <item quantity="few">Grano %d dni temu</item>
+        <item quantity="many">Grano %d dni temu</item>
+        <item quantity="other">Grano %d dnia temu</item>
+    </plurals>
 </resources>

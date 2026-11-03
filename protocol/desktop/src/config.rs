@@ -484,6 +484,9 @@ impl OverlayCorner {
 pub enum HomeLayout {
     /// Every game of a row, line under line.
     Grid,
+    /// Every game of a row as a line of its own: a small cover, the title, its store and when it
+    /// was last played.
+    List,
     /// One line per row, as many covers as fit and an "All N" tile for the rest. Also what an
     /// unknown value reads as; keep it last: serde wants the catch-all there.
     #[default]
@@ -492,11 +495,12 @@ pub enum HomeLayout {
 }
 
 impl HomeLayout {
-    pub const ALL: [Self; 2] = [Self::Grid, Self::Rows];
+    pub const ALL: [Self; 3] = [Self::Grid, Self::List, Self::Rows];
 
     pub fn label(self) -> &'static str {
         match self {
             Self::Grid => en("Grid"),
+            Self::List => en("List"),
             Self::Rows => en("Rows"),
         }
     }

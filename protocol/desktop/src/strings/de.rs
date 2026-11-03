@@ -5,6 +5,11 @@
 
 pub const TABLE: &[(&str, &str)] = &[
     ("Settings", "Einstellungen"),
+    ("List", "Liste"),
+    ("Not played yet", "Noch nicht gespielt"),
+    ("Played today", "Heute gespielt"),
+    ("Played yesterday", "Gestern gespielt"),
+    ("Played {} days ago", "Vor {} Tagen gespielt"),
     ("Previous tab", "Vorheriger Tab"),
     ("Next tab", "Nächster Tab"),
     ("Profiles", "Profile"),

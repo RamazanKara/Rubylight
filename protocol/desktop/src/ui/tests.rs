@@ -3626,10 +3626,50 @@ fn home_view_changes_layout_grouping_and_card_size_in_place() {
     let small = covers_in_line(&f);
     assert!(large < medium && medium < small, "large {large}, medium {medium}, small {small}");
 
+    // List: every game a line of its own, its store and when it was last played under the title.
+    let at = row(&f, "Layout");
+    f.click_at(at.center(), egui::PointerButton::Primary);
+    assert_eq!(f.l.settings.home_layout, HomeLayout::List);
+    assert!(shows(&f, "List"), "{:?}", f.drawn);
+    assert!(shows(&f, "Steam 11") && !shows(&f, "All 12"), "{:?}", f.drawn);
+    assert!(shows(&f, "Steam · Not played yet"), "{:?}", f.drawn);
+    // The title beside the cover (the last of the two the line draws), each line under the one before.
+    let title = |f: &Frames, name: &str| f.placed.iter().rev().find(|(t, ..)| t == name).map(|p| p.1).expect(name);
+    let (first, second) = (title(&f, "Steam 00"), title(&f, "Steam 01"));
+    assert!(second.top() > first.bottom() && (second.left() - first.left()).abs() < 1.0, "one under the other: {first:?} {second:?}");
+    // And round to Rows.
+    let at = row(&f, "Layout");
+    f.click_at(at.center(), egui::PointerButton::Primary);
+    assert_eq!(f.l.settings.home_layout, HomeLayout::Rows);
+    let at = row(&f, "Layout");
+    f.click_at(at.center(), egui::PointerButton::Primary);
+    assert_eq!(f.l.settings.home_layout, HomeLayout::Grid);
+
     f.press(Key::Escape);
     assert!(matches!(f.l.dialog, Dialog::None));
     let focused = f.ctx.memory(|m| m.focused()).and_then(|id| f.ctx.read_response(id)).map(|r| r.rect).expect("focus");
     assert!(focused.contains_rect(view), "back on View: {focused:?}");
+}
+
+/// List: the pad's Down walks from line to line, and A on a line opens its game.
+#[test]
+fn home_list_lines_walk_with_the_pad_and_open_their_game() {
+    let mut f = store_mix();
+    f.l.settings.home_layout = HomeLayout::List;
+    f.settle();
+    let focused = |f: &Frames| {
+        let rect = f.ctx.memory(|m| m.focused()).and_then(|id| f.ctx.read_response(id)).map(|r| r.rect)?;
+        f.placed.iter().rev().find(|(t, at, _)| t.starts_with("Steam ") && !t.contains('·') && rect.contains(at.center())).map(|p| p.0.clone())
+    };
+    for _ in 0..8 {
+        if focused(&f).as_deref() == Some("Steam 00") { break; }
+        pad_press(&mut f, Key::ArrowDown);
+    }
+    assert_eq!(focused(&f).as_deref(), Some("Steam 00"), "{:?}", f.drawn);
+    pad_press(&mut f, Key::ArrowDown);
+    assert_eq!(focused(&f).as_deref(), Some("Steam 01"));
+    pad_press(&mut f, Key::Enter);
+    assert!(matches!(f.l.screen, Screen::Game { .. }), "{:?}", f.l.screen);
 }
 
 /// Rows, not by store: one Library line of what fits, its All tile opening All games.

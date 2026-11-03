@@ -244,6 +244,66 @@ public class HomeViewScreenTest {
         assertTrue(smallColumns + " small against " + largeColumns + " large", smallColumns > largeColumns);
     }
 
+    /** Each List line under Home's library, top to bottom, with the line under its title. */
+    private static List<String> lines(RecyclerView list) {
+        List<String> found = new ArrayList<>();
+        for (int i = 0; i < list.getChildCount(); i++) {
+            View child = list.getChildAt(i);
+            RecyclerView.ViewHolder holder = list.getChildViewHolder(child);
+            if (holder.getItemViewType() != ConsoleHomeListAdapter.LIST_GAME) continue;
+            found.add(((TextView) child.findViewById(R.id.console_title)).getText() + " / "
+                    + ((TextView) child.findViewById(R.id.console_subtitle)).getText());
+        }
+        return found;
+    }
+
+    private void showsTheLibraryAsLines(int width, int height) throws Exception {
+        prefs.edit().putString(HomeView.KEY_LAYOUT, "list").putString(HomeView.KEY_GROUP, "none").commit();
+        HomeShellTest.Home home = home().get();
+        assertEquals(HomeView.Layout.LIST, home.view().layout);
+        RecyclerView list = home.findViewById(R.id.console_list);
+        assertTrue(list.getLayoutManager() instanceof GridLayoutManager);
+        ConsoleHomeListAdapter adapter = ReflectionHelpers.getField(home, "adapter");
+        adapter.submit(storeModel(), home.view().group);
+        layout(list, width, height);
+        List<String> lines = lines(list);
+        assertTrue(lines.toString(), lines.size() >= 3);
+        // Not played yet: the fixture's games have no last played.
+        String never = home.getString(R.string.console_list_not_played);
+        assertTrue(lines.toString(), lines.contains("Celeste / Steam · " + never));
+        assertTrue(lines.toString(), lines.contains("Hades / Epic Games · " + never));
+        // A line spans the width, so each is under the one before it and the D-pad walks down them.
+        int first = adapter.positionOfKey(adapter.keyAt(adapter.firstCard()));
+        View top = list.findViewHolderForAdapterPosition(first).itemView;
+        View next = list.findViewHolderForAdapterPosition(first + 1).itemView;
+        assertEquals(top.getLeft(), next.getLeft());
+        assertTrue(next.getTop() >= top.getBottom());
+        assertTrue(top.isFocusable());
+        top.requestFocus();
+        assertEquals(next, top.focusSearch(View.FOCUS_DOWN));
+    }
+
+    @Test
+    public void aPhoneListShowsALinePerGame() throws Exception {
+        showsTheLibraryAsLines(1080, 2200);
+    }
+
+    @Test
+    @Config(qualifiers = "w960dp-h540dp-land-television-xhdpi")
+    public void aTvListShowsALinePerGame() throws Exception {
+        showsTheLibraryAsLines(1920, 1080);
+    }
+
+    @Test
+    public void aListLineSaysWhenTheGameWasLastPlayed() {
+        long now = 1_800_000_000L;
+        assertEquals("Steam · Not played yet", ConsoleHomeListAdapter.listLine(context, "Steam", null, now));
+        assertEquals("Steam · Played today", ConsoleHomeListAdapter.listLine(context, "Steam", now - 3_600, now));
+        assertEquals("Steam · Played yesterday", ConsoleHomeListAdapter.listLine(context, "Steam", now - 86_400 - 60, now));
+        assertEquals("Steam · Played 9 days ago", ConsoleHomeListAdapter.listLine(context, "Steam", now - 9 * 86_400, now));
+        assertEquals("Played today", ConsoleHomeListAdapter.listLine(context, null, now, now));
+    }
+
     @Test
     public void aPhoneCanShowTheShelves() {
         prefs.edit().putString(HomeView.KEY_LAYOUT, "rows").commit();
@@ -264,7 +324,7 @@ public class HomeViewScreenTest {
         assertNotNull(sheet);
         View content = sheet.findViewById(android.R.id.content);
         for (int label : new int[] {R.string.home_view_layout_grid, R.string.home_view_layout_rows,
-                R.string.home_view_group_store, R.string.home_view_group_type, R.string.home_view_group_none,
+                R.string.home_view_layout_list, R.string.home_view_group_store, R.string.home_view_group_type, R.string.home_view_group_none,
                 R.string.home_view_size_small,
                 R.string.home_view_size_medium, R.string.home_view_size_large}) {
             assertNotNull(home.getString(label), button(content, home.getString(label)));

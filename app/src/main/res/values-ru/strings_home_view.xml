@@ -4,6 +4,7 @@
     <string name="home_view_layout">Раскладка</string>
     <string name="home_view_layout_grid">Сетка</string>
     <string name="home_view_layout_rows">Ряды</string>
+    <string name="home_view_layout_list">Список</string>
     <string name="home_view_group">Группировать по</string>
     <string name="home_view_group_store">Магазин</string>
     <string name="home_view_group_type">Тип</string>
@@ -13,4 +14,13 @@
     <string name="home_view_size_small">Маленькие</string>
     <string name="home_view_size_medium">Средние</string>
     <string name="home_view_size_large">Большие</string>
+    <string name="console_list_not_played">Ещё не играли</string>
+    <string name="console_list_played_today">Играли сегодня</string>
+    <string name="console_list_played_yesterday">Играли вчера</string>
+    <plurals name="console_list_played_days">
+        <item quantity="one">Играли %d день назад</item>
+        <item quantity="few">Играли %d дня назад</item>
+        <item quantity="many">Играли %d дней назад</item>
+        <item quantity="other">Играли %d дня назад</item>
+    </plurals>
 </resources>

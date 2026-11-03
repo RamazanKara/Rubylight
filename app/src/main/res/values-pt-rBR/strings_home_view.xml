@@ -4,6 +4,7 @@
     <string name="home_view_layout">Layout</string>
     <string name="home_view_layout_grid">Grade</string>
     <string name="home_view_layout_rows">Linhas</string>
+    <string name="home_view_layout_list">Lista</string>
     <string name="home_view_group">Agrupar por</string>
     <string name="home_view_group_store">Loja</string>
     <string name="home_view_group_type">Tipo</string>
@@ -13,4 +14,12 @@
     <string name="home_view_size_small">Pequeno</string>
     <string name="home_view_size_medium">Médio</string>
     <string name="home_view_size_large">Grande</string>
+    <string name="console_list_not_played">Ainda não jogado</string>
+    <string name="console_list_played_today">Jogado hoje</string>
+    <string name="console_list_played_yesterday">Jogado ontem</string>
+    <plurals name="console_list_played_days">
+        <item quantity="one">Jogado há %d dia</item>
+        <item quantity="many">Jogado há %d dias</item>
+        <item quantity="other">Jogado há %d dias</item>
+    </plurals>
 </resources>

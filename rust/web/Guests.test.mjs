@@ -35,11 +35,17 @@ test('the link carries the token in its fragment, at an address a guest can open
     const url = new URL(`https://${host}/`);
     return { hostname: url.hostname, host: url.host, port: url.port };
   };
-  assert.equal(guests.linkAddress(page('localhost:47990'), ['192.168.4.69']), '192.168.4.69:47990');
-  assert.equal(guests.linkAddress(page('127.0.0.1:47990'), ['192.168.4.69']), '192.168.4.69:47990');
-  assert.equal(guests.linkAddress(page('[::1]:47990'), ['192.168.4.69']), '192.168.4.69:47990');
-  assert.equal(guests.linkAddress(page('pc.local:47990'), ['192.168.4.69']), 'pc.local:47990');
-  assert.equal(guests.linkAddress(page('localhost:47990'), []), 'localhost:47990');
+  // The link goes to the guest page's own port, never the console's.
+  assert.equal(guests.linkAddress(page('localhost:47990'), ['192.168.4.69'], 47991), '192.168.4.69:47991');
+  assert.equal(guests.linkAddress(page('127.0.0.1:47990'), ['192.168.4.69'], 47991), '192.168.4.69:47991');
+  assert.equal(guests.linkAddress(page('[::1]:47990'), ['192.168.4.69'], 47991), '192.168.4.69:47991');
+  assert.equal(guests.linkAddress(page('pc.local:47990'), ['192.168.4.69'], 47991), 'pc.local:47991');
+  assert.equal(guests.linkAddress(page('localhost:47990'), [], 47991), 'localhost:47991');
+  // An address the owner typed without a port gets the guest port; one with a port keeps it.
+  assert.equal(guests.withPort('home.example.org', 47991), 'home.example.org:47991');
+  assert.equal(guests.withPort(' home.example.org:443 ', 47991), 'home.example.org:443');
+  assert.equal(guests.withPort('[2001:db8::1]', 47991), '[2001:db8::1]:47991');
+  assert.equal(guests.withPort('[2001:db8::1]:8443', 47991), '[2001:db8::1]:8443');
   for (const good of ['192.168.4.69:47990', 'home.example.org', '[2001:db8::1]:47990']) assert.ok(guests.validAddress(good), good);
   for (const bad of ['', 'a b', 'host/path', 'https://host', 'host:port', 'host#x']) assert.ok(!guests.validAddress(bad), bad);
   assert.equal(guests.addressProblem('192.168.4.69:47990'), undefined);
@@ -53,6 +59,8 @@ test('expiry reads in minutes, hours or days', () => {
   assert.equal(guests.expiresIn(1000 + 10, 1000), 'in 1 min');
   assert.equal(guests.expiresIn(1000 + 23 * 3600, 1000), 'in 23 h');
   assert.equal(guests.expiresIn(1000 + 6 * 86_400, 1000), 'in 6 days');
+  assert.equal(guests.expiresIn(1000, 1000), 'expired');
+  assert.equal(guests.expiresIn(900, 1000), 'expired');
   assert.equal(guests.permissionLabel('controller-keyboard-mouse'), 'Controller, keyboard and mouse');
 });
 

@@ -40,12 +40,18 @@ const loopback = (hostname: string) => {
 };
 
 /**
- * The address a guest opens the link at: the console's own, or for a console opened on this PC
- * (`localhost`), the PC's first LAN address on the console's port.
+ * The address a guest opens the link at: the console's host, or for a console opened on this PC
+ * (`localhost`), the PC's first LAN address; on the guest page's own port.
  */
-export function linkAddress(page: { hostname: string; host: string; port: string }, addresses: readonly string[]): string {
-  if (!loopback(page.hostname) || !addresses[0]) return page.host;
-  return page.port ? `${addresses[0]}:${page.port}` : addresses[0];
+export function linkAddress(page: { hostname: string }, addresses: readonly string[], port: number): string {
+  const host = loopback(page.hostname) && addresses[0] ? addresses[0] : page.hostname;
+  return `${host}:${port}`;
+}
+
+/** `address` with the guest port when it names none: a host name alone would open port 443. */
+export function withPort(address: string, port: number): string {
+  const trimmed = address.trim();
+  return /:\d{1,5}$/.test(trimmed) && !/^[^[]*:[^\]]*:/.test(trimmed) ? trimmed : `${trimmed}:${port}`;
 }
 
 /** An address the link can carry: a host name or IP with an optional port, nothing else. */
@@ -65,9 +71,10 @@ export function guestLink(address: string, token: string): string {
   return `https://${address.trim()}/guest/#${token}`;
 }
 
-/** "in 59 min", "in 23 h", "in 6 days" from Unix seconds. */
+/** "Expires in 59 min", "in 23 h", "in 6 days" from Unix seconds; "Expired" once it has. */
 export function expiresIn(expires: number, now = Date.now() / 1000): string {
-  const left = Math.max(0, expires - now);
+  if (expires <= now) return 'expired';
+  const left = expires - now;
   if (left < 3600) return `in ${Math.max(1, Math.ceil(left / 60))} min`;
   if (left < 2 * 86_400) return `in ${Math.round(left / 3600)} h`;
   return `in ${Math.round(left / 86_400)} days`;

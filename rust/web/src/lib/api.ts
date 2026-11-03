@@ -752,15 +752,17 @@ export interface GuestsStatus {
   /** Whether the console's stream runs, which guests join. */
   streaming: boolean;
   max_guests: number;
+  /** Links still working, and expired ones a guest still watches with. */
   invites: GuestInvite[];
   guests: GuestEntry[];
+  /** The guest page's own TCP port; null when the host's base port is unreadable. */
+  port: number | null;
 }
 
-/** `POST /api/guests/invite`: the new link's token, shown once, and this PC's LAN addresses. */
+/** `POST /api/guests/invite`: the new link's token, shown once. */
 export interface CreatedInvite {
   invite: GuestInvite;
   token: string;
-  addresses: string[];
 }
 
 /** `GET /api/coop`: background streaming and co-op through Nucleus Co-op. */
@@ -1150,8 +1152,11 @@ export const api = {
   },
   guests: {
     status: () => get<GuestsStatus>('/api/guests'),
-    /** A link lasting `seconds` (five minutes to seven days). */
-    invite: (permission: GuestPermission, seconds: number) => post<CreatedInvite>('/api/guests/invite', { permission, seconds }),
+    /** This PC's LAN addresses, for a console opened on the PC itself. */
+    addresses: () => get<{ addresses: string[] }>('/api/guests/addresses'),
+    /** A link lasting `seconds` (five minutes to seven days) at `address`, which guests' media is offered at too. */
+    invite: (permission: GuestPermission, seconds: number, address: string) =>
+      post<CreatedInvite>('/api/guests/invite', { permission, seconds, address }),
     /** The link opens nothing any more; whoever joined with it is disconnected. */
     revoke: (id: string) => post<Record<string, never>>('/api/guests/revoke', { id }),
     /** Disconnects the guest; its link still works. */

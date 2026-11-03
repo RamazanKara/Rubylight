@@ -23,6 +23,7 @@
     linkAddress,
     permissionLabel,
     addressProblem,
+    withPort,
     type Expiry,
   } from '../../lib/guests';
 
@@ -42,10 +43,13 @@
   /** The address the link starts with, so only one the owner typed is remembered. */
   let suggested = '';
 
+  /** The address and port the link was made for. */
+  let linked = $state('');
+
   const seconds = $derived(lifetime(expiry as Expiry, Number(amount), Number(unit)));
-  const addressError = $derived(addressProblem(address));
-  const addressValid = $derived(!addressError);
-  const link = $derived(created && addressValid ? guestLink(address, created.token) : '');
+  const port = $derived(status?.port ?? null);
+  const addressError = $derived(port === null ? 'The guest port is unknown' : addressProblem(address));
+  const link = $derived(created ? guestLink(linked, created.token) : '');
   const guests = $derived(status?.guests ?? []);
   const invites = $derived(status?.invites ?? []);
 
@@ -77,18 +81,28 @@
     }
   }
 
-  function invite() {
+  async function invite() {
     created = null;
     open = true;
+    if (port === null) return;
+    let lan: string[] = [];
+    try {
+      lan = (await api.guests.addresses()).addresses;
+    } catch (cause) {
+      failed('Reading this PC\'s addresses failed', cause);
+    }
+    suggested = linkAddress(location, lan, port);
+    address = savedAddress() ?? suggested;
   }
 
   async function create() {
-    if (seconds === null || creating) return;
+    if (seconds === null || creating || addressError || port === null) return;
     creating = true;
     try {
-      const made = await api.guests.invite(permission as GuestPermission, seconds);
-      suggested = linkAddress(location, made.addresses);
-      address = savedAddress() ?? suggested;
+      const target = withPort(address, port);
+      const made = await api.guests.invite(permission as GuestPermission, seconds, target);
+      linked = target;
+      rememberAddress();
       created = made;
       void load();
     } catch (cause) {
@@ -99,7 +113,6 @@
   }
 
   function done() {
-    if (created) rememberAddress();
     open = false;
   }
 
@@ -151,7 +164,7 @@
         <li>
           <span class="name">Link</span>
           <Badge>{permissionLabel(invite.permission)}</Badge>
-          <span class="muted when">Expires {expiresIn(invite.expires, now)}{joined ? ` · ${joined} watching` : ''}</span>
+          <span class="muted when">{invite.expires <= now ? 'Expired' : `Expires ${expiresIn(invite.expires, now)}`}{joined ? ` · ${joined} watching` : ''}</span>
           <Button size="sm" variant="danger" onclick={() => revoke(invite)}>Revoke</Button>
         </li>
       {/each}
@@ -159,23 +172,26 @@
   {/if}
 </Panel>
 
-<Dialog bind:open title={created ? 'Invite link' : 'Invite a guest'} dismissible={!creating} onclose={() => created && rememberAddress()}>
+<Dialog bind:open title={created ? 'Invite link' : 'Invite a guest'} dismissible={!creating}>
   {#if created}
     <div class="form">
-      <Field label="Address" id="guest-address" error={addressError}>
-        <Input id="guest-address" bind:value={address} mono invalid={!addressValid} spellcheck="false" autocomplete="off" />
-      </Field>
       <Field label="Link" id="guest-link">
         <div class="copy">
           <Input id="guest-link" value={link} mono readonly />
-          {#if link}<CopyButton value={link} label="Copy link" what="the invite link" showLabel />{/if}
+          <CopyButton value={link} label="Copy link" what="the invite link" showLabel />
         </div>
       </Field>
       <p class="muted when">{permissionLabel(created.invite.permission)} · expires {expiresIn(created.invite.expires)}</p>
     </div>
   {:else}
     <div class="form">
-      <Field label="Guests can" id="guest-permission">
+      <Field
+        label="Guests can"
+        id="guest-permission"
+        hint={permission === 'controller-keyboard-mouse'
+          ? 'Their keyboard and mouse control this PC, outside the game too. Anyone who gets the link, or reads it past a certificate warning, can use it.'
+          : undefined}
+      >
         <Select id="guest-permission" bind:value={permission} options={[...PERMISSIONS]} />
       </Field>
       <Field label="Link expires after" id="guest-expiry">
@@ -191,6 +207,9 @@
           </Field>
         </div>
       {/if}
+      <Field label="Address" id="guest-address" error={addressError}>
+        <Input id="guest-address" bind:value={address} mono invalid={!!addressError} spellcheck="false" autocomplete="off" />
+      </Field>
     </div>
   {/if}
   {#snippet actions()}
@@ -198,7 +217,7 @@
       <Button variant="primary" onclick={done}>Done</Button>
     {:else}
       <Button variant="secondary" disabled={creating} onclick={() => (open = false)}>Cancel</Button>
-      <Button variant="primary" icon="link" busy={creating} disabled={seconds === null} onclick={create}>Create link</Button>
+      <Button variant="primary" icon="link" busy={creating} disabled={seconds === null || !!addressError} onclick={create}>Create link</Button>
     {/if}
   {/snippet}
 </Dialog>

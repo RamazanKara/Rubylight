@@ -5,6 +5,7 @@
     <string name="keyboard_task_manager">Gerenciador de Tarefas</string>
     <string name="keyboard_switch_window">Alternar janela</string>
     <string name="keyboard_close_window">Fechar janela</string>
+    <string name="keyboard_record_that">Gravar isso</string>
     <string name="keyboard_arrow_left">Seta para a esquerda</string>
     <string name="keyboard_arrow_up">Seta para cima</string>
     <string name="keyboard_arrow_down">Seta para baixo</string>

@@ -1298,6 +1298,8 @@ sudo sysctl -w net.core.rmem_max={}", "Буфер приймання: систе
     ("Close window", "Закрити вікно"),
     ("Start menu", "Меню «Пуск»"),
     ("Show desktop", "Показати робочий стіл"),
+    ("Game Bar", "Game Bar"),
+    ("Record that", "Записати це"),
     ("Add shortcut", "Додати комбінацію"),
     ("Edit shortcuts", "Змінити комбінації"),
     ("Could not save shortcuts: {}", "Не вдалося зберегти комбінації: {}"),

@@ -5,6 +5,7 @@
     <string name="keyboard_task_manager">任务管理器</string>
     <string name="keyboard_switch_window">切换窗口</string>
     <string name="keyboard_close_window">关闭窗口</string>
+    <string name="keyboard_record_that">录制刚才</string>
     <string name="keyboard_arrow_left">左方向键</string>
     <string name="keyboard_arrow_up">上方向键</string>
     <string name="keyboard_arrow_down">下方向键</string>

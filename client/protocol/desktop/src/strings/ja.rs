@@ -1298,6 +1298,8 @@ sudo sysctl -w net.core.rmem_max={}", "受信バッファー：システムは�
     ("Close window", "ウィンドウを閉じる"),
     ("Start menu", "スタートメニュー"),
     ("Show desktop", "デスクトップを表示"),
+    ("Game Bar", "Game Bar"),
+    ("Record that", "直前を録画"),
     ("Add shortcut", "ショートカットを追加"),
     ("Edit shortcuts", "ショートカットを編集"),
     ("Could not save shortcuts: {}", "ショートカットを保存できませんでした：{}"),

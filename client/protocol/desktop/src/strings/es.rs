@@ -1298,6 +1298,8 @@ sudo sysctl -w net.core.rmem_max={}", "Búfer de recepción: el sistema concedi�
     ("Close window", "Cerrar ventana"),
     ("Start menu", "Menú Inicio"),
     ("Show desktop", "Mostrar escritorio"),
+    ("Game Bar", "Game Bar"),
+    ("Record that", "Grabar eso"),
     ("Add shortcut", "Añadir atajo"),
     ("Edit shortcuts", "Editar atajos"),
     ("Could not save shortcuts: {}", "No se pudieron guardar los atajos: {}"),

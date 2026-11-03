@@ -846,6 +846,8 @@ public final class StreamMenu {
             case "close_window": return R.string.keyboard_close_window;
             case "start_menu": return R.string.stream_menu_start_menu;
             case "show_desktop": return R.string.desktop_controls_shortcut_desktop;
+            case "game_bar": return R.string.keyboard_game_bar;
+            case "record_that": return R.string.keyboard_record_that;
             default: throw new IllegalArgumentException("unknown built-in shortcut " + id);
         }
     }

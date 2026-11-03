@@ -1298,6 +1298,8 @@ sudo sysctl -w net.core.rmem_max={}", "Bufor odbioru: system przydzielił {0} Ki
     ("Close window", "Zamknij okno"),
     ("Start menu", "Menu Start"),
     ("Show desktop", "Pokaż pulpit"),
+    ("Game Bar", "Game Bar"),
+    ("Record that", "Nagraj to"),
     ("Add shortcut", "Dodaj skrót"),
     ("Edit shortcuts", "Edytuj skróty"),
     ("Could not save shortcuts: {}", "Nie udało się zapisać skrótów: {}"),

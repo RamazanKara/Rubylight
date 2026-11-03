@@ -1298,6 +1298,8 @@ sudo sysctl -w net.core.rmem_max={}", "接收緩衝區：系統只分配了所�
     ("Close window", "關閉視窗"),
     ("Start menu", "開始功能表"),
     ("Show desktop", "顯示桌面"),
+    ("Game Bar", "Game Bar"),
+    ("Record that", "錄製剛才"),
     ("Add shortcut", "新增快速鍵"),
     ("Edit shortcuts", "編輯快捷鍵"),
     ("Could not save shortcuts: {}", "無法儲存快捷鍵：{}"),

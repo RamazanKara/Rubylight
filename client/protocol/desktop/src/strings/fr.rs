@@ -1298,6 +1298,8 @@ sudo sysctl -w net.core.rmem_max={}", "Tampon de réception : le système a acco
     ("Close window", "Fermer la fenêtre"),
     ("Start menu", "Menu Démarrer"),
     ("Show desktop", "Afficher le bureau"),
+    ("Game Bar", "Game Bar"),
+    ("Record that", "Enregistrer ça"),
     ("Add shortcut", "Ajouter un raccourci"),
     ("Edit shortcuts", "Modifier les raccourcis"),
     ("Could not save shortcuts: {}", "Impossible d’enregistrer les raccourcis : {}"),

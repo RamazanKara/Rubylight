@@ -5,6 +5,7 @@
     <string name="keyboard_task_manager">タスク マネージャー</string>
     <string name="keyboard_switch_window">ウィンドウを切り替え</string>
     <string name="keyboard_close_window">ウィンドウを閉じる</string>
+    <string name="keyboard_record_that">直前を録画</string>
     <string name="keyboard_arrow_left">左矢印</string>
     <string name="keyboard_arrow_up">上矢印</string>
     <string name="keyboard_arrow_down">下矢印</string>

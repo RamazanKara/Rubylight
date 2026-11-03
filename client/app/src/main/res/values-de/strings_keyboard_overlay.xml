@@ -4,6 +4,7 @@
     <string name="keyboard_task_manager">Task-Manager</string>
     <string name="keyboard_switch_window">Fenster wechseln</string>
     <string name="keyboard_close_window">Fenster schließen</string>
+    <string name="keyboard_record_that">Das aufzeichnen</string>
     <string name="keyboard_arrow_left">Pfeil nach links</string>
     <string name="keyboard_arrow_up">Pfeil nach oben</string>
     <string name="keyboard_arrow_down">Pfeil nach unten</string>

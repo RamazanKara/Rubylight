@@ -191,6 +191,8 @@ pub fn built_in_label(id: &str) -> &'static str {
         "close_window" => tr("Close window"),
         "start_menu" => tr("Start menu"),
         "show_desktop" => tr("Show desktop"),
+        "game_bar" => tr("Game Bar"),
+        "record_that" => tr("Record that"),
         other => unreachable!("built-in {other} without a label"),
     }
 }

@@ -1298,6 +1298,8 @@ sudo sysctl -w net.core.rmem_max={}", "Bộ đệm nhận: hệ thống chỉ c�
     ("Close window", "Đóng cửa sổ"),
     ("Start menu", "Menu Start"),
     ("Show desktop", "Hiển thị màn hình nền"),
+    ("Game Bar", "Game Bar"),
+    ("Record that", "Ghi lại đoạn đó"),
     ("Add shortcut", "Thêm phím tắt"),
     ("Edit shortcuts", "Sửa phím tắt"),
     ("Could not save shortcuts: {}", "Không thể lưu phím tắt: {}"),

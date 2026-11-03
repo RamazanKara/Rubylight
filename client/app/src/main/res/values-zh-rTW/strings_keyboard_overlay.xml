@@ -5,6 +5,7 @@
     <string name="keyboard_task_manager">工作管理員</string>
     <string name="keyboard_switch_window">切換視窗</string>
     <string name="keyboard_close_window">關閉視窗</string>
+    <string name="keyboard_record_that">錄製剛才</string>
     <string name="keyboard_arrow_left">向左鍵</string>
     <string name="keyboard_arrow_up">向上鍵</string>
     <string name="keyboard_arrow_down">向下鍵</string>

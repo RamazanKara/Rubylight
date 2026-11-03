@@ -65,6 +65,24 @@ public class MediaCodecDebtReleaseTest {
         }
     }
 
+    @Test public void withNothingBehindTheHeldOutputIsDroppedWithoutWaiting() {
+        // The display's queue holds a buffer too many (issue 7, 10-12 ms for 45 s on a Shield):
+        // no newer output will come, so the held one goes and the screen keeps the previous frame.
+        for (int mode : new int[] {FRAME_PACING_MAX_SMOOTHNESS, FRAME_PACING_CAP_FPS}) {
+            Fixture fixture = new Fixture(mode, MediaCodec.INFO_TRY_AGAIN_LATER, 0);
+            try {
+                fixture.release();
+                assertTrue("mode " + mode + " has nothing to dequeue", fixture.timeoutsUs.isEmpty());
+                assertEquals("mode " + mode, Collections.singletonList(HELD), fixture.dropped);
+                assertTrue("mode " + mode, fixture.rendered.isEmpty());
+                DecoderQueuePolicy.Debt debt = ReflectionHelpers.getField(fixture.renderer, "debt");
+                assertFalse("one drop, then the next outputs are measured", debt.shouldDrop());
+            } finally {
+                fixture.close();
+            }
+        }
+    }
+
     @Test public void latencyAndBalancedNeverWaitForDebt() {
         for (int mode : new int[] {FRAME_PACING_MIN_LATENCY, FRAME_PACING_BALANCED}) {
             Fixture fixture = new Fixture(mode, MediaCodec.INFO_TRY_AGAIN_LATER);
@@ -90,6 +108,10 @@ public class MediaCodecDebtReleaseTest {
         final List<Integer> rendered = new ArrayList<>();
 
         Fixture(int framePacing, int next) {
+            this(framePacing, next, 1);
+        }
+
+        Fixture(int framePacing, int next, int behind) {
             ReflectionHelpers.setStaticField(MediaCodecHelper.class, "initialized", true);
             PreferenceConfiguration prefs = new PreferenceConfiguration();
             prefs.videoFormat = PreferenceConfiguration.FormatOption.AUTO;
@@ -107,19 +129,19 @@ public class MediaCodecDebtReleaseTest {
             }
             ReflectionHelpers.setField(renderer, "videoDecoder", codec);
 
-            // The held output, with a newer frame queued behind it: 24 ms in the decoder against a
+            // The held output, with behind frames queued behind it: 24 ms in the decoder against a
             // 1 ms floor, after 1.8 s of the same. No enqueue time, so the age rule stays out of it.
             long now = System.nanoTime();
             stats.onDecoderInput(HELD, HELD, now - 25 * MS, 0, now - 25 * MS, (char) 0);
             stats.onDecoderOutput(HELD, HELD, now - MS);
-            ReflectionHelpers.setField(renderer, "numFramesIn", 2);
+            ReflectionHelpers.setField(renderer, "numFramesIn", 1 + behind);
             ReflectionHelpers.setField(renderer, "numFramesOut", 1);
             ReflectionHelpers.setField(renderer, "decoderDepthBase", 0);
             DecoderQueuePolicy.Debt debt = ReflectionHelpers.getField(renderer, "debt");
             long startNs = now - 2_000_000_000L;
             debt.onOutput(MS, startNs, FRAME_NS);
             for (int i = 1; i <= 110; i++) debt.onOutput(24 * MS, startNs + i * FRAME_NS, FRAME_NS);
-            assertTrue("primed into recovery", debt.shouldDrop(1));
+            assertTrue("primed into recovery", debt.shouldDrop());
         }
 
         void release() {

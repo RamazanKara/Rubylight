@@ -3445,8 +3445,12 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                                 if (vulkanRenderer != null) {
                                     handOutputToVulkan(outIndex, ptsUs);
                                 }
-                                // Render the latest frame now if frame pacing isn't in balanced mode
-                                else if (prefs.framePacing != PreferenceConfiguration.FRAME_PACING_BALANCED) {
+                                // Render the latest frame now unless balanced paces it on vsync
+                                else if (prefs.framePacing != PreferenceConfiguration.FRAME_PACING_BALANCED ||
+                                        !balancedPacesOnVsync()) {
+                                    if (prefs.framePacing == PreferenceConfiguration.FRAME_PACING_BALANCED) {
+                                        dropOutputsQueuedForDisplay();
+                                    }
                                     // A drain that ends on a format change returns it for the check below.
                                     outIndex = releaseNewestOutput(outIndex, ptsUs, info, outputDrainStartNs);
                                 }
@@ -3486,7 +3490,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     }
 
     /**
-     * Pacing other than balanced: drops outputs a newer one replaces (see wantsCatchUp) and
+     * Pacing other than balanced on vsync: drops outputs a newer one replaces (see wantsCatchUp) and
      * releases the last, which sustained decoder debt may first replace with a newer output (see
      * DecoderQueuePolicy.Debt). Returns the last dequeue result, which may be a negative INFO_ code.
      */
@@ -3528,9 +3532,22 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             else if (smooth) noteDebt(lastIndex);
         }
 
+        if (smooth && drained == 0 && outIndex != MediaCodec.INFO_OUTPUT_FORMAT_CHANGED && !stopping &&
+                codecRecoveryType.get() == CR_RECOVERY_TYPE_NONE && debt.shouldDrop() &&
+                DecoderQueuePolicy.depth(numFramesIn, numFramesOut, decoderDepthBase) == 0) {
+            // Sustained debt with nothing behind the held output: the display's queue holds a
+            // buffer too many. Drop the held output so the screen keeps the previous frame one
+            // refresh longer and the queue gives the buffer back (a catch-up above already did).
+            // No keyframe is requested.
+            frameLatencyStats.onDropReason(lastIndex, "debt");
+            frameLatencyStats.onOutputReleased(lastIndex, System.nanoTime(), false, reportsRenderTimes());
+            videoDecoder.releaseOutputBuffer(lastIndex, false);
+            debt.onDropped();
+            return outIndex;
+        }
         if (smooth && outIndex != MediaCodec.INFO_OUTPUT_FORMAT_CHANGED && !stopping &&
-                codecRecoveryType.get() == CR_RECOVERY_TYPE_NONE &&
-                debt.shouldDrop(DecoderQueuePolicy.depth(numFramesIn, numFramesOut, decoderDepthBase))) {
+                codecRecoveryType.get() == CR_RECOVERY_TYPE_NONE && debt.shouldDrop() &&
+                DecoderQueuePolicy.depth(numFramesIn, numFramesOut, decoderDepthBase) >= 1) {
             // Sustained decoder debt with a newer frame in the decoder: wait briefly for it to
             // come out (only here, within the policy's budget) and drop the held output for it.
             // Without a newer output the held one is shown; no keyframe is requested.
@@ -3597,6 +3614,33 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
 
         activeWindowVideoStats.totalFramesRendered++;
         return outIndex;
+    }
+
+    /** Balanced, see FramePacingPolicy.balancedPacesOnVsync. Host frame times keep the vsync callback. */
+    private boolean balancedPacesOnVsync() {
+        if (hostFrameTimes) return true;
+        long intervalNs;
+        synchronized (vsyncMonitor) {
+            if (!outputVsyncAvailable) return true;
+            intervalNs = vsyncIntervalNs;
+        }
+        return FramePacingPolicy.balancedPacesOnVsync(streamFrameRateMilliHz, intervalNs);
+    }
+
+    /**
+     * Balanced switching to direct release (the panel's rate rose to the stream's): outputs still
+     * waiting for the vsync callback are older than the one about to be released, so drop them.
+     */
+    private void dropOutputsQueuedForDisplay() {
+        while (true) {
+            Integer stale;
+            synchronized (outputBufferQueue) {
+                stale = outputBufferQueue.poll();
+            }
+            if (stale == null) return;
+            frameLatencyStats.onOutputReleased(stale, System.nanoTime(), false, reportsRenderTimes());
+            videoDecoder.releaseOutputBuffer(stale, false);
+        }
     }
 
     private void queueOutputForDisplay(int lastIndex, long lastPtsUs) {

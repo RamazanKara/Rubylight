@@ -178,4 +178,17 @@ public class FramePacingPolicyTest {
             assertFalse(FramePacingPolicy.recoversDecoderDebt(hostFrameTimes, PreferenceConfiguration.FRAME_PACING_BALANCED));
         }
     }
+
+    @Test public void balancedPacesOnVsyncOnlyStreamsSlowerThanThePanel() {
+        long hz120 = 1_000_000_000L / 120, hz60 = 1_000_000_000L / 60;
+        // Issue 7: about as fast as the panel lost 6% (Retroid 120/120) and 10% (Shield 60/60).
+        assertFalse(FramePacingPolicy.balancedPacesOnVsync(120_000, hz120));
+        assertFalse(FramePacingPolicy.balancedPacesOnVsync(60_000, hz60));
+        assertFalse(FramePacingPolicy.balancedPacesOnVsync(59_940, hz60));
+        assertFalse(FramePacingPolicy.balancedPacesOnVsync(120_000, hz60));
+        assertTrue(FramePacingPolicy.balancedPacesOnVsync(60_000, hz120));
+        assertTrue(FramePacingPolicy.balancedPacesOnVsync(50_000, hz60));
+        assertTrue(FramePacingPolicy.balancedPacesOnVsync(90_000, hz120));
+        assertTrue("without a vsync interval the callback keeps pacing", FramePacingPolicy.balancedPacesOnVsync(120_000, 0));
+    }
 }

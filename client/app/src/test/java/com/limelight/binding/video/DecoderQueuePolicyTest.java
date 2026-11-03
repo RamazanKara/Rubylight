@@ -118,11 +118,14 @@ public class DecoderQueuePolicyTest {
     /**
      * A decoder in Smoothest that keeps surplus frames waiting inside it, a frame interval each,
      * on top of a phase and the 1 ms floor; a drop takes one away (unless dropsHelp is off).
-     * Frames arrive one per interval, so the frames behind an output are its input-to-output time
-     * in whole intervals unless behind says otherwise. Outputs jitter by up to 1 ms, and every
-     * tenth comes out early (5 ms, nothing behind it), as in the captures. When the policy asks,
-     * a newer output has come out within the wait on one output in newerEvery (0: never); the
-     * first capture had one within 2 ms of 5% of its debt outputs, the second of 30%.
+     * bufferNs is the wait for a free display buffer when the display's queue holds one too many,
+     * with nothing behind the output: a drop with nothing behind gives the buffer back and clears
+     * it (unless dropsHelp is off). Frames arrive one per interval, so the frames behind an output
+     * are its input-to-output time in whole intervals unless behind says otherwise. Outputs jitter
+     * by up to 1 ms, and every tenth comes out early (5 ms, nothing behind it), as in the captures.
+     * When the policy asks with a frame behind, a newer output has come out within the wait on one
+     * output in newerEvery (0: never); the first capture had one within 2 ms of 5% of its debt
+     * outputs, the second of 30%.
      */
     private static final class QueuedDecoder {
         final DecoderQueuePolicy.Debt debt = new DecoderQueuePolicy.Debt();
@@ -131,13 +134,16 @@ public class DecoderQueuePolicyTest {
         long frameNs = FRAME_NS;
         int surplus;
         long phaseNs;
+        long bufferNs;
         boolean dips = true;
         boolean dropsHelp = true;
         int newerEvery = 1;
         int behind = -1;
         int outputs;
         int drops;
+        int heldDrops;
         int waits;
+        long firstDropNs;
 
         /** The first frames of a stream come straight out, before anything queues up. */
         void start() {
@@ -148,15 +154,31 @@ public class DecoderQueuePolicyTest {
             long endNs = nowNs + durationNs;
             while (nowNs < endNs) {
                 long jitterNs = ((outputs * 7919L) % 2001 - 1000) * 1000L;
-                long i2oNs = Math.max(MS, MS + surplus * frameNs + phaseNs + jitterNs);
+                long i2oNs = Math.max(MS, MS + surplus * frameNs + phaseNs + bufferNs + jitterNs);
                 output(dips && outputs % 10 == 9 ? 5 * MS : i2oNs);
+            }
+        }
+
+        /** The display's queue fills by rateNs a second for durationNs. */
+        void drift(long rateNs, long durationNs) {
+            long endNs = nowNs + durationNs;
+            while (nowNs < endNs) {
+                long before = nowNs;
+                run(frameNs);
+                bufferNs += rateNs * (nowNs - before) / 1_000_000_000L;
             }
         }
 
         private void output(long i2oNs) {
             debt.onOutput(i2oNs, nowNs, frameNs);
-            if (debt.shouldDrop(behind >= 0 ? behind : (int) (i2oNs / frameNs))) {
-                if (newerEvery > 0 && outputs % newerEvery == 0) {
+            if (debt.shouldDrop()) {
+                int framesBehind = behind >= 0 ? behind : (int) (i2oNs / frameNs);
+                if (framesBehind == 0) {
+                    debt.onDropped();
+                    drops++;
+                    heldDrops++;
+                    if (dropsHelp) bufferNs = 0;
+                } else if (newerEvery > 0 && outputs % newerEvery == 0) {
                     debt.onDropped();
                     drops++;
                     if (dropsHelp && surplus > 0) surplus--;
@@ -164,6 +186,7 @@ public class DecoderQueuePolicyTest {
                     debt.onNoNewer();
                     waits++;
                 }
+                if (drops > 0 && firstDropNs == 0) firstDropNs = nowNs;
             }
             String event = debt.takeEvent();
             if (event != null) events.add(event);
@@ -203,20 +226,24 @@ public class DecoderQueuePolicyTest {
         d.run(23_000 * MS);
         assertEquals(2, d.drops);
 
-        d.surplus = 1;
-        d.phaseNs = 40 * MS / 3;
-        d.run(2_000 * MS);
-        assertEquals(3, d.drops);
-        d.run(16_000 * MS);
-        assertEquals("13 ms of phase is under a frame, with nothing behind it", 3, d.drops);
-
+        // 31 ms: a frame in the decoder and 13 ms waiting for a display buffer, nothing behind.
         d.surplus = 1;
         d.phaseNs = 0;
+        d.bufferNs = 40 * MS / 3;
         d.run(2_000 * MS);
+        assertEquals("the frame, then the held output for the buffer", 4, d.drops);
+        assertEquals(1, d.heldDrops);
+        assertEquals(0, d.surplus);
+        assertEquals(0, d.bufferNs);
+        d.run(16_000 * MS);
         assertEquals(4, d.drops);
+
+        d.surplus = 1;
+        d.run(2_000 * MS);
+        assertEquals(5, d.drops);
         assertEquals(0, d.surplus);
         d.run(30_000 * MS);
-        assertEquals(4, d.drops);
+        assertEquals(5, d.drops);
         for (String event : d.events) assertTrue(event, event.startsWith("Decoder debt "));
     }
 
@@ -247,24 +274,102 @@ public class DecoderQueuePolicyTest {
                 behind = 2;
             }
             debt.onOutput(i2o, now, FRAME_NS);
-            assertFalse("output " + i, debt.shouldDrop(behind));
+            assertFalse("output " + i, debt.shouldDrop());
             now += FRAME_NS + (random.nextInt(4_000) - 2_000) * 1000L;
         }
         assertNull(debt.takeEvent());
     }
 
-    @Test public void debtSubFrameDriftIsLeftAlone() {
-        // The 0.7.13 capture: the display runs 45 ppm slower than the host, so the wait for the
-        // display grows by 0.045 ms a second with nothing behind it. Three minutes: 1 to 9 ms.
-        DecoderQueuePolicy.Debt debt = new DecoderQueuePolicy.Debt();
-        long now = 1_000_000_000L;
-        for (int i = 0; i < 60 * 180; i++) {
-            long i2o = MS + i * 750L + ((i * 7919L) % 1001 - 500) * 1000L;
-            debt.onOutput(Math.max(MS, i2o), now, FRAME_NS);
-            assertFalse("output " + i, debt.shouldDrop(i2o >= FRAME_NS ? 1 : 0));
-            now += FRAME_NS;
+    @Test public void debtSubFrameDriftCostsOneDropEachHalfFrame() {
+        // The 0.7.13 capture: the display runs 45 ppm slower than the host, so the wait for a
+        // display buffer grows by 0.045 ms a second with nothing behind it. Half a frame takes
+        // about three minutes; one dropped output then starts it over.
+        QueuedDecoder d = new QueuedDecoder();
+        d.dips = false;
+        d.start();
+        long startNs = d.nowNs;
+        d.drift(45_000, 150_000 * MS);
+        assertEquals("under half a frame for 150 s", 0, d.drops);
+        d.drift(45_000, 90_000 * MS);
+        assertEquals(1, d.drops);
+        assertEquals(1, d.heldDrops);
+        assertTrue("dropped at " + (d.firstDropNs - startNs) / 1e9 + " s",
+                d.firstDropNs - startNs >= 180_000 * MS && d.firstDropNs - startNs <= 215_000 * MS);
+        assertEquals(1, d.events.size());
+        assertTrue(d.events.get(0), d.events.get(0).startsWith("Decoder debt recovered: 1 stale output dropped"));
+    }
+
+    @Test public void debtShieldPlateauWithNothingBehindIsDroppedWithinSeconds() {
+        // The 4.4.0 capture (sm1): from 62 s the wait for a display buffer rose by about 0.4 ms a
+        // second to 10-12 ms and stayed there, nothing behind each output, until a stall's catch-up
+        // dropped a frame at 110 s and brought it back to 1 ms.
+        QueuedDecoder d = new QueuedDecoder();
+        d.start();
+        d.run(60_000 * MS);
+        assertEquals(0, d.drops);
+        long riseNs = d.nowNs;
+        d.drift(400_000, 25_000 * MS);
+        d.run(20_000 * MS);
+        assertEquals(1, d.drops);
+        assertEquals(1, d.heldDrops);
+        // The drop freed the buffer; what the last seconds of the rise added stays under the threshold.
+        assertTrue("buffer " + d.bufferNs / 1e6 + " ms", d.bufferNs < 4 * MS);
+        // Half a frame is reached 21 s into the rise, jitter and the window take a few more.
+        assertTrue("dropped " + (d.firstDropNs - riseNs) / 1e9 + " s into the rise",
+                d.firstDropNs - riseNs <= 27_000 * MS);
+        d.run(60_000 * MS);
+        assertEquals("healthy again", 1, d.drops);
+
+        // A drop that does not free anything is the decoder's own: one drop, then the floor rises.
+        QueuedDecoder own = new QueuedDecoder();
+        own.dropsHelp = false;
+        own.start();
+        own.bufferNs = 11 * MS;
+        own.run(60_000 * MS);
+        assertEquals(1, own.drops);
+        assertTrue(own.events.get(0), own.events.get(0).startsWith("Decoder debt paused, a drop did not shorten the queue"));
+    }
+
+    /** One recorded Shield stream (src/test/resources/pacing): output times, input-to-output, frames behind. */
+    private static long[][] shieldCapture(String name) throws java.io.IOException {
+        List<long[]> rows = new ArrayList<>();
+        try (java.io.InputStream raw = DecoderQueuePolicyTest.class.getResourceAsStream("/pacing/shield-smoothest-" + name + ".txt.gz");
+             java.io.BufferedReader in = new java.io.BufferedReader(new java.io.InputStreamReader(
+                     new java.util.zip.GZIPInputStream(raw), java.nio.charset.StandardCharsets.US_ASCII))) {
+            long nowNs = 1_000_000_000L;
+            for (String line; (line = in.readLine()) != null; ) {
+                if (line.startsWith("#")) continue;
+                String[] f = line.split(" ");
+                nowNs += Long.parseLong(f[0]) * 1000;
+                rows.add(new long[] {nowNs, Long.parseLong(f[1]) * 1000, Long.parseLong(f[2])});
+            }
         }
-        assertNull(debt.takeEvent());
+        return rows.toArray(new long[0][]);
+    }
+
+    /** Replays a capture; returns the time of the first output the policy gives way on (0: none). */
+    private static long firstDebtDrop(long[][] capture, long fromNs, long toNs) {
+        DecoderQueuePolicy.Debt debt = new DecoderQueuePolicy.Debt();
+        long startNs = capture[0][0];
+        for (long[] output : capture) {
+            long t = output[0] - startNs;
+            if (t < fromNs) continue;
+            if (t >= toNs) break;
+            debt.onOutput(output[1], output[0], FRAME_NS);
+            if (debt.shouldDrop()) return t;
+        }
+        return 0;
+    }
+
+    @Test public void debtReplaysTheRecordedShieldStreams() throws Exception {
+        long[][] sm1 = shieldCapture("sm1");
+        long dropNs = firstDebtDrop(sm1, 0, Long.MAX_VALUE);
+        // Input-to-output passed 6 ms at 65 s and half a frame (8.3 ms) at 69 s; three quarters
+        // of a frame, the earlier threshold, it never held, so the 45 s plateau stayed.
+        assertTrue("first drop at " + dropNs / 1e9 + " s", dropNs >= 65_000 * MS && dropNs <= 75_000 * MS);
+        assertEquals("after the stall's catch-up at 110 s", 0, firstDebtDrop(sm1, 110_000 * MS, Long.MAX_VALUE));
+        // The second capture: a healthy 1-2 ms for two minutes, with 4-6 ms of jitter at times.
+        assertEquals(0, firstDebtDrop(shieldCapture("sm2"), 0, Long.MAX_VALUE));
     }
 
     @Test public void debtDropThatDoesNotShortenTheQueueRaisesTheFloor() {
@@ -402,7 +507,7 @@ public class DecoderQueuePolicyTest {
         assertTrue(d.events.get(0), d.events.get(0).startsWith("Decoder debt paused at the drop limit: 8 stale outputs dropped"));
     }
 
-    @Test public void debtNeedsAFrameBehindAndResetEndsARecovery() {
+    @Test public void debtResetEndsARecovery() {
         DecoderQueuePolicy.Debt debt = new DecoderQueuePolicy.Debt();
         long now = 1_000_000_000L;
         assertEquals("unknown times are skipped", 0, debt.onOutput(0, now, FRAME_NS));
@@ -410,14 +515,13 @@ public class DecoderQueuePolicyTest {
         assertEquals("the first output is the floor", 0, debt.onOutput(2 * MS, now, FRAME_NS));
         for (int i = 0; i < 100; i++) {
             now += FRAME_NS;
-            assertEquals(22 * MS, debt.onOutput(24 * MS, now, FRAME_NS));
+            assertEquals(10 * MS, debt.onOutput(12 * MS, now, FRAME_NS));
         }
-        assertFalse("nothing behind it, nothing to drop for", debt.shouldDrop(0));
-        assertTrue(debt.shouldDrop(1));
+        assertTrue("10 ms over the floor is past half a frame", debt.shouldDrop());
         debt.reset();
         now += FRAME_NS;
-        assertEquals("a flush starts a new floor", 0, debt.onOutput(24 * MS, now, FRAME_NS));
-        assertFalse(debt.shouldDrop(1));
+        assertEquals("a flush starts a new floor", 0, debt.onOutput(12 * MS, now, FRAME_NS));
+        assertFalse(debt.shouldDrop());
     }
 
     @Test public void inFlightCountsFramesUntilTheirVsyncPasses() {

@@ -17,6 +17,7 @@
   import LosslessSettings from './LosslessSettings.svelte';
   import RadeonSettings from './RadeonSettings.svelte';
   import GameFiles from './GameFiles.svelte';
+  import GameSettingsFiles from './GameSettingsFiles.svelte';
   import DeviceOverrides from './DeviceOverrides.svelte';
   import PlayTogether from './PlayTogether.svelte';
   import NeuralRendering from './NeuralRendering.svelte';
@@ -365,6 +366,10 @@
 
     <Panel collapsible title="Managed game files" description="Keys in the game’s own settings files, set for a stream and put back when the session ends.">
       <GameFiles id="{uid}-files" bind:rows={draft.files} />
+    </Panel>
+
+    <Panel collapsible title="Game settings per device" description="The game’s own settings files, kept for each device: a TV and a handheld each keep their resolution and quality.">
+      <GameSettingsFiles {draft} id="{uid}-settings-files" />
     </Panel>
 
     <Panel collapsible title="Per device" description="This game’s settings on one device: stream preset, frame limit, Radeon preset and game files.">

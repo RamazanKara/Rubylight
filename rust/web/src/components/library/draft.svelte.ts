@@ -3,6 +3,7 @@
 import type { App, PrepCommand } from '../../lib/api';
 import { GAME_FILES_KEY, gameFileEntries, gameFileRows, gameFilesError, type GameFileRow } from './gamefiles';
 import { PROFILE_KEY, SETTINGS_KEY, profileError, profileOf, rowsOf, settingsOf, type SettingRow } from './radeon';
+import { SETTINGS_FILES_KEY, settingsFilePaths, settingsFilesError, storedSettingsFiles } from './settingsfiles';
 
 export interface PrepRow extends PrepCommand {
   /** Keeps each row's inputs in place when rows move. */
@@ -133,8 +134,12 @@ function assemble(
   radeon: SettingRow[],
   files: GameFileRow[],
   deviceFiles: Record<string, GameFileRow[]>,
+  settingsFiles: TextRow[],
 ): App {
   const record: App = { ...app };
+  const swapped = settingsFilePaths(settingsFiles.map((row) => row.value));
+  if (swapped.length) record[SETTINGS_FILES_KEY] = swapped;
+  else delete record[SETTINGS_FILES_KEY];
   record['prep-cmd'] = prep
     .filter((row) => row.do.trim() || row.undo.trim())
     .map(({ do: run, undo, elevated }) => ({ do: run, undo, elevated }));
@@ -184,6 +189,7 @@ function normalise(source: App): App {
     rowsOf(copy[SETTINGS_KEY]),
     gameFileRows(copy[GAME_FILES_KEY]),
     deviceFileRows(copy),
+    storedSettingsFiles(copy[SETTINGS_FILES_KEY]).map((path) => textRow(path)),
   );
 }
 
@@ -205,6 +211,8 @@ export class AppDraft {
   files = $state<GameFileRow[]>([]);
   /** Each device block's managed game files, by device id. */
   deviceFiles = $state<Record<string, GameFileRow[]>>({});
+  /** The game settings files swapped per device. */
+  settingsFiles = $state<TextRow[]>([]);
   #saved = $state.raw<App>(blankApp());
   #baseline = $state('');
 
@@ -212,6 +220,8 @@ export class AppDraft {
   readonly radeonError = $derived(profileError(this.app[PROFILE_KEY], this.radeon));
   /** Why the game files cannot be saved, or ''. */
   readonly filesError = $derived(gameFilesError(this.files));
+  /** Why the game settings files cannot be saved, or ''. */
+  readonly settingsFilesError = $derived(settingsFilesError(this.settingsFiles.map((row) => row.value)));
   /** Why a device's settings cannot be saved, or ''. */
   readonly devicesError = $derived(
     this.devices()
@@ -224,6 +234,7 @@ export class AppDraft {
     this.nameMissing ||
       this.radeonError !== '' ||
       this.filesError !== '' ||
+      this.settingsFilesError !== '' ||
       this.devicesError !== '' ||
       Object.keys(NUMBERS).some((key) => this.numberError(key as NumberKey) !== ''),
   );
@@ -246,6 +257,7 @@ export class AppDraft {
     this.radeon = rowsOf(copy[SETTINGS_KEY]);
     this.files = gameFileRows(copy[GAME_FILES_KEY]);
     this.deviceFiles = deviceFileRows(copy);
+    this.settingsFiles = storedSettingsFiles(copy[SETTINGS_FILES_KEY]).map((path) => textRow(path));
     this.#baseline = stable(normalise(copy));
   }
 
@@ -270,6 +282,7 @@ export class AppDraft {
       $state.snapshot(this.radeon) as SettingRow[],
       $state.snapshot(this.files) as GameFileRow[],
       $state.snapshot(this.deviceFiles) as Record<string, GameFileRow[]>,
+      $state.snapshot(this.settingsFiles) as TextRow[],
     );
   }
 

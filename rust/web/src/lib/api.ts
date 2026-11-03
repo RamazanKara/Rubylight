@@ -676,6 +676,17 @@ export interface NeuralJob {
   /** Files that changed since they were placed and stayed in the game's folder. */
   kept: string[];
 }
+/** `GET /api/game-settings?uuid=`: the saved app's game settings files, per paired device. */
+export interface GameSettingsStatus {
+  /** As saved. */
+  files: string[];
+  /** Each paired device and the files it has a saved copy of. */
+  devices: { uuid: string; name: string; saved: string[] }[];
+  /** Swaps still in place: the running game's, or one the host could not put back yet. */
+  pending: { device: string; deviceName: string; running: boolean; error: string | null }[];
+  /** Where the host keeps the copies and the PC's originals. */
+  folder: string;
+}
 /** `GET /api/neural?uuid=`: the game page's Neural Rendering switch. */
 export interface NeuralStatus {
   /** The one-time notice before the first download. */
@@ -1122,6 +1133,9 @@ export const api = {
     enable: (uuid: string, exe?: string) => post<Ok>('/api/neural/enable', exe ? { uuid, exe } : { uuid }),
     /** Removes exactly what was installed. */
     disable: (uuid: string) => post<Ok>('/api/neural/disable', { uuid }),
+  },
+  gameSettings: {
+    status: (uuid: string) => get<GameSettingsStatus>(`/api/game-settings?uuid=${encodeURIComponent(uuid)}`),
   },
   health: {
     limiter: () => get<LimiterStatus>('/api/frame-limiter/status'),

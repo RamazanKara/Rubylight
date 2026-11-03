@@ -2433,6 +2433,20 @@ fn home_without_pcs_speaks_of_pcs() {
     assert!(!f.drawn.iter().any(|t| t.to_lowercase().contains("host")), "{:?}", f.drawn);
 }
 
+/// A saved PC is on Home from the first frame, before it has answered: "No PCs yet" never flashes on a start.
+#[test]
+fn a_saved_pc_that_has_not_answered_yet_is_not_no_pcs() {
+    crate::theme::own_palette();
+    let ctx = egui::Context::default();
+    crate::theme::apply(&ctx);
+    let mut l = launcher(true, false);
+    l.identity_ready = true;
+    let mut f = Frames::over(ctx, l, Hosts::without_discovery(vec![record("Desk", true, false)], Arc::new(|| {})));
+    f.l.go(Screen::Home);
+    f.settle();
+    assert!(!shows(&f, "No PCs yet"), "{:?}", f.drawn);
+}
+
 /// A settings row stays a readable width on a wide window instead of stretching across it.
 #[test]
 fn rows_keep_a_readable_width_on_a_wide_window() {

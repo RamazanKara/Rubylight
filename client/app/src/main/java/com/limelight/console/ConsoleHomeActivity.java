@@ -538,11 +538,13 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
             }
             this.model = model;
             submitKeepingFocus(model);
-            if (done) {
+            // While a saved PC has yet to answer, an empty Home is still loading, not "No PCs yet".
+            boolean waiting = model.isEmpty() && noHosts && feed.waiting();
+            if (done && !waiting) {
                 loading.setVisibility(View.GONE);
             }
             // "No hosts" waits until the hosts had time to answer, so it does not flash on every start.
-            boolean showEmpty = model.isEmpty() && noHosts && settled;
+            boolean showEmpty = model.isEmpty() && noHosts && settled && !waiting;
             empty.setVisibility(showEmpty ? View.VISIBLE : View.GONE);
             list.setVisibility(showEmpty ? View.INVISIBLE : View.VISIBLE);
             focusFirstCard(showEmpty);

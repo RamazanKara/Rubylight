@@ -356,6 +356,8 @@ export interface Client {
   host_control?: boolean | string | null;
   /** Sleep PC from this device. Sent as true or null; the host refuses anything else. */
   allow_sleep?: boolean | string | null;
+  /** Restart and shut down PC from this device. Sent as true or null; only a JSON true grants it. */
+  allow_restart_shutdown?: boolean | null;
   /** USB forwarding from this device. Sent as true or null; only a JSON true grants it. */
   allow_usb?: boolean | null;
   /** Shared folder grants by folder id. Null clears them. */

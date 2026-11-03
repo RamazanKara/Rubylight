@@ -61,7 +61,7 @@
   // Custom permissions, or a granted Host control, Sleep PC or USB devices, open the section.
   // Nothing closes it again: unticking a box must not snap it shut under the cursor.
   const granted = () =>
-    accessOf(draft.perm) === 'custom' || draft.host_control || draft.allow_sleep || draft.allow_usb;
+    accessOf(draft.perm) === 'custom' || draft.host_control || draft.allow_sleep || draft.allow_restart_shutdown || draft.allow_usb;
   let permissionsOpen = $state(untrack(granted));
   $effect(() => {
     if (granted()) permissionsOpen = true;
@@ -298,6 +298,10 @@
                 Sleep PC: put this PC to sleep from this device while nothing is running
               </label>
             {/if}
+            <label class="check">
+              <input type="checkbox" bind:checked={draft.allow_restart_shutdown} />
+              Restart and shut down PC: from this device while nothing is running
+            </label>
             <label class="check">
               <input type="checkbox" bind:checked={draft.allow_usb} />
               USB devices: attach USB devices plugged into this device to this PC during a stream

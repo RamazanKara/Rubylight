@@ -68,6 +68,22 @@ test('the sleep draft round-trips: true to grant, null to revoke', () => {
   assert.deepEqual(changes(stored, { ...stored, name: 'Tablet' }), { name: 'Tablet' });
   assert.equal(savingEndsStream(true, off, on), false);
 });
+test('restart and shut down is its own grant: off unless a JSON true, and round-trips', () => {
+  assert.equal(toDraft(client({})).allow_restart_shutdown, false);
+  // Sleep PC, Host control and every permission bit leave it off.
+  const others = toDraft(client({ perm: 0xffffffff, host_control: true, allow_sleep: true }));
+  assert.equal(others.allow_restart_shutdown, false);
+  for (const value of [false, null, 1, 'true', [true]]) {
+    assert.equal(toDraft(client({ allow_restart_shutdown: value })).allow_restart_shutdown, false, String(value));
+  }
+  const off = toDraft(client({}));
+  const on = { ...off, allow_restart_shutdown: true };
+  assert.equal(on.allow_sleep, false);
+  assert.deepEqual(changes(off, on), { allow_restart_shutdown: true });
+  assert.deepEqual(changes(on, off), { allow_restart_shutdown: null });
+  assert.deepEqual(toDraft(client({ allow_restart_shutdown: true })), on);
+  assert.equal(savingEndsStream(true, off, on), false);
+});
 test('file transfer bits are unlabelled and round-trip in the draft', () => {
   const items = PERMISSION_GROUPS.flatMap(group => group.items);
   assert.equal(items.find(item => item.bit === 0x40000).label, 'Upload files');

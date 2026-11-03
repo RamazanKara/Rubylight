@@ -19,6 +19,9 @@
     'app.stopped': 'An app stopped',
     'session.started': 'A stream started',
     'session.ended': 'A stream ended',
+    'power.restart': 'A device restarted the PC',
+    'power.shutdown': 'A device shut down the PC',
+    'update.started': 'A device started an update',
   };
 
   const uid = $props.id();

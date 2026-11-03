@@ -116,6 +116,8 @@ export interface Draft {
   host_control: boolean;
   /** Lets the device put the host to sleep while it is idle; off unless granted here. */
   allow_sleep: boolean;
+  /** Lets the device restart and shut down the host while it is idle; off unless granted here. */
+  allow_restart_shutdown: boolean;
   /** Lets the device attach its USB devices to the host; off unless granted here. */
   allow_usb: boolean;
   /** "Can join co-op games" as stored: null while it follows Launch apps (see joinsCoop). */
@@ -252,6 +254,8 @@ export function toDraft(client: Client): Draft {
     host_control: client.host_control === true || client.host_control === 'true',
     // Only a JSON true counts, as in Vibepollo.
     allow_sleep: client.allow_sleep === true,
+    // Only a JSON true counts (Client::allows_restart_shutdown); no role grants it.
+    allow_restart_shutdown: client.allow_restart_shutdown === true,
     // As the host reads it (Client::allows_usb): only a JSON true.
     allow_usb: client.allow_usb === true,
     coop_join: storedCoopJoin(client.coop_join),
@@ -320,6 +324,7 @@ function serialise(draft: Draft): Changes {
     // The host takes only a boolean or null here; null removes the grant.
     host_control: draft.host_control ? true : null,
     allow_sleep: draft.allow_sleep ? true : null,
+    allow_restart_shutdown: draft.allow_restart_shutdown ? true : null,
     allow_usb: draft.allow_usb ? true : null,
     // null follows Launch apps; false keeps a device that launches apps out.
     coop_join: draft.coop_join,

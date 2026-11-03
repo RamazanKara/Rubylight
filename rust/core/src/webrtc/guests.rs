@@ -265,11 +265,22 @@ impl Lookups {
     }
 }
 
-/// The name a guest typed, as the owner sees it: no control characters, no surrounding space,
-/// at most [`MAX_NAME_CHARS`]; "Guest" when nothing is left.
+/// Unicode's format characters (category Cf, Unicode 15.1): bidi overrides and isolates,
+/// zero-width spaces and joiners, tags. In a name they reorder or hide what the owner reads.
+fn format_char(c: char) -> bool {
+    matches!(c as u32,
+        0x00AD | 0x0600..=0x0605 | 0x061C | 0x06DD | 0x070F | 0x0890..=0x0891 | 0x08E2
+        | 0x180E | 0x200B..=0x200F | 0x202A..=0x202E | 0x2060..=0x2064 | 0x2066..=0x206F
+        | 0xFEFF | 0xFFF9..=0xFFFB | 0x110BD | 0x110CD | 0x13430..=0x1343F
+        | 0x1BCA0..=0x1BCA3 | 0x1D173..=0x1D17A | 0xE0001 | 0xE0020..=0xE007F)
+}
+
+/// The name a guest typed, as the owner sees it: no control or format characters, no
+/// surrounding space, at most [`MAX_NAME_CHARS`]; "Guest" when nothing is left.
 pub fn guest_name(raw: &str) -> String {
     let name: String = raw
         .chars()
+        .filter(|&c| !format_char(c))
         .map(|c| if c.is_control() { ' ' } else { c })
         .collect::<String>()
         .split_whitespace()
@@ -467,6 +478,12 @@ mod tests {
         assert_eq!(guest_name("A\u{0}l\u{7}e\tx"), "A l e x");
         assert_eq!(guest_name(""), "Guest");
         assert_eq!(guest_name(" \r\n"), "Guest");
+        // Bidi overrides, zero-width characters and tags go: what is left reads as it is stored.
+        assert_eq!(
+            guest_name("\u{202E}xelA\u{202C}\u{200B} \u{2066}B\u{2069}\u{FEFF}\u{E0041}"),
+            "xelA B"
+        );
+        assert_eq!(guest_name("\u{200D}\u{2060}\u{00AD}"), "Guest");
         let long = "é".repeat(100);
         assert_eq!(guest_name(&long).chars().count(), MAX_NAME_CHARS);
     }

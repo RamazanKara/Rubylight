@@ -75,6 +75,16 @@ impl SessionThread<'_> {
         }
     }
 
+    /// A microphone-only session: no display, input, device commands or streaming tweaks
+    /// (priority, timer, Mouse Keys, Wi-Fi media mode). The microphone plays on its own
+    /// receiver while the session lasts, even on a locked desktop.
+    pub(super) fn wait_mic_only(&self) {
+        let SessionThread { h, s, .. } = *self;
+        while !s.stopping() && !h.stop.load(Ordering::Acquire) {
+            thread::sleep(Duration::from_millis(10));
+        }
+    }
+
     /// The session's configuration and timer. `None` once an input-only session, which has
     /// no video, has ended.
     #[rustfmt::skip]
@@ -94,14 +104,6 @@ impl SessionThread<'_> {
             .and_then(serde_json::Value::as_str)
             .filter(|s| !s.is_empty())
             .unwrap_or(c.get("output_name", ""));
-        if s.launch.mic_only() {
-            // No input to map to a display and no device commands to run:
-            // the microphone plays while the session lasts, even on a locked desktop.
-            while !s.stopping() && !h.stop.load(Ordering::Acquire) {
-                thread::sleep(Duration::from_millis(10));
-            }
-            return Ok(None);
-        }
         if s.launch.role == Role::InputOnly {
             let monitors = butterpollo_windows::input::on_input_desktop(
                 butterpollo_windows::display::monitors,

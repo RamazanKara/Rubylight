@@ -2,7 +2,7 @@ use crate::{
     state::{AppStop, Launch, PendingPin, Sessions, Shared},
     tls::Connection,
 };
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, bail, ensure};
 #[cfg(not(test))]
 use butterpollo_windows::{
     display::virtual_display_available,
@@ -123,9 +123,13 @@ fn remote_owner(h: &Shared, client: &str) -> butterpollo_core::remote::Owner {
     } else if sessions
         .pending
         .values()
-        .any(|s| s.client.uuid == client && s.role == Role::InputOnly)
+        // Microphone only holds no remote input: the device's game stays its own.
+        .any(|s| s.client.uuid == client && s.role == Role::InputOnly && !s.mic_only())
         || sessions.active.values().any(|s| {
-            !s.stopping() && s.launch.client.uuid == client && s.launch.role == Role::InputOnly
+            !s.stopping()
+                && s.launch.client.uuid == client
+                && s.launch.role == Role::InputOnly
+                && !s.launch.mic_only()
         })
     {
         Owner::Input
@@ -2141,7 +2145,16 @@ fn resolve_launch_app(
         bail!("remote input is disabled by the administrator");
     }
     if mic_only {
-        // Whatever it names, it starts no app.
+        // Whatever it names, it starts no app. It is a launch, never a resume
+        // or a tile, so a device that may only view streams cannot start one.
+        ensure!(
+            !resume && control.is_none(),
+            "a microphone-only session is a launch, not a resume or a remote session action"
+        );
+        ensure!(
+            client.allows(butterpollo_core::state::LAUNCH_APPS),
+            "a microphone-only session needs the launch permission"
+        );
         return Ok((role, None, requested, None));
     }
     let app_id = if resume {

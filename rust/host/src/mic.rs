@@ -37,6 +37,8 @@ pub struct Counters {
 const IDLE: Duration = Duration::from_secs(3);
 /// Another client takes the microphone once the speaker has been quiet this long.
 const HANDOVER: Duration = Duration::from_secs(1);
+/// The stream warning of a device whose microphone waits for another's.
+const MIC_BUSY_WARNING: &str = "microphone_busy";
 /// Wait before opening Steam Streaming Microphone again after a failure.
 const RETRY: Duration = Duration::from_secs(5);
 const WARNING: &str = "microphone";
@@ -170,20 +172,31 @@ impl Receiver {
             self.counters.refused.fetch_add(1, Ordering::Relaxed);
             return;
         };
-        self.counters.accepted.fetch_add(1, Ordering::Relaxed);
         if !self
             .speaker
             .as_ref()
             .is_some_and(|s| Arc::ptr_eq(&s.session, &session))
         {
-            if self
+            if let Some(speaker) = self
                 .speaker
                 .as_ref()
-                .is_some_and(|s| s.heard.elapsed() < HANDOVER)
+                .filter(|s| s.heard.elapsed() < HANDOVER)
             {
+                // One microphone plays at a time; this one waits until the other goes quiet.
+                self.counters.refused.fetch_add(1, Ordering::Relaxed);
+                // On the waiting device's stream card and in the log, while it lasts.
+                session.launch.warnings.event(
+                    MIC_BUSY_WARNING,
+                    format!(
+                        "This device's microphone is not played while {}'s is; it plays once that one stops.",
+                        speaker.session.launch.client.name
+                    ),
+                    HANDOVER * 5,
+                );
                 return;
             }
             self.finish();
+            session.launch.warnings.clear(MIC_BUSY_WARNING);
             tracing::info!(client = %session.launch.client.name, "microphone started");
             self.speaker = Some(Speaker {
                 session,
@@ -193,6 +206,7 @@ impl Receiver {
                 stats: Stats::default(),
             });
         }
+        self.counters.accepted.fetch_add(1, Ordering::Relaxed);
         let speaker = self.speaker.as_mut().unwrap();
         speaker.heard = Instant::now();
         speaker.stats.packets += 1;
@@ -1030,6 +1044,55 @@ mod tests {
             .expect("the session's microphone plays");
         assert!(Arc::ptr_eq(&speaker.session, &session));
         assert_eq!(speaker.stats.packets, 1);
+    }
+
+    #[test]
+    fn a_second_microphone_is_refused_and_told_while_one_plays() {
+        use butterpollo_core::session::Role;
+        let f = Fixture::new();
+        let negotiated = butterpollo_core::rtsp::Negotiated {
+            mic: true,
+            ..Default::default()
+        };
+        let session = |name: &str, uuid: &str, key: u8| {
+            let mut client = f.client(u32::MAX);
+            client.name = name.into();
+            client.uuid = uuid.into();
+            let mut launch = f.launch(client, Role::Stream);
+            // Each session's own key, as launches get.
+            launch.key = [key; 16];
+            let session = Session::new(launch, negotiated.clone());
+            f.host
+                .sessions
+                .lock()
+                .unwrap()
+                .active
+                .insert(session.launch.id.clone(), session.clone());
+            session
+        };
+        let phone = session("Phone", "phone", 1);
+        let tablet = session("Tablet", "tablet", 2);
+        let counters = Arc::new(Counters::default());
+        let mut receiver = Receiver::new(f.host.clone(), counters.clone(), PathBuf::new());
+        receiver.native = false;
+        let packet =
+            |s: &Arc<Session>| mic::seal(&s.launch.key, s.launch.key_id, 7, 140, &[1, 2, 3]);
+        receiver.receive(&packet(&phone), phone.client_ip());
+        receiver.receive(&packet(&tablet), tablet.client_ip());
+        assert_eq!(counters.accepted.load(Ordering::Relaxed), 1);
+        assert_eq!(counters.refused.load(Ordering::Relaxed), 1);
+        assert!(Arc::ptr_eq(
+            &receiver.speaker.as_ref().unwrap().session,
+            &phone
+        ));
+        let warnings = tablet.launch.warnings.snapshot();
+        assert!(
+            warnings
+                .iter()
+                .any(|w| w.code == MIC_BUSY_WARNING && w.message.contains("Phone")),
+            "{warnings:?}"
+        );
+        assert!(phone.launch.warnings.snapshot().is_empty());
     }
 
     #[test]

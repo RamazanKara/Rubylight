@@ -2305,6 +2305,53 @@ async fn image_clipboard_requests_take_turns_one_per_device() {
 }
 
 #[test]
+fn microphone_only_does_not_make_the_device_the_remote_input_owner() {
+    let f = Fixture::new();
+    let client = f.client(u32::MAX);
+    let mut launch = f.launch(client.clone(), Role::InputOnly);
+    launch
+        .options
+        .insert(butterpollo_core::mic::ONLY_OPTION.into(), "1".into());
+    assert!(launch.mic_only());
+    let session = crate::state::Session::new(launch, butterpollo_core::rtsp::Negotiated::default());
+    f.host
+        .sessions
+        .lock()
+        .unwrap()
+        .active
+        .insert(session.launch.id.clone(), session.clone());
+    assert!(remote_owner(&f.host, &client.uuid) == remote::Owner::None);
+}
+
+#[test]
+fn a_device_that_may_only_view_streams_cannot_start_microphone_only() {
+    let f = Fixture::new();
+    let viewer = f.client(butterpollo_core::state::LATER_DEVICE_PERMISSION);
+    let app_id = f.host.apps.read().unwrap()[0].id();
+    let mut args = Args::new();
+    args.insert("input_only".into(), "1".into());
+    args.insert(butterpollo_core::mic::ONLY_OPTION.into(), "1".into());
+    // /launch, /resume, and /launch naming the Resume tile or the running game.
+    for (control, resume) in [
+        (None, false),
+        (None, true),
+        (Some(Control::Resume), false),
+        (Some(Control::RunningGame), false),
+    ] {
+        let resolved = resolve_launch_app(
+            &f.host,
+            &args,
+            &viewer,
+            app_id,
+            control,
+            remote::Owner::None,
+            resume,
+        );
+        assert!(resolved.is_err(), "{control:?} resume={resume}");
+    }
+}
+
+#[test]
 fn a_microphone_only_launch_needs_no_input_only_mode_and_keeps_no_input() {
     let f = Fixture::new();
     let client = f.client(u32::MAX);
@@ -2349,6 +2396,31 @@ fn a_microphone_only_launch_needs_no_input_only_mode_and_keeps_no_input() {
     );
     assert_eq!(launch.client.perm & butterpollo_core::state::ALL_INPUT, 0);
     assert!(launch.client.allows(butterpollo_core::state::LAUNCH_APPS));
+    // It is a launch: never a resume or a remote session tile.
+    assert!(
+        resolve_launch_app(
+            &f.host,
+            &args,
+            &client,
+            app_id,
+            Some(Control::Resume),
+            remote::Owner::None,
+            false
+        )
+        .is_err()
+    );
+    assert!(
+        resolve_launch_app(
+            &f.host,
+            &args,
+            &client,
+            app_id,
+            None,
+            remote::Owner::None,
+            true
+        )
+        .is_err()
+    );
     // Without the option an input-only launch keeps the device's input.
     args.remove(butterpollo_core::mic::ONLY_OPTION);
     let input = build_launch(

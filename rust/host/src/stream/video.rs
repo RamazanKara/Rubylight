@@ -396,6 +396,10 @@ impl Media {
                         workers.fixture_preparation = s.launch.preparation.lock().unwrap().take();
                         return fixture.stream(&m, &h, &s);
                     }
+                    if s.launch.mic_only() {
+                        session.wait_mic_only();
+                        return Ok(());
+                    }
                     leases.com = Some(ComGuard::new()?);
                     let _priority = Priority::new();
                     let _streaming = butterpollo_windows::timing::StreamingScope::enter();

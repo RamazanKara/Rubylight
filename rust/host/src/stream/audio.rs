@@ -163,9 +163,7 @@ impl Media {
             ),
             "unknown audio capture mode; choose System audio or Game only in Audio settings"
         );
-        // A microphone-only device plays none of the PC's sound: it stays on the PC.
         let muted = !config.boolean("stream_audio", true)
-            || s.launch.mic_only()
             || (s.launch.role == Role::RemoteMonitor
                 && config.boolean("remote_monitor_mute_audio", false));
         // Night mode and headphone surround; with both off the packets pass untouched.

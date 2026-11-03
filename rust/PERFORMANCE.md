@@ -82,6 +82,25 @@ Release build on the dev PC (`webrtc_bench_guest_fan_out`, `cargo test -p butter
 
 The owner's own frames stay within about 1 µs of no guests. With guests the encoder's hand-off adds the copy into the shared buffer (and AV1's delimiter strip), 7-10 µs, so it stays on the encoder's thread. The H.264 p99 at 0 and 1 guests is scheduling noise in a 2 s run.
 
+## November 3: audio capture cadence from Steam Streaming Speakers
+
+Desktop Nightjar crackled (nightjar#68) and every client buffered 5 to 10 ms more audio when the host captured Steam Streaming Speakers, its default stream sink. Capturing the Realtek speakers instead, the same audio reached the wire at p50 5.0 and p95 5.5 ms. Isolated release-build host (`4e2ce01b1`, with the arms as hidden switches) on the RX 7900 XT PC, desktop Nightjar on the NUC, a steady tone on Steam Streaming Speakers. Wire lateness is each packet's NIC-timestamped arrival on the NUC against start + n × 5 ms, minus its rolling 5 s minimum. Capture to send is the send minus the read that delivered it, p50. Double reads are WASAPI packets read within 1 ms of the one before. 90 s per leg, in the order below.
+
+| Leg | Arm | Wire lateness p50 / p95 / p99 (ms) | Capture to send p50 (ms) | Double reads |
+| --- | --- | --- | ---: | ---: |
+| A1 | baseline | 9.7 / 14.9 / 15.3 | 0.11 | 94 |
+| B1 | keep-alive at the minimum engine period | 10.1 / 15.0 / 15.5 | 0.12 | 270 |
+| A2 | baseline | 5.1 / 10.2 / 15.6 | 0.11 | 1 |
+| C1 | 20 ms capture buffer | 9.8 / 15.5 / 16.0 | 0.14 | 2430 |
+| C2 | 20 ms capture buffer | 10.2 / 15.2 / 15.6 | 0.13 | 847 |
+| A3 | baseline | 10.4 / 15.0 / 15.4 | 0.12 | 220 |
+| A4 | baseline | 9.9 / 14.9 / 15.3 | 0.11 | 146 |
+| D1 | 1 ms polling, no capture event | 10.9 / 15.6 / 16.2 | 0.14 | 426 |
+| D2 | 1 ms polling, no capture event | 10.5 / 15.1 / 15.7 | 0.18 | 364 |
+| A5 | baseline | 10.4 / 15.0 / 15.5 | 0.14 | 214 |
+
+The endpoint delivers one 480-frame packet per 10 ms engine period. Its own timestamps are steady (gaps 10.05 to 10.09 ms, p99 about 10.8), but it sometimes hands over two packets at once, and those double reads track the wire lateness: A2, with one, had p50 5.1. The host reads and sends within 0.2 ms in every leg. The minimum-period keep-alive changed nothing: the driver reports 480 frames as its default, fundamental, minimum and maximum period. A 20 ms buffer gave more double reads, and polling sent about 1 ms later. No arm reached p50 ≤ 5 and p99 ≤ 7 ms, so none was kept. The cause is the endpoint's own delivery jitter, not the host. The client's burst cushion (nj-audio) absorbs it. `audio_cadence_trace = true` stays as a hidden support switch: it writes every captured and sent packet to `logs\audio-cadence-<unix seconds>.csv` at stream end, and costs nothing when off.
+
 ## November 1: fixed-rate pacing after review (final build)
 
 Two reviews of the change in the next two sections found cases its A/B had not covered. The final build fixes them:

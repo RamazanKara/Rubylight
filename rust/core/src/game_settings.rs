@@ -99,11 +99,13 @@ pub fn check_path(path: &str) -> Result<()> {
     if !path.starts_with('%') {
         check_absolute(path)?;
     } else if names.is_empty() {
-        bail!("{path}: start with a drive letter, such as C:\\, or a %NAME% such as %LOCALAPPDATA%");
+        bail!(
+            "{path}: start with a drive letter, such as C:\\, or a %NAME% such as %LOCALAPPDATA%"
+        );
     }
-    let bare = names
-        .iter()
-        .fold(path.to_owned(), |rest, name| rest.replace(&format!("%{name}%"), "x"));
+    let bare = names.iter().fold(path.to_owned(), |rest, name| {
+        rest.replace(&format!("%{name}%"), "x")
+    });
     if bare.get(2..).is_some_and(|rest| rest.contains(':')) {
         bail!("{path}: a colon belongs only after the drive letter");
     }
@@ -119,7 +121,7 @@ pub fn check_path(path: &str) -> Result<()> {
 /// The `%NAME%` parts of `path`, in order. An unpaired `%` is an error.
 fn variables(path: &str) -> Result<Vec<String>> {
     let parts: Vec<&str> = path.split('%').collect();
-    if parts.len() % 2 == 0 {
+    if parts.len().is_multiple_of(2) {
         bail!("{path}: a % has no closing %; environment variables are written %NAME%");
     }
     parts
@@ -150,7 +152,9 @@ fn check_absolute(path: &str) -> Result<()> {
         && bytes[1] == b':'
         && matches!(bytes[2], b'\\' | b'/');
     if !drive {
-        bail!("{path}: start with a drive letter, such as C:\\, or a %NAME% such as %LOCALAPPDATA%");
+        bail!(
+            "{path}: start with a drive letter, such as C:\\, or a %NAME% such as %LOCALAPPDATA%"
+        );
     }
     Ok(())
 }
@@ -665,7 +669,9 @@ impl std::fmt::Display for Missing {
 }
 impl std::error::Error for Missing {}
 fn is_missing(error: &anyhow::Error) -> bool {
-    error.downcast_ref::<Missing>().is_some_and(|missing| missing.0)
+    error
+        .downcast_ref::<Missing>()
+        .is_some_and(|missing| missing.0)
 }
 
 /// A settings file: a file of at most [`MAX_FILE_BYTES`].

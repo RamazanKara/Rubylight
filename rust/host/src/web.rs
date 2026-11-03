@@ -837,6 +837,21 @@ pub(crate) async fn api(
     if path == "/api/neural" || path.starts_with("/api/neural/") {
         return neural::handle(&h, &method, path, &uri, &data).await;
     }
+    // The app editor's game settings files: which devices have a saved copy. Console-only.
+    if method == Method::GET && path == "/api/game-settings" {
+        let uuid = url::form_urlencoded::parse(uri.query().unwrap_or("").as_bytes())
+            .find(|(key, _)| key == "uuid")
+            .map(|(_, value)| value.into_owned())
+            .unwrap_or_default();
+        let host = h.clone();
+        return match tokio::task::spawn_blocking(move || crate::game_settings::status(&host, &uuid))
+            .await
+        {
+            Ok(Ok(status)) => Json(status).into_response(),
+            Ok(Err(e)) => error(StatusCode::NOT_FOUND, &format!("{e:#}")),
+            Err(e) => error(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
+        };
+    }
     if method == Method::POST && path == "/api/covers/upload" {
         return apps::upload_cover(&h, &data).await;
     }

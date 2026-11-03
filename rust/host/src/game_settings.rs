@@ -388,7 +388,10 @@ mod tests {
             .err()
             .unwrap();
         assert!(format!("{error:#}").contains("does not exist"), "{error:#}");
-        assert!(format!("{error:#}").contains("Game did not start"), "{error:#}");
+        assert!(
+            format!("{error:#}").contains("Game did not start"),
+            "{error:#}"
+        );
         let unset = launching(&f.host, &app, &args("tv"), &BTreeMap::new())
             .err()
             .unwrap();

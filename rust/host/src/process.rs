@@ -215,6 +215,9 @@ pub struct RunningApp {
     connected: bool,
     state_events: Option<StateCommands>,
     exit_timeout: Duration,
+    /// The launching device's game settings files, swapped in; they go back once the app's
+    /// processes are closed.
+    settings_swap: Option<crate::game_settings::Swap>,
     /// An app launched before anyone signed in, started once a user does.
     pub deferred: Option<(App, HashMap<String, String>)>,
     deferred_check: std::time::Instant,
@@ -366,6 +369,7 @@ impl RunningApp {
             game_seen: false,
             launcher_only: only_opens_launchers(app),
             exit_timeout: exit_timeout(app, &butterpollo_core::config::Config::default()),
+            settings_swap: None,
         };
         let commands: Vec<PrepCommand> = serde_json::from_value(
             app.extra
@@ -573,6 +577,9 @@ impl RunningApp {
                 }
             }
         }
+        // The game is closed: its settings files become the device's copies and the PC's own
+        // go back.
+        drop(self.settings_swap.take());
     }
     /// The deferred app, once a user has signed in (checked once a second).
     pub fn take_ready_deferred(&mut self) -> Option<(App, HashMap<String, String>)> {
@@ -1345,7 +1352,10 @@ fn launch_with_environment(
         .map(|_| butterpollo_windows::process::processes().unwrap_or_default());
     // The game reads its own settings files as it starts: the stream's keys go in first.
     crate::game_files::launching(h, &app, args);
+    // So are the device's own settings files; a launch they cannot be swapped for fails.
+    let settings_swap = crate::game_settings::launching(h, &app, args, &environment)?;
     let mut running = RunningApp::with_environment(&app, environment)?;
+    running.settings_swap = settings_swap;
     running.background = background;
     running.terminate_on_pause = terminate_on_pause;
     running.exit_timeout = exit_timeout;
@@ -1415,7 +1425,10 @@ mod tests {
         let plain = app(serde_json::json!({}));
         let own = app(serde_json::json!({"exit-timeout": 3}));
         let host = Config::parse("exit_timeout = 5\n").unwrap();
-        assert_eq!(exit_timeout(&plain, &Config::default()), Duration::from_secs(10));
+        assert_eq!(
+            exit_timeout(&plain, &Config::default()),
+            Duration::from_secs(10)
+        );
         assert_eq!(exit_timeout(&plain, &host), Duration::from_secs(5));
         assert_eq!(exit_timeout(&own, &host), Duration::from_secs(3));
         assert_eq!(

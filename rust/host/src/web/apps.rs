@@ -34,6 +34,7 @@ pub(super) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyh
             butterpollo_core::radeon_profile::check(&app.extra)?;
             butterpollo_core::device_overrides::check(&app.extra)?;
             crate::game_files::check(&app)?;
+            butterpollo_core::game_settings::paths(&app.extra)?;
             if !app.extra.contains_key("uuid") {
                 app.extra
                     .insert("uuid".into(), json!(uuid::Uuid::new_v4().to_string()));

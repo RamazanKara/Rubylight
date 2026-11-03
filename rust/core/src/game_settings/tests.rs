@@ -36,13 +36,15 @@ fn a_first_launch_keeps_the_file_and_the_end_saves_it_as_the_devices_copy() {
     let store = s.store();
     let (written, path) = s.file("Settings.ini", "res=4k");
     let files = [(written.clone(), path.clone())];
-    let begun = store.begin("app", "Game", "tv", "TV", &files, NONE).unwrap();
-    assert_eq!(begun.report.first, [written.clone()]);
+    let begun = store
+        .begin("app", "Game", "tv", "TV", &files, NONE)
+        .unwrap();
+    assert_eq!(begun.report.first, std::slice::from_ref(&written));
     assert_eq!(text(&path), "res=4k", "nothing to put in yet");
     std::fs::write(&path, "res=1080p").unwrap();
     let report = store.finish(&begun.id).unwrap();
-    assert_eq!(report.saved, [written.clone()]);
-    assert_eq!(report.restored, [written.clone()]);
+    assert_eq!(report.saved, std::slice::from_ref(&written));
+    assert_eq!(report.restored, std::slice::from_ref(&written));
     assert_eq!(text(&path), "res=4k", "the PC's own file is back");
     assert_eq!(
         text(&store.device_copy("app", "tv", &file_key(&written))),
@@ -60,22 +62,34 @@ fn each_device_gets_its_own_copy_and_the_pc_keeps_its_file() {
     let (written, path) = s.file("Settings.ini", "pc");
     let files = [(written.clone(), path.clone())];
     for (device, value) in [("tv", "tv-1"), ("deck", "deck-1")] {
-        let begun = store.begin("app", "Game", device, device, &files, NONE).unwrap();
+        let begun = store
+            .begin("app", "Game", device, device, &files, NONE)
+            .unwrap();
         std::fs::write(&path, value).unwrap();
         store.finish(&begun.id).unwrap();
     }
     std::fs::write(&path, "pc-2").unwrap();
-    let begun = store.begin("app", "Game", "tv", "TV", &files, NONE).unwrap();
-    assert_eq!(begun.report.placed, [written.clone()]);
+    let begun = store
+        .begin("app", "Game", "tv", "TV", &files, NONE)
+        .unwrap();
+    assert_eq!(begun.report.placed, std::slice::from_ref(&written));
     assert_eq!(text(&path), "tv-1", "the TV's copy is in place");
     std::fs::write(&path, "tv-2").unwrap();
     store.finish(&begun.id).unwrap();
-    assert_eq!(text(&path), "pc-2", "a change made at the PC meanwhile stays the PC's");
+    assert_eq!(
+        text(&path),
+        "pc-2",
+        "a change made at the PC meanwhile stays the PC's"
+    );
     let copy = store.device_copy("app", "tv", &file_key(&written));
     assert_eq!(text(&copy), "tv-2");
     let mut previous = copy.into_os_string();
     previous.push(".previous");
-    assert_eq!(text(Path::new(&previous)), "tv-1", "the copy before is kept");
+    assert_eq!(
+        text(Path::new(&previous)),
+        "tv-1",
+        "the copy before is kept"
+    );
     assert_eq!(
         text(&store.device_copy("app", "deck", &file_key(&written))),
         "deck-1"
@@ -97,12 +111,18 @@ fn a_crash_while_playing_is_finished_at_the_next_start() {
     // The host is gone; a new one starts with a store of its own.
     let store = s.store();
     let live = BTreeSet::from([id.clone()]);
-    assert!(store.recover(&live).unwrap().is_empty(), "a running app's swap is left alone");
+    assert!(
+        store.recover(&live).unwrap().is_empty(),
+        "a running app's swap is left alone"
+    );
     let results = store.recover(NONE).unwrap();
     assert_eq!(results.len(), 1);
     assert!(results[0].1.is_ok());
     assert_eq!(text(&path), "pc");
-    assert_eq!(text(&store.device_copy("app", "tv", &file_key(&written))), "tv");
+    assert_eq!(
+        text(&store.device_copy("app", "tv", &file_key(&written))),
+        "tv"
+    );
     assert!(store.journal().unwrap().swaps.is_empty());
 }
 
@@ -116,7 +136,10 @@ fn a_crash_between_steps_never_saves_the_original_as_a_devices_copy() {
     let copy = store.device_copy("app", "tv", &file_key(&written));
     state::atomic_write(&copy, b"tv").unwrap();
     for step in [Step::Placing, Step::Saved] {
-        let id = store.begin("app", "Game", "tv", "TV", &files, NONE).unwrap().id;
+        let id = store
+            .begin("app", "Game", "tv", "TV", &files, NONE)
+            .unwrap()
+            .id;
         let mut journal = store.journal().unwrap();
         journal.swaps[0].files[0].step = step;
         store.save(&journal).unwrap();
@@ -157,7 +180,14 @@ fn a_file_the_game_removed_is_put_back_and_said_loudly() {
     let store = s.store();
     let (written, path) = s.file("Settings.ini", "pc");
     let begun = store
-        .begin("app", "Game", "tv", "TV", &[(written.clone(), path.clone())], NONE)
+        .begin(
+            "app",
+            "Game",
+            "tv",
+            "TV",
+            &[(written.clone(), path.clone())],
+            NONE,
+        )
         .unwrap();
     std::fs::remove_file(&path).unwrap();
     let report = store.finish(&begun.id).unwrap();
@@ -182,11 +212,17 @@ fn a_copy_that_cannot_go_in_puts_back_the_files_already_swapped() {
             "Game",
             "tv",
             "TV",
-            &[(first.clone(), first_path.clone()), (second, second_path.clone())],
+            &[
+                (first.clone(), first_path.clone()),
+                (second, second_path.clone()),
+            ],
             NONE,
         )
         .unwrap_err();
-    assert!(format!("{error:#}").contains("reading the copy"), "{error:#}");
+    assert!(
+        format!("{error:#}").contains("reading the copy"),
+        "{error:#}"
+    );
     assert_eq!(text(&first_path), "pc-a");
     assert_eq!(text(&second_path), "pc-b");
     assert_eq!(
@@ -205,19 +241,27 @@ fn a_second_launch_waits_for_the_first_swap_of_the_same_file() {
     let store = s.store();
     let (written, path) = s.file("Settings.ini", "pc");
     let files = [(written.clone(), path.clone())];
-    let tv = store.begin("app", "Game", "tv", "TV", &files, NONE).unwrap();
+    let tv = store
+        .begin("app", "Game", "tv", "TV", &files, NONE)
+        .unwrap();
     std::fs::write(&path, "tv").unwrap();
     let live = BTreeSet::from([tv.id.clone()]);
     let error = store
         .begin("other", "Game (HDR)", "deck", "Deck", &files, &live)
         .unwrap_err();
-    assert!(format!("{error:#}").contains("Game from TV, which is still running"), "{error:#}");
+    assert!(
+        format!("{error:#}").contains("Game from TV, which is still running"),
+        "{error:#}"
+    );
     assert_eq!(text(&path), "tv", "the running game's file stays");
     // The TV's app stopped without its swap finishing (a host crash): the Deck's launch finishes it.
     let deck = store
         .begin("other", "Game (HDR)", "deck", "Deck", &files, NONE)
         .unwrap();
-    assert_eq!(text(&store.device_copy("app", "tv", &file_key(&written))), "tv");
+    assert_eq!(
+        text(&store.device_copy("app", "tv", &file_key(&written))),
+        "tv"
+    );
     assert_eq!(text(&path), "pc", "the Deck has no copy yet: the PC's file");
     store.finish(&deck.id).unwrap();
     assert!(store.journal().unwrap().swaps.is_empty());
@@ -236,10 +280,14 @@ fn a_locked_file_fails_loudly_and_stays_journaled_until_it_can_go_back() {
         .share_mode(0)
         .open(&path)
         .unwrap();
-    let error = store.begin("app", "Game", "tv", "TV", &files, NONE).unwrap_err();
+    let error = store
+        .begin("app", "Game", "tv", "TV", &files, NONE)
+        .unwrap_err();
     assert!(format!("{error:#}").contains("in use"), "{error:#}");
     drop(held);
-    let begun = store.begin("app", "Game", "tv", "TV", &files, NONE).unwrap();
+    let begun = store
+        .begin("app", "Game", "tv", "TV", &files, NONE)
+        .unwrap();
     std::fs::write(&path, "tv").unwrap();
     let held = std::fs::OpenOptions::new()
         .read(true)
@@ -254,7 +302,10 @@ fn a_locked_file_fails_loudly_and_stays_journaled_until_it_can_go_back() {
     drop(held);
     assert!(store.recover(NONE).unwrap()[0].1.is_ok());
     assert_eq!(text(&path), "pc");
-    assert_eq!(text(&store.device_copy("app", "tv", &file_key(&written))), "tv");
+    assert_eq!(
+        text(&store.device_copy("app", "tv", &file_key(&written))),
+        "tv"
+    );
 }
 
 #[test]
@@ -262,8 +313,16 @@ fn an_unreadable_journal_swaps_nothing() {
     let s = Scratch::new();
     let store = s.store();
     let (written, path) = s.file("Settings.ini", "pc");
-    state::atomic_write(&s.0.join("config").join(FOLDER).join(JOURNAL_FILE), b"{oops").unwrap();
-    assert!(store.begin("app", "Game", "tv", "TV", &[(written, path)], NONE).is_err());
+    state::atomic_write(
+        &s.0.join("config").join(FOLDER).join(JOURNAL_FILE),
+        b"{oops",
+    )
+    .unwrap();
+    assert!(
+        store
+            .begin("app", "Game", "tv", "TV", &[(written, path)], NONE)
+            .is_err()
+    );
     assert!(store.recover(NONE).is_err());
 }
 
@@ -272,7 +331,12 @@ fn paths_are_checked_and_expanded_from_the_users_environment() {
     let extra = |list: Value| BTreeMap::from([(SETTING.to_owned(), list)]);
     assert!(paths(&BTreeMap::new()).unwrap().is_empty());
     assert_eq!(
-        paths(&extra(json!(["  %LOCALAPPDATA%\\Game\\Settings.ini ", "", "D:/Games/x.cfg"]))).unwrap(),
+        paths(&extra(json!([
+            "  %LOCALAPPDATA%\\Game\\Settings.ini ",
+            "",
+            "D:/Games/x.cfg"
+        ])))
+        .unwrap(),
         ["%LOCALAPPDATA%\\Game\\Settings.ini", "D:/Games/x.cfg"]
     );
     for bad in [
@@ -303,9 +367,7 @@ fn paths_are_checked_and_expanded_from_the_users_environment() {
         expand("%localappdata%/Game/Settings.ini", lookup).unwrap(),
         PathBuf::from("C:\\Users\\me\\AppData\\Local\\Game\\Settings.ini")
     );
-    assert!(
-        format!("{:#}", expand("%NOPE%\\x.ini", lookup).unwrap_err()).contains("not set"),
-    );
+    assert!(format!("{:#}", expand("%NOPE%\\x.ini", lookup).unwrap_err()).contains("not set"),);
     assert!(expand("%BAD%\\x.ini", lookup).is_err());
 }
 
@@ -314,8 +376,17 @@ fn store_names_stay_inside_the_store() {
     assert_eq!(store_name("0f3a-uuid"), "0f3a-uuid");
     for name in ["..", "a\\b", "", "C:x"] {
         let stored = store_name(name);
-        assert!(!stored.contains(['\\', '/', ':']) && stored != ".." && !stored.starts_with('.'), "{stored}");
+        assert!(
+            !stored.contains(['\\', '/', ':']) && stored != ".." && !stored.starts_with('.'),
+            "{stored}"
+        );
     }
-    assert_ne!(file_key("C:\\A\\Settings.ini"), file_key("C:\\B\\Settings.ini"));
-    assert_eq!(file_key("C:\\A\\Settings.ini"), file_key("c:/a/settings.INI"));
+    assert_ne!(
+        file_key("C:\\A\\Settings.ini"),
+        file_key("C:\\B\\Settings.ini")
+    );
+    assert_eq!(
+        file_key("C:\\A\\Settings.ini"),
+        file_key("c:/a/settings.INI")
+    );
 }

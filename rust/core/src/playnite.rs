@@ -1007,7 +1007,12 @@ mod tests {
         ));
         let timeouts: Vec<_> = apps
             .iter()
-            .map(|app| (field(app, "name").to_owned(), app.get("exit-timeout").cloned()))
+            .map(|app| {
+                (
+                    field(app, "name").to_owned(),
+                    app.get("exit-timeout").cloned(),
+                )
+            })
             .collect();
         assert_eq!(
             timeouts,

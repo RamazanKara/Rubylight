@@ -56,4 +56,4 @@ With HDR turned on in the Steam Deck OLED's display settings (or gamescope start
 
 - **Forwarding webcams and audio devices.** Most USB devices are forwarded from the Flatpak as from the other packages. Webcams and audio devices go through Linux's USB/IP tools instead (usbip-host, bound through `pkexec` and Nightjar's helper as root), which the sandbox can't reach; the **USB devices** list says so for them. Use the `.deb`, `.rpm` or AppImage with your distribution's usbip package for those.
 
-Everything else (hardware decoding with VA-API and Vulkan video, discovery, Wake-on-LAN, controllers, microphone) works in the Flatpak as in the other Linux packages.
+The Flatpak has the network, the GPU, controllers and audio, so discovery, Wake-on-LAN, controllers, the microphone and hardware decoding work as in the other Linux packages. The Steam Deck's AMD graphics decode with the runtime's own drivers; on Intel graphics, VA-API in a Flatpak needs `flatpak install --user flathub org.freedesktop.Platform.VAAPI.Intel//24.08`.

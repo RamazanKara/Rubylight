@@ -46,7 +46,7 @@ Which Nightjar features each client provides: Android (phones, handhelds, tablet
 | Feature | Android | Windows | Linux | Notes |
 | --- | --- | --- | --- | --- |
 | H.264, HEVC and AV1 hardware decoding | Yes | Yes | Partial | Windows: D3D11VA, without CPU copies. Linux: VA-API, then Vulkan video, then V4L2 M2M, then NVDEC; 8-bit 4:2:0 VA-API pictures reach the OpenGL renderer without copies, while 10-bit pictures and those drawn by the GPU renderer (HDR, upscaling, 4:4:4) are copied through memory. Vulkan video, for GPUs without a VA-API driver such as NVIDIA's, decodes on the GPU renderer's own device without CPU copies; its pictures match software decoding on Intel's Mesa driver (the NUC), and on NVIDIA it is Experimental. A fallback to software decoding is announced. |
-| HDR10 | Yes | Yes | Yes | Linux requests an HDR surface from the compositor. |
+| HDR10 | Yes | Yes | Yes | Linux requests an HDR surface from the compositor; under gamescope it asks the swapchain, presenting scRGB or, where only HDR10 is offered, PQ. |
 | HDR10+ | Yes | No | No | |
 | HLG | Yes | Yes | Yes | The desktop draws HLG through the BT.2100 inverse OETF and OOTF for the display's peak; on Linux for hardware-decoded pictures. |
 | Dolby Vision | Yes | Yes | No | Profiles 8.1 (HEVC) and 10.1 (AV1). Windows draws them on the HDR10 base layer, with the tone map's peak from the Dolby Vision metadata. |
@@ -109,6 +109,7 @@ Android needs no scan-line check: SurfaceFlinger never flips mid-scan, and a pan
 | Feature | Android | Windows | Linux | Notes |
 | --- | --- | --- | --- | --- |
 | Controllers and per-model mapping | Yes | Yes | Yes | The desktop drives rumble, motion, touchpads, LEDs, battery and DualSense features through SDL's gamepad API. |
+| Steam Deck Game Mode (gamescope) | N/A | N/A | Yes | The Flatpak starts from Steam as a non-Steam game, fullscreen without a border; the pointer hides while the controller is used, and Start+Back opens the stream menu since Steam keeps the Guide button. [Steam Deck](steam-deck.md) |
 | Extra buttons: touchpad click, Share / Capture, paddles | Yes | Yes | Yes | The desktop maps every SDL button. |
 | DualSense, Xbox and Switch Pro USB drivers | Yes | N/A | N/A | SDL handles these controllers on the desktop. |
 | On-screen controls, Classic and Modern | Yes | No | No | |

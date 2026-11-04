@@ -39,16 +39,24 @@ function nuc([string] $command) {
 }
 
 # GPU-LOCK for this run: '' when the batch that started this holds it (run.py writes "pid N"),
-# else the text written (CreateNew, so two sessions never both take it). Throws when another
-# session holds it, also when its process is gone: GPU-LOCK is never broken.
-function Enter-GpuLock {
+# else the text written (CreateNew, so two sessions never both take it). Another session's lock
+# is waited for, polled every 3 s like run.py and takelocks.sh do, for up to $Wait seconds; then
+# it throws, also when the holder's process is gone: GPU-LOCK is never broken.
+function Enter-GpuLock([double] $Wait = 1800) {
     if (Test-LockOurs $script:CheckGpuLock) {
         Write-Host "GPU-LOCK held by the batch that started this: $(Read-Lock $script:CheckGpuLock)"
         return ''
     }
-    $written = Lock-Try $script:CheckGpuLock $Tag
-    if ($written) { return $written }
-    $held = Read-Lock $script:CheckGpuLock
+    $deadline = (Get-Date).AddSeconds($Wait)
+    $shown = $null
+    while ($true) {
+        $written = Lock-Try $script:CheckGpuLock $Tag
+        if ($written) { return $written }
+        $held = Read-Lock $script:CheckGpuLock
+        if ((Get-Date) -ge $deadline) { break }
+        if ($held -and $held -ne $shown) { Write-Host "waiting for GPU-LOCK: $held"; $shown = $held }
+        Start-Sleep -Seconds 3
+    }
     $gone = if ($held -match '\bpid[= ](\d+)' -and -not (Get-Process -Id $Matches[1] -ErrorAction SilentlyContinue)) {
         " (pid $($Matches[1]) is not running: remove $script:CheckGpuLock by hand once that session is surely gone)"
     }
@@ -121,11 +129,11 @@ if ($SelfTest) {
         # Another session's run.py lock, its process alive and not one that started this: the
         # System process, pid 4.
         Set-Content $lock 'tools/hw/run.py --batch lab pid 4 since 2026-11-04 10:00' -NoNewline
-        $refused = try { Enter-GpuLock | Out-Null; $false } catch { $_ -match 'GPU-LOCK is held: tools/hw/run.py' }
+        $refused = try { Enter-GpuLock 0 | Out-Null; $false } catch { $_ -match 'GPU-LOCK is held: tools/hw/run.py' }
         expect "another session's 'pid N' lock is refused" $refused
         expect 'the refused lock is left as it was' ((Read-Lock $lock) -ceq 'tools/hw/run.py --batch lab pid 4 since 2026-11-04 10:00')
         Set-Content $lock "nuc-gamescope 2026-11-04T10:00:00 pid=999999" -NoNewline
-        $refused = try { Enter-GpuLock | Out-Null; $false } catch { $_ -match 'is not running: remove' }
+        $refused = try { Enter-GpuLock 0 | Out-Null; $false } catch { $_ -match 'is not running: remove' }
         expect 'a lock of an exited process is refused, not broken' $refused
         Set-Content $lock "tools/hw/run.py --batch nuc pid $parent since 2026-11-04 10:00" -NoNewline
         expect "the parent batch's lock counts as ours" ((Enter-GpuLock) -eq '')
@@ -136,6 +144,19 @@ if ($SelfTest) {
         expect 'a free lock is taken with this run''s pid' ($written -match "^$Tag .* pid=$PID$" -and (Read-Lock $lock) -ceq $written)
         Lock-Release $lock $written
         expect 'this run''s lock is removed at the end' (-not [IO.File]::Exists($lock))
+        # Another session's lock, released while this run waits: taken then.
+        Set-Content $lock 'njrf 2026-11-04T05:40:11 pid=4' -NoNewline
+        $release = Start-Job { param($p) Start-Sleep -Seconds 2; Remove-Item $p } -ArgumentList $lock
+        try {
+            $written = Enter-GpuLock 30 6>$null
+            expect 'a lock released while waiting is taken then' ($written -and (Read-Lock $lock) -ceq $written)
+            Lock-Release $lock $written
+        } finally { $release | Wait-Job | Remove-Job }
+        $t = Get-Date
+        Set-Content $lock 'njrf 2026-11-04T05:40:11 pid=4' -NoNewline
+        $refused = try { Enter-GpuLock 1 6>$null | Out-Null; $false } catch { $_ -match 'GPU-LOCK is held: njrf' }
+        expect 'a lock still held after the wait is refused' ($refused -and ((Get-Date) - $t).TotalSeconds -lt 10)
+        Remove-Item $lock
         $written = Enter-GpuLock
         Set-Content $lock 'check.ps1 2026-11-04T10:00:00 pid=4' -NoNewline
         Lock-Release $lock $written 6>$null
@@ -191,8 +212,8 @@ if ($info -notmatch '<RustHostSessionCount>0<' -or $info -notmatch '<RustHostPen
     throw 'the installed host has a session: not now'
 }
 Initialize-CheckLocks $LockDirectory
-# Early, before the build: the lock is taken for the streams only.
-if ([IO.File]::Exists($script:CheckGpuLock) -and -not (Test-LockOurs $script:CheckGpuLock)) { throw "GPU-LOCK is held: $(Read-Lock $script:CheckGpuLock)" }
+# The lock is taken for the streams only, after the build; said early when another session has it.
+if ([IO.File]::Exists($script:CheckGpuLock) -and -not (Test-LockOurs $script:CheckGpuLock)) { Write-Host "GPU-LOCK is held now, waited for before the streams: $(Read-Lock $script:CheckGpuLock)" }
 
 Write-Host '== sync and build on the NUC'
 nuc "mkdir -p $Work/src $Work/tools"

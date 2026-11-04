@@ -1095,6 +1095,7 @@ public class StreamMenuTest {
             for (int i = 0; i < tiles.getChildCount(); i++) labels.add(text(tiles.getChildAt(i)).split("\n")[0]);
             assertEquals(Arrays.asList(activity.getString(R.string.keyboard_task_manager), activity.getString(R.string.keyboard_close_window),
                     activity.getString(R.string.stream_menu_start_menu), activity.getString(R.string.desktop_controls_shortcut_desktop),
+                    activity.getString(R.string.keyboard_game_bar), activity.getString(R.string.keyboard_record_that),
                     "Switch", activity.getString(R.string.keyboard_shortcuts_add)), labels);
             tiles.getChildAt(0).performClick();
             assertArrayEquals(KeyboardShortcuts.parseChord("CTRL+SHIFT+ESC"), saved.sent.get(0));

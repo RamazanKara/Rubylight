@@ -640,10 +640,15 @@ renderer and common-c integration remain GPL-3.0.
   The quality pass changed this from automatic selection because normal Moonlight bitrates are
   too low for PyroWave. Ordinary codec fallback remains available; start near 280 Mbps for 720p/60
   on a fast LAN and verify quality and bandwidth on the actual host/device.
-- Android API 29+, a 64-bit library and Vulkan **1.3** are necessary. Runtime checks include
+- Android API 29+, a 64-bit library and Vulkan **1.1** are necessary. Runtime checks include
   subgroup basic/vote/ballot/arithmetic/shuffle/shuffle-relative operations, compute stage and size
-  control (4–128), full subgroups, shaderInt16, storageBuffer8BitAccess, storageBuffer16BitAccess,
-  timelineSemaphore, synchronization2 and shaderStorageImageWriteWithoutFormat. Float16 arithmetic
+  control (4–128), full subgroups, shaderInt16, storageBuffer16BitAccess and
+  shaderStorageImageWriteWithoutFormat. On Vulkan 1.3 they also require storageBuffer8BitAccess,
+  timelineSemaphore and synchronization2. Below 1.3 the features come from extensions
+  (`jni/pyrowave-renderer/device_path.h`): 8-bit storage may be missing when
+  `maxTexelBufferElements` is at least 16M, decode and presentation share one queue, and decode
+  completion is a fence. `adb shell setprop debug.nightjar.pyro_vk11 1` puts a newer device on that
+  path for testing; the next stream's log says so. Float16 arithmetic
   is optional. Checks also cover graphics+compute+present queue support, scratch image formats,
   dimensions, layers and workgroup limits. These are conservative requirements of this port.
 - After server capability intersection, the client creates the decoder, swapchain and colour pipeline

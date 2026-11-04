@@ -349,18 +349,19 @@ fn keys_under(name: &str, keys: &[String]) -> Option<String> {
     (chord != name).then_some(chord)
 }
 
-/// The Shortcuts page: the built-ins not saved under a name of their own, the saved shortcuts
-/// and Add as tiles that send at once, then each saved one to edit.
+/// The Shortcuts page: the saved shortcuts in their order, the built-ins not saved under a name of
+/// their own and Add as tiles that send at once, then each saved one to edit. The saved ones come
+/// first so a new built-in never pushes them along (nightjar#61).
 pub fn shortcuts_page(ui: &mut Ui, saved: &Shortcuts, focus_first: bool) -> Option<ShortcutChoice> {
     let built = format::built_ins(&saved.data);
     let add = saved.data.len() < format::MAX_SHORTCUTS;
     let count = built.len() + saved.data.len() + usize::from(add);
     let picked = tiles(ui, count, |ui, index, width| {
-        let response = if let Some(b) = built.get(index) {
+        let response = if let Some(s) = saved.data.get(index) {
+            menu_style::tile(ui, width, Icon::Keyboard, &s.name, keys_under(&s.name, &s.keys).as_deref(), None, None)
+        } else if let Some(b) = built.get(index - saved.data.len()) {
             let keys: Vec<String> = b.keys.iter().map(|k| k.to_string()).collect();
             menu_style::tile(ui, width, Icon::Keyboard, built_in_label(b.id), Some(&format::chord_label(&keys)), None, None)
-        } else if let Some(s) = saved.data.get(index - built.len()) {
-            menu_style::tile(ui, width, Icon::Keyboard, &s.name, keys_under(&s.name, &s.keys).as_deref(), None, None)
         } else {
             menu_style::tile(ui, width, Icon::Plus, tr("Add shortcut"), None, None, None)
         };
@@ -370,10 +371,10 @@ pub fn shortcuts_page(ui: &mut Ui, saved: &Shortcuts, focus_first: bool) -> Opti
         response.clicked()
     });
     let mut choice = picked.map(|index| {
-        if let Some(b) = built.get(index) {
-            ShortcutChoice::Send(Shortcut { id: b.id.into(), name: built_in_label(b.id).into(), keys: b.keys.iter().map(|k| k.to_string()).collect() })
-        } else if let Some(s) = saved.data.get(index - built.len()) {
+        if let Some(s) = saved.data.get(index) {
             ShortcutChoice::Send(s.clone())
+        } else if let Some(b) = built.get(index - saved.data.len()) {
+            ShortcutChoice::Send(Shortcut { id: b.id.into(), name: built_in_label(b.id).into(), keys: b.keys.iter().map(|k| k.to_string()).collect() })
         } else {
             ShortcutChoice::Add
         }
@@ -658,6 +659,30 @@ mod tests {
         assert!((close.right() - back.right()).abs() < 1.5 && (disconnect.left() - back.left()).abs() < 1.5, "as wide as Return to stream together");
         let spoken = nodes.iter().find(|(label, _)| label.starts_with("Disconnect")).unwrap().0.clone();
         assert!(spoken.starts_with("Disconnect, "), "Disconnect's keys are read out: {spoken}");
+    }
+
+    /// nightjar#61: Game Bar and Record that, new built-ins, landed ahead of a user's own list. The
+    /// saved shortcuts keep their order at the start, whatever built-ins a version adds.
+    #[test]
+    fn the_saved_shortcuts_come_before_the_built_ins() {
+        crate::theme::own_palette();
+        let ctx = egui::Context::default();
+        crate::theme::apply(&ctx);
+        ctx.enable_accesskit();
+        let mut saved = Shortcuts::default();
+        saved.data.push(Shortcut { id: "s".into(), name: "Steam overlay".into(), keys: vec!["SHIFT".into(), "TAB".into()] });
+        let mut nodes = Vec::new();
+        for _ in 0..4 {
+            nodes = frame(&ctx, |ui| {
+                assert_eq!(shortcuts_page(ui, &saved, false), None);
+            })
+            .0;
+        }
+        let find = |name: &str| nodes.iter().find(|(label, _)| label.starts_with(name)).map(|(_, r)| *r).unwrap_or_else(|| panic!("{name} in {nodes:#?}"));
+        let (own, task_manager, add) = (find("Steam overlay"), find(built_in_label("task_manager")), find(tr("Add shortcut")));
+        let reading_order = |a: egui::Rect, b: egui::Rect| a.top() < b.top() - 1.0 || ((a.top() - b.top()).abs() <= 1.0 && a.left() < b.left());
+        assert!(reading_order(own, task_manager), "{own:?} before {task_manager:?}");
+        assert!(reading_order(task_manager, add), "{task_manager:?} before {add:?}");
     }
 
     /// Ending the PC's game asks first, with the focus on Cancel so A pressed twice never ends it.

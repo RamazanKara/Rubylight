@@ -28,6 +28,7 @@ use crate::stream::{pyrowave_bitrate_warning, stream_mode, Display};
 use crate::theme::*;
 use cards::*;
 use dialogs::*;
+pub use dialogs::moves_in_hotkey_dialog;
 pub use library::{policy_role, running_name};
 use library::*;
 pub(crate) use widgets::{focus_ring, name_for_readers, primary_button, quiet_button, toggle};

@@ -834,8 +834,9 @@ impl App {
                 SDL_EVENT_GAMEPAD_BUTTON_DOWN | SDL_EVENT_GAMEPAD_BUTTON_UP | SDL_EVENT_GAMEPAD_AXIS_MOTION => {
                     if self.launcher.screen != Screen::Controllers || !self.launcher.controller_test { self.navigate(event); }
                 }
-                // A stream hotkey being recorded takes every key, F11 and F12 too.
-                SDL_EVENT_KEY_DOWN if self.launcher.recording_hotkey() => {
+                // A stream hotkey being recorded takes every key, F11 and F12 too; an arrow or Enter
+                // alone goes on to egui and moves in the dialog.
+                SDL_EVENT_KEY_DOWN if self.launcher.recording_hotkey() && !ui::moves_in_hotkey_dialog(event.key.scancode, event.key.r#mod) => {
                     if let Some(command) = self.launcher.hotkey_key_down(event.key.scancode, event.key.r#mod, event.key.repeat) {
                         self.command(command);
                     }

@@ -4409,6 +4409,34 @@ fn the_hotkey_dialog_records_the_keys_sdl_reports() {
     crate::shortcuts::set_hotkeys(Default::default());
 }
 
+/// As on Android, an arrow or Enter alone moves in the record dialog or confirms, and goes on to egui
+/// instead of being saved; with a modifier it is recorded. Tab alone is recorded.
+#[test]
+fn arrows_and_enter_alone_move_in_the_hotkey_dialog() {
+    use crate::shortcuts::hotkey_bindings;
+    use sdl3_sys::everything::*;
+    let bound = |id: &str| hotkey_bindings().get(id).cloned();
+    let mut l = launcher(false, false);
+    l.go(Screen::StreamHotkeys);
+    l.dialog = Dialog::StreamHotkey { id: "capture", error: None };
+    for key in [SDL_SCANCODE_UP, SDL_SCANCODE_DOWN, SDL_SCANCODE_LEFT, SDL_SCANCODE_RIGHT, SDL_SCANCODE_RETURN, SDL_SCANCODE_KP_ENTER] {
+        assert!(moves_in_hotkey_dialog(key, SDL_KMOD_NONE), "{}", key.0);
+        assert!(l.hotkey_key_down(key, SDL_KMOD_NONE, false).is_none(), "{}", key.0);
+        assert!(matches!(&l.dialog, Dialog::StreamHotkey { error: None, .. }), "{}", key.0);
+        assert!(bound("capture").is_none(), "{}", key.0);
+    }
+    let main = include_str!("../main.rs");
+    assert!(main.contains("SDL_EVENT_KEY_DOWN if self.launcher.recording_hotkey() && !ui::moves_in_hotkey_dialog("), "egui gets them");
+    assert!(!moves_in_hotkey_dialog(SDL_SCANCODE_TAB, SDL_KMOD_NONE));
+    assert!(!moves_in_hotkey_dialog(SDL_SCANCODE_RETURN, SDL_KMOD_LCTRL));
+    assert!(l.hotkey_key_down(SDL_SCANCODE_RETURN, SDL_Keymod(SDL_KMOD_LCTRL.0 | SDL_KMOD_LALT.0), false).is_some());
+    assert_eq!(bound("capture").as_deref(), Some("CTRL+ALT+ENTER"));
+    l.dialog = Dialog::StreamHotkey { id: "overlay", error: None };
+    assert!(l.hotkey_key_down(SDL_SCANCODE_LEFT, SDL_Keymod(SDL_KMOD_LCTRL.0 | SDL_KMOD_LALT.0), false).is_some());
+    assert_eq!(bound("overlay").as_deref(), Some("CTRL+ALT+DPAD_LEFT"));
+    crate::shortcuts::set_hotkeys(Default::default());
+}
+
 /// Settings → Stream hotkeys with one hotkey changed and one off, and the dialog that records a new chord
 /// refusing one another hotkey has: `NIGHTJAR_SHOTS=<dir> cargo test -p nightjar-desktop stream_hotkeys_screenshots -- --ignored`.
 #[test]

@@ -450,9 +450,9 @@ pub enum HotkeyError {
     /// Ctrl+Alt+Del, which never reaches an app, and the chords Windows' shell keeps: Alt+Tab,
     /// Alt+Esc, Ctrl+Esc, Ctrl+Shift+Esc and their Shift and Ctrl forms.
     Reserved,
-    /// A chord that types or edits text: Shift with a printable or editing key, Alt or Ctrl+Alt
-    /// with a printable key (AltGr reaches Windows as Ctrl+Alt, Android as Alt), and Ctrl+C, Ctrl+V
-    /// and the other editing chords.
+    /// A chord that types or edits text: Shift with a printable or editing key, Alt, Alt+Shift or
+    /// Ctrl+Alt with a printable key (AltGr reaches Windows as Ctrl+Alt, Android as Alt), and
+    /// Ctrl+C, Ctrl+V and the other editing chords.
     Typing,
     /// The last keyboard way out of a captured desktop stream: the stream menu's or Disconnect's.
     LastWayOut,
@@ -522,8 +522,9 @@ fn refused_chord(ctrl: bool, alt: bool, shift: bool, other: u16) -> Option<Hotke
         (false, true, _) if other == ESC => HotkeyError::Reserved,
         (true, false, _) if other == ESC => HotkeyError::Reserved,
         (false, false, true) if printable(other) || editing(other) => HotkeyError::Typing,
-        // AltGr and Alt codes: Windows reports AltGr as Ctrl+Alt, Android as (right) Alt.
-        (_, true, false) if printable(other) => HotkeyError::Typing,
+        // AltGr and Alt codes: Windows reports AltGr as Ctrl+Alt, Android as (right) Alt, so
+        // AltGr+Shift (the capitals of AltGr's letters) reaches Android as Alt+Shift.
+        (_, true, false) | (false, true, true) if printable(other) => HotkeyError::Typing,
         // Select all, copy, paste, cut, undo, redo, and moving or deleting by words.
         (true, false, false) if matches!(other, 0x41 | 0x43 | 0x56 | 0x58 | 0x59 | 0x5A) || (editing(other) && other != TAB) =>HotkeyError::Typing,
         (true, false, true) if matches!(other, 0x5A | 0x21..=0x28) => HotkeyError::Typing,
@@ -603,8 +604,30 @@ pub struct Bound {
 /// Each of `client`'s hotkeys with the user's `bindings`, in list order. A saved binding that no
 /// longer reads (a hand-edited file) leaves its action at the default, and a chord an action
 /// earlier in the list has already leaves the later one without ([`Bound::taken`]). An old chord
-/// stays only while its action has its default and no action's chord is the same.
+/// stays only while its action has its default and no action's chord is the same. A desktop file
+/// that leaves neither the stream menu nor Disconnect a chord (hand-edited) gives the stream menu
+/// its default back, taken from whichever action has it, so a captured stream keeps a way out.
 pub fn bound(client: Client, bindings: &HotkeyBindings) -> Vec<Bound> {
+    let mut list = bound_as_saved(client, bindings);
+    if client == Client::Desktop && !has_way_out(&list) {
+        let default = owned(find_hotkey(WAYS_OUT[0]).expect("listed").keys);
+        for b in list.iter_mut().filter(|b| b.keys.as_ref() == Some(&default)) {
+            b.keys = None;
+            b.taken = Some(WAYS_OUT[0]);
+        }
+        let menu = list.iter_mut().find(|b| b.id == WAYS_OUT[0]).expect("the desktop has a stream menu");
+        (menu.keys, menu.changed, menu.taken) = (Some(default), false, None);
+    }
+    let taken: Vec<Vec<String>> = list.iter().filter_map(|b| b.keys.clone()).collect();
+    for b in list.iter_mut().filter(|b| !b.changed) {
+        let hotkey = find_hotkey(b.id).expect("listed");
+        b.old = hotkey.old.iter().filter(|(on, _)| *on == client).map(|(_, keys)| owned(keys)).filter(|keys| !taken.contains(keys)).collect();
+    }
+    list
+}
+
+/// [`bound`] as the file has it: no old chords, and no way out given back.
+fn bound_as_saved(client: Client, bindings: &HotkeyBindings) -> Vec<Bound> {
     let default = |h: &Hotkey| Some(owned(h.keys));
     let mut list: Vec<Bound> = hotkeys(client)
         .map(|h| {
@@ -624,12 +647,11 @@ pub fn bound(client: Client, bindings: &HotkeyBindings) -> Vec<Bound> {
             b.keys = None;
         }
     }
-    let taken: Vec<Vec<String>> = list.iter().filter_map(|b| b.keys.clone()).collect();
-    for b in list.iter_mut().filter(|b| !b.changed) {
-        let hotkey = find_hotkey(b.id).expect("listed");
-        b.old = hotkey.old.iter().filter(|(on, _)| *on == client).map(|(_, keys)| owned(keys)).filter(|keys| !taken.contains(keys)).collect();
-    }
     list
+}
+
+fn has_way_out(list: &[Bound]) -> bool {
+    list.iter().any(|b| WAYS_OUT.contains(&b.id) && b.keys.is_some())
 }
 
 /// Checks `keys` as `id`'s new chord on `client`: its saved form, or why it is refused. A chord
@@ -667,7 +689,7 @@ pub fn check_off(client: Client, id: &str, bindings: &HotkeyBindings) -> Result<
     if client == Client::Desktop && WAYS_OUT.contains(&id) {
         let mut after = bindings.clone();
         after.insert(id.to_string(), OFF.to_string());
-        if !bound(client, &after).iter().any(|b| WAYS_OUT.contains(&b.id) && b.keys.is_some()) {
+        if !has_way_out(&bound_as_saved(client, &after)) {
             return Err(HotkeyError::LastWayOut);
         }
     }
@@ -945,6 +967,8 @@ mod tests {
             &["CTRL", "BACKSPACE"], &["CTRL", "DPAD_RIGHT"], &["CTRL", "SHIFT", "Z"], &["CTRL", "SHIFT", "DPAD_LEFT"],
             // AltGr: Ctrl+Alt+Q is German @ on Windows, (right) Alt+Q on Android.
             &["CTRL", "ALT", "Q"], &["ALT", "Q"], &["ALT", "7"], &["CTRL", "ALT", "LEFT_BRACKET"], &["ALT", "SPACE"],
+            // AltGr+Shift on Android: Polish Ż, Nordic and Canadian Multilingual capitals.
+            &["ALT", "SHIFT", "Q"], &["ALT", "SHIFT", "Z"], &["ALT", "SHIFT", "MINUS"], &["ALT", "SHIFT", "4"],
         ] {
             assert_eq!(check(typing), Err(HotkeyError::Typing), "{typing:?}");
         }
@@ -956,13 +980,16 @@ mod tests {
         }
         for fine in [
             &["SHIFT", "F5"][..], &["SHIFT", "ESC"], &["CTRL", "F1"], &["CTRL", "TAB"], &["CTRL", "SHIFT", "A"], &["ALT", "F4"],
-            &["ALT", "SHIFT", "Q"], &["CTRL", "ALT", "F9"], &["CTRL", "ALT", "SHIFT", "1"], &["CTRL", "ALT", "SHIFT", "ESC"],
+            &["ALT", "SHIFT", "F9"], &["CTRL", "ALT", "F9"], &["CTRL", "ALT", "SHIFT", "1"], &["CTRL", "ALT", "SHIFT", "ESC"],
         ] {
             assert!(check(fine).is_ok(), "{fine:?}: {:?}", check(fine));
         }
         // Every default and old chord stays allowed.
         for hotkey in HOTKEYS {
             assert!(hotkey_keys(&keys(hotkey.keys)).is_ok(), "{}", hotkey.id);
+            for (_, old) in hotkey.old {
+                assert!(hotkey_keys(&keys(old)).is_ok(), "{} old", hotkey.id);
+            }
         }
     }
 
@@ -1013,5 +1040,35 @@ mod tests {
         assert_eq!(check_off(Client::Desktop, "cursor", &bindings), Err(HotkeyError::NotHere));
         bindings.insert("stream_menu".into(), "CTRL+F2".into());
         assert_eq!(check_off(Client::Desktop, "quit", &bindings), Ok(()));
+    }
+
+    /// A hand-edited desktop file that leaves no way out: both off, or Disconnect on Help's chord.
+    /// The stream menu gets its default back, from the action that has it if one does; Android
+    /// keeps the file as it is (it has Back).
+    #[test]
+    fn a_file_without_a_way_out_gives_the_stream_menu_its_default_back() {
+        let tab = keys(&["CTRL", "ALT", "SHIFT", "TAB"]);
+        let menu = |list: &[Bound]| list.iter().find(|b| b.id == "stream_menu").unwrap().clone();
+        let both_off = HotkeyBindings::from([("stream_menu".to_string(), OFF.to_string()), ("quit".to_string(), OFF.to_string())]);
+        let desktop = bound(Client::Desktop, &both_off);
+        assert_eq!((menu(&desktop).keys, menu(&desktop).changed), (Some(tab.clone()), false));
+        assert_eq!(hotkey_at(&desktop, CTRL_ALT_SHIFT, 0x09), Some(("stream_menu", false)));
+        assert_eq!(desktop.iter().find(|b| b.id == "quit").unwrap().keys, None);
+        assert_eq!(menu(&bound(Client::Android, &both_off)).keys, None);
+        let on_help = HotkeyBindings::from([("stream_menu".to_string(), OFF.to_string()), ("quit".to_string(), "CTRL+ALT+SHIFT+H".to_string())]);
+        let desktop = bound(Client::Desktop, &on_help);
+        assert_eq!(menu(&desktop).keys, Some(tab.clone()));
+        assert_eq!(desktop.iter().find(|b| b.id == "quit").unwrap().taken, Some("help"));
+        // The default taken by another action: the way out wins and that action is left without.
+        let mut taken = on_help.clone();
+        taken.insert("overlay".into(), binding_text(Some(&tab)));
+        let desktop = bound(Client::Desktop, &taken);
+        assert_eq!(hotkey_at(&desktop, CTRL_ALT_SHIFT, 0x09), Some(("stream_menu", false)));
+        let overlay = desktop.iter().find(|b| b.id == "overlay").unwrap();
+        assert_eq!((overlay.keys.clone(), overlay.taken), (None, Some("stream_menu")));
+        // With a way out the file is kept as it is, and turning the last one off is still refused.
+        let menu_off = HotkeyBindings::from([("stream_menu".to_string(), OFF.to_string())]);
+        assert_eq!(menu(&bound(Client::Desktop, &menu_off)).keys, None);
+        assert_eq!(check_off(Client::Desktop, "quit", &menu_off), Err(HotkeyError::LastWayOut));
     }
 }

@@ -1,6 +1,6 @@
 # Contributing to Rubylight
 
-Rubylight is a Windows Moonlight host for AMD Radeon GPUs only. Changes that make streaming faster, smoother or more reliable on Radeon are the priority; for other GPUs, [Vibepollo](https://github.com/Nonary/Vibepollo) is the better home.
+Rubylight is a Windows Moonlight host for AMD Radeon and NVIDIA GPUs. Changes that make streaming faster, smoother or more reliable on them are the priority; for other GPUs, [Vibepollo](https://github.com/Nonary/Vibepollo) is the better home.
 
 ## Reporting problems
 

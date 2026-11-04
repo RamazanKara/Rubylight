@@ -120,7 +120,7 @@ pub const RULES: &[Rule] = &[
         ],
         at_least: None,
         title: "This GPU cannot encode the requested codec",
-        explanation: "The device asked for a codec, HDR or a size this Radeon's encoder does not have, for example AV1 on a Radeon whose encoder has no AV1.",
+        explanation: "The device asked for a codec, HDR or a size this GPU's encoder does not have, for example AV1 on a GPU whose encoder has no AV1.",
         fix: "Choose HEVC or H.264 in the client's settings, or turn HDR off for H.264. Home, Host readiness lists the codecs this GPU encodes.",
         anchor: CODEC,
     },

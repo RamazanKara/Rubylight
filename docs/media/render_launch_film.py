@@ -691,7 +691,7 @@ def hero_shade():
     return Image.fromarray(np.round(a).astype(np.uint8), 'L')
 
 
-FACTS = ('Free and open source', 'Windows 10 and 11', 'AMD Radeon with AMF')
+FACTS = ('Free and open source', 'Windows 10 and 11', 'AMD Radeon or NVIDIA')
 
 
 def hero(t):
@@ -728,14 +728,14 @@ def hero(t):
         p = ease((t-.3)/.7)
         badge(im, 100, 300, 64, p*out)
         txt(im, 184, 312, 'Rubylight', 44, INK, 'bold', opacity=p*out)
-        for i, (value, color) in enumerate((('Your Radeon PC.', INK), ('On every screen.', RUBY))):
+        for i, (value, color) in enumerate((('Your gaming PC.', INK), ('On every screen.', RUBY))):
             q = ease((t-.55-i*.3)/.7)
             txt(im, 96, 420+i*136+30*(1-q), value, 120, color, 'bold', opacity=q*out)
         q = ease((t-1.5)/.7)
         txt(im, 102, 720+14*(1-q), 'Your games, streamed to Nightjar, Moonlight or a browser.', 40,
             (222, 220, 228), 'regular', opacity=q*out)
     # Then: what it is, over every device.
-    reveal(im, 960, 104, 'The game-streaming host built for Radeon.', 68, t, at=4.2, align='center')
+    reveal(im, 960, 104, 'The game-streaming host for Radeon and NVIDIA.', 68, t, at=4.2, align='center')
     reveal(im, 960, 200, 'HDR, full-colour 4:4:4 and up to 240 fps, on every screen you own.', 34, t, at=4.4,
            color=MUTED, weight='regular', align='center', rise=14)
     q = ease((t-5.6)/.6)
@@ -1381,7 +1381,7 @@ def end(t):
         w = width_of(url, 54, 'bold')+100
         rrect(im, (960-w/2, 640+16*(1-q), 960+w/2, 740+16*(1-q)), (30, 16, 24), RUBY, 3, 50, q)
         txt(im, 960, 640+16*(1-q)+50-cap_height(54)/2, url, 54, INK, 'bold', 'center', q)
-    reveal(im, 960, 820, 'Free and open source · Windows 10 and 11 · AMD Radeon with AMF · Works with Moonlight', 34, t,
+    reveal(im, 960, 820, 'Free and open source · Windows 10 and 11 · AMD Radeon or NVIDIA · Works with Moonlight', 34, t,
            at=2.1, color=(200, 200, 210), weight='regular', align='center', rise=12)
     # Fade to black over the last second, so the loop restarts from dark.
     fade = 0 if STILL else smooth((t-(DURATION-STARTS[-1]-1.0))/1.0)

@@ -4,7 +4,7 @@ Working plan for the 3.0 cycle, written 2026-10-21. It replaces the "Definitive 
 
 ## Goal
 
-Rubylight 3.0 is an AMD-only Windows host meant as the successor to AMD Link. You open Nightjar, pick a game, play, and change Radeon settings from the couch. Nightjar 3.0 exposes all of it on Android, with Windows and Linux as a preview, all on one Rust engine. Nightjar stays host-neutral: Rubylight features appear only when `HostCapabilities` reports them, and stock Moonlight keeps working against the host.
+Rubylight 3.0 is an AMD-only Windows host meant as the successor to AMD Link. (Revised 2026-11-01: NVENC is back for NVIDIA GPUs; decision 1 below.) You open Nightjar, pick a game, play, and change Radeon settings from the couch. Nightjar 3.0 exposes all of it on Android, with Windows and Linux as a preview, all on one Rust engine. Nightjar stays host-neutral: Rubylight features appear only when `HostCapabilities` reports them, and stock Moonlight keeps working against the host.
 
 "Better" means measured on our hardware against Rubylight 2.6.0: lower picture age, steadier pacing, higher fidelity. Results go into `rust/PERFORMANCE.md`. No first, only or fastest claims without our own numbers.
 

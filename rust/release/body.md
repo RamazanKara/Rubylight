@@ -1,4 +1,4 @@
-**Windows game streaming, written in Rust. Built for Radeon and Moonlight.**
+**Windows game streaming, written in Rust. Built for Radeon and NVIDIA. Made for Moonlight.**
 
 **[Download Windows x64 installer](https://github.com/RamazanKara/Rubylight/releases/download/{tag}/rubylight-setup-{version}.exe)** · [Portable ZIP](https://github.com/RamazanKara/Rubylight/releases/download/{tag}/rubylight-{version}-windows-x64.zip)
 

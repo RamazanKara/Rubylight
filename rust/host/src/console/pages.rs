@@ -667,7 +667,7 @@ async fn settings(
     let mut content =
         "<p class=\"intro\">Choose the capture, encoder, display, and sound for your stream.</p>"
             .to_owned();
-    content += "<p class=\"muted\">Automatic encodes H.264, HEVC and AV1 with AMF, the AMD GPU's encoder, and PyroWave streams with PyroWave's own encoder. If AMF cannot start, the stream fails with AMF's error in the log; there is no other encoder to fall back to.</p>";
+    content += "<p class=\"muted\">Automatic encodes H.264, HEVC and AV1 with the graphics card's own encoder, AMD AMF or NVIDIA NVENC, and PyroWave streams with PyroWave's own encoder. If the encoder cannot start, the stream fails with its error in the log; there is no other encoder to fall back to.</p>";
     content += "<p class=\"muted\">For screen capture, Automatic uses direct driver push on Rubylight virtual displays and Windows Graphics Capture on other displays. Select Windows Graphics Capture or Desktop Duplication to use those methods instead. If driver push is unavailable, capture falls back to Windows Graphics Capture.</p>";
     let editor = field(
         "sunshine_name",

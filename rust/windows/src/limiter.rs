@@ -110,7 +110,7 @@ fn stale_nvidia_warning(entries: &[Json]) -> Option<String> {
         names.join(", ")
     };
     Some(format!(
-        "A previous Rubylight 2.6 host stopped before it restored NVIDIA driver settings it changed for a stream ({names}). Rubylight 3.0 is AMD-only and cannot restore them. Open NVIDIA Control Panel, Manage 3D settings, and reset the Global profile and the butterpollo.exe program profile."
+        "A previous Rubylight 2.6 host stopped before it restored NVIDIA driver settings it changed for a stream ({names}). Rubylight 3.0 cannot restore them. Open NVIDIA Control Panel, Manage 3D settings, and reset the Global profile and the butterpollo.exe program profile."
     ))
 }
 /// Also used by the Rust crash watcher. Failures leave the journal intact.

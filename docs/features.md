@@ -12,7 +12,8 @@ The complete feature set of Rubylight 3.0, by area. Features that need client su
 ## Video and encoding
 
 - **Native AMF encoding** of H.264, HEVC and AV1 on any Radeon with an AMF encoder, driven directly, with per-codec defaults tuned from VMAF measurements. The host probes each codec at startup with a real encode and offers only what the driver delivers.
-- **Radeon compute.** Frame copies, colour conversion and scaling run on D3D12 compute queues alongside the game's graphics work, so neither waits on the other ([Architecture](architecture.md)).
+- **Native NVENC encoding** of H.264, HEVC and AV1 on NVIDIA GPUs, driven directly, with the same stream features as AMF ([NVENC](nvenc.md)). The host refuses a codec the driver does not list before the stream starts.
+- **GPU compute.** Frame copies, colour conversion and scaling run on D3D12 compute queues alongside the game's graphics work, so neither waits on the other ([Architecture](architecture.md)).
 - **HDR end to end.** 10-bit BT.2020 PQ through HEVC and AV1 with HDR metadata in the keyframes, and 10-bit SDR for clients that request it.
 - **Dolby Vision, HDR10+ and HLG.** HDR streams carry per-scene brightness statistics measured on the GPU while the frame encodes, so the display tone-maps each scene rather than one fixed peak. Dolby Vision on HEVC (profiles 8.1 and 8.4) and AV1 (profile 10.1); HLG for displays that only show HLG, PyroWave included. Other clients receive HDR10 ([Configuration](configuration.md#capture-and-video), [measurements](../rust/PERFORMANCE.md#october-27-hdr10-and-hdr-vivid-dynamic-metadata)).
 - **Windows HDR Calibration profiles** on virtual displays, when enabled.

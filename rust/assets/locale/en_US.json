@@ -516,7 +516,7 @@
     "dd_wa_virtual_double_refresh": "Double refresh rate for virtual displays",
     "dd_wa_virtual_double_refresh_desc": "Creates Rubylight virtual displays at 2x the target refresh to prevent unexplained FPS drops. Leave this on unless a specific game or monitor behaves incorrectly. Note: Manual refresh rate overrides this (no doubling).",
     "encoder": "Force a Specific Encoder",
-    "encoder_desc": "Choose Automatic or AMD AMF to encode H.264, HEVC and AV1 with AMF, or PyroWave. If AMF cannot start, the stream fails with AMF's error; there is no fallback to another encoder.",
+    "encoder_desc": "Choose Automatic to encode H.264, HEVC and AV1 with the graphics card's own encoder, AMD AMF or NVIDIA NVENC, or choose PyroWave. If the encoder cannot start, the stream fails with its error; there is no fallback to another encoder.",
     "csrf_allowed_origins": "CSRF Allowed Origins",
     "csrf_allowed_origins_desc": "Comma-separated list of additional origins allowed for CSRF protection. Only add origins you trust, including protocol and host, for example https://example.com.",
     "fec_percentage": "FEC Percentage",

@@ -3,11 +3,11 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Rubylight · Moonlight host for AMD Radeon</title>
-<meta name="description" content="A Windows game-streaming host for Moonlight, written in Rust and built for AMD Radeon: native AMF encoding, Radeon compute, HEVC and AV1 10-bit HDR, PyroWave HDR 4:4:4, link-rate adaptation and a console on your phone.">
+<title>Rubylight · Moonlight host for AMD Radeon and NVIDIA</title>
+<meta name="description" content="A Windows game-streaming host for Moonlight, written in Rust, for AMD Radeon and NVIDIA: native AMF and NVENC encoding, D3D12 compute conversion, HEVC and AV1 10-bit HDR, PyroWave HDR 4:4:4, link-rate adaptation and a console on your phone.">
 <meta name="color-scheme" content="dark light">
 <meta property="og:title" content="Rubylight">
-<meta property="og:description" content="Written in Rust. Built for Radeon. Made for Moonlight.">
+<meta property="og:description" content="Written in Rust. Built for Radeon and NVIDIA. Made for Moonlight.">
 <meta property="og:image" content="poster.jpg">
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="style.css">
@@ -36,13 +36,13 @@
 <section class="hero">
   <div class="wrap">
     <p class="eyebrow">Rubylight 3.0 · Windows game-streaming host for Moonlight · formerly Butterpollo</p>
-    <h1>Written in Rust.<br><span class="accent">Built for Radeon.</span><br>Made for Moonlight.</h1>
-    <p class="lede">Stream your games from a Radeon PC to a laptop, TV, phone, handheld or another PC. Rubylight drives AMD's encoder natively, prepares every frame on Radeon compute, and carries HEVC and AV1 in 10-bit HDR, or full-colour HDR 4:4:4 through PyroWave. It lowers the bitrate when your link cannot carry it, waits for your game's next frame under VRR, and times every frame from capture to screen. It works with Moonlight and every other Sunshine-compatible client, and with Nightjar it adds a console on your phone with your library, a session menu and Radeon controls.</p>
+    <h1>Written in Rust.<br><span class="accent">Built for Radeon and NVIDIA.</span><br>Made for Moonlight.</h1>
+    <p class="lede">Stream your games from a Radeon or NVIDIA PC to a laptop, TV, phone, handheld or another PC. Rubylight drives AMF and NVENC natively, prepares every frame on D3D12 compute queues, and carries HEVC and AV1 in 10-bit HDR, or full-colour HDR 4:4:4 through PyroWave. It lowers the bitrate when your link cannot carry it, waits for your game's next frame under VRR, and times every frame from capture to screen. It works with Moonlight and every other Sunshine-compatible client, and with Nightjar it adds a console on your phone with your library, a session menu and, on Radeon, driver controls.</p>
     <div class="actions">
       <a class="button" href="{{download_url}}">Download {{download_label}}</a>
       <a class="button ghost" href="docs/getting-started.html">Get started</a>
     </div>
-    <p class="fine">Windows x64 · AMD Radeon with AMF · free and open source (GPL-3.0) · NVIDIA and Intel stay on <a href="https://github.com/RamazanKara/Rubylight/releases/tag/v2.6.0">Rubylight 2.6.x</a></p>
+    <p class="fine">Windows x64 · AMD Radeon with AMF or NVIDIA with NVENC · free and open source (GPL-3.0) · Intel stays on <a href="https://github.com/RamazanKara/Rubylight/releases/tag/v2.6.0">Rubylight 2.6.x</a></p>
 
     <div class="stats">
       <div class="stat">
@@ -117,7 +117,7 @@
     <h3 class="sub-title">Works with</h3>
     <ul class="results">
       <li><b>Every Moonlight and Sunshine-compatible client</b>, on Windows, macOS, Linux, Android, iOS, TVs, consoles and handhelds.</li>
-      <li><b>Any AMD Radeon GPU with AMF</b>, desktop and mobile, as the host, on Windows 10 and 11.</li>
+      <li><b>Any AMD Radeon GPU with AMF or NVIDIA GPU with NVENC</b>, desktop and mobile, as the host, on Windows 10 and 11.</li>
       <li><b>Locked Windows</b>, so you can sign in from the couch, <b>headless machines and VMs</b> with no monitor, and <b>Kubernetes pods with GPUs</b>.</li>
     </ul>
     <p><a class="more" href="docs/performance.html">All performance results and what each number means</a></p>
@@ -127,14 +127,14 @@
 <section id="features" class="section alt">
   <div class="wrap">
     <p class="eyebrow">What you get</p>
-    <h2>The Radeon frame path, end to end</h2>
+    <h2>The frame path, end to end</h2>
     <div class="cards">
       <article class="card">
-        <h3>Native AMF encoding</h3>
-        <p>AMD's encoder driven directly, not through a generic wrapper, and tuned per codec from VMAF measurements. A lost frame is repaired with a small recovery frame instead of a keyframe.</p>
+        <h3>Native AMF and NVENC encoding</h3>
+        <p>Each GPU's encoder driven directly, not through a generic wrapper, with AMF tuned per codec from VMAF measurements. Where the driver allows it, a lost frame is repaired with a small recovery frame instead of a keyframe.</p>
       </article>
       <article class="card">
-        <h3>Radeon compute</h3>
+        <h3>GPU compute</h3>
         <p>Frame copies and colour conversion run on D3D12 compute queues beside the game's graphics work, so your game and your stream stop waiting on each other.</p>
       </article>
       <article class="card">
@@ -239,7 +239,7 @@
     <p class="eyebrow">Why it exists</p>
     <h2>AMD rarely gets any love in this space</h2>
     <p>The protocol started as NVIDIA's GameStream, and the hosts that replaced it kept NVIDIA first. Upstream Sunshine has had a native NVENC encoder since 2023, while AMD still goes through FFmpeg's generic AMF wrapper. So Radeon owners have spent years hearing their cards are just worse at streaming. Most of the time the card was never the problem. Nobody had sat down with it.</p>
-    <p>Rubylight is a host rebuilt in Rust around the Radeon frame path, from capture to the encoder, for every Radeon owner who wants to play away from the desk.</p>
+    <p>Rubylight began as a host rebuilt in Rust around the Radeon frame path, from capture to the encoder, for every Radeon owner who wants to play away from the desk. It now encodes with NVENC on NVIDIA GPUs too, with the same host around it.</p>
   </div>
 </section>
 
@@ -251,7 +251,7 @@
       <a href="docs/getting-started.html"><b>Getting started</b><span>Install, pair, first stream, choosing a client</span></a>
       <a href="docs/configuration.html"><b>Configuration</b><span>Capture, codecs, HDR, displays, frame limits, updates</span></a>
       <a href="docs/troubleshooting.html"><b>Troubleshooting</b><span>Pairing, black screens, HDR colour, smoothness</span></a>
-      <a href="docs/architecture.html"><b>Architecture</b><span>The Radeon frame path, HDR and PyroWave</span></a>
+      <a href="docs/architecture.html"><b>Architecture</b><span>The frame path, HDR and PyroWave</span></a>
       <a href="docs/performance.html"><b>Performance</b><span>Comparisons and what each number means</span></a>
       <a href="docs/features.html"><b>Features</b><span>Video, capture, displays, input, library and clients</span></a>
       <a href="rust/RELEASE_NOTES.html"><b>Release notes</b><span>Every release, with what was tested</span></a>

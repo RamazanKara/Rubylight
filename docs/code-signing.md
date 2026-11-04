@@ -111,7 +111,7 @@ The form at [signpath.org/apply](https://signpath.org/apply) asks for these fiel
 | Download URL | https://ramazankara.github.io/Rubylight/#install |
 | Privacy Policy URL | https://ramazankara.github.io/Rubylight/docs/privacy.html |
 | Wikipedia URL | (leave empty) |
-| Tagline | A Windows game-streaming host for Moonlight clients, written in Rust and tuned for AMD Radeon GPUs. |
+| Tagline | A Windows game-streaming host for Moonlight clients, written in Rust, for AMD Radeon and NVIDIA GPUs. |
 | Category | The closest to games or multimedia in the list. |
 | Maintainer Type | Individual |
 | Build System | GitHub Actions |
@@ -120,7 +120,7 @@ The form at [signpath.org/apply](https://signpath.org/apply) asks for these fiel
 
 **Description:**
 
-> Rubylight streams games and the Windows desktop from a gaming PC to phones, tablets, TVs and other PCs running Moonlight, the open-source GameStream client. It is a GPL-3.0 host written in Rust that began as a fork of Vibepollo, from the Sunshine and Apollo family, and is built around the AMD Radeon frame path: screen capture, colour conversion and AMD's hardware encoder, with HDR, per-device virtual displays, controller and haptics support, and PyroWave for very low latency on local networks. It runs as a Windows service with a web console on the local PC. Releases are built from tagged commits by GitHub Actions on GitHub-hosted runners, with no manual build steps.
+> Rubylight streams games and the Windows desktop from a gaming PC to phones, tablets, TVs and other PCs running Moonlight, the open-source GameStream client. It is a GPL-3.0 host written in Rust that began as a fork of Vibepollo, from the Sunshine and Apollo family, and is built around the GPU frame path: screen capture, colour conversion and the hardware encoder of AMD Radeon and NVIDIA GPUs, with HDR, per-device virtual displays, controller and haptics support, and PyroWave for very low latency on local networks. It runs as a Windows service with a web console on the local PC. Releases are built from tagged commits by GitHub Actions on GitHub-hosted runners, with no manual build steps.
 >
 > We would like to sign because Windows warns about the unsigned installer: SmartScreen stops it with a "Windows protected your PC" warning and Smart App Control can block it outright, which pushes users to turn off protections they should keep. The installer also sets up a Windows service and drivers, so users should be able to see who published what they run. A future Rubylight virtual display driver (user-mode, IddCx) also needs a trusted signature on its catalog to install. Rubylight already ships the display and gamepad drivers your Foundation signed for Vibepollo, unchanged, with their original signatures.
 >

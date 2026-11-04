@@ -628,7 +628,7 @@
     "dd_resolution_option_manual_desc": "⚠️ Enforcing a manual resolution disables all display overrides below. The host will always be set to this resolution regardless of any override rules.",
     "dd_refresh_rate_option_manual_desc": "⚠️ Enforcing a manual refresh rate forces the host to this refresh for all streams, overriding any refresh rules below and the automatic 4× refresh applied to virtual displays.",
     "encoder": "Force a Specific Encoder",
-    "encoder_desc": "Choose Automatic or AMD AMF to encode H.264, HEVC and AV1 with AMF, or PyroWave. If AMF cannot start, the stream fails with AMF's error; there is no fallback to another encoder.",
+    "encoder_desc": "Choose Automatic to encode H.264, HEVC and AV1 with the graphics card's own encoder, AMD AMF or NVIDIA NVENC, or choose PyroWave. If the encoder cannot start, the stream fails with its error; there is no fallback to another encoder.",
     "csrf_allowed_origins": "CSRF Allowed Origins",
     "csrf_allowed_origins_desc": "Comma-separated list of additional origins allowed for CSRF protection. Only add origins you trust, including protocol and host, for example https://example.com.",
     "fec_percentage": "FEC Percentage",

@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/media/banner.svg" width="900" alt="Rubylight: Written in Rust. Built for Radeon. Made for Moonlight.">
+  <img src="docs/media/banner.svg" width="900" alt="Rubylight: Written in Rust. Built for Radeon and NVIDIA. Made for Moonlight.">
 </p>
 
 <p align="center">
@@ -8,10 +8,10 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0-c41242" alt="GPL-3.0"></a>
 </p>
 
-<h3 align="center">Your Radeon PC, on every screen you own.</h3>
+<h3 align="center">Your gaming PC, on every screen you own.</h3>
 
 <p align="center">
-  Rubylight is a free, open-source game-streaming host for Windows PCs with AMD Radeon graphics.<br>
+  Rubylight is a free, open-source game-streaming host for Windows PCs with AMD Radeon or NVIDIA graphics.<br>
   Play your PC games on the TV, a laptop, a phone, a handheld or in a browser, with Moonlight, Artemis, <a href="https://github.com/RamazanKara/nightjar">Nightjar</a> or any other Sunshine-compatible client.
 </p>
 
@@ -46,8 +46,8 @@
 <table>
   <tr>
     <td width="33%" valign="top">
-      <h4>Built around the Radeon</h4>
-      AMF encodes H.264, HEVC and AV1 at 8 and 10 bits. Colour conversion and scaling run on D3D12 compute queues beside the game, and Rubylight's own display driver hands each frame to the encoder with no desktop capture in between.
+      <h4>Built around your GPU</h4>
+      AMF on Radeon and NVENC on NVIDIA encode H.264, HEVC and AV1 at 8 and 10 bits. Colour conversion and scaling run on D3D12 compute queues beside the game, and Rubylight's own display driver hands each frame to the host with no desktop capture in between.
     </td>
     <td width="33%" valign="top">
       <h4>A display for every device</h4>

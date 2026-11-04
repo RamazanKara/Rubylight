@@ -12,11 +12,12 @@ PackageName: Rubylight
 PackageUrl: https://github.com/RamazanKara/Rubylight
 License: GPL-3.0
 LicenseUrl: https://github.com/RamazanKara/Rubylight/blob/main/LICENSE
-ShortDescription: Game-streaming host for Moonlight clients, built for AMD Radeon GPUs.
+ShortDescription: Game-streaming host for Moonlight clients, for AMD Radeon and NVIDIA GPUs.
 Description: |-
   Rubylight streams your PC games to Moonlight clients on a TV, laptop, phone, handheld,
-  Steam Deck or Xbox, with HDR, full-colour 4:4:4 and up to 240 fps. Rubylight 3.0 needs an
-  AMD Radeon GPU with AMF; NVIDIA and Intel GPUs stay on Rubylight 2.6. Formerly Butterpollo.
+  Steam Deck or Xbox, with HDR, full-colour 4:4:4 and up to 240 fps. Rubylight 3 needs an
+  AMD Radeon GPU with AMF or an NVIDIA GPU with NVENC; Intel GPUs stay on Rubylight 2.6.
+  Formerly Butterpollo.
 Moniker: rubylight
 Tags:
 - game-streaming
@@ -25,6 +26,7 @@ Tags:
 - streaming
 - amd
 - radeon
+- nvidia
 ReleaseNotesUrl: https://github.com/RamazanKara/Rubylight/releases/tag/v3.0.0-rc.2
 ManifestType: defaultLocale
 ManifestVersion: 1.10.0

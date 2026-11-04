@@ -455,9 +455,7 @@ fn run(launch: Option<cli::Launch>) -> Result<(), String> {
             c"Nightjar".as_ptr(),
             1280,
             800,
-            SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY | SDL_WINDOW_HIDDEN
-                | if start.fullscreen { SDL_WINDOW_FULLSCREEN } else { SDL_WindowFlags(0) }
-                | if start.borderless { SDL_WINDOW_BORDERLESS } else { SDL_WindowFlags(0) },
+            start_flags(start),
         );
         if window.is_null() {
             return Err(format!("No window: {}", sdl::error()));
@@ -660,8 +658,11 @@ impl App {
             c.cancel();
         }
         let _ = self.store.save_hosts(&self.hosts.records());
-        if let Some(placement) = window_place::current(self.window, self.store.window_placement().as_ref()) {
-            if let Err(e) = self.store.save_window_placement(&placement) { eprintln!("nightjar: window place not saved: {e}"); }
+        // Under gamescope the window was never placed from the saved place, so Desktop Mode's stays.
+        if handheld::start_window(handheld::gamescope()).restore_place {
+            if let Some(placement) = window_place::current(self.window, self.store.window_placement().as_ref()) {
+                if let Err(e) = self.store.save_window_placement(&placement) { eprintln!("nightjar: window place not saved: {e}"); }
+            }
         }
         self.pads.close_all();
         self.gui.destroy();
@@ -834,13 +835,8 @@ impl App {
 
     fn handle_launcher_event(&mut self, event: &SDL_Event) {
         self.track_visibility(event);
-        // SAFETY: reading the event type; SDL cursor calls on the main thread.
-        let input = match SDL_EventType(unsafe { event.r#type }) {
-            SDL_EVENT_GAMEPAD_BUTTON_DOWN | SDL_EVENT_GAMEPAD_AXIS_MOTION => handheld::Input::Controller,
-            SDL_EVENT_MOUSE_MOTION | SDL_EVENT_MOUSE_BUTTON_DOWN | SDL_EVENT_MOUSE_WHEEL => handheld::Input::Mouse,
-            _ => handheld::Input::Other,
-        };
-        match self.pointer.input(input) {
+        // SAFETY: SDL cursor calls on the main thread.
+        match self.pointer.input(pointer_input(event)) {
             Some(true) => unsafe { SDL_ShowCursor(); },
             Some(false) => unsafe { SDL_HideCursor(); },
             None => {}
@@ -1871,11 +1867,7 @@ impl App {
         // SAFETY: window and renderer calls on the main thread.
         unsafe {
             SDL_SetRenderVSync(self.renderer, if pacing == PacingMode::Vsync { 1 } else { 0 });
-            // Gamescope scales the window itself: no exclusive mode change there.
-            let mode = match settings.window_mode {
-                WindowMode::Fullscreen if handheld::gamescope() => WindowMode::Borderless,
-                mode => mode,
-            };
+            let mode = stream_window_mode(settings.window_mode, handheld::gamescope());
             match if facts.role == nightjar_core::http::AppRole::InputOnly { WindowMode::Windowed } else { mode } {
                 WindowMode::Fullscreen => {
                     let mut mode: SDL_DisplayMode = std::mem::zeroed();
@@ -2850,12 +2842,46 @@ fn probed_once(cache: &mut Option<(Hardware, (u32, String))>, hardware: Hardware
     }
 }
 
-/// The toast a stream starts with: a network warning, the PyroWave fallback and what became of
-/// 4:4:4 and 10-bit SDR, else the controls hint.
+/// The launcher window's flags for how it opens (handheld.rs).
+fn start_flags(start: handheld::StartWindow) -> SDL_WindowFlags {
+    SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY | SDL_WINDOW_HIDDEN
+        | if start.fullscreen { SDL_WINDOW_FULLSCREEN } else { SDL_WindowFlags(0) }
+        | if start.borderless { SDL_WINDOW_BORDERLESS } else { SDL_WindowFlags(0) }
+}
+
+/// A stick or trigger past this counts as controller use for the pointer; jitter below it does not.
+const POINTER_AXIS_THRESHOLD: i16 = 12000;
+
+/// What a launcher event is for the pointer (handheld::Pointer). Touch and pen arrive as mouse
+/// events too, but a tap is not the trackpad, so they leave the pointer as it is.
+fn pointer_input(event: &SDL_Event) -> handheld::Input {
+    let synthetic = |which: SDL_MouseID| matches!(which, SDL_TOUCH_MOUSEID | SDL_PEN_MOUSEID);
+    // SAFETY: union members read by event type.
+    unsafe {
+        match SDL_EventType(event.r#type) {
+            SDL_EVENT_GAMEPAD_BUTTON_DOWN => handheld::Input::Controller,
+            SDL_EVENT_GAMEPAD_AXIS_MOTION if event.gaxis.value.unsigned_abs() > POINTER_AXIS_THRESHOLD as u16 => handheld::Input::Controller,
+            SDL_EVENT_MOUSE_MOTION if !synthetic(event.motion.which) => handheld::Input::Mouse,
+            SDL_EVENT_MOUSE_BUTTON_DOWN if !synthetic(event.button.which) => handheld::Input::Mouse,
+            SDL_EVENT_MOUSE_WHEEL if !synthetic(event.wheel.which) => handheld::Input::Mouse,
+            _ => handheld::Input::Other,
+        }
+    }
+}
+
+/// The stream's window mode: gamescope scales the window itself, so no exclusive mode change there.
+fn stream_window_mode(mode: WindowMode, gamescope: bool) -> WindowMode {
+    match mode {
+        WindowMode::Fullscreen if gamescope => WindowMode::Borderless,
+        mode => mode,
+    }
+}
+
 /// An HDR stream under gamescope without HDR output plays in SDR and says so (handheld.rs).
 const HDR_OFF_NOTE: &str = strings::en("HDR is off: gamescope offers no HDR output here, so this stream is in SDR.");
 
-/// The stream's first note; without one, the way to the stream menu (under gamescope, where the
+/// The toast a stream starts with: a network warning, the PyroWave fallback and what became of
+/// 4:4:4 and 10-bit SDR, else the way to the stream menu (under gamescope, where the
 /// controller is the input and Steam keeps the Guide button, Start+Back's).
 fn start_toast(warning: Option<&str>, color: Option<&str>, gamescope: bool) -> String {
     let lines: Vec<&str> = warning.into_iter().chain(color).collect();
@@ -3250,6 +3276,44 @@ mod tests {
         assert_eq!(start_toast(None, Some("Streaming in YUV 4:4:4."), false), "Streaming in YUV 4:4:4.");
         assert_eq!(start_toast(Some("Wi-Fi name unavailable."), Some("Streaming in YUV 4:4:4."), false), "Wi-Fi name unavailable.\nStreaming in YUV 4:4:4.");
         assert_eq!(start_toast(Some("Wi-Fi name unavailable."), None, false), "Wi-Fi name unavailable.");
+    }
+
+    #[test]
+    fn under_gamescope_the_launcher_window_opens_borderless_fullscreen() {
+        let deck = start_flags(handheld::start_window(true));
+        assert!(deck.0 & SDL_WINDOW_FULLSCREEN.0 != 0 && deck.0 & SDL_WINDOW_BORDERLESS.0 != 0);
+        assert!(deck.0 & SDL_WINDOW_HIDDEN.0 != 0, "shown after the GUI is ready");
+        let desktop = start_flags(handheld::start_window(false));
+        assert_eq!(desktop.0, (SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY | SDL_WINDOW_HIDDEN).0);
+        assert_eq!(stream_window_mode(WindowMode::Fullscreen, true), WindowMode::Borderless, "no exclusive mode under gamescope");
+        assert_eq!(stream_window_mode(WindowMode::Fullscreen, false), WindowMode::Fullscreen);
+        assert_eq!(stream_window_mode(WindowMode::Windowed, true), WindowMode::Windowed);
+    }
+
+    #[test]
+    fn the_pointer_follows_real_controller_and_mouse_input_only() {
+        // SAFETY: plain C unions, zeroed then filled by type.
+        let event = |kind: SDL_EventType, fill: &dyn Fn(&mut SDL_Event)| unsafe {
+            let mut e: SDL_Event = std::mem::zeroed();
+            e.r#type = kind.0;
+            fill(&mut e);
+            e
+        };
+        let axis = |value: i16| event(SDL_EVENT_GAMEPAD_AXIS_MOTION, &|e| e.gaxis.value = value);
+        let motion = |which: SDL_MouseID| event(SDL_EVENT_MOUSE_MOTION, &|e| e.motion.which = which);
+        let button = |which: SDL_MouseID| event(SDL_EVENT_MOUSE_BUTTON_DOWN, &|e| e.button.which = which);
+        assert_eq!(pointer_input(&event(SDL_EVENT_GAMEPAD_BUTTON_DOWN, &|_| {})), handheld::Input::Controller);
+        assert_eq!(pointer_input(&axis(20000)), handheld::Input::Controller);
+        assert_eq!(pointer_input(&axis(-20000)), handheld::Input::Controller);
+        assert_eq!(pointer_input(&axis(1500)), handheld::Input::Other, "stick or trigger jitter");
+        assert_eq!(pointer_input(&axis(-1500)), handheld::Input::Other);
+        assert_eq!(pointer_input(&motion(SDL_MouseID(1))), handheld::Input::Mouse, "the trackpad");
+        assert_eq!(pointer_input(&button(SDL_MouseID(1))), handheld::Input::Mouse);
+        assert_eq!(pointer_input(&motion(SDL_TOUCH_MOUSEID)), handheld::Input::Other, "a touch tap");
+        assert_eq!(pointer_input(&button(SDL_TOUCH_MOUSEID)), handheld::Input::Other);
+        assert_eq!(pointer_input(&button(SDL_PEN_MOUSEID)), handheld::Input::Other);
+        assert_eq!(pointer_input(&event(SDL_EVENT_MOUSE_WHEEL, &|e| e.wheel.which = SDL_TOUCH_MOUSEID)), handheld::Input::Other);
+        assert_eq!(pointer_input(&event(SDL_EVENT_KEY_DOWN, &|_| {})), handheld::Input::Other);
     }
 
     #[test]

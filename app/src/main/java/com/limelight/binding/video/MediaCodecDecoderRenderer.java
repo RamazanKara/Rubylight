@@ -3294,9 +3294,10 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
 
     /** Feeds the debt policy with the output at index, logs the queue it saw and an ended recovery. */
     private void noteDebt(int index) {
-        long excessNs = debt.onOutput(frameLatencyStats.getInputToOutputNs(index), System.nanoTime(),
-                contentIntervalNs());
-        frameLatencyStats.onQueueState(index, DecoderQueuePolicy.depth(numFramesIn, numFramesOut, decoderDepthBase), excessNs);
+        int depth = DecoderQueuePolicy.depth(numFramesIn, numFramesOut, decoderDepthBase);
+        long excessNs = debt.onOutput(frameLatencyStats.getInputToOutputNs(index), frameLatencyStats.getOutputNs(index),
+                contentIntervalNs(), depth);
+        frameLatencyStats.onQueueState(index, depth, excessNs);
         logDebtEvent();
     }
 

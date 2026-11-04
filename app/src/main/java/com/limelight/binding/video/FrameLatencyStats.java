@@ -659,6 +659,12 @@ class FrameLatencyStats {
                 frame.outputNs - frame.inputNs;
     }
 
+    /** When a still-owned output buffer came out of the decoder, or zero when untracked. */
+    synchronized long getOutputNs(int outputIndex) {
+        Frame frame = output(outputIndex);
+        return frame == null ? 0 : frame.outputNs;
+    }
+
     /** Notes where the scheduler planned a still-owned output; call before it is released. */
     synchronized void onScheduled(int outputIndex, long vsyncNs, long holdNs, boolean late, int inFlight) {
         Frame frame = output(outputIndex);

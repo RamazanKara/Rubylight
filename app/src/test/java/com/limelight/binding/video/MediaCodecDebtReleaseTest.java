@@ -139,8 +139,8 @@ public class MediaCodecDebtReleaseTest {
             ReflectionHelpers.setField(renderer, "decoderDepthBase", 0);
             DecoderQueuePolicy.Debt debt = ReflectionHelpers.getField(renderer, "debt");
             long startNs = now - 2_000_000_000L;
-            debt.onOutput(MS, startNs, FRAME_NS);
-            for (int i = 1; i <= 110; i++) debt.onOutput(24 * MS, startNs + i * FRAME_NS, FRAME_NS);
+            debt.onOutput(MS, startNs, FRAME_NS, behind);
+            for (int i = 1; i <= 110; i++) debt.onOutput(24 * MS, startNs + i * FRAME_NS, FRAME_NS, behind);
             assertTrue("primed into recovery", debt.shouldDrop());
         }
 

@@ -23,8 +23,8 @@ import java.util.Locale;
  * Edits the modern controller's layout over a dimmed stream: drag a control to move it, pinch it to
  * resize it, tap it to pick it for the panel's size, opacity and hide buttons. With nothing picked
  * the panel changes every control. Done keeps the draft, for all games or only this one; Cancel and
- * Back drop it. Hidden controls stay here as faint ghosts so they can be shown again; the WASD stick, left out of
- * the default layout, also has its own Add button.
+ * Back drop it. Hidden controls stay here as faint ghosts so they can be shown again, below every shown control; the
+ * WASD stick, left out of the default layout, has its own Add button instead of a ghost.
  */
 @SuppressLint("ViewConstructor") // Created by ModernController.
 final class PadEditor extends FrameLayout {
@@ -133,6 +133,11 @@ final class PadEditor extends FrameLayout {
     /** The controls the editor shows: everything but what the settings keep off. */
     private boolean editable(PadLayout.Control control) {
         return !controller.forcedHidden(control);
+    }
+
+    /** Whether the surface draws the control and a tap can pick it: a control the default layout leaves out has no ghost while hidden. */
+    private boolean onSurface(PadLayout.Control control) {
+        return editable(control) && !(control.hiddenByDefault && draft.spec(control).hidden);
     }
 
     void scaleBy(float step) {
@@ -272,7 +277,7 @@ final class PadEditor extends FrameLayout {
             for (float y = step; y < height; y += step) canvas.drawLine(0, y, width, y, grid);
             float base = controller.prefs().oscOpacity / 100f;
             for (PadLayout.Control control : PadLayout.Control.values()) {
-                if (!editable(control)) continue;
+                if (!onSurface(control)) continue;
                 PadLayout.Spec spec = draft.spec(control);
                 draft.bounds(control, width, height, density, box);
                 // Show the real opacity, but never so faint that a control cannot be found.
@@ -288,12 +293,14 @@ final class PadEditor extends FrameLayout {
         private PadLayout.Control hit(float x, float y) {
             PadLayout.Control[] controls = PadLayout.Control.values();
             float slop = 8 * density;
-            // Last drawn is on top, so it wins.
-            for (int i = controls.length - 1; i >= 0; i--) {
-                if (!editable(controls[i])) continue;
-                draft.bounds(controls[i], getWidth(), getHeight(), density, box);
-                if (x >= box[0] - slop && x <= box[0] + box[2] + slop && y >= box[1] - slop && y <= box[1] + box[3] + slop) {
-                    return controls[i];
+            // A shown control wins over a hidden one's ghost; among each, the last drawn is on top, so it wins.
+            for (boolean ghosts : new boolean[] {false, true}) {
+                for (int i = controls.length - 1; i >= 0; i--) {
+                    if (!onSurface(controls[i]) || draft.spec(controls[i]).hidden != ghosts) continue;
+                    draft.bounds(controls[i], getWidth(), getHeight(), density, box);
+                    if (x >= box[0] - slop && x <= box[0] + box[2] + slop && y >= box[1] - slop && y <= box[1] + box[3] + slop) {
+                        return controls[i];
+                    }
                 }
             }
             return null;

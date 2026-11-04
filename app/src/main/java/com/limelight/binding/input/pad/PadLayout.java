@@ -166,6 +166,9 @@ public final class PadLayout {
     /** The smallest touch a control offers, and the narrowest a pill gets so it still reads as one. */
     static final float MIN_TOUCH_DP = 48, MIN_PILL_WIDTH_DP = 72;
 
+    /** How far below the top row the stream's microphone and menu buttons reach: their 12 dp margin and 48 dp size. */
+    static final float TOP_BUTTONS_DP = 12 + 48;
+
     /**
      * The default center of a control, in pixels, from the nearest edges of the surface. Edge controls
      * keep their margins from their own size, so a control grown to its minimum touch on a small
@@ -198,10 +201,17 @@ public final class PadLayout {
             case SELECT: x = width / 2 - rowStep; y = .035f * u + round / 2; break;
             case START: x = width / 2 + rowStep; y = .035f * u + round / 2; break;
             case WASD: {
-                // Between the clusters and below the touchpad, clear of every default control until it is moved.
+                // Between the clusters and below the touchpad, clear of every default control until it is moved, and
+                // of the microphone and menu buttons, which sit below the top row. Where the clusters leave no room
+                // below the buttons (16:10 screens), clearing the controls comes first: the buttons can be dragged.
                 float touchpadBottom = .035f * u + round + Math.max(.02f * u, 8 * density) + pillH;
+                float buttonsBottom = touchpadBottom + TOP_BUTTONS_DP * density;
+                float size = height(control, u, density, 1);
                 x = width / 2;
-                y = Math.max(height / 2, touchpadBottom + 8 * density + height(control, u, density, 1) / 2);
+                y = Math.max(height / 2, buttonsBottom + 8 * density + size / 2);
+                if (!clearOfDefaults(control, x, y, size, width, height, u, density)) {
+                    y = Math.max(height / 2, touchpadBottom + 8 * density + size / 2);
+                }
                 break;
             }
             case TOUCHPAD: x = width / 2; y = .035f * u + round + Math.max(.02f * u, 8 * density) + pillH / 2; break;
@@ -209,6 +219,20 @@ public final class PadLayout {
         }
         out[0] = x;
         out[1] = y;
+    }
+
+    /** Whether a square {@code size} control centred at x, y stays off every other control at its default place. */
+    private static boolean clearOfDefaults(Control self, float x, float y, float size, float width, float height,
+                                           float u, float density) {
+        if (y + size / 2 > height) return false;
+        float[] center = new float[2];
+        for (Control other : Control.values()) {
+            if (other == self) continue;
+            defaultCenter(other, width, height, u, density, center);
+            float w = width(other, u, density, 1), h = height(other, u, density, 1);
+            if (Math.abs(center[0] - x) < (w + size) / 2 && Math.abs(center[1] - y) < (h + size) / 2) return false;
+        }
+        return true;
     }
 
     /**

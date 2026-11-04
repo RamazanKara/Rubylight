@@ -445,12 +445,13 @@ cases:
   - id: nightjar-gamescope-nuc
     device: nuc
     title: Nightjar desktop under headless gamescope 1280x800@60 on the NUC, with and without --hdr-enabled, driven by a virtual Xbox pad
-    command: 'Write-Error "not scripted yet: see note"; exit 1'
-    preconditions: [isolated-ports, gpu-lock]
-    pass: 'the log has "gamescope: starting fullscreen without a border" and the "renderer ...; output ..." line (HDR as scRGB or HDR10 PQ under --hdr-enabled when the swapchain offers it, else SDR with the note), the pad''s buttons move the launcher focus and start the stream, a 60 s stream ends with its video summary and no stall; decode and present p50/p95 and drops within a few percent of the same stream outside gamescope'
+    command: '& {{repo}}\tools\hw\nuc-gamescope.ps1 -Out {{out}}; exit $LASTEXITCODE'
+    preconditions: [isolated-ports]
+    manages_locks: true
+    pass: 'batch.sh''s checks all ok (exit 0): every run streams; the gamescope runs log "gamescope: starting fullscreen without a border" and keep window.json unchanged; s-gshdr and the Flatpak''s f-gshdr log "output HDR as scRGB" (or HDR10 PQ); f-nosock logs "Vulkan layer is off" and streams in SDR with the note; l-gs streams from pad.py''s presses alone; s-gs, l-gs and f-gs: receive_to_present p50 no higher than s-xvfb''s and no more present drops (2026-11-04: 7.1, 7.1, 2.1 ms against 10.4 ms; 0, 1, 0 drops against 23)'
     output: the client log under the run's NIGHTJAR_CONFIG_DIR and the isolated host's stream timings
     status: pending
-    note: stream from the isolated nj-e2e-host on 192.168.4.69:48463 (device-stream-isolated-host); the pad is python-evdev uinput (045e:028e) as in ~/nj440/vpad.py
+    note: 'tools/hw/nuc-gamescope.ps1 (add -BuildBundle after a packaging change: release.yml''s Linux steps, Flatpak build and check included, on the NUC); streams from the isolated nj-e2e-host on 192.168.4.69:48463 (device-stream-isolated-host); the pad is python-evdev uinput (045e:028e), nuc-gamescope/pad.py; the paired client profile is the NUC''s ~/nj440/cfg'
 
   - id: clipboard-image-desktop
     device: desktop

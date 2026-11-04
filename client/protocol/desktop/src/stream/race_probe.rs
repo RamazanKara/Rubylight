@@ -60,12 +60,23 @@ struct PresentRate {
     since: Option<Instant>,
     count: u32,
     hz: Option<f64>,
+    /// The rate of the last `RECENT` presents, once there were that many.
+    recent: Option<f64>,
+    recent_since: Option<Instant>,
+    recent_count: u32,
 }
 
 impl PresentRate {
+    /// The presents `recent_hz` is taken over: a quarter of a second at 120 fps, so the check's
+    /// quick rule (`scanline::FIXED_FRAMES`, half a second then) has seen them. A resume's first
+    /// second read 52-77 presents, and half a second later the check had taken 60 at 120 a second,
+    /// still judged at the old rate (nightjar#75).
+    const RECENT: u32 = 30;
+
     fn note(&mut self, at: Instant) {
         let Some(since) = self.since else {
             self.since = Some(at);
+            self.recent_since = Some(at);
             return;
         };
         self.count += 1;
@@ -73,6 +84,12 @@ impl PresentRate {
         if elapsed >= 1.0 {
             self.hz = Some(f64::from(self.count) / elapsed);
             (self.since, self.count) = (Some(at), 0);
+        }
+        self.recent_count += 1;
+        if self.recent_count >= Self::RECENT {
+            let elapsed = self.recent_since.map_or(0.0, |recent| at.duration_since(recent).as_secs_f64());
+            if elapsed > 0.0 { self.recent = Some(f64::from(self.recent_count) / elapsed); }
+            (self.recent_since, self.recent_count) = (Some(at), 0);
         }
     }
 
@@ -83,6 +100,17 @@ impl PresentRate {
             Some(hz) if stream_hz > 0.0 => hz.min(stream_hz),
             Some(hz) => hz,
             None => stream_hz,
+        }
+    }
+
+    /// The rate of the last presents, never above the stream's (`stream_hz`, 0 when not known), 0
+    /// before there were enough. Too short to judge a display by: a game that swings or the burst
+    /// after a stall reads high, so only `scanline::Evidence::recent_hz` reads it.
+    fn recent_hz(&self, stream_hz: f64) -> f64 {
+        match self.recent {
+            Some(hz) if stream_hz > 0.0 => hz.min(stream_hz),
+            Some(hz) => hz,
+            None => 0.0,
         }
     }
 }
@@ -349,6 +377,7 @@ impl RaceProbe {
             display_hz,
             check_rates: self.check_rates,
             check_hz: self.check_hz,
+            recent_hz: self.rate.recent_hz(around.content_hz),
         });
         self.log_change();
     }
@@ -684,6 +713,126 @@ mod tests {
         for i in 0..=250 { fast.note(at(i * 4)); }
         assert_eq!(fast.content_hz(120.0), 120.0, "never above the stream's");
         assert_eq!(PresentRate::default().content_hz(60.0), 60.0, "the stream's until a second is measured");
+    }
+
+    #[test]
+    fn the_last_presents_tell_ahead_of_the_second_and_leave_the_measured_rate_alone() {
+        let start = Instant::now();
+        let at = |ms: f64| start + std::time::Duration::from_secs_f64(ms / 1000.0);
+        let mut rate = PresentRate::default();
+        assert_eq!(rate.recent_hz(120.0), 0.0, "before there were enough");
+        // A first second of 77 presents.
+        let mut ms = 0.0;
+        for _ in 0..=77 { rate.note(at(ms)); ms += 1000.0 / 77.0; }
+        assert!((rate.content_hz(120.0) - 77.0).abs() < 2.0, "{:?}", rate.hz);
+        assert!((rate.recent_hz(120.0) - 77.0).abs() < 2.0, "{:?}", rate.recent);
+        // A quarter of a second at 120 a second tells, long before the next second ends.
+        for _ in 0..60 { rate.note(at(ms)); ms += 1000.0 / 120.0; }
+        assert!((rate.recent_hz(120.0) - 120.0).abs() < 2.0, "{:?}", rate.recent);
+        assert_eq!(rate.recent_hz(60.0), 60.0, "never above the stream's");
+        assert!((rate.content_hz(120.0) - 77.0).abs() < 2.0, "the second still measures: {:?}", rate.hz);
+        // It is no latch: the next presents read lower at once.
+        for _ in 0..50 { rate.note(at(ms)); ms += 1000.0 / 60.0; }
+        assert!((rate.recent_hz(120.0) - 60.0).abs() < 2.0, "{:?}", rate.recent);
+    }
+
+    /// Presents `n` pictures `1 / hz` apart that start no scan, each one timed as `after_present` does.
+    fn present_at(probe: &mut RaceProbe, around: Surroundings, at: &mut Instant, hz: f64, n: u32) {
+        for _ in 0..n {
+            *at += std::time::Duration::from_secs_f64(1.0 / hz);
+            probe.rate.note(*at);
+            present(probe, around, 1);
+        }
+    }
+
+    /// A 120 Hz display calibrated while it scanned at its top rate: nightjar#75's monitor on a
+    /// resume, 4% of the readings in the blanking and no idle, and a fixed 120 Hz one alike.
+    fn at_top_rate() -> Beam {
+        Beam { rows: 2160, blank_rows: 87, total_rows: 2247, scan_ns: 8_320_000, refresh_hz: 120.2, lines_per_ms: 270.0,
+            vblank_fraction: 0.04, scans: 144, idle_from: 3229, longest_idle_ns: 8_300_000, idle_scans: 0 }
+    }
+
+    #[test]
+    fn a_resume_is_judged_at_the_rate_its_check_ran_not_at_its_first_second() {
+        use super::super::present::{after_display_check, PacingMode};
+        let stream = Surroundings { content_hz: 120.0, ..around() };
+        // nightjar#75's three resumes: 77, 52 and 77 presents in the first second, 120 a second after.
+        for first_second in [77.0, 52.0] {
+            let mut at = Instant::now();
+            let mut probe = RaceProbe::new(true, "display check");
+            probe.apply_surroundings(stream);
+            present_at(&mut probe, stream, &mut at, first_second, first_second as u32 + 2);
+            *probe.calibration.lock().unwrap() = Some((0, Ok(at_top_rate())));
+            present_at(&mut probe, stream, &mut at, 120.0, FIXED_FRAMES + 2);
+            assert_eq!(*probe.verdict(), Verdict::Checking, "was off (no VRR) here, half a second after the calibration");
+            present_at(&mut probe, stream, &mut at, 120.0, CHECK_FRAMES);
+            assert_eq!(probe.line(), "off (no idle at this frame rate)", "as on a fresh launch");
+            assert_eq!(after_display_check(PacingMode::HostTimes, probe.verdict(), PacingMode::Vsync), PacingMode::HostTimes);
+            assert_eq!(after_display_check(PacingMode::Immediate, probe.verdict(), PacingMode::Vsync), PacingMode::Immediate);
+        }
+    }
+
+    #[test]
+    fn a_fixed_display_under_a_slower_stream_still_turns_to_v_sync_on_a_resume() {
+        use super::super::present::{after_display_check, PacingMode};
+        let stream = Surroundings { content_hz: 120.0, ..around() };
+        // A game held at 60 on a fixed 120 Hz panel: the rate its check ran at is the first second's.
+        for (first_second, rate) in [(60.0, 60.0), (52.0, 60.0), (77.0, 77.0)] {
+            let mut at = Instant::now();
+            let mut probe = RaceProbe::new(true, "display check");
+            probe.apply_surroundings(stream);
+            present_at(&mut probe, stream, &mut at, first_second, first_second as u32 + 2);
+            *probe.calibration.lock().unwrap() = Some((0, Ok(at_top_rate())));
+            present_at(&mut probe, stream, &mut at, rate, FIXED_FRAMES + 2);
+            assert!(probe.fixed_refresh(), "{first_second} then {rate}: {}", probe.line());
+            assert_eq!(after_display_check(PacingMode::HostTimes, probe.verdict(), PacingMode::Vsync), PacingMode::Vsync);
+        }
+    }
+
+    #[test]
+    fn a_fixed_display_under_a_game_that_swings_still_turns_to_v_sync() {
+        use super::super::present::{after_display_check, PacingMode};
+        // 65 and 90 fps in turns, 0.4 s each, on a fixed 120 Hz panel: whole seconds stay below the
+        // busy rate of 84, a quarter of a second at 90 is above it. That must not read as a busy
+        // check, which would keep the tearing for the rest of the stream.
+        let stream = Surroundings { content_hz: 120.0, ..around() };
+        let mut at = Instant::now();
+        let mut probe = RaceProbe::new(true, "display check");
+        probe.apply_surroundings(stream);
+        present_at(&mut probe, stream, &mut at, 78.0, 80);
+        *probe.calibration.lock().unwrap() = Some((0, Ok(at_top_rate())));
+        for _ in 0..4 {
+            present_at(&mut probe, stream, &mut at, 65.0, 26);
+            present_at(&mut probe, stream, &mut at, 90.0, 36);
+        }
+        assert!(probe.fixed_refresh(), "{}", probe.line());
+        assert_eq!(after_display_check(PacingMode::HostTimes, probe.verdict(), PacingMode::Vsync), PacingMode::Vsync);
+    }
+
+    #[test]
+    fn a_burst_after_a_stall_leaves_a_fixed_display_to_its_check() {
+        let stream = Surroundings { content_hz: 120.0, ..around() };
+        // A game at 60 on a fixed 120 Hz panel stalls and catches up with 26 pictures, wherever those
+        // fall among the presents the recent rate is taken over. No whole second reads busy (83 at
+        // most): only the recent rate does, for one reading, when its presents start with the burst
+        // (with the stall among them, the catch-up cancels out).
+        let mut read_busy = false;
+        for phase in 0..PresentRate::RECENT {
+            let mut at = Instant::now();
+            let mut probe = RaceProbe::new(true, "display check");
+            probe.apply_surroundings(stream);
+            present_at(&mut probe, stream, &mut at, 60.0, 62);
+            *probe.calibration.lock().unwrap() = Some((0, Ok(at_top_rate())));
+            present_at(&mut probe, stream, &mut at, 60.0, phase);
+            at += std::time::Duration::from_millis(433);
+            present_at(&mut probe, stream, &mut at, 500.0, 26);
+            present_at(&mut probe, stream, &mut at, 60.0, 5);
+            read_busy |= probe.rate.recent_hz(120.0) > 100.0;
+            present_at(&mut probe, stream, &mut at, 60.0, CHECK_FRAMES);
+            assert!(probe.fixed_refresh(), "phase {phase}: {}", probe.line());
+            assert_eq!(probe.generation, 0, "phase {phase}: not measured again, it never read busy");
+        }
+        assert!(read_busy, "the burst has to read busy somewhere, or this tests nothing");
     }
 
     #[test]

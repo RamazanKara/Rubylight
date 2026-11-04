@@ -100,7 +100,7 @@ public class MediaCodecHevcLowLatencyTest {
             assertEquals(1, tunedFormat("c2.amlogic.avc.decoder", "video/avc", false).getInteger(AML_LOW_LATENCY));
             assertEquals(1, tunedFormat("c2.amlogic.av1.decoder", "video/av01", false).getInteger(MediaFormat.KEY_LOW_LATENCY));
         }
-        // Their HEVC RFI has its own rule: amlogicHevcDecodersNeverGetRfi... below.
+        // Their HEVC RFI has its own rule: fireTvAmlogicHevcDecodersNeverGetRfi... below.
     }
 
     @Test
@@ -247,7 +247,8 @@ public class MediaCodecHevcLowLatencyTest {
     // host mark long-term references. Low latency support must not bring RFI back.
     @Test
     @Config(sdk = {28, 34})
-    public void amlogicHevcDecodersNeverGetRfiWhateverTheyReportAndH264RfiIsUntouched() {
+    public void fireTvAmlogicHevcDecodersNeverGetRfiWhateverTheyReportAndH264RfiIsUntouched() {
+        ReflectionHelpers.setStaticField(MediaCodecHelper.class, "isFireTv", true);
         for (String name : new String[] {"OMX.amlogic.hevc.decoder.awesome2", "omx.amlogic.hevc.decoder",
                 AML_HEVC, "C2.Amlogic.hevc.decoder.secure"}) {
             MediaCodecInfo decoder = decoder(name, HEVC);
@@ -262,6 +263,20 @@ public class MediaCodecHevcLowLatencyTest {
         assertFalse(MediaCodecHelper.decoderSupportsRefFrameInvalidationAvc("OMX.amlogic.avc.decoder.awesome2", 1080));
     }
 
+    // The freeze is known only from Fire TV: an Amlogic box elsewhere keeps its faster recovery.
+    @Test
+    @Config(sdk = {28, 34})
+    public void amlogicHevcDecodersOffFireTvKeepRfiThroughLowLatency() {
+        ReflectionHelpers.setStaticField(MediaCodecHelper.class, "isFireTv", false);
+        for (String name : new String[] {"omx.amlogic.hevc.decoder", AML_HEVC}) {
+            MediaCodecInfo decoder = decoder(name, HEVC);
+            // Vendor parameters can only be read from Android 12.
+            assertEquals(name, android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S,
+                    MediaCodecHelper.decoderSupportsRefFrameInvalidationHevc(decoder, false, true, false));
+            assertFalse(name, MediaCodecHelper.decoderSupportsRefFrameInvalidationHevc(decoder, false, false, false));
+        }
+    }
+
     @Test
     @Config(sdk = {28, 34})
     public void fireOsKeepsHevcRfiOnMediaTekWhileAmlogicLosesIt() {
@@ -274,6 +289,7 @@ public class MediaCodecHevcLowLatencyTest {
         ReflectionHelpers.setStaticField(MediaCodecHelper.class, "initialized", false);
         try {
             MediaCodecHelper.initialize(org.robolectric.RuntimeEnvironment.getApplication(), "");
+            ReflectionHelpers.setStaticField(MediaCodecHelper.class, "isFireTv", true);
             for (String name : new String[] {"OMX.MTK.VIDEO.DECODER.HEVC", "c2.mtk.hevc.decoder"}) {
                 assertTrue(name, MediaCodecHelper.decoderSupportsRefFrameInvalidationHevc(
                         decoder(name, HEVC), false, false, false));
@@ -298,7 +314,8 @@ public class MediaCodecHevcLowLatencyTest {
     @Test
     @Config(shadows = com.limelight.PcViewLifecycleTest.NoNativeMoonBridge.class,
             instrumentedPackages = "com.limelight.nvstream.jni")
-    public void negotiationDoesNotAdvertiseHevcRfiOnAmlogicDecoders() {
+    public void negotiationDoesNotAdvertiseHevcRfiOnFireTvAmlogicDecoders() {
+        ReflectionHelpers.setStaticField(MediaCodecHelper.class, "isFireTv", true);
         ShadowMediaCodecList.addCodec(decoder(AML_HEVC, HEVC));
         try (ActivityController<Activity> activity = Robolectric.buildActivity(Activity.class).create()) {
             PreferenceConfiguration prefs = new PreferenceConfiguration();

@@ -655,6 +655,10 @@ mod tests {
 }
 
 #[cfg(test)]
+#[path = "pq_present_tests.rs"]
+mod pq_present_tests;
+
+#[cfg(test)]
 mod luminance_tests {
     use super::*;
     use rubylight_protocol::control::DisplayCaps;

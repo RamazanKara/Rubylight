@@ -1055,7 +1055,8 @@ fn secure_profile_with(
     reset.and(credentials)
 }
 /// The name of the root the host makes for the console's certificate
-/// (`butterpollo_core::crypto::CONSOLE_ROOT_NAME`).
+/// (`butterpollo_core::crypto::CONSOLE_ROOT_NAME`). certutil's `-delstore`
+/// by this name also removes the roots whose name adds a host's own unit.
 const CONSOLE_ROOT_NAME: &str = "Rubylight local console";
 /// Browsers open the console without a warning once its root is trusted
 /// (see `ConsoleCertificate`). Roots of an earlier console certificate go.

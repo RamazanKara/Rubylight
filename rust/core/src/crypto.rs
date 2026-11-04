@@ -228,19 +228,34 @@ impl ConsoleCertificate {
             std::fs::read_to_string(&chain),
             std::fs::read_to_string(&key),
             std::fs::read_to_string(&root),
-        ) {
+        ) && Self::root_is_own(&root_pem)
+        {
             return Ok(Self {
                 chain_pem,
                 key_pem,
                 root_pem,
             });
         }
+        // Setup trusts the new root after every start of a new host, replacing
+        // the old one by its name.
         let made = Self::generate()?;
         std::fs::create_dir_all(directory)?;
         crate::state::atomic_write(&key, made.key_pem.as_bytes())?;
         crate::state::atomic_write(&root, made.root_pem.as_bytes())?;
         crate::state::atomic_write(&chain, made.chain_pem.as_bytes())?;
         Ok(made)
+    }
+    /// Whether the root's name is this host's alone. Earlier hosts named
+    /// every root just [`CONSOLE_ROOT_NAME`]; Firefox, which also
+    /// reads Windows' trusted roots, then took another host's trusted root as
+    /// the issuer and refused the page with SEC_ERROR_UNKNOWN, a failure
+    /// without a way past it.
+    fn root_is_own(root_pem: &str) -> bool {
+        let Ok(der) = certificate_der(root_pem) else {
+            return false;
+        };
+        x509_parser::parse_x509_certificate(&der)
+            .is_ok_and(|(_, root)| root.subject().iter_organizational_unit().next().is_some())
     }
     pub fn generate() -> Result<Self> {
         use rcgen::{
@@ -255,6 +270,10 @@ impl ConsoleCertificate {
         let mut root = CertificateParams::default();
         root.distinguished_name
             .push(DnType::CommonName, CONSOLE_ROOT_NAME);
+        // Browsers find an issuer by its name: a root named like every other
+        // host's would be confused with theirs (see `root_is_own`).
+        root.distinguished_name
+            .push(DnType::OrganizationalUnitName, hex::encode(random::<8>()));
         root.is_ca = IsCa::Ca(BasicConstraints::Constrained(0));
         root.key_usages = vec![KeyUsagePurpose::KeyCertSign, KeyUsagePurpose::CrlSign];
         let mut loopback_v6 = [0; 16];
@@ -387,6 +406,51 @@ mod tests {
         assert_eq!(console.issuer(), root.subject());
         let names = console.subject_alternative_name().unwrap().unwrap();
         assert_eq!(names.value.general_names.len(), 3);
+    }
+    #[test]
+    fn every_console_root_has_its_own_name_and_a_shared_one_is_replaced() {
+        let subject = |pem: &str| {
+            let der = certificate_der(pem).unwrap();
+            let (_, cert) = x509_parser::parse_x509_certificate(&der).unwrap();
+            cert.subject().to_string()
+        };
+        let [one, two] = [(); 2].map(|_| ConsoleCertificate::generate().unwrap());
+        // Firefox refused a chain whose root had the same name as another
+        // host's root that Windows trusts (SEC_ERROR_UNKNOWN).
+        assert_ne!(subject(&one.root_pem), subject(&two.root_pem));
+        assert!(subject(&one.root_pem).contains(CONSOLE_ROOT_NAME));
+        let leaf_issuer = {
+            let der = certificate_der(&one.chain_pem).unwrap();
+            let (_, cert) = x509_parser::parse_x509_certificate(&der).unwrap();
+            cert.issuer().to_string()
+        };
+        assert_eq!(leaf_issuer, subject(&one.root_pem));
+
+        // A certificate kept from an earlier host, its root named only
+        // CONSOLE_ROOT_NAME, is made anew.
+        let directory = tempfile::tempdir().unwrap();
+        let mut shared = rcgen::CertificateParams::default();
+        shared
+            .distinguished_name
+            .push(rcgen::DnType::CommonName, CONSOLE_ROOT_NAME);
+        shared.is_ca = rcgen::IsCa::Ca(rcgen::BasicConstraints::Constrained(0));
+        let shared = shared
+            .self_signed(&rcgen::KeyPair::generate().unwrap())
+            .unwrap()
+            .pem();
+        for (name, text) in [
+            ("console.pem", format!("{}{shared}", one.chain_pem)),
+            ("console.key", one.key_pem.clone()),
+            ("console-root.pem", shared.clone()),
+        ] {
+            std::fs::write(directory.path().join(name), text).unwrap();
+        }
+        let made = ConsoleCertificate::load(directory.path()).unwrap();
+        assert_ne!(made.root_pem, shared);
+        assert_ne!(subject(&made.root_pem), format!("CN={CONSOLE_ROOT_NAME}"));
+        let kept = ConsoleCertificate::load(directory.path()).unwrap();
+        assert_eq!(made.chain_pem, kept.chain_pem);
+        assert_eq!(made.root_pem, kept.root_pem);
     }
     #[test]
     fn legacy_nonce_and_audio_round_trip() {

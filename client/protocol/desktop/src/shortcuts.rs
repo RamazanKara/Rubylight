@@ -243,7 +243,7 @@ impl Key {
             Key::Enter => en("Enter"),
             Key::Delete => en("Del"),
             Key::Arrows => en("Arrow keys"),
-            Key::Vk(code) => return Cow::Owned(policy::key_label(&policy::key_name(code))),
+            Key::Vk(code) => return Cow::Owned(vk_cap(code)),
         })
     }
 
@@ -293,6 +293,65 @@ impl Key {
             Key::Vk(_) => &[],
         }
     }
+}
+
+/// What a stream hotkey's key is called. It goes by its place on the keyboard, so a key that prints
+/// is named as the layout in use has it there: QWERTY's Z is QWERTZ's Y and AZERTY's W. A layout
+/// that agrees with QWERTY there keeps the usual name.
+fn vk_cap(code: u16) -> String {
+    let named = policy::key_label(&policy::key_name(code));
+    let (Some(usual), Some(scancode)) = (qwerty_character(code), Key::Vk(code).scancode()) else { return named };
+    match keycode_character(layout_keycode(scancode)) {
+        Some(there) if capital(there) != capital(usual) => capital(there),
+        _ => named,
+    }
+}
+
+/// What the key with this virtual-key code prints on QWERTY; only keys that print have one.
+fn qwerty_character(code: u16) -> Option<char> {
+    Some(match code {
+        0x30..=0x39 => char::from(code as u8),
+        0x41..=0x5A => char::from(code as u8).to_ascii_lowercase(),
+        0xBA => ';',
+        0xBB => '=',
+        0xBC => ',',
+        0xBD => '-',
+        0xBE => '.',
+        0xBF => '/',
+        0xC0 => '`',
+        0xDB => '[',
+        0xDC => '\\',
+        0xDD => ']',
+        0xDE => '\'',
+        _ => return None,
+    })
+}
+
+/// The character an SDL keycode stands for; none for a key that doesn't print, or a dead key's
+/// accent that would have nothing to sit on.
+fn keycode_character(keycode: SDL_Keycode) -> Option<char> {
+    if keycode.0 & (SDLK_SCANCODE_MASK.0 | SDLK_EXTENDED_MASK.0) != 0 {
+        return None;
+    }
+    char::from_u32(keycode.0).filter(|c| !c.is_control() && !c.is_whitespace() && !matches!(*c, '\u{0300}'..='\u{036F}'))
+}
+
+/// As a key's top shows it. ß stays ß: its capital is two letters.
+fn capital(character: char) -> String {
+    let mut upper = character.to_uppercase();
+    match (upper.next(), upper.next()) {
+        (Some(one), None) => one.to_string(),
+        _ => character.to_string(),
+    }
+}
+
+/// The key this place has in the layout in use, without modifiers. As for key events, so a Latin
+/// letter stays on a Cyrillic layout and AZERTY's number row stays digits, both as printed on the
+/// keys; SDL answers QWERTY until its keyboard is up.
+#[cfg(not(test))]
+fn layout_keycode(scancode: SDL_Scancode) -> SDL_Keycode {
+    // SAFETY: only reads SDL's current keymap, and takes any scancode.
+    unsafe { SDL_GetKeyFromScancode(scancode, SDL_KMOD_NONE, true) }
 }
 
 /// Modifiers held with a key, then the key.
@@ -1012,12 +1071,86 @@ mod tests {
         assert_eq!(key_action(Scope::Stream, SDL_SCANCODE_Y, ctrl_alt_shift), None);
         set_hotkeys(HotkeyBindings::new());
     }
+
+    fn stream_key(action: Action) -> String {
+        chord_for(Scope::Stream, action).unwrap().key.cap().into_owned()
+    }
+
+    /// QWERTY reads as it always did, punctuation by its name too.
+    #[test]
+    fn qwerty_keeps_every_name() {
+        assert_eq!(chord_for(Scope::Stream, Action::Capture).map(Chord::text).as_deref(), Some("Ctrl+Alt+Shift+Z"));
+        for (action, key) in [(Action::StreamControls, "Tab"), (Action::StreamShortcuts, "H"), (Action::Disconnect, "Q"), (Action::Capture, "Z"), (Action::MouseMode, "M"),
+            (Action::Overlay, "S"), (Action::SendClipboard, "V"), (Action::FetchClipboard, "C"), (Action::Fullscreen, "X"), (Action::Minimize, "D")] {
+            assert_eq!(stream_key(action), key, "{action:?}");
+        }
+        for (name, label) in [("SLASH", "SLASH"), ("SEMICOLON", "SEMICOLON"), ("1", "1"), ("F9", "F9"), ("NUMPAD_5", "Num 5"), ("ESC", "Esc")] {
+            assert_eq!(Key::Vk(policy::key_code(name).unwrap()).cap(), label);
+        }
+    }
+
+    /// QWERTZ: the chord stays where it was, its text names the key the user has there. So does the
+    /// page that changes them, which shows a saved chord the same way.
+    #[test]
+    fn qwertz_names_the_key_at_the_chords_place() {
+        use_layout(&[(SDL_SCANCODE_Z, SDLK_Y), (SDL_SCANCODE_Y, SDLK_Z), (SDL_SCANCODE_SLASH, SDLK_MINUS), (SDL_SCANCODE_MINUS, SDL_Keycode(0xDF)), (SDL_SCANCODE_SEMICOLON, SDL_Keycode(0xF6))]);
+        assert_eq!(chord_for(Scope::Stream, Action::Capture).map(Chord::text).as_deref(), Some("Ctrl+Alt+Shift+Y"));
+        let ctrl_alt_shift = SDL_Keymod(SDL_KMOD_LCTRL.0 | SDL_KMOD_LALT.0 | SDL_KMOD_LSHIFT.0);
+        assert_eq!(key_action(Scope::Stream, SDL_SCANCODE_Z, ctrl_alt_shift), Some(Action::Capture), "the binding keeps its place");
+        assert_eq!(key_action(Scope::Stream, SDL_SCANCODE_Y, ctrl_alt_shift), None);
+        assert_eq!(Chord::of_keys(&["CTRL".into(), "Y".into()]).text(), "Ctrl+Z");
+        assert_eq!(Chord::of_keys(&["CTRL".into(), "SLASH".into()]).text(), "Ctrl+-");
+        assert_eq!(Chord::of_keys(&["CTRL".into(), "SEMICOLON".into()]).text(), "Ctrl+Ö");
+        assert_eq!(Chord::of_keys(&["CTRL".into(), "MINUS".into()]).text(), "Ctrl+ß", "ß has no one-letter capital");
+        assert_eq!(stream_key(Action::Disconnect), "Q");
+        use_layout(&[]);
+    }
+
+    /// Every letter that moves, not only Z: AZERTY swaps A and Q, W and Z, and has M beside L.
+    #[test]
+    fn azerty_names_every_letter_that_moved() {
+        use_layout(&[(SDL_SCANCODE_Q, SDLK_A), (SDL_SCANCODE_A, SDLK_Q), (SDL_SCANCODE_W, SDLK_Z), (SDL_SCANCODE_Z, SDLK_W), (SDL_SCANCODE_M, SDLK_COMMA), (SDL_SCANCODE_SEMICOLON, SDLK_M)]);
+        assert_eq!(stream_key(Action::Disconnect), "A");
+        assert_eq!(stream_key(Action::Capture), "W");
+        assert_eq!(stream_key(Action::MouseMode), ",");
+        assert_eq!(Key::Vk(policy::key_code("SEMICOLON").unwrap()).cap(), "M");
+        assert_eq!(stream_key(Action::StreamControls), "Tab", "keys that don't print keep their names");
+        use_layout(&[]);
+    }
+
+    /// A key that prints nothing there, or only a dead key's accent, keeps its usual name.
+    #[test]
+    fn a_layout_key_without_a_character_keeps_the_usual_name() {
+        use_layout(&[(SDL_SCANCODE_Z, SDLK_F1), (SDL_SCANCODE_Q, SDLK_UNKNOWN), (SDL_SCANCODE_S, SDL_Keycode(0x0301)), (SDL_SCANCODE_C, SDLK_SPACE)]);
+        for (action, key) in [(Action::Capture, "Z"), (Action::Disconnect, "Q"), (Action::Overlay, "S"), (Action::FetchClipboard, "C")] {
+            assert_eq!(stream_key(action), key);
+        }
+        use_layout(&[]);
+    }
 }
 
 // Each test thread's own stream hotkeys.
 #[cfg(test)]
 thread_local! {
     static HOTKEYS: std::cell::RefCell<HotkeyState> = std::cell::RefCell::new(HotkeyState::new(HotkeyBindings::new()));
+}
+
+// Each test thread's keyboard layout: QWERTY but for the keys listed, whatever this PC has.
+#[cfg(test)]
+thread_local! {
+    static LAYOUT: std::cell::Cell<&'static [(SDL_Scancode, SDL_Keycode)]> = const { std::cell::Cell::new(&[]) };
+}
+
+/// Sets this test thread's layout: the keys that differ from QWERTY.
+#[cfg(test)]
+pub fn use_layout(keys: &'static [(SDL_Scancode, SDL_Keycode)]) {
+    LAYOUT.with(|layout| layout.set(keys));
+}
+
+#[cfg(test)]
+fn layout_keycode(scancode: SDL_Scancode) -> SDL_Keycode {
+    let qwerty = || crate::keymap::virtual_key(scancode, true).and_then(|(vk, _)| qwerty_character(vk)).map_or(SDLK_UNKNOWN, |c| SDL_Keycode(c as u32));
+    LAYOUT.with(|layout| layout.get().iter().find(|(place, _)| *place == scancode).map_or_else(qwerty, |(_, keycode)| *keycode))
 }
 
 #[cfg(test)]

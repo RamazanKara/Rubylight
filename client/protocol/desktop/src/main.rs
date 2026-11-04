@@ -3276,6 +3276,10 @@ mod tests {
     #[test]
     fn a_stream_starts_with_what_became_of_4_4_4_and_10_bit_next_to_the_warning() {
         assert_eq!(start_toast(None, None, false), "Ctrl+Alt+Shift+Tab opens controls, Ctrl+Alt+Shift+Q disconnects, Ctrl+Alt+Shift+Z releases input");
+        // It names the key the layout has there: the key labelled Y on QWERTZ.
+        shortcuts::use_layout(&[(sdl3_sys::everything::SDL_SCANCODE_Z, sdl3_sys::everything::SDLK_Y)]);
+        assert_eq!(start_toast(None, None, false), "Ctrl+Alt+Shift+Tab opens controls, Ctrl+Alt+Shift+Q disconnects, Ctrl+Alt+Shift+Y releases input");
+        shortcuts::use_layout(&[]);
         // The hint follows the hotkeys as bound.
         shortcuts::record_hotkey("quit", &["CTRL".into(), "F9".into()]).unwrap();
         shortcuts::turn_off_hotkey("capture").unwrap();

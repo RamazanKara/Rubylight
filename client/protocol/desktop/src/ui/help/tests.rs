@@ -348,14 +348,52 @@ fn the_page_reads_in_german() {
     }
 }
 
-/// The Help page at 1280x800 (150 %) and 1920x1080, normal and high contrast, top and scrolled:
+/// On a wide window the page fills the content area as the other pages do: the keys of the right
+/// card end at the area's right edge, and a small window still holds them.
+#[test]
+fn the_page_uses_the_whole_content_area() {
+    fn right_edge(shape: &egui::Shape, right: &mut f32) {
+        match shape {
+            egui::Shape::Text(_) => *right = right.max(shape.visual_bounding_rect().right()),
+            egui::Shape::Vec(shapes) => shapes.iter().for_each(|s| right_edge(s, right)),
+            _ => {}
+        }
+    }
+    for (width, end) in [(2560.0, 2160.0), (1280.0, 1235.2)] {
+        let mut page = Page::new(Vec::new());
+        page.l.switch(Screen::Help);
+        page.size = vec2(width, 4000.0);
+        page.settle();
+        let mut right = 0.0;
+        page.shapes.iter().for_each(|clipped| right_edge(&clipped.shape, &mut right));
+        assert!(right > end - 60.0 && right <= end, "{width}: the page's text ends at {right}, its area at {end}");
+    }
+}
+
+/// The keys named on the page are the user's layout's, in the sheet's rows and the sharing cards.
+#[test]
+fn the_page_names_the_keys_of_a_qwertz_keyboard() {
+    let mut page = Page::new(Vec::new());
+    page.ctx.enable_accesskit();
+    page.l.switch(Screen::Help);
+    page.size = vec2(1280.0, 9000.0);
+    page.settle();
+    assert!(page.names().iter().any(|n| n.contains(tr(Action::Capture.label())) && n.ends_with("+Z")), "{:?}", page.names());
+    crate::shortcuts::use_layout(&[(sdl3_sys::everything::SDL_SCANCODE_Z, sdl3_sys::everything::SDLK_Y)]);
+    page.settle();
+    assert!(page.names().iter().any(|n| n.contains(tr(Action::Capture.label())) && n.ends_with("+Y")), "{:?}", page.names());
+    assert!(page.drawn.iter().any(|t| t == "Y"), "{:?}", page.drawn);
+    crate::shortcuts::use_layout(&[]);
+}
+
+/// The Help page at 1280x800 (150 %), 1920x1080 and 2560x1440, normal and high contrast, top and scrolled:
 /// `NIGHTJAR_SHOTS=<dir> cargo test -p nightjar-desktop help_screenshots -- --ignored`.
 #[test]
 #[ignore = "writes PNGs; set NIGHTJAR_SHOTS"]
 fn help_screenshots() {
     let Some(dir) = std::env::var_os("NIGHTJAR_SHOTS").map(std::path::PathBuf::from) else { return };
     std::fs::create_dir_all(&dir).expect("the folder for the screenshots");
-    for (width, height, ppp) in [(1280.0, 800.0, 1.5), (1920.0, 1080.0, 1.0)] {
+    for (width, height, ppp) in [(1280.0, 800.0, 1.5), (1920.0, 1080.0, 1.0), (2560.0, 1440.0, 1.0)] {
         for high in [false, true] {
             let look = if high { "-high-contrast" } else { "" };
             let size = format!("{}x{}", width as u32, height as u32);

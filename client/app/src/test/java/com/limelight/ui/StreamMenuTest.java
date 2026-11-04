@@ -1089,16 +1089,19 @@ public class StreamMenuTest {
             StreamMenu menu = new StreamMenu(activity, () -> state, item -> { }, null, saved);
             menu.show();
             menu.row(SHORTCUTS).performClick();
-            // Alt + Tab is saved under the user's name, so its built-in steps aside.
+            // Alt + Tab is saved under the user's name, so its built-in steps aside. The user's own come first, so a
+            // built-in added in a later version never pushes them along (nightjar#61: Game Bar and Record that did).
             TileGrid tiles = findGrid(menu.sheet().getWindow().getDecorView());
             List<String> labels = new ArrayList<>();
             for (int i = 0; i < tiles.getChildCount(); i++) labels.add(text(tiles.getChildAt(i)).split("\n")[0]);
-            assertEquals(Arrays.asList(activity.getString(R.string.keyboard_task_manager), activity.getString(R.string.keyboard_close_window),
+            assertEquals(Arrays.asList("Switch", activity.getString(R.string.keyboard_task_manager), activity.getString(R.string.keyboard_close_window),
                     activity.getString(R.string.stream_menu_start_menu), activity.getString(R.string.desktop_controls_shortcut_desktop),
                     activity.getString(R.string.keyboard_game_bar), activity.getString(R.string.keyboard_record_that),
-                    "Switch", activity.getString(R.string.keyboard_shortcuts_add)), labels);
+                    activity.getString(R.string.keyboard_shortcuts_add)), labels);
             tiles.getChildAt(0).performClick();
-            assertArrayEquals(KeyboardShortcuts.parseChord("CTRL+SHIFT+ESC"), saved.sent.get(0));
+            assertArrayEquals(KeyboardShortcuts.parseChord("ALT+TAB"), saved.sent.get(0));
+            tiles.getChildAt(1).performClick();
+            assertArrayEquals(KeyboardShortcuts.parseChord("CTRL+SHIFT+ESC"), saved.sent.get(1));
 
             // Add: no keys is refused and says so; Ctrl, Shift and S without a name save as their keys.
             tiles.getChildAt(tiles.getChildCount() - 1).performClick();

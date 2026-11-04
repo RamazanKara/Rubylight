@@ -800,7 +800,8 @@ public final class StreamMenu {
         return true;
     }
 
-    // The shortcuts page: the built-ins not saved under a name of their own, the user's, Add, then a row to edit each.
+    // The shortcuts page: the user's, in their order, then the built-ins not saved under a name of their own, Add, then a
+    // row to edit each. The user's come first so a new built-in never pushes them along (nightjar#61).
     private void renderShortcuts() {
         entries = new ArrayList<>();
         List<KeyboardShortcuts.Shortcut> saved = shortcuts.saved();
@@ -814,15 +815,15 @@ public final class StreamMenu {
             builtIns = new ArrayList<>();
         }
         TileGrid tiles = sheet.addTileGrid();
+        for (KeyboardShortcuts.Shortcut shortcut : saved) {
+            MaterialButton tile = tiles.addTile(R.drawable.ic_keyboard, shortcut.name, keysUnder(shortcut), null, null);
+            tile.setOnClickListener(view -> shortcuts.send(shortcut.keys()));
+            if (tiles.getChildCount() == 1) sheet.setFirstAction(tile);
+        }
         for (StreamMenuModel.BuiltIn builtIn : builtIns) {
             int[] chord = KeyboardShortcuts.parseChord(String.join("+", builtIn.keys));
             MaterialButton tile = tiles.addTile(R.drawable.ic_keyboard, activity.getString(builtInLabel(builtIn.id)), builtIn.label, null, null);
             tile.setOnClickListener(view -> shortcuts.send(chord));
-            if (tiles.getChildCount() == 1) sheet.setFirstAction(tile);
-        }
-        for (KeyboardShortcuts.Shortcut shortcut : saved) {
-            MaterialButton tile = tiles.addTile(R.drawable.ic_keyboard, shortcut.name, keysUnder(shortcut), null, null);
-            tile.setOnClickListener(view -> shortcuts.send(shortcut.keys()));
             if (tiles.getChildCount() == 1) sheet.setFirstAction(tile);
         }
         if (saved.size() < KeyboardShortcuts.MAX_SHORTCUTS) {

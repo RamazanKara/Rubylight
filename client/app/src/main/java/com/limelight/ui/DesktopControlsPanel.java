@@ -495,6 +495,11 @@ public class DesktopControlsPanel extends LinearLayout {
         LayoutParams params = new LayoutParams(0, LayoutParams.MATCH_PARENT, weight);
         params.setMargins(dp(1), dp(2), dp(1), dp(2));
         row.addView(button, params);
+        // A key answers the finger going down, like the PC keyboard's and the mouse buttons here; the click still sends it.
+        button.setOnTouchListener((view, event) -> {
+            if (haptics && event.getActionMasked() == MotionEvent.ACTION_DOWN) Haptics.perform(view, Haptics.Kind.KEY);
+            return false;
+        });
     }
 
     private MaterialButton button(String title, Runnable action) {

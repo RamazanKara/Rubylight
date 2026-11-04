@@ -221,7 +221,7 @@ public final class MicButton extends View {
     public boolean performClick() {
         super.performClick();
         host.setMuted(!host.muted());
-        performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);
+        performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY);
         refresh();
         return true;
     }

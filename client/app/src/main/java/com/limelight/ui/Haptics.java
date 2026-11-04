@@ -13,7 +13,11 @@ import android.view.View;
  */
 public final class Haptics {
     public enum Kind {
-        /** A key of an on-screen keyboard going down. */
+        /**
+         * A key of an on-screen keyboard going down. Not KEYBOARD_TAP: that constant is for the input method, and phones
+         * can tie it to their own keyboard vibration setting or play nothing for it (nightjar#61: the trackpad's click
+         * was felt, the keys were not), while Vibrate on press is the setting that decides here.
+         */
         KEY,
         /** A trackpad tap or an on-screen mouse button going down. */
         CLICK,
@@ -38,8 +42,6 @@ public final class Haptics {
     @SuppressLint("InlinedApi") // Each newer constant is used only from its API level on.
     static int constant(Kind kind, int sdk) {
         switch (kind) {
-            case KEY:
-                return HapticFeedbackConstants.KEYBOARD_TAP;
             case DIRECTION:
                 // One light tick for one key; the clock tick before Android 6.
                 return sdk >= Build.VERSION_CODES.M ? HapticFeedbackConstants.CONTEXT_CLICK

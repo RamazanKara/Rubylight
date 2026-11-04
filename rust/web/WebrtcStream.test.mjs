@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { createTestServer } from './test-server.mjs';
 
@@ -82,6 +83,39 @@ test('the pointer position leaves out the letterbox bars', () => {
   // No frame yet, or a hidden element.
   assert.equal(input.positionMessage(10, 10, box, { width: 0, height: 0 }), null);
   assert.equal(input.positionMessage(10, 10, { left: 0, top: 0, width: 0, height: 0 }, video), null);
+});
+
+test('the padding AMD adds to AV1 is neither shown nor counted in the pointer position', () => {
+  const padded = { width: 1920, height: 1082 };
+  const wanted = { width: 1920, height: 1080 };
+  const shown = input.shownSize(padded, wanted);
+  assert.deepEqual(shown, wanted);
+  // Fills a 1920×1082 box: the two rows below go.
+  assert.equal(input.pictureClip(padded, padded, shown), 'inset(0 0px 2px 0)');
+  // Letterboxed in a wider 2164×1082 box at scale 1: 122 px bars, the same two rows.
+  assert.equal(input.pictureClip({ width: 2164, height: 1082 }, padded, shown), 'inset(0 122px 2px 0)');
+  // Columns too (1968×2184 encodes as 1984×2186).
+  assert.deepEqual(input.shownSize({ width: 1984, height: 2186 }, { width: 1968, height: 2184 }), { width: 1968, height: 2184 });
+  // Nothing padded, nothing clipped: H.264 and HEVC, a picture not started yet.
+  assert.equal(input.pictureClip(wanted, wanted, input.shownSize(wanted, wanted)), '');
+  assert.equal(input.pictureClip(wanted, { width: 0, height: 0 }, wanted), '');
+  // A size the padding can't explain is the picture.
+  const other = { width: 1280, height: 720 };
+  assert.deepEqual(input.shownSize(other, wanted), other);
+  assert.deepEqual(input.shownSize({ width: 2560, height: 1440 }, wanted), { width: 2560, height: 1440 });
+  // The last picture row is the bottom of the PC's screen; the padding clamps to it.
+  const box = { left: 0, top: 0, width: 1920, height: 1082 };
+  assert.deepEqual(input.positionMessage(960, 1080, box, padded, shown), { v: 1, type: 'mouse-position', x: 0.5, y: 1 });
+  assert.deepEqual(input.positionMessage(960, 1081, box, padded, shown), { v: 1, type: 'mouse-position', x: 0.5, y: 1 });
+  assert.deepEqual(input.positionMessage(960, 540, box, padded, shown), { v: 1, type: 'mouse-position', x: 0.5, y: 0.5 });
+});
+
+test('every page that shows a stream crops the padding and maps the pointer to the picture', () => {
+  for (const file of ['./src/play/Play.svelte', './src/pages/Stream.svelte', './src/guest/Guest.svelte']) {
+    const page = readFileSync(new URL(file, import.meta.url), 'utf8');
+    assert.match(page, /cropPadding\(video, /, file);
+    assert.match(page, /video\.getBoundingClientRect\(\), size, shown\)/, file);
+  }
 });
 
 test('a second button pressed or released while one is held is not lost', () => {

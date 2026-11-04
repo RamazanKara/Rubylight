@@ -8,7 +8,7 @@
   import Field from '../components/Field.svelte';
   import Input from '../components/Input.svelte';
   import { GuestStream, gamepads, inviteToken, keyboardMouse, type Ending, type Joined } from '../lib/webrtc/guest';
-  import { buttonChanges, keyMessage, positionMessage, Wheel } from '../lib/webrtc/input';
+  import { buttonChanges, cropPadding, keyMessage, positionMessage, shownSize, Wheel } from '../lib/webrtc/input';
 
   type Phase = 'name' | 'joining' | 'waiting' | 'streaming' | 'ended';
 
@@ -144,6 +144,10 @@
     stream?.send(keyMessage(event.code, down));
   }
 
+  $effect(() => {
+    if (video && joined) return cropPadding(video, { width: joined.width, height: joined.height });
+  });
+
   function pointer(event: PointerEvent) {
     if (phase !== 'streaming' || !typing || !video) return;
     if (event.type === 'pointerdown') {
@@ -152,7 +156,8 @@
       surface?.setPointerCapture(event.pointerId);
     }
     const size = { width: video.videoWidth, height: video.videoHeight };
-    stream?.send(positionMessage(event.clientX, event.clientY, video.getBoundingClientRect(), size));
+    const shown = joined ? shownSize(size, joined) : size;
+    stream?.send(positionMessage(event.clientX, event.clientY, video.getBoundingClientRect(), size, shown));
     pressed(event.buttons);
   }
 

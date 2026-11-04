@@ -24,24 +24,61 @@ export function buttonMessage(button: number, down: boolean): InputMessage | nul
 
 const clamp = (value: number) => Math.min(1, Math.max(0, value));
 
+type Size = { width: number; height: number };
+
 /**
- * Where a pointer at (clientX, clientY) is on the picture, as a fraction of the video: the
- * element letterboxes the video (object-fit: contain), so the bars are left out. Null before
- * the first frame, when the size is unknown.
+ * The part of the video that is the picture. AMD encodes AV1 at sizes like 1920×1080 padded (as
+ * 1920×1082, AMF issue 423) and browsers don't crop it, so what lies past the stream's own size
+ * by no more than that padding is left out. Any other difference is a real size and stays.
+ */
+export function shownSize(video: Size, wanted: Size): Size {
+  const crop = (size: number, want: number, padding: number) => (want > 0 && size > want && size - want < padding ? want : size);
+  return { width: crop(video.width, wanted.width, 64), height: crop(video.height, wanted.height, 16) };
+}
+
+/** The CSS clip that hides the padding on the right and below, for a video letterboxed in `box`. */
+export function pictureClip(box: Size, video: Size, shown: Size): string {
+  if (!video.width || !video.height || (shown.width === video.width && shown.height === video.height)) return '';
+  const scale = Math.min(box.width / video.width, box.height / video.height);
+  const right = (box.width - video.width * scale) / 2 + (video.width - shown.width) * scale;
+  const bottom = (box.height - video.height * scale) / 2 + (video.height - shown.height) * scale;
+  return `inset(0 ${right}px ${bottom}px 0)`;
+}
+
+/** Keeps the element's clip right as the picture and the element change size; returns the stop. */
+export function cropPadding(video: HTMLVideoElement, wanted: Size): () => void {
+  const apply = () => {
+    const size = { width: video.videoWidth, height: video.videoHeight };
+    video.style.clipPath = pictureClip({ width: video.clientWidth, height: video.clientHeight }, size, shownSize(size, wanted));
+  };
+  apply();
+  video.addEventListener('resize', apply);
+  const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(apply);
+  observer?.observe(video);
+  return () => {
+    video.removeEventListener('resize', apply);
+    observer?.disconnect();
+    video.style.clipPath = '';
+  };
+}
+
+/**
+ * Where a pointer at (clientX, clientY) is on the picture, as a fraction of it: the element
+ * letterboxes the video (object-fit: contain), so the bars are left out, and `shown` leaves out
+ * the padding below and to the right. Null before the first frame, when the size is unknown.
  */
 export function positionMessage(
   clientX: number,
   clientY: number,
   box: { left: number; top: number; width: number; height: number },
-  video: { width: number; height: number },
+  video: Size,
+  shown: Size = video,
 ): InputMessage | null {
   if (!video.width || !video.height || !box.width || !box.height) return null;
   const scale = Math.min(box.width / video.width, box.height / video.height);
-  const width = video.width * scale;
-  const height = video.height * scale;
-  const left = box.left + (box.width - width) / 2;
-  const top = box.top + (box.height - height) / 2;
-  return { v: 1, type: 'mouse-position', x: clamp((clientX - left) / width), y: clamp((clientY - top) / height) };
+  const left = box.left + (box.width - video.width * scale) / 2;
+  const top = box.top + (box.height - video.height * scale) / 2;
+  return { v: 1, type: 'mouse-position', x: clamp((clientX - left) / (shown.width * scale)), y: clamp((clientY - top) / (shown.height * scale)) };
 }
 
 /** The bit of each DOM button (0 to 4) in `MouseEvent.buttons`: middle and right swap places. */

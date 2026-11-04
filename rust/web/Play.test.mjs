@@ -139,6 +139,16 @@ test('a key or button held a second counts once, and letting go starts over', ()
   assert.equal(released.id, held.id);
 });
 
+test('a key repeat of Back never closes the menu it just opened', () => {
+  const page = readFileSync(new URL('./src/play/Play.svelte', import.meta.url), 'utf8');
+  const windowKey = page.slice(page.indexOf('function windowKey'), page.indexOf('function key('));
+  assert.ok(windowKey.indexOf("action === 'back' && event.repeat") >= 0 &&
+    windowKey.indexOf("action === 'back' && event.repeat") < windowKey.indexOf('act(action)'), windowKey);
+  // The focus moves to the menu and the picture never sees the key let go.
+  const openMenu = page.slice(page.indexOf('function openMenu'), page.indexOf('function closeMenu'));
+  assert.match(openMenu, /backKey = false/);
+});
+
 test('the page opens on Connecting with its picture ready and no Experimental label', () => {
   const { body } = render(Play);
   assert.match(body, /Connecting…/);

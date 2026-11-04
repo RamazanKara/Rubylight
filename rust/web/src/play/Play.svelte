@@ -6,7 +6,7 @@
   import { onDestroy, onMount, tick } from 'svelte';
   import BrandMark from '../components/BrandMark.svelte';
   import { CODECS, codecName, defaultChoice, hardwareCodecs, optionFor, receivableCodecs, streamOptions, type AppEntry, type Choice, type StreamOption } from '../lib/webrtc/client';
-  import { buttonChanges, keyMessage, positionMessage, Wheel } from '../lib/webrtc/input';
+  import { buttonChanges, cropPadding, keyMessage, positionMessage, shownSize, Wheel } from '../lib/webrtc/input';
   import { deviceName, forgetCredentials, Hold, keyAction, loadCredentials, nearest, newPin, PadNavigator, PlayStream, saveCredentials, type Action, type Move } from '../lib/webrtc/play';
   import { RefusedError, SignallingError } from '../lib/webrtc/signalling';
 
@@ -253,6 +253,8 @@
   async function openMenu() {
     stream?.releaseAll();
     buttons = 0;
+    // The focus moves to the menu, so the picture never sees this key let go.
+    backKey = false;
     menu = true;
     await tick();
     menuBox?.querySelector<HTMLElement>('[data-nav]')?.focus();
@@ -329,11 +331,17 @@
     frame = requestAnimationFrame(loop);
   }
 
+  $effect(() => {
+    if (video && choice) return cropPadding(video, { width: choice.width, height: choice.height });
+  });
+
   function windowKey(event: KeyboardEvent) {
     if (live && !menu) return;
     const action = keyAction(event);
     if (!action) return;
     event.preventDefault();
+    // Holding Back opened the menu; its repeats must not close it again.
+    if (action === 'back' && event.repeat) return;
     act(action);
   }
 
@@ -360,7 +368,8 @@
       surface?.setPointerCapture(event.pointerId);
     }
     const size = { width: video.videoWidth, height: video.videoHeight };
-    stream?.send(positionMessage(event.clientX, event.clientY, video.getBoundingClientRect(), size));
+    const shown = choice ? shownSize(size, choice) : size;
+    stream?.send(positionMessage(event.clientX, event.clientY, video.getBoundingClientRect(), size, shown));
     pressed(event.buttons);
   }
 

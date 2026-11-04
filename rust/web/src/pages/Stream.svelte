@@ -25,7 +25,7 @@
     type Codec,
     type StreamOption,
   } from '../lib/webrtc/client';
-  import { buttonChanges, keyMessage, positionMessage, Wheel } from '../lib/webrtc/input';
+  import { buttonChanges, cropPadding, keyMessage, positionMessage, shownSize, Wheel } from '../lib/webrtc/input';
   import { RefusedError } from '../lib/webrtc/signalling';
 
   // The socket opens on the click to connect, not with the page: one tab or browser holds it,
@@ -242,8 +242,13 @@
   function position(event: PointerEvent) {
     if (phase !== 'streaming' || !video) return;
     const size = { width: video.videoWidth, height: video.videoHeight };
-    stream?.send(positionMessage(event.clientX, event.clientY, video.getBoundingClientRect(), size));
+    const shown = choice ? shownSize(size, choice) : size;
+    stream?.send(positionMessage(event.clientX, event.clientY, video.getBoundingClientRect(), size, shown));
   }
+
+  $effect(() => {
+    if (video && choice) return cropPadding(video, { width: choice.width, height: choice.height });
+  });
 
   /** Follows the buttons mask on every pointer event: a second button arrives as a move. */
   function pointer(event: PointerEvent) {

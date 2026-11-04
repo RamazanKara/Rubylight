@@ -87,7 +87,7 @@ public class PadLayoutTest {
 
     /** With Show Touchpad button on, the microphone and menu buttons sit below the touchpad; the stick clears both. */
     @Test public void theWasdStickClearsTheMicrophoneAndMenuButtons() {
-        // Phones as short as 392 dp, both ways up, and a tablet. A 16:10 phone has no room below the buttons, so
+        // Phones as short as 392 dp, both ways up, and a tablet. A 16:10 or 16:9 phone has no room below the buttons, so
         // there the stick clears the controls instead (theDefaultClustersDoNotOverlapOnPhonesInBothOrientations).
         float[][] surfaces = {{2400, 1078, 2.75f}, {1600, 720, 2}, {2340, 1080, 2.75f}, {1080, 2400, 2.75f}, {2560, 1600, 2}};
         PadLayout layout = new PadLayout();
@@ -115,6 +115,12 @@ public class PadLayoutTest {
                 assertFalse("The WASD stick overlaps a button at " + center[0] + "," + center[1] + " on " + where, overlap);
             }
         }
+        // A 1080p phone at 420 dpi (411 dp tall) has no room below the buttons: the stick keeps its spot below the
+        // touchpad there.
+        layout.bounds(PadLayout.Control.TOUCHPAD, 1920, 1080, 2.625f, box);
+        layout.bounds(PadLayout.Control.WASD, 1920, 1080, 2.625f, wasd);
+        assertTrue(wasd[1] >= box[1] + box[3]);
+        assertTrue(wasd[1] < box[1] + box[3] + PadLayout.TOP_BUTTONS_DP * 2.625f);
     }
 
     @Test public void aLayoutSavedBeforeTheWasdStickLoadsWithoutIt() {

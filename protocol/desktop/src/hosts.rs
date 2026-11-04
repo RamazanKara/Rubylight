@@ -1236,7 +1236,7 @@ impl Hosts {
             let client = identity
                 .ok_or_else(|| en("Nightjar has no client identity yet. Restart Nightjar and try again.").to_owned())
                 .and_then(|identity| client_for(&identity, &record, &record.address));
-            let result = client.as_ref().map_err(Clone::clone).and_then(|client| work(client));
+            let result = client.as_ref().map_err(Clone::clone).and_then(work);
             let client = match (client, matches!(result, Ok(PcPowerStep::Accepted))) {
                 (Ok(client), true) => client,
                 _ => return Some(Event::PcPower { id, ask, name, action, confirmed, result }),

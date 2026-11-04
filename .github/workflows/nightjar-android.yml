@@ -37,7 +37,8 @@ jobs:
           node scripts/device-docs.mjs --check
   desktop:
     # The Windows/Linux client: Linux build, unit tests and clippy (SDL3 is built from source).
-    runs-on: ubuntu-latest
+    # 24.04 for its glslang-tools 15.1.0, which rebuilds the PQ pass's SPIR-V byte for byte.
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -64,7 +65,8 @@ jobs:
             libavcodec-dev libavutil-dev libopus-dev libva-dev libx11-dev libxext-dev libxrandr-dev \
             libxcursor-dev libxi-dev libxss-dev libxfixes-dev libxtst-dev libxkbcommon-dev libwayland-dev \
             wayland-protocols libegl-dev libgl-dev libgles-dev libdrm-dev libgbm-dev libpulse-dev \
-            libasound2-dev libpipewire-0.3-dev libudev-dev libdbus-1-dev libdecor-0-dev
+            libasound2-dev libpipewire-0.3-dev libudev-dev libdbus-1-dev libdecor-0-dev \
+            glslang-tools libvulkan1 mesa-vulkan-drivers
           sudo chown -R "$USER" ~/apt-archives
           cmake --version | head -n 1
       - name: Test and lint the desktop client
@@ -72,6 +74,14 @@ jobs:
           cd protocol
           cargo clippy -p nightjar-desktop --all-targets --locked -- -D warnings
           cargo test -p nightjar-desktop --locked
+      # The PQ pass: its SPIR-V against glslang 15 (a missing or other glslang fails here), and the
+      # ignored GPU test on Mesa's software Vulkan (lavapipe, the runner has no GPU).
+      - name: Test the PQ present pass
+        env:
+          NIGHTJAR_REQUIRE_GLSLANG: '1'
+        run: |
+          cd protocol
+          cargo test -p nightjar-desktop --locked -- pq_present --include-ignored
   build:
     needs: docs
     runs-on: ubuntu-latest

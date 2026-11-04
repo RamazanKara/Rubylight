@@ -21,6 +21,7 @@
     <string name="pad_edit_hide">Hide</string>
     <string name="pad_edit_show">Show</string>
     <string name="pad_edit_reset">Reset</string>
+    <string name="pad_edit_add_wasd">WASD 스틱 추가</string>
     <string name="pad_edit_done">Done</string>
     <string name="pad_left_stick">Left stick</string>
     <string name="pad_right_stick">Right stick</string>

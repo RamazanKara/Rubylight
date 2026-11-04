@@ -100,6 +100,15 @@
         android:textAppearance="@style/TextAppearance.Nightjar.Body"
         android:textColor="@color/night_on_surface" />
 
+    <!-- Shown while the layout leaves the WASD stick out. -->
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/pad_editor_add_wasd"
+        style="@style/Widget.Nightjar.Button.Text"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="@string/pad_edit_add_wasd"
+        app:icon="@drawable/ic_add" />
+
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"

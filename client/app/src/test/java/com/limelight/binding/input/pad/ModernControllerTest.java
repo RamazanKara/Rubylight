@@ -282,6 +282,26 @@ public class ModernControllerTest {
         assertEveryKeyLetGo("Removed");
     }
 
+    @Test public void theEditorAddsTheWasdStickWithItsOwnButton() {
+        ModernController controller = controller(GAME);
+        assertEquals(View.GONE, controller.view(PadLayout.Control.WASD).getVisibility());
+        controller.startEditing();
+        PadEditor editor = (PadEditor) frame.getChildAt(frame.getChildCount() - 1);
+        View add = editor.findViewById(com.limelight.R.id.pad_editor_add_wasd);
+        assertEquals(View.VISIBLE, add.getVisibility());
+        assertTrue(add.performClick());
+        assertEquals(PadLayout.Control.WASD, editor.selected());
+        assertFalse(editor.draft().spec(PadLayout.Control.WASD).hidden);
+        assertEquals("Added, the button goes", View.GONE, add.getVisibility());
+        editor.toggleHidden();
+        assertEquals("Hidden again, it comes back", View.VISIBLE, add.getVisibility());
+        editor.toggleHidden();
+        controller.finishEditing(true);
+        layout();
+        assertEquals(View.VISIBLE, controller.view(PadLayout.Control.WASD).getVisibility());
+        assertFalse(controller("pc-1/app-8").layout().spec(PadLayout.Control.WASD).hidden);
+    }
+
     @Test public void theWasdStickHiddenWhileHeldLetsGo() {
         ModernController controller = wasdController();
         PadControlView stick = controller.view(PadLayout.Control.WASD);

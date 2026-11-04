@@ -47,7 +47,12 @@ impl Launcher {
         scroll_column(ui, "stream-hotkeys", SETTINGS_W, |ui| {
             for bound in shortcuts::hotkeys() {
                 let Some(action) = Action::from_hotkey(bound.id) else { continue };
-                let keys = bound.keys.as_deref().map_or_else(|| tr("Off").to_owned(), |keys| Chord::of_keys(keys).text());
+                let keys = match (&bound.keys, bound.taken) {
+                    (Some(keys), _) => Chord::of_keys(keys).text(),
+                    // A file with two actions on one chord: the earlier one has it.
+                    (None, Some(other)) => trf("Already used by {}", &[&Action::from_hotkey(other).map_or(other, |a| tr(a.label()))]),
+                    (None, None) => tr("Off").to_owned(),
+                };
                 row(ui, action.label(), &keys, |ui| {
                     ui.horizontal(|ui| {
                         let change = quiet_button(ui, "Change");
@@ -56,13 +61,19 @@ impl Launcher {
                             self.dialog = Dialog::StreamHotkey { id: bound.id, error: None };
                             self.focus_dialog = true;
                         }
+                        // A refusal (the last way out, a default another action has now) is said in
+                        // a toast; nothing changes.
                         if ui.add_enabled_ui(bound.keys.is_some(), |ui| quiet_button(ui, "Off")).inner.clicked() {
-                            shortcuts::turn_off_hotkey(bound.id);
-                            commands.push(Command::SaveHotkeys);
+                            match shortcuts::turn_off_hotkey(bound.id) {
+                                Ok(()) => commands.push(Command::SaveHotkeys),
+                                Err(message) => self.toast(message),
+                            }
                         }
                         if ui.add_enabled_ui(bound.changed, |ui| quiet_button(ui, "Reset")).inner.clicked() {
-                            shortcuts::reset_hotkey(bound.id);
-                            commands.push(Command::SaveHotkeys);
+                            match shortcuts::reset_hotkey(bound.id) {
+                                Ok(()) => commands.push(Command::SaveHotkeys),
+                                Err(message) => self.toast(message),
+                            }
                         }
                         change
                     }).inner

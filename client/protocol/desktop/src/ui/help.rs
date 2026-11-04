@@ -190,25 +190,31 @@ impl Launcher {
                 }
             } else {
                 card_title(ui, Icon::Play, tr("In a stream"));
-                // The chords share Ctrl+Alt+Shift: said once above them, the rows show the last key.
-                ui.horizontal_wrapped(|ui| {
-                    ui.label(RichText::new(tr("Hold")).font(regular(text::LABEL)).color(ON_SURFACE_VARIANT));
-                    let held = Chord::nightjar(shortcuts::Key::Tab);
-                    let mut pieces = glyphs::chord(held, false);
-                    pieces.truncate(pieces.len() - 2);
-                    glyphs::show(ui, &pieces);
-                    ui.label(RichText::new(tr("and press:")).font(regular(text::LABEL)).color(ON_SURFACE_VARIANT));
-                });
-                ui.add_space(space::XS);
+                // The chords that share Ctrl+Alt+Shift: said once above them, the rows show the last
+                // key. Only while some do: the user may have changed every one.
                 let (chords, alone): (Vec<&shortcuts::KeyBinding>, Vec<_>) = stream.iter().partition(|b| b.chords.iter().all(|c| c.is_nightjar()));
+                if !chords.is_empty() {
+                    ui.horizontal_wrapped(|ui| {
+                        ui.label(RichText::new(tr("Hold")).font(regular(text::LABEL)).color(ON_SURFACE_VARIANT));
+                        let held = Chord::nightjar(shortcuts::Key::Tab);
+                        let mut pieces = glyphs::chord(held, false);
+                        pieces.truncate(pieces.len() - 2);
+                        glyphs::show(ui, &pieces);
+                        ui.label(RichText::new(tr("and press:")).font(regular(text::LABEL)).color(ON_SURFACE_VARIANT));
+                    });
+                    ui.add_space(space::XS);
+                }
                 for (i, binding) in chords.iter().enumerate() {
                     let pieces = glyphs::chords(&binding.chords, true);
                     let spoken = glyphs::spoken(&glyphs::chords(&binding.chords, false));
                     self.keys_line_spoken(ui, &format!("help-stream-key-{i}"), tr(binding.action.label()), &pieces, &spoken, i + 1 == chords.len() && alone.is_empty());
                 }
                 if !alone.is_empty() {
-                    ui.add_space(space::S);
-                    ui.label(RichText::new(tr("Without Ctrl+Alt+Shift")).font(semibold(text::CAPTION)).color(ON_SURFACE_VARIANT));
+                    // Set apart from the held chords above, when there are any.
+                    if !chords.is_empty() {
+                        ui.add_space(space::S);
+                        ui.label(RichText::new(tr("Without Ctrl+Alt+Shift")).font(semibold(text::CAPTION)).color(ON_SURFACE_VARIANT));
+                    }
                     for (i, binding) in alone.iter().enumerate() {
                         let pieces = glyphs::chords(&binding.chords, false);
                         self.keys_line(ui, &format!("help-stream-alone-{i}"), tr(binding.action.label()), &pieces, i + 1 == alone.len());

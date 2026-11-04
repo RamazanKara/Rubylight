@@ -834,6 +834,12 @@ impl App {
                 SDL_EVENT_GAMEPAD_BUTTON_DOWN | SDL_EVENT_GAMEPAD_BUTTON_UP | SDL_EVENT_GAMEPAD_AXIS_MOTION => {
                     if self.launcher.screen != Screen::Controllers || !self.launcher.controller_test { self.navigate(event); }
                 }
+                // A stream hotkey being recorded takes every key, F11 and F12 too.
+                SDL_EVENT_KEY_DOWN if self.launcher.recording_hotkey() => {
+                    if let Some(command) = self.launcher.hotkey_key_down(event.key.scancode, event.key.r#mod, event.key.repeat) {
+                        self.command(command);
+                    }
+                }
                 SDL_EVENT_KEY_DOWN if shortcuts::key_action(Scope::Launcher, event.key.scancode, event.key.r#mod) == Some(Action::Screenshot) => {
                     self.screenshot_requested = true;
                 }
@@ -3179,7 +3185,7 @@ mod tests {
         assert_eq!(start_toast(None, None), "Ctrl+Alt+Shift+Tab opens controls, Ctrl+Alt+Shift+Q disconnects, Ctrl+Alt+Shift+Z releases input");
         // The hint follows the hotkeys as bound.
         shortcuts::record_hotkey("quit", &["CTRL".into(), "F9".into()]).unwrap();
-        shortcuts::turn_off_hotkey("capture");
+        shortcuts::turn_off_hotkey("capture").unwrap();
         assert_eq!(start_toast(None, None), "Ctrl+Alt+Shift+Tab opens controls, Ctrl+F9 disconnects");
         shortcuts::set_hotkeys(Default::default());
         assert_eq!(start_toast(None, Some("Streaming in YUV 4:4:4.")), "Streaming in YUV 4:4:4.");

@@ -778,7 +778,8 @@ impl Launcher {
             rows.always();
 
             rows.section(en("Controls"));
-            setting_row(ui, s, &mut rows, &["mouse_mode"], "Mouse", "Captured suits games: the pointer stays in the stream. Desktop pointer suits remote work. Ctrl+Alt+Shift+M switches during a stream.", |ui, s| {
+            let mouse = with_hotkey(tr("Captured suits games: the pointer stays in the stream. Desktop pointer suits remote work."), crate::shortcuts::Action::MouseMode);
+            setting_row(ui, s, &mut rows, &["mouse_mode"], "Mouse", &mouse, |ui, s| {
                 egui::ComboBox::from_id_salt("mouse")
                     .selected_text(mouse_name(s.mouse_mode))
                     .show_ui(ui, |ui| {
@@ -878,11 +879,8 @@ impl Launcher {
                 toggle(ui, &mut s.background_controllers)
             });
             rows.always();
-            rows.caption(ui, &trf(
-                "While streaming: Ctrl+Alt+Shift+Q leaves, +Z releases input, +X toggles fullscreen, +D minimizes. \
-                 On a controller, {} leaves.",
-                &[&style.quit_combo(s.gamepad_quit_combo)],
-            ));
+            // The keyboard's chords are on the Stream hotkeys page, as the user bound them.
+            rows.caption(ui, &trf("On a controller, {} leaves the stream.", &[&style.quit_combo(s.gamepad_quit_combo)]));
 
             rows.section(en("Audio"));
             setting_row(ui, s, &mut rows, &["audio"], "Channels", "Stereo suits most speakers and headphones. Surround needs a PC and speakers that support it.", |ui, s| {
@@ -924,8 +922,8 @@ impl Launcher {
             });
 
             rows.section(en("Streaming"));
-            setting_row(ui, s, &mut rows, &["overlay", "overlay_mode"], "Performance overlay",
-                "Shows how the stream is doing. Compact is one line; Statistics adds frame rates, network and decode times; Debug shows every measurement. Ctrl+Alt+Shift+S switches it during a stream.", |ui, s| {
+            let overlay = with_hotkey(tr("Shows how the stream is doing. Compact is one line; Statistics adds frame rates, network and decode times; Debug shows every measurement."), crate::shortcuts::Action::Overlay);
+            setting_row(ui, s, &mut rows, &["overlay", "overlay_mode"], "Performance overlay", &overlay, |ui, s| {
                 let shown = if s.overlay { tr(s.overlay_mode.label()) } else { tr("Off") };
                 egui::ComboBox::from_id_salt("overlay-mode").selected_text(shown).show_ui(ui, |ui| {
                     if ui.selectable_label(!s.overlay, tr("Off")).clicked() { s.overlay = false; }
@@ -1557,6 +1555,14 @@ fn group_heading(ui: &mut Ui, title: &str, note: &str, above: f32) {
 
 /// A setting's row, or None while it is not shown (another section, or the search passes it).
 /// `keys` empty: a row of its own (a link, an action) with no default and no layer box.
+/// A setting's description and, while `action` has a stream hotkey, the chord the user bound for it.
+fn with_hotkey(description: &str, action: crate::shortcuts::Action) -> String {
+    match crate::shortcuts::chord_for(crate::shortcuts::Scope::Stream, action) {
+        Some(chord) => format!("{description} {}", trf("{} switches it during a stream.", &[&chord.text()])),
+        None => description.to_owned(),
+    }
+}
+
 pub(super) fn setting_row(
     ui: &mut Ui,
     settings: &mut Settings,

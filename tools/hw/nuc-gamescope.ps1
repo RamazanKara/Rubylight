@@ -78,10 +78,10 @@ function Stop-RemoteBatch {
 }
 
 # Runs every step; a step that throws is said and makes the code at least 1, but exit 3 (a hang)
-# stays 3.
+# stays 3. What a step prints goes to the console, not into the code returned.
 function Invoke-Steps([int] $Code, [scriptblock[]] $Steps) {
     foreach ($step in $Steps) {
-        try { & $step } catch {
+        try { & $step | Out-Host } catch {
             Write-Host "failed: $_" -ForegroundColor Red
             if ($Code -ne $EXIT_GPU_HANG) { $Code = [math]::Max($Code, 1) }
         }
@@ -164,6 +164,8 @@ if ($SelfTest) {
         expect 'a failing step after a hang keeps exit 3 and the next step runs' ($kept -eq 3 -and $ran.Contains(2))
         expect 'a failing step otherwise gives exit 1' ((Invoke-Steps 0 @({ throw 'scp failed' }) 6>$null) -eq 1)
         expect 'steps that pass keep the code' ((Invoke-Steps 0 @({ }, { })) -eq 0 -and (Invoke-Steps 2 @({ })) -eq 2)
+        $printed = Invoke-Steps 0 @({ 'batch.txt line 1'; 'line 2' }) 6>$null
+        expect 'a step that prints still returns the code alone' ($printed -is [int] -and $printed -eq 0)
         # The end of the batch: the watch reads on while the host log grows.
         $log = Join-Path $dir 'butterpollo.log'
         Set-Content $log 'start'

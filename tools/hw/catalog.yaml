@@ -432,6 +432,26 @@ cases:
     status: pending
     note: 'no Shield here. The rule replays the 4.4.0 captures (DecoderQueuePolicyTest.debtReplaysTheRecordedShieldStreams: sm1 recovers at 65-75 s, sm2 and sm1 after 110 s never drop); that a held drop frees the display buffer is inferred from sm1''s catch-up at 109.7 s (12 to 1 ms). Retroid and TCL TV runs check only that healthy streams never drop'
 
+  - id: nightjar-steam-deck
+    device: user
+    title: Nightjar on a Steam Deck (Experimental), the Flatpak as a non-Steam game in Game Mode, SDR and HDR
+    command: 'the user installs the release .flatpak on a Steam Deck (OLED for HDR), adds it to Steam as a non-Steam game, starts it in Game Mode and plays a stream with the built-in controls only'
+    preconditions: [idle]
+    pass: 'it opens fullscreen without a border, the pointer hides once the controller is used, Start+Back opens the stream menu, Guide stays with Steam; with HDR on (OLED, VulkanLayer.gamescope installed) the log line names "output HDR as scRGB" or "as HDR10 PQ" and the picture is HDR, otherwise "output SDR, ..." and the note'
+    output: ~/.var/app/io.github.ramazankara.nightjar/config/nightjar/logs on the Deck (read after the user's run)
+    status: pending
+    note: client/docs/steam-deck.md; no Steam Deck here, the NUC's gamescope runs (nightjar-gamescope-nuc) stand in
+
+  - id: nightjar-gamescope-nuc
+    device: nuc
+    title: Nightjar desktop under headless gamescope 1280x800@60 on the NUC, with and without --hdr-enabled, driven by a virtual Xbox pad
+    command: 'Write-Error "not scripted yet: see note"; exit 1'
+    preconditions: [isolated-ports, gpu-lock]
+    pass: 'the log has "gamescope: starting fullscreen without a border" and the "renderer ...; output ..." line (HDR as scRGB or HDR10 PQ under --hdr-enabled when the swapchain offers it, else SDR with the note), the pad''s buttons move the launcher focus and start the stream, a 60 s stream ends with its video summary and no stall; decode and present p50/p95 and drops within a few percent of the same stream outside gamescope'
+    output: the client log under the run's NIGHTJAR_CONFIG_DIR and the isolated host's stream timings
+    status: pending
+    note: stream from the isolated nj-e2e-host on 192.168.4.69:48463 (device-stream-isolated-host); the pad is python-evdev uinput (045e:028e) as in ~/nj440/vpad.py
+
   - id: clipboard-image-desktop
     device: desktop
     title: Images through this PC's real clipboard (PNG and CF_DIBV5 in, PNG out)

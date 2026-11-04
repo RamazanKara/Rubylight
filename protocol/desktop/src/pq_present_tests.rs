@@ -19,26 +19,41 @@ fn the_header_names_one_glslang_command_per_shader() {
     assert_eq!(outputs, ["pq_present_vertex.spv", "pq_present_fragment.spv"]);
 }
 
+/// Why the SPIR-V cannot be compared with the glslangValidator `--version` printed (None if it
+/// can): not installed, or not the major version `pinned` that built it.
+fn glslang_mismatch(installed: Option<&str>, pinned: &str) -> Option<String> {
+    let Some(installed) = installed else {
+        return Some("glslangValidator not found".into());
+    };
+    // "Glslang Version: 11:15.1.0": the major version after the colon.
+    let major = installed.rsplit(':').next().and_then(|v| v.split('.').next()).unwrap_or("");
+    (major != pinned).then(|| format!("{installed} is not the glslang {pinned} that built the SPIR-V"))
+}
+
+#[test]
+fn a_missing_or_other_glslang_is_named() {
+    assert_eq!(glslang_mismatch(Some("Glslang Version: 11:15.1.0"), "15"), None);
+    assert_eq!(glslang_mismatch(Some("Glslang Version: 11:16.0.0"), "15").unwrap(), "Glslang Version: 11:16.0.0 is not the glslang 15 that built the SPIR-V");
+    assert_eq!(glslang_mismatch(None, "15").unwrap(), "glslangValidator not found");
+}
+
 /// The checked-in SPIR-V is the HLSL compiled with the header's own commands. Needs the
-/// glslangValidator major version the header names on PATH (`glslang-tools` 15); without
-/// it the test says so and passes, as CI has none.
+/// glslangValidator major version the header names on PATH (`glslang-tools` 15); without it
+/// the test says so and passes, unless NIGHTJAR_REQUIRE_GLSLANG=1 (CI's desktop job) makes
+/// that a failure.
 #[test]
 fn the_spirv_is_the_hlsl_compiled() {
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     let hlsl = include_str!("pq_present.hlsl");
     let pinned = hlsl.lines().find_map(|line| line.split_once("from glslang ").map(|(_, v)| v.split_whitespace().next().unwrap())).expect("the header names the glslang version");
     let installed = match std::process::Command::new("glslangValidator").arg("--version").output() {
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            eprintln!("glslangValidator not found: the SPIR-V is not compared");
-            return;
-        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
         Err(e) => panic!("glslangValidator: {e}"),
-        Ok(run) => String::from_utf8_lossy(&run.stdout).lines().next().unwrap_or("").trim().to_owned(),
+        Ok(run) => Some(String::from_utf8_lossy(&run.stdout).lines().next().unwrap_or("").trim().to_owned()),
     };
-    // "Glslang Version: 11:15.1.0": the major version after the colon.
-    let major = installed.rsplit(':').next().and_then(|v| v.split('.').next()).unwrap_or("");
-    if major != pinned {
-        eprintln!("{installed} is not the glslang {pinned} that built the SPIR-V: not compared");
+    if let Some(why) = glslang_mismatch(installed.as_deref(), pinned) {
+        assert!(std::env::var_os("NIGHTJAR_REQUIRE_GLSLANG").is_none_or(|v| v != "1"), "{why}, and NIGHTJAR_REQUIRE_GLSLANG=1 asks for the comparison");
+        eprintln!("{why}: the SPIR-V is not compared");
         return;
     }
     let out = std::env::temp_dir().join(format!("nightjar-pq-spirv-{}", std::process::id()));

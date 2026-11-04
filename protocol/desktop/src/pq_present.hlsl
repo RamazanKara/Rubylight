@@ -5,8 +5,9 @@
 // Vulkan only, compiled with glslang (dxc is not used here):
 //   glslangValidator -V -D -e vertex -S vert --target-env vulkan1.0 pq_present.hlsl -o pq_present_vertex.spv
 //   glslangValidator -V -D -e fragment -S frag --auto-sampled-textures --target-env vulkan1.0 pq_present.hlsl -o pq_present_fragment.spv
-// The checked-in .spv files are from glslang 15 (Ubuntu 24.04's and Debian 13's glslang-tools);
-// glslang 16 numbers the IDs differently, so the test compares them only with a glslang 15.
+// The checked-in .spv files are from glslang 15 (Ubuntu 24.04's glslang-tools 15.1.0 and
+// Debian 13's 15.2.0 rebuild them byte for byte). glslang 16 numbers the IDs differently, so
+// the test compares them only with a glslang 15 (CI's desktop job requires one).
 // SDL's fragment sampler slots are t0/s0 in space2.
 
 Texture2D<float4> frame : register(t0, space2);

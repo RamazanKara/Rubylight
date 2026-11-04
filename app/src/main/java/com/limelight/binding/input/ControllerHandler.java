@@ -141,7 +141,10 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
     private final Vibrator deviceVibrator;
     // The phone's vibrator is standing in for a player 1 pad without a motor; it can run for
     // minutes on its own, so removing that pad has to stop it.
-    private boolean deviceVibratorForPlayerOne;
+    private volatile boolean deviceVibratorForPlayerOne;
+    // Vibrator calls are Binder calls, which can stall, and the main thread takes this handler's lock
+    // (quitting, key events, device changes), so rumble keeps to a lock of its own (nightjar#73).
+    private final Object rumbleLock = new Object();
     private final VibratorManager deviceVibratorManager;
     private final SensorManager deviceSensorManager;
     private final SceManager sceManager;
@@ -2735,7 +2738,13 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         }
     }
 
-    public synchronized void handleRumble(short controllerNumber, short lowFreqMotor, short highFreqMotor) {
+    public void handleRumble(short controllerNumber, short lowFreqMotor, short highFreqMotor) {
+        synchronized (rumbleLock) {
+            rumble(controllerNumber, lowFreqMotor, highFreqMotor);
+        }
+    }
+
+    private void rumble(short controllerNumber, short lowFreqMotor, short highFreqMotor) {
         boolean foundMatchingDevice = false;
         boolean vibrated = false;
 
@@ -2773,14 +2782,21 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
                     vibrated = true;
                     rumbleSingleVibrator(deviceContext.vibrator, deviceContext.lowFreqMotor, deviceContext.highFreqMotor);
                 }
+                // stop() does not wait for these calls, and one it ran across would keep a motor on for a minute.
+                if (stopped) deviceContext.cancelMotors();
             }
         }
 
-        for (UsbDeviceContext deviceContext : usbDeviceContexts.values()) {
+        synchronized (this) {
+            if (stopped) {
+                return;
+            }
+            for (UsbDeviceContext deviceContext : usbDeviceContexts.values()) {
 
-            if (deviceContext.assignedControllerNumber && deviceContext.controllerNumber == controllerNumber) {
-                foundMatchingDevice = vibrated = true;
-                deviceContext.device.rumble(lowFreqMotor, highFreqMotor);
+                if (deviceContext.assignedControllerNumber && deviceContext.controllerNumber == controllerNumber) {
+                    foundMatchingDevice = vibrated = true;
+                    deviceContext.device.rumble(lowFreqMotor, highFreqMotor);
+                }
             }
         }
 
@@ -2802,10 +2818,17 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
                 deviceVibratorForPlayerOne = true;
                 rumbleSingleVibrator(deviceVibrator, lowFreqMotorAdjusted, highFreqMotorAdjusted);
             }
+            if (stopped) deviceVibrator.cancel();
         }
     }
 
-    public synchronized void handleRumbleTriggers(short controllerNumber, short leftTrigger, short rightTrigger) {
+    public void handleRumbleTriggers(short controllerNumber, short leftTrigger, short rightTrigger) {
+        synchronized (rumbleLock) {
+            rumbleTriggers(controllerNumber, leftTrigger, rightTrigger);
+        }
+    }
+
+    private void rumbleTriggers(short controllerNumber, short leftTrigger, short rightTrigger) {
         if (stopped || !rumbleAllowed) {
             return;
         }
@@ -2821,15 +2844,21 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
                         rumbleQuadVibrators(deviceContext.vibratorManager,
                                 deviceContext.lowFreqMotor, deviceContext.highFreqMotor,
                                 deviceContext.leftTriggerMotor, deviceContext.rightTriggerMotor);
+                        if (stopped) deviceContext.cancelMotors();
                     }
                 }
             }
         }
 
-        for (UsbDeviceContext deviceContext : usbDeviceContexts.values()) {
+        synchronized (this) {
+            if (stopped) {
+                return;
+            }
+            for (UsbDeviceContext deviceContext : usbDeviceContexts.values()) {
 
-            if (deviceContext.assignedControllerNumber && deviceContext.controllerNumber == controllerNumber) {
-                deviceContext.device.rumbleTriggers(leftTrigger, rightTrigger);
+                if (deviceContext.assignedControllerNumber && deviceContext.controllerNumber == controllerNumber) {
+                    deviceContext.device.rumbleTriggers(leftTrigger, rightTrigger);
+                }
             }
         }
     }
@@ -4595,17 +4624,21 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
             }
         };
 
-        @Override
-        public synchronized void destroy() {
-            destroyed = true;
-            super.destroy();
-
+        void cancelMotors() {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && vibratorManager != null) {
                 vibratorManager.cancel();
             }
             else if (vibrator != null) {
                 vibrator.cancel();
             }
+        }
+
+        @Override
+        public synchronized void destroy() {
+            destroyed = true;
+            super.destroy();
+
+            cancelMotors();
 
             mainThreadHandler.removeCallbacks(enableSensorRunnable);
             backgroundThreadHandler.removeCallbacks(setLedStateRunnable);
@@ -4834,8 +4867,10 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
             enableSensors();
 
             // Refresh the LED state if it's set. We don't know if there was a pending LED state
-            // callback when the context was migrated, so we'll reset it just to be safe.
-            if (this.lightsSession != null) {
+            // callback when the context was migrated, so we'll reset it just to be safe. The old
+            // context may still have been opening its session, which it closes when it finds itself
+            // destroyed, so a colour without a session counts too.
+            if (this.lightsSession != null || this.ledArgbValue != 0) {
                 backgroundThreadHandler.post(setLedStateRunnable);
             }
 

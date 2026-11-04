@@ -19,10 +19,25 @@ use tower::ServiceExt;
 const LAN: &str = "192.168.4.20:50000";
 const WAN: &str = "203.0.113.7:50000";
 
+/// The PC's Tailscale address, where Tailscale peers arrive.
+const TAILNET_HOST: &str = "100.90.1.2:47991";
+/// A connection from `peer` to the PC's address it reaches: the Tailscale one for a 100.64/10
+/// peer, the LAN one otherwise.
 fn connection(peer: &str) -> Connection {
+    let tailscale = peer.starts_with("100.");
+    connection_to(
+        peer,
+        if tailscale {
+            TAILNET_HOST
+        } else {
+            "192.168.4.69:47990"
+        },
+    )
+}
+fn connection_to(peer: &str, local: &str) -> Connection {
     Connection {
         peer: peer.parse().unwrap(),
-        local: "192.168.4.69:47990".parse().unwrap(),
+        local: local.parse().unwrap(),
         certificate: None,
         tls: true,
     }
@@ -122,6 +137,30 @@ async fn send(
     headers: &[(&str, String)],
     body: Option<Value>,
 ) -> Reply {
+    send_on(router, connection(peer), method, path, headers, body).await
+}
+
+/// A request on the guest port from `peer` to this PC's `local` address.
+async fn guest_on(f: &Fixture, peer: &str, local: &str, method: &str, path: &str) -> Reply {
+    send_on(
+        guest_router(f.host.clone()),
+        connection_to(peer, local),
+        method,
+        path,
+        &[],
+        None,
+    )
+    .await
+}
+
+async fn send_on(
+    router: Router,
+    connection: Connection,
+    method: &str,
+    path: &str,
+    headers: &[(&str, String)],
+    body: Option<Value>,
+) -> Reply {
     let mut request = Request::builder()
         .method(method)
         .uri(path)
@@ -137,7 +176,7 @@ async fn send(
         None => Body::empty(),
     };
     let response = router
-        .layer(Extension(connection(peer)))
+        .layer(Extension(connection))
         .oneshot(request.body(body).unwrap())
         .await
         .unwrap();
@@ -797,29 +836,52 @@ async fn an_internet_peer_gets_no_play_page_or_socket_whatever_its_headers_say()
         ],
     ];
     // A router forwarding TCP 47991 hands the internet peer's address to the LAN socket as it is.
-    for peer in [WAN, "[2001:db8::7]:50000", "8.8.8.8:443"] {
+    // One that source-NATs its forwards hands over its own, the default gateway; a neighbour
+    // behind the ISP's carrier-grade NAT arrives from 100.64/10 on the LAN address.
+    let gateway = format!("{}:50000", crate::network::TEST_GATEWAY);
+    let peers = [
+        (WAN, "192.168.4.69:47991"),
+        ("[2001:db8::7]:50000", "192.168.4.69:47991"),
+        ("8.8.8.8:443", "192.168.4.69:47991"),
+        (gateway.as_str(), "192.168.4.69:47991"),
+        ("100.101.102.103:50000", "192.168.4.69:47991"),
+        ("100.64.0.9:50000", "[::ffff:192.168.4.69]:47991"),
+    ];
+    // The guest port's answer to a path it does not serve: what the internet gets for /play too.
+    let unserved = guest(&f, WAN, "GET", "/nothing", &[]).await;
+    assert_eq!(unserved.status, StatusCode::NOT_FOUND);
+    for (peer, local) in peers {
         for headers in &spoofed {
-            for (method, path) in [
-                ("GET", "/play"),
-                ("GET", "/play/"),
-                ("GET", "/play/index.html"),
-                ("GET", "/play/assets/play-1.js"),
-                ("POST", "/play/signal"),
-            ] {
-                let refused = guest(&f, peer, method, path, headers).await;
-                assert_eq!(
-                    refused.status,
-                    StatusCode::FORBIDDEN,
-                    "{peer} {path} {headers:?}"
-                );
-                assert!(!refused.text().contains("play page"));
-            }
             let mut upgrade = play_upgrade();
             upgrade.extend(headers.iter().cloned());
-            let socket = guest(&f, peer, "GET", "/play/signal", &upgrade).await;
-            assert_eq!(socket.status, StatusCode::FORBIDDEN, "{peer} {headers:?}");
+            for (method, path, headers) in [
+                ("GET", "/play", headers),
+                ("GET", "/play/", headers),
+                ("GET", "/play/index.html", headers),
+                ("GET", "/play/assets/play-1.js", headers),
+                ("POST", "/play/signal", headers),
+                ("GET", "/play/signal", &upgrade),
+            ] {
+                let refused = send_on(
+                    guest_router(f.host.clone()),
+                    connection_to(peer, local),
+                    method,
+                    path,
+                    headers,
+                    None,
+                )
+                .await;
+                assert_eq!(
+                    (refused.status, refused.text()),
+                    (unserved.status, unserved.text()),
+                    "{peer} on {local} {method} {path} {headers:?}"
+                );
+            }
         }
     }
+    // Real Tailscale traffic arrives on the PC's Tailscale address.
+    let tailnet = guest_on(&f, "100.101.102.103:50000", TAILNET_HOST, "GET", "/play/").await;
+    assert_eq!(tailnet.text(), "<p>play page</p>");
     // A LAN peer is not refused for a header naming the internet either.
     let page = guest(
         &f,
@@ -834,6 +896,81 @@ async fn an_internet_peer_gets_no_play_page_or_socket_whatever_its_headers_say()
     assert_eq!(
         guest(&f, WAN, "GET", "/guest/", &[]).await.text(),
         "<p>guest page</p>"
+    );
+}
+
+#[tokio::test]
+async fn with_no_link_open_the_internet_gets_the_closed_guest_port_for_play_too() {
+    let f = Fixture::new();
+    configure(&f, json!({"webrtc_server": true}));
+    install_play(&f);
+    let closed = guest(&f, WAN, "GET", "/", &[]).await;
+    assert_eq!(closed.status, StatusCode::NOT_FOUND);
+    for (peer, local) in [
+        (WAN, "192.168.4.69:47991"),
+        ("100.101.102.103:50000", "192.168.4.69:47991"),
+        ("192.168.4.1:50000", "192.168.4.69:47991"),
+    ] {
+        for path in ["/play", "/play/", "/play/signal"] {
+            let refused = guest_on(&f, peer, local, "GET", path).await;
+            assert_eq!(
+                (refused.status, refused.text()),
+                (closed.status, closed.text()),
+                "{peer} {path}"
+            );
+        }
+    }
+    assert_eq!(
+        guest(&f, LAN, "GET", "/play/", &[]).await.text(),
+        "<p>play page</p>"
+    );
+}
+
+#[tokio::test]
+async fn a_play_pairing_request_may_not_carry_its_pin_in_the_name_and_shows_its_address() {
+    let f = Fixture::new();
+    configure(&f, json!({"webrtc_server": true}));
+    let address = serve(&f).await;
+    let (mut ws, _) = play_socket(address, "").await;
+    for name in [
+        "Living room TV - PIN 4821",
+        "4821",
+        "TV 4-8-2-1",
+        "TV \u{ff14}\u{ff18}\u{ff12}\u{ff11}",
+    ] {
+        ws.send(
+            json!({"version": 2, "type": "request-pairing", "pin": "4821", "clientName": name}),
+        )
+        .await;
+        let refused = ws.expect("error").await;
+        assert_eq!(refused["code"], "invalid-message", "{name}");
+        assert!(
+            refused["message"].as_str().unwrap().contains("PIN"),
+            "{refused}"
+        );
+    }
+    let pending =
+        crate::web::update_clients(&f.host, "GET", "/api/clients/pending", &Value::Null).unwrap();
+    assert_eq!(pending["requests"], json!([]));
+    // A name with other digits pairs; the console lists it with the address it came from.
+    ws.send(json!({"version": 2, "type": "request-pairing", "pin": "4821", "clientName": "Living room TV 2024"}))
+        .await;
+    let mut request = Value::Null;
+    for _ in 0..200 {
+        let pending =
+            crate::web::update_clients(&f.host, "GET", "/api/clients/pending", &Value::Null)
+                .unwrap();
+        if let Some(first) = pending["requests"].as_array().and_then(|r| r.first()) {
+            request = first.clone();
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    assert_eq!(request["name"], "Living room TV 2024", "{request}");
+    assert_eq!(request["address"], "127.0.0.1", "{request}");
+    assert_eq!(
+        crate::state::pairing_notice("Living room TV 2024", "192.168.4.20".parse().unwrap()),
+        "Living room TV 2024 (from 192.168.4.20) wants to pair. Enter the PIN it shows in the Rubylight console."
     );
 }
 

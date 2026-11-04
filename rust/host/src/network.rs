@@ -49,6 +49,51 @@ pub fn web_reach(config: &Config) -> Reach {
         _ => Reach::Pc,
     }
 }
+/// Carrier-grade NAT space, 100.64.0.0/10: Tailscale's addresses, and also the WAN side of a
+/// router behind an ISP's NAT, whose other customers connect from it.
+fn shared_address_space(address: IpAddr) -> bool {
+    matches!(address.to_canonical(), IpAddr::V4(ip) if ip.octets()[0] == 100 && ip.octets()[1] & 0xc0 == 64)
+}
+/// Why `/play` refuses a browser at `peer` that reached this host on `local`, if it does, given
+/// the PC's default gateways. Only the TCP peer counts. A forwarded guest port can make an
+/// internet peer look local: a CGNAT neighbour's 100.64/10 address arrives on the LAN address
+/// (real Tailscale traffic arrives on the Tailscale address), and a router that source-NATs its
+/// forwards hands over its own address.
+pub fn play_refusal(peer: IpAddr, local: IpAddr, gateways: &[IpAddr]) -> Option<&'static str> {
+    let peer = peer.to_canonical();
+    if reach(peer) > Reach::Lan {
+        return Some("the browser is outside the local network");
+    }
+    if shared_address_space(peer) && !shared_address_space(local) {
+        return Some("a 100.64/10 browser reached a non-Tailscale address of this PC");
+    }
+    if gateways
+        .iter()
+        .any(|gateway| gateway.to_canonical() == peer)
+    {
+        return Some("the browser connects from the default gateway, which forwards the internet");
+    }
+    None
+}
+/// [`play_refusal`] with this PC's default gateways. A routing table that cannot be read refuses:
+/// the gateway check would be skipped.
+pub fn play_refused(peer: SocketAddr, local: SocketAddr) -> Option<String> {
+    match default_gateways() {
+        Ok(gateways) => play_refusal(peer.ip(), local.ip(), &gateways).map(str::to_owned),
+        Err(error) => Some(format!("the default gateway could not be read: {error:#}")),
+    }
+}
+#[cfg(not(test))]
+fn default_gateways() -> Result<Vec<IpAddr>> {
+    butterpollo_windows::net::default_gateways()
+}
+/// The router of the test fixtures' 192.168.4.0/24, rather than this PC's.
+#[cfg(test)]
+pub const TEST_GATEWAY: &str = "192.168.4.1";
+#[cfg(test)]
+fn default_gateways() -> Result<Vec<IpAddr>> {
+    Ok(vec![TEST_GATEWAY.parse()?])
+}
 pub fn encryption_mode(config: &Config, address: IpAddr) -> u32 {
     let lan = reach(address) <= Reach::Lan;
     config
@@ -529,6 +574,38 @@ mod tests {
             web_reach(&Config::parse("origin_web_ui_allowed = pc\n").unwrap()),
             Reach::Pc
         );
+    }
+    #[test]
+    fn play_takes_tailscale_only_on_its_address_and_never_the_gateway() {
+        let ip = |text: &str| text.parse::<IpAddr>().unwrap();
+        let gateways = [ip("192.168.4.1"), ip("fe80::1")];
+        let lan = ip("192.168.4.69");
+        let tailnet = ip("100.90.1.2");
+        for (peer, local, allowed) in [
+            ("192.168.4.20", lan, true),
+            ("127.0.0.1", ip("127.0.0.1"), true),
+            ("fd00::5", ip("fd00::69"), true),
+            // Tailscale traffic arrives on the PC's Tailscale address.
+            ("100.101.102.103", tailnet, true),
+            ("::ffff:100.101.102.103", ip("::ffff:100.90.1.2"), true),
+            // A CGNAT neighbour through a forwarded port arrives on the LAN address.
+            ("100.101.102.103", lan, false),
+            ("::ffff:100.64.0.9", lan, false),
+            // A router that source-NATs the forward: its own address, on either family.
+            ("192.168.4.1", lan, false),
+            ("::ffff:192.168.4.1", lan, false),
+            ("fe80::1", ip("fe80::69"), false),
+            ("203.0.113.7", lan, false),
+            ("100.128.0.1", tailnet, false),
+        ] {
+            assert_eq!(
+                play_refusal(ip(peer), local, &gateways).is_none(),
+                allowed,
+                "{peer} on {local}"
+            );
+        }
+        // With no gateway known, the LAN router's address is a LAN peer like any other.
+        assert!(play_refusal(ip("192.168.4.1"), lan, &[]).is_none());
     }
     #[test]
     fn lan_defaults_and_explicit_binding_keep_legacy_semantics() {

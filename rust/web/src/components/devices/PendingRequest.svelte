@@ -44,7 +44,9 @@
         <span class="name">{request.name}</span>
         {#if request.webrtc}<Badge>WebRTC</Badge>{/if}
       </span>
-      <span class="muted age">Requested {duration(request.age_seconds)} ago</span>
+      <span class="muted age">
+        {#if request.address}From {request.address}, requested{:else}Requested{/if} {duration(request.age_seconds)} ago
+      </span>
     </div>
     <label class="visually-hidden" for="{uid}-pin">PIN shown on {request.name}</label>
     <div class="entry">

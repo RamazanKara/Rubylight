@@ -222,8 +222,17 @@ pub struct PendingPin {
     /// The requesting device's certificate: Moonlight's apps share one
     /// unique ID, so this tells another device apart.
     pub certificate: String,
+    /// Where the request came from, shown with the name: the name is the device's to choose.
+    pub address: std::net::IpAddr,
     pub created: Instant,
     pub sender: tokio::sync::oneshot::Sender<PinEntry>,
+}
+/// The tray notice for a pairing request: the address beside the name the device chose.
+pub fn pairing_notice(name: &str, address: std::net::IpAddr) -> String {
+    format!(
+        "{name} (from {}) wants to pair. Enter the PIN it shows in the Rubylight console.",
+        address.to_canonical()
+    )
 }
 /// A client's display lease and when it last stopped being streamed.
 pub type RetainedDisplay = (Arc<crate::display_session::Ready>, Option<Instant>);

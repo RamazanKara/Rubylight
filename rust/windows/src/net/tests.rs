@@ -2,6 +2,27 @@ use super::*;
 use windows::Win32::NetworkManagement::{IpHelper::*, Ndis::*};
 
 #[test]
+fn the_default_gateways_are_the_next_hops_of_the_default_routes() {
+    let gateways = default_gateways().unwrap();
+    // A PC with a default route has its next hop here, and none is a placeholder.
+    assert!(
+        gateways
+            .iter()
+            .all(|gateway| !gateway.is_unspecified() && !gateway.is_loopback()),
+        "{gateways:?}"
+    );
+    let best = std::net::UdpSocket::bind("0.0.0.0:0")
+        .and_then(|socket| socket.connect("192.0.2.1:9").map(|_| socket))
+        .is_ok();
+    if best {
+        assert!(
+            !gateways.is_empty(),
+            "a route to the internet but no gateway"
+        );
+    }
+}
+
+#[test]
 fn a_loopback_connection_belongs_to_the_process_that_opened_it() {
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let client = std::net::TcpStream::connect(listener.local_addr().unwrap()).unwrap();

@@ -387,6 +387,7 @@ impl Registry {
         h: &Host,
         pin: &str,
         name: &str,
+        address: std::net::IpAddr,
     ) -> (String, oneshot::Receiver<crate::state::PinEntry>) {
         let now = self.now();
         let request = PendingPin::new(&mut OsRng, pin, name, now);
@@ -403,6 +404,7 @@ impl Registry {
             crate::state::PendingPin {
                 name: name.to_owned(),
                 certificate: String::new(),
+                address,
                 created: Instant::now(),
                 sender,
             },

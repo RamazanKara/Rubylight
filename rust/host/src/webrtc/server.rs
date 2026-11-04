@@ -238,6 +238,20 @@ pub(crate) fn local_network(peer: IpAddr) -> bool {
     reach(peer.to_canonical()) <= Reach::Lan
 }
 
+/// Whether the name's decimal digits, ASCII or fullwidth, read in order with anything between
+/// them dropped, contain `pin`.
+fn pin_in_name(pin: &str, name: &str) -> bool {
+    let digits: String = name
+        .chars()
+        .filter_map(|c| match c {
+            '0'..='9' => Some(c),
+            '\u{ff10}'..='\u{ff19}' => char::from_u32(c as u32 - 0xff10 + '0' as u32),
+            _ => None,
+        })
+        .collect();
+    !pin.is_empty() && digits.contains(pin)
+}
+
 async fn accept(
     h: Shared,
     listener: tokio::net::TcpListener,
@@ -398,9 +412,9 @@ impl Console {
         peer: SocketAddr,
         local: SocketAddr,
     ) -> Response {
-        if !local_network(peer.ip()) {
-            tracing::warn!(%peer, "play socket refused: the browser is outside the local network");
-            return (axum::http::StatusCode::FORBIDDEN, "local network only").into_response();
+        if let Some(reason) = crate::network::play_refused(peer, local) {
+            tracing::warn!(%peer, %local, reason, "play socket refused");
+            return axum::http::StatusCode::NOT_FOUND.into_response();
         }
         let media = self.media.clone();
         let peer = Peer {
@@ -949,11 +963,23 @@ impl Connection {
             ));
             return;
         }
+        // The console and the tray show the name: a name carrying the PIN would hand the owner
+        // the PIN to type for whoever asks. Digits split by other characters count too.
+        if pin_in_name(pin, name) {
+            tracing::warn!(peer = %self.peer.address, "WebRTC pairing refused: the device name contains its PIN");
+            out.push(Self::error(
+                ErrorCode::InvalidMessage,
+                "request-pairing",
+                "clientName must not contain the PIN",
+            ));
+            return;
+        }
         // A new request replaces the connection's old one, and does not
         // raise another notification.
         let again = self.pairing.is_some();
         self.cancel_pairing();
-        let (request_id, entered) = self.h.webrtc.begin_pairing(&self.h, pin, name);
+        let address = self.peer.address.ip().to_canonical();
+        let (request_id, entered) = self.h.webrtc.begin_pairing(&self.h, pin, name, address);
         let deadline = tokio::time::Instant::now() + self.limits.pairing;
         self.pairing = Some(Pairing {
             request_id,
@@ -963,15 +989,10 @@ impl Connection {
         // The socket may wait for the answer for as long as the request lives.
         self.unauthenticated_until = self.unauthenticated_until.max(deadline);
         tracing::info!(client = name, peer = %self.peer.address, "WebRTC pairing PIN required in the web interface");
-        if !again
-            && self
-                .h
-                .webrtc
-                .may_notify(self.peer.address.ip().to_canonical())
-        {
+        if !again && self.h.webrtc.may_notify(address) {
             butterpollo_windows::tray::notify(
                 "Pairing request",
-                &format!("{name} wants to pair. Enter the PIN it shows in the Rubylight console."),
+                &crate::state::pairing_notice(name, address),
             );
         }
     }
@@ -1744,7 +1765,7 @@ pub(crate) mod tests {
         let claim = |h: &Shared| {
             let Registered { id, closed } = h.webrtc.open(ip).expect("a slot");
             let mut state = Connection::new(h.clone(), Limits::default(), peer, id);
-            let (request_id, entered) = h.webrtc.begin_pairing(h, "4321", "TV");
+            let (request_id, entered) = h.webrtc.begin_pairing(h, "4321", "TV", ip);
             state.pairing = Some(Pairing {
                 request_id,
                 entered,

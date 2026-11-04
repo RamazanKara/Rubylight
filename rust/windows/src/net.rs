@@ -127,6 +127,43 @@ pub fn unicast_addresses() -> Result<Vec<IpAddr>> {
     }
     anyhow::bail!("network interfaces changed during enumeration")
 }
+/// The next hops of every default route (0.0.0.0/0 and ::/0): the routers this PC sends the
+/// internet through. One read of the routing table, no network traffic.
+pub fn default_gateways() -> Result<Vec<IpAddr>> {
+    use windows::Win32::NetworkManagement::IpHelper::*;
+    let mut table = std::ptr::null_mut();
+    // SAFETY: `table` is valid on success, read only within its NumEntries rows and freed once.
+    unsafe {
+        let status = GetIpForwardTable2(AF_UNSPEC, &mut table);
+        if status.0 != 0 {
+            return Err(std::io::Error::from_raw_os_error(status.0 as i32).into());
+        }
+        let rows = std::slice::from_raw_parts(
+            (&raw const (*table).Table).cast::<MIB_IPFORWARD_ROW2>(),
+            (*table).NumEntries as usize,
+        );
+        let mut gateways = Vec::new();
+        for row in rows {
+            if row.DestinationPrefix.PrefixLength != 0 {
+                continue;
+            }
+            let hop = row.NextHop;
+            // The family field is shared by every view; a view is read only when it names it.
+            let address = match hop.si_family {
+                AF_INET => Some(IpAddr::from(hop.Ipv4.sin_addr.S_un.S_addr.to_ne_bytes())),
+                AF_INET6 => Some(IpAddr::from(hop.Ipv6.sin6_addr.u.Byte).to_canonical()),
+                _ => None,
+            };
+            if let Some(address) = address.filter(|address| !address.is_unspecified()) {
+                gateways.push(address);
+            }
+        }
+        FreeMibTable(table.cast());
+        gateways.sort();
+        gateways.dedup();
+        Ok(gateways)
+    }
+}
 /// The process that owns the IPv4 TCP connection from `local` to `remote`; None when there is
 /// no such connection. Kernel drivers' connections belong to System, PID 4.
 pub fn tcp_owner(

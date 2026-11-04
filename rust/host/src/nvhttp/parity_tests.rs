@@ -1248,6 +1248,7 @@ async fn pairing_ids_are_scoped_to_the_peer_and_pending_requests_are_bounded() {
         PendingPin {
             name: "Existing".into(),
             certificate: "different certificate".into(),
+            address: peer,
             created: Instant::now(),
             sender,
         },
@@ -1266,6 +1267,7 @@ async fn pairing_ids_are_scoped_to_the_peer_and_pending_requests_are_bounded() {
         PendingPin {
             name: "Second".into(),
             certificate: "different certificate".into(),
+            address: peer,
             created: Instant::now(),
             sender,
         },

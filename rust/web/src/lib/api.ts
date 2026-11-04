@@ -385,6 +385,8 @@ export interface UsbAttachment {
 export interface PendingPairing {
   uniqueid: string;
   name: string;
+  /** Where the request came from: the name is the device's to choose, the address is not. */
+  address?: string;
   age_seconds: number;
   /** The request comes from a WebRTC TV. */
   webrtc?: boolean;

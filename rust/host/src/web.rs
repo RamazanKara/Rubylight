@@ -579,21 +579,28 @@ async fn guest_gate(
             return refused;
         }
     } else if !h.guests.open() {
-        return error(StatusCode::NOT_FOUND, "no invite link is open on this host");
+        return guest_port_closed();
     }
     next.run(request).await
 }
+/// What the guest port answers any path while no link is open.
+fn guest_port_closed() -> Response {
+    error(StatusCode::NOT_FOUND, "no invite link is open on this host")
+}
 /// Why the play page or its socket is refused to this connection, if it is. Only the TCP peer
 /// counts: `X-Forwarded-For` and its kind are the client's to write, and a router that forwards
-/// the guest port keeps the internet peer's address. Loopback counts as the local network, as for
-/// the console's Stream page.
+/// the guest port keeps the internet peer's address ([`crate::network::play_refusal`] has the
+/// forwards that do not). Loopback counts as the local network, as for the console's Stream page.
+/// A refused peer gets what the guest port answers a path it does not serve, so the internet
+/// learns nothing of `/play`.
 fn play_refused(h: &Shared, connection: &Connection, path: &str) -> Option<Response> {
-    if !crate::webrtc::server::local_network(connection.peer.ip()) {
-        tracing::info!(peer = %connection.peer, path, "play page refused: the browser is outside the local network");
-        return Some(error(
-            StatusCode::FORBIDDEN,
-            "playing in the browser works on the local network and Tailscale only",
-        ));
+    if let Some(reason) = crate::network::play_refused(connection.peer, connection.local) {
+        tracing::info!(peer = %connection.peer, local = %connection.local, path, reason, "play page refused");
+        return Some(if h.guests.open() {
+            StatusCode::NOT_FOUND.into_response()
+        } else {
+            guest_port_closed()
+        });
     }
     if !h.config.read().unwrap().webrtc_server() {
         return Some(error(

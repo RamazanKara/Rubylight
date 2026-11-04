@@ -501,6 +501,7 @@ async fn pending_pairing_requests_expire_and_pin_submission_selects_one_device()
             PendingPin {
                 name: id.into(),
                 certificate: "secret".into(),
+                address: "192.0.2.7".parse().unwrap(),
                 created: Instant::now() - Duration::from_secs(age),
                 sender,
             },
@@ -518,6 +519,7 @@ async fn pending_pairing_requests_expire_and_pin_submission_selects_one_device()
         .map(|p| p["uniqueid"].as_str().unwrap())
         .collect();
     assert_eq!(ids, ["first", "second"]);
+    assert_eq!(pending["requests"][0]["address"], "192.0.2.7");
     assert!(!pending.to_string().contains("secret"));
     for body in [
         json!({"pin":"1234"}),

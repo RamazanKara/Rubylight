@@ -216,6 +216,8 @@ pub(crate) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyh
                 .map(|(id, p)| json!({
                     "uniqueid": id,
                     "name": p.name,
+                    // The name is the device's to choose; the address is not.
+                    "address": p.address.to_canonical().to_string(),
                     "age_seconds": p.created.elapsed().as_secs(),
                     // A WebRTC request has no certificate.
                     "webrtc": p.certificate.is_empty(),
@@ -934,6 +936,7 @@ mod tests {
                 crate::state::PendingPin {
                     name: id.into(),
                     certificate: certificate.into(),
+                    address: [192, 168, 4, 20].into(),
                     created: std::time::Instant::now(),
                     sender,
                 },

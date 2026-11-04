@@ -1112,15 +1112,16 @@ async fn do_pair(h: Shared, args: &Args, peer: std::net::IpAddr) -> Result<Vec<(
                 PendingPin {
                     name: name.clone(),
                     certificate: certificate.clone(),
+                    address: peer,
                     created,
                     sender,
                 },
             );
         }
-        tracing::info!(client=%name,"Pairing PIN required in the web interface");
+        tracing::info!(client=%name,%peer,"Pairing PIN required in the web interface");
         butterpollo_windows::tray::notify(
             "Pairing request",
-            &format!("{name} wants to pair. Enter the PIN it shows in the Rubylight console."),
+            &crate::state::pairing_notice(&name, peer),
         );
         let response = tokio::time::timeout(Duration::from_secs(300), receiver).await;
         {

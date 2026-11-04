@@ -90,15 +90,8 @@ test('the padding AMD adds to AV1 is neither shown nor counted in the pointer po
   const wanted = { width: 1920, height: 1080 };
   const shown = input.shownSize(padded, wanted);
   assert.deepEqual(shown, wanted);
-  // Fills a 1920×1082 box: the two rows below go.
-  assert.equal(input.pictureClip(padded, padded, shown), 'inset(0 0px 2px 0)');
-  // Letterboxed in a wider 2164×1082 box at scale 1: 122 px bars, the same two rows.
-  assert.equal(input.pictureClip({ width: 2164, height: 1082 }, padded, shown), 'inset(0 122px 2px 0)');
   // Columns too (1968×2184 encodes as 1984×2186).
   assert.deepEqual(input.shownSize({ width: 1984, height: 2186 }, { width: 1968, height: 2184 }), { width: 1968, height: 2184 });
-  // Nothing padded, nothing clipped: H.264 and HEVC, a picture not started yet.
-  assert.equal(input.pictureClip(wanted, wanted, input.shownSize(wanted, wanted)), '');
-  assert.equal(input.pictureClip(wanted, { width: 0, height: 0 }, wanted), '');
   // A size the padding can't explain is the picture.
   const other = { width: 1280, height: 720 };
   assert.deepEqual(input.shownSize(other, wanted), other);
@@ -108,6 +101,74 @@ test('the padding AMD adds to AV1 is neither shown nor counted in the pointer po
   assert.deepEqual(input.positionMessage(960, 1080, box, padded, shown), { v: 1, type: 'mouse-position', x: 0.5, y: 1 });
   assert.deepEqual(input.positionMessage(960, 1081, box, padded, shown), { v: 1, type: 'mouse-position', x: 0.5, y: 1 });
   assert.deepEqual(input.positionMessage(960, 540, box, padded, shown), { v: 1, type: 'mouse-position', x: 0.5, y: 0.5 });
+});
+
+test('the picture, not its padding, fits the box: 1:1, centred, the pointer on it', () => {
+  const padded = { width: 1920, height: 1082 };
+  const wanted = { width: 1920, height: 1080 };
+  // Full screen on 1080p: every picture pixel is one screen pixel, no bars, no gap.
+  assert.deepEqual(input.pictureFit(wanted, padded, wanted), { left: 0, top: 0, width: 1920, height: 1082, right: 0, bottom: 2 });
+  // Scaled up on 1440p: the picture fills the screen.
+  const large = input.pictureFit({ width: 2560, height: 1440 }, padded, wanted);
+  assert.equal(large.left, 0);
+  assert.equal(large.top, 0);
+  assert.equal(large.width, 2560);
+  assert.ok(Math.abs(large.height - large.bottom - 1440) < 1e-9);
+  // Letterboxed both ways, the bars are even around the picture.
+  assert.deepEqual(input.pictureFit({ width: 2560, height: 1080 }, padded, wanted), { left: 320, top: 0, width: 1920, height: 1082, right: 0, bottom: 2 });
+  assert.deepEqual(input.pictureFit({ width: 1920, height: 1200 }, padded, wanted), { left: 0, top: 60, width: 1920, height: 1082, right: 0, bottom: 2 });
+  // Portrait, padded in columns, in a square box.
+  const tall = { width: 1088, height: 1920 };
+  const tallWanted = { width: 1080, height: 1920 };
+  assert.deepEqual(input.shownSize(tall, tallWanted), tallWanted);
+  assert.deepEqual(input.pictureFit({ width: 1920, height: 1920 }, tall, tallWanted), { left: 420, top: 0, width: 1088, height: 1920, right: 8, bottom: 0 });
+  // Nothing padded: H.264, HEVC, a real other size, no frame yet. The CSS stays in charge.
+  assert.equal(input.pictureFit(wanted, wanted, wanted), null);
+  const other = { width: 1280, height: 720 };
+  assert.equal(input.pictureFit(wanted, other, input.shownSize(other, wanted)), null);
+  assert.equal(input.pictureFit(wanted, { width: 0, height: 0 }, wanted), null);
+  assert.equal(input.pictureFit({ width: 0, height: 0 }, padded, wanted), null);
+  // The pointer, through the rectangle the element ends up with: corners and middle of the picture.
+  for (const parent of [wanted, { width: 2560, height: 1440 }, { width: 2560, height: 1080 }, { width: 1920, height: 1200 }]) {
+    const fit = input.pictureFit(parent, padded, wanted);
+    const box = { left: 100 + fit.left, top: 50 + fit.top, width: fit.width, height: fit.height };
+    for (const [x, y] of [[0, 0], [1, 1], [0.5, 0.5], [0.25, 0.75]]) {
+      const message = input.positionMessage(box.left + x * (fit.width - fit.right), box.top + y * (fit.height - fit.bottom), box, padded, wanted);
+      assert.ok(Math.abs(message.x - x) < 1e-9 && Math.abs(message.y - y) < 1e-9, `${JSON.stringify(parent)} ${x},${y}: ${JSON.stringify(message)}`);
+    }
+  }
+});
+
+test('the element is placed while padded, follows its size, and is left alone otherwise', () => {
+  const listeners = new Map();
+  const video = {
+    videoWidth: 0,
+    videoHeight: 0,
+    parentElement: { getBoundingClientRect: () => ({ width: 1920, height: 1080 }) },
+    style: {},
+    addEventListener: (name, listener) => listeners.set(name, listener),
+    removeEventListener: (name) => listeners.delete(name),
+  };
+  const untouched = () => Object.values(video.style).every((value) => value === '');
+  const stop = input.cropPadding(video, { width: 1920, height: 1080 });
+  assert.ok(untouched(), 'no frame yet');
+  Object.assign(video, { videoWidth: 1920, videoHeight: 1082 });
+  listeners.get('resize')();
+  assert.equal(video.style.position, 'absolute');
+  assert.equal(video.style.width, '1920px');
+  assert.equal(video.style.height, '1082px');
+  assert.equal(video.style.left, '0px');
+  assert.equal(video.style.top, '0px');
+  assert.equal(video.style.clipPath, 'inset(0 0px 2px 0)');
+  // The next stream, or a new size from the host, isn't padded.
+  Object.assign(video, { videoWidth: 1920, videoHeight: 1080 });
+  listeners.get('resize')();
+  assert.ok(untouched(), 'not padded');
+  Object.assign(video, { videoWidth: 1920, videoHeight: 1082 });
+  listeners.get('resize')();
+  stop();
+  assert.ok(untouched(), 'stopped');
+  assert.equal(listeners.size, 0);
 });
 
 test('every page that shows a stream crops the padding and maps the pointer to the picture', () => {

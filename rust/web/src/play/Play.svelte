@@ -642,6 +642,7 @@
   .surface {
     position: absolute;
     inset: 0;
+    overflow: hidden;
     outline: none;
     touch-action: none;
   }

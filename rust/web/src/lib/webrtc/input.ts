@@ -36,29 +36,51 @@ export function shownSize(video: Size, wanted: Size): Size {
   return { width: crop(video.width, wanted.width, 64), height: crop(video.height, wanted.height, 16) };
 }
 
-/** The CSS clip that hides the padding on the right and below, for a video letterboxed in `box`. */
-export function pictureClip(box: Size, video: Size, shown: Size): string {
-  if (!video.width || !video.height || (shown.width === video.width && shown.height === video.height)) return '';
-  const scale = Math.min(box.width / video.width, box.height / video.height);
-  const right = (box.width - video.width * scale) / 2 + (video.width - shown.width) * scale;
-  const bottom = (box.height - video.height * scale) / 2 + (video.height - shown.height) * scale;
-  return `inset(0 ${right}px ${bottom}px 0)`;
+/**
+ * Where the element goes in its parent so that the picture, not the picture and its padding, is
+ * what fits: centred and as large as it goes, with the padding clipped by `right` and `bottom`.
+ * Null when there is no padding: the page's own CSS stays in charge.
+ */
+export function pictureFit(box: Size, video: Size, shown: Size) {
+  if (!video.width || !video.height || !box.width || !box.height) return null;
+  if (shown.width === video.width && shown.height === video.height) return null;
+  const scale = Math.min(box.width / shown.width, box.height / shown.height);
+  return {
+    left: (box.width - shown.width * scale) / 2,
+    top: (box.height - shown.height * scale) / 2,
+    width: video.width * scale,
+    height: video.height * scale,
+    right: (video.width - shown.width) * scale,
+    bottom: (video.height - shown.height) * scale,
+  };
 }
 
-/** Keeps the element's clip right as the picture and the element change size; returns the stop. */
+/** Keeps the element placed as the picture and its parent change size; returns the stop. */
 export function cropPadding(video: HTMLVideoElement, wanted: Size): () => void {
+  const parent = video.parentElement;
+  const place = (fit: ReturnType<typeof pictureFit>) => {
+    video.style.position = fit ? 'absolute' : '';
+    video.style.left = fit ? `${fit.left}px` : '';
+    video.style.top = fit ? `${fit.top}px` : '';
+    video.style.width = fit ? `${fit.width}px` : '';
+    video.style.height = fit ? `${fit.height}px` : '';
+    video.style.maxWidth = fit ? 'none' : '';
+    video.style.objectFit = fit ? 'fill' : '';
+    video.style.clipPath = fit ? `inset(0 ${fit.right}px ${fit.bottom}px 0)` : '';
+  };
   const apply = () => {
     const size = { width: video.videoWidth, height: video.videoHeight };
-    video.style.clipPath = pictureClip({ width: video.clientWidth, height: video.clientHeight }, size, shownSize(size, wanted));
+    // Not clientWidth: it rounds, and the picture would sit a fraction of a pixel off.
+    place(pictureFit(parent?.getBoundingClientRect() ?? { width: 0, height: 0 }, size, shownSize(size, wanted)));
   };
   apply();
   video.addEventListener('resize', apply);
-  const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(apply);
-  observer?.observe(video);
+  const observer = parent && typeof ResizeObserver !== 'undefined' ? new ResizeObserver(apply) : null;
+  if (parent) observer?.observe(parent);
   return () => {
     video.removeEventListener('resize', apply);
     observer?.disconnect();
-    video.style.clipPath = '';
+    place(null);
   };
 }
 

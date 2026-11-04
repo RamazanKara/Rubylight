@@ -20,6 +20,10 @@
 //! A main loop that stopped beating ([`alive`]) for [`ALIVE_MS`] gets no keys kept: a frozen
 //! fullscreen stream lets Alt+Tab, the Windows key and Ctrl+Shift+Esc reach Windows, as SDL's
 //! hook on the hung thread did.
+//!
+//! Windows opens its task switcher at Ctrl+Alt+Shift+Tab before the window hears of it, so a stream
+//! hotkey on that chord needs the hook whether or not the keyboard is grabbed: with the stream menu
+//! open, input released, or "Send system keys" off, the hook keeps that one Tab ([`bound_tab`]).
 
 #[cfg(windows)]
 use std::sync::atomic::{AtomicBool, AtomicIsize, AtomicU32, AtomicU64, AtomicU8, Ordering};
@@ -301,6 +305,15 @@ pub fn beating(now_ms: u64, beat_ms: u64) -> bool {
     now_ms.saturating_sub(beat_ms) < ALIVE_MS
 }
 
+/// Whether Tab with the modifiers `mods` does a stream hotkey, for a press the hook keeps from
+/// Windows while the keyboard is not grabbed. Ctrl+Alt+Shift+Tab is the only Tab chord a hotkey can
+/// have (nightjar_policy); Alt+Tab and the rest stay Windows'.
+#[cfg_attr(not(windows), allow(dead_code))]
+pub fn bound_tab(mods: SDL_Keymod) -> bool {
+    use crate::shortcuts::{key_action, Scope};
+    key_action(Scope::Stream, sdl3_sys::everything::SDL_SCANCODE_TAB, mods).is_some()
+}
+
 /// Whether the keyboard is grabbed: input is captured (keys go to the PC, the stream menu is
 /// closed, the window is the PC's input) and "Send system keys" is on. Windowed or fullscreen,
 /// relative or desktop pointer alike; out of focus, the hook and SDL let the keys be.
@@ -334,6 +347,8 @@ static ALTGR_CTRL_LAST: AtomicU32 = AtomicU32::new(0);
 /// The virtual key last pressed: Windows repeats only that one.
 #[cfg(windows)]
 static LAST_PRESSED: AtomicU32 = AtomicU32::new(u32::MAX);
+#[cfg_attr(not(windows), allow(dead_code))]
+const TAB: u32 = 0x09;
 /// The thread message that reinstalls the hook.
 #[cfg(windows)]
 const REHOOK: u32 = windows::Win32::UI::WindowsAndMessaging::WM_APP;
@@ -370,16 +385,32 @@ fn seed(fresh: bool) {
     }
 }
 
+/// Whether a modifier is really down, by its slot: one kept is, Windows knows of one it holds, and
+/// AltGr's added Ctrl, which has a slot of its own, is no real Ctrl.
+#[cfg(windows)]
+fn modifier_down(vk: u32) -> bool {
+    use windows::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState;
+    match Key::from_u8(KEYS[vk as usize].load(Ordering::Relaxed)) {
+        Key::Up => false,
+        Key::Kept => true,
+        Key::Passed => {
+            // SAFETY: any virtual key.
+            let state = unsafe { GetAsyncKeyState(vk as i32) };
+            state < 0
+        }
+    }
+}
+
 /// Hands a key the hook kept to SDL's queue as the window would have: SDL's filter runs on this
 /// thread and sends it to the PC at once, and the main loop gets it marked, as it got the raw
 /// keyboard's. `raw`: Windows' scan code, as SDL reports it.
 #[cfg(windows)]
 fn hand_over(scancode: SDL_Scancode, raw: u16, down: bool, repeat: bool) {
     use sdl3_sys::everything::*;
-    let kept = |vk: u32| Key::from_u8(KEYS[vk as usize].load(Ordering::Relaxed)) == Key::Kept;
     // SAFETY: SDL takes events and reads its modifier state from any thread; a key event's fields.
     let pushed = unsafe {
-        let mods = modifiers(kept, SDL_GetModState());
+        // The modifiers Windows holds too: the window's messages for them may still be on their way.
+        let mods = modifiers(modifier_down, SDL_GetModState());
         let mut event: SDL_Event = std::mem::zeroed();
         event.key.r#type = if down { SDL_EVENT_KEY_DOWN } else { SDL_EVENT_KEY_UP };
         event.key.windowID = SDL_WindowID(WINDOW_ID.load(Ordering::Acquire));
@@ -422,8 +453,9 @@ unsafe extern "system" fn hook(code: i32, wparam: windows::Win32::Foundation::WP
                 }
             };
             // SAFETY: no arguments.
-            let grab = GRAB.load(Ordering::Acquire) && unsafe { GetForegroundWindow() }.0 as isize == WINDOW.load(Ordering::Acquire)
-                && beating(now_ms(), BEAT.load(Ordering::Acquire));
+            let grab = unsafe { GetForegroundWindow() }.0 as isize == WINDOW.load(Ordering::Acquire)
+                && beating(now_ms(), BEAT.load(Ordering::Acquire))
+                && (GRAB.load(Ordering::Acquire) || (down && info.vkCode == TAB && bound_tab(modifiers(modifier_down, SDL_Keymod(0)))));
             let altgr = scan == ALTGR_CTRL;
             let (slot, last) = if altgr { (&ALTGR_CTRL_KEY, &ALTGR_CTRL_LAST) } else { (key, &LAST[info.vkCode as usize]) };
             let state = Key::from_u8(slot.load(Ordering::Relaxed));
@@ -562,7 +594,6 @@ impl Drop for ShellKeyHook {
 mod tests {
     use super::*;
 
-    const TAB: u32 = 0x09;
     const ESC: u32 = 0x1B;
     const LWIN: u32 = 0x5B;
     const RWIN: u32 = 0x5C;
@@ -897,6 +928,48 @@ mod tests {
         assert_eq!(modifiers(|_| false, SDL_KMOD_NONE).0, 0);
     }
 
+    #[test]
+    fn only_a_bound_tab_is_kept_from_windows_without_the_grab() {
+        use sdl3_sys::everything::*;
+        let chord = |mods: &[SDL_Keymod]| SDL_Keymod(mods.iter().fold(0, |all, m| all | m.0));
+        // With the stream menu open the second Ctrl+Alt+Shift+Tab opened Windows' task switcher
+        // over the stream, which then had every key.
+        crate::shortcuts::set_hotkeys(Default::default());
+        assert!(bound_tab(chord(&[SDL_KMOD_LCTRL, SDL_KMOD_LALT, SDL_KMOD_LSHIFT])));
+        assert!(bound_tab(chord(&[SDL_KMOD_RCTRL, SDL_KMOD_RALT, SDL_KMOD_RSHIFT])));
+        // Not the stream's: released, Alt+Tab and the plain Tab go on working in Windows.
+        for mods in [&[][..], &[SDL_KMOD_LALT], &[SDL_KMOD_LALT, SDL_KMOD_LSHIFT], &[SDL_KMOD_LCTRL, SDL_KMOD_LALT], &[SDL_KMOD_LCTRL, SDL_KMOD_LSHIFT]] {
+            assert!(!bound_tab(chord(mods)), "{:?}", mods.iter().map(|m| m.0).collect::<Vec<_>>());
+        }
+        // Stream controls moved to another chord, or off: Windows gets its chord back.
+        let mut moved = crate::shortcuts::hotkey_bindings();
+        moved.insert("stream_menu".to_string(), "CTRL+ALT+F7".to_string());
+        crate::shortcuts::set_hotkeys(moved);
+        assert!(!bound_tab(chord(&[SDL_KMOD_LCTRL, SDL_KMOD_LALT, SDL_KMOD_LSHIFT])));
+        crate::shortcuts::set_hotkeys(Default::default());
+    }
+
+    #[test]
+    fn a_tab_kept_without_the_grab_goes_one_way_and_leaves_the_modifiers_windows() {
+        use sdl3_sys::everything::*;
+        const CTRL: (u32, u32, bool) = (LCTRL, 0x1D, false);
+        const ALT: (u32, u32, bool) = (LALT, 0x38, false);
+        const SHIFT: (u32, u32, bool) = (LSHIFT, 0x2A, false);
+        let key = |(vk, scan, extended): (u32, u32, bool), down| (vk, scan, extended, down);
+        let tab = |down| (TAB, 0x0F, false, down);
+        let mut board = Board::new();
+        // The menu is open: Windows gets the modifiers, the stream the Tab and its repeat, and the
+        // Tab's release stays with the stream though the hook no longer holds the chord.
+        let (windows, _) = board.play(false, &[key(CTRL, true), key(ALT, true), key(SHIFT, true)]);
+        assert_eq!(windows, [(LCTRL, true), (LALT, true), (LSHIFT, true)]);
+        let (windows, stream) = board.play(true, &[tab(true), tab(true)]);
+        assert!(windows.is_empty(), "Windows got {windows:x?}");
+        assert_eq!(stream, [(SDL_SCANCODE_TAB.0, true, false), (SDL_SCANCODE_TAB.0, true, true)]);
+        let (windows, stream) = board.play(false, &[tab(false), key(SHIFT, false), key(ALT, false), key(CTRL, false)]);
+        assert_eq!(windows, [(LSHIFT, false), (LALT, false), (LCTRL, false)], "Windows gets back what it held");
+        assert_eq!(stream, [(SDL_SCANCODE_TAB.0, false, false)]);
+    }
+
     /// The hook against Windows itself: an SDL window in front, Alt+Tab, Ctrl+Alt+Shift+Tab,
     /// Alt+Esc and a typed "d" injected with SendInput, by scan code as a keyboard sends them.
     /// Injected keys pass the low-level hook like typed ones (flagged LLKHF_INJECTED), so this
@@ -985,6 +1058,20 @@ mod tests {
                 got.clear();
             }
         }
+        // Not grabbed (the stream menu open, input released): Windows' task switcher stays shut
+        // and only the Tab of the bound chord comes through the hook.
+        hook.set(false, hwnd.0 as isize, id);
+        pump(100, &mut got);
+        got.clear();
+        for &vk in &[LCTRL, LALT, LSHIFT, TAB] {
+            key(vk, true, &mut got);
+        }
+        for &vk in &[TAB, LSHIFT, LALT, LCTRL] {
+            key(vk, false, &mut got);
+        }
+        pump(700, &mut got);
+        let chord_stayed = in_front();
+        let tabs: Vec<_> = got.iter().copied().filter(|&(code, _, _)| code == SDL_SCANCODE_TAB.0).collect();
         drop(hook);
         // SAFETY: this test's window and SDL.
         unsafe {
@@ -1004,6 +1091,8 @@ mod tests {
         ]);
         assert_eq!(stream[2], [(lalt, true, alt), (esc, true, alt), (esc, false, alt), (lalt, false, 0)]);
         assert_eq!(stream[3], [(d, true, 0), (d, false, 0)]);
+        assert!(chord_stayed, "Ctrl+Alt+Shift+Tab left the window without the grab");
+        assert_eq!(tabs, [(tab, true, all), (tab, false, all)]);
     }
 
     #[test]

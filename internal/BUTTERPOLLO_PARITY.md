@@ -817,12 +817,20 @@ core Vulkan 1.1 with extensions, and that Granite emulates synchronization2 and 
 timeline semaphores. The decoder reads its payload through texel buffers when 8-bit storage is
 missing and `maxTexelBufferElements` is at least 16M. The C API is unchanged (1.0.0, the same
 48 exports), and the SONAME and 16 KiB LOAD alignment were rechecked; the header changes only in
-encoder comments. The three patches apply unchanged.
+encoder comments. The three patches apply unchanged but for line offsets in `0004` and `0005`.
+
+Between `a0d2e71e` and `7fe0e266` the decoder's sources, `bitstream/` and `pyrowave_common.*` are
+identical, and so is the embedded SPIR-V of `idwt`, `idwt_vs`, `idwt_fs` and `wavelet_dequant`; the
+SPIR-V that changes is the encoder's (`block_packing`, `analyze_rate_control*`,
+`resolve_rate_control`, `wavelet_quant`). The stream format does not change, so this decoder stays
+compatible with an encoder at the Rubylight host's `502a3b52`, and the desktop client's own pin
+(`protocol/desktop/pyrowave-sdk.pin`) stays where it is. These libraries were built from upstream
+archives of the same commits, with the options above.
 
 | ABI | Bytes | SHA-256 |
 | --- | ---: | --- |
-| arm64-v8a | 1,249,048 | `0b0f3707f204edb818a75accb70999a9f8e15a36912deaee865649d28e2e049b` |
-| x86_64 | 1,303,208 | `083efaac3008e24b9c4398d57a205ca3923a0619481ecc71934ed2e27868c803` |
+| arm64-v8a | 1,249,048 | `488a4ad102d4475db787830df71e5d07b14ccdc8c8998c97b2d4a69df034434b` |
+| x86_64 | 1,303,208 | `728d4a2a2179a076d9a89a5b2e79742ed6956bd65f8bec2e6230db61a9b90505` |
 
 To regenerate `shaders_spv.h`, compile each `shaders/fullscreen.vert`, `shaders/planar_csc.frag` and
 `shaders/sgsr.frag` with NDK `shader-tools/windows-x86_64/glslc.exe -O --target-env=vulkan1.1 -mfmt=c`, and put

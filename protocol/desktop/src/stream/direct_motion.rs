@@ -524,18 +524,19 @@ impl DirectMotion {
 
     /// The keyboard grab ("Send system keys" while captured) changed: this stream's own hook
     /// takes the keyboard from Windows while it is on and hands the keys to SDL (`system_keys`).
+    /// The hook runs without the grab too, for a stream hotkey on Ctrl+Alt+Shift+Tab.
     /// Returns whether SDL's grab should do that instead: on Linux, or without the hook.
     #[cfg_attr(not(windows), allow(unused_variables))]
     pub fn keyboard_grab(&mut self, window: *mut SDL_Window, grab: bool) -> bool {
         #[cfg(windows)]
         {
-            if grab && self.shell_keys.is_none() {
+            if self.shell_keys.is_none() {
                 match super::system_keys::ShellKeyHook::start() {
                     Ok(hook) => {
                         eprintln!("nightjar: system keys: the keyboard hook takes the keyboard while grabbed");
                         self.shell_keys = Some(hook);
                     }
-                    Err(error) => eprintln!("nightjar: system keys through SDL's grab: keyboard hook: {error}"),
+                    Err(error) => eprintln!("nightjar: system keys through SDL's grab, Ctrl+Alt+Shift+Tab stays Windows': keyboard hook: {error}"),
                 }
             }
             if let Some(hook) = &self.shell_keys {

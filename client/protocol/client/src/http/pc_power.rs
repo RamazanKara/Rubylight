@@ -106,9 +106,23 @@ pub struct HostUpdate {
     pub install_supported: bool,
     #[serde(default)]
     pub error: Option<String>,
+    /// Why this device's install waits, in the host's words ("TV is streaming from this PC."):
+    /// it never ends another device's stream. Older hosts leave it out.
+    #[serde(default)]
+    pub waiting_for: Option<String>,
 }
 
 impl HostUpdate {
+    /// An update is queued, downloading or installing: nothing to offer again meanwhile.
+    pub fn in_progress(&self) -> bool {
+        matches!(self.phase.as_str(), "waiting" | "downloading" | "ready" | "installing")
+    }
+
+    /// The PC's updater failed, in its own words when it gave some.
+    pub fn failure(&self) -> Option<Option<&str>> {
+        (self.phase == "failed").then(|| self.error.as_deref().filter(|e| !e.is_empty()))
+    }
+
     /// The version to offer, without a leading `v`, when there is one to install.
     pub fn offered(&self) -> Option<&str> {
         let latest = self.latest_version.as_deref()?.trim_start_matches('v');
@@ -161,7 +175,7 @@ mod tests {
             latest_version: latest.map(Into::into),
             phase: "idle".into(),
             install_supported: supported,
-            error: None,
+            ..Default::default()
         };
         assert_eq!(update(Some("v3.4.0"), true).offered(), Some("3.4.0"));
         assert_eq!(update(Some("v3.4.0"), false).offered(), None);
@@ -170,6 +184,25 @@ mod tests {
         assert!(update_arrived("3.4.0", "v3.4.0"));
         assert!(!update_arrived("3.3.0", "3.4.0"));
         assert!(!update_arrived("", "3.4.0"));
+    }
+
+    #[test]
+    fn an_update_reads_its_phase_failure_and_wait() {
+        let read: HostUpdate = serde_json::from_str(
+            r#"{"current_version":"3.3.0","latest_version":"v3.4.0","phase":"ready","install_supported":true,
+                "error":null,"waiting_for":"TV is streaming from this PC."}"#,
+        )
+        .unwrap();
+        assert!(read.in_progress());
+        assert_eq!(read.waiting_for.as_deref(), Some("TV is streaming from this PC."));
+        assert_eq!(read.failure(), None);
+        let phase = |phase: &str, error: Option<&str>| HostUpdate { phase: phase.into(), error: error.map(Into::into), ..Default::default() };
+        assert!(!phase("idle", None).in_progress() && !phase("failed", None).in_progress());
+        assert_eq!(phase("failed", Some("Installer verification failed")).failure(), Some(Some("Installer verification failed")));
+        assert_eq!(phase("failed", None).failure(), Some(None));
+        // An older host: no wait reported.
+        let older: HostUpdate = serde_json::from_str(r#"{"current_version":"3.3.0","phase":"idle"}"#).unwrap();
+        assert_eq!(older.waiting_for, None);
     }
 
     #[test]

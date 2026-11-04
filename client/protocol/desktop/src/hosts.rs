@@ -275,12 +275,16 @@ impl Host {
     }
 
     /// The version "Update the PC's host" installs: only where the PC lists `update`, has one
-    /// to install, and lets this device control it.
+    /// to install, and lets this device control it. Not while one is already queued or installing.
     pub fn update_offer(&self) -> Option<&str> {
         if self.reach != Reach::Online || !self.paired() || !self.native.host_control() {
             return None;
         }
-        self.native.update.as_ref()?.offered()
+        let update = self.native.update.as_ref()?;
+        if update.in_progress() {
+            return None;
+        }
+        update.offered()
     }
 }
 
@@ -585,13 +589,83 @@ pub enum PcPowerStep {
 pub enum UpdateStep {
     /// The host is installing `version`.
     Started(String),
+    /// The install waits for another device's stream, in the host's words.
+    Waiting(String),
     /// The PC answers with `version` again.
     Back(String),
 }
 
-/// How long an update may take before Nightjar stops waiting for the PC to come back.
+/// How long an update may take before Nightjar stops waiting for the PC to come back. Time
+/// spent waiting for another device's stream does not count.
 const UPDATE_WAIT: Duration = Duration::from_secs(15 * 60);
 const UPDATE_POLL: Duration = Duration::from_secs(5);
+/// After the PC took a restart or shutdown, how often and how many times Nightjar reads
+/// `GET /power` for a refusal that came after the answer.
+const POWER_REFUSAL_POLL: Duration = Duration::from_secs(2);
+const POWER_REFUSAL_READS: u32 = 10;
+const UPDATE_GONE: &str = en("The PC has no update to install.");
+const UPDATE_FAILED: &str = en("The update failed on the PC.");
+
+/// The calls the update wait makes; a fake PC in the tests.
+trait UpdateHost {
+    fn host_update(&self) -> Result<HostUpdate, nightjar_core::http::Error>;
+    /// The host version `/serverinfo` answers with, None while the PC does not answer.
+    fn running_version(&self) -> Option<String>;
+}
+
+impl UpdateHost for HostClient {
+    fn host_update(&self) -> Result<HostUpdate, nightjar_core::http::Error> {
+        HostClient::host_update(self)
+    }
+    fn running_version(&self) -> Option<String> {
+        self.server_info(false).ok().and_then(|info| info.capabilities.host_version().map(str::to_owned))
+    }
+}
+
+/// The version an accepted install brings, from its 202 answer; none means there is nothing to
+/// wait for.
+fn update_target(update: &HostUpdate) -> Result<String, String> {
+    update.offered().map(str::to_owned).ok_or_else(|| UPDATE_GONE.to_owned())
+}
+
+/// Follows an accepted install until the PC is back on `target`: the updater's failure as it
+/// says it, a PC back on another version, a wait for another device's stream (`said`, once
+/// per reason), or `polls` reads without either. `pause` sleeps between reads.
+fn follow_update(host: &impl UpdateHost, target: &str, polls: u32, pause: impl Fn(), mut said: impl FnMut(UpdateStep)) -> Result<UpdateStep, String> {
+    let (mut counted, mut gone, mut waiting) = (0, false, None::<String>);
+    while counted < polls {
+        pause();
+        if host.running_version().is_some_and(|v| nightjar_core::http::update_arrived(&v, target)) {
+            return Ok(UpdateStep::Back(target.to_owned()));
+        }
+        let update = match host.host_update() {
+            Ok(update) => update,
+            Err(_) => {
+                gone = true;
+                counted += 1;
+                continue;
+            }
+        };
+        if let Some(error) = update.failure() {
+            return Err(error.unwrap_or(UPDATE_FAILED).to_owned());
+        }
+        // Back after going away, on another version and with nothing under way: setup gave up.
+        if gone && !update.in_progress() && !nightjar_core::http::update_arrived(&update.current_version, target) {
+            let back = trf("The PC came back on version {}; the update did not install.", &[&update.current_version]);
+            return Err(update.error.map_or(back.clone(), |e| format!("{back} {e}")));
+        }
+        if update.waiting_for != waiting {
+            waiting = update.waiting_for.clone();
+            if let Some(reason) = &waiting {
+                said(UpdateStep::Waiting(reason.clone()));
+            }
+        }
+        if waiting.is_none() {
+            counted += 1;
+        }
+    }
+    Err(trf("The PC did not come back with version {} in time.", &[&target]))
+}
 
 /// The native calls Restart PC and Shut down PC make; a fake PC in the tests.
 trait PcPowerHost {
@@ -635,6 +709,25 @@ fn pc_power_confirmed(host: &impl PcPowerHost, action: PcPower, token: String, a
     };
     host.power_pc(action, &token).map_err(|e| native_error(&e))?;
     Ok(PcPowerStep::Accepted)
+}
+
+/// After the PC took the request: why it did not go ahead after all (Windows refused, or the PC
+/// got busy), read from `GET /power` up to `reads` times; None once the PC stops answering or
+/// never says.
+fn pc_power_refusal(host: &impl PcPowerHost, reads: u32, pause: impl Fn()) -> Option<String> {
+    for _ in 0..reads {
+        pause();
+        match host.pc_power() {
+            Ok(offer) => {
+                if let Some(refusal) = offer.last_refusal.filter(|r| !r.is_empty()) {
+                    return Some(refusal);
+                }
+            }
+            // Going down.
+            Err(_) => return None,
+        }
+    }
+    None
 }
 
 /// When the PC handed out a sleep token, on two clocks: `Instant` stops while a Linux client is
@@ -1119,12 +1212,22 @@ impl Hosts {
         let record = host.connect_record();
         let name = host.display_name().to_owned();
         let identity = self.identity.clone();
+        let sender = self.sender.clone();
+        let waker = self.waker.clone();
         self.spawn("pc-power", move || {
-            let result = identity
+            let client = identity
                 .ok_or_else(|| en("Nightjar has no client identity yet. Restart Nightjar and try again.").to_owned())
-                .and_then(|identity| client_for(&identity, &record, &record.address))
-                .and_then(|client| work(&client));
-            Some(Event::PcPower { id, ask, name, action, confirmed, result })
+                .and_then(|identity| client_for(&identity, &record, &record.address));
+            let result = client.as_ref().map_err(Clone::clone).and_then(|client| work(client));
+            let client = match (client, matches!(result, Ok(PcPowerStep::Accepted))) {
+                (Ok(client), true) => client,
+                _ => return Some(Event::PcPower { id, ask, name, action, confirmed, result }),
+            };
+            // Taken; Windows may still refuse once the answer has left.
+            let _ = sender.send(Event::PcPower { id, ask, name: name.clone(), action, confirmed, result });
+            waker();
+            let refusal = pc_power_refusal(&client, POWER_REFUSAL_READS, || std::thread::sleep(POWER_REFUSAL_POLL))?;
+            Some(Event::PcPower { id, ask, name, action, confirmed, result: Err(refusal) })
         });
     }
 
@@ -1144,21 +1247,18 @@ impl Hosts {
                 Ok(client) => client,
                 Err(e) => return Some(Event::HostUpdate { id, name, result: Err(e) }),
             };
-            let target = match client.install_host_update() {
-                Ok(update) => update.offered().unwrap_or_default().to_owned(),
-                Err(e) => return Some(Event::HostUpdate { id, name, result: Err(native_error(&e)) }),
+            let target = match client.install_host_update().map_err(|e| native_error(&e)).and_then(|u| update_target(&u)) {
+                Ok(target) => target,
+                Err(e) => return Some(Event::HostUpdate { id, name, result: Err(e) }),
             };
-            let _ = sender.send(Event::HostUpdate { id, name: name.clone(), result: Ok(UpdateStep::Started(target.clone())) });
-            waker();
-            let started = Instant::now();
-            while started.elapsed() < UPDATE_WAIT {
-                std::thread::sleep(UPDATE_POLL);
-                let running = client.server_info(false).ok().and_then(|info| info.capabilities.host_version().map(str::to_owned));
-                if running.as_deref().is_some_and(|v| nightjar_core::http::update_arrived(v, &target)) {
-                    return Some(Event::HostUpdate { id, name, result: Ok(UpdateStep::Back(target)) });
-                }
-            }
-            Some(Event::HostUpdate { id, name, result: Err(trf("The PC did not come back with version {} in time.", &[&target])) })
+            let say = |step| {
+                let _ = sender.send(Event::HostUpdate { id, name: name.clone(), result: Ok(step) });
+                waker();
+            };
+            say(UpdateStep::Started(target.clone()));
+            let polls = (UPDATE_WAIT.as_secs() / UPDATE_POLL.as_secs()) as u32;
+            let result = follow_update(&client, &target, polls, || std::thread::sleep(UPDATE_POLL), say);
+            Some(Event::HostUpdate { id, name, result })
         });
     }
 
@@ -1591,6 +1691,12 @@ impl Hosts {
                 Event::HostUpdate { id, name, result } => {
                     if matches!(result, Ok(UpdateStep::Back(_))) {
                         self.poll_one(id);
+                    }
+                    // Under way: the menu offers no second install until the next read says.
+                    if let (Ok(UpdateStep::Started(_)), Some(update)) =
+                        (&result, self.get_mut(id).and_then(|host| host.native.update.as_mut()))
+                    {
+                        update.phase = "installing".into();
                     }
                     out.push(Event::HostUpdate { id, name, result });
                 }
@@ -2675,6 +2781,99 @@ pub(crate) mod tests {
             pc_power_confirmed(&pc, PcPower::Restart, TOKEN_A.into(), Handed::now()).err().as_deref(),
             Some("Desk is streaming from this PC.")
         );
+    }
+
+    /// A PC that answers `GET /power` with these refusals in turn, then stops answering.
+    struct RefusingPc(std::cell::RefCell<Vec<Option<&'static str>>>);
+
+    impl PcPowerHost for RefusingPc {
+        fn pc_power(&self) -> Result<PcPowerOffer, nightjar_core::http::Error> {
+            let mut answers = self.0.borrow_mut();
+            if answers.is_empty() {
+                return Err(nightjar_core::http::Error::NotFound("/power".into()));
+            }
+            Ok(PcPowerOffer { last_refusal: answers.remove(0).map(Into::into), ..Default::default() })
+        }
+        fn power_pc(&self, _: PcPower, _: &str) -> Result<(), nightjar_core::http::Error> {
+            panic!("the refusal check never asks again")
+        }
+    }
+
+    #[test]
+    fn a_refusal_after_the_pc_took_the_request_is_shown() {
+        let refusing = |answers: &[Option<&'static str>]| RefusingPc(std::cell::RefCell::new(answers.to_vec()));
+        let windows = "Windows refused to restart the PC: Access is denied. (exit code 5)";
+        assert_eq!(pc_power_refusal(&refusing(&[None, None, Some(windows)]), 10, || {}).as_deref(), Some(windows));
+        // Going down: the PC stops answering, nothing to show.
+        assert_eq!(pc_power_refusal(&refusing(&[None]), 10, || {}), None);
+        // Never says within the reads.
+        assert_eq!(pc_power_refusal(&refusing(&[None, None, None, Some(windows)]), 3, || {}), None);
+    }
+
+    /// A PC during an update: `GET /update` answers in turn (None: not answering), and
+    /// `/serverinfo` says `running` once the answers run out.
+    struct UpdatingPc {
+        answers: std::cell::RefCell<Vec<Option<HostUpdate>>>,
+        running: Option<&'static str>,
+    }
+
+    impl UpdateHost for UpdatingPc {
+        fn host_update(&self) -> Result<HostUpdate, nightjar_core::http::Error> {
+            let mut answers = self.answers.borrow_mut();
+            match (!answers.is_empty()).then(|| answers.remove(0)).flatten() {
+                Some(update) => Ok(update),
+                None => Err(nightjar_core::http::Error::NotFound("/update".into())),
+            }
+        }
+        fn running_version(&self) -> Option<String> {
+            if self.answers.borrow().is_empty() {
+                self.running.map(Into::into)
+            } else {
+                Some("3.3.0".into())
+            }
+        }
+    }
+
+    #[test]
+    fn an_update_fails_at_once_without_a_target_and_follows_the_pcs_phase_error_and_wait() {
+        let update = |phase: &str, error: Option<&str>, waiting: Option<&str>| HostUpdate {
+            current_version: "3.3.0".into(),
+            latest_version: Some("v3.4.0".into()),
+            phase: phase.into(),
+            install_supported: true,
+            error: error.map(Into::into),
+            waiting_for: waiting.map(Into::into),
+        };
+        // The 202 offers nothing newer: no 15-minute wait for version "".
+        let none = HostUpdate { latest_version: None, ..update("waiting", None, None) };
+        assert_eq!(update_target(&none), Err(UPDATE_GONE.to_owned()));
+        assert_eq!(update_target(&update("waiting", None, None)), Ok("3.4.0".to_owned()));
+        let pc = |answers: Vec<Option<HostUpdate>>, running| UpdatingPc { answers: answers.into(), running };
+        let follow = |pc: &UpdatingPc, polls| {
+            let mut said = Vec::new();
+            let result = follow_update(pc, "3.4.0", polls, || {}, |step| said.push(step));
+            (result, said)
+        };
+        // Back on the new version.
+        let (result, said) = follow(&pc(vec![Some(update("downloading", None, None)), None], Some("3.4.0")), 10);
+        assert_eq!((result, said), (Ok(UpdateStep::Back("3.4.0".into())), vec![]));
+        // The updater failed: its words, at once.
+        let failed = update("failed", Some("Installer verification failed; no files were installed"), None);
+        let (result, _) = follow(&pc(vec![Some(failed)], None), 10);
+        assert_eq!(result, Err("Installer verification failed; no files were installed".into()));
+        let (result, _) = follow(&pc(vec![Some(update("failed", None, None))], None), 10);
+        assert_eq!(result, Err(UPDATE_FAILED.into()));
+        // Gone, then back on the old version with nothing under way: setup gave up.
+        let (result, _) = follow(&pc(vec![Some(update("installing", None, None)), None, Some(update("idle", None, None))], None), 10);
+        assert!(result.as_ref().is_err_and(|e| e.contains("3.3.0")), "{result:?}");
+        // Waiting for another device's stream: said once, and not counted against the wait.
+        let tv = "TV is streaming from this PC.";
+        let waits = vec![Some(update("ready", None, Some(tv))); 5];
+        let (result, said) = follow(&pc([waits, vec![None]].concat(), Some("3.4.0")), 2);
+        assert_eq!((result, said), (Ok(UpdateStep::Back("3.4.0".into())), vec![UpdateStep::Waiting(tv.into())]));
+        // Nothing ever comes back.
+        let (result, _) = follow(&pc(vec![Some(update("installing", None, None)); 3], None), 3);
+        assert_eq!(result, Err(trf("The PC did not come back with version {} in time.", &[&"3.4.0"])));
     }
 
     /// The PC's last answer, with the power fields when `power` is (supported, allowed).

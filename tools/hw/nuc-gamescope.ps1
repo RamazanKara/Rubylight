@@ -65,6 +65,50 @@ function Assert-PortFree([int] $Port) {
     }
 }
 
+# Stops a batch still running on the NUC: batch.sh, then the runs in the container. batch.sh has
+# no terminal, so a closed ssh does not stop it. The bracket keeps pkill -f from matching the
+# remote shell that runs it, whose command line holds the pattern.
+$RemoteStop = @("pkill -f '[t]ools/batch.sh'", "docker exec nj-gamescope pkill -f '[r]un.sh|[n]ightjar|[g]amescope'")
+function Stop-RemoteBatch {
+    foreach ($command in $RemoteStop) {
+        ssh -n nuc $command
+        # pkill: 0 stopped some, 1 found none; ssh: 255 did not reach the NUC.
+        if ($LASTEXITCODE -gt 1) { Write-Host "stopping the batch on the NUC failed ($LASTEXITCODE): $command" -ForegroundColor Red }
+    }
+}
+
+# Runs every step; a step that throws is said and makes the code at least 1, but exit 3 (a hang)
+# stays 3.
+function Invoke-Steps([int] $Code, [scriptblock[]] $Steps) {
+    foreach ($step in $Steps) {
+        try { & $step } catch {
+            Write-Host "failed: $_" -ForegroundColor Red
+            if ($Code -ne $EXIT_GPU_HANG) { $Code = [math]::Max($Code, 1) }
+        }
+    }
+    $Code
+}
+
+# After the batch: $true once the host log has not grown for $Quiet seconds, $false if it still
+# grows after $Max. The serverinfo session counts are empty to an unpaired caller, so the log is
+# the sign that the last stream's teardown is done. A hung encoder call writes nothing until it
+# returns, but the stall watch's line comes at 0.5 s, before the quiet ends; gpu_hang.watch then
+# waits out its grace.
+function Wait-LogQuiet([string] $Path, [double] $Quiet = 3, [double] $Max = 30, [scriptblock] $Until = { $false }) {
+    $start = Get-Date
+    $size = -1
+    $since = $start
+    while (-not (& $Until)) {
+        $now = Get-Date
+        $current = if ([IO.File]::Exists($Path)) { ([IO.FileInfo]::new($Path)).Length } else { 0 }
+        if ($current -ne $size) { $size = $current; $since = $now }
+        if (($now - $since).TotalSeconds -ge $Quiet) { return $true }
+        if (($now - $start).TotalSeconds -ge $Max) { return $false }
+        Start-Sleep -Milliseconds 250
+    }
+    $true
+}
+
 if ($SelfTest) {
     $dir = Join-Path ([IO.Path]::GetTempPath()) "nuc-gamescope-selftest-$PID"
     New-Item -ItemType Directory -Force $dir | Out-Null
@@ -105,6 +149,32 @@ if ($SelfTest) {
         } finally { $listener.Stop() }
         $free = try { Assert-PortFree $busy; $true } catch { $false }
         expect 'a free port passes' $free
+        # The remote stop: each pkill pattern (an ERE, read here as a .NET regex) finds the batch's
+        # processes but not the remote shell running the pkill.
+        $patterns = $RemoteStop | ForEach-Object { if ($_ -match "pkill -f '([^']+)'") { $Matches[1] } }
+        expect 'the remote stop names batch.sh and the runs' ($patterns.Count -eq 2 -and
+            'bash /home/rambo/deck/tools/batch.sh /home/rambo/deck/rel/dist/nightjar-desktop-4.5.0-x86_64.flatpak' -match $patterns[0] -and
+            'bash /home/rambo/deck/tools/run.sh s-gs gs 0 auto' -match $patterns[1] -and '/usr/bin/nightjar --autostream' -match $patterns[1])
+        # The second pkill runs in the container, which does not see the NUC's shell.
+        expect "the remote stop's own shell is not matched" ("bash -c $($RemoteStop[0])" -notmatch $patterns[0] -and "bash -c $($RemoteStop[1])" -notmatch $patterns[0])
+        expect "a plain pattern would match its own shell (the old bug)" ("pkill -f 'tools/batch.sh'" -match 'tools/batch.sh')
+        # Collecting results after a hang: a failing step keeps exit 3, else makes it 1.
+        $ran = [Collections.Generic.List[int]]::new()
+        $kept = Invoke-Steps 3 @({ throw 'no host log' }, { $ran.Add(2) }) 6>$null
+        expect 'a failing step after a hang keeps exit 3 and the next step runs' ($kept -eq 3 -and $ran.Contains(2))
+        expect 'a failing step otherwise gives exit 1' ((Invoke-Steps 0 @({ throw 'scp failed' }) 6>$null) -eq 1)
+        expect 'steps that pass keep the code' ((Invoke-Steps 0 @({ }, { })) -eq 0 -and (Invoke-Steps 2 @({ })) -eq 2)
+        # The end of the batch: the watch reads on while the host log grows.
+        $log = Join-Path $dir 'butterpollo.log'
+        Set-Content $log 'start'
+        $t = Get-Date
+        expect 'a quiet log ends the wait after the quiet time' ((Wait-LogQuiet $log 0.5 5) -and ((Get-Date) - $t).TotalSeconds -lt 3)
+        $writer = Start-Job { param($p) for ($i = 0; $i -lt 40; $i++) { Add-Content $p "line $i"; Start-Sleep -Milliseconds 100 } } -ArgumentList $log
+        try {
+            Start-Sleep -Milliseconds 1500
+            expect 'a growing log is not quiet' (-not (Wait-LogQuiet $log 1 1.5))
+        } finally { $writer | Stop-Job -PassThru | Remove-Job }
+        expect 'the watch ending ends the wait' (Wait-LogQuiet $log 10 10 -Until { $true })
     } finally { Remove-Item -Recurse -Force $dir -ErrorAction SilentlyContinue }
     if ($failures.Count) { Write-Host "$($failures.Count) self-test check(s) failed"; exit 1 }
     Write-Host 'self-test passed'
@@ -146,6 +216,7 @@ $hostProcess = $null
 $watch = $null
 $batch = $null
 $lockWritten = $null
+$idleLate = $false
 $code = 1
 $evidence = "$Out\gpu-hang.txt"
 $watchStop = "$Out\gpu-hang-watch.stop"
@@ -179,46 +250,61 @@ try {
     $listeners = @(Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique)
     if ($listeners -notcontains $hostProcess.Id) { throw "port $Port answers from pid $($listeners -join ', '), not the isolated host (pid $($hostProcess.Id))" }
     Write-Host '== batch'
-    # ssh joins its arguments into the remote command line.
-    $batch = Start-Process ssh -ArgumentList 'nuc', "W=$Work bash $Work/tools/batch.sh $bundle" `
+    # ssh joins its arguments into the remote command line; -n: no console stdin.
+    $batch = Start-Process ssh -ArgumentList '-n', 'nuc', "W=$Work bash $Work/tools/batch.sh $bundle" `
         -NoNewWindow -PassThru -RedirectStandardOutput "$Out\batch.txt" -RedirectStandardError "$Out\batch.stderr.txt"
     $null = $batch.Handle
     while (-not $batch.HasExited -and -not $watch.HasExited) { Start-Sleep -Milliseconds 500 }
     if ($batch.HasExited) {
-        # Stops the watch once it has read the log to the end (and waited out a stall's grace).
+        # The host still logs the last stream's teardown (6 s on a reset GPU): the watch reads on
+        # until the log is quiet, then the host stops, then the watch reads to the end.
+        if (-not (Wait-LogQuiet $hostLog -Until { $watch.HasExited })) {
+            Write-Host "the isolated host's log still grows 30 s after the batch's end" -ForegroundColor Red
+            $idleLate = $true
+        }
+        Stop-Process -Id $hostProcess.Id -Force -ErrorAction SilentlyContinue
         Set-Content $watchStop ''
         if (-not $watch.WaitForExit(15000)) { throw 'the hang watch did not stop' }
     }
     if ($watch.ExitCode -eq $EXIT_GPU_HANG) {
-        Write-Host "AMD encoder hang: $(Get-Content $evidence -Raw)" -ForegroundColor Red
-        Write-Host 'Stopping the batch. Do not retry: reboot if Device Manager shows the Radeon with Code 31.' -ForegroundColor Red
-        if (-not $batch.HasExited) {
-            Stop-Process -Id $batch.Id -Force -ErrorAction SilentlyContinue
-            ssh nuc "pkill -f 'tools/batch.sh'; docker exec nj-gamescope pkill -f 'run.sh|nightjar|gamescope'"
-        }
         $code = $EXIT_GPU_HANG
+        Stop-Process -Id $hostProcess.Id -Force -ErrorAction SilentlyContinue
+        if (-not $batch.HasExited) { Stop-Process -Id $batch.Id -Force -ErrorAction SilentlyContinue }
+        Stop-RemoteBatch
+        Write-Host "AMD encoder hang: $(Get-Content $evidence -Raw -ErrorAction SilentlyContinue)" -ForegroundColor Red
+        Write-Host 'Stopped the batch and the host. Do not retry: reboot if Device Manager shows the Radeon with Code 31.' -ForegroundColor Red
     } elseif ($watch.ExitCode -ne 0) {
         throw "the hang watch failed (exit $($watch.ExitCode)): see $Out\gpu-hang-watch.stderr.log"
     } else {
-        $code = $batch.ExitCode
+        $code = if ($idleLate) { [math]::Max($batch.ExitCode, 1) } else { $batch.ExitCode }
     }
-    Get-Content "$Out\batch.txt"
-    scp -q -r "nuc:$Work/runs" "$Out\"
-    if (Test-Path $hostLog) {
-        $stream = [IO.File]::Open($hostLog, 'Open', 'Read', 'ReadWrite')
-        $stream.Seek($before, 'Begin') | Out-Null
-        $text = (New-Object IO.StreamReader $stream).ReadToEnd()
-        $stream.Dispose()
-        Set-Content "$Out\host.log" $text
-        ($text -split "`n") | Where-Object { $_ -match 'stream timings' } | Set-Content "$Out\host-stream-timings.txt"
-    }
+    # Collecting the results never turns exit 3 into another code.
+    $code = Invoke-Steps $code @(
+        { Get-Content "$Out\batch.txt" }
+        { scp -q -r "nuc:$Work/runs" "$Out\"; if ($LASTEXITCODE -ne 0) { throw "scp failed ($LASTEXITCODE)" } }
+        {
+            if (Test-Path $hostLog) {
+                $stream = [IO.File]::Open($hostLog, 'Open', 'Read', 'ReadWrite')
+                try {
+                    if ($stream.Length -ge $before) { $stream.Seek($before, 'Begin') | Out-Null }
+                    $text = (New-Object IO.StreamReader $stream).ReadToEnd()
+                } finally { $stream.Dispose() }
+                Set-Content "$Out\host.log" $text
+                ($text -split "`n") | Where-Object { $_ -match 'stream timings' } | Set-Content "$Out\host-stream-timings.txt"
+            }
+        }
+    )
+} catch {
+    # A throw after the hang was seen still ends with exit 3.
+    if ($code -ne $EXIT_GPU_HANG) { throw }
+    Write-Host "after the hang: $_" -ForegroundColor Red
 } finally {
-    if ($batch -and -not $batch.HasExited) { Stop-Process -Id $batch.Id -Force -ErrorAction SilentlyContinue }
-    if ($hostProcess -and -not $hostProcess.HasExited) { Stop-Process -Id $hostProcess.Id -Force }
-    if ($watch -and -not $watch.HasExited) { Stop-Process -Id $watch.Id -Force -ErrorAction SilentlyContinue }
-    if ($lockWritten) { Lock-Release $script:CheckGpuLock $lockWritten }
-    if (-not $Keep) {
-        ssh nuc "docker exec nj-gamescope rm -rf $Work/fphome; W=$Work bash $Work/tools/container.sh rm"
-    }
+    $code = Invoke-Steps $code @(
+        { if ($batch -and -not $batch.HasExited) { Stop-Process -Id $batch.Id -Force -ErrorAction SilentlyContinue; Stop-RemoteBatch } }
+        { if ($hostProcess -and -not $hostProcess.HasExited) { Stop-Process -Id $hostProcess.Id -Force } }
+        { if ($watch -and -not $watch.HasExited) { Stop-Process -Id $watch.Id -Force -ErrorAction SilentlyContinue } }
+        { if ($lockWritten) { Lock-Release $script:CheckGpuLock $lockWritten } }
+        { if (-not $Keep) { ssh -n nuc "docker exec nj-gamescope rm -rf $Work/fphome; W=$Work bash $Work/tools/container.sh rm" } }
+    )
 }
 exit $code

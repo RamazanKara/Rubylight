@@ -100,16 +100,28 @@ class Guard:
         self.partial = b''
         self.scanner = Scanner()
 
+    def _read(self, path, now):
+        with path.open('rb') as log:
+            log.seek(self.offset)
+            data = self.partial + log.read()
+        self.offset += len(data) - len(self.partial)
+        *lines, self.partial = data.split(b'\n')
+        for line in lines:
+            self.scanner.feed(line.decode(errors='replace'), now)
+
     def check(self):
         now = self.clock()
         if self.host_log.exists():
-            with self.host_log.open('rb') as log:
-                log.seek(self.offset)
-                data = self.partial + log.read()
-            self.offset += len(data) - len(self.partial)
-            *lines, self.partial = data.split(b'\n')
-            for line in lines:
-                self.scanner.feed(line.decode(errors='replace'), now)
+            if self.host_log.stat().st_size < self.offset:
+                # Rotated (rust/core/src/logfile.rs, 32 MiB): the old file is name.1 now. Its
+                # last lines first, then the new file from its start.
+                rotated = self.host_log.with_name(self.host_log.name + '.1')
+                if rotated.exists() and rotated.stat().st_size >= self.offset:
+                    self._read(rotated, now)
+                    if self.partial:
+                        self.scanner.feed(self.partial.decode(errors='replace'), now)
+                self.offset, self.partial = 0, b''
+            self._read(self.host_log, now)
         evidence = self.scanner.check(now)
         if evidence:
             return evidence

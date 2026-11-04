@@ -113,6 +113,24 @@ class GpuHangGuard(unittest.TestCase):
             log.write(QUERY_3000[60:] + '\n')
         self.assertIn('AMF QueryOutput took 3000 ms', guard.check())
 
+    def test_a_rotated_log_is_read_to_its_end_and_the_new_one_from_its_start(self):
+        # logfile.rs renames the full log to butterpollo.log.1 and starts a new one.
+        self.log.write_text(CONVERSION_201 + '\n' * 50)
+        guard = Guard(self.log, self.reports)
+        with self.log.open('a') as log:
+            log.write(CONVERSION_201 + '\n')
+        self.assertIsNone(guard.check())
+        with self.log.open('a') as log:
+            log.write(CONVERSION_2950 + '\n')
+        self.log.rename(self.root / 'butterpollo.log.1')
+        self.log.write_text('')
+        self.assertIn('compute conversion took 2950 ms', guard.check())
+        fresh = Guard(self.root / 'fresh.log', self.reports)
+        (self.root / 'fresh.log').write_text(CONVERSION_201 + '\n' * 50)
+        self.assertIsNone(fresh.check())
+        (self.root / 'fresh.log').write_text(QUERY_3000 + '\n')
+        self.assertIn('AMF QueryOutput took 3000 ms', fresh.check())
+
     def test_the_stall_grace_runs_on_the_guards_clock(self):
         clock = Clock()
         guard = Guard(self.log, self.reports, clock)

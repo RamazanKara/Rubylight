@@ -394,8 +394,13 @@ public class MediaCodecHelper {
             // do this for Fire TV devices.
             whitelistedHevcDecoders.add("omx.amlogic");
 
-            // HEVC stays enabled because that's the only way these devices can hit 4K, but
-            // without RFI: see decoderSupportsRefFrameInvalidationHevc().
+            // HEVC stays enabled because that's the only way these devices can hit 4K. RFI hangs the
+            // Amlogic decoders of Fire TV devices, which decoderSupportsRefFrameInvalidationHevc()
+            // rules out first, so this list only reaches Amazon devices that aren't Fire TVs.
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                refFrameInvalidationHevcPrefixes.add("omx.amlogic");
+                refFrameInvalidationHevcPrefixes.add("c2.amlogic");
+            }
         }
 
         ActivityManager activityManager =

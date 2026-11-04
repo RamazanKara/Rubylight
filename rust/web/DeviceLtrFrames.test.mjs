@@ -42,6 +42,20 @@ test('a stored value the console cannot show goes back as stored', () => {
   }
 });
 
+test('a stored value the select does not offer shows as written and can be removed', () => {
+  for (const [stored, shown] of [[true, 'true'], [7, '7'], [' 9 ', '9']]) {
+    const before = toDraft(client({ config_overrides: { amd_ltr_frames: stored } }));
+    assert.equal(before.ltr_frames, shown);
+    assert.deepEqual(changes(before, { ...before, ltr_frames: '' }), { config_overrides: null });
+  }
+});
+
+test('a stored null follows the host and is not sent back', () => {
+  const before = toDraft(client({ config_overrides: { amd_ltr_frames: null, gamepad: 'ds5' } }));
+  assert.equal(before.ltr_frames, '');
+  assert.deepEqual(changes(before, { ...before, gamepad: '' }), { config_overrides: null });
+});
+
 test('the editor shows the frames and opens on a value it does not offer', () => {
   const body = props => render(DeviceEditor, { props: { client: client(props), sleepUnavailable: null } }).body;
   const section = html => /<details class="override[^>]*><summary[^>]*>Encoder overrides</.exec(html)[0];

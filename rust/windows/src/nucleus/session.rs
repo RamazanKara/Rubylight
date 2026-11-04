@@ -954,7 +954,7 @@ fn unhooked(start: &Start) -> Result<Option<String>> {
         return Ok(None);
     }
     Ok(Some(format!(
-        "{} refused every way Nucleus Co-op injects its input hooks, so it runs without them: a keyboard, mouse or pad on the PC reaches it too, and it takes the controller only while its window is in front on the PC, where Rubylight puts it as it opens unless someone uses the PC",
+        "{} refused every way Nucleus Co-op injects its input hooks, so it runs without them: a keyboard, mouse or pad on the PC reaches it too, and it takes the controller only while its window is in front on the PC, where Rubylight puts it as it opens unless someone uses the PC. If the game pauses when it is not in front, the picture stops too",
         start.title
     )))
 }

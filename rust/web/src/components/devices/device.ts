@@ -225,9 +225,10 @@ export const LTR_FRAME_OPTIONS = Array.from({ length: ltrMax - ltrMin + 1 }, (_,
   return { value: String(frames), label: frames === 0 ? 'Off' : String(frames) };
 });
 
-/** Stored frames as the select shows them: a number as written. */
+/** Stored frames as the select shows them: anything but a choice as written, so the editor flags it. */
 function shownLtrFrames(value: unknown): string {
-  return typeof value === 'number' ? String(value) : text(value);
+  if (value === undefined) return '';
+  return typeof value === 'string' ? value.trim() : String(value);
 }
 
 export function toDraft(client: Client): Draft {
@@ -245,7 +246,8 @@ export function toDraft(client: Client): Draft {
   }
   const storedGamepad = other.gamepad;
   delete other.gamepad;
-  const storedLtrFrames = other.amd_ltr_frames;
+  // A null is no value: sent back, it would delete the host's own for this device's streams.
+  const storedLtrFrames = other.amd_ltr_frames ?? undefined;
   delete other.amd_ltr_frames;
   return {
     name: client.name,

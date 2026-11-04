@@ -18,6 +18,8 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.robolectric.Robolectric;
 import org.robolectric.RobolectricTestRunner;
+import org.robolectric.RuntimeEnvironment;
+import org.robolectric.Shadows;
 import org.robolectric.android.controller.ActivityController;
 import org.robolectric.annotation.Config;
 import org.robolectric.annotation.Implementation;
@@ -280,16 +282,9 @@ public class MediaCodecHevcLowLatencyTest {
     @Test
     @Config(sdk = {28, 34})
     public void fireOsKeepsHevcRfiOnMediaTekWhileAmlogicLosesIt() {
-        ShadowBuild.setManufacturer("Amazon");
-        ShadowBuild.setModel("AFTKA");
-        List<String> rfi = ReflectionHelpers.getStaticField(MediaCodecHelper.class, "refFrameInvalidationHevcPrefixes");
-        List<String> whitelist = ReflectionHelpers.getStaticField(MediaCodecHelper.class, "whitelistedHevcDecoders");
-        List<String> rfiBefore = new ArrayList<>(rfi);
-        List<String> whitelistBefore = new ArrayList<>(whitelist);
-        ReflectionHelpers.setStaticField(MediaCodecHelper.class, "initialized", false);
-        try {
-            MediaCodecHelper.initialize(org.robolectric.RuntimeEnvironment.getApplication(), "");
-            ReflectionHelpers.setStaticField(MediaCodecHelper.class, "isFireTv", true);
+        Shadows.shadowOf(RuntimeEnvironment.getApplication().getPackageManager())
+                .setSystemFeature("amazon.hardware.fire_tv", true);
+        onAmazonDevice(() -> {
             for (String name : new String[] {"OMX.MTK.VIDEO.DECODER.HEVC", "c2.mtk.hevc.decoder"}) {
                 assertTrue(name, MediaCodecHelper.decoderSupportsRefFrameInvalidationHevc(
                         decoder(name, HEVC), false, false, false));
@@ -299,7 +294,34 @@ public class MediaCodecHevcLowLatencyTest {
                         decoder(name, HEVC), false, false, false));
             }
             // HEVC itself stays on: it is the only way these devices reach 4K.
+            List<String> whitelist = ReflectionHelpers.getStaticField(MediaCodecHelper.class, "whitelistedHevcDecoders");
             assertTrue(whitelist.contains("omx.amlogic"));
+        });
+    }
+
+    // The rule goes by the Fire TV feature: another Amazon device keeps the RFI it had.
+    @Test
+    @Config(sdk = {28, 34})
+    public void amazonAmlogicDevicesThatAreNotFireTvKeepHevcRfi() {
+        onAmazonDevice(() -> {
+            for (String name : new String[] {"OMX.amlogic.hevc.decoder.awesome2", AML_HEVC}) {
+                assertTrue(name, MediaCodecHelper.decoderSupportsRefFrameInvalidationHevc(
+                        decoder(name, HEVC), false, false, false));
+            }
+        });
+    }
+
+    private static void onAmazonDevice(Runnable check) {
+        ShadowBuild.setManufacturer("Amazon");
+        ShadowBuild.setModel("AFTKA");
+        List<String> rfi = ReflectionHelpers.getStaticField(MediaCodecHelper.class, "refFrameInvalidationHevcPrefixes");
+        List<String> whitelist = ReflectionHelpers.getStaticField(MediaCodecHelper.class, "whitelistedHevcDecoders");
+        List<String> rfiBefore = new ArrayList<>(rfi);
+        List<String> whitelistBefore = new ArrayList<>(whitelist);
+        ReflectionHelpers.setStaticField(MediaCodecHelper.class, "initialized", false);
+        try {
+            MediaCodecHelper.initialize(RuntimeEnvironment.getApplication(), "");
+            check.run();
         } finally {
             rfi.clear();
             rfi.addAll(rfiBefore);

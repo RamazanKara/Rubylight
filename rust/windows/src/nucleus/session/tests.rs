@@ -997,7 +997,7 @@ fn a_game_started_without_the_hooks_it_refused_is_told() {
     assert_eq!(
         unhooked(&start(&own)).unwrap().as_deref(),
         Some(
-            "Black Flag refused every way Nucleus Co-op injects its input hooks, so it runs without them: a keyboard, mouse or pad on the PC reaches it too, and it takes the controller only while its window is in front on the PC, where Rubylight puts it as it opens unless someone uses the PC"
+            "Black Flag refused every way Nucleus Co-op injects its input hooks, so it runs without them: a keyboard, mouse or pad on the PC reaches it too, and it takes the controller only while its window is in front on the PC, where Rubylight puts it as it opens unless someone uses the PC. If the game pauses when it is not in front, the picture stops too"
         )
     );
     assert_eq!(unhooked(&start(&hub)).unwrap(), None);

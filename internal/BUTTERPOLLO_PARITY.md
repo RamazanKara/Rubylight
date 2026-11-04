@@ -625,8 +625,8 @@ full MIT notices are included there. The necessary new runtime dependency is `li
 Both ARM64 and x86-64 libraries were rebuilt with Windows NDK 29, rather than copied from the fork.
 32-bit APKs retain the ordinary decoders and tolerate the absent Vulkan library.
 
-Pinned dependency sources: PyroWave `a0d2e71e98b85f6a23f62407df21a39e9745b875`, Granite
-`fb178c8080d163419e8d20f10715c61c53c1ec9b`, volk `47cddf7ed97b94118a08aacb548a411188e016cc`,
+Pinned dependency sources: PyroWave `7fe0e2667cd3076b8b2bf04bcb80bc8d691b800b`, Granite
+`53090429539bf3404250d18fe58db971f0907c04`, volk `47cddf7ed97b94118a08aacb548a411188e016cc`,
 Vulkan-Headers `6802bb4733b63ed5efd3adb308a6c885ef180ea1`. The decoder short-block patch from
 Rubylight `6772d401` is retained unchanged in `jni/pyrowave-renderer/patches/`. Two additional
 patches correct metadata read synchronization and the initial transition of aliased linear
@@ -760,11 +760,11 @@ $Ndk = "$Sdk/ndk/29.0.14206865"
 $env:PATH = "$Sdk/cmake/3.22.1/bin;" + $env:PATH
 git init $Source
 git -C $Source remote add origin https://github.com/Themaister/pyrowave.git
-git -C $Source fetch --depth 1 origin a0d2e71e98b85f6a23f62407df21a39e9745b875
+git -C $Source fetch --depth 1 origin 7fe0e2667cd3076b8b2bf04bcb80bc8d691b800b
 git -C $Source checkout --detach FETCH_HEAD
 git init "$Source/Granite"
 git -C "$Source/Granite" remote add origin https://github.com/Themaister/Granite.git
-git -C "$Source/Granite" fetch --depth 1 origin fb178c8080d163419e8d20f10715c61c53c1ec9b
+git -C "$Source/Granite" fetch --depth 1 origin 53090429539bf3404250d18fe58db971f0907c04
 git -C "$Source/Granite" checkout --detach FETCH_HEAD
 git -C "$Source/Granite" submodule update --init --jobs 2 third_party/volk third_party/khronos/vulkan-headers
 Get-ChildItem "$Repo/app/src/main/jni/pyrowave-renderer/patches/*.patch" | Sort-Object Name | ForEach-Object {
@@ -811,10 +811,24 @@ conditional synchronization defects; they do not resolve that reported visual co
 The combined rebuild rendered the same HDR chart correctly with the system driver and
 also completed the native-resolution moving-scene checks on that driver.
 
+On 2026-11-04 the libraries were rebuilt with the same toolchain, options and three patches at
+PyroWave `7fe0e266` with its Granite `53090429`. PyroWave `572bfad4` lowers its requirement to
+core Vulkan 1.1 with extensions, and that Granite emulates synchronization2 and works without
+timeline semaphores. The decoder reads its payload through texel buffers when 8-bit storage is
+missing and `maxTexelBufferElements` is at least 16M. The C API is unchanged (1.0.0, the same
+48 exports), and the SONAME and 16 KiB LOAD alignment were rechecked; the header changes only in
+encoder comments. The three patches apply unchanged.
+
+| ABI | Bytes | SHA-256 |
+| --- | ---: | --- |
+| arm64-v8a | 1,249,048 | `0b0f3707f204edb818a75accb70999a9f8e15a36912deaee865649d28e2e049b` |
+| x86_64 | 1,303,208 | `083efaac3008e24b9c4398d57a205ca3923a0619481ecc71934ed2e27868c803` |
+
 To regenerate `shaders_spv.h`, compile each `shaders/fullscreen.vert`, `shaders/planar_csc.frag` and
-`shaders/sgsr.frag` with NDK `shader-tools/windows-x86_64/glslc.exe -O --target-env=vulkan1.3 -mfmt=c`, and put
+`shaders/sgsr.frag` with NDK `shader-tools/windows-x86_64/glslc.exe -O --target-env=vulkan1.1 -mfmt=c`, and put
 those initializer lists in `static const uint32_t fullscreen_vert_spv[]` / `planar_csc_frag_spv[]` / `sgsr_frag_spv[]`.
-Also compile binary SPIR-V and run `spirv-val.exe --target-env vulkan1.3` on it.
+Also compile binary SPIR-V and run `spirv-val.exe --target-env vulkan1.1` on it. The renderer runs on
+Vulkan 1.1 devices, so the SPIR-V must stay at version 1.3 or lower.
 
 ### Exact real-device checks still required
 

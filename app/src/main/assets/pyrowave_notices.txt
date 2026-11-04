@@ -12,7 +12,7 @@ GPL-3.0, as is this Moonlight-derived application (see LICENSE.txt).
 Nightjar changes: PyroWave decoding and the GPU keep-busy work left out, built against upstream
 moonlight-common-c, and wired in as the "Render through Vulkan" setting.
 
-PyroWave a0d2e71e98b85f6a23f62407df21a39e9745b875 (MIT)
+PyroWave 7fe0e2667cd3076b8b2bf04bcb80bc8d691b800b (MIT)
 https://github.com/Themaister/pyrowave
 Includes the short-block fix, attributed to Punktfunk.
 Nightjar also corrects metadata read synchronization and initial linear-image transitions.
@@ -38,7 +38,7 @@ CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
 TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-Granite fb178c8080d163419e8d20f10715c61c53c1ec9b (MIT)
+Granite 53090429539bf3404250d18fe58db971f0907c04 (MIT)
 https://github.com/Themaister/Granite
 
 Copyright (c) 2017-2026 Hans-Kristian Arntzen

@@ -1,5 +1,5 @@
 import pathlib, tempfile, unittest
-from gpu_hang import EXIT_GPU_HANG, Guard, Scanner, hang_result
+from gpu_hang import EXIT_GPU_HANG, Guard, Scanner, hang_result, watch
 
 # Lines from the RX 7900 XT hangs: 2026-10-10 08:20Z (test host),
 # 2026-10-14 06:41Z and 2026-10-10 12:00Z (installed host).
@@ -145,6 +145,63 @@ class GpuHangGuard(unittest.TestCase):
         self.assertEqual(result['gpu_hang'], 'encoder call AMF QueryOutput took 3000 ms')
         self.assertIn('Do not retry', result['failures'][0])
         self.assertEqual(EXIT_GPU_HANG, 3)
+
+
+class GpuHangWatch(unittest.TestCase):
+    """watch(), as nuc-gamescope.ps1 runs it beside a batch: `events` maps a poll number to what
+    the batch does before that poll (log lines, the stop file)."""
+
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory()
+        self.root = pathlib.Path(self.directory.name)
+        self.log = self.root / 'butterpollo.log'
+        self.evidence = self.root / 'gpu-hang.txt'
+        self.stop = self.root / 'stop'
+        self.ready = self.root / 'ready'
+
+    def tearDown(self):
+        self.directory.cleanup()
+
+    def run_watch(self, events, before=''):
+        self.log.write_text(before)
+        for left in (self.evidence, self.stop, self.ready):
+            left.unlink(missing_ok=True)
+        clock = Clock()
+        polls = []
+
+        def sleep(seconds):
+            clock.now += seconds
+            polls.append(clock.now)
+            self.assertTrue(self.ready.exists())
+            self.assertLess(len(polls), 100, 'the watch did not end')
+            for event in events.get(len(polls), ()):
+                if event == 'stop':
+                    self.stop.write_text('')
+                else:
+                    with self.log.open('a') as log:
+                        log.write(event + '\n')
+
+        return watch(self.log, self.evidence, self.stop, self.ready, self.root / 'reports', clock=clock, sleep=sleep), polls
+
+    def test_a_hang_mid_batch_stops_the_watch_with_its_evidence(self):
+        code, polls = self.run_watch({3: [CONVERSION_201], 5: [QUERY_3000], 20: ['stop']})
+        self.assertEqual(code, EXIT_GPU_HANG)
+        self.assertEqual(len(polls), 5)
+        self.assertIn('AMF QueryOutput took 3000 ms', self.evidence.read_text())
+
+    def test_a_clean_batch_ends_at_the_stop_file(self):
+        code, polls = self.run_watch({2: [CONVERSION_201], 4: ['stop']}, before=QUERY_3000 + '\n')
+        self.assertEqual(code, 0)
+        self.assertEqual(len(polls), 4)
+        self.assertFalse(self.evidence.exists())
+
+    def test_a_stall_open_at_the_stop_gets_its_grace(self):
+        code, _ = self.run_watch({1: [STALLED, 'stop']})
+        self.assertEqual(code, EXIT_GPU_HANG)
+        self.assertIn('did not resume', self.evidence.read_text())
+        code, polls = self.run_watch({1: [STALLED, 'stop'], 3: [RESUMED]})
+        self.assertEqual(code, 0)
+        self.assertEqual(len(polls), 10)
 
 
 if __name__ == '__main__':

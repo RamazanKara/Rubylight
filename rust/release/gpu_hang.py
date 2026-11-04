@@ -124,7 +124,41 @@ class Guard:
         return self.scanner.evidence
 
 
+def watch(host_log, evidence, stop, ready=None, reports=LIVE_KERNEL_REPORTS, poll=0.5,
+          clock=time.monotonic, sleep=time.sleep):
+    """Guard.check() every `poll` seconds until the file `stop` appears, for a batch whose
+    streams run elsewhere (tools/hw/nuc-gamescope.ps1). The first evidence goes to the file
+    `evidence` and returns EXIT_GPU_HANG, else 0; an encoder stall still open when `stop`
+    appears gets its grace first. `ready` is written once the log's start size is taken."""
+    guard = Guard(host_log, reports, clock)
+    if ready:
+        pathlib.Path(ready).write_text('watching\n', encoding='utf-8')
+    stop_at = None
+    while True:
+        found = guard.check()
+        if found:
+            pathlib.Path(evidence).write_text(found + '\n', encoding='utf-8')
+            return EXIT_GPU_HANG
+        now = clock()
+        if stop_at is None and pathlib.Path(stop).exists():
+            stop_at = now + (STALL_GRACE if guard.scanner.stalls else 0)
+        if stop_at is not None and now >= stop_at:
+            return 0
+        sleep(poll)
+
+
 def hang_result(case, codec, mode, vrr, evidence):
     return dict(case=case, codec=codec, mode=mode, vrr=vrr, passed=False, gpu_hang=evidence,
                 failures=[f'stopped at an AMD video engine hang: {evidence}. Do not retry: reboot '
                           'if Device Manager shows the Radeon with Code 31, then run the check again'])
+
+
+if __name__ == '__main__':
+    import argparse
+    parser = argparse.ArgumentParser(description='Watch a host log for an AMD video-engine hang (watch()).')
+    parser.add_argument('host_log')
+    parser.add_argument('evidence', help='written with the evidence at a hang')
+    parser.add_argument('stop', help='the watch ends once this file exists')
+    parser.add_argument('ready', help='written once the watch has the log\'s start size')
+    args = parser.parse_args()
+    raise SystemExit(watch(args.host_log, args.evidence, args.stop, args.ready))

@@ -1,0 +1,38 @@
+# The stream part of a decoded picture with encoder alignment padding: decoded size, the requested
+# stream sizes (comma separated, - for none), then the visible size. nightjar-core's
+# tests/visible_size_contract.rs checks video::crop::visible_size against this file and
+# StreamResizePolicyTest checks StreamResizePolicy.paddedVisibleSize, so Android's upscaler and
+# stream view crop as desktop Nightjar does.
+# AMD's AV1 sizes on the RX 7900 XT (rust/PERFORMANCE_WORK.md).
+2240x1968 2184x1968 2184x1968
+1984x2186 1968x2184 1968x2184
+1920x1082 1920x1080 1920x1080
+1920x1056 1872x1053 1872x1053
+# A picture of the stream size is shown whole.
+1920x1080 1920x1080 1920x1080
+2184x1968 2184x1968 2184x1968
+# At most 63 columns and 15 rows are padding.
+1983x1080 1920x1080 1920x1080
+1920x1095 1920x1080 1920x1080
+1984x1080 1920x1080 1984x1080
+1920x1096 1920x1080 1920x1096
+2248x1968 2184x1968 2248x1968
+# A smaller picture is never cropped up.
+1280x720 1920x1080 1280x720
+2176x1968 2184x1968 2176x1968
+2240x1960 2184x1968 2240x1960
+# Another size, or nothing asked for.
+2560x1440 1920x1080 2560x1440
+1920x1082 - 1920x1082
+64x16 0x0 64x16
+# A mode change crops to the size the picture is of.
+1920x1082 2184x1968,1920x1080 1920x1080
+2240x1968 2184x1968,1920x1080 2184x1968
+1920x1080 1900x1070,1920x1080 1920x1080
+# Two sizes fit: the least padding wins, the first listed on a tie.
+1920x1082 1904x1080,1920x1080 1920x1080
+1920x1082 1920x1080,1904x1080 1920x1080
+1920x1082 1904x1080 1904x1080
+1904x1080 1904x1080,1920x1080 1904x1080
+1920x1088 1916x1084,1920x1080 1916x1084
+1920x1088 1920x1080,1916x1084 1920x1080

@@ -39,6 +39,9 @@ final class GlesUpscaler implements AutoCloseable, SurfaceTexture.OnFrameAvailab
     private final long[] frame = new long[3];
     private final float[] transform = new float[16];
     private final int[] size = new int[2];
+    // The stream's part of the decoded picture (UpscalingPolicy.pictureCrop), from the decoder's
+    // output format: AV1 from AMD encoders keeps its alignment padding.
+    private volatile float[] pictureCrop = {1f, 1f, 0f, 0f};
     private final Runnable pollCompletion = this::pollCompletion;
     private EGLDisplay display = EGL14.EGL_NO_DISPLAY;
     private EGLContext eglContext = EGL14.EGL_NO_CONTEXT;
@@ -101,6 +104,15 @@ final class GlesUpscaler implements AutoCloseable, SurfaceTexture.OnFrameAvailab
 
     Surface getInputSurface() {
         return inputSurface;
+    }
+
+    /** Whether a cropped edge ends half a texel inside: bilinear sampling, which does not clamp. */
+    boolean insetsCroppedEdges() {
+        return packing == null && mode == UpscalingPolicy.Mode.BILINEAR;
+    }
+
+    void setPictureCrop(float[] crop) {
+        pictureCrop = crop.clone();
     }
 
     long releaseFrame(long targetNs) {
@@ -360,6 +372,7 @@ final class GlesUpscaler implements AutoCloseable, SurfaceTexture.OnFrameAvailab
                 viewport = UpscalingPolicy.viewport(packing.width, packing.height, surfaceWidth, surfaceHeight, stretch);
             }
             texture.getTransformMatrix(transform);
+            UpscalingPolicy.applyCrop(transform, pictureCrop);
             GLES30.glActiveTexture(GLES30.GL_TEXTURE0);
             GLES30.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, sourceTexture);
             GLES30.glUseProgram(upscaleProgram);

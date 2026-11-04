@@ -25,6 +25,7 @@ BIND, PORT = '192.168.4.69', 48463
 SERIAL = 'e24bb88e'
 PACKAGE = 'com.butterpollo.client.njrf'
 MOTION_PROBE = REL / 'fixtures' / 'motion_probe.exe'
+AUDIO_PROBE = REL / 'fixtures' / 'audio_probe.exe'
 APP_UUID = '404ccbeb-9f1c-46f2-a532-5cdafaac46aa'
 LOCKS = ('GPU-LOCK', 'RETROID-LOCK')
 OWNER = 'nj-fec-wifi'
@@ -62,6 +63,15 @@ def primary_monitor():
     return next(m for m in diag['monitors'] if m['primary'])
 
 
+def virtual_sink():
+    # Capturing Steam Streaming Speakers without making it the default keeps the PC's own sound on its speakers.
+    endpoints = json.loads(subprocess.check_output([str(AUDIO_PROBE), '--list'], text=True))
+    sink = next((e for e in endpoints if e['virtual_sink']), None)
+    if not sink:
+        raise SystemExit("Steam Streaming Speakers is required: the test host must not move the PC's own sound")
+    return sink['id']
+
+
 def write_profile(host_uuid, client_pem):
     (PROFILE / 'logs').mkdir(parents=True, exist_ok=True)
     monitor = primary_monitor()
@@ -69,7 +79,9 @@ def write_profile(host_uuid, client_pem):
             'virtual_display_mode = disabled', 'virtual_display_layout = extended', 'dd_configuration_option = disabled',
             'dd_resolution_option = disabled', 'dd_refresh_rate_option = disabled', 'dd_hdr_option = disabled',
             'dd_always_restore_from_golden = false', 'dd_config_revert_on_disconnect = false',
-            'install_steam_audio_drivers = false', 'stream_audio = true', 'upnp = false', 'enable_discovery = false',
+            'install_steam_audio_drivers = false', 'stream_audio = true', 'audio_sink_capture_only = true',
+            'auto_capture_sink = false', f'audio_sink = {virtual_sink()}', 'keep_sink_default = false',
+            'upnp = false', 'enable_discovery = false',
             'vulkan_hdr_layer = false', 'system_tray = false', 'update_check_interval = 0', 'pyrowave = false',
             'sunshine_name = njrf']
     (PROFILE / 'sunshine.conf').write_text('\n'.join(conf) + '\n')
@@ -185,6 +197,10 @@ def start_host(tag):
         raise SystemExit('a host on this profile already runs')
     for f in (PROFILE / 'logs').glob('*'):
         f.unlink()
+    # A display change since setup gives the primary monitor a new id; a stale one fails the launch ("display unavailable").
+    conf = PROFILE / 'sunshine.conf'
+    output = f"output_name = {primary_monitor()['device_id']}"
+    conf.write_text(re.sub(r'(?m)^output_name = .*$', lambda _: output, conf.read_text()))
     env = dict(os.environ, RUST_LOG='info,butterpollo=debug', NO_PROXY='*')
     OUT.mkdir(parents=True, exist_ok=True)
     p = subprocess.Popen([str(HOST_DIR / 'butterpollo.exe'), '--config-dir', str(PROFILE), '--port', str(PORT),

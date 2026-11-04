@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="stream_hotkeys_title">Stream-Tastenkürzel</string>
+    <string name="stream_hotkeys_summary">Nightjars eigene Tastenkombinationen im Stream.</string>
+    <string name="stream_hotkey_change">Ändern</string>
+    <string name="stream_hotkey_off">Aus</string>
+    <string name="stream_hotkey_reset">Zurücksetzen</string>
+    <string name="stream_hotkey_record">Neue Tasten drücken</string>
+    <string name="stream_hotkey_taken">Bereits belegt: %1$s</string>
+    <string name="stream_hotkey_length">Verwende 2 bis 4 Tasten.</string>
+    <string name="stream_hotkey_modifier">Verwende Strg, Alt oder Umschalt, ohne die Windows-Taste.</string>
+    <string name="stream_hotkey_one_key">Verwende eine Taste zusätzlich zu Strg, Alt und Umschalt.</string>
+    <string name="stream_hotkey_reserved">Diese Kombination behält Windows für sich.</string>
+    <string name="stream_hotkey_unsupported">Nicht unterstützte Taste: %1$s</string>
+    <string name="stream_hotkey_repeated">Wiederholte Taste: %1$s</string>
+    <string name="stream_hotkey_action_quit">Trennen</string>
+    <string name="stream_hotkey_action_capture">Eingabe freigeben oder erfassen</string>
+    <string name="stream_hotkey_action_overlay">Leistungs-Overlay</string>
+    <string name="stream_hotkey_action_stream_menu">Streammenü</string>
+    <string name="stream_hotkey_action_cursor">Mauszeiger ein- oder ausblenden</string>
+    <string name="stream_hotkey_moved">%1$s ist jetzt %2$s</string>
+    <string name="stream_hotkeys_unavailable">Stream-Tastenkürzel nicht verfügbar: %1$s</string>
+</resources>

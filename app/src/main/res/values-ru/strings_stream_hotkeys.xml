@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="stream_hotkeys_title">Горячие клавиши трансляции</string>
+    <string name="stream_hotkeys_summary">Собственные сочетания клавиш Nightjar во время трансляции.</string>
+    <string name="stream_hotkey_change">Изменить</string>
+    <string name="stream_hotkey_off">Выкл.</string>
+    <string name="stream_hotkey_reset">Сбросить</string>
+    <string name="stream_hotkey_record">Нажмите новые клавиши</string>
+    <string name="stream_hotkey_taken">Уже занято: %1$s</string>
+    <string name="stream_hotkey_length">Используйте от 2 до 4 клавиш.</string>
+    <string name="stream_hotkey_modifier">Используйте Ctrl, Alt или Shift без клавиши Windows.</string>
+    <string name="stream_hotkey_one_key">Используйте одну клавишу помимо Ctrl, Alt и Shift.</string>
+    <string name="stream_hotkey_reserved">Это сочетание занято Windows.</string>
+    <string name="stream_hotkey_unsupported">Неподдерживаемая клавиша: %1$s</string>
+    <string name="stream_hotkey_repeated">Повторяющаяся клавиша: %1$s</string>
+    <string name="stream_hotkey_action_quit">Отключиться</string>
+    <string name="stream_hotkey_action_capture">Освободить или захватить ввод</string>
+    <string name="stream_hotkey_action_overlay">Оверлей производительности</string>
+    <string name="stream_hotkey_action_stream_menu">Меню трансляции</string>
+    <string name="stream_hotkey_action_cursor">Показать или скрыть курсор</string>
+    <string name="stream_hotkey_moved">%1$s теперь %2$s</string>
+    <string name="stream_hotkeys_unavailable">Горячие клавиши трансляции недоступны: %1$s</string>
+</resources>

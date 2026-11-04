@@ -49,6 +49,8 @@ public final class RustStreamMenuModel implements StreamMenuModel.Calls {
     final List<Tile> tiles = new ArrayList<>();
     final Map<String, String[]> builtIns = new LinkedHashMap<>();
     final List<String> picker = new ArrayList<>();
+    /** Android's stream hotkeys in the table's order: {id}, default keys, old keys or null. */
+    final List<String[][]> hotkeys = new ArrayList<>();
     /** Every request, for tests that check what the menu asked. */
     final List<JSONObject> requests = new ArrayList<>();
 
@@ -86,7 +88,16 @@ public final class RustStreamMenuModel implements StreamMenuModel.Calls {
         while (builtIn.find()) builtIns.put(builtIn.group(1), names(builtIn.group(2)));
         int start = shortcuts.indexOf("pub const PICKER");
         picker.addAll(Arrays.asList(names(shortcuts.substring(shortcuts.indexOf("&[", start) + 2, shortcuts.indexOf("];", start)))));
-        if (tiles.isEmpty() || builtIns.isEmpty() || picker.isEmpty() || labelled("grid") == 0 || labelled("label") != 3) {
+        // hotkey("quit", On::Both, &["CTRL", "ALT", "SHIFT", "Q"]), with old: &[(Client::Android, &[…])] before it
+        Matcher hotkey = Pattern.compile("(?:Hotkey \\{ old: &\\[\\(Client::(\\w+), &\\[([^\\]]*)\\]\\)\\], \\.\\.)?"
+                + "hotkey\\(\"(\\w+)\", On::(?:Both|Only\\(Client::(\\w+)\\)), &\\[([^\\]]*)\\]\\)").matcher(shortcuts);
+        while (hotkey.find()) {
+            if (hotkey.group(4) != null && !hotkey.group(4).equals("Android")) continue;
+            String[] old = hotkey.group(1) != null && hotkey.group(1).equals("Android") ? names(hotkey.group(2)) : null;
+            hotkeys.add(new String[][] {{hotkey.group(3)}, names(hotkey.group(5)), old});
+        }
+        if (tiles.isEmpty() || builtIns.isEmpty() || picker.isEmpty() || labelled("grid") == 0 || labelled("label") != 3
+                || hotkeys.isEmpty()) {
             throw new AssertionError("the policy sources changed shape");
         }
     }
@@ -179,11 +190,91 @@ public final class RustStreamMenuModel implements StreamMenuModel.Calls {
                             in.getBoolean("hdr"));
                     return ok(line == null ? JSONObject.NULL : line);
                 }
+                case "hotkeys": return ok(hotkeys(in.getJSONObject("bindings")));
+                case "check_hotkey": return checkHotkey(in.getString("id"), in.getJSONArray("keys"), in.getJSONObject("bindings"));
                 default: return error("invalid");
             }
         } catch (JSONException e) {
             throw new AssertionError(e);
         }
+    }
+
+    /** shortcuts::bound: a saved chord or the default, off as null; an old chord while unchanged and free. */
+    private JSONArray hotkeys(JSONObject bindings) throws JSONException {
+        List<String[]> bound = new ArrayList<>();
+        for (String[][] hotkey : hotkeys) {
+            String saved = bindings.optString(hotkey[0][0], null);
+            bound.add(saved == null ? hotkey[1] : saved.equals("off") ? null : saved.split("\\+"));
+        }
+        JSONArray answer = new JSONArray();
+        for (int i = 0; i < hotkeys.size(); i++) {
+            String[][] hotkey = hotkeys.get(i);
+            boolean changed = bindings.has(hotkey[0][0]);
+            JSONArray old = new JSONArray();
+            if (!changed && hotkey[2] != null) {
+                boolean taken = false;
+                for (String[] keys : bound) taken |= keys != null && Arrays.equals(keys, hotkey[2]);
+                if (!taken) old.put(chord(hotkey[2]));
+            }
+            answer.put(new JSONObject().put("id", hotkey[0][0]).put("chord", bound.get(i) == null ? JSONObject.NULL : chord(bound.get(i)))
+                    .put("default", chord(hotkey[1])).put("changed", changed).put("old", old));
+        }
+        return answer;
+    }
+
+    private String checkHotkey(String id, JSONArray list, JSONObject bindings) throws JSONException {
+        if (list.length() < 2 || list.length() > 4) return error("hotkey_length");
+        List<String> keys = new ArrayList<>();
+        String key = null;
+        for (String modifier : new String[] {"CTRL", "ALT", "SHIFT"}) {
+            for (int i = 0; i < list.length(); i++) if (list.getString(i).equals(modifier)) keys.add(modifier);
+        }
+        for (int i = 0; i < list.length(); i++) {
+            String name = list.getString(i);
+            if (name.equals("WIN")) return error("hotkey_modifier");
+            if (!keys.contains(name)) {
+                if (key != null) return error("hotkey_one_key");
+                key = name;
+            }
+        }
+        if (keys.isEmpty()) return error("hotkey_modifier");
+        keys.add(key);
+        JSONArray bound = hotkeys(bindings);
+        for (int i = 0; i < bound.length(); i++) {
+            JSONObject other = bound.getJSONObject(i);
+            if (!other.getString("id").equals(id) && !other.isNull("chord")
+                    && Arrays.asList(strings(other.getJSONObject("chord").getJSONArray("keys"))).equals(keys)) {
+                return new JSONObject().put("error", "taken").put("detail", other.getString("id")).toString();
+            }
+        }
+        return ok(new JSONArray(keys));
+    }
+
+    private static String[] strings(JSONArray array) throws JSONException {
+        String[] values = new String[array.length()];
+        for (int i = 0; i < values.length; i++) values[i] = array.getString(i);
+        return values;
+    }
+
+    /** {keys, label, modifiers, vk} as the PC sees the chord: letters, digits, Tab and F1-F24 are enough for the tests. */
+    private static JSONObject chord(String[] keys) throws JSONException {
+        int modifiers = 0, vk = 0;
+        List<String> labels = new ArrayList<>();
+        for (String key : keys) {
+            labels.add(label(key));
+            switch (key) {
+                case "SHIFT": modifiers |= 1; break;
+                case "CTRL": modifiers |= 2; break;
+                case "ALT": modifiers |= 4; break;
+                case "TAB": vk = 0x09; break;
+                default:
+                    if (key.length() == 1) vk = key.charAt(0);
+                    else if (key.matches("F\\d+")) vk = 0x6F + Integer.parseInt(key.substring(1));
+                    else throw new AssertionError("the fake knows no VK for " + key);
+            }
+        }
+        return new JSONObject().put("keys", new JSONArray(Arrays.asList(keys))).put("label", String.join(" + ", labels))
+                .put("modifiers", modifiers).put("vk", vk);
     }
 
     private Object layout(JSONObject in) throws JSONException {

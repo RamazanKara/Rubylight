@@ -232,7 +232,7 @@ public class KeyboardTranslator implements InputManager.InputDeviceListener {
     }
 
     @SuppressLint("InlinedApi")
-    static short translateKeyCode(int keycode) {
+    public static short translateKeyCode(int keycode) {
         int translated;
         // This is a poor man's mapping between Android key codes
         // and Windows VK_* codes. For all defined VK_ codes, see:

@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="stream_hotkeys_title">Yayın kısayolları</string>
+    <string name="stream_hotkeys_summary">Yayın sırasında Nightjar\'ın kendi tuş kombinasyonları.</string>
+    <string name="stream_hotkey_change">Değiştir</string>
+    <string name="stream_hotkey_off">Kapalı</string>
+    <string name="stream_hotkey_reset">Sıfırla</string>
+    <string name="stream_hotkey_record">Yeni tuşlara basın</string>
+    <string name="stream_hotkey_taken">Zaten kullanılıyor: %1$s</string>
+    <string name="stream_hotkey_length">2 ila 4 tuş kullanın.</string>
+    <string name="stream_hotkey_modifier">Windows tuşu olmadan Ctrl, Alt veya Shift kullanın.</string>
+    <string name="stream_hotkey_one_key">Ctrl, Alt ve Shift dışında bir tuş kullanın.</string>
+    <string name="stream_hotkey_reserved">Bu kombinasyon Windows\'a ayrılmıştır.</string>
+    <string name="stream_hotkey_unsupported">Desteklenmeyen tuş: %1$s</string>
+    <string name="stream_hotkey_repeated">Tekrarlanan tuş: %1$s</string>
+    <string name="stream_hotkey_action_quit">Bağlantıyı kes</string>
+    <string name="stream_hotkey_action_capture">Girişi bırakma veya yakalama</string>
+    <string name="stream_hotkey_action_overlay">Performans katmanı</string>
+    <string name="stream_hotkey_action_stream_menu">Yayın menüsü</string>
+    <string name="stream_hotkey_action_cursor">İmleci göster veya gizle</string>
+    <string name="stream_hotkey_moved">%1$s artık %2$s</string>
+    <string name="stream_hotkeys_unavailable">Yayın kısayolları kullanılamıyor: %1$s</string>
+</resources>

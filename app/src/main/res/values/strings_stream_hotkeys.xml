@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="stream_hotkeys_title">Stream hotkeys</string>
+    <string name="stream_hotkeys_summary">Nightjar\'s own key combinations in a stream.</string>
+    <string name="stream_hotkey_change">Change</string>
+    <string name="stream_hotkey_off">Off</string>
+    <string name="stream_hotkey_reset">Reset</string>
+    <string name="stream_hotkey_record">Press the new keys</string>
+    <string name="stream_hotkey_taken">Already used by %1$s</string>
+    <string name="stream_hotkey_length">Use 2 to 4 keys.</string>
+    <string name="stream_hotkey_modifier">Use Ctrl, Alt or Shift, without the Windows key.</string>
+    <string name="stream_hotkey_one_key">Use one key besides Ctrl, Alt and Shift.</string>
+    <string name="stream_hotkey_reserved">Windows keeps this combination.</string>
+    <string name="stream_hotkey_unsupported">Unsupported key: %1$s</string>
+    <string name="stream_hotkey_repeated">Repeated key: %1$s</string>
+    <string name="stream_hotkey_action_quit">Disconnect</string>
+    <string name="stream_hotkey_action_capture">Release or capture input</string>
+    <string name="stream_hotkey_action_overlay">Performance overlay</string>
+    <string name="stream_hotkey_action_stream_menu">Stream menu</string>
+    <string name="stream_hotkey_action_cursor">Show or hide the cursor</string>
+    <string name="stream_hotkey_moved">%1$s is now %2$s</string>
+    <string name="stream_hotkeys_unavailable">Stream hotkeys are unavailable: %1$s</string>
+</resources>

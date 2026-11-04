@@ -37,7 +37,7 @@
     <string name="stream_menu_hint_buttons">하단에서 위로 스와이프한 후 뒤로 탭</string>
     <string name="stream_menu_hint_back">뒤로 누르기</string>
     <string name="stream_menu_hint_controller">컨트롤러에서 Start + Back + LB + RB 누르기</string>
-    <string name="stream_menu_hint_keyboard">Ctrl + Alt + Shift + M 누르기</string>
+    <string name="stream_menu_hint_keyboard">Ctrl + Alt + Shift + Tab 누르기</string>
     <string name="stream_menu_hint_or">%1$s 또는 %2$s</string>
     <string name="stream_menu_hint_list">%1$s, %2$s</string>
     <string name="stream_menu_hint_close">탭하여 닫기</string>

@@ -547,6 +547,9 @@
             android:negativeButtonText="@android:string/cancel" />
     </PreferenceCategory>
     <PreferenceCategory android:key="category_keyboard_shortcuts" android:title="@string/settings_category_keyboard">
+        <Preference android:key="stream_hotkeys"
+            android:title="@string/stream_hotkeys_title"
+            android:summary="@string/stream_hotkeys_summary" />
         <com.limelight.preferences.MaterialSwitchPreference
             android:key="checkbox_capture_system_keys"
             android:title="@string/title_checkbox_capture_system_keys"

@@ -148,7 +148,7 @@ public final class KeyboardShortcuts {
 
     // F13-F24 are inlined numeric constants translated by our own table, including on API 21.
     @android.annotation.SuppressLint("InlinedApi")
-    private static String keyName(int key) {
+    public static String keyName(int key) {
         switch (key) {
             case KeyEvent.KEYCODE_CTRL_LEFT: return "CTRL";
             case KeyEvent.KEYCODE_SHIFT_LEFT: return "SHIFT";

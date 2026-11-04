@@ -281,6 +281,75 @@ public final class StreamMenuModel {
         }
     }
 
+    /** A stream hotkey's chord: its saved key names, its text, and what the PC would see (modifier bits, Windows VK). */
+    public static final class Chord {
+        public final String[] keys;
+        public final String label;
+        public final int modifiers;
+        public final int vk;
+
+        Chord(JSONObject chord) throws JSONException {
+            keys = strings(chord.getJSONArray("keys"));
+            label = chord.getString("label");
+            modifiers = chord.getInt("modifiers");
+            vk = chord.getInt("vk");
+        }
+
+        private static Chord of(JSONObject owner, String name) throws JSONException {
+            return owner.isNull(name) ? null : new Chord(owner.getJSONObject(name));
+        }
+    }
+
+    /**
+     * One of Android's stream hotkeys from the table both clients share: its chord now (null when off), its
+     * default, whether the user changed it, and the chords it answered to before, which still work while it is unchanged.
+     */
+    public static final class Hotkey {
+        public final String id;
+        public final Chord chord;
+        public final Chord standard;
+        public final boolean changed;
+        public final List<Chord> old;
+
+        Hotkey(JSONObject item) throws JSONException {
+            id = item.getString("id");
+            chord = Chord.of(item, "chord");
+            standard = new Chord(item.getJSONObject("default"));
+            changed = item.getBoolean("changed");
+            List<Chord> before = new ArrayList<>();
+            JSONArray list = item.getJSONArray("old");
+            for (int i = 0; i < list.length(); i++) before.add(new Chord(list.getJSONObject(i)));
+            old = Collections.unmodifiableList(before);
+        }
+    }
+
+    private static JSONObject bindings(java.util.Map<String, String> bindings) throws JSONException {
+        JSONObject object = new JSONObject();
+        for (java.util.Map.Entry<String, String> entry : bindings.entrySet()) object.put(entry.getKey(), entry.getValue());
+        return object;
+    }
+
+    /** Android's stream hotkeys with the user's changes ({@code id → "CTRL+F2"} or {@code "off"}), in the table's order. */
+    public static List<Hotkey> hotkeys(java.util.Map<String, String> bindings) throws Refused {
+        try {
+            JSONArray answer = (JSONArray) ask(op("hotkeys").put("bindings", bindings(bindings)));
+            List<Hotkey> hotkeys = new ArrayList<>();
+            for (int i = 0; i < answer.length(); i++) hotkeys.add(new Hotkey(answer.getJSONObject(i)));
+            return hotkeys;
+        } catch (JSONException | ClassCastException e) {
+            throw new Refused("invalid", "unreadable hotkeys: " + e.getMessage());
+        }
+    }
+
+    /** A hotkey's new keys in their saved order, or why they are refused ({@code taken} names the action that has them). */
+    public static String[] checkHotkey(String id, String[] keys, java.util.Map<String, String> bindings) throws Refused {
+        try {
+            return strings((JSONArray) ask(op("check_hotkey").put("id", id).put("keys", array(keys)).put("bindings", bindings(bindings))));
+        } catch (JSONException | ClassCastException e) {
+            throw new Refused("invalid", "unreadable hotkey check: " + e.getMessage());
+        }
+    }
+
     /** The model's id for the grid's Add tile, as {@link #labels} names it. */
     public static final String ADD = "add";
 

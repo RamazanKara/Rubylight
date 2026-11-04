@@ -34,7 +34,7 @@ Open the stream menu with:
 
 | Client | Touch or keyboard | Controller |
 | --- | --- | --- |
-| Android | **Back** (or the back gesture), or **Ctrl+Alt+Shift+M** | **Start+Back+LB+RB** |
+| Android | **Back** (or the back gesture), or **Ctrl+Alt+Shift+Tab** | **Start+Back+LB+RB** |
 | Windows and Linux | **Ctrl+Alt+Shift+Tab** | **Start+Back** |
 
 The top row toggles **Keyboard**, **Overlay** and, when the PC offers it, **Microphone**. The **Input**, **Display**, **Quality** and **Host** sections hold the rest; [the stream menu](controls.md#the-stream-menu) describes every item. Which items appear depends on the host and the device's permissions.

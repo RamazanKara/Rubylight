@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="stream_hotkeys_title">串流快速鍵</string>
+    <string name="stream_hotkeys_summary">串流時 Nightjar 自己的組合鍵。</string>
+    <string name="stream_hotkey_change">變更</string>
+    <string name="stream_hotkey_off">關閉</string>
+    <string name="stream_hotkey_reset">重設</string>
+    <string name="stream_hotkey_record">按下新的按鍵</string>
+    <string name="stream_hotkey_taken">已被「%1$s」使用</string>
+    <string name="stream_hotkey_length">請使用 2 到 4 個鍵。</string>
+    <string name="stream_hotkey_modifier">請使用 Ctrl、Alt 或 Shift，不要用 Windows 鍵。</string>
+    <string name="stream_hotkey_one_key">除 Ctrl、Alt 和 Shift 外，請再用一個鍵。</string>
+    <string name="stream_hotkey_reserved">此組合由 Windows 保留。</string>
+    <string name="stream_hotkey_unsupported">不支援的按鍵：%1$s</string>
+    <string name="stream_hotkey_repeated">重複的按鍵：%1$s</string>
+    <string name="stream_hotkey_action_quit">中斷連線</string>
+    <string name="stream_hotkey_action_capture">釋放或擷取輸入</string>
+    <string name="stream_hotkey_action_overlay">效能覆蓋層</string>
+    <string name="stream_hotkey_action_stream_menu">串流選單</string>
+    <string name="stream_hotkey_action_cursor">顯示或隱藏游標</string>
+    <string name="stream_hotkey_moved">%1$s 現在是 %2$s</string>
+    <string name="stream_hotkeys_unavailable">串流快速鍵無法使用：%1$s</string>
+</resources>

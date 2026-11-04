@@ -37,7 +37,7 @@ Kaydedilmemiş ilerleme kaybolur.</string>
     <string name="stream_menu_hint_buttons">alttan yukarı kaydırıp Geri’ye dokunun</string>
     <string name="stream_menu_hint_back">Geri’ye basın</string>
     <string name="stream_menu_hint_controller">kumandada Start + Back + LB + RB’ye basın</string>
-    <string name="stream_menu_hint_keyboard">Ctrl + Alt + Shift + M’ye basın</string>
+    <string name="stream_menu_hint_keyboard">Ctrl + Alt + Shift + Tab’a basın</string>
     <string name="stream_menu_hint_or">%1$s veya %2$s</string>
     <string name="stream_menu_hint_list">%1$s, %2$s</string>
     <string name="stream_menu_hint_close">Kapatmak için dokunun</string>

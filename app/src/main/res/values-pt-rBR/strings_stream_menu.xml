@@ -37,7 +37,7 @@ O progresso não salvo será perdido.</string>
     <string name="stream_menu_hint_buttons">deslize de baixo para cima e toque em Voltar</string>
     <string name="stream_menu_hint_back">pressione Voltar</string>
     <string name="stream_menu_hint_controller">pressione Start + Back + LB + RB no controle</string>
-    <string name="stream_menu_hint_keyboard">pressione Ctrl + Alt + Shift + M</string>
+    <string name="stream_menu_hint_keyboard">pressione Ctrl + Alt + Shift + Tab</string>
     <string name="stream_menu_hint_or">%1$s ou %2$s</string>
     <string name="stream_menu_hint_list">%1$s, %2$s</string>
     <string name="stream_menu_hint_close">Toque para fechar</string>

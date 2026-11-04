@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="stream_hotkeys_title">Skróty transmisji</string>
+    <string name="stream_hotkeys_summary">Własne kombinacje klawiszy Nightjar podczas transmisji.</string>
+    <string name="stream_hotkey_change">Zmień</string>
+    <string name="stream_hotkey_off">Wyłączone</string>
+    <string name="stream_hotkey_reset">Resetuj</string>
+    <string name="stream_hotkey_record">Naciśnij nowe klawisze</string>
+    <string name="stream_hotkey_taken">Już używane przez: %1$s</string>
+    <string name="stream_hotkey_length">Użyj od 2 do 4 klawiszy.</string>
+    <string name="stream_hotkey_modifier">Użyj Ctrl, Alt lub Shift, bez klawisza Windows.</string>
+    <string name="stream_hotkey_one_key">Użyj jednego klawisza oprócz Ctrl, Alt i Shift.</string>
+    <string name="stream_hotkey_reserved">Tę kombinację zastrzega Windows.</string>
+    <string name="stream_hotkey_unsupported">Nieobsługiwany klawisz: %1$s</string>
+    <string name="stream_hotkey_repeated">Powtórzony klawisz: %1$s</string>
+    <string name="stream_hotkey_action_quit">Rozłącz</string>
+    <string name="stream_hotkey_action_capture">Zwalnianie lub przechwytywanie wejścia</string>
+    <string name="stream_hotkey_action_overlay">Nakładka wydajności</string>
+    <string name="stream_hotkey_action_stream_menu">Menu transmisji</string>
+    <string name="stream_hotkey_action_cursor">Pokaż lub ukryj kursor</string>
+    <string name="stream_hotkey_moved">%1$s to teraz %2$s</string>
+    <string name="stream_hotkeys_unavailable">Skróty transmisji są niedostępne: %1$s</string>
+</resources>

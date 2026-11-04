@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="stream_hotkeys_title">Scorciatoie dello stream</string>
+    <string name="stream_hotkeys_summary">Le combinazioni di tasti di Nightjar durante lo stream.</string>
+    <string name="stream_hotkey_change">Modifica</string>
+    <string name="stream_hotkey_off">Disattivata</string>
+    <string name="stream_hotkey_reset">Ripristina</string>
+    <string name="stream_hotkey_record">Premi i nuovi tasti</string>
+    <string name="stream_hotkey_taken">Già usato da %1$s</string>
+    <string name="stream_hotkey_length">Usa da 2 a 4 tasti.</string>
+    <string name="stream_hotkey_modifier">Usa Ctrl, Alt o Shift, senza il tasto Windows.</string>
+    <string name="stream_hotkey_one_key">Usa un tasto oltre a Ctrl, Alt e Shift.</string>
+    <string name="stream_hotkey_reserved">Windows riserva questa combinazione.</string>
+    <string name="stream_hotkey_unsupported">Tasto non supportato: %1$s</string>
+    <string name="stream_hotkey_repeated">Tasto ripetuto: %1$s</string>
+    <string name="stream_hotkey_action_quit">Disconnetti</string>
+    <string name="stream_hotkey_action_capture">Rilasciare o catturare l’input</string>
+    <string name="stream_hotkey_action_overlay">Overlay prestazioni</string>
+    <string name="stream_hotkey_action_stream_menu">Menu dello stream</string>
+    <string name="stream_hotkey_action_cursor">Mostra o nascondi il cursore</string>
+    <string name="stream_hotkey_moved">%1$s ora è %2$s</string>
+    <string name="stream_hotkeys_unavailable">Scorciatoie dello stream non disponibili: %1$s</string>
+</resources>

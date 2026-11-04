@@ -2226,6 +2226,10 @@ public class StreamSettings extends NightjarActivity {
                 startActivity(new Intent(getActivity(), KeyboardShortcutsActivity.class));
                 return true;
             });
+            findPreference("stream_hotkeys").setOnPreferenceClickListener(preference -> {
+                startActivity(new Intent(getActivity(), StreamHotkeysActivity.class));
+                return true;
+            });
             findPreference("export_latency_csv").setOnPreferenceClickListener(new Preference.OnPreferenceClickListener() {
                 @Override
                 public boolean onPreferenceClick(Preference preference) {

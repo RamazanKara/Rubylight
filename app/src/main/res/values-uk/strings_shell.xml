@@ -46,6 +46,8 @@
     <string name="host_update_timeout">ПК не повернувся з версією %1$s вчасно.</string>
     <string name="host_restart_refused_title">Не вдалося перезавантажити %1$s</string>
     <string name="host_shutdown_refused_title">Не вдалося вимкнути %1$s</string>
+    <string name="host_restart_unconfirmed_title">%1$s ще може перезавантажитися</string>
+    <string name="host_shutdown_unconfirmed_title">%1$s ще може вимкнутися</string>
     <string name="host_update_waiting">%1$s Оновлення почнеться, коли ця трансляція завершиться.</string>
     <string name="host_update_failed">Оновлення на ПК не вдалося.</string>
     <string name="host_update_old_version">ПК повернувся з версією %1$s; оновлення не встановилося.</string>

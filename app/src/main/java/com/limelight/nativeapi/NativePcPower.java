@@ -40,6 +40,11 @@ public final class NativePcPower {
         public final boolean wakeFromOff;
         /** Why this device's last accepted request did not go ahead after all, in the host's words; or null. */
         public final String lastRefusal;
+        /**
+         * {@link #lastRefusal} is no refusal: Windows did not confirm the request in time, so the PC may still go
+         * down. False from an older host, which never says.
+         */
+        public final boolean lastRefusalUnconfirmed;
 
         Offer(JSONObject json) {
             JSONObject restart = json.optJSONObject("restart");
@@ -52,6 +57,7 @@ public final class NativePcPower {
             wakeFromOff = json.optBoolean("wake_from_off");
             String refusal = text(json, "last_refusal");
             lastRefusal = refusal == null || refusal.isEmpty() ? null : refusal;
+            lastRefusalUnconfirmed = lastRefusal != null && json.optBoolean("last_refusal_unconfirmed");
         }
 
         /** The token to confirm {@code action} with; null when the host says it can't run now. */
@@ -90,6 +96,8 @@ public final class NativePcPower {
         /** The updater failed; {@link #failure} is its words, or null. */
         public final boolean failed;
         public final String failure;
+        /** Read while following an install: the PC answers on the version being installed. */
+        public final boolean arrived;
         /** Read while following an install: the PC is back on another version with nothing under way. */
         public final boolean gaveUp;
 
@@ -97,12 +105,13 @@ public final class NativePcPower {
             this(json.optString("current_version", ""), text(json, "latest_version"), json.optString("phase", ""),
                     json.optBoolean("install_supported"), text(json, "waiting_for"), text(json, "error"),
                     text(json, "offered"), json.optBoolean("installing_now"), json.optBoolean("in_progress"),
-                    json.optBoolean("failed"), text(json, "failure"), json.optBoolean("gave_up"));
+                    json.optBoolean("failed"), text(json, "failure"), json.optBoolean("arrived"),
+                    json.optBoolean("gave_up"));
         }
 
         private Update(String currentVersion, String latestVersion, String phase, boolean installSupported,
                        String waitingFor, String error, String offered, boolean installingNow, boolean inProgress,
-                       boolean failed, String failure, boolean gaveUp) {
+                       boolean failed, String failure, boolean arrived, boolean gaveUp) {
             this.currentVersion = currentVersion;
             this.latestVersion = latestVersion;
             this.phase = phase;
@@ -114,6 +123,7 @@ public final class NativePcPower {
             this.inProgress = inProgress;
             this.failed = failed;
             this.failure = failure;
+            this.arrived = arrived;
             this.gaveUp = gaveUp;
         }
 
@@ -125,17 +135,8 @@ public final class NativePcPower {
         /** As desktop after a tap: under way, so the menu offers no second install until the next read says. */
         Update installing() {
             return new Update(currentVersion, latestVersion, "installing", installSupported, waitingFor, error,
-                    offered, true, true, failed, failure, gaveUp);
+                    offered, true, true, failed, failure, arrived, gaveUp);
         }
-    }
-
-    /** Whether serverinfo's {@code running} version shows the update arrived: the PC is back on {@code target}. */
-    public static boolean arrived(String running, String target) {
-        if (running == null || target == null) {
-            return false;
-        }
-        String version = bare(running.trim());
-        return !version.isEmpty() && version.equals(bare(target));
     }
 
     static Offer parseOffer(JSONObject json) throws JSONException {
@@ -146,10 +147,6 @@ public final class NativePcPower {
     static Update parseUpdate(JSONObject json) throws JSONException {
         if (json == null) throw new JSONException("no update object");
         return new Update(json);
-    }
-
-    private static String bare(String version) {
-        return version.startsWith("v") ? version.substring(1) : version;
     }
 
     private static String text(JSONObject json, String key) {

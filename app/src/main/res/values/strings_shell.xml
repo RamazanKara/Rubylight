@@ -49,6 +49,9 @@
     <string name="host_update_timeout">The PC didn’t come back with version %1$s in time.</string>
     <string name="host_restart_refused_title">Couldn’t restart %1$s</string>
     <string name="host_shutdown_refused_title">Couldn’t shut down %1$s</string>
+    <!-- Windows did not confirm a restart or shutdown in time: no refusal, the PC may still go down. -->
+    <string name="host_restart_unconfirmed_title">%1$s may still restart</string>
+    <string name="host_shutdown_unconfirmed_title">%1$s may still shut down</string>
     <string name="host_update_waiting">%1$s The update starts once that stream ends.</string>
     <string name="host_update_failed">The update failed on the PC.</string>
     <string name="host_update_old_version">The PC came back on version %1$s; the update didn’t install.</string>

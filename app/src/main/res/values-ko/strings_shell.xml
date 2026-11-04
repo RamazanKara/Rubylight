@@ -46,6 +46,8 @@
     <string name="host_update_timeout">PC가 제시간에 버전 %1$s(으)로 돌아오지 않았습니다.</string>
     <string name="host_restart_refused_title">%1$s을(를) 다시 시작하지 못했습니다</string>
     <string name="host_shutdown_refused_title">%1$s을(를) 종료하지 못했습니다</string>
+    <string name="host_restart_unconfirmed_title">%1$s이(가) 아직 다시 시작될 수 있습니다</string>
+    <string name="host_shutdown_unconfirmed_title">%1$s이(가) 아직 종료될 수 있습니다</string>
     <string name="host_update_waiting">%1$s 그 스트림이 끝나면 업데이트가 시작됩니다.</string>
     <string name="host_update_failed">PC에서 업데이트에 실패했습니다.</string>
     <string name="host_update_old_version">PC가 버전 %1$s(으)로 돌아왔습니다. 업데이트가 설치되지 않았습니다.</string>

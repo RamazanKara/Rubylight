@@ -46,6 +46,8 @@
     <string name="host_update_timeout">PC không quay lại với phiên bản %1$s kịp thời.</string>
     <string name="host_restart_refused_title">Không thể khởi động lại %1$s</string>
     <string name="host_shutdown_refused_title">Không thể tắt %1$s</string>
+    <string name="host_restart_unconfirmed_title">%1$s có thể vẫn khởi động lại</string>
+    <string name="host_shutdown_unconfirmed_title">%1$s có thể vẫn tắt</string>
     <string name="host_update_waiting">%1$s Bản cập nhật bắt đầu khi luồng đó kết thúc.</string>
     <string name="host_update_failed">Cập nhật trên PC thất bại.</string>
     <string name="host_update_old_version">PC đã quay lại với phiên bản %1$s; bản cập nhật chưa được cài.</string>

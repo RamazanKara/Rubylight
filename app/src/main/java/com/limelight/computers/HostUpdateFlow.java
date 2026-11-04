@@ -10,20 +10,22 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Update the PC's host, as desktop Nightjar's follow_update does: ask the host to install its pending update (POST
- * /update/install), then every {@link #POLL_MS} ask /serverinfo whether the PC is back on the new version and GET
- * /update how the install goes, for up to {@link #WAIT_MS}. The updater's failure, or a PC back on the old version
- * with nothing under way, ends the wait; time spent waiting for another device's stream does not count. Host calls
- * and the wait run on {@code worker}; every outcome reaches {@link Ui} on {@code main}.
+ * /update/install), then every {@link #POLL_MS} GET /update how the install goes and whether the PC answers on the new
+ * version (pc_power.rs's update_arrived), for up to {@link #WAIT_MS}. The updater's failure, or a PC back on the old
+ * version with nothing under way, ends the wait; time spent waiting for another device's stream does not count
+ * against {@link #WAIT_MS}, only against {@link #MAX_WAIT_MS}. Host calls and the wait run on {@code worker}; every
+ * outcome reaches {@link Ui} on {@code main}.
  */
 final class HostUpdateFlow {
     /** How long an update may take before Nightjar stops waiting for the PC to come back. */
     static final long WAIT_MS = 15 * 60_000;
+    /**
+     * The whole wait, the time another device's stream holds the install included: long enough for a film or a long
+     * game session on the TV to end and the update to go in, short enough that a forgotten wait does not poll the PC
+     * for ever.
+     */
+    static final long MAX_WAIT_MS = 3 * 60 * 60_000;
     static final long POLL_MS = 5_000;
-
-    interface Probe {
-        /** The host version /serverinfo reports now, or null while the PC does not answer. */
-        String runningVersion();
-    }
 
     interface Sleeper {
         void sleep(long ms) throws InterruptedException;
@@ -39,7 +41,7 @@ final class HostUpdateFlow {
         /** The PC answers with {@code version}. */
         void back(String version);
 
-        /** The PC did not come back with {@code version} within {@link #WAIT_MS}. */
+        /** The PC did not come back with {@code version} within {@link #WAIT_MS}, or {@link #MAX_WAIT_MS} in all. */
         void timedOut(String version);
 
         /** The host's 202 offers no version to install: nothing to wait for. */
@@ -59,16 +61,14 @@ final class HostUpdateFlow {
     }
 
     private final SleepFlow.Client client;
-    private final Probe probe;
     private final Ui ui;
     private final Executor worker;
     private final Executor main;
     private final Sleeper sleeper;
     private final AtomicBoolean cancelled = new AtomicBoolean();
 
-    HostUpdateFlow(SleepFlow.Client client, Probe probe, Ui ui, Executor worker, Executor main, Sleeper sleeper) {
+    HostUpdateFlow(SleepFlow.Client client, Ui ui, Executor worker, Executor main, Sleeper sleeper) {
         this.client = client;
-        this.probe = probe;
         this.ui = ui;
         this.worker = worker;
         this.main = main;
@@ -104,10 +104,11 @@ final class HostUpdateFlow {
 
     private void follow(NativeApiClient api, String target) {
         long polls = WAIT_MS / POLL_MS;
+        long most = MAX_WAIT_MS / POLL_MS;
         long counted = 0;
         boolean gone = false;
         String waiting = null;
-        while (counted < polls) {
+        for (long poll = 0; counted < polls && poll < most; poll++) {
             try {
                 sleeper.sleep(POLL_MS);
             } catch (InterruptedException e) {
@@ -115,10 +116,6 @@ final class HostUpdateFlow {
                 return;
             }
             if (cancelled.get()) {
-                return;
-            }
-            if (NativePcPower.arrived(probe.runningVersion(), target)) {
-                main.execute(() -> ui.back(target));
                 return;
             }
             NativePcPower.Update update;
@@ -129,6 +126,10 @@ final class HostUpdateFlow {
                 gone = true;
                 counted++;
                 continue;
+            }
+            if (update.arrived) {
+                main.execute(() -> ui.back(target));
+                return;
             }
             if (update.failed) {
                 main.execute(() -> ui.updateFailed(update.failure));

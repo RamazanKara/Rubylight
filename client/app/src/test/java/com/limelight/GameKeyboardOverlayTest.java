@@ -411,6 +411,19 @@ public class GameKeyboardOverlayTest {
         return connection.keys.get(connection.keys.size() - 1);
     }
 
+    /** The PC keyboard takes Vibrate on press when it opens. */
+    @Test
+    public void thePcKeyboardTakesVibrateOnPress() {
+        for (boolean vibrate : new boolean[] {true, false}) {
+            Game game = pcKeyboardGame(new RecordingConnection());
+            game.prefConfig.vibrateOsc = vibrate;
+            ReflectionHelpers.callInstanceMethod(game.keyboardInput, "togglePcKeyboard");
+            PcKeyboardOverlay overlay = ReflectionHelpers.getField(game, "pcKeyboard");
+            Object keys = ReflectionHelpers.getField(overlay, "keys");
+            assertEquals(vibrate, (boolean) ReflectionHelpers.getField(keys, "haptics"));
+        }
+    }
+
     @Test
     public void pcKeyboardOpensAndClosesAndExcludesTheOtherKeyboards() {
         Game game = pcKeyboardGame(new RecordingConnection());
@@ -488,6 +501,74 @@ public class GameKeyboardOverlayTest {
         Map<Short, Byte> pressed = ReflectionHelpers.getField(game.keyboardInput, "pressedKeys");
         assertTrue(pressed.isEmpty());
         game.modernController.destroy();
+    }
+
+    /** The WASD stick and a keyboard holding the same W: W goes up on the PC only once both let go, in either order. */
+    @Test
+    public void wHeldByTheStickAndAKeyboardStaysDownUntilBothLetGo() {
+        int w = 0x8057;
+        for (boolean physical : new boolean[] {true, false}) {
+            for (boolean stickFirst : new boolean[] {true, false}) {
+                RecordingConnection connection = new RecordingConnection();
+                Game game = pcKeyboardGame(connection);
+                String test = (physical ? "physical keyboard" : "PC keyboard") + (stickFirst ? ", stick first" : ", keyboard first");
+                if (stickFirst) {
+                    game.keyboardInput.sendOnScreenKey(0x57, true);
+                    keyboardW(game, physical, true);
+                } else {
+                    keyboardW(game, physical, true);
+                    game.keyboardInput.sendOnScreenKey(0x57, true);
+                }
+                assertEquals(test + ": W goes down once", 1, connection.keys.size());
+                assertEquals(test, w, connection.keys.get(0)[0]);
+                assertEquals(test, KeyboardPacket.KEY_DOWN, connection.keys.get(0)[1]);
+
+                // Either one letting go leaves W down while the other holds it.
+                if (stickFirst) game.keyboardInput.sendOnScreenKey(0x57, false); else keyboardW(game, physical, false);
+                assertEquals(test + ": W stays down", 1, connection.keys.size());
+                if (stickFirst) keyboardW(game, physical, false); else game.keyboardInput.sendOnScreenKey(0x57, false);
+                assertEquals(test + ": W goes up once both let go", 2, connection.keys.size());
+                assertEquals(test, w, connection.keys.get(1)[0]);
+                assertEquals(test, KeyboardPacket.KEY_UP, connection.keys.get(1)[1]);
+            }
+        }
+    }
+
+    /** Losing input lets go of a W the stick and a keyboard both hold once, not twice. */
+    @Test
+    public void wHeldByTheStickAndAKeyboardGoesUpOnceWhenInputIsLost() {
+        RecordingConnection connection = new RecordingConnection();
+        Game game = pcKeyboardGame(connection);
+        game.keyboardInput.sendOnScreenKey(0x57, true);
+        keyboardW(game, true, true);
+        game.keyboardInput.sendOnScreenKey(0x41, true);
+        game.keyboardInput.releaseKeyboardInput();
+        int wUps = 0, aUps = 0;
+        for (int[] key : connection.keys) {
+            if (key[1] != KeyboardPacket.KEY_UP) continue;
+            if (key[0] == 0x8057) wUps++;
+            if (key[0] == 0x8041) aUps++;
+        }
+        assertEquals(1, wUps);
+        assertEquals(1, aUps);
+        // The stick lifting afterwards sends nothing more.
+        int sent = connection.keys.size();
+        game.keyboardInput.sendOnScreenKey(0x57, false);
+        game.keyboardInput.sendOnScreenKey(0x41, false);
+        assertEquals(sent, connection.keys.size());
+    }
+
+    /** W from a physical keyboard, or from the PC keyboard's own key path. */
+    private static void keyboardW(Game game, boolean physical, boolean down) {
+        if (physical) {
+            KeyEvent event = keyboardKey(down ? KeyEvent.ACTION_DOWN : KeyEvent.ACTION_UP, KeyEvent.KEYCODE_W);
+            if (down) game.handleKeyDown(event); else game.handleKeyUp(event);
+        } else {
+            ReflectionHelpers.callInstanceMethod(game.keyboardInput, "sendPcKeyboardKey",
+                    ReflectionHelpers.ClassParameter.from(int.class, 0x57),
+                    ReflectionHelpers.ClassParameter.from(boolean.class, down),
+                    ReflectionHelpers.ClassParameter.from(byte.class, (byte) 0));
+        }
     }
 
     @Test

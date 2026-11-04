@@ -123,7 +123,7 @@ public class MarqueeLabelTest {
         for (int i = 0; i < 3; i++) {
             MarqueeLabel name = (MarqueeLabel) ((FrameLayout) grid.getChildAt(i)).getChildAt(0);
             assertEquals("tile " + i, i == tile, name.isSelected());
-            assertEquals("tile " + i, TextUtils.TruncateAt.MARQUEE, name.getEllipsize());
+            assertEquals("tile " + i, i == tile ? TextUtils.TruncateAt.MARQUEE : TextUtils.TruncateAt.END, name.getEllipsize());
         }
     }
 

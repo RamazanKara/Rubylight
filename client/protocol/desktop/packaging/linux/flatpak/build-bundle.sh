@@ -41,7 +41,15 @@ sha=$(sha256sum "$archive" | cut -d' ' -f1)
 # The download source becomes the local archive; a template without that line fails here.
 sed -e "s|^\( *\)url: .*\$|\1path: $archive|" -e "s/@VERSION@/$version/g" -e "s/@SHA256@/$sha/g" "$here/$app_id.yml.in" >"$manifest"
 grep -q "path: $archive" "$manifest" || { echo "error: the manifest template has no url line to replace" >&2; exit 1; }
-flatpak remote-add --user --if-not-exists flathub "$flathub"
+# Flathub is the one download a release depends on here: three tries, 20 and 40 s apart, for the
+# remote and the runtime and SDK, so flatpak-builder finds them installed.
+for try in 1 2 3; do
+	flatpak remote-add --user --if-not-exists flathub "$flathub" &&
+		flatpak install --user -y --noninteractive flathub org.freedesktop.Platform//24.08 org.freedesktop.Sdk//24.08 >/dev/null && break
+	[[ $try == 3 ]] && { echo "error: the 24.08 runtime and SDK did not install from Flathub after 3 tries" >&2; exit 1; }
+	echo "Flathub try $try failed, retrying in $((try * 20)) s" >&2
+	sleep $((try * 20))
+done
 flatpak-builder --user --install-deps-from=flathub --disable-rofiles-fuse --force-clean --repo="$work/repo" --state-dir="$work/state" "$work/build" "$manifest" >"$work/builder.log" 2>&1 ||
 	{ tail -n 40 "$work/builder.log" >&2; exit 1; }
 bundle=$out/nightjar-desktop-$version-x86_64.flatpak

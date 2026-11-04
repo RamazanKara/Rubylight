@@ -28,6 +28,9 @@ finish-args:
   # offers gamescope's HDR swapchains in Steam's Game Mode) mount in /usr/lib/extensions/vulkan;
   # the Vulkan loader finds their manifests through XDG_DATA_DIRS.
   - --env=XDG_DATA_DIRS=/app/share:/usr/lib/extensions/vulkan/share:/usr/share:/usr/share/runtime/share:/run/host/user-share:/run/host/share
+  # That layer talks to gamescope over its own Wayland socket (GAMESCOPE_WAYLAND_DISPLAY, in
+  # XDG_RUNTIME_DIR), which --socket=wayland does not share; Flathub's Lutris grants it the same way.
+  - --filesystem=xdg-run/gamescope-0:ro
 modules:
   - name: nightjar
     buildsystem: simple

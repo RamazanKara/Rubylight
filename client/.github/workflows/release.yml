@@ -1,7 +1,7 @@
 name: Release
 
 # A pushed v* tag builds the signed release APKs and bundle and the desktop client
-# (Windows zip and installer; Linux tar.gz, .deb, .rpm and AppImage) and attaches them to the
+# (Windows zip and installer; Linux tar.gz, .deb, .rpm, AppImage and Flatpak) and attaches them to the
 # GitHub release for that tag
 # (created here when it does not exist yet). The desktop jobs run first and the
 # release job needs them, so a tag publishes everything or nothing.
@@ -654,7 +654,7 @@ jobs:
             if [ "${#flags[@]}" != 0 ]; then gh release edit "$GITHUB_REF_NAME" "${flags[@]}"; fi
           else
             gh release create "$GITHUB_REF_NAME" out/* --verify-tag --title "Nightjar $VERSION" \
-              --notes "The APKs are signed by CI with the Nightjar release key; the desktop packages (Windows installer and zip; Linux .deb, .rpm, AppImage and tar.gz) are not signed. SHA-256 hashes of everything are in SHA256SUMS-$VERSION.txt." "${flags[@]}"
+              --notes "The APKs are signed by CI with the Nightjar release key; the desktop packages (Windows installer and zip; Linux .deb, .rpm, AppImage, Flatpak and tar.gz) are not signed. SHA-256 hashes of everything are in SHA256SUMS-$VERSION.txt." "${flags[@]}"
           fi
           echo "::notice::published $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/tag/$GITHUB_REF_NAME"
       - name: Dry run result

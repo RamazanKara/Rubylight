@@ -17,7 +17,14 @@ if ! command -v flatpak >/dev/null || ! command -v Xvfb >/dev/null; then
 fi
 export XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-/tmp/runtime-$(id -u)}
 mkdir -p -m 700 "$XDG_RUNTIME_DIR"
-flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+# The runtime from Flathub first, in three tries 20 and 40 s apart, so the bundle installs offline.
+for try in 1 2 3; do
+	flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo &&
+		flatpak install --user -y --noninteractive flathub org.freedesktop.Platform//24.08 >/dev/null && break
+	[[ $try == 3 ]] && { echo "error: the 24.08 runtime did not install from Flathub after 3 tries" >&2; exit 1; }
+	echo "Flathub try $try failed, retrying in $((try * 20)) s" >&2
+	sleep $((try * 20))
+done
 flatpak install --user -y --noninteractive "$bundle" >/dev/null
 printed=$(flatpak run "$app_id" --version)
 [[ $printed == "Nightjar $version" ]] || { echo "error: the bundle's nightjar --version printed '$printed'" >&2; exit 1; }
@@ -30,5 +37,12 @@ export NIGHTJAR_CONFIG_DIR=$HOME/.var/app/$app_id/config/nightjar
 mkdir -p "$NIGHTJAR_CONFIG_DIR"
 bash "$check_start" flatpak run --unset-env=NIGHTJAR_CONFIG_DIR "$app_id"
 [[ -s $NIGHTJAR_CONFIG_DIR/logs/nightjar.log ]] || { echo "error: no log in $NIGHTJAR_CONFIG_DIR/logs" >&2; exit 1; }
+# The update steps/steam-deck.md gives: a plain install of a bundle over an installed one fails
+# ("already installed"), --reinstall replaces it and keeps the settings in ~/.var/app.
+echo kept >"$NIGHTJAR_CONFIG_DIR/update-check"
+flatpak install --user -y --noninteractive --reinstall "$bundle" >/dev/null
+[[ $(flatpak run "$app_id" --version) == "Nightjar $version" ]] || { echo "error: the reinstalled bundle does not start" >&2; exit 1; }
+[[ $(cat "$NIGHTJAR_CONFIG_DIR/update-check" 2>/dev/null) == kept ]] || { echo "error: reinstalling the bundle lost the settings in ~/.var/app" >&2; exit 1; }
+flatpak info --show-permissions "$app_id" | grep -q 'xdg-run/gamescope-0' || { echo "error: the bundle cannot reach gamescope's socket (xdg-run/gamescope-0)" >&2; exit 1; }
 flatpak uninstall --user -y --noninteractive "$app_id" >/dev/null
 echo "flatpak: the bundle installs, starts and uninstalls"

@@ -125,6 +125,8 @@ public final class DemoLauncherActivity extends Activity {
                 .putExtra("hint", getIntent().getBooleanExtra("hint", false))
                 .putExtra("touch", getIntent().getStringExtra("touch"))
                 .putExtra("pckeyboard", getIntent().getBooleanExtra("pckeyboard", false))
+                .putExtra("modern", getIntent().getBooleanExtra("modern", false))
+                .putExtra("edit", getIntent().getBooleanExtra("edit", false))
                 .putExtra("align", getIntent().getStringExtra("align"))
                 .putExtra("orientation", getIntent().getStringExtra("orientation"))
                 .putExtra("size", getIntent().getStringExtra("size"))

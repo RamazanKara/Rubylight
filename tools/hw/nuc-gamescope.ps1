@@ -77,6 +77,10 @@ function Assert-PortFree([int] $Port) {
 # no terminal, so a closed ssh does not stop it. The bracket keeps pkill -f from matching the
 # remote shell that runs it, whose command line holds the pattern.
 $RemoteStop = @("pkill -f '[t]ools/batch.sh'", "docker exec nj-gamescope pkill -f '[r]un.sh|[n]ightjar|[g]amescope'")
+
+# The sync's extract on the NUC. -m gives each file the time it arrives: with the checkout's own
+# times, a changed file older than the last build looks built already and cargo links the old crate.
+$SyncExtract = 'tar -xzmf -'
 function Stop-RemoteBatch {
     foreach ($command in $RemoteStop) {
         ssh -n nuc $command
@@ -198,6 +202,13 @@ if ($SelfTest) {
             expect 'a growing log is not quiet' (-not (Wait-LogQuiet $log 1 1.5))
         } finally { $writer | Stop-Job -PassThru | Remove-Job }
         expect 'the watch ending ends the wait' (Wait-LogQuiet $log 10 10 -Until { $true })
+        # The sync: a file older than the NUC's last build still counts as changed there.
+        $old = Join-Path $dir 'old.txt'
+        Set-Content $old 'x'
+        (Get-Item $old).LastWriteTime = [datetime]'2020-01-01'
+        $synced = New-Item -ItemType Directory (Join-Path $dir 'synced')
+        cmd /c "tar -czf - -C `"$dir`" old.txt | $SyncExtract -C `"$synced`""
+        expect "the sync gives a file the time it arrives" ((Get-Item (Join-Path $synced 'old.txt')).LastWriteTime -gt (Get-Date).AddMinutes(-5))
     } finally { Remove-Item -Recurse -Force $dir -ErrorAction SilentlyContinue }
     if ($failures.Count) { Write-Host "$($failures.Count) self-test check(s) failed"; exit 1 }
     Write-Host 'self-test passed'
@@ -217,10 +228,8 @@ if ([IO.File]::Exists($script:CheckGpuLock) -and -not (Test-LockOurs $script:Che
 
 Write-Host '== sync and build on the NUC'
 nuc "mkdir -p $Work/src $Work/tools"
-cmd /c "tar -czf - -C `"$repo`" --exclude=client/protocol/vendor/sdl3-src/SDL --exclude=target client/protocol client/app/build.gradle rust-toolchain.toml | ssh nuc `"tar -xzf - -C $Work/src`""
+cmd /c "tar -czf - -C `"$repo`" --exclude=client/protocol/vendor/sdl3-src/SDL --exclude=target client/protocol client/app/build.gradle rust-toolchain.toml | ssh nuc `"$SyncExtract -C $Work/src`""
 if ($LASTEXITCODE -ne 0) { throw 'sync failed' }
-# tar keeps the checkout's times: build.rs reads the version from build.gradle only when it looks newer.
-nuc "touch $Work/src/client/app/build.gradle"
 cmd /c "tar -czf - -C `"$repo\tools\hw\nuc-gamescope`" . | ssh nuc `"tar -xzf - -C $Work/tools`""
 if ($LASTEXITCODE -ne 0) { throw 'copying the scripts failed' }
 nuc "test -d $Work/src/client/protocol/vendor/sdl3-src/SDL/include || { echo 'no SDL source in $Work/src (git submodule update --init client/protocol/vendor/sdl3-src/SDL here, then copy it)'; exit 1; }"

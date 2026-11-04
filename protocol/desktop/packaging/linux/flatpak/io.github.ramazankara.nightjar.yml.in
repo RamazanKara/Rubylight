@@ -7,10 +7,11 @@
 # native install's ~/.config/nightjar.
 id: io.github.ramazankara.nightjar
 runtime: org.freedesktop.Platform
-runtime-version: '24.08'
+# build-bundle.sh, check-bundle.sh and tools/hw/nuc-gamescope/flatpak.sh read the branch from here.
+runtime-version: '25.08'
 sdk: org.freedesktop.Sdk
 command: nightjar
-# The 24.08 SDK has appstreamcli, not the appstream-compose that flatpak-builder 1.2 (Ubuntu
+# The SDK has appstreamcli, not the appstream-compose that flatpak-builder 1.2 (Ubuntu
 # 22.04, the release runner) runs; the metainfo file still ships in /app/share/metainfo.
 appstream-compose: false
 finish-args:

@@ -8,7 +8,7 @@
 # be downloaded from is not published yet while the release job runs), so the bundle carries
 # exactly the archive's files. The bundle names Flathub as its runtime's repository, so
 # `flatpak install --user nightjar-desktop-<version>-x86_64.flatpak` fetches
-# org.freedesktop.Platform 24.08 where it is missing. Needs flatpak and flatpak-builder; the
+# org.freedesktop.Platform (the manifest's runtime-version, 25.08) where it is missing. Needs flatpak and flatpak-builder; the
 # runtime and SDK come from Flathub (added as a user remote when missing).
 set -euo pipefail
 
@@ -41,12 +41,14 @@ sha=$(sha256sum "$archive" | cut -d' ' -f1)
 # The download source becomes the local archive; a template without that line fails here.
 sed -e "s|^\( *\)url: .*\$|\1path: $archive|" -e "s/@VERSION@/$version/g" -e "s/@SHA256@/$sha/g" "$here/$app_id.yml.in" >"$manifest"
 grep -q "path: $archive" "$manifest" || { echo "error: the manifest template has no url line to replace" >&2; exit 1; }
+branch=$(bash "$here/runtime-version.sh")
 # Flathub is the one download a release depends on here: three tries, 20 and 40 s apart, for the
-# remote and the runtime and SDK, so flatpak-builder finds them installed.
+# remote and the runtime and SDK, so flatpak-builder finds them installed. --or-update: a try
+# after one that installed the runtime but not the SDK does not fail on "already installed".
 for try in 1 2 3; do
 	flatpak remote-add --user --if-not-exists flathub "$flathub" &&
-		flatpak install --user -y --noninteractive flathub org.freedesktop.Platform//24.08 org.freedesktop.Sdk//24.08 >/dev/null && break
-	[[ $try == 3 ]] && { echo "error: the 24.08 runtime and SDK did not install from Flathub after 3 tries" >&2; exit 1; }
+		flatpak install --user -y --noninteractive --or-update flathub "org.freedesktop.Platform//$branch" "org.freedesktop.Sdk//$branch" >/dev/null && break
+	[[ $try == 3 ]] && { echo "error: the $branch runtime and SDK did not install from Flathub after 3 tries" >&2; exit 1; }
 	echo "Flathub try $try failed, retrying in $((try * 20)) s" >&2
 	sleep $((try * 20))
 done

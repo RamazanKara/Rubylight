@@ -300,7 +300,7 @@ jobs:
             bash /check-start.sh "/dist/$appimage"
             echo "ubuntu 22.04: AppImage passed"'
       # The Flatpak bundle (Steam Deck and other handhelds; packaging/linux/flatpak) from the same
-      # tar.gz on the freedesktop 24.08 runtime from Flathub, installed, started and removed in a
+      # tar.gz on the freedesktop runtime (the manifest's runtime-version) from Flathub, installed, started and removed in a
       # clean Fedora (privileged: bubblewrap needs its namespaces there).
       - name: Build the Flatpak bundle
         run: |

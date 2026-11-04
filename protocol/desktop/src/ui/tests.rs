@@ -4373,6 +4373,42 @@ fn the_close_question_offers_only_what_this_pcs_power_allows() {
     assert!(shows(&f, "Shut down") && shows(&f, "Restart") && !shows(&f, "Sleep"), "{:?}", f.drawn);
 }
 
+/// The record dialog takes SDL's keys, before the window's own F11 and F12: F9, Shift with a digit and
+/// F11 arrive, where egui reports none of them.
+#[test]
+fn the_hotkey_dialog_records_the_keys_sdl_reports() {
+    use crate::shortcuts::hotkey_bindings;
+    use sdl3_sys::everything::*;
+    let bound = |id: &str| hotkey_bindings().get(id).cloned();
+    let mut l = launcher(false, false);
+    l.go(Screen::StreamHotkeys);
+    l.dialog = Dialog::StreamHotkey { id: "quit", error: None };
+    assert!(l.recording_hotkey());
+    assert!(l.hotkey_key_down(SDL_SCANCODE_LCTRL, SDL_KMOD_LCTRL, false).is_none() && l.recording_hotkey(), "Ctrl alone waits");
+    assert!(matches!(l.hotkey_key_down(SDL_SCANCODE_F9, SDL_KMOD_LCTRL, false), Some(Command::SaveHotkeys)));
+    assert!(!l.recording_hotkey());
+    assert_eq!(bound("quit").as_deref(), Some("CTRL+F9"));
+    // Shift+1 arrives, and is refused as a typing chord; with Ctrl it is saved.
+    l.dialog = Dialog::StreamHotkey { id: "capture", error: None };
+    assert!(l.hotkey_key_down(SDL_SCANCODE_1, SDL_KMOD_LSHIFT, false).is_none());
+    assert!(matches!(&l.dialog, Dialog::StreamHotkey { error: Some(e), .. } if e == tr("This combination is for typing.")));
+    assert!(l.hotkey_key_down(SDL_SCANCODE_1, SDL_Keymod(SDL_KMOD_LCTRL.0 | SDL_KMOD_LSHIFT.0), true).is_none(), "a repeat is no new press");
+    assert!(l.hotkey_key_down(SDL_SCANCODE_1, SDL_Keymod(SDL_KMOD_LCTRL.0 | SDL_KMOD_LSHIFT.0), false).is_some());
+    assert_eq!(bound("capture").as_deref(), Some("CTRL+SHIFT+1"));
+    // F11 alone keeps Nightjar's prefix, and the window stays as it is.
+    l.dialog = Dialog::StreamHotkey { id: "overlay", error: None };
+    assert!(l.hotkey_key_down(SDL_SCANCODE_F11, SDL_KMOD_NONE, false).is_some());
+    assert_eq!(bound("overlay").as_deref(), Some("CTRL+ALT+SHIFT+F11"));
+    let main = include_str!("../main.rs");
+    let at = |s: &str| main.find(s).unwrap_or_else(|| panic!("{s}"));
+    assert!(at("SDL_EVENT_KEY_DOWN if self.launcher.recording_hotkey()") < at("== Some(Action::Fullscreen)"), "recorded before F11 and F12");
+    // Escape alone cancels.
+    l.dialog = Dialog::StreamHotkey { id: "minimize", error: None };
+    assert!(l.hotkey_key_down(SDL_SCANCODE_ESCAPE, SDL_KMOD_NONE, false).is_none());
+    assert!(!l.recording_hotkey() && bound("minimize").is_none());
+    crate::shortcuts::set_hotkeys(Default::default());
+}
+
 /// Settings → Stream hotkeys with one hotkey changed and one off, and the dialog that records a new chord
 /// refusing one another hotkey has: `NIGHTJAR_SHOTS=<dir> cargo test -p nightjar-desktop stream_hotkeys_screenshots -- --ignored`.
 #[test]
@@ -4381,7 +4417,7 @@ fn stream_hotkeys_screenshots() {
     let Some(dir) = std::env::var_os("NIGHTJAR_SHOTS").map(std::path::PathBuf::from) else { return };
     std::fs::create_dir_all(&dir).expect("the folder for the screenshots");
     crate::shortcuts::record_hotkey("overlay", &["CTRL".into(), "F2".into()]).expect("a free chord");
-    crate::shortcuts::turn_off_hotkey("minimize");
+    crate::shortcuts::turn_off_hotkey("minimize").expect("not the last way out");
     for high in [false, true] {
         let look = if high { "high-contrast" } else { "normal" };
         crate::theme::own_palette();

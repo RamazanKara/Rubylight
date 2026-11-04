@@ -496,16 +496,19 @@ pub fn sheet(ui: &mut Ui, style: Style, quit: GamepadQuitCombo, back_opens: bool
         back.request_focus();
     }
     caption(ui, tr("Keyboard"));
-    ui.horizontal_wrapped(|ui| {
-        ui.add_space(PAD);
-        ui.label(RichText::new(tr("Hold")).font(regular(text::LABEL)).color(ON_SURFACE_VARIANT));
-        let mut held = glyphs::chord(Chord::nightjar(shortcuts::Key::Tab), false);
-        held.truncate(held.len() - 2);
-        glyphs::show(ui, &held);
-        ui.label(RichText::new(tr("and press:")).font(regular(text::LABEL)).color(ON_SURFACE_VARIANT));
-    });
-    ui.add_space(space::XS);
     let (chords, alone): (Vec<shortcuts::KeyBinding>, Vec<_>) = shortcuts::keys_in(Scope::Stream).into_iter().partition(|b| b.chords.iter().all(|c| c.is_nightjar()));
+    // Said once above the chords that share Ctrl+Alt+Shift, while some do.
+    if !chords.is_empty() {
+        ui.horizontal_wrapped(|ui| {
+            ui.add_space(PAD);
+            ui.label(RichText::new(tr("Hold")).font(regular(text::LABEL)).color(ON_SURFACE_VARIANT));
+            let mut held = glyphs::chord(Chord::nightjar(shortcuts::Key::Tab), false);
+            held.truncate(held.len() - 2);
+            glyphs::show(ui, &held);
+            ui.label(RichText::new(tr("and press:")).font(regular(text::LABEL)).color(ON_SURFACE_VARIANT));
+        });
+        ui.add_space(space::XS);
+    }
     for binding in chords {
         let spoken = glyphs::spoken(&glyphs::chords(&binding.chords, false));
         shortcut(ui, tr(binding.action.label()), &glyphs::chords(&binding.chords, true), &spoken);

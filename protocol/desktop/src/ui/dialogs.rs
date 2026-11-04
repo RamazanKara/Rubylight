@@ -722,18 +722,7 @@ impl Launcher {
             }
             Dialog::StreamHotkey { id, error } => {
                 let id = *id;
-                // The next key pressed, with the modifiers held; Escape alone cancels instead.
-                let pressed = ctx.input(|i| i.events.iter().find_map(|event| match event {
-                    egui::Event::Key { key, pressed: true, repeat: false, modifiers, .. } if !(*key == Key::Escape && modifiers.is_none()) => Some((*key, *modifiers)),
-                    _ => None,
-                }));
-                if let Some((key, modifiers)) = pressed {
-                    let recorded = crate::shortcuts::recorded_keys(key, modifiers).ok_or_else(|| trf("Unsupported key: {}", &[&key.name()]));
-                    match recorded.and_then(|keys| crate::shortcuts::record_hotkey(id, &keys)) {
-                        Ok(()) => { commands.push(Command::SaveHotkeys); close = true; }
-                        Err(message) => *error = Some(message),
-                    }
-                }
+                // The keys come from SDL before egui ([`Launcher::hotkey_key_down`]).
                 let title = crate::shortcuts::Action::from_hotkey(id).map_or(id, |action| tr(action.label()));
                 egui::Modal::new(Id::unique("stream-hotkey"))
                     .frame(frame)
@@ -1165,6 +1154,50 @@ impl Launcher {
         }
         if let Some(to) = leave {
             self.leave_for(to, commands);
+        }
+    }
+
+    /// Whether the stream hotkey dialog is waiting for keys.
+    pub fn recording_hotkey(&self) -> bool {
+        matches!(self.dialog, Dialog::StreamHotkey { .. })
+    }
+
+    /// A key pressed while the stream hotkey dialog records, straight from SDL: before the
+    /// window's own F11 and F12, and for every key, where egui has no event for F3 to F9, Shift
+    /// with a digit, most punctuation or the numpad. Escape alone cancels, a modifier alone waits,
+    /// a key alone gets Ctrl+Alt+Shift; anything else is saved or its refusal shown. Returns the
+    /// command to save the change.
+    pub fn hotkey_key_down(&mut self, scancode: sdl3_sys::everything::SDL_Scancode, mods: sdl3_sys::everything::SDL_Keymod, repeat: bool) -> Option<Command> {
+        use sdl3_sys::everything::*;
+        let Dialog::StreamHotkey { id, error } = &mut self.dialog else { return None };
+        if repeat {
+            return None;
+        }
+        let held = SDL_KMOD_CTRL.0 | SDL_KMOD_ALT.0 | SDL_KMOD_SHIFT.0 | SDL_KMOD_GUI.0;
+        if scancode == SDL_SCANCODE_ESCAPE && mods.0 & held == 0 {
+            self.close_dialog();
+            return None;
+        }
+        let keys = match crate::shortcuts::recorded_keys(scancode, mods) {
+            Some(keys) => keys,
+            // Ctrl, Shift, Alt, Windows on either side, and AltGr where SDL names it apart.
+            None if (SDL_SCANCODE_LCTRL.0..=SDL_SCANCODE_RGUI.0).contains(&scancode.0) || scancode == SDL_SCANCODE_MODE => return None,
+            None => {
+                // SAFETY: SDL's name table, valid for any scancode.
+                let name = unsafe { std::ffi::CStr::from_ptr(SDL_GetScancodeName(scancode)) }.to_string_lossy().into_owned();
+                *error = Some(trf("Unsupported key: {}", &[&name]));
+                return None;
+            }
+        };
+        match crate::shortcuts::record_hotkey(id, &keys) {
+            Ok(()) => {
+                self.close_dialog();
+                Some(Command::SaveHotkeys)
+            }
+            Err(message) => {
+                *error = Some(message);
+                None
+            }
         }
     }
 

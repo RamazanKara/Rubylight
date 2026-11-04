@@ -396,26 +396,61 @@ pub const KEYS: &[KeyBinding] = &[
     keys(Action::Screenshot, Scope::Anywhere, &[Chord::key(Key::F12)]),
 ];
 
-// The user's stream hotkeys, as stream_hotkeys.json saves them. The key handling and the lists
-// read them at each use, so a change applies at once, in a running stream too. Each test thread
-// keeps its own (`with_hotkeys` after the tests), so a test that changes them changes no other
-// test's keys.
-#[cfg(not(test))]
-static HOTKEYS: std::sync::RwLock<HotkeyBindings> = std::sync::RwLock::new(HotkeyBindings::new());
+// The user's stream hotkeys, as stream_hotkeys.json saves them, and the lookup the key handling
+// reads on every key press (the system keys hook's thread too), built once per change: a change
+// applies at once, in a running stream too. Each test thread keeps its own (`read_hotkeys` after
+// the tests), so a test that changes them changes no other test's keys.
+struct HotkeyState {
+    bindings: HotkeyBindings,
+    bound: Vec<Bound>,
+    /// Each chord's modifiers (Shift 1, Ctrl 2, Alt 4) and virtual-key code, and its action: the
+    /// bound chords first, then the old ones.
+    table: Vec<((u8, u16), Action)>,
+}
+
+impl HotkeyState {
+    fn new(bindings: HotkeyBindings) -> Self {
+        let bound = policy::bound(Client::Desktop, &bindings);
+        let mut table = Vec::new();
+        for b in &bound {
+            if let (Some(keys), Some(action)) = (&b.keys, Action::from_hotkey(b.id)) {
+                table.push((policy::hotkey_code(keys), action));
+            }
+        }
+        for b in &bound {
+            for keys in &b.old {
+                let code = policy::hotkey_code(keys);
+                if let Some(action) = Action::from_hotkey(b.id).filter(|_| !table.iter().any(|(c, _)| *c == code)) {
+                    table.push((code, action));
+                }
+            }
+        }
+        Self { bindings, bound, table }
+    }
+}
 
 #[cfg(not(test))]
-fn with_hotkeys<R>(f: impl FnOnce(&mut HotkeyBindings) -> R) -> R {
-    f(&mut HOTKEYS.write().unwrap_or_else(|e| e.into_inner()))
+static HOTKEYS: std::sync::LazyLock<std::sync::RwLock<HotkeyState>> =
+    std::sync::LazyLock::new(|| std::sync::RwLock::new(HotkeyState::new(HotkeyBindings::new())));
+
+#[cfg(not(test))]
+fn read_hotkeys<R>(f: impl FnOnce(&HotkeyState) -> R) -> R {
+    f(&HOTKEYS.read().unwrap_or_else(|e| e.into_inner()))
+}
+
+#[cfg(not(test))]
+fn store_hotkeys(state: HotkeyState) {
+    *HOTKEYS.write().unwrap_or_else(|e| e.into_inner()) = state;
 }
 
 /// The user's changes to the stream hotkeys.
 pub fn hotkey_bindings() -> HotkeyBindings {
-    with_hotkeys(|bindings| bindings.clone())
+    read_hotkeys(|state| state.bindings.clone())
 }
 
 /// Replaces the user's changes (stream_hotkeys.json's, at start).
 pub fn set_hotkeys(bindings: HotkeyBindings) {
-    with_hotkeys(|now| *now = bindings);
+    store_hotkeys(HotkeyState::new(bindings));
 }
 
 /// Gives hotkey `id` a recorded chord; nothing changes when it is refused, and the refusal says
@@ -428,21 +463,27 @@ pub fn record_hotkey(id: &str, keys: &[String]) -> Result<(), String> {
     Ok(())
 }
 
-pub fn turn_off_hotkey(id: &str) {
+/// Turns hotkey `id` off; refused for the last keyboard way out of a captured stream.
+pub fn turn_off_hotkey(id: &str) -> Result<(), String> {
     let mut bindings = hotkey_bindings();
+    policy::check_off(Client::Desktop, id, &bindings).map_err(|e| hotkey_error_text(&e))?;
     bindings.insert(id.to_string(), policy::binding_text(None));
     set_hotkeys(bindings);
+    Ok(())
 }
 
-pub fn reset_hotkey(id: &str) {
+/// Gives hotkey `id` its default back; refused, naming the action, while another one has it.
+pub fn reset_hotkey(id: &str) -> Result<(), String> {
     let mut bindings = hotkey_bindings();
+    policy::check_reset(Client::Desktop, id, &bindings).map_err(|e| hotkey_error_text(&e))?;
     bindings.remove(id);
     set_hotkeys(bindings);
+    Ok(())
 }
 
 /// The desktop's stream hotkeys with the user's changes, in list order.
 pub fn hotkeys() -> Vec<Bound> {
-    policy::bound(Client::Desktop, &hotkey_bindings())
+    read_hotkeys(|state| state.bound.clone())
 }
 
 /// Why a recorded chord was refused, in the user's language.
@@ -456,6 +497,8 @@ pub fn hotkey_error_text(error: &HotkeyError) -> String {
         HotkeyError::Modifier => tr("Use Ctrl, Alt or Shift, without the Windows key.").into(),
         HotkeyError::OneKey => tr("Use one key besides Ctrl, Alt and Shift.").into(),
         HotkeyError::Reserved => tr("Windows keeps this combination.").into(),
+        HotkeyError::Typing => tr("This combination is for typing.").into(),
+        HotkeyError::LastWayOut => tr("Keep a hotkey for Stream controls or Disconnect.").into(),
         HotkeyError::UnsupportedKey(key) => trf("Unsupported key: {}", &[key]),
         HotkeyError::RepeatedKey(key) => trf("Repeated key: {}", &[key]),
         // The page lists only the desktop's own actions; these name a bug, in English.
@@ -482,19 +525,25 @@ pub fn keys_in(scope: Scope) -> Vec<KeyBinding> {
     list
 }
 
-/// The stream hotkey a key press does: its key with exactly the chord's modifiers held.
-fn hotkey_action(bound: &[Bound], scancode: SDL_Scancode, mods: SDL_Keymod) -> Option<Action> {
-    let (vk, _) = crate::keymap::virtual_key(scancode, true)?;
+/// The modifiers SDL reports held, in the input packets' bits (Shift 1, Ctrl 2, Alt 4, Windows 8).
+fn modifier_bits(mods: SDL_Keymod) -> u8 {
     let has = |flag: SDL_Keymod| mods.0 & flag.0 != 0;
-    let modifiers = [(SDL_KMOD_SHIFT, 0x01), (SDL_KMOD_CTRL, 0x02), (SDL_KMOD_ALT, 0x04), (SDL_KMOD_GUI, 0x08)]
-        .into_iter().filter(|(flag, _)| has(*flag)).fold(0, |mask, (_, bit)| mask | bit);
-    policy::hotkey_at(bound, modifiers, vk).and_then(|(id, _)| Action::from_hotkey(id))
+    [(SDL_KMOD_SHIFT, 0x01), (SDL_KMOD_CTRL, 0x02), (SDL_KMOD_ALT, 0x04), (SDL_KMOD_GUI, 0x08)]
+        .into_iter().filter(|(flag, _)| has(*flag)).fold(0, |mask, (_, bit)| mask | bit)
+}
+
+/// The stream hotkey a key press does: its key with exactly the chord's modifiers held. Reads the
+/// ready table under a read lock: no allocation or parsing per key.
+fn hotkey_action(scancode: SDL_Scancode, mods: SDL_Keymod) -> Option<Action> {
+    let (vk, _) = crate::keymap::virtual_key(scancode, true)?;
+    let code = (modifier_bits(mods), vk);
+    read_hotkeys(|state| state.table.iter().find(|(c, _)| *c == code).map(|(_, action)| *action))
 }
 
 /// What a key press does in `scope`, by its physical key and the modifiers held.
 pub fn key_action(scope: Scope, scancode: SDL_Scancode, mods: SDL_Keymod) -> Option<Action> {
     if scope == Scope::Stream {
-        if let Some(action) = hotkey_action(&hotkeys(), scancode, mods) {
+        if let Some(action) = hotkey_action(scancode, mods) {
             return Some(action);
         }
     }
@@ -502,40 +551,20 @@ pub fn key_action(scope: Scope, scancode: SDL_Scancode, mods: SDL_Keymod) -> Opt
         .find(|b| b.chords.iter().any(|c| c.key.scancode() == Some(scancode) && c.held(mods))).map(|b| b.action)
 }
 
-/// The keys egui reported for a hotkey being recorded, in nightjar-policy's names: the modifiers
-/// held, then the key. None for a key without a name there.
-pub fn recorded_keys(key: egui::Key, modifiers: egui::Modifiers) -> Option<Vec<String>> {
-    let name = egui_key_name(key)?;
-    let mut keys = Vec::with_capacity(4);
-    if modifiers.ctrl || modifiers.command { keys.push("CTRL".to_string()); }
-    if modifiers.alt { keys.push("ALT".to_string()); }
-    if modifiers.shift { keys.push("SHIFT".to_string()); }
-    keys.push(name.to_string());
-    Some(keys)
-}
-
-/// nightjar-policy's name for a key egui reports.
-fn egui_key_name(key: egui::Key) -> Option<&'static str> {
-    use egui::Key as E;
-    const LETTERS: [(E, &str); 26] = [(E::A, "A"), (E::B, "B"), (E::C, "C"), (E::D, "D"), (E::E, "E"), (E::F, "F"), (E::G, "G"),
-        (E::H, "H"), (E::I, "I"), (E::J, "J"), (E::K, "K"), (E::L, "L"), (E::M, "M"), (E::N, "N"), (E::O, "O"), (E::P, "P"),
-        (E::Q, "Q"), (E::R, "R"), (E::S, "S"), (E::T, "T"), (E::U, "U"), (E::V, "V"), (E::W, "W"), (E::X, "X"), (E::Y, "Y"), (E::Z, "Z")];
-    const DIGITS: [(E, &str); 10] = [(E::Num0, "0"), (E::Num1, "1"), (E::Num2, "2"), (E::Num3, "3"), (E::Num4, "4"),
-        (E::Num5, "5"), (E::Num6, "6"), (E::Num7, "7"), (E::Num8, "8"), (E::Num9, "9")];
-    const F_KEYS: [(E, &str); 12] = [(E::F1, "F1"), (E::F2, "F2"), (E::F3, "F3"), (E::F4, "F4"), (E::F5, "F5"), (E::F6, "F6"),
-        (E::F7, "F7"), (E::F8, "F8"), (E::F9, "F9"), (E::F10, "F10"), (E::F11, "F11"), (E::F12, "F12")];
-    if let Some((_, name)) = LETTERS.iter().chain(&DIGITS).chain(&F_KEYS).find(|(k, _)| *k == key) {
-        return Some(name);
+/// A key pressed while a hotkey is recorded, in nightjar-policy's names: the modifiers held, then
+/// the key by its place on the keyboard (SDL's scancode as the PC's virtual key, as the defaults and
+/// the matching go; on QWERTZ the key labelled Z records as Y). None for a modifier alone, which
+/// waits for the rest of the chord, or a key without a name there.
+pub fn recorded_keys(scancode: SDL_Scancode, mods: SDL_Keymod) -> Option<Vec<String>> {
+    let (vk, _) = crate::keymap::virtual_key(scancode, true)?;
+    if policy::is_modifier(&policy::try_key_name(vk)?) {
+        return None;
     }
-    Some(match key {
-        E::Escape => "ESC", E::Tab => "TAB", E::Enter => "ENTER", E::Space => "SPACE", E::Backspace => "BACKSPACE",
-        E::Delete => "DELETE", E::Insert => "INSERT", E::Home => "HOME", E::End => "END", E::PageUp => "PAGE_UP",
-        E::PageDown => "PAGE_DOWN", E::ArrowUp => "DPAD_UP", E::ArrowDown => "DPAD_DOWN", E::ArrowLeft => "DPAD_LEFT",
-        E::ArrowRight => "DPAD_RIGHT", E::Minus => "MINUS", E::Equals | E::Plus => "EQUALS", E::Comma => "COMMA",
-        E::Period => "PERIOD", E::Slash => "SLASH", E::Backslash => "BACKSLASH", E::Semicolon => "SEMICOLON",
-        E::OpenBracket => "LEFT_BRACKET", E::CloseBracket => "RIGHT_BRACKET", E::Quote => "APOSTROPHE", E::Backtick => "GRAVE",
-        _ => return None,
-    })
+    let held = modifier_bits(mods);
+    let mut keys: Vec<String> = [(0x02, "CTRL"), (0x04, "ALT"), (0x01, "SHIFT"), (0x08, "WIN")]
+        .into_iter().filter(|(bit, _)| held & bit != 0).map(|(_, name)| name.to_string()).collect();
+    keys.push(policy::try_key_name(vk)?);
+    Some(keys)
 }
 
 /// The first chord for `action` in `scope`, for a hint beside a menu entry.
@@ -674,7 +703,7 @@ pub fn quit_buttons(combo: crate::config::GamepadQuitCombo) -> Vec<Button> {
         .collect()
 }
 
-// The test half of with_hotkeys follows this module: the strings check reads a file only up to
+// The test half of read_hotkeys and store_hotkeys follows this module: the strings check reads a file only up to
 // its first test attribute.
 #[cfg(test)]
 #[allow(clippy::items_after_test_module)]
@@ -899,36 +928,104 @@ mod tests {
         assert_eq!(key_action(Scope::Stream, SDL_SCANCODE_Q, ctrl_alt_shift), None);
         assert_eq!(chord_for(Scope::Stream, Action::Disconnect).map(Chord::text).as_deref(), Some("Ctrl+F9"));
         assert_eq!(record_hotkey("capture", &["F9".into(), "CTRL".into()]), Err(trf("Already used by {}", &[&tr(Action::Disconnect.label())])));
-        assert_eq!(record_hotkey("capture", &["F9".into()]), Err(tr("Use 2 to 4 keys.").to_owned()));
-        turn_off_hotkey("overlay");
+        assert_eq!(record_hotkey("capture", &["F9".into(), "CTRL".into(), "ALT".into(), "SHIFT".into(), "Q".into()]), Err(tr("Use 2 to 4 keys.").to_owned()));
+        turn_off_hotkey("overlay").unwrap();
         assert_eq!(key_action(Scope::Stream, SDL_SCANCODE_S, ctrl_alt_shift), None);
         assert!(!keys_in(Scope::Stream).iter().any(|b| b.action == Action::Overlay), "an action turned off is not listed");
         assert_eq!(hotkey_bindings().get("overlay").map(String::as_str), Some(policy::OFF));
-        reset_hotkey("quit");
-        reset_hotkey("overlay");
+        reset_hotkey("quit").unwrap();
+        reset_hotkey("overlay").unwrap();
         assert!(hotkey_bindings().is_empty());
         assert_eq!(key_action(Scope::Stream, SDL_SCANCODE_Q, ctrl_alt_shift), Some(Action::Disconnect));
         assert_eq!(key_action(Scope::Stream, SDL_SCANCODE_S, ctrl_alt_shift), Some(Action::Overlay));
     }
 
+    /// Reset brings back a default another action took since, Off then reuse alike: refused, naming
+    /// that action, and nothing changes.
     #[test]
-    fn a_recorded_key_has_its_policy_name_with_the_modifiers_held() {
-        let mods = egui::Modifiers { ctrl: true, alt: true, shift: true, ..Default::default() };
-        assert_eq!(recorded_keys(egui::Key::Tab, mods), Some(vec!["CTRL".into(), "ALT".into(), "SHIFT".into(), "TAB".into()]));
-        assert_eq!(recorded_keys(egui::Key::F5, egui::Modifiers::CTRL), Some(vec!["CTRL".into(), "F5".into()]));
-        for key in egui::Key::ALL {
-            if let Some(keys) = recorded_keys(*key, egui::Modifiers::NONE) {
-                assert!(key_code(&keys[0]).is_some(), "{key:?} records {keys:?}");
-            }
+    fn a_reset_to_a_chord_another_action_took_is_refused() {
+        let ctrl_alt_shift = SDL_Keymod(SDL_KMOD_LCTRL.0 | SDL_KMOD_LALT.0 | SDL_KMOD_LSHIFT.0);
+        record_hotkey("quit", &["CTRL".into(), "F9".into()]).unwrap();
+        record_hotkey("capture", &["CTRL".into(), "ALT".into(), "SHIFT".into(), "Q".into()]).unwrap();
+        let before = hotkey_bindings();
+        assert_eq!(reset_hotkey("quit"), Err(trf("Already used by {}", &[&tr(Action::Capture.label())])));
+        assert_eq!(hotkey_bindings(), before);
+        assert_eq!(key_action(Scope::Stream, SDL_SCANCODE_Q, ctrl_alt_shift), Some(Action::Capture));
+        assert_eq!(key_action(Scope::Stream, SDL_SCANCODE_F9, SDL_KMOD_LCTRL), Some(Action::Disconnect));
+        set_hotkeys(HotkeyBindings::new());
+        turn_off_hotkey("stream_menu").unwrap();
+        record_hotkey("quit", &["CTRL".into(), "ALT".into(), "SHIFT".into(), "TAB".into()]).unwrap();
+        assert_eq!(reset_hotkey("stream_menu"), Err(trf("Already used by {}", &[&tr(Action::Disconnect.label())])));
+        assert_eq!(key_action(Scope::Stream, SDL_SCANCODE_TAB, ctrl_alt_shift), Some(Action::Disconnect));
+        set_hotkeys(HotkeyBindings::new());
+    }
+
+    /// A file with two actions on one chord: the later one has none, and the list says which has it.
+    #[test]
+    fn a_repeated_chord_leaves_the_later_action_without_one() {
+        let ctrl_alt_shift = SDL_Keymod(SDL_KMOD_LCTRL.0 | SDL_KMOD_LALT.0 | SDL_KMOD_LSHIFT.0);
+        set_hotkeys(HotkeyBindings::from([("capture".to_string(), "CTRL+ALT+SHIFT+Q".to_string())]));
+        assert_eq!(key_action(Scope::Stream, SDL_SCANCODE_Q, ctrl_alt_shift), Some(Action::Disconnect));
+        assert_eq!(key_action(Scope::Stream, SDL_SCANCODE_Z, ctrl_alt_shift), None);
+        assert_eq!(hotkeys().iter().find(|b| b.id == "capture").unwrap().taken, Some("quit"));
+        assert!(!keys_in(Scope::Stream).iter().any(|b| b.action == Action::Capture));
+        set_hotkeys(HotkeyBindings::new());
+    }
+
+    /// The desktop keeps a keyboard way out of a captured stream: the last of Stream controls and
+    /// Disconnect stays on.
+    #[test]
+    fn the_last_way_out_cannot_be_turned_off() {
+        turn_off_hotkey("quit").unwrap();
+        assert_eq!(turn_off_hotkey("stream_menu"), Err(tr("Keep a hotkey for Stream controls or Disconnect.").to_owned()));
+        assert!(hotkeys().iter().find(|b| b.id == "stream_menu").unwrap().keys.is_some());
+        for id in ["help", "capture", "mouse_mode", "overlay", "send_clipboard", "fetch_clipboard", "fullscreen", "minimize"] {
+            turn_off_hotkey(id).unwrap();
         }
+        assert_eq!(key_action(Scope::Stream, SDL_SCANCODE_TAB, SDL_Keymod(SDL_KMOD_LCTRL.0 | SDL_KMOD_LALT.0 | SDL_KMOD_LSHIFT.0)), Some(Action::StreamControls));
+        set_hotkeys(HotkeyBindings::new());
+    }
+
+    /// The dialog records from SDL's key: F1 to F24, Shift with a digit, punctuation and the numpad
+    /// all arrive, by their place on the keyboard.
+    #[test]
+    fn a_recorded_key_is_its_place_with_the_modifiers_held() {
+        let ctrl_alt_shift = SDL_Keymod(SDL_KMOD_LCTRL.0 | SDL_KMOD_LALT.0 | SDL_KMOD_LSHIFT.0);
+        let names = |k: &[&str]| Some(k.iter().map(|s| s.to_string()).collect::<Vec<_>>());
+        assert_eq!(recorded_keys(SDL_SCANCODE_TAB, ctrl_alt_shift), names(&["CTRL", "ALT", "SHIFT", "TAB"]));
+        assert_eq!(recorded_keys(SDL_SCANCODE_F9, SDL_KMOD_LCTRL), names(&["CTRL", "F9"]));
+        assert_eq!(recorded_keys(SDL_SCANCODE_F12, SDL_KMOD_RCTRL), names(&["CTRL", "F12"]));
+        assert_eq!(recorded_keys(SDL_SCANCODE_1, SDL_KMOD_LSHIFT), names(&["SHIFT", "1"]));
+        assert_eq!(recorded_keys(SDL_SCANCODE_SLASH, SDL_KMOD_LALT), names(&["ALT", "SLASH"]));
+        assert_eq!(recorded_keys(SDL_SCANCODE_KP_5, SDL_KMOD_LCTRL), names(&["CTRL", "NUMPAD_5"]));
+        assert_eq!(recorded_keys(SDL_SCANCODE_Q, SDL_Keymod(SDL_KMOD_LGUI.0 | SDL_KMOD_LCTRL.0)), names(&["CTRL", "WIN", "Q"]));
+        assert_eq!(recorded_keys(SDL_SCANCODE_F3, SDL_KMOD_NONE), names(&["F3"]));
+        assert_eq!(recorded_keys(SDL_SCANCODE_LCTRL, SDL_KMOD_LCTRL), None, "a modifier alone waits");
+        assert_eq!(recorded_keys(SDL_SCANCODE_RSHIFT, SDL_KMOD_RSHIFT), None);
+        // QWERTZ: the key labelled Y sits where QWERTY has Z. Recorded there, it is matched there.
+        let qwertz_y = SDL_SCANCODE_Z;
+        let keys = recorded_keys(qwertz_y, ctrl_alt_shift).unwrap();
+        assert_eq!(keys, ["CTRL", "ALT", "SHIFT", "Z"]);
+        turn_off_hotkey("capture").unwrap();
+        record_hotkey("overlay", &keys).unwrap();
+        assert_eq!(key_action(Scope::Stream, qwertz_y, ctrl_alt_shift), Some(Action::Overlay));
+        assert_eq!(key_action(Scope::Stream, SDL_SCANCODE_Y, ctrl_alt_shift), None);
+        set_hotkeys(HotkeyBindings::new());
     }
 }
 
-/// Each test thread's own stream hotkeys.
+// Each test thread's own stream hotkeys.
 #[cfg(test)]
-fn with_hotkeys<R>(f: impl FnOnce(&mut HotkeyBindings) -> R) -> R {
-    thread_local! {
-        static HOTKEYS: std::cell::RefCell<HotkeyBindings> = const { std::cell::RefCell::new(HotkeyBindings::new()) };
-    }
-    HOTKEYS.with(|hotkeys| f(&mut hotkeys.borrow_mut()))
+thread_local! {
+    static HOTKEYS: std::cell::RefCell<HotkeyState> = std::cell::RefCell::new(HotkeyState::new(HotkeyBindings::new()));
+}
+
+#[cfg(test)]
+fn read_hotkeys<R>(f: impl FnOnce(&HotkeyState) -> R) -> R {
+    HOTKEYS.with(|hotkeys| f(&hotkeys.borrow()))
+}
+
+#[cfg(test)]
+fn store_hotkeys(state: HotkeyState) {
+    HOTKEYS.with(|hotkeys| *hotkeys.borrow_mut() = state);
 }

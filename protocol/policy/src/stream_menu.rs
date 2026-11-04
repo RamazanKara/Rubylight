@@ -368,6 +368,8 @@ pub mod json {
         Hotkeys { bindings: shortcuts::HotkeyBindings },
         /// A hotkey's new chord: its saved keys, or why it is refused ([`shortcuts::check_hotkey`]).
         CheckHotkey { id: String, keys: Vec<String>, bindings: shortcuts::HotkeyBindings },
+        /// Whether a hotkey may go back to its default: null, or why not ([`shortcuts::check_reset`]).
+        CheckReset { id: String, bindings: shortcuts::HotkeyBindings },
     }
 
     /// Why a request was refused: a code and what it names.
@@ -385,11 +387,13 @@ pub mod json {
         }
     }
 
-    /// A chord as the app matches it: the keys, their text, the modifiers in the input packets' bits
-    /// and the other key's Windows virtual-key code.
+    /// A chord as the app matches it: the keys, their text and each key's (the app translates the
+    /// words desktop Nightjar does), the modifiers in the input packets' bits and the other key's
+    /// Windows virtual-key code.
     fn chord(keys: &[String]) -> Value {
         let (modifiers, vk) = shortcuts::hotkey_code(keys);
-        json!({"keys": keys, "label": shortcuts::chord_label(keys), "modifiers": modifiers, "vk": vk})
+        let caps: Vec<String> = keys.iter().map(|key| shortcuts::key_label(key)).collect();
+        json!({"keys": keys, "label": shortcuts::chord_label(keys), "caps": caps, "modifiers": modifiers, "vk": vk})
     }
 
     fn keys(keys: &[&str]) -> Vec<String> {
@@ -433,11 +437,16 @@ pub mod json {
                         "default": chord(&default),
                         "changed": b.changed,
                         "old": b.old.iter().map(|k| chord(k)).collect::<Vec<_>>(),
+                        "taken": b.taken,
                     })
                 }).collect())
             }
             Request::CheckHotkey { id, keys, bindings } => {
                 json!(shortcuts::check_hotkey(shortcuts::Client::Android, &id, &keys, &bindings)?)
+            }
+            Request::CheckReset { id, bindings } => {
+                shortcuts::check_reset(shortcuts::Client::Android, &id, &bindings)?;
+                Value::Null
             }
         })
     }

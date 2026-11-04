@@ -486,9 +486,12 @@ fn power_and_update_round_trip() {
     );
     // An older host leaves it out.
     let mut older = serde_json::to_value(&update).unwrap();
+    assert!(update.install_now);
     older.as_object_mut().unwrap().remove("waiting_for");
+    older.as_object_mut().unwrap().remove("install_now");
     let older: Update = serde_json::from_value(older).unwrap();
     assert_eq!(older.waiting_for, None);
+    assert!(!older.install_now);
     // A request carries the token and nothing else.
     assert!(serde_json::from_value::<PowerRequest>(json!({"token": "ab", "force": true})).is_err());
     assert_eq!(

@@ -4,5 +4,6 @@
   "phase": "ready",
   "install_supported": true,
   "error": null,
-  "waiting_for": "Living room TV is streaming from this PC."
+  "waiting_for": "Living room TV is streaming from this PC.",
+  "install_now": true
 }

@@ -243,6 +243,30 @@ async fn an_answer_that_did_not_arrive_or_a_revoked_grant_never_goes_ahead() {
 }
 
 #[tokio::test]
+async fn a_grant_revoked_after_the_answer_stops_it_and_says_why() {
+    let s = Setup::new();
+    let fake = fake(&s);
+    grant(&s, true);
+    let token = power(&s).await.token.unwrap();
+    let reply = act_then(
+        &s,
+        &s.connection,
+        "restart",
+        &token_body(&token),
+        Some(true),
+        || grant(&s, false),
+    )
+    .await;
+    assert_eq!(reply.status, StatusCode::ACCEPTED, "{}", reply.text());
+    assert!(fake.calls.lock().unwrap().is_empty());
+    // The device's follow-up read shows why nothing happened.
+    assert_eq!(
+        power(&s).await.last_refusal.as_deref(),
+        Some(RESTART_SHUTDOWN_OFF)
+    );
+}
+
+#[tokio::test]
 async fn another_devices_stream_refuses_both_and_names_it_and_the_token_survives() {
     let s = Setup::new();
     let fake = fake(&s);
@@ -468,7 +492,20 @@ async fn update_reads_for_any_paired_device_and_installs_only_with_host_control_
     assert_eq!(reply.status, StatusCode::OK, "{}", reply.text());
     let update: Update = serde_json::from_slice(&reply.body).unwrap();
     assert_eq!(update.current_version, env!("CARGO_PKG_VERSION"));
-    assert!(!update.install_supported);
+    assert!(!update.install_supported && !update.install_now);
+    // A queued Install now says so; an automatic update waiting for an idle
+    // host does not, so a device still offers Install now for it.
+    let before = s.host().updates.lock().unwrap().clone();
+    for (now, expected) in [(false, false), (true, true)] {
+        *s.host().updates.lock().unwrap() =
+            serde_json::json!({"phase": "ready", "idle_since": 0, "now": now});
+        let update: Update = serde_json::from_slice(&s.get("/update").await.body).unwrap();
+        assert_eq!(
+            (update.phase.as_str(), update.install_now),
+            ("ready", expected)
+        );
+    }
+    *s.host().updates.lock().unwrap() = before;
     s.post("/update/install")
         .await
         .assert_error(403, "host_control_required");

@@ -275,13 +275,14 @@ impl Host {
     }
 
     /// The version "Update the PC's host" installs: only where the PC lists `update`, has one
-    /// to install, and lets this device control it. Not while one is already queued or installing.
+    /// to install, and lets this device control it. Not while it installs or is queued as an
+    /// Install now already; an automatic update waiting for an idle PC still takes one.
     pub fn update_offer(&self) -> Option<&str> {
         if self.reach != Reach::Online || !self.paired() || !self.native.host_control() {
             return None;
         }
         let update = self.native.update.as_ref()?;
-        if update.in_progress() {
+        if update.installing_now() {
             return None;
         }
         update.offered()
@@ -650,7 +651,7 @@ fn follow_update(host: &impl UpdateHost, target: &str, polls: u32, pause: impl F
             return Err(error.unwrap_or(UPDATE_FAILED).to_owned());
         }
         // Back after going away, on another version and with nothing under way: setup gave up.
-        if gone && !update.in_progress() && !nightjar_core::http::update_arrived(&update.current_version, target) {
+        if gone && update.gave_up(target) {
             let back = trf("The PC came back on version {}; the update did not install.", &[&update.current_version]);
             return Err(update.error.map_or(back.clone(), |e| format!("{back} {e}")));
         }
@@ -2843,6 +2844,7 @@ pub(crate) mod tests {
             install_supported: true,
             error: error.map(Into::into),
             waiting_for: waiting.map(Into::into),
+            install_now: false,
         };
         // The 202 offers nothing newer: no 15-minute wait for version "".
         let none = HostUpdate { latest_version: None, ..update("waiting", None, None) };

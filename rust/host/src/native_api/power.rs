@@ -211,6 +211,10 @@ fn power_blocking(
     // A grant revoked meanwhile is obeyed.
     if !caller(h, connection).is_ok_and(|c| c.uuid == client.uuid && c.allows_restart_shutdown()) {
         tracing::warn!(what, client = name, %peer, "power: the grant was revoked; not going ahead");
+        h.power.set_last_refusal(
+            &client.uuid,
+            Some(power_action::RESTART_SHUTDOWN_OFF.into()),
+        );
         return;
     }
     // A browser guest or a controller session doesn't wait for the gate.
@@ -249,6 +253,7 @@ fn update_of(h: &Shared) -> Update {
         install_supported: status["install_supported"] == true,
         error: text("error"),
         waiting_for: text("waiting_for"),
+        install_now: status["now"] == true,
     }
 }
 

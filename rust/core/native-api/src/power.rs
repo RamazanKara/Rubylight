@@ -64,4 +64,8 @@ pub struct Update {
     /// leave it out.
     #[serde(default)]
     pub waiting_for: Option<String>,
+    /// The queued update is an Install now rather than one that waits for
+    /// an idle host. Older hosts leave it out.
+    #[serde(default)]
+    pub install_now: bool,
 }

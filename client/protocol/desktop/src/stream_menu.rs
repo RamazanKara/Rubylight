@@ -678,7 +678,10 @@ mod tests {
             })
             .0;
         }
-        let find = |name: &str| nodes.iter().find(|(label, _)| label.starts_with(name)).map(|(_, r)| *r).unwrap_or_else(|| panic!("{name} in {nodes:#?}"));
+        // A saved shortcut also has a row to edit it, under the tiles: the topmost is the tile.
+        let find = |name: &str| {
+            nodes.iter().filter(|(label, _)| label.starts_with(name)).map(|(_, r)| *r).min_by(|a, b| a.top().total_cmp(&b.top())).unwrap_or_else(|| panic!("{name} in {nodes:#?}"))
+        };
         let (own, task_manager, add) = (find("Steam overlay"), find(built_in_label("task_manager")), find(tr("Add shortcut")));
         let reading_order = |a: egui::Rect, b: egui::Rect| a.top() < b.top() - 1.0 || ((a.top() - b.top()).abs() <= 1.0 && a.left() < b.left());
         assert!(reading_order(own, task_manager), "{own:?} before {task_manager:?}");

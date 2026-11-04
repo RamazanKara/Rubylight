@@ -1674,18 +1674,33 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         }
     }
 
-    // This must not be called on the main thread due to risk of ANRs!
+    /** What a controller's battery reported, in BatteryState's terms. */
+    private static final class BatteryReading {
+        final int status;
+        final float capacity;
+
+        BatteryReading(int status, float capacity) {
+            this.status = status;
+            this.capacity = capacity;
+        }
+    }
+
+    // A Binder call that can block for seconds (long enough for an ANR on a OnePlus Pad 2), so
+    // never on the main thread and never holding a lock the main thread takes. Null: no battery.
     @SuppressLint("InlinedApi")
-    private void sendControllerBatteryPacket(InputDeviceContext context) {
+    private BatteryReading readControllerBattery(InputDeviceContext context) {
         int currentBatteryStatus;
         float currentBatteryCapacity;
 
         // Use the BatteryState object introduced in Android S, if it's available and present.
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && context.inputDevice.getBatteryState().isPresent()) {
-            currentBatteryStatus = context.inputDevice.getBatteryState().getStatus();
-            currentBatteryCapacity = context.inputDevice.getBatteryState().getCapacity();
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            BatteryState batteryState = context.inputDevice.getBatteryState();
+            if (batteryState.isPresent()) {
+                return new BatteryReading(batteryState.getStatus(), batteryState.getCapacity());
+            }
         }
-        else if (sceManager.isRecognizedDevice(context.inputDevice)) {
+
+        if (sceManager.isRecognizedDevice(context.inputDevice)) {
             // On the SHIELD Android TV, we can use a proprietary API to access battery/charge state.
             // We will convert it to the same form used by BatteryState to share code.
             int batteryPercentage = sceManager.getBatteryPercentage(context.inputDevice);
@@ -1736,8 +1751,15 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
             }
         }
         else {
-            return;
+            return null;
         }
+        return new BatteryReading(currentBatteryStatus, currentBatteryCapacity);
+    }
+
+    @SuppressLint("InlinedApi")
+    private void sendControllerBatteryPacket(InputDeviceContext context, BatteryReading battery) {
+        int currentBatteryStatus = battery.status;
+        float currentBatteryCapacity = battery.capacity;
 
         if (currentBatteryStatus != context.lastReportedBatteryStatus ||
                 !areBatteryCapacitiesEqual(currentBatteryCapacity, context.lastReportedBatteryCapacity)) {
@@ -4489,7 +4511,16 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
                     if (destroyed || stopped || !assignedControllerNumber) {
                         return;
                     }
-                    sendControllerBatteryPacket(InputDeviceContext.this);
+                }
+                // Outside the lock: destroy() takes it on the main thread, and this read can block.
+                BatteryReading battery = readControllerBattery(InputDeviceContext.this);
+                synchronized (InputDeviceContext.this) {
+                    if (destroyed || stopped) {
+                        return;
+                    }
+                    if (battery != null) {
+                        sendControllerBatteryPacket(InputDeviceContext.this, battery);
+                    }
 
                     // Requeue the callback
                     backgroundThreadHandler.postDelayed(this, BATTERY_RECHECK_INTERVAL_MS);
@@ -4517,35 +4548,49 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
             @TargetApi(Build.VERSION_CODES.S)
             @Override
             public void run() {
+                LightsManager.LightsSession session;
                 synchronized (InputDeviceContext.this) {
                     if (destroyed || stopped) {
                         return;
                     }
-                    try {
-                        LightState lightState = new LightState.Builder().setColor(ledArgbValue).build();
+                    session = lightsSession;
+                }
+                // Binder calls like the battery read, so outside the lock destroy() takes.
+                try {
+                    LightState lightState = new LightState.Builder().setColor(ledArgbValue).build();
 
-                        // Set the RGB value for each RGB-controllable LED on the device
-                        boolean hasRgbLight = false;
-                        LightsRequest.Builder lightsRequestBuilder = new LightsRequest.Builder();
-                        for (Light light : inputDevice.getLightsManager().getLights()) {
-                            if (light.hasRgbControl()) {
-                                lightsRequestBuilder.addLight(light, lightState);
-                                hasRgbLight = true;
-                            }
+                    // Set the RGB value for each RGB-controllable LED on the device
+                    boolean hasRgbLight = false;
+                    LightsRequest.Builder lightsRequestBuilder = new LightsRequest.Builder();
+                    for (Light light : inputDevice.getLightsManager().getLights()) {
+                        if (light.hasRgbControl()) {
+                            lightsRequestBuilder.addLight(light, lightState);
+                            hasRgbLight = true;
                         }
-
-                        if (hasRgbLight) {
-                            // Create a new light session if one doesn't already exist
-                            if (lightsSession == null) {
-                                lightsSession = inputDevice.getLightsManager().openSession();
-                            }
-
-                            // Apply the LED changes
-                            lightsSession.requestLights(lightsRequestBuilder.build());
-                        }
-                    } catch (RuntimeException e) {
-                        LimeLog.warning("Controller lights unavailable after detach");
                     }
+
+                    if (hasRgbLight) {
+                        // Create a new light session if one doesn't already exist
+                        if (session == null) {
+                            session = inputDevice.getLightsManager().openSession();
+                            boolean destroyedMeanwhile;
+                            synchronized (InputDeviceContext.this) {
+                                destroyedMeanwhile = destroyed || stopped;
+                                if (!destroyedMeanwhile) {
+                                    lightsSession = session;
+                                }
+                            }
+                            if (destroyedMeanwhile) {
+                                session.close();
+                                return;
+                            }
+                        }
+
+                        // Apply the LED changes
+                        session.requestLights(lightsRequestBuilder.build());
+                    }
+                } catch (RuntimeException e) {
+                    LimeLog.warning("Controller lights unavailable after detach");
                 }
             }
         };

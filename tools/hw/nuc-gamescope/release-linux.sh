@@ -1,19 +1,25 @@
 #!/bin/bash
-# f2-release-linux.sh [package|bundle|all]: the release job's Linux steps on the NUC for ~/deck/src:
+# release-linux.sh [package|bundle|all]: the release job's Linux steps on the NUC for $W/src (W is
+# nuc-gamescope.ps1's -Work, ~/deck by default):
 # package: the decode-only FFmpeg and package-linux.sh in Ubuntu 22.04 (the runner's image; the
-#   PyroWave SDK is the 4.4.0 archive's, the same pin), into ~/deck/rel/dist;
+#   PyroWave SDK is the 4.4.0 archive's, the same pin), into $W/rel/dist;
 # bundle: build-bundle.sh in Ubuntu 22.04 and check-bundle.sh in a clean Fedora 42, both privileged,
-#   as release.yml runs them. Logs in ~/deck/rel/*.log.
+#   as release.yml runs them. Logs in $W/rel/*.log.
 set -u
-d=$HOME/deck V=${V:-4.5.0} what=${1:-all}
+d=${W:-$HOME/deck} V=${V:-4.5.0} what=${1:-all}
+d=$(cd "$d" && pwd) || exit 1
 src=$d/src/client rel=$d/rel
+# The package step runs as the user with the user's Rust toolchain from $HOME; a work folder
+# outside $HOME is mounted as well.
+mounts=(-v $HOME:$HOME)
+[[ $d == $HOME/* ]] || mounts+=(-v $d:$d)
 mkdir -p $rel/dist
 if [ $what = package ] || [ $what = all ]; then
   if [ ! -s $rel/sdk/libpyrowave-shared.so ]; then
     rm -rf $rel/sdk $rel/t && mkdir -p $rel/sdk $rel/t && tar xzf $d/dist/nightjar-desktop-4.4.0-linux-x86_64.tar.gz -C $rel/t
     cp $rel/t/*/libpyrowave-shared.so $rel/sdk/ && cp $rel/t/*/pyrowave-sdk-build-info.txt $rel/sdk/build-info.txt && cp -a $rel/t/*/licenses-pyrowave $rel/sdk/licenses && rm -rf $rel/t
   fi
-  docker run --rm -v $HOME:$HOME -w $src -e HOME=/root -e rel=$rel -e V=$V -e home=$HOME ubuntu:22.04 bash -euo pipefail -c '
+  docker run --rm "${mounts[@]}" -w $src -e HOME=/root -e rel=$rel -e V=$V -e home=$HOME ubuntu:22.04 bash -euo pipefail -c '
     export DEBIAN_FRONTEND=noninteractive
     apt-get update -qq
     apt-get install -y -qq --no-install-recommends ca-certificates curl xz-utils gcc g++ make git cmake meson ninja-build \

@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Installs the Flatpak bundle in a clean system, checks `--version`, that the sandbox resolves
 # every library the executable links, and that the launcher window opens under Xvfb with its
-# settings in ~/.var/app (check-start.sh), then uninstalls it. The release workflow runs it as root
+# settings in ~/.var/app (check-start.sh), that a second build installed over it with --reinstall
+# replaces it and keeps those settings, then uninstalls it. The release workflow runs it as root
 # in a fresh, privileged Fedora container (bubblewrap needs the namespaces):
 #
 #   check-bundle.sh <nightjar-desktop-<version>-x86_64.flatpak> <version> <check-start.sh>
@@ -17,11 +18,15 @@ if ! command -v flatpak >/dev/null || ! command -v Xvfb >/dev/null; then
 fi
 export XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-/tmp/runtime-$(id -u)}
 mkdir -p -m 700 "$XDG_RUNTIME_DIR"
-# The runtime from Flathub first, in three tries 20 and 40 s apart, so the bundle installs offline.
+branch=$(bash "$(dirname "${BASH_SOURCE[0]}")/runtime-version.sh")
+work=$(mktemp -d)
+trap 'rm -rf "$work"' EXIT
+# The runtime from Flathub first, in three tries 20 and 40 s apart, so the bundle installs offline
+# (--or-update: a retry finds it installed and does not fail on that).
 for try in 1 2 3; do
 	flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo &&
-		flatpak install --user -y --noninteractive flathub org.freedesktop.Platform//24.08 >/dev/null && break
-	[[ $try == 3 ]] && { echo "error: the 24.08 runtime did not install from Flathub after 3 tries" >&2; exit 1; }
+		flatpak install --user -y --noninteractive --or-update flathub "org.freedesktop.Platform//$branch" >/dev/null && break
+	[[ $try == 3 ]] && { echo "error: the $branch runtime did not install from Flathub after 3 tries" >&2; exit 1; }
 	echo "Flathub try $try failed, retrying in $((try * 20)) s" >&2
 	sleep $((try * 20))
 done
@@ -37,12 +42,27 @@ export NIGHTJAR_CONFIG_DIR=$HOME/.var/app/$app_id/config/nightjar
 mkdir -p "$NIGHTJAR_CONFIG_DIR"
 bash "$check_start" flatpak run --unset-env=NIGHTJAR_CONFIG_DIR "$app_id"
 [[ -s $NIGHTJAR_CONFIG_DIR/logs/nightjar.log ]] || { echo "error: no log in $NIGHTJAR_CONFIG_DIR/logs" >&2; exit 1; }
-# The update steps/steam-deck.md gives: a plain install of a bundle over an installed one fails
-# ("already installed"), --reinstall replaces it and keeps the settings in ~/.var/app.
+# The update steps/steam-deck.md gives, with a second build: the installed app's files plus a
+# marker, exported as a new commit and bundled like a release. --reinstall must replace the first
+# (a plain install stops at "already installed") and keep ~/.var/app.
+ref=$(flatpak info --show-ref "$app_id")
+first=$(flatpak info --show-commit "$app_id")
+deploy=$(flatpak info --show-location "$app_id")
+mkdir -p "$work/next"
+cp -a "$deploy/files" "$deploy/metadata" "$work/next/"
+[[ -d $deploy/export ]] && cp -a "$deploy/export" "$work/next/"
+chmod -R u+w "$work/next"
+echo "$first" >"$work/next/files/lib/nightjar/update-check"
+flatpak build-export --quiet "$work/repo" "$work/next" "${ref##*/}" >/dev/null
+flatpak build-bundle --runtime-repo=https://dl.flathub.org/repo/flathub.flatpakrepo "$work/repo" "$work/next.flatpak" "$app_id" "${ref##*/}"
 echo kept >"$NIGHTJAR_CONFIG_DIR/update-check"
-flatpak install --user -y --noninteractive --reinstall "$bundle" >/dev/null
-[[ $(flatpak run "$app_id" --version) == "Nightjar $version" ]] || { echo "error: the reinstalled bundle does not start" >&2; exit 1; }
-[[ $(cat "$NIGHTJAR_CONFIG_DIR/update-check" 2>/dev/null) == kept ]] || { echo "error: reinstalling the bundle lost the settings in ~/.var/app" >&2; exit 1; }
+flatpak install --user -y --noninteractive --reinstall "$work/next.flatpak" >/dev/null
+second=$(flatpak info --show-commit "$app_id")
+[[ $second != "$first" ]] || { echo "error: the update left the first build ($first) installed" >&2; exit 1; }
+[[ $(flatpak run --command=cat "$app_id" /app/lib/nightjar/update-check) == "$first" ]] || { echo "error: the updated app does not run the second build's files" >&2; exit 1; }
+[[ $(flatpak run "$app_id" --version) == "Nightjar $version" ]] || { echo "error: the updated bundle does not start" >&2; exit 1; }
+[[ $(cat "$NIGHTJAR_CONFIG_DIR/update-check" 2>/dev/null) == kept ]] || { echo "error: updating the bundle lost the settings in ~/.var/app" >&2; exit 1; }
+echo "flatpak: the update from $first to $second keeps the settings"
 flatpak info --show-permissions "$app_id" | grep -q 'xdg-run/gamescope-0' || { echo "error: the bundle cannot reach gamescope's socket (xdg-run/gamescope-0)" >&2; exit 1; }
 flatpak uninstall --user -y --noninteractive "$app_id" >/dev/null
 echo "flatpak: the bundle installs, starts and uninstalls"

@@ -19,7 +19,7 @@ Every Nightjar release carries `nightjar-desktop-X-x86_64.flatpak` (X is the ver
 3. For HDR in Game Mode, also install gamescope's Vulkan layer:
 
    ```sh
-   flatpak install --user flathub org.freedesktop.Platform.VulkanLayer.gamescope//24.08
+   flatpak install --user flathub org.freedesktop.Platform.VulkanLayer.gamescope//25.08
    ```
 
 To update, install the next release's `.flatpak` over the old one with `--reinstall` (without it Flatpak stops at "already installed"):
@@ -62,4 +62,11 @@ With HDR turned on in the Steam Deck OLED's display settings (or gamescope start
 
 - **Forwarding webcams and audio devices.** Most USB devices are forwarded from the Flatpak as from the other packages. Webcams and audio devices go through Linux's USB/IP tools instead (usbip-host, bound through `pkexec` and Nightjar's helper as root), which the sandbox can't reach; the **USB devices** list says so for them. Use the `.deb`, `.rpm` or AppImage with your distribution's usbip package for those.
 
-The Flatpak has the network, the GPU, controllers and audio, so discovery, Wake-on-LAN, controllers, the microphone and hardware decoding work as in the other Linux packages. The Steam Deck's AMD graphics decode with the runtime's own drivers; on Intel graphics, VA-API in a Flatpak needs `flatpak install --user flathub org.freedesktop.Platform.VAAPI.Intel//24.08`.
+The Flatpak has the network, the GPU, controllers and audio, so discovery, Wake-on-LAN, controllers, the microphone and hardware decoding work as in the other Linux packages. The Steam Deck's AMD graphics decode with the runtime's own drivers; on Intel graphics, VA-API in a Flatpak needs `flatpak install --user flathub org.freedesktop.Platform.VAAPI.Intel//25.08`.
+
+## Not yet run on a Steam Deck
+
+Nightjar's Game Mode runs were made under gamescope on an Intel mini PC with a virtual controller, not on a Steam Deck. Still to check on a real Deck:
+
+- Touching the screen. Nightjar ignores the pointer that SDL makes from touch, but gamescope may pass the Deck's touchscreen on as an ordinary mouse, which Nightjar would then follow.
+- The trackpads and HDR on the Steam Deck OLED's own display.

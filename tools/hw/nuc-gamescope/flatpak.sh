@@ -5,11 +5,13 @@
 # installation, so the NUC's own Flatpak setup is untouched; nuc-gamescope.ps1 removes it).
 set -eu
 W=${W:-$HOME/deck}
+# The runtime branch of the synced manifest (runtime-version).
+branch=$(bash $W/src/client/protocol/desktop/packaging/linux/flatpak/runtime-version.sh)
 export HOME=$W/fphome FLATPAK_USER_DIR=$W/fphome/flatpak
 mkdir -p $FLATPAK_USER_DIR
 for try in 1 2 3; do
   flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo &&
-    flatpak install --user -y --noninteractive flathub org.freedesktop.Platform//24.08 org.freedesktop.Platform.VulkanLayer.gamescope//24.08 >/dev/null && break
+    flatpak install --user -y --noninteractive --or-update flathub org.freedesktop.Platform//$branch org.freedesktop.Platform.VulkanLayer.gamescope//$branch >/dev/null && break
   [ $try = 3 ] && { echo "Flathub failed 3 times" >&2; exit 1; }
   sleep $((try * 20))
 done

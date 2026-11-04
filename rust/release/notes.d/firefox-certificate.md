@@ -1,2 +1,0 @@
-# Firefox certificate
-- **Firefox opens invite links and consoles from another Rubylight PC.** Every host's console certificate came from a root of the same name, so Firefox on a PC with Rubylight installed refused another host's pages with `SEC_ERROR_UNKNOWN` instead of the usual warning you can click through. Each host now gives its root a name of its own and makes its certificate anew once after the update; setup trusts the new root as before. Checked with Firefox 157, Chrome 157 and Edge 156.

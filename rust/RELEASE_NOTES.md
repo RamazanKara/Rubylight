@@ -8,7 +8,7 @@ Rubylight, called Butterpollo until rc.29, is written in Rust: host, native help
 
 ## New in 3.5.0
 
-Rubylight 3.5.0 finishes the background and co-op streams from [#59](https://github.com/RamazanKara/Rubylight/issues/59): a game's sound now leaves the PC's speakers once it opens it, a game that ignores Nucleus Co-op's input hooks gets its controller from the start, and the PC says when someone starts such a stream. UPnP now forwards the browser guest ports, and fixes from users' logs bring back Nucleus Co-op on some PCs, the frame limiter after a stream and Xbox PC games in Add games.
+Rubylight 3.5.0 finishes the background and co-op streams from [#59](https://github.com/RamazanKara/Rubylight/issues/59): a game's sound now leaves the PC's speakers once it opens it, a game that ignores Nucleus Co-op's input hooks gets its controller from the start, and the PC says when someone starts such a stream. UPnP now forwards the browser guest ports, Firefox opens invite links from another Rubylight PC, and fixes from users' logs bring back Nucleus Co-op on some PCs, the frame limiter after a stream and Xbox PC games in Add games.
 
 ### Background and co-op streams
 
@@ -19,6 +19,7 @@ Rubylight 3.5.0 finishes the background and co-op streams from [#59](https://git
 ### Browser guests
 
 - **UPnP forwards the browser guest ports.** With UPnP and the WebRTC server on, the PC asks the router to forward the guest page (TCP, the base port + 2, 47991 by default) and one media port per guest (UDP `webrtc_media_port` + 1 to + 4, 8002-8005 by default), and removes them when the host stops. Guests from the internet no longer need ports forwarded by hand on a router that allows UPnP.
+- **Firefox opens invite links and consoles from another Rubylight PC.** Every host's console certificate came from a root of the same name, so Firefox on a PC with Rubylight installed refused another host's pages with `SEC_ERROR_UNKNOWN` instead of the usual warning you can click through. Each host now gives its root a name of its own and makes its certificate anew once after the update; setup trusts the new root as before.
 - The browser guest page has the Rubylight icon instead of a missing one.
 
 ### Games and apps
@@ -29,7 +30,7 @@ Rubylight 3.5.0 finishes the background and co-op streams from [#59](https://git
 - **Xbox PC games in Add games.** A game that starts through `GameLaunchHelper.exe`, and a config saved as UTF-16, are found. A package with no application is skipped quietly. A launcher scan error now says why, not only which package.
 - The missing Windows HDR Calibration warning (`virtual_display_hdr_calibration`) shows once per host start instead of at every stream.
 
-**Tested.** On the RX 7900 XT PC with Windows 11 (build 26200), from the SYSTEM account the host runs as and from a signed-in user's: Windows refused to move a test process's sound before the process had opened its sound and accepted it after. Sound on Windows' default device moved to Steam Streaming Speakers and back, and sound opened on a particular device stayed where it was. On NTFS, the handle Rubylight holds kept the Nucleus Co-op folder and its parent from being renamed. The focus change with a real game, the PC notice, UPnP forwarding on a router and an Xbox PC game that starts through GameLaunchHelper are not tested on hardware yet.
+**Tested.** On the RX 7900 XT PC with Windows 11 (build 26200), from the SYSTEM account the host runs as and from a signed-in user's: Windows refused to move a test process's sound before the process had opened its sound and accepted it after. Sound on Windows' default device moved to Steam Streaming Speakers and back, and sound opened on a particular device stayed where it was. On NTFS, the handle Rubylight holds kept the Nucleus Co-op folder and its parent from being renamed. Firefox 157 on this PC, which trusts its own host's root, refused a fresh test certificate on 127.0.0.1, localhost and the LAN address with `SEC_ERROR_UNKNOWN`; with the root's own name it showed the usual warning and loaded once accepted, and Chrome 157 and Edge 156 behaved the same before and after. The focus change with a real game, the PC notice, UPnP forwarding on a router and an Xbox PC game that starts through GameLaunchHelper are not tested on hardware yet.
 
 ## New in 3.4.0
 

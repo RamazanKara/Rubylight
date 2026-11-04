@@ -72,6 +72,7 @@ typedef VkQueueGlobalPriorityKHR VkQueueGlobalPriority;
 #include "presentation.h"
 #include "schedule.h"
 #include "present_timing.h"
+#include "device_path.h"
 #include "rubylight_protocol.h"
 #include "../window-dataspace/window_dataspace.h"
 
@@ -85,6 +86,9 @@ static_assert(PYRO_FORMAT_A2B10G10R10 == VK_FORMAT_A2B10G10R10_UNORM_PACK32 &&
               PYRO_COLORSPACE_HDR10_ST2084 == VK_COLOR_SPACE_HDR10_ST2084_EXT &&
               PYRO_COLORSPACE_HDR10_HLG == VK_COLOR_SPACE_HDR10_HLG_EXT,
               "surface format constants in presentation.h must match Vulkan");
+static_assert(PYRO_VULKAN_1_1 == VK_API_VERSION_1_1 && PYRO_VULKAN_1_2 == VK_API_VERSION_1_2 &&
+              PYRO_VULKAN_1_3 == VK_API_VERSION_1_3,
+              "version constants in device_path.h must match Vulkan");
 
 #define LOG_TAG "PyroWave"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
@@ -366,9 +370,6 @@ namespace {
         char name[VK_MAX_PHYSICAL_DEVICE_NAME_SIZE] = {};
     };
 
-    // PyroWave falls back from 8-bit storage to texel buffers when a buffer view can hold this many elements.
-    constexpr uint32_t PYROWAVE_TEXEL_BUFFER_ELEMENTS = 16u * 1024u * 1024u;
-
     bool hasExtension(const std::vector<VkExtensionProperties> &extensions, const char *name) {
         return std::any_of(extensions.begin(), extensions.end(),
                            [name](const VkExtensionProperties &ext) { return !strcmp(ext.extensionName, name); });
@@ -381,13 +382,13 @@ namespace {
         vk.GetPhysicalDeviceProperties(device, &props);
         probe.apiVersion = props.apiVersion;
         std::memcpy(probe.name, props.deviceName, sizeof(probe.name));
-        const uint32_t coreVersion = std::min(props.apiVersion, instanceVersion);
+        const uint32_t coreVersion = pyroCoreVersion(props.apiVersion, instanceVersion);
         if (coreVersion < VK_API_VERSION_1_1) {
             return probe;
         }
         const bool core12 = coreVersion >= VK_API_VERSION_1_2;
         const bool core13 = coreVersion >= VK_API_VERSION_1_3;
-        probe.legacySync = !core13;
+        probe.legacySync = pyroLegacySync(coreVersion);
 
         uint32_t extensionCount = 0;
         probe.reason = PROBE_FAILED;
@@ -395,12 +396,11 @@ namespace {
         std::vector<VkExtensionProperties> extensions(extensionCount);
         if (vk.EnumerateDeviceExtensionProperties(device, nullptr, &extensionCount, extensions.data()) != VK_SUCCESS) return probe;
         extensions.resize(extensionCount);
-        if (!core13 && !hasExtension(extensions, VK_EXT_SUBGROUP_SIZE_CONTROL_EXTENSION_NAME)) {
+        if (pyroNeedsSubgroupSizeControlExtension(coreVersion) && !hasExtension(extensions, VK_EXT_SUBGROUP_SIZE_CONTROL_EXTENSION_NAME)) {
             probe.reason = MISSING_SUBGROUP_OPS;
             return probe;
         }
-        // Granite needs render pass 2 below Vulkan 1.2.
-        if (!core12 && !hasExtension(extensions, VK_KHR_CREATE_RENDERPASS_2_EXTENSION_NAME)) {
+        if (pyroNeedsRenderPass2(coreVersion) && !hasExtension(extensions, VK_KHR_CREATE_RENDERPASS_2_EXTENSION_NAME)) {
             probe.reason = MISSING_DEVICE_FEATURES;
             return probe;
         }
@@ -459,9 +459,9 @@ namespace {
         }
         const bool storage16Feature = core12 ? f11.storageBuffer16BitAccess : storage16.storageBuffer16BitAccess;
         probe.storage8 = core12 ? f12.storageBuffer8BitAccess : storage8Extension && storage8.storageBuffer8BitAccess;
-        const bool payloadAccess = probe.storage8 || (!core13 && props.limits.maxTexelBufferElements >= PYROWAVE_TEXEL_BUFFER_ELEMENTS);
+        const bool payloadAccess = pyroPayloadReadable(coreVersion, probe.storage8, props.limits.maxTexelBufferElements);
         // Vulkan 1.3 devices keep their timeline/synchronization2 path; older ones use legacySync.
-        const bool sync = !core13 || (f12.timelineSemaphore && f13.synchronization2);
+        const bool sync = pyroSyncUsable(coreVersion, f12.timelineSemaphore, f13.synchronization2);
         if (!f2.features.shaderStorageImageWriteWithoutFormat || !f2.features.shaderInt16 ||
             !storage16Feature || !payloadAccess || !sync) {
             probe.reason = MISSING_DEVICE_FEATURES;
@@ -513,8 +513,14 @@ namespace {
 
     // Vulkan 1.3 where the loader has it; Granite takes the device's core version as the lower of
     // this and the device's own, so a 1.1 loader keeps a 1.3 device on its extensions.
+    // adb shell setprop debug.nightjar.pyro_vk11 1 does the same on purpose, to run the path of
+    // older devices on one we have.
     uint32_t instanceApiVersion(uint32_t loaderVersion) {
-        return loaderVersion >= VK_API_VERSION_1_3 ? VK_API_VERSION_1_3 : VK_API_VERSION_1_1;
+        char value[PROP_VALUE_MAX] = {};
+        __system_property_get("debug.nightjar.pyro_vk11", value);
+        const bool forced = std::strcmp(value, "1") == 0;
+        if (forced) LOGW("PyroWave forced below Vulkan 1.3 by debug.nightjar.pyro_vk11");
+        return pyroInstanceApiVersion(loaderVersion, forced);
     }
 
     bool apiVersionSupported() {
@@ -995,7 +1001,7 @@ namespace {
                         (VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT) && presentable) {
                         physicalDevice = device;
                         queueFamily = i;
-                        queueCount = families[i].queueCount >= 2 ? 2 : 1;
+                        queueCount = pyroQueueCount(families[i].queueCount, probe.legacySync);
                         chosenProbe = probe;
                         break;
                     }
@@ -1009,10 +1015,8 @@ namespace {
                 return false;
             }
             legacySync = chosenProbe.legacySync;
-            // Without timeline semaphores, decode and presentation share one queue so that
-            // submission order carries the decoder writes to the draw.
-            if (legacySync) queueCount = 1;
-            const bool core12 = std::min(chosenProbe.apiVersion, appInfo.apiVersion) >= VK_API_VERSION_1_2;
+            const uint32_t coreVersion = pyroCoreVersion(chosenProbe.apiVersion, appInfo.apiVersion);
+            const bool core12 = coreVersion >= VK_API_VERSION_1_2;
 
             queuePriorities[0] = queueCount == 2 ? 0.0f : 1.0f;
             queueInfo = {VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO};
@@ -1047,18 +1051,15 @@ namespace {
                 storage16Features = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_16BIT_STORAGE_FEATURES};
                 storage16Features.storageBuffer16BitAccess = VK_TRUE;
                 chain(storage16Features);
-                deviceExtensions.push_back(VK_KHR_CREATE_RENDERPASS_2_EXTENSION_NAME);
                 if (chosenProbe.storage8) {
                     storage8Features = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_8BIT_STORAGE_FEATURES_KHR};
                     storage8Features.storageBuffer8BitAccess = VK_TRUE;
                     chain(storage8Features);
-                    deviceExtensions.push_back(VK_KHR_8BIT_STORAGE_EXTENSION_NAME);
                 }
                 if (chosenProbe.float16) {
                     float16Int8Features = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_FLOAT16_INT8_FEATURES_KHR};
                     float16Int8Features.shaderFloat16 = VK_TRUE;
                     chain(float16Int8Features);
-                    deviceExtensions.push_back(VK_KHR_SHADER_FLOAT16_INT8_EXTENSION_NAME);
                 }
             }
             if (legacySync) {
@@ -1066,7 +1067,6 @@ namespace {
                 sizeControlFeatures.subgroupSizeControl = VK_TRUE;
                 sizeControlFeatures.computeFullSubgroups = VK_TRUE;
                 chain(sizeControlFeatures);
-                deviceExtensions.push_back(VK_EXT_SUBGROUP_SIZE_CONTROL_EXTENSION_NAME);
             } else {
                 features13 = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES};
                 features13.synchronization2 = VK_TRUE;
@@ -1084,6 +1084,10 @@ namespace {
             std::vector<VkExtensionProperties> extensions(extensionCount);
             if (!check(vk.EnumerateDeviceExtensionProperties(physicalDevice, nullptr, &extensionCount, extensions.data()), "device extensions")) return false;
             extensions.resize(extensionCount);
+            for (const char *name : pyroPathExtensions(coreVersion, chosenProbe.storage8, chosenProbe.float16,
+                                                       hasExtension(extensions, VK_KHR_DRIVER_PROPERTIES_EXTENSION_NAME))) {
+                deviceExtensions.push_back(name);
+            }
             bool metadata = false;
             bool fifoLatestReadyExtension = false;
             const char *priorityExtension = nullptr;
@@ -1161,8 +1165,9 @@ namespace {
                                 (driverProps.driverInfo[0] ? std::string(" ") + driverProps.driverInfo : std::string());
             LOGI("GPU driver: %s, queue priority %s", driverDescription.c_str(), highPriorityQueue ? "high" : "normal");
 
-            LOGI("%s on Vulkan %u.%u (float16: %d)", chosenProbe.name, VK_API_VERSION_MAJOR(chosenProbe.apiVersion),
-                 VK_API_VERSION_MINOR(chosenProbe.apiVersion), chosenProbe.float16);
+            LOGI("%s on Vulkan %u.%u (float16: %d, 8-bit storage: %d, decode completion: %s)", chosenProbe.name,
+                 VK_API_VERSION_MAJOR(chosenProbe.apiVersion), VK_API_VERSION_MINOR(chosenProbe.apiVersion),
+                 chosenProbe.float16, chosenProbe.storage8, legacySync ? "fence" : "timeline");
             return true;
         }
 

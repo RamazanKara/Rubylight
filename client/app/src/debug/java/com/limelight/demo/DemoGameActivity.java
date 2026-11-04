@@ -60,6 +60,7 @@ public final class DemoGameActivity extends Activity implements SurfaceHolder.Ca
     private java.util.concurrent.ScheduledExecutorService radeonThread;
     private DemoTouchpad touchpad;
     private PcKeyboardOverlay pcKeyboard;
+    private com.limelight.binding.input.pad.ModernController modern;
     private String fit;
     private int alignment;
     // The bundled samples are 1920x1080.
@@ -177,6 +178,28 @@ public final class DemoGameActivity extends Activity implements SurfaceHolder.Ca
         controls.refreshLayout();
         controls.setOpacity(65);
         if (showControls) controls.show(); else controls.hide();
+        if (getIntent().getBooleanExtra("modern", false)) {
+            // The modern controller with the saved settings and layout; what it sends goes to logcat (tag
+            // NightjarDemoInput): gamepad reports and the WASD stick's virtual-key codes. "--ez edit true" opens its editor.
+            com.limelight.preferences.PreferenceConfiguration prefs =
+                    com.limelight.preferences.PreferenceConfiguration.readPreferences(this);
+            prefs.oscStyle = com.limelight.preferences.PreferenceConfiguration.OSC_STYLE_MODERN;
+            modern = new com.limelight.binding.input.pad.ModernController(this, container,
+                    new com.limelight.binding.input.HeldInputState.Sink() {
+                        @Override public void key(int key, boolean down) {
+                            Log.i("NightjarDemoInput", "key " + Integer.toHexString(0x8000 | key) + (down ? " down" : " up"));
+                        }
+                        @Override public void mouse(int button, boolean down) { }
+                        @Override public void gamepad(int buttons, short leftX, short leftY, short rightX, short rightY,
+                                                      byte leftTrigger, byte rightTrigger) {
+                            Log.i("NightjarDemoInput", "gamepad " + Integer.toHexString(buttons) + " " + leftX + "," + leftY
+                                    + " " + rightX + "," + rightY);
+                        }
+                    }, prefs, "demo");
+            modern.refreshLayout();
+            modern.show();
+            if (getIntent().getBooleanExtra("edit", false)) container.post(modern::startEditing);
+        }
         label = new TextView(this);
         label.setText(R.string.demo_sample);
         label.setTextColor(0xffbcc8ce);
@@ -419,11 +442,13 @@ public final class DemoGameActivity extends Activity implements SurfaceHolder.Ca
     @Override protected void onPause() {
         super.onPause();
         gameControls.releaseInput();
+        if (modern != null) modern.releaseInput();
     }
 
     @Override public void onWindowFocusChanged(boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);
         if (!hasFocus) gameControls.releaseInput();
+        if (!hasFocus && modern != null) modern.releaseInput();
     }
 
     @Override protected void onStart() {
@@ -473,6 +498,7 @@ public final class DemoGameActivity extends Activity implements SurfaceHolder.Ca
         handler.removeCallbacksAndMessages(null);
         if (radeonThread != null) radeonThread.shutdownNow();
         controls.hide();
+        if (modern != null) modern.destroy();
         releasePlayer();
         super.onDestroy();
     }

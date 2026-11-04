@@ -1119,10 +1119,8 @@ async fn do_pair(h: Shared, args: &Args, peer: std::net::IpAddr) -> Result<Vec<(
             );
         }
         tracing::info!(client=%name,%peer,"Pairing PIN required in the web interface");
-        butterpollo_windows::tray::notify(
-            "Pairing request",
-            &crate::state::pairing_notice(&name, peer),
-        );
+        let (title, text) = crate::state::pairing_notice(&name, peer);
+        butterpollo_windows::tray::notify(&title, &text);
         let response = tokio::time::timeout(Duration::from_secs(300), receiver).await;
         {
             // Only this request's entry: a newer request may have replaced it.

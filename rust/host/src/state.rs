@@ -227,11 +227,29 @@ pub struct PendingPin {
     pub created: Instant,
     pub sender: tokio::sync::oneshot::Sender<PinEntry>,
 }
-/// The tray notice for a pairing request: the address beside the name the device chose.
-pub fn pairing_notice(name: &str, address: std::net::IpAddr) -> String {
-    format!(
-        "{name} (from {}) wants to pair. Enter the PIN it shows in the Rubylight console.",
-        address.to_canonical()
+/// Where a pairing request came from, as the owner reads it: loopback is this PC, which for a
+/// browser far away means a tunnel or proxy on it.
+pub fn pairing_source(address: std::net::IpAddr) -> String {
+    let address = address.to_canonical();
+    if address.is_loopback() {
+        "this PC (a tunnel or proxy)".into()
+    } else {
+        address.to_string()
+    }
+}
+/// The longest part of a device's name a pairing notice shows.
+const NOTICE_NAME_CHARS: usize = 40;
+/// The tray notice for a pairing request, title and text. The address is the title, apart from
+/// the name the device chose, which is cut short so it can neither push the address out of the
+/// notice (Windows keeps 255 UTF-16 units) nor pass for it.
+pub fn pairing_notice(name: &str, address: std::net::IpAddr) -> (String, String) {
+    let mut shown: String = name.chars().take(NOTICE_NAME_CHARS).collect();
+    if shown.len() < name.len() {
+        shown.push('…');
+    }
+    (
+        format!("Pairing request from {}", pairing_source(address)),
+        format!("{shown} wants to pair. Enter the PIN it shows in the Rubylight console."),
     )
 }
 /// A client's display lease and when it last stopped being streamed.

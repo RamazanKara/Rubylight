@@ -8,6 +8,12 @@ export function duration(seconds: number): string {
   return `${hours} h ${minutes % 60} min`;
 }
 
+/** Where a pairing request came from, as the host's tray says it: loopback is this PC, which for a
+ * device elsewhere means a tunnel or proxy on it. */
+export function pairingSource(address: string): string {
+  return address === '::1' || address.startsWith('127.') ? 'this PC (a tunnel or proxy)' : address;
+}
+
 export function bytes(value: number): string {
   if (value < 1024) return `${value} B`;
   if (value < 1024 ** 2) return `${(value / 1024).toFixed(1)} KB`;

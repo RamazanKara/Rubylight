@@ -595,7 +595,12 @@ fn guest_port_closed() -> Response {
 /// learns nothing of `/play`.
 fn play_refused(h: &Shared, connection: &Connection, path: &str) -> Option<Response> {
     if let Some(reason) = crate::network::play_refused(connection.peer, connection.local) {
-        tracing::info!(peer = %connection.peer, local = %connection.local, path, reason, "play page refused");
+        // A forwarded guest port takes the internet's scans: one line in ten seconds.
+        static REFUSED: std::sync::Mutex<crate::webrtc::server::Throttle> =
+            std::sync::Mutex::new(crate::webrtc::server::Throttle::new());
+        if let Some(more) = REFUSED.lock().unwrap().allow() {
+            tracing::info!(peer = %connection.peer, local = %connection.local, path, reason, more, "play page refused");
+        }
         return Some(if h.guests.open() {
             StatusCode::NOT_FOUND.into_response()
         } else {

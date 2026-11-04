@@ -1,6 +1,7 @@
 <script lang="ts">
   import { api, type PendingPairing } from '../lib/api';
   import { failed, notify } from '../lib/feedback.svelte';
+  import { pairingSource } from '../lib/format';
   import { refreshPending } from '../lib/session.svelte';
   import Button from './Button.svelte';
   import Icon from './Icon.svelte';
@@ -49,7 +50,9 @@
   <form class="banner" onsubmit={pair}>
     <Icon name="link" />
     <div class="text">
-      <strong>{first.name}{first.address ? ` (from ${first.address})` : ''} wants to pair.</strong>
+      <!-- The address first and apart: the name is the device's to choose, and could name one. -->
+      {#if first.address}<span class="from">Pairing request from {pairingSource(first.address)}</span>{/if}
+      <strong class="name">{first.name} wants to pair.</strong>
       <span class="muted">Enter the PIN shown on that device.{requests.length > 1
           ? ` ${requests.length - 1} more waiting.`
           : ''}</span>
@@ -83,6 +86,12 @@
     flex: 1;
     min-width: 220px;
     font-size: var(--text-sm);
+  }
+  .from {
+    font-weight: var(--weight-semibold);
+  }
+  .name {
+    overflow-wrap: anywhere;
   }
   .pin {
     width: 92px;

@@ -208,28 +208,42 @@ struct Peer {
 }
 
 /// Logs refused peers, but not every one of a scan.
-struct Throttle {
+pub(crate) struct Throttle {
     last: Option<Instant>,
     skipped: u32,
 }
 
 impl Throttle {
-    fn refused(&mut self, peer: SocketAddr) {
+    pub(crate) const fn new() -> Self {
+        Self {
+            last: None,
+            skipped: 0,
+        }
+    }
+
+    /// Whether to log a refusal now, at most once in ten seconds; with how many were skipped
+    /// since the last one logged.
+    pub(crate) fn allow(&mut self) -> Option<u32> {
         let now = Instant::now();
         if self
             .last
             .is_some_and(|at| now.duration_since(at) < Duration::from_secs(10))
         {
             self.skipped += 1;
-            return;
+            return None;
         }
-        tracing::warn!(
-            %peer,
-            more = self.skipped,
-            "WebRTC signalling closed a connection from outside the local network"
-        );
         self.last = Some(now);
-        self.skipped = 0;
+        Some(std::mem::take(&mut self.skipped))
+    }
+
+    fn refused(&mut self, peer: SocketAddr) {
+        if let Some(more) = self.allow() {
+            tracing::warn!(
+                %peer,
+                more,
+                "WebRTC signalling closed a connection from outside the local network"
+            );
+        }
     }
 }
 
@@ -238,18 +252,16 @@ pub(crate) fn local_network(peer: IpAddr) -> bool {
     reach(peer.to_canonical()) <= Reach::Lan
 }
 
-/// Whether the name's decimal digits, ASCII or fullwidth, read in order with anything between
-/// them dropped, contain `pin`.
-fn pin_in_name(pin: &str, name: &str) -> bool {
-    let digits: String = name
-        .chars()
-        .filter_map(|c| match c {
-            '0'..='9' => Some(c),
-            '\u{ff10}'..='\u{ff19}' => char::from_u32(c as u32 - 0xff10 + '0' as u32),
-            _ => None,
-        })
-        .collect();
-    !pin.is_empty() && digits.contains(pin)
+/// What is wrong with a pairing device's name, if anything: a digit other than ASCII 0-9
+/// (fullwidth, circled, superscript, math bold, Arabic-Indic and the like, which can spell a PIN
+/// the ASCII check misses), or ASCII digits that, read in order with anything between them
+/// dropped, contain `pin`.
+fn name_problem(pin: &str, name: &str) -> Option<&'static str> {
+    if name.chars().any(|c| c.is_numeric() && !c.is_ascii_digit()) {
+        return Some("clientName may use only the digits 0-9");
+    }
+    let digits: String = name.chars().filter(char::is_ascii_digit).collect();
+    (!pin.is_empty() && digits.contains(pin)).then_some("clientName must not contain the PIN")
 }
 
 async fn accept(
@@ -262,10 +274,7 @@ async fn accept(
         .fallback(get(upgrade))
         .with_state(Context { h, limits, media });
     let sockets = Arc::new(tokio::sync::Semaphore::new(MAX_SOCKETS));
-    let mut refused = Throttle {
-        last: None,
-        skipped: 0,
-    };
+    let mut refused = Throttle::new();
     loop {
         let (socket, address) = crate::network::accept(&listener).await;
         if !local_network(address.ip()) {
@@ -922,6 +931,31 @@ impl Connection {
             ));
             return;
         }
+        let name = if name.trim().is_empty() {
+            "WebRTC client"
+        } else {
+            name.trim()
+        };
+        if butterpollo_core::pairing::validate_device_name(name).is_err() {
+            out.push(Self::error(
+                ErrorCode::InvalidMessage,
+                "request-pairing",
+                "clientName is not a valid device name",
+            ));
+            return;
+        }
+        // The console and the tray show the name: a name carrying the PIN would hand the owner
+        // the PIN to type for whoever asks. Refused before the rate limit, so a name to fix
+        // costs none of the device's requests.
+        if let Some(problem) = name_problem(pin, name) {
+            tracing::info!(peer = %self.peer.address, problem, "WebRTC pairing refused: the device name");
+            out.push(Self::error(
+                ErrorCode::InvalidMessage,
+                "request-pairing",
+                problem,
+            ));
+            return;
+        }
         if !self
             .h
             .webrtc
@@ -950,30 +984,6 @@ impl Connection {
             ));
             return;
         }
-        let name = if name.trim().is_empty() {
-            "WebRTC client"
-        } else {
-            name.trim()
-        };
-        if butterpollo_core::pairing::validate_device_name(name).is_err() {
-            out.push(Self::error(
-                ErrorCode::InvalidMessage,
-                "request-pairing",
-                "clientName is not a valid device name",
-            ));
-            return;
-        }
-        // The console and the tray show the name: a name carrying the PIN would hand the owner
-        // the PIN to type for whoever asks. Digits split by other characters count too.
-        if pin_in_name(pin, name) {
-            tracing::warn!(peer = %self.peer.address, "WebRTC pairing refused: the device name contains its PIN");
-            out.push(Self::error(
-                ErrorCode::InvalidMessage,
-                "request-pairing",
-                "clientName must not contain the PIN",
-            ));
-            return;
-        }
         // A new request replaces the connection's old one, and does not
         // raise another notification.
         let again = self.pairing.is_some();
@@ -990,10 +1000,8 @@ impl Connection {
         self.unauthenticated_until = self.unauthenticated_until.max(deadline);
         tracing::info!(client = name, peer = %self.peer.address, "WebRTC pairing PIN required in the web interface");
         if !again && self.h.webrtc.may_notify(address) {
-            butterpollo_windows::tray::notify(
-                "Pairing request",
-                &crate::state::pairing_notice(name, address),
-            );
+            let (title, text) = crate::state::pairing_notice(name, address);
+            butterpollo_windows::tray::notify(&title, &text);
         }
     }
 
@@ -1230,6 +1238,35 @@ pub(crate) mod tests {
         io::{AsyncReadExt, AsyncWriteExt},
         net::TcpStream,
     };
+
+    #[test]
+    fn a_refusal_log_is_one_line_in_ten_seconds_with_the_skipped_count() {
+        let mut throttle = Throttle::new();
+        assert_eq!(throttle.allow(), Some(0));
+        assert_eq!(throttle.allow(), None);
+        assert_eq!(throttle.allow(), None);
+        throttle.last = Some(Instant::now() - Duration::from_secs(11));
+        assert_eq!(throttle.allow(), Some(2));
+        assert_eq!(throttle.allow(), None);
+    }
+
+    #[test]
+    fn a_pairing_name_may_not_spell_a_pin_in_any_digits() {
+        for name in [
+            "Living room TV - PIN 4821",
+            "TV 4-8-2-1",
+            "Xbox, PIN ④⑧②①",
+            "TV \u{ff14}",
+            "TV ²",
+            "TV \u{1d7d2}",
+            "TV \u{0664}\u{0668}",
+        ] {
+            assert!(name_problem("4821", name).is_some(), "{name}");
+        }
+        for name in ["Living room TV 2024", "Xbox", "Edge on Windows", "SM-F966B"] {
+            assert_eq!(name_problem("4821", name), None, "{name}");
+        }
+    }
 
     /// A minimal WebSocket client: enough to talk to the server in tests.
     pub(crate) struct Ws {

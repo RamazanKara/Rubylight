@@ -75,9 +75,12 @@ pub fn play_refusal(peer: IpAddr, local: IpAddr, gateways: &[IpAddr]) -> Option<
     }
     None
 }
-/// [`play_refusal`] with this PC's default gateways. A routing table that cannot be read refuses:
-/// the gateway check would be skipped.
+/// [`play_refusal`] with this PC's default gateways, read only for a peer the address checks
+/// alone let in. A routing table that cannot be read refuses: the gateway check would be skipped.
 pub fn play_refused(peer: SocketAddr, local: SocketAddr) -> Option<String> {
+    if let Some(reason) = play_refusal(peer.ip(), local.ip(), &[]) {
+        return Some(reason.to_owned());
+    }
     match default_gateways() {
         Ok(gateways) => play_refusal(peer.ip(), local.ip(), &gateways).map(str::to_owned),
         Err(error) => Some(format!("the default gateway could not be read: {error:#}")),
@@ -91,7 +94,13 @@ fn default_gateways() -> Result<Vec<IpAddr>> {
 #[cfg(test)]
 pub const TEST_GATEWAY: &str = "192.168.4.1";
 #[cfg(test)]
+thread_local! {
+    /// How often this thread read the gateways.
+    static GATEWAY_READS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+#[cfg(test)]
 fn default_gateways() -> Result<Vec<IpAddr>> {
+    GATEWAY_READS.with(|reads| reads.set(reads.get() + 1));
     Ok(vec![TEST_GATEWAY.parse()?])
 }
 pub fn encryption_mode(config: &Config, address: IpAddr) -> u32 {
@@ -606,6 +615,19 @@ mod tests {
         }
         // With no gateway known, the LAN router's address is a LAN peer like any other.
         assert!(play_refusal(ip("192.168.4.1"), lan, &[]).is_none());
+    }
+    #[test]
+    fn play_reads_the_routing_table_only_for_peers_the_address_checks_let_in() {
+        let reads = || GATEWAY_READS.with(std::cell::Cell::get);
+        let at = |text: &str| text.parse::<SocketAddr>().unwrap();
+        let lan = at("192.168.4.69:47991");
+        let before = reads();
+        assert!(play_refused(at("203.0.113.7:50000"), lan).is_some());
+        assert!(play_refused(at("100.101.102.103:50000"), lan).is_some());
+        assert_eq!(reads(), before);
+        assert!(play_refused(at("192.168.4.20:50000"), lan).is_none());
+        assert!(play_refused(at(&format!("{TEST_GATEWAY}:50000")), lan).is_some());
+        assert_eq!(reads(), before + 2);
     }
     #[test]
     fn lan_defaults_and_explicit_binding_keep_legacy_semantics() {

@@ -3,7 +3,7 @@
   import Button from '../Button.svelte';
   import { api, type PairingAccess, type PendingPairing } from '../../lib/api';
   import { failed, notify } from '../../lib/feedback.svelte';
-  import { duration } from '../../lib/format';
+  import { duration, pairingSource } from '../../lib/format';
   import { refreshPending } from '../../lib/session.svelte';
 
   let { request, access }: { request: PendingPairing; access?: PairingAccess } = $props();
@@ -45,7 +45,7 @@
         {#if request.webrtc}<Badge>WebRTC</Badge>{/if}
       </span>
       <span class="muted age">
-        {#if request.address}From {request.address}, requested{:else}Requested{/if} {duration(request.age_seconds)} ago
+        {#if request.address}From {pairingSource(request.address)}, requested{:else}Requested{/if} {duration(request.age_seconds)} ago
       </span>
     </div>
     <label class="visually-hidden" for="{uid}-pin">PIN shown on {request.name}</label>

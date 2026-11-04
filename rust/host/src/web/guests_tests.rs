@@ -932,11 +932,15 @@ async fn a_play_pairing_request_may_not_carry_its_pin_in_the_name_and_shows_its_
     configure(&f, json!({"webrtc_server": true}));
     let address = serve(&f).await;
     let (mut ws, _) = play_socket(address, "").await;
-    for name in [
-        "Living room TV - PIN 4821",
-        "4821",
-        "TV 4-8-2-1",
-        "TV \u{ff14}\u{ff18}\u{ff12}\u{ff11}",
+    // More refusals than the five requests a minute a device may make: a name to fix uses none.
+    for (name, message) in [
+        ("Living room TV - PIN 4821", "PIN"),
+        ("4821", "PIN"),
+        ("TV 4-8-2-1", "PIN"),
+        ("TV \u{ff14}\u{ff18}\u{ff12}\u{ff11}", "0-9"),
+        ("Xbox, PIN ④⑧②①", "0-9"),
+        ("TV \u{0664}\u{0668}\u{0662}\u{0661}", "0-9"),
+        ("TV \u{1d7d2}\u{1d7d6}\u{1d7d0}\u{1d7cf}", "0-9"),
     ] {
         ws.send(
             json!({"version": 2, "type": "request-pairing", "pin": "4821", "clientName": name}),
@@ -945,7 +949,7 @@ async fn a_play_pairing_request_may_not_carry_its_pin_in_the_name_and_shows_its_
         let refused = ws.expect("error").await;
         assert_eq!(refused["code"], "invalid-message", "{name}");
         assert!(
-            refused["message"].as_str().unwrap().contains("PIN"),
+            refused["message"].as_str().unwrap().contains(message),
             "{refused}"
         );
     }
@@ -968,10 +972,38 @@ async fn a_play_pairing_request_may_not_carry_its_pin_in_the_name_and_shows_its_
     }
     assert_eq!(request["name"], "Living room TV 2024", "{request}");
     assert_eq!(request["address"], "127.0.0.1", "{request}");
+}
+
+#[test]
+fn a_pairing_notice_shows_the_address_apart_from_a_name_that_could_hide_or_fake_it() {
+    let lan = "192.168.4.20".parse().unwrap();
     assert_eq!(
-        crate::state::pairing_notice("Living room TV 2024", "192.168.4.20".parse().unwrap()),
-        "Living room TV 2024 (from 192.168.4.20) wants to pair. Enter the PIN it shows in the Rubylight console."
+        crate::state::pairing_notice("Living room TV 2024", lan),
+        (
+            "Pairing request from 192.168.4.20".into(),
+            "Living room TV 2024 wants to pair. Enter the PIN it shows in the Rubylight console."
+                .into()
+        )
     );
+    // 128 math bold letters are 256 UTF-16 units, more than Windows keeps of a notice's text.
+    let long: String = std::iter::repeat_n('\u{1d400}', 128).collect();
+    butterpollo_core::pairing::validate_device_name(&long).unwrap();
+    let (title, text) = crate::state::pairing_notice(&long, lan);
+    assert_eq!(title, "Pairing request from 192.168.4.20");
+    assert!(text.encode_utf16().count() < 256, "{text}");
+    assert!(text.starts_with(&format!("{}…", "\u{1d400}".repeat(40))));
+    // A name that names an address does not change the one in the title.
+    let (title, text) =
+        crate::state::pairing_notice("Living room TV (from 192.168.4.20)", "::1".parse().unwrap());
+    assert_eq!(title, "Pairing request from this PC (a tunnel or proxy)");
+    assert!(!title.contains("192.168"), "{title}");
+    assert!(text.starts_with("Living room TV (from 192.168.4.20) wants"));
+    // The longest address still fits Windows' 63-unit title.
+    let (title, _) = crate::state::pairing_notice(
+        "TV",
+        "fd12:3456:789a:bcde:f012:3456:789a:bcde".parse().unwrap(),
+    );
+    assert!(title.encode_utf16().count() <= 63, "{title}");
 }
 
 #[tokio::test]

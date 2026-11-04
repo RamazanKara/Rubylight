@@ -372,7 +372,9 @@ final class GlesUpscaler implements AutoCloseable, SurfaceTexture.OnFrameAvailab
                 viewport = UpscalingPolicy.viewport(packing.width, packing.height, surfaceWidth, surfaceHeight, stretch);
             }
             texture.getTransformMatrix(transform);
-            UpscalingPolicy.applyCrop(transform, pictureCrop);
+            // A picture without padding samples SurfaceTexture's transform untouched.
+            float[] crop = pictureCrop;
+            if (crop[0] != 1f || crop[1] != 1f) UpscalingPolicy.applyCrop(transform, crop);
             GLES30.glActiveTexture(GLES30.GL_TEXTURE0);
             GLES30.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, sourceTexture);
             GLES30.glUseProgram(upscaleProgram);

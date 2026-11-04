@@ -53,7 +53,7 @@ cp -a "$deploy/files" "$deploy/metadata" "$work/next/"
 [[ -d $deploy/export ]] && cp -a "$deploy/export" "$work/next/"
 chmod -R u+w "$work/next"
 echo "$first" >"$work/next/files/lib/nightjar/update-check"
-flatpak build-export --quiet "$work/repo" "$work/next" "${ref##*/}" >/dev/null
+flatpak build-export "$work/repo" "$work/next" "${ref##*/}" >/dev/null
 flatpak build-bundle --runtime-repo=https://dl.flathub.org/repo/flathub.flatpakrepo "$work/repo" "$work/next.flatpak" "$app_id" "${ref##*/}"
 echo kept >"$NIGHTJAR_CONFIG_DIR/update-check"
 flatpak install --user -y --noninteractive --reinstall "$work/next.flatpak" >/dev/null

@@ -47,6 +47,7 @@ public class SettingsTiersTest {
     @After
     public void clear() {
         PreferenceManager.getDefaultSharedPreferences(context()).edit().clear().commit();
+        context().getSharedPreferences("SettingsScreenState", Context.MODE_PRIVATE).edit().clear().commit();
     }
 
     /** preferences.xml: each section's keys in order, with the key each row depends on. */
@@ -175,6 +176,60 @@ public class SettingsTiersTest {
                 assertEquals(section + " folds again", folded, visible(fragment));
             }
         }
+    }
+
+    /** nightjar#61: someone who always opens More had to do it on every visit. It stays as they left it, per section. */
+    @Test
+    public void aMoreRowStaysAsTheUserLeftItBetweenVisits() {
+        try (ActivityController<StreamSettings> controller = Robolectric.buildActivity(StreamSettings.class).setup()) {
+            StreamSettings screen = controller.get();
+            StreamSettings.SettingsFragment fragment = openFolded(screen, "audio");
+            click(fragment.findPreference("more_audio"));
+            settle(screen);
+        }
+        try (ActivityController<StreamSettings> controller = Robolectric.buildActivity(StreamSettings.class).setup()) {
+            StreamSettings screen = controller.get();
+            assertEquals("only that section", new HashSet<>(java.util.Collections.singleton("audio")), screen.moreOpen);
+            screen.showSection("audio");
+            settle(screen);
+            StreamSettings.SettingsFragment audio = (StreamSettings.SettingsFragment) shown(screen);
+            assertEquals(screen.getString(R.string.settings_fewer, screen.getString(R.string.settings_section_audio)),
+                    String.valueOf(audio.findPreference("more_audio").getTitle()));
+            assertTrue("its folded rows show", visible(audio).contains(audio.firstUnfolded("audio")));
+
+            // Closing it again is kept too.
+            click(audio.findPreference("more_audio"));
+            settle(screen);
+        }
+        try (ActivityController<StreamSettings> controller = Robolectric.buildActivity(StreamSettings.class).setup()) {
+            assertTrue(controller.get().moreOpen.isEmpty());
+        }
+    }
+
+    /** A search result or link opens the More row for the visit; only the user's own choice stays. */
+    @Test
+    public void aLinkUnfoldingASectionIsNotKept() {
+        android.content.Intent link = StreamSettings.intent(context(), null, foldedKey());
+        try (ActivityController<StreamSettings> controller = Robolectric.buildActivity(StreamSettings.class, link).setup()) {
+            assertFalse(controller.get().moreOpen.isEmpty());
+        }
+        try (ActivityController<StreamSettings> controller = Robolectric.buildActivity(StreamSettings.class).setup()) {
+            assertTrue(controller.get().moreOpen.isEmpty());
+        }
+    }
+
+    /** A row of the Audio section behind its More row. */
+    private static String foldedKey() {
+        try {
+            List<String> rows = new ArrayList<>(sectionKeys(new LinkedHashMap<>()).get("audio"));
+            rows.removeAll(StreamSettings.mainKeys(context(), "audio"));
+            for (String row : rows) {
+                if (StreamSettings.foldsInSection(context(), "audio", row)) return row;
+            }
+        } catch (Exception e) {
+            throw new AssertionError(e);
+        }
+        throw new AssertionError("Audio has no folded row");
     }
 
     @Test

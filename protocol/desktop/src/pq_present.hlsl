@@ -1,10 +1,12 @@
 // The PQ present pass of the patched SDL GPU renderer (vendor/sdl3-src/patches/pq-present.patch):
 // SDL draws the frame in linear light (scRGB, 1.0 = 80 nits, BT.709 primaries) into its RGBA16F
 // back buffer as for an scRGB swapchain, and this pass writes it to an HDR10 swapchain as BT.2020
-// PQ (SMPTE ST 2084). Used where the swapchain offers HDR10 and not scRGB (sdl.rs, handheld.rs).
+// PQ (SMPTE ST 2084). Used under gamescope where the swapchain offers HDR10 and not scRGB (sdl.rs, handheld.rs).
 // Vulkan only, compiled with glslang (dxc is not used here):
 //   glslangValidator -V -D -e vertex -S vert --target-env vulkan1.0 pq_present.hlsl -o pq_present_vertex.spv
 //   glslangValidator -V -D -e fragment -S frag --auto-sampled-textures --target-env vulkan1.0 pq_present.hlsl -o pq_present_fragment.spv
+// The checked-in .spv files are from glslang 15 (Ubuntu 24.04's and Debian 13's glslang-tools);
+// glslang 16 numbers the IDs differently, so the test compares them only with a glslang 15.
 // SDL's fragment sampler slots are t0/s0 in space2.
 
 Texture2D<float4> frame : register(t0, space2);

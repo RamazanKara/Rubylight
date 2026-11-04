@@ -19,15 +19,31 @@ fn the_header_names_one_glslang_command_per_shader() {
     assert_eq!(outputs, ["pq_present_vertex.spv", "pq_present_fragment.spv"]);
 }
 
-/// The checked-in SPIR-V is the HLSL compiled with the header's own commands. Needs
-/// glslangValidator on PATH (Arch `glslang`, Debian/Ubuntu `glslang-tools`); without it the test
-/// says so and passes, as CI has none.
+/// The checked-in SPIR-V is the HLSL compiled with the header's own commands. Needs the
+/// glslangValidator major version the header names on PATH (`glslang-tools` 15); without
+/// it the test says so and passes, as CI has none.
 #[test]
 fn the_spirv_is_the_hlsl_compiled() {
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let hlsl = include_str!("pq_present.hlsl");
+    let pinned = hlsl.lines().find_map(|line| line.split_once("from glslang ").map(|(_, v)| v.split_whitespace().next().unwrap())).expect("the header names the glslang version");
+    let installed = match std::process::Command::new("glslangValidator").arg("--version").output() {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            eprintln!("glslangValidator not found: the SPIR-V is not compared");
+            return;
+        }
+        Err(e) => panic!("glslangValidator: {e}"),
+        Ok(run) => String::from_utf8_lossy(&run.stdout).lines().next().unwrap_or("").trim().to_owned(),
+    };
+    // "Glslang Version: 11:15.1.0": the major version after the colon.
+    let major = installed.rsplit(':').next().and_then(|v| v.split('.').next()).unwrap_or("");
+    if major != pinned {
+        eprintln!("{installed} is not the glslang {pinned} that built the SPIR-V: not compared");
+        return;
+    }
     let out = std::env::temp_dir().join(format!("nightjar-pq-spirv-{}", std::process::id()));
     std::fs::create_dir_all(&out).unwrap();
-    for args in glslang_commands(include_str!("pq_present.hlsl")) {
+    for args in glslang_commands(hlsl) {
         let output = args[args.iter().position(|a| *a == "-o").unwrap() + 1];
         let args: Vec<std::ffi::OsString> = args
             .iter()
@@ -37,14 +53,8 @@ fn the_spirv_is_the_hlsl_compiled() {
                 a => a.into(),
             })
             .collect();
-        match std::process::Command::new("glslangValidator").args(&args).output() {
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                eprintln!("glslangValidator not found: the SPIR-V is not compared");
-                return;
-            }
-            Err(e) => panic!("glslangValidator: {e}"),
-            Ok(run) => assert!(run.status.success(), "glslangValidator {args:?}: {}", String::from_utf8_lossy(&run.stdout)),
-        }
+        let run = std::process::Command::new("glslangValidator").args(&args).output().expect("glslangValidator");
+        assert!(run.status.success(), "glslangValidator {args:?}: {}", String::from_utf8_lossy(&run.stdout));
         let built = std::fs::read(out.join(output)).unwrap();
         let checked_in = match output {
             "pq_present_vertex.spv" => PQ_VERTEX_SPIRV,

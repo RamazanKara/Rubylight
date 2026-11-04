@@ -44,6 +44,11 @@
     <string name="host_update_back">主機現在執行版本 %1$s。</string>
     <string name="host_update_failed_title">無法更新 %1$s</string>
     <string name="host_update_timeout">電腦未能及時以版本 %1$s 恢復。</string>
+    <string name="host_restart_refused_title">無法重新啟動 %1$s</string>
+    <string name="host_shutdown_refused_title">無法關閉 %1$s</string>
+    <string name="host_update_waiting">%1$s 該串流結束後即開始更新。</string>
+    <string name="host_update_failed">PC 上的更新失敗。</string>
+    <string name="host_update_old_version">PC 以版本 %1$s 回來；更新未安裝。</string>
     <string name="settings_category_accessibility">無障礙</string>
     <string name="title_ui_scale">介面大小</string>
     <string name="summary_ui_scale">縮放應用程式的選單、清單和對話方塊。串流不會縮放。系統字型大小仍會疊加生效。立即生效。</string>

@@ -47,6 +47,11 @@
     <string name="host_update_back">The host now runs version %1$s.</string>
     <string name="host_update_failed_title">Couldn’t update %1$s</string>
     <string name="host_update_timeout">The PC didn’t come back with version %1$s in time.</string>
+    <string name="host_restart_refused_title">Couldn’t restart %1$s</string>
+    <string name="host_shutdown_refused_title">Couldn’t shut down %1$s</string>
+    <string name="host_update_waiting">%1$s The update starts once that stream ends.</string>
+    <string name="host_update_failed">The update failed on the PC.</string>
+    <string name="host_update_old_version">The PC came back on version %1$s; the update didn’t install.</string>
     <!-- Accessibility: interface size, high contrast and reduced motion. -->
     <string name="settings_category_accessibility">Accessibility</string>
     <string name="title_ui_scale">Interface size</string>

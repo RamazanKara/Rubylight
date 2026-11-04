@@ -193,6 +193,26 @@ fn capabilities_with_files(result: Result<NativeCapabilities, Error>) -> String 
     }))
 }
 
+/// The update with what the shared rules make of it, so Java decides as desktop does: `offered`
+/// (the version to install, or null), `installing_now` (no Install now to offer), `in_progress`,
+/// `failed` with `failure` (the updater's words, or null), and while following an install to
+/// `target`, `gave_up`.
+fn update_json(result: Result<HostUpdate, Error>, target: &str) -> String {
+    ok(result.and_then(|update| {
+        let mut value = serde_json::to_value(&update)
+            .map_err(|e| Error::Malformed(format!("native API reply: {e}")))?;
+        value["offered"] = json!(update.offered());
+        value["installing_now"] = json!(update.installing_now());
+        value["in_progress"] = json!(update.in_progress());
+        value["failed"] = json!(update.failure().is_some());
+        value["failure"] = json!(update.failure().flatten());
+        if !target.is_empty() {
+            value["gave_up"] = json!(update.gave_up(target));
+        }
+        Ok(value)
+    }))
+}
+
 fn argument_error(message: String) -> String {
     error_envelope(&Error::InvalidArgument(message))
 }
@@ -247,7 +267,8 @@ fn power(result: Result<PowerReply, PowerError>) -> String {
 /// `SettingsWrite` JSON), `radeon_restore`, `wake`, `power.capabilities` and `power.sleep`
 /// (argument: the token from `power.capabilities`), `pc_power`, `pc_power.restart` and
 /// `pc_power.shutdown` (argument: the token from `pc_power`; `{}` once the PC took it), `update`
-/// and `update.install`, `coop` and `coop.join` (argument: the session id), `audio` and
+/// (argument: the version an install follows, or empty) and `update.install` (both as
+/// [`update_json`]), `coop` and `coop.join` (argument: the session id), `audio` and
 /// `audio_write` (argument: the `AudioWrite` JSON). Gate Sleep on `Feature::Sleep`, Restart and
 /// Shut down on the capabilities' `power.restart` and `power.shutdown`, the update ones on
 /// `update`, the co-op ones on `Feature::Coop` and the audio ones on the capabilities'
@@ -291,8 +312,8 @@ pub fn execute(host: &dyn Host, op: &str, argument: &str) -> String {
             };
             ok(host.power_pc(action, argument).map(|()| json!({})))
         }
-        "update" => ok(host.host_update()),
-        "update.install" => ok(host.install_host_update()),
+        "update" => update_json(host.host_update(), argument),
+        "update.install" => update_json(host.install_host_update(), ""),
         "wake" => ok(host.wake()),
         "coop" => ok(host.coop()),
         "coop.join" => match argument.trim().parse::<u32>() {
@@ -875,9 +896,22 @@ mod tests {
         assert_eq!(error["message"], "Living room TV is streaming from this PC.");
         let update = parse(&execute(&fake, "update", ""));
         assert_eq!(update["ok"]["latest_version"], "v3.4.0");
+        // The shared rules' verdicts ride along, so Java decides as desktop does.
         assert_eq!(
-            parse(&execute(&fake, "update.install", ""))["ok"]["phase"],
-            "downloading"
+            (&update["ok"]["offered"], &update["ok"]["installing_now"]),
+            (&json!("3.4.0"), &json!(false))
+        );
+        assert_eq!(
+            (&update["ok"]["failed"], &update["ok"]["failure"]),
+            (&json!(false), &Value::Null)
+        );
+        assert!(update["ok"].get("gave_up").is_none());
+        let following = parse(&execute(&fake, "update", "3.4.0"));
+        assert_eq!(following["ok"]["gave_up"], true);
+        let install = parse(&execute(&fake, "update.install", ""));
+        assert_eq!(
+            (&install["ok"]["phase"], &install["ok"]["in_progress"]),
+            (&json!("downloading"), &json!(true))
         );
         assert_eq!(
             fake.calls.lock().unwrap().clone(),
@@ -886,6 +920,7 @@ mod tests {
                 format!("power/restart {TOKEN}"),
                 format!("power/shutdown {TOKEN}"),
                 "power/shutdown spent".to_owned(),
+                "update".to_owned(),
                 "update".to_owned(),
                 "update install".to_owned(),
             ]

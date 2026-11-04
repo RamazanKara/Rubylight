@@ -38,6 +38,8 @@ public final class NativePcPower {
         public final String token;
         /** A wired wake target is ready; without it a PC that is off may not wake again. */
         public final boolean wakeFromOff;
+        /** Why this device's last accepted request did not go ahead after all, in the host's words; or null. */
+        public final String lastRefusal;
 
         Offer(JSONObject json) {
             JSONObject restart = json.optJSONObject("restart");
@@ -48,6 +50,8 @@ public final class NativePcPower {
             shutdownReason = text(shutdown, "reason");
             token = text(json, "token");
             wakeFromOff = json.optBoolean("wake_from_off");
+            String refusal = text(json, "last_refusal");
+            lastRefusal = refusal == null || refusal.isEmpty() ? null : refusal;
         }
 
         /** The token to confirm {@code action} with; null when the host says it can't run now. */
@@ -62,7 +66,10 @@ public final class NativePcPower {
         }
     }
 
-    /** GET /update, and the answer of an accepted POST /update/install. */
+    /**
+     * GET /update, and the answer of an accepted POST /update/install, with what pc_power.rs's rules make of it
+     * (native_api.rs's update_json): Java reads the verdicts and never decides them itself.
+     */
     public static final class Update {
         public final String currentVersion;
         /** Null when the host knows of none. */
@@ -70,21 +77,55 @@ public final class NativePcPower {
         /** idle, waiting, downloading, ready, installing, or a newer host's phase. */
         public final String phase;
         public final boolean installSupported;
+        /** Why the install waits for another device's stream, in the host's words; null when it does not. */
+        public final String waitingFor;
+        /** The updater's last error, null when it gave none. */
+        public final String error;
+        /** The version to install, without a leading v, or null. */
+        private final String offered;
+        /** It installs, or is queued as an Install now already: nothing to offer again. */
+        public final boolean installingNow;
+        /** An update is queued, downloading or installing. */
+        public final boolean inProgress;
+        /** The updater failed; {@link #failure} is its words, or null. */
+        public final boolean failed;
+        public final String failure;
+        /** Read while following an install: the PC is back on another version with nothing under way. */
+        public final boolean gaveUp;
 
         Update(JSONObject json) {
-            currentVersion = json.optString("current_version", "");
-            latestVersion = text(json, "latest_version");
-            phase = json.optString("phase", "");
-            installSupported = json.optBoolean("install_supported");
+            this(json.optString("current_version", ""), text(json, "latest_version"), json.optString("phase", ""),
+                    json.optBoolean("install_supported"), text(json, "waiting_for"), text(json, "error"),
+                    text(json, "offered"), json.optBoolean("installing_now"), json.optBoolean("in_progress"),
+                    json.optBoolean("failed"), text(json, "failure"), json.optBoolean("gave_up"));
+        }
+
+        private Update(String currentVersion, String latestVersion, String phase, boolean installSupported,
+                       String waitingFor, String error, String offered, boolean installingNow, boolean inProgress,
+                       boolean failed, String failure, boolean gaveUp) {
+            this.currentVersion = currentVersion;
+            this.latestVersion = latestVersion;
+            this.phase = phase;
+            this.installSupported = installSupported;
+            this.waitingFor = waitingFor;
+            this.error = error;
+            this.offered = offered;
+            this.installingNow = installingNow;
+            this.inProgress = inProgress;
+            this.failed = failed;
+            this.failure = failure;
+            this.gaveUp = gaveUp;
         }
 
         /** The version to offer, without a leading v, when there is one to install; otherwise null. */
         public String offered() {
-            if (latestVersion == null || !installSupported) {
-                return null;
-            }
-            String latest = bare(latestVersion);
-            return latest.isEmpty() || latest.equals(bare(currentVersion)) ? null : latest;
+            return offered;
+        }
+
+        /** As desktop after a tap: under way, so the menu offers no second install until the next read says. */
+        Update installing() {
+            return new Update(currentVersion, latestVersion, "installing", installSupported, waitingFor, error,
+                    offered, true, true, failed, failure, gaveUp);
         }
     }
 

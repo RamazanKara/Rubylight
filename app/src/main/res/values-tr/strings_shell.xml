@@ -44,6 +44,11 @@
     <string name="host_update_back">Sunucu artık %1$s sürümünü çalıştırıyor.</string>
     <string name="host_update_failed_title">%1$s güncellenemedi</string>
     <string name="host_update_timeout">PC zamanında %1$s sürümüyle geri gelmedi.</string>
+    <string name="host_restart_refused_title">%1$s yeniden başlatılamadı</string>
+    <string name="host_shutdown_refused_title">%1$s kapatılamadı</string>
+    <string name="host_update_waiting">%1$s Güncelleme, o yayın bitince başlar.</string>
+    <string name="host_update_failed">Güncelleme PC’de başarısız oldu.</string>
+    <string name="host_update_old_version">PC %1$s sürümüyle geri döndü; güncelleme yüklenmedi.</string>
     <string name="settings_category_accessibility">Erişilebilirlik</string>
     <string name="title_ui_scale">Arayüz boyutu</string>
     <string name="summary_ui_scale">Uygulamanın menülerini, listelerini ve iletişim kutularını ölçekler. Yayın ölçeklenmez. Sistem yazı tipi boyutu ayrıca uygulanmaya devam eder. Hemen etkili olur.</string>

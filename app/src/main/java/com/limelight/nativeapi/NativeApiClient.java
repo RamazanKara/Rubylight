@@ -205,8 +205,16 @@ public final class NativeApiClient {
 
     /** The host's version, its pending update and the updater's phase (GET /update). Only with feature update. */
     public NativePcPower.Update hostUpdate() throws NativeApiException {
+        return hostUpdate("");
+    }
+
+    /**
+     * {@link #hostUpdate()} while following an install to {@code target}: the answer also says whether setup gave up
+     * ({@link NativePcPower.Update#gaveUp}).
+     */
+    public NativePcPower.Update hostUpdate(String target) throws NativeApiException {
         try {
-            NativePcPower.Update update = NativePcPower.parseUpdate(call("update", ""));
+            NativePcPower.Update update = NativePcPower.parseUpdate(call("update", target));
             KnownUpdates.record(host.hostUuid, update);
             return update;
         } catch (JSONException e) {
@@ -220,7 +228,9 @@ public final class NativeApiClient {
      */
     public NativePcPower.Update installHostUpdate() throws NativeApiException {
         try {
-            return NativePcPower.parseUpdate(call("update.install", ""));
+            NativePcPower.Update update = NativePcPower.parseUpdate(call("update.install", ""));
+            KnownUpdates.installing(host.hostUuid, update);
+            return update;
         } catch (JSONException e) {
             throw malformed("update", e);
         }

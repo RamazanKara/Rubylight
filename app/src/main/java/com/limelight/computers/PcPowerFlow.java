@@ -10,10 +10,15 @@ import java.util.function.LongSupplier;
 
 /**
  * Restart PC or Shut down PC, as {@link SleepFlow}: ask the host (GET /power) for a token, let the person confirm,
- * ask again when the token is {@link SleepFlow#TOKEN_REFRESH_MS} old or older, then spend it once. Host calls run on
- * {@code worker} and every outcome reaches {@link Ui} on {@code main}; none is dropped.
+ * ask again when the token is {@link SleepFlow#TOKEN_REFRESH_MS} old or older, then spend it once. Once the PC took
+ * it, Windows may still refuse: as desktop, GET /power every {@link #REFUSAL_POLL_MS} up to {@link #REFUSAL_READS}
+ * times says so in last_refusal; a read that fails means the PC is going down. Host calls run on {@code worker} and
+ * every outcome reaches {@link Ui} on {@code main}; none is dropped.
  */
 final class PcPowerFlow {
+    static final long REFUSAL_POLL_MS = 2_000;
+    static final int REFUSAL_READS = 10;
+
     interface Ui {
         /**
          * The host offered a token: ask the person and run {@code go} on yes; it acts only the first time.
@@ -32,6 +37,9 @@ final class PcPowerFlow {
 
         /** The host could not be asked or its answer was unreadable. */
         void failed(NativeApiException error);
+
+        /** The PC took the request but did not go ahead after all: the host's words. */
+        void refusedLater(String refusal);
     }
 
     private final NativePcPower.Action action;
@@ -40,15 +48,17 @@ final class PcPowerFlow {
     private final Executor worker;
     private final Executor main;
     private final LongSupplier clockMs;
+    private final HostUpdateFlow.Sleeper sleeper;
 
     PcPowerFlow(NativePcPower.Action action, SleepFlow.Client client, Ui ui, Executor worker, Executor main,
-                LongSupplier clockMs) {
+                LongSupplier clockMs, HostUpdateFlow.Sleeper sleeper) {
         this.action = action;
         this.client = client;
         this.ui = ui;
         this.worker = worker;
         this.main = main;
         this.clockMs = clockMs;
+        this.sleeper = sleeper;
     }
 
     void start() {
@@ -94,6 +104,27 @@ final class PcPowerFlow {
             main.execute(ui::accepted);
         } catch (NativeApiException e) {
             main.execute(() -> fail(e));
+            return;
+        }
+        watchForRefusal(api);
+    }
+
+    private void watchForRefusal(NativeApiClient api) {
+        for (int read = 0; read < REFUSAL_READS; read++) {
+            try {
+                sleeper.sleep(REFUSAL_POLL_MS);
+                String refusal = api.pcPower().lastRefusal;
+                if (refusal != null) {
+                    main.execute(() -> ui.refusedLater(refusal));
+                    return;
+                }
+            } catch (NativeApiException e) {
+                // Going down.
+                return;
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return;
+            }
         }
     }
 

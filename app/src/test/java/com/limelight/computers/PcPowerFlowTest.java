@@ -55,12 +55,25 @@ public class PcPowerFlowTest {
     private final AtomicLong clock = new AtomicLong(1_000_000);
 
     private static String offer(String token, String reason, boolean wakeFromOff) {
+        return offer(token, reason, wakeFromOff, null);
+    }
+
+    private static String offer(String token, String reason, boolean wakeFromOff, String lastRefusal) {
         String availability = "{\"available\":" + (token != null) + ",\"reason\":"
                 + (reason == null ? "null" : "\"" + reason + "\"") + "}";
         return "{\"ok\":{\"restart\":" + availability + ",\"shutdown\":" + availability + ",\"token\":"
                 + (token == null ? "null" : "\"" + token + "\"") + ",\"token_lifetime_s\":30,\"wake_from_off\":"
-                + wakeFromOff + ",\"last_refusal\":null}}";
+                + wakeFromOff + ",\"last_refusal\":" + (lastRefusal == null ? "null" : "\"" + lastRefusal + "\"")
+                + "}}";
     }
+
+    /** GET /power after the PC took the request, with Windows' late refusal. */
+    private static String refusedAfter(String refusal) {
+        return offer(null, STREAMING, true, refusal);
+    }
+
+    private static final String WINDOWS_REFUSED =
+            "Windows refused to restart the PC: Access is denied. (exit code 5)";
 
     private static final String ACCEPTED = "{\"ok\":{}}";
 
@@ -72,8 +85,25 @@ public class PcPowerFlowTest {
     private static final String UNREACHABLE = "{\"error\":{\"kind\":\"network\",\"message\":\"connection refused\"}}";
 
     private static String update(String phase) {
-        return "{\"ok\":{\"current_version\":\"3.3.0\",\"latest_version\":\"v3.4.0\",\"phase\":\"" + phase
-                + "\",\"install_supported\":true,\"error\":null}}";
+        return update(phase, "3.4.0", null, null, false);
+    }
+
+    /**
+     * An update op's envelope, with the verdicts native_api.rs's update_json adds from pc_power.rs: {@code failure}
+     * set means phase failed with those words ("" for none).
+     */
+    private static String update(String phase, String offered, String waitingFor, String failure, boolean gaveUp) {
+        boolean failed = failure != null;
+        String words = failure == null || failure.isEmpty() ? null : failure;
+        return "{\"ok\":{\"current_version\":\"3.3.0\",\"latest_version\":\"v3.4.0\",\"phase\":\""
+                + (failed ? "failed" : phase) + "\",\"install_supported\":true,\"error\":" + quoted(words)
+                + ",\"waiting_for\":" + quoted(waitingFor) + ",\"install_now\":true,\"offered\":" + quoted(offered)
+                + ",\"installing_now\":" + !phase.equals("idle") + ",\"in_progress\":" + !phase.equals("idle")
+                + ",\"failed\":" + failed + ",\"failure\":" + quoted(words) + ",\"gave_up\":" + gaveUp + "}}";
+    }
+
+    private static String quoted(String text) {
+        return text == null ? "null" : "\"" + text + "\"";
     }
 
     private void script(String op, String... envelopes) {
@@ -122,11 +152,18 @@ public class PcPowerFlowTest {
             events.add("failed");
             failure = error;
         }
+
+        @Override public void refusedLater(String refusal) {
+            events.add("refused later");
+            said = refusal;
+        }
     }
+
+    private final List<Long> slept = new ArrayList<>();
 
     private PcPowerFlow flow(NativePcPower.Action action, Recorder ui) {
         NativeApiClient api = client();
-        return new PcPowerFlow(action, () -> api, ui, Runnable::run, Runnable::run, clock::get);
+        return new PcPowerFlow(action, () -> api, ui, Runnable::run, Runnable::run, clock::get, slept::add);
     }
 
     @Before
@@ -136,7 +173,8 @@ public class PcPowerFlowTest {
 
     @Test
     public void eachActionAsksForATokenAndSpendsItOnce() {
-        script("pc_power", offer(TOKEN_A, null, true), offer(TOKEN_B, null, true));
+        // After each 202 the PC goes down: the refusal check's read fails.
+        script("pc_power", offer(TOKEN_A, null, true), UNREACHABLE, offer(TOKEN_B, null, true), UNREACHABLE);
         script("pc_power.restart", ACCEPTED);
         script("pc_power.shutdown", ACCEPTED);
         Recorder restart = new Recorder();
@@ -150,19 +188,47 @@ public class PcPowerFlowTest {
         Recorder shutdown = new Recorder();
         flow(NativePcPower.Action.SHUT_DOWN, shutdown).start();
         shutdown.go.run();
-        assertEquals(List.of("pc_power", "pc_power.restart " + TOKEN_A, "pc_power", "pc_power.shutdown " + TOKEN_B),
-                calls);
+        assertEquals(List.of("pc_power", "pc_power.restart " + TOKEN_A, "pc_power", "pc_power", "pc_power.shutdown "
+                + TOKEN_B, "pc_power"), calls);
+        assertEquals("Going down: nothing more to say", List.of("confirm", "accepted"), shutdown.events);
+    }
+
+    @Test
+    public void aRefusalAfterThePcTookTheRequestIsShownAndAFailedReadStaysQuiet() {
+        // Windows refused once the answer had left: the second read says so.
+        script("pc_power", offer(TOKEN_A, null, true), refusedAfter(null), refusedAfter(WINDOWS_REFUSED));
+        script("pc_power.restart", ACCEPTED);
+        Recorder refused = new Recorder();
+        flow(NativePcPower.Action.RESTART, refused).start();
+        refused.go.run();
+        assertEquals(List.of("confirm", "accepted", "refused later"), refused.events);
+        assertEquals(WINDOWS_REFUSED, refused.said);
+        assertEquals(List.of(PcPowerFlow.REFUSAL_POLL_MS, PcPowerFlow.REFUSAL_POLL_MS), slept);
+
+        // The PC never says within the reads: about 20 s, then nothing.
+        calls.clear();
+        script("pc_power", offer(TOKEN_B, null, true));
+        for (int i = 0; i < PcPowerFlow.REFUSAL_READS; i++) {
+            script("pc_power", refusedAfter(null));
+        }
+        script("pc_power.shutdown", ACCEPTED);
+        Recorder quiet = new Recorder();
+        flow(NativePcPower.Action.SHUT_DOWN, quiet).start();
+        quiet.go.run();
+        assertEquals(List.of("confirm", "accepted"), quiet.events);
+        assertEquals(2 + PcPowerFlow.REFUSAL_READS, calls.size());
+        assertEquals(20_000, PcPowerFlow.REFUSAL_POLL_MS * PcPowerFlow.REFUSAL_READS);
     }
 
     @Test
     public void aTokenOf25SecondsOrOlderIsFetchedAgainBeforeItIsSpent() {
-        script("pc_power", offer(TOKEN_A, null, true), offer(TOKEN_B, null, true));
+        script("pc_power", offer(TOKEN_A, null, true), offer(TOKEN_B, null, true), UNREACHABLE);
         script("pc_power.shutdown", ACCEPTED);
         Recorder ui = new Recorder();
         flow(NativePcPower.Action.SHUT_DOWN, ui).start();
         clock.addAndGet(SleepFlow.TOKEN_REFRESH_MS);
         ui.go.run();
-        assertEquals(List.of("pc_power", "pc_power", "pc_power.shutdown " + TOKEN_B), calls);
+        assertEquals(List.of("pc_power", "pc_power", "pc_power.shutdown " + TOKEN_B, "pc_power"), calls);
         assertEquals(List.of("confirm", "accepted"), ui.events);
 
         // A refresh that finds the PC busy now stops before the request.
@@ -243,10 +309,10 @@ public class PcPowerFlowTest {
             ToolbarIconTintTest.Screen screen = controller.get();
             HostActions actions = new HostActions(screen, CALLBACKS);
             NativeApiClient api = client();
-            script("pc_power", offer(TOKEN_A, null, true));
+            script("pc_power", offer(TOKEN_A, null, true), UNREACHABLE);
             script("pc_power.restart", ACCEPTED);
             ArrayDeque<Runnable> worker = new ArrayDeque<>();
-            actions.startPcPower(office(), NativePcPower.Action.RESTART, () -> api, worker::add);
+            actions.startPcPower(office(), NativePcPower.Action.RESTART, () -> api, worker::add, slept::add);
             AlertDialog asking = latestDialog();
             assertEquals(screen.getString(R.string.host_sleep_asking), message(asking));
             worker.poll().run();
@@ -260,8 +326,26 @@ public class PcPowerFlowTest {
             assertEquals(screen.getString(R.string.host_sleep_asking), message(latestDialog()));
             worker.poll().run();
             Shadows.shadowOf(Looper.getMainLooper()).idle();
-            assertEquals(List.of("pc_power", "pc_power.restart " + TOKEN_A), calls);
+            assertEquals(List.of("pc_power", "pc_power.restart " + TOKEN_A, "pc_power"), calls);
             assertEquals(screen.getString(R.string.host_restart_accepted, "Office"), ShadowToast.getTextOfLatestToast());
+        }
+    }
+
+    @Test
+    public void theScreenShowsWindowsRefusalThatCameAfterTheAnswer() {
+        try (ActivityController<ToolbarIconTintTest.Screen> controller = screen()) {
+            ToolbarIconTintTest.Screen screen = controller.get();
+            HostActions actions = new HostActions(screen, CALLBACKS);
+            NativeApiClient api = client();
+            String refusal = "Windows refused to shut down the PC: Access is denied. (exit code 5)";
+            script("pc_power", offer(TOKEN_A, null, true), refusedAfter(refusal));
+            script("pc_power.shutdown", ACCEPTED);
+            actions.startPcPower(office(), NativePcPower.Action.SHUT_DOWN, () -> api, Runnable::run, slept::add);
+            latestDialog().getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+            AlertDialog shown = latestDialog();
+            assertEquals(refusal, message(shown));
+            assertEquals(screen.getString(R.string.host_shutdown_refused_title, "Office"),
+                    ((TextView) shown.findViewById(androidx.appcompat.R.id.alertTitle)).getText().toString());
         }
     }
 
@@ -313,31 +397,41 @@ public class PcPowerFlowTest {
         }
     }
 
+
     // Update the PC's host
 
     private static final class UpdateRecorder implements HostUpdateFlow.Ui {
         final List<String> events = new ArrayList<>();
 
         @Override public void started(String version) { events.add("started " + version); }
+        @Override public void waiting(String reason) { events.add("waiting " + reason); }
         @Override public void back(String version) { events.add("back " + version); }
         @Override public void timedOut(String version) { events.add("timeout " + version); }
+        @Override public void nothingToInstall() { events.add("nothing to install"); }
+        @Override public void updateFailed(String error) { events.add("failed on the PC " + error); }
+        @Override public void cameBackOn(String version, String error) { events.add("back on " + version + " " + error); }
         @Override public void refused(String message) { events.add("refused " + message); }
         @Override public void failed(NativeApiException error) { events.add("failed " + error.getKind()); }
+    }
+
+    private static final HostUpdateFlow.Probe NO_ANSWER = () -> null;
+    private static final long POLLS = HostUpdateFlow.WAIT_MS / HostUpdateFlow.POLL_MS;
+
+    private UpdateRecorder follow(HostUpdateFlow.Probe probe) {
+        NativeApiClient api = client();
+        UpdateRecorder ui = new UpdateRecorder();
+        new HostUpdateFlow(() -> api, probe, ui, Runnable::run, Runnable::run, slept::add).start();
+        return ui;
     }
 
     @Test
     public void anUpdateWaitsUntilServerinfoAnswersWithTheNewVersion() {
         script("update.install", update("downloading"));
-        NativeApiClient api = client();
+        script("update", update("downloading"), UNREACHABLE, UNREACHABLE);
         java.util.LinkedList<String> versions = new java.util.LinkedList<>(Arrays.asList("3.3.0", null, null, "3.4.0"));
-        UpdateRecorder ui = new UpdateRecorder();
-        List<Long> slept = new ArrayList<>();
-        new HostUpdateFlow(() -> api, versions::poll, ui, Runnable::run, Runnable::run, clock::get, ms -> {
-            slept.add(ms);
-            clock.addAndGet(ms);
-        }).start("3.4.0");
+        UpdateRecorder ui = follow(versions::poll);
         assertEquals(List.of("started 3.4.0", "back 3.4.0"), ui.events);
-        assertEquals(List.of("update.install"), calls);
+        assertEquals(List.of("update.install", "update 3.4.0", "update 3.4.0", "update 3.4.0"), calls);
         assertEquals(4, slept.size());
         assertEquals(HostUpdateFlow.POLL_MS, (long) slept.get(0));
     }
@@ -345,17 +439,61 @@ public class PcPowerFlowTest {
     @Test
     public void anUpdateThatNeverArrivesTimesOutAndARefusalShowsTheHostsWords() {
         script("update.install", update("downloading"), api(409, "host_in_use", STREAMING));
-        NativeApiClient api = client();
-        UpdateRecorder ui = new UpdateRecorder();
-        new HostUpdateFlow(() -> api, () -> "3.3.0", ui, Runnable::run, Runnable::run, clock::get,
-                clock::addAndGet).start("3.4.0");
+        for (long i = 0; i < POLLS; i++) {
+            script("update", update("installing"));
+        }
+        UpdateRecorder ui = follow(() -> "3.3.0");
         assertEquals(List.of("started 3.4.0", "timeout 3.4.0"), ui.events);
+        assertEquals(POLLS, slept.size());
 
-        UpdateRecorder refused = new UpdateRecorder();
-        new HostUpdateFlow(() -> api, () -> {
+        UpdateRecorder refused = follow(() -> {
             throw new AssertionError("No wait after a refusal");
-        }, refused, Runnable::run, Runnable::run, clock::get, clock::addAndGet).start("3.4.0");
+        });
         assertEquals(List.of("refused " + STREAMING), refused.events);
+    }
+
+    @Test
+    public void anInstallThatOffersNoVersionEndsAtOnce() {
+        script("update.install", update("idle", null, null, null, false));
+        UpdateRecorder ui = follow(() -> {
+            throw new AssertionError("No wait for a version that isn't coming");
+        });
+        assertEquals(List.of("nothing to install"), ui.events);
+        assertTrue(slept.isEmpty());
+    }
+
+    @Test
+    public void theUpdatersFailureEndsTheWaitInItsWords() {
+        script("update.install", update("downloading"), update("downloading"));
+        script("update", update("downloading"), update("downloading", "3.4.0", null, "Installer verification failed", false),
+                update("downloading", "3.4.0", null, "", false));
+        UpdateRecorder ui = follow(NO_ANSWER);
+        assertEquals(List.of("started 3.4.0", "failed on the PC Installer verification failed"), ui.events);
+        UpdateRecorder unsaid = follow(NO_ANSWER);
+        assertEquals(List.of("started 3.4.0", "failed on the PC null"), unsaid.events);
+    }
+
+    @Test
+    public void aPcBackOnTheOldVersionWithNothingUnderWayEndsTheWait() {
+        script("update.install", update("downloading"));
+        // Only after it went away: before that, idle and on 3.3.0 is how the install starts.
+        script("update", update("installing", "3.4.0", null, null, false), UNREACHABLE,
+                update("idle", "3.4.0", null, null, true));
+        UpdateRecorder ui = follow(NO_ANSWER);
+        assertEquals(List.of("started 3.4.0", "back on 3.3.0 null"), ui.events);
+        assertEquals(3, slept.size());
+    }
+
+    @Test
+    public void aWaitForAnotherDevicesStreamIsSaidOnceAndDoesNotCountAgainstTheTimeout() {
+        script("update.install", update("ready"));
+        long waits = POLLS + 20;
+        for (long i = 0; i < waits; i++) {
+            script("update", update("ready", "3.4.0", STREAMING, null, false));
+        }
+        AtomicLong asked = new AtomicLong();
+        UpdateRecorder ui = follow(() -> asked.incrementAndGet() > waits ? "3.4.0" : "3.3.0");
+        assertEquals(List.of("started 3.4.0", "waiting " + STREAMING, "back 3.4.0"), ui.events);
     }
 
     @Test
@@ -363,7 +501,7 @@ public class PcPowerFlowTest {
         try (ActivityController<ToolbarIconTintTest.Screen> controller = screen()) {
             ToolbarIconTintTest.Screen screen = controller.get();
             HostActions actions = new HostActions(screen, CALLBACKS);
-            script("update", update("idle"));
+            script("update", update("idle"), UNREACHABLE);
             script("update.install", update("downloading"));
             NativeApiClient api = client();
             api.hostUpdate();
@@ -379,7 +517,7 @@ public class PcPowerFlowTest {
 
             ArrayDeque<Runnable> worker = new ArrayDeque<>();
             java.util.LinkedList<String> versions = new java.util.LinkedList<>(Arrays.asList(null, "3.4.0"));
-            actions.startUpdate(office(), "3.4.0", () -> api, versions::poll, worker::add, clock::addAndGet);
+            actions.startUpdate(office(), () -> api, versions::poll, worker::add, clock::addAndGet);
             assertEquals(screen.getString(R.string.host_sleep_asking), message(latestDialog()));
             worker.poll().run();
             AlertDialog back = latestDialog();
@@ -387,8 +525,31 @@ public class PcPowerFlowTest {
             assertNull("The host's earlier answer is out of date", KnownUpdates.offered("pc"));
 
             // The progress in between, on its own.
-            actions.updateUi(office(), new HostActions.Route(screen, "test")).started("3.4.0");
+            HostUpdateFlow.Ui ui = actions.updateUi(office(), new HostActions.Route(screen, "test"));
+            ui.started("3.4.0");
             assertEquals(screen.getString(R.string.host_update_started, "3.4.0"), message(latestDialog()));
+            ui.waiting(STREAMING);
+            assertEquals(STREAMING + " The update starts once that stream ends.", message(latestDialog()));
+        }
+    }
+
+    @Test
+    public void theScreenSaysWhyTheUpdateEnded() {
+        try (ActivityController<ToolbarIconTintTest.Screen> controller = screen()) {
+            ToolbarIconTintTest.Screen screen = controller.get();
+            HostActions actions = new HostActions(screen, CALLBACKS);
+            HostUpdateFlow.Ui ui = actions.updateUi(office(), new HostActions.Route(screen, "test"));
+            ui.nothingToInstall();
+            assertEquals(screen.getString(R.string.host_update_none), message(latestDialog()));
+            ui.updateFailed("Installer verification failed");
+            assertEquals("Installer verification failed", message(latestDialog()));
+            ui.updateFailed(null);
+            assertEquals(screen.getString(R.string.host_update_failed), message(latestDialog()));
+            ui.cameBackOn("3.3.0", null);
+            assertEquals(screen.getString(R.string.host_update_old_version, "3.3.0"), message(latestDialog()));
+            ui.cameBackOn("3.3.0", "Setup exited with code 1603.");
+            assertEquals(screen.getString(R.string.host_update_old_version, "3.3.0") + " Setup exited with code 1603.",
+                    message(latestDialog()));
         }
     }
 }

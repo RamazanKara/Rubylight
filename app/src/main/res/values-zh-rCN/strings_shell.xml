@@ -44,6 +44,11 @@
     <string name="host_update_back">主机现在运行版本 %1$s。</string>
     <string name="host_update_failed_title">无法更新 %1$s</string>
     <string name="host_update_timeout">电脑未能及时以版本 %1$s 恢复。</string>
+    <string name="host_restart_refused_title">无法重启 %1$s</string>
+    <string name="host_shutdown_refused_title">无法关闭 %1$s</string>
+    <string name="host_update_waiting">%1$s 该串流结束后即开始更新。</string>
+    <string name="host_update_failed">PC 上的更新失败。</string>
+    <string name="host_update_old_version">PC 以版本 %1$s 恢复；更新未安装。</string>
     <string name="settings_category_accessibility">无障碍</string>
     <string name="title_ui_scale">界面大小</string>
     <string name="summary_ui_scale">缩放应用的菜单、列表和对话框。视频流不会缩放。系统字体大小仍会叠加生效。立即生效。</string>

@@ -44,6 +44,11 @@
     <string name="host_update_back">Máy chủ hiện chạy phiên bản %1$s.</string>
     <string name="host_update_failed_title">Không thể cập nhật %1$s</string>
     <string name="host_update_timeout">PC không quay lại với phiên bản %1$s kịp thời.</string>
+    <string name="host_restart_refused_title">Không thể khởi động lại %1$s</string>
+    <string name="host_shutdown_refused_title">Không thể tắt %1$s</string>
+    <string name="host_update_waiting">%1$s Bản cập nhật bắt đầu khi luồng đó kết thúc.</string>
+    <string name="host_update_failed">Cập nhật trên PC thất bại.</string>
+    <string name="host_update_old_version">PC đã quay lại với phiên bản %1$s; bản cập nhật chưa được cài.</string>
     <string name="settings_category_accessibility">Trợ năng</string>
     <string name="title_ui_scale">Kích thước giao diện</string>
     <string name="summary_ui_scale">Phóng to hoặc thu nhỏ menu, danh sách và hộp thoại của ứng dụng. Luồng phát không bị thay đổi kích thước. Cỡ chữ của hệ thống vẫn áp dụng thêm. Có hiệu lực ngay.</string>

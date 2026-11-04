@@ -2,7 +2,7 @@
 //! Vibepollo does it (`src/power_action_native.cpp`). It asks Windows for
 //! sleep with wake events enabled, and only on a PC with S1, S2 or S3: a
 //! Modern Standby laptop with hibernate on hibernated instead.
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, bail};
 use butterpollo_core::power_action::SleepStates;
 use windows::{
     Win32::{
@@ -174,10 +174,65 @@ pub fn shutdown_flags(restart: bool) -> u32 {
     }
 }
 
+/// `shutdown.exe`'s arguments for [`power_off`] from the user's session:
+/// `/t 0`, since any other timeout implies `/f`, and never `/f` or `/hybrid`.
+pub fn shutdown_args(restart: bool) -> [&'static str; 3] {
+    [if restart { "/r" } else { "/s" }, "/t", "0"]
+}
+/// How long `shutdown.exe` may take to hand the request to Windows.
+const SHUTDOWN_EXE_WAIT: std::time::Duration = std::time::Duration::from_secs(15);
+
 /// Restart or shut down this PC (Restart and shut down PC). Returns once
-/// Windows took the request; its refusal (another user signed in, a
-/// shutdown already under way) is the error.
+/// Windows took the request; its refusal (a shutdown already under way, no
+/// shutdown right) is the error. A SYSTEM host asks from the signed-in
+/// user's session: from session 0, Windows refuses while another user is
+/// signed in (`ERROR_SHUTDOWN_USERS_LOGGED_ON`) unless forced, and it never
+/// forces. With nobody signed in, or as a portable host running as the
+/// user, it asks itself.
 pub fn power_off(restart: bool) -> Result<()> {
+    if crate::process::is_system() && crate::process::user_signed_in() {
+        return power_off_as_user(restart);
+    }
+    initiate_shutdown(restart)
+}
+
+fn power_off_as_user(restart: bool) -> Result<()> {
+    use crate::process::{Process, Target};
+    use std::io::Read;
+    let what = if restart { "restart" } else { "shut down" };
+    let program = std::path::PathBuf::from(
+        std::env::var_os("WINDIR").unwrap_or_else(|| "C:\\Windows".into()),
+    )
+    .join("System32")
+    .join("shutdown.exe");
+    let args: Vec<std::ffi::OsString> = shutdown_args(restart).iter().map(Into::into).collect();
+    tracing::warn!("asking Windows to {what} the PC from the signed-in user's session");
+    let mut child = Process::spawn_piped(&program, &args, Target::User { elevated: false })
+        .with_context(|| format!("could not ask Windows to {what} the PC as the signed-in user"))?;
+    drop(child.stdin.take());
+    let code = match child.process.wait(SHUTDOWN_EXE_WAIT) {
+        Ok(code) => code,
+        Err(error) => {
+            let _ = child.process.terminate();
+            bail!("Windows did not answer the request to {what} the PC: {error:#}");
+        }
+    };
+    if code != 0 {
+        // It has exited, so its pipes end.
+        let mut said = String::new();
+        for pipe in [child.stderr.take(), child.stdout.take()]
+            .into_iter()
+            .flatten()
+        {
+            let _ = { pipe }.read_to_string(&mut said);
+        }
+        let said = said.split_whitespace().collect::<Vec<_>>().join(" ");
+        bail!("Windows refused to {what} the PC: {said} (exit code {code})");
+    }
+    Ok(())
+}
+
+fn initiate_shutdown(restart: bool) -> Result<()> {
     use windows::Win32::System::Shutdown::{
         InitiateShutdownW, SHTDN_REASON_FLAG_PLANNED, SHTDN_REASON_MAJOR_OTHER,
         SHTDN_REASON_MINOR_OTHER, SHUTDOWN_FLAGS,
@@ -259,6 +314,17 @@ mod tests {
         for restart in [true, false] {
             let forbidden = SHUTDOWN_FORCE_OTHERS.0 | SHUTDOWN_FORCE_SELF.0 | SHUTDOWN_HYBRID.0;
             assert_eq!(shutdown_flags(restart) & forbidden, 0);
+        }
+        // From the user's session: no timeout, which would imply /f.
+        assert_eq!(shutdown_args(true), ["/r", "/t", "0"]);
+        assert_eq!(shutdown_args(false), ["/s", "/t", "0"]);
+        for restart in [true, false] {
+            let args = shutdown_args(restart).map(str::to_lowercase);
+            assert!(
+                !args
+                    .iter()
+                    .any(|a| a == "/f" || a == "/hybrid" || a == "/p")
+            );
         }
     }
 }

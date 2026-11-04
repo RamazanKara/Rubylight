@@ -1,0 +1,176 @@
+--- a/src/render/gpu/SDL_render_gpu.c
++++ b/src/render/gpu/SDL_render_gpu.c
+@@ -123,6 +123,15 @@
+     } state;
+ 
+     SDL_GPUSampler *samplers[RENDER_SAMPLER_COUNT];
++
++    /* Nightjar patch (PQ present): with the app's shaders, the frame is drawn in linear light
++     * into an RGBA16F back buffer and this pipeline writes it to an HDR10 swapchain as PQ. */
++    struct
++    {
++        SDL_GPUShader *vertex;
++        SDL_GPUShader *fragment;
++        SDL_GPUGraphicsPipeline *pipeline;
++    } pq;
+ } GPU_RenderData;
+ 
+ typedef struct GPU_PaletteData
+@@ -1470,6 +1479,61 @@
+     return true;
+ }
+ 
++// Nightjar patch (PQ present): the PQ pass reads an RGBA16F back buffer.
++static SDL_GPUTextureFormat GPU_BackbufferFormat(GPU_RenderData *data, SDL_Window *window)
++{
++    return data->pq.pipeline ? SDL_GPU_TEXTUREFORMAT_R16G16B16A16_FLOAT : SDL_GetGPUSwapchainTextureFormat(data->device, window);
++}
++
++// Nightjar patch (PQ present): the app's SPIR-V vertex and fragment shaders (entry points
++// "vertex" and "fragment", one sampler) and their pipeline for the HDR10 swapchain.
++static bool GPU_CreatePQPresent(GPU_RenderData *data, SDL_Window *window, const void *vertex, size_t vertex_size, const void *fragment, size_t fragment_size)
++{
++    SDL_GPUShaderCreateInfo sci;
++    SDL_GPUColorTargetDescription target;
++    SDL_GPUGraphicsPipelineCreateInfo pci;
++
++    if (!(SDL_GetGPUShaderFormats(data->device) & SDL_GPU_SHADERFORMAT_SPIRV)) {
++        return SDL_SetError("The PQ present needs SPIR-V shaders");
++    }
++    if (SDL_GetGPUSwapchainTextureFormat(data->device, window) != SDL_GPU_TEXTUREFORMAT_R10G10B10A2_UNORM) {
++        return SDL_SetError("The HDR10 swapchain is not RGB10A2");
++    }
++
++    SDL_zero(sci);
++    sci.format = SDL_GPU_SHADERFORMAT_SPIRV;
++    sci.code = (const Uint8 *)vertex;
++    sci.code_size = vertex_size;
++    sci.entrypoint = "vertex";
++    sci.stage = SDL_GPU_SHADERSTAGE_VERTEX;
++    data->pq.vertex = SDL_CreateGPUShader(data->device, &sci);
++    if (!data->pq.vertex) {
++        return false;
++    }
++    sci.code = (const Uint8 *)fragment;
++    sci.code_size = fragment_size;
++    sci.entrypoint = "fragment";
++    sci.stage = SDL_GPU_SHADERSTAGE_FRAGMENT;
++    sci.num_samplers = 1;
++    data->pq.fragment = SDL_CreateGPUShader(data->device, &sci);
++    if (!data->pq.fragment) {
++        return false;
++    }
++
++    SDL_zero(target);
++    target.format = SDL_GPU_TEXTUREFORMAT_R10G10B10A2_UNORM;
++    SDL_zero(pci);
++    pci.vertex_shader = data->pq.vertex;
++    pci.fragment_shader = data->pq.fragment;
++    pci.primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
++    pci.rasterizer_state.fill_mode = SDL_GPU_FILLMODE_FILL;
++    pci.rasterizer_state.cull_mode = SDL_GPU_CULLMODE_NONE;
++    pci.target_info.num_color_targets = 1;
++    pci.target_info.color_target_descriptions = &target;
++    data->pq.pipeline = SDL_CreateGPUGraphicsPipeline(data->device, &pci);
++    return data->pq.pipeline != NULL;
++}
++
+ static bool GPU_RenderPresent(SDL_Renderer *renderer)
+ {
+     GPU_RenderData *data = (GPU_RenderData *)renderer->internal;
+@@ -1483,7 +1547,37 @@
+             SDL_LogError(SDL_LOG_CATEGORY_RENDER, "Failed to acquire swapchain texture: %s", SDL_GetError());
+         }
+ 
+-        if (swapchain != NULL) {
++        if (swapchain != NULL && data->pq.pipeline) {
++            // Nightjar patch (PQ present): the back buffer through the PQ pass, scaled as the blit would.
++            SDL_GPUColorTargetInfo target;
++            SDL_GPUTextureSamplerBinding binding;
++            SDL_GPURenderPass *pass;
++
++            SDL_zero(target);
++            target.texture = swapchain;
++            target.load_op = SDL_GPU_LOADOP_DONT_CARE;
++            target.store_op = SDL_GPU_STOREOP_STORE;
++            binding.texture = data->backbuffer.texture;
++            binding.sampler = GetSampler(data, SDL_PIXELFORMAT_UNKNOWN, SDL_SCALEMODE_LINEAR, SDL_TEXTURE_ADDRESS_CLAMP, SDL_TEXTURE_ADDRESS_CLAMP);
++            pass = SDL_BeginGPURenderPass(data->state.command_buffer, &target, 1, NULL);
++            if (pass) {
++                SDL_BindGPUGraphicsPipeline(pass, data->pq.pipeline);
++                SDL_BindGPUFragmentSamplers(pass, 0, &binding, 1);
++                SDL_DrawGPUPrimitives(pass, 3, 1, 0, 0);
++                SDL_EndGPURenderPass(pass);
++            } else {
++                SDL_LogError(SDL_LOG_CATEGORY_RENDER, "Failed to begin the PQ present pass: %s", SDL_GetError());
++            }
++
++            SDL_SubmitGPUCommandBuffer(data->state.command_buffer);
++
++            if (swapchain_texture_width != data->backbuffer.width || swapchain_texture_height != data->backbuffer.height) {
++                CreateBackbuffer(data, swapchain_texture_width, swapchain_texture_height, GPU_BackbufferFormat(data, renderer->window));
++
++                // Notify the application that it needs to redraw this frame
++                SDL_SendWindowEvent(renderer->window, SDL_EVENT_WINDOW_EXPOSED, 0, 0);
++            }
++        } else if (swapchain != NULL) {
+             SDL_GPUBlitInfo blit_info;
+             SDL_zero(blit_info);
+ 
+@@ -1587,6 +1681,17 @@
+         SDL_ReleaseGPUTexture(data->device, data->backbuffer.texture);
+     }
+ 
++    // Nightjar patch (PQ present).
++    if (data->pq.pipeline) {
++        SDL_ReleaseGPUGraphicsPipeline(data->device, data->pq.pipeline);
++    }
++    if (data->pq.fragment) {
++        SDL_ReleaseGPUShader(data->device, data->pq.fragment);
++    }
++    if (data->pq.vertex) {
++        SDL_ReleaseGPUShader(data->device, data->pq.vertex);
++    }
++
+     if (renderer->window && data->device) {
+         SDL_ReleaseWindowFromGPUDevice(data->device, renderer->window);
+     }
+@@ -1801,17 +1906,36 @@
+         }
+         data->swapchain.present_mode = SDL_GPU_PRESENTMODE_VSYNC;
+ 
++        /* Nightjar patch (PQ present): SDL_COLORSPACE_SRGB_LINEAR output with the app's PQ shaders
++         * (SPIR-V pointers and byte sizes in these properties) presents on an HDR10 swapchain. */
++        const void *pq_vertex = SDL_GetPointerProperty(create_props, "SDL.renderer.create.gpu.pq_vertex_spirv", NULL);
++        const void *pq_fragment = SDL_GetPointerProperty(create_props, "SDL.renderer.create.gpu.pq_fragment_spirv", NULL);
++        const bool pq = pq_vertex && pq_fragment;
++        if (pq) {
++            if (renderer->output_colorspace != SDL_COLORSPACE_SRGB_LINEAR) {
++                return SDL_SetError("The PQ present needs SDL_COLORSPACE_SRGB_LINEAR output");
++            }
++            data->swapchain.composition = SDL_GPU_SWAPCHAINCOMPOSITION_HDR10_ST2084;
++        }
++
+         int vsync = (int)SDL_GetNumberProperty(create_props, SDL_PROP_RENDERER_CREATE_PRESENT_VSYNC_NUMBER, 0);
+         ChoosePresentMode(data->device, window, vsync, &data->swapchain.present_mode);
+ 
+-        SDL_SetGPUSwapchainParameters(data->device, window, data->swapchain.composition, data->swapchain.present_mode);
++        if (!SDL_SetGPUSwapchainParameters(data->device, window, data->swapchain.composition, data->swapchain.present_mode) && pq) {
++            return false;
++        }
++        if (pq && !GPU_CreatePQPresent(data, window,
++                                       pq_vertex, (size_t)SDL_GetNumberProperty(create_props, "SDL.renderer.create.gpu.pq_vertex_spirv_size", 0),
++                                       pq_fragment, (size_t)SDL_GetNumberProperty(create_props, "SDL.renderer.create.gpu.pq_fragment_spirv_size", 0))) {
++            return false;
++        }
+ 
+         SDL_SetGPUAllowedFramesInFlight(data->device, 1);
+ 
+         int w, h;
+         SDL_GetWindowSizeInPixels(window, &w, &h);
+ 
+-        if (!CreateBackbuffer(data, w, h, SDL_GetGPUSwapchainTextureFormat(data->device, window))) {
++        if (!CreateBackbuffer(data, w, h, GPU_BackbufferFormat(data, window))) {
+             return false;
+         }
+     }

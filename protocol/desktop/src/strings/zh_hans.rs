@@ -527,6 +527,8 @@ pub const TABLE: &[(&str, &str)] = &[
     ("Network details unavailable; automatic profiles and the mobile data limit could not be applied.", "网络详情不可用；无法应用自动配置和移动数据限制。"),
     ("The selected profile is missing; main settings and PC/game overrides apply.", "所选配置缺失；使用主要设置以及电脑和游戏的覆盖设置。"),
     ("Wi-Fi name unavailable; using the other Wi-Fi profile.", "Wi-Fi 名称不可用；使用“其他 Wi-Fi”的配置。"),
+    ("Start+Back opens the stream menu", "Start+Back 打开串流菜单"),
+    ("HDR is off: gamescope offers no HDR output here, so this stream is in SDR.", "HDR 已关闭：gamescope 在此不提供 HDR 输出，因此此串流为 SDR。"),
     ("The stream ended", "串流已结束"),
     ("Remote Input connected", "远程输入已连接"),
     ("Session and graphics", "会话与图形"),

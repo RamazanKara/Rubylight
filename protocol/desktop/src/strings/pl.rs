@@ -527,6 +527,8 @@ pub const TABLE: &[(&str, &str)] = &[
     ("Network details unavailable; automatic profiles and the mobile data limit could not be applied.", "Szczegóły sieci niedostępne; nie udało się zastosować automatycznych profili ani limitu danych komórkowych."),
     ("The selected profile is missing; main settings and PC/game overrides apply.", "Brak wybranego profilu; obowiązują ustawienia główne oraz ustawienia komputera i gry."),
     ("Wi-Fi name unavailable; using the other Wi-Fi profile.", "Nazwa Wi-Fi niedostępna; używany jest drugi profil Wi-Fi."),
+    ("Start+Back opens the stream menu", "Start+Back otwiera menu strumienia"),
+    ("HDR is off: gamescope offers no HDR output here, so this stream is in SDR.", "HDR wyłączony: gamescope nie oferuje tu wyjścia HDR, więc ten strumień jest w SDR."),
     ("The stream ended", "Transmisja zakończona"),
     ("Remote Input connected", "Połączono Remote Input"),
     ("Session and graphics", "Sesja i grafika"),

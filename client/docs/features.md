@@ -88,5 +88,5 @@ Each needs a host that offers it (Rubylight 3.0) and allows it for this device.
 - **Layered settings.** Each section opens on the settings most people change, with the rest under "More … settings". Search across all settings, presets, and help on every row on Android. [Settings](settings.md)
 - **Accessibility.** Interface size, high contrast, reduced motion and screen reader support, and System, Dark and OLED black themes. [Accessibility](console.md#accessibility-on-android)
 - **Languages.** The same 15 on Android, Windows and Linux. [Translations](TRANSLATIONS.md)
-- **Steam Deck and Linux handhelds.** A Flatpak with every release that starts from Steam in Game Mode, fullscreen and driven by the controller alone, with Start+Back for the stream menu and HDR through gamescope. Linux. [Steam Deck](steam-deck.md)
+- **Steam Deck and Linux handhelds.** A Flatpak with every release; under gamescope it opens fullscreen without a border, is driven by a controller alone, with Start+Back for the stream menu, and shows HDR through gamescope. Linux. [Steam Deck](steam-deck.md)
 - **Help and updates.** Built-in help that works offline. Update checks on Android (outside Google Play) and on Windows.

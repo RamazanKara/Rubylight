@@ -109,7 +109,7 @@ Android needs no scan-line check: SurfaceFlinger never flips mid-scan, and a pan
 | Feature | Android | Windows | Linux | Notes |
 | --- | --- | --- | --- | --- |
 | Controllers and per-model mapping | Yes | Yes | Yes | The desktop drives rumble, motion, touchpads, LEDs, battery and DualSense features through SDL's gamepad API. |
-| Steam Deck Game Mode (gamescope) | N/A | N/A | Yes | The Flatpak starts from Steam as a non-Steam game, fullscreen without a border; the pointer hides while the controller is used, and Start+Back opens the stream menu since Steam keeps the Guide button. [Steam Deck](steam-deck.md) |
+| Steam Deck Game Mode (gamescope) | N/A | N/A | Yes | Under gamescope the Flatpak opens fullscreen without a border; the pointer hides while the controller is used, and Start+Back opens the stream menu since Steam keeps the Guide button. [Steam Deck](steam-deck.md) |
 | Extra buttons: touchpad click, Share / Capture, paddles | Yes | Yes | Yes | The desktop maps every SDL button. |
 | DualSense, Xbox and Switch Pro USB drivers | Yes | N/A | N/A | SDL handles these controllers on the desktop. |
 | On-screen controls, Classic and Modern | Yes | No | No | |

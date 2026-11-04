@@ -37,7 +37,7 @@ Niezapisany postęp zostanie utracony.</string>
     <string name="stream_menu_hint_buttons">przesuń w górę od dołu i kliknij Wstecz</string>
     <string name="stream_menu_hint_back">naciśnij Wstecz</string>
     <string name="stream_menu_hint_controller">naciśnij Start + Back + LB + RB na kontrolerze</string>
-    <string name="stream_menu_hint_keyboard">naciśnij Ctrl + Alt + Shift + M</string>
+    <string name="stream_menu_hint_keyboard">naciśnij Ctrl + Alt + Shift + Tab</string>
     <string name="stream_menu_hint_or">%1$s lub %2$s</string>
     <string name="stream_menu_hint_list">%1$s, %2$s</string>
     <string name="stream_menu_hint_close">Kliknij, aby zamknąć</string>

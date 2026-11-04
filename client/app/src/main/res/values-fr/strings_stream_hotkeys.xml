@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="stream_hotkeys_title">Raccourcis du stream</string>
+    <string name="stream_hotkeys_summary">Les combinaisons de touches propres à Nightjar pendant un stream.</string>
+    <string name="stream_hotkey_change">Modifier</string>
+    <string name="stream_hotkey_off">Désactivée</string>
+    <string name="stream_hotkey_reset">Réinitialiser</string>
+    <string name="stream_hotkey_record">Appuyez sur les nouvelles touches</string>
+    <string name="stream_hotkey_taken">Déjà utilisé par %1$s</string>
+    <string name="stream_hotkey_length">Utilisez de 2 à 4 touches.</string>
+    <string name="stream_hotkey_modifier">Utilisez Ctrl, Alt ou Shift, sans la touche Windows.</string>
+    <string name="stream_hotkey_one_key">Utilisez une touche en plus de Ctrl, Alt et Shift.</string>
+    <string name="stream_hotkey_reserved">Windows se réserve cette combinaison.</string>
+    <string name="stream_hotkey_unsupported">Touche non prise en charge : %1$s</string>
+    <string name="stream_hotkey_repeated">Touche répétée : %1$s</string>
+    <string name="stream_hotkey_action_quit">Se déconnecter</string>
+    <string name="stream_hotkey_action_capture">Libérer ou capturer les entrées</string>
+    <string name="stream_hotkey_action_overlay">Superposition des performances</string>
+    <string name="stream_hotkey_action_stream_menu">Menu du stream</string>
+    <string name="stream_hotkey_action_cursor">Afficher ou masquer le curseur</string>
+    <string name="stream_hotkey_moved">%1$s devient %2$s</string>
+    <string name="stream_hotkeys_unavailable">Raccourcis du stream indisponibles : %1$s</string>
+</resources>

@@ -60,7 +60,7 @@ public class SettingsKeysTest {
     };
     // Rows that open a screen or a dialog and store nothing under their key.
     private static final Set<String> ACTIONS = new HashSet<>(Arrays.asList(
-            "gpu_driver", "host_display_location", "keyboard_shortcuts_editor", "controller_button_mapping",
+            "gpu_driver", "host_display_location", "keyboard_shortcuts_editor", "stream_hotkeys", "controller_button_mapping",
             "controller_test", "stream_profiles", "reset_osc", "check_updates_now", "help", "latency_benchmark", "report_problem", "about_app", "reset_all", "export_latency_csv",
             "pin_lock", // opens its own screen; the PIN lives in the pin_lock prefs file
             // The merged switch writes the three decoder switches and stores nothing itself.

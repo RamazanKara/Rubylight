@@ -16,6 +16,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
@@ -202,6 +203,49 @@ public class StreamMenuModelContractTest {
                         assertEquals(id, expected.getString(id), labels.get(id));
                         if (!id.equals(StreamMenuModel.ADD)) assertNotEquals(id, 0, StreamMenu.tileLabel(labels.get(id)));
                     }
+                    break;
+                }
+                case "hotkeys": {
+                    List<StreamMenuModel.Hotkey> hotkeys = StreamMenuModel.hotkeys(new HashMap<>());
+                    assertEquals(response.getJSONArray("ok").length(), hotkeys.size());
+                    StreamMenuModel.Hotkey menu = hotkeys.get(0);
+                    assertEquals("stream_menu", menu.id);
+                    assertEquals("Ctrl + Alt + Shift + Tab", menu.chord.label);
+                    assertEquals(7, menu.chord.modifiers);
+                    assertEquals(9, menu.chord.vk);
+                    assertFalse(menu.changed);
+                    assertEquals("Ctrl + Alt + Shift + M", menu.old.get(0).label);
+                    break;
+                }
+                case "hotkeys_changed": {
+                    Map<String, String> bindings = new HashMap<>();
+                    bindings.put("cursor", "CTRL+F2");
+                    bindings.put("overlay", "off");
+                    for (StreamMenuModel.Hotkey hotkey : StreamMenuModel.hotkeys(bindings)) {
+                        if (hotkey.id.equals("overlay")) {
+                            assertNull(hotkey.chord);
+                            assertTrue(hotkey.changed);
+                        } else if (hotkey.id.equals("cursor")) {
+                            assertArrayEquals(new String[] {"CTRL", "F2"}, hotkey.chord.keys);
+                            assertEquals("Ctrl + Alt + Shift + P", hotkey.standard.label);
+                            assertTrue(hotkey.old.isEmpty());
+                        }
+                    }
+                    break;
+                }
+                case "check_hotkey":
+                    assertArrayEquals(new String[] {"CTRL", "F2"}, StreamMenuModel.checkHotkey("cursor", new String[] {"F2", "CTRL"}, new HashMap<>()));
+                    break;
+                case "check_hotkey_taken": {
+                    StreamMenuModel.Refused e = refused(() -> StreamMenuModel.checkHotkey("cursor",
+                            new String[] {"CTRL", "ALT", "SHIFT", "Q"}, new HashMap<>()));
+                    assertEquals("taken", e.code);
+                    assertEquals("quit", e.detail);
+                    break;
+                }
+                case "check_hotkey_length": {
+                    StreamMenuModel.Refused e = refused(() -> StreamMenuModel.checkHotkey("quit", new String[] {"Q"}, new HashMap<>()));
+                    assertEquals("hotkey_length", e.code);
                     break;
                 }
                 default:

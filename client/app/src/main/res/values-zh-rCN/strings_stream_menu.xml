@@ -37,7 +37,7 @@
     <string name="stream_menu_hint_buttons">从底部向上滑动并点按“返回”</string>
     <string name="stream_menu_hint_back">按“返回”</string>
     <string name="stream_menu_hint_controller">在手柄上同时按 Start + Back + LB + RB</string>
-    <string name="stream_menu_hint_keyboard">按 Ctrl + Alt + Shift + M</string>
+    <string name="stream_menu_hint_keyboard">按 Ctrl + Alt + Shift + Tab</string>
     <string name="stream_menu_hint_or">%1$s或%2$s</string>
     <string name="stream_menu_hint_list">%1$s、%2$s</string>
     <string name="stream_menu_hint_close">点按即可关闭</string>

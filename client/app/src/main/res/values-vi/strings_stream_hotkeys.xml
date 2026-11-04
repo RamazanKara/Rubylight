@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="stream_hotkeys_title">Phím tắt luồng</string>
+    <string name="stream_hotkeys_summary">Tổ hợp phím riêng của Nightjar khi đang phát luồng.</string>
+    <string name="stream_hotkey_change">Đổi</string>
+    <string name="stream_hotkey_off">Tắt</string>
+    <string name="stream_hotkey_reset">Đặt lại</string>
+    <string name="stream_hotkey_record">Nhấn các phím mới</string>
+    <string name="stream_hotkey_taken">Đã dùng cho %1$s</string>
+    <string name="stream_hotkey_length">Dùng từ 2 đến 4 phím.</string>
+    <string name="stream_hotkey_modifier">Dùng Ctrl, Alt hoặc Shift, không dùng phím Windows.</string>
+    <string name="stream_hotkey_one_key">Dùng một phím ngoài Ctrl, Alt và Shift.</string>
+    <string name="stream_hotkey_reserved">Windows giữ tổ hợp này.</string>
+    <string name="stream_hotkey_unsupported">Phím không được hỗ trợ: %1$s</string>
+    <string name="stream_hotkey_repeated">Phím bị lặp: %1$s</string>
+    <string name="stream_hotkey_action_quit">Ngắt kết nối</string>
+    <string name="stream_hotkey_action_capture">Nhả hoặc chiếm đầu vào</string>
+    <string name="stream_hotkey_action_overlay">Lớp phủ hiệu năng</string>
+    <string name="stream_hotkey_action_stream_menu">Menu luồng</string>
+    <string name="stream_hotkey_action_cursor">Hiện hoặc ẩn con trỏ</string>
+    <string name="stream_hotkey_moved">%1$s giờ là %2$s</string>
+    <string name="stream_hotkeys_unavailable">Không dùng được phím tắt luồng: %1$s</string>
+</resources>

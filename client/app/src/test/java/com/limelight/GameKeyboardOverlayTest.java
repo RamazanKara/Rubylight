@@ -32,6 +32,7 @@ import com.limelight.ui.PcKeyboardOverlay;
 import com.limelight.ui.StreamView;
 import com.limelight.ui.StreamMenu;
 
+import org.junit.After;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.robolectric.Robolectric;
@@ -52,6 +53,11 @@ import static org.robolectric.Shadows.shadowOf;
         shadows = PcViewLifecycleTest.NoNativeMoonBridge.class,
         instrumentedPackages = "com.limelight.nvstream.jni")
 public class GameKeyboardOverlayTest {
+    @After
+    public void forgetTheModel() {
+        com.limelight.ui.StreamMenuModel.use(null);
+    }
+
     @Test
     @Config(sdk = {29, 36}, qualifiers = "sw800dp-land")
     public void tabletStreamDoesNotAutomaticallyOpenSoftwareKeyboard() throws Exception {
@@ -242,6 +248,8 @@ public class GameKeyboardOverlayTest {
 
     @Test
     public void aLocalChordKeepsItsModifierTapsFromBeingLoneTapsOnTheHost() {
+        // The stream hotkeys come from the table desktop Nightjar shares.
+        com.limelight.ui.StreamMenuModel.use(new com.limelight.ui.RustStreamMenuModel());
         RecordingConnection connection = new RecordingConnection();
         Game game = pcKeyboardGame(connection);
         int neutral = 0x8000 | com.limelight.binding.input.keyboard.PcKeyboardEngine.NEUTRAL_VK;

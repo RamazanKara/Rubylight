@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="stream_hotkeys_title">Atalhos da transmissão</string>
+    <string name="stream_hotkeys_summary">As combinações de teclas do próprio Nightjar durante a transmissão.</string>
+    <string name="stream_hotkey_change">Alterar</string>
+    <string name="stream_hotkey_off">Desativado</string>
+    <string name="stream_hotkey_reset">Redefinir</string>
+    <string name="stream_hotkey_record">Pressione as novas teclas</string>
+    <string name="stream_hotkey_taken">Já usado por %1$s</string>
+    <string name="stream_hotkey_length">Use de 2 a 4 teclas.</string>
+    <string name="stream_hotkey_modifier">Use Ctrl, Alt ou Shift, sem a tecla Windows.</string>
+    <string name="stream_hotkey_one_key">Use uma tecla além de Ctrl, Alt e Shift.</string>
+    <string name="stream_hotkey_reserved">O Windows reserva esta combinação.</string>
+    <string name="stream_hotkey_unsupported">Tecla não suportada: %1$s</string>
+    <string name="stream_hotkey_repeated">Tecla repetida: %1$s</string>
+    <string name="stream_hotkey_action_quit">Desconectar</string>
+    <string name="stream_hotkey_action_capture">Liberar ou capturar a entrada</string>
+    <string name="stream_hotkey_action_overlay">Sobreposição de desempenho</string>
+    <string name="stream_hotkey_action_stream_menu">Menu da transmissão</string>
+    <string name="stream_hotkey_action_cursor">Mostrar ou ocultar o cursor</string>
+    <string name="stream_hotkey_moved">%1$s agora é %2$s</string>
+    <string name="stream_hotkeys_unavailable">Atalhos da transmissão indisponíveis: %1$s</string>
+</resources>

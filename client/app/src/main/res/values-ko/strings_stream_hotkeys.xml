@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="stream_hotkeys_title">스트림 단축키</string>
+    <string name="stream_hotkeys_summary">스트림 중에 쓰는 Nightjar 고유의 키 조합입니다.</string>
+    <string name="stream_hotkey_change">변경</string>
+    <string name="stream_hotkey_off">사용 안함</string>
+    <string name="stream_hotkey_reset">초기화</string>
+    <string name="stream_hotkey_record">새 키를 누르세요</string>
+    <string name="stream_hotkey_taken">%1$s에서 이미 사용 중</string>
+    <string name="stream_hotkey_length">키를 2~4개 사용하세요.</string>
+    <string name="stream_hotkey_modifier">Windows 키 없이 Ctrl, Alt, Shift 중 하나를 사용하세요.</string>
+    <string name="stream_hotkey_one_key">Ctrl, Alt, Shift 외에 키 하나를 사용하세요.</string>
+    <string name="stream_hotkey_reserved">이 조합은 Windows가 사용합니다.</string>
+    <string name="stream_hotkey_unsupported">지원되지 않는 키: %1$s</string>
+    <string name="stream_hotkey_repeated">중복된 키: %1$s</string>
+    <string name="stream_hotkey_action_quit">연결 끊기</string>
+    <string name="stream_hotkey_action_capture">입력 해제 또는 캡처</string>
+    <string name="stream_hotkey_action_overlay">성능 오버레이</string>
+    <string name="stream_hotkey_action_stream_menu">스트림 메뉴</string>
+    <string name="stream_hotkey_action_cursor">커서 표시/숨기기</string>
+    <string name="stream_hotkey_moved">%1$s 키는 이제 %2$s입니다</string>
+    <string name="stream_hotkeys_unavailable">스트림 단축키를 사용할 수 없음: %1$s</string>
+</resources>

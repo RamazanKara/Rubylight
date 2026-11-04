@@ -120,6 +120,7 @@ Android needs no scan-line check: SurfaceFlinger never flips mid-scan, and a pan
 | Keyboard follows text fields | Yes | Yes | Yes | The desktop opens a keyboard only where the system provides an on-screen one. |
 | Keyboard layout reported to the PC | Yes | Yes | Yes | |
 | Saved key chords, import and export | Yes | Yes | Yes | Same file format on both clients. |
+| Stream hotkeys, changeable | Yes | Yes | Yes | One table for both clients. Mouse mode, clipboard, fullscreen, minimize and the shortcut list are desktop-only; the PC keyboard and local cursor are Android-only. |
 
 ## Sharing with your PC
 

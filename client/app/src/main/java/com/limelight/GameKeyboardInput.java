@@ -4,6 +4,7 @@ import com.limelight.binding.input.ControllerButtonMap;
 import com.limelight.binding.input.ControllerHandler;
 import com.limelight.binding.input.KeyboardLayoutTag;
 import com.limelight.binding.input.KeyboardTranslator;
+import com.limelight.binding.input.StreamHotkeys;
 import com.limelight.binding.input.touch.TouchMode;
 import com.limelight.nvstream.input.ControllerPacket;
 import com.limelight.nvstream.input.KeyboardPacket;
@@ -13,6 +14,7 @@ import com.limelight.ui.HostKeyboard;
 import com.limelight.ui.HostTextField;
 import com.limelight.ui.KeyboardOverlay;
 import com.limelight.ui.PcKeyboardOverlay;
+import com.limelight.ui.StreamMenuModel;
 import com.limelight.binding.input.keyboard.PcKeyboardController;
 import com.limelight.binding.input.keyboard.PcKeyboardEngine;
 import com.limelight.ui.DesktopControlsPanel;
@@ -25,6 +27,7 @@ import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
+import android.preference.PreferenceManager;
 import android.view.InputDevice;
 import android.view.KeyCharacterMap;
 import android.view.KeyEvent;
@@ -33,6 +36,7 @@ import android.view.View;
 import android.view.WindowInsets;
 import android.view.WindowManager;
 import android.widget.FrameLayout;
+import android.widget.Toast;
 import android.view.inputmethod.InputMethodManager;
 import android.view.inputmethod.InputMethodSubtype;
 import java.lang.reflect.InvocationTargetException;
@@ -324,74 +328,87 @@ final class GameKeyboardInput {
             }
             else {
                 // When all modifiers are up, perform the special action
-                switch (specialKeyCode) {
-                    // Toggle input grab
-                    case KeyEvent.KEYCODE_Z:
-                        Handler h = game.getWindow().getDecorView().getHandler();
-                        if (h != null) {
-                            h.postDelayed(game.toggleGrab, 250);
-                        }
-                        break;
-
-                    // Leave the stream
-                    case KeyEvent.KEYCODE_Q:
-                        game.menuActions.leaveStream();
-                        break;
-
-                    case KeyEvent.KEYCODE_M:
-                        game.showStreamMenuFromController();
-                        break;
-
-                    case KeyEvent.KEYCODE_K:
-                        togglePcKeyboard();
-                        break;
-
-                    case KeyEvent.KEYCODE_S:
-                        game.overlays.togglePerformanceOverlay();
-                        break;
-
-                    // Toggle cursor visibility
-                    case KeyEvent.KEYCODE_C:
-                        game.touchInput.toggleCursorVisibility();
-                        break;
-
-                    default:
-                        break;
-                }
+                StreamHotkeys.Match match = specialHotkey;
+                specialHotkey = null;
+                if (match != null) runHotkey(match);
 
                 // Reset special key state
                 specialKeyCode = KeyEvent.KEYCODE_UNKNOWN;
                 waitingForAllModifiersUp = false;
             }
         }
-        // Check if Ctrl+Alt+Shift is down when a non-modifier key is pressed
-        else if ((getModifierState() & (KeyboardPacket.MODIFIER_CTRL | KeyboardPacket.MODIFIER_ALT | KeyboardPacket.MODIFIER_SHIFT)) ==
-                (KeyboardPacket.MODIFIER_CTRL | KeyboardPacket.MODIFIER_ALT | KeyboardPacket.MODIFIER_SHIFT) &&
-                (down && nonModifierKeyCode != KeyEvent.KEYCODE_UNKNOWN)) {
-            switch (androidKeyCode) {
-                case KeyEvent.KEYCODE_Z:
-                case KeyEvent.KEYCODE_Q:
-                case KeyEvent.KEYCODE_M:
-                case KeyEvent.KEYCODE_K:
-                case KeyEvent.KEYCODE_S:
-                case KeyEvent.KEYCODE_C:
-                    // Remember that a special key combo was activated, so we can consume all key
-                    // events until the modifiers come up
-                    specialKeyCode = androidKeyCode;
-                    waitingForAllModifiersUp = true;
-                    breakLoneModifierTap();
-                    return true;
-
-                default:
-                    // This isn't a special combo that we consume on the client side
-                    return false;
+        // A stream hotkey: Ctrl, Alt or Shift held and a key the user's chord names, matched as the PC would see it
+        else if (down && nonModifierKeyCode != KeyEvent.KEYCODE_UNKNOWN &&
+                (getModifierState() & (KeyboardPacket.MODIFIER_CTRL | KeyboardPacket.MODIFIER_ALT | KeyboardPacket.MODIFIER_SHIFT)) != 0) {
+            StreamHotkeys.Match match = hotkeys().at(getModifierState(), KeyboardTranslator.translateKeyCode(androidKeyCode) & 0xFF);
+            if (match == null) {
+                // This isn't a special combo that we consume on the client side
+                return false;
             }
+            // Remember that a special key combo was activated, so we can consume all key
+            // events until the modifiers come up
+            specialKeyCode = androidKeyCode;
+            specialHotkey = match;
+            waitingForAllModifiersUp = true;
+            breakLoneModifierTap();
+            return true;
         }
 
         // Not a special combo
         return false;
     }
 
+    // The stream's hotkeys, read once per stream from the table desktop Nightjar shares and the user's changes.
+    private StreamHotkeys.Table hotkeys;
+    private StreamHotkeys.Match specialHotkey;
+
+    private StreamHotkeys.Table hotkeys() {
+        if (hotkeys == null) {
+            try {
+                hotkeys = new StreamHotkeys.Table(StreamHotkeys.load(PreferenceManager.getDefaultSharedPreferences(game)));
+            } catch (StreamMenuModel.Refused e) {
+                // Said once; the stream menu stays on Back, the floating button and the controller chord.
+                LimeLog.severe("Stream hotkeys unavailable: " + e.getMessage());
+                game.messages.alert(game.getString(R.string.stream_hotkeys_unavailable, e.getMessage()), Toast.LENGTH_LONG);
+                hotkeys = StreamHotkeys.Table.EMPTY;
+            }
+        }
+        return hotkeys;
+    }
+
+    private void runHotkey(StreamHotkeys.Match match) {
+        switch (match.hotkey.id) {
+            case StreamHotkeys.CAPTURE: {
+                Handler h = game.getWindow().getDecorView().getHandler();
+                if (h != null) {
+                    h.postDelayed(game.toggleGrab, 250);
+                }
+                break;
+            }
+            case StreamHotkeys.QUIT:
+                game.menuActions.leaveStream();
+                break;
+            case StreamHotkeys.STREAM_MENU:
+                game.showStreamMenuFromController();
+                break;
+            case StreamHotkeys.PC_KEYBOARD:
+                togglePcKeyboard();
+                break;
+            case StreamHotkeys.OVERLAY:
+                game.overlays.togglePerformanceOverlay();
+                break;
+            case StreamHotkeys.CURSOR:
+                game.touchInput.toggleCursorVisibility();
+                break;
+            default:
+                LimeLog.warning("No handler for stream hotkey " + match.hotkey.id);
+                return;
+        }
+        // An old chord (Ctrl+Alt+Shift+M for the menu) still works this release, and says once where it moved.
+        if (match.hotkey.chord != null && match.firstOldUse(PreferenceManager.getDefaultSharedPreferences(game))) {
+            game.messages.alert(game.getString(R.string.stream_hotkey_moved, match.old.label, match.hotkey.chord.label), Toast.LENGTH_LONG);
+        }
+    }
     // The host has already seen Ctrl, Alt and Shift go down for a client-side combo like Ctrl+Alt+Shift+K, and
     // sees them go up. Windows reads Alt or Ctrl+Shift going up with nothing between as a tap (the menu bar,
     // the input language switch), so put a key it ignores between them.

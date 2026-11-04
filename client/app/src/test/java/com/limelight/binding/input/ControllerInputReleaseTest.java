@@ -692,11 +692,13 @@ public class ControllerInputReleaseTest {
         ReflectionHelpers.setField(activity, "controllerHandler", handler);
         ReflectionHelpers.setField(activity, "inputCaptureProvider", capture);
         ReflectionHelpers.setField(activity, "grabbedInput", false);
+        // The stream hotkeys come from the table desktop Nightjar shares.
+        com.limelight.ui.StreamMenuModel.use(new com.limelight.ui.RustStreamMenuModel());
         try {
             handler.setInputEnabled(false);
             connection.states.clear();
             int[] keys = {KeyEvent.KEYCODE_CTRL_LEFT, KeyEvent.KEYCODE_ALT_LEFT, KeyEvent.KEYCODE_SHIFT_LEFT,
-                    KeyEvent.KEYCODE_C};
+                    KeyEvent.KEYCODE_P};
             for (int key : keys) {
                 ReflectionHelpers.callInstanceMethod(ReflectionHelpers.getField(activity, "keyboardInput"), "handleSpecialKeys",
                         ReflectionHelpers.ClassParameter.from(int.class, key),
@@ -712,6 +714,7 @@ public class ControllerInputReleaseTest {
             assertEquals(1, connection.states.size());
             assertEquals(ControllerPacket.A_FLAG, connection.states.get(0)[0]);
         } finally {
+            com.limelight.ui.StreamMenuModel.use(null);
             usb.clear();
             handler.destroy();
         }

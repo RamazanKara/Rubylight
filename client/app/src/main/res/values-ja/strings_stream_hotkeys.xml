@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="stream_hotkeys_title">ストリームのショートカットキー</string>
+    <string name="stream_hotkeys_summary">ストリーム中に使うNightjar独自のキーの組み合わせ。</string>
+    <string name="stream_hotkey_change">変更</string>
+    <string name="stream_hotkey_off">オフ</string>
+    <string name="stream_hotkey_reset">リセット</string>
+    <string name="stream_hotkey_record">新しいキーを押してください</string>
+    <string name="stream_hotkey_taken">%1$sで使用中</string>
+    <string name="stream_hotkey_length">2～4個のキーを使ってください。</string>
+    <string name="stream_hotkey_modifier">Windowsキーを使わずに、Ctrl、Alt、Shiftのいずれかを使ってください。</string>
+    <string name="stream_hotkey_one_key">Ctrl、Alt、Shift以外のキーを1つ使ってください。</string>
+    <string name="stream_hotkey_reserved">この組み合わせはWindowsが使用します。</string>
+    <string name="stream_hotkey_unsupported">対応していないキー：%1$s</string>
+    <string name="stream_hotkey_repeated">重複したキー：%1$s</string>
+    <string name="stream_hotkey_action_quit">切断</string>
+    <string name="stream_hotkey_action_capture">入力の解放またはキャプチャ</string>
+    <string name="stream_hotkey_action_overlay">パフォーマンス オーバーレイ</string>
+    <string name="stream_hotkey_action_stream_menu">ストリームメニュー</string>
+    <string name="stream_hotkey_action_cursor">カーソルの表示/非表示</string>
+    <string name="stream_hotkey_moved">%1$sは%2$sになりました</string>
+    <string name="stream_hotkeys_unavailable">ストリームのショートカットキーを使用できません: %1$s</string>
+</resources>

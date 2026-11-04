@@ -35,7 +35,7 @@ public class StreamMenuHintTest {
                 StreamMenuHint.text(en, StreamMenuHint.Back.GESTURE, true, false));
         // A TV remote, a controller and a keyboard.
         assertEquals("To open the stream menu, press Back, press Start + Back + LB + RB on the controller " +
-                        "or press Ctrl + Alt + Shift + M.",
+                        "or press Ctrl + Alt + Shift + Tab.",
                 StreamMenuHint.text(en, StreamMenuHint.Back.REMOTE, true, true));
     }
 

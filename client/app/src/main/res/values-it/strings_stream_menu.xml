@@ -37,7 +37,7 @@ I progressi non salvati andranno persi.</string>
     <string name="stream_menu_hint_buttons">scorri verso l’alto dal basso e tocca Indietro</string>
     <string name="stream_menu_hint_back">premi Indietro</string>
     <string name="stream_menu_hint_controller">premi Start + Back + LB + RB sul controller</string>
-    <string name="stream_menu_hint_keyboard">premi Ctrl + Alt + Shift + M</string>
+    <string name="stream_menu_hint_keyboard">premi Ctrl + Alt + Shift + Tab</string>
     <string name="stream_menu_hint_or">%1$s o %2$s</string>
     <string name="stream_menu_hint_list">%1$s, %2$s</string>
     <string name="stream_menu_hint_close">Tocca per chiudere</string>

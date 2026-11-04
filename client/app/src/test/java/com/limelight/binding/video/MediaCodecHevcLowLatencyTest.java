@@ -30,6 +30,7 @@ import org.robolectric.shadows.ShadowMediaCodecList;
 import org.robolectric.util.ReflectionHelpers;
 import org.robolectric.util.ReflectionHelpers.ClassParameter;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -99,7 +100,7 @@ public class MediaCodecHevcLowLatencyTest {
             assertEquals(1, tunedFormat("c2.amlogic.avc.decoder", "video/avc", false).getInteger(AML_LOW_LATENCY));
             assertEquals(1, tunedFormat("c2.amlogic.av1.decoder", "video/av01", false).getInteger(MediaFormat.KEY_LOW_LATENCY));
         }
-        // HEVC RFI keeps its normal policy (erratum 22): referenceFrameInvalidationUses... below.
+        // Their HEVC RFI has its own rule: amlogicHevcDecodersNeverGetRfi... below.
     }
 
     @Test
@@ -231,7 +232,7 @@ public class MediaCodecHevcLowLatencyTest {
 
     @Test
     public void referenceFrameInvalidationUsesEnabledLatencyOptionsAndHonorsTheOverride() {
-        MediaCodecInfo decoder = decoder(AML_HEVC, HEVC);
+        MediaCodecInfo decoder = decoder(OTHER_HEVC, HEVC);
         assertTrue(MediaCodecHelper.decoderSupportsRefFrameInvalidationHevc(decoder, true, false, false));
         assertTrue(MediaCodecHelper.decoderSupportsRefFrameInvalidationHevc(decoder, false, true, false));
         assertFalse(MediaCodecHelper.decoderSupportsRefFrameInvalidationHevc(decoder, false, false, false));
@@ -240,6 +241,74 @@ public class MediaCodecHevcLowLatencyTest {
         MediaCodecInfo verified = decoder("c2.exynos.hevc.decoder", HEVC);
         assertTrue(MediaCodecHelper.decoderSupportsRefFrameInvalidationHevc(verified, false, false, false));
         assertFalse(MediaCodecHelper.decoderSupportsRefFrameInvalidationHevc(verified, true, true, true));
+    }
+
+    // Issue 73: the Fire TV Cube 3 freezes on HEVC when RFI's maxNumReferenceFrames of 0 lets the
+    // host mark long-term references. Low latency support must not bring RFI back.
+    @Test
+    @Config(sdk = {28, 34})
+    public void amlogicHevcDecodersNeverGetRfiWhateverTheyReportAndH264RfiIsUntouched() {
+        for (String name : new String[] {"OMX.amlogic.hevc.decoder.awesome2", "omx.amlogic.hevc.decoder",
+                AML_HEVC, "C2.Amlogic.hevc.decoder.secure"}) {
+            MediaCodecInfo decoder = decoder(name, HEVC);
+            for (boolean lowLatency : new boolean[] {false, true}) {
+                for (boolean vendorLowLatency : new boolean[] {false, true}) {
+                    assertFalse(name, MediaCodecHelper.decoderSupportsRefFrameInvalidationHevc(decoder,
+                            lowLatency, vendorLowLatency, false));
+                }
+            }
+        }
+        // The H.264 list never held Amlogic, so this is the behaviour from before, not a new rule.
+        assertFalse(MediaCodecHelper.decoderSupportsRefFrameInvalidationAvc("OMX.amlogic.avc.decoder.awesome2", 1080));
+    }
+
+    @Test
+    @Config(sdk = {28, 34})
+    public void fireOsKeepsHevcRfiOnMediaTekWhileAmlogicLosesIt() {
+        ShadowBuild.setManufacturer("Amazon");
+        ShadowBuild.setModel("AFTKA");
+        List<String> rfi = ReflectionHelpers.getStaticField(MediaCodecHelper.class, "refFrameInvalidationHevcPrefixes");
+        List<String> whitelist = ReflectionHelpers.getStaticField(MediaCodecHelper.class, "whitelistedHevcDecoders");
+        List<String> rfiBefore = new ArrayList<>(rfi);
+        List<String> whitelistBefore = new ArrayList<>(whitelist);
+        ReflectionHelpers.setStaticField(MediaCodecHelper.class, "initialized", false);
+        try {
+            MediaCodecHelper.initialize(org.robolectric.RuntimeEnvironment.getApplication(), "");
+            for (String name : new String[] {"OMX.MTK.VIDEO.DECODER.HEVC", "c2.mtk.hevc.decoder"}) {
+                assertTrue(name, MediaCodecHelper.decoderSupportsRefFrameInvalidationHevc(
+                        decoder(name, HEVC), false, false, false));
+            }
+            for (String name : new String[] {"OMX.amlogic.hevc.decoder.awesome2", AML_HEVC}) {
+                assertFalse(name, MediaCodecHelper.decoderSupportsRefFrameInvalidationHevc(
+                        decoder(name, HEVC), false, false, false));
+            }
+            // HEVC itself stays on: it is the only way these devices reach 4K.
+            assertTrue(whitelist.contains("omx.amlogic"));
+        } finally {
+            rfi.clear();
+            rfi.addAll(rfiBefore);
+            whitelist.clear();
+            whitelist.addAll(whitelistBefore);
+            ReflectionHelpers.setStaticField(MediaCodecHelper.class, "initialized", true);
+        }
+    }
+
+    // Without the HEVC bit, android_sdp.c sends maxNumReferenceFrames 1, which the host reads as no
+    // long-term references. An H.264 or AV1 stream on the same device keeps its own bit.
+    @Test
+    @Config(shadows = com.limelight.PcViewLifecycleTest.NoNativeMoonBridge.class,
+            instrumentedPackages = "com.limelight.nvstream.jni")
+    public void negotiationDoesNotAdvertiseHevcRfiOnAmlogicDecoders() {
+        ShadowMediaCodecList.addCodec(decoder(AML_HEVC, HEVC));
+        try (ActivityController<Activity> activity = Robolectric.buildActivity(Activity.class).create()) {
+            PreferenceConfiguration prefs = new PreferenceConfiguration();
+            prefs.videoFormat = PreferenceConfiguration.FormatOption.FORCE_HEVC;
+            prefs.codecLowLatency = prefs.vendorLowLatency = true;
+            MediaCodecDecoderRenderer renderer = new MediaCodecDecoderRenderer(activity.get(), prefs,
+                    null, 0, false, false, "", null);
+            assertNotNull(ReflectionHelpers.getField(renderer, "hevcDecoder"));
+            assertEquals(0, renderer.getCapabilities() & MoonBridge.CAPABILITY_REFERENCE_FRAME_INVALIDATION_HEVC);
+        }
     }
 
     @Test @Config(sdk = 25)
@@ -286,7 +355,7 @@ public class MediaCodecHevcLowLatencyTest {
     @Config(shadows = com.limelight.PcViewLifecycleTest.NoNativeMoonBridge.class,
             instrumentedPackages = "com.limelight.nvstream.jni")
     public void negotiationDoesNotAdvertiseHevcRfiWhenTheOverrideDisablesIt() {
-        ShadowMediaCodecList.addCodec(decoder(AML_HEVC, HEVC));
+        ShadowMediaCodecList.addCodec(decoder(OTHER_HEVC, HEVC));
         for (boolean disable : new boolean[] {false, true}) {
             try (ActivityController<Activity> activity = Robolectric.buildActivity(Activity.class).create()) {
                 PreferenceConfiguration prefs = new PreferenceConfiguration();

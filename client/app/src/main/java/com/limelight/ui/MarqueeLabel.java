@@ -6,6 +6,7 @@ import android.util.AttributeSet;
 import android.view.View;
 import android.view.ViewParent;
 import android.view.ViewTreeObserver;
+import android.widget.AdapterView;
 
 import androidx.appcompat.widget.AppCompatTextView;
 
@@ -58,10 +59,15 @@ public class MarqueeLabel extends AppCompatTextView implements ViewTreeObserver.
         TextUtils.TruncateAt wanted = scroll ? TextUtils.TruncateAt.MARQUEE : TextUtils.TruncateAt.END;
         if (getEllipsize() != wanted) setEllipsize(wanted);
         // A selected label scrolls without focus of its own; the tile keeps the focus.
-        if (isSelected() != scroll) setSelected(scroll);
+        boolean selected = scroll && (!(focused instanceof AdapterView) || tileOf(this, focused).isSelected());
+        if (isSelected() != selected) setSelected(selected);
     }
 
-    /** True when {@code focused} is the label or holds it. */
+    /**
+     * True when {@code focused} is the label or holds it. A grid holds the focus for all its tiles and only selects one, so
+     * there the label is ready to scroll and the selected state decides (nightjar#7: every tile in view scrolled). The grid
+     * moves that state itself as the D-pad moves, down from the tile to this label, with no focus change to follow.
+     */
     static boolean within(View label, View focused) {
         if (focused == null) return false;
         if (focused == label) return true;
@@ -69,5 +75,12 @@ public class MarqueeLabel extends AppCompatTextView implements ViewTreeObserver.
             if (parent == focused) return true;
         }
         return false;
+    }
+
+    /** The child of {@code holder}, which holds the label, that the label is in. */
+    private static View tileOf(View label, View holder) {
+        View tile = label;
+        while (tile.getParent() != holder) tile = (View) tile.getParent();
+        return tile;
     }
 }

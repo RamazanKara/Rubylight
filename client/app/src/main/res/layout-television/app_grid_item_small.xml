@@ -23,25 +23,26 @@
                 android:gravity="center" android:padding="@dimen/space_m"
                 android:textAppearance="@style/TextAppearance.Nightjar.Body" android:textColor="?attr/colorOnSurface"
                 android:maxLines="4" android:ellipsize="end" android:importantForAccessibility="no" />
-            <!-- The badges sit at the top start, as on a phone: a cover prints its own title along the bottom. A TV poster is
-                 too narrow for the chip beside the options button at TV type sizes ("Running" wrapped), so they start just
-                 under the button and keep the poster's width. -->
+            <!-- The status sits at the top start, as on a phone. A TV poster is too narrow for the chip beside the options
+                 button at TV type sizes ("Running" wrapped), so it starts just under the button and keeps the poster's width. -->
             <LinearLayout android:id="@+id/grid_badges" android:layout_width="wrap_content" android:layout_height="wrap_content"
                 android:layout_gravity="top|start" android:layout_marginStart="@dimen/space_xs" android:layout_marginTop="@dimen/touch_target"
                 android:layout_marginEnd="@dimen/space_xs" android:orientation="vertical">
                 <com.limelight.ui.MarqueeLabel android:id="@+id/grid_status" android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:layout_marginBottom="@dimen/space_xs" android:maxLines="1" android:ellipsize="end"
+                    android:maxLines="1" android:ellipsize="end"
                     android:paddingStart="@dimen/space_s" android:paddingEnd="@dimen/space_s"
                     android:paddingTop="@dimen/space_xs" android:paddingBottom="@dimen/space_xs" android:background="@drawable/bg_chip"
                     android:textAppearance="@style/TextAppearance.Nightjar.Caption" android:textColor="?attr/colorOnSurface"
                     android:visibility="gone" android:importantForAccessibility="no" />
-                <com.limelight.ui.MarqueeLabel android:id="@+id/grid_role" android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:paddingStart="@dimen/space_s" android:paddingEnd="@dimen/space_s"
-                    android:paddingTop="@dimen/space_xs" android:paddingBottom="@dimen/space_xs"
-                    android:maxLines="1" android:ellipsize="end" android:background="@drawable/bg_chip" android:drawablePadding="@dimen/space_xs"
-                    android:textAppearance="@style/TextAppearance.Nightjar.Caption" android:textColor="?attr/colorOnSurface"
-                    android:visibility="gone" android:importantForAccessibility="no" />
             </LinearLayout>
+            <!-- The role sits in the bottom start corner, as on a phone, off the middle of the art (nightjar#7). -->
+            <com.limelight.ui.MarqueeLabel android:id="@+id/grid_role" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:layout_gravity="bottom|start" android:layout_margin="@dimen/space_xs"
+                android:paddingStart="@dimen/space_s" android:paddingEnd="@dimen/space_s"
+                android:paddingTop="@dimen/space_xs" android:paddingBottom="@dimen/space_xs"
+                android:maxLines="1" android:ellipsize="end" android:background="@drawable/bg_chip" android:drawablePadding="@dimen/space_xs"
+                android:textAppearance="@style/TextAppearance.Nightjar.Caption" android:textColor="?attr/colorOnSurface"
+                android:visibility="gone" android:importantForAccessibility="no" />
             <ImageButton android:id="@+id/grid_more" style="@style/ToolbarIcon" android:layout_gravity="top|end"
                 android:padding="@dimen/space_l" android:background="@drawable/bg_cover_action" android:focusable="false"
                 android:importantForAccessibility="yes" android:src="@drawable/ic_library_more" android:contentDescription="@string/library_options" />

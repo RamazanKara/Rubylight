@@ -208,12 +208,13 @@ public class AppGridAdapterTest {
     }
 
     /**
-     * A cover prints its own title along its bottom: the Running chip and the role sit at the top start, as on a phone,
-     * just under the options button, since a TV poster at TV type sizes has no room for the chip beside it.
+     * The Running chip sits at the top start, as on a phone, just under the options button, since a TV poster at TV type
+     * sizes has no room for it beside the button. The role sits in the bottom start corner (nightjar#7: stacked under
+     * the chip it covered the middle of the art).
      */
     @Test
     @Config(qualifiers = "w960dp-h540dp-television-xhdpi")
-    public void tvBadgesSitAtTheTopStartClearOfTheCoverTitleAndTheOptionsButton() {
+    public void tvBadgesSitInTheCornersClearOfTheMiddleOfTheArtAndTheOptionsButton() {
         try (var controller = Robolectric.buildActivity(com.limelight.ui.UiNavigationTest.Screen.class).setup().visible()) {
             float dp = controller.get().getResources().getDisplayMetrics().density;
             // Root widths as the TV library lays them out at 1080p: the art (112dp, small 88dp) plus the glow's 16dp each side.
@@ -244,14 +245,13 @@ public class AppGridAdapterTest {
                 assertTrue(name + ": under the options button", badges.getTop() >= more.getBottom());
                 assertEquals(name + ": Running stays on one line", 1, status.getLineCount());
                 assertTrue(name + ": Running is not cut", status.getLayout().getEllipsisCount(0) == 0);
-                assertTrue(name + ": a long role ends inside the poster", badges.getRight() <= art.getRight() - margin);
-                // A cover prints its title in about its bottom third.
-                assertTrue(name + ": Running stays in the top 60%, off the cover's title",
+                assertTrue(name + ": Running stays in the top 60%",
                         badges.getTop() + status.getBottom() < art.getHeight() * 0.6f);
-                if (c[0] == R.layout.app_grid_item) {
-                    assertTrue(name + ": with a role too, both stay above the bottom third",
-                            badges.getBottom() < art.getHeight() * 2 / 3);
-                }
+                assertSame(art.getParent(), role.getParent());
+                assertEquals(name + ": the role starts at the art's corner", art.getLeft() + margin, role.getLeft());
+                assertEquals(name + ": the role ends at the art's corner", art.getBottom() - margin, role.getBottom());
+                assertTrue(name + ": a long role ends inside the poster", role.getRight() <= art.getRight() - margin);
+                assertTrue(name + ": the role is clear of the art's middle", role.getTop() > art.getHeight() / 2);
             }
         }
     }

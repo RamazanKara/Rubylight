@@ -203,7 +203,8 @@ public final class PadLayout {
             case WASD: {
                 // Between the clusters and below the touchpad, clear of every default control until it is moved, and
                 // of the microphone and menu buttons, which sit below the top row. Where the clusters leave no room
-                // below the buttons (16:10 screens), clearing the controls comes first: the buttons can be dragged.
+                // below the buttons (16:10 and short 16:9 screens), it keeps its spot right below the touchpad;
+                // the buttons can be dragged.
                 float touchpadBottom = .035f * u + round + Math.max(.02f * u, 8 * density) + pillH;
                 float buttonsBottom = touchpadBottom + TOP_BUTTONS_DP * density;
                 float size = height(control, u, density, 1);

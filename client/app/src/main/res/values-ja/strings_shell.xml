@@ -46,6 +46,8 @@
     <string name="host_update_timeout">PC はバージョン %1$s で時間内に戻りませんでした。</string>
     <string name="host_restart_refused_title">%1$sを再起動できませんでした</string>
     <string name="host_shutdown_refused_title">%1$sをシャットダウンできませんでした</string>
+    <string name="host_restart_unconfirmed_title">%1$sはまだ再起動する可能性があります</string>
+    <string name="host_shutdown_unconfirmed_title">%1$sはまだシャットダウンする可能性があります</string>
     <string name="host_update_waiting">%1$s そのストリームが終わると更新が始まります。</string>
     <string name="host_update_failed">PC で更新に失敗しました。</string>
     <string name="host_update_old_version">PC はバージョン %1$s で戻りました。更新はインストールされませんでした。</string>

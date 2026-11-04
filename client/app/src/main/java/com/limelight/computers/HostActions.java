@@ -157,7 +157,8 @@ public final class HostActions {
             sleepRoute = null;
         }
         dismissSleepProgress();
-        // Restart, Shut down and an update's wait go on and report by toast.
+        // Restart, Shut down and an update's wait go on and report by toast; their routes let go of this screen, so
+        // a wait of hours holds no activity.
         if (powerRoute != null) {
             powerRoute.detach();
             powerRoute = null;
@@ -764,9 +765,9 @@ public final class HostActions {
     void startPcPower(ComputerDetails computer, NativePcPower.Action action, SleepFlow.Client client, Executor worker,
                       HostUpdateFlow.Sleeper sleeper) {
         endPcPower();
-        Route route = new Route(activity.getApplicationContext(), "PC power " + action);
+        Route route = new Route(activity.getApplicationContext(), this, "PC power " + action);
         powerRoute = route;
-        showPowerProgress(powerTitle(action));
+        showPowerProgress(powerTitle(action), false);
         new PcPowerFlow(action, client, pcPowerUi(computer, action, route), worker, main::post,
                 SystemClock::elapsedRealtime, sleeper).start();
     }
@@ -779,16 +780,23 @@ public final class HostActions {
         dismissPowerProgress();
     }
 
-    private void showPowerProgress(int title) {
+    /**
+     * While the host is asked. Before the confirmation Cancel ends the flow; once the token is {@code spent} the PC
+     * may go down whatever the person taps, so OK only hides the progress and the outcome still shows.
+     */
+    private void showPowerProgress(int title, boolean spent) {
         dismissPowerProgress();
         if (gone()) {
             return;
         }
-        powerProgress = new NavigationDialogBuilder(activity).setTitle(title)
-                .setMessage(R.string.host_sleep_asking)
-                .setNegativeButton(android.R.string.cancel, (dialog, which) -> endPcPower())
-                .setOnCancelListener(dialog -> endPcPower())
-                .show();
+        powerProgress = spent
+                ? new NavigationDialogBuilder(activity).setTitle(title).setMessage(R.string.host_sleep_asking)
+                        .setPositiveButton(android.R.string.ok, null)
+                        .show()
+                : new NavigationDialogBuilder(activity).setTitle(title).setMessage(R.string.host_sleep_asking)
+                        .setNegativeButton(android.R.string.cancel, (dialog, which) -> endPcPower())
+                        .setOnCancelListener(dialog -> endPcPower())
+                        .show();
     }
 
     private void dismissPowerProgress() {
@@ -834,23 +842,26 @@ public final class HostActions {
         dialog.show();
     }
 
+    /** The outcomes of one Restart or Shut down: static, so all it holds of the screen is {@code route}'s. */
     @VisibleForTesting
-    PcPowerFlow.Ui pcPowerUi(final ComputerDetails computer, final NativePcPower.Action action, final Route route) {
-        final Context app = activity.getApplicationContext();
-        final String title = activity.getString(powerTitle(action));
+    static PcPowerFlow.Ui pcPowerUi(final ComputerDetails computer, final NativePcPower.Action action,
+                                    final Route route) {
+        final Context app = route.app;
+        final String title = app.getString(powerTitle(action));
         final String name = computer.displayName();
         return new PcPowerFlow.Ui() {
             @Override
             public void confirm(boolean wakeFromOff, Runnable go) {
-                route.deliver("offer", () -> {
-                    dismissPowerProgress();
-                    confirmWithCancelFocused(activity.getString(action == NativePcPower.Action.RESTART
+                route.deliver("offer", screen -> {
+                    screen.dismissPowerProgress();
+                    screen.confirmWithCancelFocused(app.getString(action == NativePcPower.Action.RESTART
                                     ? R.string.host_restart_title : R.string.host_shutdown_title, name),
-                            powerConfirmText(activity, action, wakeFromOff),
+                            powerConfirmText(app, action, wakeFromOff),
                             action == NativePcPower.Action.RESTART ? R.string.host_restart_action
                                     : R.string.host_shutdown_action,
                             () -> {
-                                showPowerProgress(powerTitle(action));
+                                // The token is spent now: no Cancel that would only hide what the PC does.
+                                screen.showPowerProgress(powerTitle(action), true);
                                 go.run();
                             });
                 }, null);
@@ -859,53 +870,59 @@ public final class HostActions {
             @Override
             public void accepted() {
                 String text = powerAcceptedText(app, action, name);
-                route.deliver("acceptance", () -> {
-                    dismissPowerProgress();
-                    if (!gone()) Toast.makeText(activity, text, Toast.LENGTH_LONG).show();
+                route.deliver("acceptance", screen -> {
+                    screen.dismissPowerProgress();
+                    if (!screen.gone()) Toast.makeText(screen.activity, text, Toast.LENGTH_LONG).show();
                 }, text);
             }
 
             @Override
             public void unavailable(String reason) {
                 String text = powerUnavailableText(app, reason);
-                route.deliver("answer: " + reason, () -> {
-                    dismissPowerProgress();
-                    showError(title, text, null);
+                route.deliver("answer: " + reason, screen -> {
+                    screen.dismissPowerProgress();
+                    screen.showError(title, text, null);
                 }, text);
             }
 
             @Override
             public void refused(String message) {
-                route.deliver("refusal: " + message, () -> {
-                    dismissPowerProgress();
-                    showError(title, message, null);
+                route.deliver("refusal: " + message, screen -> {
+                    screen.dismissPowerProgress();
+                    screen.showError(title, message, null);
                 }, message);
             }
 
             @Override
             public void failed(NativeApiException error) {
                 String text = sleepFailedText(app, error);
-                route.deliver("failure: " + error.getKind() + " " + error.getMessage(), () -> {
-                    dismissPowerProgress();
-                    showError(title, text, sleepRetries(error) ? () -> pcPower(computer, action) : null);
+                route.deliver("failure: " + error.getKind() + " " + error.getMessage(), screen -> {
+                    screen.dismissPowerProgress();
+                    screen.showError(title, text,
+                            sleepRetries(error) ? () -> screen.pcPower(computer, action) : null);
                 }, text);
             }
 
             @Override
-            public void refusedLater(String refusal) {
-                String refusedTitle = app.getString(action == NativePcPower.Action.RESTART
-                        ? R.string.host_restart_refused_title : R.string.host_shutdown_refused_title, name);
-                route.deliver("refusal after the answer: " + refusal, () -> {
-                    dismissPowerProgress();
-                    showError(refusedTitle, refusal, null);
-                }, refusedTitle + ": " + refusal);
+            public void refusedLater(String refusal, boolean unconfirmed) {
+                boolean restart = action == NativePcPower.Action.RESTART;
+                // Not confirmed in time is no failure: the PC may still go down.
+                int titleId = unconfirmed
+                        ? (restart ? R.string.host_restart_unconfirmed_title : R.string.host_shutdown_unconfirmed_title)
+                        : (restart ? R.string.host_restart_refused_title : R.string.host_shutdown_refused_title);
+                String laterTitle = app.getString(titleId, name);
+                route.deliver((unconfirmed ? "unconfirmed after the answer: " : "refusal after the answer: ") + refusal,
+                        screen -> {
+                            screen.dismissPowerProgress();
+                            screen.showError(laterTitle, refusal, null);
+                        }, laterTitle + ": " + refusal);
             }
         };
     }
 
     /**
      * Update the PC's host to the version its last answer offered: confirm with Cancel focused, then the host
-     * installs it and Nightjar waits until /serverinfo answers with that version. Leaving the screen keeps the wait;
+     * installs it and Nightjar waits until GET /update answers on that version. Leaving the screen keeps the wait;
      * its outcome comes as a toast then.
      */
     public void updateHost(final ComputerDetails computer) {
@@ -923,18 +940,8 @@ public final class HostActions {
             showError(R.string.host_menu_update, activity.getString(R.string.error_manager_not_running), null);
             return;
         }
-        final Context app = activity.getApplicationContext();
-        final String uniqueId = binder.getUniqueId();
-        confirmUpdate(computer, version, () -> startUpdate(computer, nativeClient(computer, binder), () -> {
-            try {
-                return new NvHTTP(ServerHelper.getCurrentAddressFromComputer(computer), computer.httpsPort, uniqueId,
-                        computer.serverCert, PlatformBinding.getCryptoProvider(app))
-                        .getComputerDetails(false).caps.hostVersion();
-            } catch (IOException | XmlPullParserException e) {
-                // Down while it installs.
-                return null;
-            }
-        }, task -> new Thread(task, "Host update").start(), Thread::sleep));
+        confirmUpdate(computer, version, () -> startUpdate(computer, nativeClient(computer, binder),
+                task -> new Thread(task, "Host update").start(), Thread::sleep));
     }
 
     @VisibleForTesting
@@ -944,18 +951,18 @@ public final class HostActions {
     }
 
     @VisibleForTesting
-    void startUpdate(ComputerDetails computer, SleepFlow.Client client, HostUpdateFlow.Probe probe, Executor worker,
+    void startUpdate(ComputerDetails computer, SleepFlow.Client client, Executor worker,
                      HostUpdateFlow.Sleeper sleeper) {
         endUpdate();
-        Route route = new Route(activity.getApplicationContext(), "Host update");
+        Route route = new Route(activity.getApplicationContext(), this, "Host update");
         updateRoute = route;
-        HostUpdateFlow flow = new HostUpdateFlow(client, probe, updateUi(computer, route), worker, main::post, sleeper);
+        HostUpdateFlow flow = new HostUpdateFlow(client, updateUi(computer, route), worker, main::post, sleeper);
         updateFlow = flow;
         showUpdateDialog(activity.getString(R.string.host_menu_update), activity.getString(R.string.host_sleep_asking));
         flow.start();
     }
 
-    /** A newer update or Cancel takes over: the wait stops and its outcome is dropped. */
+    /** A newer update takes over: the earlier wait stops and its outcome is dropped. */
     private void endUpdate() {
         if (updateFlow != null) {
             updateFlow.cancel();
@@ -968,21 +975,18 @@ public final class HostActions {
         dismissUpdateDialog();
     }
 
-    /** The update's progress: Cancel while the host is asked; once it installs, OK hides it and the wait goes on. */
+    /**
+     * The update's progress. It has no Cancel: once confirmed the host may install whatever the person taps, so OK only
+     * hides it, and the wait goes on to show its outcome.
+     */
     private void showUpdateDialog(String title, String message) {
         dismissUpdateDialog();
         if (gone()) {
             return;
         }
-        boolean asking = updateRoute != null && !updateRoute.started;
-        updateDialog = asking
-                ? new NavigationDialogBuilder(activity).setTitle(title).setMessage(message)
-                        .setNegativeButton(android.R.string.cancel, (dialog, which) -> endUpdate())
-                        .setOnCancelListener(dialog -> endUpdate())
-                        .show()
-                : new NavigationDialogBuilder(activity).setTitle(title).setMessage(message)
-                        .setPositiveButton(android.R.string.ok, null)
-                        .show();
+        updateDialog = new NavigationDialogBuilder(activity).setTitle(title).setMessage(message)
+                .setPositiveButton(android.R.string.ok, null)
+                .show();
     }
 
     private void dismissUpdateDialog() {
@@ -992,62 +996,63 @@ public final class HostActions {
         }
     }
 
+    /** The outcomes of one host update: static, so all it holds of the screen is {@code route}'s. */
     @VisibleForTesting
-    HostUpdateFlow.Ui updateUi(final ComputerDetails computer, final Route route) {
-        final Context app = activity.getApplicationContext();
+    static HostUpdateFlow.Ui updateUi(final ComputerDetails computer, final Route route) {
+        final Context app = route.app;
         final String name = computer.displayName();
+        final String uuid = computer.uuid;
         final String failedTitle = app.getString(R.string.host_update_failed_title, name);
         return new HostUpdateFlow.Ui() {
             @Override
             public void started(String version) {
-                route.started = true;
                 String text = app.getString(R.string.host_update_started, version);
-                route.deliver("start " + version, () -> showUpdateDialog(
+                route.deliver("start " + version, screen -> screen.showUpdateDialog(
                         app.getString(R.string.host_update_started_title, name), text), null);
             }
 
             @Override
             public void waiting(String reason) {
                 String text = app.getString(R.string.host_update_waiting, reason);
-                route.deliver("waiting: " + reason, () -> showUpdateDialog(
+                route.deliver("waiting: " + reason, screen -> screen.showUpdateDialog(
                         app.getString(R.string.host_update_started_title, name), text), null);
             }
 
             @Override
             public void back(String version) {
-                KnownUpdates.forget(computer.uuid);
+                KnownUpdates.forget(uuid);
                 String title = app.getString(R.string.host_update_back_title, name);
                 String text = app.getString(R.string.host_update_back, version);
-                route.deliver("back on " + version, () -> {
-                    dismissUpdateDialog();
-                    showError(title, text, null);
+                route.deliver("back on " + version, screen -> {
+                    screen.dismissUpdateDialog();
+                    screen.showError(title, text, null);
                 }, title);
             }
 
             @Override
             public void timedOut(String version) {
                 String text = app.getString(R.string.host_update_timeout, version);
-                route.deliver("timeout", () -> {
-                    dismissUpdateDialog();
-                    showError(failedTitle, text, null);
+                route.deliver("timeout", screen -> {
+                    screen.dismissUpdateDialog();
+                    screen.showError(failedTitle, text, null);
                 }, text);
             }
 
             @Override
             public void nothingToInstall() {
                 String text = app.getString(R.string.host_update_none);
-                route.deliver("nothing to install", () -> {
-                    dismissUpdateDialog();
-                    showError(failedTitle, text, null);
+                route.deliver("nothing to install", screen -> {
+                    screen.dismissUpdateDialog();
+                    screen.showError(failedTitle, text, null);
                 }, text);
             }
 
             @Override
             public void updateFailed(String error) {
                 String text = error != null ? error : app.getString(R.string.host_update_failed);
-                route.deliver("failed on the PC: " + error, () -> {
-                    dismissUpdateDialog();
-                    showError(failedTitle, text, null);
+                route.deliver("failed on the PC: " + error, screen -> {
+                    screen.dismissUpdateDialog();
+                    screen.showError(failedTitle, text, null);
                 }, text);
             }
 
@@ -1055,26 +1060,26 @@ public final class HostActions {
             public void cameBackOn(String version, String error) {
                 String back = app.getString(R.string.host_update_old_version, version);
                 String text = error != null ? back + " " + error : back;
-                route.deliver("back on the old version " + version, () -> {
-                    dismissUpdateDialog();
-                    showError(failedTitle, text, null);
+                route.deliver("back on the old version " + version, screen -> {
+                    screen.dismissUpdateDialog();
+                    screen.showError(failedTitle, text, null);
                 }, text);
             }
 
             @Override
             public void refused(String message) {
-                route.deliver("refusal: " + message, () -> {
-                    dismissUpdateDialog();
-                    showError(failedTitle, message, null);
+                route.deliver("refusal: " + message, screen -> {
+                    screen.dismissUpdateDialog();
+                    screen.showError(failedTitle, message, null);
                 }, message);
             }
 
             @Override
             public void failed(NativeApiException error) {
                 String text = sleepFailedText(app, error);
-                route.deliver("failure: " + error.getKind() + " " + error.getMessage(), () -> {
-                    dismissUpdateDialog();
-                    showError(failedTitle, text, null);
+                route.deliver("failure: " + error.getKind() + " " + error.getMessage(), screen -> {
+                    screen.dismissUpdateDialog();
+                    screen.showError(failedTitle, text, null);
                 }, text);
             }
         };
@@ -1082,23 +1087,24 @@ public final class HostActions {
 
     /**
      * Carries one Restart, Shut down or update flow's outcomes, on the main thread, as {@link SleepRoute} does: to
-     * its screen; once the screen is gone, as a toast; once a newer flow or Cancel ended it, nowhere.
+     * its screen; once the screen is gone, as a toast; once a newer flow or Cancel ended it, nowhere. It is the only
+     * way a flow reaches the screen, and lets go of it on {@link #detach}, so a wait that outlives the screen (an
+     * update's, for hours) does not keep it.
      */
     static final class Route {
-        private final Context app;
+        final Context app;
         private final String what;
-        private boolean detached;
+        private HostActions screen;
         private boolean dropped;
-        /** The update was taken: its progress no longer offers Cancel. */
-        boolean started;
 
-        Route(Context app, String what) {
+        Route(Context app, HostActions screen, String what) {
             this.app = app;
+            this.screen = screen;
             this.what = what;
         }
 
         void detach() {
-            detached = true;
+            screen = null;
         }
 
         void drop() {
@@ -1106,12 +1112,12 @@ public final class HostActions {
         }
 
         /** {@code shown} while the screen is there; else {@code toast}, or only the log when it is null. */
-        void deliver(String outcome, Runnable shown, String toast) {
+        void deliver(String outcome, java.util.function.Consumer<HostActions> shown, String toast) {
             LimeLog.info(what + " " + outcome);
             if (dropped) {
                 LimeLog.info(what + " " + outcome + " after it was replaced or cancelled; not shown");
-            } else if (!detached) {
-                shown.run();
+            } else if (screen != null) {
+                shown.accept(screen);
             } else if (toast != null) {
                 Toast.makeText(app, toast, Toast.LENGTH_LONG).show();
             }

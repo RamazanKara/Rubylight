@@ -38,8 +38,11 @@ final class PcPowerFlow {
         /** The host could not be asked or its answer was unreadable. */
         void failed(NativeApiException error);
 
-        /** The PC took the request but did not go ahead after all: the host's words. */
-        void refusedLater(String refusal);
+        /**
+         * The PC took the request but did not go ahead after all: the host's words. {@code unconfirmed}: no
+         * refusal, Windows did not confirm it in time and the PC may still go down.
+         */
+        void refusedLater(String refusal, boolean unconfirmed);
     }
 
     private final NativePcPower.Action action;
@@ -113,9 +116,9 @@ final class PcPowerFlow {
         for (int read = 0; read < REFUSAL_READS; read++) {
             try {
                 sleeper.sleep(REFUSAL_POLL_MS);
-                String refusal = api.pcPower().lastRefusal;
-                if (refusal != null) {
-                    main.execute(() -> ui.refusedLater(refusal));
+                NativePcPower.Offer offer = api.pcPower();
+                if (offer.lastRefusal != null) {
+                    main.execute(() -> ui.refusedLater(offer.lastRefusal, offer.lastRefusalUnconfirmed));
                     return;
                 }
             } catch (NativeApiException e) {

@@ -7,6 +7,7 @@ import static org.junit.Assert.assertTrue;
 
 import android.app.Application;
 import android.os.Looper;
+import android.view.View;
 import android.widget.TextView;
 
 import androidx.appcompat.app.AlertDialog;
@@ -30,13 +31,19 @@ import org.robolectric.android.controller.ActivityController;
 import org.robolectric.annotation.Config;
 import org.robolectric.shadows.ShadowDialog;
 import org.robolectric.shadows.ShadowToast;
+import org.robolectric.util.ReflectionHelpers;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.lang.reflect.Field;
+import java.lang.reflect.Modifier;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
@@ -59,18 +66,27 @@ public class PcPowerFlowTest {
     }
 
     private static String offer(String token, String reason, boolean wakeFromOff, String lastRefusal) {
+        return offer(token, reason, wakeFromOff, lastRefusal, null);
+    }
+
+    /** {@code unconfirmed} null: an older host, without last_refusal_unconfirmed. */
+    private static String offer(String token, String reason, boolean wakeFromOff, String lastRefusal,
+                                Boolean unconfirmed) {
         String availability = "{\"available\":" + (token != null) + ",\"reason\":"
                 + (reason == null ? "null" : "\"" + reason + "\"") + "}";
         return "{\"ok\":{\"restart\":" + availability + ",\"shutdown\":" + availability + ",\"token\":"
                 + (token == null ? "null" : "\"" + token + "\"") + ",\"token_lifetime_s\":30,\"wake_from_off\":"
                 + wakeFromOff + ",\"last_refusal\":" + (lastRefusal == null ? "null" : "\"" + lastRefusal + "\"")
-                + "}}";
+                + (unconfirmed == null ? "" : ",\"last_refusal_unconfirmed\":" + unconfirmed) + "}}";
     }
 
     /** GET /power after the PC took the request, with Windows' late refusal. */
     private static String refusedAfter(String refusal) {
         return offer(null, STREAMING, true, refusal);
     }
+
+    private static final String UNANSWERED =
+            "Windows did not confirm the request in time; the PC may still restart: process timed out";
 
     private static final String WINDOWS_REFUSED =
             "Windows refused to restart the PC: Access is denied. (exit code 5)";
@@ -88,6 +104,12 @@ public class PcPowerFlowTest {
         return update(phase, "3.4.0", null, null, false);
     }
 
+    /** GET /update from the new host, following an install to 3.4.0: update_json's arrived. */
+    private static final String ARRIVED = "{\"ok\":{\"current_version\":\"3.4.0\",\"latest_version\":null,"
+            + "\"phase\":\"idle\",\"install_supported\":true,\"error\":null,\"waiting_for\":null,"
+            + "\"install_now\":false,\"offered\":null,\"installing_now\":false,\"in_progress\":false,"
+            + "\"failed\":false,\"failure\":null,\"arrived\":true,\"gave_up\":false}}";
+
     /**
      * An update op's envelope, with the verdicts native_api.rs's update_json adds from pc_power.rs: {@code failure}
      * set means phase failed with those words ("" for none).
@@ -99,7 +121,8 @@ public class PcPowerFlowTest {
                 + (failed ? "failed" : phase) + "\",\"install_supported\":true,\"error\":" + quoted(words)
                 + ",\"waiting_for\":" + quoted(waitingFor) + ",\"install_now\":true,\"offered\":" + quoted(offered)
                 + ",\"installing_now\":" + !phase.equals("idle") + ",\"in_progress\":" + !phase.equals("idle")
-                + ",\"failed\":" + failed + ",\"failure\":" + quoted(words) + ",\"gave_up\":" + gaveUp + "}}";
+                + ",\"failed\":" + failed + ",\"failure\":" + quoted(words) + ",\"arrived\":false,\"gave_up\":"
+                + gaveUp + "}}";
     }
 
     private static String quoted(String text) {
@@ -153,8 +176,8 @@ public class PcPowerFlowTest {
             failure = error;
         }
 
-        @Override public void refusedLater(String refusal) {
-            events.add("refused later");
+        @Override public void refusedLater(String refusal, boolean unconfirmed) {
+            events.add(unconfirmed ? "unconfirmed later" : "refused later");
             said = refusal;
         }
     }
@@ -221,6 +244,25 @@ public class PcPowerFlowTest {
     }
 
     @Test
+    public void aTimeoutAfterThePcTookTheRequestIsNoRefusal() {
+        script("pc_power", offer(TOKEN_A, null, true), offer(null, STREAMING, true, UNANSWERED, true));
+        script("pc_power.restart", ACCEPTED);
+        Recorder unconfirmed = new Recorder();
+        flow(NativePcPower.Action.RESTART, unconfirmed).start();
+        unconfirmed.go.run();
+        assertEquals(List.of("confirm", "accepted", "unconfirmed later"), unconfirmed.events);
+        assertEquals(UNANSWERED, unconfirmed.said);
+
+        // An older host never says: a refusal, as before.
+        script("pc_power", offer(TOKEN_B, null, true), offer(null, STREAMING, true, UNANSWERED, null));
+        script("pc_power.restart", ACCEPTED);
+        Recorder older = new Recorder();
+        flow(NativePcPower.Action.RESTART, older).start();
+        older.go.run();
+        assertEquals(List.of("confirm", "accepted", "refused later"), older.events);
+    }
+
+    @Test
     public void aTokenOf25SecondsOrOlderIsFetchedAgainBeforeItIsSpent() {
         script("pc_power", offer(TOKEN_A, null, true), offer(TOKEN_B, null, true), UNREACHABLE);
         script("pc_power.shutdown", ACCEPTED);
@@ -276,6 +318,10 @@ public class PcPowerFlowTest {
         return ((TextView) dialog.findViewById(android.R.id.message)).getText().toString();
     }
 
+    private static String title(AlertDialog dialog) {
+        return ((TextView) dialog.findViewById(androidx.appcompat.R.id.alertTitle)).getText().toString();
+    }
+
     private static final HostActions.Callbacks CALLBACKS = new HostActions.Callbacks() {
         @Override public ComputerManagerService.ComputerManagerBinder binder() { return null; }
         @Override public boolean isForeground() { return true; }
@@ -323,7 +369,13 @@ public class PcPowerFlowTest {
             assertEquals(screen.getString(R.string.host_restart_action),
                     confirm.getButton(AlertDialog.BUTTON_POSITIVE).getText().toString());
             confirm.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
-            assertEquals(screen.getString(R.string.host_sleep_asking), message(latestDialog()));
+            AlertDialog spending = latestDialog();
+            assertEquals(screen.getString(R.string.host_sleep_asking), message(spending));
+            // The token is on its way: no Cancel that would only hide what the PC does.
+            assertEquals(View.GONE, spending.getButton(AlertDialog.BUTTON_NEGATIVE).getVisibility());
+            spending.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+            Shadows.shadowOf(Looper.getMainLooper()).idle();
+            assertFalse(spending.isShowing());
             worker.poll().run();
             Shadows.shadowOf(Looper.getMainLooper()).idle();
             assertEquals(List.of("pc_power", "pc_power.restart " + TOKEN_A, "pc_power"), calls);
@@ -346,6 +398,28 @@ public class PcPowerFlowTest {
             assertEquals(refusal, message(shown));
             assertEquals(screen.getString(R.string.host_shutdown_refused_title, "Office"),
                     ((TextView) shown.findViewById(androidx.appcompat.R.id.alertTitle)).getText().toString());
+        }
+    }
+
+    @Test
+    public void theScreenTitlesATimeoutAsUnconfirmedNotAsAFailure() {
+        try (ActivityController<ToolbarIconTintTest.Screen> controller = screen()) {
+            ToolbarIconTintTest.Screen screen = controller.get();
+            HostActions actions = new HostActions(screen, CALLBACKS);
+            NativeApiClient api = client();
+            script("pc_power", offer(TOKEN_A, null, true), offer(null, STREAMING, true, UNANSWERED, true));
+            script("pc_power.restart", ACCEPTED);
+            actions.startPcPower(office(), NativePcPower.Action.RESTART, () -> api, Runnable::run, slept::add);
+            latestDialog().getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+            AlertDialog shown = latestDialog();
+            assertEquals(UNANSWERED, message(shown));
+            assertEquals(screen.getString(R.string.host_restart_unconfirmed_title, "Office"), title(shown));
+
+            script("pc_power", offer(TOKEN_B, null, true), offer(null, STREAMING, true, UNANSWERED, true));
+            script("pc_power.shutdown", ACCEPTED);
+            actions.startPcPower(office(), NativePcPower.Action.SHUT_DOWN, () -> api, Runnable::run, slept::add);
+            latestDialog().getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+            assertEquals(screen.getString(R.string.host_shutdown_unconfirmed_title, "Office"), title(latestDialog()));
         }
     }
 
@@ -414,24 +488,22 @@ public class PcPowerFlowTest {
         @Override public void failed(NativeApiException error) { events.add("failed " + error.getKind()); }
     }
 
-    private static final HostUpdateFlow.Probe NO_ANSWER = () -> null;
     private static final long POLLS = HostUpdateFlow.WAIT_MS / HostUpdateFlow.POLL_MS;
 
-    private UpdateRecorder follow(HostUpdateFlow.Probe probe) {
+    private UpdateRecorder follow() {
         NativeApiClient api = client();
         UpdateRecorder ui = new UpdateRecorder();
-        new HostUpdateFlow(() -> api, probe, ui, Runnable::run, Runnable::run, slept::add).start();
+        new HostUpdateFlow(() -> api, ui, Runnable::run, Runnable::run, slept::add).start();
         return ui;
     }
 
     @Test
-    public void anUpdateWaitsUntilServerinfoAnswersWithTheNewVersion() {
+    public void anUpdateWaitsUntilThePcAnswersOnTheNewVersion() {
         script("update.install", update("downloading"));
-        script("update", update("downloading"), UNREACHABLE, UNREACHABLE);
-        java.util.LinkedList<String> versions = new java.util.LinkedList<>(Arrays.asList("3.3.0", null, null, "3.4.0"));
-        UpdateRecorder ui = follow(versions::poll);
+        script("update", update("downloading"), UNREACHABLE, UNREACHABLE, ARRIVED);
+        UpdateRecorder ui = follow();
         assertEquals(List.of("started 3.4.0", "back 3.4.0"), ui.events);
-        assertEquals(List.of("update.install", "update 3.4.0", "update 3.4.0", "update 3.4.0"), calls);
+        assertEquals(List.of("update.install", "update 3.4.0", "update 3.4.0", "update 3.4.0", "update 3.4.0"), calls);
         assertEquals(4, slept.size());
         assertEquals(HostUpdateFlow.POLL_MS, (long) slept.get(0));
     }
@@ -442,22 +514,18 @@ public class PcPowerFlowTest {
         for (long i = 0; i < POLLS; i++) {
             script("update", update("installing"));
         }
-        UpdateRecorder ui = follow(() -> "3.3.0");
+        UpdateRecorder ui = follow();
         assertEquals(List.of("started 3.4.0", "timeout 3.4.0"), ui.events);
         assertEquals(POLLS, slept.size());
 
-        UpdateRecorder refused = follow(() -> {
-            throw new AssertionError("No wait after a refusal");
-        });
+        UpdateRecorder refused = follow();
         assertEquals(List.of("refused " + STREAMING), refused.events);
     }
 
     @Test
     public void anInstallThatOffersNoVersionEndsAtOnce() {
         script("update.install", update("idle", null, null, null, false));
-        UpdateRecorder ui = follow(() -> {
-            throw new AssertionError("No wait for a version that isn't coming");
-        });
+        UpdateRecorder ui = follow();
         assertEquals(List.of("nothing to install"), ui.events);
         assertTrue(slept.isEmpty());
     }
@@ -467,9 +535,9 @@ public class PcPowerFlowTest {
         script("update.install", update("downloading"), update("downloading"));
         script("update", update("downloading"), update("downloading", "3.4.0", null, "Installer verification failed", false),
                 update("downloading", "3.4.0", null, "", false));
-        UpdateRecorder ui = follow(NO_ANSWER);
+        UpdateRecorder ui = follow();
         assertEquals(List.of("started 3.4.0", "failed on the PC Installer verification failed"), ui.events);
-        UpdateRecorder unsaid = follow(NO_ANSWER);
+        UpdateRecorder unsaid = follow();
         assertEquals(List.of("started 3.4.0", "failed on the PC null"), unsaid.events);
     }
 
@@ -479,7 +547,7 @@ public class PcPowerFlowTest {
         // Only after it went away: before that, idle and on 3.3.0 is how the install starts.
         script("update", update("installing", "3.4.0", null, null, false), UNREACHABLE,
                 update("idle", "3.4.0", null, null, true));
-        UpdateRecorder ui = follow(NO_ANSWER);
+        UpdateRecorder ui = follow();
         assertEquals(List.of("started 3.4.0", "back on 3.3.0 null"), ui.events);
         assertEquals(3, slept.size());
     }
@@ -491,9 +559,23 @@ public class PcPowerFlowTest {
         for (long i = 0; i < waits; i++) {
             script("update", update("ready", "3.4.0", STREAMING, null, false));
         }
-        AtomicLong asked = new AtomicLong();
-        UpdateRecorder ui = follow(() -> asked.incrementAndGet() > waits ? "3.4.0" : "3.3.0");
+        script("update", ARRIVED);
+        UpdateRecorder ui = follow();
         assertEquals(List.of("started 3.4.0", "waiting " + STREAMING, "back 3.4.0"), ui.events);
+    }
+
+    @Test
+    public void anotherDevicesStreamHoldsTheWaitForThreeHoursAtMost() {
+        script("update.install", update("ready"));
+        long most = HostUpdateFlow.MAX_WAIT_MS / HostUpdateFlow.POLL_MS;
+        assertEquals(3 * 60 * 60_000, HostUpdateFlow.MAX_WAIT_MS);
+        for (long i = 0; i < most + 5; i++) {
+            script("update", update("ready", "3.4.0", STREAMING, null, false));
+        }
+        UpdateRecorder ui = follow();
+        assertEquals(List.of("started 3.4.0", "waiting " + STREAMING, "timeout 3.4.0"), ui.events);
+        assertEquals(most, slept.size());
+        assertEquals(most + 1, calls.size());
     }
 
     @Test
@@ -515,17 +597,23 @@ public class PcPowerFlowTest {
             confirm.getButton(AlertDialog.BUTTON_NEGATIVE).performClick();
             assertTrue("Cancel installs nothing", installed.isEmpty());
 
+            script("update", UNREACHABLE, ARRIVED);
             ArrayDeque<Runnable> worker = new ArrayDeque<>();
-            java.util.LinkedList<String> versions = new java.util.LinkedList<>(Arrays.asList(null, "3.4.0"));
-            actions.startUpdate(office(), () -> api, versions::poll, worker::add, clock::addAndGet);
-            assertEquals(screen.getString(R.string.host_sleep_asking), message(latestDialog()));
+            actions.startUpdate(office(), () -> api, worker::add, clock::addAndGet);
+            AlertDialog asking = latestDialog();
+            assertEquals(screen.getString(R.string.host_sleep_asking), message(asking));
+            // Confirmed: the host may install whatever the person taps, so no Cancel; OK only hides it.
+            assertEquals(View.GONE, asking.getButton(AlertDialog.BUTTON_NEGATIVE).getVisibility());
+            asking.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+            Shadows.shadowOf(Looper.getMainLooper()).idle();
+            assertFalse(asking.isShowing());
             worker.poll().run();
             AlertDialog back = latestDialog();
             assertEquals(screen.getString(R.string.host_update_back, "3.4.0"), message(back));
             assertNull("The host's earlier answer is out of date", KnownUpdates.offered("pc"));
 
             // The progress in between, on its own.
-            HostUpdateFlow.Ui ui = actions.updateUi(office(), new HostActions.Route(screen, "test"));
+            HostUpdateFlow.Ui ui = HostActions.updateUi(office(), new HostActions.Route(screen, actions, "test"));
             ui.started("3.4.0");
             assertEquals(screen.getString(R.string.host_update_started, "3.4.0"), message(latestDialog()));
             ui.waiting(STREAMING);
@@ -538,7 +626,7 @@ public class PcPowerFlowTest {
         try (ActivityController<ToolbarIconTintTest.Screen> controller = screen()) {
             ToolbarIconTintTest.Screen screen = controller.get();
             HostActions actions = new HostActions(screen, CALLBACKS);
-            HostUpdateFlow.Ui ui = actions.updateUi(office(), new HostActions.Route(screen, "test"));
+            HostUpdateFlow.Ui ui = HostActions.updateUi(office(), new HostActions.Route(screen, actions, "test"));
             ui.nothingToInstall();
             assertEquals(screen.getString(R.string.host_update_none), message(latestDialog()));
             ui.updateFailed("Installer verification failed");
@@ -550,6 +638,80 @@ public class PcPowerFlowTest {
             ui.cameBackOn("3.3.0", "Setup exited with code 1603.");
             assertEquals(screen.getString(R.string.host_update_old_version, "3.3.0") + " Setup exited with code 1603.",
                     message(latestDialog()));
+        }
+    }
+
+    /** Whether {@code from} reaches any of {@code targets} through the fields of Nightjar's own objects and lambdas. */
+    private static boolean reaches(Object from, Object... targets) throws IllegalAccessException {
+        Set<Object> seen = Collections.newSetFromMap(new IdentityHashMap<>());
+        ArrayDeque<Object> next = new ArrayDeque<>();
+        next.add(from);
+        while (!next.isEmpty()) {
+            Object at = next.poll();
+            for (Object target : targets) {
+                if (at == target) return true;
+            }
+            if (at instanceof android.app.Activity) return true;
+            if (!seen.add(at) || !at.getClass().getName().startsWith("com.limelight.")) continue;
+            for (Class<?> type = at.getClass(); type != null && type.getName().startsWith("com.limelight.");
+                 type = type.getSuperclass()) {
+                for (Field field : type.getDeclaredFields()) {
+                    if (Modifier.isStatic(field.getModifiers()) || field.getType().isPrimitive()) continue;
+                    field.setAccessible(true);
+                    Object value = field.get(at);
+                    if (value != null) next.add(value);
+                }
+            }
+        }
+        return false;
+    }
+
+    @Test
+    public void leavingTheScreenKeepsTheUpdatesWaitButNotTheScreen() throws Exception {
+        try (ActivityController<ToolbarIconTintTest.Screen> controller = screen()) {
+            ToolbarIconTintTest.Screen screen = controller.get();
+            HostActions actions = new HostActions(screen, CALLBACKS);
+            script("update.install", update("downloading"));
+            script("update", UNREACHABLE, ARRIVED);
+            NativeApiClient api = client();
+            ArrayDeque<Runnable> worker = new ArrayDeque<>();
+            actions.startUpdate(office(), () -> api, worker::add, slept::add);
+            Runnable wait = worker.peek();
+            assertTrue("The test's walk finds the screen while it is there", reaches(wait, screen, actions));
+            actions.destroy();
+            assertFalse("The wait holds no screen once it is gone", reaches(wait, screen, actions));
+            assertNull(ReflectionHelpers.getField(actions, "updateFlow"));
+
+            // It still goes on, and says how it ended by toast.
+            worker.poll().run();
+            Shadows.shadowOf(Looper.getMainLooper()).idle();
+            assertEquals(screen.getString(R.string.host_update_back_title, "Office"),
+                    ShadowToast.getTextOfLatestToast());
+        }
+    }
+
+    @Test
+    public void leavingTheScreenDuringARestartLetsGoOfIt() throws Exception {
+        try (ActivityController<ToolbarIconTintTest.Screen> controller = screen()) {
+            ToolbarIconTintTest.Screen screen = controller.get();
+            HostActions actions = new HostActions(screen, CALLBACKS);
+            script("pc_power", offer(TOKEN_A, null, true), refusedAfter(WINDOWS_REFUSED));
+            script("pc_power.restart", ACCEPTED);
+            NativeApiClient api = client();
+            ArrayDeque<Runnable> worker = new ArrayDeque<>();
+            actions.startPcPower(office(), NativePcPower.Action.RESTART, () -> api, worker::add, slept::add);
+            worker.poll().run();
+            // Confirmed: the token goes out on the worker.
+            latestDialog().getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+            Shadows.shadowOf(Looper.getMainLooper()).idle();
+            Runnable spend = worker.peek();
+            assertTrue(reaches(spend, screen, actions));
+            actions.destroy();
+            assertFalse(reaches(spend, screen, actions));
+            worker.poll().run();
+            Shadows.shadowOf(Looper.getMainLooper()).idle();
+            assertEquals(screen.getString(R.string.host_restart_refused_title, "Office") + ": " + WINDOWS_REFUSED,
+                    ShadowToast.getTextOfLatestToast());
         }
     }
 }

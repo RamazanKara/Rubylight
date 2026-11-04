@@ -46,6 +46,8 @@
     <string name="host_update_timeout">Le PC n’est pas revenu à temps avec la version %1$s.</string>
     <string name="host_restart_refused_title">Impossible de redémarrer %1$s</string>
     <string name="host_shutdown_refused_title">Impossible d’éteindre %1$s</string>
+    <string name="host_restart_unconfirmed_title">%1$s peut encore redémarrer</string>
+    <string name="host_shutdown_unconfirmed_title">%1$s peut encore s’éteindre</string>
     <string name="host_update_waiting">%1$s La mise à jour commence dès que ce stream se termine.</string>
     <string name="host_update_failed">La mise à jour a échoué sur le PC.</string>
     <string name="host_update_old_version">Le PC est revenu en version %1$s ; la mise à jour ne s’est pas installée.</string>

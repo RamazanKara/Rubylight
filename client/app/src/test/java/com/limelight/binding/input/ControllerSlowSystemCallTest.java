@@ -4,12 +4,14 @@ import android.app.Application;
 import android.hardware.BatteryState;
 import android.hardware.lights.LightsManager;
 import android.os.Handler;
+import android.os.Vibrator;
 import android.view.InputDevice;
 import com.limelight.nvstream.NvConnection;
 import com.limelight.nvstream.StreamConfiguration;
 import com.limelight.nvstream.http.ComputerDetails;
 import com.limelight.nvstream.jni.MoonBridge;
 import com.limelight.preferences.PreferenceConfiguration;
+import org.cgutman.shieldcontrollerextensions.SceManager;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -45,7 +47,7 @@ public class ControllerSlowSystemCallTest {
         static volatile CountDownLatch released;
         static volatile boolean batteryPresent;
 
-        private static void block() {
+        static void block() {
             entered.countDown();
             try {
                 released.await();
@@ -83,6 +85,19 @@ public class ControllerSlowSystemCallTest {
         @Override
         public void sendControllerBatteryEvent(byte controllerNumber, byte batteryState, byte batteryPercentage) {
             batteryEvents.add(new byte[] {controllerNumber, batteryState, batteryPercentage});
+        }
+    }
+
+    /** A Shield rumble call that blocks until the test lets it go, then leaves the pad's own vibrator to run. */
+    private static class SlowSce extends SceManager {
+        SlowSce(android.content.Context context) {
+            super(context);
+        }
+
+        @Override
+        public boolean rumble(InputDevice device, int lowFreqMotor, int highFreqMotor) {
+            SlowDevice.block();
+            return false;
         }
     }
 
@@ -137,6 +152,35 @@ public class ControllerSlowSystemCallTest {
     @Test
     public void destroyDoesNotWaitForBlockedLights() throws InterruptedException {
         assertDestroyDoesNotWaitForTheSystemCall(new Thread(context.setLedStateRunnable));
+    }
+
+    // The handler's lock is what the main thread takes on quitting, on key events and on device changes.
+    @Test
+    public void stopDoesNotWaitForABlockedRumbleAndTheMotorEndsWithIt() throws InterruptedException {
+        android.app.Activity activity = Robolectric.buildActivity(android.app.Activity.class).create().get();
+        Vibrator vibrator = (Vibrator) activity.getSystemService(android.content.Context.VIBRATOR_SERVICE);
+        org.robolectric.Shadows.shadowOf(vibrator).setHasAmplitudeControl(true);
+        context.vibrator = vibrator;
+        context.controllerNumber = 0;
+        ReflectionHelpers.setField(handler, "sceManager", new SlowSce(activity));
+        java.util.Map<Integer, ControllerHandler.InputDeviceContext> pads = ReflectionHelpers.getField(handler, "inputDeviceContexts");
+        pads.put(1, context);
+
+        Thread rumble = new Thread(() -> handler.handleRumble((short) 0, (short) 0x8000, (short) 0x8000));
+        rumble.start();
+        assertTrue("the call was reached", SlowDevice.entered.await(10, TimeUnit.SECONDS));
+
+        Thread main = new Thread(handler::stop);
+        main.start();
+        main.join(5000);
+        boolean waited = main.isAlive();
+
+        SlowDevice.released.countDown();
+        main.join(5000);
+        rumble.join(5000);
+        assertFalse("stop() waited for a blocked rumble", waited);
+        assertFalse(rumble.isAlive());
+        assertFalse("the motor stops with the stream", org.robolectric.Shadows.shadowOf(vibrator).isVibrating());
     }
 
     @Test

@@ -121,7 +121,14 @@ impl<S: rusty_enet::Socket<Address = SocketAddr, Error = io::Error>> TestHost<S>
     }
 
     fn pump(&mut self) {
-        while let Some(event) = self.host.service().unwrap() {
+        loop {
+            let event = match self.host.service() {
+                Ok(Some(event)) => event,
+                Ok(None) => break,
+                // Windows hands a UDP socket the ICMP reset of a client port that closed.
+                Err(e) if e.kind() == io::ErrorKind::ConnectionReset => break,
+                Err(e) => panic!("host service: {e}"),
+            };
             match event {
                 Event::Connect { peer, data } => {
                     assert_eq!(data, CONNECT_DATA);

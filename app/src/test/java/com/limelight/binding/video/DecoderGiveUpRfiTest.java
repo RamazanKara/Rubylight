@@ -46,7 +46,7 @@ import static org.junit.Assert.assertTrue;
         shadows = com.limelight.PcViewLifecycleTest.NoNativeMoonBridge.class,
         instrumentedPackages = "com.limelight.nvstream.jni")
 public class DecoderGiveUpRfiTest {
-    private static final String AML_HEVC = "c2.amlogic.hevc.decoder";
+    private static final String RFI_HEVC = "c2.acme.hevc.decoder";
 
     private ActivityController<Activity> activity;
     private SharedPreferences tombstone;
@@ -84,9 +84,9 @@ public class DecoderGiveUpRfiTest {
     public void aGiveUpTurnsReferenceFrameInvalidationOffForTheNextStream() {
         MediaCodecDecoderRenderer first = stream(e -> CrashAccounting.recordGiveUp(tombstone, "rfi-pc"));
         assertTrue(hevcRfi(first));
-        ReflectionHelpers.setField(first, "activeDecoderName", AML_HEVC);
+        ReflectionHelpers.setField(first, "activeDecoderName", RFI_HEVC);
         ReflectionHelpers.callInstanceMethod(first, "failDecoder",
-                ReflectionHelpers.ClassParameter.from(String.class, AML_HEVC + " took no input for 5000 ms"),
+                ReflectionHelpers.ClassParameter.from(String.class, RFI_HEVC + " took no input for 5000 ms"),
                 ReflectionHelpers.ClassParameter.from(Exception.class, null));
         assertEquals(1, tombstone.getInt("CrashCount", 0));
         assertEquals("rfi-pc", tombstone.getString("CrashHostUuid", null));
@@ -114,10 +114,10 @@ public class DecoderGiveUpRfiTest {
     private static MediaCodecInfo lowLatencyHevc() {
         Map<String, List<String>> parameters = ReflectionHelpers.getStaticField(
                 MediaCodecHelper.class, "vendorParameterCache");
-        parameters.put(AML_HEVC, Arrays.asList("vendor.low-latency.enable"));
+        parameters.put(RFI_HEVC, Arrays.asList("vendor.low-latency.enable"));
         MediaFormat capabilities = MediaFormat.createVideoFormat("video/hevc", 1920, 1080);
         capabilities.setFeatureEnabled(CodecCapabilities.FEATURE_LowLatency, true);
-        return MediaCodecInfoBuilder.newBuilder().setName(AML_HEVC).setCapabilities(
+        return MediaCodecInfoBuilder.newBuilder().setName(RFI_HEVC).setCapabilities(
                 CodecCapabilitiesBuilder.newBuilder().setMediaFormat(capabilities)
                         .setProfileLevels(new CodecProfileLevel[0])
                         .setColorFormats(new int[] {CodecCapabilities.COLOR_FormatYUV420Flexible}).build()).build();

@@ -394,19 +394,8 @@ public class MediaCodecHelper {
             // do this for Fire TV devices.
             whitelistedHevcDecoders.add("omx.amlogic");
 
-            // Fire TV 3 seems to produce random artifacts on HEVC streams after packet loss.
-            // Enabling RFI turns these artifacts into full decoder output hangs, so let's not enable
-            // that for Fire OS 6 Amlogic devices. We will leave HEVC enabled because that's the only
-            // way these devices can hit 4K. Hopefully this is just a problem with the BSP used in
-            // the Fire OS 6 Amlogic devices, so we will leave this enabled for Fire OS 7+.
-            //
-            // Apart from a few TV models, the main Amlogic-based Fire TV devices are the Fire TV
-            // Cubes and Fire TV 3. This check will exclude the Fire TV 3 and Fire TV Cube 1, but
-            // allow the newer Fire TV Cubes to use HEVC RFI.
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                refFrameInvalidationHevcPrefixes.add("omx.amlogic");
-                refFrameInvalidationHevcPrefixes.add("c2.amlogic");
-            }
+            // HEVC stays enabled because that's the only way these devices can hit 4K, but
+            // without RFI: see decoderSupportsRefFrameInvalidationHevc().
         }
 
         ActivityManager activityManager =
@@ -1127,6 +1116,14 @@ public class MediaCodecHelper {
                                                                  boolean disableHevcLowLatency) {
         // The stability override must also avoid the extra reference buffering RFI can require.
         if (disableHevcLowLatency) return false;
+        // Amlogic HEVC decoders hang on RFI. On Fire OS 6 (Fire TV 3, Fire TV Cube 1) it turned
+        // artifacts after packet loss into full decoder output hangs. On Fire OS 7 the Fire TV
+        // Cube 3 (OMX.amlogic.hevc) stops rendering seconds into a stream from a host that marks
+        // long-term references, which RFI's maxNumReferenceFrames of 0 lets it do, while the same
+        // stream with 0 long-term references plays (Rubylight issue 73). Without RFI the stream
+        // asks for 1 reference frame and recovers with keyframes. This comes before the low
+        // latency check, which would otherwise enable RFI on these decoders from Android 11.
+        if (isDecoderInList(amlogicDecoderPrefixes, decoderInfo.getName())) return false;
         // HEVC decoders seem to universally support RFI, but it can have huge latency penalties
         // for some decoders due to the number of references frames being > 1. Old Amlogic
         // decoders are known to have this problem.

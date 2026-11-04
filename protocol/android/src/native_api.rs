@@ -22,7 +22,7 @@ use nightjar_core::http::native_api::radeon::{Radeon, SettingsWrite};
 use nightjar_core::http::native_api::session::{ActionId, CouchMenu, CouchMenuRequest, Session};
 use nightjar_core::http::native_api::wake::Wake;
 use nightjar_core::http::{
-    ClientIdentity, Coop, CoopJoined, Error, HostClient, HostUpdate, NativeCapabilities,
+    update_arrived, ClientIdentity, Coop, CoopJoined, Error, HostClient, HostUpdate, NativeCapabilities,
     NativeLibrary, PcPower, PcPowerOffer, PowerError, PowerReply, Refusal,
 };
 
@@ -196,7 +196,7 @@ fn capabilities_with_files(result: Result<NativeCapabilities, Error>) -> String 
 /// The update with what the shared rules make of it, so Java decides as desktop does: `offered`
 /// (the version to install, or null), `installing_now` (no Install now to offer), `in_progress`,
 /// `failed` with `failure` (the updater's words, or null), and while following an install to
-/// `target`, `gave_up`.
+/// `target`, `arrived` (the PC answers on `target`) and `gave_up`.
 fn update_json(result: Result<HostUpdate, Error>, target: &str) -> String {
     ok(result.and_then(|update| {
         let mut value = serde_json::to_value(&update)
@@ -207,6 +207,7 @@ fn update_json(result: Result<HostUpdate, Error>, target: &str) -> String {
         value["failed"] = json!(update.failure().is_some());
         value["failure"] = json!(update.failure().flatten());
         if !target.is_empty() {
+            value["arrived"] = json!(update_arrived(&update.current_version, target));
             value["gave_up"] = json!(update.gave_up(target));
         }
         Ok(value)
@@ -885,6 +886,7 @@ mod tests {
         assert_eq!(offer["ok"]["token"], TOKEN);
         assert_eq!(offer["ok"]["restart"]["available"], true);
         assert_eq!(offer["ok"]["wake_from_off"], false);
+        assert_eq!(offer["ok"]["last_refusal_unconfirmed"], false);
         assert_eq!(parse(&execute(&fake, "pc_power.restart", TOKEN)), json!({ "ok": {} }));
         assert_eq!(parse(&execute(&fake, "pc_power.shutdown", TOKEN)), json!({ "ok": {} }));
         let refused = parse(&execute(&fake, "pc_power.shutdown", "spent"));
@@ -905,9 +907,12 @@ mod tests {
             (&update["ok"]["failed"], &update["ok"]["failure"]),
             (&json!(false), &Value::Null)
         );
-        assert!(update["ok"].get("gave_up").is_none());
+        assert!(update["ok"].get("gave_up").is_none() && update["ok"].get("arrived").is_none());
         let following = parse(&execute(&fake, "update", "3.4.0"));
-        assert_eq!(following["ok"]["gave_up"], true);
+        assert_eq!((&following["ok"]["gave_up"], &following["ok"]["arrived"]), (&json!(true), &json!(false)));
+        // Back on the target, by the shared rule: trimmed, one leading v.
+        let back = parse(&execute(&fake, "update", " v3.3.0 "));
+        assert_eq!((&back["ok"]["gave_up"], &back["ok"]["arrived"]), (&json!(false), &json!(true)));
         let install = parse(&execute(&fake, "update.install", ""));
         assert_eq!(
             (&install["ok"]["phase"], &install["ok"]["in_progress"]),
@@ -920,6 +925,7 @@ mod tests {
                 format!("power/restart {TOKEN}"),
                 format!("power/shutdown {TOKEN}"),
                 "power/shutdown spent".to_owned(),
+                "update".to_owned(),
                 "update".to_owned(),
                 "update".to_owned(),
                 "update install".to_owned(),

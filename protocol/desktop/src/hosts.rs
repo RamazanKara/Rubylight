@@ -13,7 +13,7 @@ use nightjar_core::http::native_api::feature;
 use nightjar_core::http::native_api::library::Library;
 use nightjar_core::http::native_api::session::{ActionId, Session};
 use nightjar_core::http::{
-    App, AppControl, Availability, ClientIdentity, Feature, HostClient, HostUpdate, NativeCapabilities, NativeLibrary, PairResult,
+    App, AppControl, Availability, ClientIdentity, Feature, HostClient, HostUpdate, LateRefusal, NativeCapabilities, NativeLibrary, PairResult,
     PcPower, PcPowerOffer, PowerError, PowerReply, Reason, ServerInfo, DEFAULT_HTTP_PORT,
 };
 
@@ -584,6 +584,8 @@ pub enum PcPowerStep {
     Offer { token: String, at: Handed, wake_from_off: bool },
     /// The PC took the request (202).
     Accepted,
+    /// After the 202, Windows did not confirm it in time: the PC may still go down. The host's words.
+    Unconfirmed(String),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -599,6 +601,10 @@ pub enum UpdateStep {
 /// How long an update may take before Nightjar stops waiting for the PC to come back. Time
 /// spent waiting for another device's stream does not count.
 const UPDATE_WAIT: Duration = Duration::from_secs(15 * 60);
+/// The whole wait, another device's stream included: long enough for a film or a long session
+/// on the TV to end and the update to go in, short enough that a forgotten wait does not poll the
+/// PC for ever. Android's HostUpdateFlow.MAX_WAIT_MS matches.
+const UPDATE_MAX_WAIT: Duration = Duration::from_secs(3 * 60 * 60);
 const UPDATE_POLL: Duration = Duration::from_secs(5);
 /// After the PC took a restart or shutdown, how often and how many times Nightjar reads
 /// `GET /power` for a refusal that came after the answer.
@@ -631,10 +637,21 @@ fn update_target(update: &HostUpdate) -> Result<String, String> {
 
 /// Follows an accepted install until the PC is back on `target`: the updater's failure as it
 /// says it, a PC back on another version, a wait for another device's stream (`said`, once
-/// per reason), or `polls` reads without either. `pause` sleeps between reads.
-fn follow_update(host: &impl UpdateHost, target: &str, polls: u32, pause: impl Fn(), mut said: impl FnMut(UpdateStep)) -> Result<UpdateStep, String> {
+/// per reason), or `polls` reads without either, and `most` reads in all. `pause` sleeps between
+/// reads.
+fn follow_update(
+    host: &impl UpdateHost,
+    target: &str,
+    polls: u32,
+    most: u32,
+    pause: impl Fn(),
+    mut said: impl FnMut(UpdateStep),
+) -> Result<UpdateStep, String> {
     let (mut counted, mut gone, mut waiting) = (0, false, None::<String>);
-    while counted < polls {
+    for _ in 0..most {
+        if counted >= polls {
+            break;
+        }
         pause();
         if host.running_version().is_some_and(|v| nightjar_core::http::update_arrived(&v, target)) {
             return Ok(UpdateStep::Back(target.to_owned()));
@@ -704,7 +721,7 @@ fn pc_power_confirmed(host: &impl PcPowerHost, action: PcPower, token: String, a
     let token = match at.age() >= nightjar_core::http::POWER_TOKEN_REFRESH {
         true => match pc_power_token(host, action)? {
             PcPowerStep::Offer { token, .. } => token,
-            PcPowerStep::Accepted => token,
+            PcPowerStep::Accepted | PcPowerStep::Unconfirmed(_) => token,
         },
         false => token,
     };
@@ -713,14 +730,14 @@ fn pc_power_confirmed(host: &impl PcPowerHost, action: PcPower, token: String, a
 }
 
 /// After the PC took the request: why it did not go ahead after all (Windows refused, or the PC
-/// got busy), read from `GET /power` up to `reads` times; None once the PC stops answering or
-/// never says.
-fn pc_power_refusal(host: &impl PcPowerHost, reads: u32, pause: impl Fn()) -> Option<String> {
+/// got busy) or may not have (Windows did not confirm it in time), read from `GET /power` up to
+/// `reads` times; None once the PC stops answering or never says.
+fn pc_power_refusal(host: &impl PcPowerHost, reads: u32, pause: impl Fn()) -> Option<LateRefusal> {
     for _ in 0..reads {
         pause();
         match host.pc_power() {
             Ok(offer) => {
-                if let Some(refusal) = offer.last_refusal.filter(|r| !r.is_empty()) {
+                if let Some(refusal) = offer.late_refusal() {
                     return Some(refusal);
                 }
             }
@@ -1227,8 +1244,11 @@ impl Hosts {
             // Taken; Windows may still refuse once the answer has left.
             let _ = sender.send(Event::PcPower { id, ask, name: name.clone(), action, confirmed, result });
             waker();
-            let refusal = pc_power_refusal(&client, POWER_REFUSAL_READS, || std::thread::sleep(POWER_REFUSAL_POLL))?;
-            Some(Event::PcPower { id, ask, name, action, confirmed, result: Err(refusal) })
+            let result = match pc_power_refusal(&client, POWER_REFUSAL_READS, || std::thread::sleep(POWER_REFUSAL_POLL))? {
+                LateRefusal::Refused(refusal) => Err(refusal),
+                LateRefusal::Unconfirmed(said) => Ok(PcPowerStep::Unconfirmed(said)),
+            };
+            Some(Event::PcPower { id, ask, name, action, confirmed, result })
         });
     }
 
@@ -1258,7 +1278,8 @@ impl Hosts {
             };
             say(UpdateStep::Started(target.clone()));
             let polls = (UPDATE_WAIT.as_secs() / UPDATE_POLL.as_secs()) as u32;
-            let result = follow_update(&client, &target, polls, || std::thread::sleep(UPDATE_POLL), say);
+            let most = (UPDATE_MAX_WAIT.as_secs() / UPDATE_POLL.as_secs()) as u32;
+            let result = follow_update(&client, &target, polls, most, || std::thread::sleep(UPDATE_POLL), say);
             Some(Event::HostUpdate { id, name, result })
         });
     }
@@ -2784,8 +2805,9 @@ pub(crate) mod tests {
         );
     }
 
-    /// A PC that answers `GET /power` with these refusals in turn, then stops answering.
-    struct RefusingPc(std::cell::RefCell<Vec<Option<&'static str>>>);
+    /// A PC that answers `GET /power` with these refusals in turn, then stops answering; each
+    /// marked unconfirmed by the second field.
+    struct RefusingPc(std::cell::RefCell<Vec<Option<&'static str>>>, bool);
 
     impl PcPowerHost for RefusingPc {
         fn pc_power(&self) -> Result<PcPowerOffer, nightjar_core::http::Error> {
@@ -2793,7 +2815,7 @@ pub(crate) mod tests {
             if answers.is_empty() {
                 return Err(nightjar_core::http::Error::NotFound("/power".into()));
             }
-            Ok(PcPowerOffer { last_refusal: answers.remove(0).map(Into::into), ..Default::default() })
+            Ok(PcPowerOffer { last_refusal: answers.remove(0).map(Into::into), last_refusal_unconfirmed: self.1, ..Default::default() })
         }
         fn power_pc(&self, _: PcPower, _: &str) -> Result<(), nightjar_core::http::Error> {
             panic!("the refusal check never asks again")
@@ -2802,9 +2824,13 @@ pub(crate) mod tests {
 
     #[test]
     fn a_refusal_after_the_pc_took_the_request_is_shown() {
-        let refusing = |answers: &[Option<&'static str>]| RefusingPc(std::cell::RefCell::new(answers.to_vec()));
+        let refusing = |answers: &[Option<&'static str>]| RefusingPc(std::cell::RefCell::new(answers.to_vec()), false);
         let windows = "Windows refused to restart the PC: Access is denied. (exit code 5)";
-        assert_eq!(pc_power_refusal(&refusing(&[None, None, Some(windows)]), 10, || {}).as_deref(), Some(windows));
+        assert_eq!(pc_power_refusal(&refusing(&[None, None, Some(windows)]), 10, || {}), Some(LateRefusal::Refused(windows.into())));
+        // Windows did not confirm it in time: the host says so, and it is no refusal.
+        let unanswered = "Windows did not confirm the request in time; the PC may still restart: process timed out";
+        let unconfirmed = RefusingPc(std::cell::RefCell::new(vec![None, Some(unanswered)]), true);
+        assert_eq!(pc_power_refusal(&unconfirmed, 10, || {}), Some(LateRefusal::Unconfirmed(unanswered.into())));
         // Going down: the PC stops answering, nothing to show.
         assert_eq!(pc_power_refusal(&refusing(&[None]), 10, || {}), None);
         // Never says within the reads.
@@ -2851,11 +2877,12 @@ pub(crate) mod tests {
         assert_eq!(update_target(&none), Err(UPDATE_GONE.to_owned()));
         assert_eq!(update_target(&update("waiting", None, None)), Ok("3.4.0".to_owned()));
         let pc = |answers: Vec<Option<HostUpdate>>, running| UpdatingPc { answers: answers.into(), running };
-        let follow = |pc: &UpdatingPc, polls| {
+        let follow_most = |pc: &UpdatingPc, polls, most| {
             let mut said = Vec::new();
-            let result = follow_update(pc, "3.4.0", polls, || {}, |step| said.push(step));
+            let result = follow_update(pc, "3.4.0", polls, most, || {}, |step| said.push(step));
             (result, said)
         };
+        let follow = |pc: &UpdatingPc, polls| follow_most(pc, polls, u32::MAX);
         // Back on the new version.
         let (result, said) = follow(&pc(vec![Some(update("downloading", None, None)), None], Some("3.4.0")), 10);
         assert_eq!((result, said), (Ok(UpdateStep::Back("3.4.0".into())), vec![]));
@@ -2876,6 +2903,12 @@ pub(crate) mod tests {
         // Nothing ever comes back.
         let (result, _) = follow(&pc(vec![Some(update("installing", None, None)); 3], None), 3);
         assert_eq!(result, Err(trf("The PC did not come back with version {} in time.", &[&"3.4.0"])));
+        // Another device's stream holds it for `most` reads at most, then the wait gives up.
+        let held = pc(vec![Some(update("ready", None, Some(tv))); 6], Some("3.4.0"));
+        let (result, said) = follow_most(&held, 2, 4);
+        assert_eq!(result, Err(trf("The PC did not come back with version {} in time.", &[&"3.4.0"])));
+        assert_eq!((said, held.answers.borrow().len()), (vec![UpdateStep::Waiting(tv.into())], 2));
+        assert_eq!(UPDATE_MAX_WAIT.as_secs(), 3 * 60 * 60);
     }
 
     /// The PC's last answer, with the power fields when `power` is (supported, allowed).

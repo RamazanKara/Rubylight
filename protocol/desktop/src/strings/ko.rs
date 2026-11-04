@@ -1318,6 +1318,8 @@ sudo sysctl -w net.core.rmem_max={}", "수신 버퍼: 시스템이 요청한 {1}
     ("The PC took the request. It shows as offline once it is off.", "PC가 요청을 받았습니다. 꺼지면 오프라인으로 표시됩니다."),
     ("Could not restart {}", "{}을(를) 다시 시작하지 못했습니다"),
     ("Could not shut down {}", "{}을(를) 종료하지 못했습니다"),
+    ("{} may still restart", "{}이(가) 아직 다시 시작될 수 있습니다"),
+    ("{} may still shut down", "{}이(가) 아직 종료될 수 있습니다"),
     ("Updating {}", "{} 업데이트 중"),
     ("The host installs version {} and comes back on its own.", "호스트가 버전 {}을(를) 설치하고 스스로 돌아옵니다."),
     ("{} is back", "{}이(가) 돌아왔습니다"),

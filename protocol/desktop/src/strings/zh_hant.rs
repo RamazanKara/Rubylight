@@ -1318,6 +1318,8 @@ sudo sysctl -w net.core.rmem_max={}", "接收緩衝區：系統只分配了所�
     ("The PC took the request. It shows as offline once it is off.", "電腦已接受要求。關機後會顯示為離線。"),
     ("Could not restart {}", "無法重新啟動 {}"),
     ("Could not shut down {}", "無法關閉 {}"),
+    ("{} may still restart", "{} 可能仍會重新啟動"),
+    ("{} may still shut down", "{} 可能仍會關機"),
     ("Updating {}", "正在更新 {}"),
     ("The host installs version {} and comes back on its own.", "主機正在安裝版本 {}，完成後會自動恢復。"),
     ("{} is back", "{} 已恢復"),

@@ -1318,6 +1318,8 @@ sudo sysctl -w net.core.rmem_max={}", "Bufor odbioru: system przydzielił {0} Ki
     ("The PC took the request. It shows as offline once it is off.", "PC przyjął żądanie. Będzie offline, gdy się wyłączy."),
     ("Could not restart {}", "Nie udało się ponownie uruchomić {}"),
     ("Could not shut down {}", "Nie udało się wyłączyć {}"),
+    ("{} may still restart", "{} może jeszcze uruchomić się ponownie"),
+    ("{} may still shut down", "{} może się jeszcze wyłączyć"),
     ("Updating {}", "Aktualizowanie {}"),
     ("The host installs version {} and comes back on its own.", "Host instaluje wersję {} i sam wraca."),
     ("{} is back", "{} wrócił"),

@@ -67,6 +67,19 @@ pub struct PcPowerOffer {
     /// Why Windows refused the last accepted request.
     #[serde(default)]
     pub last_refusal: Option<String>,
+    /// `last_refusal` is no refusal: Windows did not confirm the request in time and the PC may
+    /// still go down. Older hosts leave it out, so their every late answer reads as a refusal.
+    #[serde(default)]
+    pub last_refusal_unconfirmed: bool,
+}
+
+/// What the PC said about an accepted restart or shutdown after its 202, in its words.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum LateRefusal {
+    /// Windows refused it, or the PC got busy first: it did not happen.
+    Refused(String),
+    /// Windows did not confirm it in time: the PC may still restart or shut down.
+    Unconfirmed(String),
 }
 
 impl PcPowerOffer {
@@ -84,6 +97,15 @@ impl PcPowerOffer {
             (Some(token), true) => Ok(token),
             _ => Err(availability.reason.clone().unwrap_or_default()),
         }
+    }
+
+    /// Why the last accepted request did not go ahead, or may not have; `None` when it did.
+    pub fn late_refusal(&self) -> Option<LateRefusal> {
+        let said = self.last_refusal.clone().filter(|r| !r.is_empty())?;
+        Some(match self.last_refusal_unconfirmed {
+            true => LateRefusal::Unconfirmed(said),
+            false => LateRefusal::Refused(said),
+        })
     }
 }
 
@@ -147,10 +169,15 @@ impl HostUpdate {
     }
 }
 
-/// Whether `/serverinfo`'s version shows the update arrived: the PC is back on `target`.
+/// Whether the version the PC answers with shows the update arrived: it is back on `target`.
+/// Both sides are trimmed and lose one leading `v`.
 pub fn update_arrived(running: &str, target: &str) -> bool {
-    let running = running.trim().trim_start_matches('v');
-    !running.is_empty() && running == target.trim_start_matches('v')
+    let bare = |version: &str| {
+        let version = version.trim();
+        version.strip_prefix('v').unwrap_or(version).to_owned()
+    };
+    let running = bare(running);
+    !running.is_empty() && running == bare(target)
 }
 
 /// The host's own words for a refused power or update request, to show as they are; `None`
@@ -200,6 +227,34 @@ mod tests {
         assert!(update_arrived("3.4.0", "v3.4.0"));
         assert!(!update_arrived("3.3.0", "3.4.0"));
         assert!(!update_arrived("", "3.4.0"));
+    }
+
+    #[test]
+    fn an_arrival_trims_both_sides_and_drops_one_leading_v() {
+        assert!(update_arrived(" v3.4.0\n", " 3.4.0 "));
+        assert!(update_arrived("3.4.0", "v3.4.0\n"));
+        assert!(!update_arrived("vv3.4.0", "3.4.0"));
+        assert!(!update_arrived("3.4.0", "vv3.4.0"));
+        assert!(!update_arrived(" v ", "v"));
+    }
+
+    #[test]
+    fn a_late_answer_is_a_refusal_unless_the_host_says_it_is_unconfirmed() {
+        let read = |json: &str| serde_json::from_str::<PcPowerOffer>(json).unwrap().late_refusal();
+        let said = "Windows did not confirm the request in time; the PC may still restart: process timed out";
+        assert_eq!(
+            read(&format!(r#"{{"last_refusal":"{said}","last_refusal_unconfirmed":true}}"#)),
+            Some(LateRefusal::Unconfirmed(said.into()))
+        );
+        let refused = "Windows refused to restart the PC: no (exit code 1191)";
+        assert_eq!(
+            read(&format!(r#"{{"last_refusal":"{refused}","last_refusal_unconfirmed":false}}"#)),
+            Some(LateRefusal::Refused(refused.into()))
+        );
+        // An older host leaves the field out: a refusal, as before.
+        assert_eq!(read(&format!(r#"{{"last_refusal":"{said}"}}"#)), Some(LateRefusal::Refused(said.into())));
+        assert_eq!(read(r#"{"last_refusal":"","last_refusal_unconfirmed":true}"#), None);
+        assert_eq!(read(r#"{"last_refusal":null}"#), None);
     }
 
     #[test]

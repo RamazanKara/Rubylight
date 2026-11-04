@@ -1318,6 +1318,8 @@ sudo sysctl -w net.core.rmem_max={}", "Bộ đệm nhận: hệ thống chỉ c�
     ("The PC took the request. It shows as offline once it is off.", "PC đã nhận yêu cầu. PC sẽ hiện ngoại tuyến khi đã tắt."),
     ("Could not restart {}", "Không thể khởi động lại {}"),
     ("Could not shut down {}", "Không thể tắt {}"),
+    ("{} may still restart", "{} có thể vẫn khởi động lại"),
+    ("{} may still shut down", "{} có thể vẫn tắt"),
     ("Updating {}", "Đang cập nhật {}"),
     ("The host installs version {} and comes back on its own.", "Host cài đặt phiên bản {} và tự quay lại."),
     ("{} is back", "{} đã quay lại"),

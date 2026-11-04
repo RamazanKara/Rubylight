@@ -1318,6 +1318,8 @@ sudo sysctl -w net.core.rmem_max={}", "Tampon de réception : le système a acco
     ("The PC took the request. It shows as offline once it is off.", "Le PC a accepté la demande. Il apparaîtra hors ligne une fois éteint."),
     ("Could not restart {}", "Impossible de redémarrer {}"),
     ("Could not shut down {}", "Impossible d'éteindre {}"),
+    ("{} may still restart", "{} peut encore redémarrer"),
+    ("{} may still shut down", "{} peut encore s’éteindre"),
     ("Updating {}", "Mise à jour de {}"),
     ("The host installs version {} and comes back on its own.", "L'hôte installe la version {} et revient de lui-même."),
     ("{} is back", "{} est de retour"),

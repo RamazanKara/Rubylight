@@ -1318,6 +1318,8 @@ sudo sysctl -w net.core.rmem_max={}", "Буфер приймання: систе
     ("The PC took the request. It shows as offline once it is off.", "ПК прийняв запит. Він буде показаний не в мережі, коли вимкнеться."),
     ("Could not restart {}", "Не вдалося перезавантажити {}"),
     ("Could not shut down {}", "Не вдалося вимкнути {}"),
+    ("{} may still restart", "{} ще може перезавантажитися"),
+    ("{} may still shut down", "{} ще може вимкнутися"),
     ("Updating {}", "Оновлення {}"),
     ("The host installs version {} and comes back on its own.", "Хост встановлює версію {} і сам повернеться."),
     ("{} is back", "{} знову в мережі"),

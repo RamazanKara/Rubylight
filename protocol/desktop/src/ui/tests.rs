@@ -1879,6 +1879,20 @@ fn restart_and_shut_down_wait_for_the_offer_keep_cancel_focused_and_warn_before_
     f.l.dialog = Dialog::ConfirmPcPower { host: id, ask: 1, name: "PC".into(), action: PcPower::Restart, offer: None };
     f.l.pc_power_answered(id, 1, "PC", PcPower::Restart, false, Err("TV is streaming from this PC.".into()));
     assert!(matches!(&f.l.dialog, Dialog::Message { body, .. } if body == "TV is streaming from this PC."));
+    // After the 202: Windows' refusal is a failure, a timeout only that the PC may still go.
+    let late = |action, result| {
+        let mut f = every_state().into_iter().find(|s| s.name == "power").unwrap().frames();
+        let id = f.hosts.list[0].id;
+        f.l.pc_power_answered(id, 1, "PC", action, true, result);
+        match std::mem::replace(&mut f.l.dialog, Dialog::None) {
+            Dialog::Message { title, body, .. } => (title, body),
+            _ => panic!("a message"),
+        }
+    };
+    let unanswered = "Windows did not confirm the request in time; the PC may still restart: process timed out";
+    assert_eq!(late(PcPower::Restart, Ok(PcPowerStep::Unconfirmed(unanswered.into()))), ("PC may still restart".into(), unanswered.into()));
+    assert_eq!(late(PcPower::ShutDown, Ok(PcPowerStep::Unconfirmed(unanswered.into()))).0, "PC may still shut down");
+    assert_eq!(late(PcPower::Restart, Err("Windows refused to restart the PC: no (exit code 1191)".into())).0, "Could not restart PC");
 }
 
 #[test]

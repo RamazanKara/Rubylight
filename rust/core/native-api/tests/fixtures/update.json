@@ -1,7 +1,8 @@
 {
   "current_version": "3.3.0",
   "latest_version": "v3.4.0",
-  "phase": "idle",
+  "phase": "ready",
   "install_supported": true,
-  "error": null
+  "error": null,
+  "waiting_for": "Living room TV is streaming from this PC."
 }

@@ -484,6 +484,41 @@ async fn a_client_reset_before_the_answer_is_flushed_does_not_suspend() {
 }
 
 #[tokio::test]
+async fn a_guest_or_controller_session_during_the_delivery_wait_stops_the_suspend() {
+    let f = Fixture::new();
+    let fake = fake(&f);
+    let client = device(&f, true);
+    // Neither takes the lifecycle gate the accepted request holds.
+    let token = capabilities(&f).await.field("SleepToken");
+    let end = ConnectionEnd::default();
+    let accepted = answer(call_ending(&f, true, &end, sleep_request(&token)).await).await;
+    assert_eq!(accepted.status, StatusCode::ACCEPTED);
+    let (handle, _) = crate::webrtc::media::tests::real_handle(Default::default());
+    f.host.webrtc_links.put("guest".into(), handle);
+    end.finish(true);
+    wait_for_gate(&f);
+    assert_eq!(fake.suspends.load(Ordering::SeqCst), 0);
+    f.host.webrtc_links.discard("guest");
+    let token = capabilities(&f).await.field("SleepToken");
+    let end = ConnectionEnd::default();
+    let accepted = answer(call_ending(&f, true, &end, sleep_request(&token)).await).await;
+    assert_eq!(accepted.status, StatusCode::ACCEPTED);
+    let controller = f
+        .host
+        .controller_sessions
+        .acquire(&f.launch(client, Role::Stream), &Default::default())
+        .unwrap();
+    end.finish(true);
+    wait_for_gate(&f);
+    assert_eq!(fake.suspends.load(Ordering::SeqCst), 0);
+    drop(controller);
+    let token = capabilities(&f).await.field("SleepToken");
+    assert_eq!(sleep(&f, &token).await.status, StatusCode::ACCEPTED);
+    wait_for_gate(&f);
+    assert_eq!(fake.suspends.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
 async fn every_busy_reason_refuses_sleep() {
     let f = Fixture::new();
     let fake = fake(&f);

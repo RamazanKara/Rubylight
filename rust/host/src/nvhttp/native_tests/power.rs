@@ -81,6 +81,18 @@ async fn act(
     body: &str,
     clean: Option<bool>,
 ) -> Reply {
+    act_then(s, connection, action, body, clean, || {}).await
+}
+/// [`act`], with `meanwhile` run after the answer and before its connection
+/// ends: what the PC does during the delivery wait.
+async fn act_then(
+    s: &Setup,
+    connection: &Connection,
+    action: &str,
+    body: &str,
+    clean: Option<bool>,
+    meanwhile: impl FnOnce(),
+) -> Reply {
     let end = ConnectionEnd::default();
     let response = router(s.f.host.clone(), true)
         .layer(Extension(connection.clone()))
@@ -99,6 +111,7 @@ async fn act(
         headers: parts.headers,
         body: to_bytes(body, 1 << 20).await.unwrap().to_vec(),
     };
+    meanwhile();
     if let Some(clean) = clean {
         end.finish(clean);
     }
@@ -342,6 +355,109 @@ async fn windows_refusal_is_on_the_next_read_and_a_bad_body_is_400() {
     .await
     .assert_error(409, "token_expired");
     assert_eq!(fake.calls.lock().unwrap().len(), 2);
+}
+
+#[tokio::test]
+async fn a_refusal_shows_only_to_its_device_and_not_for_ever() {
+    let s = Setup::new();
+    let fake = fake(&s);
+    grant(&s, true);
+    let refusal = "Windows refused to restart the PC: no";
+    *fake.refusal.lock().unwrap() = Some(refusal.into());
+    let token = power(&s).await.token.unwrap();
+    act(
+        &s,
+        &s.connection,
+        "restart",
+        &token_body(&token),
+        Some(true),
+    )
+    .await;
+    assert_eq!(power(&s).await.last_refusal.as_deref(), Some(refusal));
+    // Another device, one with the grant too, never sees it.
+    let other = Connection {
+        local: lan(&s).local,
+        ..other_device(&s.f, ALL, false)
+    };
+    s.host().paired.write().unwrap().clients[1]
+        .extra
+        .insert("allow_restart_shutdown".into(), true.into());
+    let reply = api(&s.f, &other, "GET", "/power").await;
+    assert_eq!(reply.status, StatusCode::OK, "{}", reply.text());
+    let theirs: Power = serde_json::from_slice(&reply.body).unwrap();
+    assert!(theirs.token.is_some());
+    assert_eq!(theirs.last_refusal, None);
+    // Nor does it stay for ever.
+    let uuid = s.client.uuid.as_str();
+    let power_actions = &s.host().power;
+    assert!(power_actions.last_refusal(uuid, Instant::now()).is_some());
+    let later = Instant::now() + crate::power_action::REFUSAL_KEPT;
+    assert_eq!(power_actions.last_refusal(uuid, later), None);
+}
+
+#[tokio::test]
+async fn a_guest_or_controller_session_during_the_delivery_wait_stops_it_and_says_why() {
+    let s = Setup::new();
+    let fake = fake(&s);
+    grant(&s, true);
+    // Neither takes the lifecycle gate the request holds.
+    let token = power(&s).await.token.unwrap();
+    let reply = act_then(
+        &s,
+        &s.connection,
+        "restart",
+        &token_body(&token),
+        Some(true),
+        || {
+            let (handle, _) = crate::webrtc::media::tests::real_handle(Default::default());
+            s.host().webrtc_links.put("guest".into(), handle);
+        },
+    )
+    .await;
+    assert_eq!(reply.status, StatusCode::ACCEPTED, "{}", reply.text());
+    assert!(fake.calls.lock().unwrap().is_empty());
+    assert_eq!(
+        power(&s).await.last_refusal.as_deref(),
+        Some("A browser guest is connected.")
+    );
+    s.host().webrtc_links.discard("guest");
+    let token = power(&s).await.token.unwrap();
+    let mut controller = None;
+    act_then(
+        &s,
+        &s.connection,
+        "shutdown",
+        &token_body(&token),
+        Some(true),
+        || {
+            let launch = s.f.launch(s.client.clone(), Role::Stream);
+            controller = Some(
+                s.host()
+                    .controller_sessions
+                    .acquire(&launch, &Default::default())
+                    .unwrap(),
+            );
+        },
+    )
+    .await;
+    assert!(fake.calls.lock().unwrap().is_empty());
+    assert_eq!(
+        power(&s).await.last_refusal.as_deref(),
+        Some("A controller session is in use.")
+    );
+    drop(controller);
+    // With nothing in the way it goes ahead, and the refusal is over.
+    let token = power(&s).await.token.unwrap();
+    act(
+        &s,
+        &s.connection,
+        "restart",
+        &token_body(&token),
+        Some(true),
+    )
+    .await;
+    assert_eq!(*fake.calls.lock().unwrap(), [(Action::Restart, true)]);
+    assert_eq!(power(&s).await.last_refusal, None);
 }
 
 #[tokio::test]

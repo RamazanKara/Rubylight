@@ -20,6 +20,7 @@ use axum::{
 };
 use butterpollo_core::power_action::{self, Action, Authority, Busy, Request, SleepStates, Tokens};
 use std::{
+    collections::HashMap,
     sync::{Arc, Mutex, MutexGuard, RwLock, mpsc},
     time::{Duration, Instant},
 };
@@ -27,6 +28,8 @@ use std::{
 /// How long an accepted request waits for its connection to close cleanly
 /// after the answer before it gives up without suspending.
 const DELIVERY_WAIT: Duration = Duration::from_secs(2);
+/// How long `GET /power` reports a device's last refusal.
+pub(crate) const REFUSAL_KEPT: Duration = Duration::from_secs(10 * 60);
 /// A sleep request has an empty body; reading stops past this many bytes.
 const BODY_LIMIT: usize = 1024;
 
@@ -102,8 +105,9 @@ pub struct PowerActions {
     tokens: Mutex<Tokens>,
     /// Restart and Shut down's own tokens.
     pub(crate) power_tokens: Mutex<Tokens>,
-    /// Why Windows refused the last accepted restart or shutdown.
-    last_refusal: Mutex<Option<String>>,
+    /// Why each device's last accepted restart or shutdown did not happen,
+    /// and when.
+    last_refusal: Mutex<HashMap<String, (String, Instant)>>,
     backend: RwLock<Arc<dyn Backend>>,
 }
 impl Default for PowerActions {
@@ -140,11 +144,19 @@ impl PowerActions {
             },
         }
     }
-    pub(crate) fn last_refusal(&self) -> Option<String> {
-        self.last_refusal.lock().unwrap().clone()
+    /// Why `uuid`'s last accepted restart or shutdown did not happen, for
+    /// [`REFUSAL_KEPT`] or until its next accepted request.
+    pub(crate) fn last_refusal(&self, uuid: &str, now: Instant) -> Option<String> {
+        let mut refusals = self.last_refusal.lock().unwrap();
+        refusals.retain(|_, (_, at)| now.saturating_duration_since(*at) < REFUSAL_KEPT);
+        refusals.get(uuid).map(|(refusal, _)| refusal.clone())
     }
-    pub(crate) fn set_last_refusal(&self, refusal: Option<String>) {
-        *self.last_refusal.lock().unwrap() = refusal;
+    pub(crate) fn set_last_refusal(&self, uuid: &str, refusal: Option<String>) {
+        let mut refusals = self.last_refusal.lock().unwrap();
+        match refusal {
+            Some(refusal) => refusals.insert(uuid.to_owned(), (refusal, Instant::now())),
+            None => refusals.remove(uuid),
+        };
     }
     #[cfg(test)]
     pub fn set_backend(&self, backend: Arc<dyn Backend>) {
@@ -178,23 +190,32 @@ pub(crate) fn idle_or_busy(h: &Shared) -> Result<MutexGuard<'_, ()>, Busy> {
         .launch_transition
         .try_lock()
         .map_err(|_| Busy::Transition)?;
+    match busy_beside_gate(h) {
+        Some(busy) => Err(busy),
+        None => Ok(gate),
+    }
+}
+/// What [`idle_or_busy`] checks once it holds the gate. Browser guests and
+/// controller sessions don't take the gate, so an accepted request checks
+/// this again right before it goes ahead.
+pub(crate) fn busy_beside_gate(h: &Shared) -> Option<Busy> {
     if let Some(busy) = streaming(h, None) {
-        return Err(busy);
+        return Some(busy);
     }
     let ending = !h.sessions.lock().unwrap().teardown.is_empty();
     if let Some(app) = h.current_app.lock().unwrap().as_ref() {
-        return Err(Busy::App(app.name.clone()));
+        return Some(Busy::App(app.name.clone()));
     }
     if ending || !h.monitors.lock().unwrap().is_empty() {
-        return Err(Busy::Ending);
+        return Some(Busy::Ending);
     }
     if h.webrtc_links.len() != 0 {
-        return Err(Busy::Guest);
+        return Some(Busy::Guest);
     }
     if h.controller_sessions.in_use() {
-        return Err(Busy::Controller);
+        return Some(Busy::Controller);
     }
-    Ok(gate)
+    None
 }
 /// The devices that stream or start a stream, but `except`.
 pub(crate) fn streaming(h: &Shared, except: Option<&str>) -> Option<Busy> {
@@ -343,6 +364,11 @@ fn sleep_blocking(
     };
     if !allowed {
         tracing::warn!(client, %peer, "Sleep PC was revoked before the suspend; not sleeping");
+        return;
+    }
+    if let Some(busy) = busy_beside_gate(h) {
+        let busy = busy.message();
+        tracing::warn!(client, %peer, busy, "Sleep PC: the PC got busy before the suspend; not sleeping");
         return;
     }
     match backend.suspend() {

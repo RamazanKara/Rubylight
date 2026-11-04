@@ -8,7 +8,7 @@ use super::{
     require_host_control,
 };
 use crate::{
-    power_action::{idle_or_busy, streaming},
+    power_action::{busy_beside_gate, idle_or_busy, streaming},
     state::Shared,
     tls::{Connection, ConnectionEnd},
 };
@@ -72,7 +72,7 @@ fn offer(h: &Shared, client: &Client, local: IpAddr) -> Power {
         token: offer.token.clone(),
         token_lifetime_s: power_action::TOKEN_LIFETIME.as_secs() as u32,
         wake_from_off: wake_from_off(h, local),
-        last_refusal: h.power.last_refusal(),
+        last_refusal: h.power.last_refusal(&client.uuid, Instant::now()),
     }
 }
 /// A ready wired target: Wi-Fi can't wake a PC that is off.
@@ -184,6 +184,8 @@ fn power_blocking(
     let peer = connection.peer;
     let name = client.name.as_str();
     tracing::warn!(what, client = name, %peer, "native API: power request accepted");
+    // The device's earlier refusal is over; a new one is this request's.
+    h.power.set_last_refusal(&client.uuid, None);
     // As Sleep PC: the answer closes its connection, and the PC goes down only
     // once hyper wrote and closed it.
     let delivery = end.watch();
@@ -211,6 +213,13 @@ fn power_blocking(
         tracing::warn!(what, client = name, %peer, "power: the grant was revoked; not going ahead");
         return;
     }
+    // A browser guest or a controller session doesn't wait for the gate.
+    if let Some(busy) = busy_beside_gate(h) {
+        let busy = busy.message();
+        tracing::warn!(what, client = name, %peer, busy, "power: the PC got busy before the request; not going ahead");
+        h.power.set_last_refusal(&client.uuid, Some(busy));
+        return;
+    }
     h.webhook(
         action.event(),
         serde_json::json!({"device": h.webhook_device(&client.uuid)}),
@@ -218,14 +227,13 @@ fn power_blocking(
     let backend = h.power.backend();
     match backend.power_off(action) {
         Ok(()) => {
-            h.power.set_last_refusal(None);
             let native = backend.native();
             tracing::warn!(what, client = name, %peer, native, "power: Windows took the request");
         }
         Err(error) => {
             let error = format!("{error:#}");
             tracing::warn!(what, client = name, %peer, %error, "power: Windows refused");
-            h.power.set_last_refusal(Some(error));
+            h.power.set_last_refusal(&client.uuid, Some(error));
         }
     }
     drop(gate);
@@ -240,6 +248,7 @@ fn update_of(h: &Shared) -> Update {
         phase: text("phase").unwrap_or_else(|| "idle".into()),
         install_supported: status["install_supported"] == true,
         error: text("error"),
+        waiting_for: text("waiting_for"),
     }
 }
 
@@ -253,7 +262,8 @@ pub async fn update(State(h): State<Shared>, Extension(c): Extension<Connection>
 }
 
 /// `POST /update/install`: the console's Install now, which ends the
-/// caller's own stream, refused while another device streams.
+/// caller's own stream, refused while another device streams. One that
+/// starts streaming later holds the install back until it ends.
 pub async fn install(
     State(h): State<Shared>,
     Extension(c): Extension<Connection>,
@@ -288,12 +298,16 @@ fn install_blocking(h: &Shared, client: &Client) -> Result<Update, Failure> {
     if let Some(busy) = streaming(h, Some(&client.uuid)) {
         return Err(Failure::new(ErrorCode::HostInUse, busy.message()));
     }
-    crate::updater::queue(h, false, true)
+    let queued = crate::updater::queue(h, false, true, Some(&client.uuid))
         .map_err(|error| Failure::new(ErrorCode::UpdateUnavailable, format!("{error:#}.")))?;
     let update = update_of(h);
     let version =
         h.updates.lock().unwrap_or_else(PoisonError::into_inner)["queued_version"].clone();
-    tracing::warn!(client = %client.name, %version, "native API: update install requested");
+    tracing::warn!(client = %client.name, %version, queued, "native API: update install requested");
+    // A second tap while it already installs now raises no second event.
+    if !queued {
+        return Ok(update);
+    }
     h.webhook(
         "update.started",
         serde_json::json!({"device": h.webhook_device(&client.uuid), "version": version}),

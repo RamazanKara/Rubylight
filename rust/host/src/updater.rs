@@ -155,6 +155,8 @@ pub fn status(h: &Shared) -> Value {
     state["next_check_at"] = json!(next_check(h));
     // Due, but held back by a stream; the console says "After the stream".
     state["deferred"] = json!(streaming(h) && next_check(h).is_some_and(|at| now() >= at));
+    // A device's Install now held back by another device's stream.
+    state["waiting_for"] = json!(held_for_others(h).map(|busy| busy.message()));
     state["last_install"] =
         butterpollo_core::state::load_json(&h.directory.join("update-result.json"), json!(null))
             .unwrap_or(Value::Null);
@@ -242,7 +244,11 @@ pub fn busy(h: &Shared) -> bool {
 /// Queue the latest release. `immediately` is the user's "Install now": it does not
 /// wait for the host to be idle and ends a running stream, which the client
 /// can start again once Rubylight is back. Automatic updates always wait.
-pub fn queue(h: &Shared, automatic: bool, immediately: bool) -> Result<()> {
+/// `by` is the device whose Install now this is (`None` for the console):
+/// it ends only that device's stream and waits while another device streams
+/// ([`held_for_others`]). Whether this queued the update or made it install
+/// now; false when it already did.
+pub fn queue(h: &Shared, automatic: bool, immediately: bool, by: Option<&str>) -> Result<bool> {
     if !supported(h) {
         bail!("Install Rubylight as a Windows service to use in-app updates");
     }
@@ -254,12 +260,7 @@ pub fn queue(h: &Shared, automatic: bool, immediately: bool) -> Result<()> {
         state["phase"].as_str(),
         Some("waiting" | "downloading" | "ready" | "installing")
     ) {
-        // "Install now" on an update already waiting for an idle host.
-        if immediately && state["phase"] != "installing" {
-            state["now"] = json!(true);
-            state["automatic"] = json!(false);
-        }
-        return Ok(());
+        return Ok(immediately && install_now_again(&mut state, by));
     }
     if state["check_failed"] == true {
         bail!("Check for updates successfully before installing");
@@ -285,19 +286,56 @@ pub fn queue(h: &Shared, automatic: bool, immediately: bool) -> Result<()> {
             .as_str()
             .is_some_and(|v| v.trim_start_matches('v') == candidate.version.trim_start_matches('v'))
         {
-            return Ok(());
+            return Ok(false);
         }
         if state["attempted_version"] == candidate.version {
-            return Ok(());
+            return Ok(false);
         }
     }
     state["phase"] = json!("waiting");
     state["queued_version"] = json!(candidate.version);
     state["automatic"] = json!(automatic);
-    state["now"] = json!(immediately && !automatic);
+    let now = immediately && !automatic;
+    state["now"] = json!(now);
+    state["now_by"] = json!(by.filter(|_| now));
     state["idle_since"] = json!(0);
     state["error"] = Value::Null;
-    Ok(())
+    Ok(true)
+}
+
+/// "Install now" on an update already queued: whether it changed anything.
+/// The console's own (`by` None) ends any stream and stays so; a device's
+/// ends only its own.
+fn install_now_again(state: &mut Value, by: Option<&str>) -> bool {
+    if state["phase"] == "installing" {
+        return false;
+    }
+    let already = state["now"] == true;
+    if already && (state["now_by"].is_null() || state["now_by"].as_str() == by) {
+        return false;
+    }
+    state["now"] = json!(true);
+    state["now_by"] = json!(by);
+    state["automatic"] = json!(false);
+    true
+}
+
+/// What a device's Install now waits for: another device that streams or
+/// starts a stream, whose stream it never ends. `None` for the console's
+/// Install now and for an update that waits for an idle host anyway.
+pub fn held_for_others(h: &Shared) -> Option<butterpollo_core::power_action::Busy> {
+    let state = h.updates.lock().unwrap();
+    if state["now"] != true
+        || !matches!(
+            state["phase"].as_str(),
+            Some("waiting" | "downloading" | "ready")
+        )
+    {
+        return None;
+    }
+    let by = state["now_by"].as_str()?.to_owned();
+    drop(state);
+    crate::power_action::streaming(h, Some(&by))
 }
 
 pub fn cancel(h: &Shared) -> Result<()> {
@@ -307,6 +345,7 @@ pub fn cancel(h: &Shared) -> Result<()> {
     }
     state["phase"] = json!("idle");
     state["now"] = json!(false);
+    state["now_by"] = Value::Null;
     // A generation token prevents a cancelled download from publishing its result.
     state["download_id"] = Value::Null;
     state["queued_version"] = Value::Null;
@@ -370,11 +409,19 @@ fn poll_with(h: &Shared, hashed: Option<Hashed>, hash: &dyn Fn(&std::path::Path)
     }
     drop(state);
     let is_busy = busy(h);
+    let held = held_for_others(h);
     let mut state = h.updates.lock().unwrap();
     if state["phase"] != phase {
         return;
     }
     let install_now = state["now"] == true;
+    if let Some(busy) = held {
+        tracing::debug!(
+            busy = busy.message(),
+            "update: a device's Install now waits for another device's stream"
+        );
+        return;
+    }
     if !install_now {
         if is_busy {
             state["idle_since"] = json!(0);
@@ -738,8 +785,14 @@ async fn transfer(
     candidate: &Installer,
     path: &std::path::Path,
 ) -> Result<PathBuf> {
-    // A download for "Install now" carries on beside the stream.
-    let paused = || busy(h) && h.updates.lock().unwrap()["now"] != true;
+    // A download for "Install now" carries on beside the stream, but not beside
+    // another device's when a device asked.
+    let paused = || {
+        // Its own statement: the updates lock is free again before
+        // `held_for_others` takes it.
+        let now = h.updates.lock().unwrap()["now"] == true;
+        (busy(h) && !now) || held_for_others(h).is_some()
+    };
     if paused() {
         return Err(DownloadPaused.into());
     }
@@ -873,6 +926,59 @@ mod tests {
         }
     }
     #[test]
+    fn a_devices_install_now_waits_for_another_devices_stream_but_not_its_own() {
+        let f = Fixture::new();
+        let h = &f.host;
+        // "fixture" streams; the phone asked, so its install waits, even once
+        // the download is done and a stream starts later.
+        h.sessions
+            .lock()
+            .unwrap()
+            .queue(launch(butterpollo_core::session::Role::Stream))
+            .unwrap();
+        for phase in ["waiting", "ready"] {
+            *h.updates.lock().unwrap() =
+                json!({"phase":phase,"idle_since":0,"now":true,"now_by":"phone"});
+            poll(h);
+            assert_eq!(h.updates.lock().unwrap()["phase"], phase);
+            assert_eq!(
+                status(h)["waiting_for"],
+                "fixture is starting a stream.",
+                "{phase}"
+            );
+        }
+        // The asking device's own stream ends: on to the installer, which
+        // this test host, no installed service, refuses.
+        *h.updates.lock().unwrap() =
+            json!({"phase":"ready","idle_since":0,"now":true,"now_by":"fixture"});
+        assert_eq!(status(h)["waiting_for"], Value::Null);
+        poll(h);
+        assert_eq!(h.updates.lock().unwrap()["phase"], "failed");
+        // So does the console's, whoever streams.
+        *h.updates.lock().unwrap() = json!({"phase":"ready","idle_since":0,"now":true});
+        poll(h);
+        assert_eq!(h.updates.lock().unwrap()["phase"], "failed");
+    }
+    #[test]
+    fn install_now_again_says_whether_it_changed_anything() {
+        let mut state = json!({"phase":"waiting","now":false});
+        assert!(install_now_again(&mut state, Some("phone")));
+        assert_eq!(
+            (&state["now"], &state["now_by"]),
+            (&json!(true), &json!("phone"))
+        );
+        // The same device again: nothing new, so no second update.started.
+        assert!(!install_now_again(&mut state, Some("phone")));
+        // The console's ends any stream.
+        assert!(install_now_again(&mut state, None));
+        assert_eq!(state["now_by"], Value::Null);
+        assert!(!install_now_again(&mut state, Some("phone")));
+        assert_eq!(state["now_by"], Value::Null);
+        let mut installing = json!({"phase":"installing","now":false});
+        assert!(!install_now_again(&mut installing, Some("phone")));
+        assert_eq!(installing["now"], false);
+    }
+    #[test]
     fn install_now_does_not_wait_for_an_idle_host() {
         let f = Fixture::new();
         let h = &f.host;
@@ -990,7 +1096,7 @@ mod tests {
             .values
             .insert("update_check_interval".into(), "0".into());
         assert_eq!(status(h)["update_check_interval"], 0);
-        assert!(queue(h, false, false).is_err());
+        assert!(queue(h, false, false, None).is_err());
     }
     fn set_interval(h: &Shared, seconds: &str) {
         h.config
@@ -1192,6 +1298,14 @@ mod tests {
             .queue(launch(butterpollo_core::session::Role::Stream))
             .unwrap();
         let candidate = installer(&release()).unwrap();
+        let error = transfer(&f.host, "test", &candidate, &f.directory.join("setup.exe"))
+            .await
+            .unwrap_err();
+        assert!(error.is::<DownloadPaused>());
+        assert!(!f.directory.join("setup.exe").exists());
+        // A device's Install now pauses beside another device's stream too.
+        *f.host.updates.lock().unwrap() =
+            json!({"phase":"downloading","now":true,"now_by":"phone"});
         let error = transfer(&f.host, "test", &candidate, &f.directory.join("setup.exe"))
             .await
             .unwrap_err();

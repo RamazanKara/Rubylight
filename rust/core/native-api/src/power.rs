@@ -23,8 +23,9 @@ pub struct Power {
     /// A wired wake target is ready, so a magic packet can likely wake the PC
     /// after a shutdown. Firmware settings Windows can't read may still stop it.
     pub wake_from_off: bool,
-    /// Why Windows refused the last accepted restart or shutdown, null when
-    /// it did not.
+    /// Why this device's last accepted restart or shutdown did not happen
+    /// (Windows refused, or the PC got busy before it), null when it did or
+    /// after 10 minutes. Another device's refusal is never shown.
     pub last_refusal: Option<String>,
 }
 
@@ -57,4 +58,10 @@ pub struct Update {
     pub install_supported: bool,
     /// Why the last check or install failed, null when it did not.
     pub error: Option<String>,
+    /// Why a device's install waits, for example
+    /// `"Living room TV is streaming from this PC."`: it never ends another
+    /// device's stream. Null when it does not wait for one; older hosts
+    /// leave it out.
+    #[serde(default)]
+    pub waiting_for: Option<String>,
 }

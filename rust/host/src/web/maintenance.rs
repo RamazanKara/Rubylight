@@ -7,11 +7,11 @@ pub(super) fn handle(h: &Shared, method: &str, path: &str) -> anyhow::Result<Val
     Ok(match (method, path) {
         ("GET", "/api/updates") => crate::updater::status(h),
         ("POST", "/api/updates/install") => {
-            crate::updater::queue(h, false, false)?;
+            crate::updater::queue(h, false, false, None)?;
             json!({"status":true})
         }
         ("POST", "/api/updates/install_now") => {
-            crate::updater::queue(h, false, true)?;
+            crate::updater::queue(h, false, true, None)?;
             json!({"status":true})
         }
         ("POST", "/api/updates/cancel") => {

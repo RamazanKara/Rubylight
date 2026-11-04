@@ -480,6 +480,15 @@ fn power_and_update_round_trip() {
     assert_eq!(power.restart, power.shutdown);
     let update: Update = round_trip("update");
     assert_eq!(update.latest_version.as_deref(), Some("v3.4.0"));
+    assert_eq!(
+        update.waiting_for.as_deref(),
+        Some("Living room TV is streaming from this PC.")
+    );
+    // An older host leaves it out.
+    let mut older = serde_json::to_value(&update).unwrap();
+    older.as_object_mut().unwrap().remove("waiting_for");
+    let older: Update = serde_json::from_value(older).unwrap();
+    assert_eq!(older.waiting_for, None);
     // A request carries the token and nothing else.
     assert!(serde_json::from_value::<PowerRequest>(json!({"token": "ab", "force": true})).is_err());
     assert_eq!(

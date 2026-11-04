@@ -1,0 +1,7 @@
+- Thicker sliders everywhere; games without a cover show their title
+- Mute audio streams without sound on this device
+- Game Bar and Record that shortcut tiles
+- Balanced pacing no longer drops frames at the display's own rate
+- Windows: system keys and Alt+F4 go to the PC
+- Windows and Linux: no AV1 edge strip at odd sizes
+- Fixes for a crash and a stuck screen after a stream

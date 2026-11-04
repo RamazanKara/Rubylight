@@ -113,7 +113,10 @@ public class RendererGateTest {
             assertTrue(gate.enter());
             gate.exit();
             assertTrue(Thread.currentThread().isInterrupted());
+            // join() throws on an interrupted thread when the other one has not ended yet
+            Thread.interrupted();
             other.join();
+            Thread.currentThread().interrupt();
 
             AtomicInteger stops = new AtomicInteger();
             assertTrue(gate.stop(stops::incrementAndGet));

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { createTestServer } from './test-server.mjs';
 
@@ -103,4 +104,13 @@ test('everything leaves the file transfer bits as they are', () => {
   assert.equal(accessLabel(0x07131f00), 'Everything');
   assert.equal(accessLabel(0x071f1f00), 'Everything');
   assert.equal(accessLabel(0x07031f00), 'Custom');
+});
+
+test('the device pages never say the first device gets everything: Restart and shut down PC is its own grant', () => {
+  for (const page of ['DeviceEditor.svelte', 'PairPanel.svelte']) {
+    const text = readFileSync(new URL(`./src/components/devices/${page}`, import.meta.url), 'utf8').replace(/\s+/g, ' ');
+    assert.doesNotMatch(text, /first (paired device|device paired to this PC) (gets|can do) everything/, page);
+  }
+  const editor = readFileSync(new URL('./src/components/devices/DeviceEditor.svelte', import.meta.url), 'utf8').replace(/\s+/g, ' ');
+  assert.match(editor, /File transfer and Restart and shut down PC are granted on their own, never with Everything\./);
 });

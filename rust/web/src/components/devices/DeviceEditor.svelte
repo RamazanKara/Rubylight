@@ -266,8 +266,8 @@
       onchange={setJoins}
     />
     <p class="note">
-      The first paired device gets everything. Later devices get what was chosen when they paired.
-      File transfer is granted on its own, never with Everything.
+      The first paired device gets Everything. Later devices get what was chosen when they paired.
+      File transfer and Restart and shut down PC are granted on their own, never with Everything.
     </p>
     <details bind:open={permissionsOpen}><summary>Custom permissions</summary>
     <div class="groups">

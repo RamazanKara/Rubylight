@@ -67,7 +67,7 @@
   {:else}
     <div class="access">
       <AccessChoice legend="This device can" recommend value={access} onchange={(next) => { if (next !== 'custom') access = next; }} />
-      <p class="muted">The first device paired to this PC can do everything. Change it later on the device's page.</p>
+      <p class="muted">The first device paired to this PC gets Everything. Change it later on the device's page.</p>
     </div>
     {#if qrOff}
       <p class="notice qr-off">Pairing with a QR code is off. <Button size="sm" busy={turningOn} onclick={turnOnQr}>Turn on</Button></p>

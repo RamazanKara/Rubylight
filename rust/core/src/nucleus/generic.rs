@@ -105,7 +105,8 @@ pub enum Inject {
     /// Into the running game from one of its own threads, for a game that
     /// refuses a thread made in it.
     Stealth,
-    /// None: Nucleus only tells the game it has focus.
+    /// None, and no focus messages from Nucleus either: nothing would hold
+    /// back what they wake in the game (#59).
     None,
 }
 
@@ -318,9 +319,13 @@ impl Setup {
         } else {
             &[]
         };
+        // No FakeFocus: Nucleus would tell the game every second that it is
+        // active, and only ProtoInput's cursor hooks keep a game that believes
+        // it from taking the mouse back from the person at the PC, towards
+        // its window parked right of the desktop (#59). It never gave such a
+        // game its pad, which it reads only when really in front.
         let unhooked = [
-            "// The game refused ProtoInput's input hooks every way Nucleus Co-op injects them, so none are injected: Nucleus Co-op only tells it it has focus, and a keyboard, mouse or pad on the PC can reach it too.",
-            "Game.FakeFocus = true;",
+            "// The game refused ProtoInput's input hooks every way Nucleus Co-op injects them, so none are injected and a keyboard, mouse or pad on the PC can reach it too. It knows when it has focus, so it lets go of the PC's mouse when it loses it.",
             // Nucleus 2.4.2 lists XInput pads on its setup screen only for a
             // handler with ProtoInput's XInput hook or this switch
             // (`DevicesFunctions.UpdateDevices`). Without either it never
@@ -1009,8 +1014,14 @@ mod tests {
             let text = setup.handler_of(owner);
             assert!(owns(&text));
             let says = |line: &str| text.lines().any(|l| l == line);
-            // Nucleus' own focus messages are no hook.
-            assert!(says("Game.FakeFocus = true;"), "{text}");
+            // Nucleus' own focus messages are no hook, but without ProtoInput's
+            // cursor hooks they make a game take the PC's mouse back every
+            // second, however often its person clicks away (#59).
+            assert_eq!(
+                says("Game.FakeFocus = true;"),
+                way != Inject::None,
+                "{text}"
+            );
             match way {
                 Inject::Runtime => assert_eq!(text, runtime),
                 Inject::Startup => {

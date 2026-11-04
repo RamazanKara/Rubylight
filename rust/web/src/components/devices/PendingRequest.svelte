@@ -40,13 +40,13 @@
 <li>
   <form class="request" onsubmit={pair}>
     <div class="who">
+      <!-- The address first and apart: the name is the device's to choose, and could name one. -->
+      {#if request.address}<span class="from">Pairing request from {pairingSource(request.address)}</span>{/if}
       <span class="title">
         <span class="name">{request.name}</span>
         {#if request.webrtc}<Badge>WebRTC</Badge>{/if}
       </span>
-      <span class="muted age">
-        {#if request.address}From {pairingSource(request.address)}, requested{:else}Requested{/if} {duration(request.age_seconds)} ago
-      </span>
+      <span class="muted age">Requested {duration(request.age_seconds)} ago</span>
     </div>
     <label class="visually-hidden" for="{uid}-pin">PIN shown on {request.name}</label>
     <div class="entry">
@@ -88,6 +88,9 @@
     flex-wrap: wrap;
     align-items: center;
     gap: var(--space-2);
+  }
+  .from {
+    font-weight: var(--weight-semibold);
   }
   .name {
     font-weight: var(--weight-semibold);

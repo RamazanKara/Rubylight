@@ -252,11 +252,46 @@ pub(crate) fn local_network(peer: IpAddr) -> bool {
     reach(peer.to_canonical()) <= Reach::Lan
 }
 
-/// What is wrong with a pairing device's name, if anything: a digit other than ASCII 0-9
+/// Unicode's format characters (Cf, as of Unicode 15.1) and the line and paragraph separators
+/// (Zl, Zp): bidi overrides and isolates reorder the text around them, zero-width ones hide
+/// in it, and a separator starts a line that can pass for the notice's own. Refusing U+200D
+/// also refuses emoji joined with it.
+fn invisible(c: char) -> bool {
+    matches!(
+        c,
+        '\u{00ad}'
+            | '\u{0600}'..='\u{0605}'
+            | '\u{061c}'
+            | '\u{06dd}'
+            | '\u{070f}'
+            | '\u{0890}'..='\u{0891}'
+            | '\u{08e2}'
+            | '\u{180e}'
+            | '\u{200b}'..='\u{200f}'
+            | '\u{2028}'..='\u{202e}'
+            | '\u{2060}'..='\u{2064}'
+            | '\u{2066}'..='\u{206f}'
+            | '\u{feff}'
+            | '\u{fff9}'..='\u{fffb}'
+            | '\u{110bd}'
+            | '\u{110cd}'
+            | '\u{13430}'..='\u{1343f}'
+            | '\u{1bca0}'..='\u{1bca3}'
+            | '\u{1d173}'..='\u{1d17a}'
+            | '\u{e0001}'
+            | '\u{e0020}'..='\u{e007f}'
+    )
+}
+
+/// What is wrong with a pairing device's name, if anything: a format or separator character
+/// ([`invisible`]), a digit other than ASCII 0-9
 /// (fullwidth, circled, superscript, math bold, Arabic-Indic and the like, which can spell a PIN
 /// the ASCII check misses), or ASCII digits that, read in order with anything between them
 /// dropped, contain `pin`.
 fn name_problem(pin: &str, name: &str) -> Option<&'static str> {
+    if name.chars().any(invisible) {
+        return Some("clientName may not contain format or line separator characters");
+    }
     if name.chars().any(|c| c.is_numeric() && !c.is_ascii_digit()) {
         return Some("clientName may use only the digits 0-9");
     }
@@ -1263,8 +1298,54 @@ pub(crate) mod tests {
         ] {
             assert!(name_problem("4821", name).is_some(), "{name}");
         }
-        for name in ["Living room TV 2024", "Xbox", "Edge on Windows", "SM-F966B"] {
+        for name in [
+            "Living room TV 2024",
+            "Xbox",
+            "Edge on Windows",
+            "SM-F966B",
+            "Fernseher Wohnzimmer 📺",
+            "客厅电视",
+            "Télé du salon",
+        ] {
             assert_eq!(name_problem("4821", name), None, "{name}");
+        }
+    }
+
+    #[test]
+    fn a_pairing_name_may_not_hide_reorder_or_break_its_text() {
+        for c in [
+            '\u{00ad}',
+            '\u{061c}',
+            '\u{180e}',
+            '\u{200b}',
+            '\u{200c}',
+            '\u{200d}',
+            '\u{200e}',
+            '\u{200f}',
+            '\u{2028}',
+            '\u{2029}',
+            '\u{202a}',
+            '\u{202b}',
+            '\u{202c}',
+            '\u{202d}',
+            '\u{202e}',
+            '\u{2060}',
+            '\u{2066}',
+            '\u{2067}',
+            '\u{2068}',
+            '\u{2069}',
+            '\u{feff}',
+            '\u{e0001}',
+            '\u{e0041}',
+        ] {
+            let name = format!("{c}Pairing request from 192.168.4.20");
+            butterpollo_core::pairing::validate_device_name(&name).unwrap();
+            assert_eq!(
+                name_problem("4821", &name),
+                Some("clientName may not contain format or line separator characters"),
+                "U+{:04X}",
+                c as u32
+            );
         }
     }
 

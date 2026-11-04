@@ -82,8 +82,10 @@ test('inputs and selects report an invalid value to assistive tech', async () =>
 test('a pairing request shows its address first and apart from the name it chose', async () => {
   const request = { uniqueid: 'a', name: 'Living room TV (from 192.168.4.20)', address: '127.0.0.1', age_seconds: 3, webrtc: true };
   for (const out of [await body('PairingBanner', { requests: [request] }), await body('devices/PendingRequest', { request })]) {
-    const from = out.indexOf('this PC (a tunnel or proxy)');
+    const from = out.indexOf('Pairing request from this PC (a tunnel or proxy)');
     assert.ok(from >= 0, out);
+    assert.ok(from < out.indexOf('Living room TV'), out);
+    assert.match(out, /<span class="from[^"]*">Pairing request from this PC/);
     assert.doesNotMatch(out, /127\.0\.0\.1/);
   }
   const banner = await body('PairingBanner', { requests: [{ ...request, address: '192.168.4.30' }] });

@@ -484,6 +484,37 @@ async fn apps(
     Ok(content + &button("app-close", csrf, "/library", "", "", "Close running app"))
 }
 
+/// A waiting pairing request: where it came from first, as the tray says it, then the name the
+/// device chose, which could name another address.
+fn pending_card(
+    csrf: &str,
+    id: &str,
+    name: &str,
+    address: std::net::IpAddr,
+    webrtc: bool,
+) -> String {
+    card(
+        if webrtc {
+            "Pairing request (WebRTC)"
+        } else {
+            "Pairing request"
+        },
+        &format!(
+            "<p class=\"from\"><strong>Pairing request from {}</strong></p>{}",
+            i18n::data(&crate::state::pairing_source(address)),
+            form(
+                "pair",
+                csrf,
+                "/devices",
+                &(hidden("uniqueid", id)
+                    + &field("name", "Device name", name, "text")
+                    + &field("pin", "Moonlight PIN", "", "text")
+                    + "<button>Pair device</button>"),
+            )
+        ),
+    )
+}
+
 async fn devices(
     h: &Shared,
     connection: &Connection,
@@ -497,7 +528,14 @@ async fn devices(
         .lock()
         .unwrap()
         .iter()
-        .map(|(id, pin)| (id.clone(), pin.name.clone(), pin.certificate.is_empty()))
+        .map(|(id, pin)| {
+            (
+                id.clone(),
+                pin.name.clone(),
+                pin.address,
+                pin.certificate.is_empty(),
+            )
+        })
         .collect();
     let mut content =
         "<p class=\"intro\">Pair Moonlight devices and choose what each device can do.</p>"
@@ -508,23 +546,8 @@ async fn devices(
             "<p>Add this host in Moonlight. Moonlight shows a four-digit PIN. Reload this page to see the pairing request, then enter that PIN here.</p><a class=\"button secondary\" href=\"/devices\">Check for a pairing request</a>",
         );
     }
-    for (id, name, webrtc) in pending {
-        content += &card(
-            if webrtc {
-                "Pairing request (WebRTC)"
-            } else {
-                "Pairing request"
-            },
-            &form(
-                "pair",
-                csrf,
-                "/devices",
-                &(hidden("uniqueid", &id)
-                    + &field("name", "Device name", &name, "text")
-                    + &field("pin", "Moonlight PIN", "", "text")
-                    + "<button>Pair device</button>"),
-            ),
-        );
+    for (id, name, address, webrtc) in pending {
+        content += &pending_card(csrf, &id, &name, address, webrtc);
     }
     let paired = rows(&clients, "clients");
     if paired.is_empty() {
@@ -1054,6 +1077,24 @@ mod tests {
             loss_addresses(routes.as_array().unwrap()),
             "192.0.2.9, 192.0.2.10"
         );
+    }
+    #[test]
+    fn a_pending_card_shows_where_the_request_came_from_before_its_name() {
+        let name = "Living room TV (from 192.168.4.20)";
+        for (address, source) in [
+            ("127.0.0.1", "this PC (a tunnel or proxy)"),
+            ("192.168.4.30", "192.168.4.30"),
+        ] {
+            let html = i18n::render(
+                &pending_card("token", "id", name, address.parse().unwrap(), true),
+                "en",
+            );
+            let from = html
+                .find(&format!("Pairing request from {source}"))
+                .unwrap_or_else(|| panic!("{html}"));
+            assert!(from < html.find("Living room TV").unwrap(), "{html}");
+            assert!(!html.contains("127.0.0.1"), "{html}");
+        }
     }
     #[test]
     fn token_permissions_are_readable_and_escaped() {

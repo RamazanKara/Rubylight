@@ -432,6 +432,24 @@ cases:
     status: pending
     note: 'no Shield here. The rule replays the 4.4.0 captures (DecoderQueuePolicyTest.debtReplaysTheRecordedShieldStreams: sm1 recovers at 65-75 s, sm2 and sm1 after 110 s never drop); that a held drop frees the display buffer is inferred from sm1''s catch-up at 109.7 s (12 to 1 ms). Retroid and TCL TV runs check only that healthy streams never drop'
 
+  - id: nj-smoothest-retroid
+    device: retroid
+    title: Smoothest video on a device with no display queue problem, one build against another (5 min each, 1080p60)
+    command: |
+      foreach ($run in 'off 1', 'on 1', 'off 2', 'on 2') {
+        $arm, $rep = $run -split ' '
+        $apk = if ($arm -eq 'on') { $env:NJ_AFTER_APK } else { $env:NJ_BEFORE_APK }
+        & {{python}} tools\hw\smoothest_ab.py run --arm $arm --apk $apk --rep $rep
+        if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      }
+      & {{python}} tools\hw\smoothest_ab.py table
+    preconditions: [idle]
+    manages_locks: true
+    verdict: review
+    pass: no drops in either build, and the decoder wait and receive-to-release times of the two builds within run-to-run noise
+    output: 'C:\src\butterpollo-release\unified\nj-smoothest\results.jsonl, <arm>-<rep>-host.log, -latency.csv, -mid.png'
+    note: 'Streams from the isolated host of fec_wifi_ab.py. The Retroid reports no render times (render_ns blank), so gaps and latency read release_ns. 2026-11-05, main against no gate, 4 x 5 min on 120 Hz: 0 drops in all runs, wait p50 1.62-1.67 ms, gaps over 25 ms 4-104 within each arm'
+
   - id: nightjar-steam-deck
     device: user
     title: Nightjar on a Steam Deck (Experimental), the Flatpak as a non-Steam game in Game Mode, SDR and HDR

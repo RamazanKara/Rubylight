@@ -325,6 +325,28 @@ public class DesktopControlsPanelTest {
         fail("Missing key-bank selector");
     }
 
+    /** nightjar#61: the panel's mouse buttons vibrated on press and its keyboard keys did not. */
+    @Test public void aKeyVibratesOnPressAndFollowsVibrateOnPress() {
+        try (ActivityController<UiNavigationTest.Screen> screen = Robolectric.buildActivity(UiNavigationTest.Screen.class).setup()) {
+            RecordingSink sink = new RecordingSink();
+            DesktopControlsPanel panel = panel(screen, sink);
+            panel.setMode(DesktopControlsPanel.Mode.KEYBOARD);
+            MaterialButton esc = button(panel, "Esc");
+            assertNotNull(esc);
+            touch(esc, MotionEvent.ACTION_DOWN);
+            assertEquals(android.view.HapticFeedbackConstants.VIRTUAL_KEY, shadowOf(esc).lastHapticFeedbackPerformed());
+            touch(esc, MotionEvent.ACTION_UP);
+
+            DesktopControlsPanel off = panel(screen, sink);
+            off.setHaptics(false);
+            off.setMode(DesktopControlsPanel.Mode.KEYBOARD);
+            MaterialButton quiet = button(off, "Esc");
+            touch(quiet, MotionEvent.ACTION_DOWN);
+            assertNotEquals(android.view.HapticFeedbackConstants.VIRTUAL_KEY, shadowOf(quiet).lastHapticFeedbackPerformed());
+            touch(quiet, MotionEvent.ACTION_UP);
+        }
+    }
+
     private static DesktopControlsPanel panel(ActivityController<UiNavigationTest.Screen> screen, RecordingSink sink) {
         DesktopControlsPanel panel = new DesktopControlsPanel(screen.get(), sink, () -> { }, () -> { });
         screen.get().setContentView(panel);

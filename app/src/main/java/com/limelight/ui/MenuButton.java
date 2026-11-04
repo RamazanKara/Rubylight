@@ -183,7 +183,7 @@ public final class MenuButton extends View {
     @Override
     public boolean performClick() {
         super.performClick();
-        performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);
+        performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY);
         host.open();
         return true;
     }

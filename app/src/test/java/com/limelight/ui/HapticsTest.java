@@ -31,8 +31,8 @@ import org.robolectric.annotation.Config;
 public class HapticsTest {
     @Test
     public void eachKindTakesTheNewestConstantTheDeviceKnows() {
-        assertEquals(HapticFeedbackConstants.KEYBOARD_TAP, Haptics.constant(Haptics.Kind.KEY, 21));
-        assertEquals(HapticFeedbackConstants.KEYBOARD_TAP, Haptics.constant(Haptics.Kind.KEY, 34));
+        assertEquals(HapticFeedbackConstants.VIRTUAL_KEY, Haptics.constant(Haptics.Kind.KEY, 21));
+        assertEquals(HapticFeedbackConstants.VIRTUAL_KEY, Haptics.constant(Haptics.Kind.KEY, 34));
         assertEquals(HapticFeedbackConstants.VIRTUAL_KEY, Haptics.constant(Haptics.Kind.NAVIGATION, 21));
         assertEquals(HapticFeedbackConstants.VIRTUAL_KEY, Haptics.constant(Haptics.Kind.NAVIGATION, 36));
 
@@ -80,9 +80,9 @@ public class HapticsTest {
             keys.onTouchEvent(down);
             down.recycle();
             if (haptics) {
-                assertEquals(HapticFeedbackConstants.KEYBOARD_TAP, shadowOf(keys).lastHapticFeedbackPerformed());
+                assertEquals(HapticFeedbackConstants.VIRTUAL_KEY, shadowOf(keys).lastHapticFeedbackPerformed());
             } else {
-                assertNotEquals(HapticFeedbackConstants.KEYBOARD_TAP, shadowOf(keys).lastHapticFeedbackPerformed());
+                assertNotEquals(HapticFeedbackConstants.VIRTUAL_KEY, shadowOf(keys).lastHapticFeedbackPerformed());
             }
             MotionEvent up = MotionEvent.obtain(now, now + 50, MotionEvent.ACTION_UP, 500, 200, 0);
             keys.onTouchEvent(up);
@@ -138,13 +138,13 @@ public class HapticsTest {
         keys.measure(View.MeasureSpec.makeMeasureSpec(1000, View.MeasureSpec.EXACTLY),
                 View.MeasureSpec.makeMeasureSpec(400, View.MeasureSpec.EXACTLY));
         keys.layout(0, 0, 1000, 400);
-        assertNotEquals(HapticFeedbackConstants.KEYBOARD_TAP, shadowOf(keys).lastHapticFeedbackPerformed());
+        assertNotEquals(HapticFeedbackConstants.VIRTUAL_KEY, shadowOf(keys).lastHapticFeedbackPerformed());
 
         long now = SystemClock.uptimeMillis();
         MotionEvent down = MotionEvent.obtain(now, now, MotionEvent.ACTION_DOWN, 500, 200, 0);
         keys.onTouchEvent(down);
         down.recycle();
-        assertEquals(HapticFeedbackConstants.KEYBOARD_TAP, shadowOf(keys).lastHapticFeedbackPerformed());
+        assertEquals(HapticFeedbackConstants.VIRTUAL_KEY, shadowOf(keys).lastHapticFeedbackPerformed());
     }
 
     @Test

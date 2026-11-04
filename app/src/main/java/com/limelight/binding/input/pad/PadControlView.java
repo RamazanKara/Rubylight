@@ -188,7 +188,7 @@ final class PadControlView extends View {
                 state.centerX = stick.centerX();
                 state.centerY = stick.centerY();
                 // The WASD stick answers when a key goes down, in updateStick, not on touch.
-                if (wasd == null) feedback(HapticFeedbackConstants.KEYBOARD_TAP);
+                if (wasd == null) feedback(HapticFeedbackConstants.VIRTUAL_KEY);
                 updateStick();
                 break;
             case FACE:
@@ -209,7 +209,7 @@ final class PadControlView extends View {
                 } else {
                     gamepad.setButtons(slot(), PadInput.buttonFlag(control));
                 }
-                feedback(HapticFeedbackConstants.KEYBOARD_TAP);
+                feedback(HapticFeedbackConstants.VIRTUAL_KEY);
                 changed();
                 break;
         }
@@ -233,7 +233,7 @@ final class PadControlView extends View {
                 updateMulti();
                 // A tick for every newly held button or direction; sliding off to nothing is silent.
                 if ((state.flags & ~before) != 0) {
-                    feedback(control.shape == PadLayout.Shape.FACE ? HapticFeedbackConstants.KEYBOARD_TAP :
+                    feedback(control.shape == PadLayout.Shape.FACE ? HapticFeedbackConstants.VIRTUAL_KEY :
                             HapticFeedbackConstants.CLOCK_TICK);
                 }
                 break;

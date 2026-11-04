@@ -98,17 +98,25 @@ impl AudioShared {
 }
 
 /// How late audio packets arrive, for the log: each packet against its place in the stream
-/// (packet n is due n packets after the first), relative to the earliest arrival of the last
-/// few seconds, which follows the drift between the host's clock and this one. A host that
+/// (packet n is due n packets after the first), relative to the low end of the arrivals of the
+/// last few seconds, which follows the drift between the host's clock and this one. A host that
 /// sends its 5 ms packets in pairs every 10 ms shows as 5 ms; a Wi-Fi stall as its length.
 /// A window is logged only when a packet in it came 8 ms or more late.
+///
+/// The low end, not the earliest: Windows' audio engine hands a host two of its 10 ms periods a
+/// slot early about twice a second, then none for 20 ms. Against those few, every other packet
+/// read 9-14 ms late for the whole stream (nightjar#74; a 40 s trace had 2% of the packets early)
+/// although the cushion follows the arrivals of the rest.
 pub struct ArrivalJitter {
     packet_us: u64,
     start_us: u64,
     last_us: u64,
     packets: u64,
-    /// The lowest lateness in each of the last seconds, newest last: (second, lateness).
-    minima: VecDeque<(u64, i64)>,
+    /// The low end of the lateness in each of the last seconds, newest last: (second, lateness).
+    lows: VecDeque<(u64, i64)>,
+    /// The lateness of this second's packets so far, and which second.
+    second: Vec<i64>,
+    second_at: u64,
     /// Packets per millisecond of lateness in this window; the last bucket holds the rest.
     histogram: [u32; ArrivalJitter::BUCKETS],
     window_us: u64,
@@ -122,6 +130,9 @@ impl ArrivalJitter {
     const RESTART_US: u64 = 1_000_000;
     /// The lateness a window must reach to be logged: what two 4 ms bursts would not hold.
     const LOG_FROM_MS: usize = 8;
+    /// A second's low end is the lateness this share (1 in N) of its packets beat: within the
+    /// earlier packet of each pair, above a few early wakes in a second.
+    const LOW_END: usize = 10;
 
     pub fn new(packet_ms: u32) -> Self {
         Self {
@@ -129,9 +140,40 @@ impl ArrivalJitter {
             start_us: 0,
             last_us: 0,
             packets: 0,
-            minima: VecDeque::new(),
+            lows: VecDeque::new(),
+            second: Vec::new(),
+            second_at: 0,
             histogram: [0; Self::BUCKETS],
             window_us: 0,
+        }
+    }
+
+    fn count(&mut self, late_us: i64) {
+        let bucket = (late_us.max(0) / 1000) as usize;
+        self.histogram[bucket.min(Self::BUCKETS - 1)] += 1;
+    }
+
+    /// The second before `now` (a second of the stream) has ended: its low end joins the last
+    /// few. The stream's first second had none to go by until now, so it is counted here.
+    fn end_second(&mut self, now: u64) {
+        if self.second.is_empty() {
+            return;
+        }
+        let share = self.second.len() / Self::LOW_END;
+        let low = *self.second.select_nth_unstable(share).1;
+        if self.lows.is_empty() {
+            for at in 0..self.second.len() {
+                self.count(self.second[at] - low);
+            }
+        }
+        self.second.clear();
+        self.lows.push_back((self.second_at, low));
+        while self
+            .lows
+            .front()
+            .is_some_and(|(at, _)| at + Self::DRIFT_SECONDS < now)
+        {
+            self.lows.pop_front();
         }
     }
 
@@ -141,7 +183,9 @@ impl ArrivalJitter {
         if self.packets == 0 || now_us.saturating_sub(self.last_us) >= Self::RESTART_US {
             self.start_us = now_us;
             self.packets = 0;
-            self.minima.clear();
+            self.lows.clear();
+            self.second.clear();
+            self.second_at = 0;
             self.window_us = now_us;
             self.histogram = [0; Self::BUCKETS];
         }
@@ -153,27 +197,14 @@ impl ArrivalJitter {
         self.last_us = now_us;
         let late = now_us as i64 - due as i64;
         let second = (now_us - self.start_us) / 1_000_000;
-        match self.minima.back_mut() {
-            Some((at, low)) if *at == second => *low = (*low).min(late),
-            _ => {
-                self.minima.push_back((second, late));
-                while self
-                    .minima
-                    .front()
-                    .is_some_and(|(at, _)| at + Self::DRIFT_SECONDS < second)
-                {
-                    self.minima.pop_front();
-                }
-            }
+        if second != self.second_at {
+            self.end_second(second);
+            self.second_at = second;
         }
-        let low = self
-            .minima
-            .iter()
-            .map(|(_, low)| *low)
-            .min()
-            .unwrap_or(late);
-        let bucket = ((late - low).max(0) / 1000) as usize;
-        self.histogram[bucket.min(Self::BUCKETS - 1)] += 1;
+        self.second.push(late);
+        if let Some(low) = self.lows.iter().map(|(_, low)| *low).min() {
+            self.count(late - low);
+        }
         if now_us.saturating_sub(self.window_us) < Self::WINDOW_US {
             return None;
         }
@@ -439,6 +470,38 @@ mod tests {
                 "Audio arrival over 10 s: 2001 packets, late p50 5 p95 5 p99 5 max 35 ms, \
               >=8:6 >=12:5 >=16:4 >=20:4 >=24:3 >=32:1 >=40:0"
             ]
+        );
+    }
+
+    /// nightjar#74, as a 40 s trace showed it with Windows' audio engine under the host: pairs
+    /// every 10 ms, and about twice a second two pairs a slot early (one with the pair before it,
+    /// a wake of four), then 20 ms of nothing. No window was clean against the earliest packets:
+    /// late p50 9 p95 14 p99 14 max 15 ms, >=8:1960 >=12:980. Early packets say nothing about the
+    /// others; a real stall on top still shows.
+    #[test]
+    fn arrival_jitter_is_not_thrown_by_packets_that_come_early() {
+        let arrivals = |stall: bool| {
+            let mut jitter = ArrivalJitter::new(5);
+            let mut lines = Vec::new();
+            for pair in 0..3000u64 {
+                let slot = match pair {
+                    p if p % 50 == 20 || p % 50 == 21 => p - 1,
+                    // A 30 ms stall: pairs 1500 to 1502 come with pair 1503.
+                    1500..=1502 if stall => 1503,
+                    p => p,
+                };
+                for _ in 0..2 {
+                    lines.extend(jitter.packet(1_000_000 + slot * 10_000, false));
+                }
+            }
+            lines
+        };
+        assert_eq!(arrivals(false), Vec::<String>::new());
+        let lines = arrivals(true);
+        assert_eq!(lines.len(), 1, "{lines:?}");
+        assert!(
+            lines[0].contains("p95 5 p99 5 max 35 ms, >=8:6 >=12:5 "),
+            "{lines:?}"
         );
     }
 

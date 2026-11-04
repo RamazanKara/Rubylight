@@ -1166,6 +1166,59 @@ fn read_json<T: for<'de> Deserialize<'de>>(path: &Path) -> Option<T> {
     }
 }
 
+const HOTKEYS_FILE: &str = "stream_hotkeys.json";
+/// stream_hotkeys.json's format: `{"version": 1, "bindings": {"quit": "CTRL+F9", "overlay": "off"}}`.
+const HOTKEYS_VERSION: u64 = 1;
+
+/// stream_hotkeys.json as read: the bindings this version reads, and the entries it doesn't (not a
+/// string), kept for the next save.
+struct HotkeysFile {
+    version: u64,
+    bindings: nightjar_policy::shortcuts::HotkeyBindings,
+    kept: serde_json::Map<String, serde_json::Value>,
+}
+
+/// None for a missing file; an error for one that can't be read or isn't the format's shape.
+fn read_hotkeys(path: &Path) -> Result<Option<HotkeysFile>, String> {
+    let text = match std::fs::read_to_string(path) {
+        Ok(text) => text,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(e.to_string()),
+    };
+    let value: serde_json::Value = serde_json::from_str(&text).map_err(|e| e.to_string())?;
+    let version = value.get("version").and_then(serde_json::Value::as_u64).ok_or("no version")?;
+    let entries = value.get("bindings").and_then(serde_json::Value::as_object).ok_or("no bindings")?;
+    let mut file = HotkeysFile { version, bindings: Default::default(), kept: serde_json::Map::new() };
+    for (id, entry) in entries {
+        match entry.as_str() {
+            Some(text) => { file.bindings.insert(id.clone(), text.to_string()); }
+            None => { file.kept.insert(id.clone(), entry.clone()); }
+        }
+    }
+    Ok(Some(file))
+}
+
+/// Copies `path` to `<path>.<suffix>` (`.<suffix>.2` and on beside earlier, different copies),
+/// unless a copy already holds the same bytes.
+fn back_up(path: &Path, suffix: &str) -> std::io::Result<()> {
+    let bytes = std::fs::read(path)?;
+    let name = path.file_name().unwrap_or_default().to_string_lossy().into_owned();
+    for n in 1.. {
+        let copy = path.with_file_name(if n == 1 { format!("{name}.{suffix}") } else { format!("{name}.{suffix}.{n}") });
+        match std::fs::read(&copy) {
+            Ok(earlier) if earlier == bytes => return Ok(()),
+            Ok(_) => continue,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                write_private(&copy, &bytes)?;
+                eprintln!("nightjar: copied {} to {} before replacing it", path.display(), copy.display());
+                return Ok(());
+            }
+            Err(e) => return Err(e),
+        }
+    }
+    unreachable!("a free name")
+}
+
 fn write_json<T: Serialize>(path: &Path, value: &T) -> std::io::Result<()> {
     let text = serde_json::to_string_pretty(value).map_err(std::io::Error::other)?;
     write_private(path, text.as_bytes())
@@ -1271,14 +1324,51 @@ impl Store {
         write_json(&self.dir.join("shortcuts.json"), shortcuts)
     }
 
-    /// The user's changes to the stream hotkeys, by action ID (nightjar-policy's `HotkeyBindings`);
-    /// none for a missing or unreadable file, which leaves every hotkey at its default.
+    /// The user's changes to the stream hotkeys, by action ID (nightjar-policy's `HotkeyBindings`),
+    /// read entry by entry: an entry this version can't read is logged and kept in the file. A
+    /// missing file, or one that doesn't read at all (logged), leaves every hotkey at its default.
     pub fn hotkeys(&self) -> nightjar_policy::shortcuts::HotkeyBindings {
-        read_json(&self.dir.join("stream_hotkeys.json")).unwrap_or_default()
+        let path = self.dir.join(HOTKEYS_FILE);
+        match read_hotkeys(&path) {
+            Ok(Some(file)) => {
+                if file.version > HOTKEYS_VERSION {
+                    eprintln!("nightjar: {} is from a newer Nightjar (version {}); reading the entries this one knows", path.display(), file.version);
+                }
+                for id in file.kept.keys() {
+                    eprintln!("nightjar: keeping {id} in {} unread: not a chord this version reads", path.display());
+                }
+                file.bindings
+            }
+            Ok(None) => Default::default(),
+            Err(e) => {
+                eprintln!("nightjar: cannot read {}: {e}; the stream hotkeys keep their defaults, and the file is backed up before a change replaces it", path.display());
+                Default::default()
+            }
+        }
     }
 
+    /// Saves the stream hotkeys over stream_hotkeys.json, keeping the entries it holds that this
+    /// version doesn't read and the newer version that wrote it. A file that doesn't read, or one a
+    /// newer Nightjar wrote, is copied beside it first (`.unreadable`, `.v<version>`), never lost.
     pub fn save_hotkeys(&self, bindings: &nightjar_policy::shortcuts::HotkeyBindings) -> std::io::Result<()> {
-        write_json(&self.dir.join("stream_hotkeys.json"), bindings)
+        let path = self.dir.join(HOTKEYS_FILE);
+        let (version, mut entries) = match read_hotkeys(&path) {
+            Ok(Some(file)) => {
+                if file.version > HOTKEYS_VERSION {
+                    back_up(&path, &format!("v{}", file.version))?;
+                }
+                (file.version.max(HOTKEYS_VERSION), file.kept)
+            }
+            Ok(None) => (HOTKEYS_VERSION, serde_json::Map::new()),
+            Err(_) => {
+                back_up(&path, "unreadable")?;
+                (HOTKEYS_VERSION, serde_json::Map::new())
+            }
+        };
+        for (id, text) in bindings {
+            entries.insert(id.clone(), serde_json::Value::String(text.clone()));
+        }
+        write_json(&path, &serde_json::json!({"version": version, "bindings": entries}))
     }
 
     pub fn save_controller_mappings(&self, mappings: &BTreeMap<String, crate::gamepad::Mapping>) -> std::io::Result<()> {
@@ -1560,6 +1650,58 @@ mod tests {
         std::fs::write(dir.join("favourites.json"), text).unwrap();
         assert_eq!(store.favourites().len(), 2);
         assert_eq!(std::fs::read_to_string(dir.join("favourites.json.bak")).unwrap(), text);
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    /// stream_hotkeys.json is read entry by entry; one that doesn't read, or one a newer Nightjar
+    /// wrote, is never lost to the next change.
+    #[test]
+    fn a_corrupt_or_newer_hotkeys_file_is_kept() {
+        let dir = std::env::temp_dir().join(format!("nightjar-hotkeys-{}", std::process::id()));
+        std::fs::remove_dir_all(&dir).ok();
+        let store = Store::at(dir.clone()).unwrap();
+        let path = dir.join("stream_hotkeys.json");
+        assert!(store.hotkeys().is_empty(), "no file");
+        let bindings = nightjar_policy::shortcuts::HotkeyBindings::from([("quit".to_string(), "CTRL+F9".to_string())]);
+        store.save_hotkeys(&bindings).unwrap();
+        assert_eq!(store.hotkeys(), bindings);
+        let saved: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(saved, serde_json::json!({"version": 1, "bindings": {"quit": "CTRL+F9"}}));
+
+        // One bad value: the others still read, and it stays in the file.
+        let text = r#"{"version": 1, "bindings": {"quit": "CTRL+F9", "overlay": 7, "capture": "off"}}"#;
+        std::fs::write(&path, text).unwrap();
+        let read = store.hotkeys();
+        assert_eq!((read.get("quit").map(String::as_str), read.get("capture").map(String::as_str), read.get("overlay")), (Some("CTRL+F9"), Some("off"), None));
+        store.save_hotkeys(&read).unwrap();
+        let saved: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(saved["bindings"]["overlay"], 7);
+
+        // A newer version: the entries this one knows are read, the rest and the version kept, the file copied first.
+        let newer = r#"{"version": 2, "bindings": {"quit": "CTRL+F9", "teleport": "CTRL+T", "overlay": {"keys": ["CTRL", "O"]}}, "extra": true}"#;
+        std::fs::write(&path, newer).unwrap();
+        let read = store.hotkeys();
+        assert_eq!(read.get("quit").map(String::as_str), Some("CTRL+F9"));
+        let mut changed = read.clone();
+        changed.insert("capture".into(), "off".into());
+        store.save_hotkeys(&changed).unwrap();
+        assert_eq!(std::fs::read_to_string(dir.join("stream_hotkeys.json.v2")).unwrap(), newer);
+        let saved: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(saved["version"], 2);
+        assert_eq!(saved["bindings"]["teleport"], "CTRL+T");
+        assert_eq!(saved["bindings"]["overlay"], serde_json::json!({"keys": ["CTRL", "O"]}));
+        assert_eq!(saved["bindings"]["capture"], "off");
+
+        // Not the format at all: defaults, and the file is copied before a change replaces it.
+        for (n, broken) in ["{not json", r#"{"quit": "CTRL+F9"}"#].into_iter().enumerate() {
+            std::fs::write(&path, broken).unwrap();
+            assert!(store.hotkeys().is_empty());
+            assert_eq!(std::fs::read_to_string(&path).unwrap(), broken, "reading never rewrites it");
+            store.save_hotkeys(&bindings).unwrap();
+            let copy = if n == 0 { "stream_hotkeys.json.unreadable".to_string() } else { format!("stream_hotkeys.json.unreadable.{}", n + 1) };
+            assert_eq!(std::fs::read_to_string(dir.join(copy)).unwrap(), broken);
+            assert_eq!(store.hotkeys(), bindings);
+        }
         std::fs::remove_dir_all(dir).ok();
     }
 

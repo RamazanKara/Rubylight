@@ -29,6 +29,7 @@
     <string name="host_feature_reason_virtual_display_driver">Драйвер віртуального дисплея хоста не готовий</string>
     <string name="host_feature_reason_hardware_metrics_off">Увімкніть показники обладнання в налаштуваннях хоста</string>
     <string name="host_feature_reason_sleep_permission">Цьому пристрою не дозволено переводити ПК у режим сну</string>
+    <string name="host_feature_reason_restart_shutdown_permission">Цьому пристрою не можна перезавантажувати чи вимикати ПК</string>
     <string name="host_feature_reason_file_permission">Немає доступу до файлів: дозвольте у вебінтерфейсі хоста</string>
     <string name="host_feature_reason_usb_permission">Немає доступу до USB: дозвольте у вебінтерфейсі хоста</string>
     <string name="host_feature_reason_folder_permission">Немає спільних папок: дозвольте їх у вебінтерфейсі хоста</string>

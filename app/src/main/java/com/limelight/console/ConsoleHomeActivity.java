@@ -25,6 +25,7 @@ import com.limelight.files.FileTransferActivity;
 import com.limelight.grid.PcGridAdapter;
 import com.limelight.nativeapi.ConsoleRepository;
 import com.limelight.nativeapi.ConsoleSnapshot;
+import com.limelight.nativeapi.NativePcPower;
 import com.limelight.nvstream.http.ComputerDetails;
 import com.limelight.preferences.HostStreamSettings;
 import com.limelight.ui.ActionSheet;
@@ -892,6 +893,15 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
                 break;
             case HostMenu.SLEEP:
                 hostActions.sleep(details);
+                break;
+            case HostMenu.RESTART:
+                hostActions.pcPower(details, NativePcPower.Action.RESTART);
+                break;
+            case HostMenu.SHUT_DOWN:
+                hostActions.pcPower(details, NativePcPower.Action.SHUT_DOWN);
+                break;
+            case HostMenu.UPDATE_HOST:
+                hostActions.updateHost(details);
                 break;
             case HostMenu.COOP:
                 hostActions.joinCoop(details);

@@ -184,6 +184,49 @@ public final class NativeApiClient {
     }
 
     /**
+     * Restart and Shut down (GET /power): whether each can run now, the host's reason when not, and a single-use
+     * token for the next 30 s. Only for a host whose capabilities list power.restart or power.shutdown.
+     */
+    public NativePcPower.Offer pcPower() throws NativeApiException {
+        try {
+            return NativePcPower.parseOffer(call("pc_power", ""));
+        } catch (JSONException e) {
+            throw malformed("power", e);
+        }
+    }
+
+    /**
+     * Restarts or shuts down the PC with a token from {@link #pcPower}; returning means the PC took it (202). A
+     * refusal is {@link NativeApiException.Kind#API} with the host's words as its message.
+     */
+    public void powerPc(NativePcPower.Action action, String token) throws NativeApiException {
+        call(action.op, token);
+    }
+
+    /** The host's version, its pending update and the updater's phase (GET /update). Only with feature update. */
+    public NativePcPower.Update hostUpdate() throws NativeApiException {
+        try {
+            NativePcPower.Update update = NativePcPower.parseUpdate(call("update", ""));
+            KnownUpdates.record(host.hostUuid, update);
+            return update;
+        } catch (JSONException e) {
+            throw malformed("update", e);
+        }
+    }
+
+    /**
+     * Installs the host's pending update (POST /update/install), ending this device's own stream. Needs Host
+     * control; refused, in the host's words, while another device streams.
+     */
+    public NativePcPower.Update installHostUpdate() throws NativeApiException {
+        try {
+            return NativePcPower.parseUpdate(call("update.install", ""));
+        } catch (JSONException e) {
+            throw malformed("update", e);
+        }
+    }
+
+    /**
      * The PC's Nucleus Co-op sessions (GET /coop). Only for a host that advertises {@link NativeCapabilities#COOP};
      * {@link NativeCoop.Problem#of} says what a failure means.
      */

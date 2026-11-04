@@ -46,6 +46,9 @@
     "image_clipboard": "unknown",
     "shared_folders": "unknown",
     "coop": "unknown",
-    "mic_only": "unknown"
+    "mic_only": "unknown",
+    "pc_restart": {"only": "java", "availability": "unknown", "comment": "Desktop reads power.restart, power.shutdown and update from the native capabilities itself"},
+    "pc_shutdown": {"only": "java", "availability": "unknown", "comment": "Desktop reads power.restart, power.shutdown and update from the native capabilities itself"},
+    "host_update": {"only": "java", "availability": "unknown", "comment": "Desktop reads power.restart, power.shutdown and update from the native capabilities itself"}
   }
 }

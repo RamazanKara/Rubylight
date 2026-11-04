@@ -6,6 +6,7 @@ import com.limelight.LimeLog;
 import com.limelight.R;
 import com.limelight.grid.PcGridAdapter;
 import com.limelight.nativeapi.KnownCapabilities;
+import com.limelight.nativeapi.KnownUpdates;
 import com.limelight.nvstream.http.ComputerDetails;
 import com.limelight.nvstream.http.HostCapabilities;
 import com.limelight.nvstream.http.NvApp;
@@ -21,12 +22,12 @@ import java.util.function.IntConsumer;
 
 /**
  * A PC's options, one list for the PCs screen and for Home. In this order: Open library, Resume and Quit, Join co-op,
- * Shared folders, Pair, one-time PIN, Wake or Sleep, Files, PC settings, Rename, Unpair or Pairing help, then Remove PC
- * last. The screen that shows it decides what each action does; this class only knows what is offered for which
- * state.
+ * Shared folders, Pair, one-time PIN, Wake or Sleep, Restart PC, Shut down PC, Update the PC's host, Files, PC settings,
+ * Rename, Unpair or Pairing help, then Remove PC last. The screen that shows it decides what each action does; this
+ * class only knows what is offered for which state.
  */
 public final class HostMenu {
-    /** How the Sleep entry appears. */
+    /** How the Sleep, Restart PC or Shut down PC entry appears. */
     enum SleepEntry { HIDDEN, ENABLED, DISABLED }
 
     /** Material's opacity for disabled content, on a row that stays focusable. */
@@ -49,6 +50,9 @@ public final class HostMenu {
     public static final int COOP = 19;
     public static final int CONNECTION_ADDRESS = 20;
     public static final int MIC_ONLY = 21;
+    public static final int RESTART = 22;
+    public static final int SHUT_DOWN = 23;
+    public static final int UPDATE_HOST = 24;
 
     private HostMenu() {
     }
@@ -115,6 +119,31 @@ public final class HostMenu {
                 onAction.accept(SLEEP);
             });
         }
+        SleepEntry restart = pcPowerEntry(details, state, HostCapabilities.Feature.PC_RESTART);
+        SleepEntry shutdown = pcPowerEntry(details, state, HostCapabilities.Feature.PC_SHUTDOWN);
+        // As on desktop: without the grant, Restart PC alone is listed, dimmed, its reason naming both.
+        if (restart == SleepEntry.DISABLED || (restart == SleepEntry.HIDDEN && shutdown == SleepEntry.DISABLED)) {
+            int id = restart == SleepEntry.DISABLED ? RESTART : SHUT_DOWN;
+            MaterialButton action = sheet.addAction(id == RESTART ? R.drawable.ic_refresh : R.drawable.ic_power,
+                    activity.getString(id == RESTART ? R.string.host_menu_restart : R.string.host_menu_shutdown),
+                    activity.getString(R.string.host_feature_reason_restart_shutdown_permission));
+            // Reachable as Sleep's is: choosing it asks the host again, which says why or offers it if allowed since.
+            action.setAlpha(DISABLED_ALPHA);
+            action.setOnClickListener(v -> {
+                sheet.dismiss();
+                onAction.accept(id);
+            });
+        } else {
+            if (restart == SleepEntry.ENABLED) {
+                add(sheet, onAction, RESTART, R.drawable.ic_refresh, activity.getString(R.string.host_menu_restart));
+            }
+            if (shutdown == SleepEntry.ENABLED) {
+                add(sheet, onAction, SHUT_DOWN, R.drawable.ic_power, activity.getString(R.string.host_menu_shutdown));
+            }
+        }
+        if (updateOffer(details, state) != null) {
+            add(sheet, onAction, UPDATE_HOST, R.drawable.ic_download, activity.getString(R.string.host_menu_update));
+        }
         if (offersFiles(details, state)) {
             add(sheet, onAction, FILES, R.drawable.ic_files, activity.getString(R.string.files_menu));
         }
@@ -152,6 +181,45 @@ public final class HostMenu {
             return SleepEntry.ENABLED;
         }
         return sleep.reason == HostCapabilities.Reason.SLEEP_PERMISSION ? SleepEntry.DISABLED : SleepEntry.HIDDEN;
+    }
+
+    /**
+     * Restart PC or Shut down PC on a ready PC whose host listed {@code feature}'s native feature the last time its
+     * capabilities were read in this process; dimmed when this device lacks the grant. Hidden until then, and on
+     * every host that has no such action.
+     */
+    static SleepEntry pcPowerEntry(ComputerDetails details, PcGridAdapter.RowState state,
+                                   HostCapabilities.Feature feature) {
+        HostCapabilities.Availability availability = known(details, state).availability(feature);
+        if (availability.isSupported()) {
+            return SleepEntry.ENABLED;
+        }
+        return availability.reason == HostCapabilities.Reason.RESTART_SHUTDOWN_PERMISSION ? SleepEntry.DISABLED
+                : SleepEntry.HIDDEN;
+    }
+
+    /**
+     * The version "Update the PC's host" installs: only on a ready PC whose host listed {@code update} and lets this
+     * device control it, and whose last answer in this process had a newer release to install. Null otherwise.
+     */
+    static String updateOffer(ComputerDetails details, PcGridAdapter.RowState state) {
+        return known(details, state).has(HostCapabilities.Feature.HOST_UPDATE) ? KnownUpdates.offered(details.uuid)
+                : null;
+    }
+
+    /** {@code details}' capabilities with the native ones last read in this process, on a ready PC; else as they are. */
+    private static HostCapabilities known(ComputerDetails details, PcGridAdapter.RowState state) {
+        boolean ready = state == PcGridAdapter.RowState.RUNNING || state == PcGridAdapter.RowState.READY;
+        String known = ready ? KnownCapabilities.of(details.uuid) : null;
+        if (known == null) {
+            return HostCapabilities.UNKNOWN;
+        }
+        try {
+            return details.caps.withNativeCapabilities(known);
+        } catch (JSONException e) {
+            LimeLog.warning("Unreadable native capabilities of " + details.uuid + ": " + e.getMessage());
+            return HostCapabilities.UNKNOWN;
+        }
     }
 
     /**

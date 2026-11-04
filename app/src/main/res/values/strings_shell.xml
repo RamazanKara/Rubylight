@@ -24,6 +24,29 @@
     <string name="host_sleep_refused">The PC refused to sleep (HTTP %1$d).</string>
     <string name="host_sleep_failed">Couldn’t reach the PC.</string>
     <string name="host_sleep_error">Couldn’t ask the PC: %1$s</string>
+    <!-- Restart PC, Shut down PC and the host's update (native /power and /update). Refusals show the host's own words. -->
+    <string name="host_menu_restart">Restart PC</string>
+    <string name="host_menu_shutdown">Shut down PC</string>
+    <string name="host_menu_update">Update the PC’s host</string>
+    <string name="host_restart_title">Restart %1$s?</string>
+    <string name="host_shutdown_title">Shut down %1$s?</string>
+    <string name="host_power_message">Apps with unsaved work on the PC can block this.</string>
+    <string name="host_shutdown_no_wake">Once off, this PC may only start with its power button.</string>
+    <string name="host_restart_action">Restart</string>
+    <string name="host_shutdown_action">Shut down</string>
+    <string name="host_restart_accepted">%1$s is restarting</string>
+    <string name="host_shutdown_accepted">%1$s is shutting down</string>
+    <string name="host_power_busy">The PC can’t do this right now.</string>
+    <string name="host_update_title">Update the host on %1$s to %2$s?</string>
+    <string name="host_update_message">The host restarts to install it, and a stream from this device ends.</string>
+    <string name="host_update_action">Update</string>
+    <string name="host_update_none">The host has no update to install.</string>
+    <string name="host_update_started_title">Updating %1$s</string>
+    <string name="host_update_started">The host installs version %1$s and comes back on its own.</string>
+    <string name="host_update_back_title">%1$s is back</string>
+    <string name="host_update_back">The host now runs version %1$s.</string>
+    <string name="host_update_failed_title">Couldn’t update %1$s</string>
+    <string name="host_update_timeout">The PC didn’t come back with version %1$s in time.</string>
     <!-- Accessibility: interface size, high contrast and reduced motion. -->
     <string name="settings_category_accessibility">Accessibility</string>
     <string name="title_ui_scale">Interface size</string>

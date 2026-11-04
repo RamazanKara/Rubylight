@@ -52,6 +52,9 @@
     "image_clipboard": "unsupported:clipboard_permission",
     "shared_folders": "unsupported:folder_permission",
     "coop": "unsupported",
-    "mic_only": "unsupported"
+    "mic_only": "unsupported",
+    "pc_restart": {"only": "java", "availability": "unsupported", "comment": "Desktop reads power.restart, power.shutdown and update from the native capabilities itself"},
+    "pc_shutdown": {"only": "java", "availability": "unsupported", "comment": "Desktop reads power.restart, power.shutdown and update from the native capabilities itself"},
+    "host_update": {"only": "java", "availability": "unsupported", "comment": "Desktop reads power.restart, power.shutdown and update from the native capabilities itself"}
   }
 }

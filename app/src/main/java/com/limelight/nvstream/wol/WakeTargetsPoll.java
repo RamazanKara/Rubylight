@@ -4,6 +4,7 @@ import com.limelight.LimeLog;
 import com.limelight.nativeapi.NativeApiClient;
 import com.limelight.nativeapi.NativeApiException;
 import com.limelight.nativeapi.NativeCapabilities;
+import com.limelight.nativeapi.NativePcPower;
 import com.limelight.nativeapi.NativeWake;
 import com.limelight.nvstream.http.ComputerDetails;
 import com.limelight.nvstream.http.HostCapabilities;
@@ -18,7 +19,7 @@ import java.util.function.LongSupplier;
  * Keeps the wake targets of the PCs the computer manager polls, so a PC woken from the PC list or a shortcut reaches
  * every adapter its {@code /wake} lists, not only the PCs the console or a stream already asked. A PC is asked when a
  * poll first finds it online and again every {@link #INTERVAL_MS} while it stays so: its adapters change with
- * hardware, not between polls.
+ * hardware, not between polls. A host offering its update to this device has that read on the same ask.
  */
 public final class WakeTargetsPoll {
     static final long INTERVAL_MS = 10 * 60_000;
@@ -124,9 +125,21 @@ public final class WakeTargetsPoll {
                     targets.store(uuid, wake);
                 }
             }
+            if (capabilities.has(NativePcPower.FEATURE_UPDATE) && capabilities.hostControl) {
+                readUpdate(uuid, client);
+            }
         } catch (NativeApiException e) {
             // A failed read keeps what is stored: those adapters still belong to the PC.
             LimeLog.info("Wake targets of " + uuid + " not read: " + e.getMessage());
+        }
+    }
+
+    /** The host's pending update for the PC menu (the client keeps it in KnownUpdates); its own failure. */
+    private static void readUpdate(String uuid, NativeApiClient client) {
+        try {
+            client.hostUpdate();
+        } catch (NativeApiException e) {
+            LimeLog.info("Host update of " + uuid + " not read: " + e.getMessage());
         }
     }
 

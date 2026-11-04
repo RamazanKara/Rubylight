@@ -110,7 +110,15 @@ public final class HostCapabilities {
          * Microphone-only sessions (native "session.mic_only"): the PC hears this device's microphone and nothing
          * else. Known only after {@link #withNativeCapabilities}, and only for a device with the launch permission.
          */
-        MIC_ONLY(0);
+        MIC_ONLY(0),
+        /**
+         * Restart PC and Shut down PC (native "power.restart" and "power.shutdown", GET /power). Known only after
+         * {@link #withNativeCapabilities}; withheld from a device without its own grant.
+         */
+        PC_RESTART(0),
+        PC_SHUTDOWN(0),
+        /** Install the host's pending update (native "update"). Known only after {@link #withNativeCapabilities}, and only for a device with Host control. */
+        HOST_UPDATE(0);
 
         @StringRes public final int label;
 
@@ -131,6 +139,7 @@ public final class HostCapabilities {
         VIRTUAL_DISPLAY_DRIVER(R.string.host_feature_reason_virtual_display_driver),
         HARDWARE_METRICS_OFF(R.string.host_feature_reason_hardware_metrics_off),
         SLEEP_PERMISSION(R.string.host_feature_reason_sleep_permission),
+        RESTART_SHUTDOWN_PERMISSION(R.string.host_feature_reason_restart_shutdown_permission),
         FILE_PERMISSION(R.string.host_feature_reason_file_permission),
         USB_PERMISSION(R.string.host_feature_reason_usb_permission),
         FOLDER_PERMISSION(R.string.host_feature_reason_folder_permission);
@@ -366,6 +375,9 @@ public final class HostCapabilities {
         boolean folders = false;
         boolean coop = false;
         boolean micOnly = false;
+        boolean restart = false;
+        boolean shutdown = false;
+        boolean update = false;
         for (int i = 0; i < features.length(); i++) {
             Object feature = features.get(i);
             if (!(feature instanceof String)) {
@@ -378,6 +390,9 @@ public final class HostCapabilities {
             folders |= "folders".equals(feature);
             coop |= "coop".equals(feature);
             micOnly |= "session.mic_only".equals(feature);
+            restart |= "power.restart".equals(feature);
+            shutdown |= "power.shutdown".equals(feature);
+            update |= "update".equals(feature);
         }
         boolean uploadPermission = permission(permissions, "file_upload");
         boolean downloadPermission = permission(permissions, "file_download");
@@ -401,6 +416,12 @@ public final class HostCapabilities {
         native_.coopOffered = coop;
         // Starting one takes the launch permission, so it is offered only with that.
         native_.micOnlyOffered = micOnly && typed(permissions, "launch", Boolean.class);
+        native_.restartOffered = restart;
+        native_.shutdownOffered = shutdown;
+        // Only a JSON true counts, as on the host; older hosts leave it out.
+        native_.restartShutdownPermission = granted(permissions, "restart_shutdown");
+        // Installing takes Host control, so it is offered only with that.
+        native_.updateOffered = update && typed(permissions, "host_control", Boolean.class);
         return new HostCapabilities(native_);
     }
 
@@ -595,6 +616,12 @@ public final class HostCapabilities {
         boolean coopOffered;
         /** session.mic_only in the native features, with the launch permission. */
         boolean micOnlyOffered;
+        /** power.restart and power.shutdown in the native features, and this device's restart_shutdown grant. */
+        boolean restartOffered;
+        boolean shutdownOffered;
+        boolean restartShutdownPermission;
+        /** update in the native features, with Host control. */
+        boolean updateOffered;
 
         static Evidence parse(String serverInfo) throws XmlPullParserException, IOException {
             Evidence evidence = new Evidence();
@@ -948,6 +975,12 @@ public final class HostCapabilities {
                     return nativeFeature(coopOffered, null);
                 case MIC_ONLY:
                     return nativeFeature(micOnlyOffered, null);
+                case PC_RESTART:
+                case PC_SHUTDOWN:
+                    return nativeFeature(feature == Feature.PC_RESTART ? restartOffered : shutdownOffered,
+                            restartShutdownPermission ? null : Reason.RESTART_SHUTDOWN_PERMISSION);
+                case HOST_UPDATE:
+                    return nativeFeature(updateOffered, null);
                 default:
                     throw new IllegalArgumentException(feature.name());
             }

@@ -102,6 +102,26 @@ public class GameDesktopControlsTest {
         assertEquals(Arrays.asList(-120), fixture.connection.horizontal);
     }
 
+    /** A mouse button clicks as it goes down when Vibrate on press is on, and stays quiet when it is off. */
+    @Test
+    public void aMouseButtonFollowsVibrateOnPress() {
+        for (boolean vibrate : new boolean[] {true, false}) {
+            Fixture fixture = new Fixture(vibrate);
+            fixture.attach();
+            View button = described(fixture.panel, fixture.game.getString(R.string.desktop_controls_left_button));
+            fixture.touchButton(MotionEvent.ACTION_DOWN);
+            assertEquals(Arrays.asList("1:down"), fixture.connection.buttons);
+            int performed = org.robolectric.Shadows.shadowOf(button).lastHapticFeedbackPerformed();
+            if (vibrate) {
+                assertEquals(android.view.HapticFeedbackConstants.VIRTUAL_KEY, performed);
+            } else {
+                assertNotEquals(android.view.HapticFeedbackConstants.VIRTUAL_KEY, performed);
+            }
+            fixture.touchButton(MotionEvent.ACTION_UP);
+            fixture.hide();
+        }
+    }
+
     @Test
     @Config(sdk = {29, 34})
     public void directPanelPressWorksBeforeWindowFocusReturnsAndReleasesExactlyOnce() {
@@ -325,9 +345,15 @@ public class GameDesktopControlsTest {
         final DesktopControlsPanel.Sink sink;
 
         Fixture() {
+            this(false);
+        }
+
+        Fixture(boolean vibrateOsc) {
             game.setTheme(R.style.AppTheme);
             ReflectionHelpers.setField(game, "conn", connection);
-            ReflectionHelpers.setField(game, "prefConfig", new PreferenceConfiguration());
+            PreferenceConfiguration prefs = new PreferenceConfiguration();
+            prefs.vibrateOsc = vibrateOsc;
+            ReflectionHelpers.setField(game, "prefConfig", prefs);
             ReflectionHelpers.setField(game, "keyboardTranslator", new KeyboardTranslator());
             ReflectionHelpers.setField(game, "inputCaptureProvider", new InputCaptureProvider() {});
             ReflectionHelpers.setField(game, "grabbedInput", true);

@@ -203,7 +203,7 @@ public class ModernControllerTest {
         assertEquals(marker, shadowOf(stick).lastHapticFeedbackPerformed());
         push(stick, false, 135, 1);
         int diagonal = shadowOf(stick).lastHapticFeedbackPerformed();
-        assertEquals(android.view.HapticFeedbackConstants.CONFIRM, diagonal);
+        assertEquals(android.view.HapticFeedbackConstants.VIRTUAL_KEY, diagonal);
         assertNotEquals("A diagonal feels unlike a direction", direction, diagonal);
         push(stick, false, 180, 1);
         assertEquals(direction, shadowOf(stick).lastHapticFeedbackPerformed());

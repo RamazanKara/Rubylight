@@ -51,8 +51,8 @@ public class HapticsTest {
         assertEquals(HapticFeedbackConstants.CLOCK_TICK, Haptics.constant(Haptics.Kind.DIRECTION, 21));
         assertEquals(HapticFeedbackConstants.CONTEXT_CLICK, Haptics.constant(Haptics.Kind.DIRECTION, 23));
         assertEquals(HapticFeedbackConstants.CONTEXT_CLICK, Haptics.constant(Haptics.Kind.DIRECTION, 36));
-        assertEquals(HapticFeedbackConstants.VIRTUAL_KEY, Haptics.constant(Haptics.Kind.DIAGONAL, 29));
-        assertEquals(HapticFeedbackConstants.CONFIRM, Haptics.constant(Haptics.Kind.DIAGONAL, 30));
+        assertEquals(HapticFeedbackConstants.VIRTUAL_KEY, Haptics.constant(Haptics.Kind.DIAGONAL, 21));
+        assertEquals(HapticFeedbackConstants.VIRTUAL_KEY, Haptics.constant(Haptics.Kind.DIAGONAL, 36));
         for (int sdk = 21; sdk <= 36; sdk++) {
             assertNotEquals("API " + sdk, Haptics.constant(Haptics.Kind.DIRECTION, sdk), Haptics.constant(Haptics.Kind.DIAGONAL, sdk));
         }
@@ -69,16 +69,25 @@ public class HapticsTest {
                     @Override public void close() { }
                     @Override public void changed() { }
                 });
-        PcKeyboardView keys = new PcKeyboardView(context, controller);
-        keys.setHaptics(false);
-        keys.measure(View.MeasureSpec.makeMeasureSpec(1000, View.MeasureSpec.EXACTLY),
-                View.MeasureSpec.makeMeasureSpec(400, View.MeasureSpec.EXACTLY));
-        keys.layout(0, 0, 1000, 400);
-        long now = SystemClock.uptimeMillis();
-        MotionEvent down = MotionEvent.obtain(now, now, MotionEvent.ACTION_DOWN, 500, 200, 0);
-        keys.onTouchEvent(down);
-        down.recycle();
-        assertNotEquals(HapticFeedbackConstants.KEYBOARD_TAP, shadowOf(keys).lastHapticFeedbackPerformed());
+        for (boolean haptics : new boolean[] {true, false}) {
+            PcKeyboardView keys = new PcKeyboardView(context, controller);
+            keys.setHaptics(haptics);
+            keys.measure(View.MeasureSpec.makeMeasureSpec(1000, View.MeasureSpec.EXACTLY),
+                    View.MeasureSpec.makeMeasureSpec(400, View.MeasureSpec.EXACTLY));
+            keys.layout(0, 0, 1000, 400);
+            long now = SystemClock.uptimeMillis();
+            MotionEvent down = MotionEvent.obtain(now, now, MotionEvent.ACTION_DOWN, 500, 200, 0);
+            keys.onTouchEvent(down);
+            down.recycle();
+            if (haptics) {
+                assertEquals(HapticFeedbackConstants.KEYBOARD_TAP, shadowOf(keys).lastHapticFeedbackPerformed());
+            } else {
+                assertNotEquals(HapticFeedbackConstants.KEYBOARD_TAP, shadowOf(keys).lastHapticFeedbackPerformed());
+            }
+            MotionEvent up = MotionEvent.obtain(now, now + 50, MotionEvent.ACTION_UP, 500, 200, 0);
+            keys.onTouchEvent(up);
+            up.recycle();
+        }
     }
 
     @Test

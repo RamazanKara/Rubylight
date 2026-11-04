@@ -85,6 +85,38 @@ public class PadLayoutTest {
         assertTrue(back.isDefault());
     }
 
+    /** With Show Touchpad button on, the microphone and menu buttons sit below the touchpad; the stick clears both. */
+    @Test public void theWasdStickClearsTheMicrophoneAndMenuButtons() {
+        // Phones as short as 392 dp, both ways up, and a tablet. A 16:10 phone has no room below the buttons, so
+        // there the stick clears the controls instead (theDefaultClustersDoNotOverlapOnPhonesInBothOrientations).
+        float[][] surfaces = {{2400, 1078, 2.75f}, {1600, 720, 2}, {2340, 1080, 2.75f}, {1080, 2400, 2.75f}, {2560, 1600, 2}};
+        PadLayout layout = new PadLayout();
+        layout.spec(PadLayout.Control.WASD).hidden = false;
+        float[] box = new float[4], wasd = new float[4];
+        for (float[] surface : surfaces) {
+            float width = surface[0], height = surface[1], density = surface[2];
+            // The top row's bottom as ModernController.topRowBottom finds it, touchpad included.
+            float rowBottom = 0;
+            for (PadLayout.Control control : new PadLayout.Control[] {PadLayout.Control.SELECT, PadLayout.Control.HOME,
+                    PadLayout.Control.START, PadLayout.Control.TOUCHPAD}) {
+                layout.bounds(control, width, height, density, box);
+                rowBottom = Math.max(rowBottom, box[1] + box[3]);
+            }
+            layout.bounds(PadLayout.Control.WASD, width, height, density, wasd);
+            String where = width + "x" + height;
+            assertTrue(where + " stays on the surface", wasd[1] + wasd[3] <= height + .01f);
+            float size = 48 * density, margin = 12 * density;
+            float[][] buttons = {
+                    com.limelight.ui.MicButton.Placement.center(Float.NaN, Float.NaN, width, height, size, margin, rowBottom),
+                    com.limelight.ui.MenuButton.Placement.center(Float.NaN, Float.NaN, width, height, size, margin, rowBottom)};
+            for (float[] center : buttons) {
+                float l = center[0] - size / 2, t = center[1] - size / 2;
+                boolean overlap = l < wasd[0] + wasd[2] && wasd[0] < l + size && t < wasd[1] + wasd[3] && wasd[1] < t + size;
+                assertFalse("The WASD stick overlaps a button at " + center[0] + "," + center[1] + " on " + where, overlap);
+            }
+        }
+    }
+
     @Test public void aLayoutSavedBeforeTheWasdStickLoadsWithoutIt() {
         // As 4.5.0 saved it: a moved face cluster and a hidden Home, no WASD entry.
         PadLayout layout = PadLayout.parse("v1|FACE,0.7083,0.5556,1.300,100,0|HOME,-,-,1.000,100,1");

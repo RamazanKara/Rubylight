@@ -302,6 +302,46 @@ public class ModernControllerTest {
         assertFalse(controller("pc-1/app-8").layout().spec(PadLayout.Control.WASD).hidden);
     }
 
+    /** Left out, the WASD stick has no ghost: a tap where it would sit is empty space and drops the pick. */
+    @Test public void theEditorsEmptyMiddleDeselectsUntilTheWasdStickIsAdded() {
+        ModernController controller = controller(GAME);
+        controller.startEditing();
+        layout();
+        PadEditor editor = (PadEditor) frame.getChildAt(frame.getChildCount() - 1);
+        View surface = editor.getChildAt(0);
+        float density = frame.getContext().getResources().getDisplayMetrics().density;
+        float[] box = new float[4];
+        editor.draft().bounds(PadLayout.Control.WASD, surface.getWidth(), surface.getHeight(), density, box);
+        float x = box[0] + box[2] / 2, y = box[1] + box[3] / 2;
+
+        editor.select(PadLayout.Control.FACE);
+        tap(surface, x, y);
+        assertNull("Empty space deselects", editor.selected());
+
+        // A hidden control that has a ghost still answers, but never over a shown one.
+        editor.select(PadLayout.Control.HOME);
+        editor.toggleHidden();
+        editor.draft().bounds(PadLayout.Control.HOME, surface.getWidth(), surface.getHeight(), density, box);
+        tap(surface, box[0] + box[2] / 2, box[1] + box[3] / 2);
+        assertEquals(PadLayout.Control.HOME, editor.selected());
+
+        editor.addWasd();
+        editor.select(null);
+        tap(surface, x, y);
+        assertEquals("Added, it is picked like any control", PadLayout.Control.WASD, editor.selected());
+        controller.finishEditing(false);
+    }
+
+    private static void tap(View view, float x, float y) {
+        long now = android.os.SystemClock.uptimeMillis();
+        MotionEvent down = MotionEvent.obtain(now, now, MotionEvent.ACTION_DOWN, x, y, 0);
+        view.dispatchTouchEvent(down);
+        down.recycle();
+        MotionEvent up = MotionEvent.obtain(now, now + 40, MotionEvent.ACTION_UP, x, y, 0);
+        view.dispatchTouchEvent(up);
+        up.recycle();
+    }
+
     @Test public void theWasdStickHiddenWhileHeldLetsGo() {
         ModernController controller = wasdController();
         PadControlView stick = controller.view(PadLayout.Control.WASD);

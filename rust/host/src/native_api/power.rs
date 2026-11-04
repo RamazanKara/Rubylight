@@ -66,13 +66,15 @@ fn offer(h: &Shared, client: &Client, local: IpAddr) -> Power {
         available: offer.reason.is_none(),
         reason: offer.reason.clone(),
     };
+    let refusal = h.power.last_refusal(&client.uuid, Instant::now());
     Power {
         restart: availability(),
         shutdown: availability(),
         token: offer.token.clone(),
         token_lifetime_s: power_action::TOKEN_LIFETIME.as_secs() as u32,
         wake_from_off: wake_from_off(h, local),
-        last_refusal: h.power.last_refusal(&client.uuid, Instant::now()),
+        last_refusal: refusal.as_ref().map(|(refusal, _)| refusal.clone()),
+        last_refusal_unconfirmed: refusal.is_some_and(|(_, unconfirmed)| unconfirmed),
     }
 }
 /// A ready wired target: Wi-Fi can't wake a PC that is off.
@@ -235,9 +237,8 @@ fn power_blocking(
             tracing::warn!(what, client = name, %peer, native, "power: Windows took the request");
         }
         Err(error) => {
-            let error = format!("{error:#}");
-            tracing::warn!(what, client = name, %peer, %error, "power: Windows refused");
-            h.power.set_last_refusal(&client.uuid, Some(error));
+            tracing::warn!(what, client = name, %peer, error = %format!("{error:#}"), "power: Windows refused or did not answer");
+            h.power.set_power_off_failure(&client.uuid, &error);
         }
     }
     drop(gate);

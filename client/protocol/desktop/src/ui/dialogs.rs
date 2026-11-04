@@ -1342,6 +1342,9 @@ impl Launcher {
             (Ok(PcPowerStep::Accepted), PcPower::ShutDown) => {
                 self.sleep_message(host, trf("{} is shutting down", &[&name]), tr("The PC took the request. It shows as offline once it is off.").to_owned())
             }
+            // The PC may still go down: no failure's title.
+            (Ok(PcPowerStep::Unconfirmed(said)), PcPower::Restart) => self.sleep_message(host, trf("{} may still restart", &[&name]), said),
+            (Ok(PcPowerStep::Unconfirmed(said)), PcPower::ShutDown) => self.sleep_message(host, trf("{} may still shut down", &[&name]), said),
             (Err(e), PcPower::Restart) => self.sleep_message(host, trf("Could not restart {}", &[&name]), e),
             (Err(e), PcPower::ShutDown) => self.sleep_message(host, trf("Could not shut down {}", &[&name]), e),
         }

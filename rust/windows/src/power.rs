@@ -3,7 +3,7 @@
 //! sleep with wake events enabled, and only on a PC with S1, S2 or S3: a
 //! Modern Standby laptop with hibernate on hibernated instead.
 use anyhow::{Context, Result, bail};
-use butterpollo_core::power_action::SleepStates;
+use butterpollo_core::power_action::{SleepStates, Unconfirmed};
 use windows::{
     Win32::{
         Foundation::{
@@ -184,7 +184,8 @@ const SHUTDOWN_EXE_WAIT: std::time::Duration = std::time::Duration::from_secs(15
 
 /// Restart or shut down this PC (Restart and shut down PC). Returns once
 /// Windows took the request; its refusal (a shutdown already under way, no
-/// shutdown right) is the error. A SYSTEM host asks from the signed-in
+/// shutdown right) is the error, and an [`Unconfirmed`] one when Windows did
+/// not answer in time. A SYSTEM host asks from the signed-in
 /// user's session: Windows refuses a SYSTEM caller while a user is signed
 /// in (`ERROR_SHUTDOWN_USERS_LOGGED_ON`) unless forced, and it never
 /// forces. With nobody signed in, or as a portable host running as the
@@ -210,14 +211,11 @@ fn power_off_as_user(restart: bool) -> Result<()> {
     let mut child = Process::spawn_piped(&program, &args, Target::User { elevated: false })
         .with_context(|| format!("could not ask Windows to {what} the PC as the signed-in user"))?;
     drop(child.stdin.take());
-    let code = match child.process.wait(SHUTDOWN_EXE_WAIT) {
-        Ok(code) => code,
-        Err(error) => {
-            let _ = child.process.terminate();
-            bail!("{}: {error:#}", unanswered(what));
-        }
-    };
-    if code != 0 {
+    let waited = child.process.wait(SHUTDOWN_EXE_WAIT);
+    if waited.is_err() {
+        let _ = child.process.terminate();
+    }
+    answered(what, waited, || {
         // It has exited, so its pipes end.
         let mut said = Vec::new();
         for pipe in [child.stderr.take(), child.stdout.take()]
@@ -226,9 +224,18 @@ fn power_off_as_user(restart: bool) -> Result<()> {
         {
             let _ = { pipe }.read_to_end(&mut said);
         }
-        bail!("{}", refusal(what, code, &said));
+        said
+    })
+}
+/// What `shutdown.exe`'s wait means: exit code 0 is Windows taking the
+/// request, another code its refusal with `output`, and no answer within
+/// [`SHUTDOWN_EXE_WAIT`] is [`Unconfirmed`], never a refusal.
+fn answered(what: &str, waited: Result<u32>, output: impl FnOnce() -> Vec<u8>) -> Result<()> {
+    match waited {
+        Ok(0) => Ok(()),
+        Ok(code) => bail!("{}", refusal(what, code, &output())),
+        Err(error) => Err(Unconfirmed(format!("{}: {error:#}", unanswered(what))).into()),
     }
-    Ok(())
 }
 /// `shutdown.exe`'s timeout: Windows may have taken the request anyway.
 fn unanswered(what: &str) -> String {
@@ -378,9 +385,27 @@ mod tests {
     #[test]
     fn a_timeout_is_not_a_refusal() {
         for what in ["restart", "shut down"] {
-            let said = unanswered(what);
-            assert!(said.ends_with(&format!("may still {what}")), "{said}");
+            let timeout = answered(what, Err(anyhow::anyhow!("process timed out")), || {
+                panic!("no output is read from a process that did not exit")
+            })
+            .unwrap_err();
+            let said = timeout
+                .downcast_ref::<Unconfirmed>()
+                .unwrap_or_else(|| panic!("a timeout is unconfirmed: {timeout:#}"))
+                .to_string();
+            assert_eq!(said, format!("{}: process timed out", unanswered(what)));
+            assert!(said.contains(&format!("may still {what}")), "{said}");
             assert!(!said.contains("refused"), "{said}");
         }
+        // Exit code 0 is Windows taking it; another code is a refusal, never unconfirmed.
+        assert!(answered("restart", Ok(0), || panic!("no output is read")).is_ok());
+        let refused = answered("restart", Ok(1191), Vec::new).unwrap_err();
+        assert!(refused.downcast_ref::<Unconfirmed>().is_none());
+        assert!(
+            refused
+                .to_string()
+                .starts_with("Windows refused to restart the PC"),
+            "{refused:#}"
+        );
     }
 }

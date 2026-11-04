@@ -1318,6 +1318,8 @@ sudo sysctl -w net.core.rmem_max={}", "Buffer de recepção: o sistema concedeu 
     ("The PC took the request. It shows as offline once it is off.", "O PC aceitou o pedido. Ele aparece offline quando desligar."),
     ("Could not restart {}", "Não foi possível reiniciar {}"),
     ("Could not shut down {}", "Não foi possível desligar {}"),
+    ("{} may still restart", "{} ainda pode reiniciar"),
+    ("{} may still shut down", "{} ainda pode desligar"),
     ("Updating {}", "Atualizando {}"),
     ("The host installs version {} and comes back on its own.", "O host instala a versão {} e volta sozinho."),
     ("{} is back", "{} voltou"),

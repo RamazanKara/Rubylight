@@ -379,6 +379,17 @@ pub enum Refused {
     Token,
 }
 pub const RESTART_SHUTDOWN_OFF: &str = "Restart and shut down PC is off for this device.";
+
+/// A restart or shutdown Windows did not confirm in time: no refusal, the PC
+/// may still go down. `GET /power` says so in `last_refusal_unconfirmed`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Unconfirmed(pub String);
+impl std::fmt::Display for Unconfirmed {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+impl std::error::Error for Unconfirmed {}
 const NO_TOKEN: &str = "The host could not create a confirmation token.";
 
 /// `GET /power`'s offer: the same for both actions.

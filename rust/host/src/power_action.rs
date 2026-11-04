@@ -18,7 +18,9 @@ use axum::{
     http::{HeaderMap, Method, Uri, header},
     response::{IntoResponse, Response},
 };
-use butterpollo_core::power_action::{self, Action, Authority, Busy, Request, SleepStates, Tokens};
+use butterpollo_core::power_action::{
+    self, Action, Authority, Busy, Request, SleepStates, Tokens, Unconfirmed,
+};
 use std::{
     collections::HashMap,
     sync::{Arc, Mutex, MutexGuard, RwLock, mpsc},
@@ -106,8 +108,8 @@ pub struct PowerActions {
     /// Restart and Shut down's own tokens.
     pub(crate) power_tokens: Mutex<Tokens>,
     /// Why each device's last accepted restart or shutdown did not happen,
-    /// and when.
-    last_refusal: Mutex<HashMap<String, (String, Instant)>>,
+    /// whether that is only Windows not confirming it, and when.
+    last_refusal: Mutex<HashMap<String, (String, bool, Instant)>>,
     backend: RwLock<Arc<dyn Backend>>,
 }
 impl Default for PowerActions {
@@ -145,16 +147,29 @@ impl PowerActions {
         }
     }
     /// Why `uuid`'s last accepted restart or shutdown did not happen, for
-    /// [`REFUSAL_KEPT`] or until its next accepted request.
-    pub(crate) fn last_refusal(&self, uuid: &str, now: Instant) -> Option<String> {
+    /// [`REFUSAL_KEPT`] or until its next accepted request, and whether
+    /// Windows only did not confirm it ([`Unconfirmed`]): the PC may still go.
+    pub(crate) fn last_refusal(&self, uuid: &str, now: Instant) -> Option<(String, bool)> {
         let mut refusals = self.last_refusal.lock().unwrap();
-        refusals.retain(|_, (_, at)| now.saturating_duration_since(*at) < REFUSAL_KEPT);
-        refusals.get(uuid).map(|(refusal, _)| refusal.clone())
+        refusals.retain(|_, (_, _, at)| now.saturating_duration_since(*at) < REFUSAL_KEPT);
+        refusals
+            .get(uuid)
+            .map(|(refusal, unconfirmed, _)| (refusal.clone(), *unconfirmed))
     }
     pub(crate) fn set_last_refusal(&self, uuid: &str, refusal: Option<String>) {
+        self.set_refusal(uuid, refusal.map(|refusal| (refusal, false)));
+    }
+    /// Windows' answer to an accepted request: its refusal, or no answer in time.
+    pub(crate) fn set_power_off_failure(&self, uuid: &str, error: &anyhow::Error) {
+        let unconfirmed = error.downcast_ref::<Unconfirmed>().is_some();
+        self.set_refusal(uuid, Some((format!("{error:#}"), unconfirmed)));
+    }
+    fn set_refusal(&self, uuid: &str, refusal: Option<(String, bool)>) {
         let mut refusals = self.last_refusal.lock().unwrap();
         match refusal {
-            Some(refusal) => refusals.insert(uuid.to_owned(), (refusal, Instant::now())),
+            Some((refusal, unconfirmed)) => {
+                refusals.insert(uuid.to_owned(), (refusal, unconfirmed, Instant::now()))
+            }
             None => refusals.remove(uuid),
         };
     }

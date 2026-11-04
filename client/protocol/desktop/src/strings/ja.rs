@@ -1318,6 +1318,8 @@ sudo sysctl -w net.core.rmem_max={}", "受信バッファー：システムは�
     ("The PC took the request. It shows as offline once it is off.", "PCが要求を受け付けました。電源が切れるとオフラインと表示されます。"),
     ("Could not restart {}", "{}を再起動できませんでした"),
     ("Could not shut down {}", "{}をシャットダウンできませんでした"),
+    ("{} may still restart", "{}はまだ再起動する可能性があります"),
+    ("{} may still shut down", "{}はまだシャットダウンする可能性があります"),
     ("Updating {}", "{}を更新しています"),
     ("The host installs version {} and comes back on its own.", "ホストはバージョン{}をインストールし、自動的に戻ります。"),
     ("{} is back", "{}が戻りました"),

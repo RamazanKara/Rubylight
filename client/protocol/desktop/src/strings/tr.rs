@@ -1318,6 +1318,8 @@ sudo sysctl -w net.core.rmem_max={}", "Alma arabelleği: sistem istenen {1} KiB'
     ("The PC took the request. It shows as offline once it is off.", "PC isteği kabul etti. Kapandığında çevrimdışı görünür."),
     ("Could not restart {}", "{} yeniden başlatılamadı"),
     ("Could not shut down {}", "{} kapatılamadı"),
+    ("{} may still restart", "{} yine de yeniden başlayabilir"),
+    ("{} may still shut down", "{} yine de kapanabilir"),
     ("Updating {}", "{} güncelleniyor"),
     ("The host installs version {} and comes back on its own.", "Host {} sürümünü kurar ve kendiliğinden geri gelir."),
     ("{} is back", "{} geri döndü"),

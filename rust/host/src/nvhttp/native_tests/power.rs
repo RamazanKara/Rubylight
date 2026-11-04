@@ -10,7 +10,7 @@ use crate::{
 use anyhow::Result;
 use butterpollo_core::{
     native_api::power::{Power, Update},
-    power_action::{Action, RESTART_SHUTDOWN_OFF, SleepStates},
+    power_action::{Action, RESTART_SHUTDOWN_OFF, SleepStates, Unconfirmed},
 };
 use std::{
     sync::{Mutex, Weak},
@@ -18,11 +18,13 @@ use std::{
 };
 
 /// Records each restart or shutdown and whether the lifecycle gate was held,
-/// and answers with `refusal` as Windows' error when set.
+/// and answers with `refusal` as Windows' error when set, as an unanswered
+/// request with `unconfirmed`.
 struct Fake {
     host: Weak<crate::state::Host>,
     calls: Mutex<Vec<(Action, bool)>>,
     refusal: Mutex<Option<String>>,
+    unconfirmed: Mutex<bool>,
 }
 impl Backend for Fake {
     fn states(&self) -> Result<SleepStates> {
@@ -36,6 +38,7 @@ impl Backend for Fake {
         let held = host.launch_transition.try_lock().is_err();
         self.calls.lock().unwrap().push((action, held));
         match self.refusal.lock().unwrap().clone() {
+            Some(refusal) if *self.unconfirmed.lock().unwrap() => Err(Unconfirmed(refusal).into()),
             Some(refusal) => anyhow::bail!(refusal),
             None => Ok(()),
         }
@@ -46,6 +49,7 @@ fn fake(s: &Setup) -> Arc<Fake> {
         host: Arc::downgrade(&s.f.host),
         calls: Mutex::default(),
         refusal: Mutex::default(),
+        unconfirmed: Mutex::default(),
     });
     s.host().power.set_backend(fake.clone());
     FakeWake::new().on(s.host());
@@ -379,6 +383,64 @@ async fn windows_refusal_is_on_the_next_read_and_a_bad_body_is_400() {
     .await
     .assert_error(409, "token_expired");
     assert_eq!(fake.calls.lock().unwrap().len(), 2);
+}
+
+#[tokio::test]
+async fn a_request_windows_did_not_confirm_is_said_as_unconfirmed() {
+    let s = Setup::new();
+    let fake = fake(&s);
+    grant(&s, true);
+    let unanswered =
+        "Windows did not confirm the request in time; the PC may still restart: process timed out";
+    *fake.refusal.lock().unwrap() = Some(unanswered.into());
+    *fake.unconfirmed.lock().unwrap() = true;
+    let token = power(&s).await.token.unwrap();
+    let reply = act(
+        &s,
+        &s.connection,
+        "restart",
+        &token_body(&token),
+        Some(true),
+    )
+    .await;
+    assert_eq!(reply.status, StatusCode::ACCEPTED);
+    let read = power(&s).await;
+    assert_eq!(
+        (read.last_refusal.as_deref(), read.last_refusal_unconfirmed),
+        (Some(unanswered), true)
+    );
+    // A refusal is one.
+    *fake.unconfirmed.lock().unwrap() = false;
+    let token = read.token.unwrap();
+    act(
+        &s,
+        &s.connection,
+        "restart",
+        &token_body(&token),
+        Some(true),
+    )
+    .await;
+    let read = power(&s).await;
+    assert_eq!(
+        (read.last_refusal.as_deref(), read.last_refusal_unconfirmed),
+        (Some(unanswered), false)
+    );
+    // Nothing to say, nothing unconfirmed.
+    *fake.refusal.lock().unwrap() = None;
+    let token = read.token.unwrap();
+    act(
+        &s,
+        &s.connection,
+        "shutdown",
+        &token_body(&token),
+        Some(true),
+    )
+    .await;
+    let read = power(&s).await;
+    assert_eq!(
+        (read.last_refusal, read.last_refusal_unconfirmed),
+        (None, false)
+    );
 }
 
 #[tokio::test]

@@ -27,6 +27,11 @@ pub struct Power {
     /// (Windows refused, or the PC got busy before it), null when it did or
     /// after 10 minutes. Another device's refusal is never shown.
     pub last_refusal: Option<String>,
+    /// `last_refusal` is no refusal: Windows did not confirm the request in
+    /// time, and the PC may still restart or shut down. Older hosts leave it
+    /// out.
+    #[serde(default)]
+    pub last_refusal_unconfirmed: bool,
 }
 
 /// The body of `POST /power/restart` and `POST /power/shutdown`.

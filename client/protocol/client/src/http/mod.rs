@@ -69,7 +69,7 @@ pub use native::{FilePermissions, NativeCapabilities, NativeLibrary};
 pub use network_path::{NetworkPath, MAX_NETWORK_PATH_BYTES};
 pub use pairing::{PairFailure, PairResult, PairStep};
 pub use pc_power::{
-    host_words, update_arrived, HostUpdate, PcPower, PcPowerOffer, PowerAvailability, FEATURE_RESTART, FEATURE_SHUTDOWN,
+    host_words, update_arrived, HostUpdate, LateRefusal, PcPower, PcPowerOffer, PowerAvailability, FEATURE_RESTART, FEATURE_SHUTDOWN,
     FEATURE_UPDATE, POWER_TOKEN_REFRESH,
 };
 pub use power::{PowerError, PowerReply, Refusal};

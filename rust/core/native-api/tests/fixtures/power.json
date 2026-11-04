@@ -4,5 +4,6 @@
   "token": null,
   "token_lifetime_s": 30,
   "wake_from_off": true,
-  "last_refusal": null
+  "last_refusal": null,
+  "last_refusal_unconfirmed": false
 }

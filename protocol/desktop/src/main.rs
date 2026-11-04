@@ -418,6 +418,14 @@ fn run(launch: Option<cli::Launch>) -> Result<(), String> {
     sdl::set_hint(SDL_HINT_AUDIO_DEVICE_SAMPLE_FRAMES, c"480");
     sdl::set_hint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, c"1");
     sdl::set_hint(SDL_HINT_MOUSE_RELATIVE_MODE_CENTER, c"1");
+    // Before Vulkan loads: gamescope's layer without its socket would block the swapchain.
+    if handheld::gamescope() {
+        let socket = handheld::gamescope_socket(std::env::var_os("XDG_RUNTIME_DIR").as_deref(), std::env::var_os("GAMESCOPE_WAYLAND_DISPLAY").as_deref());
+        if handheld::gamescope_layer_off(socket.as_deref(), std::path::Path::exists) {
+            eprintln!("nightjar: gamescope: its socket {} is not reachable here, so gamescope's Vulkan layer is off (DISABLE_GAMESCOPE_WSI=1) and the output is SDR", socket.unwrap_or_default().display());
+            std::env::set_var("DISABLE_GAMESCOPE_WSI", "1");
+        }
+    }
 
     // SAFETY: SDL initialisation on the main thread.
     unsafe {

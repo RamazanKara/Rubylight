@@ -75,6 +75,58 @@ public class MarqueeLabelTest {
         assertFalse(label.isSelected());
     }
 
+    /**
+     * nightjar#7: a TV library's grid holds the focus itself, and a tile blocks focus from its children, so "the focus holds
+     * this label" was true of every tile in view and they all scrolled. Only the selected tile does, and the selection moves.
+     */
+    @Test
+    public void inAGridOnlyTheSelectedTileScrolls() {
+        android.widget.GridView grid = new android.widget.GridView(activity);
+        grid.setNumColumns(3);
+        grid.setFocusable(true);
+        grid.setAdapter(new android.widget.BaseAdapter() {
+            @Override public int getCount() { return 3; }
+            @Override public Object getItem(int position) { return position; }
+            @Override public long getItemId(int position) { return position; }
+            @Override public android.view.View getView(int position, android.view.View recycled, android.view.ViewGroup parent) {
+                if (recycled != null) return recycled;
+                FrameLayout cell = new FrameLayout(activity);
+                cell.setDescendantFocusability(android.view.ViewGroup.FOCUS_BLOCK_DESCENDANTS);
+                MarqueeLabel name = new MarqueeLabel(activity);
+                name.setText("A game whose name is far too long for its tile");
+                cell.addView(name, new FrameLayout.LayoutParams(100, 40));
+                return cell;
+            }
+        });
+        activity.setContentView(grid, new android.view.ViewGroup.LayoutParams(600, 300));
+        TvScreensPreviewTest.leaveTouchMode(activity);
+        layout(grid);
+        assertTrue(grid.requestFocus());
+        grid.setSelection(0);
+        layout(grid);
+        assertScrolling(grid, 0);
+
+        grid.setSelection(2);
+        layout(grid);
+        assertScrolling(grid, 2);
+    }
+
+    private static void layout(android.view.View view) {
+        org.robolectric.shadows.ShadowLooper.idleMainLooper();
+        view.measure(android.view.View.MeasureSpec.makeMeasureSpec(600, android.view.View.MeasureSpec.EXACTLY),
+                android.view.View.MeasureSpec.makeMeasureSpec(300, android.view.View.MeasureSpec.EXACTLY));
+        view.layout(0, 0, 600, 300);
+    }
+
+    private static void assertScrolling(android.widget.GridView grid, int tile) {
+        assertEquals(3, grid.getChildCount());
+        for (int i = 0; i < 3; i++) {
+            MarqueeLabel name = (MarqueeLabel) ((FrameLayout) grid.getChildAt(i)).getChildAt(0);
+            assertEquals("tile " + i, i == tile, name.isSelected());
+            assertEquals("tile " + i, TextUtils.TruncateAt.MARQUEE, name.getEllipsize());
+        }
+    }
+
     @Test
     public void reduceMotionKeepsTheEllipsis() {
         assertTrue(other.requestFocus());

@@ -21,9 +21,12 @@
 //! fullscreen stream lets Alt+Tab, the Windows key and Ctrl+Shift+Esc reach Windows, as SDL's
 //! hook on the hung thread did.
 //!
-//! Windows opens its task switcher at Ctrl+Alt+Shift+Tab before the window hears of it, so a stream
-//! hotkey on that chord needs the hook whether or not the keyboard is grabbed: with the stream menu
-//! open, input released, or "Send system keys" off, the hook keeps that one Tab ([`bound_tab`]).
+//! Windows opens its task switcher at Ctrl+Alt+Shift+Tab before the window hears of it, and takes
+//! that chord for itself as it does Alt+Tab: RegisterHotKey refuses it (ERROR_HOTKEY_ALREADY_REGISTERED).
+//! So a stream hotkey on it that can act now needs a hook without the grab too, with the stream
+//! menu open, input released or "Send system keys" off: the hook keeps that one Tab ([`tab_guard`],
+//! [`ShellKeyHook::guard`]). A stream that never grabbed has the hook only while the guard is on,
+//! so its window in front, and any key but Tab goes straight on ([`passes_by`]).
 
 #[cfg(windows)]
 use std::sync::atomic::{AtomicBool, AtomicIsize, AtomicU32, AtomicU64, AtomicU8, Ordering};
@@ -305,13 +308,65 @@ pub fn beating(now_ms: u64, beat_ms: u64) -> bool {
     now_ms.saturating_sub(beat_ms) < ALIVE_MS
 }
 
-/// Whether Tab with the modifiers `mods` does a stream hotkey, for a press the hook keeps from
-/// Windows while the keyboard is not grabbed. Ctrl+Alt+Shift+Tab is the only Tab chord a hotkey can
-/// have (nightjar_policy); Alt+Tab and the rest stay Windows'.
+/// The modifiers of the one Tab chord a hotkey can have that Windows takes ahead of the window:
+/// nightjar_policy refuses Alt+Tab, Alt+Shift+Tab and Ctrl+Alt+Tab, and Windows leaves Ctrl+Tab and
+/// Ctrl+Shift+Tab to the window.
 #[cfg_attr(not(windows), allow(dead_code))]
-pub fn bound_tab(mods: SDL_Keymod) -> bool {
+fn tab_chord_mods() -> SDL_Keymod {
+    use sdl3_sys::everything::*;
+    SDL_Keymod(SDL_KMOD_LCTRL.0 | SDL_KMOD_LALT.0 | SDL_KMOD_LSHIFT.0)
+}
+
+/// The stream hotkey on that chord, if any.
+#[cfg_attr(not(windows), allow(dead_code))]
+pub fn tab_chord_action() -> Option<crate::shortcuts::Action> {
     use crate::shortcuts::{key_action, Scope};
-    key_action(Scope::Stream, sdl3_sys::everything::SDL_SCANCODE_TAB, mods).is_some()
+    key_action(Scope::Stream, sdl3_sys::everything::SDL_SCANCODE_TAB, tab_chord_mods())
+}
+
+/// Whether the hook keeps the chord's Tab without the grab: its window has the keyboard and `action`,
+/// the hotkey on the chord, does something now. With the stream menu open only its own chords act
+/// (`menu_step`, the rest go to its widgets), and Microphone only leaves the chord to Windows.
+#[cfg_attr(not(windows), allow(dead_code))]
+pub fn tab_guard(action: Option<crate::shortcuts::Action>, focused: bool, grab: bool, menu_visible: bool, mic_only: bool) -> bool {
+    use crate::shortcuts::Action;
+    focused && !grab && !mic_only && action.is_some_and(|action| !menu_visible || matches!(action, Action::StreamControls | Action::StreamShortcuts))
+}
+
+/// Whether Windows itself holds exactly the chord's modifiers (`held`, by virtual key). A kept
+/// modifier does not count: Windows never saw it, so it would open no task switcher with this Tab,
+/// and its release may be lost (Ctrl+Alt+Del leaves Ctrl and Alt kept, and Shift+Tab is not the chord).
+#[cfg_attr(not(windows), allow(dead_code))]
+pub fn tab_chord_held(held: impl Fn(u32) -> bool) -> bool {
+    [0x10, 0x11, 0x12].into_iter().all(&held) && ![0x5B, 0x5C].into_iter().any(&held)
+}
+
+/// Whether an event goes straight on, with no look at the foreground or Windows' key state: nothing
+/// is grabbed and nothing kept of this key. Tab may be the chord's, and AltGr's added Ctrl has to
+/// remember how its press went, as a press Windows held then repeats into a grab.
+#[cfg_attr(not(windows), allow(dead_code))]
+pub fn passes_by(grabbed: bool, vk: u32, altgr: bool, key: Key) -> bool {
+    !grabbed && vk != TAB && !altgr && key == Key::Up
+}
+
+/// What a change of the guard does to the hook: on, a new one, as Windows may have removed the last
+/// without a word; off, none in a stream that never grabbed (the grab's hook stays to the end, so a
+/// kept key is released where it was pressed).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(not(windows), allow(dead_code))]
+pub enum GuardStep {
+    Reinstall,
+    Remove,
+    Keep,
+}
+
+#[cfg_attr(not(windows), allow(dead_code))]
+pub fn guard_step(on: bool, ever_grabbed: bool) -> GuardStep {
+    match (on, ever_grabbed) {
+        (true, _) => GuardStep::Reinstall,
+        (false, false) => GuardStep::Remove,
+        (false, true) => GuardStep::Keep,
+    }
 }
 
 /// Whether the keyboard is grabbed: input is captured (keys go to the PC, the stream menu is
@@ -323,6 +378,9 @@ pub fn keyboard_grab(captured: bool, system_keys: bool) -> bool {
 
 #[cfg(windows)]
 static GRAB: AtomicBool = AtomicBool::new(false);
+/// The hook keeps the chord's Tab without the grab ([`tab_guard`]).
+#[cfg(windows)]
+static GUARD: AtomicBool = AtomicBool::new(false);
 /// The stream window's HWND: the hook takes keys only while it is in front.
 #[cfg(windows)]
 static WINDOW: AtomicIsize = AtomicIsize::new(0);
@@ -352,6 +410,9 @@ const TAB: u32 = 0x09;
 /// The thread message that reinstalls the hook.
 #[cfg(windows)]
 const REHOOK: u32 = windows::Win32::UI::WindowsAndMessaging::WM_APP;
+/// The thread message that removes it.
+#[cfg(windows)]
+const UNHOOK: u32 = windows::Win32::UI::WindowsAndMessaging::WM_APP + 1;
 
 #[cfg(windows)]
 fn now_ms() -> u64 {
@@ -403,14 +464,15 @@ fn modifier_down(vk: u32) -> bool {
 
 /// Hands a key the hook kept to SDL's queue as the window would have: SDL's filter runs on this
 /// thread and sends it to the PC at once, and the main loop gets it marked, as it got the raw
-/// keyboard's. `raw`: Windows' scan code, as SDL reports it.
+/// keyboard's. `raw`: Windows' scan code, as SDL reports it. `also`: modifiers known held, whose
+/// window messages SDL may not have read yet.
 #[cfg(windows)]
-fn hand_over(scancode: SDL_Scancode, raw: u16, down: bool, repeat: bool) {
+fn hand_over(scancode: SDL_Scancode, raw: u16, down: bool, repeat: bool, also: SDL_Keymod) {
     use sdl3_sys::everything::*;
     // SAFETY: SDL takes events and reads its modifier state from any thread; a key event's fields.
     let pushed = unsafe {
         // The modifiers Windows holds too: the window's messages for them may still be on their way.
-        let mods = modifiers(modifier_down, SDL_GetModState());
+        let mods = modifiers(modifier_down, SDL_Keymod(SDL_GetModState().0 | also.0));
         let mut event: SDL_Event = std::mem::zeroed();
         event.key.r#type = if down { SDL_EVENT_KEY_DOWN } else { SDL_EVENT_KEY_UP };
         event.key.windowID = SDL_WindowID(WINDOW_ID.load(Ordering::Acquire));
@@ -452,13 +514,27 @@ unsafe extern "system" fn hook(code: i32, wparam: windows::Win32::Foundation::WP
                     scan => (scan & 0xFF, scan >> 8 == 0xE0),
                 }
             };
-            // SAFETY: no arguments.
-            let grab = unsafe { GetForegroundWindow() }.0 as isize == WINDOW.load(Ordering::Acquire)
-                && beating(now_ms(), BEAT.load(Ordering::Acquire))
-                && (GRAB.load(Ordering::Acquire) || (down && info.vkCode == TAB && bound_tab(modifiers(modifier_down, SDL_Keymod(0)))));
             let altgr = scan == ALTGR_CTRL;
             let (slot, last) = if altgr { (&ALTGR_CTRL_KEY, &ALTGR_CTRL_LAST) } else { (key, &LAST[info.vkCode as usize]) };
             let state = Key::from_u8(slot.load(Ordering::Relaxed));
+            let grabbed = GRAB.load(Ordering::Acquire);
+            if passes_by(grabbed, info.vkCode, altgr, state) {
+                if down {
+                    LAST_PRESSED.store(info.vkCode, Ordering::Relaxed);
+                }
+                // SAFETY: the arguments Windows passed.
+                return unsafe { CallNextHookEx(None, code, wparam, lparam) };
+            }
+            let guarded = !grabbed && down && info.vkCode == TAB && GUARD.load(Ordering::Acquire) && tab_chord_held(|vk| {
+                use windows::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState;
+                // SAFETY: any virtual key.
+                let state = unsafe { GetAsyncKeyState(vk as i32) };
+                state < 0
+            });
+            // SAFETY: no arguments.
+            let grab = (grabbed || guarded)
+                && unsafe { GetForegroundWindow() }.0 as isize == WINDOW.load(Ordering::Acquire)
+                && beating(now_ms(), BEAT.load(Ordering::Acquire));
             let idle_ms = u64::from(info.time.wrapping_sub(last.load(Ordering::Relaxed)));
             let held = down && !altgr && {
                 use windows::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState;
@@ -477,7 +553,7 @@ unsafe extern "system" fn hook(code: i32, wparam: windows::Win32::Foundation::WP
             }
             if let Some((scancode, repeat)) = routed.hand_over {
                 let raw = scan as u16 | if extended { 0xE000 } else { 0 };
-                hand_over(scancode, raw, down, repeat);
+                hand_over(scancode, raw, down, repeat, if guarded { tab_chord_mods() } else { SDL_Keymod(0) });
             }
             if routed.swallow {
                 return LRESULT(1);
@@ -497,10 +573,11 @@ fn install() -> windows::core::Result<windows::Win32::UI::WindowsAndMessaging::H
     unsafe { GetModuleHandleW(None).and_then(|module| SetWindowsHookExW(WH_KEYBOARD_LL, Some(hook), Some(module.into()), 0)) }
 }
 
-/// The hook's thread, from the first grab to the end of the stream.
+/// The hook's thread, from the first grab or guard to the end of the stream.
 #[cfg(windows)]
 pub struct ShellKeyHook {
     thread_id: u32,
+    ever_grabbed: bool,
     thread: Option<std::thread::JoinHandle<()>>,
 }
 
@@ -516,6 +593,7 @@ impl ShellKeyHook {
             // SAFETY: this thread's pseudo handle.
             let _ = unsafe { SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL) };
             GRAB.store(false, Ordering::Release);
+            GUARD.store(false, Ordering::Release);
             seed(true);
             let mut hook = match install() {
                 Ok(hook) => Some(hook),
@@ -529,19 +607,24 @@ impl ShellKeyHook {
             let mut message = MSG::default();
             // SAFETY: this thread's queue; WM_QUIT (Drop) ends it.
             while unsafe { GetMessageW(&mut message, None, 0, 0) }.0 > 0 {
-                if message.message != REHOOK {
+                if !matches!(message.message, REHOOK | UNHOOK) {
                     continue;
                 }
                 // Windows may have removed the hook without a word: a new one each time the grab
-                // turns on.
+                // or the guard turns on.
                 if let Some(old) = hook.take() {
                     // SAFETY: the hook this thread installed.
                     let _ = unsafe { UnhookWindowsHookEx(old) };
                 }
+                if message.message == UNHOOK {
+                    // Only the guard's Tab can be kept here, and its release goes unseen now.
+                    KEYS[TAB as usize].store(Key::Up as u8, Ordering::Relaxed);
+                    continue;
+                }
                 seed(false);
                 match install() {
                     Ok(new) => hook = Some(new),
-                    Err(error) => eprintln!("nightjar: system keys reach Windows until the next grab: keyboard hook: {error}"),
+                    Err(error) => eprintln!("nightjar: system keys and the Ctrl+Alt+Shift+Tab hotkey reach Windows until the next grab or focus: keyboard hook: {error}"),
                 }
             }
             if let Some(hook) = hook {
@@ -550,7 +633,7 @@ impl ShellKeyHook {
             }
         }).map_err(|error| error.to_string())?;
         match rx.recv() {
-            Ok(Ok(thread_id)) => Ok(Self { thread_id, thread: Some(thread) }),
+            Ok(Ok(thread_id)) => Ok(Self { thread_id, ever_grabbed: false, thread: Some(thread) }),
             Ok(Err(error)) => Err(error),
             Err(_) => Err("the hook thread ended".into()),
         }
@@ -558,19 +641,40 @@ impl ShellKeyHook {
 
     /// Whether the hook takes the keyboard, from which window (`hwnd`) and for which SDL window
     /// (`window_id`). Turning the grab on reinstalls the hook.
-    pub fn set(&self, grab: bool, hwnd: isize, window_id: sdl3_sys::everything::SDL_WindowID) {
-        use windows::Win32::Foundation::{LPARAM, WPARAM};
-        use windows::Win32::UI::WindowsAndMessaging::PostThreadMessageW;
+    pub fn set(&mut self, grab: bool, hwnd: isize, window_id: sdl3_sys::everything::SDL_WindowID) {
+        Self::window(hwnd, window_id);
+        self.ever_grabbed |= grab;
+        if grab && !GRAB.swap(grab, Ordering::AcqRel) {
+            self.post(REHOOK);
+        } else {
+            GRAB.store(grab, Ordering::Release);
+        }
+    }
+
+    /// Whether the hook keeps the chord's Tab without the grab, from which window; call it when
+    /// that changes ([`tab_guard`]).
+    pub fn guard(&mut self, on: bool, hwnd: isize, window_id: sdl3_sys::everything::SDL_WindowID) {
+        Self::window(hwnd, window_id);
+        GUARD.store(on, Ordering::Release);
+        match guard_step(on, self.ever_grabbed) {
+            GuardStep::Reinstall => self.post(REHOOK),
+            GuardStep::Remove => self.post(UNHOOK),
+            GuardStep::Keep => {}
+        }
+    }
+
+    fn window(hwnd: isize, window_id: sdl3_sys::everything::SDL_WindowID) {
         alive();
         WINDOW_ID.store(window_id.0, Ordering::Release);
         WINDOW.store(hwnd, Ordering::Release);
-        if grab && !GRAB.swap(grab, Ordering::AcqRel) {
-            // SAFETY: the hook thread's id.
-            if let Err(error) = unsafe { PostThreadMessageW(self.thread_id, REHOOK, WPARAM(0), LPARAM(0)) } {
-                eprintln!("nightjar: the keyboard hook stays as it was: {error}");
-            }
-        } else {
-            GRAB.store(grab, Ordering::Release);
+    }
+
+    fn post(&self, message: u32) {
+        use windows::Win32::Foundation::{LPARAM, WPARAM};
+        use windows::Win32::UI::WindowsAndMessaging::PostThreadMessageW;
+        // SAFETY: the hook thread's id.
+        if let Err(error) = unsafe { PostThreadMessageW(self.thread_id, message, WPARAM(0), LPARAM(0)) } {
+            eprintln!("nightjar: the keyboard hook stays as it was: {error}");
         }
     }
 }
@@ -581,6 +685,7 @@ impl Drop for ShellKeyHook {
         use windows::Win32::Foundation::{LPARAM, WPARAM};
         use windows::Win32::UI::WindowsAndMessaging::{PostThreadMessageW, WM_QUIT};
         GRAB.store(false, Ordering::Release);
+        GUARD.store(false, Ordering::Release);
         // SAFETY: the hook thread's id; it ends at WM_QUIT.
         if unsafe { PostThreadMessageW(self.thread_id, WM_QUIT, WPARAM(0), LPARAM(0)) }.is_ok() {
             if let Some(thread) = self.thread.take() {
@@ -929,24 +1034,102 @@ mod tests {
     }
 
     #[test]
-    fn only_a_bound_tab_is_kept_from_windows_without_the_grab() {
-        use sdl3_sys::everything::*;
-        let chord = |mods: &[SDL_Keymod]| SDL_Keymod(mods.iter().fold(0, |all, m| all | m.0));
-        // With the stream menu open the second Ctrl+Alt+Shift+Tab opened Windows' task switcher
-        // over the stream, which then had every key.
-        crate::shortcuts::set_hotkeys(Default::default());
-        assert!(bound_tab(chord(&[SDL_KMOD_LCTRL, SDL_KMOD_LALT, SDL_KMOD_LSHIFT])));
-        assert!(bound_tab(chord(&[SDL_KMOD_RCTRL, SDL_KMOD_RALT, SDL_KMOD_RSHIFT])));
-        // Not the stream's: released, Alt+Tab and the plain Tab go on working in Windows.
-        for mods in [&[][..], &[SDL_KMOD_LALT], &[SDL_KMOD_LALT, SDL_KMOD_LSHIFT], &[SDL_KMOD_LCTRL, SDL_KMOD_LALT], &[SDL_KMOD_LCTRL, SDL_KMOD_LSHIFT]] {
-            assert!(!bound_tab(chord(mods)), "{:?}", mods.iter().map(|m| m.0).collect::<Vec<_>>());
+    fn the_chord_is_guarded_only_while_its_hotkey_can_act() {
+        use crate::shortcuts::Action;
+        let menu = Some(Action::StreamControls);
+        // focused, grab, menu visible, mic only.
+        assert!(tab_guard(menu, true, false, false, false), "Send system keys off or input released");
+        assert!(tab_guard(menu, true, false, true, false), "the menu's second chord closes it");
+        assert!(tab_guard(Some(Action::StreamShortcuts), true, false, true, false), "the sheet opens from the menu");
+        assert!(!tab_guard(menu, false, false, false, false), "another window in front keeps its chord");
+        assert!(!tab_guard(menu, true, true, false, false), "the grab's hook has it");
+        assert!(!tab_guard(None, true, false, false, false), "no hotkey on the chord: no hook");
+        // Rebound: kept from Windows only where it does something, never swallowed for nothing.
+        for action in [Action::Disconnect, Action::Capture, Action::Overlay, Action::Fullscreen] {
+            assert!(!tab_guard(Some(action), true, false, true, false), "{action:?}: the open menu passes it to its widgets");
+            assert!(tab_guard(Some(action), true, false, false, false), "{action:?}: the menu closed, it acts");
         }
-        // Stream controls moved to another chord, or off: Windows gets its chord back.
+        assert!(!tab_guard(menu, true, false, false, true), "Microphone only has no menu");
+        assert!(!tab_guard(Some(Action::Disconnect), true, false, false, true), "Microphone only leaves the chord to Windows");
+    }
+
+    #[test]
+    fn the_guarded_chord_follows_the_binding() {
+        use crate::shortcuts::Action;
+        crate::shortcuts::set_hotkeys(Default::default());
+        assert_eq!(tab_chord_action(), Some(Action::StreamControls));
+        // Another action on it is guarded for that action; moved off, there is nothing to guard.
         let mut moved = crate::shortcuts::hotkey_bindings();
         moved.insert("stream_menu".to_string(), "CTRL+ALT+F7".to_string());
+        crate::shortcuts::set_hotkeys(moved.clone());
+        assert_eq!(tab_chord_action(), None);
+        moved.insert("quit".to_string(), "CTRL+ALT+SHIFT+TAB".to_string());
         crate::shortcuts::set_hotkeys(moved);
-        assert!(!bound_tab(chord(&[SDL_KMOD_LCTRL, SDL_KMOD_LALT, SDL_KMOD_LSHIFT])));
+        assert_eq!(tab_chord_action(), Some(Action::Disconnect));
         crate::shortcuts::set_hotkeys(Default::default());
+    }
+
+    #[test]
+    fn only_tab_with_exactly_the_chords_modifiers_in_windows_is_guarded() {
+        const SHIFT: u32 = 0x10;
+        const CTRL: u32 = 0x11;
+        const ALT: u32 = 0x12;
+        assert!(tab_chord_held(|vk| matches!(vk, CTRL | ALT | SHIFT)));
+        // Windows' Alt+Tab, Ctrl+Tab and the rest are not the chord, nor is it with Windows held.
+        for held in [&[][..], &[ALT], &[ALT, SHIFT], &[CTRL, ALT], &[CTRL], &[CTRL, SHIFT], &[SHIFT]] {
+            assert!(!tab_chord_held(|vk| held.contains(&vk)), "{held:x?}");
+        }
+        for win in [LWIN, RWIN] {
+            assert!(!tab_chord_held(|vk| matches!(vk, CTRL | ALT | SHIFT) || vk == win), "{win:x}");
+        }
+    }
+
+    #[test]
+    fn a_stale_kept_modifier_does_not_make_shift_tab_the_chord() {
+        // Ctrl+Alt+Del while grabbed: the secure desktop took the releases of Ctrl and Alt, so the
+        // table holds them kept, while Windows knows only the Shift pressed in the open menu.
+        let mut board = Board::new();
+        board.play(true, &[(LCTRL, 0x1D, false, true), (LALT, 0x38, false, true)]);
+        assert_eq!((board.keys[LCTRL as usize], board.keys[LALT as usize]), (Key::Kept, Key::Kept));
+        assert!(!tab_chord_held(|vk| vk == 0x10), "Shift+Tab in the menu stays the menu's Tab");
+    }
+
+    #[test]
+    fn hotkey_policy_leaves_this_one_tab_chord_for_windows_to_take() {
+        // tab_chord_mods is the only chord to guard: Windows takes no other a hotkey may have.
+        use nightjar_policy::shortcuts::{hotkey_keys, HotkeyError};
+        let keys = |chord: &[&str]| hotkey_keys(&chord.iter().map(|key| key.to_string()).collect::<Vec<_>>());
+        assert!(keys(&["CTRL", "ALT", "SHIFT", "TAB"]).is_ok());
+        for reserved in [&["ALT", "TAB"][..], &["ALT", "SHIFT", "TAB"], &["CTRL", "ALT", "TAB"]] {
+            assert_eq!(keys(reserved), Err(HotkeyError::Reserved), "{reserved:?}");
+        }
+        // These reach the window as they are, so nothing is kept for them: not the guarded chord.
+        for fine in [&["CTRL", "TAB"][..], &["CTRL", "SHIFT", "TAB"]] {
+            assert!(keys(fine).is_ok(), "{fine:?}");
+        }
+        assert!(!tab_chord_held(|vk| vk == 0x11), "Ctrl+Tab");
+        assert!(!tab_chord_held(|vk| matches!(vk, 0x10 | 0x11)), "Ctrl+Shift+Tab");
+    }
+
+    #[test]
+    fn without_the_grab_every_key_but_tab_goes_straight_on() {
+        assert!(passes_by(false, D, false, Key::Up), "typing wakes nothing up");
+        assert!(passes_by(false, LALT, false, Key::Up), "a modifier of the chord too: it stays Windows'");
+        assert!(!passes_by(true, D, false, Key::Up), "the grab keeps it");
+        assert!(!passes_by(false, TAB, false, Key::Up), "it may be the chord's");
+        assert!(!passes_by(false, D, false, Key::Kept), "a kept key's release stays kept");
+        assert!(!passes_by(false, D, false, Key::Passed), "a press from the grab's time is released in the table");
+        assert!(!passes_by(false, LCTRL, true, Key::Up), "AltGr's added Ctrl remembers its way");
+        // Passing by leaves the table Up; a press Windows holds is still Windows' once grabbed.
+        assert_eq!(settle(true, Key::Up, true, 30), Key::Passed);
+    }
+
+    #[test]
+    fn the_guard_reinstalls_the_hook_when_it_turns_on_and_removes_it_only_without_a_grab() {
+        assert_eq!(guard_step(true, false), GuardStep::Reinstall, "focus back with Send system keys off: Windows may have removed it");
+        assert_eq!(guard_step(true, true), GuardStep::Reinstall);
+        assert_eq!(guard_step(false, false), GuardStep::Remove, "no cost per key in other apps");
+        assert_eq!(guard_step(false, true), GuardStep::Keep, "the grab's hook stays, for the kept keys' releases");
     }
 
     #[test]
@@ -1035,7 +1218,7 @@ mod tests {
         let _ = unsafe { SetForegroundWindow(hwnd) };
         pump(500, &mut got);
         assert!(in_front(), "the test window did not come to the front");
-        let hook = ShellKeyHook::start().unwrap();
+        let mut hook = ShellKeyHook::start().unwrap();
         hook.set(true, hwnd.0 as isize, id);
         pump(300, &mut got);
         got.clear();
@@ -1061,6 +1244,7 @@ mod tests {
         // Not grabbed (the stream menu open, input released): Windows' task switcher stays shut
         // and only the Tab of the bound chord comes through the hook.
         hook.set(false, hwnd.0 as isize, id);
+        hook.guard(true, hwnd.0 as isize, id);
         pump(100, &mut got);
         got.clear();
         for &vk in &[LCTRL, LALT, LSHIFT, TAB] {
@@ -1093,6 +1277,93 @@ mod tests {
         assert_eq!(stream[3], [(d, true, 0), (d, false, 0)]);
         assert!(chord_stayed, "Ctrl+Alt+Shift+Tab left the window without the grab");
         assert_eq!(tabs, [(tab, true, all), (tab, false, all)]);
+    }
+
+    /// What the guard's hook costs a key that is not the chord's, against no hook, in rounds: the
+    /// time SendInput takes (Windows runs the hook inside it) and from its call to SDL's queue.
+    /// `cargo test --release -p nightjar-desktop --bin nightjar -- --ignored --nocapture the_hook_cost`
+    #[cfg(windows)]
+    #[test]
+    #[ignore = "takes the foreground and injects keys"]
+    fn the_hook_cost_of_a_key_without_the_grab() {
+        use sdl3_sys::everything::*;
+        use std::time::{Duration, Instant};
+        use windows::Win32::Foundation::HWND;
+        use windows::Win32::UI::Input::KeyboardAndMouse::*;
+        use windows::Win32::UI::WindowsAndMessaging::SetForegroundWindow;
+        fn send(down: bool) {
+            // F13: nothing acts on it.
+            let flags = if down { KEYEVENTF_SCANCODE } else { KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP };
+            let ki = KEYBDINPUT { wScan: 0x64, dwFlags: flags, ..Default::default() };
+            let input = INPUT { r#type: INPUT_KEYBOARD, Anonymous: INPUT_0 { ki } };
+            // SAFETY: one keyboard input.
+            assert_eq!(unsafe { SendInput(&[input], size_of::<INPUT>() as i32) }, 1);
+        }
+        fn wait_for(kind: SDL_EventType) {
+            let end = Instant::now() + Duration::from_secs(2);
+            // SAFETY: SDL's event queue on the thread that set up video.
+            unsafe {
+                let mut event: SDL_Event = std::mem::zeroed();
+                while Instant::now() < end {
+                    while SDL_PollEvent(&mut event) {
+                        if SDL_EventType(event.r#type) == kind && event.key.scancode == SDL_SCANCODE_F13 {
+                            return;
+                        }
+                    }
+                }
+            }
+            panic!("the key did not reach the window");
+        }
+        fn round(keys: usize, send_us: &mut Vec<f64>, queue_us: &mut Vec<f64>) {
+            for _ in 0..keys {
+                alive();
+                let start = Instant::now();
+                send(true);
+                let sent = start.elapsed();
+                wait_for(SDL_EVENT_KEY_DOWN);
+                let queued = start.elapsed();
+                send(false);
+                wait_for(SDL_EVENT_KEY_UP);
+                send_us.push(sent.as_secs_f64() * 1e6);
+                queue_us.push(queued.as_secs_f64() * 1e6);
+                std::thread::sleep(Duration::from_millis(2));
+            }
+        }
+        fn report(name: &str, label: &str, values: &mut [f64]) {
+            values.sort_by(f64::total_cmp);
+            let at = |q: f64| values[((values.len() - 1) as f64 * q) as usize];
+            println!("{name} {label}: median {:.1} us, p95 {:.1} us, p99 {:.1} us, n={}", at(0.5), at(0.95), at(0.99), values.len());
+        }
+        // SAFETY: SDL video on this thread, one window of this test's.
+        let (window, hwnd, id) = unsafe {
+            assert!(SDL_Init(SDL_INIT_VIDEO));
+            let window = SDL_CreateWindow(c"nightjar hook cost".as_ptr(), 400, 300, SDL_WindowFlags(0));
+            assert!(!window.is_null());
+            let hwnd = SDL_GetPointerProperty(SDL_GetWindowProperties(window), SDL_PROP_WINDOW_WIN32_HWND_POINTER, std::ptr::null_mut());
+            (window, HWND(hwnd), SDL_GetWindowID(window))
+        };
+        // SAFETY: this test's window; the keys it sends give it the right to come forward.
+        let _ = unsafe { SetForegroundWindow(hwnd) };
+        std::thread::sleep(Duration::from_millis(300));
+        let mut without = (Vec::new(), Vec::new());
+        let mut with = (Vec::new(), Vec::new());
+        for _ in 0..4 {
+            round(1000, &mut without.0, &mut without.1);
+            let mut hook = ShellKeyHook::start().unwrap();
+            hook.guard(true, hwnd.0 as isize, id);
+            std::thread::sleep(Duration::from_millis(100));
+            round(1000, &mut with.0, &mut with.1);
+            drop(hook);
+        }
+        // SAFETY: this test's window and SDL.
+        unsafe {
+            SDL_DestroyWindow(window);
+            SDL_Quit();
+        }
+        report("no hook", "SendInput", &mut without.0);
+        report("no hook", "to SDL's queue", &mut without.1);
+        report("guard hook", "SendInput", &mut with.0);
+        report("guard hook", "to SDL's queue", &mut with.1);
     }
 
     #[test]

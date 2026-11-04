@@ -471,6 +471,15 @@ fn sdl_grab(grab: bool, hooked: bool) -> bool {
     grab && !hooked
 }
 
+/// A window's HWND and SDL id, for the hook.
+#[cfg(windows)]
+fn window_ids(window: *mut SDL_Window) -> (isize, SDL_WindowID) {
+    // SAFETY: a live window.
+    unsafe {
+        (SDL_GetPointerProperty(SDL_GetWindowProperties(window), SDL_PROP_WINDOW_WIN32_HWND_POINTER, std::ptr::null_mut()) as isize, SDL_GetWindowID(window))
+    }
+}
+
 /// The filter for one stream; removed when dropped.
 pub struct DirectMotion {
     shared: Arc<Shared>,
@@ -481,6 +490,8 @@ pub struct DirectMotion {
     /// Takes the keyboard from Windows while it is grabbed, the shell's shortcuts included.
     #[cfg(windows)]
     shell_keys: Option<super::system_keys::ShellKeyHook>,
+    #[cfg(windows)]
+    tab_guard: bool,
 }
 
 impl DirectMotion {
@@ -519,36 +530,56 @@ impl DirectMotion {
         } else if installed {
             eprintln!("nightjar: keys, clicks and controllers through the main loop (NIGHTJAR_DIRECT_INPUT=0)");
         }
-        Self { shared, installed, direct_input, poller, #[cfg(windows)] shell_keys: None }
+        Self { shared, installed, direct_input, poller, #[cfg(windows)] shell_keys: None, #[cfg(windows)] tab_guard: false }
     }
 
     /// The keyboard grab ("Send system keys" while captured) changed: this stream's own hook
     /// takes the keyboard from Windows while it is on and hands the keys to SDL (`system_keys`).
-    /// The hook runs without the grab too, for a stream hotkey on Ctrl+Alt+Shift+Tab.
     /// Returns whether SDL's grab should do that instead: on Linux, or without the hook.
     #[cfg_attr(not(windows), allow(unused_variables))]
     pub fn keyboard_grab(&mut self, window: *mut SDL_Window, grab: bool) -> bool {
         #[cfg(windows)]
         {
-            if self.shell_keys.is_none() {
+            if grab && self.shell_keys.is_none() {
                 match super::system_keys::ShellKeyHook::start() {
                     Ok(hook) => {
                         eprintln!("nightjar: system keys: the keyboard hook takes the keyboard while grabbed");
                         self.shell_keys = Some(hook);
                     }
-                    Err(error) => eprintln!("nightjar: system keys through SDL's grab, Ctrl+Alt+Shift+Tab stays Windows': keyboard hook: {error}"),
+                    Err(error) => eprintln!("nightjar: system keys through SDL's grab: keyboard hook: {error}"),
                 }
             }
-            if let Some(hook) = &self.shell_keys {
-                // SAFETY: a live window.
-                let (hwnd, id) = unsafe {
-                    (SDL_GetPointerProperty(SDL_GetWindowProperties(window), SDL_PROP_WINDOW_WIN32_HWND_POINTER, std::ptr::null_mut()), SDL_GetWindowID(window))
-                };
-                hook.set(grab, hwnd as isize, id);
+            if let Some(hook) = &mut self.shell_keys {
+                let (hwnd, id) = window_ids(window);
+                hook.set(grab, hwnd, id);
                 return sdl_grab(grab, true);
             }
         }
         grab
+    }
+
+    /// Whether the hook keeps the Tab of a stream hotkey Windows would take without the grab
+    /// (`system_keys::tab_guard`); checked once per pass, it costs nothing until it changes. The
+    /// hook starts for it only when it turns on.
+    #[cfg(windows)]
+    pub fn tab_guard(&mut self, window: *mut SDL_Window, on: bool) {
+        if on == self.tab_guard {
+            return;
+        }
+        self.tab_guard = on;
+        if on && self.shell_keys.is_none() {
+            match super::system_keys::ShellKeyHook::start() {
+                Ok(hook) => {
+                    eprintln!("nightjar: system keys: the keyboard hook keeps the Tab of Ctrl+Alt+Shift+Tab");
+                    self.shell_keys = Some(hook);
+                }
+                Err(error) => eprintln!("nightjar: Ctrl+Alt+Shift+Tab stays Windows': keyboard hook: {error}"),
+            }
+        }
+        if let Some(hook) = &mut self.shell_keys {
+            let (hwnd, id) = window_ids(window);
+            hook.guard(on, hwnd, id);
+        }
     }
 
     /// Whether motion may leave from the filter: captured, relative and focused.

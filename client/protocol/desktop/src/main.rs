@@ -2065,6 +2065,8 @@ impl App {
         streaming.drain_notices(&mut self.pads, away);
         streaming.open_guide_menu(window, &mut self.pads);
         streaming.follow_text_field(window);
+        #[cfg(windows)]
+        streaming.follow_tab_chord(window);
         streaming.pump();
         streaming.follow_display(display);
         if streaming.export_statistics {

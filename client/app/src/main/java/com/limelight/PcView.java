@@ -14,6 +14,7 @@ import com.limelight.computers.ComputerManagerService;
 import com.limelight.computers.HostMenu;
 import com.limelight.files.FileTransferActivity;
 import com.limelight.grid.PcGridAdapter;
+import com.limelight.nativeapi.NativePcPower;
 import com.limelight.nvstream.http.ComputerDetails;
 import com.limelight.nvstream.http.HostCapabilities;
 import com.limelight.nvstream.http.NvApp;
@@ -641,6 +642,18 @@ public class PcView extends NightjarActivity implements AdapterFragmentCallbacks
 
             case SLEEP_ID:
                 hostActions.sleep(computer.details);
+                return true;
+
+            case HostMenu.RESTART:
+                hostActions.pcPower(computer.details, NativePcPower.Action.RESTART);
+                return true;
+
+            case HostMenu.SHUT_DOWN:
+                hostActions.pcPower(computer.details, NativePcPower.Action.SHUT_DOWN);
+                return true;
+
+            case HostMenu.UPDATE_HOST:
+                hostActions.updateHost(computer.details);
                 return true;
 
             case COOP_ID:

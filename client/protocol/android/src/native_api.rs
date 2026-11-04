@@ -1,8 +1,9 @@
 //! The JNI side of `com.limelight.nvstream.jni.NativeApiBridge`: the Rubylight native API v1
 //! (`HostClient::{native_capabilities, library, session, session_action, couch_menu, radeon,
 //! write_radeon, restore_radeon, wake, audio, write_audio}`) for the console screens and the
-//! stream menu, and Sleep PC (`power_capabilities`, `sleep`), the file transfer permissions
-//! (`files.capabilities`), and Nucleus Co-op (`coop`, `coop.join`).
+//! stream menu, and Sleep PC (`power_capabilities`, `sleep`), Restart and Shut down PC
+//! (`pc_power`, `power_pc`), the host's update (`host_update`, `install_host_update`), the file
+//! transfer permissions (`files.capabilities`), and Nucleus Co-op (`coop`, `coop.join`).
 //! Calls block on HTTPS, so Java runs them on worker threads, never on the UI thread.
 //!
 //! One entry point, `request`, takes the operation, the host endpoint and an optional JSON
@@ -21,8 +22,8 @@ use nightjar_core::http::native_api::radeon::{Radeon, SettingsWrite};
 use nightjar_core::http::native_api::session::{ActionId, CouchMenu, CouchMenuRequest, Session};
 use nightjar_core::http::native_api::wake::Wake;
 use nightjar_core::http::{
-    ClientIdentity, Coop, CoopJoined, Error, HostClient, NativeCapabilities, NativeLibrary, PowerError,
-    PowerReply, Refusal,
+    ClientIdentity, Coop, CoopJoined, Error, HostClient, HostUpdate, NativeCapabilities,
+    NativeLibrary, PcPower, PcPowerOffer, PowerError, PowerReply, Refusal,
 };
 
 /// What the client of one host needs; Java builds it from the paired host's stored data.
@@ -49,6 +50,10 @@ pub trait Host {
     fn restore_radeon(&self) -> Result<Radeon, Error>;
     fn power_capabilities(&self) -> Result<PowerReply, PowerError>;
     fn sleep(&self, token: &str) -> Result<PowerReply, PowerError>;
+    fn pc_power(&self) -> Result<PcPowerOffer, Error>;
+    fn power_pc(&self, action: PcPower, token: &str) -> Result<(), Error>;
+    fn host_update(&self) -> Result<HostUpdate, Error>;
+    fn install_host_update(&self) -> Result<HostUpdate, Error>;
     fn wake(&self) -> Result<Wake, Error>;
     fn coop(&self) -> Result<Coop, Error>;
     fn join_coop(&self, session: u32) -> Result<CoopJoined, Error>;
@@ -86,6 +91,18 @@ impl Host for HostClient {
     }
     fn sleep(&self, token: &str) -> Result<PowerReply, PowerError> {
         HostClient::sleep(self, token)
+    }
+    fn pc_power(&self) -> Result<PcPowerOffer, Error> {
+        HostClient::pc_power(self)
+    }
+    fn power_pc(&self, action: PcPower, token: &str) -> Result<(), Error> {
+        HostClient::power_pc(self, action, token)
+    }
+    fn host_update(&self) -> Result<HostUpdate, Error> {
+        HostClient::host_update(self)
+    }
+    fn install_host_update(&self) -> Result<HostUpdate, Error> {
+        HostClient::install_host_update(self)
     }
     fn wake(&self) -> Result<Wake, Error> {
         HostClient::wake(self)
@@ -171,6 +188,7 @@ fn capabilities_with_files(result: Result<NativeCapabilities, Error>) -> String 
         permissions.insert("file_download".into(), json!(files.file_download));
         permissions.insert("usb".into(), json!(files.usb));
         permissions.insert("shared_folders".into(), json!(files.shared_folders));
+        permissions.insert("restart_shutdown".into(), json!(files.restart_shutdown));
         Ok(value)
     }))
 }
@@ -227,10 +245,14 @@ fn power(result: Result<PowerReply, PowerError>) -> String {
 /// `session`, `session_action` (argument `disconnect`, `end` or `close_game`), `couch_menu`
 /// (argument: the `CouchMenuRequest` JSON), `radeon`, `radeon_write` (argument: the
 /// `SettingsWrite` JSON), `radeon_restore`, `wake`, `power.capabilities` and `power.sleep`
-/// (argument: the token from `power.capabilities`), `coop` and `coop.join` (argument: the
-/// session id), `audio` and `audio_write` (argument: the `AudioWrite` JSON). Gate the power ones
-/// on `Feature::Sleep`, the co-op ones on `Feature::Coop` and the audio ones on the capabilities'
-/// `audio.night_mode` and `audio.headphone_surround`.
+/// (argument: the token from `power.capabilities`), `pc_power`, `pc_power.restart` and
+/// `pc_power.shutdown` (argument: the token from `pc_power`; `{}` once the PC took it), `update`
+/// and `update.install`, `coop` and `coop.join` (argument: the session id), `audio` and
+/// `audio_write` (argument: the `AudioWrite` JSON). Gate Sleep on `Feature::Sleep`, Restart and
+/// Shut down on the capabilities' `power.restart` and `power.shutdown`, the update ones on
+/// `update`, the co-op ones on `Feature::Coop` and the audio ones on the capabilities'
+/// `audio.night_mode` and `audio.headphone_surround`. A refused restart, shutdown or update is
+/// the usual API error, its `message` in the host's words.
 pub fn execute(host: &dyn Host, op: &str, argument: &str) -> String {
     match op {
         // The pinned `Capabilities` drops `permissions.usb`, so the stream menu never offered USB.
@@ -260,6 +282,17 @@ pub fn execute(host: &dyn Host, op: &str, argument: &str) -> String {
         "radeon_restore" => ok(host.restore_radeon()),
         "power.capabilities" => power(host.power_capabilities()),
         "power.sleep" => power(host.sleep(argument)),
+        "pc_power" => ok(host.pc_power()),
+        "pc_power.restart" | "pc_power.shutdown" => {
+            let action = if op == "pc_power.restart" {
+                PcPower::Restart
+            } else {
+                PcPower::ShutDown
+            };
+            ok(host.power_pc(action, argument).map(|()| json!({})))
+        }
+        "update" => ok(host.host_update()),
+        "update.install" => ok(host.install_host_update()),
         "wake" => ok(host.wake()),
         "coop" => ok(host.coop()),
         "coop.join" => match argument.trim().parse::<u32>() {
@@ -495,6 +528,40 @@ mod tests {
                 }),
             }
         }
+        fn pc_power(&self) -> Result<PcPowerOffer, Error> {
+            self.note("pc power");
+            Ok(serde_json::from_str(&format!(
+                r#"{{"restart":{{"available":true,"reason":null}},"shutdown":{{"available":true,"reason":null}},"token":"{TOKEN}","token_lifetime_s":30,"wake_from_off":false,"last_refusal":null}}"#
+            ))
+            .unwrap())
+        }
+        fn power_pc(&self, action: PcPower, token: &str) -> Result<(), Error> {
+            self.note(&format!("{} {token}", action.path()));
+            if token == TOKEN {
+                return Ok(());
+            }
+            Err(Error::Api {
+                status: 409,
+                error: serde_json::from_str(
+                    r#"{"code":"host_in_use","message":"Living room TV is streaming from this PC.","setting":null,"retry_after_ms":null}"#,
+                )
+                .unwrap(),
+            })
+        }
+        fn host_update(&self) -> Result<HostUpdate, Error> {
+            self.note("update");
+            Ok(serde_json::from_str(
+                r#"{"current_version":"3.3.0","latest_version":"v3.4.0","phase":"idle","install_supported":true,"error":null}"#,
+            )
+            .unwrap())
+        }
+        fn install_host_update(&self) -> Result<HostUpdate, Error> {
+            self.note("update install");
+            Ok(serde_json::from_str(
+                r#"{"current_version":"3.3.0","latest_version":"v3.4.0","phase":"downloading","install_supported":true,"error":null}"#,
+            )
+            .unwrap())
+        }
         fn audio(&self) -> Result<Audio, Error> {
             self.note("audio");
             Ok(serde_json::from_str(AUDIO).unwrap())
@@ -589,6 +656,7 @@ mod tests {
         // Anything but a bool reads as refused, as the Rust client reads it.
         assert_eq!(permissions["usb"], false);
         assert_eq!(permissions["shared_folders"], true);
+        assert_eq!(permissions["restart_shutdown"], false);
         assert_eq!(permissions["host_control"], true);
         assert_eq!(reply["ok"]["features"][0], "files.upload");
         assert_eq!(fake.calls.lock().unwrap().last().unwrap(), "capabilities");
@@ -787,6 +855,41 @@ mod tests {
         assert!(refused.get("ok").is_none());
         let invalid = parse(&execute(&fake, "power.sleep", ""));
         assert_eq!(invalid["error"]["kind"], "invalid_argument");
+    }
+
+    #[test]
+    fn restart_shut_down_and_update_reach_the_host_and_refusals_keep_its_words() {
+        let fake = Fake::default();
+        let offer = parse(&execute(&fake, "pc_power", ""));
+        assert_eq!(offer["ok"]["token"], TOKEN);
+        assert_eq!(offer["ok"]["restart"]["available"], true);
+        assert_eq!(offer["ok"]["wake_from_off"], false);
+        assert_eq!(parse(&execute(&fake, "pc_power.restart", TOKEN)), json!({ "ok": {} }));
+        assert_eq!(parse(&execute(&fake, "pc_power.shutdown", TOKEN)), json!({ "ok": {} }));
+        let refused = parse(&execute(&fake, "pc_power.shutdown", "spent"));
+        let error = &refused["error"];
+        assert_eq!(
+            (error["kind"].as_str(), error["http_status"].as_u64()),
+            (Some("api"), Some(409))
+        );
+        assert_eq!(error["message"], "Living room TV is streaming from this PC.");
+        let update = parse(&execute(&fake, "update", ""));
+        assert_eq!(update["ok"]["latest_version"], "v3.4.0");
+        assert_eq!(
+            parse(&execute(&fake, "update.install", ""))["ok"]["phase"],
+            "downloading"
+        );
+        assert_eq!(
+            fake.calls.lock().unwrap().clone(),
+            [
+                "pc power".to_owned(),
+                format!("power/restart {TOKEN}"),
+                format!("power/shutdown {TOKEN}"),
+                "power/shutdown spent".to_owned(),
+                "update".to_owned(),
+                "update install".to_owned(),
+            ]
+        );
     }
 
     #[test]

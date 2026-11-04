@@ -32,6 +32,7 @@
     <string name="host_feature_reason_virtual_display_driver">The host’s virtual display driver isn’t ready</string>
     <string name="host_feature_reason_hardware_metrics_off">Turn on hardware metrics in the host’s settings</string>
     <string name="host_feature_reason_sleep_permission">This device isn’t allowed to put the PC to sleep</string>
+    <string name="host_feature_reason_restart_shutdown_permission">This device isn’t allowed to restart or shut down the PC</string>
     <string name="host_feature_reason_file_permission">This device lacks file access; allow it in the host’s web UI</string>
     <string name="host_feature_reason_usb_permission">This device lacks USB access; allow it in the host’s web UI</string>
     <string name="host_feature_reason_folder_permission">This device lacks shared folders; allow them in the web UI</string>

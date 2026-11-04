@@ -86,6 +86,9 @@ public class HostCapabilitiesContractTest {
             case SHARED_FOLDERS: return "shared_folders";
             case COOP: return "coop";
             case MIC_ONLY: return "mic_only";
+            case PC_RESTART: return "pc_restart";
+            case PC_SHUTDOWN: return "pc_shutdown";
+            case HOST_UPDATE: return "host_update";
             default: return null;
         }
     }
@@ -102,6 +105,7 @@ public class HostCapabilitiesContractTest {
             case VIRTUAL_DISPLAY_DRIVER: return "virtual_display_driver";
             case HARDWARE_METRICS_OFF: return "hardware_metrics_off";
             case SLEEP_PERMISSION: return "sleep_permission";
+            case RESTART_SHUTDOWN_PERMISSION: return "restart_shutdown_permission";
             case FILE_PERMISSION: return "file_permission";
             case USB_PERMISSION: return "usb_permission";
             case FOLDER_PERMISSION: return "folder_permission";

@@ -7,8 +7,6 @@ use super::*;
 use crate::glyphs::{self, Icon, Piece, Style};
 use crate::shortcuts::{self, Action, Button, Chord, Press, Scope};
 
-/// The page's widest column: rows wider than this are hard to read across.
-const HELP_W: f32 = 1080.0;
 /// Below this width the cards of a section stack instead of sitting side by side.
 const TWO_UP: f32 = 760.0;
 /// Room for each card's content inside its frame (left and right).
@@ -76,8 +74,7 @@ impl Launcher {
         let jump_id = Id::unique("help-jump");
         let mut jump: Option<&'static str> = ctx.data(|d| d.get_temp(jump_id));
         scroll(ui, "help", |ui| {
-            let width = ui.available_width().min(HELP_W);
-            ui.set_max_width(width);
+            let width = ui.available_width();
             ui.horizontal_wrapped(|ui| {
                 ui.spacing_mut().item_spacing = vec2(space::S, space::S);
                 for (n, (name, section)) in SECTIONS.iter().enumerate() {

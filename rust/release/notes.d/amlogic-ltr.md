@@ -1,0 +1,1 @@
+- **Long-term reference frames per device.** Devices has a new Encoder overrides section, so one device can turn long-term references off (for a decoder that freezes on them, such as the Fire TV Cube on Moonlight) while the others keep the host's setting.

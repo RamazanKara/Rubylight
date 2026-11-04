@@ -6,6 +6,7 @@ import { SETTING as STREAM_PRESET, presets } from '../../lib/stream-presets';
 import { settings as basicSettings } from '../../lib/schema/basics';
 import { settings as displaySettings } from '../../lib/schema/display';
 import { settings as extensionSettings } from '../../lib/schema/extensions';
+import { settings as videoSettings } from '../../lib/schema/video';
 
 export const PERMISSION_GROUPS: { name: string; items: { bit: number; label: string }[] }[] = [
   {
@@ -110,6 +111,10 @@ export interface Draft {
   gamepad: string;
   /** The controller type exactly as stored, sent back while its choice is untouched. */
   stored_gamepad?: unknown;
+  /** The device's long-term reference frames (`amd_ltr_frames`) as the select shows them; empty follows the host. */
+  ltr_frames: string;
+  /** Those frames exactly as stored, sent back while their choice is untouched. */
+  stored_ltr_frames?: unknown;
   /** The device's other config overrides, kept and sent back untouched. */
   other_overrides: Record<string, unknown>;
   /** Lets the device change Radeon settings and close games; off unless granted here. */
@@ -208,6 +213,23 @@ function shownGamepad(value: unknown): string {
   return gamepadSetting?.aliases?.spellings?.[name] ?? name;
 }
 
+/**
+ * The long-term reference frames a device sets for itself (issue #73): a Moonlight client on a
+ * decoder that freezes on them can take 0 while every other device keeps the host's value.
+ */
+const ltrSetting = videoSettings.find((setting) => setting.key === 'amd_ltr_frames');
+if (ltrSetting?.control.kind !== 'number') throw new Error('amd_ltr_frames is not a number setting');
+const { min: ltrMin = 0, max: ltrMax = 0 } = ltrSetting.control;
+export const LTR_FRAME_OPTIONS = Array.from({ length: ltrMax - ltrMin + 1 }, (_, index) => {
+  const frames = ltrMin + index;
+  return { value: String(frames), label: frames === 0 ? 'Off' : String(frames) };
+});
+
+/** Stored frames as the select shows them: a number as written. */
+function shownLtrFrames(value: unknown): string {
+  return typeof value === 'number' ? String(value) : text(value);
+}
+
 export function toDraft(client: Client): Draft {
   const sdr = flag(client.prefer_10bit_sdr);
   const stored = client.config_overrides;
@@ -223,6 +245,8 @@ export function toDraft(client: Client): Draft {
   }
   const storedGamepad = other.gamepad;
   delete other.gamepad;
+  const storedLtrFrames = other.amd_ltr_frames;
+  delete other.amd_ltr_frames;
   return {
     name: client.name,
     enabled: flag(client.enabled) !== false,
@@ -249,6 +273,8 @@ export function toDraft(client: Client): Draft {
     stored_display: storedDisplay,
     gamepad: shownGamepad(storedGamepad),
     stored_gamepad: storedGamepad,
+    ltr_frames: shownLtrFrames(storedLtrFrames),
+    stored_ltr_frames: storedLtrFrames,
     other_overrides: other,
     // As the host reads it: only true and "true" are on, so 1 and "yes" stay off.
     host_control: client.host_control === true || client.host_control === 'true',
@@ -276,7 +302,7 @@ function commands(rows: CommandRow[]): Command[] {
 }
 
 /**
- * The device's overrides: its other overrides plus its display overrides, controller type and preset; null when
+ * The device's overrides: its other overrides plus its display overrides, controller type, long-term reference frames and preset; null when
  * there are none. A preset or display override the user did not touch goes back as it was stored,
  * so a value this console cannot show (another type, an unknown name) is not rewritten or lost by
  * saving something else.
@@ -296,7 +322,9 @@ function overrides(draft: Draft): Record<string, unknown> | null {
   }
   const gamepadUntouched = draft.stored_gamepad !== undefined && shownGamepad(draft.stored_gamepad) === draft.gamepad;
   const gamepad = gamepadUntouched ? { gamepad: draft.stored_gamepad } : draft.gamepad ? { gamepad: draft.gamepad } : {};
-  const next = { ...draft.other_overrides, ...display, ...gamepad, ...preset };
+  const ltrUntouched = draft.stored_ltr_frames !== undefined && shownLtrFrames(draft.stored_ltr_frames) === draft.ltr_frames;
+  const ltr = ltrUntouched ? { amd_ltr_frames: draft.stored_ltr_frames } : draft.ltr_frames ? { amd_ltr_frames: Number(draft.ltr_frames) } : {};
+  const next = { ...draft.other_overrides, ...display, ...gamepad, ...ltr, ...preset };
   return Object.keys(next).length > 0 ? next : null;
 }
 

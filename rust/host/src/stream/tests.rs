@@ -58,6 +58,30 @@ fn webrtc_launches_take_whole_frames_whatever_the_host_asks_for() {
     let webrtc = effective_config(&f.host, &launch).unwrap();
     assert_eq!(webrtc.get("video_slice_delivery", ""), "off");
 }
+// Issue #73: a decoder that freezes on long-term references takes 0 for itself, whatever the
+// client's budget, and the host's other devices keep theirs.
+#[test]
+fn a_devices_long_term_references_reach_its_stream_and_no_other_device() {
+    use butterpollo_core::encoder_policy::{amf_ltr_frames, amf_offers_invalidation};
+    let f = crate::state::test_support::Fixture::new();
+    let others = f.client(u32::MAX);
+    let mut cube = others.clone();
+    cube.extra.insert(
+        "config_overrides".into(),
+        serde_json::json!({"amd_ltr_frames": 0}),
+    );
+    let hevc = butterpollo_core::rtsp::Negotiated {
+        codec: 1,
+        references: 0,
+        ..Default::default()
+    };
+    let config = effective_config(&f.host, &f.launch(cube, Role::Stream)).unwrap();
+    assert_eq!(amf_ltr_frames(&config, &hevc), 0);
+    assert!(!amf_offers_invalidation(&config));
+    let config = effective_config(&f.host, &f.launch(others, Role::Stream)).unwrap();
+    assert_eq!(amf_ltr_frames(&config, &hevc), 4);
+    assert!(amf_offers_invalidation(&config));
+}
 #[test]
 fn overrides_saved_for_rtx_hdr_keep_only_the_peak_brightness() {
     let mut config = Config::parse("port = 47989\n").unwrap();

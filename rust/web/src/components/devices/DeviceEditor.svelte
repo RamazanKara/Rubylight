@@ -13,6 +13,7 @@
     changes,
     DISPLAY_OVERRIDE_OPTIONS,
     GAMEPAD_OPTIONS,
+    LTR_FRAME_OPTIONS,
     PERMISSION_GROUPS,
     savingEndsStream,
     toDraft,
@@ -197,8 +198,13 @@
   let presetOpen = $state(untrack(() => presetUnknown));
   const gamepadUnknown = $derived(draft.gamepad !== '' && !GAMEPAD_OPTIONS.some((option) => option.value === draft.gamepad));
   let controllerOpen = $state(untrack(() => gamepadUnknown));
+  const ltrUnknown = $derived(draft.ltr_frames !== '' && !LTR_FRAME_OPTIONS.some((option) => option.value === draft.ltr_frames));
+  let encoderOpen = $state(untrack(() => ltrUnknown));
   $effect(() => {
     if (modeInvalid) displayOpen = true;
+  });
+  $effect(() => {
+    if (ltrUnknown) encoderOpen = true;
   });
   $effect(() => {
     if (presetUnknown) presetOpen = true;
@@ -492,6 +498,29 @@
             <option value={draft.gamepad}>{draft.gamepad} (not a choice)</option>
           {/if}
           {#each GAMEPAD_OPTIONS as option (option.value)}
+            <option value={option.value}>{option.label}</option>
+          {/each}
+        </select>
+      </Field>
+    </div>
+  </section>
+  </details>
+
+  <details class="override" bind:open={encoderOpen}><summary>Encoder overrides</summary>
+  <section>
+    <div class="form-grid">
+      <Field
+        label="Long-term reference frames"
+        id="{uid}-ltr"
+        hint="AMD AMF: frames the encoder keeps so this device recovers from lost packets with a small frame instead of a full keyframe. Off is for a decoder that freezes on them."
+        error={ltrUnknown ? `“${draft.ltr_frames}” is not a choice. Choose one.` : undefined}
+      >
+        <select id="{uid}-ltr" class="select" bind:value={draft.ltr_frames}>
+          <option value="">Use the host setting</option>
+          {#if ltrUnknown}
+            <option value={draft.ltr_frames}>{draft.ltr_frames} (not a choice)</option>
+          {/if}
+          {#each LTR_FRAME_OPTIONS as option (option.value)}
             <option value={option.value}>{option.label}</option>
           {/each}
         </select>

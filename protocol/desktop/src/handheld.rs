@@ -115,6 +115,8 @@ pub enum SdrReason {
     PqFailed,
     /// scRGB is offered, but the renderer's swapchain did not take it.
     SwapchainRefused,
+    /// Only HDR10 is offered and this is not gamescope: PQ output is for gamescope only.
+    PqOutsideGamescope,
 }
 
 impl SdrReason {
@@ -125,13 +127,15 @@ impl SdrReason {
             Self::NotOffered => "the swapchain offers neither scRGB nor HDR10",
             Self::PqFailed => "HDR10 is offered but the PQ renderer could not be made",
             Self::SwapchainRefused => "scRGB is offered but the swapchain did not take it",
+            Self::PqOutsideGamescope => "only HDR10 is offered, and PQ output is used under gamescope only",
         }
     }
 }
 
 /// The output to try. SDL's window HDR state (`window_hdr`) is what a desktop compositor says;
 /// gamescope's Xwayland window never has one, so there the swapchain's colour spaces decide.
-/// scRGB first (SDL's tone mapping and the overlay work in it unchanged), then PQ.
+/// scRGB first (SDL's tone mapping and the overlay work in it unchanged), then PQ, which only
+/// gamescope gets: a desktop compositor offering HDR10 alone stays on SDR as before.
 pub fn choose(gpu: bool, gamescope: bool, window_hdr: bool, offered: Offered) -> Result<Output, SdrReason> {
     if !gpu {
         return Err(SdrReason::NoGpuRenderer);
@@ -141,10 +145,46 @@ pub fn choose(gpu: bool, gamescope: bool, window_hdr: bool, offered: Offered) ->
     }
     if offered.scrgb {
         Ok(Output::Scrgb)
-    } else if offered.hdr10 {
+    } else if offered.hdr10 && gamescope {
         Ok(Output::Pq)
+    } else if offered.hdr10 {
+        Err(SdrReason::PqOutsideGamescope)
     } else {
         Err(SdrReason::NotOffered)
+    }
+}
+
+/// The compositor's window HDR state: SDL's flag, unless Nightjar set it itself for an earlier
+/// renderer of the same window (a second attempt after a zero-copy renderer failed).
+pub fn window_hdr_reported(flag: bool, set_by_nightjar: bool) -> bool {
+    flag && !set_by_nightjar
+}
+
+/// What `sdl::hdr_output` does with the first renderer it was handed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Plan {
+    pub decision: Result<Output, SdrReason>,
+    /// Set the window's HDR state to [`gamescope_hdr_properties`] (the compositor reports none).
+    pub set_window_hdr: bool,
+    /// Make the renderer again: SDL reads the window's HDR state, and PQ's present, at creation.
+    pub rebuild: bool,
+}
+
+pub fn plan(gamescope: bool, window_hdr: bool, offered: Offered) -> Plan {
+    let decision = choose(true, gamescope, window_hdr, offered);
+    match decision {
+        Ok(output) => Plan { decision, set_window_hdr: !window_hdr, rebuild: output == Output::Pq || !window_hdr },
+        Err(_) => Plan { decision, set_window_hdr: false, rebuild: false },
+    }
+}
+
+/// The output once the renderer is (re)made: SDR when it could not be made or its swapchain did
+/// not take HDR.
+pub fn settle(output: Output, made: bool, hdr_taken: bool) -> Result<Output, SdrReason> {
+    match (made && hdr_taken, output) {
+        (true, output) => Ok(output),
+        (false, Output::Pq) => Err(SdrReason::PqFailed),
+        (false, Output::Scrgb) => Err(SdrReason::SwapchainRefused),
     }
 }
 
@@ -251,11 +291,43 @@ mod tests {
         let pq_only = Offered { scrgb: false, hdr10: true };
         assert_eq!(choose(true, true, false, both), Ok(Output::Scrgb));
         assert_eq!(choose(true, true, false, pq_only), Ok(Output::Pq), "gamescope offering only HDR10");
-        assert_eq!(choose(true, false, true, pq_only), Ok(Output::Pq), "a desktop compositor offering only HDR10");
+        assert_eq!(choose(true, false, true, pq_only), Err(SdrReason::PqOutsideGamescope), "PQ is for gamescope only, a desktop stays SDR");
         assert_eq!(choose(true, false, true, both), Ok(Output::Scrgb));
         assert_eq!(choose(true, true, false, Offered::default()), Err(SdrReason::NotOffered), "gamescope without --hdr-enabled");
         assert_eq!(choose(true, false, false, both), Err(SdrReason::DisplayNotHdr), "a desktop with HDR off");
         assert_eq!(choose(false, true, true, both), Err(SdrReason::NoGpuRenderer));
+    }
+
+    #[test]
+    fn a_second_renderer_does_not_take_nightjars_own_hdr_state_for_the_compositors() {
+        assert!(window_hdr_reported(true, false), "a desktop compositor's HDR");
+        assert!(!window_hdr_reported(true, true), "set by the first renderer under gamescope");
+        assert!(!window_hdr_reported(false, false));
+        let both = Offered { scrgb: true, hdr10: true };
+        // The second attempt under gamescope plans as the first did: set the state and rebuild.
+        let second = plan(true, window_hdr_reported(true, true), both);
+        assert_eq!(second, Plan { decision: Ok(Output::Scrgb), set_window_hdr: true, rebuild: true });
+    }
+
+    #[test]
+    fn the_renderer_is_made_again_for_pq_or_a_window_hdr_state_nightjar_sets() {
+        let both = Offered { scrgb: true, hdr10: true };
+        let pq_only = Offered { scrgb: false, hdr10: true };
+        assert_eq!(plan(true, false, both), Plan { decision: Ok(Output::Scrgb), set_window_hdr: true, rebuild: true }, "gamescope scRGB");
+        assert_eq!(plan(true, false, pq_only), Plan { decision: Ok(Output::Pq), set_window_hdr: true, rebuild: true }, "gamescope PQ");
+        assert_eq!(plan(false, true, both), Plan { decision: Ok(Output::Scrgb), set_window_hdr: false, rebuild: false }, "a desktop's HDR keeps the renderer");
+        assert_eq!(plan(true, false, Offered::default()), Plan { decision: Err(SdrReason::NotOffered), set_window_hdr: false, rebuild: false });
+        assert_eq!(plan(false, true, pq_only).decision, Err(SdrReason::PqOutsideGamescope));
+    }
+
+    #[test]
+    fn a_renderer_that_fails_or_refuses_hdr_falls_back_to_sdr_and_says_which() {
+        assert_eq!(settle(Output::Pq, true, true), Ok(Output::Pq));
+        assert_eq!(settle(Output::Scrgb, true, true), Ok(Output::Scrgb));
+        assert_eq!(settle(Output::Pq, false, false), Err(SdrReason::PqFailed));
+        assert_eq!(settle(Output::Pq, true, false), Err(SdrReason::PqFailed));
+        assert_eq!(settle(Output::Scrgb, true, false), Err(SdrReason::SwapchainRefused));
+        assert_eq!(settle(Output::Scrgb, false, false), Err(SdrReason::SwapchainRefused));
     }
 
     #[test]

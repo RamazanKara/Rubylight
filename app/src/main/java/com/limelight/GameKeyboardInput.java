@@ -236,6 +236,9 @@ final class GameKeyboardInput {
     private int specialKeyCode = KeyEvent.KEYCODE_UNKNOWN;
 
     private final Map<Short, Integer> customPressedKeys = new HashMap<>();
+    // The keys the modern controller's WASD stick holds. Like the classic touch keys, a key held here and by a
+    // keyboard goes up on the PC only once both let go.
+    private final java.util.Set<Short> stickPressedKeys = new java.util.HashSet<>();
 
     // Whether a host text field may open the soft keyboard, whose it is, and how far the stream
     // moves up for it.
@@ -782,11 +785,20 @@ final class GameKeyboardInput {
     }
 
     /**
-     * A key of the modern controller's WASD stick, a Windows virtual-key code, sent like the PC keyboard's keys so
-     * {@link #releaseKeyboardInput} lets it go with every other held key.
+     * A key of the modern controller's WASD stick, a Windows virtual-key code in the PC keyboard's form. It reaches
+     * the PC only when no keyboard holds the same key, so either one letting go leaves it down while the other still
+     * holds it; {@link #releaseKeyboardInput} lets it go with every other held key.
      */
     void sendOnScreenKey(int vk, boolean down) {
-        sendPcKeyboardKey(vk, down, getModifierState());
+        if (!game.connected || game.conn == null || !game.conn.canSendInput()) return;
+        short key = (short) (0x8000 | vk);
+        synchronized (pressedKeys) {
+            boolean changed = down ? stickPressedKeys.add(key) : stickPressedKeys.remove(key);
+            if (changed && !pressedKeys.containsKey(key) && !customPressedKeys.containsKey(key)) {
+                game.conn.sendKeyboardInput(key, down ? KeyboardPacket.KEY_DOWN : KeyboardPacket.KEY_UP,
+                        (byte) (getModifierState() | customModifierState()), (byte) 0);
+            }
+        }
     }
 
     private void sendPcKeyboardKey(int vk, boolean down, byte modifiers) {
@@ -1105,7 +1117,7 @@ final class GameKeyboardInput {
             } else {
                 pressedKeys.remove(key);
             }
-            if (!customPressedKeys.containsKey(key)) {
+            if (!customPressedKeys.containsKey(key) && !stickPressedKeys.contains(key)) {
                 game.conn.sendKeyboardInput(key, direction, (byte)(modifiers | customModifierState()), flags);
             }
         }
@@ -1124,7 +1136,7 @@ final class GameKeyboardInput {
         short key = game.keyboardTranslator.translate(keyCode, -1);
         synchronized (pressedKeys) {
             if (down) customPressedKeys.put(key, keyCode); else customPressedKeys.remove(key);
-            if (!pressedKeys.containsKey(key)) {
+            if (!pressedKeys.containsKey(key) && !stickPressedKeys.contains(key)) {
                 game.conn.sendKeyboardInput(key, down ? KeyboardPacket.KEY_DOWN : KeyboardPacket.KEY_UP,
                         (byte)(getModifierState() | customModifierState()), (byte)0);
             }
@@ -1143,6 +1155,13 @@ final class GameKeyboardInput {
             pendingShortcutRelease = null;
         }
         synchronized (pressedKeys) {
+            // The stick's keys first: one a keyboard also holds goes up once, with the keyboard's below.
+            for (short key : stickPressedKeys) {
+                if (!pressedKeys.containsKey(key) && !customPressedKeys.containsKey(key)) {
+                    game.conn.sendKeyboardInput(key, KeyboardPacket.KEY_UP, (byte) 0, (byte) 0);
+                }
+            }
+            stickPressedKeys.clear();
             for (Map.Entry<Short, Byte> key : pressedKeys.entrySet()) {
                 game.conn.sendKeyboardInput(key.getKey(), KeyboardPacket.KEY_UP, (byte) 0, key.getValue());
             }

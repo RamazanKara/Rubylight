@@ -4373,5 +4373,35 @@ fn the_close_question_offers_only_what_this_pcs_power_allows() {
     assert!(shows(&f, "Shut down") && shows(&f, "Restart") && !shows(&f, "Sleep"), "{:?}", f.drawn);
 }
 
+/// Settings → Stream hotkeys with one hotkey changed and one off, and the dialog that records a new chord
+/// refusing one another hotkey has: `NIGHTJAR_SHOTS=<dir> cargo test -p nightjar-desktop stream_hotkeys_screenshots -- --ignored`.
+#[test]
+#[ignore = "writes PNGs; set NIGHTJAR_SHOTS"]
+fn stream_hotkeys_screenshots() {
+    let Some(dir) = std::env::var_os("NIGHTJAR_SHOTS").map(std::path::PathBuf::from) else { return };
+    std::fs::create_dir_all(&dir).expect("the folder for the screenshots");
+    crate::shortcuts::record_hotkey("overlay", &["CTRL".into(), "F2".into()]).expect("a free chord");
+    crate::shortcuts::turn_off_hotkey("minimize");
+    for high in [false, true] {
+        let look = if high { "high-contrast" } else { "normal" };
+        crate::theme::own_palette();
+        let ctx = egui::Context::default();
+        crate::theme::apply(&ctx);
+        let mut l = launcher(false, false);
+        l.settings.high_contrast = high;
+        l.go(Screen::StreamHotkeys);
+        let mut f = Frames::over(ctx, l, Hosts::without_discovery(Vec::new(), Arc::new(|| {})));
+        f.size = vec2(1280.0, 800.0);
+        f.native_ppp = 1.5;
+        f.settle();
+        f.shoot(&dir, &format!("stream-hotkeys-{look}-desktop"));
+        let taken = crate::shortcuts::record_hotkey("capture", &["CTRL".into(), "ALT".into(), "SHIFT".into(), "Q".into()])
+            .expect_err("Disconnect has it");
+        f.l.dialog = Dialog::StreamHotkey { id: "capture", error: Some(taken) };
+        f.settle();
+        f.shoot(&dir, &format!("stream-hotkey-taken-{look}-desktop"));
+    }
+}
+
 #[path = "settings_tests.rs"]
 mod settings_tests;

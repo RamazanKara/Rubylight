@@ -268,6 +268,25 @@ public class GameKeyboardOverlayTest {
         assertEquals("the modifier releases follow the neutral key", 8, connection.keys.size());
     }
 
+    /** An old chord runs its action and says once, in the app's words, which chord it moved to. */
+    @Test
+    public void anOldChordSaysOnceWhereItMoved() {
+        com.limelight.ui.StreamMenuModel.use(new com.limelight.ui.RustStreamMenuModel());
+        Game game = pcKeyboardGame(new RecordingConnection());
+        int[] chord = {KeyEvent.KEYCODE_CTRL_LEFT, KeyEvent.KEYCODE_ALT_LEFT, KeyEvent.KEYCODE_SHIFT_LEFT, KeyEvent.KEYCODE_C};
+        for (int press = 0; press < 2; press++) {
+            org.robolectric.shadows.ShadowToast.reset();
+            for (int key : chord) game.handleKeyDown(keyboardKey(KeyEvent.ACTION_DOWN, key));
+            for (int key : chord) game.handleKeyUp(keyboardKey(KeyEvent.ACTION_UP, key));
+            if (press == 0) {
+                assertEquals("Ctrl + Alt + Shift + C is now Ctrl + Alt + Shift + P",
+                        org.robolectric.shadows.ShadowToast.getTextOfLatestToast());
+            } else {
+                assertNull("said once", org.robolectric.shadows.ShadowToast.getLatestToast());
+            }
+        }
+    }
+
     @Test
     public void aLocalChordSendsNothingExtraWhileInputIsNotGrabbed() {
         RecordingConnection connection = new RecordingConnection();

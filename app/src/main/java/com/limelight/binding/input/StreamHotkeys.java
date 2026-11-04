@@ -1,8 +1,10 @@
 package com.limelight.binding.input;
 
+import android.content.Context;
 import android.content.SharedPreferences;
 import android.view.KeyEvent;
 
+import com.limelight.R;
 import com.limelight.nvstream.input.KeyboardPacket;
 import com.limelight.ui.StreamMenuModel;
 import com.limelight.ui.StreamMenuModel.Chord;
@@ -58,8 +60,45 @@ public final class StreamHotkeys {
         prefs.edit().putString(PREFIX + id, OFF).apply();
     }
 
-    public static void reset(SharedPreferences prefs, String id) {
+    /** Gives the action its default back, or throws why not: another action has that chord now. */
+    public static void reset(SharedPreferences prefs, String id) throws StreamMenuModel.Refused {
+        StreamMenuModel.checkReset(id, bindings(prefs));
         prefs.edit().remove(PREFIX + id).apply();
+    }
+
+    /**
+     * A chord's text in the app's language: the key names desktop Nightjar translates (Ctrl, Shift, Enter, Del) in
+     * the same words its tables use, the rest as the shared table names them. "Strg + Alt + Umschalt + Tab".
+     */
+    public static String label(Context context, Chord chord) {
+        StringBuilder text = new StringBuilder();
+        for (String cap : chord.caps) {
+            if (text.length() > 0) text.append(" + ");
+            text.append(capLabel(context, cap));
+        }
+        return text.toString();
+    }
+
+    static String capLabel(Context context, String cap) {
+        switch (cap) {
+            case "Ctrl": return context.getString(R.string.key_cap_ctrl);
+            case "Shift": return context.getString(R.string.key_cap_shift);
+            case "Enter": return context.getString(R.string.key_cap_enter);
+            case "Del": return context.getString(R.string.key_cap_del);
+            default: return cap;
+        }
+    }
+
+    /** The stream menu's chord in the app's language, or null while it is off or the hotkeys can't be read. */
+    public static String streamMenuLabel(Context context, SharedPreferences prefs) {
+        try {
+            for (Hotkey hotkey : load(prefs)) {
+                if (hotkey.id.equals(STREAM_MENU)) return hotkey.chord == null ? null : label(context, hotkey.chord);
+            }
+        } catch (StreamMenuModel.Refused e) {
+            com.limelight.LimeLog.warning("Stream hotkeys unavailable for the hint: " + e.getMessage());
+        }
+        return null;
     }
 
     /** A pressed key's name as the model saves it; the left and right modifiers are one name. */

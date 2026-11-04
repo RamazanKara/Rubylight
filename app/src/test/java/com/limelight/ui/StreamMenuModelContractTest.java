@@ -215,6 +215,8 @@ public class StreamMenuModelContractTest {
                     assertEquals(9, menu.chord.vk);
                     assertFalse(menu.changed);
                     assertEquals("Ctrl + Alt + Shift + M", menu.old.get(0).label);
+                    assertArrayEquals(new String[] {"Ctrl", "Alt", "Shift", "Tab"}, menu.chord.caps);
+                    assertNull(menu.taken);
                     break;
                 }
                 case "hotkeys_changed": {
@@ -244,8 +246,36 @@ public class StreamMenuModelContractTest {
                     break;
                 }
                 case "check_hotkey_length": {
-                    StreamMenuModel.Refused e = refused(() -> StreamMenuModel.checkHotkey("quit", new String[] {"Q"}, new HashMap<>()));
+                    StreamMenuModel.Refused e = refused(() -> StreamMenuModel.checkHotkey("quit",
+                            new String[] {"CTRL", "ALT", "SHIFT", "Q", "W"}, new HashMap<>()));
                     assertEquals("hotkey_length", e.code);
+                    break;
+                }
+                case "check_hotkey_lone_key":
+                    assertArrayEquals(new String[] {"CTRL", "ALT", "SHIFT", "F2"},
+                            StreamMenuModel.checkHotkey("cursor", new String[] {"F2"}, new HashMap<>()));
+                    break;
+                case "check_hotkey_typing":
+                    assertEquals("hotkey_typing", refused(() -> StreamMenuModel.checkHotkey("cursor",
+                            new String[] {"ALT", "Q"}, new HashMap<>())).code);
+                    break;
+                case "check_hotkey_shell":
+                    assertEquals("reserved", refused(() -> StreamMenuModel.checkHotkey("cursor",
+                            new String[] {"ALT", "TAB"}, new HashMap<>())).code);
+                    break;
+                case "check_reset": {
+                    Map<String, String> bindings = new HashMap<>();
+                    bindings.put("cursor", "CTRL+F2");
+                    StreamMenuModel.checkReset("cursor", bindings);
+                    break;
+                }
+                case "check_reset_taken": {
+                    Map<String, String> bindings = new HashMap<>();
+                    bindings.put("quit", "CTRL+ALT+SHIFT+TAB");
+                    bindings.put("stream_menu", "off");
+                    StreamMenuModel.Refused e = refused(() -> StreamMenuModel.checkReset("stream_menu", bindings));
+                    assertEquals("taken", e.code);
+                    assertEquals("quit", e.detail);
                     break;
                 }
                 default:

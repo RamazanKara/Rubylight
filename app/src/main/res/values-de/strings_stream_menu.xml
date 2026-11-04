@@ -39,7 +39,7 @@ Nicht gespeicherter Fortschritt geht verloren.</string>
     <string name="stream_menu_hint_buttons">wische vom unteren Rand nach oben und tippe auf Zurück</string>
     <string name="stream_menu_hint_back">drücke Zurück</string>
     <string name="stream_menu_hint_controller">drücke am Controller Start + Back + LB + RB</string>
-    <string name="stream_menu_hint_keyboard">drücke Strg + Alt + Umschalt + Tab</string>
+    <string name="stream_menu_hint_keyboard">drücke %1$s</string>
     <string name="stream_menu_hint_or">%1$s oder %2$s</string>
     <string name="stream_menu_hint_list">%1$s, %2$s</string>
     <string name="stream_menu_hint_close">Zum Schließen tippen</string>

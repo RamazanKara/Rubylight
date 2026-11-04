@@ -993,4 +993,27 @@ pub(crate) mod tests {
         }
         assert!(found.is_empty(), "translated text used without tr():\n{}", found.join("\n"));
     }
+
+    /// Android names the keys of a stream hotkey as these tables do, so both clients write a chord alike.
+    #[test]
+    fn android_names_the_hotkey_keys_as_these_tables_do() {
+        let folders = [
+            (Lang::En, "values"), (Lang::De, "values-de"), (Lang::Es, "values-es"), (Lang::Fr, "values-fr"),
+            (Lang::It, "values-it"), (Lang::Ja, "values-ja"), (Lang::Ko, "values-ko"), (Lang::Pl, "values-pl"),
+            (Lang::PtBr, "values-pt-rBR"), (Lang::Ru, "values-ru"), (Lang::Tr, "values-tr"), (Lang::Uk, "values-uk"),
+            (Lang::Vi, "values-vi"), (Lang::ZhHans, "values-zh-rCN"), (Lang::ZhHant, "values-zh-rTW"),
+        ];
+        assert_eq!(folders.len(), LANGS.len());
+        let res = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../app/src/main/res");
+        for (lang, folder) in folders {
+            let path = res.join(folder).join("strings_stream_hotkeys.xml");
+            let xml = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+            for (name, key) in [("ctrl", "Ctrl"), ("shift", "Shift"), ("enter", "Enter"), ("del", "Del")] {
+                let open = format!("<string name=\"key_cap_{name}\">");
+                let start = xml.find(&open).unwrap_or_else(|| panic!("{folder} has no key_cap_{name}")) + open.len();
+                let android = &xml[start..start + xml[start..].find("</string>").unwrap()];
+                assert_eq!(android, translate(lang, key), "{folder} key_cap_{name}");
+            }
+        }
+    }
 }

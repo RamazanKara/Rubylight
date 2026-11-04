@@ -285,12 +285,15 @@ public final class StreamMenuModel {
     public static final class Chord {
         public final String[] keys;
         public final String label;
+        /** Each key's English name in the label's order, for the app to say in the user's language. */
+        public final String[] caps;
         public final int modifiers;
         public final int vk;
 
         Chord(JSONObject chord) throws JSONException {
             keys = strings(chord.getJSONArray("keys"));
             label = chord.getString("label");
+            caps = strings(chord.getJSONArray("caps"));
             modifiers = chord.getInt("modifiers");
             vk = chord.getInt("vk");
         }
@@ -303,6 +306,7 @@ public final class StreamMenuModel {
     /**
      * One of Android's stream hotkeys from the table both clients share: its chord now (null when off), its
      * default, whether the user changed it, and the chords it answered to before, which still work while it is unchanged.
+     * Two actions saved with one chord leave the later without one: {@code taken} names the action that has it.
      */
     public static final class Hotkey {
         public final String id;
@@ -310,12 +314,14 @@ public final class StreamMenuModel {
         public final Chord standard;
         public final boolean changed;
         public final List<Chord> old;
+        public final String taken;
 
         Hotkey(JSONObject item) throws JSONException {
             id = item.getString("id");
             chord = Chord.of(item, "chord");
             standard = new Chord(item.getJSONObject("default"));
             changed = item.getBoolean("changed");
+            taken = item.isNull("taken") ? null : item.getString("taken");
             List<Chord> before = new ArrayList<>();
             JSONArray list = item.getJSONArray("old");
             for (int i = 0; i < list.length(); i++) before.add(new Chord(list.getJSONObject(i)));
@@ -347,6 +353,15 @@ public final class StreamMenuModel {
             return strings((JSONArray) ask(op("check_hotkey").put("id", id).put("keys", array(keys)).put("bindings", bindings(bindings))));
         } catch (JSONException | ClassCastException e) {
             throw new Refused("invalid", "unreadable hotkey check: " + e.getMessage());
+        }
+    }
+
+    /** Whether a hotkey may go back to its default; refused ({@code taken}) while another action has that chord now. */
+    public static void checkReset(String id, java.util.Map<String, String> bindings) throws Refused {
+        try {
+            ask(op("check_reset").put("id", id).put("bindings", bindings(bindings)));
+        } catch (JSONException e) {
+            throw new Refused("invalid", "unreadable reset check: " + e.getMessage());
         }
     }
 

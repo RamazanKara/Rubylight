@@ -37,7 +37,7 @@ Se perderá el progreso no guardado.</string>
     <string name="stream_menu_hint_buttons">desliza hacia arriba desde la parte inferior y toca Atrás</string>
     <string name="stream_menu_hint_back">pulsa Atrás</string>
     <string name="stream_menu_hint_controller">pulsa Start + Back + LB + RB en el mando</string>
-    <string name="stream_menu_hint_keyboard">pulsa Ctrl + Alt + Shift + Tab</string>
+    <string name="stream_menu_hint_keyboard">pulsa %1$s</string>
     <string name="stream_menu_hint_or">%1$s o %2$s</string>
     <string name="stream_menu_hint_list">%1$s, %2$s</string>
     <string name="stream_menu_hint_close">Toca para cerrar</string>

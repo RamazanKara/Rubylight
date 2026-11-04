@@ -90,6 +90,47 @@ public class StreamHotkeysTest {
         assertFalse(prefs.contains(StreamHotkeys.PREFIX + StreamHotkeys.CURSOR));
     }
 
+    /** Reset to a default another action took since is refused like recording it, and nothing changes. */
+    @Test
+    public void aResetToAChordAnotherActionTookIsRefused() throws Exception {
+        StreamHotkeys.turnOff(prefs, StreamHotkeys.STREAM_MENU);
+        StreamHotkeys.record(prefs, StreamHotkeys.QUIT, new String[] {"CTRL", "ALT", "SHIFT", "TAB"});
+        try {
+            StreamHotkeys.reset(prefs, StreamHotkeys.STREAM_MENU);
+            fail("taken");
+        } catch (StreamMenuModel.Refused e) {
+            assertEquals("taken", e.code);
+            assertEquals(StreamHotkeys.QUIT, e.detail);
+        }
+        assertEquals("off", prefs.getString(StreamHotkeys.PREFIX + StreamHotkeys.STREAM_MENU, null));
+        assertEquals(StreamHotkeys.QUIT, id(table().at(CTRL_ALT_SHIFT, 0x09)));
+    }
+
+    /** Two actions saved with one chord (an older build, a hand edit): the first keeps it, the later shows who has it. */
+    @Test
+    public void aRepeatedChordLeavesTheLaterActionWithoutOne() throws Exception {
+        prefs.edit().putString(StreamHotkeys.PREFIX + StreamHotkeys.CURSOR, "CTRL+ALT+SHIFT+Q").commit();
+        for (StreamMenuModel.Hotkey hotkey : StreamHotkeys.load(prefs)) {
+            if (hotkey.id.equals(StreamHotkeys.CURSOR)) {
+                assertNull(hotkey.chord);
+                assertEquals(StreamHotkeys.QUIT, hotkey.taken);
+            }
+        }
+        assertEquals(StreamHotkeys.QUIT, id(table().at(CTRL_ALT_SHIFT, 'Q')));
+    }
+
+    @Test
+    public void aChordReadsInTheAppsLanguage() throws Exception {
+        android.content.res.Configuration config = new android.content.res.Configuration(
+                RuntimeEnvironment.getApplication().getResources().getConfiguration());
+        config.setLocale(java.util.Locale.GERMANY);
+        android.content.Context de = RuntimeEnvironment.getApplication().createConfigurationContext(config);
+        StreamHotkeys.record(prefs, StreamHotkeys.CURSOR, new String[] {"CTRL", "SHIFT", "DELETE"});
+        for (StreamMenuModel.Hotkey hotkey : StreamHotkeys.load(prefs)) {
+            if (hotkey.id.equals(StreamHotkeys.CURSOR)) assertEquals("Strg + Umschalt + Entf", StreamHotkeys.label(de, hotkey.chord));
+        }
+    }
+
     @Test
     public void anOldChordSaysOnceWhereItMoved() throws Exception {
         StreamHotkeys.Match menu = table().at(CTRL_ALT_SHIFT, 'M');

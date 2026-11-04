@@ -37,7 +37,7 @@ La progression non enregistrée sera perdue.</string>
     <string name="stream_menu_hint_buttons">balayez vers le haut depuis le bas de l’écran et appuyez sur Retour</string>
     <string name="stream_menu_hint_back">appuyez sur Retour</string>
     <string name="stream_menu_hint_controller">appuyez sur Start + Back + LB + RB sur la manette</string>
-    <string name="stream_menu_hint_keyboard">appuyez sur Ctrl + Alt + Shift + Tab</string>
+    <string name="stream_menu_hint_keyboard">appuyez sur %1$s</string>
     <string name="stream_menu_hint_or">%1$s ou %2$s</string>
     <string name="stream_menu_hint_list">%1$s, %2$s</string>
     <string name="stream_menu_hint_close">Appuyez pour fermer</string>

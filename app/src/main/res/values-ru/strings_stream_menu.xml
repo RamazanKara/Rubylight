@@ -37,7 +37,7 @@
     <string name="stream_menu_hint_buttons">проведите вверх от нижнего края и нажмите «Назад»</string>
     <string name="stream_menu_hint_back">нажмите «Назад»</string>
     <string name="stream_menu_hint_controller">нажмите Start + Back + LB + RB на контроллере</string>
-    <string name="stream_menu_hint_keyboard">нажмите Ctrl + Alt + Shift + Tab</string>
+    <string name="stream_menu_hint_keyboard">нажмите %1$s</string>
     <string name="stream_menu_hint_or">%1$s или %2$s</string>
     <string name="stream_menu_hint_list">%1$s, %2$s</string>
     <string name="stream_menu_hint_close">Нажмите, чтобы закрыть</string>

@@ -49,12 +49,16 @@ public final class StreamMenuHint {
         return methods;
     }
 
-    /** "To open the stream menu, swipe back from the screen edge or press Start + Back + LB + RB on the controller." */
-    public static String text(Context context, Back back, boolean controller, boolean keyboard) {
-        List<Integer> methods = methods(back, controller, keyboard);
+    /**
+     * "To open the stream menu, swipe back from the screen edge or press Start + Back + LB + RB on the controller."
+     * {@code keyboardChord} is the stream menu's hotkey as the user bound it, null for none (no keyboard, or turned off).
+     */
+    public static String text(Context context, Back back, boolean controller, String keyboardChord) {
+        List<Integer> methods = methods(back, controller, keyboardChord != null);
         String joined = context.getString(methods.get(0));
         for (int i = 1; i < methods.size(); i++) {
-            String next = context.getString(methods.get(i));
+            int method = methods.get(i);
+            String next = method == R.string.stream_menu_hint_keyboard ? context.getString(method, keyboardChord) : context.getString(method);
             joined = i == methods.size() - 1 ? context.getString(R.string.stream_menu_hint_or, joined, next) :
                     context.getString(R.string.stream_menu_hint_list, joined, next);
         }
@@ -63,7 +67,9 @@ public final class StreamMenuHint {
 
     /** The hint for the inputs this device has right now. */
     public static String text(Context context, boolean controller) {
-        return text(context, back(context), controller, hasKeyboard());
+        String chord = hasKeyboard() ? com.limelight.binding.input.StreamHotkeys.streamMenuLabel(context,
+                android.preference.PreferenceManager.getDefaultSharedPreferences(context)) : null;
+        return text(context, back(context), controller, chord);
     }
 
     static Back back(Context context) {

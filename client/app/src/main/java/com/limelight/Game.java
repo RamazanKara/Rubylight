@@ -1160,7 +1160,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                         app.getAppUuid(), app.getAppId());
                 modernController = new com.limelight.binding.input.pad.ModernController(this,
                         (FrameLayout) streamView.getParent(), new com.limelight.binding.input.HeldInputState.Sink() {
-                            @Override public void key(int key, boolean down) { }
+                            // The WASD stick: Windows virtual-key codes, sent like the PC keyboard's keys.
+                            @Override public void key(int key, boolean down) { keyboardInput.sendOnScreenKey(key, down); }
                             @Override public void mouse(int button, boolean down) { }
                             @Override public void gamepad(int buttons, short leftX, short leftY, short rightX, short rightY,
                                                           byte leftTrigger, byte rightTrigger) {

@@ -241,12 +241,13 @@ On every host except NVIDIA GameStream, **Open host web UI** in an online PC's s
 
 ## On-screen controls
 
-Turn on **Settings → Controls → Show on-screen controls**, or use **stream menu → Input → Show on-screen controls**. The virtual gamepad supports opacity, press vibration, a Guide button and an L3/R3-only layout.
+Turn on **Settings → Controls → Show on-screen controls**, or use **stream menu → Input → Show on-screen controls**. The virtual gamepad supports opacity, press vibration, a Guide button and an L3/R3-only layout. **Vibrate on press** covers every on-screen control: the gamepad, the WASD stick, the PC keyboard's keys and the trackpads' taps and mouse buttons. It follows the phone's touch feedback setting.
 
 **Controller style** picks one of two gamepads. Both send the same controller to the PC.
 
 - **Classic** (the default) keeps the original controller and its layout. During a stream choose **stream menu → Input → Edit controller layout**, select **Move controls** or **Resize controls**, drag the controls, then choose **Save layout and play**.
 - **Modern** has face buttons a thumb can press two at a time, sticks that follow your thumb (**Floating**, the default, centres a stick where your thumb lands; **Fixed** waits at the drawn stick) with their own deadzone (8 % by default), and a stick click by a tap, then touch. **Edit controller layout** edits it in place: move, resize, fade and hide each control, kept for all games or for one game.
+- The modern controller's **WASD stick** is not in the default layout. In **Edit controller layout** it waits as a faint ghost in the middle of the screen: tap it, choose **Show**, then move, resize and fade it like any other control. It looks and moves like the other sticks, with the same deadzone, but holds keys: W, A, S or D in eight equal directions, both neighbouring keys on a diagonal. A key changes only once the thumb is a few degrees past a border, so a thumb resting on one does not flicker. It vibrates with a light tick on entering W, A, S or D and a different pulse on entering a diagonal (a double pulse on Android 11 and newer), only on a change. Every key goes up when you lift, when Android cancels the touch, when the stick is hidden, and when the stream ends or loses focus. **Reset** removes it again.
 
 **Reset controls layout** in Settings restores the sizes and positions of both, including layouts kept for one game.
 

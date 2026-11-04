@@ -15,12 +15,21 @@ public final class PadLayout {
         LB(Shape.PILL), RB(Shape.PILL), LT(Shape.PILL), RT(Shape.PILL),
         L3(Shape.ROUND), R3(Shape.ROUND), SELECT(Shape.ROUND), START(Shape.ROUND), HOME(Shape.ROUND),
         /** A PlayStation pad's touchpad click, below the top row as on the pad itself. */
-        TOUCHPAD(Shape.PILL);
+        TOUCHPAD(Shape.PILL),
+        /** A stick that holds W, A, S and D instead of moving an axis. Not in the default layout: Show adds it. */
+        WASD(Shape.STICK, true);
 
         public final Shape shape;
+        /** Whether a layout nobody edited leaves this control out. */
+        public final boolean hiddenByDefault;
 
         Control(Shape shape) {
+            this(shape, false);
+        }
+
+        Control(Shape shape, boolean hiddenByDefault) {
             this.shape = shape;
+            this.hiddenByDefault = hiddenByDefault;
         }
 
         static Control named(String name) {
@@ -44,6 +53,17 @@ public final class PadLayout {
         public float cx = Float.NaN, cy = Float.NaN, scale = 1;
         public int opacity = MAX_OPACITY;
         public boolean hidden;
+        /** The control's own default for {@link #hidden}; a spec that matches it is not saved. */
+        final boolean defaultHidden;
+
+        public Spec() {
+            this(false);
+        }
+
+        Spec(boolean defaultHidden) {
+            this.defaultHidden = defaultHidden;
+            hidden = defaultHidden;
+        }
 
         public boolean placed() {
             return !Float.isNaN(cx) && !Float.isNaN(cy);
@@ -54,14 +74,14 @@ public final class PadLayout {
         }
 
         boolean isDefault() {
-            return !placed() && scale == 1 && opacity == MAX_OPACITY && !hidden;
+            return !placed() && scale == 1 && opacity == MAX_OPACITY && hidden == defaultHidden;
         }
     }
 
     private final Spec[] specs = new Spec[Control.values().length];
 
     public PadLayout() {
-        for (int i = 0; i < specs.length; i++) specs[i] = new Spec();
+        for (Control control : Control.values()) specs[control.ordinal()] = new Spec(control.hiddenByDefault);
     }
 
     public Spec spec(Control control) {
@@ -86,7 +106,7 @@ public final class PadLayout {
     }
 
     public void reset() {
-        for (Spec spec : specs) spec.copyFrom(new Spec());
+        for (Spec spec : specs) spec.copyFrom(new Spec(spec.defaultHidden));
     }
 
     public void setScale(Control control, float scale) {
@@ -117,6 +137,7 @@ public final class PadLayout {
     /** Width and height of a control at scale 1, in units. */
     static float baseWidth(Control control) {
         switch (control.shape) {
+            // The WASD stick takes the right stick's size so its default place fits between the clusters.
             case STICK: return control == Control.LEFT_STICK ? .42f : .34f;
             case DPAD: return .30f;
             case FACE: return .40f;
@@ -176,6 +197,13 @@ public final class PadLayout {
             case R3: x = width - .035f * u - click / 2; y = height - .035f * u - click / 2; break;
             case SELECT: x = width / 2 - rowStep; y = .035f * u + round / 2; break;
             case START: x = width / 2 + rowStep; y = .035f * u + round / 2; break;
+            case WASD: {
+                // Between the clusters and below the touchpad, clear of every default control until it is moved.
+                float touchpadBottom = .035f * u + round + Math.max(.02f * u, 8 * density) + pillH;
+                x = width / 2;
+                y = Math.max(height / 2, touchpadBottom + 8 * density + height(control, u, density, 1) / 2);
+                break;
+            }
             case TOUCHPAD: x = width / 2; y = .035f * u + round + Math.max(.02f * u, 8 * density) + pillH / 2; break;
             default: x = width / 2; y = .035f * u + round / 2; break; // HOME
         }

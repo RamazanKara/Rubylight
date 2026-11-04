@@ -56,6 +56,49 @@ public class PadLayoutTest {
         assertTrue(rt.hidden);
     }
 
+    @Test public void theWasdStickIsLeftOutUntilShownAndThenKept() {
+        PadLayout layout = new PadLayout();
+        assertTrue("Not in the default layout", layout.spec(PadLayout.Control.WASD).hidden);
+        assertTrue(layout.isDefault());
+        assertEquals("v1", layout.serialize());
+        layout.spec(PadLayout.Control.WASD).hidden = false;
+        layout.moveTo(PadLayout.Control.WASD, 600, 700, 2400, 1080, DENSITY);
+        layout.setScale(PadLayout.Control.WASD, 1.2f);
+        layout.setOpacity(PadLayout.Control.WASD, 60);
+        assertFalse(layout.isDefault());
+        PadLayout back = PadLayout.parse(layout.serialize());
+        PadLayout.Spec wasd = back.spec(PadLayout.Control.WASD);
+        assertFalse(wasd.hidden);
+        assertEquals(layout.spec(PadLayout.Control.WASD).cx, wasd.cx, 1e-4);
+        assertEquals(layout.spec(PadLayout.Control.WASD).cy, wasd.cy, 1e-4);
+        assertEquals(1.2f, wasd.scale, 1e-3);
+        assertEquals(60, wasd.opacity);
+        assertEquals(layout.serialize(), back.serialize());
+        // Shown but otherwise untouched is still an edit worth saving.
+        PadLayout shown = new PadLayout();
+        shown.spec(PadLayout.Control.WASD).hidden = false;
+        assertFalse(PadLayout.parse(shown.serialize()).spec(PadLayout.Control.WASD).hidden);
+        // Reset leaves it out again; a copy keeps it shown.
+        assertFalse(back.copy().spec(PadLayout.Control.WASD).hidden);
+        back.reset();
+        assertTrue(back.spec(PadLayout.Control.WASD).hidden);
+        assertTrue(back.isDefault());
+    }
+
+    @Test public void aLayoutSavedBeforeTheWasdStickLoadsWithoutIt() {
+        // As 4.5.0 saved it: a moved face cluster and a hidden Home, no WASD entry.
+        PadLayout layout = PadLayout.parse("v1|FACE,0.7083,0.5556,1.300,100,0|HOME,-,-,1.000,100,1");
+        assertEquals(.7083f, layout.spec(PadLayout.Control.FACE).cx, 1e-4);
+        assertTrue(layout.spec(PadLayout.Control.HOME).hidden);
+        assertTrue(layout.spec(PadLayout.Control.WASD).hidden);
+        assertTrue(layout.spec(PadLayout.Control.WASD).isDefault());
+        // The stick saves as an entry of its own, which an older build skips as an unknown control.
+        PadLayout withStick = new PadLayout();
+        withStick.spec(PadLayout.Control.WASD).hidden = false;
+        String text = withStick.serialize();
+        assertEquals("v1|WASD,-,-,1.000,100,0", text);
+    }
+
     @Test public void anotherVersionLoadsAsTheDefault() {
         assertTrue(PadLayout.parse("v2|FACE,0.5,0.5,1,100,0").isDefault());
         assertTrue(PadLayout.parse("").isDefault());

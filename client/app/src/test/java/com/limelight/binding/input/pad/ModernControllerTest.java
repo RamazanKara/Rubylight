@@ -29,14 +29,17 @@ import java.util.ArrayList;
 import java.util.List;
 
 import static org.junit.Assert.*;
+import static org.robolectric.Shadows.shadowOf;
 
 @RunWith(RobolectricTestRunner.class)
 @Config(sdk = 30, application = Application.class, qualifiers = "w800dp-h360dp-land-xhdpi")
 public class ModernControllerTest {
     private static final String GAME = "pc-1/app-7";
     private final List<int[]> reports = new ArrayList<>();
+    /** Keys from the WASD stick, as "+W" and "-W"; only the WASD stick sends any. */
+    private final List<String> keys = new ArrayList<>();
     private final HeldInputState.Sink sink = new HeldInputState.Sink() {
-        @Override public void key(int key, boolean down) { fail("Gamepad only"); }
+        @Override public void key(int key, boolean down) { keys.add((down ? "+" : "-") + (char) key); }
         @Override public void mouse(int button, boolean down) { fail("Gamepad only"); }
         @Override public void gamepad(int buttons, short lx, short ly, short rx, short ry, byte lt, byte rt) {
             reports.add(new int[] {buttons, lx, ly, rx, ry, lt & 0xFF, rt & 0xFF});
@@ -81,8 +84,9 @@ public class ModernControllerTest {
 
     @Test public void everyControlIsItsOwnViewInTheStreamFrame() {
         ModernController controller = controller(GAME);
-        // Every control, plus each stick's knob layer above them.
-        assertEquals(PadLayout.Control.values().length + 2, frame.getChildCount());
+        // Every control, plus each stick's knob layer above them (the WASD stick's too, though it starts hidden).
+        assertEquals(PadLayout.Control.values().length + 3, frame.getChildCount());
+        assertEquals(View.GONE, controller.view(PadLayout.Control.WASD).getVisibility());
         PadControlView face = controller.view(PadLayout.Control.FACE);
         assertEquals(View.VISIBLE, face.getVisibility());
         assertTrue(face.getWidth() > 0);
@@ -125,6 +129,167 @@ public class ModernControllerTest {
         assertEquals(0, last()[2]);
         stick.up(0, 400);
         assertEquals(0, last()[1]);
+    }
+
+    /** A controller whose saved layout shows the WASD stick, with fixed sticks so a push starts at the drawn center. */
+    private ModernController wasdController() {
+        prefs.oscFloatingSticks = false;
+        ModernController first = controller(GAME);
+        PadLayout draft = first.layout().copy();
+        draft.spec(PadLayout.Control.WASD).hidden = false;
+        first.save(draft, false);
+        first.destroy();
+        ModernController controller = controller(GAME);
+        assertEquals(View.VISIBLE, controller.view(PadLayout.Control.WASD).getVisibility());
+        return controller;
+    }
+
+    /** Puts a finger on the WASD stick pushed {@code push} of full travel toward {@code degrees} (0 right, 90 up). */
+    private static void push(PadControlView stick, boolean down, double degrees, float push) {
+        float size = Math.min(stick.getWidth(), stick.getHeight()), travel = PadPainter.travel(size);
+        float x = stick.getWidth() / 2f + (float) Math.cos(Math.toRadians(degrees)) * travel * push;
+        float y = stick.getHeight() / 2f - (float) Math.sin(Math.toRadians(degrees)) * travel * push;
+        if (down) stick.down(0, x, y, 100); else stick.move(0, x, y);
+    }
+
+    private void assertEveryKeyLetGo(String when) {
+        int downs = 0, ups = 0;
+        for (String key : keys) if (key.startsWith("+")) downs++; else ups++;
+        assertTrue(when + ": something was held first " + keys, downs > 0);
+        assertEquals(when + ": every key sent down is sent up " + keys, downs, ups);
+    }
+
+    @Test public void theWasdStickHoldsKeysForEachOfItsEightDirectionsAndNoGamepad() {
+        PadControlView stick = wasdController().view(PadLayout.Control.WASD);
+        String[] expected = {"D", "WD", "W", "WA", "A", "SA", "S", "SD"};
+        reports.clear();
+        for (int sector = 0; sector < 8; sector++) {
+            keys.clear();
+            push(stick, true, sector * 45, 1);
+            List<String> want = new ArrayList<>();
+            for (char key : expected[sector].toCharArray()) want.add("+" + key);
+            assertEquals(sector * 45 + " degrees", want, keys);
+            stick.up(0, 500);
+            assertEquals(WasdKeys.NONE, stick.wasd().sector());
+        }
+        for (int[] report : reports) assertEquals("The WASD stick moves no gamepad stick", 0, report[1] | report[2] | report[0]);
+    }
+
+    @Test public void theWasdStickUsesTheModernStickDeadzone() {
+        prefs.oscStickDeadzone = 20;
+        PadControlView stick = wasdController().view(PadLayout.Control.WASD);
+        push(stick, true, 90, .15f);
+        push(stick, false, 180, .18f);
+        assertTrue("Inside the deadzone nothing is held: " + keys, keys.isEmpty());
+        push(stick, false, 90, .6f);
+        assertEquals(List.of("+W"), keys);
+    }
+
+    @Test public void theWasdStickTicksForADirectionAndDifferentlyForADiagonalOnlyOnAChange() {
+        prefs.vibrateOsc = true;
+        PadControlView stick = wasdController().view(PadLayout.Control.WASD);
+        int marker = android.view.HapticFeedbackConstants.LONG_PRESS;
+        stick.performHapticFeedback(marker);
+        // Landing in the deadzone is quiet: the stick answers keys, not touches.
+        push(stick, true, 90, 0);
+        assertEquals(marker, shadowOf(stick).lastHapticFeedbackPerformed());
+        push(stick, false, 90, 1);
+        int direction = shadowOf(stick).lastHapticFeedbackPerformed();
+        assertEquals(android.view.HapticFeedbackConstants.CONTEXT_CLICK, direction);
+        // Moving on inside W repeats nothing.
+        stick.performHapticFeedback(marker);
+        push(stick, false, 100, .8f);
+        push(stick, false, 80, 1);
+        assertEquals(marker, shadowOf(stick).lastHapticFeedbackPerformed());
+        push(stick, false, 135, 1);
+        int diagonal = shadowOf(stick).lastHapticFeedbackPerformed();
+        assertEquals(android.view.HapticFeedbackConstants.CONFIRM, diagonal);
+        assertNotEquals("A diagonal feels unlike a direction", direction, diagonal);
+        push(stick, false, 180, 1);
+        assertEquals(direction, shadowOf(stick).lastHapticFeedbackPerformed());
+        // Back to the center and lifting are quiet.
+        stick.performHapticFeedback(marker);
+        push(stick, false, 0, 0);
+        stick.up(0, 500);
+        assertEquals(marker, shadowOf(stick).lastHapticFeedbackPerformed());
+    }
+
+    @Test public void theWasdStickFollowsVibrateOnPress() {
+        prefs.vibrateOsc = false;
+        PadControlView stick = wasdController().view(PadLayout.Control.WASD);
+        int marker = android.view.HapticFeedbackConstants.LONG_PRESS;
+        stick.performHapticFeedback(marker);
+        push(stick, true, 90, 1);
+        push(stick, false, 45, 1);
+        assertEquals(List.of("+W", "+D"), keys);
+        assertEquals(marker, shadowOf(stick).lastHapticFeedbackPerformed());
+    }
+
+    @Test public void theWasdStickLetsGoOfItsKeysOnEveryWayOut() {
+        ModernController controller = wasdController();
+        PadControlView stick = controller.view(PadLayout.Control.WASD);
+
+        push(stick, true, 45, 1);
+        stick.up(0, 500);
+        assertEveryKeyLetGo("Lift");
+
+        keys.clear();
+        push(stick, true, 135, 1);
+        long now = android.os.SystemClock.uptimeMillis();
+        MotionEvent cancel = MotionEvent.obtain(now, now, MotionEvent.ACTION_CANCEL, 0, 0, 0);
+        stick.onTouchEvent(cancel);
+        cancel.recycle();
+        assertEveryKeyLetGo("Cancel");
+
+        keys.clear();
+        push(stick, true, 225, 1);
+        controller.releaseInput();
+        assertEveryKeyLetGo("Focus loss");
+
+        keys.clear();
+        push(stick, true, 315, 1);
+        controller.hide();
+        assertEveryKeyLetGo("Stream end or picture-in-picture");
+        controller.show();
+
+        keys.clear();
+        push(stick, true, 90, 1);
+        controller.startEditing();
+        assertEveryKeyLetGo("Editing");
+        PadEditor editor = (PadEditor) frame.getChildAt(frame.getChildCount() - 1);
+        editor.select(PadLayout.Control.WASD);
+        editor.toggleHidden();
+        controller.finishEditing(true);
+        assertEquals("Hiding it in the editor removes it", View.GONE, stick.getVisibility());
+
+        // Shown again, then removed with the controller.
+        PadLayout draft = controller.layout().copy();
+        draft.spec(PadLayout.Control.WASD).hidden = false;
+        controller.save(draft, false);
+        controller.refreshLayout();
+        layout();
+        stick = controller.view(PadLayout.Control.WASD);
+        keys.clear();
+        push(stick, true, 270, 1);
+        controller.refreshLayout();
+        assertEveryKeyLetGo("Rebuilt from the settings");
+
+        stick = controller.view(PadLayout.Control.WASD);
+        layout();
+        keys.clear();
+        push(stick, true, 180, 1);
+        controller.destroy();
+        assertEveryKeyLetGo("Removed");
+    }
+
+    @Test public void theWasdStickHiddenWhileHeldLetsGo() {
+        ModernController controller = wasdController();
+        PadControlView stick = controller.view(PadLayout.Control.WASD);
+        push(stick, true, 0, 1);
+        controller.layout().spec(PadLayout.Control.WASD).hidden = true;
+        controller.place();
+        assertEquals(View.GONE, stick.getVisibility());
+        assertEveryKeyLetGo("Hidden");
     }
 
     @Test public void aFixedStickPushesFromItsDrawnCenter() {

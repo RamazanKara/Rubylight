@@ -781,6 +781,14 @@ final class GameKeyboardInput {
         }
     }
 
+    /**
+     * A key of the modern controller's WASD stick, a Windows virtual-key code, sent like the PC keyboard's keys so
+     * {@link #releaseKeyboardInput} lets it go with every other held key.
+     */
+    void sendOnScreenKey(int vk, boolean down) {
+        sendPcKeyboardKey(vk, down, getModifierState());
+    }
+
     private void sendPcKeyboardKey(int vk, boolean down, byte modifiers) {
         if (!game.connected || game.conn == null || !game.conn.canSendInput()) return;
         sendKeyboardInput((short) (0x8000 | vk), down ? KeyboardPacket.KEY_DOWN : KeyboardPacket.KEY_UP, modifiers, (byte) 0);

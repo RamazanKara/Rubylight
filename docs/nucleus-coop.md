@@ -97,8 +97,10 @@ when it loads the list. Another game with an .exe of the same name (Portal's
 and Half-Life 2's `hl2.exe`) still streams with the host's handler, written
 again for each of its sessions.
 
-The game runs from its own folder: nothing is copied, linked or written there,
-and Nucleus Co-op needs no extra tools for it. Its window keeps running and
+The game runs from its own folder: nothing is copied, linked or written there
+(only a game that refuses the hooks gets a DLL there for the session, see
+below), and Nucleus Co-op needs no extra tools for it. Its window keeps running
+and
 reading the pad without focus. It doesn't move the PC's cursor, and its
 window messages carry no keys, clicks, wheel or cursor positions from the PC's
 keyboard and mouse, even when it comes to the front. A game whose .exe
@@ -158,6 +160,16 @@ it does.
 - **Controllers only**, as for every background stream.
 - **Some games pause anyway** when their window is not in front, despite the
   focus hooks. Those need a hub handler made for them.
+- **A game that refuses ProtoInput's hooks** every way runs without them, and
+  takes the controller only while its window is in front on the PC. The start
+  after that notes its window, and the next one tries Nucleus Co-op's own input
+  DLL: Nucleus puts it in the game's folder as `xinput1_3.dll`, `xinput1_4.dll`
+  and `xinput9_1_0.dll` with `ncoop.ini`, the game loads it itself, and it keeps
+  the game believing it is in front without taking the PC's mouse. These files
+  leave the folder as the session ends, and whatever Nucleus moved aside comes
+  back. A game that exits soon after its window shows, that fails to start four
+  times in a row, or that doesn't load the DLL within a minute goes back to
+  running without it, and the stream or the host log says so.
 
 ### Without administrator rights
 

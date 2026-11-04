@@ -191,11 +191,17 @@ pub fn write_own(folder: &Path, setup: &Setup) -> Result<Handler> {
         .context("finding the signed-in user, whose game list the handler is for")?;
     let setup = &Setup {
         inject: inject_for(folder, &setup.exe_path)?,
+        window_title: title_for(folder, &setup.exe_path)?,
         arguments: setup.windowed_arguments(),
         ..setup.clone()
     };
     match setup.inject {
         Inject::Runtime => {}
+        Inject::Beside => tracing::info!(
+            exe = setup.exe_path,
+            title = setup.window_title,
+            "Nucleus Co-op: the game refused ProtoInput's input hooks every way, so Rubylight's handler has Nucleus Co-op put its input DLL beside the game"
+        ),
         Inject::None => tracing::warn!(
             exe = setup.exe_path,
             "Nucleus Co-op: the game refused ProtoInput's input hooks every way, so Rubylight's handler injects none: a keyboard, mouse or pad on the PC can reach it too"
@@ -230,9 +236,56 @@ pub fn write_own(folder: &Path, setup: &Setup) -> Result<Handler> {
 /// How Rubylight's handler injects ProtoInput's input hooks into the games
 /// that refused a way in a session of the Nucleus Co-op at `folder` (the
 /// host's, which only SYSTEM and Administrators change):
-/// `{"Games": {<.exe path in lower case>: <Inject::name>}}`.
+/// `{"Games": {<.exe path in lower case>: <Inject::name>}}`. For a game at
+/// [`Inject::Beside`], by the same path, `"Titles"` holds its window's title
+/// ([`keep_title`]) and `"Exits"` its exits before a window ([`note_exit`]).
 fn injection(folder: &Path) -> PathBuf {
     folder.join("Rubylight-injection.json")
+}
+
+/// That file's sections; none without the file.
+fn kept(folder: &Path) -> Result<serde_json::Map<String, serde_json::Value>> {
+    let path = injection(folder);
+    let Some(text) = read_existing(&path)? else {
+        return Ok(serde_json::Map::new());
+    };
+    serde_json::from_str(&text)
+        .with_context(|| format!("{} can't be read: delete it", path.display()))
+}
+
+fn keep(folder: &Path, kept: &serde_json::Map<String, serde_json::Value>) -> Result<()> {
+    let text = serde_json::to_string_pretty(kept)?;
+    replace(folder, &injection(folder), &text)
+}
+
+/// What that file's `section` holds for the game at `exe`.
+fn record(folder: &Path, section: &str, exe: &str) -> Result<Option<serde_json::Value>> {
+    let json = kept(folder)?;
+    let records = json.get(section);
+    Ok(records.and_then(|records| records.get(game_key(exe).as_str()).cloned()))
+}
+
+/// Set or remove what that file's `section` holds for the game at `exe`,
+/// leaving the rest as it is.
+fn set_record(
+    folder: &Path,
+    section: &str,
+    exe: &str,
+    value: Option<serde_json::Value>,
+) -> Result<()> {
+    let mut json = kept(folder)?;
+    // [`injections`] refuses a file without them.
+    json.entry("Games").or_insert_with(|| serde_json::json!({}));
+    let records = json
+        .entry(section)
+        .or_insert_with(|| serde_json::json!({}))
+        .as_object_mut()
+        .with_context(|| format!("{} can't be read: delete it", injection(folder).display()))?;
+    match value {
+        Some(value) => records.insert(game_key(exe), value),
+        None => records.remove(&game_key(exe)),
+    };
+    keep(folder, &json)
 }
 
 fn injections(folder: &Path) -> Result<BTreeMap<String, Inject>> {
@@ -269,11 +322,135 @@ fn game_key(exe: &str) -> String {
 /// How Rubylight's handler for the game at `exe` injects ProtoInput's
 /// input hooks ([`Setup::inject`]): the first way, or the next after one it
 /// refused in a session of the Nucleus Co-op at `folder` ([`refuse_inject`]).
+/// Nucleus' DLL needs its window's title, which the first session at that
+/// way runs without the DLL to see ([`keep_title`]).
 pub fn inject_for(folder: &Path, exe: &str) -> Result<Inject> {
+    let way = kept_way(folder, exe)?;
+    if way == Inject::Beside && title_for(folder, exe)?.is_none() {
+        return Ok(Inject::None);
+    }
+    Ok(way)
+}
+
+fn kept_way(folder: &Path, exe: &str) -> Result<Inject> {
     Ok(injections(folder)?
         .get(&game_key(exe))
         .copied()
         .unwrap_or_default())
+}
+
+/// Whether the game at `exe` has come to Nucleus' DLL, with or still without
+/// its window's title.
+pub fn beside_kept(folder: &Path, exe: &str) -> Result<bool> {
+    Ok(kept_way(folder, exe)? == Inject::Beside)
+}
+
+/// Whether a session of the game at `exe` may have had Nucleus' DLL in its
+/// folder: only games past the hooks ever do.
+pub fn beside_tried(folder: &Path, exe: &str) -> Result<bool> {
+    Ok(matches!(
+        kept_way(folder, exe)?,
+        Inject::Beside | Inject::None
+    ))
+}
+
+/// The title kept of the window of the game at `exe`.
+fn title_for(folder: &Path, exe: &str) -> Result<Option<String>> {
+    let title = record(folder, "Titles", exe)?;
+    Ok(title
+        .as_ref()
+        .and_then(serde_json::Value::as_str)
+        .filter(|title| !title.trim().is_empty())
+        .map(str::to_string))
+}
+
+/// Keep the title of the window of the game at `exe` for the handler of its
+/// next start.
+pub fn keep_title(folder: &Path, exe: &str, title: &str) -> Result<()> {
+    set_record(folder, "Titles", exe, Some(title.into()))
+}
+
+/// Count an exit before its window of the game at `exe`, with Nucleus' DLL
+/// beside it. Returns the exits since the DLL last loaded ([`clear_exits`]).
+pub fn note_exit(folder: &Path, exe: &str) -> Result<u64> {
+    let exits = record(folder, "Exits", exe)?.and_then(|exits| exits.as_u64());
+    let exits = exits.unwrap_or(0) + 1;
+    set_record(folder, "Exits", exe, Some(exits.into()))?;
+    Ok(exits)
+}
+
+/// The game at `exe` ran with Nucleus' DLL: its earlier exits were not that.
+pub fn clear_exits(folder: &Path, exe: &str) -> Result<()> {
+    if record(folder, "Exits", exe)?.is_none() {
+        return Ok(());
+    }
+    set_record(folder, "Exits", exe, None)
+}
+
+/// The most of a file read to tell whether it is Nucleus' DLL.
+const BESIDE_CAP: u64 = 64 * 1024 * 1024;
+
+/// Whether the file at `path` is Nucleus' DLL ([`generic::BESIDE_MARK`]). A
+/// link is opened itself and never followed: it isn't.
+fn holds_beside_mark(path: &Path) -> Result<bool> {
+    use std::io::Read;
+    use std::os::windows::fs::MetadataExt;
+    const REPARSE_POINT: u32 = 0x400;
+    let reading = || format!("reading {}", path.display());
+    let file = match crate::process::open_unfollowed(path, false) {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(error) => return Err(error).with_context(reading),
+    };
+    let metadata = file.metadata().with_context(reading)?;
+    if !metadata.is_file() || metadata.file_attributes() & REPARSE_POINT != 0 {
+        return Ok(false);
+    }
+    let mut bytes = Vec::new();
+    file.take(BESIDE_CAP)
+        .read_to_end(&mut bytes)
+        .with_context(reading)?;
+    let mark = generic::BESIDE_MARK.as_bytes();
+    Ok(bytes.windows(mark.len()).any(|at| at == mark))
+}
+
+/// Take Nucleus' DLL out of the game's folder `game` and put back what
+/// Nucleus moved aside for it. Nucleus does so as it ends, if it gets to;
+/// left there, the game would load it when played on the PC too. Any other
+/// DLL of those names is left alone. Returns the files taken. For the
+/// user's game folder: call it acting as the user.
+pub fn clear_beside(game: &Path) -> Result<Vec<String>> {
+    let removed = |path: &Path| match std::fs::remove_file(path) {
+        Ok(()) => Ok(true),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(error) => Err(error).with_context(|| format!("removing {}", path.display())),
+    };
+    let mut cleared = Vec::new();
+    for dll in generic::BESIDE_DLLS {
+        let path = game.join(dll);
+        if !holds_beside_mark(&path)? {
+            continue;
+        }
+        removed(&path)?;
+        cleared.push(dll.to_string());
+        let stem = dll.trim_end_matches(".dll");
+        let aside = game.join(format!("{stem}_NUCLEUS_BACKUP.dll"));
+        match std::fs::rename(&aside, &path) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => {
+                return Err(error).with_context(|| format!("restoring {}", path.display()));
+            }
+        }
+    }
+    if !cleared.is_empty() {
+        for ini in [generic::BESIDE_INI, "ncoop_NUCLEUS_BACKUP.ini"] {
+            if removed(&game.join(ini))? {
+                cleared.push(ini.to_string());
+            }
+        }
+    }
+    Ok(cleared)
 }
 
 /// Remember that the game at `exe` refused the way ProtoInput's input hooks
@@ -287,12 +464,13 @@ pub fn refuse_inject(folder: &Path, exe: &str) -> Result<Inject> {
         return Ok(refused);
     };
     games.insert(key, next);
-    let games: serde_json::Map<_, _> = games
+    let games: serde_json::Map<String, serde_json::Value> = games
         .into_iter()
         .map(|(game, way)| (game, way.name().into()))
         .collect();
-    let text = serde_json::to_string_pretty(&serde_json::json!({ "Games": games }))?;
-    replace(folder, &injection(folder), &text)?;
+    let mut json = kept(folder)?;
+    json.insert("Games".into(), games.into());
+    keep(folder, &json)?;
     tracing::warn!(
         exe,
         refused = refused.name(),

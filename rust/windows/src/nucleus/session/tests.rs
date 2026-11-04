@@ -171,6 +171,15 @@ impl Desktop for Screen {
     fn forced_aslr(&mut self, pid: u32) -> Result<bool> {
         self.0.lock().unwrap().forced_aslr(pid)
     }
+    fn title(&mut self, window: u64) -> Option<String> {
+        self.0.lock().unwrap().title(window)
+    }
+    fn modules(&mut self, pid: u32) -> Result<Vec<String>> {
+        self.0.lock().unwrap().modules(pid)
+    }
+    fn clear_beside(&mut self, game: &Path) -> Result<Vec<String>> {
+        self.0.lock().unwrap().clear_beside(game)
+    }
 }
 
 const NUCLEUS: u32 = 10;
@@ -333,6 +342,10 @@ fn runner(players: usize, screen: &Screen, probe: &Probe, t0: Instant) -> Runner
         instances: None,
         to_front: false,
         fronted: BTreeSet::new(),
+        beside: None,
+        beside_checked: false,
+        titles_left: 0,
+        last_title: None,
     }
 }
 
@@ -994,11 +1007,13 @@ fn a_game_started_without_the_hooks_it_refused_is_told() {
         assert!(!brought_to_front(&start(&own)).unwrap(), "hooked");
         files::refuse_inject(host.path(), exe).unwrap();
     }
+    let without = "Black Flag refused every way Nucleus Co-op injects its input hooks, so it runs without them: a keyboard, mouse or pad on the PC reaches it too, and it takes the controller only while its window is in front on the PC, where Rubylight puts it as it opens unless someone uses the PC. If the game pauses when it is not in front, the picture stops too";
+    // The start that notes its window for Nucleus' DLL promises nothing yet.
     assert_eq!(
-        unhooked(&start(&own)).unwrap().as_deref(),
-        Some(
-            "Black Flag refused every way Nucleus Co-op injects its input hooks, so it runs without them: a keyboard, mouse or pad on the PC reaches it too, and it takes the controller only while its window is in front on the PC, where Rubylight puts it as it opens unless someone uses the PC. If the game pauses when it is not in front, the picture stops too"
-        )
+        unhooked(&start(&own)).unwrap(),
+        Some(format!(
+            "{without}. This start notes the game's window: the next one tries Nucleus Co-op's input DLL, so that it keeps taking the controller when it is not in front"
+        ))
     );
     assert_eq!(unhooked(&start(&hub)).unwrap(), None);
     // Only a one-player game comes to the front: co-op windows share the
@@ -1006,6 +1021,233 @@ fn a_game_started_without_the_hooks_it_refused_is_told() {
     assert!(brought_to_front(&start(&own)).unwrap());
     assert!(!brought_to_front(&start_of(&own, 2)).unwrap(), "co-op");
     assert!(!brought_to_front(&start(&hub)).unwrap(), "hub handler");
+    // With the DLL, it stays where the person at the PC has it.
+    files::keep_title(host.path(), exe, "Black Flag").unwrap();
+    assert_eq!(
+        unhooked(&start(&own)).unwrap().as_deref(),
+        Some(
+            "Black Flag refused every way Nucleus Co-op injects its input hooks, so it runs with Nucleus Co-op's input DLL in its folder instead, so that it keeps taking the controller when it is not in front on the PC. A keyboard, mouse or pad on the PC can reach it too"
+        )
+    );
+    assert!(!brought_to_front(&start(&own)).unwrap(), "with the DLL");
+    // The DLL given up, nothing is left to try.
+    files::refuse_inject(host.path(), exe).unwrap();
+    assert_eq!(unhooked(&start(&own)).unwrap().as_deref(), Some(without));
+    assert!(brought_to_front(&start(&own)).unwrap());
+}
+
+/// A game at Nucleus' DLL, ready for its window to show (#59).
+fn beside_session(host: &Path, exe: &str, t0: Instant) -> (Screen, Runner) {
+    let (screen, probe) = (screen(), Probe::default());
+    let mut runner = runner(1, &screen, &probe, t0);
+    runner.own_game = Some((host.to_path_buf(), exe.to_string()));
+    runner.beside = Some(PathBuf::from(r"D:\Games\Black Flag"));
+    label(&screen);
+    assert_eq!(runner.step(t0), None);
+    (screen, runner)
+}
+
+/// A game kept at Nucleus' DLL gets to the second start with its window's
+/// title: the first runs without the DLL and only notes it, also when the
+/// title changes as it loads, and one that keeps changing stops being kept.
+#[test]
+fn the_first_start_notes_the_window_the_dll_needs() {
+    let host = tempfile::tempdir().unwrap();
+    let exe = r"D:\Games\Black Flag\ACBlackFlag.exe";
+    for _ in 0..3 {
+        files::refuse_inject(host.path(), exe).unwrap();
+    }
+    assert_eq!(files::inject_for(host.path(), exe).unwrap(), Inject::None);
+    let t0 = Instant::now();
+    let (screen, mut runner) = beside_session(host.path(), exe, t0);
+    runner.beside = None;
+    runner.titles_left = 2;
+    instance(&screen, 0);
+    assert_eq!(runner.step(t0), None);
+    assert_eq!(files::inject_for(host.path(), exe).unwrap(), Inject::None);
+    screen
+        .0
+        .lock()
+        .unwrap()
+        .titles
+        .insert(200, "Loading".into());
+    assert_eq!(runner.step(t0 + PERIOD), None);
+    assert_eq!(files::inject_for(host.path(), exe).unwrap(), Inject::Beside);
+    let kept = || std::fs::read_to_string(host.path().join("Rubylight-injection.json")).unwrap();
+    assert!(kept().contains("Loading"), "{}", kept());
+    for (at, title) in [(2, "Black Flag"), (3, "Black Flag 99 fps")] {
+        screen.0.lock().unwrap().titles.insert(200, title.into());
+        assert_eq!(runner.step(t0 + at * PERIOD), None);
+    }
+    assert!(kept().contains("\"Black Flag\""), "{}", kept());
+    assert!(!kept().contains("99 fps"), "{}", kept());
+}
+
+/// A game that didn't take Nucleus' DLL goes back to the behaviour without
+/// it: an exit soon after its window gives it up, an exit before one only
+/// after several in a row, as it also exits so without any hooks, and an
+/// exit once it has run gives up nothing.
+#[test]
+fn a_game_that_exits_with_the_dll_goes_back_without_it() {
+    let exe = r"D:\Games\Black Flag\ACBlackFlag.exe";
+    let at_dll = || {
+        let host = tempfile::tempdir().unwrap();
+        for _ in 0..3 {
+            files::refuse_inject(host.path(), exe).unwrap();
+        }
+        files::keep_title(host.path(), exe, "Black Flag").unwrap();
+        assert_eq!(files::inject_for(host.path(), exe).unwrap(), Inject::Beside);
+        host
+    };
+    let given_up = "Player 1's instance of Game exited, with Nucleus Co-op's input DLL beside it: start the stream again, and Rubylight starts it without the DLL";
+    let plain = "Player 1's instance of Game exited";
+
+    // Half a minute after its window, as hooks ended it.
+    let host = at_dll();
+    let t0 = Instant::now();
+    let (screen, mut runner) = beside_session(host.path(), exe, t0);
+    instance(&screen, 0);
+    assert_eq!(runner.step(t0), None);
+    let gone = |screen: &Screen| screen.0.lock().unwrap().processes.retain(|p| p.pid != 20);
+    gone(&screen);
+    let end = runner.step(t0 + Duration::from_secs(30));
+    assert_eq!(end, Some(End::Crashed(given_up.to_string())));
+    assert_eq!(files::inject_for(host.path(), exe).unwrap(), Inject::None);
+
+    // Before a window: the fourth in a row.
+    let host = at_dll();
+    for exits in 1..=BESIDE_EXITS {
+        let t0 = Instant::now();
+        let (screen, mut runner) = beside_session(host.path(), exe, t0);
+        screen
+            .0
+            .lock()
+            .unwrap()
+            .processes
+            .push(process(20, NUCLEUS, SINCE + 1, "Game.exe"));
+        assert_eq!(runner.step(t0 + PERIOD), None);
+        gone(&screen);
+        assert_eq!(runner.step(t0 + 2 * PERIOD), None);
+        let why = if exits < BESIDE_EXITS {
+            plain
+        } else {
+            given_up
+        };
+        assert_eq!(
+            runner.step(t0 + 2 * PERIOD + REFUSAL_GRACE),
+            Some(End::Failed(why.to_string())),
+            "exit {exits}"
+        );
+    }
+    assert_eq!(files::inject_for(host.path(), exe).unwrap(), Inject::None);
+
+    // A start that never comes, as from a folder Nucleus can't write the DLL
+    // to, counts as those do: without this the game would never start again.
+    let host = at_dll();
+    for exits in 1..=BESIDE_EXITS {
+        let t0 = Instant::now();
+        let (_screen, mut runner) = beside_session(host.path(), exe, t0);
+        let why = match runner.step(t0 + START_TIMEOUT) {
+            Some(End::Failed(why)) => why,
+            other => panic!("{other:?}"),
+        };
+        assert_eq!(
+            why.ends_with("Rubylight starts it without the DLL"),
+            exits == BESIDE_EXITS,
+            "{why}"
+        );
+    }
+    assert_eq!(files::inject_for(host.path(), exe).unwrap(), Inject::None);
+
+    // Long after its window it is simply left.
+    let host = at_dll();
+    let t0 = Instant::now();
+    let (screen, mut runner) = beside_session(host.path(), exe, t0);
+    instance(&screen, 0);
+    assert_eq!(runner.step(t0), None);
+    gone(&screen);
+    let end = runner.step(t0 + 2 * START_TIMEOUT);
+    assert_eq!(end, Some(End::Crashed(plain.to_string())));
+    assert_eq!(files::inject_for(host.path(), exe).unwrap(), Inject::Beside);
+}
+
+/// A stream stopped is no exit, and the session takes Nucleus' DLL out of
+/// the game's folder; a session without the DLL has none to take out.
+#[test]
+fn a_session_with_the_dll_takes_it_out_as_it_ends() {
+    let exe = r"D:\Games\Black Flag\ACBlackFlag.exe";
+    let host = tempfile::tempdir().unwrap();
+    for _ in 0..3 {
+        files::refuse_inject(host.path(), exe).unwrap();
+    }
+    files::keep_title(host.path(), exe, "Black Flag").unwrap();
+    let t0 = Instant::now();
+    let (with_dll, session) = beside_session(host.path(), exe, t0);
+    session.finish(End::Ended);
+    assert_eq!(files::inject_for(host.path(), exe).unwrap(), Inject::Beside);
+    assert_eq!(
+        with_dll.0.lock().unwrap().cleared,
+        [PathBuf::from(r"D:\Games\Black Flag")]
+    );
+    let (without, probe) = (screen(), Probe::default());
+    runner(1, &without, &probe, t0).finish(End::Ended);
+    assert!(without.0.lock().unwrap().cleared.is_empty());
+}
+
+/// A minute after its window, a game that loaded Nucleus' DLL keeps it. One
+/// that did not reads its pad another way: it gets its window to the front
+/// and starts without the DLL next time. A game that can't be read keeps it.
+#[test]
+fn a_game_that_never_loads_the_dll_goes_back_without_it() {
+    let exe = r"D:\Games\Black Flag\ACBlackFlag.exe";
+    let cases = [
+        (
+            Some(vec![r"D:\Games\Black Flag\xinput1_3.dll".to_string()]),
+            Inject::Beside,
+            false,
+        ),
+        (
+            Some(vec![r"C:\Windows\System32\XInput1_4.dll".to_string()]),
+            Inject::None,
+            true,
+        ),
+        (None, Inject::Beside, false),
+    ];
+    for (modules, way, fronted) in cases {
+        let host = tempfile::tempdir().unwrap();
+        for _ in 0..3 {
+            files::refuse_inject(host.path(), exe).unwrap();
+        }
+        files::keep_title(host.path(), exe, "Black Flag").unwrap();
+        files::note_exit(host.path(), exe).unwrap();
+        let t0 = Instant::now();
+        let (screen, mut runner) = beside_session(host.path(), exe, t0);
+        instance(&screen, 0);
+        if let Some(modules) = &modules {
+            screen.0.lock().unwrap().modules.insert(20, modules.clone());
+        }
+        assert_eq!(runner.step(t0), None);
+        // Not before the time is up.
+        assert_eq!(runner.step(t0 + PERIOD), None);
+        assert_eq!(files::inject_for(host.path(), exe).unwrap(), Inject::Beside);
+        assert!(screen.0.lock().unwrap().fronted.is_empty());
+        assert_eq!(runner.step(t0 + START_TIMEOUT + PERIOD), None);
+        assert_eq!(
+            files::inject_for(host.path(), exe).unwrap(),
+            way,
+            "{modules:?}"
+        );
+        assert_eq!(
+            !screen.0.lock().unwrap().fronted.is_empty(),
+            fronted,
+            "{modules:?}"
+        );
+        // Exits only clear once it loaded, so an exit next counts from one.
+        if way == Inject::Beside {
+            let wanted = if modules.is_some() { 1 } else { 2 };
+            assert_eq!(files::note_exit(host.path(), exe).unwrap(), wanted);
+        }
+    }
 }
 
 /// A box Nucleus shows after the click (its End-key reminder) holds the

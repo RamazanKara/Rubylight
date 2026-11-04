@@ -79,6 +79,35 @@ pub struct Setup {
     /// ([`super::imports::direct_input`]), which reads the PC's keyboard
     /// through raw input; ProtoInput then takes the game's raw input.
     pub direct_input: bool,
+    /// The title of the game's window, as a session saw it: what Nucleus'
+    /// DLL looks for ([`Inject::Beside`]).
+    pub window_title: Option<String>,
+}
+
+/// The names Nucleus' DLL is written beside a game under ([`Inject::Beside`]):
+/// a game loads XInput by one of them, and a protected .exe's import table
+/// may not say which. Each passes the game's calls on to Windows' own, of the
+/// same name.
+pub const BESIDE_DLLS: [&str; 3] = ["xinput1_3.dll", "xinput1_4.dll", "xinput9_1_0.dll"];
+/// The settings Nucleus writes beside them.
+pub const BESIDE_INI: &str = "ncoop.ini";
+/// In Nucleus' DLL, whichever its version: tells it from a game's own XInput.
+pub const BESIDE_MARK: &str = "ForceFocusWindow";
+
+/// Whether one of a process's `modules` (their paths) is a DLL named in
+/// [`BESIDE_DLLS`] from outside Windows' own folders: Nucleus', beside the
+/// game. Windows' own is what that DLL itself reads, and what a game loads
+/// without it.
+pub fn beside_loaded(modules: &[String]) -> bool {
+    modules.iter().any(|module| {
+        let module = module.replace('/', "\\").to_lowercase();
+        module.rsplit_once('\\').is_some_and(|(folder, name)| {
+            BESIDE_DLLS.contains(&name)
+                && !["\\system32", "\\syswow64", "\\winsxs"]
+                    .iter()
+                    .any(|windows| folder.contains(windows))
+        })
+    })
 }
 
 /// What Nucleus Co-op 2.4.2 says in a message box when ProtoInput's hooks
@@ -105,13 +134,27 @@ pub enum Inject {
     /// Into the running game from one of its own threads, for a game that
     /// refuses a thread made in it.
     Stealth,
+    /// Nothing injected: the game's own loader loads Nucleus' input DLL, which
+    /// Nucleus writes beside its .exe ([`BESIDE_DLLS`]), for a game that exits
+    /// once hooks are put in it from outside. The DLL tells the game its window
+    /// has the focus and keeps it from the PC's cursor, so it plays on its pad
+    /// behind whatever the person at the PC does. Rubylight takes the DLL away
+    /// again after the session. Needs [`Setup::window_title`]: without one the
+    /// game runs as with [`Inject::None`].
+    Beside,
     /// None, and no focus messages from Nucleus either: nothing would hold
     /// back what they wake in the game (#59).
     None,
 }
 
 impl Inject {
-    pub const ALL: [Inject; 4] = [Self::Runtime, Self::Startup, Self::Stealth, Self::None];
+    pub const ALL: [Inject; 5] = [
+        Self::Runtime,
+        Self::Startup,
+        Self::Stealth,
+        Self::Beside,
+        Self::None,
+    ];
 
     /// The way tried after this one is refused; None after the last.
     pub fn next(self) -> Option<Inject> {
@@ -125,11 +168,17 @@ impl Inject {
             Self::Runtime => "runtime",
             Self::Startup => "startup",
             Self::Stealth => "stealth",
-            Self::None => "none",
+            Self::Beside => "beside",
+            Self::None => "unhooked",
         }
     }
 
     pub fn from_name(name: &str) -> Option<Inject> {
+        // The ladder once ended at "none", before Nucleus' DLL: a game kept
+        // there has yet to try it.
+        if name == "none" {
+            return Some(Self::Beside);
+        }
         Self::ALL.into_iter().find(|way| way.name() == name)
     }
 }
@@ -156,6 +205,7 @@ impl Setup {
             inject: Inject::Runtime,
             size: None,
             direct_input: false,
+            window_title: None,
         }
     }
 
@@ -284,7 +334,7 @@ impl Setup {
                 "Game.ProtoInput.InjectStartup = false;",
                 "Game.ProtoInput.InjectRuntime_EasyHookStealthMethod = true;",
             ],
-            Inject::None => &[],
+            Inject::Beside | Inject::None => &[],
         };
         let focus = [
             "// The game keeps running and reading its pad without focus, and never sees the PC's keyboard or moves its cursor.",
@@ -334,25 +384,67 @@ impl Setup {
             // only with Hook.CustomDllEnabled or XInputPlusDll, both off.
             "Game.Hook.XInputEnabled = true;",
         ];
-        let options: Vec<&&str> = match self.inject {
-            Inject::None => options.iter().chain(&unhooked).collect(),
+        let beside: Option<[String; 6]> = self
+            .window_title
+            .as_deref()
+            .filter(|_| self.inject == Inject::Beside)
+            .map(|title| {
+                let dlls: Vec<String> = BESIDE_DLLS.iter().map(|dll| js(dll)).collect();
+                [
+                    "// The game exits once hooks are put in it from outside, so its own loader loads Nucleus Co-op's input DLL instead, written beside its .exe for the session. The DLL tells it its window has the focus and keeps it from the PC's cursor, so no focus messages are sent either.".to_string(),
+                    "Game.Hook.CustomDllEnabled = true;".to_string(),
+                    format!("Game.Hook.XInputNames = [{}];", dlls.join(", ")),
+                    "Game.Hook.XInputEnabled = true;".to_string(),
+                    "Game.Hook.ForceFocus = true;".to_string(),
+                    format!(
+                        "Game.Hook.ForceFocusWindowName = {};",
+                        js(&title_regex(title))
+                    ),
+                ]
+            });
+        let options: Vec<&str> = match (&beside, self.inject) {
+            (Some(beside), _) => options
+                .iter()
+                .copied()
+                // The one way that does write there, for the session.
+                .filter(|line| !line.contains("nothing is written") && !line.contains("CustomDll"))
+                .chain(beside.iter().map(String::as_str))
+                .collect(),
+            (None, Inject::Beside | Inject::None) => {
+                options.iter().chain(&unhooked).copied().collect()
+            }
             _ => options
                 .iter()
                 .chain(&focus)
                 .chain(way)
                 .chain(&hooks)
                 .chain(raw_input)
+                .copied()
                 .collect(),
         };
-        let lines: Vec<&str> = head
-            .iter()
-            .map(String::as_str)
-            .chain(options.into_iter().copied())
-            .collect();
+        let lines: Vec<&str> = head.iter().map(String::as_str).chain(options).collect();
         let mut text = lines.join("\r\n");
         text.push_str("\r\n");
         text
     }
+}
+
+/// The expression Nucleus' DLL looks for a window titled `title` by
+/// (`ForceFocusWindowRegex` in its `ncoop.ini`): its punctuation is taken
+/// literally, and a character that file might not carry matches any.
+fn title_regex(title: &str) -> String {
+    let mut regex = String::new();
+    for c in title.trim().chars() {
+        if !c.is_ascii() || c.is_ascii_control() {
+            regex.push('.');
+            continue;
+        }
+        if r"\^$.|?*+()[]{}".contains(c) {
+            regex.push('\\');
+        }
+        regex.push(c);
+    }
+    regex
 }
 
 /// An Unreal game's folder for an .exe in `<root>\<Project>\Binaries\Win64`:
@@ -926,8 +1018,9 @@ mod tests {
 
     /// Nucleus Co-op ends a game ProtoInput can't be injected into (#59): a
     /// game that refused one way gets the next, as Nucleus starts it, then
-    /// from one of its own threads, then none, with the same hooks each
-    /// time and a handler otherwise the same.
+    /// from one of its own threads, then with Nucleus' DLL beside it, then
+    /// none, with the same hooks each injected way and a handler otherwise
+    /// the same.
     #[test]
     fn a_game_that_refused_the_hooks_gets_the_next_way_down_to_none() {
         let owner = Some("S-1-5-21-1-2-3-1001");
@@ -1009,6 +1102,7 @@ mod tests {
             assert_eq!(Inject::from_name(way.name()), Some(way));
             let setup = Setup {
                 inject: way,
+                window_title: Some("Assassin's Creed IV".into()),
                 ..steam_game()
             };
             let text = setup.handler_of(owner);
@@ -1019,7 +1113,7 @@ mod tests {
             // second, however often its person clicks away (#59).
             assert_eq!(
                 says("Game.FakeFocus = true;"),
-                way != Inject::None,
+                !matches!(way, Inject::Beside | Inject::None),
                 "{text}"
             );
             match way {
@@ -1036,6 +1130,24 @@ mod tests {
                     );
                     assert!(!text.contains("InjectRuntime_EasyHookMethod"), "{text}");
                 }
+                Inject::Beside => {
+                    assert!(!text.contains("Game.ProtoInput"), "{text}");
+                    assert!(says("Game.Hook.CustomDllEnabled = true;"), "{text}");
+                    assert!(!text.contains("CustomDllEnabled = false"), "{text}");
+                    assert!(!text.contains("nothing is written"), "{text}");
+                    assert!(says("Game.Hook.ForceFocus = true;"), "{text}");
+                    assert!(says("Game.Hook.XInputEnabled = true;"), "{text}");
+                    assert!(
+                        says(
+                            r#"Game.Hook.XInputNames = ["xinput1_3.dll", "xinput1_4.dll", "xinput9_1_0.dll"];"#
+                        ),
+                        "{text}"
+                    );
+                    assert!(
+                        says(r#"Game.Hook.ForceFocusWindowName = "Assassin's Creed IV";"#),
+                        "{text}"
+                    );
+                }
                 Inject::None => {
                     assert!(!text.contains("Game.ProtoInput"), "{text}");
                     assert!(!text.contains("Inject"), "{text}");
@@ -1045,7 +1157,7 @@ mod tests {
                     assert!(says("Game.Hook.CustomDllEnabled = false;"), "{text}");
                 }
             }
-            if way != Inject::None {
+            if !matches!(way, Inject::Beside | Inject::None) {
                 assert_eq!(hook_lines(&text), hook_lines(&runtime), "{way:?}");
             }
             let h = handler::parse(&setup.file(), &text).unwrap();
@@ -1065,6 +1177,53 @@ mod tests {
         texts.sort();
         texts.dedup();
         assert_eq!(texts.len(), Inject::ALL.len());
+    }
+
+    /// Nucleus' DLL beside the game counts, Windows' own by those names don't.
+    #[test]
+    fn nucleus_dll_is_told_from_windows_own() {
+        let loaded = |module: &str| {
+            beside_loaded(&[
+                r"C:\Windows\System32\KERNEL32.DLL".to_string(),
+                module.to_string(),
+            ])
+        };
+        assert!(loaded(r"D:\Games\Black Flag\XINPUT1_3.dll"));
+        assert!(loaded("D:/Games/xinput9_1_0.dll"));
+        assert!(!loaded(r"C:\Windows\System32\XINPUT1_4.dll"));
+        assert!(!loaded(r"C:\Windows\SysWOW64\xinput1_3.dll"));
+        assert!(!loaded(r"C:\Windows\WinSxS\amd64_xinput\xinput1_4.dll"));
+        assert!(!loaded(r"D:\Games\Black Flag\dinput8.dll"));
+        assert!(!beside_loaded(&[]));
+    }
+
+    /// #59: a game kept at the ladder's old end has yet to try Nucleus' DLL,
+    /// which needs its window's title or it hooks a helper window of the game:
+    /// without one the handler is the one without hooks.
+    #[test]
+    fn nucleus_dll_needs_the_games_title_and_old_records_get_to_try_it() {
+        assert_eq!(Inject::from_name("none"), Some(Inject::Beside));
+        assert_eq!(Inject::Stealth.next(), Some(Inject::Beside));
+        assert_eq!(Inject::Beside.next(), Some(Inject::None));
+        assert_eq!(Inject::None.next(), None);
+        let of = |inject, window_title| {
+            Setup {
+                inject,
+                window_title,
+                ..steam_game()
+            }
+            .handler_of(None)
+        };
+        assert_eq!(of(Inject::Beside, None), of(Inject::None, None));
+        // Only that way uses the title.
+        let title = || Some("Game".to_string());
+        assert_eq!(of(Inject::None, title()), of(Inject::None, None));
+        assert_eq!(of(Inject::Runtime, title()), of(Inject::Runtime, None));
+        assert_eq!(title_regex(" Game (v1.2) "), r"Game \(v1\.2\)");
+        assert_eq!(
+            title_regex("Assassin's Creed\u{ae}: C:\\x"),
+            r"Assassin's Creed.: C:\\x"
+        );
     }
 
     #[test]

@@ -50,6 +50,14 @@ pub trait Desktop: Send {
     /// addresses (Exploit protection's "Force randomization for images",
     /// Mandatory ASLR).
     fn forced_aslr(&mut self, pid: u32) -> Result<bool>;
+    /// A window's title, read without a message to its program: None when
+    /// it has none or closed.
+    fn title(&mut self, window: u64) -> Option<String>;
+    /// The paths of the modules process `pid` has loaded.
+    fn modules(&mut self, pid: u32) -> Result<Vec<String>>;
+    /// Take Nucleus Co-op's input DLL out of the game's folder `game`, acting
+    /// as the signed-in user ([`super::files::clear_beside`]): the files taken.
+    fn clear_beside(&mut self, game: &std::path::Path) -> Result<Vec<String>>;
 }
 
 /// A message box on the desktop: its window, its caption and its text.
@@ -168,6 +176,8 @@ pub struct Keeper {
     /// When Nucleus started (FILETIME): an older process is not an instance.
     since: u64,
     slots: Vec<Slot>,
+    /// How many times a window was put in its place, the first included.
+    moved: u64,
 }
 
 impl Keeper {
@@ -180,6 +190,7 @@ impl Keeper {
             executables: executables.iter().map(|e| e.to_lowercase()).collect(),
             content,
             since,
+            moved: 0,
             slots: (0..players)
                 .map(|_| Slot {
                     root: None,
@@ -195,6 +206,11 @@ impl Keeper {
 
     /// Every instance's processes at the last pass (pid → start time), to
     /// stop with the session.
+    /// How many times a window was put in its place, the first included.
+    pub fn moved(&self) -> u64 {
+        self.moved
+    }
+
     pub fn processes(&self) -> BTreeMap<u32, u64> {
         self.slots
             .iter()
@@ -423,6 +439,8 @@ impl Keeper {
             }
             if let Err(error) = desktop.place(window.id, parked) {
                 tracing::debug!(%error, slot = index, "Nucleus Co-op window could not be moved");
+            } else {
+                self.moved += 1;
             }
         }
         desktop.unthrottle(&processes_of_instances);
@@ -447,6 +465,12 @@ pub(crate) mod tests {
         pub processes: Vec<Process>,
         pub paths: BTreeMap<u32, String>,
         pub windows: Vec<Window>,
+        /// Window titles.
+        pub titles: BTreeMap<u64, String>,
+        /// The modules each process loaded; one not listed can't be read.
+        pub modules: BTreeMap<u32, Vec<String>>,
+        /// The game folders Nucleus' DLL was taken out of.
+        pub cleared: Vec<std::path::PathBuf>,
         pub placed: Vec<(u64, Rect)>,
         /// The windows whose frames were taken away, in order.
         pub unframed: Vec<u64>,
@@ -564,6 +588,17 @@ pub(crate) mod tests {
         fn forced_aslr(&mut self, pid: u32) -> Result<bool> {
             let forced = self.aslr.get(&pid).copied();
             forced.ok_or_else(|| anyhow::anyhow!("access denied"))
+        }
+        fn title(&mut self, window: u64) -> Option<String> {
+            self.titles.get(&window).cloned()
+        }
+        fn modules(&mut self, pid: u32) -> Result<Vec<String>> {
+            let modules = self.modules.get(&pid).cloned();
+            modules.ok_or_else(|| anyhow::anyhow!("access denied"))
+        }
+        fn clear_beside(&mut self, game: &std::path::Path) -> Result<Vec<String>> {
+            self.cleared.push(game.to_path_buf());
+            Ok(Vec::new())
         }
     }
 

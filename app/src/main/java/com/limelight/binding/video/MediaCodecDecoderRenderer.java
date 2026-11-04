@@ -2332,6 +2332,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             configureAndStartDecoder(format);
             LimeLog.info("Using codec " + selectedDecoderInfo.getName() + " for hardware decoding " + format.getString(MediaFormat.KEY_MIME));
             activeDecoderName = selectedDecoderInfo.getName();
+            debt.watchDisplay(DecoderQueuePolicy.watchesDisplayQueue(activeDecoderName));
             configured = true;
         } catch (IllegalArgumentException e) {
             noteConfigureError(selectedDecoderInfo, format, e);
@@ -3295,8 +3296,10 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     /** Feeds the debt policy with the output at index, logs the queue it saw and an ended recovery. */
     private void noteDebt(int index) {
         int depth = DecoderQueuePolicy.depth(numFramesIn, numFramesOut, decoderDepthBase);
-        long excessNs = debt.onOutput(frameLatencyStats.getInputToOutputNs(index), frameLatencyStats.getOutputNs(index),
-                contentIntervalNs(), depth);
+        long excessNs = debt.watchesDisplay()
+                ? debt.onOutput(frameLatencyStats.getInputToOutputNs(index), frameLatencyStats.getSubmitToOutputNs(index),
+                        frameLatencyStats.getOutputNs(index), contentIntervalNs(), depth)
+                : debt.onOutput(frameLatencyStats.getInputToOutputNs(index), System.nanoTime(), contentIntervalNs());
         frameLatencyStats.onQueueState(index, depth, excessNs);
         logDebtEvent();
     }

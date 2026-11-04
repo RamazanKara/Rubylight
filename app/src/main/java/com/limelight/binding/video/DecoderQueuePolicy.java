@@ -26,6 +26,15 @@ final class DecoderQueuePolicy {
     }
 
     /**
+     * Whether [Debt] watches the display's queue on this decoder. Every capture behind those rules
+     * comes from a Shield TV (Nightjar issue 7), so they stay on its decoder family.
+     */
+    static boolean watchesDisplayQueue(String decoderName) {
+        String name = decoderName.toLowerCase(Locale.ROOT);
+        return name.startsWith("omx.nvidia.") || name.startsWith("c2.nvidia.");
+    }
+
+    /**
      * Residency governor. A frame's input-to-output time is compared with the smallest seen in the
      * last ten seconds; when the excess stays above half a content interval for [FRAMES] frames in
      * a row, the decoder is holding a surplus (a few ms, issue 7) that the age rule in
@@ -105,7 +114,9 @@ final class DecoderQueuePolicy {
      * Held needs the wait as well: [OVER_PERCENT] of the outputs, and of the last second's, above the
      * caller's level, so a queue that has just drained does not count. A decoder that keeps frames
      * back on its own has them behind its outputs, and more than [MAX_BEHIND_PERCENT] rule it out.
-     * Inputs steadier than [MIN_SPREAD_NS] say nothing either way.
+     * Inputs steadier than [MIN_SPREAD_NS] say nothing either way, and neither does a slope they
+     * cannot pin down: it has to be under [MAX_SLOPE] by two standard errors, because a free decoder
+     * with little input spread against its decode noise reads any slope now and then.
      */
     static final class DisplayGate {
         static final int BUCKETS = 10;
@@ -123,6 +134,7 @@ final class DecoderQueuePolicy {
         private final double[] sumOut = new double[BUCKETS];
         private final double[] sumInIn = new double[BUCKETS];
         private final double[] sumInOut = new double[BUCKETS];
+        private final double[] sumOutOut = new double[BUCKETS];
         private int slot;
         private int closed;
         private long bucketStartNs;
@@ -160,6 +172,7 @@ final class DecoderQueuePolicy {
                     sumOut[slot] += out;
                     sumInIn[slot] += in * in;
                     sumInOut[slot] += in * out;
+                    sumOutOut[slot] += out * out;
                 }
             }
             lastOutputNs = outputNs;
@@ -186,6 +199,7 @@ final class DecoderQueuePolicy {
             java.util.Arrays.fill(sumOut, 0);
             java.util.Arrays.fill(sumInIn, 0);
             java.util.Arrays.fill(sumInOut, 0);
+            java.util.Arrays.fill(sumOutOut, 0);
             slot = 0;
             closed = 0;
             bucketStartNs = 0;
@@ -211,6 +225,7 @@ final class DecoderQueuePolicy {
             double out = 0;
             double inIn = 0;
             double inOut = 0;
+            double outOut = 0;
             for (int i = 0; i < BUCKETS; i++) {
                 total += totals[i];
                 count += outputs[i];
@@ -220,12 +235,16 @@ final class DecoderQueuePolicy {
                 out += sumOut[i];
                 inIn += sumInIn[i];
                 inOut += sumInOut[i];
+                outOut += sumOutOut[i];
             }
-            double varianceNs2 = count > 1 ? inIn - in * in / count : 0;
-            spreadKnown = varianceNs2 >= count * (double) MIN_SPREAD_NS * MIN_SPREAD_NS;
-            slope = spreadKnown ? (inOut - in * out / count) / varianceNs2 : 1;
+            double varianceNs2 = count > 2 ? inIn - in * in / count : 0;
+            spreadKnown = count > 2 && varianceNs2 >= count * (double) MIN_SPREAD_NS * MIN_SPREAD_NS;
+            double covariance = spreadKnown ? inOut - in * out / count : 0;
+            slope = spreadKnown ? covariance / varianceNs2 : 1;
+            double slopeError = spreadKnown ?
+                    Math.sqrt(Math.max(0, outOut - out * out / count - slope * covariance) / ((count - 2) * varianceNs2)) : 0;
             // At least half of the outputs a steady stream would have had in the window.
-            held = closed == BUCKETS && spreadKnown && slope <= MAX_SLOPE &&
+            held = closed == BUCKETS && spreadKnown && slope + 2 * slopeError <= MAX_SLOPE &&
                     count * intervalNs * 2 >= BUCKETS * BUCKET_NS &&
                     over * 100L >= count * (long) OVER_PERCENT &&
                     overs[slot] * 100L >= outputs[slot] * (long) OVER_PERCENT && outputs[slot] > 0 &&
@@ -239,6 +258,71 @@ final class DecoderQueuePolicy {
             sumOut[slot] = 0;
             sumInIn[slot] = 0;
             sumInOut[slot] = 0;
+            sumOutOut[slot] = 0;
+        }
+    }
+
+    /**
+     * A low percentile of a time over the last minute with outputs, what it comes to when nothing
+     * makes it wait. The lowest fifth of each second gives the second its level, and the lowest
+     * tenth of those levels is the answer: the smallest time since a flush would hold on to one light
+     * scene for the rest of a stream, and outputs can never all be above a low percentile of their
+     * own, however noisy they are.
+     */
+    static final class RecentLevel {
+        static final int SECONDS = 60;
+        static final long SECOND_NS = 1_000_000_000L;
+        private static final int SECOND_PERCENT = 20;
+        private static final int SECONDS_PERCENT = 10;
+
+        private final long[] samples = new long[256];
+        private final long[] levels = new long[SECONDS];
+        private final long[] sorted = new long[SECONDS];
+        private int sampleCount;
+        private int levelCount;
+        private int slot;
+        private long secondStartNs;
+        private long lastNs;
+        private long lowNs = Long.MAX_VALUE;
+
+        void add(long valueNs, long nowNs) {
+            if (secondStartNs == 0) secondStartNs = nowNs;
+            if (nowNs - secondStartNs >= SECOND_NS) {
+                close();
+                secondStartNs = nowNs;
+            }
+            if (sampleCount < samples.length) samples[sampleCount++] = valueNs;
+        }
+
+        /** The low percentile; Long.MAX_VALUE until a second has ended. */
+        long lowNs() {
+            return lowNs;
+        }
+
+        /** The level of the last second that ended. */
+        long lastNs() {
+            return lastNs;
+        }
+
+        void reset() {
+            sampleCount = 0;
+            levelCount = 0;
+            slot = 0;
+            secondStartNs = 0;
+            lastNs = 0;
+            lowNs = Long.MAX_VALUE;
+        }
+
+        private void close() {
+            java.util.Arrays.sort(samples, 0, sampleCount);
+            lastNs = samples[sampleCount * SECOND_PERCENT / 100];
+            sampleCount = 0;
+            levels[slot] = lastNs;
+            slot = (slot + 1) % SECONDS;
+            levelCount = Math.min(SECONDS, levelCount + 1);
+            System.arraycopy(levels, 0, sorted, 0, levelCount);
+            java.util.Arrays.sort(sorted, 0, levelCount);
+            lowNs = sorted[levelCount * SECONDS_PERCENT / 100];
         }
     }
 
@@ -269,17 +353,24 @@ final class DecoderQueuePolicy {
      * change does not start it again; real debt still shrinks when a frame is dropped. [MAX_DROPS]
      * drops pause it without moving the floor.
      *
-     * The wait for a display buffer does not need half a frame to be seen. A stream a little faster
-     * than the panel adds to the display's queue at its own slow rate (45-50 ppm, 0.05 ms a second,
-     * on the 4.6.1 Shield captures), and each late frame the compositor misses adds a whole frame
-     * that nothing takes back, because these modes show every frame. Once the queue is full, the
-     * drift goes into input-to-output, which took 2.5 minutes to reach half a frame. As soon as
-     * [DisplayGate] sees outputs held with at least [GATE_EXCESS_NS] of wait, the held output is
-     * dropped with nothing behind it. The drop is the same one the drift needs anyway, one each
-     * time it has added a frame; it comes where the wait starts rather than half a frame into it.
+     * Only on the decoders of [watchesDisplayQueue], the wait for a display buffer does not need half
+     * a frame to be seen. A stream a little faster than the panel adds to the display's queue at its
+     * own slow rate (45-50 ppm, 0.05 ms a second, on the 4.6.1 Shield captures), and each late frame
+     * the compositor misses adds a whole frame that nothing takes back, because these modes show
+     * every frame. Once the queue is full, the drift goes into input-to-output, which took 2.5 minutes
+     * to reach half a frame. As soon as [DisplayGate] sees outputs held with at least
+     * [GATE_EXCESS_NS] over their [RecentLevel], the held output is dropped with nothing behind it.
+     * It uses the time before the queue call: the call's own jitter is in the stamp the times of
+     * this class otherwise use, and no output could follow that.
+     *
      * Outputs that still follow the display [GATE_CHECK_NS] later were not waiting for a buffer, and
      * neither were those a drop with nothing behind it left over half a frame: the gate then stays
-     * off until the next flush.
+     * off until the next flush. A drop that left over half of the wait in place changed nothing, and
+     * the next one waits [GATE_BACKOFF_NS], twice that after another. [MAX_GATE_DROPS] drops since a
+     * flush turn the gate off too, and half a frame is what is left. A level over [MAX_LEARNED_FRAMES]
+     * does not raise the floor the first time: it is more likely a stall still working through
+     * (start-up bursts reach 70 ms and more, and a floor that high would hide every later rise). The
+     * same level again is the decoder's.
      */
     static final class Debt {
         static final long WINDOW_NS = 1_500_000_000L;
@@ -292,6 +383,8 @@ final class DecoderQueuePolicy {
         static final int MAX_LEARNED_FRAMES = 3;
         static final long GATE_EXCESS_NS = 1_000_000;
         static final long GATE_CHECK_NS = 5_000_000_000L;
+        static final long GATE_BACKOFF_NS = 600_000_000_000L;
+        static final int MAX_GATE_DROPS = 24;
         private static final int GATE_CHECK_BUCKETS = 3;
         private static final double GATE_CHECK_SLOPE = 0.5;
         private static final int CAPACITY = 1024;
@@ -326,19 +419,45 @@ final class DecoderQueuePolicy {
         private String event;
 
         // The display's pace: a recovery it started, the check on its drop, and that check failing.
+        private boolean watchesDisplay;
         private final DisplayGate gate = new DisplayGate();
+        private final RecentLevel recentWait = new RecentLevel();
         private boolean gateRecovery;
         private boolean nothingBehind;
         private boolean droppedAlone;
         private long lastOutputNs;
         private long gateCheckNs;
         private boolean gateOff;
+        private int gateDrops;
+        private long gateLevelNs;
+        private long gateBaseNs;
+        private long gateBackoffNs;
+        private long gateQuietUntilNs;
+        private long unlearnedLevelNs;
+
+        /** Whether the display's queue is watched as well, see [watchesDisplayQueue]; off to start with. */
+        void watchDisplay(boolean watch) {
+            watchesDisplay = watch;
+            if (!watch) gateRecovery = false;
+        }
+
+        boolean watchesDisplay() {
+            return watchesDisplay;
+        }
 
         /**
-         * One decoder output: its input-to-output time, when it came out, the content interval and
-         * the frames in the decoder behind it. Returns its excess over the floor (zero for an unknown time).
+         * One decoder output: its input-to-output time, the clock reading and the content interval.
+         * Returns its excess over the floor (zero for an unknown time).
          */
-        long onOutput(long inputToOutputNs, long nowNs, long contentIntervalNs, int framesBehind) {
+        long onOutput(long inputToOutputNs, long nowNs, long contentIntervalNs) {
+            return onOutput(inputToOutputNs, 0, nowNs, contentIntervalNs, 0);
+        }
+
+        /**
+         * The same when the display is watched, with nowNs when the output came out, the time from
+         * just before its queue call (zero when unknown) and the frames in the decoder behind it.
+         */
+        long onOutput(long inputToOutputNs, long submitToOutputNs, long nowNs, long contentIntervalNs, int framesBehind) {
             if (inputToOutputNs <= 0 || contentIntervalNs <= 0) {
                 over = false;
                 nothingBehind = false;
@@ -353,19 +472,11 @@ final class DecoderQueuePolicy {
             recentNs[0] = recentNs[1];
             recentNs[1] = recentNs[2];
             recentNs[2] = excessNs;
-            // Against the smallest time itself: a level learned for the decoder says nothing about the display.
-            gate.onOutput(inputToOutputNs, nowNs, contentIntervalNs, inputToOutputNs - minNs >= GATE_EXCESS_NS, !nothingBehind);
-            if (gateCheckNs != 0 && nowNs >= gateCheckNs) {
-                gateCheckNs = 0;
-                if (gate.stillHeld(GATE_CHECK_BUCKETS, GATE_CHECK_SLOPE)) {
-                    gateOff = true;
-                    event = "Decoder debt: outputs still follow the display after a drop, the wait for a buffer is not it";
-                }
-            }
+            if (watchesDisplay && submitToOutputNs > 0) watchDisplay(submitToOutputNs, nowNs, contentIntervalNs);
             if (state == WATCH) {
                 add(nowNs, over);
                 boolean share = windowShare(nowNs, true);
-                if (share || (!gateOff && gate.held())) {
+                if (share || (watchesDisplay && !gateOff && nowNs >= gateQuietUntilNs && gate.held())) {
                     state = RECOVER;
                     gateRecovery = !share;
                     drops = 0;
@@ -402,7 +513,15 @@ final class DecoderQueuePolicy {
             settle = SETTLE;
             droppedLevelNs = median(recentNs[0], recentNs[1], recentNs[2]);
             droppedAlone = nothingBehind;
-            if (gateRecovery) gateCheckNs = lastOutputNs + GATE_CHECK_NS;
+            if (gateRecovery) {
+                gateCheckNs = lastOutputNs + GATE_CHECK_NS;
+                gateLevelNs = recentWait.lastNs();
+                gateBaseNs = recentWait.lowNs();
+                if (++gateDrops >= MAX_GATE_DROPS) {
+                    gateOff = true;
+                    event = "Decoder debt: " + gateDrops + " drops for the display since the last flush, half a frame is what is left";
+                }
+            }
         }
 
         /** No newer output came out within [WAIT_US] after [shouldDrop]; the held one was shown. */
@@ -431,12 +550,39 @@ final class DecoderQueuePolicy {
             under = 0;
             event = null;
             gate.reset();
+            recentWait.reset();
             gateRecovery = false;
             nothingBehind = false;
             droppedAlone = false;
             lastOutputNs = 0;
             gateCheckNs = 0;
             gateOff = false;
+            gateDrops = 0;
+            gateBackoffNs = 0;
+            gateQuietUntilNs = 0;
+            unlearnedLevelNs = 0;
+        }
+
+        private void watchDisplay(long submitToOutputNs, long nowNs, long contentIntervalNs) {
+            recentWait.add(submitToOutputNs, nowNs);
+            gate.onOutput(submitToOutputNs, nowNs, contentIntervalNs,
+                    submitToOutputNs - recentWait.lowNs() >= GATE_EXCESS_NS, !nothingBehind);
+            if (gateCheckNs == 0 || nowNs < gateCheckNs) return;
+            gateCheckNs = 0;
+            long waitBeforeNs = gateLevelNs - gateBaseNs;
+            long waitAfterNs = recentWait.lastNs() - gateBaseNs;
+            if (gate.stillHeld(GATE_CHECK_BUCKETS, GATE_CHECK_SLOPE)) {
+                gateOff = true;
+                event = "Decoder debt: outputs still follow the display after a drop, the wait for a buffer is not it";
+            } else if (waitAfterNs * 2 > waitBeforeNs) {
+                gateBackoffNs = gateBackoffNs == 0 ? GATE_BACKOFF_NS : gateBackoffNs * 2;
+                gateQuietUntilNs = nowNs + gateBackoffNs;
+                event = String.format(java.util.Locale.ROOT,
+                        "Decoder debt: a drop left %.1f of %.1f ms of wait, the next one waits %d minutes",
+                        waitAfterNs / 1e6, waitBeforeNs / 1e6, gateBackoffNs / 60_000_000_000L);
+            } else {
+                gateBackoffNs = 0;
+            }
         }
 
         private void recover(long nowNs) {
@@ -471,14 +617,12 @@ final class DecoderQueuePolicy {
             else finish("ended without a drop", excessNs, WATCH, false);
         }
 
-        /**
-         * The excess is the decoder's own: raise the floor to the level measured and pause. Past
-         * [MAX_LEARNED_FRAMES] it is a stall still working through (start-up bursts reach 70 ms and
-         * more, and a floor that high would hide every later rise): pause without moving the floor.
-         */
+        /** The excess is the decoder's own: raise the floor to the level measured and pause. */
         private void learn(String result) {
             long level = median(recentNs[0], recentNs[1], recentNs[2]);
-            if (learnedNs + level > MAX_LEARNED_FRAMES * intervalNs) {
+            if (watchesDisplay && learnedNs + level > MAX_LEARNED_FRAMES * intervalNs &&
+                    Math.abs(level - unlearnedLevelNs) * 2 >= intervalNs) {
+                unlearnedLevelNs = level;
                 finish(result, level, PAUSED, false);
                 return;
             }

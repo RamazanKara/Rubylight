@@ -45,6 +45,16 @@ public class FrameLatencyStatsTest {
         stats.onDecoderOutput(0, ptsUs, 5_000_000);
     }
 
+    @Test public void submitToOutputStartsBeforeTheQueueCallAndInputToOutputAfterIt() {
+        FrameLatencyStats stats = new FrameLatencyStats();
+        stats.onFrameReceived(100);
+        stats.onDecoderInput(1, 1, 100, 150, 200, (char) 0);
+        stats.onDecoderQueued(1, 203);
+        stats.onDecoderOutput(5, 1, 210);
+        assertEquals("what the overlay and the CSV report", 7, stats.getInputToOutputNs(5));
+        assertEquals("what the display gate reads", 10, stats.getSubmitToOutputNs(5));
+    }
+
     @Test public void displayWaitAndClientLatencyEndAtTheHandOffAndTheScreenTimeGoesToItsOwnStage() {
         FrameLatencyStats stats = new FrameLatencyStats();
         decodedAndReleased(stats, 1);

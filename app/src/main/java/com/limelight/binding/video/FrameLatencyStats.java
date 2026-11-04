@@ -149,6 +149,8 @@ class FrameLatencyStats {
         long receiveNs;
         long enqueueNs;
         long inputNs;
+        // Just before queueInputBuffer(); inputNs moves to when it returned.
+        long submitNs;
         long outputNs;
         long renderNs;
         long callbackReceivedNs;
@@ -176,7 +178,7 @@ class FrameLatencyStats {
         void reset() {
             number = 0;
             outputIndex = -1;
-            ptsUs = receiveNs = enqueueNs = inputNs = outputNs = renderNs = 0;
+            ptsUs = receiveNs = enqueueNs = inputNs = submitNs = outputNs = renderNs = 0;
             callbackReceivedNs = releaseNs = handoffNs = hostProcessingNs = 0;
             hostRtpUs = -1;
             hostTiming = null;
@@ -451,6 +453,7 @@ class FrameLatencyStats {
         frame.receiveNs = receiveNs;
         frame.enqueueNs = enqueueNs;
         frame.inputNs = inputNs;
+        frame.submitNs = inputNs;
         // The unsigned wire value is in 100 us units; zero means unavailable.
         frame.hostProcessingNs = hostProcessingLatency * 100000L;
         pending.put(frame);
@@ -657,6 +660,16 @@ class FrameLatencyStats {
         Frame frame = output(outputIndex);
         return frame == null || frame.inputNs <= 0 || frame.outputNs < frame.inputNs ? 0 :
                 frame.outputNs - frame.inputNs;
+    }
+
+    /**
+     * The time from just before a still-owned output's queue call, or zero when untracked. Unlike
+     * getInputToOutputNs it holds no jitter of the call's return, which no output can follow.
+     */
+    synchronized long getSubmitToOutputNs(int outputIndex) {
+        Frame frame = output(outputIndex);
+        return frame == null || frame.submitNs <= 0 || frame.outputNs < frame.submitNs ? 0 :
+                frame.outputNs - frame.submitNs;
     }
 
     /** When a still-owned output buffer came out of the decoder, or zero when untracked. */

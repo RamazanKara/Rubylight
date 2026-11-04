@@ -757,12 +757,18 @@ public final class HostActions {
 
     @VisibleForTesting
     void startPcPower(ComputerDetails computer, NativePcPower.Action action, SleepFlow.Client client, Executor worker) {
+        startPcPower(computer, action, client, worker, Thread::sleep);
+    }
+
+    @VisibleForTesting
+    void startPcPower(ComputerDetails computer, NativePcPower.Action action, SleepFlow.Client client, Executor worker,
+                      HostUpdateFlow.Sleeper sleeper) {
         endPcPower();
         Route route = new Route(activity.getApplicationContext(), "PC power " + action);
         powerRoute = route;
         showPowerProgress(powerTitle(action));
         new PcPowerFlow(action, client, pcPowerUi(computer, action, route), worker, main::post,
-                SystemClock::elapsedRealtime).start();
+                SystemClock::elapsedRealtime, sleeper).start();
     }
 
     private void endPcPower() {
@@ -884,6 +890,16 @@ public final class HostActions {
                     showError(title, text, sleepRetries(error) ? () -> pcPower(computer, action) : null);
                 }, text);
             }
+
+            @Override
+            public void refusedLater(String refusal) {
+                String refusedTitle = app.getString(action == NativePcPower.Action.RESTART
+                        ? R.string.host_restart_refused_title : R.string.host_shutdown_refused_title, name);
+                route.deliver("refusal after the answer: " + refusal, () -> {
+                    dismissPowerProgress();
+                    showError(refusedTitle, refusal, null);
+                }, refusedTitle + ": " + refusal);
+            }
         };
     }
 
@@ -909,7 +925,7 @@ public final class HostActions {
         }
         final Context app = activity.getApplicationContext();
         final String uniqueId = binder.getUniqueId();
-        confirmUpdate(computer, version, () -> startUpdate(computer, version, nativeClient(computer, binder), () -> {
+        confirmUpdate(computer, version, () -> startUpdate(computer, nativeClient(computer, binder), () -> {
             try {
                 return new NvHTTP(ServerHelper.getCurrentAddressFromComputer(computer), computer.httpsPort, uniqueId,
                         computer.serverCert, PlatformBinding.getCryptoProvider(app))
@@ -928,16 +944,15 @@ public final class HostActions {
     }
 
     @VisibleForTesting
-    void startUpdate(ComputerDetails computer, String version, SleepFlow.Client client, HostUpdateFlow.Probe probe,
-                     Executor worker, HostUpdateFlow.Sleeper sleeper) {
+    void startUpdate(ComputerDetails computer, SleepFlow.Client client, HostUpdateFlow.Probe probe, Executor worker,
+                     HostUpdateFlow.Sleeper sleeper) {
         endUpdate();
         Route route = new Route(activity.getApplicationContext(), "Host update");
         updateRoute = route;
-        HostUpdateFlow flow = new HostUpdateFlow(client, probe, updateUi(computer, route), worker, main::post,
-                SystemClock::elapsedRealtime, sleeper);
+        HostUpdateFlow flow = new HostUpdateFlow(client, probe, updateUi(computer, route), worker, main::post, sleeper);
         updateFlow = flow;
         showUpdateDialog(activity.getString(R.string.host_menu_update), activity.getString(R.string.host_sleep_asking));
-        flow.start(version);
+        flow.start();
     }
 
     /** A newer update or Cancel takes over: the wait stops and its outcome is dropped. */
@@ -992,6 +1007,13 @@ public final class HostActions {
             }
 
             @Override
+            public void waiting(String reason) {
+                String text = app.getString(R.string.host_update_waiting, reason);
+                route.deliver("waiting: " + reason, () -> showUpdateDialog(
+                        app.getString(R.string.host_update_started_title, name), text), null);
+            }
+
+            @Override
             public void back(String version) {
                 KnownUpdates.forget(computer.uuid);
                 String title = app.getString(R.string.host_update_back_title, name);
@@ -1006,6 +1028,34 @@ public final class HostActions {
             public void timedOut(String version) {
                 String text = app.getString(R.string.host_update_timeout, version);
                 route.deliver("timeout", () -> {
+                    dismissUpdateDialog();
+                    showError(failedTitle, text, null);
+                }, text);
+            }
+
+            @Override
+            public void nothingToInstall() {
+                String text = app.getString(R.string.host_update_none);
+                route.deliver("nothing to install", () -> {
+                    dismissUpdateDialog();
+                    showError(failedTitle, text, null);
+                }, text);
+            }
+
+            @Override
+            public void updateFailed(String error) {
+                String text = error != null ? error : app.getString(R.string.host_update_failed);
+                route.deliver("failed on the PC: " + error, () -> {
+                    dismissUpdateDialog();
+                    showError(failedTitle, text, null);
+                }, text);
+            }
+
+            @Override
+            public void cameBackOn(String version, String error) {
+                String back = app.getString(R.string.host_update_old_version, version);
+                String text = error != null ? back + " " + error : back;
+                route.deliver("back on the old version " + version, () -> {
                     dismissUpdateDialog();
                     showError(failedTitle, text, null);
                 }, text);

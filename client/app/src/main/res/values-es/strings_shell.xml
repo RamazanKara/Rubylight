@@ -44,6 +44,11 @@
     <string name="host_update_back">El servidor ya usa la versión %1$s.</string>
     <string name="host_update_failed_title">No se pudo actualizar %1$s</string>
     <string name="host_update_timeout">El PC no volvió con la versión %1$s a tiempo.</string>
+    <string name="host_restart_refused_title">No se pudo reiniciar %1$s</string>
+    <string name="host_shutdown_refused_title">No se pudo apagar %1$s</string>
+    <string name="host_update_waiting">%1$s La actualización empieza cuando termine ese stream.</string>
+    <string name="host_update_failed">La actualización falló en el PC.</string>
+    <string name="host_update_old_version">El PC volvió con la versión %1$s; la actualización no se instaló.</string>
     <string name="settings_category_accessibility">Accesibilidad</string>
     <string name="title_ui_scale">Tamaño de la interfaz</string>
     <string name="summary_ui_scale">Escala los menús, las listas y los diálogos de la app. La transmisión no se escala. El tamaño de fuente del sistema se aplica además. Se aplica al instante.</string>

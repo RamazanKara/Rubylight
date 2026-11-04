@@ -74,9 +74,20 @@ public class HostMenuPcPowerTest {
         api(envelope).capabilities();
     }
 
-    private static void readUpdate(String latest, boolean supported) throws Exception {
-        api("{\"ok\":{\"current_version\":\"3.3.0\",\"latest_version\":" + (latest == null ? "null" : "\"" + latest + "\"")
-                + ",\"phase\":\"idle\",\"install_supported\":" + supported + ",\"error\":null}}").hostUpdate();
+    /** An update op's envelope, with the verdicts native_api.rs adds from the shared rules. */
+    private static String update(String phase, String offered, boolean installingNow) {
+        return "{\"ok\":{\"current_version\":\"3.3.0\",\"latest_version\":\"v3.4.0\",\"phase\":\"" + phase
+                + "\",\"install_supported\":true,\"error\":null,\"waiting_for\":null,\"install_now\":" + installingNow
+                + ",\"offered\":" + (offered == null ? "null" : "\"" + offered + "\"") + ",\"installing_now\":"
+                + installingNow + ",\"in_progress\":" + !phase.equals("idle") + ",\"failed\":false,\"failure\":null}}";
+    }
+
+    private static void readUpdate(String phase, String offered, boolean installingNow) throws Exception {
+        api(update(phase, offered, installingNow)).hostUpdate();
+    }
+
+    private static void readUpdate(String offered) throws Exception {
+        readUpdate("idle", offered, false);
     }
 
     @Before
@@ -114,7 +125,7 @@ public class HostMenuPcPowerTest {
 
     @Test
     public void theUpdateNeedsTheFeatureHostControlAndANewerRelease() throws Exception {
-        readUpdate("v3.4.0", true);
+        readUpdate("3.4.0");
         read(capabilities("\"update\"", false, true));
         assertEquals("3.4.0", HostMenu.updateOffer(pc(), READY));
         assertNull(HostMenu.updateOffer(pc(), PcGridAdapter.RowState.OFFLINE));
@@ -123,12 +134,28 @@ public class HostMenuPcPowerTest {
         read(capabilities("\"library\"", false, true));
         assertNull(HostMenu.updateOffer(pc(), READY));
         read(capabilities("\"update\"", false, true));
-        readUpdate("3.3.0", true);
-        assertNull("Nothing newer", HostMenu.updateOffer(pc(), READY));
-        readUpdate("v3.4.0", false);
-        assertNull("Not an installed service", HostMenu.updateOffer(pc(), READY));
-        readUpdate(null, true);
+        // Nothing newer, or not an installed service: the shared rule offers none.
+        readUpdate(null);
         assertNull(HostMenu.updateOffer(pc(), READY));
+    }
+
+    @Test
+    public void installNowStaysOfferedWhileAnAutomaticUpdateWaitsButNotOnceItInstallsNow() throws Exception {
+        read(capabilities("\"update\"", false, true));
+        // An automatic update waiting for an idle PC, as while another device streams: Install now helps.
+        for (String phase : new String[] {"waiting", "downloading", "ready"}) {
+            readUpdate(phase, "3.4.0", false);
+            assertEquals(phase, "3.4.0", HostMenu.updateOffer(pc(), READY));
+            readUpdate(phase, "3.4.0", true);
+            assertNull(phase + " as an Install now", HostMenu.updateOffer(pc(), READY));
+        }
+        readUpdate("installing", "3.4.0", true);
+        assertNull(HostMenu.updateOffer(pc(), READY));
+        // This device's install, on a host that doesn't say install_now: hidden until the next read, as desktop.
+        api(update("ready", "3.4.0", false)).installHostUpdate();
+        assertNull(HostMenu.updateOffer(pc(), READY));
+        readUpdate("ready", "3.4.0", false);
+        assertEquals("3.4.0", HostMenu.updateOffer(pc(), READY));
     }
 
     private static List<MaterialButton> rows(View view, List<MaterialButton> into) {
@@ -160,7 +187,7 @@ public class HostMenuPcPowerTest {
             List<Integer> chosen = new ArrayList<>();
 
             read(capabilities("\"power.restart\",\"power.shutdown\",\"update\"", true, true));
-            readUpdate("v3.4.0", true);
+            readUpdate("3.4.0");
             ActionSheet menu = HostMenu.build(screen, pc(), READY, null, chosen::add);
             menu.show();
             MaterialButton[] entries = {row(menu, restart), row(menu, shutdown), row(menu, update)};

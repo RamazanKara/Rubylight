@@ -44,6 +44,11 @@
     <string name="host_update_back">Хост тепер працює на версії %1$s.</string>
     <string name="host_update_failed_title">Не вдалося оновити %1$s</string>
     <string name="host_update_timeout">ПК не повернувся з версією %1$s вчасно.</string>
+    <string name="host_restart_refused_title">Не вдалося перезавантажити %1$s</string>
+    <string name="host_shutdown_refused_title">Не вдалося вимкнути %1$s</string>
+    <string name="host_update_waiting">%1$s Оновлення почнеться, коли ця трансляція завершиться.</string>
+    <string name="host_update_failed">Оновлення на ПК не вдалося.</string>
+    <string name="host_update_old_version">ПК повернувся з версією %1$s; оновлення не встановилося.</string>
     <string name="settings_category_accessibility">Спеціальні можливості</string>
     <string name="title_ui_scale">Розмір інтерфейсу</string>
     <string name="summary_ui_scale">Масштабує меню, списки й діалоги застосунку. Трансляція не масштабується. Розмір шрифту системи застосовується додатково. Діє одразу.</string>

@@ -44,6 +44,11 @@
     <string name="host_update_back">ホストは現在バージョン %1$s です。</string>
     <string name="host_update_failed_title">%1$s を更新できませんでした</string>
     <string name="host_update_timeout">PC はバージョン %1$s で時間内に戻りませんでした。</string>
+    <string name="host_restart_refused_title">%1$sを再起動できませんでした</string>
+    <string name="host_shutdown_refused_title">%1$sをシャットダウンできませんでした</string>
+    <string name="host_update_waiting">%1$s そのストリームが終わると更新が始まります。</string>
+    <string name="host_update_failed">PC で更新に失敗しました。</string>
+    <string name="host_update_old_version">PC はバージョン %1$s で戻りました。更新はインストールされませんでした。</string>
     <string name="settings_category_accessibility">ユーザー補助</string>
     <string name="title_ui_scale">インターフェースのサイズ</string>
     <string name="summary_ui_scale">アプリのメニュー、リスト、ダイアログを拡大・縮小します。ストリームは拡大・縮小されません。システムのフォントサイズは引き続き適用されます。すぐに反映されます。</string>

@@ -44,6 +44,11 @@
     <string name="host_update_back">호스트가 이제 버전 %1$s을(를) 실행합니다.</string>
     <string name="host_update_failed_title">%1$s을(를) 업데이트하지 못했습니다</string>
     <string name="host_update_timeout">PC가 제시간에 버전 %1$s(으)로 돌아오지 않았습니다.</string>
+    <string name="host_restart_refused_title">%1$s을(를) 다시 시작하지 못했습니다</string>
+    <string name="host_shutdown_refused_title">%1$s을(를) 종료하지 못했습니다</string>
+    <string name="host_update_waiting">%1$s 그 스트림이 끝나면 업데이트가 시작됩니다.</string>
+    <string name="host_update_failed">PC에서 업데이트에 실패했습니다.</string>
+    <string name="host_update_old_version">PC가 버전 %1$s(으)로 돌아왔습니다. 업데이트가 설치되지 않았습니다.</string>
     <string name="settings_category_accessibility">접근성</string>
     <string name="title_ui_scale">인터페이스 크기</string>
     <string name="summary_ui_scale">앱의 메뉴, 목록, 대화상자 크기를 조절합니다. 스트림은 조절되지 않습니다. 시스템 글꼴 크기는 그 위에 추가로 적용됩니다. 바로 적용됩니다.</string>

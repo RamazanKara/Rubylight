@@ -1,0 +1,5 @@
+- Restart, shut down or update your PC from its menu, on hosts that allow it for this device.
+- One set of stream hotkeys on Android and desktop, each changeable in Settings.
+- WASD stick for the modern on-screen controller; trackpad taps vibrate too.
+- Sharpening and upscaling stay on for AV1 from AMD graphics.
+- Steam Deck and Linux handhelds: a Flatpak in every release.

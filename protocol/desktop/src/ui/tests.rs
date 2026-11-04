@@ -428,6 +428,7 @@ fn power_native(allowed: bool, host_control: bool) -> (nightjar_core::http::Nati
         install_supported: true,
         error: None,
         waiting_for: None,
+        install_now: false,
     };
     (capabilities, Some(update))
 }
@@ -1888,11 +1889,17 @@ fn update_the_pcs_host_is_offered_with_host_control_and_confirmed_with_cancel_fo
     };
     assert!(offered("power"));
     assert!(!offered("power not allowed"), "not without Host control");
-    // Not again while one is queued or installing, as after a tap: no second update.started.
+    // Not again while it installs or is queued as an Install now, as after a tap: no second
+    // update.started. An automatic update waiting for an idle PC, as while streaming, still
+    // takes Install now.
     for phase in ["waiting", "downloading", "ready", "installing"] {
-        let mut f = every_state().into_iter().find(|s| s.name == "power").unwrap().frames();
-        f.hosts.list[0].native.update.as_mut().unwrap().phase = phase.into();
-        assert!(!host_options(&f.hosts.list[0]).contains(&HostOption::UpdateHost), "{phase}");
+        for install_now in [false, true] {
+            let mut f = every_state().into_iter().find(|s| s.name == "power").unwrap().frames();
+            let update = f.hosts.list[0].native.update.as_mut().unwrap();
+            (update.phase, update.install_now) = (phase.into(), install_now);
+            let shown = host_options(&f.hosts.list[0]).contains(&HostOption::UpdateHost);
+            assert_eq!(shown, phase != "installing" && !install_now, "{phase} {install_now}");
+        }
     }
     assert!(!offered("paired"), "not where the PC does not list it");
     // Not allowed: one row says so for both.

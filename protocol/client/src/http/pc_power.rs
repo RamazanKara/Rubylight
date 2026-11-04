@@ -110,12 +110,28 @@ pub struct HostUpdate {
     /// it never ends another device's stream. Older hosts leave it out.
     #[serde(default)]
     pub waiting_for: Option<String>,
+    /// The queued update is an Install now, not an automatic one waiting for an idle PC.
+    /// Older hosts leave it out.
+    #[serde(default)]
+    pub install_now: bool,
 }
 
 impl HostUpdate {
-    /// An update is queued, downloading or installing: nothing to offer again meanwhile.
+    /// An update is queued, downloading or installing.
     pub fn in_progress(&self) -> bool {
         matches!(self.phase.as_str(), "waiting" | "downloading" | "ready" | "installing")
+    }
+
+    /// Whether Install now would change nothing: the update installs, or is queued as an
+    /// Install now already. An automatic update waiting for an idle PC still takes one.
+    pub fn installing_now(&self) -> bool {
+        self.phase == "installing" || (self.install_now && self.in_progress())
+    }
+
+    /// Following an install to `target`, read after the PC went away: back with nothing under
+    /// way and not on `target`, so setup gave up.
+    pub fn gave_up(&self, target: &str) -> bool {
+        !self.in_progress() && !update_arrived(&self.current_version, target)
     }
 
     /// The PC's updater failed, in its own words when it gave some.
@@ -203,6 +219,29 @@ mod tests {
         // An older host: no wait reported.
         let older: HostUpdate = serde_json::from_str(r#"{"current_version":"3.3.0","phase":"idle"}"#).unwrap();
         assert_eq!(older.waiting_for, None);
+        assert!(!older.install_now);
+    }
+
+    #[test]
+    fn install_now_is_offered_again_until_it_installs_or_is_queued_as_one() {
+        let update = |phase: &str, install_now: bool| HostUpdate { phase: phase.into(), install_now, ..Default::default() };
+        // An automatic update waiting for an idle PC: Install now still helps.
+        for phase in ["waiting", "downloading", "ready"] {
+            assert!(!update(phase, false).installing_now(), "{phase}");
+            assert!(update(phase, true).installing_now(), "{phase}");
+        }
+        assert!(update("installing", false).installing_now());
+        assert!(!update("idle", true).installing_now() && !update("failed", true).installing_now());
+        let read: HostUpdate = serde_json::from_str(r#"{"current_version":"3.3.0","phase":"ready","install_now":true}"#).unwrap();
+        assert!(read.installing_now());
+    }
+
+    #[test]
+    fn setup_gave_up_once_the_pc_is_back_on_another_version_with_nothing_under_way() {
+        let update = |current: &str, phase: &str| HostUpdate { current_version: current.into(), phase: phase.into(), ..Default::default() };
+        assert!(update("3.3.0", "idle").gave_up("3.4.0"));
+        assert!(!update("3.3.0", "installing").gave_up("3.4.0"));
+        assert!(!update("v3.4.0", "idle").gave_up("3.4.0"));
     }
 
     #[test]

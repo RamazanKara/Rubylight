@@ -11,6 +11,12 @@
     <string name="stream_hotkey_modifier">Windowsキーを使わずに、Ctrl、Alt、Shiftのいずれかを使ってください。</string>
     <string name="stream_hotkey_one_key">Ctrl、Alt、Shift以外のキーを1つ使ってください。</string>
     <string name="stream_hotkey_reserved">この組み合わせはWindowsが使用します。</string>
+    <string name="stream_hotkey_typing">この組み合わせは文字入力に使われます。</string>
+    <!-- Key names in a chord, as desktop Nightjar's tables say them (a desktop test compares them). -->
+    <string name="key_cap_ctrl">Ctrl</string>
+    <string name="key_cap_shift">Shift</string>
+    <string name="key_cap_enter">Enter</string>
+    <string name="key_cap_del">Del</string>
     <string name="stream_hotkey_unsupported">対応していないキー：%1$s</string>
     <string name="stream_hotkey_repeated">重複したキー：%1$s</string>
     <string name="stream_hotkey_action_quit">切断</string>

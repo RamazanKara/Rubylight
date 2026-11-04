@@ -130,6 +130,8 @@ public final class RustStreamMenuModel implements StreamMenuModel.Calls {
             case "WIN": return "Win";
             case "ESC": return "Esc";
             case "TAB": return "Tab";
+            case "DELETE": return "Del";
+            case "ENTER": return "Enter";
             case "CAPS_LOCK": return "Caps Lock";
             default: return key;
         }
@@ -192,6 +194,16 @@ public final class RustStreamMenuModel implements StreamMenuModel.Calls {
                 }
                 case "hotkeys": return ok(hotkeys(in.getJSONObject("bindings")));
                 case "check_hotkey": return checkHotkey(in.getString("id"), in.getJSONArray("keys"), in.getJSONObject("bindings"));
+                case "check_reset": {
+                    // shortcuts::check_reset: the default goes through check_hotkey like a recorded chord.
+                    String id = in.getString("id");
+                    for (String[][] hotkey : hotkeys) {
+                        if (!hotkey[0][0].equals(id)) continue;
+                        JSONObject answer = new JSONObject(checkHotkey(id, new JSONArray(Arrays.asList(hotkey[1])), in.getJSONObject("bindings")));
+                        return answer.has("error") ? answer.toString() : ok(JSONObject.NULL);
+                    }
+                    return error("invalid");
+                }
                 default: return error("invalid");
             }
         } catch (JSONException e) {
@@ -199,12 +211,20 @@ public final class RustStreamMenuModel implements StreamMenuModel.Calls {
         }
     }
 
-    /** shortcuts::bound: a saved chord or the default, off as null; an old chord while unchanged and free. */
+    /**
+     * shortcuts::bound: a saved chord or the default, off as null; a chord an earlier action has leaves the later
+     * one without it, naming the earlier; an old chord while unchanged and free.
+     */
     private JSONArray hotkeys(JSONObject bindings) throws JSONException {
         List<String[]> bound = new ArrayList<>();
+        List<String> takenBy = new ArrayList<>();
         for (String[][] hotkey : hotkeys) {
             String saved = bindings.optString(hotkey[0][0], null);
-            bound.add(saved == null ? hotkey[1] : saved.equals("off") ? null : saved.split("\\+"));
+            String[] keys = saved == null ? hotkey[1] : saved.equals("off") ? null : saved.split("\\+");
+            String by = null;
+            for (int i = 0; i < bound.size() && keys != null; i++) if (Arrays.equals(bound.get(i), keys)) by = hotkeys.get(i)[0][0];
+            bound.add(by == null ? keys : null);
+            takenBy.add(by);
         }
         JSONArray answer = new JSONArray();
         for (int i = 0; i < hotkeys.size(); i++) {
@@ -217,12 +237,37 @@ public final class RustStreamMenuModel implements StreamMenuModel.Calls {
                 if (!taken) old.put(chord(hotkey[2]));
             }
             answer.put(new JSONObject().put("id", hotkey[0][0]).put("chord", bound.get(i) == null ? JSONObject.NULL : chord(bound.get(i)))
-                    .put("default", chord(hotkey[1])).put("changed", changed).put("old", old));
+                    .put("default", chord(hotkey[1])).put("changed", changed).put("old", old)
+                    .put("taken", takenBy.get(i) == null ? JSONObject.NULL : takenBy.get(i)));
         }
         return answer;
     }
 
-    private String checkHotkey(String id, JSONArray list, JSONObject bindings) throws JSONException {
+    private static final Set<String> EDITING = new HashSet<>(Arrays.asList("HOME", "END", "LEFT", "RIGHT", "UP", "DOWN",
+            "PAGE_UP", "PAGE_DOWN", "DELETE", "BACKSPACE", "ENTER", "TAB", "INSERT"));
+
+    /** shortcuts::refused_chord, for the keys the tests press: the shell's chords, then the ones used for typing. */
+    private static String refused(List<String> modifiers, String key) {
+        boolean ctrl = modifiers.contains("CTRL"), alt = modifiers.contains("ALT"), shift = modifiers.contains("SHIFT");
+        boolean printable = key.length() == 1 || key.equals("SPACE");
+        if ((ctrl && alt && key.equals("DELETE")) || (alt && !ctrl && (key.equals("TAB") || key.equals("ESC")))
+                || (ctrl && alt && !shift && key.equals("TAB")) || (ctrl && !alt && key.equals("ESC"))) {
+            return "reserved";
+        }
+        if (shift && !ctrl && !alt && (printable || EDITING.contains(key))) return "hotkey_typing";
+        if (alt && !shift && printable) return "hotkey_typing";
+        if (ctrl && !alt && !shift && ("ACVXYZ".contains(key) && key.length() == 1 || (EDITING.contains(key) && !key.equals("TAB")))) {
+            return "hotkey_typing";
+        }
+        return null;
+    }
+
+    private String checkHotkey(String id, JSONArray given, JSONObject bindings) throws JSONException {
+        JSONArray list = given;
+        // shortcuts::hotkey_keys: a key alone gets Ctrl+Alt+Shift.
+        if (list.length() == 1 && !MODIFIERS.contains(list.getString(0))) {
+            list = new JSONArray(Arrays.asList("CTRL", "ALT", "SHIFT", list.getString(0)));
+        }
         if (list.length() < 2 || list.length() > 4) return error("hotkey_length");
         List<String> keys = new ArrayList<>();
         String key = null;
@@ -238,6 +283,8 @@ public final class RustStreamMenuModel implements StreamMenuModel.Calls {
             }
         }
         if (keys.isEmpty()) return error("hotkey_modifier");
+        String refusal = refused(keys, key);
+        if (refusal != null) return error(refusal);
         keys.add(key);
         JSONArray bound = hotkeys(bindings);
         for (int i = 0; i < bound.length(); i++) {
@@ -267,6 +314,7 @@ public final class RustStreamMenuModel implements StreamMenuModel.Calls {
                 case "CTRL": modifiers |= 2; break;
                 case "ALT": modifiers |= 4; break;
                 case "TAB": vk = 0x09; break;
+                case "DELETE": vk = 0x2E; break;
                 default:
                     if (key.length() == 1) vk = key.charAt(0);
                     else if (key.matches("F\\d+")) vk = 0x6F + Integer.parseInt(key.substring(1));
@@ -274,7 +322,7 @@ public final class RustStreamMenuModel implements StreamMenuModel.Calls {
             }
         }
         return new JSONObject().put("keys", new JSONArray(Arrays.asList(keys))).put("label", String.join(" + ", labels))
-                .put("modifiers", modifiers).put("vk", vk);
+                .put("caps", new JSONArray(labels)).put("modifiers", modifiers).put("vk", vk);
     }
 
     private Object layout(JSONObject in) throws JSONException {

@@ -42,7 +42,7 @@ Unsaved progress will be lost.</string>
     <string name="stream_menu_hint_buttons">swipe up from the bottom and tap Back</string>
     <string name="stream_menu_hint_back">press Back</string>
     <string name="stream_menu_hint_controller">press Start + Back + LB + RB on the controller</string>
-    <string name="stream_menu_hint_keyboard">press Ctrl + Alt + Shift + Tab</string>
+    <string name="stream_menu_hint_keyboard">press %1$s</string>
     <string name="stream_menu_hint_or">%1$s or %2$s</string>
     <string name="stream_menu_hint_list">%1$s, %2$s</string>
     <string name="stream_menu_hint_close">Tap to close</string>

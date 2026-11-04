@@ -11,6 +11,12 @@
     <string name="stream_hotkey_modifier">Usa Ctrl, Alt o Shift, senza il tasto Windows.</string>
     <string name="stream_hotkey_one_key">Usa un tasto oltre a Ctrl, Alt e Shift.</string>
     <string name="stream_hotkey_reserved">Windows riserva questa combinazione.</string>
+    <string name="stream_hotkey_typing">Questa combinazione serve per scrivere.</string>
+    <!-- Key names in a chord, as desktop Nightjar's tables say them (a desktop test compares them). -->
+    <string name="key_cap_ctrl">Ctrl</string>
+    <string name="key_cap_shift">Shift</string>
+    <string name="key_cap_enter">Invio</string>
+    <string name="key_cap_del">Canc</string>
     <string name="stream_hotkey_unsupported">Tasto non supportato: %1$s</string>
     <string name="stream_hotkey_repeated">Tasto ripetuto: %1$s</string>
     <string name="stream_hotkey_action_quit">Disconnetti</string>

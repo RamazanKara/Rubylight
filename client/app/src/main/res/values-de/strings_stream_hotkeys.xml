@@ -11,6 +11,12 @@
     <string name="stream_hotkey_modifier">Verwende Strg, Alt oder Umschalt, ohne die Windows-Taste.</string>
     <string name="stream_hotkey_one_key">Verwende eine Taste zusätzlich zu Strg, Alt und Umschalt.</string>
     <string name="stream_hotkey_reserved">Diese Kombination behält Windows für sich.</string>
+    <string name="stream_hotkey_typing">Diese Kombination dient zum Schreiben.</string>
+    <!-- Key names in a chord, as desktop Nightjar's tables say them (a desktop test compares them). -->
+    <string name="key_cap_ctrl">Strg</string>
+    <string name="key_cap_shift">Umschalt</string>
+    <string name="key_cap_enter">Eingabe</string>
+    <string name="key_cap_del">Entf</string>
     <string name="stream_hotkey_unsupported">Nicht unterstützte Taste: %1$s</string>
     <string name="stream_hotkey_repeated">Wiederholte Taste: %1$s</string>
     <string name="stream_hotkey_action_quit">Trennen</string>

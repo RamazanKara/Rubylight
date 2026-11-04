@@ -37,7 +37,7 @@ Tiến trình chưa lưu sẽ bị mất.</string>
     <string name="stream_menu_hint_buttons">vuốt lên từ cạnh dưới và nhấn Quay lại</string>
     <string name="stream_menu_hint_back">nhấn Quay lại</string>
     <string name="stream_menu_hint_controller">nhấn Start + Back + LB + RB trên tay cầm điều khiển</string>
-    <string name="stream_menu_hint_keyboard">nhấn Ctrl + Alt + Shift + Tab</string>
+    <string name="stream_menu_hint_keyboard">nhấn %1$s</string>
     <string name="stream_menu_hint_or">%1$s hoặc %2$s</string>
     <string name="stream_menu_hint_list">%1$s, %2$s</string>
     <string name="stream_menu_hint_close">Nhấn để đóng</string>

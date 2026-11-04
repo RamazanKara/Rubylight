@@ -37,7 +37,7 @@
     <string name="stream_menu_hint_buttons">下から上にスワイプして [戻る] をタップ</string>
     <string name="stream_menu_hint_back">[戻る] を押す</string>
     <string name="stream_menu_hint_controller">コントローラで Start + Back + LB + RB を押す</string>
-    <string name="stream_menu_hint_keyboard">Ctrl + Alt + Shift + Tab を押す</string>
+    <string name="stream_menu_hint_keyboard">%1$s を押す</string>
     <string name="stream_menu_hint_or">%1$s、または %2$s</string>
     <string name="stream_menu_hint_list">%1$s、%2$s</string>
     <string name="stream_menu_hint_close">タップして閉じる</string>

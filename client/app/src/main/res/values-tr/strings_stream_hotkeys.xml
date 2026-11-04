@@ -11,6 +11,12 @@
     <string name="stream_hotkey_modifier">Windows tuşu olmadan Ctrl, Alt veya Shift kullanın.</string>
     <string name="stream_hotkey_one_key">Ctrl, Alt ve Shift dışında bir tuş kullanın.</string>
     <string name="stream_hotkey_reserved">Bu kombinasyon Windows\'a ayrılmıştır.</string>
+    <string name="stream_hotkey_typing">Bu kombinasyon yazmak için kullanılır.</string>
+    <!-- Key names in a chord, as desktop Nightjar's tables say them (a desktop test compares them). -->
+    <string name="key_cap_ctrl">Ctrl</string>
+    <string name="key_cap_shift">Shift</string>
+    <string name="key_cap_enter">Enter</string>
+    <string name="key_cap_del">Del</string>
     <string name="stream_hotkey_unsupported">Desteklenmeyen tuş: %1$s</string>
     <string name="stream_hotkey_repeated">Tekrarlanan tuş: %1$s</string>
     <string name="stream_hotkey_action_quit">Bağlantıyı kes</string>

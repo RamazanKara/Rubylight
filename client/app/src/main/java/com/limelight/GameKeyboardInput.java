@@ -406,7 +406,8 @@ final class GameKeyboardInput {
         }
         // An old chord (Ctrl+Alt+Shift+M for the menu) still works this release, and says once where it moved.
         if (match.hotkey.chord != null && match.firstOldUse(PreferenceManager.getDefaultSharedPreferences(game))) {
-            game.messages.alert(game.getString(R.string.stream_hotkey_moved, match.old.label, match.hotkey.chord.label), Toast.LENGTH_LONG);
+            game.messages.alert(game.getString(R.string.stream_hotkey_moved, StreamHotkeys.label(game, match.old),
+                    StreamHotkeys.label(game, match.hotkey.chord)), Toast.LENGTH_LONG);
         }
     }
     // The host has already seen Ctrl, Alt and Shift go down for a client-side combo like Ctrl+Alt+Shift+K, and

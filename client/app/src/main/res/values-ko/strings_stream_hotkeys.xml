@@ -11,6 +11,12 @@
     <string name="stream_hotkey_modifier">Windows 키 없이 Ctrl, Alt, Shift 중 하나를 사용하세요.</string>
     <string name="stream_hotkey_one_key">Ctrl, Alt, Shift 외에 키 하나를 사용하세요.</string>
     <string name="stream_hotkey_reserved">이 조합은 Windows가 사용합니다.</string>
+    <string name="stream_hotkey_typing">이 조합은 문자 입력에 사용됩니다.</string>
+    <!-- Key names in a chord, as desktop Nightjar's tables say them (a desktop test compares them). -->
+    <string name="key_cap_ctrl">Ctrl</string>
+    <string name="key_cap_shift">Shift</string>
+    <string name="key_cap_enter">Enter</string>
+    <string name="key_cap_del">Del</string>
     <string name="stream_hotkey_unsupported">지원되지 않는 키: %1$s</string>
     <string name="stream_hotkey_repeated">중복된 키: %1$s</string>
     <string name="stream_hotkey_action_quit">연결 끊기</string>

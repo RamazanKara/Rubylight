@@ -11,6 +11,12 @@
     <string name="stream_hotkey_modifier">Dùng Ctrl, Alt hoặc Shift, không dùng phím Windows.</string>
     <string name="stream_hotkey_one_key">Dùng một phím ngoài Ctrl, Alt và Shift.</string>
     <string name="stream_hotkey_reserved">Windows giữ tổ hợp này.</string>
+    <string name="stream_hotkey_typing">Tổ hợp này dùng để gõ chữ.</string>
+    <!-- Key names in a chord, as desktop Nightjar's tables say them (a desktop test compares them). -->
+    <string name="key_cap_ctrl">Ctrl</string>
+    <string name="key_cap_shift">Shift</string>
+    <string name="key_cap_enter">Enter</string>
+    <string name="key_cap_del">Del</string>
     <string name="stream_hotkey_unsupported">Phím không được hỗ trợ: %1$s</string>
     <string name="stream_hotkey_repeated">Phím bị lặp: %1$s</string>
     <string name="stream_hotkey_action_quit">Ngắt kết nối</string>

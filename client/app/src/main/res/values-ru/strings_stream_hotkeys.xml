@@ -11,6 +11,12 @@
     <string name="stream_hotkey_modifier">Используйте Ctrl, Alt или Shift без клавиши Windows.</string>
     <string name="stream_hotkey_one_key">Используйте одну клавишу помимо Ctrl, Alt и Shift.</string>
     <string name="stream_hotkey_reserved">Это сочетание занято Windows.</string>
+    <string name="stream_hotkey_typing">Это сочетание нужно для набора текста.</string>
+    <!-- Key names in a chord, as desktop Nightjar's tables say them (a desktop test compares them). -->
+    <string name="key_cap_ctrl">Ctrl</string>
+    <string name="key_cap_shift">Shift</string>
+    <string name="key_cap_enter">Enter</string>
+    <string name="key_cap_del">Del</string>
     <string name="stream_hotkey_unsupported">Неподдерживаемая клавиша: %1$s</string>
     <string name="stream_hotkey_repeated">Повторяющаяся клавиша: %1$s</string>
     <string name="stream_hotkey_action_quit">Отключиться</string>

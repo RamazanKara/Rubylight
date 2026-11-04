@@ -371,6 +371,9 @@ pub struct Evidence {
     /// The highest rate the stream presented at while the check took its presents, 0 before it
     /// took any: a check is judged at the rate it ran at, not at a later one.
     pub check_hz: f64,
+    /// The rate of the last presents, 0 before there were enough. Too short to judge the display
+    /// by; at a busy rate it holds the quick rule back until a whole second has said.
+    pub recent_hz: f64,
 }
 
 /// The first thing that rules racing out, as the word the overlay shows after "off".
@@ -463,12 +466,16 @@ pub fn decide(e: &Evidence) -> Verdict {
     // nothing: with `FIXED_FRAMES` presents after it and none of them starting a scan, the check
     // is not waited for. Nor is it after a calibration that saw the display wait for presents
     // (`idled`), or while the rate still settles (`STEADY`): on a resume the quick rule called a
-    // 120 Hz VRR monitor "no VRR" from 66 presents a second. Tested presents that missed still do.
+    // 120 Hz VRR monitor "no VRR" from 66 presents a second. Nor while the last presents ran at a
+    // busy rate no whole second has measured yet (`recent_hz`): the same monitor's check took its
+    // 60 presents at 120 a second, judged by a first second of 52-77. Tested presents that missed
+    // still do.
     let check_hz = if e.check_hz > 0.0 { e.check_hz } else { e.content_hz };
     let idled = beam.idled();
     let fixed = check_hz > 0.0 && e.display_hz > 0.0 && !busy(check_hz, e.display_hz) && beam.vblank_fraction < 0.3;
     let steady = e.check_rates.is_none_or(|(low, high)| low >= high * STEADY);
-    if fixed && !idled && steady && e.check.running() && e.check.frames >= FIXED_FRAMES && e.check.tested == e.check.missed {
+    let rising = busy(e.recent_hz, e.display_hz);
+    if fixed && !idled && steady && !rising && e.check.running() && e.check.frames >= FIXED_FRAMES && e.check.tested == e.check.missed {
         return Verdict::Off(Reason::NoVrr, capability);
     }
     if e.check.failed() {
@@ -794,7 +801,7 @@ mod tests {
     fn evidence() -> Evidence {
         let mut check = RestartCheck::default();
         for _ in 0..CHECK_TESTED { check.push(Restart::Began); }
-        Evidence { tearing: true, scanline: true, fullscreen: true, beam: Some(Ok(beam(0.75))), check, content_hz: 60.0, display_hz: 240.0, check_rates: None, check_hz: 0.0 }
+        Evidence { tearing: true, scanline: true, fullscreen: true, beam: Some(Ok(beam(0.75))), check, content_hz: 60.0, display_hz: 240.0, check_rates: None, check_hz: 0.0, recent_hz: 0.0 }
     }
 
     fn missed() -> RestartCheck {
@@ -1030,6 +1037,12 @@ mod tests {
         let settling = Evidence { check_rates: Some((66.0, 120.0)), ..steady };
         assert_eq!(decide(&settling), Verdict::Checking);
         assert!(decide(&Evidence { check: starved(), ..settling }).fixed_refresh(), "and still tells it");
+        // The last presents ran busy and no whole second has said so yet: the next presents or the
+        // whole check decide.
+        let rising = Evidence { recent_hz: 120.0, ..steady };
+        assert_eq!(decide(&rising), Verdict::Checking);
+        assert!(decide(&Evidence { recent_hz: 70.0, ..rising }).fixed_refresh(), "a burst that passed");
+        assert!(decide(&Evidence { check: starved(), ..rising }).fixed_refresh(), "and still tells it");
     }
 
     #[test]

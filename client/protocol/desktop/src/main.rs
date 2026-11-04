@@ -24,6 +24,7 @@ mod dmabuf;
 mod gamepad;
 mod glyphs;
 mod gui;
+mod handheld;
 mod host_page;
 mod hosts;
 mod keymap;
@@ -180,6 +181,10 @@ struct App {
     screenshot_requested: bool,
     stick_held: [bool; 4],
     nav_repeat: nav_repeat::NavRepeat,
+    /// Under gamescope, hidden while a controller is in use outside streams.
+    pointer: handheld::Pointer,
+    /// The stream being started plays in SDR although HDR was asked for (gamescope without HDR): its start says so.
+    hdr_note: bool,
     running: bool,
     autostream: Option<autostream::Autostream>,
     cli: Option<cli::CliLaunch>,
@@ -439,19 +444,28 @@ fn run(launch: Option<cli::Launch>) -> Result<(), String> {
     #[cfg(not(unix))]
     let vulkan_video = false;
 
+    // Steam's Game Mode: fullscreen without a border from the start (handheld.rs).
+    let start = handheld::start_window(handheld::gamescope());
+    if handheld::gamescope() {
+        eprintln!("nightjar: gamescope: starting fullscreen without a border; Start+Back opens the stream menu");
+    }
     // SAFETY: window and renderer creation on the main thread.
     let (window, renderer, wake_event) = unsafe {
         let window = SDL_CreateWindow(
             c"Nightjar".as_ptr(),
             1280,
             800,
-            SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY | SDL_WINDOW_HIDDEN,
+            SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY | SDL_WINDOW_HIDDEN
+                | if start.fullscreen { SDL_WINDOW_FULLSCREEN } else { SDL_WindowFlags(0) }
+                | if start.borderless { SDL_WINDOW_BORDERLESS } else { SDL_WindowFlags(0) },
         );
         if window.is_null() {
             return Err(format!("No window: {}", sdl::error()));
         }
         SDL_SetWindowMinimumSize(window, 720, 480);
-        window_place::apply(window, store.window_placement().as_ref());
+        if start.restore_place {
+            window_place::apply(window, store.window_placement().as_ref());
+        }
         let renderer =
             sdl::create_renderer_with(window, gpu, vulkan_video);
         if renderer.is_null() {
@@ -586,6 +600,8 @@ fn run(launch: Option<cli::Launch>) -> Result<(), String> {
         screenshot_requested: false,
         stick_held: [false; 4],
         nav_repeat: nav_repeat::NavRepeat::default(),
+        pointer: handheld::Pointer::new(handheld::gamescope()),
+        hdr_note: false,
         running: true,
         autostream: autostream::Autostream::from_env(),
         updates,
@@ -818,6 +834,17 @@ impl App {
 
     fn handle_launcher_event(&mut self, event: &SDL_Event) {
         self.track_visibility(event);
+        // SAFETY: reading the event type; SDL cursor calls on the main thread.
+        let input = match SDL_EventType(unsafe { event.r#type }) {
+            SDL_EVENT_GAMEPAD_BUTTON_DOWN | SDL_EVENT_GAMEPAD_AXIS_MOTION => handheld::Input::Controller,
+            SDL_EVENT_MOUSE_MOTION | SDL_EVENT_MOUSE_BUTTON_DOWN | SDL_EVENT_MOUSE_WHEEL => handheld::Input::Mouse,
+            _ => handheld::Input::Other,
+        };
+        match self.pointer.input(input) {
+            Some(true) => unsafe { SDL_ShowCursor(); },
+            Some(false) => unsafe { SDL_HideCursor(); },
+            None => {}
+        }
         let scale = Scale::of(self.window);
         // SAFETY: union members read by event type.
         unsafe {
@@ -1718,9 +1745,19 @@ impl App {
         if mic_only {
             mic_only_settings(&mut settings);
         }
-        if settings.hdr && !sdl::hdr_available(self.renderer) {
-            self.launcher.message(tr("HDR output unavailable"), tr("Enable HDR on this display and restart Nightjar. The current compositor or swapchain does not support HDR output."));
-            return;
+        self.hdr_note = false;
+        match handheld::hdr_stream(settings.hdr, sdl::hdr_available(self.renderer), handheld::gamescope()) {
+            handheld::HdrStream::Refuse => {
+                self.launcher.message(tr("HDR output unavailable"), tr("Enable HDR on this display and restart Nightjar. The current compositor or swapchain does not support HDR output."));
+                return;
+            }
+            handheld::HdrStream::SdrWithNote => {
+                let why = sdl::output_decision().and_then(Result::err).map_or("no HDR output", handheld::SdrReason::says);
+                eprintln!("nightjar: HDR asked for, streaming in SDR: {why}");
+                settings.hdr = false;
+                self.hdr_note = true;
+            }
+            handheld::HdrStream::Hdr | handheld::HdrStream::Sdr => {}
         }
         let mut gpu_decoder = None;
         if settings.codec.is_pyrowave() {
@@ -1834,7 +1871,12 @@ impl App {
         // SAFETY: window and renderer calls on the main thread.
         unsafe {
             SDL_SetRenderVSync(self.renderer, if pacing == PacingMode::Vsync { 1 } else { 0 });
-            match if facts.role == nightjar_core::http::AppRole::InputOnly { WindowMode::Windowed } else { settings.window_mode } {
+            // Gamescope scales the window itself: no exclusive mode change there.
+            let mode = match settings.window_mode {
+                WindowMode::Fullscreen if handheld::gamescope() => WindowMode::Borderless,
+                mode => mode,
+            };
+            match if facts.role == nightjar_core::http::AppRole::InputOnly { WindowMode::Windowed } else { mode } {
                 WindowMode::Fullscreen => {
                     let mut mode: SDL_DisplayMode = std::mem::zeroed();
                     let id = SDL_GetDisplayForWindow(self.window);
@@ -1884,7 +1926,8 @@ impl App {
         if notices_changed {
             self.save_hosts();
         }
-        let notices: Vec<&str> = pyrowave.as_deref().into_iter().chain(streaming.facts.color_notice.as_deref()).collect();
+        let hdr_note = std::mem::take(&mut self.hdr_note).then(|| tr(HDR_OFF_NOTE));
+        let notices: Vec<&str> = hdr_note.into_iter().chain(pyrowave.as_deref()).chain(streaming.facts.color_notice.as_deref()).collect();
         let notices = notices.join("\n");
         let network = &self.launcher.network;
         let profiles = &self.launcher.profiles;
@@ -1896,7 +1939,7 @@ impl App {
         } else if profiles.automatic && profiles.home.is_some() && !profiles.home_wifi.is_empty() && network.wifi && network.ssid.is_none() {
             Some(tr("Wi-Fi name unavailable; using the other Wi-Fi profile."))
         } else { None };
-        let toast = start_toast(warning, (!notices.is_empty()).then_some(notices.as_str()));
+        let toast = start_toast(warning, (!notices.is_empty()).then_some(notices.as_str()), handheld::gamescope());
         streaming.show_toast(toast);
         self.streaming = Some((streaming, TimerResolution::begin()));
     }
@@ -1963,9 +2006,13 @@ impl App {
             }
         }
         streaming.finish(self.window, &mut self.pads);
+        // The stream's cursor shows the pointer again on leaving.
+        self.pointer.shown();
         // SAFETY: window and renderer calls on the main thread.
         unsafe {
-            SDL_SetWindowFullscreen(self.window, false);
+            if handheld::start_window(handheld::gamescope()).windowed_after_stream {
+                SDL_SetWindowFullscreen(self.window, false);
+            }
             SDL_SetRenderVSync(self.renderer, 1);
         }
         self.hosts.refresh_after_exit(host);
@@ -2805,9 +2852,20 @@ fn probed_once(cache: &mut Option<(Hardware, (u32, String))>, hardware: Hardware
 
 /// The toast a stream starts with: a network warning, the PyroWave fallback and what became of
 /// 4:4:4 and 10-bit SDR, else the controls hint.
-fn start_toast(warning: Option<&str>, color: Option<&str>) -> String {
+/// An HDR stream under gamescope without HDR output plays in SDR and says so (handheld.rs).
+const HDR_OFF_NOTE: &str = strings::en("HDR is off: gamescope offers no HDR output here, so this stream is in SDR.");
+
+/// The stream's first note; without one, the way to the stream menu (under gamescope, where the
+/// controller is the input and Steam keeps the Guide button, Start+Back's).
+fn start_toast(warning: Option<&str>, color: Option<&str>, gamescope: bool) -> String {
     let lines: Vec<&str> = warning.into_iter().chain(color).collect();
-    if lines.is_empty() { controls_hint() } else { lines.join("\n") }
+    if !lines.is_empty() {
+        lines.join("\n")
+    } else if gamescope {
+        tr("Start+Back opens the stream menu").to_owned()
+    } else {
+        controls_hint()
+    }
 }
 
 /// The stream hotkeys that open the controls, disconnect and release input, as they are bound.
@@ -3183,15 +3241,23 @@ mod tests {
 
     #[test]
     fn a_stream_starts_with_what_became_of_4_4_4_and_10_bit_next_to_the_warning() {
-        assert_eq!(start_toast(None, None), "Ctrl+Alt+Shift+Tab opens controls, Ctrl+Alt+Shift+Q disconnects, Ctrl+Alt+Shift+Z releases input");
+        assert_eq!(start_toast(None, None, false), "Ctrl+Alt+Shift+Tab opens controls, Ctrl+Alt+Shift+Q disconnects, Ctrl+Alt+Shift+Z releases input");
         // The hint follows the hotkeys as bound.
         shortcuts::record_hotkey("quit", &["CTRL".into(), "F9".into()]).unwrap();
         shortcuts::turn_off_hotkey("capture").unwrap();
-        assert_eq!(start_toast(None, None), "Ctrl+Alt+Shift+Tab opens controls, Ctrl+F9 disconnects");
+        assert_eq!(start_toast(None, None, false), "Ctrl+Alt+Shift+Tab opens controls, Ctrl+F9 disconnects");
         shortcuts::set_hotkeys(Default::default());
-        assert_eq!(start_toast(None, Some("Streaming in YUV 4:4:4.")), "Streaming in YUV 4:4:4.");
-        assert_eq!(start_toast(Some("Wi-Fi name unavailable."), Some("Streaming in YUV 4:4:4.")), "Wi-Fi name unavailable.\nStreaming in YUV 4:4:4.");
-        assert_eq!(start_toast(Some("Wi-Fi name unavailable."), None), "Wi-Fi name unavailable.");
+        assert_eq!(start_toast(None, Some("Streaming in YUV 4:4:4."), false), "Streaming in YUV 4:4:4.");
+        assert_eq!(start_toast(Some("Wi-Fi name unavailable."), Some("Streaming in YUV 4:4:4."), false), "Wi-Fi name unavailable.\nStreaming in YUV 4:4:4.");
+        assert_eq!(start_toast(Some("Wi-Fi name unavailable."), None, false), "Wi-Fi name unavailable.");
+    }
+
+    #[test]
+    fn under_gamescope_a_stream_starts_with_start_back_and_the_hdr_note() {
+        assert_eq!(start_toast(None, None, true), "Start+Back opens the stream menu");
+        assert_eq!(start_toast(None, Some(HDR_OFF_NOTE), true), HDR_OFF_NOTE, "a note replaces the hint");
+        assert_eq!(shortcuts::stream_controls_mask(), 1 << SDL_GAMEPAD_BUTTON_START.0 | 1 << SDL_GAMEPAD_BUTTON_BACK.0,
+            "the hint's chord is the one the stream opens its menu with");
     }
 
     #[test]

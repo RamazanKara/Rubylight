@@ -205,14 +205,126 @@ pub fn hdr_available(renderer: *mut SDL_Renderer) -> bool {
             std::ptr::null_mut(),
         )
         .cast();
-        device.is_null()
-            || (SDL_WindowSupportsGPUSwapchainComposition(
-                device,
-                SDL_GetRenderWindow(renderer),
-                SDL_GPU_SWAPCHAINCOMPOSITION_HDR_EXTENDED_LINEAR,
-            ) && SDL_GetGPUSwapchainTextureFormat(device, SDL_GetRenderWindow(renderer))
-                == SDL_GPU_TEXTUREFORMAT_R16G16B16A16_FLOAT)
+        if device.is_null() {
+            return true;
+        }
+        let window = SDL_GetRenderWindow(renderer);
+        let format = SDL_GetGPUSwapchainTextureFormat(device, window);
+        // scRGB, or HDR10 through the patched SDL's PQ present (vendor/sdl3-src/patches/pq-present.patch):
+        // only that swapchain is RGB10A2.
+        (SDL_WindowSupportsGPUSwapchainComposition(device, window, SDL_GPU_SWAPCHAINCOMPOSITION_HDR_EXTENDED_LINEAR)
+            && format == SDL_GPU_TEXTUREFORMAT_R16G16B16A16_FLOAT)
+            || (SDL_WindowSupportsGPUSwapchainComposition(device, window, SDL_GPU_SWAPCHAINCOMPOSITION_HDR10_ST2084)
+                && format == SDL_GPU_TEXTUREFORMAT_R10G10B10A2_UNORM)
     }
+}
+
+/// The swapchain colour spaces the window of a GPU renderer is offered (under gamescope, by its
+/// WSI layer). None for other renderers.
+fn offered(renderer: *mut SDL_Renderer) -> crate::handheld::Offered {
+    // SAFETY: a live renderer; its device and window outlive the call.
+    unsafe {
+        let device: *mut SDL_GPUDevice =
+            SDL_GetPointerProperty(SDL_GetRendererProperties(renderer), SDL_PROP_RENDERER_GPU_DEVICE_POINTER, std::ptr::null_mut()).cast();
+        if device.is_null() {
+            return Default::default();
+        }
+        let window = SDL_GetRenderWindow(renderer);
+        crate::handheld::Offered {
+            scrgb: SDL_WindowSupportsGPUSwapchainComposition(device, window, SDL_GPU_SWAPCHAINCOMPOSITION_HDR_EXTENDED_LINEAR),
+            hdr10: SDL_WindowSupportsGPUSwapchainComposition(device, window, SDL_GPU_SWAPCHAINCOMPOSITION_HDR10_ST2084),
+        }
+    }
+}
+
+/// The last renderer's output decision on Linux (`make_renderer`); None on Windows.
+static OUTPUT: std::sync::Mutex<Option<Result<crate::handheld::Output, crate::handheld::SdrReason>>> = std::sync::Mutex::new(None);
+
+pub fn output_decision() -> Option<Result<crate::handheld::Output, crate::handheld::SdrReason>> {
+    *OUTPUT.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// The PQ present pass's shaders (`pq_present.hlsl`), handed to the patched SDL.
+const PQ_VERTEX_SPIRV: &[u8] = include_bytes!("pq_present_vertex.spv");
+const PQ_FRAGMENT_SPIRV: &[u8] = include_bytes!("pq_present_fragment.spv");
+
+/// Sets (or with `on` false clears) the PQ present's create properties of the patched SDL.
+///
+/// # Safety
+/// `props` is a live property set.
+unsafe fn set_pq_present(props: SDL_PropertiesID, on: bool) {
+    let shaders = [(c"SDL.renderer.create.gpu.pq_vertex_spirv", c"SDL.renderer.create.gpu.pq_vertex_spirv_size", PQ_VERTEX_SPIRV),
+        (c"SDL.renderer.create.gpu.pq_fragment_spirv", c"SDL.renderer.create.gpu.pq_fragment_spirv_size", PQ_FRAGMENT_SPIRV)];
+    for (code, size, spirv) in shaders {
+        if on {
+            SDL_SetPointerProperty(props, code.as_ptr(), spirv.as_ptr().cast_mut().cast());
+            SDL_SetNumberProperty(props, size.as_ptr(), spirv.len() as i64);
+        } else {
+            SDL_ClearProperty(props, code.as_ptr());
+            SDL_ClearProperty(props, size.as_ptr());
+        }
+    }
+}
+
+/// Sets the window's HDR state SDL's renderer draws for: under gamescope SDL has none to read
+/// (`handheld::gamescope_hdr_properties`), and an SDR fallback puts it back.
+///
+/// # Safety
+/// `window` is live.
+unsafe fn set_window_hdr(window: *mut SDL_Window, hdr: Option<(f32, f32)>) {
+    let props = SDL_GetWindowProperties(window);
+    let (white, headroom) = hdr.unwrap_or((1.0, 1.0));
+    SDL_SetFloatProperty(props, SDL_PROP_WINDOW_SDR_WHITE_LEVEL_FLOAT, white);
+    SDL_SetFloatProperty(props, SDL_PROP_WINDOW_HDR_HEADROOM_FLOAT, headroom);
+    SDL_SetBooleanProperty(props, SDL_PROP_WINDOW_HDR_ENABLED_BOOLEAN, hdr.is_some());
+}
+
+/// Linux's GPU renderer `renderer`, made from `props` with linear output: the HDR output for its
+/// window (`handheld::choose`) or null for SDR. scRGB keeps it (made again under gamescope, after
+/// the window's HDR state is set); PQ makes it again with the PQ present. Logs the renderer, the
+/// colour spaces offered and the decision, which [`output_decision`] keeps.
+///
+/// # Safety
+/// `window` and `renderer` are live, `props` is the renderer's create properties.
+unsafe fn hdr_output(window: *mut SDL_Window, props: SDL_PropertiesID, renderer: *mut SDL_Renderer) -> *mut SDL_Renderer {
+    use crate::handheld::{self, Output, SdrReason};
+    let gamescope = handheld::gamescope();
+    let window_hdr = SDL_GetBooleanProperty(SDL_GetWindowProperties(window), SDL_PROP_WINDOW_HDR_ENABLED_BOOLEAN, false);
+    let offered = offered(renderer);
+    let name = renderer_name(renderer);
+    let mut decision = handheld::choose(true, gamescope, window_hdr, offered);
+    let mut renderer = renderer;
+    let mut pq_error = None;
+    if let Ok(output) = decision {
+        if !window_hdr {
+            set_window_hdr(window, Some(handheld::gamescope_hdr_properties()));
+        }
+        // SDL reads the window's HDR state when it makes the renderer.
+        if output == Output::Pq || !window_hdr {
+            SDL_DestroyRenderer(renderer);
+            if output == Output::Pq { set_pq_present(props, true); }
+            renderer = SDL_CreateRendererWithProperties(props);
+            if output == Output::Pq {
+                set_pq_present(props, false);
+                if renderer.is_null() { pq_error = Some(error()); }
+            }
+        }
+        if renderer.is_null() || !hdr_available(renderer) {
+            decision = Err(if output == Output::Pq { SdrReason::PqFailed } else { SdrReason::SwapchainRefused });
+        }
+    }
+    if decision.is_err() {
+        if !renderer.is_null() { SDL_DestroyRenderer(renderer); }
+        renderer = std::ptr::null_mut();
+        if !window_hdr { set_window_hdr(window, None); }
+    }
+    let line = handheld::describe(&name, gamescope, window_hdr, offered, decision);
+    match pq_error {
+        Some(why) => eprintln!("nightjar: {line} ({why})"),
+        None => eprintln!("nightjar: {line}"),
+    }
+    *OUTPUT.lock().unwrap_or_else(|e| e.into_inner()) = Some(decision);
+    renderer
 }
 
 /// Measurement runs on one PC (`NIGHTJAR_EXCLUDE_FROM_CAPTURE=1`): keeps the window out of
@@ -427,9 +539,8 @@ fn make_renderer(window: *mut SDL_Window, gpu: bool, vulkan: *mut SDL_GPUVulkanO
             }),
         );
         let mut renderer = SDL_CreateRendererWithProperties(props);
-        if !cfg!(windows) && gpu && !renderer.is_null() && !hdr_available(renderer) {
-            SDL_DestroyRenderer(renderer);
-            renderer = std::ptr::null_mut();
+        if !cfg!(windows) && gpu && !renderer.is_null() {
+            renderer = hdr_output(window, props, renderer);
         }
         if renderer.is_null() {
             SDL_SetNumberProperty(

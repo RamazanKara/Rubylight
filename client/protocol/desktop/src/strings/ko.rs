@@ -527,6 +527,8 @@ pub const TABLE: &[(&str, &str)] = &[
     ("Network details unavailable; automatic profiles and the mobile data limit could not be applied.", "네트워크 세부 정보를 사용할 수 없어 자동 프로필과 모바일 데이터 제한을 적용하지 못했습니다."),
     ("The selected profile is missing; main settings and PC/game overrides apply.", "선택한 프로필이 없습니다. 기본 설정과 PC/게임 재정의가 적용됩니다."),
     ("Wi-Fi name unavailable; using the other Wi-Fi profile.", "Wi-Fi 이름을 사용할 수 없어 다른 Wi-Fi 프로필을 사용합니다."),
+    ("Start+Back opens the stream menu", "Start+Back으로 스트림 메뉴 열기"),
+    ("HDR is off: gamescope offers no HDR output here, so this stream is in SDR.", "HDR 꺼짐: 여기서는 gamescope가 HDR 출력을 제공하지 않아 이 스트림은 SDR입니다."),
     ("The stream ended", "스트림이 끝났습니다"),
     ("Remote Input connected", "Remote Input 연결됨"),
     ("Session and graphics", "세션 및 그래픽"),

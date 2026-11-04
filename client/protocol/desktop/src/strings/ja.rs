@@ -527,6 +527,8 @@ pub const TABLE: &[(&str, &str)] = &[
     ("Network details unavailable; automatic profiles and the mobile data limit could not be applied.", "ネットワークの詳細を取得できないため、自動プロファイルとモバイルデータの上限を適用できませんでした。"),
     ("The selected profile is missing; main settings and PC/game overrides apply.", "選択したプロファイルがありません。メイン設定とPC/ゲームの上書きが適用されます。"),
     ("Wi-Fi name unavailable; using the other Wi-Fi profile.", "Wi-Fi名を取得できません。もう一方のWi-Fiプロファイルを使います。"),
+    ("Start+Back opens the stream menu", "Start+Backでストリームメニューを開く"),
+    ("HDR is off: gamescope offers no HDR output here, so this stream is in SDR.", "HDRはオフです：ここではgamescopeがHDR出力を提供しないため、このストリームはSDRです。"),
     ("The stream ended", "ストリームが終了しました"),
     ("Remote Input connected", "Remote Inputに接続しました"),
     ("Session and graphics", "セッションとグラフィックス"),

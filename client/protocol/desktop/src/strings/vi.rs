@@ -527,6 +527,8 @@ pub const TABLE: &[(&str, &str)] = &[
     ("Network details unavailable; automatic profiles and the mobile data limit could not be applied.", "Không có thông tin mạng; không thể áp dụng hồ sơ tự động và giới hạn dữ liệu di động."),
     ("The selected profile is missing; main settings and PC/game overrides apply.", "Thiếu hồ sơ đã chọn; dùng cài đặt chính và ghi đè của PC/trò chơi."),
     ("Wi-Fi name unavailable; using the other Wi-Fi profile.", "Không có tên Wi-Fi; dùng hồ sơ Wi-Fi khác."),
+    ("Start+Back opens the stream menu", "Start+Back mở menu luồng"),
+    ("HDR is off: gamescope offers no HDR output here, so this stream is in SDR.", "HDR đang tắt: gamescope không cung cấp đầu ra HDR ở đây, nên luồng này ở SDR."),
     ("The stream ended", "Luồng đã kết thúc"),
     ("Remote Input connected", "Đã kết nối Điều khiển từ xa"),
     ("Session and graphics", "Phiên và đồ họa"),

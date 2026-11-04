@@ -1,5 +1,9 @@
 package com.limelight.binding.video;
 
+import android.media.MediaCodecInfo;
+import android.media.MediaFormat;
+import android.os.Build;
+
 public final class UpscalingPolicy {
     public enum Mode {
         OFF("off"), BILINEAR("bilinear"), FSR1("fsr1"), SGSR1("sgsr1");
@@ -94,6 +98,81 @@ public final class UpscalingPolicy {
         int outputHeight = (int) Math.round(height * scale);
         return new int[] {(surfaceWidth - outputWidth) / 2, (surfaceHeight - outputHeight) / 2,
                 outputWidth, outputHeight};
+    }
+
+    /**
+     * Checks a decoder output format against the stream the upscaler was built for, failing this
+     * policy for HDR, P010 or a picture of another size, and returns the crop of the picture's
+     * alignment padding for applyCrop(), or null for another size. Packed full chroma checks only
+     * the size: its picture has no left or top crop and its colour is its own.
+     */
+    static float[] checkOutputFormat(MediaFormat format, boolean packed, int streamWidth, int streamHeight,
+                                     boolean insetEdges, boolean hostHdr, boolean sdr10, UpscalingPolicy policy) {
+        int width = format.getInteger(MediaFormat.KEY_WIDTH);
+        int height = format.getInteger(MediaFormat.KEY_HEIGHT);
+        if (packed) {
+            if (format.containsKey("crop-right")) width = format.getInteger("crop-right") + 1;
+            if (format.containsKey("crop-bottom")) height = format.getInteger("crop-bottom") + 1;
+            if ((format.containsKey("crop-left") && format.getInteger("crop-left") != 0) ||
+                    (format.containsKey("crop-top") && format.getInteger("crop-top") != 0)) {
+                policy.fail(Reason.SIZE_CHANGED);
+                return null;
+            }
+        } else {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && format.containsKey(MediaFormat.KEY_COLOR_TRANSFER)) {
+                int transfer = format.getInteger(MediaFormat.KEY_COLOR_TRANSFER);
+                if (transfer == MediaFormat.COLOR_TRANSFER_ST2084 || transfer == MediaFormat.COLOR_TRANSFER_HLG) {
+                    policy.fail(Reason.HDR);
+                }
+            }
+            if (format.containsKey(MediaFormat.KEY_COLOR_FORMAT) &&
+                    format.getInteger(MediaFormat.KEY_COLOR_FORMAT) == MediaCodecInfo.CodecCapabilities.COLOR_FormatYUVP010) {
+                policy.fail(colorReason(Reason.HDR, hostHdr, sdr10));
+            }
+            if (format.containsKey("crop-right") && format.containsKey("crop-left")) {
+                width = format.getInteger("crop-right") - format.getInteger("crop-left") + 1;
+            }
+            if (format.containsKey("crop-bottom") && format.containsKey("crop-top")) {
+                height = format.getInteger("crop-bottom") - format.getInteger("crop-top") + 1;
+            }
+        }
+        float[] crop = pictureCrop(width, height, streamWidth, streamHeight, insetEdges);
+        if (crop == null) policy.fail(Reason.SIZE_CHANGED);
+        return crop;
+    }
+
+    /**
+     * What the upscaler samples of a decoded picture (the decoder's crop rect) of a stream of
+     * streamWidth x streamHeight: {scaleX, scaleY, offsetX, offsetY} on the texture coordinates
+     * before the SurfaceTexture transform, whose origin is the bottom left, or null when the picture
+     * is not the stream's size plus alignment padding (StreamResizePolicy.paddedVisibleSize, the
+     * rule desktop Nightjar crops by). AMD's AV1 encoder pads at the right and bottom, so the crop
+     * keeps the top left. insetEdges ends a cropped edge half a texel inside the picture, as
+     * desktop's source rect does, for bilinear sampling that would blend in the first padding
+     * texel; EASU, SGSR and packed chroma clamp to texel centres themselves.
+     */
+    static float[] pictureCrop(int decodedWidth, int decodedHeight, int streamWidth, int streamHeight,
+                               boolean insetEdges) {
+        int[] visible = StreamResizePolicy.paddedVisibleSize(decodedWidth, decodedHeight,
+                new int[][] {{streamWidth, streamHeight}});
+        if (visible[0] != streamWidth || visible[1] != streamHeight) return null;
+        float scaleX = cropScale(visible[0], decodedWidth, insetEdges);
+        float scaleY = cropScale(visible[1], decodedHeight, insetEdges);
+        return new float[] {scaleX, scaleY, 0f, 1f - scaleY};
+    }
+
+    private static float cropScale(int visible, int decoded, boolean insetEdges) {
+        if (visible == decoded) return 1f;
+        return (insetEdges ? visible - 0.5f : visible) / decoded;
+    }
+
+    /** Applies a pictureCrop() to a column-major texture transform in place: transform * crop. */
+    static void applyCrop(float[] transform, float[] crop) {
+        for (int row = 0; row < 4; row++) {
+            transform[12 + row] += transform[row] * crop[2] + transform[4 + row] * crop[3];
+            transform[row] *= crop[0];
+            transform[4 + row] *= crop[1];
+        }
     }
 
     synchronized void recordFrame(long addedNs, int dropped) {

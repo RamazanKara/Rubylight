@@ -94,14 +94,47 @@ public final class StreamResizePolicy {
         return new int[] {width, height};
     }
 
-    // Decoders without crop values report sizes padded to the encoder's blocks, up to 64 pixels
-    // for AV1 from AMD encoders; read those as the size that was expected.
+    // Decoders without crop values report sizes padded to the encoder's blocks, up to 63 columns
+    // and 15 rows for AV1 from AMD encoders; read those as the size that was expected.
     public static int[] shownSize(int decodedWidth, int decodedHeight, int expectedWidth, int expectedHeight) {
-        if (decodedWidth >= expectedWidth && decodedWidth - expectedWidth < 64 &&
-                decodedHeight >= expectedHeight && decodedHeight - expectedHeight < 64) {
-            return new int[] {expectedWidth, expectedHeight};
+        return paddedVisibleSize(decodedWidth, decodedHeight, new int[][] {{expectedWidth, expectedHeight}});
+    }
+
+    /**
+     * The decoded size the stream view enlarges its video by against the shown size: the padded
+     * picture straight from the decoder, but the shown size when the GLES upscaler samples only
+     * the stream's part and fills the surface with it (enlarging that would cut the stream off and
+     * resize the upscaler's surface).
+     */
+    public static int[] viewPaddedSize(int[] decoded, int[] shown, boolean upscalerCrops) {
+        return upscalerCrops ? shown : decoded;
+    }
+
+    /** The most columns an encoder's alignment adds (AMD AV1: up to a multiple of 64). */
+    static final int PADDING_COLUMNS = 64;
+    /** The most rows an encoder's alignment adds (AMD AV1 and H.264 macroblocks: a multiple of 16). */
+    static final int PADDING_ROWS = 16;
+
+    /**
+     * nightjar-core's video::crop::visible_size, which desktop Nightjar crops by: of the requested
+     * stream sizes, the one the decoded picture is plus alignment padding of, needing the least
+     * padding, or the whole picture. src/test/resources/protocol/visible-size.txt holds the cases
+     * both sides check.
+     */
+    static int[] paddedVisibleSize(int decodedWidth, int decodedHeight, int[][] requested) {
+        int[] best = null;
+        for (int[] size : requested) {
+            if (!padded(decodedWidth, size[0], PADDING_COLUMNS) || !padded(decodedHeight, size[1], PADDING_ROWS)) continue;
+            if (best == null || decodedWidth - size[0] + decodedHeight - size[1] <
+                    decodedWidth - best[0] + decodedHeight - best[1]) {
+                best = size;
+            }
         }
-        return new int[] {decodedWidth, decodedHeight};
+        return best == null ? new int[] {decodedWidth, decodedHeight} : new int[] {best[0], best[1]};
+    }
+
+    private static boolean padded(int extent, int asked, int most) {
+        return asked > 0 && extent >= asked && extent < asked + most;
     }
 
     // The adaptive-playback maximum that covers both what the decoder was configured for and the

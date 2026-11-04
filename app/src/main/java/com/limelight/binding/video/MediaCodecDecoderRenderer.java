@@ -960,7 +960,9 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         LimeLog.info("Decoded size: " + visible[0] + "x" + visible[1] + ", shown as " + shown[0] + "x" + shown[1]);
         StreamSizeListener sizeListener = streamSizeListener;
         if (sizeListener != null) {
-            sizeListener.onDecodedSize(visible[0], visible[1], shown[0], shown[1]);
+            int[] decoded = StreamResizePolicy.viewPaddedSize(visible, shown,
+                    upscaler != null && upscalingPolicy.getReason() == UpscalingPolicy.Reason.NONE);
+            sizeListener.onDecodedSize(decoded[0], decoded[1], shown[0], shown[1]);
         }
         if (!reconfigureRequested || (shown[0] == streamWidth && shown[1] == streamHeight)) {
             return;
@@ -1251,39 +1253,18 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     }
 
     private void checkUpscalingOutputFormat() {
-        if (upscaler == null) return;
-        if (packing != null) {
-            int width = outputFormat.getInteger(MediaFormat.KEY_WIDTH);
-            int height = outputFormat.getInteger(MediaFormat.KEY_HEIGHT);
-            if (outputFormat.containsKey("crop-right")) width = outputFormat.getInteger("crop-right") + 1;
-            if (outputFormat.containsKey("crop-bottom")) height = outputFormat.getInteger("crop-bottom") + 1;
-            if (width != initialWidth || height != initialHeight ||
-                    (outputFormat.containsKey("crop-left") && outputFormat.getInteger("crop-left") != 0) ||
-                    (outputFormat.containsKey("crop-top") && outputFormat.getInteger("crop-top") != 0)) {
-                upscalingPolicy.fail(UpscalingPolicy.Reason.SIZE_CHANGED);
-            }
-            return;
+        GlesUpscaler current = upscaler;
+        if (current == null) return;
+        // AV1 from AMD encoders arrives with its alignment padding uncropped; the upscaler samples
+        // the stream's part of it, and only a picture of another size ends upscaling.
+        float[] crop = UpscalingPolicy.checkOutputFormat(outputFormat, packing != null, initialWidth, initialHeight,
+                current.insetsCroppedEdges(), Boolean.TRUE.equals(currentHdrMode), sdr10, upscalingPolicy);
+        if (crop == null) return;
+        current.setPictureCrop(crop);
+        if (crop[0] != 1f || crop[1] != 1f) {
+            LimeLog.info("Upscaling samples the " + initialWidth + "x" + initialHeight +
+                    " stream of a padded decoded picture (scale " + crop[0] + " x " + crop[1] + ")");
         }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && outputFormat.containsKey(MediaFormat.KEY_COLOR_TRANSFER)) {
-            int transfer = outputFormat.getInteger(MediaFormat.KEY_COLOR_TRANSFER);
-            if (transfer == MediaFormat.COLOR_TRANSFER_ST2084 || transfer == MediaFormat.COLOR_TRANSFER_HLG) {
-                upscalingPolicy.fail(UpscalingPolicy.Reason.HDR);
-            }
-        }
-        if (outputFormat.containsKey(MediaFormat.KEY_COLOR_FORMAT) &&
-                outputFormat.getInteger(MediaFormat.KEY_COLOR_FORMAT) == MediaCodecInfo.CodecCapabilities.COLOR_FormatYUVP010) {
-            upscalingPolicy.fail(UpscalingPolicy.colorReason(UpscalingPolicy.Reason.HDR,
-                    Boolean.TRUE.equals(currentHdrMode), sdr10));
-        }
-        int width = outputFormat.getInteger(MediaFormat.KEY_WIDTH);
-        int height = outputFormat.getInteger(MediaFormat.KEY_HEIGHT);
-        if (outputFormat.containsKey("crop-right") && outputFormat.containsKey("crop-left")) {
-            width = outputFormat.getInteger("crop-right") - outputFormat.getInteger("crop-left") + 1;
-        }
-        if (outputFormat.containsKey("crop-bottom") && outputFormat.containsKey("crop-top")) {
-            height = outputFormat.getInteger("crop-bottom") - outputFormat.getInteger("crop-top") + 1;
-        }
-        if (width != initialWidth || height != initialHeight) upscalingPolicy.fail(UpscalingPolicy.Reason.SIZE_CHANGED);
     }
 
     public MediaCodecDecoderRenderer(Activity activity, PreferenceConfiguration prefs,

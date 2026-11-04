@@ -1,6 +1,12 @@
 package com.limelight.binding.video;
 
 import org.junit.Test;
+
+import java.io.BufferedReader;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
+
 import static org.junit.Assert.*;
 
 public class StreamResizePolicyTest {
@@ -120,6 +126,44 @@ public class StreamResizePolicyTest {
         // AMD's AV1 encoder pads widths to 64: a Fold7's inner panel arrives 2240 wide.
         assertArrayEquals(new int[] {2184, 1968}, StreamResizePolicy.shownSize(2240, 1968, 2184, 1968));
         assertArrayEquals(new int[] {2248, 1968}, StreamResizePolicy.shownSize(2248, 1968, 2184, 1968));
+        // At most 15 rows, as desktop Nightjar: 16 more is a stream at another size.
+        assertArrayEquals(new int[] {1920, 1080}, StreamResizePolicy.shownSize(1920, 1095, 1920, 1080));
+        assertArrayEquals(new int[] {1920, 1096}, StreamResizePolicy.shownSize(1920, 1096, 1920, 1080));
+    }
+
+    @Test
+    public void theViewEnlargesOnlyAPictureTheUpscalerDoesNotCrop() {
+        int[] decoded = {1920, 1082}, shown = {1920, 1080};
+        assertArrayEquals(decoded, StreamResizePolicy.viewPaddedSize(decoded, shown, false));
+        assertArrayEquals(shown, StreamResizePolicy.viewPaddedSize(decoded, shown, true));
+    }
+
+    @Test
+    public void paddedVisibleSizeCropsAsNightjarCore() throws Exception {
+        // The cases nightjar-core's tests/visible_size_contract.rs checks visible_size against.
+        int cases = 0;
+        try (InputStream input = getClass().getResourceAsStream("/protocol/visible-size.txt")) {
+            assertNotNull("visible-size.txt", input);
+            BufferedReader reader = new BufferedReader(new InputStreamReader(input, StandardCharsets.UTF_8));
+            for (String line; (line = reader.readLine()) != null; ) {
+                if (line.isEmpty() || line.startsWith("#")) continue;
+                String[] fields = line.split(" ");
+                assertEquals(line, 3, fields.length);
+                String[] listed = fields[1].equals("-") ? new String[0] : fields[1].split(",");
+                int[][] requested = new int[listed.length][];
+                for (int i = 0; i < listed.length; i++) requested[i] = size(listed[i]);
+                int[] decoded = size(fields[0]);
+                assertArrayEquals(line, size(fields[2]),
+                        StreamResizePolicy.paddedVisibleSize(decoded[0], decoded[1], requested));
+                cases++;
+            }
+        }
+        assertTrue("only " + cases + " cases", cases >= 20);
+    }
+
+    private static int[] size(String text) {
+        String[] parts = text.split("x");
+        return new int[] {Integer.parseInt(parts[0]), Integer.parseInt(parts[1])};
     }
 
     @Test

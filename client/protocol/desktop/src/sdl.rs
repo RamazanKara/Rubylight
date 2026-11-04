@@ -266,6 +266,10 @@ unsafe fn set_pq_present(props: SDL_PropertiesID, on: bool) {
     }
 }
 
+/// Nightjar set the window's HDR state itself ([`set_window_hdr`]): a later renderer for the
+/// window must not take it for the compositor's, and an SDR fallback puts it back.
+static WINDOW_HDR_SET: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 /// Sets the window's HDR state SDL's renderer draws for: under gamescope SDL has none to read
 /// (`handheld::gamescope_hdr_properties`), and an SDR fallback puts it back.
 ///
@@ -277,30 +281,35 @@ unsafe fn set_window_hdr(window: *mut SDL_Window, hdr: Option<(f32, f32)>) {
     SDL_SetFloatProperty(props, SDL_PROP_WINDOW_SDR_WHITE_LEVEL_FLOAT, white);
     SDL_SetFloatProperty(props, SDL_PROP_WINDOW_HDR_HEADROOM_FLOAT, headroom);
     SDL_SetBooleanProperty(props, SDL_PROP_WINDOW_HDR_ENABLED_BOOLEAN, hdr.is_some());
+    WINDOW_HDR_SET.store(hdr.is_some(), std::sync::atomic::Ordering::Relaxed);
 }
 
 /// Linux's GPU renderer `renderer`, made from `props` with linear output: the HDR output for its
-/// window (`handheld::choose`) or null for SDR. scRGB keeps it (made again under gamescope, after
+/// window (`handheld::plan`) or null for SDR. scRGB keeps it (made again under gamescope, after
 /// the window's HDR state is set); PQ makes it again with the PQ present. Logs the renderer, the
 /// colour spaces offered and the decision, which [`output_decision`] keeps.
 ///
 /// # Safety
 /// `window` and `renderer` are live, `props` is the renderer's create properties.
 unsafe fn hdr_output(window: *mut SDL_Window, props: SDL_PropertiesID, renderer: *mut SDL_Renderer) -> *mut SDL_Renderer {
-    use crate::handheld::{self, Output, SdrReason};
+    use crate::handheld::{self, Output};
     let gamescope = handheld::gamescope();
-    let window_hdr = SDL_GetBooleanProperty(SDL_GetWindowProperties(window), SDL_PROP_WINDOW_HDR_ENABLED_BOOLEAN, false);
+    let window_hdr = handheld::window_hdr_reported(
+        SDL_GetBooleanProperty(SDL_GetWindowProperties(window), SDL_PROP_WINDOW_HDR_ENABLED_BOOLEAN, false),
+        WINDOW_HDR_SET.load(std::sync::atomic::Ordering::Relaxed),
+    );
     let offered = offered(renderer);
     let name = renderer_name(renderer);
-    let mut decision = handheld::choose(true, gamescope, window_hdr, offered);
+    let plan = handheld::plan(gamescope, window_hdr, offered);
+    let mut decision = plan.decision;
     let mut renderer = renderer;
     let mut pq_error = None;
     if let Ok(output) = decision {
-        if !window_hdr {
+        if plan.set_window_hdr {
             set_window_hdr(window, Some(handheld::gamescope_hdr_properties()));
         }
         // SDL reads the window's HDR state when it makes the renderer.
-        if output == Output::Pq || !window_hdr {
+        if plan.rebuild {
             SDL_DestroyRenderer(renderer);
             if output == Output::Pq { set_pq_present(props, true); }
             renderer = SDL_CreateRendererWithProperties(props);
@@ -309,14 +318,12 @@ unsafe fn hdr_output(window: *mut SDL_Window, props: SDL_PropertiesID, renderer:
                 if renderer.is_null() { pq_error = Some(error()); }
             }
         }
-        if renderer.is_null() || !hdr_available(renderer) {
-            decision = Err(if output == Output::Pq { SdrReason::PqFailed } else { SdrReason::SwapchainRefused });
-        }
+        decision = handheld::settle(output, !renderer.is_null(), !renderer.is_null() && hdr_available(renderer));
     }
     if decision.is_err() {
         if !renderer.is_null() { SDL_DestroyRenderer(renderer); }
         renderer = std::ptr::null_mut();
-        if !window_hdr { set_window_hdr(window, None); }
+        if WINDOW_HDR_SET.load(std::sync::atomic::Ordering::Relaxed) { set_window_hdr(window, None); }
     }
     let line = handheld::describe(&name, gamescope, window_hdr, offered, decision);
     match pq_error {

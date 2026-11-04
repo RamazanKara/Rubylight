@@ -163,6 +163,8 @@ public class StreamSettings extends NightjarActivity {
     private boolean customizeOpen;
     /** The sections whose More row is open: all their rows show. */
     final Set<String> moreOpen = new HashSet<>();
+    private static final String MORE_STATE_PREFS = "SettingsScreenState";
+    private static final String MORE_STATE_OPEN = "more_open";
     /** The two-pane screen shows a section before one is picked; this one is only that default, not the user's choice. */
     private boolean sectionDefaulted;
     private MaterialToolbar toolbar;
@@ -541,6 +543,19 @@ public class StreamSettings extends NightjarActivity {
         setSearchQuery("");
     }
 
+    /** The sections whose More row the user left open, kept between visits apart from the settings themselves. */
+    private Set<String> rememberedMore() {
+        return getSharedPreferences(MORE_STATE_PREFS, MODE_PRIVATE).getStringSet(MORE_STATE_OPEN, new HashSet<>());
+    }
+
+    /** Only the user's own choice is kept: a search result or link unfolding a section lasts for this visit. */
+    private void rememberMore(String section, boolean open) {
+        Set<String> remembered = new HashSet<>(rememberedMore());
+        if (open) remembered.add(section);
+        else remembered.remove(section);
+        getSharedPreferences(MORE_STATE_PREFS, MODE_PRIVATE).edit().putStringSet(MORE_STATE_OPEN, remembered).apply();
+    }
+
     /** A search result or a link that lands on a folded row opens its section's More row first. */
     private void unfoldFor(String keySection, String key) {
         if (keySection != null && foldsInSection(this, keySection, key)) moreOpen.add(keySection);
@@ -673,6 +688,7 @@ public class StreamSettings extends NightjarActivity {
     protected void onCreate(Bundle savedInstanceState) {
         // Framework fragments are recreated by super.onCreate(), before our views exist, and their lists read this.
         twoPane = getResources().getBoolean(R.bool.settings_two_pane);
+        moreOpen.addAll(rememberedMore());
         if (savedInstanceState != null) {
             section = normalizeSection(savedInstanceState.getString(STATE_SECTION));
             searchQuery = savedInstanceState.getString("search", "");
@@ -2041,6 +2057,7 @@ public class StreamSettings extends NightjarActivity {
             StreamSettings activity = (StreamSettings) getActivity();
             boolean open = !activity.moreOpen.remove(section);
             if (open) activity.moreOpen.add(section);
+            activity.rememberMore(section, open);
             refreshState();
             String first = open ? firstUnfolded(section) : null;
             String select = first != null ? first : MORE_PREFIX + section;

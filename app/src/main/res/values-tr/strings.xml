@@ -213,7 +213,7 @@
     <string name="pyrowave_needs_android">Desteklenmiyor: Android 10 gerekir</string>
     <string name="pyrowave_needs_64_bit">Desteklenmiyor: 64 bit uygulama gerekir</string>
     <string name="pyrowave_decoder_unavailable">Desteklenmiyor: kod çözücü kullanılamıyor</string>
-    <string name="pyrowave_needs_vulkan">Desteklenmiyor: Vulkan 1.3 gerekir</string>
+    <string name="pyrowave_needs_vulkan">Desteklenmiyor: Vulkan 1.1 gerekir</string>
     <string name="pyrowave_needs_subgroups">GPU PyroWave’i desteklemiyor</string>
     <string name="pyrowave_missing_features">GPU PyroWave’i desteklemiyor</string>
     <string name="pyrowave_missing_formats">GPU PyroWave’i desteklemiyor</string>

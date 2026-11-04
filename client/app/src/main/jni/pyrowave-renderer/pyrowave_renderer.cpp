@@ -107,7 +107,7 @@ namespace {
     // Keep these reason codes aligned with PyroWaveDecoderRenderer.getReadinessSummary().
     enum Readiness {
         READY = 0,
-        NEEDS_VULKAN_1_3 = 1,
+        NEEDS_VULKAN = 1,
         MISSING_SUBGROUP_OPS = 2,
         MISSING_DEVICE_FEATURES = 3,
         MISSING_IMAGE_FORMATS = 4,
@@ -226,7 +226,6 @@ namespace {
     X(DestroyFence) \
     X(WaitForFences) \
     X(GetFenceStatus) \
-    X(WaitSemaphores) \
     X(ResetFences) \
     X(CreateSemaphore) \
     X(DestroySemaphore) \
@@ -288,6 +287,8 @@ namespace {
         PFN_vkSetHdrMetadataEXT SetHdrMetadataEXT = nullptr;
         PFN_vkGetPastPresentationTimingGOOGLE GetPastPresentationTimingGOOGLE = nullptr;
         PFN_vkGetRefreshCycleDurationGOOGLE GetRefreshCycleDurationGOOGLE = nullptr;
+        // Vulkan 1.2; absent on 1.1 drivers, which use fences for decode completion.
+        PFN_vkWaitSemaphores WaitSemaphores = nullptr;
 #define X(name) PFN_vk##name name = nullptr;
         VK_GLOBAL_FUNCTIONS(X)
         VK_INSTANCE_FUNCTIONS(X)
@@ -341,6 +342,7 @@ namespace {
             ok = ok && name != nullptr;
             VK_DEVICE_FUNCTIONS(X)
 #undef X
+            WaitSemaphores = reinterpret_cast<PFN_vkWaitSemaphores>(GetDeviceProcAddr(device, "vkWaitSemaphores"));
             SetHdrMetadataEXT = reinterpret_cast<PFN_vkSetHdrMetadataEXT>(GetDeviceProcAddr(device, "vkSetHdrMetadataEXT"));
             GetPastPresentationTimingGOOGLE = reinterpret_cast<PFN_vkGetPastPresentationTimingGOOGLE>(
                 GetDeviceProcAddr(device, "vkGetPastPresentationTimingGOOGLE"));
@@ -352,56 +354,120 @@ namespace {
 
     // Features PyroWave's decode kernels use unconditionally. shaderFloat16 is optional.
     struct FeatureProbe {
-        Readiness reason = NEEDS_VULKAN_1_3;
+        Readiness reason = NEEDS_VULKAN;
         bool float16 = false;
+        // Below Vulkan 1.3: the core 1.3 features come from extensions, PyroWave reads its payload
+        // through texel buffers when 8-bit storage is missing, and decode completion is a fence
+        // on one shared queue instead of a timeline semaphore (see Renderer::legacySync).
+        bool legacySync = false;
+        bool storage8 = false;
+        bool float16Extension = false;
         uint32_t apiVersion = 0;
         char name[VK_MAX_PHYSICAL_DEVICE_NAME_SIZE] = {};
     };
 
-    FeatureProbe probeFeatures(const VulkanLoader &vk, VkPhysicalDevice device, bool tenBit) {
+    // PyroWave falls back from 8-bit storage to texel buffers when a buffer view can hold this many elements.
+    constexpr uint32_t PYROWAVE_TEXEL_BUFFER_ELEMENTS = 16u * 1024u * 1024u;
+
+    bool hasExtension(const std::vector<VkExtensionProperties> &extensions, const char *name) {
+        return std::any_of(extensions.begin(), extensions.end(),
+                           [name](const VkExtensionProperties &ext) { return !strcmp(ext.extensionName, name); });
+    }
+
+    // instanceVersion is the instance's apiVersion: core features above it are not usable on the device.
+    FeatureProbe probeFeatures(const VulkanLoader &vk, VkPhysicalDevice device, bool tenBit, uint32_t instanceVersion) {
         FeatureProbe probe;
         VkPhysicalDeviceProperties props;
         vk.GetPhysicalDeviceProperties(device, &props);
         probe.apiVersion = props.apiVersion;
         std::memcpy(probe.name, props.deviceName, sizeof(probe.name));
-        if (props.apiVersion < VK_API_VERSION_1_3) {
+        const uint32_t coreVersion = std::min(props.apiVersion, instanceVersion);
+        if (coreVersion < VK_API_VERSION_1_1) {
             return probe;
         }
+        const bool core12 = coreVersion >= VK_API_VERSION_1_2;
+        const bool core13 = coreVersion >= VK_API_VERSION_1_3;
+        probe.legacySync = !core13;
 
+        uint32_t extensionCount = 0;
+        probe.reason = PROBE_FAILED;
+        if (vk.EnumerateDeviceExtensionProperties(device, nullptr, &extensionCount, nullptr) != VK_SUCCESS) return probe;
+        std::vector<VkExtensionProperties> extensions(extensionCount);
+        if (vk.EnumerateDeviceExtensionProperties(device, nullptr, &extensionCount, extensions.data()) != VK_SUCCESS) return probe;
+        extensions.resize(extensionCount);
+        if (!core13 && !hasExtension(extensions, VK_EXT_SUBGROUP_SIZE_CONTROL_EXTENSION_NAME)) {
+            probe.reason = MISSING_SUBGROUP_OPS;
+            return probe;
+        }
+        // Granite needs render pass 2 below Vulkan 1.2.
+        if (!core12 && !hasExtension(extensions, VK_KHR_CREATE_RENDERPASS_2_EXTENSION_NAME)) {
+            probe.reason = MISSING_DEVICE_FEATURES;
+            return probe;
+        }
+        const bool storage8Extension = !core12 && hasExtension(extensions, VK_KHR_8BIT_STORAGE_EXTENSION_NAME);
+        probe.float16Extension = !core12 && hasExtension(extensions, VK_KHR_SHADER_FLOAT16_INT8_EXTENSION_NAME);
+
+        // The core feature structs only where the device has that core version, else their extensions.
         VkPhysicalDeviceVulkan13Features f13 = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES};
         VkPhysicalDeviceVulkan12Features f12 = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES};
-        f12.pNext = &f13;
         VkPhysicalDeviceVulkan11Features f11 = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES};
-        f11.pNext = &f12;
+        VkPhysicalDeviceSubgroupSizeControlFeaturesEXT sizeControl = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_SIZE_CONTROL_FEATURES_EXT};
+        VkPhysicalDevice16BitStorageFeatures storage16 = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_16BIT_STORAGE_FEATURES};
+        VkPhysicalDevice8BitStorageFeaturesKHR storage8 = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_8BIT_STORAGE_FEATURES_KHR};
+        VkPhysicalDeviceShaderFloat16Int8FeaturesKHR float16Int8 = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_FLOAT16_INT8_FEATURES_KHR};
         VkPhysicalDeviceFeatures2 f2 = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
-        f2.pNext = &f11;
+        void **next = &f2.pNext;
+        const auto chain = [&next](auto &feature) {
+            *next = &feature;
+            next = &feature.pNext;
+        };
+        if (core12) {
+            chain(f11);
+            chain(f12);
+        } else {
+            chain(storage16);
+            if (storage8Extension) chain(storage8);
+            if (probe.float16Extension) chain(float16Int8);
+        }
+        if (core13) chain(f13); else chain(sizeControl);
         vk.GetPhysicalDeviceFeatures2(device, &f2);
 
         VkPhysicalDeviceSubgroupProperties subgroup = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_PROPERTIES};
         VkPhysicalDeviceVulkan13Properties p13 = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_PROPERTIES};
-        subgroup.pNext = &p13;
+        VkPhysicalDeviceSubgroupSizeControlPropertiesEXT sizeControlProps = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_SIZE_CONTROL_PROPERTIES_EXT};
+        if (core13) subgroup.pNext = &p13; else subgroup.pNext = &sizeControlProps;
         VkPhysicalDeviceProperties2 p2 = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2};
         p2.pNext = &subgroup;
         vk.GetPhysicalDeviceProperties2(device, &p2);
+        const uint32_t minSubgroupSize = core13 ? p13.minSubgroupSize : sizeControlProps.minSubgroupSize;
+        const uint32_t maxSubgroupSize = core13 ? p13.maxSubgroupSize : sizeControlProps.maxSubgroupSize;
+        const VkShaderStageFlags requiredSubgroupSizeStages =
+            core13 ? p13.requiredSubgroupSizeStages : sizeControlProps.requiredSubgroupSizeStages;
         constexpr VkSubgroupFeatureFlags required = VK_SUBGROUP_FEATURE_BASIC_BIT | VK_SUBGROUP_FEATURE_VOTE_BIT |
             VK_SUBGROUP_FEATURE_BALLOT_BIT | VK_SUBGROUP_FEATURE_ARITHMETIC_BIT |
             VK_SUBGROUP_FEATURE_SHUFFLE_BIT | VK_SUBGROUP_FEATURE_SHUFFLE_RELATIVE_BIT;
         bool subgroups = (subgroup.supportedOperations & required) == required &&
             (subgroup.supportedStages & VK_SHADER_STAGE_COMPUTE_BIT) &&
-            ((p13.minSubgroupSize >= 4 && p13.maxSubgroupSize <= 128) ||
-             ((p13.requiredSubgroupSizeStages & VK_SHADER_STAGE_COMPUTE_BIT) &&
-              p13.minSubgroupSize <= 128 && p13.maxSubgroupSize >= 4));
-        if (!subgroups || !f13.subgroupSizeControl || !f13.computeFullSubgroups) {
+            ((minSubgroupSize >= 4 && maxSubgroupSize <= 128) ||
+             ((requiredSubgroupSizeStages & VK_SHADER_STAGE_COMPUTE_BIT) &&
+              minSubgroupSize <= 128 && maxSubgroupSize >= 4));
+        const bool sizeControlFeatures = core13 ? f13.subgroupSizeControl && f13.computeFullSubgroups :
+            sizeControl.subgroupSizeControl && sizeControl.computeFullSubgroups;
+        if (!subgroups || !sizeControlFeatures) {
             probe.reason = MISSING_SUBGROUP_OPS;
             return probe;
         }
+        const bool storage16Feature = core12 ? f11.storageBuffer16BitAccess : storage16.storageBuffer16BitAccess;
+        probe.storage8 = core12 ? f12.storageBuffer8BitAccess : storage8Extension && storage8.storageBuffer8BitAccess;
+        const bool payloadAccess = probe.storage8 || (!core13 && props.limits.maxTexelBufferElements >= PYROWAVE_TEXEL_BUFFER_ELEMENTS);
+        // Vulkan 1.3 devices keep their timeline/synchronization2 path; older ones use legacySync.
+        const bool sync = !core13 || (f12.timelineSemaphore && f13.synchronization2);
         if (!f2.features.shaderStorageImageWriteWithoutFormat || !f2.features.shaderInt16 ||
-            !f11.storageBuffer16BitAccess || !f12.storageBuffer8BitAccess ||
-            !f12.timelineSemaphore || !f13.synchronization2) {
+            !storage16Feature || !payloadAccess || !sync) {
             probe.reason = MISSING_DEVICE_FEATURES;
             return probe;
         }
-        probe.float16 = f12.shaderFloat16;
+        probe.float16 = core12 ? f12.shaderFloat16 : probe.float16Extension && float16Int8.shaderFloat16;
         if (props.limits.maxImageArrayLayers < 12 || props.limits.maxComputeWorkGroupInvocations < 128 ||
             props.limits.maxComputeWorkGroupSize[0] < 128) {
             probe.reason = INSUFFICIENT_DEVICE_LIMITS;
@@ -439,19 +505,16 @@ namespace {
             probe.reason = MISSING_GRAPHICS_QUEUE;
             return probe;
         }
-        uint32_t extensionCount = 0;
-        probe.reason = PROBE_FAILED;
-        if (vk.EnumerateDeviceExtensionProperties(device, nullptr, &extensionCount, nullptr) != VK_SUCCESS) return probe;
-        std::vector<VkExtensionProperties> extensions(extensionCount);
-        if (vk.EnumerateDeviceExtensionProperties(device, nullptr, &extensionCount, extensions.data()) != VK_SUCCESS) return probe;
-        extensions.resize(extensionCount);
-        bool swapchain = false, metadata = false;
-        for (const auto &extension : extensions) {
-            if (!strcmp(extension.extensionName, VK_KHR_SWAPCHAIN_EXTENSION_NAME)) swapchain = true;
-            if (!strcmp(extension.extensionName, VK_EXT_HDR_METADATA_EXTENSION_NAME)) metadata = true;
-        }
+        const bool swapchain = hasExtension(extensions, VK_KHR_SWAPCHAIN_EXTENSION_NAME);
+        const bool metadata = hasExtension(extensions, VK_EXT_HDR_METADATA_EXTENSION_NAME);
         probe.reason = !swapchain ? MISSING_SWAPCHAIN : (tenBit && !metadata ? MISSING_HDR : READY);
         return probe;
+    }
+
+    // Vulkan 1.3 where the loader has it; Granite takes the device's core version as the lower of
+    // this and the device's own, so a 1.1 loader keeps a 1.3 device on its extensions.
+    uint32_t instanceApiVersion(uint32_t loaderVersion) {
+        return loaderVersion >= VK_API_VERSION_1_3 ? VK_API_VERSION_1_3 : VK_API_VERSION_1_1;
     }
 
     bool apiVersionSupported() {
@@ -503,6 +566,8 @@ namespace {
         VkCommandBuffer drawCommandBuffer = VK_NULL_HANDLE;
         // Signaled whenever no draw of these planes is in flight.
         VkFence drawFence = VK_NULL_HANDLE;
+        // Signaled when this slot's decode completes (Renderer::legacySync only).
+        VkFence decodeFence = VK_NULL_HANDLE;
         uint64_t decodeValue = 0;
         int64_t ptsUs = 0;
         int64_t hostPresentationTimeUs = 0;
@@ -857,15 +922,15 @@ namespace {
             }
             uint32_t loaderVersion = 0;
             if (!check(vk.EnumerateInstanceVersion(&loaderVersion), "Vulkan loader version")) return false;
-            if (loaderVersion < VK_API_VERSION_1_3) {
-                LOGE("Vulkan loader %u.%u is older than 1.3", VK_API_VERSION_MAJOR(loaderVersion), VK_API_VERSION_MINOR(loaderVersion));
+            if (loaderVersion < VK_API_VERSION_1_1) {
+                LOGE("Vulkan loader %u.%u is older than 1.1", VK_API_VERSION_MAJOR(loaderVersion), VK_API_VERSION_MINOR(loaderVersion));
                 return false;
             }
 
             // These create infos stay alive for the device's lifetime: PyroWave reads them.
             appInfo = {VK_STRUCTURE_TYPE_APPLICATION_INFO};
             appInfo.pApplicationName = "Nightjar";
-            appInfo.apiVersion = VK_API_VERSION_1_3;
+            appInfo.apiVersion = instanceApiVersion(loaderVersion);
             instanceInfo = {VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO};
             instanceInfo.pApplicationInfo = &appInfo;
             uint32_t extensionCount = 0;
@@ -914,7 +979,7 @@ namespace {
 
             FeatureProbe chosenProbe;
             for (auto device : devices) {
-                auto probe = probeFeatures(vk, device, tenBit);
+                auto probe = probeFeatures(vk, device, tenBit, appInfo.apiVersion);
                 if (probe.reason != READY) {
                     LOGI("Skipping %s: PyroWave reason %d", probe.name, probe.reason);
                     continue;
@@ -940,9 +1005,14 @@ namespace {
                 }
             }
             if (physicalDevice == VK_NULL_HANDLE) {
-                LOGE("No Vulkan 1.3 device can decode PyroWave and present to this surface");
+                LOGE("No Vulkan device can decode PyroWave and present to this surface");
                 return false;
             }
+            legacySync = chosenProbe.legacySync;
+            // Without timeline semaphores, decode and presentation share one queue so that
+            // submission order carries the decoder writes to the draw.
+            if (legacySync) queueCount = 1;
+            const bool core12 = std::min(chosenProbe.apiVersion, appInfo.apiVersion) >= VK_API_VERSION_1_2;
 
             queuePriorities[0] = queueCount == 2 ? 0.0f : 1.0f;
             queueInfo = {VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO};
@@ -953,28 +1023,62 @@ namespace {
             queueInfo.queueCount = queueCount;
             queueInfo.pQueuePriorities = queuePriorities;
 
-            features13 = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES};
-            features13.synchronization2 = VK_TRUE;
-            features13.subgroupSizeControl = VK_TRUE;
-            features13.computeFullSubgroups = VK_TRUE;
-            features12 = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES};
-            features12.pNext = &features13;
-            features12.timelineSemaphore = VK_TRUE;
-            features12.storageBuffer8BitAccess = VK_TRUE;
-            features12.shaderFloat16 = chosenProbe.float16 ? VK_TRUE : VK_FALSE;
-            features11 = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES};
-            features11.pNext = &features12;
-            features11.storageBuffer16BitAccess = VK_TRUE;
+            // PyroWave (Granite) reads these structs back from deviceInfo's chain: the core
+            // structs where the device has that version, else the extension structs.
             features2 = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
-            features2.pNext = &features11;
             features2.features.shaderInt16 = VK_TRUE;
             features2.features.shaderStorageImageWriteWithoutFormat = VK_TRUE;
+            void **next = &features2.pNext;
+            const auto chain = [&next](auto &feature) {
+                *next = &feature;
+                next = &feature.pNext;
+            };
+            deviceExtensions.assign(std::begin(DEVICE_EXTENSIONS), std::end(DEVICE_EXTENSIONS));
+            if (core12) {
+                features11 = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES};
+                features11.storageBuffer16BitAccess = VK_TRUE;
+                chain(features11);
+                features12 = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES};
+                features12.timelineSemaphore = legacySync ? VK_FALSE : VK_TRUE;
+                features12.storageBuffer8BitAccess = chosenProbe.storage8 ? VK_TRUE : VK_FALSE;
+                features12.shaderFloat16 = chosenProbe.float16 ? VK_TRUE : VK_FALSE;
+                chain(features12);
+            } else {
+                storage16Features = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_16BIT_STORAGE_FEATURES};
+                storage16Features.storageBuffer16BitAccess = VK_TRUE;
+                chain(storage16Features);
+                deviceExtensions.push_back(VK_KHR_CREATE_RENDERPASS_2_EXTENSION_NAME);
+                if (chosenProbe.storage8) {
+                    storage8Features = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_8BIT_STORAGE_FEATURES_KHR};
+                    storage8Features.storageBuffer8BitAccess = VK_TRUE;
+                    chain(storage8Features);
+                    deviceExtensions.push_back(VK_KHR_8BIT_STORAGE_EXTENSION_NAME);
+                }
+                if (chosenProbe.float16) {
+                    float16Int8Features = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_FLOAT16_INT8_FEATURES_KHR};
+                    float16Int8Features.shaderFloat16 = VK_TRUE;
+                    chain(float16Int8Features);
+                    deviceExtensions.push_back(VK_KHR_SHADER_FLOAT16_INT8_EXTENSION_NAME);
+                }
+            }
+            if (legacySync) {
+                sizeControlFeatures = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_SIZE_CONTROL_FEATURES_EXT};
+                sizeControlFeatures.subgroupSizeControl = VK_TRUE;
+                sizeControlFeatures.computeFullSubgroups = VK_TRUE;
+                chain(sizeControlFeatures);
+                deviceExtensions.push_back(VK_EXT_SUBGROUP_SIZE_CONTROL_EXTENSION_NAME);
+            } else {
+                features13 = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES};
+                features13.synchronization2 = VK_TRUE;
+                features13.subgroupSizeControl = VK_TRUE;
+                features13.computeFullSubgroups = VK_TRUE;
+                chain(features13);
+            }
 
             deviceInfo = {VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
             deviceInfo.pNext = &features2;
             deviceInfo.queueCreateInfoCount = 1;
             deviceInfo.pQueueCreateInfos = &queueInfo;
-            deviceExtensions.assign(std::begin(DEVICE_EXTENSIONS), std::end(DEVICE_EXTENSIONS));
             uint32_t extensionCount = 0;
             if (!check(vk.EnumerateDeviceExtensionProperties(physicalDevice, nullptr, &extensionCount, nullptr), "device extension count")) return false;
             std::vector<VkExtensionProperties> extensions(extensionCount);
@@ -997,7 +1101,8 @@ namespace {
                 available.pNext = &fifoLatestReadyFeatures;
                 vk.GetPhysicalDeviceFeatures2(physicalDevice, &available);
                 if (fifoLatestReadyFeatures.presentModeFifoLatestReady) {
-                    features13.pNext = &fifoLatestReadyFeatures;
+                    fifoLatestReadyFeatures.pNext = nullptr;
+                    chain(fifoLatestReadyFeatures);
                     deviceExtensions.push_back(VK_EXT_PRESENT_MODE_FIFO_LATEST_READY_EXTENSION_NAME);
                 }
             }
@@ -1034,6 +1139,10 @@ namespace {
                 device = VK_NULL_HANDLE;
                 return false;
             }
+            if (!legacySync && vk.WaitSemaphores == nullptr) {
+                LOGE("Vulkan device is missing vkWaitSemaphores");
+                return false;
+            }
             if (tenBit && vk.SetHdrMetadataEXT == nullptr) LOGI("HDR metadata unavailable; HDR is signalled without it");
             displayTimingSupported = displayTimingSupported && vk.GetPastPresentationTimingGOOGLE != nullptr;
             LOGI("Actual presentation timestamps: %s", displayTimingSupported ? "VK_GOOGLE_display_timing" : "unavailable");
@@ -1046,7 +1155,7 @@ namespace {
             vk.GetPhysicalDeviceProperties(physicalDevice, &props);
             VkPhysicalDeviceDriverProperties driverProps = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DRIVER_PROPERTIES};
             VkPhysicalDeviceProperties2 props2 = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2};
-            props2.pNext = &driverProps;
+            if (core12 || hasExtension(extensions, VK_KHR_DRIVER_PROPERTIES_EXTENSION_NAME)) props2.pNext = &driverProps;
             vk.GetPhysicalDeviceProperties2(physicalDevice, &props2);
             driverDescription = std::string(props.deviceName) + ", " + driverProps.driverName +
                                 (driverProps.driverInfo[0] ? std::string(" ") + driverProps.driverInfo : std::string());
@@ -1071,7 +1180,7 @@ namespace {
             const int index = reserveDecodeSlot();
             if (index < 0 || pyrowave_decoder_push_packet(decoder, sequence, sizeof(sequence)) != PYROWAVE_SUCCESS ||
                 !pyrowave_decoder_decode_is_ready(decoder, false) || !decodeFrame(index, 0) ||
-                !waitForDecode(slots[index].decodeValue)) return false;
+                !waitForDecode(index)) return false;
             schedule.complete(index, false);
             pyrowave_decoder_clear(decoder);
             decodeStats = {};
@@ -1664,11 +1773,18 @@ namespace {
             }
             VkFenceCreateInfo acquireInfo = {VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
             if (!check(vk.CreateFence(device, &acquireInfo, nullptr, &acquireFence), "vkCreateFence(acquire)")) return false;
-            VkSemaphoreTypeCreateInfo timelineInfo = {VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO};
-            timelineInfo.semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE;
             VkSemaphoreCreateInfo semaphoreInfo = {VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
-            semaphoreInfo.pNext = &timelineInfo;
-            if (!check(vk.CreateSemaphore(device, &semaphoreInfo, nullptr, &decodeTimeline), "vkCreateSemaphore(decode)")) return false;
+            if (legacySync) {
+                if (!check(vk.CreateSemaphore(device, &semaphoreInfo, nullptr, &decodeSemaphore), "vkCreateSemaphore(decode)")) return false;
+                for (auto &slot : slots) {
+                    if (!check(vk.CreateFence(device, &acquireInfo, nullptr, &slot.decodeFence), "vkCreateFence(decode)")) return false;
+                }
+            } else {
+                VkSemaphoreTypeCreateInfo timelineInfo = {VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO};
+                timelineInfo.semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE;
+                semaphoreInfo.pNext = &timelineInfo;
+                if (!check(vk.CreateSemaphore(device, &semaphoreInfo, nullptr, &decodeTimeline), "vkCreateSemaphore(decode)")) return false;
+            }
 
             // CAPI-owned commands expect GENERAL images. Transition all plane sets
             // once, before the workers start, then keep that layout throughout.
@@ -1763,19 +1879,38 @@ namespace {
             });
         }
 
-        bool waitForDecode(uint64_t value) {
+        bool waitForDecode(int index) {
+            if (legacySync) {
+                return check(vk.WaitForFences(device, 1, &slots[index].decodeFence, VK_TRUE, FENCE_TIMEOUT_NS),
+                             "decode completion");
+            }
             VkSemaphoreWaitInfo info = {VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO};
             info.semaphoreCount = 1;
             info.pSemaphores = &decodeTimeline;
-            info.pValues = &value;
+            info.pValues = &slots[index].decodeValue;
             return check(vk.WaitSemaphores(device, &info, FENCE_TIMEOUT_NS), "decode completion");
+        }
+
+        // legacySync: consume the binary semaphore PyroWave signaled after the decode, and
+        // signal the slot's fence. PyroWave flushes its batched commands only when it signals,
+        // so the decode is on the queue before this wait. The wait covers all commands and all
+        // later work on this one shared queue, ordering the next decode and the draw after it.
+        bool signalDecodeFence(Slot &slot) {
+            const VkPipelineStageFlags stage = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+            VkSubmitInfo completion = {VK_STRUCTURE_TYPE_SUBMIT_INFO};
+            completion.waitSemaphoreCount = 1;
+            completion.pWaitSemaphores = &decodeSemaphore;
+            completion.pWaitDstStageMask = &stage;
+            std::lock_guard<std::mutex> lock(decodeQueueMutex);
+            return check(vk.ResetFences(device, 1, &slot.decodeFence), "reset decode fence") &&
+                   check(vk.QueueSubmit(decodeQueue, 1, &completion, slot.decodeFence), "decode completion fence");
         }
 
         // Only the submission thread enters PyroWave. The SDK owns its command
         // buffers and tracks their staging/query/frame-context lifetimes itself.
         bool decodeFrame(int index, int64_t ptsUs, int64_t hostPresentationTimeUs = 0) {
             Slot &slot = slots[index];
-            if (lastDecodeValue != 0) {
+            if (lastDecodeValue != 0 && !legacySync) {
                 SubmissionDiagnostics::Stage timing(submissionDiagnostics, SubmissionDiagnostics::ORDER);
                 // PyroWave's fragment acquire wait only covers color output.
                 // Order transfers and dequantization too: those reuse decoder
@@ -1806,7 +1941,9 @@ namespace {
             }
             const uint64_t value = lastDecodeValue + 1;
             pyrowave_gpu_sync_operation release = {};
-            release.sync = {decodeTimeline, value};
+            // A value of 0 makes PyroWave treat the semaphore as binary.
+            release.sync = legacySync ? pyrowave_sync_point{decodeSemaphore, 0} :
+                                        pyrowave_sync_point{decodeTimeline, value};
             pyrowave_result result;
             {
                 SubmissionDiagnostics::Stage timing(submissionDiagnostics, SubmissionDiagnostics::SDK);
@@ -1816,6 +1953,7 @@ namespace {
                 LOGE("pyrowave_decoder_decode_gpu_buffer failed: %d", result);
                 return false;
             }
+            if (legacySync && !signalDecodeFence(slot)) return false;
             lastDecodeValue = value;
             slot.decodeValue = value;
             slot.ptsUs = ptsUs;
@@ -1860,7 +1998,7 @@ namespace {
                     pendingDecodes.pop_front();
                 }
                 // The schedule still owns this slot while the waiter is blocked.
-                if (!waitForDecode(slots[index].decodeValue)) {
+                if (!waitForDecode(index)) {
                     failed = true;
                     slotReady.notify_all();
                     return;
@@ -1969,6 +2107,7 @@ namespace {
                 !check(vk.BeginCommandBuffer(cmd, &beginInfo), "begin render command buffer")) return false;
             // The timeline wait below makes decoder writes visible across queues.
             // Both queues are in the same family, so no ownership transfer is needed.
+            // With legacySync there is one queue, and the decode completion wait precedes this draw on it.
             planeBarrier(cmd, slot, decodeWriteStage(), decodeWriteAccess(),
                          VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT, VK_IMAGE_LAYOUT_GENERAL);
 
@@ -2043,10 +2182,12 @@ namespace {
             timelineInfo.pSignalSemaphoreValues = &binarySignalValue;
             const VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
             VkSubmitInfo submitInfo = {VK_STRUCTURE_TYPE_SUBMIT_INFO};
-            submitInfo.pNext = &timelineInfo;
-            submitInfo.waitSemaphoreCount = 1;
-            submitInfo.pWaitSemaphores = &decodeTimeline;
-            submitInfo.pWaitDstStageMask = &waitStage;
+            if (!legacySync) {
+                submitInfo.pNext = &timelineInfo;
+                submitInfo.waitSemaphoreCount = 1;
+                submitInfo.pWaitSemaphores = &decodeTimeline;
+                submitInfo.pWaitDstStageMask = &waitStage;
+            }
             submitInfo.commandBufferCount = 1;
             submitInfo.pCommandBuffers = &cmd;
             submitInfo.signalSemaphoreCount = 1;
@@ -2204,6 +2345,10 @@ namespace {
                 if (acquireFence != VK_NULL_HANDLE) vk.DestroyFence(device, acquireFence, nullptr);
                 if (startupFence != VK_NULL_HANDLE) vk.DestroyFence(device, startupFence, nullptr);
                 if (decodeTimeline != VK_NULL_HANDLE) vk.DestroySemaphore(device, decodeTimeline, nullptr);
+                if (decodeSemaphore != VK_NULL_HANDLE) vk.DestroySemaphore(device, decodeSemaphore, nullptr);
+                for (auto &slot : slots) {
+                    if (slot.decodeFence != VK_NULL_HANDLE) vk.DestroyFence(device, slot.decodeFence, nullptr);
+                }
                 if (commandPool != VK_NULL_HANDLE) vk.DestroyCommandPool(device, commandPool, nullptr);
                 if (drawCommandPool != VK_NULL_HANDLE) vk.DestroyCommandPool(device, drawCommandPool, nullptr);
                 if (pipeline != VK_NULL_HANDLE) vk.DestroyPipeline(device, pipeline, nullptr);
@@ -2260,6 +2405,11 @@ namespace {
         VkPhysicalDevicePresentModeFifoLatestReadyFeaturesEXT fifoLatestReadyFeatures = {};
         VkPhysicalDeviceVulkan12Features features12 = {};
         VkPhysicalDeviceVulkan11Features features11 = {};
+        // Below Vulkan 1.3 or 1.2, the extension structs that stand in for the core ones.
+        VkPhysicalDeviceSubgroupSizeControlFeaturesEXT sizeControlFeatures = {};
+        VkPhysicalDevice16BitStorageFeatures storage16Features = {};
+        VkPhysicalDevice8BitStorageFeaturesKHR storage8Features = {};
+        VkPhysicalDeviceShaderFloat16Int8FeaturesKHR float16Int8Features = {};
         VkPhysicalDeviceFeatures2 features2 = {};
         VkDeviceCreateInfo deviceInfo = {};
         VkDeviceQueueCreateInfo pyroQueueInfo = {};
@@ -2354,6 +2504,11 @@ namespace {
         VkFence startupFence = VK_NULL_HANDLE;
         VkSemaphore decodeTimeline = VK_NULL_HANDLE;
         uint64_t lastDecodeValue = 0;
+        // A device below Vulkan 1.3 has no timeline semaphores here. PyroWave then signals the
+        // binary decodeSemaphore, and one wait on it right after each decode, on the shared queue,
+        // signals the slot's decodeFence. That wait also orders the next decode and the draw.
+        bool legacySync = false;
+        VkSemaphore decodeSemaphore = VK_NULL_HANDLE;
         VkFence acquireFence = VK_NULL_HANDLE;
 
         // This command buffer only initializes plane layouts before workers start.
@@ -2654,12 +2809,12 @@ namespace {
         }
         VulkanLoader vk(custom);
         if (!vk.loadGlobal()) {
-            return NEEDS_VULKAN_1_3;
+            return NEEDS_VULKAN;
         }
         uint32_t loaderVersion = 0;
-        if (vk.EnumerateInstanceVersion(&loaderVersion) != VK_SUCCESS || loaderVersion < VK_API_VERSION_1_3) {
-            LOGI("Vulkan loader is older than 1.3; PyroWave unavailable");
-            return NEEDS_VULKAN_1_3;
+        if (vk.EnumerateInstanceVersion(&loaderVersion) != VK_SUCCESS || loaderVersion < VK_API_VERSION_1_1) {
+            LOGI("Vulkan loader is older than 1.1; PyroWave unavailable");
+            return NEEDS_VULKAN;
         }
 
         uint32_t extensionCount = 0;
@@ -2677,7 +2832,7 @@ namespace {
         })) return MISSING_HDR;
 
         VkApplicationInfo appInfo = {VK_STRUCTURE_TYPE_APPLICATION_INFO};
-        appInfo.apiVersion = VK_API_VERSION_1_3;
+        appInfo.apiVersion = instanceApiVersion(loaderVersion);
         VkInstanceCreateInfo instanceInfo = {VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO};
         instanceInfo.pApplicationInfo = &appInfo;
         VkInstance instance = VK_NULL_HANDLE;
@@ -2716,9 +2871,9 @@ namespace {
             std::vector<VkPhysicalDevice> devices(count);
             if (vk.EnumeratePhysicalDevices(instance, &count, devices.data()) == VK_SUCCESS) {
                 devices.resize(count);
-                readiness = NEEDS_VULKAN_1_3;
+                readiness = NEEDS_VULKAN;
                 for (auto device : devices) {
-                    auto probe = probeFeatures(vk, device, tenBit);
+                    auto probe = probeFeatures(vk, device, tenBit, appInfo.apiVersion);
                     LOGI("%s (Vulkan %u.%u) PyroWave readiness: %d", probe.name, VK_API_VERSION_MAJOR(probe.apiVersion),
                          VK_API_VERSION_MINOR(probe.apiVersion), probe.reason);
                     if (probe.reason == READY) {

@@ -213,7 +213,7 @@
     <string name="pyrowave_needs_android">Non supportato: richiede Android 10</string>
     <string name="pyrowave_needs_64_bit">Non supportato: richiede un’app a 64 bit</string>
     <string name="pyrowave_decoder_unavailable">Non supportato: decoder non disponibile</string>
-    <string name="pyrowave_needs_vulkan">Non supportato: richiede Vulkan 1.3</string>
+    <string name="pyrowave_needs_vulkan">Non supportato: richiede Vulkan 1.1</string>
     <string name="pyrowave_needs_subgroups">La GPU non supporta PyroWave</string>
     <string name="pyrowave_missing_features">La GPU non supporta PyroWave</string>
     <string name="pyrowave_missing_formats">La GPU non supporta PyroWave</string>

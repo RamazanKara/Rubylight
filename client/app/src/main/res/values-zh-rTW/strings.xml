@@ -213,7 +213,7 @@
     <string name="pyrowave_needs_android">不支援：需要 Android 10</string>
     <string name="pyrowave_needs_64_bit">不支援：需要 64 位元應用程式</string>
     <string name="pyrowave_decoder_unavailable">不支援：無法使用解碼器</string>
-    <string name="pyrowave_needs_vulkan">不支援：需要 Vulkan 1.3</string>
+    <string name="pyrowave_needs_vulkan">不支援：需要 Vulkan 1.1</string>
     <string name="pyrowave_needs_subgroups">GPU 不支援 PyroWave</string>
     <string name="pyrowave_missing_features">GPU 不支援 PyroWave</string>
     <string name="pyrowave_missing_formats">GPU 不支援 PyroWave</string>

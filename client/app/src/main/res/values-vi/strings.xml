@@ -213,7 +213,7 @@
     <string name="pyrowave_needs_android">Không hỗ trợ: cần Android 10</string>
     <string name="pyrowave_needs_64_bit">Không hỗ trợ: cần ứng dụng 64 bit</string>
     <string name="pyrowave_decoder_unavailable">Không hỗ trợ: không có trình giải mã</string>
-    <string name="pyrowave_needs_vulkan">Không hỗ trợ: cần Vulkan 1.3</string>
+    <string name="pyrowave_needs_vulkan">Không hỗ trợ: cần Vulkan 1.1</string>
     <string name="pyrowave_needs_subgroups">GPU không hỗ trợ PyroWave</string>
     <string name="pyrowave_missing_features">GPU không hỗ trợ PyroWave</string>
     <string name="pyrowave_missing_formats">GPU không hỗ trợ PyroWave</string>

@@ -21,6 +21,7 @@
     <string name="pad_edit_hide">Ausblenden</string>
     <string name="pad_edit_show">Einblenden</string>
     <string name="pad_edit_reset">Zurücksetzen</string>
+    <string name="pad_edit_add_wasd">WASD-Stick hinzufügen</string>
     <string name="pad_edit_done">Fertig</string>
     <string name="pad_left_stick">Linker Stick</string>
     <string name="pad_right_stick">Rechter Stick</string>

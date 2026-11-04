@@ -23,7 +23,8 @@ import java.util.Locale;
  * Edits the modern controller's layout over a dimmed stream: drag a control to move it, pinch it to
  * resize it, tap it to pick it for the panel's size, opacity and hide buttons. With nothing picked
  * the panel changes every control. Done keeps the draft, for all games or only this one; Cancel and
- * Back drop it. Hidden controls stay here as faint ghosts so they can be shown again.
+ * Back drop it. Hidden controls stay here as faint ghosts so they can be shown again; the WASD stick, left out of
+ * the default layout, also has its own Add button.
  */
 @SuppressLint("ViewConstructor") // Created by ModernController.
 final class PadEditor extends FrameLayout {
@@ -40,7 +41,7 @@ final class PadEditor extends FrameLayout {
     private final Surface surface;
     private final View panel;
     private final TextView selection, sizeText, hint;
-    private final MaterialButton hide, reset;
+    private final MaterialButton hide, reset, addWasd;
     private boolean compactButtons;
     private final Slider opacity;
     private final float density;
@@ -65,6 +66,8 @@ final class PadEditor extends FrameLayout {
         sizeText = panel.findViewById(R.id.pad_editor_size);
         hide = panel.findViewById(R.id.pad_editor_hide);
         reset = panel.findViewById(R.id.pad_editor_reset);
+        addWasd = panel.findViewById(R.id.pad_editor_add_wasd);
+        addWasd.setOnClickListener(v -> addWasd());
         hint = panel.findViewById(R.id.pad_editor_hint);
         opacity = panel.findViewById(R.id.pad_editor_opacity);
         panel.findViewById(R.id.pad_editor_smaller).setOnClickListener(v -> scaleBy(-SCALE_STEP));
@@ -157,6 +160,12 @@ final class PadEditor extends FrameLayout {
         changed();
     }
 
+    /** Puts the WASD stick in the layout and picks it, so the panel moves off it and it can be placed at once. */
+    void addWasd() {
+        draft.spec(PadLayout.Control.WASD).hidden = false;
+        select(PadLayout.Control.WASD);
+    }
+
     private void changed() {
         updatePanel();
         surface.invalidate();
@@ -184,6 +193,8 @@ final class PadEditor extends FrameLayout {
         hide.setIconResource(showing ? R.drawable.ic_visibility : R.drawable.ic_visibility_off);
         label(hide, getContext().getString(showing ? R.string.pad_edit_show : R.string.pad_edit_hide));
         label(reset, getContext().getString(R.string.pad_edit_reset));
+        boolean wasdOut = editable(PadLayout.Control.WASD) && draft.spec(PadLayout.Control.WASD).hidden;
+        addWasd.setVisibility(wasdOut ? VISIBLE : GONE);
     }
 
     /** A labelled button, or on a narrow panel its icon alone with the label as description and tooltip. */

@@ -23,6 +23,24 @@ pub fn gamescope() -> bool {
     })
 }
 
+/// The socket gamescope's Vulkan layer (its WSI layer, which offers the HDR swapchains) talks to
+/// gamescope over: `GAMESCOPE_WAYLAND_DISPLAY` in `XDG_RUNTIME_DIR`, or the path itself when it
+/// is absolute. None when there is no such display to check.
+pub fn gamescope_socket(xdg_runtime_dir: Option<&OsStr>, gamescope_wayland_display: Option<&OsStr>) -> Option<std::path::PathBuf> {
+    let display = std::path::Path::new(gamescope_wayland_display.filter(|d| !d.is_empty())?);
+    if display.is_absolute() {
+        return Some(display.to_owned());
+    }
+    Some(std::path::Path::new(xdg_runtime_dir.filter(|d| !d.is_empty())?).join(display))
+}
+
+/// The layer is turned off (`DISABLE_GAMESCOPE_WSI`) when its socket is not there: a Flatpak
+/// without `xdg-run/gamescope-0` showed its swapchain then blocks until gamescope ends, where
+/// without the layer the output is SDR with its reason.
+pub fn gamescope_layer_off(socket: Option<&std::path::Path>, exists: impl Fn(&std::path::Path) -> bool) -> bool {
+    socket.is_some_and(|socket| !exists(socket))
+}
+
 /// How the launcher's window opens.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct StartWindow {
@@ -254,6 +272,19 @@ mod tests {
         assert!(!gamescope_in(os("GNOME"), os("")), "an empty variable is no gamescope");
         assert!(!gamescope_in(os("notgamescope"), None));
         assert!(!gamescope_in(None, None));
+    }
+
+    #[test]
+    fn gamescopes_layer_goes_off_only_when_its_socket_is_missing() {
+        let socket = gamescope_socket(os("/run/user/1000"), os("gamescope-0")).unwrap();
+        assert_eq!(socket, std::path::Path::new("/run/user/1000").join("gamescope-0"));
+        assert_eq!(gamescope_socket(os("/run/user/1000"), os("/tmp/gs/gamescope-1")).unwrap(), std::path::Path::new("/tmp/gs/gamescope-1"));
+        assert_eq!(gamescope_socket(os("/run/user/1000"), None), None, "no gamescope display, nothing to check");
+        assert_eq!(gamescope_socket(os("/run/user/1000"), os("")), None);
+        assert_eq!(gamescope_socket(None, os("gamescope-0")), None);
+        assert!(gamescope_layer_off(Some(&socket), |_| false), "a sandbox without the socket");
+        assert!(!gamescope_layer_off(Some(&socket), |_| true));
+        assert!(!gamescope_layer_off(None, |_| false));
     }
 
     #[test]

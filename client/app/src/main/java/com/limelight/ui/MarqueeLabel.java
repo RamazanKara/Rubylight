@@ -56,17 +56,28 @@ public class MarqueeLabel extends AppCompatTextView implements ViewTreeObserver.
 
     private void follow(View focused) {
         boolean scroll = within(this, focused) && !Motion.reduced(getContext());
-        TextUtils.TruncateAt wanted = scroll ? TextUtils.TruncateAt.MARQUEE : TextUtils.TruncateAt.END;
-        if (getEllipsize() != wanted) setEllipsize(wanted);
         // A selected label scrolls without focus of its own; the tile keeps the focus.
         boolean selected = scroll && (!(focused instanceof AdapterView) || tileOf(this, focused).isSelected());
+        TextUtils.TruncateAt wanted = selected ? TextUtils.TruncateAt.MARQUEE : TextUtils.TruncateAt.END;
+        if (getEllipsize() != wanted) setEllipsize(wanted);
         if (isSelected() != selected) setSelected(selected);
     }
 
     /**
+     * A label set to scroll is cut off without an ellipsis, so only the one scrolling is. A grid moves the selected
+     * state here as the D-pad moves, with no focus change to follow, and before it attaches the tile again, so the focus
+     * can't be traced from here; a grid only selects a tile while it has the focus or the tile is pressed.
+     */
+    @Override
+    public void setSelected(boolean selected) {
+        if (selected && !Motion.reduced(getContext())) setEllipsize(TextUtils.TruncateAt.MARQUEE);
+        super.setSelected(selected);
+        if (!selected) setEllipsize(TextUtils.TruncateAt.END);
+    }
+
+    /**
      * True when {@code focused} is the label or holds it. A grid holds the focus for all its tiles and only selects one, so
-     * there the label is ready to scroll and the selected state decides (nightjar#7: every tile in view scrolled). The grid
-     * moves that state itself as the D-pad moves, down from the tile to this label, with no focus change to follow.
+     * there the selected state decides (nightjar#7: every tile in view scrolled).
      */
     static boolean within(View label, View focused) {
         if (focused == null) return false;

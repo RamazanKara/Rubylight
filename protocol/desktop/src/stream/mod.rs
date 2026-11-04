@@ -1122,6 +1122,17 @@ impl Streaming {
         self.captured = self.takes_input();
     }
 
+    /// Once per pass: the hook keeps the Tab of a stream hotkey Windows would take, while that
+    /// hotkey can act and the grab does not have the keyboard.
+    #[cfg(windows)]
+    pub fn follow_tab_chord(&mut self, window: *mut SDL_Window) {
+        // SAFETY: a live window.
+        let focused = unsafe { SDL_GetWindowFlags(window) & SDL_WINDOW_INPUT_FOCUS != 0 };
+        let grab = system_keys::keyboard_grab(self.captured, self.settings.capture_system_keys);
+        let on = system_keys::tab_guard(system_keys::tab_chord_action(), focused, grab, self.menu_visible, self.plan.mic_only);
+        self.direct_motion.tab_guard(window, on);
+    }
+
     /// Whether this stream captures the mouse and keyboard: not a view-only remote monitor, and
     /// not Microphone only, which sends nothing but the microphone.
     fn takes_input(&self) -> bool {

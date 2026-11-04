@@ -45,9 +45,8 @@ public final class Haptics {
                 return sdk >= Build.VERSION_CODES.M ? HapticFeedbackConstants.CONTEXT_CLICK
                         : HapticFeedbackConstants.CLOCK_TICK;
             case DIAGONAL:
-                // Two keys: Android 11's confirm, a double pulse; a full click before, still stronger than the tick.
-                return sdk >= Build.VERSION_CODES.R ? HapticFeedbackConstants.CONFIRM
-                        : HapticFeedbackConstants.VIRTUAL_KEY;
+                // Two keys: a full click, firmer than the direction's tick. Android 11's confirm plays the same click.
+                return HapticFeedbackConstants.VIRTUAL_KEY;
             case STEP:
                 // A slider steps many times in one drag: the light tick Android 14 made for that, a clock tick before.
                 return sdk >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE ? HapticFeedbackConstants.SEGMENT_FREQUENT_TICK
